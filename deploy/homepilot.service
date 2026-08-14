@@ -1,0 +1,31 @@
+[Unit]
+Description=HomePilot Hub
+Documentation=https://github.com/stibe881/Homepilot-Pro-neu
+# Erst starten, wenn das Netz wirklich steht – sonst findet der Hub beim
+# Booten weder Hue-Bridge noch CCU.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=homepilot
+Group=homepilot
+WorkingDirectory=/opt/homepilot/hub
+
+# Tokens und Keys stehen hier, nicht in der config.yaml.
+EnvironmentFile=/etc/homepilot/homepilot.env
+ExecStart=/opt/homepilot/hub/.venv/bin/python -m homepilot -c /etc/homepilot/config.yaml
+
+Restart=always
+RestartSec=10
+
+# Sinnvolle Einschränkungen für einen Dienst, der nur Netz und seine
+# eigene Konfiguration braucht.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/etc/homepilot
+
+[Install]
+WantedBy=multi-user.target

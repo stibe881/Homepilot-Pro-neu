@@ -7,6 +7,9 @@ api:
   port: 8123
   # Token, das App und API-Clients mitschicken müssen. Leer = offen (nur LAN!).
   token: "${HOMEPILOT_TOKEN}"
+  # Herkünfte, die der Browser ansprechen darf. Nötig für die Web-Fassung
+  # der App, die unter einer anderen Adresse läuft als der Hub.
+  cors_origins: ["*"]
 
 # Datenbank (siehe supabase/README.md). Weglassen = Hub läuft ohne Persistenz.
 supabase:

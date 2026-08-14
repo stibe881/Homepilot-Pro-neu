@@ -1,0 +1,35 @@
+services:
+  hub:
+    build: ./hub
+    container_name: homepilot-hub
+    restart: unless-stopped
+
+    # Das eigene Netz des Rechners statt eines Docker-Netzes: Der Hub muss
+    # Hue-Bridge, CCU und MQTT-Broker direkt erreichen, und die CCU muss
+    # ihre Events an den Hub zurückschicken können. Mit einem Bridge-Netz
+    # käme die CCU nicht an den Callback-Port heran.
+    network_mode: host
+
+    volumes:
+      # config.yaml aus hub/ hereinreichen, nur lesend.
+      - ./hub/config.yaml:/config/config.yaml:ro
+
+    environment:
+      # Keys stehen nicht in der config.yaml, sondern kommen aus .env
+      # (siehe deploy/README.md).
+      - HOMEPILOT_TOKEN=${HOMEPILOT_TOKEN}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY:-}
+      - MQTT_USER=${MQTT_USER:-}
+      - MQTT_PASSWORD=${MQTT_PASSWORD:-}
+      - UNIFI_USER=${UNIFI_USER:-}
+      - UNIFI_PASSWORD=${UNIFI_PASSWORD:-}
+      - HUE_APP_KEY=${HUE_APP_KEY:-}
+      - TZ=Europe/Zurich
+
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8123/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

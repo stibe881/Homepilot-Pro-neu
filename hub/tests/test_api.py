@@ -76,3 +76,27 @@ def test_websocket_snapshot_and_command():
             for message in messages:
                 if message["type"] == "state_changed":
                     assert message["new_state"]["state"] == "on"
+
+
+def test_cors_preflight_is_allowed():
+    """Ohne diese Kopfzeilen blockiert der Browser die Web-Fassung der App."""
+    with make_client(token="geheim") as client:
+        response = client.options(
+            "/api/automations",
+            headers={
+                "Origin": "http://192.168.1.50:8081",
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "authorization",
+            },
+        )
+        assert response.status_code == 200
+        assert response.headers["access-control-allow-origin"] == "*"
+
+
+def test_cors_header_on_normal_request():
+    with make_client() as client:
+        response = client.get(
+            "/api/entities", headers={"Origin": "http://192.168.1.50:8081"}
+        )
+        assert response.status_code == 200
+        assert "access-control-allow-origin" in response.headers

@@ -90,6 +90,19 @@ Wetterlage und den letzten Ereignissen. Auf dem iPhone wandert die Leiste
 nach unten, das Raster wird zweispaltig und die rechte Spalte rutscht unter
 die Kacheln.
 
+## Hub dauerhaft betreiben
+
+Zum Ausprobieren reicht der Start von Hand. Für den Alltag gehört der Hub
+auf einen Rechner, der durchgehend läuft und im selben Netz steht wie deine
+Geräte – Raspberry Pi, Mini-PC oder NAS. Fertige Einrichtung für Docker und
+systemd: [`deploy/README.md`](deploy/README.md).
+
+```bash
+cp hub/config.example.yaml hub/config.yaml
+echo "HOMEPILOT_TOKEN=$(openssl rand -base64 32)" > .env
+docker compose up -d
+```
+
 ## Räume
 
 Die Reiter über den Kacheln kommen aus der `config.yaml` des Hubs:
