@@ -22,6 +22,9 @@ interface Props {
   hidden?: boolean;
   onToggleFavorite?: () => void;
   onToggleHidden?: () => void;
+  /** Sensorkacheln lassen sich antippen und zeigen dann ihren Verlauf. */
+  onPress?: () => void;
+  chart?: React.ReactNode;
 }
 
 /** Warnstufen brauchen je nach Palette andere Farben. */
@@ -41,6 +44,8 @@ export function EntityCard({
   hidden,
   onToggleFavorite,
   onToggleHidden,
+  onPress,
+  chart,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -137,7 +142,11 @@ export function EntityCard({
   };
 
   return (
-    <Card style={{ width }} dimmed={!entity.available || (hidden && !editing)}>
+    <Card
+      style={{ width }}
+      dimmed={!entity.available || (hidden && !editing)}
+      onPress={onPress}
+    >
       {editing ? (
         <View style={styles.editRow}>
           <EditButton
@@ -155,6 +164,7 @@ export function EntityCard({
         </View>
       ) : null}
       <View style={styles.body}>{body()}</View>
+      {chart}
       <CardFooter
         title={entity.name}
         subtitle={pending ? 'wird geschaltet …' : entity.available ? subtitle : 'nicht erreichbar'}

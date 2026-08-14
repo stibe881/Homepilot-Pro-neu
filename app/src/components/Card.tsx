@@ -17,26 +17,34 @@ export function Card({
   style,
   tint,
   dimmed,
+  onPress,
 }: {
   children: React.ReactNode;
   style?: ViewStyle;
   tint?: string;
   dimmed?: boolean;
+  onPress?: () => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  return (
-    <View
-      style={[
-        styles.card,
-        tint ? { backgroundColor: tint } : null,
-        dimmed ? styles.dimmed : null,
-        style,
-      ]}
-    >
-      {children}
-    </View>
-  );
+  const content = [
+    styles.card,
+    tint ? { backgroundColor: tint } : null,
+    dimmed ? styles.dimmed : null,
+    style,
+  ];
+  if (onPress) {
+    return (
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
+        style={({ pressed }) => [...content, pressed && { opacity: 0.85 }]}
+      >
+        {children}
+      </Pressable>
+    );
+  }
+  return <View style={content}>{children}</View>;
 }
 
 /**

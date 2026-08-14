@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Entity, HubSettings } from '../api/types';
 import { EntityCard } from '../components/EntityCard';
+import { HistoryChart } from '../components/HistoryChart';
 import { Rail, Section } from '../components/Rail';
 import { RoomTabs } from '../components/RoomTabs';
 import { SceneRow } from '../components/SceneRow';
@@ -19,6 +20,7 @@ import { SidePanel } from '../components/SidePanel';
 import { Toast } from '../components/Toast';
 import { TopStrip } from '../components/TopStrip';
 import { useHub } from '../hooks/useHub';
+import { usePushRegistration } from '../hooks/usePushRegistration';
 import { breakpoints, Colors, space, type, useColors } from '../theme';
 import { AutomationsScreen } from './AutomationsScreen';
 import { SettingsScreen } from './SettingsScreen';
@@ -62,6 +64,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [now, setNow] = useState(() => new Date());
   const [gridWidth, setGridWidth] = useState(0);
   const [editing, setEditing] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
   const [lastTouch, setLastTouch] = useState(() => Date.now());
 
   useEffect(() => {
@@ -73,6 +76,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // kehrt die Ansicht zur Startseite zurück – ein fest montiertes iPad soll
   // nicht in den Einstellungen stehenbleiben.
   usePanelMode(!!settings.panel);
+  usePushRegistration(settings, status === 'connected');
   useEffect(() => {
     if (!settings.panel) return;
     const timer = setInterval(() => {
@@ -146,6 +150,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         onSaveSettings({ ...settings, hidden: toggleIn(hidden, entity.id) })
       }
       onCommand={(command, data) => sendCommand(entity.id, command, data)}
+      onPress={
+        entity.kind === 'sensor' && !editing
+          ? () => setExpanded((current) => (current === entity.id ? null : entity.id))
+          : undefined
+      }
+      chart={
+        expanded === entity.id && cardWidth ? (
+          <HistoryChart entity={entity} settings={settings} width={cardWidth - 32} />
+        ) : undefined
+      }
     />
   );
 
