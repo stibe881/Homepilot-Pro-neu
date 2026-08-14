@@ -64,9 +64,7 @@ class MeteoAlarmIntegration(Integration):
     name = "meteoalarm"
 
     async def setup(self) -> None:
-        self._session = aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=30)
-        )
+        self._session = self.http_session(timeout=aiohttp.ClientTimeout(total=30))
         self._countries: list[str] = [
             str(country).lower() for country in self.config.get("countries", ["switzerland"])
         ]
@@ -80,10 +78,6 @@ class MeteoAlarmIntegration(Integration):
                 state={"state": "unknown", "count": 0, "alerts": []},
             )
         self.start_task(self._poll_loop())
-
-    async def teardown(self) -> None:
-        await super().teardown()
-        await self._session.close()
 
     async def _poll_loop(self) -> None:
         while True:

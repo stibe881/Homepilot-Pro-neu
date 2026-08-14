@@ -34,17 +34,14 @@ class HueIntegration(Integration):
         self._base = f"https://{host}"
         # Die Bridge nutzt ein selbstsigniertes Zertifikat – Verifikation
         # ist für das lokale Gerät deshalb deaktiviert.
-        self._session = aiohttp.ClientSession(
+        self._session = self.http_session(
             connector=aiohttp.TCPConnector(ssl=False),
             headers={"hue-application-key": app_key},
+            timeout=aiohttp.ClientTimeout(total=None),
         )
         await self._refresh()
         self.start_task(self._event_loop())
         self.start_task(self._poll_loop())
-
-    async def teardown(self) -> None:
-        await super().teardown()
-        await self._session.close()
 
     # ── Bridge → Hub ───────────────────────────────────────────────────────
 

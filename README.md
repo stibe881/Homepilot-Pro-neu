@@ -85,20 +85,37 @@ eintragen – beides wird lokal gespeichert.
 
 ## Integrationen
 
-| Status | Integration | Notizen |
-|---|---|---|
-| ✅ | `demo` | Virtuelle Lichter/Sensoren – zum Entwickeln ohne Hardware |
-| ✅ | `meteoalarm` | Offizieller CAP/Atom-Feed, Unwetterwarnungen |
-| ✅ | `hue` | Philips Hue Bridge, lokale CLIP-v2-API + SSE-Eventstream |
-| ⬜ | `unifi`, `unifi_protect` | Lokale Controller-API |
-| ⬜ | `homematic` | XML-RPC zur CCU |
-| ⬜ | `sonoff` | Am einfachsten via Tasmota/MQTT |
-| ⬜ | `roborock` | Lokal + Cloud |
-| ⬜ | `spotify`, `google_calendar` | Cloud-APIs (OAuth) |
-| ⬜ | `google_cast`, `androidtv` | mDNS/CASTV2, Remote-Protokoll |
-| ⬜ | `twinkly` | Lokale REST-API |
-| ⬜ | `hue_sync_box`, `ring`, `vzug` | Semi-offizielle APIs |
-| ⬜ | `matter` | Grösster Brocken – eigener Controller-Dienst |
+**✅ Gegen die echte Gegenstelle getestet**
+
+| Integration | Notizen |
+|---|---|
+| `demo` | Virtuelle Lichter/Sensoren – zum Entwickeln ohne Hardware |
+| `meteoalarm` | Unwetterwarnungen, gegen den echten CAP/Atom-Feed geprüft |
+| `mqtt` | Sonoff & Co. via Tasmota, gegen einen echten Broker end-to-end geprüft |
+
+**🟡 Implementiert nach Protokolldokumentation, noch nicht an echter Hardware**
+
+Diese laufen erst, wenn du sie mit deinen Geräten ausprobierst – rechne mit
+Nachbesserungen bei Zugangsdaten und Feldnamen.
+
+| Integration | Notizen |
+|---|---|
+| `hue` | Philips Hue Bridge, lokale CLIP-v2-API + SSE-Eventstream |
+| `unifi` | Anwesenheit über verbundene Clients, UniFi OS und Standalone |
+| `twinkly` | Lokale REST-API mit Challenge-Response-Anmeldung |
+| `vzug` | Lokale Home-API, nur lesend (Status, Programm, Restlaufzeit) |
+
+**⬜ Noch offen**
+
+| Integration | Notizen |
+|---|---|
+| `unifi_protect` | Lokale API + WebSocket |
+| `homematic` | XML-RPC zur CCU |
+| `roborock` | Lokal + Cloud |
+| `spotify`, `google_calendar` | Cloud-APIs (OAuth, Tokens gehören in die DB) |
+| `google_cast`, `androidtv` | mDNS/CASTV2, Remote-Protokoll |
+| `hue_sync_box`, `ring` | Semi-offizielle APIs |
+| `matter` | Grösster Brocken – eigener Controller-Dienst |
 
 Anleitung inkl. Bibliotheks-Vorlagen für alle offenen Punkte:
 [`hub/docs/neue-integration.md`](hub/docs/neue-integration.md)

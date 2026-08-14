@@ -32,6 +32,44 @@ integrations:
   #   host: 192.168.1.20
   #   app_key: "${HUE_APP_KEY}"
 
+  # Sonoff & Co. über MQTT. Voraussetzung: Tasmota-Firmware auf dem Gerät.
+  # - integration: mqtt
+  #   broker: 192.168.1.5
+  #   port: 1883
+  #   username: "${MQTT_USER}"
+  #   password: "${MQTT_PASSWORD}"
+  #   devices:
+  #     - topic: sonoff_kueche
+  #       name: Steckdose Küche
+  #     - topic: sonoff_bad
+  #       name: Licht Bad
+  #       kind: light
+
+  # UniFi: Anwesenheitserkennung anhand verbundener Geräte.
+  # Liefert zusätzlich unifi.anyone_home und unifi.clients_total.
+  # - integration: unifi
+  #   host: 192.168.1.1
+  #   username: "${UNIFI_USER}"
+  #   password: "${UNIFI_PASSWORD}"
+  #   site: default
+  #   scan_interval: 30
+  #   track:
+  #     - mac: "aa:bb:cc:dd:ee:ff"
+  #       name: iPhone Stefan
+
+  # Twinkly-Lichterkette (lokale REST-API).
+  # - integration: twinkly
+  #   host: 192.168.1.30
+  #   name: Weihnachtsbaum
+  #   default_mode: movie
+
+  # V-ZUG-Geräte (lokale Home-API, nur lesend).
+  # - integration: vzug
+  #   scan_interval: 60
+  #   devices:
+  #     - host: 192.168.1.40
+  #       name: Geschirrspüler
+
 automations:
   - id: motion_light
     alias: Licht bei Bewegung
@@ -48,3 +86,15 @@ automations:
         entity_id: demo.light_livingroom
         command: turn_on
         data: { brightness: 80 }
+
+  # Beispiel für Anwesenheit: alles ausschalten, wenn niemand mehr da ist.
+  # - id: alles_aus_wenn_weg
+  #   alias: Alles aus wenn niemand zuhause
+  #   trigger:
+  #     - type: state
+  #       entity_id: unifi.anyone_home
+  #       to: "off"
+  #   action:
+  #     - type: command
+  #       entity_id: mqtt.sonoff_kueche
+  #       command: turn_off
