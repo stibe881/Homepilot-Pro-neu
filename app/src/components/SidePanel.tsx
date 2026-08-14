@@ -46,7 +46,13 @@ export function SidePanel({
                 <Text numberOfLines={1} style={styles.activityName}>
                   {item.name}
                 </Text>
-                <Text style={styles.activitySummary}>{item.summary}</Text>
+                <Text style={styles.activitySummary}>
+                  {item.summary}
+                  {/* Beantwortet „warum ist das passiert?" */}
+                  {item.source && item.sourceKind !== 'device'
+                    ? ` · ${item.source}`
+                    : ''}
+                </Text>
                 <Text style={styles.activityTime}>
                   {new Date(item.at).toLocaleTimeString('de-CH', {
                     hour: '2-digit',

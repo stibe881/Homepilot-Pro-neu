@@ -11,9 +11,11 @@ interface Props {
   onCancel?: () => void;
   /** Eingebettet in die Kachelfläche statt als ganzer Bildschirm. */
   embedded?: boolean;
+  /** Angemeldeter Benutzer – zeigt Name und Rolle an. */
+  user?: { name: string; role: string } | null;
 }
 
-export function SettingsScreen({ initial, onSave, onCancel, embedded }: Props) {
+export function SettingsScreen({ initial, onSave, onCancel, embedded, user }: Props) {
   const [url, setUrl] = useState(initial?.url ?? 'http://192.168.1.10:8123');
   const [token, setToken] = useState(initial?.token ?? '');
   const [name, setName] = useState(initial?.name ?? '');
@@ -21,6 +23,11 @@ export function SettingsScreen({ initial, onSave, onCancel, embedded }: Props) {
   const form = (
     <Card style={styles.card}>
       <Text style={styles.title}>Hub verbinden</Text>
+      {user ? (
+        <Text style={styles.account}>
+          Angemeldet als {user.name} · {user.role}
+        </Text>
+      ) : null}
 
       <Field
         label="Hub-URL"
@@ -151,6 +158,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 16,
   },
+  account: { color: colors.inkSoft, fontSize: 13, marginTop: -8 },
   cancel: { alignItems: 'center', paddingVertical: 6 },
   cancelText: { color: colors.inkSoft, fontSize: 15 },
 });

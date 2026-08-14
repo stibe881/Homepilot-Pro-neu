@@ -222,3 +222,14 @@ def test_websocket_reports_source_of_change():
             messages = [websocket.receive_json(), websocket.receive_json()]
             changed = next(m for m in messages if m["type"] == "state_changed")
             assert changed["source"] == {"kind": "user", "label": "Stefan"}
+
+
+def test_snapshot_carries_capabilities():
+    """Ohne die Berechtigungen im Snapshot baut die App ihre Navigation falsch."""
+    with make_client() as client:
+        with client.websocket_connect("/ws?token=t-owner") as websocket:
+            snapshot = websocket.receive_json()
+            assert "view_system" in snapshot["user"]["capabilities"]
+        with client.websocket_connect("/ws?token=t-guest") as websocket:
+            snapshot = websocket.receive_json()
+            assert snapshot["user"]["capabilities"] == ["control"]

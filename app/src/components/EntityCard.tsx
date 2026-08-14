@@ -10,6 +10,11 @@ interface Props {
   entity: Entity;
   width: number;
   onCommand: (command: string, data?: Record<string, any>) => void;
+  /** Kommando unterwegs – die Kachel zeigt das, statt still zu wirken. */
+  pending?: boolean;
+  /** Strompreis für die Kostenanzeige, z.B. 0.32 */
+  pricePerKwh?: number;
+  currency?: string;
 }
 
 const SEVERITY_COLOR: Record<string, string> = {
@@ -19,12 +24,32 @@ const SEVERITY_COLOR: Record<string, string> = {
   Minor: colors.warn,
 };
 
-export function EntityCard({ entity, width, onCommand }: Props) {
+export function EntityCard({
+  entity,
+  width,
+  onCommand,
+  pending,
+  pricePerKwh,
+  currency = 'CHF',
+}: Props) {
   const isOn = entity.state.state === 'on';
   const subtitle = entity.room || integrationLabel(entity.integration);
   const toggle = entity.commands.includes('toggle')
     ? () => onCommand('toggle')
     : undefined;
+
+  /** Leistung und, wenn ein Preis hinterlegt ist, die Tageskosten. */
+  const powerNote = (): string | undefined => {
+    const parts: string[] = [];
+    if (entity.state.power != null) {
+      parts.push(`${entity.state.power} W`);
+    }
+    if (entity.state.energy_today != null && pricePerKwh) {
+      const cost = Number(entity.state.energy_today) * pricePerKwh;
+      parts.push(`heute ${cost.toFixed(2)} ${currency}`);
+    }
+    return parts.length ? parts.join(' · ') : undefined;
+  };
 
   const body = () => {
     switch (entity.kind) {
@@ -44,13 +69,7 @@ export function EntityCard({ entity, width, onCommand }: Props) {
         );
 
       case 'switch':
-        return (
-          <BigValue
-            value={isOn ? 'An' : 'Aus'}
-            on={isOn}
-            note={entity.state.power != null ? `${entity.state.power} W` : undefined}
-          />
-        );
+        return <BigValue value={isOn ? 'An' : 'Aus'} on={isOn} note={powerNote()} />;
 
       case 'binary_sensor':
         return <Pill label={isOn ? 'Aktiv' : 'Ruhig'} tone={isOn ? colors.on : undefined} />;
@@ -110,9 +129,10 @@ export function EntityCard({ entity, width, onCommand }: Props) {
       <View style={styles.body}>{body()}</View>
       <CardFooter
         title={entity.name}
-        subtitle={entity.available ? subtitle : 'nicht erreichbar'}
+        subtitle={pending ? 'wird geschaltet …' : entity.available ? subtitle : 'nicht erreichbar'}
         on={isOn}
         onToggle={toggle}
+        pending={pending}
       />
     </Card>
   );

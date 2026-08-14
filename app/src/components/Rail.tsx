@@ -4,13 +4,25 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors, radius } from '../theme';
 
-export type Section = 'home' | 'devices' | 'automations' | 'settings';
+export type Section = 'home' | 'devices' | 'automations' | 'system' | 'settings';
 
-const ITEMS: { key: Section; icon: keyof typeof Ionicons.glyphMap; label: string }[] = [
+/** `needs` nennt die Berechtigung, ohne die der Punkt gar nicht erscheint. */
+const ITEMS: {
+  key: Section;
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  needs?: string;
+}[] = [
   { key: 'home', icon: 'home-outline', label: 'Start' },
   { key: 'devices', icon: 'grid-outline', label: 'Geräte' },
-  { key: 'automations', icon: 'git-branch-outline', label: 'Abläufe' },
-  { key: 'settings', icon: 'settings-outline', label: 'Einstellungen' },
+  {
+    key: 'automations',
+    icon: 'git-branch-outline',
+    label: 'Abläufe',
+    needs: 'view_automations',
+  },
+  { key: 'system', icon: 'pulse-outline', label: 'System', needs: 'view_system' },
+  { key: 'settings', icon: 'settings-outline', label: 'Konto' },
 ];
 
 interface Props {
@@ -19,9 +31,20 @@ interface Props {
   /** Senkrecht als Seitenleiste (Tablet) oder waagrecht unten (Telefon). */
   vertical: boolean;
   bottomInset?: number;
+  /** Berechtigungen des angemeldeten Benutzers. */
+  capabilities?: string[];
 }
 
-export function Rail({ active, onSelect, vertical, bottomInset = 0 }: Props) {
+export function Rail({
+  active,
+  onSelect,
+  vertical,
+  bottomInset = 0,
+  capabilities = [],
+}: Props) {
+  const items = ITEMS.filter(
+    (item) => !item.needs || capabilities.includes(item.needs)
+  );
   return (
     <View
       style={[
@@ -29,7 +52,7 @@ export function Rail({ active, onSelect, vertical, bottomInset = 0 }: Props) {
         !vertical && { paddingBottom: Math.max(bottomInset, 10) },
       ]}
     >
-      {ITEMS.map((item) => {
+      {items.map((item) => {
         const selected = item.key === active;
         return (
           <Pressable

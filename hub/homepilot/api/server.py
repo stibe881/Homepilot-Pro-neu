@@ -100,6 +100,19 @@ def create_app(hub: Hub) -> FastAPI:
             )
         return user
 
+    def user_payload(user: User) -> dict[str, Any]:
+        """Benutzer samt Berechtigungen – die App richtet ihre Navigation danach."""
+        return {
+            **user.as_dict(),
+            "capabilities": sorted(
+                capability
+                for capability in vars(Capability).values()
+                if isinstance(capability, str)
+                and not capability.startswith("_")
+                and user.can(capability)
+            ),
+        }
+
     def visible(user: User, entities) -> list[dict[str, Any]]:
         return [
             entity.as_dict()
@@ -116,17 +129,7 @@ def create_app(hub: Hub) -> FastAPI:
     @app.get("/api/me")
     async def me(request: Request) -> dict[str, Any]:
         """Wer bin ich und was darf ich – die App richtet ihre Ansicht danach."""
-        user = current_user(request)
-        return {
-            **user.as_dict(),
-            "capabilities": sorted(
-                capability
-                for capability in vars(Capability).values()
-                if isinstance(capability, str)
-                and not capability.startswith("_")
-                and user.can(capability)
-            ),
-        }
+        return user_payload(current_user(request))
 
     @app.get("/api/system/status")
     async def system_status(request: Request) -> dict[str, Any]:
@@ -340,7 +343,7 @@ def create_app(hub: Hub) -> FastAPI:
             {
                 "type": "snapshot",
                 "entities": visible(user, hub.registry.all()),
-                "user": user.as_dict(),
+                "user": user_payload(user),
             }
         )
         sender_task = asyncio.create_task(sender())

@@ -1,0 +1,232 @@
+import { Ionicons } from '@expo/vector-icons';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+
+import { HubSettings, SystemStatus, User } from '../api/types';
+import { Card } from '../components/Card';
+import { colors, radius, space, type } from '../theme';
+
+/**
+ * Systemzustand: Was läuft, was klemmt – und die Bedienung dafür.
+ *
+ * Bei sechzehn Geräteherstellern will man nicht per SSH im Log suchen,
+ * welche Integration gerade nicht antwortet.
+ */
+export function SystemScreen({
+  settings,
+  user,
+}: {
+  settings: HubSettings;
+  user: User | null;
+}) {
+  const [status, setStatus] = useState<SystemStatus | null>(null);
+  const [users, setUsers] = useState<User[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const headers: Record<string, string> = settings.token
+    ? { Authorization: `Bearer ${settings.token}` }
+    : {};
+
+  const load = useCallback(() => {
+    fetch(`${settings.url}/api/system/status`, { headers })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
+        return response.json();
+      })
+      .then(setStatus)
+      .catch((err) => setError(String(err.message ?? err)));
+
+    if (user?.capabilities?.includes('manage_users')) {
+      fetch(`${settings.url}/api/users`, { headers })
+        .then((response) => (response.ok ? response.json() : null))
+        .then(setUsers)
+        .catch(() => setUsers(null));
+    }
+  }, [settings.url, settings.token, user?.role]);
+
+  useEffect(load, [load]);
+
+  const pause = async (seconds: number) => {
+    await fetch(`${settings.url}/api/automations/pause`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seconds }),
+    }).catch(() => {});
+    load();
+  };
+
+  if (error) {
+    return <Text style={styles.note}>Systemzustand nicht abrufbar: {error}</Text>;
+  }
+  if (!status) {
+    return <Text style={styles.note}>Wird geladen …</Text>;
+  }
+
+  const paused = status.automations.paused_until;
+
+  return (
+    <View style={styles.list}>
+      <Card style={styles.card}>
+        <Text style={styles.heading}>Überblick</Text>
+        <View style={styles.facts}>
+          <Fact label="Geräte" value={String(status.entities)} />
+          <Fact
+            label="nicht erreichbar"
+            value={String(status.unavailable)}
+            tone={status.unavailable > 0 ? colors.warn : colors.on}
+          />
+          <Fact label="Laufzeit" value={uptime(status.uptime_seconds)} />
+          <Fact label="Datenbank" value={status.database ?? 'keine'} />
+          <Fact label="Push-Geräte" value={String(status.push_devices)} />
+        </View>
+      </Card>
+
+      <Card style={styles.card}>
+        <Text style={styles.heading}>Integrationen</Text>
+        {status.integrations.map((integration) => (
+          <View key={integration.name} style={styles.row}>
+            <Ionicons
+              name={integration.ok ? 'checkmark-circle' : 'alert-circle'}
+              size={20}
+              color={integration.ok ? colors.on : colors.danger}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowTitle}>{integration.name}</Text>
+              <Text style={styles.rowDetail} numberOfLines={2}>
+                {integration.ok
+                  ? `${integration.entities} Geräte` +
+                    (integration.unavailable
+                      ? `, ${integration.unavailable} nicht erreichbar`
+                      : '')
+                  : integration.error}
+              </Text>
+            </View>
+          </View>
+        ))}
+      </Card>
+
+      {user?.capabilities?.includes('pause_automations') ? (
+        <Card style={styles.card}>
+          <Text style={styles.heading}>Automationen</Text>
+          <Text style={styles.rowDetail}>
+            {status.automations.count} Abläufe ·{' '}
+            {paused
+              ? `pausiert bis ${new Date(paused).toLocaleTimeString('de-CH', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}`
+              : 'aktiv'}
+          </Text>
+          <View style={styles.buttons}>
+            {paused ? (
+              <Button label="Wieder aktivieren" onPress={() => pause(0)} primary />
+            ) : (
+              <>
+                <Button label="1 Stunde pausieren" onPress={() => pause(3600)} />
+                <Button label="Bis morgen" onPress={() => pause(12 * 3600)} />
+              </>
+            )}
+          </View>
+        </Card>
+      ) : null}
+
+      {users ? (
+        <Card style={styles.card}>
+          <Text style={styles.heading}>Benutzer</Text>
+          {users.map((entry) => (
+            <View key={entry.name} style={styles.row}>
+              <Ionicons name={roleIcon(entry.role)} size={20} color={colors.inkSoft} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowTitle}>{entry.name}</Text>
+                <Text style={styles.rowDetail}>
+                  {entry.role}
+                  {entry.allow.length ? ` · ${entry.allow.join(', ')}` : ''}
+                </Text>
+              </View>
+            </View>
+          ))}
+          <Text style={styles.hint}>
+            Neue Benutzer legst du in der config.yaml des Hubs an – dann bleiben
+            sie auch nach einem Neustart erhalten.
+          </Text>
+        </Card>
+      ) : null}
+    </View>
+  );
+}
+
+function Fact({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <View style={styles.fact}>
+      <Text style={[styles.factValue, tone ? { color: tone } : null]}>{value}</Text>
+      <Text style={styles.factLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function Button({
+  label,
+  onPress,
+  primary,
+}: {
+  label: string;
+  onPress: () => void;
+  primary?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      style={({ pressed }) => [
+        styles.button,
+        primary && { backgroundColor: colors.ink },
+        pressed && { opacity: 0.7 },
+      ]}
+    >
+      <Text style={[styles.buttonText, primary && { color: '#fff' }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function roleIcon(role: string): any {
+  if (role === 'besitzer') return 'key-outline';
+  if (role === 'gast') return 'person-outline';
+  return 'people-outline';
+}
+
+function uptime(seconds: number): string {
+  if (seconds < 3600) return `${Math.round(seconds / 60)} min`;
+  if (seconds < 86400) return `${Math.round(seconds / 3600)} h`;
+  return `${Math.round(seconds / 86400)} T`;
+}
+
+const styles = StyleSheet.create({
+  list: { gap: space.gap, marginTop: 4 },
+  card: { minHeight: 0, gap: 12 },
+  heading: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
+  facts: { flexDirection: 'row', flexWrap: 'wrap', gap: 22 },
+  fact: { gap: 2 },
+  factValue: { color: colors.ink, fontSize: 22, fontWeight: '700' },
+  factLabel: { color: colors.inkSoft, fontSize: 12 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  rowTitle: { color: colors.ink, fontSize: 15, fontWeight: '600' },
+  rowDetail: { color: colors.inkSoft, fontSize: 13 },
+  hint: { color: colors.inkFaint, fontSize: 12, lineHeight: 18 },
+  buttons: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  button: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: radius.control,
+    backgroundColor: colors.surfaceStrong,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  buttonText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
+  note: {
+    color: colors.onGradientSoft,
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: 20,
+    maxWidth: 460,
+  },
+});

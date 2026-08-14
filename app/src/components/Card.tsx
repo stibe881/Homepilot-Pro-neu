@@ -1,6 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
-import { Pressable, StyleSheet, Text, View, ViewStyle } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  ViewStyle,
+} from 'react-native';
 
 import { colors, radius, type } from '../theme';
 
@@ -43,12 +50,14 @@ export function CardFooter({
   on,
   onToggle,
   light,
+  pending,
 }: {
   title: string;
   subtitle?: string | null;
   on?: boolean;
   onToggle?: () => void;
   light?: boolean;
+  pending?: boolean;
 }) {
   return (
     <View style={styles.footer}>
@@ -65,27 +74,41 @@ export function CardFooter({
         >
           {subtitle ?? ''}
         </Text>
-        {onToggle ? <PowerButton on={!!on} onPress={onToggle} /> : null}
+        {onToggle ? (
+          <PowerButton on={!!on} onPress={onToggle} pending={pending} />
+        ) : null}
       </View>
     </View>
   );
 }
 
-export function PowerButton({ on, onPress }: { on: boolean; onPress: () => void }) {
+export function PowerButton({
+  on,
+  onPress,
+  pending,
+}: {
+  on: boolean;
+  onPress: () => void;
+  pending?: boolean;
+}) {
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="switch"
-      accessibilityState={{ checked: on }}
+      accessibilityState={{ checked: on, busy: !!pending }}
       accessibilityLabel={on ? 'Ausschalten' : 'Einschalten'}
       style={({ pressed }) => [
         styles.power,
         { borderColor: on ? colors.on : colors.off },
         on && { backgroundColor: colors.onSoft },
-        pressed && { opacity: 0.6 },
+        (pressed || pending) && { opacity: 0.55 },
       ]}
     >
-      <Ionicons name="power" size={17} color={on ? colors.on : colors.inkFaint} />
+      {pending ? (
+        <ActivityIndicator size="small" color={on ? colors.on : colors.inkFaint} />
+      ) : (
+        <Ionicons name="power" size={17} color={on ? colors.on : colors.inkFaint} />
+      )}
     </Pressable>
   );
 }
