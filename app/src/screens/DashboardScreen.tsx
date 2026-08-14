@@ -17,7 +17,7 @@ import { SidePanel } from '../components/SidePanel';
 import { Toast } from '../components/Toast';
 import { TopStrip } from '../components/TopStrip';
 import { useHub } from '../hooks/useHub';
-import { breakpoints, colors, space, type } from '../theme';
+import { breakpoints, Colors, space, type, useColors } from '../theme';
 import { AutomationsScreen } from './AutomationsScreen';
 import { SettingsScreen } from './SettingsScreen';
 import { SystemScreen } from './SystemScreen';
@@ -37,6 +37,8 @@ function isActive(entity: Entity): boolean {
 }
 
 export function DashboardScreen({ settings, onSaveSettings }: Props) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const {
     entities,
     activity,
@@ -218,7 +220,8 @@ function partOfDay(now: Date): string {
   return 'Guten Abend.';
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
   root: { flex: 1 },
   frame: { flex: 1, flexDirection: 'row' },
   scroll: { flex: 1 },

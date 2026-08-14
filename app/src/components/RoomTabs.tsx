@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text } from 'react-native';
 
-import { colors, radius, type } from '../theme';
+import { Colors, radius, type, useColors } from '../theme';
 
 interface Props {
   rooms: string[];
@@ -10,6 +10,8 @@ interface Props {
 }
 
 export function RoomTabs({ rooms, active, onSelect }: Props) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <ScrollView
       horizontal
@@ -41,7 +43,8 @@ export function RoomTabs({ rooms, active, onSelect }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
   strip: {
     height: 42,
     flexGrow: 0,

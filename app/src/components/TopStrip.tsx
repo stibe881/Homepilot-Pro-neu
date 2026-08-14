@@ -1,10 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
-import React from 'react';
+import React, { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Entity } from '../api/types';
 import { ConnectionStatus } from '../hooks/useHub';
-import { colors } from '../theme';
+import { Colors, useColors } from '../theme';
 
 const STATUS_LABEL: Record<ConnectionStatus, string> = {
   connected: 'verbunden',
@@ -12,11 +12,10 @@ const STATUS_LABEL: Record<ConnectionStatus, string> = {
   disconnected: 'getrennt',
 };
 
-const STATUS_COLOR: Record<ConnectionStatus, string> = {
-  connected: colors.on,
-  connecting: colors.warn,
-  disconnected: colors.danger,
-};
+function statusColor(colors: Colors, status: ConnectionStatus): string {
+  if (status === 'connected') return colors.on;
+  return status === 'connecting' ? colors.warn : colors.danger;
+}
 
 /**
  * Kopfzeile: links Messwerte aus dem Haus, rechts Verbindung und Uhrzeit.
@@ -33,6 +32,8 @@ export function TopStrip({
   status: ConnectionStatus;
   now: Date;
 }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const temperature = entities.find(
     (entity) => entity.kind === 'sensor' && entity.state.unit === '°C'
   );
@@ -60,7 +61,7 @@ export function TopStrip({
 
       <View style={styles.chips}>
         <View style={styles.chip}>
-          <View style={[styles.dot, { backgroundColor: STATUS_COLOR[status] }]} />
+          <View style={[styles.dot, { backgroundColor: statusColor(colors, status) }]} />
           <Text style={styles.chipText}>{STATUS_LABEL[status]}</Text>
         </View>
         <Text style={styles.clock}>
@@ -72,6 +73,8 @@ export function TopStrip({
 }
 
 function Chip({ icon, text }: { icon: keyof typeof Ionicons.glyphMap; text: string }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <View style={styles.chip}>
       <Ionicons name={icon} size={15} color={colors.onGradientSoft} />
@@ -84,7 +87,8 @@ function round(value: any): string {
   return typeof value === 'number' ? String(Math.round(value * 10) / 10) : String(value ?? '–');
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',

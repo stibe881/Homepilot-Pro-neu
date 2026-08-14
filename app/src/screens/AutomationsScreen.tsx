@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { HubSettings } from '../api/types';
 import { Card } from '../components/Card';
-import { colors, type } from '../theme';
+import { Colors, type, useColors } from '../theme';
 
 interface Automation {
   id: string;
@@ -15,6 +15,8 @@ interface Automation {
 
 /** Zeigt die im Hub geladenen Automationen (GET /api/automations). */
 export function AutomationsScreen({ settings }: { settings: HubSettings }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [automations, setAutomations] = useState<Automation[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -84,7 +86,8 @@ function describe(count: number, singular: string, plural: string): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
   list: { gap: 14, marginTop: 4 },
   card: { minHeight: 0, gap: 6 },
   title: {

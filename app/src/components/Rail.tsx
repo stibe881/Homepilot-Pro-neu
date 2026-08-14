@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { colors, radius } from '../theme';
+import { Colors, radius, useColors } from '../theme';
 
 export type Section = 'home' | 'devices' | 'automations' | 'system' | 'settings';
 
@@ -42,6 +42,8 @@ export function Rail({
   bottomInset = 0,
   capabilities = [],
 }: Props) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const items = ITEMS.filter(
     (item) => !item.needs || capabilities.includes(item.needs)
   );
@@ -84,7 +86,8 @@ export function Rail({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
   rail: {
     width: 78,
     paddingVertical: 20,

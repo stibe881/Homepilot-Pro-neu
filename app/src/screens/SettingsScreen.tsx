@@ -1,9 +1,18 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { HubSettings } from '../api/types';
 import { Card } from '../components/Card';
-import { colors, radius, type } from '../theme';
+import { Colors, radius, ThemeMode, type, useColors } from '../theme';
+
+/** „Automatisch" schaltet ab 20 Uhr auf dunkel – die App wird abends im
+    Bett geöffnet, nicht nur tagsüber. */
+const MODES: { key: ThemeMode; label: string }[] = [
+  { key: 'system', label: 'System' },
+  { key: 'auto', label: 'Automatisch' },
+  { key: 'light', label: 'Hell' },
+  { key: 'dark', label: 'Dunkel' },
+];
 
 interface Props {
   initial: HubSettings | null;
@@ -16,9 +25,12 @@ interface Props {
 }
 
 export function SettingsScreen({ initial, onSave, onCancel, embedded, user }: Props) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [url, setUrl] = useState(initial?.url ?? 'http://192.168.1.10:8123');
   const [token, setToken] = useState(initial?.token ?? '');
   const [name, setName] = useState(initial?.name ?? '');
+  const [theme, setTheme] = useState<ThemeMode>(initial?.theme ?? 'system');
 
   const form = (
     <Card style={styles.card}>
@@ -50,6 +62,34 @@ export function SettingsScreen({ initial, onSave, onCancel, embedded, user }: Pr
         placeholder="optional"
       />
 
+      <View style={styles.field}>
+        <Text style={styles.label}>Erscheinungsbild</Text>
+        <View style={styles.modes}>
+          {MODES.map((option) => (
+            <Pressable
+              key={option.key}
+              onPress={() => setTheme(option.key)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: theme === option.key }}
+              style={({ pressed }) => [
+                styles.mode,
+                theme === option.key && styles.modeActive,
+                pressed && { opacity: 0.7 },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.modeText,
+                  theme === option.key && styles.modeTextActive,
+                ]}
+              >
+                {option.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
       <Pressable
         style={({ pressed }) => [styles.save, pressed && { opacity: 0.8 }]}
         onPress={() =>
@@ -57,6 +97,7 @@ export function SettingsScreen({ initial, onSave, onCancel, embedded, user }: Pr
             url: url.trim().replace(/\/+$/, ''),
             token: token.trim(),
             name: name.trim(),
+            theme,
           })
         }
       >
@@ -92,6 +133,8 @@ function Field({
   secure?: boolean;
   keyboardType?: 'url';
 }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
@@ -110,7 +153,8 @@ function Field({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
   screen: {
     flex: 1,
     justifyContent: 'center',
@@ -159,6 +203,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   account: { color: colors.inkSoft, fontSize: 13, marginTop: -8 },
+  modes: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  mode: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  modeActive: { backgroundColor: colors.ink, borderColor: colors.ink },
+  modeText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
+  modeTextActive: { color: colors.surfaceStrong },
   cancel: { alignItems: 'center', paddingVertical: 6 },
   cancelText: { color: colors.inkSoft, fontSize: 15 },
 });

@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -9,7 +9,7 @@ import {
   ViewStyle,
 } from 'react-native';
 
-import { colors, radius, type } from '../theme';
+import { Colors, radius, type, useColors } from '../theme';
 
 /** Gemeinsame Glaskachel: Fläche, Rundung, Schatten. */
 export function Card({
@@ -23,6 +23,8 @@ export function Card({
   tint?: string;
   dimmed?: boolean;
 }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <View
       style={[
@@ -59,6 +61,8 @@ export function CardFooter({
   light?: boolean;
   pending?: boolean;
 }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <View style={styles.footer}>
       <Text
@@ -91,6 +95,8 @@ export function PowerButton({
   onPress: () => void;
   pending?: boolean;
 }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <Pressable
       onPress={onPress}
@@ -113,7 +119,8 @@ export function PowerButton({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
   card: {
     backgroundColor: colors.surface,
     borderRadius: radius.card,

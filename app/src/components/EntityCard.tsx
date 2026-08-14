@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Entity } from '../api/types';
-import { colors, radius, type } from '../theme';
+import { Colors, radius, type, useColors } from '../theme';
 import { Bar } from './Bar';
 import { Card, CardFooter } from './Card';
 
@@ -17,12 +17,10 @@ interface Props {
   currency?: string;
 }
 
-const SEVERITY_COLOR: Record<string, string> = {
-  Extreme: colors.danger,
-  Severe: colors.danger,
-  Moderate: colors.warn,
-  Minor: colors.warn,
-};
+/** Warnstufen brauchen je nach Palette andere Farben. */
+function severityColor(colors: Colors, severity: string): string {
+  return severity === 'Extreme' || severity === 'Severe' ? colors.danger : colors.warn;
+}
 
 export function EntityCard({
   entity,
@@ -32,6 +30,8 @@ export function EntityCard({
   pricePerKwh,
   currency = 'CHF',
 }: Props) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const isOn = entity.state.state === 'on';
   const subtitle = entity.room || integrationLabel(entity.integration);
   const toggle = entity.commands.includes('toggle')
@@ -107,7 +107,7 @@ export function EntityCard({
           <View style={styles.stack}>
             <Pill
               label={count > 0 ? `${count} Warnungen` : 'Keine Warnungen'}
-              tone={count > 0 ? SEVERITY_COLOR[severity] ?? colors.warn : colors.on}
+              tone={count > 0 ? severityColor(colors, severity) : colors.on}
               solid
             />
             {alerts.slice(0, 2).map((alert, index) => (
@@ -139,6 +139,8 @@ export function EntityCard({
 }
 
 function BigValue({ value, on, note }: { value: string; on?: boolean; note?: string }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <View>
       <Text style={[styles.value, on && { color: colors.on }]}>{value}</Text>
@@ -148,6 +150,8 @@ function BigValue({ value, on, note }: { value: string; on?: boolean; note?: str
 }
 
 function Pill({ label, tone, solid }: { label: string; tone?: string; solid?: boolean }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const color = tone ?? colors.inkSoft;
   return (
     <View
@@ -184,7 +188,8 @@ function integrationLabel(integration: string): string {
   return names[integration] ?? integration;
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
   body: { gap: 8 },
   stack: { gap: 8 },
   value: {

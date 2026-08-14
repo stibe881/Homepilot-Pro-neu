@@ -1,10 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { HubSettings, SystemStatus, User } from '../api/types';
 import { Card } from '../components/Card';
-import { colors, radius, space, type } from '../theme';
+import { Colors, radius, space, type, useColors } from '../theme';
 
 /**
  * Systemzustand: Was läuft, was klemmt – und die Bedienung dafür.
@@ -19,6 +19,8 @@ export function SystemScreen({
   settings: HubSettings;
   user: User | null;
 }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [users, setUsers] = useState<User[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -156,6 +158,8 @@ export function SystemScreen({
 }
 
 function Fact({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <View style={styles.fact}>
       <Text style={[styles.factValue, tone ? { color: tone } : null]}>{value}</Text>
@@ -173,6 +177,8 @@ function Button({
   onPress: () => void;
   primary?: boolean;
 }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <Pressable
       onPress={onPress}
@@ -200,7 +206,8 @@ function uptime(seconds: number): string {
   return `${Math.round(seconds / 86400)} T`;
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
   list: { gap: space.gap, marginTop: 4 },
   card: { minHeight: 0, gap: 12 },
   heading: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },

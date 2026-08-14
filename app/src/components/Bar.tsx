@@ -2,7 +2,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import React, { useMemo, useRef, useState } from 'react';
 import { PanResponder, StyleSheet, View } from 'react-native';
 
-import { colors, radius } from '../theme';
+import { Colors, radius, useColors } from '../theme';
 
 interface Props {
   value: number; // 0…100
@@ -23,6 +23,8 @@ const clamp = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
  * springen kann.
  */
 export function Bar({ value, onChange, gradient, height = 46, disabled }: Props) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [width, setWidth] = useState(0);
   const widthRef = useRef(0);
   const startRef = useRef(0);
@@ -78,7 +80,8 @@ export function Bar({ value, onChange, gradient, height = 46, disabled }: Props)
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
   track: {
     backgroundColor: colors.track,
     borderRadius: radius.control,

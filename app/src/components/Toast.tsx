@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { colors, radius } from '../theme';
+import { Colors, radius, useColors } from '../theme';
 
 /**
  * Kurze Einblendung für fehlgeschlagene Befehle.
@@ -19,6 +19,8 @@ export function Toast({
   onDismiss: () => void;
   bottomInset?: number;
 }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   useEffect(() => {
     if (!message) return;
     const timer = setTimeout(onDismiss, 5000);
@@ -43,7 +45,8 @@ export function Toast({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
   wrapper: {
     position: 'absolute',
     left: 16,

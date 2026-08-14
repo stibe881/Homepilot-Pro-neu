@@ -1,9 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text } from 'react-native';
 
 import { Scene } from '../api/types';
-import { colors, radius } from '../theme';
+import { Colors, radius, useColors } from '../theme';
 
 /** Szenen als Reihe von Knöpfen – ein Tippen statt fünf. */
 export function SceneRow({
@@ -13,6 +13,8 @@ export function SceneRow({
   scenes: Scene[];
   onActivate: (sceneId: string) => void;
 }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   if (scenes.length === 0) return null;
 
   return (
@@ -42,7 +44,8 @@ export function SceneRow({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
   strip: { height: 46, flexGrow: 0, flexShrink: 0 },
   row: { gap: 10, alignItems: 'center', paddingRight: 20 },
   scene: {

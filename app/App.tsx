@@ -10,7 +10,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { HubSettings } from './src/api/types';
 import { DashboardScreen } from './src/screens/DashboardScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
-import { colors } from './src/theme';
+import { ThemeProvider, useTheme } from './src/theme';
 
 const STORAGE_KEY = 'homepilot.settings';
 
@@ -36,20 +36,32 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <LinearGradient
-        colors={colors.gradient}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.background}
-      >
-        <StatusBar style="light" />
-        {settings === undefined || !fontsSettled ? null : settings === null ? (
-          <SettingsScreen initial={null} onSave={save} />
-        ) : (
-          <DashboardScreen settings={settings} onSaveSettings={save} />
-        )}
-      </LinearGradient>
+      <ThemeProvider mode={settings?.theme ?? 'system'}>
+        <Background>
+          {settings === undefined || !fontsSettled ? null : settings === null ? (
+            <SettingsScreen initial={null} onSave={save} />
+          ) : (
+            <DashboardScreen settings={settings} onSaveSettings={save} />
+          )}
+        </Background>
+      </ThemeProvider>
     </SafeAreaProvider>
+  );
+}
+
+/** Der Verlauf muss innerhalb des Providers liegen, sonst kennt er die Palette nicht. */
+function Background({ children }: { children: React.ReactNode }) {
+  const { colors, dark } = useTheme();
+  return (
+    <LinearGradient
+      colors={colors.gradient}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={styles.background}
+    >
+      <StatusBar style={dark ? 'light' : 'light'} />
+      {children}
+    </LinearGradient>
   );
 }
 

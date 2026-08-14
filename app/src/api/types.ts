@@ -50,6 +50,8 @@ export interface HubSettings {
   token: string;
   /** Optionaler Name für die Begrüssung. */
   name?: string;
+  /** Erscheinungsbild: system, auto (nach Uhrzeit), light oder dark. */
+  theme?: 'system' | 'auto' | 'light' | 'dark';
 }
 
 /** Eine Zustandsänderung für die Liste „Zuletzt passiert“. */

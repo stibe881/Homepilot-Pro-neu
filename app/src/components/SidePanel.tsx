@@ -1,17 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
-import React from 'react';
+import React, { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Activity, Entity } from '../api/types';
-import { colors, radius, type } from '../theme';
+import { Colors, radius, type, useColors } from '../theme';
 import { Card } from './Card';
 
-const SEVERITY_COLOR: Record<string, string> = {
-  Extreme: colors.danger,
-  Severe: colors.danger,
-  Moderate: colors.warn,
-  Minor: colors.warn,
-};
+function severityColor(colors: Colors, severity: string): string {
+  return severity === 'Extreme' || severity === 'Severe' ? colors.danger : colors.warn;
+}
 
 /**
  * Breite Spalte rechts (Tablet) bzw. Abschnitt unten (Telefon):
@@ -26,6 +23,8 @@ export function SidePanel({
   activity: Activity[];
   width?: number;
 }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const alert = entities.find((entity) => entity.kind === 'alert');
 
   return (
@@ -69,9 +68,11 @@ export function SidePanel({
 }
 
 function AlertPanel({ entity }: { entity: Entity }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const count = entity.state.count ?? 0;
   const severity = entity.state.max_severity;
-  const tone = count > 0 ? SEVERITY_COLOR[severity] ?? colors.warn : colors.on;
+  const tone = count > 0 ? severityColor(colors, severity) : colors.on;
   const alerts: any[] = entity.state.alerts ?? [];
 
   return (
@@ -98,7 +99,7 @@ function AlertPanel({ entity }: { entity: Entity }) {
             <View
               style={[
                 styles.severityBar,
-                { backgroundColor: SEVERITY_COLOR[item.severity] ?? colors.inkFaint },
+                { backgroundColor: severityColor(colors, item.severity) },
               ]}
             />
             <View style={{ flex: 1 }}>
@@ -116,7 +117,8 @@ function AlertPanel({ entity }: { entity: Entity }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
   column: { gap: 14 },
   alertCard: { gap: 12, minHeight: 0 },
   activityCard: { gap: 12, minHeight: 0, flexShrink: 1 },
