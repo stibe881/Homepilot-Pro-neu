@@ -1,5 +1,6 @@
+import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Entity } from '../api/types';
 import { Colors, radius, type, useColors } from '../theme';
@@ -15,6 +16,12 @@ interface Props {
   /** Strompreis für die Kostenanzeige, z.B. 0.32 */
   pricePerKwh?: number;
   currency?: string;
+  /** Anpassen-Modus: zeigt Knöpfe für Favorit und Ausblenden. */
+  editing?: boolean;
+  favorite?: boolean;
+  hidden?: boolean;
+  onToggleFavorite?: () => void;
+  onToggleHidden?: () => void;
 }
 
 /** Warnstufen brauchen je nach Palette andere Farben. */
@@ -29,6 +36,11 @@ export function EntityCard({
   pending,
   pricePerKwh,
   currency = 'CHF',
+  editing,
+  favorite,
+  hidden,
+  onToggleFavorite,
+  onToggleHidden,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -125,7 +137,23 @@ export function EntityCard({
   };
 
   return (
-    <Card style={{ width }} dimmed={!entity.available}>
+    <Card style={{ width }} dimmed={!entity.available || (hidden && !editing)}>
+      {editing ? (
+        <View style={styles.editRow}>
+          <EditButton
+            icon={favorite ? 'star' : 'star-outline'}
+            active={!!favorite}
+            label={favorite ? 'Favorit entfernen' : 'Als Favorit'}
+            onPress={onToggleFavorite}
+          />
+          <EditButton
+            icon={hidden ? 'eye-off' : 'eye-outline'}
+            active={!!hidden}
+            label={hidden ? 'Wieder einblenden' : 'Ausblenden'}
+            onPress={onToggleHidden}
+          />
+        </View>
+      ) : null}
       <View style={styles.body}>{body()}</View>
       <CardFooter
         title={entity.name}
@@ -135,6 +163,31 @@ export function EntityCard({
         pending={pending}
       />
     </Card>
+  );
+}
+
+function EditButton({
+  icon,
+  active,
+  label,
+  onPress,
+}: {
+  icon: any;
+  active: boolean;
+  label: string;
+  onPress?: () => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={({ pressed }) => [styles.editButton, pressed && { opacity: 0.6 }]}
+    >
+      <Ionicons name={icon} size={18} color={active ? colors.accent : colors.inkSoft} />
+    </Pressable>
   );
 }
 
@@ -192,6 +245,17 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
   body: { gap: 8 },
   stack: { gap: 8 },
+  editRow: { flexDirection: 'row', gap: 8, justifyContent: 'flex-end' },
+  editButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
   value: {
     color: colors.ink,
     fontSize: type.value,

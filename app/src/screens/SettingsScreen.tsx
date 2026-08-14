@@ -31,6 +31,7 @@ export function SettingsScreen({ initial, onSave, onCancel, embedded, user }: Pr
   const [token, setToken] = useState(initial?.token ?? '');
   const [name, setName] = useState(initial?.name ?? '');
   const [theme, setTheme] = useState<ThemeMode>(initial?.theme ?? 'system');
+  const [panel, setPanel] = useState(!!initial?.panel);
 
   const form = (
     <Card style={styles.card}>
@@ -91,6 +92,24 @@ export function SettingsScreen({ initial, onSave, onCancel, embedded, user }: Pr
       </View>
 
       <Pressable
+        onPress={() => setPanel((value) => !value)}
+        accessibilityRole="switch"
+        accessibilityState={{ checked: panel }}
+        style={({ pressed }) => [styles.panelRow, pressed && { opacity: 0.7 }]}
+      >
+        <View style={{ flex: 1 }}>
+          <Text style={styles.label}>Wandpanel-Modus</Text>
+          <Text style={styles.panelHint}>
+            Bildschirm bleibt an, Ansicht kehrt nach drei Minuten zur Startseite
+            zurück – für ein fest montiertes iPad.
+          </Text>
+        </View>
+        <View style={[styles.switch, panel && styles.switchOn]}>
+          <View style={[styles.knob, panel && styles.knobOn]} />
+        </View>
+      </Pressable>
+
+      <Pressable
         style={({ pressed }) => [styles.save, pressed && { opacity: 0.8 }]}
         onPress={() =>
           onSave({
@@ -98,6 +117,10 @@ export function SettingsScreen({ initial, onSave, onCancel, embedded, user }: Pr
             token: token.trim(),
             name: name.trim(),
             theme,
+            panel,
+            // Favoriten und Ausgeblendete bleiben erhalten.
+            favorites: initial?.favorites,
+            hidden: initial?.hidden,
           })
         }
       >
@@ -203,6 +226,24 @@ const makeStyles = (colors: Colors) =>
     fontSize: 16,
   },
   account: { color: colors.inkSoft, fontSize: 13, marginTop: -8 },
+  panelRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 4 },
+  panelHint: { color: colors.inkFaint, fontSize: 12, lineHeight: 17, marginTop: 2 },
+  switch: {
+    width: 48,
+    height: 28,
+    borderRadius: radius.pill,
+    backgroundColor: colors.off,
+    padding: 3,
+    justifyContent: 'center',
+  },
+  switchOn: { backgroundColor: colors.on },
+  knob: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: colors.surfaceStrong,
+  },
+  knobOn: { alignSelf: 'flex-end' },
   modes: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   mode: {
     paddingHorizontal: 14,

@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
   useWindowDimensions,
 } from 'react-native';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Entity, HubSettings } from '../api/types';
@@ -59,11 +61,35 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [room, setRoom] = useState(ALL_ROOMS);
   const [now, setNow] = useState(() => new Date());
   const [gridWidth, setGridWidth] = useState(0);
+  const [editing, setEditing] = useState(false);
+  const [lastTouch, setLastTouch] = useState(() => Date.now());
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 30000);
     return () => clearInterval(timer);
   }, []);
+
+  // Wandpanel: Bildschirm bleibt an, und nach drei Minuten ohne Berührung
+  // kehrt die Ansicht zur Startseite zurück – ein fest montiertes iPad soll
+  // nicht in den Einstellungen stehenbleiben.
+  usePanelMode(!!settings.panel);
+  useEffect(() => {
+    if (!settings.panel) return;
+    const timer = setInterval(() => {
+      if (Date.now() - lastTouch > 180000) {
+        setSection('home');
+        setEditing(false);
+        setRoom(ALL_ROOMS);
+      }
+    }, 30000);
+    return () => clearInterval(timer);
+  }, [settings.panel, lastTouch]);
+
+  const favorites = settings.favorites ?? [];
+  const hidden = settings.hidden ?? [];
+
+  const toggleIn = (list: string[], id: string) =>
+    list.includes(id) ? list.filter((item) => item !== id) : [...list, id];
 
   const hasRail = width >= breakpoints.rail;
   const hasSidePanel = width >= breakpoints.sidePanel;
@@ -86,9 +112,21 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       ? entities
       : entities.filter((entity) => entity.room === room);
 
-  // Auf der Startseite zuerst, was gerade an ist – der Rest darunter.
-  const running = section === 'home' ? inRoom.filter(isActive) : [];
-  const rest = section === 'home' ? inRoom.filter((entity) => !isActive(entity)) : inRoom;
+  // Ausgeblendete verschwinden von der Startseite, bleiben aber unter
+  // „Geräte“ sichtbar – sonst käme man nie wieder an sie heran.
+  const shown =
+    section === 'home' && !editing
+      ? inRoom.filter((entity) => !hidden.includes(entity.id))
+      : inRoom;
+
+  // Favoriten zuerst, dann was gerade läuft, dann der Rest.
+  const byFavorite = (a: Entity, b: Entity) =>
+    Number(favorites.includes(b.id)) - Number(favorites.includes(a.id));
+  const running = section === 'home' ? shown.filter(isActive).sort(byFavorite) : [];
+  const rest =
+    section === 'home'
+      ? shown.filter((entity) => !isActive(entity)).sort(byFavorite)
+      : shown;
 
   const renderCard = (entity: Entity) => (
     <EntityCard
@@ -98,6 +136,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       pending={pending[entity.id]}
       pricePerKwh={energy?.price_per_kwh}
       currency={energy?.currency ?? 'CHF'}
+      editing={editing}
+      favorite={favorites.includes(entity.id)}
+      hidden={hidden.includes(entity.id)}
+      onToggleFavorite={() =>
+        onSaveSettings({ ...settings, favorites: toggleIn(favorites, entity.id) })
+      }
+      onToggleHidden={() =>
+        onSaveSettings({ ...settings, hidden: toggleIn(hidden, entity.id) })
+      }
       onCommand={(command, data) => sendCommand(entity.id, command, data)}
     />
   );
@@ -120,6 +167,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           ) : null}
           {section === 'home' && rooms.length > 0 ? (
             <RoomTabs rooms={rooms} active={room} onSelect={setRoom} />
+          ) : null}
+          {section === 'home' || section === 'devices' ? (
+            <Pressable
+              onPress={() => setEditing((value) => !value)}
+              accessibilityRole="button"
+              accessibilityLabel={editing ? 'Anpassen beenden' : 'Kacheln anpassen'}
+              style={styles.editToggle}
+            >
+              <Text style={styles.editToggleText}>
+                {editing ? 'Fertig' : 'Anpassen'}
+              </Text>
+            </Pressable>
           ) : null}
 
           <View
@@ -154,7 +213,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   };
 
   return (
-    <View style={styles.root}>
+    <View style={styles.root} onTouchStart={() => setLastTouch(Date.now())}>
       <View style={[styles.frame, { paddingTop: insets.top }]}>
         {hasRail ? (
           <Rail
@@ -208,6 +267,23 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   );
 }
 
+const PANEL_TAG = 'homepilot-panel';
+
+/** Hält den Bildschirm wach, solange der Wandpanel-Modus aktiv ist.
+ *
+ * Bewusst über activate/deactivate statt useKeepAwake: Der Hook lässt sich
+ * nicht abschalten, der Bildschirm bliebe also auch ohne Panel-Modus an.
+ */
+function usePanelMode(active: boolean) {
+  useEffect(() => {
+    if (!active) return;
+    activateKeepAwakeAsync(PANEL_TAG).catch(() => {});
+    return () => {
+      deactivateKeepAwake(PANEL_TAG).catch(() => {});
+    };
+  }, [active]);
+}
+
 function greetingName(settings: HubSettings, user: { name: string } | null): string {
   const name = settings.name || user?.name;
   return name ? `Hallo ${name},` : 'Willkommen zuhause,';
@@ -251,6 +327,15 @@ const makeStyles = (colors: Colors) =>
     flexWrap: 'wrap',
     gap: space.gap,
     marginTop: space.gap,
+  },
+  editToggle: {
+    alignSelf: 'flex-start',
+    paddingVertical: 6,
+  },
+  editToggleText: {
+    color: colors.onGradientSoft,
+    fontSize: 13,
+    fontWeight: '600',
   },
   sectionLabel: {
     color: colors.onGradientSoft,

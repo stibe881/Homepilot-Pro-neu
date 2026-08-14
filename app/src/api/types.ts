@@ -52,6 +52,12 @@ export interface HubSettings {
   name?: string;
   /** Erscheinungsbild: system, auto (nach Uhrzeit), light oder dark. */
   theme?: 'system' | 'auto' | 'light' | 'dark';
+  /** Entitäten, die auf der Startseite zuerst kommen. */
+  favorites?: string[];
+  /** Entitäten, die auf der Startseite nicht erscheinen. */
+  hidden?: string[];
+  /** Wandpanel: Bildschirm bleibt an, kehrt von selbst zur Startseite zurück. */
+  panel?: boolean;
 }
 
 /** Eine Zustandsänderung für die Liste „Zuletzt passiert“. */
