@@ -1,0 +1,50 @@
+# HomePilot-Pro-Konfiguration – nach config.yaml kopieren und anpassen.
+# ${VARIABLE} wird aus Umgebungsvariablen gelesen, damit Keys nicht in der
+# Datei landen.
+
+api:
+  host: 0.0.0.0
+  port: 8123
+  # Token, das App und API-Clients mitschicken müssen. Leer = offen (nur LAN!).
+  token: "${HOMEPILOT_TOKEN}"
+
+# Datenbank (siehe supabase/README.md). Weglassen = Hub läuft ohne Persistenz.
+supabase:
+  url: "https://dein-projekt.supabase.co"
+  service_key: "${SUPABASE_SERVICE_KEY}"
+  history: true
+  flush_interval: 5
+  history_exclude: []          # z.B. ["demo.*"] – kein Verlauf für diese Entitäten
+
+integrations:
+  # Virtuelle Geräte zum Entwickeln und Testen – später entfernen.
+  - integration: demo
+
+  # Unwetterwarnungen von MeteoAlarm (offizieller CAP/Atom-Feed).
+  - integration: meteoalarm
+    countries: [switzerland]
+    scan_interval: 900
+
+  # Philips Hue Bridge (lokale CLIP-v2-API).
+  # App-Key erzeugen: Link-Taste der Bridge drücken, dann innert 30s:
+  #   curl -sk -X POST https://<bridge-ip>/api -d '{"devicetype":"homepilot#hub"}'
+  # - integration: hue
+  #   host: 192.168.1.20
+  #   app_key: "${HUE_APP_KEY}"
+
+automations:
+  - id: motion_light
+    alias: Licht bei Bewegung
+    trigger:
+      - type: state
+        entity_id: demo.motion_hall
+        to: "on"
+    condition:
+      - type: state
+        entity_id: demo.light_livingroom
+        equals: "off"
+    action:
+      - type: command
+        entity_id: demo.light_livingroom
+        command: turn_on
+        data: { brightness: 80 }

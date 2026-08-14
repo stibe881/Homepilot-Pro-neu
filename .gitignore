@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# Konfiguration mit Zugangsdaten
+hub/config.yaml
+
+# Node / Expo
+node_modules/
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+*.tsbuildinfo
+.metro-health-check*
+
+# Native Ordner (werden generiert)
+/app/ios
+/app/android
+
+# Umgebung
+.env
+.env*.local
+
+# System
+.DS_Store
