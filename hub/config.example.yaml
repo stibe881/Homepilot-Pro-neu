@@ -91,6 +91,19 @@ integrations:
   #     - host: 192.168.1.40
   #       name: Geschirrspüler
 
+# Räume: Die App macht daraus ihre Reiter. Ohne diesen Abschnitt zeigt sie
+# einfach alle Geräte ohne Reiter an.
+rooms:
+  Wohnzimmer:
+    - demo.light_livingroom
+    - demo.temp_livingroom
+  Küche:
+    - demo.switch_coffee
+  Schlafzimmer:
+    - demo.light_bedroom
+  Flur:
+    - demo.motion_hall
+
 automations:
   - id: motion_light
     alias: Licht bei Bewegung

@@ -54,3 +54,24 @@ async def test_unknown_entity_raises():
     registry = EntityRegistry(EventBus())
     with pytest.raises(UnknownEntityError):
         await registry.update_state("nope.nope", {"state": "on"})
+
+
+async def test_room_provider_assigns_room():
+    bus = EventBus()
+    registry = EntityRegistry(bus)
+    registry.room_provider = {"demo.light": "Wohnzimmer"}.get
+
+    events = []
+    bus.subscribe("entity_added", lambda t, d: events.append(d["entity"]))
+    await registry.add(make_light())
+
+    assert registry.get("demo.light").room == "Wohnzimmer"
+    # Der Raum muss auch im Snapshot für die App stehen.
+    assert events[0]["room"] == "Wohnzimmer"
+
+
+async def test_entity_without_room_stays_none():
+    registry = EntityRegistry(EventBus())
+    registry.room_provider = {}.get
+    await registry.add(make_light())
+    assert registry.get("demo.light").room is None

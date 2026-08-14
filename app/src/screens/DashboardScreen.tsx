@@ -1,186 +1,214 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Platform,
-  Pressable,
-  RefreshControl,
   ScrollView,
-  StatusBar,
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Entity, HubSettings } from '../api/types';
 import { EntityCard } from '../components/EntityCard';
+import { Rail, Section } from '../components/Rail';
+import { RoomTabs } from '../components/RoomTabs';
+import { SidePanel } from '../components/SidePanel';
+import { TopStrip } from '../components/TopStrip';
 import { useHub } from '../hooks/useHub';
-import { colors, gap } from '../theme';
+import { breakpoints, colors, space, type } from '../theme';
+import { AutomationsScreen } from './AutomationsScreen';
+import { SettingsScreen } from './SettingsScreen';
+
+const ALL_ROOMS = 'Alle';
+const PANEL_WIDTH = 340;
 
 interface Props {
   settings: HubSettings;
-  onOpenSettings: () => void;
+  onSaveSettings: (settings: HubSettings) => void;
 }
 
-const SECTIONS: { title: string; kinds: string[] }[] = [
-  { title: 'Lichter', kinds: ['light'] },
-  { title: 'Schalter', kinds: ['switch'] },
-  { title: 'Sensoren', kinds: ['sensor', 'binary_sensor'] },
-  { title: 'Warnungen', kinds: ['alert'] },
-];
+export function DashboardScreen({ settings, onSaveSettings }: Props) {
+  const { entities, activity, status, sendCommand } = useHub(
+    settings.url,
+    settings.token
+  );
+  const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
 
-const STATUS_LABEL = {
-  connected: 'verbunden',
-  connecting: 'verbinde …',
-  disconnected: 'getrennt',
-} as const;
+  const [section, setSection] = useState<Section>('home');
+  const [room, setRoom] = useState(ALL_ROOMS);
+  const [now, setNow] = useState(() => new Date());
+  const [gridWidth, setGridWidth] = useState(0);
 
-const STATUS_COLOR = {
-  connected: colors.green,
-  connecting: colors.yellow,
-  disconnected: colors.red,
-} as const;
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 30000);
+    return () => clearInterval(timer);
+  }, []);
 
-export function DashboardScreen({ settings, onOpenSettings }: Props) {
-  const { entities, status, sendCommand } = useHub(settings.url, settings.token);
+  const hasRail = width >= breakpoints.rail;
+  const hasSidePanel = width >= breakpoints.sidePanel;
+  const columns = hasRail ? 3 : width >= 380 ? 2 : 1;
+  const cardWidth =
+    gridWidth > 0
+      ? Math.floor((gridWidth - space.gap * (columns - 1)) / columns)
+      : undefined;
 
-  const grouped = SECTIONS.map((section) => ({
-    ...section,
-    entities: entities.filter((entity) => section.kinds.includes(entity.kind)),
-  }));
-  const known = new Set(SECTIONS.flatMap((section) => section.kinds));
-  const other = entities.filter((entity) => !known.has(entity.kind));
+  const rooms = useMemo(() => {
+    const named = Array.from(
+      new Set(entities.map((entity) => entity.room).filter(Boolean) as string[])
+    ).sort((a, b) => a.localeCompare(b));
+    return named.length > 0 ? [ALL_ROOMS, ...named] : [];
+  }, [entities]);
 
-  return (
-    <View style={styles.container}>
-      <View style={styles.topBar}>
-        <View>
-          <Text style={styles.title}>HomePilot</Text>
-          <View style={styles.statusRow}>
-            <View
-              style={[styles.statusDot, { backgroundColor: STATUS_COLOR[status] }]}
-            />
-            <Text style={styles.statusText}>{STATUS_LABEL[status]}</Text>
+  // „Geräte“ zeigt bewusst alles, unabhängig vom gewählten Raum.
+  const visible =
+    section === 'devices' || room === ALL_ROOMS
+      ? entities
+      : entities.filter((entity) => entity.room === room);
+
+  const content = () => {
+    if (section === 'settings') {
+      return <SettingsScreen initial={settings} onSave={onSaveSettings} embedded />;
+    }
+    if (section === 'automations') {
+      return <AutomationsScreen settings={settings} />;
+    }
+    return (
+      <View style={hasSidePanel ? styles.split : styles.stack}>
+        {/* flex:1 nur in der Zeile – im gestapelten Layout würde es die
+            Kacheln über die rechte Spalte legen. */}
+        <View style={hasSidePanel ? styles.main : undefined}>
+          {section === 'home' && rooms.length > 0 ? (
+            <RoomTabs rooms={rooms} active={room} onSelect={setRoom} />
+          ) : null}
+          <View
+            style={styles.grid}
+            onLayout={(event) => setGridWidth(event.nativeEvent.layout.width)}
+          >
+            {cardWidth
+              ? visible.map((entity: Entity) => (
+                  <EntityCard
+                    key={entity.id}
+                    entity={entity}
+                    width={cardWidth}
+                    onCommand={(command, data) =>
+                      sendCommand(entity.id, command, data)
+                    }
+                  />
+                ))
+              : null}
           </View>
+          {visible.length === 0 ? (
+            <Text style={styles.empty}>
+              {status === 'connected'
+                ? room === ALL_ROOMS
+                  ? 'Noch keine Geräte – Integrationen in der config.yaml des Hubs aktivieren.'
+                  : `Für ${room} ist noch nichts zugeordnet.`
+                : 'Warte auf Verbindung zum Hub …'}
+            </Text>
+          ) : null}
         </View>
-        <Pressable onPress={onOpenSettings} style={styles.settingsButton}>
-          <Text style={styles.settingsIcon}>⚙︎</Text>
-        </Pressable>
+
+        <SidePanel
+          entities={entities}
+          activity={activity}
+          width={hasSidePanel ? PANEL_WIDTH : undefined}
+        />
+      </View>
+    );
+  };
+
+  return (
+    <View style={styles.root}>
+      <View style={[styles.frame, { paddingTop: insets.top }]}>
+        {hasRail ? <Rail active={section} onSelect={setSection} vertical /> : null}
+
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+        >
+          <TopStrip entities={entities} status={status} now={now} />
+
+          <View style={styles.greeting}>
+            <Text
+              style={[
+                styles.greetingLine,
+                !hasRail && { fontSize: type.greetingSmall },
+              ]}
+            >
+              {settings.name ? `Hallo ${settings.name},` : 'Willkommen zuhause,'}
+            </Text>
+            <Text
+              style={[
+                styles.greetingLine,
+                styles.greetingSecond,
+                !hasRail && { fontSize: type.greetingSmall },
+              ]}
+            >
+              {partOfDay(now)}
+            </Text>
+          </View>
+
+          {content()}
+        </ScrollView>
       </View>
 
-      <ScrollView
-        contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={false} tintColor={colors.textDim} />}
-      >
-        {grouped.map(
-          (section) =>
-            section.entities.length > 0 && (
-              <Section key={section.title} title={section.title} entities={section.entities} sendCommand={sendCommand} />
-            )
-        )}
-        {other.length > 0 && (
-          <Section title="Weitere" entities={other} sendCommand={sendCommand} />
-        )}
-        {entities.length === 0 && (
-          <Text style={styles.empty}>
-            {status === 'connected'
-              ? 'Keine Entitäten – Integrationen in der config.yaml des Hubs aktivieren.'
-              : 'Warte auf Verbindung zum Hub …'}
-          </Text>
-        )}
-      </ScrollView>
+      {!hasRail ? (
+        <Rail
+          active={section}
+          onSelect={setSection}
+          vertical={false}
+          bottomInset={insets.bottom}
+        />
+      ) : null}
     </View>
   );
 }
 
-function Section({
-  title,
-  entities,
-  sendCommand,
-}: {
-  title: string;
-  entities: Entity[];
-  sendCommand: (entityId: string, command: string, data?: Record<string, any>) => void;
-}) {
-  return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      <View style={styles.grid}>
-        {entities.map((entity) => (
-          <EntityCard
-            key={entity.id}
-            entity={entity}
-            onCommand={(command, data) => sendCommand(entity.id, command, data)}
-          />
-        ))}
-      </View>
-    </View>
-  );
+function partOfDay(now: Date): string {
+  const hour = now.getHours();
+  if (hour < 11) return 'Guten Morgen.';
+  if (hour < 18) return 'Schönen Tag.';
+  return 'Guten Abend.';
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 24) : 60,
-  },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingBottom: 12,
-  },
-  title: {
-    color: colors.text,
-    fontSize: 28,
-    fontWeight: '800',
-  },
-  statusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 2,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  statusText: {
-    color: colors.textDim,
-    fontSize: 13,
-  },
-  settingsButton: {
-    padding: 10,
-  },
-  settingsIcon: {
-    color: colors.textDim,
-    fontSize: 24,
-  },
+  root: { flex: 1 },
+  frame: { flex: 1, flexDirection: 'row' },
+  scroll: { flex: 1 },
   content: {
-    paddingHorizontal: 20,
-    paddingBottom: 40,
-    gap: gap * 2,
+    paddingHorizontal: space.page,
+    paddingTop: 14,
+    paddingBottom: 28,
+    gap: 18,
   },
-  section: {
-    gap: gap,
+  greeting: { gap: 2 },
+  greetingLine: {
+    color: colors.onGradient,
+    fontSize: type.greeting,
+    fontWeight: '300',
+    letterSpacing: 0.2,
   },
-  sectionTitle: {
-    color: colors.textDim,
-    fontSize: 13,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
+  greetingSecond: { color: colors.onGradientSoft },
+  split: {
+    flexDirection: 'row',
+    gap: space.gap * 1.4,
+    alignItems: 'flex-start',
   },
+  stack: { gap: space.gap * 1.4 },
+  main: { flex: 1 },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: gap,
+    gap: space.gap,
+    marginTop: space.gap,
   },
   empty: {
-    color: colors.textDim,
-    textAlign: 'center',
-    marginTop: 60,
-    paddingHorizontal: 30,
-    lineHeight: 20,
+    color: colors.onGradientSoft,
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: 24,
+    maxWidth: 460,
   },
 });

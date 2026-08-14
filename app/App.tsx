@@ -1,7 +1,11 @@
+import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFonts } from 'expo-font';
+import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { HubSettings } from './src/api/types';
 import { DashboardScreen } from './src/screens/DashboardScreen';
@@ -13,7 +17,11 @@ const STORAGE_KEY = 'homepilot.settings';
 export default function App() {
   // undefined = lädt noch, null = noch nie konfiguriert
   const [settings, setSettings] = useState<HubSettings | null | undefined>(undefined);
-  const [showSettings, setShowSettings] = useState(false);
+  // Ohne dieses Warten zeichnet das erste Symbol, bevor die Icon-Schrift da
+  // ist – und bleibt dann dauerhaft leer. Scheitert das Laden, geht es
+  // trotzdem weiter: lieber ohne Symbole als gar keine Oberfläche.
+  const [fontsLoaded, fontError] = useFonts(Ionicons.font);
+  const fontsSettled = fontsLoaded || fontError != null;
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY)
@@ -23,29 +31,28 @@ export default function App() {
 
   const save = (next: HubSettings) => {
     setSettings(next);
-    setShowSettings(false);
     AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => {});
   };
 
   return (
-    <View style={styles.container}>
-      <StatusBar style="light" />
-      {settings === undefined ? null : settings === null || showSettings ? (
-        <SettingsScreen
-          initial={settings ?? null}
-          onSave={save}
-          onCancel={settings ? () => setShowSettings(false) : undefined}
-        />
-      ) : (
-        <DashboardScreen settings={settings} onOpenSettings={() => setShowSettings(true)} />
-      )}
-    </View>
+    <SafeAreaProvider>
+      <LinearGradient
+        colors={colors.gradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.background}
+      >
+        <StatusBar style="light" />
+        {settings === undefined || !fontsSettled ? null : settings === null ? (
+          <SettingsScreen initial={null} onSave={save} />
+        ) : (
+          <DashboardScreen settings={settings} onSaveSettings={save} />
+        )}
+      </LinearGradient>
+    </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
+  background: { flex: 1 },
 });

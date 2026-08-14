@@ -1,8 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { Entity, ServerMessage } from '../api/types';
+import { Activity, Entity, ServerMessage } from '../api/types';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
+
+const ACTIVITY_LIMIT = 12;
+
+/** Kurzfassung einer Änderung für die Liste „Zuletzt passiert“. */
+function describe(entity: Entity, newState: Record<string, any>): string | null {
+  const value = newState.state;
+  if (value === 'on') return 'eingeschaltet';
+  if (value === 'off') return 'ausgeschaltet';
+  if (value === 'running') return 'gestartet';
+  if (value === 'idle') return 'fertig';
+  if (entity.kind === 'sensor' && typeof value === 'number') {
+    return `${Math.round(value * 10) / 10}${entity.state.unit ? ' ' + entity.state.unit : ''}`;
+  }
+  if (entity.kind === 'alert') {
+    return `${newState.count ?? 0} Warnungen`;
+  }
+  return null;
+}
 
 /**
  * Hält eine WebSocket-Verbindung zum Hub: Snapshot beim Verbinden,
@@ -10,6 +28,7 @@ export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
  */
 export function useHub(url: string | null, token: string | null) {
   const [entityMap, setEntityMap] = useState<Record<string, Entity>>({});
+  const [activity, setActivity] = useState<Activity[]>([]);
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const wsRef = useRef<WebSocket | null>(null);
   const attemptRef = useRef(0);
@@ -49,6 +68,22 @@ export function useHub(url: string | null, token: string | null) {
             ...prev,
             [message.entity.id]: message.entity,
           }));
+          if (message.type === 'state_changed') {
+            const summary = describe(message.entity, message.new_state);
+            if (summary) {
+              setActivity((prev) =>
+                [
+                  {
+                    id: `${message.entity_id}-${Date.now()}`,
+                    name: message.entity.name,
+                    summary,
+                    at: Date.now(),
+                  },
+                  ...prev,
+                ].slice(0, ACTIVITY_LIMIT)
+              );
+            }
+          }
         } else if (message.type === 'entity_removed') {
           setEntityMap((prev) => {
             const next = { ...prev };
@@ -105,5 +140,5 @@ export function useHub(url: string | null, token: string | null) {
     a.name.localeCompare(b.name)
   );
 
-  return { entities, status, sendCommand };
+  return { entities, activity, status, sendCommand };
 }

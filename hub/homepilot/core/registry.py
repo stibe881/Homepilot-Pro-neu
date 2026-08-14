@@ -9,6 +9,7 @@ from .errors import UnknownEntityError
 from .events import EventBus
 
 StateProvider = Callable[[str], "dict[str, Any] | None"]
+RoomProvider = Callable[[str], "str | None"]
 
 
 class EntityRegistry:
@@ -16,6 +17,7 @@ class EntityRegistry:
         self._entities: dict[str, Entity] = {}
         self.bus = bus
         self.state_provider: StateProvider | None = None
+        self.room_provider: RoomProvider | None = None
 
     def get(self, entity_id: str) -> Entity | None:
         return self._entities.get(entity_id)
@@ -24,6 +26,8 @@ class EntityRegistry:
         return list(self._entities.values())
 
     async def add(self, entity: Entity) -> None:
+        if self.room_provider is not None:
+            entity.room = self.room_provider(entity.id) or entity.room
         if self.state_provider is not None:
             restored = self.state_provider(entity.id)
             if restored:

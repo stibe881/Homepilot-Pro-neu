@@ -34,6 +34,8 @@ class Entity:
     state: dict[str, Any] = field(default_factory=dict)
     commands: list[str] = field(default_factory=list)
     available: bool = True
+    # Raum aus der Konfiguration; die App gruppiert danach.
+    room: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -44,4 +46,5 @@ class Entity:
             "state": dict(self.state),
             "commands": list(self.commands),
             "available": self.available,
+            "room": self.room,
         }

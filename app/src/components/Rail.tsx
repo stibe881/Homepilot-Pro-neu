@@ -1,0 +1,103 @@
+import { Ionicons } from '@expo/vector-icons';
+import React from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+
+import { colors, radius } from '../theme';
+
+export type Section = 'home' | 'devices' | 'automations' | 'settings';
+
+const ITEMS: { key: Section; icon: keyof typeof Ionicons.glyphMap; label: string }[] = [
+  { key: 'home', icon: 'home-outline', label: 'Start' },
+  { key: 'devices', icon: 'grid-outline', label: 'Geräte' },
+  { key: 'automations', icon: 'git-branch-outline', label: 'Abläufe' },
+  { key: 'settings', icon: 'settings-outline', label: 'Einstellungen' },
+];
+
+interface Props {
+  active: Section;
+  onSelect: (section: Section) => void;
+  /** Senkrecht als Seitenleiste (Tablet) oder waagrecht unten (Telefon). */
+  vertical: boolean;
+  bottomInset?: number;
+}
+
+export function Rail({ active, onSelect, vertical, bottomInset = 0 }: Props) {
+  return (
+    <View
+      style={[
+        vertical ? styles.rail : styles.bar,
+        !vertical && { paddingBottom: Math.max(bottomInset, 10) },
+      ]}
+    >
+      {ITEMS.map((item) => {
+        const selected = item.key === active;
+        return (
+          <Pressable
+            key={item.key}
+            onPress={() => onSelect(item.key)}
+            accessibilityRole="tab"
+            accessibilityState={{ selected }}
+            accessibilityLabel={item.label}
+            style={({ pressed }) => [
+              vertical ? styles.railItem : styles.barItem,
+              selected && styles.selected,
+              pressed && { opacity: 0.7 },
+            ]}
+          >
+            <Ionicons
+              name={item.icon}
+              size={vertical ? 24 : 22}
+              color={selected ? colors.ink : colors.onGradientSoft}
+            />
+            {!vertical && (
+              <Text style={[styles.barLabel, selected && { color: colors.ink }]}>
+                {item.label}
+              </Text>
+            )}
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  rail: {
+    width: 78,
+    paddingVertical: 20,
+    alignItems: 'center',
+    gap: 18,
+  },
+  railItem: {
+    width: 52,
+    height: 52,
+    borderRadius: radius.control,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bar: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    paddingTop: 10,
+    paddingHorizontal: 8,
+    backgroundColor: colors.surfaceSoft,
+    borderTopWidth: 1,
+    borderTopColor: colors.surfaceBorder,
+  },
+  barItem: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 3,
+    paddingVertical: 6,
+    borderRadius: radius.control,
+  },
+  barLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.onGradientSoft,
+  },
+  selected: {
+    backgroundColor: colors.surfaceStrong,
+  },
+});

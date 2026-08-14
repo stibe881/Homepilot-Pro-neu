@@ -80,8 +80,30 @@ npx expo start        # QR-Code mit Expo Go auf iPhone/iPad scannen
 npx expo start --web  # oder im Browser
 ```
 
-Beim ersten Start Hub-URL (z.B. `http://192.168.1.10:8123`) und Token
-eintragen – beides wird lokal gespeichert.
+Beim ersten Start Hub-URL (z.B. `http://192.168.1.10:8123`), Token und
+optional den eigenen Namen für die Begrüssung eintragen – alles wird lokal
+gespeichert.
+
+Die Oberfläche passt sich der Gerätegrösse an: Auf dem iPad gibt es links
+eine Symbolleiste, ein dreispaltiges Kachelraster und rechts eine Spalte mit
+Wetterlage und den letzten Ereignissen. Auf dem iPhone wandert die Leiste
+nach unten, das Raster wird zweispaltig und die rechte Spalte rutscht unter
+die Kacheln.
+
+## Räume
+
+Die Reiter über den Kacheln kommen aus der `config.yaml` des Hubs:
+
+```yaml
+rooms:
+  Wohnzimmer:
+    - hue.stehlampe
+    - homematic.Temperatur_Wohnzimmer
+  Küche:
+    - mqtt.sonoff_kueche
+```
+
+Ohne diesen Abschnitt zeigt die App alle Geräte ohne Reiter.
 
 ## Integrationen
 

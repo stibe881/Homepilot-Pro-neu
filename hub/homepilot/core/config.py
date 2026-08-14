@@ -28,6 +28,8 @@ class HubConfig:
     supabase: dict[str, Any] = field(default_factory=dict)
     integrations: list[dict[str, Any]] = field(default_factory=list)
     automations: list[dict[str, Any]] = field(default_factory=list)
+    # Raumname → Liste von Entitäts-IDs. Die App macht daraus ihre Reiter.
+    rooms: dict[str, list[str]] = field(default_factory=dict)
 
 
 def expand_env(value: Any) -> Any:
@@ -79,9 +81,19 @@ def load_config(path: str | Path) -> HubConfig:
     if not isinstance(integrations, list) or not isinstance(automations, list):
         raise ConfigError("'integrations' und 'automations' müssen Listen sein")
 
+    rooms = raw.get("rooms") or {}
+    if not isinstance(rooms, dict) or not all(
+        isinstance(members, list) for members in rooms.values()
+    ):
+        raise ConfigError("'rooms' muss Raumnamen auf Listen von Entitäts-IDs abbilden")
+
     return HubConfig(
         api=api,
         supabase=supabase,
         integrations=integrations,
         automations=automations,
+        rooms={
+            str(name): [str(member) for member in members]
+            for name, members in rooms.items()
+        },
     )

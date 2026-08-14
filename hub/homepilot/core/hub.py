@@ -26,6 +26,13 @@ class Hub:
 
     async def start(self) -> None:
         log.info("Hub startet …")
+        # Die Raumzuordnung muss stehen, bevor die erste Entität entsteht.
+        self._rooms_by_entity = {
+            entity_id: room
+            for room, members in self.config.rooms.items()
+            for entity_id in members
+        }
+        self.registry.room_provider = self._rooms_by_entity.get
         await self._start_store()
         await self.integrations.setup_all(self.config.integrations)
         await self.automations.start(self.config.automations)
