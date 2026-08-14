@@ -78,21 +78,40 @@ Die Protokolle sind bereits gelöst – diese Bibliotheken zeigen, wie:
 
 | Gerät | Ansatz | Vorlage |
 |---|---|---|
-| UniFi | Lokale Controller-API | `aiounifi` |
 | UniFi Protect | Lokale API + WebSocket | `uiprotect` |
-| Homematic | XML-RPC zur CCU | `pyhomematic` |
-| Sonoff | Am einfachsten Tasmota + MQTT | `aiomqtt` |
 | Roborock | Lokal + Cloud | `python-roborock` |
-| Twinkly | Lokale REST-API | `xled` |
 | Android TV | Remote-Protokoll | `androidtvremote2` |
 | Google Cast | mDNS + CASTV2 | `pychromecast` |
 | Spotify | Cloud, OAuth | `spotipy` |
 | Google Calendar | Cloud, OAuth | `google-api-python-client` |
 | Ring | Inoffizielle Cloud-API, 2FA | `ring_doorbell` |
-| V-Zug | Semi-offizielle lokale API | `vzug-api` |
 | Hue Play HDMI Sync | Lokale API der Sync Box | Hue Sync Box API |
 | Matter | Eigener Controller-Dienst | `python-matter-server` |
+
+Bereits gebaut und als Muster brauchbar: `mqtt.py` (Push über einen
+Broker), `homematic.py` (XML-RPC mit eigenem Callback-Server), `hue.py`
+(REST + SSE-Eventstream), `unifi.py` (Login mit Sitzungserneuerung),
+`meteoalarm.py` (reines Polling).
 
 Bei Cloud-Integrationen mit OAuth (Spotify, Google) gehören Tokens in die
 Datenbank, nicht in die `config.yaml` – dafür ist beim Ausbau eine Tabelle
 `integration_secrets` vorgesehen.
+
+## Ohne die echte Hardware testen
+
+Für einige Protokolle gibt es Gegenstellen, die sich lokal starten lassen –
+damit wird aus „sieht plausibel aus" ein echter Beweis:
+
+| Protokoll | Gegenstelle | Test |
+|---|---|---|
+| MQTT | `mosquitto` (Broker) | `tests/test_mqtt_live.py` |
+| Homematic | `pydevccu` (CCU-Simulator mit Originalgeräten) | `tests/test_homematic_live.py` |
+
+Beide Tests starten ihre Gegenstelle als eigenen Prozess und überspringen
+sich selbst, wenn sie nicht installiert ist. Das Muster lohnt sich für jede
+neue Integration: Erst wenn ein Kommando nachweislich beim Gerät ankommt
+und eine Änderung von aussen im Hub landet, ist die Integration fertig.
+
+Wo es keine Gegenstelle gibt, hilft die Trennung von Protokoll und
+Übersetzung: Funktionen wie `parse_payload` oder `value_to_state` sind
+reine Funktionen ohne Netzwerk und lassen sich direkt testen.

@@ -15,6 +15,7 @@ ALL_INTEGRATIONS = [
     "meteoalarm",
     "hue",
     "mqtt",
+    "homematic",
     "unifi",
     "twinkly",
     "vzug",

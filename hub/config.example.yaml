@@ -45,6 +45,27 @@ integrations:
   #       name: Licht Bad
   #       kind: light
 
+  # Homematic über die XML-RPC-Schnittstelle der CCU.
+  # Port 2001 = Funk (BidCos-RF), 2010 = Homematic IP, 2000 = Wired.
+  # Beim Start listet der Hub alle Kanäle der CCU ins Log – daraus die
+  # gewünschten Adressen heraussuchen.
+  # - integration: homematic
+  #   host: 192.168.1.15
+  #   port: 2001
+  #   callback_port: 9125      # 0 = keine Events, nur Polling
+  #   devices:
+  #     - address: "ABC1234567:1"
+  #       name: Licht Küche
+  #       kind: switch
+  #     - address: "ABC1234567:2"
+  #       name: Stehlampe
+  #       kind: light
+  #       dimmable: true
+  #     - address: "ABC7654321:4"
+  #       name: Temperatur Bad
+  #       kind: sensor
+  #       datapoint: ACTUAL_TEMPERATURE
+
   # UniFi: Anwesenheitserkennung anhand verbundener Geräte.
   # Liefert zusätzlich unifi.anyone_home und unifi.clients_total.
   # - integration: unifi

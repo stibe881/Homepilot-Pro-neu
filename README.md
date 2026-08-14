@@ -92,6 +92,7 @@ eintragen – beides wird lokal gespeichert.
 | `demo` | Virtuelle Lichter/Sensoren – zum Entwickeln ohne Hardware |
 | `meteoalarm` | Unwetterwarnungen, gegen den echten CAP/Atom-Feed geprüft |
 | `mqtt` | Sonoff & Co. via Tasmota, gegen einen echten Broker end-to-end geprüft |
+| `homematic` | CCU via XML-RPC mit Push-Events, gegen den CCU-Simulator pydevccu geprüft |
 
 **🟡 Implementiert nach Protokolldokumentation, noch nicht an echter Hardware**
 
@@ -110,7 +111,6 @@ Nachbesserungen bei Zugangsdaten und Feldnamen.
 | Integration | Notizen |
 |---|---|
 | `unifi_protect` | Lokale API + WebSocket |
-| `homematic` | XML-RPC zur CCU |
 | `roborock` | Lokal + Cloud |
 | `spotify`, `google_calendar` | Cloud-APIs (OAuth, Tokens gehören in die DB) |
 | `google_cast`, `androidtv` | mDNS/CASTV2, Remote-Protokoll |
