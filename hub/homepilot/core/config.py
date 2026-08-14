@@ -34,6 +34,10 @@ class HubConfig:
     automations: list[dict[str, Any]] = field(default_factory=list)
     # Raumname → Liste von Entitäts-IDs. Die App macht daraus ihre Reiter.
     rooms: dict[str, list[str]] = field(default_factory=dict)
+    scenes: list[dict[str, Any]] = field(default_factory=list)
+    users: list[dict[str, Any]] = field(default_factory=list)
+    # Strompreis für die Kostenanzeige, z.B. {price_per_kwh: 0.32, currency: CHF}
+    energy: dict[str, Any] = field(default_factory=dict)
 
 
 def expand_env(value: Any) -> Any:
@@ -95,6 +99,15 @@ def load_config(path: str | Path) -> HubConfig:
     ):
         raise ConfigError("'rooms' muss Raumnamen auf Listen von Entitäts-IDs abbilden")
 
+    scenes = raw.get("scenes") or []
+    users = raw.get("users") or []
+    if not isinstance(scenes, list) or not isinstance(users, list):
+        raise ConfigError("'scenes' und 'users' müssen Listen sein")
+
+    energy = raw.get("energy") or {}
+    if not isinstance(energy, dict):
+        raise ConfigError("'energy' muss ein Mapping sein")
+
     return HubConfig(
         api=api,
         supabase=supabase,
@@ -104,4 +117,7 @@ def load_config(path: str | Path) -> HubConfig:
             str(name): [str(member) for member in members]
             for name, members in rooms.items()
         },
+        scenes=scenes,
+        users=users,
+        energy=energy,
     )

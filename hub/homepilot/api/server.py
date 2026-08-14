@@ -1,19 +1,20 @@
 """REST- und WebSocket-API für die App.
 
+Jeder Zugriff läuft über ein Benutzer-Token: Es bestimmt die Rolle und
+damit, was jemand sehen und tun darf. Gäste bekommen bereits im Snapshot
+und in den Live-Ereignissen nur die Geräte zu sehen, die für sie
+freigegeben sind – filtern erst in der App wäre keine Einschränkung.
+
 WebSocket-Protokoll (/ws):
   Server → Client:
-    {"type": "snapshot", "entities": [...]}          direkt nach Verbinden
-    {"type": "state_changed", "entity": {...}, ...}
-    {"type": "entity_added", "entity": {...}}
-    {"type": "entity_removed", "entity_id": "..."}
+    {"type": "snapshot", "entities": [...], "user": {...}}
+    {"type": "state_changed", "entity": {...}, "source": {...}, ...}
+    {"type": "entity_added" | "entity_removed", ...}
+    {"type": "result", "ok": false, "error": "...", "entity_id": "..."}
     {"type": "pong"}
-    {"type": "result", "ok": true|false, "error"?: "..."}
   Client → Server:
     {"type": "ping"}
     {"type": "command", "entity_id": "...", "command": "...", "data": {...}}
-
-Auth: Bearer-Token im Authorization-Header, oder ?token=... (WebSocket).
-Ohne konfiguriertes Token ist die API offen – nur fürs LAN gedacht.
 """
 
 from __future__ import annotations
@@ -29,6 +30,8 @@ from pydantic import BaseModel
 
 from ..core.errors import HomePilotError, UnknownEntityError, UnsupportedCommandError
 from ..core.hub import Hub
+from ..core.source import as_source, user_source
+from ..core.users import Capability, Role, User
 
 log = logging.getLogger(__name__)
 
@@ -36,6 +39,22 @@ log = logging.getLogger(__name__)
 class CommandRequest(BaseModel):
     command: str
     data: dict[str, Any] = {}
+
+
+class PauseRequest(BaseModel):
+    seconds: float = 7200
+
+
+class PushRegistration(BaseModel):
+    token: str
+    label: str = ""
+
+
+class UserRequest(BaseModel):
+    name: str
+    role: str = Role.RESIDENT
+    token: str | None = None
+    allow: list[str] = []
 
 
 def create_app(hub: Hub) -> FastAPI:
@@ -57,30 +76,75 @@ def create_app(hub: Hub) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    token = hub.config.api.token
 
-    def check_auth(request: Request) -> None:
-        if not token:
-            return
+    # ── Authentifizierung ──────────────────────────────────────────────────
+
+    def token_from(request: Request) -> str | None:
         header = request.headers.get("authorization", "")
-        provided = header.removeprefix("Bearer ").strip()
-        if provided != token:
+        if header:
+            return header.removeprefix("Bearer ").strip()
+        return request.query_params.get("token")
+
+    def current_user(request: Request) -> User:
+        user = hub.users.by_token(token_from(request))
+        if user is None:
             raise HTTPException(status_code=401, detail="Ungültiges Token")
+        return user
+
+    def require(request: Request, capability: str) -> User:
+        user = current_user(request)
+        if not user.can(capability):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Rolle '{user.role}' darf das nicht",
+            )
+        return user
+
+    def visible(user: User, entities) -> list[dict[str, Any]]:
+        return [
+            entity.as_dict()
+            for entity in entities
+            if user.may_see(entity.id, entity.kind)
+        ]
+
+    # ── Allgemeines ────────────────────────────────────────────────────────
 
     @app.get("/api/health")
     async def health() -> dict[str, Any]:
         return {"ok": True, "entities": len(hub.registry.all())}
 
+    @app.get("/api/me")
+    async def me(request: Request) -> dict[str, Any]:
+        """Wer bin ich und was darf ich – die App richtet ihre Ansicht danach."""
+        user = current_user(request)
+        return {
+            **user.as_dict(),
+            "capabilities": sorted(
+                capability
+                for capability in vars(Capability).values()
+                if isinstance(capability, str)
+                and not capability.startswith("_")
+                and user.can(capability)
+            ),
+        }
+
+    @app.get("/api/system/status")
+    async def system_status(request: Request) -> dict[str, Any]:
+        require(request, Capability.VIEW_SYSTEM)
+        return hub.status()
+
+    # ── Entitäten ──────────────────────────────────────────────────────────
+
     @app.get("/api/entities")
     async def list_entities(request: Request) -> list[dict[str, Any]]:
-        check_auth(request)
-        return [entity.as_dict() for entity in hub.registry.all()]
+        user = current_user(request)
+        return visible(user, hub.registry.all())
 
     @app.get("/api/entities/{entity_id}")
     async def get_entity(entity_id: str, request: Request) -> dict[str, Any]:
-        check_auth(request)
+        user = current_user(request)
         entity = hub.registry.get(entity_id)
-        if entity is None:
+        if entity is None or not user.may_see(entity.id, entity.kind):
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
         return entity.as_dict()
 
@@ -88,11 +152,15 @@ def create_app(hub: Hub) -> FastAPI:
     async def run_command(
         entity_id: str, body: CommandRequest, request: Request
     ) -> dict[str, Any]:
-        check_auth(request)
+        user = require(request, Capability.CONTROL)
+        entity = hub.registry.get(entity_id)
+        if entity is None or not user.may_see(entity.id, entity.kind):
+            raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
         try:
-            entity = await hub.integrations.dispatch_command(
-                entity_id, body.command, body.data
-            )
+            with as_source(user_source(user.name)):
+                entity = await hub.integrations.dispatch_command(
+                    entity_id, body.command, body.data
+                )
         except UnknownEntityError as err:
             raise HTTPException(status_code=404, detail=str(err)) from err
         except UnsupportedCommandError as err:
@@ -110,7 +178,7 @@ def create_app(hub: Hub) -> FastAPI:
         Die App liest den Verlauf bewusst über den Hub statt direkt aus
         Supabase – so bleibt der Datenbank-Key ausschliesslich auf dem Hub.
         """
-        check_auth(request)
+        require(request, Capability.VIEW_HISTORY)
         if hub.registry.get(entity_id) is None:
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
         if hub.store is None:
@@ -121,27 +189,140 @@ def create_app(hub: Hub) -> FastAPI:
             raise HTTPException(status_code=502, detail=f"Supabase: {err}") from err
         return {"entity_id": entity_id, "history": rows}
 
+    # ── Szenen ─────────────────────────────────────────────────────────────
+
+    @app.get("/api/scenes")
+    async def list_scenes(request: Request) -> list[dict[str, Any]]:
+        user = current_user(request)
+        scenes = [scene.as_dict() for scene in hub.scenes.scenes]
+        if user.role != Role.GUEST:
+            return scenes
+        # Ein Gast sieht nur Szenen, die ausschliesslich freigegebene Geräte
+        # anfassen – sonst schaltete er über Umwege doch das ganze Haus.
+        allowed = []
+        for scene in scenes:
+            entities = [hub.registry.get(eid) for eid in scene["entity_ids"]]
+            if all(
+                entity is not None and user.may_see(entity.id, entity.kind)
+                for entity in entities
+            ):
+                allowed.append(scene)
+        return allowed
+
+    @app.post("/api/scenes/{scene_id}/activate")
+    async def activate_scene(scene_id: str, request: Request) -> dict[str, Any]:
+        user = require(request, Capability.CONTROL)
+        scene = hub.scenes.get(scene_id)
+        if scene is None:
+            raise HTTPException(status_code=404, detail=f"Unbekannte Szene: {scene_id}")
+        if user.role == Role.GUEST:
+            for entity_id in (action.get("entity_id") for action in scene.actions):
+                entity = hub.registry.get(entity_id or "")
+                if entity is None or not user.may_see(entity.id, entity.kind):
+                    raise HTTPException(status_code=403, detail="Szene nicht freigegeben")
+        return await hub.scenes.activate(scene_id)
+
+    # ── Automationen ───────────────────────────────────────────────────────
+
     @app.get("/api/automations")
-    async def list_automations(request: Request) -> list[dict[str, Any]]:
-        check_auth(request)
-        return [automation.as_dict() for automation in hub.automations.automations]
+    async def list_automations(request: Request) -> dict[str, Any]:
+        require(request, Capability.VIEW_AUTOMATIONS)
+        return {
+            "automations": [
+                automation.as_dict() for automation in hub.automations.automations
+            ],
+            "paused_until": (
+                hub.automations.paused_until.isoformat()
+                if hub.automations.paused_until
+                else None
+            ),
+        }
+
+    @app.post("/api/automations/pause")
+    async def pause_automations(body: PauseRequest, request: Request) -> dict[str, Any]:
+        require(request, Capability.PAUSE_AUTOMATIONS)
+        until = hub.automations.pause(body.seconds)
+        return {"paused_until": until.isoformat() if until else None}
+
+    # ── Push ───────────────────────────────────────────────────────────────
+
+    @app.post("/api/push/register")
+    async def register_push(body: PushRegistration, request: Request) -> dict[str, Any]:
+        user = current_user(request)
+        device = hub.push.register(body.token, user.name, body.label)
+        return {"ok": True, "device": device.as_dict()}
+
+    @app.post("/api/push/unregister")
+    async def unregister_push(body: PushRegistration, request: Request) -> dict[str, Any]:
+        current_user(request)
+        return {"ok": hub.push.unregister(body.token)}
+
+    # ── Benutzerverwaltung ─────────────────────────────────────────────────
+
+    @app.get("/api/users")
+    async def list_users(request: Request) -> list[dict[str, Any]]:
+        require(request, Capability.MANAGE_USERS)
+        return [user.as_dict() for user in hub.users.users]
+
+    @app.post("/api/users")
+    async def create_user(body: UserRequest, request: Request) -> dict[str, Any]:
+        require(request, Capability.MANAGE_USERS)
+        import secrets
+
+        from ..core.users import User as HubUser
+
+        if body.role not in Role.ALL:
+            raise HTTPException(status_code=400, detail=f"Unbekannte Rolle: {body.role}")
+        token = body.token or secrets.token_urlsafe(32)
+        try:
+            hub.users.add(
+                HubUser(name=body.name, role=body.role, token=token, allow=body.allow)
+            )
+        except HomePilotError as err:
+            raise HTTPException(status_code=409, detail=str(err)) from err
+        # Das Token wird genau einmal zurückgegeben – danach steht es
+        # nirgends mehr im Klartext zum Abholen.
+        return {
+            "user": hub.users.by_name(body.name).as_dict(include_token=True),
+            "hinweis": (
+                "Token jetzt notieren und in die config.yaml übernehmen – "
+                "sonst ist der Zugang nach einem Neustart des Hubs weg."
+            ),
+        }
+
+    @app.delete("/api/users/{name}")
+    async def delete_user(name: str, request: Request) -> dict[str, Any]:
+        user = require(request, Capability.MANAGE_USERS)
+        if user.name == name:
+            raise HTTPException(status_code=400, detail="Sich selbst kann man nicht löschen")
+        try:
+            removed = hub.users.remove(name)
+        except HomePilotError as err:
+            raise HTTPException(status_code=409, detail=str(err)) from err
+        if not removed:
+            raise HTTPException(status_code=404, detail=f"Unbekannter Benutzer: {name}")
+        return {"ok": True}
+
+    # ── WebSocket ──────────────────────────────────────────────────────────
 
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:
-        if token:
-            header = websocket.headers.get("authorization", "")
-            provided = (
-                websocket.query_params.get("token")
-                or header.removeprefix("Bearer ").strip()
-            )
-            if provided != token:
-                await websocket.close(code=4401)
-                return
+        header = websocket.headers.get("authorization", "")
+        token = (
+            websocket.query_params.get("token") or header.removeprefix("Bearer ").strip()
+        )
+        user = hub.users.by_token(token)
+        if user is None:
+            await websocket.close(code=4401)
+            return
 
         await websocket.accept()
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
 
         def forward(event_type: str, data: dict[str, Any]) -> None:
+            entity = data.get("entity")
+            if entity and not user.may_see(entity["id"], entity["kind"]):
+                return
             queue.put_nowait({"type": event_type, **data})
 
         unsubscribers = [
@@ -158,7 +339,8 @@ def create_app(hub: Hub) -> FastAPI:
         await websocket.send_json(
             {
                 "type": "snapshot",
-                "entities": [entity.as_dict() for entity in hub.registry.all()],
+                "entities": visible(user, hub.registry.all()),
+                "user": user.as_dict(),
             }
         )
         sender_task = asyncio.create_task(sender())
@@ -169,16 +351,38 @@ def create_app(hub: Hub) -> FastAPI:
                 if mtype == "ping":
                     queue.put_nowait({"type": "pong"})
                 elif mtype == "command":
-                    try:
-                        await hub.integrations.dispatch_command(
-                            message.get("entity_id", ""),
-                            message.get("command", ""),
-                            message.get("data") or {},
-                        )
-                        queue.put_nowait({"type": "result", "ok": True})
-                    except HomePilotError as err:
+                    entity_id = message.get("entity_id", "")
+                    entity = hub.registry.get(entity_id)
+                    if not user.can(Capability.CONTROL) or (
+                        entity is not None and not user.may_see(entity.id, entity.kind)
+                    ):
                         queue.put_nowait(
-                            {"type": "result", "ok": False, "error": str(err)}
+                            {
+                                "type": "result",
+                                "ok": False,
+                                "entity_id": entity_id,
+                                "error": "Dafür fehlt dir die Berechtigung",
+                            }
+                        )
+                        continue
+                    try:
+                        with as_source(user_source(user.name)):
+                            await hub.integrations.dispatch_command(
+                                entity_id,
+                                message.get("command", ""),
+                                message.get("data") or {},
+                            )
+                        queue.put_nowait(
+                            {"type": "result", "ok": True, "entity_id": entity_id}
+                        )
+                    except Exception as err:
+                        queue.put_nowait(
+                            {
+                                "type": "result",
+                                "ok": False,
+                                "entity_id": entity_id,
+                                "error": str(err),
+                            }
                         )
         except WebSocketDisconnect:
             pass

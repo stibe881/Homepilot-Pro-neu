@@ -12,6 +12,7 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "aiohttp>=3.9",
     "aiomqtt>=2.0",
+    "qrcode>=7.4",
     "PyYAML>=6.0",
 ]
 

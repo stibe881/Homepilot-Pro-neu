@@ -1,16 +1,22 @@
-"""Der Hub verdrahtet Event-Bus, Registry, Store, Integrationen und Automationen."""
+"""Der Hub verdrahtet Event-Bus, Registry, Store, Integrationen, Szenen,
+Automationen, Benutzer und Benachrichtigungen."""
 
 from __future__ import annotations
 
 import logging
+import time
+from typing import Any
 
 from .automation import AutomationEngine
 from .config import HubConfig
 from .events import EventBus
 from .integration import IntegrationManager
+from .push import PushService
 from .registry import EntityRegistry
+from .scenes import SceneManager
 from .store import Store
 from .supabase import SupabaseClient
+from .users import parse_users
 
 log = logging.getLogger(__name__)
 
@@ -22,7 +28,11 @@ class Hub:
         self.registry = EntityRegistry(self.bus)
         self.integrations = IntegrationManager(self)
         self.automations = AutomationEngine(self)
+        self.scenes = SceneManager(self)
+        self.push = PushService()
+        self.users = parse_users(config.users, config.api.token)
         self.store: Store | None = None
+        self.started_at = time.time()
 
     async def start(self) -> None:
         log.info("Hub startet …")
@@ -35,11 +45,22 @@ class Hub:
         self.registry.room_provider = self._rooms_by_entity.get
         await self._start_store()
         await self.integrations.setup_all(self.config.integrations)
+        self.scenes.load(self.config.scenes)
         await self.automations.start(self.config.automations)
+        self.started_at = time.time()
+
+        if self.users.open_access:
+            log.warning(
+                "Kein Token und keine Benutzer konfiguriert – die API ist offen. "
+                "Nur im eigenen Netz vertretbar."
+            )
         log.info(
-            "Hub bereit: %d Integrationen, %d Entitäten, Datenbank: %s",
+            "Hub bereit: %d Integrationen, %d Entitäten, %d Szenen, "
+            "%d Benutzer, Datenbank: %s",
             len(self.integrations.loaded),
             len(self.registry.all()),
+            len(self.scenes.scenes),
+            len(self.users.users),
             "Supabase" if self.store else "keine",
         )
 
@@ -62,6 +83,41 @@ class Hub:
         # Entitäten ihren gespeicherten Zustand mitbekommen.
         self.registry.state_provider = store.restored_state
 
+    def status(self) -> dict[str, Any]:
+        """Betriebszustand für die Diagnose-Ansicht der App."""
+        entities = self.registry.all()
+        by_integration: dict[str, dict[str, int]] = {}
+        for entity in entities:
+            counts = by_integration.setdefault(
+                entity.integration, {"entities": 0, "unavailable": 0}
+            )
+            counts["entities"] += 1
+            if not entity.available:
+                counts["unavailable"] += 1
+
+        integrations = []
+        for name, info in self.integrations.status().items():
+            counts = by_integration.get(name, {"entities": 0, "unavailable": 0})
+            integrations.append({"name": name, **info, **counts})
+
+        return {
+            "uptime_seconds": round(time.time() - self.started_at),
+            "database": "supabase" if self.store else None,
+            "entities": len(entities),
+            "unavailable": sum(1 for entity in entities if not entity.available),
+            "integrations": sorted(integrations, key=lambda item: item["name"]),
+            "automations": {
+                "count": len(self.automations.automations),
+                "paused_until": (
+                    self.automations.paused_until.isoformat()
+                    if self.automations.paused_until
+                    else None
+                ),
+            },
+            "push_devices": len(self.push.devices),
+            "energy": self.config.energy,
+        }
+
     async def stop(self) -> None:
         log.info("Hub stoppt …")
         await self.automations.stop()
@@ -70,3 +126,4 @@ class Hub:
             await self.store.stop()
             self.store = None
         self.registry.state_provider = None
+        self.registry.room_provider = None

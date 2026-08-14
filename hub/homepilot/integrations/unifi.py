@@ -58,6 +58,12 @@ class UnifiIntegration(Integration):
 
         self._site = self.config.get("site", "default")
         self._interval = float(self.config.get("scan_interval", 30))
+        # Ein Telefon fällt gern kurz aus dem WLAN. Ohne Karenzzeit meldet
+        # der Hub dann „niemand zuhause“ und schaltet das Licht aus, während
+        # man auf dem Sofa sitzt – die eine Erfahrung, nach der man dem
+        # System nicht mehr traut.
+        self._away_grace = float(self.config.get("away_grace", 300))
+        self._last_seen: dict[str, float] = {}
         self._base = f"https://{self._host}"
         self._prefix = ""  # wird beim Login gesetzt
         self._csrf: str | None = None
@@ -160,10 +166,26 @@ class UnifiIntegration(Integration):
             )
             return
 
-        presence = presence_from_clients(clients, list(self._tracked))
-        for mac, is_home in presence.items():
+        seen = presence_from_clients(clients, list(self._tracked))
+        now = asyncio.get_running_loop().time()
+        presence: dict[str, bool] = {}
+        for mac, is_seen in seen.items():
+            if is_seen:
+                self._last_seen[mac] = now
+                presence[mac] = True
+            else:
+                last = self._last_seen.get(mac)
+                presence[mac] = last is not None and (now - last) < self._away_grace
+
             await self.hub.registry.update_state(
-                self._tracked[mac], {"state": "on" if is_home else "off"}, available=True
+                self._tracked[mac],
+                {
+                    "state": "on" if presence[mac] else "off",
+                    # Sichtbar machen, dass jemand nur noch in der Karenzzeit
+                    # als anwesend gilt.
+                    "connected": is_seen,
+                },
+                available=True,
             )
 
         if self._tracked:

@@ -7,6 +7,7 @@ from typing import Any, Callable
 from .entity import Entity
 from .errors import UnknownEntityError
 from .events import EventBus
+from .source import current as current_source
 
 StateProvider = Callable[[str], "dict[str, Any] | None"]
 RoomProvider = Callable[[str], "str | None"]
@@ -73,5 +74,8 @@ class EntityRegistry:
                 "old_state": old_state,
                 "new_state": dict(new_state),
                 "entity": entity.as_dict(),
+                # Wer die Änderung ausgelöst hat – Grundlage für die Frage
+                # „warum ist das passiert?“ in der App.
+                "source": current_source(),
             },
         )

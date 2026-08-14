@@ -108,10 +108,22 @@ class IntegrationManager:
     def __init__(self, hub: "Hub") -> None:
         self.hub = hub
         self._integrations: dict[str, Integration] = {}
+        # Auch fehlgeschlagene Integrationen merken, damit die App zeigen
+        # kann, was klemmt – sonst steht es nur im Log auf dem Hub-Rechner.
+        self._failed: dict[str, str] = {}
 
     @property
     def loaded(self) -> list[str]:
         return list(self._integrations)
+
+    def status(self) -> dict[str, dict[str, Any]]:
+        status: dict[str, dict[str, Any]] = {
+            name: {"ok": True, "error": None} for name in self._integrations
+        }
+        status.update(
+            {name: {"ok": False, "error": error} for name, error in self._failed.items()}
+        )
+        return status
 
     async def setup_all(self, configs: list[dict[str, Any]]) -> None:
         for config in configs:
@@ -124,9 +136,11 @@ class IntegrationManager:
                 instance = cls(self.hub, config)
                 await instance.setup()
                 self._integrations[name] = instance
+                self._failed.pop(name, None)
                 log.info("Integration %s geladen", name)
-            except Exception:
+            except Exception as err:
                 # Eine kaputte Integration darf den Hub-Start nicht verhindern.
+                self._failed[name] = str(err) or err.__class__.__name__
                 log.exception("Setup der Integration '%s' fehlgeschlagen", name)
 
     async def teardown_all(self) -> None:

@@ -5,7 +5,8 @@
 api:
   host: 0.0.0.0
   port: 8123
-  # Token, das App und API-Clients mitschicken müssen. Leer = offen (nur LAN!).
+  # Einzeltoken aus früheren Fassungen; gilt weiterhin und zählt als
+  # Besitzer. Besser sind die Benutzer weiter unten.
   token: "${HOMEPILOT_TOKEN}"
   # Herkünfte, die der Browser ansprechen darf. Nötig für die Web-Fassung
   # der App, die unter einer anderen Adresse läuft als der Hub.
@@ -94,6 +95,49 @@ integrations:
   #     - host: 192.168.1.40
   #       name: Geschirrspüler
 
+# Benutzer und Rollen. Jeder bekommt ein eigenes Token – dann steht in
+# jedem Protokolleintrag, wer geschaltet hat, und ein Zugang lässt sich
+# einzeln zurückziehen.
+#
+#   besitzer  darf alles, auch Benutzer verwalten und Automationen ändern
+#   bewohner  bedient das ganze Haus, darf Automationen pausieren
+#   gast      sieht und schaltet nur Freigegebenes (ohne 'allow': Licht und
+#             Schalter), erfährt nichts über Anwesenheit, Verlauf oder System
+#
+# Token erzeugen: openssl rand -base64 32
+users:
+  - name: Stefan
+    role: besitzer
+    token: "${TOKEN_STEFAN}"
+  # - name: Partnerin
+  #   role: bewohner
+  #   token: "${TOKEN_PARTNERIN}"
+  # - name: Ferienwohnung
+  #   role: gast
+  #   token: "${TOKEN_GAST}"
+  #   allow: ["hue.*", "mqtt.sonoff_gaestezimmer"]
+
+# Szenen: eine benannte Liste von Kommandos, mit einem Tippen auslösbar.
+scenes:
+  - id: alles_aus
+    name: Alles aus
+    icon: moon-outline
+    actions:
+      - { entity_id: demo.light_livingroom, command: turn_off }
+      - { entity_id: demo.light_bedroom, command: turn_off }
+      - { entity_id: demo.switch_coffee, command: turn_off }
+  - id: guten_morgen
+    name: Guten Morgen
+    icon: sunny-outline
+    actions:
+      - { entity_id: demo.light_livingroom, command: turn_on, data: { brightness: 60 } }
+      - { entity_id: demo.switch_coffee, command: turn_on }
+
+# Strompreis für die Kostenanzeige der Steckdosen.
+energy:
+  price_per_kwh: 0.32
+  currency: CHF
+
 # Räume: Die App macht daraus ihre Reiter. Ohne diesen Abschnitt zeigt sie
 # einfach alle Geräte ohne Reiter an.
 rooms:
@@ -123,6 +167,20 @@ automations:
         entity_id: demo.light_livingroom
         command: turn_on
         data: { brightness: 80 }
+
+  # Szene und Benachrichtigung sind ebenfalls Aktionen.
+  # - id: feierabend
+  #   alias: Feierabend
+  #   trigger:
+  #     - type: time
+  #       at: "18:30"
+  #   action:
+  #     - type: scene
+  #       scene: guten_abend
+  #     - type: notify
+  #       to: bewohner        # all | besitzer | bewohner | gast | <Name>
+  #       title: Guten Abend
+  #       body: Die Abendbeleuchtung ist an.
 
   # Beispiel für Anwesenheit: alles ausschalten, wenn niemand mehr da ist.
   # - id: alles_aus_wenn_weg

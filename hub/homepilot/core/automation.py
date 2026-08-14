@@ -22,6 +22,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
+from .source import as_source, automation_source
+
 if TYPE_CHECKING:
     from .hub import Hub
 
@@ -83,6 +85,29 @@ class AutomationEngine:
         self._timer_tasks: list[asyncio.Task] = []
         self._run_tasks: set[asyncio.Task] = set()
         self._running: set[str] = set()
+        # Bis zu diesem Zeitpunkt laufen keine Automationen – für Abende mit
+        # Gästen oder wenn man selbst am Basteln ist.
+        self.paused_until: datetime | None = None
+
+    @property
+    def paused(self) -> bool:
+        if self.paused_until is None:
+            return False
+        if datetime.now() >= self.paused_until:
+            self.paused_until = None
+            return False
+        return True
+
+    def pause(self, seconds: float) -> datetime | None:
+        """Pausiert für n Sekunden; 0 hebt die Pause auf."""
+        self.paused_until = (
+            datetime.now() + timedelta(seconds=seconds) if seconds > 0 else None
+        )
+        if self.paused_until:
+            log.info("Automationen pausiert bis %s", self.paused_until.strftime("%H:%M"))
+        else:
+            log.info("Automationen wieder aktiv")
+        return self.paused_until
 
     async def start(self, configs: list[dict[str, Any]]) -> None:
         self.automations = parse_automations(configs)
@@ -158,6 +183,9 @@ class AutomationEngine:
             self._schedule(automation)
 
     def _schedule(self, automation: Automation) -> None:
+        if self.paused:
+            log.debug("Automation '%s' übersprungen (pausiert)", automation.alias)
+            return
         # Läuft die Automation bereits (z.B. in einem delay), nicht erneut starten.
         if automation.id in self._running:
             return
@@ -175,8 +203,10 @@ class AutomationEngine:
             if all(self._check_condition(c) for c in automation.conditions):
                 executed = True
                 log.info("Automation '%s' ausgelöst", automation.alias)
-                for action in automation.actions:
-                    await self._execute_action(automation, action)
+                # Alles, was jetzt folgt, wird der Automation zugeschrieben.
+                with as_source(automation_source(automation.id, automation.alias)):
+                    for action in automation.actions:
+                        await self._execute_action(automation, action)
         except Exception as err:
             error = str(err)
             log.exception("Automation '%s' fehlgeschlagen", automation.alias)
@@ -232,5 +262,20 @@ class AutomationEngine:
             )
         elif atype == "delay":
             await asyncio.sleep(float(action["seconds"]))
+        elif atype == "scene":
+            await self.hub.scenes.activate(action["scene"])
+        elif atype == "notify":
+            await self._notify(automation, action)
         else:
             log.warning("Unbekannter Aktionstyp in '%s': %s", automation.alias, atype)
+
+    async def _notify(self, automation: Automation, action: dict[str, Any]) -> None:
+        tokens = self.hub.push.recipients(
+            self.hub.users.users, str(action.get("to", "all"))
+        )
+        await self.hub.push.send(
+            tokens,
+            title=str(action.get("title") or automation.alias),
+            body=str(action.get("body") or ""),
+            data={"automation_id": automation.id},
+        )
