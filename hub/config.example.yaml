@@ -143,6 +143,12 @@ integrations:
   #     - host: 192.168.1.50
   #       name: Wohnzimmer TV
 
+  # Ring-Türklingeln und -Kameras. Braucht: pip install ring-doorbell
+  # Einmalige Anmeldung mit 2FA-Code:
+  #   python -m homepilot.integrations.ring -c config.yaml
+  # - integration: ring
+  #   scan_interval: 300
+
   # V-ZUG-Geräte (lokale Home-API, nur lesend).
   # - integration: vzug
   #   scan_interval: 60

@@ -136,6 +136,9 @@ export function EntityCard({
               label={online ? 'Online' : 'Offline'}
               tone={online ? colors.on : colors.danger}
             />
+            {entity.state.ring === 'on' ? (
+              <Pill label="Klingelt" tone={colors.danger} solid />
+            ) : null}
             {entity.state.motion === 'on' ? (
               <Pill label="Bewegung" tone={colors.warn} solid />
             ) : null}

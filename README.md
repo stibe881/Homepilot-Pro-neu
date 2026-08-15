@@ -147,12 +147,12 @@ Nachbesserungen bei Zugangsdaten und Feldnamen.
 | `google_cast` | Chromecast & Co.: was läuft, Play/Pause (`pip install "homepilot[cast]"`) |
 | `google_calendar` | Die nächsten Termine als Kachel (Cloud, Refresh-Token) |
 | `androidtv` | Fernbedienung, App-Anzeige, Lautstärke; einmalige PIN-Kopplung: `python -m homepilot.integrations.androidtv -c config.yaml` |
+| `ring` | Klingeln und Bewegung als Push, Akku und Status per Abfrage; einmalige 2FA-Anmeldung: `python -m homepilot.integrations.ring -c config.yaml` |
 
 **⬜ Noch offen**
 
 | Integration | Notizen |
 |---|---|
-| `ring` | Inoffizielle Cloud-API mit 2FA |
 | `matter` | Grösster Brocken – eigener Controller-Dienst |
 
 Anleitung inkl. Bibliotheks-Vorlagen für alle offenen Punkte:
@@ -192,5 +192,4 @@ Jeder ausgeführte Lauf wird in `automation_runs` protokolliert.
 
 - Die 🟡-Integrationen an der echten Hardware ausprobieren und Feldnamen
   nachziehen – das ist der wertvollste offene Schritt
-- `ring` ergänzen (2FA-Anmeldung – braucht dich bei der Einrichtung)
 - Matter als eigener Controller-Dienst (`python-matter-server`)

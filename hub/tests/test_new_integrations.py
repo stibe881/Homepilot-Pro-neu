@@ -250,6 +250,29 @@ def test_cert_paths_are_stable_and_shared():
     assert key == "/etc/homepilot/androidtv-192.168.1.50.key"
 
 
+# ── Ring ─────────────────────────────────────────────────────────────────
+
+
+def test_ring_device_state():
+    from homepilot.integrations.ring import device_state
+
+    assert device_state(85, None) == {"state": "online", "motion": "off", "battery": 85}
+    assert device_state(None, "offline") == {"state": "offline", "motion": "off"}
+
+
+def test_ring_event_fields():
+    from homepilot.integrations.ring import event_fields
+
+    ding = event_fields("ding", 1755200000.0)
+    assert ding["ring"] == "on"
+    assert ding["last_ring"].startswith("2025-")
+    motion = event_fields("motion", 1755200000.0)
+    assert motion["motion"] == "on"
+    assert "last_motion" in motion
+    # Unbekannte Ereignisarten ändern nichts.
+    assert event_fields("on_demand", 1755200000.0) == {}
+
+
 # ── Google Calendar ──────────────────────────────────────────────────────
 
 

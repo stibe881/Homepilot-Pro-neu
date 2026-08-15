@@ -21,6 +21,7 @@ dependencies = [
 roborock = ["python-roborock>=3.0"]
 cast = ["pychromecast>=14.0"]
 androidtv = ["androidtvremote2>=0.3"]
+ring = ["ring-doorbell>=0.9"]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
