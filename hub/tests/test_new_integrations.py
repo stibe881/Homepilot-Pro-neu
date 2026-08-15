@@ -207,6 +207,49 @@ def test_cast_backdrop_counts_as_idle_app():
     assert state["app"] is None
 
 
+# ── Android TV ───────────────────────────────────────────────────────────
+
+
+class _Volume:
+    def __init__(self, level, max, muted):  # noqa: A002 – Feldname der Bibliothek
+        self.level, self.max, self.muted = level, max, muted
+
+
+def test_tv_state_on_with_app_and_volume():
+    from homepilot.integrations.androidtv import tv_state
+
+    state = tv_state(True, "com.netflix.ninja", _Volume(12, 40, False))
+    assert state["state"] == "on"
+    assert state["app"] == "Netflix"
+    assert state["track"] == "Netflix"  # Hauptzeile der Media-Kachel
+    assert state["volume"] == 30
+    assert state["muted"] is False
+
+
+def test_tv_state_off_hides_app():
+    from homepilot.integrations.androidtv import tv_state
+
+    state = tv_state(False, "com.netflix.ninja", None)
+    assert state == {"state": "off", "app": None, "track": None}
+
+
+def test_app_name_launcher_counts_as_nothing():
+    from homepilot.integrations.androidtv import app_name
+
+    assert app_name("com.google.android.tvlauncher") is None
+    assert app_name(None) is None
+    # Unbekannte Pakete: lesbarer letzter Namensteil statt roher ID.
+    assert app_name("tv.arte.plus7") == "Plus7"
+
+
+def test_cert_paths_are_stable_and_shared():
+    from homepilot.integrations.androidtv import cert_paths
+
+    cert, key = cert_paths("/etc/homepilot", "192.168.1.50")
+    assert cert == "/etc/homepilot/androidtv-192.168.1.50.pem"
+    assert key == "/etc/homepilot/androidtv-192.168.1.50.key"
+
+
 # ── Google Calendar ──────────────────────────────────────────────────────
 
 

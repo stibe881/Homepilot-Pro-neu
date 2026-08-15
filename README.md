@@ -146,12 +146,12 @@ Nachbesserungen bei Zugangsdaten und Feldnamen.
 | `roborock` | Sauger über das Roborock-Konto: Zustand, Akku, start/pause/dock (`pip install "homepilot[roborock]"`) |
 | `google_cast` | Chromecast & Co.: was läuft, Play/Pause (`pip install "homepilot[cast]"`) |
 | `google_calendar` | Die nächsten Termine als Kachel (Cloud, Refresh-Token) |
+| `androidtv` | Fernbedienung, App-Anzeige, Lautstärke; einmalige PIN-Kopplung: `python -m homepilot.integrations.androidtv -c config.yaml` |
 
 **⬜ Noch offen**
 
 | Integration | Notizen |
 |---|---|
-| `androidtv` | Remote-Protokoll mit PIN-Kopplung am Fernseher |
 | `ring` | Inoffizielle Cloud-API mit 2FA |
 | `matter` | Grösster Brocken – eigener Controller-Dienst |
 
@@ -192,6 +192,5 @@ Jeder ausgeführte Lauf wird in `automation_runs` protokolliert.
 
 - Die 🟡-Integrationen an der echten Hardware ausprobieren und Feldnamen
   nachziehen – das ist der wertvollste offene Schritt
-- `androidtv` (PIN-Kopplung am Fernseher) und `ring` (2FA-Anmeldung)
-  ergänzen – beide brauchen dich bei der Einrichtung
+- `ring` ergänzen (2FA-Anmeldung – braucht dich bei der Einrichtung)
 - Matter als eigener Controller-Dienst (`python-matter-server`)

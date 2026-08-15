@@ -23,6 +23,7 @@ ALL_INTEGRATIONS = [
     "roborock",
     "google_cast",
     "google_calendar",
+    "androidtv",
     "twinkly",
     "vzug",
 ]

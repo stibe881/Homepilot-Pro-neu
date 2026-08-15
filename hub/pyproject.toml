@@ -20,6 +20,7 @@ dependencies = [
 # Schwere Protokollbibliotheken nur bei Bedarf:
 roborock = ["python-roborock>=3.0"]
 cast = ["pychromecast>=14.0"]
+androidtv = ["androidtvremote2>=0.3"]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",

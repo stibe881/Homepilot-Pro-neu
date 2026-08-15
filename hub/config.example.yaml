@@ -135,6 +135,14 @@ integrations:
   #   client_secret: "${GOOGLE_CLIENT_SECRET}"
   #   refresh_token: "${GOOGLE_REFRESH_TOKEN}"
 
+  # Android TV / Google TV. Braucht: pip install androidtvremote2
+  # Einmalige PIN-Kopplung am Fernseher:
+  #   python -m homepilot.integrations.androidtv -c config.yaml
+  # - integration: androidtv
+  #   devices:
+  #     - host: 192.168.1.50
+  #       name: Wohnzimmer TV
+
   # V-ZUG-Geräte (lokale Home-API, nur lesend).
   # - integration: vzug
   #   scan_interval: 60
