@@ -152,7 +152,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       }
       onCommand={(command, data) => sendCommand(entity.id, command, data)}
       snapshotUri={
-        entity.kind === 'camera' && settings.url && settings.token
+        // Kameras: Livebild. Sauger: die Karte – beides über denselben Endpunkt.
+        (entity.kind === 'camera' || entity.kind === 'vacuum') &&
+        settings.url &&
+        settings.token
           ? `${settings.url.replace(/\/+$/, '')}/api/entities/${encodeURIComponent(
               entity.id
             )}/snapshot?token=${encodeURIComponent(settings.token)}`

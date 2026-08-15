@@ -211,6 +211,14 @@ export function EntityCard({
         const cleaning = entity.state.state === 'cleaning';
         return (
           <View style={styles.stack}>
+            {snapshotUri ? (
+              <CameraSnapshot
+                uri={snapshotUri}
+                // Nach jedem Zustandswechsel (losfahren, andocken) frische Karte.
+                refreshKey={String(entity.state.state)}
+                contain
+              />
+            ) : null}
             <Pill
               label={vacuumLabel(entity.state.state)}
               tone={cleaning ? colors.accent : entity.state.error ? colors.danger : undefined}
@@ -230,6 +238,14 @@ export function EntityCard({
               <MediaButton icon="home" label="Zur Station"
                 onPress={() => onCommand('dock')} />
             </View>
+            {entity.commands.includes('clean_rooms') &&
+            Array.isArray(entity.state.rooms) &&
+            entity.state.rooms.length > 0 ? (
+              <VacuumRooms
+                rooms={entity.state.rooms}
+                onClean={(roomIds) => onCommand('clean_rooms', { rooms: roomIds })}
+              />
+            ) : null}
           </View>
         );
       }
@@ -359,9 +375,18 @@ function EditButton({
   );
 }
 
-/** Kamerabild, das sich von selbst frisch hält: alle 60 Sekunden und
- *  zusätzlich sofort, wenn refreshKey (Bewegung/Klingeln) wechselt. */
-function CameraSnapshot({ uri, refreshKey }: { uri: string; refreshKey: string }) {
+/** Standbild (Kamera oder Saugerkarte), das sich von selbst frisch hält:
+ *  alle 60 Sekunden und zusätzlich sofort, wenn refreshKey wechselt. */
+function CameraSnapshot({
+  uri,
+  refreshKey,
+  contain,
+}: {
+  uri: string;
+  refreshKey: string;
+  /** Karten ganz zeigen statt formatfüllend zuschneiden. */
+  contain?: boolean;
+}) {
   const colors = useColors();
   const [tick, setTick] = useState(0);
   const [failed, setFailed] = useState(false);
@@ -370,21 +395,80 @@ function CameraSnapshot({ uri, refreshKey }: { uri: string; refreshKey: string }
     return () => clearInterval(timer);
   }, []);
   if (failed) {
-    return null; // Kamera ohne Schnappschuss: Kachel bleibt wie bisher.
+    return null; // Gerät ohne Bild: Kachel bleibt wie bisher.
   }
   const separator = uri.includes('?') ? '&' : '?';
   return (
     <Image
       source={{ uri: `${uri}${separator}t=${tick}-${encodeURIComponent(refreshKey)}` }}
       onError={() => setFailed(true)}
-      resizeMode="cover"
+      resizeMode={contain ? 'contain' : 'cover'}
       style={{
         width: '100%',
-        aspectRatio: 16 / 9,
+        aspectRatio: contain ? 4 / 3 : 16 / 9,
         borderRadius: radius.control,
         backgroundColor: colors.surfaceSoft,
       }}
     />
+  );
+}
+
+/** Raumauswahl des Saugers: Räume antippen, dann gezielt saugen lassen. */
+function VacuumRooms({
+  rooms,
+  onClean,
+}: {
+  rooms: { id: number; name: string }[];
+  onClean: (roomIds: number[]) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [selected, setSelected] = useState<number[]>([]);
+  const toggle = (id: number) =>
+    setSelected((current) =>
+      current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id]
+    );
+  return (
+    <View style={styles.stack}>
+      <View style={styles.deviceRow}>
+        {rooms.map((room) => {
+          const active = selected.includes(room.id);
+          return (
+            <Pressable
+              key={room.id}
+              onPress={() => toggle(room.id)}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: active }}
+              style={[styles.deviceChip, active && styles.deviceChipActive]}>
+              <Ionicons
+                name={active ? 'checkmark-circle' : 'ellipse-outline'}
+                size={12}
+                color={active ? '#FFFFFF' : colors.inkSoft}
+              />
+              <Text
+                style={[styles.deviceChipText, active && styles.deviceChipTextActive]}
+                numberOfLines={1}>
+                {room.name}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      {selected.length > 0 ? (
+        <Pressable
+          onPress={() => {
+            onClean(selected);
+            setSelected([]);
+          }}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.cleanRoomsButton, pressed && { opacity: 0.75 }]}>
+          <Ionicons name="play" size={14} color="#FFFFFF" />
+          <Text style={styles.cleanRoomsText}>
+            {selected.length === 1 ? '1 Raum saugen' : `${selected.length} Räume saugen`}
+          </Text>
+        </Pressable>
+      ) : null}
+    </View>
   );
 }
 
@@ -521,6 +605,16 @@ const makeStyles = (colors: Colors) =>
   },
   deviceChipText: { fontSize: 12, color: colors.inkSoft, flexShrink: 1 },
   deviceChipTextActive: { color: '#FFFFFF' },
+  cleanRoomsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 9,
+    borderRadius: radius.control,
+    backgroundColor: colors.accent,
+  },
+  cleanRoomsText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
   mediaButton: {
     width: 38,
     height: 38,

@@ -143,7 +143,7 @@ Nachbesserungen bei Zugangsdaten und Feldnamen.
 | `unifi_protect` | Kameras: online, Aufnahmemodus, Bewegung und Klingeln live über den Ereignisstrom |
 | `hue_sync` | Hue Play HDMI Sync Box: Sync an/aus, Modus und Eingang |
 | `spotify` | Was gerade läuft, Play/Pause/Weiter, und die Wiedergabe per Tipp auf einen anderen Lautsprecher umziehen (Spotify Connect – Google-Home-Lautsprecher tauchen dort automatisch auf) |
-| `roborock` | Sauger über das Roborock-Konto: Zustand, Akku, start/pause/dock (`pip install "homepilot[roborock]"`) |
+| `roborock` | Sauger über das Roborock-Konto: Zustand, Akku, Karte auf der Kachel, start/pause/dock und einzelne oder mehrere Räume gezielt saugen (`pip install "homepilot[roborock]"`) |
 | `google_cast` | Chromecast & Co.: was läuft, Play/Pause (`pip install "homepilot[cast]"`) |
 | `google_calendar` | Die nächsten Termine als Kachel (Cloud, Refresh-Token) |
 | `androidtv` | Fernbedienung, App-Anzeige, Lautstärke; einmalige PIN-Kopplung: `python -m homepilot.integrations.androidtv -c config.yaml` |

@@ -188,10 +188,10 @@ def create_app(hub: Hub) -> FastAPI:
 
     @app.get("/api/entities/{entity_id}/snapshot")
     async def entity_snapshot(entity_id: str, request: Request) -> Response:
-        """Aktuelles Kamerabild als JPEG.
+        """Aktuelles Standbild: Kamerabild (JPEG) oder Saugerkarte (PNG).
 
-        Läuft über den Hub statt direkt zur Kamera: Die App braucht so keine
-        Kamera-Zugangsdaten, und die Sichtbarkeitsregeln gelten auch hier.
+        Läuft über den Hub statt direkt zum Gerät: Die App braucht so keine
+        Geräte-Zugangsdaten, und die Sichtbarkeitsregeln gelten auch hier.
         """
         user = current_user(request)
         entity = hub.registry.get(entity_id)
@@ -210,7 +210,7 @@ def create_app(hub: Hub) -> FastAPI:
             )
         return Response(
             content=image,
-            media_type="image/jpeg",
+            media_type="image/png" if image.startswith(b"\x89PNG") else "image/jpeg",
             headers={"Cache-Control": "no-store"},
         )
 

@@ -10,7 +10,13 @@ Voraussetzung (bewusst nicht in den Grundabhängigkeiten, die Bibliothek
 ist gross):  pip install "homepilot[roborock]"  bzw.  pip install python-roborock
 
 Die Anmeldung läuft über das Roborock-Konto; die Bibliothek verbindet sich
-danach bevorzugt lokal mit dem Sauger. Kommandos: start, pause, stop, dock.
+danach bevorzugt lokal mit dem Sauger. Kommandos: start, pause, stop, dock
+und clean_rooms (gezielt einzelne oder mehrere Räume saugen).
+
+Die Räume des Saugers stehen als state.rooms auf der Entität; die Karte
+liefert der Schnappschuss-Endpunkt (GET /api/entities/{id}/snapshot) als
+fertig gerendertes PNG – dieselbe Leitung, über die auch Kamerabilder
+laufen.
 """
 
 from __future__ import annotations
@@ -48,6 +54,33 @@ def vacuum_state(status: Any) -> dict[str, Any]:
     return result
 
 
+def parse_rooms(mappings: Any) -> list[dict[str, Any]]:
+    """Übersetzt die Raumliste der Bibliothek in App-taugliche Einträge.
+
+    Erwartet Objekte mit segment_id und name (NamedRoomMapping) – als reine
+    Funktion auch ohne Konto und Gerät testbar.
+    """
+    rooms = []
+    for mapping in mappings or []:
+        segment_id = getattr(mapping, "segment_id", None)
+        if segment_id is None:
+            continue
+        rooms.append({"id": int(segment_id), "name": str(getattr(mapping, "name", segment_id))})
+    return sorted(rooms, key=lambda room: room["name"])
+
+
+def segment_clean_params(room_ids: list[Any]) -> list[dict[str, Any]]:
+    """Parameter für APP_SEGMENT_CLEAN (rein, testbar).
+
+    Wirft bei leerer oder unbrauchbarer Auswahl, damit der Fehler beim
+    Benutzer ankommt statt still nichts zu passieren.
+    """
+    segments = [int(room_id) for room_id in room_ids or []]
+    if not segments:
+        raise ValueError("clean_rooms braucht data.rooms mit mindestens einer Raum-ID")
+    return [{"segments": segments, "repeat": 1}]
+
+
 async def _maybe_await(value: Any) -> Any:
     if inspect.isawaitable(value):
         return await value
@@ -83,6 +116,7 @@ class RoborockIntegration(Integration):
             "stop": RoborockCommand.APP_STOP,
             "dock": RoborockCommand.APP_CHARGE,
         }
+        self._segment_clean = RoborockCommand.APP_SEGMENT_CLEAN
         self._interval = float(self.config.get("scan_interval", 60))
 
         api = RoborockApiClient(username)
@@ -105,10 +139,11 @@ class RoborockIntegration(Integration):
                 EntityKind.VACUUM,
                 device.name or "Roborock",
                 state={"state": "unknown"},
-                commands=list(self._commands),
+                commands=[*self._commands, "clean_rooms"],
                 available=False,
             )
             self._devices[entity.id] = device
+            await self._load_rooms(entity.id, device)
 
         if not self._devices:
             raise ConfigError("Im Roborock-Konto wurde kein passender Sauger gefunden")
@@ -120,6 +155,23 @@ class RoborockIntegration(Integration):
         await super().teardown()
         if hasattr(self, "_manager"):
             await _maybe_await(self._manager.close())
+
+    async def _load_rooms(self, entity_id: str, device: Any) -> None:
+        """Raumliste des Saugers holen und auf die Entität schreiben.
+
+        Kein harter Fehler, wenn das Modell keine Räume kennt – dann fehlt
+        in der App einfach die Raumauswahl.
+        """
+        try:
+            rooms_trait = getattr(device.v1_properties, "rooms", None)
+            if rooms_trait is None:
+                return
+            await _maybe_await(rooms_trait.refresh())
+            rooms = parse_rooms(rooms_trait.rooms)
+            if rooms:
+                await self.hub.registry.update_state(entity_id, {"rooms": rooms})
+        except Exception as err:
+            self.log.warning("Raumliste von %s nicht abrufbar: %s", device.name, err)
 
     async def _poll_loop(self) -> None:
         while True:
@@ -146,8 +198,28 @@ class RoborockIntegration(Integration):
         )
         if sender is None:
             raise ConfigError("Dieses Gerät nimmt keine Kommandos entgegen")
-        await _maybe_await(sender.send(self._commands[command]))
+        if command == "clean_rooms":
+            await _maybe_await(
+                sender.send(self._segment_clean, params=segment_clean_params(data.get("rooms")))
+            )
+        else:
+            await _maybe_await(sender.send(self._commands[command]))
         await self._refresh_all()
+
+    async def snapshot(self, entity: Entity) -> bytes | None:
+        """Die Karte des Saugers als fertig gerendertes PNG."""
+        device = self._devices.get(entity.id)
+        if device is None:
+            return None
+        try:
+            map_trait = getattr(device.v1_properties, "map_content", None)
+            if map_trait is None:
+                return None
+            await _maybe_await(map_trait.refresh())
+            return map_trait.image_content
+        except Exception as err:
+            self.log.debug("Karte von %s nicht abrufbar: %s", device.name, err)
+            return None
 
 
 INTEGRATION = RoborockIntegration

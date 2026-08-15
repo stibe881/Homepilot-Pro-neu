@@ -207,6 +207,34 @@ def test_vacuum_state_survives_missing_fields():
     assert vacuum_state(_Status())["state"] == "unknown"
 
 
+class _Room:
+    def __init__(self, segment_id, name):
+        self.segment_id, self.name = segment_id, name
+
+
+def test_parse_rooms_sorted_by_name():
+    from homepilot.integrations.roborock import parse_rooms
+
+    rooms = parse_rooms([_Room(18, "Wohnzimmer"), _Room(16, "Bad"), _Room(17, "Küche")])
+    assert rooms == [
+        {"id": 16, "name": "Bad"},
+        {"id": 17, "name": "Küche"},
+        {"id": 18, "name": "Wohnzimmer"},
+    ]
+    assert parse_rooms(None) == []
+
+
+def test_segment_clean_params():
+    import pytest as _pytest
+
+    from homepilot.integrations.roborock import segment_clean_params
+
+    assert segment_clean_params([16, 18]) == [{"segments": [16, 18], "repeat": 1}]
+    # Leere Auswahl ist ein Bedienfehler und soll als solcher gemeldet werden.
+    with _pytest.raises(ValueError):
+        segment_clean_params([])
+
+
 # ── Google Cast ──────────────────────────────────────────────────────────
 
 
