@@ -181,30 +181,53 @@ class RingIntegration(Integration):
 
     async def _listen(self) -> None:
         """Push-Ereignisse (Klingeln, Bewegung) über den Kanal der Ring-App."""
-        from ring_doorbell import RingEventListener
-
         loop = asyncio.get_running_loop()
-        listener = RingEventListener(
-            self._ring,
-            credentials=self._stored.get("listener"),
-            credentials_updated_callback=lambda creds: self._save("listener", creds),
-        )
-        self._listener = listener
 
         def on_event(event: Any) -> None:
             asyncio.run_coroutine_threadsafe(self._handle_event(event), loop)
 
+        # Erster Versuch mit der gespeicherten Credential. Ist sie beschädigt
+        # (z.B. 'Incorrect padding' aus firebase_messaging beim Dekodieren
+        # eines alten Eintrags), verwerfen und einmal frisch registrieren.
+        if await self._try_listen(on_event, self._stored.get("listener")):
+            return
+        if self._stored.get("listener") is not None:
+            self.log.warning(
+                "Ring-Push-Credential unbrauchbar – wird verworfen und neu registriert"
+            )
+            self._stored.pop("listener", None)
+            self._save("listener", None)
+            if await self._try_listen(on_event, None):
+                return
+        self.log.warning(
+            "Ring-Ereigniskanal nicht verfügbar – Klingeln/Bewegung kommen nur "
+            "verzögert über die Abfrage (alle %ss)",
+            self.config.get("scan_interval", 300),
+        )
+
+    async def _try_listen(self, on_event: Any, credentials: Any) -> bool:
+        """Ereigniskanal mit gegebener Credential starten; True bei Erfolg."""
+        from ring_doorbell import RingEventListener
+
+        listener = RingEventListener(
+            self._ring,
+            credentials=credentials,
+            credentials_updated_callback=lambda creds: self._save("listener", creds),
+        )
         try:
             if not await listener.start():
-                self.log.warning(
-                    "Ring-Ereigniskanal liess sich nicht starten – "
-                    "Klingeln/Bewegung kommen nur verzögert über die Abfrage"
-                )
-                return
+                return False
             listener.add_notification_callback(on_event)
+            self._listener = listener
             self.log.info("Ring-Ereigniskanal verbunden")
+            return True
         except Exception as err:
-            self.log.warning("Ring-Ereigniskanal fehlgeschlagen: %s", err)
+            self.log.debug("Ring-Ereigniskanal-Start fehlgeschlagen: %s", err)
+            try:
+                await listener.stop()
+            except Exception:
+                pass
+            return False
 
     async def _handle_event(self, event: Any) -> None:
         entity_id = self._by_ring_id.get(int(event.doorbot_id))
