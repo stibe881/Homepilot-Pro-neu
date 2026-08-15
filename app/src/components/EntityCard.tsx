@@ -236,23 +236,32 @@ export function EntityCard({
         return <LockBody entity={entity} onCommand={onCommand} pending={pending} />;
 
       case 'cover': {
-        // Storen/Rollläden: auf, stopp, zu. Position 0…100 falls gemeldet.
+        // Storen/Rollläden/Raffstoren: hoch, stopp, runter; Position und –
+        // bei Aussenraffstoren – Lamellenwinkel als Schieberegler.
         const pos = entity.state.position;
+        const tilt = entity.state.tilt;
         return (
           <View style={styles.stack}>
             <Pill
               label={
                 entity.state.state === 'closed'
                   ? 'Geschlossen'
-                  : entity.state.state === 'opening'
-                    ? 'Fährt hoch'
-                    : entity.state.state === 'closing'
-                      ? 'Fährt runter'
-                      : 'Offen'
+                  : entity.state.state === 'partial'
+                    ? `${typeof pos === 'number' ? pos : ''}% offen`.trim()
+                    : 'Offen'
               }
             />
-            {typeof pos === 'number' ? (
-              <Text style={styles.hint}>{pos} % offen</Text>
+            {entity.commands.includes('set_position') && typeof pos === 'number' ? (
+              <View style={styles.stack}>
+                <Text style={styles.hint}>Position: {pos} % offen</Text>
+                <Bar value={pos} onChange={(value) => onCommand('set_position', { position: value })} />
+              </View>
+            ) : null}
+            {entity.commands.includes('set_tilt') && typeof tilt === 'number' ? (
+              <View style={styles.stack}>
+                <Text style={styles.hint}>Lamellen: {tilt} %</Text>
+                <Bar value={tilt} onChange={(value) => onCommand('set_tilt', { tilt: value })} />
+              </View>
             ) : null}
             <View style={styles.mediaRow}>
               <MediaButton icon="chevron-up" label="Hoch" onPress={() => onCommand('open')} />

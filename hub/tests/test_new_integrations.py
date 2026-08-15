@@ -497,3 +497,33 @@ def test_meteoalarm_area_filter():
     assert [a["event"] for a in zell] == ["Gewitter", "Hitze"]
     # Ohne Filter bleibt alles.
     assert len(filter_by_area(alerts, [])) == 3
+
+
+# ── Overkiz (Somfy-Storen) ───────────────────────────────────────────────
+
+
+def test_overkiz_cover_state_position_and_tilt():
+    from homepilot.integrations.overkiz import cover_state
+
+    # Overkiz: closure 30 = 70 % offen; Lamellen 45.
+    state = cover_state(
+        {
+            "core:ClosureState": 30,
+            "core:SlateOrientationState": 45,
+            "core:OpenClosedState": "open",
+        }
+    )
+    assert state["position"] == 70
+    assert state["tilt"] == 45
+    assert state["state"] == "partial"
+
+
+def test_overkiz_cover_state_open_and_closed():
+    from homepilot.integrations.overkiz import cover_state
+
+    assert cover_state({"core:ClosureState": 0})["state"] == "open"
+    assert cover_state({"core:ClosureState": 100})["state"] == "closed"
+    # Nur OpenClosed ohne Position.
+    assert cover_state({"core:OpenClosedState": "closed"})["state"] == "closed"
+    # Nichts Verwertbares → unknown, kein Absturz.
+    assert cover_state({})["state"] == "unknown"

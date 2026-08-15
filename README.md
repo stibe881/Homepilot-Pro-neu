@@ -150,6 +150,8 @@ Nachbesserungen bei Zugangsdaten und Feldnamen.
 | `androidtv` | Fernbedienung, App-Anzeige, Lautstärke; einmalige PIN-Kopplung: `python -m homepilot.integrations.androidtv -c config.yaml` |
 | `ring` | Klingeln und Bewegung als Push, Akku und Status per Abfrage, Türöffner beim Ring Intercom (Zwei-Schritt-Bestätigung in der App); einmalige 2FA-Anmeldung: `python -m homepilot.integrations.ring -c config.yaml` |
 | `matter` | Lichter, Steckdosen und Sensoren über den python-matter-server (eigener Dienst, Block in docker-compose.yml); Protokoll end-to-end gegen einen nachgebauten Dienst getestet. Geräte koppeln: `python -m homepilot.integrations.matter -c config.yaml --pair <Code>` |
+| `overkiz` | Somfy TaHoma & Co.: Storen, Rollläden, Raffstoren mit Position und Lamellenwinkel (lokale API übers Gateway); einmalige Anmeldung: `python -m homepilot.integrations.overkiz -c config.yaml` |
+| `weather` | Wetterlage und 7-Tage-Vorhersage (Open-Meteo, kostenlos, kein Schlüssel) |
 
 Damit sind **alle 16 geplanten Produkte angebunden.** Anleitung zum
 Selberschreiben weiterer Integrationen:

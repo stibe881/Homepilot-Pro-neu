@@ -153,6 +153,13 @@ integrations:
   #     - host: 192.168.1.50
   #       name: Wohnzimmer TV
 
+  # Overkiz (Somfy TaHoma & Co.): Storen, Rollläden, Markisen.
+  # Braucht: pip install pyoverkiz. Einmalige Anmeldung (Entwicklermodus
+  # im Somfy-Konto aktivieren, dann):
+  #   python -m homepilot.integrations.overkiz -c config.yaml
+  # - integration: overkiz
+  #   host: gateway-2310-9733-0267.local:8443
+
   # Ring-Türklingeln und -Kameras. Braucht: pip install ring-doorbell
   # Einmalige Anmeldung mit 2FA-Code:
   #   python -m homepilot.integrations.ring -c config.yaml
