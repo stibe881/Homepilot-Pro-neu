@@ -16,7 +16,7 @@ interface Automation {
 }
 
 /** Was der Editor anbietet – bewusst wenig, aber vollständig bedienbar. */
-type TriggerKind = 'state' | 'time';
+type TriggerKind = 'state' | 'time' | 'sun';
 type ActionKind = 'command' | 'scene' | 'notify';
 
 interface Draft {
@@ -30,6 +30,9 @@ interface Draft {
   /** Optional: anderes Zustandsfeld als 'state' (z.B. 'ring' beim Klingeln). */
   attribute: string;
   at: string;
+  /** Sonnenstand-Trigger: Aufgang oder Untergang, plus Versatz in Minuten. */
+  sunEvent: 'sunrise' | 'sunset';
+  sunOffset: string;
   actionKind: ActionKind;
   actionEntityId: string;
   command: string;
@@ -48,6 +51,8 @@ const EMPTY: Draft = {
   fromState: '',
   attribute: '',
   at: '18:30',
+  sunEvent: 'sunset',
+  sunOffset: '0',
   actionKind: 'command',
   actionEntityId: '',
   command: 'turn_on',
@@ -81,6 +86,7 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
   const appliance = entities.find((entity) => entity.kind === 'appliance');
   const alert = entities.find((entity) => entity.kind === 'alert');
   const vacuum = entities.find((entity) => entity.commands.includes('clean_rooms'));
+  const cover = entities.find((entity) => entity.kind === 'cover');
   const offScene = scenes.find((scene) => scene.id === 'alles_aus');
   const firstOff = entities.find((entity) => entity.commands.includes('turn_off'));
 
@@ -160,6 +166,48 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
       },
     });
   }
+  if (cover) {
+    templates.push({
+      label: 'Storen zu bei Sonnenuntergang',
+      icon: 'moon-outline',
+      draft: {
+        ...EMPTY,
+        alias: 'Storen zu bei Sonnenuntergang',
+        triggerKind: 'sun',
+        sunEvent: 'sunset',
+        sunOffset: '0',
+        actionEntityId: cover.id,
+        command: 'close',
+      },
+    });
+    templates.push({
+      label: 'Storen auf bei Sonnenaufgang',
+      icon: 'sunny-outline',
+      draft: {
+        ...EMPTY,
+        alias: 'Storen auf bei Sonnenaufgang',
+        triggerKind: 'sun',
+        sunEvent: 'sunrise',
+        sunOffset: '0',
+        actionEntityId: cover.id,
+        command: 'open',
+      },
+    });
+    if (alert) {
+      templates.push({
+        label: 'Sturmschutz: Storen zu bei Warnung',
+        icon: 'shield-outline',
+        draft: {
+          ...EMPTY,
+          alias: 'Sturmschutz',
+          entityId: alert.id,
+          toState: 'alert',
+          actionEntityId: cover.id,
+          command: 'close',
+        },
+      });
+    }
+  }
   return templates;
 }
 
@@ -210,11 +258,20 @@ export function AutomationsScreen({
     };
     if (draft.fromState) stateTrigger.from = draft.fromState;
     if (draft.attribute) stateTrigger.attribute = draft.attribute;
+    const sunTrigger = {
+      type: 'sun',
+      event: draft.sunEvent,
+      offset: Number(draft.sunOffset) || 0,
+    };
+    const trigger =
+      draft.triggerKind === 'state'
+        ? stateTrigger
+        : draft.triggerKind === 'sun'
+          ? sunTrigger
+          : { type: 'time', at: draft.at };
     const body = {
       alias: draft.alias || 'Ohne Namen',
-      trigger: [
-        draft.triggerKind === 'state' ? stateTrigger : { type: 'time', at: draft.at },
-      ],
+      trigger: [trigger],
       condition: [],
       action: [buildAction(draft)],
     };
@@ -680,6 +737,7 @@ function Editor({
   const actionEntity = entities.find((entity) => entity.id === draft.actionEntityId);
   const actionRooms = vacuumRooms(actionEntity);
   const isVacuum = actionEntity?.kind === 'vacuum';
+  const isCover = actionEntity?.kind === 'cover';
 
   return (
     <Modal visible animationType="slide" onRequestClose={onCancel}>
@@ -708,11 +766,36 @@ function Editor({
             options={[
               { key: 'state', label: 'Gerät wechselt' },
               { key: 'time', label: 'Uhrzeit' },
+              { key: 'sun', label: 'Sonnenstand' },
             ]}
             value={draft.triggerKind}
             onSelect={(triggerKind) => set({ triggerKind: triggerKind as TriggerKind })}
           />
-          {draft.triggerKind === 'state' ? (
+          {draft.triggerKind === 'sun' ? (
+            <>
+              <Choice
+                options={[
+                  { key: 'sunrise', label: 'Sonnenaufgang' },
+                  { key: 'sunset', label: 'Sonnenuntergang' },
+                ]}
+                value={draft.sunEvent}
+                onSelect={(sunEvent) => set({ sunEvent: sunEvent as Draft['sunEvent'] })}
+              />
+              <TextInput
+                style={styles.input}
+                value={draft.sunOffset}
+                onChangeText={(sunOffset) => set({ sunOffset })}
+                placeholder="Versatz in Minuten, z.B. -30"
+                placeholderTextColor={colors.inkFaint}
+                keyboardType="numbers-and-punctuation"
+              />
+              <Text style={styles.triggerNote}>
+                Löst {Number(draft.sunOffset) ? `${Math.abs(Number(draft.sunOffset))} Min ` : ''}
+                {Number(draft.sunOffset) < 0 ? 'vor ' : Number(draft.sunOffset) > 0 ? 'nach ' : ''}
+                {draft.sunEvent === 'sunrise' ? 'Sonnenaufgang' : 'Sonnenuntergang'} aus.
+              </Text>
+            </>
+          ) : draft.triggerKind === 'state' ? (
             <>
               <Picker
                 items={entities.map((entity) => ({ key: entity.id, label: entity.name }))}
@@ -768,7 +851,12 @@ function Editor({
                   const next = entities.find((entity) => entity.id === actionEntityId);
                   set({
                     actionEntityId,
-                    command: next?.kind === 'vacuum' ? 'start' : 'turn_on',
+                    command:
+                      next?.kind === 'vacuum'
+                        ? 'start'
+                        : next?.kind === 'cover'
+                          ? 'close'
+                          : 'turn_on',
                     rooms: [],
                   });
                 }}
@@ -783,11 +871,17 @@ function Editor({
                           ? [{ key: 'clean_rooms', label: 'Räume saugen' }]
                           : []),
                       ]
-                    : [
-                        { key: 'turn_on', label: 'einschalten' },
-                        { key: 'turn_off', label: 'ausschalten' },
-                        { key: 'toggle', label: 'umschalten' },
-                      ]
+                    : isCover
+                      ? [
+                          { key: 'close', label: 'schliessen' },
+                          { key: 'open', label: 'öffnen' },
+                          { key: 'stop', label: 'stopp' },
+                        ]
+                      : [
+                          { key: 'turn_on', label: 'einschalten' },
+                          { key: 'turn_off', label: 'ausschalten' },
+                          { key: 'toggle', label: 'umschalten' },
+                        ]
                 }
                 value={draft.command}
                 onSelect={(command) => set({ command })}
@@ -963,12 +1057,15 @@ function toDraft(automation: Automation): Draft {
     ...EMPTY,
     id: automation.id,
     alias: automation.alias,
-    triggerKind: trigger.type === 'time' ? 'time' : 'state',
+    triggerKind:
+      trigger.type === 'time' ? 'time' : trigger.type === 'sun' ? 'sun' : 'state',
     entityId: trigger.entity_id ?? '',
     toState: trigger.to ?? 'on',
     fromState: trigger.from ?? '',
     attribute: trigger.attribute ?? '',
     at: trigger.at ?? EMPTY.at,
+    sunEvent: trigger.event === 'sunrise' ? 'sunrise' : 'sunset',
+    sunOffset: String(trigger.offset ?? 0),
     actionKind: (action.type as ActionKind) ?? 'command',
     actionEntityId: action.entity_id ?? '',
     command: action.command ?? 'turn_on',
@@ -986,11 +1083,15 @@ function describe(automation: Automation): string {
     ? 'ohne Auslöser'
     : trigger.type === 'time'
       ? `täglich um ${trigger.at}`
-      : trigger.type === 'interval'
-        ? `alle ${trigger.seconds} s`
-        : `wenn ${trigger.entity_id}${
-            trigger.attribute ? `.${trigger.attribute}` : ''
-          } → ${trigger.to ?? 'sich ändert'}`;
+      : trigger.type === 'sun'
+        ? `bei ${trigger.event === 'sunrise' ? 'Sonnenaufgang' : 'Sonnenuntergang'}${
+            trigger.offset ? ` ${trigger.offset > 0 ? '+' : ''}${trigger.offset} min` : ''
+          }`
+        : trigger.type === 'interval'
+          ? `alle ${trigger.seconds} s`
+          : `wenn ${trigger.entity_id}${
+              trigger.attribute ? `.${trigger.attribute}` : ''
+            } → ${trigger.to ?? 'sich ändert'}`;
   const dann = !action
     ? 'ohne Aktion'
     : action.type === 'scene'
