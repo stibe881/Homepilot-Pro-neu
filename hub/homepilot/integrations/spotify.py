@@ -40,6 +40,26 @@ ACCOUNTS = "https://accounts.spotify.com/api/token"
 API = "https://api.spotify.com/v1"
 
 
+def parse_devices(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Übersetzt /me/player/devices in eine Geräteliste (rein, testbar).
+
+    Google-Home-Lautsprecher, Fernseher usw. tauchen hier als
+    Spotify-Connect-Ziele auf; 'play_on' zieht die Wiedergabe dorthin um.
+    """
+    devices = []
+    for device in (payload or {}).get("devices") or []:
+        if not device.get("name") or not device.get("id"):
+            continue
+        devices.append(
+            {
+                "id": device["id"],
+                "name": device["name"],
+                "active": bool(device.get("is_active")),
+            }
+        )
+    return devices
+
+
 def parse_playback(payload: dict[str, Any] | None) -> dict[str, Any]:
     """Übersetzt /me/player in Entitäts-Attribute.
 
@@ -83,9 +103,11 @@ class SpotifyIntegration(Integration):
             EntityKind.MEDIA_PLAYER,
             self.config.get("name", "Spotify"),
             state={"state": "idle"},
-            commands=["play", "pause", "toggle", "next", "previous"],
+            commands=["play", "pause", "toggle", "next", "previous", "play_on"],
             available=False,
         )
+        # Gerätename → Spotify-Connect-ID, für play_on.
+        self._device_ids: dict[str, str] = {}
         await self._refresh()
         self.start_task(self._poll_loop())
 
@@ -110,10 +132,12 @@ class SpotifyIntegration(Integration):
         self._token_expires_at = loop.time() + float(payload.get("expires_in", 3600)) * 0.9
         return self._access_token
 
-    async def _call(self, method: str, path: str) -> dict[str, Any] | None:
+    async def _call(
+        self, method: str, path: str, json: dict[str, Any] | None = None
+    ) -> dict[str, Any] | None:
         token = await self._ensure_token()
         async with self._session.request(
-            method, f"{API}{path}", headers={"Authorization": f"Bearer {token}"}
+            method, f"{API}{path}", headers={"Authorization": f"Bearer {token}"}, json=json
         ) as response:
             # 204: nichts läuft. 404: kein aktives Gerät – beim Steuern
             # möglich, wenn überall Stille ist.
@@ -135,17 +159,30 @@ class SpotifyIntegration(Integration):
         entity_id = self.entity_id("player")
         try:
             payload = await self._call("GET", "/me/player")
+            devices = parse_devices(await self._call("GET", "/me/player/devices"))
         except Exception as err:
             self.log.warning("Spotify nicht erreichbar: %s", err)
             await self.hub.registry.update_state(entity_id, {}, available=False)
             return
-        await self.hub.registry.update_state(
-            entity_id, parse_playback(payload), available=True
-        )
+        self._device_ids = {device["name"]: device["id"] for device in devices}
+        state = parse_playback(payload)
+        state["devices"] = [device["name"] for device in devices]
+        await self.hub.registry.update_state(entity_id, state, available=True)
 
     # ── Hub → Spotify ──────────────────────────────────────────────────────
 
     async def handle_command(self, entity: Entity, command: str, data: dict[str, Any]) -> None:
+        if command == "play_on":
+            device_id = self._device_ids.get(str(data.get("device")))
+            if device_id is None:
+                raise ValueError(
+                    f"Unbekanntes Wiedergabegerät '{data.get('device')}' – "
+                    f"verfügbar: {', '.join(self._device_ids) or 'keine'}"
+                )
+            # Spotify Connect: Wiedergabe auf das Gerät umziehen und weiterspielen.
+            await self._call("PUT", "/me/player", json={"device_ids": [device_id], "play": True})
+            await self._refresh()
+            return
         if command == "toggle":
             command = "pause" if entity.state.get("state") == "playing" else "play"
         routes = {

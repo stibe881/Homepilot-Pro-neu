@@ -142,6 +142,30 @@ def test_playback_nothing_running():
     assert parse_playback(None)["state"] == "idle"
 
 
+def test_devices_lists_connect_targets():
+    from homepilot.integrations.spotify import parse_devices
+
+    devices = parse_devices(
+        {
+            "devices": [
+                {"id": "abc", "name": "Wohnzimmer Lautsprecher", "is_active": True},
+                {"id": "def", "name": "Küche", "is_active": False},
+                {"id": None, "name": "Geist"},  # ohne ID nicht ansteuerbar
+            ]
+        }
+    )
+    assert devices == [
+        {"id": "abc", "name": "Wohnzimmer Lautsprecher", "active": True},
+        {"id": "def", "name": "Küche", "active": False},
+    ]
+
+
+def test_devices_empty_payload():
+    from homepilot.integrations.spotify import parse_devices
+
+    assert parse_devices(None) == []
+
+
 # ── Roborock ─────────────────────────────────────────────────────────────
 
 

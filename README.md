@@ -142,7 +142,7 @@ Nachbesserungen bei Zugangsdaten und Feldnamen.
 | `vzug` | Lokale Home-API, nur lesend (Status, Programm, Restlaufzeit) |
 | `unifi_protect` | Kameras: online, Aufnahmemodus, Bewegung und Klingeln live über den Ereignisstrom |
 | `hue_sync` | Hue Play HDMI Sync Box: Sync an/aus, Modus und Eingang |
-| `spotify` | Was gerade läuft, plus Play/Pause/Weiter (Cloud, Refresh-Token) |
+| `spotify` | Was gerade läuft, Play/Pause/Weiter, und die Wiedergabe per Tipp auf einen anderen Lautsprecher umziehen (Spotify Connect – Google-Home-Lautsprecher tauchen dort automatisch auf) |
 | `roborock` | Sauger über das Roborock-Konto: Zustand, Akku, start/pause/dock (`pip install "homepilot[roborock]"`) |
 | `google_cast` | Chromecast & Co.: was läuft, Play/Pause (`pip install "homepilot[cast]"`) |
 | `google_calendar` | Die nächsten Termine als Kachel (Cloud, Refresh-Token) |

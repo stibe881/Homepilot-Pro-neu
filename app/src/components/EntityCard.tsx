@@ -124,6 +124,32 @@ export function EntityCard({
                   onPress={() => onCommand('next')} />
               </View>
             ) : null}
+            {entity.commands.includes('play_on') &&
+            Array.isArray(entity.state.devices) &&
+            entity.state.devices.length > 0 ? (
+              <View style={styles.deviceRow}>
+                {entity.state.devices.map((name: string) => {
+                  const active = name === entity.state.device;
+                  return (
+                    <Pressable
+                      key={name}
+                      onPress={() => (active ? undefined : onCommand('play_on', { device: name }))}
+                      style={[styles.deviceChip, active && styles.deviceChipActive]}>
+                      <Ionicons
+                        name={active ? 'volume-high' : 'volume-medium-outline'}
+                        size={12}
+                        color={active ? '#FFFFFF' : colors.inkSoft}
+                      />
+                      <Text
+                        style={[styles.deviceChipText, active && styles.deviceChipTextActive]}
+                        numberOfLines={1}>
+                        {name}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
           </View>
         );
       }
@@ -422,6 +448,25 @@ const makeStyles = (colors: Colors) =>
   stack: { gap: 8 },
   editRow: { flexDirection: 'row', gap: 8, justifyContent: 'flex-end' },
   mediaRow: { flexDirection: 'row', gap: 10 },
+  deviceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  deviceChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    maxWidth: '100%',
+  },
+  deviceChipActive: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  deviceChipText: { fontSize: 12, color: colors.inkSoft, flexShrink: 1 },
+  deviceChipTextActive: { color: '#FFFFFF' },
   mediaButton: {
     width: 38,
     height: 38,
