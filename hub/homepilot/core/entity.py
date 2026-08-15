@@ -27,6 +27,10 @@ class EntityKind:
     # Türöffner (z.B. Ring Intercom). Bewusst nicht in den Gast-Standards –
     # wer die Haustür öffnen darf, bekommt sie explizit freigegeben.
     LOCK = "lock"
+    # Storen/Rollläden/Markisen (auf/ab/stopp, Position).
+    COVER = "cover"
+    # Wetterlage mit heutigem Wert und Mehrtagesvorhersage.
+    WEATHER = "weather"
 
 
 @dataclass

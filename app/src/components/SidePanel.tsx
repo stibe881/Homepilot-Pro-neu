@@ -25,11 +25,15 @@ export function SidePanel({
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const weather = entities.find((entity) => entity.kind === 'weather');
   const alert = entities.find((entity) => entity.kind === 'alert');
+  // Warnung nur zeigen, wenn es wirklich eine gibt (für den gewählten Ort).
+  const hasAlert = alert && (alert.state.count ?? 0) > 0;
 
   return (
     <View style={[styles.column, width ? { width } : { flex: 1 }]}>
-      {alert ? <AlertPanel entity={alert} /> : null}
+      {weather ? <WeatherPanel entity={weather} /> : null}
+      {hasAlert ? <AlertPanel entity={alert!} /> : null}
 
       <Card style={styles.activityCard}>
         <Text style={styles.heading}>Zuletzt passiert</Text>
@@ -65,6 +69,59 @@ export function SidePanel({
       </Card>
     </View>
   );
+}
+
+/** Wetterlage: aktuell gross, darunter die nächsten sieben Tage als
+ *  Streifen mit Symbol, Höchst- und Tiefstwert. */
+function WeatherPanel({ entity }: { entity: Entity }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const days: any[] = Array.isArray(entity.state.days) ? entity.state.days : [];
+
+  return (
+    <Card style={styles.alertCard}>
+      <View style={styles.weatherNow}>
+        <Ionicons
+          name={(entity.state.icon as any) ?? 'partly-sunny-outline'}
+          size={40}
+          color={colors.ink}
+        />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.weatherTemp}>
+            {entity.state.temperature != null ? `${entity.state.temperature}°` : '–'}
+          </Text>
+          <Text style={styles.alertSource}>
+            {entity.state.state} · {entity.name}
+          </Text>
+        </View>
+      </View>
+
+      {days.length > 0 ? (
+        <View style={styles.weekRow}>
+          {days.map((day, index) => (
+            <View key={day.date ?? index} style={styles.dayCol}>
+              <Text style={styles.dayName}>
+                {index === 0 ? 'Heute' : weekdayShort(day.date)}
+              </Text>
+              <Ionicons name={(day.icon as any) ?? 'cloud-outline'} size={20} color={colors.inkSoft} />
+              <Text style={styles.dayHigh}>{day.high != null ? `${day.high}°` : '–'}</Text>
+              <Text style={styles.dayLow}>{day.low != null ? `${day.low}°` : ''}</Text>
+              {day.rain != null && day.rain >= 20 ? (
+                <Text style={styles.dayRain}>{day.rain}%</Text>
+              ) : null}
+            </View>
+          ))}
+        </View>
+      ) : null}
+    </Card>
+  );
+}
+
+/** Wochentagskürzel aus einem ISO-Datum (YYYY-MM-DD). */
+function weekdayShort(date: string): string {
+  const parsed = new Date(`${date}T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return parsed.toLocaleDateString('de-CH', { weekday: 'short' }).replace('.', '');
 }
 
 function AlertPanel({ entity }: { entity: Entity }) {
@@ -141,6 +198,18 @@ const makeStyles = (colors: Colors) =>
     fontSize: 28,
     fontWeight: '700',
   },
+  weatherNow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  weatherTemp: { color: colors.ink, fontSize: 30, fontWeight: '700', letterSpacing: -0.5 },
+  weekRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 2,
+  },
+  dayCol: { alignItems: 'center', gap: 3, flex: 1 },
+  dayName: { color: colors.inkSoft, fontSize: 11, fontWeight: '600' },
+  dayHigh: { color: colors.ink, fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  dayLow: { color: colors.inkFaint, fontSize: 12, fontVariant: ['tabular-nums'] },
+  dayRain: { color: colors.accent, fontSize: 10, fontWeight: '600' },
   list: { gap: 10 },
   alertRow: {
     flexDirection: 'row',

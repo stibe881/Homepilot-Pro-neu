@@ -30,9 +30,19 @@ integrations:
   - integration: demo
 
   # Unwetterwarnungen von MeteoAlarm (offizieller CAP/Atom-Feed).
+  # 'areas' filtert auf die eigene Region – Warnungen erscheinen in der App
+  # nur, wenn es welche gibt.
   - integration: meteoalarm
     countries: [switzerland]
+    areas: ["Luzern", "Zentralschweiz"]
     scan_interval: 900
+
+  # Wetterlage und 7-Tage-Vorhersage (Open-Meteo, kostenlos, kein Schlüssel).
+  # Koordinaten des eigenen Orts eintragen (hier: Zell LU).
+  - integration: weather
+    latitude: 47.1445
+    longitude: 8.0675
+    name: Zell LU
 
   # Philips Hue Bridge (lokale CLIP-v2-API).
   # App-Key erzeugen: Link-Taste der Bridge drücken, dann innert 30s:

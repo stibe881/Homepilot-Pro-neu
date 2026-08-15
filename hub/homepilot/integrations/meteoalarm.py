@@ -3,6 +3,10 @@
 Konfiguration:
   - integration: meteoalarm
     countries: [switzerland]
+    # Nur Warnungen anzeigen, deren Gebiet einen dieser Begriffe enthält.
+    # Für Zell LU passen die Kantons-/Regionsnamen, unter denen MeteoAlarm
+    # Warnungen ausgibt. Weglassen = alle Warnungen des Landes.
+    areas: ["Luzern", "Zentralschweiz"]
     scan_interval: 900  # Sekunden
 """
 
@@ -49,6 +53,24 @@ def parse_feed(xml_text: str) -> list[dict[str, Any]]:
     return alerts
 
 
+def filter_by_area(
+    alerts: list[dict[str, Any]], areas: list[str]
+) -> list[dict[str, Any]]:
+    """Behält nur Warnungen, deren Gebiet einen der Begriffe enthält.
+
+    Leere Liste = kein Filter (rein, testbar). Der Vergleich ist
+    unabhängig von Gross-/Kleinschreibung.
+    """
+    if not areas:
+        return alerts
+    needles = [area.lower() for area in areas]
+    return [
+        alert
+        for alert in alerts
+        if any(needle in (alert.get("area") or "").lower() for needle in needles)
+    ]
+
+
 def max_severity(alerts: list[dict[str, Any]]) -> str | None:
     best = None
     for alert in alerts:
@@ -68,6 +90,7 @@ class MeteoAlarmIntegration(Integration):
         self._countries: list[str] = [
             str(country).lower() for country in self.config.get("countries", ["switzerland"])
         ]
+        self._areas: list[str] = [str(area) for area in self.config.get("areas", [])]
         self._interval = float(self.config.get("scan_interval", 900))
 
         for country in self._countries:
@@ -95,6 +118,8 @@ class MeteoAlarmIntegration(Integration):
             self.log.warning("MeteoAlarm-Feed für %s nicht erreichbar: %s", country, err)
             await self.hub.registry.update_state(entity_id, {}, available=False)
             return
+
+        alerts = filter_by_area(alerts, self._areas)
 
         await self.hub.registry.update_state(
             entity_id,

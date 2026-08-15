@@ -440,3 +440,60 @@ def test_calendar_empty_means_free():
     state = parse_events([], datetime.now(timezone.utc))
     assert state["state"] == "frei"
     assert state["next_start"] is None
+
+
+# ── Wetter (Open-Meteo) ──────────────────────────────────────────────────
+
+
+def test_weather_parse_forecast():
+    from homepilot.integrations.weather import parse_forecast
+
+    state = parse_forecast(
+        {
+            "current": {"temperature_2m": 32.5, "weather_code": 1},
+            "daily": {
+                "time": ["2026-08-15", "2026-08-16"],
+                "weather_code": [3, 80],
+                "temperature_2m_max": [33.2, 28.2],
+                "temperature_2m_min": [18.1, 16.4],
+                "precipitation_probability_max": [10, 60],
+            },
+        }
+    )
+    assert state["temperature"] == 32
+    assert state["state"] == "Meist klar"
+    assert len(state["days"]) == 2
+    assert state["days"][0] == {
+        "date": "2026-08-15",
+        "code": 3,
+        "text": "Bedeckt",
+        "icon": "cloud-outline",
+        "high": 33,
+        "low": 18,
+        "rain": 10,
+    }
+    assert state["days"][1]["text"] == "Regenschauer"
+
+
+def test_weather_unknown_code_stays_neutral():
+    from homepilot.integrations.weather import describe_code
+
+    assert describe_code(999)[0] == "—"
+    assert describe_code(None)[1] == "cloud-outline"
+
+
+# ── MeteoAlarm-Gebietsfilter ─────────────────────────────────────────────
+
+
+def test_meteoalarm_area_filter():
+    from homepilot.integrations.meteoalarm import filter_by_area
+
+    alerts = [
+        {"event": "Gewitter", "area": "Kanton Luzern"},
+        {"event": "Wind", "area": "Genferseeregion"},
+        {"event": "Hitze", "area": "Zentralschweiz und Luzern"},
+    ]
+    zell = filter_by_area(alerts, ["Luzern", "Zentralschweiz"])
+    assert [a["event"] for a in zell] == ["Gewitter", "Hitze"]
+    # Ohne Filter bleibt alles.
+    assert len(filter_by_area(alerts, [])) == 3

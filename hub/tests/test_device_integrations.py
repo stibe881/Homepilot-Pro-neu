@@ -26,6 +26,7 @@ ALL_INTEGRATIONS = [
     "androidtv",
     "ring",
     "matter",
+    "weather",
     "twinkly",
     "vzug",
 ]
