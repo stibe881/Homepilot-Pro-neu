@@ -53,6 +53,8 @@ export function useHub(url: string | null, token: string | null) {
   const [activity, setActivity] = useState<Activity[]>([]);
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const [user, setUser] = useState<User | null>(null);
+  /** Raum-Reihenfolge aus der config.yaml des Hubs. */
+  const [roomOrder, setRoomOrder] = useState<string[]>([]);
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [energy, setEnergy] = useState<{
     price_per_kwh?: number;
@@ -130,6 +132,7 @@ export function useHub(url: string | null, token: string | null) {
           );
           setEntityMap(entities);
           setUser(message.user ?? null);
+          setRoomOrder(message.rooms ?? []);
           setStale(false);
           AsyncStorage.setItem(CACHE_KEY, JSON.stringify(message.entities)).catch(
             () => {}
@@ -287,6 +290,7 @@ export function useHub(url: string | null, token: string | null) {
     activity,
     scenes,
     energy,
+    roomOrder,
     status,
     user,
     error,

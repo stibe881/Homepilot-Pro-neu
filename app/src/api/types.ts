@@ -34,7 +34,7 @@ export interface Source {
 }
 
 export type ServerMessage =
-  | { type: 'snapshot'; entities: Entity[]; user?: User }
+  | { type: 'snapshot'; entities: Entity[]; user?: User; rooms?: string[] }
   | {
       type: 'state_changed';
       entity: Entity;

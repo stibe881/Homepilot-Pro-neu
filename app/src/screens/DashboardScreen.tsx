@@ -48,6 +48,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     activity,
     scenes,
     energy,
+    roomOrder,
     status,
     user,
     error,
@@ -104,12 +105,20 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       ? Math.floor((gridWidth - space.gap * (columns - 1)) / columns)
       : undefined;
 
+  // Räume in der Reihenfolge aus der config.yaml (meistgenutzte zuerst),
+  // nicht alphabetisch. Räume mit Geräten, die (noch) nicht in der Config
+  // stehen, kommen hinten dran, damit nie eines verlorengeht.
   const rooms = useMemo(() => {
-    const named = Array.from(
-      new Set(entities.map((entity) => entity.room).filter(Boolean) as string[])
-    ).sort((a, b) => a.localeCompare(b));
+    const withDevices = new Set(
+      entities.map((entity) => entity.room).filter(Boolean) as string[]
+    );
+    const ordered = roomOrder.filter((name) => withDevices.has(name));
+    const extra = Array.from(withDevices)
+      .filter((name) => !roomOrder.includes(name))
+      .sort((a, b) => a.localeCompare(b));
+    const named = [...ordered, ...extra];
     return named.length > 0 ? [ALL_ROOMS, ...named] : [];
-  }, [entities]);
+  }, [entities, roomOrder]);
 
   // „Geräte“ zeigt bewusst alles, unabhängig vom gewählten Raum.
   const inRoom =
@@ -132,6 +141,34 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     section === 'home'
       ? shown.filter((entity) => !isActive(entity)).sort(byFavorite)
       : shown;
+
+  // Bei vielen Räumen wird die Startseite im „Alle“-Modus nach Räumen
+  // gruppiert (Überschrift je Zimmer), damit man das ganze Haus auf einen
+  // Blick durchscrollt und alles schnell erreicht. Favoriten stehen als
+  // eigene Gruppe ganz oben – der schnelle Griff ins andere Zimmer.
+  const grouped = section === 'home' && room === ALL_ROOMS && rooms.length > 2;
+  const groups = useMemo(() => {
+    if (!grouped) return [];
+    const order = rooms.filter((name) => name !== ALL_ROOMS);
+    const favs = shown.filter((entity) => favorites.includes(entity.id));
+    const result: { key: string; label: string; items: Entity[] }[] = [];
+    if (favs.length > 0) {
+      result.push({ key: '__fav', label: 'Favoriten', items: favs });
+    }
+    for (const name of order) {
+      const items = shown.filter(
+        (entity) => entity.room === name && !favorites.includes(entity.id)
+      );
+      if (items.length > 0) result.push({ key: name, label: name, items });
+    }
+    const noRoom = shown.filter(
+      (entity) => !entity.room && !favorites.includes(entity.id)
+    );
+    if (noRoom.length > 0) {
+      result.push({ key: '__none', label: 'Weitere', items: noRoom });
+    }
+    return result;
+  }, [grouped, rooms, shown, favorites]);
 
   const renderCard = (entity: Entity) => (
     <EntityCard
@@ -214,16 +251,31 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             </Pressable>
           ) : null}
 
+          {/* Messpunkt für die Kachelbreite immer vorhanden, auch gruppiert. */}
           <View
-            style={styles.grid}
+            style={grouped ? styles.measure : styles.grid}
             onLayout={(event) => setGridWidth(event.nativeEvent.layout.width)}
           >
-            {cardWidth ? running.map(renderCard) : null}
+            {!grouped && cardWidth ? running.map(renderCard) : null}
           </View>
-          {running.length > 0 && rest.length > 0 ? (
+
+          {grouped
+            ? groups.map((group) => (
+                <View key={group.key} style={styles.group}>
+                  <Text style={styles.groupLabel}>{group.label}</Text>
+                  <View style={styles.grid}>
+                    {cardWidth ? group.items.map(renderCard) : null}
+                  </View>
+                </View>
+              ))
+            : null}
+
+          {!grouped && running.length > 0 && rest.length > 0 ? (
             <Text style={styles.sectionLabel}>Ruhend</Text>
           ) : null}
-          <View style={styles.grid}>{cardWidth ? rest.map(renderCard) : null}</View>
+          {!grouped ? (
+            <View style={styles.grid}>{cardWidth ? rest.map(renderCard) : null}</View>
+          ) : null}
 
           {inRoom.length === 0 ? (
             <Text style={styles.empty}>
@@ -360,6 +412,15 @@ const makeStyles = (colors: Colors) =>
     flexWrap: 'wrap',
     gap: space.gap,
     marginTop: space.gap,
+  },
+  // Nur zum Messen der Breite, ohne eigenen Abstand.
+  measure: { height: 0 },
+  group: { marginTop: space.gap * 1.2 },
+  groupLabel: {
+    color: colors.onGradient,
+    fontSize: 19,
+    fontWeight: '700',
+    letterSpacing: -0.2,
   },
   editToggle: {
     alignSelf: 'flex-start',

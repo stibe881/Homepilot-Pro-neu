@@ -7,7 +7,7 @@ freigegeben sind – filtern erst in der App wäre keine Einschränkung.
 
 WebSocket-Protokoll (/ws):
   Server → Client:
-    {"type": "snapshot", "entities": [...], "user": {...}}
+    {"type": "snapshot", "entities": [...], "user": {...}, "rooms": [...]}
     {"type": "state_changed", "entity": {...}, "source": {...}, ...}
     {"type": "entity_added" | "entity_removed", ...}
     {"type": "result", "ok": false, "error": "...", "entity_id": "..."}
@@ -590,6 +590,9 @@ def create_app(hub: Hub) -> FastAPI:
                 "type": "snapshot",
                 "entities": visible(user, hub.registry.all()),
                 "user": user_payload(user),
+                # Raum-Reihenfolge aus der config.yaml: Die App sortiert ihre
+                # Reiter danach statt alphabetisch – meistgenutzte zuerst.
+                "rooms": list(hub.config.rooms.keys()),
             }
         )
         sender_task = asyncio.create_task(sender())
