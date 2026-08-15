@@ -17,6 +17,9 @@ ALL_INTEGRATIONS = [
     "mqtt",
     "homematic",
     "unifi",
+    "unifi_protect",
+    "hue_sync",
+    "spotify",
     "twinkly",
     "vzug",
 ]

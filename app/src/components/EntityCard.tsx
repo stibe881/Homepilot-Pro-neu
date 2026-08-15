@@ -100,6 +100,59 @@ export function EntityCard({
           />
         );
 
+      case 'media_player': {
+        const playing = entity.state.state === 'playing';
+        return (
+          <View style={styles.stack}>
+            <Text style={styles.value} numberOfLines={1}>
+              {entity.state.track ?? 'Nichts läuft'}
+            </Text>
+            {entity.state.artist ? (
+              <Text style={styles.hint} numberOfLines={1}>
+                {entity.state.artist}
+                {entity.state.device ? ` · ${entity.state.device}` : ''}
+              </Text>
+            ) : null}
+            {entity.commands.includes('next') ? (
+              <View style={styles.mediaRow}>
+                <MediaButton icon="play-skip-back" label="Zurück"
+                  onPress={() => onCommand('previous')} />
+                <MediaButton icon={playing ? 'pause' : 'play'}
+                  label={playing ? 'Pause' : 'Abspielen'}
+                  onPress={() => onCommand(playing ? 'pause' : 'play')} />
+                <MediaButton icon="play-skip-forward" label="Weiter"
+                  onPress={() => onCommand('next')} />
+              </View>
+            ) : null}
+          </View>
+        );
+      }
+
+      case 'camera': {
+        const online = entity.state.state === 'online';
+        return (
+          <View style={styles.stack}>
+            <Pill
+              label={online ? 'Online' : 'Offline'}
+              tone={online ? colors.on : colors.danger}
+            />
+            {entity.state.motion === 'on' ? (
+              <Pill label="Bewegung" tone={colors.warn} solid />
+            ) : null}
+            {entity.state.last_motion ? (
+              <Text style={styles.detail}>
+                Letzte Bewegung {clock(entity.state.last_motion)}
+              </Text>
+            ) : null}
+            {entity.state.last_ring ? (
+              <Text style={styles.detail}>
+                Zuletzt geklingelt {clock(entity.state.last_ring)}
+              </Text>
+            ) : null}
+          </View>
+        );
+      }
+
       case 'appliance':
         return (
           <View style={styles.stack}>
@@ -201,6 +254,40 @@ function EditButton({
   );
 }
 
+function MediaButton({
+  icon,
+  label,
+  onPress,
+}: {
+  icon: any;
+  label: string;
+  onPress: () => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={({ pressed }) => [styles.mediaButton, pressed && { opacity: 0.6 }]}
+    >
+      <Ionicons name={icon} size={18} color={colors.ink} />
+    </Pressable>
+  );
+}
+
+/** Uhrzeit heute, sonst Datum – für „letzte Bewegung“. */
+function clock(iso: string): string {
+  const date = new Date(iso);
+  const today = new Date();
+  const sameDay = date.toDateString() === today.toDateString();
+  const time = date.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' });
+  return sameDay
+    ? `um ${time}`
+    : `am ${date.toLocaleDateString('de-CH', { day: 'numeric', month: 'numeric' })} um ${time}`;
+}
+
 function BigValue({ value, on, note }: { value: string; on?: boolean; note?: string }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -256,6 +343,17 @@ const makeStyles = (colors: Colors) =>
   body: { gap: 8 },
   stack: { gap: 8 },
   editRow: { flexDirection: 'row', gap: 8, justifyContent: 'flex-end' },
+  mediaRow: { flexDirection: 'row', gap: 10 },
+  mediaButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
   editButton: {
     width: 34,
     height: 34,

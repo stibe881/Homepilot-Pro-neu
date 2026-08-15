@@ -140,16 +140,18 @@ Nachbesserungen bei Zugangsdaten und Feldnamen.
 | `unifi` | Anwesenheit über verbundene Clients, UniFi OS und Standalone |
 | `twinkly` | Lokale REST-API mit Challenge-Response-Anmeldung |
 | `vzug` | Lokale Home-API, nur lesend (Status, Programm, Restlaufzeit) |
+| `unifi_protect` | Kameras: online, Aufnahmemodus, Bewegung und Klingeln live über den Ereignisstrom |
+| `hue_sync` | Hue Play HDMI Sync Box: Sync an/aus, Modus und Eingang |
+| `spotify` | Was gerade läuft, plus Play/Pause/Weiter (Cloud, Refresh-Token) |
 
 **⬜ Noch offen**
 
 | Integration | Notizen |
 |---|---|
-| `unifi_protect` | Lokale API + WebSocket |
 | `roborock` | Lokal + Cloud |
-| `spotify`, `google_calendar` | Cloud-APIs (OAuth, Tokens gehören in die DB) |
+| `google_calendar` | Cloud-API (OAuth) |
 | `google_cast`, `androidtv` | mDNS/CASTV2, Remote-Protokoll |
-| `hue_sync_box`, `ring` | Semi-offizielle APIs |
+| `ring` | Inoffizielle Cloud-API mit 2FA |
 | `matter` | Grösster Brocken – eigener Controller-Dienst |
 
 Anleitung inkl. Bibliotheks-Vorlagen für alle offenen Punkte:
@@ -187,10 +189,8 @@ Jeder ausgeführte Lauf wird in `automation_runs` protokolliert.
 
 ## Nächste Schritte
 
-- Weitere Integrationen nach der Anleitung ergänzen – Reihenfolge nach
-  Nutzen: `unifi_protect`, `homematic`, `sonoff`, dann die Cloud-Dienste
-- Räume/Gruppen in der App (Tabelle `rooms` liegt bereit)
-- Verlaufs-Charts in der App auf Basis von `/api/entities/{id}/history`
-- Automationen aus der Datenbank statt aus der YAML, damit sie in der App
-  bearbeitet werden können
-- Push-Benachrichtigungen (Expo Push) für Warnungen und Ring-Ereignisse
+- Die 🟡-Integrationen an der echten Hardware ausprobieren und Feldnamen
+  nachziehen – das ist der wertvollste offene Schritt
+- `roborock`, `google_calendar`, `google_cast`/`androidtv`, `ring`
+  nach der Anleitung ergänzen
+- Matter als eigener Controller-Dienst (`python-matter-server`)
