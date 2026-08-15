@@ -4,10 +4,12 @@ Trigger:
   - {type: state, entity_id, attribute?: "state", from?, to?}
   - {type: interval, seconds}
   - {type: time, at: "HH:MM"}
+  - {type: sun, event: "sunrise"|"sunset", offset?: minuten}  # +/- Versatz
 
 Bedingungen:
   - {type: state, entity_id, attribute?: "state", equals? | above? | below?}
   - {type: time, after?: "HH:MM", before?: "HH:MM"}
+  - {type: sun, state: "up"|"down"}   # steht die Sonne über dem Horizont?
 
 Aktionen:
   - {type: command, entity_id, command, data?}
@@ -22,10 +24,15 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
+from . import astro
 from .source import as_source, automation_source
 
 if TYPE_CHECKING:
     from .hub import Hub
+
+# Standard-Standort (Zell LU), falls in der Config keiner steht.
+DEFAULT_LAT = 47.1445
+DEFAULT_LON = 8.0675
 
 log = logging.getLogger(__name__)
 
@@ -147,6 +154,15 @@ class AutomationEngine:
                         self._time_loop(automation, str(trigger["at"]))
                     )
                     self._timer_tasks.append(task)
+                elif trigger.get("type") == "sun":
+                    task = asyncio.create_task(
+                        self._sun_loop(
+                            automation,
+                            str(trigger.get("event", "sunset")),
+                            float(trigger.get("offset", 0)),
+                        )
+                    )
+                    self._timer_tasks.append(task)
         if self.automations:
             log.info("%d Automationen geladen", len(self.automations))
 
@@ -204,6 +220,32 @@ class AutomationEngine:
                 target += timedelta(days=1)
             await asyncio.sleep((target - now).total_seconds())
             self._schedule(automation)
+
+    def _location(self) -> tuple[float, float]:
+        loc = getattr(self.hub.config, "location", None) or {}
+        try:
+            return float(loc.get("latitude", DEFAULT_LAT)), float(
+                loc.get("longitude", DEFAULT_LON)
+            )
+        except (TypeError, ValueError):
+            return DEFAULT_LAT, DEFAULT_LON
+
+    async def _sun_loop(self, automation: Automation, event: str, offset: float) -> None:
+        lat, lon = self._location()
+        sunset = event != "sunrise"
+        while True:
+            nxt = astro.next_sun_event(datetime.now(), lat, lon, sunset, offset)
+            if nxt is None:
+                # In Polarnähe an manchen Tagen kein Ereignis – später erneut.
+                await asyncio.sleep(6 * 3600)
+                continue
+            delay = (nxt - datetime.now()).total_seconds()
+            if delay > 0:
+                await asyncio.sleep(delay)
+            self._schedule(automation)
+            # Etwas über den Zeitpunkt hinaus schlafen, damit nicht im selben
+            # Moment gleich das nächste (identische) Ziel berechnet wird.
+            await asyncio.sleep(60)
 
     def _schedule(self, automation: Automation) -> None:
         if self.paused:
@@ -274,6 +316,18 @@ class AutomationEngine:
                 if now >= now.replace(hour=hour, minute=minute):
                     return False
             return True
+        if ctype == "sun":
+            # {type: sun, state: "up"|"down"} – steht die Sonne gerade über
+            # dem Horizont? Für Hitzeschutz nur bei Tag u.ä.
+            now = datetime.now()
+            lat, lon = self._location()
+            rise = astro.sun_event(now.date(), lat, lon, sunset=False)
+            set_ = astro.sun_event(now.date(), lat, lon, sunset=True)
+            if rise is None or set_ is None:
+                return False
+            up = rise <= now <= set_
+            want = str(condition.get("state", "up"))
+            return up if want == "up" else not up
         log.warning("Unbekannter Bedingungstyp: %s", ctype)
         return False
 
