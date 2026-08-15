@@ -18,6 +18,8 @@ export interface Scene {
   actions?: { entity_id: string; command: string; data?: Record<string, any> }[];
   /** In der App angelegt – lässt sich dort auch ändern und löschen. */
   editable?: boolean;
+  /** Optionaler Raum – dann erscheint die Szene in dessen Kategorie „Szenen“. */
+  room?: string | null;
 }
 
 export interface User {

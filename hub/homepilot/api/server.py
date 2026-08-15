@@ -72,6 +72,7 @@ class SceneRequest(BaseModel):
     name: str
     icon: str = "sparkles-outline"
     actions: list[dict[str, Any]] = []
+    room: str | None = None
 
 
 class UserRequest(BaseModel):
@@ -361,6 +362,7 @@ def create_app(hub: Hub) -> FastAPI:
             "name": body.name,
             "icon": body.icon,
             "actions": body.actions,
+            "room": body.room,
         }
         hub.data.set("scenes", [*stored_scenes(), entry])
         hub.reload_scenes()
@@ -380,7 +382,13 @@ def create_app(hub: Hub) -> FastAPI:
                 detail="Nur in der App angelegte Szenen lassen sich hier ändern",
             )
         updated = [
-            {"id": scene_id, "name": body.name, "icon": body.icon, "actions": body.actions}
+            {
+                "id": scene_id,
+                "name": body.name,
+                "icon": body.icon,
+                "actions": body.actions,
+                "room": body.room,
+            }
             if entry["id"] == scene_id
             else entry
             for entry in stored

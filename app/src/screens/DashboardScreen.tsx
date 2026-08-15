@@ -170,6 +170,38 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     return result;
   }, [grouped, rooms, shown, favorites]);
 
+  // Ein einzelner Raum wird nach Kategorien gegliedert: Szenen des Raums
+  // oben, dann Beleuchtung, Store, Medien, alles Übrige unter „Weitere“.
+  // Leere Kategorien werden weggelassen. „Store“ (Storen/Rollläden)
+  // erscheint so von selbst nur in Räumen mit solchen Geräten.
+  const categorized = section === 'home' && room !== ALL_ROOMS && !editing;
+  const roomScenes = useMemo(
+    () => (categorized ? scenes.filter((scene) => scene.room === room) : []),
+    [categorized, scenes, room]
+  );
+  const categories = useMemo(() => {
+    if (!categorized) return [];
+    const order: { kind: string; label: string }[] = [
+      { kind: 'light', label: 'Beleuchtung' },
+      { kind: 'cover', label: 'Store' },
+      { kind: 'media_player', label: 'Medien' },
+    ];
+    const result: { key: string; label: string; items: Entity[] }[] = [];
+    const used = new Set<string>();
+    for (const cat of order) {
+      const items = shown.filter((entity) => entity.kind === cat.kind).sort(byFavorite);
+      if (items.length > 0) {
+        result.push({ key: cat.kind, label: cat.label, items });
+        items.forEach((entity) => used.add(entity.id));
+      }
+    }
+    const weitere = shown.filter((entity) => !used.has(entity.id)).sort(byFavorite);
+    if (weitere.length > 0) {
+      result.push({ key: '__weitere', label: 'Weitere', items: weitere });
+    }
+    return result;
+  }, [categorized, shown, favorites]);
+
   const renderCard = (entity: Entity) => (
     <EntityCard
       key={entity.id}
@@ -232,7 +264,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     return (
       <View style={hasSidePanel ? styles.split : styles.stack}>
         <View style={hasSidePanel ? styles.main : undefined}>
-          {section === 'home' ? (
+          {/* Im „Alle“-Modus alle Szenen, im Raum nur dessen Szenen. */}
+          {section === 'home' && room === ALL_ROOMS ? (
             <SceneRow scenes={scenes} onActivate={activateScene} />
           ) : null}
           {section === 'home' && rooms.length > 0 ? (
@@ -251,14 +284,35 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             </Pressable>
           ) : null}
 
-          {/* Messpunkt für die Kachelbreite immer vorhanden, auch gruppiert. */}
+          {/* Messpunkt für die Kachelbreite immer vorhanden. */}
           <View
-            style={grouped ? styles.measure : styles.grid}
+            style={grouped || categorized ? styles.measure : styles.grid}
             onLayout={(event) => setGridWidth(event.nativeEvent.layout.width)}
           >
-            {!grouped && cardWidth ? running.map(renderCard) : null}
+            {!grouped && !categorized && cardWidth ? running.map(renderCard) : null}
           </View>
 
+          {/* Ein Raum: nach Kategorien (Szenen, Beleuchtung, Store, Medien). */}
+          {categorized ? (
+            <>
+              {roomScenes.length > 0 ? (
+                <View style={styles.group}>
+                  <Text style={styles.groupLabel}>Szenen</Text>
+                  <SceneRow scenes={roomScenes} onActivate={activateScene} />
+                </View>
+              ) : null}
+              {categories.map((group) => (
+                <View key={group.key} style={styles.group}>
+                  <Text style={styles.groupLabel}>{group.label}</Text>
+                  <View style={styles.grid}>
+                    {cardWidth ? group.items.map(renderCard) : null}
+                  </View>
+                </View>
+              ))}
+            </>
+          ) : null}
+
+          {/* „Alle“ mit vielen Räumen: nach Zimmer gruppiert. */}
           {grouped
             ? groups.map((group) => (
                 <View key={group.key} style={styles.group}>
@@ -270,10 +324,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               ))
             : null}
 
-          {!grouped && running.length > 0 && rest.length > 0 ? (
+          {!grouped && !categorized && running.length > 0 && rest.length > 0 ? (
             <Text style={styles.sectionLabel}>Ruhend</Text>
           ) : null}
-          {!grouped ? (
+          {!grouped && !categorized ? (
             <View style={styles.grid}>{cardWidth ? rest.map(renderCard) : null}</View>
           ) : null}
 

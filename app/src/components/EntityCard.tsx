@@ -229,6 +229,34 @@ export function EntityCard({
       case 'lock':
         return <LockBody entity={entity} onCommand={onCommand} pending={pending} />;
 
+      case 'cover': {
+        // Storen/Rollläden: auf, stopp, zu. Position 0…100 falls gemeldet.
+        const pos = entity.state.position;
+        return (
+          <View style={styles.stack}>
+            <Pill
+              label={
+                entity.state.state === 'closed'
+                  ? 'Geschlossen'
+                  : entity.state.state === 'opening'
+                    ? 'Fährt hoch'
+                    : entity.state.state === 'closing'
+                      ? 'Fährt runter'
+                      : 'Offen'
+              }
+            />
+            {typeof pos === 'number' ? (
+              <Text style={styles.hint}>{pos} % offen</Text>
+            ) : null}
+            <View style={styles.mediaRow}>
+              <MediaButton icon="chevron-up" label="Hoch" onPress={() => onCommand('open')} />
+              <MediaButton icon="stop" label="Stopp" onPress={() => onCommand('stop')} />
+              <MediaButton icon="chevron-down" label="Runter" onPress={() => onCommand('close')} />
+            </View>
+          </View>
+        );
+      }
+
       case 'calendar': {
         const events: any[] = entity.state.events ?? [];
         return (

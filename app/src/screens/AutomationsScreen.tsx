@@ -249,6 +249,7 @@ export function AutomationsScreen({
     const body = {
       name: sceneDraft.name || 'Ohne Namen',
       icon: sceneDraft.icon,
+      room: sceneDraft.room || null,
       actions: sceneDraft.actions
         .filter((action) => action.entity_id)
         .map(({ entity_id, command, rooms }) =>
@@ -393,6 +394,7 @@ export function AutomationsScreen({
                     id: scene.id,
                     name: scene.name,
                     icon: scene.icon,
+                    room: scene.room ?? undefined,
                     actions: (scene.actions ?? []).map((action) => ({
                       entity_id: action.entity_id,
                       command: action.command,
@@ -442,6 +444,8 @@ interface SceneDraft {
   id?: string;
   name: string;
   icon: string;
+  /** Optionaler Raum – dann erscheint die Szene in dessen Kategorie „Szenen“. */
+  room?: string;
   actions: { entity_id: string; command: string; rooms?: number[] }[];
 }
 
@@ -485,6 +489,10 @@ function SceneEditor({
     (entity) =>
       entity.commands.includes('turn_on') || entity.commands.includes('clean_rooms')
   );
+  // Räume aus den Geräten – für die Zuordnung der Szene zu einer Kategorie.
+  const sceneRooms = Array.from(
+    new Set(entities.map((entity) => entity.room).filter(Boolean) as string[])
+  ).sort((a, b) => a.localeCompare(b));
 
   return (
     <Modal visible animationType="slide" onRequestClose={onCancel}>
@@ -527,6 +535,19 @@ function SceneEditor({
             ))}
           </View>
         </Field>
+
+        {sceneRooms.length > 0 ? (
+          <Field label="Raum (für die Kategorie „Szenen“)">
+            <Choice
+              options={[
+                { key: '', label: 'Kein Raum' },
+                ...sceneRooms.map((name) => ({ key: name, label: name })),
+              ]}
+              value={draft.room ?? ''}
+              onSelect={(room) => set({ room: room || undefined })}
+            />
+          </Field>
+        ) : null}
 
         <Field label="Schaltet">
           {draft.actions.map((action, index) => {

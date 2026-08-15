@@ -37,6 +37,8 @@ class Scene:
     # In der App angelegte Szenen lassen sich dort auch wieder ändern und
     # löschen; die aus der config.yaml gehören der Datei.
     editable: bool = False
+    # Optionaler Raum – dann erscheint die Szene in dessen Kategorie „Szenen“.
+    room: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -46,6 +48,7 @@ class Scene:
             "actions": self.actions,
             "entity_ids": [action.get("entity_id") for action in self.actions],
             "editable": self.editable,
+            "room": self.room,
         }
 
 
@@ -61,6 +64,7 @@ def parse_scenes(configs: list[dict[str, Any]], editable: bool = False) -> list[
                 raise ConfigError(
                     f"Szene '{scene_id}': jede Aktion braucht 'entity_id' und 'command'"
                 )
+        room = config.get("room")
         scenes.append(
             Scene(
                 id=scene_id,
@@ -68,6 +72,7 @@ def parse_scenes(configs: list[dict[str, Any]], editable: bool = False) -> list[
                 icon=str(config.get("icon") or "sparkles-outline"),
                 actions=actions,
                 editable=editable,
+                room=str(room) if room else None,
             )
         )
     return scenes
