@@ -23,6 +23,7 @@ class EntityKind:
     CAMERA = "camera"
     VACUUM = "vacuum"
     APPLIANCE = "appliance"
+    CALENDAR = "calendar"
 
 
 @dataclass

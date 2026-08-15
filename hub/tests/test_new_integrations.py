@@ -140,3 +140,129 @@ def test_playback_multiple_artists():
 def test_playback_nothing_running():
     # 204 vom /me/player: nirgends läuft etwas – normal, keine Störung.
     assert parse_playback(None)["state"] == "idle"
+
+
+# ── Roborock ─────────────────────────────────────────────────────────────
+
+
+class _Status:
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+
+
+def test_vacuum_state_cleaning():
+    from homepilot.integrations.roborock import vacuum_state
+
+    state = vacuum_state(
+        _Status(
+            state_name="cleaning",
+            battery=76,
+            error_code_name="none",
+            clean_area=23_500_000,
+            clean_time=1500,
+        )
+    )
+    assert state["state"] == "cleaning"
+    assert state["battery"] == 76
+    assert "error" not in state
+    # mm² der Bibliothek werden zu m² für die App.
+    assert state["clean_area_m2"] == 23.5
+    assert state["clean_minutes"] == 25
+
+
+def test_vacuum_state_reports_errors():
+    from homepilot.integrations.roborock import vacuum_state
+
+    state = vacuum_state(_Status(state_name="error", battery=12, error_code_name="stuck"))
+    assert state["error"] == "stuck"
+
+
+def test_vacuum_state_survives_missing_fields():
+    from homepilot.integrations.roborock import vacuum_state
+
+    assert vacuum_state(_Status())["state"] == "unknown"
+
+
+# ── Google Cast ──────────────────────────────────────────────────────────
+
+
+def test_cast_state_playing():
+    from homepilot.integrations.google_cast import cast_media_state
+
+    state = cast_media_state("PLAYING", "Yesterday", "The Beatles", "Spotify", 0.45)
+    assert state == {
+        "state": "playing",
+        "track": "Yesterday",
+        "artist": "The Beatles",
+        "app": "Spotify",
+        "volume": 45,
+    }
+
+
+def test_cast_backdrop_counts_as_idle_app():
+    from homepilot.integrations.google_cast import cast_media_state
+
+    state = cast_media_state("IDLE", None, None, "Backdrop", None)
+    assert state["state"] == "idle"
+    assert state["app"] is None
+
+
+# ── Google Calendar ──────────────────────────────────────────────────────
+
+
+def test_calendar_next_event():
+    from datetime import datetime, timezone
+
+    from homepilot.integrations.google_calendar import parse_events
+
+    now = datetime(2026, 8, 15, 8, 0, tzinfo=timezone.utc)
+    state = parse_events(
+        [
+            {
+                "summary": "Zahnarzt",
+                "start": {"dateTime": "2026-08-15T10:00:00+02:00"},
+                "end": {"dateTime": "2026-08-15T11:00:00+02:00"},
+                "location": "Luzern",
+            },
+            {
+                "summary": "Ferien",
+                "start": {"date": "2026-08-16"},
+                "end": {"date": "2026-08-20"},
+            },
+        ],
+        now,
+    )
+    assert state["state"] == "Zahnarzt"
+    assert state["next_all_day"] is False
+    assert len(state["events"]) == 2
+    assert state["events"][1]["all_day"] is True
+
+
+def test_calendar_skips_finished_events():
+    from datetime import datetime, timezone
+
+    from homepilot.integrations.google_calendar import parse_events
+
+    now = datetime(2026, 8, 15, 12, 0, tzinfo=timezone.utc)
+    state = parse_events(
+        [
+            {
+                "summary": "Vorbei",
+                "start": {"dateTime": "2026-08-15T08:00:00Z"},
+                "end": {"dateTime": "2026-08-15T09:00:00Z"},
+            }
+        ],
+        now,
+    )
+    assert state["state"] == "frei"
+    assert state["events"] == []
+
+
+def test_calendar_empty_means_free():
+    from datetime import datetime, timezone
+
+    from homepilot.integrations.google_calendar import parse_events
+
+    state = parse_events([], datetime.now(timezone.utc))
+    assert state["state"] == "frei"
+    assert state["next_start"] is None

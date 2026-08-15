@@ -143,14 +143,15 @@ Nachbesserungen bei Zugangsdaten und Feldnamen.
 | `unifi_protect` | Kameras: online, Aufnahmemodus, Bewegung und Klingeln live über den Ereignisstrom |
 | `hue_sync` | Hue Play HDMI Sync Box: Sync an/aus, Modus und Eingang |
 | `spotify` | Was gerade läuft, plus Play/Pause/Weiter (Cloud, Refresh-Token) |
+| `roborock` | Sauger über das Roborock-Konto: Zustand, Akku, start/pause/dock (`pip install "homepilot[roborock]"`) |
+| `google_cast` | Chromecast & Co.: was läuft, Play/Pause (`pip install "homepilot[cast]"`) |
+| `google_calendar` | Die nächsten Termine als Kachel (Cloud, Refresh-Token) |
 
 **⬜ Noch offen**
 
 | Integration | Notizen |
 |---|---|
-| `roborock` | Lokal + Cloud |
-| `google_calendar` | Cloud-API (OAuth) |
-| `google_cast`, `androidtv` | mDNS/CASTV2, Remote-Protokoll |
+| `androidtv` | Remote-Protokoll mit PIN-Kopplung am Fernseher |
 | `ring` | Inoffizielle Cloud-API mit 2FA |
 | `matter` | Grösster Brocken – eigener Controller-Dienst |
 
@@ -191,6 +192,6 @@ Jeder ausgeführte Lauf wird in `automation_runs` protokolliert.
 
 - Die 🟡-Integrationen an der echten Hardware ausprobieren und Feldnamen
   nachziehen – das ist der wertvollste offene Schritt
-- `roborock`, `google_calendar`, `google_cast`/`androidtv`, `ring`
-  nach der Anleitung ergänzen
+- `androidtv` (PIN-Kopplung am Fernseher) und `ring` (2FA-Anmeldung)
+  ergänzen – beide brauchen dich bei der Einrichtung
 - Matter als eigener Controller-Dienst (`python-matter-server`)

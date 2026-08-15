@@ -20,6 +20,9 @@ ALL_INTEGRATIONS = [
     "unifi_protect",
     "hue_sync",
     "spotify",
+    "roborock",
+    "google_cast",
+    "google_calendar",
     "twinkly",
     "vzug",
 ]

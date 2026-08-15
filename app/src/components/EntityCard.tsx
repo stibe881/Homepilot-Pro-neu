@@ -153,6 +153,57 @@ export function EntityCard({
         );
       }
 
+      case 'vacuum': {
+        const cleaning = entity.state.state === 'cleaning';
+        return (
+          <View style={styles.stack}>
+            <Pill
+              label={vacuumLabel(entity.state.state)}
+              tone={cleaning ? colors.accent : entity.state.error ? colors.danger : undefined}
+            />
+            <Text style={styles.hint}>
+              {entity.state.battery != null ? `${entity.state.battery} % Akku` : ''}
+              {entity.state.clean_area_m2 != null
+                ? ` · ${entity.state.clean_area_m2} m²`
+                : ''}
+              {entity.state.error ? ` · ${entity.state.error}` : ''}
+            </Text>
+            <View style={styles.mediaRow}>
+              <MediaButton icon="play" label="Reinigung starten"
+                onPress={() => onCommand('start')} />
+              <MediaButton icon="pause" label="Pausieren"
+                onPress={() => onCommand('pause')} />
+              <MediaButton icon="home" label="Zur Station"
+                onPress={() => onCommand('dock')} />
+            </View>
+          </View>
+        );
+      }
+
+      case 'calendar': {
+        const events: any[] = entity.state.events ?? [];
+        return (
+          <View style={styles.stack}>
+            <Text style={styles.value} numberOfLines={1}>
+              {entity.state.state === 'frei' ? 'Keine Termine' : entity.state.state}
+            </Text>
+            {entity.state.next_start ? (
+              <Text style={styles.hint}>
+                {entity.state.next_all_day
+                  ? 'ganztägig'
+                  : eventTime(entity.state.next_start)}
+              </Text>
+            ) : null}
+            {events.slice(1, 3).map((event, index) => (
+              <Text key={index} numberOfLines={1} style={styles.detail}>
+                {event.all_day ? '· ' : `${eventTime(event.start)} `}
+                {event.summary}
+              </Text>
+            ))}
+          </View>
+        );
+      }
+
       case 'appliance':
         return (
           <View style={styles.stack}>
@@ -275,6 +326,30 @@ function MediaButton({
       <Ionicons name={icon} size={18} color={colors.ink} />
     </Pressable>
   );
+}
+
+function vacuumLabel(state: string | undefined): string {
+  const labels: Record<string, string> = {
+    cleaning: 'Reinigt',
+    returning: 'Fährt zur Station',
+    charging: 'Lädt',
+    charging_complete: 'Geladen',
+    docked: 'An der Station',
+    idle: 'Bereit',
+    paused: 'Pausiert',
+    error: 'Fehler',
+  };
+  return labels[state ?? ''] ?? state ?? '–';
+}
+
+/** Startzeit eines Termins: Uhrzeit heute, sonst mit Datum. */
+function eventTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const today = new Date();
+  const time = date.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' });
+  if (date.toDateString() === today.toDateString()) return time;
+  return `${date.toLocaleDateString('de-CH', { weekday: 'short' })} ${time}`;
 }
 
 /** Uhrzeit heute, sonst Datum – für „letzte Bewegung“. */
