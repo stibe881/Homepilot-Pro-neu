@@ -20,6 +20,9 @@ export const lightColors = {
   surfaceStrong: 'rgba(255, 255, 255, 0.94)',
   surfaceSoft: 'rgba(255, 255, 255, 0.26)',
   surfaceBorder: 'rgba(255, 255, 255, 0.6)',
+  // Deckender Grund für Vollbild-Blätter (Editoren): anders als die Glas-
+  // Flächen darf hier nichts durchscheinen, sonst kippt der Kontrast.
+  panel: '#EDF0F5',
 
   ink: '#232833',
   inkSoft: '#69727F',
@@ -50,6 +53,7 @@ export const darkColors: Colors = {
   surfaceStrong: 'rgba(255, 255, 255, 0.18)',
   surfaceSoft: 'rgba(255, 255, 255, 0.07)',
   surfaceBorder: 'rgba(255, 255, 255, 0.14)',
+  panel: '#20262F',
 
   ink: '#EDF1F7',
   inkSoft: '#A2ACBB',

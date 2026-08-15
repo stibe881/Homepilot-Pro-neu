@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Entity, HubSettings } from '../api/types';
 import { EntityCard } from '../components/EntityCard';
+import { skyFromIcon } from '../components/CoverVisual';
 import { HistoryChart } from '../components/HistoryChart';
 import { Rail, Section } from '../components/Rail';
 import { RoomTabs } from '../components/RoomTabs';
@@ -121,6 +122,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     return named.length > 0 ? [ALL_ROOMS, ...named] : [];
   }, [entities, roomOrder]);
 
+  // Aktuelle Wetterlage aus dem Wetter-Gerät – für den Himmel hinter den
+  // Storen-Fenstern. Fehlt das Gerät, bleibt es sonnig.
+  const sky = useMemo(() => {
+    const weather = entities.find((entity) => entity.kind === 'weather');
+    return skyFromIcon(weather?.state?.icon, weather?.state?.state);
+  }, [entities]);
+
   // „Geräte“ zeigt bewusst alles, unabhängig vom gewählten Raum.
   const inRoom =
     section === 'devices' || room === ALL_ROOMS
@@ -225,6 +233,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         editing ? (room) => setEntityRoom(entity.id, room) : undefined
       }
       onCommand={(command, data) => sendCommand(entity.id, command, data)}
+      sky={entity.kind === 'cover' ? sky : undefined}
       snapshotUri={
         // Kameras: Livebild. Sauger: die Karte – beides über denselben Endpunkt.
         (entity.kind === 'camera' || entity.kind === 'vacuum') &&

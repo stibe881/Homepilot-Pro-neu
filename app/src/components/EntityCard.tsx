@@ -6,7 +6,7 @@ import { Entity } from '../api/types';
 import { Colors, radius, type, useColors } from '../theme';
 import { Bar } from './Bar';
 import { Card, CardFooter } from './Card';
-import { CoverVisual } from './CoverVisual';
+import { CoverVisual, Sky } from './CoverVisual';
 import { TvRemote } from './TvRemote';
 
 interface Props {
@@ -32,6 +32,8 @@ interface Props {
   chart?: React.ReactNode;
   /** Kamerakacheln: URL des Schnappschuss-Endpunkts (inkl. Token). */
   snapshotUri?: string;
+  /** Storen-Kacheln: aktuelle Wetterlage für den Himmel hinter dem Fenster. */
+  sky?: Sky;
 }
 
 /** Warnstufen brauchen je nach Palette andere Farben. */
@@ -56,6 +58,7 @@ export function EntityCard({
   onPress,
   chart,
   snapshotUri,
+  sky,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -254,7 +257,7 @@ export function EntityCard({
                 : 100;
         return (
           <View style={styles.stack}>
-            <CoverVisual open={openPct} tilt={typeof tilt === 'number' ? tilt : undefined} />
+            <CoverVisual open={openPct} tilt={typeof tilt === 'number' ? tilt : undefined} sky={sky} />
             <Pill
               label={
                 entity.state.state === 'closed'
