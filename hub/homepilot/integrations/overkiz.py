@@ -56,6 +56,18 @@ CLOSURE = "core:ClosureState"          # 0 = offen, 100 = geschlossen
 ORIENTATION = "core:SlateOrientationState"  # Lamellenwinkel 0…100
 OPEN_CLOSED = "core:OpenClosedState"
 
+# Ein Storen-Kommando heisst je nach Funk-Standard anders: io-homecontrol
+# kennt open/close/stop, RTS dagegen up/down/my. Deshalb bilden wir jedes
+# App-Kommando auf die erste vom Gerät wirklich unterstützte Variante ab –
+# sonst antwortet das Gateway mit „No such command" (UNSPECIFIED_ERROR).
+COMMAND_ALIASES: dict[str, list[str]] = {
+    "open": ["open", "up", "rollUp"],
+    "close": ["close", "down", "rollDown"],
+    "stop": ["stop", "my"],
+    "set_position": ["setClosure"],
+    "set_tilt": ["setOrientation"],
+}
+
 
 def cover_state(states: dict[str, Any]) -> dict[str, Any]:
     """Übersetzt Overkiz-Zustände in Entitäts-Attribute (rein, testbar).
@@ -99,7 +111,6 @@ class OverkizIntegration(Integration):
 
         try:
             from pyoverkiz.client import OverkizClient
-            from pyoverkiz.enums import OverkizCommand
             from pyoverkiz.models import Command
             from pyoverkiz.utils import generate_local_server
         except ImportError as err:
@@ -107,7 +118,6 @@ class OverkizIntegration(Integration):
                 "pyoverkiz fehlt – installieren mit: pip install pyoverkiz"
             ) from err
 
-        self._commands_enum = OverkizCommand
         self._Command = Command
         token = self.config.get("token") or self._load_token()
         if not token:
@@ -138,18 +148,37 @@ class OverkizIntegration(Integration):
                 ) from err
             raise ConfigError(f"Overkiz-Gateway '{host}' nicht erreichbar: {err}") from err
 
-        # device_url → entity_id und zurück
+        # device_url → entity_id und zurück; je Entität die Abbildung
+        # App-Kommando → echter Overkiz-Kommandoname (open→up bei RTS usw.).
         self._devices: dict[str, str] = {}
         self._url_by_entity: dict[str, str] = {}
+        self._cmd_by_entity: dict[str, dict[str, str]] = {}
         for device in await self._client.get_devices():
             if not self._is_cover(device):
                 continue
             states = {state.name: state.value for state in device.states or []}
-            commands = ["open", "close", "stop"]
-            if CLOSURE in states:
-                commands.append("set_position")
-            if ORIENTATION in states:
-                commands.append("set_tilt")
+            supported = {
+                cd.command_name for cd in getattr(device.definition, "commands", []) or []
+            }
+            # Für jedes App-Kommando die erste vom Gerät gekannte Variante.
+            cmd_map: dict[str, str] = {}
+            for app_cmd, variants in COMMAND_ALIASES.items():
+                actual = next((v for v in variants if v in supported), None)
+                if actual is not None:
+                    cmd_map[app_cmd] = actual
+            # setClosure/setOrientation nur, wenn es dazu auch einen Zustand gibt
+            # (sonst hätte die App einen Regler ohne Rückmeldung).
+            if CLOSURE not in states:
+                cmd_map.pop("set_position", None)
+            if ORIENTATION not in states:
+                cmd_map.pop("set_tilt", None)
+            commands = list(cmd_map.keys())
+            self.log.info(
+                "Overkiz: %s (%s) – Kommandos %s",
+                device.label,
+                getattr(device, "widget", None) or getattr(device, "ui_class", None),
+                ", ".join(commands) or "keine",
+            )
             entity = await self.add_entity(
                 device.device_url.replace("/", "_").replace(":", "_"),
                 EntityKind.COVER,
@@ -160,6 +189,7 @@ class OverkizIntegration(Integration):
             )
             self._devices[device.device_url] = entity.id
             self._url_by_entity[entity.id] = device.device_url
+            self._cmd_by_entity[entity.id] = cmd_map
 
         if not self._devices:
             self.log.warning("Overkiz verbunden, aber keine Storen/Rollläden gefunden")
@@ -224,25 +254,24 @@ class OverkizIntegration(Integration):
 
     async def handle_command(self, entity: Entity, command: str, data: dict[str, Any]) -> None:
         device_url = self._url_by_entity[entity.id]
-        cmd = self._commands_enum
         Command = self._Command
+        # Der echte Kommandoname des Geräts (z.B. 'up' statt 'open' bei RTS).
+        name = self._cmd_by_entity.get(entity.id, {}).get(command)
+        if name is None:
+            raise ConfigError(
+                f"Diese Storen kennen das Kommando '{command}' nicht"
+            )
         # Parameter (Position/Lamellen) gehören ins Command-Objekt – das
         # dritte Argument von execute_command ist das Protokoll-Label.
-        if command == "open":
-            overkiz = Command(cmd.OPEN.value)
-        elif command == "close":
-            overkiz = Command(cmd.CLOSE.value)
-        elif command == "stop":
-            overkiz = Command(cmd.STOP.value)
-        elif command == "set_position":
+        if command == "set_position":
             # App: offen %, Overkiz: geschlossen %.
             closure = max(0, min(100, 100 - int(data.get("position", 0))))
-            overkiz = Command(cmd.SET_CLOSURE.value, [closure])
+            overkiz = Command(name, [closure])
         elif command == "set_tilt":
             tilt = max(0, min(100, int(data.get("tilt", 0))))
-            overkiz = Command(cmd.SET_ORIENTATION.value, [tilt])
+            overkiz = Command(name, [tilt])
         else:
-            raise ConfigError(f"Overkiz kennt das Kommando '{command}' nicht")
+            overkiz = Command(name)
         await self._client.execute_command(device_url, overkiz)
 
 
