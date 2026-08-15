@@ -98,6 +98,7 @@ class OverkizIntegration(Integration):
         try:
             from pyoverkiz.client import OverkizClient
             from pyoverkiz.enums import OverkizCommand
+            from pyoverkiz.models import Command
             from pyoverkiz.utils import generate_local_server
         except ImportError as err:
             raise ConfigError(
@@ -105,6 +106,7 @@ class OverkizIntegration(Integration):
             ) from err
 
         self._commands_enum = OverkizCommand
+        self._Command = Command
         token = self.config.get("token") or self._load_token()
         if not token:
             raise ConfigError(
@@ -208,21 +210,25 @@ class OverkizIntegration(Integration):
     async def handle_command(self, entity: Entity, command: str, data: dict[str, Any]) -> None:
         device_url = self._url_by_entity[entity.id]
         cmd = self._commands_enum
+        Command = self._Command
+        # Parameter (Position/Lamellen) gehören ins Command-Objekt – das
+        # dritte Argument von execute_command ist das Protokoll-Label.
         if command == "open":
-            await self._client.execute_command(device_url, cmd.OPEN)
+            overkiz = Command(cmd.OPEN.value)
         elif command == "close":
-            await self._client.execute_command(device_url, cmd.CLOSE)
+            overkiz = Command(cmd.CLOSE.value)
         elif command == "stop":
-            await self._client.execute_command(device_url, cmd.STOP)
+            overkiz = Command(cmd.STOP.value)
         elif command == "set_position":
             # App: offen %, Overkiz: geschlossen %.
             closure = max(0, min(100, 100 - int(data.get("position", 0))))
-            await self._client.execute_command(device_url, cmd.SET_CLOSURE, [closure])
+            overkiz = Command(cmd.SET_CLOSURE.value, [closure])
         elif command == "set_tilt":
             tilt = max(0, min(100, int(data.get("tilt", 0))))
-            await self._client.execute_command(device_url, cmd.SET_ORIENTATION, [tilt])
+            overkiz = Command(cmd.SET_ORIENTATION.value, [tilt])
         else:
             raise ConfigError(f"Overkiz kennt das Kommando '{command}' nicht")
+        await self._client.execute_command(device_url, overkiz)
 
 
 INTEGRATION = OverkizIntegration
@@ -261,7 +267,11 @@ async def _login_main(config_path: str) -> int:
     username = input("Somfy-E-Mail: ").strip()
     password = getpass.getpass("Somfy-Passwort: ")
 
-    async with OverkizClient(username, password, server=overkiz_server) as client:
+    # Durchgängig Keyword-Argumente: manche pyoverkiz-Versionen machen
+    # username/password keyword-only.
+    async with OverkizClient(
+        username=username, password=password, server=overkiz_server
+    ) as client:
         try:
             await client.login()
             token = await client.generate_local_token(gateway_id)
