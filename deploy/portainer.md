@@ -100,18 +100,52 @@ Portainer holt den neuesten Stand aus dem Repository und baut neu.
 
 ## Wenn Portainer beim Bauen streikt
 
-Ältere Portainer-Versionen können Repository-Stacks nicht selbst bauen.
-Dann einmalig per SSH:
+Manche Portainer-Versionen (oder -Einstellungen) ziehen bei „Update the
+stack“ nicht zuverlässig den neuesten Commit – der Container läuft dann
+scheinbar aktuell, hat aber noch alten Code. Erkennbar z.B. daran, dass eine
+gerade erst hinzugefügte Bibliothek im Container fehlt.
+
+Für diesen Fall liegt [`deploy/rebuild-hub.sh`](rebuild-hub.sh) bereit – es
+erledigt den kompletten Dreisatz (alten Container/Abbild entfernen, frisch
+klonen, ohne Cache neu bauen) in einem Aufruf, statt die Einzelbefehle jedes
+Mal von Hand zu tippen.
+
+**Einmalige Einrichtung** auf dem Docker-Host:
 
 ```bash
-git clone https://github.com/stibe881/Homepilot-Pro-neu /opt/homepilot-src
-cd /opt/homepilot-src
-docker compose -f docker-compose.portainer.yml build
+sudo mkdir -p /opt/homepilot
+sudo nano /opt/homepilot/github-credentials.env
 ```
 
-Danach den Stack in Portainer normal anlegen – das gebaute Abbild wird
-wiederverwendet. Alternativ funktioniert der klassische Weg über die
-Kommandozeile wie in [`deploy/README.md`](README.md) beschrieben.
+Dort rein (GitHub-Benutzername + ein Personal Access Token mit Lesezugriff
+auf dieses private Repository – github.com → Settings → Developer settings
+→ Personal access tokens):
+
+```
+GITHUB_USER=dein-github-benutzername
+GITHUB_TOKEN=dein-personal-access-token
+```
+
+```bash
+sudo chmod 600 /opt/homepilot/github-credentials.env
+```
+
+Das Skript selbst nach `/opt/homepilot/rebuild-hub.sh` kopieren (Inhalt aus
+[`deploy/rebuild-hub.sh`](rebuild-hub.sh) im Repository) und ausführbar
+machen:
+
+```bash
+sudo chmod +x /opt/homepilot/rebuild-hub.sh
+```
+
+**Ab dann bei jedem Update** nur noch:
+
+```bash
+sudo /opt/homepilot/rebuild-hub.sh
+```
+
+...und danach einmal in Portainer **Update the stack** → **Deploy**, damit
+der Container das frische Abbild übernimmt.
 
 ## Hinweise
 
