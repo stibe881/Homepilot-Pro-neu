@@ -6,6 +6,7 @@ import { Entity } from '../api/types';
 import { Colors, radius, type, useColors } from '../theme';
 import { Bar } from './Bar';
 import { Card, CardFooter } from './Card';
+import { CoverVisual } from './CoverVisual';
 import { TvRemote } from './TvRemote';
 
 interface Props {
@@ -236,18 +237,30 @@ export function EntityCard({
         return <LockBody entity={entity} onCommand={onCommand} pending={pending} />;
 
       case 'cover': {
-        // Storen/Rollläden/Raffstoren: hoch, stopp, runter; Position und –
-        // bei Aussenraffstoren – Lamellenwinkel als Schieberegler.
+        // Storen/Rollläden/Raffstoren: ein Fenster, über das sich die Storen
+        // sichtbar bewegen. Darunter hoch/stopp/runter und – wo möglich –
+        // Position und Lamellenwinkel als Schieberegler.
         const pos = entity.state.position;
         const tilt = entity.state.tilt;
+        // Fällt die Position, leiten wir sie aus dem Zustand ab, damit sich
+        // die Grafik trotzdem bewegt (zu = 0, offen = 100).
+        const openPct =
+          typeof pos === 'number'
+            ? pos
+            : entity.state.state === 'closed'
+              ? 0
+              : entity.state.state === 'partial'
+                ? 50
+                : 100;
         return (
           <View style={styles.stack}>
+            <CoverVisual open={openPct} tilt={typeof tilt === 'number' ? tilt : undefined} />
             <Pill
               label={
                 entity.state.state === 'closed'
                   ? 'Geschlossen'
                   : entity.state.state === 'partial'
-                    ? `${typeof pos === 'number' ? pos : ''}% offen`.trim()
+                    ? `${typeof pos === 'number' ? pos : openPct}% offen`.trim()
                     : 'Offen'
               }
             />
