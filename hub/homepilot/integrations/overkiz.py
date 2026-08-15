@@ -152,7 +152,7 @@ class OverkizIntegration(Integration):
         # App-Kommando → echter Overkiz-Kommandoname (open→up bei RTS usw.).
         self._devices: dict[str, str] = {}
         self._url_by_entity: dict[str, str] = {}
-        self._cmd_by_entity: dict[str, dict[str, str]] = {}
+        self._cmd_by_entity: dict[str, dict[str, list[str]]] = {}
         for device in await self._client.get_devices():
             if not self._is_cover(device):
                 continue
@@ -160,12 +160,14 @@ class OverkizIntegration(Integration):
             supported = {
                 cd.command_name for cd in getattr(device.definition, "commands", []) or []
             }
-            # Für jedes App-Kommando die erste vom Gerät gekannte Variante.
-            cmd_map: dict[str, str] = {}
+            # Je App-Kommando ALLE vom Gerät gekannten Varianten, nach Vorzug
+            # sortiert. Wird die erste abgewiesen, probiert handle_command die
+            # nächste – ein abgelehnter Befehl bewegt ohnehin nichts.
+            cmd_map: dict[str, list[str]] = {}
             for app_cmd, variants in COMMAND_ALIASES.items():
-                actual = next((v for v in variants if v in supported), None)
-                if actual is not None:
-                    cmd_map[app_cmd] = actual
+                got = [v for v in variants if v in supported]
+                if got:
+                    cmd_map[app_cmd] = got
             # setClosure/setOrientation nur, wenn es dazu auch einen Zustand gibt
             # (sonst hätte die App einen Regler ohne Rückmeldung).
             if CLOSURE not in states:
@@ -256,37 +258,36 @@ class OverkizIntegration(Integration):
     async def handle_command(self, entity: Entity, command: str, data: dict[str, Any]) -> None:
         device_url = self._url_by_entity[entity.id]
         Command = self._Command
-        # Der echte Kommandoname des Geräts (z.B. 'up' statt 'open' bei RTS).
-        name = self._cmd_by_entity.get(entity.id, {}).get(command)
-        if name is None:
-            raise ConfigError(
-                f"Diese Storen kennen das Kommando '{command}' nicht"
-            )
-        # Parameter (Position/Lamellen) gehören ins Command-Objekt – das
-        # dritte Argument von execute_command ist das Protokoll-Label.
+        # Alle vom Gerät gekannten Varianten dieses App-Kommandos (Vorzug zuerst).
+        variants = self._cmd_by_entity.get(entity.id, {}).get(command)
+        if not variants:
+            raise ConfigError(f"Diese Storen kennen das Kommando '{command}' nicht")
+        # Parameter bestimmen. Wichtig: leere Liste statt None – sonst wird aus
+        # dem JSON-null in der Gateway-Firmware ein 'nil' und der Befehl fällt
+        # mit UNSPECIFIED_ERROR / error:'nil' durch.
         if command == "set_position":
             # App: offen %, Overkiz: geschlossen %.
-            closure = max(0, min(100, 100 - int(data.get("position", 0))))
-            overkiz = Command(name, [closure])
+            params: list[Any] = [max(0, min(100, 100 - int(data.get("position", 0))))]
         elif command == "set_tilt":
-            tilt = max(0, min(100, int(data.get("tilt", 0))))
-            overkiz = Command(name, [tilt])
+            params = [max(0, min(100, int(data.get("tilt", 0))))]
         else:
-            overkiz = Command(name)
-        self.log.info(
-            "Overkiz sendet '%s' (App-Kommando '%s') an %s", name, command, device_url
-        )
-        try:
-            await self._client.execute_command(device_url, overkiz)
-        except Exception as err:
-            # Klartext-Antwort des Gateways ins Log und an die App.
-            self.log.warning(
-                "Overkiz-Kommando '%s' abgelehnt: %s: %s",
-                name,
-                type(err).__name__,
-                err,
-            )
-            raise ConfigError(f"Gateway lehnt '{name}' ab: {err}") from err
+            params = []
+
+        last_err: Exception | None = None
+        for name in variants:
+            self.log.info("Overkiz sendet '%s' an %s", name, device_url)
+            try:
+                await self._client.execute_command(device_url, Command(name, params))
+                # Klappt eine spätere Variante, in Zukunft direkt diese nehmen.
+                if name != variants[0]:
+                    self._cmd_by_entity[entity.id][command] = [name]
+                return
+            except Exception as err:
+                last_err = err
+                self.log.warning(
+                    "Overkiz: '%s' abgewiesen (%s) – nächste Variante", name, err
+                )
+        raise ConfigError(f"Gateway lehnt '{command}' ab: {last_err}")
 
 
 INTEGRATION = OverkizIntegration
