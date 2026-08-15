@@ -209,44 +209,20 @@ export function EntityCard({
 
       case 'vacuum': {
         const cleaning = entity.state.state === 'cleaning';
+        const rooms: any[] = Array.isArray(entity.state.rooms) ? entity.state.rooms : [];
+        const canCleanRooms = entity.commands.includes('clean_rooms') && rooms.length > 0;
+        // Räume mit Kartenkoordinaten → direkt auf der Karte antippbar.
+        const mappable = canCleanRooms && rooms.some((room) => Array.isArray(room.box));
         return (
-          <View style={styles.stack}>
-            {snapshotUri ? (
-              <CameraSnapshot
-                uri={snapshotUri}
-                // Nach jedem Zustandswechsel (losfahren, andocken) frische Karte.
-                refreshKey={String(entity.state.state)}
-                contain
-              />
-            ) : null}
-            <Pill
-              label={vacuumLabel(entity.state.state)}
-              tone={cleaning ? colors.accent : entity.state.error ? colors.danger : undefined}
-            />
-            <Text style={styles.hint}>
-              {entity.state.battery != null ? `${entity.state.battery} % Akku` : ''}
-              {entity.state.clean_area_m2 != null
-                ? ` · ${entity.state.clean_area_m2} m²`
-                : ''}
-              {entity.state.error ? ` · ${entity.state.error}` : ''}
-            </Text>
-            <View style={styles.mediaRow}>
-              <MediaButton icon="play" label="Reinigung starten"
-                onPress={() => onCommand('start')} />
-              <MediaButton icon="pause" label="Pausieren"
-                onPress={() => onCommand('pause')} />
-              <MediaButton icon="home" label="Zur Station"
-                onPress={() => onCommand('dock')} />
-            </View>
-            {entity.commands.includes('clean_rooms') &&
-            Array.isArray(entity.state.rooms) &&
-            entity.state.rooms.length > 0 ? (
-              <VacuumRooms
-                rooms={entity.state.rooms}
-                onClean={(roomIds) => onCommand('clean_rooms', { rooms: roomIds })}
-              />
-            ) : null}
-          </View>
+          <VacuumBody
+            entity={entity}
+            snapshotUri={snapshotUri}
+            rooms={rooms}
+            mappable={mappable}
+            canCleanRooms={canCleanRooms}
+            cleaning={cleaning}
+            onCommand={onCommand}
+          />
         );
       }
 
@@ -413,13 +389,32 @@ function CameraSnapshot({
   );
 }
 
-/** Raumauswahl des Saugers: Räume antippen, dann gezielt saugen lassen. */
-function VacuumRooms({
+interface Room {
+  id: number;
+  name: string;
+  /** [x0, y0, x1, y1] als Anteile (0..1) des Kartenbilds, falls vorhanden. */
+  box?: number[];
+}
+
+/** Kompletter Sauger-Inhalt: Karte (antippbar, wenn Raumkoordinaten da sind)
+ *  oder Bild plus Raum-Chips, Zustand, Knöpfe und der Saugen-Auslöser. Die
+ *  Raumauswahl lebt hier, damit Karte und Chips denselben Zustand teilen. */
+function VacuumBody({
+  entity,
+  snapshotUri,
   rooms,
-  onClean,
+  mappable,
+  canCleanRooms,
+  cleaning,
+  onCommand,
 }: {
-  rooms: { id: number; name: string }[];
-  onClean: (roomIds: number[]) => void;
+  entity: Entity;
+  snapshotUri?: string;
+  rooms: Room[];
+  mappable: boolean;
+  canCleanRooms: boolean;
+  cleaning: boolean;
+  onCommand: (command: string, data?: Record<string, any>) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -428,38 +423,72 @@ function VacuumRooms({
     setSelected((current) =>
       current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id]
     );
+  const clean = () => {
+    onCommand('clean_rooms', { rooms: selected });
+    setSelected([]);
+  };
+
   return (
     <View style={styles.stack}>
-      <View style={styles.deviceRow}>
-        {rooms.map((room) => {
-          const active = selected.includes(room.id);
-          return (
-            <Pressable
-              key={room.id}
-              onPress={() => toggle(room.id)}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: active }}
-              style={[styles.deviceChip, active && styles.deviceChipActive]}>
-              <Ionicons
-                name={active ? 'checkmark-circle' : 'ellipse-outline'}
-                size={12}
-                color={active ? '#FFFFFF' : colors.inkSoft}
-              />
-              <Text
-                style={[styles.deviceChipText, active && styles.deviceChipTextActive]}
-                numberOfLines={1}>
-                {room.name}
-              </Text>
-            </Pressable>
-          );
-        })}
+      {snapshotUri && mappable ? (
+        <VacuumMap
+          uri={snapshotUri}
+          refreshKey={String(entity.state.state)}
+          rooms={rooms}
+          selected={selected}
+          onToggle={toggle}
+        />
+      ) : snapshotUri ? (
+        <CameraSnapshot uri={snapshotUri} refreshKey={String(entity.state.state)} contain />
+      ) : null}
+
+      <Pill
+        label={vacuumLabel(entity.state.state)}
+        tone={cleaning ? colors.accent : entity.state.error ? colors.danger : undefined}
+      />
+      <Text style={styles.hint}>
+        {entity.state.battery != null ? `${entity.state.battery} % Akku` : ''}
+        {entity.state.clean_area_m2 != null ? ` · ${entity.state.clean_area_m2} m²` : ''}
+        {entity.state.error ? ` · ${entity.state.error}` : ''}
+      </Text>
+      <View style={styles.mediaRow}>
+        <MediaButton icon="play" label="Reinigung starten" onPress={() => onCommand('start')} />
+        <MediaButton icon="pause" label="Pausieren" onPress={() => onCommand('pause')} />
+        <MediaButton icon="home" label="Zur Station" onPress={() => onCommand('dock')} />
       </View>
+
+      {/* Ohne Kartenkoordinaten: Räume als Chips. Mit Karte tippt man direkt
+          hinein – dann sind die Chips überflüssig. */}
+      {canCleanRooms && !mappable ? (
+        <View style={styles.deviceRow}>
+          {rooms.map((room) => {
+            const active = selected.includes(room.id);
+            return (
+              <Pressable
+                key={room.id}
+                onPress={() => toggle(room.id)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: active }}
+                style={[styles.deviceChip, active && styles.deviceChipActive]}>
+                <Ionicons
+                  name={active ? 'checkmark-circle' : 'ellipse-outline'}
+                  size={12}
+                  color={active ? '#FFFFFF' : colors.inkSoft}
+                />
+                <Text
+                  style={[styles.deviceChipText, active && styles.deviceChipTextActive]}
+                  numberOfLines={1}>
+                  {room.name}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+
       {selected.length > 0 ? (
         <Pressable
-          onPress={() => {
-            onClean(selected);
-            setSelected([]);
-          }}
+          onPress={clean}
           accessibilityRole="button"
           style={({ pressed }) => [styles.cleanRoomsButton, pressed && { opacity: 0.75 }]}>
           <Ionicons name="play" size={14} color="#FFFFFF" />
@@ -468,6 +497,110 @@ function VacuumRooms({
           </Text>
         </Pressable>
       ) : null}
+    </View>
+  );
+}
+
+/** Saugerkarte mit antippbaren Räumen: das gerenderte Kartenbild, darüber
+ *  je Raum eine transparente Fläche; ausgewählte Räume werden eingefärbt. */
+function VacuumMap({
+  uri,
+  refreshKey,
+  rooms,
+  selected,
+  onToggle,
+}: {
+  uri: string;
+  refreshKey: string;
+  rooms: Room[];
+  selected: number[];
+  onToggle: (id: number) => void;
+}) {
+  const colors = useColors();
+  const [tick, setTick] = useState(0);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    const timer = setInterval(() => setTick((value) => value + 1), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+  const separator = uri.includes('?') ? '&' : '?';
+
+  if (failed) {
+    // Karte nicht ladbar: auf Chips zurückfallen, damit die Auswahl bleibt.
+    return (
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+        {rooms.map((room) => {
+          const active = selected.includes(room.id);
+          return (
+            <Pressable
+              key={room.id}
+              onPress={() => onToggle(room.id)}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: active }}
+              style={{
+                paddingHorizontal: 10,
+                paddingVertical: 5,
+                borderRadius: 999,
+                backgroundColor: active ? colors.accent : colors.surfaceSoft,
+                borderWidth: 1,
+                borderColor: active ? colors.accent : colors.surfaceBorder,
+              }}>
+              <Text style={{ fontSize: 12, color: active ? '#FFFFFF' : colors.inkSoft }}>
+                {room.name}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ width: '100%', aspectRatio: 4 / 3, borderRadius: radius.control, overflow: 'hidden', backgroundColor: colors.surfaceSoft }}>
+      <Image
+        source={{ uri: `${uri}${separator}t=${tick}-${encodeURIComponent(refreshKey)}` }}
+        onError={() => setFailed(true)}
+        resizeMode="contain"
+        style={{ width: '100%', height: '100%' }}
+      />
+      {rooms.map((room) => {
+        if (!Array.isArray(room.box)) return null;
+        const [x0, y0, x1, y1] = room.box;
+        const active = selected.includes(room.id);
+        return (
+          <Pressable
+            key={room.id}
+            onPress={() => onToggle(room.id)}
+            accessibilityRole="checkbox"
+            accessibilityLabel={room.name}
+            accessibilityState={{ checked: active }}
+            style={{
+              position: 'absolute',
+              left: `${x0 * 100}%`,
+              top: `${y0 * 100}%`,
+              width: `${(x1 - x0) * 100}%`,
+              height: `${(y1 - y0) * 100}%`,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderWidth: active ? 2 : 0,
+              borderColor: '#FFFFFF',
+              borderRadius: 6,
+              backgroundColor: active ? 'rgba(47,107,246,0.45)' : 'transparent',
+            }}>
+            <Text
+              numberOfLines={1}
+              style={{
+                fontSize: 11,
+                fontWeight: '700',
+                color: '#FFFFFF',
+                textShadowColor: 'rgba(0,0,0,0.55)',
+                textShadowRadius: 3,
+              }}>
+              {room.name}
+            </Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }

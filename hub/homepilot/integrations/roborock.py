@@ -69,6 +69,44 @@ def parse_rooms(mappings: Any) -> list[dict[str, Any]]:
     return sorted(rooms, key=lambda room: room["name"])
 
 
+def room_boxes(map_data: Any) -> tuple[dict[int, list[float]], dict[str, int] | None]:
+    """Raum-Nummer → Bereich [x0, y0, x1, y1] als Anteile (0..1) des
+    gerenderten Kartenbilds, dazu die Bildgrösse in Pixeln.
+
+    Damit kann die App Räume direkt auf der Karte antippbar machen, ohne
+    das Kartenformat zu kennen. Rein bis auf die to_img-Umrechnung des
+    Parsers – die liefert der Aufrufer mit, dadurch bleibt es testbar.
+    """
+    image = getattr(map_data, "image", None)
+    rooms = getattr(map_data, "rooms", None) or {}
+    if image is None or getattr(image, "is_empty", True):
+        return {}, None
+    dimensions = image.dimensions
+    width = max(1, round(dimensions.width * dimensions.scale))
+    height = max(1, round(dimensions.height * dimensions.scale))
+
+    try:
+        from vacuum_map_parser_base.map_data import Point
+    except ImportError:  # in Tests ohne Kartenbibliothek
+        from types import SimpleNamespace as Point  # type: ignore[assignment]
+
+    boxes: dict[int, list[float]] = {}
+    for number, room in rooms.items():
+        corners = [
+            dimensions.to_img(Point(x=room.x0, y=room.y0)),
+            dimensions.to_img(Point(x=room.x1, y=room.y1)),
+        ]
+        xs = [corner.x / width for corner in corners]
+        ys = [corner.y / height for corner in corners]
+        boxes[int(number)] = [
+            round(max(0.0, min(xs)), 4),
+            round(max(0.0, min(ys)), 4),
+            round(min(1.0, max(xs)), 4),
+            round(min(1.0, max(ys)), 4),
+        ]
+    return boxes, {"width": width, "height": height}
+
+
 def segment_clean_params(room_ids: list[Any]) -> list[dict[str, Any]]:
     """Parameter für APP_SEGMENT_CLEAN (rein, testbar).
 
@@ -168,10 +206,28 @@ class RoborockIntegration(Integration):
                 return
             await _maybe_await(rooms_trait.refresh())
             rooms = parse_rooms(rooms_trait.rooms)
-            if rooms:
-                await self.hub.registry.update_state(entity_id, {"rooms": rooms})
+            if not rooms:
+                return
         except Exception as err:
             self.log.warning("Raumliste von %s nicht abrufbar: %s", device.name, err)
+            return
+
+        # Raum-Bereiche aus der Karte, damit die App die Räume direkt auf
+        # der Karte antippbar machen kann. Ohne Karte bleiben die Chips.
+        state: dict[str, Any] = {"rooms": rooms}
+        try:
+            map_trait = getattr(device.v1_properties, "map_content", None)
+            if map_trait is not None:
+                await _maybe_await(map_trait.refresh())
+                boxes, size = room_boxes(map_trait.map_data)
+                for room in rooms:
+                    if room["id"] in boxes:
+                        room["box"] = boxes[room["id"]]
+                if size:
+                    state["map"] = size
+        except Exception as err:
+            self.log.debug("Raum-Bereiche von %s nicht abrufbar: %s", device.name, err)
+        await self.hub.registry.update_state(entity_id, state)
 
     async def _poll_loop(self) -> None:
         while True:

@@ -235,6 +235,53 @@ def test_segment_clean_params():
         segment_clean_params([])
 
 
+class _RoomBox:
+    def __init__(self, x0, y0, x1, y1):
+        self.x0, self.y0, self.x1, self.y1 = x0, y0, x1, y1
+
+
+class _Dimensions:
+    """Bildet den Parser nach: to_img rechnet Kartenkoordinaten in Pixel um."""
+
+    width, height, scale = 200, 100, 1.0
+
+    def to_img(self, point):
+        from types import SimpleNamespace
+
+        # Y wird gespiegelt – genau wie ImageDimensions.to_img des Parsers.
+        return SimpleNamespace(x=point.x, y=self.height - point.y)
+
+
+class _Image:
+    is_empty = False
+    dimensions = _Dimensions()
+
+
+class _MapData:
+    image = _Image()
+    rooms = {16: _RoomBox(20, 10, 60, 40), 17: _RoomBox(100, 50, 180, 90)}
+
+
+def test_room_boxes_to_image_fractions():
+    from homepilot.integrations.roborock import room_boxes
+
+    boxes, size = room_boxes(_MapData())
+    assert size == {"width": 200, "height": 100}
+    # Raum 16: x 20..60 → 0.1..0.3; y 10..40 gespiegelt zu 60..90 → 0.6..0.9
+    assert boxes[16] == [0.1, 0.6, 0.3, 0.9]
+    assert boxes[17][0] == 0.5 and boxes[17][2] == 0.9
+
+
+def test_room_boxes_without_image():
+    from homepilot.integrations.roborock import room_boxes
+
+    class _Empty:
+        image = None
+        rooms = {}
+
+    assert room_boxes(_Empty()) == ({}, None)
+
+
 # ── Google Cast ──────────────────────────────────────────────────────────
 
 
