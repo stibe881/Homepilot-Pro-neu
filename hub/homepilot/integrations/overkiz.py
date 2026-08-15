@@ -174,10 +174,11 @@ class OverkizIntegration(Integration):
                 cmd_map.pop("set_tilt", None)
             commands = list(cmd_map.keys())
             self.log.info(
-                "Overkiz: %s (%s) – Kommandos %s",
+                "Overkiz: %s (%s) – App-Kommandos [%s]; Gerät kann [%s]",
                 device.label,
                 getattr(device, "widget", None) or getattr(device, "ui_class", None),
                 ", ".join(commands) or "keine",
+                ", ".join(sorted(supported)) or "keine",
             )
             entity = await self.add_entity(
                 device.device_url.replace("/", "_").replace(":", "_"),
@@ -272,7 +273,20 @@ class OverkizIntegration(Integration):
             overkiz = Command(name, [tilt])
         else:
             overkiz = Command(name)
-        await self._client.execute_command(device_url, overkiz)
+        self.log.info(
+            "Overkiz sendet '%s' (App-Kommando '%s') an %s", name, command, device_url
+        )
+        try:
+            await self._client.execute_command(device_url, overkiz)
+        except Exception as err:
+            # Klartext-Antwort des Gateways ins Log und an die App.
+            self.log.warning(
+                "Overkiz-Kommando '%s' abgelehnt: %s: %s",
+                name,
+                type(err).__name__,
+                err,
+            )
+            raise ConfigError(f"Gateway lehnt '{name}' ab: {err}") from err
 
 
 INTEGRATION = OverkizIntegration
