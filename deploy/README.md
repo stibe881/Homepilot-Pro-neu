@@ -99,6 +99,20 @@ In der App trägst du ein:
 Damit sich die Adresse nicht ändert, gib dem Rechner in deinem Router eine
 feste IP (im UniFi-Controller: *Client* → *Fixed IP*).
 
+## Was gesichert werden sollte
+
+Zwei Dateien enthalten alles, was nicht wiederherstellbar ist:
+
+| Datei | Inhalt |
+|---|---|
+| `config.yaml` | Integrationen, Räume, Szenen, fest eingetragene Benutzer |
+| `homepilot-data.json` | In der App angelegte Benutzer und Abläufe, samt Tokens |
+
+Die zweite Datei legt der Hub neben der Konfiguration an und schreibt sie
+über eine temporäre Datei – ein Stromausfall mitten im Speichern hinterlässt
+also keine halbe Datei. Bei Docker liegen beide im hereingereichten Ordner,
+bei systemd unter `/etc/homepilot`.
+
 ## Ports
 
 | Port | Wofür | Wer spricht ihn an |

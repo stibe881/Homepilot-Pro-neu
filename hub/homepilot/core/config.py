@@ -38,6 +38,8 @@ class HubConfig:
     users: list[dict[str, Any]] = field(default_factory=list)
     # Strompreis für die Kostenanzeige, z.B. {price_per_kwh: 0.32, currency: CHF}
     energy: dict[str, Any] = field(default_factory=dict)
+    # Wohin in der App angelegte Benutzer und Automationen geschrieben werden.
+    data_file: str | None = None
 
 
 def expand_env(value: Any) -> Any:
@@ -108,9 +110,13 @@ def load_config(path: str | Path) -> HubConfig:
     if not isinstance(energy, dict):
         raise ConfigError("'energy' muss ein Mapping sein")
 
+    # Neben der config.yaml, wenn nichts anderes angegeben ist.
+    data_file = raw.get("data_file") or str(path.parent / "homepilot-data.json")
+
     return HubConfig(
         api=api,
         supabase=supabase,
+        data_file=str(data_file),
         integrations=integrations,
         automations=automations,
         rooms={

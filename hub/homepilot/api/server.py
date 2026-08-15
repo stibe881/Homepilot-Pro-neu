@@ -50,6 +50,14 @@ class PushRegistration(BaseModel):
     label: str = ""
 
 
+class AutomationRequest(BaseModel):
+    alias: str
+    trigger: list[dict[str, Any]] = []
+    condition: list[dict[str, Any]] = []
+    action: list[dict[str, Any]] = []
+    enabled: bool = True
+
+
 class UserRequest(BaseModel):
     name: str
     role: str = Role.RESIDENT
@@ -247,6 +255,69 @@ def create_app(hub: Hub) -> FastAPI:
         until = hub.automations.pause(body.seconds)
         return {"paused_until": until.isoformat() if until else None}
 
+    def stored_automations() -> list[dict[str, Any]]:
+        return hub.data.get("automations")
+
+    @app.post("/api/automations")
+    async def create_automation(
+        body: AutomationRequest, request: Request
+    ) -> dict[str, Any]:
+        require(request, Capability.EDIT_AUTOMATIONS)
+        import secrets as _secrets
+
+        entry = {
+            "id": f"app_{_secrets.token_hex(4)}",
+            "alias": body.alias,
+            "trigger": body.trigger,
+            "condition": body.condition,
+            "action": body.action,
+        }
+        hub.data.set("automations", [*stored_automations(), entry])
+        await hub.reload_automations()
+        return {"automation": entry}
+
+    @app.put("/api/automations/{automation_id}")
+    async def update_automation(
+        automation_id: str, body: AutomationRequest, request: Request
+    ) -> dict[str, Any]:
+        require(request, Capability.EDIT_AUTOMATIONS)
+        stored = stored_automations()
+        if not any(entry["id"] == automation_id for entry in stored):
+            # Aus der config.yaml stammende gehören der Datei, nicht der App.
+            raise HTTPException(
+                status_code=404,
+                detail="Nur in der App angelegte Abläufe lassen sich hier ändern",
+            )
+        updated = [
+            {
+                "id": automation_id,
+                "alias": body.alias,
+                "trigger": body.trigger,
+                "condition": body.condition,
+                "action": body.action,
+            }
+            if entry["id"] == automation_id
+            else entry
+            for entry in stored
+        ]
+        hub.data.set("automations", updated)
+        await hub.reload_automations()
+        return {"ok": True}
+
+    @app.delete("/api/automations/{automation_id}")
+    async def delete_automation(automation_id: str, request: Request) -> dict[str, Any]:
+        require(request, Capability.EDIT_AUTOMATIONS)
+        stored = stored_automations()
+        remaining = [entry for entry in stored if entry["id"] != automation_id]
+        if len(remaining) == len(stored):
+            raise HTTPException(
+                status_code=404,
+                detail="Nur in der App angelegte Abläufe lassen sich hier löschen",
+            )
+        hub.data.set("automations", remaining)
+        await hub.reload_automations()
+        return {"ok": True}
+
     # ── Push ───────────────────────────────────────────────────────────────
 
     @app.post("/api/push/register")
@@ -279,7 +350,15 @@ def create_app(hub: Hub) -> FastAPI:
         token = body.token or secrets.token_urlsafe(32)
         try:
             hub.users.add(
-                HubUser(name=body.name, role=body.role, token=token, allow=body.allow)
+                HubUser(
+                    name=body.name,
+                    role=body.role,
+                    token=token,
+                    allow=body.allow,
+                    # In der App angelegt: wird gespeichert und ist dort
+                    # auch wieder löschbar.
+                    editable=True,
+                )
             )
         except HomePilotError as err:
             raise HTTPException(status_code=409, detail=str(err)) from err
@@ -287,10 +366,7 @@ def create_app(hub: Hub) -> FastAPI:
         # nirgends mehr im Klartext zum Abholen.
         return {
             "user": hub.users.by_name(body.name).as_dict(include_token=True),
-            "hinweis": (
-                "Token jetzt notieren und in die config.yaml übernehmen – "
-                "sonst ist der Zugang nach einem Neustart des Hubs weg."
-            ),
+            "hinweis": "Token jetzt notieren – er wird nur dieses eine Mal gezeigt.",
         }
 
     @app.delete("/api/users/{name}")

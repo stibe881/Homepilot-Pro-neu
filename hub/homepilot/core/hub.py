@@ -11,12 +11,13 @@ from .automation import AutomationEngine
 from .config import HubConfig
 from .events import EventBus
 from .integration import IntegrationManager
+from .persistence import DataStore
 from .push import PushService
 from .registry import EntityRegistry
 from .scenes import SceneManager
 from .store import Store
 from .supabase import SupabaseClient
-from .users import parse_users
+from .users import Role, User, parse_users
 
 log = logging.getLogger(__name__)
 
@@ -31,6 +32,9 @@ class Hub:
         self.scenes = SceneManager(self)
         self.push = PushService()
         self.users = parse_users(config.users, config.api.token)
+        # In der App angelegte Benutzer und Automationen liegen neben der
+        # Konfiguration, damit sie ohne Datenbank einen Neustart überleben.
+        self.data = DataStore(config.data_file)
         self.store: Store | None = None
         self.started_at = time.time()
 
@@ -44,9 +48,12 @@ class Hub:
         }
         self.registry.room_provider = self._rooms_by_entity.get
         await self._start_store()
+        self._load_stored_users()
         await self.integrations.setup_all(self.config.integrations)
         self.scenes.load(self.config.scenes)
-        await self.automations.start(self.config.automations)
+        await self.automations.start(
+            self.config.automations, self.data.get("automations")
+        )
         self.started_at = time.time()
 
         if self.users.open_access:
@@ -62,6 +69,34 @@ class Hub:
             len(self.scenes.scenes),
             len(self.users.users),
             "Supabase" if self.store else "keine",
+        )
+
+    def _load_stored_users(self) -> None:
+        self.data.load()
+        for entry in self.data.get("users"):
+            try:
+                self.users.add(
+                    User(
+                        name=entry["name"],
+                        role=entry.get("role", Role.RESIDENT),
+                        token=entry["token"],
+                        allow=entry.get("allow") or [],
+                        editable=True,
+                    )
+                )
+            except Exception as err:
+                log.warning("Gespeicherter Benutzer übersprungen: %s", err)
+        # Ab jetzt jede Änderung mitschreiben.
+        self.users.on_change = lambda users: self.data.set("users", users)
+        # Gibt es gespeicherte Benutzer, ist die API nicht mehr offen.
+        if self.users.users:
+            self.users.open_access = False
+
+    async def reload_automations(self) -> None:
+        """Nach einer Änderung in der App neu aufsetzen."""
+        await self.automations.stop()
+        await self.automations.start(
+            self.config.automations, self.data.get("automations")
         )
 
     async def _start_store(self) -> None:

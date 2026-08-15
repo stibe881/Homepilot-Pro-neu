@@ -12,6 +12,11 @@ api:
   # der App, die unter einer anderen Adresse läuft als der Hub.
   cors_origins: ["*"]
 
+# Wohin in der App angelegte Benutzer und Abläufe geschrieben werden.
+# Standard: homepilot-data.json neben dieser Datei. Die Datei enthält Tokens
+# und wird deshalb nur für den eigenen Benutzer lesbar angelegt.
+# data_file: /etc/homepilot/homepilot-data.json
+
 # Datenbank (siehe supabase/README.md). Weglassen = Hub läuft ohne Persistenz.
 supabase:
   url: "https://dein-projekt.supabase.co"

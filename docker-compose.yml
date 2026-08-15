@@ -12,7 +12,9 @@ services:
 
     volumes:
       # config.yaml aus hub/ hereinreichen, nur lesend.
-      - ./hub/config.yaml:/config/config.yaml:ro
+      # Der ganze Ordner, nicht nur die Datei: Der Hub schreibt hier auch
+      # homepilot-data.json mit den in der App angelegten Benutzern.
+      - ./hub:/config
 
     environment:
       # Keys stehen nicht in der config.yaml, sondern kommen aus .env

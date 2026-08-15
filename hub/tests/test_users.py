@@ -88,11 +88,40 @@ def test_at_least_one_owner_required():
         registry([RESIDENT])
 
 
-def test_last_owner_cannot_be_removed():
+def test_config_users_cannot_be_removed_via_api():
+    """Was in der config.yaml steht, gehört der Datei – nicht der App."""
     users = registry([OWNER, RESIDENT])
-    assert users.remove("Partnerin")
+    with pytest.raises(ConfigError, match="config.yaml"):
+        users.remove("Partnerin")
+
+
+def test_last_owner_cannot_be_removed():
+    from homepilot.core.users import User
+
+    users = registry([OWNER])
+    users.add(User(name="Zweiter", role=Role.OWNER, token="t2", editable=True))
+    assert users.remove("Zweiter")
+
+    # Der letzte Besitzer bleibt, auch wenn er in der App angelegt wurde.
+    solo = registry([])
+    solo.open_access = False
+    solo.add(User(name="Einzig", role=Role.OWNER, token="t", editable=True))
     with pytest.raises(ConfigError, match="letzte Besitzer"):
-        users.remove("Stefan")
+        solo.remove("Einzig")
+
+
+def test_changes_are_reported_for_saving():
+    from homepilot.core.users import User
+
+    saved = []
+    users = registry([OWNER])
+    users.on_change = saved.append
+    users.add(User(name="Gast", role=Role.GUEST, token="g", editable=True))
+
+    assert len(saved) == 1
+    # Nur die in der App angelegten werden gespeichert.
+    assert [entry["name"] for entry in saved[0]] == ["Gast"]
+    assert saved[0][0]["token"] == "g"
 
 
 def test_duplicate_name_is_rejected():

@@ -37,6 +37,8 @@ class Automation:
     triggers: list[dict[str, Any]]
     conditions: list[dict[str, Any]] = field(default_factory=list)
     actions: list[dict[str, Any]] = field(default_factory=list)
+    # Aus der config.yaml stammende sind in der App nur lesbar.
+    editable: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -45,6 +47,17 @@ class Automation:
             "triggers": self.triggers,
             "conditions": self.conditions,
             "actions": self.actions,
+            "editable": self.editable,
+        }
+
+    def as_config(self) -> dict[str, Any]:
+        """Zurück in die Form, in der sie gespeichert wird."""
+        return {
+            "id": self.id,
+            "alias": self.alias,
+            "trigger": self.triggers,
+            "condition": self.conditions,
+            "action": self.actions,
         }
 
 
@@ -56,7 +69,9 @@ def _as_list(value: Any) -> list[dict[str, Any]]:
     return list(value)
 
 
-def parse_automations(configs: list[dict[str, Any]]) -> list[Automation]:
+def parse_automations(
+    configs: list[dict[str, Any]], editable: bool = False
+) -> list[Automation]:
     automations = []
     for index, config in enumerate(configs):
         auto_id = str(config.get("id") or f"automation_{index}")
@@ -67,6 +82,7 @@ def parse_automations(configs: list[dict[str, Any]]) -> list[Automation]:
                 triggers=_as_list(config.get("trigger")),
                 conditions=_as_list(config.get("condition")),
                 actions=_as_list(config.get("action")),
+                editable=editable,
             )
         )
     return automations
@@ -109,8 +125,15 @@ class AutomationEngine:
             log.info("Automationen wieder aktiv")
         return self.paused_until
 
-    async def start(self, configs: list[dict[str, Any]]) -> None:
-        self.automations = parse_automations(configs)
+    async def start(
+        self,
+        configs: list[dict[str, Any]],
+        stored: list[dict[str, Any]] | None = None,
+    ) -> None:
+        # Konfigurierte zuerst, danach die in der App angelegten.
+        self.automations = parse_automations(configs) + parse_automations(
+            stored or [], editable=True
+        )
         self._unsubscribe = self.hub.bus.subscribe("state_changed", self._on_state_changed)
         for automation in self.automations:
             for trigger in automation.triggers:

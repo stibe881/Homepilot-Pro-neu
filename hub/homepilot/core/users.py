@@ -76,6 +76,9 @@ class User:
     token: str
     # Muster auf Entitäts-IDs, z.B. ["hue.*", "mqtt.sonoff_kueche"].
     allow: list[str] = field(default_factory=list)
+    # Aus der config.yaml stammende Benutzer sind in der App nur lesbar;
+    # dort angelegte liegen in der Datendatei und sind änderbar.
+    editable: bool = False
 
     def can(self, capability: str) -> bool:
         return capability in CAPABILITIES.get(self.role, frozenset())
@@ -92,6 +95,7 @@ class User:
             "name": self.name,
             "role": self.role,
             "allow": list(self.allow),
+            "editable": self.editable,
         }
         if include_token:
             data["token"] = self.token
@@ -103,6 +107,8 @@ class UserRegistry:
 
     def __init__(self, users: list[User], open_access: bool = False) -> None:
         self._users = list(users)
+        # Wird gerufen, wenn sich die in der App verwalteten Benutzer ändern.
+        self.on_change: Any = None
         # Ohne konfigurierte Benutzer und ohne Token ist die API offen –
         # nur fürs eigene Netz gedacht, dann gilt jeder als Besitzer.
         self.open_access = open_access
@@ -130,15 +136,38 @@ class UserRegistry:
         if self.by_name(user.name):
             raise ConfigError(f"Benutzer '{user.name}' existiert bereits")
         self._users.append(user)
+        self._changed()
 
     def remove(self, name: str) -> bool:
         user = self.by_name(name)
         if user is None:
             return False
+        if not user.editable:
+            raise ConfigError(
+                f"'{name}' steht in der config.yaml und muss dort entfernt werden"
+            )
         if user.role == Role.OWNER and self._owner_count() <= 1:
             raise ConfigError("Der letzte Besitzer kann nicht entfernt werden")
         self._users.remove(user)
+        self._changed()
         return True
+
+    def editable_users(self) -> list[dict[str, Any]]:
+        """Nur die in der App angelegten – die anderen gehören der Datei."""
+        return [
+            {
+                "name": user.name,
+                "role": user.role,
+                "token": user.token,
+                "allow": list(user.allow),
+            }
+            for user in self._users
+            if user.editable
+        ]
+
+    def _changed(self) -> None:
+        if self.on_change:
+            self.on_change(self.editable_users())
 
     def _owner_count(self) -> int:
         return sum(1 for user in self._users if user.role == Role.OWNER)
