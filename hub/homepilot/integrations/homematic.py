@@ -200,7 +200,14 @@ class HomematicIntegration(Integration):
         return await asyncio.to_thread(getattr(self._proxy, method), *args)
 
     async def _log_available_channels(self) -> None:
-        """Listet Kanäle der CCU – hilft beim Ausfüllen der Konfiguration."""
+        """Listet Kanäle der CCU – hilft beim Ausfüllen der Konfiguration.
+
+        Eine Zeile pro Kanalart statt einer einzigen, alphabetisch
+        abgeschnittenen Liste: Bei vielen Geräten dominieren sonst
+        Verwaltungskanäle (z.B. Rauchmelder-Systemkanäle) den Anfang, und
+        die eigentlich interessanten Schalter/Sensoren fallen weg. So bleibt
+        jede Art vollständig sichtbar und gezielt grep-bar.
+        """
         try:
             devices = await self._call("listDevices")
         except Exception as err:
@@ -218,11 +225,23 @@ class HomematicIntegration(Integration):
             self.log.warning(
                 "Diese Adressen kennt die CCU nicht: %s", ", ".join(sorted(missing))
             )
+
+        by_type: dict[str, list[str]] = {}
+        for address, kind in channels.items():
+            by_type.setdefault(kind or "UNBEKANNT", []).append(address)
+
         self.log.info(
-            "CCU meldet %d Kanäle: %s",
+            "CCU meldet %d Kanäle über %d Kanalarten (eine Log-Zeile je Art):",
             len(channels),
-            ", ".join(f"{address} ({kind})" for address, kind in sorted(channels.items())[:40]),
+            len(by_type),
         )
+        for kind in sorted(by_type):
+            addresses = sorted(by_type[kind])
+            shown = ", ".join(addresses[:30])
+            rest = len(addresses) - 30
+            if rest > 0:
+                shown += f", … und {rest} weitere"
+            self.log.info("  %s (%d): %s", kind, len(addresses), shown)
 
     async def _refresh_all(self) -> None:
         for entity_id, info in self._devices.items():
