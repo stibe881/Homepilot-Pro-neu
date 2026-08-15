@@ -1,8 +1,10 @@
+import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { HubSettings } from '../api/types';
 import { Card } from '../components/Card';
+import { applySetup, QrScanner } from '../components/QrScanner';
 import { Colors, radius, ThemeMode, type, useColors } from '../theme';
 
 /** „Automatisch" schaltet ab 20 Uhr auf dunkel – die App wird abends im
@@ -32,6 +34,7 @@ export function SettingsScreen({ initial, onSave, onCancel, embedded, user }: Pr
   const [name, setName] = useState(initial?.name ?? '');
   const [theme, setTheme] = useState<ThemeMode>(initial?.theme ?? 'system');
   const [panel, setPanel] = useState(!!initial?.panel);
+  const [scanning, setScanning] = useState(false);
 
   const form = (
     <Card style={styles.card}>
@@ -41,6 +44,29 @@ export function SettingsScreen({ initial, onSave, onCancel, embedded, user }: Pr
           Angemeldet als {user.name} · {user.role}
         </Text>
       ) : null}
+
+      <Pressable
+        onPress={() => setScanning(true)}
+        accessibilityRole="button"
+        style={({ pressed }) => [styles.scan, pressed && { opacity: 0.75 }]}
+      >
+        <Ionicons name="qr-code-outline" size={20} color={colors.ink} />
+        <Text style={styles.scanText}>QR-Code vom Hub scannen</Text>
+      </Pressable>
+      <Text style={styles.scanHint}>oder von Hand eintragen</Text>
+
+      <QrScanner
+        visible={scanning}
+        onClose={() => setScanning(false)}
+        onScanned={(setup) => {
+          // Direkt speichern: Wer scannt, will verbinden, nicht noch tippen.
+          const next = applySetup(initial, setup);
+          setUrl(next.url);
+          setToken(next.token);
+          if (next.name) setName(next.name);
+          onSave({ ...next, theme, panel });
+        }}
+      />
 
       <Field
         label="Hub-URL"
@@ -226,6 +252,24 @@ const makeStyles = (colors: Colors) =>
     fontSize: 16,
   },
   account: { color: colors.inkSoft, fontSize: 13, marginTop: -8 },
+  scan: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 14,
+    borderRadius: radius.control,
+    backgroundColor: colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  scanText: { color: colors.ink, fontSize: 15, fontWeight: '600' },
+  scanHint: {
+    color: colors.inkFaint,
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: -8,
+  },
   panelRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 4 },
   panelHint: { color: colors.inkFaint, fontSize: 12, lineHeight: 17, marginTop: 2 },
   switch: {
