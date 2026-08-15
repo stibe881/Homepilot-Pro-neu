@@ -147,6 +147,15 @@ sudo /opt/homepilot/rebuild-hub.sh
 ...und danach einmal in Portainer **Update the stack** → **Deploy**, damit
 der Container das frische Abbild übernimmt.
 
+Das Skript startet den Container absichtlich nicht selbst – deine Tokens
+liegen ausschliesslich in Portainers Stack-Konfiguration, nicht zusätzlich
+auf der Platte. Wer auch den letzten Klick loswerden will: In Portainer
+unter **Stacks → homepilot → Webhook** einen Stack-Webhook aktivieren und
+die angezeigte URL als `PORTAINER_WEBHOOK_URL` in
+`/opt/homepilot/github-credentials.env` eintragen – das Skript ruft ihn
+dann am Ende automatisch auf, und `sudo /opt/homepilot/rebuild-hub.sh`
+ist der einzige nötige Befehl.
+
 ## Hinweise
 
 - Der Container läuft mit `network_mode: host` – Absicht: Der Hub muss

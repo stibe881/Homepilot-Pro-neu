@@ -28,6 +28,23 @@
 #
 # ...und danach in Portainer einmal Stacks → homepilot → "Update the
 # stack" → Deploy klicken, damit der Container das frische Abbild nutzt.
+#
+# ── Optional: auch den letzten Klick automatisieren ─────────────────────
+#
+# Dieses Skript startet den Container absichtlich nicht selbst - deine
+# Tokens (HOMEPILOT_TOKEN, TOKEN_STEFAN, SUPABASE_SERVICE_KEY, ...) liegen
+# ausschliesslich in Portainers Stack-Konfiguration, und das soll auch so
+# bleiben, statt sie zusätzlich in eine Datei auf der Platte zu duplizieren.
+#
+# Wer trotzdem einen einzigen Befehl will: In Portainer unter Stacks →
+# homepilot → "Webhook" einen Stack-Webhook aktivieren (löst bei einem
+# POST-Aufruf automatisch "Update the stack" aus, ohne dass Portainer
+# dafür Tokens preisgibt) und die angezeigte URL in
+# github-credentials.env eintragen:
+#
+#   PORTAINER_WEBHOOK_URL=https://portainer.example.com/api/stacks/webhooks/xxxxxxxx
+#
+# Ist die Variable gesetzt, ruft dieses Skript sie am Ende automatisch auf.
 
 set -euo pipefail
 
@@ -64,4 +81,12 @@ rm -rf "$WORKDIR"
 
 echo ""
 echo "✓ Abbild '$IMAGE' ist aktuell."
-echo "  Jetzt in Portainer: Stacks → homepilot → Update the stack → Deploy."
+
+if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
+  echo "→ Löse den Portainer-Webhook aus …"
+  curl -fsS -X POST "$PORTAINER_WEBHOOK_URL"
+  echo ""
+  echo "✓ Fertig – der Stack rollt gerade mit dem frischen Abbild neu aus."
+else
+  echo "  Jetzt in Portainer: Stacks → homepilot → Update the stack → Deploy."
+fi
