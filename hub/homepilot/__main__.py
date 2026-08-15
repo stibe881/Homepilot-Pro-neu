@@ -30,7 +30,9 @@ def main() -> None:
     config = load_config(args.config)
     hub = Hub(config)
     if not args.no_qr:
-        print(setup_hint(hub.users, config.api.host, config.api.port))
+        # flush: Im Docker-Betrieb ist stdout gepuffert – ohne Flush bliebe
+        # der QR-Code unsichtbar, während die Logs (stderr) durchkommen.
+        print(setup_hint(hub.users, config.api.host, config.api.port), flush=True)
     app = create_app(hub)
     uvicorn.run(app, host=config.api.host, port=config.api.port, log_level="warning")
 

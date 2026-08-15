@@ -5,6 +5,10 @@
 
 FROM python:3.12-slim
 
+# Ohne das puffert Python stdout – der Einrichtungs-QR-Code erschiene
+# nie in `docker logs`.
+ENV PYTHONUNBUFFERED=1
+
 # Abhängigkeiten zuerst, damit Docker sie beim Ändern von Code nicht
 # jedes Mal neu installiert. Im Container sind alle optionalen
 # Integrationsbibliotheken dabei (Ring, Roborock, Cast, Android TV) –

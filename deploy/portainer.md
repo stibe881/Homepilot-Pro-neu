@@ -34,6 +34,14 @@ einfügen und anpassen:
     history: true
   ```
 
+Zum Schluss dem Hub das Schreibrecht geben – im Container läuft er als
+Benutzer 1000 und legt hier App-Daten, Kopplungs-Dateien und Änderungen
+aus dem Konfigurations-Editor ab:
+
+```bash
+sudo chown -R 1000:1000 /opt/homepilot
+```
+
 Der Ordner `/opt/homepilot` ist danach das Zuhause des Hubs: Neben der
 `config.yaml` legt er dort `homepilot-data.json` an (in der App angelegte
 Benutzer und Abläufe) sowie Kopplungs-Dateien (Android-TV-Zertifikate,

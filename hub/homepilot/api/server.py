@@ -21,19 +21,29 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import threading
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from ..core.config import ConfigError, load_config
 from ..core.errors import HomePilotError, UnknownEntityError, UnsupportedCommandError
 from ..core.hub import Hub
 from ..core.source import as_source, user_source
-from ..core.users import Capability, Role, User
+from ..core.users import Capability, Role, User, parse_users
 
 log = logging.getLogger(__name__)
+
+
+def _exit_for_restart() -> None:
+    """Prozess hart beenden – der Prozessmanager (Docker, systemd) startet
+    neu. In Tests wird diese Funktion ersetzt."""
+    os._exit(0)
 
 
 class CommandRequest(BaseModel):
@@ -69,6 +79,10 @@ class UserRequest(BaseModel):
     role: str = Role.RESIDENT
     token: str | None = None
     allow: list[str] = []
+
+
+class ConfigRequest(BaseModel):
+    content: str
 
 
 def create_app(hub: Hub) -> FastAPI:
@@ -149,6 +163,62 @@ def create_app(hub: Hub) -> FastAPI:
     async def system_status(request: Request) -> dict[str, Any]:
         require(request, Capability.VIEW_SYSTEM)
         return hub.status()
+
+    # ── Konfiguration aus der App bearbeiten ──────────────────────────────
+
+    def config_path() -> str:
+        path = hub.config.source_path
+        if not path:
+            raise HTTPException(
+                status_code=503, detail="Der Hub wurde ohne Konfigurationsdatei gestartet"
+            )
+        return path
+
+    @app.get("/api/config")
+    async def get_config(request: Request) -> dict[str, Any]:
+        require(request, Capability.EDIT_CONFIG)
+        path = config_path()
+        try:
+            content = Path(path).read_text(encoding="utf-8")
+        except OSError as err:
+            raise HTTPException(status_code=500, detail=f"Konfiguration nicht lesbar: {err}") from err
+        return {"path": path, "content": content}
+
+    @app.put("/api/config")
+    async def put_config(body: ConfigRequest, request: Request) -> dict[str, Any]:
+        """Konfiguration validiert speichern.
+
+        Erst in eine Temporärdatei schreiben und komplett parsen – eine
+        kaputte config.yaml darf nie auf der Platte landen, sonst kommt der
+        Hub nach dem nächsten Neustart nicht mehr hoch.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        path = Path(config_path())
+        temp = path.with_suffix(".tmp")
+        try:
+            temp.write_text(body.content, encoding="utf-8")
+            candidate = load_config(temp)  # wirft ConfigError bei YAML-/Strukturfehlern
+            # Auch die Benutzer-Regeln prüfen: Eine Konfiguration ohne
+            # Besitzer würde den Editor selbst aussperren.
+            parse_users(candidate.users, candidate.api.token)
+        except ConfigError as err:
+            temp.unlink(missing_ok=True)
+            raise HTTPException(status_code=400, detail=str(err)) from err
+        except OSError as err:
+            raise HTTPException(status_code=500, detail=f"Schreiben fehlgeschlagen: {err}") from err
+        temp.replace(path)
+        log.info("Konfiguration über die App gespeichert (%s)", path)
+        return {"ok": True, "restart_required": True}
+
+    @app.post("/api/system/restart")
+    async def restart(request: Request) -> dict[str, Any]:
+        """Hub-Prozess beenden – Docker (restart: unless-stopped) oder
+        systemd starten ihn sofort neu, mit frisch gelesener Konfiguration."""
+        user = require(request, Capability.EDIT_CONFIG)
+        log.warning("Neustart angefordert von %s", user.name)
+        # Kurz warten, damit die Antwort das Gerät noch erreicht.
+        threading.Timer(0.8, _exit_for_restart).start()
+        return {"ok": True}
 
     # ── Entitäten ──────────────────────────────────────────────────────────
 

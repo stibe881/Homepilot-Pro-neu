@@ -37,6 +37,7 @@ class Capability:
     EDIT_AUTOMATIONS = "edit_automations"
     VIEW_SYSTEM = "view_system"
     MANAGE_USERS = "manage_users"
+    EDIT_CONFIG = "edit_config"
 
 
 CAPABILITIES: dict[str, frozenset[str]] = {
@@ -49,6 +50,7 @@ CAPABILITIES: dict[str, frozenset[str]] = {
             Capability.EDIT_AUTOMATIONS,
             Capability.VIEW_SYSTEM,
             Capability.MANAGE_USERS,
+            Capability.EDIT_CONFIG,
         }
     ),
     Role.RESIDENT: frozenset(

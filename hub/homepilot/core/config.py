@@ -40,6 +40,8 @@ class HubConfig:
     energy: dict[str, Any] = field(default_factory=dict)
     # Wohin in der App angelegte Benutzer und Automationen geschrieben werden.
     data_file: str | None = None
+    # Woher diese Konfiguration geladen wurde – für den Editor in der App.
+    source_path: str | None = None
 
 
 def expand_env(value: Any) -> Any:
@@ -70,7 +72,12 @@ def load_config(path: str | Path) -> HubConfig:
     if not path.exists():
         raise ConfigError(f"Konfigurationsdatei nicht gefunden: {path}")
 
-    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as err:
+        # Als ConfigError weiterreichen, damit der Fehler überall lesbar
+        # ankommt – etwa als Meldung im Konfigurations-Editor der App.
+        raise ConfigError(f"Kein gültiges YAML: {err}") from err
     if not isinstance(raw, dict):
         raise ConfigError("Konfiguration muss ein YAML-Mapping sein")
     raw = expand_env(raw)
@@ -126,4 +133,5 @@ def load_config(path: str | Path) -> HubConfig:
         scenes=scenes,
         users=users,
         energy=energy,
+        source_path=str(path),
     )

@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Entity, HubSettings, SystemStatus, User } from '../api/types';
 import { Card } from '../components/Card';
@@ -111,6 +111,10 @@ export function SystemScreen({
 
       <EnergyCard entities={entities} energy={status.energy} />
 
+      {user?.capabilities?.includes('edit_config') ? (
+        <ConfigCard settings={settings} headers={headers} />
+      ) : null}
+
       {user?.capabilities?.includes('pause_automations') ? (
         <Card style={styles.card}>
           <Text style={styles.heading}>Automationen</Text>
@@ -158,6 +162,102 @@ export function SystemScreen({
         </Card>
       ) : null}
     </View>
+  );
+}
+
+/** Die config.yaml des Hubs direkt in der App bearbeiten.
+ *
+ *  Der Hub validiert vor dem Speichern die komplette Datei – eine kaputte
+ *  Konfiguration kann hier also nicht auf der Platte landen. Nach dem
+ *  Neustart verbindet sich die App von selbst wieder. */
+function ConfigCard({
+  settings,
+  headers,
+}: {
+  settings: HubSettings;
+  headers: Record<string, string>;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [content, setContent] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = () => {
+    setMessage(null);
+    fetch(`${settings.url}/api/config`, { headers })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
+        return response.json();
+      })
+      .then((data) => setContent(data.content))
+      .catch((err) => setMessage(String(err.message ?? err)));
+  };
+
+  const save = async (restart: boolean) => {
+    if (content == null) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const response = await fetch(`${settings.url}/api/config`, {
+        method: 'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.detail ?? `Hub antwortet mit ${response.status}`);
+      }
+      if (restart) {
+        await fetch(`${settings.url}/api/system/restart`, { method: 'POST', headers });
+        setMessage('Gespeichert – der Hub startet neu. Die App verbindet sich gleich wieder.');
+      } else {
+        setMessage('Gespeichert. Wirksam wird die Änderung beim nächsten Neustart.');
+      }
+    } catch (err: any) {
+      // Hier steht bei Tippfehlern die genaue Validierungsmeldung des Hubs.
+      setMessage(String(err.message ?? err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card style={styles.card}>
+      <Text style={styles.heading}>Konfiguration</Text>
+      {content == null ? (
+        <>
+          <Text style={styles.rowDetail}>
+            Die config.yaml des Hubs ansehen und ändern – Integrationen,
+            Räume, Benutzer. Vor dem Speichern prüft der Hub die ganze Datei.
+          </Text>
+          <View style={styles.buttons}>
+            <Button label="Konfiguration laden" onPress={load} />
+          </View>
+        </>
+      ) : (
+        <>
+          <TextInput
+            multiline
+            value={content}
+            onChangeText={setContent}
+            autoCapitalize="none"
+            autoCorrect={false}
+            spellCheck={false}
+            style={styles.configInput}
+          />
+          <View style={styles.buttons}>
+            <Button label={busy ? 'Speichert …' : 'Speichern'} onPress={() => save(false)} />
+            <Button
+              label="Speichern & neu starten"
+              onPress={() => save(true)}
+              primary
+            />
+          </View>
+        </>
+      )}
+      {message ? <Text style={styles.configMessage}>{message}</Text> : null}
+    </Card>
   );
 }
 
@@ -292,6 +392,21 @@ const makeStyles = (colors: Colors) =>
     borderColor: colors.surfaceBorder,
   },
   buttonText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
+  configInput: {
+    backgroundColor: colors.surfaceSoft,
+    borderRadius: radius.control,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    color: colors.ink,
+    padding: 12,
+    minHeight: 320,
+    maxHeight: 480,
+    fontSize: 13,
+    lineHeight: 19,
+    fontFamily: 'Menlo',
+    textAlignVertical: 'top',
+  },
+  configMessage: { color: colors.inkSoft, fontSize: 13, lineHeight: 19 },
   note: {
     color: colors.onGradientSoft,
     fontSize: 14,
