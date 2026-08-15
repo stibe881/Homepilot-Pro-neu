@@ -3,20 +3,22 @@
 Konfiguration:
   - integration: overkiz
     host: gateway-2310-9733-0267.local:8443
-    # token: aus dem Anmelde-Helfer, gespeichert in overkiz-token.json
+    token: "${OVERKIZ_TOKEN}"    # lokales Token, siehe unten
 
 Voraussetzung:  pip install "homepilot[overkiz]"  bzw.  pip install pyoverkiz
 
 Gesteuert wird lokal über das Gateway (Somfy Developer Mode) – schnell und
-ohne Cloud. Einmalig braucht es ein lokales Token; das erzeugt der Helfer:
+ohne Cloud. Einmalig braucht es ein lokales Token. Am einfachsten direkt
+in der TaHoma-App erzeugen:
 
-  1. Im Somfy-/TaHoma-Konto den Entwicklermodus für das Gateway aktivieren
-     (somfy.com → Konto → Entwicklermodus aktivieren).
-  2. Auf dem Hub-Rechner:
-         python -m homepilot.integrations.overkiz -c config.yaml
-     Somfy-E-Mail, Passwort und den Server wählen. Das Token wandert in
-     overkiz-token.json neben der homepilot-data.json.
+  1. Im Somfy-/TaHoma-Konto den Entwicklermodus für das Gateway aktivieren.
+  2. In der TaHoma-App unter „Token verwalten“ ein neues lokales Token
+     erstellen und in die config.yaml eintragen (token: ...).
   3. Hub (neu) starten.
+
+Alternativ erzeugt der Helfer das Token über die Somfy-Cloud und legt es
+in overkiz-token.json:
+     python -m homepilot.integrations.overkiz -c config.yaml
 
 Aussenraffstoren (ExteriorVenetianBlind) haben Position UND Lamellenwinkel;
 beides erscheint als cover-Entität mit den Kommandos open/close/stop,

@@ -154,11 +154,13 @@ integrations:
   #       name: Wohnzimmer TV
 
   # Overkiz (Somfy TaHoma & Co.): Storen, Rollläden, Markisen.
-  # Braucht: pip install pyoverkiz. Einmalige Anmeldung (Entwicklermodus
-  # im Somfy-Konto aktivieren, dann):
+  # Braucht: pip install pyoverkiz. Entwicklermodus im Somfy-Konto
+  # aktivieren, dann ein lokales Token in der TaHoma-App erzeugen
+  # ("Token verwalten") und hier eintragen. Alternativ der Helfer:
   #   python -m homepilot.integrations.overkiz -c config.yaml
   # - integration: overkiz
   #   host: gateway-2310-9733-0267.local:8443
+  #   token: "${OVERKIZ_TOKEN}"
 
   # Ring-Türklingeln und -Kameras. Braucht: pip install ring-doorbell
   # Einmalige Anmeldung mit 2FA-Code:

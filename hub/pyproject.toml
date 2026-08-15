@@ -22,7 +22,9 @@ roborock = ["python-roborock>=3.0"]
 cast = ["pychromecast>=14.0"]
 androidtv = ["androidtvremote2>=0.3"]
 ring = ["ring-doorbell>=0.9"]
-overkiz = ["pyoverkiz>=1.13"]
+# Auf die 1.x-Serie festgelegt: pyoverkiz 2.x hat eine andere Client-API
+# und verlangt Python 3.12. 1.20.6 läuft ab 3.10 und ist die getestete Basis.
+overkiz = ["pyoverkiz>=1.13,<2.0"]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
