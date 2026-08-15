@@ -25,10 +25,16 @@ interface Draft {
   triggerKind: TriggerKind;
   entityId: string;
   toState: string;
+  /** Optional: nur wechseln von diesem Wert (z.B. running → idle). */
+  fromState: string;
+  /** Optional: anderes Zustandsfeld als 'state' (z.B. 'ring' beim Klingeln). */
+  attribute: string;
   at: string;
   actionKind: ActionKind;
   actionEntityId: string;
   command: string;
+  /** Raumauswahl, wenn das Kommando 'Räume saugen' ist. */
+  rooms: number[];
   sceneId: string;
   title: string;
   body: string;
@@ -39,14 +45,123 @@ const EMPTY: Draft = {
   triggerKind: 'state',
   entityId: '',
   toState: 'on',
+  fromState: '',
+  attribute: '',
   at: '18:30',
   actionKind: 'command',
   actionEntityId: '',
   command: 'turn_on',
+  rooms: [],
   sceneId: '',
   title: '',
   body: '',
 };
+
+/** Sauger mit Raumsteuerung? Dann bietet der Editor 'Räume saugen' an. */
+function vacuumRooms(entity: Entity | undefined): { id: number; name: string }[] {
+  if (!entity || !entity.commands.includes('clean_rooms')) return [];
+  return Array.isArray(entity.state.rooms) ? entity.state.rooms : [];
+}
+
+interface Template {
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  draft: Draft;
+}
+
+/** Fertige Anfänge für die häufigsten Automationen – nur die, deren Geräte
+ *  es in diesem Haushalt wirklich gibt. Der Editor öffnet sich vorbefüllt,
+ *  anpassen und speichern bleibt beim Benutzer. */
+function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
+  const templates: Template[] = [];
+  const presence = entities.find((entity) => entity.id.endsWith('anyone_home'));
+  const doorbell = entities.find(
+    (entity) => entity.kind === 'camera' && 'last_ring' in entity.state
+  );
+  const appliance = entities.find((entity) => entity.kind === 'appliance');
+  const alert = entities.find((entity) => entity.kind === 'alert');
+  const vacuum = entities.find((entity) => entity.commands.includes('clean_rooms'));
+  const offScene = scenes.find((scene) => scene.id === 'alles_aus');
+  const firstOff = entities.find((entity) => entity.commands.includes('turn_off'));
+
+  if (presence && (offScene || firstOff)) {
+    templates.push({
+      label: 'Alles aus, wenn niemand da',
+      icon: 'exit-outline',
+      draft: {
+        ...EMPTY,
+        alias: 'Alles aus, wenn niemand zuhause',
+        entityId: presence.id,
+        toState: 'off',
+        ...(offScene
+          ? { actionKind: 'scene' as ActionKind, sceneId: offScene.id }
+          : { actionEntityId: firstOff!.id, command: 'turn_off' }),
+      },
+    });
+  }
+  if (doorbell) {
+    templates.push({
+      label: 'Push, wenn es klingelt',
+      icon: 'notifications-outline',
+      draft: {
+        ...EMPTY,
+        alias: 'Es klingelt',
+        entityId: doorbell.id,
+        attribute: 'ring',
+        toState: 'on',
+        actionKind: 'notify',
+        title: 'Es klingelt',
+        body: 'Jemand steht vor der Tür.',
+      },
+    });
+  }
+  if (appliance) {
+    templates.push({
+      label: 'Push, wenn das Gerät fertig ist',
+      icon: 'checkmark-done-outline',
+      draft: {
+        ...EMPTY,
+        alias: `${appliance.name} fertig`,
+        entityId: appliance.id,
+        fromState: 'running',
+        toState: 'idle',
+        actionKind: 'notify',
+        title: `${appliance.name} ist fertig`,
+        body: 'Das Programm ist durchgelaufen.',
+      },
+    });
+  }
+  if (alert) {
+    templates.push({
+      label: 'Unwetterwarnung als Push',
+      icon: 'thunderstorm-outline',
+      draft: {
+        ...EMPTY,
+        alias: 'Unwetterwarnung',
+        entityId: alert.id,
+        toState: 'alert',
+        actionKind: 'notify',
+        title: 'Unwetterwarnung',
+        body: 'MeteoAlarm meldet eine Warnung für deine Region.',
+      },
+    });
+  }
+  if (vacuum) {
+    templates.push({
+      label: 'Morgens saugen',
+      icon: 'sparkles-outline',
+      draft: {
+        ...EMPTY,
+        alias: 'Morgens saugen',
+        triggerKind: 'time',
+        at: '09:00',
+        actionEntityId: vacuum.id,
+        command: 'clean_rooms',
+      },
+    });
+  }
+  return templates;
+}
 
 export function AutomationsScreen({
   settings,
@@ -67,6 +182,7 @@ export function AutomationsScreen({
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [sceneDraft, setSceneDraft] = useState<SceneDraft | null>(null);
+  const templates = useMemo(() => buildTemplates(entities, scenes), [entities, scenes]);
 
   const mayEdit = !!user?.capabilities?.includes('edit_automations');
   const headers: Record<string, string> = settings.token
@@ -87,12 +203,17 @@ export function AutomationsScreen({
 
   const save = async () => {
     if (!draft) return;
+    const stateTrigger: Record<string, any> = {
+      type: 'state',
+      entity_id: draft.entityId,
+      to: draft.toState,
+    };
+    if (draft.fromState) stateTrigger.from = draft.fromState;
+    if (draft.attribute) stateTrigger.attribute = draft.attribute;
     const body = {
       alias: draft.alias || 'Ohne Namen',
       trigger: [
-        draft.triggerKind === 'state'
-          ? { type: 'state', entity_id: draft.entityId, to: draft.toState }
-          : { type: 'time', at: draft.at },
+        draft.triggerKind === 'state' ? stateTrigger : { type: 'time', at: draft.at },
       ],
       condition: [],
       action: [buildAction(draft)],
@@ -128,7 +249,13 @@ export function AutomationsScreen({
     const body = {
       name: sceneDraft.name || 'Ohne Namen',
       icon: sceneDraft.icon,
-      actions: sceneDraft.actions.filter((action) => action.entity_id),
+      actions: sceneDraft.actions
+        .filter((action) => action.entity_id)
+        .map(({ entity_id, command, rooms }) =>
+          command === 'clean_rooms'
+            ? { entity_id, command, data: { rooms: rooms ?? [] } }
+            : { entity_id, command }
+        ),
     };
     const url = sceneDraft.id
       ? `${settings.url}/api/scenes/${sceneDraft.id}`
@@ -175,6 +302,25 @@ export function AutomationsScreen({
           <Ionicons name="add" size={20} color={colors.ink} />
           <Text style={styles.newText}>Neuer Ablauf</Text>
         </Pressable>
+      ) : null}
+
+      {mayEdit && templates.length > 0 ? (
+        <View style={styles.templates}>
+          <Text style={styles.templatesLabel}>Vorlagen</Text>
+          <View style={styles.choices}>
+            {templates.map((template) => (
+              <Pressable
+                key={template.label}
+                onPress={() => setDraft({ ...template.draft })}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.template, pressed && { opacity: 0.75 }]}
+              >
+                <Ionicons name={template.icon} size={14} color={colors.inkSoft} />
+                <Text style={styles.templateText}>{template.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
       ) : null}
 
       {automations.length === 0 ? (
@@ -250,6 +396,7 @@ export function AutomationsScreen({
                     actions: (scene.actions ?? []).map((action) => ({
                       entity_id: action.entity_id,
                       command: action.command,
+                      rooms: action.data?.rooms,
                     })),
                   })
                 }
@@ -295,7 +442,7 @@ interface SceneDraft {
   id?: string;
   name: string;
   icon: string;
-  actions: { entity_id: string; command: string }[];
+  actions: { entity_id: string; command: string; rooms?: number[] }[];
 }
 
 /** Eine Handvoll passender Symbole reicht – die App bleibt aufgeräumt. */
@@ -334,7 +481,10 @@ function SceneEditor({
         i === index ? { ...action, ...patch } : action
       ),
     });
-  const switchable = entities.filter((entity) => entity.commands.includes('turn_on'));
+  const switchable = entities.filter(
+    (entity) =>
+      entity.commands.includes('turn_on') || entity.commands.includes('clean_rooms')
+  );
 
   return (
     <Modal visible animationType="slide" onRequestClose={onCancel}>
@@ -379,7 +529,11 @@ function SceneEditor({
         </Field>
 
         <Field label="Schaltet">
-          {draft.actions.map((action, index) => (
+          {draft.actions.map((action, index) => {
+            const actionEntity = entities.find((entity) => entity.id === action.entity_id);
+            const rooms = vacuumRooms(actionEntity);
+            const isVacuum = actionEntity?.kind === 'vacuum';
+            return (
             <View key={index} style={styles.sceneAction}>
               <View style={{ flex: 1, gap: 8 }}>
                 <Picker
@@ -388,16 +542,52 @@ function SceneEditor({
                     label: entity.name,
                   }))}
                   value={action.entity_id}
-                  onSelect={(entity_id) => setAction(index, { entity_id })}
+                  onSelect={(entity_id) => {
+                    const next = entities.find((entity) => entity.id === entity_id);
+                    setAction(index, {
+                      entity_id,
+                      command: next?.kind === 'vacuum' ? 'start' : 'turn_on',
+                      rooms: [],
+                    });
+                  }}
                 />
                 <Choice
-                  options={[
-                    { key: 'turn_on', label: 'einschalten' },
-                    { key: 'turn_off', label: 'ausschalten' },
-                  ]}
+                  options={
+                    isVacuum
+                      ? [
+                          { key: 'start', label: 'Reinigung starten' },
+                          { key: 'dock', label: 'zur Station' },
+                          ...(rooms.length > 0
+                            ? [{ key: 'clean_rooms', label: 'Räume saugen' }]
+                            : []),
+                        ]
+                      : [
+                          { key: 'turn_on', label: 'einschalten' },
+                          { key: 'turn_off', label: 'ausschalten' },
+                        ]
+                  }
                   value={action.command}
                   onSelect={(command) => setAction(index, { command })}
                 />
+                {action.command === 'clean_rooms' && rooms.length > 0 ? (
+                  <Choice
+                    multi
+                    options={rooms.map((room) => ({
+                      key: String(room.id),
+                      label: room.name,
+                    }))}
+                    values={(action.rooms ?? []).map(String)}
+                    onSelect={(key) => {
+                      const id = Number(key);
+                      const current = action.rooms ?? [];
+                      setAction(index, {
+                        rooms: current.includes(id)
+                          ? current.filter((entry) => entry !== id)
+                          : [...current, id],
+                      });
+                    }}
+                  />
+                ) : null}
               </View>
               {draft.actions.length > 1 ? (
                 <Pressable
@@ -411,7 +601,8 @@ function SceneEditor({
                 </Pressable>
               ) : null}
             </View>
-          ))}
+            );
+          })}
           <Pressable
             onPress={() =>
               set({
@@ -465,6 +656,9 @@ function Editor({
 
   const set = (patch: Partial<Draft>) => onChange({ ...draft, ...patch });
   const switchable = entities.filter((entity) => entity.commands.length > 0);
+  const actionEntity = entities.find((entity) => entity.id === draft.actionEntityId);
+  const actionRooms = vacuumRooms(actionEntity);
+  const isVacuum = actionEntity?.kind === 'vacuum';
 
   return (
     <Modal visible animationType="slide" onRequestClose={onCancel}>
@@ -510,8 +704,15 @@ function Editor({
                   { key: 'off', label: 'auf Aus' },
                 ]}
                 value={draft.toState}
-                onSelect={(toState) => set({ toState })}
+                onSelect={(toState) => set({ toState, attribute: '', fromState: '' })}
               />
+              {draft.attribute || draft.fromState || !['on', 'off'].includes(draft.toState) ? (
+                <Text style={styles.triggerNote}>
+                  Löst aus, wenn {draft.attribute || 'der Zustand'}
+                  {draft.fromState ? ` von «${draft.fromState}»` : ''} auf «{draft.toState}»
+                  wechselt.
+                </Text>
+              ) : null}
             </>
           ) : (
             <TextInput
@@ -542,17 +743,52 @@ function Editor({
                   label: entity.name,
                 }))}
                 value={draft.actionEntityId}
-                onSelect={(actionEntityId) => set({ actionEntityId })}
+                onSelect={(actionEntityId) => {
+                  const next = entities.find((entity) => entity.id === actionEntityId);
+                  set({
+                    actionEntityId,
+                    command: next?.kind === 'vacuum' ? 'start' : 'turn_on',
+                    rooms: [],
+                  });
+                }}
               />
               <Choice
-                options={[
-                  { key: 'turn_on', label: 'einschalten' },
-                  { key: 'turn_off', label: 'ausschalten' },
-                  { key: 'toggle', label: 'umschalten' },
-                ]}
+                options={
+                  isVacuum
+                    ? [
+                        { key: 'start', label: 'Reinigung starten' },
+                        { key: 'dock', label: 'zur Station' },
+                        ...(actionRooms.length > 0
+                          ? [{ key: 'clean_rooms', label: 'Räume saugen' }]
+                          : []),
+                      ]
+                    : [
+                        { key: 'turn_on', label: 'einschalten' },
+                        { key: 'turn_off', label: 'ausschalten' },
+                        { key: 'toggle', label: 'umschalten' },
+                      ]
+                }
                 value={draft.command}
                 onSelect={(command) => set({ command })}
               />
+              {draft.command === 'clean_rooms' && actionRooms.length > 0 ? (
+                <Choice
+                  multi
+                  options={actionRooms.map((room) => ({
+                    key: String(room.id),
+                    label: room.name,
+                  }))}
+                  values={draft.rooms.map(String)}
+                  onSelect={(key) => {
+                    const id = Number(key);
+                    set({
+                      rooms: draft.rooms.includes(id)
+                        ? draft.rooms.filter((entry) => entry !== id)
+                        : [...draft.rooms, id],
+                    });
+                  }}
+                />
+              ) : null}
             </>
           ) : draft.actionKind === 'scene' ? (
             <Picker
@@ -607,26 +843,34 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function Choice({
   options,
   value,
+  values,
+  multi,
   onSelect,
 }: {
   options: { key: string; label: string }[];
-  value: string;
+  value?: string;
+  /** Bei multi: alle ausgewählten Schlüssel. */
+  values?: string[];
+  multi?: boolean;
   onSelect: (key: string) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const isActive = (key: string) => (multi ? !!values?.includes(key) : value === key);
   return (
     <View style={styles.choices}>
       {options.map((option) => (
         <Pressable
           key={option.key}
           onPress={() => onSelect(option.key)}
-          accessibilityRole="radio"
-          accessibilityState={{ selected: value === option.key }}
-          style={[styles.choice, value === option.key && styles.choiceActive]}
+          accessibilityRole={multi ? 'checkbox' : 'radio'}
+          accessibilityState={
+            multi ? { checked: isActive(option.key) } : { selected: isActive(option.key) }
+          }
+          style={[styles.choice, isActive(option.key) && styles.choiceActive]}
         >
           <Text
-            style={[styles.choiceText, value === option.key && styles.choiceTextActive]}
+            style={[styles.choiceText, isActive(option.key) && styles.choiceTextActive]}
           >
             {option.label}
           </Text>
@@ -680,7 +924,15 @@ function buildAction(draft: Draft): Record<string, any> {
   if (draft.actionKind === 'notify') {
     return { type: 'notify', to: 'all', title: draft.title, body: draft.body };
   }
-  return { type: 'command', entity_id: draft.actionEntityId, command: draft.command };
+  const action: Record<string, any> = {
+    type: 'command',
+    entity_id: draft.actionEntityId,
+    command: draft.command,
+  };
+  if (draft.command === 'clean_rooms') {
+    action.data = { rooms: draft.rooms };
+  }
+  return action;
 }
 
 function toDraft(automation: Automation): Draft {
@@ -693,10 +945,13 @@ function toDraft(automation: Automation): Draft {
     triggerKind: trigger.type === 'time' ? 'time' : 'state',
     entityId: trigger.entity_id ?? '',
     toState: trigger.to ?? 'on',
+    fromState: trigger.from ?? '',
+    attribute: trigger.attribute ?? '',
     at: trigger.at ?? EMPTY.at,
     actionKind: (action.type as ActionKind) ?? 'command',
     actionEntityId: action.entity_id ?? '',
     command: action.command ?? 'turn_on',
+    rooms: action.data?.rooms ?? [],
     sceneId: action.scene ?? '',
     title: action.title ?? '',
     body: action.body ?? '',
@@ -712,14 +967,18 @@ function describe(automation: Automation): string {
       ? `täglich um ${trigger.at}`
       : trigger.type === 'interval'
         ? `alle ${trigger.seconds} s`
-        : `wenn ${trigger.entity_id} → ${trigger.to ?? 'sich ändert'}`;
+        : `wenn ${trigger.entity_id}${
+            trigger.attribute ? `.${trigger.attribute}` : ''
+          } → ${trigger.to ?? 'sich ändert'}`;
   const dann = !action
     ? 'ohne Aktion'
     : action.type === 'scene'
       ? `Szene ${action.scene}`
       : action.type === 'notify'
         ? 'Nachricht senden'
-        : `${action.entity_id} ${action.command}`;
+        : action.command === 'clean_rooms'
+          ? `${action.entity_id}: ${action.data?.rooms?.length ?? 0} Räume saugen`
+          : `${action.entity_id} ${action.command}`;
   return `${wenn} → ${dann}`;
 }
 
@@ -740,6 +999,27 @@ const makeStyles = (colors: Colors) =>
       borderBottomWidth: 1,
       borderBottomColor: colors.surfaceBorder,
     },
+    templates: { gap: 8 },
+    templatesLabel: {
+      color: colors.onGradientSoft,
+      fontSize: 12,
+      fontWeight: '700',
+      textTransform: 'uppercase',
+      letterSpacing: 0.6,
+    },
+    template: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceStrong,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    templateText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
+    triggerNote: { color: colors.inkSoft, fontSize: 13, lineHeight: 18 },
     card: { minHeight: 0, gap: 6 },
     cardHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     title: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },

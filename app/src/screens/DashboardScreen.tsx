@@ -190,7 +190,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       );
     }
     if (section === 'system') {
-      return <SystemScreen settings={settings} user={user} />;
+      return <SystemScreen settings={settings} user={user} entities={entities} />;
     }
     return (
       <View style={hasSidePanel ? styles.split : styles.stack}>

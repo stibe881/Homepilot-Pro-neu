@@ -42,6 +42,22 @@ export function TopStrip({
   );
   const people = entities.find((entity) => entity.id.endsWith('anyone_home'));
 
+  // Die Zwei-Sekunden-Übersicht: Was ist an, was läuft, was steht an?
+  const lightsOn = entities.filter(
+    (entity) =>
+      (entity.kind === 'light' || entity.kind === 'switch') &&
+      entity.state.state === 'on'
+  ).length;
+  const vacuum = entities.find(
+    (entity) => entity.kind === 'vacuum' && entity.state.state === 'cleaning'
+  );
+  const calendar = entities.find(
+    (entity) => entity.kind === 'calendar' && entity.state.next_start
+  );
+  const alerts = entities.find(
+    (entity) => entity.kind === 'alert' && entity.state.state === 'alert'
+  );
+
   return (
     <View style={styles.row}>
       <View style={styles.chips}>
@@ -55,6 +71,23 @@ export function TopStrip({
           <Chip
             icon="people-outline"
             text={people.state.state === 'on' ? 'jemand da' : 'niemand da'}
+          />
+        ) : null}
+        {lightsOn > 0 ? (
+          <Chip icon="bulb-outline" text={lightsOn === 1 ? '1 an' : `${lightsOn} an`} />
+        ) : null}
+        {vacuum ? <Chip icon="sparkles-outline" text="saugt" /> : null}
+        {calendar ? (
+          <Chip
+            icon="calendar-outline"
+            text={`${clockTime(calendar.state.next_start)} ${calendar.state.state}`}
+          />
+        ) : null}
+        {alerts ? (
+          <Chip
+            icon="warning-outline"
+            text={`${alerts.state.count ?? ''} Warnung${alerts.state.count === 1 ? '' : 'en'}`}
+            tone={colors.warn}
           />
         ) : null}
       </View>
@@ -72,19 +105,36 @@ export function TopStrip({
   );
 }
 
-function Chip({ icon, text }: { icon: keyof typeof Ionicons.glyphMap; text: string }) {
+function Chip({
+  icon,
+  text,
+  tone,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  text: string;
+  tone?: string;
+}) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <View style={styles.chip}>
-      <Ionicons name={icon} size={15} color={colors.onGradientSoft} />
-      <Text style={styles.chipText}>{text}</Text>
+      <Ionicons name={icon} size={15} color={tone ?? colors.onGradientSoft} />
+      <Text style={[styles.chipText, tone ? { color: tone } : null]} numberOfLines={1}>
+        {text}
+      </Text>
     </View>
   );
 }
 
 function round(value: any): string {
   return typeof value === 'number' ? String(Math.round(value * 10) / 10) : String(value ?? '–');
+}
+
+/** "16:00" aus einem ISO-Zeitstempel – ganztägige Termine haben keinen. */
+function clockTime(iso: any): string {
+  const date = new Date(String(iso));
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' });
 }
 
 const makeStyles = (colors: Colors) =>
@@ -98,7 +148,9 @@ const makeStyles = (colors: Colors) =>
   chips: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
+    flexWrap: 'wrap',
+    gap: 8,
+    rowGap: 4,
     flexShrink: 1,
   },
   chip: {

@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { HubSettings, SystemStatus, User } from '../api/types';
+import { Entity, HubSettings, SystemStatus, User } from '../api/types';
 import { Card } from '../components/Card';
 import { Colors, radius, space, type, useColors } from '../theme';
 
@@ -15,9 +15,11 @@ import { Colors, radius, space, type, useColors } from '../theme';
 export function SystemScreen({
   settings,
   user,
+  entities = [],
 }: {
   settings: HubSettings;
   user: User | null;
+  entities?: Entity[];
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -107,6 +109,8 @@ export function SystemScreen({
         ))}
       </Card>
 
+      <EnergyCard entities={entities} energy={status.energy} />
+
       {user?.capabilities?.includes('pause_automations') ? (
         <Card style={styles.card}>
           <Text style={styles.heading}>Automationen</Text>
@@ -154,6 +158,65 @@ export function SystemScreen({
         </Card>
       ) : null}
     </View>
+  );
+}
+
+/** Energie-Übersicht: aktuelle Leistung und Tageskosten über alle Geräte,
+ *  die Messwerte liefern – grösste Verbraucher zuerst. */
+function EnergyCard({
+  entities,
+  energy,
+}: {
+  entities: Entity[];
+  energy?: { price_per_kwh?: number; currency?: string } | null;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const measured = entities.filter(
+    (entity) => entity.state.power != null || entity.state.energy_today != null
+  );
+  if (measured.length === 0) return null;
+
+  const price = energy?.price_per_kwh ?? 0;
+  const currency = energy?.currency ?? 'CHF';
+  const totalPower = measured.reduce(
+    (sum, entity) => sum + (Number(entity.state.power) || 0), 0
+  );
+  const totalKwh = measured.reduce(
+    (sum, entity) => sum + (Number(entity.state.energy_today) || 0), 0
+  );
+  const byPower = [...measured].sort(
+    (a, b) => (Number(b.state.power) || 0) - (Number(a.state.power) || 0)
+  );
+
+  return (
+    <Card style={styles.card}>
+      <Text style={styles.heading}>Energie</Text>
+      <View style={styles.facts}>
+        <Fact label="gerade jetzt" value={`${Math.round(totalPower)} W`} />
+        <Fact label="heute" value={`${totalKwh.toFixed(2)} kWh`} />
+        {price ? (
+          <Fact label="Kosten heute" value={`${(totalKwh * price).toFixed(2)} ${currency}`} />
+        ) : null}
+      </View>
+      {byPower.slice(0, 5).map((entity) => (
+        <View key={entity.id} style={styles.row}>
+          <Ionicons name="flash-outline" size={18} color={colors.inkSoft} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.rowTitle}>{entity.name}</Text>
+            <Text style={styles.rowDetail}>
+              {entity.state.power != null ? `${entity.state.power} W` : '–'}
+              {entity.state.energy_today != null
+                ? ` · heute ${Number(entity.state.energy_today).toFixed(2)} kWh` +
+                  (price
+                    ? ` (${(Number(entity.state.energy_today) * price).toFixed(2)} ${currency})`
+                    : '')
+                : ''}
+            </Text>
+          </View>
+        </View>
+      ))}
+    </Card>
   );
 }
 
