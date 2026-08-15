@@ -123,7 +123,20 @@ class OverkizIntegration(Integration):
             username="", password="", server=server, token=token,
             verify_ssl=False, session=self._session,
         )
-        await self._client.login()
+        try:
+            await self._client.login()
+        except Exception as err:
+            # Im Docker-Container lässt sich ein .local-mDNS-Name nicht
+            # auflösen – der häufigste Stolperstein. Klarer Hinweis statt
+            # rohem DNS-Fehler.
+            if ".local" in host:
+                raise ConfigError(
+                    f"Gateway '{host}' nicht erreichbar. Im Container lässt sich der "
+                    ".local-Name meist nicht auflösen – trag die feste IP des Gateways "
+                    "ein (z.B. host: 192.168.1.50:8443) und gib ihm im Router eine "
+                    "feste Adresse."
+                ) from err
+            raise ConfigError(f"Overkiz-Gateway '{host}' nicht erreichbar: {err}") from err
 
         # device_url → entity_id und zurück
         self._devices: dict[str, str] = {}
