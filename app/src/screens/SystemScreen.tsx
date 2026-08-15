@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Entity, HubSettings, SystemStatus, User } from '../api/types';
 import { Card } from '../components/Card';
@@ -222,6 +222,18 @@ function ConfigCard({
     }
   };
 
+  const backup = async () => {
+    if (content == null) return;
+    try {
+      await Share.share({
+        title: 'HomePilot-Konfiguration',
+        message: content,
+      });
+    } catch (err: any) {
+      setMessage(String(err.message ?? err));
+    }
+  };
+
   return (
     <Card style={styles.card}>
       <Text style={styles.heading}>Konfiguration</Text>
@@ -254,6 +266,14 @@ function ConfigCard({
               primary
             />
           </View>
+          <View style={styles.buttons}>
+            <Button label="Backup teilen" onPress={backup} />
+          </View>
+          <Text style={styles.rowDetail}>
+            „Backup teilen" sichert die aktuelle config.yaml über das Teilen-Menü
+            (Dateien, E-Mail …). Zum Wiederherstellen den gesicherten Text hier
+            einfügen und speichern.
+          </Text>
         </>
       )}
       {message ? <Text style={styles.configMessage}>{message}</Text> : null}
