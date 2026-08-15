@@ -73,12 +73,18 @@ class HueIntegration(Integration):
             changes["state"] = "on" if light["on"].get("on") else "off"
         if "dimming" in light:
             changes["brightness"] = round(float(light["dimming"].get("brightness", 100)))
+        if "color_temperature" in light:
+            mirek = light["color_temperature"].get("mirek")
+            if isinstance(mirek, (int, float)):
+                changes["color_temp"] = round(mirek)
 
         if self.hub.registry.get(entity_id) is None:
             name = (light.get("metadata") or {}).get("name") or "Hue Licht"
             commands = ["turn_on", "turn_off", "toggle"]
             if "dimming" in light:
                 commands.append("set_brightness")
+            if "color_temperature" in light:
+                commands.append("set_color_temp")
             await self.add_entity(
                 resource_id,
                 EntityKind.LIGHT,
@@ -139,6 +145,14 @@ class HueIntegration(Integration):
             brightness = float(data.get("brightness", 100))
             body["dimming"] = {"brightness": brightness}
             body["on"] = {"on": brightness > 0}
+        elif command == "set_color_temp":
+            # Farbtemperatur als Mirek (153 = kalt/6500K … 500 = warm/2000K).
+            # Alternativ 'kelvin' entgegennehmen und umrechnen.
+            if "kelvin" in data and float(data["kelvin"]) > 0:
+                mirek = 1_000_000 / float(data["kelvin"])
+            else:
+                mirek = float(data.get("color_temp", data.get("mirek", 366)))
+            body["color_temperature"] = {"mirek": max(153, min(500, round(mirek)))}
 
         resource_id = entity.id.split(".", 1)[1]
         async with self._session.put(
@@ -154,6 +168,8 @@ class HueIntegration(Integration):
             changes["state"] = "on" if body["on"]["on"] else "off"
         if "dimming" in body:
             changes["brightness"] = round(body["dimming"]["brightness"])
+        if "color_temperature" in body:
+            changes["color_temp"] = body["color_temperature"]["mirek"]
         if changes:
             await self.hub.registry.update_state(entity.id, changes)
 
