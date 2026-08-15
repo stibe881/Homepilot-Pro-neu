@@ -6,11 +6,13 @@
 FROM python:3.12-slim
 
 # Abhängigkeiten zuerst, damit Docker sie beim Ändern von Code nicht
-# jedes Mal neu installiert.
+# jedes Mal neu installiert. Im Container sind alle optionalen
+# Integrationsbibliotheken dabei (Ring, Roborock, Cast, Android TV) –
+# auf einem Hub-Server zählt Vollständigkeit mehr als Abbildgrösse.
 WORKDIR /app
 COPY pyproject.toml ./
 COPY homepilot ./homepilot
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir ".[roborock,cast,androidtv,ring]"
 
 # Nicht als root laufen lassen.
 RUN useradd --create-home --uid 1000 homepilot
