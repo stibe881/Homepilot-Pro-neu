@@ -7,15 +7,16 @@ from homepilot.core import astro
 ZELL = (47.1445, 8.0675)
 
 
-def test_sommer_reihenfolge_und_bereich():
+def test_sommer_reihenfolge_und_taglaenge():
+    # Zeitzonenunabhängig: Reihenfolge und Taglänge, nicht die Ortszeit
+    # (die vom TZ der Testmaschine abhängt).
     day = date(2026, 8, 15)
     rise = astro.sun_event(day, *ZELL, sunset=False)
     set_ = astro.sun_event(day, *ZELL, sunset=True)
     assert rise is not None and set_ is not None
-    # Aufgang vor Untergang, Tag deutlich länger als 12 h im August.
     assert rise < set_
-    assert 5 <= rise.hour <= 7
-    assert 20 <= set_.hour <= 21
+    hours = (set_ - rise).total_seconds() / 3600
+    assert 13.5 < hours < 15  # Mitte August in der Schweiz ~14 h Tag
 
 
 def test_winter_tag_kuerzer_als_sommer():
