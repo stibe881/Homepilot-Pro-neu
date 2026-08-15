@@ -25,9 +25,49 @@ supabase:
   flush_interval: 5
   history_exclude: []          # z.B. ["demo.*"] – kein Verlauf für diese Entitäten
 
+# Standort für Sonnenauf-/-untergangs-Trigger (Storen, adaptives Licht).
+# Ohne diesen Abschnitt wird Zell LU angenommen.
+location:
+  latitude: 47.1445
+  longitude: 8.0675
+
 integrations:
   # Virtuelle Geräte zum Entwickeln und Testen – später entfernen.
   - integration: demo
+
+  # Helfer-Schalter: virtuelle An/Aus-Zustände für Modi (input_boolean).
+  # - integration: helpers
+  #   switches:
+  #     - id: abwesend
+  #       name: Abwesend
+  #       icon: airplane-outline
+  #     - id: gaeste
+  #       name: Gästemodus
+
+  # Gerätegruppen: mehrere Geräte als eine Kachel schalten.
+  # - integration: group
+  #   groups:
+  #     - id: lichter_eg
+  #       name: Lichter EG
+  #       members: [hue.stehlampe, hue.decke_kueche]
+  #       kind: light        # light (Standard) oder switch
+
+  # Adaptive Beleuchtung: Farbtemperatur folgt dem Sonnenstand.
+  # - integration: adaptive
+  #   lights: [hue.buero, hue.wohnzimmer]
+  #   interval: 300
+  #   warm: 400              # Mirek nachts/am Horizont (~2500 K)
+  #   cool: 220              # Mirek zur Mittagssonne (~4500 K)
+
+  # Anwesenheitssimulation: schaltet abends zufällig Lichter, wenn der
+  # Auslöse-Schalter aktiv ist – das Haus wirkt bewohnt.
+  # - integration: presence_sim
+  #   switch: helpers.abwesend
+  #   switch_active: "on"     # bei unifi.anyone_home stattdessen "off"
+  #   lights: [hue.wohnzimmer, hue.buero]
+  #   min_interval: 600
+  #   max_interval: 1800
+  #   only_after_dark: true
 
   # Unwetterwarnungen von MeteoAlarm (offizieller CAP/Atom-Feed).
   # 'areas' filtert auf die eigene Region – Warnungen erscheinen in der App
@@ -279,3 +319,64 @@ automations:
   #     - type: command
   #       entity_id: mqtt.sonoff_kueche
   #       command: turn_off
+
+  # Storen zum Sonnenuntergang schliessen (30 Min vorher).
+  # - id: storen_abends_zu
+  #   alias: Storen zu bei Sonnenuntergang
+  #   trigger:
+  #     - type: sun
+  #       event: sunset
+  #       offset: -30            # Minuten: negativ = vorher, positiv = nachher
+  #   action:
+  #     - type: command
+  #       entity_id: overkiz.wohnzimmer_storen
+  #       command: close
+
+  # Sturmschutz: Storen einfahren, sobald MeteoAlarm eine Warnung meldet.
+  # - id: sturmschutz
+  #   alias: Sturmschutz
+  #   trigger:
+  #     - type: state
+  #       entity_id: meteoalarm.switzerland
+  #       to: alert
+  #   action:
+  #     - type: command
+  #       entity_id: overkiz.markise_terrasse
+  #       command: close
+
+  # Hitzeschutz: bei Sonne und >25 °C die Storen halb schliessen.
+  # - id: hitzeschutz
+  #   alias: Hitzeschutz Süd
+  #   trigger:
+  #     - type: interval
+  #       seconds: 900
+  #   condition:
+  #     - type: sun
+  #       state: up
+  #     - type: state
+  #       entity_id: weather.forecast
+  #       attribute: temperature
+  #       above: 25
+  #   action:
+  #     - type: command
+  #       entity_id: overkiz.wohnzimmer_storen
+  #       command: set_position
+  #       data: { position: 30 }     # 30 % offen
+
+  # Bewegung an der Kamera → Push, aber nur im Abwesenheitsmodus.
+  # - id: alarm_bewegung
+  #   alias: Bewegung während Abwesenheit
+  #   trigger:
+  #     - type: state
+  #       entity_id: unifi_protect.eingang
+  #       attribute: motion
+  #       to: "on"
+  #   condition:
+  #     - type: state
+  #       entity_id: helpers.abwesend
+  #       equals: "on"
+  #   action:
+  #     - type: notify
+  #       to: all
+  #       title: Bewegung erkannt
+  #       body: Die Kamera am Eingang hat Bewegung erkannt.

@@ -129,6 +129,10 @@ Ohne diesen Abschnitt zeigt die App alle Geräte ohne Reiter.
 | `meteoalarm` | Unwetterwarnungen, gegen den echten CAP/Atom-Feed geprüft |
 | `mqtt` | Sonoff & Co. via Tasmota, gegen einen echten Broker end-to-end geprüft |
 | `homematic` | CCU via XML-RPC mit Push-Events, gegen den CCU-Simulator pydevccu geprüft |
+| `helpers` | Virtuelle An/Aus-Schalter für Modi (z.B. „Abwesend"), rein im Hub |
+| `group` | Gerätegruppen: mehrere Geräte als eine Kachel, rein im Hub |
+| `adaptive` | Farbtemperatur folgt dem Sonnenstand (nutzt Hue), Sonnenkurve getestet |
+| `presence_sim` | Anwesenheitssimulation: schaltet abends zufällig Lichter, rein im Hub |
 
 **🟡 Implementiert nach Protokolldokumentation, noch nicht an echter Hardware**
 
@@ -181,9 +185,16 @@ automations:
 ```
 
 - **Trigger:** `state` (optional `from`/`to`/`attribute`), `interval` (alle n
-  Sekunden), `time` (täglich um HH:MM)
-- **Bedingungen:** `state` (`equals`/`above`/`below`), `time` (`after`/`before`)
-- **Aktionen:** `command`, `delay`
+  Sekunden), `time` (täglich um HH:MM), `sun` (`event: sunrise|sunset`,
+  `offset` in Minuten)
+- **Bedingungen:** `state` (`equals`/`above`/`below`), `time` (`after`/`before`),
+  `sun` (`state: up|down`)
+- **Aktionen:** `command`, `delay`, `scene`, `notify` (Push aufs Handy)
+
+Fertige Rezepte (Storen zum Sonnenuntergang, Sturmschutz, Hitzeschutz,
+Abwesenheitsmodus, adaptives Licht):
+[`hub/docs/automationen-rezepte.md`](hub/docs/automationen-rezepte.md).
+Szenen per Siri/Widget auslösen: [`docs/siri-und-widgets.md`](docs/siri-und-widgets.md).
 
 Jeder ausgeführte Lauf wird in `automation_runs` protokolliert.
 
