@@ -359,6 +359,15 @@ def test_ring_device_state():
     assert device_state(None, "offline") == {"state": "offline", "motion": "off"}
 
 
+def test_gast_sieht_tueroeffner_nicht_ohne_freigabe():
+    from homepilot.core.users import Role, User
+
+    gast = User(name="G", role=Role.GUEST, token="t")
+    assert gast.may_see("ring.intercom", "lock") is False
+    freigegeben = User(name="F", role=Role.GUEST, token="t", allow=["ring.intercom"])
+    assert freigegeben.may_see("ring.intercom", "lock") is True
+
+
 def test_ring_event_fields():
     from homepilot.integrations.ring import event_fields
 

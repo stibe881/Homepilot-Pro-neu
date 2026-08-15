@@ -24,6 +24,9 @@ class EntityKind:
     VACUUM = "vacuum"
     APPLIANCE = "appliance"
     CALENDAR = "calendar"
+    # Türöffner (z.B. Ring Intercom). Bewusst nicht in den Gast-Standards –
+    # wer die Haustür öffnen darf, bekommt sie explizit freigegeben.
+    LOCK = "lock"
 
 
 @dataclass

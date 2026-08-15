@@ -226,6 +226,9 @@ export function EntityCard({
         );
       }
 
+      case 'lock':
+        return <LockBody entity={entity} onCommand={onCommand} pending={pending} />;
+
       case 'calendar': {
         const events: any[] = entity.state.events ?? [];
         return (
@@ -348,6 +351,70 @@ function EditButton({
     >
       <Ionicons name={icon} size={18} color={active ? colors.accent : colors.inkSoft} />
     </Pressable>
+  );
+}
+
+/** Türöffner (z.B. Ring Intercom): Öffnen braucht zwei Tipps – der erste
+ *  bewaffnet den Knopf für vier Sekunden, erst der zweite öffnet wirklich.
+ *  Eine Haustür soll sich nicht durch Wischen aus Versehen öffnen. */
+function LockBody({
+  entity,
+  onCommand,
+  pending,
+}: {
+  entity: Entity;
+  onCommand: (command: string, data?: Record<string, any>) => void;
+  pending?: boolean;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const timer = setTimeout(() => setArmed(false), 4000);
+    return () => clearTimeout(timer);
+  }, [armed]);
+  const opened = entity.state.state === 'opened';
+
+  return (
+    <View style={styles.stack}>
+      {opened ? (
+        <Pill label="Geöffnet" tone={colors.on} solid />
+      ) : (
+        <Pill
+          label={entity.state.state === 'offline' ? 'Offline' : 'Bereit'}
+          tone={entity.state.state === 'offline' ? colors.danger : undefined}
+        />
+      )}
+      {entity.state.battery != null ? (
+        <Text style={styles.hint}>{entity.state.battery} % Akku</Text>
+      ) : null}
+      {entity.state.last_ring ? (
+        <Text style={styles.detail}>Zuletzt geklingelt {clock(entity.state.last_ring)}</Text>
+      ) : null}
+      <Pressable
+        disabled={pending || opened}
+        onPress={() => {
+          if (armed) {
+            setArmed(false);
+            onCommand('open_door');
+          } else {
+            setArmed(true);
+          }
+        }}
+        accessibilityRole="button"
+        accessibilityLabel={armed ? 'Wirklich öffnen' : 'Tür öffnen'}
+        style={({ pressed }) => [
+          styles.lockButton,
+          armed && styles.lockButtonArmed,
+          (pressed || pending || opened) && { opacity: 0.7 },
+        ]}>
+        <Ionicons name={armed ? 'lock-open' : 'lock-closed-outline'} size={16} color="#FFFFFF" />
+        <Text style={styles.lockButtonText}>
+          {opened ? 'Geöffnet' : armed ? 'Wirklich öffnen?' : 'Tür öffnen'}
+        </Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -748,6 +815,17 @@ const makeStyles = (colors: Colors) =>
     backgroundColor: colors.accent,
   },
   cleanRoomsText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+  lockButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: radius.control,
+    backgroundColor: colors.accent,
+  },
+  lockButtonArmed: { backgroundColor: colors.danger },
+  lockButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
   mediaButton: {
     width: 38,
     height: 38,

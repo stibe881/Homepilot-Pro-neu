@@ -148,7 +148,7 @@ Nachbesserungen bei Zugangsdaten und Feldnamen.
 | `google_cast` | Chromecast & Co.: was läuft, Play/Pause (`pip install "homepilot[cast]"`) |
 | `google_calendar` | Die nächsten Termine als Kachel (Cloud, Refresh-Token) |
 | `androidtv` | Fernbedienung, App-Anzeige, Lautstärke; einmalige PIN-Kopplung: `python -m homepilot.integrations.androidtv -c config.yaml` |
-| `ring` | Klingeln und Bewegung als Push, Akku und Status per Abfrage; einmalige 2FA-Anmeldung: `python -m homepilot.integrations.ring -c config.yaml` |
+| `ring` | Klingeln und Bewegung als Push, Akku und Status per Abfrage, Türöffner beim Ring Intercom (Zwei-Schritt-Bestätigung in der App); einmalige 2FA-Anmeldung: `python -m homepilot.integrations.ring -c config.yaml` |
 | `matter` | Lichter, Steckdosen und Sensoren über den python-matter-server (eigener Dienst, Block in docker-compose.yml); Protokoll end-to-end gegen einen nachgebauten Dienst getestet. Geräte koppeln: `python -m homepilot.integrations.matter -c config.yaml --pair <Code>` |
 
 Damit sind **alle 16 geplanten Produkte angebunden.** Anleitung zum

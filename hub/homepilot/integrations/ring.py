@@ -118,8 +118,24 @@ class RingIntegration(Integration):
             )
             self._devices[entity.id] = device
             self._by_ring_id[int(device.id)] = entity.id
+
+        # Ring Intercom: Gegensprechanlage mit Türöffner. Eigene Geräteart
+        # 'lock' – für Gäste ohne explizite Freigabe unsichtbar.
+        for device in list(getattr(devices, "other", []) or []):
+            if not hasattr(device, "async_open_door"):
+                continue
+            entity = await self.add_entity(
+                str(device.id),
+                EntityKind.LOCK,
+                device.name or "Türöffner",
+                state=device_state(device.battery_life, device.connection_status),
+                commands=["open_door"],
+            )
+            self._devices[entity.id] = device
+            self._by_ring_id[int(device.id)] = entity.id
+
         if not self._devices:
-            self.log.warning("Ring-Konto verbunden, aber keine Kameras/Klingeln gefunden")
+            self.log.warning("Ring-Konto verbunden, aber keine Geräte gefunden")
 
         self.start_task(self._poll_loop())
         self.start_task(self._listen())
@@ -213,6 +229,32 @@ class RingIntegration(Integration):
     async def _clear_flag(self, entity_id: str, flag: str, delay: float) -> None:
         await asyncio.sleep(delay)
         await self.hub.registry.update_state(entity_id, {flag: "off"})
+
+    # ── Hub → Gerät ────────────────────────────────────────────────────────
+
+    async def handle_command(self, entity: Any, command: str, data: dict[str, Any]) -> None:
+        device = self._devices.get(entity.id)
+        if device is None or command != "open_door":
+            raise ConfigError(f"Kommando '{command}' gibt es hier nicht")
+        ok = await device.async_open_door()
+        if not ok:
+            raise ConnectionError("Ring hat das Öffnen abgelehnt")
+        self.log.info("Tür geöffnet über %s", entity.name)
+        # Kurze Rückmeldung auf der Kachel, dann zurück zum Ruhezustand.
+        await self.hub.registry.update_state(
+            entity.id,
+            {"state": "opened", "last_opened": datetime.now(timezone.utc).isoformat()},
+        )
+        old = self._clear_tasks.pop(f"{entity.id}:opened", None)
+        if old:
+            old.cancel()
+        self._clear_tasks[f"{entity.id}:opened"] = self.start_task(
+            self._close_again(entity.id)
+        )
+
+    async def _close_again(self, entity_id: str) -> None:
+        await asyncio.sleep(5)
+        await self.hub.registry.update_state(entity_id, {"state": "online"})
 
     async def snapshot(self, entity: Any) -> bytes | None:
         device = self._devices.get(entity.id)
