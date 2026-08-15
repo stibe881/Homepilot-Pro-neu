@@ -25,6 +25,7 @@ ALL_INTEGRATIONS = [
     "google_calendar",
     "androidtv",
     "ring",
+    "matter",
     "twinkly",
     "vzug",
 ]

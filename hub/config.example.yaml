@@ -149,6 +149,12 @@ integrations:
   # - integration: ring
   #   scan_interval: 300
 
+  # Matter über den python-matter-server (läuft als eigener Dienst, siehe
+  # docker-compose.yml). Geräte koppeln:
+  #   python -m homepilot.integrations.matter -c config.yaml --pair <Code>
+  # - integration: matter
+  #   url: ws://127.0.0.1:5580/ws
+
   # V-ZUG-Geräte (lokale Home-API, nur lesend).
   # - integration: vzug
   #   scan_interval: 60
