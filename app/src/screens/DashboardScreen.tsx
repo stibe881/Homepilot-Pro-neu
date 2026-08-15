@@ -168,7 +168,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       return <SettingsScreen initial={settings} onSave={onSaveSettings} user={user} embedded />;
     }
     if (section === 'automations') {
-      return <AutomationsScreen settings={settings} />;
+      return (
+        <AutomationsScreen
+          settings={settings}
+          user={user}
+          entities={entities}
+          scenes={scenes}
+        />
+      );
     }
     if (section === 'system') {
       return <SystemScreen settings={settings} user={user} />;
