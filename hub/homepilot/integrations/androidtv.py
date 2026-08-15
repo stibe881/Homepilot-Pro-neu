@@ -59,6 +59,11 @@ KEYMAP = {
     "mute": "KEYCODE_VOLUME_MUTE",
     "home": "KEYCODE_HOME",
     "back": "KEYCODE_BACK",
+    "dpad_up": "KEYCODE_DPAD_UP",
+    "dpad_down": "KEYCODE_DPAD_DOWN",
+    "dpad_left": "KEYCODE_DPAD_LEFT",
+    "dpad_right": "KEYCODE_DPAD_RIGHT",
+    "ok": "KEYCODE_DPAD_CENTER",
 }
 
 
@@ -134,6 +139,7 @@ class AndroidTvIntegration(Integration):
                     "play", "pause", "next", "previous",
                     "volume_up", "volume_down", "mute",
                     "home", "back", "launch_app",
+                    "dpad_up", "dpad_down", "dpad_left", "dpad_right", "ok",
                 ],
                 available=False,
             )

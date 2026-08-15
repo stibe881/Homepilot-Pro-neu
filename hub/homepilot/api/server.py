@@ -24,7 +24,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -56,6 +56,12 @@ class AutomationRequest(BaseModel):
     condition: list[dict[str, Any]] = []
     action: list[dict[str, Any]] = []
     enabled: bool = True
+
+
+class SceneRequest(BaseModel):
+    name: str
+    icon: str = "sparkles-outline"
+    actions: list[dict[str, Any]] = []
 
 
 class UserRequest(BaseModel):
@@ -180,6 +186,34 @@ def create_app(hub: Hub) -> FastAPI:
             raise HTTPException(status_code=500, detail=str(err)) from err
         return {"ok": True, "entity": entity.as_dict()}
 
+    @app.get("/api/entities/{entity_id}/snapshot")
+    async def entity_snapshot(entity_id: str, request: Request) -> Response:
+        """Aktuelles Kamerabild als JPEG.
+
+        Läuft über den Hub statt direkt zur Kamera: Die App braucht so keine
+        Kamera-Zugangsdaten, und die Sichtbarkeitsregeln gelten auch hier.
+        """
+        user = current_user(request)
+        entity = hub.registry.get(entity_id)
+        if entity is None or not user.may_see(entity.id, entity.kind):
+            raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
+        integration = hub.integrations.get(entity.integration)
+        if integration is None:
+            raise HTTPException(status_code=503, detail="Integration nicht geladen")
+        try:
+            image = await integration.snapshot(entity)
+        except Exception as err:
+            raise HTTPException(status_code=502, detail=f"Schnappschuss: {err}") from err
+        if not image:
+            raise HTTPException(
+                status_code=404, detail="Diese Kamera liefert keine Schnappschüsse"
+            )
+        return Response(
+            content=image,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "no-store"},
+        )
+
     @app.get("/api/entities/{entity_id}/history")
     async def entity_history(
         entity_id: str, request: Request, hours: float = 24, limit: int = 500
@@ -232,6 +266,72 @@ def create_app(hub: Hub) -> FastAPI:
                 if entity is None or not user.may_see(entity.id, entity.kind):
                     raise HTTPException(status_code=403, detail="Szene nicht freigegeben")
         return await hub.scenes.activate(scene_id)
+
+    def stored_scenes() -> list[dict[str, Any]]:
+        return hub.data.get("scenes")
+
+    def validate_scene_actions(actions: list[dict[str, Any]]) -> None:
+        if not actions:
+            raise HTTPException(status_code=400, detail="Eine Szene braucht Aktionen")
+        for action in actions:
+            if not action.get("entity_id") or not action.get("command"):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Jede Aktion braucht 'entity_id' und 'command'",
+                )
+
+    @app.post("/api/scenes")
+    async def create_scene(body: SceneRequest, request: Request) -> dict[str, Any]:
+        require(request, Capability.EDIT_AUTOMATIONS)
+        validate_scene_actions(body.actions)
+        import secrets as _secrets
+
+        entry = {
+            "id": f"app_{_secrets.token_hex(4)}",
+            "name": body.name,
+            "icon": body.icon,
+            "actions": body.actions,
+        }
+        hub.data.set("scenes", [*stored_scenes(), entry])
+        hub.reload_scenes()
+        return {"scene": entry}
+
+    @app.put("/api/scenes/{scene_id}")
+    async def update_scene(
+        scene_id: str, body: SceneRequest, request: Request
+    ) -> dict[str, Any]:
+        require(request, Capability.EDIT_AUTOMATIONS)
+        validate_scene_actions(body.actions)
+        stored = stored_scenes()
+        if not any(entry["id"] == scene_id for entry in stored):
+            # Aus der config.yaml stammende gehören der Datei, nicht der App.
+            raise HTTPException(
+                status_code=404,
+                detail="Nur in der App angelegte Szenen lassen sich hier ändern",
+            )
+        updated = [
+            {"id": scene_id, "name": body.name, "icon": body.icon, "actions": body.actions}
+            if entry["id"] == scene_id
+            else entry
+            for entry in stored
+        ]
+        hub.data.set("scenes", updated)
+        hub.reload_scenes()
+        return {"ok": True}
+
+    @app.delete("/api/scenes/{scene_id}")
+    async def delete_scene(scene_id: str, request: Request) -> dict[str, Any]:
+        require(request, Capability.EDIT_AUTOMATIONS)
+        stored = stored_scenes()
+        remaining = [entry for entry in stored if entry["id"] != scene_id]
+        if len(remaining) == len(stored):
+            raise HTTPException(
+                status_code=404,
+                detail="Nur in der App angelegte Szenen lassen sich hier löschen",
+            )
+        hub.data.set("scenes", remaining)
+        hub.reload_scenes()
+        return {"ok": True}
 
     # ── Automationen ───────────────────────────────────────────────────────
 

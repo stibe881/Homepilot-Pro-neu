@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useMemo } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Entity } from '../api/types';
 import { Colors, radius, type, useColors } from '../theme';
 import { Bar } from './Bar';
 import { Card, CardFooter } from './Card';
+import { TvRemote } from './TvRemote';
 
 interface Props {
   entity: Entity;
@@ -25,6 +26,8 @@ interface Props {
   /** Sensorkacheln lassen sich antippen und zeigen dann ihren Verlauf. */
   onPress?: () => void;
   chart?: React.ReactNode;
+  /** Kamerakacheln: URL des Schnappschuss-Endpunkts (inkl. Token). */
+  snapshotUri?: string;
 }
 
 /** Warnstufen brauchen je nach Palette andere Farben. */
@@ -46,9 +49,11 @@ export function EntityCard({
   onToggleHidden,
   onPress,
   chart,
+  snapshotUri,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [remoteOpen, setRemoteOpen] = useState(false);
   const isOn = entity.state.state === 'on';
   const subtitle = entity.room || integrationLabel(entity.integration);
   const toggle = entity.commands.includes('toggle')
@@ -102,6 +107,7 @@ export function EntityCard({
 
       case 'media_player': {
         const playing = entity.state.state === 'playing';
+        const hasRemote = entity.commands.includes('dpad_up');
         return (
           <View style={styles.stack}>
             <Text style={styles.value} numberOfLines={1}>
@@ -122,7 +128,19 @@ export function EntityCard({
                   onPress={() => onCommand(playing ? 'pause' : 'play')} />
                 <MediaButton icon="play-skip-forward" label="Weiter"
                   onPress={() => onCommand('next')} />
+                {hasRemote ? (
+                  <MediaButton icon="game-controller-outline" label="Fernbedienung"
+                    onPress={() => setRemoteOpen(true)} />
+                ) : null}
               </View>
+            ) : null}
+            {hasRemote ? (
+              <TvRemote
+                visible={remoteOpen}
+                name={entity.name}
+                onClose={() => setRemoteOpen(false)}
+                onCommand={onCommand}
+              />
             ) : null}
             {entity.commands.includes('play_on') &&
             Array.isArray(entity.state.devices) &&
@@ -158,6 +176,13 @@ export function EntityCard({
         const online = entity.state.state === 'online';
         return (
           <View style={styles.stack}>
+            {snapshotUri && online ? (
+              <CameraSnapshot
+                uri={snapshotUri}
+                // Neue Bewegung oder Klingeln holt sofort ein frisches Bild.
+                refreshKey={`${entity.state.last_motion ?? ''}|${entity.state.last_ring ?? ''}`}
+              />
+            ) : null}
             <Pill
               label={online ? 'Online' : 'Offline'}
               tone={online ? colors.on : colors.danger}
@@ -331,6 +356,35 @@ function EditButton({
     >
       <Ionicons name={icon} size={18} color={active ? colors.accent : colors.inkSoft} />
     </Pressable>
+  );
+}
+
+/** Kamerabild, das sich von selbst frisch hält: alle 60 Sekunden und
+ *  zusätzlich sofort, wenn refreshKey (Bewegung/Klingeln) wechselt. */
+function CameraSnapshot({ uri, refreshKey }: { uri: string; refreshKey: string }) {
+  const colors = useColors();
+  const [tick, setTick] = useState(0);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    const timer = setInterval(() => setTick((value) => value + 1), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+  if (failed) {
+    return null; // Kamera ohne Schnappschuss: Kachel bleibt wie bisher.
+  }
+  const separator = uri.includes('?') ? '&' : '?';
+  return (
+    <Image
+      source={{ uri: `${uri}${separator}t=${tick}-${encodeURIComponent(refreshKey)}` }}
+      onError={() => setFailed(true)}
+      resizeMode="cover"
+      style={{
+        width: '100%',
+        aspectRatio: 16 / 9,
+        borderRadius: radius.control,
+        backgroundColor: colors.surfaceSoft,
+      }}
+    />
   );
 }
 

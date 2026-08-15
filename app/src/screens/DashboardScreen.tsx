@@ -54,6 +54,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     pending,
     sendCommand,
     activateScene,
+    reloadScenes,
     dismissError,
   } = useHub(settings.url, settings.token);
   const { width } = useWindowDimensions();
@@ -150,6 +151,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         onSaveSettings({ ...settings, hidden: toggleIn(hidden, entity.id) })
       }
       onCommand={(command, data) => sendCommand(entity.id, command, data)}
+      snapshotUri={
+        entity.kind === 'camera' && settings.url && settings.token
+          ? `${settings.url.replace(/\/+$/, '')}/api/entities/${encodeURIComponent(
+              entity.id
+            )}/snapshot?token=${encodeURIComponent(settings.token)}`
+          : undefined
+      }
       onPress={
         entity.kind === 'sensor' && !editing
           ? () => setExpanded((current) => (current === entity.id ? null : entity.id))
@@ -174,6 +182,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           user={user}
           entities={entities}
           scenes={scenes}
+          onScenesChanged={reloadScenes}
         />
       );
     }

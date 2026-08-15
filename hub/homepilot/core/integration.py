@@ -55,6 +55,11 @@ class Integration(ABC):
     async def handle_command(self, entity: Entity, command: str, data: dict[str, Any]) -> None:
         raise UnsupportedCommandError(entity.id, command)
 
+    async def snapshot(self, entity: Entity) -> bytes | None:
+        """Aktuelles Standbild (JPEG) einer Kamera-Entität – None, wenn die
+        Integration keine Bilder liefert."""
+        return None
+
     def start_task(self, coro: Coroutine) -> asyncio.Task:
         """Hintergrund-Task starten, der beim Teardown automatisch aufgeräumt wird."""
         task = asyncio.create_task(coro)
@@ -115,6 +120,9 @@ class IntegrationManager:
     @property
     def loaded(self) -> list[str]:
         return list(self._integrations)
+
+    def get(self, name: str) -> Integration | None:
+        return self._integrations.get(name)
 
     def status(self) -> dict[str, dict[str, Any]]:
         status: dict[str, dict[str, Any]] = {

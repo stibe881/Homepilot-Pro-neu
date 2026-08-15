@@ -34,6 +34,9 @@ class Scene:
     name: str
     icon: str = "sparkles-outline"
     actions: list[dict[str, Any]] = field(default_factory=list)
+    # In der App angelegte Szenen lassen sich dort auch wieder ändern und
+    # löschen; die aus der config.yaml gehören der Datei.
+    editable: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -42,10 +45,11 @@ class Scene:
             "icon": self.icon,
             "actions": self.actions,
             "entity_ids": [action.get("entity_id") for action in self.actions],
+            "editable": self.editable,
         }
 
 
-def parse_scenes(configs: list[dict[str, Any]]) -> list[Scene]:
+def parse_scenes(configs: list[dict[str, Any]], editable: bool = False) -> list[Scene]:
     scenes = []
     for index, config in enumerate(configs):
         scene_id = str(config.get("id") or f"scene_{index}")
@@ -63,6 +67,7 @@ def parse_scenes(configs: list[dict[str, Any]]) -> list[Scene]:
                 name=str(config.get("name") or scene_id),
                 icon=str(config.get("icon") or "sparkles-outline"),
                 actions=actions,
+                editable=editable,
             )
         )
     return scenes
@@ -73,8 +78,13 @@ class SceneManager:
         self.hub = hub
         self.scenes: list[Scene] = []
 
-    def load(self, configs: list[dict[str, Any]]) -> None:
-        self.scenes = parse_scenes(configs)
+    def load(
+        self,
+        configs: list[dict[str, Any]],
+        stored: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """Szenen aus der config.yaml plus die in der App angelegten."""
+        self.scenes = parse_scenes(configs) + parse_scenes(stored or [], editable=True)
         if self.scenes:
             log.info("%d Szenen geladen", len(self.scenes))
 

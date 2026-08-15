@@ -197,25 +197,33 @@ export function useHub(url: string | null, token: string | null) {
     };
   }, [url, token, clearPending]);
 
-  // Szenen und Strompreis kommen über REST – sie ändern sich nicht laufend.
-  useEffect(() => {
-    if (!url || status !== 'connected') return;
+  // Nach dem Anlegen oder Ändern einer Szene ruft der Editor das erneut auf.
+  const reloadScenes = useCallback(() => {
+    if (!url) return;
     const headers: Record<string, string> = token
       ? { Authorization: `Bearer ${token}` }
       : {};
-
     fetch(`${url}/api/scenes`, { headers })
       .then((response) => (response.ok ? response.json() : []))
       .then(setScenes)
       .catch(() => setScenes([]));
+  }, [url, token]);
+
+  // Szenen und Strompreis kommen über REST – sie ändern sich nicht laufend.
+  useEffect(() => {
+    if (!url || status !== 'connected') return;
+    reloadScenes();
 
     // Gäste dürfen den Systemzustand nicht abrufen – dann bleibt es einfach
     // bei der Anzeige ohne Kosten.
+    const headers: Record<string, string> = token
+      ? { Authorization: `Bearer ${token}` }
+      : {};
     fetch(`${url}/api/system/status`, { headers })
       .then((response) => (response.ok ? response.json() : null))
       .then((data) => setEnergy(data?.energy ?? null))
       .catch(() => setEnergy(null));
-  }, [url, token, status]);
+  }, [url, token, status, reloadScenes]);
 
   const sendCommand = useCallback(
     (entityId: string, command: string, data?: Record<string, any>) => {
@@ -286,6 +294,7 @@ export function useHub(url: string | null, token: string | null) {
     stale,
     sendCommand,
     activateScene,
+    reloadScenes,
     dismissError: () => setError(null),
   };
 }

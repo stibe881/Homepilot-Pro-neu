@@ -15,6 +15,9 @@ export interface Scene {
   name: string;
   icon: string;
   entity_ids: string[];
+  actions?: { entity_id: string; command: string; data?: Record<string, any> }[];
+  /** In der App angelegt – lässt sich dort auch ändern und löschen. */
+  editable?: boolean;
 }
 
 export interface User {

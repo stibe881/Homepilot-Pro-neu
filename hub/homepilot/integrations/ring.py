@@ -214,6 +214,18 @@ class RingIntegration(Integration):
         await asyncio.sleep(delay)
         await self.hub.registry.update_state(entity_id, {flag: "off"})
 
+    async def snapshot(self, entity: Any) -> bytes | None:
+        device = self._devices.get(entity.id)
+        if device is None:
+            return None
+        try:
+            # Stösst bei Ring einen frischen Schnappschuss an – das dauert
+            # ein paar Sekunden, dafür ist das Bild aktuell.
+            return await device.async_get_snapshot()
+        except Exception as err:
+            self.log.debug("Ring-Schnappschuss fehlgeschlagen: %s", err)
+            return None
+
 
 INTEGRATION = RingIntegration
 

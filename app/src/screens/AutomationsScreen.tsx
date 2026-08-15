@@ -53,17 +53,20 @@ export function AutomationsScreen({
   user,
   entities,
   scenes,
+  onScenesChanged,
 }: {
   settings: HubSettings;
   user: User | null;
   entities: Entity[];
   scenes: Scene[];
+  onScenesChanged?: () => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [automations, setAutomations] = useState<Automation[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [sceneDraft, setSceneDraft] = useState<SceneDraft | null>(null);
 
   const mayEdit = !!user?.capabilities?.includes('edit_automations');
   const headers: Record<string, string> = settings.token
@@ -120,6 +123,39 @@ export function AutomationsScreen({
     load();
   };
 
+  const saveScene = async () => {
+    if (!sceneDraft) return;
+    const body = {
+      name: sceneDraft.name || 'Ohne Namen',
+      icon: sceneDraft.icon,
+      actions: sceneDraft.actions.filter((action) => action.entity_id),
+    };
+    const url = sceneDraft.id
+      ? `${settings.url}/api/scenes/${sceneDraft.id}`
+      : `${settings.url}/api/scenes`;
+    try {
+      const response = await fetch(url, {
+        method: sceneDraft.id ? 'PUT' : 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
+      setSceneDraft(null);
+      onScenesChanged?.();
+    } catch (err: any) {
+      setError(String(err.message ?? err));
+    }
+  };
+
+  const removeScene = async (id: string) => {
+    await fetch(`${settings.url}/api/scenes/${id}`, {
+      method: 'DELETE',
+      headers,
+    }).catch(() => {});
+    setSceneDraft(null);
+    onScenesChanged?.();
+  };
+
   if (error) {
     return <Text style={styles.note}>Abläufe nicht abrufbar: {error}</Text>;
   }
@@ -129,6 +165,7 @@ export function AutomationsScreen({
 
   return (
     <View style={styles.list}>
+      <Text style={[styles.sectionTitle, { marginTop: 0 }]}>Abläufe</Text>
       {mayEdit ? (
         <Pressable
           onPress={() => setDraft({ ...EMPTY, entityId: entities[0]?.id ?? '' })}
@@ -169,6 +206,65 @@ export function AutomationsScreen({
         </Card>
       ))}
 
+      <Text style={styles.sectionTitle}>Szenen</Text>
+      {mayEdit ? (
+        <Pressable
+          onPress={() =>
+            setSceneDraft({
+              name: '',
+              icon: SCENE_ICONS[0],
+              actions: [{ entity_id: switchableFirst(entities), command: 'turn_on' }],
+            })
+          }
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.newButton, pressed && { opacity: 0.75 }]}
+        >
+          <Ionicons name="add" size={20} color={colors.ink} />
+          <Text style={styles.newText}>Neue Szene</Text>
+        </Pressable>
+      ) : null}
+
+      {scenes.length === 0 ? (
+        <Text style={styles.note}>
+          Noch keine Szenen. Eine Szene schaltet mehrere Geräte mit einem Tippen.
+        </Text>
+      ) : null}
+
+      {scenes.map((scene) => (
+        <Card key={scene.id} style={styles.card}>
+          <View style={styles.cardHead}>
+            <Ionicons name={scene.icon as any} size={20} color={colors.inkSoft} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.title}>{scene.name}</Text>
+              <Text style={styles.detail}>
+                {(scene.actions?.length ?? scene.entity_ids.length)} Aktion(en)
+              </Text>
+            </View>
+            {scene.editable && mayEdit ? (
+              <Pressable
+                onPress={() =>
+                  setSceneDraft({
+                    id: scene.id,
+                    name: scene.name,
+                    icon: scene.icon,
+                    actions: (scene.actions ?? []).map((action) => ({
+                      entity_id: action.entity_id,
+                      command: action.command,
+                    })),
+                  })
+                }
+                accessibilityLabel={`${scene.name} bearbeiten`}
+                style={styles.iconButton}
+              >
+                <Ionicons name="create-outline" size={20} color={colors.inkSoft} />
+              </Pressable>
+            ) : (
+              <Text style={styles.badge}>aus config.yaml</Text>
+            )}
+          </View>
+        </Card>
+      ))}
+
       <Editor
         draft={draft}
         entities={entities}
@@ -178,7 +274,171 @@ export function AutomationsScreen({
         onDelete={draft?.id ? () => remove(draft.id!) : undefined}
         onCancel={() => setDraft(null)}
       />
+      <SceneEditor
+        draft={sceneDraft}
+        entities={entities}
+        onChange={setSceneDraft}
+        onSave={saveScene}
+        onDelete={sceneDraft?.id ? () => removeScene(sceneDraft.id!) : undefined}
+        onCancel={() => setSceneDraft(null)}
+      />
     </View>
+  );
+}
+
+/** Für die erste Aktion einer neuen Szene: das erste schaltbare Gerät. */
+function switchableFirst(entities: Entity[]): string {
+  return entities.find((entity) => entity.commands.includes('turn_on'))?.id ?? '';
+}
+
+interface SceneDraft {
+  id?: string;
+  name: string;
+  icon: string;
+  actions: { entity_id: string; command: string }[];
+}
+
+/** Eine Handvoll passender Symbole reicht – die App bleibt aufgeräumt. */
+const SCENE_ICONS = [
+  'sparkles-outline',
+  'sunny-outline',
+  'moon-outline',
+  'film-outline',
+  'wine-outline',
+  'home-outline',
+];
+
+function SceneEditor({
+  draft,
+  entities,
+  onChange,
+  onSave,
+  onDelete,
+  onCancel,
+}: {
+  draft: SceneDraft | null;
+  entities: Entity[];
+  onChange: (draft: SceneDraft) => void;
+  onSave: () => void;
+  onDelete?: () => void;
+  onCancel: () => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  if (!draft) return null;
+
+  const set = (patch: Partial<SceneDraft>) => onChange({ ...draft, ...patch });
+  const setAction = (index: number, patch: Partial<SceneDraft['actions'][number]>) =>
+    set({
+      actions: draft.actions.map((action, i) =>
+        i === index ? { ...action, ...patch } : action
+      ),
+    });
+  const switchable = entities.filter((entity) => entity.commands.includes('turn_on'));
+
+  return (
+    <Modal visible animationType="slide" onRequestClose={onCancel}>
+      <ScrollView style={styles.editor} contentContainerStyle={styles.editorContent}>
+        <View style={styles.cardHead}>
+          <Text style={styles.editorTitle}>
+            {draft.id ? 'Szene bearbeiten' : 'Neue Szene'}
+          </Text>
+          <Pressable onPress={onCancel} accessibilityLabel="Abbrechen">
+            <Ionicons name="close" size={26} color={colors.ink} />
+          </Pressable>
+        </View>
+
+        <Field label="Name">
+          <TextInput
+            style={styles.input}
+            value={draft.name}
+            onChangeText={(name) => set({ name })}
+            placeholder="z.B. Feierabend"
+            placeholderTextColor={colors.inkFaint}
+          />
+        </Field>
+
+        <Field label="Symbol">
+          <View style={styles.choices}>
+            {SCENE_ICONS.map((icon) => (
+              <Pressable
+                key={icon}
+                onPress={() => set({ icon })}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: draft.icon === icon }}
+                style={[styles.choice, draft.icon === icon && styles.choiceActive]}
+              >
+                <Ionicons
+                  name={icon as any}
+                  size={18}
+                  color={draft.icon === icon ? colors.surfaceStrong : colors.inkSoft}
+                />
+              </Pressable>
+            ))}
+          </View>
+        </Field>
+
+        <Field label="Schaltet">
+          {draft.actions.map((action, index) => (
+            <View key={index} style={styles.sceneAction}>
+              <View style={{ flex: 1, gap: 8 }}>
+                <Picker
+                  items={switchable.map((entity) => ({
+                    key: entity.id,
+                    label: entity.name,
+                  }))}
+                  value={action.entity_id}
+                  onSelect={(entity_id) => setAction(index, { entity_id })}
+                />
+                <Choice
+                  options={[
+                    { key: 'turn_on', label: 'einschalten' },
+                    { key: 'turn_off', label: 'ausschalten' },
+                  ]}
+                  value={action.command}
+                  onSelect={(command) => setAction(index, { command })}
+                />
+              </View>
+              {draft.actions.length > 1 ? (
+                <Pressable
+                  onPress={() =>
+                    set({ actions: draft.actions.filter((_, i) => i !== index) })
+                  }
+                  accessibilityLabel="Aktion entfernen"
+                  style={styles.iconButton}
+                >
+                  <Ionicons name="trash-outline" size={18} color={colors.danger} />
+                </Pressable>
+              ) : null}
+            </View>
+          ))}
+          <Pressable
+            onPress={() =>
+              set({
+                actions: [
+                  ...draft.actions,
+                  { entity_id: switchableFirst(entities), command: 'turn_on' },
+                ],
+              })
+            }
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.newButton, pressed && { opacity: 0.75 }]}
+          >
+            <Ionicons name="add" size={18} color={colors.ink} />
+            <Text style={styles.newText}>Weiteres Gerät</Text>
+          </Pressable>
+        </Field>
+
+        <Pressable style={styles.save} onPress={onSave} accessibilityRole="button">
+          <Text style={styles.saveText}>Speichern</Text>
+        </Pressable>
+        {onDelete ? (
+          <Pressable style={styles.delete} onPress={onDelete} accessibilityRole="button">
+            <Text style={styles.deleteText}>Szene löschen</Text>
+          </Pressable>
+        ) : null}
+      </ScrollView>
+    </Modal>
   );
 }
 
@@ -466,6 +726,20 @@ function describe(automation: Automation): string {
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     list: { gap: space.gap, marginTop: 4 },
+    sectionTitle: {
+      color: colors.onGradient,
+      fontSize: 18,
+      fontWeight: '700',
+      marginTop: 14,
+    },
+    sceneAction: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 8,
+      paddingBottom: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.surfaceBorder,
+    },
     card: { minHeight: 0, gap: 6 },
     cardHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     title: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },

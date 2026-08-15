@@ -50,7 +50,7 @@ class Hub:
         await self._start_store()
         self._load_stored_users()
         await self.integrations.setup_all(self.config.integrations)
-        self.scenes.load(self.config.scenes)
+        self.scenes.load(self.config.scenes, self.data.get("scenes"))
         await self.automations.start(
             self.config.automations, self.data.get("automations")
         )
@@ -98,6 +98,10 @@ class Hub:
         await self.automations.start(
             self.config.automations, self.data.get("automations")
         )
+
+    def reload_scenes(self) -> None:
+        """Nach einer Szenen-Änderung in der App neu laden."""
+        self.scenes.load(self.config.scenes, self.data.get("scenes"))
 
     async def _start_store(self) -> None:
         config = self.config.supabase

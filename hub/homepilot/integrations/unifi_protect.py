@@ -222,5 +222,23 @@ class UnifiProtectIntegration(Integration):
         # in die Protect-App, nicht auf eine Wandtafel.
         raise ConfigError("Kameras lassen sich hier nicht steuern")
 
+    async def snapshot(self, entity: Entity) -> bytes | None:
+        camera_id = next(
+            (cid for cid, eid in self._cameras.items() if eid == entity.id), None
+        )
+        if camera_id is None:
+            return None
+        headers = {"X-CSRF-Token": self._csrf} if self._csrf else {}
+        async with self._session.get(
+            f"{self._base}/proxy/protect/api/cameras/{camera_id}/snapshot",
+            headers=headers,
+        ) as response:
+            if response.status == 401:
+                await self._login()
+                return await self.snapshot(entity)
+            if response.status >= 400:
+                return None
+            return await response.read()
+
 
 INTEGRATION = UnifiProtectIntegration
