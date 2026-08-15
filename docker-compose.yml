@@ -20,6 +20,7 @@ services:
       # Keys stehen nicht in der config.yaml, sondern kommen aus .env
       # (siehe deploy/README.md).
       - HOMEPILOT_TOKEN=${HOMEPILOT_TOKEN}
+      - TOKEN_STEFAN=${TOKEN_STEFAN:-}
       - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY:-}
       - MQTT_USER=${MQTT_USER:-}
       - MQTT_PASSWORD=${MQTT_PASSWORD:-}

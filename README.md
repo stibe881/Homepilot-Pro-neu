@@ -95,7 +95,8 @@ die Kacheln.
 Zum Ausprobieren reicht der Start von Hand. Für den Alltag gehört der Hub
 auf einen Rechner, der durchgehend läuft und im selben Netz steht wie deine
 Geräte – Raspberry Pi, Mini-PC oder NAS. Fertige Einrichtung für Docker und
-systemd: [`deploy/README.md`](deploy/README.md).
+systemd: [`deploy/README.md`](deploy/README.md), für Portainer:
+[`deploy/portainer.md`](deploy/portainer.md).
 
 ```bash
 cp hub/config.example.yaml hub/config.yaml

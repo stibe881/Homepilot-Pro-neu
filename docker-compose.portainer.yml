@@ -1,0 +1,69 @@
+# HomePilot-Stack für Portainer (Deployment aus dem Git-Repository).
+# Anleitung: deploy/portainer.md
+#
+# Unterschied zur docker-compose.yml im Wurzelverzeichnis: Die Konfiguration
+# kommt aus /opt/homepilot auf dem Docker-Host statt aus dem Repo-Ordner –
+# bei einem Repository-Stack verwaltet Portainer den Klon selbst, und die
+# persönliche config.yaml gehört nicht ins Repo.
+
+services:
+  hub:
+    build: ./hub
+    container_name: homepilot-hub
+    restart: unless-stopped
+
+    # Das eigene Netz des Rechners statt eines Docker-Netzes: Der Hub muss
+    # Hue-Bridge, CCU und MQTT-Broker direkt erreichen, und die CCU schickt
+    # ihre Events aktiv an den Hub zurück.
+    network_mode: host
+
+    volumes:
+      # Auf dem Host anlegen: /opt/homepilot mit config.yaml darin.
+      # Der Hub schreibt hierhin auch homepilot-data.json (App-Benutzer
+      # und -Abläufe) – der Ordner gehört ins Backup.
+      - /opt/homepilot:/config
+
+    environment:
+      # Werte kommen aus den "Environment variables" des Portainer-Stacks.
+      - HOMEPILOT_TOKEN=${HOMEPILOT_TOKEN}
+      - TOKEN_STEFAN=${TOKEN_STEFAN:-}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY:-}
+      - MQTT_USER=${MQTT_USER:-}
+      - MQTT_PASSWORD=${MQTT_PASSWORD:-}
+      - UNIFI_USER=${UNIFI_USER:-}
+      - UNIFI_PASSWORD=${UNIFI_PASSWORD:-}
+      - HUE_APP_KEY=${HUE_APP_KEY:-}
+      - HUE_SYNC_TOKEN=${HUE_SYNC_TOKEN:-}
+      - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID:-}
+      - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET:-}
+      - SPOTIFY_REFRESH_TOKEN=${SPOTIFY_REFRESH_TOKEN:-}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - GOOGLE_REFRESH_TOKEN=${GOOGLE_REFRESH_TOKEN:-}
+      - ROBOROCK_EMAIL=${ROBOROCK_EMAIL:-}
+      - ROBOROCK_PASSWORD=${ROBOROCK_PASSWORD:-}
+      - TZ=Europe/Zurich
+
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8123/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # Matter-Controller – Kommentarzeichen entfernen, wenn die
+  # matter-Integration in der config.yaml aktiv ist.
+  # matter:
+  #   image: ghcr.io/home-assistant-libs/python-matter-server:stable
+  #   container_name: homepilot-matter
+  #   restart: unless-stopped
+  #   network_mode: host
+  #   security_opt:
+  #     - apparmor=unconfined
+  #   volumes:
+  #     - matter-data:/data
+  #     - /run/dbus:/run/dbus:ro
+
+# volumes:
+#   matter-data:

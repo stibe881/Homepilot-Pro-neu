@@ -10,7 +10,8 @@ Nicht geeignet ist das iPhone: Automationen wie „Licht bei Bewegung“ müssen
 auch dann laufen, wenn dein Telefon aus ist oder du unterwegs bist.
 
 Zwei Wege stehen zur Wahl. **Docker** ist der bequemere, **systemd** der
-schlankere.
+schlankere. Wer **Portainer** benutzt, folgt am besten der eigenen
+Anleitung in [`deploy/portainer.md`](portainer.md).
 
 ## Zugangsdaten vorbereiten (beide Wege)
 
