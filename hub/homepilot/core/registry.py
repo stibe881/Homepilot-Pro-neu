@@ -38,6 +38,25 @@ class EntityRegistry:
         self._entities[entity.id] = entity
         await self.bus.publish("entity_added", {"entity": entity.as_dict()})
 
+    async def set_room(self, entity_id: str, room: str | None) -> None:
+        """Ändert die Raumzuordnung einer Entität und meldet es der App."""
+        entity = self._entities.get(entity_id)
+        if entity is None:
+            raise UnknownEntityError(entity_id)
+        if entity.room == room:
+            return
+        entity.room = room
+        await self.bus.publish(
+            "state_changed",
+            {
+                "entity_id": entity_id,
+                "old_state": dict(entity.state),
+                "new_state": dict(entity.state),
+                "entity": entity.as_dict(),
+                "source": current_source(),
+            },
+        )
+
     async def remove(self, entity_id: str) -> None:
         entity = self._entities.pop(entity_id, None)
         if entity is not None:

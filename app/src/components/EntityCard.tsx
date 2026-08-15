@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Entity } from '../api/types';
 import { Colors, radius, type, useColors } from '../theme';
@@ -23,6 +23,9 @@ interface Props {
   hidden?: boolean;
   onToggleFavorite?: () => void;
   onToggleHidden?: () => void;
+  /** Anpassen-Modus: Raum dieser Kachel setzen. */
+  rooms?: string[];
+  onSetRoom?: (room: string | null) => void;
   /** Sensorkacheln lassen sich antippen und zeigen dann ihren Verlauf. */
   onPress?: () => void;
   chart?: React.ReactNode;
@@ -47,6 +50,8 @@ export function EntityCard({
   hidden,
   onToggleFavorite,
   onToggleHidden,
+  rooms,
+  onSetRoom,
   onPress,
   chart,
   snapshotUri,
@@ -54,6 +59,7 @@ export function EntityCard({
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [remoteOpen, setRemoteOpen] = useState(false);
+  const [roomPickerOpen, setRoomPickerOpen] = useState(false);
   const isOn = entity.state.state === 'on';
   const subtitle = entity.room || integrationLabel(entity.integration);
   const toggle = entity.commands.includes('toggle')
@@ -330,6 +336,20 @@ export function EntityCard({
     >
       {editing ? (
         <View style={styles.editRow}>
+          {onSetRoom && rooms ? (
+            <Pressable
+              onPress={() => setRoomPickerOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Raum wählen"
+              style={({ pressed }) => [styles.roomChip, pressed && { opacity: 0.6 }]}
+            >
+              <Ionicons name="home-outline" size={13} color={colors.inkSoft} />
+              <Text style={styles.roomChipText} numberOfLines={1}>
+                {entity.room ?? 'Kein Raum'}
+              </Text>
+            </Pressable>
+          ) : null}
+          <View style={{ flex: 1 }} />
           <EditButton
             icon={favorite ? 'star' : 'star-outline'}
             active={!!favorite}
@@ -344,6 +364,18 @@ export function EntityCard({
           />
         </View>
       ) : null}
+      {onSetRoom && rooms ? (
+        <RoomPicker
+          visible={roomPickerOpen}
+          current={entity.room ?? null}
+          rooms={rooms}
+          onClose={() => setRoomPickerOpen(false)}
+          onSelect={(room) => {
+            setRoomPickerOpen(false);
+            onSetRoom(room);
+          }}
+        />
+      ) : null}
       <View style={styles.body}>{body()}</View>
       {chart}
       <CardFooter
@@ -354,6 +386,56 @@ export function EntityCard({
         pending={pending}
       />
     </Card>
+  );
+}
+
+/** Raumauswahl im Anpassen-Modus: „Kein Raum“ plus alle bekannten Räume. */
+function RoomPicker({
+  visible,
+  current,
+  rooms,
+  onClose,
+  onSelect,
+}: {
+  visible: boolean;
+  current: string | null;
+  rooms: string[];
+  onClose: () => void;
+  onSelect: (room: string | null) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const options: { key: string; label: string; value: string | null }[] = [
+    { key: '__none', label: 'Kein Raum', value: null },
+    ...rooms.map((name) => ({ key: name, label: name, value: name })),
+  ];
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.roomBackdrop} onPress={onClose}>
+        <Pressable style={styles.roomSheet} onPress={() => {}}>
+          <Text style={styles.roomSheetTitle}>Raum wählen</Text>
+          <ScrollView>
+            {options.map((option) => {
+              const active = option.value === current;
+              return (
+                <Pressable
+                  key={option.key}
+                  onPress={() => onSelect(option.value)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  style={[styles.roomOption, active && styles.roomOptionActive]}
+                >
+                  <Text style={styles.roomOptionText}>{option.label}</Text>
+                  {active ? (
+                    <Ionicons name="checkmark" size={20} color={colors.accent} />
+                  ) : null}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 
@@ -812,7 +894,49 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
   body: { gap: 8 },
   stack: { gap: 8 },
-  editRow: { flexDirection: 'row', gap: 8, justifyContent: 'flex-end' },
+  editRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  roomChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    flexShrink: 1,
+  },
+  roomChipText: { fontSize: 12, color: colors.ink, fontWeight: '600', flexShrink: 1 },
+  roomBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  roomSheet: {
+    width: 320,
+    maxWidth: '100%',
+    maxHeight: '80%',
+    borderRadius: 24,
+    padding: 18,
+    gap: 6,
+    backgroundColor: colors.gradient[1],
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  roomSheetTitle: { fontSize: 17, fontWeight: '700', color: colors.ink, marginBottom: 6 },
+  roomOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: radius.control,
+  },
+  roomOptionActive: { backgroundColor: colors.surfaceSoft },
+  roomOptionText: { fontSize: 15, color: colors.ink },
   mediaRow: { flexDirection: 'row', gap: 10 },
   deviceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   deviceChip: {

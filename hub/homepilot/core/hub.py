@@ -41,11 +41,21 @@ class Hub:
     async def start(self) -> None:
         log.info("Hub startet …")
         # Die Raumzuordnung muss stehen, bevor die erste Entität entsteht.
+        # Grundlage ist die config.yaml; in der App gesetzte Zuordnungen
+        # (aus der homepilot-data.json) haben Vorrang.
+        self.data.load()
         self._rooms_by_entity = {
             entity_id: room
             for room, members in self.config.rooms.items()
             for entity_id in members
         }
+        for entry in self.data.get("entity_rooms"):
+            entity_id, room = entry.get("entity_id"), entry.get("room")
+            if entity_id:
+                if room:
+                    self._rooms_by_entity[entity_id] = room
+                else:
+                    self._rooms_by_entity.pop(entity_id, None)
         self.registry.room_provider = self._rooms_by_entity.get
         await self._start_store()
         self._load_stored_users()
@@ -102,6 +112,38 @@ class Hub:
     def reload_scenes(self) -> None:
         """Nach einer Szenen-Änderung in der App neu laden."""
         self.scenes.load(self.config.scenes, self.data.get("scenes"))
+
+    def known_rooms(self) -> list[str]:
+        """Alle Räume: aus der config.yaml plus die per App zugewiesenen,
+        Reihenfolge der config zuerst."""
+        rooms = list(self.config.rooms.keys())
+        for room in self._rooms_by_entity.values():
+            if room and room not in rooms:
+                rooms.append(room)
+        return rooms
+
+    async def set_entity_room(self, entity_id: str, room: str | None) -> None:
+        """Weist einer Entität in der App einen Raum zu (oder entfernt ihn).
+
+        Wirkt sofort und bleibt über Neustarts erhalten – gespeichert wird
+        die Zuordnung in der homepilot-data.json, nicht in der config.yaml.
+        """
+        if room:
+            self._rooms_by_entity[entity_id] = room
+        else:
+            self._rooms_by_entity.pop(entity_id, None)
+
+        # In der App gesetzte Zuordnungen persistieren (config-Einträge
+        # bleiben in der config.yaml und werden hier nicht dupliziert).
+        stored = [
+            entry
+            for entry in self.data.get("entity_rooms")
+            if entry.get("entity_id") != entity_id
+        ]
+        stored.append({"entity_id": entity_id, "room": room})
+        self.data.set("entity_rooms", stored)
+
+        await self.registry.set_room(entity_id, room)
 
     async def _start_store(self) -> None:
         config = self.config.supabase

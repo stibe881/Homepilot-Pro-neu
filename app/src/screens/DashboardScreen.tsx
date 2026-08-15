@@ -55,6 +55,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     pending,
     sendCommand,
     activateScene,
+    setEntityRoom,
     reloadScenes,
     dismissError,
   } = useHub(settings.url, settings.token);
@@ -218,6 +219,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       }
       onToggleHidden={() =>
         onSaveSettings({ ...settings, hidden: toggleIn(hidden, entity.id) })
+      }
+      rooms={editing ? roomOrder : undefined}
+      onSetRoom={
+        editing ? (room) => setEntityRoom(entity.id, room) : undefined
       }
       onCommand={(command, data) => sendCommand(entity.id, command, data)}
       snapshotUri={

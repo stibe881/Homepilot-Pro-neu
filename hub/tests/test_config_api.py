@@ -92,3 +92,34 @@ def test_restart_is_scheduled_not_executed_in_tests(client, monkeypatch):
     assert response.status_code == 200
     # Der Timer feuert nach 0.8s – hier zählt nur, dass der Aufruf ohne
     # echten Prozess-Exit durchläuft und die Berechtigung geprüft wurde.
+
+
+def test_owner_assigns_room_to_entity(client):
+    # Demo-Entität ohne Raum → per API Raum setzen → im Snapshot sichtbar.
+    entities = client.get("/api/entities", headers=auth("t-owner")).json()
+    target = entities[0]["id"]
+    response = client.put(
+        f"/api/entities/{target}/room",
+        json={"room": "Büro"},
+        headers=auth("t-owner"),
+    )
+    assert response.status_code == 200
+    assert response.json()["entity"]["room"] == "Büro"
+    # Und wieder lösen.
+    cleared = client.put(
+        f"/api/entities/{target}/room", json={"room": None}, headers=auth("t-owner")
+    )
+    assert cleared.json()["entity"]["room"] is None
+
+
+def test_resident_may_not_assign_rooms(client):
+    entities = client.get("/api/entities", headers=auth("t-resident")).json()
+    target = entities[0]["id"]
+    assert (
+        client.put(
+            f"/api/entities/{target}/room",
+            json={"room": "Büro"},
+            headers=auth("t-resident"),
+        ).status_code
+        == 403
+    )

@@ -20,7 +20,14 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-EMPTY: dict[str, Any] = {"users": [], "automations": [], "scenes": []}
+EMPTY: dict[str, Any] = {
+    "users": [],
+    "automations": [],
+    "scenes": [],
+    # In der App gesetzte Raumzuordnungen: [{entity_id, room}]. Sie haben
+    # Vorrang vor der config.yaml.
+    "entity_rooms": [],
+}
 
 
 class DataStore:

@@ -86,6 +86,10 @@ class ConfigRequest(BaseModel):
     content: str
 
 
+class RoomRequest(BaseModel):
+    room: str | None = None
+
+
 def create_app(hub: Hub) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -256,6 +260,21 @@ def create_app(hub: Hub) -> FastAPI:
         except HomePilotError as err:
             raise HTTPException(status_code=500, detail=str(err)) from err
         return {"ok": True, "entity": entity.as_dict()}
+
+    @app.put("/api/entities/{entity_id}/room")
+    async def set_entity_room(
+        entity_id: str, body: RoomRequest, request: Request
+    ) -> dict[str, Any]:
+        """Raumzuordnung einer Entität in der App setzen (oder mit null lösen).
+
+        Bleibt in der homepilot-data.json erhalten und hat Vorrang vor der
+        config.yaml – so ordnet man Geräte den Räumen zu, ohne die Datei
+        anzufassen."""
+        require(request, Capability.EDIT_CONFIG)
+        if hub.registry.get(entity_id) is None:
+            raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
+        await hub.set_entity_room(entity_id, body.room or None)
+        return {"ok": True, "entity": hub.registry.get(entity_id).as_dict()}
 
     @app.get("/api/entities/{entity_id}/snapshot")
     async def entity_snapshot(entity_id: str, request: Request) -> Response:
@@ -598,9 +617,10 @@ def create_app(hub: Hub) -> FastAPI:
                 "type": "snapshot",
                 "entities": visible(user, hub.registry.all()),
                 "user": user_payload(user),
-                # Raum-Reihenfolge aus der config.yaml: Die App sortiert ihre
-                # Reiter danach statt alphabetisch – meistgenutzte zuerst.
-                "rooms": list(hub.config.rooms.keys()),
+                # Raum-Reihenfolge (config.yaml zuerst, dann per App
+                # zugewiesene): Die App sortiert ihre Reiter danach statt
+                # alphabetisch und bietet sie zur Zuweisung an.
+                "rooms": hub.known_rooms(),
             }
         )
         sender_task = asyncio.create_task(sender())

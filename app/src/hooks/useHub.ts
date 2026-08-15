@@ -283,6 +283,32 @@ export function useHub(url: string | null, token: string | null) {
     [url, token]
   );
 
+  // Raumzuordnung einer Kachel setzen (im Anpassen-Modus). Der Hub meldet
+  // die Änderung über den Eventstream zurück; optimistisch ziehen wir sie
+  // sofort nach, damit die Kachel augenblicklich in den Raum wandert.
+  const setEntityRoom = useCallback(
+    async (entityId: string, room: string | null) => {
+      setEntityMap((prev) => {
+        const entity = prev[entityId];
+        return entity ? { ...prev, [entityId]: { ...entity, room } } : prev;
+      });
+      try {
+        const response = await fetch(`${url}/api/entities/${encodeURIComponent(entityId)}/room`, {
+          method: 'PUT',
+          headers: {
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ room }),
+        });
+        if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
+      } catch (err: any) {
+        setError(`Raum konnte nicht gesetzt werden: ${err.message ?? err}`);
+      }
+    },
+    [url, token]
+  );
+
   const entities = Object.values(entityMap).sort((a, b) => a.name.localeCompare(b.name));
 
   return {
@@ -298,6 +324,7 @@ export function useHub(url: string | null, token: string | null) {
     stale,
     sendCommand,
     activateScene,
+    setEntityRoom,
     reloadScenes,
     dismissError: () => setError(null),
   };
