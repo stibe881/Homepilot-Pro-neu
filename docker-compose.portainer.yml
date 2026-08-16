@@ -71,14 +71,14 @@ services:
     # Portainer-Repository-Stacks auf Snap-Docker an der Pfadauflösung.
     environment:
       # Steuer-API nur für den Hub auf demselben Rechner.
-      - MTX_API=yes
+      - MTX_API=true
       - MTX_APIADDRESS=127.0.0.1:9997
       # Nur HLS anbieten – Kameras anzapfen geht auch ohne eigene Server.
-      - MTX_RTSP=no
-      - MTX_RTMP=no
-      - MTX_SRT=no
-      - MTX_WEBRTC=no
-      - MTX_HLS=yes
+      - MTX_RTSP=false
+      - MTX_RTMP=false
+      - MTX_SRT=false
+      - MTX_WEBRTC=false
+      - MTX_HLS=true
       - MTX_HLSADDRESS=127.0.0.1:8888
       # Low-Latency-HLS: 200-ms-Bruchstücke → unter einer Sekunde Rückstand.
       - MTX_HLSVARIANT=lowLatency
@@ -87,7 +87,7 @@ services:
       - MTX_HLSPARTDURATION=200ms
       - MTX_HLSALLOWORIGIN=*
       # Nicht auf Vorrat umpacken: erst wenn jemand zuschaut.
-      - MTX_HLSALWAYSREMUX=no
+      - MTX_HLSALWAYSREMUX=false
 
   # Matter-Controller – Kommentarzeichen entfernen, wenn die
   # matter-Integration in der config.yaml aktiv ist.

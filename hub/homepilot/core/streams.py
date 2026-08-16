@@ -170,8 +170,11 @@ class StreamManager:
         self._lock = asyncio.Lock()
         self._reaper: asyncio.Task | None = None
         self._session: aiohttp.ClientSession | None = None
-        # None = noch nicht nachgesehen, ob mediamtx läuft.
+        # None = noch nicht nachgesehen, ob mediamtx läuft. Ein «läuft
+        # nicht» wird regelmässig neu geprüft – der Container kann auch
+        # nach dem Hub starten oder sich später erholen.
         self._mediamtx: bool | None = None
+        self._mediamtx_checked = 0.0
         # Bereits in mediamtx eingerichtete Pfade: Name → Quelle
         self._paths: dict[str, str] = {}
 
@@ -223,9 +226,14 @@ class StreamManager:
         return self._session
 
     async def _use_mediamtx(self) -> bool:
-        """Läuft mediamtx? Einmal nachsehen und merken."""
-        if self._mediamtx is not None:
-            return self._mediamtx
+        """Läuft mediamtx? Ja bleibt gemerkt, Nein wird nach 60s neu geprüft."""
+        now = asyncio.get_running_loop().time()
+        if self._mediamtx or (
+            self._mediamtx is False and now - self._mediamtx_checked < 60
+        ):
+            return bool(self._mediamtx)
+        was = self._mediamtx
+        self._mediamtx_checked = now
         session = await self._http()
         try:
             async with session.get(
@@ -235,10 +243,11 @@ class StreamManager:
                 self._mediamtx = response.status < 400
         except Exception:
             self._mediamtx = False
-        log.info(
-            "Live-Bild über %s",
-            "mediamtx (Low-Latency-HLS)" if self._mediamtx else "ffmpeg (HLS)",
-        )
+        if self._mediamtx != was:
+            log.info(
+                "Live-Bild über %s",
+                "mediamtx (Low-Latency-HLS)" if self._mediamtx else "ffmpeg (HLS)",
+            )
         return self._mediamtx
 
     async def _ensure_path(self, entity_id: str, source: str) -> str:
