@@ -204,6 +204,13 @@ integrations:
   #   host: gateway-2310-9733-0267.local:8443
   #   token: "${OVERKIZ_TOKEN}"
 
+  # Nuki Smart Lock (Wohnungstüre): auf-/abschliessen und aufziehen.
+  # Token: In der Nuki-App «Nuki Web» aktivieren, dann auf web.nuki.io
+  # unter «API» ein Token erzeugen (Anzeigen + Bedienen erlauben).
+  # - integration: nuki
+  #   token: "${NUKI_TOKEN}"
+  #   scan_interval: 60
+
   # Ring-Türklingeln und -Kameras. Braucht: pip install ring-doorbell
   # Einmalige Anmeldung mit 2FA-Code:
   #   python -m homepilot.integrations.ring -c config.yaml
@@ -216,12 +223,17 @@ integrations:
   # - integration: matter
   #   url: ws://127.0.0.1:5580/ws
 
-  # V-ZUG-Geräte (lokale Home-API, nur lesend).
+  # V-ZUG-Geräte (lokale Home-API, nur lesend). Die Geräte müssen über
+  # V-ZUG-Home im WLAN sein; im Router feste IPs vergeben. Die Namen
+  # «Geschirrspüler» und «Waschmaschine» sorgen dafür, dass die Startseite
+  # sie den richtigen Kacheln zuordnet.
   # - integration: vzug
   #   scan_interval: 60
   #   devices:
   #     - host: 192.168.1.40
-  #       name: Geschirrspüler
+  #       name: Geschirrspüler      # AdoraDish V2000
+  #     - host: 192.168.1.41
+  #       name: Waschmaschine       # AdoraWash V4000
 
 # Benutzer und Rollen. Jeder bekommt ein eigenes Token – dann steht in
 # jedem Protokolleintrag, wer geschaltet hat, und ein Zugang lässt sich

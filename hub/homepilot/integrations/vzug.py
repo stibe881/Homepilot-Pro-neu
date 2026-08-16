@@ -26,23 +26,67 @@ from ..core.errors import ConfigError
 from ..core.integration import Integration
 
 
-def parse_device_status(payload: dict[str, Any]) -> dict[str, Any]:
+def minutes_until(end_text: str, now_minutes: int) -> int | None:
+    """Restminuten aus dem 'End'-Feld (rein, testbar).
+
+    AdoraDish/AdoraWash liefern das Programmende je nach Firmware als
+    Uhrzeit «18:05», als Dauer «1h05» / «0h47» oder als Minutenzahl.
+    ``now_minutes`` ist die aktuelle Uhrzeit in Minuten seit Mitternacht.
+    """
+    text = str(end_text).strip().lower()
+    if not text:
+        return None
+    if "h" in text:
+        hours, _, minutes = text.partition("h")
+        try:
+            return int(hours or 0) * 60 + int(minutes or 0)
+        except ValueError:
+            return None
+    if ":" in text:
+        try:
+            hours, minutes = text.split(":", 1)
+            end = int(hours) * 60 + int(minutes)
+        except ValueError:
+            return None
+        # Endet das Programm «vor jetzt», ist Mitternacht dazwischen.
+        return end - now_minutes if end >= now_minutes else end + 24 * 60 - now_minutes
+    try:
+        return int(text)
+    except ValueError:
+        return None
+
+
+def parse_device_status(
+    payload: dict[str, Any], now_minutes: int | None = None
+) -> dict[str, Any]:
     """Übersetzt die Antwort von getDeviceStatus in Entitäts-Attribute.
 
     'Inactive' kommt als String "true"/"false" – daraus wird der Hauptwert
-    idle/running.
+    idle/running. Aus dem Programmende wird, wo möglich, die Restzeit in
+    Minuten berechnet (minutes_left) – die zeigt die App auf der Startseite.
     """
     inactive = str(payload.get("Inactive", "true")).strip().lower() == "true"
     program_end = payload.get("ProgramEnd") or {}
-    return {
+    end_text = (
+        (program_end.get("End") or None) if isinstance(program_end, dict) else None
+    )
+    result: dict[str, Any] = {
         "state": "idle" if inactive else "running",
         "program": payload.get("Program") or None,
         "status": payload.get("Status") or None,
-        "program_end": (program_end.get("End") or None)
-        if isinstance(program_end, dict)
-        else None,
+        "program_end": end_text,
         "serial": payload.get("Serial") or None,
     }
+    if not inactive and end_text:
+        if now_minutes is None:
+            from datetime import datetime
+
+            local = datetime.now()
+            now_minutes = local.hour * 60 + local.minute
+        minutes = minutes_until(end_text, now_minutes)
+        if minutes is not None and 0 <= minutes <= 24 * 60:
+            result["minutes_left"] = minutes
+    return result
 
 
 class VZugIntegration(Integration):

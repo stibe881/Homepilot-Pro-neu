@@ -637,3 +637,67 @@ def test_calendar_build_event():
     assert all_day["end"] == {"date": "2026-10-02"}
     with _pytest.raises(ValueError):
         build_event("   ", "17.08.2026")
+
+
+# ── Nuki ─────────────────────────────────────────────────────────────────
+
+
+def test_nuki_lock_state():
+    from homepilot.integrations.nuki import lock_state
+
+    state = lock_state(
+        {
+            "smartlockId": 1,
+            "name": "Wohnungstüre",
+            "state": {
+                "state": 1,
+                "batteryCharge": 78,
+                "batteryCritical": False,
+                "doorState": 2,
+            },
+        }
+    )
+    assert state == {"state": "locked", "battery": 78, "door": "closed"}
+
+    open_state = lock_state({"state": {"state": 5, "batteryCritical": True, "doorState": 3}})
+    assert open_state["state"] == "unlatched"
+    assert open_state["battery_critical"] is True
+    assert open_state["door"] == "open"
+
+    assert lock_state({})["state"] == "unknown"
+
+
+# ── V-ZUG: Restzeit ──────────────────────────────────────────────────────
+
+
+def test_vzug_minutes_until():
+    from homepilot.integrations.vzug import minutes_until
+
+    noon = 12 * 60
+    assert minutes_until("1h05", noon) == 65        # Dauer-Format
+    assert minutes_until("0h47", noon) == 47
+    assert minutes_until("13:30", noon) == 90       # Uhrzeit heute
+    assert minutes_until("00:15", 23 * 60) == 75    # über Mitternacht
+    assert minutes_until("42", noon) == 42          # rohe Minuten
+    assert minutes_until("", noon) is None
+    assert minutes_until("kaputt", noon) is None
+
+
+def test_vzug_status_reports_minutes_left():
+    from homepilot.integrations.vzug import parse_device_status
+
+    running = parse_device_status(
+        {
+            "Inactive": "false",
+            "Program": "Eco",
+            "Status": "Läuft",
+            "ProgramEnd": {"End": "13:30", "EndType": "h"},
+        },
+        now_minutes=12 * 60,
+    )
+    assert running["state"] == "running"
+    assert running["minutes_left"] == 90
+
+    idle = parse_device_status({"Inactive": "true"}, now_minutes=0)
+    assert idle["state"] == "idle"
+    assert "minutes_left" not in idle

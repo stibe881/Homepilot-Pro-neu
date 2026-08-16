@@ -554,6 +554,67 @@ function LockBody({
   }, [armed]);
   const opened = entity.state.state === 'opened';
 
+  // Nuki-Schloss: auf-/abschliessen plus «Auf + öffnen» (Falle ziehen).
+  if (entity.commands.includes('unlock')) {
+    const value = String(entity.state.state ?? '');
+    const locked = value === 'locked';
+    const moving = ['locking', 'unlocking', 'unlatching'].includes(value);
+    const label =
+      value === 'locked' ? 'Abgeschlossen'
+      : value === 'unlocked' ? 'Aufgeschlossen'
+      : value === 'unlatched' ? 'Offen'
+      : value === 'locking' ? 'Schliesst ab …'
+      : value === 'unlocking' ? 'Schliesst auf …'
+      : value === 'unlatching' ? 'Öffnet …'
+      : value === 'motor_blocked' ? 'Motor blockiert'
+      : '–';
+    return (
+      <View style={styles.stack}>
+        <Pill
+          label={label}
+          tone={
+            value === 'motor_blocked' ? colors.danger : locked ? undefined : colors.on
+          }
+        />
+        {entity.state.battery != null ? (
+          <Text style={styles.hint}>
+            {entity.state.battery} % Akku
+            {entity.state.battery_critical ? ' · schwach!' : ''}
+            {entity.state.door === 'open' ? ' · Tür offen' : ''}
+          </Text>
+        ) : null}
+        <View style={styles.mediaRow}>
+          <MediaButton
+            icon={locked ? 'lock-open-outline' : 'lock-closed-outline'}
+            label={locked ? 'Aufschliessen' : 'Abschliessen'}
+            onPress={() => onCommand(locked ? 'unlock' : 'lock')}
+          />
+        </View>
+        <Pressable
+          disabled={pending || moving}
+          onPress={() => {
+            if (armed) {
+              setArmed(false);
+              onCommand('unlatch');
+            } else {
+              setArmed(true);
+            }
+          }}
+          accessibilityRole="button"
+          style={({ pressed }) => [
+            styles.lockButton,
+            armed && styles.lockButtonArmed,
+            (pressed || pending || moving) && { opacity: 0.7 },
+          ]}>
+          <Ionicons name={armed ? 'lock-open' : 'key-outline'} size={16} color="#FFFFFF" />
+          <Text style={styles.lockButtonText}>
+            {armed ? 'Wirklich öffnen?' : 'Auf + öffnen'}
+          </Text>
+        </Pressable>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.stack}>
       {opened ? (
