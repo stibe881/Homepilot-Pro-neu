@@ -263,6 +263,10 @@ class StreamManager:
             # loslassen. Sonst läuft der Kamerastrom rund um die Uhr.
             "sourceOnDemand": True,
             "sourceOnDemandCloseAfter": ON_DEMAND_CLOSE,
+            # TCP statt UDP zum Recorder: Über UDP gehen Pakete verloren,
+            # das Bild zerfällt in Blöcke und die Part-Dauer schwankt –
+            # woran wiederum iOS-Player scheitern.
+            "rtspTransport": "tcp",
         }
         exists = name in self._paths
         verb = "patch" if exists else "add"
