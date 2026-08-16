@@ -151,12 +151,11 @@ Voraussetzung ist der Messkanal in der Gerätekonfiguration:
   host: 10.10.1.x
   port: 2001
   devices:
-    - address: "001015699EA263:6"           # Statusmeldung Messwertkanal
+    - address: "001015699EA263:3"           # Schaltkanal (STATE + Schalten)
       port: 2010                            # Homematic IP
       name: Tumbler
       kind: switch
-      power_address: "001015699EA263:6"     # Leistung in Watt
-      command_address: "001015699EA263:3"   # Schalten (virt. Empfänger)
+      power_address: "001015699EA263:6"     # Messkanal (Leistung in Watt)
 ```
 
 Umgekehrt geht es genauso – `above: 50` meldet, dass er angelaufen ist. Der

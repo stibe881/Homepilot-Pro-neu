@@ -127,17 +127,15 @@ integrations:
   #       kind: sensor
   #       datapoint: ACTUAL_TEMPERATURE
   #     # Homematic IP Schalt-Messsteckdose (HmIP-PSM), z.B. am Tumbler.
-  #     # Bei HmIP melden und schalten getrennte Kanäle: Kanal 6 meldet
-  #     # (Zustand + Leistung), geschaltet wird über den virtuellen
-  #     # Empfänger (Kanaltyp SWITCH_VIRTUAL_RECEIVER, meist Kanal 3).
+  #     # Bei HmIP liegt STATE auf dem Schaltkanal (meist Kanal 3); der
+  #     # Messkanal (meist Kanal 6) liefert nur die Leistung.
   #     # Die Watt landen als 'power' im Zustand – daraus erkennt die
   #     # Startseite, ob der Tumbler gerade läuft.
-  #     - address: "001015699EA263:6"
+  #     - address: "001015699EA263:3"     # Schaltkanal (SWITCH_VIRTUAL_RECEIVER)
   #       port: 2010
   #       name: Tumbler
   #       kind: switch
-  #       power_address: "001015699EA263:6"
-  #       command_address: "001015699EA263:3"
+  #       power_address: "001015699EA263:6" # Messkanal (POWER in Watt)
 
   # UniFi: Anwesenheitserkennung anhand verbundener Geräte.
   # Liefert zusätzlich unifi.anyone_home und unifi.clients_total.

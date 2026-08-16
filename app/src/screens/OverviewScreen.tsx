@@ -221,17 +221,20 @@ export function OverviewScreen({
           <Action styles={styles}
             key={scene.id}
             label={scene.name}
+            icon={sceneIcon(scene)}
             accent
             onPress={() => onActivateScene(scene.id)}
           />
         ))}
         <Action styles={styles}
           label="Storen hoch"
+          icon="arrow-up-outline"
           onPress={() => covers.forEach((c) => onCommand(c.id, 'open'))}
           disabled={covers.length === 0}
         />
         <Action styles={styles}
           label="Storen runter"
+          icon="arrow-down-outline"
           onPress={() => covers.forEach((c) => onCommand(c.id, 'close'))}
           disabled={covers.length === 0}
         />
@@ -607,6 +610,19 @@ function Tile({
       {children}
     </Card>
   );
+}
+
+/** Icon einer Schnellaktion: das im Szenen-Editor gewählte, sonst eines,
+ *  das zum Namen passt («Kino» → Film, «Schlafen» → Mond). */
+function sceneIcon(scene: { name: string; icon?: string }): keyof typeof Ionicons.glyphMap {
+  if (scene.icon && scene.icon in Ionicons.glyphMap) {
+    return scene.icon as keyof typeof Ionicons.glyphMap;
+  }
+  if (/kino|film|tv/i.test(scene.name)) return 'film-outline';
+  if (/schlaf|nacht|bett/i.test(scene.name)) return 'moon-outline';
+  if (/morgen|aufstehen/i.test(scene.name)) return 'sunny-outline';
+  if (/essen|dinner/i.test(scene.name)) return 'restaurant-outline';
+  return 'sparkles-outline';
 }
 
 function Action({

@@ -116,8 +116,14 @@ def rtsp_alias(camera: dict[str, Any], quality: str = "medium") -> str | None:
 
 
 def rtsp_url(host: str, alias: str) -> str:
-    """Die Adresse, unter der Protect den Strom ausliefert."""
-    return f"rtsps://{host}:7441/{alias}?enableSrtp"
+    """Die Adresse, unter der Protect den Strom ausliefert.
+
+    Bewusst der unverschlüsselte Port 7447: Die TLS/SRTP-Variante auf 7441
+    verstehen viele Abnehmer (auch mediamtx) nicht sauber, und der Strom
+    bleibt ohnehin im eigenen Netz – er läuft vom Recorder zum Hub und
+    verlässt den Rechner nur über die Token-geschützte Hub-API.
+    """
+    return f"rtsp://{host}:7447/{alias}"
 
 
 def camera_state(camera: dict[str, Any], quality: str = "medium") -> dict[str, Any]:

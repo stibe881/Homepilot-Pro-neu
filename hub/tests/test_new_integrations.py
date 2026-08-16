@@ -750,5 +750,6 @@ def test_rtsp_alias_none_without_enabled_channel():
     assert camera_state({"state": "CONNECTED", **CHANNELS})["stream"] is True
 
 
-def test_rtsp_url_uses_protect_port():
-    assert rtsp_url("10.10.1.1", "abcMEDIUM") == "rtsps://10.10.1.1:7441/abcMEDIUM?enableSrtp"
+def test_rtsp_url_uses_the_plain_protect_port():
+    # 7447 statt 7441: die TLS/SRTP-Variante versteht mediamtx nicht sauber.
+    assert rtsp_url("10.10.1.1", "abcMEDIUM") == "rtsp://10.10.1.1:7447/abcMEDIUM"

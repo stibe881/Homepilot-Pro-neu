@@ -20,24 +20,23 @@ Konfiguration:
         name: Temperatur Bad
         kind: sensor
         datapoint: ACTUAL_TEMPERATURE
-      - address: "001015699EA263:6"     # HmIP: Port am Gerät angeben
+      - address: "001015699EA263:3"     # HmIP: Port am Gerät angeben
         port: 2010
         name: Tumbler
         kind: switch
         power_address: "001015699EA263:6"    # Messkanal → state.power in Watt
-        command_address: "001015699EA263:3"  # Schaltkanal (virt. Empfänger)
 
 Geräte dürfen einzeln einen anderen ``port`` angeben – so laufen klassische
 Homematic- (2001) und Homematic-IP-Geräte (2010) gemischt über dieselbe
 Integration.
 
-Bei Homematic IP fallen Melden und Schalten auseinander: Der Statuskanal
-(HmIP-PSM: Kanal 6, «Statusmeldung Messwertkanal») liefert STATE und POWER,
-geschaltet wird aber über einen virtuellen Empfänger (Kanaltyp
-SWITCH_VIRTUAL_RECEIVER). Deshalb ``address`` auf den Statuskanal,
-``power_address`` auf den Messkanal und – nur wenn geschaltet werden soll –
-``command_address`` auf den Empfangskanal. Ohne ``command_address`` gehen
-Kommandos an ``address``, was bei klassischen Funkgeräten richtig ist.
+Bei Homematic IP (z.B. Schalt-Messsteckdose HmIP-PSM) liegt STATE auf dem
+Schaltkanal (Kanaltyp SWITCH_VIRTUAL_RECEIVER, meist Kanal 3) – dort wird
+auch geschaltet. Der Messkanal (ENERGIE_METER_TRANSMITTER, meist Kanal 6)
+liefert nur POWER & Co. und gehört als ``power_address`` dazu. Schlägt das
+Lesen eines Kanals fehl, kommt der andere trotzdem an – und eine
+Log-Warnung nennt den Grund. Wer melden und schalten wirklich trennen
+muss, kann Kommandos mit ``command_address`` umlenken.
 
 Die CCU kann Änderungen aktiv melden: Der Hub meldet sich per ``init`` mit
 einer Callback-Adresse an, danach ruft die CCU bei jeder Wertänderung
@@ -174,6 +173,8 @@ class HomematicIntegration(Integration):
         # 2010, klassisches BidCos-RF auf 2001 – beides an derselben CCU.
         self._proxies: dict[int, xmlrpc.client.ServerProxy] = {}
 
+        # Bereits gemeldete Lesefehler – jede Adresse warnt nur einmal.
+        self._warned: set[tuple[str, str]] = set()
         # (Adresse, Datenpunkt) → entity_id, plus Stammdaten je Entität
         self._by_datapoint: dict[tuple[str, str], str] = {}
         # Messkanäle getrennt: sie liefern kein state, sondern nur 'power'.
@@ -316,16 +317,24 @@ class HomematicIntegration(Integration):
     async def _refresh_all(self) -> None:
         for entity_id, info in self._devices.items():
             port = info["port"]
+            changes: dict[str, Any] = {}
+
+            # Haupt- und Messkanal unabhängig lesen: Bei Homematic IP hat der
+            # Messkanal (z.B. HmIP-PSM Kanal 6) kein STATE – dann soll
+            # wenigstens die Leistung ankommen statt gar nichts.
             try:
                 value = await self._call(
                     "getValue", info["address"], info["datapoint"], port=port
                 )
+                changes.update(value_to_state(value, info["datapoint"], info["dimmable"]))
             except Exception as err:
-                self.log.debug("getValue für %s fehlgeschlagen: %s", info["address"], err)
-                await self.hub.registry.update_state(entity_id, {}, available=False)
-                continue
+                self._warn_once(
+                    (info["address"], info["datapoint"]),
+                    f"{info['address']} liefert kein {info['datapoint']} ({err}) – "
+                    "bei HmIP liegt STATE meist auf dem Schaltkanal "
+                    "(SWITCH_VIRTUAL_RECEIVER, siehe Kanalliste oben)",
+                )
 
-            changes = value_to_state(value, info["datapoint"], info["dimmable"])
             if info["power_address"]:
                 try:
                     watts = await self._call(
@@ -334,14 +343,24 @@ class HomematicIntegration(Integration):
                         info["power_datapoint"],
                         port=port,
                     )
-                except Exception as err:
-                    self.log.debug(
-                        "Messkanal %s nicht lesbar: %s", info["power_address"], err
-                    )
-                else:
                     changes.update(power_to_state(watts))
+                except Exception as err:
+                    self._warn_once(
+                        (info["power_address"], info["power_datapoint"]),
+                        f"Messkanal {info['power_address']} nicht lesbar: {err}",
+                    )
 
-            await self.hub.registry.update_state(entity_id, changes, available=True)
+            if changes:
+                await self.hub.registry.update_state(entity_id, changes, available=True)
+            else:
+                await self.hub.registry.update_state(entity_id, {}, available=False)
+
+    def _warn_once(self, key: tuple[str, str], message: str) -> None:
+        """Einmal warnen statt alle 5 Minuten – sonst übersieht man im
+        zugerauschten Log genau die Zeile, die das Problem erklärt."""
+        if key not in self._warned:
+            self._warned.add(key)
+            self.log.warning("%s", message)
 
     async def _poll_loop(self) -> None:
         while True:
