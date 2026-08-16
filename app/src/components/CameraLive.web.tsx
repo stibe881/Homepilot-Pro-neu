@@ -1,3 +1,4 @@
+import Hls from 'hls.js';
 import React, { useEffect, useRef, useState } from 'react';
 import { ViewStyle } from 'react-native';
 
@@ -7,7 +8,7 @@ import { ViewStyle } from 'react-native';
  * Safari spielt HLS von Haus aus, Chrome und Firefox nicht – dort übernimmt
  * hls.js und füttert das Video-Element selbst. Deshalb gibt es diese Datei
  * neben CameraLive.tsx: Der Bündler nimmt auf dem Web die `.web`-Fassung,
- * auf iPhone und iPad die native mit expo-video, und hls.js landet gar
+ * auf iPhone und iPad die native mit expo-video – hls.js landet also gar
  * nicht erst im App-Bündel.
  */
 export function CameraLive({
@@ -38,7 +39,7 @@ export function CameraLive({
       failedRef.current?.();
     };
 
-    // Safari (und iOS-Browser) können HLS direkt.
+    // Safari und die Browser auf iOS können HLS direkt.
     if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = uri;
       video.play().catch(() => {});
@@ -48,32 +49,36 @@ export function CameraLive({
       };
     }
 
-    let player: { destroy: () => void } | null = null;
-    let cancelled = false;
-    import('hls.js')
-      .then(({ default: Hls }) => {
-        if (cancelled) return;
-        if (!Hls.isSupported()) {
-          fail('Dieser Browser kann kein Live-Bild anzeigen');
-          return;
-        }
-        // Wenig Vorlauf: lieber nah am Geschehen als flüssig gepuffert –
-        // bei einer Türklingel zählen Sekunden.
-        const hls = new Hls({ lowLatencyMode: true, liveSyncDurationCount: 2 });
-        player = hls;
-        hls.on(Hls.Events.ERROR, (_event, data) => {
-          if (data.fatal) fail('Der Strom brach ab');
-        });
-        hls.loadSource(uri);
-        hls.attachMedia(video);
-        video.play().catch(() => {});
-      })
-      .catch(() => fail('Videoplayer liess sich nicht laden'));
+    if (!Hls.isSupported()) {
+      fail('Dieser Browser kann kein Live-Bild anzeigen');
+      return;
+    }
 
-    return () => {
-      cancelled = true;
-      player?.destroy();
-    };
+    // Wenig Vorlauf: lieber nah am Geschehen als flüssig gepuffert – bei
+    // einer Türklingel zählen Sekunden.
+    const hls = new Hls({ lowLatencyMode: true, liveSyncDurationCount: 2 });
+    // Ein abgerissenes Häppchen im WLAN ist normal und kein Grund, gleich
+    // aufs Standbild zurückzufallen – erst nach einem Rettungsversuch.
+    let recovered = false;
+    hls.on(Hls.Events.ERROR, (_event, data) => {
+      if (!data.fatal) return;
+      if (!recovered && data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+        recovered = true;
+        hls.startLoad();
+        return;
+      }
+      if (!recovered && data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+        recovered = true;
+        hls.recoverMediaError();
+        return;
+      }
+      fail('Der Strom brach ab');
+    });
+    hls.loadSource(uri);
+    hls.attachMedia(video);
+    video.play().catch(() => {});
+
+    return () => hls.destroy();
   }, [uri]);
 
   if (failed) {

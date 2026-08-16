@@ -95,6 +95,21 @@ def test_playlist_rewrites_segments_with_token(tmp_path):
         assert body.startswith("#EXTM3U")
 
 
+def test_playlist_allows_the_browser_to_fetch_it(tmp_path):
+    """hls.js holt die Liste per XHR – ohne CORS-Kopfzeile blockt der Browser.
+
+    Ein <img>-Standbild bräuchte das nicht; das Live-Bild im Web schon.
+    """
+    hub, patch = make_client(tmp_path)
+    with TestClient(create_app(hub)) as client:
+        patch(None)
+        response = client.get(
+            "/api/entities/demo.light_livingroom/stream.m3u8?token=geheim",
+            headers={"Origin": "http://localhost:8081"},
+        )
+        assert response.headers["access-control-allow-origin"] == "*"
+
+
 def test_playlist_needs_a_camera_with_rtsp(tmp_path):
     hub, patch = make_client(tmp_path, stream_url=None)
     with TestClient(create_app(hub)) as client:
