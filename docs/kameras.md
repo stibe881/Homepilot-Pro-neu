@@ -145,6 +145,21 @@ Häufige Meldungen:
 | `mediamtx antwortet mit 404/500` | Kamera liefert gerade kein Bild – RTSP-Kanal und Erreichbarkeit prüfen |
 | Live läuft, aber mit ~2 s Rückstand | Es läuft der ffmpeg-Rückfall – mediamtx-Container prüfen (`docker logs homepilot-mediamtx`) |
 
+### Live-Bild prüfen (ein Befehl)
+
+Wenn die App «Live-Bild nicht verfügbar» zeigt, misst dieses Skript die
+ganze Kette von innen durch und nennt das hakende Glied:
+
+```bash
+docker exec -i homepilot-hub python - < deploy/livecheck.py
+```
+
+Es prüft der Reihe nach: mediamtx erreichbar, welche Kameras RTSP haben,
+Master-Playlist, Unterliste, erstes Video-Häppchen – und zusätzlich, was
+Apple-Geräte bekommen. Steht überall 200, liefert der Hub sauber und die
+Ursache liegt in der App (dann dort `git pull` + `npm install` und mit
+`npx expo start --clear` neu starten).
+
 ### Fehler 499: Zwei-Faktor
 
 Das ist der häufigste Stolperstein und hat nichts mit dem Passwort zu tun –
