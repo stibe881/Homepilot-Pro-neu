@@ -151,8 +151,11 @@ Wenn die App «Live-Bild nicht verfügbar» zeigt, misst dieses Skript die
 ganze Kette von innen durch und nennt das hakende Glied:
 
 ```bash
-docker exec -i homepilot-hub python - < deploy/livecheck.py
+docker exec homepilot-hub python -m homepilot.livecheck
 ```
+
+Meldet Python «No module named homepilot.livecheck», läuft noch ein altes
+Abbild – zuerst `rebuild-hub.sh` und neu deployen.
 
 Es prüft der Reihe nach: mediamtx erreichbar, welche Kameras RTSP haben,
 Master-Playlist, Unterliste, erstes Video-Häppchen – und zusätzlich, was

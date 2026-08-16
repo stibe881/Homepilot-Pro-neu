@@ -1,11 +1,13 @@
 """Prüft die Live-Bild-Kette von innen und meldet jeden Schritt einzeln.
 
 Aufruf auf dem Docker-Host:
-    docker exec -i homepilot-hub python - < livecheck.py
+    docker exec homepilot-hub python -m homepilot.livecheck
 
-Läuft im Container, spricht den Hub über 127.0.0.1 an und nimmt das Token
-aus der Umgebung. Gibt aus, an welchem Glied es hakt – vom Kamerastrom
-über mediamtx bis zu den Adressen, die der Player tatsächlich abruft.
+Spricht den Hub über 127.0.0.1 an und nimmt das Token aus der Umgebung.
+Gibt aus, an welchem Glied es hakt – vom Kamerastrom über mediamtx bis zu
+den Adressen, die der Player tatsächlich abruft. Meldet Python «No module
+named homepilot.livecheck», läuft noch ein altes Abbild – dann zuerst
+deploy/rebuild-hub.sh und in Portainer neu deployen.
 """
 
 import json
