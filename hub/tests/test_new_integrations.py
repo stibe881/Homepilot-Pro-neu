@@ -622,3 +622,18 @@ def test_calendar_marks_birthdays_and_sorts():
 
     assert is_birthday_calendar("addressbook#contacts@group.v.calendar.google.com")
     assert not is_birthday_calendar("primary")
+
+
+def test_calendar_build_event():
+    import pytest as _pytest
+
+    from homepilot.integrations.google_calendar import build_event
+
+    timed = build_event("Zahnarzt", "17.08.2026", "14:30", 45)
+    assert timed["start"]["dateTime"] == "2026-08-17T14:30:00"
+    assert timed["end"]["dateTime"] == "2026-08-17T15:15:00"
+    all_day = build_event("Ferien", "2026-10-01")
+    assert all_day["start"] == {"date": "2026-10-01"}
+    assert all_day["end"] == {"date": "2026-10-02"}
+    with _pytest.raises(ValueError):
+        build_event("   ", "17.08.2026")

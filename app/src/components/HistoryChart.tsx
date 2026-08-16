@@ -10,6 +10,13 @@ interface Point {
   value: number;
 }
 
+/** Wählbare Zeiträume: Tag, Woche, Monat. */
+const RANGES: { hours: number; label: string }[] = [
+  { hours: 24, label: '24 h' },
+  { hours: 24 * 7, label: '7 Tage' },
+  { hours: 24 * 30, label: '30 Tage' },
+];
+
 /**
  * Verlauf eines Sensors der letzten 24 Stunden.
  *
@@ -31,6 +38,7 @@ export function HistoryChart({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [points, setPoints] = useState<Point[] | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [hours, setHours] = useState(24);
 
   useEffect(() => {
     let cancelled = false;
@@ -38,7 +46,8 @@ export function HistoryChart({
       ? { Authorization: `Bearer ${settings.token}` }
       : {};
 
-    fetch(`${settings.url}/api/entities/${entity.id}/history?hours=24`, { headers })
+    setNote(null);
+    fetch(`${settings.url}/api/entities/${entity.id}/history?hours=${hours}`, { headers })
       .then(async (response) => {
         if (response.status === 503) {
           throw new Error('Kein Verlauf – im Hub ist keine Datenbank eingerichtet.');
@@ -69,10 +78,28 @@ export function HistoryChart({
     return () => {
       cancelled = true;
     };
-  }, [entity.id, settings.url, settings.token]);
+  }, [entity.id, settings.url, settings.token, hours]);
 
   if (note) {
-    return <Text style={styles.note}>{note}</Text>;
+    return (
+      <View>
+        <Text style={styles.note}>{note}</Text>
+        <View style={styles.rangeRow}>
+          {RANGES.map((range) => (
+            <Text
+              key={range.hours}
+              onPress={() => {
+                setPoints(null);
+                setHours(range.hours);
+              }}
+              style={[styles.rangeChip, hours === range.hours && styles.rangeChipActive]}
+            >
+              {range.label}
+            </Text>
+          ))}
+        </View>
+      </View>
+    );
   }
   if (!points) {
     return <Text style={styles.note}>Verlauf wird geladen …</Text>;
@@ -120,7 +147,17 @@ export function HistoryChart({
         <Text style={styles.scaleText}>
           {round(min)}–{round(max)} {entity.state.unit ?? ''}
         </Text>
-        <Text style={styles.scaleText}>24 Stunden</Text>
+        <View style={styles.rangeRow}>
+          {RANGES.map((range) => (
+            <Text
+              key={range.hours}
+              onPress={() => setHours(range.hours)}
+              style={[styles.rangeChip, hours === range.hours && styles.rangeChipActive]}
+            >
+              {range.label}
+            </Text>
+          ))}
+        </View>
       </View>
     </View>
   );
@@ -143,5 +180,15 @@ const makeStyles = (colors: Colors) =>
       paddingHorizontal: 10,
     },
     scaleText: { color: colors.inkFaint, fontSize: 11 },
+    rangeRow: { flexDirection: 'row', gap: 4 },
+    rangeChip: {
+      color: colors.inkFaint,
+      fontSize: 11,
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+      borderRadius: radius.pill,
+      overflow: 'hidden',
+    },
+    rangeChipActive: { color: '#FFFFFF', backgroundColor: colors.accent },
     note: { color: colors.inkSoft, fontSize: 12, lineHeight: 18 },
   });

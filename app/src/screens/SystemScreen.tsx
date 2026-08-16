@@ -111,6 +111,38 @@ export function SystemScreen({
 
       <EnergyCard entities={entities} energy={status.energy} />
 
+      {(status.outages ?? []).length > 0 ? (
+        <Card style={styles.card}>
+          <Text style={styles.heading}>Ausfälle</Text>
+          {(status.outages ?? []).slice(0, 8).map((outage, index) => (
+            <View key={index} style={styles.row}>
+              <Ionicons
+                name={outage.ended ? 'checkmark-circle-outline' : 'alert-circle'}
+                size={18}
+                color={outage.ended ? colors.on : colors.danger}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowTitle}>{outage.integration}</Text>
+                <Text style={styles.rowDetail}>
+                  {new Date(outage.since * 1000).toLocaleString('de-CH', {
+                    day: 'numeric',
+                    month: 'short',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                  {outage.ended
+                    ? ` – wieder da nach ${Math.max(
+                        1,
+                        Math.round((outage.ended - outage.since) / 60)
+                      )} min`
+                    : ' – noch ausgefallen'}
+                </Text>
+              </View>
+            </View>
+          ))}
+        </Card>
+      ) : null}
+
       {user?.capabilities?.includes('edit_config') ? (
         <ConfigCard settings={settings} headers={headers} />
       ) : null}
@@ -317,6 +349,12 @@ function EnergyCard({
         <Fact label="heute" value={`${totalKwh.toFixed(2)} kWh`} />
         {price ? (
           <Fact label="Kosten heute" value={`${(totalKwh * price).toFixed(2)} ${currency}`} />
+        ) : null}
+        {price && totalKwh > 0 ? (
+          <Fact
+            label="≈ pro Monat"
+            value={`${(totalKwh * price * 30).toFixed(0)} ${currency}`}
+          />
         ) : null}
       </View>
       {byPower.slice(0, 5).map((entity) => (

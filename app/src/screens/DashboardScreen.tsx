@@ -1,6 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  Image,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -75,6 +77,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [editing, setEditing] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [lastTouch, setLastTouch] = useState(() => Date.now());
+  // Türklingel-Vollbild: pro Klingel-Ereignis einmal zeigen, bis es
+  // weggewischt wird (Schlüssel = Kamera + Zeitpunkt des Klingelns).
+  const [dismissedRing, setDismissedRing] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 30000);
@@ -115,6 +120,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (!features.includes('familie')) result.push('family');
     return result;
   }, [user]);
+
+  const ringingCamera = entities.find(
+    (entity) => entity.kind === 'camera' && entity.state.ring === 'on'
+  );
+  const ringKey = ringingCamera
+    ? `${ringingCamera.id}:${ringingCamera.state.last_ring ?? ''}`
+    : null;
+  const frontDoorLock = entities.find(
+    (entity) => entity.kind === 'lock' && entity.integration === 'ring'
+  );
 
   const hasRail = width >= breakpoints.rail;
   const hasSidePanel = width >= breakpoints.sidePanel;
@@ -623,6 +638,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         />
       ) : null}
 
+      {ringingCamera && ringKey && dismissedRing !== ringKey ? (
+        <DoorbellOverlay
+          camera={ringingCamera}
+          lock={frontDoorLock}
+          settings={settings}
+          onCommand={(entityId, command) => sendCommand(entityId, command)}
+          onDismiss={() => setDismissedRing(ringKey)}
+          colors={colors}
+          styles={styles}
+        />
+      ) : null}
+
       <Toast message={error} onDismiss={dismissError} bottomInset={insets.bottom} />
     </View>
   );
@@ -655,6 +682,82 @@ function partOfDay(now: Date): string {
   if (hour < 11) return 'Guten Morgen.';
   if (hour < 18) return 'Schönen Tag.';
   return 'Guten Abend.';
+}
+
+/**
+ * Vollbild, wenn es an der Haustüre klingelt: Kamerabild gross, ein Knopf
+ * zum Öffnen (mit Zwei-Schritt-Bestätigung), einer zum Schliessen. Gedacht
+ * fürs Wandpanel genauso wie fürs Telefon in der Hosentasche.
+ */
+function DoorbellOverlay({
+  camera,
+  lock,
+  settings,
+  onCommand,
+  onDismiss,
+  colors,
+  styles,
+}: {
+  camera: Entity;
+  lock?: Entity;
+  settings: HubSettings;
+  onCommand: (entityId: string, command: string) => void;
+  onDismiss: () => void;
+  colors: Colors;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  const [confirm, setConfirm] = useState(false);
+  const [tick, setTick] = useState(0);
+  // Alle 3 Sekunden ein frisches Bild, solange das Vollbild offen ist.
+  useEffect(() => {
+    const timer = setInterval(() => setTick((value) => value + 1), 3000);
+    return () => clearInterval(timer);
+  }, []);
+  const uri =
+    settings.url && settings.token
+      ? `${settings.url.replace(/\/+$/, '')}/api/entities/${encodeURIComponent(
+          camera.id
+        )}/snapshot?token=${encodeURIComponent(settings.token)}&t=${tick}`
+      : null;
+
+  return (
+    <Modal visible animationType="fade" onRequestClose={onDismiss}>
+      <View style={styles.doorbellRoot}>
+        <Text style={styles.doorbellTitle}>🔔 Es klingelt</Text>
+        {uri ? (
+          <Image source={{ uri }} style={styles.doorbellImage} resizeMode="cover" />
+        ) : (
+          <View style={[styles.doorbellImage, { alignItems: 'center', justifyContent: 'center' }]}>
+            <Ionicons name="videocam-off-outline" size={40} color="#FFFFFF" />
+          </View>
+        )}
+        <View style={styles.doorbellButtons}>
+          {lock ? (
+            <Pressable
+              onPress={() => {
+                if (confirm) {
+                  onCommand(lock.id, 'open_door');
+                  onDismiss();
+                } else {
+                  setConfirm(true);
+                  setTimeout(() => setConfirm(false), 4000);
+                }
+              }}
+              style={[styles.doorbellOpen, confirm && { backgroundColor: colors.danger }]}
+            >
+              <Ionicons name="key" size={22} color="#FFFFFF" />
+              <Text style={styles.doorbellOpenText}>
+                {confirm ? 'Wirklich öffnen?' : 'Haustüre öffnen'}
+              </Text>
+            </Pressable>
+          ) : null}
+          <Pressable onPress={onDismiss} style={styles.doorbellClose}>
+            <Text style={styles.doorbellCloseText}>Schliessen</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
 }
 
 const makeStyles = (colors: Colors) =>
@@ -706,6 +809,33 @@ const makeStyles = (colors: Colors) =>
   },
   settingsLabel: { color: colors.ink, fontSize: 16, fontWeight: '600' },
   settingsDetail: { color: colors.inkSoft, fontSize: 13, marginTop: 1 },
+  doorbellRoot: {
+    flex: 1,
+    backgroundColor: '#10141B',
+    padding: 22,
+    paddingTop: 64,
+    gap: 18,
+  },
+  doorbellTitle: { color: '#FFFFFF', fontSize: 28, fontWeight: '700', textAlign: 'center' },
+  doorbellImage: {
+    flex: 1,
+    borderRadius: radius.card,
+    backgroundColor: '#1C2430',
+    width: '100%',
+  },
+  doorbellButtons: { gap: 10 },
+  doorbellOpen: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: colors.on,
+    borderRadius: radius.control,
+    paddingVertical: 18,
+  },
+  doorbellOpenText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
+  doorbellClose: { alignItems: 'center', paddingVertical: 12 },
+  doorbellCloseText: { color: 'rgba(255,255,255,0.7)', fontSize: 15, fontWeight: '600' },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',

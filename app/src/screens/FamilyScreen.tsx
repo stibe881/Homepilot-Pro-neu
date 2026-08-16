@@ -246,6 +246,128 @@ function GroupedChecklist({
   );
 }
 
+/** Termin anlegen: Titel, Datum, optional Uhrzeit (leer = ganztägig). */
+function EventForm({
+  onAdd,
+  styles,
+  colors,
+}: {
+  onAdd: (summary: string, date: string, time: string) => void;
+  styles: Styles;
+  colors: Colors;
+}) {
+  const [summary, setSummary] = useState('');
+  const [date, setDate] = useState('');
+  const [time, setTime] = useState('');
+  return (
+    <View style={styles.formCard}>
+      <TextInput
+        style={styles.input}
+        value={summary}
+        onChangeText={setSummary}
+        placeholder="Titel (z.B. Zahnarzt)"
+        placeholderTextColor={colors.inkFaint}
+      />
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <TextInput
+          style={[styles.input, { flex: 1 }]}
+          value={date}
+          onChangeText={setDate}
+          placeholder="Datum (TT.MM.JJJJ)"
+          placeholderTextColor={colors.inkFaint}
+          keyboardType="numbers-and-punctuation"
+        />
+        <TextInput
+          style={[styles.input, { flex: 1 }]}
+          value={time}
+          onChangeText={setTime}
+          placeholder="Zeit (leer = ganztägig)"
+          placeholderTextColor={colors.inkFaint}
+          keyboardType="numbers-and-punctuation"
+        />
+      </View>
+      <Pressable
+        onPress={() => {
+          if (!summary.trim() || !date.trim()) return;
+          onAdd(summary.trim(), date.trim(), time.trim());
+          setSummary('');
+          setDate('');
+          setTime('');
+        }}
+        style={styles.addWide}
+      >
+        <Text style={styles.addWideText}>Termin anlegen</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+/** Aufgabe anlegen: Text, optional zuständige Person und Punktwert.
+ *  Beim Abhaken werden die Punkte der Person automatisch gutgeschrieben. */
+function TaskAddRow({
+  members,
+  onAdd,
+  styles,
+  colors,
+}: {
+  members: Member[];
+  onAdd: (text: string, member: string | null, points: number) => void;
+  styles: Styles;
+  colors: Colors;
+}) {
+  const [text, setText] = useState('');
+  const [member, setMember] = useState<string | null>(null);
+  const [points, setPoints] = useState(0);
+  const submit = () => {
+    if (!text.trim()) return;
+    onAdd(text.trim(), member, points);
+    setText('');
+    setMember(null);
+    setPoints(0);
+  };
+  return (
+    <View style={{ gap: 8 }}>
+      <View style={styles.addRow}>
+        <TextInput
+          style={[styles.input, { flex: 1 }]}
+          value={text}
+          onChangeText={setText}
+          placeholder="Neue Aufgabe …"
+          placeholderTextColor={colors.inkFaint}
+          onSubmitEditing={submit}
+        />
+        <Pressable onPress={submit} style={styles.addButton} accessibilityLabel="Hinzufügen">
+          <Ionicons name="add" size={22} color="#FFFFFF" />
+        </Pressable>
+      </View>
+      <View style={styles.chipRow}>
+        {members.map((m) => (
+          <Pressable
+            key={m.name}
+            onPress={() => setMember(member === m.name ? null : m.name)}
+            style={[styles.chip, member === m.name && styles.chipActive]}
+          >
+            <Text style={[styles.chipText, member === m.name && styles.chipTextActive]}>
+              {m.name}
+            </Text>
+          </Pressable>
+        ))}
+        {[1, 2, 5].map((value) => (
+          <Pressable
+            key={value}
+            onPress={() => setPoints(points === value ? 0 : value)}
+            style={[styles.chip, points === value && styles.chipActive]}
+          >
+            <Text style={[styles.chipText, points === value && styles.chipTextActive]}>
+              {value} P
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 /** Foto aus der Galerie wählen – quadratisch zugeschnitten, stark
  *  komprimiert und als data-URI zurückgegeben (landet mit dem Kontakt auf
  *  dem Hub, damit alle Familienmitglieder dasselbe Bild sehen). */
@@ -661,12 +783,60 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
             </Text>
           )}
         </Card>
+        {calendar && calendar.commands.includes('create_event') ? (
+          <EventForm
+            onAdd={async (summary, date, time) => {
+              try {
+                const response = await fetch(
+                  `${settings.url}/api/entities/${encodeURIComponent(calendar.id)}/command`,
+                  {
+                    method: 'POST',
+                    headers: { ...headers, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      command: 'create_event',
+                      data: { summary, date, time },
+                    }),
+                  }
+                );
+                if (!response.ok) {
+                  const body = await response.json().catch(() => null);
+                  throw new Error(body?.detail ?? response.status);
+                }
+              } catch (err: any) {
+                setError(`Termin nicht angelegt (${err.message ?? err})`);
+              }
+            }}
+            styles={styles}
+            colors={colors}
+          />
+        ) : null}
       </View>
     );
   }
 
   if (view === 'tasks') {
     const tasks: any[] = data.tasks ?? [];
+    const toggleTask = (task: any) => {
+      // Beim ersten Abhaken einer Aufgabe mit Person und Punkten wird der
+      // Punktestand automatisch gutgeschrieben (genau einmal).
+      if (!task.done && task.member && Number(task.points) > 0 && !task.rewarded) {
+        add('rewards', {
+          member: task.member,
+          points: Number(task.points),
+          reason: task.text,
+        });
+        update('tasks', task.id, { done: true, rewarded: true });
+      } else {
+        update('tasks', task.id, { done: !task.done });
+      }
+    };
+    const taskSub = (task: any) => {
+      const parts = [];
+      if (task.member) parts.push(`für ${task.member}`);
+      if (Number(task.points) > 0) parts.push(`${task.points} Punkte`);
+      if (task.author) parts.push(`von ${task.author}`);
+      return parts.join(' · ') || undefined;
+    };
     return (
       <View style={styles.stack}>
         <BackHead title="Aufgaben" onBack={goBack} styles={styles} colors={colors} />
@@ -675,20 +845,26 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
             <CheckRow
               key={task.id}
               item={task}
-              sub={task.author ? `von ${task.author}` : undefined}
-              onToggle={() => update('tasks', task.id, { done: !task.done })}
+              sub={taskSub(task)}
+              onToggle={() => toggleTask(task)}
               onDelete={() => remove('tasks', task.id)}
               styles={styles}
               colors={colors}
             />
           ))}
-          <AddRow
-            placeholder="Neue Aufgabe …"
-            onAdd={(text) => add('tasks', { text, done: false })}
+          <TaskAddRow
+            members={members}
+            onAdd={(text, member, points) =>
+              add('tasks', { text, done: false, member, points })
+            }
             styles={styles}
             colors={colors}
           />
         </Card>
+        <Text style={styles.hint}>
+          Person und Punkte antippen ist freiwillig – beim Abhaken werden die
+          Punkte unter Belohnungen gutgeschrieben.
+        </Text>
       </View>
     );
   }

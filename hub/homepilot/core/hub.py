@@ -12,6 +12,7 @@ from .config import HubConfig
 from .events import EventBus
 from .integration import IntegrationManager
 from .persistence import DataStore
+from .watchdog import Watchdog
 from .push import PushService
 from .registry import EntityRegistry
 from .scenes import SceneManager
@@ -36,6 +37,7 @@ class Hub:
         # Konfiguration, damit sie ohne Datenbank einen Neustart überleben.
         self.data = DataStore(config.data_file)
         self.store: Store | None = None
+        self.watchdog = Watchdog(self)
         self.started_at = time.time()
 
     async def start(self) -> None:
@@ -65,6 +67,7 @@ class Hub:
             self.config.automations, self.data.get("automations")
         )
         self.started_at = time.time()
+        self.watchdog.start()
 
         if self.users.open_access:
             log.warning(
@@ -199,10 +202,14 @@ class Hub:
             },
             "push_devices": len(self.push.devices),
             "energy": self.config.energy,
+            # Ausfall-Protokoll des Wächters (jüngste zuerst).
+            "outages": self.watchdog.outages,
+            "down": sorted(self.watchdog.down_since),
         }
 
     async def stop(self) -> None:
         log.info("Hub stoppt …")
+        await self.watchdog.stop()
         await self.automations.stop()
         await self.integrations.teardown_all()
         if self.store:

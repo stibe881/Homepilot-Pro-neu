@@ -97,4 +97,8 @@ export interface SystemStatus {
   automations: { count: number; paused_until: string | null };
   push_devices: number;
   energy: { price_per_kwh?: number; currency?: string };
+  /** Ausfall-Protokoll des Wächters (jüngste zuerst). */
+  outages?: { integration: string; since: number; ended: number | null }[];
+  /** Gerade ausgefallene Integrationen. */
+  down?: string[];
 }

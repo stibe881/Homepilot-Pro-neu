@@ -43,8 +43,47 @@ from ..core.integration import Integration
 
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 API = "https://www.googleapis.com/calendar/v3"
-SCOPE = "https://www.googleapis.com/auth/calendar.readonly"
+# events statt readonly: damit lassen sich aus der App auch Termine anlegen.
+SCOPE = "https://www.googleapis.com/auth/calendar.events"
 REDIRECT = "http://127.0.0.1:8888"
+
+
+def build_event(
+    summary: str, date: str, time_text: str = "", duration_minutes: int = 60
+) -> dict[str, Any]:
+    """Baut den Google-Event-Körper aus App-Eingaben (rein, testbar).
+
+    date: «TT.MM.JJJJ» oder «JJJJ-MM-TT»; ohne time_text wird es ein
+    Ganztages-Termin.
+    """
+    import re
+    from datetime import datetime as _dt
+    from datetime import timedelta
+
+    swiss = re.fullmatch(r"(\d{1,2})\.(\d{1,2})\.(\d{4})", date.strip())
+    if swiss:
+        day = _dt(int(swiss.group(3)), int(swiss.group(2)), int(swiss.group(1)))
+    else:
+        day = _dt.fromisoformat(date.strip())
+    if not summary.strip():
+        raise ValueError("Der Termin braucht einen Titel")
+
+    if time_text.strip():
+        hour, minute = time_text.strip().split(":", 1)
+        start = day.replace(hour=int(hour), minute=int(minute))
+        end = start + timedelta(minutes=int(duration_minutes))
+        zone = "Europe/Zurich"
+        return {
+            "summary": summary.strip(),
+            "start": {"dateTime": start.isoformat(), "timeZone": zone},
+            "end": {"dateTime": end.isoformat(), "timeZone": zone},
+        }
+    end_day = day + timedelta(days=1)
+    return {
+        "summary": summary.strip(),
+        "start": {"date": day.date().isoformat()},
+        "end": {"date": end_day.date().isoformat()},
+    }
 
 
 def is_birthday_calendar(calendar_id: str) -> bool:
@@ -134,6 +173,7 @@ class GoogleCalendarIntegration(Integration):
             EntityKind.CALENDAR,
             self.config.get("name", "Kalender"),
             state={"state": "frei", "events": []},
+            commands=["create_event"],
             available=False,
         )
         await self._refresh()
@@ -216,6 +256,34 @@ class GoogleCalendarIntegration(Integration):
         await self.hub.registry.update_state(
             entity_id, parse_events(merged, now), available=True
         )
+
+
+    async def handle_command(self, entity: Any, command: str, data: dict[str, Any]) -> None:
+        if command != "create_event":
+            raise ConfigError(f"Kalender kennt das Kommando '{command}' nicht")
+        body = build_event(
+            str(data.get("summary", "")),
+            str(data.get("date", "")),
+            str(data.get("time", "")),
+            int(data.get("duration", 60)),
+        )
+        token = await self._ensure_token()
+        # Immer in den Hauptkalender – Geburtstags- u.ä. Kalender sind
+        # von Google verwaltet und nicht beschreibbar.
+        target = next(
+            (c for c in self._calendar_ids if not is_birthday_calendar(c)), "primary"
+        )
+        async with self._session.post(
+            f"{API}/calendars/{quote(target)}/events",
+            headers={"Authorization": f"Bearer {token}"},
+            json=body,
+        ) as response:
+            if response.status >= 400:
+                detail = await response.text()
+                raise ConnectionError(
+                    f"Termin konnte nicht angelegt werden ({response.status}): {detail[:200]}"
+                )
+        await self._refresh()
 
 
 INTEGRATION = GoogleCalendarIntegration
