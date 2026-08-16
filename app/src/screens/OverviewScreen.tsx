@@ -387,16 +387,6 @@ export function OverviewScreen({
       {/* Haushalt */}
       <Text style={styles.groupLabel}>Haushalt</Text>
       <View style={styles.tileRow}>
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="restaurant-outline" title="Geschirrspüler" demo={!dishwasher}>
-          <Text style={[styles.tileState, dish.running && { color: colors.accent }]}>
-            {dish.text}
-          </Text>
-        </Tile>
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="water-outline" title="Waschmaschine" demo={!washer}>
-          <Text style={[styles.tileState, wash.running && { color: colors.accent }]}>
-            {wash.text}
-          </Text>
-        </Tile>
         <Tile styles={styles} colors={colors} width={tileWidth} icon="sunny-outline" title="Tumbler" demo={!tumbler}>
           <Text style={[styles.tileState, tumblerRunning && { color: colors.accent }]}>
             {tumblerText}
@@ -404,6 +394,16 @@ export function OverviewScreen({
           {!tumblerOff ? (
             <Text style={styles.tileSub}>{Math.round(tumblerWatts)} W</Text>
           ) : null}
+        </Tile>
+        <Tile styles={styles} colors={colors} width={tileWidth} icon="water-outline" title="Waschmaschine" demo={!washer}>
+          <Text style={[styles.tileState, wash.running && { color: colors.accent }]}>
+            {wash.text}
+          </Text>
+        </Tile>
+        <Tile styles={styles} colors={colors} width={tileWidth} icon="restaurant-outline" title="Geschirrspüler" demo={!dishwasher}>
+          <Text style={[styles.tileState, dish.running && { color: colors.accent }]}>
+            {dish.text}
+          </Text>
         </Tile>
       </View>
         </>
@@ -487,16 +487,6 @@ export function OverviewScreen({
       {/* Haushalt */}
       <Text style={styles.groupLabel}>Haushalt</Text>
       <View style={styles.tileRow}>
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="restaurant-outline" title="Geschirrspüler" demo={!dishwasher}>
-          <Text style={[styles.tileState, dish.running && { color: colors.accent }]}>
-            {dish.text}
-          </Text>
-        </Tile>
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="water-outline" title="Waschmaschine" demo={!washer}>
-          <Text style={[styles.tileState, wash.running && { color: colors.accent }]}>
-            {wash.text}
-          </Text>
-        </Tile>
         <Tile styles={styles} colors={colors} width={tileWidth} icon="sunny-outline" title="Tumbler" demo={!tumbler}>
           <Text style={[styles.tileState, tumblerRunning && { color: colors.accent }]}>
             {tumblerText}
@@ -504,6 +494,16 @@ export function OverviewScreen({
           {!tumblerOff ? (
             <Text style={styles.tileSub}>{Math.round(tumblerWatts)} W</Text>
           ) : null}
+        </Tile>
+        <Tile styles={styles} colors={colors} width={tileWidth} icon="water-outline" title="Waschmaschine" demo={!washer}>
+          <Text style={[styles.tileState, wash.running && { color: colors.accent }]}>
+            {wash.text}
+          </Text>
+        </Tile>
+        <Tile styles={styles} colors={colors} width={tileWidth} icon="restaurant-outline" title="Geschirrspüler" demo={!dishwasher}>
+          <Text style={[styles.tileState, dish.running && { color: colors.accent }]}>
+            {dish.text}
+          </Text>
         </Tile>
       </View>
       {/* Termine & Musik */}
