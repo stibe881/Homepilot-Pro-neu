@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as ImagePicker from 'expo-image-picker';
 import React, { useMemo, useState } from 'react';
 import {
   Image,
@@ -307,10 +308,29 @@ function RecipeForm({
   );
   const [steps, setSteps] = useState(stepTexts(initial ?? {}).join('\n'));
   const [tips, setTips] = useState(listOfTexts(initial?.tips).join('\n'));
+  const [image, setImage] = useState<string>(String(initial?.image_url ?? ''));
+
+  // Foto aus der Galerie: als data-URI (Base64) speichern, damit es über den
+  // Familie-Store beim Hub liegt und nicht von einem lokalen Pfad abhängt.
+  const pickImage = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) return;
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.6,
+      base64: true,
+      allowsEditing: true,
+      aspect: [16, 10],
+    });
+    if (result.canceled || !result.assets?.length) return;
+    const asset = result.assets[0];
+    setImage(asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : asset.uri);
+  };
 
   const submit = () => {
     if (!title.trim()) return;
     const recipe: Record<string, any> = { text: title.trim() };
+    recipe.image_url = image || null;
     recipe.description = description.trim();
     recipe.category = category.trim();
     recipe.tags = tags
@@ -346,7 +366,32 @@ function RecipeForm({
 
   return (
     <ScrollView contentContainerStyle={styles.formStack} keyboardShouldPersistTaps="handled">
-      <Text style={styles.sectionTitle}>{initial ? 'Rezept bearbeiten' : 'Neues Rezept'}</Text>
+      <View style={styles.formHead}>
+        <Pressable onPress={onCancel} hitSlop={8} accessibilityLabel="Schliessen">
+          <Ionicons name="close" size={26} color={colors.ink} />
+        </Pressable>
+        <Text style={styles.formHeadTitle}>
+          {initial ? 'Rezept bearbeiten' : 'Neues Rezept'}
+        </Text>
+        <View style={{ width: 26 }} />
+      </View>
+
+      <Pressable onPress={pickImage} style={styles.photoPick} accessibilityRole="button">
+        {image ? (
+          <Image source={{ uri: image }} style={styles.photoPreview} resizeMode="cover" />
+        ) : (
+          <View style={styles.photoPlaceholder}>
+            <Ionicons name="camera-outline" size={28} color={colors.inkSoft} />
+            <Text style={styles.photoHint}>Foto hinzufügen</Text>
+          </View>
+        )}
+      </Pressable>
+      {image ? (
+        <Pressable onPress={() => setImage('')} accessibilityRole="button">
+          <Text style={[styles.sourceLink, { color: colors.inkSoft }]}>Foto entfernen</Text>
+        </Pressable>
+      ) : null}
+
       <TextInput
         style={styles.input}
         value={title}
@@ -1302,6 +1347,29 @@ const makeStyles = (colors: Colors) =>
 
     // Formular
     formStack: { gap: 8, paddingBottom: 30 },
+    formHead: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 4,
+    },
+    formHeadTitle: { color: colors.onGradient, fontSize: 18, fontWeight: '800' },
+    photoPick: {
+      borderRadius: radius.control,
+      overflow: 'hidden',
+      backgroundColor: colors.surfaceStrong,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    photoPreview: { width: '100%', aspectRatio: 16 / 10 },
+    photoPlaceholder: {
+      width: '100%',
+      aspectRatio: 16 / 6,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+    },
+    photoHint: { color: colors.inkSoft, fontSize: 14, fontWeight: '600' },
     formRow: { flexDirection: 'row', gap: 8 },
     input: {
       backgroundColor: colors.surfaceStrong,

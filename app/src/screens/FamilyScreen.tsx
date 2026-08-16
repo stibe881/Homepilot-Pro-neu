@@ -164,6 +164,7 @@ function GroupedChecklist({
   onToggle,
   onDelete,
   onResetGroup,
+  onDeleteGroup,
   styles,
   colors,
 }: {
@@ -174,9 +175,12 @@ function GroupedChecklist({
   onToggle: (item: any) => void;
   onDelete: (item: any) => void;
   onResetGroup: (group: string) => void;
+  /** Ganze Gruppe (samt Einträgen) löschen – optional. */
+  onDeleteGroup?: (group: string) => void;
   styles: Styles;
   colors: Colors;
 }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const groups = Array.from(new Set(items.map((item) => String(item.group ?? ''))));
   const [activeGroup, setActiveGroup] = useState(groups[0] ?? '');
   const [newGroup, setNewGroup] = useState('');
@@ -220,6 +224,24 @@ function GroupedChecklist({
             <Pressable onPress={() => onResetGroup(current)}>
               <Text style={styles.resetText}>Zurücksetzen</Text>
             </Pressable>
+            {onDeleteGroup ? (
+              <Pressable
+                onPress={() => {
+                  if (confirmDelete) {
+                    onDeleteGroup(current);
+                    setConfirmDelete(false);
+                  } else {
+                    setConfirmDelete(true);
+                    setTimeout(() => setConfirmDelete(false), 4000);
+                  }
+                }}
+                accessibilityLabel={`${groupNoun} löschen`}
+              >
+                <Text style={[styles.resetText, { color: colors.danger }]}>
+                  {confirmDelete ? 'Wirklich löschen?' : 'Löschen'}
+                </Text>
+              </Pressable>
+            ) : null}
           </View>
           {items
             .filter((item) => item.group === current)
@@ -592,6 +614,189 @@ function TwoFieldForm({
   );
 }
 
+/** Countdown erfassen: Anlass, Datum und ob er auf die Startseite soll. */
+function CountdownForm({
+  onAdd,
+  styles,
+  colors,
+}: {
+  onAdd: (text: string, date: string, onStart: boolean) => void;
+  styles: Styles;
+  colors: Colors;
+}) {
+  const [text, setText] = useState('');
+  const [date, setDate] = useState('');
+  const [onStart, setOnStart] = useState(false);
+  return (
+    <View style={styles.formCard}>
+      <TextInput
+        style={styles.input}
+        value={text}
+        onChangeText={setText}
+        placeholder="Anlass (z.B. Ferien)"
+        placeholderTextColor={colors.inkFaint}
+      />
+      <TextInput
+        style={styles.input}
+        value={date}
+        onChangeText={setDate}
+        placeholder="Datum (TT.MM.JJJJ)"
+        placeholderTextColor={colors.inkFaint}
+      />
+      <Pressable
+        onPress={() => setOnStart((value) => !value)}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: onStart }}
+        style={styles.toggleRow}
+      >
+        <Ionicons
+          name={onStart ? 'checkbox' : 'square-outline'}
+          size={22}
+          color={onStart ? colors.accent : colors.inkFaint}
+        />
+        <Text style={styles.toggleLabel}>Auf der Startseite anzeigen</Text>
+      </Pressable>
+      <Pressable
+        onPress={() => {
+          if (!text.trim()) return;
+          onAdd(text.trim(), date.trim(), onStart);
+          setText('');
+          setDate('');
+          setOnStart(false);
+        }}
+        style={styles.addWide}
+      >
+        <Text style={styles.addWideText}>Hinzufügen</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+/** Monatsraster mit Punkten an Tagen mit Terminen; ein Tag antippen zeigt
+ *  seine Termine darunter. Blättern über die Pfeile im Kopf. */
+function MonthCalendar({
+  events,
+  styles,
+  colors,
+}: {
+  events: any[];
+  styles: Styles;
+  colors: Colors;
+}) {
+  const today = new Date();
+  const [month, setMonth] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
+  const [selected, setSelected] = useState<string | null>(null);
+
+  const key = (date: Date) =>
+    `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+  // Termine je Tagesschlüssel sammeln.
+  const byDay = new Map<string, any[]>();
+  for (const event of events) {
+    const date = new Date(event.start);
+    if (Number.isNaN(date.getTime())) continue;
+    const k = key(date);
+    (byDay.get(k) ?? byDay.set(k, []).get(k)!).push(event);
+  }
+
+  const year = month.getFullYear();
+  const mon = month.getMonth();
+  const first = new Date(year, mon, 1);
+  // Montag = 0 … Sonntag = 6.
+  const lead = (first.getDay() + 6) % 7;
+  const daysInMonth = new Date(year, mon + 1, 0).getDate();
+  const cells: (Date | null)[] = [];
+  for (let i = 0; i < lead; i++) cells.push(null);
+  for (let day = 1; day <= daysInMonth; day++) cells.push(new Date(year, mon, day));
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const selectedEvents = selected ? byDay.get(selected) ?? [] : [];
+
+  return (
+    <View style={{ gap: 10 }}>
+      <View style={styles.calHead}>
+        <Pressable
+          onPress={() => setMonth(new Date(year, mon - 1, 1))}
+          hitSlop={8}
+          accessibilityLabel="Vorheriger Monat"
+        >
+          <Ionicons name="chevron-back" size={22} color={colors.ink} />
+        </Pressable>
+        <Text style={styles.calTitle}>
+          {month.toLocaleDateString('de-CH', { month: 'long', year: 'numeric' })}
+        </Text>
+        <Pressable
+          onPress={() => setMonth(new Date(year, mon + 1, 1))}
+          hitSlop={8}
+          accessibilityLabel="Nächster Monat"
+        >
+          <Ionicons name="chevron-forward" size={22} color={colors.ink} />
+        </Pressable>
+      </View>
+
+      <View style={styles.calGrid}>
+        {['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map((label) => (
+          <Text key={label} style={styles.calWeekday}>
+            {label}
+          </Text>
+        ))}
+        {cells.map((date, index) => {
+          if (!date) return <View key={index} style={styles.calCell} />;
+          const k = key(date);
+          const isToday = k === key(today);
+          const hasEvents = byDay.has(k);
+          const isSelected = k === selected;
+          return (
+            <Pressable
+              key={index}
+              onPress={() => setSelected(isSelected ? null : k)}
+              style={[
+                styles.calCell,
+                isSelected && styles.calCellSelected,
+                isToday && !isSelected && styles.calCellToday,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.calDay,
+                  (isSelected || isToday) && { color: colors.ink, fontWeight: '700' },
+                ]}
+              >
+                {date.getDate()}
+              </Text>
+              {hasEvents ? <View style={styles.calDot} /> : null}
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {selected ? (
+        <Card style={styles.listCard}>
+          {selectedEvents.length > 0 ? (
+            selectedEvents.map((event, index) => (
+              <View key={index} style={styles.eventRow}>
+                <View style={styles.eventDot} />
+                <Text style={[styles.checkText, { flex: 1 }]} numberOfLines={2}>
+                  {event.summary ?? '—'}
+                </Text>
+                <Text style={styles.checkSub}>
+                  {event.all_day
+                    ? 'ganztägig'
+                    : new Date(event.start).toLocaleTimeString('de-CH', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                </Text>
+              </View>
+            ))
+          ) : (
+            <Text style={styles.hint}>Keine Termine an diesem Tag.</Text>
+          )}
+        </Card>
+      ) : null}
+    </View>
+  );
+}
+
 // ── Hauptkomponente ─────────────────────────────────────────────────────────
 
 export function FamilyScreen({ settings, entities, currentUser }: Props) {
@@ -606,6 +811,7 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
   const [members, setMembers] = useState<Member[]>([]);
   const [view, setView] = useState<ModuleKey | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [calMode, setCalMode] = useState<'list' | 'month'>('list');
 
   const load = useCallback(() => {
     fetch(`${settings.url}/api/family`, { headers })
@@ -725,6 +931,29 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
     return (
       <View style={styles.stack}>
         <BackHead title="Kalender" onBack={goBack} styles={styles} colors={colors} />
+        <View style={styles.chipRow}>
+          {(['list', 'month'] as const).map((mode) => (
+            <Pressable
+              key={mode}
+              onPress={() => setCalMode(mode)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: calMode === mode }}
+              style={[styles.chip, calMode === mode && styles.chipActive]}
+            >
+              <Ionicons
+                name={mode === 'list' ? 'list-outline' : 'calendar-outline'}
+                size={14}
+                color={calMode === mode ? '#FFFFFF' : colors.inkSoft}
+              />
+              <Text style={[styles.chipText, calMode === mode && styles.chipTextActive]}>
+                {mode === 'list' ? 'Liste' : 'Kalender'}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        {calMode === 'month' ? (
+          <MonthCalendar events={events} styles={styles} colors={colors} />
+        ) : (
         <Card style={styles.listCard}>
           {upcoming.length > 0 ? (
             upcoming.map((event, index) => (
@@ -744,6 +973,7 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
             </Text>
           )}
         </Card>
+        )}
         {calendar && calendar.commands.includes('create_event') ? (
           <EventForm
             onAdd={async (summary, date, time) => {
@@ -931,15 +1161,37 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
 
   if (view === 'rewards') {
     const log: any[] = data.rewards ?? [];
-    const totals = members.map((member) => ({
-      ...member,
-      points: log
-        .filter((entry) => entry.member === member.name)
-        .reduce((sum, entry) => sum + Number(entry.points ?? 0), 0),
-    }));
+    const catalog: any[] = data.rewards_catalog ?? [];
+    const pointsOf = (name: string) =>
+      log
+        .filter((entry) => entry.member === name)
+        .reduce((sum, entry) => sum + Number(entry.points ?? 0), 0);
+    const totals = members.map((member) => ({ ...member, points: pointsOf(member.name) }));
+    const recent = [...log]
+      .sort((a, b) => String(b.created ?? '').localeCompare(String(a.created ?? '')))
+      .slice(0, 8);
+
+    const redeem = (memberName: string, prize: any) => {
+      const cost = Number(prize.cost) || 0;
+      if (pointsOf(memberName) < cost) return;
+      add('rewards', {
+        member: memberName,
+        points: -cost,
+        reason: `Eingelöst: ${prize.text}`,
+      });
+    };
+
     return (
       <View style={styles.stack}>
         <BackHead title="Belohnungen" onBack={goBack} styles={styles} colors={colors} />
+
+        {/* Punktestände mit schnellem +/- fürs Gutschreiben von Hand. */}
+        <Text style={styles.groupLabel}>Punktestand</Text>
+        {totals.length === 0 ? (
+          <Text style={styles.hint}>
+            Noch keine Familienmitglieder – unter Einstellungen → Benutzer anlegen.
+          </Text>
+        ) : null}
         {totals.map((member) => (
           <Card key={member.name} style={styles.rewardCard}>
             <View style={styles.avatarSmall}>
@@ -949,7 +1201,7 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.checkText}>{member.name}</Text>
-              <Text style={styles.checkSub}>{member.points} Punkte</Text>
+              <Text style={styles.pointsBig}>{member.points} Punkte</Text>
             </View>
             {[1, 5, -1].map((step) => (
               <Pressable
@@ -964,6 +1216,101 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
             ))}
           </Card>
         ))}
+
+        {/* Prämien-Katalog: Ziele, für die sich das Sammeln lohnt. */}
+        <Text style={styles.groupLabel}>Prämien zum Einlösen</Text>
+        {catalog.length === 0 ? (
+          <Text style={styles.hint}>
+            Noch keine Prämien. Leg unten Ziele fest, z.B. «Kinobesuch = 50» oder
+            «1 Std. länger aufbleiben = 20».
+          </Text>
+        ) : null}
+        {catalog.map((prize) => (
+          <Card key={prize.id} style={styles.pinCard}>
+            <View style={styles.rewardHead}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.checkText}>{prize.text}</Text>
+                <Text style={styles.checkSub}>{prize.cost} Punkte</Text>
+              </View>
+              <Pressable
+                onPress={() => remove('rewards_catalog', prize.id)}
+                style={styles.deleteTap}
+                accessibilityLabel="Prämie löschen"
+              >
+                <Ionicons name="trash-outline" size={16} color={colors.inkFaint} />
+              </Pressable>
+            </View>
+            {totals.length > 0 ? (
+              <View style={styles.chipRow}>
+                {totals.map((member) => {
+                  const affordable = member.points >= (Number(prize.cost) || 0);
+                  return (
+                    <Pressable
+                      key={member.name}
+                      onPress={() => affordable && redeem(member.name, prize)}
+                      disabled={!affordable}
+                      style={[
+                        styles.redeemChip,
+                        affordable ? styles.redeemChipOk : styles.redeemChipOff,
+                      ]}
+                    >
+                      <Ionicons
+                        name={affordable ? 'gift' : 'lock-closed'}
+                        size={13}
+                        color={affordable ? '#FFFFFF' : colors.inkFaint}
+                      />
+                      <Text
+                        style={[
+                          styles.redeemChipText,
+                          { color: affordable ? '#FFFFFF' : colors.inkFaint },
+                        ]}
+                      >
+                        {member.name}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
+          </Card>
+        ))}
+        <TwoFieldForm
+          labels={['Prämie (z.B. Kinobesuch)', 'Punkte (z.B. 50)']}
+          onAdd={(text, cost) => {
+            const points = Number(String(cost).replace(',', '.'));
+            add('rewards_catalog', {
+              text,
+              cost: Number.isFinite(points) && points > 0 ? Math.round(points) : 10,
+            });
+          }}
+          styles={styles}
+          colors={colors}
+        />
+
+        {/* Verlauf: was zuletzt gutgeschrieben oder eingelöst wurde. */}
+        {recent.length > 0 ? (
+          <>
+            <Text style={styles.groupLabel}>Zuletzt</Text>
+            <Card style={styles.listCard}>
+              {recent.map((entry, index) => (
+                <View key={entry.id ?? index} style={styles.eventRow}>
+                  <Text style={[styles.checkText, { flex: 1 }]} numberOfLines={1}>
+                    {entry.member}
+                    {entry.reason ? ` · ${entry.reason}` : ''}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.rewardDelta,
+                      { color: Number(entry.points) < 0 ? colors.danger : colors.on },
+                    ]}
+                  >
+                    {Number(entry.points) > 0 ? `+${entry.points}` : entry.points}
+                  </Text>
+                </View>
+              ))}
+            </Card>
+          </>
+        ) : null}
       </View>
     );
   }
@@ -1040,6 +1387,11 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
               .filter((item) => item.group === group && item.done)
               .forEach((item) => update('routines', item.id, { done: false }))
           }
+          onDeleteGroup={(group) =>
+            (data.routines ?? [])
+              .filter((item) => item.group === group)
+              .forEach((item) => remove('routines', item.id))
+          }
           styles={styles}
           colors={colors}
         />
@@ -1063,6 +1415,11 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
               .filter((item) => item.group === group && item.done)
               .forEach((item) => update('packlists', item.id, { done: false }))
           }
+          onDeleteGroup={(group) =>
+            (data.packlists ?? [])
+              .filter((item) => item.group === group)
+              .forEach((item) => remove('packlists', item.id))
+          }
           styles={styles}
           colors={colors}
         />
@@ -1075,6 +1432,9 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
     return (
       <View style={styles.stack}>
         <BackHead title="Countdowns" onBack={goBack} styles={styles} colors={colors} />
+        <Text style={styles.hint}>
+          Der Stern zeigt einen Countdown zusätzlich auf der Startseite.
+        </Text>
         {countdowns.map((countdown) => {
           const target = parseSwissDate(countdown.date);
           const days =
@@ -1090,6 +1450,19 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
                 <Text style={styles.checkSub}>{countdown.date}</Text>
               </View>
               <Pressable
+                onPress={() =>
+                  update('countdowns', countdown.id, { on_start: !countdown.on_start })
+                }
+                style={styles.deleteTap}
+                accessibilityLabel="Auf Startseite anzeigen"
+              >
+                <Ionicons
+                  name={countdown.on_start ? 'star' : 'star-outline'}
+                  size={20}
+                  color={countdown.on_start ? colors.warn : colors.inkFaint}
+                />
+              </Pressable>
+              <Pressable
                 onPress={() => remove('countdowns', countdown.id)}
                 style={styles.deleteTap}
               >
@@ -1098,9 +1471,10 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
             </Card>
           );
         })}
-        <TwoFieldForm
-          labels={['Anlass (z.B. Ferien)', 'Datum (TT.MM.JJJJ)']}
-          onAdd={(text, date) => add('countdowns', { text, date })}
+        <CountdownForm
+          onAdd={(text, date, onStart) =>
+            add('countdowns', { text, date, on_start: onStart })
+          }
           styles={styles}
           colors={colors}
         />
@@ -1358,6 +1732,8 @@ const makeStyles = (colors: Colors) =>
     },
     addWideText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
     formCard: { gap: 8 },
+    toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
+    toggleLabel: { color: colors.ink, fontSize: 15 },
     clearButton: { alignItems: 'center', paddingVertical: 8 },
     resetText: { color: colors.accent, fontSize: 13, fontWeight: '600' },
 
@@ -1382,6 +1758,39 @@ const makeStyles = (colors: Colors) =>
 
     eventRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
     eventDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent },
+    calHead: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 4,
+    },
+    calTitle: { color: colors.ink, fontSize: 17, fontWeight: '700' },
+    calGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+    calWeekday: {
+      width: `${100 / 7}%`,
+      textAlign: 'center',
+      color: colors.inkFaint,
+      fontSize: 12,
+      fontWeight: '700',
+      paddingBottom: 4,
+    },
+    calCell: {
+      width: `${100 / 7}%`,
+      aspectRatio: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: radius.control,
+    },
+    calCellToday: { borderWidth: 1, borderColor: colors.accent },
+    calCellSelected: { backgroundColor: colors.surfaceStrong },
+    calDay: { color: colors.inkSoft, fontSize: 15 },
+    calDot: {
+      width: 5,
+      height: 5,
+      borderRadius: 3,
+      backgroundColor: colors.accent,
+      marginTop: 2,
+    },
 
     pinCard: { minHeight: 0, gap: 8 },
     pinFoot: {
@@ -1409,6 +1818,32 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     pointButtonText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+    pointsBig: { color: colors.accent, fontSize: 16, fontWeight: '800' },
+    groupLabel: {
+      color: colors.onGradientSoft,
+      fontSize: 13,
+      fontWeight: '700',
+      textTransform: 'uppercase',
+      letterSpacing: 0.6,
+      marginTop: 6,
+    },
+    rewardHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    redeemChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      paddingHorizontal: 11,
+      paddingVertical: 7,
+      borderRadius: radius.pill,
+    },
+    redeemChipOk: { backgroundColor: colors.accent },
+    redeemChipOff: {
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    redeemChipText: { fontSize: 13, fontWeight: '700' },
+    rewardDelta: { fontSize: 15, fontWeight: '800' },
 
     daysBubble: {
       width: 54,

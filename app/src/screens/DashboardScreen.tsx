@@ -86,11 +86,37 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [dismissedRing, setDismissedRing] = useState<string | null>(null);
   // Angetippte Kamera im Vollbild (Entitäts-ID, damit Live-Updates ankommen).
   const [fullscreen, setFullscreen] = useState<string | null>(null);
+  // Auf der Startseite markierte Countdowns aus dem Familie-Modul.
+  const [startCountdowns, setStartCountdowns] = useState<
+    { text: string; date: string; on_start?: boolean }[]
+  >([]);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 30000);
     return () => clearInterval(timer);
   }, []);
+
+  // Startseiten-Countdowns laden (und minütlich frisch halten, damit ein
+  // frisch gesetzter Stern zeitnah erscheint).
+  useEffect(() => {
+    if (!settings.url || !settings.token) return;
+    let alive = true;
+    const load = () =>
+      fetch(`${settings.url}/api/family/countdowns`, {
+        headers: { Authorization: `Bearer ${settings.token}` },
+      })
+        .then((response) => (response.ok ? response.json() : []))
+        .then((rows) => {
+          if (alive) setStartCountdowns(Array.isArray(rows) ? rows : []);
+        })
+        .catch(() => {});
+    load();
+    const timer = setInterval(load, 60000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [settings.url, settings.token]);
 
   // Wandpanel: Bildschirm bleibt an, und nach drei Minuten ohne Berührung
   // kehrt die Ansicht zur Startseite zurück – ein fest montiertes iPad soll
@@ -352,6 +378,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               wide={hasRail}
               onCommand={sendCommand}
               onActivateScene={activateScene}
+              countdowns={startCountdowns}
             />
           </View>
           <SidePanel entities={entities} width={hasSidePanel ? PANEL_WIDTH : undefined} />

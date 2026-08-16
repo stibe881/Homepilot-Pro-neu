@@ -24,6 +24,8 @@ interface Props {
   wide: boolean;
   onCommand: (entityId: string, command: string, data?: Record<string, any>) => void;
   onActivateScene: (sceneId: string) => void;
+  /** Auf der Startseite markierte Countdowns (aus dem Familie-Modul). */
+  countdowns?: { text: string; date: string; on_start?: boolean }[];
 }
 
 const WEEKDAYS = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
@@ -59,6 +61,7 @@ export function OverviewScreen({
   wide,
   onCommand,
   onActivateScene,
+  countdowns,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -95,6 +98,21 @@ export function OverviewScreen({
     scenes.find((scene) => /schlaf/i.test(scene.name)),
   ].filter(Boolean) as typeof scenes;
   const startScenes = flagged.length > 0 ? flagged : fallback;
+
+  // Nächster auf der Startseite markierter Countdown (TT.MM.JJJJ → Tage).
+  const countdown = useMemo(() => {
+    const parse = (value: string): number | null => {
+      const match = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(String(value).trim());
+      if (!match) return null;
+      const target = new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+      return Math.ceil((target.getTime() - Date.now()) / 86_400_000);
+    };
+    const shown = (countdowns ?? [])
+      .filter((entry) => entry.on_start)
+      .map((entry) => ({ ...entry, days: parse(entry.date) }))
+      .sort((a, b) => (a.days ?? 1e9) - (b.days ?? 1e9));
+    return shown[0] ?? null;
+  }, [countdowns]);
 
   // ── Demo-Zustände für noch nicht eingebundene Geräte ───────────────────
   const [demoFlatLocked, setDemoFlatLocked] = useState(true);
@@ -271,6 +289,20 @@ export function OverviewScreen({
           </Text>
           {geburtstag.when ? <Text style={styles.tileSub}>{geburtstag.when}</Text> : null}
         </Tile>
+        {countdown ? (
+          <Tile styles={styles} colors={colors} width={tileWidth} icon="hourglass-outline" title={countdown.text}>
+            <Text style={styles.tileState} numberOfLines={1}>
+              {countdown.days != null
+                ? countdown.days > 0
+                  ? `noch ${countdown.days} Tage`
+                  : countdown.days === 0
+                    ? 'heute!'
+                    : 'vorbei'
+                : '—'}
+            </Text>
+            <Text style={styles.tileSub}>{countdown.date}</Text>
+          </Tile>
+        ) : null}
         <Tile styles={styles} colors={colors} width={tileWidth} icon="musical-notes-outline" title="Musik" demo={!player}>
           {player ? (
             <>
@@ -534,6 +566,20 @@ export function OverviewScreen({
           </Text>
           {geburtstag.when ? <Text style={styles.tileSub}>{geburtstag.when}</Text> : null}
         </Tile>
+        {countdown ? (
+          <Tile styles={styles} colors={colors} width={tileWidth} icon="hourglass-outline" title={countdown.text}>
+            <Text style={styles.tileState} numberOfLines={1}>
+              {countdown.days != null
+                ? countdown.days > 0
+                  ? `noch ${countdown.days} Tage`
+                  : countdown.days === 0
+                    ? 'heute!'
+                    : 'vorbei'
+                : '—'}
+            </Text>
+            <Text style={styles.tileSub}>{countdown.date}</Text>
+          </Tile>
+        ) : null}
         <Tile styles={styles} colors={colors} width={tileWidth} icon="musical-notes-outline" title="Musik" demo={!player}>
           {player ? (
             <>
