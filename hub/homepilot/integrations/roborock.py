@@ -259,9 +259,26 @@ class RoborockIntegration(Integration):
             await self._load_rooms(entity.id, device)
 
         if not self._devices:
+            # Rohdaten des Kontos protokollieren, damit man sieht, was die
+            # Cloud überhaupt liefert (welches Zuhause, welche Produkte).
+            home = getattr(self._manager, "_home_data", None)
+            if home is not None:
+                self.log.info(
+                    "Roborock-HomeData: id=%s eigene Geräte=%d geteilte=%d Produkte=[%s] Räume=%d",
+                    getattr(home, "id", "?"),
+                    len(getattr(home, "devices", []) or []),
+                    len(getattr(home, "received_devices", []) or []),
+                    ", ".join(
+                        str(getattr(p, "model", getattr(p, "name", "?")))
+                        for p in (getattr(home, "products", []) or [])
+                    ),
+                    len(getattr(home, "rooms", []) or []),
+                )
             raise ConfigError(
-                "Kein Sauger mit v1-Protokoll gefunden. Sieh im Log nach den "
-                "'Roborock-Gerät:'-Zeilen, welche Geräte das Konto liefert."
+                "Das Roborock-Konto liefert keinen Sauger. Häufigste Ursache: "
+                "Der Sauger ist in der Xiaomi/Mi-Home-App eingebunden statt in "
+                "der Roborock-App – dann muss er einmal in der Roborock-App "
+                "hinzugefügt werden. Details stehen im Log (Roborock-HomeData)."
             )
 
         await self._refresh_all()
