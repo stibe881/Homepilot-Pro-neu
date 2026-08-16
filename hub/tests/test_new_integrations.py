@@ -766,3 +766,14 @@ def test_pick_device_prefers_requested_then_active_then_first():
     assert pick_device("", None, devices) == "id-t"          # erster sichtbarer
     assert pick_device("Unbekannt", None, devices) == "id-t" # Tippfehler → erster
     assert pick_device("", None, {}) is None
+
+
+def test_extract_code_accepts_full_redirect_url_or_bare_code():
+    """Der Anmelde-Helfer nimmt die ganze Adresszeile entgegen – niemand soll
+    von Hand den Code zwischen 'code=' und '&' herausklauben müssen."""
+    from homepilot.integrations.spotify import extract_code
+
+    url = "http://127.0.0.1:8888/callback?code=AQAx95_ABC&state=x"
+    assert extract_code(url) == "AQAx95_ABC"
+    assert extract_code("  AQBBARE  ") == "AQBBARE"
+    assert extract_code("callback?code=NUR_QUERY") == "NUR_QUERY"

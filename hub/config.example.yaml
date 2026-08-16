@@ -183,10 +183,13 @@ integrations:
   # Einrichtung (einmalig, ~5 Minuten): siehe Kopf von
   # hub/homepilot/integrations/spotify.py – der refresh_token braucht auch
   # die playlist-read-Scopes, sonst bleibt die Playlist-Liste leer.
+  # Anmelden (einmalig): docker exec -it homepilot-hub \
+  #     python -m homepilot.integrations.spotify -c /config/config.yaml
+  # Der Helfer legt den refresh_token in spotify-token.json ab –
+  # eine SPOTIFY_REFRESH_TOKEN-Variable braucht es dann nicht mehr.
   # - integration: spotify
   #   client_id: "${SPOTIFY_CLIENT_ID}"
   #   client_secret: "${SPOTIFY_CLIENT_SECRET}"
-  #   refresh_token: "${SPOTIFY_REFRESH_TOKEN}"
 
   # Roborock-Staubsauger. Braucht: pip install python-roborock
   # - integration: roborock

@@ -7,33 +7,30 @@ Konfiguration:
     refresh_token: "${SPOTIFY_REFRESH_TOKEN}"
     scan_interval: 30
 
-Einmalige Einrichtung (dauert fünf Minuten):
-  1. Auf developer.spotify.com eine App anlegen; als Redirect-URI
-     http://127.0.0.1:8888/callback eintragen.
-  2. Im Browser aufrufen (client_id einsetzen):
-       https://accounts.spotify.com/authorize?client_id=...&response_type=code
-       &redirect_uri=http://127.0.0.1:8888/callback
-       &scope=user-read-playback-state%20user-modify-playback-state%20playlist-read-private%20playlist-read-collaborative
-  3. Den 'code' aus der Adresszeile gegen Tokens tauschen:
-       curl -s https://accounts.spotify.com/api/token \\
-            -u "CLIENT_ID:CLIENT_SECRET" \\
-            -d grant_type=authorization_code -d code=DER_CODE \\
-            -d redirect_uri=http://127.0.0.1:8888/callback
-     Der refresh_token aus der Antwort kommt in die .env – er läuft nicht ab.
+Einmalige Einrichtung (~5 Minuten):
+  1. developer.spotify.com → Dashboard → Create App; als Redirect-URI exakt
+     http://127.0.0.1:8888/callback eintragen. Client-ID und Client-Secret
+     als SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET in die Umgebung
+     (Portainer-Stack), dann den Stack neu deployen.
+  2. Anmelden:  docker exec -it homepilot-hub \
+                  python -m homepilot.integrations.spotify -c /config/config.yaml
+     Der Helfer zeigt eine Spotify-Adresse; dort zustimmen und die komplette
+     Adresse aus der Adresszeile (die «Seite nicht erreichbar»-Seite) zurück
+     in den Helfer kopieren. Der refresh_token landet in spotify-token.json
+     neben der homepilot-data.json – 'refresh_token' in der Konfiguration
+     ist damit optional (und hat Vorrang, falls gesetzt).
 
-Wichtig: Die Playlisten brauchen die beiden playlist-read-Scopes. Ein
-refresh_token, der ohne sie erzeugt wurde, liefert eine leere Liste –
-dann Schritt 2 und 3 einmal mit der obigen (vollständigen) URL wiederholen
-und den neuen refresh_token eintragen.
-
-Der Hub tauscht ihn selbstständig gegen kurzlebige Zugriffstokens; in der
-Konfiguration liegt nie ein ablaufendes Geheimnis.
+Der Hub tauscht den refresh_token selbstständig gegen kurzlebige
+Zugriffstokens; er läuft nicht ab.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json as jsonlib
+from pathlib import Path
 from typing import Any
+from urllib.parse import quote, urlsplit, parse_qs
 
 import aiohttp
 
@@ -42,7 +39,25 @@ from ..core.errors import ConfigError
 from ..core.integration import Integration
 
 ACCOUNTS = "https://accounts.spotify.com/api/token"
+AUTHORIZE = "https://accounts.spotify.com/authorize"
 API = "https://api.spotify.com/v1"
+REDIRECT = "http://127.0.0.1:8888/callback"
+SCOPES = (
+    "user-read-playback-state user-modify-playback-state "
+    "playlist-read-private playlist-read-collaborative"
+)
+
+
+def extract_code(text: str) -> str:
+    """Holt den OAuth-Code aus einer ganzen Redirect-Adresse oder gibt die
+    Eingabe unverändert zurück, wenn sie schon der Code ist (rein, testbar)."""
+    text = text.strip()
+    if "code=" in text:
+        query = urlsplit(text).query or text.split("?", 1)[-1]
+        values = parse_qs(query).get("code")
+        if values:
+            return values[0]
+    return text
 
 
 def parse_devices(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -124,10 +139,18 @@ class SpotifyIntegration(Integration):
         self._client_id = self.config.get("client_id")
         self._client_secret = self.config.get("client_secret")
         self._refresh_token = self.config.get("refresh_token")
+        if not self._refresh_token:
+            # Vom Anmelde-Helfer abgelegt (siehe Kopf dieser Datei).
+            token_file = Path(self.hub.config.data_file).parent / "spotify-token.json"
+            if token_file.exists():
+                self._refresh_token = jsonlib.loads(token_file.read_text()).get(
+                    "refresh_token"
+                )
         if not (self._client_id and self._client_secret and self._refresh_token):
             raise ConfigError(
-                "spotify braucht 'client_id', 'client_secret' und 'refresh_token' "
-                "– die Einrichtung steht oben in integrations/spotify.py"
+                "spotify braucht 'client_id' und 'client_secret'; den refresh_token "
+                "erzeugt der Anmelde-Helfer: "
+                "python -m homepilot.integrations.spotify -c config.yaml"
             )
 
         self._interval = float(self.config.get("scan_interval", 30))
@@ -314,3 +337,102 @@ class SpotifyIntegration(Integration):
 
 
 INTEGRATION = SpotifyIntegration
+
+
+# ── Anmelde-Helfer ─────────────────────────────────────────────────────────
+# Aufruf:  python -m homepilot.integrations.spotify -c config.yaml
+# Fragt nach dem Zustimmen im Browser nach der Redirect-Adresse und legt den
+# refresh_token in spotify-token.json neben der homepilot-data.json ab.
+
+
+async def _login_main(config_path: str) -> int:
+    import aiohttp
+
+    from ..core.config import load_config
+    from ..core.errors import ConfigError as _ConfigError
+
+    blocks: list[dict[str, Any]] = []
+    data_dir = Path(config_path).parent
+    try:
+        config = load_config(config_path)
+        data_dir = Path(config.data_file).parent
+        blocks = [
+            b for b in config.integrations if b.get("integration") == "spotify"
+        ]
+    except _ConfigError as err:
+        # Z.B. weil ${SPOTIFY_CLIENT_ID} noch nicht gesetzt ist – dann eben
+        # von Hand eintippen statt abzubrechen.
+        print(f"(Konfiguration nicht lesbar: {err} – Werte bitte eingeben)")
+
+    client_id = (blocks[0].get("client_id") if blocks else None) or input(
+        "Spotify Client-ID: "
+    ).strip()
+    client_secret = (blocks[0].get("client_secret") if blocks else None) or input(
+        "Spotify Client-Secret: "
+    ).strip()
+    if not client_id or not client_secret:
+        print("✗ Client-ID und Client-Secret sind nötig (developer.spotify.com).")
+        return 1
+
+    auth_url = (
+        f"{AUTHORIZE}?client_id={quote(client_id)}&response_type=code"
+        f"&redirect_uri={quote(REDIRECT)}&scope={quote(SCOPES)}"
+    )
+    print("\n1. Diese Adresse im Browser öffnen und zustimmen:\n")
+    print(f"   {auth_url}\n")
+    print(
+        "2. Danach erscheint «Seite nicht erreichbar» – das ist richtig so.\n"
+        "   Die KOMPLETTE Adresse aus der Adresszeile kopieren und hier einfügen\n"
+        "   (der Code darin gilt nur wenige Minuten):"
+    )
+    code = extract_code(input("\nAdresse oder Code: "))
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            ACCOUNTS,
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": REDIRECT,
+            },
+            auth=aiohttp.BasicAuth(client_id, client_secret),
+        ) as response:
+            payload = await response.json(content_type=None)
+
+    error = payload.get("error")
+    if error == "invalid_client":
+        print(
+            "✗ Spotify lehnt Client-ID/Secret ab (invalid_client).\n"
+            "  Im Dashboard (developer.spotify.com) unter Settings das Secret\n"
+            "  mit «View client secret» frisch kopieren – oder rotieren, wenn\n"
+            "  es irgendwo geteilt wurde – und den Helfer erneut starten."
+        )
+        return 1
+    if error == "invalid_grant":
+        print("✗ Der Code war abgelaufen oder schon benutzt – bitte nochmals "
+              "bei Schritt 1 beginnen und zügig einfügen.")
+        return 1
+    refresh_token = payload.get("refresh_token")
+    if not refresh_token:
+        print(f"✗ Kein refresh_token erhalten: {payload}")
+        return 1
+
+    token_file = data_dir / "spotify-token.json"
+    token_file.write_text(jsonlib.dumps({"refresh_token": refresh_token}))
+    token_file.chmod(0o600)
+    print(f"\n✓ Angemeldet. Token gespeichert in {token_file}.")
+    print("  Jetzt den Hub neu starten – die Spotify-Kachel erscheint mit "
+          "Playlists und Lautsprechern.")
+    return 0
+
+
+if __name__ == "__main__":
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(description="Spotify-Anmeldung für HomePilot")
+    parser.add_argument(
+        "-c", "--config", default="config.yaml", help="Pfad zur config.yaml des Hubs"
+    )
+    args = parser.parse_args()
+    sys.exit(asyncio.run(_login_main(args.config)))
