@@ -37,6 +37,8 @@ import { SystemScreen } from './SystemScreen';
 import { UsersScreen } from './UsersScreen';
 
 const ALL_ROOMS = 'Alle';
+// Pseudo-Raum für Geräte ohne Zuordnung – als Kachel und Ansicht öffenbar.
+const NO_ROOM = 'Weitere';
 const PANEL_WIDTH = 340;
 
 interface Props {
@@ -183,7 +185,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const inRoom =
     section !== 'home' || room === ALL_ROOMS
       ? base
-      : base.filter((entity) => entity.room === room);
+      : room === NO_ROOM
+        ? base.filter((entity) => !entity.room)
+        : base.filter((entity) => entity.room === room);
 
   // Ausgeblendete verschwinden aus den Alltagsansichten, bleiben aber unter
   // „Geräte“ sichtbar – sonst käme man nie wieder an sie heran.
@@ -545,7 +549,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 }))
                 .concat(
                   shown.some((entity) => !entity.room)
-                    ? [{ name: 'Weitere', items: shown.filter((entity) => !entity.room) }]
+                    ? [{ name: NO_ROOM, items: shown.filter((entity) => !entity.room) }]
                     : []
                 )
                 .filter((tile) => tile.items.length > 0)
@@ -559,7 +563,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                         ? Math.floor((gridWidth - space.gap) / 2)
                         : gridWidth
                     }
-                    onOpen={() => (tile.name === 'Weitere' ? undefined : setRoom(tile.name))}
+                    onOpen={() => setRoom(tile.name)}
                     onCommand={(entityId, command) => sendCommand(entityId, command)}
                   />
                 ))}
