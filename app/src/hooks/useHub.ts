@@ -9,6 +9,10 @@ const ACTIVITY_LIMIT = 20;
 const CACHE_KEY = 'homepilot.snapshot';
 /** So lange gilt eine Kachel nach dem Tippen als „wird geschaltet“. */
 const PENDING_TIMEOUT = 6000;
+// Befehle, die naturgemäss länger dauern: Eine schlafende Spotify-Box wird
+// erst geweckt und angemeldet, bevor die Playlist startet.
+const SLOW_COMMAND_TIMEOUT = 45000;
+const SLOW_COMMANDS = new Set(['play_playlist']);
 
 /** Kurzfassung einer Änderung für die Liste „Zuletzt passiert“. */
 function describe(entity: Entity, newState: Record<string, any>): string | null {
@@ -246,10 +250,13 @@ export function useHub(url: string | null, token: string | null) {
         return next ? { ...prev, [entityId]: { ...entity, state: next } } : prev;
       });
       setPending((prev) => ({ ...prev, [entityId]: true }));
-      timersRef.current[entityId] = setTimeout(() => {
-        clearPending(entityId);
-        setError('Das Gerät antwortet nicht');
-      }, PENDING_TIMEOUT);
+      timersRef.current[entityId] = setTimeout(
+        () => {
+          clearPending(entityId);
+          setError('Das Gerät antwortet nicht');
+        },
+        SLOW_COMMANDS.has(command) ? SLOW_COMMAND_TIMEOUT : PENDING_TIMEOUT
+      );
 
       ws.send(
         JSON.stringify({ type: 'command', entity_id: entityId, command, data: data ?? {} })
