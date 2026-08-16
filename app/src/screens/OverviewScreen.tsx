@@ -133,8 +133,10 @@ export function OverviewScreen({
 
   // Kalender: nächster Termin und – als eigener Platz – nächster Geburtstag.
   const events: any[] = Array.isArray(calendar?.state.events) ? calendar!.state.events : [];
-  const birthday = events.find((event) => /geburtstag|birthday/i.test(event.summary ?? ''));
-  const nextEvent = events.find((event) => !/geburtstag|birthday/i.test(event.summary ?? ''));
+  const isBirthday = (event: any) =>
+    event.birthday || /geburtstag|birthday/i.test(event.summary ?? '');
+  const birthday = events.find(isBirthday);
+  const nextEvent = events.find((event) => !isBirthday(event));
 
   const eventLine = (event: any | undefined, demoText: string, demoWhen: string) => {
     if (!calendar) return { title: demoText, when: demoWhen, demo: true };

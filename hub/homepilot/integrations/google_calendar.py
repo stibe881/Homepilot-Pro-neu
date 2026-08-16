@@ -4,33 +4,34 @@ Konfiguration:
   - integration: google_calendar
     client_id: "${GOOGLE_CLIENT_ID}"
     client_secret: "${GOOGLE_CLIENT_SECRET}"
-    refresh_token: "${GOOGLE_REFRESH_TOKEN}"
-    calendar_id: primary
+    # Mehrere Kalender möglich; 'primary' ist der Hauptkalender, der zweite
+    # hier ist Googles Geburtstags-Kalender (aus den Kontakten).
+    calendar_ids:
+      - primary
+      - addressbook#contacts@group.v.calendar.google.com
     scan_interval: 300
 
-Einmalige Einrichtung (analog Spotify, ~10 Minuten):
-  1. In der Google Cloud Console ein Projekt anlegen, die Calendar API
-     aktivieren und einen OAuth-Client (Typ „Desktop“) erstellen.
-  2. Im Browser aufrufen (client_id einsetzen):
-       https://accounts.google.com/o/oauth2/v2/auth?client_id=...
-       &response_type=code&redirect_uri=http://127.0.0.1:8888
-       &scope=https://www.googleapis.com/auth/calendar.readonly
-       &access_type=offline&prompt=consent
-  3. Den 'code' aus der Adresszeile gegen Tokens tauschen:
-       curl -s https://oauth2.googleapis.com/token \\
-            -d client_id=CLIENT_ID -d client_secret=CLIENT_SECRET \\
-            -d grant_type=authorization_code -d code=DER_CODE \\
-            -d redirect_uri=http://127.0.0.1:8888
-     Der refresh_token aus der Antwort kommt in die .env.
+Einmalige Einrichtung (~10 Minuten):
+  1. console.cloud.google.com → Projekt anlegen → «Google Calendar API»
+     aktivieren → OAuth-Zustimmungsbildschirm (Extern, sich selbst als
+     Testnutzer eintragen) → Anmeldedaten → OAuth-Client-ID, Typ «Desktop».
+  2. client_id und client_secret in die .env auf dem Hub eintragen.
+  3. Anmelden:  python -m homepilot.integrations.google_calendar -c config.yaml
+     Der Helfer zeigt eine Google-Adresse, dort anmelden und den Code aus
+     der Adresszeile zurück in den Helfer kopieren. Das Token landet in
+     google-token.json neben der homepilot-data.json.
 
-access_type=offline und prompt=consent sind wichtig – nur dann gibt Google
-überhaupt einen refresh_token heraus.
+Ein refresh_token in der Konfiguration wird weiterhin unterstützt und hat
+Vorrang vor der Token-Datei.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
@@ -42,6 +43,13 @@ from ..core.integration import Integration
 
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 API = "https://www.googleapis.com/calendar/v3"
+SCOPE = "https://www.googleapis.com/auth/calendar.readonly"
+REDIRECT = "http://127.0.0.1:8888"
+
+
+def is_birthday_calendar(calendar_id: str) -> bool:
+    """Googles Geburtstags-Kalender (aus den Kontakten) erkennen."""
+    return "#contacts" in calendar_id or "birthday" in calendar_id.lower()
 
 
 def _event_bounds(event: dict[str, Any]) -> tuple[str | None, str | None, bool]:
@@ -56,10 +64,11 @@ def _event_bounds(event: dict[str, Any]) -> tuple[str | None, str | None, bool]:
 
 
 def parse_events(items: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
-    """Übersetzt die Ereignisliste der API in Entitäts-Attribute.
+    """Übersetzt die (bereits zusammengeführte) Ereignisliste in Attribute.
 
     Bereits beendete Termine fliegen raus; „frei“ ist der normale Zustand
-    ohne anstehende Termine.
+    ohne anstehende Termine. Einträge aus dem Geburtstags-Kalender tragen
+    das Feld ``birthday`` – die App zeigt sie getrennt von den Terminen.
     """
     upcoming = []
     for event in items:
@@ -80,15 +89,17 @@ def parse_events(items: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
                 "end": end,
                 "all_day": all_day,
                 "location": event.get("location"),
+                "birthday": bool(event.get("_birthday")),
             }
         )
+    upcoming.sort(key=lambda event: event.get("start") or "")
 
-    first = upcoming[0] if upcoming else None
+    first = next((event for event in upcoming if not event["birthday"]), None)
     return {
         "state": first["summary"] if first else "frei",
         "next_start": first["start"] if first else None,
         "next_all_day": first["all_day"] if first else False,
-        "events": upcoming[:5],
+        "events": upcoming[:12],
     }
 
 
@@ -98,15 +109,21 @@ class GoogleCalendarIntegration(Integration):
     async def setup(self) -> None:
         self._client_id = self.config.get("client_id")
         self._client_secret = self.config.get("client_secret")
-        self._refresh_token = self.config.get("refresh_token")
-        if not (self._client_id and self._client_secret and self._refresh_token):
+        self._refresh_token = self.config.get("refresh_token") or self._load_token()
+        if not (self._client_id and self._client_secret):
             raise ConfigError(
-                "google_calendar braucht 'client_id', 'client_secret' und "
-                "'refresh_token' – die Einrichtung steht im Kopf von "
-                "integrations/google_calendar.py"
+                "google_calendar braucht 'client_id' und 'client_secret' "
+                "(OAuth-Client Typ Desktop, console.cloud.google.com)"
+            )
+        if not self._refresh_token:
+            raise ConfigError(
+                "google_calendar: kein Token – einmalig anmelden mit: "
+                "python -m homepilot.integrations.google_calendar -c config.yaml"
             )
 
-        self._calendar_id = self.config.get("calendar_id", "primary")
+        # Ein oder mehrere Kalender; 'calendar_id' bleibt als Einzahl gültig.
+        ids = self.config.get("calendar_ids") or [self.config.get("calendar_id", "primary")]
+        self._calendar_ids = [str(calendar_id) for calendar_id in ids]
         self._interval = float(self.config.get("scan_interval", 300))
         self._session = self.http_session(timeout=aiohttp.ClientTimeout(total=20))
         self._access_token: str | None = None
@@ -121,6 +138,21 @@ class GoogleCalendarIntegration(Integration):
         )
         await self._refresh()
         self.start_task(self._poll_loop())
+
+    def _token_file(self) -> Path:
+        return Path(
+            self.config.get("token_file")
+            or Path(self.hub.config.data_file).parent / "google-token.json"
+        )
+
+    def _load_token(self) -> str | None:
+        path = self._token_file()
+        if not path.is_file():
+            return None
+        try:
+            return json.loads(path.read_text()).get("refresh_token")
+        except (OSError, json.JSONDecodeError):
+            return None
 
     async def _ensure_token(self) -> str:
         loop = asyncio.get_running_loop()
@@ -152,26 +184,119 @@ class GoogleCalendarIntegration(Integration):
     async def _refresh(self) -> None:
         entity_id = self.entity_id("next")
         now = datetime.now(timezone.utc)
+        merged: list[dict[str, Any]] = []
         try:
             token = await self._ensure_token()
-            url = (
-                f"{API}/calendars/{quote(self._calendar_id)}/events"
-                f"?timeMin={now.isoformat().replace('+00:00', 'Z')}"
-                "&maxResults=10&singleEvents=true&orderBy=startTime"
-            )
-            async with self._session.get(
-                url, headers={"Authorization": f"Bearer {token}"}
-            ) as response:
-                response.raise_for_status()
-                payload = await response.json()
+            for calendar_id in self._calendar_ids:
+                url = (
+                    f"{API}/calendars/{quote(calendar_id)}/events"
+                    f"?timeMin={now.isoformat().replace('+00:00', 'Z')}"
+                    "&maxResults=10&singleEvents=true&orderBy=startTime"
+                )
+                async with self._session.get(
+                    url, headers={"Authorization": f"Bearer {token}"}
+                ) as response:
+                    # Ein einzelner fehlender Kalender (Tippfehler, keine
+                    # Geburtstage) soll die übrigen nicht mitreissen.
+                    if response.status == 404:
+                        self.log.warning("Kalender '%s' nicht gefunden", calendar_id)
+                        continue
+                    response.raise_for_status()
+                    payload = await response.json()
+                birthday = is_birthday_calendar(calendar_id)
+                for item in payload.get("items", []):
+                    if birthday:
+                        item["_birthday"] = True
+                    merged.append(item)
         except Exception as err:
             self.log.warning("Google Calendar nicht erreichbar: %s", err)
             await self.hub.registry.update_state(entity_id, {}, available=False)
             return
 
         await self.hub.registry.update_state(
-            entity_id, parse_events(payload.get("items", []), now), available=True
+            entity_id, parse_events(merged, now), available=True
         )
 
 
 INTEGRATION = GoogleCalendarIntegration
+
+
+# ── Anmelde-Helfer ─────────────────────────────────────────────────────────
+# Aufruf:  python -m homepilot.integrations.google_calendar -c config.yaml
+# Zeigt die Google-Anmeldeadresse, tauscht den Code gegen Tokens und legt den
+# refresh_token in google-token.json neben der homepilot-data.json ab.
+
+
+async def _login_main(config_path: str) -> int:
+    from ..core.config import load_config
+
+    config = load_config(config_path)
+    blocks = [
+        b for b in config.integrations if b.get("integration") == "google_calendar"
+    ]
+    client_id = (blocks[0].get("client_id") if blocks else None) or input(
+        "Google client_id: "
+    ).strip()
+    client_secret = (blocks[0].get("client_secret") if blocks else None) or input(
+        "Google client_secret: "
+    ).strip()
+    if not client_id or not client_secret:
+        print("✗ client_id und client_secret sind nötig (OAuth-Client Typ Desktop).")
+        return 1
+
+    auth_url = (
+        "https://accounts.google.com/o/oauth2/v2/auth"
+        f"?client_id={quote(client_id)}"
+        f"&response_type=code&redirect_uri={quote(REDIRECT)}"
+        f"&scope={quote(SCOPE)}"
+        "&access_type=offline&prompt=consent"
+    )
+    print("\n1. Diese Adresse im Browser öffnen und mit dem Google-Konto anmelden:\n")
+    print(f"   {auth_url}\n")
+    print(
+        "2. Nach dem Zustimmen leitet Google auf 127.0.0.1:8888 um – die Seite\n"
+        "   lädt nicht, das ist normal. Aus der Adresszeile den Wert hinter\n"
+        "   'code=' kopieren (bis vor das nächste '&')."
+    )
+    code = input("\nCode: ").strip()
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            TOKEN_URL,
+            data={
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": REDIRECT,
+            },
+        ) as response:
+            payload = await response.json()
+    refresh_token = payload.get("refresh_token")
+    if not refresh_token:
+        print(f"✗ Kein refresh_token erhalten: {payload}")
+        print(
+            "  Häufigste Ursachen: Code doppelt verwendet (neu anmelden) oder "
+            "der Zustimmungsbildschirm hat den Testnutzer nicht eingetragen."
+        )
+        return 1
+
+    token_file = Path(
+        (blocks[0].get("token_file") if blocks else None)
+        or Path(config.data_file).parent / "google-token.json"
+    )
+    token_file.parent.mkdir(parents=True, exist_ok=True)
+    token_file.write_text(json.dumps({"refresh_token": refresh_token}))
+    os.chmod(token_file, 0o600)
+    print(f"\n✓ Token gespeichert in {token_file} – jetzt den Hub (neu) starten.")
+    return 0
+
+
+if __name__ == "__main__":
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(description="Google-Calendar-Anmeldung für HomePilot")
+    parser.add_argument("-c", "--config", required=True, help="Pfad zur config.yaml des Hubs")
+    args = parser.parse_args()
+    sys.exit(asyncio.run(_login_main(args.config)))

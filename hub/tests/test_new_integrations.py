@@ -590,3 +590,35 @@ def test_overkiz_cover_state_open_and_closed():
     assert cover_state({"core:OpenClosedState": "closed"})["state"] == "closed"
     # Nichts Verwertbares → unknown, kein Absturz.
     assert cover_state({})["state"] == "unknown"
+
+
+def test_calendar_marks_birthdays_and_sorts():
+    from datetime import datetime, timezone
+
+    from homepilot.integrations.google_calendar import is_birthday_calendar, parse_events
+
+    now = datetime(2026, 8, 16, 8, 0, tzinfo=timezone.utc)
+    state = parse_events(
+        [
+            {
+                "summary": "Livia",
+                "_birthday": True,
+                "start": {"date": "2026-08-28"},
+                "end": {"date": "2026-08-29"},
+            },
+            {
+                "summary": "Zahnarzt",
+                "start": {"dateTime": "2026-08-17T14:30:00Z"},
+                "end": {"dateTime": "2026-08-17T15:00:00Z"},
+            },
+        ],
+        now,
+    )
+    # Sortiert nach Beginn: Zahnarzt (17.) vor Geburtstag (28.).
+    assert [event["summary"] for event in state["events"]] == ["Zahnarzt", "Livia"]
+    assert state["events"][1]["birthday"] is True
+    # 'Nächster Termin' überspringt Geburtstage.
+    assert state["state"] == "Zahnarzt"
+
+    assert is_birthday_calendar("addressbook#contacts@group.v.calendar.google.com")
+    assert not is_birthday_calendar("primary")
