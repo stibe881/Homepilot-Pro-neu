@@ -35,7 +35,12 @@ from ..core.config import ConfigError, load_config
 from ..core.errors import HomePilotError, UnknownEntityError, UnsupportedCommandError
 from ..core.hub import Hub
 from ..core.source import as_source, user_source
-from ..core.streams import SEGMENT_NAME, StreamError, rewrite_playlist
+from ..core.streams import (
+    SEGMENT_NAME,
+    StreamError,
+    rewrite_playlist,
+    strip_low_latency,
+)
 from ..core.users import GUEST_FEATURES, Capability, Role, User, parse_users
 
 log = logging.getLogger(__name__)
@@ -350,6 +355,14 @@ def create_app(hub: Hub) -> FastAPI:
                 prefix,
                 request.query_params.get("token"),
             )
+            # Apple-Player (AVPlayer in der App, Safari) scheitern an den
+            # zitternden Part-Dauern der Protect-Kameras – sie bekommen die
+            # Liste ohne Low-Latency-Teile und spielen gewöhnliches HLS.
+            agent = request.headers.get("user-agent", "")
+            if "AppleCoreMedia" in agent or (
+                "Safari/" in agent and "Chrome" not in agent and "Android" not in agent
+            ):
+                text = strip_low_latency(text)
             content, media_type = text.encode(), "application/vnd.apple.mpegurl"
         return Response(
             content=content,
@@ -378,6 +391,9 @@ def create_app(hub: Hub) -> FastAPI:
             # gesehen also ein Verzeichnis tiefer.
             return await deliver(target, request, prefix="stream/")
         except StreamError as err:
+            # Auch ins Log: Die App zeigt nur «nicht verfügbar», die
+            # Ursache steht sonst nirgends.
+            log.warning("Live-Bild %s: %s", entity_id, err)
             raise HTTPException(status_code=502, detail=str(err)) from err
 
     @app.get("/api/entities/{entity_id}/stream/{name}")
@@ -393,6 +409,7 @@ def create_app(hub: Hub) -> FastAPI:
             # Unterlisten liegen im selben Verzeichnis wie ihre Häppchen.
             return await deliver(target, request, prefix="")
         except StreamError as err:
+            log.warning("Live-Bild %s (%s): %s", entity_id, name, err)
             raise HTTPException(status_code=404, detail=str(err)) from err
 
     @app.get("/api/entities/{entity_id}/history")

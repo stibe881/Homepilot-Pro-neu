@@ -78,6 +78,34 @@ SEGMENT_NAME = re.compile(r"[A-Za-z0-9_-]+\.(ts|mp4|m4s|m3u8)")
 # URI="…" in Kopfzeilen wie EXT-X-MAP, EXT-X-PART und EXT-X-PRELOAD-HINT.
 URI_ATTRIBUTE = re.compile(r'URI="([^"]+)"')
 
+# Die Low-Latency-Zutaten einer HLS-Liste. EXT-X-MAP gehört nicht dazu –
+# ohne die Initialisierung spielt auch gewöhnliches fMP4-HLS nicht.
+LL_TAGS = (
+    "#EXT-X-PART:",
+    "#EXT-X-PART-INF",
+    "#EXT-X-PRELOAD-HINT",
+    "#EXT-X-SERVER-CONTROL",
+    "#EXT-X-RENDITION-REPORT",
+)
+
+
+def strip_low_latency(text: str) -> str:
+    """Macht aus einer Low-Latency-Liste gewöhnliches HLS (rein, testbar).
+
+    Apple-Player verlangen, dass alle Bruchstücke exakt die angekündigte
+    Länge haben – die Zeitstempel der Protect-Kameras zittern aber um ±1 ms,
+    womit die Part-Dauer nie konstant ist und AVPlayer aussteigt. Ohne die
+    Part-Zeilen spielt derselbe Strom als gewöhnliches HLS mit ganzen
+    Sekunden-Häppchen: zwei, drei Sekunden Rückstand statt unter einer,
+    dafür zuverlässig. Browser bekommen weiterhin die schnelle Fassung.
+    """
+    return (
+        "\n".join(
+            line for line in text.splitlines() if not line.startswith(LL_TAGS)
+        )
+        + "\n"
+    )
+
 
 class StreamError(RuntimeError):
     """Der Strom liess sich nicht starten – mit erklärendem Text."""

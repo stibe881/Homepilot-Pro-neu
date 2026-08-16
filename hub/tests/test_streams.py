@@ -19,6 +19,7 @@ from homepilot.core.streams import (
     path_name,
     publish_command,
     rewrite_playlist,
+    strip_low_latency,
 )
 
 from .conftest import make_config
@@ -61,6 +62,41 @@ def test_publish_command_strips_audio_but_keeps_video():
     assert "-c copy" in command
     assert command.count("-rtsp_transport tcp") == 2  # lesen UND publizieren
     assert command.endswith("rtsp://127.0.0.1:8554/unifi_protect_x")
+
+
+def test_strip_low_latency_keeps_segments_and_map():
+    """Apple bekommt gewöhnliches HLS: Parts weg, Segmente und Init bleiben."""
+    text = strip_low_latency(
+        '#EXTM3U\n'
+        '#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES\n'
+        '#EXT-X-PART-INF:PART-TARGET=0.2\n'
+        '#EXT-X-MAP:URI="init.mp4"\n'
+        '#EXT-X-PART:DURATION=0.24,URI="part7.mp4"\n'
+        '#EXT-X-PRELOAD-HINT:TYPE=PART,URI="part8.mp4"\n'
+        '#EXTINF:1.000000,\n'
+        'segment3.mp4\n'
+    )
+    assert "PART" not in text
+    assert "SERVER-CONTROL" not in text
+    assert '#EXT-X-MAP:URI="init.mp4"' in text
+    assert "segment3.mp4" in text
+
+
+def test_apple_gets_playlist_without_low_latency_parts(tmp_path):
+    hub, patch = make_client(tmp_path)
+    (tmp_path / "index.m3u8").write_text(
+        '#EXTM3U\n#EXT-X-PART:DURATION=0.24,URI="part7.mp4"\nseg00001.ts\n'
+    )
+    with TestClient(create_app(hub)) as client:
+        patch()
+        url = "/api/entities/demo.light_livingroom/stream.m3u8?token=geheim"
+        fast = client.get(url, headers={"User-Agent": "hls.js"}).text
+        assert "EXT-X-PART" in fast
+        slow = client.get(
+            url, headers={"User-Agent": "AppleCoreMedia/1.0.0 (iPhone)"}
+        ).text
+        assert "EXT-X-PART" not in slow
+        assert "seg00001.ts" in slow
 
 
 def test_path_name_survives_mediamtx():
