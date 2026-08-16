@@ -339,6 +339,25 @@ def test_cast_reports_mute():
     assert "muted" not in cast_media_state("PLAYING", "X", None, "Spotify", 0.6)
 
 
+def test_spotify_parse_playlists():
+    from homepilot.integrations.spotify import parse_playlists
+
+    result = parse_playlists(
+        {
+            "items": [
+                {"name": "Chill", "uri": "spotify:playlist:1"},
+                {"name": "Party", "uri": "spotify:playlist:2"},
+                {"name": None, "uri": "spotify:playlist:3"},  # unvollständig → raus
+            ]
+        }
+    )
+    assert result == [
+        {"name": "Chill", "uri": "spotify:playlist:1"},
+        {"name": "Party", "uri": "spotify:playlist:2"},
+    ]
+    assert parse_playlists(None) == []
+
+
 def test_spotify_playback_reports_volume():
     state = parse_playback(
         {

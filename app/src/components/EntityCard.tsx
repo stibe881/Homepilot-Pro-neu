@@ -178,6 +178,23 @@ export function EntityCard({
                 <Ionicons name="volume-high" size={20} color={colors.inkSoft} />
               </View>
             ) : null}
+            {entity.commands.includes('play_playlist') &&
+            Array.isArray(entity.state.playlists) &&
+            entity.state.playlists.length > 0 ? (
+              <View style={styles.deviceRow}>
+                {(entity.state.playlists as string[]).slice(0, 12).map((name) => (
+                  <Pressable
+                    key={name}
+                    onPress={() => onCommand('play_playlist', { name })}
+                    style={styles.deviceChip}>
+                    <Ionicons name="musical-notes" size={12} color={colors.inkSoft} />
+                    <Text style={styles.deviceChipText} numberOfLines={1}>
+                      {name}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
             {entity.commands.includes('play_on') &&
             Array.isArray(entity.state.devices) &&
             entity.state.devices.length > 0 ? (

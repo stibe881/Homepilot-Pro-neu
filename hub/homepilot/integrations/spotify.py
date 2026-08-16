@@ -60,6 +60,17 @@ def parse_devices(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
     return devices
 
 
+def parse_playlists(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Übersetzt /me/playlists in [{name, uri}] (rein, testbar)."""
+    result = []
+    for item in (payload or {}).get("items") or []:
+        uri = item.get("uri")
+        name = item.get("name")
+        if uri and name:
+            result.append({"name": str(name), "uri": str(uri)})
+    return result
+
+
 def parse_playback(payload: dict[str, Any] | None) -> dict[str, Any]:
     """Übersetzt /me/player in Entitäts-Attribute.
 
@@ -110,14 +121,25 @@ class SpotifyIntegration(Integration):
             state={"state": "idle"},
             commands=[
                 "play", "pause", "toggle", "next", "previous", "play_on",
-                "set_volume", "volume_up", "volume_down", "mute",
+                "set_volume", "volume_up", "volume_down", "mute", "play_playlist",
             ],
             available=False,
         )
         # Gerätename → Spotify-Connect-ID, für play_on.
         self._device_ids: dict[str, str] = {}
+        # Name → Playlist-URI, für play_playlist.
+        self._playlists: list[dict[str, Any]] = []
+        await self._load_playlists()
         await self._refresh()
         self.start_task(self._poll_loop())
+
+    async def _load_playlists(self) -> None:
+        """Playlisten des Kontos holen (ändern sich selten – einmal beim Start)."""
+        try:
+            payload = await self._call("GET", "/me/playlists?limit=50")
+            self._playlists = parse_playlists(payload)
+        except Exception as err:
+            self.log.debug("Spotify-Playlisten nicht abrufbar: %s", err)
 
     # ── Anmeldung ──────────────────────────────────────────────────────────
 
@@ -175,6 +197,7 @@ class SpotifyIntegration(Integration):
         self._device_ids = {device["name"]: device["id"] for device in devices}
         state = parse_playback(payload)
         state["devices"] = [device["name"] for device in devices]
+        state["playlists"] = [p["name"] for p in self._playlists]
         await self.hub.registry.update_state(entity_id, state, available=True)
 
     # ── Hub → Spotify ──────────────────────────────────────────────────────
@@ -191,6 +214,23 @@ class SpotifyIntegration(Integration):
             await self._call("PUT", "/me/player", json={"device_ids": [device_id], "play": True})
             await self._refresh()
             return
+        if command == "play_playlist":
+            name = str(data.get("name", ""))
+            uri = data.get("uri") or next(
+                (p["uri"] for p in self._playlists if p["name"] == name), None
+            )
+            if not uri:
+                raise ValueError(f"Unbekannte Playlist '{name}'")
+            body: dict[str, Any] = {"context_uri": uri}
+            # Auf ein bestimmtes Gerät, sonst auf das gerade aktive.
+            device_id = self._device_ids.get(str(data.get("device", "")))
+            path = "/me/player/play"
+            if device_id:
+                path += f"?device_id={device_id}"
+            await self._call("PUT", path, json=body)
+            await self._refresh()
+            return
+
         if command == "toggle":
             command = "pause" if entity.state.get("state") == "playing" else "play"
 

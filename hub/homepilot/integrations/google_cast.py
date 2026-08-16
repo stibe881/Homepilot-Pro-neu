@@ -180,6 +180,14 @@ class GoogleCastIntegration(Integration):
         controller = cast.media_controller
 
         if command == "play":
+            if entity.state.get("state") not in ("paused", "playing"):
+                # Play kann nur fortsetzen, was schon läuft/pausiert ist – auf
+                # einem leeren Gerät gibt es nichts zu starten.
+                raise ConfigError(
+                    "Auf diesem Gerät läuft gerade nichts. Starte die Wiedergabe "
+                    "aus einer App (Spotify, YouTube) heraus – dann steuert die "
+                    "Kachel Play/Pause und Lautstärke."
+                )
             await asyncio.to_thread(controller.play)
         elif command == "pause":
             await asyncio.to_thread(controller.pause)
