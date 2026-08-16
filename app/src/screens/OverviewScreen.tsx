@@ -26,6 +26,9 @@ interface Props {
   onActivateScene: (sceneId: string) => void;
   /** Auf der Startseite markierte Countdowns (aus dem Familie-Modul). */
   countdowns?: { text: string; date: string; on_start?: boolean }[];
+  /** Strompreis für die Energie-Kachel, z.B. 0.32 CHF/kWh. */
+  pricePerKwh?: number;
+  currency?: string;
 }
 
 const WEEKDAYS = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
@@ -36,6 +39,21 @@ const MONTHS = [
 
 function two(value: number): string {
   return value < 10 ? `0${value}` : String(value);
+}
+
+const SHORT_DAYS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+
+/** «2026-08-18» → «Di» (rein, testbar). Heute/Morgen werden benannt. */
+function shortDay(iso: string): string {
+  const date = new Date(`${iso}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return iso;
+  const today = new Date();
+  const diff = Math.round(
+    (date.setHours(0, 0, 0, 0) - today.setHours(0, 0, 0, 0)) / 86_400_000
+  );
+  if (diff === 0) return 'Heute';
+  if (diff === 1) return 'Morgen';
+  return SHORT_DAYS[new Date(`${iso}T12:00:00`).getDay()];
 }
 
 /** Erstes Gerät, das auf Art und (optional) Namensmuster passt. */
@@ -62,6 +80,8 @@ export function OverviewScreen({
   onCommand,
   onActivateScene,
   countdowns,
+  pricePerKwh,
+  currency = 'CHF',
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -88,6 +108,36 @@ export function OverviewScreen({
     players.find((e) => e.commands.includes('play_playlist')) ??
     players[0];
   const covers = entities.filter((e) => e.kind === 'cover');
+
+  // Wetter-Vorhersage: die nächsten drei Tage (heute überspringen).
+  const forecastDays: any[] = Array.isArray(weather?.state.days) ? weather!.state.days : [];
+  const next3 = forecastDays.slice(1, 4);
+
+  // Energie: aktuelle Gesamtleistung aller messenden Geräte plus Kosten/Stunde.
+  const powerDevices = entities.filter((e) => typeof e.state.power === 'number');
+  const totalWatts = Math.round(
+    powerDevices.reduce((sum, e) => sum + Number(e.state.power ?? 0), 0)
+  );
+  const costPerHour =
+    pricePerKwh != null ? (totalWatts / 1000) * pricePerKwh : null;
+  const topConsumer = powerDevices
+    .slice()
+    .sort((a, b) => Number(b.state.power ?? 0) - Number(a.state.power ?? 0))[0];
+
+  // Nachtmodus: Storen zu, Lichter aus, Wohnungstür abschliessen.
+  const lights = entities.filter(
+    (e) => e.kind === 'light' || (e.kind === 'switch' && e.commands.includes('turn_off'))
+  );
+  const nightScene = scenes.find((scene) => /nacht|schlaf/i.test(scene.name));
+  const activateNight = () => {
+    if (nightScene) {
+      onActivateScene(nightScene.id);
+      return;
+    }
+    covers.forEach((c) => onCommand(c.id, 'close'));
+    lights.forEach((l) => onCommand(l.id, 'turn_off'));
+    if (flatDoor) onCommand(flatDoor.id, 'lock');
+  };
 
   // Schnellaktionen: alle im Szenen-Editor für die Startseite markierten
   // Szenen. Solange keine markiert ist, springen «Kino» und «Schlafen»
@@ -269,6 +319,78 @@ export function OverviewScreen({
           «Als Schnellaktion anzeigen» wählen – dann erscheinen sie hier.
         </Text>
       ) : null}
+
+      {/* Übersicht: Wettervorhersage, aktueller Verbrauch, Nachtmodus */}
+      <Text style={styles.groupLabel}>Übersicht</Text>
+      {next3.length > 0 ? (
+        <Card style={styles.forecastCard}>
+          <View style={styles.tileHead}>
+            <Ionicons name="calendar-clear-outline" size={18} color={colors.inkSoft} />
+            <Text style={styles.tileTitle}>Wetter · nächste Tage</Text>
+          </View>
+          <View style={styles.forecastRow}>
+            {next3.map((day) => (
+              <View key={day.date} style={styles.forecastDay}>
+                <Text style={styles.forecastName}>{shortDay(day.date)}</Text>
+                <Ionicons
+                  name={(day.icon as any) ?? 'cloud-outline'}
+                  size={24}
+                  color={colors.ink}
+                />
+                <Text style={styles.forecastHigh}>
+                  {day.high != null ? `${day.high}°` : '–'}
+                </Text>
+                {day.low != null ? (
+                  <Text style={styles.forecastLow}>{day.low}°</Text>
+                ) : null}
+                {day.rain != null ? (
+                  <View style={styles.forecastRainRow}>
+                    <Ionicons name="water-outline" size={11} color={colors.inkFaint} />
+                    <Text style={styles.forecastRain}>{day.rain}%</Text>
+                  </View>
+                ) : null}
+              </View>
+            ))}
+          </View>
+        </Card>
+      ) : null}
+      <View style={styles.tileRow}>
+        <Tile
+          styles={styles}
+          colors={colors}
+          width={tileWidth}
+          icon="flash-outline"
+          title="Energie jetzt"
+          demo={powerDevices.length === 0}
+        >
+          <Text style={styles.tileState}>{totalWatts} W</Text>
+          {costPerHour != null ? (
+            <Text style={styles.tileSub}>≈ {costPerHour.toFixed(2)} {currency}/h</Text>
+          ) : null}
+          {topConsumer ? (
+            <Text style={styles.tileSub} numberOfLines={1}>
+              Grösster: {topConsumer.name}
+            </Text>
+          ) : null}
+        </Tile>
+        <Tile
+          styles={styles}
+          colors={colors}
+          width={tileWidth}
+          icon="moon-outline"
+          title="Nachtmodus"
+        >
+          <Text style={styles.tileState} numberOfLines={1}>
+            {nightScene ? nightScene.name : 'Storen zu · Licht aus'}
+          </Text>
+          <Action
+            styles={styles}
+            label="Aktivieren"
+            icon="moon-outline"
+            onPress={activateNight}
+          />
+        </Tile>
+      </View>
 
       {/* Morgens interessiert zuerst der Tag (Termine, Musik), abends die
           Wohnung (Zugang, Haushalt) – die Blöcke tauschen je nach Uhrzeit. */}
@@ -761,6 +883,15 @@ const makeStyles = (colors: Colors) =>
     tileTitle: { color: colors.inkSoft, fontSize: 13, fontWeight: '700', flex: 1 },
     tileState: { color: colors.ink, fontSize: 16, fontWeight: '600' },
     tileSub: { color: colors.inkSoft, fontSize: 13 },
+
+    forecastCard: { minHeight: 0, gap: 10 },
+    forecastRow: { flexDirection: 'row', justifyContent: 'space-around' },
+    forecastDay: { alignItems: 'center', gap: 3, flex: 1 },
+    forecastName: { color: colors.inkSoft, fontSize: 12, fontWeight: '700' },
+    forecastHigh: { color: colors.ink, fontSize: 15, fontWeight: '700' },
+    forecastLow: { color: colors.inkFaint, fontSize: 12 },
+    forecastRainRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+    forecastRain: { color: colors.inkFaint, fontSize: 11 },
 
     badge: {
       backgroundColor: colors.track,

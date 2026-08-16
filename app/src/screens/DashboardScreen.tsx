@@ -396,6 +396,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               onCommand={sendCommand}
               onActivateScene={activateScene}
               countdowns={startCountdowns}
+              pricePerKwh={energy?.price_per_kwh}
+              currency={energy?.currency ?? 'CHF'}
             />
           </View>
           <SidePanel entities={entities} width={hasSidePanel ? PANEL_WIDTH : undefined} />
