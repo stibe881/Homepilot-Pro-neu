@@ -94,9 +94,9 @@ nur, solange jemand zuschaut. Dafür gibt es zwei Wege:
   Millisekunden statt ganzer Sekunden-Häppchen. Rückstand: **unter einer
   Sekunde**. Der Dienst steht als Container `homepilot-mediamtx` im Stack
   (docker-compose.portainer.yml) und startet beim nächsten
-  **Update the stack → Deploy** automatisch mit; seine Konfiguration liegt
-  in `deploy/mediamtx.yml` und muss nicht angepasst werden – der Hub legt
-  die Kamerapfade selbst über die Steuer-API an.
+  **Update the stack → Deploy** automatisch mit; konfiguriert ist er über
+  Umgebungsvariablen direkt im Compose-File – der Hub legt die Kamerapfade
+  selbst über die Steuer-API an, anzupassen gibt es nichts.
 - **ffmpeg** (Rückfall): läuft mediamtx nicht, packt der Hub selbst mit
   ffmpeg um – gleiches Bild, rund zwei Sekunden Rückstand.
 

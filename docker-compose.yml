@@ -47,8 +47,23 @@ services:
     container_name: homepilot-mediamtx
     restart: unless-stopped
     network_mode: host
-    volumes:
-      - ./deploy/mediamtx.yml:/mediamtx.yml:ro
+    # Konfiguration über Umgebungsvariablen – erklärt in
+    # docker-compose.portainer.yml, dort steht dieselbe Liste.
+    environment:
+      - MTX_API=yes
+      - MTX_APIADDRESS=127.0.0.1:9997
+      - MTX_RTSP=no
+      - MTX_RTMP=no
+      - MTX_SRT=no
+      - MTX_WEBRTC=no
+      - MTX_HLS=yes
+      - MTX_HLSADDRESS=127.0.0.1:8888
+      - MTX_HLSVARIANT=lowLatency
+      - MTX_HLSSEGMENTCOUNT=7
+      - MTX_HLSSEGMENTDURATION=1s
+      - MTX_HLSPARTDURATION=200ms
+      - MTX_HLSALLOWORIGIN=*
+      - MTX_HLSALWAYSREMUX=no
 
   # Matter-Controller – nur nötig, wenn die matter-Integration aktiv ist.
   # Hält die Fabric (Schlüssel, Zertifikate) in einem eigenen Volume; der

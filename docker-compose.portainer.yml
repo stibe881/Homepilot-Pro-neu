@@ -66,8 +66,28 @@ services:
     # Gleiches Netz wie der Hub: Er spricht den Dienst über 127.0.0.1 an,
     # und die Kameras sind direkt erreichbar.
     network_mode: host
-    volumes:
-      - ./deploy/mediamtx.yml:/mediamtx.yml:ro
+    # Komplett über Umgebungsvariablen konfiguriert statt über eine
+    # gemountete Datei: Bind-Mounts einzelner Dateien scheitern bei
+    # Portainer-Repository-Stacks auf Snap-Docker an der Pfadauflösung.
+    environment:
+      # Steuer-API nur für den Hub auf demselben Rechner.
+      - MTX_API=yes
+      - MTX_APIADDRESS=127.0.0.1:9997
+      # Nur HLS anbieten – Kameras anzapfen geht auch ohne eigene Server.
+      - MTX_RTSP=no
+      - MTX_RTMP=no
+      - MTX_SRT=no
+      - MTX_WEBRTC=no
+      - MTX_HLS=yes
+      - MTX_HLSADDRESS=127.0.0.1:8888
+      # Low-Latency-HLS: 200-ms-Bruchstücke → unter einer Sekunde Rückstand.
+      - MTX_HLSVARIANT=lowLatency
+      - MTX_HLSSEGMENTCOUNT=7
+      - MTX_HLSSEGMENTDURATION=1s
+      - MTX_HLSPARTDURATION=200ms
+      - MTX_HLSALLOWORIGIN=*
+      # Nicht auf Vorrat umpacken: erst wenn jemand zuschaut.
+      - MTX_HLSALWAYSREMUX=no
 
   # Matter-Controller – Kommentarzeichen entfernen, wenn die
   # matter-Integration in der config.yaml aktiv ist.

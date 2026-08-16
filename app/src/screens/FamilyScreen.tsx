@@ -591,43 +591,408 @@ function TwoFieldForm({
   );
 }
 
-/** Rezept: Titel antippen klappt die Zubereitung auf. */
+// ── Rezeptbuch ──────────────────────────────────────────────────────────────
+
+const DIFFICULTY_LABELS: Record<string, string> = {
+  easy: 'leicht',
+  leicht: 'leicht',
+  medium: 'mittel',
+  mittel: 'mittel',
+  hard: 'anspruchsvoll',
+  schwer: 'anspruchsvoll',
+};
+
+/** «1 Std. 30 Min.» aus Minuten – 360 Minuten liest niemand gern. */
+function minutesLabel(value: any): string | null {
+  const minutes = Number(value);
+  if (!Number.isFinite(minutes) || minutes <= 0) return null;
+  const hours = Math.floor(minutes / 60);
+  const rest = Math.round(minutes % 60);
+  if (hours === 0) return `${rest} Min.`;
+  return rest ? `${hours} Std. ${rest} Min.` : `${hours} Std.`;
+}
+
+/** Tipps/Hinweise/Notizen kommen mal als Text, mal als Liste, mal als
+ *  Liste von {text} – alles auf saubere Zeilen bringen. */
+function listOfTexts(value: any): string[] {
+  if (!value) return [];
+  return (Array.isArray(value) ? value : [value])
+    .map((entry) => (typeof entry === 'string' ? entry : String(entry?.text ?? '')))
+    .map((text) => text.trim())
+    .filter(Boolean);
+}
+
+/** «250 ml» bzw. «ein Schuss» vor dem Zutatennamen. */
+function amountLabel(ingredient: any): string {
+  let amount: any = ingredient?.amount;
+  if (typeof amount === 'number') {
+    amount = Number.isInteger(amount) ? String(amount) : String(amount).replace('.', ',');
+  }
+  return [amount, ingredient?.unit].filter(Boolean).join(' ').trim();
+}
+
+/** Zutaten in der Reihenfolge ihrer Gruppen («Die Basis», «Die Würze» …). */
+function ingredientGroups(ingredients: any[]): { label: string; items: any[] }[] {
+  const groups: { label: string; items: any[] }[] = [];
+  for (const ingredient of ingredients) {
+    const label = String(ingredient?.category ?? '').trim();
+    const last = groups[groups.length - 1];
+    if (last && last.label === label) last.items.push(ingredient);
+    else groups.push({ label, items: [ingredient] });
+  }
+  return groups;
+}
+
+/** Rezept: Titel antippen klappt alles auf – Bild, Zeiten, Zutaten nach
+ *  Gruppen, nummerierte Zubereitung, Tipps. Der Stern merkt Favoriten. */
 function RecipeCard({
   recipe,
   onDelete,
+  onToggleFavorite,
   styles,
   colors,
 }: {
   recipe: any;
   onDelete: () => void;
+  onToggleFavorite: () => void;
   styles: Styles;
   colors: Colors;
 }) {
   const [open, setOpen] = useState(false);
+  const ingredients: any[] = Array.isArray(recipe.ingredients) ? recipe.ingredients : [];
+  const instructions: any[] = Array.isArray(recipe.instructions) ? recipe.instructions : [];
+  const meta = [
+    recipe.servings ? `${recipe.servings} Portionen` : null,
+    minutesLabel(recipe.prep_time) ? `Vorbereitung ${minutesLabel(recipe.prep_time)}` : null,
+    minutesLabel(recipe.cook_time) ? `Kochzeit ${minutesLabel(recipe.cook_time)}` : null,
+    minutesLabel(recipe.rest_time) ? `Ruhezeit ${minutesLabel(recipe.rest_time)}` : null,
+    DIFFICULTY_LABELS[String(recipe.difficulty ?? '').toLowerCase()] ?? null,
+  ].filter(Boolean) as string[];
+  const labels = Array.from(
+    new Set(
+      [recipe.category, ...(Array.isArray(recipe.tags) ? recipe.tags : [])]
+        .map((tag) => String(tag ?? '').trim())
+        .filter(Boolean)
+    )
+  );
+  const extras: { title: string; lines: string[] }[] = [
+    { title: 'Tipps', lines: listOfTexts(recipe.tips) },
+    { title: 'Hinweise', lines: listOfTexts(recipe.hints) },
+    { title: 'Notizen', lines: listOfTexts(recipe.notes) },
+  ].filter((section) => section.lines.length > 0);
+
   return (
     <Card style={styles.pinCard}>
       <View style={styles.recipeHead}>
         <Pressable
+          onPress={onToggleFavorite}
+          accessibilityRole="button"
+          accessibilityLabel={recipe.favorite ? 'Favorit entfernen' : 'Als Favorit merken'}
+          style={styles.deleteTap}
+        >
+          <Ionicons
+            name={recipe.favorite ? 'star' : 'star-outline'}
+            size={17}
+            color={recipe.favorite ? colors.warn : colors.inkFaint}
+          />
+        </Pressable>
+        <Pressable
           onPress={() => setOpen((value) => !value)}
           style={[styles.recipeHead, { flex: 1 }]}
         >
+          <View style={{ flex: 1 }}>
+            <Text style={styles.checkText}>{recipe.text}</Text>
+            {labels.length > 0 ? (
+              <Text style={styles.recipeTags}>{labels.join(' · ')}</Text>
+            ) : null}
+          </View>
           <Ionicons
             name={open ? 'chevron-down' : 'chevron-forward'}
             size={16}
             color={colors.inkSoft}
           />
-          <Text style={[styles.checkText, { flex: 1 }]}>{recipe.text}</Text>
         </Pressable>
         <Pressable onPress={onDelete} style={styles.deleteTap}>
           <Ionicons name="trash-outline" size={16} color={colors.inkFaint} />
         </Pressable>
       </View>
-      {open && recipe.body ? (
-        <Text selectable style={styles.recipeBody}>
-          {recipe.body}
-        </Text>
+
+      {open ? (
+        <View style={styles.recipeDetail}>
+          {recipe.image_url ? (
+            <Image
+              source={{ uri: String(recipe.image_url) }}
+              style={styles.recipeImage}
+              resizeMode="cover"
+            />
+          ) : null}
+          {recipe.description ? (
+            <Text selectable style={styles.recipeBody}>
+              {String(recipe.description)}
+            </Text>
+          ) : null}
+          {meta.length > 0 ? <Text style={styles.recipeMeta}>{meta.join(' · ')}</Text> : null}
+
+          {ingredients.length > 0 ? (
+            <View style={styles.recipeSection}>
+              <Text style={styles.recipeSectionTitle}>Zutaten</Text>
+              {ingredientGroups(ingredients).map((group, index) => (
+                <View key={`${group.label}-${index}`}>
+                  {group.label ? (
+                    <Text style={styles.recipeGroup}>{group.label}</Text>
+                  ) : null}
+                  {group.items.map((ingredient, i) => (
+                    <Text key={i} selectable style={styles.recipeLine}>
+                      •{' '}
+                      {[amountLabel(ingredient), String(ingredient?.name ?? '').trim()]
+                        .filter(Boolean)
+                        .join(' ')}
+                    </Text>
+                  ))}
+                </View>
+              ))}
+            </View>
+          ) : null}
+
+          {instructions.length > 0 ? (
+            <View style={styles.recipeSection}>
+              <Text style={styles.recipeSectionTitle}>Zubereitung</Text>
+              {instructions.map((step, index) => {
+                const text = typeof step === 'string' ? step : String(step?.text ?? '');
+                const time =
+                  typeof step === 'object' && step ? String(step.time ?? '').trim() : '';
+                return (
+                  <Text key={index} selectable style={styles.recipeStep}>
+                    {index + 1}. {text.trim()}
+                    {time ? ` (${time})` : ''}
+                  </Text>
+                );
+              })}
+            </View>
+          ) : null}
+
+          {extras.map((section) => (
+            <View key={section.title} style={styles.recipeSection}>
+              <Text style={styles.recipeSectionTitle}>{section.title}</Text>
+              {section.lines.map((line, index) => (
+                <Text key={index} selectable style={styles.recipeLine}>
+                  • {line}
+                </Text>
+              ))}
+            </View>
+          ))}
+
+          {recipe.source_url ? (
+            <Pressable
+              onPress={() => Linking.openURL(String(recipe.source_url)).catch(() => {})}
+            >
+              <Text style={styles.recipeSource}>Quelle: {String(recipe.source_url)}</Text>
+            </Pressable>
+          ) : null}
+
+          {/* Alte Freitext-Rezepte bleiben lesbar. */}
+          {recipe.body && ingredients.length === 0 && instructions.length === 0 ? (
+            <Text selectable style={styles.recipeBody}>
+              {recipe.body}
+            </Text>
+          ) : null}
+        </View>
       ) : null}
     </Card>
+  );
+}
+
+// Einheiten, die beim Erfassen als «Menge Einheit Name» erkannt werden.
+const UNITS = new Set([
+  'g', 'kg', 'mg', 'ml', 'cl', 'dl', 'l',
+  'el', 'tl', 'msp', 'prise', 'prisen', 'schuss',
+  'stk', 'stück', 'bund', 'pack', 'päckchen', 'päckli', 'würfel',
+  'tasse', 'tassen', 'becher', 'dose', 'dosen', 'glas',
+  'zweig', 'zweige', 'blatt', 'blätter', 'scheibe', 'scheiben', 'zehe', 'zehen',
+]);
+
+/** «250 ml Ketchup» → {amount, unit, name}; «Die Würze:» eröffnet eine
+ *  Gruppe. Was nicht passt, bleibt unverändert der Zutatenname. */
+function parseIngredients(text: string): any[] {
+  const result: any[] = [];
+  let category = '';
+  for (const raw of text.split('\n')) {
+    const line = raw.replace(/^[-•*]\s*/, '').trim();
+    if (!line) continue;
+    if (line.endsWith(':')) {
+      category = line.slice(0, -1).trim();
+      continue;
+    }
+    const entry: any = { name: line };
+    const match = line.match(/^(\d+(?:[.,]\d+)?)\s+(\S+)\s+(.+)$/);
+    if (match && UNITS.has(match[2].toLowerCase().replace(/\.$/, ''))) {
+      entry.amount = Number(match[1].replace(',', '.'));
+      entry.unit = match[2];
+      entry.name = match[3];
+    } else {
+      // «2 Zwiebeln»: Zahl ja, Einheit nein.
+      const short = line.match(/^(\d+(?:[.,]\d+)?)\s+(.+)$/);
+      if (short) {
+        entry.amount = Number(short[1].replace(',', '.'));
+        entry.name = short[2];
+      }
+    }
+    if (category) entry.category = category;
+    result.push(entry);
+  }
+  return result;
+}
+
+/** Zeilen → Schritte; führende Nummerierungen («1.», «2)») fallen weg. */
+function parseSteps(text: string): { text: string }[] {
+  return text
+    .split('\n')
+    .map((line) => line.replace(/^\s*\d+[.)]\s*/, '').trim())
+    .filter(Boolean)
+    .map((line) => ({ text: line }));
+}
+
+/** Erfassen eines Rezepts mit allem, was die Karte anzeigen kann. */
+function RecipeForm({
+  onAdd,
+  styles,
+  colors,
+}: {
+  onAdd: (recipe: Record<string, any>) => void;
+  styles: Styles;
+  colors: Colors;
+}) {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [category, setCategory] = useState('');
+  const [servings, setServings] = useState('');
+  const [prep, setPrep] = useState('');
+  const [cook, setCook] = useState('');
+  const [rest, setRest] = useState('');
+  const [ingredients, setIngredients] = useState('');
+  const [steps, setSteps] = useState('');
+  const [tips, setTips] = useState('');
+
+  const submit = () => {
+    if (!title.trim()) return;
+    const recipe: Record<string, any> = { text: title.trim() };
+    if (description.trim()) recipe.description = description.trim();
+    if (category.trim()) recipe.category = category.trim();
+    for (const [key, value] of [
+      ['servings', servings],
+      ['prep_time', prep],
+      ['cook_time', cook],
+      ['rest_time', rest],
+    ] as const) {
+      const parsed = Number(String(value).replace(',', '.'));
+      if (Number.isFinite(parsed) && parsed > 0) recipe[key] = parsed;
+    }
+    const parsedIngredients = parseIngredients(ingredients);
+    if (parsedIngredients.length > 0) recipe.ingredients = parsedIngredients;
+    const parsedSteps = parseSteps(steps);
+    if (parsedSteps.length > 0) recipe.instructions = parsedSteps;
+    const parsedTips = parseSteps(tips).map((step) => step.text);
+    if (parsedTips.length > 0) recipe.tips = parsedTips;
+    onAdd(recipe);
+    setTitle('');
+    setDescription('');
+    setCategory('');
+    setServings('');
+    setPrep('');
+    setCook('');
+    setRest('');
+    setIngredients('');
+    setSteps('');
+    setTips('');
+  };
+
+  return (
+    <View style={styles.formCard}>
+      <TextInput
+        style={styles.input}
+        value={title}
+        onChangeText={setTitle}
+        placeholder="Gericht"
+        placeholderTextColor={colors.inkFaint}
+      />
+      <TextInput
+        style={styles.input}
+        value={description}
+        onChangeText={setDescription}
+        placeholder="Kurzbeschreibung (optional)"
+        placeholderTextColor={colors.inkFaint}
+      />
+      <View style={styles.formRow}>
+        <TextInput
+          style={[styles.input, { flex: 1.4 }]}
+          value={category}
+          onChangeText={setCategory}
+          placeholder="Kategorie"
+          placeholderTextColor={colors.inkFaint}
+        />
+        <TextInput
+          style={[styles.input, { flex: 1 }]}
+          value={servings}
+          onChangeText={setServings}
+          placeholder="Portionen"
+          placeholderTextColor={colors.inkFaint}
+          keyboardType="numeric"
+        />
+      </View>
+      <View style={styles.formRow}>
+        <TextInput
+          style={[styles.input, { flex: 1 }]}
+          value={prep}
+          onChangeText={setPrep}
+          placeholder="Vorber. Min."
+          placeholderTextColor={colors.inkFaint}
+          keyboardType="numeric"
+        />
+        <TextInput
+          style={[styles.input, { flex: 1 }]}
+          value={cook}
+          onChangeText={setCook}
+          placeholder="Kochen Min."
+          placeholderTextColor={colors.inkFaint}
+          keyboardType="numeric"
+        />
+        <TextInput
+          style={[styles.input, { flex: 1 }]}
+          value={rest}
+          onChangeText={setRest}
+          placeholder="Ruhen Min."
+          placeholderTextColor={colors.inkFaint}
+          keyboardType="numeric"
+        />
+      </View>
+      <TextInput
+        style={[styles.input, { minHeight: 90 }]}
+        value={ingredients}
+        onChangeText={setIngredients}
+        placeholder={'Zutaten – eine pro Zeile:\n250 ml Ketchup\nDie Würze:\n1 TL Paprikapulver'}
+        placeholderTextColor={colors.inkFaint}
+        multiline
+      />
+      <TextInput
+        style={[styles.input, { minHeight: 90 }]}
+        value={steps}
+        onChangeText={setSteps}
+        placeholder="Zubereitung – ein Schritt pro Zeile"
+        placeholderTextColor={colors.inkFaint}
+        multiline
+      />
+      <TextInput
+        style={[styles.input, { minHeight: 50 }]}
+        value={tips}
+        onChangeText={setTips}
+        placeholder="Tipps (optional, einer pro Zeile)"
+        placeholderTextColor={colors.inkFaint}
+        multiline
+      />
+      <Pressable onPress={submit} style={styles.addWide}>
+        <Text style={styles.addWideText}>Hinzufügen</Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -1148,7 +1513,10 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
   }
 
   if (view === 'recipes') {
-    const recipes: any[] = data.recipes ?? [];
+    // Favoriten zuoberst, sonst in der Reihenfolge des Anlegens.
+    const recipes: any[] = [...(data.recipes ?? [])].sort(
+      (a, b) => Number(!!b.favorite) - Number(!!a.favorite)
+    );
     return (
       <View style={styles.stack}>
         <BackHead title="Rezeptbuch" onBack={goBack} styles={styles} colors={colors} />
@@ -1157,14 +1525,15 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
             key={recipe.id}
             recipe={recipe}
             onDelete={() => remove('recipes', recipe.id)}
+            onToggleFavorite={() =>
+              update('recipes', recipe.id, { favorite: !recipe.favorite })
+            }
             styles={styles}
             colors={colors}
           />
         ))}
-        <TwoFieldForm
-          labels={['Gericht', 'Zutaten / Zubereitung']}
-          multilineSecond
-          onAdd={(text, body) => add('recipes', { text, body })}
+        <RecipeForm
+          onAdd={(recipe) => add('recipes', recipe)}
           styles={styles}
           colors={colors}
         />
@@ -1500,5 +1869,33 @@ const makeStyles = (colors: Colors) =>
       justifyContent: 'center',
     },
     recipeHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    recipeBody: { color: colors.inkSoft, fontSize: 14, lineHeight: 20, paddingLeft: 24 },
+    recipeBody: { color: colors.inkSoft, fontSize: 14, lineHeight: 20 },
+    recipeTags: { color: colors.inkFaint, fontSize: 12, marginTop: 1 },
+    recipeDetail: { gap: 10, paddingTop: 2 },
+    recipeImage: {
+      width: '100%',
+      aspectRatio: 16 / 9,
+      borderRadius: radius.control,
+      backgroundColor: colors.surfaceSoft,
+    },
+    recipeMeta: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
+    recipeSection: { gap: 3 },
+    recipeSectionTitle: {
+      color: colors.ink,
+      fontSize: 13,
+      fontWeight: '700',
+      textTransform: 'uppercase',
+      letterSpacing: 0.6,
+      marginBottom: 2,
+    },
+    recipeGroup: {
+      color: colors.inkSoft,
+      fontSize: 13,
+      fontWeight: '700',
+      marginTop: 4,
+    },
+    recipeLine: { color: colors.inkSoft, fontSize: 14, lineHeight: 21 },
+    recipeStep: { color: colors.inkSoft, fontSize: 14, lineHeight: 21, marginBottom: 4 },
+    recipeSource: { color: colors.accent, fontSize: 13 },
+    formRow: { flexDirection: 'row', gap: 8 },
   });
