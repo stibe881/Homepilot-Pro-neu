@@ -147,7 +147,7 @@ Nachbesserungen bei Zugangsdaten und Feldnamen.
 | `unifi` | Anwesenheit über verbundene Clients, UniFi OS und Standalone |
 | `twinkly` | Lokale REST-API mit Challenge-Response-Anmeldung |
 | `vzug` | Lokale Home-API, nur lesend (Status, Programm, Restlaufzeit) |
-| `unifi_protect` | Kameras: eigener Menüpunkt „Kameras", Live-Bild im Vollbild (RTSP → HLS über ffmpeg, ohne Neucodierung), Bewegung und Klingeln live über den Ereignisstrom ([Einrichtung](docs/kameras.md)) |
+| `unifi_protect` | Kameras: eigener Menüpunkt „Kameras", Live-Bild im Vollbild mit unter einer Sekunde Rückstand (RTSP → Low-Latency-HLS über mediamtx, ffmpeg als Rückfall, ohne Neucodierung), Bewegung und Klingeln live über den Ereignisstrom ([Einrichtung](docs/kameras.md)) |
 | `hue_sync` | Hue Play HDMI Sync Box: Sync an/aus, Modus und Eingang |
 | `spotify` | Was gerade läuft, Play/Pause/Weiter, Lautstärke und Stumm, und die Wiedergabe per Tipp auf einen anderen Lautsprecher umziehen (Spotify Connect – Google-Home-Lautsprecher tauchen dort automatisch auf) |
 | `roborock` | Sauger über das Roborock-Konto: Zustand, Akku, start/pause/dock, Saugstärke und „Sauger finden"; Räume direkt auf der Karte antippen und einzeln oder zu mehreren saugen lassen (`pip install "homepilot[roborock]"`) |

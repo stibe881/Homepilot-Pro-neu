@@ -40,6 +40,16 @@ services:
       retries: 3
       start_period: 20s
 
+  # Live-Bild der Kameras (RTSP → Low-Latency-HLS, ohne Neucodierung).
+  # Ohne diesen Dienst fällt der Hub auf ffmpeg zurück.
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: homepilot-mediamtx
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./deploy/mediamtx.yml:/mediamtx.yml:ro
+
   # Matter-Controller – nur nötig, wenn die matter-Integration aktiv ist.
   # Hält die Fabric (Schlüssel, Zertifikate) in einem eigenen Volume; der
   # Hub spricht ihn über ws://127.0.0.1:5580/ws an. host-Netz und Bluetooth

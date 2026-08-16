@@ -1,35 +1,74 @@
 """Live-Video: RTSP der Kamera → HLS für die App.
 
-Kameras liefern RTSP(S) – das spielt keine App direkt ab. ffmpeg packt den
-Videostrom deshalb ohne Neucodierung (``-c copy``, also praktisch ohne
-Rechenlast) in kleine HLS-Häppchen, die der Hub wie eine Webseite ausliefert.
-iPhone und iPad spielen HLS von Haus aus.
+Kameras liefern RTSP(S) – das spielt keine App direkt ab. Umgepackt wird es
+auf zwei Wegen, je nachdem, was auf dem Rechner läuft:
 
-Gestartet wird erst, wenn jemand hinschaut, und wieder gestoppt, sobald ein
-paar Sekunden niemand mehr Häppchen abholt – eine dauerhaft laufende
-Umwandlung pro Kamera würde den Hub sonst rund um die Uhr beschäftigen.
+**mediamtx** (bevorzugt) beherrscht Low-Latency-HLS: Statt ganzer Häppchen
+liefert es Bruchstücke von 200 Millisekunden, und der Player fragt blockierend
+nach dem nächsten, statt in Intervallen zu pollen. Das drückt den Rückstand
+von rund zwei Sekunden auf unter eine. Apple hat das Verfahren in iOS
+eingebaut, hls.js im Browser kann es ebenfalls – die App braucht also nichts
+Neues. mediamtx zieht den Kamerastrom erst, wenn jemand zuschaut.
+
+**ffmpeg** ist der Rückfall, wenn mediamtx nicht läuft. Gleiches Ergebnis,
+nur mit gewöhnlichem HLS und entsprechend mehr Rückstand.
+
+In beiden Fällen geht die Wiedergabeliste durch den Hub: Er kennt die
+Sichtbarkeitsregeln, und so bleibt es beim gewohnten Token statt eines
+zweiten, ungeschützten Zugangs zum Videostrom.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import shutil
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
+
+import aiohttp
 
 log = logging.getLogger(__name__)
 
-# Ein Häppchen pro Sekunde, sechs davon in der Liste: kurzer Rückstand
-# (~3–5 Sekunden), aber genug Puffer für eine wacklige WLAN-Strecke.
+# ── ffmpeg-Rückfall ──────────────────────────────────────────────────────
+
 SEGMENT_SECONDS = 1
 LIST_SIZE = 6
-# Ohne Abruf wird nach dieser Zeit abgeschaltet. Der Player holt sich alle
-# ein bis zwei Sekunden ein Häppchen; 30 Sekunden überstehen damit auch
-# eine kurze Störung, ohne dass die Umwandlung ewig weiterläuft.
+# Ohne Abruf wird nach dieser Zeit abgeschaltet. Der Player holt sich
+# laufend Häppchen; 30 Sekunden überstehen auch eine kurze Störung.
 IDLE_SECONDS = 30
 # So lange darf ffmpeg brauchen, bis die erste Wiedergabeliste dasteht.
 START_TIMEOUT = 15
+
+# ── mediamtx ─────────────────────────────────────────────────────────────
+
+MEDIAMTX_API = "http://127.0.0.1:9997"
+MEDIAMTX_HLS = "http://127.0.0.1:8888"
+# Wie lange mediamtx die Kamera nach dem letzten Zuschauer noch hält.
+ON_DEMAND_CLOSE = "20s"
+# Blockierende Anfragen nach dem nächsten Bruchstück dürfen dauern – genau
+# davon lebt Low-Latency-HLS.
+PROXY_TIMEOUT = 20
+
+# Dateinamen, die die beiden Wege vergeben: seg00001.ts (ffmpeg),
+# init.mp4 / segment3.mp4 / part7.mp4 / stream.m3u8 (mediamtx).
+SEGMENT_NAME = re.compile(r"[A-Za-z0-9_-]+\.(ts|mp4|m4s|m3u8)")
+# URI="…" in Kopfzeilen wie EXT-X-MAP, EXT-X-PART und EXT-X-PRELOAD-HINT.
+URI_ATTRIBUTE = re.compile(r'URI="([^"]+)"')
+
+
+class StreamError(RuntimeError):
+    """Der Strom liess sich nicht starten – mit erklärendem Text."""
+
+
+@dataclass
+class Target:
+    """Woher die Wiedergabeliste kommt: aus einer Datei oder von mediamtx."""
+
+    path: Path | None = None
+    url: str | None = None
 
 
 def ffmpeg_command(source: str, directory: Path) -> list[str]:
@@ -60,12 +99,47 @@ def ffmpeg_command(source: str, directory: Path) -> list[str]:
 
 
 def is_available() -> bool:
-    """Ist ffmpeg installiert? Ohne das gibt es kein Live-Bild."""
+    """Ist ffmpeg installiert?"""
     return shutil.which("ffmpeg") is not None
 
 
-class StreamError(RuntimeError):
-    """Der Strom liess sich nicht starten – mit erklärendem Text."""
+def path_name(entity_id: str) -> str:
+    """Entitäts-ID → Pfadname in mediamtx (rein, testbar).
+
+    mediamtx erlaubt in Pfadnamen keine Punkte, die Entitäts-IDs haben aber
+    welche (``unifi_protect.eingang``).
+    """
+    return re.sub(r"[^A-Za-z0-9_-]", "_", entity_id)
+
+
+def rewrite_playlist(text: str, prefix: str, token: str | None) -> str:
+    """Schreibt alle Adressen einer Wiedergabeliste auf den Hub um.
+
+    Ein Videoplayer schickt beim Abarbeiten der Liste keine eigenen
+    Kopfzeilen mit – das Token muss deshalb in jeder Adresse stehen. Bei
+    Low-Latency-HLS stecken Adressen nicht nur in eigenen Zeilen, sondern
+    auch in Kopfzeilen als ``URI="…"`` (Bruchstücke und Vorab-Hinweise).
+    """
+
+    def rewrite(uri: str) -> str:
+        if "://" in uri or uri.startswith("/"):
+            return uri  # fremde Adresse: unangetastet lassen
+        name, _, query = uri.partition("?")
+        parts = [part for part in (query, f"token={token}" if token else "") if part]
+        suffix = "?" + "&".join(parts) if parts else ""
+        return f"{prefix}{name}{suffix}"
+
+    lines = []
+    for line in text.splitlines():
+        if line.startswith("#"):
+            lines.append(
+                URI_ATTRIBUTE.sub(lambda m: f'URI="{rewrite(m.group(1))}"', line)
+            )
+        elif line.strip():
+            lines.append(rewrite(line))
+        else:
+            lines.append(line)
+    return "\n".join(lines) + "\n"
 
 
 class _Stream:
@@ -81,20 +155,138 @@ class _Stream:
 
 
 class StreamManager:
-    """Hält je Kamera höchstens eine laufende Umwandlung."""
+    """Sorgt dafür, dass zu jeder angeschauten Kamera ein Strom läuft."""
 
-    def __init__(self, idle_seconds: float = IDLE_SECONDS) -> None:
+    def __init__(
+        self,
+        api_url: str = MEDIAMTX_API,
+        hls_url: str = MEDIAMTX_HLS,
+        idle_seconds: float = IDLE_SECONDS,
+    ) -> None:
+        self._api = api_url.rstrip("/")
+        self._hls = hls_url.rstrip("/")
         self._streams: dict[str, _Stream] = {}
         self._idle = idle_seconds
         self._lock = asyncio.Lock()
         self._reaper: asyncio.Task | None = None
+        self._session: aiohttp.ClientSession | None = None
+        # None = noch nicht nachgesehen, ob mediamtx läuft.
+        self._mediamtx: bool | None = None
+        # Bereits in mediamtx eingerichtete Pfade: Name → Quelle
+        self._paths: dict[str, str] = {}
 
-    async def playlist(self, entity_id: str, source: str) -> Path:
-        """Wiedergabeliste einer Kamera – startet die Umwandlung bei Bedarf."""
+    # ── Gemeinsamer Einstieg ──────────────────────────────────────────────
+
+    async def playlist(self, entity_id: str, source: str) -> Target:
+        """Wiedergabeliste einer Kamera – startet den Strom bei Bedarf."""
+        if await self._use_mediamtx():
+            name = await self._ensure_path(entity_id, source)
+            return Target(url=f"{self._hls}/{name}/index.m3u8")
+        return Target(path=await self._ffmpeg_playlist(entity_id, source))
+
+    async def locate(self, entity_id: str, name: str) -> Target:
+        """Adresse eines einzelnen Häppchens oder einer Unterliste."""
+        if await self._use_mediamtx():
+            return Target(url=f"{self._hls}/{path_name(entity_id)}/{name}")
+        directory = self.directory(entity_id)
+        if directory is None:
+            raise StreamError("Kein laufendes Live-Bild")
+        self.touch(entity_id)
+        return Target(path=directory / name)
+
+    async def fetch(self, target: Target, query: str = "") -> tuple[bytes, str]:
+        """Holt Inhalt und Medientyp von mediamtx."""
+        session = await self._http()
+        url = f"{target.url}?{query}" if query else target.url
+        try:
+            async with session.get(
+                str(url), timeout=aiohttp.ClientTimeout(total=PROXY_TIMEOUT)
+            ) as response:
+                if response.status >= 400:
+                    raise StreamError(
+                        f"mediamtx antwortet mit {response.status} – "
+                        "liefert die Kamera gerade kein Bild?"
+                    )
+                return await response.read(), response.headers.get(
+                    "content-type", "application/octet-stream"
+                )
+        except asyncio.TimeoutError as err:
+            raise StreamError("mediamtx antwortet nicht") from err
+        except aiohttp.ClientError as err:
+            raise StreamError(f"mediamtx nicht erreichbar: {err}") from err
+
+    # ── mediamtx ──────────────────────────────────────────────────────────
+
+    async def _http(self) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
+        return self._session
+
+    async def _use_mediamtx(self) -> bool:
+        """Läuft mediamtx? Einmal nachsehen und merken."""
+        if self._mediamtx is not None:
+            return self._mediamtx
+        session = await self._http()
+        try:
+            async with session.get(
+                f"{self._api}/v3/config/global/get",
+                timeout=aiohttp.ClientTimeout(total=3),
+            ) as response:
+                self._mediamtx = response.status < 400
+        except Exception:
+            self._mediamtx = False
+        log.info(
+            "Live-Bild über %s",
+            "mediamtx (Low-Latency-HLS)" if self._mediamtx else "ffmpeg (HLS)",
+        )
+        return self._mediamtx
+
+    async def _ensure_path(self, entity_id: str, source: str) -> str:
+        """Legt den Pfad in mediamtx an – oder zieht ihn nach, wenn sich die
+        Kamera-Adresse geändert hat."""
+        name = path_name(entity_id)
+        if self._paths.get(name) == source:
+            return name
+        session = await self._http()
+        body = {
+            "source": source,
+            # Erst verbinden, wenn jemand zuschaut – und kurz danach wieder
+            # loslassen. Sonst läuft der Kamerastrom rund um die Uhr.
+            "sourceOnDemand": True,
+            "sourceOnDemandCloseAfter": ON_DEMAND_CLOSE,
+        }
+        exists = name in self._paths
+        verb = "patch" if exists else "add"
+        try:
+            async with session.post(
+                f"{self._api}/v3/config/paths/{verb}/{name}",
+                json=body,
+                timeout=aiohttp.ClientTimeout(total=5),
+            ) as response:
+                if response.status >= 400 and not exists:
+                    # Schon vorhanden (z.B. nach einem Neustart des Hubs):
+                    # dann nachziehen statt scheitern.
+                    async with session.post(
+                        f"{self._api}/v3/config/paths/patch/{name}",
+                        json=body,
+                        timeout=aiohttp.ClientTimeout(total=5),
+                    ) as retry:
+                        if retry.status >= 400:
+                            raise StreamError(
+                                f"mediamtx lehnt den Pfad ab ({retry.status})"
+                            )
+        except aiohttp.ClientError as err:
+            raise StreamError(f"mediamtx nicht erreichbar: {err}") from err
+        self._paths[name] = source
+        return name
+
+    # ── ffmpeg ────────────────────────────────────────────────────────────
+
+    async def _ffmpeg_playlist(self, entity_id: str, source: str) -> Path:
         if not is_available():
             raise StreamError(
-                "ffmpeg fehlt im Container – ohne das gibt es kein Live-Bild. "
-                "Hub neu bauen (deploy/rebuild-hub.sh)."
+                "Weder mediamtx noch ffmpeg vorhanden – ohne eines von beiden "
+                "gibt es kein Live-Bild. Hub neu bauen (deploy/rebuild-hub.sh)."
             )
         async with self._lock:
             stream = self._streams.get(entity_id)
@@ -103,7 +295,11 @@ class StreamManager:
             if stream is not None and stream.source != source:
                 await self._stop(entity_id)
                 stream = None
-            if stream is None or stream.process is None or stream.process.returncode is not None:
+            if (
+                stream is None
+                or stream.process is None
+                or stream.process.returncode is not None
+            ):
                 stream = await self._start(entity_id, source)
             self.touch(entity_id)
         await self._wait_for_playlist(stream)
@@ -139,8 +335,9 @@ class StreamManager:
 
     async def _wait_for_playlist(self, stream: _Stream) -> None:
         """Wartet, bis ffmpeg die erste Wiedergabeliste geschrieben hat."""
-        deadline = asyncio.get_running_loop().time() + START_TIMEOUT
-        while asyncio.get_running_loop().time() < deadline:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + START_TIMEOUT
+        while loop.time() < deadline:
             if stream.playlist.exists() and stream.playlist.stat().st_size > 0:
                 return
             if stream.process is not None and stream.process.returncode is not None:
@@ -188,3 +385,6 @@ class StreamManager:
             self._reaper = None
         for entity_id in list(self._streams):
             await self._stop(entity_id)
+        if self._session is not None and not self._session.closed:
+            await self._session.close()
+        self._session = None

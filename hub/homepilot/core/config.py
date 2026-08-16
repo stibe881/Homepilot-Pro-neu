@@ -40,6 +40,9 @@ class HubConfig:
     energy: dict[str, Any] = field(default_factory=dict)
     # Standort für Sonnenauf-/-untergangs-Trigger. Standard: Zell LU.
     location: dict[str, Any] = field(default_factory=dict)
+    # Live-Bild: Adressen von mediamtx, falls es nicht neben dem Hub läuft
+    # ({mediamtx_api, mediamtx_hls}). Leer = die Standardadressen probieren.
+    streaming: dict[str, Any] = field(default_factory=dict)
     # Wohin in der App angelegte Benutzer und Automationen geschrieben werden.
     data_file: str | None = None
     # Woher diese Konfiguration geladen wurde – für den Editor in der App.
@@ -123,6 +126,10 @@ def load_config(path: str | Path) -> HubConfig:
     if not isinstance(location, dict):
         raise ConfigError("'location' muss ein Mapping sein (latitude, longitude)")
 
+    streaming = raw.get("streaming") or {}
+    if not isinstance(streaming, dict):
+        raise ConfigError("'streaming' muss ein Mapping sein (mediamtx_api, mediamtx_hls)")
+
     # Neben der config.yaml, wenn nichts anderes angegeben ist.
     data_file = raw.get("data_file") or str(path.parent / "homepilot-data.json")
 
@@ -138,6 +145,7 @@ def load_config(path: str | Path) -> HubConfig:
         },
         scenes=scenes,
         users=users,
+        streaming=streaming,
         energy=energy,
         location=location,
         source_path=str(path),

@@ -1,0 +1,40 @@
+# mediamtx für HomePilot: RTSP der Kameras → Low-Latency-HLS für die App.
+#
+# Warum überhaupt: Gewöhnliches HLS liefert ganze Häppchen von einer Sekunde
+# und der Player hält Vorlauf – zusammen rund zwei Sekunden Rückstand.
+# Low-Latency-HLS zerlegt sie in Bruchstücke von 200 Millisekunden, und der
+# Player fragt blockierend nach dem nächsten, statt in Intervallen zu pollen.
+# Damit bleibt unter einer Sekunde übrig, ohne dass sich in der App etwas
+# ändert: iOS kann das Verfahren von Haus aus, hls.js im Browser ebenfalls.
+#
+# Die Kamerapfade legt der Hub selbst über die Steuer-API an (Port 9997) –
+# hier steht bewusst nichts fest verdrahtet, sonst müsste man diese Datei
+# bei jeder neuen Kamera anfassen.
+
+logLevel: info
+
+# Steuer-API: nur für den Hub auf demselben Rechner.
+api: yes
+apiAddress: 127.0.0.1:9997
+
+# Was mediamtx selbst anbietet: nur HLS. Einen eigenen RTSP-, RTMP- oder
+# WebRTC-Server braucht niemand – Kameras anzapfen geht auch ohne.
+rtsp: no
+rtmp: no
+srt: no
+webrtc: no
+
+hls: yes
+hlsAddress: 127.0.0.1:8888
+hlsVariant: lowLatency
+# Mindestens 7 Häppchen verlangt der Low-Latency-Modus.
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+# Nur der Hub holt hier ab und reicht mit Token weiter – er läuft auf
+# demselben Rechner, deshalb ist die Herkunft unkritisch.
+hlsAllowOrigin: '*'
+# Nicht auf Vorrat umpacken: erst wenn jemand zuschaut.
+hlsAlwaysRemux: no
+
+paths: {}

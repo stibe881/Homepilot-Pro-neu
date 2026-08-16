@@ -1,9 +1,10 @@
-"""Live-Bild: der ffmpeg-Aufruf und die beiden HLS-Endpunkte.
+"""Live-Bild: der ffmpeg-Aufruf, das Umschreiben der Wiedergabelisten und
+die beiden HLS-Endpunkte.
 
-Ohne echte Kamera und ohne ffmpeg – die Umwandlung wird durch eine
+Ohne echte Kamera, ohne ffmpeg und ohne mediamtx – der Strom wird durch eine
 vorbereitete Wiedergabeliste ersetzt. Geprüft wird das, was in der App
-ankommt: Werden die Häppchen-Adressen samt Token umgeschrieben, und lässt
-sich über den Häppchen-Namen etwas anderes als Video abholen?
+ankommt: Zeigen alle Adressen auf den Hub und tragen sie das Token? Und
+lässt sich über den Häppchen-Namen etwas anderes als Video abholen?
 """
 
 from pathlib import Path
@@ -12,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from homepilot.api import create_app
 from homepilot.core.hub import Hub
-from homepilot.core.streams import ffmpeg_command
+from homepilot.core.streams import Target, ffmpeg_command, path_name, rewrite_playlist
 
 from .conftest import make_config
 
@@ -25,6 +26,16 @@ seg00001.ts
 seg00002.ts
 """
 
+# So sieht Low-Latency-HLS aus: Bruchstücke und Vorab-Hinweise stecken in
+# Kopfzeilen, nicht in eigenen Zeilen.
+LOW_LATENCY = """#EXTM3U
+#EXT-X-MAP:URI="init.mp4"
+#EXT-X-PART:DURATION=0.2,URI="part7.mp4"
+#EXT-X-PRELOAD-HINT:TYPE=PART,URI="part8.mp4"
+#EXTINF:1.000000,
+segment3.mp4
+"""
+
 
 def test_ffmpeg_command_copies_instead_of_recoding(tmp_path):
     command = ffmpeg_command("rtsps://10.0.0.1:7441/abc?enableSrtp", tmp_path)
@@ -35,8 +46,32 @@ def test_ffmpeg_command_copies_instead_of_recoding(tmp_path):
     assert command[-1] == str(tmp_path / "index.m3u8")
 
 
+def test_path_name_survives_mediamtx():
+    # Punkte sind in mediamtx-Pfaden nicht erlaubt, in Entitäts-IDs schon.
+    assert path_name("unifi_protect.eingang") == "unifi_protect_eingang"
+    assert path_name("a/../b") == "a____b"
+
+
+def test_rewrite_playlist_covers_lines_and_uri_attributes():
+    text = rewrite_playlist(LOW_LATENCY, "stream/", "geheim")
+    assert 'URI="stream/init.mp4?token=geheim"' in text
+    assert 'URI="stream/part7.mp4?token=geheim"' in text
+    assert 'URI="stream/part8.mp4?token=geheim"' in text
+    assert "stream/segment3.mp4?token=geheim" in text
+    # Kopfzeilen ohne Adresse bleiben unangetastet.
+    assert "#EXTINF:1.000000," in text
+
+
+def test_rewrite_playlist_keeps_existing_query_and_foreign_urls():
+    text = rewrite_playlist(
+        '#EXT-X-PART:URI="part1.mp4?msn=3"\nhttp://anderswo/seg.ts\n', "", "geheim"
+    )
+    assert 'URI="part1.mp4?msn=3&token=geheim"' in text
+    assert "http://anderswo/seg.ts" in text
+
+
 class _FakeStreams:
-    """Tut so, als liefe ffmpeg bereits – liefert eine fertige Liste."""
+    """Tut so, als liefe bereits ein Strom – liefert eine fertige Liste."""
 
     def __init__(self, directory: Path) -> None:
         self.directory_path = directory
@@ -44,8 +79,12 @@ class _FakeStreams:
         (directory / "index.m3u8").write_text(PLAYLIST)
         (directory / "seg00001.ts").write_bytes(b"videodaten")
 
-    async def playlist(self, entity_id: str, source: str) -> Path:
-        return self.directory_path / "index.m3u8"
+    async def playlist(self, entity_id: str, source: str) -> Target:
+        return Target(path=self.directory_path / "index.m3u8")
+
+    async def locate(self, entity_id: str, name: str) -> Target:
+        self.touched += 1
+        return Target(path=self.directory_path / name)
 
     def directory(self, entity_id: str):
         return self.directory_path
@@ -61,18 +100,11 @@ def make_client(tmp_path: Path, stream_url: str | None = "rtsps://cam/abc"):
     hub = Hub(make_config(token="geheim"))
     hub.streams = _FakeStreams(tmp_path)
 
-    class _Camera:
-        async def stream_url(self, entity):
-            return stream_url
+    async def fake_stream_url(entity):
+        return stream_url
 
-        async def teardown(self):
-            pass
-
-    # Die Demo-Integration bekommt eine Kamera-Fähigkeit untergeschoben.
-    def patch(app):
-        integration = hub.integrations.get("demo")
-        integration.stream_url = _Camera().stream_url
-        return app
+    def patch():
+        hub.integrations.get("demo").stream_url = fake_stream_url
 
     return hub, patch
 
@@ -80,7 +112,7 @@ def make_client(tmp_path: Path, stream_url: str | None = "rtsps://cam/abc"):
 def test_playlist_rewrites_segments_with_token(tmp_path):
     hub, patch = make_client(tmp_path)
     with TestClient(create_app(hub)) as client:
-        patch(None)
+        patch()
         response = client.get(
             "/api/entities/demo.light_livingroom/stream.m3u8?token=geheim"
         )
@@ -91,7 +123,6 @@ def test_playlist_rewrites_segments_with_token(tmp_path):
         # muss deshalb in jeder Zeile stehen.
         assert "stream/seg00001.ts?token=geheim" in body
         assert "stream/seg00002.ts?token=geheim" in body
-        # Kommentarzeilen bleiben unangetastet.
         assert body.startswith("#EXTM3U")
 
 
@@ -102,7 +133,7 @@ def test_playlist_allows_the_browser_to_fetch_it(tmp_path):
     """
     hub, patch = make_client(tmp_path)
     with TestClient(create_app(hub)) as client:
-        patch(None)
+        patch()
         response = client.get(
             "/api/entities/demo.light_livingroom/stream.m3u8?token=geheim",
             headers={"Origin": "http://localhost:8081"},
@@ -113,7 +144,7 @@ def test_playlist_allows_the_browser_to_fetch_it(tmp_path):
 def test_playlist_needs_a_camera_with_rtsp(tmp_path):
     hub, patch = make_client(tmp_path, stream_url=None)
     with TestClient(create_app(hub)) as client:
-        patch(None)
+        patch()
         response = client.get(
             "/api/entities/demo.light_livingroom/stream.m3u8?token=geheim"
         )
@@ -124,12 +155,12 @@ def test_playlist_needs_a_camera_with_rtsp(tmp_path):
 def test_segment_needs_token_and_a_harmless_name(tmp_path):
     hub, patch = make_client(tmp_path)
     with TestClient(create_app(hub)) as client:
-        patch(None)
+        patch()
         base = "/api/entities/demo.light_livingroom/stream"
         assert client.get(f"{base}/seg00001.ts").status_code == 401
         assert client.get(f"{base}/seg00001.ts?token=geheim").content == b"videodaten"
         # Alles, was nicht nach einem Häppchen aussieht, wird abgewiesen –
         # sonst käme man über den Namen an andere Dateien des Hubs.
-        assert client.get(f"{base}/index.m3u8?token=geheim").status_code == 404
+        assert client.get(f"{base}/geheim.yaml?token=geheim").status_code == 404
         assert client.get(f"{base}/..%2f..%2fconfig.yaml?token=geheim").status_code == 404
         assert hub.streams.touched > 0

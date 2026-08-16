@@ -55,6 +55,20 @@ services:
       retries: 3
       start_period: 20s
 
+  # Live-Bild der Kameras: zieht RTSP von UniFi Protect und liefert es als
+  # Low-Latency-HLS aus, ohne neu zu codieren. Der Hub legt die Kamerapfade
+  # selbst über die Steuer-API an; läuft der Dienst nicht, fällt der Hub
+  # automatisch auf ffmpeg zurück (gleiches Bild, mehr Rückstand).
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: homepilot-mediamtx
+    restart: unless-stopped
+    # Gleiches Netz wie der Hub: Er spricht den Dienst über 127.0.0.1 an,
+    # und die Kameras sind direkt erreichbar.
+    network_mode: host
+    volumes:
+      - ./deploy/mediamtx.yml:/mediamtx.yml:ro
+
   # Matter-Controller – Kommentarzeichen entfernen, wenn die
   # matter-Integration in der config.yaml aktiv ist.
   # matter:

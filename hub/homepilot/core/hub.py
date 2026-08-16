@@ -17,7 +17,7 @@ from .push import PushService
 from .registry import EntityRegistry
 from .scenes import SceneManager
 from .store import Store
-from .streams import StreamManager
+from .streams import MEDIAMTX_API, MEDIAMTX_HLS, StreamManager
 from .supabase import SupabaseClient
 from .users import Role, User, parse_users
 
@@ -40,7 +40,11 @@ class Hub:
         self.store: Store | None = None
         self.watchdog = Watchdog(self)
         # Wandelt Kamerabilder in HLS um – läuft nur, solange jemand zuschaut.
-        self.streams = StreamManager()
+        # Bevorzugt über mediamtx (Low-Latency), sonst über ffmpeg.
+        self.streams = StreamManager(
+            api_url=config.streaming.get("mediamtx_api", MEDIAMTX_API),
+            hls_url=config.streaming.get("mediamtx_hls", MEDIAMTX_HLS),
+        )
         self.started_at = time.time()
 
     async def start(self) -> None:

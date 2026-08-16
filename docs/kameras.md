@@ -87,9 +87,21 @@ Welchen Kanal der Hub nimmt, steuert `stream_quality` (`high`, `medium`,
 `low`; Standard `medium`). Ist die gewünschte Stufe nicht freigegeben,
 nimmt der Hub die nächstbeste statt gar keine.
 
-Der Hub wandelt den Strom mit ffmpeg in HLS um – **ohne** neu zu codieren,
-das kostet also kaum Rechenzeit. Die Umwandlung startet erst, wenn jemand
-hinschaut, und endet automatisch, sobald 30 Sekunden niemand mehr zusieht.
+Umgewandelt wird ohne Neucodierung, das kostet also kaum Rechenzeit – und
+nur, solange jemand zuschaut. Dafür gibt es zwei Wege:
+
+- **mediamtx** (empfohlen): liefert Low-Latency-HLS – Bruchstücke von 200
+  Millisekunden statt ganzer Sekunden-Häppchen. Rückstand: **unter einer
+  Sekunde**. Der Dienst steht als Container `homepilot-mediamtx` im Stack
+  (docker-compose.portainer.yml) und startet beim nächsten
+  **Update the stack → Deploy** automatisch mit; seine Konfiguration liegt
+  in `deploy/mediamtx.yml` und muss nicht angepasst werden – der Hub legt
+  die Kamerapfade selbst über die Steuer-API an.
+- **ffmpeg** (Rückfall): läuft mediamtx nicht, packt der Hub selbst mit
+  ffmpeg um – gleiches Bild, rund zwei Sekunden Rückstand.
+
+Welcher Weg aktiv ist, steht beim ersten Antippen einer Kamera im Log:
+`Live-Bild über mediamtx (Low-Latency-HLS)` oder `… über ffmpeg (HLS)`.
 
 In der App: Menüpunkt **Kameras** → Kachel antippen. Unten steht „● Live",
 wenn wirklich der Strom läuft. Beim Klingeln zeigt auch das Vollbild der
@@ -123,7 +135,9 @@ Häufige Meldungen:
 | `Protect nicht erreichbar` | falsche `host`-Adresse, oder der Controller ist in einem anderen VLAN |
 | Kameras da, aber kein Bild | Der Benutzer hat keine Protect-Berechtigung (nur *View Only* genügt) |
 | `kein Live-Bild – RTSP ist nicht eingeschaltet` | Schritt 4: RTSP je Kamera freigeben |
-| `ffmpeg fehlt im Container` | Hub neu bauen: `sudo /opt/homepilot/rebuild-hub.sh` |
+| `Weder mediamtx noch ffmpeg vorhanden` | Stack neu deployen (mediamtx-Container) oder Hub neu bauen |
+| `mediamtx antwortet mit 404/500` | Kamera liefert gerade kein Bild – RTSP-Kanal und Erreichbarkeit prüfen |
+| Live läuft, aber mit ~2 s Rückstand | Es läuft der ffmpeg-Rückfall – mediamtx-Container prüfen (`docker logs homepilot-mediamtx`) |
 
 ### Fehler 499: Zwei-Faktor
 
