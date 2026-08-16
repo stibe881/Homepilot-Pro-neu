@@ -46,8 +46,28 @@ START_TIMEOUT = 15
 
 MEDIAMTX_API = "http://127.0.0.1:9997"
 MEDIAMTX_HLS = "http://127.0.0.1:8888"
+# Interner Publish-Port von mediamtx (nur 127.0.0.1, siehe Compose).
+MEDIAMTX_RTSP = "rtsp://127.0.0.1:8554"
 # Wie lange mediamtx die Kamera nach dem letzten Zuschauer noch hält.
 ON_DEMAND_CLOSE = "20s"
+
+
+def publish_command(source: str, name: str) -> str:
+    """ffmpeg-Aufruf, mit dem mediamtx die Kamera bei Bedarf anzapft.
+
+    Der Umweg über ffmpeg hat genau einen Zweck: ``-an`` wirft den Ton weg.
+    Die App spielt Kamera-Ton ohnehin nicht ab – aber die Tonspuren ruinieren
+    das Low-Latency-HLS: Ihre Frame-Längen (AAC ~21 ms, Opus 20 ms) gehen
+    nie glatt in die Part-Dauer auf, die dadurch schwankt – und daran
+    scheitern iOS-Player. Opus versteht Apples HLS zudem gar nicht.
+    Video wird nur kopiert (``-c copy``), nicht neu berechnet.
+    """
+    return (
+        "ffmpeg -nostdin -loglevel error "
+        f"-rtsp_transport tcp -i {source} "
+        "-c copy -an "
+        f"-rtsp_transport tcp -f rtsp {MEDIAMTX_RTSP}/{name}"
+    )
 # Blockierende Anfragen nach dem nächsten Bruchstück dürfen dauern – genau
 # davon lebt Low-Latency-HLS.
 PROXY_TIMEOUT = 20
@@ -258,15 +278,11 @@ class StreamManager:
             return name
         session = await self._http()
         body = {
-            "source": source,
-            # Erst verbinden, wenn jemand zuschaut – und kurz danach wieder
+            # Erst starten, wenn jemand zuschaut – und kurz danach wieder
             # loslassen. Sonst läuft der Kamerastrom rund um die Uhr.
-            "sourceOnDemand": True,
-            "sourceOnDemandCloseAfter": ON_DEMAND_CLOSE,
-            # TCP statt UDP zum Recorder: Über UDP gehen Pakete verloren,
-            # das Bild zerfällt in Blöcke und die Part-Dauer schwankt –
-            # woran wiederum iOS-Player scheitern.
-            "rtspTransport": "tcp",
+            "runOnDemand": publish_command(source, name),
+            "runOnDemandRestart": True,
+            "runOnDemandCloseAfter": ON_DEMAND_CLOSE,
         }
         exists = name in self._paths
         verb = "patch" if exists else "add"

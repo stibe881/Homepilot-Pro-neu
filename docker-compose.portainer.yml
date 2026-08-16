@@ -60,7 +60,7 @@ services:
   # selbst über die Steuer-API an; läuft der Dienst nicht, fällt der Hub
   # automatisch auf ffmpeg zurück (gleiches Bild, mehr Rückstand).
   mediamtx:
-    image: bluenviron/mediamtx:latest
+    image: bluenviron/mediamtx:latest-ffmpeg
     container_name: homepilot-mediamtx
     restart: unless-stopped
     # Gleiches Netz wie der Hub: Er spricht den Dienst über 127.0.0.1 an,
@@ -74,7 +74,10 @@ services:
       - MTX_API=true
       - MTX_APIADDRESS=127.0.0.1:9997
       # Nur HLS anbieten – Kameras anzapfen geht auch ohne eigene Server.
-      - MTX_RTSP=false
+      # Interner Publish-Port: ffmpeg (im Container) reicht das Video hier
+      # ohne Tonspuren an mediamtx weiter – nur auf 127.0.0.1.
+      - MTX_RTSP=true
+      - MTX_RTSPADDRESS=127.0.0.1:8554
       - MTX_RTMP=false
       - MTX_SRT=false
       - MTX_WEBRTC=false

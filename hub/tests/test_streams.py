@@ -13,7 +13,13 @@ from fastapi.testclient import TestClient
 
 from homepilot.api import create_app
 from homepilot.core.hub import Hub
-from homepilot.core.streams import Target, ffmpeg_command, path_name, rewrite_playlist
+from homepilot.core.streams import (
+    Target,
+    ffmpeg_command,
+    path_name,
+    publish_command,
+    rewrite_playlist,
+)
 
 from .conftest import make_config
 
@@ -44,6 +50,17 @@ def test_ffmpeg_command_copies_instead_of_recoding(tmp_path):
     assert "-c" in command and command[command.index("-c") + 1] == "copy"
     assert "-rtsp_transport" in command
     assert command[-1] == str(tmp_path / "index.m3u8")
+
+
+def test_publish_command_strips_audio_but_keeps_video():
+    """Der Ton fliegt raus (-an): Seine Frame-Längen bringen die Part-Dauer
+    des Low-Latency-HLS zum Schwanken, woran iOS-Player scheitern – und die
+    App spielt Kamera-Ton ohnehin nicht ab."""
+    command = publish_command("rtsp://10.10.1.10:7447/abc", "unifi_protect_x")
+    assert "-an" in command.split()
+    assert "-c copy" in command
+    assert command.count("-rtsp_transport tcp") == 2  # lesen UND publizieren
+    assert command.endswith("rtsp://127.0.0.1:8554/unifi_protect_x")
 
 
 def test_path_name_survives_mediamtx():

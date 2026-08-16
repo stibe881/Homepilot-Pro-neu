@@ -97,6 +97,12 @@ nur, solange jemand zuschaut. Dafür gibt es zwei Wege:
   **Update the stack → Deploy** automatisch mit; konfiguriert ist er über
   Umgebungsvariablen direkt im Compose-File – der Hub legt die Kamerapfade
   selbst über die Steuer-API an, anzupassen gibt es nichts.
+
+  Das Live-Bild ist **ohne Ton**, und zwar mit Absicht: Die Tonspuren der
+  Protect-Kameras (AAC und Opus) bringen die Part-Dauer des Low-Latency-HLS
+  zum Schwanken – genau daran scheitern iPhone und iPad –, und Opus spielt
+  Apples HLS ohnehin nicht. Der Hub lässt den Ton deshalb schon beim
+  Anzapfen weg (ffmpeg im mediamtx-Container, Video wird nur kopiert).
 - **ffmpeg** (Rückfall): läuft mediamtx nicht, packt der Hub selbst mit
   ffmpeg um – gleiches Bild, rund zwei Sekunden Rückstand.
 

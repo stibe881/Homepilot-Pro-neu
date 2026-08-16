@@ -43,7 +43,7 @@ services:
   # Live-Bild der Kameras (RTSP → Low-Latency-HLS, ohne Neucodierung).
   # Ohne diesen Dienst fällt der Hub auf ffmpeg zurück.
   mediamtx:
-    image: bluenviron/mediamtx:latest
+    image: bluenviron/mediamtx:latest-ffmpeg
     container_name: homepilot-mediamtx
     restart: unless-stopped
     network_mode: host
@@ -52,7 +52,10 @@ services:
     environment:
       - MTX_API=true
       - MTX_APIADDRESS=127.0.0.1:9997
-      - MTX_RTSP=false
+      # Interner Publish-Port: ffmpeg (im Container) reicht das Video hier
+      # ohne Tonspuren an mediamtx weiter – nur auf 127.0.0.1.
+      - MTX_RTSP=true
+      - MTX_RTSPADDRESS=127.0.0.1:8554
       - MTX_RTMP=false
       - MTX_SRT=false
       - MTX_WEBRTC=false
