@@ -10,12 +10,17 @@ named homepilot.livecheck», läuft noch ein altes Abbild – dann zuerst
 deploy/rebuild-hub.sh und in Portainer neu deployen.
 """
 
+import functools
 import json
 import os
 import re
 import urllib.error
 import urllib.parse
 import urllib.request
+
+# docker exec ohne Terminal puffert stdout blockweise – dann sähe man
+# minutenlang nichts. Jede Zeile sofort raus.
+print = functools.partial(print, flush=True)
 
 HUB = "http://127.0.0.1:8123"
 MTX_API = "http://127.0.0.1:9997"
