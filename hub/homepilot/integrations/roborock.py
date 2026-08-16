@@ -381,18 +381,33 @@ async def _login_main(config_path: str) -> int:
     ).strip()
 
     api = RoborockApiClient(username)
-    print(f"Fordere Anmeldecode für {username} an …")
-    try:
-        await api.request_code()
-    except Exception as err:
-        print(f"✗ Code-Anforderung fehlgeschlagen: {err}")
-        return 1
-    print("Ein Code wurde an deine E-Mail geschickt (Absender Roborock).")
-    code = input("Code aus der E-Mail: ").strip()
-    try:
-        user_data = await api.code_login(code)
-    except Exception as err:
-        print(f"✗ Anmeldung fehlgeschlagen: {err}")
+
+    async def _try(request: str, login: str) -> Any:
+        """Code anfordern, abfragen, anmelden – über den gegebenen Endpunkt."""
+        print(f"Fordere Anmeldecode für {username} an …")
+        await getattr(api, request)()
+        print("Ein Code wurde an deine E-Mail geschickt (Absender Roborock).")
+        code = input("Code aus der E-Mail: ").strip()
+        return await getattr(api, login)(code)
+
+    # Zuerst der neuere v4-Endpunkt: er erkennt die in der App bestätigte
+    # Nutzungsvereinbarung, wo der alte Weg noch „user agreement“ meldet.
+    user_data = None
+    for request, login in (("request_code_v4", "code_login_v4"), ("request_code", "code_login")):
+        if not hasattr(api, login):
+            continue
+        try:
+            user_data = await _try(request, login)
+            break
+        except Exception as err:
+            print(f"  {login} fehlgeschlagen: {err}")
+            if "user agreement" in str(err).lower():
+                print(
+                    "  → In der Roborock-App die aktualisierte Nutzungsvereinbarung "
+                    "bestätigen (Profil → Einstellungen), dann erneut versuchen."
+                )
+    if user_data is None:
+        print("✗ Anmeldung fehlgeschlagen.")
         return 1
 
     token_file = Path(
