@@ -18,11 +18,11 @@ interface Automation {
 /** Was der Editor anbietet – bewusst wenig, aber vollständig bedienbar. */
 type TriggerKind = 'state' | 'time' | 'sun';
 type ActionKind = 'command' | 'scene' | 'notify';
+type ConditionKind = 'none' | 'sun' | 'time';
 
-interface Draft {
-  id?: string;
-  alias: string;
-  triggerKind: TriggerKind;
+/** Ein einzelner Auslöser – ein Ablauf kann mehrere haben («oder»). */
+interface TriggerDraft {
+  kind: TriggerKind;
   entityId: string;
   toState: string;
   /** Optional: nur wechseln von diesem Wert (z.B. running → idle). */
@@ -33,6 +33,31 @@ interface Draft {
   /** Sonnenstand-Trigger: Aufgang oder Untergang, plus Versatz in Minuten. */
   sunEvent: 'sunrise' | 'sunset';
   sunOffset: string;
+}
+
+const EMPTY_TRIGGER: TriggerDraft = {
+  kind: 'state',
+  entityId: '',
+  toState: 'on',
+  fromState: '',
+  attribute: '',
+  at: '18:30',
+  sunEvent: 'sunset',
+  sunOffset: '0',
+};
+
+interface Draft {
+  id?: string;
+  alias: string;
+  /** Ein oder mehrere Auslöser – jeder löst den Ablauf aus. */
+  triggers: TriggerDraft[];
+  /** Bedingung, die zusätzlich stimmen muss («nur wenn»). */
+  conditionKind: ConditionKind;
+  conditionSun: 'up' | 'down';
+  conditionAfter: string;
+  conditionBefore: string;
+  /** Wartezeit vor den Aktionen in Sekunden (0 = sofort). */
+  delaySeconds: string;
   actionKind: ActionKind;
   actionEntityId: string;
   command: string;
@@ -47,14 +72,12 @@ interface Draft {
 
 const EMPTY: Draft = {
   alias: '',
-  triggerKind: 'state',
-  entityId: '',
-  toState: 'on',
-  fromState: '',
-  attribute: '',
-  at: '18:30',
-  sunEvent: 'sunset',
-  sunOffset: '0',
+  triggers: [{ ...EMPTY_TRIGGER }],
+  conditionKind: 'none',
+  conditionSun: 'down',
+  conditionAfter: '',
+  conditionBefore: '',
+  delaySeconds: '0',
   actionKind: 'command',
   actionEntityId: '',
   command: 'turn_on',
@@ -64,6 +87,34 @@ const EMPTY: Draft = {
   title: '',
   body: '',
 };
+
+/** Einen Trigger-Entwurf in die gespeicherte Form bringen (rein, testbar). */
+function triggerToConfig(t: TriggerDraft): Record<string, any> {
+  if (t.kind === 'sun') {
+    return { type: 'sun', event: t.sunEvent, offset: Number(t.sunOffset) || 0 };
+  }
+  if (t.kind === 'time') {
+    return { type: 'time', at: t.at };
+  }
+  const state: Record<string, any> = { type: 'state', entity_id: t.entityId, to: t.toState };
+  if (t.fromState) state.from = t.fromState;
+  if (t.attribute) state.attribute = t.attribute;
+  return state;
+}
+
+/** Umgekehrt: gespeicherter Trigger → Entwurf (rein, testbar). */
+function triggerFromConfig(t: any): TriggerDraft {
+  return {
+    kind: t?.type === 'time' ? 'time' : t?.type === 'sun' ? 'sun' : 'state',
+    entityId: t?.entity_id ?? '',
+    toState: t?.to ?? 'on',
+    fromState: t?.from ?? '',
+    attribute: t?.attribute ?? '',
+    at: t?.at ?? EMPTY_TRIGGER.at,
+    sunEvent: t?.event === 'sunrise' ? 'sunrise' : 'sunset',
+    sunOffset: String(t?.offset ?? 0),
+  };
+}
 
 /** Sauger mit Raumsteuerung? Dann bietet der Editor 'Räume saugen' an. */
 function vacuumRooms(entity: Entity | undefined): { id: number; name: string }[] {
@@ -100,8 +151,7 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
       draft: {
         ...EMPTY,
         alias: 'Alles aus, wenn niemand zuhause',
-        entityId: presence.id,
-        toState: 'off',
+        triggers: [{ ...EMPTY_TRIGGER, entityId: presence.id, toState: 'off' }],
         ...(offScene
           ? { actionKind: 'scene' as ActionKind, sceneId: offScene.id }
           : { commandActions: [{ entity_id: firstOff!.id, command: 'turn_off' }] }),
@@ -115,9 +165,9 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
       draft: {
         ...EMPTY,
         alias: 'Es klingelt',
-        entityId: doorbell.id,
-        attribute: 'ring',
-        toState: 'on',
+        triggers: [
+          { ...EMPTY_TRIGGER, entityId: doorbell.id, attribute: 'ring', toState: 'on' },
+        ],
         actionKind: 'notify',
         title: 'Es klingelt',
         body: 'Jemand steht vor der Tür.',
@@ -131,9 +181,9 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
       draft: {
         ...EMPTY,
         alias: `${appliance.name} fertig`,
-        entityId: appliance.id,
-        fromState: 'running',
-        toState: 'idle',
+        triggers: [
+          { ...EMPTY_TRIGGER, entityId: appliance.id, fromState: 'running', toState: 'idle' },
+        ],
         actionKind: 'notify',
         title: `${appliance.name} ist fertig`,
         body: 'Das Programm ist durchgelaufen.',
@@ -147,8 +197,7 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
       draft: {
         ...EMPTY,
         alias: 'Unwetterwarnung',
-        entityId: alert.id,
-        toState: 'alert',
+        triggers: [{ ...EMPTY_TRIGGER, entityId: alert.id, toState: 'alert' }],
         actionKind: 'notify',
         title: 'Unwetterwarnung',
         body: 'MeteoAlarm meldet eine Warnung für deine Region.',
@@ -162,8 +211,7 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
       draft: {
         ...EMPTY,
         alias: 'Morgens saugen',
-        triggerKind: 'time',
-        at: '09:00',
+        triggers: [{ ...EMPTY_TRIGGER, kind: 'time', at: '09:00' }],
         commandActions: [{ entity_id: vacuum.id, command: 'clean_rooms', rooms: [] }],
       },
     });
@@ -175,9 +223,7 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
       draft: {
         ...EMPTY,
         alias: 'Storen zu bei Sonnenuntergang',
-        triggerKind: 'sun',
-        sunEvent: 'sunset',
-        sunOffset: '0',
+        triggers: [{ ...EMPTY_TRIGGER, kind: 'sun', sunEvent: 'sunset', sunOffset: '0' }],
         commandActions: [{ entity_id: cover.id, command: 'close' }],
       },
     });
@@ -187,9 +233,7 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
       draft: {
         ...EMPTY,
         alias: 'Storen auf bei Sonnenaufgang',
-        triggerKind: 'sun',
-        sunEvent: 'sunrise',
-        sunOffset: '0',
+        triggers: [{ ...EMPTY_TRIGGER, kind: 'sun', sunEvent: 'sunrise', sunOffset: '0' }],
         commandActions: [{ entity_id: cover.id, command: 'open' }],
       },
     });
@@ -200,8 +244,7 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
         draft: {
           ...EMPTY,
           alias: 'Sturmschutz',
-          entityId: alert.id,
-          toState: 'alert',
+          triggers: [{ ...EMPTY_TRIGGER, entityId: alert.id, toState: 'alert' }],
           commandActions: [{ entity_id: cover.id, command: 'close' }],
         },
       });
@@ -250,28 +293,10 @@ export function AutomationsScreen({
 
   const save = async () => {
     if (!draft) return;
-    const stateTrigger: Record<string, any> = {
-      type: 'state',
-      entity_id: draft.entityId,
-      to: draft.toState,
-    };
-    if (draft.fromState) stateTrigger.from = draft.fromState;
-    if (draft.attribute) stateTrigger.attribute = draft.attribute;
-    const sunTrigger = {
-      type: 'sun',
-      event: draft.sunEvent,
-      offset: Number(draft.sunOffset) || 0,
-    };
-    const trigger =
-      draft.triggerKind === 'state'
-        ? stateTrigger
-        : draft.triggerKind === 'sun'
-          ? sunTrigger
-          : { type: 'time', at: draft.at };
     const body = {
       alias: draft.alias || 'Ohne Namen',
-      trigger: [trigger],
-      condition: [],
+      trigger: draft.triggers.map(triggerToConfig),
+      condition: buildConditions(draft),
       action: buildActions(draft),
     };
     const url = draft.id
@@ -286,6 +311,19 @@ export function AutomationsScreen({
       if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
       setDraft(null);
       load();
+    } catch (err: any) {
+      setError(String(err.message ?? err));
+    }
+  };
+
+  /** Den gespeicherten Ablauf einmal sofort ausführen – der «Testen»-Knopf. */
+  const test = async (id: string) => {
+    try {
+      const response = await fetch(`${settings.url}/api/automations/${id}/trigger`, {
+        method: 'POST',
+        headers,
+      });
+      if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
     } catch (err: any) {
       setError(String(err.message ?? err));
     }
@@ -353,7 +391,12 @@ export function AutomationsScreen({
       <Text style={[styles.sectionTitle, { marginTop: 0 }]}>Abläufe</Text>
       {mayEdit ? (
         <Pressable
-          onPress={() => setDraft({ ...EMPTY, entityId: entities[0]?.id ?? '' })}
+          onPress={() =>
+            setDraft({
+              ...EMPTY,
+              triggers: [{ ...EMPTY_TRIGGER, entityId: entities[0]?.id ?? '' }],
+            })
+          }
           accessibilityRole="button"
           style={({ pressed }) => [styles.newButton, pressed && { opacity: 0.75 }]}
         >
@@ -480,6 +523,7 @@ export function AutomationsScreen({
         onChange={setDraft}
         onSave={save}
         onDelete={draft?.id ? () => remove(draft.id!) : undefined}
+        onTest={draft?.id ? () => test(draft.id!) : undefined}
         onCancel={() => setDraft(null)}
       />
       <SceneEditor
@@ -864,6 +908,7 @@ function Editor({
   onChange,
   onSave,
   onDelete,
+  onTest,
   onCancel,
 }: {
   draft: Draft | null;
@@ -872,18 +917,32 @@ function Editor({
   onChange: (draft: Draft) => void;
   onSave: () => void;
   onDelete?: () => void;
+  /** Nur bei gespeicherten Abläufen: einmal sofort ausführen. */
+  onTest?: () => void;
   onCancel: () => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [tested, setTested] = useState(false);
   if (!draft) return null;
 
   const set = (patch: Partial<Draft>) => onChange({ ...draft, ...patch });
-  const switchable = entities.filter((entity) => entity.commands.length > 0);
-  const actionEntity = entities.find((entity) => entity.id === draft.actionEntityId);
-  const actionRooms = vacuumRooms(actionEntity);
-  const isVacuum = actionEntity?.kind === 'vacuum';
-  const isCover = actionEntity?.kind === 'cover';
+
+  const setTrigger = (index: number, patch: Partial<TriggerDraft>) =>
+    set({
+      triggers: draft.triggers.map((trigger, i) =>
+        i === index ? { ...trigger, ...patch } : trigger
+      ),
+    });
+  const addTrigger = () =>
+    set({
+      triggers: [
+        ...draft.triggers,
+        { ...EMPTY_TRIGGER, entityId: entities[0]?.id ?? '' },
+      ],
+    });
+  const removeTrigger = (index: number) =>
+    set({ triggers: draft.triggers.filter((_, i) => i !== index) });
 
   return (
     <Modal visible animationType="slide" onRequestClose={onCancel}>
@@ -912,72 +971,86 @@ function Editor({
           />
         </Field>
 
-        <Field label="Wenn … passiert">
+        <Field label={draft.triggers.length > 1 ? 'Wenn eines passiert' : 'Wenn … passiert'}>
+          {draft.triggers.map((trigger, index) => (
+            <TriggerRow
+              key={index}
+              trigger={trigger}
+              entities={entities}
+              index={index}
+              removable={draft.triggers.length > 1}
+              onChange={(patch) => setTrigger(index, patch)}
+              onRemove={() => removeTrigger(index)}
+            />
+          ))}
+          <Pressable
+            onPress={addTrigger}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.75 }]}
+          >
+            <Ionicons name="add" size={16} color={colors.accent} />
+            <Text style={styles.addRowText}>Weiterer Auslöser</Text>
+          </Pressable>
+        </Field>
+
+        <Field label="Nur wenn (Bedingung)">
           <Choice
             options={[
-              { key: 'state', label: 'Gerät wechselt' },
-              { key: 'time', label: 'Uhrzeit' },
-              { key: 'sun', label: 'Sonnenstand' },
+              { key: 'none', label: 'immer' },
+              { key: 'sun', label: 'Tag / Nacht' },
+              { key: 'time', label: 'Zeitfenster' },
             ]}
-            value={draft.triggerKind}
-            onSelect={(triggerKind) => set({ triggerKind: triggerKind as TriggerKind })}
+            value={draft.conditionKind}
+            onSelect={(conditionKind) =>
+              set({ conditionKind: conditionKind as ConditionKind })
+            }
           />
-          {draft.triggerKind === 'sun' ? (
-            <>
-              <Choice
-                options={[
-                  { key: 'sunrise', label: 'Sonnenaufgang' },
-                  { key: 'sunset', label: 'Sonnenuntergang' },
-                ]}
-                value={draft.sunEvent}
-                onSelect={(sunEvent) => set({ sunEvent: sunEvent as Draft['sunEvent'] })}
+          {draft.conditionKind === 'sun' ? (
+            <Choice
+              options={[
+                { key: 'down', label: 'nur wenn dunkel' },
+                { key: 'up', label: 'nur wenn hell' },
+              ]}
+              value={draft.conditionSun}
+              onSelect={(value) => set({ conditionSun: value as 'up' | 'down' })}
+            />
+          ) : draft.conditionKind === 'time' ? (
+            <View style={styles.rowGap}>
+              <TextInput
+                style={[styles.input, { flex: 1 }]}
+                value={draft.conditionAfter}
+                onChangeText={(conditionAfter) => set({ conditionAfter })}
+                placeholder="ab 22:00"
+                placeholderTextColor={colors.inkFaint}
               />
               <TextInput
-                style={styles.input}
-                value={draft.sunOffset}
-                onChangeText={(sunOffset) => set({ sunOffset })}
-                placeholder="Versatz in Minuten, z.B. -30"
+                style={[styles.input, { flex: 1 }]}
+                value={draft.conditionBefore}
+                onChangeText={(conditionBefore) => set({ conditionBefore })}
+                placeholder="bis 06:00"
                 placeholderTextColor={colors.inkFaint}
-                keyboardType="numbers-and-punctuation"
               />
-              <Text style={styles.triggerNote}>
-                Löst {Number(draft.sunOffset) ? `${Math.abs(Number(draft.sunOffset))} Min ` : ''}
-                {Number(draft.sunOffset) < 0 ? 'vor ' : Number(draft.sunOffset) > 0 ? 'nach ' : ''}
-                {draft.sunEvent === 'sunrise' ? 'Sonnenaufgang' : 'Sonnenuntergang'} aus.
-              </Text>
-            </>
-          ) : draft.triggerKind === 'state' ? (
-            <>
-              <Picker
-                items={entities.map((entity) => ({ key: entity.id, label: entity.name }))}
-                value={draft.entityId}
-                onSelect={(entityId) => set({ entityId })}
-              />
-              <Choice
-                options={[
-                  { key: 'on', label: 'auf An' },
-                  { key: 'off', label: 'auf Aus' },
-                ]}
-                value={draft.toState}
-                onSelect={(toState) => set({ toState, attribute: '', fromState: '' })}
-              />
-              {draft.attribute || draft.fromState || !['on', 'off'].includes(draft.toState) ? (
-                <Text style={styles.triggerNote}>
-                  Löst aus, wenn {draft.attribute || 'der Zustand'}
-                  {draft.fromState ? ` von «${draft.fromState}»` : ''} auf «{draft.toState}»
-                  wechselt.
-                </Text>
-              ) : null}
-            </>
-          ) : (
-            <TextInput
-              style={styles.input}
-              value={draft.at}
-              onChangeText={(at) => set({ at })}
-              placeholder="18:30"
-              placeholderTextColor={colors.inkFaint}
-            />
-          )}
+            </View>
+          ) : null}
+        </Field>
+
+        <Field label="Verzögerung">
+          <Choice
+            options={[
+              { key: '0', label: 'sofort' },
+              { key: '30', label: '30 Sek.' },
+              { key: '60', label: '1 Min.' },
+              { key: '300', label: '5 Min.' },
+              { key: '600', label: '10 Min.' },
+            ]}
+            value={draft.delaySeconds}
+            onSelect={(delaySeconds) => set({ delaySeconds })}
+          />
+          {Number(draft.delaySeconds) > 0 ? (
+            <Text style={styles.triggerNote}>
+              Wartet {delayLabel(draft.delaySeconds)}, bevor die Aktion ausgeführt wird.
+            </Text>
+          ) : null}
         </Field>
 
         <Field label="… dann das tun">
@@ -1026,6 +1099,27 @@ function Editor({
         <Pressable style={styles.save} onPress={onSave} accessibilityRole="button">
           <Text style={styles.saveText}>Speichern</Text>
         </Pressable>
+        {onTest ? (
+          <Pressable
+            style={({ pressed }) => [styles.snapshot, pressed && { opacity: 0.8 }]}
+            onPress={() => {
+              onTest();
+              setTested(true);
+            }}
+            accessibilityRole="button"
+          >
+            <Ionicons name="flash-outline" size={18} color={colors.accent} />
+            <Text style={styles.snapshotText}>
+              {tested ? 'Ausgeführt ✓' : 'Jetzt testen'}
+            </Text>
+          </Pressable>
+        ) : null}
+        {onTest ? (
+          <Text style={styles.snapshotHint}>
+            Führt die Aktionen einmal sofort aus – ohne auf den Auslöser oder die
+            Bedingung zu warten. Gespeicherte Änderungen zuerst sichern.
+          </Text>
+        ) : null}
         {onDelete ? (
           <Pressable style={styles.delete} onPress={onDelete} accessibilityRole="button">
             <Text style={styles.deleteText}>Ablauf löschen</Text>
@@ -1033,6 +1127,104 @@ function Editor({
         ) : null}
       </ScrollView>
     </Modal>
+  );
+}
+
+/** Ein Auslöser im Editor – eigenständige Komponente auf Modulebene, damit
+ *  die Texteingaben beim Tippen nicht neu montiert werden. */
+function TriggerRow({
+  trigger,
+  entities,
+  index,
+  removable,
+  onChange,
+  onRemove,
+}: {
+  trigger: TriggerDraft;
+  entities: Entity[];
+  index: number;
+  removable: boolean;
+  onChange: (patch: Partial<TriggerDraft>) => void;
+  onRemove: () => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  return (
+    <View style={styles.triggerBox}>
+      {removable ? (
+        <View style={styles.triggerHead}>
+          <Text style={styles.triggerBadge}>Auslöser {index + 1}</Text>
+          <Pressable onPress={onRemove} accessibilityLabel="Auslöser entfernen" hitSlop={8}>
+            <Ionicons name="trash-outline" size={18} color={colors.danger} />
+          </Pressable>
+        </View>
+      ) : null}
+      <Choice
+        options={[
+          { key: 'state', label: 'Gerät wechselt' },
+          { key: 'time', label: 'Uhrzeit' },
+          { key: 'sun', label: 'Sonnenstand' },
+        ]}
+        value={trigger.kind}
+        onSelect={(kind) => onChange({ kind: kind as TriggerKind })}
+      />
+      {trigger.kind === 'sun' ? (
+        <>
+          <Choice
+            options={[
+              { key: 'sunrise', label: 'Sonnenaufgang' },
+              { key: 'sunset', label: 'Sonnenuntergang' },
+            ]}
+            value={trigger.sunEvent}
+            onSelect={(sunEvent) => onChange({ sunEvent: sunEvent as TriggerDraft['sunEvent'] })}
+          />
+          <TextInput
+            style={styles.input}
+            value={trigger.sunOffset}
+            onChangeText={(sunOffset) => onChange({ sunOffset })}
+            placeholder="Versatz in Minuten, z.B. -30"
+            placeholderTextColor={colors.inkFaint}
+            keyboardType="numbers-and-punctuation"
+          />
+          <Text style={styles.triggerNote}>
+            Löst {Number(trigger.sunOffset) ? `${Math.abs(Number(trigger.sunOffset))} Min ` : ''}
+            {Number(trigger.sunOffset) < 0 ? 'vor ' : Number(trigger.sunOffset) > 0 ? 'nach ' : ''}
+            {trigger.sunEvent === 'sunrise' ? 'Sonnenaufgang' : 'Sonnenuntergang'} aus.
+          </Text>
+        </>
+      ) : trigger.kind === 'state' ? (
+        <>
+          <Picker
+            items={entities.map((entity) => ({ key: entity.id, label: entity.name }))}
+            value={trigger.entityId}
+            onSelect={(entityId) => onChange({ entityId })}
+          />
+          <Choice
+            options={[
+              { key: 'on', label: 'auf An' },
+              { key: 'off', label: 'auf Aus' },
+            ]}
+            value={trigger.toState}
+            onSelect={(toState) => onChange({ toState, attribute: '', fromState: '' })}
+          />
+          {trigger.attribute || trigger.fromState || !['on', 'off'].includes(trigger.toState) ? (
+            <Text style={styles.triggerNote}>
+              Löst aus, wenn {trigger.attribute || 'der Zustand'}
+              {trigger.fromState ? ` von «${trigger.fromState}»` : ''} auf «{trigger.toState}»
+              wechselt.
+            </Text>
+          ) : null}
+        </>
+      ) : (
+        <TextInput
+          style={styles.input}
+          value={trigger.at}
+          onChangeText={(at) => onChange({ at })}
+          placeholder="18:30"
+          placeholderTextColor={colors.inkFaint}
+        />
+      )}
+    </View>
   );
 }
 
@@ -1124,15 +1316,42 @@ function Picker({
   );
 }
 
-/** Die Aktionen eines Ablaufs – bei «Gerät schalten» eine je gewähltem Gerät. */
+/** Lesbarer Text für eine Wartezeit (rein, testbar). */
+function delayLabel(seconds: string): string {
+  const value = Number(seconds) || 0;
+  if (value < 60) return `${value} Sekunden`;
+  const minutes = Math.round(value / 60);
+  return `${minutes} Minute${minutes === 1 ? '' : 'n'}`;
+}
+
+/** Die Bedingung eines Ablaufs in die gespeicherte Form (rein, testbar). */
+function buildConditions(draft: Draft): Record<string, any>[] {
+  if (draft.conditionKind === 'sun') {
+    return [{ type: 'sun', state: draft.conditionSun }];
+  }
+  if (draft.conditionKind === 'time') {
+    const condition: Record<string, any> = { type: 'time' };
+    if (draft.conditionAfter) condition.after = draft.conditionAfter;
+    if (draft.conditionBefore) condition.before = draft.conditionBefore;
+    // Ohne beide Zeiten wäre die Bedingung sinnlos – dann keine.
+    return condition.after || condition.before ? [condition] : [];
+  }
+  return [];
+}
+
+/** Die Aktionen eines Ablaufs – bei «Gerät schalten» eine je gewähltem Gerät.
+ *  Eine Wartezeit wird als erste Aktion vorangestellt. */
 function buildActions(draft: Draft): Record<string, any>[] {
+  const delay = Number(draft.delaySeconds) || 0;
+  const prefix: Record<string, any>[] =
+    delay > 0 ? [{ type: 'delay', seconds: delay }] : [];
   if (draft.actionKind === 'scene') {
-    return [{ type: 'scene', scene: draft.sceneId }];
+    return [...prefix, { type: 'scene', scene: draft.sceneId }];
   }
   if (draft.actionKind === 'notify') {
-    return [{ type: 'notify', to: 'all', title: draft.title, body: draft.body }];
+    return [...prefix, { type: 'notify', to: 'all', title: draft.title, body: draft.body }];
   }
-  return draft.commandActions
+  const commands = draft.commandActions
     .filter((action) => action.entity_id)
     .map((action) => {
       const built: Record<string, any> = {
@@ -1145,24 +1364,26 @@ function buildActions(draft: Draft): Record<string, any>[] {
       }
       return built;
     });
+  return [...prefix, ...commands];
 }
 
 function toDraft(automation: Automation): Draft {
-  const trigger = automation.triggers[0] ?? {};
-  const action = automation.actions[0] ?? {};
+  const triggers = (automation.triggers ?? []).map(triggerFromConfig);
+  // Die erste Nicht-Verzögerungs-Aktion bestimmt Art und Felder.
+  const action = automation.actions.find((entry) => entry.type !== 'delay') ?? {};
+  const delay = automation.actions.find((entry) => entry.type === 'delay');
+  const condition = (automation.conditions ?? [])[0] ?? {};
   return {
     ...EMPTY,
     id: automation.id,
     alias: automation.alias,
-    triggerKind:
-      trigger.type === 'time' ? 'time' : trigger.type === 'sun' ? 'sun' : 'state',
-    entityId: trigger.entity_id ?? '',
-    toState: trigger.to ?? 'on',
-    fromState: trigger.from ?? '',
-    attribute: trigger.attribute ?? '',
-    at: trigger.at ?? EMPTY.at,
-    sunEvent: trigger.event === 'sunrise' ? 'sunrise' : 'sunset',
-    sunOffset: String(trigger.offset ?? 0),
+    triggers: triggers.length > 0 ? triggers : [{ ...EMPTY_TRIGGER }],
+    conditionKind:
+      condition.type === 'sun' ? 'sun' : condition.type === 'time' ? 'time' : 'none',
+    conditionSun: condition.state === 'up' ? 'up' : 'down',
+    conditionAfter: condition.after ?? '',
+    conditionBefore: condition.before ?? '',
+    delaySeconds: String(delay?.seconds ?? 0),
     actionKind: (action.type as ActionKind) ?? 'command',
     actionEntityId: action.entity_id ?? '',
     command: action.command ?? 'turn_on',
@@ -1183,7 +1404,7 @@ function toDraft(automation: Automation): Draft {
 
 function describe(automation: Automation): string {
   const trigger = automation.triggers[0];
-  const action = automation.actions[0];
+  const action = automation.actions.find((entry) => entry.type !== 'delay');
   const wenn = !trigger
     ? 'ohne Auslöser'
     : trigger.type === 'time'
@@ -1206,7 +1427,9 @@ function describe(automation: Automation): string {
         : action.command === 'clean_rooms'
           ? `${action.entity_id}: ${action.data?.rooms?.length ?? 0} Räume saugen`
           : `${action.entity_id} ${action.command}`;
-  return `${wenn} → ${dann}`;
+  const mehr = automation.triggers.length > 1 ? ` (+${automation.triggers.length - 1})` : '';
+  const wartet = automation.actions.some((entry) => entry.type === 'delay') ? ' ⏱' : '';
+  return `${wenn}${mehr} → ${dann}${wartet}`;
 }
 
 const makeStyles = (colors: Colors) =>
@@ -1285,6 +1508,28 @@ const makeStyles = (colors: Colors) =>
     },
     templateText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
     triggerNote: { color: colors.inkSoft, fontSize: 13, lineHeight: 18 },
+    triggerBox: {
+      gap: 8,
+      padding: 12,
+      borderRadius: radius.control,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    triggerHead: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    triggerBadge: { color: colors.inkSoft, fontSize: 12, fontWeight: '700' },
+    addRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingVertical: 8,
+    },
+    addRowText: { color: colors.accent, fontSize: 14, fontWeight: '700' },
+    rowGap: { flexDirection: 'row', gap: 8 },
     card: { minHeight: 0, gap: 6 },
     cardHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     title: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },

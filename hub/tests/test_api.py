@@ -100,3 +100,47 @@ def test_cors_header_on_normal_request():
         )
         assert response.status_code == 200
         assert "access-control-allow-origin" in response.headers
+
+
+def test_trigger_automation_runs_actions_now():
+    with make_client() as client:
+        created = client.post(
+            "/api/automations",
+            json={
+                "alias": "Testlauf",
+                "trigger": [{"type": "time", "at": "03:00"}],
+                "condition": [],
+                "action": [
+                    {
+                        "type": "command",
+                        "entity_id": "demo.light_livingroom",
+                        "command": "turn_on",
+                    }
+                ],
+            },
+        )
+        assert created.status_code == 200
+        automation_id = created.json()["automation"]["id"]
+
+        # Ohne Auslöser: der Testknopf führt die Aktion sofort aus.
+        run = client.post(f"/api/automations/{automation_id}/trigger")
+        assert run.status_code == 200
+        assert run.json()["ok"] is True
+
+        entity = client.get("/api/entities/demo.light_livingroom").json()
+        assert entity["state"]["state"] == "on"
+
+
+def test_trigger_unknown_automation_is_404():
+    with make_client() as client:
+        assert client.post("/api/automations/nope/trigger").status_code == 404
+
+
+def test_push_test_endpoint_reports_recipient_count():
+    with make_client() as client:
+        # Ohne registriertes Gerät geht die Nachricht an niemanden.
+        response = client.post("/api/push/test")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["ok"] is True
+        assert body["sent"] == 0

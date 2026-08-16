@@ -284,6 +284,24 @@ class AutomationEngine:
         self._run_tasks.add(task)
         task.add_done_callback(self._run_tasks.discard)
 
+    async def trigger_now(self, automation_id: str, ignore_conditions: bool = True) -> bool:
+        """Einen Ablauf sofort ausführen – für den «Testen»-Knopf der App.
+
+        ``ignore_conditions`` führt die Aktionen auch aus, wenn die
+        Bedingungen gerade nicht passen (man will beim Testen das Ergebnis
+        sehen, nicht die Bedingung prüfen). Gibt False zurück, wenn es den
+        Ablauf nicht gibt.
+        """
+        automation = next(
+            (a for a in self.automations if a.id == automation_id), None
+        )
+        if automation is None:
+            return False
+        with as_source(automation_source(automation.id, automation.alias)):
+            for action in automation.actions:
+                await self._execute_action(automation, action)
+        return True
+
     # ── Ausführung ─────────────────────────────────────────────────────────
 
     async def _run(self, automation: Automation) -> None:

@@ -625,6 +625,14 @@ def create_app(hub: Hub) -> FastAPI:
         await hub.reload_automations()
         return {"ok": True}
 
+    @app.post("/api/automations/{automation_id}/trigger")
+    async def trigger_automation(automation_id: str, request: Request) -> dict[str, Any]:
+        require(request, Capability.EDIT_AUTOMATIONS)
+        ok = await hub.automations.trigger_now(automation_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Ablauf nicht gefunden")
+        return {"ok": True}
+
     # ── Push ───────────────────────────────────────────────────────────────
 
     @app.post("/api/push/register")
@@ -637,6 +645,18 @@ def create_app(hub: Hub) -> FastAPI:
     async def unregister_push(body: PushRegistration, request: Request) -> dict[str, Any]:
         current_user(request)
         return {"ok": hub.push.unregister(body.token)}
+
+    @app.post("/api/push/test")
+    async def test_push(request: Request) -> dict[str, Any]:
+        user = current_user(request)
+        tokens = hub.push.recipients(hub.users.users, user.name)
+        count = await hub.push.send(
+            tokens,
+            title="HomePilot Test",
+            body="Push-Benachrichtigungen funktionieren \U0001f389",
+            data={"type": "test"},
+        )
+        return {"ok": True, "sent": count}
 
     # ── Benutzerverwaltung ─────────────────────────────────────────────────
 
