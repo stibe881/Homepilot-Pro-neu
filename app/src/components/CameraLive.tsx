@@ -24,7 +24,7 @@ export function CameraLive({
   uri: string;
   style?: ViewStyle;
   muted?: boolean;
-  onFailed?: () => void;
+  onFailed?: (message: string) => void;
 }) {
   const colors = useColors();
   const [failed, setFailed] = useState<string | null>(null);
@@ -42,8 +42,9 @@ export function CameraLive({
   useEffect(() => {
     const subscription = player.addListener('statusChange', ({ status, error }) => {
       if (status === 'error') {
-        setFailed(error?.message ?? 'Der Strom liess sich nicht öffnen');
-        failedRef.current?.();
+        const message = error?.message ?? 'Der Strom liess sich nicht öffnen';
+        setFailed(message);
+        failedRef.current?.(message);
       } else if (status === 'readyToPlay') {
         setFailed(null);
       }

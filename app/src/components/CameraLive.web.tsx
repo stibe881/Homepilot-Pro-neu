@@ -19,7 +19,7 @@ export function CameraLive({
   uri: string;
   style?: ViewStyle;
   muted?: boolean;
-  onFailed?: () => void;
+  onFailed?: (message: string) => void;
 }) {
   const ref = useRef<HTMLVideoElement | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
@@ -36,7 +36,7 @@ export function CameraLive({
 
     const fail = (message: string) => {
       setFailed(message);
-      failedRef.current?.();
+      failedRef.current?.(message);
     };
 
     // Safari und die Browser auf iOS können HLS direkt.

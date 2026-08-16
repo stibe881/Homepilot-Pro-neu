@@ -760,8 +760,9 @@ function CameraFullscreen({
 }) {
   const [tick, setTick] = useState(0);
   // Klappt der Livestrom nicht, bleibt das Standbild – lieber ein Bild alle
-  // drei Sekunden als ein schwarzes Rechteck.
-  const [liveFailed, setLiveFailed] = useState(false);
+  // drei Sekunden als ein schwarzes Rechteck. Der Grund wird angezeigt,
+  // sonst lässt sich aus der Ferne nichts diagnostizieren.
+  const [liveFailed, setLiveFailed] = useState<string | null>(null);
   useEffect(() => {
     const timer = setInterval(() => setTick((value) => value + 1), 3000);
     return () => clearInterval(timer);
@@ -777,7 +778,7 @@ function CameraFullscreen({
           <CameraLive
             uri={streamUri!}
             style={styles.doorbellImage}
-            onFailed={() => setLiveFailed(true)}
+            onFailed={(message) => setLiveFailed(message)}
           />
         ) : uri && online ? (
           <Image
@@ -808,7 +809,7 @@ function CameraFullscreen({
             {live
               ? '● Live'
               : liveFailed
-                ? 'Live-Bild nicht verfügbar – Standbild alle 3 Sekunden'
+                ? `Live-Bild nicht verfügbar (${liveFailed}) – Standbild alle 3 Sekunden`
                 : 'Standbild alle 3 Sekunden'}
             {camera.state.motion === 'on' ? ' · Bewegung erkannt' : ''}
           </Text>
@@ -840,7 +841,7 @@ function DoorbellOverlay({
 }) {
   const [confirm, setConfirm] = useState(false);
   const [tick, setTick] = useState(0);
-  const [liveFailed, setLiveFailed] = useState(false);
+  const [liveFailed, setLiveFailed] = useState<string | null>(null);
   // Alle 3 Sekunden ein frisches Bild, solange das Vollbild offen ist.
   useEffect(() => {
     const timer = setInterval(() => setTick((value) => value + 1), 3000);
@@ -865,7 +866,7 @@ function DoorbellOverlay({
           <CameraLive
             uri={`${base}/stream.m3u8?token=${token}`}
             style={styles.doorbellImage}
-            onFailed={() => setLiveFailed(true)}
+            onFailed={(message) => setLiveFailed(message)}
           />
         ) : uri ? (
           <Image source={{ uri }} style={styles.doorbellImage} resizeMode="cover" />
