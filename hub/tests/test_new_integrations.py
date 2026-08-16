@@ -777,3 +777,14 @@ def test_extract_code_accepts_full_redirect_url_or_bare_code():
     assert extract_code(url) == "AQAx95_ABC"
     assert extract_code("  AQBBARE  ") == "AQBBARE"
     assert extract_code("callback?code=NUR_QUERY") == "NUR_QUERY"
+
+
+def test_merge_device_names_appends_sleeping_cast_boxes():
+    """Schlafende Cast-Boxen bleiben wählbar – beim Start werden sie geweckt."""
+    from homepilot.integrations.spotify import merge_device_names
+
+    assert merge_device_names(["iPhone", "Terrasse"], ["Terrasse", "Küche"]) == [
+        "iPhone", "Terrasse", "Küche",
+    ]
+    assert merge_device_names([], ["Terrasse"]) == ["Terrasse"]
+    assert merge_device_names(["Terrasse"], []) == ["Terrasse"]

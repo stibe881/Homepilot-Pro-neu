@@ -22,6 +22,13 @@ Einmalige Einrichtung (~5 Minuten):
 
 Der Hub tauscht den refresh_token selbstständig gegen kurzlebige
 Zugriffstokens; er läuft nicht ab.
+
+Google-/Cast-Boxen: Schlafende Lautsprecher stehen trotzdem in der
+Geräteliste (aus der google_cast-Integration). Beim Playlist-Start weckt
+der Hub die Box übers Cast-Protokoll und meldet sie bei Spotify an –
+dieselbe Mechanik wie «Spotcast» in Home Assistant. Dafür braucht der
+refresh_token die Scopes streaming/user-read-email/user-read-private
+(im Anmelde-Helfer enthalten) und Spotify Premium.
 """
 
 from __future__ import annotations
@@ -44,8 +51,24 @@ API = "https://api.spotify.com/v1"
 REDIRECT = "http://127.0.0.1:8888/callback"
 SCOPES = (
     "user-read-playback-state user-modify-playback-state "
-    "playlist-read-private playlist-read-collaborative"
+    "playlist-read-private playlist-read-collaborative "
+    # Fürs Wecken der Cast-Boxen (Geräteanmeldung wie beim Web-Player).
+    "streaming user-read-email user-read-private"
 )
+
+
+def merge_device_names(connect: list[str], cast: list[str]) -> list[str]:
+    """Connect-Geräte plus (schlafende) Cast-Boxen, ohne Duplikate (rein).
+
+    Die Cast-Namen hängen hinten an: So bleibt eine Box wählbar, auch wenn
+    sie bei Spotify gerade nicht registriert ist – beim Playlist-Start wird
+    sie geweckt.
+    """
+    result = list(connect)
+    for name in cast:
+        if name not in result:
+            result.append(name)
+    return result
 
 
 def extract_code(text: str) -> str:
@@ -260,9 +283,39 @@ class SpotifyIntegration(Integration):
             return
         self._device_ids = {device["name"]: device["id"] for device in devices}
         state = parse_playback(payload)
-        state["devices"] = [device["name"] for device in devices]
+        state["devices"] = merge_device_names(
+            [device["name"] for device in devices], self._cast_names()
+        )
         state["playlists"] = [p["name"] for p in self._playlists]
         await self.hub.registry.update_state(entity_id, state, available=True)
+
+    def _cast_names(self) -> list[str]:
+        cast = self.hub.integrations.get("google_cast")
+        if cast is None or not hasattr(cast, "device_names"):
+            return []
+        try:
+            return cast.device_names()
+        except Exception:
+            return []
+
+    async def _wake_and_find(self, name: str) -> str | None:
+        """Weckt eine schlafende Cast-Box und wartet, bis Spotify sie kennt."""
+        cast = self.hub.integrations.get("google_cast")
+        if cast is None or not hasattr(cast, "spotify_wake"):
+            return None
+        token = await self._ensure_token()
+        if not await cast.spotify_wake(name, token):
+            return None
+        for _ in range(12):
+            await asyncio.sleep(1)
+            try:
+                devices = parse_devices(await self._call("GET", "/me/player/devices"))
+            except Exception:
+                continue
+            self._device_ids = {device["name"]: device["id"] for device in devices}
+            if name in self._device_ids:
+                return self._device_ids[name]
+        return None
 
     # ── Hub → Spotify ──────────────────────────────────────────────────────
 
@@ -288,11 +341,21 @@ class SpotifyIntegration(Integration):
             body: dict[str, Any] = {"context_uri": uri}
             # Ziel: gewünschte Box → gerade aktive → erste sichtbare. Ohne
             # Ziel würde Spotify aus der Stille heraus mit 404 abwinken.
+            requested = str(data.get("device", ""))
             device_id = pick_device(
-                str(data.get("device", "")),
-                entity.state.get("device"),
-                self._device_ids,
+                requested, entity.state.get("device"), self._device_ids
             )
+            # Gewünschte Box schläft (kennt Spotify gerade nicht)? Dann über
+            # das Cast-Protokoll wecken und anmelden – wie Spotcast.
+            if requested and requested not in self._device_ids:
+                woken = await self._wake_and_find(requested)
+                if woken:
+                    device_id = woken
+                elif device_id is None:
+                    raise ValueError(
+                        f"'{requested}' liess sich nicht wecken – Details im "
+                        "Hub-Log (docker logs homepilot-hub | grep -i spotify)"
+                    )
             if device_id is None:
                 raise ValueError(
                     "Keine Spotify-Lautsprecher sichtbar. Google-Lautsprecher "

@@ -20,7 +20,11 @@ Muster wie beim Homematic-Callback.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import threading
 from typing import Any
+
+import aiohttp
 
 from ..core.entity import Entity, EntityKind
 from ..core.errors import ConfigError
@@ -53,6 +57,76 @@ def cast_media_state(
     if muted is not None:
         result["muted"] = bool(muted)
     return result
+
+
+# Spotify-Empfänger auf Cast-Geräten (dieselbe Mechanik wie «Spotcast» in
+# Home Assistant): App starten, das Gerät bei Spotify anmelden – danach
+# taucht es als Spotify-Connect-Ziel auf, ganz ohne offene Handy-App.
+SPOTIFY_APP = "CC32E753"
+SPOTIFY_NS = "urn:x-cast:com.spotify.chromecast.secure.v1"
+DEVICE_AUTH = "https://spclient.wg.spotify.com/device-auth/v1/refresh"
+
+
+def _spotify_controller_class():
+    """Controller erst bei Gebrauch bauen – pychromecast ist optional."""
+    from pychromecast.controllers import BaseController
+
+    class SpotifyCastController(BaseController):
+        """Minimaler Nachbau des Spotcast-Controllers.
+
+        Ablauf: getInfo → (getInfoResponse mit deviceID/clientID) →
+        device-auth bei Spotify → addUser mit dem Geräte-Token →
+        addUserResponse. Die Ereignisse laufen im Thread der Bibliothek;
+        threading.Events tragen sie zurück.
+        """
+
+        def __init__(self, remote_name: str) -> None:
+            super().__init__(SPOTIFY_NS, SPOTIFY_APP)
+            self.remote_name = remote_name
+            self.device_id: str | None = None
+            self.client_id: str | None = None
+            self.result: str | None = None
+            self.got_info = threading.Event()
+            self.done = threading.Event()
+
+        def receive_message(self, _message: Any, data: dict) -> bool:
+            kind = data.get("type")
+            if kind == "getInfoResponse":
+                payload = data.get("payload") or {}
+                self.device_id = payload.get("deviceID")
+                self.client_id = payload.get("clientID")
+                self.got_info.set()
+            elif kind == "addUserResponse":
+                self.result = "ok"
+                self.done.set()
+            elif kind == "addUserError":
+                self.result = str(data.get("payload") or "addUserError")
+                self.done.set()
+            return True
+
+        def ask_info(self) -> None:
+            self.send_message(
+                {
+                    "type": "getInfo",
+                    "payload": {
+                        "remoteName": self.remote_name,
+                        "deviceID": hashlib.md5(
+                            self.remote_name.encode()
+                        ).hexdigest(),
+                        "deviceAPI_isGroup": False,
+                    },
+                }
+            )
+
+        def add_user(self, token: str) -> None:
+            self.send_message(
+                {
+                    "type": "addUser",
+                    "payload": {"blob": token, "tokenType": "accesstoken"},
+                }
+            )
+
+    return SpotifyCastController
 
 
 class GoogleCastIntegration(Integration):
@@ -168,6 +242,94 @@ class GoogleCastIntegration(Integration):
             ),
             available=True,
         )
+
+    # ── Spotify-Wecken (für die spotify-Integration) ───────────────────────
+
+    def device_names(self) -> list[str]:
+        """Namen aller verbundenen Cast-Geräte – als schlafende Connect-Ziele."""
+        names = []
+        for entity_id in self._casts:
+            entity = self.hub.registry.get(entity_id)
+            if entity is not None:
+                names.append(entity.name)
+        return names
+
+    async def spotify_wake(self, name: str, access_token: str) -> bool:
+        """Startet die Spotify-App auf der Box und meldet sie bei Spotify an.
+
+        Danach erscheint die Box als Spotify-Connect-Gerät – die spotify-
+        Integration wartet darauf und startet dann die Playlist. Gibt False
+        zurück, wenn die Box unbekannt ist oder die Anmeldung scheitert
+        (Grund steht im Log).
+        """
+        cast = None
+        for entity_id, candidate in self._casts.items():
+            entity = self.hub.registry.get(entity_id)
+            if entity is not None and entity.name == name:
+                cast = candidate
+                break
+        if cast is None:
+            return False
+
+        controller_cls = _spotify_controller_class()
+        controller = controller_cls(name)
+        cast.register_handler(controller)
+        try:
+            # 1. App starten und Geräteinfo erfragen.
+            def launch_and_ask() -> bool:
+                launched = threading.Event()
+                controller.launch(callback_function=lambda: launched.set())
+                if not launched.wait(10):
+                    return False
+                controller.ask_info()
+                return controller.got_info.wait(10)
+
+            if not await asyncio.to_thread(launch_and_ask):
+                self.log.warning("Spotify-App auf %s meldet keine Geräteinfo", name)
+                return False
+
+            # 2. Geräte-Token bei Spotify holen (mit dem Konto-Token).
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    DEVICE_AUTH,
+                    json={
+                        "clientId": controller.client_id,
+                        "deviceId": controller.device_id,
+                    },
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as response:
+                    payload = await response.json(content_type=None)
+            device_token = (payload or {}).get("accessToken")
+            if not device_token:
+                self.log.warning(
+                    "Spotify device-auth für %s abgelehnt: %s – braucht der "
+                    "Zugang den 'streaming'-Scope? (Anmelde-Helfer neu laufen "
+                    "lassen)",
+                    name,
+                    payload,
+                )
+                return False
+
+            # 3. Box anmelden.
+            def add_user() -> bool:
+                controller.add_user(device_token)
+                return controller.done.wait(10)
+
+            if not await asyncio.to_thread(add_user) or controller.result != "ok":
+                self.log.warning(
+                    "Spotify-Anmeldung auf %s fehlgeschlagen: %s",
+                    name,
+                    controller.result or "Zeitüberschreitung",
+                )
+                return False
+            self.log.info("%s bei Spotify angemeldet (geweckt)", name)
+            return True
+        finally:
+            try:
+                cast.unregister_handler(controller)
+            except Exception:
+                pass
 
     # ── Hub → Gerät ────────────────────────────────────────────────────────
 

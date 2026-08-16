@@ -78,7 +78,12 @@ export function OverviewScreen({
   const alert = entities.find((e) => e.kind === 'alert' && e.state.state === 'alert');
   const alarm = entities.find((e) => /alarm/i.test(e.name) && e.kind === 'switch');
   const players = entities.filter((e) => e.kind === 'media_player');
-  const player = players.find((e) => e.state.state === 'playing') ?? players[0];
+  // Spielt irgendwo Musik, zeigt die Kachel diesen Player; sonst Spotify
+  // (Playlists + Boxen-Wahl) vor einer stillen Cast-Box.
+  const player =
+    players.find((e) => e.state.state === 'playing') ??
+    players.find((e) => e.commands.includes('play_playlist')) ??
+    players[0];
   const covers = entities.filter((e) => e.kind === 'cover');
 
   // Schnellaktionen: alle im Szenen-Editor für die Startseite markierten
