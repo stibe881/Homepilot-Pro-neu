@@ -38,6 +38,8 @@ interface Draft {
   command: string;
   /** Raumauswahl, wenn das Kommando 'Räume saugen' ist. */
   rooms: number[];
+  /** Mehrere Geräte für die Aktion «Gerät schalten» (Checkliste). */
+  commandActions: { entity_id: string; command: string; rooms?: number[] }[];
   sceneId: string;
   title: string;
   body: string;
@@ -57,6 +59,7 @@ const EMPTY: Draft = {
   actionEntityId: '',
   command: 'turn_on',
   rooms: [],
+  commandActions: [],
   sceneId: '',
   title: '',
   body: '',
@@ -101,7 +104,7 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
         toState: 'off',
         ...(offScene
           ? { actionKind: 'scene' as ActionKind, sceneId: offScene.id }
-          : { actionEntityId: firstOff!.id, command: 'turn_off' }),
+          : { commandActions: [{ entity_id: firstOff!.id, command: 'turn_off' }] }),
       },
     });
   }
@@ -161,8 +164,7 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
         alias: 'Morgens saugen',
         triggerKind: 'time',
         at: '09:00',
-        actionEntityId: vacuum.id,
-        command: 'clean_rooms',
+        commandActions: [{ entity_id: vacuum.id, command: 'clean_rooms', rooms: [] }],
       },
     });
   }
@@ -176,8 +178,7 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
         triggerKind: 'sun',
         sunEvent: 'sunset',
         sunOffset: '0',
-        actionEntityId: cover.id,
-        command: 'close',
+        commandActions: [{ entity_id: cover.id, command: 'close' }],
       },
     });
     templates.push({
@@ -189,8 +190,7 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
         triggerKind: 'sun',
         sunEvent: 'sunrise',
         sunOffset: '0',
-        actionEntityId: cover.id,
-        command: 'open',
+        commandActions: [{ entity_id: cover.id, command: 'open' }],
       },
     });
     if (alert) {
@@ -202,8 +202,7 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
           alias: 'Sturmschutz',
           entityId: alert.id,
           toState: 'alert',
-          actionEntityId: cover.id,
-          command: 'close',
+          commandActions: [{ entity_id: cover.id, command: 'close' }],
         },
       });
     }
@@ -273,7 +272,7 @@ export function AutomationsScreen({
       alias: draft.alias || 'Ohne Namen',
       trigger: [trigger],
       condition: [],
-      action: [buildAction(draft)],
+      action: buildActions(draft),
     };
     const url = draft.id
       ? `${settings.url}/api/automations/${draft.id}`
@@ -579,15 +578,28 @@ function SceneDevices({
   entities,
   actions,
   onActions,
+  showSnapshot = true,
 }: {
   entities: Entity[];
   actions: SceneDraft['actions'];
   onActions: (actions: SceneDraft['actions']) => void;
+  /** Der «Aktuellen Zustand übernehmen»-Knopf – für Szenen sinnvoll, für
+   *  Ablauf-Aktionen nicht (dort zählt der Zielzustand, nicht der jetzige). */
+  showSnapshot?: boolean;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [query, setQuery] = useState('');
 
-  const devices = entities.filter(isSceneDevice);
+  const needle = query.trim().toLowerCase();
+  const all = entities.filter(isSceneDevice);
+  const devices = needle
+    ? all.filter(
+        (entity) =>
+          entity.name.toLowerCase().includes(needle) ||
+          (entity.room ?? '').toLowerCase().includes(needle)
+      )
+    : all;
   const byId = new Map(actions.map((action) => [action.entity_id, action]));
 
   // Nach Raum gruppieren; Geräte ohne Raum kommen unter «Weitere».
@@ -643,19 +655,45 @@ function SceneDevices({
 
   return (
     <View style={{ gap: 10 }}>
-      <Pressable
-        onPress={snapshot}
-        accessibilityRole="button"
-        style={({ pressed }) => [styles.snapshot, pressed && { opacity: 0.8 }]}
-      >
-        <Ionicons name="camera-outline" size={18} color={colors.accent} />
-        <Text style={styles.snapshotText}>Aktuellen Zustand übernehmen</Text>
-      </Pressable>
-      <Text style={styles.snapshotHint}>
-        Stell die Zimmer so ein, wie du sie in der Szene willst, und tippe oben –
-        oder wähle die Geräte einzeln.
-      </Text>
+      {showSnapshot ? (
+        <>
+          <Pressable
+            onPress={snapshot}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.snapshot, pressed && { opacity: 0.8 }]}
+          >
+            <Ionicons name="camera-outline" size={18} color={colors.accent} />
+            <Text style={styles.snapshotText}>Aktuellen Zustand übernehmen</Text>
+          </Pressable>
+          <Text style={styles.snapshotHint}>
+            Stell die Zimmer so ein, wie du sie in der Szene willst, und tippe
+            oben – oder wähle die Geräte einzeln.
+          </Text>
+        </>
+      ) : null}
 
+      <View style={styles.deviceSearch}>
+        <Ionicons name="search" size={15} color={colors.inkFaint} />
+        <TextInput
+          style={styles.deviceSearchInput}
+          value={query}
+          onChangeText={setQuery}
+          placeholder="Gerät oder Raum suchen …"
+          placeholderTextColor={colors.inkFaint}
+        />
+        {query ? (
+          <Pressable onPress={() => setQuery('')} hitSlop={8}>
+            <Ionicons name="close-circle" size={17} color={colors.inkFaint} />
+          </Pressable>
+        ) : null}
+      </View>
+      {actions.length > 0 ? (
+        <Text style={styles.snapshotHint}>{actions.length} Gerät(e) ausgewählt</Text>
+      ) : null}
+
+      {groups.length === 0 ? (
+        <Text style={styles.snapshotHint}>Nichts gefunden.</Text>
+      ) : null}
       {groups.map((group) => (
         <View key={group.room} style={{ gap: 6 }}>
           <Text style={styles.groupLabel}>{group.room}</Text>
@@ -953,71 +991,12 @@ function Editor({
             onSelect={(actionKind) => set({ actionKind: actionKind as ActionKind })}
           />
           {draft.actionKind === 'command' ? (
-            <>
-              <Picker
-                items={switchable.map((entity) => ({
-                  key: entity.id,
-                  label: entity.name,
-                }))}
-                value={draft.actionEntityId}
-                onSelect={(actionEntityId) => {
-                  const next = entities.find((entity) => entity.id === actionEntityId);
-                  set({
-                    actionEntityId,
-                    command:
-                      next?.kind === 'vacuum'
-                        ? 'start'
-                        : next?.kind === 'cover'
-                          ? 'close'
-                          : 'turn_on',
-                    rooms: [],
-                  });
-                }}
-              />
-              <Choice
-                options={
-                  isVacuum
-                    ? [
-                        { key: 'start', label: 'Reinigung starten' },
-                        { key: 'dock', label: 'zur Station' },
-                        ...(actionRooms.length > 0
-                          ? [{ key: 'clean_rooms', label: 'Räume saugen' }]
-                          : []),
-                      ]
-                    : isCover
-                      ? [
-                          { key: 'close', label: 'schliessen' },
-                          { key: 'open', label: 'öffnen' },
-                          { key: 'stop', label: 'stopp' },
-                        ]
-                      : [
-                          { key: 'turn_on', label: 'einschalten' },
-                          { key: 'turn_off', label: 'ausschalten' },
-                          { key: 'toggle', label: 'umschalten' },
-                        ]
-                }
-                value={draft.command}
-                onSelect={(command) => set({ command })}
-              />
-              {draft.command === 'clean_rooms' && actionRooms.length > 0 ? (
-                <Choice
-                  multi
-                  options={actionRooms.map((room) => ({
-                    key: String(room.id),
-                    label: room.name,
-                  }))}
-                  values={draft.rooms.map(String)}
-                  onSelect={(key) => {
-                    const id = Number(key);
-                    set({
-                      rooms: draft.rooms.includes(id)
-                        ? draft.rooms.filter((entry) => entry !== id)
-                        : [...draft.rooms, id],
-                    });
-                  }}
-                />
-              ) : null}
-            </>
+            <SceneDevices
+              entities={entities}
+              actions={draft.commandActions}
+              onActions={(commandActions) => set({ commandActions })}
+              showSnapshot={false}
+            />
           ) : draft.actionKind === 'scene' ? (
             <Picker
               items={scenes.map((scene) => ({ key: scene.id, label: scene.name }))}
@@ -1145,22 +1124,27 @@ function Picker({
   );
 }
 
-function buildAction(draft: Draft): Record<string, any> {
+/** Die Aktionen eines Ablaufs – bei «Gerät schalten» eine je gewähltem Gerät. */
+function buildActions(draft: Draft): Record<string, any>[] {
   if (draft.actionKind === 'scene') {
-    return { type: 'scene', scene: draft.sceneId };
+    return [{ type: 'scene', scene: draft.sceneId }];
   }
   if (draft.actionKind === 'notify') {
-    return { type: 'notify', to: 'all', title: draft.title, body: draft.body };
+    return [{ type: 'notify', to: 'all', title: draft.title, body: draft.body }];
   }
-  const action: Record<string, any> = {
-    type: 'command',
-    entity_id: draft.actionEntityId,
-    command: draft.command,
-  };
-  if (draft.command === 'clean_rooms') {
-    action.data = { rooms: draft.rooms };
-  }
-  return action;
+  return draft.commandActions
+    .filter((action) => action.entity_id)
+    .map((action) => {
+      const built: Record<string, any> = {
+        type: 'command',
+        entity_id: action.entity_id,
+        command: action.command,
+      };
+      if (action.command === 'clean_rooms') {
+        built.data = { rooms: action.rooms ?? [] };
+      }
+      return built;
+    });
 }
 
 function toDraft(automation: Automation): Draft {
@@ -1183,6 +1167,14 @@ function toDraft(automation: Automation): Draft {
     actionEntityId: action.entity_id ?? '',
     command: action.command ?? 'turn_on',
     rooms: action.data?.rooms ?? [],
+    // Alle command-Aktionen in die Checkliste übernehmen.
+    commandActions: automation.actions
+      .filter((entry) => entry.type === 'command' && entry.entity_id)
+      .map((entry) => ({
+        entity_id: entry.entity_id,
+        command: entry.command ?? 'turn_on',
+        rooms: entry.data?.rooms ?? [],
+      })),
     sceneId: action.scene ?? '',
     title: action.title ?? '',
     body: action.body ?? '',
@@ -1261,6 +1253,17 @@ const makeStyles = (colors: Colors) =>
     },
     deviceHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     deviceName: { color: colors.ink, fontSize: 15, fontWeight: '600', flex: 1 },
+    deviceSearch: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      backgroundColor: colors.surfaceSoft,
+      borderRadius: radius.control,
+      paddingHorizontal: 12,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    deviceSearchInput: { flex: 1, paddingVertical: 10, color: colors.ink, fontSize: 15 },
     templates: { gap: 8 },
     templatesLabel: {
       color: colors.onGradientSoft,

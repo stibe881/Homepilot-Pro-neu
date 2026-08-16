@@ -1,6 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  Image,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 
 import { Entity } from '../api/types';
 import { Colors, radius, type, useColors } from '../theme';
@@ -691,8 +700,19 @@ export function SpotifyPanel({
   const active: string | null = entity.state.device ?? null;
   const playing = entity.state.state === 'playing';
   const [chosen, setChosen] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [expanded, setExpanded] = useState(false);
   // Ziel: zuletzt angetippt → gerade aktiv → erste Box.
   const target = (chosen && devices.includes(chosen) ? chosen : null) ?? active ?? devices[0] ?? null;
+
+  // Kompakt: standardmässig nur eine Handvoll Playlists, Suche filtert alle.
+  const needle = query.trim().toLowerCase();
+  const filtered = needle
+    ? playlists.filter((name) => name.toLowerCase().includes(needle))
+    : playlists;
+  const LIMIT = 6;
+  const shown = needle || expanded ? filtered : filtered.slice(0, LIMIT);
+  const hiddenCount = filtered.length - shown.length;
 
   return (
     <View style={styles.stack}>
@@ -733,23 +753,60 @@ export function SpotifyPanel({
         </Text>
       )}
 
-      <Text style={styles.mediaLabel}>Playlists</Text>
-      {playlists.length > 0 ? (
-        <View style={styles.deviceRow}>
-          {playlists.map((name) => (
-            <Pressable
-              key={name}
-              onPress={() =>
-                onCommand('play_playlist', target ? { name, device: target } : { name })
-              }
-              style={styles.deviceChip}>
-              <Ionicons name="musical-notes" size={12} color={colors.inkSoft} />
-              <Text style={styles.deviceChipText} numberOfLines={1}>
-                {name}
-              </Text>
+      <View style={styles.spotifyPlaylistHead}>
+        <Text style={styles.mediaLabel}>Playlists</Text>
+        {playlists.length > 0 ? (
+          <Text style={styles.spotifyCount}>{playlists.length}</Text>
+        ) : null}
+      </View>
+      {playlists.length > LIMIT ? (
+        <View style={styles.spotifySearch}>
+          <Ionicons name="search" size={14} color={colors.inkFaint} />
+          <TextInput
+            style={styles.spotifySearchInput}
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Playlist suchen …"
+            placeholderTextColor={colors.inkFaint}
+          />
+          {query ? (
+            <Pressable onPress={() => setQuery('')} hitSlop={8}>
+              <Ionicons name="close-circle" size={16} color={colors.inkFaint} />
             </Pressable>
-          ))}
+          ) : null}
         </View>
+      ) : null}
+      {playlists.length > 0 ? (
+        <>
+          <View style={styles.deviceRow}>
+            {shown.map((name) => (
+              <Pressable
+                key={name}
+                onPress={() =>
+                  onCommand('play_playlist', target ? { name, device: target } : { name })
+                }
+                style={styles.deviceChip}>
+                <Ionicons name="musical-notes" size={12} color={colors.inkSoft} />
+                <Text style={styles.deviceChipText} numberOfLines={1}>
+                  {name}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          {shown.length === 0 ? (
+            <Text style={styles.hint}>Keine Playlist passt zur Suche.</Text>
+          ) : null}
+          {!needle && hiddenCount > 0 ? (
+            <Pressable onPress={() => setExpanded(true)}>
+              <Text style={styles.spotifyMore}>{hiddenCount} weitere anzeigen</Text>
+            </Pressable>
+          ) : null}
+          {!needle && expanded && playlists.length > LIMIT ? (
+            <Pressable onPress={() => setExpanded(false)}>
+              <Text style={styles.spotifyMore}>weniger anzeigen</Text>
+            </Pressable>
+          ) : null}
+        </>
       ) : (
         <Text style={styles.hint}>
           Keine Playlists gefunden – vermutlich fehlen dem Spotify-Zugang die
@@ -1217,6 +1274,25 @@ const makeStyles = (colors: Colors) =>
   },
   volumeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   volumeBar: { flex: 1 },
+  spotifyPlaylistHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 2,
+  },
+  spotifyCount: { color: colors.inkFaint, fontSize: 12, fontWeight: '700' },
+  spotifySearch: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.surfaceSoft,
+    borderRadius: radius.control,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  spotifySearchInput: { flex: 1, paddingVertical: 8, color: colors.ink, fontSize: 14 },
+  spotifyMore: { color: colors.accent, fontSize: 13, fontWeight: '600', paddingVertical: 2 },
   deviceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   deviceChip: {
     flexDirection: 'row',
