@@ -419,7 +419,7 @@ export function AutomationsScreen({
               name: '',
               icon: SCENE_ICONS[0],
               onStart: false,
-              actions: [{ entity_id: switchableFirst(entities), command: 'turn_on' }],
+              actions: [],
             })
           }
           accessibilityRole="button"
@@ -495,11 +495,6 @@ export function AutomationsScreen({
   );
 }
 
-/** Für die erste Aktion einer neuen Szene: das erste schaltbare Gerät. */
-function switchableFirst(entities: Entity[]): string {
-  return entities.find((entity) => entity.commands.includes('turn_on'))?.id ?? '';
-}
-
 interface SceneDraft {
   id?: string;
   name: string;
@@ -521,6 +516,197 @@ const SCENE_ICONS = [
   'home-outline',
 ];
 
+/** Ein Gerät, das eine Szene schalten kann: Licht/Schalter, Storen, Schloss
+ *  oder Sauger. Nur diese lassen sich sinnvoll in einen Zustand versetzen. */
+function isSceneDevice(entity: Entity): boolean {
+  return (
+    entity.commands.includes('turn_on') ||
+    entity.kind === 'cover' ||
+    entity.kind === 'lock' ||
+    entity.commands.includes('clean_rooms') ||
+    entity.commands.includes('start')
+  );
+}
+
+/** Die Schalt-Optionen eines Geräts als Chips (rein, testbar). */
+function commandOptions(entity: Entity): { key: string; label: string }[] {
+  if (entity.kind === 'cover') {
+    return [
+      { key: 'open', label: 'hoch' },
+      { key: 'close', label: 'runter' },
+    ];
+  }
+  if (entity.kind === 'lock') {
+    return [
+      { key: 'lock', label: 'abschliessen' },
+      { key: 'unlock', label: 'aufschliessen' },
+    ];
+  }
+  if (entity.kind === 'vacuum') {
+    const options = [
+      { key: 'start', label: 'saugen' },
+      { key: 'dock', label: 'zur Station' },
+    ];
+    if (vacuumRooms(entity).length > 0) {
+      options.push({ key: 'clean_rooms', label: 'Räume saugen' });
+    }
+    return options;
+  }
+  return [
+    { key: 'turn_on', label: 'ein' },
+    { key: 'turn_off', label: 'aus' },
+  ];
+}
+
+/** Das Kommando, das den aktuellen Zustand eines Geräts festhält (rein,
+ *  testbar) – Grundlage für «Aktuellen Zustand übernehmen». */
+function snapshotCommand(entity: Entity): string {
+  const state = entity.state.state;
+  if (entity.kind === 'cover') {
+    const position = entity.state.position;
+    if (typeof position === 'number') return position <= 5 ? 'close' : 'open';
+    return state === 'closed' ? 'close' : 'open';
+  }
+  if (entity.kind === 'lock') return state === 'locked' ? 'lock' : 'unlock';
+  if (entity.kind === 'vacuum') return state === 'cleaning' ? 'start' : 'dock';
+  return state === 'on' ? 'turn_on' : 'turn_off';
+}
+
+/** Geräte-Checkliste statt Zeilen mit Dropdown: antippen nimmt ein Gerät in
+ *  die Szene auf, ein zweiter Chip legt den Zielzustand fest. «Aktuellen
+ *  Zustand übernehmen» füllt alles in einem Tipp aus der Wirklichkeit. */
+function SceneDevices({
+  entities,
+  actions,
+  onActions,
+}: {
+  entities: Entity[];
+  actions: SceneDraft['actions'];
+  onActions: (actions: SceneDraft['actions']) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+
+  const devices = entities.filter(isSceneDevice);
+  const byId = new Map(actions.map((action) => [action.entity_id, action]));
+
+  // Nach Raum gruppieren; Geräte ohne Raum kommen unter «Weitere».
+  const groups: { room: string; items: Entity[] }[] = [];
+  const order = Array.from(
+    new Set(devices.map((entity) => entity.room || 'Weitere'))
+  ).sort((a, b) => (a === 'Weitere' ? 1 : b === 'Weitere' ? -1 : a.localeCompare(b)));
+  for (const room of order) {
+    groups.push({
+      room,
+      items: devices.filter((entity) => (entity.room || 'Weitere') === room),
+    });
+  }
+
+  const toggle = (entity: Entity) => {
+    if (byId.has(entity.id)) {
+      onActions(actions.filter((action) => action.entity_id !== entity.id));
+    } else {
+      onActions([
+        ...actions,
+        { entity_id: entity.id, command: snapshotCommand(entity), rooms: [] },
+      ]);
+    }
+  };
+
+  const setCommand = (entityId: string, command: string) =>
+    onActions(
+      actions.map((action) =>
+        action.entity_id === entityId ? { ...action, command } : action
+      )
+    );
+
+  const setRooms = (entityId: string, id: number) =>
+    onActions(
+      actions.map((action) => {
+        if (action.entity_id !== entityId) return action;
+        const current = action.rooms ?? [];
+        return {
+          ...action,
+          rooms: current.includes(id)
+            ? current.filter((entry) => entry !== id)
+            : [...current, id],
+        };
+      })
+    );
+
+  const snapshot = () =>
+    onActions(devices.map((entity) => ({
+      entity_id: entity.id,
+      command: snapshotCommand(entity),
+      rooms: [],
+    })));
+
+  return (
+    <View style={{ gap: 10 }}>
+      <Pressable
+        onPress={snapshot}
+        accessibilityRole="button"
+        style={({ pressed }) => [styles.snapshot, pressed && { opacity: 0.8 }]}
+      >
+        <Ionicons name="camera-outline" size={18} color={colors.accent} />
+        <Text style={styles.snapshotText}>Aktuellen Zustand übernehmen</Text>
+      </Pressable>
+      <Text style={styles.snapshotHint}>
+        Stell die Zimmer so ein, wie du sie in der Szene willst, und tippe oben –
+        oder wähle die Geräte einzeln.
+      </Text>
+
+      {groups.map((group) => (
+        <View key={group.room} style={{ gap: 6 }}>
+          <Text style={styles.groupLabel}>{group.room}</Text>
+          {group.items.map((entity) => {
+            const action = byId.get(entity.id);
+            const included = !!action;
+            const rooms = vacuumRooms(entity);
+            return (
+              <View key={entity.id} style={styles.deviceRow}>
+                <Pressable
+                  onPress={() => toggle(entity)}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: included }}
+                  style={styles.deviceHead}
+                >
+                  <Ionicons
+                    name={included ? 'checkmark-circle' : 'ellipse-outline'}
+                    size={24}
+                    color={included ? colors.on : colors.inkFaint}
+                  />
+                  <Text style={styles.deviceName}>{entity.name}</Text>
+                </Pressable>
+                {included ? (
+                  <View style={{ gap: 6 }}>
+                    <Choice
+                      options={commandOptions(entity)}
+                      value={action!.command}
+                      onSelect={(command) => setCommand(entity.id, command)}
+                    />
+                    {action!.command === 'clean_rooms' && rooms.length > 0 ? (
+                      <Choice
+                        multi
+                        options={rooms.map((room) => ({
+                          key: String(room.id),
+                          label: room.name,
+                        }))}
+                        values={(action!.rooms ?? []).map(String)}
+                        onSelect={(key) => setRooms(entity.id, Number(key))}
+                      />
+                    ) : null}
+                  </View>
+                ) : null}
+              </View>
+            );
+          })}
+        </View>
+      ))}
+    </View>
+  );
+}
+
 function SceneEditor({
   draft,
   entities,
@@ -541,16 +727,6 @@ function SceneEditor({
   if (!draft) return null;
 
   const set = (patch: Partial<SceneDraft>) => onChange({ ...draft, ...patch });
-  const setAction = (index: number, patch: Partial<SceneDraft['actions'][number]>) =>
-    set({
-      actions: draft.actions.map((action, i) =>
-        i === index ? { ...action, ...patch } : action
-      ),
-    });
-  const switchable = entities.filter(
-    (entity) =>
-      entity.commands.includes('turn_on') || entity.commands.includes('clean_rooms')
-  );
   // Räume aus den Geräten – für die Zuordnung der Szene zu einer Kategorie.
   const sceneRooms = Array.from(
     new Set(entities.map((entity) => entity.room).filter(Boolean) as string[])
@@ -622,96 +798,12 @@ function SceneEditor({
           />
         </Field>
 
-        <Field label="Schaltet">
-          {draft.actions.map((action, index) => {
-            const actionEntity = entities.find((entity) => entity.id === action.entity_id);
-            const rooms = vacuumRooms(actionEntity);
-            const isVacuum = actionEntity?.kind === 'vacuum';
-            return (
-            <View key={index} style={styles.sceneAction}>
-              <View style={{ flex: 1, gap: 8 }}>
-                <Picker
-                  items={switchable.map((entity) => ({
-                    key: entity.id,
-                    label: entity.name,
-                  }))}
-                  value={action.entity_id}
-                  onSelect={(entity_id) => {
-                    const next = entities.find((entity) => entity.id === entity_id);
-                    setAction(index, {
-                      entity_id,
-                      command: next?.kind === 'vacuum' ? 'start' : 'turn_on',
-                      rooms: [],
-                    });
-                  }}
-                />
-                <Choice
-                  options={
-                    isVacuum
-                      ? [
-                          { key: 'start', label: 'Reinigung starten' },
-                          { key: 'dock', label: 'zur Station' },
-                          ...(rooms.length > 0
-                            ? [{ key: 'clean_rooms', label: 'Räume saugen' }]
-                            : []),
-                        ]
-                      : [
-                          { key: 'turn_on', label: 'einschalten' },
-                          { key: 'turn_off', label: 'ausschalten' },
-                        ]
-                  }
-                  value={action.command}
-                  onSelect={(command) => setAction(index, { command })}
-                />
-                {action.command === 'clean_rooms' && rooms.length > 0 ? (
-                  <Choice
-                    multi
-                    options={rooms.map((room) => ({
-                      key: String(room.id),
-                      label: room.name,
-                    }))}
-                    values={(action.rooms ?? []).map(String)}
-                    onSelect={(key) => {
-                      const id = Number(key);
-                      const current = action.rooms ?? [];
-                      setAction(index, {
-                        rooms: current.includes(id)
-                          ? current.filter((entry) => entry !== id)
-                          : [...current, id],
-                      });
-                    }}
-                  />
-                ) : null}
-              </View>
-              {draft.actions.length > 1 ? (
-                <Pressable
-                  onPress={() =>
-                    set({ actions: draft.actions.filter((_, i) => i !== index) })
-                  }
-                  accessibilityLabel="Aktion entfernen"
-                  style={styles.iconButton}
-                >
-                  <Ionicons name="trash-outline" size={18} color={colors.danger} />
-                </Pressable>
-              ) : null}
-            </View>
-            );
-          })}
-          <Pressable
-            onPress={() =>
-              set({
-                actions: [
-                  ...draft.actions,
-                  { entity_id: switchableFirst(entities), command: 'turn_on' },
-                ],
-              })
-            }
-            accessibilityRole="button"
-            style={({ pressed }) => [styles.newButton, pressed && { opacity: 0.75 }]}
-          >
-            <Ionicons name="add" size={18} color={colors.ink} />
-            <Text style={styles.newText}>Weiteres Gerät</Text>
-          </Pressable>
+        <Field label="Diese Geräte schalten">
+          <SceneDevices
+            entities={entities}
+            actions={draft.actions}
+            onActions={(actions) => set({ actions })}
+          />
         </Field>
 
         <Pressable style={styles.save} onPress={onSave} accessibilityRole="button">
@@ -767,6 +859,11 @@ function Editor({
           </Pressable>
         </View>
 
+        <Text style={styles.snapshotHint}>
+          Ein Ablauf ist ein Satz: „Wenn … passiert, dann … tun." Unten das
+          Wenn und das Dann ausfüllen, oben einen Namen geben.
+        </Text>
+
         <Field label="Name">
           <TextInput
             style={styles.input}
@@ -777,7 +874,7 @@ function Editor({
           />
         </Field>
 
-        <Field label="Wenn">
+        <Field label="Wenn … passiert">
           <Choice
             options={[
               { key: 'state', label: 'Gerät wechselt' },
@@ -845,7 +942,7 @@ function Editor({
           )}
         </Field>
 
-        <Field label="Dann">
+        <Field label="… dann das tun">
           <Choice
             options={[
               { key: 'command', label: 'Gerät schalten' },
@@ -1137,6 +1234,33 @@ const makeStyles = (colors: Colors) =>
       borderBottomWidth: 1,
       borderBottomColor: colors.surfaceBorder,
     },
+    snapshot: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      paddingVertical: 13,
+      borderRadius: radius.control,
+      backgroundColor: colors.surfaceStrong,
+      borderWidth: 1,
+      borderColor: colors.accent,
+    },
+    snapshotText: { color: colors.accent, fontSize: 15, fontWeight: '700' },
+    snapshotHint: { color: colors.inkFaint, fontSize: 12, lineHeight: 17 },
+    groupLabel: {
+      color: colors.inkSoft,
+      fontSize: 13,
+      fontWeight: '700',
+      marginTop: 6,
+    },
+    deviceRow: {
+      gap: 8,
+      paddingVertical: 8,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.surfaceBorder,
+    },
+    deviceHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    deviceName: { color: colors.ink, fontSize: 15, fontWeight: '600', flex: 1 },
     templates: { gap: 8 },
     templatesLabel: {
       color: colors.onGradientSoft,
