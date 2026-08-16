@@ -194,6 +194,8 @@ export function SystemScreen({
         </Card>
       ) : null}
 
+      <PushTestCard settings={settings} headers={headers} />
+
       {user?.capabilities?.includes('edit_config') ? (
         <BackupCard settings={settings} headers={headers} />
       ) : null}
@@ -392,6 +394,55 @@ function Fact({ label, value, tone }: { label: string; value: string; tone?: str
       <Text style={[styles.factValue, tone ? { color: tone } : null]}>{value}</Text>
       <Text style={styles.factLabel}>{label}</Text>
     </View>
+  );
+}
+
+/** Push testen: schickt dem angemeldeten Gerät eine Probe-Benachrichtigung. */
+function PushTestCard({
+  settings,
+  headers,
+}: {
+  settings: HubSettings;
+  headers: Record<string, string>;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [message, setMessage] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const test = async () => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const response = await fetch(`${settings.url}/api/push/test`, {
+        method: 'POST',
+        headers,
+      });
+      if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
+      const data = await response.json();
+      setMessage(
+        data.sent > 0
+          ? `Verschickt an ${data.sent} Gerät(e).`
+          : 'Kein Gerät angemeldet – öffne die App auf dem Handy, das die Push bekommen soll.'
+      );
+    } catch (err: any) {
+      setMessage(String(err.message ?? err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card style={styles.card}>
+      <Text style={styles.heading}>Benachrichtigungen</Text>
+      <Text style={styles.rowDetail}>
+        Prüft, ob Push-Nachrichten auf deinem Gerät ankommen.
+      </Text>
+      <View style={styles.buttons}>
+        <Button label={busy ? 'Sendet …' : 'Push testen'} onPress={test} primary />
+      </View>
+      {message ? <Text style={styles.hint}>{message}</Text> : null}
+    </Card>
   );
 }
 
