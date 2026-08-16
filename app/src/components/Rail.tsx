@@ -4,7 +4,19 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Colors, radius, useColors } from '../theme';
 
-export type Section = 'start' | 'home' | 'devices' | 'automations' | 'system' | 'settings';
+export type Section =
+  | 'start'
+  | 'home'
+  | 'light'
+  | 'covers'
+  | 'family'
+  | 'settings'
+  // Über „Einstellungen“ erreichbar, nicht in der Leiste:
+  | 'devices'
+  | 'automations'
+  | 'system'
+  | 'users'
+  | 'account';
 
 /** `needs` nennt die Berechtigung, ohne die der Punkt gar nicht erscheint. */
 const ITEMS: {
@@ -15,15 +27,10 @@ const ITEMS: {
 }[] = [
   { key: 'start', icon: 'home-outline', label: 'Start' },
   { key: 'home', icon: 'grid-outline', label: 'Räume' },
-  { key: 'devices', icon: 'list-outline', label: 'Geräte' },
-  {
-    key: 'automations',
-    icon: 'git-branch-outline',
-    label: 'Abläufe',
-    needs: 'view_automations',
-  },
-  { key: 'system', icon: 'pulse-outline', label: 'System', needs: 'view_system' },
-  { key: 'settings', icon: 'settings-outline', label: 'Konto' },
+  { key: 'light', icon: 'bulb-outline', label: 'Licht' },
+  { key: 'covers', icon: 'reorder-four-outline', label: 'Storen' },
+  { key: 'family', icon: 'people-outline', label: 'Familie' },
+  { key: 'settings', icon: 'settings-outline', label: 'Einstellungen' },
 ];
 
 interface Props {

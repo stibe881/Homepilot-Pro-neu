@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Pressable,
@@ -22,11 +23,13 @@ import { Toast } from '../components/Toast';
 import { TopStrip } from '../components/TopStrip';
 import { useHub } from '../hooks/useHub';
 import { usePushRegistration } from '../hooks/usePushRegistration';
-import { breakpoints, Colors, space, type, useColors } from '../theme';
+import { breakpoints, Colors, radius, space, type, useColors } from '../theme';
 import { AutomationsScreen } from './AutomationsScreen';
+import { FamilyScreen } from './FamilyScreen';
 import { OverviewScreen } from './OverviewScreen';
 import { SettingsScreen } from './SettingsScreen';
 import { SystemScreen } from './SystemScreen';
+import { UsersScreen } from './UsersScreen';
 
 const ALL_ROOMS = 'Alle';
 const PANEL_WIDTH = 340;
@@ -130,16 +133,23 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     return skyFromIcon(weather?.state?.icon, weather?.state?.state);
   }, [entities]);
 
-  // „Geräte“ zeigt bewusst alles, unabhängig vom gewählten Raum.
+  // „Licht“ und „Storen“ zeigen genau eine Geräteart, „Geräte“ bewusst
+  // alles – jeweils unabhängig vom gewählten Raum.
+  const base =
+    section === 'light'
+      ? entities.filter((entity) => entity.kind === 'light')
+      : section === 'covers'
+        ? entities.filter((entity) => entity.kind === 'cover')
+        : entities;
   const inRoom =
-    section === 'devices' || room === ALL_ROOMS
-      ? entities
-      : entities.filter((entity) => entity.room === room);
+    section !== 'home' || room === ALL_ROOMS
+      ? base
+      : base.filter((entity) => entity.room === room);
 
-  // Ausgeblendete verschwinden von der Startseite, bleiben aber unter
+  // Ausgeblendete verschwinden aus den Alltagsansichten, bleiben aber unter
   // „Geräte“ sichtbar – sonst käme man nie wieder an sie heran.
   const shown =
-    section === 'home' && !editing
+    (section === 'home' || section === 'light' || section === 'covers') && !editing
       ? inRoom.filter((entity) => !hidden.includes(entity.id))
       : inRoom;
 
@@ -281,26 +291,132 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         </View>
       );
     }
+    if (section === 'family') {
+      return <FamilyScreen settings={settings} entities={entities} currentUser={user} />;
+    }
+
+    // Zurück-Zeile für alles, was über „Einstellungen“ erreicht wird.
+    const back = (
+      <Pressable
+        onPress={() => setSection('settings')}
+        accessibilityRole="button"
+        accessibilityLabel="Zurück zu Einstellungen"
+        style={styles.backRow}
+      >
+        <Ionicons name="chevron-back" size={18} color={colors.onGradient} />
+        <Text style={styles.backText}>Einstellungen</Text>
+      </Pressable>
+    );
+
     if (section === 'settings') {
-      return <SettingsScreen initial={settings} onSave={onSaveSettings} user={user} embedded />;
+      const caps = user?.capabilities ?? [];
+      const items: {
+        key: Section;
+        icon: keyof typeof Ionicons.glyphMap;
+        label: string;
+        detail: string;
+        show: boolean;
+      }[] = [
+        {
+          key: 'users',
+          icon: 'people-circle-outline',
+          label: 'Benutzerverwaltung',
+          detail: 'Zugänge und Rollen: Besitzer, Mitbewohner, Gast',
+          show: caps.includes('manage_users'),
+        },
+        {
+          key: 'devices',
+          icon: 'list-outline',
+          label: 'Geräte',
+          detail: 'Alle Geräte, auch ausgeblendete',
+          show: true,
+        },
+        {
+          key: 'automations',
+          icon: 'git-branch-outline',
+          label: 'Abläufe',
+          detail: 'Automationen und Szenen',
+          show: caps.includes('view_automations'),
+        },
+        {
+          key: 'system',
+          icon: 'pulse-outline',
+          label: 'System',
+          detail: 'Integrationen, Energie, Konfiguration',
+          show: caps.includes('view_system'),
+        },
+        {
+          key: 'account',
+          icon: 'person-outline',
+          label: 'Konto & Verbindung',
+          detail: 'Hub-Adresse, Token, Darstellung',
+          show: true,
+        },
+      ];
+      return (
+        <View style={styles.settingsList}>
+          {items
+            .filter((item) => item.show)
+            .map((item) => (
+              <Pressable
+                key={item.key}
+                onPress={() => setSection(item.key)}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.settingsItem, pressed && { opacity: 0.8 }]}
+              >
+                <Ionicons name={item.icon} size={22} color={colors.ink} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.settingsLabel}>{item.label}</Text>
+                  <Text style={styles.settingsDetail}>{item.detail}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.inkFaint} />
+              </Pressable>
+            ))}
+        </View>
+      );
+    }
+    if (section === 'users') {
+      return (
+        <View style={styles.stack}>
+          {back}
+          <UsersScreen settings={settings} currentUser={user} />
+        </View>
+      );
+    }
+    if (section === 'account') {
+      return (
+        <View style={styles.stack}>
+          {back}
+          <SettingsScreen initial={settings} onSave={onSaveSettings} user={user} embedded />
+        </View>
+      );
     }
     if (section === 'automations') {
       return (
-        <AutomationsScreen
-          settings={settings}
-          user={user}
-          entities={entities}
-          scenes={scenes}
-          onScenesChanged={reloadScenes}
-        />
+        <View style={styles.stack}>
+          {back}
+          <AutomationsScreen
+            settings={settings}
+            user={user}
+            entities={entities}
+            scenes={scenes}
+            onScenesChanged={reloadScenes}
+          />
+        </View>
       );
     }
     if (section === 'system') {
-      return <SystemScreen settings={settings} user={user} entities={entities} />;
+      return (
+        <View style={styles.stack}>
+          {back}
+          <SystemScreen settings={settings} user={user} entities={entities} />
+        </View>
+      );
     }
     return (
       <View style={hasSidePanel ? styles.split : styles.stack}>
         <View style={hasSidePanel ? styles.main : undefined}>
+          {section === 'devices' ? back : null}
           {/* Im „Alle“-Modus alle Szenen, im Raum nur dessen Szenen. */}
           {section === 'home' && room === ALL_ROOMS ? (
             <SceneRow scenes={scenes} onActivate={activateScene} />
@@ -498,6 +614,29 @@ const makeStyles = (colors: Colors) =>
   },
   stack: { gap: space.gap * 1.4 },
   main: { flex: 1 },
+  backRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
+    paddingRight: 10,
+  },
+  backText: { color: colors.onGradient, fontSize: 15, fontWeight: '600' },
+  settingsList: { gap: 10 },
+  settingsItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: colors.surface,
+    borderRadius: radius.card,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  settingsLabel: { color: colors.ink, fontSize: 16, fontWeight: '600' },
+  settingsDetail: { color: colors.inkSoft, fontSize: 13, marginTop: 1 },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
