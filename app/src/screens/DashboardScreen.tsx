@@ -24,6 +24,7 @@ import { useHub } from '../hooks/useHub';
 import { usePushRegistration } from '../hooks/usePushRegistration';
 import { breakpoints, Colors, space, type, useColors } from '../theme';
 import { AutomationsScreen } from './AutomationsScreen';
+import { OverviewScreen } from './OverviewScreen';
 import { SettingsScreen } from './SettingsScreen';
 import { SystemScreen } from './SystemScreen';
 
@@ -63,7 +64,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
-  const [section, setSection] = useState<Section>('home');
+  const [section, setSection] = useState<Section>('start');
   const [room, setRoom] = useState(ALL_ROOMS);
   const [now, setNow] = useState(() => new Date());
   const [gridWidth, setGridWidth] = useState(0);
@@ -85,7 +86,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (!settings.panel) return;
     const timer = setInterval(() => {
       if (Date.now() - lastTouch > 180000) {
-        setSection('home');
+        setSection('start');
         setEditing(false);
         setRoom(ALL_ROOMS);
       }
@@ -258,6 +259,28 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   );
 
   const content = () => {
+    if (section === 'start') {
+      return (
+        <View style={hasSidePanel ? styles.split : styles.stack}>
+          <View style={hasSidePanel ? styles.main : undefined}>
+            <OverviewScreen
+              entities={entities}
+              scenes={scenes}
+              now={now}
+              pending={pending}
+              wide={hasRail}
+              onCommand={sendCommand}
+              onActivateScene={activateScene}
+            />
+          </View>
+          <SidePanel
+            entities={entities}
+            activity={activity}
+            width={hasSidePanel ? PANEL_WIDTH : undefined}
+          />
+        </View>
+      );
+    }
     if (section === 'settings') {
       return <SettingsScreen initial={settings} onSave={onSaveSettings} user={user} embedded />;
     }

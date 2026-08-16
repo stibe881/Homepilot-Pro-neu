@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Colors, radius, useColors } from '../theme';
 
-export type Section = 'home' | 'devices' | 'automations' | 'system' | 'settings';
+export type Section = 'start' | 'home' | 'devices' | 'automations' | 'system' | 'settings';
 
 /** `needs` nennt die Berechtigung, ohne die der Punkt gar nicht erscheint. */
 const ITEMS: {
@@ -13,8 +13,9 @@ const ITEMS: {
   label: string;
   needs?: string;
 }[] = [
-  { key: 'home', icon: 'home-outline', label: 'Start' },
-  { key: 'devices', icon: 'grid-outline', label: 'Geräte' },
+  { key: 'start', icon: 'home-outline', label: 'Start' },
+  { key: 'home', icon: 'grid-outline', label: 'Räume' },
+  { key: 'devices', icon: 'list-outline', label: 'Geräte' },
   {
     key: 'automations',
     icon: 'git-branch-outline',

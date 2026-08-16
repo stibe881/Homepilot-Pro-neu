@@ -1,0 +1,512 @@
+import { Ionicons } from '@expo/vector-icons';
+import React, { useMemo, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+
+import { Entity, Scene } from '../api/types';
+import { Card } from '../components/Card';
+import { Colors, radius, space, useColors } from '../theme';
+
+/**
+ * Startseite: Überblick über die Wohnung statt aller Geräte.
+ *
+ * Jeder Platz (Türen, Haushalt, Termine, Musik …) zeigt das passende echte
+ * Gerät, sobald es eingebunden ist. Fehlt die Integration noch, steht eine
+ * Demo-Kachel da – erkennbar am „Demo“-Etikett, aber bedienbar, damit das
+ * Layout schon stimmt.
+ */
+
+interface Props {
+  entities: Entity[];
+  scenes: Scene[];
+  now: Date;
+  pending: Record<string, boolean>;
+  wide: boolean;
+  onCommand: (entityId: string, command: string, data?: Record<string, any>) => void;
+  onActivateScene: (sceneId: string) => void;
+}
+
+const WEEKDAYS = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
+const MONTHS = [
+  'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
+  'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember',
+];
+
+function two(value: number): string {
+  return value < 10 ? `0${value}` : String(value);
+}
+
+/** Erstes Gerät, das auf Art und (optional) Namensmuster passt. */
+function pick(
+  entities: Entity[],
+  kind: string,
+  pattern?: RegExp,
+  integration?: string
+): Entity | undefined {
+  return entities.find(
+    (entity) =>
+      entity.kind === kind &&
+      (!integration || entity.integration === integration) &&
+      (!pattern || pattern.test(entity.name))
+  );
+}
+
+export function OverviewScreen({
+  entities,
+  scenes,
+  now,
+  pending,
+  wide,
+  onCommand,
+  onActivateScene,
+}: Props) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+
+  // ── Echte Geräte, wo vorhanden ─────────────────────────────────────────
+  const frontDoor = pick(entities, 'lock', undefined, 'ring');
+  const flatDoor =
+    pick(entities, 'lock', /nuki|wohnung/i) ??
+    entities.find((e) => e.integration === 'nuki' && e.kind === 'lock');
+  const dishwasher = pick(entities, 'appliance', /geschirr/i);
+  const washer = pick(entities, 'appliance', /wasch/i);
+  const tumbler = entities.find(
+    (e) => /tumbler|trockner/i.test(e.name) && typeof e.state.power === 'number'
+  );
+  const calendar = entities.find((e) => e.kind === 'calendar');
+  const weather = entities.find((e) => e.kind === 'weather');
+  const alert = entities.find((e) => e.kind === 'alert' && e.state.state === 'alert');
+  const alarm = entities.find((e) => /alarm/i.test(e.name) && e.kind === 'switch');
+  const players = entities.filter((e) => e.kind === 'media_player');
+  const player = players.find((e) => e.state.state === 'playing') ?? players[0];
+  const covers = entities.filter((e) => e.kind === 'cover');
+
+  const kinoScene = scenes.find((s) => /kino/i.test(s.name));
+  const schlafScene = scenes.find((s) => /schlaf/i.test(s.name));
+
+  // ── Demo-Zustände für noch nicht eingebundene Geräte ───────────────────
+  const [demoFlatLocked, setDemoFlatLocked] = useState(true);
+  const [demoAlarmArmed, setDemoAlarmArmed] = useState(false);
+  const [confirm, setConfirm] = useState<string | null>(null);
+
+  /** Zwei-Schritt-Bestätigung: erster Tipp fragt, zweiter führt aus. */
+  const confirmThen = (key: string, action: () => void) => {
+    if (confirm === key) {
+      setConfirm(null);
+      action();
+    } else {
+      setConfirm(key);
+      setTimeout(() => setConfirm((c) => (c === key ? null : c)), 4000);
+    }
+  };
+
+  const tileWidth = wide ? ('31.5%' as const) : ('48%' as const);
+
+  // ── Bausteine ──────────────────────────────────────────────────────────
+
+  const Badge = ({ label, tone }: { label: string; tone?: string }) => (
+    <View style={[styles.badge, tone ? { backgroundColor: tone } : null]}>
+      <Text style={styles.badgeText}>{label}</Text>
+    </View>
+  );
+
+  const Tile = ({
+    icon,
+    title,
+    demo,
+    children,
+  }: {
+    icon: keyof typeof Ionicons.glyphMap;
+    title: string;
+    demo?: boolean;
+    children: React.ReactNode;
+  }) => (
+    <Card style={{ ...styles.tile, width: tileWidth }}>
+      <View style={styles.tileHead}>
+        <Ionicons name={icon} size={18} color={colors.inkSoft} />
+        <Text style={styles.tileTitle} numberOfLines={1}>
+          {title}
+        </Text>
+        {demo ? <Badge label="Demo" /> : null}
+      </View>
+      {children}
+    </Card>
+  );
+
+  const Action = ({
+    label,
+    onPress,
+    accent,
+    disabled,
+  }: {
+    label: string;
+    onPress: () => void;
+    accent?: boolean;
+    disabled?: boolean;
+  }) => (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      style={({ pressed }) => [
+        styles.action,
+        accent && styles.actionAccent,
+        (pressed || disabled) && { opacity: 0.6 },
+      ]}
+    >
+      <Text style={[styles.actionText, accent && styles.actionTextAccent]} numberOfLines={1}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+
+  const applianceState = (entity: Entity | undefined, demoText: string) => {
+    if (!entity) return { text: demoText, running: /läuft|trocknen/i.test(demoText) };
+    const value = String(entity.state.state ?? '');
+    const program = entity.state.program ? ` · ${entity.state.program}` : '';
+    const minutes =
+      entity.state.minutes_left != null ? ` · noch ${entity.state.minutes_left} min` : '';
+    const running = value === 'running' || value === 'on';
+    return {
+      text: (running ? 'Läuft' : value === 'idle' || value === 'off' ? 'Bereit' : value) + program + minutes,
+      running,
+    };
+  };
+
+  const dish = applianceState(dishwasher, 'Bereit');
+  const wash = applianceState(washer, 'Läuft · noch 32 min');
+  const tumblerRunning = tumbler
+    ? Number(tumbler.state.power ?? 0) > 5
+    : true;
+
+  // Kalender: nächster Termin und – als eigener Platz – nächster Geburtstag.
+  const events: any[] = Array.isArray(calendar?.state.events) ? calendar!.state.events : [];
+  const birthday = events.find((event) => /geburtstag|birthday/i.test(event.summary ?? ''));
+  const nextEvent = events.find((event) => !/geburtstag|birthday/i.test(event.summary ?? ''));
+
+  const eventLine = (event: any | undefined, demoText: string, demoWhen: string) => {
+    if (!calendar) return { title: demoText, when: demoWhen, demo: true };
+    if (!event) return { title: 'Nichts geplant', when: '', demo: false };
+    const when = event.all_day
+      ? 'ganztägig'
+      : new Date(event.start).toLocaleString('de-CH', {
+          weekday: 'short',
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+    return { title: event.summary ?? '—', when, demo: false };
+  };
+
+  const termin = eventLine(nextEvent, 'Zahnarzt', 'Mo 14:30');
+  const geburtstag = birthday
+    ? eventLine(birthday, '', '')
+    : { title: 'Livia', when: 'in 12 Tagen', demo: true };
+
+  // ── Anzeige ────────────────────────────────────────────────────────────
+
+  return (
+    <View style={styles.stack}>
+      {/* Kopf: Uhr, Datum, Wetter, Warnung */}
+      <View style={styles.headRow}>
+        <Card style={styles.clockCard}>
+          <Text style={styles.clock}>
+            {two(now.getHours())}:{two(now.getMinutes())}
+          </Text>
+          <Text style={styles.date}>
+            {WEEKDAYS[now.getDay()]}, {now.getDate()}. {MONTHS[now.getMonth()]}
+          </Text>
+        </Card>
+        <Card style={styles.weatherCard}>
+          {weather ? (
+            <>
+              <View style={styles.weatherNow}>
+                <Ionicons
+                  name={(weather.state.icon as any) ?? 'cloud-outline'}
+                  size={34}
+                  color={colors.ink}
+                />
+                <Text style={styles.weatherTemp}>
+                  {weather.state.temperature != null ? `${weather.state.temperature}°` : '–'}
+                </Text>
+              </View>
+              <Text style={styles.weatherText} numberOfLines={1}>
+                {String(weather.state.state ?? '')} · {weather.name}
+              </Text>
+            </>
+          ) : (
+            <>
+              <View style={styles.weatherNow}>
+                <Ionicons name="partly-sunny-outline" size={34} color={colors.ink} />
+                <Text style={styles.weatherTemp}>21°</Text>
+              </View>
+              <Text style={styles.weatherText}>Leicht bewölkt · Demo</Text>
+            </>
+          )}
+          {alert ? (
+            <View style={styles.alertRow}>
+              <Ionicons name="warning" size={14} color={colors.danger} />
+              <Text style={styles.alertText} numberOfLines={1}>
+                {String(alert.state.headline ?? alert.state.event ?? 'Wetterwarnung')}
+              </Text>
+            </View>
+          ) : null}
+        </Card>
+      </View>
+
+      {/* Schnellaktionen */}
+      <View style={styles.quickRow}>
+        <Action
+          label="Kino"
+          accent
+          onPress={() => (kinoScene ? onActivateScene(kinoScene.id) : undefined)}
+          disabled={!kinoScene}
+        />
+        <Action
+          label="Schlafen"
+          accent
+          onPress={() => (schlafScene ? onActivateScene(schlafScene.id) : undefined)}
+          disabled={!schlafScene}
+        />
+        <Action
+          label="Storen hoch"
+          onPress={() => covers.forEach((c) => onCommand(c.id, 'open'))}
+          disabled={covers.length === 0}
+        />
+        <Action
+          label="Storen runter"
+          onPress={() => covers.forEach((c) => onCommand(c.id, 'close'))}
+          disabled={covers.length === 0}
+        />
+      </View>
+      {!kinoScene || !schlafScene ? (
+        <Text style={styles.hintLine}>
+          {[!kinoScene && '«Kino»', !schlafScene && '«Schlafen»'].filter(Boolean).join(' und ')}{' '}
+          als Szene unter Abläufe anlegen, dann sind die Knöpfe aktiv.
+        </Text>
+      ) : null}
+
+      {/* Zugang & Sicherheit */}
+      <Text style={styles.groupLabel}>Zugang</Text>
+      <View style={styles.tileRow}>
+        <Tile icon="business-outline" title="Haustüre" demo={!frontDoor}>
+          <Text style={styles.tileState}>
+            {frontDoor ? 'Gegensprechanlage' : 'Ring Intercom'}
+          </Text>
+          <Action
+            label={confirm === 'front' ? 'Wirklich öffnen?' : 'Öffnen'}
+            accent={confirm === 'front'}
+            onPress={() =>
+              confirmThen('front', () =>
+                frontDoor ? onCommand(frontDoor.id, 'open_door') : undefined
+              )
+            }
+          />
+        </Tile>
+
+        <Tile icon="key-outline" title="Wohnungstüre" demo={!flatDoor}>
+          <Text style={styles.tileState}>
+            {flatDoor
+              ? String(flatDoor.state.state) === 'locked'
+                ? 'Abgeschlossen'
+                : 'Aufgeschlossen'
+              : demoFlatLocked
+                ? 'Abgeschlossen'
+                : 'Aufgeschlossen'}
+          </Text>
+          <View style={styles.actionRow}>
+            <Action
+              label={
+                (flatDoor ? String(flatDoor.state.state) === 'locked' : demoFlatLocked)
+                  ? 'Aufschliessen'
+                  : 'Abschliessen'
+              }
+              onPress={() =>
+                flatDoor
+                  ? onCommand(
+                      flatDoor.id,
+                      String(flatDoor.state.state) === 'locked' ? 'unlock' : 'lock'
+                    )
+                  : setDemoFlatLocked((v) => !v)
+              }
+            />
+            <Action
+              label={confirm === 'flat' ? 'Sicher?' : 'Auf + öffnen'}
+              accent={confirm === 'flat'}
+              onPress={() =>
+                confirmThen('flat', () =>
+                  flatDoor ? onCommand(flatDoor.id, 'unlatch') : setDemoFlatLocked(false)
+                )
+              }
+            />
+          </View>
+        </Tile>
+
+        <Tile icon="shield-checkmark-outline" title="Alarmanlage" demo={!alarm}>
+          <Text
+            style={[
+              styles.tileState,
+              (alarm ? alarm.state.state === 'on' : demoAlarmArmed) && { color: colors.on },
+            ]}
+          >
+            {(alarm ? alarm.state.state === 'on' : demoAlarmArmed) ? 'Scharf' : 'Unscharf'}
+          </Text>
+          <Action
+            label={(alarm ? alarm.state.state === 'on' : demoAlarmArmed) ? 'Unscharf schalten' : 'Scharf schalten'}
+            onPress={() =>
+              alarm ? onCommand(alarm.id, 'toggle') : setDemoAlarmArmed((v) => !v)
+            }
+          />
+        </Tile>
+      </View>
+
+      {/* Haushalt */}
+      <Text style={styles.groupLabel}>Haushalt</Text>
+      <View style={styles.tileRow}>
+        <Tile icon="restaurant-outline" title="Geschirrspüler" demo={!dishwasher}>
+          <Text style={[styles.tileState, dish.running && { color: colors.accent }]}>
+            {dish.text}
+          </Text>
+        </Tile>
+        <Tile icon="water-outline" title="Waschmaschine" demo={!washer}>
+          <Text style={[styles.tileState, wash.running && { color: colors.accent }]}>
+            {wash.text}
+          </Text>
+        </Tile>
+        <Tile icon="sunny-outline" title="Tumbler" demo={!tumbler}>
+          <Text style={[styles.tileState, tumblerRunning && { color: colors.accent }]}>
+            {tumblerRunning ? 'Am Trocknen' : 'Fertig'}
+          </Text>
+          {tumbler ? (
+            <Text style={styles.tileSub}>{Math.round(Number(tumbler.state.power))} W</Text>
+          ) : (
+            <Text style={styles.tileSub}>1450 W</Text>
+          )}
+        </Tile>
+      </View>
+
+      {/* Termine & Musik */}
+      <Text style={styles.groupLabel}>Heute</Text>
+      <View style={styles.tileRow}>
+        <Tile icon="calendar-outline" title="Nächster Termin" demo={termin.demo}>
+          <Text style={styles.tileState} numberOfLines={1}>
+            {termin.title}
+          </Text>
+          {termin.when ? <Text style={styles.tileSub}>{termin.when}</Text> : null}
+        </Tile>
+        <Tile icon="gift-outline" title="Nächster Geburtstag" demo={geburtstag.demo}>
+          <Text style={styles.tileState} numberOfLines={1}>
+            {geburtstag.title}
+          </Text>
+          {geburtstag.when ? <Text style={styles.tileSub}>{geburtstag.when}</Text> : null}
+        </Tile>
+        <Tile icon="musical-notes-outline" title="Musik" demo={!player}>
+          {player ? (
+            <>
+              <Text style={styles.tileState} numberOfLines={1}>
+                {player.state.track ?? 'Nichts läuft'}
+              </Text>
+              {player.state.artist ? (
+                <Text style={styles.tileSub} numberOfLines={1}>
+                  {player.state.artist}
+                </Text>
+              ) : null}
+              <View style={styles.actionRow}>
+                <Pressable
+                  onPress={() =>
+                    onCommand(player.id, player.state.state === 'playing' ? 'pause' : 'play')
+                  }
+                  style={styles.playButton}
+                  accessibilityRole="button"
+                >
+                  <Ionicons
+                    name={player.state.state === 'playing' ? 'pause' : 'play'}
+                    size={18}
+                    color={colors.ink}
+                  />
+                </Pressable>
+                {player.commands.includes('next') ? (
+                  <Pressable
+                    onPress={() => onCommand(player.id, 'next')}
+                    style={styles.playButton}
+                    accessibilityRole="button"
+                  >
+                    <Ionicons name="play-skip-forward" size={18} color={colors.ink} />
+                  </Pressable>
+                ) : null}
+              </View>
+            </>
+          ) : (
+            <>
+              <Text style={styles.tileState}>Nothing But Thieves</Text>
+              <Text style={styles.tileSub}>Impossible</Text>
+            </>
+          )}
+        </Tile>
+      </View>
+    </View>
+  );
+}
+
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
+    stack: { gap: space.gap },
+    headRow: { flexDirection: 'row', gap: space.gap },
+    clockCard: { flex: 1, minHeight: 0, justifyContent: 'center' },
+    clock: { color: colors.ink, fontSize: 44, fontWeight: '700', letterSpacing: 1 },
+    date: { color: colors.inkSoft, fontSize: 14, marginTop: 2 },
+    weatherCard: { flex: 1, minHeight: 0, justifyContent: 'center', gap: 4 },
+    weatherNow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    weatherTemp: { color: colors.ink, fontSize: 34, fontWeight: '700' },
+    weatherText: { color: colors.inkSoft, fontSize: 13 },
+    alertRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
+    alertText: { color: colors.danger, fontSize: 12, fontWeight: '600', flex: 1 },
+
+    quickRow: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
+    hintLine: { color: colors.onGradientSoft, fontSize: 12, marginTop: -6 },
+
+    groupLabel: {
+      color: colors.onGradient,
+      fontSize: 15,
+      fontWeight: '700',
+      marginTop: 6,
+    },
+    tileRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.gap },
+    tile: { minHeight: 0, gap: 8, flexGrow: 1 },
+    tileHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    tileTitle: { color: colors.inkSoft, fontSize: 13, fontWeight: '700', flex: 1 },
+    tileState: { color: colors.ink, fontSize: 16, fontWeight: '600' },
+    tileSub: { color: colors.inkSoft, fontSize: 13 },
+
+    badge: {
+      backgroundColor: colors.track,
+      borderRadius: radius.pill,
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+    },
+    badgeText: { color: colors.inkFaint, fontSize: 10, fontWeight: '700' },
+
+    action: {
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      borderRadius: radius.control,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      alignItems: 'center',
+      flexGrow: 1,
+    },
+    actionAccent: { backgroundColor: colors.accent, borderColor: colors.accent },
+    actionText: { color: colors.ink, fontSize: 13, fontWeight: '700' },
+    actionTextAccent: { color: '#FFFFFF' },
+    actionRow: { flexDirection: 'row', gap: 8 },
+
+    playButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+  });
