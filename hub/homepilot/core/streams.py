@@ -285,7 +285,9 @@ class StreamManager:
             "runOnDemandCloseAfter": ON_DEMAND_CLOSE,
         }
         exists = name in self._paths
-        verb = "patch" if exists else "add"
+        # replace statt patch: Nach einem Hub-Neustart darf keine alte
+        # Pfad-Konfiguration (z.B. ein früheres 'source') übrig bleiben.
+        verb = "replace" if exists else "add"
         try:
             async with session.post(
                 f"{self._api}/v3/config/paths/{verb}/{name}",
@@ -294,9 +296,9 @@ class StreamManager:
             ) as response:
                 if response.status >= 400 and not exists:
                     # Schon vorhanden (z.B. nach einem Neustart des Hubs):
-                    # dann nachziehen statt scheitern.
+                    # dann ersetzen statt scheitern.
                     async with session.post(
-                        f"{self._api}/v3/config/paths/patch/{name}",
+                        f"{self._api}/v3/config/paths/replace/{name}",
                         json=body,
                         timeout=aiohttp.ClientTimeout(total=5),
                     ) as retry:
