@@ -25,6 +25,7 @@ import logging
 import re
 import shutil
 import tempfile
+import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -175,7 +176,17 @@ def rewrite_playlist(text: str, prefix: str, token: str | None) -> str:
         if "://" in uri or uri.startswith("/"):
             return uri  # fremde Adresse: unangetastet lassen
         name, _, query = uri.partition("?")
-        parts = [part for part in (query, f"token={token}" if token else "") if part]
+        # Vorhandene token-Parameter fliegen raus (mediamtx reicht die Query
+        # durch – sonst stünde das Token doppelt), und das eine angehängte
+        # wird URL-kodiert: Tokens enthalten '+', '/' und '=', und ein rohes
+        # '+' wird beim nächsten Abruf als Leerzeichen gelesen → 401.
+        parts = [
+            part
+            for part in query.split("&")
+            if part and not part.startswith("token=")
+        ]
+        if token:
+            parts.append("token=" + urllib.parse.quote(token, safe=""))
         suffix = "?" + "&".join(parts) if parts else ""
         return f"{prefix}{name}{suffix}"
 

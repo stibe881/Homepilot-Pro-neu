@@ -123,6 +123,17 @@ def test_rewrite_playlist_keeps_existing_query_and_foreign_urls():
     assert "http://anderswo/seg.ts" in text
 
 
+def test_rewrite_playlist_encodes_the_token_and_deduplicates():
+    """Echte Tokens enthalten '+', '/' und '=' – roh angehängt wird das '+'
+    beim nächsten Abruf als Leerzeichen gelesen und der Hub antwortet 401
+    (beim iPhone: NSURLError -1013). Und mediamtx reicht die Query durch,
+    das alte Token muss also raus statt sich zu stapeln."""
+    text = rewrite_playlist(
+        "seg1.ts?token=alt%2Bkodiert\n", "stream/", "bMfjF/oE+kh45D=="
+    )
+    assert text.strip() == "stream/seg1.ts?token=bMfjF%2FoE%2Bkh45D%3D%3D"
+
+
 class _FakeStreams:
     """Tut so, als liefe bereits ein Strom – liefert eine fertige Liste."""
 
