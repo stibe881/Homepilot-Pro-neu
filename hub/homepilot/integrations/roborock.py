@@ -201,6 +201,10 @@ class RoborockIntegration(Integration):
         # Anmeldung: Gespeichertes Token bevorzugen. Sonst mit Passwort, was
         # aber bei vielen Konten nicht mehr geht (E-Mail-Code, Fehler 2031) –
         # dann auf den einmaligen Code-Login-Helfer verweisen.
+        # 'base_url' erzwingt den Regions-Server (z.B. https://euiot.roborock.com):
+        # Die automatische Suche probiert US zuerst und kann dort ein leeres
+        # Zweitkonto erwischen bzw. anlegen.
+        base_url = self.config.get("base_url")
         user_data = self._load_user_data(UserData)
         if user_data is None:
             password = self.config.get("password")
@@ -209,7 +213,7 @@ class RoborockIntegration(Integration):
                     "roborock: keine Anmeldung. Einmalig mit E-Mail-Code anmelden: "
                     "python -m homepilot.integrations.roborock -c config.yaml"
                 )
-            api = RoborockApiClient(username)
+            api = RoborockApiClient(username, base_url=base_url)
             try:
                 user_data = await api.pass_login(password)
             except Exception as err:
@@ -219,8 +223,14 @@ class RoborockIntegration(Integration):
                     "(Fehler 2031). Einmalig anmelden mit: "
                     "python -m homepilot.integrations.roborock -c config.yaml"
                 ) from err
+        self.log.info(
+            "Roborock-Konto: rruid=%s region=%s server=%s",
+            getattr(user_data, "rruid", "?"),
+            getattr(user_data, "region", "?"),
+            base_url or "automatisch",
+        )
         self._manager = await create_device_manager(
-            UserParams(username=username, user_data=user_data)
+            UserParams(username=username, user_data=user_data, base_url=base_url)
         )
 
         # entity_id → Gerät der Bibliothek
@@ -415,7 +425,20 @@ async def _login_main(config_path: str) -> int:
         "Roborock-E-Mail: "
     ).strip()
 
-    api = RoborockApiClient(username)
+    # Regions-Server: Die automatische Suche probiert US zuerst – existiert
+    # das Konto dort nicht, legt der Code-Login ein leeres Zweitkonto an und
+    # der Hub sieht 0 Geräte. Für die Schweiz/Europa ist 'eu' richtig.
+    base_url = blocks[0].get("base_url") if blocks else None
+    if not base_url:
+        region = (
+            input("Region [eu/us/cn/ru, leer = automatisch]: ").strip().lower()
+        )
+        if region in ("eu", "us", "cn", "ru"):
+            base_url = f"https://{region}iot.roborock.com"
+    if base_url:
+        print(f"Verwende Server {base_url}")
+
+    api = RoborockApiClient(username, base_url=base_url)
 
     async def _try(request: str, login: str) -> Any:
         """Code anfordern, abfragen, anmelden – über den gegebenen Endpunkt."""
@@ -444,6 +467,13 @@ async def _login_main(config_path: str) -> int:
     if user_data is None:
         print("✗ Anmeldung fehlgeschlagen.")
         return 1
+
+    # Konto-ID zeigen: Sie muss mit der in der Roborock-App (Profil)
+    # übereinstimmen – sonst ist man auf dem falschen Regions-Server gelandet.
+    print(
+        f"Angemeldet als rruid={getattr(user_data, 'rruid', '?')} "
+        f"region={getattr(user_data, 'region', '?')}"
+    )
 
     token_file = Path(
         (blocks[0].get("token_file") if blocks else None)
