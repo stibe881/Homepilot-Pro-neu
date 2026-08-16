@@ -753,3 +753,16 @@ def test_rtsp_alias_none_without_enabled_channel():
 def test_rtsp_url_uses_the_plain_protect_port():
     # 7447 statt 7441: die TLS/SRTP-Variante versteht mediamtx nicht sauber.
     assert rtsp_url("10.10.1.1", "abcMEDIUM") == "rtsp://10.10.1.1:7447/abcMEDIUM"
+
+
+def test_pick_device_prefers_requested_then_active_then_first():
+    """Eine Playlist muss auch aus völliger Stille starten können – ohne
+    Ziel würde Spotify mit «kein aktives Gerät» abwinken."""
+    from homepilot.integrations.spotify import pick_device
+
+    devices = {"Terrasse": "id-t", "Wohnzimmer": "id-w"}
+    assert pick_device("Wohnzimmer", "Terrasse", devices) == "id-w"
+    assert pick_device("", "Terrasse", devices) == "id-t"
+    assert pick_device("", None, devices) == "id-t"          # erster sichtbarer
+    assert pick_device("Unbekannt", None, devices) == "id-t" # Tippfehler → erster
+    assert pick_device("", None, {}) is None

@@ -178,9 +178,11 @@ integrations:
   #   host: 192.168.1.25
   #   access_token: "${HUE_SYNC_TOKEN}"
 
-  # Spotify: was gerade läuft, plus Play/Pause/Weiter.
+  # Spotify: Playlisten auf jede sichtbare Box starten (auch aus Stille),
+  # was gerade läuft, Play/Pause/Weiter, Lautstärke, Wiedergabe umziehen.
   # Einrichtung (einmalig, ~5 Minuten): siehe Kopf von
-  # hub/homepilot/integrations/spotify.py
+  # hub/homepilot/integrations/spotify.py – der refresh_token braucht auch
+  # die playlist-read-Scopes, sonst bleibt die Playlist-Liste leer.
   # - integration: spotify
   #   client_id: "${SPOTIFY_CLIENT_ID}"
   #   client_secret: "${SPOTIFY_CLIENT_SECRET}"

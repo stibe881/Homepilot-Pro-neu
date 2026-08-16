@@ -196,24 +196,11 @@ export function EntityCard({
                 <Ionicons name="volume-high" size={20} color={colors.inkSoft} />
               </View>
             ) : null}
-            {entity.commands.includes('play_playlist') &&
-            Array.isArray(entity.state.playlists) &&
-            entity.state.playlists.length > 0 ? (
-              <View style={styles.deviceRow}>
-                {(entity.state.playlists as string[]).slice(0, 12).map((name) => (
-                  <Pressable
-                    key={name}
-                    onPress={() => onCommand('play_playlist', { name })}
-                    style={styles.deviceChip}>
-                    <Ionicons name="musical-notes" size={12} color={colors.inkSoft} />
-                    <Text style={styles.deviceChipText} numberOfLines={1}>
-                      {name}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
+            {entity.commands.includes('play_playlist') ? (
+              <SpotifyPanel entity={entity} onCommand={onCommand} />
             ) : null}
-            {entity.commands.includes('play_on') &&
+            {!entity.commands.includes('play_playlist') &&
+            entity.commands.includes('play_on') &&
             Array.isArray(entity.state.devices) &&
             entity.state.devices.length > 0 ? (
               <View style={styles.deviceRow}>
@@ -682,6 +669,97 @@ function LockBody({
   );
 }
 
+/** Spotify: Box wählen, Playlist antippen – auch aus völliger Stille.
+ *
+ *  Die gewählte Box gilt für den nächsten Playlist-Start; läuft schon
+ *  Musik, zieht der Tipp auf eine andere Box die Wiedergabe sofort um
+ *  (Spotify Connect). Google-Lautsprecher erscheinen in der Liste, wenn
+ *  Spotify in der Google-Home-App verknüpft ist. */
+function SpotifyPanel({
+  entity,
+  onCommand,
+}: {
+  entity: Entity;
+  onCommand: (command: string, data?: Record<string, any>) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const devices: string[] = Array.isArray(entity.state.devices) ? entity.state.devices : [];
+  const playlists: string[] = Array.isArray(entity.state.playlists)
+    ? entity.state.playlists
+    : [];
+  const active: string | null = entity.state.device ?? null;
+  const playing = entity.state.state === 'playing';
+  const [chosen, setChosen] = useState<string | null>(null);
+  // Ziel: zuletzt angetippt → gerade aktiv → erste Box.
+  const target = (chosen && devices.includes(chosen) ? chosen : null) ?? active ?? devices[0] ?? null;
+
+  return (
+    <View style={styles.stack}>
+      <Text style={styles.mediaLabel}>Abspielen auf</Text>
+      {devices.length > 0 ? (
+        <View style={styles.deviceRow}>
+          {devices.map((name) => {
+            const selected = name === target;
+            return (
+              <Pressable
+                key={name}
+                onPress={() => {
+                  setChosen(name);
+                  // Läuft Musik woanders, sofort umziehen.
+                  if (playing && name !== active) onCommand('play_on', { device: name });
+                }}
+                accessibilityRole="radio"
+                accessibilityState={{ selected }}
+                style={[styles.deviceChip, selected && styles.deviceChipActive]}>
+                <Ionicons
+                  name={name === active && playing ? 'volume-high' : 'volume-medium-outline'}
+                  size={12}
+                  color={selected ? '#FFFFFF' : colors.inkSoft}
+                />
+                <Text
+                  style={[styles.deviceChipText, selected && styles.deviceChipTextActive]}
+                  numberOfLines={1}>
+                  {name}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : (
+        <Text style={styles.hint}>
+          Keine Lautsprecher sichtbar – in der Google-Home-App Spotify verknüpfen
+          oder die Spotify-App einmal im selben Netz öffnen.
+        </Text>
+      )}
+
+      <Text style={styles.mediaLabel}>Playlists</Text>
+      {playlists.length > 0 ? (
+        <View style={styles.deviceRow}>
+          {playlists.map((name) => (
+            <Pressable
+              key={name}
+              onPress={() =>
+                onCommand('play_playlist', target ? { name, device: target } : { name })
+              }
+              style={styles.deviceChip}>
+              <Ionicons name="musical-notes" size={12} color={colors.inkSoft} />
+              <Text style={styles.deviceChipText} numberOfLines={1}>
+                {name}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : (
+        <Text style={styles.hint}>
+          Keine Playlists gefunden – vermutlich fehlen dem Spotify-Zugang die
+          playlist-read-Scopes (Einrichtung im Kopf von spotify.py wiederholen).
+        </Text>
+      )}
+    </View>
+  );
+}
+
 /** Standbild (Kamera oder Saugerkarte), das sich von selbst frisch hält:
  *  alle 60 Sekunden und zusätzlich sofort, wenn refreshKey wechselt. */
 function CameraSnapshot({
@@ -1129,6 +1207,14 @@ const makeStyles = (colors: Colors) =>
   roomOptionActive: { backgroundColor: colors.surfaceSoft },
   roomOptionText: { fontSize: 15, color: colors.ink },
   mediaRow: { flexDirection: 'row', gap: 10 },
+  mediaLabel: {
+    color: colors.inkFaint,
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginTop: 2,
+  },
   volumeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   volumeBar: { flex: 1 },
   deviceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },

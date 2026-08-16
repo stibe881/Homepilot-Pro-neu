@@ -13,13 +13,18 @@ Einmalige Einrichtung (dauert fünf Minuten):
   2. Im Browser aufrufen (client_id einsetzen):
        https://accounts.spotify.com/authorize?client_id=...&response_type=code
        &redirect_uri=http://127.0.0.1:8888/callback
-       &scope=user-read-playback-state%20user-modify-playback-state
+       &scope=user-read-playback-state%20user-modify-playback-state%20playlist-read-private%20playlist-read-collaborative
   3. Den 'code' aus der Adresszeile gegen Tokens tauschen:
        curl -s https://accounts.spotify.com/api/token \\
             -u "CLIENT_ID:CLIENT_SECRET" \\
             -d grant_type=authorization_code -d code=DER_CODE \\
             -d redirect_uri=http://127.0.0.1:8888/callback
      Der refresh_token aus der Antwort kommt in die .env – er läuft nicht ab.
+
+Wichtig: Die Playlisten brauchen die beiden playlist-read-Scopes. Ein
+refresh_token, der ohne sie erzeugt wurde, liefert eine leere Liste –
+dann Schritt 2 und 3 einmal mit der obigen (vollständigen) URL wiederholen
+und den neuen refresh_token eintragen.
 
 Der Hub tauscht ihn selbstständig gegen kurzlebige Zugriffstokens; in der
 Konfiguration liegt nie ein ablaufendes Geheimnis.
@@ -69,6 +74,22 @@ def parse_playlists(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
         if uri and name:
             result.append({"name": str(name), "uri": str(uri)})
     return result
+
+
+def pick_device(
+    requested: str, active: str | None, device_ids: dict[str, str]
+) -> str | None:
+    """Ziel-Lautsprecher für den Start einer Playlist (rein, testbar).
+
+    Reihenfolge: ausdrücklich gewünscht → gerade aktiv → der erste
+    sichtbare. So startet eine Playlist auch aus völliger Stille, ohne dass
+    Spotify mit «kein aktives Gerät» abwinkt.
+    """
+    if requested and requested in device_ids:
+        return device_ids[requested]
+    if active and active in device_ids:
+        return device_ids[active]
+    return next(iter(device_ids.values()), None)
 
 
 def parse_playback(payload: dict[str, Any] | None) -> dict[str, Any]:
@@ -134,12 +155,27 @@ class SpotifyIntegration(Integration):
         self.start_task(self._poll_loop())
 
     async def _load_playlists(self) -> None:
-        """Playlisten des Kontos holen (ändern sich selten – einmal beim Start)."""
+        """Alle Playlisten des Kontos holen (mehrere Seiten à 50)."""
         try:
-            payload = await self._call("GET", "/me/playlists?limit=50")
-            self._playlists = parse_playlists(payload)
+            playlists: list[dict[str, Any]] = []
+            offset = 0
+            while offset < 200:
+                payload = await self._call(
+                    "GET", f"/me/playlists?limit=50&offset={offset}"
+                )
+                page = parse_playlists(payload)
+                playlists.extend(page)
+                if len(page) < 50:
+                    break
+                offset += 50
+            self._playlists = playlists
+            if not playlists:
+                self.log.warning(
+                    "Spotify meldet keine Playlisten – fehlen dem refresh_token "
+                    "die playlist-read-Scopes? (Einrichtung im Kopf von spotify.py)"
+                )
         except Exception as err:
-            self.log.debug("Spotify-Playlisten nicht abrufbar: %s", err)
+            self.log.warning("Spotify-Playlisten nicht abrufbar: %s", err)
 
     # ── Anmeldung ──────────────────────────────────────────────────────────
 
@@ -181,9 +217,14 @@ class SpotifyIntegration(Integration):
     # ── Spotify → Hub ──────────────────────────────────────────────────────
 
     async def _poll_loop(self) -> None:
+        rounds = 0
         while True:
             await asyncio.sleep(self._interval)
             await self._refresh()
+            rounds += 1
+            # Neue Playlisten tauchen ohne Neustart auf (~halbstündlich).
+            if rounds % max(1, int(1800 / self._interval)) == 0:
+                await self._load_playlists()
 
     async def _refresh(self) -> None:
         entity_id = self.entity_id("player")
@@ -222,12 +263,20 @@ class SpotifyIntegration(Integration):
             if not uri:
                 raise ValueError(f"Unbekannte Playlist '{name}'")
             body: dict[str, Any] = {"context_uri": uri}
-            # Auf ein bestimmtes Gerät, sonst auf das gerade aktive.
-            device_id = self._device_ids.get(str(data.get("device", "")))
-            path = "/me/player/play"
-            if device_id:
-                path += f"?device_id={device_id}"
-            await self._call("PUT", path, json=body)
+            # Ziel: gewünschte Box → gerade aktive → erste sichtbare. Ohne
+            # Ziel würde Spotify aus der Stille heraus mit 404 abwinken.
+            device_id = pick_device(
+                str(data.get("device", "")),
+                entity.state.get("device"),
+                self._device_ids,
+            )
+            if device_id is None:
+                raise ValueError(
+                    "Keine Spotify-Lautsprecher sichtbar. Google-Lautsprecher "
+                    "erscheinen, wenn in der Google-Home-App Spotify verknüpft "
+                    "ist; sonst einmal die Spotify-App im selben Netz öffnen."
+                )
+            await self._call("PUT", f"/me/player/play?device_id={device_id}", json=body)
             await self._refresh()
             return
 
