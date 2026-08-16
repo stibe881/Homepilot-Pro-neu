@@ -79,6 +79,10 @@ def publish_command(source: str, name: str) -> str:
         # der CPU von 1512p. Kommt der Encoder nicht nach, wächst sonst der
         # Rückstand, bis der Strom abreisst.
         "-vf scale=-2:720 "
+        # Konstante 25 fps: Die Zeitstempel der Kameras zittern, und jedes
+        # Zittern zwingt die Player zu Sicherheitspuffern. Gleichmässige
+        # Stempel machen Segmente exakt 1,000 s lang.
+        "-r 25 -fps_mode cfr "
         "-c:v libx264 -preset superfast -tune zerolatency "
         "-g 25 -keyint_min 25 -sc_threshold 0 -bf 0 "
         "-crf 23 -maxrate 2500k -bufsize 5M -pix_fmt yuv420p "
@@ -124,7 +128,7 @@ def strip_low_latency(text: str) -> str:
     if lines and lines[0].startswith("#EXTM3U") and not any(
         line.startswith("#EXT-X-START") for line in lines
     ):
-        lines.insert(1, "#EXT-X-START:TIME-OFFSET=-3")
+        lines.insert(1, "#EXT-X-START:TIME-OFFSET=-2")
     return "\n".join(lines) + "\n"
 
 
