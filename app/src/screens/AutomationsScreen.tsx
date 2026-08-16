@@ -307,6 +307,7 @@ export function AutomationsScreen({
       name: sceneDraft.name || 'Ohne Namen',
       icon: sceneDraft.icon,
       room: sceneDraft.room || null,
+      on_start: !!sceneDraft.onStart,
       actions: sceneDraft.actions
         .filter((action) => action.entity_id)
         .map(({ entity_id, command, rooms }) =>
@@ -417,6 +418,7 @@ export function AutomationsScreen({
             setSceneDraft({
               name: '',
               icon: SCENE_ICONS[0],
+              onStart: false,
               actions: [{ entity_id: switchableFirst(entities), command: 'turn_on' }],
             })
           }
@@ -452,6 +454,7 @@ export function AutomationsScreen({
                     name: scene.name,
                     icon: scene.icon,
                     room: scene.room ?? undefined,
+                    onStart: !!scene.on_start,
                     actions: (scene.actions ?? []).map((action) => ({
                       entity_id: action.entity_id,
                       command: action.command,
@@ -503,6 +506,8 @@ interface SceneDraft {
   icon: string;
   /** Optionaler Raum – dann erscheint die Szene in dessen Kategorie „Szenen“. */
   room?: string;
+  /** Auf der Startseite als Schnellaktion anzeigen. */
+  onStart?: boolean;
   actions: { entity_id: string; command: string; rooms?: number[] }[];
 }
 
@@ -605,6 +610,17 @@ function SceneEditor({
             />
           </Field>
         ) : null}
+
+        <Field label="Startseite">
+          <Choice
+            options={[
+              { key: 'yes', label: 'Als Schnellaktion anzeigen' },
+              { key: 'no', label: 'Nicht anzeigen' },
+            ]}
+            value={draft.onStart ? 'yes' : 'no'}
+            onSelect={(value) => set({ onStart: value === 'yes' })}
+          />
+        </Field>
 
         <Field label="Schaltet">
           {draft.actions.map((action, index) => {

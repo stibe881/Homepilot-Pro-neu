@@ -73,6 +73,8 @@ class SceneRequest(BaseModel):
     icon: str = "sparkles-outline"
     actions: list[dict[str, Any]] = []
     room: str | None = None
+    # Auf der Startseite als Schnellaktion anzeigen.
+    on_start: bool = False
 
 
 class UserRequest(BaseModel):
@@ -382,6 +384,7 @@ def create_app(hub: Hub) -> FastAPI:
             "icon": body.icon,
             "actions": body.actions,
             "room": body.room,
+            "on_start": body.on_start,
         }
         hub.data.set("scenes", [*stored_scenes(), entry])
         hub.reload_scenes()
@@ -407,6 +410,7 @@ def create_app(hub: Hub) -> FastAPI:
                 "icon": body.icon,
                 "actions": body.actions,
                 "room": body.room,
+                "on_start": body.on_start,
             }
             if entry["id"] == scene_id
             else entry

@@ -39,6 +39,8 @@ class Scene:
     editable: bool = False
     # Optionaler Raum – dann erscheint die Szene in dessen Kategorie „Szenen“.
     room: str | None = None
+    # Auf der Startseite als Schnellaktion anzeigen.
+    on_start: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -49,6 +51,7 @@ class Scene:
             "entity_ids": [action.get("entity_id") for action in self.actions],
             "editable": self.editable,
             "room": self.room,
+            "on_start": self.on_start,
         }
 
 
@@ -73,6 +76,7 @@ def parse_scenes(configs: list[dict[str, Any]], editable: bool = False) -> list[
                 actions=actions,
                 editable=editable,
                 room=str(room) if room else None,
+                on_start=bool(config.get("on_start")),
             )
         )
     return scenes

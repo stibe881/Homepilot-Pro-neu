@@ -80,8 +80,15 @@ export function OverviewScreen({
   const player = players.find((e) => e.state.state === 'playing') ?? players[0];
   const covers = entities.filter((e) => e.kind === 'cover');
 
-  const kinoScene = scenes.find((s) => /kino/i.test(s.name));
-  const schlafScene = scenes.find((s) => /schlaf/i.test(s.name));
+  // Schnellaktionen: alle im Szenen-Editor für die Startseite markierten
+  // Szenen. Solange keine markiert ist, springen «Kino» und «Schlafen»
+  // (per Namenserkennung) ein, damit die Knöpfe nicht leer starten.
+  const flagged = scenes.filter((scene) => scene.on_start);
+  const fallback = [
+    scenes.find((scene) => /kino/i.test(scene.name)),
+    scenes.find((scene) => /schlaf/i.test(scene.name)),
+  ].filter(Boolean) as typeof scenes;
+  const startScenes = flagged.length > 0 ? flagged : fallback;
 
   // ── Demo-Zustände für noch nicht eingebundene Geräte ───────────────────
   const [demoFlatLocked, setDemoFlatLocked] = useState(true);
@@ -254,18 +261,14 @@ export function OverviewScreen({
 
       {/* Schnellaktionen */}
       <View style={styles.quickRow}>
-        <Action
-          label="Kino"
-          accent
-          onPress={() => (kinoScene ? onActivateScene(kinoScene.id) : undefined)}
-          disabled={!kinoScene}
-        />
-        <Action
-          label="Schlafen"
-          accent
-          onPress={() => (schlafScene ? onActivateScene(schlafScene.id) : undefined)}
-          disabled={!schlafScene}
-        />
+        {startScenes.map((scene) => (
+          <Action
+            key={scene.id}
+            label={scene.name}
+            accent
+            onPress={() => onActivateScene(scene.id)}
+          />
+        ))}
         <Action
           label="Storen hoch"
           onPress={() => covers.forEach((c) => onCommand(c.id, 'open'))}
@@ -277,10 +280,10 @@ export function OverviewScreen({
           disabled={covers.length === 0}
         />
       </View>
-      {!kinoScene || !schlafScene ? (
+      {startScenes.length === 0 ? (
         <Text style={styles.hintLine}>
-          {[!kinoScene && '«Kino»', !schlafScene && '«Schlafen»'].filter(Boolean).join(' und ')}{' '}
-          als Szene unter Abläufe anlegen, dann sind die Knöpfe aktiv.
+          Szenen wie «Kino» oder «Schlafen» unter Abläufe anlegen und dort
+          «Als Schnellaktion anzeigen» wählen – dann erscheinen sie hier.
         </Text>
       ) : null}
 

@@ -110,3 +110,28 @@ def test_scene_without_actions_is_rejected():
             ).status_code
             == 400
         )
+
+
+def test_scene_on_start_flag_roundtrip():
+    with make_client() as client:
+        created = client.post(
+            "/api/scenes",
+            json={**NEW_SCENE, "on_start": True},
+            headers=auth("t-owner"),
+        )
+        assert created.status_code == 200
+        scene_id = created.json()["scene"]["id"]
+        scenes = client.get("/api/scenes", headers=auth("t-owner")).json()
+        entry = next(scene for scene in scenes if scene["id"] == scene_id)
+        assert entry["on_start"] is True
+
+        # Beim Bearbeiten lässt sich das Flag auch wieder wegnehmen.
+        response = client.put(
+            f"/api/scenes/{scene_id}",
+            json={**NEW_SCENE, "on_start": False},
+            headers=auth("t-owner"),
+        )
+        assert response.status_code == 200
+        scenes = client.get("/api/scenes", headers=auth("t-owner")).json()
+        entry = next(scene for scene in scenes if scene["id"] == scene_id)
+        assert entry["on_start"] is False

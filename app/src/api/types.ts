@@ -20,6 +20,8 @@ export interface Scene {
   editable?: boolean;
   /** Optionaler Raum – dann erscheint die Szene in dessen Kategorie „Szenen“. */
   room?: string | null;
+  /** Auf der Startseite als Schnellaktion anzeigen. */
+  on_start?: boolean;
 }
 
 export interface User {
