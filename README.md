@@ -147,9 +147,9 @@ Nachbesserungen bei Zugangsdaten und Feldnamen.
 | `vzug` | Lokale Home-API, nur lesend (Status, Programm, Restlaufzeit) |
 | `unifi_protect` | Kameras: online, Aufnahmemodus, Bewegung und Klingeln live über den Ereignisstrom |
 | `hue_sync` | Hue Play HDMI Sync Box: Sync an/aus, Modus und Eingang |
-| `spotify` | Was gerade läuft, Play/Pause/Weiter, und die Wiedergabe per Tipp auf einen anderen Lautsprecher umziehen (Spotify Connect – Google-Home-Lautsprecher tauchen dort automatisch auf) |
-| `roborock` | Sauger über das Roborock-Konto: Zustand, Akku, start/pause/dock; Räume direkt auf der Karte antippen und einzeln oder zu mehreren saugen lassen (`pip install "homepilot[roborock]"`) |
-| `google_cast` | Chromecast & Co.: was läuft, Play/Pause (`pip install "homepilot[cast]"`) |
+| `spotify` | Was gerade läuft, Play/Pause/Weiter, Lautstärke und Stumm, und die Wiedergabe per Tipp auf einen anderen Lautsprecher umziehen (Spotify Connect – Google-Home-Lautsprecher tauchen dort automatisch auf) |
+| `roborock` | Sauger über das Roborock-Konto: Zustand, Akku, start/pause/dock, Saugstärke und „Sauger finden"; Räume direkt auf der Karte antippen und einzeln oder zu mehreren saugen lassen (`pip install "homepilot[roborock]"`) |
+| `google_cast` | Chromecast & Co.: was läuft, Play/Pause/Weiter, Lautstärke und Stumm (`pip install "homepilot[cast]"`) |
 | `google_calendar` | Die nächsten Termine als Kachel (Cloud, Refresh-Token) |
 | `androidtv` | Fernbedienung, App-Anzeige, Lautstärke; einmalige PIN-Kopplung: `python -m homepilot.integrations.androidtv -c config.yaml` |
 | `ring` | Klingeln und Bewegung als Push, Akku und Status per Abfrage, Türöffner beim Ring Intercom (Zwei-Schritt-Bestätigung in der App); einmalige 2FA-Anmeldung: `python -m homepilot.integrations.ring -c config.yaml` |
