@@ -261,7 +261,9 @@ export function OverviewScreen({
                 ? 'Abgeschlossen'
                 : 'Aufgeschlossen'}
           </Text>
-          <View style={styles.actionRow}>
+          {/* Untereinander statt nebeneinander – zwei Textknöpfe passen in
+              der schmalen Kachel nicht in eine Zeile. */}
+          <View style={styles.actionCol}>
             <Action styles={styles}
               label={
                 (flatDoor ? String(flatDoor.state.state) === 'locked' : demoFlatLocked)
@@ -519,6 +521,7 @@ const makeStyles = (colors: Colors) =>
     actionText: { color: colors.ink, fontSize: 13, fontWeight: '700' },
     actionTextAccent: { color: '#FFFFFF' },
     actionRow: { flexDirection: 'row', gap: 8 },
+    actionCol: { gap: 8, alignSelf: 'stretch' },
 
     playButton: {
       width: 40,
