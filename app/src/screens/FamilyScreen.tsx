@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 
 import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
@@ -241,6 +242,119 @@ function GroupedChecklist({
       ) : (
         <Text style={styles.hint}>Zuerst oben eine {groupNoun} anlegen (Eingabe mit ⏎ bestätigen).</Text>
       )}
+    </View>
+  );
+}
+
+/** Foto aus der Galerie wählen – quadratisch zugeschnitten, stark
+ *  komprimiert und als data-URI zurückgegeben (landet mit dem Kontakt auf
+ *  dem Hub, damit alle Familienmitglieder dasselbe Bild sehen). */
+async function pickPhoto(): Promise<string | null> {
+  const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (!permission.granted) return null;
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ['images'],
+    allowsEditing: true,
+    aspect: [1, 1],
+    quality: 0.25,
+    base64: true,
+    exif: false,
+  });
+  const asset = result.assets?.[0];
+  if (result.canceled || !asset?.base64) return null;
+  return `data:image/jpeg;base64,${asset.base64}`;
+}
+
+/** Rundes Kontaktfoto bzw. farbiger Anfangsbuchstabe als Platzhalter. */
+function ContactPhoto({
+  contact,
+  size,
+  styles,
+}: {
+  contact: any;
+  size: number;
+  styles: Styles;
+}) {
+  if (contact.photo) {
+    return (
+      <Image
+        source={{ uri: contact.photo }}
+        style={{ width: size, height: size, borderRadius: size / 2 }}
+      />
+    );
+  }
+  return (
+    <View
+      style={[
+        styles.contactInitial,
+        { width: size, height: size, borderRadius: size / 2 },
+      ]}
+    >
+      <Text style={[styles.contactInitialText, { fontSize: size * 0.4 }]}>
+        {String(contact.text ?? '?').slice(0, 1).toUpperCase()}
+      </Text>
+    </View>
+  );
+}
+
+/** Kontakt anlegen: Name, Nummer und Foto. */
+function ContactForm({
+  onAdd,
+  styles,
+  colors,
+}: {
+  onAdd: (text: string, phone: string, photo: string | null) => void;
+  styles: Styles;
+  colors: Colors;
+}) {
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [photo, setPhoto] = useState<string | null>(null);
+  return (
+    <View style={styles.formCard}>
+      <View style={styles.contactFormRow}>
+        <Pressable
+          onPress={async () => setPhoto((await pickPhoto()) ?? photo)}
+          accessibilityLabel="Foto wählen"
+        >
+          {photo ? (
+            <Image source={{ uri: photo }} style={styles.contactFormPhoto} />
+          ) : (
+            <View style={[styles.contactFormPhoto, styles.contactPhotoEmpty]}>
+              <Ionicons name="camera-outline" size={22} color={colors.inkSoft} />
+            </View>
+          )}
+        </Pressable>
+        <View style={{ flex: 1, gap: 8 }}>
+          <TextInput
+            style={styles.input}
+            value={name}
+            onChangeText={setName}
+            placeholder="Name (z.B. Mami)"
+            placeholderTextColor={colors.inkFaint}
+          />
+          <TextInput
+            style={styles.input}
+            value={phone}
+            onChangeText={setPhone}
+            placeholder="Telefonnummer"
+            placeholderTextColor={colors.inkFaint}
+            keyboardType="phone-pad"
+          />
+        </View>
+      </View>
+      <Pressable
+        onPress={() => {
+          if (!name.trim() || !phone.trim()) return;
+          onAdd(name.trim(), phone.trim(), photo);
+          setName('');
+          setPhone('');
+          setPhoto(null);
+        }}
+        style={styles.addWide}
+      >
+        <Text style={styles.addWideText}>Hinzufügen</Text>
+      </Pressable>
     </View>
   );
 }
@@ -722,24 +836,46 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
     return (
       <View style={styles.stack}>
         <BackHead title="Kontakte" onBack={goBack} styles={styles} colors={colors} />
+        <Text style={styles.hint}>
+          Foto antippen ändert das Bild – die ganze Karte antippen ruft an.
+          Gross und mit Foto, damit auch die Kleinsten wissen, wer wer ist.
+        </Text>
         {contacts.map((contact) => (
-          <Card key={contact.id} style={styles.rewardCard}>
-            <Ionicons name="call-outline" size={20} color={colors.accent} />
+          <Card key={contact.id} style={styles.contactCard}>
+            <Pressable
+              onPress={async () => {
+                const photo = await pickPhoto();
+                if (photo) update('contacts', contact.id, { photo });
+              }}
+              accessibilityLabel={`Foto von ${contact.text} ändern`}
+            >
+              <ContactPhoto contact={contact} size={64} styles={styles} />
+            </Pressable>
             <Pressable
               style={{ flex: 1 }}
               onPress={() => Linking.openURL(`tel:${contact.phone}`)}
+              accessibilityRole="button"
+              accessibilityLabel={`${contact.text} anrufen`}
             >
-              <Text style={styles.checkText}>{contact.text}</Text>
+              <Text style={styles.contactName}>{contact.text}</Text>
               <Text style={styles.checkSub}>{contact.phone}</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => Linking.openURL(`tel:${contact.phone}`)}
+              style={styles.callButton}
+              accessibilityLabel={`${contact.text} anrufen`}
+            >
+              <Ionicons name="call" size={24} color="#FFFFFF" />
             </Pressable>
             <Pressable onPress={() => remove('contacts', contact.id)} style={styles.deleteTap}>
               <Ionicons name="close" size={18} color={colors.inkFaint} />
             </Pressable>
           </Card>
         ))}
-        <TwoFieldForm
-          labels={['Name', 'Telefonnummer']}
-          onAdd={(text, phone) => add('contacts', { text, phone })}
+        <ContactForm
+          onAdd={(text, phone, photo) =>
+            add('contacts', photo ? { text, phone, photo } : { text, phone })
+          }
           styles={styles}
           colors={colors}
         />
@@ -1157,6 +1293,36 @@ const makeStyles = (colors: Colors) =>
     mealDay: { color: colors.inkSoft, fontSize: 13, fontWeight: '700', width: 28 },
     mealEmpty: { color: colors.inkFaint, fontSize: 14 },
 
+    contactCard: {
+      minHeight: 0,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+    },
+    contactName: { color: colors.ink, fontSize: 18, fontWeight: '700' },
+    contactInitial: {
+      backgroundColor: colors.accent,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    contactInitialText: { color: '#FFFFFF', fontWeight: '700' },
+    contactFormRow: { flexDirection: 'row', gap: 12, alignItems: 'center' },
+    contactFormPhoto: { width: 72, height: 72, borderRadius: 36 },
+    contactPhotoEmpty: {
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    callButton: {
+      width: 48,
+      height: 48,
+      borderRadius: 24,
+      backgroundColor: colors.on,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
     recipeHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     recipeBody: { color: colors.inkSoft, fontSize: 14, lineHeight: 20, paddingLeft: 24 },
   });
