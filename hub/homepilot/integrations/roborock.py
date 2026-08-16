@@ -23,6 +23,9 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
+import os
+from pathlib import Path
 from typing import Any
 
 from ..core.entity import Entity, EntityKind
@@ -167,14 +170,13 @@ class RoborockIntegration(Integration):
 
     async def setup(self) -> None:
         username = self.config.get("username")
-        password = self.config.get("password")
-        if not username or not password:
-            raise ConfigError("roborock braucht 'username' und 'password'")
+        if not username:
+            raise ConfigError("roborock braucht 'username' (E-Mail des Roborock-Kontos)")
 
         # Erst hier importieren: Die Bibliothek ist gross und soll den Hub
         # ohne Roborock-Konfiguration nicht belasten.
         try:
-            from roborock import RoborockCommand
+            from roborock import RoborockCommand, UserData
             from roborock.devices.device_manager import (
                 UserParams,
                 create_device_manager,
@@ -196,8 +198,27 @@ class RoborockIntegration(Integration):
         self._set_fan = RoborockCommand.SET_CUSTOM_MODE
         self._interval = float(self.config.get("scan_interval", 60))
 
-        api = RoborockApiClient(username)
-        user_data = await api.pass_login(password)
+        # Anmeldung: Gespeichertes Token bevorzugen. Sonst mit Passwort, was
+        # aber bei vielen Konten nicht mehr geht (E-Mail-Code, Fehler 2031) –
+        # dann auf den einmaligen Code-Login-Helfer verweisen.
+        user_data = self._load_user_data(UserData)
+        if user_data is None:
+            password = self.config.get("password")
+            if not password:
+                raise ConfigError(
+                    "roborock: keine Anmeldung. Einmalig mit E-Mail-Code anmelden: "
+                    "python -m homepilot.integrations.roborock -c config.yaml"
+                )
+            api = RoborockApiClient(username)
+            try:
+                user_data = await api.pass_login(password)
+            except Exception as err:
+                raise ConfigError(
+                    "Roborock-Anmeldung mit Passwort fehlgeschlagen "
+                    f"({err}). Viele Konten verlangen inzwischen einen E-Mail-Code "
+                    "(Fehler 2031). Einmalig anmelden mit: "
+                    "python -m homepilot.integrations.roborock -c config.yaml"
+                ) from err
         self._manager = await create_device_manager(
             UserParams(username=username, user_data=user_data)
         )
@@ -232,6 +253,23 @@ class RoborockIntegration(Integration):
         await super().teardown()
         if hasattr(self, "_manager"):
             await _maybe_await(self._manager.close())
+
+    def _token_file(self) -> Path:
+        return Path(
+            self.config.get("token_file")
+            or Path(self.hub.config.data_file).parent / "roborock-token.json"
+        )
+
+    def _load_user_data(self, user_data_cls: Any) -> Any:
+        """Gespeichertes UserData laden – None, wenn keins da/lesbar ist."""
+        path = self._token_file()
+        if not path.is_file():
+            return None
+        try:
+            return user_data_cls.from_dict(json.loads(path.read_text()))
+        except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as err:
+            self.log.warning("roborock-token.json nicht lesbar (%s) – neu anmelden", err)
+            return None
 
     async def _load_rooms(self, entity_id: str, device: Any) -> None:
         """Raumliste des Saugers holen und auf die Entität schreiben.
@@ -322,3 +360,57 @@ class RoborockIntegration(Integration):
 
 
 INTEGRATION = RoborockIntegration
+
+
+# ── Anmelde-Helfer ─────────────────────────────────────────────────────────
+# Aufruf:  python -m homepilot.integrations.roborock -c config.yaml
+# Fordert einen Code per E-Mail an, fragt ihn ab, meldet sich an und legt das
+# Token neben die homepilot-data.json. Danach braucht die config.yaml kein
+# Passwort mehr – der Hub nutzt das gespeicherte Token.
+
+
+async def _login_main(config_path: str) -> int:
+    from roborock.web_api import RoborockApiClient
+
+    from ..core.config import load_config
+
+    config = load_config(config_path)
+    blocks = [b for b in config.integrations if b.get("integration") == "roborock"]
+    username = (blocks[0].get("username") if blocks else None) or input(
+        "Roborock-E-Mail: "
+    ).strip()
+
+    api = RoborockApiClient(username)
+    print(f"Fordere Anmeldecode für {username} an …")
+    try:
+        await api.request_code()
+    except Exception as err:
+        print(f"✗ Code-Anforderung fehlgeschlagen: {err}")
+        return 1
+    print("Ein Code wurde an deine E-Mail geschickt (Absender Roborock).")
+    code = input("Code aus der E-Mail: ").strip()
+    try:
+        user_data = await api.code_login(code)
+    except Exception as err:
+        print(f"✗ Anmeldung fehlgeschlagen: {err}")
+        return 1
+
+    token_file = Path(
+        (blocks[0].get("token_file") if blocks else None)
+        or Path(config.data_file).parent / "roborock-token.json"
+    )
+    token_file.parent.mkdir(parents=True, exist_ok=True)
+    token_file.write_text(json.dumps(user_data.as_dict()))
+    os.chmod(token_file, 0o600)
+    print(f"✓ Token gespeichert in {token_file} – jetzt den Hub (neu) starten.")
+    return 0
+
+
+if __name__ == "__main__":
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(description="Roborock-Anmeldung für HomePilot")
+    parser.add_argument("-c", "--config", required=True, help="Pfad zur config.yaml des Hubs")
+    args = parser.parse_args()
+    sys.exit(asyncio.run(_login_main(args.config)))
