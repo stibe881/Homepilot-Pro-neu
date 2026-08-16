@@ -163,11 +163,15 @@ integrations:
   # 'host' ist die UniFi-Konsole, nicht eine Kamera. Für den Hub einen
   # eigenen Local-Access-Benutzer mit «View Only» auf Protect anlegen und
   # ohne Zwei-Faktor lassen. Anleitung: docs/kameras.md
+  # Live-Bild: in Protect je Kamera RTSP einschalten (Kamera → Einstellungen
+  # → Erweitert → RTSP). 'stream_quality' wählt den Kanal: low für ein
+  # Wandpanel im WLAN, high fürs grosse Bild.
   # - integration: unifi_protect
   #   host: 192.168.1.1
   #   username: "${UNIFI_USER}"
   #   password: "${UNIFI_PASSWORD}"
   #   scan_interval: 120
+  #   stream_quality: medium     # high | medium | low
 
   # Hue Play HDMI Sync Box. Token: Knopf an der Box ~3s halten, dann
   #   curl -sk -X POST https://<box-ip>/api/v1/registrations \

@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -35,9 +36,13 @@ from ..core.config import ConfigError, load_config
 from ..core.errors import HomePilotError, UnknownEntityError, UnsupportedCommandError
 from ..core.hub import Hub
 from ..core.source import as_source, user_source
+from ..core.streams import StreamError
 from ..core.users import GUEST_FEATURES, Capability, Role, User, parse_users
 
 log = logging.getLogger(__name__)
+
+# Dateinamen, die ffmpeg für die Video-Häppchen vergibt (seg00001.ts).
+SEGMENT_NAME = re.compile(r"seg\d{1,8}\.ts")
 
 
 def _exit_for_restart() -> None:
@@ -310,6 +315,74 @@ def create_app(hub: Hub) -> FastAPI:
         return Response(
             content=image,
             media_type="image/png" if image.startswith(b"\x89PNG") else "image/jpeg",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/api/entities/{entity_id}/stream.m3u8")
+    async def entity_stream(entity_id: str, request: Request) -> Response:
+        """Live-Bild als HLS-Wiedergabeliste.
+
+        Der Hub holt RTSP von der Kamera und packt es für die App um – die
+        Kamera-Adresse bleibt so auf dem Hub, und die App braucht nur ihr
+        gewohntes Token.
+
+        Die Häppchen-Namen werden dabei auf den eigenen Endpunkt umgeschrieben
+        und bekommen das Token mit: Ein Videoplayer schickt beim Abarbeiten
+        der Liste keine eigenen Kopfzeilen mit.
+        """
+        user = current_user(request)
+        entity = hub.registry.get(entity_id)
+        if entity is None or not user.may_see(entity.id, entity.kind, entity.integration):
+            raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
+        integration = hub.integrations.get(entity.integration)
+        if integration is None:
+            raise HTTPException(status_code=503, detail="Integration nicht geladen")
+        source = await integration.stream_url(entity)
+        if not source:
+            raise HTTPException(
+                status_code=404,
+                detail="Diese Kamera liefert kein Live-Bild (RTSP nicht eingeschaltet)",
+            )
+        try:
+            playlist = await hub.streams.playlist(entity_id, source)
+        except StreamError as err:
+            raise HTTPException(status_code=502, detail=str(err)) from err
+
+        token = request.query_params.get("token")
+        suffix = f"?token={token}" if token else ""
+        lines = [
+            line if line.startswith("#") or not line.strip() else f"stream/{line}{suffix}"
+            for line in playlist.read_text().splitlines()
+        ]
+        return Response(
+            content="\n".join(lines) + "\n",
+            media_type="application/vnd.apple.mpegurl",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/api/entities/{entity_id}/stream/{name}")
+    async def entity_stream_segment(entity_id: str, name: str, request: Request) -> Response:
+        """Ein einzelnes Video-Häppchen der laufenden Umwandlung."""
+        user = current_user(request)
+        entity = hub.registry.get(entity_id)
+        if entity is None or not user.may_see(entity.id, entity.kind, entity.integration):
+            raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
+        directory = hub.streams.directory(entity_id)
+        if directory is None:
+            raise HTTPException(status_code=404, detail="Kein laufendes Live-Bild")
+        # Nur die von ffmpeg erzeugten Namen zulassen – sonst liesse sich über
+        # den Dateinamen jede Datei des Hubs abholen.
+        if not SEGMENT_NAME.fullmatch(name):
+            raise HTTPException(status_code=404, detail="Unbekanntes Häppchen")
+        path = directory / name
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="Häppchen nicht mehr vorhanden")
+        # Jeder Abruf hält den Strom am Leben; bleiben sie aus, schaltet der
+        # Hub die Umwandlung von selbst ab.
+        hub.streams.touch(entity_id)
+        return Response(
+            content=path.read_bytes(),
+            media_type="video/mp2t",
             headers={"Cache-Control": "no-store"},
         )
 

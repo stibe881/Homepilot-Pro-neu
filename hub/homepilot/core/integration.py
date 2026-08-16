@@ -60,6 +60,12 @@ class Integration(ABC):
         Integration keine Bilder liefert."""
         return None
 
+    async def stream_url(self, entity: Entity) -> str | None:
+        """RTSP-Adresse für das Live-Bild – None, wenn die Kamera keines
+        anbietet. Der Hub wandelt sie für die App in HLS um; die Adresse
+        selbst verlässt den Hub nie."""
+        return None
+
     def start_task(self, coro: Coroutine) -> asyncio.Task:
         """Hintergrund-Task starten, der beim Teardown automatisch aufgeräumt wird."""
         task = asyncio.create_task(coro)

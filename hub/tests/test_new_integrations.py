@@ -12,6 +12,8 @@ from homepilot.integrations.unifi_protect import (
     camera_state,
     decode_ws_message,
     login_error,
+    rtsp_alias,
+    rtsp_url,
 )
 
 # ── UniFi Protect: Rahmenformat ──────────────────────────────────────────
@@ -71,7 +73,12 @@ def test_camera_state_maps_connection_and_motion():
 
 def test_camera_state_offline_without_motion():
     state = camera_state({"state": "DISCONNECTED"})
-    assert state == {"state": "offline", "recording": None, "motion": "off"}
+    assert state == {
+        "state": "offline",
+        "recording": None,
+        "motion": "off",
+        "stream": False,
+    }
 
 
 def test_doorbell_reports_last_ring():
@@ -714,3 +721,34 @@ def test_login_error_names_the_real_cause():
     assert "Local Access Only" in login_error(499)
     assert "Passwort" in login_error(401)
     assert "503" in login_error(503)
+
+
+# ── UniFi Protect: Live-Bild ─────────────────────────────────────────────
+
+
+CHANNELS = {
+    "channels": [
+        {"name": "High", "isRtspEnabled": False, "rtspAlias": None},
+        {"name": "Medium", "isRtspEnabled": True, "rtspAlias": "abcMEDIUM"},
+        {"name": "Low", "isRtspEnabled": True, "rtspAlias": "abcLOW"},
+    ]
+}
+
+
+def test_rtsp_alias_prefers_wanted_quality():
+    assert rtsp_alias(CHANNELS, "medium") == "abcMEDIUM"
+    assert rtsp_alias(CHANNELS, "low") == "abcLOW"
+    # High ist nicht freigeschaltet → die nächstbeste statt gar keine.
+    assert rtsp_alias(CHANNELS, "high") == "abcMEDIUM"
+
+
+def test_rtsp_alias_none_without_enabled_channel():
+    assert rtsp_alias({"channels": []}) is None
+    assert rtsp_alias({"channels": [{"name": "High", "isRtspEnabled": False}]}) is None
+    # Ohne RTSP kein Live-Bild – und die App bietet auch keines an.
+    assert camera_state({"state": "CONNECTED", "channels": []})["stream"] is False
+    assert camera_state({"state": "CONNECTED", **CHANNELS})["stream"] is True
+
+
+def test_rtsp_url_uses_protect_port():
+    assert rtsp_url("10.10.1.1", "abcMEDIUM") == "rtsps://10.10.1.1:7441/abcMEDIUM?enableSrtp"

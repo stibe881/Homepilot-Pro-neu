@@ -87,12 +87,47 @@ def _iso(millis: Any) -> str | None:
     return datetime.fromtimestamp(int(millis) / 1000, tz=timezone.utc).isoformat()
 
 
-def camera_state(camera: dict[str, Any]) -> dict[str, Any]:
+# Kanäle einer Protect-Kamera, von der besten zur sparsamsten Auflösung.
+QUALITIES = ("high", "medium", "low")
+
+
+def rtsp_alias(camera: dict[str, Any], quality: str = "medium") -> str | None:
+    """Der RTSP-Name des passenden Kanals (rein, testbar).
+
+    Protect gibt jeden Kanal (High/Medium/Low) erst frei, wenn RTSP in den
+    Kameraeinstellungen eingeschaltet ist – ohne das gibt es keinen Alias
+    und damit kein Live-Bild. Ist die gewünschte Qualität nicht frei-
+    geschaltet, wird die nächstbeste genommen statt gar keine.
+    """
+    available: dict[str, str] = {}
+    for channel in camera.get("channels") or []:
+        alias = channel.get("rtspAlias")
+        if not alias or channel.get("isRtspEnabled") is False:
+            continue
+        available[str(channel.get("name", "")).strip().lower()] = str(alias)
+    if not available:
+        return None
+    wanted = str(quality).lower()
+    order = [wanted] + [name for name in QUALITIES if name != wanted]
+    for name in order:
+        if name in available:
+            return available[name]
+    return next(iter(available.values()))
+
+
+def rtsp_url(host: str, alias: str) -> str:
+    """Die Adresse, unter der Protect den Strom ausliefert."""
+    return f"rtsps://{host}:7441/{alias}?enableSrtp"
+
+
+def camera_state(camera: dict[str, Any], quality: str = "medium") -> dict[str, Any]:
     """Übersetzt ein Kamera-Objekt der API in Entitäts-Attribute."""
     state: dict[str, Any] = {
         "state": "online" if camera.get("state") == "CONNECTED" else "offline",
         "recording": (camera.get("recordingSettings") or {}).get("mode"),
         "motion": "on" if camera.get("isMotionDetected") else "off",
+        # Sagt der App, ob sie ein Live-Bild anbieten darf.
+        "stream": rtsp_alias(camera, quality) is not None,
     }
     if camera.get("lastMotion"):
         state["last_motion"] = _iso(camera.get("lastMotion"))
@@ -114,9 +149,12 @@ class UnifiProtectIntegration(Integration):
 
         self._base = f"https://{self._host}"
         self._interval = float(self.config.get("scan_interval", 120))
+        self._quality = str(self.config.get("stream_quality", "medium")).lower()
         self._csrf: str | None = None
         # Kamera-ID der API → Entitäts-ID im Hub
         self._cameras: dict[str, str] = {}
+        # Entitäts-ID → RTSP-Name des Live-Kanals (fehlt, wenn RTSP aus ist)
+        self._aliases: dict[str, str] = {}
 
         # Der Controller nutzt ein selbstsigniertes Zertifikat; die Anmeldung
         # läuft über Cookies, deshalb bekommt die Session einen Cookie-Speicher.
@@ -182,13 +220,25 @@ class UnifiProtectIntegration(Integration):
                 camera_id,
                 EntityKind.CAMERA,
                 camera.get("name") or "Kamera",
-                state=camera_state(camera),
+                state=camera_state(camera, self._quality),
             )
             self._cameras[camera_id] = entity.id
+            entity_id = entity.id
+            if rtsp_alias(camera, self._quality) is None:
+                self.log.info(
+                    "%s: kein Live-Bild – RTSP ist in Protect für diese Kamera "
+                    "nicht eingeschaltet (Kamera → Einstellungen → Erweitert → RTSP)",
+                    entity.name,
+                )
         else:
             await self.hub.registry.update_state(
-                entity_id, camera_state(camera), available=True
+                entity_id, camera_state(camera, self._quality), available=True
             )
+        alias = rtsp_alias(camera, self._quality)
+        if alias:
+            self._aliases[entity_id] = alias
+        else:
+            self._aliases.pop(entity_id, None)
 
     async def _event_loop(self) -> None:
         """Live-Ereignisse: Bewegung und Klingeln ohne Warten auf den Poll."""
@@ -241,6 +291,10 @@ class UnifiProtectIntegration(Integration):
         # Kameras sind bewusst nur lesend – Aufnahmemodi umzustellen gehört
         # in die Protect-App, nicht auf eine Wandtafel.
         raise ConfigError("Kameras lassen sich hier nicht steuern")
+
+    async def stream_url(self, entity: Entity) -> str | None:
+        alias = self._aliases.get(entity.id)
+        return rtsp_url(self._host, alias) if alias else None
 
     async def snapshot(self, entity: Entity) -> bytes | None:
         camera_id = next(

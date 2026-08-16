@@ -63,6 +63,8 @@ Der Hub läuft dann auf `http://0.0.0.0:8123`:
 | `GET /api/entities` | Alle Entitäten mit Zustand |
 | `GET /api/entities/{id}` | Eine Entität |
 | `POST /api/entities/{id}/command` | `{"command": "turn_on", "data": {"brightness": 80}}` |
+| `GET /api/entities/{id}/snapshot` | Standbild einer Kamera (JPEG) |
+| `GET /api/entities/{id}/stream.m3u8` | Live-Bild als HLS (startet die Umwandlung bei Bedarf) |
 | `GET /api/entities/{id}/history?hours=24` | Zustandsverlauf aus Supabase |
 | `GET /api/automations` | Geladene Automationen |
 | `WS /ws` | Snapshot + Live-Events, Kommandos |
@@ -145,7 +147,7 @@ Nachbesserungen bei Zugangsdaten und Feldnamen.
 | `unifi` | Anwesenheit über verbundene Clients, UniFi OS und Standalone |
 | `twinkly` | Lokale REST-API mit Challenge-Response-Anmeldung |
 | `vzug` | Lokale Home-API, nur lesend (Status, Programm, Restlaufzeit) |
-| `unifi_protect` | Kameras: eigener Menüpunkt „Kameras" mit Standbild und Vollbild, Bewegung und Klingeln live über den Ereignisstrom ([Einrichtung](docs/kameras.md)) |
+| `unifi_protect` | Kameras: eigener Menüpunkt „Kameras", Live-Bild im Vollbild (RTSP → HLS über ffmpeg, ohne Neucodierung), Bewegung und Klingeln live über den Ereignisstrom ([Einrichtung](docs/kameras.md)) |
 | `hue_sync` | Hue Play HDMI Sync Box: Sync an/aus, Modus und Eingang |
 | `spotify` | Was gerade läuft, Play/Pause/Weiter, Lautstärke und Stumm, und die Wiedergabe per Tipp auf einen anderen Lautsprecher umziehen (Spotify Connect – Google-Home-Lautsprecher tauchen dort automatisch auf) |
 | `roborock` | Sauger über das Roborock-Konto: Zustand, Akku, start/pause/dock, Saugstärke und „Sauger finden"; Räume direkt auf der Karte antippen und einzeln oder zu mehreren saugen lassen (`pip install "homepilot[roborock]"`) |

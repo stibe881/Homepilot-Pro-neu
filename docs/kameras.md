@@ -73,7 +73,33 @@ In der `config.yaml` (App → Einstellungen → System → Konfiguration):
 Das Zertifikat des Controllers ist selbstsigniert – das ist erwartet und
 wird für diese eine Verbindung im lokalen Netz akzeptiert.
 
-## 4. Prüfen
+## 4. Live-Bild einschalten
+
+Standbilder gibt es sofort. Für Bewegtbild muss in Protect je Kamera RTSP
+freigegeben werden – ohne das liefert der Controller keinen Videostrom:
+
+1. Protect öffnen → Kamera wählen → **Einstellungen → Erweitert → RTSP**
+2. Mindestens einen Kanal einschalten (**Medium** ist der gute Mittelweg:
+   scharf genug fürs iPad, sparsam genug fürs WLAN).
+3. Für alle Kameras wiederholen, die live laufen sollen.
+
+Welchen Kanal der Hub nimmt, steuert `stream_quality` (`high`, `medium`,
+`low`; Standard `medium`). Ist die gewünschte Stufe nicht freigegeben,
+nimmt der Hub die nächstbeste statt gar keine.
+
+Der Hub wandelt den Strom mit ffmpeg in HLS um – **ohne** neu zu codieren,
+das kostet also kaum Rechenzeit. Die Umwandlung startet erst, wenn jemand
+hinschaut, und endet automatisch, sobald 30 Sekunden niemand mehr zusieht.
+
+In der App: Menüpunkt **Kameras** → Kachel antippen. Unten steht „● Live",
+wenn wirklich der Strom läuft. Beim Klingeln zeigt auch das Vollbild der
+Türklingel live, sofern die Kamera es hergibt. Der Ton ist bewusst
+stummgeschaltet – ein Wandpanel, das beim Antippen lospoltert, will niemand.
+
+Kacheln zeigen weiterhin Standbilder (alle 15 Sekunden ein frisches): Vier
+Livestreams nebeneinander wären für Hub und WLAN unnötig teuer.
+
+## 5. Prüfen
 
 ```bash
 docker logs homepilot-hub 2>&1 | grep -i protect
@@ -91,6 +117,8 @@ Häufige Meldungen:
 | `Protect verlangt Zwei-Faktor-Authentifizierung (499)` | Der Benutzer braucht einen zweiten Faktor – siehe unten |
 | `Protect nicht erreichbar` | falsche `host`-Adresse, oder der Controller ist in einem anderen VLAN |
 | Kameras da, aber kein Bild | Der Benutzer hat keine Protect-Berechtigung (nur *View Only* genügt) |
+| `kein Live-Bild – RTSP ist nicht eingeschaltet` | Schritt 4: RTSP je Kamera freigeben |
+| `ffmpeg fehlt im Container` | Hub neu bauen: `sudo /opt/homepilot/rebuild-hub.sh` |
 
 ### Fehler 499: Zwei-Faktor
 

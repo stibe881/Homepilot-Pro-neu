@@ -9,6 +9,13 @@ FROM python:3.12-slim
 # nie in `docker logs`.
 ENV PYTHONUNBUFFERED=1
 
+# ffmpeg packt den RTSP-Strom der Kameras in HLS um, das iPhone und iPad
+# von Haus aus abspielen. Ohne ffmpeg gibt es Standbilder, aber kein
+# Live-Bild – neu codiert wird dabei nichts, das kostet also kaum Rechenzeit.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 # Abhängigkeiten zuerst, damit Docker sie beim Ändern von Code nicht
 # jedes Mal neu installiert. Im Container sind alle optionalen
 # Integrationsbibliotheken dabei (Ring, Roborock, Cast, Android TV) –

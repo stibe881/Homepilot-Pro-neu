@@ -252,6 +252,10 @@ export function EntityCard({
                 uri={snapshotUri}
                 // Neue Bewegung oder Klingeln holt sofort ein frisches Bild.
                 refreshKey={`${entity.state.last_motion ?? ''}|${entity.state.last_ring ?? ''}`}
+                // Kacheln zeigen Standbilder: ein Livestrom je Kamera
+                // gleichzeitig wäre für den Hub zu viel. Dafür öfter als
+                // sonst – Bewegtbild gibt es beim Antippen.
+                refreshMs={15_000}
               />
             ) : null}
             <Pill
@@ -273,6 +277,9 @@ export function EntityCard({
               <Text style={styles.detail}>
                 Zuletzt geklingelt {clock(entity.state.last_ring)}
               </Text>
+            ) : null}
+            {entity.state.stream && online ? (
+              <Text style={styles.detail}>Tippen für Live-Bild</Text>
             ) : null}
           </View>
         );
@@ -681,19 +688,22 @@ function CameraSnapshot({
   uri,
   refreshKey,
   contain,
+  refreshMs = 60_000,
 }: {
   uri: string;
   refreshKey: string;
   /** Karten ganz zeigen statt formatfüllend zuschneiden. */
   contain?: boolean;
+  /** Abstand zwischen zwei Bildern. */
+  refreshMs?: number;
 }) {
   const colors = useColors();
   const [tick, setTick] = useState(0);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
-    const timer = setInterval(() => setTick((value) => value + 1), 60_000);
+    const timer = setInterval(() => setTick((value) => value + 1), refreshMs);
     return () => clearInterval(timer);
-  }, []);
+  }, [refreshMs]);
   if (failed) {
     return null; // Gerät ohne Bild: Kachel bleibt wie bisher.
   }

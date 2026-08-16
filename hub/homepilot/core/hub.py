@@ -17,6 +17,7 @@ from .push import PushService
 from .registry import EntityRegistry
 from .scenes import SceneManager
 from .store import Store
+from .streams import StreamManager
 from .supabase import SupabaseClient
 from .users import Role, User, parse_users
 
@@ -38,6 +39,8 @@ class Hub:
         self.data = DataStore(config.data_file)
         self.store: Store | None = None
         self.watchdog = Watchdog(self)
+        # Wandelt Kamerabilder in HLS um – läuft nur, solange jemand zuschaut.
+        self.streams = StreamManager()
         self.started_at = time.time()
 
     async def start(self) -> None:
@@ -209,6 +212,7 @@ class Hub:
 
     async def stop(self) -> None:
         log.info("Hub stoppt …")
+        await self.streams.stop_all()
         await self.watchdog.stop()
         await self.automations.stop()
         await self.integrations.teardown_all()

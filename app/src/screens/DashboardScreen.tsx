@@ -17,6 +17,7 @@ import { Entity, HubSettings } from '../api/types';
 import { EntityCard } from '../components/EntityCard';
 import { skyFromIcon } from '../components/CoverVisual';
 import { HistoryChart } from '../components/HistoryChart';
+import { CameraLive } from '../components/CameraLive';
 import { OpenDoors } from '../components/OpenDoors';
 import { Rail, Section } from '../components/Rail';
 import { RoomTabs } from '../components/RoomTabs';
@@ -274,6 +275,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       ? `${settings.url.replace(/\/+$/, '')}/api/entities/${encodeURIComponent(
           entity.id
         )}/snapshot?token=${encodeURIComponent(settings.token)}`
+      : undefined;
+
+  /** HLS-Wiedergabeliste einer Kamera – der Hub wandelt RTSP dafür um. */
+  const streamUrl = (entity: Entity) =>
+    settings.url && settings.token
+      ? `${settings.url.replace(/\/+$/, '')}/api/entities/${encodeURIComponent(
+          entity.id
+        )}/stream.m3u8?token=${encodeURIComponent(settings.token)}`
       : undefined;
 
   const fullscreenCamera = fullscreen
@@ -683,6 +692,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         <CameraFullscreen
           camera={fullscreenCamera}
           uri={snapshotUrl(fullscreenCamera)}
+          streamUri={streamUrl(fullscreenCamera)}
           onClose={() => setFullscreen(null)}
           colors={colors}
           styles={styles}
@@ -736,28 +746,40 @@ function partOfDay(now: Date): string {
 function CameraFullscreen({
   camera,
   uri,
+  streamUri,
   onClose,
   colors,
   styles,
 }: {
   camera: Entity;
   uri?: string;
+  streamUri?: string;
   onClose: () => void;
   colors: Colors;
   styles: ReturnType<typeof makeStyles>;
 }) {
   const [tick, setTick] = useState(0);
+  // Klappt der Livestrom nicht, bleibt das Standbild – lieber ein Bild alle
+  // drei Sekunden als ein schwarzes Rechteck.
+  const [liveFailed, setLiveFailed] = useState(false);
   useEffect(() => {
     const timer = setInterval(() => setTick((value) => value + 1), 3000);
     return () => clearInterval(timer);
   }, []);
   const online = camera.state.state === 'online';
+  const live = online && !liveFailed && !!streamUri && camera.state.stream === true;
 
   return (
     <Modal visible animationType="fade" onRequestClose={onClose}>
       <View style={styles.doorbellRoot}>
         <Text style={styles.doorbellTitle}>{camera.name}</Text>
-        {uri && online ? (
+        {live ? (
+          <CameraLive
+            uri={streamUri!}
+            style={styles.doorbellImage}
+            onFailed={() => setLiveFailed(true)}
+          />
+        ) : uri && online ? (
           <Image
             source={{ uri: `${uri}&t=${tick}` }}
             style={styles.doorbellImage}
@@ -777,11 +799,19 @@ function CameraFullscreen({
           </View>
         )}
         <View style={styles.doorbellButtons}>
-          {camera.state.motion === 'on' ? (
-            <Text style={[styles.doorbellCloseText, { color: colors.warn }]}>
-              Bewegung erkannt
-            </Text>
-          ) : null}
+          <Text
+            style={[
+              styles.doorbellCloseText,
+              live ? { color: colors.danger } : null,
+            ]}
+          >
+            {live
+              ? '● Live'
+              : liveFailed
+                ? 'Live-Bild nicht verfügbar – Standbild alle 3 Sekunden'
+                : 'Standbild alle 3 Sekunden'}
+            {camera.state.motion === 'on' ? ' · Bewegung erkannt' : ''}
+          </Text>
           <Pressable onPress={onClose} style={styles.doorbellClose}>
             <Text style={styles.doorbellCloseText}>Schliessen</Text>
           </Pressable>
@@ -810,23 +840,34 @@ function DoorbellOverlay({
 }) {
   const [confirm, setConfirm] = useState(false);
   const [tick, setTick] = useState(0);
+  const [liveFailed, setLiveFailed] = useState(false);
   // Alle 3 Sekunden ein frisches Bild, solange das Vollbild offen ist.
   useEffect(() => {
     const timer = setInterval(() => setTick((value) => value + 1), 3000);
     return () => clearInterval(timer);
   }, []);
-  const uri =
+  const base =
     settings.url && settings.token
       ? `${settings.url.replace(/\/+$/, '')}/api/entities/${encodeURIComponent(
           camera.id
-        )}/snapshot?token=${encodeURIComponent(settings.token)}&t=${tick}`
+        )}`
       : null;
+  const token = encodeURIComponent(settings.token ?? '');
+  const uri = base ? `${base}/snapshot?token=${token}&t=${tick}` : null;
+  // Wer klingelt, will man in Bewegung sehen – wenn die Kamera es hergibt.
+  const live = base && camera.state.stream === true && !liveFailed;
 
   return (
     <Modal visible animationType="fade" onRequestClose={onDismiss}>
       <View style={styles.doorbellRoot}>
         <Text style={styles.doorbellTitle}>🔔 Es klingelt</Text>
-        {uri ? (
+        {live ? (
+          <CameraLive
+            uri={`${base}/stream.m3u8?token=${token}`}
+            style={styles.doorbellImage}
+            onFailed={() => setLiveFailed(true)}
+          />
+        ) : uri ? (
           <Image source={{ uri }} style={styles.doorbellImage} resizeMode="cover" />
         ) : (
           <View style={[styles.doorbellImage, { alignItems: 'center', justifyContent: 'center' }]}>
