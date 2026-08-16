@@ -566,6 +566,80 @@ def create_app(hub: Hub) -> FastAPI:
             "hinweis": "Token jetzt notieren – er wird nur dieses eine Mal gezeigt.",
         }
 
+    # ── Familie: geteilte Listen (Aufgaben, Einkauf, Pinnwand …) ──────────
+    # Alle Bewohner sehen und pflegen dieselben Daten; Gäste bleiben aussen
+    # vor. Die Struktur ist bewusst generisch: eine Sammlung ist eine Liste
+    # von Einträgen mit id, author und created – was sonst drinsteht,
+    # bestimmt die App (Aufgabe, Pin, Rezept …).
+
+    FAMILY_COLLECTIONS = frozenset(
+        {
+            "tasks", "shopping", "pins", "meals", "contacts", "routines",
+            "rewards", "packlists", "countdowns", "recipes", "documents",
+        }
+    )
+
+    def family_user(request: Request) -> User:
+        user = current_user(request)
+        if user.role == Role.GUEST:
+            raise HTTPException(status_code=403, detail="Für Gäste nicht sichtbar")
+        return user
+
+    def family_key(collection: str) -> str:
+        if collection not in FAMILY_COLLECTIONS:
+            raise HTTPException(status_code=404, detail=f"Unbekannte Liste: {collection}")
+        return f"family_{collection}"
+
+    @app.get("/api/family")
+    async def family_all(request: Request) -> dict[str, Any]:
+        family_user(request)
+        return {name: hub.data.get(f"family_{name}") for name in sorted(FAMILY_COLLECTIONS)}
+
+    @app.post("/api/family/{collection}")
+    async def family_add(
+        collection: str, body: dict[str, Any], request: Request
+    ) -> dict[str, Any]:
+        import secrets
+        from datetime import datetime
+
+        user = family_user(request)
+        key = family_key(collection)
+        item = {k: v for k, v in body.items() if k not in ("id", "author", "created")}
+        item["id"] = secrets.token_urlsafe(8)
+        item["author"] = user.name
+        item["created"] = datetime.now().isoformat(timespec="seconds")
+        hub.data.set(key, [*hub.data.get(key), item])
+        return item
+
+    @app.put("/api/family/{collection}/{item_id}")
+    async def family_update(
+        collection: str, item_id: str, body: dict[str, Any], request: Request
+    ) -> dict[str, Any]:
+        family_user(request)
+        key = family_key(collection)
+        items = hub.data.get(key)
+        for item in items:
+            if item.get("id") == item_id:
+                item.update(
+                    {k: v for k, v in body.items() if k not in ("id", "author", "created")}
+                )
+                hub.data.set(key, items)
+                return item
+        raise HTTPException(status_code=404, detail="Eintrag nicht gefunden")
+
+    @app.delete("/api/family/{collection}/{item_id}")
+    async def family_delete(
+        collection: str, item_id: str, request: Request
+    ) -> dict[str, Any]:
+        family_user(request)
+        key = family_key(collection)
+        items = hub.data.get(key)
+        remaining = [item for item in items if item.get("id") != item_id]
+        if len(remaining) == len(items):
+            raise HTTPException(status_code=404, detail="Eintrag nicht gefunden")
+        hub.data.set(key, remaining)
+        return {"ok": True}
+
     @app.delete("/api/users/{name}")
     async def delete_user(name: str, request: Request) -> dict[str, Any]:
         user = require(request, Capability.MANAGE_USERS)
