@@ -50,6 +50,9 @@ class Entity:
     favorite: bool = False
     # Frei wählbare Gruppe (z.B. «Storen Süd»), zum gemeinsamen Schalten.
     group: str | None = None
+    # Zeitpunkt (Epoch-Sekunden), zu dem das Gerät zuletzt erreichbar war –
+    # für «zuletzt gesehen vor …» bei offline-Geräten.
+    last_seen: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -63,4 +66,5 @@ class Entity:
             "room": self.room,
             "favorite": self.favorite,
             "group": self.group,
+            "last_seen": self.last_seen,
         }

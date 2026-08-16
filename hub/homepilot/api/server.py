@@ -248,6 +248,24 @@ def create_app(hub: Hub) -> FastAPI:
         threading.Timer(0.8, _exit_for_restart).start()
         return {"ok": True}
 
+    @app.get("/api/system/backups")
+    async def list_backups(request: Request) -> dict[str, Any]:
+        """Vorhandene Sicherungen der App-Daten (jüngste zuerst)."""
+        require(request, Capability.EDIT_CONFIG)
+        return {"backups": hub.data.backups()}
+
+    @app.post("/api/system/backup")
+    async def make_backup(request: Request) -> dict[str, Any]:
+        """Jetzt eine Sicherung anlegen – ergänzt die tägliche Automatik."""
+        require(request, Capability.EDIT_CONFIG)
+        result = hub.data.backup()
+        if result is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Ohne Datei-Speicher (z.B. reiner Demo-Hub) gibt es nichts zu sichern",
+            )
+        return {"ok": True, "backup": result, "backups": hub.data.backups()}
+
     # ── Entitäten ──────────────────────────────────────────────────────────
 
     @app.get("/api/entities")

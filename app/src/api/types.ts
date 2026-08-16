@@ -12,6 +12,8 @@ export interface Entity {
   favorite?: boolean;
   /** Frei wählbare Gruppe (z.B. «Storen Süd») zum gemeinsamen Schalten. */
   group?: string | null;
+  /** Epoch-Sekunden, wann das Gerät zuletzt erreichbar war. */
+  last_seen?: number | null;
 }
 
 export interface Scene {

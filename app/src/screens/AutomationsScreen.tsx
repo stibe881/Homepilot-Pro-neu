@@ -566,6 +566,7 @@ function isSceneDevice(entity: Entity): boolean {
     entity.commands.includes('turn_on') ||
     entity.kind === 'cover' ||
     entity.kind === 'lock' ||
+    entity.kind === 'media_player' ||
     entity.commands.includes('clean_rooms') ||
     entity.commands.includes('start')
   );
@@ -595,6 +596,12 @@ function commandOptions(entity: Entity): { key: string; label: string }[] {
     }
     return options;
   }
+  if (entity.kind === 'media_player') {
+    return [
+      { key: 'play', label: 'Musik an' },
+      { key: 'pause', label: 'Musik aus' },
+    ];
+  }
   return [
     { key: 'turn_on', label: 'ein' },
     { key: 'turn_off', label: 'aus' },
@@ -612,6 +619,9 @@ function snapshotCommand(entity: Entity): string {
   }
   if (entity.kind === 'lock') return state === 'locked' ? 'lock' : 'unlock';
   if (entity.kind === 'vacuum') return state === 'cleaning' ? 'start' : 'dock';
+  // «Aus laufender Musik»: spielt gerade etwas, nimmt die Szene das Abspielen
+  // auf – aktiviert man sie später, läuft die Musik weiter.
+  if (entity.kind === 'media_player') return state === 'playing' ? 'play' : 'pause';
   return state === 'on' ? 'turn_on' : 'turn_off';
 }
 

@@ -193,6 +193,12 @@ export function SystemScreen({
           </Text>
         </Card>
       ) : null}
+
+      {user?.capabilities?.includes('edit_config') ? (
+        <BackupCard settings={settings} headers={headers} />
+      ) : null}
+
+      <VoiceHelpCard />
     </View>
   );
 }
@@ -389,6 +395,109 @@ function Fact({ label, value, tone }: { label: string; value: string; tone?: str
   );
 }
 
+/** Sicherungen der App-Daten: täglich automatisch, hier auch von Hand. */
+function BackupCard({
+  settings,
+  headers,
+}: {
+  settings: HubSettings;
+  headers: Record<string, string>;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [backups, setBackups] = useState<any[] | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(() => {
+    fetch(`${settings.url}/api/system/backups`, { headers })
+      .then((response) => (response.ok ? response.json() : { backups: [] }))
+      .then((data) => setBackups(data.backups ?? []))
+      .catch(() => setBackups([]));
+  }, [settings.url, settings.token]);
+
+  useEffect(load, [load]);
+
+  const runBackup = async () => {
+    setBusy(true);
+    try {
+      const response = await fetch(`${settings.url}/api/system/backup`, {
+        method: 'POST',
+        headers,
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setBackups(data.backups ?? []);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const latest = backups && backups[0];
+  const when = latest
+    ? new Date(latest.created * 1000).toLocaleString('de-CH', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : null;
+
+  return (
+    <Card style={styles.card}>
+      <Text style={styles.heading}>Sicherung</Text>
+      <Text style={styles.rowDetail}>
+        {backups == null
+          ? 'wird geladen …'
+          : backups.length === 0
+            ? 'Noch keine Sicherung.'
+            : `${backups.length} Sicherung(en) · zuletzt ${when}`}
+      </Text>
+      <View style={styles.buttons}>
+        <Button label={busy ? 'Sichert …' : 'Jetzt sichern'} onPress={runBackup} primary />
+      </View>
+      <Text style={styles.hint}>
+        Benutzer, Abläufe, Szenen und Familien-Daten werden täglich automatisch
+        gesichert (die letzten 14). Die Kopien liegen im Ordner „backups“ neben
+        der homepilot-data.json auf dem Hub.
+      </Text>
+    </Card>
+  );
+}
+
+/** Kurze Doku der Sprachbefehle – die Steuerung läuft über Google Home. */
+function VoiceHelpCard() {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const examples = [
+    'Hey Google, schalt das Wohnzimmerlicht ein.',
+    'Hey Google, mach die Storen im Büro zu.',
+    'Hey Google, stell die Storen auf fünfzig Prozent.',
+    'Hey Google, starte die Szene Kino.',
+    'Hey Google, spiel meine Playlist im Wohnzimmer.',
+    'Hey Google, ist die Waschmaschine fertig?',
+  ];
+  return (
+    <Card style={styles.card}>
+      <Text style={styles.heading}>Sprachbefehle</Text>
+      <Text style={styles.rowDetail}>
+        Geräte, Szenen und Musik lassen sich über die verknüpften Google-Home-
+        Lautsprecher per Sprache steuern. Beispiele:
+      </Text>
+      {examples.map((line) => (
+        <View key={line} style={styles.voiceRow}>
+          <Ionicons name="mic-outline" size={15} color={colors.inkSoft} />
+          <Text style={styles.voiceText}>{line}</Text>
+        </View>
+      ))}
+      <Text style={styles.hint}>
+        Namen frei wählbar: Benenne ein Gerät im Anpassen-Modus um, dann hört
+        Google auf denselben Namen. Szenen heissen wie im Abläufe-Editor.
+      </Text>
+    </Card>
+  );
+}
+
 function Button({
   label,
   onPress,
@@ -450,6 +559,8 @@ const makeStyles = (colors: Colors) =>
     borderColor: colors.surfaceBorder,
   },
   buttonText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
+  voiceRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  voiceText: { color: colors.ink, fontSize: 14, flex: 1 },
   configInput: {
     backgroundColor: colors.surfaceSoft,
     borderRadius: radius.control,

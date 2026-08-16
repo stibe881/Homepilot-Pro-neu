@@ -128,3 +128,58 @@ def test_config_automations_cannot_be_edited(tmp_path):
         )
         listing = client.get("/api/automations", headers=auth()).json()["automations"]
         assert listing[0]["editable"] is False
+
+
+def test_backup_writes_dated_copy_and_prunes(tmp_path):
+    path = tmp_path / "daten.json"
+    store = DataStore(path)
+    store.set("users", [{"name": "A", "token": "x"}])
+
+    result = store.backup(keep=2)
+    assert result is not None
+    backups = store.backups()
+    assert len(backups) == 1
+    # Inhalt der Sicherung entspricht den Daten.
+    saved = json.loads((tmp_path / "backups" / backups[0]["name"]).read_text("utf-8"))
+    assert saved["users"][0]["name"] == "A"
+
+    # Mehr als «keep» Sicherungen werden auf die jüngsten gestutzt.
+    for _ in range(4):
+        store.backup(keep=2)
+    assert len(store.backups()) <= 2
+
+
+def test_backup_endpoint_lists_and_creates(tmp_path):
+    with TestClient(create_app(Hub(make_config(tmp_path / "daten.json")))) as client:
+        # Der Start legt bereits eine automatische Sicherung an.
+        listed = client.get("/api/system/backups", headers=auth())
+        assert listed.status_code == 200
+
+        made = client.post("/api/system/backup", headers=auth())
+        assert made.status_code == 200
+        assert made.json()["ok"] is True
+        assert len(made.json()["backups"]) >= 1
+
+
+def test_due_task_reminder_pushes_once_per_day(tmp_path):
+    import asyncio
+
+    hub = Hub(make_config(tmp_path / "daten.json"))
+    hub.data.load()
+    hub.data.set("family_tasks", [{"id": "1", "text": "Zimmer", "due": "2000-01-01"}])
+
+    sent: list[dict] = []
+
+    async def fake_send(tokens, title, body, data=None):
+        sent.append({"title": title, "body": body})
+        return len(tokens)
+
+    hub.push.send = fake_send  # type: ignore[assignment]
+
+    asyncio.run(hub._remind_due_tasks())
+    assert len(sent) == 1
+    assert "1 offen" in sent[0]["body"]
+
+    # Zweiter Aufruf am selben Tag erinnert nicht erneut.
+    asyncio.run(hub._remind_due_tasks())
+    assert len(sent) == 1

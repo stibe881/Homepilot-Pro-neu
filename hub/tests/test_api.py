@@ -179,3 +179,13 @@ def test_entity_meta_unknown_entity_is_404():
             client.put("/api/entities/nope.nope/meta", json={"favorite": True}).status_code
             == 404
         )
+
+
+def test_entities_report_last_seen_timestamp():
+    with make_client() as client:
+        entities = {e["id"]: e for e in client.get("/api/entities").json()}
+        light = entities["demo.light_livingroom"]
+        # Erreichbare Geräte tragen einen «zuletzt gesehen»-Zeitstempel.
+        assert light["available"] is True
+        assert isinstance(light["last_seen"], (int, float))
+        assert light["last_seen"] > 0

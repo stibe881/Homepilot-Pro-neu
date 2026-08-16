@@ -85,6 +85,10 @@ export function EntityCard({
   const [groupPickerOpen, setGroupPickerOpen] = useState(false);
   const isOn = entity.state.state === 'on';
   const subtitle = entity.room || integrationLabel(entity.integration);
+  // Offline-Geräte: «nicht erreichbar · zuletzt vor …», damit man sieht, ob
+  // das Gerät gerade eben oder seit Tagen weg ist.
+  const offlineText =
+    'nicht erreichbar' + (entity.last_seen ? ` · zuletzt ${sinceLabel(entity.last_seen)}` : '');
   const toggle = entity.commands.includes('toggle')
     ? () => onCommand('toggle')
     : undefined;
@@ -523,7 +527,7 @@ export function EntityCard({
       {chart}
       <CardFooter
         title={entity.name}
-        subtitle={pending ? 'wird geschaltet …' : entity.available ? subtitle : 'nicht erreichbar'}
+        subtitle={pending ? 'wird geschaltet …' : entity.available ? subtitle : offlineText}
         on={isOn}
         onToggle={toggle}
         pending={pending}
@@ -1378,6 +1382,18 @@ function format(value: any): string {
     return String(Math.round(value * 10) / 10);
   }
   return String(value ?? '–');
+}
+
+/** «Zuletzt gesehen»-Abstand in Alltagssprache (rein, testbar). */
+function sinceLabel(epochSeconds: number): string {
+  const seconds = Math.max(0, Date.now() / 1000 - epochSeconds);
+  if (seconds < 90) return 'gerade eben';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `vor ${minutes} Min.`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `vor ${hours} Std.`;
+  const days = Math.round(hours / 24);
+  return `vor ${days} Tag${days === 1 ? '' : 'en'}`;
 }
 
 function integrationLabel(integration: string): string {

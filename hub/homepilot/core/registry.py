@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any, Callable
 
 from .entity import Entity
@@ -41,6 +42,8 @@ class EntityRegistry:
         if self.room_provider is not None:
             entity.room = self.room_provider(entity.id) or entity.room
         self._apply_meta(entity)
+        if entity.available:
+            entity.last_seen = time.time()
         if self.state_provider is not None:
             restored = self.state_provider(entity.id)
             if restored:
@@ -116,6 +119,10 @@ class EntityRegistry:
         entity.state = new_state
         if available is not None:
             entity.available = available
+        # «Zuletzt gesehen» merkt sich den letzten Moment, in dem das Gerät
+        # erreichbar war – so lange es lebt, wird der Zeitpunkt fortgeschrieben.
+        if entity.available:
+            entity.last_seen = time.time()
 
         await self.bus.publish(
             "state_changed",

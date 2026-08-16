@@ -91,10 +91,39 @@ export const breakpoints = { rail: 760, sidePanel: 1100 };
 
 export type ThemeMode = 'system' | 'auto' | 'light' | 'dark';
 
-/** Nach Uhrzeit: von 20 Uhr bis 7 Uhr dunkel. */
-function darkByClock(now: Date): boolean {
-  const hour = now.getHours();
-  return hour >= 20 || hour < 7;
+// Standardstandort (Zell LU) – wie beim Hub. Nur für die Sonnenstand-Automatik.
+const DEFAULT_LAT = 47.1445;
+const DEFAULT_LON = 8.0675;
+
+/** Sonnenauf-/-untergang als lokale Stunden (Näherung, rein/testbar).
+ *  Reicht fürs Umschalten des Erscheinungsbilds – auf die Minute genau
+ *  muss es nicht sein. Gibt bei Polartag/-nacht null zurück. */
+export function sunHours(
+  now: Date,
+  lat = DEFAULT_LAT,
+  lon = DEFAULT_LON
+): { sunrise: number; sunset: number } | null {
+  const rad = Math.PI / 180;
+  const start = new Date(now.getFullYear(), 0, 0);
+  const dayOfYear = Math.floor((now.getTime() - start.getTime()) / 86_400_000);
+  const declination = -23.44 * rad * Math.cos((rad * 360 * (dayOfYear + 10)) / 365);
+  const cosH = -Math.tan(lat * rad) * Math.tan(declination);
+  if (cosH >= 1 || cosH <= -1) return null; // Polarnacht bzw. -tag
+  const halfDay = Math.acos(cosH) / rad / 15; // Stunden zwischen Mittag und Untergang
+  const tzOffset = -now.getTimezoneOffset() / 60; // lokale Abweichung zu UTC
+  const solarNoon = 12 - lon / 15 + tzOffset;
+  return { sunrise: solarNoon - halfDay, sunset: solarNoon + halfDay };
+}
+
+/** Ist es gerade dunkel? Nach echtem Sonnenstand, sonst 20–7 Uhr als Notnagel. */
+function darkBySun(now: Date): boolean {
+  const times = sunHours(now);
+  if (!times) {
+    const hour = now.getHours();
+    return hour >= 20 || hour < 7;
+  }
+  const hour = now.getHours() + now.getMinutes() / 60;
+  return hour < times.sunrise || hour >= times.sunset;
 }
 
 interface ThemeValue {
@@ -133,7 +162,7 @@ export function ThemeProvider({
         : mode === 'light'
           ? false
           : mode === 'auto'
-            ? darkByClock(now)
+            ? darkBySun(now)
             : scheme === 'dark';
     return { colors: dark ? darkColors : lightColors, dark, mode };
   }, [mode, scheme, now]);

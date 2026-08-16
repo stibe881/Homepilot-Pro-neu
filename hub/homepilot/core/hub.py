@@ -3,6 +3,7 @@ Automationen, Benutzer und Benachrichtigungen."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Any
@@ -82,6 +83,7 @@ class Hub:
         )
         self.started_at = time.time()
         self.watchdog.start()
+        self._backup_task = asyncio.create_task(self._backup_loop())
 
         if self.users.open_access:
             log.warning(
@@ -96,6 +98,49 @@ class Hub:
             len(self.scenes.scenes),
             len(self.users.users),
             "Supabase" if self.store else "keine",
+        )
+
+    async def _backup_loop(self) -> None:
+        """Sichert die App-Daten täglich – beim Start sofort, sonst alle 24 h.
+
+        Nur, wenn seit der letzten Sicherung ein Tag vergangen ist, damit ein
+        oft neu startender Hub die Sicherungen nicht mit Kopien überflutet.
+        """
+        try:
+            while True:
+                age = self.data.last_backup_age()
+                if age is None or age >= 86_400:
+                    self.data.backup()
+                await self._remind_due_tasks()
+                await asyncio.sleep(86_400)
+        except asyncio.CancelledError:
+            raise
+
+    async def _remind_due_tasks(self) -> None:
+        """Schickt einmal am Tag eine Push für heute fällige Familien-Aufgaben.
+
+        Ein Datums-Merker verhindert, dass ein oft neu startender Hub mehrmals
+        am selben Tag erinnert. Ohne fällige Aufgaben passiert nichts.
+        """
+        today = time.strftime("%Y-%m-%d", time.localtime())
+        marker = self.data.get("task_reminder")
+        if marker and marker[0].get("date") == today:
+            return
+        self.data.set("task_reminder", [{"date": today}])
+        due = [
+            task
+            for task in self.data.get("family_tasks")
+            if not task.get("done") and task.get("due") and str(task["due"]) <= today
+        ]
+        if not due:
+            return
+        tokens = self.push.recipients(self.users.users, "all")
+        names = ", ".join(str(task.get("text", "?")) for task in due[:5])
+        await self.push.send(
+            tokens,
+            title="Aufgaben heute fällig",
+            body=f"{len(due)} offen: {names}",
+            data={"type": "task_due"},
         )
 
     def _load_stored_users(self) -> None:
@@ -262,6 +307,13 @@ class Hub:
 
     async def stop(self) -> None:
         log.info("Hub stoppt …")
+        task = getattr(self, "_backup_task", None)
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
         await self.streams.stop_all()
         await self.watchdog.stop()
         await self.automations.stop()

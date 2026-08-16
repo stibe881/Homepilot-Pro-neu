@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,9 @@ EMPTY: dict[str, Any] = {
     # In der App gesetzte Raumzuordnungen: [{entity_id, room}]. Sie haben
     # Vorrang vor der config.yaml.
     "entity_rooms": [],
+    # In der App gesetzte Geräte-Metadaten: [{entity_id, name?, favorite?,
+    # group?}] – für Umbenennen, Favoriten und Gruppen.
+    "entity_meta": [],
 }
 
 
@@ -88,3 +92,60 @@ class DataStore:
             os.chmod(self.path, 0o600)
         except OSError as err:
             log.error("Konnte %s nicht speichern: %s", self.path, err)
+
+    def _backup_dir(self) -> Path | None:
+        return self.path.parent / "backups" if self.path else None
+
+    def backups(self) -> list[dict[str, Any]]:
+        """Liste der vorhandenen Sicherungen, jüngste zuerst."""
+        folder = self._backup_dir()
+        if folder is None or not folder.exists():
+            return []
+        entries = []
+        for file in folder.glob("homepilot-data-*.json"):
+            try:
+                stat = file.stat()
+            except OSError:
+                continue
+            entries.append(
+                {"name": file.name, "size": stat.st_size, "created": stat.st_mtime}
+            )
+        return sorted(entries, key=lambda entry: entry["created"], reverse=True)
+
+    def backup(self, keep: int = 14) -> dict[str, Any] | None:
+        """Schreibt eine datierte Kopie und behält die jüngsten ``keep``.
+
+        Läuft täglich automatisch und lässt sich in der App auslösen. Ohne
+        Datei-Pfad (Tests, In-Memory-Hub) passiert nichts.
+        """
+        folder = self._backup_dir()
+        if folder is None:
+            return None
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            stamp = time.strftime("%Y-%m-%d_%H%M%S", time.localtime())
+            target = folder / f"homepilot-data-{stamp}.json"
+            target.write_text(
+                json.dumps(self._data, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            os.chmod(target, 0o600)
+            # Alte Sicherungen aufräumen – nur die jüngsten behalten.
+            existing = sorted(
+                folder.glob("homepilot-data-*.json"),
+                key=lambda file: file.stat().st_mtime,
+                reverse=True,
+            )
+            for stale in existing[keep:]:
+                stale.unlink(missing_ok=True)
+            log.info("Sicherung geschrieben: %s", target.name)
+            return {"name": target.name, "created": target.stat().st_mtime}
+        except OSError as err:
+            log.error("Sicherung fehlgeschlagen: %s", err)
+            return None
+
+    def last_backup_age(self) -> float | None:
+        """Alter der jüngsten Sicherung in Sekunden (None = gibt keine)."""
+        entries = self.backups()
+        if not entries:
+            return None
+        return max(0.0, time.time() - entries[0]["created"])

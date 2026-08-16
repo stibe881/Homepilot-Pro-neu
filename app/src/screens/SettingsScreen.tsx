@@ -11,7 +11,7 @@ import { Colors, radius, ThemeMode, type, useColors } from '../theme';
     Bett geöffnet, nicht nur tagsüber. */
 const MODES: { key: ThemeMode; label: string }[] = [
   { key: 'system', label: 'System' },
-  { key: 'auto', label: 'Automatisch' },
+  { key: 'auto', label: 'Nach Sonnenstand' },
   { key: 'light', label: 'Hell' },
   { key: 'dark', label: 'Dunkel' },
 ];
@@ -115,6 +115,10 @@ export function SettingsScreen({ initial, onSave, onCancel, embedded, user }: Pr
             </Pressable>
           ))}
         </View>
+        <Text style={styles.modeHint}>
+          «Nach Sonnenstand» wird bei Sonnenuntergang dunkel und bei
+          Sonnenaufgang wieder hell, «System» folgt der Geräteeinstellung.
+        </Text>
       </View>
 
       <Pressable
@@ -300,6 +304,7 @@ const makeStyles = (colors: Colors) =>
   modeActive: { backgroundColor: colors.ink, borderColor: colors.ink },
   modeText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
   modeTextActive: { color: colors.surfaceStrong },
+  modeHint: { color: colors.inkFaint, fontSize: 12, lineHeight: 17, marginTop: 6 },
   cancel: { alignItems: 'center', paddingVertical: 6 },
   cancelText: { color: colors.inkSoft, fontSize: 15 },
 });
