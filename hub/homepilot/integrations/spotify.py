@@ -51,9 +51,7 @@ API = "https://api.spotify.com/v1"
 REDIRECT = "http://127.0.0.1:8888/callback"
 SCOPES = (
     "user-read-playback-state user-modify-playback-state "
-    "playlist-read-private playlist-read-collaborative "
-    # Fürs Wecken der Cast-Boxen (Geräteanmeldung wie beim Web-Player).
-    "streaming user-read-email user-read-private"
+    "playlist-read-private playlist-read-collaborative"
 )
 
 
@@ -175,6 +173,18 @@ class SpotifyIntegration(Integration):
                 "erzeugt der Anmelde-Helfer: "
                 "python -m homepilot.integrations.spotify -c config.yaml"
             )
+
+        # sp_dc-Cookie (optional): nur fürs Wecken schlafender Cast-Boxen.
+        self._sp_dc = self.config.get("sp_dc")
+        if not self._sp_dc:
+            token_file = Path(self.hub.config.data_file).parent / "spotify-token.json"
+            if token_file.exists():
+                self._sp_dc = jsonlib.loads(token_file.read_text()).get("sp_dc")
+        self._webplayer = None
+        if self._sp_dc:
+            from .spotify_webplayer import WebPlayerAuth
+
+            self._webplayer = WebPlayerAuth(self._sp_dc)
 
         self._interval = float(self.config.get("scan_interval", 30))
         self._session = self.http_session(timeout=aiohttp.ClientTimeout(total=15))
@@ -303,7 +313,18 @@ class SpotifyIntegration(Integration):
         cast = self.hub.integrations.get("google_cast")
         if cast is None or not hasattr(cast, "spotify_wake"):
             return None
-        token = await self._ensure_token()
+        if self._webplayer is None:
+            self.log.warning(
+                "Box '%s' schläft, aber ohne sp_dc-Cookie lässt sie sich nicht "
+                "wecken. Cookie eintragen: docs/spotify-boxen-wecken.md",
+                name,
+            )
+            return None
+        try:
+            token = await self._webplayer.token(self._session)
+        except Exception as err:
+            self.log.warning("Web-Player-Token fürs Wecken nicht erhältlich: %s", err)
+            return None
         try:
             woken = await cast.spotify_wake(name, token)
         except Exception as err:
@@ -487,10 +508,27 @@ async def _login_main(config_path: str) -> int:
         print(f"✗ Kein refresh_token erhalten: {payload}")
         return 1
 
+    stored: dict[str, str] = {"refresh_token": refresh_token}
+
+    # Optionaler dritter Schritt: das sp_dc-Cookie fürs Wecken schlafender
+    # Google-/Cast-Boxen (ohne offene Spotify-App).
+    print(
+        "\n3. (Optional) Google-/Cast-Boxen aus dem Ruhezustand starten:\n"
+        "   Dafür braucht der Hub das Cookie 'sp_dc' aus einer Browser-\n"
+        "   Sitzung. In Chrome: open.spotify.com öffnen und einloggen → F12\n"
+        "   → «Application» → «Cookies» → open.spotify.com → Zeile 'sp_dc' →\n"
+        "   den Wert kopieren. Leer lassen und Enter, wenn nicht gewünscht."
+    )
+    sp_dc = input("\nsp_dc (optional): ").strip()
+    if sp_dc:
+        stored["sp_dc"] = sp_dc
+
     token_file = data_dir / "spotify-token.json"
-    token_file.write_text(jsonlib.dumps({"refresh_token": refresh_token}))
+    token_file.write_text(jsonlib.dumps(stored))
     token_file.chmod(0o600)
     print(f"\n✓ Angemeldet. Token gespeichert in {token_file}.")
+    if sp_dc:
+        print("  Mit sp_dc: schlafende Boxen werden beim Playlist-Start geweckt.")
     print("  Jetzt den Hub neu starten – die Spotify-Kachel erscheint mit "
           "Playlists und Lautsprechern.")
     return 0
