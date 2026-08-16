@@ -59,6 +59,28 @@ def decode_ws_message(data: bytes) -> tuple[dict[str, Any], dict[str, Any]]:
     return action, payload
 
 
+def login_error(status: int) -> str:
+    """Sagt, was der Statuscode der Anmeldung bedeutet (rein, testbar).
+
+    UniFi meldet mit 499 nicht «falsches Passwort», sondern «hier fehlt der
+    zweite Faktor» – der Unterschied entscheidet, ob man das Passwort neu
+    tippt oder einen lokalen Benutzer ohne 2FA anlegt.
+    """
+    if status == 499:
+        return (
+            "Protect verlangt Zwei-Faktor-Authentifizierung (499). Der Hub kann "
+            "keinen Code eingeben: In UniFi OS unter Settings → Admins & Users "
+            "einen Benutzer mit 'Local Access Only' und ohne 2FA anlegen "
+            "(ein Ubiquiti-Cloud-Konto erzwingt 2FA immer)."
+        )
+    if status in (401, 403):
+        return (
+            f"Protect-Anmeldung abgelehnt ({status}) – Benutzername oder Passwort "
+            "stimmen nicht, oder der Benutzer hat keine Protect-Berechtigung."
+        )
+    return f"Protect-Anmeldung fehlgeschlagen ({status})"
+
+
 def _iso(millis: Any) -> str | None:
     if not millis:
         return None
@@ -121,9 +143,7 @@ class UnifiProtectIntegration(Integration):
             },
         ) as response:
             if response.status >= 400:
-                raise ConnectionError(
-                    f"Protect-Anmeldung fehlgeschlagen ({response.status}) – Zugangsdaten prüfen"
-                )
+                raise ConnectionError(login_error(response.status))
             self._csrf = response.headers.get("X-CSRF-Token") or self._csrf
 
     async def _bootstrap(self) -> dict[str, Any]:

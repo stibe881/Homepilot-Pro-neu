@@ -8,7 +8,11 @@ import pytest
 
 from homepilot.integrations.hue_sync import parse_state
 from homepilot.integrations.spotify import parse_playback
-from homepilot.integrations.unifi_protect import camera_state, decode_ws_message
+from homepilot.integrations.unifi_protect import (
+    camera_state,
+    decode_ws_message,
+    login_error,
+)
 
 # ── UniFi Protect: Rahmenformat ──────────────────────────────────────────
 
@@ -701,3 +705,12 @@ def test_vzug_status_reports_minutes_left():
     idle = parse_device_status({"Inactive": "true"}, now_minutes=0)
     assert idle["state"] == "idle"
     assert "minutes_left" not in idle
+
+
+def test_login_error_names_the_real_cause():
+    # 499 heisst «zweiter Faktor fehlt», nicht «Passwort falsch» – die
+    # Meldung muss zur richtigen Abhilfe führen.
+    assert "Zwei-Faktor" in login_error(499)
+    assert "Local Access Only" in login_error(499)
+    assert "Passwort" in login_error(401)
+    assert "503" in login_error(503)

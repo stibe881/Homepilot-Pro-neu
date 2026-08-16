@@ -87,10 +87,32 @@ Häufige Meldungen:
 
 | Meldung | Ursache |
 |---|---|
-| `Protect-Anmeldung fehlgeschlagen (401)` | Passwort falsch, oder der Benutzer ist ein Cloud- statt Local-Access-Konto |
-| `Protect-Anmeldung fehlgeschlagen (499)` | Zwei-Faktor beim Benutzer aktiv |
+| `Protect-Anmeldung abgelehnt (401)` | Passwort falsch, oder der Benutzer hat keine Protect-Berechtigung |
+| `Protect verlangt Zwei-Faktor-Authentifizierung (499)` | Der Benutzer braucht einen zweiten Faktor – siehe unten |
 | `Protect nicht erreichbar` | falsche `host`-Adresse, oder der Controller ist in einem anderen VLAN |
 | Kameras da, aber kein Bild | Der Benutzer hat keine Protect-Berechtigung (nur *View Only* genügt) |
+
+### Fehler 499: Zwei-Faktor
+
+Das ist der häufigste Stolperstein und hat nichts mit dem Passwort zu tun –
+UniFi verlangt für dieses Konto einen zweiten Faktor, den der Hub nicht
+liefern kann. Abhilfe der Reihe nach:
+
+1. **Ist es wirklich ein lokaler Benutzer?** In *Settings → Admins & Users*
+   den Benutzer öffnen: Steht dort eine E-Mail-Adresse, ist es ein
+   Ubiquiti-Cloud-Konto – dafür erzwingt Ubiquiti 2FA immer. Neuen Benutzer
+   mit **Local Access Only** anlegen (nur Benutzername + Passwort, keine
+   E-Mail).
+2. **2FA beim Benutzer abschalten.** Beim lokalen Benutzer darf unter
+   *Two-Factor Authentication* nichts eingerichtet sein.
+3. **Erzwingt die Konsole 2FA für alle?** In neueren UniFi-OS-Versionen
+   unter *Settings → System → Advanced* bzw. beim Besitzerkonto:
+   „Require Two-Factor Authentication" für Admins. Solange das an ist,
+   scheitert jede Anmeldung ohne Code – entweder abschalten, oder den
+   Hub-Benutzer als reinen Local-Access-Benutzer davon ausnehmen.
+
+Nach der Änderung den Hub neu starten (Portainer → Container → Restart);
+die Anmeldung wird nur beim Start und bei abgelaufener Sitzung versucht.
 
 ## Bewegung und Klingeln
 
