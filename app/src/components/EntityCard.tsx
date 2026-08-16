@@ -152,6 +152,32 @@ export function EntityCard({
                 onCommand={onCommand}
               />
             ) : null}
+            {entity.commands.includes('set_volume') ? (
+              <View style={styles.volumeRow}>
+                <Pressable
+                  onPress={() => onCommand('mute')}
+                  hitSlop={8}
+                  accessibilityLabel="Stumm schalten">
+                  <Ionicons
+                    name={
+                      entity.state.muted || entity.state.volume === 0
+                        ? 'volume-mute'
+                        : 'volume-low'
+                    }
+                    size={20}
+                    color={entity.state.muted ? colors.accent : colors.inkSoft}
+                  />
+                </Pressable>
+                <View style={styles.volumeBar}>
+                  <Bar
+                    height={28}
+                    value={typeof entity.state.volume === 'number' ? entity.state.volume : 0}
+                    onChange={(value) => onCommand('set_volume', { volume: value })}
+                  />
+                </View>
+                <Ionicons name="volume-high" size={20} color={colors.inkSoft} />
+              </View>
+            ) : null}
             {entity.commands.includes('play_on') &&
             Array.isArray(entity.state.devices) &&
             entity.state.devices.length > 0 ? (
@@ -963,6 +989,8 @@ const makeStyles = (colors: Colors) =>
   roomOptionActive: { backgroundColor: colors.surfaceSoft },
   roomOptionText: { fontSize: 15, color: colors.ink },
   mediaRow: { flexDirection: 'row', gap: 10 },
+  volumeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  volumeBar: { flex: 1 },
   deviceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   deviceChip: {
     flexDirection: 'row',

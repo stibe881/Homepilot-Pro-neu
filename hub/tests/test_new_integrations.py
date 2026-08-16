@@ -306,6 +306,26 @@ def test_cast_backdrop_counts_as_idle_app():
     assert state["app"] is None
 
 
+def test_cast_reports_mute():
+    from homepilot.integrations.google_cast import cast_media_state
+
+    state = cast_media_state("PLAYING", "X", None, "Spotify", 0.6, True)
+    assert state["muted"] is True
+    # Ohne Angabe bleibt 'muted' weg (Abwärtskompatibilität).
+    assert "muted" not in cast_media_state("PLAYING", "X", None, "Spotify", 0.6)
+
+
+def test_spotify_playback_reports_volume():
+    state = parse_playback(
+        {
+            "is_playing": True,
+            "item": {"name": "X", "artists": [{"name": "A"}]},
+            "device": {"name": "Wohnzimmer", "volume_percent": 42},
+        }
+    )
+    assert state["volume"] == 42
+
+
 # ── Android TV ───────────────────────────────────────────────────────────
 
 

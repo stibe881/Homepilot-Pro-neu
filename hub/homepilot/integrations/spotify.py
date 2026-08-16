@@ -72,12 +72,17 @@ def parse_playback(payload: dict[str, Any] | None) -> dict[str, Any]:
     artists = ", ".join(
         artist.get("name", "") for artist in item.get("artists") or [] if artist.get("name")
     )
-    return {
+    device = payload.get("device") or {}
+    result = {
         "state": "playing" if payload.get("is_playing") else "paused",
         "track": item.get("name"),
         "artist": artists or None,
-        "device": (payload.get("device") or {}).get("name"),
+        "device": device.get("name"),
     }
+    volume = device.get("volume_percent")
+    if volume is not None:
+        result["volume"] = int(volume)
+    return result
 
 
 class SpotifyIntegration(Integration):
@@ -103,7 +108,10 @@ class SpotifyIntegration(Integration):
             EntityKind.MEDIA_PLAYER,
             self.config.get("name", "Spotify"),
             state={"state": "idle"},
-            commands=["play", "pause", "toggle", "next", "previous", "play_on"],
+            commands=[
+                "play", "pause", "toggle", "next", "previous", "play_on",
+                "set_volume", "volume_up", "volume_down", "mute",
+            ],
             available=False,
         )
         # Gerätename → Spotify-Connect-ID, für play_on.
@@ -185,6 +193,26 @@ class SpotifyIntegration(Integration):
             return
         if command == "toggle":
             command = "pause" if entity.state.get("state") == "playing" else "play"
+
+        if command in ("set_volume", "volume_up", "volume_down", "mute"):
+            current = int(entity.state.get("volume", 50) or 0)
+            if command == "set_volume":
+                target = int(data.get("volume", current))
+            elif command == "volume_up":
+                target = current + int(data.get("step", 10))
+            elif command == "volume_down":
+                target = current - int(data.get("step", 10))
+            else:  # mute: auf 0 bzw. zurück auf die gemerkte Lautstärke
+                if current > 0:
+                    self._volume_before_mute = current
+                    target = 0
+                else:
+                    target = getattr(self, "_volume_before_mute", 30)
+            target = max(0, min(100, target))
+            await self._call("PUT", f"/me/player/volume?volume_percent={target}")
+            await self._refresh()
+            return
+
         routes = {
             "play": ("PUT", "/me/player/play"),
             "pause": ("PUT", "/me/player/pause"),

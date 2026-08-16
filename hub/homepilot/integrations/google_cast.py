@@ -33,6 +33,7 @@ def cast_media_state(
     artist: str | None,
     app: str | None,
     volume: float | None,
+    muted: bool | None = None,
 ) -> dict[str, Any]:
     """Übersetzt Cast-Status in Entitäts-Attribute (rein, testbar)."""
     if player_state == "PLAYING":
@@ -49,6 +50,8 @@ def cast_media_state(
     }
     if volume is not None:
         result["volume"] = round(float(volume) * 100)
+    if muted is not None:
+        result["muted"] = bool(muted)
     return result
 
 
@@ -80,7 +83,10 @@ class GoogleCastIntegration(Integration):
                 EntityKind.MEDIA_PLAYER,
                 device.get("name", f"Cast {host}"),
                 state={"state": "idle"},
-                commands=["play", "pause", "toggle"],
+                commands=[
+                    "play", "pause", "toggle", "next", "previous",
+                    "volume_up", "volume_down", "set_volume", "mute",
+                ],
                 available=False,
             )
             self.start_task(self._connect_loop(entity.id, str(host)))
@@ -158,6 +164,7 @@ class GoogleCastIntegration(Integration):
                 getattr(media, "artist", None),
                 getattr(status, "display_name", None),
                 getattr(status, "volume_level", None),
+                getattr(status, "volume_muted", None),
             ),
             available=True,
         )
@@ -171,7 +178,30 @@ class GoogleCastIntegration(Integration):
         if command == "toggle":
             command = "pause" if entity.state.get("state") == "playing" else "play"
         controller = cast.media_controller
-        await asyncio.to_thread(controller.play if command == "play" else controller.pause)
+
+        if command == "play":
+            await asyncio.to_thread(controller.play)
+        elif command == "pause":
+            await asyncio.to_thread(controller.pause)
+        elif command == "next":
+            await asyncio.to_thread(controller.queue_next)
+        elif command == "previous":
+            await asyncio.to_thread(controller.queue_prev)
+        elif command == "volume_up":
+            await asyncio.to_thread(cast.volume_up)
+        elif command == "volume_down":
+            await asyncio.to_thread(cast.volume_down)
+        elif command == "set_volume":
+            level = max(0.0, min(1.0, float(data.get("volume", 0)) / 100))
+            await asyncio.to_thread(cast.set_volume, level)
+        elif command == "mute":
+            # Umschalten oder gezielt setzen, wenn data.muted mitkommt.
+            muted = data.get("muted")
+            if muted is None:
+                muted = not bool(entity.state.get("muted"))
+            await asyncio.to_thread(cast.set_volume_muted, bool(muted))
+        else:
+            raise ConfigError(f"Cast kennt das Kommando '{command}' nicht")
 
 
 INTEGRATION = GoogleCastIntegration
