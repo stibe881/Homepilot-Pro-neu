@@ -56,19 +56,29 @@ ON_DEMAND_CLOSE = "20s"
 def publish_command(source: str, name: str) -> str:
     """ffmpeg-Aufruf, mit dem mediamtx die Kamera bei Bedarf anzapft.
 
-    Der Umweg über ffmpeg hat genau einen Zweck: ``-an`` wirft den Ton weg.
-    Die App spielt Kamera-Ton ohnehin nicht ab – aber die Tonspuren ruinieren
-    das Low-Latency-HLS: Ihre Frame-Längen (AAC ~21 ms, Opus 20 ms) gehen
-    nie glatt in die Part-Dauer auf, die dadurch schwankt – und daran
-    scheitern iOS-Player. Opus versteht Apples HLS zudem gar nicht.
-    Video wird nur kopiert (``-c copy``), nicht neu berechnet.
+    Zwei Eingriffe, beide mit Grund:
+
+    ``-an`` wirft den Ton weg. Die App spielt Kamera-Ton ohnehin nicht ab –
+    aber die Tonspuren ruinieren das Low-Latency-HLS: Ihre Frame-Längen
+    (AAC ~21 ms, Opus 20 ms) gehen nie glatt in die Part-Dauer auf, die
+    dadurch schwankt – und daran scheitern iOS-Player. Opus versteht Apples
+    HLS zudem gar nicht.
+
+    Neu codiert wird mit einem Keyframe pro Sekunde. Protect-Kameras senden
+    nur alle 4–8 Sekunden ein vollständiges Bild («Smart Codec»), und HLS
+    kann Segmente nur an Keyframes schneiden: Mit 8-Sekunden-Segmenten hängt
+    Apples Player (3 Segmente hinter der Gegenwart) ~25 Sekunden zurück.
+    Mit 1-Sekunden-Keyframes sind es ~3, im Browser unter einer. Der Preis
+    ist CPU – aber nur, solange tatsächlich jemand zuschaut; ohne Zuschauer
+    läuft gar nichts.
     """
     return (
         "ffmpeg -nostdin -loglevel error "
         f"-rtsp_transport tcp -i {source} "
-        # -strict experimental: erlaubt auch Codecs, deren RTP-Format ffmpeg
-        # als «Entwurf» führt (z.B. VP9) – für H264 ohne Wirkung.
-        "-c copy -an -strict experimental "
+        "-c:v libx264 -preset veryfast -tune zerolatency "
+        "-g 25 -keyint_min 25 -sc_threshold 0 -bf 0 "
+        "-crf 23 -maxrate 4M -bufsize 8M -pix_fmt yuv420p "
+        "-an -strict experimental "
         f"-rtsp_transport tcp -f rtsp {MEDIAMTX_RTSP}/{name}"
     )
 # Blockierende Anfragen nach dem nächsten Bruchstück dürfen dauern – genau
@@ -101,13 +111,17 @@ def strip_low_latency(text: str) -> str:
     Part-Zeilen spielt derselbe Strom als gewöhnliches HLS mit ganzen
     Sekunden-Häppchen: zwei, drei Sekunden Rückstand statt unter einer,
     dafür zuverlässig. Browser bekommen weiterhin die schnelle Fassung.
+
+    EXT-X-START sagt dem Player zusätzlich, nahe der Gegenwart einzusteigen –
+    ohne die Zeile hält sich AVPlayer standardmässig drei ganze Segmente
+    hinter dem Live-Rand.
     """
-    return (
-        "\n".join(
-            line for line in text.splitlines() if not line.startswith(LL_TAGS)
-        )
-        + "\n"
-    )
+    lines = [line for line in text.splitlines() if not line.startswith(LL_TAGS)]
+    if lines and lines[0].startswith("#EXTM3U") and not any(
+        line.startswith("#EXT-X-START") for line in lines
+    ):
+        lines.insert(1, "#EXT-X-START:TIME-OFFSET=-3")
+    return "\n".join(lines) + "\n"
 
 
 class StreamError(RuntimeError):

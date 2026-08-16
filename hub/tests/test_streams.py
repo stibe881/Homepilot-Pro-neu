@@ -59,7 +59,11 @@ def test_publish_command_strips_audio_but_keeps_video():
     App spielt Kamera-Ton ohnehin nicht ab."""
     command = publish_command("rtsp://10.10.1.10:7447/abc", "unifi_protect_x")
     assert "-an" in command.split()
-    assert "-c copy" in command
+    # Neu codiert mit 1-s-Keyframes: Protect liefert nur alle 4-8 s einen,
+    # und HLS-Segmente können nicht kürzer sein als der Keyframe-Abstand -
+    # daraus wurden ~25 s Rückstand auf dem iPhone.
+    assert "-c:v libx264" in command
+    assert "-g 25" in command
     assert command.count("-rtsp_transport tcp") == 2  # lesen UND publizieren
     assert command.endswith("rtsp://127.0.0.1:8554/unifi_protect_x")
 
@@ -80,6 +84,8 @@ def test_strip_low_latency_keeps_segments_and_map():
     assert "SERVER-CONTROL" not in text
     assert '#EXT-X-MAP:URI="init.mp4"' in text
     assert "segment3.mp4" in text
+    # Nahe der Gegenwart einsteigen statt drei Segmente dahinter.
+    assert text.splitlines()[1] == "#EXT-X-START:TIME-OFFSET=-3"
 
 
 def test_apple_gets_playlist_without_low_latency_parts(tmp_path):
