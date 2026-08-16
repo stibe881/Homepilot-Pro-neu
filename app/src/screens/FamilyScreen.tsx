@@ -1,6 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Image, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Image,
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 
 import { Entity, HubSettings } from '../api/types';
@@ -117,6 +126,7 @@ function AddRow({
 function CheckRow({
   item,
   sub,
+  highlight,
   onToggle,
   onDelete,
   styles,
@@ -124,6 +134,8 @@ function CheckRow({
 }: {
   item: any;
   sub?: string;
+  /** Farbe für die Unterzeile, z.B. Rot bei überfälligen Aufgaben. */
+  highlight?: string;
   onToggle: () => void;
   onDelete: () => void;
   styles: Styles;
@@ -146,7 +158,11 @@ function CheckRow({
           <Text style={[styles.checkText, item.done && styles.checkTextDone]}>
             {item.text}
           </Text>
-          {sub ? <Text style={styles.checkSub}>{sub}</Text> : null}
+          {sub ? (
+            <Text style={[styles.checkSub, highlight ? { color: highlight, fontWeight: '600' } : null]}>
+              {sub}
+            </Text>
+          ) : null}
         </View>
       </Pressable>
       <Pressable onPress={onDelete} style={styles.deleteTap} accessibilityLabel="Löschen">
@@ -327,6 +343,38 @@ function EventForm({
 
 /** Aufgabe anlegen: Text, optional zuständige Person und Punktwert.
  *  Beim Abhaken werden die Punkte der Person automatisch gutgeschrieben. */
+/** ISO-Datum (YYYY-MM-DD) für «in n Tagen ab heute» (rein genug, testbar). */
+function isoInDays(days: number): string {
+  const date = new Date();
+  date.setHours(12, 0, 0, 0);
+  date.setDate(date.getDate() + days);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
+    date.getDate()
+  ).padStart(2, '0')}`;
+}
+
+/** Fälligkeit einer Aufgabe als Text plus «überfällig?» (rein, testbar). */
+function dueInfo(due: string | undefined): { label: string; overdue: boolean } | null {
+  if (!due) return null;
+  const target = new Date(`${due}T12:00:00`);
+  if (Number.isNaN(target.getTime())) return null;
+  const today = new Date();
+  const diff = Math.round(
+    (new Date(target).setHours(0, 0, 0, 0) - today.setHours(0, 0, 0, 0)) / 86_400_000
+  );
+  if (diff < 0) return { label: `überfällig (${-diff} Tag${diff === -1 ? '' : 'e'})`, overdue: true };
+  if (diff === 0) return { label: 'fällig heute', overdue: true };
+  if (diff === 1) return { label: 'fällig morgen', overdue: false };
+  return { label: `fällig in ${diff} Tagen`, overdue: false };
+}
+
+const DUE_OPTIONS: { key: string; label: string; days: number | null }[] = [
+  { key: 'none', label: 'ohne Frist', days: null },
+  { key: 'today', label: 'heute', days: 0 },
+  { key: 'tomorrow', label: 'morgen', days: 1 },
+  { key: 'week', label: 'in 1 Woche', days: 7 },
+];
+
 function TaskAddRow({
   members,
   onAdd,
@@ -334,19 +382,23 @@ function TaskAddRow({
   colors,
 }: {
   members: Member[];
-  onAdd: (text: string, member: string | null, points: number) => void;
+  onAdd: (text: string, member: string | null, points: number, due: string | null) => void;
   styles: Styles;
   colors: Colors;
 }) {
   const [text, setText] = useState('');
   const [member, setMember] = useState<string | null>(null);
   const [points, setPoints] = useState(0);
+  const [dueKey, setDueKey] = useState('none');
   const submit = () => {
     if (!text.trim()) return;
-    onAdd(text.trim(), member, points);
+    const option = DUE_OPTIONS.find((o) => o.key === dueKey);
+    const due = option && option.days != null ? isoInDays(option.days) : null;
+    onAdd(text.trim(), member, points, due);
     setText('');
     setMember(null);
     setPoints(0);
+    setDueKey('none');
   };
   return (
     <View style={{ gap: 8 }}>
@@ -387,6 +439,82 @@ function TaskAddRow({
           </Pressable>
         ))}
       </View>
+      <View style={styles.chipRow}>
+        {DUE_OPTIONS.map((option) => (
+          <Pressable
+            key={option.key}
+            onPress={() => setDueKey(option.key)}
+            style={[styles.chip, dueKey === option.key && styles.chipActive]}
+          >
+            <Text style={[styles.chipText, dueKey === option.key && styles.chipTextActive]}>
+              {option.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+/** Einkaufs-Kategorien in der Reihenfolge eines üblichen Ladenrundgangs. */
+const SHOP_CATEGORIES = [
+  'Früchte & Gemüse',
+  'Milchprodukte',
+  'Brot & Backwaren',
+  'Fleisch & Fisch',
+  'Getränke',
+  'Tiefkühl',
+  'Vorrat',
+  'Haushalt',
+  'Sonstiges',
+];
+
+function ShoppingAddRow({
+  onAdd,
+  styles,
+  colors,
+}: {
+  onAdd: (text: string, category: string) => void;
+  styles: Styles;
+  colors: Colors;
+}) {
+  const [text, setText] = useState('');
+  const [category, setCategory] = useState(SHOP_CATEGORIES[SHOP_CATEGORIES.length - 1]);
+  const submit = () => {
+    if (!text.trim()) return;
+    onAdd(text.trim(), category);
+    setText('');
+  };
+  return (
+    <View style={{ gap: 8 }}>
+      <View style={styles.addRow}>
+        <TextInput
+          style={[styles.input, { flex: 1 }]}
+          value={text}
+          onChangeText={setText}
+          placeholder="Was fehlt? …"
+          placeholderTextColor={colors.inkFaint}
+          onSubmitEditing={submit}
+        />
+        <Pressable onPress={submit} style={styles.addButton} accessibilityLabel="Hinzufügen">
+          <Ionicons name="add" size={22} color="#FFFFFF" />
+        </Pressable>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <View style={styles.chipRow}>
+          {SHOP_CATEGORIES.map((cat) => (
+            <Pressable
+              key={cat}
+              onPress={() => setCategory(cat)}
+              style={[styles.chip, category === cat && styles.chipActive]}
+            >
+              <Text style={[styles.chipText, category === cat && styles.chipTextActive]}>
+                {cat}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </ScrollView>
     </View>
   );
 }
@@ -448,12 +576,13 @@ function ContactForm({
   styles,
   colors,
 }: {
-  onAdd: (text: string, phone: string, photo: string | null) => void;
+  onAdd: (text: string, phone: string, photo: string | null, birthday: string) => void;
   styles: Styles;
   colors: Colors;
 }) {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [birthday, setBirthday] = useState('');
   const [photo, setPhoto] = useState<string | null>(null);
   return (
     <View style={styles.formCard}>
@@ -486,14 +615,22 @@ function ContactForm({
             placeholderTextColor={colors.inkFaint}
             keyboardType="phone-pad"
           />
+          <TextInput
+            style={styles.input}
+            value={birthday}
+            onChangeText={setBirthday}
+            placeholder="Geburtstag (TT.MM. – freiwillig)"
+            placeholderTextColor={colors.inkFaint}
+          />
         </View>
       </View>
       <Pressable
         onPress={() => {
           if (!name.trim() || !phone.trim()) return;
-          onAdd(name.trim(), phone.trim(), photo);
+          onAdd(name.trim(), phone.trim(), photo, birthday.trim());
           setName('');
           setPhone('');
+          setBirthday('');
           setPhoto(null);
         }}
         style={styles.addWide}
@@ -502,6 +639,30 @@ function ContactForm({
       </Pressable>
     </View>
   );
+}
+
+/** Tage bis zum nächsten Geburtstag (Jahr egal), aus «TT.MM.» oder
+ *  «TT.MM.JJJJ» (rein, testbar). Null, wenn nichts Brauchbares dasteht. */
+function daysUntilBirthday(value: any): number | null {
+  const match = /^(\d{1,2})\.(\d{1,2})\.?(\d{4})?$/.exec(String(value ?? '').trim());
+  if (!match) return null;
+  const day = Number(match[1]);
+  const month = Number(match[2]) - 1;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  let next = new Date(today.getFullYear(), month, day);
+  if (Number.isNaN(next.getTime())) return null;
+  if (next < today) next = new Date(today.getFullYear() + 1, month, day);
+  return Math.round((next.getTime() - today.getTime()) / 86_400_000);
+}
+
+/** Geburtstags-Text: «heute! 🎉», «morgen» oder «in N Tagen». */
+function birthdayLabel(value: any): string | null {
+  const days = daysUntilBirthday(value);
+  if (days == null) return null;
+  if (days === 0) return 'Geburtstag heute! 🎉';
+  if (days === 1) return 'Geburtstag morgen';
+  return `Geburtstag in ${days} Tagen`;
 }
 
 /** Datum «TT.MM.JJJJ» oder ISO → Date (Mitternacht lokal). */
@@ -1007,36 +1168,98 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
 
   if (view === 'tasks') {
     const tasks: any[] = data.tasks ?? [];
+    // Eltern (Besitzer/Bewohner) dürfen Punkte bestätigen; Kinder/Gäste nicht.
+    const isParent =
+      currentUser?.role === 'besitzer' || currentUser?.role === 'bewohner';
+    const pending = tasks.filter((task) => task.pending_reward);
+
     const toggleTask = (task: any) => {
-      // Beim ersten Abhaken einer Aufgabe mit Person und Punkten wird der
-      // Punktestand automatisch gutgeschrieben (genau einmal).
+      // Punkte-Aufgaben werden beim Abhaken NICHT sofort gutgeschrieben,
+      // sondern warten auf die Bestätigung eines Elternteils (#20).
       if (!task.done && task.member && Number(task.points) > 0 && !task.rewarded) {
-        add('rewards', {
-          member: task.member,
-          points: Number(task.points),
-          reason: task.text,
-        });
-        update('tasks', task.id, { done: true, rewarded: true });
+        update('tasks', task.id, { done: true, pending_reward: true });
       } else {
-        update('tasks', task.id, { done: !task.done });
+        update('tasks', task.id, { done: !task.done, pending_reward: false });
       }
     };
+    const confirmReward = (task: any) => {
+      add('rewards', {
+        member: task.member,
+        points: Number(task.points),
+        reason: task.text,
+      });
+      update('tasks', task.id, { rewarded: true, pending_reward: false });
+    };
+    const rejectReward = (task: any) =>
+      update('tasks', task.id, { pending_reward: false, done: false });
+
     const taskSub = (task: any) => {
       const parts = [];
       if (task.member) parts.push(`für ${task.member}`);
       if (Number(task.points) > 0) parts.push(`${task.points} Punkte`);
-      if (task.author) parts.push(`von ${task.author}`);
+      const due = dueInfo(task.due);
+      if (due && !task.done) parts.push(due.label);
+      if (task.pending_reward) parts.push('wartet auf Bestätigung');
       return parts.join(' · ') || undefined;
     };
+    // Offene zuerst, darin die mit der nächsten Frist oben; Erledigte unten.
+    const sorted = [...tasks].sort((a, b) => {
+      if (!!a.done !== !!b.done) return a.done ? 1 : -1;
+      return String(a.due ?? '9999').localeCompare(String(b.due ?? '9999'));
+    });
+
     return (
       <View style={styles.stack}>
         <BackHead title="Aufgaben" onBack={goBack} styles={styles} colors={colors} />
+
+        {pending.length > 0 && isParent ? (
+          <>
+            <Text style={styles.groupLabel}>Punkte bestätigen</Text>
+            <Card style={styles.listCard}>
+              {pending.map((task) => (
+                <View key={task.id} style={styles.confirmRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.checkText}>{task.text}</Text>
+                    <Text style={styles.checkSub}>
+                      {task.member} · {task.points} Punkte
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={() => confirmReward(task)}
+                    style={styles.confirmOk}
+                    accessibilityLabel="Punkte gutschreiben"
+                  >
+                    <Ionicons name="checkmark" size={18} color="#FFFFFF" />
+                  </Pressable>
+                  <Pressable
+                    onPress={() => rejectReward(task)}
+                    style={styles.confirmNo}
+                    accessibilityLabel="Ablehnen"
+                  >
+                    <Ionicons name="close" size={18} color={colors.ink} />
+                  </Pressable>
+                </View>
+              ))}
+            </Card>
+          </>
+        ) : null}
+        {pending.length > 0 && !isParent ? (
+          <Text style={styles.hint}>
+            {pending.length} erledigte Aufgabe(n) warten auf die Bestätigung
+            eines Elternteils, dann gibt es die Punkte.
+          </Text>
+        ) : null}
+
         <Card style={styles.listCard}>
-          {tasks.map((task) => (
+          {sorted.map((task) => (
             <CheckRow
               key={task.id}
               item={task}
               sub={taskSub(task)}
+              highlight={(() => {
+                const due = dueInfo(task.due);
+                return due?.overdue && !task.done ? colors.danger : undefined;
+              })()}
               onToggle={() => toggleTask(task)}
               onDelete={() => remove('tasks', task.id)}
               styles={styles}
@@ -1045,16 +1268,16 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
           ))}
           <TaskAddRow
             members={members}
-            onAdd={(text, member, points) =>
-              add('tasks', { text, done: false, member, points })
+            onAdd={(text, member, points, due) =>
+              add('tasks', { text, done: false, member, points, ...(due ? { due } : {}) })
             }
             styles={styles}
             colors={colors}
           />
         </Card>
         <Text style={styles.hint}>
-          Person und Punkte antippen ist freiwillig – beim Abhaken werden die
-          Punkte unter Belohnungen gutgeschrieben.
+          Person, Punkte und Frist sind freiwillig. Punkte-Aufgaben schreibt
+          ein Elternteil nach dem Abhaken oben gut.
         </Text>
       </View>
     );
@@ -1063,41 +1286,72 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
   if (view === 'shopping') {
     const items: any[] = data.shopping ?? [];
     const done = items.filter((item) => item.done);
+    // Nach Kategorie gruppieren, in der Ladenrundgang-Reihenfolge. Einträge
+    // ohne Kategorie (alt oder aus dem Essensplan) landen unter «Sonstiges».
+    const catOf = (item: any) =>
+      SHOP_CATEGORIES.includes(item.category) ? item.category : 'Sonstiges';
+    const usedCats = SHOP_CATEGORIES.filter((cat) =>
+      items.some((item) => catOf(item) === cat)
+    );
     return (
       <View style={styles.stack}>
         <BackHead title="Einkaufsliste" onBack={goBack} styles={styles} colors={colors} />
         <Card style={styles.listCard}>
-          {items.map((item) => (
-            <CheckRow
-              key={item.id}
-              item={item}
-              onToggle={() => update('shopping', item.id, { done: !item.done })}
-              onDelete={() => remove('shopping', item.id)}
-              styles={styles}
-              colors={colors}
-            />
-          ))}
-          <AddRow
-            placeholder="Was fehlt? …"
-            onAdd={(text) => add('shopping', { text, done: false })}
+          <ShoppingAddRow
+            onAdd={(text, category) => add('shopping', { text, category, done: false })}
             styles={styles}
             colors={colors}
           />
-          {done.length > 0 ? (
-            <Pressable
-              onPress={() => done.forEach((item) => remove('shopping', item.id))}
-              style={styles.clearButton}
-            >
-              <Text style={styles.resetText}>{done.length} Erledigte entfernen</Text>
-            </Pressable>
-          ) : null}
         </Card>
+        {usedCats.map((cat) => (
+          <Card key={cat} style={styles.listCard}>
+            <Text style={styles.groupTitle}>{cat}</Text>
+            {items
+              .filter((item) => catOf(item) === cat)
+              .map((item) => (
+                <CheckRow
+                  key={item.id}
+                  item={item}
+                  onToggle={() => update('shopping', item.id, { done: !item.done })}
+                  onDelete={() => remove('shopping', item.id)}
+                  styles={styles}
+                  colors={colors}
+                />
+              ))}
+          </Card>
+        ))}
+        {items.length === 0 ? (
+          <Text style={styles.hint}>Die Liste ist leer. Trag oben ein, was fehlt.</Text>
+        ) : null}
+        {done.length > 0 ? (
+          <Pressable
+            onPress={() => done.forEach((item) => remove('shopping', item.id))}
+            style={styles.clearButton}
+          >
+            <Text style={styles.resetText}>{done.length} Erledigte entfernen</Text>
+          </Pressable>
+        ) : null}
       </View>
     );
   }
 
   if (view === 'meals') {
     const meals: any[] = data.meals ?? [];
+    const planned = meals.filter((meal) => String(meal.text ?? '').trim());
+    // Alle geplanten Gerichte auf die Einkaufsliste – jedes als ein Eintrag,
+    // Doppelte überspringen. Kategorie «Sonstiges», dort lässt es sich ordnen.
+    const toShopping = () => {
+      const existing = new Set(
+        (data.shopping ?? []).map((item: any) => String(item.text ?? '').toLowerCase())
+      );
+      planned.forEach((meal) => {
+        const text = String(meal.text).trim();
+        if (!existing.has(text.toLowerCase())) {
+          add('shopping', { text, category: 'Sonstiges', done: false });
+          existing.add(text.toLowerCase());
+        }
+      });
+    };
     return (
       <View style={styles.stack}>
         <BackHead title="Essensplaner" onBack={goBack} styles={styles} colors={colors} />
@@ -1122,6 +1376,22 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
             );
           })}
         </Card>
+        {planned.length > 0 ? (
+          <Pressable
+            onPress={toShopping}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.mealShopButton, pressed && { opacity: 0.85 }]}
+          >
+            <Ionicons name="cart-outline" size={18} color="#FFFFFF" />
+            <Text style={styles.mealShopText}>
+              {planned.length} Gericht{planned.length === 1 ? '' : 'e'} auf die Einkaufsliste
+            </Text>
+          </Pressable>
+        ) : null}
+        <Text style={styles.hint}>
+          Trag pro Tag ein, was es gibt. «Auf die Einkaufsliste» legt jedes
+          Gericht als Eintrag an – Zutaten ergänzt du dort.
+        </Text>
       </View>
     );
   }
@@ -1317,9 +1587,40 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
 
   if (view === 'contacts') {
     const contacts: any[] = data.contacts ?? [];
+    // Kontakte mit hinterlegtem Geburtstag – nach Nähe des nächsten sortiert.
+    const upcoming = contacts
+      .map((contact) => ({ contact, days: daysUntilBirthday(contact.birthday) }))
+      .filter((entry) => entry.days != null)
+      .sort((a, b) => (a.days ?? 999) - (b.days ?? 999));
     return (
       <View style={styles.stack}>
         <BackHead title="Kontakte" onBack={goBack} styles={styles} colors={colors} />
+
+        {upcoming.length > 0 ? (
+          <>
+            <Text style={styles.groupLabel}>Nächste Geburtstage</Text>
+            <Card style={styles.listCard}>
+              {upcoming.slice(0, 5).map(({ contact, days }) => (
+                <View key={contact.id} style={styles.eventRow}>
+                  <Ionicons
+                    name="gift-outline"
+                    size={18}
+                    color={days === 0 ? colors.warn : colors.inkSoft}
+                  />
+                  <Text style={[styles.checkText, { flex: 1 }]} numberOfLines={1}>
+                    {contact.text}
+                  </Text>
+                  <Text
+                    style={[styles.checkSub, days === 0 && { color: colors.warn, fontWeight: '700' }]}
+                  >
+                    {birthdayLabel(contact.birthday)}
+                  </Text>
+                </View>
+              ))}
+            </Card>
+          </>
+        ) : null}
+
         <Text style={styles.hint}>
           Foto antippen ändert das Bild – die ganze Karte antippen ruft an.
           Gross und mit Foto, damit auch die Kleinsten wissen, wer wer ist.
@@ -1343,6 +1644,9 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
             >
               <Text style={styles.contactName}>{contact.text}</Text>
               <Text style={styles.checkSub}>{contact.phone}</Text>
+              {birthdayLabel(contact.birthday) ? (
+                <Text style={styles.checkSub}>🎂 {birthdayLabel(contact.birthday)}</Text>
+              ) : null}
             </Pressable>
             <Pressable
               onPress={() => Linking.openURL(`tel:${contact.phone}`)}
@@ -1357,8 +1661,13 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
           </Card>
         ))}
         <ContactForm
-          onAdd={(text, phone, photo) =>
-            add('contacts', photo ? { text, phone, photo } : { text, phone })
+          onAdd={(text, phone, photo, birthday) =>
+            add('contacts', {
+              text,
+              phone,
+              ...(photo ? { photo } : {}),
+              ...(birthday ? { birthday } : {}),
+            })
           }
           styles={styles}
           colors={colors}
@@ -1736,6 +2045,40 @@ const makeStyles = (colors: Colors) =>
     toggleLabel: { color: colors.ink, fontSize: 15 },
     clearButton: { alignItems: 'center', paddingVertical: 8 },
     resetText: { color: colors.accent, fontSize: 13, fontWeight: '600' },
+    mealShopButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      backgroundColor: colors.accent,
+      borderRadius: radius.control,
+      paddingVertical: 13,
+    },
+    mealShopText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+    confirmRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingVertical: 8,
+    },
+    confirmOk: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      backgroundColor: colors.on,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    confirmNo: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
 
     chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
     chip: {
