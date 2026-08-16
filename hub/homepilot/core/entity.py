@@ -44,15 +44,23 @@ class Entity:
     available: bool = True
     # Raum aus der Konfiguration; die App gruppiert danach.
     room: str | None = None
+    # In der App vergebener Anzeigename (überschreibt den der Integration).
+    display_name: str | None = None
+    # Auf der Startseite als Favorit anzeigen.
+    favorite: bool = False
+    # Frei wählbare Gruppe (z.B. «Storen Süd»), zum gemeinsamen Schalten.
+    group: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "kind": self.kind,
-            "name": self.name,
+            "name": self.display_name or self.name,
             "integration": self.integration,
             "state": dict(self.state),
             "commands": list(self.commands),
             "available": self.available,
             "room": self.room,
+            "favorite": self.favorite,
+            "group": self.group,
         }

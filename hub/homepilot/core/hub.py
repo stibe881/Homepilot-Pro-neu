@@ -66,6 +66,13 @@ class Hub:
                 else:
                     self._rooms_by_entity.pop(entity_id, None)
         self.registry.room_provider = self._rooms_by_entity.get
+        # In der App gesetzte Metadaten (Name, Favorit, Gruppe) pro Entität.
+        self._meta_by_entity = {
+            entry["entity_id"]: entry
+            for entry in self.data.get("entity_meta")
+            if entry.get("entity_id")
+        }
+        self.registry.meta_provider = self._meta_by_entity.get
         await self._start_store()
         self._load_stored_users()
         await self.integrations.setup_all(self.config.integrations)
@@ -157,6 +164,45 @@ class Hub:
 
         await self.registry.set_room(entity_id, room)
 
+    async def set_entity_meta(
+        self,
+        entity_id: str,
+        *,
+        name: str | None = None,
+        favorite: bool | None = None,
+        group: str | None = None,
+    ) -> None:
+        """Setzt Anzeigename, Favorit-Flag oder Gruppe einer Entität.
+
+        Nur die übergebenen Felder ändern sich; der Rest bleibt. Gespeichert
+        wird in der homepilot-data.json und überlebt Neustarts.
+        """
+        current = dict(self._meta_by_entity.get(entity_id, {}))
+        current.pop("entity_id", None)
+        if name is not None:
+            current["name"] = name.strip() or None
+        if favorite is not None:
+            current["favorite"] = bool(favorite)
+        if group is not None:
+            current["group"] = group.strip() or None
+        # Leere Felder entfernen, damit der Eintrag nicht anwächst.
+        cleaned = {k: v for k, v in current.items() if v}
+        if cleaned:
+            self._meta_by_entity[entity_id] = {"entity_id": entity_id, **cleaned}
+        else:
+            self._meta_by_entity.pop(entity_id, None)
+
+        stored = [
+            entry
+            for entry in self.data.get("entity_meta")
+            if entry.get("entity_id") != entity_id
+        ]
+        if cleaned:
+            stored.append({"entity_id": entity_id, **cleaned})
+        self.data.set("entity_meta", stored)
+
+        await self.registry.set_meta(entity_id, cleaned)
+
     async def _start_store(self) -> None:
         config = self.config.supabase
         url, key = config.get("url"), config.get("service_key")
@@ -225,3 +271,4 @@ class Hub:
             self.store = None
         self.registry.state_provider = None
         self.registry.room_provider = None
+        self.registry.meta_provider = None

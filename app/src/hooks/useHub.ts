@@ -316,6 +316,42 @@ export function useHub(url: string | null, token: string | null) {
     [url, token]
   );
 
+  // Anzeigename, Favorit oder Gruppe einer Kachel setzen. Nur die
+  // übergebenen Felder ändern sich; optimistisch sofort nachziehen.
+  const setEntityMeta = useCallback(
+    async (
+      entityId: string,
+      meta: { name?: string | null; favorite?: boolean; group?: string | null }
+    ) => {
+      setEntityMap((prev) => {
+        const entity = prev[entityId];
+        if (!entity) return prev;
+        const next = { ...entity };
+        if (meta.name !== undefined) next.name = meta.name || entity.name;
+        if (meta.favorite !== undefined) next.favorite = meta.favorite;
+        if (meta.group !== undefined) next.group = meta.group;
+        return { ...prev, [entityId]: next };
+      });
+      try {
+        const response = await fetch(
+          `${url}/api/entities/${encodeURIComponent(entityId)}/meta`,
+          {
+            method: 'PUT',
+            headers: {
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(meta),
+          }
+        );
+        if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
+      } catch (err: any) {
+        setError(`Änderung konnte nicht gespeichert werden: ${err.message ?? err}`);
+      }
+    },
+    [url, token]
+  );
+
   const entities = Object.values(entityMap).sort((a, b) => a.name.localeCompare(b.name));
 
   return {
@@ -332,6 +368,7 @@ export function useHub(url: string | null, token: string | null) {
     sendCommand,
     activateScene,
     setEntityRoom,
+    setEntityMeta,
     reloadScenes,
     dismissError: () => setError(null),
   };

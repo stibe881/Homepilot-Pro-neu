@@ -11,6 +11,7 @@ from .source import current as current_source
 
 StateProvider = Callable[[str], "dict[str, Any] | None"]
 RoomProvider = Callable[[str], "str | None"]
+MetaProvider = Callable[[str], "dict[str, Any] | None"]
 
 
 class EntityRegistry:
@@ -19,6 +20,16 @@ class EntityRegistry:
         self.bus = bus
         self.state_provider: StateProvider | None = None
         self.room_provider: RoomProvider | None = None
+        # Liefert {name?, favorite?, group?} pro Entität (in der App gesetzt).
+        self.meta_provider: MetaProvider | None = None
+
+    def _apply_meta(self, entity: Entity) -> None:
+        if self.meta_provider is None:
+            return
+        meta = self.meta_provider(entity.id) or {}
+        entity.display_name = meta.get("name") or None
+        entity.favorite = bool(meta.get("favorite"))
+        entity.group = meta.get("group") or None
 
     def get(self, entity_id: str) -> Entity | None:
         return self._entities.get(entity_id)
@@ -29,6 +40,7 @@ class EntityRegistry:
     async def add(self, entity: Entity) -> None:
         if self.room_provider is not None:
             entity.room = self.room_provider(entity.id) or entity.room
+        self._apply_meta(entity)
         if self.state_provider is not None:
             restored = self.state_provider(entity.id)
             if restored:
@@ -46,6 +58,25 @@ class EntityRegistry:
         if entity.room == room:
             return
         entity.room = room
+        await self.bus.publish(
+            "state_changed",
+            {
+                "entity_id": entity_id,
+                "old_state": dict(entity.state),
+                "new_state": dict(entity.state),
+                "entity": entity.as_dict(),
+                "source": current_source(),
+            },
+        )
+
+    async def set_meta(self, entity_id: str, meta: dict[str, Any]) -> None:
+        """Setzt Anzeigename/Favorit/Gruppe einer Entität und meldet es."""
+        entity = self._entities.get(entity_id)
+        if entity is None:
+            raise UnknownEntityError(entity_id)
+        entity.display_name = meta.get("name") or None
+        entity.favorite = bool(meta.get("favorite"))
+        entity.group = meta.get("group") or None
         await self.bus.publish(
             "state_changed",
             {

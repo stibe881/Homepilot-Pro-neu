@@ -105,6 +105,14 @@ class RoomRequest(BaseModel):
     room: str | None = None
 
 
+class MetaRequest(BaseModel):
+    """Anzeigename, Favorit oder Gruppe – nur gesetzte Felder ändern sich."""
+
+    name: str | None = None
+    favorite: bool | None = None
+    group: str | None = None
+
+
 def create_app(hub: Hub) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -289,6 +297,25 @@ def create_app(hub: Hub) -> FastAPI:
         if hub.registry.get(entity_id) is None:
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
         await hub.set_entity_room(entity_id, body.room or None)
+        return {"ok": True, "entity": hub.registry.get(entity_id).as_dict()}
+
+    @app.put("/api/entities/{entity_id}/meta")
+    async def set_entity_meta(
+        entity_id: str, body: MetaRequest, request: Request
+    ) -> dict[str, Any]:
+        """Anzeigename, Favorit oder Gruppe einer Entität setzen.
+
+        Für «Gerät umbenennen», die Favoriten-Reihe auf der Startseite und
+        das Gruppieren mehrerer Geräte. Bleibt in der homepilot-data.json."""
+        require(request, Capability.EDIT_CONFIG)
+        if hub.registry.get(entity_id) is None:
+            raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
+        await hub.set_entity_meta(
+            entity_id,
+            name=body.name,
+            favorite=body.favorite,
+            group=body.group,
+        )
         return {"ok": True, "entity": hub.registry.get(entity_id).as_dict()}
 
     @app.get("/api/entities/{entity_id}/snapshot")

@@ -8,6 +8,10 @@ export interface Entity {
   available: boolean;
   /** Raum aus der Hub-Konfiguration; die App gruppiert danach. */
   room?: string | null;
+  /** In der App als Favorit markiert – erscheint auf der Startseite. */
+  favorite?: boolean;
+  /** Frei wählbare Gruppe (z.B. «Storen Süd») zum gemeinsamen Schalten. */
+  group?: string | null;
 }
 
 export interface Scene {

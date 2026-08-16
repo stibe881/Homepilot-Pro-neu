@@ -144,3 +144,38 @@ def test_push_test_endpoint_reports_recipient_count():
         body = response.json()
         assert body["ok"] is True
         assert body["sent"] == 0
+
+
+def test_entity_meta_rename_favorite_group():
+    with make_client() as client:
+        # Umbenennen + als Favorit markieren.
+        response = client.put(
+            "/api/entities/demo.light_livingroom/meta",
+            json={"name": "Stehlampe", "favorite": True, "group": "Wohnen"},
+        )
+        assert response.status_code == 200
+        entity = response.json()["entity"]
+        assert entity["name"] == "Stehlampe"
+        assert entity["favorite"] is True
+        assert entity["group"] == "Wohnen"
+
+        # Teil-Update: nur Favorit lösen, Name bleibt.
+        response = client.put(
+            "/api/entities/demo.light_livingroom/meta",
+            json={"favorite": False},
+        )
+        entity = response.json()["entity"]
+        assert entity["favorite"] is False
+        assert entity["name"] == "Stehlampe"
+
+        # In der Gesamtliste taucht der neue Name auf.
+        entities = {e["id"]: e for e in client.get("/api/entities").json()}
+        assert entities["demo.light_livingroom"]["name"] == "Stehlampe"
+
+
+def test_entity_meta_unknown_entity_is_404():
+    with make_client() as client:
+        assert (
+            client.put("/api/entities/nope.nope/meta", json={"favorite": True}).status_code
+            == 404
+        )
