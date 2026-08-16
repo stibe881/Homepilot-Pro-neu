@@ -42,6 +42,9 @@ services:
       - GOOGLE_REFRESH_TOKEN=${GOOGLE_REFRESH_TOKEN:-}
       - ROBOROCK_EMAIL=${ROBOROCK_EMAIL:-}
       - ROBOROCK_PASSWORD=${ROBOROCK_PASSWORD:-}
+      - NUKI_TOKEN=${NUKI_TOKEN:-}
+      - VZUG_USER=${VZUG_USER:-}
+      - VZUG_PASSWORD=${VZUG_PASSWORD:-}
       - TZ=Europe/Zurich
 
     healthcheck:

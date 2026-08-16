@@ -68,7 +68,8 @@ Ring-Token). **Diesen Ordner ins Backup aufnehmen.**
 
    Dazu je nach aktivierten Integrationen: `MQTT_USER`, `MQTT_PASSWORD`,
    `UNIFI_USER`, `UNIFI_PASSWORD`, `HUE_APP_KEY`, `HUE_SYNC_TOKEN`,
-   `SPOTIFY_*`, `GOOGLE_*`, `ROBOROCK_EMAIL`, `ROBOROCK_PASSWORD`
+   `SPOTIFY_*`, `GOOGLE_*`, `ROBOROCK_EMAIL`, `ROBOROCK_PASSWORD`,
+   `NUKI_TOKEN`, `VZUG_USER`, `VZUG_PASSWORD`
    (die vollständige Liste steht in `docker-compose.portainer.yml`).
 
 5. **Deploy the stack.** Portainer klont das Repository und baut das

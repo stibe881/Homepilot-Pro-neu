@@ -27,6 +27,9 @@ services:
       - UNIFI_USER=${UNIFI_USER:-}
       - UNIFI_PASSWORD=${UNIFI_PASSWORD:-}
       - HUE_APP_KEY=${HUE_APP_KEY:-}
+      - NUKI_TOKEN=${NUKI_TOKEN:-}
+      - VZUG_USER=${VZUG_USER:-}
+      - VZUG_PASSWORD=${VZUG_PASSWORD:-}
       - TZ=Europe/Zurich
 
     healthcheck:
