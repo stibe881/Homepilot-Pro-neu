@@ -2,6 +2,7 @@
 
 Trigger:
   - {type: state, entity_id, attribute?: "state", from?, to?}
+  - {type: state, entity_id, attribute, above? | below?}   # Schwelle gekreuzt
   - {type: interval, seconds}
   - {type: time, at: "HH:MM"}
   - {type: sun, event: "sunrise"|"sunset", offset?: minuten}  # +/- Versatz
@@ -35,6 +36,29 @@ DEFAULT_LAT = 47.1445
 DEFAULT_LON = 8.0675
 
 log = logging.getLogger(__name__)
+
+
+def crosses_threshold(
+    old: Any, new: Any, above: Any = None, below: Any = None
+) -> bool:
+    """Wurde eine Schwelle gerade überschritten? (rein, testbar)
+
+    Für Messwerte, die sich dauernd ändern – Leistung, Temperatur. Ein
+    Trigger soll dann genau beim Übertritt auslösen, nicht bei jeder
+    Schwankung darunter: Der Tumbler ist fertig, wenn die Leistung von
+    «über 5 W» auf «unter 5 W» fällt, nicht jedes Mal, wenn 2.1 W zu 2.0 W
+    wird. Ein unbekannter alter Wert zählt nicht als Übertritt.
+    """
+    try:
+        new_value = float(new)
+        old_value = float(old)
+    except (TypeError, ValueError):
+        return False
+    if above is not None:
+        return old_value <= float(above) < new_value
+    if below is not None:
+        return new_value < float(below) <= old_value
+    return False
 
 
 @dataclass
@@ -200,6 +224,8 @@ class AutomationEngine:
         new = data["new_state"].get(attribute)
         if old == new:
             return False
+        if "above" in trigger or "below" in trigger:
+            return crosses_threshold(old, new, trigger.get("above"), trigger.get("below"))
         if "from" in trigger and old != trigger["from"]:
             return False
         if "to" in trigger and new != trigger["to"]:

@@ -118,6 +118,50 @@ Statt `helpers.abwesend` lässt sich auch `unifi.anyone_home` verwenden
 (dann `switch_active: "off"` bei presence_sim und `equals: "off"` in der
 Bedingung).
 
+## Tumbler ist fertig
+
+Der Tumbler hängt an einer Homematic IP Schalt-Messsteckdose (HmIP-PSM). Er
+meldet selbst nichts – aber seine Leistungsaufnahme tut es: Während des
+Trocknens zieht er einige hundert Watt, danach fast nichts.
+
+Dafür kennt der `state`-Trigger `above`/`below`: Er löst nur beim
+**Übertritt** aus, nicht bei jeder Schwankung darunter. So kommt genau eine
+Meldung, wenn die Leistung von «läuft» auf «fertig» fällt.
+
+```yaml
+automations:
+  - id: tumbler_fertig
+    alias: Tumbler fertig
+    trigger:
+      - type: state
+        entity_id: homematic.0001D3C99C6A2B_3
+        attribute: power
+        below: 5              # Watt
+    action:
+      - type: notify
+        to: all
+        title: Tumbler fertig
+        body: Die Wäsche kann raus.
+```
+
+Voraussetzung ist der Messkanal in der Gerätekonfiguration:
+
+```yaml
+- integration: homematic
+  host: 10.10.1.x
+  port: 2001
+  devices:
+    - address: "0001D3C99C6A2B:3"    # Schaltkanal
+      port: 2010                     # Homematic IP
+      name: Tumbler
+      kind: switch
+      power_address: "0001D3C99C6A2B:6"   # Messkanal
+```
+
+Umgekehrt geht es genauso – `above: 50` meldet, dass er angelaufen ist. Der
+gleiche Trigger passt für jede Messgrösse, etwa `attribute: temperature`
+mit `above: 26` für «im Schlafzimmer wird es zu warm».
+
 ## Adaptive Beleuchtung
 
 Keine Automation nötig – die Integration `adaptive` erledigt es:

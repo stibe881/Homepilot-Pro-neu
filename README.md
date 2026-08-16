@@ -128,7 +128,7 @@ Ohne diesen Abschnitt zeigt die App alle Geräte ohne Reiter.
 | `demo` | Virtuelle Lichter/Sensoren – zum Entwickeln ohne Hardware |
 | `meteoalarm` | Unwetterwarnungen, gegen den echten CAP/Atom-Feed geprüft |
 | `mqtt` | Sonoff & Co. via Tasmota, gegen einen echten Broker end-to-end geprüft |
-| `homematic` | CCU via XML-RPC mit Push-Events, gegen den CCU-Simulator pydevccu geprüft |
+| `homematic` | CCU via XML-RPC mit Push-Events, gegen den CCU-Simulator pydevccu geprüft; klassische (2001) und Homematic-IP-Geräte (2010) gemischt, Schalt-Messsteckdosen mit Leistung in Watt |
 | `helpers` | Virtuelle An/Aus-Schalter für Modi (z.B. „Abwesend"), rein im Hub |
 | `group` | Gerätegruppen: mehrere Geräte als eine Kachel, rein im Hub |
 | `adaptive` | Farbtemperatur folgt dem Sonnenstand (nutzt Hue), Sonnenkurve getestet |
@@ -185,9 +185,10 @@ automations:
         data: { brightness: 80 }
 ```
 
-- **Trigger:** `state` (optional `from`/`to`/`attribute`), `interval` (alle n
-  Sekunden), `time` (täglich um HH:MM), `sun` (`event: sunrise|sunset`,
-  `offset` in Minuten)
+- **Trigger:** `state` (optional `from`/`to`/`attribute`, oder `above`/`below`
+  für eine gekreuzte Schwelle – z.B. Leistung fällt unter 5 W), `interval`
+  (alle n Sekunden), `time` (täglich um HH:MM), `sun`
+  (`event: sunrise|sunset`, `offset` in Minuten)
 - **Bedingungen:** `state` (`equals`/`above`/`below`), `time` (`after`/`before`),
   `sun` (`state: up|down`)
 - **Aktionen:** `command`, `delay`, `scene`, `notify` (Push aufs Handy)

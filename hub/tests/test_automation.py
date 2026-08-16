@@ -87,3 +87,52 @@ async def test_from_filter():
         assert hub.registry.get("demo.light_bedroom").state["state"] == "on"
     finally:
         await hub.stop()
+
+
+def test_crosses_threshold_only_on_the_step_over():
+    from homepilot.core.automation import crosses_threshold
+
+    # Tumbler fertig: Leistung fällt unter 5 W.
+    assert crosses_threshold(1450.0, 2.1, below=5) is True
+    # Schwankungen unterhalb der Schwelle lösen nicht erneut aus.
+    assert crosses_threshold(2.1, 2.0, below=5) is False
+    # Anlaufen: über die Schwelle.
+    assert crosses_threshold(2.0, 1450.0, above=5) is True
+    assert crosses_threshold(1400.0, 1450.0, above=5) is False
+    # Unbekannter Vorzustand zählt nicht als Übertritt.
+    assert crosses_threshold(None, 2.0, below=5) is False
+    assert crosses_threshold("unknown", 2.0, below=5) is False
+
+
+async def test_threshold_trigger_fires_once_per_crossing():
+    automation = {
+        "id": "tumbler_fertig",
+        "trigger": [
+            {
+                "type": "state",
+                "entity_id": "demo.light_bedroom",
+                "attribute": "brightness",
+                "below": 5,
+            }
+        ],
+        "action": [
+            {"type": "command", "entity_id": "demo.switch_coffee", "command": "turn_on"}
+        ],
+    }
+    hub = await run_hub([automation])
+    try:
+        await hub.registry.update_state("demo.light_bedroom", {"brightness": 80})
+        await settle()
+        assert hub.registry.get("demo.switch_coffee").state["state"] == "off"
+
+        await hub.registry.update_state("demo.light_bedroom", {"brightness": 2})
+        await settle()
+        assert hub.registry.get("demo.switch_coffee").state["state"] == "on"
+
+        # Weiter unterhalb der Schwelle: kein zweites Auslösen.
+        await hub.integrations.dispatch_command("demo.switch_coffee", "turn_off")
+        await hub.registry.update_state("demo.light_bedroom", {"brightness": 1})
+        await settle()
+        assert hub.registry.get("demo.switch_coffee").state["state"] == "off"
+    finally:
+        await hub.stop()

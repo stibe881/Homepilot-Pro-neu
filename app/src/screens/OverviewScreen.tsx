@@ -128,9 +128,16 @@ export function OverviewScreen({
 
   const dish = applianceState(dishwasher, 'Bereit');
   const wash = applianceState(washer, 'Läuft · noch 32 min');
-  const tumblerRunning = tumbler
-    ? Number(tumbler.state.power ?? 0) > 5
-    : true;
+  // Der Tumbler hängt an einer Schalt-Messsteckdose: Ob er läuft, verrät
+  // erst die Leistung – eingeschaltet ist die Steckdose auch danach noch.
+  const tumblerWatts = tumbler ? Number(tumbler.state.power ?? 0) : 1450;
+  const tumblerOff = tumbler ? String(tumbler.state.state) === 'off' : false;
+  const tumblerRunning = !tumblerOff && tumblerWatts > 5;
+  const tumblerText = tumblerOff
+    ? 'Steckdose aus'
+    : tumblerRunning
+      ? 'Am Trocknen'
+      : 'Fertig';
 
   // Kalender: nächster Termin und – als eigener Platz – nächster Geburtstag.
   const events: any[] = Array.isArray(calendar?.state.events) ? calendar!.state.events : [];
@@ -389,13 +396,11 @@ export function OverviewScreen({
         </Tile>
         <Tile styles={styles} colors={colors} width={tileWidth} icon="sunny-outline" title="Tumbler" demo={!tumbler}>
           <Text style={[styles.tileState, tumblerRunning && { color: colors.accent }]}>
-            {tumblerRunning ? 'Am Trocknen' : 'Fertig'}
+            {tumblerText}
           </Text>
-          {tumbler ? (
-            <Text style={styles.tileSub}>{Math.round(Number(tumbler.state.power))} W</Text>
-          ) : (
-            <Text style={styles.tileSub}>1450 W</Text>
-          )}
+          {!tumblerOff ? (
+            <Text style={styles.tileSub}>{Math.round(tumblerWatts)} W</Text>
+          ) : null}
         </Tile>
       </View>
         </>
@@ -491,13 +496,11 @@ export function OverviewScreen({
         </Tile>
         <Tile styles={styles} colors={colors} width={tileWidth} icon="sunny-outline" title="Tumbler" demo={!tumbler}>
           <Text style={[styles.tileState, tumblerRunning && { color: colors.accent }]}>
-            {tumblerRunning ? 'Am Trocknen' : 'Fertig'}
+            {tumblerText}
           </Text>
-          {tumbler ? (
-            <Text style={styles.tileSub}>{Math.round(Number(tumbler.state.power))} W</Text>
-          ) : (
-            <Text style={styles.tileSub}>1450 W</Text>
-          )}
+          {!tumblerOff ? (
+            <Text style={styles.tileSub}>{Math.round(tumblerWatts)} W</Text>
+          ) : null}
         </Tile>
       </View>
       {/* Termine & Musik */}

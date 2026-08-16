@@ -1,6 +1,11 @@
 import pytest
 
-from homepilot.integrations.homematic import command_to_value, value_to_state
+from homepilot.integrations.homematic import (
+    HomematicIntegration,
+    command_to_value,
+    power_to_state,
+    value_to_state,
+)
 
 
 def test_value_to_state_switch():
@@ -53,3 +58,122 @@ def test_brightness_is_clamped():
 def test_unsupported_command_raises():
     with pytest.raises(ValueError):
         command_to_value("set_brightness", {}, False, {})
+
+
+def test_power_to_state():
+    assert power_to_state(1451.25) == {"power": 1451.2}
+    assert power_to_state("0.4") == {"power": 0.4}
+    # Unlesbare Werte dürfen das bisherige Attribut nicht überschreiben.
+    assert power_to_state(None) == {}
+    assert power_to_state("") == {}
+
+
+class _FakeCCU:
+    """Ersetzt die XML-RPC-Aufrufe, merkt sich aber, was gefragt wurde."""
+
+    def __init__(self, values: dict[tuple[str, str], object]) -> None:
+        self.values = values
+        self.calls: list[tuple[str, tuple, int]] = []
+
+    async def call(self, method: str, *args, port: int = 0):
+        self.calls.append((method, args, port))
+        if method == "listDevices":
+            return [
+                {"ADDRESS": address, "TYPE": "HmIP-PSM", "PARENT": address.split(":")[0]}
+                for address, _ in self.values
+            ]
+        if method == "getValue":
+            return self.values[(args[0], args[1])]
+        return ""
+
+
+async def _setup(hub, ccu: _FakeCCU, devices: list[dict]) -> HomematicIntegration:
+    integration = HomematicIntegration(
+        hub,
+        {
+            "integration": "homematic",
+            "host": "127.0.0.1",
+            "port": 2001,
+            "callback_port": 0,  # ohne Callback-Server, rein lesend
+            "devices": devices,
+        },
+    )
+    integration._call = ccu.call  # type: ignore[method-assign]
+    await integration.setup()
+    return integration
+
+
+async def test_measuring_socket_reports_watts(hub):
+    """Schalt-Messsteckdose: Schaltkanal und Messkanal ergeben eine Kachel."""
+    ccu = _FakeCCU(
+        {
+            ("0001D3C99C6A2B:3", "STATE"): True,
+            ("0001D3C99C6A2B:6", "POWER"): 1450.0,
+        }
+    )
+    integration = await _setup(
+        hub,
+        ccu,
+        [
+            {
+                "address": "0001D3C99C6A2B:3",
+                "port": 2010,
+                "name": "Tumbler",
+                "kind": "switch",
+                "power_address": "0001D3C99C6A2B:6",
+            }
+        ],
+    )
+    try:
+        entity = hub.registry.get("homematic.0001D3C99C6A2B_3")
+        assert entity is not None
+        assert entity.state["state"] == "on"
+        assert entity.state["power"] == 1450.0
+        # Homematic-IP-Geräte müssen über ihren eigenen Port abgefragt werden.
+        assert {port for method, _, port in ccu.calls if method == "getValue"} == {2010}
+    finally:
+        await integration.teardown()
+
+
+async def test_power_events_update_the_same_entity(hub):
+    ccu = _FakeCCU(
+        {
+            ("0001D3C99C6A2B:3", "STATE"): True,
+            ("0001D3C99C6A2B:6", "POWER"): 1450.0,
+        }
+    )
+    integration = await _setup(
+        hub,
+        ccu,
+        [
+            {
+                "address": "0001D3C99C6A2B:3",
+                "port": 2010,
+                "name": "Tumbler",
+                "kind": "switch",
+                "power_address": "0001D3C99C6A2B:6",
+            }
+        ],
+    )
+    try:
+        entity_id = "homematic.0001D3C99C6A2B_3"
+        assert integration._by_power[("0001D3C99C6A2B:6", "POWER")] == entity_id
+        await hub.registry.update_state(entity_id, power_to_state(3.2))
+        entity = hub.registry.get(entity_id)
+        # Der Schaltzustand bleibt erhalten, nur die Leistung fällt.
+        assert entity is not None
+        assert entity.state["state"] == "on"
+        assert entity.state["power"] == 3.2
+    finally:
+        await integration.teardown()
+
+
+async def test_devices_without_port_use_the_default(hub):
+    ccu = _FakeCCU({("ABC1234567:1", "STATE"): False})
+    integration = await _setup(
+        hub, ccu, [{"address": "ABC1234567:1", "name": "Licht Küche", "kind": "switch"}]
+    )
+    try:
+        assert {port for method, _, port in ccu.calls if method == "getValue"} == {2001}
+    finally:
+        await integration.teardown()
