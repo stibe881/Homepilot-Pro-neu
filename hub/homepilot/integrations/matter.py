@@ -59,6 +59,7 @@ DESCRIPTOR = 29
 BASIC_INFO = 40
 BRIDGED_INFO = 57
 BOOLEAN_STATE = 69
+POWER_SOURCE = 47
 ILLUMINANCE = 1024
 TEMPERATURE = 1026
 HUMIDITY = 1029
@@ -108,6 +109,23 @@ def endpoint_name(attributes: dict[str, Any], node_id: int, endpoint: int) -> st
     return f"Matter {node_id}-{endpoint}"
 
 
+def battery_percent(attributes: dict[str, Any]) -> int | None:
+    """Akkustand aus dem Power-Source-Cluster (rein, testbar).
+
+    Matter zählt BatPercentRemaining in halben Prozent (0…200). Auf welchem
+    Endpunkt der Cluster sitzt, ist je nach Gerät verschieden – deshalb wird
+    nach dem Attributpfad gesucht statt einen Endpunkt zu raten.
+    """
+    for path, value in attributes.items():
+        parts = str(path).split("/")
+        if len(parts) == 3 and parts[1] == str(POWER_SOURCE) and parts[2] == "12":
+            try:
+                return round(float(value) / 2)
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
 def endpoint_state(attributes: dict[str, Any], endpoint: int, kind: str) -> dict[str, Any]:
     """Attribute eines Endpunkts → Entitäts-Zustand (rein, testbar)."""
     if kind in (EntityKind.LIGHT, EntityKind.SWITCH):
@@ -121,10 +139,20 @@ def endpoint_state(attributes: dict[str, Any], endpoint: int, kind: str) -> dict
     if kind == EntityKind.BINARY_SENSOR:
         occupancy = _attr(attributes, endpoint, OCCUPANCY, 0)
         if occupancy is not None:
-            return {"state": "on" if occupancy & 1 else "off"}
-        contact = _attr(attributes, endpoint, BOOLEAN_STATE, 0)
-        # BooleanState: True = geschlossen/Kontakt – "aktiv" heisst offen.
-        return {"state": "off" if contact else "on"}
+            state = {"state": "on" if occupancy & 1 else "off", "device_class": "motion"}
+        else:
+            contact = _attr(attributes, endpoint, BOOLEAN_STATE, 0)
+            # BooleanState: True = geschlossen/Kontakt – "aktiv" heisst offen.
+            # 'contact' unterscheidet Tür-/Fensterkontakte von Bewegungsmeldern;
+            # daraus baut die App den Hinweis «Tür offen» auf der Startseite.
+            state = {
+                "state": "off" if contact else "on",
+                "device_class": "contact",
+            }
+        battery = battery_percent(attributes)
+        if battery is not None:
+            state["battery"] = battery
+        return state
 
     # Sensoren: erster vorhandener Messwert entscheidet.
     temperature = _attr(attributes, endpoint, TEMPERATURE, 0)

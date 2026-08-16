@@ -150,6 +150,12 @@ def test_gast_bereiche_steuern_sichtbarkeit():
     assert tuer.may_see("nuki.wohnungstuer", "lock", "nuki")
     assert not tuer.may_see("ring.intercom", "lock", "ring")
 
+    # Kameras sind nur mit eigener Freigabe sichtbar.
+    assert not gast.may_see("unifi_protect.eingang", "camera", "unifi_protect")
+    kamera = User(name="K", role="gast", token="t3", features=["kameras"])
+    assert kamera.may_see("unifi_protect.eingang", "camera", "unifi_protect")
+    assert not kamera.may_see("hue.wohnzimmer", "light", "hue")
+
 
 def test_gast_ohne_bereiche_behaelt_standard():
     from homepilot.core.users import User

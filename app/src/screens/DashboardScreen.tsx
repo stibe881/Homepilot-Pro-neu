@@ -17,6 +17,7 @@ import { Entity, HubSettings } from '../api/types';
 import { EntityCard } from '../components/EntityCard';
 import { skyFromIcon } from '../components/CoverVisual';
 import { HistoryChart } from '../components/HistoryChart';
+import { OpenDoors } from '../components/OpenDoors';
 import { Rail, Section } from '../components/Rail';
 import { RoomTabs } from '../components/RoomTabs';
 import { RoomTile } from '../components/RoomTile';
@@ -80,6 +81,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Türklingel-Vollbild: pro Klingel-Ereignis einmal zeigen, bis es
   // weggewischt wird (Schlüssel = Kamera + Zeitpunkt des Klingelns).
   const [dismissedRing, setDismissedRing] = useState<string | null>(null);
+  // Angetippte Kamera im Vollbild (Entitäts-ID, damit Live-Updates ankommen).
+  const [fullscreen, setFullscreen] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 30000);
@@ -111,15 +114,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
 
   // Gäste sehen nur die freigegebenen Bereiche in der Navigation.
   const hiddenSections = useMemo<Section[]>(() => {
-    if (!user || user.role !== 'gast') return [];
-    const features = user.features ?? [];
     const result: Section[] = [];
+    // Ohne Kameras kein Kamera-Reiter – ein leerer Bereich hilft niemandem.
+    if (!entities.some((entity) => entity.kind === 'camera')) result.push('cameras');
+    if (!user || user.role !== 'gast') return result;
+    const features = user.features ?? [];
     if (!features.includes('raeume')) result.push('home');
     if (!features.includes('licht')) result.push('light');
     if (!features.includes('storen')) result.push('covers');
     if (!features.includes('familie')) result.push('family');
+    if (!features.includes('kameras')) result.push('cameras');
     return result;
-  }, [user]);
+  }, [user, entities]);
 
   const ringingCamera = entities.find(
     (entity) => entity.kind === 'camera' && entity.state.ring === 'on'
@@ -133,7 +139,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
 
   const hasRail = width >= breakpoints.rail;
   const hasSidePanel = width >= breakpoints.sidePanel;
-  const columns = hasRail ? 3 : width >= 380 ? 2 : 1;
+  // Kameras brauchen Fläche – dort weniger Spalten als bei Schaltkacheln.
+  const columns =
+    section === 'cameras' ? (hasRail ? 2 : 1) : hasRail ? 3 : width >= 380 ? 2 : 1;
   const cardWidth =
     gridWidth > 0
       ? Math.floor((gridWidth - space.gap * (columns - 1)) / columns)
@@ -168,7 +176,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       ? entities.filter((entity) => entity.kind === 'light')
       : section === 'covers'
         ? entities.filter((entity) => entity.kind === 'cover')
-        : entities;
+        : section === 'cameras'
+          ? entities.filter((entity) => entity.kind === 'camera')
+          : entities;
   const inRoom =
     section !== 'home' || room === ALL_ROOMS
       ? base
@@ -177,7 +187,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Ausgeblendete verschwinden aus den Alltagsansichten, bleiben aber unter
   // „Geräte“ sichtbar – sonst käme man nie wieder an sie heran.
   const shown =
-    (section === 'home' || section === 'light' || section === 'covers') && !editing
+    (section === 'home' ||
+      section === 'light' ||
+      section === 'covers' ||
+      section === 'cameras') &&
+    !editing
       ? inRoom.filter((entity) => !hidden.includes(entity.id))
       : inRoom;
 
@@ -254,6 +268,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     return result;
   }, [categorized, shown, favorites]);
 
+  /** Standbild-Adresse einer Kamera (oder der Saugerkarte) am Hub. */
+  const snapshotUrl = (entity: Entity) =>
+    settings.url && settings.token
+      ? `${settings.url.replace(/\/+$/, '')}/api/entities/${encodeURIComponent(
+          entity.id
+        )}/snapshot?token=${encodeURIComponent(settings.token)}`
+      : undefined;
+
+  const fullscreenCamera = fullscreen
+    ? entities.find((entity) => entity.id === fullscreen)
+    : undefined;
+
   const renderCard = (entity: Entity) => (
     <EntityCard
       key={entity.id}
@@ -279,18 +305,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       sky={entity.kind === 'cover' ? sky : undefined}
       snapshotUri={
         // Kameras: Livebild. Sauger: die Karte – beides über denselben Endpunkt.
-        (entity.kind === 'camera' || entity.kind === 'vacuum') &&
-        settings.url &&
-        settings.token
-          ? `${settings.url.replace(/\/+$/, '')}/api/entities/${encodeURIComponent(
-              entity.id
-            )}/snapshot?token=${encodeURIComponent(settings.token)}`
+        entity.kind === 'camera' || entity.kind === 'vacuum'
+          ? snapshotUrl(entity)
           : undefined
       }
       onPress={
-        entity.kind === 'sensor' && !editing
-          ? () => setExpanded((current) => (current === entity.id ? null : entity.id))
-          : undefined
+        editing
+          ? undefined
+          : entity.kind === 'camera'
+            ? () => setFullscreen(entity.id)
+            : entity.kind === 'sensor'
+              ? () => setExpanded((current) => (current === entity.id ? null : entity.id))
+              : undefined
       }
       chart={
         expanded === entity.id && cardWidth ? (
@@ -606,21 +632,24 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         >
           <TopStrip entities={entities} status={status} now={now} />
 
-          <View style={styles.greeting}>
-            <Text
-              style={[styles.greetingLine, !hasRail && { fontSize: type.greetingSmall }]}
-            >
-              {greetingName(settings, user)}
-            </Text>
-            <Text
-              style={[
-                styles.greetingLine,
-                styles.greetingSecond,
-                !hasRail && { fontSize: type.greetingSmall },
-              ]}
-            >
-              {partOfDay(now)}
-            </Text>
+          <View style={styles.greetingRow}>
+            <View style={styles.greeting}>
+              <Text
+                style={[styles.greetingLine, !hasRail && { fontSize: type.greetingSmall }]}
+              >
+                {greetingName(settings, user)}
+              </Text>
+              <Text
+                style={[
+                  styles.greetingLine,
+                  styles.greetingSecond,
+                  !hasRail && { fontSize: type.greetingSmall },
+                ]}
+              >
+                {partOfDay(now)}
+              </Text>
+            </View>
+            <OpenDoors entities={entities} />
           </View>
 
           {content()}
@@ -645,6 +674,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           settings={settings}
           onCommand={(entityId, command) => sendCommand(entityId, command)}
           onDismiss={() => setDismissedRing(ringKey)}
+          colors={colors}
+          styles={styles}
+        />
+      ) : null}
+
+      {fullscreenCamera ? (
+        <CameraFullscreen
+          camera={fullscreenCamera}
+          uri={snapshotUrl(fullscreenCamera)}
+          onClose={() => setFullscreen(null)}
           colors={colors}
           styles={styles}
         />
@@ -689,6 +728,69 @@ function partOfDay(now: Date): string {
  * zum Öffnen (mit Zwei-Schritt-Bestätigung), einer zum Schliessen. Gedacht
  * fürs Wandpanel genauso wie fürs Telefon in der Hosentasche.
  */
+/**
+ * Kamera im Vollbild: ein Tipp auf eine Kamerakachel macht das Standbild
+ * gross und holt es alle drei Sekunden neu – die Kachel selbst bleibt bei
+ * einem Bild pro Minute, damit die Übersicht nicht ständig lädt.
+ */
+function CameraFullscreen({
+  camera,
+  uri,
+  onClose,
+  colors,
+  styles,
+}: {
+  camera: Entity;
+  uri?: string;
+  onClose: () => void;
+  colors: Colors;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setTick((value) => value + 1), 3000);
+    return () => clearInterval(timer);
+  }, []);
+  const online = camera.state.state === 'online';
+
+  return (
+    <Modal visible animationType="fade" onRequestClose={onClose}>
+      <View style={styles.doorbellRoot}>
+        <Text style={styles.doorbellTitle}>{camera.name}</Text>
+        {uri && online ? (
+          <Image
+            source={{ uri: `${uri}&t=${tick}` }}
+            style={styles.doorbellImage}
+            resizeMode="contain"
+          />
+        ) : (
+          <View
+            style={[
+              styles.doorbellImage,
+              { alignItems: 'center', justifyContent: 'center' },
+            ]}
+          >
+            <Ionicons name="videocam-off-outline" size={40} color="#FFFFFF" />
+            <Text style={styles.doorbellCloseText}>
+              {online ? 'Kein Bild verfügbar' : 'Kamera ist offline'}
+            </Text>
+          </View>
+        )}
+        <View style={styles.doorbellButtons}>
+          {camera.state.motion === 'on' ? (
+            <Text style={[styles.doorbellCloseText, { color: colors.warn }]}>
+              Bewegung erkannt
+            </Text>
+          ) : null}
+          <Pressable onPress={onClose} style={styles.doorbellClose}>
+            <Text style={styles.doorbellCloseText}>Schliessen</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function DoorbellOverlay({
   camera,
   lock,
@@ -771,7 +873,13 @@ const makeStyles = (colors: Colors) =>
     paddingBottom: 28,
     gap: 16,
   },
-  greeting: { gap: 2 },
+  greetingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.gap,
+  },
+  greeting: { gap: 2, flexShrink: 1 },
   greetingLine: {
     color: colors.onGradient,
     fontSize: type.greeting,

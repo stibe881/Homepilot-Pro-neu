@@ -40,6 +40,7 @@ export const FEATURE_LABELS: Record<string, string> = {
   kalender: 'Kalender',
   haushalt: 'Haushalt',
   raeume: 'Räume',
+  kameras: 'Kameras',
 };
 
 interface HubUser {

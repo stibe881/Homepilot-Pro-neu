@@ -9,6 +9,7 @@ export type Section =
   | 'home'
   | 'light'
   | 'covers'
+  | 'cameras'
   | 'family'
   | 'settings'
   // Über „Einstellungen“ erreichbar, nicht in der Leiste:
@@ -30,6 +31,7 @@ const ITEMS: {
   { key: 'home', icon: 'grid-outline', label: 'Räume' },
   { key: 'light', icon: 'bulb-outline', label: 'Licht' },
   { key: 'covers', icon: 'reorder-four-outline', label: 'Storen' },
+  { key: 'cameras', icon: 'videocam-outline', label: 'Kameras' },
   { key: 'family', icon: 'people-outline', label: 'Familie' },
   { key: 'settings', icon: 'settings-outline', label: 'Einstellungen' },
 ];

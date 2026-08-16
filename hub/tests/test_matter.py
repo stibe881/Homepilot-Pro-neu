@@ -11,6 +11,7 @@ from aiohttp import WSMsgType, web
 from homepilot.core.config import load_config
 from homepilot.core.hub import Hub
 from homepilot.integrations.matter import (
+    battery_percent,
     classify,
     endpoint_device_types,
     endpoint_name,
@@ -57,6 +58,23 @@ def test_endpoint_state_binary_sensors():
     # BooleanState: True = geschlossen → ruhig
     assert endpoint_state({"1/69/0": True}, 1, "binary_sensor")["state"] == "off"
     assert endpoint_state({"1/69/0": False}, 1, "binary_sensor")["state"] == "on"
+
+
+def test_binary_sensors_carry_their_kind():
+    """Tür-/Fensterkontakt und Bewegungsmelder sind auseinanderzuhalten."""
+    assert endpoint_state({"1/1030/0": 1}, 1, "binary_sensor")["device_class"] == "motion"
+    assert endpoint_state({"1/69/0": False}, 1, "binary_sensor")["device_class"] == "contact"
+
+
+def test_battery_percent_from_power_source_cluster():
+    # BatPercentRemaining zählt in halben Prozent.
+    assert battery_percent({"0/47/12": 170}) == 85
+    assert battery_percent({"1/47/12": 200}) == 100
+    assert battery_percent({"1/69/0": False}) is None
+    assert battery_percent({"0/47/12": None}) is None
+
+    state = endpoint_state({"1/69/0": False, "0/47/12": 170}, 1, "binary_sensor")
+    assert state == {"state": "on", "device_class": "contact", "battery": 85}
 
 
 def test_node_endpoints_and_name():

@@ -145,7 +145,7 @@ Nachbesserungen bei Zugangsdaten und Feldnamen.
 | `unifi` | Anwesenheit über verbundene Clients, UniFi OS und Standalone |
 | `twinkly` | Lokale REST-API mit Challenge-Response-Anmeldung |
 | `vzug` | Lokale Home-API, nur lesend (Status, Programm, Restlaufzeit) |
-| `unifi_protect` | Kameras: online, Aufnahmemodus, Bewegung und Klingeln live über den Ereignisstrom |
+| `unifi_protect` | Kameras: eigener Menüpunkt „Kameras" mit Standbild und Vollbild, Bewegung und Klingeln live über den Ereignisstrom ([Einrichtung](docs/kameras.md)) |
 | `hue_sync` | Hue Play HDMI Sync Box: Sync an/aus, Modus und Eingang |
 | `spotify` | Was gerade läuft, Play/Pause/Weiter, Lautstärke und Stumm, und die Wiedergabe per Tipp auf einen anderen Lautsprecher umziehen (Spotify Connect – Google-Home-Lautsprecher tauchen dort automatisch auf) |
 | `roborock` | Sauger über das Roborock-Konto: Zustand, Akku, start/pause/dock, Saugstärke und „Sauger finden"; Räume direkt auf der Karte antippen und einzeln oder zu mehreren saugen lassen (`pip install "homepilot[roborock]"`) |
@@ -153,7 +153,7 @@ Nachbesserungen bei Zugangsdaten und Feldnamen.
 | `google_calendar` | Die nächsten Termine als Kachel (Cloud, Refresh-Token) |
 | `androidtv` | Fernbedienung, App-Anzeige, Lautstärke; einmalige PIN-Kopplung: `python -m homepilot.integrations.androidtv -c config.yaml` |
 | `ring` | Klingeln und Bewegung als Push, Akku und Status per Abfrage, Türöffner beim Ring Intercom (Zwei-Schritt-Bestätigung in der App); einmalige 2FA-Anmeldung: `python -m homepilot.integrations.ring -c config.yaml` |
-| `matter` | Lichter, Steckdosen und Sensoren über den python-matter-server (eigener Dienst, Block in docker-compose.yml); Protokoll end-to-end gegen einen nachgebauten Dienst getestet. Geräte koppeln: `python -m homepilot.integrations.matter -c config.yaml --pair <Code>` |
+| `matter` | Lichter, Steckdosen und Sensoren über den python-matter-server (eigener Dienst, Block in docker-compose.yml); Tür-/Fensterkontakte mit Batteriestand ([Einrichtung](docs/tuer-und-fensterkontakte.md)); Protokoll end-to-end gegen einen nachgebauten Dienst getestet. Geräte koppeln: `python -m homepilot.integrations.matter -c config.yaml --pair <Code>` |
 | `overkiz` | Somfy TaHoma & Co.: Storen, Rollläden, Raffstoren mit Position und Lamellenwinkel (lokale API übers Gateway); einmalige Anmeldung: `python -m homepilot.integrations.overkiz -c config.yaml` |
 | `nuki` | Nuki Smart Lock (4./5. Gen): auf-/abschliessen und aufziehen über die Nuki-Web-API; Token auf web.nuki.io erzeugen |
 | `weather` | Wetterlage und 7-Tage-Vorhersage (Open-Meteo, kostenlos, kein Schlüssel) |

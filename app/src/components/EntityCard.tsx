@@ -103,8 +103,26 @@ export function EntityCard({
       case 'switch':
         return <BigValue value={isOn ? 'An' : 'Aus'} on={isOn} note={powerNote()} />;
 
-      case 'binary_sensor':
-        return <Pill label={isOn ? 'Aktiv' : 'Ruhig'} tone={isOn ? colors.on : undefined} />;
+      case 'binary_sensor': {
+        // Tür-/Fensterkontakte sagen offen/geschlossen, Bewegungsmelder
+        // aktiv/ruhig – „aktiv" an einer Tür würde niemand verstehen.
+        const contact = entity.state.device_class === 'contact';
+        const battery = entity.state.battery;
+        return (
+          <View style={styles.stack}>
+            <Pill
+              label={contact ? (isOn ? 'Offen' : 'Geschlossen') : isOn ? 'Aktiv' : 'Ruhig'}
+              tone={isOn ? (contact ? colors.warn : colors.on) : undefined}
+              solid={contact && isOn}
+            />
+            {typeof battery === 'number' ? (
+              <Text style={styles.detail}>
+                Batterie {Math.round(battery)} %{battery <= 15 ? ' – schwach!' : ''}
+              </Text>
+            ) : null}
+          </View>
+        );
+      }
 
       case 'sensor':
         return (

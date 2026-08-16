@@ -20,19 +20,24 @@ Konfiguration:
         name: Temperatur Bad
         kind: sensor
         datapoint: ACTUAL_TEMPERATURE
-      - address: "0001D3C99C6A2B:3"    # HmIP-Geräte: port 2010 am Gerät angeben
+      - address: "001015699EA263:6"     # HmIP: Port am Gerät angeben
         port: 2010
         name: Tumbler
         kind: switch
-        power_address: "0001D3C99C6A2B:6"   # Messkanal → state.power in Watt
+        power_address: "001015699EA263:6"    # Messkanal → state.power in Watt
+        command_address: "001015699EA263:3"  # Schaltkanal (virt. Empfänger)
 
 Geräte dürfen einzeln einen anderen ``port`` angeben – so laufen klassische
 Homematic- (2001) und Homematic-IP-Geräte (2010) gemischt über dieselbe
-Integration. Bei Schalt-Messsteckdosen (z.B. HmIP-PSM) liegt das Schalten
-und das Messen auf getrennten Kanälen: Schaltkanal als ``address`` (HmIP-PSM:
-Kanal 3), Messkanal als ``power_address`` (HmIP-PSM: Kanal 6) – die aktuelle
-Leistung erscheint dann als ``power`` im Zustand und speist z.B. die
-Tumbler-Kachel auf der Startseite.
+Integration.
+
+Bei Homematic IP fallen Melden und Schalten auseinander: Der Statuskanal
+(HmIP-PSM: Kanal 6, «Statusmeldung Messwertkanal») liefert STATE und POWER,
+geschaltet wird aber über einen virtuellen Empfänger (Kanaltyp
+SWITCH_VIRTUAL_RECEIVER). Deshalb ``address`` auf den Statuskanal,
+``power_address`` auf den Messkanal und – nur wenn geschaltet werden soll –
+``command_address`` auf den Empfangskanal. Ohne ``command_address`` gehen
+Kommandos an ``address``, was bei klassischen Funkgeräten richtig ist.
 
 Die CCU kann Änderungen aktiv melden: Der Hub meldet sich per ``init`` mit
 einer Callback-Adresse an, danach ruft die CCU bei jeder Wertänderung
@@ -240,6 +245,7 @@ class HomematicIntegration(Integration):
             "port": int(device.get("port", self._port)),
             "power_address": power_address,
             "power_datapoint": power_datapoint,
+            "command_address": device.get("command_address") or address,
         }
         self._by_datapoint[(address, datapoint)] = entity.id
         if power_address:
@@ -424,7 +430,7 @@ class HomematicIntegration(Integration):
         info = self._devices[entity.id]
         datapoint, value = command_to_value(command, data, info["dimmable"], entity.state)
         await self._call(
-            "setValue", info["address"], datapoint, value, port=info["port"]
+            "setValue", info["command_address"], datapoint, value, port=info["port"]
         )
         # Die CCU meldet die Änderung per Event zurück; ohne Callback-Betrieb
         # ziehen wir den Zustand direkt nach.

@@ -126,15 +126,18 @@ integrations:
   #       name: Temperatur Bad
   #       kind: sensor
   #       datapoint: ACTUAL_TEMPERATURE
-  #     # Homematic IP Schalt-Messsteckdose (HmIP-PSM), z.B. am Tumbler:
-  #     # Schalten liegt auf Kanal 3, die Leistungsmessung auf Kanal 6.
+  #     # Homematic IP Schalt-Messsteckdose (HmIP-PSM), z.B. am Tumbler.
+  #     # Bei HmIP melden und schalten getrennte Kanäle: Kanal 6 meldet
+  #     # (Zustand + Leistung), geschaltet wird über den virtuellen
+  #     # Empfänger (Kanaltyp SWITCH_VIRTUAL_RECEIVER, meist Kanal 3).
   #     # Die Watt landen als 'power' im Zustand – daraus erkennt die
   #     # Startseite, ob der Tumbler gerade läuft.
-  #     - address: "0001D3C99C6A2B:3"
+  #     - address: "001015699EA263:6"
   #       port: 2010
   #       name: Tumbler
   #       kind: switch
-  #       power_address: "0001D3C99C6A2B:6"
+  #       power_address: "001015699EA263:6"
+  #       command_address: "001015699EA263:3"
 
   # UniFi: Anwesenheitserkennung anhand verbundener Geräte.
   # Liefert zusätzlich unifi.anyone_home und unifi.clients_total.
@@ -156,10 +159,15 @@ integrations:
 
   # UniFi Protect: Kameras mit Bewegungs- und Klingel-Ereignissen (lesend).
   # Nutzt denselben Controller-Login wie 'unifi'.
+  # UniFi Protect: Kameras (eigener Menüpunkt «Kameras» in der App).
+  # 'host' ist die UniFi-Konsole, nicht eine Kamera. Für den Hub einen
+  # eigenen Local-Access-Benutzer mit «View Only» auf Protect anlegen und
+  # ohne Zwei-Faktor lassen. Anleitung: docs/kameras.md
   # - integration: unifi_protect
   #   host: 192.168.1.1
   #   username: "${UNIFI_USER}"
   #   password: "${UNIFI_PASSWORD}"
+  #   scan_interval: 120
 
   # Hue Play HDMI Sync Box. Token: Knopf an der Box ~3s halten, dann
   #   curl -sk -X POST https://<box-ip>/api/v1/registrations \
@@ -231,6 +239,9 @@ integrations:
   # Matter über den python-matter-server (läuft als eigener Dienst, siehe
   # docker-compose.yml). Geräte koppeln:
   #   python -m homepilot.integrations.matter -c config.yaml --pair <Code>
+  # Tür-/Fensterkontakte (z.B. Aqara P2) melden offen/geschlossen und ihren
+  # Batteriestand; offene Türen erscheinen auf der Startseite.
+  # Anleitung inkl. Teilen aus Apple/Google Home: docs/tuer-und-fensterkontakte.md
   # - integration: matter
   #   url: ws://127.0.0.1:5580/ws
 

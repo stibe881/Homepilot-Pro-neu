@@ -82,6 +82,7 @@ GUEST_FEATURES: dict[str, str] = {
     "kalender": "Kalender",
     "haushalt": "Haushalt",
     "raeume": "Räume",
+    "kameras": "Kameras",
 }
 
 # Bereich → Gerätearten. Türen brauchen zusätzlich die Integrations-Prüfung
@@ -91,6 +92,7 @@ _FEATURE_KINDS: dict[str, frozenset[str]] = {
     "storen": frozenset({"cover"}),
     "kalender": frozenset({"calendar"}),
     "haushalt": frozenset({"appliance"}),
+    "kameras": frozenset({"camera"}),
 }
 
 
