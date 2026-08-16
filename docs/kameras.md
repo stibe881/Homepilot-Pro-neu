@@ -99,6 +99,11 @@ stummgeschaltet – ein Wandpanel, das beim Antippen lospoltert, will niemand.
 Kacheln zeigen weiterhin Standbilder (alle 15 Sekunden ein frisches): Vier
 Livestreams nebeneinander wären für Hub und WLAN unnötig teuer.
 
+**Im Browser** funktioniert das Live-Bild ebenfalls: Safari spielt HLS von
+Haus aus, in Chrome und Firefox übernimmt hls.js. Nach dem Aktualisieren der
+App-Abhängigkeiten (`npm install`) einmal neu laden – bleibt es beim
+Standbild, das alle drei Sekunden wechselt, lief noch die alte Fassung.
+
 ## 5. Prüfen
 
 ```bash

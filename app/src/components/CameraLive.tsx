@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View, ViewStyle } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 
@@ -28,6 +28,10 @@ export function CameraLive({
 }) {
   const colors = useColors();
   const [failed, setFailed] = useState<string | null>(null);
+  // Der Aufrufer gibt bei jedem Rendern eine neue Funktion herein – die darf
+  // nicht in die Abhängigkeiten, sonst hängt sich der Zuhörer laufend neu an.
+  const failedRef = useRef(onFailed);
+  failedRef.current = onFailed;
 
   const player = useVideoPlayer(uri, (instance) => {
     instance.muted = muted;
@@ -39,13 +43,13 @@ export function CameraLive({
     const subscription = player.addListener('statusChange', ({ status, error }) => {
       if (status === 'error') {
         setFailed(error?.message ?? 'Der Strom liess sich nicht öffnen');
-        onFailed?.();
+        failedRef.current?.();
       } else if (status === 'readyToPlay') {
         setFailed(null);
       }
     });
     return () => subscription.remove();
-  }, [player, onFailed]);
+  }, [player]);
 
   if (failed) {
     return (
