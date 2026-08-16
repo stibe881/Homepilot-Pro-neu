@@ -225,17 +225,32 @@ class RoborockIntegration(Integration):
 
         # entity_id → Gerät der Bibliothek
         self._devices: dict[str, Any] = {}
-        devices = await _maybe_await(self._manager.get_devices())
+        devices = list(await _maybe_await(self._manager.get_devices()))
+        self.log.info("Roborock: %d Gerät(e) im Konto gefunden", len(devices))
         for device in devices:
-            # Nur Sauger mit v1-Protokoll – Waschtürme u.ä. haben andere APIs.
-            if getattr(device, "v1_properties", None) is None:
-                continue
+            name = getattr(device, "name", "?")
+            # Erst verbinden – manche Eigenschaften (v1_properties) füllen sich
+            # erst danach.
             if not getattr(device, "is_connected", False):
-                await _maybe_await(device.connect())
+                try:
+                    await _maybe_await(device.connect())
+                except Exception as err:
+                    self.log.warning("Roborock: %s liess sich nicht verbinden: %s", name, err)
+            v1 = getattr(device, "v1_properties", None)
+            self.log.info(
+                "Roborock-Gerät: name=%s duid=%s v1=%s attrs=%s",
+                name,
+                getattr(device, "duid", "?"),
+                "ja" if v1 is not None else "nein",
+                ", ".join(a for a in dir(device) if a.endswith("_properties")),
+            )
+            if v1 is None:
+                # Nur Sauger mit v1-Protokoll – Waschtürme u.ä. haben andere APIs.
+                continue
             entity = await self.add_entity(
                 str(device.duid),
                 EntityKind.VACUUM,
-                device.name or "Roborock",
+                name or "Roborock",
                 state={"state": "unknown", "fan_speeds": list(FAN_SPEEDS)},
                 commands=[*self._commands, "clean_rooms", "set_fan_speed"],
                 available=False,
@@ -244,7 +259,10 @@ class RoborockIntegration(Integration):
             await self._load_rooms(entity.id, device)
 
         if not self._devices:
-            raise ConfigError("Im Roborock-Konto wurde kein passender Sauger gefunden")
+            raise ConfigError(
+                "Kein Sauger mit v1-Protokoll gefunden. Sieh im Log nach den "
+                "'Roborock-Gerät:'-Zeilen, welche Geräte das Konto liefert."
+            )
 
         await self._refresh_all()
         self.start_task(self._poll_loop())
