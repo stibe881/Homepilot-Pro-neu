@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import threading
 from typing import Any
 
@@ -291,6 +292,9 @@ class GoogleCastIntegration(Integration):
                 return False
 
             # 2. Geräte-Token bei Spotify holen (mit dem Konto-Token).
+            # Abgelehnte Anfragen kommen teils mit leerem Rumpf zurück –
+            # deshalb erst Text lesen und erklärend scheitern statt an
+            # ungültigem JSON zu sterben.
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     DEVICE_AUTH,
@@ -301,15 +305,21 @@ class GoogleCastIntegration(Integration):
                     headers={"Authorization": f"Bearer {access_token}"},
                     timeout=aiohttp.ClientTimeout(total=10),
                 ) as response:
-                    payload = await response.json(content_type=None)
-            device_token = (payload or {}).get("accessToken")
+                    status = response.status
+                    text = await response.text()
+            try:
+                payload = json.loads(text) if text else {}
+            except ValueError:
+                payload = {}
+            device_token = payload.get("accessToken")
             if not device_token:
                 self.log.warning(
-                    "Spotify device-auth für %s abgelehnt: %s – braucht der "
-                    "Zugang den 'streaming'-Scope? (Anmelde-Helfer neu laufen "
-                    "lassen)",
+                    "Spotify device-auth für %s abgelehnt (HTTP %s): %s – "
+                    "meist fehlt dem refresh_token der 'streaming'-Scope: "
+                    "Anmelde-Helfer neu laufen lassen und Hub neu starten.",
                     name,
-                    payload,
+                    status,
+                    text[:200] or "leere Antwort",
                 )
                 return False
 

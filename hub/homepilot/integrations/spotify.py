@@ -304,7 +304,14 @@ class SpotifyIntegration(Integration):
         if cast is None or not hasattr(cast, "spotify_wake"):
             return None
         token = await self._ensure_token()
-        if not await cast.spotify_wake(name, token):
+        try:
+            woken = await cast.spotify_wake(name, token)
+        except Exception as err:
+            # Ein Fehler beim Wecken darf nie als roher Traceback in der App
+            # landen – der Grund steht im Log der Cast-Integration.
+            self.log.warning("Wecken von %s fehlgeschlagen: %s", name, err)
+            return None
+        if not woken:
             return None
         for _ in range(12):
             await asyncio.sleep(1)
