@@ -6,6 +6,27 @@ Cloud-Konto und ohne Portfreigabe. In der App gibt es dafür den Menüpunkt
 letzten Bewegungsereignis. Ein Tipp auf die Kachel macht das Bild gross und
 frischt es alle drei Sekunden auf.
 
+## 0. Welche Konsole ist gemeint?
+
+Bei mehreren UniFi-Geräten im Netz zählt nur eines: das, auf dem die
+**Protect-Anwendung läuft** – meist der Video Recorder (UNVR), sonst ein
+Cloud Key Gen2+ oder eine UDM Pro. Nicht das Gerät, an dem die Kameras
+hängen, und nicht der Router, wenn Protect anderswo läuft.
+
+Das gilt auch für den Benutzer aus Schritt 1: UniFi-OS-Konten gehören zu
+einer Konsole, ein auf dem Cloud Key angelegter Benutzer existiert auf dem
+UNVR nicht.
+
+Zum Prüfen die IP im Browser aufrufen – erscheint Protect mit den Kameras,
+ist es die richtige. Oder vom Docker-Host aus:
+
+```bash
+curl -sk -o /dev/null -w "%{http_code}\n" https://10.10.1.x/proxy/protect/api/bootstrap
+```
+
+`401` = Protect läuft hier (es fehlt nur die Anmeldung) → diese Adresse als
+`host` eintragen. `404` oder ein Verbindungsfehler = falsches Gerät.
+
 ## 1. Eigenen Benutzer im UniFi-Controller anlegen
 
 Nicht das eigene Admin-Konto verwenden: Der Hub soll nur lesen dürfen, und
@@ -42,13 +63,13 @@ In der `config.yaml` (App → Einstellungen → System → Konfiguration):
 
 ```yaml
   - integration: unifi_protect
-    host: 10.10.1.1          # IP des Controllers (UDM/UDM Pro/Cloud Key)
+    host: 10.10.1.1          # die Konsole aus Schritt 0 (UNVR/Cloud Key/UDM Pro)
     username: "${UNIFI_USER}"
     password: "${UNIFI_PASSWORD}"
     scan_interval: 120
 ```
 
-`host` ist die Adresse der UniFi-Konsole selbst, nicht die einer Kamera.
+`host` ist die Adresse der Protect-Konsole selbst, nicht die einer Kamera.
 Das Zertifikat des Controllers ist selbstsigniert – das ist erwartet und
 wird für diese eine Verbindung im lokalen Netz akzeptiert.
 
