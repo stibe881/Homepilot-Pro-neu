@@ -675,7 +675,7 @@ function LockBody({
  *  Musik, zieht der Tipp auf eine andere Box die Wiedergabe sofort um
  *  (Spotify Connect). Google-Lautsprecher erscheinen in der Liste, wenn
  *  Spotify in der Google-Home-App verknüpft ist. */
-function SpotifyPanel({
+export function SpotifyPanel({
   entity,
   onCommand,
 }: {

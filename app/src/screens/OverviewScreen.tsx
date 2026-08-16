@@ -3,6 +3,7 @@ import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Entity, Scene } from '../api/types';
+import { SpotifyPanel } from '../components/EntityCard';
 import { Card } from '../components/Card';
 import { Colors, radius, space, useColors } from '../theme';
 
@@ -300,6 +301,13 @@ export function OverviewScreen({
                   </Pressable>
                 ) : null}
               </View>
+              {/* Spotify: Box wählen und Playlist starten – auch aus Stille. */}
+              {player.commands.includes('play_playlist') ? (
+                <SpotifyPanel
+                  entity={player}
+                  onCommand={(command, data) => onCommand(player.id, command, data)}
+                />
+              ) : null}
             </>
           ) : (
             <>
@@ -556,6 +564,13 @@ export function OverviewScreen({
                   </Pressable>
                 ) : null}
               </View>
+              {/* Spotify: Box wählen und Playlist starten – auch aus Stille. */}
+              {player.commands.includes('play_playlist') ? (
+                <SpotifyPanel
+                  entity={player}
+                  onCommand={(command, data) => onCommand(player.id, command, data)}
+                />
+              ) : null}
             </>
           ) : (
             <>
