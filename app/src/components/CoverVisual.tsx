@@ -1,6 +1,7 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useMemo, useRef } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
+import Svg, { Circle, Ellipse, G, Line, Polygon } from 'react-native-svg';
 
 import { radius, useTheme } from '../theme';
 
@@ -128,7 +129,103 @@ export function CoverVisual({ open, tilt, sky = 'clear', height = 128 }: Props) 
   );
 }
 
-/** Wetter-Symbol hinter dem Fenster – je nach Lage Sonne, Wolke, Tropfen … */
+/** Eine weiche Wolke aus überlappenden Kreisen (SVG). */
+function Cloud({ cx, cy, s, fill }: { cx: number; cy: number; s: number; fill: string }) {
+  return (
+    <G>
+      <Ellipse cx={cx} cy={cy + 6 * s} rx={26 * s} ry={11 * s} fill={fill} />
+      <Circle cx={cx - 14 * s} cy={cy} r={10 * s} fill={fill} />
+      <Circle cx={cx} cy={cy - 6 * s} r={14 * s} fill={fill} />
+      <Circle cx={cx + 14 * s} cy={cy + 1 * s} r={11 * s} fill={fill} />
+    </G>
+  );
+}
+
+/** Sonne mit Strahlenkranz (SVG). */
+function Sun({ cx, cy, r }: { cx: number; cy: number; r: number }) {
+  const rays = Array.from({ length: 8 }, (_, i) => {
+    const a = (Math.PI / 4) * i;
+    const x = Math.cos(a);
+    const y = Math.sin(a);
+    return (
+      <Line
+        key={i}
+        x1={cx + x * (r + 4)}
+        y1={cy + y * (r + 4)}
+        x2={cx + x * (r + 11)}
+        y2={cy + y * (r + 11)}
+        stroke="#FFCB5E"
+        strokeWidth={3}
+        strokeLinecap="round"
+      />
+    );
+  });
+  return (
+    <G>
+      {rays}
+      <Circle cx={cx} cy={cy} r={r} fill="#FFD36B" />
+    </G>
+  );
+}
+
+/** Gezeichnetes Wettermotiv hinter dem Fenster. */
+function SkyScene({ sky }: { sky: Sky }) {
+  const white = 'rgba(255,255,255,0.92)';
+  const grey = 'rgba(214,221,230,0.95)';
+  const darkGrey = 'rgba(150,160,175,0.95)';
+  switch (sky) {
+    case 'clear':
+      return <Sun cx={128} cy={30} r={15} />;
+    case 'partly':
+      return (
+        <G>
+          <Sun cx={118} cy={24} r={12} />
+          <Cloud cx={78} cy={42} s={1} fill={white} />
+        </G>
+      );
+    case 'clouds':
+      return (
+        <G>
+          <Cloud cx={58} cy={30} s={1.15} fill={white} />
+          <Cloud cx={110} cy={46} s={0.9} fill={grey} />
+        </G>
+      );
+    case 'fog':
+      return (
+        <G>
+          <Cloud cx={80} cy={24} s={1} fill={grey} />
+          {[46, 60, 74].map((y, i) => (
+            <Line
+              key={y}
+              x1={22}
+              y1={y}
+              x2={138}
+              y2={y}
+              stroke="rgba(255,255,255,0.6)"
+              strokeWidth={4}
+              strokeLinecap="round"
+              opacity={0.5 + i * 0.15}
+            />
+          ))}
+        </G>
+      );
+    case 'rain':
+      return <Cloud cx={80} cy={26} s={1.2} fill={grey} />;
+    case 'snow':
+      return <Cloud cx={80} cy={26} s={1.2} fill={white} />;
+    case 'storm':
+      return (
+        <G>
+          <Cloud cx={80} cy={24} s={1.2} fill={darkGrey} />
+          <Polygon points="82,40 72,60 80,60 74,78 92,54 83,54 90,40" fill="#FFD23B" />
+        </G>
+      );
+    default:
+      return null;
+  }
+}
+
+/** Wetter hinter dem Fenster: gezeichnetes Motiv plus fallender Regen/Schnee. */
 function Weather({ sky, height }: { sky: Sky; height: number }) {
   const drop = useRef(new Animated.Value(0)).current;
   const wet = sky === 'rain' || sky === 'storm' || sky === 'snow';
@@ -147,32 +244,20 @@ function Weather({ sky, height }: { sky: Sky; height: number }) {
     return () => loop.stop();
   }, [wet, sky, drop]);
 
-  const sun = sky === 'clear' || sky === 'partly';
-  const cloud = sky !== 'clear';
-
-  // Zwei gestapelte Reihen Tropfen/Flocken, um eine Fensterhöhe nach unten
-  // geschoben – so wirkt der Fall endlos.
+  // Zwei gestapelte Reihen Tropfen/Flocken, um eine halbe Fensterhöhe nach
+  // unten geschoben – so wirkt der Fall endlos.
   const fallY = drop.interpolate({ inputRange: [0, 1], outputRange: [0, height / 2] });
-  const cols = [12, 30, 48, 66, 84]; // Prozent-Spalten über die Breite
+  const cols = [16, 32, 48, 64, 80]; // Prozent-Spalten über die Breite
 
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-      {sun ? (
-        <View style={[styles0.sun, sky === 'partly' && { opacity: 0.9 }]} />
-      ) : null}
-      {cloud ? (
-        <>
-          <View style={[styles0.cloud, { top: 16, left: '14%' }]} />
-          <View style={[styles0.cloudSmall, { top: 30, left: '52%' }]} />
-        </>
-      ) : null}
-      {sky === 'fog' ? (
-        <>
-          <View style={[styles0.haze, { top: height * 0.45 }]} />
-          <View style={[styles0.haze, { top: height * 0.62, opacity: 0.5 }]} />
-          <View style={[styles0.haze, { top: height * 0.78, opacity: 0.7 }]} />
-        </>
-      ) : null}
+      <Svg
+        width="100%"
+        height="100%"
+        viewBox={`0 0 160 ${Math.max(1, Math.round(height))}`}
+        preserveAspectRatio="xMidYMid slice">
+        <SkyScene sky={sky} />
+      </Svg>
       {wet
         ? cols.map((leftPct, i) =>
             [0, 1].map((row) => (
@@ -182,7 +267,7 @@ function Weather({ sky, height }: { sky: Sky; height: number }) {
                   sky === 'snow' ? styles0.flake : styles0.raindrop,
                   {
                     left: `${leftPct}%`,
-                    top: -height / 2 + (row * height) / 2 + i * 9,
+                    top: height * 0.42 - height / 2 + (row * height) / 2 + i * 8,
                     transform: [{ translateY: fallY }],
                   },
                 ]}
@@ -195,54 +280,19 @@ function Weather({ sky, height }: { sky: Sky; height: number }) {
 }
 
 const styles0 = StyleSheet.create({
-  sun: {
-    position: 'absolute',
-    top: 14,
-    right: 18,
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: 'rgba(255, 214, 120, 0.95)',
-    shadowColor: '#FFD678',
-    shadowOpacity: 0.9,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 0 },
-  },
-  cloud: {
-    position: 'absolute',
-    width: 60,
-    height: 22,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.85)',
-  },
-  cloudSmall: {
-    position: 'absolute',
-    width: 40,
-    height: 16,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-  },
-  haze: {
-    position: 'absolute',
-    left: '8%',
-    right: '8%',
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: 'rgba(255, 255, 255, 0.55)',
-  },
   raindrop: {
     position: 'absolute',
     width: 2,
-    height: 10,
+    height: 11,
     borderRadius: 1,
-    backgroundColor: 'rgba(210, 228, 245, 0.85)',
+    backgroundColor: 'rgba(205, 226, 246, 0.9)',
   },
   flake: {
     position: 'absolute',
     width: 5,
     height: 5,
     borderRadius: 3,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
   },
 });
 
