@@ -65,7 +65,9 @@ def publish_command(source: str, name: str) -> str:
     return (
         "ffmpeg -nostdin -loglevel error "
         f"-rtsp_transport tcp -i {source} "
-        "-c copy -an "
+        # -strict experimental: erlaubt auch Codecs, deren RTP-Format ffmpeg
+        # als «Entwurf» führt (z.B. VP9) – für H264 ohne Wirkung.
+        "-c copy -an -strict experimental "
         f"-rtsp_transport tcp -f rtsp {MEDIAMTX_RTSP}/{name}"
     )
 # Blockierende Anfragen nach dem nächsten Bruchstück dürfen dauern – genau
