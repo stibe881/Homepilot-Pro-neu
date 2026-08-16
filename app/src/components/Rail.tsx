@@ -16,6 +16,7 @@ export type Section =
   | 'automations'
   | 'system'
   | 'users'
+  | 'activity'
   | 'account';
 
 /** `needs` nennt die Berechtigung, ohne die der Punkt gar nicht erscheint. */

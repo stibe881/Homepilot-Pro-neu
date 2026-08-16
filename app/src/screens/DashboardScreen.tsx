@@ -17,8 +17,9 @@ import { skyFromIcon } from '../components/CoverVisual';
 import { HistoryChart } from '../components/HistoryChart';
 import { Rail, Section } from '../components/Rail';
 import { RoomTabs } from '../components/RoomTabs';
+import { RoomTile } from '../components/RoomTile';
 import { SceneRow } from '../components/SceneRow';
-import { SidePanel } from '../components/SidePanel';
+import { ActivityCard, SidePanel } from '../components/SidePanel';
 import { Toast } from '../components/Toast';
 import { TopStrip } from '../components/TopStrip';
 import { useHub } from '../hooks/useHub';
@@ -166,7 +167,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // gruppiert (Überschrift je Zimmer), damit man das ganze Haus auf einen
   // Blick durchscrollt und alles schnell erreicht. Favoriten stehen als
   // eigene Gruppe ganz oben – der schnelle Griff ins andere Zimmer.
-  const grouped = section === 'home' && room === ALL_ROOMS && rooms.length > 2;
+  const grouped = section === 'home' && room === ALL_ROOMS && rooms.length > 2 && editing;
+  // Raum-Kacheln: die «Räume»-Übersicht zeigt je Raum eine Kachel mit den
+  // Geräten darin; Antippen öffnet die volle Raumansicht.
+  const roomTiles =
+    section === 'home' && room === ALL_ROOMS && !editing && rooms.length > 0;
   const groups = useMemo(() => {
     if (!grouped) return [];
     const order = rooms.filter((name) => name !== ALL_ROOMS);
@@ -283,11 +288,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               onActivateScene={activateScene}
             />
           </View>
-          <SidePanel
-            entities={entities}
-            activity={activity}
-            width={hasSidePanel ? PANEL_WIDTH : undefined}
-          />
+          <SidePanel entities={entities} width={hasSidePanel ? PANEL_WIDTH : undefined} />
         </View>
       );
     }
@@ -346,6 +347,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           show: caps.includes('view_system'),
         },
         {
+          key: 'activity',
+          icon: 'timer-outline',
+          label: 'Zuletzt passiert',
+          detail: 'Protokoll der letzten Änderungen',
+          show: true,
+        },
+        {
           key: 'account',
           icon: 'person-outline',
           label: 'Konto & Verbindung',
@@ -372,6 +380,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 <Ionicons name="chevron-forward" size={18} color={colors.inkFaint} />
               </Pressable>
             ))}
+        </View>
+      );
+    }
+    if (section === 'activity') {
+      return (
+        <View style={styles.stack}>
+          {back}
+          <ActivityCard activity={activity} />
         </View>
       );
     }
@@ -421,8 +437,19 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           {section === 'home' && room === ALL_ROOMS ? (
             <SceneRow scenes={scenes} onActivate={activateScene} />
           ) : null}
-          {section === 'home' && rooms.length > 0 ? (
+          {section === 'home' && editing && rooms.length > 0 ? (
             <RoomTabs rooms={rooms} active={room} onSelect={setRoom} />
+          ) : null}
+          {section === 'home' && room !== ALL_ROOMS && !editing ? (
+            <Pressable
+              onPress={() => setRoom(ALL_ROOMS)}
+              accessibilityRole="button"
+              accessibilityLabel="Zurück zu Räume"
+              style={styles.backRow}
+            >
+              <Ionicons name="chevron-back" size={18} color={colors.onGradient} />
+              <Text style={styles.backText}>Räume</Text>
+            </Pressable>
           ) : null}
           {section === 'home' || section === 'devices' ? (
             <Pressable
@@ -442,8 +469,40 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             style={grouped || categorized ? styles.measure : styles.grid}
             onLayout={(event) => setGridWidth(event.nativeEvent.layout.width)}
           >
-            {!grouped && !categorized && cardWidth ? running.map(renderCard) : null}
+            {!grouped && !categorized && !roomTiles && cardWidth ? running.map(renderCard) : null}
           </View>
+
+          {/* «Räume»: eine Kachel je Raum mit den Geräten darin. */}
+          {roomTiles && gridWidth > 0 ? (
+            <View style={styles.grid}>
+              {rooms
+                .filter((name) => name !== ALL_ROOMS)
+                .map((name) => ({
+                  name,
+                  items: shown.filter((entity) => entity.room === name),
+                }))
+                .concat(
+                  shown.some((entity) => !entity.room)
+                    ? [{ name: 'Weitere', items: shown.filter((entity) => !entity.room) }]
+                    : []
+                )
+                .filter((tile) => tile.items.length > 0)
+                .map((tile) => (
+                  <RoomTile
+                    key={tile.name}
+                    name={tile.name}
+                    items={tile.items}
+                    width={
+                      hasRail
+                        ? Math.floor((gridWidth - space.gap) / 2)
+                        : gridWidth
+                    }
+                    onOpen={() => (tile.name === 'Weitere' ? undefined : setRoom(tile.name))}
+                    onCommand={(entityId, command) => sendCommand(entityId, command)}
+                  />
+                ))}
+            </View>
+          ) : null}
 
           {/* Ein Raum: nach Kategorien (Szenen, Beleuchtung, Store, Medien). */}
           {categorized ? (
@@ -477,10 +536,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               ))
             : null}
 
-          {!grouped && !categorized && running.length > 0 && rest.length > 0 ? (
+          {!grouped && !categorized && !roomTiles && running.length > 0 && rest.length > 0 ? (
             <Text style={styles.sectionLabel}>Ruhend</Text>
           ) : null}
-          {!grouped && !categorized ? (
+          {!grouped && !categorized && !roomTiles ? (
             <View style={styles.grid}>{cardWidth ? rest.map(renderCard) : null}</View>
           ) : null}
 
@@ -495,11 +554,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           ) : null}
         </View>
 
-        <SidePanel
-          entities={entities}
-          activity={activity}
-          width={hasSidePanel ? PANEL_WIDTH : undefined}
-        />
+        <SidePanel entities={entities} width={hasSidePanel ? PANEL_WIDTH : undefined} />
       </View>
     );
   };

@@ -108,63 +108,9 @@ export function OverviewScreen({
 
   const tileWidth = wide ? ('31.5%' as const) : ('48%' as const);
 
-  // ── Bausteine ──────────────────────────────────────────────────────────
-
-  const Badge = ({ label, tone }: { label: string; tone?: string }) => (
-    <View style={[styles.badge, tone ? { backgroundColor: tone } : null]}>
-      <Text style={styles.badgeText}>{label}</Text>
-    </View>
-  );
-
-  const Tile = ({
-    icon,
-    title,
-    demo,
-    children,
-  }: {
-    icon: keyof typeof Ionicons.glyphMap;
-    title: string;
-    demo?: boolean;
-    children: React.ReactNode;
-  }) => (
-    <Card style={{ ...styles.tile, width: tileWidth }}>
-      <View style={styles.tileHead}>
-        <Ionicons name={icon} size={18} color={colors.inkSoft} />
-        <Text style={styles.tileTitle} numberOfLines={1}>
-          {title}
-        </Text>
-        {demo ? <Badge label="Demo" /> : null}
-      </View>
-      {children}
-    </Card>
-  );
-
-  const Action = ({
-    label,
-    onPress,
-    accent,
-    disabled,
-  }: {
-    label: string;
-    onPress: () => void;
-    accent?: boolean;
-    disabled?: boolean;
-  }) => (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      accessibilityRole="button"
-      style={({ pressed }) => [
-        styles.action,
-        accent && styles.actionAccent,
-        (pressed || disabled) && { opacity: 0.6 },
-      ]}
-    >
-      <Text style={[styles.actionText, accent && styles.actionTextAccent]} numberOfLines={1}>
-        {label}
-      </Text>
-    </Pressable>
-  );
+  // Bausteine stehen auf Modulebene (unten) – innerhalb der Komponente
+  // definiert würden sie bei jedem Live-Update neu erzeugt und laufende
+  // Berührungen abgebrochen.
 
   const applianceState = (entity: Entity | undefined, demoText: string) => {
     if (!entity) return { text: demoText, running: /läuft|trocknen/i.test(demoText) };
@@ -262,19 +208,19 @@ export function OverviewScreen({
       {/* Schnellaktionen */}
       <View style={styles.quickRow}>
         {startScenes.map((scene) => (
-          <Action
+          <Action styles={styles}
             key={scene.id}
             label={scene.name}
             accent
             onPress={() => onActivateScene(scene.id)}
           />
         ))}
-        <Action
+        <Action styles={styles}
           label="Storen hoch"
           onPress={() => covers.forEach((c) => onCommand(c.id, 'open'))}
           disabled={covers.length === 0}
         />
-        <Action
+        <Action styles={styles}
           label="Storen runter"
           onPress={() => covers.forEach((c) => onCommand(c.id, 'close'))}
           disabled={covers.length === 0}
@@ -290,11 +236,11 @@ export function OverviewScreen({
       {/* Zugang & Sicherheit */}
       <Text style={styles.groupLabel}>Zugang</Text>
       <View style={styles.tileRow}>
-        <Tile icon="business-outline" title="Haustüre" demo={!frontDoor}>
+        <Tile styles={styles} colors={colors} width={tileWidth} icon="business-outline" title="Haustüre" demo={!frontDoor}>
           <Text style={styles.tileState}>
             {frontDoor ? 'Gegensprechanlage' : 'Ring Intercom'}
           </Text>
-          <Action
+          <Action styles={styles}
             label={confirm === 'front' ? 'Wirklich öffnen?' : 'Öffnen'}
             accent={confirm === 'front'}
             onPress={() =>
@@ -305,7 +251,7 @@ export function OverviewScreen({
           />
         </Tile>
 
-        <Tile icon="key-outline" title="Wohnungstüre" demo={!flatDoor}>
+        <Tile styles={styles} colors={colors} width={tileWidth} icon="key-outline" title="Wohnungstüre" demo={!flatDoor}>
           <Text style={styles.tileState}>
             {flatDoor
               ? String(flatDoor.state.state) === 'locked'
@@ -316,7 +262,7 @@ export function OverviewScreen({
                 : 'Aufgeschlossen'}
           </Text>
           <View style={styles.actionRow}>
-            <Action
+            <Action styles={styles}
               label={
                 (flatDoor ? String(flatDoor.state.state) === 'locked' : demoFlatLocked)
                   ? 'Aufschliessen'
@@ -331,7 +277,7 @@ export function OverviewScreen({
                   : setDemoFlatLocked((v) => !v)
               }
             />
-            <Action
+            <Action styles={styles}
               label={confirm === 'flat' ? 'Sicher?' : 'Auf + öffnen'}
               accent={confirm === 'flat'}
               onPress={() =>
@@ -343,7 +289,7 @@ export function OverviewScreen({
           </View>
         </Tile>
 
-        <Tile icon="shield-checkmark-outline" title="Alarmanlage" demo={!alarm}>
+        <Tile styles={styles} colors={colors} width={tileWidth} icon="shield-checkmark-outline" title="Alarmanlage" demo={!alarm}>
           <Text
             style={[
               styles.tileState,
@@ -352,7 +298,7 @@ export function OverviewScreen({
           >
             {(alarm ? alarm.state.state === 'on' : demoAlarmArmed) ? 'Scharf' : 'Unscharf'}
           </Text>
-          <Action
+          <Action styles={styles}
             label={(alarm ? alarm.state.state === 'on' : demoAlarmArmed) ? 'Unscharf schalten' : 'Scharf schalten'}
             onPress={() =>
               alarm ? onCommand(alarm.id, 'toggle') : setDemoAlarmArmed((v) => !v)
@@ -364,17 +310,17 @@ export function OverviewScreen({
       {/* Haushalt */}
       <Text style={styles.groupLabel}>Haushalt</Text>
       <View style={styles.tileRow}>
-        <Tile icon="restaurant-outline" title="Geschirrspüler" demo={!dishwasher}>
+        <Tile styles={styles} colors={colors} width={tileWidth} icon="restaurant-outline" title="Geschirrspüler" demo={!dishwasher}>
           <Text style={[styles.tileState, dish.running && { color: colors.accent }]}>
             {dish.text}
           </Text>
         </Tile>
-        <Tile icon="water-outline" title="Waschmaschine" demo={!washer}>
+        <Tile styles={styles} colors={colors} width={tileWidth} icon="water-outline" title="Waschmaschine" demo={!washer}>
           <Text style={[styles.tileState, wash.running && { color: colors.accent }]}>
             {wash.text}
           </Text>
         </Tile>
-        <Tile icon="sunny-outline" title="Tumbler" demo={!tumbler}>
+        <Tile styles={styles} colors={colors} width={tileWidth} icon="sunny-outline" title="Tumbler" demo={!tumbler}>
           <Text style={[styles.tileState, tumblerRunning && { color: colors.accent }]}>
             {tumblerRunning ? 'Am Trocknen' : 'Fertig'}
           </Text>
@@ -389,19 +335,19 @@ export function OverviewScreen({
       {/* Termine & Musik */}
       <Text style={styles.groupLabel}>Heute</Text>
       <View style={styles.tileRow}>
-        <Tile icon="calendar-outline" title="Nächster Termin" demo={termin.demo}>
+        <Tile styles={styles} colors={colors} width={tileWidth} icon="calendar-outline" title="Nächster Termin" demo={termin.demo}>
           <Text style={styles.tileState} numberOfLines={1}>
             {termin.title}
           </Text>
           {termin.when ? <Text style={styles.tileSub}>{termin.when}</Text> : null}
         </Tile>
-        <Tile icon="gift-outline" title="Nächster Geburtstag" demo={geburtstag.demo}>
+        <Tile styles={styles} colors={colors} width={tileWidth} icon="gift-outline" title="Nächster Geburtstag" demo={geburtstag.demo}>
           <Text style={styles.tileState} numberOfLines={1}>
             {geburtstag.title}
           </Text>
           {geburtstag.when ? <Text style={styles.tileSub}>{geburtstag.when}</Text> : null}
         </Tile>
-        <Tile icon="musical-notes-outline" title="Musik" demo={!player}>
+        <Tile styles={styles} colors={colors} width={tileWidth} icon="musical-notes-outline" title="Musik" demo={!player}>
           {player ? (
             <>
               <Text style={styles.tileState} numberOfLines={1}>
@@ -446,6 +392,78 @@ export function OverviewScreen({
         </Tile>
       </View>
     </View>
+  );
+}
+
+type OverviewStyles = ReturnType<typeof makeStyles>;
+
+function Badge({ label, styles }: { label: string; styles: OverviewStyles }) {
+  return (
+    <View style={styles.badge}>
+      <Text style={styles.badgeText}>{label}</Text>
+    </View>
+  );
+}
+
+function Tile({
+  icon,
+  title,
+  demo,
+  children,
+  styles,
+  colors,
+  width,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  demo?: boolean;
+  children: React.ReactNode;
+  styles: OverviewStyles;
+  colors: Colors;
+  width: '31.5%' | '48%';
+}) {
+  return (
+    <Card style={{ ...styles.tile, width }}>
+      <View style={styles.tileHead}>
+        <Ionicons name={icon} size={18} color={colors.inkSoft} />
+        <Text style={styles.tileTitle} numberOfLines={1}>
+          {title}
+        </Text>
+        {demo ? <Badge label="Demo" styles={styles} /> : null}
+      </View>
+      {children}
+    </Card>
+  );
+}
+
+function Action({
+  label,
+  onPress,
+  accent,
+  disabled,
+  styles,
+}: {
+  label: string;
+  onPress: () => void;
+  accent?: boolean;
+  disabled?: boolean;
+  styles: OverviewStyles;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      style={({ pressed }) => [
+        styles.action,
+        accent && styles.actionAccent,
+        (pressed || disabled) && { opacity: 0.6 },
+      ]}
+    >
+      <Text style={[styles.actionText, accent && styles.actionTextAccent]} numberOfLines={1}>
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 

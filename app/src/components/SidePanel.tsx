@@ -16,11 +16,9 @@ function severityColor(colors: Colors, severity: string): string {
  */
 export function SidePanel({
   entities,
-  activity,
   width,
 }: {
   entities: Entity[];
-  activity: Activity[];
   width?: number;
 }) {
   const colors = useColors();
@@ -34,40 +32,48 @@ export function SidePanel({
     <View style={[styles.column, width ? { width } : { flex: 1 }]}>
       {weather ? <WeatherPanel entity={weather} /> : null}
       {hasAlert ? <AlertPanel entity={alert!} /> : null}
-
-      <Card style={styles.activityCard}>
-        <Text style={styles.heading}>Zuletzt passiert</Text>
-        {activity.length === 0 ? (
-          <Text style={styles.empty}>
-            Noch keine Änderung, seit die App verbunden ist.
-          </Text>
-        ) : (
-          <View style={styles.list}>
-            {activity.slice(0, 7).map((item) => (
-              <View key={item.id} style={styles.activityRow}>
-                <View style={styles.bullet} />
-                <Text numberOfLines={1} style={styles.activityName}>
-                  {item.name}
-                </Text>
-                <Text style={styles.activitySummary}>
-                  {item.summary}
-                  {/* Beantwortet „warum ist das passiert?" */}
-                  {item.source && item.sourceKind !== 'device'
-                    ? ` · ${item.source}`
-                    : ''}
-                </Text>
-                <Text style={styles.activityTime}>
-                  {new Date(item.at).toLocaleTimeString('de-CH', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </Text>
-              </View>
-            ))}
-          </View>
-        )}
-      </Card>
     </View>
+  );
+}
+
+/** Protokoll «Zuletzt passiert» – eigenständige Karte, eingebunden unter
+ *  Einstellungen. */
+export function ActivityCard({ activity, limit = 30 }: { activity: Activity[]; limit?: number }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  return (
+    <Card style={styles.activityCard}>
+      <Text style={styles.heading}>Zuletzt passiert</Text>
+      {activity.length === 0 ? (
+        <Text style={styles.empty}>
+          Noch keine Änderung, seit die App verbunden ist.
+        </Text>
+      ) : (
+        <View style={styles.list}>
+          {activity.slice(0, limit).map((item) => (
+            <View key={item.id} style={styles.activityRow}>
+              <View style={styles.bullet} />
+              <Text numberOfLines={1} style={styles.activityName}>
+                {item.name}
+              </Text>
+              <Text style={styles.activitySummary}>
+                {item.summary}
+                {/* Beantwortet „warum ist das passiert?" */}
+                {item.source && item.sourceKind !== 'device'
+                  ? ` · ${item.source}`
+                  : ''}
+              </Text>
+              <Text style={styles.activityTime}>
+                {new Date(item.at).toLocaleTimeString('de-CH', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </Card>
   );
 }
 

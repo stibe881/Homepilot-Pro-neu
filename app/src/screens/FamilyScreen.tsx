@@ -13,9 +13,15 @@ import { ROLE_LABELS } from './UsersScreen';
  * Alle Daten liegen auf dem Hub (/api/family) – jedes Familienmitglied sieht
  * und pflegt dieselben Aufgaben, Einkaufslisten, Pins usw. Gäste sehen das
  * Modul nicht. Kalender und Geburtstage kommen aus dem Google-Kalender.
+ *
+ * Wichtig: Alle Unterkomponenten stehen auf Modulebene. Innerhalb der
+ * Komponente definiert würden sie bei jedem Live-Update vom Hub neu erzeugt
+ * (neuer Komponententyp) – React würde sie neu einhängen, und Eingaben wie
+ * Tippen im Textfeld oder ein laufender Tastendruck gingen verloren.
  */
 
 type FamilyData = Record<string, any[]>;
+type Styles = ReturnType<typeof makeStyles>;
 
 interface Member {
   name: string;
@@ -44,6 +50,353 @@ type ModuleKey =
 
 const WEEK_DAYS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
 
+// ── Wiederverwendbare Bausteine (bewusst auf Modulebene) ────────────────────
+
+function BackHead({
+  title,
+  onBack,
+  styles,
+  colors,
+}: {
+  title: string;
+  onBack: () => void;
+  styles: Styles;
+  colors: Colors;
+}) {
+  return (
+    <View style={styles.backHead}>
+      <Pressable onPress={onBack} style={styles.backRow} accessibilityRole="button">
+        <Ionicons name="chevron-back" size={18} color={colors.onGradient} />
+        <Text style={styles.backText}>Familie</Text>
+      </Pressable>
+      <Text style={styles.viewTitle}>{title}</Text>
+    </View>
+  );
+}
+
+function AddRow({
+  placeholder,
+  onAdd,
+  multiline,
+  styles,
+  colors,
+}: {
+  placeholder: string;
+  onAdd: (text: string) => void;
+  multiline?: boolean;
+  styles: Styles;
+  colors: Colors;
+}) {
+  const [text, setText] = useState('');
+  const submit = () => {
+    if (!text.trim()) return;
+    onAdd(text.trim());
+    setText('');
+  };
+  return (
+    <View style={styles.addRow}>
+      <TextInput
+        style={[styles.input, { flex: 1 }, multiline && { minHeight: 60 }]}
+        value={text}
+        onChangeText={setText}
+        placeholder={placeholder}
+        placeholderTextColor={colors.inkFaint}
+        multiline={multiline}
+        blurOnSubmit={!multiline}
+        onSubmitEditing={multiline ? undefined : submit}
+      />
+      <Pressable onPress={submit} style={styles.addButton} accessibilityLabel="Hinzufügen">
+        <Ionicons name="add" size={22} color="#FFFFFF" />
+      </Pressable>
+    </View>
+  );
+}
+
+function CheckRow({
+  item,
+  sub,
+  onToggle,
+  onDelete,
+  styles,
+  colors,
+}: {
+  item: any;
+  sub?: string;
+  onToggle: () => void;
+  onDelete: () => void;
+  styles: Styles;
+  colors: Colors;
+}) {
+  return (
+    <View style={styles.checkRow}>
+      <Pressable
+        onPress={onToggle}
+        style={styles.checkTap}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: !!item.done }}
+      >
+        <Ionicons
+          name={item.done ? 'checkmark-circle' : 'ellipse-outline'}
+          size={24}
+          color={item.done ? colors.on : colors.inkSoft}
+        />
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.checkText, item.done && styles.checkTextDone]}>
+            {item.text}
+          </Text>
+          {sub ? <Text style={styles.checkSub}>{sub}</Text> : null}
+        </View>
+      </Pressable>
+      <Pressable onPress={onDelete} style={styles.deleteTap} accessibilityLabel="Löschen">
+        <Ionicons name="close" size={18} color={colors.inkFaint} />
+      </Pressable>
+    </View>
+  );
+}
+
+function GroupedChecklist({
+  items,
+  groupNoun,
+  itemPlaceholder,
+  onAdd,
+  onToggle,
+  onDelete,
+  onResetGroup,
+  styles,
+  colors,
+}: {
+  items: any[];
+  groupNoun: string;
+  itemPlaceholder: string;
+  onAdd: (group: string, text: string) => void;
+  onToggle: (item: any) => void;
+  onDelete: (item: any) => void;
+  onResetGroup: (group: string) => void;
+  styles: Styles;
+  colors: Colors;
+}) {
+  const groups = Array.from(new Set(items.map((item) => String(item.group ?? ''))));
+  const [activeGroup, setActiveGroup] = useState(groups[0] ?? '');
+  const [newGroup, setNewGroup] = useState('');
+  // Fällt die aktive Gruppe weg (letzter Eintrag gelöscht), zur ersten wechseln.
+  const current = groups.includes(activeGroup) ? activeGroup : groups[0] ?? activeGroup;
+
+  return (
+    <View style={styles.stack}>
+      <View style={styles.chipRow}>
+        {groups.map((group) => (
+          <Pressable
+            key={group}
+            onPress={() => setActiveGroup(group)}
+            style={[styles.chip, current === group && styles.chipActive]}
+          >
+            <Text style={[styles.chipText, current === group && styles.chipTextActive]}>
+              {group}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+      <View style={styles.addRow}>
+        <TextInput
+          style={[styles.input, { flex: 1 }]}
+          value={newGroup}
+          onChangeText={setNewGroup}
+          placeholder={`Neue ${groupNoun} anlegen …`}
+          placeholderTextColor={colors.inkFaint}
+          onSubmitEditing={() => {
+            if (newGroup.trim()) {
+              setActiveGroup(newGroup.trim());
+              setNewGroup('');
+            }
+          }}
+        />
+      </View>
+      {current ? (
+        <Card style={styles.listCard}>
+          <View style={styles.groupHead}>
+            <Text style={styles.groupTitle}>{current}</Text>
+            <Pressable onPress={() => onResetGroup(current)}>
+              <Text style={styles.resetText}>Zurücksetzen</Text>
+            </Pressable>
+          </View>
+          {items
+            .filter((item) => item.group === current)
+            .map((item) => (
+              <CheckRow
+                key={item.id}
+                item={item}
+                onToggle={() => onToggle(item)}
+                onDelete={() => onDelete(item)}
+                styles={styles}
+                colors={colors}
+              />
+            ))}
+          <AddRow
+            placeholder={itemPlaceholder}
+            onAdd={(text) => onAdd(current, text)}
+            styles={styles}
+            colors={colors}
+          />
+        </Card>
+      ) : (
+        <Text style={styles.hint}>Zuerst oben eine {groupNoun} anlegen (Eingabe mit ⏎ bestätigen).</Text>
+      )}
+    </View>
+  );
+}
+
+/** Datum «TT.MM.JJJJ» oder ISO → Date (Mitternacht lokal). */
+function parseSwissDate(value: any): Date | null {
+  if (!value) return null;
+  const swiss = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(String(value).trim());
+  if (swiss) {
+    return new Date(Number(swiss[3]), Number(swiss[2]) - 1, Number(swiss[1]));
+  }
+  const date = new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/** Zeile im Essensplaner: antippen, tippen, fertig. */
+function MealRow({
+  day,
+  entry,
+  onSave,
+  colors,
+  styles,
+}: {
+  day: string;
+  entry: any | undefined;
+  onSave: (text: string) => void;
+  colors: Colors;
+  styles: Styles;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const finish = () => {
+    setEditing(false);
+    if (draft.trim() !== (entry?.text ?? '')) onSave(draft.trim());
+  };
+  return (
+    <View style={styles.mealRow}>
+      <Text style={styles.mealDay}>{day.slice(0, 2)}</Text>
+      {editing ? (
+        <TextInput
+          style={[styles.input, { flex: 1 }]}
+          value={draft}
+          onChangeText={setDraft}
+          autoFocus
+          placeholder="Was gibt's?"
+          placeholderTextColor={colors.inkFaint}
+          onBlur={finish}
+          onSubmitEditing={finish}
+        />
+      ) : (
+        <Pressable
+          style={{ flex: 1 }}
+          onPress={() => {
+            setDraft(entry?.text ?? '');
+            setEditing(true);
+          }}
+        >
+          <Text style={entry?.text ? styles.checkText : styles.mealEmpty}>
+            {entry?.text ?? 'Antippen zum Planen'}
+          </Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+/** Zweifeld-Formular (Kontakte, Countdowns, Rezepte, Dokumente). */
+function TwoFieldForm({
+  labels,
+  multilineSecond,
+  onAdd,
+  styles,
+  colors,
+}: {
+  labels: string[];
+  multilineSecond?: boolean;
+  onAdd: (first: string, second: string) => void;
+  styles: Styles;
+  colors: Colors;
+}) {
+  const [first, setFirst] = useState('');
+  const [second, setSecond] = useState('');
+  return (
+    <View style={styles.formCard}>
+      <TextInput
+        style={styles.input}
+        value={first}
+        onChangeText={setFirst}
+        placeholder={labels[0]}
+        placeholderTextColor={colors.inkFaint}
+      />
+      <TextInput
+        style={[styles.input, multilineSecond && { minHeight: 70 }]}
+        value={second}
+        onChangeText={setSecond}
+        placeholder={labels[1]}
+        placeholderTextColor={colors.inkFaint}
+        multiline={multilineSecond}
+      />
+      <Pressable
+        onPress={() => {
+          if (!first.trim()) return;
+          onAdd(first.trim(), second.trim());
+          setFirst('');
+          setSecond('');
+        }}
+        style={styles.addWide}
+      >
+        <Text style={styles.addWideText}>Hinzufügen</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+/** Rezept: Titel antippen klappt die Zubereitung auf. */
+function RecipeCard({
+  recipe,
+  onDelete,
+  styles,
+  colors,
+}: {
+  recipe: any;
+  onDelete: () => void;
+  styles: Styles;
+  colors: Colors;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Card style={styles.pinCard}>
+      <View style={styles.recipeHead}>
+        <Pressable
+          onPress={() => setOpen((value) => !value)}
+          style={[styles.recipeHead, { flex: 1 }]}
+        >
+          <Ionicons
+            name={open ? 'chevron-down' : 'chevron-forward'}
+            size={16}
+            color={colors.inkSoft}
+          />
+          <Text style={[styles.checkText, { flex: 1 }]}>{recipe.text}</Text>
+        </Pressable>
+        <Pressable onPress={onDelete} style={styles.deleteTap}>
+          <Ionicons name="trash-outline" size={16} color={colors.inkFaint} />
+        </Pressable>
+      </View>
+      {open && recipe.body ? (
+        <Text selectable style={styles.recipeBody}>
+          {recipe.body}
+        </Text>
+      ) : null}
+    </Card>
+  );
+}
+
+// ── Hauptkomponente ─────────────────────────────────────────────────────────
+
 export function FamilyScreen({ settings, entities, currentUser }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -60,7 +413,10 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
   const load = useCallback(() => {
     fetch(`${settings.url}/api/family`, { headers })
       .then((response) => (response.ok ? response.json() : Promise.reject(response.status)))
-      .then(setData)
+      .then((payload) => {
+        setData(payload);
+        setError(null);
+      })
       .catch((err) => setError(`Familiendaten nicht abrufbar (${err})`));
   }, [settings.url, headers]);
 
@@ -77,44 +433,51 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
 
   // ── Änderungen an den Hub ──────────────────────────────────────────────
 
-  const add = async (collection: string, item: Record<string, any>) => {
-    try {
-      const response = await fetch(`${settings.url}/api/family/${collection}`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify(item),
-      });
-      if (!response.ok) throw new Error(String(response.status));
-      load();
-    } catch (err: any) {
-      setError(`Speichern fehlgeschlagen (${err.message ?? err})`);
-    }
-  };
+  const add = useCallback(
+    async (collection: string, item: Record<string, any>) => {
+      try {
+        const response = await fetch(`${settings.url}/api/family/${collection}`, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify(item),
+        });
+        if (!response.ok) throw new Error(String(response.status));
+        load();
+      } catch (err: any) {
+        setError(`Speichern fehlgeschlagen (${err.message ?? err})`);
+      }
+    },
+    [settings.url, headers, load]
+  );
 
-  const update = async (collection: string, id: string, patch: Record<string, any>) => {
-    try {
-      await fetch(`${settings.url}/api/family/${collection}/${id}`, {
-        method: 'PUT',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify(patch),
-      });
-      load();
-    } catch {
-      load();
-    }
-  };
+  const update = useCallback(
+    async (collection: string, id: string, patch: Record<string, any>) => {
+      try {
+        await fetch(`${settings.url}/api/family/${collection}/${id}`, {
+          method: 'PUT',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify(patch),
+        });
+      } finally {
+        load();
+      }
+    },
+    [settings.url, headers, load]
+  );
 
-  const remove = async (collection: string, id: string) => {
-    try {
-      await fetch(`${settings.url}/api/family/${collection}/${id}`, {
-        method: 'DELETE',
-        headers,
-      });
-      load();
-    } catch {
-      load();
-    }
-  };
+  const remove = useCallback(
+    async (collection: string, id: string) => {
+      try {
+        await fetch(`${settings.url}/api/family/${collection}/${id}`, {
+          method: 'DELETE',
+          headers,
+        });
+      } finally {
+        load();
+      }
+    },
+    [settings.url, headers, load]
+  );
 
   // ── Abgeleitete Werte ──────────────────────────────────────────────────
 
@@ -156,514 +519,384 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
     return tracker.state.state === 'on' ? 'home' : 'away';
   };
 
-  // ── Bausteine ──────────────────────────────────────────────────────────
-
-  const Back = ({ title }: { title: string }) => (
-    <View style={styles.backHead}>
-      <Pressable onPress={() => setView(null)} style={styles.backRow} accessibilityRole="button">
-        <Ionicons name="chevron-back" size={18} color={colors.onGradient} />
-        <Text style={styles.backText}>Familie</Text>
-      </Pressable>
-      <Text style={styles.viewTitle}>{title}</Text>
-    </View>
-  );
-
-  /** Eingabezeile mit Plus-Knopf. */
-  const AddRow = ({
-    placeholder,
-    onAdd,
-    multiline,
-  }: {
-    placeholder: string;
-    onAdd: (text: string) => void;
-    multiline?: boolean;
-  }) => {
-    const [text, setText] = useState('');
-    const submit = () => {
-      if (!text.trim()) return;
-      onAdd(text.trim());
-      setText('');
-    };
-    return (
-      <View style={styles.addRow}>
-        <TextInput
-          style={[styles.input, { flex: 1 }, multiline && { minHeight: 60 }]}
-          value={text}
-          onChangeText={setText}
-          placeholder={placeholder}
-          placeholderTextColor={colors.inkFaint}
-          multiline={multiline}
-          onSubmitEditing={multiline ? undefined : submit}
-        />
-        <Pressable onPress={submit} style={styles.addButton} accessibilityLabel="Hinzufügen">
-          <Ionicons name="add" size={22} color="#FFFFFF" />
-        </Pressable>
-      </View>
-    );
-  };
-
-  /** Abhakbare Zeile mit Löschknopf. */
-  const CheckRow = ({
-    item,
-    collection,
-    sub,
-  }: {
-    item: any;
-    collection: string;
-    sub?: string;
-  }) => (
-    <View style={styles.checkRow}>
-      <Pressable
-        onPress={() => update(collection, item.id, { done: !item.done })}
-        style={styles.checkTap}
-        accessibilityRole="checkbox"
-        accessibilityState={{ checked: !!item.done }}
-      >
-        <Ionicons
-          name={item.done ? 'checkmark-circle' : 'ellipse-outline'}
-          size={24}
-          color={item.done ? colors.on : colors.inkSoft}
-        />
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.checkText, item.done && styles.checkTextDone]}>
-            {item.text}
-          </Text>
-          {sub ? <Text style={styles.checkSub}>{sub}</Text> : null}
-        </View>
-      </Pressable>
-      <Pressable
-        onPress={() => remove(collection, item.id)}
-        style={styles.deleteTap}
-        accessibilityLabel="Löschen"
-      >
-        <Ionicons name="close" size={18} color={colors.inkFaint} />
-      </Pressable>
-    </View>
-  );
-
-  /** Checkliste mit Gruppen (Routinen, Packlisten). */
-  const GroupedChecklist = ({
-    collection,
-    groupNoun,
-    itemPlaceholder,
-  }: {
-    collection: string;
-    groupNoun: string;
-    itemPlaceholder: string;
-  }) => {
-    const items: any[] = data[collection] ?? [];
-    const groups = Array.from(new Set(items.map((item) => String(item.group ?? ''))));
-    const [activeGroup, setActiveGroup] = useState(groups[0] ?? '');
-    const [newGroup, setNewGroup] = useState('');
-    return (
-      <View style={styles.stack}>
-        <View style={styles.chipRow}>
-          {groups.map((group) => (
-            <Pressable
-              key={group}
-              onPress={() => setActiveGroup(group)}
-              style={[styles.chip, activeGroup === group && styles.chipActive]}
-            >
-              <Text
-                style={[styles.chipText, activeGroup === group && styles.chipTextActive]}
-              >
-                {group}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-        <View style={styles.addRow}>
-          <TextInput
-            style={[styles.input, { flex: 1 }]}
-            value={newGroup}
-            onChangeText={setNewGroup}
-            placeholder={`Neue ${groupNoun} anlegen …`}
-            placeholderTextColor={colors.inkFaint}
-            onSubmitEditing={() => {
-              if (newGroup.trim()) {
-                setActiveGroup(newGroup.trim());
-                setNewGroup('');
-              }
-            }}
-          />
-        </View>
-        {activeGroup ? (
-          <Card style={styles.listCard}>
-            <View style={styles.groupHead}>
-              <Text style={styles.groupTitle}>{activeGroup}</Text>
-              <Pressable
-                onPress={() =>
-                  items
-                    .filter((item) => item.group === activeGroup && item.done)
-                    .forEach((item) => update(collection, item.id, { done: false }))
-                }
-              >
-                <Text style={styles.resetText}>Zurücksetzen</Text>
-              </Pressable>
-            </View>
-            {items
-              .filter((item) => item.group === activeGroup)
-              .map((item) => (
-                <CheckRow key={item.id} item={item} collection={collection} />
-              ))}
-            <AddRow
-              placeholder={itemPlaceholder}
-              onAdd={(text) => add(collection, { group: activeGroup, text, done: false })}
-            />
-          </Card>
-        ) : (
-          <Text style={styles.hint}>Zuerst oben eine {groupNoun} anlegen.</Text>
-        )}
-      </View>
-    );
-  };
+  const goBack = () => setView(null);
 
   // ── Die einzelnen Modul-Ansichten ──────────────────────────────────────
 
-  const renderModule = () => {
-    switch (view) {
-      case 'kalender': {
-        const upcoming = events.slice(0, 10);
-        return (
-          <View style={styles.stack}>
-            <Back title="Kalender" />
-            <Card style={styles.listCard}>
-              {upcoming.length > 0 ? (
-                upcoming.map((event, index) => (
-                  <View key={index} style={styles.eventRow}>
-                    <View style={styles.eventDot} />
-                    <Text style={styles.checkText} numberOfLines={1}>
-                      {event.summary ?? '—'}
-                    </Text>
-                    <Text style={styles.checkSub}>{eventWhen(event)}</Text>
-                  </View>
-                ))
-              ) : (
-                <Text style={styles.hint}>
-                  {calendar
-                    ? 'Keine anstehenden Termine.'
-                    : 'Google Kalender in der config.yaml einbinden, dann stehen hier die echten Termine.'}
+  if (view === 'kalender') {
+    const upcoming = events.slice(0, 10);
+    return (
+      <View style={styles.stack}>
+        <BackHead title="Kalender" onBack={goBack} styles={styles} colors={colors} />
+        <Card style={styles.listCard}>
+          {upcoming.length > 0 ? (
+            upcoming.map((event, index) => (
+              <View key={index} style={styles.eventRow}>
+                <View style={styles.eventDot} />
+                <Text style={[styles.checkText, { flex: 1 }]} numberOfLines={1}>
+                  {event.summary ?? '—'}
                 </Text>
-              )}
-            </Card>
-          </View>
-        );
-      }
-
-      case 'tasks': {
-        const tasks: any[] = data.tasks ?? [];
-        return (
-          <View style={styles.stack}>
-            <Back title="Aufgaben" />
-            <Card style={styles.listCard}>
-              {tasks.map((task) => (
-                <CheckRow
-                  key={task.id}
-                  item={task}
-                  collection="tasks"
-                  sub={task.author ? `von ${task.author}` : undefined}
-                />
-              ))}
-              <AddRow
-                placeholder="Neue Aufgabe …"
-                onAdd={(text) => add('tasks', { text, done: false })}
-              />
-            </Card>
-          </View>
-        );
-      }
-
-      case 'shopping': {
-        const items: any[] = data.shopping ?? [];
-        const done = items.filter((item) => item.done);
-        return (
-          <View style={styles.stack}>
-            <Back title="Einkaufsliste" />
-            <Card style={styles.listCard}>
-              {items.map((item) => (
-                <CheckRow key={item.id} item={item} collection="shopping" />
-              ))}
-              <AddRow
-                placeholder="Was fehlt? …"
-                onAdd={(text) => add('shopping', { text, done: false })}
-              />
-              {done.length > 0 ? (
-                <Pressable
-                  onPress={() => done.forEach((item) => remove('shopping', item.id))}
-                  style={styles.clearButton}
-                >
-                  <Text style={styles.resetText}>
-                    {done.length} Erledigte entfernen
-                  </Text>
-                </Pressable>
-              ) : null}
-            </Card>
-          </View>
-        );
-      }
-
-      case 'meals': {
-        const meals: any[] = data.meals ?? [];
-        return (
-          <View style={styles.stack}>
-            <Back title="Essensplaner" />
-            <Card style={styles.listCard}>
-              {WEEK_DAYS.map((day) => {
-                const entry = meals.find((meal) => meal.day === day);
-                return (
-                  <MealRow
-                    key={day}
-                    day={day}
-                    entry={entry}
-                    onSave={(text) => {
-                      if (entry) {
-                        text
-                          ? update('meals', entry.id, { text })
-                          : remove('meals', entry.id);
-                      } else if (text) {
-                        add('meals', { day, text });
-                      }
-                    }}
-                    colors={colors}
-                    styles={styles}
-                  />
-                );
-              })}
-            </Card>
-          </View>
-        );
-      }
-
-      case 'pins': {
-        const pins: any[] = data.pins ?? [];
-        return (
-          <View style={styles.stack}>
-            <Back title="Pinnwand" />
-            <AddRow
-              placeholder="Nachricht an alle …"
-              multiline
-              onAdd={(text) => add('pins', { text })}
-            />
-            {pins
-              .slice()
-              .reverse()
-              .map((pin) => (
-                <Card key={pin.id} style={styles.pinCard}>
-                  <Text style={styles.checkText}>{pin.text}</Text>
-                  <View style={styles.pinFoot}>
-                    <Text style={styles.checkSub}>
-                      {pin.author}
-                      {pin.created ? ` · ${pin.created.slice(0, 10)}` : ''}
-                    </Text>
-                    <Pressable onPress={() => remove('pins', pin.id)}>
-                      <Ionicons name="trash-outline" size={16} color={colors.inkFaint} />
-                    </Pressable>
-                  </View>
-                </Card>
-              ))}
-          </View>
-        );
-      }
-
-      case 'rewards': {
-        const log: any[] = data.rewards ?? [];
-        const totals = members.map((member) => ({
-          ...member,
-          points: log
-            .filter((entry) => entry.member === member.name)
-            .reduce((sum, entry) => sum + Number(entry.points ?? 0), 0),
-        }));
-        return (
-          <View style={styles.stack}>
-            <Back title="Belohnungen" />
-            {totals.map((member) => (
-              <Card key={member.name} style={styles.rewardCard}>
-                <View style={styles.avatarSmall}>
-                  <Text style={styles.avatarSmallText}>
-                    {member.name.slice(0, 1).toUpperCase()}
-                  </Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.checkText}>{member.name}</Text>
-                  <Text style={styles.checkSub}>{member.points} Punkte</Text>
-                </View>
-                {[1, 5, -1].map((step) => (
-                  <Pressable
-                    key={step}
-                    onPress={() => add('rewards', { member: member.name, points: step })}
-                    style={[styles.pointButton, step < 0 && styles.pointButtonMinus]}
-                  >
-                    <Text
-                      style={[styles.pointButtonText, step < 0 && { color: colors.ink }]}
-                    >
-                      {step > 0 ? `+${step}` : step}
-                    </Text>
-                  </Pressable>
-                ))}
-              </Card>
-            ))}
-          </View>
-        );
-      }
-
-      case 'contacts': {
-        const contacts: any[] = data.contacts ?? [];
-        return (
-          <View style={styles.stack}>
-            <Back title="Kontakte" />
-            {contacts.map((contact) => (
-              <Card key={contact.id} style={styles.rewardCard}>
-                <Ionicons name="call-outline" size={20} color={colors.accent} />
-                <Pressable
-                  style={{ flex: 1 }}
-                  onPress={() => Linking.openURL(`tel:${contact.phone}`)}
-                >
-                  <Text style={styles.checkText}>{contact.text}</Text>
-                  <Text style={styles.checkSub}>{contact.phone}</Text>
-                </Pressable>
-                <Pressable onPress={() => remove('contacts', contact.id)}>
-                  <Ionicons name="close" size={18} color={colors.inkFaint} />
-                </Pressable>
-              </Card>
-            ))}
-            <ContactForm onAdd={(text, phone) => add('contacts', { text, phone })} styles={styles} colors={colors} />
-          </View>
-        );
-      }
-
-      case 'routines':
-        return (
-          <View style={styles.stack}>
-            <Back title="Routinen" />
+                <Text style={styles.checkSub}>{eventWhen(event)}</Text>
+              </View>
+            ))
+          ) : (
             <Text style={styles.hint}>
-              Tagesabläufe als Checklisten – z.B. «Morgen» oder «Zubettgehen».
-              Zurücksetzen macht alle Haken weg für den nächsten Tag.
+              {calendar
+                ? 'Keine anstehenden Termine.'
+                : 'Google Kalender in der config.yaml einbinden, dann stehen hier die echten Termine.'}
             </Text>
-            <GroupedChecklist
-              collection="routines"
-              groupNoun="Routine"
-              itemPlaceholder="Neuer Schritt …"
-            />
-          </View>
-        );
+          )}
+        </Card>
+      </View>
+    );
+  }
 
-      case 'packlists':
-        return (
-          <View style={styles.stack}>
-            <Back title="Packlisten" />
-            <GroupedChecklist
-              collection="packlists"
-              groupNoun="Packliste"
-              itemPlaceholder="Was mitkommt …"
-            />
-          </View>
-        );
-
-      case 'countdowns': {
-        const countdowns: any[] = data.countdowns ?? [];
-        return (
-          <View style={styles.stack}>
-            <Back title="Countdowns" />
-            {countdowns.map((countdown) => {
-              const target = parseSwissDate(countdown.date);
-              const days =
-                target != null
-                  ? Math.ceil((target.getTime() - Date.now()) / 86_400_000)
-                  : null;
-              return (
-                <Card key={countdown.id} style={styles.rewardCard}>
-                  <View style={styles.daysBubble}>
-                    <Text style={styles.daysNumber}>{days ?? '?'}</Text>
-                    <Text style={styles.daysLabel}>Tage</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.checkText}>{countdown.text}</Text>
-                    <Text style={styles.checkSub}>{countdown.date}</Text>
-                  </View>
-                  <Pressable onPress={() => remove('countdowns', countdown.id)}>
-                    <Ionicons name="close" size={18} color={colors.inkFaint} />
-                  </Pressable>
-                </Card>
-              );
-            })}
-            <ContactForm
-              labels={['Anlass (z.B. Ferien)', 'Datum (TT.MM.JJJJ)']}
-              onAdd={(text, date) => add('countdowns', { text, date })}
+  if (view === 'tasks') {
+    const tasks: any[] = data.tasks ?? [];
+    return (
+      <View style={styles.stack}>
+        <BackHead title="Aufgaben" onBack={goBack} styles={styles} colors={colors} />
+        <Card style={styles.listCard}>
+          {tasks.map((task) => (
+            <CheckRow
+              key={task.id}
+              item={task}
+              sub={task.author ? `von ${task.author}` : undefined}
+              onToggle={() => update('tasks', task.id, { done: !task.done })}
+              onDelete={() => remove('tasks', task.id)}
               styles={styles}
               colors={colors}
             />
-          </View>
-        );
-      }
+          ))}
+          <AddRow
+            placeholder="Neue Aufgabe …"
+            onAdd={(text) => add('tasks', { text, done: false })}
+            styles={styles}
+            colors={colors}
+          />
+        </Card>
+      </View>
+    );
+  }
 
-      case 'recipes': {
-        const recipes: any[] = data.recipes ?? [];
-        return (
-          <View style={styles.stack}>
-            <Back title="Rezeptbuch" />
-            {recipes.map((recipe) => (
-              <RecipeCard
-                key={recipe.id}
-                recipe={recipe}
-                onDelete={() => remove('recipes', recipe.id)}
-                styles={styles}
+  if (view === 'shopping') {
+    const items: any[] = data.shopping ?? [];
+    const done = items.filter((item) => item.done);
+    return (
+      <View style={styles.stack}>
+        <BackHead title="Einkaufsliste" onBack={goBack} styles={styles} colors={colors} />
+        <Card style={styles.listCard}>
+          {items.map((item) => (
+            <CheckRow
+              key={item.id}
+              item={item}
+              onToggle={() => update('shopping', item.id, { done: !item.done })}
+              onDelete={() => remove('shopping', item.id)}
+              styles={styles}
+              colors={colors}
+            />
+          ))}
+          <AddRow
+            placeholder="Was fehlt? …"
+            onAdd={(text) => add('shopping', { text, done: false })}
+            styles={styles}
+            colors={colors}
+          />
+          {done.length > 0 ? (
+            <Pressable
+              onPress={() => done.forEach((item) => remove('shopping', item.id))}
+              style={styles.clearButton}
+            >
+              <Text style={styles.resetText}>{done.length} Erledigte entfernen</Text>
+            </Pressable>
+          ) : null}
+        </Card>
+      </View>
+    );
+  }
+
+  if (view === 'meals') {
+    const meals: any[] = data.meals ?? [];
+    return (
+      <View style={styles.stack}>
+        <BackHead title="Essensplaner" onBack={goBack} styles={styles} colors={colors} />
+        <Card style={styles.listCard}>
+          {WEEK_DAYS.map((day) => {
+            const entry = meals.find((meal) => meal.day === day);
+            return (
+              <MealRow
+                key={day}
+                day={day}
+                entry={entry}
+                onSave={(text) => {
+                  if (entry) {
+                    text ? update('meals', entry.id, { text }) : remove('meals', entry.id);
+                  } else if (text) {
+                    add('meals', { day, text });
+                  }
+                }}
                 colors={colors}
+                styles={styles}
               />
+            );
+          })}
+        </Card>
+      </View>
+    );
+  }
+
+  if (view === 'pins') {
+    const pins: any[] = data.pins ?? [];
+    return (
+      <View style={styles.stack}>
+        <BackHead title="Pinnwand" onBack={goBack} styles={styles} colors={colors} />
+        <AddRow
+          placeholder="Nachricht an alle …"
+          multiline
+          onAdd={(text) => add('pins', { text })}
+          styles={styles}
+          colors={colors}
+        />
+        {pins
+          .slice()
+          .reverse()
+          .map((pin) => (
+            <Card key={pin.id} style={styles.pinCard}>
+              <Text style={styles.checkText}>{pin.text}</Text>
+              <View style={styles.pinFoot}>
+                <Text style={styles.checkSub}>
+                  {pin.author}
+                  {pin.created ? ` · ${pin.created.slice(0, 10)}` : ''}
+                </Text>
+                <Pressable onPress={() => remove('pins', pin.id)} style={styles.deleteTap}>
+                  <Ionicons name="trash-outline" size={16} color={colors.inkFaint} />
+                </Pressable>
+              </View>
+            </Card>
+          ))}
+      </View>
+    );
+  }
+
+  if (view === 'rewards') {
+    const log: any[] = data.rewards ?? [];
+    const totals = members.map((member) => ({
+      ...member,
+      points: log
+        .filter((entry) => entry.member === member.name)
+        .reduce((sum, entry) => sum + Number(entry.points ?? 0), 0),
+    }));
+    return (
+      <View style={styles.stack}>
+        <BackHead title="Belohnungen" onBack={goBack} styles={styles} colors={colors} />
+        {totals.map((member) => (
+          <Card key={member.name} style={styles.rewardCard}>
+            <View style={styles.avatarSmall}>
+              <Text style={styles.avatarSmallText}>
+                {member.name.slice(0, 1).toUpperCase()}
+              </Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.checkText}>{member.name}</Text>
+              <Text style={styles.checkSub}>{member.points} Punkte</Text>
+            </View>
+            {[1, 5, -1].map((step) => (
+              <Pressable
+                key={step}
+                onPress={() => add('rewards', { member: member.name, points: step })}
+                style={[styles.pointButton, step < 0 && styles.pointButtonMinus]}
+              >
+                <Text style={[styles.pointButtonText, step < 0 && { color: colors.ink }]}>
+                  {step > 0 ? `+${step}` : step}
+                </Text>
+              </Pressable>
             ))}
-            <ContactForm
-              labels={['Gericht', 'Zutaten / Zubereitung']}
-              multilineSecond
-              onAdd={(text, body) => add('recipes', { text, body })}
-              styles={styles}
-              colors={colors}
-            />
-          </View>
-        );
-      }
+          </Card>
+        ))}
+      </View>
+    );
+  }
 
-      case 'documents': {
-        const documents: any[] = data.documents ?? [];
-        return (
-          <View style={styles.stack}>
-            <Back title="Dokumentsafe" />
-            <Text style={styles.hint}>
-              Wichtige Angaben und Ablageorte (z.B. «Pass im Tresor», Policen-
-              Nummern, Links). Dateien selbst gehören in deine Cloud-Ablage.
-            </Text>
-            {documents.map((document) => (
-              <Card key={document.id} style={styles.pinCard}>
-                <Text style={styles.checkText}>{document.text}</Text>
-                {document.body ? (
-                  <Text selectable style={styles.checkSub}>
-                    {document.body}
-                  </Text>
-                ) : null}
-                <View style={styles.pinFoot}>
-                  <Text style={styles.checkSub}>{document.author}</Text>
-                  <Pressable onPress={() => remove('documents', document.id)}>
-                    <Ionicons name="trash-outline" size={16} color={colors.inkFaint} />
-                  </Pressable>
-                </View>
-              </Card>
-            ))}
-            <ContactForm
-              labels={['Titel (z.B. Hausrat-Police)', 'Angaben / Ablageort']}
-              multilineSecond
-              onAdd={(text, body) => add('documents', { text, body })}
-              styles={styles}
-              colors={colors}
-            />
-          </View>
-        );
-      }
+  if (view === 'contacts') {
+    const contacts: any[] = data.contacts ?? [];
+    return (
+      <View style={styles.stack}>
+        <BackHead title="Kontakte" onBack={goBack} styles={styles} colors={colors} />
+        {contacts.map((contact) => (
+          <Card key={contact.id} style={styles.rewardCard}>
+            <Ionicons name="call-outline" size={20} color={colors.accent} />
+            <Pressable
+              style={{ flex: 1 }}
+              onPress={() => Linking.openURL(`tel:${contact.phone}`)}
+            >
+              <Text style={styles.checkText}>{contact.text}</Text>
+              <Text style={styles.checkSub}>{contact.phone}</Text>
+            </Pressable>
+            <Pressable onPress={() => remove('contacts', contact.id)} style={styles.deleteTap}>
+              <Ionicons name="close" size={18} color={colors.inkFaint} />
+            </Pressable>
+          </Card>
+        ))}
+        <TwoFieldForm
+          labels={['Name', 'Telefonnummer']}
+          onAdd={(text, phone) => add('contacts', { text, phone })}
+          styles={styles}
+          colors={colors}
+        />
+      </View>
+    );
+  }
 
-      default:
-        return null;
-    }
-  };
+  if (view === 'routines') {
+    return (
+      <View style={styles.stack}>
+        <BackHead title="Routinen" onBack={goBack} styles={styles} colors={colors} />
+        <Text style={styles.hint}>
+          Tagesabläufe als Checklisten – z.B. «Morgen» oder «Zubettgehen».
+          Zurücksetzen macht alle Haken weg für den nächsten Tag.
+        </Text>
+        <GroupedChecklist
+          items={data.routines ?? []}
+          groupNoun="Routine"
+          itemPlaceholder="Neuer Schritt …"
+          onAdd={(group, text) => add('routines', { group, text, done: false })}
+          onToggle={(item) => update('routines', item.id, { done: !item.done })}
+          onDelete={(item) => remove('routines', item.id)}
+          onResetGroup={(group) =>
+            (data.routines ?? [])
+              .filter((item) => item.group === group && item.done)
+              .forEach((item) => update('routines', item.id, { done: false }))
+          }
+          styles={styles}
+          colors={colors}
+        />
+      </View>
+    );
+  }
 
-  if (view) {
-    return renderModule();
+  if (view === 'packlists') {
+    return (
+      <View style={styles.stack}>
+        <BackHead title="Packlisten" onBack={goBack} styles={styles} colors={colors} />
+        <GroupedChecklist
+          items={data.packlists ?? []}
+          groupNoun="Packliste"
+          itemPlaceholder="Was mitkommt …"
+          onAdd={(group, text) => add('packlists', { group, text, done: false })}
+          onToggle={(item) => update('packlists', item.id, { done: !item.done })}
+          onDelete={(item) => remove('packlists', item.id)}
+          onResetGroup={(group) =>
+            (data.packlists ?? [])
+              .filter((item) => item.group === group && item.done)
+              .forEach((item) => update('packlists', item.id, { done: false }))
+          }
+          styles={styles}
+          colors={colors}
+        />
+      </View>
+    );
+  }
+
+  if (view === 'countdowns') {
+    const countdowns: any[] = data.countdowns ?? [];
+    return (
+      <View style={styles.stack}>
+        <BackHead title="Countdowns" onBack={goBack} styles={styles} colors={colors} />
+        {countdowns.map((countdown) => {
+          const target = parseSwissDate(countdown.date);
+          const days =
+            target != null ? Math.ceil((target.getTime() - Date.now()) / 86_400_000) : null;
+          return (
+            <Card key={countdown.id} style={styles.rewardCard}>
+              <View style={styles.daysBubble}>
+                <Text style={styles.daysNumber}>{days ?? '?'}</Text>
+                <Text style={styles.daysLabel}>Tage</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.checkText}>{countdown.text}</Text>
+                <Text style={styles.checkSub}>{countdown.date}</Text>
+              </View>
+              <Pressable
+                onPress={() => remove('countdowns', countdown.id)}
+                style={styles.deleteTap}
+              >
+                <Ionicons name="close" size={18} color={colors.inkFaint} />
+              </Pressable>
+            </Card>
+          );
+        })}
+        <TwoFieldForm
+          labels={['Anlass (z.B. Ferien)', 'Datum (TT.MM.JJJJ)']}
+          onAdd={(text, date) => add('countdowns', { text, date })}
+          styles={styles}
+          colors={colors}
+        />
+      </View>
+    );
+  }
+
+  if (view === 'recipes') {
+    const recipes: any[] = data.recipes ?? [];
+    return (
+      <View style={styles.stack}>
+        <BackHead title="Rezeptbuch" onBack={goBack} styles={styles} colors={colors} />
+        {recipes.map((recipe) => (
+          <RecipeCard
+            key={recipe.id}
+            recipe={recipe}
+            onDelete={() => remove('recipes', recipe.id)}
+            styles={styles}
+            colors={colors}
+          />
+        ))}
+        <TwoFieldForm
+          labels={['Gericht', 'Zutaten / Zubereitung']}
+          multilineSecond
+          onAdd={(text, body) => add('recipes', { text, body })}
+          styles={styles}
+          colors={colors}
+        />
+      </View>
+    );
+  }
+
+  if (view === 'documents') {
+    const documents: any[] = data.documents ?? [];
+    return (
+      <View style={styles.stack}>
+        <BackHead title="Dokumentsafe" onBack={goBack} styles={styles} colors={colors} />
+        <Text style={styles.hint}>
+          Wichtige Angaben und Ablageorte (z.B. «Pass im Tresor», Policen-Nummern,
+          Links). Dateien selbst gehören in deine Cloud-Ablage.
+        </Text>
+        {documents.map((document) => (
+          <Card key={document.id} style={styles.pinCard}>
+            <Text style={styles.checkText}>{document.text}</Text>
+            {document.body ? (
+              <Text selectable style={styles.checkSub}>
+                {document.body}
+              </Text>
+            ) : null}
+            <View style={styles.pinFoot}>
+              <Text style={styles.checkSub}>{document.author}</Text>
+              <Pressable
+                onPress={() => remove('documents', document.id)}
+                style={styles.deleteTap}
+              >
+                <Ionicons name="trash-outline" size={16} color={colors.inkFaint} />
+              </Pressable>
+            </View>
+          </Card>
+        ))}
+        <TwoFieldForm
+          labels={['Titel (z.B. Hausrat-Police)', 'Angaben / Ablageort']}
+          multilineSecond
+          onAdd={(text, body) => add('documents', { text, body })}
+          styles={styles}
+          colors={colors}
+        />
+      </View>
+    );
   }
 
   // ── Familien-Übersicht ─────────────────────────────────────────────────
@@ -755,153 +988,6 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
         ))}
       </View>
     </View>
-  );
-}
-
-/** Datum «TT.MM.JJJJ» oder ISO → Date (Mitternacht lokal). */
-function parseSwissDate(value: any): Date | null {
-  if (!value) return null;
-  const swiss = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(String(value).trim());
-  if (swiss) {
-    return new Date(Number(swiss[3]), Number(swiss[2]) - 1, Number(swiss[1]));
-  }
-  const date = new Date(String(value));
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-/** Zeile im Essensplaner: antippen, tippen, fertig. */
-function MealRow({
-  day,
-  entry,
-  onSave,
-  colors,
-  styles,
-}: {
-  day: string;
-  entry: any | undefined;
-  onSave: (text: string) => void;
-  colors: Colors;
-  styles: any;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState('');
-  return (
-    <View style={styles.mealRow}>
-      <Text style={styles.mealDay}>{day.slice(0, 2)}</Text>
-      {editing ? (
-        <TextInput
-          style={[styles.input, { flex: 1 }]}
-          value={draft}
-          onChangeText={setDraft}
-          autoFocus
-          placeholder="Was gibt's?"
-          placeholderTextColor={colors.inkFaint}
-          onBlur={() => {
-            setEditing(false);
-            if (draft !== (entry?.text ?? '')) onSave(draft.trim());
-          }}
-          onSubmitEditing={() => {
-            setEditing(false);
-            if (draft !== (entry?.text ?? '')) onSave(draft.trim());
-          }}
-        />
-      ) : (
-        <Pressable
-          style={{ flex: 1 }}
-          onPress={() => {
-            setDraft(entry?.text ?? '');
-            setEditing(true);
-          }}
-        >
-          <Text style={entry?.text ? styles.checkText : styles.mealEmpty}>
-            {entry?.text ?? 'Antippen zum Planen'}
-          </Text>
-        </Pressable>
-      )}
-    </View>
-  );
-}
-
-/** Zweifeld-Formular (Kontakte, Countdowns, Rezepte, Dokumente). */
-function ContactForm({
-  labels = ['Name', 'Telefonnummer'],
-  multilineSecond,
-  onAdd,
-  styles,
-  colors,
-}: {
-  labels?: [string, string] | string[];
-  multilineSecond?: boolean;
-  onAdd: (first: string, second: string) => void;
-  styles: any;
-  colors: Colors;
-}) {
-  const [first, setFirst] = useState('');
-  const [second, setSecond] = useState('');
-  return (
-    <View style={styles.formCard}>
-      <TextInput
-        style={styles.input}
-        value={first}
-        onChangeText={setFirst}
-        placeholder={labels[0]}
-        placeholderTextColor={colors.inkFaint}
-      />
-      <TextInput
-        style={[styles.input, multilineSecond && { minHeight: 70 }]}
-        value={second}
-        onChangeText={setSecond}
-        placeholder={labels[1]}
-        placeholderTextColor={colors.inkFaint}
-        multiline={multilineSecond}
-      />
-      <Pressable
-        onPress={() => {
-          if (!first.trim()) return;
-          onAdd(first.trim(), second.trim());
-          setFirst('');
-          setSecond('');
-        }}
-        style={styles.addWide}
-      >
-        <Text style={styles.addWideText}>Hinzufügen</Text>
-      </Pressable>
-    </View>
-  );
-}
-
-/** Rezept: Titel antippen klappt die Zubereitung auf. */
-function RecipeCard({
-  recipe,
-  onDelete,
-  styles,
-  colors,
-}: {
-  recipe: any;
-  onDelete: () => void;
-  styles: any;
-  colors: Colors;
-}) {
-  const [open, setOpen] = useState(false);
-  return (
-    <Card style={styles.pinCard}>
-      <Pressable onPress={() => setOpen((value) => !value)} style={styles.recipeHead}>
-        <Ionicons
-          name={open ? 'chevron-down' : 'chevron-forward'}
-          size={16}
-          color={colors.inkSoft}
-        />
-        <Text style={[styles.checkText, { flex: 1 }]}>{recipe.text}</Text>
-        <Pressable onPress={onDelete}>
-          <Ionicons name="trash-outline" size={16} color={colors.inkFaint} />
-        </Pressable>
-      </Pressable>
-      {open && recipe.body ? (
-        <Text selectable style={styles.recipeBody}>
-          {recipe.body}
-        </Text>
-      ) : null}
-    </Card>
   );
 }
 
@@ -1049,7 +1135,11 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.accent,
       alignItems: 'center',
     },
-    pointButtonMinus: { backgroundColor: colors.surfaceSoft, borderWidth: 1, borderColor: colors.surfaceBorder },
+    pointButtonMinus: {
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
     pointButtonText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
 
     daysBubble: {
