@@ -30,6 +30,32 @@ from ..core.errors import ConfigError
 from ..core.integration import Integration
 
 
+# Saugstärke-Stufen → Code (V2, moderne S-Serie). Für die App bewusst auf
+# vier verständliche Stufen reduziert.
+FAN_SPEEDS: dict[str, int] = {
+    "silent": 101,
+    "balanced": 102,
+    "turbo": 103,
+    "max": 104,
+}
+_FAN_BY_CODE = {code: name for name, code in FAN_SPEEDS.items()}
+
+
+def fan_speed_code(level: Any) -> int:
+    """Name oder Zahl einer Saugstärke in den Gerätecode übersetzen (rein).
+
+    Wirft bei unbekannter Stufe, damit der Fehler beim Benutzer ankommt.
+    """
+    if isinstance(level, (int, float)) or (isinstance(level, str) and level.isdigit()):
+        return int(level)
+    name = str(level).lower()
+    if name not in FAN_SPEEDS:
+        raise ValueError(
+            f"Unbekannte Saugstärke '{level}' – erlaubt: {', '.join(FAN_SPEEDS)}"
+        )
+    return FAN_SPEEDS[name]
+
+
 def vacuum_state(status: Any) -> dict[str, Any]:
     """Übersetzt den Status der Bibliothek in Entitäts-Attribute.
 
@@ -51,6 +77,17 @@ def vacuum_state(status: Any) -> dict[str, Any]:
     clean_time = getattr(status, "clean_time", None)
     if clean_time:
         result["clean_minutes"] = round(float(clean_time) / 60)
+    fan = getattr(status, "fan_power", None)
+    if fan is not None:
+        # Enum (hat .name) oder roher Code – auf einen der vier Namen bringen.
+        name = getattr(fan, "name", None)
+        if name is None:
+            try:
+                name = _FAN_BY_CODE.get(int(fan))
+            except (TypeError, ValueError):
+                name = None
+        if name:
+            result["fan_speed"] = name
     return result
 
 
@@ -153,8 +190,10 @@ class RoborockIntegration(Integration):
             "pause": RoborockCommand.APP_PAUSE,
             "stop": RoborockCommand.APP_STOP,
             "dock": RoborockCommand.APP_CHARGE,
+            "locate": RoborockCommand.FIND_ME,
         }
         self._segment_clean = RoborockCommand.APP_SEGMENT_CLEAN
+        self._set_fan = RoborockCommand.SET_CUSTOM_MODE
         self._interval = float(self.config.get("scan_interval", 60))
 
         api = RoborockApiClient(username)
@@ -176,8 +215,8 @@ class RoborockIntegration(Integration):
                 str(device.duid),
                 EntityKind.VACUUM,
                 device.name or "Roborock",
-                state={"state": "unknown"},
-                commands=[*self._commands, "clean_rooms"],
+                state={"state": "unknown", "fan_speeds": list(FAN_SPEEDS)},
+                commands=[*self._commands, "clean_rooms", "set_fan_speed"],
                 available=False,
             )
             self._devices[entity.id] = device
@@ -257,6 +296,10 @@ class RoborockIntegration(Integration):
         if command == "clean_rooms":
             await _maybe_await(
                 sender.send(self._segment_clean, params=segment_clean_params(data.get("rooms")))
+            )
+        elif command == "set_fan_speed":
+            await _maybe_await(
+                sender.send(self._set_fan, params=[fan_speed_code(data.get("level"))])
             )
         else:
             await _maybe_await(sender.send(self._commands[command]))

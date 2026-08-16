@@ -207,6 +207,30 @@ def test_vacuum_state_survives_missing_fields():
     assert vacuum_state(_Status())["state"] == "unknown"
 
 
+def test_vacuum_state_reports_fan_speed_from_code():
+    from homepilot.integrations.roborock import vacuum_state
+
+    assert vacuum_state(_Status(state_name="idle", fan_power=103))["fan_speed"] == "turbo"
+
+
+def test_fan_speed_code_maps_names_and_numbers():
+    from homepilot.integrations.roborock import fan_speed_code
+
+    assert fan_speed_code("balanced") == 102
+    assert fan_speed_code("max") == 104
+    assert fan_speed_code(104) == 104
+    assert fan_speed_code("104") == 104
+
+
+def test_fan_speed_code_rejects_unknown():
+    import pytest as _pytest
+
+    from homepilot.integrations.roborock import fan_speed_code
+
+    with _pytest.raises(ValueError):
+        fan_speed_code("ultra")
+
+
 class _Room:
     def __init__(self, segment_id, name):
         self.segment_id, self.name = segment_id, name

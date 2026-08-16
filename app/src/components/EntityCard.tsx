@@ -683,7 +683,34 @@ function VacuumBody({
         <MediaButton icon="play" label="Reinigung starten" onPress={() => onCommand('start')} />
         <MediaButton icon="pause" label="Pausieren" onPress={() => onCommand('pause')} />
         <MediaButton icon="home" label="Zur Station" onPress={() => onCommand('dock')} />
+        {entity.commands.includes('locate') ? (
+          <MediaButton icon="search" label="Sauger finden" onPress={() => onCommand('locate')} />
+        ) : null}
       </View>
+
+      {/* Saugstärke wählen. */}
+      {entity.commands.includes('set_fan_speed') &&
+      Array.isArray(entity.state.fan_speeds) ? (
+        <View style={styles.deviceRow}>
+          {(entity.state.fan_speeds as string[]).map((level) => {
+            const active = entity.state.fan_speed === level;
+            return (
+              <Pressable
+                key={level}
+                onPress={() => onCommand('set_fan_speed', { level })}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: active }}
+                style={[styles.deviceChip, active && styles.deviceChipActive]}>
+                <Text
+                  style={[styles.deviceChipText, active && styles.deviceChipTextActive]}
+                  numberOfLines={1}>
+                  {FAN_SPEED_LABELS[level] ?? level}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
 
       {/* Ohne Kartenkoordinaten: Räume als Chips. Mit Karte tippt man direkt
           hinein – dann sind die Chips überflüssig. */}
@@ -855,6 +882,13 @@ function MediaButton({
     </Pressable>
   );
 }
+
+const FAN_SPEED_LABELS: Record<string, string> = {
+  silent: 'Leise',
+  balanced: 'Normal',
+  turbo: 'Turbo',
+  max: 'Max',
+};
 
 function vacuumLabel(state: string | undefined): string {
   const labels: Record<string, string> = {
