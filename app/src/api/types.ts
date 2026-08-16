@@ -29,6 +29,10 @@ export interface User {
   role: 'besitzer' | 'bewohner' | 'gast';
   allow: string[];
   capabilities?: string[];
+  /** Deaktivierte Benutzer kommen nicht rein, behalten aber ihr Token. */
+  enabled?: boolean;
+  /** Freigegebene Bereiche für Gäste (licht, storen, familie, …). */
+  features?: string[];
 }
 
 export interface Source {

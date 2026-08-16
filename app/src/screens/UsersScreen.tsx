@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import QRCode from 'react-native-qrcode-svg';
 
 import { HubSettings } from '../api/types';
 import { Card } from '../components/Card';
@@ -9,9 +10,12 @@ import { Colors, radius, space, useColors } from '../theme';
 /**
  * Benutzerverwaltung: Wer hat Zugang zum Haus, mit welcher Rolle?
  *
- * Beim Anlegen erzeugt der Hub ein Token und zeigt es genau einmal –
- * danach ist es nirgends mehr abrufbar. Benutzer aus der config.yaml
- * gehören der Datei und lassen sich hier nur ansehen.
+ * Beim Anlegen erzeugt der Hub ein Token. Antippen eines Benutzers zeigt
+ * den Kopplungs-QR-Code – die Person scannt ihn in ihrer App («QR-Code vom
+ * Hub scannen») und ist verbunden, ohne etwas abzutippen. Gäste lassen sich
+ * auf Bereiche einschränken und jederzeit sperren/entsperren, ohne dass sie
+ * ein neues Token brauchen. Benutzer aus der config.yaml gehören der Datei
+ * und sind hier nur lesbar.
  */
 
 export const ROLE_LABELS: Record<string, string> = {
@@ -23,7 +27,19 @@ export const ROLE_LABELS: Record<string, string> = {
 const ROLE_HINTS: Record<string, string> = {
   besitzer: 'darf alles, auch Benutzer und Konfiguration verwalten',
   bewohner: 'bedient das ganze Haus, darf Abläufe pausieren',
-  gast: 'sieht und schaltet nur Freigegebenes (Licht und Schalter)',
+  gast: 'sieht und schaltet nur die freigegebenen Bereiche',
+};
+
+/** Freigebbare Bereiche für Gäste – Schlüssel wie auf dem Hub. */
+export const FEATURE_LABELS: Record<string, string> = {
+  licht: 'Licht',
+  storen: 'Storen',
+  familie: 'Familie',
+  haustuere: 'Haustüre',
+  wohnungstuere: 'Wohnungstüre',
+  kalender: 'Kalender',
+  haushalt: 'Haushalt',
+  raeume: 'Räume',
 };
 
 interface HubUser {
@@ -31,11 +47,45 @@ interface HubUser {
   role: string;
   allow: string[];
   editable: boolean;
+  enabled?: boolean;
+  features?: string[];
 }
 
 interface Props {
   settings: HubSettings;
   currentUser?: { name: string; role: string } | null;
+}
+
+/** Mehrfach-Auswahl der Gast-Bereiche als Chips. */
+function FeatureChips({
+  selected,
+  onToggle,
+  styles,
+}: {
+  selected: string[];
+  onToggle: (feature: string) => void;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  return (
+    <View style={styles.roleRow}>
+      {Object.entries(FEATURE_LABELS).map(([key, label]) => {
+        const active = selected.includes(key);
+        return (
+          <Pressable
+            key={key}
+            onPress={() => onToggle(key)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: active }}
+            style={[styles.roleChip, active && styles.roleChipActive]}
+          >
+            <Text style={[styles.roleChipText, active && styles.roleChipTextActive]}>
+              {label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
 }
 
 export function UsersScreen({ settings, currentUser }: Props) {
@@ -51,8 +101,11 @@ export function UsersScreen({ settings, currentUser }: Props) {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [newRole, setNewRole] = useState('bewohner');
-  const [createdToken, setCreatedToken] = useState<{ name: string; token: string } | null>(null);
+  const [newFeatures, setNewFeatures] = useState<string[]>(['licht']);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  // Detailansicht: gewählter Benutzer + geladene Kopplungs-Daten.
+  const [detail, setDetail] = useState<HubUser | null>(null);
+  const [pairing, setPairing] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setError(null);
@@ -67,6 +120,44 @@ export function UsersScreen({ settings, currentUser }: Props) {
 
   useEffect(load, [load]);
 
+  const openDetail = async (user: HubUser) => {
+    setDetail(user);
+    setPairing(null);
+    try {
+      const response = await fetch(
+        `${settings.url}/api/users/${encodeURIComponent(user.name)}/pairing`,
+        { headers }
+      );
+      if (!response.ok) throw new Error(String(response.status));
+      const body = await response.json();
+      setPairing(body.payload);
+    } catch (err: any) {
+      setError(`Kopplungs-Code nicht abrufbar (${err.message ?? err})`);
+    }
+  };
+
+  const patchUser = async (name: string, body: Record<string, any>) => {
+    setError(null);
+    try {
+      const response = await fetch(
+        `${settings.url}/api/users/${encodeURIComponent(name)}`,
+        {
+          method: 'PUT',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.detail ?? `Hub antwortet mit ${response.status}`);
+      }
+      if (payload?.user) setDetail(payload.user);
+      load();
+    } catch (err: any) {
+      setError(String(err.message ?? err));
+    }
+  };
+
   const create = async () => {
     if (!newName.trim()) return;
     setError(null);
@@ -74,16 +165,22 @@ export function UsersScreen({ settings, currentUser }: Props) {
       const response = await fetch(`${settings.url}/api/users`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newName.trim(), role: newRole }),
+        body: JSON.stringify({
+          name: newName.trim(),
+          role: newRole,
+          features: newRole === 'gast' ? newFeatures : [],
+        }),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
         throw new Error(body?.detail ?? `Hub antwortet mit ${response.status}`);
       }
-      setCreatedToken({ name: body.user.name, token: body.user.token });
       setNewName('');
       setCreating(false);
       load();
+      // Direkt die Detailansicht mit dem QR-Code öffnen – so lässt sich das
+      // neue Mitglied sofort koppeln.
+      openDetail(body.user);
     } catch (err: any) {
       setError(String(err.message ?? err));
     }
@@ -101,44 +198,34 @@ export function UsersScreen({ settings, currentUser }: Props) {
         throw new Error(body?.detail ?? `Hub antwortet mit ${response.status}`);
       }
       setConfirmDelete(null);
+      setDetail(null);
       load();
     } catch (err: any) {
       setError(String(err.message ?? err));
     }
   };
 
+  const toggleNewFeature = (feature: string) =>
+    setNewFeatures((current) =>
+      current.includes(feature)
+        ? current.filter((entry) => entry !== feature)
+        : [...current, feature]
+    );
+
   return (
     <View style={styles.stack}>
       <Text style={styles.title}>Benutzerverwaltung</Text>
       <Text style={styles.intro}>
-        Jede Person bekommt ein eigenes Token – so steht im Protokoll, wer
-        geschaltet hat, und ein Zugang lässt sich einzeln zurückziehen.
+        Benutzer antippen zeigt den Kopplungs-QR-Code. Gäste lassen sich auf
+        Bereiche einschränken und jederzeit sperren – ohne neues Token.
       </Text>
-
-      {createdToken ? (
-        <Card style={styles.tokenCard}>
-          <Text style={styles.tokenTitle}>
-            Token für {createdToken.name} – jetzt notieren!
-          </Text>
-          <Text selectable style={styles.tokenValue}>
-            {createdToken.token}
-          </Text>
-          <Text style={styles.tokenHint}>
-            Es wird nur dieses eine Mal angezeigt. In der App der Person unter
-            Einstellungen → Konto &amp; Verbindung eintragen.
-          </Text>
-          <Pressable onPress={() => setCreatedToken(null)} style={styles.smallButton}>
-            <Text style={styles.smallButtonText}>Verstanden</Text>
-          </Pressable>
-        </Card>
-      ) : null}
 
       {users === null && !error ? <Text style={styles.note}>Wird geladen …</Text> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       {(users ?? []).map((user) => (
-        <Card key={user.name} style={styles.userCard}>
-          <View style={styles.avatar}>
+        <Card key={user.name} style={styles.userCard} onPress={() => openDetail(user)}>
+          <View style={[styles.avatar, user.enabled === false && styles.avatarDisabled]}>
             <Text style={styles.avatarText}>{user.name.slice(0, 1).toUpperCase()}</Text>
           </View>
           <View style={{ flex: 1 }}>
@@ -148,30 +235,19 @@ export function UsersScreen({ settings, currentUser }: Props) {
             </Text>
             <Text style={styles.userRole}>
               {ROLE_LABELS[user.role] ?? user.role}
+              {user.role === 'gast' && (user.features?.length ?? 0) > 0
+                ? ` · ${user.features!.map((f) => FEATURE_LABELS[f] ?? f).join(', ')}`
+                : ''}
               {!user.editable ? ' · aus config.yaml' : ''}
             </Text>
           </View>
-          {user.editable && currentUser?.name !== user.name ? (
-            confirmDelete === user.name ? (
-              <Pressable onPress={() => remove(user.name)} style={styles.deleteConfirm}>
-                <Text style={styles.deleteConfirmText}>Wirklich löschen</Text>
-              </Pressable>
-            ) : (
-              <Pressable
-                onPress={() => {
-                  setConfirmDelete(user.name);
-                  setTimeout(
-                    () => setConfirmDelete((c) => (c === user.name ? null : c)),
-                    4000
-                  );
-                }}
-                accessibilityLabel={`${user.name} löschen`}
-                style={styles.iconButton}
-              >
-                <Ionicons name="trash-outline" size={20} color={colors.danger} />
-              </Pressable>
-            )
-          ) : null}
+          {user.enabled === false ? (
+            <View style={styles.disabledBadge}>
+              <Text style={styles.disabledBadgeText}>Deaktiviert</Text>
+            </View>
+          ) : (
+            <Ionicons name="qr-code-outline" size={20} color={colors.inkFaint} />
+          )}
         </Card>
       ))}
 
@@ -205,6 +281,16 @@ export function UsersScreen({ settings, currentUser }: Props) {
             ))}
           </View>
           <Text style={styles.roleHint}>{ROLE_HINTS[newRole]}</Text>
+          {newRole === 'gast' ? (
+            <>
+              <Text style={styles.formLabel}>Darf sehen und bedienen</Text>
+              <FeatureChips
+                selected={newFeatures}
+                onToggle={toggleNewFeature}
+                styles={styles}
+              />
+            </>
+          ) : null}
           <View style={styles.formButtons}>
             <Pressable onPress={() => setCreating(false)} style={styles.smallButton}>
               <Text style={styles.smallButtonText}>Abbrechen</Text>
@@ -224,6 +310,100 @@ export function UsersScreen({ settings, currentUser }: Props) {
           <Text style={styles.newButtonText}>Benutzer anlegen</Text>
         </Pressable>
       )}
+
+      {/* Detail: QR-Code, Sperren, Bereiche, Löschen */}
+      <Modal
+        visible={detail !== null}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setDetail(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalSheet}>
+            <ScrollView contentContainerStyle={styles.modalContent}>
+              {detail ? (
+                <>
+                  <View style={styles.modalHead}>
+                    <Text style={styles.modalTitle}>{detail.name}</Text>
+                    <Pressable onPress={() => setDetail(null)} accessibilityLabel="Schliessen">
+                      <Ionicons name="close" size={26} color={colors.ink} />
+                    </Pressable>
+                  </View>
+                  <Text style={styles.userRole}>
+                    {ROLE_LABELS[detail.role] ?? detail.role}
+                    {!detail.editable ? ' · aus config.yaml' : ''}
+                  </Text>
+
+                  {detail.enabled === false ? (
+                    <Text style={styles.disabledNote}>
+                      Deaktiviert – die Anmeldung ist gesperrt, das Token bleibt
+                      gültig und funktioniert nach dem Aktivieren sofort wieder.
+                    </Text>
+                  ) : (
+                    <>
+                      <View style={styles.qrBox}>
+                        {pairing ? (
+                          <QRCode value={pairing} size={220} backgroundColor="#FFFFFF" />
+                        ) : (
+                          <Text style={styles.note}>Kopplungs-Code wird geladen …</Text>
+                        )}
+                      </View>
+                      <Text style={styles.qrHint}>
+                        In der HomePilot-App der Person: «QR-Code vom Hub scannen» –
+                        Verbindung und Token werden automatisch übernommen.
+                      </Text>
+                    </>
+                  )}
+
+                  {detail.editable && detail.role === 'gast' ? (
+                    <>
+                      <Text style={styles.formLabel}>Darf sehen und bedienen</Text>
+                      <FeatureChips
+                        selected={detail.features ?? []}
+                        onToggle={(feature) => {
+                          const current = detail.features ?? [];
+                          const next = current.includes(feature)
+                            ? current.filter((entry) => entry !== feature)
+                            : [...current, feature];
+                          patchUser(detail.name, { features: next });
+                        }}
+                        styles={styles}
+                      />
+                    </>
+                  ) : null}
+
+                  {detail.editable && currentUser?.name !== detail.name ? (
+                    <View style={styles.modalButtons}>
+                      <Pressable
+                        onPress={() =>
+                          patchUser(detail.name, { enabled: detail.enabled === false })
+                        }
+                        style={[styles.smallButton, { flex: 1 }]}
+                      >
+                        <Text style={styles.smallButtonText}>
+                          {detail.enabled === false ? 'Aktivieren' : 'Deaktivieren'}
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() =>
+                          confirmDelete === detail.name
+                            ? remove(detail.name)
+                            : setConfirmDelete(detail.name)
+                        }
+                        style={[styles.smallButton, styles.dangerButton, { flex: 1 }]}
+                      >
+                        <Text style={styles.dangerButtonText}>
+                          {confirmDelete === detail.name ? 'Wirklich löschen' : 'Löschen'}
+                        </Text>
+                      </Pressable>
+                    </View>
+                  ) : null}
+                </>
+              ) : null}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -233,7 +413,7 @@ const makeStyles = (colors: Colors) =>
     stack: { gap: space.gap },
     title: { color: colors.onGradient, fontSize: 18, fontWeight: '700' },
     intro: { color: colors.onGradientSoft, fontSize: 13, lineHeight: 19, maxWidth: 520 },
-    note: { color: colors.onGradientSoft, fontSize: 14 },
+    note: { color: colors.inkSoft, fontSize: 14 },
     error: { color: colors.danger, fontSize: 13, fontWeight: '600' },
 
     userCard: {
@@ -250,29 +430,18 @@ const makeStyles = (colors: Colors) =>
       alignItems: 'center',
       justifyContent: 'center',
     },
+    avatarDisabled: { backgroundColor: colors.inkFaint },
     avatarText: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
     userName: { color: colors.ink, fontSize: 16, fontWeight: '600' },
     userRole: { color: colors.inkSoft, fontSize: 13, marginTop: 1 },
-    iconButton: { padding: 8 },
-    deleteConfirm: {
-      backgroundColor: colors.danger,
-      borderRadius: radius.pill,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-    },
-    deleteConfirmText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
-
-    tokenCard: { minHeight: 0, gap: 8, borderWidth: 2, borderColor: colors.accent },
-    tokenTitle: { color: colors.ink, fontSize: 15, fontWeight: '700' },
-    tokenValue: {
-      color: colors.ink,
-      fontSize: 13,
-      fontFamily: 'monospace',
+    disabledBadge: {
       backgroundColor: colors.track,
-      borderRadius: radius.control,
-      padding: 10,
+      borderRadius: radius.pill,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
     },
-    tokenHint: { color: colors.inkSoft, fontSize: 12, lineHeight: 17 },
+    disabledBadgeText: { color: colors.inkFaint, fontSize: 11, fontWeight: '700' },
+    disabledNote: { color: colors.inkSoft, fontSize: 13, lineHeight: 19 },
 
     form: { minHeight: 0, gap: 8 },
     formLabel: { color: colors.inkSoft, fontSize: 12, fontWeight: '700' },
@@ -307,10 +476,13 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.surfaceSoft,
       borderWidth: 1,
       borderColor: colors.surfaceBorder,
+      alignItems: 'center',
     },
     smallButtonText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
     primaryButton: { backgroundColor: colors.accent, borderColor: colors.accent },
     primaryButtonText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+    dangerButton: { backgroundColor: colors.danger, borderColor: colors.danger },
+    dangerButtonText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
 
     newButton: {
       flexDirection: 'row',
@@ -324,4 +496,37 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     newButtonText: { color: colors.ink, fontSize: 15, fontWeight: '600' },
+
+    modalBackdrop: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.45)',
+      justifyContent: 'flex-end',
+    },
+    modalSheet: {
+      backgroundColor: colors.panel,
+      borderTopLeftRadius: radius.card,
+      borderTopRightRadius: radius.card,
+      maxHeight: '88%',
+    },
+    modalContent: { padding: 22, gap: 12 },
+    modalHead: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    modalTitle: { color: colors.ink, fontSize: 22, fontWeight: '700' },
+    qrBox: {
+      alignSelf: 'center',
+      backgroundColor: '#FFFFFF',
+      padding: 16,
+      borderRadius: radius.control,
+      marginTop: 6,
+    },
+    qrHint: {
+      color: colors.inkSoft,
+      fontSize: 13,
+      lineHeight: 19,
+      textAlign: 'center',
+    },
+    modalButtons: { flexDirection: 'row', gap: 10, marginTop: 6 },
   });

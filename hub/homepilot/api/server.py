@@ -35,7 +35,7 @@ from ..core.config import ConfigError, load_config
 from ..core.errors import HomePilotError, UnknownEntityError, UnsupportedCommandError
 from ..core.hub import Hub
 from ..core.source import as_source, user_source
-from ..core.users import Capability, Role, User, parse_users
+from ..core.users import GUEST_FEATURES, Capability, Role, User, parse_users
 
 log = logging.getLogger(__name__)
 
@@ -82,6 +82,13 @@ class UserRequest(BaseModel):
     role: str = Role.RESIDENT
     token: str | None = None
     allow: list[str] = []
+    # Freigegebene Bereiche für Gäste (Schlüssel aus GUEST_FEATURES).
+    features: list[str] = []
+
+
+class UserUpdateRequest(BaseModel):
+    enabled: bool | None = None
+    features: list[str] | None = None
 
 
 class ConfigRequest(BaseModel):
@@ -152,7 +159,7 @@ def create_app(hub: Hub) -> FastAPI:
         return [
             entity.as_dict()
             for entity in entities
-            if user.may_see(entity.id, entity.kind)
+            if user.may_see(entity.id, entity.kind, entity.integration)
         ]
 
     # ── Allgemeines ────────────────────────────────────────────────────────
@@ -238,7 +245,7 @@ def create_app(hub: Hub) -> FastAPI:
     async def get_entity(entity_id: str, request: Request) -> dict[str, Any]:
         user = current_user(request)
         entity = hub.registry.get(entity_id)
-        if entity is None or not user.may_see(entity.id, entity.kind):
+        if entity is None or not user.may_see(entity.id, entity.kind, entity.integration):
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
         return entity.as_dict()
 
@@ -248,7 +255,7 @@ def create_app(hub: Hub) -> FastAPI:
     ) -> dict[str, Any]:
         user = require(request, Capability.CONTROL)
         entity = hub.registry.get(entity_id)
-        if entity is None or not user.may_see(entity.id, entity.kind):
+        if entity is None or not user.may_see(entity.id, entity.kind, entity.integration):
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
         try:
             with as_source(user_source(user.name)):
@@ -287,7 +294,7 @@ def create_app(hub: Hub) -> FastAPI:
         """
         user = current_user(request)
         entity = hub.registry.get(entity_id)
-        if entity is None or not user.may_see(entity.id, entity.kind):
+        if entity is None or not user.may_see(entity.id, entity.kind, entity.integration):
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
         integration = hub.integrations.get(entity.integration)
         if integration is None:
@@ -340,7 +347,7 @@ def create_app(hub: Hub) -> FastAPI:
         for scene in scenes:
             entities = [hub.registry.get(eid) for eid in scene["entity_ids"]]
             if all(
-                entity is not None and user.may_see(entity.id, entity.kind)
+                entity is not None and user.may_see(entity.id, entity.kind, entity.integration)
                 for entity in entities
             ):
                 allowed.append(scene)
@@ -355,7 +362,7 @@ def create_app(hub: Hub) -> FastAPI:
         if user.role == Role.GUEST:
             for entity_id in (action.get("entity_id") for action in scene.actions):
                 entity = hub.registry.get(entity_id or "")
-                if entity is None or not user.may_see(entity.id, entity.kind):
+                if entity is None or not user.may_see(entity.id, entity.kind, entity.integration):
                     raise HTTPException(status_code=403, detail="Szene nicht freigegeben")
         return await hub.scenes.activate(scene_id)
 
@@ -548,6 +555,11 @@ def create_app(hub: Hub) -> FastAPI:
 
         if body.role not in Role.ALL:
             raise HTTPException(status_code=400, detail=f"Unbekannte Rolle: {body.role}")
+        unknown = [f for f in body.features if f not in GUEST_FEATURES]
+        if unknown:
+            raise HTTPException(
+                status_code=400, detail=f"Unbekannte Bereiche: {', '.join(unknown)}"
+            )
         token = body.token or secrets.token_urlsafe(32)
         try:
             hub.users.add(
@@ -556,6 +568,7 @@ def create_app(hub: Hub) -> FastAPI:
                     role=body.role,
                     token=token,
                     allow=body.allow,
+                    features=body.features,
                     # In der App angelegt: wird gespeichert und ist dort
                     # auch wieder löschbar.
                     editable=True,
@@ -585,7 +598,7 @@ def create_app(hub: Hub) -> FastAPI:
 
     def family_user(request: Request) -> User:
         user = current_user(request)
-        if user.role == Role.GUEST:
+        if user.role == Role.GUEST and "familie" not in user.features:
             raise HTTPException(status_code=403, detail="Für Gäste nicht sichtbar")
         return user
 
@@ -644,6 +657,37 @@ def create_app(hub: Hub) -> FastAPI:
         hub.data.set(key, remaining)
         return {"ok": True}
 
+    @app.put("/api/users/{name}")
+    async def update_user(
+        name: str, body: UserUpdateRequest, request: Request
+    ) -> dict[str, Any]:
+        """Gast sperren/entsperren oder Bereiche ändern – das Token bleibt."""
+        user = require(request, Capability.MANAGE_USERS)
+        if user.name == name and body.enabled is False:
+            raise HTTPException(status_code=400, detail="Sich selbst kann man nicht sperren")
+        try:
+            updated = hub.users.update(name, enabled=body.enabled, features=body.features)
+        except HomePilotError as err:
+            raise HTTPException(status_code=409, detail=str(err)) from err
+        return {"user": updated.as_dict()}
+
+    @app.get("/api/users/{name}/pairing")
+    async def user_pairing(name: str, request: Request) -> dict[str, Any]:
+        """Kopplungs-Daten für den QR-Code: dieselbe Form wie der
+        Einrichtungs-Code beim Hub-Start – die App scannt und verbindet."""
+        require(request, Capability.MANAGE_USERS)
+        target = hub.users.by_name(name)
+        if target is None:
+            raise HTTPException(status_code=404, detail=f"Unbekannter Benutzer: {name}")
+        from ..qr import setup_payload
+
+        return {
+            "payload": setup_payload(
+                hub.config.api.host, hub.config.api.port, target.token, target.name
+            ),
+            "enabled": target.enabled,
+        }
+
     @app.delete("/api/users/{name}")
     async def delete_user(name: str, request: Request) -> dict[str, Any]:
         user = require(request, Capability.MANAGE_USERS)
@@ -675,7 +719,7 @@ def create_app(hub: Hub) -> FastAPI:
 
         def forward(event_type: str, data: dict[str, Any]) -> None:
             entity = data.get("entity")
-            if entity and not user.may_see(entity["id"], entity["kind"]):
+            if entity and not user.may_see(entity["id"], entity["kind"], entity.get("integration", "")):
                 return
             queue.put_nowait({"type": event_type, **data})
 
@@ -712,7 +756,7 @@ def create_app(hub: Hub) -> FastAPI:
                     entity_id = message.get("entity_id", "")
                     entity = hub.registry.get(entity_id)
                     if not user.can(Capability.CONTROL) or (
-                        entity is not None and not user.may_see(entity.id, entity.kind)
+                        entity is not None and not user.may_see(entity.id, entity.kind, entity.integration)
                     ):
                         queue.put_nowait(
                             {

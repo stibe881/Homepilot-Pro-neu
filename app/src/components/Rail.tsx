@@ -42,6 +42,8 @@ interface Props {
   bottomInset?: number;
   /** Berechtigungen des angemeldeten Benutzers. */
   capabilities?: string[];
+  /** Für Gäste ausgeblendete Bereiche (nicht freigegebene Features). */
+  hidden?: Section[];
 }
 
 export function Rail({
@@ -50,11 +52,13 @@ export function Rail({
   vertical,
   bottomInset = 0,
   capabilities = [],
+  hidden = [],
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const items = ITEMS.filter(
-    (item) => !item.needs || capabilities.includes(item.needs)
+    (item) =>
+      (!item.needs || capabilities.includes(item.needs)) && !hidden.includes(item.key)
   );
   return (
     <View

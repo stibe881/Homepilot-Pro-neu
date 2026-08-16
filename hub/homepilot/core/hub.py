@@ -92,6 +92,8 @@ class Hub:
                         token=entry["token"],
                         allow=entry.get("allow") or [],
                         editable=True,
+                        enabled=bool(entry.get("enabled", True)),
+                        features=entry.get("features") or [],
                     )
                 )
             except Exception as err:

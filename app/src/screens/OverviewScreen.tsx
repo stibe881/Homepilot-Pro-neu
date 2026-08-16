@@ -442,12 +442,14 @@ function Tile({
 
 function Action({
   label,
+  icon,
   onPress,
   accent,
   disabled,
   styles,
 }: {
   label: string;
+  icon?: keyof typeof Ionicons.glyphMap;
   onPress: () => void;
   accent?: boolean;
   disabled?: boolean;
@@ -464,6 +466,14 @@ function Action({
         (pressed || disabled) && { opacity: 0.6 },
       ]}
     >
+      {icon ? (
+        <Ionicons
+          name={icon}
+          size={16}
+          color={accent ? '#FFFFFF' : undefined}
+          style={accent ? undefined : styles.actionIcon}
+        />
+      ) : null}
       <Text style={[styles.actionText, accent && styles.actionTextAccent]} numberOfLines={1}>
         {label}
       </Text>
@@ -517,8 +527,12 @@ const makeStyles = (colors: Colors) =>
       paddingHorizontal: 14,
       paddingVertical: 10,
       alignItems: 'center',
+      justifyContent: 'center',
+      flexDirection: 'row',
+      gap: 6,
       flexGrow: 1,
     },
+    actionIcon: { color: colors.ink },
     actionAccent: { backgroundColor: colors.accent, borderColor: colors.accent },
     actionText: { color: colors.ink, fontSize: 13, fontWeight: '700' },
     actionTextAccent: { color: '#FFFFFF' },

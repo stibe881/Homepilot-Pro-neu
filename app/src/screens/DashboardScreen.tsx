@@ -104,6 +104,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const toggleIn = (list: string[], id: string) =>
     list.includes(id) ? list.filter((item) => item !== id) : [...list, id];
 
+  // Gäste sehen nur die freigegebenen Bereiche in der Navigation.
+  const hiddenSections = useMemo<Section[]>(() => {
+    if (!user || user.role !== 'gast') return [];
+    const features = user.features ?? [];
+    const result: Section[] = [];
+    if (!features.includes('raeume')) result.push('home');
+    if (!features.includes('licht')) result.push('light');
+    if (!features.includes('storen')) result.push('covers');
+    if (!features.includes('familie')) result.push('family');
+    return result;
+  }, [user]);
+
   const hasRail = width >= breakpoints.rail;
   const hasSidePanel = width >= breakpoints.sidePanel;
   const columns = hasRail ? 3 : width >= 380 ? 2 : 1;
@@ -568,6 +580,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             onSelect={setSection}
             vertical
             capabilities={user?.capabilities ?? []}
+            hidden={hiddenSections}
           />
         ) : null}
 
@@ -606,6 +619,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           vertical={false}
           bottomInset={insets.bottom}
           capabilities={user?.capabilities ?? []}
+          hidden={hiddenSections}
         />
       ) : null}
 

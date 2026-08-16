@@ -70,6 +70,29 @@ CAPABILITIES: dict[str, frozenset[str]] = {
 # Kameras, Anwesenheit und Sensoren bleiben aussen vor.
 GUEST_DEFAULT_KINDS = frozenset({"light", "switch"})
 
+# Freigebbare Bereiche für Gäste. Jeder Bereich wird auf Geräte übersetzt;
+# 'familie' schaltet die geteilten Familien-Listen frei, 'raeume' die
+# Raum-Ansicht in der App.
+GUEST_FEATURES: dict[str, str] = {
+    "licht": "Licht",
+    "storen": "Storen",
+    "familie": "Familie",
+    "haustuere": "Haustüre",
+    "wohnungstuere": "Wohnungstüre",
+    "kalender": "Kalender",
+    "haushalt": "Haushalt",
+    "raeume": "Räume",
+}
+
+# Bereich → Gerätearten. Türen brauchen zusätzlich die Integrations-Prüfung
+# in may_see, weil beide Schlösser die Art 'lock' haben.
+_FEATURE_KINDS: dict[str, frozenset[str]] = {
+    "licht": frozenset({"light", "switch"}),
+    "storen": frozenset({"cover"}),
+    "kalender": frozenset({"calendar"}),
+    "haushalt": frozenset({"appliance"}),
+}
+
 
 @dataclass
 class User:
@@ -81,16 +104,32 @@ class User:
     # Aus der config.yaml stammende Benutzer sind in der App nur lesbar;
     # dort angelegte liegen in der Datendatei und sind änderbar.
     editable: bool = False
+    # Deaktivierte Benutzer behalten ihr Token, kommen aber nicht mehr rein –
+    # zum vorübergehenden Sperren eines Gastes ohne neues Token.
+    enabled: bool = True
+    # Freigegebene Bereiche für Gäste (Schlüssel aus GUEST_FEATURES).
+    features: list[str] = field(default_factory=list)
 
     def can(self, capability: str) -> bool:
         return capability in CAPABILITIES.get(self.role, frozenset())
 
-    def may_see(self, entity_id: str, kind: str) -> bool:
+    def may_see(self, entity_id: str, kind: str, integration: str = "") -> bool:
         if self.role != Role.GUEST:
             return True
+        if self.features:
+            for feature in self.features:
+                if kind in _FEATURE_KINDS.get(feature, frozenset()):
+                    return True
+            if kind == "lock":
+                is_ring = integration == "ring" or entity_id.startswith("ring.")
+                if "haustuere" in self.features and is_ring:
+                    return True
+                if "wohnungstuere" in self.features and not is_ring:
+                    return True
         if self.allow:
             return any(fnmatch.fnmatch(entity_id, pattern) for pattern in self.allow)
-        return kind in GUEST_DEFAULT_KINDS
+        # Weder Bereiche noch Muster: die alte Standard-Freigabe.
+        return not self.features and kind in GUEST_DEFAULT_KINDS
 
     def as_dict(self, include_token: bool = False) -> dict[str, Any]:
         data: dict[str, Any] = {
@@ -98,6 +137,8 @@ class User:
             "role": self.role,
             "allow": list(self.allow),
             "editable": self.editable,
+            "enabled": self.enabled,
+            "features": list(self.features),
         }
         if include_token:
             data["token"] = self.token
@@ -128,7 +169,7 @@ class UserRegistry:
             # Konstante Laufzeit, damit sich ein Token nicht erraten lässt,
             # indem man die Antwortzeit misst.
             if secrets.compare_digest(user.token, token):
-                return user
+                return user if user.enabled else None
         return None
 
     def by_name(self, name: str) -> User | None:
@@ -154,6 +195,30 @@ class UserRegistry:
         self._changed()
         return True
 
+    def update(
+        self,
+        name: str,
+        enabled: bool | None = None,
+        features: list[str] | None = None,
+    ) -> User:
+        """Gast sperren/entsperren oder Bereiche ändern – Token bleibt gleich."""
+        user = self.by_name(name)
+        if user is None:
+            raise ConfigError(f"Unbekannter Benutzer: {name}")
+        if not user.editable:
+            raise ConfigError(
+                f"'{name}' steht in der config.yaml und muss dort geändert werden"
+            )
+        if enabled is not None:
+            user.enabled = bool(enabled)
+        if features is not None:
+            unknown = [f for f in features if f not in GUEST_FEATURES]
+            if unknown:
+                raise ConfigError(f"Unbekannte Bereiche: {', '.join(unknown)}")
+            user.features = [str(f) for f in features]
+        self._changed()
+        return user
+
     def editable_users(self) -> list[dict[str, Any]]:
         """Nur die in der App angelegten – die anderen gehören der Datei."""
         return [
@@ -162,6 +227,8 @@ class UserRegistry:
                 "role": user.role,
                 "token": user.token,
                 "allow": list(user.allow),
+                "enabled": user.enabled,
+                "features": list(user.features),
             }
             for user in self._users
             if user.editable
@@ -196,8 +263,18 @@ def parse_users(raw: list[dict[str, Any]], legacy_token: str | None) -> UserRegi
         allow = entry.get("allow") or []
         if not isinstance(allow, list):
             raise ConfigError(f"'allow' bei {name} muss eine Liste sein")
+        features = entry.get("features") or []
+        if not isinstance(features, list):
+            raise ConfigError(f"'features' bei {name} muss eine Liste sein")
         users.append(
-            User(name=str(name), role=role, token=str(token), allow=[str(a) for a in allow])
+            User(
+                name=str(name),
+                role=role,
+                token=str(token),
+                allow=[str(a) for a in allow],
+                enabled=bool(entry.get("enabled", True)),
+                features=[str(f) for f in features],
+            )
         )
 
     if legacy_token and not any(user.token == legacy_token for user in users):

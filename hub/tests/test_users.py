@@ -130,3 +130,60 @@ def test_duplicate_name_is_rejected():
     users = registry([OWNER])
     with pytest.raises(ConfigError, match="existiert bereits"):
         users.add(User(name="Stefan", role=Role.GUEST, token="x"))
+
+
+def test_gast_bereiche_steuern_sichtbarkeit():
+    from homepilot.core.users import User
+
+    gast = User(
+        name="G", role="gast", token="t",
+        features=["licht", "storen", "haustuere"],
+    )
+    assert gast.may_see("hue.wohnzimmer", "light", "hue")
+    assert gast.may_see("overkiz.storen", "cover", "overkiz")
+    assert gast.may_see("ring.intercom", "lock", "ring")          # Haustüre
+    assert not gast.may_see("nuki.wohnungstuer", "lock", "nuki")  # nicht freigegeben
+    assert not gast.may_see("weather.forecast", "weather", "weather")
+    assert not gast.may_see("vzug.geschirrspueler", "appliance", "vzug")
+
+    tuer = User(name="T", role="gast", token="t2", features=["wohnungstuere"])
+    assert tuer.may_see("nuki.wohnungstuer", "lock", "nuki")
+    assert not tuer.may_see("ring.intercom", "lock", "ring")
+
+
+def test_gast_ohne_bereiche_behaelt_standard():
+    from homepilot.core.users import User
+
+    gast = User(name="G", role="gast", token="t")
+    assert gast.may_see("hue.licht", "light", "hue")
+    assert not gast.may_see("overkiz.storen", "cover", "overkiz")
+
+
+def test_deaktivierter_benutzer_kommt_nicht_rein():
+    from homepilot.core.users import User, UserRegistry
+
+    registry = UserRegistry(
+        [
+            User(name="S", role="besitzer", token="t-owner"),
+            User(name="G", role="gast", token="t-guest", editable=True),
+        ]
+    )
+    assert registry.by_token("t-guest") is not None
+    registry.update("G", enabled=False)
+    assert registry.by_token("t-guest") is None
+    # Wieder aktivieren – dasselbe Token funktioniert erneut.
+    registry.update("G", enabled=True)
+    assert registry.by_token("t-guest").name == "G"
+
+
+def test_update_validiert_bereiche():
+    import pytest as _pytest
+
+    from homepilot.core.errors import ConfigError
+    from homepilot.core.users import User, UserRegistry
+
+    registry = UserRegistry([User(name="G", role="gast", token="t", editable=True)])
+    registry.update("G", features=["licht", "familie"])
+    assert registry.by_name("G").features == ["licht", "familie"]
+    with _pytest.raises(ConfigError):
+        registry.update("G", features=["quatsch"])
