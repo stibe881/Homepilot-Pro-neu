@@ -64,6 +64,9 @@ def test_publish_command_strips_audio_but_keeps_video():
     # daraus wurden ~25 s Rückstand auf dem iPhone.
     assert "-c:v libx264" in command
     assert "-g 25" in command
+    # 720p statt voller Kamera-Auflösung: sonst kommt der Encoder auf
+    # kleinen Rechnern nicht nach und der Strom reisst ab.
+    assert "scale=-2:720" in command
     assert command.count("-rtsp_transport tcp") == 2  # lesen UND publizieren
     assert command.endswith("rtsp://127.0.0.1:8554/unifi_protect_x")
 

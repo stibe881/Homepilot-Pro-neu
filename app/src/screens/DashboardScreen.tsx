@@ -775,11 +775,13 @@ function CameraFullscreen({
       <View style={styles.doorbellRoot}>
         <Text style={styles.doorbellTitle}>{camera.name}</Text>
         {live ? (
-          <CameraLive
-            uri={streamUri!}
-            style={styles.doorbellImage}
-            onFailed={(message) => setLiveFailed(message)}
-          />
+          <View style={styles.videoBox}>
+            <CameraLive
+              uri={streamUri!}
+              style={styles.videoFrame}
+              onFailed={(message) => setLiveFailed(message)}
+            />
+          </View>
         ) : uri && online ? (
           <Image
             source={{ uri: `${uri}&t=${tick}` }}
@@ -863,11 +865,13 @@ function DoorbellOverlay({
       <View style={styles.doorbellRoot}>
         <Text style={styles.doorbellTitle}>🔔 Es klingelt</Text>
         {live ? (
-          <CameraLive
-            uri={`${base}/stream.m3u8?token=${token}`}
-            style={styles.doorbellImage}
-            onFailed={(message) => setLiveFailed(message)}
-          />
+          <View style={styles.videoBox}>
+            <CameraLive
+              uri={`${base}/stream.m3u8?token=${token}`}
+              style={styles.videoFrame}
+              onFailed={(message) => setLiveFailed(message)}
+            />
+          </View>
         ) : uri ? (
           <Image source={{ uri }} style={styles.doorbellImage} resizeMode="cover" />
         ) : (
@@ -974,6 +978,15 @@ const makeStyles = (colors: Colors) =>
     width: '100%',
   },
   doorbellButtons: { gap: 10 },
+  // Live-Video: 16:9 einpassen statt es in die Bildschirmhöhe zu strecken –
+  // gestreckt schneidet der Player links und rechts ab.
+  videoBox: { flex: 1, justifyContent: 'center' },
+  videoFrame: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+    borderRadius: radius.card,
+    backgroundColor: '#000000',
+  },
   doorbellOpen: {
     flexDirection: 'row',
     alignItems: 'center',

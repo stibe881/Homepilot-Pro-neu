@@ -75,9 +75,13 @@ def publish_command(source: str, name: str) -> str:
     return (
         "ffmpeg -nostdin -loglevel error "
         f"-rtsp_transport tcp -i {source} "
-        "-c:v libx264 -preset veryfast -tune zerolatency "
+        # 720p reicht für Handy und Panel – und kostet nur einen Bruchteil
+        # der CPU von 1512p. Kommt der Encoder nicht nach, wächst sonst der
+        # Rückstand, bis der Strom abreisst.
+        "-vf scale=-2:720 "
+        "-c:v libx264 -preset superfast -tune zerolatency "
         "-g 25 -keyint_min 25 -sc_threshold 0 -bf 0 "
-        "-crf 23 -maxrate 4M -bufsize 8M -pix_fmt yuv420p "
+        "-crf 23 -maxrate 2500k -bufsize 5M -pix_fmt yuv420p "
         "-an -strict experimental "
         f"-rtsp_transport tcp -f rtsp {MEDIAMTX_RTSP}/{name}"
     )
