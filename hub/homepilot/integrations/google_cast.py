@@ -278,7 +278,9 @@ class GoogleCastIntegration(Integration):
             # 1. App starten und Geräteinfo erfragen.
             def launch_and_ask() -> bool:
                 launched = threading.Event()
-                controller.launch(callback_function=lambda: launched.set())
+                # pychromecast ruft den Callback mit (ok, antwort) auf –
+                # die Argumente interessieren nicht, nur das Signal.
+                controller.launch(callback_function=lambda *_args: launched.set())
                 if not launched.wait(10):
                     return False
                 controller.ask_info()
