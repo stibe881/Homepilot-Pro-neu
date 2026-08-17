@@ -397,9 +397,11 @@ export function AutomationsScreen({
   // Je Abschnitt ein eigenes Suchfeld – die Listen sind unabhängig.
   const [autoQuery, setAutoQuery] = useState('');
   const [sceneQuery, setSceneQuery] = useState('');
-  // Zugeklappte Kategorien, getrennt je Abschnitt.
-  const [closedAuto, setClosedAuto] = useState<string[]>([]);
-  const [closedScenes, setClosedScenes] = useState<string[]>([]);
+  // Aufgeklappte Kategorien, getrennt je Abschnitt. Standard ist
+  // zugeklappt: Wer Kategorien vergibt, will zuerst die Übersicht sehen
+  // und nicht wieder die ganze Liste.
+  const [openAuto, setOpenAuto] = useState<string[]>([]);
+  const [openScenes, setOpenScenes] = useState<string[]>([]);
   const templates = useMemo(() => buildTemplates(entities, scenes), [entities, scenes]);
 
   const mayEdit = !!user?.capabilities?.includes('edit_automations');
@@ -575,9 +577,10 @@ export function AutomationsScreen({
                 `${entry.alias} ${entry.category ?? ''}`
               )
             )}
-            closed={autoQuery ? [] : closedAuto}
+            open={openAuto}
+            openAll={!!autoQuery}
             onToggle={(category) =>
-              setClosedAuto((prev) =>
+              setOpenAuto((prev) =>
                 prev.includes(category)
                   ? prev.filter((entry) => entry !== category)
                   : [...prev, category]
@@ -647,9 +650,10 @@ export function AutomationsScreen({
                 `${entry.name} ${entry.category ?? ''} ${entry.room ?? ''}`
               )
             )}
-            closed={sceneQuery ? [] : closedScenes}
+            open={openScenes}
+            openAll={!!sceneQuery}
             onToggle={(category) =>
-              setClosedScenes((prev) =>
+              setOpenScenes((prev) =>
                 prev.includes(category)
                   ? prev.filter((entry) => entry !== category)
                   : [...prev, category]
@@ -808,13 +812,18 @@ function SearchBox({
  * Kategorien vergibt, soll auch keine sehen. */
 function Groups<T extends { id: string }>({
   groups,
-  closed,
+  open,
+  openAll = false,
   onToggle,
   renderItem,
   empty,
 }: {
   groups: { category: string; items: T[] }[];
-  closed: string[];
+  /** Aufgeklappte Kategorien – alles andere ist zu. */
+  open: string[];
+  /** Während einer Suche alles offen: Ein Treffer in einer zugeklappten
+   *  Kategorie wäre sonst unsichtbar. */
+  openAll?: boolean;
   onToggle: (category: string) => void;
   renderItem: (item: T) => React.ReactNode;
   empty: string;
@@ -833,7 +842,7 @@ function Groups<T extends { id: string }>({
   return (
     <>
       {groups.map((group) => {
-        const shut = closed.includes(group.category);
+        const shut = !openAll && !open.includes(group.category);
         return (
           <View key={group.category} style={{ gap: 10 }}>
             <Pressable
