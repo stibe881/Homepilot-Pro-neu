@@ -70,6 +70,10 @@ class Automation:
     actions: list[dict[str, Any]] = field(default_factory=list)
     # Aus der config.yaml stammende sind in der App nur lesbar.
     editable: bool = False
+    # Frei benannte Kategorie zum Gruppieren in der App. Es gibt keine
+    # Liste erlaubter Namen: Wer einen neuen tippt, hat ihn damit angelegt –
+    # eine Kategorie ohne Einträge braucht niemand.
+    category: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -79,6 +83,7 @@ class Automation:
             "conditions": self.conditions,
             "actions": self.actions,
             "editable": self.editable,
+            "category": self.category,
         }
 
     def as_config(self) -> dict[str, Any]:
@@ -89,6 +94,7 @@ class Automation:
             "trigger": self.triggers,
             "condition": self.conditions,
             "action": self.actions,
+            "category": self.category,
         }
 
 
@@ -114,6 +120,7 @@ def parse_automations(
                 conditions=_as_list(config.get("condition")),
                 actions=_as_list(config.get("action")),
                 editable=editable,
+                category=str(config["category"]) if config.get("category") else None,
             )
         )
     return automations

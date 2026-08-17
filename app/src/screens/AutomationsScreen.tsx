@@ -13,6 +13,52 @@ interface Automation {
   conditions: any[];
   actions: any[];
   editable: boolean;
+  /** Frei benannte Kategorie zum Gruppieren (vom Hub, kann fehlen). */
+  category?: string | null;
+}
+
+/** Sammelname für alles ohne eigene Kategorie. */
+const NO_CATEGORY = 'Ohne Kategorie';
+
+/** Nach Kategorie gruppieren (rein, testbar).
+ *
+ * Alphabetisch, «Ohne Kategorie» zuletzt: Wer Kategorien vergibt, will die
+ * benannten oben sehen, nicht den Rest. */
+export function groupByCategory<T extends { category?: string | null }>(
+  items: T[]
+): { category: string; items: T[] }[] {
+  const nameOf = (item: T) => item.category?.trim() || NO_CATEGORY;
+  const names = Array.from(new Set(items.map(nameOf))).sort((a, b) =>
+    a === NO_CATEGORY ? 1 : b === NO_CATEGORY ? -1 : a.localeCompare(b)
+  );
+  return names.map((category) => ({
+    category,
+    items: items.filter((item) => nameOf(item) === category),
+  }));
+}
+
+/** Freitextsuche über Name und Kategorie (rein, testbar). */
+export function search<T>(
+  items: T[],
+  query: string,
+  textOf: (item: T) => string
+): T[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return items;
+  return items.filter((item) => textOf(item).toLowerCase().includes(needle));
+}
+
+/** Alle vergebenen Kategorien – daraus entstehen die Vorschläge im Editor.
+ *  Eine eigene Verwaltung gibt es bewusst nicht: Wer einen neuen Namen
+ *  tippt, hat die Kategorie damit angelegt (rein, testbar). */
+export function usedCategories(items: { category?: string | null }[]): string[] {
+  return Array.from(
+    new Set(
+      items
+        .map((item) => item.category?.trim())
+        .filter((name): name is string => !!name)
+    )
+  ).sort((a, b) => a.localeCompare(b));
 }
 
 /** Was der Editor anbietet – bewusst wenig, aber vollständig bedienbar. */
@@ -68,6 +114,8 @@ interface Draft {
   sceneId: string;
   title: string;
   body: string;
+  /** Frei benannte Kategorie zum Gruppieren in der Liste. */
+  category: string;
 }
 
 const EMPTY: Draft = {
@@ -86,6 +134,7 @@ const EMPTY: Draft = {
   sceneId: '',
   title: '',
   body: '',
+  category: '',
 };
 
 /** Einen Trigger-Entwurf in die gespeicherte Form bringen (rein, testbar). */
@@ -272,6 +321,12 @@ export function AutomationsScreen({
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [sceneDraft, setSceneDraft] = useState<SceneDraft | null>(null);
+  // Je Abschnitt ein eigenes Suchfeld – die Listen sind unabhängig.
+  const [autoQuery, setAutoQuery] = useState('');
+  const [sceneQuery, setSceneQuery] = useState('');
+  // Zugeklappte Kategorien, getrennt je Abschnitt.
+  const [closedAuto, setClosedAuto] = useState<string[]>([]);
+  const [closedScenes, setClosedScenes] = useState<string[]>([]);
   const templates = useMemo(() => buildTemplates(entities, scenes), [entities, scenes]);
 
   const mayEdit = !!user?.capabilities?.includes('edit_automations');
@@ -298,6 +353,7 @@ export function AutomationsScreen({
       trigger: draft.triggers.map(triggerToConfig),
       condition: buildConditions(draft),
       action: buildActions(draft),
+      category: draft.category.trim() || null,
     };
     const url = draft.id
       ? `${settings.url}/api/automations/${draft.id}`
@@ -345,6 +401,7 @@ export function AutomationsScreen({
       icon: sceneDraft.icon,
       room: sceneDraft.room || null,
       on_start: !!sceneDraft.onStart,
+      category: sceneDraft.category?.trim() || null,
       actions: sceneDraft.actions
         .filter((action) => action.entity_id)
         .map(({ entity_id, command, rooms }) =>
@@ -429,29 +486,54 @@ export function AutomationsScreen({
           Noch keine Abläufe. Sie entstehen hier oder im Abschnitt „automations“
           der config.yaml des Hubs.
         </Text>
-      ) : null}
-
-      {automations.map((automation) => (
-        <Card key={automation.id} style={styles.card}>
-          <View style={styles.cardHead}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.title}>{automation.alias}</Text>
-              <Text style={styles.detail}>{describe(automation)}</Text>
-            </View>
-            {automation.editable && mayEdit ? (
-              <Pressable
-                onPress={() => setDraft(toDraft(automation))}
-                accessibilityLabel={`${automation.alias} bearbeiten`}
-                style={styles.iconButton}
-              >
-                <Ionicons name="create-outline" size={20} color={colors.inkSoft} />
-              </Pressable>
-            ) : (
-              <Text style={styles.badge}>aus config.yaml</Text>
+      ) : (
+        <>
+          {automations.length > 5 ? (
+            <SearchBox
+              value={autoQuery}
+              onChange={setAutoQuery}
+              placeholder="Ablauf oder Kategorie suchen …"
+            />
+          ) : null}
+          <Groups
+            groups={groupByCategory(
+              search(automations, autoQuery, (entry) =>
+                `${entry.alias} ${entry.category ?? ''}`
+              )
             )}
-          </View>
-        </Card>
-      ))}
+            closed={autoQuery ? [] : closedAuto}
+            onToggle={(category) =>
+              setClosedAuto((prev) =>
+                prev.includes(category)
+                  ? prev.filter((entry) => entry !== category)
+                  : [...prev, category]
+              )
+            }
+            empty="Nichts gefunden."
+            renderItem={(automation) => (
+              <Card key={automation.id} style={styles.card}>
+                <View style={styles.cardHead}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.title}>{automation.alias}</Text>
+                    <Text style={styles.detail}>{describe(automation)}</Text>
+                  </View>
+                  {automation.editable && mayEdit ? (
+                    <Pressable
+                      onPress={() => setDraft(toDraft(automation))}
+                      accessibilityLabel={`${automation.alias} bearbeiten`}
+                      style={styles.iconButton}
+                    >
+                      <Ionicons name="create-outline" size={20} color={colors.inkSoft} />
+                    </Pressable>
+                  ) : (
+                    <Text style={styles.badge}>aus config.yaml</Text>
+                  )}
+                </View>
+              </Card>
+            )}
+          />
+        </>
+      )}
 
       <Text style={styles.sectionTitle}>Szenen</Text>
       {mayEdit ? (
@@ -476,50 +558,77 @@ export function AutomationsScreen({
         <Text style={styles.note}>
           Noch keine Szenen. Eine Szene schaltet mehrere Geräte mit einem Tippen.
         </Text>
-      ) : null}
-
-      {scenes.map((scene) => (
-        <Card key={scene.id} style={styles.card}>
-          <View style={styles.cardHead}>
-            <Ionicons name={scene.icon as any} size={20} color={colors.inkSoft} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.title}>{scene.name}</Text>
-              <Text style={styles.detail}>
-                {(scene.actions?.length ?? scene.entity_ids.length)} Aktion(en)
-              </Text>
-            </View>
-            {scene.editable && mayEdit ? (
-              <Pressable
-                onPress={() =>
-                  setSceneDraft({
-                    id: scene.id,
-                    name: scene.name,
-                    icon: scene.icon,
-                    room: scene.room ?? undefined,
-                    onStart: !!scene.on_start,
-                    actions: (scene.actions ?? []).map((action) => ({
-                      entity_id: action.entity_id,
-                      command: action.command,
-                      rooms: action.data?.rooms,
-                    })),
-                  })
-                }
-                accessibilityLabel={`${scene.name} bearbeiten`}
-                style={styles.iconButton}
-              >
-                <Ionicons name="create-outline" size={20} color={colors.inkSoft} />
-              </Pressable>
-            ) : (
-              <Text style={styles.badge}>aus config.yaml</Text>
+      ) : (
+        <>
+          {scenes.length > 5 ? (
+            <SearchBox
+              value={sceneQuery}
+              onChange={setSceneQuery}
+              placeholder="Szene oder Kategorie suchen …"
+            />
+          ) : null}
+          <Groups
+            groups={groupByCategory(
+              search(scenes, sceneQuery, (entry) =>
+                `${entry.name} ${entry.category ?? ''} ${entry.room ?? ''}`
+              )
             )}
-          </View>
-        </Card>
-      ))}
+            closed={sceneQuery ? [] : closedScenes}
+            onToggle={(category) =>
+              setClosedScenes((prev) =>
+                prev.includes(category)
+                  ? prev.filter((entry) => entry !== category)
+                  : [...prev, category]
+              )
+            }
+            empty="Nichts gefunden."
+            renderItem={(scene) => (
+              <Card key={scene.id} style={styles.card}>
+                <View style={styles.cardHead}>
+                  <Ionicons name={scene.icon as any} size={20} color={colors.inkSoft} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.title}>{scene.name}</Text>
+                    <Text style={styles.detail}>
+                      {(scene.actions?.length ?? scene.entity_ids.length)} Aktion(en)
+                    </Text>
+                  </View>
+                  {scene.editable && mayEdit ? (
+                    <Pressable
+                      onPress={() =>
+                        setSceneDraft({
+                          id: scene.id,
+                          name: scene.name,
+                          icon: scene.icon,
+                          room: scene.room ?? undefined,
+                          onStart: !!scene.on_start,
+                          category: scene.category ?? undefined,
+                          actions: (scene.actions ?? []).map((action) => ({
+                            entity_id: action.entity_id,
+                            command: action.command,
+                            rooms: action.data?.rooms,
+                          })),
+                        })
+                      }
+                      accessibilityLabel={`${scene.name} bearbeiten`}
+                      style={styles.iconButton}
+                    >
+                      <Ionicons name="create-outline" size={20} color={colors.inkSoft} />
+                    </Pressable>
+                  ) : (
+                    <Text style={styles.badge}>aus config.yaml</Text>
+                  )}
+                </View>
+              </Card>
+            )}
+          />
+        </>
+      )}
 
       <Editor
         draft={draft}
         entities={entities}
         scenes={scenes}
+        categories={usedCategories(automations)}
         onChange={setDraft}
         onSave={save}
         onDelete={draft?.id ? () => remove(draft.id!) : undefined}
@@ -529,12 +638,149 @@ export function AutomationsScreen({
       <SceneEditor
         draft={sceneDraft}
         entities={entities}
+        categories={usedCategories(scenes)}
         onChange={setSceneDraft}
         onSave={saveScene}
         onDelete={sceneDraft?.id ? () => removeScene(sceneDraft.id!) : undefined}
         onCancel={() => setSceneDraft(null)}
       />
     </View>
+  );
+}
+
+/** Kategorie eintippen oder eine vorhandene antippen.
+ *
+ * Kein eigener Verwaltungsdialog: Eine neue Kategorie entsteht dadurch,
+ * dass jemand ihren Namen tippt, und verschwindet, wenn nichts mehr darin
+ * liegt. Eine Liste leerer Kategorien müsste man sonst pflegen. */
+function CategoryField({
+  value,
+  known,
+  onChange,
+}: {
+  value: string;
+  known: string[];
+  onChange: (value: string) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const current = value.trim();
+  return (
+    <Field label="Kategorie (optional)">
+      <TextInput
+        style={styles.input}
+        value={value}
+        onChangeText={onChange}
+        placeholder="z.B. Beleuchtung"
+        placeholderTextColor={colors.inkFaint}
+      />
+      {known.length > 0 ? (
+        <View style={styles.choices}>
+          {known.map((name) => {
+            const on = name === current;
+            return (
+              <Pressable
+                key={name}
+                onPress={() => onChange(on ? '' : name)}
+                accessibilityRole="button"
+                style={[styles.template, on && styles.templateOn]}
+              >
+                <Text style={[styles.templateText, on && { color: '#FFFFFF' }]}>
+                  {name}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+    </Field>
+  );
+}
+
+/** Suchfeld – je Abschnitt eines, damit die Listen unabhängig bleiben. */
+function SearchBox({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  return (
+    <View style={styles.deviceSearch}>
+      <Ionicons name="search" size={15} color={colors.inkFaint} />
+      <TextInput
+        style={styles.deviceSearchInput}
+        value={value}
+        onChangeText={onChange}
+        placeholder={placeholder}
+        placeholderTextColor={colors.inkFaint}
+      />
+      {value ? (
+        <Pressable onPress={() => onChange('')} hitSlop={8}>
+          <Ionicons name="close-circle" size={17} color={colors.inkFaint} />
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+/** Die Einträge nach Kategorie, jede Kategorie zuklappbar.
+ *
+ * Bei genau einer Gruppe ohne Namen entfällt die Überschrift: Wer keine
+ * Kategorien vergibt, soll auch keine sehen. */
+function Groups<T extends { id: string }>({
+  groups,
+  closed,
+  onToggle,
+  renderItem,
+  empty,
+}: {
+  groups: { category: string; items: T[] }[];
+  closed: string[];
+  onToggle: (category: string) => void;
+  renderItem: (item: T) => React.ReactNode;
+  empty: string;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+
+  if (groups.length === 0) {
+    return <Text style={styles.note}>{empty}</Text>;
+  }
+  const plain = groups.length === 1 && groups[0].category === NO_CATEGORY;
+  if (plain) {
+    return <>{groups[0].items.map(renderItem)}</>;
+  }
+
+  return (
+    <>
+      {groups.map((group) => {
+        const shut = closed.includes(group.category);
+        return (
+          <View key={group.category} style={{ gap: 10 }}>
+            <Pressable
+              onPress={() => onToggle(group.category)}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: !shut }}
+              style={styles.groupHead}
+            >
+              <Ionicons
+                name={shut ? 'chevron-forward' : 'chevron-down'}
+                size={16}
+                color={colors.inkSoft}
+              />
+              <Text style={styles.groupTitle}>{group.category}</Text>
+              <Text style={styles.groupCount}>{group.items.length}</Text>
+            </Pressable>
+            {!shut ? group.items.map(renderItem) : null}
+          </View>
+        );
+      })}
+    </>
   );
 }
 
@@ -547,6 +793,8 @@ interface SceneDraft {
   /** Auf der Startseite als Schnellaktion anzeigen. */
   onStart?: boolean;
   actions: { entity_id: string; command: string; rooms?: number[] }[];
+  /** Frei benannte Kategorie zum Gruppieren in der Liste. */
+  category?: string;
 }
 
 /** Eine Handvoll passender Symbole reicht – die App bleibt aufgeräumt. */
@@ -572,8 +820,27 @@ function isSceneDevice(entity: Entity): boolean {
   );
 }
 
-/** Die Schalt-Optionen eines Geräts als Chips (rein, testbar). */
-function commandOptions(entity: Entity): { key: string; label: string }[] {
+/** Die Schalt-Optionen eines Geräts als Chips (rein, testbar).
+ *
+ * ``allowToggle`` gilt nur für Abläufe: Ein Wandtaster soll das Licht
+ * anmachen, wenn es aus ist, und ausmachen, wenn es an ist – dafür braucht
+ * es «umschalten». In einer Szene wäre dasselbe sinnlos, denn eine Szene
+ * beschreibt einen Zielzustand; was dabei herauskäme, hinge davon ab, wie
+ * das Licht gerade steht.
+ */
+function commandOptions(
+  entity: Entity,
+  allowToggle = false
+): { key: string; label: string }[] {
+  const options = baseCommandOptions(entity);
+  // Nur anbieten, wo das Gerät es wirklich kann – Storen etwa können es nicht.
+  if (allowToggle && entity.commands.includes('toggle')) {
+    options.push({ key: 'toggle', label: 'umschalten' });
+  }
+  return options;
+}
+
+function baseCommandOptions(entity: Entity): { key: string; label: string }[] {
   if (entity.kind === 'cover') {
     return [
       { key: 'open', label: 'hoch' },
@@ -633,6 +900,7 @@ function SceneDevices({
   actions,
   onActions,
   showSnapshot = true,
+  allowToggle = false,
 }: {
   entities: Entity[];
   actions: SceneDraft['actions'];
@@ -640,6 +908,8 @@ function SceneDevices({
   /** Der «Aktuellen Zustand übernehmen»-Knopf – für Szenen sinnvoll, für
    *  Ablauf-Aktionen nicht (dort zählt der Zielzustand, nicht der jetzige). */
   showSnapshot?: boolean;
+  /** «umschalten» als dritte Möglichkeit – nur in Abläufen sinnvoll. */
+  allowToggle?: boolean;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -773,7 +1043,7 @@ function SceneDevices({
                 {included ? (
                   <View style={{ gap: 6 }}>
                     <Choice
-                      options={commandOptions(entity)}
+                      options={commandOptions(entity, allowToggle)}
                       value={action!.command}
                       onSelect={(command) => setCommand(entity.id, command)}
                     />
@@ -802,6 +1072,7 @@ function SceneDevices({
 function SceneEditor({
   draft,
   entities,
+  categories,
   onChange,
   onSave,
   onDelete,
@@ -809,6 +1080,8 @@ function SceneEditor({
 }: {
   draft: SceneDraft | null;
   entities: Entity[];
+  /** Schon vergebene Kategorien – als Vorschläge im Feld. */
+  categories: string[];
   onChange: (draft: SceneDraft) => void;
   onSave: () => void;
   onDelete?: () => void;
@@ -845,6 +1118,12 @@ function SceneEditor({
             placeholderTextColor={colors.inkFaint}
           />
         </Field>
+
+        <CategoryField
+          value={draft.category ?? ''}
+          known={categories}
+          onChange={(category) => set({ category })}
+        />
 
         <Field label="Symbol">
           <View style={styles.choices}>
@@ -915,6 +1194,7 @@ function Editor({
   draft,
   entities,
   scenes,
+  categories,
   onChange,
   onSave,
   onDelete,
@@ -924,6 +1204,8 @@ function Editor({
   draft: Draft | null;
   entities: Entity[];
   scenes: Scene[];
+  /** Schon vergebene Kategorien – als Vorschläge im Feld. */
+  categories: string[];
   onChange: (draft: Draft) => void;
   onSave: () => void;
   onDelete?: () => void;
@@ -980,6 +1262,12 @@ function Editor({
             placeholderTextColor={colors.inkFaint}
           />
         </Field>
+
+        <CategoryField
+          value={draft.category}
+          known={categories}
+          onChange={(category) => set({ category })}
+        />
 
         <Field label={draft.triggers.length > 1 ? 'Wenn eines passiert' : 'Wenn … passiert'}>
           {draft.triggers.map((trigger, index) => (
@@ -1079,6 +1367,7 @@ function Editor({
               actions={draft.commandActions}
               onActions={(commandActions) => set({ commandActions })}
               showSnapshot={false}
+              allowToggle
             />
           ) : draft.actionKind === 'scene' ? (
             <Picker
@@ -1407,6 +1696,7 @@ function toDraft(automation: Automation): Draft {
         rooms: entry.data?.rooms ?? [],
       })),
     sceneId: action.scene ?? '',
+    category: automation.category ?? '',
     title: action.title ?? '',
     body: action.body ?? '',
   };
@@ -1497,7 +1787,24 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     deviceSearchInput: { flex: 1, paddingVertical: 10, color: colors.ink, fontSize: 15 },
+    groupHead: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingTop: 6,
+      paddingBottom: 2,
+    },
+    groupTitle: {
+      flex: 1,
+      color: colors.onGradientSoft,
+      fontSize: 12,
+      fontWeight: '700',
+      textTransform: 'uppercase',
+      letterSpacing: 0.6,
+    },
+    groupCount: { color: colors.onGradientSoft, fontSize: 12, fontWeight: '700' },
     templates: { gap: 8 },
+    templateOn: { backgroundColor: colors.accent, borderColor: colors.accent },
     templatesLabel: {
       color: colors.onGradientSoft,
       fontSize: 12,

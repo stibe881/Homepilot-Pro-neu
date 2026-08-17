@@ -41,6 +41,8 @@ class Scene:
     room: str | None = None
     # Auf der Startseite als Schnellaktion anzeigen.
     on_start: bool = False
+    # Frei benannte Kategorie zum Gruppieren in der App (siehe Automation).
+    category: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -52,6 +54,7 @@ class Scene:
             "editable": self.editable,
             "room": self.room,
             "on_start": self.on_start,
+            "category": self.category,
         }
 
 
@@ -77,6 +80,7 @@ def parse_scenes(configs: list[dict[str, Any]], editable: bool = False) -> list[
                 editable=editable,
                 room=str(room) if room else None,
                 on_start=bool(config.get("on_start")),
+                category=str(config["category"]) if config.get("category") else None,
             )
         )
     return scenes

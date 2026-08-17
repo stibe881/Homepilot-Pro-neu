@@ -135,3 +135,54 @@ def test_scene_on_start_flag_roundtrip():
         scenes = client.get("/api/scenes", headers=auth("t-owner")).json()
         entry = next(scene for scene in scenes if scene["id"] == scene_id)
         assert entry["on_start"] is False
+
+
+def test_scenes_and_automations_keep_their_category():
+    """Kategorien werden frei benannt – wer einen neuen Namen tippt, hat ihn
+    damit angelegt. Eine Liste erlaubter Namen gäbe es sonst zu pflegen,
+    und eine Kategorie ohne Einträge braucht niemand."""
+    with make_client() as client:
+        scene = client.post(
+            "/api/scenes",
+            headers=auth("t-owner"),
+            json={
+                "name": "Kino",
+                "actions": [{"entity_id": "demo.light_livingroom", "command": "turn_off"}],
+                "category": "Wohnzimmer",
+            },
+        )
+        assert scene.status_code == 200
+        scene_id = scene.json()["scene"]["id"]
+        stored = next(
+            entry for entry in client.get("/api/scenes", headers=auth("t-owner")).json()
+            if entry["id"] == scene_id
+        )
+        assert stored["category"] == "Wohnzimmer"
+
+        automation = client.post(
+            "/api/automations",
+            headers=auth("t-owner"),
+            json={
+                "alias": "Licht am Abend",
+                "trigger": [{"type": "sun", "event": "sunset"}],
+                "action": [{"entity_id": "demo.light_livingroom", "command": "turn_on"}],
+                "category": "Abend",
+            },
+        )
+        assert automation.status_code == 200
+        listed = client.get("/api/automations", headers=auth("t-owner")).json()["automations"]
+        assert any(entry.get("category") == "Abend" for entry in listed)
+
+
+def test_without_a_category_nothing_is_invented():
+    with make_client() as client:
+        client.post(
+            "/api/scenes",
+            headers=auth("t-owner"),
+            json={
+                "name": "Ohne",
+                "actions": [{"entity_id": "demo.light_livingroom", "command": "turn_off"}],
+            },
+        )
+        scenes = client.get("/api/scenes", headers=auth("t-owner")).json()
+        assert all(entry["category"] is None for entry in scenes)

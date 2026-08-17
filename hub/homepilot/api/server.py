@@ -73,6 +73,8 @@ class AutomationRequest(BaseModel):
     condition: list[dict[str, Any]] = []
     action: list[dict[str, Any]] = []
     enabled: bool = True
+    # Frei gewählter Name zum Gruppieren in der App.
+    category: str | None = None
 
 
 class SceneRequest(BaseModel):
@@ -82,6 +84,8 @@ class SceneRequest(BaseModel):
     room: str | None = None
     # Auf der Startseite als Schnellaktion anzeigen.
     on_start: bool = False
+    # Frei gewählter Name zum Gruppieren in der App.
+    category: str | None = None
 
 
 class UserRequest(BaseModel):
@@ -544,6 +548,7 @@ def create_app(hub: Hub) -> FastAPI:
             "actions": body.actions,
             "room": body.room,
             "on_start": body.on_start,
+            "category": body.category,
         }
         hub.data.set("scenes", [*stored_scenes(), entry])
         hub.reload_scenes()
@@ -570,6 +575,7 @@ def create_app(hub: Hub) -> FastAPI:
                 "actions": body.actions,
                 "room": body.room,
                 "on_start": body.on_start,
+                "category": body.category,
             }
             if entry["id"] == scene_id
             else entry
@@ -631,6 +637,7 @@ def create_app(hub: Hub) -> FastAPI:
             "trigger": body.trigger,
             "condition": body.condition,
             "action": body.action,
+            "category": body.category,
         }
         hub.data.set("automations", [*stored_automations(), entry])
         await hub.reload_automations()
@@ -655,6 +662,7 @@ def create_app(hub: Hub) -> FastAPI:
                 "trigger": body.trigger,
                 "condition": body.condition,
                 "action": body.action,
+                "category": body.category,
             }
             if entry["id"] == automation_id
             else entry

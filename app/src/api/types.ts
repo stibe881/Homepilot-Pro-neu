@@ -28,6 +28,8 @@ export interface Scene {
   room?: string | null;
   /** Auf der Startseite als Schnellaktion anzeigen. */
   on_start?: boolean;
+  /** Frei benannte Kategorie zum Gruppieren in der Liste. */
+  category?: string | null;
 }
 
 export interface User {
