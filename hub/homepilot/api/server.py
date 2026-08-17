@@ -693,15 +693,32 @@ def create_app(hub: Hub) -> FastAPI:
 
     @app.post("/api/push/test")
     async def test_push(request: Request) -> dict[str, Any]:
+        """Probe-Nachricht an die Geräte des angemeldeten Benutzers.
+
+        Der Test wartet kurz auf die Zustell-Quittung: «angenommen» sagt nur,
+        dass Expo die Nachricht entgegengenommen hat – ob Apple oder Google
+        sie ausgeliefert haben, steht erst in der Quittung. Genau dort steht
+        auch der Grund, wenn nichts ankommt.
+        """
         user = current_user(request)
         tokens = hub.push.recipients(hub.users.users, user.name)
-        count = await hub.push.send(
+        result = await hub.push.send(
             tokens,
             title="HomePilot Test",
             body="Push-Benachrichtigungen funktionieren \U0001f389",
             data={"type": "test"},
         )
-        return {"ok": True, "sent": count}
+        problems = list(result.errors)
+        if result.ticket_ids:
+            # Expo braucht einen Moment, bis die Quittung bereitsteht.
+            await asyncio.sleep(3)
+            problems.extend(await hub.push.delivered(result.ticket_ids))
+        return {
+            "ok": not problems,
+            "sent": result.accepted,
+            "devices": len(tokens),
+            "errors": problems,
+        }
 
     # ── Benutzerverwaltung ─────────────────────────────────────────────────
 

@@ -357,9 +357,20 @@ function PushTestCard({
       });
       if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
       const data = await response.json();
-      // Kommt nichts an, sagt der Stand der Anmeldung warum – das ist
-      // brauchbarer als ein blosses «kein Gerät angemeldet».
-      setMessage(pushHint(push, Number(data.sent ?? 0)));
+      // Der Hub wartet auf die Zustell-Quittung. Meldet der Push-Dienst
+      // etwas, ist das der eigentliche Grund – wichtiger als jede Zählung.
+      const problems: string[] = Array.isArray(data.errors) ? data.errors : [];
+      if (problems.length > 0) {
+        setMessage(problems.join(' '));
+      } else if (Number(data.sent ?? 0) > 0) {
+        setMessage(
+          `Zugestellt an ${data.sent} Gerät(e). Kommt trotzdem nichts an, ` +
+            'liegt es an den Benachrichtigungs-Einstellungen des Geräts ' +
+            '(Fokus/Nicht stören, Mitteilungen für die App).'
+        );
+      } else {
+        setMessage(pushHint(push, 0));
+      }
     } catch (err: any) {
       setMessage(String(err.message ?? err));
     } finally {
