@@ -20,6 +20,7 @@ Muster wie beim Homematic-Callback.
 from __future__ import annotations
 
 import asyncio
+import time
 import hashlib
 import json
 import threading
@@ -254,6 +255,64 @@ class GoogleCastIntegration(Integration):
             if entity is not None:
                 names.append(entity.name)
         return names
+
+    async def discover(self, seconds: float = 5.0) -> list[dict[str, Any]]:
+        """Sucht Cast-Geräte und Lautsprechergruppen im Netz.
+
+        Damit muss niemand IP-Adressen zusammensuchen, um eine Box in die
+        config.yaml einzutragen. Gruppen kommen mit derselben Suche: Google
+        meldet sie als eigenständiges Cast-Gerät vom Typ «group» – genau
+        deshalb spielen sie auch synchron, und genau deshalb kann der Hub
+        eine solche Gruppe nur benutzen, nicht selbst herstellen.
+        """
+        from pychromecast.const import CAST_TYPE_GROUP
+        from pychromecast.discovery import CastBrowser, SimpleCastListener
+        import zeroconf
+
+        def browse() -> list[dict[str, Any]]:
+            found: dict[str, dict[str, Any]] = {}
+            zc = zeroconf.Zeroconf()
+            browser = CastBrowser(SimpleCastListener(), zc)
+            browser.start_discovery()
+            try:
+                time.sleep(seconds)
+                for info in list(browser.devices.values()):
+                    found[str(info.uuid)] = {
+                        "name": info.friendly_name,
+                        "host": info.host,
+                        "port": info.port,
+                        "model": info.model_name,
+                        # Nur eine echte Google-Gruppe spielt synchron.
+                        "group": info.cast_type == CAST_TYPE_GROUP,
+                    }
+            finally:
+                browser.stop_discovery()
+                zc.close()
+            return sorted(found.values(), key=lambda entry: entry["name"] or "")
+
+        return await asyncio.to_thread(browse)
+
+    async def group_members(self, host: str) -> list[str]:
+        """Welche Boxen stecken in dieser Gruppe? Leer, wenn keine Gruppe."""
+        import pychromecast
+        from pychromecast.controllers.multizone import MultizoneController
+
+        def read() -> list[str]:
+            cast = pychromecast.get_chromecast_from_host((host, 8009, None, None, None))
+            try:
+                cast.wait(10)
+                controller = MultizoneController(cast.uuid)
+                cast.register_handler(controller)
+                time.sleep(2)
+                return [str(member) for member in controller.members]
+            finally:
+                cast.disconnect()
+
+        try:
+            return await asyncio.to_thread(read)
+        except Exception as err:
+            self.log.debug("Gruppenmitglieder von %s nicht lesbar: %s", host, err)
+            return []
 
     async def spotify_wake(self, name: str, access_token: str) -> bool:
         """Startet die Spotify-App auf der Box und meldet sie bei Spotify an.

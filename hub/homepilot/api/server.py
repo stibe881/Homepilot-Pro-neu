@@ -686,6 +686,50 @@ def create_app(hub: Hub) -> FastAPI:
             raise HTTPException(status_code=404, detail="Ablauf nicht gefunden")
         return {"ok": True}
 
+    # ── Lautsprecher ───────────────────────────────────────────────────────
+
+    @app.get("/api/speakers")
+    async def list_speakers(request: Request) -> dict[str, Any]:
+        """Boxen und Gruppen im Netz, plus was der Hub schon eingebunden hat.
+
+        Wichtig zur Einordnung: Synchron spielen mehrere Boxen nur als echte
+        Google-Lautsprechergruppe. Die entsteht einmalig in der Google-Home-App
+        und meldet sich danach im Netz als ein einzelnes Cast-Gerät – der Hub
+        kann sie benutzen, aber nicht selbst herstellen. Selbst an mehrere
+        Boxen zu senden ergäbe hörbaren Versatz.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        cast = hub.integrations.get("google_cast")
+        found: list[dict[str, Any]] = []
+        if cast is not None and hasattr(cast, "discover"):
+            try:
+                found = await cast.discover()
+            except Exception as err:
+                log.warning("Cast-Suche fehlgeschlagen: %s", err)
+
+        configured = {
+            entity.name: entity.id
+            for entity in hub.registry.all()
+            if entity.kind == "media_player"
+        }
+        for entry in found:
+            entry["entity_id"] = configured.get(entry["name"])
+        return {
+            "speakers": found,
+            # Boxen, die der Hub kennt, aber die Suche nicht gefunden hat –
+            # etwa in einem anderen Netzsegment.
+            "configured": sorted(configured),
+        }
+
+    @app.get("/api/speakers/members")
+    async def speaker_members(host: str, request: Request) -> dict[str, Any]:
+        """Mitglieder einer Google-Lautsprechergruppe."""
+        require(request, Capability.EDIT_CONFIG)
+        cast = hub.integrations.get("google_cast")
+        if cast is None or not hasattr(cast, "group_members"):
+            raise HTTPException(status_code=503, detail="Cast-Integration nicht geladen")
+        return {"members": await cast.group_members(host)}
+
     # ── Alarmanlage ────────────────────────────────────────────────────────
 
     def alarm_service():

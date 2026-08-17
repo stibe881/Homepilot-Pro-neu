@@ -18,6 +18,7 @@ export type Section =
   | 'system'
   | 'energy'
   | 'alarm'
+  | 'speakers'
   | 'users'
   | 'activity'
   | 'account';

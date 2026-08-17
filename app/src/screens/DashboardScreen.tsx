@@ -40,6 +40,7 @@ import { OverviewScreen } from './OverviewScreen';
 import { SettingsScreen } from './SettingsScreen';
 import { AlarmScreen } from './AlarmScreen';
 import { EnergyScreen } from './EnergyScreen';
+import { SpeakersScreen } from './SpeakersScreen';
 import { SystemScreen } from './SystemScreen';
 import { UsersScreen } from './UsersScreen';
 
@@ -491,6 +492,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           show: caps.includes('edit_config'),
         },
         {
+          key: 'speakers',
+          icon: 'volume-high-outline',
+          label: 'Lautsprecher',
+          detail: 'Boxen und Gruppen im Netz',
+          show: caps.includes('edit_config'),
+        },
+        {
           key: 'energy',
           icon: 'flash-outline',
           label: 'Energie',
@@ -546,6 +554,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         <View style={styles.stack}>
           {back}
           <AlarmScreen settings={settings} />
+        </View>
+      );
+    }
+    if (section === 'speakers') {
+      return (
+        <View style={styles.stack}>
+          {back}
+          <SpeakersScreen settings={settings} />
         </View>
       );
     }
