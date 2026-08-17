@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Entity, Scene } from '../api/types';
 import { Bar } from '../components/Bar';
-import { SpotifyPanel } from '../components/EntityCard';
+import { ShuffleRepeat, SpotifyPanel } from '../components/EntityCard';
 import { Card } from '../components/Card';
 import { Colors, radius, space, useColors } from '../theme';
 
@@ -416,6 +416,10 @@ export function OverviewScreen({
                   </Pressable>
                 ) : null}
               </View>
+              <ShuffleRepeat
+                entity={player}
+                onCommand={(command, data) => onCommand(player.id, command, data)}
+              />
               {/* Lautstärke direkt auf der Startseite: Leiser machen ist
                   der häufigste Griff und war bisher nur über die
                   Geräte-Kachel erreichbar. */}

@@ -141,6 +141,8 @@ def parse_playback(payload: dict[str, Any] | None) -> dict[str, Any]:
             "artist": None,
             "device": None,
             "context_uri": None,
+            "shuffle": False,
+            "repeat": "off",
         }
     item = payload.get("item") or {}
     artists = ", ".join(
@@ -155,11 +157,27 @@ def parse_playback(payload: dict[str, Any] | None) -> dict[str, Any]:
         # Woraus gerade gespielt wird. Spotify nennt hier nur die URI –
         # den Namen kennt erst, wer die Playlists des Kontos hat.
         "context_uri": (payload.get("context") or {}).get("uri"),
+        "shuffle": bool(payload.get("shuffle_state")),
+        # «off», «track» (ein Titel) oder «context» (Playlist/Album).
+        "repeat": str(payload.get("repeat_state") or "off"),
     }
     volume = device.get("volume_percent")
     if volume is not None:
         result["volume"] = int(volume)
     return result
+
+
+# Reihenfolge beim Durchtippen: aus → alles → ein Titel → aus. Das sind
+# genau die Werte, die Spotify für /me/player/repeat annimmt.
+REPEAT_MODES = ("off", "context", "track")
+
+
+def next_repeat(current: str) -> str:
+    """Der nächste Wiederholmodus beim Antippen (rein, testbar)."""
+    try:
+        return REPEAT_MODES[(REPEAT_MODES.index(current) + 1) % len(REPEAT_MODES)]
+    except ValueError:
+        return REPEAT_MODES[1]
 
 
 def playlist_name(
@@ -225,6 +243,7 @@ class SpotifyIntegration(Integration):
             commands=[
                 "play", "pause", "toggle", "next", "previous", "play_on",
                 "set_volume", "volume_up", "volume_down", "mute", "play_playlist",
+                "shuffle", "repeat",
             ],
             available=False,
         )
@@ -418,6 +437,22 @@ class SpotifyIntegration(Integration):
                     "ist; sonst einmal die Spotify-App im selben Netz öffnen."
                 )
             await self._call("PUT", f"/me/player/play?device_id={device_id}", json=body)
+            await self._refresh()
+            return
+
+        if command == "shuffle":
+            # Ohne Angabe umschalten – so genügt ein Tipp in der App.
+            target = data.get("on")
+            on = (not bool(entity.state.get("shuffle"))) if target is None else bool(target)
+            await self._call("PUT", f"/me/player/shuffle?state={'true' if on else 'false'}")
+            await self._refresh()
+            return
+
+        if command == "repeat":
+            mode = str(data.get("mode") or next_repeat(str(entity.state.get("repeat") or "off")))
+            if mode not in REPEAT_MODES:
+                raise ValueError(f"Unbekannter Wiederholmodus '{mode}'")
+            await self._call("PUT", f"/me/player/repeat?state={mode}")
             await self._refresh()
             return
 

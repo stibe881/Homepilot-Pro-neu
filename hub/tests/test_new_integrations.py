@@ -137,6 +137,9 @@ def test_playback_playing():
         # Ohne «context» in der Antwort läuft der Song einzeln, nicht aus
         # einer Playlist.
         "context_uri": None,
+        # Fehlende Felder heissen «aus», nicht «unbekannt».
+        "shuffle": False,
+        "repeat": "off",
     }
 
 

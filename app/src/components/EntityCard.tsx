@@ -186,6 +186,7 @@ export function EntityCard({
                 ) : null}
               </View>
             ) : null}
+            <ShuffleRepeat entity={entity} onCommand={onCommand} />
             {hasRemote ? (
               <TvRemote
                 visible={remoteOpen}
@@ -875,6 +876,86 @@ function LockBody({
  *  Musik, zieht der Tipp auf eine andere Box die Wiedergabe sofort um
  *  (Spotify Connect). Google-Lautsprecher erscheinen in der Liste, wenn
  *  Spotify in der Google-Home-App verknüpft ist. */
+/**
+ * Zufallswiedergabe und Wiederholung.
+ *
+ * Beides sind Zustände, keine Aktionen – deshalb bleiben sie sichtbar an
+ * oder aus, statt beim Tippen nur kurz aufzuleuchten. Wiederholen hat drei
+ * Stufen und wird durchgetippt: aus → alles → ein Titel.
+ */
+export function ShuffleRepeat({
+  entity,
+  onCommand,
+}: {
+  entity: Entity;
+  onCommand: (command: string, data?: Record<string, any>) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const canShuffle = entity.commands.includes('shuffle');
+  const canRepeat = entity.commands.includes('repeat');
+  if (!canShuffle && !canRepeat) return null;
+
+  const shuffle = !!entity.state.shuffle;
+  const repeat = String(entity.state.repeat ?? 'off');
+  const repeatOn = repeat !== 'off';
+
+  return (
+    <View style={styles.modeRow}>
+      {canShuffle ? (
+        <Pressable
+          onPress={() => onCommand('shuffle')}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: shuffle }}
+          accessibilityLabel={shuffle ? 'Zufall aus' : 'Zufall ein'}
+          style={({ pressed }) => [
+            styles.modeButton,
+            shuffle && styles.modeButtonOn,
+            pressed && { opacity: 0.7 },
+          ]}
+        >
+          <Ionicons
+            name="shuffle"
+            size={17}
+            color={shuffle ? '#FFFFFF' : colors.inkSoft}
+          />
+          <Text style={[styles.modeButtonText, shuffle && { color: '#FFFFFF' }]}>
+            Zufall
+          </Text>
+        </Pressable>
+      ) : null}
+      {canRepeat ? (
+        <Pressable
+          onPress={() => onCommand('repeat')}
+          accessibilityRole="button"
+          accessibilityLabel={`Wiederholen: ${repeatLabel(repeat)}`}
+          style={({ pressed }) => [
+            styles.modeButton,
+            repeatOn && styles.modeButtonOn,
+            pressed && { opacity: 0.7 },
+          ]}
+        >
+          <Ionicons
+            name="repeat"
+            size={17}
+            color={repeatOn ? '#FFFFFF' : colors.inkSoft}
+          />
+          <Text style={[styles.modeButtonText, repeatOn && { color: '#FFFFFF' }]}>
+            {repeatLabel(repeat)}
+          </Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+/** Wie der Wiederholmodus heisst (rein, testbar). */
+export function repeatLabel(repeat: string): string {
+  if (repeat === 'context') return 'Alles';
+  if (repeat === 'track') return 'Ein Titel';
+  return 'Wiederholen';
+}
+
 /**
  * Playlists in die selbst gewählte Reihenfolge bringen (rein, testbar).
  *
@@ -1713,6 +1794,20 @@ const makeStyles = (colors: Colors) =>
     letterSpacing: 0.6,
     marginTop: 2,
   },
+  modeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  modeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  modeButtonOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+  modeButtonText: { color: colors.inkSoft, fontSize: 12, fontWeight: '700' },
   playlistButton: {
     flexDirection: 'row',
     alignItems: 'center',
