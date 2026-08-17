@@ -45,6 +45,23 @@ function two(value: number): string {
   return value < 10 ? `0${value}` : String(value);
 }
 
+/** «in X Tagen» bis zu einem Datum – für den nächsten Geburtstag (rein,
+ *  testbar). Reine Datumsangaben («2026-08-20») werden auf Mittag gesetzt,
+ *  damit die Zeitzone die Tageszahl nicht verschiebt. */
+function daysUntilText(value: any): string {
+  const raw = String(value ?? '').trim();
+  const iso = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T12:00:00` : raw;
+  const target = new Date(iso);
+  if (Number.isNaN(target.getTime())) return '';
+  const today = new Date();
+  const days = Math.round(
+    (new Date(target).setHours(0, 0, 0, 0) - today.setHours(0, 0, 0, 0)) / 86_400_000
+  );
+  if (days <= 0) return 'heute! 🎉';
+  if (days === 1) return 'morgen';
+  return `in ${days} Tagen`;
+}
+
 const SHORT_DAYS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 
 /** «2026-08-18» → «Di» (rein, testbar). Heute/Morgen werden benannt. */
@@ -250,7 +267,7 @@ export function OverviewScreen({
 
   const termin = eventLine(nextEvent, 'Zahnarzt', 'Mo 14:30');
   const geburtstag = birthday
-    ? eventLine(birthday, '', '')
+    ? { title: birthday.summary ?? '—', when: daysUntilText(birthday.start), demo: false }
     : { title: 'Livia', when: 'in 12 Tagen', demo: true };
 
   // ── Anzeige ────────────────────────────────────────────────────────────
