@@ -32,6 +32,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from ..core.config import ConfigError, load_config
+from ..core.config_edit import add_cast_device
 from ..integrations import alarm as alarm_module
 from ..core.errors import HomePilotError, UnknownEntityError, UnsupportedCommandError
 from ..core.hub import Hub
@@ -88,6 +89,13 @@ class SceneRequest(BaseModel):
     on_start: bool = False
     # Frei gewählter Name zum Gruppieren in der App.
     category: str | None = None
+
+
+class SpeakerRequest(BaseModel):
+    """Eine gefundene Box, die in die Konfiguration soll."""
+
+    name: str
+    host: str
 
 
 class UserRequest(BaseModel):
@@ -235,10 +243,13 @@ def create_app(hub: Hub) -> FastAPI:
         Hub nach dem nächsten Neustart nicht mehr hoch.
         """
         require(request, Capability.EDIT_CONFIG)
+        return save_config(body.content)
+
+    def save_config(content: str) -> dict[str, Any]:
         path = Path(config_path())
         temp = path.with_suffix(".tmp")
         try:
-            temp.write_text(body.content, encoding="utf-8")
+            temp.write_text(content, encoding="utf-8")
             candidate = load_config(temp)  # wirft ConfigError bei YAML-/Strukturfehlern
             # Auch die Benutzer-Regeln prüfen: Eine Konfiguration ohne
             # Besitzer würde den Editor selbst aussperren.
@@ -732,6 +743,30 @@ def create_app(hub: Hub) -> FastAPI:
             # etwa in einem anderen Netzsegment.
             "configured": sorted(configured),
         }
+
+    @app.post("/api/speakers/adopt")
+    async def adopt_speaker(body: SpeakerRequest, request: Request) -> dict[str, Any]:
+        """Eine gefundene Box oder Gruppe in die config.yaml eintragen.
+
+        Ergänzt genau zwei Zeilen im google_cast-Block; Kommentare und
+        Reihenfolge der Datei bleiben, wie sie waren. Geprüft wird das
+        Ergebnis wie jede Änderung über den Editor – eine kaputte
+        config.yaml darf nie auf der Platte landen.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        path = Path(config_path())
+        try:
+            content = path.read_text(encoding="utf-8")
+        except OSError as err:
+            raise HTTPException(
+                status_code=500, detail=f"Konfiguration nicht lesbar: {err}"
+            ) from err
+        updated = add_cast_device(content, body.name, body.host)
+        if updated == content:
+            # Schon eingetragen: kein Fehler, aber auch kein Neustart nötig.
+            return {"ok": True, "restart_required": False, "already": True}
+        result = save_config(updated)
+        return {**result, "already": False}
 
     @app.get("/api/speakers/members")
     async def speaker_members(host: str, request: Request) -> dict[str, Any]:

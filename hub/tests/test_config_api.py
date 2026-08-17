@@ -123,3 +123,51 @@ def test_resident_may_not_assign_rooms(client):
         ).status_code
         == 403
     )
+
+
+def test_adopting_a_speaker_writes_it_into_the_config(client):
+    """Ein Klick in den Lautsprecher-Einstellungen soll genügen – niemand
+    soll dafür YAML von Hand tippen müssen."""
+    response = client.post(
+        "/api/speakers/adopt",
+        headers=auth("t-owner"),
+        json={"name": "Terrasse", "host": "10.10.1.25"},
+    )
+    assert response.status_code == 200
+    assert response.json()["restart_required"] is True
+
+    content = client.config_file.read_text()
+    assert "integration: google_cast" in content
+    assert "host: 10.10.1.25" in content
+    assert "name: Terrasse" in content
+    # Der Rest der Datei steht unverändert da.
+    assert "integration: demo" in content
+    assert "token: t-owner" in content
+    # Und sie lässt sich weiterhin laden.
+    assert load_config(client.config_file) is not None
+
+
+def test_adopting_twice_is_harmless(client):
+    for _ in range(2):
+        client.post(
+            "/api/speakers/adopt",
+            headers=auth("t-owner"),
+            json={"name": "Terrasse", "host": "10.10.1.25"},
+        )
+    second = client.post(
+        "/api/speakers/adopt",
+        headers=auth("t-owner"),
+        json={"name": "Terrasse", "host": "10.10.1.25"},
+    )
+    assert second.json()["already"] is True
+    assert second.json()["restart_required"] is False
+    assert client.config_file.read_text().count("host: 10.10.1.25") == 1
+
+
+def test_a_resident_may_not_adopt_speakers(client):
+    response = client.post(
+        "/api/speakers/adopt",
+        headers=auth("t-resident"),
+        json={"name": "Terrasse", "host": "10.10.1.25"},
+    )
+    assert response.status_code == 403

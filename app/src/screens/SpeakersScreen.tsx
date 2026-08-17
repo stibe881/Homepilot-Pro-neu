@@ -35,6 +35,9 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
   const [members, setMembers] = useState<Record<string, string[]>>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Was gerade eingetragen wird, und was ein Neustart noch braucht.
+  const [adopting, setAdopting] = useState<string | null>(null);
+  const [pending, setPending] = useState<string[]>([]);
 
   const headers: Record<string, string> = settings.token
     ? { Authorization: `Bearer ${settings.token}` }
@@ -71,6 +74,55 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
     } catch {
       setMembers((prev) => ({ ...prev, [host]: [] }));
     }
+  };
+
+  /** Eine gefundene Box in die config.yaml eintragen – der Hub ergänzt dort
+   *  zwei Zeilen und lässt den Rest der Datei in Ruhe. */
+  const adopt = async (entry: Speaker) => {
+    setAdopting(entry.host);
+    setError(null);
+    try {
+      const response = await fetch(`${settings.url}/api/speakers/adopt`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: entry.name, host: entry.host }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail ?? `Hub antwortet mit ${response.status}`);
+      }
+      setPending((prev) => (prev.includes(entry.name) ? prev : [...prev, entry.name]));
+      load();
+    } catch (err: any) {
+      setError(String(err.message ?? err));
+    } finally {
+      setAdopting(null);
+    }
+  };
+
+  /** Der Zustand rechts in der Zeile: schon eingebunden, gerade eingetragen
+   *  (dann fehlt nur noch der Neustart) oder ein Knopf zum Übernehmen. */
+  const Badge = ({ entry }: { entry: Speaker }) => {
+    if (entry.entity_id) return <Text style={styles.badgeOk}>eingebunden</Text>;
+    if (pending.includes(entry.name)) {
+      return <Text style={styles.badgeWait}>nach Neustart</Text>;
+    }
+    return (
+      <Pressable
+        onPress={() => adopt(entry)}
+        accessibilityRole="button"
+        accessibilityLabel={`${entry.name} übernehmen`}
+        disabled={adopting != null}
+        style={({ pressed }) => [styles.adopt, pressed && { opacity: 0.8 }]}
+      >
+        <Ionicons
+          name={adopting === entry.host ? 'hourglass-outline' : 'add'}
+          size={14}
+          color={colors.accent}
+        />
+        <Text style={styles.adoptText}>übernehmen</Text>
+      </Pressable>
+    );
   };
 
   if (error) {
@@ -116,11 +168,7 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
                     : entry.host}
                 </Text>
               </View>
-              {entry.entity_id ? (
-                <Text style={styles.badgeOk}>eingebunden</Text>
-              ) : (
-                <Text style={styles.badge}>nicht in config</Text>
-              )}
+              <Badge entry={entry} />
               {!members[entry.host] ? (
                 <Pressable onPress={() => loadMembers(entry.host)} hitSlop={8}>
                   <Ionicons name="information-circle-outline" size={20} color={colors.inkSoft} />
@@ -148,11 +196,7 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
                   {entry.model ? ` · ${entry.model}` : ''}
                 </Text>
               </View>
-              {entry.entity_id ? (
-                <Text style={styles.badgeOk}>eingebunden</Text>
-              ) : (
-                <Text style={styles.badge}>nicht in config</Text>
-              )}
+              <Badge entry={entry} />
             </View>
           ))
         )}
@@ -176,17 +220,19 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
       <Card style={styles.card}>
         <Text style={styles.heading}>Einbinden</Text>
         <Text style={styles.hint}>
-          Was hier als «nicht in config» steht, kennt der Hub noch nicht. Unter
-          Einstellungen → System → Konfiguration eintragen, mit dem Namen und
-          der Adresse von oben:
+          «Übernehmen» trägt die Box mit Namen und Adresse in die config.yaml
+          ein – der Hub ergänzt dort zwei Zeilen und lässt den Rest der Datei
+          samt Kommentaren, wie er ist. Wirksam wird der Eintrag beim nächsten
+          Neustart des Hubs; bis dahin steht «nach Neustart» daneben. Eine
+          Gruppe wird genauso eingetragen wie eine einzelne Box – für den Hub
+          ist sie ein Gerät.
         </Text>
-        <Text style={styles.code}>
-          {'  - integration: google_cast\n    devices:\n      - host: 10.10.1.225\n        name: Terrasse'}
-        </Text>
-        <Text style={styles.hint}>
-          Eine Gruppe wird genauso eingetragen wie eine einzelne Box – für den
-          Hub ist sie ein Gerät.
-        </Text>
+        {pending.length > 0 ? (
+          <Text style={styles.wait}>
+            Neu eingetragen: {pending.join(', ')}. Unter Einstellungen → System
+            neu starten, dann erscheinen sie als Geräte.
+          </Text>
+        ) : null}
         <Pressable
           onPress={load}
           accessibilityRole="button"
@@ -207,6 +253,7 @@ const makeStyles = (colors: Colors) =>
     heading: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
     hint: { color: colors.inkFaint, fontSize: 12, lineHeight: 18 },
     note: { color: colors.onGradientSoft, fontSize: 14, marginTop: 20 },
+    wait: { color: colors.warn, fontSize: 12, lineHeight: 18, fontWeight: '600' },
     row: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -217,16 +264,20 @@ const makeStyles = (colors: Colors) =>
     },
     rowTitle: { color: colors.ink, fontSize: 15, fontWeight: '600' },
     rowDetail: { color: colors.inkSoft, fontSize: 12 },
-    badge: { color: colors.inkFaint, fontSize: 11 },
-    badgeOk: { color: colors.on, fontSize: 11, fontWeight: '700' },
-    code: {
-      color: colors.ink,
-      fontSize: 12,
-      fontFamily: 'monospace',
-      backgroundColor: colors.surfaceSoft,
-      borderRadius: radius.control,
-      padding: 12,
+    badgeWait: { color: colors.warn, fontSize: 11, fontWeight: '700' },
+    adopt: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceStrong,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
     },
+    adoptText: { color: colors.accent, fontSize: 11, fontWeight: '700' },
+    badgeOk: { color: colors.on, fontSize: 11, fontWeight: '700' },
     button: {
       flexDirection: 'row',
       alignItems: 'center',
