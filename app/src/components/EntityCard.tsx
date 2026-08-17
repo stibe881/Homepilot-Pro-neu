@@ -34,6 +34,9 @@ interface Props {
   hidden?: boolean;
   onToggleFavorite?: () => void;
   onToggleHidden?: () => void;
+  /** Anpassen-Modus: Gerät sperren – schaltet nur nach Rückfrage. */
+  locked?: boolean;
+  onToggleLocked?: () => void;
   /** Anpassen-Modus: Raum dieser Kachel setzen. */
   rooms?: string[];
   onSetRoom?: (room: string | null) => void;
@@ -68,6 +71,8 @@ export function EntityCard({
   hidden,
   onToggleFavorite,
   onToggleHidden,
+  locked,
+  onToggleLocked,
   rooms,
   onSetRoom,
   onRename,
@@ -518,6 +523,18 @@ export function EntityCard({
               label={hidden ? 'Wieder einblenden' : 'Ausblenden'}
               onPress={onToggleHidden}
             />
+            {onToggleLocked ? (
+              <EditButton
+                icon={locked ? 'lock-closed' : 'lock-open-outline'}
+                active={!!locked}
+                label={
+                  locked
+                    ? 'Sperre aufheben'
+                    : 'Sperren – schaltet nur nach Rückfrage'
+                }
+                onPress={onToggleLocked}
+              />
+            ) : null}
           </View>
         </View>
       ) : null}

@@ -28,6 +28,8 @@ import { Rail, Section } from '../components/Rail';
 import { RoomTabs } from '../components/RoomTabs';
 import { RoomTile } from '../components/RoomTile';
 import { SceneRow } from '../components/SceneRow';
+import { AllOff } from '../components/AllOff';
+import { GlobalSearch } from '../components/GlobalSearch';
 import { PushPrefs } from '../components/PushPrefs';
 import { ActivityCard, SidePanel } from '../components/SidePanel';
 import { Toast, UndoToast } from '../components/Toast';
@@ -47,6 +49,20 @@ import { SystemScreen } from './SystemScreen';
 import { UsersScreen } from './UsersScreen';
 
 const ALL_ROOMS = 'Alle';
+/** Befehle, die ein gesperrtes Gerät nur nach Rückfrage annimmt. Lesende
+ *  Befehle und Lautstärke gehören nicht dazu – gesperrt ist der Herd, nicht
+ *  die Fernbedienung. */
+const SWITCHING = new Set([
+  'turn_on',
+  'turn_off',
+  'toggle',
+  'open',
+  'close',
+  'set_position',
+  'start',
+  'stop',
+  'unlock',
+]);
 // Pseudo-Raum für Geräte ohne Zuordnung – als Kachel und Ansicht öffenbar.
 const NO_ROOM = 'Weitere';
 const PANEL_WIDTH = 340;
@@ -107,6 +123,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [startCountdowns, setStartCountdowns] = useState<
     { text: string; date: string; on_start?: boolean }[]
   >([]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  // Abläufe – nur für die Suche; die Liste selbst lebt im Ablauf-Screen.
+  const [automations, setAutomations] = useState<
+    { id: string; alias: string; category?: string | null }[]
+  >([]);
+  // Rückfrage vor dem Schalten eines gesperrten Geräts.
+  const [confirm, setConfirm] = useState<{
+    entity: Entity;
+    command: string;
+    data?: Record<string, any>;
+  } | null>(null);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 30000);
@@ -134,6 +161,23 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       clearInterval(timer);
     };
   }, [settings.url, settings.token]);
+
+  // Die Ablaufnamen einmal holen, damit die Suche sie kennt.
+  useEffect(() => {
+    if (!settings.url || !settings.token || status !== 'connected') return;
+    let alive = true;
+    fetch(`${settings.url}/api/automations`, {
+      headers: { Authorization: `Bearer ${settings.token}` },
+    })
+      .then((response) => (response.ok ? response.json() : []))
+      .then((rows) => {
+        if (alive) setAutomations(Array.isArray(rows) ? rows : []);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [settings.url, settings.token, status]);
 
   // Beim Verlassen der Geräteliste die Suche zurücksetzen – wer später
   // zurückkommt, will die volle Liste sehen, nicht den alten Suchbegriff.
@@ -171,6 +215,26 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
 
   const favorites = settings.favorites ?? [];
   const hidden = settings.hidden ?? [];
+  const locked = settings.locked ?? [];
+
+  /**
+   * Ein gesperrtes Gerät schaltet nur nach ausdrücklicher Rückfrage.
+   *
+   * Zentral hier und nicht in der Kachel: So greift die Sperre auf jedem
+   * Weg – Kachel, Raumfliese, Schnellzugriff –, statt an der einen Stelle
+   * zu fehlen, an die niemand gedacht hat.
+   */
+  const guardedCommand = useCallback(
+    (entityId: string, command: string, data?: Record<string, any>) => {
+      const entity = entities.find((item) => item.id === entityId);
+      if (entity && locked.includes(entityId) && SWITCHING.has(command)) {
+        setConfirm({ entity, command, data });
+        return;
+      }
+      sendCommand(entityId, command, data);
+    },
+    [entities, locked, sendCommand]
+  );
 
   const toggleIn = (list: string[], id: string) =>
     list.includes(id) ? list.filter((item) => item !== id) : [...list, id];
@@ -399,6 +463,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       onToggleHidden={() =>
         onSaveSettings({ ...settings, hidden: toggleIn(hidden, entity.id) })
       }
+      locked={locked.includes(entity.id)}
+      onToggleLocked={() =>
+        onSaveSettings({ ...settings, locked: toggleIn(locked, entity.id) })
+      }
       rooms={editing ? roomOrder : undefined}
       onSetRoom={
         editing ? (room) => setEntityRoom(entity.id, room) : undefined
@@ -408,7 +476,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       onSetGroup={
         editing ? (group) => setEntityMeta(entity.id, { group }) : undefined
       }
-      onCommand={(command, data) => sendCommand(entity.id, command, data)}
+      onCommand={(command, data) => guardedCommand(entity.id, command, data)}
       sky={entity.kind === 'cover' ? sky : undefined}
       snapshotUri={
         // Kameras: Livebild. Sauger: die Karte – beides über denselben Endpunkt.
@@ -720,7 +788,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           </Modal>
           {/* Im „Alle“-Modus alle Szenen, im Raum nur dessen Szenen. */}
           {section === 'home' && room === ALL_ROOMS ? (
-            <SceneRow scenes={scenes} onActivate={activateScene} />
+            <>
+              <SceneRow scenes={scenes} onActivate={activateScene} />
+              <View style={styles.allOffRow}>
+                <AllOff
+                  entities={entities}
+                  locked={locked}
+                  onCommand={sendCommand}
+                />
+              </View>
+            </>
           ) : null}
           {section === 'home' && editing && rooms.length > 0 ? (
             <RoomTabs rooms={rooms} active={room} onSelect={setRoom} />
@@ -791,7 +868,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                         : gridWidth
                     }
                     onOpen={() => setRoom(tile.name)}
-                    onCommand={(entityId, command) => sendCommand(entityId, command)}
+                    onCommand={(entityId, command) => guardedCommand(entityId, command)}
                   />
                 ))}
             </View>
@@ -894,6 +971,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               </Text>
             </View>
             <View style={styles.greetingNotes}>
+              <Pressable
+                onPress={() => setSearchOpen(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Suchen"
+                style={({ pressed }) => [styles.searchButton, pressed && { opacity: 0.7 }]}
+              >
+                <Ionicons name="search" size={18} color={colors.onGradientSoft} />
+              </Pressable>
               <RunningAppliances entities={entities} />
               <OpenDoors entities={entities} />
             </View>
@@ -919,7 +1004,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           camera={ringingCamera}
           lock={frontDoorLock}
           settings={settings}
-          onCommand={(entityId, command) => sendCommand(entityId, command)}
+          onCommand={(entityId, command) => guardedCommand(entityId, command)}
           onDismiss={() => setDismissedRing(ringKey)}
           colors={colors}
           styles={styles}
@@ -937,6 +1022,45 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         />
       ) : null}
 
+      {confirm ? (
+        <LockConfirm
+          entity={confirm.entity}
+          command={confirm.command}
+          onCancel={() => setConfirm(null)}
+          onConfirm={() => {
+            sendCommand(confirm.entity.id, confirm.command, confirm.data);
+            setConfirm(null);
+          }}
+          colors={colors}
+          styles={styles}
+        />
+      ) : null}
+
+      <GlobalSearch
+        visible={searchOpen}
+        entities={entities}
+        scenes={scenes}
+        automations={automations}
+        rooms={roomOrder}
+        onClose={() => setSearchOpen(false)}
+        onPick={(hit) => {
+          setSearchOpen(false);
+          if (hit.kind === 'room') {
+            setSection('home');
+            setRoom(hit.id);
+          } else if (hit.kind === 'scene') {
+            activateScene(hit.id);
+          } else if (hit.kind === 'automation') {
+            setSection('automations');
+          } else {
+            // Gerät: in die Geräteliste und dort danach filtern – so sieht
+            // man es samt Bedienelementen, statt nur den Raum zu wechseln.
+            setSection('devices');
+            setQuery(hit.label);
+          }
+        }}
+      />
+
       <Toast message={error} onDismiss={dismissError} bottomInset={insets.bottom} />
       {/* Nur wenn nichts schiefging – ein fehlgeschlagener Befehl hat nichts
           hinterlassen, was man zurücknehmen müsste. */}
@@ -947,6 +1071,58 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         bottomInset={insets.bottom}
       />
     </View>
+  );
+}
+
+/**
+ * Rückfrage vor dem Schalten eines gesperrten Geräts.
+ *
+ * Für alles, was man nicht im Vorbeigehen antippen will: Herd, Sauna, der
+ * Serverschrank. Die Sperre verhindert nichts – sie fügt nur den einen
+ * bewussten Schritt ein, der ein Versehen von einer Absicht trennt.
+ */
+function LockConfirm({
+  entity,
+  command,
+  onCancel,
+  onConfirm,
+  colors,
+  styles,
+}: {
+  entity: Entity;
+  command: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+  colors: Colors;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  const was =
+    command === 'turn_off' || command === 'close'
+      ? 'ausschalten'
+      : command === 'toggle'
+        ? 'umschalten'
+        : 'einschalten';
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onCancel}>
+      <View style={styles.lockBackdrop}>
+        <View style={styles.lockSheet}>
+          <Ionicons name="lock-closed" size={26} color={colors.accent} />
+          <Text style={styles.lockTitle}>{entity.name} ist gesperrt</Text>
+          <Text style={styles.lockText}>
+            Wirklich {was}? Die Sperre lässt sich im Anpassen-Modus wieder
+            aufheben.
+          </Text>
+          <View style={styles.lockActions}>
+            <Pressable onPress={onCancel} style={styles.lockCancel}>
+              <Text style={styles.lockCancelText}>Abbrechen</Text>
+            </Pressable>
+            <Pressable onPress={onConfirm} style={styles.lockConfirm}>
+              <Text style={styles.lockConfirmText}>Ja, {was}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -1286,6 +1462,58 @@ function GroupButton({
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
   root: { flex: 1 },
+  allOffRow: { alignItems: 'flex-start', marginTop: 4 },
+  searchButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  lockBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  lockSheet: {
+    width: '100%',
+    maxWidth: 380,
+    gap: 10,
+    padding: 20,
+    borderRadius: radius.card,
+    backgroundColor: colors.surfaceStrong,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    alignItems: 'center',
+  },
+  lockTitle: { color: colors.ink, fontSize: 17, fontWeight: '700', textAlign: 'center' },
+  lockText: {
+    color: colors.inkSoft,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  lockActions: { flexDirection: 'row', gap: 10, marginTop: 6, alignSelf: 'stretch' },
+  lockCancel: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderRadius: radius.control,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  lockCancelText: { color: colors.inkSoft, fontSize: 15, fontWeight: '700' },
+  lockConfirm: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderRadius: radius.control,
+    backgroundColor: colors.accent,
+  },
+  lockConfirmText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
   frame: { flex: 1, flexDirection: 'row' },
   scroll: { flex: 1 },
   content: {

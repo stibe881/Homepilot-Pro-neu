@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Entity, HubSettings, SystemStatus } from '../api/types';
 import { Card } from '../components/Card';
+import { HistoryChart } from '../components/HistoryChart';
 import { Colors, radius, space, type, useColors } from '../theme';
 
 /**
@@ -77,6 +78,9 @@ export function EnergyScreen({
   const [months, setMonths] = useState<Months | null>(null);
   const [cycles, setCycles] = useState<CycleStat[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // Aufgeklapptes Gerät samt Verlauf, und die Breite dafür.
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [width, setWidth] = useState(0);
 
   const load = useCallback(() => {
     const headers: Record<string, string> = settings.token
@@ -179,14 +183,28 @@ export function EnergyScreen({
       />
 
       <Card style={styles.card}>
+        <View
+          onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
+          style={styles.measure}
+        />
         <Text style={styles.heading}>Nach Gerät</Text>
+        <Text style={styles.hint}>
+          Antippen zeigt den Verlauf der letzten Stunden – daran sieht man,
+          ob ein Gerät durchläuft oder nur kurz anspringt.
+        </Text>
         {byPower.map((entity) => {
           // Anteil am aktuellen Gesamtverbrauch – als Balken hinter der Zeile.
           const watts = Number(entity.state.power) || 0;
           const share = totalPower > 0 ? Math.round((watts / totalPower) * 100) : 0;
           const kwh = Number(entity.state.energy_today);
+          const open = expanded === entity.id;
           return (
-            <View key={entity.id} style={styles.row}>
+            <Pressable
+              key={entity.id}
+              onPress={() => setExpanded(open ? null : entity.id)}
+              accessibilityRole="button"
+              style={styles.row}
+            >
               <Ionicons
                 name="flash-outline"
                 size={18}
@@ -211,8 +229,15 @@ export function EnergyScreen({
                     : 'kein Tagesverbrauch gemeldet'}
                   {entity.room ? ` · ${entity.room}` : ''}
                 </Text>
+                {open && width > 0 ? (
+                  <HistoryChart
+                    entity={entity}
+                    settings={settings}
+                    width={Math.max(120, width - 78)}
+                  />
+                ) : null}
               </View>
-            </View>
+            </Pressable>
           );
         })}
       </Card>
@@ -397,6 +422,8 @@ function Fact({ label, value }: { label: string; value: string }) {
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     stack: { gap: space.gap },
+    // Nur zum Messen der verfügbaren Breite für den Verlauf.
+    measure: { height: 0 },
     card: { minHeight: 0, gap: 12 },
     heading: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
     hint: { color: colors.inkFaint, fontSize: 12, lineHeight: 18 },

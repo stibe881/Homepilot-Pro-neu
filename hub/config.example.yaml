@@ -154,6 +154,22 @@ integrations:
   #       kind: switch
   #       power_address: "001015699EA263:6" # Messkanal (POWER in Watt)
 
+  # Beschattung: Storen zu, wenn die Sonne wirklich aufs Fenster brennt.
+  # Alle drei Bedingungen müssen zusammen zutreffen – jede einzeln führt in
+  # die Irre: Die Richtung allein verdunkelt im Winter, die Höhe allein
+  # beschattet mittags die Ostseite, die Temperatur allein reagiert auf
+  # einen kalten klaren Tag gar nicht.
+  # Wer eine Store von Hand öffnet, hat Vorrang: Die Automatik hält sich
+  # dann bis zum nächsten Tag zurück.
+  # - integration: shading
+  #   temperature: hm.temp_aussen     # Entität mit der Aussentemperatur
+  #   windows:
+  #     - cover: overkiz.wohnzimmer
+  #       azimuth: [90, 200]          # von Ost bis Süd-Süd-West
+  #       elevation: 15               # erst ab dieser Sonnenhöhe (Grad)
+  #       temperature: 22             # erst ab dieser Aussentemperatur
+  #       position: 30                # wie weit zu (0 = ganz zu, 100 = offen)
+
   # UniFi: Anwesenheitserkennung anhand verbundener Geräte.
   # Liefert zusätzlich unifi.anyone_home und unifi.clients_total.
   # - integration: unifi

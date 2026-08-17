@@ -85,3 +85,72 @@ def next_sun_event(
         if event > now:
             return event
     return None
+
+
+# ── Sonnenstand ──────────────────────────────────────────────────────────
+
+
+def sun_position(when: datetime, lat: float, lon: float) -> tuple[float, float]:
+    """Höhe und Azimut der Sonne in Grad (rein, testbar).
+
+    Höhe: 0 am Horizont, 90 im Zenit, negativ nach dem Untergang.
+    Azimut: 0 = Norden, 90 = Osten, 180 = Süden, 270 = Westen.
+
+    Für die Beschattung braucht es beides: Ob die Sonne aufs Fenster
+    scheint, hängt von der Himmelsrichtung ab, und ob sie blendet, von der
+    Höhe. Der Sonnenauf- und -untergang allein sagt darüber nichts – im
+    Sommer steht die Sonne um acht Uhr längst am Himmel, aber noch im
+    Osten.
+
+    Dieselbe Näherung wie oben (NOAA), gut auf ein Zehntelgrad – für
+    Storen ist das reichlich genau.
+    """
+    stamp = when.astimezone(timezone.utc)
+    # Julianisches Datum.
+    jd = stamp.timestamp() / 86400.0 + 2440587.5
+    d = jd - 2451545.0
+
+    # Mittlere Länge und Anomalie der Sonne.
+    mean_long = _norm(280.460 + 0.9856474 * d, 360.0)
+    anomaly = math.radians(_norm(357.528 + 0.9856003 * d, 360.0))
+    # Ekliptikale Länge.
+    ecliptic = math.radians(
+        mean_long + 1.915 * math.sin(anomaly) + 0.020 * math.sin(2 * anomaly)
+    )
+    obliquity = math.radians(23.439 - 0.0000004 * d)
+
+    declination = math.asin(math.sin(obliquity) * math.sin(ecliptic))
+    right_ascension = math.atan2(
+        math.cos(obliquity) * math.sin(ecliptic), math.cos(ecliptic)
+    )
+
+    # Sternzeit am Ort, daraus der Stundenwinkel.
+    sidereal = math.radians(_norm(280.46061837 + 360.98564736629 * d + lon, 360.0))
+    hour_angle = sidereal - right_ascension
+
+    lat_rad = math.radians(lat)
+    elevation = math.asin(
+        math.sin(lat_rad) * math.sin(declination)
+        + math.cos(lat_rad) * math.cos(declination) * math.cos(hour_angle)
+    )
+    azimuth = math.atan2(
+        math.sin(hour_angle),
+        math.cos(hour_angle) * math.sin(lat_rad) - math.tan(declination) * math.cos(lat_rad),
+    )
+    return round(math.degrees(elevation), 2), round(_norm(math.degrees(azimuth) + 180.0, 360.0), 2)
+
+
+def within_arc(azimuth: float, start: float, end: float) -> bool:
+    """Liegt die Sonne im Fensterbereich? (rein, testbar)
+
+    Der Bereich darf über Norden hinweggehen (z.B. 300° bis 60°) – ein
+    nach Norden zeigendes Fenster ist selten, aber ein Bereich, der bei
+    350 beginnt und bei 20 endet, ist keine Ausnahme, sondern der Normalfall
+    an einer schräg stehenden Fassade.
+    """
+    start = _norm(start, 360.0)
+    end = _norm(end, 360.0)
+    azimuth = _norm(azimuth, 360.0)
+    if start <= end:
+        return start <= azimuth <= end
+    return azimuth >= start or azimuth <= end
