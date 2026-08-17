@@ -6,6 +6,7 @@ from homepilot.integrations.homematic import (
     HomematicIntegration,
     command_error,
     command_to_value,
+    is_timeout,
     power_to_state,
     switch_channel,
     value_to_state,
@@ -224,3 +225,19 @@ def test_command_error_explains_fault_minus_five():
 def test_command_error_passes_other_faults_through():
     fault = xmlrpc.client.Fault(-1, "Zugriff verweigert")
     assert "Zugriff verweigert" in command_error("A:1", "STATE", fault)
+
+
+def test_is_timeout_recognises_the_ccu_wording():
+    assert is_timeout(xmlrpc.client.Fault(-1, "Generic error (TIMEOUT)"))
+    assert is_timeout(xmlrpc.client.Fault(-1, "timeout"))
+    assert not is_timeout(xmlrpc.client.Fault(-5, "Invalid parameter or value"))
+
+
+def test_command_error_explains_a_radio_timeout():
+    fault = xmlrpc.client.Fault(-1, "Generic error (TIMEOUT)")
+    message = command_error("001015699EA263:3", "STATE", fault)
+    assert "001015699EA263:3" in message
+    assert "Funk-Timeout" in message
+    # Der Kanal ist hier gerade nicht das Problem – das darf nicht behauptet
+    # werden, sonst sucht man an der falschen Stelle.
+    assert "Datenpunkt" not in message

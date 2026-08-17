@@ -118,13 +118,32 @@ def switch_channel(address: str, channels: dict[str, str]) -> str | None:
     return candidates[0] if candidates else None
 
 
+def is_timeout(fault: Exception) -> bool:
+    """Hat die CCU das Gerät nicht erreicht? (rein, testbar)
+
+    Ein Funk-Timeout ist oft vorübergehend – ein zweiter Versuch lohnt sich,
+    anders als bei einem falschen Kanal.
+    """
+    text = str(getattr(fault, "faultString", None) or fault).upper()
+    return "TIMEOUT" in text
+
+
 def command_error(address: str, datapoint: str, fault: Exception) -> str:
     """Aus einem CCU-Fehler eine Meldung machen, die weiterhilft (rein).
 
-    «Fault -5: Invalid parameter or value» sagt für sich genommen nichts;
-    fast immer steckt der falsche Kanal dahinter.
+    «Fault -5: Invalid parameter or value» und «Fault -1: Generic error
+    (TIMEOUT)» sagen für sich genommen nichts – dahinter stecken zwei ganz
+    verschiedene Ursachen, und die gehören in die Meldung.
     """
     text = str(getattr(fault, "faultString", None) or fault)
+    if is_timeout(fault):
+        return (
+            f"Die CCU erreicht das Gerät zu Kanal {address} nicht (Funk-Timeout). "
+            "Der Kanal stimmt, geantwortet hat das Gerät nicht. Prüfen: Steckt "
+            "es und ist es angelernt, stehen in der CCU noch Konfigurationsdaten "
+            "aus, und ist der Sendespeicher (Duty Cycle) der Funk-Schnittstelle "
+            "frei?"
+        )
     if getattr(fault, "faultCode", None) == -5 or "Invalid parameter" in text:
         return (
             f"Die CCU kennt auf Kanal {address} keinen Datenpunkt {datapoint}. "
@@ -547,14 +566,32 @@ class HomematicIntegration(Integration):
     async def handle_command(self, entity: Entity, command: str, data: dict[str, Any]) -> None:
         info = self._devices[entity.id]
         datapoint, value = command_to_value(command, data, info["dimmable"], entity.state)
-        try:
-            await self._call(
-                "setValue", info["command_address"], datapoint, value, port=info["port"]
-            )
-        except xmlrpc.client.Fault as err:
-            raise HomePilotError(
-                command_error(info["command_address"], datapoint, err)
-            ) from err
+        # Funk-Timeouts sind oft vorübergehend (Gerät gerade nicht wach, kurze
+        # Störung) – ein zweiter Versuch räumt die meisten aus. Mehr als einen
+        # gibt es bewusst nicht: Die CCU quittiert jeden Versuch erst nach
+        # Sekunden, und die App soll nicht ewig auf eine Antwort warten.
+        for attempt in (1, 2):
+            try:
+                await self._call(
+                    "setValue",
+                    info["command_address"],
+                    datapoint,
+                    value,
+                    port=info["port"],
+                )
+                break
+            except xmlrpc.client.Fault as err:
+                if is_timeout(err) and attempt == 1:
+                    self.log.warning(
+                        "%s: %s antwortet nicht, zweiter Versuch …",
+                        entity.id,
+                        info["command_address"],
+                    )
+                    await asyncio.sleep(0.5)
+                    continue
+                raise HomePilotError(
+                    command_error(info["command_address"], datapoint, err)
+                ) from err
         # Die CCU meldet die Änderung per Event zurück; ohne Callback-Betrieb
         # ziehen wir den Zustand direkt nach.
         if self._server is None:
