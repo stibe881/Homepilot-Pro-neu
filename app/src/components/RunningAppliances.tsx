@@ -27,6 +27,21 @@ export interface Working {
 }
 
 /**
+ * Passendes Symbol zum Gerät (rein, testbar).
+ *
+ * Dieselben Symbole wie auf den Haushalt-Kacheln der Startseite. Bewusst
+ * kein Kreispfeil: Der steht überall für «neu laden» und lädt zum Tippen
+ * ein – hier gibt es aber nichts zu tippen, der Wert aktualisiert sich von
+ * selbst, sobald der Hub eine Änderung meldet.
+ */
+export function applianceIcon(name: string): keyof typeof Ionicons.glyphMap {
+  if (/tumbler|trockner/i.test(name)) return 'sunny-outline';
+  if (/wasch/i.test(name)) return 'water-outline';
+  if (/geschirr|sp(ü|ue)lmaschine/i.test(name)) return 'restaurant-outline';
+  return 'ellipse';
+}
+
+/**
  * Welche Haushaltsgeräte arbeiten gerade? (rein, testbar)
  *
  * Zwei Quellen, weil die Geräte unterschiedlich angebunden sind: echte
@@ -80,7 +95,11 @@ export function RunningAppliances({ entities }: { entities: Entity[] }) {
 
   return (
     <View style={styles.card} accessibilityLabel={`${heading}: ${detail}`}>
-      <Ionicons name="sync" size={16} color={colors.onGradientSoft} />
+      <Ionicons
+        name={working.length === 1 ? applianceIcon(working[0].entity.name) : 'ellipse'}
+        size={working.length === 1 ? 16 : 10}
+        color={colors.onGradientSoft}
+      />
       <View style={styles.text}>
         <Text style={styles.heading} numberOfLines={1}>
           {heading}
