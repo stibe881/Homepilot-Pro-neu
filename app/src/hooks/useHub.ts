@@ -11,9 +11,10 @@ const CACHE_KEY = 'homepilot.snapshot';
 /** So lange gilt eine Kachel nach dem Tippen als „wird geschaltet“. */
 const PENDING_TIMEOUT = 6000;
 // Befehle, die naturgemäss länger dauern: Eine schlafende Spotify-Box wird
-// erst geweckt und angemeldet, bevor die Playlist startet.
+// erst geweckt und angemeldet – bevor die Playlist startet ebenso wie
+// bevor die laufende Musik auf sie umzieht.
 const SLOW_COMMAND_TIMEOUT = 45000;
-const SLOW_COMMANDS = new Set(['play_playlist']);
+const SLOW_COMMANDS = new Set(['play_playlist', 'play_on']);
 
 /** Kurzfassung einer Änderung für die Liste „Zuletzt passiert“. */
 function describe(entity: Entity, newState: Record<string, any>): string | null {

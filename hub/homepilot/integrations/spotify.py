@@ -395,14 +395,26 @@ class SpotifyIntegration(Integration):
 
     async def handle_command(self, entity: Entity, command: str, data: dict[str, Any]) -> None:
         if command == "play_on":
-            device_id = self._device_ids.get(str(data.get("device")))
+            name = str(data.get("device", ""))
+            device_id = self._device_ids.get(name)
+            # Schlafende Cast-Box: Sie taucht in Spotify erst auf, wenn sie
+            # geweckt ist. Ohne diesen Schritt liess sich die Musik auf jede
+            # Box umziehen – ausser auf eine, die gerade still ist, also
+            # meistens genau die gewünschte.
+            if device_id is None and name:
+                device_id = await self._wake_and_find(name)
             if device_id is None:
                 raise ValueError(
-                    f"Unbekanntes Wiedergabegerät '{data.get('device')}' – "
-                    f"verfügbar: {', '.join(self._device_ids) or 'keine'}"
+                    f"'{name}' ist nicht erreichbar. Sichtbar sind: "
+                    f"{', '.join(self._device_ids) or 'keine'}"
                 )
-            # Spotify Connect: Wiedergabe auf das Gerät umziehen und weiterspielen.
-            await self._call("PUT", "/me/player", json={"device_ids": [device_id], "play": True})
+            # Spotify Connect zieht die Wiedergabe nahtlos um. «play» folgt
+            # dem bisherigen Zustand: Was lief, läuft weiter; was pausiert
+            # war, bleibt pausiert und startet dort, wo man es erwartet.
+            keep_playing = bool(data.get("play", True))
+            await self._call(
+                "PUT", "/me/player", json={"device_ids": [device_id], "play": keep_playing}
+            )
             await self._refresh()
             return
         if command == "play_playlist":

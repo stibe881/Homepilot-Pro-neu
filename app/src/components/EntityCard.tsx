@@ -1039,11 +1039,17 @@ export function SpotifyPanel({
                 key={name}
                 onPress={() => {
                   setChosen(name);
-                  // Läuft Musik woanders, sofort umziehen.
-                  if (playing && name !== active) onCommand('play_on', { device: name });
+                  if (name === active) return;
+                  // Immer umziehen, nicht nur wenn gerade Musik läuft:
+                  // «play» folgt dem bisherigen Zustand, damit Pausiertes
+                  // pausiert bleibt und dort weiterläuft, wo man es erwartet.
+                  onCommand('play_on', { device: name, play: playing });
                 }}
                 accessibilityRole="radio"
                 accessibilityState={{ selected }}
+                accessibilityLabel={
+                  name === active ? `${name} – spielt hier` : `Musik auf ${name} umziehen`
+                }
                 style={[styles.deviceChip, selected && styles.deviceChipActive]}>
                 <Ionicons
                   name={name === active && playing ? 'volume-high' : 'volume-medium-outline'}
