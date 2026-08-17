@@ -54,10 +54,27 @@ die Familie die App wie aus dem App Store und erhält Updates automatisch.
 
 ## Push-Nachrichten scharf schalten
 
-Der Hub verschickt Pushes bereits über den Expo-Dienst – mit dem eigenen
-Build funktionieren sie automatisch, sobald sich die App einmal mit dem Hub
-verbunden hat (sie meldet ihr Push-Token selbst an; sichtbar unter
-System → Push-Geräte). Nichts weiter nötig.
+Der Hub verschickt Pushes bereits über den Expo-Dienst. Die App meldet ihr
+Push-Token selbst an, sobald sie mit dem Hub verbunden ist – sichtbar unter
+System → Push-Geräte, und mit «Push testen» direkt prüfbar.
+
+Zwei Dinge müssen dafür stimmen:
+
+**1. Die EAS-Projekt-Kennung.** Ohne sie stellt Expo gar keinen Push-Token
+aus. Einmalig im Ordner `app/`:
+
+```bash
+npx eas init
+```
+
+Das legt das Projekt in deinem Expo-Konto an und trägt die Kennung in die
+`app.json` unter `extra.eas.projectId` ein. Danach die App neu starten.
+Fehlt sie, sagt die Karte «Benachrichtigungen» im System-Screen genau das.
+
+**2. Die richtige Umgebung.** Expo Go kann seit SDK 53 auf **Android** keine
+Push-Nachrichten mehr empfangen (auf iOS geht es dort weiterhin). Für
+Android braucht es also den eigenen Build von oben – mit ihm funktioniert es
+auf beiden Systemen.
 
 ## Updates verteilen
 

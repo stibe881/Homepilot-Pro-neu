@@ -1,4 +1,4 @@
-import Constants from 'expo-constants';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import * as Notifications from 'expo-notifications';
 import { useEffect, useState } from 'react';
 import { Platform } from 'react-native';
@@ -9,6 +9,8 @@ import { HubSettings } from '../api/types';
 export type PushState =
   | { state: 'idle' }
   | { state: 'web' }
+  /** Expo Go auf Android kann seit SDK 53 keine Push-Nachrichten mehr. */
+  | { state: 'expoGoAndroid' }
   | { state: 'denied' }
   | { state: 'registered'; label: string }
   | { state: 'failed'; detail: string };
@@ -39,6 +41,14 @@ export function usePushRegistration(
     if (!connected) return;
     if (Platform.OS === 'web') {
       setPush({ state: 'web' });
+      return;
+    }
+    // Expo Go kann auf Android seit SDK 53 keine Push-Nachrichten mehr
+    // entgegennehmen; auf iOS geht es dort weiterhin.
+    const inExpoGo =
+      Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+    if (Platform.OS === 'android' && inExpoGo) {
+      setPush({ state: 'expoGoAndroid' });
       return;
     }
     let cancelled = false;
@@ -102,11 +112,13 @@ export function pushHint(push: PushState, sent: number | null): string {
   switch (push.state) {
     case 'web':
       return 'Im Browser gibt es keine Push-Nachrichten. Öffne die App auf dem Handy.';
+    case 'expoGoAndroid':
+      return 'Expo Go kann auf Android seit SDK 53 keine Push-Nachrichten mehr empfangen. Dafür braucht es einen eigenen Build – siehe docs/eigener-app-build.md.';
     case 'denied':
       return 'Die App darf keine Benachrichtigungen zeigen – in den Geräte-Einstellungen erlauben.';
     case 'failed':
       return /projectid/i.test(push.detail)
-        ? 'Expo stellt ohne EAS-Projekt-Kennung keinen Push-Token aus. Trag sie in der app.json unter extra.eas.projectId ein (eas init) und starte die App neu.'
+        ? 'Ohne EAS-Projekt-Kennung stellt Expo keinen Push-Token aus. Einmalig «npx eas init» im App-Ordner ausführen – das trägt sie in die app.json ein – und die App neu starten.'
         : `Anmeldung fehlgeschlagen: ${push.detail}`;
     case 'registered':
       return `Dieses Gerät ist angemeldet (${push.label}). Kommt nichts an, prüfe die Benachrichtigungen in den Geräte-Einstellungen.`;
