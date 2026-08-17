@@ -33,6 +33,23 @@ from ..core.errors import ConfigError
 from ..core.integration import Integration
 
 
+# Der übliche Cast-Port. Eine Lautsprechergruppe hat einen eigenen, denn
+# sie läuft auf der Adresse einer ihrer Boxen.
+DEFAULT_PORT = 8009
+
+
+def cast_object_id(host: str, port: int = DEFAULT_PORT) -> str:
+    """Kennung der Entität aus Adresse und Port (rein, testbar).
+
+    Der Port kommt nur dazu, wenn er vom üblichen abweicht – sonst würden
+    sich die Kennungen bestehender Geräte ändern und ihre Favoriten,
+    Abläufe und Szenen ins Leere zeigen. Nötig ist er bei Gruppen: Die
+    teilen sich die Adresse mit einer ihrer Boxen.
+    """
+    base = host.replace(".", "_")
+    return base if port == DEFAULT_PORT else f"{base}_{port}"
+
+
 def cast_media_state(
     player_state: str | None,
     title: str | None,
@@ -154,8 +171,9 @@ class GoogleCastIntegration(Integration):
             host = device.get("host")
             if not host:
                 raise ConfigError("google_cast: jedes Gerät braucht einen 'host'")
+            port = int(device.get("port", DEFAULT_PORT))
             entity = await self.add_entity(
-                str(host).replace(".", "_"),
+                cast_object_id(str(host), port),
                 EntityKind.MEDIA_PLAYER,
                 device.get("name", f"Cast {host}"),
                 state={"state": "idle"},
@@ -165,7 +183,7 @@ class GoogleCastIntegration(Integration):
                 ],
                 available=False,
             )
-            self.start_task(self._connect_loop(entity.id, str(host)))
+            self.start_task(self._connect_loop(entity.id, str(host), port))
 
     async def teardown(self) -> None:
         await super().teardown()
@@ -178,14 +196,16 @@ class GoogleCastIntegration(Integration):
 
     # ── Gerät → Hub ────────────────────────────────────────────────────────
 
-    async def _connect_loop(self, entity_id: str, host: str) -> None:
+    async def _connect_loop(
+        self, entity_id: str, host: str, port: int = DEFAULT_PORT
+    ) -> None:
         import pychromecast
 
         while True:
             try:
                 cast = await asyncio.to_thread(
                     pychromecast.get_chromecast_from_host,
-                    (host, 8009, None, None, None),
+                    (host, port, None, None, None),
                     timeout=10,
                 )
                 await asyncio.to_thread(cast.wait, 15)
@@ -278,6 +298,10 @@ class GoogleCastIntegration(Integration):
                 time.sleep(seconds)
                 for info in list(browser.devices.values()):
                     found[str(info.uuid)] = {
+                        # Eine Gruppe läuft auf der IP eines ihrer
+                        # Mitglieder, nur mit eigenem Port – die Adresse
+                        # allein taugt deshalb nicht als Kennung.
+                        "uuid": str(info.uuid),
                         "name": info.friendly_name,
                         "host": info.host,
                         "port": info.port,
@@ -292,13 +316,20 @@ class GoogleCastIntegration(Integration):
 
         return await asyncio.to_thread(browse)
 
-    async def group_members(self, host: str) -> list[str]:
-        """Welche Boxen stecken in dieser Gruppe? Leer, wenn keine Gruppe."""
+    async def group_members(self, host: str, port: int = DEFAULT_PORT) -> list[str]:
+        """Welche Boxen stecken in dieser Gruppe? Leer, wenn keine Gruppe.
+
+        Der Port gehört dazu: Eine Gruppe teilt sich die Adresse mit der
+        Box, die sie beherbergt, und ist nur über ihren eigenen Port zu
+        erreichen.
+        """
         import pychromecast
         from pychromecast.controllers.multizone import MultizoneController
 
         def read() -> list[str]:
-            cast = pychromecast.get_chromecast_from_host((host, 8009, None, None, None))
+            cast = pychromecast.get_chromecast_from_host(
+                (host, port, None, None, None)
+            )
             try:
                 cast.wait(10)
                 controller = MultizoneController(cast.uuid)

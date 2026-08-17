@@ -96,6 +96,8 @@ class SpeakerRequest(BaseModel):
 
     name: str
     host: str
+    # Gruppen laufen auf der Adresse einer ihrer Boxen, mit eigenem Port.
+    port: int = 8009
 
 
 class UserRequest(BaseModel):
@@ -761,7 +763,7 @@ def create_app(hub: Hub) -> FastAPI:
             raise HTTPException(
                 status_code=500, detail=f"Konfiguration nicht lesbar: {err}"
             ) from err
-        updated = add_cast_device(content, body.name, body.host)
+        updated = add_cast_device(content, body.name, body.host, body.port)
         if updated == content:
             # Schon eingetragen: kein Fehler, aber auch kein Neustart nötig.
             return {"ok": True, "restart_required": False, "already": True}
@@ -769,13 +771,15 @@ def create_app(hub: Hub) -> FastAPI:
         return {**result, "already": False}
 
     @app.get("/api/speakers/members")
-    async def speaker_members(host: str, request: Request) -> dict[str, Any]:
+    async def speaker_members(
+        host: str, request: Request, port: int = 8009
+    ) -> dict[str, Any]:
         """Mitglieder einer Google-Lautsprechergruppe."""
         require(request, Capability.EDIT_CONFIG)
         cast = hub.integrations.get("google_cast")
         if cast is None or not hasattr(cast, "group_members"):
             raise HTTPException(status_code=503, detail="Cast-Integration nicht geladen")
-        return {"members": await cast.group_members(host)}
+        return {"members": await cast.group_members(host, port)}
 
     # ── Alarmanlage ────────────────────────────────────────────────────────
 

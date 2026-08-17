@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { HubSettings, SystemStatus, User } from '../api/types';
+import { Entity, HubSettings, SystemStatus, User } from '../api/types';
 import { PushState, pushHint } from '../hooks/usePushRegistration';
 import { Card } from '../components/Card';
 import { Colors, radius, space, type, useColors } from '../theme';
@@ -16,10 +16,13 @@ import { Colors, radius, space, type, useColors } from '../theme';
 export function SystemScreen({
   settings,
   user,
+  entities = [],
   push = { state: 'idle' },
 }: {
   settings: HubSettings;
   user: User | null;
+  /** Alle Geräte – für die Liste hinter «nicht erreichbar». */
+  entities?: Entity[];
   /** Stand der Push-Anmeldung dieses Geräts. */
   push?: PushState;
 }) {
@@ -28,6 +31,9 @@ export function SystemScreen({
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [users, setUsers] = useState<User[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // «7 nicht erreichbar» beantwortet nicht die Frage, die man dann hat:
+  // welche sieben?
+  const [showOffline, setShowOffline] = useState(false);
 
   const headers: Record<string, string> = settings.token
     ? { Authorization: `Bearer ${settings.token}` }
@@ -80,11 +86,40 @@ export function SystemScreen({
             label="nicht erreichbar"
             value={String(status.unavailable)}
             tone={status.unavailable > 0 ? colors.warn : colors.on}
+            onPress={
+              status.unavailable > 0 ? () => setShowOffline((on) => !on) : undefined
+            }
+            expanded={showOffline}
           />
           <Fact label="Laufzeit" value={uptime(status.uptime_seconds)} />
           <Fact label="Datenbank" value={status.database ?? 'keine'} />
           <Fact label="Push-Geräte" value={String(status.push_devices)} />
         </View>
+
+        {showOffline ? (
+          offline(entities).length === 0 ? (
+            <Text style={styles.hint}>
+              Der Hub zählt {status.unavailable}, die App kennt aber keine –
+              vermutlich Geräte, die für dich nicht freigegeben sind.
+            </Text>
+          ) : (
+            <View style={styles.offlineList}>
+              {offline(entities).map((entity) => (
+                <View key={entity.id} style={styles.row}>
+                  <Ionicons name="cloud-offline-outline" size={18} color={colors.warn} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.rowTitle}>{entity.name}</Text>
+                    <Text style={styles.rowDetail}>
+                      {[entity.room, entity.integration].filter(Boolean).join(' · ')}
+                      {' · '}
+                      {lastSeen(entity.last_seen)}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )
+        ) : null}
       </Card>
 
       <Card style={styles.card}>
@@ -321,15 +356,72 @@ function ConfigCard({
   );
 }
 
-function Fact({ label, value, tone }: { label: string; value: string; tone?: string }) {
+function Fact({
+  label,
+  value,
+  tone,
+  onPress,
+  expanded = false,
+}: {
+  label: string;
+  value: string;
+  tone?: string;
+  /** Antippbar, wenn es dahinter etwas zu sehen gibt. */
+  onPress?: () => void;
+  expanded?: boolean;
+}) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  return (
-    <View style={styles.fact}>
+  const body = (
+    <>
       <Text style={[styles.factValue, tone ? { color: tone } : null]}>{value}</Text>
-      <Text style={styles.factLabel}>{label}</Text>
-    </View>
+      <View style={styles.factLabelRow}>
+        <Text style={styles.factLabel}>{label}</Text>
+        {onPress ? (
+          <Ionicons
+            name={expanded ? 'chevron-up' : 'chevron-down'}
+            size={13}
+            color={colors.inkFaint}
+          />
+        ) : null}
+      </View>
+    </>
   );
+  if (!onPress) return <View style={styles.fact}>{body}</View>;
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ expanded }}
+      accessibilityLabel={`${value} ${label} anzeigen`}
+      style={({ pressed }) => [styles.fact, pressed && { opacity: 0.7 }]}
+    >
+      {body}
+    </Pressable>
+  );
+}
+
+/** Die nicht erreichbaren Geräte, Raum für Raum lesbar sortiert (rein,
+ *  testbar). */
+export function offline(entities: Entity[]): Entity[] {
+  return entities
+    .filter((entity) => !entity.available)
+    .sort(
+      (a, b) =>
+        (a.room ?? '').localeCompare(b.room ?? '') || a.name.localeCompare(b.name)
+    );
+}
+
+/** «Zuletzt gesehen» in Alltagssprache (rein, testbar). */
+export function lastSeen(epochSeconds?: number | null): string {
+  if (!epochSeconds) return 'nie gesehen';
+  const seconds = Math.max(0, Date.now() / 1000 - epochSeconds);
+  if (seconds < 90) return 'gerade eben';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `seit ${minutes} Min.`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `seit ${hours} Std.`;
+  return `seit ${Math.round(hours / 24)} Tagen`;
 }
 
 /** Push testen: schickt dem angemeldeten Gerät eine Probe-Benachrichtigung. */
@@ -540,6 +632,8 @@ const makeStyles = (colors: Colors) =>
   heading: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
   facts: { flexDirection: 'row', flexWrap: 'wrap', gap: 22 },
   fact: { gap: 2 },
+  factLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  offlineList: { gap: 8, marginTop: 4 },
   factValue: { color: colors.ink, fontSize: 22, fontWeight: '700' },
   factLabel: { color: colors.inkSoft, fontSize: 12 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },

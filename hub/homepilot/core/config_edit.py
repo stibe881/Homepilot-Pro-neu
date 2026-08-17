@@ -48,33 +48,56 @@ def block_range(lines: list[str], integration: str) -> tuple[int, int] | None:
     return (start, len(lines)) if start is not None else None
 
 
-def has_host(lines: list[str], host: str) -> bool:
-    """Steht diese Adresse schon in diesen Zeilen? (rein, testbar)
+def has_endpoint(lines: list[str], host: str, port: int = 8009) -> bool:
+    """Steht diese Box schon in diesen Zeilen? (rein, testbar)
 
     Nur innerhalb des übergebenen Ausschnitts, denn dieselbe Adresse kann
     berechtigterweise bei einer anderen Integration stehen – ein Fernseher
     ist oft beides, Cast-Gerät und Android TV.
+
+    Adresse allein genügt nicht: Eine Lautsprechergruppe teilt sie sich mit
+    einer ihrer Boxen und unterscheidet sich nur im Port.
     """
-    return any(line.strip().lstrip("- ").startswith(f"host: {host}") for line in lines)
+    for index, line in enumerate(lines):
+        if not line.strip().lstrip("- ").startswith(f"host: {host}"):
+            continue
+        # Zum Eintrag gehört alles bis zum nächsten «- » auf gleicher Höhe.
+        entry_indent = indent_of(line)
+        found_port = 8009
+        for follow in lines[index + 1 :]:
+            if not follow.strip():
+                continue
+            if indent_of(follow) <= entry_indent:
+                break
+            if follow.strip().startswith("port:"):
+                value = follow.split(":", 1)[1].strip()
+                found_port = int(value) if value.isdigit() else 8009
+        if found_port == port:
+            return True
+    return False
 
 
-def add_cast_device(content: str, name: str, host: str) -> str:
+def add_cast_device(content: str, name: str, host: str, port: int = 8009) -> str:
     """Eine Box in den google_cast-Block eintragen (rein, testbar).
 
     Ist die Adresse schon da, bleibt der Text unverändert – zweimal
     dasselbe Gerät wäre beim Start ein Fehler, und ein zweiter Klick soll
     nichts kaputt machen.
+
+    Der Port wird nur eingetragen, wenn er vom üblichen abweicht. Genau das
+    ist bei einer Lautsprechergruppe der Fall: Sie läuft auf der Adresse
+    einer ihrer Boxen und ist nur am eigenen Port zu erreichen.
     """
     lines = content.splitlines()
     entry_name = quote(name)
     found = block_range(lines, "google_cast")
 
     if found is None:
-        return _append_integration(lines, entry_name, host)
+        return _append_integration(lines, entry_name, host, port)
 
     start, end = found
     block = lines[start:end]
-    if has_host(block, host):
+    if has_endpoint(block, host, port):
         return content
 
     base = indent_of(lines[start])
@@ -85,19 +108,25 @@ def add_cast_device(content: str, name: str, host: str) -> str:
         insert = start + 1
         lines[insert:insert] = [
             " " * (base + 2) + "devices:",
-            " " * (base + 4) + f"- host: {host}",
-            " " * (base + 6) + f"name: {entry_name}",
+            *_entry(base + 4, entry_name, host, port),
         ]
         return "\n".join(lines) + "\n"
 
     device_indent = indent_of(lines[devices])
     entry_indent = _entry_indent(lines, devices, end, device_indent)
     insert = _end_of_list(lines, devices, end, device_indent)
-    lines[insert:insert] = [
-        " " * entry_indent + f"- host: {host}",
-        " " * (entry_indent + 2) + f"name: {entry_name}",
-    ]
+    lines[insert:insert] = _entry(entry_indent, entry_name, host, port)
     return "\n".join(lines) + "\n"
+
+
+def _entry(indent: int, entry_name: str, host: str, port: int) -> list[str]:
+    lines = [
+        " " * indent + f"- host: {host}",
+        " " * (indent + 2) + f"name: {entry_name}",
+    ]
+    if port != 8009:
+        lines.append(" " * (indent + 2) + f"port: {port}")
+    return lines
 
 
 def _devices_line(lines: list[str], start: int, end: int) -> int | None:
@@ -148,7 +177,9 @@ def _end_of_list(lines: list[str], devices: int, end: int, device_indent: int) -
     return last
 
 
-def _append_integration(lines: list[str], entry_name: str, host: str) -> str:
+def _append_integration(
+    lines: list[str], entry_name: str, host: str, port: int = 8009
+) -> str:
     """Kein google_cast in der Datei: einen ganzen Block ergänzen.
 
     Und zwar am Ende der ``integrations``-Liste, nicht am Ende der Datei –
@@ -183,7 +214,6 @@ def _append_integration(lines: list[str], entry_name: str, host: str) -> str:
     lines[insert:insert] = [
         " " * indent + "- integration: google_cast",
         " " * (indent + 2) + "devices:",
-        " " * (indent + 4) + f"- host: {host}",
-        " " * (indent + 6) + f"name: {entry_name}",
+        *_entry(indent + 4, entry_name, host, port),
     ]
     return "\n".join(lines) + "\n"

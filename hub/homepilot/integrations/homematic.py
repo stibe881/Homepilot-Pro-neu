@@ -576,6 +576,7 @@ class HomematicIntegration(Integration):
                     "getValue", info["address"], info["datapoint"], port=port
                 )
                 changes.update(value_to_state(value, info["datapoint"], info["dimmable"]))
+                self._warned.discard((info["address"], info["datapoint"]))
             except Exception as err:
                 self._warn_once(
                     (info["address"], info["datapoint"]),
@@ -593,6 +594,9 @@ class HomematicIntegration(Integration):
                         port=port,
                     )
                     changes.update(power_to_state(watts))
+                    self._warned.discard(
+                        (info["power_address"], info["power_datapoint"])
+                    )
                 except Exception as err:
                     self._warn_once(
                         (info["power_address"], info["power_datapoint"]),
@@ -606,7 +610,11 @@ class HomematicIntegration(Integration):
 
     def _warn_once(self, key: tuple[str, str], message: str) -> None:
         """Einmal warnen statt alle 5 Minuten – sonst übersieht man im
-        zugerauschten Log genau die Zeile, die das Problem erklärt."""
+        zugerauschten Log genau die Zeile, die das Problem erklärt.
+
+        Nach einem geglückten Lesen wird der Vermerk gelöscht: Sonst bliebe
+        eine vorübergehende Störung – etwa direkt nach einem Neustart der
+        CCU – für immer stumm, obwohl sie später wirklich auftritt."""
         if key not in self._warned:
             self._warned.add(key)
             self.log.warning("%s", message)

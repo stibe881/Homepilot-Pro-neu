@@ -20,11 +20,20 @@ import { Colors, radius, space, type, useColors } from '../theme';
  */
 
 interface Speaker {
+  /** Eindeutig – Adresse allein reicht nicht: Eine Gruppe läuft auf der
+   *  IP eines ihrer Mitglieder, nur mit eigenem Port. */
+  uuid?: string;
   name: string;
   host: string;
+  port?: number;
   model?: string;
   group: boolean;
   entity_id?: string | null;
+}
+
+/** Kennung einer Box für Listen und Nachschlagewerke (rein, testbar). */
+function keyOf(entry: Speaker): string {
+  return entry.uuid || `${entry.host}:${entry.port ?? 8009}`;
 }
 
 export function SpeakersScreen({ settings }: { settings: HubSettings }) {
@@ -63,29 +72,35 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
 
   /** Mitglieder einer Gruppe nachladen – nur auf Wunsch, das kostet
    *  jeweils eine Verbindung zur Box. */
-  const loadMembers = async (host: string) => {
+  const loadMembers = async (entry: Speaker) => {
+    const id = keyOf(entry);
     try {
       const response = await fetch(
-        `${settings.url}/api/speakers/members?host=${encodeURIComponent(host)}`,
+        `${settings.url}/api/speakers/members?host=${encodeURIComponent(entry.host)}` +
+          `&port=${entry.port ?? 8009}`,
         { headers }
       );
       const data = await response.json();
-      setMembers((prev) => ({ ...prev, [host]: data.members ?? [] }));
+      setMembers((prev) => ({ ...prev, [id]: data.members ?? [] }));
     } catch {
-      setMembers((prev) => ({ ...prev, [host]: [] }));
+      setMembers((prev) => ({ ...prev, [id]: [] }));
     }
   };
 
   /** Eine gefundene Box in die config.yaml eintragen – der Hub ergänzt dort
    *  zwei Zeilen und lässt den Rest der Datei in Ruhe. */
   const adopt = async (entry: Speaker) => {
-    setAdopting(entry.host);
+    setAdopting(keyOf(entry));
     setError(null);
     try {
       const response = await fetch(`${settings.url}/api/speakers/adopt`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: entry.name, host: entry.host }),
+        body: JSON.stringify({
+          name: entry.name,
+          host: entry.host,
+          port: entry.port ?? 8009,
+        }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -116,7 +131,7 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
         style={({ pressed }) => [styles.adopt, pressed && { opacity: 0.8 }]}
       >
         <Ionicons
-          name={adopting === entry.host ? 'hourglass-outline' : 'add'}
+          name={adopting === keyOf(entry) ? 'hourglass-outline' : 'add'}
           size={14}
           color={colors.accent}
         />
@@ -156,21 +171,21 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
           </Text>
         ) : (
           groups.map((entry) => (
-            <View key={entry.host} style={styles.row}>
+            <View key={keyOf(entry)} style={styles.row}>
               <Ionicons name="people" size={20} color={colors.accent} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.rowTitle}>{entry.name}</Text>
                 <Text style={styles.rowDetail}>
-                  {members[entry.host]
-                    ? members[entry.host].length > 0
-                      ? members[entry.host].join(', ')
+                  {members[keyOf(entry)]
+                    ? members[keyOf(entry)].length > 0
+                      ? members[keyOf(entry)].join(', ')
                       : 'Mitglieder nicht lesbar'
                     : entry.host}
                 </Text>
               </View>
               <Badge entry={entry} />
-              {!members[entry.host] ? (
-                <Pressable onPress={() => loadMembers(entry.host)} hitSlop={8}>
+              {!members[keyOf(entry)] ? (
+                <Pressable onPress={() => loadMembers(entry)} hitSlop={8}>
                   <Ionicons name="information-circle-outline" size={20} color={colors.inkSoft} />
                 </Pressable>
               ) : null}
@@ -187,7 +202,7 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
           <Text style={styles.hint}>Keine Boxen im Netz gefunden.</Text>
         ) : (
           singles.map((entry) => (
-            <View key={entry.host} style={styles.row}>
+            <View key={keyOf(entry)} style={styles.row}>
               <Ionicons name="volume-medium-outline" size={20} color={colors.inkSoft} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.rowTitle}>{entry.name}</Text>

@@ -6,7 +6,12 @@ Reihenfolge und Einrückung müssen die Bearbeitung überleben.
 
 import yaml
 
-from homepilot.core.config_edit import add_cast_device, block_range, has_host, quote
+from homepilot.core.config_edit import (
+    add_cast_device,
+    block_range,
+    has_endpoint,
+    quote,
+)
 
 CONFIG = """\
 # Mein Zuhause
@@ -42,11 +47,38 @@ def test_block_range_finds_the_integration():
     assert block_range(lines, "homematic") is None
 
 
-def test_has_host_is_limited_to_the_given_lines():
+def test_has_endpoint_is_limited_to_the_given_lines():
     lines = CONFIG.splitlines()
     start, end = block_range(lines, "google_cast")
-    assert has_host(lines[start:end], "10.10.1.20")
-    assert not has_host(lines[start:end], "10.10.1.99")
+    assert has_endpoint(lines[start:end], "10.10.1.20")
+    assert not has_endpoint(lines[start:end], "10.10.1.99")
+
+
+def test_a_group_shares_the_address_with_one_of_its_speakers():
+    """Der gemeldete Fall: Gruppe und Box haben dieselbe IP und
+    unterscheiden sich nur im Port. Über die Adresse allein wäre die Gruppe
+    schon «eingetragen», bevor sie es ist."""
+    lines = CONFIG.splitlines()
+    start, end = block_range(lines, "google_cast")
+    assert not has_endpoint(lines[start:end], "10.10.1.20", 42169)
+
+    result = add_cast_device(CONFIG, "Ganzes Haus", "10.10.1.20", 42169)
+    parsed = yaml.safe_load(result)
+    devices = parsed["integrations"][0]["devices"]
+    assert devices[-1] == {"host": "10.10.1.20", "name": "Ganzes Haus", "port": 42169}
+    # Die Box auf demselben Rechner bleibt daneben stehen.
+    assert devices[0]["name"] == "Wohnzimmer TV"
+    # Und ein zweiter Klick ändert wieder nichts.
+    assert add_cast_device(result, "Ganzes Haus", "10.10.1.20", 42169) == result
+
+
+def test_the_usual_port_is_not_written_out():
+    """Sonst stünde bei jeder Box eine Zeile, die nichts aussagt."""
+    parsed = yaml.safe_load(add_cast_device(CONFIG, "Terrasse", "10.10.1.25"))
+    assert parsed["integrations"][0]["devices"][-1] == {
+        "host": "10.10.1.25",
+        "name": "Terrasse",
+    }
 
 
 def test_adding_a_device_keeps_comments_and_order():
