@@ -29,6 +29,10 @@ interface Props {
   /** Strompreis für die Energie-Kachel, z.B. 0.32 CHF/kWh. */
   pricePerKwh?: number;
   currency?: string;
+  /** Anwesenheit je Person – wer gerade daheim ist. */
+  presence?: { id?: string; member: string; home: boolean }[];
+  members?: string[];
+  onSetPresence?: (member: string, home: boolean) => void;
 }
 
 const WEEKDAYS = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
@@ -82,9 +86,20 @@ export function OverviewScreen({
   countdowns,
   pricePerKwh,
   currency = 'CHF',
+  presence = [],
+  members = [],
+  onSetPresence,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+
+  // Personenliste fürs Anwesenheits-Kachel: bekannte Benutzer plus alle, die
+  // schon einen Anwesenheits-Eintrag haben. Doppelte raus.
+  const presenceOf = (name: string) =>
+    presence.find((entry) => entry.member === name)?.home ?? false;
+  const people = Array.from(
+    new Set([...members, ...presence.map((entry) => entry.member)])
+  ).sort((a, b) => a.localeCompare(b));
 
   // ── Echte Geräte, wo vorhanden ─────────────────────────────────────────
   const frontDoor = pick(entities, 'lock', undefined, 'ring');
@@ -391,6 +406,42 @@ export function OverviewScreen({
           />
         </Tile>
       </View>
+      {onSetPresence && people.length > 0 ? (
+        <Tile
+          styles={styles}
+          colors={colors}
+          width={'100%' as any}
+          icon="people-outline"
+          title="Wer ist da?"
+        >
+          <View style={styles.presenceRow}>
+            {people.map((name) => {
+              const home = presenceOf(name);
+              return (
+                <Pressable
+                  key={name}
+                  onPress={() => onSetPresence(name, !home)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${name} ist ${home ? 'daheim' : 'weg'}`}
+                  style={[styles.presenceChip, home && styles.presenceChipHome]}
+                >
+                  <Ionicons
+                    name={home ? 'home' : 'walk-outline'}
+                    size={15}
+                    color={home ? '#FFFFFF' : colors.inkSoft}
+                  />
+                  <Text style={[styles.presenceName, home && { color: '#FFFFFF' }]}>
+                    {name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={styles.tileSub}>
+            {people.filter((name) => presenceOf(name)).length} von {people.length} daheim
+          </Text>
+        </Tile>
+      ) : null}
 
       {/* Morgens interessiert zuerst der Tag (Termine, Musik), abends die
           Wohnung (Zugang, Haushalt) – die Blöcke tauschen je nach Uhrzeit. */}
@@ -892,6 +943,21 @@ const makeStyles = (colors: Colors) =>
     forecastLow: { color: colors.inkFaint, fontSize: 12 },
     forecastRainRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
     forecastRain: { color: colors.inkFaint, fontSize: 11 },
+
+    presenceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    presenceChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    presenceChipHome: { backgroundColor: colors.on, borderColor: colors.on },
+    presenceName: { color: colors.ink, fontSize: 14, fontWeight: '600' },
 
     badge: {
       backgroundColor: colors.track,
