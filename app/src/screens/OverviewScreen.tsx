@@ -347,7 +347,14 @@ export function OverviewScreen({
             <Text style={styles.tileSub}>{countdown.date}</Text>
           </Tile>
         ) : null}
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="musical-notes-outline" title="Musik" demo={!player}>
+      </View>
+      {/* Musik steht in einer eigenen Zeile über die volle Breite. In der
+          Reihe daneben zwang der Spotify-Bereich die Nachbarkacheln auf
+          seine Höhe, und deren zwei Zeilen Text trieben weit auseinander.
+          Über die ganze Breite fliessen die Playlists zudem nebeneinander
+          statt untereinander – die Kachel wird dadurch von selbst flacher. */}
+      <View style={styles.tileRow}>
+        <Tile styles={styles} colors={colors} width="100%" icon="musical-notes-outline" title="Musik" demo={!player}>
           {player ? (
             <>
               <Text style={styles.tileState} numberOfLines={1}>
@@ -525,7 +532,7 @@ function Tile({
   children: React.ReactNode;
   styles: OverviewStyles;
   colors: Colors;
-  width: '31.5%' | '48%';
+  width: '31.5%' | '48%' | '100%';
 }) {
   return (
     <Card style={{ ...styles.tile, width }}>
