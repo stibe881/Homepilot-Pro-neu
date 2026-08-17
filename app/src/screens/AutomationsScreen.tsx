@@ -1537,6 +1537,7 @@ function Editor({
           ) : draft.actionKind === 'scene' ? (
             <Picker
               items={scenes.map((scene) => ({ key: scene.id, label: scene.name }))}
+              placeholder="Szene suchen …"
               value={draft.sceneId}
               onSelect={(sceneId) => set({ sceneId })}
             />
@@ -1770,17 +1771,32 @@ function Picker({
   items,
   value,
   onSelect,
+  placeholder = 'Gerät suchen …',
 }: {
   items: { key: string; label: string }[];
   value: string;
   onSelect: (key: string) => void;
+  placeholder?: string;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [query, setQuery] = useState('');
+  // Ab hier wird die Liste zum Wischen zu lang; darunter wäre ein
+  // Suchfeld nur im Weg.
+  const searchable = items.length > 8;
+  const shown = searchable ? pickerMatches(items, query, value) : items;
+
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.picker}>
+    <View style={{ gap: 8 }}>
+      {searchable ? (
+        <SearchBox value={query} onChange={setQuery} placeholder={placeholder} />
+      ) : null}
+      {shown.length === 0 ? (
+        <Text style={styles.triggerNote}>Nichts gefunden.</Text>
+      ) : null}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.picker}>
       <View style={styles.choices}>
-        {items.map((item) => (
+        {shown.map((item) => (
           <Pressable
             key={item.key}
             onPress={() => onSelect(item.key)}
@@ -1796,8 +1812,27 @@ function Picker({
           </Pressable>
         ))}
       </View>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
+}
+
+/** Treffer der Suche im Auswahlfeld (rein, testbar).
+ *
+ * Das Gewählte bleibt immer sichtbar, auch wenn es nicht zur Suche passt –
+ * sonst stünde beim Tippen plötzlich nirgends mehr, was gerade eingestellt
+ * ist. */
+export function pickerMatches(
+  items: { key: string; label: string }[],
+  query: string,
+  value: string
+): { key: string; label: string }[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return items;
+  const hits = items.filter((item) => item.label.toLowerCase().includes(needle));
+  if (hits.some((item) => item.key === value)) return hits;
+  const chosen = items.find((item) => item.key === value);
+  return chosen ? [chosen, ...hits] : hits;
 }
 
 /** Lesbarer Text für eine Wartezeit (rein, testbar). */
