@@ -159,6 +159,16 @@ const EMPTY_TRIGGER: TriggerDraft = {
   sunOffset: '0',
 };
 
+/** «ist» vergleicht den Zustand, «über»/«unter» eine Zahl – für Helligkeit,
+ *  Temperatur oder eine Anzahl anwesender Personen. */
+type Compare = 'is' | 'above' | 'below';
+
+interface StateCondition {
+  entity_id: string;
+  op: Compare;
+  value: string;
+}
+
 interface Draft {
   id?: string;
   alias: string;
@@ -169,8 +179,8 @@ interface Draft {
   conditionSun: 'up' | 'down';
   conditionAfter: string;
   conditionBefore: string;
-  /** Zusätzliche Bedingungen «nur wenn Gerät … ist». */
-  stateConditions: { entity_id: string; equals: string }[];
+  /** Zusätzliche Bedingungen «nur wenn Gerät … ist / über / unter». */
+  stateConditions: StateCondition[];
   /** Wie die Bedingungen verknüpft sind: alle oder eine genügt. */
   match: 'all' | 'any';
   /** Wartezeit vor den Aktionen in Sekunden (0 = sofort). */
@@ -772,6 +782,33 @@ function CategoryField({
         </View>
       ) : null}
     </Field>
+  );
+}
+
+/** Zahlenfeld mit eigenem Zwischenstand – auf Modulebene, damit es beim
+ *  Tippen nicht bei jedem Zeichen neu montiert wird. */
+function NumberField({
+  value,
+  onCommit,
+  placeholder,
+}: {
+  value: string;
+  onCommit: (value: string) => void;
+  placeholder: string;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [text, setText] = useState(value);
+  return (
+    <TextInput
+      style={styles.input}
+      value={text}
+      onChangeText={setText}
+      onBlur={() => onCommit(String(Number(text) || 0))}
+      placeholder={placeholder}
+      placeholderTextColor={colors.inkFaint}
+      keyboardType="numbers-and-punctuation"
+    />
   );
 }
 
@@ -1446,18 +1483,55 @@ function Editor({
                   onSelect={(entity_id) =>
                     setEntry({
                       entity_id,
-                      equals: fittingState(
-                        entities.find((entity) => entity.id === entity_id),
-                        entry.equals
-                      ),
+                      value:
+                        entry.op === 'is'
+                          ? fittingState(
+                              entities.find((entity) => entity.id === entity_id),
+                              entry.value
+                            )
+                          : entry.value,
                     })
                   }
                 />
                 <Choice
-                  options={stateOptions(chosen)}
-                  value={entry.equals}
-                  onSelect={(equals) => setEntry({ equals })}
+                  options={[
+                    { key: 'is', label: 'ist' },
+                    { key: 'above', label: 'über' },
+                    { key: 'below', label: 'unter' },
+                  ]}
+                  value={entry.op}
+                  onSelect={(op) =>
+                    setEntry({
+                      op: op as Compare,
+                      // Beim Wechsel den Wert passend machen: «an» taugt
+                      // nicht als Zahl und 30 nicht als Zustand.
+                      value:
+                        op === 'is'
+                          ? fittingState(chosen, entry.value)
+                          : String(Number(entry.value) || 0),
+                    })
+                  }
                 />
+                {entry.op === 'is' ? (
+                  <Choice
+                    options={stateOptions(chosen)}
+                    value={entry.value}
+                    onSelect={(value) => setEntry({ value })}
+                  />
+                ) : (
+                  <NumberField
+                    value={entry.value}
+                    onCommit={(value) => setEntry({ value })}
+                    placeholder="z.B. 30"
+                  />
+                )}
+                {entry.op !== 'is' ? (
+                  <Text style={styles.triggerNote}>
+                    Vergleicht den Zahlenwert des Geräts – etwa die Helligkeit
+                    eines Dämmerungssensors oder die Anzahl anwesender
+                    Personen.
+                  </Text>
+                ) : null}
               </View>
             );
           })}
@@ -1469,7 +1543,8 @@ function Editor({
                   ...draft.stateConditions,
                   {
                     entity_id: entities[0]?.id ?? '',
-                    equals: fittingState(entities[0], 'on'),
+                    op: 'is' as Compare,
+                    value: fittingState(entities[0], 'on'),
                   },
                 ],
               })
@@ -1865,8 +1940,13 @@ function buildConditions(draft: Draft): Record<string, any>[] {
     if (condition.after || condition.before) conditions.push(condition);
   }
   for (const entry of draft.stateConditions) {
-    if (entry.entity_id) {
-      conditions.push({ type: 'state', entity_id: entry.entity_id, equals: entry.equals });
+    if (!entry.entity_id) continue;
+    if (entry.op === 'above') {
+      conditions.push({ type: 'state', entity_id: entry.entity_id, above: Number(entry.value) || 0 });
+    } else if (entry.op === 'below') {
+      conditions.push({ type: 'state', entity_id: entry.entity_id, below: Number(entry.value) || 0 });
+    } else {
+      conditions.push({ type: 'state', entity_id: entry.entity_id, equals: entry.value });
     }
   }
   return conditions;
@@ -1921,7 +2001,11 @@ function toDraft(automation: Automation): Draft {
     conditionBefore: condition.before ?? '',
     stateConditions: all
       .filter((entry) => (entry.type ?? 'state') === 'state' && entry.entity_id)
-      .map((entry) => ({ entity_id: entry.entity_id, equals: String(entry.equals ?? 'on') })),
+      .map((entry) => ({
+        entity_id: entry.entity_id,
+        op: ('above' in entry ? 'above' : 'below' in entry ? 'below' : 'is') as Compare,
+        value: String(entry.above ?? entry.below ?? entry.equals ?? 'on'),
+      })),
     match: automation.match === 'any' ? 'any' : 'all',
     delaySeconds: String(delay?.seconds ?? 0),
     actionKind: (action.type as ActionKind) ?? 'command',
