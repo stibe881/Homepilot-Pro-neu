@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFonts } from 'expo-font';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Notifications from 'expo-notifications';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useState } from 'react';
 import { StyleSheet } from 'react-native';
@@ -11,6 +12,27 @@ import { HubSettings } from './src/api/types';
 import { DashboardScreen } from './src/screens/DashboardScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { ThemeProvider, useTheme } from './src/theme';
+
+/**
+ * Benachrichtigungen auch bei offener App zeigen.
+ *
+ * Ohne diesen Handler wirft expo-notifications jede Nachricht weg, die
+ * ankommt, während die App im Vordergrund ist – laut Doku ist genau das
+ * die Voreinstellung. Der Hub hatte also recht mit «zugestellt», auf dem
+ * Bildschirm passierte trotzdem nichts. Beim Klingeln oder wenn die
+ * Waschmaschine fertig ist, schaut man aber oft gerade in die App.
+ *
+ * Steht bewusst auf Modulebene: Der Handler muss stehen, bevor die erste
+ * Nachricht eintrifft, nicht erst wenn eine Komponente gemountet ist.
+ */
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
 
 const STORAGE_KEY = 'homepilot.settings';
 
