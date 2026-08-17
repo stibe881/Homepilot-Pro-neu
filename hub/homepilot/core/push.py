@@ -242,6 +242,16 @@ class PushService:
             log.info("Push-Gerät abgemeldet, Token wird von Expo abgelehnt")
         for message in result.errors:
             log.warning("Push abgelehnt: %s", message)
+        # Immer eine Zeile, auch wenn alles glattging: Sonst lässt sich im
+        # Log nicht unterscheiden, ob nichts schiefging oder ob überhaupt
+        # nie etwas gesendet wurde.
+        log.info(
+            "Push «%s»: %d von %d angenommen%s",
+            title,
+            result.accepted,
+            len(messages),
+            f", {len(result.errors)} abgelehnt" if result.errors else "",
+        )
         return result
 
     async def delivered(self, ticket_ids: list[str]) -> list[str]:
@@ -267,4 +277,6 @@ class PushService:
         problems = parse_receipts(payload)
         for message in problems:
             log.warning("Push nicht zugestellt: %s", message)
+        if not problems:
+            log.info("Push zugestellt (%d Quittung(en) ohne Beanstandung)", len(ticket_ids))
         return problems

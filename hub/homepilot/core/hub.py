@@ -8,6 +8,7 @@ import logging
 import time
 from typing import Any
 
+from .. import __version__
 from .automation import AutomationEngine
 from .config import HubConfig
 from .events import EventBus
@@ -49,7 +50,10 @@ class Hub:
         self.started_at = time.time()
 
     async def start(self) -> None:
-        log.info("Hub startet …")
+        # Version und Startzeit gleich in die erste Zeile: Nach einem
+        # Rebuild ist sonst nicht zu erkennen, ob der Container den neuen
+        # Stand fährt oder den alten weiterlaufen lässt.
+        log.info("Hub startet … (HomePilot %s)", __version__)
         # Die Raumzuordnung muss stehen, bevor die erste Entität entsteht.
         # Grundlage ist die config.yaml; in der App gesetzte Zuordnungen
         # (aus der homepilot-data.json) haben Vorrang.
