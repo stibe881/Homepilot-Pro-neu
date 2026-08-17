@@ -73,6 +73,8 @@ class AutomationRequest(BaseModel):
     condition: list[dict[str, Any]] = []
     action: list[dict[str, Any]] = []
     enabled: bool = True
+    # «all» = alle Bedingungen müssen stimmen, «any» = eine genügt.
+    match: str = "all"
     # Frei gewählter Name zum Gruppieren in der App.
     category: str | None = None
 
@@ -637,6 +639,7 @@ def create_app(hub: Hub) -> FastAPI:
             "trigger": body.trigger,
             "condition": body.condition,
             "action": body.action,
+            "match": body.match,
             "category": body.category,
         }
         hub.data.set("automations", [*stored_automations(), entry])
@@ -662,6 +665,7 @@ def create_app(hub: Hub) -> FastAPI:
                 "trigger": body.trigger,
                 "condition": body.condition,
                 "action": body.action,
+                "match": body.match,
                 "category": body.category,
             }
             if entry["id"] == automation_id

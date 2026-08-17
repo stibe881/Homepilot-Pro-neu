@@ -15,6 +15,63 @@ interface Automation {
   editable: boolean;
   /** Frei benannte Kategorie zum Gruppieren (vom Hub, kann fehlen). */
   category?: string | null;
+  /** Verknüpfung der Bedingungen: 'all' oder 'any'. */
+  match?: string;
+}
+
+/** Welche Zustände bei diesem Gerät als Auslöser oder Bedingung taugen
+ *  (rein, testbar).
+ *
+ * Ein Wandtaster kennt kein «an»/«aus» – er meldet einen Druck. Nach an/aus
+ * gefragt käme ein Auslöser heraus, der nie eintritt. Dasselbe gilt für
+ * Storen, Schlösser und die Alarmanlage: Jede Art hat ihre eigenen Worte. */
+export function stateOptions(entity?: Entity): { key: string; label: string }[] {
+  switch (entity?.kind) {
+    case 'button':
+      return [
+        { key: 'short', label: 'kurz gedrückt' },
+        { key: 'long', label: 'lang gedrückt' },
+      ];
+    case 'cover':
+      return [
+        { key: 'open', label: 'offen' },
+        { key: 'closed', label: 'geschlossen' },
+      ];
+    case 'lock':
+      return [
+        { key: 'unlocked', label: 'aufgeschlossen' },
+        { key: 'locked', label: 'abgeschlossen' },
+      ];
+    case 'media_player':
+      return [
+        { key: 'playing', label: 'spielt' },
+        { key: 'paused', label: 'pausiert' },
+        { key: 'idle', label: 'still' },
+      ];
+    case 'appliance':
+      return [
+        { key: 'running', label: 'läuft' },
+        { key: 'idle', label: 'fertig' },
+      ];
+    case 'alarm':
+      return [
+        { key: 'scharf', label: 'scharf' },
+        { key: 'ausgeloest', label: 'ausgelöst' },
+        { key: 'unscharf', label: 'unscharf' },
+      ];
+    default:
+      return [
+        { key: 'on', label: 'an' },
+        { key: 'off', label: 'aus' },
+      ];
+  }
+}
+
+/** Ein Zustand, der zu diesem Gerät passt – nach einem Gerätewechsel steht
+ *  sonst «an» bei einem Taster (rein, testbar). */
+export function fittingState(entity: Entity | undefined, current: string): string {
+  const options = stateOptions(entity);
+  return options.some((option) => option.key === current) ? current : options[0].key;
 }
 
 /** Sammelname für alles ohne eigene Kategorie. */
@@ -81,6 +138,16 @@ interface TriggerDraft {
   sunOffset: string;
 }
 
+/** Ein neuer Auslöser für dieses Gerät – mit einem Zustand, den es auch
+ *  wirklich kennt. */
+function newTrigger(entity?: Entity): TriggerDraft {
+  return {
+    ...EMPTY_TRIGGER,
+    entityId: entity?.id ?? '',
+    toState: fittingState(entity, EMPTY_TRIGGER.toState),
+  };
+}
+
 const EMPTY_TRIGGER: TriggerDraft = {
   kind: 'state',
   entityId: '',
@@ -102,6 +169,10 @@ interface Draft {
   conditionSun: 'up' | 'down';
   conditionAfter: string;
   conditionBefore: string;
+  /** Zusätzliche Bedingungen «nur wenn Gerät … ist». */
+  stateConditions: { entity_id: string; equals: string }[];
+  /** Wie die Bedingungen verknüpft sind: alle oder eine genügt. */
+  match: 'all' | 'any';
   /** Wartezeit vor den Aktionen in Sekunden (0 = sofort). */
   delaySeconds: string;
   actionKind: ActionKind;
@@ -125,6 +196,8 @@ const EMPTY: Draft = {
   conditionSun: 'down',
   conditionAfter: '',
   conditionBefore: '',
+  stateConditions: [],
+  match: 'all',
   delaySeconds: '0',
   actionKind: 'command',
   actionEntityId: '',
@@ -353,6 +426,7 @@ export function AutomationsScreen({
       trigger: draft.triggers.map(triggerToConfig),
       condition: buildConditions(draft),
       action: buildActions(draft),
+      match: draft.match,
       category: draft.category.trim() || null,
     };
     const url = draft.id
@@ -451,7 +525,7 @@ export function AutomationsScreen({
           onPress={() =>
             setDraft({
               ...EMPTY,
-              triggers: [{ ...EMPTY_TRIGGER, entityId: entities[0]?.id ?? '' }],
+              triggers: [newTrigger(entities[0])],
             })
           }
           accessibilityRole="button"
@@ -1230,7 +1304,7 @@ function Editor({
     set({
       triggers: [
         ...draft.triggers,
-        { ...EMPTY_TRIGGER, entityId: entities[0]?.id ?? '' },
+        newTrigger(entities[0]),
       ],
     });
   const removeTrigger = (index: number) =>
@@ -1330,6 +1404,97 @@ function Editor({
               />
             </View>
           ) : null}
+
+          {draft.stateConditions.map((entry, index) => {
+            const chosen = entities.find((entity) => entity.id === entry.entity_id);
+            const setEntry = (patch: Partial<typeof entry>) =>
+              set({
+                stateConditions: draft.stateConditions.map((other, position) =>
+                  position === index ? { ...other, ...patch } : other
+                ),
+              });
+            return (
+              <View key={index} style={styles.triggerBox}>
+                <View style={styles.triggerHead}>
+                  <Text style={styles.triggerBadge}>nur wenn Gerät</Text>
+                  <Pressable
+                    onPress={() =>
+                      set({
+                        stateConditions: draft.stateConditions.filter(
+                          (_other, position) => position !== index
+                        ),
+                      })
+                    }
+                    accessibilityLabel="Bedingung entfernen"
+                    hitSlop={8}
+                  >
+                    <Ionicons name="trash-outline" size={18} color={colors.danger} />
+                  </Pressable>
+                </View>
+                <Picker
+                  items={entities.map((entity) => ({ key: entity.id, label: entity.name }))}
+                  value={entry.entity_id}
+                  onSelect={(entity_id) =>
+                    setEntry({
+                      entity_id,
+                      equals: fittingState(
+                        entities.find((entity) => entity.id === entity_id),
+                        entry.equals
+                      ),
+                    })
+                  }
+                />
+                <Choice
+                  options={stateOptions(chosen)}
+                  value={entry.equals}
+                  onSelect={(equals) => setEntry({ equals })}
+                />
+              </View>
+            );
+          })}
+
+          <Pressable
+            onPress={() =>
+              set({
+                stateConditions: [
+                  ...draft.stateConditions,
+                  {
+                    entity_id: entities[0]?.id ?? '',
+                    equals: fittingState(entities[0], 'on'),
+                  },
+                ],
+              })
+            }
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.75 }]}
+          >
+            <Ionicons name="add" size={16} color={colors.accent} />
+            <Text style={styles.addRowText}>Gerätebedingung hinzufügen</Text>
+          </Pressable>
+
+          {buildConditions(draft).length > 1 ? (
+            <>
+              <Choice
+                options={[
+                  { key: 'all', label: 'alle müssen stimmen (und)' },
+                  { key: 'any', label: 'eine genügt (oder)' },
+                ]}
+                value={draft.match}
+                onSelect={(match) => set({ match: match as 'all' | 'any' })}
+              />
+              <Text style={styles.triggerNote}>
+                {draft.match === 'any'
+                  ? 'Der Ablauf läuft, sobald eine der Bedingungen stimmt.'
+                  : 'Der Ablauf läuft nur, wenn alle Bedingungen zugleich stimmen.'}
+              </Text>
+            </>
+          ) : null}
+
+          <Text style={styles.triggerNote}>
+            Mehrere Auslöser sind immer ein «oder» – sie sind Ereignisse und
+            können gar nicht gleichzeitig eintreten. Ein «und» gehört hierher:
+            «wenn der Taster gedrückt wird – aber nur, wenn es dunkel ist».
+          </Text>
         </Field>
 
         <Field label="Verzögerung">
@@ -1448,6 +1613,7 @@ function TriggerRow({
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const chosen = entities.find((entity) => entity.id === trigger.entityId);
   return (
     <View style={styles.triggerBox}>
       {removable ? (
@@ -1496,17 +1662,25 @@ function TriggerRow({
           <Picker
             items={entities.map((entity) => ({ key: entity.id, label: entity.name }))}
             value={trigger.entityId}
-            onSelect={(entityId) => onChange({ entityId })}
+            onSelect={(entityId) =>
+              onChange({
+                entityId,
+                // Ein Taster kennt kein «an» – nach dem Wechsel muss der
+                // Zustand zum neuen Gerät passen, sonst stünde da ein
+                // Auslöser, der nie eintritt.
+                toState: fittingState(
+                  entities.find((entity) => entity.id === entityId),
+                  trigger.toState
+                ),
+              })
+            }
           />
           <Choice
-            options={[
-              { key: 'on', label: 'auf An' },
-              { key: 'off', label: 'auf Aus' },
-            ]}
+            options={stateOptions(chosen)}
             value={trigger.toState}
             onSelect={(toState) => onChange({ toState, attribute: '', fromState: '' })}
           />
-          {trigger.attribute || trigger.fromState || !['on', 'off'].includes(trigger.toState) ? (
+          {trigger.attribute || trigger.fromState ? (
             <Text style={styles.triggerNote}>
               Löst aus, wenn {trigger.attribute || 'der Zustand'}
               {trigger.fromState ? ` von «${trigger.fromState}»` : ''} auf «{trigger.toState}»
@@ -1625,17 +1799,22 @@ function delayLabel(seconds: string): string {
 
 /** Die Bedingung eines Ablaufs in die gespeicherte Form (rein, testbar). */
 function buildConditions(draft: Draft): Record<string, any>[] {
+  const conditions: Record<string, any>[] = [];
   if (draft.conditionKind === 'sun') {
-    return [{ type: 'sun', state: draft.conditionSun }];
-  }
-  if (draft.conditionKind === 'time') {
+    conditions.push({ type: 'sun', state: draft.conditionSun });
+  } else if (draft.conditionKind === 'time') {
     const condition: Record<string, any> = { type: 'time' };
     if (draft.conditionAfter) condition.after = draft.conditionAfter;
     if (draft.conditionBefore) condition.before = draft.conditionBefore;
     // Ohne beide Zeiten wäre die Bedingung sinnlos – dann keine.
-    return condition.after || condition.before ? [condition] : [];
+    if (condition.after || condition.before) conditions.push(condition);
   }
-  return [];
+  for (const entry of draft.stateConditions) {
+    if (entry.entity_id) {
+      conditions.push({ type: 'state', entity_id: entry.entity_id, equals: entry.equals });
+    }
+  }
+  return conditions;
 }
 
 /** Die Aktionen eines Ablaufs – bei «Gerät schalten» eine je gewähltem Gerät.
@@ -1671,7 +1850,10 @@ function toDraft(automation: Automation): Draft {
   // Die erste Nicht-Verzögerungs-Aktion bestimmt Art und Felder.
   const action = automation.actions.find((entry) => entry.type !== 'delay') ?? {};
   const delay = automation.actions.find((entry) => entry.type === 'delay');
-  const condition = (automation.conditions ?? [])[0] ?? {};
+  const all = automation.conditions ?? [];
+  // Sonnenstand und Uhrzeit haben je ein eigenes Feld; Gerätebedingungen
+  // sind eine Liste.
+  const condition = all.find((entry) => entry.type === 'sun' || entry.type === 'time') ?? {};
   return {
     ...EMPTY,
     id: automation.id,
@@ -1682,6 +1864,10 @@ function toDraft(automation: Automation): Draft {
     conditionSun: condition.state === 'up' ? 'up' : 'down',
     conditionAfter: condition.after ?? '',
     conditionBefore: condition.before ?? '',
+    stateConditions: all
+      .filter((entry) => (entry.type ?? 'state') === 'state' && entry.entity_id)
+      .map((entry) => ({ entity_id: entry.entity_id, equals: String(entry.equals ?? 'on') })),
+    match: automation.match === 'any' ? 'any' : 'all',
     delaySeconds: String(delay?.seconds ?? 0),
     actionKind: (action.type as ActionKind) ?? 'command',
     actionEntityId: action.entity_id ?? '',

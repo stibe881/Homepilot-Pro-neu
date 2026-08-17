@@ -70,6 +70,11 @@ class Automation:
     actions: list[dict[str, Any]] = field(default_factory=list)
     # Aus der config.yaml stammende sind in der App nur lesbar.
     editable: bool = False
+    # Wie die Bedingungen verknüpft sind: «all» = alle müssen stimmen,
+    # «any» = eine genügt. Auslöser sind davon nicht betroffen – sie sind
+    # Ereignisse und können gar nicht gleichzeitig eintreten, ein «und»
+    # zwischen ihnen wäre also nie erfüllt.
+    match: str = "all"
     # Frei benannte Kategorie zum Gruppieren in der App. Es gibt keine
     # Liste erlaubter Namen: Wer einen neuen tippt, hat ihn damit angelegt –
     # eine Kategorie ohne Einträge braucht niemand.
@@ -83,6 +88,7 @@ class Automation:
             "conditions": self.conditions,
             "actions": self.actions,
             "editable": self.editable,
+            "match": self.match,
             "category": self.category,
         }
 
@@ -94,6 +100,7 @@ class Automation:
             "trigger": self.triggers,
             "condition": self.conditions,
             "action": self.actions,
+            "match": self.match,
             "category": self.category,
         }
 
@@ -120,6 +127,7 @@ def parse_automations(
                 conditions=_as_list(config.get("condition")),
                 actions=_as_list(config.get("action")),
                 editable=editable,
+                match="any" if str(config.get("match")) == "any" else "all",
                 category=str(config["category"]) if config.get("category") else None,
             )
         )
@@ -316,7 +324,7 @@ class AutomationEngine:
         error: str | None = None
         executed = False
         try:
-            if all(self._check_condition(c) for c in automation.conditions):
+            if self._conditions_hold(automation):
                 executed = True
                 log.info("Automation '%s' ausgelöst", automation.alias)
                 # Alles, was jetzt folgt, wird der Automation zugeschrieben.
@@ -341,6 +349,17 @@ class AutomationEngine:
                     "error": error,
                 },
             )
+
+    def _conditions_hold(self, automation: Automation) -> bool:
+        """Stimmen die Bedingungen? Ohne Bedingungen: ja.
+
+        «any» ohne Bedingungen wäre sonst nie erfüllt – ein Ablauf ohne
+        «nur wenn» soll aber immer laufen.
+        """
+        if not automation.conditions:
+            return True
+        checks = (self._check_condition(c) for c in automation.conditions)
+        return any(checks) if automation.match == "any" else all(checks)
 
     def _check_condition(self, condition: dict[str, Any]) -> bool:
         ctype = condition.get("type", "state")

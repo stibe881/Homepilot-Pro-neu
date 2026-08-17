@@ -1,5 +1,6 @@
 import asyncio
 
+from homepilot.core.automation import Automation, parse_automations
 from homepilot.core.config import ApiConfig, HubConfig
 from homepilot.core.hub import Hub
 
@@ -134,5 +135,82 @@ async def test_threshold_trigger_fires_once_per_crossing():
         await hub.registry.update_state("demo.light_bedroom", {"brightness": 1})
         await settle()
         assert hub.registry.get("demo.switch_coffee").state["state"] == "off"
+    finally:
+        await hub.stop()
+
+
+def test_conditions_are_combined_with_and_by_default():
+    """Zwei Bedingungen heissen «beide» – so hat es der Ablauf immer
+    gemeint, und dabei bleibt es ohne ausdrückliche Angabe."""
+    automation = Automation(
+        id="a",
+        alias="Test",
+        triggers=[],
+        conditions=[
+            {"type": "state", "entity_id": "demo.a", "equals": "on"},
+            {"type": "state", "entity_id": "demo.b", "equals": "on"},
+        ],
+    )
+    assert automation.match == "all"
+    assert automation.as_config()["match"] == "all"
+
+
+def test_match_any_is_read_from_the_config():
+    parsed = parse_automations(
+        [
+            {
+                "id": "a",
+                "alias": "Test",
+                "trigger": [],
+                "condition": [{"type": "state", "entity_id": "demo.a", "equals": "on"}],
+                "match": "any",
+            }
+        ]
+    )
+    assert parsed[0].match == "any"
+    # Unsinn fällt auf «all» zurück – die vorsichtigere Variante.
+    assert parse_automations([{"id": "b", "alias": "B", "match": "quatsch"}])[0].match == "all"
+
+
+async def test_match_any_runs_when_one_condition_holds():
+    """«oder»: Eine erfüllte Bedingung genügt. Mit «und» bliebe der Ablauf
+    hier stehen, weil die zweite Bedingung nicht stimmt."""
+    hub = await run_hub(
+        [
+            {
+                **MOTION_AUTOMATION,
+                "match": "any",
+                "condition": [
+                    {"type": "state", "entity_id": "demo.light_livingroom", "equals": "off"},
+                    {"type": "state", "entity_id": "demo.switch_coffee", "equals": "on"},
+                ],
+            }
+        ]
+    )
+    try:
+        await hub.integrations.dispatch_command("demo.motion_hall", "turn_on")
+        await settle()
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "on"
+    finally:
+        await hub.stop()
+
+
+async def test_match_any_stays_quiet_when_none_holds():
+    hub = await run_hub(
+        [
+            {
+                **MOTION_AUTOMATION,
+                "match": "any",
+                "condition": [
+                    {"type": "state", "entity_id": "demo.light_livingroom", "equals": "on"},
+                    {"type": "state", "entity_id": "demo.switch_coffee", "equals": "on"},
+                ],
+            }
+        ]
+    )
+    try:
+        await hub.integrations.dispatch_command("demo.motion_hall", "turn_on")
+        await settle()
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "off"
     finally:
         await hub.stop()
