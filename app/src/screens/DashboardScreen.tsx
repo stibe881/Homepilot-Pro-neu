@@ -37,6 +37,7 @@ import { AutomationsScreen } from './AutomationsScreen';
 import { FamilyScreen } from './FamilyScreen';
 import { OverviewScreen } from './OverviewScreen';
 import { SettingsScreen } from './SettingsScreen';
+import { EnergyScreen } from './EnergyScreen';
 import { SystemScreen } from './SystemScreen';
 import { UsersScreen } from './UsersScreen';
 
@@ -126,15 +127,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     };
   }, [settings.url, settings.token]);
 
-  // Wandpanel: Bildschirm bleibt an, und nach drei Minuten ohne Berührung
-  // kehrt die Ansicht zur Startseite zurück – ein fest montiertes iPad soll
-  // nicht in den Einstellungen stehenbleiben.
   // Beim Verlassen der Geräteliste die Suche zurücksetzen – wer später
   // zurückkommt, will die volle Liste sehen, nicht den alten Suchbegriff.
   useEffect(() => {
     if (section !== 'devices') setQuery('');
   }, [section]);
 
+  // Wandpanel: Bildschirm bleibt an, und nach drei Minuten ohne Berührung
+  // kehrt die Ansicht zur Startseite zurück – ein fest montiertes iPad soll
+  // nicht in den Einstellungen stehenbleiben.
   usePanelMode(!!settings.panel);
   const push = usePushRegistration(settings, status === 'connected');
   useEffect(() => {
@@ -481,10 +482,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           show: caps.includes('view_automations'),
         },
         {
+          key: 'energy',
+          icon: 'flash-outline',
+          label: 'Energie',
+          detail: 'Verbrauch und Kosten je Gerät',
+          show: caps.includes('view_system'),
+        },
+        {
           key: 'system',
           icon: 'pulse-outline',
           label: 'System',
-          detail: 'Integrationen, Energie, Konfiguration',
+          detail: 'Integrationen, Sicherung, Konfiguration',
           show: caps.includes('view_system'),
         },
         {
@@ -521,6 +529,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 <Ionicons name="chevron-forward" size={18} color={colors.inkFaint} />
               </Pressable>
             ))}
+        </View>
+      );
+    }
+    if (section === 'energy') {
+      return (
+        <View style={styles.stack}>
+          {back}
+          <EnergyScreen settings={settings} entities={entities} />
         </View>
       );
     }
@@ -566,7 +582,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       return (
         <View style={styles.stack}>
           {back}
-          <SystemScreen settings={settings} user={user} entities={entities} push={push} />
+          <SystemScreen settings={settings} user={user} push={push} />
         </View>
       );
     }
