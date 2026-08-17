@@ -78,6 +78,8 @@ class AutomationRequest(BaseModel):
     trigger: list[dict[str, Any]] = []
     condition: list[dict[str, Any]] = []
     action: list[dict[str, Any]] = []
+    # Was stattdessen läuft, wenn die Bedingungen nicht passen.
+    otherwise: list[dict[str, Any]] = []
     enabled: bool = True
     # «all» = alle Bedingungen müssen stimmen, «any» = eine genügt.
     match: str = "all"
@@ -669,6 +671,7 @@ def create_app(hub: Hub) -> FastAPI:
             "trigger": body.trigger,
             "condition": body.condition,
             "action": body.action,
+            "otherwise": body.otherwise,
             "enabled": body.enabled,
             "match": body.match,
             "category": body.category,
@@ -696,6 +699,7 @@ def create_app(hub: Hub) -> FastAPI:
                 "trigger": body.trigger,
                 "condition": body.condition,
                 "action": body.action,
+                "otherwise": body.otherwise,
                 "enabled": body.enabled,
                 "match": body.match,
                 "category": body.category,
@@ -764,6 +768,23 @@ def create_app(hub: Hub) -> FastAPI:
         if not ok:
             raise HTTPException(status_code=404, detail="Ablauf nicht gefunden")
         return {"ok": True}
+
+    @app.get("/api/automations/{automation_id}/dryrun")
+    async def dry_run_automation(automation_id: str, request: Request) -> dict[str, Any]:
+        """Zeigt, was der Ablauf jetzt täte – ohne es zu tun.
+
+        Der Testlauf über /trigger führt wirklich aus. Das schreckt bei
+        allem ab, was die Storen bewegt oder die Familie anpiepst, und
+        gerade dort will man vorher wissen, ob die Bedingungen passen.
+        """
+        require(request, Capability.VIEW_AUTOMATIONS)
+        found = next(
+            (item for item in hub.automations.automations if item.id == automation_id),
+            None,
+        )
+        if found is None:
+            raise HTTPException(status_code=404, detail="Ablauf nicht gefunden")
+        return hub.automations.dry_run(found)
 
     @app.get("/api/hue/scenes")
     async def hue_scenes(request: Request) -> dict[str, Any]:

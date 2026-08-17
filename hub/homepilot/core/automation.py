@@ -9,12 +9,20 @@ Trigger:
 
 Bedingungen:
   - {type: state, entity_id, attribute?: "state", equals? | above? | below?}
-  - {type: time, after?: "HH:MM", before?: "HH:MM"}
+  - {type: time, after?: "HH:MM", before?: "HH:MM", weekdays?: [0..6]}
   - {type: sun, state: "up"|"down"}   # steht die Sonne über dem Horizont?
 
 Aktionen:
   - {type: command, entity_id, command, data?}
   - {type: delay, seconds}
+  - {type: scene, scene} / {type: hue_scene, scene}
+  - {type: notify, title?, body?, to?, camera?}
+  - {type: wait_until, ...Bedingung, timeout?: sekunden}
+
+Passt eine Bedingung nicht, kann statt der Aktionen ein zweiter Satz
+laufen (``otherwise``) – sonst bräuchte «sonst mach das andere» zwei
+Abläufe mit gegenteiliger Bedingung, die man beim Ändern beide anfassen
+muss.
 """
 
 from __future__ import annotations
@@ -89,6 +97,9 @@ class Automation:
     triggers: list[dict[str, Any]]
     conditions: list[dict[str, Any]] = field(default_factory=list)
     actions: list[dict[str, Any]] = field(default_factory=list)
+    # Was stattdessen läuft, wenn die Bedingungen nicht passen. Leer =
+    # nichts, wie bisher.
+    otherwise: list[dict[str, Any]] = field(default_factory=list)
     # Aus der config.yaml stammende sind in der App nur lesbar.
     editable: bool = False
     # Ausgeschaltete Abläufe bleiben stehen, laufen aber nicht. Besser als
@@ -112,6 +123,7 @@ class Automation:
             "triggers": self.triggers,
             "conditions": self.conditions,
             "actions": self.actions,
+            "otherwise": self.otherwise,
             "editable": self.editable,
             "enabled": self.enabled,
             "match": self.match,
@@ -126,6 +138,7 @@ class Automation:
             "trigger": self.triggers,
             "condition": self.conditions,
             "action": self.actions,
+            "otherwise": self.otherwise,
             "enabled": self.enabled,
             "match": self.match,
             "category": self.category,
@@ -134,6 +147,98 @@ class Automation:
 
 # So viele Läufe merkt sich der Hub – genug, um einen Abend nachzuvollziehen.
 RUN_LIMIT = 100
+
+# «Warten bis»: wie oft nachgesehen wird, und wie lange höchstens, wenn im
+# Ablauf keine eigene Frist steht. Eine Frist muss sein – sonst bliebe ein
+# Ablauf für immer stehen, wenn die Tür offen bleibt.
+WAIT_POLL = 1.0
+WAIT_TIMEOUT = 300.0
+
+
+WEEKDAYS = ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")
+
+
+def parse_weekdays(raw: Any) -> set[int]:
+    """Erlaubte Wochentage einlesen (rein, testbar).
+
+    0 ist Montag, wie bei ``datetime.weekday()``. Eine leere oder kaputte
+    Angabe heisst «alle Tage» und nicht «kein Tag»: Wer sich vertippt, soll
+    einen Ablauf haben, der zu oft läuft und auffällt – nicht einen, der
+    stumm bleibt und den man erst im Winter vermisst.
+    """
+    days: set[int] = set()
+    for entry in raw or []:
+        try:
+            number = int(entry)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= number <= 6:
+            days.add(number)
+    return days
+
+
+def weekday_label(days: set[int]) -> str:
+    """«Mo, Di, Mi» – oder «Werktage» bzw. «Wochenende» (rein, testbar)."""
+    if not days or len(days) == 7:
+        return "jeden Tag"
+    if days == {0, 1, 2, 3, 4}:
+        return "Werktage"
+    if days == {5, 6}:
+        return "Wochenende"
+    return ", ".join(WEEKDAYS[day] for day in sorted(days))
+
+
+def describe_target(condition: dict[str, Any], named: Any = str) -> str:
+    """Worauf eine Bedingung hinauswill – bejahend (rein, testbar).
+
+    Das Gegenstück zu ``describe_condition``, die sagt, warum etwas *nicht*
+    passte. Beim Warten will man das Ziel lesen, nicht den Fehlschlag.
+    """
+    name = named(condition.get("entity_id"))
+    if "above" in condition:
+        return f"{name} über {condition['above']} steht"
+    if "below" in condition:
+        return f"{name} unter {condition['below']} steht"
+    if "equals" in condition:
+        return f"{name} «{condition['equals']}» ist"
+    return f"{name} sich meldet"
+
+
+def describe_action(action: dict[str, Any], name_of: Any = None) -> str:
+    """Eine Aktion in einem Satz – für den Trockenlauf (rein, testbar).
+
+    ``name_of`` bildet eine Entitäts-Kennung auf den Anzeigenamen ab; ohne
+    sie steht die Kennung da. Der Trockenlauf soll zeigen, was passieren
+    *würde*, und dafür muss man es lesen können.
+    """
+    def named(entity_id: Any) -> str:
+        text = str(entity_id or "?")
+        return str(name_of(text)) if name_of else text
+
+    atype = action.get("type", "command")
+    if atype == "command":
+        data = action.get("data") or {}
+        extra = ""
+        if "brightness" in data:
+            extra = f" auf {data['brightness']} %"
+        elif "position" in data:
+            extra = f" auf {data['position']} %"
+        return f"{named(action.get('entity_id'))}: {action.get('command', '?')}{extra}"
+    if atype == "delay":
+        return f"{action.get('seconds', 0)} Sekunden warten"
+    if atype == "wait_until":
+        timeout = action.get("timeout")
+        grenze = f" (höchstens {timeout} s)" if timeout else ""
+        return f"warten bis {describe_target(action, named)}{grenze}"
+    if atype == "scene":
+        return f"Szene «{action.get('scene', '?')}»"
+    if atype == "hue_scene":
+        return f"Hue-Szene «{action.get('scene', '?')}»"
+    if atype == "notify":
+        wer = action.get("to") or "alle"
+        bild = " mit Kamerabild" if action.get("camera") else ""
+        return f"Nachricht an {wer}: «{action.get('title') or action.get('body') or ''}»{bild}"
+    return f"unbekannte Aktion «{atype}»"
 
 
 def describe_condition(condition: dict[str, Any], value: Any) -> str:
@@ -144,6 +249,9 @@ def describe_condition(condition: dict[str, Any], value: Any) -> str:
     """
     ctype = condition.get("type", "state")
     if ctype == "time":
+        days = parse_weekdays(condition.get("weekdays"))
+        if days and datetime.now().weekday() not in days:
+            return f"Heute ist {WEEKDAYS[datetime.now().weekday()]}, verlangt sind {weekday_label(days)}"
         window = " bis ".join(
             part for part in (condition.get("after"), condition.get("before")) if part
         )
@@ -183,6 +291,7 @@ def parse_automations(
                 triggers=_as_list(config.get("trigger")),
                 conditions=_as_list(config.get("condition")),
                 actions=_as_list(config.get("action")),
+                otherwise=_as_list(config.get("otherwise")),
                 editable=editable,
                 enabled=config.get("enabled", True) is not False,
                 match="any" if str(config.get("match")) == "any" else "all",
@@ -388,12 +497,20 @@ class AutomationEngine:
         executed = False
         try:
             held, failed = self._conditions_hold(automation)
-            if held:
+            # Der «sonst»-Zweig ist ein vollwertiger Lauf und wird auch als
+            # solcher protokolliert: Ein Ablauf, der etwas getan hat, darf im
+            # Protokoll nicht als «übersprungen» stehen.
+            actions = automation.actions if held else automation.otherwise
+            if actions:
                 executed = True
-                log.info("Automation '%s' ausgelöst", automation.alias)
+                log.info(
+                    "Automation '%s' ausgelöst%s",
+                    automation.alias,
+                    "" if held else " (sonst-Zweig)",
+                )
                 # Alles, was jetzt folgt, wird der Automation zugeschrieben.
                 with as_source(automation_source(automation.id, automation.alias)):
-                    for action in automation.actions:
+                    for action in actions:
                         await self._execute_action(automation, action)
         except Exception as err:
             error = str(err)
@@ -466,6 +583,28 @@ class AutomationEngine:
         )
         return held, failed
 
+    def dry_run(self, automation: Automation) -> dict[str, Any]:
+        """Was *würde* passieren – ohne dass etwas passiert.
+
+        Der Testlauf über /trigger führt wirklich aus; das schreckt bei
+        allem ab, was die Storen bewegt oder die Familie anpiepst. Hier
+        werden die Bedingungen gegen den jetzigen Zustand geprüft und die
+        Aktionen bloss aufgezählt.
+        """
+        held, failed = self._conditions_hold(automation)
+        actions = automation.actions if held else automation.otherwise
+
+        def name_of(entity_id: str) -> str:
+            entity = self.hub.registry.get(entity_id)
+            return entity.name if entity else entity_id
+
+        return {
+            "conditions_hold": held,
+            "skipped": failed,
+            "branch": "aktionen" if held else "sonst",
+            "would_run": [describe_action(action, name_of) for action in actions],
+        }
+
     def _value_of(self, condition: dict[str, Any]) -> Any:
         """Der Istwert einer Gerätebedingung – für die Begründung."""
         if condition.get("type", "state") != "state":
@@ -490,6 +629,9 @@ class AutomationEngine:
                 return value is not None and float(value) < float(condition["below"])
             return True
         if ctype == "time":
+            days = parse_weekdays(condition.get("weekdays"))
+            if days and datetime.now().weekday() not in days:
+                return False
             now = datetime.now().time()
             if "after" in condition:
                 hour, minute = _parse_hhmm(condition["after"])
@@ -523,6 +665,8 @@ class AutomationEngine:
             )
         elif atype == "delay":
             await asyncio.sleep(float(action["seconds"]))
+        elif atype == "wait_until":
+            await self._wait_until(automation, action)
         elif atype == "scene":
             await self.hub.scenes.activate(action["scene"])
         elif atype == "hue_scene":
@@ -537,6 +681,32 @@ class AutomationEngine:
             await self._notify(automation, action)
         else:
             log.warning("Unbekannter Aktionstyp in '%s': %s", automation.alias, atype)
+
+    async def _wait_until(self, automation: Automation, action: dict[str, Any]) -> None:
+        """Warten, bis eine Bedingung zutrifft – statt auf gut Glück lange
+        genug zu warten.
+
+        «Erst scharf schalten, wenn die Tür zu ist» liess sich bisher nur
+        mit einer geschätzten Verzögerung nachbauen. Zu kurz gewählt
+        scheitert die Aktion, zu lang ärgert sie.
+
+        Die Frist ist Pflicht, nicht Kür: Ohne sie bliebe ein Ablauf für
+        immer stehen, wenn die Tür offen bleibt – und blockierte damit
+        auch jeden weiteren Lauf desselben Ablaufs.
+        """
+        timeout = float(action.get("timeout") or WAIT_TIMEOUT)
+        deadline = time.monotonic() + max(1.0, timeout)
+        while True:
+            if self._check_condition({**action, "type": action.get("wait_type", "state")}):
+                return
+            if time.monotonic() >= deadline:
+                log.info(
+                    "Automation '%s': Wartezeit abgelaufen, %s",
+                    automation.alias,
+                    describe_condition(action, self._value_of(action)),
+                )
+                return
+            await asyncio.sleep(WAIT_POLL)
 
     async def _notify(self, automation: Automation, action: dict[str, Any]) -> None:
         tokens = self.hub.push.recipients(

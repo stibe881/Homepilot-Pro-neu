@@ -474,3 +474,264 @@ def test_a_notification_without_a_camera_stays_as_it_was():
             await hub.stop()
 
     asyncio.run(check())
+
+
+# ── Wochentage ─────────────────────────────────────────────────────────────
+
+
+def test_weekdays_are_read_leniently():
+    from homepilot.core.automation import parse_weekdays
+
+    assert parse_weekdays([0, 1, "2"]) == {0, 1, 2}
+    # Unsinn fliegt raus, statt den Ablauf stumm zu schalten.
+    assert parse_weekdays([9, -1, "Montag", None]) == set()
+    assert parse_weekdays(None) == set()
+
+
+def test_weekday_labels_read_like_a_human_wrote_them():
+    from homepilot.core.automation import weekday_label
+
+    assert weekday_label({0, 1, 2, 3, 4}) == "Werktage"
+    assert weekday_label({5, 6}) == "Wochenende"
+    assert weekday_label({0, 2}) == "Mo, Mi"
+    assert weekday_label(set()) == "jeden Tag"
+
+
+def test_a_typo_in_the_weekdays_lets_the_automation_run_not_starve():
+    """Ein Ablauf, der zu oft läuft, fällt auf. Einer, der stumm bleibt,
+    wird erst im Winter vermisst."""
+
+    async def check():
+        hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+        await hub.start()
+        try:
+            engine = hub.automations
+            assert engine._check_condition({"type": "time", "weekdays": ["Montag"]})
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())
+
+
+def test_the_weekday_decides_before_the_clock():
+    async def check():
+        hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+        await hub.start()
+        try:
+            import datetime as dt
+
+            heute = dt.datetime.now().weekday()
+            morgen = (heute + 1) % 7
+            engine = hub.automations
+            assert engine._check_condition({"type": "time", "weekdays": [heute]})
+            assert not engine._check_condition({"type": "time", "weekdays": [morgen]})
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())
+
+
+# ── «Sonst»-Zweig ──────────────────────────────────────────────────────────
+
+
+def test_the_otherwise_branch_runs_when_the_condition_fails():
+    """Sonst bräuchte «sonst mach das andere» zwei Abläufe mit
+    gegenteiliger Bedingung, die man beim Ändern beide anfassen muss."""
+
+    async def check():
+        hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+        await hub.start()
+        try:
+            automation = Automation(
+                id="a",
+                alias="Licht je nach Sonne",
+                triggers=[],
+                conditions=[
+                    {"type": "state", "entity_id": "demo.light_livingroom", "equals": "on"}
+                ],
+                actions=[
+                    {"type": "command", "entity_id": "demo.switch_coffee", "command": "turn_on"}
+                ],
+                otherwise=[
+                    {"type": "command", "entity_id": "demo.switch_coffee", "command": "turn_off"}
+                ],
+            )
+            hub.automations.automations = [automation]
+
+            # Lampe ist aus → «sonst» greift.
+            await hub.automations._run(automation)
+            assert hub.registry.get("demo.switch_coffee").state["state"] == "off"
+            # Und der Lauf gilt als ausgeführt, nicht als übersprungen.
+            assert hub.automations.runs[0]["executed"] is True
+
+            await hub.registry.update_state("demo.light_livingroom", {"state": "on"})
+            await hub.automations._run(automation)
+            assert hub.registry.get("demo.switch_coffee").state["state"] == "on"
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())
+
+
+def test_without_an_otherwise_branch_nothing_changes():
+    async def check():
+        hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+        await hub.start()
+        try:
+            automation = Automation(
+                id="a",
+                alias="nur wenn",
+                triggers=[],
+                conditions=[
+                    {"type": "state", "entity_id": "demo.light_livingroom", "equals": "on"}
+                ],
+                actions=[
+                    {"type": "command", "entity_id": "demo.switch_coffee", "command": "turn_on"}
+                ],
+            )
+            await hub.automations._run(automation)
+            assert hub.registry.get("demo.switch_coffee").state["state"] == "off"
+            assert hub.automations.runs[0]["executed"] is False
+            assert hub.automations.runs[0]["skipped"]
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())
+
+
+# ── «Warten bis» ───────────────────────────────────────────────────────────
+
+
+def test_waiting_stops_as_soon_as_the_condition_holds():
+    async def check():
+        hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+        await hub.start()
+        try:
+            automation = Automation(id="a", alias="warten", triggers=[], actions=[])
+
+            async def spaeter():
+                await asyncio.sleep(0.05)
+                await hub.registry.update_state("demo.light_livingroom", {"state": "on"})
+
+            asyncio.create_task(spaeter())
+            import homepilot.core.automation as modul
+
+            modul.WAIT_POLL = 0.01
+            await hub.automations._wait_until(
+                automation,
+                {
+                    "type": "wait_until",
+                    "entity_id": "demo.light_livingroom",
+                    "equals": "on",
+                    "timeout": 5,
+                },
+            )
+            assert hub.registry.get("demo.light_livingroom").state["state"] == "on"
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())
+
+
+def test_waiting_gives_up_instead_of_blocking_forever():
+    """Ohne Frist bliebe der Ablauf stehen, wenn die Tür offen bleibt – und
+    blockierte damit jeden weiteren Lauf desselben Ablaufs."""
+
+    async def check():
+        hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+        await hub.start()
+        try:
+            import homepilot.core.automation as modul
+
+            modul.WAIT_POLL = 0.01
+            automation = Automation(id="a", alias="warten", triggers=[], actions=[])
+            await asyncio.wait_for(
+                hub.automations._wait_until(
+                    automation,
+                    {
+                        "type": "wait_until",
+                        "entity_id": "demo.light_livingroom",
+                        "equals": "on",
+                        "timeout": 1,
+                    },
+                ),
+                timeout=3,
+            )
+            # Die Lampe ist immer noch aus – aufgegeben, nicht hängengeblieben.
+            assert hub.registry.get("demo.light_livingroom").state["state"] == "off"
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())
+
+
+# ── Trockenlauf ────────────────────────────────────────────────────────────
+
+
+def test_actions_are_described_in_readable_german():
+    from homepilot.core.automation import describe_action
+
+    namen = {"demo.light_livingroom": "Stehlampe"}.get
+    assert (
+        describe_action(
+            {"type": "command", "entity_id": "demo.light_livingroom",
+             "command": "turn_on", "data": {"brightness": 40}},
+            namen,
+        )
+        == "Stehlampe: turn_on auf 40 %"
+    )
+    assert describe_action({"type": "delay", "seconds": 30}) == "30 Sekunden warten"
+    assert describe_action({"type": "scene", "scene": "Kino"}) == "Szene «Kino»"
+    assert (
+        describe_action(
+            {"type": "wait_until", "entity_id": "demo.light_livingroom",
+             "equals": "off", "timeout": 60},
+            namen,
+        )
+        == "warten bis Stehlampe «off» ist (höchstens 60 s)"
+    )
+    assert "mit Kamerabild" in describe_action(
+        {"type": "notify", "title": "Es klingelt", "camera": "cam.tuer"}
+    )
+
+
+def test_the_dry_run_changes_nothing():
+    """Genau das ist der Punkt: Der Testlauf über /trigger fährt die Storen
+    wirklich aus."""
+
+    async def check():
+        hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+        await hub.start()
+        try:
+            automation = Automation(
+                id="a",
+                alias="Kaffee",
+                triggers=[],
+                conditions=[
+                    {"type": "state", "entity_id": "demo.light_livingroom", "equals": "on"}
+                ],
+                actions=[
+                    {"type": "command", "entity_id": "demo.switch_coffee", "command": "turn_on"}
+                ],
+                otherwise=[{"type": "delay", "seconds": 5}],
+            )
+
+            result = hub.automations.dry_run(automation)
+            assert result["conditions_hold"] is False
+            assert result["branch"] == "sonst"
+            assert result["would_run"] == ["5 Sekunden warten"]
+            assert result["skipped"]
+            # Und nichts wurde geschaltet.
+            assert hub.registry.get("demo.switch_coffee").state["state"] == "off"
+
+            await hub.registry.update_state("demo.light_livingroom", {"state": "on"})
+            result = hub.automations.dry_run(automation)
+            assert result["conditions_hold"] is True
+            assert result["branch"] == "aktionen"
+            # Der Anzeigename statt der Kennung – man soll es lesen können.
+            assert "turn_on" in result["would_run"][0]
+            assert hub.registry.get("demo.switch_coffee").state["state"] == "off"
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())

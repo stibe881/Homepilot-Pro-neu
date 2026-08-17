@@ -12,6 +12,8 @@ interface Automation {
   triggers: any[];
   conditions: any[];
   actions: any[];
+  /** Was stattdessen läuft, wenn die Bedingungen nicht passen. */
+  otherwise?: any[];
   editable: boolean;
   /** Frei benannte Kategorie zum Gruppieren (vom Hub, kann fehlen). */
   category?: string | null;
@@ -19,6 +21,14 @@ interface Automation {
   match?: string;
   /** Ausgeschaltete Abläufe bleiben stehen, laufen aber nicht. */
   enabled?: boolean;
+}
+
+/** Was der Ablauf jetzt täte – ohne dass etwas passiert. */
+interface DryRun {
+  conditions_hold: boolean;
+  skipped: string[];
+  branch: string;
+  would_run: string[];
 }
 
 /** Ein protokollierter Lauf – auch ein nicht ausgeführter. */
@@ -148,8 +158,8 @@ export function usedCategories(items: { category?: string | null }[]): string[] 
 }
 
 /** Was der Editor anbietet – bewusst wenig, aber vollständig bedienbar. */
-type TriggerKind = 'state' | 'time' | 'sun';
-type ActionKind = 'command' | 'scene' | 'notify' | 'hue_scene';
+type TriggerKind = 'state' | 'threshold' | 'interval' | 'time' | 'sun';
+type StepKind = 'command' | 'scene' | 'hue_scene' | 'notify' | 'delay' | 'wait_until';
 type ConditionKind = 'none' | 'sun' | 'time';
 
 /** Ein einzelner Auslöser – ein Ablauf kann mehrere haben («oder»). */
@@ -165,7 +175,63 @@ interface TriggerDraft {
   /** Sonnenstand-Trigger: Aufgang oder Untergang, plus Versatz in Minuten. */
   sunEvent: 'sunrise' | 'sunset';
   sunOffset: string;
+  /** Schwellen-Trigger: löst beim Übertritt aus, nicht bei jeder Schwankung. */
+  thresholdOp: 'above' | 'below';
+  thresholdValue: string;
+  /** Intervall-Trigger: alle n Sekunden. */
+  intervalSeconds: string;
 }
+
+/**
+ * Ein Schritt in der Aktionsliste.
+ *
+ * Bewusst eine Liste aus gleichrangigen Schritten statt einer einzigen
+ * Aktionsart: «Licht an, warten, Nachricht» war vorher nicht in einem
+ * Ablauf möglich – man brauchte drei, die sich gegenseitig auslösen.
+ *
+ * Jeder Schritt trägt alle Felder mit, auch die der anderen Arten. Das
+ * kostet ein paar leere Zeichenketten und erspart dafür, dass beim
+ * Umschalten der Art die schon getippten Angaben verschwinden.
+ */
+interface StepDraft {
+  kind: StepKind;
+  /** Mehrere Geräte für «Gerät schalten» (Checkliste). */
+  commandActions: {
+    entity_id: string;
+    command: string;
+    rooms?: number[];
+    position?: number;
+  }[];
+  sceneId: string;
+  /** Name einer auf der Hue-Bridge gespeicherten Szene. */
+  hueScene: string;
+  title: string;
+  body: string;
+  /** Kamera, deren Bild der Nachricht beiliegt. Leer = ohne Bild. */
+  notifyCamera: string;
+  /** Wartezeit in Sekunden. */
+  seconds: string;
+  /** «Warten bis»: worauf, und wie lange höchstens. */
+  waitEntityId: string;
+  waitOp: Compare;
+  waitValue: string;
+  waitTimeout: string;
+}
+
+const EMPTY_STEP: StepDraft = {
+  kind: 'command',
+  commandActions: [],
+  sceneId: '',
+  hueScene: '',
+  title: '',
+  body: '',
+  notifyCamera: '',
+  seconds: '60',
+  waitEntityId: '',
+  waitOp: 'is',
+  waitValue: 'off',
+  waitTimeout: '300',
+};
 
 /** Ein neuer Auslöser für dieses Gerät – mit einem Zustand, den es auch
  *  wirklich kennt. */
@@ -186,6 +252,9 @@ const EMPTY_TRIGGER: TriggerDraft = {
   at: '18:30',
   sunEvent: 'sunset',
   sunOffset: '0',
+  thresholdOp: 'below',
+  thresholdValue: '5',
+  intervalSeconds: '600',
 };
 
 /** «ist» vergleicht den Zustand, «über»/«unter» eine Zahl – für Helligkeit,
@@ -212,27 +281,12 @@ interface Draft {
   stateConditions: StateCondition[];
   /** Wie die Bedingungen verknüpft sind: alle oder eine genügt. */
   match: 'all' | 'any';
-  /** Wartezeit vor den Aktionen in Sekunden (0 = sofort). */
-  delaySeconds: string;
-  actionKind: ActionKind;
-  actionEntityId: string;
-  command: string;
-  /** Raumauswahl, wenn das Kommando 'Räume saugen' ist. */
-  rooms: number[];
-  /** Mehrere Geräte für die Aktion «Gerät schalten» (Checkliste). */
-  commandActions: {
-    entity_id: string;
-    command: string;
-    rooms?: number[];
-    position?: number;
-  }[];
-  sceneId: string;
-  /** Name einer auf der Hue-Bridge gespeicherten Szene. */
-  hueScene: string;
-  title: string;
-  body: string;
-  /** Kamera, deren Bild der Nachricht beiliegt. Leer = ohne Bild. */
-  notifyCamera: string;
+  /** Erlaubte Wochentage der Uhrzeit-Bedingung (0 = Montag). Leer = alle. */
+  weekdays: number[];
+  /** Was der Ablauf tut – der Reihe nach. */
+  steps: StepDraft[];
+  /** Was stattdessen läuft, wenn die Bedingungen nicht passen. */
+  elseSteps: StepDraft[];
   /** Frei benannte Kategorie zum Gruppieren in der Liste. */
   category: string;
   /** Ausgeschaltet: bleibt stehen, läuft aber nicht. */
@@ -248,17 +302,9 @@ const EMPTY: Draft = {
   conditionBefore: '',
   stateConditions: [],
   match: 'all',
-  delaySeconds: '0',
-  actionKind: 'command',
-  actionEntityId: '',
-  command: 'turn_on',
-  rooms: [],
-  commandActions: [],
-  sceneId: '',
-  hueScene: '',
-  title: '',
-  body: '',
-  notifyCamera: '',
+  weekdays: [],
+  steps: [{ ...EMPTY_STEP }],
+  elseSteps: [],
   category: '',
   enabled: true,
 };
@@ -271,6 +317,18 @@ function triggerToConfig(t: TriggerDraft): Record<string, any> {
   if (t.kind === 'time') {
     return { type: 'time', at: t.at };
   }
+  if (t.kind === 'interval') {
+    return { type: 'interval', seconds: Math.max(10, Number(t.intervalSeconds) || 600) };
+  }
+  if (t.kind === 'threshold') {
+    // Löst beim Übertritt aus, nicht bei jeder Schwankung darunter: Der
+    // Tumbler ist fertig, wenn die Leistung von «über 5 W» auf «unter 5 W»
+    // fällt – nicht jedes Mal, wenn 2.1 W zu 2.0 W wird.
+    const trigger: Record<string, any> = { type: 'state', entity_id: t.entityId };
+    if (t.attribute) trigger.attribute = t.attribute;
+    trigger[t.thresholdOp] = Number(t.thresholdValue) || 0;
+    return trigger;
+  }
   const state: Record<string, any> = { type: 'state', entity_id: t.entityId, to: t.toState };
   if (t.fromState) state.from = t.fromState;
   if (t.attribute) state.attribute = t.attribute;
@@ -279,8 +337,19 @@ function triggerToConfig(t: TriggerDraft): Record<string, any> {
 
 /** Umgekehrt: gespeicherter Trigger → Entwurf (rein, testbar). */
 function triggerFromConfig(t: any): TriggerDraft {
+  const threshold = t?.above !== undefined || t?.below !== undefined;
   return {
-    kind: t?.type === 'time' ? 'time' : t?.type === 'sun' ? 'sun' : 'state',
+    ...EMPTY_TRIGGER,
+    kind:
+      t?.type === 'time'
+        ? 'time'
+        : t?.type === 'sun'
+          ? 'sun'
+          : t?.type === 'interval'
+            ? 'interval'
+            : threshold
+              ? 'threshold'
+              : 'state',
     entityId: t?.entity_id ?? '',
     toState: t?.to ?? 'on',
     fromState: t?.from ?? '',
@@ -288,6 +357,9 @@ function triggerFromConfig(t: any): TriggerDraft {
     at: t?.at ?? EMPTY_TRIGGER.at,
     sunEvent: t?.event === 'sunrise' ? 'sunrise' : 'sunset',
     sunOffset: String(t?.offset ?? 0),
+    thresholdOp: t?.above !== undefined ? 'above' : 'below',
+    thresholdValue: String(t?.above ?? t?.below ?? EMPTY_TRIGGER.thresholdValue),
+    intervalSeconds: String(t?.seconds ?? EMPTY_TRIGGER.intervalSeconds),
   };
 }
 
@@ -327,9 +399,14 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
         ...EMPTY,
         alias: 'Alles aus, wenn niemand zuhause',
         triggers: [{ ...EMPTY_TRIGGER, entityId: presence.id, toState: 'off' }],
-        ...(offScene
-          ? { actionKind: 'scene' as ActionKind, sceneId: offScene.id }
-          : { commandActions: [{ entity_id: firstOff!.id, command: 'turn_off' }] }),
+        steps: [
+          offScene
+            ? { ...EMPTY_STEP, kind: 'scene' as StepKind, sceneId: offScene.id }
+            : {
+                ...EMPTY_STEP,
+                commandActions: [{ entity_id: firstOff!.id, command: 'turn_off' }],
+              },
+        ],
       },
     });
   }
@@ -344,7 +421,7 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
         ...EMPTY,
         alias: 'Scharf, wenn niemand mehr da ist',
         triggers: [{ ...EMPTY_TRIGGER, entityId: presence.id, toState: 'off' }],
-        commandActions: [{ entity_id: alarm.id, command: 'arm_away' }],
+        steps: [{ ...EMPTY_STEP, commandActions: [{ entity_id: alarm.id, command: 'arm_away' }] }],
       },
     });
     templates.push({
@@ -354,7 +431,7 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
         ...EMPTY,
         alias: 'Unscharf, wenn jemand heimkommt',
         triggers: [{ ...EMPTY_TRIGGER, entityId: presence.id, toState: 'on' }],
-        commandActions: [{ entity_id: alarm.id, command: 'disarm' }],
+        steps: [{ ...EMPTY_STEP, commandActions: [{ entity_id: alarm.id, command: 'disarm' }] }],
       },
     });
   }
@@ -368,9 +445,14 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
         triggers: [
           { ...EMPTY_TRIGGER, entityId: doorbell.id, attribute: 'ring', toState: 'on' },
         ],
-        actionKind: 'notify',
-        title: 'Es klingelt',
-        body: 'Jemand steht vor der Tür.',
+        steps: [
+          {
+            ...EMPTY_STEP,
+            kind: 'notify' as StepKind,
+            title: 'Es klingelt',
+            body: 'Jemand steht vor der Tür.',
+          },
+        ],
       },
     });
   }
@@ -384,9 +466,14 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
         triggers: [
           { ...EMPTY_TRIGGER, entityId: appliance.id, fromState: 'running', toState: 'idle' },
         ],
-        actionKind: 'notify',
-        title: `${appliance.name} ist fertig`,
-        body: 'Das Programm ist durchgelaufen.',
+        steps: [
+          {
+            ...EMPTY_STEP,
+            kind: 'notify' as StepKind,
+            title: `${appliance.name} ist fertig`,
+            body: 'Das Programm ist durchgelaufen.',
+          },
+        ],
       },
     });
   }
@@ -398,9 +485,14 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
         ...EMPTY,
         alias: 'Unwetterwarnung',
         triggers: [{ ...EMPTY_TRIGGER, entityId: alert.id, toState: 'alert' }],
-        actionKind: 'notify',
-        title: 'Unwetterwarnung',
-        body: 'MeteoAlarm meldet eine Warnung für deine Region.',
+        steps: [
+          {
+            ...EMPTY_STEP,
+            kind: 'notify' as StepKind,
+            title: 'Unwetterwarnung',
+            body: 'MeteoAlarm meldet eine Warnung für deine Region.',
+          },
+        ],
       },
     });
   }
@@ -412,7 +504,7 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
         ...EMPTY,
         alias: 'Morgens saugen',
         triggers: [{ ...EMPTY_TRIGGER, kind: 'time', at: '09:00' }],
-        commandActions: [{ entity_id: vacuum.id, command: 'clean_rooms', rooms: [] }],
+        steps: [{ ...EMPTY_STEP, commandActions: [{ entity_id: vacuum.id, command: 'clean_rooms', rooms: [] }] }],
       },
     });
   }
@@ -424,7 +516,7 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
         ...EMPTY,
         alias: 'Storen zu bei Sonnenuntergang',
         triggers: [{ ...EMPTY_TRIGGER, kind: 'sun', sunEvent: 'sunset', sunOffset: '0' }],
-        commandActions: [{ entity_id: cover.id, command: 'close' }],
+        steps: [{ ...EMPTY_STEP, commandActions: [{ entity_id: cover.id, command: 'close' }] }],
       },
     });
     templates.push({
@@ -434,7 +526,7 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
         ...EMPTY,
         alias: 'Storen auf bei Sonnenaufgang',
         triggers: [{ ...EMPTY_TRIGGER, kind: 'sun', sunEvent: 'sunrise', sunOffset: '0' }],
-        commandActions: [{ entity_id: cover.id, command: 'open' }],
+        steps: [{ ...EMPTY_STEP, commandActions: [{ entity_id: cover.id, command: 'open' }] }],
       },
     });
     if (alert) {
@@ -445,7 +537,7 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
           ...EMPTY,
           alias: 'Sturmschutz',
           triggers: [{ ...EMPTY_TRIGGER, entityId: alert.id, toState: 'alert' }],
-          commandActions: [{ entity_id: cover.id, command: 'close' }],
+          steps: [{ ...EMPTY_STEP, commandActions: [{ entity_id: cover.id, command: 'close' }] }],
         },
       });
     }
@@ -517,7 +609,8 @@ export function AutomationsScreen({
       alias: draft.alias || 'Ohne Namen',
       trigger: draft.triggers.map(triggerToConfig),
       condition: buildConditions(draft),
-      action: buildActions(draft),
+      action: stepsToActions(draft.steps),
+      otherwise: stepsToActions(draft.elseSteps),
       match: draft.match,
       enabled: draft.enabled,
       category: draft.category.trim() || null,
@@ -558,6 +651,20 @@ export function AutomationsScreen({
       if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
     } catch (err: any) {
       setError(String(err.message ?? err));
+    }
+  };
+
+  /** Zeigt, was der Ablauf jetzt täte – ohne dass etwas passiert. */
+  const dryRun = async (id: string): Promise<DryRun | null> => {
+    try {
+      const response = await fetch(`${settings.url}/api/automations/${id}/dryrun`, {
+        headers,
+      });
+      if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
+      return await response.json();
+    } catch (err: any) {
+      setError(String(err.message ?? err));
+      return null;
     }
   };
 
@@ -834,6 +941,7 @@ export function AutomationsScreen({
         onSave={save}
         onDelete={draft?.id ? () => remove(draft.id!) : undefined}
         onTest={draft?.id ? () => test(draft.id!) : undefined}
+        onDryRun={draft?.id ? () => dryRun(draft.id!) : undefined}
         onCancel={() => setDraft(null)}
       />
       <SceneEditor
@@ -1462,6 +1570,7 @@ function Editor({
   onSave,
   onDelete,
   onTest,
+  onDryRun,
   onCancel,
 }: {
   draft: Draft | null;
@@ -1476,11 +1585,14 @@ function Editor({
   onDelete?: () => void;
   /** Nur bei gespeicherten Abläufen: einmal sofort ausführen. */
   onTest?: () => void;
+  /** Nur bei gespeicherten Abläufen: zeigen, was jetzt passieren würde. */
+  onDryRun?: () => Promise<DryRun | null>;
   onCancel: () => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [tested, setTested] = useState(false);
+  const [preview, setPreview] = useState<DryRun | null>(null);
   if (!draft) return null;
 
   const set = (patch: Partial<Draft>) => onChange({ ...draft, ...patch });
@@ -1611,6 +1723,39 @@ function Editor({
                 placeholderTextColor={colors.inkFaint}
               />
             </View>
+          ) : null}
+          {draft.conditionKind === 'time' ? (
+            <>
+              <View style={styles.weekdayRow}>
+                {WEEKDAY_LABELS.map((label, day) => {
+                  const on = draft.weekdays.includes(day);
+                  return (
+                    <Pressable
+                      key={day}
+                      onPress={() =>
+                        set({
+                          weekdays: on
+                            ? draft.weekdays.filter((entry) => entry !== day)
+                            : [...draft.weekdays, day],
+                        })
+                      }
+                      accessibilityRole="switch"
+                      accessibilityState={{ checked: on }}
+                      style={[styles.weekday, on && styles.weekdayOn]}
+                    >
+                      <Text style={[styles.weekdayText, on && styles.weekdayTextOn]}>
+                        {label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <Text style={styles.triggerNote}>
+                {draft.weekdays.length === 0
+                  ? 'Kein Tag gewählt heisst jeden Tag.'
+                  : `Nur ${weekdayLabel(draft.weekdays)}.`}
+              </Text>
+            </>
           ) : null}
 
           {draft.stateConditions.map((entry, index) => {
@@ -1743,103 +1888,46 @@ function Editor({
           </Text>
         </Field>
 
-        <Field label="Verzögerung">
-          <Choice
-            options={[
-              { key: '0', label: 'sofort' },
-              { key: '30', label: '30 Sek.' },
-              { key: '60', label: '1 Min.' },
-              { key: '300', label: '5 Min.' },
-              { key: '600', label: '10 Min.' },
-            ]}
-            value={draft.delaySeconds}
-            onSelect={(delaySeconds) => set({ delaySeconds })}
+        <Field label="… dann das tun">
+          <StepList
+            steps={draft.steps}
+            entities={entities}
+            scenes={scenes}
+            hueScenes={hueScenes}
+            colors={colors}
+            styles={styles}
+            onChange={(steps) => set({ steps })}
           />
-          {Number(draft.delaySeconds) > 0 ? (
-            <Text style={styles.triggerNote}>
-              Wartet {delayLabel(draft.delaySeconds)}, bevor die Aktion ausgeführt wird.
-            </Text>
-          ) : null}
         </Field>
 
-        <Field label="… dann das tun">
-          <Choice
-            options={[
-              { key: 'command', label: 'Gerät schalten' },
-              { key: 'scene', label: 'Szene' },
-              ...(hueScenes.length > 0
-                ? [{ key: 'hue_scene', label: 'Hue-Szene' }]
-                : []),
-              { key: 'notify', label: 'Nachricht' },
-            ]}
-            value={draft.actionKind}
-            onSelect={(actionKind) => set({ actionKind: actionKind as ActionKind })}
-          />
-          {draft.actionKind === 'command' ? (
-            <SceneDevices
-              entities={entities}
-              actions={draft.commandActions}
-              onActions={(commandActions) => set({ commandActions })}
-              showSnapshot={false}
-              allowToggle
-            />
-          ) : draft.actionKind === 'scene' ? (
-            <Picker
-              items={scenes.map((scene) => ({ key: scene.id, label: scene.name }))}
-              placeholder="Szene suchen …"
-              value={draft.sceneId}
-              onSelect={(sceneId) => set({ sceneId })}
-            />
-          ) : draft.actionKind === 'hue_scene' ? (
+        <Field label="… sonst">
+          {draft.elseSteps.length === 0 ? (
             <>
-              <Picker
-                items={hueScenes.map((name) => ({ key: name, label: name }))}
-                placeholder="Hue-Szene suchen …"
-                value={draft.hueScene}
-                onSelect={(hueScene) => set({ hueScene })}
-              />
+              <Pressable
+                onPress={() => set({ elseSteps: [{ ...EMPTY_STEP }] })}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.75 }]}
+              >
+                <Ionicons name="git-branch-outline" size={16} color={colors.accent} />
+                <Text style={styles.addRowText}>Zweig für «Bedingung passt nicht»</Text>
+              </Pressable>
               <Text style={styles.triggerNote}>
-                Die Szene liegt auf der Hue-Bridge – Farben und Helligkeiten
-                stecken dort, und nur sie kann alles in einem Zug setzen.
-                Geändert wird sie in der Hue-App.
+                Ohne diesen Zweig passiert schlicht nichts, wenn eine
+                Bedingung nicht stimmt. Mit ihm spart man sich den zweiten
+                Ablauf mit gegenteiliger Bedingung – den man sonst beim
+                Ändern jedes Mal mit anfassen muss.
               </Text>
             </>
           ) : (
-            <>
-              <TextInput
-                style={styles.input}
-                value={draft.title}
-                onChangeText={(title) => set({ title })}
-                placeholder="Titel"
-                placeholderTextColor={colors.inkFaint}
-              />
-              <TextInput
-                style={styles.input}
-                value={draft.body}
-                onChangeText={(body) => set({ body })}
-                placeholder="Text"
-                placeholderTextColor={colors.inkFaint}
-              />
-              <Picker
-                items={[
-                  { key: '', label: 'Kein Bild' },
-                  ...entities
-                    .filter((entity) => entity.kind === 'camera')
-                    .map((entity) => ({ key: entity.id, label: entity.name })),
-                ]}
-                placeholder="Kamera fürs Bild suchen …"
-                value={draft.notifyCamera}
-                onSelect={(notifyCamera) => set({ notifyCamera })}
-              />
-              <Text style={styles.triggerNote}>
-                Mit einer Kamera zeigt die Nachricht gleich das Bild von
-                diesem Moment – praktisch, wenn es klingelt. Dafür muss in
-                der config.yaml des Hubs unter „push“ eine von aussen
-                erreichbare Adresse stehen, sonst kommt die Nachricht ohne
-                Bild an. Auf dem iPhone braucht es zusätzlich einen eigenen
-                App-Build (siehe docs/eigener-app-build.md).
-              </Text>
-            </>
+            <StepList
+              steps={draft.elseSteps}
+              entities={entities}
+              scenes={scenes}
+              hueScenes={hueScenes}
+              colors={colors}
+              styles={styles}
+              onChange={(elseSteps) => set({ elseSteps })}
+            />
           )}
         </Field>
 
@@ -1861,10 +1949,45 @@ function Editor({
             </Text>
           </Pressable>
         ) : null}
+        {onDryRun ? (
+          <Pressable
+            style={({ pressed }) => [styles.snapshot, pressed && { opacity: 0.8 }]}
+            onPress={async () => setPreview(await onDryRun())}
+            accessibilityRole="button"
+          >
+            <Ionicons name="eye-outline" size={18} color={colors.accent} />
+            <Text style={styles.snapshotText}>Trockenlauf</Text>
+          </Pressable>
+        ) : null}
+        {preview ? (
+          <View style={styles.preview}>
+            <Text style={styles.previewHead}>
+              {preview.conditions_hold
+                ? 'Die Bedingungen passen gerade.'
+                : 'Die Bedingungen passen gerade nicht:'}
+            </Text>
+            {preview.skipped.map((reason, index) => (
+              <Text key={index} style={styles.previewLine}>
+                • {reason}
+              </Text>
+            ))}
+            <Text style={styles.previewHead}>
+              {preview.would_run.length === 0
+                ? 'Es würde nichts passieren.'
+                : `Es würde passieren (${preview.branch}):`}
+            </Text>
+            {preview.would_run.map((line, index) => (
+              <Text key={index} style={styles.previewLine}>
+                {index + 1}. {line}
+              </Text>
+            ))}
+          </View>
+        ) : null}
         {onTest ? (
           <Text style={styles.snapshotHint}>
-            Führt die Aktionen einmal sofort aus – ohne auf den Auslöser oder die
-            Bedingung zu warten. Gespeicherte Änderungen zuerst sichern.
+            «Jetzt testen» führt die Aktionen wirklich aus – ohne auf Auslöser
+            oder Bedingung zu warten. Der Trockenlauf zeigt nur, was passieren
+            würde. Gespeicherte Änderungen zuerst sichern.
           </Text>
         ) : null}
         {onDelete ? (
@@ -1915,8 +2038,10 @@ function TriggerRow({
             key: 'state',
             label: chosen?.kind === 'button' ? 'Taster gedrückt' : 'Gerät wechselt',
           },
+          { key: 'threshold', label: 'Messwert' },
           { key: 'time', label: 'Uhrzeit' },
           { key: 'sun', label: 'Sonnenstand' },
+          { key: 'interval', label: 'Regelmässig' },
         ]}
         value={trigger.kind}
         onSelect={(kind) => onChange({ kind: kind as TriggerKind })}
@@ -1982,6 +2107,64 @@ function TriggerRow({
             </Text>
           ) : null}
         </>
+      ) : trigger.kind === 'threshold' ? (
+        <>
+          <Picker
+            items={entities.map((entity) => ({ key: entity.id, label: entity.name }))}
+            value={trigger.entityId}
+            onSelect={(entityId) => onChange({ entityId })}
+          />
+          <TextInput
+            style={styles.input}
+            value={trigger.attribute}
+            onChangeText={(attribute) => onChange({ attribute })}
+            placeholder="Feld, z.B. power oder temperature (leer = state)"
+            placeholderTextColor={colors.inkFaint}
+            autoCapitalize="none"
+          />
+          <View style={styles.rowGap}>
+            <Choice
+              options={[
+                { key: 'above', label: 'steigt über' },
+                { key: 'below', label: 'fällt unter' },
+              ]}
+              value={trigger.thresholdOp}
+              onSelect={(thresholdOp) =>
+                onChange({ thresholdOp: thresholdOp as TriggerDraft['thresholdOp'] })
+              }
+            />
+          </View>
+          <TextInput
+            style={styles.input}
+            value={trigger.thresholdValue}
+            onChangeText={(thresholdValue) => onChange({ thresholdValue })}
+            placeholder="5"
+            placeholderTextColor={colors.inkFaint}
+            keyboardType="numbers-and-punctuation"
+          />
+          <Text style={styles.triggerNote}>
+            Löst beim Übertritt aus, nicht bei jeder Schwankung darunter: Der
+            Tumbler ist fertig, wenn die Leistung von über 5 W auf unter 5 W
+            fällt – nicht jedes Mal, wenn 2.1 W zu 2.0 W wird.
+          </Text>
+        </>
+      ) : trigger.kind === 'interval' ? (
+        <>
+          <Choice
+            options={[
+              { key: '300', label: '5 Min.' },
+              { key: '600', label: '10 Min.' },
+              { key: '1800', label: '30 Min.' },
+              { key: '3600', label: '1 Std.' },
+            ]}
+            value={trigger.intervalSeconds}
+            onSelect={(intervalSeconds) => onChange({ intervalSeconds })}
+          />
+          <Text style={styles.triggerNote}>
+            Läuft immer wieder, unabhängig von einem Gerät. Sinnvoll mit einer
+            Bedingung davor – sonst passiert es rund um die Uhr.
+          </Text>
+        </>
       ) : (
         <TextInput
           style={styles.input}
@@ -1992,6 +2175,238 @@ function TriggerRow({
         />
       )}
     </View>
+  );
+}
+
+/**
+ * Die Aktionsliste: nacheinander abgearbeitete Schritte.
+ *
+ * Vorher gab es genau eine Aktionsart je Ablauf. «Licht an, zwei Minuten
+ * warten, Nachricht schicken» brauchte deshalb drei Abläufe, die sich
+ * gegenseitig auslösen – und beim Ändern musste man alle drei finden.
+ *
+ * Auf Modulebene und nicht im Editor verschachtelt: Eine dort definierte
+ * Komponente wäre bei jedem Tastendruck eine neue und würde das
+ * Eingabefeld beim Tippen jedes Mal neu aufbauen.
+ */
+function StepList({
+  steps,
+  entities,
+  scenes,
+  hueScenes,
+  colors,
+  styles,
+  onChange,
+}: {
+  steps: StepDraft[];
+  entities: Entity[];
+  scenes: Scene[];
+  hueScenes: string[];
+  colors: Colors;
+  styles: ReturnType<typeof makeStyles>;
+  onChange: (steps: StepDraft[]) => void;
+}) {
+  const setStep = (index: number, patch: Partial<StepDraft>) =>
+    onChange(steps.map((step, i) => (i === index ? { ...step, ...patch } : step)));
+  const remove = (index: number) => onChange(steps.filter((_, i) => i !== index));
+  const move = (index: number, delta: number) => {
+    const target = index + delta;
+    if (target < 0 || target >= steps.length) return;
+    const next = [...steps];
+    [next[index], next[target]] = [next[target], next[index]];
+    onChange(next);
+  };
+
+  return (
+    <>
+      {steps.map((step, index) => (
+        <View key={index} style={styles.stepBox}>
+          <View style={styles.stepHead}>
+            <Text style={styles.stepNumber}>{index + 1}.</Text>
+            <View style={{ flex: 1 }} />
+            {steps.length > 1 ? (
+              <>
+                <Pressable
+                  onPress={() => move(index, -1)}
+                  accessibilityLabel="Nach oben"
+                  hitSlop={8}
+                >
+                  <Ionicons
+                    name="chevron-up"
+                    size={18}
+                    color={index === 0 ? colors.inkFaint : colors.ink}
+                  />
+                </Pressable>
+                <Pressable
+                  onPress={() => move(index, 1)}
+                  accessibilityLabel="Nach unten"
+                  hitSlop={8}
+                >
+                  <Ionicons
+                    name="chevron-down"
+                    size={18}
+                    color={index === steps.length - 1 ? colors.inkFaint : colors.ink}
+                  />
+                </Pressable>
+              </>
+            ) : null}
+            <Pressable
+              onPress={() => remove(index)}
+              accessibilityLabel="Schritt entfernen"
+              hitSlop={8}
+            >
+              <Ionicons name="trash-outline" size={18} color={colors.danger} />
+            </Pressable>
+          </View>
+
+          <Choice
+            options={[
+              { key: 'command', label: 'Gerät schalten' },
+              { key: 'scene', label: 'Szene' },
+              ...(hueScenes.length > 0 ? [{ key: 'hue_scene', label: 'Hue-Szene' }] : []),
+              { key: 'notify', label: 'Nachricht' },
+              { key: 'delay', label: 'Warten' },
+              { key: 'wait_until', label: 'Warten bis' },
+            ]}
+            value={step.kind}
+            onSelect={(kind) => setStep(index, { kind: kind as StepKind })}
+          />
+
+          {step.kind === 'command' ? (
+            <SceneDevices
+              entities={entities}
+              actions={step.commandActions}
+              onActions={(commandActions) => setStep(index, { commandActions })}
+              showSnapshot={false}
+              allowToggle
+            />
+          ) : step.kind === 'scene' ? (
+            <Picker
+              items={scenes.map((scene) => ({ key: scene.id, label: scene.name }))}
+              placeholder="Szene suchen …"
+              value={step.sceneId}
+              onSelect={(sceneId) => setStep(index, { sceneId })}
+            />
+          ) : step.kind === 'hue_scene' ? (
+            <>
+              <Picker
+                items={hueScenes.map((name) => ({ key: name, label: name }))}
+                placeholder="Hue-Szene suchen …"
+                value={step.hueScene}
+                onSelect={(hueScene) => setStep(index, { hueScene })}
+              />
+              <Text style={styles.triggerNote}>
+                Die Szene liegt auf der Hue-Bridge – Farben und Helligkeiten
+                stecken dort, und nur sie kann alles in einem Zug setzen.
+                Geändert wird sie in der Hue-App.
+              </Text>
+            </>
+          ) : step.kind === 'notify' ? (
+            <>
+              <TextInput
+                style={styles.input}
+                value={step.title}
+                onChangeText={(title) => setStep(index, { title })}
+                placeholder="Titel"
+                placeholderTextColor={colors.inkFaint}
+              />
+              <TextInput
+                style={styles.input}
+                value={step.body}
+                onChangeText={(body) => setStep(index, { body })}
+                placeholder="Text"
+                placeholderTextColor={colors.inkFaint}
+              />
+              <Picker
+                items={[
+                  { key: '', label: 'Kein Bild' },
+                  ...entities
+                    .filter((entity) => entity.kind === 'camera')
+                    .map((entity) => ({ key: entity.id, label: entity.name })),
+                ]}
+                placeholder="Kamera fürs Bild suchen …"
+                value={step.notifyCamera}
+                onSelect={(notifyCamera) => setStep(index, { notifyCamera })}
+              />
+              <Text style={styles.triggerNote}>
+                Mit einer Kamera zeigt die Nachricht gleich das Bild von
+                diesem Moment – praktisch, wenn es klingelt. Dafür muss in
+                der config.yaml des Hubs unter „push“ eine von aussen
+                erreichbare Adresse stehen, sonst kommt die Nachricht ohne
+                Bild an. Auf dem iPhone braucht es zusätzlich einen eigenen
+                App-Build (siehe docs/eigener-app-build.md).
+              </Text>
+            </>
+          ) : step.kind === 'delay' ? (
+            <>
+              <Choice
+                options={[
+                  { key: '30', label: '30 Sek.' },
+                  { key: '60', label: '1 Min.' },
+                  { key: '300', label: '5 Min.' },
+                  { key: '600', label: '10 Min.' },
+                  { key: '1800', label: '30 Min.' },
+                ]}
+                value={step.seconds}
+                onSelect={(seconds) => setStep(index, { seconds })}
+              />
+              <Text style={styles.triggerNote}>
+                Wartet {delayLabel(step.seconds)}, bevor es weitergeht.
+              </Text>
+            </>
+          ) : (
+            <>
+              <Picker
+                items={entities.map((entity) => ({ key: entity.id, label: entity.name }))}
+                placeholder="Gerät suchen …"
+                value={step.waitEntityId}
+                onSelect={(waitEntityId) => setStep(index, { waitEntityId })}
+              />
+              <Choice
+                options={[
+                  { key: 'is', label: 'ist' },
+                  { key: 'above', label: 'über' },
+                  { key: 'below', label: 'unter' },
+                ]}
+                value={step.waitOp}
+                onSelect={(waitOp) => setStep(index, { waitOp: waitOp as Compare })}
+              />
+              <TextInput
+                style={styles.input}
+                value={step.waitValue}
+                onChangeText={(waitValue) => setStep(index, { waitValue })}
+                placeholder={step.waitOp === 'is' ? 'off' : '5'}
+                placeholderTextColor={colors.inkFaint}
+              />
+              <Choice
+                options={[
+                  { key: '60', label: 'max. 1 Min.' },
+                  { key: '300', label: 'max. 5 Min.' },
+                  { key: '900', label: 'max. 15 Min.' },
+                  { key: '3600', label: 'max. 1 Std.' },
+                ]}
+                value={step.waitTimeout}
+                onSelect={(waitTimeout) => setStep(index, { waitTimeout })}
+              />
+              <Text style={styles.triggerNote}>
+                Wartet, bis es so weit ist – etwa bis die Tür wieder zu ist.
+                Die Frist muss sein: Bleibt die Tür offen, ginge der Ablauf
+                sonst nie zu Ende und blockierte auch jeden weiteren Lauf.
+              </Text>
+            </>
+          )}
+        </View>
+      ))}
+
+      <Pressable
+        onPress={() => onChange([...steps, { ...EMPTY_STEP }])}
+        accessibilityRole="button"
+        style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.75 }]}
+      >
+        <Ionicons name="add" size={16} color={colors.accent} />
+        <Text style={styles.addRowText}>Schritt hinzufügen</Text>
+      </Pressable>
+    </>
   );
 }
 
@@ -2117,6 +2532,22 @@ export function pickerMatches(
   return chosen ? [chosen, ...hits] : hits;
 }
 
+const WEEKDAY_LABELS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+
+/** «Werktage», «Wochenende» oder die Kürzel (rein, testbar). */
+function weekdayLabel(days: number[]): string {
+  const chosen = new Set(days);
+  if (chosen.size === 0 || chosen.size === 7) return 'jeden Tag';
+  if (chosen.size === 5 && [0, 1, 2, 3, 4].every((day) => chosen.has(day))) {
+    return 'Werktage';
+  }
+  if (chosen.size === 2 && chosen.has(5) && chosen.has(6)) return 'am Wochenende';
+  return [...chosen]
+    .sort((a, b) => a - b)
+    .map((day) => WEEKDAY_LABELS[day])
+    .join(', ');
+}
+
 /** Lesbarer Text für eine Wartezeit (rein, testbar). */
 function delayLabel(seconds: string): string {
   const value = Number(seconds) || 0;
@@ -2134,8 +2565,15 @@ function buildConditions(draft: Draft): Record<string, any>[] {
     const condition: Record<string, any> = { type: 'time' };
     if (draft.conditionAfter) condition.after = draft.conditionAfter;
     if (draft.conditionBefore) condition.before = draft.conditionBefore;
-    // Ohne beide Zeiten wäre die Bedingung sinnlos – dann keine.
-    if (condition.after || condition.before) conditions.push(condition);
+    // Alle sieben Tage anzugeben heisst dasselbe wie keinen – dann lieber
+    // das Feld weglassen, damit die gespeicherte Form schlank bleibt.
+    if (draft.weekdays.length > 0 && draft.weekdays.length < 7) {
+      condition.weekdays = [...draft.weekdays].sort((a, b) => a - b);
+    }
+    // Eine Bedingung ganz ohne Angabe wäre sinnlos – dann keine.
+    if (condition.after || condition.before || condition.weekdays) {
+      conditions.push(condition);
+    }
   }
   for (const entry of draft.stateConditions) {
     if (!entry.entity_id) continue;
@@ -2150,31 +2588,46 @@ function buildConditions(draft: Draft): Record<string, any>[] {
   return conditions;
 }
 
-/** Die Aktionen eines Ablaufs – bei «Gerät schalten» eine je gewähltem Gerät.
- *  Eine Wartezeit wird als erste Aktion vorangestellt. */
-function buildActions(draft: Draft): Record<string, any>[] {
-  const delay = Number(draft.delaySeconds) || 0;
-  const prefix: Record<string, any>[] =
-    delay > 0 ? [{ type: 'delay', seconds: delay }] : [];
-  if (draft.actionKind === 'scene') {
-    return [...prefix, { type: 'scene', scene: draft.sceneId }];
+/** Einen einzelnen Schritt in die gespeicherte Form (rein, testbar).
+ *
+ * Ein Schritt kann mehrere Aktionen ergeben: «Gerät schalten» mit drei
+ * angehakten Lampen sind drei Kommandos.
+ */
+function stepToActions(step: StepDraft): Record<string, any>[] {
+  if (step.kind === 'scene') {
+    return step.sceneId ? [{ type: 'scene', scene: step.sceneId }] : [];
   }
-  if (draft.actionKind === 'hue_scene') {
-    return [...prefix, { type: 'hue_scene', scene: draft.hueScene }];
+  if (step.kind === 'hue_scene') {
+    return step.hueScene ? [{ type: 'hue_scene', scene: step.hueScene }] : [];
   }
-  if (draft.actionKind === 'notify') {
+  if (step.kind === 'notify') {
     return [
-      ...prefix,
       {
         type: 'notify',
         to: 'all',
-        title: draft.title,
-        body: draft.body,
-        ...(draft.notifyCamera ? { camera: draft.notifyCamera } : {}),
+        title: step.title,
+        body: step.body,
+        ...(step.notifyCamera ? { camera: step.notifyCamera } : {}),
       },
     ];
   }
-  const commands = draft.commandActions
+  if (step.kind === 'delay') {
+    const seconds = Number(step.seconds) || 0;
+    return seconds > 0 ? [{ type: 'delay', seconds }] : [];
+  }
+  if (step.kind === 'wait_until') {
+    if (!step.waitEntityId) return [];
+    const action: Record<string, any> = {
+      type: 'wait_until',
+      entity_id: step.waitEntityId,
+      timeout: Number(step.waitTimeout) || 300,
+    };
+    if (step.waitOp === 'above') action.above = Number(step.waitValue) || 0;
+    else if (step.waitOp === 'below') action.below = Number(step.waitValue) || 0;
+    else action.equals = step.waitValue;
+    return [action];
+  }
+  return step.commandActions
     .filter((action) => action.entity_id)
     .map((action) => {
       const built: Record<string, any> = {
@@ -2190,14 +2643,68 @@ function buildActions(draft: Draft): Record<string, any>[] {
       }
       return built;
     });
-  return [...prefix, ...commands];
+}
+
+/** Alle Schritte der Reihe nach (rein, testbar). */
+function stepsToActions(steps: StepDraft[]): Record<string, any>[] {
+  return steps.flatMap(stepToActions);
+}
+
+/**
+ * Gespeicherte Aktionen zurück in Schritte (rein, testbar).
+ *
+ * Aufeinanderfolgende Kommandos werden zu *einem* Schritt zusammengefasst –
+ * so, wie sie im Editor auch angelegt wurden. Ohne das würde aus einer
+ * Checkliste mit drei Lampen beim nächsten Öffnen eine Liste aus drei
+ * Schritten, und die Bedienung wüchse mit jedem Speichern.
+ */
+function actionsToSteps(actions: Record<string, any>[]): StepDraft[] {
+  const steps: StepDraft[] = [];
+  for (const action of actions ?? []) {
+    const type = action.type ?? 'command';
+    if (type === 'command') {
+      const entry = {
+        entity_id: action.entity_id,
+        command: action.command ?? 'turn_on',
+        rooms: action.data?.rooms ?? [],
+        position: action.data?.position,
+      };
+      const last = steps[steps.length - 1];
+      if (last && last.kind === 'command') {
+        last.commandActions = [...last.commandActions, entry];
+      } else {
+        steps.push({ ...EMPTY_STEP, kind: 'command', commandActions: [entry] });
+      }
+    } else if (type === 'scene') {
+      steps.push({ ...EMPTY_STEP, kind: 'scene', sceneId: action.scene ?? '' });
+    } else if (type === 'hue_scene') {
+      steps.push({ ...EMPTY_STEP, kind: 'hue_scene', hueScene: action.scene ?? '' });
+    } else if (type === 'notify') {
+      steps.push({
+        ...EMPTY_STEP,
+        kind: 'notify',
+        title: action.title ?? '',
+        body: action.body ?? '',
+        notifyCamera: action.camera ?? '',
+      });
+    } else if (type === 'delay') {
+      steps.push({ ...EMPTY_STEP, kind: 'delay', seconds: String(action.seconds ?? 60) });
+    } else if (type === 'wait_until') {
+      steps.push({
+        ...EMPTY_STEP,
+        kind: 'wait_until',
+        waitEntityId: action.entity_id ?? '',
+        waitOp: ('above' in action ? 'above' : 'below' in action ? 'below' : 'is') as Compare,
+        waitValue: String(action.above ?? action.below ?? action.equals ?? 'off'),
+        waitTimeout: String(action.timeout ?? 300),
+      });
+    }
+  }
+  return steps;
 }
 
 function toDraft(automation: Automation): Draft {
   const triggers = (automation.triggers ?? []).map(triggerFromConfig);
-  // Die erste Nicht-Verzögerungs-Aktion bestimmt Art und Felder.
-  const action = automation.actions.find((entry) => entry.type !== 'delay') ?? {};
-  const delay = automation.actions.find((entry) => entry.type === 'delay');
   const all = automation.conditions ?? [];
   // Sonnenstand und Uhrzeit haben je ein eigenes Feld; Gerätebedingungen
   // sind eine Liste.
@@ -2220,28 +2727,17 @@ function toDraft(automation: Automation): Draft {
         value: String(entry.above ?? entry.below ?? entry.equals ?? 'on'),
       })),
     match: automation.match === 'any' ? 'any' : 'all',
-    delaySeconds: String(delay?.seconds ?? 0),
-    actionKind: (action.type as ActionKind) ?? 'command',
-    actionEntityId: action.entity_id ?? '',
-    command: action.command ?? 'turn_on',
-    rooms: action.data?.rooms ?? [],
-    // Alle command-Aktionen in die Checkliste übernehmen.
-    commandActions: automation.actions
-      .filter((entry) => entry.type === 'command' && entry.entity_id)
-      .map((entry) => ({
-        entity_id: entry.entity_id,
-        command: entry.command ?? 'turn_on',
-        rooms: entry.data?.rooms ?? [],
-        position: entry.data?.position,
-      })),
-    sceneId: action.type === 'scene' ? action.scene ?? '' : '',
-    hueScene: action.type === 'hue_scene' ? action.scene ?? '' : '',
+    weekdays: Array.isArray(condition.weekdays) ? condition.weekdays.map(Number) : [],
+    steps: withAtLeastOne(actionsToSteps(automation.actions ?? [])),
+    elseSteps: actionsToSteps(automation.otherwise ?? []),
     category: automation.category ?? '',
     enabled: automation.enabled !== false,
-    title: action.title ?? '',
-    body: action.body ?? '',
-    notifyCamera: action.type === 'notify' ? action.camera ?? '' : '',
   };
+}
+
+/** Ein Ablauf ohne einen einzigen Schritt wäre im Editor eine leere Seite. */
+function withAtLeastOne(steps: StepDraft[]): StepDraft[] {
+  return steps.length > 0 ? steps : [{ ...EMPTY_STEP }];
 }
 
 function describe(automation: Automation): string {
@@ -2270,8 +2766,17 @@ function describe(automation: Automation): string {
           ? `${action.entity_id}: ${action.data?.rooms?.length ?? 0} Räume saugen`
           : `${action.entity_id} ${action.command}`;
   const mehr = automation.triggers.length > 1 ? ` (+${automation.triggers.length - 1})` : '';
-  const wartet = automation.actions.some((entry) => entry.type === 'delay') ? ' ⏱' : '';
-  return `${wenn}${mehr} → ${dann}${wartet}`;
+  // Wie viele Schritte noch folgen – seit ein Ablauf mehrere Arten mischen
+  // kann, sagt die erste Aktion allein zu wenig.
+  const weitere = Math.max(0, (automation.actions?.length ?? 0) - 1);
+  const rest = weitere > 0 ? ` +${weitere}` : '';
+  const wartet = (automation.actions ?? []).some(
+    (entry) => entry.type === 'delay' || entry.type === 'wait_until'
+  )
+    ? ' ⏱'
+    : '';
+  const sonst = (automation.otherwise?.length ?? 0) > 0 ? ' · mit sonst-Zweig' : '';
+  return `${wenn}${mehr} → ${dann}${rest}${wartet}${sonst}`;
 }
 
 const makeStyles = (colors: Colors) =>
@@ -2388,6 +2893,36 @@ const makeStyles = (colors: Colors) =>
       paddingVertical: 8,
     },
     addRowText: { color: colors.accent, fontSize: 14, fontWeight: '700' },
+    stepBox: {
+      gap: 8,
+      paddingTop: 8,
+      borderTopWidth: 1,
+      borderTopColor: colors.surfaceBorder,
+    },
+    stepHead: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+    preview: {
+      gap: 4,
+      padding: 12,
+      borderRadius: radius.control,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    previewHead: { color: colors.ink, fontSize: 13, fontWeight: '700', marginTop: 4 },
+    previewLine: { color: colors.inkSoft, fontSize: 13, lineHeight: 19 },
+    weekdayRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
+    weekday: {
+      paddingVertical: 6,
+      paddingHorizontal: 10,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      backgroundColor: colors.surface,
+    },
+    weekdayOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+    weekdayText: { color: colors.inkSoft, fontSize: 13, fontWeight: '700' },
+    weekdayTextOn: { color: '#FFFFFF' },
+    stepNumber: { color: colors.inkSoft, fontSize: 13, fontWeight: '700' },
     rowGap: { flexDirection: 'row', gap: 8 },
     card: { minHeight: 0, gap: 6 },
     cardHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
