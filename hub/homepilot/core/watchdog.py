@@ -10,6 +10,10 @@ Drei Dinge werden im Minutentakt geprüft:
     eingestuft – und was ausdrücklich markiert wurde.
   - Schwache Batterien. Ein Rauchmelder mit leerer Batterie ist still, und
     genau das darf man nicht zufällig entdecken.
+  - Fenster und Türen, die seit Stunden offen stehen. Die Alarmanlage merkt
+    das erst beim Scharfschalten – im Winter ist es bis dahin teuer.
+  - Wassermelder. Sofort und unabhängig davon, ob die Anlage scharf ist:
+    Der Schlauch platzt am liebsten, während man zuhause ist.
 
 Die letzten Ausfälle stehen im System-Screen.
 """
@@ -41,6 +45,14 @@ DEVICE_GRACE_ROUNDS = 30
 APPLIANCE_REMINDER = 2 * 3600
 # So viele Programmläufe bleiben gespeichert – reicht für Monate.
 CYCLE_LIMIT = 300
+# So lange darf ein Fenster offen stehen, bevor der Hub daran erinnert.
+# Zwei Stunden: kurz genug, dass im Winter nicht der halbe Tag zum Fenster
+# hinausgeheizt wird, lang genug fürs bewusste Lüften.
+OPEN_REMINDER = 2 * 3600
+# Melder, bei denen «offen» Heizkosten bedeutet. Ein Bewegungsmelder, der
+# lange «on» meldet, ist dagegen kein Grund zur Sorge.
+OPEN_CLASSES = frozenset({"contact", "door", "window", "garage"})
+
 # So oft wird der Tagesverbrauch weggeschrieben. Jede Minute wäre 1440-mal
 # dieselbe Datei am Tag; alle zehn Minuten genügt für einen Monatsvergleich
 # und beim Tageswechsel wird ohnehin sofort geschrieben.
@@ -106,6 +118,31 @@ def cycle_stats(cycles: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(result, key=lambda entry: entry["name"])
 
 
+def open_contacts(entities: list[Any]) -> list[Any]:
+    """Fenster und Türen, die gerade offen stehen (rein, testbar).
+
+    Nur Kontakte: Ein Bewegungsmelder, der lange «on» meldet, heizt nicht
+    zum Fenster hinaus. Die Zuordnung kommt aus ``device_class`` – ohne sie
+    ist ein Melder für den Hub bloss ein Ja/Nein.
+    """
+    return [
+        entity
+        for entity in entities
+        if str(entity.state.get("device_class") or "") in OPEN_CLASSES
+        and str(entity.state.get("state")) == "on"
+    ]
+
+
+def leaks(entities: list[Any]) -> list[Any]:
+    """Wassermelder, die gerade Wasser melden (rein, testbar)."""
+    return [
+        entity
+        for entity in entities
+        if str(entity.state.get("device_class") or "") == "moisture"
+        and str(entity.state.get("state")) == "on"
+    ]
+
+
 def low_batteries(entities: list[Any]) -> list[Any]:
     """Geräte, die eine schwache Batterie melden (rein, testbar)."""
     return [entity for entity in entities if entity.state.get("low_battery") is True]
@@ -126,6 +163,11 @@ class Watchdog:
         self._started_at: dict[str, float] = {}
         self._finished_at: dict[str, float] = {}
         self._reminded: set[str] = set()
+        # Fenster und Türen: seit wann offen, und was schon gemeldet wurde.
+        self._open_since: dict[str, float] = {}
+        self._reported_open: set[str] = set()
+        # Wassermelder, die schon gemeldet wurden.
+        self._reported_leak: set[str] = set()
         # Energie: welcher Tag zuletzt geschrieben wurde und wann.
         self._energy_day: str | None = None
         self._energy_written: float = 0.0
@@ -173,6 +215,8 @@ class Watchdog:
         await self._check_appliances(entities)
         await self._check_devices(entities)
         await self._check_batteries(entities)
+        await self._check_open(entities)
+        await self._check_leaks(entities)
         self._record_energy(entities)
         down = down_integrations(entities)
 
@@ -331,6 +375,54 @@ class Watchdog:
         self.hub.data.set(
             "energy_days", energy.record_day(self.hub.data.get("energy_days"), day, kwh)
         )
+
+    async def _check_open(self, entities: list[Any]) -> None:
+        """Fenster, das seit Stunden offen steht.
+
+        Die Alarmanlage merkt es nur beim Scharfschalten – im Winter ist es
+        bis dahin längst teuer geworden. Erinnert wird einmal je Öffnung:
+        Wer schliesst und später wieder öffnet, fängt neu an.
+        """
+        now = time.time()
+        offen = {entity.id for entity in open_contacts(entities)}
+        for entity in open_contacts(entities):
+            since = self._open_since.setdefault(entity.id, now)
+            if entity.id in self._reported_open:
+                continue
+            if now - since >= OPEN_REMINDER:
+                self._reported_open.add(entity.id)
+                hours = round((now - since) / 3600)
+                await self._notify(
+                    f"{entity.name} steht offen",
+                    f"Seit {hours} Stunden – im Winter geht so die Heizung "
+                    "zum Fenster hinaus.",
+                    "open",
+                )
+        # Geschlossene wieder scharf stellen für die nächste Öffnung.
+        for entity_id in list(self._open_since):
+            if entity_id not in offen:
+                self._open_since.pop(entity_id, None)
+                self._reported_open.discard(entity_id)
+
+    async def _check_leaks(self, entities: list[Any]) -> None:
+        """Wasser – sofort, unabhängig vom Zustand der Alarmanlage.
+
+        Ein Wassermelder, der nur meldet, wenn die Anlage scharf ist, wäre
+        nutzlos: Der Waschmaschinenschlauch platzt am liebsten, während man
+        zuhause ist und nichts hört.
+        """
+        nass = {entity.id for entity in leaks(entities)}
+        for entity in leaks(entities):
+            if entity.id in self._reported_leak:
+                continue
+            self._reported_leak.add(entity.id)
+            await self._notify(
+                f"Wasser: {entity.name}",
+                "Der Melder meldet Wasser. Zuerst den Haupthahn, dann den "
+                "Strom in diesem Bereich.",
+                "leak",
+            )
+        self._reported_leak &= nass
 
     async def _check_batteries(self, entities: list[Any]) -> None:
         """Schwache Batterien – einmal melden, nicht jede Minute."""

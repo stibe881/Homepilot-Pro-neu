@@ -176,6 +176,75 @@ def is_available() -> bool:
     return shutil.which("ffmpeg") is not None
 
 
+# ── Kurzer Mitschnitt ────────────────────────────────────────────────────
+
+# Acht Sekunden: lang genug, um zu sehen, in welche Richtung jemand ging,
+# kurz genug, dass die Datei ein paar hundert Kilobyte bleibt.
+CLIP_SECONDS = 8
+# Reissleine, falls ffmpeg an einer stummen Kamera hängen bleibt.
+CLIP_TIMEOUT = 30
+
+
+def clip_command(source: str, target: Path, seconds: int = CLIP_SECONDS) -> list[str]:
+    """Der Aufruf, der ein paar Sekunden RTSP in eine MP4-Datei legt
+    (rein, testbar).
+
+    ``-c copy`` auch hier: Ein Mini-PC soll beim Alarm nicht mit dem
+    Umrechnen von Video beschäftigt sein. ``+faststart`` schiebt die
+    Sprungtabelle an den Anfang – sonst muss ein Player erst die ganze
+    Datei geladen haben, bevor er losspielt.
+    """
+    return [
+        "ffmpeg",
+        "-nostdin",
+        "-loglevel", "error",
+        "-rtsp_transport", "tcp",
+        "-i", source,
+        "-t", str(int(seconds)),
+        "-c", "copy",
+        "-movflags", "+faststart",
+        "-y",
+        str(target),
+    ]
+
+
+async def record_clip(source: str, seconds: int = CLIP_SECONDS) -> bytes | None:
+    """Ein paar Sekunden mitschneiden – oder ``None``, wenn es nicht klappt.
+
+    Jeder Fehlschlag endet still: Ein Alarm darf nicht daran scheitern,
+    dass ffmpeg fehlt oder die Kamera schweigt.
+    """
+    if not is_available():
+        log.info("Kein ffmpeg – Alarm ohne Mitschnitt")
+        return None
+    with tempfile.TemporaryDirectory(prefix="homepilot-clip-") as folder:
+        target = Path(folder) / "clip.mp4"
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *clip_command(source, target, seconds),
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                _, error = await asyncio.wait_for(
+                    process.communicate(), timeout=seconds + CLIP_TIMEOUT
+                )
+            except asyncio.TimeoutError:
+                process.kill()
+                log.warning("Mitschnitt abgebrochen: ffmpeg antwortet nicht")
+                return None
+            if process.returncode != 0:
+                log.warning(
+                    "Mitschnitt fehlgeschlagen: %s",
+                    (error or b"").decode("utf-8", "replace")[:200],
+                )
+                return None
+            return target.read_bytes() if target.exists() else None
+        except Exception as err:
+            log.warning("Mitschnitt fehlgeschlagen: %s", err)
+            return None
+
+
 def path_name(entity_id: str) -> str:
     """Entitäts-ID → Pfadname in mediamtx (rein, testbar).
 

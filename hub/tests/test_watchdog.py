@@ -311,3 +311,115 @@ async def test_without_a_meter_nothing_is_written():
         assert hub.data.get("energy_days") == []
     finally:
         await hub.stop()
+
+
+# ── Offene Fenster und Wasser ──────────────────────────────────────────────
+
+
+def melder(entity_id: str, device_class: str, state: str = "on"):
+    return type(
+        "E",
+        (),
+        {
+            "id": entity_id,
+            "name": entity_id,
+            "kind": "binary_sensor",
+            "integration": "homematic",
+            "available": True,
+            "state": {"state": state, "device_class": device_class},
+        },
+    )()
+
+
+def test_only_contacts_count_as_open():
+    """Ein Bewegungsmelder, der lange «on» meldet, heizt nicht zum Fenster
+    hinaus."""
+    from homepilot.core.watchdog import open_contacts
+
+    entities = [
+        melder("hm.fenster", "contact"),
+        melder("hm.bewegung", "motion"),
+        melder("hm.tuer", "contact", "off"),
+        melder("hm.ohne", ""),
+    ]
+    assert [entity.id for entity in open_contacts(entities)] == ["hm.fenster"]
+
+
+def test_leaks_are_found_by_their_device_class():
+    from homepilot.core.watchdog import leaks
+
+    entities = [melder("hm.keller", "moisture"), melder("hm.fenster", "contact")]
+    assert [entity.id for entity in leaks(entities)] == ["hm.keller"]
+
+
+async def test_an_open_window_is_reported_once_and_rearms_after_closing():
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        sent: list[str] = []
+
+        async def fake_send(tokens, title, body, data=None, image=None):
+            sent.append(title)
+            return len(tokens)
+
+        hub.push.send = fake_send  # type: ignore[assignment]
+        hub.push.register("ExponentPushToken[x]", "Stefan")
+
+        fenster = melder("hm.fenster", "contact")
+        hub.registry.all = lambda: [fenster]  # type: ignore[assignment]
+
+        await hub.watchdog.check()
+        assert not sent  # Gerade erst geöffnet – noch keine Mahnung.
+
+        # Zwei Stunden vorspulen.
+        hub.watchdog._open_since["hm.fenster"] -= 2 * 3600
+        await hub.watchdog.check()
+        assert any("steht offen" in title for title in sent)
+
+        before = len(sent)
+        await hub.watchdog.check()
+        assert len(sent) == before  # Nicht jede Minute erneut.
+
+        # Zugemacht und wieder geöffnet: Der Merker ist frei.
+        fenster.state = {"state": "off", "device_class": "contact"}
+        await hub.watchdog.check()
+        assert "hm.fenster" not in hub.watchdog._reported_open
+        assert "hm.fenster" not in hub.watchdog._open_since
+    finally:
+        await hub.stop()
+
+
+async def test_water_is_reported_immediately_no_matter_the_alarm_state():
+    """Der Waschmaschinenschlauch platzt am liebsten, während man zuhause
+    ist und nichts hört."""
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        sent: list[str] = []
+
+        async def fake_send(tokens, title, body, data=None, image=None):
+            sent.append(title)
+            return len(tokens)
+
+        hub.push.send = fake_send  # type: ignore[assignment]
+        hub.push.register("ExponentPushToken[x]", "Stefan")
+
+        keller = melder("hm.keller", "moisture")
+        hub.registry.all = lambda: [keller]  # type: ignore[assignment]
+
+        # Keine Karenzzeit – anders als beim offenen Fenster.
+        await hub.watchdog.check()
+        assert any("Wasser" in title for title in sent)
+
+        before = len(sent)
+        await hub.watchdog.check()
+        assert len(sent) == before
+
+        # Trocken und wieder nass: erneut melden.
+        keller.state = {"state": "off", "device_class": "moisture"}
+        await hub.watchdog.check()
+        keller.state = {"state": "on", "device_class": "moisture"}
+        await hub.watchdog.check()
+        assert len(sent) > before
+    finally:
+        await hub.stop()

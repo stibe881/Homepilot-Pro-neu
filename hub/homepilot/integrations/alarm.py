@@ -27,10 +27,15 @@ Antwort davon abhängt, ob jemand zuhause ist: ausgelöst bleiben bis
 jemand hinschaut (``stay``), sich abschalten (``disarm``) oder nach einer
 Wartezeit von selbst wieder scharf werden (``rearm``).
 
-Beim Auslösen geht eine Push-Nachricht an alle Bewohner. Soll dabei noch
-etwas geschaltet werden – etwa alle Lichter an –, gehört das in einen
-Ablauf: Die Anlage ist eine Entität, ihr Zustand ``ausgeloest`` lässt sich
-dort als Auslöser wählen.
+Beim Auslösen geht eine Push-Nachricht an alle Bewohner. Zusätzlich
+schaltet die Anlage selbst, was unter ``actions`` eingestellt ist – Sirene,
+Licht, Storen. Das gehört hierher und nicht in einen Ablauf: Eine
+Alarmanlage, die nur eine Nachricht schickt, informiert bloss; erst Lärm
+und Licht vertreiben jemanden. Drei Anlässe:
+
+  ``trigger``  beim Auslösen
+  ``warning``  beim Beginn der Eingangsverzögerung (kurzes Zeichen)
+  ``clear``    beim Unscharfschalten – sonst heult die Sirene weiter
 """
 
 from __future__ import annotations
@@ -41,6 +46,7 @@ import time
 from typing import Any
 
 from ..core import snapshots
+from ..core import streams
 from ..core.entity import Entity, EntityKind
 from ..core.errors import HomePilotError
 from ..core.integration import Integration
@@ -72,9 +78,52 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "notify_trigger": True,
     # … und optional auch beim Scharf-/Unscharfschalten.
     "notify_arming": False,
+    # Sekunden Videomitschnitt beim Auslösen (0 = keiner). Das Standbild
+    # in der Nachricht zeigt einen Moment; erst ein paar Sekunden zeigen,
+    # in welche Richtung jemand ging.
+    "clip_seconds": 8,
+    # Push beim Beginn der Eingangsverzögerung. Der Berechtigte weiss dann,
+    # dass die Uhr läuft; wer nicht berechtigt ist, weiss es sowieso gleich.
+    "notify_entry": False,
     # Wie viele Ereignisse der Verlauf behält.
     "history_limit": 50,
 }
+
+# Was die Anlage selbst schaltet. Bisher schickte sie ausschliesslich eine
+# Push-Nachricht – für eine Alarmanlage zu wenig: Eine Sirene und volles
+# Licht vertreiben, eine Nachricht allein informiert nur.
+#
+#   trigger  – beim Auslösen: Sirene, alle Lichter, Storen hoch
+#   warning  – beim Beginn der Eingangsverzögerung (kurzes Piepen)
+#   clear    – beim Unscharfschalten: Sirene wieder aus
+ACTION_SLOTS = ("trigger", "warning", "clear")
+
+
+def parse_actions(raw: Any) -> dict[str, list[dict[str, Any]]]:
+    """Die Schaltbefehle je Anlass einlesen (rein, testbar).
+
+    Was keine Entität und kein Kommando nennt, fliegt raus: Ein halber
+    Eintrag würde beim Auslösen scheitern, und das ist der schlechteste
+    Zeitpunkt für einen Fehler.
+    """
+    result: dict[str, list[dict[str, Any]]] = {slot: [] for slot in ACTION_SLOTS}
+    if not isinstance(raw, dict):
+        return result
+    for slot, entries in raw.items():
+        if slot not in ACTION_SLOTS:
+            continue
+        for entry in entries or []:
+            if not isinstance(entry, dict):
+                continue
+            entity_id = str(entry.get("entity_id") or "")
+            command = str(entry.get("command") or "")
+            if not entity_id or not command:
+                continue
+            action = {"entity_id": entity_id, "command": command}
+            if isinstance(entry.get("data"), dict):
+                action["data"] = entry["data"]
+            result[slot].append(action)
+    return result
 
 # Was nach einem Alarm passiert. Je Modus einstellbar, weil die Antwort
 # unterschiedlich ausfällt: Nachts ist man da und schaltet selbst ab, im
@@ -217,12 +266,14 @@ class AlarmIntegration(Integration):
         # Countdown damit, sonst stünde bei jeder Wartezeit dasselbe da.
         self._next: str | None = None
         self._last: dict[str, Any] | None = None
+        self._clip_task: asyncio.Task | None = None
 
         stored = self.hub.data.get("alarm")
         config = stored[0] if stored else {}
         self._sensors = parse_sensors(config.get("sensors"))
         self._settings = {**DEFAULT_SETTINGS, **(config.get("settings") or {})}
         self._after_trigger = parse_after(config.get("after_trigger"))
+        self._actions = parse_actions(config.get("actions"))
         self._history: list[dict[str, Any]] = list(config.get("history") or [])
 
         self._entity = await self.add_entity(
@@ -245,6 +296,9 @@ class AlarmIntegration(Integration):
         self._unsubscribe = self.hub.bus.subscribe("state_changed", self._on_state_changed)
 
     async def teardown(self) -> None:
+        if self._clip_task is not None:
+            self._clip_task.cancel()
+            self._clip_task = None
         if self._unsubscribe is not None:
             self._unsubscribe()
             self._unsubscribe = None
@@ -364,6 +418,9 @@ class AlarmIntegration(Integration):
         self._next = None
         await self._publish()
         self._note("disarmed", "Unscharf geschaltet", by)
+        # Sirene aus, Licht zurück – sonst heult sie weiter, obwohl die
+        # Anlage aus ist.
+        await self._run_actions("clear")
         if self._settings.get("notify_arming") and was != DISARMED:
             await self._notify(
                 "Alarmanlage unscharf", "Die Anlage ist aus.", "alarm_arming"
@@ -412,6 +469,17 @@ class AlarmIntegration(Integration):
             )
             await self._publish()
             self._note("entry", f"{entity.name} geöffnet – Eingangsverzögerung läuft", "")
+            # Die Verzögerung lief bisher stumm ab. Ein kurzes Zeichen sagt
+            # dem Berechtigten «schalt mich ab» – und dem Unberechtigten,
+            # dass die Uhr läuft. Beides ist besser als Stille.
+            await self._run_actions("warning")
+            if self._settings.get("notify_entry"):
+                await self._notify(
+                    "Eingangsverzögerung läuft",
+                    f"{entity.name} geöffnet – noch {round(delay)} Sekunden zum "
+                    "Unscharfschalten.",
+                    "alarm_arming",
+                )
             return
 
         await self._trigger(entity)
@@ -444,6 +512,17 @@ class AlarmIntegration(Integration):
                 data={"entity_id": entity.id, "camera": camera},
                 image=await self._snapshot_url(camera),
             )
+
+        # Erst melden, dann schalten: Eine Sirene, die hängt, darf die
+        # Nachricht nicht aufhalten.
+        await self._run_actions("trigger")
+
+        # Der Mitschnitt läuft nebenher. In der Nachricht selbst kann er
+        # nicht stehen – ein Banner zeigt nur Standbilder, und acht Sekunden
+        # auf ein Video zu warten wäre bei einem Alarm die falsche Reihen-
+        # folge. Er landet stattdessen beim letzten Auslösen, wo die App ihn
+        # zeigt, sobald er da ist.
+        self._start_clip(nearest_camera(self.hub.registry.all(), entity.room))
 
         await self._apply_after(mode)
 
@@ -490,6 +569,64 @@ class AlarmIntegration(Integration):
         self._note("armed", text, "automatisch")
         if self._settings.get("notify_arming"):
             await self._notify("Alarmanlage wieder scharf", text, "alarm_arming")
+
+    def _start_clip(self, camera: str | None) -> None:
+        seconds = int(self._settings.get("clip_seconds") or 0)
+        if not camera or seconds <= 0:
+            return
+        # Einzeln verwaltet statt über start_task(): Dessen Liste wird nie
+        # geleert, und bei jedem Alarm käme ein Eintrag dazu.
+        if self._clip_task and not self._clip_task.done():
+            self._clip_task.cancel()
+        self._clip_task = asyncio.create_task(self._record_clip(camera, seconds))
+
+    async def _record_clip(self, camera: str, seconds: int) -> None:
+        """Ein paar Sekunden mitschneiden und beim letzten Auslösen ablegen.
+
+        Alles hier ist Zugabe: Fehlt ffmpeg oder liefert die Kamera kein
+        RTSP, bleibt es beim Standbild. Ein Alarm darf daran nicht
+        scheitern.
+        """
+        try:
+            entity = self.hub.registry.get(camera)
+            integration = self.hub.integrations.get(entity.integration) if entity else None
+            source = await integration.stream_url(entity) if integration else None
+            if not source:
+                return
+            data = await streams.record_clip(source, seconds)
+            if not data or self._last is None:
+                return
+            public_url = (self.hub.config.push or {}).get("public_url")
+            token = self.hub.snapshots.put(data)
+            self._last["clip"] = snapshots.image_url(public_url, token) or (
+                f"/api/push/image/{token}"
+            )
+            await self._publish()
+        except asyncio.CancelledError:
+            raise
+        except Exception as err:
+            log.warning("Mitschnitt zum Alarm fehlgeschlagen: %s", err)
+
+    async def _run_actions(self, slot: str) -> None:
+        """Die eingestellten Schaltbefehle für diesen Anlass ausführen.
+
+        Jeder einzeln abgesichert: Eine Sirene, die nicht antwortet, darf
+        nicht verhindern, dass danach die Lichter angehen – und schon gar
+        nicht, dass die Anlage ihren Zustand sauber zu Ende bringt.
+        """
+        for action in self._actions.get(slot) or []:
+            try:
+                await self.hub.integrations.dispatch_command(
+                    action["entity_id"], action["command"], action.get("data") or {}
+                )
+            except Exception as err:
+                log.warning(
+                    "Alarm-Aktion %s (%s %s) fehlgeschlagen: %s",
+                    slot,
+                    action["entity_id"],
+                    action["command"],
+                    err,
+                )
 
     async def _snapshot_url(self, camera: str | None) -> str | None:
         """Ein Standbild der Kamera für die Nachricht selbst.
@@ -556,6 +693,7 @@ class AlarmIntegration(Integration):
             "after_trigger": {
                 mode: dict(entry) for mode, entry in self._after_trigger.items()
             },
+            "actions": {slot: list(entries) for slot, entries in self._actions.items()},
         }
 
     def _save(self) -> None:
@@ -569,6 +707,8 @@ class AlarmIntegration(Integration):
             self._settings = {**self._settings, **(patch["settings"] or {})}
         if "after_trigger" in patch:
             self._after_trigger = parse_after(patch["after_trigger"], self._after_trigger)
+        if "actions" in patch:
+            self._actions = parse_actions(patch["actions"])
         self._save()
         await self._publish()
 

@@ -287,6 +287,31 @@ def battery_to_state(value: Any) -> dict[str, Any]:
     return {}
 
 
+# Woran man einem Datenpunkt ansieht, wofür der Melder steht. Nur die
+# eindeutigen Fälle – bei allem anderen bleibt es beim Nichts, und die
+# Angabe gehört in die config.yaml.
+DEVICE_CLASS_BY_DATAPOINT: dict[str, str] = {
+    "STATE": "contact",
+    "MOTION": "motion",
+    "PRESENCE_DETECTION_STATE": "motion",
+    "SMOKE_DETECTOR_ALARM_STATUS": "smoke",
+    "WATER_DETECTED": "moisture",
+    "MOISTURE_DETECTED": "moisture",
+    "WATERLEVEL_DETECTED": "moisture",
+    "ALARMSTATE": "moisture",
+}
+
+
+def guess_device_class(datapoint: str | None) -> str | None:
+    """Wofür steht dieser Melder? (rein, testbar)
+
+    «STATE» ist bei Homematic der Fensterkontakt – der häufigste Fall.
+    Alles Unklare bleibt offen: Eine falsche Angabe wäre schlimmer als
+    keine, denn daran hängen Warnungen.
+    """
+    return DEVICE_CLASS_BY_DATAPOINT.get(str(datapoint or "").upper())
+
+
 def press_to_state(datapoint: str, now: float) -> dict[str, Any]:
     """Ein Tastendruck als Zustand (rein, testbar).
 
@@ -458,11 +483,18 @@ class HomematicIntegration(Integration):
         power_address = device.get("power_address")
         power_datapoint = device.get("power_datapoint", POWER)
 
+        # Wofür der Melder steht: «contact» (Fenster), «motion», «smoke»,
+        # «moisture» (Wassermelder). Ohne diese Angabe ist ein Melder für
+        # den Hub bloss ein Ja/Nein – der Wächter kann dann weder vor einem
+        # offenen Fenster noch vor Wasser warnen. Was der Datenpunkt schon
+        # verrät, wird geraten; angeben sticht raten.
+        device_class = device.get("device_class") or guess_device_class(datapoint)
+
         entity = await self.add_entity(
             address.replace(":", "_").replace("-", "_"),
             kind,
             device.get("name", address),
-            state={"state": "unknown"},
+            state={"state": "unknown", **({"device_class": device_class} if device_class else {})},
             commands=commands,
             # Ein Taster lässt sich nicht abfragen – er meldet sich nur.
             # Ihn bis zum ersten Druck als «nicht erreichbar» zu zeigen,

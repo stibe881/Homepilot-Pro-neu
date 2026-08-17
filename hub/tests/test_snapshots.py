@@ -91,3 +91,13 @@ def test_the_endpoint_serves_the_image_without_a_token():
         assert response.content == JPEG
 
         assert client.get("/api/push/image/geraten").status_code == 404
+
+
+def test_the_media_type_comes_from_the_first_bytes():
+    """Einen Dateinamen gibt es hier nicht – und iOS zeigt eine Datei mit
+    falschem Typ schlicht nicht an."""
+    from homepilot.core.snapshots import media_type
+
+    assert media_type(b"\xff\xd8\xff\xe0 jpeg") == "image/jpeg"
+    assert media_type(b"\x89PNG\r\n\x1a\n") == "image/png"
+    assert media_type(b"\x00\x00\x00\x20ftypisom0000") == "video/mp4"

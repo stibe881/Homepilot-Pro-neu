@@ -35,6 +35,7 @@ from pydantic import BaseModel
 from ..core.config import ConfigError, load_config
 from ..core import energy as energy_module
 from ..core import push
+from ..core import snapshots
 from ..core import watchdog
 from ..core import users as users_module
 from ..core.config_edit import add_cast_device
@@ -836,7 +837,7 @@ def create_app(hub: Hub) -> FastAPI:
             raise HTTPException(status_code=404, detail="Kein Bild")
         return Response(
             content=image,
-            media_type="image/png" if image.startswith(b"\x89PNG") else "image/jpeg",
+            media_type=snapshots.media_type(image),
             headers={"Cache-Control": "no-store"},
         )
 

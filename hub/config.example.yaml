@@ -126,6 +126,23 @@ integrations:
   #       name: Temperatur Bad
   #       kind: sensor
   #       datapoint: ACTUAL_TEMPERATURE
+  #     # Fensterkontakt. 'device_class' sagt dem Hub, wofür der Melder
+  #     # steht – daran hängen die Warnungen: contact (Fenster/Tür),
+  #     # motion, smoke, moisture (Wassermelder). Bei den eindeutigen
+  #     # Datenpunkten (STATE, MOTION, WATER_DETECTED …) errät der Hub es
+  #     # selbst; angeben sticht raten.
+  #     - address: "ABC1122334:1"
+  #       name: Fenster Küche
+  #       kind: binary_sensor
+  #       datapoint: STATE
+  #       device_class: contact
+  #     # Wassermelder: meldet sofort und unabhängig davon, ob die
+  #     # Alarmanlage scharf ist.
+  #     - address: "ABC5566778:1"
+  #       name: Wassermelder Keller
+  #       kind: binary_sensor
+  #       datapoint: WATER_DETECTED
+  #       device_class: moisture
   #     # Homematic IP Schalt-Messsteckdose (HmIP-PSM), z.B. am Tumbler.
   #     # Bei HmIP liegt STATE auf dem Schaltkanal (meist Kanal 3); der
   #     # Messkanal (meist Kanal 6) liefert nur die Leistung.

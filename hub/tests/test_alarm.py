@@ -670,3 +670,141 @@ def test_a_camera_that_does_not_answer_does_not_hold_up_the_alarm(tmp_path):
             await hub.stop()
 
     asyncio.run(check())
+
+
+# ── Die Anlage schaltet selbst ─────────────────────────────────────────────
+
+
+def test_actions_without_a_command_are_dropped():
+    """Ein halber Eintrag würde beim Auslösen scheitern – und das ist der
+    schlechteste Zeitpunkt für einen Fehler."""
+    from homepilot.integrations.alarm import parse_actions
+
+    result = parse_actions(
+        {
+            "trigger": [
+                {"entity_id": "demo.sirene", "command": "turn_on"},
+                {"entity_id": "demo.sirene"},
+                {"command": "turn_on"},
+                "kaputt",
+                {"entity_id": "demo.store", "command": "set_position", "data": {"position": 100}},
+            ],
+            "unbekannt": [{"entity_id": "x", "command": "y"}],
+        }
+    )
+    assert result["trigger"] == [
+        {"entity_id": "demo.sirene", "command": "turn_on"},
+        {"entity_id": "demo.store", "command": "set_position", "data": {"position": 100}},
+    ]
+    assert result["warning"] == []
+    assert result["clear"] == []
+    assert "unbekannt" not in result
+
+
+def test_the_alarm_switches_the_siren_and_turns_it_off_again(tmp_path):
+    """Eine Alarmanlage, die nur eine Nachricht schickt, informiert bloss.
+    Und eine Sirene, die nach dem Unscharfschalten weiterheult, ist ein
+    eigenes Problem."""
+
+    async def check():
+        hub = make_hub(tmp_path)
+        await hub.start()
+        try:
+            await hub.registry.add(contact("test.tuer"))
+            service = hub.integrations.get("alarm")
+            await service.update_config(
+                {
+                    "sensors": [{"entity_id": "test.tuer", "modes": ["ausser_haus"]}],
+                    "settings": {
+                        "exit_delay": 0,
+                        "entry_delay": 0,
+                        "notify_trigger": False,
+                        "clip_seconds": 0,
+                    },
+                    "actions": {
+                        "trigger": [
+                            {"entity_id": "demo.light_livingroom", "command": "turn_on"}
+                        ],
+                        "clear": [
+                            {"entity_id": "demo.light_livingroom", "command": "turn_off"}
+                        ],
+                    },
+                }
+            )
+            await service.arm("ausser_haus")
+            await hub.registry.update_state("test.tuer", {"state": "on"})
+            await asyncio.sleep(0.05)
+            assert hub.registry.get("demo.light_livingroom").state["state"] == "on"
+
+            await service.disarm()
+            assert hub.registry.get("demo.light_livingroom").state["state"] == "off"
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())
+
+
+def test_a_dead_siren_does_not_stop_the_rest(tmp_path):
+    """Sonst hinge die ganze Anlage an dem Gerät, das am ehesten kaputt
+    ist."""
+
+    async def check():
+        hub = make_hub(tmp_path)
+        await hub.start()
+        try:
+            service = hub.integrations.get("alarm")
+            await service.update_config(
+                {
+                    "actions": {
+                        "trigger": [
+                            {"entity_id": "gibt.es.nicht", "command": "turn_on"},
+                            {"entity_id": "demo.light_livingroom", "command": "turn_on"},
+                        ]
+                    }
+                }
+            )
+            await service._run_actions("trigger")
+            # Das zweite Gerät wurde trotzdem geschaltet.
+            assert hub.registry.get("demo.light_livingroom").state["state"] == "on"
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())
+
+
+def test_the_entry_delay_is_no_longer_silent(tmp_path):
+    """Ein Zeichen sagt dem Berechtigten «schalt mich ab» – und dem
+    Unberechtigten, dass die Uhr läuft."""
+
+    async def check():
+        hub = make_hub(tmp_path)
+        await hub.start()
+        try:
+            await hub.registry.add(contact("test.haustuer"))
+            service = hub.integrations.get("alarm")
+            await service.update_config(
+                {
+                    "sensors": [
+                        {
+                            "entity_id": "test.haustuer",
+                            "modes": ["ausser_haus"],
+                            "delayed": True,
+                        }
+                    ],
+                    "settings": {"exit_delay": 0, "entry_delay": 30},
+                    "actions": {
+                        "warning": [
+                            {"entity_id": "demo.switch_coffee", "command": "turn_on"}
+                        ]
+                    },
+                }
+            )
+            await service.arm("ausser_haus")
+            await hub.registry.update_state("test.haustuer", {"state": "on"})
+            await asyncio.sleep(0.05)
+            assert service._entity.state["state"] == ENTRY
+            assert hub.registry.get("demo.switch_coffee").state["state"] == "on"
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())

@@ -79,6 +79,20 @@ class SnapshotStore:
         return len(self._items)
 
 
+def media_type(data: bytes) -> str:
+    """Womit hat man es zu tun? (rein, testbar)
+
+    Aus den ersten Bytes statt aus einem Dateinamen – den gibt es hier
+    nicht. Drei Fälle genügen: JPEG und PNG von den Kameras, MP4 vom
+    Mitschnitt.
+    """
+    if data.startswith(b"\x89PNG"):
+        return "image/png"
+    if len(data) > 11 and data[4:8] == b"ftyp":
+        return "video/mp4"
+    return "image/jpeg"
+
+
 def image_url(public_url: Any, token: str) -> str | None:
     """Die vollständige Adresse für die Push-Nachricht (rein, testbar).
 

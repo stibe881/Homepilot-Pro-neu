@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { VideoView, useVideoPlayer } from 'expo-video';
 
-import { HubSettings } from '../api/types';
+import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
 import { Colors, radius, space, type, useColors } from '../theme';
 
@@ -38,7 +39,19 @@ interface AlarmState {
   seconds_left?: number | null;
   /** Was am Ende des Countdowns passiert: 'arm' | 'trigger' | 'rearm'. */
   next_action?: string | null;
-  last_trigger?: { name: string; at: number; mode?: string } | null;
+  last_trigger?: {
+    name: string;
+    at: number;
+    mode?: string;
+    /** Kurzer Mitschnitt, sobald er fertig ist. */
+    clip?: string | null;
+  } | null;
+}
+
+/** Ein Schaltbefehl, den die Anlage selbst auslöst. */
+interface AlarmAction {
+  entity_id: string;
+  command: string;
 }
 
 interface After {
@@ -51,6 +64,7 @@ interface Overview {
   sensors: Sensor[];
   settings: Record<string, any>;
   after_trigger: Record<string, After>;
+  actions: Record<string, AlarmAction[]>;
   history: { kind: string; text: string; by?: string; at: number }[];
   candidates: Candidate[];
 }
@@ -99,6 +113,17 @@ export function countdownText(state: AlarmState): string | null {
   }
 }
 
+/**
+ * Eine vom Hub gelieferte Adresse vollständig machen (rein, testbar).
+ *
+ * Ist ``push.public_url`` gesetzt, kommt schon eine ganze Adresse – die
+ * gilt dann auch von unterwegs. Sonst nur der Pfad, und der gehört an die
+ * Hub-Adresse gehängt, mit der die App ohnehin verbunden ist.
+ */
+export function absolute(url: string, base: string): string {
+  return /^https?:\/\//i.test(url) ? url : `${base.replace(/\/+$/, '')}${url}`;
+}
+
 /** Sensoren nach Raum gruppieren, Räume alphabetisch (rein, testbar). */
 export function byRoom(candidates: Candidate[]): { room: string; items: Candidate[] }[] {
   const rooms = Array.from(
@@ -112,7 +137,14 @@ export function byRoom(candidates: Candidate[]): { room: string; items: Candidat
   }));
 }
 
-export function AlarmScreen({ settings }: { settings: HubSettings }) {
+export function AlarmScreen({
+  settings,
+  entities = [],
+}: {
+  settings: HubSettings;
+  /** Alle Geräte – für die Auswahl, was die Anlage selbst schalten soll. */
+  entities?: Entity[];
+}) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [data, setData] = useState<Overview | null>(null);
@@ -121,6 +153,8 @@ export function AlarmScreen({ settings }: { settings: HubSettings }) {
   const [pendingMode, setPendingMode] = useState<string | null>(null);
   // Welcher Modus gerade zusammengestellt wird.
   const [tab, setTab] = useState('nacht');
+  // Adresse des Mitschnitts, solange er im Vollbild läuft.
+  const [clip, setClip] = useState<string | null>(null);
 
   const headers: Record<string, string> = settings.token
     ? { Authorization: `Bearer ${settings.token}` }
@@ -265,6 +299,16 @@ export function AlarmScreen({ settings }: { settings: HubSettings }) {
               <Text style={styles.rowDetail}>
                 Zuletzt ausgelöst: {data.state.last_trigger.name}
               </Text>
+            ) : null}
+            {data.state.last_trigger?.clip ? (
+              <Pressable
+                onPress={() => setClip(absolute(data.state.last_trigger!.clip!, settings.url))}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.clipRow, pressed && { opacity: 0.8 }]}
+              >
+                <Ionicons name="play-circle-outline" size={18} color={colors.accent} />
+                <Text style={styles.clipText}>Mitschnitt ansehen</Text>
+              </Pressable>
             ) : null}
           </View>
         </View>
@@ -462,6 +506,12 @@ export function AlarmScreen({ settings }: { settings: HubSettings }) {
         }}
       />
 
+      <AlarmActions
+        actions={data.actions ?? {}}
+        entities={entities}
+        onSave={(actions) => save({ actions })}
+      />
+
       <AlarmSettings settings={data.settings} onSave={(next) => save({ settings: next })} />
 
       {data.history.length > 0 ? (
@@ -498,7 +548,41 @@ export function AlarmScreen({ settings }: { settings: HubSettings }) {
           ))}
         </Card>
       ) : null}
+
+      {clip ? <ClipPlayer uri={clip} onClose={() => setClip(null)} /> : null}
     </View>
+  );
+}
+
+/**
+ * Der Mitschnitt zum letzten Alarm im Vollbild.
+ *
+ * Nur ein paar Sekunden lang und nur so lange abrufbar, wie die Adresse
+ * gilt – danach ist er weg. Das ist Absicht: Ein Alarmvideo, das für immer
+ * herumliegt, ist eine Überwachungsanlage, keine Alarmanlage.
+ */
+function ClipPlayer({ uri, onClose }: { uri: string; onClose: () => void }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const player = useVideoPlayer(uri, (instance) => {
+    instance.loop = true;
+    instance.play();
+  });
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.clipBackdrop} onPress={onClose}>
+        <VideoView
+          player={player}
+          style={styles.clipVideo}
+          nativeControls
+          contentFit="contain"
+        />
+        <Text style={styles.clipHint}>
+          Tippen zum Schliessen. Der Mitschnitt läuft nach wenigen Minuten ab.
+        </Text>
+      </Pressable>
+    </Modal>
   );
 }
 
@@ -607,6 +691,122 @@ function RearmMinutes({
 
 /** Verzögerungen und Benachrichtigungen. Eigene Komponente auf Modulebene,
  *  damit die Zahlenfelder beim Tippen nicht neu montiert werden. */
+/** Anlässe, zu denen die Anlage selbst schaltet. */
+const SLOTS = [
+  {
+    key: 'trigger',
+    label: 'Beim Auslösen',
+    hint: 'Sirene, alle Lichter, Storen hoch. Eine Nachricht informiert nur – erst Lärm und Licht vertreiben jemanden.',
+  },
+  {
+    key: 'warning',
+    label: 'Beim Hereinkommen',
+    hint: 'Kurzes Zeichen, während die Eingangsverzögerung läuft. Sagt dem Berechtigten «schalt mich ab» – und dem Unberechtigten, dass die Uhr tickt.',
+  },
+  {
+    key: 'clear',
+    label: 'Beim Unscharfschalten',
+    hint: 'Hier gehört zurückgenommen, was oben eingeschaltet wurde – sonst heult die Sirene weiter, obwohl die Anlage aus ist.',
+  },
+];
+
+/**
+ * Was die Anlage selbst schaltet.
+ *
+ * Bewusst hier und nicht in einem Ablauf: Eine Alarmanlage, die nur eine
+ * Nachricht schickt, informiert bloss. Und wer den Alarm in einen Ablauf
+ * auslagert, hat ihn beim nächsten Aufräumen versehentlich abgeschaltet.
+ */
+function AlarmActions({
+  actions,
+  entities,
+  onSave,
+}: {
+  actions: Record<string, AlarmAction[]>;
+  entities: Entity[];
+  onSave: (actions: Record<string, AlarmAction[]>) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+
+  // Nur, was sich überhaupt schalten lässt.
+  const schaltbar = entities.filter(
+    (entity) =>
+      entity.commands.includes('turn_on') ||
+      entity.commands.includes('open') ||
+      entity.commands.includes('close')
+  );
+
+  const toggle = (slot: string, entity: Entity, command: string) => {
+    const current = actions[slot] ?? [];
+    const found = current.find(
+      (entry) => entry.entity_id === entity.id && entry.command === command
+    );
+    onSave({
+      ...actions,
+      [slot]: found
+        ? current.filter((entry) => entry !== found)
+        : [...current, { entity_id: entity.id, command }],
+    });
+  };
+
+  if (schaltbar.length === 0) return null;
+
+  return (
+    <Card style={styles.card}>
+      <Text style={styles.heading}>Was die Anlage selbst schaltet</Text>
+      {SLOTS.map((slot) => {
+        const chosen = actions[slot.key] ?? [];
+        return (
+          <View key={slot.key} style={styles.field}>
+            <Text style={styles.label}>{slot.label}</Text>
+            <Text style={styles.hint}>{slot.hint}</Text>
+            <View style={styles.actionWrap}>
+              {schaltbar.map((entity) => {
+                const einCommand = entity.commands.includes('turn_on') ? 'turn_on' : 'open';
+                const ausCommand = entity.commands.includes('turn_off') ? 'turn_off' : 'close';
+                const an = chosen.some(
+                  (entry) => entry.entity_id === entity.id && entry.command === einCommand
+                );
+                const aus = chosen.some(
+                  (entry) => entry.entity_id === entity.id && entry.command === ausCommand
+                );
+                return (
+                  <View key={entity.id} style={styles.actionRow}>
+                    <Text style={styles.actionName} numberOfLines={1}>
+                      {entity.name}
+                    </Text>
+                    <Pressable
+                      onPress={() => toggle(slot.key, entity, einCommand)}
+                      accessibilityRole="switch"
+                      accessibilityState={{ checked: an }}
+                      style={[styles.actionChip, an && styles.actionChipOn]}
+                    >
+                      <Text style={[styles.actionChipText, an && styles.actionChipTextOn]}>
+                        {einCommand === 'open' ? 'auf' : 'an'}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => toggle(slot.key, entity, ausCommand)}
+                      accessibilityRole="switch"
+                      accessibilityState={{ checked: aus }}
+                      style={[styles.actionChip, aus && styles.actionChipOn]}
+                    >
+                      <Text style={[styles.actionChipText, aus && styles.actionChipTextOn]}>
+                        {ausCommand === 'close' ? 'zu' : 'aus'}
+                      </Text>
+                    </Pressable>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        );
+      })}
+    </Card>
+  );
+}
+
 function AlarmSettings({
   settings,
   onSave,
@@ -712,6 +912,32 @@ const makeStyles = (colors: Colors) =>
     heading: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
     note: { color: colors.onGradientSoft, fontSize: 14, marginTop: 20 },
     hint: { color: colors.inkFaint, fontSize: 12, lineHeight: 18 },
+    clipRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
+    clipBackdrop: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.92)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 12,
+      padding: 16,
+    },
+    clipVideo: { width: '100%', maxWidth: 900, aspectRatio: 16 / 9 },
+    clipHint: { color: '#B9C2D0', fontSize: 12 },
+    clipText: { color: colors.accent, fontSize: 13, fontWeight: '700' },
+    actionWrap: { gap: 6, marginTop: 4 },
+    actionRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    actionName: { color: colors.ink, fontSize: 14, flex: 1 },
+    actionChip: {
+      paddingVertical: 5,
+      paddingHorizontal: 12,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      backgroundColor: colors.surface,
+    },
+    actionChipOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+    actionChipText: { color: colors.inkSoft, fontSize: 12, fontWeight: '700' },
+    actionChipTextOn: { color: '#FFFFFF' },
     warn: { color: colors.warn, fontSize: 13, lineHeight: 19, fontWeight: '600' },
 
     stateHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },

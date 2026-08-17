@@ -239,3 +239,20 @@ def test_segment_needs_token_and_a_harmless_name(tmp_path):
         assert client.get(f"{base}/geheim.yaml?token=geheim").status_code == 404
         assert client.get(f"{base}/..%2f..%2fconfig.yaml?token=geheim").status_code == 404
         assert hub.streams.touched > 0
+
+
+def test_the_clip_is_only_repacked_not_recalculated():
+    """Ein Mini-PC soll beim Alarm nicht mit dem Umrechnen von Video
+    beschäftigt sein."""
+    from pathlib import Path
+
+    from homepilot.core.streams import clip_command
+
+    command = clip_command("rtsp://kamera/live", Path("/tmp/clip.mp4"), 8)
+    assert "-c" in command and command[command.index("-c") + 1] == "copy"
+    assert command[command.index("-t") + 1] == "8"
+    # TCP: über WLAN gehen sonst Pakete verloren.
+    assert command[command.index("-rtsp_transport") + 1] == "tcp"
+    # faststart, sonst muss ein Player erst die ganze Datei laden.
+    assert command[command.index("-movflags") + 1] == "+faststart"
+    assert command[-1] == "/tmp/clip.mp4"

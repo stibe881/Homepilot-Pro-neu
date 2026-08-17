@@ -32,6 +32,8 @@ CATEGORIES: dict[str, str] = {
     "outage": "Integration ausgefallen",
     "device_down": "Überwachtes Gerät antwortet nicht",
     "battery": "Batterie schwach",
+    "open": "Fenster/Tür steht offen",
+    "leak": "Wasser gemeldet",
     "appliance": "Haushaltgerät fertig",
     "tasks": "Fällige Aufgaben",
     "automation": "Nachricht aus einem Ablauf",

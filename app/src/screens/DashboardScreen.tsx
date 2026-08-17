@@ -573,7 +573,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       return (
         <View style={styles.stack}>
           {back}
-          <AlarmScreen settings={settings} />
+          <AlarmScreen settings={settings} entities={entities} />
         </View>
       );
     }
