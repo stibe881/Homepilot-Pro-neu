@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Image,
@@ -874,6 +875,22 @@ function LockBody({
  *  Musik, zieht der Tipp auf eine andere Box die Wiedergabe sofort um
  *  (Spotify Connect). Google-Lautsprecher erscheinen in der Liste, wenn
  *  Spotify in der Google-Home-App verknüpft ist. */
+/**
+ * Playlists in die selbst gewählte Reihenfolge bringen (rein, testbar).
+ *
+ * Neue Playlists, die es bei der letzten Sortierung noch nicht gab, hängen
+ * sich hinten an, statt zu verschwinden – sonst würde eine frisch
+ * angelegte Playlist unbemerkt fehlen.
+ */
+export function sortPlaylists(playlists: string[], order: string[]): string[] {
+  const rank = new Map(order.map((name, index) => [name, index]));
+  return [...playlists].sort((a, b) => {
+    const ra = rank.has(a) ? (rank.get(a) as number) : Infinity;
+    const rb = rank.has(b) ? (rank.get(b) as number) : Infinity;
+    return ra !== rb ? ra - rb : playlists.indexOf(a) - playlists.indexOf(b);
+  });
+}
+
 export function SpotifyPanel({
   entity,
   onCommand,
@@ -890,19 +907,38 @@ export function SpotifyPanel({
   const active: string | null = entity.state.device ?? null;
   const playing = entity.state.state === 'playing';
   const [chosen, setChosen] = useState<string | null>(null);
-  const [query, setQuery] = useState('');
-  const [expanded, setExpanded] = useState(false);
+  const [listOpen, setListOpen] = useState(false);
+  // Eigene Reihenfolge und ausgeblendete Playlists. Reine Ansichtssache,
+  // deshalb auf dem Gerät statt im Hub – jeder darf seine eigene haben.
+  const [order, setOrder] = useState<string[]>([]);
+  const [hiddenList, setHiddenList] = useState<string[]>([]);
+  const prefsKey = `homepilot.playlists.${entity.id}`;
+
+  useEffect(() => {
+    AsyncStorage.getItem(prefsKey)
+      .then((raw) => {
+        if (!raw) return;
+        const saved = JSON.parse(raw);
+        setOrder(Array.isArray(saved.order) ? saved.order : []);
+        setHiddenList(Array.isArray(saved.hidden) ? saved.hidden : []);
+      })
+      .catch(() => {});
+  }, [prefsKey]);
+
+  const savePrefs = (nextOrder: string[], nextHidden: string[]) => {
+    setOrder(nextOrder);
+    setHiddenList(nextHidden);
+    AsyncStorage.setItem(
+      prefsKey,
+      JSON.stringify({ order: nextOrder, hidden: nextHidden })
+    ).catch(() => {});
+  };
+
   // Ziel: zuletzt angetippt → gerade aktiv → erste Box.
   const target = (chosen && devices.includes(chosen) ? chosen : null) ?? active ?? devices[0] ?? null;
-
-  // Kompakt: standardmässig nur eine Handvoll Playlists, Suche filtert alle.
-  const needle = query.trim().toLowerCase();
-  const filtered = needle
-    ? playlists.filter((name) => name.toLowerCase().includes(needle))
-    : playlists;
-  const LIMIT = 6;
-  const shown = needle || expanded ? filtered : filtered.slice(0, LIMIT);
-  const hiddenCount = filtered.length - shown.length;
+  const visible = sortPlaylists(playlists, order).filter(
+    (name) => !hiddenList.includes(name)
+  );
 
   return (
     <View style={styles.stack}>
@@ -943,67 +979,216 @@ export function SpotifyPanel({
         </Text>
       )}
 
-      <View style={styles.spotifyPlaylistHead}>
-        <Text style={styles.mediaLabel}>Playlists</Text>
-        {playlists.length > 0 ? (
-          <Text style={styles.spotifyCount}>{playlists.length}</Text>
-        ) : null}
-      </View>
-      {playlists.length > LIMIT ? (
-        <View style={styles.spotifySearch}>
-          <Ionicons name="search" size={14} color={colors.inkFaint} />
-          <TextInput
-            style={styles.spotifySearchInput}
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Playlist suchen …"
-            placeholderTextColor={colors.inkFaint}
-          />
-          {query ? (
-            <Pressable onPress={() => setQuery('')} hitSlop={8}>
-              <Ionicons name="close-circle" size={16} color={colors.inkFaint} />
-            </Pressable>
-          ) : null}
-        </View>
-      ) : null}
-      {playlists.length > 0 ? (
-        <>
-          <View style={styles.deviceRow}>
-            {shown.map((name) => (
-              <Pressable
-                key={name}
-                onPress={() =>
-                  onCommand('play_playlist', target ? { name, device: target } : { name })
-                }
-                style={styles.deviceChip}>
-                <Ionicons name="musical-notes" size={12} color={colors.inkSoft} />
-                <Text style={styles.deviceChipText} numberOfLines={1}>
-                  {name}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-          {shown.length === 0 ? (
-            <Text style={styles.hint}>Keine Playlist passt zur Suche.</Text>
-          ) : null}
-          {!needle && hiddenCount > 0 ? (
-            <Pressable onPress={() => setExpanded(true)}>
-              <Text style={styles.spotifyMore}>{hiddenCount} weitere anzeigen</Text>
-            </Pressable>
-          ) : null}
-          {!needle && expanded && playlists.length > LIMIT ? (
-            <Pressable onPress={() => setExpanded(false)}>
-              <Text style={styles.spotifyMore}>weniger anzeigen</Text>
-            </Pressable>
-          ) : null}
-        </>
-      ) : (
-        <Text style={styles.hint}>
-          Keine Playlists gefunden – vermutlich fehlen dem Spotify-Zugang die
-          playlist-read-Scopes (Einrichtung im Kopf von spotify.py wiederholen).
-        </Text>
-      )}
+      <Pressable
+        onPress={() => setListOpen(true)}
+        accessibilityRole="button"
+        style={({ pressed }) => [styles.playlistButton, pressed && { opacity: 0.85 }]}
+      >
+        <Ionicons name="list" size={16} color={colors.ink} />
+        <Text style={styles.playlistButtonText}>Playlists</Text>
+        <Text style={styles.spotifyCount}>{visible.length}</Text>
+      </Pressable>
+
+      <PlaylistSheet
+        visible={listOpen}
+        playlists={playlists}
+        order={order}
+        hidden={hiddenList}
+        onClose={() => setListOpen(false)}
+        onPlay={(name) => {
+          setListOpen(false);
+          onCommand('play_playlist', target ? { name, device: target } : { name });
+        }}
+        onSave={savePrefs}
+      />
     </View>
+  );
+}
+
+/**
+ * Playlists im Popup statt als Wust in der Kachel.
+ *
+ * Mit «Bearbeiten» lässt sich ausblenden, was man nie hört, und die
+ * Reihenfolge festlegen – bei über dreissig Playlists ist die Reihenfolge
+ * von Spotify selten die, in der man sie braucht.
+ */
+function PlaylistSheet({
+  visible,
+  playlists,
+  order,
+  hidden,
+  onClose,
+  onPlay,
+  onSave,
+}: {
+  visible: boolean;
+  playlists: string[];
+  order: string[];
+  hidden: string[];
+  onClose: () => void;
+  onPlay: (name: string) => void;
+  onSave: (order: string[], hidden: string[]) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [query, setQuery] = useState('');
+  const [editing, setEditing] = useState(false);
+
+  // Beim Öffnen mit leerer Suche starten; der Bearbeiten-Modus bleibt aus.
+  useEffect(() => {
+    if (visible) {
+      setQuery('');
+      setEditing(false);
+    }
+  }, [visible]);
+
+  const sorted = sortPlaylists(playlists, order);
+  const needle = query.trim().toLowerCase();
+  // Im Bearbeiten-Modus auch die ausgeblendeten zeigen – sonst kommt man
+  // nie wieder an sie heran.
+  const listed = sorted.filter(
+    (name) =>
+      (editing || !hidden.includes(name)) &&
+      (!needle || name.toLowerCase().includes(needle))
+  );
+
+  const move = (name: string, delta: number) => {
+    const next = [...sorted];
+    const from = next.indexOf(name);
+    const to = from + delta;
+    if (from < 0 || to < 0 || to >= next.length) return;
+    next.splice(to, 0, next.splice(from, 1)[0]);
+    onSave(next, hidden);
+  };
+
+  const toggleHidden = (name: string) =>
+    onSave(
+      sorted,
+      hidden.includes(name)
+        ? hidden.filter((entry) => entry !== name)
+        : [...hidden, name]
+    );
+
+  return (
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      <View style={styles.sheet}>
+        <View style={styles.sheetHead}>
+          <Text style={styles.sheetTitle}>Playlists</Text>
+          <Pressable
+            onPress={() => setEditing((value) => !value)}
+            accessibilityRole="button"
+            hitSlop={8}
+          >
+            <Text style={styles.sheetAction}>{editing ? 'Fertig' : 'Bearbeiten'}</Text>
+          </Pressable>
+          <Pressable onPress={onClose} accessibilityLabel="Schliessen" hitSlop={8}>
+            <Ionicons name="close" size={26} color={colors.ink} />
+          </Pressable>
+        </View>
+
+        {!editing ? (
+          <View style={styles.spotifySearch}>
+            <Ionicons name="search" size={15} color={colors.inkFaint} />
+            <TextInput
+              style={styles.spotifySearchInput}
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Playlist suchen …"
+              placeholderTextColor={colors.inkFaint}
+              autoCorrect={false}
+            />
+            {query ? (
+              <Pressable onPress={() => setQuery('')} hitSlop={8}>
+                <Ionicons name="close-circle" size={17} color={colors.inkFaint} />
+              </Pressable>
+            ) : null}
+          </View>
+        ) : (
+          <Text style={styles.hint}>
+            Auge blendet eine Playlist aus, die Pfeile ändern die Reihenfolge.
+            Ausgeblendete bleiben hier sichtbar, damit du sie zurückholen kannst.
+          </Text>
+        )}
+
+        <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+          {listed.length === 0 ? (
+            <Text style={styles.hint}>
+              {playlists.length === 0
+                ? 'Keine Playlists gefunden – vermutlich fehlen dem Spotify-Zugang die playlist-read-Scopes.'
+                : 'Keine Playlist passt zur Suche.'}
+            </Text>
+          ) : null}
+          {listed.map((name, index) => {
+            const off = hidden.includes(name);
+            return (
+              <View key={name} style={styles.playlistRow}>
+                {editing ? (
+                  <>
+                    <Pressable
+                      onPress={() => toggleHidden(name)}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: !off }}
+                      hitSlop={6}
+                      style={styles.playlistIcon}
+                    >
+                      <Ionicons
+                        name={off ? 'eye-off' : 'eye'}
+                        size={20}
+                        color={off ? colors.inkFaint : colors.accent}
+                      />
+                    </Pressable>
+                    <Text
+                      style={[styles.playlistName, off && { color: colors.inkFaint }]}
+                      numberOfLines={1}
+                    >
+                      {name}
+                    </Text>
+                    <Pressable
+                      onPress={() => move(name, -1)}
+                      accessibilityLabel={`${name} nach oben`}
+                      hitSlop={6}
+                      style={styles.playlistIcon}
+                      disabled={index === 0}
+                    >
+                      <Ionicons
+                        name="chevron-up"
+                        size={20}
+                        color={index === 0 ? colors.inkFaint : colors.ink}
+                      />
+                    </Pressable>
+                    <Pressable
+                      onPress={() => move(name, 1)}
+                      accessibilityLabel={`${name} nach unten`}
+                      hitSlop={6}
+                      style={styles.playlistIcon}
+                      disabled={index === listed.length - 1}
+                    >
+                      <Ionicons
+                        name="chevron-down"
+                        size={20}
+                        color={index === listed.length - 1 ? colors.inkFaint : colors.ink}
+                      />
+                    </Pressable>
+                  </>
+                ) : (
+                  <Pressable
+                    onPress={() => onPlay(name)}
+                    accessibilityRole="button"
+                    style={styles.playlistTap}
+                  >
+                    <Ionicons name="musical-notes" size={18} color={colors.inkSoft} />
+                    <Text style={styles.playlistName} numberOfLines={1}>
+                      {name}
+                    </Text>
+                    <Ionicons name="play" size={18} color={colors.accent} />
+                  </Pressable>
+                )}
+              </View>
+            );
+          })}
+        </ScrollView>
+      </View>
+    </Modal>
   );
 }
 
@@ -1507,14 +1692,35 @@ const makeStyles = (colors: Colors) =>
     letterSpacing: 0.6,
     marginTop: 2,
   },
-  volumeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  volumeBar: { flex: 1 },
-  spotifyPlaylistHead: {
+  playlistButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 2,
+    gap: 8,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    borderRadius: radius.control,
+    backgroundColor: colors.surfaceStrong,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
   },
+  playlistButtonText: { color: colors.ink, fontSize: 14, fontWeight: '700', flex: 1 },
+  sheet: { flex: 1, backgroundColor: colors.panel, padding: 20, paddingTop: 60, gap: 12 },
+  sheetHead: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  sheetTitle: { color: colors.ink, fontSize: 22, fontWeight: '700', flex: 1 },
+  sheetAction: { color: colors.accent, fontSize: 15, fontWeight: '700' },
+  playlistRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surfaceBorder,
+  },
+  playlistTap: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, paddingVertical: 10 },
+  playlistName: { color: colors.ink, fontSize: 15, flex: 1 },
+  playlistIcon: { padding: 8 },
+  volumeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  volumeBar: { flex: 1 },
   spotifyCount: { color: colors.inkFaint, fontSize: 12, fontWeight: '700' },
   spotifySearch: {
     flexDirection: 'row',
@@ -1527,7 +1733,6 @@ const makeStyles = (colors: Colors) =>
     borderColor: colors.surfaceBorder,
   },
   spotifySearchInput: { flex: 1, paddingVertical: 8, color: colors.ink, fontSize: 14 },
-  spotifyMore: { color: colors.accent, fontSize: 13, fontWeight: '600', paddingVertical: 2 },
   deviceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   deviceChip: {
     flexDirection: 'row',

@@ -3,6 +3,7 @@ import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Entity, Scene } from '../api/types';
+import { Bar } from '../components/Bar';
 import { SpotifyPanel } from '../components/EntityCard';
 import { Card } from '../components/Card';
 import { Colors, radius, space, useColors } from '../theme';
@@ -415,6 +416,34 @@ export function OverviewScreen({
                   </Pressable>
                 ) : null}
               </View>
+              {/* Lautstärke direkt auf der Startseite: Leiser machen ist
+                  der häufigste Griff und war bisher nur über die
+                  Geräte-Kachel erreichbar. */}
+              {player.commands.includes('set_volume') ? (
+                <View style={styles.volumeRow}>
+                  <Ionicons
+                    name={
+                      player.state.muted || player.state.volume === 0
+                        ? 'volume-mute'
+                        : 'volume-low'
+                    }
+                    size={18}
+                    color={colors.inkSoft}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Bar
+                      height={26}
+                      value={
+                        typeof player.state.volume === 'number' ? player.state.volume : 0
+                      }
+                      onChange={(value) =>
+                        onCommand(player.id, 'set_volume', { volume: value })
+                      }
+                    />
+                  </View>
+                  <Ionicons name="volume-high" size={18} color={colors.inkSoft} />
+                </View>
+              ) : null}
               {/* Spotify: Box wählen und Playlist starten – auch aus Stille. */}
               {player.commands.includes('play_playlist') ? (
                 <SpotifyPanel
@@ -685,6 +714,7 @@ const makeStyles = (colors: Colors) =>
     actionText: { color: colors.ink, fontSize: 13, fontWeight: '700' },
     actionTextAccent: { color: '#FFFFFF' },
     actionRow: { flexDirection: 'row', gap: 8 },
+    volumeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     actionCol: { gap: 8, alignSelf: 'stretch' },
 
     playButton: {
