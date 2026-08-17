@@ -26,13 +26,6 @@ interface Props {
   onActivateScene: (sceneId: string) => void;
   /** Auf der Startseite markierte Countdowns (aus dem Familie-Modul). */
   countdowns?: { text: string; date: string; on_start?: boolean }[];
-  /** Strompreis für die Energie-Kachel, z.B. 0.32 CHF/kWh. */
-  pricePerKwh?: number;
-  currency?: string;
-  /** Anwesenheit je Person – wer gerade daheim ist. */
-  presence?: { id?: string; member: string; home: boolean }[];
-  members?: string[];
-  onSetPresence?: (member: string, home: boolean) => void;
 }
 
 const WEEKDAYS = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
@@ -62,21 +55,6 @@ function daysUntilText(value: any): string {
   return `in ${days} Tagen`;
 }
 
-const SHORT_DAYS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
-
-/** «2026-08-18» → «Di» (rein, testbar). Heute/Morgen werden benannt. */
-function shortDay(iso: string): string {
-  const date = new Date(`${iso}T12:00:00`);
-  if (Number.isNaN(date.getTime())) return iso;
-  const today = new Date();
-  const diff = Math.round(
-    (date.setHours(0, 0, 0, 0) - today.setHours(0, 0, 0, 0)) / 86_400_000
-  );
-  if (diff === 0) return 'Heute';
-  if (diff === 1) return 'Morgen';
-  return SHORT_DAYS[new Date(`${iso}T12:00:00`).getDay()];
-}
-
 /** Erstes Gerät, das auf Art und (optional) Namensmuster passt. */
 function pick(
   entities: Entity[],
@@ -101,22 +79,9 @@ export function OverviewScreen({
   onCommand,
   onActivateScene,
   countdowns,
-  pricePerKwh,
-  currency = 'CHF',
-  presence = [],
-  members = [],
-  onSetPresence,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-
-  // Personenliste fürs Anwesenheits-Kachel: bekannte Benutzer plus alle, die
-  // schon einen Anwesenheits-Eintrag haben. Doppelte raus.
-  const presenceOf = (name: string) =>
-    presence.find((entry) => entry.member === name)?.home ?? false;
-  const people = Array.from(
-    new Set([...members, ...presence.map((entry) => entry.member)])
-  ).sort((a, b) => a.localeCompare(b));
 
   // ── Echte Geräte, wo vorhanden ─────────────────────────────────────────
   const frontDoor = pick(entities, 'lock', undefined, 'ring');
@@ -140,36 +105,6 @@ export function OverviewScreen({
     players.find((e) => e.commands.includes('play_playlist')) ??
     players[0];
   const covers = entities.filter((e) => e.kind === 'cover');
-
-  // Wetter-Vorhersage: die nächsten drei Tage (heute überspringen).
-  const forecastDays: any[] = Array.isArray(weather?.state.days) ? weather!.state.days : [];
-  const next3 = forecastDays.slice(1, 4);
-
-  // Energie: aktuelle Gesamtleistung aller messenden Geräte plus Kosten/Stunde.
-  const powerDevices = entities.filter((e) => typeof e.state.power === 'number');
-  const totalWatts = Math.round(
-    powerDevices.reduce((sum, e) => sum + Number(e.state.power ?? 0), 0)
-  );
-  const costPerHour =
-    pricePerKwh != null ? (totalWatts / 1000) * pricePerKwh : null;
-  const topConsumer = powerDevices
-    .slice()
-    .sort((a, b) => Number(b.state.power ?? 0) - Number(a.state.power ?? 0))[0];
-
-  // Nachtmodus: Storen zu, Lichter aus, Wohnungstür abschliessen.
-  const lights = entities.filter(
-    (e) => e.kind === 'light' || (e.kind === 'switch' && e.commands.includes('turn_off'))
-  );
-  const nightScene = scenes.find((scene) => /nacht|schlaf/i.test(scene.name));
-  const activateNight = () => {
-    if (nightScene) {
-      onActivateScene(nightScene.id);
-      return;
-    }
-    covers.forEach((c) => onCommand(c.id, 'close'));
-    lights.forEach((l) => onCommand(l.id, 'turn_off'));
-    if (flatDoor) onCommand(flatDoor.id, 'lock');
-  };
 
   // Schnellaktionen: alle im Szenen-Editor für die Startseite markierten
   // Szenen. Solange keine markiert ist, springen «Kino» und «Schlafen»
@@ -350,114 +285,6 @@ export function OverviewScreen({
           Szenen wie «Kino» oder «Schlafen» unter Abläufe anlegen und dort
           «Als Schnellaktion anzeigen» wählen – dann erscheinen sie hier.
         </Text>
-      ) : null}
-
-      {/* Übersicht: Wettervorhersage, aktueller Verbrauch, Nachtmodus */}
-      <Text style={styles.groupLabel}>Übersicht</Text>
-      {next3.length > 0 ? (
-        <Card style={styles.forecastCard}>
-          <View style={styles.tileHead}>
-            <Ionicons name="calendar-clear-outline" size={18} color={colors.inkSoft} />
-            <Text style={styles.tileTitle}>Wetter · nächste Tage</Text>
-          </View>
-          <View style={styles.forecastRow}>
-            {next3.map((day) => (
-              <View key={day.date} style={styles.forecastDay}>
-                <Text style={styles.forecastName}>{shortDay(day.date)}</Text>
-                <Ionicons
-                  name={(day.icon as any) ?? 'cloud-outline'}
-                  size={24}
-                  color={colors.ink}
-                />
-                <Text style={styles.forecastHigh}>
-                  {day.high != null ? `${day.high}°` : '–'}
-                </Text>
-                {day.low != null ? (
-                  <Text style={styles.forecastLow}>{day.low}°</Text>
-                ) : null}
-                {day.rain != null ? (
-                  <View style={styles.forecastRainRow}>
-                    <Ionicons name="water-outline" size={11} color={colors.inkFaint} />
-                    <Text style={styles.forecastRain}>{day.rain}%</Text>
-                  </View>
-                ) : null}
-              </View>
-            ))}
-          </View>
-        </Card>
-      ) : null}
-      <View style={styles.tileRow}>
-        <Tile
-          styles={styles}
-          colors={colors}
-          width={tileWidth}
-          icon="flash-outline"
-          title="Energie jetzt"
-          demo={powerDevices.length === 0}
-        >
-          <Text style={styles.tileState}>{totalWatts} W</Text>
-          {costPerHour != null ? (
-            <Text style={styles.tileSub}>≈ {costPerHour.toFixed(2)} {currency}/h</Text>
-          ) : null}
-          {topConsumer ? (
-            <Text style={styles.tileSub} numberOfLines={1}>
-              Grösster: {topConsumer.name}
-            </Text>
-          ) : null}
-        </Tile>
-        <Tile
-          styles={styles}
-          colors={colors}
-          width={tileWidth}
-          icon="moon-outline"
-          title="Nachtmodus"
-        >
-          <Text style={styles.tileState} numberOfLines={1}>
-            {nightScene ? nightScene.name : 'Storen zu · Licht aus'}
-          </Text>
-          <Action
-            styles={styles}
-            label="Aktivieren"
-            icon="moon-outline"
-            onPress={activateNight}
-          />
-        </Tile>
-      </View>
-      {onSetPresence && people.length > 0 ? (
-        <Tile
-          styles={styles}
-          colors={colors}
-          width={'100%' as any}
-          icon="people-outline"
-          title="Wer ist da?"
-        >
-          <View style={styles.presenceRow}>
-            {people.map((name) => {
-              const home = presenceOf(name);
-              return (
-                <Pressable
-                  key={name}
-                  onPress={() => onSetPresence(name, !home)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${name} ist ${home ? 'daheim' : 'weg'}`}
-                  style={[styles.presenceChip, home && styles.presenceChipHome]}
-                >
-                  <Ionicons
-                    name={home ? 'home' : 'walk-outline'}
-                    size={15}
-                    color={home ? '#FFFFFF' : colors.inkSoft}
-                  />
-                  <Text style={[styles.presenceName, home && { color: '#FFFFFF' }]}>
-                    {name}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-          <Text style={styles.tileSub}>
-            {people.filter((name) => presenceOf(name)).length} von {people.length} daheim
-          </Text>
-        </Tile>
       ) : null}
 
       {/* Morgens interessiert zuerst der Tag (Termine, Musik), abends die
@@ -952,29 +779,6 @@ const makeStyles = (colors: Colors) =>
     tileState: { color: colors.ink, fontSize: 16, fontWeight: '600' },
     tileSub: { color: colors.inkSoft, fontSize: 13 },
 
-    forecastCard: { minHeight: 0, gap: 10 },
-    forecastRow: { flexDirection: 'row', justifyContent: 'space-around' },
-    forecastDay: { alignItems: 'center', gap: 3, flex: 1 },
-    forecastName: { color: colors.inkSoft, fontSize: 12, fontWeight: '700' },
-    forecastHigh: { color: colors.ink, fontSize: 15, fontWeight: '700' },
-    forecastLow: { color: colors.inkFaint, fontSize: 12 },
-    forecastRainRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-    forecastRain: { color: colors.inkFaint, fontSize: 11 },
-
-    presenceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-    presenceChip: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-      borderRadius: radius.pill,
-      backgroundColor: colors.surfaceSoft,
-      borderWidth: 1,
-      borderColor: colors.surfaceBorder,
-    },
-    presenceChipHome: { backgroundColor: colors.on, borderColor: colors.on },
-    presenceName: { color: colors.ink, fontSize: 14, fontWeight: '600' },
 
     badge: {
       backgroundColor: colors.track,

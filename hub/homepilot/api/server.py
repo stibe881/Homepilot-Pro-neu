@@ -757,7 +757,7 @@ def create_app(hub: Hub) -> FastAPI:
         {
             "tasks", "shopping", "pins", "meals", "contacts", "routines",
             "rewards", "rewards_catalog", "packlists", "countdowns",
-            "recipes", "documents", "presence",
+            "recipes", "documents",
         }
     )
 

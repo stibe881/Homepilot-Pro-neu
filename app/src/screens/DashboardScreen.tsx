@@ -95,11 +95,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [startCountdowns, setStartCountdowns] = useState<
     { text: string; date: string; on_start?: boolean }[]
   >([]);
-  // Anwesenheit je Person: Namen der Familie und wer gerade daheim ist.
-  const [presence, setPresence] = useState<
-    { id?: string; member: string; home: boolean }[]
-  >([]);
-  const [memberNames, setMemberNames] = useState<string[]>([]);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 30000);
@@ -127,65 +122,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       clearInterval(timer);
     };
   }, [settings.url, settings.token]);
-
-  // Anwesenheit und Personenliste laden (fürs Startseiten-Kachel je Person).
-  const loadPresence = useCallback(() => {
-    if (!settings.url || !settings.token) return;
-    const auth = { Authorization: `Bearer ${settings.token}` };
-    fetch(`${settings.url}/api/family/presence`, { headers: auth })
-      .then((response) => (response.ok ? response.json() : []))
-      .then((rows) => setPresence(Array.isArray(rows) ? rows : []))
-      .catch(() => {});
-    fetch(`${settings.url}/api/users`, { headers: auth })
-      .then((response) => (response.ok ? response.json() : []))
-      .then((rows) =>
-        setMemberNames(
-          Array.isArray(rows) ? rows.map((entry: any) => entry.name).filter(Boolean) : []
-        )
-      )
-      .catch(() => {});
-  }, [settings.url, settings.token]);
-
-  useEffect(() => {
-    loadPresence();
-    const timer = setInterval(loadPresence, 60000);
-    return () => clearInterval(timer);
-  }, [loadPresence]);
-
-  // Anwesenheit einer Person umschalten: vorhandenen Eintrag ändern, sonst neu.
-  const setMemberPresence = useCallback(
-    async (member: string, home: boolean) => {
-      const auth = {
-        Authorization: `Bearer ${settings.token}`,
-        'Content-Type': 'application/json',
-      };
-      const existing = presence.find((entry) => entry.member === member);
-      // Optimistisch sofort nachziehen.
-      setPresence((prev) => {
-        const without = prev.filter((entry) => entry.member !== member);
-        return [...without, { ...(existing ?? {}), member, home }];
-      });
-      try {
-        if (existing?.id) {
-          await fetch(`${settings.url}/api/family/presence/${existing.id}`, {
-            method: 'PUT',
-            headers: auth,
-            body: JSON.stringify({ home }),
-          });
-        } else {
-          await fetch(`${settings.url}/api/family/presence`, {
-            method: 'POST',
-            headers: auth,
-            body: JSON.stringify({ member, home }),
-          });
-        }
-      } catch {
-        // Beim nächsten Laden korrigiert sich der Zustand von selbst.
-      }
-      loadPresence();
-    },
-    [settings.url, settings.token, presence, loadPresence]
-  );
 
   // Wandpanel: Bildschirm bleibt an, und nach drei Minuten ohne Berührung
   // kehrt die Ansicht zur Startseite zurück – ein fest montiertes iPad soll
@@ -469,11 +405,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               onCommand={sendCommand}
               onActivateScene={activateScene}
               countdowns={startCountdowns}
-              pricePerKwh={energy?.price_per_kwh}
-              currency={energy?.currency ?? 'CHF'}
-              presence={presence}
-              members={memberNames}
-              onSetPresence={setMemberPresence}
             />
           </View>
           <SidePanel entities={entities} width={hasSidePanel ? PANEL_WIDTH : undefined} />
