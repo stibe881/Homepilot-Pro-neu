@@ -1,6 +1,10 @@
 import asyncio
 
-from homepilot.core.automation import Automation, parse_automations
+from homepilot.core.automation import (
+    Automation,
+    describe_condition,
+    parse_automations,
+)
 from homepilot.core.config import ApiConfig, HubConfig
 from homepilot.core.entity import Entity, EntityKind
 from homepilot.core.hub import Hub
@@ -308,5 +312,62 @@ async def test_an_unchanged_state_still_does_not_trigger():
         )
         await settle()
         assert hub.registry.get("demo.switch_coffee").state["state"] == "off"
+    finally:
+        await hub.stop()
+
+
+def test_describe_condition_names_the_actual_value():
+    """«Bedingung 2 war falsch» hilft niemandem – man will die Zahl sehen."""
+    assert describe_condition(
+        {"type": "state", "entity_id": "Helligkeit", "below": 30}, 44
+    ) == "Helligkeit ist «44», verlangt ist unter 30"
+    assert describe_condition(
+        {"type": "state", "entity_id": "Anwesend", "above": 0}, 0
+    ) == "Anwesend ist «0», verlangt ist über 0"
+    assert describe_condition(
+        {"type": "state", "entity_id": "Licht", "equals": "off"}, "on"
+    ) == "Licht ist «on», verlangt ist «off»"
+    assert "01:00" in describe_condition(
+        {"type": "time", "after": "01:00", "before": "06:00"}, None
+    )
+    assert describe_condition({"type": "sun", "state": "down"}, None) == "Es ist nicht Nacht"
+    # Ein Gerät, das es nicht gibt, meldet «nichts» statt eines leeren Werts.
+    assert "nichts" in describe_condition(
+        {"type": "state", "entity_id": "Weg", "equals": "on"}, None
+    )
+
+
+async def test_a_blocked_run_is_logged_with_the_reason():
+    """Der Support-Fall «der Ablauf geht nicht»: Man muss sehen können, dass
+    er lief und woran es lag."""
+    hub = await run_hub([MOTION_AUTOMATION])
+    try:
+        # Licht ist an → Bedingung (equals "off") schlägt fehl.
+        await hub.integrations.dispatch_command("demo.light_livingroom", "turn_on")
+        await settle()
+        await hub.integrations.dispatch_command("demo.motion_hall", "turn_on")
+        await settle()
+
+        runs = hub.automations.runs
+        assert runs and runs[0]["alias"] == "Licht bei Bewegung"
+        assert runs[0]["executed"] is False
+        assert runs[0]["skipped"] == [
+            'demo.light_livingroom ist «on», verlangt ist «off»'
+        ]
+    finally:
+        await hub.stop()
+
+
+async def test_a_disabled_automation_stays_quiet():
+    """Ausschalten statt löschen: Im Sommer nicht gebraucht heisst nicht,
+    dass man ihn im Winter neu bauen will."""
+    hub = await run_hub([{**MOTION_AUTOMATION, "enabled": False}])
+    try:
+        await hub.integrations.dispatch_command("demo.light_livingroom", "turn_off")
+        await settle()
+        await hub.integrations.dispatch_command("demo.motion_hall", "turn_on")
+        await settle()
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "off"
+        assert hub.automations.runs == []
     finally:
         await hub.stop()

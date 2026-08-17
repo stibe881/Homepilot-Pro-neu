@@ -652,6 +652,7 @@ def create_app(hub: Hub) -> FastAPI:
             "trigger": body.trigger,
             "condition": body.condition,
             "action": body.action,
+            "enabled": body.enabled,
             "match": body.match,
             "category": body.category,
         }
@@ -678,6 +679,7 @@ def create_app(hub: Hub) -> FastAPI:
                 "trigger": body.trigger,
                 "condition": body.condition,
                 "action": body.action,
+                "enabled": body.enabled,
                 "match": body.match,
                 "category": body.category,
             }
@@ -702,6 +704,41 @@ def create_app(hub: Hub) -> FastAPI:
         hub.data.set("automations", remaining)
         await hub.reload_automations()
         return {"ok": True}
+
+    @app.get("/api/automations/runs")
+    async def automation_runs(request: Request) -> dict[str, Any]:
+        """Was die Abläufe zuletzt getan haben – und was nicht, mit Grund.
+
+        Der häufigste Support-Fall lautet «der Ablauf geht nicht». Ohne
+        diese Liste bleibt nur Raten, ob der Auslöser ausblieb oder eine
+        Bedingung im Weg war.
+        """
+        require(request, Capability.VIEW_AUTOMATIONS)
+        return {"runs": hub.automations.runs}
+
+    @app.post("/api/automations/{automation_id}/duplicate")
+    async def duplicate_automation(automation_id: str, request: Request) -> dict[str, Any]:
+        """Kopie anlegen – sechs fast gleiche Taster-Abläufe tippt niemand."""
+        require(request, Capability.EDIT_AUTOMATIONS)
+        import secrets as _secrets
+
+        source = next(
+            (entry for entry in stored_automations() if entry["id"] == automation_id),
+            None,
+        )
+        if source is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Nur in der App angelegte Abläufe lassen sich kopieren",
+            )
+        copy = {
+            **source,
+            "id": f"app_{_secrets.token_hex(4)}",
+            "alias": f"{source.get('alias', 'Ablauf')} (Kopie)",
+        }
+        hub.data.set("automations", [*stored_automations(), copy])
+        await hub.reload_automations()
+        return {"automation": copy}
 
     @app.post("/api/automations/{automation_id}/trigger")
     async def trigger_automation(automation_id: str, request: Request) -> dict[str, Any]:

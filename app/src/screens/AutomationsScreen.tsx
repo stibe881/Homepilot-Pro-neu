@@ -17,6 +17,18 @@ interface Automation {
   category?: string | null;
   /** Verknüpfung der Bedingungen: 'all' oder 'any'. */
   match?: string;
+  /** Ausgeschaltete Abläufe bleiben stehen, laufen aber nicht. */
+  enabled?: boolean;
+}
+
+/** Ein protokollierter Lauf – auch ein nicht ausgeführter. */
+interface Run {
+  automation_id: string;
+  alias: string;
+  at: number;
+  executed: boolean;
+  error?: string | null;
+  skipped: string[];
 }
 
 /** Welche Zustände bei diesem Gerät als Auslöser oder Bedingung taugen
@@ -72,6 +84,23 @@ export function stateOptions(entity?: Entity): { key: string; label: string }[] 
 export function fittingState(entity: Entity | undefined, current: string): string {
   const options = stateOptions(entity);
   return options.some((option) => option.key === current) ? current : options[0].key;
+}
+
+/** Was dieser Ablauf zuletzt getan hat – und warum nicht (rein, testbar).
+ *
+ * Beantwortet den häufigsten Support-Fall direkt in der Liste: «geht
+ * nicht» heisst fast immer, dass eine Bedingung im Weg war. */
+export function lastRunText(runs: Run[], automationId: string): string {
+  const run = runs.find((entry) => entry.automation_id === automationId);
+  if (!run) return 'Noch nicht gelaufen';
+  const time = new Date(run.at * 1000).toLocaleTimeString('de-CH', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  if (run.error) return `${time} · Fehler: ${run.error}`;
+  if (run.executed) return `${time} · ausgeführt`;
+  if (run.skipped.length > 0) return `${time} · übersprungen: ${run.skipped.join('; ')}`;
+  return `${time} · übersprungen`;
 }
 
 /** Sammelname für alles ohne eigene Kategorie. */
@@ -197,6 +226,8 @@ interface Draft {
   body: string;
   /** Frei benannte Kategorie zum Gruppieren in der Liste. */
   category: string;
+  /** Ausgeschaltet: bleibt stehen, läuft aber nicht. */
+  enabled: boolean;
 }
 
 const EMPTY: Draft = {
@@ -218,6 +249,7 @@ const EMPTY: Draft = {
   title: '',
   body: '',
   category: '',
+  enabled: true,
 };
 
 /** Einen Trigger-Entwurf in die gespeicherte Form bringen (rein, testbar). */
@@ -406,6 +438,7 @@ export function AutomationsScreen({
   const [sceneDraft, setSceneDraft] = useState<SceneDraft | null>(null);
   // Je Abschnitt ein eigenes Suchfeld – die Listen sind unabhängig.
   const [autoQuery, setAutoQuery] = useState('');
+  const [runs, setRuns] = useState<Run[]>([]);
   const [sceneQuery, setSceneQuery] = useState('');
   // Aufgeklappte Kategorien, getrennt je Abschnitt. Standard ist
   // zugeklappt: Wer Kategorien vergibt, will zuerst die Übersicht sehen
@@ -427,6 +460,11 @@ export function AutomationsScreen({
       })
       .then((data) => setAutomations(data.automations ?? []))
       .catch((err) => setError(String(err.message ?? err)));
+
+    fetch(`${settings.url}/api/automations/runs`, { headers })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => setRuns(data?.runs ?? []))
+      .catch(() => setRuns([]));
   }, [settings.url, settings.token]);
 
   useEffect(load, [load]);
@@ -439,6 +477,7 @@ export function AutomationsScreen({
       condition: buildConditions(draft),
       action: buildActions(draft),
       match: draft.match,
+      enabled: draft.enabled,
       category: draft.category.trim() || null,
     };
     const url = draft.id
@@ -456,6 +495,15 @@ export function AutomationsScreen({
     } catch (err: any) {
       setError(String(err.message ?? err));
     }
+  };
+
+  /** Kopie anlegen – sechs fast gleiche Taster-Abläufe tippt niemand. */
+  const duplicate = async (id: string) => {
+    await fetch(`${settings.url}/api/automations/${id}/duplicate`, {
+      method: 'POST',
+      headers,
+    }).catch(() => {});
+    load();
   };
 
   /** Den gespeicherten Ablauf einmal sofort ausführen – der «Testen»-Knopf. */
@@ -601,17 +649,35 @@ export function AutomationsScreen({
               <Card key={automation.id} style={styles.card}>
                 <View style={styles.cardHead}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.title}>{automation.alias}</Text>
+                    <Text
+                      style={[
+                        styles.title,
+                        automation.enabled === false && { color: colors.inkFaint },
+                      ]}
+                    >
+                      {automation.alias}
+                      {automation.enabled === false ? ' · aus' : ''}
+                    </Text>
                     <Text style={styles.detail}>{describe(automation)}</Text>
+                    <Text style={styles.detail}>{lastRunText(runs, automation.id)}</Text>
                   </View>
                   {automation.editable && mayEdit ? (
-                    <Pressable
-                      onPress={() => setDraft(toDraft(automation))}
-                      accessibilityLabel={`${automation.alias} bearbeiten`}
-                      style={styles.iconButton}
-                    >
-                      <Ionicons name="create-outline" size={20} color={colors.inkSoft} />
-                    </Pressable>
+                    <>
+                      <Pressable
+                        onPress={() => duplicate(automation.id)}
+                        accessibilityLabel={`${automation.alias} kopieren`}
+                        style={styles.iconButton}
+                      >
+                        <Ionicons name="copy-outline" size={20} color={colors.inkSoft} />
+                      </Pressable>
+                      <Pressable
+                        onPress={() => setDraft(toDraft(automation))}
+                        accessibilityLabel={`${automation.alias} bearbeiten`}
+                        style={styles.iconButton}
+                      >
+                        <Ionicons name="create-outline" size={20} color={colors.inkSoft} />
+                      </Pressable>
+                    </>
                   ) : (
                     <Text style={styles.badge}>aus config.yaml</Text>
                   )}
@@ -1389,6 +1455,23 @@ function Editor({
           onChange={(category) => set({ category })}
         />
 
+        <Field label="Aktiv">
+          <Choice
+            options={[
+              { key: 'on', label: 'läuft' },
+              { key: 'off', label: 'aus' },
+            ]}
+            value={draft.enabled ? 'on' : 'off'}
+            onSelect={(value) => set({ enabled: value === 'on' })}
+          />
+          {!draft.enabled ? (
+            <Text style={styles.triggerNote}>
+              Der Ablauf bleibt gespeichert, löst aber nicht aus – besser als
+              löschen, wenn man ihn im Winter wieder braucht.
+            </Text>
+          ) : null}
+        </Field>
+
         <Field label={draft.triggers.length > 1 ? 'Wenn eines passiert' : 'Wenn … passiert'}>
           {draft.triggers.map((trigger, index) => (
             <TriggerRow
@@ -2022,6 +2105,7 @@ function toDraft(automation: Automation): Draft {
       })),
     sceneId: action.scene ?? '',
     category: automation.category ?? '',
+    enabled: automation.enabled !== false,
     title: action.title ?? '',
     body: action.body ?? '',
   };

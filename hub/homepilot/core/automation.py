@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -89,6 +90,10 @@ class Automation:
     actions: list[dict[str, Any]] = field(default_factory=list)
     # Aus der config.yaml stammende sind in der App nur lesbar.
     editable: bool = False
+    # Ausgeschaltete Abläufe bleiben stehen, laufen aber nicht. Besser als
+    # löschen: Ein Ablauf, den man im Sommer nicht braucht, ist im Winter
+    # sonst neu zu bauen.
+    enabled: bool = True
     # Wie die Bedingungen verknüpft sind: «all» = alle müssen stimmen,
     # «any» = eine genügt. Auslöser sind davon nicht betroffen – sie sind
     # Ereignisse und können gar nicht gleichzeitig eintreten, ein «und»
@@ -107,6 +112,7 @@ class Automation:
             "conditions": self.conditions,
             "actions": self.actions,
             "editable": self.editable,
+            "enabled": self.enabled,
             "match": self.match,
             "category": self.category,
         }
@@ -119,9 +125,40 @@ class Automation:
             "trigger": self.triggers,
             "condition": self.conditions,
             "action": self.actions,
+            "enabled": self.enabled,
             "match": self.match,
             "category": self.category,
         }
+
+
+# So viele Läufe merkt sich der Hub – genug, um einen Abend nachzuvollziehen.
+RUN_LIMIT = 100
+
+
+def describe_condition(condition: dict[str, Any], value: Any) -> str:
+    """Warum eine Bedingung nicht passte, in einem Satz (rein, testbar).
+
+    «Bedingung 2 war falsch» hilft niemandem. «Helligkeit war 44, verlangt
+    ist unter 30» beantwortet die Frage sofort.
+    """
+    ctype = condition.get("type", "state")
+    if ctype == "time":
+        window = " bis ".join(
+            part for part in (condition.get("after"), condition.get("before")) if part
+        )
+        return f"Uhrzeit ausserhalb {window or '(kein Fenster)'}"
+    if ctype == "sun":
+        want = "Tag" if str(condition.get("state", "up")) == "up" else "Nacht"
+        return f"Es ist nicht {want}"
+    name = condition.get("entity_id", "Gerät")
+    shown = "nichts" if value is None else f"«{value}»"
+    if "above" in condition:
+        return f"{name} ist {shown}, verlangt ist über {condition['above']}"
+    if "below" in condition:
+        return f"{name} ist {shown}, verlangt ist unter {condition['below']}"
+    if "equals" in condition:
+        return f"{name} ist {shown}, verlangt ist «{condition['equals']}»"
+    return f"{name} passt nicht"
 
 
 def _as_list(value: Any) -> list[dict[str, Any]]:
@@ -146,6 +183,7 @@ def parse_automations(
                 conditions=_as_list(config.get("condition")),
                 actions=_as_list(config.get("action")),
                 editable=editable,
+                enabled=config.get("enabled", True) is not False,
                 match="any" if str(config.get("match")) == "any" else "all",
                 category=str(config["category"]) if config.get("category") else None,
             )
@@ -160,6 +198,9 @@ def _parse_hhmm(value: str) -> tuple[int, int]:
 
 class AutomationEngine:
     def __init__(self, hub: "Hub") -> None:
+        # Protokoll der letzten Läufe, jüngster zuerst – auch der nicht
+        # ausgeführten, denn genau die wirft man dem Hub vor.
+        self.runs: list[dict[str, Any]] = []
         self.hub = hub
         self.automations: list[Automation] = []
         self._unsubscribe = None
@@ -242,6 +283,8 @@ class AutomationEngine:
 
     def _on_state_changed(self, _event_type: str, data: dict[str, Any]) -> None:
         for automation in self.automations:
+            if not automation.enabled:
+                continue
             for trigger in automation.triggers:
                 if trigger.get("type", "state") != "state":
                     continue
@@ -343,7 +386,8 @@ class AutomationEngine:
         error: str | None = None
         executed = False
         try:
-            if self._conditions_hold(automation):
+            held, failed = self._conditions_hold(automation)
+            if held:
                 executed = True
                 log.info("Automation '%s' ausgelöst", automation.alias)
                 # Alles, was jetzt folgt, wird der Automation zugeschrieben.
@@ -356,8 +400,14 @@ class AutomationEngine:
         finally:
             self._running.discard(automation.id)
 
-        # Nur tatsächlich ausgeführte Läufe protokollieren – ein Trigger,
-        # dessen Bedingung nicht passt, ist kein Lauf.
+        # Auch der nicht ausgeführte Lauf wird protokolliert – mit dem
+        # Grund. Genau danach sucht man, wenn ein Ablauf schweigt.
+        self._note(
+            automation,
+            executed=executed,
+            error=error,
+            skipped=[] if executed else failed,
+        )
         if executed:
             await self.hub.bus.publish(
                 "automation_run",
@@ -369,16 +419,60 @@ class AutomationEngine:
                 },
             )
 
-    def _conditions_hold(self, automation: Automation) -> bool:
+    def _note(
+        self,
+        automation: Automation,
+        *,
+        executed: bool,
+        error: str | None,
+        skipped: list[str],
+    ) -> None:
+        self.runs.insert(
+            0,
+            {
+                "automation_id": automation.id,
+                "alias": automation.alias,
+                "at": time.time(),
+                "executed": executed,
+                "error": error,
+                "skipped": skipped,
+            },
+        )
+        del self.runs[RUN_LIMIT:]
+
+    def _conditions_hold(self, automation: Automation) -> tuple[bool, list[str]]:
         """Stimmen die Bedingungen? Ohne Bedingungen: ja.
 
-        «any» ohne Bedingungen wäre sonst nie erfüllt – ein Ablauf ohne
+        Gibt zusätzlich zurück, welche Bedingungen nicht erfüllt waren.
+        Ohne diese Begründung rätselt man bei einem stummen Ablauf, ob der
+        Auslöser nicht kam oder eine Bedingung im Weg war – und das war
+        bisher nirgends zu sehen.
+
+        «any» ohne Bedingungen wäre sonst nie erfüllt; ein Ablauf ohne
         «nur wenn» soll aber immer laufen.
         """
         if not automation.conditions:
-            return True
-        checks = (self._check_condition(c) for c in automation.conditions)
-        return any(checks) if automation.match == "any" else all(checks)
+            return True, []
+        results = [
+            (condition, self._check_condition(condition))
+            for condition in automation.conditions
+        ]
+        failed = [describe_condition(c, self._value_of(c)) for c, ok in results if not ok]
+        held = (
+            any(ok for _, ok in results)
+            if automation.match == "any"
+            else all(ok for _, ok in results)
+        )
+        return held, failed
+
+    def _value_of(self, condition: dict[str, Any]) -> Any:
+        """Der Istwert einer Gerätebedingung – für die Begründung."""
+        if condition.get("type", "state") != "state":
+            return None
+        entity = self.hub.registry.get(condition.get("entity_id", ""))
+        if entity is None:
+            return None
+        return entity.state.get(condition.get("attribute", "state"))
 
     def _check_condition(self, condition: dict[str, Any]) -> bool:
         ctype = condition.get("type", "state")
