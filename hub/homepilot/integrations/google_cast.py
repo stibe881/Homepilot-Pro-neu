@@ -38,6 +38,26 @@ from ..core.integration import Integration
 DEFAULT_PORT = 8009
 
 
+# Ab so vielen Fehlversuchen in Folge gilt eine Box als dauerhaft weg.
+GIVE_UP_AFTER = 10
+# Danach wird nur noch stündlich probiert.
+MAX_RETRY = 3600
+
+
+def retry_delay(failures: int) -> int:
+    """Wartezeit bis zum nächsten Verbindungsversuch (rein, testbar).
+
+    Die ersten Versuche kommen schnell – eine Box startet neu, ein Netz
+    hakt kurz. Danach immer seltener: Ein Gerät, das aus ist, muss nicht
+    alle 30 Sekunden angesprochen und ins Log geschrieben werden.
+    """
+    if failures < 3:
+        return 30
+    if failures < GIVE_UP_AFTER:
+        return 120
+    return MAX_RETRY
+
+
 def cast_object_id(host: str, port: int = DEFAULT_PORT) -> str:
     """Kennung der Entität aus Adresse und Port (rein, testbar).
 
@@ -201,6 +221,7 @@ class GoogleCastIntegration(Integration):
     ) -> None:
         import pychromecast
 
+        failures = 0
         while True:
             try:
                 cast = await asyncio.to_thread(
@@ -209,6 +230,7 @@ class GoogleCastIntegration(Integration):
                     timeout=10,
                 )
                 await asyncio.to_thread(cast.wait, 15)
+                failures = 0
                 self._casts[entity_id] = cast
                 self._attach_listeners(entity_id, cast)
                 await self._push_state(entity_id, cast)
@@ -222,8 +244,28 @@ class GoogleCastIntegration(Integration):
             except Exception as err:
                 self._casts.pop(entity_id, None)
                 await self.hub.registry.update_state(entity_id, {}, available=False)
-                self.log.debug("Cast %s nicht erreichbar (%s), neuer Versuch in 30s", host, err)
-                await asyncio.sleep(30)
+                failures += 1
+                wait = retry_delay(failures)
+                if failures == GIVE_UP_AFTER:
+                    # Eine Box, die dauerhaft weg ist, hat das Log alle 30
+                    # Sekunden geflutet. Einmal deutlich sagen, dann selten
+                    # weiterprobieren – zurück kommt sie trotzdem.
+                    self.log.warning(
+                        "Cast-Gerät %s ist seit %d Versuchen nicht erreichbar (%s). "
+                        "Weitere Versuche nur noch stündlich; ist die Box weg, "
+                        "gehört sie aus der Konfiguration.",
+                        host,
+                        failures,
+                        err,
+                    )
+                else:
+                    self.log.debug(
+                        "Cast %s nicht erreichbar (%s), neuer Versuch in %ds",
+                        host,
+                        err,
+                        wait,
+                    )
+                await asyncio.sleep(wait)
 
     def _attach_listeners(self, entity_id: str, cast: Any) -> None:
         integration = self

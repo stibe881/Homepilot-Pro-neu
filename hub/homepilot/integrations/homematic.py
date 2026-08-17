@@ -385,6 +385,8 @@ class HomematicIntegration(Integration):
         # 2010, klassisches BidCos-RF auf 2001 – beides an derselben CCU.
         self._proxies: dict[int, xmlrpc.client.ServerProxy] = {}
 
+        # Wann zuletzt ein Ereignis der CCU ankam.
+        self._last_event: float | None = None
         # Wartungskanal → alle Entitäten dieses Geräts.
         self._by_battery: dict[tuple[str, str], list[str]] = {}
         # Bereits gemeldete Lesefehler – jede Adresse warnt nur einmal.
@@ -723,6 +725,21 @@ class HomematicIntegration(Integration):
 
     # ── Anmeldung wachhalten ───────────────────────────────────────────────
 
+    def health(self) -> dict[str, Any]:
+        """Was die App über die CCU-Verbindung wissen muss.
+
+        Genau die Zahlen, nach denen wir bei jeder Störung im Log gesucht
+        haben: Ist der Hub noch angemeldet, und wann kam zuletzt ein
+        Ereignis? Bleibt das lange leer, obwohl Geräte aktiv sind, ist die
+        Anmeldung weg – und dann kommt gar nichts mehr an.
+        """
+        return {
+            "callback": self._callback_url,
+            "registered": sorted(self._pong),
+            "last_event": self._last_event,
+            "devices": len(self._devices),
+        }
+
     async def _check_registration(self, port: int) -> bool:
         """Ist der Hub bei dieser Schnittstelle noch angemeldet?
 
@@ -785,6 +802,7 @@ class HomematicIntegration(Integration):
         trotzdem, sagt es eine Warnung.
         """
         started = time.monotonic()
+        self._last_event = time.time()
         try:
             return self._handle_event(address, key, value)
         finally:

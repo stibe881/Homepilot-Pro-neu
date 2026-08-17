@@ -173,10 +173,21 @@ export function AlarmScreen({ settings }: { settings: HubSettings }) {
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.detail ?? `Hub antwortet mit ${response.status}`);
       if (body.ok === false) {
-        // Nicht heimlich trotzdem scharf schalten – erst sagen, was offen ist.
+        // Nicht heimlich trotzdem scharf schalten – erst sagen, was im Weg
+        // ist. Ein stummer Sensor wiegt schwerer als ein offenes Fenster:
+        // Den sieht man nicht.
+        const parts: string[] = [];
+        if ((body.open ?? []).length > 0) {
+          parts.push(`Noch offen: ${body.open.join(', ')}`);
+        }
+        if ((body.offline ?? []).length > 0) {
+          parts.push(`Antwortet nicht: ${body.offline.join(', ')}`);
+        }
+        if ((body.battery ?? []).length > 0) {
+          parts.push(`Batterie schwach: ${body.battery.join(', ')}`);
+        }
         setNote(
-          `Noch offen: ${(body.open ?? []).join(', ')}. Schliessen – oder unten ` +
-            'trotzdem scharf schalten.'
+          `${parts.join(' · ')}. Beheben – oder unten trotzdem scharf schalten.`
         );
         setPendingMode(mode);
         return;

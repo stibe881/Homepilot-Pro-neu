@@ -516,3 +516,34 @@ def test_after_trigger_survives_a_restart(tmp_path):
     config = asyncio.run(second())
     assert config["after_trigger"]["urlaub"] == {"action": REARM, "after": 120}
     assert config["after_trigger"]["nacht"]["action"] == STAY
+
+
+def test_arming_warns_about_silent_sensors(alarm_hub):
+    """Ein offenes Fenster sieht man, einen Sensor mit leerer Batterie
+    nicht. Scharf schalten mit einem stummen Melder heisst, einen blinden
+    Fleck zu haben und nichts davon zu wissen."""
+    hub, service = alarm_hub
+
+    async def run():
+        await hub.registry.update_state("test.tuer", {"low_battery": True})
+        await hub.registry.update_state("test.fenster", {}, available=False)
+        return await service.arm("ausser_haus")
+
+    result = asyncio.run(run())
+    assert result["ok"] is False
+    assert result["reason"] == "blind"
+    assert result["battery"] == ["test.tuer"]
+    assert result["offline"] == ["test.fenster"]
+    assert service._entity.state["state"] == DISARMED
+
+
+def test_arming_with_force_accepts_a_blind_spot(alarm_hub):
+    """Wer es trotzdem will, bekommt es – aber erst nach der Warnung."""
+    hub, service = alarm_hub
+
+    async def run():
+        await hub.registry.update_state("test.tuer", {"low_battery": True})
+        return await service.arm("ausser_haus", force=True)
+
+    assert asyncio.run(run())["ok"] is True
+    assert service._entity.state["state"] == ARMED

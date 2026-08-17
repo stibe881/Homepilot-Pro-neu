@@ -263,17 +263,38 @@ class AlarmIntegration(Integration):
         """Alle Entitäten, die sich als Sensor eignen."""
         return [entity for entity in self.hub.registry.all() if is_sensor(entity)]
 
+    def guarding(self, mode: str) -> list[Entity]:
+        """Alle Sensoren, die in diesem Modus wachen."""
+        return [
+            entity
+            for entity in self.candidates()
+            if guards(self._sensors, entity.id, mode)
+        ]
+
     def open_sensors(self, mode: str) -> list[Entity]:
         """Sensoren, die in diesem Modus wachen und gerade offen sind.
 
         Grundlage der Bereitschaftsprüfung: Scharfschalten mit offenem
         Fenster wäre ein Alarm in dem Moment, in dem die Verzögerung endet.
         """
-        return [
-            entity
-            for entity in self.candidates()
-            if guards(self._sensors, entity.id, mode) and sensor_open(entity)
-        ]
+        return [entity for entity in self.guarding(mode) if sensor_open(entity)]
+
+    def blind_sensors(self, mode: str) -> dict[str, list[str]]:
+        """Sensoren, auf die in diesem Modus kein Verlass ist.
+
+        Ein offenes Fenster sieht man; einen Sensor mit leerer Batterie
+        nicht. Beides muss vor dem Scharfschalten auf den Tisch – sonst
+        schaltet man scharf und hat einen blinden Fleck, von dem man nichts
+        weiss.
+        """
+        offline: list[str] = []
+        battery: list[str] = []
+        for entity in self.guarding(mode):
+            if not entity.available:
+                offline.append(entity.name)
+            elif entity.state.get("low_battery") is True:
+                battery.append(entity.name)
+        return {"offline": offline, "battery": battery}
 
     # ── Bedienung ──────────────────────────────────────────────────────────
 
@@ -282,13 +303,16 @@ class AlarmIntegration(Integration):
         if mode not in MODES:
             raise HomePilotError(f"Unbekannter Alarm-Modus: {mode}")
         open_now = self.open_sensors(mode)
-        if open_now and not force:
+        blind = self.blind_sensors(mode)
+        if (open_now or blind["offline"] or blind["battery"]) and not force:
             # Nicht einfach trotzdem scharf schalten: Der Benutzer soll
-            # entscheiden, ob er das Fenster schliesst oder überbrückt.
+            # entscheiden, ob er das Fenster schliesst oder überbrückt – und
+            # von einem stummen Sensor überhaupt erst erfahren.
             return {
                 "ok": False,
-                "reason": "offen",
+                "reason": "offen" if open_now else "blind",
                 "open": [entity.name for entity in open_now],
+                **blind,
             }
 
         self._cancel_timer()

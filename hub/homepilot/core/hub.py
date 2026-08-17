@@ -292,7 +292,18 @@ class Hub:
         integrations = []
         for name, info in self.integrations.status().items():
             counts = by_integration.get(name, {"entities": 0, "unavailable": 0})
-            integrations.append({"name": name, **info, **counts})
+            entry = {"name": name, **info, **counts}
+            # Manche Integrationen wissen mehr über ihren Zustand, als sich
+            # von aussen ablesen lässt – etwa ob die CCU den Hub noch als
+            # Event-Empfänger kennt. Wer will, sagt es über health().
+            service = self.integrations.get(name)
+            health = getattr(service, "health", None)
+            if callable(health):
+                try:
+                    entry["health"] = health()
+                except Exception:
+                    log.exception("health() der Integration '%s' fehlgeschlagen", name)
+            integrations.append(entry)
 
         return {
             "uptime_seconds": round(time.time() - self.started_at),

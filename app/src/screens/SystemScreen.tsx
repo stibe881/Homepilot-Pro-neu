@@ -141,6 +141,9 @@ export function SystemScreen({
                       : '')
                   : integration.error}
               </Text>
+              {integration.health ? (
+                <Text style={styles.rowDetail}>{healthText(integration.health)}</Text>
+              ) : null}
             </View>
           </View>
         ))}
@@ -410,6 +413,28 @@ export function offline(entities: Entity[]): Entity[] {
       (a, b) =>
         (a.room ?? '').localeCompare(b.room ?? '') || a.name.localeCompare(b.name)
     );
+}
+
+/** Was eine Integration über ihren eigenen Zustand meldet (rein, testbar).
+ *
+ * Heute nur Homematic: Ob die CCU den Hub noch als Event-Empfänger kennt
+ * und wann zuletzt etwas ankam. Bleibt das lange leer, obwohl Geräte aktiv
+ * sind, ist die Anmeldung weg – und dann kommt gar nichts mehr an, ohne
+ * dass irgendwo ein Fehler stünde. */
+export function healthText(health: Record<string, any>): string {
+  const parts: string[] = [];
+  const registered = health.registered as string[] | undefined;
+  parts.push(
+    registered && registered.length > 0
+      ? `angemeldet (${registered.join(', ')})`
+      : 'Anmeldung noch nicht bestätigt'
+  );
+  if (typeof health.last_event === 'number') {
+    parts.push(`letztes Ereignis ${lastSeen(health.last_event)}`);
+  } else {
+    parts.push('noch kein Ereignis');
+  }
+  return parts.join(' · ');
 }
 
 /** «Zuletzt gesehen» in Alltagssprache (rein, testbar). */

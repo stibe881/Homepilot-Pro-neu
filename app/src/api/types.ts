@@ -103,6 +103,8 @@ export interface SystemStatus {
     error: string | null;
     entities: number;
     unavailable: number;
+    /** Was die Integration selbst über ihren Zustand weiss (optional). */
+    health?: Record<string, any>;
   }[];
   automations: { count: number; paused_until: string | null };
   push_devices: number;
