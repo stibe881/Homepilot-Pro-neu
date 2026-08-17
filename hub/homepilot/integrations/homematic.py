@@ -126,6 +126,10 @@ PRESS_DATAPOINTS = {"PRESS_SHORT": "short", "PRESS_LONG": "long"}
 ALARM_STATUS_DATAPOINTS = frozenset({"SMOKE_DETECTOR_ALARM_STATUS", "ALARM_STATUS"})
 IDLE_ALARM_VALUES = frozenset({"0", "IDLE_OFF", "False", "None", ""})
 
+# Ab hier ist die Antwort an die CCU so langsam, dass es auffällt: Sie
+# wartet darauf, bevor sie dem Gerät bestätigt.
+SLOW_CALLBACK = 0.5
+
 LEVEL = "LEVEL"
 # Messkanal einer Schalt-Messsteckdose (HmIP-PSM, HM-ES-PMSw1): Momentanleistung.
 POWER = "POWER"
@@ -647,7 +651,30 @@ class HomematicIntegration(Integration):
                 )
 
     def _on_event(self, _interface_id: str, address: str, key: str, value: Any) -> str:
-        """Wird von einem Thread des Callback-Servers aufgerufen."""
+        """Wird von einem Thread des Callback-Servers aufgerufen.
+
+        Muss schnell zurückkehren: Die CCU ruft hier synchron auf und
+        wartet auf die Antwort, bevor sie weitermacht – unter anderem, bevor
+        sie dem sendenden Gerät bestätigt. Ein Wandtaster blinkt so lange
+        orange und nimmt keinen weiteren Druck an. Deshalb wird hier nur
+        umgerechnet und in den Event-Loop gereicht, nie gewartet; dauert es
+        trotzdem, sagt es eine Warnung.
+        """
+        started = time.monotonic()
+        try:
+            return self._handle_event(address, key, value)
+        finally:
+            elapsed = time.monotonic() - started
+            if elapsed > SLOW_CALLBACK:
+                self.log.warning(
+                    "Antwort an die CCU dauerte %.2f s (%s %s) – so lange wartet "
+                    "auch das sendende Gerät",
+                    elapsed,
+                    address,
+                    key,
+                )
+
+    def _handle_event(self, address: str, key: str, value: Any) -> str:
         entity_id = self._by_datapoint.get((address, key))
         if entity_id is not None:
             info = self._devices[entity_id]
