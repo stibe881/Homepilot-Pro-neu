@@ -39,6 +39,16 @@ def contact(entity_id: str, state: str = "off") -> Entity:
     )
 
 
+def camera(entity_id: str, motion: str = "off", ring: str = "off") -> Entity:
+    return Entity(
+        id=entity_id,
+        kind=EntityKind.CAMERA,
+        name=entity_id,
+        integration="test",
+        state={"state": "online", "motion": motion, "ring": ring},
+    )
+
+
 def lock(entity_id: str, door: str = "closed") -> Entity:
     return Entity(
         id=entity_id,
@@ -62,6 +72,23 @@ def test_is_sensor_accepts_contacts_and_door_locks():
     light = Entity(id="d", kind=EntityKind.LIGHT, name="d", integration="t",
                    state={"state": "on"})
     assert not is_sensor(light)
+
+
+def test_cameras_with_motion_are_sensors():
+    # Protect- und Ring-Kameras melden Bewegung – damit sind sie
+    # vollwertige Bewegungsmelder für die Anlage.
+    assert is_sensor(camera("cam"))
+    # Eine Kamera ohne Bewegungsmeldung taugt nicht dafür.
+    ohne = Entity(id="c2", kind=EntityKind.CAMERA, name="c2", integration="t",
+                  state={"state": "online"})
+    assert not is_sensor(ohne)
+
+
+def test_camera_open_counts_motion_not_ringing():
+    assert sensor_open(camera("cam", motion="on"))
+    assert not sensor_open(camera("cam", motion="off"))
+    # Geklingelt ist nicht eingebrochen.
+    assert not sensor_open(camera("cam", motion="off", ring="on"))
 
 
 def test_sensor_open_uses_door_state_for_locks():
@@ -313,3 +340,34 @@ def test_alarm_api_rejects_unknown_mode(tmp_path):
     with TestClient(create_app(make_hub(tmp_path))) as client:
         response = client.post("/api/alarm/arm", headers=auth(), json={"mode": "quatsch"})
         assert response.status_code >= 400
+
+
+def test_camera_motion_triggers_the_alarm(tmp_path):
+    """Der gemeldete Fall: Kameras sollen als Sensoren zur Auswahl stehen
+    und im scharfen Modus auch wirklich auslösen."""
+
+    async def run():
+        hub = make_hub(tmp_path)
+        await hub.start()
+        await hub.registry.add(camera("test.kamera"))
+        service = hub.integrations.get("alarm")
+
+        # Die Kamera muss überhaupt erst angeboten werden.
+        assert any(entity.id == "test.kamera" for entity in service.candidates())
+
+        await service.update_config(
+            {
+                "sensors": [{"entity_id": "test.kamera", "modes": ["ausser_haus"]}],
+                "settings": {"exit_delay": 0, "notify_trigger": False},
+            }
+        )
+        await service.arm("ausser_haus")
+        await hub.registry.update_state("test.kamera", {"motion": "on"})
+        await asyncio.sleep(0)
+        state = dict(service._entity.state)
+        await hub.stop()
+        return state
+
+    state = asyncio.run(run())
+    assert state["state"] == TRIGGERED
+    assert state["last_trigger"]["entity_id"] == "test.kamera"

@@ -67,20 +67,24 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "history_limit": 50,
 }
 
-# Sensorarten, die sich überwachen lassen. Kameras und Schalter gehören
-# nicht dazu – sie melden keinen Öffnungs- oder Bewegungszustand.
-SENSOR_KINDS = frozenset({EntityKind.BINARY_SENSOR, EntityKind.LOCK})
-
-
 def is_sensor(entity: Entity) -> bool:
     """Taugt diese Entität als Alarmsensor? (rein, testbar)
 
-    Kontakte und Bewegungsmelder melden ``on``; ein Schloss mit Türsensor
-    meldet zusätzlich ``door``. Alles andere hat keinen Zustand, aus dem
-    sich ein Einbruch ableiten liesse.
+    Drei Quellen, weil dieselbe Frage unterschiedlich beantwortet wird:
+
+      - Kontakte und Bewegungsmelder (``binary_sensor``) melden ``on``.
+      - Ein Schloss mit Türsensor meldet zusätzlich ``door``.
+      - Kameras melden ``motion`` – UniFi Protect wie Ring. Sie sind damit
+        vollwertige Bewegungsmelder und gehören zur Auswahl; ob man sie
+        wirklich zuordnet, entscheidet der Modus.
+
+    Alles ohne einen dieser Zustände lässt keinen Rückschluss auf einen
+    Einbruch zu.
     """
     if entity.kind == EntityKind.BINARY_SENSOR:
         return True
+    if entity.kind == EntityKind.CAMERA:
+        return "motion" in entity.state
     return entity.kind == EntityKind.LOCK and "door" in entity.state
 
 
@@ -89,10 +93,13 @@ def sensor_open(entity: Entity) -> bool:
 
     Bei Kontakten und Bewegungsmeldern heisst das ``on``; beim Schloss
     zählt der Türsensor, nicht ob abgeschlossen ist – eine offene Tür ist
-    auch dann ein Einbruch, wenn niemand den Riegel angefasst hat.
+    auch dann ein Einbruch, wenn niemand den Riegel angefasst hat. Bei
+    Kameras zählt allein die Bewegung: Ein Klingeln ist kein Einbruch.
     """
     if entity.kind == EntityKind.LOCK:
         return str(entity.state.get("door")) == "open"
+    if entity.kind == EntityKind.CAMERA:
+        return str(entity.state.get("motion")) == "on"
     return str(entity.state.get("state")) == "on"
 
 
