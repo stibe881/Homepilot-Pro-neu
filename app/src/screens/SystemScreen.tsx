@@ -369,7 +369,7 @@ function PushTestCard({
             '(Fokus/Nicht stören, Mitteilungen für die App).'
         );
       } else {
-        setMessage(pushHint(push, 0));
+        setMessage(pushHint(push));
       }
     } catch (err: any) {
       setMessage(String(err.message ?? err));
@@ -387,7 +387,7 @@ function PushTestCard({
       <View style={styles.buttons}>
         <Button label={busy ? 'Sendet …' : 'Push testen'} onPress={test} primary />
       </View>
-      <Text style={styles.hint}>{message ?? pushHint(push, null)}</Text>
+      <Text style={styles.hint}>{message ?? pushHint(push)}</Text>
     </Card>
   );
 }

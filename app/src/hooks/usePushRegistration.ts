@@ -104,11 +104,14 @@ export function usePushRegistration(
   return push;
 }
 
-/** Was der System-Screen zur Lage anzeigt (rein, testbar). */
-export function pushHint(push: PushState, sent: number | null): string {
-  if (sent != null && sent > 0) {
-    return `Verschickt an ${sent} Gerät(e).`;
-  }
+/**
+ * Was der System-Screen zur Lage dieses Geräts anzeigt (rein, testbar).
+ *
+ * Nur über die Anmeldung – ob eine Nachricht ankam, weiss allein der Hub
+ * über die Zustell-Quittung. Eine Erfolgsmeldung gehört deshalb bewusst
+ * nicht hierher: «verschickt» hiess früher nur «an Expo übergeben».
+ */
+export function pushHint(push: PushState): string {
   switch (push.state) {
     case 'web':
       return 'Im Browser gibt es keine Push-Nachrichten. Öffne die App auf dem Handy.';

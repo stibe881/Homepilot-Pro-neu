@@ -23,6 +23,7 @@ import { skyFromIcon } from '../components/CoverVisual';
 import { HistoryChart } from '../components/HistoryChart';
 import { CameraLive } from '../components/CameraLive';
 import { OpenDoors } from '../components/OpenDoors';
+import { RunningAppliances } from '../components/RunningAppliances';
 import { Rail, Section } from '../components/Rail';
 import { RoomTabs } from '../components/RoomTabs';
 import { RoomTile } from '../components/RoomTile';
@@ -835,7 +836,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 {partOfDay(now)}
               </Text>
             </View>
-            <OpenDoors entities={entities} />
+            <View style={styles.greetingNotes}>
+              <RunningAppliances entities={entities} />
+              <OpenDoors entities={entities} />
+            </View>
           </View>
 
           {content()}
@@ -1232,6 +1236,16 @@ const makeStyles = (colors: Colors) =>
     gap: space.gap,
   },
   greeting: { gap: 2, flexShrink: 1 },
+  // Hinweise rechts der Begrüssung. Auf schmalen Geräten stapeln sie sich,
+  // damit weder Türhinweis noch Haushalt abgeschnitten wird.
+  greetingNotes: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: 8,
+    flexShrink: 1,
+  },
   greetingLine: {
     color: colors.onGradient,
     fontSize: type.greeting,
