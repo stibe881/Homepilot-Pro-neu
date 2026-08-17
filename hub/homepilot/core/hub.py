@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from typing import Any
 
@@ -342,6 +343,13 @@ class Hub:
                 ),
             },
             "push_devices": len(self.push.devices),
+            # Welcher Stand hier läuft – nach einem Update die einzige Art
+            # festzustellen, ob der Container wirklich der neue ist.
+            "build": {
+                "version": __version__,
+                "commit": os.environ.get("HOMEPILOT_COMMIT", "unbekannt"),
+                "built_at": os.environ.get("HOMEPILOT_BUILD_TIME", "unbekannt"),
+            },
             "energy": self.config.energy,
             # Ausfall-Protokoll des Wächters (jüngste zuerst).
             "outages": self.watchdog.outages,

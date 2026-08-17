@@ -96,6 +96,18 @@ export function SystemScreen({
           <Fact label="Push-Geräte" value={String(status.push_devices)} />
         </View>
 
+        {status.build ? (
+          <View style={styles.buildRow}>
+            <Text style={styles.rowDetail}>
+              HomePilot {status.build.version} · Stand {status.build.commit}
+              {status.build.built_at !== 'unbekannt'
+                ? ` · gebaut ${status.build.built_at}`
+                : ''}
+            </Text>
+            <UpdateButton settings={settings} />
+          </View>
+        ) : null}
+
         {showOffline ? (
           offline(entities).length === 0 ? (
             <Text style={styles.hint}>
@@ -234,6 +246,8 @@ export function SystemScreen({
 
       <PushTestCard settings={settings} headers={headers} push={push} />
 
+      <ShortcutsCard settings={settings} headers={headers} />
+
       {user?.capabilities?.includes('edit_config') ? (
         <BackupCard settings={settings} headers={headers} />
       ) : null}
@@ -260,6 +274,9 @@ function ConfigCard({
   const [content, setContent] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Hinweise des Hubs: doppelte Geräteadressen, Räume, die auf nichts
+  // zeigen. Die liefen bisher nur beim Start ins Log.
+  const [warnings, setWarnings] = useState<string[]>([]);
 
   const load = () => {
     setMessage(null);
@@ -286,6 +303,8 @@ function ConfigCard({
         const body = await response.json().catch(() => null);
         throw new Error(body?.detail ?? `Hub antwortet mit ${response.status}`);
       }
+      const body = await response.json().catch(() => null);
+      setWarnings(body?.warnings ?? []);
       if (restart) {
         await fetch(`${settings.url}/api/system/restart`, { method: 'POST', headers });
         setMessage('Gespeichert – der Hub startet neu. Die App verbindet sich gleich wieder.');
@@ -294,6 +313,34 @@ function ConfigCard({
       }
     } catch (err: any) {
       // Hier steht bei Tippfehlern die genaue Validierungsmeldung des Hubs.
+      setMessage(String(err.message ?? err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Prüfen, ohne zu speichern – damit man den Fehler sieht, bevor er auf
+   *  der Platte steht. */
+  const check = async () => {
+    if (content == null) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const response = await fetch(`${settings.url}/api/config/check`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      });
+      const body = await response.json();
+      setWarnings(body.warnings ?? []);
+      setMessage(
+        body.ok
+          ? body.warnings?.length
+            ? 'Gültig – aber sieh dir die Hinweise unten an.'
+            : 'Gültig, nichts auffällig.'
+          : body.error
+      );
+    } catch (err: any) {
       setMessage(String(err.message ?? err));
     } finally {
       setBusy(false);
@@ -337,6 +384,7 @@ function ConfigCard({
             style={styles.configInput}
           />
           <View style={styles.buttons}>
+            <Button label={busy ? 'Prüft …' : 'Nur prüfen'} onPress={check} />
             <Button label={busy ? 'Speichert …' : 'Speichern'} onPress={() => save(false)} />
             <Button
               label="Speichern & neu starten"
@@ -355,7 +403,189 @@ function ConfigCard({
         </>
       )}
       {message ? <Text style={styles.configMessage}>{message}</Text> : null}
+      {warnings.length > 0 ? (
+        <View style={styles.warnBox}>
+          {warnings.map((warning, index) => (
+            <View key={index} style={styles.row}>
+              <Ionicons name="warning-outline" size={16} color={colors.warn} />
+              <Text style={styles.warnText}>{warning}</Text>
+            </View>
+          ))}
+          <Text style={styles.rowDetail}>
+            Kein Fehler – der Hub startet damit. Aber beides sind Dinge, die
+            man sonst erst Wochen später bemerkt, weil nichts abstürzt.
+          </Text>
+        </View>
+      ) : null}
     </Card>
+  );
+}
+
+/**
+ * Fertige Bausteine für Apple Kurzbefehle.
+ *
+ * Die Anleitung erklärt, wie man einen von Hand zusammensetzt – und genau
+ * das ist die Hürde: URL, Methode, zwei Header und ein JSON-Rumpf, für jede
+ * Szene aufs Neue. Hier steht alles fertig zum Kopieren.
+ *
+ * Das eigene Token liegt bei. Deshalb steht die Karte hinter dem üblichen
+ * Login und nicht auf der Startseite – und deshalb liefert der Hub nur, was
+ * der Anfragende ohnehin sehen darf.
+ */
+function ShortcutsCard({
+  settings,
+  headers,
+}: {
+  settings: HubSettings;
+  headers: Record<string, string>;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [items, setItems] = useState<any[] | null>(null);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [copied, setCopied] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || items) return;
+    fetch(`${settings.url}/api/shortcuts`, { headers })
+      .then((response) => (response.ok ? response.json() : { shortcuts: [] }))
+      .then((data) => setItems(data.shortcuts ?? []))
+      .catch(() => setItems([]));
+  }, [open, items, settings.url]);
+
+  const shown = (items ?? []).filter((item) =>
+    item.name.toLowerCase().includes(query.trim().toLowerCase())
+  );
+
+  const share = async (item: any) => {
+    const lines = [
+      `URL: ${item.url}`,
+      `Methode: ${item.method}`,
+      ...Object.entries(item.headers).map(([key, value]) => `${key}: ${value}`),
+      ...(item.body ? [`Anfragetext (JSON): ${JSON.stringify(item.body)}`] : []),
+    ];
+    try {
+      await Share.share({ title: item.name, message: lines.join('\n') });
+      setCopied(item.name);
+    } catch {
+      // Abgebrochen – nichts zu tun.
+    }
+  };
+
+  return (
+    <Card style={styles.card}>
+      <Pressable onPress={() => setOpen((on) => !on)} accessibilityRole="button">
+        <View style={styles.row}>
+          <Ionicons name="mic-outline" size={20} color={colors.inkSoft} />
+          <Text style={[styles.heading, { flex: 1 }]}>Siri-Kurzbefehle</Text>
+          <Ionicons
+            name={open ? 'chevron-up' : 'chevron-down'}
+            size={16}
+            color={colors.inkFaint}
+          />
+        </View>
+      </Pressable>
+      {open ? (
+        <>
+          <Text style={styles.hint}>
+            Antippen teilt die fertigen Angaben. In der App «Kurzbefehle» eine
+            Aktion «Inhalte von URL abrufen» anlegen und einsetzen – der Name
+            des Kurzbefehls wird der Satz, den du Siri sagst.
+          </Text>
+          <TextInput
+            style={styles.configInput}
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Suchen …"
+            placeholderTextColor={colors.inkFaint}
+            multiline={false}
+          />
+          {items == null ? (
+            <Text style={styles.hint}>Wird geladen …</Text>
+          ) : (
+            shown.slice(0, 40).map((item) => (
+              <Pressable
+                key={`${item.kind}:${item.name}`}
+                onPress={() => share(item)}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.row, pressed && { opacity: 0.7 }]}
+              >
+                <Ionicons
+                  name={item.kind === 'scene' ? 'sparkles-outline' : 'hardware-chip-outline'}
+                  size={18}
+                  color={colors.accent}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.rowTitle}>{item.name}</Text>
+                  <Text style={styles.rowDetail} numberOfLines={1}>
+                    {item.method} {item.url}
+                  </Text>
+                </View>
+                <Ionicons name="share-outline" size={16} color={colors.inkFaint} />
+              </Pressable>
+            ))
+          )}
+          {copied ? (
+            <Text style={styles.rowDetail}>«{copied}» geteilt.</Text>
+          ) : null}
+          <Text style={styles.hint}>
+            Achtung: Die Angaben enthalten dein Token. Wer sie hat, kann alles
+            schalten, was du darfst – also nicht in eine Gruppenchat schicken.
+            Für Siri lohnt sich ein eigener Benutzer mit eigenem Token, den man
+            einzeln zurückziehen kann (siehe docs/siri-und-widgets.md).
+          </Text>
+        </>
+      ) : null}
+    </Card>
+  );
+}
+
+/**
+ * Update anstossen.
+ *
+ * Der Hub kann sich nicht selbst neu bauen – er läuft in einem Container
+ * und hat weder das Repository noch Docker zur Hand. Was er kann: eine
+ * Adresse aufrufen, die das auf dem Host anstösst. Steht keine in der
+ * config.yaml, sagt der Knopf genau das, statt so zu tun als ob.
+ */
+function UpdateButton({ settings }: { settings: HubSettings }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [note, setNote] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const run = async () => {
+    setBusy(true);
+    setNote(null);
+    try {
+      const response = await fetch(`${settings.url}/api/system/update`, {
+        method: 'POST',
+        headers: settings.token ? { Authorization: `Bearer ${settings.token}` } : {},
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.detail ?? `Hub antwortet mit ${response.status}`);
+      setNote('Angestossen. Der Host baut jetzt – das dauert ein paar Minuten.');
+    } catch (err: any) {
+      setNote(String(err.message ?? err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <Pressable
+        onPress={run}
+        disabled={busy}
+        accessibilityRole="button"
+        style={({ pressed }) => [styles.updateButton, pressed && { opacity: 0.8 }]}
+      >
+        <Ionicons name="cloud-download-outline" size={16} color={colors.ink} />
+        <Text style={styles.updateText}>{busy ? 'Läuft …' : 'Update anstossen'}</Text>
+      </Pressable>
+      {note ? <Text style={styles.rowDetail}>{note}</Text> : null}
+    </>
   );
 }
 
@@ -692,6 +922,29 @@ const makeStyles = (colors: Colors) =>
     textAlignVertical: 'top',
   },
   configMessage: { color: colors.inkSoft, fontSize: 13, lineHeight: 19 },
+  buildRow: { gap: 8, marginTop: 4 },
+  updateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: radius.control,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  updateText: { color: colors.ink, fontSize: 13, fontWeight: '700' },
+  warnBox: {
+    gap: 6,
+    padding: 12,
+    borderRadius: radius.control,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  warnText: { color: colors.ink, fontSize: 13, lineHeight: 19, flex: 1 },
   note: {
     color: colors.onGradientSoft,
     fontSize: 14,

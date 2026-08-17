@@ -361,6 +361,19 @@ energy:
 # push:
 #   public_url: https://haus.example.ch
 
+# Update aus der App (System → «Update anstossen»).
+#
+# Der Hub kann sich nicht selbst neu bauen – er läuft in einem Container
+# und hat weder das Repository noch Docker zur Hand. Das wäre auch kein
+# Zugriff, den ein Hausautomations-Dienst haben sollte.
+#
+# Was er kann: diese Adresse aufrufen. Sinnvoll ist der Stack-Webhook von
+# Portainer (Stacks → homepilot → Webhook) oder ein eigener kleiner Dienst
+# auf dem Host, der rebuild-hub.sh startet. Ohne Eintrag bleibt der Knopf
+# ohne Wirkung und sagt das auch.
+# update:
+#   webhook_url: https://portainer.example.com/api/stacks/webhooks/xxxxxxxx
+
 # Räume: Die App macht daraus ihre Reiter. Ohne diesen Abschnitt zeigt sie
 # einfach alle Geräte ohne Reiter an.
 rooms:

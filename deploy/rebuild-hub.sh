@@ -75,7 +75,14 @@ git clone --depth 1 -b "$BRANCH" \
   "https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/${REPO}.git" "$WORKDIR"
 
 echo "→ Baue das Abbild neu (ohne Cache) …"
-docker build --no-cache -t "$IMAGE" "$WORKDIR/hub"
+# Commit und Bauzeit wandern ins Abbild. Ohne sie zeigt die App nur
+# «läuft», und nach einem Update sieht man nicht, ob der Container
+# wirklich der neue ist.
+COMMIT="$(git -C "$WORKDIR" rev-parse --short HEAD)"
+docker build --no-cache \
+  --build-arg "GIT_COMMIT=$COMMIT" \
+  --build-arg "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  -t "$IMAGE" "$WORKDIR/hub"
 
 rm -rf "$WORKDIR"
 

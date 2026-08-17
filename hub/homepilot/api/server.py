@@ -28,6 +28,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import aiohttp
 from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -38,6 +39,7 @@ from ..core import push
 from ..core import snapshots
 from ..core import watchdog
 from ..core import users as users_module
+from ..core import config_edit
 from ..core.config_edit import add_cast_device
 from ..integrations import alarm as alarm_module
 from ..core.errors import HomePilotError, UnknownEntityError, UnsupportedCommandError
@@ -155,6 +157,16 @@ class MetaRequest(BaseModel):
     name: str | None = None
     favorite: bool | None = None
     group: str | None = None
+
+
+# Wie ein Kommando im Namen eines Kurzbefehls heisst – «Licht turn_on» wäre
+# als Siri-Satz unbrauchbar.
+COMMAND_WORDS = {
+    "turn_on": "an",
+    "turn_off": "aus",
+    "open": "auf",
+    "close": "zu",
+}
 
 
 def create_app(hub: Hub) -> FastAPI:
@@ -283,7 +295,48 @@ def create_app(hub: Hub) -> FastAPI:
             raise HTTPException(status_code=500, detail=f"Schreiben fehlgeschlagen: {err}") from err
         temp.replace(path)
         log.info("Konfiguration über die App gespeichert (%s)", path)
-        return {"ok": True, "restart_required": True}
+        # Diese Prüfungen liefen bisher nur beim Start ins Log – wer in der
+        # App speicherte, sah eine doppelte Geräteadresse also erst nach dem
+        # Neustart, wenn überhaupt. Sie brechen nichts ab: Eine Warnung ist
+        # eine Warnung, kein Fehler.
+        known = {entity.id for entity in hub.registry.all()}
+        warnings = [
+            *config_edit.duplicate_devices(candidate.integrations),
+            *config_edit.unused_rooms(candidate.rooms, known),
+        ]
+        return {"ok": True, "restart_required": True, "warnings": warnings}
+
+    @app.post("/api/config/check")
+    async def check_config(body: ConfigRequest, request: Request) -> dict[str, Any]:
+        """Prüfen, ohne zu speichern.
+
+        Damit man den Fehler sieht, bevor man ihn auf die Platte schreibt –
+        und die Warnungen, bevor sie im Log versauern.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        temp = Path(config_path()).with_suffix(".check")
+        try:
+            temp.write_text(body.content, encoding="utf-8")
+            candidate = load_config(temp)
+            parse_users(candidate.users, candidate.api.token)
+        except ConfigError as err:
+            return {"ok": False, "error": str(err), "warnings": []}
+        except OSError as err:
+            raise HTTPException(
+                status_code=500, detail=f"Prüfen fehlgeschlagen: {err}"
+            ) from err
+        finally:
+            temp.unlink(missing_ok=True)
+
+        known = {entity.id for entity in hub.registry.all()}
+        return {
+            "ok": True,
+            "error": None,
+            "warnings": [
+                *config_edit.duplicate_devices(candidate.integrations),
+                *config_edit.unused_rooms(candidate.rooms, known),
+            ],
+        }
 
     @app.post("/api/system/restart")
     async def restart(request: Request) -> dict[str, Any]:
@@ -293,6 +346,98 @@ def create_app(hub: Hub) -> FastAPI:
         log.warning("Neustart angefordert von %s", user.name)
         # Kurz warten, damit die Antwort das Gerät noch erreicht.
         threading.Timer(0.8, _exit_for_restart).start()
+        return {"ok": True}
+
+    @app.get("/api/shortcuts")
+    async def shortcuts(request: Request) -> dict[str, Any]:
+        """Fertige Bausteine für Apple Kurzbefehle.
+
+        Die Anleitung in docs/siri-und-widgets.md erklärt, wie man einen
+        Kurzbefehl von Hand zusammensetzt – und genau das ist die Hürde:
+        URL, Methode, zwei Header und ein JSON-Rumpf, für jede Szene aufs
+        Neue. Hier kommt alles fertig heraus, samt Token des Anfragenden.
+
+        Bewusst mit *seinem* Token: Wer den Kurzbefehl baut, soll ihn mit
+        den eigenen Rechten bauen. Ein Gast bekommt so auch nur die Geräte,
+        die er ohnehin sehen darf.
+        """
+        user = current_user(request)
+        token = token_from(request) or ""
+        base = str(request.base_url).rstrip("/")
+
+        items: list[dict[str, Any]] = [
+            {
+                "kind": "scene",
+                "name": scene.name,
+                "url": f"{base}/api/scenes/{scene.id}/activate",
+                "method": "POST",
+                "headers": {"Authorization": f"Bearer {token}"},
+                "body": None,
+            }
+            for scene in hub.scenes.scenes
+        ]
+        for entity in hub.registry.all():
+            if not user.may_see(entity.id, entity.kind, entity.integration):
+                continue
+            for command in ("turn_on", "turn_off", "open", "close"):
+                if command not in entity.commands:
+                    continue
+                items.append(
+                    {
+                        "kind": "device",
+                        "name": f"{entity.name} {COMMAND_WORDS.get(command, command)}",
+                        "url": f"{base}/api/entities/{entity.id}/command",
+                        "method": "POST",
+                        "headers": {
+                            "Authorization": f"Bearer {token}",
+                            "Content-Type": "application/json",
+                        },
+                        "body": {"command": command},
+                    }
+                )
+        return {"shortcuts": items}
+
+    @app.post("/api/system/update")
+    async def trigger_update(request: Request) -> dict[str, Any]:
+        """Stösst die eingerichtete Update-Adresse an.
+
+        Was der Hub *nicht* kann: sich selbst neu bauen. Er läuft in einem
+        Container und hat weder das Repository noch Docker zur Hand – das
+        wäre auch kein Zugriff, den ein Hausautomations-Dienst haben sollte.
+
+        Was er kann: eine Adresse aufrufen, die das auf dem Host anstösst –
+        den Stack-Webhook von Portainer oder einen eigenen kleinen Dienst,
+        der rebuild-hub.sh startet. Die Adresse steht in der config.yaml
+        unter ``update.webhook_url``; ohne sie passiert hier nichts.
+        """
+        user = require(request, Capability.EDIT_CONFIG)
+        url = str((hub.config.update or {}).get("webhook_url") or "")
+        if not url.startswith(("http://", "https://")):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Keine Update-Adresse eingerichtet. In der config.yaml "
+                    "unter 'update.webhook_url' eintragen – siehe "
+                    "deploy/portainer.md."
+                ),
+            )
+        log.warning("Update angefordert von %s", user.name)
+        try:
+            timeout = aiohttp.ClientTimeout(total=30)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(url) as response:
+                    text = (await response.text())[:200]
+                    if response.status >= 400:
+                        raise HTTPException(
+                            status_code=502,
+                            detail=f"Die Update-Adresse antwortet mit {response.status}: {text}",
+                        )
+        except HTTPException:
+            raise
+        except Exception as err:
+            raise HTTPException(
+                status_code=502, detail=f"Update-Adresse nicht erreichbar: {err}"
+            ) from err
         return {"ok": True}
 
     @app.get("/api/system/backups")

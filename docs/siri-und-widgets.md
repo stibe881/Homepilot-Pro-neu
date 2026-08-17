@@ -20,6 +20,20 @@ users:
 Token erzeugen: `openssl rand -base64 32`, als Umgebungsvariable `TOKEN_SIRI`
 setzen, Hub neu starten.
 
+## Der schnelle Weg: fertige Angaben aus der App
+
+In der App unter **Einstellungen → System → Siri-Kurzbefehle** stehen alle
+Szenen und schaltbaren Geräte mit fertiger URL, Methode, Headern und
+Anfragetext. Antippen teilt den Block – in der App «Kurzbefehle»
+einsetzen, fertig.
+
+Die geteilten Angaben enthalten dein Token. Wer sie hat, kann alles
+schalten, was du darfst – also nicht in einen Gruppenchat schicken. Für
+Siri lohnt sich der eigene Benutzer von oben, den man einzeln zurückziehen
+kann.
+
+Wer es lieber von Hand zusammensetzt, findet unten den ganzen Weg.
+
 ## Kurzbefehl „Szene auslösen"
 
 1. App **Kurzbefehle** öffnen → **+** → **Aktion hinzufügen** → **Web** →

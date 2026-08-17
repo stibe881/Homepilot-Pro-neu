@@ -252,3 +252,106 @@ def test_appliance_cycles_are_served_with_their_statistics():
         assert result["stats"][0]["runs"] == 2
         assert result["stats"][0]["average_seconds"] == 4500
         assert len(result["cycles"]) == 2
+
+
+def test_shortcuts_come_ready_to_paste():
+    """Die Hürde bei Siri ist nicht das Prinzip, sondern URL, Methode, zwei
+    Header und ein JSON-Rumpf – für jede Szene von Hand."""
+    hub = Hub(make_config(token="geheim"))
+    with TestClient(create_app(hub)) as client:
+        result = client.get(
+            "/api/shortcuts", headers={"Authorization": "Bearer geheim"}
+        ).json()
+        geraete = [item for item in result["shortcuts"] if item["kind"] == "device"]
+        assert geraete, "mindestens ein schaltbares Demo-Gerät erwartet"
+        eins = geraete[0]
+        assert eins["method"] == "POST"
+        # Das eigene Token liegt bei – ohne es wäre der Kurzbefehl nutzlos.
+        assert eins["headers"]["Authorization"] == "Bearer geheim"
+        assert eins["headers"]["Content-Type"] == "application/json"
+        assert eins["body"]["command"] in ("turn_on", "turn_off", "open", "close")
+        # Und der Name ist ein Satz, den man Siri sagen kann.
+        assert "turn_on" not in eins["name"]
+
+
+def test_shortcuts_only_show_what_the_user_may_see():
+    hub = Hub(
+        make_config(
+            token=None,
+            users=[
+                {"name": "Stefan", "role": "besitzer", "token": "t-owner"},
+                # Ein Gast, dessen Freigabe auf nichts passt – ein Gast ohne
+                # jede Angabe sieht die Standardarten und wäre kein Beleg.
+                {
+                    "name": "Gast",
+                    "role": "gast",
+                    "token": "t-gast",
+                    "allow": ["gibtsnicht.*"],
+                },
+            ],
+        )
+    )
+    with TestClient(create_app(hub)) as client:
+        result = client.get(
+            "/api/shortcuts", headers={"Authorization": "Bearer t-gast"}
+        ).json()
+        assert [item for item in result["shortcuts"] if item["kind"] == "device"] == []
+
+
+def test_the_update_button_stays_off_without_an_address():
+    """Der Hub kann sich nicht selbst neu bauen – ohne eingerichtete
+    Adresse gibt es nichts anzustossen, und das soll er sagen."""
+    hub = Hub(make_config(token="geheim"))
+    with TestClient(create_app(hub)) as client:
+        response = client.post(
+            "/api/system/update", headers={"Authorization": "Bearer geheim"}
+        )
+        assert response.status_code == 400
+        assert "update.webhook_url" in response.json()["detail"]
+
+
+def test_saving_the_config_reports_what_looks_wrong(tmp_path):
+    """Diese Prüfungen liefen bisher nur beim Start ins Log – wer in der App
+    speicherte, sah die doppelte Adresse also nie."""
+    path = tmp_path / "config.yaml"
+    path.write_text("integrations:\n  - integration: demo\n", encoding="utf-8")
+
+    hub = Hub(make_config(token="geheim", source_path=str(path)))
+    with TestClient(create_app(hub)) as client:
+        inhalt = (
+            "integrations:\n"
+            "  - integration: homematic\n"
+            "    devices:\n"
+            "      - address: 'ABC:3'\n"
+            "        port: 2010\n"
+            "      - address: 'ABC:3'\n"
+            "        port: 2010\n"
+            "rooms:\n"
+            "  Küche:\n"
+            "    - demo.gibtsnicht\n"
+        )
+        result = client.post(
+            "/api/config/check",
+            json={"content": inhalt},
+            headers={"Authorization": "Bearer geheim"},
+        ).json()
+        assert result["ok"] is True
+        assert any("2-mal" in warning for warning in result["warnings"])
+        assert any("gibt es nicht" in warning for warning in result["warnings"])
+
+
+def test_checking_a_broken_config_does_not_write_it(tmp_path):
+    path = tmp_path / "config.yaml"
+    path.write_text("integrations:\n  - integration: demo\n", encoding="utf-8")
+
+    hub = Hub(make_config(token="geheim", source_path=str(path)))
+    with TestClient(create_app(hub)) as client:
+        result = client.post(
+            "/api/config/check",
+            json={"content": "integrations: [nicht: gültig"},
+            headers={"Authorization": "Bearer geheim"},
+        ).json()
+        assert result["ok"] is False
+        assert result["error"]
+        # Und die echte Datei ist unverändert.
+        assert "demo" in path.read_text(encoding="utf-8")

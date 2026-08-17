@@ -32,5 +32,13 @@ USER homepilot
 EXPOSE 8123
 
 # Der Pfad zur Konfiguration wird als Volume hereingereicht.
+# Welcher Stand hier läuft. Ohne das lässt sich nach einem Update nicht
+# unterscheiden, ob der Container wirklich neu ist oder ob Portainer das
+# alte Abbild noch einmal ausgerollt hat.
+ARG GIT_COMMIT=unbekannt
+ARG BUILD_TIME=unbekannt
+ENV HOMEPILOT_COMMIT=$GIT_COMMIT
+ENV HOMEPILOT_BUILD_TIME=$BUILD_TIME
+
 ENV HOMEPILOT_CONFIG=/config/config.yaml
 CMD ["sh", "-c", "python -m homepilot -c \"$HOMEPILOT_CONFIG\""]
