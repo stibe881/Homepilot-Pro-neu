@@ -2,6 +2,7 @@ import asyncio
 
 from homepilot.core.automation import Automation, parse_automations
 from homepilot.core.config import ApiConfig, HubConfig
+from homepilot.core.entity import Entity, EntityKind
 from homepilot.core.hub import Hub
 
 MOTION_AUTOMATION = {
@@ -212,5 +213,100 @@ async def test_match_any_stays_quiet_when_none_holds():
         await hub.integrations.dispatch_command("demo.motion_hall", "turn_on")
         await settle()
         assert hub.registry.get("demo.light_livingroom").state["state"] == "off"
+    finally:
+        await hub.stop()
+
+
+async def test_the_same_button_works_more_than_once():
+    """Der gemeldete Fall: Ein Wandtaster hat genau einmal funktioniert.
+
+    Beim zweiten Druck steht wieder «short» da – die Prüfung «hat sich
+    etwas geändert?» hat ihn verworfen. Ein Taster meldet aber Ereignisse,
+    keinen Zustand: Zweimal drücken sind zwei Ereignisse.
+    """
+    hub = await run_hub(
+        [
+            {
+                "id": "taster",
+                "alias": "Licht umschalten",
+                "trigger": [
+                    {"type": "state", "entity_id": "test.taster", "to": "short"}
+                ],
+                "action": [
+                    {
+                        "type": "command",
+                        "entity_id": "demo.light_livingroom",
+                        "command": "toggle",
+                    }
+                ],
+            }
+        ]
+    )
+    try:
+        await hub.registry.add(
+            Entity(
+                id="test.taster",
+                kind=EntityKind.BUTTON,
+                name="Wandtaster",
+                integration="test",
+                state={"state": "unknown"},
+            )
+        )
+        light = "demo.light_livingroom"
+        await hub.integrations.dispatch_command(light, "turn_off")
+        await settle()
+
+        await hub.registry.update_state("test.taster", {"state": "short", "last_press": 1.0})
+        await settle()
+        assert hub.registry.get(light).state["state"] == "on"
+
+        # Zweiter Druck auf dieselbe Taste – derselbe Wert, neuer Zeitpunkt.
+        await hub.registry.update_state("test.taster", {"state": "short", "last_press": 2.0})
+        await settle()
+        assert hub.registry.get(light).state["state"] == "off"
+
+        # Und ein dritter, damit es nicht am Zufall liegt.
+        await hub.registry.update_state("test.taster", {"state": "short", "last_press": 3.0})
+        await settle()
+        assert hub.registry.get(light).state["state"] == "on"
+    finally:
+        await hub.stop()
+
+
+async def test_an_unchanged_state_still_does_not_trigger():
+    """Die Regel bleibt, wo sie hingehört: Ein Licht, dessen Helligkeit sich
+    ändert, während es an bleibt, löst «geht an» nicht erneut aus."""
+    hub = await run_hub(
+        [
+            {
+                "id": "an",
+                "alias": "Licht ging an",
+                "trigger": [
+                    {"type": "state", "entity_id": "demo.light_livingroom", "to": "on"}
+                ],
+                "action": [
+                    {
+                        "type": "command",
+                        "entity_id": "demo.switch_coffee",
+                        "command": "turn_on",
+                    }
+                ],
+            }
+        ]
+    )
+    try:
+        await hub.integrations.dispatch_command("demo.switch_coffee", "turn_off")
+        await hub.integrations.dispatch_command(
+            "demo.light_livingroom", "turn_on", {"brightness": 40}
+        )
+        await settle()
+        await hub.integrations.dispatch_command("demo.switch_coffee", "turn_off")
+        await settle()
+        # Nur die Helligkeit ändert sich – der Zustand bleibt «on».
+        await hub.integrations.dispatch_command(
+            "demo.light_livingroom", "turn_on", {"brightness": 90}
+        )
+        await settle()
+        assert hub.registry.get("demo.switch_coffee").state["state"] == "off"
     finally:
         await hub.stop()

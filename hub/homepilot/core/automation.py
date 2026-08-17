@@ -61,6 +61,25 @@ def crosses_threshold(
     return False
 
 
+# Wandtaster melden bei jedem Druck denselben Wert – «kurz gedrückt» bleibt
+# «kurz gedrückt». Damit der zweite Druck nicht als «nichts geändert»
+# durchfällt, tragen solche Entitäten den Zeitpunkt des Drucks mit.
+PRESS_MARKER = "last_press"
+
+
+def _pressed_again(data: dict[str, Any]) -> bool:
+    """Ein neues Ereignis trotz gleichen Zustands? (rein, testbar)
+
+    Ohne das hätte ein Wandtaster genau einmal funktioniert: Beim zweiten
+    Druck auf dieselbe Taste steht wieder «short» da, und die Prüfung
+    «hat sich etwas geändert?» hätte ihn verworfen.
+    """
+    new = data.get("new_state") or {}
+    if PRESS_MARKER not in new:
+        return False
+    return (data.get("old_state") or {}).get(PRESS_MARKER) != new[PRESS_MARKER]
+
+
 @dataclass
 class Automation:
     id: str
@@ -237,7 +256,7 @@ class AutomationEngine:
         attribute = trigger.get("attribute", "state")
         old = data["old_state"].get(attribute)
         new = data["new_state"].get(attribute)
-        if old == new:
+        if old == new and not _pressed_again(data):
             return False
         if "above" in trigger or "below" in trigger:
             return crosses_threshold(old, new, trigger.get("above"), trigger.get("below"))

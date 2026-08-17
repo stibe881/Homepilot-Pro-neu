@@ -1626,7 +1626,12 @@ function TriggerRow({
       ) : null}
       <Choice
         options={[
-          { key: 'state', label: 'Gerät wechselt' },
+          // «Gerät wechselt» stimmt bei einem Taster nicht: Der wechselt
+          // nichts, er wird gedrückt.
+          {
+            key: 'state',
+            label: chosen?.kind === 'button' ? 'Taster gedrückt' : 'Gerät wechselt',
+          },
           { key: 'time', label: 'Uhrzeit' },
           { key: 'sun', label: 'Sonnenstand' },
         ]}
@@ -1680,6 +1685,12 @@ function TriggerRow({
             value={trigger.toState}
             onSelect={(toState) => onChange({ toState, attribute: '', fromState: '' })}
           />
+          {chosen?.kind === 'button' ? (
+            <Text style={styles.triggerNote}>
+              Löst bei jedem Druck aus – auch wenn dieselbe Taste mehrmals
+              hintereinander gedrückt wird.
+            </Text>
+          ) : null}
           {trigger.attribute || trigger.fromState ? (
             <Text style={styles.triggerNote}>
               Löst aus, wenn {trigger.attribute || 'der Zustand'}
