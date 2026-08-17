@@ -22,6 +22,11 @@ Zustände der Anlage:
   ``scharf`` → ``eintritt`` (Eingangsverzögerung) → ``ausgeloest``
   jederzeit zurück auf ``unscharf``
 
+Was *nach* einem Alarm passiert, wird je Modus eingestellt, weil die
+Antwort davon abhängt, ob jemand zuhause ist: ausgelöst bleiben bis
+jemand hinschaut (``stay``), sich abschalten (``disarm``) oder nach einer
+Wartezeit von selbst wieder scharf werden (``rearm``).
+
 Beim Auslösen geht eine Push-Nachricht an alle Bewohner. Soll dabei noch
 etwas geschaltet werden – etwa alle Lichter an –, gehört das in einen
 Ablauf: Die Anlage ist eine Entität, ihr Zustand ``ausgeloest`` lässt sich
@@ -66,6 +71,49 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # Wie viele Ereignisse der Verlauf behält.
     "history_limit": 50,
 }
+
+# Was nach einem Alarm passiert. Je Modus einstellbar, weil die Antwort
+# unterschiedlich ausfällt: Nachts ist man da und schaltet selbst ab, im
+# Urlaub ist niemand da, der das täte.
+STAY = "stay"  # ausgelöst bleiben, bis jemand von Hand unscharf schaltet
+DISARM = "disarm"  # sofort abschalten – gemeldet ist gemeldet
+REARM = "rearm"  # nach einer Wartezeit wieder scharf
+AFTER_ACTIONS = (STAY, DISARM, REARM)
+
+# Fünf Minuten: lang genug, dass der Einbrecher nicht sofort den nächsten
+# Alarm auslöst, kurz genug, dass das Haus bald wieder wach ist.
+DEFAULT_AFTER: dict[str, Any] = {"action": STAY, "after": 300}
+
+
+def parse_after(
+    raw: Any, base: dict[str, dict[str, Any]] | None = None
+) -> dict[str, dict[str, Any]]:
+    """Nachverhalten je Modus einlesen (rein, testbar).
+
+    Was fehlt oder unsinnig ist, bleibt auf ``base`` – beim Laden also auf
+    ``stay``: Die Anlage bleibt ausgelöst, bis jemand hinschaut, und nichts
+    schaltet sich unbemerkt ab. Beim Speichern ist ``base`` der bisherige
+    Stand, damit die App nur den Modus schicken muss, den sie geändert hat.
+    """
+    result = {
+        mode: {**DEFAULT_AFTER, **((base or {}).get(mode) or {})} for mode in MODES
+    }
+    if not isinstance(raw, dict):
+        return result
+    for mode, entry in raw.items():
+        if mode not in MODES or not isinstance(entry, dict):
+            continue
+        action = str(entry.get("action") or "")
+        if action in AFTER_ACTIONS:
+            result[mode]["action"] = action
+        try:
+            after = int(entry.get("after"))
+        except (TypeError, ValueError):
+            continue
+        # Untergrenze, damit eine 0 nicht zur Dauerschleife aus Alarm und
+        # sofortigem Wiederscharfschalten wird.
+        result[mode]["after"] = max(10, after)
+    return result
 
 def is_sensor(entity: Entity) -> bool:
     """Taugt diese Entität als Alarmsensor? (rein, testbar)
@@ -145,12 +193,16 @@ class AlarmIntegration(Integration):
         self._mode: str | None = None
         # Zeitpunkt, an dem die laufende Verzögerung abläuft.
         self._until: float | None = None
+        # Was am Ende dieser Verzögerung passiert – die App beschriftet den
+        # Countdown damit, sonst stünde bei jeder Wartezeit dasselbe da.
+        self._next: str | None = None
         self._last: dict[str, Any] | None = None
 
         stored = self.hub.data.get("alarm")
         config = stored[0] if stored else {}
         self._sensors = parse_sensors(config.get("sensors"))
         self._settings = {**DEFAULT_SETTINGS, **(config.get("settings") or {})}
+        self._after_trigger = parse_after(config.get("after_trigger"))
         self._history: list[dict[str, Any]] = list(config.get("history") or [])
 
         self._entity = await self.add_entity(
@@ -191,6 +243,7 @@ class AlarmIntegration(Integration):
             "seconds_left": (
                 max(0, round(self._until - time.time())) if self._until else None
             ),
+            "next_action": self._next,
             "last_trigger": self._last,
         }
 
@@ -244,10 +297,12 @@ class AlarmIntegration(Integration):
         if delay > 0:
             self._state = ARMING
             self._until = time.time() + delay
+            self._next = "arm"
             self._timer = asyncio.create_task(self._after(delay, self._finish_arming))
         else:
             self._state = ARMED
             self._until = None
+            self._next = None
         await self._publish()
         self._note("armed", f"{MODE_LABELS[mode]} scharf geschaltet", by)
         if self._settings.get("notify_arming"):
@@ -262,6 +317,7 @@ class AlarmIntegration(Integration):
         self._state = DISARMED
         self._mode = None
         self._until = None
+        self._next = None
         await self._publish()
         self._note("disarmed", "Unscharf geschaltet", by)
         if self._settings.get("notify_arming") and was != DISARMED:
@@ -271,6 +327,7 @@ class AlarmIntegration(Integration):
     async def _finish_arming(self) -> None:
         self._state = ARMED
         self._until = None
+        self._next = None
         await self._publish()
 
     async def _after(self, delay: float, action: Any) -> None:
@@ -303,6 +360,7 @@ class AlarmIntegration(Integration):
             self._cancel_timer()
             self._state = ENTRY
             self._until = time.time() + delay
+            self._next = "trigger"
             self._timer = asyncio.create_task(
                 self._after(delay, lambda: self._trigger(entity))
             )
@@ -314,13 +372,15 @@ class AlarmIntegration(Integration):
 
     async def _trigger(self, entity: Entity) -> None:
         self._cancel_timer()
+        mode = self._mode
         self._state = TRIGGERED
         self._until = None
+        self._next = None
         self._last = {
             "entity_id": entity.id,
             "name": entity.name,
             "at": time.time(),
-            "mode": self._mode,
+            "mode": mode,
         }
         await self._publish()
         self._note("triggered", f"Alarm ausgelöst: {entity.name}", "")
@@ -328,8 +388,54 @@ class AlarmIntegration(Integration):
         if self._settings.get("notify_trigger"):
             await self._notify(
                 "🚨 Alarm ausgelöst",
-                f"{entity.name} – Modus {MODE_LABELS.get(self._mode or '', '?')}",
+                f"{entity.name} – Modus {MODE_LABELS.get(mode or '', '?')}",
             )
+
+        await self._apply_after(mode)
+
+    async def _apply_after(self, mode: str | None) -> None:
+        """Das Nachverhalten des Modus ausführen.
+
+        Erst melden, dann handeln – in dieser Reihenfolge, damit die
+        Push-Nachricht auch dann draussen ist, wenn die Anlage sich gleich
+        darauf selbst abschaltet.
+        """
+        plan = self._after_trigger.get(mode or "", DEFAULT_AFTER)
+        action = plan.get("action")
+        if action == DISARM:
+            await self.disarm(by="automatisch")
+            return
+        if action != REARM:
+            # STAY: ausgelöst bleiben, bis jemand von Hand unscharf schaltet.
+            return
+        seconds = float(plan.get("after") or DEFAULT_AFTER["after"])
+        self._until = time.time() + seconds
+        self._next = "rearm"
+        self._timer = asyncio.create_task(self._after(seconds, self._rearm))
+        await self._publish()
+
+    async def _rearm(self) -> None:
+        """Nach dem Alarm wieder scharf, im selben Modus.
+
+        Ohne Ausgangsverzögerung und ohne Bereitschaftsprüfung: Es geht ja
+        niemand hinaus, und ein Einbruch lässt die Tür offen stehen – würde
+        die Anlage sich deswegen weigern, bliebe das Haus ungeschützt. Was
+        noch offen ist, steht stattdessen im Verlauf.
+        """
+        mode = self._mode
+        if mode is None:
+            return
+        self._state = ARMED
+        self._until = None
+        self._next = None
+        await self._publish()
+        still_open = [entity.name for entity in self.open_sensors(mode)]
+        text = f"Wieder scharf geschaltet ({MODE_LABELS[mode]})"
+        if still_open:
+            text += " – noch offen: " + ", ".join(still_open)
+        self._note("armed", text, "automatisch")
+        if self._settings.get("notify_arming"):
+            await self._notify("Alarmanlage wieder scharf", text)
 
     async def _notify(self, title: str, body: str) -> None:
         tokens = self.hub.push.recipients(self.hub.users.users, "all")
@@ -356,6 +462,9 @@ class AlarmIntegration(Integration):
                 for entity_id, entry in self._sensors.items()
             ],
             "settings": dict(self._settings),
+            "after_trigger": {
+                mode: dict(entry) for mode, entry in self._after_trigger.items()
+            },
         }
 
     def _save(self) -> None:
@@ -367,6 +476,8 @@ class AlarmIntegration(Integration):
             self._sensors = parse_sensors(patch["sensors"])
         if "settings" in patch:
             self._settings = {**self._settings, **(patch["settings"] or {})}
+        if "after_trigger" in patch:
+            self._after_trigger = parse_after(patch["after_trigger"], self._after_trigger)
         self._save()
         await self._publish()
 

@@ -36,13 +36,21 @@ interface AlarmState {
   mode?: string | null;
   mode_label?: string;
   seconds_left?: number | null;
+  /** Was am Ende des Countdowns passiert: 'arm' | 'trigger' | 'rearm'. */
+  next_action?: string | null;
   last_trigger?: { name: string; at: number; mode?: string } | null;
+}
+
+interface After {
+  action: string;
+  after: number;
 }
 
 interface Overview {
   state: AlarmState;
   sensors: Sensor[];
   settings: Record<string, any>;
+  after_trigger: Record<string, After>;
   history: { kind: string; text: string; by?: string; at: number }[];
   candidates: Candidate[];
 }
@@ -69,6 +77,25 @@ export function stateLook(
       return { text: 'Alarm ausgelöst', color: colors.danger };
     default:
       return { text: 'Unscharf', color: colors.inkSoft };
+  }
+}
+
+/** Beschriftung des laufenden Countdowns (rein, testbar).
+ *
+ * Ohne das stünde bei jeder Wartezeit dasselbe da – und «noch 240
+ * Sekunden» beim ausgelösten Alarm liest sich sonst wie eine Frist zum
+ * Unscharfschalten, obwohl die Anlage gleich wieder scharf wird. */
+export function countdownText(state: AlarmState): string | null {
+  const left = state.seconds_left;
+  if (left == null) return null;
+  const time = left >= 90 ? `${Math.round(left / 60)} Minuten` : `${left} Sekunden`;
+  switch (state.next_action) {
+    case 'rearm':
+      return `Wieder scharf in ${time}`;
+    case 'trigger':
+      return `Alarm in ${time} – jetzt unscharf schalten`;
+    default:
+      return `noch ${time}`;
   }
 }
 
@@ -116,9 +143,12 @@ export function AlarmScreen({ settings }: { settings: HubSettings }) {
   useEffect(() => {
     const running =
       data?.state.state === 'scharfschaltend' || data?.state.state === 'eintritt';
-    const timer = setInterval(load, running ? 1000 : 15000);
+    // Die Wartezeit bis zum Wiederscharfschalten dauert Minuten – da reicht
+    // ein gemächlicherer Takt als bei den Verzögerungen von Sekunden.
+    const waiting = data?.state.next_action === 'rearm';
+    const timer = setInterval(load, running ? 1000 : waiting ? 5000 : 15000);
     return () => clearInterval(timer);
-  }, [load, data?.state.state]);
+  }, [load, data?.state.state, data?.state.next_action]);
 
   const save = async (patch: Record<string, any>) => {
     // Sofort im Bild nachziehen, damit das Antippen nicht hakt.
@@ -218,10 +248,8 @@ export function AlarmScreen({ settings }: { settings: HubSettings }) {
           <View style={[styles.lamp, { backgroundColor: look.color }]} />
           <View style={{ flex: 1 }}>
             <Text style={styles.heading}>{look.text}</Text>
-            {data.state.seconds_left != null ? (
-              <Text style={styles.rowDetail}>
-                noch {data.state.seconds_left} Sekunden
-              </Text>
+            {countdownText(data.state) != null ? (
+              <Text style={styles.rowDetail}>{countdownText(data.state)}</Text>
             ) : data.state.last_trigger ? (
               <Text style={styles.rowDetail}>
                 Zuletzt ausgelöst: {data.state.last_trigger.name}
@@ -408,6 +436,21 @@ export function AlarmScreen({ settings }: { settings: HubSettings }) {
         </Text>
       </Card>
 
+      <AfterTrigger
+        after={data.after_trigger ?? {}}
+        onSave={(mode, patch) => {
+          const current = data.after_trigger ?? {};
+          // Ganze Karte schicken, nicht nur den einen Modus: Sonst zeigt die
+          // Anzeige bis zum nächsten Laden für die anderen Modi Vorgaben an.
+          save({
+            after_trigger: {
+              ...current,
+              [mode]: { ...(current[mode] ?? { action: 'stay', after: 300 }), ...patch },
+            },
+          });
+        }}
+      />
+
       <AlarmSettings settings={data.settings} onSave={(next) => save({ settings: next })} />
 
       {data.history.length > 0 ? (
@@ -444,6 +487,109 @@ export function AlarmScreen({ settings }: { settings: HubSettings }) {
           ))}
         </Card>
       ) : null}
+    </View>
+  );
+}
+
+const AFTER_CHOICES = [
+  { key: 'stay', label: 'Ausgelöst bleiben' },
+  { key: 'disarm', label: 'Abschalten' },
+  { key: 'rearm', label: 'Wieder scharf' },
+];
+
+/** Was nach einem Alarm passiert – je Modus einzeln.
+ *
+ * Eigene Komponente auf Modulebene, damit das Zahlenfeld beim Tippen nicht
+ * neu montiert wird. */
+function AfterTrigger({
+  after,
+  onSave,
+}: {
+  after: Record<string, After>;
+  onSave: (mode: string, patch: Partial<After>) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+
+  return (
+    <Card style={styles.card}>
+      <Text style={styles.heading}>Nach einem Alarm</Text>
+      <Text style={styles.hint}>
+        Was soll die Anlage tun, nachdem sie ausgelöst und alle benachrichtigt
+        hat? Das lässt sich je Modus getrennt einstellen, weil es davon
+        abhängt, ob jemand zuhause ist: Nachts schaltet man selbst ab, im
+        Urlaub tut das niemand.
+      </Text>
+
+      {MODES.map((mode) => {
+        const entry = after[mode.key] ?? { action: 'stay', after: 300 };
+        return (
+          <View key={mode.key} style={styles.afterBlock}>
+            <View style={styles.afterHead}>
+              <Ionicons name={mode.icon} size={18} color={colors.inkSoft} />
+              <Text style={styles.groupTitle}>{mode.label}</Text>
+            </View>
+            <View style={styles.chipRow}>
+              {AFTER_CHOICES.map((choice) => {
+                const on = entry.action === choice.key;
+                return (
+                  <Pressable
+                    key={choice.key}
+                    onPress={() => onSave(mode.key, { action: choice.key })}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: on }}
+                    style={[styles.chip, on && styles.chipOn]}
+                  >
+                    <Text style={[styles.chipText, on && { color: '#FFFFFF' }]}>
+                      {choice.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            {entry.action === 'rearm' ? (
+              <RearmMinutes
+                seconds={entry.after}
+                onCommit={(seconds) => onSave(mode.key, { after: seconds })}
+              />
+            ) : null}
+          </View>
+        );
+      })}
+
+      <Text style={styles.hint}>
+        «Ausgelöst bleiben» wartet, bis jemand von Hand unscharf schaltet –
+        nichts schaltet sich unbemerkt ab. «Abschalten» meldet den Alarm und
+        macht danach still. «Wieder scharf» wacht nach der Wartezeit von
+        selbst weiter, auch wenn die aufgebrochene Tür noch offen steht; was
+        offen ist, steht dann im Verlauf.
+      </Text>
+    </Card>
+  );
+}
+
+/** Wartezeit in Minuten – Sekunden wären hier eine Zumutung. */
+function RearmMinutes({
+  seconds,
+  onCommit,
+}: {
+  seconds: number;
+  onCommit: (seconds: number) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [text, setText] = useState(String(Math.max(1, Math.round(seconds / 60))));
+
+  return (
+    <View style={styles.field}>
+      <Text style={styles.label}>Wieder scharf nach (Minuten)</Text>
+      <TextInput
+        style={styles.input}
+        value={text}
+        onChangeText={setText}
+        onBlur={() => onCommit(Math.max(1, Number(text) || 5) * 60)}
+        keyboardType="number-pad"
+      />
     </View>
   );
 }
@@ -607,6 +753,13 @@ const makeStyles = (colors: Colors) =>
     force: { alignItems: 'center', paddingVertical: 10 },
     forceText: { color: colors.danger, fontSize: 14, fontWeight: '700' },
 
+    afterBlock: {
+      gap: 8,
+      paddingVertical: 10,
+      borderTopWidth: 1,
+      borderTopColor: colors.surfaceBorder,
+    },
+    afterHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     group: { gap: 8 },
     groupTitle: { color: colors.inkSoft, fontSize: 13, fontWeight: '700', marginTop: 6 },
     sensor: {

@@ -17,11 +17,15 @@ from homepilot.core.hub import Hub
 from homepilot.integrations.alarm import (
     ARMED,
     ARMING,
+    DISARM,
     DISARMED,
     ENTRY,
+    REARM,
+    STAY,
     TRIGGERED,
     guards,
     is_sensor,
+    parse_after,
     parse_sensors,
     sensor_open,
 )
@@ -371,3 +375,144 @@ def test_camera_motion_triggers_the_alarm(tmp_path):
     state = asyncio.run(run())
     assert state["state"] == TRIGGERED
     assert state["last_trigger"]["entity_id"] == "test.kamera"
+
+
+# ── Nachverhalten je Modus ─────────────────────────────────────────────────
+
+
+def test_parse_after_falls_back_to_staying_triggered():
+    """Ohne oder mit unsinniger Angabe bleibt die Anlage ausgelöst – die
+    Variante, bei der sich nichts unbemerkt abschaltet."""
+    result = parse_after(None)
+    assert set(result) == {"nacht", "ausser_haus", "urlaub"}
+    assert all(entry["action"] == STAY for entry in result.values())
+    assert parse_after({"nacht": {"action": "quatsch"}})["nacht"]["action"] == STAY
+
+
+def test_parse_after_keeps_the_other_modes_untouched():
+    """Die App schickt nur den Modus, den sie geändert hat."""
+    base = parse_after({"nacht": {"action": DISARM}, "urlaub": {"action": REARM}})
+    result = parse_after({"urlaub": {"after": 600}}, base)
+    assert result["nacht"]["action"] == DISARM
+    assert result["urlaub"] == {"action": REARM, "after": 600}
+
+
+def test_parse_after_refuses_an_instant_rearm():
+    """Sonst wäre es eine Schleife aus Alarm und sofortigem Wiederscharf."""
+    assert parse_after({"nacht": {"action": REARM, "after": 0}})["nacht"]["after"] == 10
+
+
+def test_stay_leaves_the_alarm_triggered(alarm_hub):
+    hub, service = alarm_hub
+
+    async def run():
+        await service.arm("ausser_haus")
+        await hub.registry.update_state("test.fenster", {"state": "on"})
+        await asyncio.sleep(0)
+
+    asyncio.run(run())
+    assert service._entity.state["state"] == TRIGGERED
+    assert service._entity.state["seconds_left"] is None
+
+
+def test_disarm_after_trigger_switches_the_alarm_off(alarm_hub):
+    hub, service = alarm_hub
+
+    async def run():
+        await service.update_config(
+            {"after_trigger": {"ausser_haus": {"action": DISARM}}}
+        )
+        await service.arm("ausser_haus")
+        await hub.registry.update_state("test.fenster", {"state": "on"})
+        await asyncio.sleep(0)
+
+    asyncio.run(run())
+    assert service._entity.state["state"] == DISARMED
+    # Gemeldet bleibt gemeldet: Der Auslöser steht weiter im Verlauf.
+    assert any(event["kind"] == "triggered" for event in service.history)
+
+
+def test_rearm_counts_down_and_arms_again(alarm_hub):
+    hub, service = alarm_hub
+
+    async def run():
+        await service.update_config(
+            {"after_trigger": {"ausser_haus": {"action": REARM, "after": 60}}}
+        )
+        await service.arm("ausser_haus")
+        await hub.registry.update_state("test.fenster", {"state": "on"})
+        await asyncio.sleep(0)
+        during = dict(service._entity.state)
+        # Statt 60 Sekunden zu warten: der Schritt, den der Timer auslöst.
+        await service._rearm()
+        return during, dict(service._entity.state)
+
+    during, after = asyncio.run(run())
+    assert during["state"] == TRIGGERED
+    assert during["next_action"] == "rearm"
+    assert during["seconds_left"] > 0
+    # Danach wacht die Anlage wieder – im selben Modus, ohne Ausgangsfrist.
+    assert after["state"] == ARMED
+    assert after["mode"] == "ausser_haus"
+    assert after["seconds_left"] is None
+
+
+def test_rearm_notes_what_is_still_open(alarm_hub):
+    """Ein Einbruch lässt die Tür offen stehen. Die Anlage schaltet
+    trotzdem wieder scharf – aber schweigt nicht darüber."""
+    hub, service = alarm_hub
+
+    async def run():
+        await service.update_config(
+            {"after_trigger": {"ausser_haus": {"action": REARM, "after": 60}}}
+        )
+        await service.arm("ausser_haus")
+        await hub.registry.update_state("test.fenster", {"state": "on"})
+        await asyncio.sleep(0)
+        await service._rearm()
+
+    asyncio.run(run())
+    assert service._entity.state["state"] == ARMED
+    assert "test.fenster" in service.history[0]["text"]
+
+
+def test_disarming_by_hand_cancels_a_pending_rearm(alarm_hub):
+    hub, service = alarm_hub
+
+    async def run():
+        await service.update_config(
+            {"after_trigger": {"ausser_haus": {"action": REARM, "after": 60}}}
+        )
+        await service.arm("ausser_haus")
+        await hub.registry.update_state("test.fenster", {"state": "on"})
+        await asyncio.sleep(0)
+        await service.disarm()
+        await asyncio.sleep(0.05)
+
+    asyncio.run(run())
+    assert service._entity.state["state"] == DISARMED
+    assert service._entity.state["seconds_left"] is None
+
+
+def test_after_trigger_survives_a_restart(tmp_path):
+    async def first():
+        hub = make_hub(tmp_path)
+        await hub.start()
+        service = hub.integrations.get("alarm")
+        await service.update_config(
+            {"after_trigger": {"urlaub": {"action": REARM, "after": 120}}}
+        )
+        await hub.stop()
+
+    async def second():
+        hub = make_hub(tmp_path)
+        await hub.start()
+        service = hub.integrations.get("alarm")
+        config = service.config_dict()
+        await hub.stop()
+        return config
+
+    asyncio.run(first())
+    config = asyncio.run(second())
+    assert config["after_trigger"]["urlaub"] == {"action": REARM, "after": 120}
+    assert config["after_trigger"]["nacht"]["action"] == STAY
