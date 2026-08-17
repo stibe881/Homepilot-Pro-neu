@@ -323,8 +323,8 @@ energy:
 # lässt sich in der App trotzdem mit einem Tippen auf die Meldung öffnen.
 #
 # Auf Android erscheint das Bild ohne weiteres Zutun. Auf iOS braucht es
-# dafür eine Notification Service Extension im eigenen App-Build – siehe
-# docs/eigener-app-build.md.
+# einen eigenen App-Build mit der Erweiterung aus app/targets/ – die zwei
+# Angaben dafür stehen in docs/eigener-app-build.md.
 # push:
 #   public_url: https://haus.example.ch
 

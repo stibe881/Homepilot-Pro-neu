@@ -99,12 +99,56 @@ laufenden Kamera und zu nichts sonst. Ohne diesen Eintrag geht die Nachricht
 wie bisher ohne Bild raus; die Kamera öffnet sich trotzdem, wenn man die
 Meldung antippt.
 
-**2. Auf iOS eine Notification Service Extension.** Android zeigt das Bild
-ohne weiteres Zutun. iPhone und iPad zeigen die Nachricht zwar an, aber ohne
-Bild, solange dem Build kein solches Ziel beiliegt – `expo-notifications`
-bringt dafür kein Config-Plugin mit, es ist ein natives Xcode-Ziel. Die
-Anleitung steht in der Expo-Dokumentation unter «Rich notifications». Bis
-dahin gilt auf iOS: Meldung antippen, die Kamera geht auf.
+**2. Auf iOS zwei Angaben aus deinem Apple-Konto.** Android zeigt das Bild
+ohne weiteres Zutun. iOS lässt ein Bild nur von einer *Notification Service
+Extension* anhängen – einem zweiten, winzigen Programm, das das System
+zwischen dem Eintreffen der Nachricht und ihrer Anzeige laufen lässt. Die
+App selbst läuft zu diesem Zeitpunkt nicht.
+
+Dieses Ziel liegt bereits im Repo unter `app/targets/notification-image/`
+und wird beim Build automatisch mitgebaut. Was fehlt, sind die beiden
+Angaben, die nicht ins Repo gehören: Im Ordner `app/` eine Datei `.env`
+anlegen (Git ignoriert sie):
+
+```
+HOMEPILOT_IOS_BUNDLE_ID=me.deinname.homepilot
+HOMEPILOT_APPLE_TEAM_ID=ABCDE12345
+```
+
+Die Bundle-ID ist die deiner bestehenden App – **nicht raten**, sonst gilt
+der Build als andere App und verliert TestFlight und Push-Zertifikate. Die
+Team-ID steht auf <https://developer.apple.com/account> unter «Membership».
+
+Für den EAS-Build gehören dieselben zwei Werte zusätzlich in die `eas.json`,
+denn der Build läuft auf einem fremden Rechner und sieht deine `.env` nicht:
+
+```json
+{
+  "build": {
+    "production": {
+      "env": {
+        "HOMEPILOT_IOS_BUNDLE_ID": "me.deinname.homepilot",
+        "HOMEPILOT_APPLE_TEAM_ID": "ABCDE12345"
+      }
+    }
+  }
+}
+```
+
+Danach einmal `eas build --platform ios --profile production`. Ein
+`eas update` genügt hier nicht: Das Ziel ist nativ, es braucht einen neuen
+Build.
+
+Prüfen lässt sich das Ergebnis lokal ohne Xcode mit
+
+```bash
+cd app
+npx expo prebuild --platform ios --clean
+grep -c NotificationImage ios/HomePilot.xcodeproj/project.pbxproj
+```
+
+Kommt dort eine Zahl grösser 0, steckt das Ziel im Projekt. Der Ordner
+`ios/` wird erzeugt und ist von Git ausgenommen – er darf danach weg.
 
 ## Updates verteilen
 
