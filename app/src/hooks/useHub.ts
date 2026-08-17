@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 
 import { Activity, Entity, Scene, ServerMessage, User } from '../api/types';
 
@@ -196,8 +197,33 @@ export function useHub(url: string | null, token: string | null) {
     };
 
     connect();
+
+    // Rückkehr aus dem Hintergrund: Das Betriebssystem friert die Verbindung
+    // ein, ohne dass zwingend onclose feuert. Der Socket sieht danach offen
+    // aus, liefert aber nichts mehr – die App zeigt dann den Stand von vor
+    // dem Sperren. Genau das passiert, wenn eine Push-Nachricht meldet, dass
+    // die Wäsche fertig ist: Beim Öffnen läuft sie auf dem Bildschirm noch.
+    //
+    // Deshalb beim Aktivieren neu verbinden. Die erste Antwort des Hubs ist
+    // ein vollständiger Schnappschuss, damit stimmt alles wieder.
+    const appState = AppState.addEventListener('change', (next) => {
+      if (next !== 'active' || disposed) return;
+      if (retryTimer) clearTimeout(retryTimer);
+      attemptRef.current = 0;
+      if (ws === null || ws.readyState === WebSocket.CLOSED) {
+        connect();
+      } else if (ws.readyState === WebSocket.OPEN) {
+        // Schliessen statt prüfen: Ob die Verbindung noch trägt, weiss man
+        // erst, wenn nichts mehr ankommt – und dann ist es zu spät. Der
+        // onclose-Zweig verbindet gleich neu.
+        ws.close();
+      }
+      // Bei CONNECTING/CLOSING ist ohnehin schon etwas unterwegs.
+    });
+
     return () => {
       disposed = true;
+      appState.remove();
       if (retryTimer) clearTimeout(retryTimer);
       ws?.close();
       wsRef.current = null;
