@@ -33,6 +33,7 @@ from pydantic import BaseModel
 
 from ..core.config import ConfigError, load_config
 from ..core import push
+from ..core import users as users_module
 from ..core.config_edit import add_cast_device
 from ..integrations import alarm as alarm_module
 from ..core.errors import HomePilotError, UnknownEntityError, UnsupportedCommandError
@@ -114,11 +115,17 @@ class UserRequest(BaseModel):
     allow: list[str] = []
     # Freigegebene Bereiche für Gäste (Schlüssel aus GUEST_FEATURES).
     features: list[str] = []
+    expires: str | None = None
+    hours: dict[str, str] = {}
 
 
 class UserUpdateRequest(BaseModel):
     enabled: bool | None = None
     features: list[str] | None = None
+    # Ablaufdatum als "JJJJ-MM-TT"; leerer Text hebt es auf.
+    expires: str | None = None
+    # Zeitfenster {"from": "07:00", "to": "20:00"}; leer hebt es auf.
+    hours: dict[str, str] | None = None
 
 
 class ConfigRequest(BaseModel):
@@ -999,6 +1006,8 @@ def create_app(hub: Hub) -> FastAPI:
                     token=token,
                     allow=body.allow,
                     features=body.features,
+                    expires=body.expires or None,
+                    hours=users_module.parse_hours(body.hours),
                     # In der App angelegt: wird gespeichert und ist dort
                     # auch wieder löschbar.
                     editable=True,
@@ -1097,7 +1106,13 @@ def create_app(hub: Hub) -> FastAPI:
         if user.name == name and body.enabled is False:
             raise HTTPException(status_code=400, detail="Sich selbst kann man nicht sperren")
         try:
-            updated = hub.users.update(name, enabled=body.enabled, features=body.features)
+            updated = hub.users.update(
+                name,
+                enabled=body.enabled,
+                features=body.features,
+                expires=body.expires,
+                hours=body.hours,
+            )
         except HomePilotError as err:
             raise HTTPException(status_code=409, detail=str(err)) from err
         return {"user": updated.as_dict()}

@@ -14,11 +14,16 @@ ohne dass alle anderen ein neues Token brauchen.
 from __future__ import annotations
 
 import fnmatch
+import re
 import secrets
+from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Any
 
 from .errors import ConfigError
+
+
+_HHMM = re.compile(r"\d{2}:\d{2}")
 
 
 class Role:
@@ -96,6 +101,36 @@ _FEATURE_KINDS: dict[str, frozenset[str]] = {
 }
 
 
+def parse_hours(raw: Any) -> dict[str, str]:
+    """Zeitfenster einlesen (rein, testbar).
+
+    Nur vollständige Fenster zählen. Ein halbes – nur «ab 07:00» – wäre
+    mehrdeutig: bis Mitternacht oder für immer? Lieber gar keins.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    start = str(raw.get("from") or "").strip()
+    end = str(raw.get("to") or "").strip()
+    if not (_HHMM.fullmatch(start) and _HHMM.fullmatch(end)):
+        return {}
+    return {"from": start, "to": end}
+
+
+def in_hours(hours: dict[str, str], now: "datetime") -> bool:
+    """Liegt dieser Moment im Zeitfenster? (rein, testbar)
+
+    Ein Fenster über Mitternacht («22:00 bis 06:00») ist der Normalfall bei
+    Nachtruhe und wird deshalb ausdrücklich unterstützt.
+    """
+    if not hours:
+        return True
+    current = now.strftime("%H:%M")
+    start, end = hours["from"], hours["to"]
+    if start <= end:
+        return start <= current <= end
+    return current >= start or current <= end
+
+
 @dataclass
 class User:
     name: str
@@ -111,6 +146,28 @@ class User:
     enabled: bool = True
     # Freigegebene Bereiche für Gäste (Schlüssel aus GUEST_FEATURES).
     features: list[str] = field(default_factory=list)
+    # Zugang läuft ab: Datum als "JJJJ-MM-TT". Ein Wochenendgast, den man
+    # nach dem Wochenende von Hand sperren müsste, bleibt sonst für immer
+    # drin – man denkt genau einmal daran.
+    expires: str | None = None
+    # Zugang nur in diesem Zeitfenster, z.B. {"from": "07:00", "to": "20:00"}.
+    # Für Kinder gedacht: Licht im eigenen Zimmer ja, um Mitternacht nicht.
+    hours: dict[str, str] = field(default_factory=dict)
+
+    def active(self, now: "datetime | None" = None) -> bool:
+        """Darf dieser Benutzer *jetzt* herein? (rein, testbar)
+
+        Getrennt von ``enabled``: Das ist die Entscheidung eines Menschen,
+        dies hier die Uhr. Ein abgelaufener Gast bleibt in der Liste
+        sichtbar, statt spurlos zu verschwinden – sonst rätselt man, wem man
+        den Zugang gegeben hat.
+        """
+        if not self.enabled:
+            return False
+        moment = now or datetime.now()
+        if self.expires and moment.strftime("%Y-%m-%d") > self.expires:
+            return False
+        return in_hours(self.hours, moment)
 
     def can(self, capability: str) -> bool:
         return capability in CAPABILITIES.get(self.role, frozenset())
@@ -141,6 +198,9 @@ class User:
             "editable": self.editable,
             "enabled": self.enabled,
             "features": list(self.features),
+            "expires": self.expires,
+            "hours": dict(self.hours),
+            "active": self.active(),
         }
         if include_token:
             data["token"] = self.token
@@ -171,7 +231,7 @@ class UserRegistry:
             # Konstante Laufzeit, damit sich ein Token nicht erraten lässt,
             # indem man die Antwortzeit misst.
             if secrets.compare_digest(user.token, token):
-                return user if user.enabled else None
+                return user if user.active() else None
         return None
 
     def by_name(self, name: str) -> User | None:
@@ -202,6 +262,8 @@ class UserRegistry:
         name: str,
         enabled: bool | None = None,
         features: list[str] | None = None,
+        expires: str | None = None,
+        hours: dict[str, str] | None = None,
     ) -> User:
         """Gast sperren/entsperren oder Bereiche ändern – Token bleibt gleich."""
         user = self.by_name(name)
@@ -218,6 +280,10 @@ class UserRegistry:
             if unknown:
                 raise ConfigError(f"Unbekannte Bereiche: {', '.join(unknown)}")
             user.features = [str(f) for f in features]
+        if expires is not None:
+            user.expires = expires.strip() or None
+        if hours is not None:
+            user.hours = parse_hours(hours)
         self._changed()
         return user
 
@@ -231,6 +297,8 @@ class UserRegistry:
                 "allow": list(user.allow),
                 "enabled": user.enabled,
                 "features": list(user.features),
+                "expires": user.expires,
+                "hours": dict(user.hours),
             }
             for user in self._users
             if user.editable
@@ -276,6 +344,8 @@ def parse_users(raw: list[dict[str, Any]], legacy_token: str | None) -> UserRegi
                 allow=[str(a) for a in allow],
                 enabled=bool(entry.get("enabled", True)),
                 features=[str(f) for f in features],
+                expires=str(entry["expires"]) if entry.get("expires") else None,
+                hours=parse_hours(entry.get("hours")),
             )
         )
 

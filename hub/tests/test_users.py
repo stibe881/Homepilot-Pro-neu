@@ -1,7 +1,16 @@
 import pytest
 
 from homepilot.core.errors import ConfigError
-from homepilot.core.users import Capability, Role, parse_users
+from datetime import datetime, timedelta
+
+from homepilot.core.users import (
+    Capability,
+    Role,
+    User,
+    UserRegistry,
+    parse_hours,
+    parse_users,
+)
 
 
 def registry(entries, legacy=None):
@@ -193,3 +202,48 @@ def test_update_validiert_bereiche():
     assert registry.by_name("G").features == ["licht", "familie"]
     with _pytest.raises(ConfigError):
         registry.update("G", features=["quatsch"])
+
+
+def test_an_expired_guest_is_no_longer_let_in():
+    """Ein Wochenendgast, den man von Hand sperren müsste, bleibt sonst für
+    immer drin – daran denkt man genau einmal."""
+    gestern = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    morgen = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+    abgelaufen = User(name="Gast", role=Role.GUEST, token="t", expires=gestern)
+    gueltig = User(name="Gast2", role=Role.GUEST, token="t2", expires=morgen)
+    assert abgelaufen.active() is False
+    assert gueltig.active() is True
+
+    registry = UserRegistry([abgelaufen, gueltig])
+    assert registry.by_token("t") is None
+    assert registry.by_token("t2") is not None
+    # Sichtbar bleibt er trotzdem – sonst rätselt man, wem man Zugang gab.
+    assert len(registry.users) == 2
+
+
+def test_a_time_window_limits_when_someone_may_control():
+    kind = User(
+        name="Levin", role=Role.RESIDENT, token="t", hours={"from": "07:00", "to": "20:00"}
+    )
+    assert kind.active(datetime(2026, 8, 17, 12, 0)) is True
+    assert kind.active(datetime(2026, 8, 17, 6, 59)) is False
+    assert kind.active(datetime(2026, 8, 17, 23, 30)) is False
+
+
+def test_a_window_across_midnight_works():
+    """Nachtruhe ist der Normalfall für so ein Fenster – 22:00 bis 06:00
+    darf nicht als leere Menge gelesen werden."""
+    nacht = User(
+        name="Nacht", role=Role.RESIDENT, token="t", hours={"from": "22:00", "to": "06:00"}
+    )
+    assert nacht.active(datetime(2026, 8, 17, 23, 0)) is True
+    assert nacht.active(datetime(2026, 8, 17, 3, 0)) is True
+    assert nacht.active(datetime(2026, 8, 17, 12, 0)) is False
+
+
+def test_half_a_window_is_no_window():
+    """«ab 07:00» allein ist mehrdeutig: bis Mitternacht oder für immer?"""
+    assert parse_hours({"from": "07:00"}) == {}
+    assert parse_hours({"from": "07:00", "to": "quatsch"}) == {}
+    assert parse_hours({"from": "07:00", "to": "20:00"}) == {"from": "07:00", "to": "20:00"}
+    assert parse_hours(None) == {}

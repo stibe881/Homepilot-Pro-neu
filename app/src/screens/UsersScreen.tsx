@@ -50,6 +50,12 @@ interface HubUser {
   editable: boolean;
   enabled?: boolean;
   features?: string[];
+  /** Zugang läuft an diesem Tag ab (JJJJ-MM-TT). */
+  expires?: string | null;
+  /** Zugang nur in diesem Fenster, z.B. {from: '07:00', to: '20:00'}. */
+  hours?: { from?: string; to?: string };
+  /** Darf diese Person gerade herein? Rechnet Ablauf und Fenster mit. */
+  active?: boolean;
 }
 
 interface Props {
@@ -58,6 +64,75 @@ interface Props {
 }
 
 /** Mehrfach-Auswahl der Gast-Bereiche als Chips. */
+/** Ablaufdatum und Zeitfenster eines Zugangs.
+ *
+ * Zwei Fälle, die im Alltag wirklich vorkommen: Der Wochenendgast, den man
+ * sonst von Hand sperren müsste – daran denkt man genau einmal –, und das
+ * Kind, das nachts um zwei kein Licht mehr schalten soll.
+ *
+ * Bewusst als Text statt Datumswähler: Ein Wähler auf einem Wandpanel ist
+ * mehr Aufwand als «2026-08-24» zu tippen, und das Format ist eindeutig. */
+function AccessLimits({
+  detail,
+  styles,
+  colors,
+  onChange,
+}: {
+  detail: { expires?: string | null; hours?: { from?: string; to?: string }; active?: boolean };
+  styles: any;
+  colors: Colors;
+  onChange: (patch: Record<string, any>) => void;
+}) {
+  const [expires, setExpires] = useState(detail.expires ?? '');
+  const [from, setFrom] = useState(detail.hours?.from ?? '');
+  const [to, setTo] = useState(detail.hours?.to ?? '');
+
+  return (
+    <>
+      <Text style={styles.formLabel}>Zugang läuft ab (optional)</Text>
+      <TextInput
+        style={styles.input}
+        value={expires}
+        onChangeText={setExpires}
+        onBlur={() => onChange({ expires: expires.trim() })}
+        placeholder="JJJJ-MM-TT, z.B. 2026-08-24"
+        placeholderTextColor={colors.inkFaint}
+        autoCapitalize="none"
+      />
+
+      <Text style={styles.formLabel}>Nur zwischen (optional)</Text>
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <TextInput
+          style={[styles.input, { flex: 1 }]}
+          value={from}
+          onChangeText={setFrom}
+          onBlur={() => onChange({ hours: { from: from.trim(), to: to.trim() } })}
+          placeholder="07:00"
+          placeholderTextColor={colors.inkFaint}
+        />
+        <TextInput
+          style={[styles.input, { flex: 1 }]}
+          value={to}
+          onChangeText={setTo}
+          onBlur={() => onChange({ hours: { from: from.trim(), to: to.trim() } })}
+          placeholder="20:00"
+          placeholderTextColor={colors.inkFaint}
+        />
+      </View>
+      <Text style={styles.qrHint}>
+        Ausserhalb des Fensters ist die Anmeldung gesperrt; ein Fenster über
+        Mitternacht (22:00 bis 06:00) geht auch. Beides leer lassen heisst
+        unbegrenzt.
+      </Text>
+      {detail.active === false ? (
+        <Text style={styles.disabledNote}>
+          Gerade kein Zugang – abgelaufen oder ausserhalb des Zeitfensters.
+        </Text>
+      ) : null}
+    </>
+  );
+}
+
 function FeatureChips({
   selected,
   onToggle,
@@ -355,6 +430,15 @@ export function UsersScreen({ settings, currentUser }: Props) {
                       </Text>
                     </>
                   )}
+
+                  {detail.editable ? (
+                    <AccessLimits
+                      detail={detail}
+                      styles={styles}
+                      colors={colors}
+                      onChange={(patch) => patchUser(detail.name, patch)}
+                    />
+                  ) : null}
 
                   {detail.editable && detail.role === 'gast' ? (
                     <>
