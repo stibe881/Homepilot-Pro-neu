@@ -8,6 +8,8 @@ from homepilot.integrations.homematic import (
     HomematicIntegration,
     command_error,
     command_to_value,
+    describe_channels,
+    group_by_device,
     is_timeout,
     power_to_state,
     press_to_state,
@@ -349,3 +351,28 @@ async def test_a_button_press_arrives_as_state(hub):
         assert hub.registry.get(entity_id).state["last_press"] >= first
     finally:
         await integration.teardown()
+
+
+def test_group_by_device_puts_a_devices_channels_together():
+    """Nach Kanalart sortiert war die Liste beim Einrichten unbrauchbar –
+    bei über hundert Tastenkanälen fiel das gesuchte Gerät hinten heraus."""
+    channels = {
+        "00085F299F4355:0": "MAINTENANCE",
+        "00085F299F4355:4": "SWITCH_VIRTUAL_RECEIVER",
+        "00085F299F4355:1": "KEY_TRANSCEIVER",
+        "00085F299F4355:2": "KEY_TRANSCEIVER",
+        "000C18A98B90E7:1": "PRESENCEDETECTOR_TRANSCEIVER",
+    }
+    grouped = group_by_device(channels)
+    assert set(grouped) == {"00085F299F4355", "000C18A98B90E7"}
+    # Nach Kanalnummer, nicht nach Text – sonst käme 10 vor 2.
+    assert describe_channels(grouped["00085F299F4355"]) == (
+        "0 MAINTENANCE, 1 KEY_TRANSCEIVER, 2 KEY_TRANSCEIVER, "
+        "4 SWITCH_VIRTUAL_RECEIVER"
+    )
+
+
+def test_group_by_device_survives_odd_addresses():
+    grouped = group_by_device({"OHNEKANAL": "MAINTENANCE", "ABC:x": "KEY_TRANSCEIVER"})
+    assert describe_channels(grouped["OHNEKANAL"]) == "0 MAINTENANCE"
+    assert describe_channels(grouped["ABC"]) == "0 KEY_TRANSCEIVER"

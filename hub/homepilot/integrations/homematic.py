@@ -144,6 +144,28 @@ SWITCHING_TYPES = frozenset(
 )
 
 
+def group_by_device(channels: dict[str, str]) -> dict[str, list[tuple[int, str]]]:
+    """Kanäle nach Gerät bündeln (rein, testbar).
+
+    Nach Kanalart gruppiert war die Liste beim Einrichten unbrauchbar: Wer
+    ein Gerät eintragen will, braucht dessen Kanäle beisammen – und bei über
+    hundert Tastenkanälen im Haus fiel genau das gesuchte hinten heraus.
+    """
+    devices: dict[str, list[tuple[int, str]]] = {}
+    for address, kind in channels.items():
+        serial, _, channel = address.partition(":")
+        number = int(channel) if channel.isdigit() else 0
+        devices.setdefault(serial, []).append((number, kind or "UNBEKANNT"))
+    for entries in devices.values():
+        entries.sort()
+    return devices
+
+
+def describe_channels(entries: list[tuple[int, str]]) -> str:
+    """Die Kanäle eines Geräts als eine Zeile (rein, testbar)."""
+    return ", ".join(f"{number} {kind}" for number, kind in entries)
+
+
 def switch_channel(address: str, channels: dict[str, str]) -> str | None:
     """Der Kanal desselben Geräts, auf dem geschaltet wird (rein, testbar).
 
@@ -472,23 +494,24 @@ class HomematicIntegration(Integration):
                 ", ".join(sorted(missing)),
             )
 
-        by_type: dict[str, list[str]] = {}
-        for address, kind in channels.items():
-            by_type.setdefault(kind or "UNBEKANNT", []).append(address)
-
+        by_device = group_by_device(channels)
         self.log.info(
-            "CCU (Port %s) meldet %d Kanäle über %d Kanalarten (eine Log-Zeile je Art):",
+            "CCU (Port %s) meldet %d Kanäle an %d Geräten (eine Log-Zeile je Gerät):",
             port,
             len(channels),
-            len(by_type),
+            len(by_device),
         )
-        for kind in sorted(by_type):
-            addresses = sorted(by_type[kind])
-            shown = ", ".join(addresses[:30])
-            rest = len(addresses) - 30
-            if rest > 0:
-                shown += f", … und {rest} weitere"
-            self.log.info("  %s (%d): %s", kind, len(addresses), shown)
+        for serial in sorted(by_device):
+            self.log.info("  %s: %s", serial, describe_channels(by_device[serial]))
+        self.log.info(
+            "  Zum Eintragen: %s → kind: button, %s → kind: switch/light, "
+            "%s → kind: binary_sensor (mit passendem datapoint), "
+            "%s → power_address.",
+            "KEY_TRANSCEIVER",
+            "SWITCH_VIRTUAL_RECEIVER",
+            "MOTIONDETECTOR/PRESENCEDETECTOR/SMOKE_DETECTOR",
+            "ENERGIE_METER_TRANSMITTER",
+        )
         return channels
 
     def _use_switch_channels(self, port: int, channels: dict[str, str]) -> None:
