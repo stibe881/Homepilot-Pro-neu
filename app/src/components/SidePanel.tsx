@@ -1,10 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Activity, Entity } from '../api/types';
 import { Colors, radius, type, useColors } from '../theme';
+import { Bar } from './Bar';
 import { Card } from './Card';
+import { ShuffleRepeat, SpotifyPanel } from './EntityCard';
 
 function severityColor(colors: Colors, severity: string): string {
   return severity === 'Extreme' || severity === 'Severe' ? colors.danger : colors.warn;
@@ -17,9 +19,12 @@ function severityColor(colors: Colors, severity: string): string {
 export function SidePanel({
   entities,
   width,
+  onCommand,
 }: {
   entities: Entity[];
   width?: number;
+  /** Für den Player – ohne ihn bleibt er weg statt tot dazustehen. */
+  onCommand?: (entityId: string, command: string, data?: Record<string, any>) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -27,12 +32,113 @@ export function SidePanel({
   const alert = entities.find((entity) => entity.kind === 'alert');
   // Warnung nur zeigen, wenn es wirklich eine gibt (für den gewählten Ort).
   const hasAlert = alert && (alert.state.count ?? 0) > 0;
+  const player = pickPlayer(entities);
 
   return (
     <View style={[styles.column, width ? { width } : { flex: 1 }]}>
       {weather ? <WeatherPanel entity={weather} /> : null}
+      {player && onCommand ? (
+        <MediaPanel entity={player} onCommand={onCommand} />
+      ) : null}
       {hasAlert ? <AlertPanel entity={alert!} /> : null}
     </View>
+  );
+}
+
+/** Welcher Player gehört auf die Startseite? (rein, testbar)
+ *
+ * Spielt irgendwo Musik, ist es dieser; sonst Spotify mit Playlists und
+ * Boxenwahl vor einer stillen Cast-Box. */
+export function pickPlayer(entities: Entity[]): Entity | undefined {
+  const players = entities.filter((entity) => entity.kind === 'media_player');
+  return (
+    players.find((entity) => entity.state.state === 'playing') ??
+    players.find((entity) => entity.commands.includes('play_playlist')) ??
+    players[0]
+  );
+}
+
+/** Der Player – unter dem Wetter, weil er dort die volle Spaltenbreite hat.
+ *
+ * In der Kachelreihe der Startseite zwang der Spotify-Bereich die
+ * Nachbarkacheln auf seine Höhe; hier stört er niemanden. */
+function MediaPanel({
+  entity,
+  onCommand,
+}: {
+  entity: Entity;
+  onCommand: (entityId: string, command: string, data?: Record<string, any>) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const playing = entity.state.state === 'playing';
+  const command = (name: string, data?: Record<string, any>) =>
+    onCommand(entity.id, name, data);
+
+  return (
+    <Card style={styles.mediaCard}>
+      <View style={styles.mediaHead}>
+        <Ionicons name="musical-notes-outline" size={18} color={colors.inkSoft} />
+        <Text style={styles.heading}>Musik</Text>
+      </View>
+      <Text style={styles.mediaTrack} numberOfLines={1}>
+        {entity.state.track ?? 'Nichts läuft'}
+      </Text>
+      {entity.state.artist ? (
+        <Text style={styles.mediaArtist} numberOfLines={1}>
+          {entity.state.artist}
+        </Text>
+      ) : null}
+
+      <View style={styles.mediaButtons}>
+        <Pressable
+          onPress={() => command(playing ? 'pause' : 'play')}
+          accessibilityRole="button"
+          accessibilityLabel={playing ? 'Pause' : 'Abspielen'}
+          style={styles.playButton}
+        >
+          <Ionicons name={playing ? 'pause' : 'play'} size={18} color={colors.ink} />
+        </Pressable>
+        {entity.commands.includes('next') ? (
+          <Pressable
+            onPress={() => command('next')}
+            accessibilityRole="button"
+            accessibilityLabel="Nächster Titel"
+            style={styles.playButton}
+          >
+            <Ionicons name="play-skip-forward" size={18} color={colors.ink} />
+          </Pressable>
+        ) : null}
+      </View>
+
+      <ShuffleRepeat entity={entity} onCommand={(name, data) => command(name, data)} />
+
+      {entity.commands.includes('set_volume') ? (
+        <View style={styles.volumeRow}>
+          <Ionicons
+            name={
+              entity.state.muted || entity.state.volume === 0
+                ? 'volume-mute'
+                : 'volume-low'
+            }
+            size={18}
+            color={colors.inkSoft}
+          />
+          <View style={{ flex: 1 }}>
+            <Bar
+              height={26}
+              value={typeof entity.state.volume === 'number' ? entity.state.volume : 0}
+              onChange={(value) => command('set_volume', { volume: value })}
+            />
+          </View>
+          <Ionicons name="volume-high" size={18} color={colors.inkSoft} />
+        </View>
+      ) : null}
+
+      {entity.commands.includes('play_playlist') ? (
+        <SpotifyPanel entity={entity} onCommand={(name, data) => command(name, data)} />
+      ) : null}
+    </Card>
   );
 }
 
@@ -183,6 +289,22 @@ function AlertPanel({ entity }: { entity: Entity }) {
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
   column: { gap: 14 },
+  mediaCard: { gap: 8, minHeight: 0 },
+  mediaHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  mediaTrack: { color: colors.ink, fontSize: 16, fontWeight: '600' },
+  mediaArtist: { color: colors.inkSoft, fontSize: 13 },
+  mediaButtons: { flexDirection: 'row', gap: 8, marginTop: 2 },
+  playButton: {
+    width: 40,
+    height: 34,
+    borderRadius: radius.control,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceStrong,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  volumeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   alertCard: { gap: 12, minHeight: 0 },
   activityCard: { gap: 12, minHeight: 0, flexShrink: 1 },
   alertHead: {

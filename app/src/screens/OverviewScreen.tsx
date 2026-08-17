@@ -3,8 +3,6 @@ import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Entity, Scene } from '../api/types';
-import { Bar } from '../components/Bar';
-import { ShuffleRepeat, SpotifyPanel } from '../components/EntityCard';
 import { Card } from '../components/Card';
 import { Colors, radius, space, useColors } from '../theme';
 
@@ -102,13 +100,6 @@ export function OverviewScreen({
   const alarm =
     entities.find((e) => e.kind === 'alarm') ??
     entities.find((e) => /alarm/i.test(e.name) && e.kind === 'switch');
-  const players = entities.filter((e) => e.kind === 'media_player');
-  // Spielt irgendwo Musik, zeigt die Kachel diesen Player; sonst Spotify
-  // (Playlists + Boxen-Wahl) vor einer stillen Cast-Box.
-  const player =
-    players.find((e) => e.state.state === 'playing') ??
-    players.find((e) => e.commands.includes('play_playlist')) ??
-    players[0];
   const covers = entities.filter((e) => e.kind === 'cover');
 
   // Schnellaktionen: alle im Szenen-Editor für die Startseite markierten
@@ -375,95 +366,6 @@ export function OverviewScreen({
           </Tile>
         ) : null}
       </View>
-      {/* Musik steht in einer eigenen Zeile über die volle Breite. In der
-          Reihe daneben zwang der Spotify-Bereich die Nachbarkacheln auf
-          seine Höhe, und deren zwei Zeilen Text trieben weit auseinander.
-          Über die ganze Breite fliessen die Playlists zudem nebeneinander
-          statt untereinander – die Kachel wird dadurch von selbst flacher. */}
-      <View style={styles.tileRow}>
-        <Tile styles={styles} colors={colors} width="100%" icon="musical-notes-outline" title="Musik" demo={!player}>
-          {player ? (
-            <>
-              <Text style={styles.tileState} numberOfLines={1}>
-                {player.state.track ?? 'Nichts läuft'}
-              </Text>
-              {player.state.artist ? (
-                <Text style={styles.tileSub} numberOfLines={1}>
-                  {player.state.artist}
-                </Text>
-              ) : null}
-              <View style={styles.actionRow}>
-                <Pressable
-                  onPress={() =>
-                    onCommand(player.id, player.state.state === 'playing' ? 'pause' : 'play')
-                  }
-                  style={styles.playButton}
-                  accessibilityRole="button"
-                >
-                  <Ionicons
-                    name={player.state.state === 'playing' ? 'pause' : 'play'}
-                    size={18}
-                    color={colors.ink}
-                  />
-                </Pressable>
-                {player.commands.includes('next') ? (
-                  <Pressable
-                    onPress={() => onCommand(player.id, 'next')}
-                    style={styles.playButton}
-                    accessibilityRole="button"
-                  >
-                    <Ionicons name="play-skip-forward" size={18} color={colors.ink} />
-                  </Pressable>
-                ) : null}
-              </View>
-              <ShuffleRepeat
-                entity={player}
-                onCommand={(command, data) => onCommand(player.id, command, data)}
-              />
-              {/* Lautstärke direkt auf der Startseite: Leiser machen ist
-                  der häufigste Griff und war bisher nur über die
-                  Geräte-Kachel erreichbar. */}
-              {player.commands.includes('set_volume') ? (
-                <View style={styles.volumeRow}>
-                  <Ionicons
-                    name={
-                      player.state.muted || player.state.volume === 0
-                        ? 'volume-mute'
-                        : 'volume-low'
-                    }
-                    size={18}
-                    color={colors.inkSoft}
-                  />
-                  <View style={{ flex: 1 }}>
-                    <Bar
-                      height={26}
-                      value={
-                        typeof player.state.volume === 'number' ? player.state.volume : 0
-                      }
-                      onChange={(value) =>
-                        onCommand(player.id, 'set_volume', { volume: value })
-                      }
-                    />
-                  </View>
-                  <Ionicons name="volume-high" size={18} color={colors.inkSoft} />
-                </View>
-              ) : null}
-              {/* Spotify: Box wählen und Playlist starten – auch aus Stille. */}
-              {player.commands.includes('play_playlist') ? (
-                <SpotifyPanel
-                  entity={player}
-                  onCommand={(command, data) => onCommand(player.id, command, data)}
-                />
-              ) : null}
-            </>
-          ) : (
-            <>
-              <Text style={styles.tileState}>Nothing But Thieves</Text>
-              <Text style={styles.tileSub}>Impossible</Text>
-            </>
-          )}
-        </Tile>
-      </View>
     </>
   );
 
@@ -718,17 +620,5 @@ const makeStyles = (colors: Colors) =>
     actionText: { color: colors.ink, fontSize: 13, fontWeight: '700' },
     actionTextAccent: { color: '#FFFFFF' },
     actionRow: { flexDirection: 'row', gap: 8 },
-    volumeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     actionCol: { gap: 8, alignSelf: 'stretch' },
-
-    playButton: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: colors.surfaceSoft,
-      borderWidth: 1,
-      borderColor: colors.surfaceBorder,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
   });

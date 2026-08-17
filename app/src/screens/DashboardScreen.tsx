@@ -433,7 +433,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               countdowns={startCountdowns}
             />
           </View>
-          <SidePanel entities={entities} width={hasSidePanel ? PANEL_WIDTH : undefined} />
+          <SidePanel
+            entities={entities}
+            width={hasSidePanel ? PANEL_WIDTH : undefined}
+            onCommand={sendCommand}
+          />
         </View>
       );
     }
@@ -826,7 +830,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           ) : null}
         </View>
 
-        <SidePanel entities={entities} width={hasSidePanel ? PANEL_WIDTH : undefined} />
+        <SidePanel
+            entities={entities}
+            width={hasSidePanel ? PANEL_WIDTH : undefined}
+            onCommand={sendCommand}
+          />
       </View>
     );
   };
