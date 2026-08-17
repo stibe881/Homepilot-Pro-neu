@@ -70,6 +70,7 @@ Der Hub läuft dann auf `http://0.0.0.0:8123`:
 | `GET /api/energy/months` | Dieser Monat gegen den letzten – gleicher Zeitraum und ganzer Vormonat |
 | `GET /api/appliances/cycles` | Programmläufe der Haushaltgeräte mit Statistik |
 | `GET/PUT /api/push/categories` | Welche Arten von Nachrichten dieser Benutzer bekommt |
+| `GET /api/push/image/{token}` | Das Bild zu einer Push-Nachricht – **ohne Token**, zufällige Adresse, zehn Minuten gültig |
 | `WS /ws` | Snapshot + Live-Events, Kommandos |
 
 Auth: `Authorization: Bearer <token>`, am WebSocket `?token=<token>`.

@@ -309,6 +309,25 @@ energy:
   price_per_kwh: 0.2541
   currency: CHF
 
+# Push-Nachrichten mit Bild.
+#
+# Löst der Alarm aus, kann die Meldung das Kamerabild des betroffenen Raums
+# gleich mitbringen. Dafür braucht es diese Adresse: Das Telefon zeigt die
+# Nachricht an, lange bevor die App läuft – es holt das Bild also selbst und
+# ohne Anmeldung. Der Hub legt es deshalb unter einer zufälligen Adresse ab,
+# die zehn Minuten gilt und nur dieses eine Bild hergibt; danach ist sie tot
+# (siehe hub/homepilot/core/snapshots.py).
+#
+# Nur eintragen, wenn der Hub von aussen erreichbar ist – und dann über
+# HTTPS. Ohne diesen Eintrag geht die Nachricht ohne Bild raus; die Kamera
+# lässt sich in der App trotzdem mit einem Tippen auf die Meldung öffnen.
+#
+# Auf Android erscheint das Bild ohne weiteres Zutun. Auf iOS braucht es
+# dafür eine Notification Service Extension im eigenen App-Build – siehe
+# docs/eigener-app-build.md.
+# push:
+#   public_url: https://haus.example.ch
+
 # Räume: Die App macht daraus ihre Reiter. Ohne diesen Abschnitt zeigt sie
 # einfach alle Geräte ohne Reiter an.
 rooms:

@@ -43,6 +43,11 @@ class HubConfig:
     # Live-Bild: Adressen von mediamtx, falls es nicht neben dem Hub läuft
     # ({mediamtx_api, mediamtx_hls}). Leer = die Standardadressen probieren.
     streaming: dict[str, Any] = field(default_factory=dict)
+    # Push-Nachrichten: {public_url: "https://haus.example.ch"} – die von
+    # aussen erreichbare Adresse des Hubs. Nur damit kann eine Alarm-Meldung
+    # das Kamerabild mitbringen; das Telefon holt es beim Anzeigen selbst,
+    # also ohne Token. Ohne diesen Eintrag geht die Nachricht ohne Bild raus.
+    push: dict[str, Any] = field(default_factory=dict)
     # Wohin in der App angelegte Benutzer und Automationen geschrieben werden.
     data_file: str | None = None
     # Woher diese Konfiguration geladen wurde – für den Editor in der App.
@@ -130,6 +135,18 @@ def load_config(path: str | Path) -> HubConfig:
     if not isinstance(streaming, dict):
         raise ConfigError("'streaming' muss ein Mapping sein (mediamtx_api, mediamtx_hls)")
 
+    push_config = raw.get("push") or {}
+    if not isinstance(push_config, dict):
+        raise ConfigError("'push' muss ein Mapping sein (public_url)")
+    public_url = push_config.get("public_url")
+    if public_url is not None and not str(public_url).startswith(("http://", "https://")):
+        # Lieber hier abbrechen als später eine Nachricht mit einem leeren
+        # Kasten verschicken, wo ein Bild sein sollte.
+        raise ConfigError(
+            "'push.public_url' muss mit http:// oder https:// beginnen, "
+            f"nicht «{public_url}»"
+        )
+
     # Neben der config.yaml, wenn nichts anderes angegeben ist.
     data_file = raw.get("data_file") or str(path.parent / "homepilot-data.json")
 
@@ -148,5 +165,6 @@ def load_config(path: str | Path) -> HubConfig:
         streaming=streaming,
         energy=energy,
         location=location,
+        push=push_config,
         source_path=str(path),
     )

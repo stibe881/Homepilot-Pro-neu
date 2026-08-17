@@ -47,3 +47,31 @@ def test_expand_env_is_recursive(monkeypatch):
 def test_missing_file_raises():
     with pytest.raises(ConfigError):
         load_config("/gibt/es/nicht.yaml")
+
+
+def test_a_public_url_without_a_scheme_is_refused(tmp_path):
+    """Sonst verschickt der Hub eine Nachricht mit einem leeren Kasten,
+    wo das Kamerabild sein sollte – und niemand sieht, warum."""
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "integrations:\n  - integration: demo\npush:\n  public_url: haus.example.ch\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="public_url"):
+        load_config(path)
+
+
+def test_a_proper_public_url_is_kept(tmp_path):
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "integrations:\n  - integration: demo\n"
+        "push:\n  public_url: https://haus.example.ch\n",
+        encoding="utf-8",
+    )
+    assert load_config(path).push == {"public_url": "https://haus.example.ch"}
+
+
+def test_without_the_section_there_is_no_picture_in_the_message(tmp_path):
+    path = tmp_path / "config.yaml"
+    path.write_text("integrations:\n  - integration: demo\n", encoding="utf-8")
+    assert load_config(path).push == {}

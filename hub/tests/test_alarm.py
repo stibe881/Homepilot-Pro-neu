@@ -564,3 +564,109 @@ def test_the_camera_of_the_room_travels_with_the_alarm():
     assert nearest_camera(entities, "Küche") is None
     # Ohne Raum lieber keine Kamera als die falsche.
     assert nearest_camera(entities, None) is None
+
+
+def test_the_alarm_message_carries_the_picture_from_that_moment(tmp_path):
+    """Das Bild soll den Moment zeigen, in dem der Alarm losging – nicht
+    den, in dem jemand das Telefon aus der Tasche zieht. Es wird deshalb
+    beim Auslösen aufgenommen und abgelegt, nicht später abgerufen."""
+
+    async def check():
+        hub = Hub(
+            HubConfig(
+                api=ApiConfig(),
+                integrations=[{"integration": "demo"}],
+                users=[OWNER],
+                data_file=str(tmp_path / "daten.json"),
+                push={"public_url": "https://haus.example.ch"},
+            )
+        )
+        await hub.start()
+        try:
+            cam = camera("test.cam_flur")
+            cam.room = "Flur"
+            await hub.registry.add(cam)
+            service = hub.integrations.get("alarm")
+
+            # Das Bild kommt über die Integration der Kamera, wie sonst
+            # auch – der Alarm kennt keine Kameramodelle.
+            async def fake_snapshot(entity):
+                return b"\xff\xd8\xff\xe0 Flur um 3 Uhr"
+
+            echte = hub.integrations.get
+            hub.integrations.get = lambda name: (  # type: ignore[assignment]
+                type("I", (), {"snapshot": staticmethod(fake_snapshot)})()
+                if name == "test"
+                else echte(name)
+            )
+
+            url = await service._snapshot_url("test.cam_flur")
+            assert url is not None
+            assert url.startswith("https://haus.example.ch/api/push/image/")
+
+            # Und dahinter liegt genau dieses Bild.
+            token = url.rsplit("/", 1)[-1]
+            assert hub.snapshots.get(token) == b"\xff\xd8\xff\xe0 Flur um 3 Uhr"
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())
+
+
+def test_without_a_public_address_the_message_goes_out_without_a_picture(tmp_path):
+    """Wer die Adresse weglässt, will das Bild nicht – dann entsteht auch
+    keine Adresse, die ohne Anmeldung erreichbar wäre."""
+
+    async def check():
+        hub = make_hub(tmp_path)
+        await hub.start()
+        try:
+            cam = camera("test.cam_flur")
+            cam.room = "Flur"
+            await hub.registry.add(cam)
+            service = hub.integrations.get("alarm")
+            assert await service._snapshot_url("test.cam_flur") is None
+            assert len(hub.snapshots) == 0
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())
+
+
+def test_a_camera_that_does_not_answer_does_not_hold_up_the_alarm(tmp_path):
+    """Ein Alarm darf nicht daran scheitern, dass eine Kamera gerade
+    schweigt – dann eben ohne Bild."""
+
+    async def check():
+        hub = Hub(
+            HubConfig(
+                api=ApiConfig(),
+                integrations=[{"integration": "demo"}],
+                users=[OWNER],
+                data_file=str(tmp_path / "daten.json"),
+                push={"public_url": "https://haus.example.ch"},
+            )
+        )
+        await hub.start()
+        try:
+            cam = camera("test.cam_flur")
+            cam.room = "Flur"
+            await hub.registry.add(cam)
+
+            async def kaputt(entity):
+                raise RuntimeError("Kamera antwortet nicht")
+
+            echte = hub.integrations.get
+
+            def fake_get(name):
+                if name == "test":
+                    return type("I", (), {"snapshot": staticmethod(kaputt)})()
+                return echte(name)
+
+            service = echte("alarm")
+            hub.integrations.get = fake_get  # type: ignore[assignment]
+            assert await service._snapshot_url("test.cam_flur") is None
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())

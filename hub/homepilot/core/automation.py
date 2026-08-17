@@ -27,6 +27,7 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from . import astro
+from . import snapshots
 from .source import as_source, automation_source
 
 if TYPE_CHECKING:
@@ -541,9 +542,39 @@ class AutomationEngine:
         tokens = self.hub.push.recipients(
             self.hub.users.users, str(action.get("to", "all")), "automation"
         )
+        camera = str(action.get("camera") or "") or None
         await self.hub.push.send(
             tokens,
             title=str(action.get("title") or automation.alias),
             body=str(action.get("body") or ""),
-            data={"automation_id": automation.id},
+            data={
+                "automation_id": automation.id,
+                **({"camera": camera} if camera else {}),
+            },
+            image=await self._snapshot_url(camera),
         )
+
+    async def _snapshot_url(self, camera: str | None) -> str | None:
+        """Ein Standbild für die Nachricht selbst – etwa wer vor der Tür steht.
+
+        Aufgenommen wird jetzt und nicht beim Anschauen: Der Besucher ist
+        längst weg, bis jemand das Telefon aus der Tasche zieht.
+
+        Jeder Fehlschlag endet still in ``None``. Ein Ablauf darf nicht
+        daran scheitern, dass eine Kamera gerade schweigt – die Nachricht
+        geht dann eben ohne Bild raus. Ohne ``push.public_url`` in der
+        Konfiguration entsteht gar keine Adresse; siehe core/snapshots.py.
+        """
+        public_url = (self.hub.config.push or {}).get("public_url")
+        if not camera or not public_url:
+            return None
+        try:
+            entity = self.hub.registry.get(camera)
+            integration = self.hub.integrations.get(entity.integration) if entity else None
+            image = await integration.snapshot(entity) if integration else None
+        except Exception as err:
+            log.warning("Kein Bild für die Nachricht aus einem Ablauf: %s", err)
+            return None
+        if not image:
+            return None
+        return snapshots.image_url(public_url, self.hub.snapshots.put(image))

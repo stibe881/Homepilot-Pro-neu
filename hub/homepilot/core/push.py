@@ -242,12 +242,22 @@ class PushService:
         return tokens
 
     async def send(
-        self, tokens: list[str], title: str, body: str, data: dict[str, Any] | None = None
+        self,
+        tokens: list[str],
+        title: str,
+        body: str,
+        data: dict[str, Any] | None = None,
+        image: str | None = None,
     ) -> PushResult:
         """Verschickt die Nachricht und sagt, was der Dienst dazu meint.
 
         Wichtig: ``accepted`` heisst «von Expo angenommen», nicht «beim
         Empfänger angekommen». Für die Zustellung gibt es ``delivered``.
+
+        ``image`` ist eine Adresse, die das *Telefon* selbst aufruft, während
+        es die Nachricht anzeigt – ohne Anmeldung, denn die App läuft zu dem
+        Zeitpunkt noch gar nicht. Was das bedeutet, steht in
+        ``core/snapshots.py``.
         """
         if not tokens:
             return PushResult()
@@ -259,6 +269,7 @@ class PushService:
                 "body": body,
                 "sound": "default",
                 "data": data or {},
+                **({"richContent": {"image": image}} if image else {}),
             }
             for token in valid
         ]

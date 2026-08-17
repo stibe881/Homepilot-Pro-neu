@@ -231,6 +231,8 @@ interface Draft {
   hueScene: string;
   title: string;
   body: string;
+  /** Kamera, deren Bild der Nachricht beiliegt. Leer = ohne Bild. */
+  notifyCamera: string;
   /** Frei benannte Kategorie zum Gruppieren in der Liste. */
   category: string;
   /** Ausgeschaltet: bleibt stehen, läuft aber nicht. */
@@ -256,6 +258,7 @@ const EMPTY: Draft = {
   hueScene: '',
   title: '',
   body: '',
+  notifyCamera: '',
   category: '',
   enabled: true,
 };
@@ -1817,6 +1820,25 @@ function Editor({
                 placeholder="Text"
                 placeholderTextColor={colors.inkFaint}
               />
+              <Picker
+                items={[
+                  { key: '', label: 'Kein Bild' },
+                  ...entities
+                    .filter((entity) => entity.kind === 'camera')
+                    .map((entity) => ({ key: entity.id, label: entity.name })),
+                ]}
+                placeholder="Kamera fürs Bild suchen …"
+                value={draft.notifyCamera}
+                onSelect={(notifyCamera) => set({ notifyCamera })}
+              />
+              <Text style={styles.triggerNote}>
+                Mit einer Kamera zeigt die Nachricht gleich das Bild von
+                diesem Moment – praktisch, wenn es klingelt. Dafür muss in
+                der config.yaml des Hubs unter „push“ eine von aussen
+                erreichbare Adresse stehen, sonst kommt die Nachricht ohne
+                Bild an. Auf dem iPhone braucht es zusätzlich einen eigenen
+                App-Build (siehe docs/eigener-app-build.md).
+              </Text>
             </>
           )}
         </Field>
@@ -2141,7 +2163,16 @@ function buildActions(draft: Draft): Record<string, any>[] {
     return [...prefix, { type: 'hue_scene', scene: draft.hueScene }];
   }
   if (draft.actionKind === 'notify') {
-    return [...prefix, { type: 'notify', to: 'all', title: draft.title, body: draft.body }];
+    return [
+      ...prefix,
+      {
+        type: 'notify',
+        to: 'all',
+        title: draft.title,
+        body: draft.body,
+        ...(draft.notifyCamera ? { camera: draft.notifyCamera } : {}),
+      },
+    ];
   }
   const commands = draft.commandActions
     .filter((action) => action.entity_id)
@@ -2209,6 +2240,7 @@ function toDraft(automation: Automation): Draft {
     enabled: automation.enabled !== false,
     title: action.title ?? '',
     body: action.body ?? '',
+    notifyCamera: action.type === 'notify' ? action.camera ?? '' : '',
   };
 }
 

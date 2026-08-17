@@ -793,6 +793,32 @@ def create_app(hub: Hub) -> FastAPI:
             "cycles": cycles[:30],
         }
 
+    @app.get("/api/push/image/{token}")
+    async def push_image(token: str) -> Response:
+        """Das Kamerabild zu einer Alarm-Nachricht – bewusst ohne Anmeldung.
+
+        Das Telefon zeigt die Nachricht an, lange bevor die App läuft; es
+        hat zu diesem Zeitpunkt keinen Token und kann auch keinen
+        mitschicken. Ein Bild in der Nachricht geht deshalb nur so.
+
+        Was den Handel vertretbar macht: Die Kennung besteht aus 32
+        zufälligen Bytes, sie gilt zehn Minuten, sie liegt nur im
+        Arbeitsspeicher, und dahinter steckt ein einzelnes Standbild – kein
+        Zugang zur laufenden Kamera und zu nichts sonst. Wer das nicht will,
+        lässt ``push.public_url`` in der config.yaml weg; dann entsteht
+        gar keine solche Adresse.
+        """
+        image = hub.snapshots.get(token)
+        if image is None:
+            # Abgelaufen und nie existiert sehen von aussen gleich aus –
+            # sonst liesse sich am Unterschied ablesen, ob geraten wurde.
+            raise HTTPException(status_code=404, detail="Kein Bild")
+        return Response(
+            content=image,
+            media_type="image/png" if image.startswith(b"\x89PNG") else "image/jpeg",
+            headers={"Cache-Control": "no-store"},
+        )
+
     @app.get("/api/energy/months")
     async def energy_months(request: Request) -> dict[str, Any]:
         """Diesen Monat mit dem letzten vergleichen.

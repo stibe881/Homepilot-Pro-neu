@@ -76,6 +76,36 @@ Push-Nachrichten mehr empfangen (auf iOS geht es dort weiterhin). Für
 Android braucht es also den eigenen Build von oben – mit ihm funktioniert es
 auf beiden Systemen.
 
+## Das Kamerabild in der Alarm-Meldung
+
+Löst der Alarm aus, kann die Push-Nachricht das Kamerabild des betroffenen
+Raums gleich im Banner zeigen – man sieht dann, was los ist, ohne die App zu
+öffnen.
+
+Dafür braucht es zwei Dinge:
+
+**1. Eine von aussen erreichbare Adresse des Hubs.** Das Telefon zeigt die
+Nachricht an, lange bevor die App läuft; es holt das Bild also selbst und
+ohne Anmeldung. In der `config.yaml` des Hubs:
+
+```yaml
+push:
+  public_url: https://haus.example.ch
+```
+
+Der Hub legt das Bild daraufhin unter einer zufälligen Adresse ab, die zehn
+Minuten gilt und nur dieses eine Standbild hergibt – kein Zugang zur
+laufenden Kamera und zu nichts sonst. Ohne diesen Eintrag geht die Nachricht
+wie bisher ohne Bild raus; die Kamera öffnet sich trotzdem, wenn man die
+Meldung antippt.
+
+**2. Auf iOS eine Notification Service Extension.** Android zeigt das Bild
+ohne weiteres Zutun. iPhone und iPad zeigen die Nachricht zwar an, aber ohne
+Bild, solange dem Build kein solches Ziel beiliegt – `expo-notifications`
+bringt dafür kein Config-Plugin mit, es ist ein natives Xcode-Ziel. Die
+Anleitung steht in der Expo-Dokumentation unter «Rich notifications». Bis
+dahin gilt auf iOS: Meldung antippen, die Kamera geht auf.
+
 ## Updates verteilen
 
 Code-Änderungen (unsere täglichen Verbesserungen) lassen sich ohne neuen

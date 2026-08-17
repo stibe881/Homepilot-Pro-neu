@@ -20,6 +20,7 @@ from . import push as push_service
 from .push import PushService
 from .registry import EntityRegistry
 from .scenes import SceneManager
+from .snapshots import SnapshotStore
 from .store import Store
 from .streams import MEDIAMTX_API, MEDIAMTX_HLS, StreamManager
 from .supabase import SupabaseClient
@@ -37,6 +38,9 @@ class Hub:
         self.automations = AutomationEngine(self)
         self.scenes = SceneManager(self)
         self.push = PushService()
+        # Kamerabilder, die einer Push-Nachricht beiliegen: nur im Speicher
+        # und nur wenige Minuten gültig (siehe core/snapshots.py).
+        self.snapshots = SnapshotStore()
         self.users = parse_users(config.users, config.api.token)
         # In der App angelegte Benutzer und Automationen liegen neben der
         # Konfiguration, damit sie ohne Datenbank einen Neustart überleben.

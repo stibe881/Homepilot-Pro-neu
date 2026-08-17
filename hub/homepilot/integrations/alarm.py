@@ -36,12 +36,16 @@ dort als Auslöser wählen.
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from typing import Any
 
+from ..core import snapshots
 from ..core.entity import Entity, EntityKind
 from ..core.errors import HomePilotError
 from ..core.integration import Integration
+
+log = logging.getLogger(__name__)
 
 # Die scharfen Modi. «aus» ist kein Modus, sondern deren Abwesenheit.
 MODES = ("nacht", "ausser_haus", "urlaub")
@@ -428,16 +432,17 @@ class AlarmIntegration(Integration):
         self._note("triggered", f"Alarm ausgelöst: {entity.name}", "")
 
         if self._settings.get("notify_trigger"):
-            # Die Kamera im selben Raum mitschicken: Die App holt das Bild
-            # beim Öffnen mit dem Token des Benutzers. Ein Bild direkt in
-            # der Nachricht bräuchte eine Adresse, die von aussen ohne
-            # Anmeldung erreichbar ist – das wäre der Sicherheit zuliebe
-            # der falsche Handel.
+            # Die Kamera im selben Raum kommt zweimal mit: als Kennung,
+            # damit die App sie beim Antippen mit dem Token des Benutzers
+            # öffnet, und als Bild in der Nachricht selbst – sofern eine von
+            # aussen erreichbare Adresse konfiguriert ist. Was dieses Bild
+            # kostet, steht in core/snapshots.py.
             camera = nearest_camera(self.hub.registry.all(), entity.room)
             await self._notify(
                 "🚨 Alarm ausgelöst",
                 f"{entity.name} – Modus {MODE_LABELS.get(mode or '', '?')}",
                 data={"entity_id": entity.id, "camera": camera},
+                image=await self._snapshot_url(camera),
             )
 
         await self._apply_after(mode)
@@ -486,16 +491,45 @@ class AlarmIntegration(Integration):
         if self._settings.get("notify_arming"):
             await self._notify("Alarmanlage wieder scharf", text, "alarm_arming")
 
+    async def _snapshot_url(self, camera: str | None) -> str | None:
+        """Ein Standbild der Kamera für die Nachricht selbst.
+
+        Wird jetzt aufgenommen und nicht später abgerufen: Das Bild soll den
+        Moment zeigen, in dem der Alarm losging, nicht den Moment, in dem
+        jemand das Telefon aus der Tasche zieht.
+
+        Jeder Fehlschlag endet hier still in ``None`` – ein Alarm darf nicht
+        daran scheitern, dass eine Kamera gerade nicht antwortet.
+        """
+        public_url = (self.hub.config.push or {}).get("public_url")
+        if not camera or not public_url:
+            return None
+        try:
+            entity = self.hub.registry.get(camera)
+            integration = self.hub.integrations.get(entity.integration) if entity else None
+            image = await integration.snapshot(entity) if integration else None
+        except Exception as err:
+            log.warning("Kein Bild für die Alarm-Nachricht: %s", err)
+            return None
+        if not image:
+            return None
+        return snapshots.image_url(public_url, self.hub.snapshots.put(image))
+
     async def _notify(
         self,
         title: str,
         body: str,
         category: str = "alarm",
         data: dict[str, Any] | None = None,
+        image: str | None = None,
     ) -> None:
         tokens = self.hub.push.recipients(self.hub.users.users, "all", category)
         await self.hub.push.send(
-            tokens, title=title, body=body, data={"type": "alarm", **(data or {})}
+            tokens,
+            title=title,
+            body=body,
+            data={"type": "alarm", **(data or {})},
+            image=image,
         )
 
     # ── Verlauf ────────────────────────────────────────────────────────────

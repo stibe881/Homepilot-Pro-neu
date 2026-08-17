@@ -371,3 +371,106 @@ async def test_a_disabled_automation_stays_quiet():
         assert hub.automations.runs == []
     finally:
         await hub.stop()
+
+
+def test_a_notification_can_carry_the_picture_of_the_doorbell_camera():
+    """Wenn es klingelt, will man sehen wer da steht – nicht erst die App
+    öffnen, bis der Besucher weg ist."""
+
+    async def check():
+        hub = Hub(
+            HubConfig(
+                api=ApiConfig(),
+                integrations=[{"integration": "demo"}],
+                automations=[],
+                push={"public_url": "https://haus.example.ch"},
+            )
+        )
+        await hub.start()
+        try:
+            await hub.registry.add(
+                Entity(
+                    id="test.klingel_cam",
+                    kind=EntityKind.CAMERA,
+                    name="Haustür",
+                    integration="test",
+                    state={"state": "online"},
+                )
+            )
+
+            async def fake_snapshot(entity):
+                return b"\xff\xd8\xff\xe0 jemand steht vor der Tuer"
+
+            echt = hub.integrations.get
+            hub.integrations.get = lambda name: (  # type: ignore[assignment]
+                type("I", (), {"snapshot": staticmethod(fake_snapshot)})()
+                if name == "test"
+                else echt(name)
+            )
+
+            sent: list[dict] = []
+
+            async def fake_send(tokens, title, body, data=None, image=None):
+                sent.append({"title": title, "data": data, "image": image})
+                return len(tokens)
+
+            hub.push.send = fake_send  # type: ignore[assignment]
+            hub.push.register("ExponentPushToken[x]", "Stefan")
+
+            automation = Automation(id="a", alias="Es klingelt", triggers=[], actions=[])
+            await hub.automations._notify(
+                automation,
+                {
+                    "type": "notify",
+                    "title": "Es klingelt",
+                    "body": "Haustür",
+                    "camera": "test.klingel_cam",
+                },
+            )
+
+            assert len(sent) == 1
+            assert sent[0]["image"].startswith("https://haus.example.ch/api/push/image/")
+            # Und beim Antippen findet die App dieselbe Kamera.
+            assert sent[0]["data"]["camera"] == "test.klingel_cam"
+
+            token = sent[0]["image"].rsplit("/", 1)[-1]
+            assert hub.snapshots.get(token) == b"\xff\xd8\xff\xe0 jemand steht vor der Tuer"
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())
+
+
+def test_a_notification_without_a_camera_stays_as_it_was():
+    """Der Normalfall darf sich durch die Zugabe nicht ändern."""
+
+    async def check():
+        hub = Hub(
+            HubConfig(
+                api=ApiConfig(),
+                integrations=[{"integration": "demo"}],
+                automations=[],
+                push={"public_url": "https://haus.example.ch"},
+            )
+        )
+        await hub.start()
+        try:
+            sent: list[dict] = []
+
+            async def fake_send(tokens, title, body, data=None, image=None):
+                sent.append({"data": data, "image": image})
+                return len(tokens)
+
+            hub.push.send = fake_send  # type: ignore[assignment]
+            hub.push.register("ExponentPushToken[x]", "Stefan")
+
+            automation = Automation(id="a", alias="Hinweis", triggers=[], actions=[])
+            await hub.automations._notify(automation, {"type": "notify", "body": "Text"})
+
+            assert sent[0]["image"] is None
+            assert sent[0]["data"] == {"automation_id": "a"}
+            assert len(hub.snapshots) == 0
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())
