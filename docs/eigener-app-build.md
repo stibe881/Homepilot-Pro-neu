@@ -99,35 +99,32 @@ laufenden Kamera und zu nichts sonst. Ohne diesen Eintrag geht die Nachricht
 wie bisher ohne Bild raus; die Kamera öffnet sich trotzdem, wenn man die
 Meldung antippt.
 
-**2. Auf iOS zwei Angaben aus deinem Apple-Konto.** Android zeigt das Bild
-ohne weiteres Zutun. iOS lässt ein Bild nur von einer *Notification Service
+**2. Auf iOS die Team-ID deines Apple-Kontos.** Android zeigt das Bild ohne
+weiteres Zutun. iOS lässt ein Bild nur von einer *Notification Service
 Extension* anhängen – einem zweiten, winzigen Programm, das das System
 zwischen dem Eintreffen der Nachricht und ihrer Anzeige laufen lässt. Die
 App selbst läuft zu diesem Zeitpunkt nicht.
 
 Dieses Ziel liegt bereits im Repo unter `app/targets/notification-image/`
-und wird beim Build automatisch mitgebaut. Was fehlt, sind die beiden
-Angaben, die nicht ins Repo gehören: Im Ordner `app/` eine Datei `.env`
-anlegen (Git ignoriert sie):
+und wird beim Build automatisch mitgebaut. Bundle-ID, Paketname und
+EAS-Projekt-Kennung stehen in der `app.json` – sie sind keine Geheimnisse
+und für jeden Build dieser App gleich. Was fehlt, ist die Team-ID zum
+Signieren. Im Ordner `app/` eine Datei `.env` anlegen (Git ignoriert sie):
 
 ```
-HOMEPILOT_IOS_BUNDLE_ID=me.deinname.homepilot
 HOMEPILOT_APPLE_TEAM_ID=ABCDE12345
 ```
 
-Die Bundle-ID ist die deiner bestehenden App – **nicht raten**, sonst gilt
-der Build als andere App und verliert TestFlight und Push-Zertifikate. Die
-Team-ID steht auf <https://developer.apple.com/account> unter «Membership».
+Sie steht auf <https://developer.apple.com/account> unter «Membership».
 
-Für den EAS-Build gehören dieselben zwei Werte zusätzlich in die `eas.json`,
-denn der Build läuft auf einem fremden Rechner und sieht deine `.env` nicht:
+Für den EAS-Build gehört derselbe Wert zusätzlich in die `eas.json`, denn
+der Build läuft auf einem fremden Rechner und sieht deine `.env` nicht:
 
 ```json
 {
   "build": {
     "production": {
       "env": {
-        "HOMEPILOT_IOS_BUNDLE_ID": "me.deinname.homepilot",
         "HOMEPILOT_APPLE_TEAM_ID": "ABCDE12345"
       }
     }
