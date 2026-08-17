@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Entity, HubSettings } from '../api/types';
 import { Bar } from '../components/Bar';
 import { Card } from '../components/Card';
+import { DraggableList } from '../components/DraggableList';
 import { EntityCard } from '../components/EntityCard';
 import { skyFromIcon } from '../components/CoverVisual';
 import { HistoryChart } from '../components/HistoryChart';
@@ -82,6 +83,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [now, setNow] = useState(() => new Date());
   const [gridWidth, setGridWidth] = useState(0);
   const [editing, setEditing] = useState(false);
+  const [reorderOpen, setReorderOpen] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [lastTouch, setLastTouch] = useState(() => Date.now());
   // Türklingel-Vollbild: pro Klingel-Ereignis einmal zeigen, bis es
@@ -305,11 +307,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Favoriten zuerst, dann was gerade läuft, dann der Rest.
   const byFavorite = (a: Entity, b: Entity) =>
     Number(favorites.includes(b.id)) - Number(favorites.includes(a.id));
+  // Selbst gezogene Reihenfolge – unbekannte Geräte hängen sich hinten an.
+  const orderIndex = new Map((settings.order ?? []).map((id, i) => [id, i]));
+  const byOrder = (a: Entity, b: Entity) => {
+    const ai = orderIndex.has(a.id) ? (orderIndex.get(a.id) as number) : Infinity;
+    const bi = orderIndex.has(b.id) ? (orderIndex.get(b.id) as number) : Infinity;
+    return ai !== bi ? ai - bi : a.name.localeCompare(b.name);
+  };
   const running = section === 'home' ? shown.filter(isActive).sort(byFavorite) : [];
   const rest =
     section === 'home'
       ? shown.filter((entity) => !isActive(entity)).sort(byFavorite)
-      : shown;
+      : [...shown].sort(byOrder);
 
   // Bei vielen Räumen wird die Startseite im „Alle“-Modus nach Räumen
   // gruppiert (Überschrift je Zimmer), damit man das ganze Haus auf einen
@@ -612,6 +621,43 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       <View style={hasSidePanel ? styles.split : styles.stack}>
         <View style={hasSidePanel ? styles.main : undefined}>
           {section === 'devices' ? back : null}
+          {section === 'devices' ? (
+            <Pressable
+              onPress={() => setReorderOpen(true)}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.reorderButton, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons name="swap-vertical" size={16} color={colors.onGradient} />
+              <Text style={styles.reorderText}>Reihenfolge ändern</Text>
+            </Pressable>
+          ) : null}
+          <Modal
+            visible={reorderOpen}
+            animationType="slide"
+            onRequestClose={() => setReorderOpen(false)}
+          >
+            <View style={styles.reorderSheet}>
+              <View style={styles.reorderHead}>
+                <Text style={styles.reorderTitle}>Reihenfolge</Text>
+                <Pressable
+                  onPress={() => setReorderOpen(false)}
+                  accessibilityLabel="Fertig"
+                >
+                  <Ionicons name="checkmark" size={26} color={colors.ink} />
+                </Pressable>
+              </View>
+              <Text style={styles.reorderHint}>
+                Am Griff ☰ ziehen, um Geräte umzusortieren. Die Reihenfolge gilt
+                für die Geräteliste.
+              </Text>
+              <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+                <DraggableList
+                  items={rest.map((entity) => ({ id: entity.id, name: entity.name }))}
+                  onReorder={(ids) => onSaveSettings({ ...settings, order: ids })}
+                />
+              </ScrollView>
+            </View>
+          </Modal>
           {/* Im „Alle“-Modus alle Szenen, im Raum nur dessen Szenen. */}
           {section === 'home' && room === ALL_ROOMS ? (
             <SceneRow scenes={scenes} onActivate={activateScene} />
@@ -1277,6 +1323,23 @@ const makeStyles = (colors: Colors) =>
     fontSize: 13,
     fontWeight: '600',
   },
+  reorderButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    paddingVertical: 6,
+  },
+  reorderText: { color: colors.onGradient, fontSize: 13, fontWeight: '600' },
+  reorderSheet: { flex: 1, backgroundColor: colors.panel, padding: 20, paddingTop: 60 },
+  reorderHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  reorderTitle: { color: colors.ink, fontSize: 22, fontWeight: '700' },
+  reorderHint: { color: colors.inkFaint, fontSize: 13, lineHeight: 18, marginBottom: 14 },
   groupCard: { gap: 12 },
   groupHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   groupName: { color: colors.ink, fontSize: 16, fontWeight: '700', flex: 1 },

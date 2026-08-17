@@ -73,6 +73,8 @@ export interface HubSettings {
   favorites?: string[];
   /** Entitäten, die auf der Startseite nicht erscheinen. */
   hidden?: string[];
+  /** Selbst gewählte Reihenfolge der Geräte (Entitäts-IDs, per Ziehen). */
+  order?: string[];
   /** Wandpanel: Bildschirm bleibt an, kehrt von selbst zur Startseite zurück. */
   panel?: boolean;
 }

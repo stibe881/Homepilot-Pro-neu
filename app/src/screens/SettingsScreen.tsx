@@ -148,9 +148,10 @@ export function SettingsScreen({ initial, onSave, onCancel, embedded, user }: Pr
             name: name.trim(),
             theme,
             panel,
-            // Favoriten und Ausgeblendete bleiben erhalten.
+            // Favoriten, Ausgeblendete und Reihenfolge bleiben erhalten.
             favorites: initial?.favorites,
             hidden: initial?.hidden,
+            order: initial?.order,
           })
         }
       >
