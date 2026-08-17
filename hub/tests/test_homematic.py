@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 import xmlrpc.client
@@ -8,6 +10,7 @@ from homepilot.integrations.homematic import (
     command_to_value,
     is_timeout,
     power_to_state,
+    press_to_state,
     switch_channel,
     value_to_state,
 )
@@ -241,3 +244,108 @@ def test_command_error_explains_a_radio_timeout():
     # Der Kanal ist hier gerade nicht das Problem – das darf nicht behauptet
     # werden, sonst sucht man an der falschen Stelle.
     assert "Datenpunkt" not in message
+
+
+# ── Melder und Taster ──────────────────────────────────────────────────────
+
+
+def test_motion_and_presence_report_on_and_off():
+    """Der Punkt, an dem es sonst stillschweigend scheitert: Ein
+    Bewegungsmelder meldet auf MOTION, ein Präsenzmelder auf
+    PRESENCE_DETECTION_STATE. Die Alarmanlage sucht nach «on» – ein rohes
+    True würde sie nie sehen."""
+    assert value_to_state(True, "MOTION", False) == {"state": "on"}
+    assert value_to_state(False, "MOTION", False) == {"state": "off"}
+    assert value_to_state(True, "PRESENCE_DETECTION_STATE", False) == {"state": "on"}
+
+
+def test_smoke_detector_alarm_status():
+    # 0 = Ruhe, alles andere ist ein Alarm – welcher, steht daneben.
+    assert value_to_state(0, "SMOKE_DETECTOR_ALARM_STATUS", False) == {
+        "state": "off",
+        "alarm_status": 0,
+    }
+    assert value_to_state(1, "SMOKE_DETECTOR_ALARM_STATUS", False)["state"] == "on"
+    # Manche CCU-Firmware antwortet mit dem Namen statt der Zahl.
+    assert value_to_state("IDLE_OFF", "SMOKE_DETECTOR_ALARM_STATUS", False)["state"] == "off"
+    assert value_to_state("PRIMARY_ALARM", "SMOKE_DETECTOR_ALARM_STATUS", False)["state"] == "on"
+
+
+def test_press_to_state_distinguishes_short_and_long():
+    assert press_to_state("PRESS_SHORT", 100.0) == {"state": "short", "last_press": 100.0}
+    assert press_to_state("PRESS_LONG", 100.0)["state"] == "long"
+
+
+def test_press_to_state_carries_a_timestamp():
+    """Zweimal dieselbe Taste hiesse sonst «Zustand unverändert» – der
+    zweite Druck käme in keinem Ablauf an."""
+    first = press_to_state("PRESS_SHORT", 100.0)
+    second = press_to_state("PRESS_SHORT", 101.5)
+    assert first != second
+
+
+async def test_a_wall_button_is_never_polled(hub):
+    """PRESS_SHORT ist ein Ereignis, kein Wert – ein getValue darauf endet
+    in «Fault -5». Der Taster darf also gar nicht erst gefragt werden."""
+    ccu = _FakeCCU({})
+    integration = await _setup(
+        hub,
+        ccu,
+        [
+            {
+                "address": "0001D8A9B12348:1",
+                "port": 2010,
+                "name": "Wandtaster Küche oben",
+                "kind": "button",
+            }
+        ],
+    )
+    try:
+        entity = hub.registry.get("homematic.0001D8A9B12348_1")
+        assert entity is not None
+        # Da, aber noch ohne Druck – nicht «nicht erreichbar».
+        assert entity.available is True
+        assert [method for method, _, _ in ccu.calls if method == "getValue"] == []
+    finally:
+        await integration.teardown()
+
+
+async def test_a_button_press_arrives_as_state(hub):
+    ccu = _FakeCCU({})
+    integration = await _setup(
+        hub,
+        ccu,
+        [
+            {
+                "address": "0001D8A9B12348:1",
+                "port": 2010,
+                "name": "Wandtaster Küche oben",
+                "kind": "button",
+            }
+        ],
+    )
+    try:
+        entity_id = "homematic.0001D8A9B12348_1"
+        # Kurz und lang laufen auf demselben Kanal ein.
+        assert integration._by_datapoint[("0001D8A9B12348:1", "PRESS_SHORT")] == entity_id
+        assert integration._by_datapoint[("0001D8A9B12348:1", "PRESS_LONG")] == entity_id
+
+        integration._on_event("id", "0001D8A9B12348:1", "PRESS_SHORT", True)
+        await asyncio.sleep(0.01)
+        entity = hub.registry.get(entity_id)
+        assert entity is not None
+        assert entity.state["state"] == "short"
+        first = entity.state["last_press"]
+
+        integration._on_event("id", "0001D8A9B12348:1", "PRESS_LONG", True)
+        await asyncio.sleep(0.01)
+        assert hub.registry.get(entity_id).state["state"] == "long"
+
+        # Das Loslassen meldet die CCU als zweites Ereignis mit False – das
+        # ist kein Druck und darf nichts auslösen.
+        integration._on_event("id", "0001D8A9B12348:1", "PRESS_LONG", False)
+        await asyncio.sleep(0.01)
+        assert hub.registry.get(entity_id).state["state"] == "long"
+        assert hub.registry.get(entity_id).state["last_press"] >= first
+    finally:
+        await integration.teardown()

@@ -428,6 +428,29 @@ export function EntityCard({
         );
       }
 
+      case 'button': {
+        // Ein Taster hat keinen Zustand zum Ablesen – er meldet einen
+        // Druck. Anzuzeigen ist deshalb der letzte.
+        const press = entity.state.last_press;
+        const pressed = entity.state.state === 'short' || entity.state.state === 'long';
+        return (
+          <View style={styles.stack}>
+            <Pill
+              label={
+                !pressed
+                  ? 'Bereit'
+                  : entity.state.state === 'long'
+                    ? 'Lang gedrückt'
+                    : 'Kurz gedrückt'
+              }
+            />
+            <Text style={styles.detail}>
+              {typeof press === 'number' ? sinceLabel(press) : 'Noch kein Druck'}
+            </Text>
+          </View>
+        );
+      }
+
       default:
         return <BigValue value={String(entity.state.state ?? '–')} />;
     }

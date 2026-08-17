@@ -31,6 +31,10 @@ class EntityKind:
     COVER = "cover"
     # Wetterlage mit heutigem Wert und Mehrtagesvorhersage.
     WEATHER = "weather"
+    # Wandtaster und Fernbedienungen. Sie haben keinen Zustand, den man
+    # ablesen könnte – sie melden einen Druck. Der Zustand ist deshalb der
+    # letzte Druck («short»/«long»); ein Ablauf kann darauf auslösen.
+    BUTTON = "button"
     # Die Alarmanlage selbst: scharf/unscharf und in welchem Modus. Gäste
     # sehen sie bewusst nie – wer scharfschalten darf, ist eine Frage der
     # Rolle, nicht der Freigabe einzelner Bereiche.

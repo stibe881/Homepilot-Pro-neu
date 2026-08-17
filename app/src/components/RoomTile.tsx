@@ -18,6 +18,7 @@ const KIND_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   switch: 'power-outline',
   sensor: 'thermometer-outline',
   binary_sensor: 'radio-button-on-outline',
+  button: 'ellipse-outline',
   media_player: 'musical-notes-outline',
   camera: 'videocam-outline',
   vacuum: 'sparkles-outline',
@@ -42,6 +43,9 @@ function shortState(entity: Entity): string {
       return `${state ?? '–'}${entity.state.unit ?? ''}`;
     case 'binary_sensor':
       return state === 'on' ? 'Aktiv' : 'Ruhig';
+    case 'button':
+      // Was zuletzt gedrückt wurde – ein Taster hat keinen Zustand.
+      return state === 'long' ? 'Lang' : state === 'short' ? 'Kurz' : 'Bereit';
     case 'media_player':
       return state === 'playing' ? 'Spielt' : 'Still';
     case 'lock':

@@ -26,6 +26,44 @@ Konfiguration:
         kind: switch
         power_address: "001015699EA263:6"    # Messkanal → state.power in Watt
 
+Melder und Taster (Homematic IP, alle auf ``port: 2010``). Entscheidend ist
+je Gerät der richtige Datenpunkt – welchen Kanal es hat, steht beim Start
+in der Kanalliste im Log:
+
+      - address: "0001D8A9B12345:1"     # HmIP-SMI, HmIP-SMI55
+        port: 2010
+        name: Bewegung Flur
+        kind: binary_sensor
+        datapoint: MOTION
+
+      - address: "0001D8A9B12346:1"     # HmIP-SPI (Präsenzmelder)
+        port: 2010
+        name: Präsenz Büro
+        kind: binary_sensor
+        datapoint: PRESENCE_DETECTION_STATE
+
+      - address: "0001D8A9B12347:1"     # HmIP-SWSD (Rauchwarnmelder)
+        port: 2010
+        name: Rauchmelder Flur
+        kind: binary_sensor
+        datapoint: SMOKE_DETECTOR_ALARM_STATUS
+
+      - address: "0001D8A9B12348:1"     # HmIP-WRC2/WRC6/BRC2, je Taste ein Kanal
+        port: 2010
+        name: Wandtaster Küche oben
+        kind: button
+
+Ein ``button`` wird nicht abgefragt, sondern meldet sich: Die CCU schickt
+PRESS_SHORT bzw. PRESS_LONG, der Zustand wird dann «short» oder «long».
+Damit lässt sich in einem Ablauf darauf auslösen (Auslöser «Zustand», Ziel
+``short``). Wichtig: Der Callback-Betrieb muss laufen (``callback_port``) –
+ohne ihn kommen Tastendrücke gar nicht an, denn abfragen lassen sie sich
+nicht.
+
+Beim 6-fach-Taster hat jede Taste einen eigenen Kanal (:1 … :6), beim
+2-fach-Taster :1 und :2. Der HmIP-SMI55 vereint beides: Tasten auf :1/:2
+und den Bewegungsmelder auf einem eigenen Kanal.
+
 Geräte dürfen einzeln einen anderen ``port`` angeben – so laufen klassische
 Homematic- (2001) und Homematic-IP-Geräte (2010) gemischt über dieselbe
 Integration.
@@ -58,6 +96,7 @@ import asyncio
 import http.client
 import socket
 import threading
+import time
 import xmlrpc.client
 from socketserver import ThreadingMixIn
 from typing import Any
@@ -72,7 +111,21 @@ DEFAULT_DATAPOINTS = {
     EntityKind.SWITCH: "STATE",
     EntityKind.LIGHT: "STATE",
     EntityKind.BINARY_SENSOR: "STATE",
+    EntityKind.BUTTON: "PRESS_SHORT",
 }
+
+# Wandtaster melden Tastendrücke als Ereignis, nicht als Zustand: Die CCU
+# schickt PRESS_SHORT bzw. PRESS_LONG, abfragen lässt sich auf so einem
+# Kanal nichts. Ein Taster hört deshalb auf beide Datenpunkte zugleich.
+PRESS_DATAPOINTS = {"PRESS_SHORT": "short", "PRESS_LONG": "long"}
+
+# Rauchwarnmelder (HmIP-SWSD) melden keinen Ja/Nein-Wert, sondern eine
+# Alarmart: 0 = Ruhe, 1 = eigener Alarm, 2 = Einbruchalarm, 3 = von einem
+# anderen Melder weitergereichter Alarm. Für die Anlage zählt nur, ob Ruhe
+# herrscht – welcher Fall es war, steht daneben in 'alarm_status'.
+ALARM_STATUS_DATAPOINTS = frozenset({"SMOKE_DETECTOR_ALARM_STATUS", "ALARM_STATUS"})
+IDLE_ALARM_VALUES = frozenset({"0", "IDLE_OFF", "False", "None", ""})
+
 LEVEL = "LEVEL"
 # Messkanal einer Schalt-Messsteckdose (HmIP-PSM, HM-ES-PMSw1): Momentanleistung.
 POWER = "POWER"
@@ -158,13 +211,33 @@ def value_to_state(value: Any, datapoint: str, dimmable: bool) -> dict[str, Any]
 
     Homematic gibt Dimmwerte als Fliesskomma 0…1 an, die App rechnet in
     Prozent – umgerechnet wird deshalb hier, an genau einer Stelle.
+
+    Ja/Nein-Werte werden zu «on»/«off», egal wie der Datenpunkt heisst. Das
+    ist nicht nur Kosmetik: Ein Bewegungsmelder meldet auf MOTION, ein
+    Präsenzmelder auf PRESENCE_DETECTION_STATE, und die Alarmanlage sucht
+    nach «on». Stünde dort ein rohes True, würde sie den Sensor nie sehen.
     """
     if dimmable and datapoint == LEVEL:
         level = float(value or 0)
         return {"state": "on" if level > 0 else "off", "brightness": round(level * 100)}
-    if datapoint == "STATE" and isinstance(value, bool):
+    if datapoint in ALARM_STATUS_DATAPOINTS:
+        return {
+            "state": "off" if str(value) in IDLE_ALARM_VALUES else "on",
+            "alarm_status": value,
+        }
+    if isinstance(value, bool):
         return {"state": "on" if value else "off"}
     return {"state": value}
+
+
+def press_to_state(datapoint: str, now: float) -> dict[str, Any]:
+    """Ein Tastendruck als Zustand (rein, testbar).
+
+    Der Zeitstempel muss mit: Zweimal kurz hintereinander dieselbe Taste
+    gedrückt hiesse sonst «Zustand unverändert», und der zweite Druck käme
+    in keinem Ablauf an.
+    """
+    return {"state": PRESS_DATAPOINTS.get(datapoint, "short"), "last_press": now}
 
 
 def power_to_state(value: Any) -> dict[str, Any]:
@@ -318,7 +391,10 @@ class HomematicIntegration(Integration):
             device.get("name", address),
             state={"state": "unknown"},
             commands=commands,
-            available=False,
+            # Ein Taster lässt sich nicht abfragen – er meldet sich nur.
+            # Ihn bis zum ersten Druck als «nicht erreichbar» zu zeigen,
+            # wäre falsch: Er ist da, er hat bloss nichts zu sagen.
+            available=kind == EntityKind.BUTTON,
         )
         self._devices[entity.id] = {
             "address": address,
@@ -330,7 +406,12 @@ class HomematicIntegration(Integration):
             "power_datapoint": power_datapoint,
             "command_address": device.get("command_address") or address,
         }
-        self._by_datapoint[(address, datapoint)] = entity.id
+        if kind == EntityKind.BUTTON:
+            # Kurz und lang laufen auf demselben Kanal ein.
+            for press in PRESS_DATAPOINTS:
+                self._by_datapoint[(address, press)] = entity.id
+        else:
+            self._by_datapoint[(address, datapoint)] = entity.id
         if power_address:
             self._by_power[(power_address, power_datapoint)] = entity.id
 
@@ -437,6 +518,12 @@ class HomematicIntegration(Integration):
             port = info["port"]
             changes: dict[str, Any] = {}
 
+            # Taster haben nichts zum Abfragen: PRESS_SHORT ist ein Ereignis,
+            # kein Wert. Ein getValue darauf endet in Fault -5 – also gar
+            # nicht erst fragen.
+            if info["kind"] == EntityKind.BUTTON:
+                continue
+
             # Haupt- und Messkanal unabhängig lesen: Bei Homematic IP hat der
             # Messkanal (z.B. HmIP-PSM Kanal 6) kein STATE – dann soll
             # wenigstens die Leistung ankommen statt gar nichts.
@@ -531,7 +618,14 @@ class HomematicIntegration(Integration):
         entity_id = self._by_datapoint.get((address, key))
         if entity_id is not None:
             info = self._devices[entity_id]
-            changes = value_to_state(value, key, info["dimmable"])
+            if info["kind"] == EntityKind.BUTTON:
+                # Loslassen meldet die CCU als zweites Ereignis mit False –
+                # das ist kein Druck und darf keinen Ablauf auslösen.
+                if value is False:
+                    return ""
+                changes = press_to_state(key, time.time())
+            else:
+                changes = value_to_state(value, key, info["dimmable"])
         else:
             entity_id = self._by_power.get((address, key))
             if entity_id is None:
