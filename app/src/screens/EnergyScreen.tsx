@@ -99,8 +99,8 @@ export function EnergyScreen({
         {!price ? (
           <Text style={styles.hint}>
             Für die Kosten fehlt der Strompreis. In der config.yaml des Hubs
-            unter „energy“ eintragen, z.B. price_per_kwh: 0.32 und
-            currency: CHF.
+            unter „energy“ eintragen – in Franken je kWh, nicht in Rappen:
+            25.41 Rp./kWh sind price_per_kwh: 0.2541 (currency: CHF).
           </Text>
         ) : null}
       </Card>

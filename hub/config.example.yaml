@@ -302,9 +302,11 @@ scenes:
       - { entity_id: demo.light_livingroom, command: turn_on, data: { brightness: 60 } }
       - { entity_id: demo.switch_coffee, command: turn_on }
 
-# Strompreis für die Kostenanzeige der Steckdosen.
+# Strompreis für die Kostenanzeige (Einstellungen → Energie).
+# Achtung auf die Einheit: Franken je kWh, nicht Rappen. Auf der
+# Stromrechnung stehen meist Rappen – 25.41 Rp./kWh sind also 0.2541.
 energy:
-  price_per_kwh: 0.32
+  price_per_kwh: 0.2541
   currency: CHF
 
 # Räume: Die App macht daraus ihre Reiter. Ohne diesen Abschnitt zeigt sie
