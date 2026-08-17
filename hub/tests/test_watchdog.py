@@ -43,6 +43,7 @@ async def test_watchdog_meldet_ausfall_und_rueckkehr():
             {
                 "id": "hue.lampe",
                 "name": "Lampe",
+                "kind": "light",
                 "integration": "hue",
                 "available": False,
                 "state": {},
@@ -118,6 +119,7 @@ async def test_a_weak_battery_is_reported_once():
             {
                 "id": "hm.rauchmelder",
                 "name": "Rauchmelder Flur",
+                "kind": "binary_sensor",
                 "integration": "homematic",
                 "available": True,
                 "state": {"low_battery": True},
@@ -138,5 +140,57 @@ async def test_a_weak_battery_is_reported_once():
         melder.state = {"low_battery": True}
         await hub.watchdog.check()
         assert len(sent) > before
+    finally:
+        await hub.stop()
+
+
+async def test_a_finished_machine_is_remembered_once():
+    """Die Push beim Programmende geht unter, wenn man gerade nicht kann.
+    Erinnert wird deshalb später – aber nur einmal je Programm."""
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        sent: list[str] = []
+
+        async def fake_send(tokens, title, body, data=None):
+            sent.append(title)
+            return len(tokens)
+
+        hub.push.send = fake_send  # type: ignore[assignment]
+        hub.push.register("ExponentPushToken[x]", "Stefan")
+
+        maschine = type(
+            "E",
+            (),
+            {
+                "id": "vzug.waschmaschine",
+                "name": "Waschmaschine",
+                "kind": "appliance",
+                "integration": "vzug",
+                "available": True,
+                "state": {"state": "running"},
+            },
+        )()
+        hub.registry.all = lambda: [maschine]  # type: ignore[assignment]
+
+        await hub.watchdog.check()
+        maschine.state = {"state": "idle"}
+        await hub.watchdog.check()
+        # Gerade erst fertig – noch keine Mahnung.
+        assert not any("voll" in title for title in sent)
+
+        # Zwei Stunden vorspulen.
+        hub.watchdog._finished_at["vzug.waschmaschine"] -= 2 * 3600
+        await hub.watchdog.check()
+        assert any("Waschmaschine" in title for title in sent)
+
+        before = len(sent)
+        await hub.watchdog.check()
+        assert len(sent) == before
+
+        # Neues Programm: Der Merker ist wieder frei.
+        maschine.state = {"state": "running"}
+        await hub.watchdog.check()
+        assert "vzug.waschmaschine" not in hub.watchdog._reminded
     finally:
         await hub.stop()

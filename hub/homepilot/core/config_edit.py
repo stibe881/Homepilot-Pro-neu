@@ -217,3 +217,56 @@ def _append_integration(
         *_entry(indent + 4, entry_name, host, port),
     ]
     return "\n".join(lines) + "\n"
+
+
+# ── Prüfung beim Start ─────────────────────────────────────────────────────
+
+
+def duplicate_devices(integrations: list[dict]) -> list[str]:
+    """Doppelt eingetragene Geräte finden (rein, testbar).
+
+    Zwei Einträge mit derselben Adresse sind fast immer ein Versehen beim
+    Kopieren einer Zeile. Der Hub legt dann zwei Entitäten mit derselben
+    Kennung an – die zweite überschreibt die erste, und man sucht lange,
+    warum ein Gerät den Zustand eines anderen zeigt.
+
+    Bei Homematic zählt zusätzlich der Port: Dieselbe Adresse auf zwei
+    Schnittstellen wäre zwar seltsam, aber nicht dasselbe Gerät.
+    """
+    problems: list[str] = []
+    for block in integrations or []:
+        if not isinstance(block, dict):
+            continue
+        name = str(block.get("integration") or "?")
+        seen: dict[tuple, int] = {}
+        for device in block.get("devices") or []:
+            if not isinstance(device, dict):
+                continue
+            key = (
+                str(device.get("address") or device.get("host") or ""),
+                str(device.get("port") or ""),
+            )
+            if not key[0]:
+                continue
+            seen[key] = seen.get(key, 0) + 1
+        for (address, port), count in sorted(seen.items()):
+            if count > 1:
+                where = f" (Port {port})" if port else ""
+                problems.append(
+                    f"{name}: {address}{where} steht {count}-mal in der Geräteliste"
+                )
+    return problems
+
+
+def unused_rooms(rooms: dict, entity_ids: set[str]) -> list[str]:
+    """Raumzuordnungen, die auf nichts zeigen (rein, testbar).
+
+    Meist ein umbenanntes oder ausgebautes Gerät. Die Zuordnung bleibt
+    stehen und der Raum wirkt voller, als er ist.
+    """
+    problems: list[str] = []
+    for room, members in (rooms or {}).items():
+        missing = [entry for entry in members or [] if entry not in entity_ids]
+        if missing:
+            problems.append(f"Raum «{room}»: {', '.join(sorted(missing))} gibt es nicht")
+    return problems

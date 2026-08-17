@@ -9,8 +9,10 @@ import yaml
 from homepilot.core.config_edit import (
     add_cast_device,
     block_range,
+    duplicate_devices,
     has_endpoint,
     quote,
+    unused_rooms,
 )
 
 CONFIG = """\
@@ -156,3 +158,47 @@ def test_a_new_block_lands_in_the_integrations_list():
         "google_cast",
     ]
     assert parsed["users"][0]["name"] == "Stefan"
+
+
+# ── Prüfung beim Start ─────────────────────────────────────────────────────
+
+
+def test_duplicate_devices_are_found():
+    """Zwei Einträge mit derselben Adresse sind fast immer eine kopierte
+    Zeile. Der zweite überschreibt den ersten, und man sucht lange, warum
+    ein Gerät den Zustand eines anderen zeigt."""
+    problems = duplicate_devices(
+        [
+            {
+                "integration": "homematic",
+                "devices": [
+                    {"address": "ABC:3", "port": 2010},
+                    {"address": "ABC:3", "port": 2010},
+                    {"address": "DEF:1", "port": 2010},
+                ],
+            }
+        ]
+    )
+    assert problems == ["homematic: ABC:3 (Port 2010) steht 2-mal in der Geräteliste"]
+
+
+def test_the_same_address_on_two_interfaces_is_no_duplicate():
+    assert duplicate_devices(
+        [
+            {
+                "integration": "homematic",
+                "devices": [
+                    {"address": "ABC:3", "port": 2001},
+                    {"address": "ABC:3", "port": 2010},
+                ],
+            }
+        ]
+    ) == []
+
+
+def test_unused_rooms_name_the_missing_devices():
+    problems = unused_rooms(
+        {"Küche": ["demo.lampe", "demo.weg"], "Bad": ["demo.lampe"]},
+        {"demo.lampe"},
+    )
+    assert problems == ["Raum «Küche»: demo.weg gibt es nicht"]

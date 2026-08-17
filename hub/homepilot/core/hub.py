@@ -9,6 +9,7 @@ import time
 from typing import Any
 
 from .. import __version__
+from . import config_edit
 from .automation import AutomationEngine
 from .config import HubConfig
 from .events import EventBus
@@ -100,6 +101,8 @@ class Hub:
                 "Kein Token und keine Benutzer konfiguriert – die API ist offen. "
                 "Nur im eigenen Netz vertretbar."
             )
+        for problem in self._config_problems():
+            log.warning("Konfiguration: %s", problem)
         log.info(
             "Hub bereit: %d Integrationen, %d Entitäten, %d Szenen, "
             "%d Benutzer, Datenbank: %s",
@@ -276,6 +279,19 @@ class Hub:
         # Muss vor dem Setup der Integrationen stehen, damit neu angelegte
         # Entitäten ihren gespeicherten Zustand mitbekommen.
         self.registry.state_provider = store.restored_state
+
+    def _config_problems(self) -> list[str]:
+        """Was in der config.yaml auffällt – einmal beim Start ins Log.
+
+        Beides sind Fehler, die man sonst erst Wochen später bemerkt, weil
+        nichts abstürzt: ein doppelt kopierter Geräteeintrag und eine
+        Raumzuordnung, die auf ein längst umbenanntes Gerät zeigt.
+        """
+        known = {entity.id for entity in self.registry.all()}
+        return [
+            *config_edit.duplicate_devices(self.config.integrations),
+            *config_edit.unused_rooms(self.config.rooms, known),
+        ]
 
     def status(self) -> dict[str, Any]:
         """Betriebszustand für die Diagnose-Ansicht der App."""

@@ -32,6 +32,10 @@ INTERVAL = 60.0
 # So lange darf ein einzelnes Gerät schweigen, bevor es gemeldet wird.
 # Grosszügiger als bei Integrationen: Ein Funkgerät verpasst mal eine Runde.
 DEVICE_GRACE_ROUNDS = 30
+# So lange nach dem Programmende wird an die volle Maschine erinnert.
+# Zwei Stunden: lang genug, dass man nicht wegen des Wegs vom Keller
+# gemahnt wird, kurz genug, dass die Wäsche nicht über Nacht knittert.
+APPLIANCE_REMINDER = 2 * 3600
 # Integrationen ohne eigene Verbindung, die nie „ausfallen“ können.
 IGNORE = frozenset({"demo", "helpers", "group", "adaptive", "presence_sim", "alarm"})
 
@@ -76,6 +80,11 @@ class Watchdog:
         self._device_strikes: dict[str, int] = {}
         self._reported_down: set[str] = set()
         self._reported_battery: set[str] = set()
+        # Haushaltgeräte: Zustand der letzten Runde, Zeitpunkt des
+        # Programmendes und was schon erinnert wurde.
+        self._last_state: dict[str, str] = {}
+        self._finished_at: dict[str, float] = {}
+        self._reminded: set[str] = set()
         # Aktuell als ausgefallen gemeldete Integrationen (seit Zeitstempel).
         self.down_since: dict[str, float] = {}
         # Protokoll der letzten Ausfälle für die App (jüngste zuerst).
@@ -116,6 +125,7 @@ class Watchdog:
 
     async def check(self) -> None:
         entities = self.hub.registry.all()
+        await self._check_appliances(entities)
         await self._check_devices(entities)
         await self._check_batteries(entities)
         down = down_integrations(entities)
@@ -170,6 +180,42 @@ class Watchdog:
                     f"{entity.name} antwortet nicht",
                     f"Seit {round(DEVICE_GRACE_ROUNDS * INTERVAL / 60)} Minuten "
                     "keine Meldung – die Alarmanlage hat dort einen blinden Fleck.",
+                )
+
+    async def _check_appliances(self, entities: list[Any]) -> None:
+        """An die fertige, aber noch volle Maschine erinnern.
+
+        Die Push beim Programmende schickt das Gerät selbst – die geht im
+        Alltag unter, wenn man gerade nicht kann. Erinnert wird deshalb
+        erst später, und nur einmal je Programm: Wer die Maschine ausräumt,
+        startet sie irgendwann neu, und damit ist der Merker wieder frei.
+        """
+        now = time.time()
+        for entity in entities:
+            if entity.kind != "appliance":
+                continue
+            state = str(entity.state.get("state") or "")
+            before = self._last_state.get(entity.id)
+            self._last_state[entity.id] = state
+
+            if state == "running":
+                self._finished_at.pop(entity.id, None)
+                self._reminded.discard(entity.id)
+                continue
+            if before == "running" and state == "idle":
+                self._finished_at[entity.id] = now
+                continue
+
+            since = self._finished_at.get(entity.id)
+            if since is None or entity.id in self._reminded:
+                continue
+            if now - since >= APPLIANCE_REMINDER:
+                self._reminded.add(entity.id)
+                hours = round((now - since) / 3600)
+                await self._notify(
+                    f"{entity.name} ist noch voll",
+                    f"Seit {hours} Stunden fertig und seither nicht wieder "
+                    "gelaufen.",
                 )
 
     async def _check_batteries(self, entities: list[Any]) -> None:
