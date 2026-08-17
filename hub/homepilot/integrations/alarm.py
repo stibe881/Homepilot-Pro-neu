@@ -22,8 +22,10 @@ Zustände der Anlage:
   ``scharf`` → ``eintritt`` (Eingangsverzögerung) → ``ausgeloest``
   jederzeit zurück auf ``unscharf``
 
-Ausgelöst wird eine Push-Nachricht an alle Bewohner geschickt und – wenn
-konfiguriert – eine Szene ausgeführt (z.B. alle Lichter an).
+Beim Auslösen geht eine Push-Nachricht an alle Bewohner. Soll dabei noch
+etwas geschaltet werden – etwa alle Lichter an –, gehört das in einen
+Ablauf: Die Anlage ist eine Entität, ihr Zustand ``ausgeloest`` lässt sich
+dort als Auslöser wählen.
 """
 
 from __future__ import annotations
@@ -35,7 +37,6 @@ from typing import Any
 from ..core.entity import Entity, EntityKind
 from ..core.errors import HomePilotError
 from ..core.integration import Integration
-from ..core.source import as_source
 
 # Die scharfen Modi. «aus» ist kein Modus, sondern deren Abwesenheit.
 MODES = ("nacht", "ausser_haus", "urlaub")
@@ -62,8 +63,6 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "notify_trigger": True,
     # … und optional auch beim Scharf-/Unscharfschalten.
     "notify_arming": False,
-    # Szene, die beim Auslösen läuft – z.B. alle Lichter an.
-    "trigger_scene": "",
     # Wie viele Ereignisse der Verlauf behält.
     "history_limit": 50,
 }
@@ -324,15 +323,6 @@ class AlarmIntegration(Integration):
                 "🚨 Alarm ausgelöst",
                 f"{entity.name} – Modus {MODE_LABELS.get(self._mode or '', '?')}",
             )
-        scene = str(self._settings.get("trigger_scene") or "")
-        if scene:
-            try:
-                # Als Alarm gekennzeichnet, damit im Protokoll steht, warum
-                # plötzlich alle Lichter angingen.
-                with as_source({"kind": "alarm", "label": "Alarmanlage"}):
-                    await self.hub.scenes.activate(scene)
-            except Exception:
-                self.log.exception("Alarm-Szene '%s' fehlgeschlagen", scene)
 
     async def _notify(self, title: str, body: str) -> None:
         tokens = self.hub.push.recipients(self.hub.users.users, "all")

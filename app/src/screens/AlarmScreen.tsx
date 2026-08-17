@@ -92,6 +92,8 @@ export function AlarmScreen({ settings }: { settings: HubSettings }) {
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [pendingMode, setPendingMode] = useState<string | null>(null);
+  // Welcher Modus gerade zusammengestellt wird.
+  const [tab, setTab] = useState('nacht');
 
   const headers: Record<string, string> = settings.token
     ? { Authorization: `Bearer ${settings.token}` }
@@ -180,6 +182,24 @@ export function AlarmScreen({ settings }: { settings: HubSettings }) {
     save({ sensors });
   };
 
+  const tabLabel = MODES.find((mode) => mode.key === tab)?.label ?? '';
+
+  /** Alle Sensoren auf einmal in den gewählten Modus nehmen oder daraus
+   *  entfernen – «Ausser Haus» heisst meistens schlicht alles. */
+  const setAllForTab = (include: boolean) => {
+    const sensors = data.candidates
+      .map((candidate) => {
+        const current = assigned.get(candidate.entity_id) ?? {
+          entity_id: candidate.entity_id,
+          modes: [] as string[],
+        };
+        const modes = current.modes.filter((entry) => entry !== tab);
+        return { ...current, modes: include ? [...modes, tab] : modes };
+      })
+      .filter((entry) => entry.modes.length > 0);
+    save({ sensors });
+  };
+
   const toggleMode = (entityId: string, mode: string) => {
     const current = assigned.get(entityId);
     const modes = current?.modes ?? [];
@@ -263,33 +283,75 @@ export function AlarmScreen({ settings }: { settings: HubSettings }) {
         ) : null}
       </Card>
 
-      {/* Sensoren je Modus */}
+      {/* Sensoren – je Modus einzeln zusammenstellen */}
       <Card style={styles.card}>
         <Text style={styles.heading}>Sensoren</Text>
+        <View style={styles.tabRow}>
+          {MODES.map((mode) => {
+            const on = tab === mode.key;
+            const count = data.sensors.filter((entry) =>
+              entry.modes.includes(mode.key)
+            ).length;
+            return (
+              <Pressable
+                key={mode.key}
+                onPress={() => setTab(mode.key)}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: on }}
+                style={[styles.tab, on && styles.tabOn]}
+              >
+                <Text style={[styles.tabText, on && { color: '#FFFFFF' }]}>
+                  {mode.label}
+                </Text>
+                <Text style={[styles.tabCount, on && { color: '#FFFFFF' }]}>
+                  {count}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
         <Text style={styles.hint}>
-          Für jeden Sensor wählen, in welchen Modi er wachen soll. Nachts
-          gehören meist nur Türen und Fenster dazu – Bewegungsmelder würden
-          jeden Gang zur Toilette melden.
+          Welche Sensoren wachen im Modus «{tabLabel}»? Jeder Modus wird
+          einzeln zusammengestellt – nachts gehören meist nur Türen und
+          Fenster dazu, weil Bewegungsmelder jeden Gang zur Toilette melden
+          würden.
         </Text>
+
         {data.candidates.length === 0 ? (
           <Text style={styles.hint}>
             Noch keine geeigneten Sensoren gefunden. Tür-/Fensterkontakte und
             Bewegungsmelder erscheinen hier automatisch.
           </Text>
-        ) : null}
+        ) : (
+          <View style={styles.chipRow}>
+            <Pressable onPress={() => setAllForTab(true)} style={styles.smallButton}>
+              <Text style={styles.smallButtonText}>Alle auswählen</Text>
+            </Pressable>
+            <Pressable onPress={() => setAllForTab(false)} style={styles.smallButton}>
+              <Text style={styles.smallButtonText}>Keine</Text>
+            </Pressable>
+          </View>
+        )}
+
         {byRoom(data.candidates).map((group) => (
           <View key={group.room} style={styles.group}>
             <Text style={styles.groupTitle}>{group.room}</Text>
             {group.items.map((candidate) => {
               const entry = assigned.get(candidate.entity_id);
-              const modes = entry?.modes ?? [];
+              const on = (entry?.modes ?? []).includes(tab);
               return (
                 <View key={candidate.entity_id} style={styles.sensor}>
-                  <View style={styles.sensorHead}>
+                  <Pressable
+                    onPress={() => toggleMode(candidate.entity_id, tab)}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: on }}
+                    style={styles.sensorHead}
+                  >
                     <Ionicons
-                      name={candidate.open ? 'alert-circle' : 'checkmark-circle-outline'}
-                      size={18}
-                      color={candidate.open ? colors.warn : colors.inkSoft}
+                      name={on ? 'checkmark-circle' : 'ellipse-outline'}
+                      size={24}
+                      color={on ? colors.on : colors.inkFaint}
                     />
                     <Text style={styles.rowTitle} numberOfLines={1}>
                       {candidate.name}
@@ -299,26 +361,8 @@ export function AlarmScreen({ settings }: { settings: HubSettings }) {
                     ) : candidate.open ? (
                       <Text style={styles.offline}>offen</Text>
                     ) : null}
-                  </View>
-                  <View style={styles.chipRow}>
-                    {MODES.map((mode) => {
-                      const on = modes.includes(mode.key);
-                      return (
-                        <Pressable
-                          key={mode.key}
-                          onPress={() => toggleMode(candidate.entity_id, mode.key)}
-                          accessibilityRole="checkbox"
-                          accessibilityState={{ checked: on }}
-                          style={[styles.chip, on && styles.chipOn]}
-                        >
-                          <Text style={[styles.chipText, on && { color: '#FFFFFF' }]}>
-                            {mode.label}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                  {modes.length > 0 ? (
+                  </Pressable>
+                  {on ? (
                     <View style={styles.chipRow}>
                       <Pressable
                         onPress={() =>
@@ -360,6 +404,7 @@ export function AlarmScreen({ settings }: { settings: HubSettings }) {
           startet die Eingangsverzögerung, statt sofort auszulösen.
           «Überbrückt» lässt einen Sensor vorübergehend aus, ohne die
           Zuordnung zu verlieren – für das Fenster, das gekippt bleiben soll.
+          Beides gilt für den Sensor in allen Modi.
         </Text>
       </Card>
 
@@ -466,21 +511,6 @@ function AlarmSettings({
         value={!!settings.notify_arming}
         onChange={(value) => onSave({ ...settings, notify_arming: value })}
       />
-
-      <View style={styles.field}>
-        <Text style={styles.label}>Szene beim Auslösen</Text>
-        <TextInput
-          style={styles.input}
-          value={String(settings.trigger_scene ?? '')}
-          onChangeText={(value) => onSave({ ...settings, trigger_scene: value })}
-          placeholder="Szenen-ID, z.B. alles_licht_an"
-          placeholderTextColor={colors.inkFaint}
-          autoCapitalize="none"
-        />
-        <Text style={styles.hint}>
-          Leer lassen, wenn beim Alarm nur die Nachricht kommen soll.
-        </Text>
-      </View>
     </Card>
   );
 }
@@ -530,6 +560,29 @@ const makeStyles = (colors: Colors) =>
     stateHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     lamp: { width: 14, height: 14, borderRadius: 7 },
     modeRow: { flexDirection: 'row', gap: 8 },
+    tabRow: { flexDirection: 'row', gap: 6 },
+    tab: {
+      flex: 1,
+      alignItems: 'center',
+      gap: 2,
+      paddingVertical: 9,
+      borderRadius: radius.control,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    tabOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+    tabText: { color: colors.ink, fontSize: 12, fontWeight: '700' },
+    tabCount: { color: colors.inkSoft, fontSize: 11 },
+    smallButton: {
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceStrong,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    smallButtonText: { color: colors.accent, fontSize: 12, fontWeight: '700' },
     mode: {
       flex: 1,
       alignItems: 'center',
