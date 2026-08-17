@@ -96,7 +96,11 @@ export function OverviewScreen({
   const calendar = entities.find((e) => e.kind === 'calendar');
   const weather = entities.find((e) => e.kind === 'weather');
   const alert = entities.find((e) => e.kind === 'alert' && e.state.state === 'alert');
-  const alarm = entities.find((e) => /alarm/i.test(e.name) && e.kind === 'switch');
+  // Die echte Alarmanlage des Hubs; ein per Namen erkannter Schalter ist
+  // nur der Notnagel für Aufbauten ohne sie.
+  const alarm =
+    entities.find((e) => e.kind === 'alarm') ??
+    entities.find((e) => /alarm/i.test(e.name) && e.kind === 'switch');
   const players = entities.filter((e) => e.kind === 'media_player');
   // Spielt irgendwo Musik, zeigt die Kachel diesen Player; sonst Spotify
   // (Playlists + Boxen-Wahl) vor einer stillen Cast-Box.
@@ -135,6 +139,27 @@ export function OverviewScreen({
   const [demoFlatLocked, setDemoFlatLocked] = useState(true);
   const [demoAlarmArmed, setDemoAlarmArmed] = useState(false);
   const [confirm, setConfirm] = useState<string | null>(null);
+
+  // Scharf ist alles ausser «unscharf» – auch während der Verzögerung und
+  // erst recht, wenn sie ausgelöst hat.
+  const alarmArmed = alarm
+    ? alarm.kind === 'alarm'
+      ? String(alarm.state.state ?? 'unscharf') !== 'unscharf'
+      : alarm.state.state === 'on'
+    : demoAlarmArmed;
+  const alarmText = !alarm
+    ? demoAlarmArmed
+      ? 'Scharf'
+      : 'Unscharf'
+    : alarm.kind !== 'alarm'
+      ? alarmArmed
+        ? 'Scharf'
+        : 'Unscharf'
+      : String(alarm.state.state) === 'ausgeloest'
+        ? 'Alarm ausgelöst'
+        : String(alarm.state.state) === 'unscharf'
+          ? 'Unscharf'
+          : `Scharf · ${alarm.state.mode_label ?? ''}`;
 
   /** Zwei-Schritt-Bestätigung: erster Tipp fragt, zweiter führt aus. */
   const confirmThen = (key: string, action: () => void) => {
@@ -273,13 +298,14 @@ export function OverviewScreen({
           <Text
             style={[
               styles.tileState,
-              (alarm ? alarm.state.state === 'on' : demoAlarmArmed) && { color: colors.on },
+              alarmArmed && { color: colors.on },
+              String(alarm?.state.state) === 'ausgeloest' && { color: colors.danger },
             ]}
           >
-            {(alarm ? alarm.state.state === 'on' : demoAlarmArmed) ? 'Scharf' : 'Unscharf'}
+            {alarmText}
           </Text>
           <Action styles={styles}
-            label={(alarm ? alarm.state.state === 'on' : demoAlarmArmed) ? 'Unscharf schalten' : 'Scharf schalten'}
+            label={alarmArmed ? 'Unscharf schalten' : 'Scharf schalten'}
             onPress={() =>
               alarm ? onCommand(alarm.id, 'toggle') : setDemoAlarmArmed((v) => !v)
             }

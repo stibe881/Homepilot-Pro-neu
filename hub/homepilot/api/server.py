@@ -32,6 +32,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from ..core.config import ConfigError, load_config
+from ..integrations import alarm as alarm_module
 from ..core.errors import HomePilotError, UnknownEntityError, UnsupportedCommandError
 from ..core.hub import Hub
 from ..core.source import as_source, user_source
@@ -103,6 +104,13 @@ class ConfigRequest(BaseModel):
 
 class RoomRequest(BaseModel):
     room: str | None = None
+
+
+class AlarmArmRequest(BaseModel):
+    mode: str
+    # Trotz offener Fenster scharf schalten – bewusste Entscheidung des
+    # Benutzers, nachdem ihm gesagt wurde, was offen ist.
+    force: bool = False
 
 
 class MetaRequest(BaseModel):
@@ -677,6 +685,65 @@ def create_app(hub: Hub) -> FastAPI:
         if not ok:
             raise HTTPException(status_code=404, detail="Ablauf nicht gefunden")
         return {"ok": True}
+
+    # ── Alarmanlage ────────────────────────────────────────────────────────
+
+    def alarm_service():
+        service = hub.integrations.get("alarm")
+        if service is None:
+            raise HTTPException(status_code=503, detail="Alarmanlage nicht geladen")
+        return service
+
+    @app.get("/api/alarm")
+    async def alarm_overview(request: Request) -> dict[str, Any]:
+        """Zustand, Zuordnung und alle Sensoren, die in Frage kommen.
+
+        Die Kandidatenliste kommt vom Hub statt aus der App: Nur er weiss,
+        welche Entität wirklich einen Öffnungs- oder Bewegungszustand
+        meldet – die App müsste es raten.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        service = alarm_service()
+        return {
+            "state": service._entity.as_dict()["state"],
+            **service.config_dict(),
+            "history": service.history,
+            "candidates": [
+                {
+                    "entity_id": entity.id,
+                    "name": entity.name,
+                    "room": entity.room,
+                    "kind": entity.kind,
+                    "device_class": entity.state.get("device_class"),
+                    "open": alarm_module.sensor_open(entity),
+                    "available": entity.available,
+                }
+                for entity in service.candidates()
+            ],
+        }
+
+    @app.put("/api/alarm")
+    async def alarm_configure(body: dict[str, Any], request: Request) -> dict[str, Any]:
+        require(request, Capability.EDIT_CONFIG)
+        service = alarm_service()
+        await service.update_config(body)
+        return {"ok": True, **service.config_dict()}
+
+    @app.post("/api/alarm/arm")
+    async def alarm_arm(body: AlarmArmRequest, request: Request) -> dict[str, Any]:
+        """Scharf schalten. Offene Fenster melden statt blind loszulaufen –
+        sonst schlägt die Anlage los, sobald die Verzögerung endet."""
+        user = require(request, Capability.CONTROL)
+        service = alarm_service()
+        try:
+            return await service.arm(body.mode, force=body.force, by=user.name)
+        except HomePilotError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
+    @app.post("/api/alarm/disarm")
+    async def alarm_disarm(request: Request) -> dict[str, Any]:
+        user = require(request, Capability.CONTROL)
+        return await alarm_service().disarm(by=user.name)
 
     # ── Push ───────────────────────────────────────────────────────────────
 

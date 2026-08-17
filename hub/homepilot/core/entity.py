@@ -31,6 +31,10 @@ class EntityKind:
     COVER = "cover"
     # Wetterlage mit heutigem Wert und Mehrtagesvorhersage.
     WEATHER = "weather"
+    # Die Alarmanlage selbst: scharf/unscharf und in welchem Modus. Gäste
+    # sehen sie bewusst nie – wer scharfschalten darf, ist eine Frage der
+    # Rolle, nicht der Freigabe einzelner Bereiche.
+    ALARM = "alarm"
 
 
 @dataclass

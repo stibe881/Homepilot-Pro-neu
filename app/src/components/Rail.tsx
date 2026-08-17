@@ -17,6 +17,7 @@ export type Section =
   | 'automations'
   | 'system'
   | 'energy'
+  | 'alarm'
   | 'users'
   | 'activity'
   | 'account';

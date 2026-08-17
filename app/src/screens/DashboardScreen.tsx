@@ -38,6 +38,7 @@ import { AutomationsScreen } from './AutomationsScreen';
 import { FamilyScreen } from './FamilyScreen';
 import { OverviewScreen } from './OverviewScreen';
 import { SettingsScreen } from './SettingsScreen';
+import { AlarmScreen } from './AlarmScreen';
 import { EnergyScreen } from './EnergyScreen';
 import { SystemScreen } from './SystemScreen';
 import { UsersScreen } from './UsersScreen';
@@ -483,6 +484,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           show: caps.includes('view_automations'),
         },
         {
+          key: 'alarm',
+          icon: 'shield-checkmark-outline',
+          label: 'Alarmanlage',
+          detail: 'Sensoren, Modi und Verlauf',
+          show: caps.includes('edit_config'),
+        },
+        {
           key: 'energy',
           icon: 'flash-outline',
           label: 'Energie',
@@ -530,6 +538,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 <Ionicons name="chevron-forward" size={18} color={colors.inkFaint} />
               </Pressable>
             ))}
+        </View>
+      );
+    }
+    if (section === 'alarm') {
+      return (
+        <View style={styles.stack}>
+          {back}
+          <AlarmScreen settings={settings} />
         </View>
       );
     }

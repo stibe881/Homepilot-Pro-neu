@@ -80,7 +80,13 @@ class Hub:
         self.registry.meta_provider = self._meta_by_entity.get
         await self._start_store()
         self._load_stored_users()
-        await self.integrations.setup_all(self.config.integrations)
+        # Die Alarmanlage gehört zum Haus, nicht zu einer Geräteanbindung:
+        # Sie ist immer da, auch ohne Eintrag in der config.yaml. Wer sie
+        # dort umbenennen will, kann sie trotzdem selbst aufführen.
+        integrations = list(self.config.integrations)
+        if not any(entry.get("integration") == "alarm" for entry in integrations):
+            integrations.append({"integration": "alarm"})
+        await self.integrations.setup_all(integrations)
         self.scenes.load(self.config.scenes, self.data.get("scenes"))
         await self.automations.start(
             self.config.automations, self.data.get("automations")

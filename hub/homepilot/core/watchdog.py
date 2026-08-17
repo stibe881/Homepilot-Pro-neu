@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 GRACE_ROUNDS = 2
 INTERVAL = 60.0
 # Integrationen ohne eigene Verbindung, die nie „ausfallen“ können.
-IGNORE = frozenset({"demo", "helpers", "group", "adaptive", "presence_sim"})
+IGNORE = frozenset({"demo", "helpers", "group", "adaptive", "presence_sim", "alarm"})
 
 
 def down_integrations(entities: list[Any]) -> set[str]:
