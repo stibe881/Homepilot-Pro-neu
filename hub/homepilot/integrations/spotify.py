@@ -135,7 +135,13 @@ def parse_playback(payload: dict[str, Any] | None) -> dict[str, Any]:
     Zustand, keine Störung.
     """
     if not payload:
-        return {"state": "idle", "track": None, "artist": None, "device": None}
+        return {
+            "state": "idle",
+            "track": None,
+            "artist": None,
+            "device": None,
+            "context_uri": None,
+        }
     item = payload.get("item") or {}
     artists = ", ".join(
         artist.get("name", "") for artist in item.get("artists") or [] if artist.get("name")
@@ -146,11 +152,31 @@ def parse_playback(payload: dict[str, Any] | None) -> dict[str, Any]:
         "track": item.get("name"),
         "artist": artists or None,
         "device": device.get("name"),
+        # Woraus gerade gespielt wird. Spotify nennt hier nur die URI –
+        # den Namen kennt erst, wer die Playlists des Kontos hat.
+        "context_uri": (payload.get("context") or {}).get("uri"),
     }
     volume = device.get("volume_percent")
     if volume is not None:
         result["volume"] = int(volume)
     return result
+
+
+def playlist_name(
+    context_uri: str | None, playlists: list[dict[str, Any]]
+) -> str | None:
+    """Die laufende Playlist benennen (rein, testbar).
+
+    Spotify meldet beim Abspielen nur eine Kontext-URI. Ein Album oder die
+    Songradio hat keinen Playlist-Namen – dann bleibt es bei None, statt
+    irgendetwas zu behaupten.
+    """
+    if not context_uri:
+        return None
+    for entry in playlists:
+        if entry.get("uri") == context_uri:
+            return str(entry.get("name"))
+    return None
 
 
 class SpotifyIntegration(Integration):
@@ -297,6 +323,7 @@ class SpotifyIntegration(Integration):
             [device["name"] for device in devices], self._cast_names()
         )
         state["playlists"] = [p["name"] for p in self._playlists]
+        state["playlist"] = playlist_name(state.get("context_uri"), self._playlists)
         await self.hub.registry.update_state(entity_id, state, available=True)
 
     def _cast_names(self) -> list[str]:

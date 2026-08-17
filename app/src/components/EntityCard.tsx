@@ -939,6 +939,12 @@ export function SpotifyPanel({
   const visible = sortPlaylists(playlists, order).filter(
     (name) => !hiddenList.includes(name)
   );
+  // Nur solange wirklich etwas läuft: Nach dem Anhalten wäre der Name eine
+  // Behauptung über die Gegenwart, die nicht mehr stimmt.
+  const current =
+    playing && typeof entity.state.playlist === 'string'
+      ? entity.state.playlist
+      : null;
 
   return (
     <View style={styles.stack}>
@@ -979,13 +985,28 @@ export function SpotifyPanel({
         </Text>
       )}
 
+      {/* Läuft gerade eine Playlist, steht sie auf dem Knopf – das ist die
+          Antwort auf «was höre ich hier eigentlich». Sonst führt er schlicht
+          zur Auswahl. */}
       <Pressable
         onPress={() => setListOpen(true)}
         accessibilityRole="button"
+        accessibilityLabel={
+          current ? `Playlists – zurzeit ${current}` : 'Playlists'
+        }
         style={({ pressed }) => [styles.playlistButton, pressed && { opacity: 0.85 }]}
       >
-        <Ionicons name="list" size={16} color={colors.ink} />
-        <Text style={styles.playlistButtonText}>Playlists</Text>
+        <Ionicons
+          name={current ? 'musical-notes' : 'list'}
+          size={16}
+          color={current ? colors.accent : colors.ink}
+        />
+        <View style={{ flex: 1 }}>
+          {current ? <Text style={styles.playlistNow}>Läuft</Text> : null}
+          <Text style={styles.playlistButtonText} numberOfLines={1}>
+            {current ?? 'Playlists'}
+          </Text>
+        </View>
         <Text style={styles.spotifyCount}>{visible.length}</Text>
       </Pressable>
 
@@ -1703,7 +1724,14 @@ const makeStyles = (colors: Colors) =>
     borderWidth: 1,
     borderColor: colors.surfaceBorder,
   },
-  playlistButtonText: { color: colors.ink, fontSize: 14, fontWeight: '700', flex: 1 },
+  playlistButtonText: { color: colors.ink, fontSize: 14, fontWeight: '700' },
+  playlistNow: {
+    color: colors.accent,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
   sheet: { flex: 1, backgroundColor: colors.panel, padding: 20, paddingTop: 60, gap: 12 },
   sheetHead: { flexDirection: 'row', alignItems: 'center', gap: 16 },
   sheetTitle: { color: colors.ink, fontSize: 22, fontWeight: '700', flex: 1 },
