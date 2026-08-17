@@ -134,6 +134,9 @@ def test_playback_playing():
         "track": "Yesterday",
         "artist": "The Beatles",
         "device": "Wohnzimmer",
+        # Ohne «context» in der Antwort läuft der Song einzeln, nicht aus
+        # einer Playlist.
+        "context_uri": None,
     }
 
 
