@@ -1,18 +1,44 @@
+import Constants from 'expo-constants';
 import * as Notifications from 'expo-notifications';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Platform } from 'react-native';
 
 import { HubSettings } from '../api/types';
 
+/** Woran die Anmeldung steht – damit ein Fehlschlag sichtbar wird. */
+export type PushState =
+  | { state: 'idle' }
+  | { state: 'web' }
+  | { state: 'denied' }
+  | { state: 'registered'; label: string }
+  | { state: 'failed'; detail: string };
+
+/**
+ * Die EAS-Projekt-Kennung. Ohne sie stellt Expo keinen Push-Token aus –
+ * `getExpoPushTokenAsync` bricht dann mit «No projectId found» ab.
+ */
+function projectId(): string | undefined {
+  const extra = Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined;
+  return extra?.eas?.projectId ?? Constants.easConfig?.projectId ?? undefined;
+}
+
 /**
  * Meldet das Gerät beim Hub für Benachrichtigungen an.
  *
- * Läuft still im Hintergrund: Ohne Erlaubnis, im Browser oder im Simulator
- * passiert schlicht nichts – die App bleibt in jedem Fall bedienbar.
+ * Läuft im Hintergrund, stört die App nie – meldet aber zurück, warum es
+ * nicht geklappt hat. Vorher verschwand jeder Fehler still, und im
+ * System-Screen stand bloss «Kein Gerät angemeldet», ohne den Grund.
  */
-export function usePushRegistration(settings: HubSettings, connected: boolean) {
+export function usePushRegistration(
+  settings: HubSettings,
+  connected: boolean
+): PushState {
+  const [push, setPush] = useState<PushState>({ state: 'idle' });
+
   useEffect(() => {
-    if (!connected || Platform.OS === 'web') {
+    if (!connected) return;
+    if (Platform.OS === 'web') {
+      setPush({ state: 'web' });
       return;
     }
     let cancelled = false;
@@ -24,25 +50,39 @@ export function usePushRegistration(settings: HubSettings, connected: boolean) {
         if (!granted && existing.canAskAgain) {
           granted = (await Notifications.requestPermissionsAsync()).granted;
         }
-        if (!granted || cancelled) return;
+        if (cancelled) return;
+        if (!granted) {
+          setPush({ state: 'denied' });
+          return;
+        }
 
-        const { data: pushToken } = await Notifications.getExpoPushTokenAsync();
+        const id = projectId();
+        const { data: pushToken } = await Notifications.getExpoPushTokenAsync(
+          id ? { projectId: id } : undefined
+        );
         if (cancelled || !pushToken) return;
 
-        await fetch(`${settings.url}/api/push/register`, {
+        const label = Platform.OS === 'ios' ? 'iPhone/iPad' : 'Android';
+        const response = await fetch(`${settings.url}/api/push/register`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             ...(settings.token ? { Authorization: `Bearer ${settings.token}` } : {}),
           },
-          body: JSON.stringify({
-            token: pushToken,
-            label: Platform.OS === 'ios' ? 'iPhone/iPad' : 'Android',
-          }),
+          body: JSON.stringify({ token: pushToken, label }),
         });
-      } catch {
+        if (cancelled) return;
+        if (!response.ok) {
+          setPush({ state: 'failed', detail: `Hub antwortet mit ${response.status}` });
+          return;
+        }
+        setPush({ state: 'registered', label });
+      } catch (err: any) {
         // Benachrichtigungen sind eine Zugabe – ein Fehler hier darf die
-        // App nicht stören.
+        // App nicht stören, aber verschwiegen wird er auch nicht mehr.
+        if (!cancelled) {
+          setPush({ state: 'failed', detail: String(err?.message ?? err) });
+        }
       }
     })();
 
@@ -50,4 +90,27 @@ export function usePushRegistration(settings: HubSettings, connected: boolean) {
       cancelled = true;
     };
   }, [settings.url, settings.token, connected]);
+
+  return push;
+}
+
+/** Was der System-Screen zur Lage anzeigt (rein, testbar). */
+export function pushHint(push: PushState, sent: number | null): string {
+  if (sent != null && sent > 0) {
+    return `Verschickt an ${sent} Gerät(e).`;
+  }
+  switch (push.state) {
+    case 'web':
+      return 'Im Browser gibt es keine Push-Nachrichten. Öffne die App auf dem Handy.';
+    case 'denied':
+      return 'Die App darf keine Benachrichtigungen zeigen – in den Geräte-Einstellungen erlauben.';
+    case 'failed':
+      return /projectid/i.test(push.detail)
+        ? 'Expo stellt ohne EAS-Projekt-Kennung keinen Push-Token aus. Trag sie in der app.json unter extra.eas.projectId ein (eas init) und starte die App neu.'
+        : `Anmeldung fehlgeschlagen: ${push.detail}`;
+    case 'registered':
+      return `Dieses Gerät ist angemeldet (${push.label}). Kommt nichts an, prüfe die Benachrichtigungen in den Geräte-Einstellungen.`;
+    default:
+      return 'Noch kein Gerät angemeldet – die App meldet sich an, sobald sie mit dem Hub verbunden ist.';
+  }
 }

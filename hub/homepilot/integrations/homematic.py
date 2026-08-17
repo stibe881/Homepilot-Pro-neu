@@ -38,6 +38,11 @@ Lesen eines Kanals fehl, kommt der andere trotzdem an – und eine
 Log-Warnung nennt den Grund. Wer melden und schalten wirklich trennen
 muss, kann Kommandos mit ``command_address`` umlenken.
 
+Steht als ``address`` versehentlich der Messkanal, korrigiert der Hub das
+beim Start selbst: Er kennt die Kanalliste der CCU, sucht den Schaltkanal
+desselben Geräts und schaltet und liest dort. Im Log steht, was er
+umgebogen hat.
+
 Die CCU kann Änderungen aktiv melden: Der Hub meldet sich per ``init`` mit
 einer Callback-Adresse an, danach ruft die CCU bei jeder Wertänderung
 ``event`` auf. Das ist deutlich schneller und schonender als Polling, das
@@ -59,7 +64,7 @@ from typing import Any
 from xmlrpc.server import SimpleXMLRPCServer
 
 from ..core.entity import Entity, EntityKind
-from ..core.errors import ConfigError
+from ..core.errors import ConfigError, HomePilotError
 from ..core.integration import Integration
 
 # Der Hauptdatenpunkt je Entitätsart, wenn nichts anderes konfiguriert ist.
@@ -71,6 +76,62 @@ DEFAULT_DATAPOINTS = {
 LEVEL = "LEVEL"
 # Messkanal einer Schalt-Messsteckdose (HmIP-PSM, HM-ES-PMSw1): Momentanleistung.
 POWER = "POWER"
+
+# Kanalarten, auf denen sich wirklich schalten lässt. Messkanäle heissen
+# ähnlich (SWITCH_TRANSMITTER, ENERGIE_METER_TRANSMITTER), können es aber
+# nicht: Dort gibt es kein STATE, und jedes setValue endet in Fault -5.
+SWITCHING_TYPES = frozenset(
+    {
+        "SWITCH",
+        "SWITCH_VIRTUAL_RECEIVER",
+        "DIMMER",
+        "DIMMER_VIRTUAL_RECEIVER",
+        "VIRTUAL_DIMMER",
+    }
+)
+
+
+def switch_channel(address: str, channels: dict[str, str]) -> str | None:
+    """Der Kanal desselben Geräts, auf dem geschaltet wird (rein, testbar).
+
+    ``channels`` ist die Kanalliste der CCU (Adresse → Kanalart). Gibt
+    ``None`` zurück, wenn der angegebene Kanal schon schalten kann, die CCU
+    ihn nicht kennt oder das Gerät gar keinen Schaltkanal hat. Bei mehreren
+    gewinnt die kleinste Kanalnummer – bei einer HmIP-PSM also Kanal 3.
+    """
+    if address not in channels or channels[address] in SWITCHING_TYPES:
+        return None
+    serial = address.split(":", 1)[0]
+
+    def number(candidate: str) -> int:
+        part = candidate.split(":", 1)[1] if ":" in candidate else ""
+        return int(part) if part.isdigit() else 0
+
+    candidates = sorted(
+        (
+            candidate
+            for candidate, kind in channels.items()
+            if candidate.split(":", 1)[0] == serial and kind in SWITCHING_TYPES
+        ),
+        key=number,
+    )
+    return candidates[0] if candidates else None
+
+
+def command_error(address: str, datapoint: str, fault: Exception) -> str:
+    """Aus einem CCU-Fehler eine Meldung machen, die weiterhilft (rein).
+
+    «Fault -5: Invalid parameter or value» sagt für sich genommen nichts;
+    fast immer steckt der falsche Kanal dahinter.
+    """
+    text = str(getattr(fault, "faultString", None) or fault)
+    if getattr(fault, "faultCode", None) == -5 or "Invalid parameter" in text:
+        return (
+            f"Die CCU kennt auf Kanal {address} keinen Datenpunkt {datapoint}. "
+            "Bei Homematic IP wird auf dem Schaltkanal geschaltet (meist :3); "
+            "der Messkanal (meist :6) liefert nur Verbrauchswerte."
+        )
+    return f"CCU meldet für {address}: {text}"
 
 
 def value_to_state(value: Any, datapoint: str, dimmable: bool) -> dict[str, Any]:
@@ -185,7 +246,8 @@ class HomematicIntegration(Integration):
             await self._add_device(device)
 
         for port in sorted(self._ports()):
-            await self._log_available_channels(port)
+            channels = await self._log_available_channels(port)
+            self._use_switch_channels(port, channels)
         await self._refresh_all()
 
         if self._callback_port:
@@ -241,6 +303,7 @@ class HomematicIntegration(Integration):
         )
         self._devices[entity.id] = {
             "address": address,
+            "kind": kind,
             "datapoint": datapoint,
             "dimmable": dimmable,
             "port": int(device.get("port", self._port)),
@@ -259,8 +322,11 @@ class HomematicIntegration(Integration):
         proxy = self._proxy_for(port if port is not None else self._port)
         return await asyncio.to_thread(getattr(proxy, method), *args)
 
-    async def _log_available_channels(self, port: int) -> None:
+    async def _log_available_channels(self, port: int) -> dict[str, str]:
         """Listet Kanäle der CCU – hilft beim Ausfüllen der Konfiguration.
+
+        Gibt die Kanalliste (Adresse → Kanalart) zurück; der Hub biegt damit
+        anschliessend Schaltbefehle auf den richtigen Kanal um.
 
         Eine Zeile pro Kanalart statt einer einzigen, alphabetisch
         abgeschnittenen Liste: Bei vielen Geräten dominieren sonst
@@ -272,7 +338,7 @@ class HomematicIntegration(Integration):
             devices = await self._call("listDevices", port=port)
         except Exception as err:
             self.log.warning("CCU auf Port %s nicht erreichbar: %s", port, err)
-            return
+            return {}
 
         channels = {
             device["ADDRESS"]: device.get("TYPE", "")
@@ -313,6 +379,39 @@ class HomematicIntegration(Integration):
             if rest > 0:
                 shown += f", … und {rest} weitere"
             self.log.info("  %s (%d): %s", kind, len(addresses), shown)
+        return channels
+
+    def _use_switch_channels(self, port: int, channels: dict[str, str]) -> None:
+        """Schalten und Lesen auf den Schaltkanal des Geräts umbiegen.
+
+        Wer bei einer HmIP-Schalt-Messsteckdose den Messkanal (:6) als
+        Adresse einträgt, bekam beim Einschalten nur ein nacktes
+        «Fault -5: Invalid parameter or value» – dort gibt es kein STATE.
+        Der Hub sucht den passenden Schaltkanal jetzt selbst und schreibt in
+        Log, was er tut; der Messkanal bleibt für die Leistung zuständig.
+        """
+        for entity_id, info in self._devices.items():
+            if info["port"] != port:
+                continue
+            if info["kind"] not in (EntityKind.SWITCH, EntityKind.LIGHT):
+                continue
+            target = switch_channel(info["command_address"], channels)
+            if target is None:
+                continue
+            self.log.info(
+                "%s: %s ist kein Schaltkanal (%s) – geschaltet wird auf %s.",
+                entity_id,
+                info["command_address"],
+                channels.get(info["command_address"], "unbekannt"),
+                target,
+            )
+            info["command_address"] = target
+            # Auch der Zustand kommt vom Schaltkanal: Auf dem Messkanal gäbe
+            # es sonst dauerhaft «unbekannt».
+            if switch_channel(info["address"], channels) is not None:
+                self._by_datapoint.pop((info["address"], info["datapoint"]), None)
+                info["address"] = target
+                self._by_datapoint[(target, info["datapoint"])] = entity_id
 
     async def _refresh_all(self) -> None:
         for entity_id, info in self._devices.items():
@@ -448,9 +547,14 @@ class HomematicIntegration(Integration):
     async def handle_command(self, entity: Entity, command: str, data: dict[str, Any]) -> None:
         info = self._devices[entity.id]
         datapoint, value = command_to_value(command, data, info["dimmable"], entity.state)
-        await self._call(
-            "setValue", info["command_address"], datapoint, value, port=info["port"]
-        )
+        try:
+            await self._call(
+                "setValue", info["command_address"], datapoint, value, port=info["port"]
+            )
+        except xmlrpc.client.Fault as err:
+            raise HomePilotError(
+                command_error(info["command_address"], datapoint, err)
+            ) from err
         # Die CCU meldet die Änderung per Event zurück; ohne Callback-Betrieb
         # ziehen wir den Zustand direkt nach.
         if self._server is None:

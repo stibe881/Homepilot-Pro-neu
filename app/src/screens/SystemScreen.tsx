@@ -1,16 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  Platform,
-  Pressable,
-  Share,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Entity, HubSettings, SystemStatus, User } from '../api/types';
+import { PushState, pushHint } from '../hooks/usePushRegistration';
 import { Card } from '../components/Card';
 import { Colors, radius, space, type, useColors } from '../theme';
 
@@ -24,10 +17,13 @@ export function SystemScreen({
   settings,
   user,
   entities = [],
+  push = { state: 'idle' },
 }: {
   settings: HubSettings;
   user: User | null;
   entities?: Entity[];
+  /** Stand der Push-Anmeldung dieses Geräts. */
+  push?: PushState;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -202,7 +198,7 @@ export function SystemScreen({
         </Card>
       ) : null}
 
-      <PushTestCard settings={settings} headers={headers} />
+      <PushTestCard settings={settings} headers={headers} push={push} />
 
       {user?.capabilities?.includes('edit_config') ? (
         <BackupCard settings={settings} headers={headers} />
@@ -409,9 +405,11 @@ function Fact({ label, value, tone }: { label: string; value: string; tone?: str
 function PushTestCard({
   settings,
   headers,
+  push,
 }: {
   settings: HubSettings;
   headers: Record<string, string>;
+  push: PushState;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -428,13 +426,9 @@ function PushTestCard({
       });
       if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
       const data = await response.json();
-      setMessage(
-        data.sent > 0
-          ? `Verschickt an ${data.sent} Gerät(e).`
-          : Platform.OS === 'web'
-            ? 'Im Browser gibt es keine Push-Nachrichten. Öffne die App auf dem Handy – dort meldet sie sich von selbst an.'
-            : 'Kein Gerät angemeldet. Erlaube der App Benachrichtigungen, dann meldet sie sich beim nächsten Start an.'
-      );
+      // Kommt nichts an, sagt der Stand der Anmeldung warum – das ist
+      // brauchbarer als ein blosses «kein Gerät angemeldet».
+      setMessage(pushHint(push, Number(data.sent ?? 0)));
     } catch (err: any) {
       setMessage(String(err.message ?? err));
     } finally {
@@ -451,7 +445,7 @@ function PushTestCard({
       <View style={styles.buttons}>
         <Button label={busy ? 'Sendet …' : 'Push testen'} onPress={test} primary />
       </View>
-      {message ? <Text style={styles.hint}>{message}</Text> : null}
+      <Text style={styles.hint}>{message ?? pushHint(push, null)}</Text>
     </Card>
   );
 }

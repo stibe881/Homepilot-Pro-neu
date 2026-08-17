@@ -136,7 +136,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   }, [section]);
 
   usePanelMode(!!settings.panel);
-  usePushRegistration(settings, status === 'connected');
+  const push = usePushRegistration(settings, status === 'connected');
   useEffect(() => {
     if (!settings.panel) return;
     const timer = setInterval(() => {
@@ -566,7 +566,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       return (
         <View style={styles.stack}>
           {back}
-          <SystemScreen settings={settings} user={user} entities={entities} />
+          <SystemScreen settings={settings} user={user} entities={entities} push={push} />
         </View>
       );
     }

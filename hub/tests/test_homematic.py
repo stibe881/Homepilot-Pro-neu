@@ -1,9 +1,13 @@
 import pytest
 
+import xmlrpc.client
+
 from homepilot.integrations.homematic import (
     HomematicIntegration,
+    command_error,
     command_to_value,
     power_to_state,
+    switch_channel,
     value_to_state,
 )
 
@@ -177,3 +181,46 @@ async def test_devices_without_port_use_the_default(hub):
         assert {port for method, _, port in ccu.calls if method == "getValue"} == {2001}
     finally:
         await integration.teardown()
+
+
+# Kanalliste einer HmIP-Schalt-Messsteckdose, wie die CCU sie meldet.
+PSM_CHANNELS = {
+    "001015699EA263:0": "MAINTENANCE",
+    "001015699EA263:2": "SWITCH_TRANSMITTER",
+    "001015699EA263:3": "SWITCH_VIRTUAL_RECEIVER",
+    "001015699EA263:4": "SWITCH_VIRTUAL_RECEIVER",
+    "001015699EA263:5": "SWITCH_VIRTUAL_RECEIVER",
+    "001015699EA263:6": "ENERGIE_METER_TRANSMITTER",
+}
+
+
+def test_switch_channel_redirects_measuring_channel():
+    # Der Messkanal kann nicht schalten – der kleinste Schaltkanal gewinnt.
+    assert switch_channel("001015699EA263:6", PSM_CHANNELS) == "001015699EA263:3"
+    # Auch der Sendekanal ist keiner zum Schalten.
+    assert switch_channel("001015699EA263:2", PSM_CHANNELS) == "001015699EA263:3"
+
+
+def test_switch_channel_leaves_working_channels_alone():
+    assert switch_channel("001015699EA263:3", PSM_CHANNELS) is None
+    # Unbekannte Adressen fasst der Hub nicht an.
+    assert switch_channel("ABC:1", PSM_CHANNELS) is None
+
+
+def test_switch_channel_without_any_switch_channel():
+    only_sensor = {"XYZ:1": "ENERGIE_METER_TRANSMITTER"}
+    assert switch_channel("XYZ:1", only_sensor) is None
+
+
+def test_command_error_explains_fault_minus_five():
+    fault = xmlrpc.client.Fault(-5, "Invalid parameter or value")
+    message = command_error("001015699EA263:6", "STATE", fault)
+    assert "001015699EA263:6" in message
+    assert "STATE" in message
+    # Der Hinweis auf den Schaltkanal ist der eigentliche Nutzen.
+    assert ":3" in message
+
+
+def test_command_error_passes_other_faults_through():
+    fault = xmlrpc.client.Fault(-1, "Zugriff verweigert")
+    assert "Zugriff verweigert" in command_error("A:1", "STATE", fault)
