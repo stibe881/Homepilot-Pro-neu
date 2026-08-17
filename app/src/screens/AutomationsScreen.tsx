@@ -149,7 +149,7 @@ export function usedCategories(items: { category?: string | null }[]): string[] 
 
 /** Was der Editor anbietet – bewusst wenig, aber vollständig bedienbar. */
 type TriggerKind = 'state' | 'time' | 'sun';
-type ActionKind = 'command' | 'scene' | 'notify';
+type ActionKind = 'command' | 'scene' | 'notify' | 'hue_scene';
 type ConditionKind = 'none' | 'sun' | 'time';
 
 /** Ein einzelner Auslöser – ein Ablauf kann mehrere haben («oder»). */
@@ -227,6 +227,8 @@ interface Draft {
     position?: number;
   }[];
   sceneId: string;
+  /** Name einer auf der Hue-Bridge gespeicherten Szene. */
+  hueScene: string;
   title: string;
   body: string;
   /** Frei benannte Kategorie zum Gruppieren in der Liste. */
@@ -251,6 +253,7 @@ const EMPTY: Draft = {
   rooms: [],
   commandActions: [],
   sceneId: '',
+  hueScene: '',
   title: '',
   body: '',
   category: '',
@@ -469,6 +472,7 @@ export function AutomationsScreen({
   // Je Abschnitt ein eigenes Suchfeld – die Listen sind unabhängig.
   const [autoQuery, setAutoQuery] = useState('');
   const [runs, setRuns] = useState<Run[]>([]);
+  const [hueScenes, setHueScenes] = useState<string[]>([]);
   const [sceneQuery, setSceneQuery] = useState('');
   // Aufgeklappte Kategorien, getrennt je Abschnitt. Standard ist
   // zugeklappt: Wer Kategorien vergibt, will zuerst die Übersicht sehen
@@ -495,6 +499,11 @@ export function AutomationsScreen({
       .then((response) => (response.ok ? response.json() : null))
       .then((data) => setRuns(data?.runs ?? []))
       .catch(() => setRuns([]));
+
+    fetch(`${settings.url}/api/hue/scenes`, { headers })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => setHueScenes(data?.scenes ?? []))
+      .catch(() => setHueScenes([]));
   }, [settings.url, settings.token]);
 
   useEffect(load, [load]);
@@ -817,6 +826,7 @@ export function AutomationsScreen({
         entities={entities}
         scenes={scenes}
         categories={usedCategories(automations)}
+        hueScenes={hueScenes}
         onChange={setDraft}
         onSave={save}
         onDelete={draft?.id ? () => remove(draft.id!) : undefined}
@@ -1444,6 +1454,7 @@ function Editor({
   entities,
   scenes,
   categories,
+  hueScenes,
   onChange,
   onSave,
   onDelete,
@@ -1455,6 +1466,8 @@ function Editor({
   scenes: Scene[];
   /** Schon vergebene Kategorien – als Vorschläge im Feld. */
   categories: string[];
+  /** Szenen der Hue-Bridge; leer, wenn keine Bridge verbunden ist. */
+  hueScenes: string[];
   onChange: (draft: Draft) => void;
   onSave: () => void;
   onDelete?: () => void;
@@ -1751,6 +1764,9 @@ function Editor({
             options={[
               { key: 'command', label: 'Gerät schalten' },
               { key: 'scene', label: 'Szene' },
+              ...(hueScenes.length > 0
+                ? [{ key: 'hue_scene', label: 'Hue-Szene' }]
+                : []),
               { key: 'notify', label: 'Nachricht' },
             ]}
             value={draft.actionKind}
@@ -1771,6 +1787,20 @@ function Editor({
               value={draft.sceneId}
               onSelect={(sceneId) => set({ sceneId })}
             />
+          ) : draft.actionKind === 'hue_scene' ? (
+            <>
+              <Picker
+                items={hueScenes.map((name) => ({ key: name, label: name }))}
+                placeholder="Hue-Szene suchen …"
+                value={draft.hueScene}
+                onSelect={(hueScene) => set({ hueScene })}
+              />
+              <Text style={styles.triggerNote}>
+                Die Szene liegt auf der Hue-Bridge – Farben und Helligkeiten
+                stecken dort, und nur sie kann alles in einem Zug setzen.
+                Geändert wird sie in der Hue-App.
+              </Text>
+            </>
           ) : (
             <>
               <TextInput
@@ -2107,6 +2137,9 @@ function buildActions(draft: Draft): Record<string, any>[] {
   if (draft.actionKind === 'scene') {
     return [...prefix, { type: 'scene', scene: draft.sceneId }];
   }
+  if (draft.actionKind === 'hue_scene') {
+    return [...prefix, { type: 'hue_scene', scene: draft.hueScene }];
+  }
   if (draft.actionKind === 'notify') {
     return [...prefix, { type: 'notify', to: 'all', title: draft.title, body: draft.body }];
   }
@@ -2170,7 +2203,8 @@ function toDraft(automation: Automation): Draft {
         rooms: entry.data?.rooms ?? [],
         position: entry.data?.position,
       })),
-    sceneId: action.scene ?? '',
+    sceneId: action.type === 'scene' ? action.scene ?? '' : '',
+    hueScene: action.type === 'hue_scene' ? action.scene ?? '' : '',
     category: automation.category ?? '',
     enabled: automation.enabled !== false,
     title: action.title ?? '',

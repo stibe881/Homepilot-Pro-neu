@@ -1,10 +1,11 @@
 """Integrations-Wächter: Ausfall erkennen, melden, Entwarnung geben."""
 
 import asyncio
+import time
 
 from homepilot.core.config import ApiConfig, HubConfig
 from homepilot.core.hub import Hub
-from homepilot.core.watchdog import low_batteries, watched_entities
+from homepilot.core.watchdog import cycle_stats, low_batteries, watched_entities
 from homepilot.core.watchdog import down_integrations
 
 
@@ -192,5 +193,121 @@ async def test_a_finished_machine_is_remembered_once():
         maschine.state = {"state": "running"}
         await hub.watchdog.check()
         assert "vzug.waschmaschine" not in hub.watchdog._reminded
+    finally:
+        await hub.stop()
+
+
+def test_cycle_stats_compare_the_last_run_with_the_average():
+    """Erst der Vergleich verrät ein Gerät, das schleichend länger braucht –
+    beim Tumbler meist ein verstopftes Flusensieb."""
+    stats = cycle_stats(
+        [
+            {"entity_id": "vzug.tumbler", "name": "Tumbler", "seconds": 5400, "finished": 30},
+            {"entity_id": "vzug.tumbler", "name": "Tumbler", "seconds": 3600, "finished": 20},
+            {"entity_id": "vzug.tumbler", "name": "Tumbler", "seconds": 3600, "finished": 10},
+            {"entity_id": "vzug.wama", "name": "Waschmaschine", "seconds": 0},
+            "kaputt",
+        ]
+    )
+    assert len(stats) == 1
+    tumbler = stats[0]
+    assert tumbler["runs"] == 3
+    assert tumbler["average_seconds"] == 4200
+    # Der jüngste Lauf steht vorne – er ist der interessante.
+    assert tumbler["last_seconds"] == 5400
+
+
+async def test_a_cycle_without_a_beginning_is_not_guessed():
+    """Beim Hubstart mitten im Programm fehlt der Anfang. Eine geratene
+    Dauer in einer Statistik ist schlimmer als keine."""
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        maschine = type(
+            "E",
+            (),
+            {
+                "id": "vzug.wama",
+                "name": "Waschmaschine",
+                "kind": "appliance",
+                "integration": "vzug",
+                "available": True,
+                "state": {"state": "running"},
+            },
+        )()
+        hub.registry.all = lambda: [maschine]  # type: ignore[assignment]
+
+        # Erste Runde sieht «running» – ohne zu wissen, seit wann. Der
+        # Wächter merkt sich den Zeitpunkt selbst, also zählt dieser Lauf.
+        await hub.watchdog.check()
+        hub.watchdog._started_at.pop("vzug.wama")
+        maschine.state = {"state": "idle"}
+        await hub.watchdog.check()
+        assert hub.data.get("appliance_cycles") == []
+    finally:
+        await hub.stop()
+
+
+async def test_the_day_is_closed_with_the_last_value_before_midnight():
+    """Die Zähler springen um Mitternacht auf 0. Ohne diesen Abschluss
+    fehlten dem Vortag die letzten Minuten – oder er stünde ganz auf 0."""
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        steckdose = type(
+            "E",
+            (),
+            {
+                "id": "hm.psm",
+                "name": "Steckdose",
+                "kind": "sensor",
+                "integration": "homematic",
+                "available": True,
+                "state": {"energy_today": 4.0},
+            },
+        )()
+        hub.registry.all = lambda: [steckdose]  # type: ignore[assignment]
+
+        # Der Wächter steht mitten im «Vortag» und hat dessen letzten Stand
+        # gesehen, aber wegen des Zehnminutentakts noch nicht geschrieben.
+        hub.watchdog._energy_day = "2020-01-01"
+        hub.watchdog._energy_written = time.time()
+        hub.watchdog._energy_last = 6.5
+
+        # Mitternacht: Der Zähler steht wieder bei fast null.
+        steckdose.state = {"energy_today": 0.1}
+        await hub.watchdog.check()
+
+        days = {entry["day"]: entry["kwh"] for entry in hub.data.get("energy_days")}
+        # Der Vortag bekommt den letzten gesehenen Stand, nicht die 0.
+        assert days["2020-01-01"] == 6.5
+        # Und der neue Tag fängt bei seinem eigenen Wert an.
+        assert days[hub.watchdog._energy_day] == 0.1
+        assert hub.watchdog._energy_day != "2020-01-01"
+    finally:
+        await hub.stop()
+
+
+async def test_without_a_meter_nothing_is_written():
+    """Ein Haushalt ohne Messsteckdose soll keine Datei voller Nullen
+    bekommen."""
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        lampe = type(
+            "E",
+            (),
+            {
+                "id": "hue.lampe",
+                "name": "Lampe",
+                "kind": "light",
+                "integration": "hue",
+                "available": True,
+                "state": {"state": "on"},
+            },
+        )()
+        hub.registry.all = lambda: [lampe]  # type: ignore[assignment]
+        await hub.watchdog.check()
+        assert hub.data.get("energy_days") == []
     finally:
         await hub.stop()

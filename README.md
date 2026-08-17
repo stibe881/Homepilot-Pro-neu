@@ -67,6 +67,9 @@ Der Hub läuft dann auf `http://0.0.0.0:8123`:
 | `GET /api/entities/{id}/stream.m3u8` | Live-Bild als HLS (startet die Umwandlung bei Bedarf) |
 | `GET /api/entities/{id}/history?hours=24` | Zustandsverlauf aus Supabase |
 | `GET /api/automations` | Geladene Automationen |
+| `GET /api/energy/months` | Dieser Monat gegen den letzten – gleicher Zeitraum und ganzer Vormonat |
+| `GET /api/appliances/cycles` | Programmläufe der Haushaltgeräte mit Statistik |
+| `GET/PUT /api/push/categories` | Welche Arten von Nachrichten dieser Benutzer bekommt |
 | `WS /ws` | Snapshot + Live-Events, Kommandos |
 
 Auth: `Authorization: Bearer <token>`, am WebSocket `?token=<token>`.
@@ -81,6 +84,9 @@ npm install
 npx expo start        # QR-Code mit Expo Go auf iPhone/iPad scannen
 npx expo start --web  # oder im Browser
 ```
+
+`npm install` nach jedem `git pull` nicht überspringen: Kommt eine neue
+Abhängigkeit dazu, startet die App sonst mit einem fehlenden Modul.
 
 Beim ersten Start Hub-URL (z.B. `http://192.168.1.10:8123`), Token und
 optional den eigenen Namen für die Begrüssung eintragen – alles wird lokal

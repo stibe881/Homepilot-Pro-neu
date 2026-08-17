@@ -1,0 +1,99 @@
+"""Tagesverbrauch mitschreiben und Monate vergleichen.
+
+Die Zähler der Messsteckdosen setzen sich um Mitternacht zurück – ohne
+Mitschrift ist der gestrige Verbrauch danach für immer weg.
+"""
+
+from homepilot.core.energy import (
+    month_totals,
+    previous_month,
+    record_day,
+    total_today,
+)
+
+
+class FakeEntity:
+    def __init__(self, state):
+        self.state = state
+
+
+def test_only_meters_count():
+    entities = [
+        FakeEntity({"energy_today": 1.5}),
+        FakeEntity({"energy_today": "0.25"}),
+        FakeEntity({"state": "on"}),
+        FakeEntity({"energy_today": None}),
+    ]
+    assert total_today(entities) == 1.75
+
+
+def test_a_negative_reading_is_a_measuring_error_not_a_credit():
+    assert total_today([FakeEntity({"energy_today": -3})]) == 0.0
+
+
+def test_the_highest_value_of_the_day_wins():
+    """Der zuletzt gesehene Wert wäre nach Mitternacht eine 0 – und der
+    Vortag damit für immer verloren."""
+    days = record_day([], "2026-08-17", 2.4)
+    days = record_day(days, "2026-08-17", 5.1)
+    days = record_day(days, "2026-08-17", 0.0)
+    assert days == [{"day": "2026-08-17", "kwh": 5.1}]
+
+
+def test_days_stay_sorted_and_bounded():
+    days: list[dict] = []
+    for number in range(1, 29):
+        days = record_day(days, f"2026-01-{number:02d}", number)
+    assert days[0]["day"] == "2026-01-01"
+    assert days[-1]["day"] == "2026-01-28"
+    assert len(days) == 28
+
+
+def test_recording_leaves_the_original_list_alone():
+    """Sonst stünde die Änderung schon in der Datei, bevor sie geschrieben
+    ist – und ein Fehler beim Schreiben bliebe unbemerkt."""
+    days = [{"day": "2026-08-17", "kwh": 1.0}]
+    record_day(days, "2026-08-17", 9.0)
+    assert days == [{"day": "2026-08-17", "kwh": 1.0}]
+
+
+def test_january_looks_back_into_the_old_year():
+    assert previous_month("2026-01") == "2025-12"
+    assert previous_month("2026-08") == "2026-07"
+
+
+def test_the_same_period_is_compared_not_a_half_month_with_a_whole_one():
+    days = [
+        # Vormonat: 10 Tage à 1 kWh, danach noch einmal 20.
+        *[{"day": f"2026-07-{number:02d}", "kwh": 1.0} for number in range(1, 11)],
+        {"day": "2026-07-20", "kwh": 20.0},
+        # Dieser Monat: drei Tage.
+        {"day": "2026-08-01", "kwh": 2.0},
+        {"day": "2026-08-02", "kwh": 3.0},
+        {"day": "2026-08-03", "kwh": 1.0},
+    ]
+    result = month_totals(days, "2026-08-03")
+    assert result["month"] == "2026-08"
+    assert result["last_month"] == "2026-07"
+    assert result["this_month_kwh"] == 6.0
+    assert result["last_month_kwh"] == 30.0
+    # Nur der 1. bis 3. Juli – sonst sähe der 3. August nach einer Ersparnis
+    # von 80 % aus, obwohl doppelt so viel verbraucht wurde.
+    assert result["last_month_so_far_kwh"] == 3.0
+    assert [entry["day"] for entry in result["days"]] == [
+        "2026-08-01",
+        "2026-08-02",
+        "2026-08-03",
+    ]
+
+
+def test_without_any_history_nothing_breaks():
+    result = month_totals([], "2026-08-03")
+    assert result["this_month_kwh"] == 0.0
+    assert result["last_month_kwh"] == 0.0
+    assert result["days"] == []
+
+
+def test_broken_entries_are_skipped_not_guessed():
+    days = [{"day": "2026-08-01", "kwh": "viel"}, {"kwh": 3}, {"day": "2026-08-02", "kwh": 2}]
+    assert month_totals(days, "2026-08-05")["this_month_kwh"] == 2.0

@@ -45,6 +45,53 @@ export function Toast({
   );
 }
 
+/**
+ * Das Angebot, die letzte Schaltung zurückzunehmen.
+ *
+ * Steht nur ein paar Sekunden: Ein «Rückgängig», das dauerhaft liegen
+ * bleibt, nimmt später etwas zurück, an das sich niemand mehr erinnert.
+ * Der Text sagt deshalb auch, *was* zurückgenommen würde.
+ */
+export function UndoToast({
+  what,
+  onUndo,
+  onDismiss,
+  bottomInset = 0,
+}: {
+  what: { name: string; label: string } | null;
+  onUndo: () => void;
+  onDismiss: () => void;
+  bottomInset?: number;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+
+  if (!what) return null;
+
+  return (
+    <View style={[styles.wrapper, { bottom: bottomInset + 20 }]} pointerEvents="box-none">
+      <View style={styles.toast}>
+        <Ionicons name="checkmark-circle-outline" size={20} color={colors.on} />
+        <Text style={styles.text} numberOfLines={2}>
+          {what.name} {what.label}
+        </Text>
+        <Pressable
+          onPress={onUndo}
+          accessibilityRole="button"
+          accessibilityLabel={`${what.name} zurückschalten`}
+          hitSlop={8}
+          style={styles.action}
+        >
+          <Text style={styles.actionText}>Rückgängig</Text>
+        </Pressable>
+        <Pressable onPress={onDismiss} accessibilityLabel="Ausblenden" hitSlop={8}>
+          <Ionicons name="close" size={18} color={colors.inkFaint} />
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
   wrapper: {
@@ -74,4 +121,13 @@ const makeStyles = (colors: Colors) =>
     fontSize: 14,
     flexShrink: 1,
   },
+  action: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radius.control,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  actionText: { color: colors.ink, fontSize: 13, fontWeight: '700' },
 });

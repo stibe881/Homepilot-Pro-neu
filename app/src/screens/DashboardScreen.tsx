@@ -30,9 +30,10 @@ import { RoomTile } from '../components/RoomTile';
 import { SceneRow } from '../components/SceneRow';
 import { PushPrefs } from '../components/PushPrefs';
 import { ActivityCard, SidePanel } from '../components/SidePanel';
-import { Toast } from '../components/Toast';
+import { Toast, UndoToast } from '../components/Toast';
 import { TopStrip } from '../components/TopStrip';
 import { useHub } from '../hooks/useHub';
+import { Tap, useNotificationTap } from '../hooks/useNotificationTap';
 import { usePushRegistration } from '../hooks/usePushRegistration';
 import { breakpoints, Colors, radius, space, type, useColors } from '../theme';
 import { AutomationsScreen } from './AutomationsScreen';
@@ -74,6 +75,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     user,
     error,
     pending,
+    undo,
+    undoLast,
+    dismissUndo,
     sendCommand,
     activateScene,
     setEntityRoom,
@@ -142,6 +146,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // nicht in den Einstellungen stehenbleiben.
   usePanelMode(!!settings.panel);
   const push = usePushRegistration(settings, status === 'connected');
+
+  // Antippen einer Alarm-Nachricht führt direkt zur Kamera des betroffenen
+  // Raums. Wer nachts geweckt wird, soll nicht erst durch die Räume suchen.
+  const onNotificationTap = useCallback((tap: Tap) => {
+    if (tap.camera) {
+      setFullscreen(tap.camera);
+      return;
+    }
+    if (tap.type === 'alarm') setSection('alarm');
+  }, []);
+  useNotificationTap(onNotificationTap);
   useEffect(() => {
     if (!settings.panel) return;
     const timer = setInterval(() => {
@@ -923,6 +938,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       ) : null}
 
       <Toast message={error} onDismiss={dismissError} bottomInset={insets.bottom} />
+      {/* Nur wenn nichts schiefging – ein fehlgeschlagener Befehl hat nichts
+          hinterlassen, was man zurücknehmen müsste. */}
+      <UndoToast
+        what={error ? null : undo}
+        onUndo={undoLast}
+        onDismiss={dismissUndo}
+        bottomInset={insets.bottom}
+      />
     </View>
   );
 }

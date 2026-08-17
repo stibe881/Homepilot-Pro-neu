@@ -24,6 +24,7 @@ import logging
 import os
 import threading
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +33,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from ..core.config import ConfigError, load_config
+from ..core import energy as energy_module
 from ..core import push
+from ..core import watchdog
 from ..core import users as users_module
 from ..core.config_edit import add_cast_device
 from ..integrations import alarm as alarm_module
@@ -762,6 +765,46 @@ def create_app(hub: Hub) -> FastAPI:
             raise HTTPException(status_code=404, detail="Ablauf nicht gefunden")
         return {"ok": True}
 
+    @app.get("/api/hue/scenes")
+    async def hue_scenes(request: Request) -> dict[str, Any]:
+        """Die auf der Hue-Bridge gespeicherten Szenen.
+
+        Sie gehören der Bridge: Farben und Helligkeiten stecken dort, und
+        nur sie kann eine Szene in einem Zug setzen. Der Hub ruft sie auf,
+        baut sie aber nicht nach.
+        """
+        require(request, Capability.VIEW_AUTOMATIONS)
+        hue = hub.integrations.get("hue")
+        if hue is None or not hasattr(hue, "scenes"):
+            return {"scenes": [], "reason": "keine Hue-Bridge verbunden"}
+        return {"scenes": hue.scenes()}
+
+    @app.get("/api/appliances/cycles")
+    async def appliance_cycles(request: Request) -> dict[str, Any]:
+        """Wie oft und wie lange die Haushaltgeräte laufen.
+
+        Neben Anzahl und Durchschnitt steht der letzte Lauf – erst der
+        Vergleich sagt, ob ein Gerät schleichend länger braucht.
+        """
+        require(request, Capability.VIEW_SYSTEM)
+        cycles = hub.data.get("appliance_cycles")
+        return {
+            "stats": watchdog.cycle_stats(cycles),
+            "cycles": cycles[:30],
+        }
+
+    @app.get("/api/energy/months")
+    async def energy_months(request: Request) -> dict[str, Any]:
+        """Diesen Monat mit dem letzten vergleichen.
+
+        Der Vergleich mit demselben Zeitraum steht bewusst daneben: Am 3.
+        des Monats sieht der bisherige Verbrauch neben einem vollen
+        Vormonat nach einer Ersparnis aus, die es nicht gibt.
+        """
+        require(request, Capability.VIEW_SYSTEM)
+        today = datetime.now().strftime("%Y-%m-%d")
+        return energy_module.month_totals(hub.data.get("energy_days"), today)
+
     @app.get("/api/push/categories")
     async def push_categories(request: Request) -> dict[str, Any]:
         """Welche Arten von Nachrichten es gibt – und was ich abbestellt habe.
@@ -1057,7 +1100,6 @@ def create_app(hub: Hub) -> FastAPI:
         collection: str, body: dict[str, Any], request: Request
     ) -> dict[str, Any]:
         import secrets
-        from datetime import datetime
 
         user = family_user(request)
         key = family_key(collection)

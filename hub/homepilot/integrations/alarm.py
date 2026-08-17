@@ -175,6 +175,22 @@ def parse_sensors(raw: Any) -> dict[str, dict[str, Any]]:
     return result
 
 
+def nearest_camera(entities: list[Entity], room: str | None) -> str | None:
+    """Die Kamera im selben Raum wie der Auslöser (rein, testbar).
+
+    Bei einem Alarm ist die erste Frage «was ist da los?». Die Antwort
+    steht auf dem Kamerabild – aber nur, wenn die App weiss, welche der
+    Kameras gemeint ist. Ohne Raum lässt sich das nicht raten, dann lieber
+    keine als die falsche.
+    """
+    if not room:
+        return None
+    for entity in entities:
+        if entity.kind == EntityKind.CAMERA and entity.room == room:
+            return entity.id
+    return None
+
+
 def guards(sensors: dict[str, dict[str, Any]], entity_id: str, mode: str) -> bool:
     """Wacht dieser Sensor im angegebenen Modus? (rein, testbar)"""
     entry = sensors.get(entity_id)
@@ -412,9 +428,16 @@ class AlarmIntegration(Integration):
         self._note("triggered", f"Alarm ausgelöst: {entity.name}", "")
 
         if self._settings.get("notify_trigger"):
+            # Die Kamera im selben Raum mitschicken: Die App holt das Bild
+            # beim Öffnen mit dem Token des Benutzers. Ein Bild direkt in
+            # der Nachricht bräuchte eine Adresse, die von aussen ohne
+            # Anmeldung erreichbar ist – das wäre der Sicherheit zuliebe
+            # der falsche Handel.
+            camera = nearest_camera(self.hub.registry.all(), entity.room)
             await self._notify(
                 "🚨 Alarm ausgelöst",
                 f"{entity.name} – Modus {MODE_LABELS.get(mode or '', '?')}",
+                data={"entity_id": entity.id, "camera": camera},
             )
 
         await self._apply_after(mode)
@@ -463,9 +486,17 @@ class AlarmIntegration(Integration):
         if self._settings.get("notify_arming"):
             await self._notify("Alarmanlage wieder scharf", text, "alarm_arming")
 
-    async def _notify(self, title: str, body: str, category: str = "alarm") -> None:
+    async def _notify(
+        self,
+        title: str,
+        body: str,
+        category: str = "alarm",
+        data: dict[str, Any] | None = None,
+    ) -> None:
         tokens = self.hub.push.recipients(self.hub.users.users, "all", category)
-        await self.hub.push.send(tokens, title=title, body=body, data={"type": "alarm"})
+        await self.hub.push.send(
+            tokens, title=title, body=body, data={"type": "alarm", **(data or {})}
+        )
 
     # ── Verlauf ────────────────────────────────────────────────────────────
 

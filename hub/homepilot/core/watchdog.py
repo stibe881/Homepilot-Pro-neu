@@ -19,7 +19,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
+
+from . import energy
 
 if TYPE_CHECKING:
     from .hub import Hub
@@ -36,6 +39,12 @@ DEVICE_GRACE_ROUNDS = 30
 # Zwei Stunden: lang genug, dass man nicht wegen des Wegs vom Keller
 # gemahnt wird, kurz genug, dass die Wäsche nicht über Nacht knittert.
 APPLIANCE_REMINDER = 2 * 3600
+# So viele Programmläufe bleiben gespeichert – reicht für Monate.
+CYCLE_LIMIT = 300
+# So oft wird der Tagesverbrauch weggeschrieben. Jede Minute wäre 1440-mal
+# dieselbe Datei am Tag; alle zehn Minuten genügt für einen Monatsvergleich
+# und beim Tageswechsel wird ohnehin sofort geschrieben.
+ENERGY_INTERVAL = 600.0
 # Integrationen ohne eigene Verbindung, die nie „ausfallen“ können.
 IGNORE = frozenset({"demo", "helpers", "group", "adaptive", "presence_sim", "alarm"})
 
@@ -66,6 +75,37 @@ def watched_entities(entities: list[Any], guarded: set[str]) -> list[Any]:
     return [entity for entity in entities if entity.id in guarded]
 
 
+def cycle_stats(cycles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Läufe je Gerät zusammenfassen (rein, testbar).
+
+    Neben Anzahl und Durchschnitt steht der letzte Lauf – erst der
+    Vergleich der beiden sagt, ob ein Gerät schleichend länger braucht.
+    """
+    by_entity: dict[str, list[dict[str, Any]]] = {}
+    for cycle in cycles or []:
+        if not isinstance(cycle, dict) or not cycle.get("entity_id"):
+            continue
+        by_entity.setdefault(str(cycle["entity_id"]), []).append(cycle)
+
+    result = []
+    for entity_id, entries in by_entity.items():
+        seconds = [int(entry.get("seconds") or 0) for entry in entries]
+        seconds = [value for value in seconds if value > 0]
+        if not seconds:
+            continue
+        result.append(
+            {
+                "entity_id": entity_id,
+                "name": entries[0].get("name") or entity_id,
+                "runs": len(seconds),
+                "average_seconds": round(sum(seconds) / len(seconds)),
+                "last_seconds": seconds[0],
+                "last_finished": entries[0].get("finished"),
+            }
+        )
+    return sorted(result, key=lambda entry: entry["name"])
+
+
 def low_batteries(entities: list[Any]) -> list[Any]:
     """Geräte, die eine schwache Batterie melden (rein, testbar)."""
     return [entity for entity in entities if entity.state.get("low_battery") is True]
@@ -83,8 +123,13 @@ class Watchdog:
         # Haushaltgeräte: Zustand der letzten Runde, Zeitpunkt des
         # Programmendes und was schon erinnert wurde.
         self._last_state: dict[str, str] = {}
+        self._started_at: dict[str, float] = {}
         self._finished_at: dict[str, float] = {}
         self._reminded: set[str] = set()
+        # Energie: welcher Tag zuletzt geschrieben wurde und wann.
+        self._energy_day: str | None = None
+        self._energy_written: float = 0.0
+        self._energy_last: float = 0.0
         # Aktuell als ausgefallen gemeldete Integrationen (seit Zeitstempel).
         self.down_since: dict[str, float] = {}
         # Protokoll der letzten Ausfälle für die App (jüngste zuerst).
@@ -128,6 +173,7 @@ class Watchdog:
         await self._check_appliances(entities)
         await self._check_devices(entities)
         await self._check_batteries(entities)
+        self._record_energy(entities)
         down = down_integrations(entities)
 
         # Strikes hochzählen bzw. zurücksetzen.
@@ -201,11 +247,14 @@ class Watchdog:
             self._last_state[entity.id] = state
 
             if state == "running":
+                if before != "running":
+                    self._started_at[entity.id] = now
                 self._finished_at.pop(entity.id, None)
                 self._reminded.discard(entity.id)
                 continue
             if before == "running" and state == "idle":
                 self._finished_at[entity.id] = now
+                self._log_cycle(entity, now)
                 continue
 
             since = self._finished_at.get(entity.id)
@@ -220,6 +269,68 @@ class Watchdog:
                     "gelaufen.",
                     "appliance",
                 )
+
+    def _log_cycle(self, entity: Any, finished: float) -> None:
+        """Einen abgeschlossenen Programmlauf ins Protokoll schreiben.
+
+        Daraus wird die Statistik: wie oft und wie lange ein Gerät läuft –
+        und ob es schleichend länger braucht, was bei einem Tumbler meist
+        ein verstopftes Flusensieb ist.
+        """
+        started = self._started_at.pop(entity.id, None)
+        if started is None:
+            # Beim Hubstart mitten im Programm gesehen – ohne Anfang ist die
+            # Dauer geraten, und eine geratene Zahl in einer Statistik ist
+            # schlimmer als keine.
+            return
+        entries = list(self.hub.data.get("appliance_cycles"))
+        entries.insert(
+            0,
+            {
+                "entity_id": entity.id,
+                "name": entity.name,
+                "started": started,
+                "finished": finished,
+                "seconds": round(finished - started),
+            },
+        )
+        del entries[CYCLE_LIMIT:]
+        self.hub.data.set("appliance_cycles", entries)
+
+    def _record_energy(self, entities: list[Any]) -> None:
+        """Den Tagesverbrauch mitschreiben.
+
+        Hier und nicht in einer eigenen Schleife: Der Wächter läuft ohnehin
+        im Minutentakt und hat die Entitäten schon in der Hand.
+
+        Der zuletzt gesehene Stand wird jede Runde gemerkt, geschrieben wird
+        aber nur alle zehn Minuten. Beim Tageswechsel schliesst der gemerkte
+        Wert den Vortag ab: Die Zähler stehen dann schon wieder auf 0, und
+        ohne diesen Schritt fehlten die letzten Minuten vor Mitternacht.
+        """
+        now = time.time()
+        day = datetime.now().strftime("%Y-%m-%d")
+        total = energy.total_today(entities)
+
+        if self._energy_day and day != self._energy_day:
+            self._write_energy(self._energy_day, self._energy_last)
+            self._energy_written = 0.0
+        self._energy_last = total
+
+        if day == self._energy_day and now - self._energy_written < ENERGY_INTERVAL:
+            return
+        self._energy_day = day
+        self._energy_written = now
+        self._write_energy(day, total)
+
+    def _write_energy(self, day: str, kwh: float) -> None:
+        """Ohne Messgerät gibt es nichts zu schreiben – ein Tag ohne Eintrag
+        zählt in der Monatssumme ohnehin als 0."""
+        if kwh <= 0:
+            return
+        self.hub.data.set(
+            "energy_days", energy.record_day(self.hub.data.get("energy_days"), day, kwh)
+        )
 
     async def _check_batteries(self, entities: list[Any]) -> None:
         """Schwache Batterien – einmal melden, nicht jede Minute."""

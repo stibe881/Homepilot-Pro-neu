@@ -524,6 +524,14 @@ class AutomationEngine:
             await asyncio.sleep(float(action["seconds"]))
         elif atype == "scene":
             await self.hub.scenes.activate(action["scene"])
+        elif atype == "hue_scene":
+            # Szenen der Hue-Bridge: Farben und Helligkeiten stecken dort,
+            # und nur die Bridge kann sie in einem Zug setzen.
+            hue = self.hub.integrations.get("hue")
+            if hue is None or not hasattr(hue, "activate_scene"):
+                log.warning("Hue-Szene in '%s', aber keine Hue-Bridge", automation.alias)
+                return
+            await hue.activate_scene(str(action.get("scene") or ""))
         elif atype == "notify":
             await self._notify(automation, action)
         else:

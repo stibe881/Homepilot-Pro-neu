@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
 import { Activity, Entity, Scene, ServerMessage, User } from '../api/types';
+import { failed, tapped, triggered } from '../lib/haptics';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
@@ -15,6 +16,53 @@ const PENDING_TIMEOUT = 6000;
 // bevor die laufende Musik auf sie umzieht.
 const SLOW_COMMAND_TIMEOUT = 45000;
 const SLOW_COMMANDS = new Set(['play_playlist', 'play_on']);
+/** So lange steht das Angebot, eine Schaltung zurückzunehmen. */
+const UNDO_TIMEOUT = 8000;
+/** Befehle, deren Wirkung sich sauber umkehren lässt. */
+const UNDOABLE = new Set(['turn_on', 'turn_off', 'toggle', 'set_brightness']);
+
+/** Ein versehentlich geschaltetes Gerät, das sich zurücknehmen lässt. */
+export interface UndoOffer {
+  entityId: string;
+  name: string;
+  label: string;
+  command: string;
+  data?: Record<string, any>;
+}
+
+/**
+ * Der Befehl, der den Zustand von vorher wiederherstellt (rein, testbar).
+ *
+ * Bewusst aus dem *alten Zustand* abgeleitet und nicht als Gegenstück zum
+ * Befehl: Wer eine auf 30 % gedimmte Lampe ausschaltet, will beim
+ * Rückgängigmachen wieder 30 % und nicht volle Helligkeit.
+ *
+ * ``null``, wenn der Ausgangszustand unbekannt war – dann lieber gar kein
+ * Angebot als eines, das etwas anderes tut als es verspricht.
+ */
+export function undoCommand(
+  before: Record<string, any>,
+  command: string
+): { command: string; data?: Record<string, any> } | null {
+  if (!UNDOABLE.has(command)) return null;
+  if (before.state === 'off') return { command: 'turn_off' };
+  if (before.state !== 'on') return null;
+  if (typeof before.brightness === 'number') {
+    return { command: 'set_brightness', data: { brightness: before.brightness } };
+  }
+  return { command: 'turn_on' };
+}
+
+/** Was gerade passiert ist, in einem Wort – für das Rückgängig-Band. */
+export function undoLabel(
+  before: Record<string, any>,
+  after: Record<string, any>
+): string {
+  if (after.state === 'off') return 'ausgeschaltet';
+  if (before.state !== 'on') return 'eingeschaltet';
+  if (after.brightness !== before.brightness) return 'gedimmt';
+  return 'geschaltet';
+}
 
 /** Kurzfassung einer Änderung für die Liste „Zuletzt passiert“. */
 function describe(entity: Entity, newState: Record<string, any>): string | null {
@@ -70,10 +118,14 @@ export function useHub(url: string | null, token: string | null) {
   const [pending, setPending] = useState<Record<string, boolean>>({});
   /** true, solange die Daten aus dem Zwischenspeicher stammen. */
   const [stale, setStale] = useState(true);
+  const [undo, setUndo] = useState<UndoOffer | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const attemptRef = useRef(0);
   const timersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  // Der Zustand von vor dem Tippen – nur zum Nachschlagen, nicht zum
+  // Anzeigen, deshalb ein Ref und kein zweiter State.
+  const entitiesRef = useRef<Record<string, Entity>>({});
 
   // Beim Öffnen sofort den letzten bekannten Stand zeigen, statt auf die
   // Verbindung zu warten – der Start fühlt sich dadurch augenblicklich an.
@@ -95,6 +147,18 @@ export function useHub(url: string | null, token: string | null) {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    entitiesRef.current = entityMap;
+  }, [entityMap]);
+
+  // Das Angebot verfällt von selbst. Sonst nimmt ein Tippen Minuten später
+  // etwas zurück, an das sich niemand mehr erinnert.
+  useEffect(() => {
+    if (!undo) return;
+    const timer = setTimeout(() => setUndo(null), UNDO_TIMEOUT);
+    return () => clearTimeout(timer);
+  }, [undo]);
 
   const clearPending = useCallback((entityId: string) => {
     const timer = timersRef.current[entityId];
@@ -181,6 +245,7 @@ export function useHub(url: string | null, token: string | null) {
           // ins Leere und erfährt nie, warum nichts passiert ist.
           if (!message.ok) {
             setError(message.error ?? 'Der Befehl ist fehlgeschlagen');
+            failed();
           }
         }
       };
@@ -259,12 +324,12 @@ export function useHub(url: string | null, token: string | null) {
       .catch(() => setEnergy(null));
   }, [url, token, status, reloadScenes]);
 
-  const sendCommand = useCallback(
+  const send = useCallback(
     (entityId: string, command: string, data?: Record<string, any>) => {
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         setError('Keine Verbindung zum Hub');
-        return;
+        return false;
       }
 
       // Sofort den erwarteten Zustand zeigen. Meldet der Hub etwas anderes,
@@ -288,13 +353,47 @@ export function useHub(url: string | null, token: string | null) {
       ws.send(
         JSON.stringify({ type: 'command', entity_id: entityId, command, data: data ?? {} })
       );
+      // Beim Ziehen eines Reglers bewusst nicht – das wäre ein Dauerbrummen.
+      if (command !== 'set_brightness') tapped();
+      return true;
     },
     [clearPending]
   );
 
+  const sendCommand = useCallback(
+    (entityId: string, command: string, data?: Record<string, any>) => {
+      const entity = entitiesRef.current[entityId];
+      const before = entity ? { ...entity.state } : null;
+      if (!send(entityId, command, data)) return;
+      // Erst nach dem erfolgreichen Absenden anbieten – ein Befehl, der die
+      // Verbindung gar nicht verlassen hat, braucht kein Zurück.
+      const back = before ? undoCommand(before, command) : null;
+      const after = entity && before ? expectedState(entity, command, data) : null;
+      if (back && after && entity) {
+        setUndo({
+          entityId,
+          name: entity.name,
+          label: undoLabel(before!, after),
+          command: back.command,
+          data: back.data,
+        });
+      } else {
+        setUndo(null);
+      }
+    },
+    [send]
+  );
+
+  const undoLast = useCallback(() => {
+    if (!undo) return;
+    setUndo(null);
+    send(undo.entityId, undo.command, undo.data);
+  }, [undo, send]);
+
   const activateScene = useCallback(
     async (sceneId: string) => {
       if (!url) return;
+      triggered();
       try {
         const response = await fetch(`${url}/api/scenes/${sceneId}/activate`, {
           method: 'POST',
@@ -305,12 +404,14 @@ export function useHub(url: string | null, token: string | null) {
         }
         const result = await response.json();
         if (result.failed?.length) {
+          failed();
           setError(
             `${result.failed.length} Gerät(e) haben nicht reagiert: ` +
               result.failed.map((item: any) => item.entity_id).join(', ')
           );
         }
       } catch (err: any) {
+        failed();
         setError(`Szene fehlgeschlagen: ${err.message ?? err}`);
       }
     },
@@ -392,6 +493,9 @@ export function useHub(url: string | null, token: string | null) {
     error,
     pending,
     stale,
+    undo,
+    undoLast,
+    dismissUndo: () => setUndo(null),
     sendCommand,
     activateScene,
     setEntityRoom,

@@ -209,3 +209,46 @@ def test_push_categories_are_per_user():
         # Unbekannte Schlüssel fallen weg, statt gespeichert zu werden.
         assert saved.json()["muted"] == ["battery"]
         assert client.get("/api/push/categories").json()["muted"] == ["battery"]
+
+
+def test_the_month_comparison_reads_the_recorded_days():
+    """Die Zähler der Steckdosen vergessen jede Nacht alles – verglichen
+    wird deshalb mit dem, was der Hub mitgeschrieben hat."""
+    hub = Hub(make_config())
+    hub.data.set(
+        "energy_days",
+        [
+            {"day": "2026-07-01", "kwh": 3.0},
+            {"day": "2026-07-28", "kwh": 9.0},
+        ],
+    )
+    with TestClient(create_app(hub)) as client:
+        result = client.get("/api/energy/months").json()
+        # Der laufende Monat hat noch nichts, der Vormonat je nach Datum –
+        # geprüft wird hier die Verdrahtung, die Rechnung steckt in
+        # test_energy.py.
+        assert set(result) == {
+            "month",
+            "last_month",
+            "this_month_kwh",
+            "last_month_kwh",
+            "last_month_so_far_kwh",
+            "days",
+        }
+        assert isinstance(result["days"], list)
+
+
+def test_appliance_cycles_are_served_with_their_statistics():
+    hub = Hub(make_config())
+    hub.data.set(
+        "appliance_cycles",
+        [
+            {"entity_id": "vzug.wama", "name": "Waschmaschine", "seconds": 3600},
+            {"entity_id": "vzug.wama", "name": "Waschmaschine", "seconds": 5400},
+        ],
+    )
+    with TestClient(create_app(hub)) as client:
+        result = client.get("/api/appliances/cycles").json()
+        assert result["stats"][0]["runs"] == 2
+        assert result["stats"][0]["average_seconds"] == 4500
+        assert len(result["cycles"]) == 2

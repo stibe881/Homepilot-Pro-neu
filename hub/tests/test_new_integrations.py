@@ -794,3 +794,34 @@ def test_merge_device_names_appends_sleeping_cast_boxes():
     ]
     assert merge_device_names([], ["Terrasse"]) == ["Terrasse"]
     assert merge_device_names(["Terrasse"], []) == ["Terrasse"]
+
+
+def test_hue_scenes_keep_their_names():
+    """«Entspannen» gibt es in jedem Zimmer – ohne Unterscheidung wäre die
+    Auswahl ein Ratespiel."""
+    from homepilot.integrations.hue import parse_scenes
+
+    parsed = parse_scenes(
+        {
+            "data": [
+                {
+                    "id": "aaa",
+                    "metadata": {"name": "Entspannen"},
+                    "group": {"rid": "wohnzimmer-1234"},
+                },
+                {
+                    "id": "bbb",
+                    "metadata": {"name": "Entspannen"},
+                    "group": {"rid": "buero-5678"},
+                },
+                {"id": "ccc", "metadata": {"name": "Hell"}},
+                {"metadata": {"name": "Ohne Kennung"}},
+            ]
+        }
+    )
+    assert parsed["Entspannen"] == "aaa"
+    # Der zweite gleichnamige bekommt einen Zusatz, statt den ersten zu
+    # überschreiben.
+    assert any(key.startswith("Entspannen (") for key in parsed)
+    assert parsed["Hell"] == "ccc"
+    assert len(parsed) == 3

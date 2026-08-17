@@ -18,8 +18,28 @@ from typing import Any
 import aiohttp
 
 from ..core.entity import Entity, EntityKind
-from ..core.errors import ConfigError
+from ..core.errors import ConfigError, HomePilotError
 from ..core.integration import Integration
+
+
+def parse_scenes(payload: dict[str, Any] | None) -> dict[str, str]:
+    """Szenen der Bridge als Name → Kennung (rein, testbar).
+
+    Der Raumname gehört dazu: «Entspannen» gibt es in jedem Zimmer, und
+    ohne Unterscheidung wäre die Auswahl ein Ratespiel.
+    """
+    scenes: dict[str, str] = {}
+    for entry in (payload or {}).get("data") or []:
+        scene_id = entry.get("id")
+        name = (entry.get("metadata") or {}).get("name")
+        if not scene_id or not name:
+            continue
+        group = (entry.get("group") or {}).get("rid")
+        label = str(name)
+        if label in scenes and group:
+            label = f"{label} ({group[:8]})"
+        scenes[label] = str(scene_id)
+    return scenes
 
 
 class HueIntegration(Integration):
@@ -39,7 +59,10 @@ class HueIntegration(Integration):
             headers={"hue-application-key": app_key},
             timeout=aiohttp.ClientTimeout(total=None),
         )
+        # Name → Szenen-Kennung, für die Aktion «Hue-Szene» in Abläufen.
+        self._scenes: dict[str, str] = {}
         await self._refresh()
+        await self._load_scenes()
         self.start_task(self._event_loop())
         self.start_task(self._poll_loop())
 
@@ -62,6 +85,45 @@ class HueIntegration(Integration):
 
         for light in payload.get("data", []):
             await self._apply_light(light)
+
+    async def _load_scenes(self) -> None:
+        """Die auf der Bridge gespeicherten Szenen holen.
+
+        Sie gehören der Bridge, nicht dem Hub: Farben und Helligkeiten
+        stecken dort, und nur die Bridge kann sie in einem Zug setzen. Der
+        Hub kann sie deshalb aufrufen, aber nicht nachbauen.
+        """
+        try:
+            async with self._session.get(
+                f"{self._base}/clip/v2/resource/scene",
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as response:
+                response.raise_for_status()
+                payload = await response.json()
+        except Exception as err:
+            self.log.warning("Hue-Szenen nicht abrufbar: %s", err)
+            return
+        self._scenes = parse_scenes(payload)
+        self.log.info("Hue: %d Szenen gefunden", len(self._scenes))
+
+    def scenes(self) -> list[str]:
+        """Namen der Bridge-Szenen – für die Auswahl in der App."""
+        return sorted(self._scenes)
+
+    async def activate_scene(self, name: str) -> None:
+        """Eine Bridge-Szene aufrufen."""
+        scene_id = self._scenes.get(name)
+        if scene_id is None:
+            raise HomePilotError(
+                f"Unbekannte Hue-Szene '{name}'. Bekannt: "
+                + (", ".join(self.scenes()) or "keine")
+            )
+        async with self._session.put(
+            f"{self._base}/clip/v2/resource/scene/{scene_id}",
+            json={"recall": {"action": "active"}},
+            timeout=aiohttp.ClientTimeout(total=15),
+        ) as response:
+            response.raise_for_status()
 
     async def _apply_light(self, light: dict[str, Any]) -> None:
         resource_id = light.get("id")

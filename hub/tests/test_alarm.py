@@ -547,3 +547,20 @@ def test_arming_with_force_accepts_a_blind_spot(alarm_hub):
 
     assert asyncio.run(run())["ok"] is True
     assert service._entity.state["state"] == ARMED
+
+
+def test_the_camera_of_the_room_travels_with_the_alarm():
+    """Bei einem Alarm ist die erste Frage «was ist da los?» – die Antwort
+    steht auf dem Kamerabild des richtigen Raums."""
+    from homepilot.integrations.alarm import nearest_camera
+
+    flur_cam = camera("test.cam_flur")
+    flur_cam.room = "Flur"
+    bad_cam = camera("test.cam_bad")
+    bad_cam.room = "Bad"
+    entities = [contact("test.tuer"), bad_cam, flur_cam]
+
+    assert nearest_camera(entities, "Flur") == "test.cam_flur"
+    assert nearest_camera(entities, "Küche") is None
+    # Ohne Raum lieber keine Kamera als die falsche.
+    assert nearest_camera(entities, None) is None
