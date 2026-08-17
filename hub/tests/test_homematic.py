@@ -4,6 +4,8 @@ import pytest
 
 import xmlrpc.client
 
+from homepilot.integrations import homematic
+
 from homepilot.integrations.homematic import (
     HomematicIntegration,
     command_error,
@@ -376,3 +378,44 @@ def test_group_by_device_survives_odd_addresses():
     grouped = group_by_device({"OHNEKANAL": "MAINTENANCE", "ABC:x": "KEY_TRANSCEIVER"})
     assert describe_channels(grouped["OHNEKANAL"]) == "0 MAINTENANCE"
     assert describe_channels(grouped["ABC"]) == "0 KEY_TRANSCEIVER"
+
+
+async def test_a_pong_confirms_the_registration(hub, monkeypatch):
+    """Die CCU vergisst ihre Clients bei jedem Dienstneustart. Der Hub
+    fragt deshalb mit einem Ping nach; das PONG ist die Bestätigung."""
+    monkeypatch.setattr(homematic, "PING_TIMEOUT", 1.0)
+    ccu = _FakeCCU({("0001D3C99C6A2B:3", "STATE"): True})
+    integration = await _setup(
+        hub,
+        ccu,
+        [{"address": "0001D3C99C6A2B:3", "port": 2010, "name": "Tumbler", "kind": "switch"}],
+    )
+    try:
+        async def answer():
+            await asyncio.sleep(0.05)
+            integration._on_event("id", "homepilot-2010", "PONG", "homepilot-2010")
+
+        asyncio.create_task(answer())
+        assert await integration._check_registration(2010) is True
+        assert ("ping", ("homepilot-2010",), 2010) in ccu.calls
+    finally:
+        await integration.teardown()
+
+
+async def test_without_a_pong_the_hub_registers_again(hub, monkeypatch):
+    """Der gemeldete Fall: Nach einem Neustart der CCU kam kein einziges
+    Ereignis mehr an – kein Tastendruck, keine Sensormeldung – und im Log
+    stand nichts. Der Hub hatte sich einmal beim Start angemeldet und nie
+    wieder nachgesehen."""
+    monkeypatch.setattr(homematic, "PING_TIMEOUT", 0.3)
+    ccu = _FakeCCU({("0001D3C99C6A2B:3", "STATE"): True})
+    integration = await _setup(
+        hub,
+        ccu,
+        [{"address": "0001D3C99C6A2B:3", "port": 2010, "name": "Tumbler", "kind": "switch"}],
+    )
+    try:
+        # Niemand antwortet – die CCU kennt uns nicht mehr.
+        assert await integration._check_registration(2010) is False
+    finally:
+        await integration.teardown()

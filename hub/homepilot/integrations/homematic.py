@@ -130,6 +130,11 @@ IDLE_ALARM_VALUES = frozenset({"0", "IDLE_OFF", "False", "None", ""})
 # wartet darauf, bevor sie dem Gerät bestätigt.
 SLOW_CALLBACK = 0.5
 
+# Wie oft geprüft wird, ob die CCU den Hub noch als Client kennt, und wie
+# lange dabei auf ihr PONG gewartet wird.
+PING_INTERVAL = 120.0
+PING_TIMEOUT = 10.0
+
 LEVEL = "LEVEL"
 # Messkanal einer Schalt-Messsteckdose (HmIP-PSM, HM-ES-PMSw1): Momentanleistung.
 POWER = "POWER"
@@ -345,6 +350,8 @@ class HomematicIntegration(Integration):
         self._interval = float(self.config.get("scan_interval", 300))
         self._callback_port = int(self.config.get("callback_port", 9125))
         self._server: _CallbackServer | None = None
+        # Bestätigte Anmeldungen (Kennung aus dem PONG der CCU).
+        self._pong: set[str] = set()
         self._callback_url: str | None = None
         self._loop = asyncio.get_running_loop()
 
@@ -649,6 +656,60 @@ class HomematicIntegration(Integration):
                     port,
                     err,
                 )
+        self.start_task(self._keepalive_loop())
+
+    # ── Anmeldung wachhalten ───────────────────────────────────────────────
+
+    async def _check_registration(self, port: int) -> bool:
+        """Ist der Hub bei dieser Schnittstelle noch angemeldet?
+
+        Gefragt wird mit ``ping``: Die CCU schickt daraufhin ein
+        PONG-Ereignis an jeden angemeldeten Client. Bleibt es aus, kennt sie
+        den Hub nicht mehr.
+        """
+        caller = f"homepilot-{port}"
+        self._pong.discard(caller)
+        try:
+            await self._call("ping", caller, port=port)
+        except Exception as err:
+            self.log.debug("Ping an Port %s fehlgeschlagen: %s", port, err)
+            return False
+        deadline = asyncio.get_running_loop().time() + PING_TIMEOUT
+        while asyncio.get_running_loop().time() < deadline:
+            if caller in self._pong:
+                return True
+            await asyncio.sleep(0.2)
+        return caller in self._pong
+
+    async def _keepalive_loop(self) -> None:
+        """Die Anmeldung bei der CCU regelmässig prüfen und erneuern.
+
+        Die CCU vergisst ihre angemeldeten Clients, sobald sie ihre Dienste
+        neu startet – nach einem Neustart, einem Firmware-Update oder schon
+        beim Einrichten einer Kopplung. Der Hub hat davon bisher nichts
+        gemerkt: Er meldete sich einmal beim Start an und wartete danach auf
+        Ereignisse, die nie mehr kamen. Wandtaster lösten dann nichts mehr
+        aus, Sensoren meldeten nichts mehr – ohne eine einzige Zeile im Log.
+        """
+        while True:
+            await asyncio.sleep(PING_INTERVAL)
+            for port in sorted(self._ports()):
+                if await self._check_registration(port):
+                    continue
+                self.log.warning(
+                    "Die CCU (Port %s) kennt den Hub nicht mehr – Anmeldung "
+                    "wird erneuert. Bis dahin kamen keine Tastendrücke und "
+                    "Sensormeldungen an.",
+                    port,
+                )
+                try:
+                    await self._call(
+                        "init", self._callback_url, f"homepilot-{port}", port=port
+                    )
+                except Exception as err:
+                    self.log.warning(
+                        "Erneute Anmeldung bei Port %s fehlgeschlagen: %s", port, err
+                    )
 
     def _on_event(self, _interface_id: str, address: str, key: str, value: Any) -> str:
         """Wird von einem Thread des Callback-Servers aufgerufen.
@@ -675,6 +736,10 @@ class HomematicIntegration(Integration):
                 )
 
     def _handle_event(self, address: str, key: str, value: Any) -> str:
+        if key == "PONG":
+            # Antwort auf unseren Ping – damit ist die Anmeldung bestätigt.
+            self._pong.add(str(value))
+            return ""
         entity_id = self._by_datapoint.get((address, key))
         if entity_id is not None:
             info = self._devices[entity_id]
