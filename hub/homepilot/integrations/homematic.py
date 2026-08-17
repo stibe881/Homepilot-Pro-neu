@@ -372,8 +372,18 @@ class HomematicIntegration(Integration):
             LEVEL if dimmable else DEFAULT_DATAPOINTS.get(kind)
         )
         if not datapoint:
+            # Die häufigste Ursache ist nicht ein fehlender Datenpunkt,
+            # sondern die falsche Art: Ein Wandtaster ist 'button' und
+            # braucht dann gar keinen. Das gehört in die Meldung – sonst
+            # sucht man einen Datenpunkt, den es nicht gibt.
             raise ConfigError(
-                f"homematic: {address} braucht einen 'datapoint' (z.B. ACTUAL_TEMPERATURE)"
+                f"homematic: {address} hat kind '{kind}' – dafür ist ein "
+                "'datapoint' nötig (z.B. ACTUAL_TEMPERATURE bei einem "
+                "Temperaturfühler, MOTION bei einem Bewegungsmelder). "
+                "Wandtaster und Fernbedienungen sind kind 'button' und "
+                "kommen ohne aus; Schalter und Lichter sind 'switch' bzw. "
+                "'light'. Welche Kanäle das Gerät hat, steht beim Start in "
+                "der Kanalliste im Log."
             )
 
         commands: list[str] = []
