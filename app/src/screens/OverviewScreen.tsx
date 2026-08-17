@@ -207,6 +207,200 @@ export function OverviewScreen({
 
   // ── Anzeige ────────────────────────────────────────────────────────────
 
+  // Die drei Blöcke einmal bauen und unten in der passenden Reihenfolge
+  // ausgeben – vorher stand jeder doppelt im Code, einmal pro Tageszeit.
+  const zugangBlock = (
+    <>
+      {/* Zugang & Sicherheit */}
+      <Text style={styles.groupLabel}>Zugang</Text>
+      <View style={styles.tileRow}>
+        <Tile styles={styles} colors={colors} width={tileWidth} icon="business-outline" title="Haustüre" demo={!frontDoor}>
+          <Text style={styles.tileState}>
+            {frontDoor ? 'Gegensprechanlage' : 'Ring Intercom'}
+          </Text>
+          <Action styles={styles}
+            label={confirm === 'front' ? 'Wirklich öffnen?' : 'Öffnen'}
+            accent={confirm === 'front'}
+            onPress={() =>
+              confirmThen('front', () =>
+                frontDoor ? onCommand(frontDoor.id, 'open_door') : undefined
+              )
+            }
+          />
+        </Tile>
+
+        <Tile styles={styles} colors={colors} width={tileWidth} icon="key-outline" title="Wohnungstüre" demo={!flatDoor}>
+          <Text style={styles.tileState}>
+            {flatDoor
+              ? String(flatDoor.state.state) === 'locked'
+                ? 'Abgeschlossen'
+                : 'Aufgeschlossen'
+              : demoFlatLocked
+                ? 'Abgeschlossen'
+                : 'Aufgeschlossen'}
+          </Text>
+          {/* Untereinander statt nebeneinander – zwei Textknöpfe passen in
+              der schmalen Kachel nicht in eine Zeile. */}
+          <View style={styles.actionCol}>
+            <Action styles={styles}
+              label={
+                (flatDoor ? String(flatDoor.state.state) === 'locked' : demoFlatLocked)
+                  ? 'Aufschliessen'
+                  : 'Abschliessen'
+              }
+              onPress={() =>
+                flatDoor
+                  ? onCommand(
+                      flatDoor.id,
+                      String(flatDoor.state.state) === 'locked' ? 'unlock' : 'lock'
+                    )
+                  : setDemoFlatLocked((v) => !v)
+              }
+            />
+            <Action styles={styles}
+              label={confirm === 'flat' ? 'Sicher?' : 'Auf + öffnen'}
+              accent={confirm === 'flat'}
+              onPress={() =>
+                confirmThen('flat', () =>
+                  flatDoor ? onCommand(flatDoor.id, 'unlatch') : setDemoFlatLocked(false)
+                )
+              }
+            />
+          </View>
+        </Tile>
+
+        <Tile styles={styles} colors={colors} width={tileWidth} icon="shield-checkmark-outline" title="Alarmanlage" demo={!alarm}>
+          <Text
+            style={[
+              styles.tileState,
+              (alarm ? alarm.state.state === 'on' : demoAlarmArmed) && { color: colors.on },
+            ]}
+          >
+            {(alarm ? alarm.state.state === 'on' : demoAlarmArmed) ? 'Scharf' : 'Unscharf'}
+          </Text>
+          <Action styles={styles}
+            label={(alarm ? alarm.state.state === 'on' : demoAlarmArmed) ? 'Unscharf schalten' : 'Scharf schalten'}
+            onPress={() =>
+              alarm ? onCommand(alarm.id, 'toggle') : setDemoAlarmArmed((v) => !v)
+            }
+          />
+        </Tile>
+      </View>
+    </>
+  );
+
+  const haushaltBlock = (
+    <>
+      {/* Haushalt */}
+      <Text style={styles.groupLabel}>Haushalt</Text>
+      <View style={styles.tileRow}>
+        <Tile styles={styles} colors={colors} width={tileWidth} icon="sunny-outline" title="Tumbler" demo={!tumbler}>
+          <Text style={[styles.tileState, tumblerRunning && { color: colors.accent }]}>
+            {tumblerText}
+          </Text>
+          {!tumblerOff ? (
+            <Text style={styles.tileSub}>{Math.round(tumblerWatts)} W</Text>
+          ) : null}
+        </Tile>
+        <Tile styles={styles} colors={colors} width={tileWidth} icon="water-outline" title="Waschmaschine" demo={!washer}>
+          <Text style={[styles.tileState, wash.running && { color: colors.accent }]}>
+            {wash.text}
+          </Text>
+        </Tile>
+        <Tile styles={styles} colors={colors} width={tileWidth} icon="restaurant-outline" title="Geschirrspüler" demo={!dishwasher}>
+          <Text style={[styles.tileState, dish.running && { color: colors.accent }]}>
+            {dish.text}
+          </Text>
+        </Tile>
+      </View>
+    </>
+  );
+
+  const heuteBlock = (
+    <>
+      {/* Termine & Musik */}
+      <Text style={styles.groupLabel}>Heute</Text>
+      <View style={styles.tileRow}>
+        <Tile styles={styles} colors={colors} width={tileWidth} icon="calendar-outline" title="Nächster Termin" demo={termin.demo}>
+          <Text style={styles.tileState} numberOfLines={1}>
+            {termin.title}
+          </Text>
+          {termin.when ? <Text style={styles.tileSub}>{termin.when}</Text> : null}
+        </Tile>
+        <Tile styles={styles} colors={colors} width={tileWidth} icon="gift-outline" title="Nächster Geburtstag" demo={geburtstag.demo}>
+          <Text style={styles.tileState} numberOfLines={1}>
+            {geburtstag.title}
+          </Text>
+          {geburtstag.when ? <Text style={styles.tileSub}>{geburtstag.when}</Text> : null}
+        </Tile>
+        {countdown ? (
+          <Tile styles={styles} colors={colors} width={tileWidth} icon="hourglass-outline" title={countdown.text}>
+            <Text style={styles.tileState} numberOfLines={1}>
+              {countdown.days != null
+                ? countdown.days > 0
+                  ? `noch ${countdown.days} Tage`
+                  : countdown.days === 0
+                    ? 'heute!'
+                    : 'vorbei'
+                : '—'}
+            </Text>
+            <Text style={styles.tileSub}>{countdown.date}</Text>
+          </Tile>
+        ) : null}
+        <Tile styles={styles} colors={colors} width={tileWidth} icon="musical-notes-outline" title="Musik" demo={!player}>
+          {player ? (
+            <>
+              <Text style={styles.tileState} numberOfLines={1}>
+                {player.state.track ?? 'Nichts läuft'}
+              </Text>
+              {player.state.artist ? (
+                <Text style={styles.tileSub} numberOfLines={1}>
+                  {player.state.artist}
+                </Text>
+              ) : null}
+              <View style={styles.actionRow}>
+                <Pressable
+                  onPress={() =>
+                    onCommand(player.id, player.state.state === 'playing' ? 'pause' : 'play')
+                  }
+                  style={styles.playButton}
+                  accessibilityRole="button"
+                >
+                  <Ionicons
+                    name={player.state.state === 'playing' ? 'pause' : 'play'}
+                    size={18}
+                    color={colors.ink}
+                  />
+                </Pressable>
+                {player.commands.includes('next') ? (
+                  <Pressable
+                    onPress={() => onCommand(player.id, 'next')}
+                    style={styles.playButton}
+                    accessibilityRole="button"
+                  >
+                    <Ionicons name="play-skip-forward" size={18} color={colors.ink} />
+                  </Pressable>
+                ) : null}
+              </View>
+              {/* Spotify: Box wählen und Playlist starten – auch aus Stille. */}
+              {player.commands.includes('play_playlist') ? (
+                <SpotifyPanel
+                  entity={player}
+                  onCommand={(command, data) => onCommand(player.id, command, data)}
+                />
+              ) : null}
+            </>
+          ) : (
+            <>
+              <Text style={styles.tileState}>Nothing But Thieves</Text>
+              <Text style={styles.tileSub}>Impossible</Text>
+            </>
+          )}
+        </Tile>
+      </View>
+    </>
+  );
+
   return (
     <View style={styles.stack}>
       {/* Kopf: Uhr, Datum, Wetter, Warnung */}
@@ -287,367 +481,19 @@ export function OverviewScreen({
         </Text>
       ) : null}
 
-      {/* Morgens interessiert zuerst der Tag (Termine, Musik), abends die
-          Wohnung (Zugang, Haushalt) – die Blöcke tauschen je nach Uhrzeit. */}
+      {/* Zugang steht immer gleich unter den Schnellaktionen. Danach
+          tauschen Haushalt und Heute je nach Tageszeit den Platz: morgens
+          zuerst der Tag (Termine, Musik), abends zuerst die Wohnung. */}
+      {zugangBlock}
       {morningFirst ? (
         <>
-      {/* Termine & Musik */}
-      <Text style={styles.groupLabel}>Heute</Text>
-      <View style={styles.tileRow}>
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="calendar-outline" title="Nächster Termin" demo={termin.demo}>
-          <Text style={styles.tileState} numberOfLines={1}>
-            {termin.title}
-          </Text>
-          {termin.when ? <Text style={styles.tileSub}>{termin.when}</Text> : null}
-        </Tile>
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="gift-outline" title="Nächster Geburtstag" demo={geburtstag.demo}>
-          <Text style={styles.tileState} numberOfLines={1}>
-            {geburtstag.title}
-          </Text>
-          {geburtstag.when ? <Text style={styles.tileSub}>{geburtstag.when}</Text> : null}
-        </Tile>
-        {countdown ? (
-          <Tile styles={styles} colors={colors} width={tileWidth} icon="hourglass-outline" title={countdown.text}>
-            <Text style={styles.tileState} numberOfLines={1}>
-              {countdown.days != null
-                ? countdown.days > 0
-                  ? `noch ${countdown.days} Tage`
-                  : countdown.days === 0
-                    ? 'heute!'
-                    : 'vorbei'
-                : '—'}
-            </Text>
-            <Text style={styles.tileSub}>{countdown.date}</Text>
-          </Tile>
-        ) : null}
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="musical-notes-outline" title="Musik" demo={!player}>
-          {player ? (
-            <>
-              <Text style={styles.tileState} numberOfLines={1}>
-                {player.state.track ?? 'Nichts läuft'}
-              </Text>
-              {player.state.artist ? (
-                <Text style={styles.tileSub} numberOfLines={1}>
-                  {player.state.artist}
-                </Text>
-              ) : null}
-              <View style={styles.actionRow}>
-                <Pressable
-                  onPress={() =>
-                    onCommand(player.id, player.state.state === 'playing' ? 'pause' : 'play')
-                  }
-                  style={styles.playButton}
-                  accessibilityRole="button"
-                >
-                  <Ionicons
-                    name={player.state.state === 'playing' ? 'pause' : 'play'}
-                    size={18}
-                    color={colors.ink}
-                  />
-                </Pressable>
-                {player.commands.includes('next') ? (
-                  <Pressable
-                    onPress={() => onCommand(player.id, 'next')}
-                    style={styles.playButton}
-                    accessibilityRole="button"
-                  >
-                    <Ionicons name="play-skip-forward" size={18} color={colors.ink} />
-                  </Pressable>
-                ) : null}
-              </View>
-              {/* Spotify: Box wählen und Playlist starten – auch aus Stille. */}
-              {player.commands.includes('play_playlist') ? (
-                <SpotifyPanel
-                  entity={player}
-                  onCommand={(command, data) => onCommand(player.id, command, data)}
-                />
-              ) : null}
-            </>
-          ) : (
-            <>
-              <Text style={styles.tileState}>Nothing But Thieves</Text>
-              <Text style={styles.tileSub}>Impossible</Text>
-            </>
-          )}
-        </Tile>
-      </View>
-      {/* Zugang & Sicherheit */}
-      <Text style={styles.groupLabel}>Zugang</Text>
-      <View style={styles.tileRow}>
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="business-outline" title="Haustüre" demo={!frontDoor}>
-          <Text style={styles.tileState}>
-            {frontDoor ? 'Gegensprechanlage' : 'Ring Intercom'}
-          </Text>
-          <Action styles={styles}
-            label={confirm === 'front' ? 'Wirklich öffnen?' : 'Öffnen'}
-            accent={confirm === 'front'}
-            onPress={() =>
-              confirmThen('front', () =>
-                frontDoor ? onCommand(frontDoor.id, 'open_door') : undefined
-              )
-            }
-          />
-        </Tile>
-
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="key-outline" title="Wohnungstüre" demo={!flatDoor}>
-          <Text style={styles.tileState}>
-            {flatDoor
-              ? String(flatDoor.state.state) === 'locked'
-                ? 'Abgeschlossen'
-                : 'Aufgeschlossen'
-              : demoFlatLocked
-                ? 'Abgeschlossen'
-                : 'Aufgeschlossen'}
-          </Text>
-          {/* Untereinander statt nebeneinander – zwei Textknöpfe passen in
-              der schmalen Kachel nicht in eine Zeile. */}
-          <View style={styles.actionCol}>
-            <Action styles={styles}
-              label={
-                (flatDoor ? String(flatDoor.state.state) === 'locked' : demoFlatLocked)
-                  ? 'Aufschliessen'
-                  : 'Abschliessen'
-              }
-              onPress={() =>
-                flatDoor
-                  ? onCommand(
-                      flatDoor.id,
-                      String(flatDoor.state.state) === 'locked' ? 'unlock' : 'lock'
-                    )
-                  : setDemoFlatLocked((v) => !v)
-              }
-            />
-            <Action styles={styles}
-              label={confirm === 'flat' ? 'Sicher?' : 'Auf + öffnen'}
-              accent={confirm === 'flat'}
-              onPress={() =>
-                confirmThen('flat', () =>
-                  flatDoor ? onCommand(flatDoor.id, 'unlatch') : setDemoFlatLocked(false)
-                )
-              }
-            />
-          </View>
-        </Tile>
-
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="shield-checkmark-outline" title="Alarmanlage" demo={!alarm}>
-          <Text
-            style={[
-              styles.tileState,
-              (alarm ? alarm.state.state === 'on' : demoAlarmArmed) && { color: colors.on },
-            ]}
-          >
-            {(alarm ? alarm.state.state === 'on' : demoAlarmArmed) ? 'Scharf' : 'Unscharf'}
-          </Text>
-          <Action styles={styles}
-            label={(alarm ? alarm.state.state === 'on' : demoAlarmArmed) ? 'Unscharf schalten' : 'Scharf schalten'}
-            onPress={() =>
-              alarm ? onCommand(alarm.id, 'toggle') : setDemoAlarmArmed((v) => !v)
-            }
-          />
-        </Tile>
-      </View>
-      {/* Haushalt */}
-      <Text style={styles.groupLabel}>Haushalt</Text>
-      <View style={styles.tileRow}>
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="sunny-outline" title="Tumbler" demo={!tumbler}>
-          <Text style={[styles.tileState, tumblerRunning && { color: colors.accent }]}>
-            {tumblerText}
-          </Text>
-          {!tumblerOff ? (
-            <Text style={styles.tileSub}>{Math.round(tumblerWatts)} W</Text>
-          ) : null}
-        </Tile>
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="water-outline" title="Waschmaschine" demo={!washer}>
-          <Text style={[styles.tileState, wash.running && { color: colors.accent }]}>
-            {wash.text}
-          </Text>
-        </Tile>
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="restaurant-outline" title="Geschirrspüler" demo={!dishwasher}>
-          <Text style={[styles.tileState, dish.running && { color: colors.accent }]}>
-            {dish.text}
-          </Text>
-        </Tile>
-      </View>
+          {heuteBlock}
+          {haushaltBlock}
         </>
       ) : (
         <>
-      {/* Zugang & Sicherheit */}
-      <Text style={styles.groupLabel}>Zugang</Text>
-      <View style={styles.tileRow}>
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="business-outline" title="Haustüre" demo={!frontDoor}>
-          <Text style={styles.tileState}>
-            {frontDoor ? 'Gegensprechanlage' : 'Ring Intercom'}
-          </Text>
-          <Action styles={styles}
-            label={confirm === 'front' ? 'Wirklich öffnen?' : 'Öffnen'}
-            accent={confirm === 'front'}
-            onPress={() =>
-              confirmThen('front', () =>
-                frontDoor ? onCommand(frontDoor.id, 'open_door') : undefined
-              )
-            }
-          />
-        </Tile>
-
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="key-outline" title="Wohnungstüre" demo={!flatDoor}>
-          <Text style={styles.tileState}>
-            {flatDoor
-              ? String(flatDoor.state.state) === 'locked'
-                ? 'Abgeschlossen'
-                : 'Aufgeschlossen'
-              : demoFlatLocked
-                ? 'Abgeschlossen'
-                : 'Aufgeschlossen'}
-          </Text>
-          {/* Untereinander statt nebeneinander – zwei Textknöpfe passen in
-              der schmalen Kachel nicht in eine Zeile. */}
-          <View style={styles.actionCol}>
-            <Action styles={styles}
-              label={
-                (flatDoor ? String(flatDoor.state.state) === 'locked' : demoFlatLocked)
-                  ? 'Aufschliessen'
-                  : 'Abschliessen'
-              }
-              onPress={() =>
-                flatDoor
-                  ? onCommand(
-                      flatDoor.id,
-                      String(flatDoor.state.state) === 'locked' ? 'unlock' : 'lock'
-                    )
-                  : setDemoFlatLocked((v) => !v)
-              }
-            />
-            <Action styles={styles}
-              label={confirm === 'flat' ? 'Sicher?' : 'Auf + öffnen'}
-              accent={confirm === 'flat'}
-              onPress={() =>
-                confirmThen('flat', () =>
-                  flatDoor ? onCommand(flatDoor.id, 'unlatch') : setDemoFlatLocked(false)
-                )
-              }
-            />
-          </View>
-        </Tile>
-
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="shield-checkmark-outline" title="Alarmanlage" demo={!alarm}>
-          <Text
-            style={[
-              styles.tileState,
-              (alarm ? alarm.state.state === 'on' : demoAlarmArmed) && { color: colors.on },
-            ]}
-          >
-            {(alarm ? alarm.state.state === 'on' : demoAlarmArmed) ? 'Scharf' : 'Unscharf'}
-          </Text>
-          <Action styles={styles}
-            label={(alarm ? alarm.state.state === 'on' : demoAlarmArmed) ? 'Unscharf schalten' : 'Scharf schalten'}
-            onPress={() =>
-              alarm ? onCommand(alarm.id, 'toggle') : setDemoAlarmArmed((v) => !v)
-            }
-          />
-        </Tile>
-      </View>
-      {/* Haushalt */}
-      <Text style={styles.groupLabel}>Haushalt</Text>
-      <View style={styles.tileRow}>
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="sunny-outline" title="Tumbler" demo={!tumbler}>
-          <Text style={[styles.tileState, tumblerRunning && { color: colors.accent }]}>
-            {tumblerText}
-          </Text>
-          {!tumblerOff ? (
-            <Text style={styles.tileSub}>{Math.round(tumblerWatts)} W</Text>
-          ) : null}
-        </Tile>
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="water-outline" title="Waschmaschine" demo={!washer}>
-          <Text style={[styles.tileState, wash.running && { color: colors.accent }]}>
-            {wash.text}
-          </Text>
-        </Tile>
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="restaurant-outline" title="Geschirrspüler" demo={!dishwasher}>
-          <Text style={[styles.tileState, dish.running && { color: colors.accent }]}>
-            {dish.text}
-          </Text>
-        </Tile>
-      </View>
-      {/* Termine & Musik */}
-      <Text style={styles.groupLabel}>Heute</Text>
-      <View style={styles.tileRow}>
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="calendar-outline" title="Nächster Termin" demo={termin.demo}>
-          <Text style={styles.tileState} numberOfLines={1}>
-            {termin.title}
-          </Text>
-          {termin.when ? <Text style={styles.tileSub}>{termin.when}</Text> : null}
-        </Tile>
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="gift-outline" title="Nächster Geburtstag" demo={geburtstag.demo}>
-          <Text style={styles.tileState} numberOfLines={1}>
-            {geburtstag.title}
-          </Text>
-          {geburtstag.when ? <Text style={styles.tileSub}>{geburtstag.when}</Text> : null}
-        </Tile>
-        {countdown ? (
-          <Tile styles={styles} colors={colors} width={tileWidth} icon="hourglass-outline" title={countdown.text}>
-            <Text style={styles.tileState} numberOfLines={1}>
-              {countdown.days != null
-                ? countdown.days > 0
-                  ? `noch ${countdown.days} Tage`
-                  : countdown.days === 0
-                    ? 'heute!'
-                    : 'vorbei'
-                : '—'}
-            </Text>
-            <Text style={styles.tileSub}>{countdown.date}</Text>
-          </Tile>
-        ) : null}
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="musical-notes-outline" title="Musik" demo={!player}>
-          {player ? (
-            <>
-              <Text style={styles.tileState} numberOfLines={1}>
-                {player.state.track ?? 'Nichts läuft'}
-              </Text>
-              {player.state.artist ? (
-                <Text style={styles.tileSub} numberOfLines={1}>
-                  {player.state.artist}
-                </Text>
-              ) : null}
-              <View style={styles.actionRow}>
-                <Pressable
-                  onPress={() =>
-                    onCommand(player.id, player.state.state === 'playing' ? 'pause' : 'play')
-                  }
-                  style={styles.playButton}
-                  accessibilityRole="button"
-                >
-                  <Ionicons
-                    name={player.state.state === 'playing' ? 'pause' : 'play'}
-                    size={18}
-                    color={colors.ink}
-                  />
-                </Pressable>
-                {player.commands.includes('next') ? (
-                  <Pressable
-                    onPress={() => onCommand(player.id, 'next')}
-                    style={styles.playButton}
-                    accessibilityRole="button"
-                  >
-                    <Ionicons name="play-skip-forward" size={18} color={colors.ink} />
-                  </Pressable>
-                ) : null}
-              </View>
-              {/* Spotify: Box wählen und Playlist starten – auch aus Stille. */}
-              {player.commands.includes('play_playlist') ? (
-                <SpotifyPanel
-                  entity={player}
-                  onCommand={(command, data) => onCommand(player.id, command, data)}
-                />
-              ) : null}
-            </>
-          ) : (
-            <>
-              <Text style={styles.tileState}>Nothing But Thieves</Text>
-              <Text style={styles.tileSub}>Impossible</Text>
-            </>
-          )}
-        </Tile>
-      </View>
+          {haushaltBlock}
+          {heuteBlock}
         </>
       )}
     </View>
