@@ -135,6 +135,12 @@ SLOW_CALLBACK = 0.5
 PING_INTERVAL = 120.0
 PING_TIMEOUT = 10.0
 
+# Der Wartungskanal jedes Homematic-Geräts (immer Kanal 0). Dort steht,
+# ob die Batterie schwach ist – bei Rauchmeldern und Alarmsensoren die
+# wichtigste Information überhaupt, und bisher las sie niemand.
+MAINTENANCE_CHANNEL = "0"
+LOW_BAT = "LOW_BAT"
+
 LEVEL = "LEVEL"
 # Messkanal einer Schalt-Messsteckdose (HmIP-PSM, HM-ES-PMSw1): Momentanleistung.
 POWER = "POWER"
@@ -261,6 +267,26 @@ def value_to_state(value: Any, datapoint: str, dimmable: bool) -> dict[str, Any]
     return {"state": value}
 
 
+def maintenance_address(address: str) -> str:
+    """Der Wartungskanal desselben Geräts (rein, testbar)."""
+    return f"{address.split(':', 1)[0]}:{MAINTENANCE_CHANNEL}"
+
+
+def battery_to_state(value: Any) -> dict[str, Any]:
+    """LOW_BAT in ein Attribut übersetzen (rein, testbar).
+
+    Unlesbare Werte ergeben nichts, statt eine volle Batterie zu behaupten –
+    bei einem Rauchmelder wäre das die gefährlichere Lüge.
+    """
+    if isinstance(value, bool):
+        return {"low_battery": value}
+    if str(value) in ("0", "False", "false"):
+        return {"low_battery": False}
+    if str(value) in ("1", "True", "true"):
+        return {"low_battery": True}
+    return {}
+
+
 def press_to_state(datapoint: str, now: float) -> dict[str, Any]:
     """Ein Tastendruck als Zustand (rein, testbar).
 
@@ -359,6 +385,8 @@ class HomematicIntegration(Integration):
         # 2010, klassisches BidCos-RF auf 2001 – beides an derselben CCU.
         self._proxies: dict[int, xmlrpc.client.ServerProxy] = {}
 
+        # Wartungskanal → alle Entitäten dieses Geräts.
+        self._by_battery: dict[tuple[str, str], list[str]] = {}
         # Bereits gemeldete Lesefehler – jede Adresse warnt nur einmal.
         self._warned: set[tuple[str, str]] = set()
         # (Adresse, Datenpunkt) → entity_id, plus Stammdaten je Entität
@@ -457,6 +485,11 @@ class HomematicIntegration(Integration):
             self._by_datapoint[(address, datapoint)] = entity.id
         if power_address:
             self._by_power[(power_address, power_datapoint)] = entity.id
+        # Batteriewarnung: Der Wartungskanal gehört zum Gerät, nicht zum
+        # Kanal – mehrere Entitäten desselben Geräts teilen ihn sich.
+        self._by_battery.setdefault(
+            (maintenance_address(address), LOW_BAT), []
+        ).append(entity.id)
 
     # ── CCU → Hub ──────────────────────────────────────────────────────────
 
@@ -608,6 +641,28 @@ class HomematicIntegration(Integration):
             else:
                 await self.hub.registry.update_state(entity_id, {}, available=False)
 
+        await self._refresh_batteries()
+
+    async def _refresh_batteries(self) -> None:
+        """Den Wartungskanal je Gerät einmal lesen.
+
+        Einmal je Gerät, nicht je Entität: Ein 6-fach-Taster hat sechs
+        Entitäten, aber nur eine Batterie.
+        """
+        for (address, datapoint), entity_ids in self._by_battery.items():
+            port = self._devices[entity_ids[0]]["port"]
+            try:
+                value = await self._call("getValue", address, datapoint, port=port)
+            except Exception as err:
+                # Netzgeräte haben kein LOW_BAT – das ist kein Fehler.
+                self.log.debug("%s ohne %s (%s)", address, datapoint, err)
+                continue
+            changes = battery_to_state(value)
+            if not changes:
+                continue
+            for entity_id in entity_ids:
+                await self.hub.registry.update_state(entity_id, changes)
+
     def _warn_once(self, key: tuple[str, str], message: str) -> None:
         """Einmal warnen statt alle 5 Minuten – sonst übersieht man im
         zugerauschten Log genau die Zeile, die das Problem erklärt.
@@ -748,6 +803,16 @@ class HomematicIntegration(Integration):
             # Antwort auf unseren Ping – damit ist die Anmeldung bestätigt.
             self._pong.add(str(value))
             return ""
+        battery = self._by_battery.get((address, key))
+        if battery is not None:
+            changes = battery_to_state(value)
+            if changes:
+                for entity_id in battery:
+                    asyncio.run_coroutine_threadsafe(
+                        self.hub.registry.update_state(entity_id, changes), self._loop
+                    )
+            return ""
+
         entity_id = self._by_datapoint.get((address, key))
         if entity_id is not None:
             info = self._devices[entity_id]

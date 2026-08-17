@@ -309,7 +309,10 @@ async def test_a_wall_button_is_never_polled(hub):
         assert entity is not None
         # Da, aber noch ohne Druck – nicht «nicht erreichbar».
         assert entity.available is True
-        assert [method for method, _, _ in ccu.calls if method == "getValue"] == []
+        # Auf dem Tastenkanal wird nichts gelesen. Der Wartungskanal schon:
+        # Ein Taster läuft auf Batterie, und die will man kennen.
+        read = [args[0] for method, args, _ in ccu.calls if method == "getValue"]
+        assert "0001D8A9B12348:1" not in read
     finally:
         await integration.teardown()
 

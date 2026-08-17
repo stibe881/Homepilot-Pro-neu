@@ -1,9 +1,17 @@
-"""Integrations-Wächter: meldet Ausfälle als Push statt still im Log.
+"""Wächter: meldet Ausfälle und schwache Batterien als Push statt still im Log.
 
-Alle 60 Sekunden wird je Integration geprüft, ob noch mindestens eine ihrer
-Entitäten erreichbar ist. Fällt eine Integration komplett aus (und bleibt es
-über eine Karenzzeit), geht eine Push-Nachricht an Besitzer und Mitbewohner;
-kommt sie zurück, ebenfalls. Die letzten Ausfälle stehen im System-Screen.
+Drei Dinge werden im Minutentakt geprüft:
+
+  - Fällt eine ganze Integration aus (und bleibt es über eine Karenzzeit),
+    geht eine Push-Nachricht raus; kommt sie zurück, ebenfalls.
+  - Einzelne *überwachte* Geräte, die längere Zeit nicht antworten. Nicht
+    alle: Bei hundert Geräten wäre jede Störung eine Nachricht. Überwacht
+    ist, was die Alarmanlage bewacht – das hat jemand bewusst als wichtig
+    eingestuft – und was ausdrücklich markiert wurde.
+  - Schwache Batterien. Ein Rauchmelder mit leerer Batterie ist still, und
+    genau das darf man nicht zufällig entdecken.
+
+Die letzten Ausfälle stehen im System-Screen.
 """
 
 from __future__ import annotations
@@ -21,6 +29,9 @@ log = logging.getLogger(__name__)
 # Erst nach zwei Fehlrunden melden – ein einzelner Timeout ist kein Ausfall.
 GRACE_ROUNDS = 2
 INTERVAL = 60.0
+# So lange darf ein einzelnes Gerät schweigen, bevor es gemeldet wird.
+# Grosszügiger als bei Integrationen: Ein Funkgerät verpasst mal eine Runde.
+DEVICE_GRACE_ROUNDS = 30
 # Integrationen ohne eigene Verbindung, die nie „ausfallen“ können.
 IGNORE = frozenset({"demo", "helpers", "group", "adaptive", "presence_sim", "alarm"})
 
@@ -41,11 +52,30 @@ def down_integrations(entities: list[Any]) -> set[str]:
     }
 
 
+def watched_entities(entities: list[Any], guarded: set[str]) -> list[Any]:
+    """Welche Geräte einzeln überwacht werden (rein, testbar).
+
+    Alles zu melden wäre Lärm; nichts zu melden hiesse, einen toten
+    Rauchmelder erst beim Brand zu bemerken. Überwacht wird deshalb, was
+    die Alarmanlage bewacht – diese Auswahl hat jemand bewusst getroffen.
+    """
+    return [entity for entity in entities if entity.id in guarded]
+
+
+def low_batteries(entities: list[Any]) -> list[Any]:
+    """Geräte, die eine schwache Batterie melden (rein, testbar)."""
+    return [entity for entity in entities if entity.state.get("low_battery") is True]
+
+
 class Watchdog:
     def __init__(self, hub: "Hub") -> None:
         self.hub = hub
         # Integration → Anzahl Fehlrunden in Folge.
         self._strikes: dict[str, int] = {}
+        # Gerät → Fehlrunden in Folge, und was schon gemeldet wurde.
+        self._device_strikes: dict[str, int] = {}
+        self._reported_down: set[str] = set()
+        self._reported_battery: set[str] = set()
         # Aktuell als ausgefallen gemeldete Integrationen (seit Zeitstempel).
         self.down_since: dict[str, float] = {}
         # Protokoll der letzten Ausfälle für die App (jüngste zuerst).
@@ -72,8 +102,23 @@ class Watchdog:
             except Exception:
                 log.exception("Wächter-Runde fehlgeschlagen")
 
+    def _guarded(self) -> set[str]:
+        """Die Sensoren, die der Alarmanlage zugeordnet sind."""
+        alarm = self.hub.integrations.get("alarm")
+        sensors = getattr(alarm, "_sensors", None)
+        if not isinstance(sensors, dict):
+            return set()
+        return {
+            entity_id
+            for entity_id, entry in sensors.items()
+            if entry.get("modes")
+        }
+
     async def check(self) -> None:
-        down = down_integrations(self.hub.registry.all())
+        entities = self.hub.registry.all()
+        await self._check_devices(entities)
+        await self._check_batteries(entities)
+        down = down_integrations(entities)
 
         # Strikes hochzählen bzw. zurücksetzen.
         for name in down:
@@ -103,6 +148,44 @@ class Watchdog:
                     f"{name} wieder da",
                     f"Die Integration '{name}' ist nach {minutes} Minuten wieder erreichbar.",
                 )
+
+    async def _check_devices(self, entities: list[Any]) -> None:
+        """Einzelne überwachte Geräte, die nicht mehr antworten."""
+        watched = watched_entities(entities, self._guarded())
+        for entity in watched:
+            if entity.available:
+                self._device_strikes.pop(entity.id, None)
+                if entity.id in self._reported_down:
+                    self._reported_down.discard(entity.id)
+                    await self._notify(
+                        f"{entity.name} wieder da",
+                        "Der Sensor meldet sich wieder.",
+                    )
+                continue
+            strikes = self._device_strikes.get(entity.id, 0) + 1
+            self._device_strikes[entity.id] = strikes
+            if strikes == DEVICE_GRACE_ROUNDS and entity.id not in self._reported_down:
+                self._reported_down.add(entity.id)
+                await self._notify(
+                    f"{entity.name} antwortet nicht",
+                    f"Seit {round(DEVICE_GRACE_ROUNDS * INTERVAL / 60)} Minuten "
+                    "keine Meldung – die Alarmanlage hat dort einen blinden Fleck.",
+                )
+
+    async def _check_batteries(self, entities: list[Any]) -> None:
+        """Schwache Batterien – einmal melden, nicht jede Minute."""
+        weak = {entity.id for entity in low_batteries(entities)}
+        for entity in low_batteries(entities):
+            if entity.id in self._reported_battery:
+                continue
+            self._reported_battery.add(entity.id)
+            await self._notify(
+                f"Batterie schwach: {entity.name}",
+                "Das Gerät meldet eine schwache Batterie. Danach ist es still, "
+                "ohne sich abzumelden.",
+            )
+        # Gewechselte Batterien wieder scharf stellen für die nächste Warnung.
+        self._reported_battery &= weak
 
     def _log_outage(self, name: str, ended: float | None) -> None:
         self.outages.insert(
