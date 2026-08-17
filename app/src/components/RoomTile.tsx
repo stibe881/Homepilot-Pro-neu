@@ -55,6 +55,26 @@ function shortState(entity: Entity): string {
   }
 }
 
+/**
+ * Welche Fahrtrichtungen sind bei diesem Storen noch möglich? (rein, testbar)
+ *
+ * Die Position zählt 100 = ganz offen, 0 = ganz zu. Steht die Store am
+ * Anschlag, fehlt der Pfeil in diese Richtung – er würde nichts mehr
+ * bewirken und nur suggerieren, es ginge noch weiter.
+ */
+export function coverMoves(entity: Entity): { up: boolean; down: boolean } {
+  const canOpen = entity.commands.includes('open');
+  const canClose = entity.commands.includes('close');
+  const position = entity.state.position;
+  if (typeof position === 'number') {
+    // Etwas Spiel an den Enden: Manche Motoren melden 99 statt 100.
+    return { up: canOpen && position < 99, down: canClose && position > 1 };
+  }
+  // Ohne Positionsmeldung entscheidet der grobe Zustand.
+  const state = entity.state.state;
+  return { up: canOpen && state !== 'open', down: canClose && state !== 'closed' };
+}
+
 const MAX_ROWS = 6;
 
 export function RoomTile({
@@ -93,6 +113,7 @@ export function RoomTile({
       {shownItems.map((entity) => {
         const togglable = entity.commands.includes('toggle');
         const on = entity.state.state === 'on';
+        const moves = entity.kind === 'cover' ? coverMoves(entity) : null;
         return (
           <View key={entity.id} style={styles.row}>
             <Ionicons
@@ -116,6 +137,35 @@ export function RoomTile({
               >
                 <Ionicons name="power" size={13} color={on ? '#FFFFFF' : colors.inkSoft} />
               </Pressable>
+            ) : moves ? (
+              // Storen: Zustand plus die Pfeile, die gerade etwas bewirken.
+              <View style={styles.coverCell}>
+                <Text style={styles.rowState} numberOfLines={1}>
+                  {shortState(entity)}
+                </Text>
+                {moves.up ? (
+                  <Pressable
+                    onPress={() => onCommand(entity.id, 'open')}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${entity.name} hochfahren`}
+                    style={({ pressed }) => [styles.arrow, pressed && { opacity: 0.6 }]}
+                  >
+                    <Ionicons name="chevron-up" size={14} color={colors.ink} />
+                  </Pressable>
+                ) : null}
+                {moves.down ? (
+                  <Pressable
+                    onPress={() => onCommand(entity.id, 'close')}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${entity.name} runterfahren`}
+                    style={({ pressed }) => [styles.arrow, pressed && { opacity: 0.6 }]}
+                  >
+                    <Ionicons name="chevron-down" size={14} color={colors.ink} />
+                  </Pressable>
+                ) : null}
+              </View>
             ) : (
               <Text style={styles.rowState} numberOfLines={1}>
                 {shortState(entity)}
@@ -150,5 +200,16 @@ const makeStyles = (colors: Colors) =>
       justifyContent: 'center',
     },
     toggleOn: { backgroundColor: colors.accent },
+    coverCell: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    arrow: {
+      width: 26,
+      height: 26,
+      borderRadius: 13,
+      // Dieselbe Fläche wie der Ein/Aus-Knopf daneben, damit die Zeilen
+      // einer Kachel nicht aus zwei Formensprachen bestehen.
+      backgroundColor: colors.off,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
     more: { color: colors.inkFaint, fontSize: 12 },
   });
