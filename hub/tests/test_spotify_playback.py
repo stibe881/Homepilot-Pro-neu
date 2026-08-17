@@ -83,3 +83,114 @@ def test_next_repeat_cycles_through_the_modes():
 def test_next_repeat_recovers_from_nonsense():
     # Ein unbekannter Wert darf nicht in einer Sackgasse enden.
     assert next_repeat("quatsch") in REPEAT_MODES
+
+
+# ── Befehle sollen nicht auf Spotifys Rückmeldung warten ───────────────────
+
+import asyncio
+
+import pytest
+
+from homepilot.core.config import ApiConfig, HubConfig
+from homepilot.core.hub import Hub
+from homepilot.integrations.spotify import SpotifyIntegration
+
+CONFIG = {
+    "integration": "spotify",
+    "client_id": "id",
+    "client_secret": "secret",
+    "refresh_token": "refresh",
+    "scan_interval": 3600,
+}
+
+
+class FakeApi:
+    """Spotify-Ersatz, der mitschreibt, was der Hub aufruft."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    # Wird als gebundene Methode gesetzt – deshalb ohne das self der
+    # Integration in der Signatur.
+    async def call(self, method, path, json=None):
+        self.calls.append((method, path))
+        if path.startswith("/me/playlists"):
+            return {"items": [{"name": "Reaggae", "uri": "spotify:playlist:AAA"}]}
+        if path == "/me/player/devices":
+            return {"devices": [{"id": "dev1", "name": "Terrasse", "is_active": False}]}
+        return None  # /me/player: es läuft gerade nichts
+
+
+@pytest.fixture
+def spotify_hub(tmp_path, monkeypatch):
+    api = FakeApi()
+    monkeypatch.setattr(SpotifyIntegration, "_call", api.call)
+    hub = Hub(
+        HubConfig(
+            api=ApiConfig(),
+            integrations=[CONFIG],
+            users=[{"name": "Stefan", "role": "besitzer", "token": "t"}],
+            data_file=str(tmp_path / "daten.json"),
+        )
+    )
+    yield hub, api
+
+
+def test_starting_a_playlist_reports_at_once(spotify_hub):
+    """Der gemeldete Fall: Das Abspielen dauerte gefühlt ewig.
+
+    Der Befehl wartete auf eine Abfrage, die den neuen Zustand meist noch
+    gar nicht kannte – die Kachel blieb «wird geschaltet», obwohl die Musik
+    schon lief.
+    """
+    hub, api = spotify_hub
+
+    async def run():
+        await hub.start()
+        api.calls.clear()
+        entity = await hub.integrations.dispatch_command(
+            "spotify.player", "play_playlist", {"name": "Reaggae", "device": "Terrasse"}
+        )
+        state = dict(entity.state)
+        calls = list(api.calls)
+        await hub.stop()
+        return state, calls
+
+    state, calls = asyncio.run(run())
+
+    assert ("PUT", "/me/player/play?device_id=dev1") in calls
+    # Sofort und ohne Rückfrage: Das steht schon fest, sobald Spotify den
+    # Befehl angenommen hat.
+    assert state["state"] == "playing"
+    assert state["playlist"] == "Reaggae"
+    assert state["device"] == "Terrasse"
+    # Und nach dem Start wird nicht mehr gewartet – das Nachhaken läuft im
+    # Hintergrund.
+    after = calls[calls.index(("PUT", "/me/player/play?device_id=dev1")) + 1 :]
+    assert after == []
+
+
+def test_the_device_list_is_refreshed_before_waking(spotify_hub):
+    """Wecken kostet Sekunden, nachfragen Millisekunden.
+
+    Die gemerkte Liste ist bis zu einem Poll-Intervall alt – eine längst
+    wache Box würde sonst unnötig über Cast geweckt.
+    """
+    hub, api = spotify_hub
+
+    async def run():
+        await hub.start()
+        service = hub.integrations.get("spotify")
+        # Die Box ist wach, der Hub weiss es nur noch nicht.
+        service._device_ids = {}
+        api.calls.clear()
+        await hub.integrations.dispatch_command(
+            "spotify.player", "play_on", {"device": "Terrasse"}
+        )
+        calls = list(api.calls)
+        await hub.stop()
+        return calls
+
+    calls = asyncio.run(run())
+    assert ("GET", "/me/player/devices") in calls
+    assert ("PUT", "/me/player") in calls

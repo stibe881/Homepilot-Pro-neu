@@ -251,9 +251,17 @@ class SpotifyIntegration(Integration):
         self._device_ids: dict[str, str] = {}
         # Name → Playlist-URI, für play_playlist.
         self._playlists: list[dict[str, Any]] = []
+        # Läuft nach einem Befehl kurz nach (siehe _settle).
+        self._settle_task: asyncio.Task | None = None
         await self._load_playlists()
         await self._refresh()
         self.start_task(self._poll_loop())
+
+    async def teardown(self) -> None:
+        if self._settle_task is not None:
+            self._settle_task.cancel()
+            self._settle_task = None
+        await super().teardown()
 
     async def _load_playlists(self) -> None:
         """Alle Playlisten des Kontos holen (mehrere Seiten à 50)."""
@@ -330,8 +338,14 @@ class SpotifyIntegration(Integration):
     async def _refresh(self) -> None:
         entity_id = self.entity_id("player")
         try:
-            payload = await self._call("GET", "/me/player")
-            devices = parse_devices(await self._call("GET", "/me/player/devices"))
+            # Nebenläufig: Die beiden Abfragen wissen nichts voneinander,
+            # nacheinander wären sie schlicht doppelt so langsam – und das
+            # bei jedem einzelnen Befehl.
+            payload, device_payload = await asyncio.gather(
+                self._call("GET", "/me/player"),
+                self._call("GET", "/me/player/devices"),
+            )
+            devices = parse_devices(device_payload)
         except Exception as err:
             self.log.warning("Spotify nicht erreichbar: %s", err)
             await self.hub.registry.update_state(entity_id, {}, available=False)
@@ -344,6 +358,52 @@ class SpotifyIntegration(Integration):
         state["playlists"] = [p["name"] for p in self._playlists]
         state["playlist"] = playlist_name(state.get("context_uri"), self._playlists)
         await self.hub.registry.update_state(entity_id, state, available=True)
+
+    async def _load_devices(self) -> dict[str, str]:
+        """Die Connect-Geräte frisch holen. Ein Aufruf, wenige hundert
+        Millisekunden – und deutlich billiger als voreilig zu wecken."""
+        devices = parse_devices(await self._call("GET", "/me/player/devices"))
+        self._device_ids = {device["name"]: device["id"] for device in devices}
+        return self._device_ids
+
+    # Nach einem Befehl mehrfach nachfragen statt einmal: Spotify meldet den
+    # neuen Zustand nicht sofort – /me/player nennt direkt nach dem Start oft
+    # noch den alten Titel. Ohne Nachhaken stünde in der App bis zum nächsten
+    # Poll (30 s) der falsche Zustand.
+    SETTLE_DELAYS = (0.5, 1.5, 4.0)
+
+    async def _settle(self) -> None:
+        for delay in self.SETTLE_DELAYS:
+            await asyncio.sleep(delay)
+            await self._refresh()
+
+    def _start_settle(self) -> None:
+        """Nachhaken im Hintergrund anstossen – der Befehl ist damit fertig.
+
+        Der Aufrufer wartet nicht mehr auf Spotifys Rückmeldung: Die Kachel
+        zeigt sofort, was gleich läuft, und wird korrigiert, sobald Spotify
+        so weit ist."""
+        if self._settle_task is not None and not self._settle_task.done():
+            self._settle_task.cancel()
+        self._settle_task = asyncio.create_task(self._settle())
+
+    async def _announce(self, state: dict[str, Any]) -> None:
+        """Melden, was gleich läuft – und die Wahrheit nachreichen.
+
+        Ein Befehl gilt damit als erledigt, sobald Spotify ihn angenommen
+        hat. Vorher wartete der Aufrufer noch auf eine Abfrage, die den
+        neuen Zustand ohnehin meist noch nicht kannte: In der App blieb die
+        Kachel «wird geschaltet», obwohl die Musik längst lief.
+        """
+        await self.hub.registry.update_state(
+            self.entity_id("player"), state, available=True
+        )
+        self._start_settle()
+
+    def _device_name(self, device_id: str) -> str | None:
+        return next(
+            (name for name, value in self._device_ids.items() if value == device_id), None
+        )
 
     def _cast_names(self) -> list[str]:
         cast = self.hub.integrations.get("google_cast")
@@ -380,16 +440,19 @@ class SpotifyIntegration(Integration):
             return None
         if not woken:
             return None
-        for _ in range(12):
-            await asyncio.sleep(1)
+        # Sofort nachsehen und dann eng nachfassen: Die Box meldet sich meist
+        # innerhalb einer Sekunde bei Spotify an. Eine feste Sekunde Pause vor
+        # dem ersten Blick hat diese Zeit früher verschenkt.
+        deadline = asyncio.get_running_loop().time() + 12
+        while True:
             try:
-                devices = parse_devices(await self._call("GET", "/me/player/devices"))
+                if name in await self._load_devices():
+                    return self._device_ids[name]
             except Exception:
-                continue
-            self._device_ids = {device["name"]: device["id"] for device in devices}
-            if name in self._device_ids:
-                return self._device_ids[name]
-        return None
+                pass
+            if asyncio.get_running_loop().time() >= deadline:
+                return None
+            await asyncio.sleep(0.3)
 
     # ── Hub → Spotify ──────────────────────────────────────────────────────
 
@@ -401,6 +464,11 @@ class SpotifyIntegration(Integration):
             # geweckt ist. Ohne diesen Schritt liess sich die Musik auf jede
             # Box umziehen – ausser auf eine, die gerade still ist, also
             # meistens genau die gewünschte.
+            if device_id is None and name:
+                # Vorher einmal frisch nachfragen: Die gemerkte Liste ist bis
+                # zu einem Poll-Intervall alt, die Box also womöglich längst
+                # wach. Das kostet Millisekunden, das Wecken kostet Sekunden.
+                device_id = (await self._load_devices()).get(name)
             if device_id is None and name:
                 device_id = await self._wake_and_find(name)
             if device_id is None:
@@ -415,7 +483,7 @@ class SpotifyIntegration(Integration):
             await self._call(
                 "PUT", "/me/player", json={"device_ids": [device_id], "play": keep_playing}
             )
-            await self._refresh()
+            await self._announce({"device": self._device_name(device_id) or name})
             return
         if command == "play_playlist":
             name = str(data.get("name", ""))
@@ -434,6 +502,15 @@ class SpotifyIntegration(Integration):
             # Gewünschte Box schläft (kennt Spotify gerade nicht)? Dann über
             # das Cast-Protokoll wecken und anmelden – wie Spotcast.
             if requested and requested not in self._device_ids:
+                # Erst die frische Geräteliste – wecken nur, wenn sie die Box
+                # wirklich nicht kennt (siehe play_on).
+                if requested in await self._load_devices():
+                    device_id = self._device_ids[requested]
+                else:
+                    device_id = pick_device(
+                        requested, entity.state.get("device"), self._device_ids
+                    )
+            if requested and requested not in self._device_ids:
                 woken = await self._wake_and_find(requested)
                 if woken:
                     device_id = woken
@@ -449,7 +526,14 @@ class SpotifyIntegration(Integration):
                     "ist; sonst einmal die Spotify-App im selben Netz öffnen."
                 )
             await self._call("PUT", f"/me/player/play?device_id={device_id}", json=body)
-            await self._refresh()
+            await self._announce(
+                {
+                    "state": "playing",
+                    "context_uri": uri,
+                    "playlist": playlist_name(uri, self._playlists) or name or None,
+                    "device": self._device_name(device_id) or requested or None,
+                }
+            )
             return
 
         if command == "shuffle":
@@ -457,7 +541,7 @@ class SpotifyIntegration(Integration):
             target = data.get("on")
             on = (not bool(entity.state.get("shuffle"))) if target is None else bool(target)
             await self._call("PUT", f"/me/player/shuffle?state={'true' if on else 'false'}")
-            await self._refresh()
+            await self._announce({"shuffle": on})
             return
 
         if command == "repeat":
@@ -465,7 +549,7 @@ class SpotifyIntegration(Integration):
             if mode not in REPEAT_MODES:
                 raise ValueError(f"Unbekannter Wiederholmodus '{mode}'")
             await self._call("PUT", f"/me/player/repeat?state={mode}")
-            await self._refresh()
+            await self._announce({"repeat": mode})
             return
 
         if command == "toggle":
@@ -487,7 +571,7 @@ class SpotifyIntegration(Integration):
                     target = getattr(self, "_volume_before_mute", 30)
             target = max(0, min(100, target))
             await self._call("PUT", f"/me/player/volume?volume_percent={target}")
-            await self._refresh()
+            await self._announce({"volume": target})
             return
 
         routes = {
@@ -498,7 +582,10 @@ class SpotifyIntegration(Integration):
         }
         method, path = routes[command]
         await self._call(method, path)
-        await self._refresh()
+        # Bei Titelwechseln kennt der Hub den neuen Titel noch nicht – da
+        # bleibt nur das Nachhaken. Play/Pause dagegen sind sofort klar.
+        known = {"play": {"state": "playing"}, "pause": {"state": "paused"}}
+        await self._announce(known.get(command, {}))
 
 
 INTEGRATION = SpotifyIntegration
