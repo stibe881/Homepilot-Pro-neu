@@ -101,6 +101,10 @@ class VZugIntegration(Integration):
 
         # entity_id → (host, auth)
         self._devices: dict[str, tuple[str, aiohttp.BasicAuth | None]] = {}
+        # Geräte, die gerade nicht antworten. V-ZUG-Geräte schlafen im
+        # Standby und melden dann 503 – bei jedem Abruf eine Warnung zu
+        # schreiben flutet das Log und begräbt alles Wichtige darunter.
+        self._down: set[str] = set()
         for device in devices:
             host = device.get("host")
             if not host:
@@ -143,10 +147,19 @@ class VZugIntegration(Integration):
                 # Die Geräte senden JSON teils als text/plain.
                 payload = await response.json(content_type=None)
         except Exception as err:
-            self.log.warning("V-ZUG %s nicht erreichbar: %s", host, err)
+            # Nur beim Übergang warnen, danach still bleiben: Ein Gerät im
+            # Standby wäre sonst jede Minute eine Zeile.
+            if entity_id not in self._down:
+                self._down.add(entity_id)
+                self.log.warning("V-ZUG %s nicht erreichbar: %s", host, err)
+            else:
+                self.log.debug("V-ZUG %s weiterhin nicht erreichbar: %s", host, err)
             await self.hub.registry.update_state(entity_id, {}, available=False)
             return
 
+        if entity_id in self._down:
+            self._down.discard(entity_id)
+            self.log.info("V-ZUG %s wieder erreichbar", host)
         await self.hub.registry.update_state(
             entity_id, parse_device_status(payload), available=True
         )
