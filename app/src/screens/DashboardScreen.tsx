@@ -7,6 +7,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
   useWindowDimensions,
 } from 'react-native';
@@ -84,6 +85,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [gridWidth, setGridWidth] = useState(0);
   const [editing, setEditing] = useState(false);
   const [reorderOpen, setReorderOpen] = useState(false);
+  // Suchbegriff der Geräteliste.
+  const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
   const [lastTouch, setLastTouch] = useState(() => Date.now());
   // Türklingel-Vollbild: pro Klingel-Ereignis einmal zeigen, bis es
@@ -126,6 +129,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Wandpanel: Bildschirm bleibt an, und nach drei Minuten ohne Berührung
   // kehrt die Ansicht zur Startseite zurück – ein fest montiertes iPad soll
   // nicht in den Einstellungen stehenbleiben.
+  // Beim Verlassen der Geräteliste die Suche zurücksetzen – wer später
+  // zurückkommt, will die volle Liste sehen, nicht den alten Suchbegriff.
+  useEffect(() => {
+    if (section !== 'devices') setQuery('');
+  }, [section]);
+
   usePanelMode(!!settings.panel);
   usePushRegistration(settings, status === 'connected');
   useEffect(() => {
@@ -250,11 +259,24 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     const bi = orderIndex.has(b.id) ? (orderIndex.get(b.id) as number) : Infinity;
     return ai !== bi ? ai - bi : a.name.localeCompare(b.name);
   };
+  // Suchfeld der Geräteliste: sucht über Name, Raum, Gruppe und Integration,
+  // damit «Küche», «Storen Süd» oder «hue» genauso finden wie der Gerätename.
+  const needle = query.trim().toLowerCase();
+  const searching = section === 'devices' && needle.length > 0;
+  const found = searching
+    ? shown.filter((entity) =>
+        [entity.name, entity.room ?? '', entity.group ?? '', entity.integration]
+          .join(' ')
+          .toLowerCase()
+          .includes(needle)
+      )
+    : shown;
+
   const running = section === 'home' ? shown.filter(isActive).sort(byFavorite) : [];
   const rest =
     section === 'home'
       ? shown.filter((entity) => !isActive(entity)).sort(byFavorite)
-      : [...shown].sort(byOrder);
+      : [...found].sort(byOrder);
 
   // Bei vielen Räumen wird die Startseite im „Alle“-Modus nach Räumen
   // gruppiert (Überschrift je Zimmer), damit man das ganze Haus auf einen
@@ -553,6 +575,39 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         <View style={hasSidePanel ? styles.main : undefined}>
           {section === 'devices' ? back : null}
           {section === 'devices' ? (
+            <View style={styles.searchRow}>
+              <Ionicons name="search" size={16} color={colors.inkFaint} />
+              <TextInput
+                style={styles.searchInput}
+                value={query}
+                onChangeText={setQuery}
+                placeholder="Gerät, Raum oder Gruppe suchen …"
+                placeholderTextColor={colors.inkFaint}
+                autoCorrect={false}
+                autoCapitalize="none"
+                returnKeyType="search"
+                clearButtonMode="never"
+              />
+              {query ? (
+                <Pressable
+                  onPress={() => setQuery('')}
+                  hitSlop={10}
+                  accessibilityRole="button"
+                  accessibilityLabel="Suche löschen"
+                >
+                  <Ionicons name="close-circle" size={18} color={colors.inkFaint} />
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
+          {searching ? (
+            <Text style={styles.searchCount}>
+              {rest.length === 0
+                ? 'Nichts gefunden.'
+                : `${rest.length} ${rest.length === 1 ? 'Gerät' : 'Geräte'} gefunden`}
+            </Text>
+          ) : null}
+          {section === 'devices' && !searching ? (
             <Pressable
               onPress={() => setReorderOpen(true)}
               accessibilityRole="button"
@@ -583,7 +638,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               </Text>
               <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
                 <DraggableList
-                  items={rest.map((entity) => ({ id: entity.id, name: entity.name }))}
+                  // Bewusst die ungefilterte Liste: sortiert wird immer über
+                  // alle Geräte, auch wenn gerade eine Suche aktiv war.
+                  items={[...shown]
+                    .sort(byOrder)
+                    .map((entity) => ({ id: entity.id, name: entity.name }))}
                   onReorder={(ids) => onSaveSettings({ ...settings, order: ids })}
                 />
               </ScrollView>
@@ -620,7 +679,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             </Pressable>
           ) : null}
 
-          {section === 'devices' && !editing && groupNames.length > 0 ? (
+          {section === 'devices' && !editing && !searching && groupNames.length > 0 ? (
             <GroupControls
               entities={entities}
               groups={groupNames}
@@ -1254,6 +1313,18 @@ const makeStyles = (colors: Colors) =>
     fontSize: 13,
     fontWeight: '600',
   },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    borderRadius: radius.control,
+    backgroundColor: colors.surfaceStrong,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  searchInput: { flex: 1, paddingVertical: 11, color: colors.ink, fontSize: 15 },
+  searchCount: { color: colors.onGradientSoft, fontSize: 12, fontWeight: '600' },
   reorderButton: {
     flexDirection: 'row',
     alignItems: 'center',
