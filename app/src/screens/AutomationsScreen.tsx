@@ -220,7 +220,12 @@ interface Draft {
   /** Raumauswahl, wenn das Kommando 'Räume saugen' ist. */
   rooms: number[];
   /** Mehrere Geräte für die Aktion «Gerät schalten» (Checkliste). */
-  commandActions: { entity_id: string; command: string; rooms?: number[] }[];
+  commandActions: {
+    entity_id: string;
+    command: string;
+    rooms?: number[];
+    position?: number;
+  }[];
   sceneId: string;
   title: string;
   body: string;
@@ -319,6 +324,31 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
         ...(offScene
           ? { actionKind: 'scene' as ActionKind, sceneId: offScene.id }
           : { commandActions: [{ entity_id: firstOff!.id, command: 'turn_off' }] }),
+      },
+    });
+  }
+  const alarm = entities.find((entity) => entity.kind === 'alarm');
+  if (presence && alarm) {
+    // Die zwei Abläufe, die eine Alarmanlage im Alltag erst brauchbar
+    // machen: Von Hand scharf schalten vergisst man genau einmal.
+    templates.push({
+      label: 'Scharf, wenn der Letzte geht',
+      icon: 'lock-closed-outline',
+      draft: {
+        ...EMPTY,
+        alias: 'Scharf, wenn niemand mehr da ist',
+        triggers: [{ ...EMPTY_TRIGGER, entityId: presence.id, toState: 'off' }],
+        commandActions: [{ entity_id: alarm.id, command: 'arm_away' }],
+      },
+    });
+    templates.push({
+      label: 'Unscharf beim Heimkommen',
+      icon: 'lock-open-outline',
+      draft: {
+        ...EMPTY,
+        alias: 'Unscharf, wenn jemand heimkommt',
+        triggers: [{ ...EMPTY_TRIGGER, entityId: presence.id, toState: 'on' }],
+        commandActions: [{ entity_id: alarm.id, command: 'disarm' }],
       },
     });
   }
@@ -538,11 +568,15 @@ export function AutomationsScreen({
       category: sceneDraft.category?.trim() || null,
       actions: sceneDraft.actions
         .filter((action) => action.entity_id)
-        .map(({ entity_id, command, rooms }) =>
-          command === 'clean_rooms'
-            ? { entity_id, command, data: { rooms: rooms ?? [] } }
-            : { entity_id, command }
-        ),
+        .map(({ entity_id, command, rooms, position }) => {
+          if (command === 'clean_rooms') {
+            return { entity_id, command, data: { rooms: rooms ?? [] } };
+          }
+          if (command === 'set_position') {
+            return { entity_id, command, data: { position: position ?? 50 } };
+          }
+          return { entity_id, command };
+        }),
     };
     const url = sceneDraft.id
       ? `${settings.url}/api/scenes/${sceneDraft.id}`
@@ -978,7 +1012,13 @@ interface SceneDraft {
   room?: string;
   /** Auf der Startseite als Schnellaktion anzeigen. */
   onStart?: boolean;
-  actions: { entity_id: string; command: string; rooms?: number[] }[];
+  actions: {
+    entity_id: string;
+    command: string;
+    rooms?: number[];
+    /** Zielposition in Prozent, wenn das Kommando 'set_position' ist. */
+    position?: number;
+  }[];
   /** Frei benannte Kategorie zum Gruppieren in der Liste. */
   category?: string;
 }
@@ -1028,10 +1068,15 @@ function commandOptions(
 
 function baseCommandOptions(entity: Entity): { key: string; label: string }[] {
   if (entity.kind === 'cover') {
-    return [
+    const options = [
       { key: 'open', label: 'hoch' },
       { key: 'close', label: 'runter' },
     ];
+    // Halb runter für den Hitzeschutz – ganz zu wäre dunkel, ganz auf heiss.
+    if (entity.commands.includes('set_position')) {
+      options.push({ key: 'set_position', label: 'auf Position' });
+    }
+    return options;
   }
   if (entity.kind === 'lock') {
     return [
@@ -1142,6 +1187,13 @@ function SceneDevices({
       )
     );
 
+  const setPosition = (entityId: string, position: number) =>
+    onActions(
+      actions.map((action) =>
+        action.entity_id === entityId ? { ...action, position } : action
+      )
+    );
+
   const setRooms = (entityId: string, id: number) =>
     onActions(
       actions.map((action) => {
@@ -1242,6 +1294,17 @@ function SceneDevices({
                         }))}
                         values={(action!.rooms ?? []).map(String)}
                         onSelect={(key) => setRooms(entity.id, Number(key))}
+                      />
+                    ) : null}
+                    {action!.command === 'set_position' ? (
+                      <Choice
+                        options={[
+                          { key: '25', label: '25 %' },
+                          { key: '50', label: '50 %' },
+                          { key: '75', label: '75 %' },
+                        ]}
+                        value={String(action!.position ?? 50)}
+                        onSelect={(key) => setPosition(entity.id, Number(key))}
                       />
                     ) : null}
                   </View>
@@ -2058,6 +2121,9 @@ function buildActions(draft: Draft): Record<string, any>[] {
       if (action.command === 'clean_rooms') {
         built.data = { rooms: action.rooms ?? [] };
       }
+      if (action.command === 'set_position') {
+        built.data = { position: action.position ?? 50 };
+      }
       return built;
     });
   return [...prefix, ...commands];
@@ -2102,6 +2168,7 @@ function toDraft(automation: Automation): Draft {
         entity_id: entry.entity_id,
         command: entry.command ?? 'turn_on',
         rooms: entry.data?.rooms ?? [],
+        position: entry.data?.position,
       })),
     sceneId: action.scene ?? '',
     category: automation.category ?? '',
