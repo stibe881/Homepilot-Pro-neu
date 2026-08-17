@@ -21,6 +21,41 @@ from .users import Role
 log = logging.getLogger(__name__)
 
 EXPO_ENDPOINT = "https://exp.host/--/api/v2/push/send"
+
+# Die Arten von Nachrichten, die der Hub verschickt. Jede hat einen festen
+# Schlüssel, damit sich einzelne davon je Benutzer abstellen lassen – wer
+# nachts nicht wegen einer schwachen Batterie geweckt werden will, soll
+# deswegen nicht den Alarm mit abschalten müssen.
+CATEGORIES: dict[str, str] = {
+    "alarm": "Alarm ausgelöst",
+    "alarm_arming": "Alarmanlage scharf/unscharf",
+    "outage": "Integration ausgefallen",
+    "device_down": "Überwachtes Gerät antwortet nicht",
+    "battery": "Batterie schwach",
+    "appliance": "Haushaltgerät fertig",
+    "tasks": "Fällige Aufgaben",
+    "automation": "Nachricht aus einem Ablauf",
+    "test": "Push-Test",
+}
+
+
+def parse_muted(raw: Any) -> dict[str, set[str]]:
+    """Gespeicherte Abbestellungen einlesen (rein, testbar).
+
+    Unbekannte Schlüssel fliegen raus: Eine umbenannte Kategorie soll nicht
+    stillschweigend jemanden stumm schalten.
+    """
+    result: dict[str, set[str]] = {}
+    for entry in raw or []:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("user") or "")
+        if not name:
+            continue
+        result[name] = {
+            str(key) for key in entry.get("muted") or [] if key in CATEGORIES
+        }
+    return result
 EXPO_RECEIPTS = "https://exp.host/--/api/v2/push/getReceipts"
 
 # Fehler, nach denen ein Token dauerhaft tot ist – App deinstalliert oder
@@ -150,8 +185,13 @@ class PushDevice:
 
 
 class PushService:
+    # Benutzername → abbestellte Kategorien. Der Hub füllt das aus den
+    # gespeicherten Einstellungen.
+    muted: dict[str, set[str]]
+
     def __init__(self, session_factory=None) -> None:
         self._devices: dict[str, PushDevice] = {}
+        self.muted = {}
         self._session_factory = session_factory or (
             lambda: aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15))
         )
@@ -170,17 +210,26 @@ class PushService:
     def unregister(self, token: str) -> bool:
         return self._devices.pop(token, None) is not None
 
-    def recipients(self, users: list[Any], to: str = "all") -> list[str]:
+    def recipients(
+        self, users: list[Any], to: str = "all", category: str | None = None
+    ) -> list[str]:
         """Wählt die Empfänger aus.
 
         ``to`` ist "all", eine Rolle ("bewohner") oder ein Benutzername.
         Gäste bekommen nur etwas, wenn sie ausdrücklich gemeint sind.
+
+        ``category`` ist die Art der Nachricht. Wer sie in seinem Profil
+        abbestellt hat, fällt hier heraus – das ist die einzige Stelle, an
+        der das geprüft wird, damit keine Nachrichtenart die Einstellung
+        versehentlich übergeht.
         """
         by_name = {user.name: user for user in users}
         tokens = []
         for device in self._devices.values():
             user = by_name.get(device.user)
             if user is None:
+                continue
+            if category and category in self.muted.get(device.user, set()):
                 continue
             if to == "all":
                 if user.role != Role.GUEST:

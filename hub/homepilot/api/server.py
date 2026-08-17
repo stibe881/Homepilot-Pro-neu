@@ -32,6 +32,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from ..core.config import ConfigError, load_config
+from ..core import push
 from ..core.config_edit import add_cast_device
 from ..integrations import alarm as alarm_module
 from ..core.errors import HomePilotError, UnknownEntityError, UnsupportedCommandError
@@ -89,6 +90,12 @@ class SceneRequest(BaseModel):
     on_start: bool = False
     # Frei gewählter Name zum Gruppieren in der App.
     category: str | None = None
+
+
+class PushPrefsRequest(BaseModel):
+    """Abbestellte Nachrichtenarten eines Benutzers."""
+
+    muted: list[str] = []
 
 
 class SpeakerRequest(BaseModel):
@@ -748,6 +755,46 @@ def create_app(hub: Hub) -> FastAPI:
             raise HTTPException(status_code=404, detail="Ablauf nicht gefunden")
         return {"ok": True}
 
+    @app.get("/api/push/categories")
+    async def push_categories(request: Request) -> dict[str, Any]:
+        """Welche Arten von Nachrichten es gibt – und was ich abbestellt habe.
+
+        Je Benutzer, nicht global: Wen die schwache Batterie im Keller nicht
+        interessiert, der soll deswegen nicht den Alarm mit abschalten.
+        """
+        user = current_user(request)
+        muted = sorted(hub.push.muted.get(user.name, set()))
+        return {
+            "categories": [
+                {"key": key, "label": label} for key, label in push.CATEGORIES.items()
+            ],
+            "muted": muted,
+        }
+
+    @app.put("/api/push/categories")
+    async def set_push_categories(
+        body: PushPrefsRequest, request: Request
+    ) -> dict[str, Any]:
+        """Abbestellungen des angemeldeten Benutzers speichern.
+
+        Bewusst neben den Benutzern abgelegt und nicht in ihnen: Auch wer
+        in der config.yaml steht, soll seine Nachrichten einstellen können,
+        ohne dass der Hub die Datei anfasst.
+        """
+        user = current_user(request)
+        stored = {
+            entry["user"]: entry
+            for entry in hub.data.get("push_prefs")
+            if isinstance(entry, dict) and entry.get("user")
+        }
+        stored[user.name] = {
+            "user": user.name,
+            "muted": [key for key in body.muted if key in push.CATEGORIES],
+        }
+        hub.data.set("push_prefs", list(stored.values()))
+        hub.push.muted = push.parse_muted(hub.data.get("push_prefs"))
+        return {"ok": True, "muted": sorted(hub.push.muted.get(user.name, set()))}
+
     # ── Lautsprecher ───────────────────────────────────────────────────────
 
     @app.get("/api/speakers")
@@ -900,6 +947,9 @@ def create_app(hub: Hub) -> FastAPI:
         auch der Grund, wenn nichts ankommt.
         """
         user = current_user(request)
+        # Der Test geht bewusst ohne Kategorie raus: Wer prüft, ob Push
+        # überhaupt ankommt, will keine Antwort von seinen eigenen
+        # Abbestellungen.
         tokens = hub.push.recipients(hub.users.users, user.name)
         result = await hub.push.send(
             tokens,

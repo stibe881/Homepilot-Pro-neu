@@ -531,7 +531,7 @@ class AutomationEngine:
 
     async def _notify(self, automation: Automation, action: dict[str, Any]) -> None:
         tokens = self.hub.push.recipients(
-            self.hub.users.users, str(action.get("to", "all"))
+            self.hub.users.users, str(action.get("to", "all")), "automation"
         )
         await self.hub.push.send(
             tokens,

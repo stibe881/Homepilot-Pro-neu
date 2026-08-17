@@ -5,9 +5,12 @@ schaut, meldet «verschickt», obwohl nichts ankommt. Genau das prüfen die
 Tests hier.
 """
 
+from types import SimpleNamespace
+
 from homepilot.core.push import (
     PushService,
     is_expo_token,
+    parse_muted,
     parse_receipts,
     parse_tickets,
 )
@@ -101,3 +104,34 @@ def test_send_without_registered_device_reports_it():
     result = asyncio.run(service.send(["kaputt"], title="Test", body="Test"))
     assert result.accepted == 0
     assert result.errors
+
+
+def test_parse_muted_drops_unknown_keys():
+    """Eine umbenannte Kategorie darf niemanden stillschweigend stumm
+    schalten – dann kommen die Nachrichten lieber wieder."""
+    parsed = parse_muted(
+        [
+            {"user": "Stefan", "muted": ["battery", "gibtsnicht"]},
+            {"muted": ["alarm"]},
+            "kaputt",
+        ]
+    )
+    assert parsed == {"Stefan": {"battery"}}
+
+
+def test_muted_categories_do_not_reach_the_user():
+    """Der Kern der Einstellung: Wer die Batteriewarnung abbestellt hat,
+    bekommt sie nicht – den Alarm aber weiterhin."""
+    service = PushService()
+    service.register("ExponentPushToken[a]", "Stefan")
+    service.register("ExponentPushToken[b]", "Partnerin")
+    service.muted = {"Stefan": {"battery"}}
+    users = [
+        SimpleNamespace(name="Stefan", role="besitzer"),
+        SimpleNamespace(name="Partnerin", role="bewohner"),
+    ]
+
+    assert service.recipients(users, "all", "battery") == ["ExponentPushToken[b]"]
+    assert len(service.recipients(users, "all", "alarm")) == 2
+    # Ohne Kategorie – etwa beim Push-Test – gilt keine Abbestellung.
+    assert len(service.recipients(users, "all")) == 2

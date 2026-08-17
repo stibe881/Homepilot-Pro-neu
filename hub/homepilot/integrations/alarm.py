@@ -331,7 +331,7 @@ class AlarmIntegration(Integration):
         self._note("armed", f"{MODE_LABELS[mode]} scharf geschaltet", by)
         if self._settings.get("notify_arming"):
             await self._notify(
-                "Alarmanlage scharf", f"Modus {MODE_LABELS[mode]}"
+                "Alarmanlage scharf", f"Modus {MODE_LABELS[mode]}", "alarm_arming"
             )
         return {"ok": True, "state": self._state}
 
@@ -345,7 +345,9 @@ class AlarmIntegration(Integration):
         await self._publish()
         self._note("disarmed", "Unscharf geschaltet", by)
         if self._settings.get("notify_arming") and was != DISARMED:
-            await self._notify("Alarmanlage unscharf", "Die Anlage ist aus.")
+            await self._notify(
+                "Alarmanlage unscharf", "Die Anlage ist aus.", "alarm_arming"
+            )
         return {"ok": True, "state": self._state}
 
     async def _finish_arming(self) -> None:
@@ -459,10 +461,10 @@ class AlarmIntegration(Integration):
             text += " – noch offen: " + ", ".join(still_open)
         self._note("armed", text, "automatisch")
         if self._settings.get("notify_arming"):
-            await self._notify("Alarmanlage wieder scharf", text)
+            await self._notify("Alarmanlage wieder scharf", text, "alarm_arming")
 
-    async def _notify(self, title: str, body: str) -> None:
-        tokens = self.hub.push.recipients(self.hub.users.users, "all")
+    async def _notify(self, title: str, body: str, category: str = "alarm") -> None:
+        tokens = self.hub.push.recipients(self.hub.users.users, "all", category)
         await self.hub.push.send(tokens, title=title, body=body, data={"type": "alarm"})
 
     # ── Verlauf ────────────────────────────────────────────────────────────

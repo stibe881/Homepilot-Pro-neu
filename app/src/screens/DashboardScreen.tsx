@@ -28,6 +28,7 @@ import { Rail, Section } from '../components/Rail';
 import { RoomTabs } from '../components/RoomTabs';
 import { RoomTile } from '../components/RoomTile';
 import { SceneRow } from '../components/SceneRow';
+import { PushPrefs } from '../components/PushPrefs';
 import { ActivityCard, SidePanel } from '../components/SidePanel';
 import { Toast } from '../components/Toast';
 import { TopStrip } from '../components/TopStrip';
@@ -527,7 +528,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           key: 'account',
           icon: 'person-outline',
           label: 'Konto & Verbindung',
-          detail: 'Hub-Adresse, Token, Darstellung',
+          detail: 'Hub-Adresse, Token, Darstellung, Benachrichtigungen',
           show: true,
         },
       ];
@@ -598,6 +599,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         <View style={styles.stack}>
           {back}
           <SettingsScreen initial={settings} onSave={onSaveSettings} user={user} embedded />
+          <PushPrefs settings={settings} />
         </View>
       );
     }

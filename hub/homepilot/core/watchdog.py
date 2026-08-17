@@ -170,6 +170,7 @@ class Watchdog:
                     await self._notify(
                         f"{entity.name} wieder da",
                         "Der Sensor meldet sich wieder.",
+                        "device_down",
                     )
                 continue
             strikes = self._device_strikes.get(entity.id, 0) + 1
@@ -180,6 +181,7 @@ class Watchdog:
                     f"{entity.name} antwortet nicht",
                     f"Seit {round(DEVICE_GRACE_ROUNDS * INTERVAL / 60)} Minuten "
                     "keine Meldung – die Alarmanlage hat dort einen blinden Fleck.",
+                    "device_down",
                 )
 
     async def _check_appliances(self, entities: list[Any]) -> None:
@@ -216,6 +218,7 @@ class Watchdog:
                     f"{entity.name} ist noch voll",
                     f"Seit {hours} Stunden fertig und seither nicht wieder "
                     "gelaufen.",
+                    "appliance",
                 )
 
     async def _check_batteries(self, entities: list[Any]) -> None:
@@ -229,6 +232,7 @@ class Watchdog:
                 f"Batterie schwach: {entity.name}",
                 "Das Gerät meldet eine schwache Batterie. Danach ist es still, "
                 "ohne sich abzumelden.",
+                "battery",
             )
         # Gewechselte Batterien wieder scharf stellen für die nächste Warnung.
         self._reported_battery &= weak
@@ -245,10 +249,10 @@ class Watchdog:
                 entry["ended"] = time.time()
                 break
 
-    async def _notify(self, title: str, body: str) -> None:
+    async def _notify(self, title: str, body: str, category: str = "outage") -> None:
         log.warning("%s – %s", title, body)
         try:
-            tokens = self.hub.push.recipients(self.hub.users.users, "all")
+            tokens = self.hub.push.recipients(self.hub.users.users, "all", category)
             await self.hub.push.send(tokens, title=title, body=body)
         except Exception:
             log.exception("Wächter-Push nicht zustellbar")

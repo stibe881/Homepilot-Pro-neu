@@ -16,6 +16,7 @@ from .events import EventBus
 from .integration import IntegrationManager
 from .persistence import DataStore
 from .watchdog import Watchdog
+from . import push as push_service
 from .push import PushService
 from .registry import EntityRegistry
 from .scenes import SceneManager
@@ -101,6 +102,7 @@ class Hub:
                 "Kein Token und keine Benutzer konfiguriert – die API ist offen. "
                 "Nur im eigenen Netz vertretbar."
             )
+        self.push.muted = push_service.parse_muted(self.data.get("push_prefs"))
         for problem in self._config_problems():
             log.warning("Konfiguration: %s", problem)
         log.info(
@@ -147,7 +149,7 @@ class Hub:
         ]
         if not due:
             return
-        tokens = self.push.recipients(self.users.users, "all")
+        tokens = self.push.recipients(self.users.users, "all", "tasks")
         names = ", ".join(str(task.get("text", "?")) for task in due[:5])
         await self.push.send(
             tokens,

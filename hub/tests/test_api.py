@@ -189,3 +189,23 @@ def test_entities_report_last_seen_timestamp():
         assert light["available"] is True
         assert isinstance(light["last_seen"], (int, float))
         assert light["last_seen"] > 0
+
+
+def test_push_categories_are_per_user():
+    """Die Einstellung gehört zur Person, nicht zum Haus – und liegt neben
+    den Benutzern, damit auch wer in der config.yaml steht sie ändern kann,
+    ohne dass der Hub die Datei anfasst."""
+    with make_client() as client:
+        listed = client.get("/api/push/categories")
+        assert listed.status_code == 200
+        keys = {entry["key"] for entry in listed.json()["categories"]}
+        assert {"alarm", "battery", "appliance", "automation"} <= keys
+        assert listed.json()["muted"] == []
+
+        saved = client.put(
+            "/api/push/categories", json={"muted": ["battery", "gibtsnicht"]}
+        )
+        assert saved.status_code == 200
+        # Unbekannte Schlüssel fallen weg, statt gespeichert zu werden.
+        assert saved.json()["muted"] == ["battery"]
+        assert client.get("/api/push/categories").json()["muted"] == ["battery"]
