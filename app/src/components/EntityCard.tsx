@@ -438,54 +438,62 @@ export function EntityCard({
       onPress={onPress}
     >
       {editing ? (
-        <View style={styles.editRow}>
-          {onSetRoom && rooms ? (
-            <Pressable
-              onPress={() => setRoomPickerOpen(true)}
-              accessibilityRole="button"
-              accessibilityLabel="Raum wählen"
-              style={({ pressed }) => [styles.roomChip, pressed && { opacity: 0.6 }]}
-            >
-              <Ionicons name="home-outline" size={13} color={colors.inkSoft} />
-              <Text style={styles.roomChipText} numberOfLines={1}>
-                {entity.room ?? 'Kein Raum'}
-              </Text>
-            </Pressable>
+        // Chips und Knöpfe stehen in zwei umbrechenden Zeilen: auf einer
+        // halbbreiten Telefonkachel passt sonst nicht alles nebeneinander
+        // und die hinteren Symbole ragen aus der Kachel heraus.
+        <View style={styles.editBox}>
+          {(onSetRoom && rooms) || (onSetGroup && groups) ? (
+            <View style={styles.editChips}>
+              {onSetRoom && rooms ? (
+                <Pressable
+                  onPress={() => setRoomPickerOpen(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Raum wählen"
+                  style={({ pressed }) => [styles.roomChip, pressed && { opacity: 0.6 }]}
+                >
+                  <Ionicons name="home-outline" size={13} color={colors.ink} />
+                  <Text style={styles.roomChipText} numberOfLines={1}>
+                    {entity.room ?? 'Kein Raum'}
+                  </Text>
+                </Pressable>
+              ) : null}
+              {onSetGroup && groups ? (
+                <Pressable
+                  onPress={() => setGroupPickerOpen(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Gruppe wählen"
+                  style={({ pressed }) => [styles.roomChip, pressed && { opacity: 0.6 }]}
+                >
+                  <Ionicons name="layers-outline" size={13} color={colors.ink} />
+                  <Text style={styles.roomChipText} numberOfLines={1}>
+                    {entity.group ?? 'Keine Gruppe'}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
           ) : null}
-          {onSetGroup && groups ? (
-            <Pressable
-              onPress={() => setGroupPickerOpen(true)}
-              accessibilityRole="button"
-              accessibilityLabel="Gruppe wählen"
-              style={({ pressed }) => [styles.roomChip, pressed && { opacity: 0.6 }]}
-            >
-              <Ionicons name="layers-outline" size={13} color={colors.inkSoft} />
-              <Text style={styles.roomChipText} numberOfLines={1}>
-                {entity.group ?? 'Keine Gruppe'}
-              </Text>
-            </Pressable>
-          ) : null}
-          <View style={{ flex: 1 }} />
-          {onRename ? (
+          <View style={styles.editButtons}>
+            {onRename ? (
+              <EditButton
+                icon="pencil"
+                active={false}
+                label="Umbenennen"
+                onPress={() => setRenameOpen(true)}
+              />
+            ) : null}
             <EditButton
-              icon="pencil"
-              active={false}
-              label="Umbenennen"
-              onPress={() => setRenameOpen(true)}
+              icon={favorite ? 'star' : 'star-outline'}
+              active={!!favorite}
+              label={favorite ? 'Favorit entfernen' : 'Als Favorit'}
+              onPress={onToggleFavorite}
             />
-          ) : null}
-          <EditButton
-            icon={favorite ? 'star' : 'star-outline'}
-            active={!!favorite}
-            label={favorite ? 'Favorit entfernen' : 'Als Favorit'}
-            onPress={onToggleFavorite}
-          />
-          <EditButton
-            icon={hidden ? 'eye-off' : 'eye-outline'}
-            active={!!hidden}
-            label={hidden ? 'Wieder einblenden' : 'Ausblenden'}
-            onPress={onToggleHidden}
-          />
+            <EditButton
+              icon={hidden ? 'eye-off' : 'eye-outline'}
+              active={!!hidden}
+              label={hidden ? 'Wieder einblenden' : 'Ausblenden'}
+              onPress={onToggleHidden}
+            />
+          </View>
         </View>
       ) : null}
       {onSetRoom && rooms ? (
@@ -730,7 +738,7 @@ function EditButton({
       accessibilityLabel={label}
       style={({ pressed }) => [styles.editButton, pressed && { opacity: 0.6 }]}
     >
-      <Ionicons name={icon} size={18} color={active ? colors.accent : colors.inkSoft} />
+      <Ionicons name={icon} size={18} color={active ? colors.accent : colors.ink} />
     </Pressable>
   );
 }
@@ -1414,7 +1422,15 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
   body: { gap: 8 },
   stack: { gap: 8 },
-  editRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  editBox: { gap: 8 },
+  editChips: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
+  editButtons: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 6,
+  },
   roomChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1422,10 +1438,13 @@ const makeStyles = (colors: Colors) =>
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: radius.pill,
-    backgroundColor: colors.surfaceSoft,
+    // Kräftige Fläche statt der fast durchsichtigen: auf hellen wie dunklen
+    // Kacheln muss der Chip lesbar bleiben.
+    backgroundColor: colors.surfaceStrong,
     borderWidth: 1,
     borderColor: colors.surfaceBorder,
     flexShrink: 1,
+    maxWidth: '100%',
   },
   roomChipText: { fontSize: 12, color: colors.ink, fontWeight: '600', flexShrink: 1 },
   roomBackdrop: {
@@ -1560,12 +1579,14 @@ const makeStyles = (colors: Colors) =>
     borderColor: colors.surfaceBorder,
   },
   editButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.surfaceSoft,
+    // Wie beim Chip: deckende Fläche, sonst verschwindet das Symbol auf
+    // hellen Kachelbildern (Kamera, Sauger) fast vollständig.
+    backgroundColor: colors.surfaceStrong,
     borderWidth: 1,
     borderColor: colors.surfaceBorder,
   },

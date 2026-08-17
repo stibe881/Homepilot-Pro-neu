@@ -1,6 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Platform,
+  Pressable,
+  Share,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 
 import { Entity, HubSettings, SystemStatus, User } from '../api/types';
 import { Card } from '../components/Card';
@@ -423,7 +431,9 @@ function PushTestCard({
       setMessage(
         data.sent > 0
           ? `Verschickt an ${data.sent} Gerät(e).`
-          : 'Kein Gerät angemeldet – öffne die App auf dem Handy, das die Push bekommen soll.'
+          : Platform.OS === 'web'
+            ? 'Im Browser gibt es keine Push-Nachrichten. Öffne die App auf dem Handy – dort meldet sie sich von selbst an.'
+            : 'Kein Gerät angemeldet. Erlaube der App Benachrichtigungen, dann meldet sie sich beim nächsten Start an.'
       );
     } catch (err: any) {
       setMessage(String(err.message ?? err));
