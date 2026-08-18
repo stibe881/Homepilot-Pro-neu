@@ -117,6 +117,44 @@ nach Hause.
    }
    ```
 
+## Stolperstein: ein alter AAAA-Eintrag
+
+Der häufigste Fehler beim Umziehen einer Subdomain – und einer, der sich
+sehr merkwürdig anfühlt, weil er nur *manchmal* auftritt.
+
+Zeigt der Name sowohl auf eine IPv4-Adresse (`A`) als auch auf eine
+IPv6-Adresse (`AAAA`), und stehen dahinter zwei verschiedene Rechner, dann
+entscheidet der Anfragende, wo er landet. Wer IPv6 kann – Let's Encrypt,
+die meisten Mobilfunknetze, viele Browser – nimmt IPv6. Wer nur IPv4 hat,
+kommt beim anderen an.
+
+Typisch ist das nach einem ersten Versuch auf einem gemieteten Server: Der
+`A`-Eintrag wird auf die Heimadresse geändert, der `AAAA` bleibt stehen.
+
+Prüfen:
+
+```bash
+dig +short A    homepilot.deinedomain.ch
+dig +short AAAA homepilot.deinedomain.ch
+```
+
+Kommen zwei Adressen zurück, die zu verschiedenen Rechnern gehören, den
+`AAAA`-Eintrag löschen (oder auf die eigene IPv6 zuhause zeigen lassen,
+falls du eine hast und weiterleitest).
+
+Im certbot-Log sieht das so aus – die Adresse vor dem Doppelpunkt verrät,
+wen Let's Encrypt gefragt hat:
+
+```
+"detail": "2a01:4f8:d0a:3086::2: Invalid response from
+ http://homepilot.deinedomain.ch/.well-known/acme-challenge/…: 404"
+```
+
+Betrifft ein solcher Rest mehrere Namen, scheitern auch die
+*Verlängerungen* aller dieser Zertifikate – ohne dass es auffällt, bis das
+erste abläuft. `docker exec npm-app tail -n 40 /data/logs/letsencrypt-requests.log`
+zeigt die Zahl der Fehlschläge.
+
 ## Wenn Port 80 zu bleiben soll
 
 Let's Encrypt prüft normalerweise über Port 80. Ist der bei dir zu (oder
