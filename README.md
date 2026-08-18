@@ -156,6 +156,7 @@ Nachbesserungen bei Zugangsdaten und Feldnamen.
 |---|---|
 | `hue` | Philips Hue Bridge, lokale CLIP-v2-API + SSE-Eventstream |
 | `unifi` | Anwesenheit über verbundene Clients, UniFi OS und Standalone |
+| `geofence` | Ankommen und Weggehen, gemeldet vom Telefon selbst (iOS-Kurzbefehle/Tasker) – merkt den Aufbruch Minuten früher als das WLAN ([Einrichtung](docs/geofence.md)) |
 | `twinkly` | Lokale REST-API mit Challenge-Response-Anmeldung |
 | `vzug` | Lokale Home-API, nur lesend (Status, Programm, Restlaufzeit) |
 | `unifi_protect` | Kameras: eigener Menüpunkt „Kameras", Live-Bild im Vollbild mit unter einer Sekunde Rückstand (RTSP → Low-Latency-HLS über mediamtx, ffmpeg als Rückfall, ohne Neucodierung), Bewegung und Klingeln live über den Ereignisstrom ([Einrichtung](docs/kameras.md)) |
@@ -210,6 +211,9 @@ Fertige Rezepte (Storen zum Sonnenuntergang, Sturmschutz, Hitzeschutz,
 Abwesenheitsmodus, adaptives Licht):
 [`hub/docs/automationen-rezepte.md`](hub/docs/automationen-rezepte.md).
 Szenen per Siri/Widget auslösen: [`docs/siri-und-widgets.md`](docs/siri-und-widgets.md).
+NFC-Aufkleber und das iPhone-Widget: [`docs/nfc-und-widget.md`](docs/nfc-und-widget.md).
+Abläufe, die vom Ankommen oder Weggehen ausgelöst werden:
+[`docs/geofence.md`](docs/geofence.md).
 
 ## Von unterwegs
 
