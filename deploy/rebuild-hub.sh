@@ -88,6 +88,25 @@ rm -rf "$WORKDIR"
 git clone --depth 1 -b "$BRANCH" \
   "https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/${REPO}.git" "$WORKDIR"
 
+# Sich selbst auffrischen - gilt ab dem NÄCHSTEN Lauf. mv ersetzt die Datei
+# atomar über einen neuen Inode; die gerade laufende Instanz liest ungestört
+# aus der alten weiter. Damit entfällt das ewige Von-Hand-Kopieren nach
+# jeder Skript-Änderung.
+if ! cmp -s "$WORKDIR/deploy/rebuild-hub.sh" "$0"; then
+  cp "$WORKDIR/deploy/rebuild-hub.sh" "$0.neu"
+  chmod +x "$0.neu"
+  mv "$0.neu" "$0"
+  echo "→ Skript selbst aktualisiert - der neue Stand gilt ab dem nächsten Lauf."
+fi
+# Den Update-Dienst nur hinlegen, nie hier neu starten: Ein Neustart würde
+# genau den Bau abwürgen, den er gerade beaufsichtigt.
+if [ -f /opt/homepilot/update-listener.py ] \
+   && ! cmp -s "$WORKDIR/deploy/update-listener.py" /opt/homepilot/update-listener.py; then
+  cp "$WORKDIR/deploy/update-listener.py" /opt/homepilot/update-listener.py
+  echo "→ update-listener.py aktualisiert - danach einmal von Hand:"
+  echo "  sudo systemctl restart homepilot-update   (nicht während eines Baus)"
+fi
+
 if [ -n "$WEB_ROOT" ] && [ "$WEB_ROOT" != "/" ] && [ -d "$WEB_ROOT" ]; then
   echo "→ Baue die Web-Fassung der App …"
   # node:20-bookworm-slim statt alpine: Metro/Expo bringen gelegentlich
@@ -130,6 +149,15 @@ rm -rf "$WORKDIR"
 # und dann schlägt nicht nur der nächste Bau fehl, sondern jedes Schreiben
 # auf /config (Konfiguration speichern, Lautsprecher-Gruppen, Szenen …).
 docker image prune -f >/dev/null
+# Der zweite, grössere Fresser: BuildKits Bau-Zwischenspeicher. Bei einem
+# --no-cache-Bau ist er nutzlos, wächst aber trotzdem um ~450 MB pro Lauf
+# und wird von image prune nicht angefasst - auf docker01 war ER der
+# Hauptteil der vollen Platte (4.8 GB). Auf 2 GB deckeln statt alles zu
+# löschen, damit andere Projekte auf dem Host ihren jüngsten Cache
+# behalten (ältere Docker-Fassungen kennen --keep-storage nicht - dann
+# eben alles weg).
+docker builder prune -f --keep-storage 2GB >/dev/null 2>&1 \
+  || docker builder prune -f >/dev/null 2>&1 || true
 echo "✓ Abbild '$IMAGE' ist aktuell, alte Schichten aufgeräumt."
 
 if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
