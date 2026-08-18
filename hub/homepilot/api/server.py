@@ -1130,7 +1130,35 @@ def create_app(hub: Hub) -> FastAPI:
         """
         require(request, Capability.VIEW_SYSTEM)
         today = datetime.now().strftime("%Y-%m-%d")
-        return energy_module.month_totals(hub.data.get("energy_days"), today)
+        days = hub.data.get("energy_days")
+        totals = energy_module.month_totals(days, today)
+        # Hochrechnung und Vorjahr gehören daneben: «312 statt 280 wie
+        # letztes Jahr» sagt mehr als eine nackte Zwischensumme.
+        totals["forecast"] = energy_module.forecast(totals, today)
+        totals["year_ago_kwh"] = energy_module.year_ago(days, totals["month"])
+        return totals
+
+    @app.get("/api/energy/devices")
+    async def energy_devices(request: Request) -> dict[str, Any]:
+        """Wohin die Kilowattstunden gehen - und was dauernd zieht.
+
+        Zwei Fragen, eine Antwort: Die Rangliste zeigt den heutigen
+        Verbrauch, die Standby-Liste alles, was rund um die Uhr Strom
+        zieht, mit den Kosten aufs Jahr gerechnet.
+        """
+        user = require(request, Capability.VIEW_SYSTEM)
+        visible = [
+            entity
+            for entity in hub.registry.all()
+            if user.may_see(entity.id, entity.kind, entity.integration)
+        ]
+        price = float((hub.config.energy or {}).get("price_per_kwh") or 0)
+        return {
+            "top": energy_module.top_consumers(visible),
+            "standby": energy_module.standby_costs(visible, price),
+            "price_per_kwh": price or None,
+            "currency": (hub.config.energy or {}).get("currency") or "CHF",
+        }
 
     @app.get("/api/push/categories")
     async def push_categories(request: Request) -> dict[str, Any]:

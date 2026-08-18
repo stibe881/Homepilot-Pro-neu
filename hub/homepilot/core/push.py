@@ -35,6 +35,7 @@ CATEGORIES: dict[str, str] = {
     "open": "Fenster/Tür steht offen",
     "leak": "Wasser gemeldet",
     "disk": "Speicherplatz wird knapp",
+    "frost": "Frost angekündigt",
     "appliance": "Haushaltgerät fertig",
     "tasks": "Fällige Aufgaben",
     "automation": "Nachricht aus einem Ablauf",

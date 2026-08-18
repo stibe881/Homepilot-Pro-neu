@@ -941,3 +941,39 @@ def test_hue_scenes_keep_their_names():
     assert any(key.startswith("Entspannen (") for key in parsed)
     assert parsed["Hell"] == "ccc"
     assert len(parsed) == 3
+
+
+def test_storm_warning_only_fires_for_real_wind_alerts():
+    """Somfy-Behänge nehmen im Wind Schaden – aber eine Vorwarnung soll
+    nicht das halbe Haus aufreissen."""
+    from homepilot.integrations.shading import DEFAULT_STORM_WORDS, storm_warning
+
+    words = DEFAULT_STORM_WORDS
+    assert storm_warning(
+        {"alerts": [{"event": "Sturmböen", "severity": "Severe"}]}, words
+    )
+    # Andere Warnungen gehen die Storen nichts an.
+    assert not storm_warning(
+        {"alerts": [{"event": "Hitzewelle", "severity": "Severe"}]}, words
+    )
+    # Vorwarnstufe reicht nicht.
+    assert not storm_warning(
+        {"alerts": [{"event": "Wind", "severity": "Minor"}]}, words
+    )
+    assert not storm_warning({"alerts": []}, words)
+    assert not storm_warning({}, words)
+
+
+def test_frost_night_looks_at_today_and_tomorrow():
+    from homepilot.core.watchdog import frost_night
+
+    days = [
+        {"date": "2026-04-10", "low": 6.0},
+        {"date": "2026-04-11", "low": 1.5},
+        {"date": "2026-04-12", "low": -3.0},
+    ]
+    # Heute mild, morgen Frost – gemeldet wird morgen.
+    assert frost_night(days, "2026-04-10") == {"date": "2026-04-11", "low": 1.5}
+    # Übermorgen ist zu weit weg, dafür gibt es die Wettervorhersage.
+    assert frost_night(days[:1], "2026-04-10") is None
+    assert frost_night([], "2026-04-10") is None

@@ -227,7 +227,7 @@ def test_the_month_comparison_reads_the_recorded_days():
         # Der laufende Monat hat noch nichts, der Vormonat je nach Datum –
         # geprüft wird hier die Verdrahtung, die Rechnung steckt in
         # test_energy.py.
-        assert set(result) == {
+        assert set(result) >= {
             "month",
             "last_month",
             "this_month_kwh",

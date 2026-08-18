@@ -107,3 +107,118 @@ def month_totals(days: list[dict], today: str) -> dict[str, Any]:
         "last_month_so_far_kwh": round(last_so_far, 3),
         "days": this_days,
     }
+
+
+def days_in_month(month: str) -> int:
+    """Tage des Monats «2026-02» (rein, testbar)."""
+    year, number = int(month[:4]), int(month[5:7])
+    if number == 12:
+        return 31
+    from datetime import date
+
+    return (date(year + (number // 12), (number % 12) + 1, 1) - date(year, number, 1)).days
+
+
+def forecast(totals: dict[str, Any], today: str) -> dict[str, Any]:
+    """Hochrechnung aufs Monatsende plus Vorjahresmonat (rein, testbar).
+
+    Gerechnet wird mit dem Tagesschnitt der bisherigen Tage – nicht mit
+    dem letzten Tag: Ein Waschtag hochgerechnet ergäbe eine Zahl, die
+    niemanden weiterbringt.
+    """
+    month = totals.get("month") or today[:7]
+    day_number = max(1, int(today[8:10]))
+    total = float(totals.get("this_month_kwh") or 0)
+    total_days = days_in_month(month)
+    per_day = total / day_number
+    return {
+        "per_day_kwh": round(per_day, 3),
+        "projected_kwh": round(per_day * total_days, 1),
+        "days_done": day_number,
+        "days_total": total_days,
+    }
+
+
+def year_ago(days: list[dict], month: str) -> float:
+    """Verbrauch desselben Monats im Vorjahr (rein, testbar).
+
+    Null heisst «wissen wir nicht» – ein Jahr Mitschrift hat man erst nach
+    einem Jahr, und das darf die Anzeige nicht als Ersparnis ausgeben.
+    """
+    year, number = int(month[:4]), int(month[5:7])
+    wanted = f"{year - 1}-{number:02d}"
+    total = 0.0
+    for entry in days or []:
+        if str(entry.get("day") or "")[:7] == wanted:
+            try:
+                total += float(entry.get("kwh") or 0)
+            except (TypeError, ValueError):
+                continue
+    return round(total, 3)
+
+
+def top_consumers(entities: list[Any], limit: int = 10) -> list[dict[str, Any]]:
+    """Rangliste nach heutigem Verbrauch (rein, testbar).
+
+    Beantwortet «wohin gehen die Kilowattstunden» – die Frage, die man
+    stellt, bevor man irgendwo etwas ändert.
+    """
+    rows = []
+    for entity in entities:
+        try:
+            kwh = float(entity.state.get("energy_today"))
+        except (TypeError, ValueError):
+            continue
+        if kwh <= 0:
+            continue
+        power = entity.state.get("power")
+        rows.append(
+            {
+                "entity_id": entity.id,
+                "name": entity.name,
+                "room": entity.room,
+                "kwh": round(kwh, 3),
+                "watts": round(float(power), 1) if isinstance(power, (int, float)) else None,
+            }
+        )
+    rows.sort(key=lambda row: row["kwh"], reverse=True)
+    return rows[:limit]
+
+
+# Ab dieser Dauerleistung gilt ein Gerät als Dauerverbraucher, das nie aus
+# ist. Unter 2 W sind Messfehler und Netzteile, über 200 W ist es kein
+# Standby mehr, sondern etwas, das arbeitet (Kühlschrank, Server).
+STANDBY_MIN_WATTS = 2.0
+STANDBY_MAX_WATTS = 200.0
+
+
+def standby_costs(
+    entities: list[Any], price_per_kwh: float = 0.0, limit: int = 10
+) -> list[dict[str, Any]]:
+    """Geräte, die dauernd ziehen – mit Jahreskosten (rein, testbar).
+
+    Gerechnet wird aus der aktuellen Leistung aufs Jahr: eine Momentaufnahme,
+    aber genau die richtige Grössenordnung für die Frage «lohnt sich hier
+    eine schaltbare Steckdose».
+    """
+    rows = []
+    for entity in entities:
+        power = entity.state.get("power")
+        if not isinstance(power, (int, float)):
+            continue
+        watts = float(power)
+        if not (STANDBY_MIN_WATTS <= watts <= STANDBY_MAX_WATTS):
+            continue
+        kwh_year = watts * 24 * 365 / 1000
+        rows.append(
+            {
+                "entity_id": entity.id,
+                "name": entity.name,
+                "room": entity.room,
+                "watts": round(watts, 1),
+                "kwh_year": round(kwh_year, 1),
+                "cost_year": round(kwh_year * price_per_kwh, 2) if price_per_kwh else None,
+            }
+        )
+    rows.sort(key=lambda row: row["watts"], reverse=True)
+    return rows[:limit]

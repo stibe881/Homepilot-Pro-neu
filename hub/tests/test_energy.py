@@ -97,3 +97,76 @@ def test_without_any_history_nothing_breaks():
 def test_broken_entries_are_skipped_not_guessed():
     days = [{"day": "2026-08-01", "kwh": "viel"}, {"kwh": 3}, {"day": "2026-08-02", "kwh": 2}]
     assert month_totals(days, "2026-08-05")["this_month_kwh"] == 2.0
+
+
+def test_forecast_projects_from_the_daily_average():
+    """Hochgerechnet wird mit dem Schnitt, nicht mit dem letzten Tag - ein
+    Waschtag hochgerechnet ergäbe eine Zahl, die niemanden weiterbringt."""
+    from homepilot.core.energy import forecast
+
+    totals = {"month": "2026-04", "this_month_kwh": 30.0}
+    result = forecast(totals, "2026-04-10")
+    assert result["per_day_kwh"] == 3.0
+    assert result["days_total"] == 30
+    assert result["projected_kwh"] == 90.0
+
+
+def test_days_in_month_handles_february_and_december():
+    from homepilot.core.energy import days_in_month
+
+    assert days_in_month("2026-02") == 28
+    assert days_in_month("2024-02") == 29
+    assert days_in_month("2026-12") == 31
+
+
+def test_year_ago_is_zero_without_data():
+    from homepilot.core.energy import year_ago
+
+    days = [{"day": "2025-08-01", "kwh": 4.0}, {"day": "2025-08-02", "kwh": 6.0}]
+    assert year_ago(days, "2026-08") == 10.0
+    # Kein Vorjahr vorhanden: 0 heisst «wissen wir nicht», keine Ersparnis.
+    assert year_ago(days, "2026-03") == 0.0
+
+
+class _Meter:
+    def __init__(self, entity_id, name, kwh=None, watts=None, room=None):
+        self.id = entity_id
+        self.name = name
+        self.room = room
+        self.state = {}
+        if kwh is not None:
+            self.state["energy_today"] = kwh
+        if watts is not None:
+            self.state["power"] = watts
+
+
+def test_top_consumers_ranks_by_energy():
+    from homepilot.core.energy import top_consumers
+
+    rows = top_consumers(
+        [
+            _Meter("a", "Tumbler", kwh=2.4),
+            _Meter("b", "Router", kwh=0.3),
+            _Meter("c", "Sensor"),  # ohne Zähler
+            _Meter("d", "Kühlschrank", kwh=1.1),
+        ]
+    )
+    assert [row["name"] for row in rows] == ["Tumbler", "Kühlschrank", "Router"]
+
+
+def test_standby_costs_ignores_the_extremes():
+    from homepilot.core.energy import standby_costs
+
+    rows = standby_costs(
+        [
+            _Meter("a", "Fernseher aus", watts=12.0),
+            _Meter("b", "Messfehler", watts=0.4),  # zu klein
+            _Meter("c", "Backofen", watts=2200.0),  # kein Standby
+            _Meter("d", "Router", watts=8.0),
+        ],
+        price_per_kwh=0.28,
+    )
+    assert [row["name"] for row in rows] == ["Fernseher aus", "Router"]
+    # 12 W rund um die Uhr sind gut 105 kWh im Jahr.
+    assert rows[0]["kwh_year"] == 105.1
+    assert rows[0]["cost_year"] == 29.43

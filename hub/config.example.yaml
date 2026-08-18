@@ -169,6 +169,11 @@ integrations:
   #       elevation: 15               # erst ab dieser Sonnenhöhe (Grad)
   #       temperature: 22             # erst ab dieser Aussentemperatur
   #       position: 30                # wie weit zu (0 = ganz zu, 100 = offen)
+  #   # Sturmschutz: Meldet die Wetterwarnung Wind oder Sturm, fahren alle
+  #   # Storen hoch und bleiben oben, bis die Warnung vorbei ist - das
+  #   # sticht jede andere Regel, auch die Handsperre. Ein beschädigter
+  #   # Behang kostet mehr als jede aufgeheizte Stube.
+  #   storm: meteoalarm.warnungen     # Entität der Wetterwarnung
 
   # UniFi: Anwesenheitserkennung anhand verbundener Geräte.
   # Liefert zusätzlich unifi.anyone_home und unifi.clients_total.

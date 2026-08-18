@@ -24,6 +24,36 @@ interface Months {
   last_month_kwh: number;
   last_month_so_far_kwh: number;
   days: { day: string; kwh: number }[];
+  /** Hochrechnung aufs Monatsende – aus dem Tagesschnitt, nicht aus dem
+   *  letzten Tag (ein Waschtag hochgerechnet hilft niemandem). */
+  forecast?: {
+    per_day_kwh: number;
+    projected_kwh: number;
+    days_done: number;
+    days_total: number;
+  };
+  /** Derselbe Monat im Vorjahr; 0 heisst «wissen wir noch nicht». */
+  year_ago_kwh?: number;
+}
+
+interface DeviceEnergy {
+  top: {
+    entity_id: string;
+    name: string;
+    room?: string | null;
+    kwh: number;
+    watts: number | null;
+  }[];
+  standby: {
+    entity_id: string;
+    name: string;
+    room?: string | null;
+    watts: number;
+    kwh_year: number;
+    cost_year: number | null;
+  }[];
+  price_per_kwh: number | null;
+  currency: string;
 }
 
 interface CycleStat {
@@ -77,6 +107,7 @@ export function EnergyScreen({
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [months, setMonths] = useState<Months | null>(null);
   const [cycles, setCycles] = useState<CycleStat[]>([]);
+  const [devices, setDevices] = useState<DeviceEnergy | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Aufgeklapptes Gerät samt Verlauf, und die Breite dafür.
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -100,6 +131,10 @@ export function EnergyScreen({
       .then((response) => (response.ok ? response.json() : null))
       .then(setMonths)
       .catch(() => setMonths(null));
+    fetch(`${settings.url}/api/energy/devices`, { headers })
+      .then((response) => (response.ok ? response.json() : null))
+      .then(setDevices)
+      .catch(() => setDevices(null));
     fetch(`${settings.url}/api/appliances/cycles`, { headers })
       .then((response) => (response.ok ? response.json() : null))
       .then((data) => setCycles(data?.stats ?? []))
@@ -181,6 +216,57 @@ export function EnergyScreen({
         styles={styles}
         colors={colors}
       />
+
+      {devices && devices.top.length > 0 ? (
+        <Card style={styles.card}>
+          <Text style={styles.heading}>Wohin der Strom geht</Text>
+          <Text style={styles.hint}>Heute, absteigend.</Text>
+          {devices.top.map((row, index) => (
+            <View key={row.entity_id} style={styles.rankRow}>
+              <Text style={styles.rankNumber}>{index + 1}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rankName} numberOfLines={1}>
+                  {row.name}
+                </Text>
+                {row.room ? <Text style={styles.hint}>{row.room}</Text> : null}
+              </View>
+              <Text style={styles.rankValue}>
+                {row.kwh.toFixed(2)} kWh
+                {price ? `  ·  ${(row.kwh * price).toFixed(2)} ${currency}` : ''}
+              </Text>
+            </View>
+          ))}
+        </Card>
+      ) : null}
+
+      {devices && devices.standby.length > 0 ? (
+        <Card style={styles.card}>
+          <Text style={styles.heading}>Dauerverbraucher</Text>
+          <Text style={styles.hint}>
+            Diese Geräte ziehen rund um die Uhr Strom. Hochgerechnet aufs Jahr –
+            eine Momentaufnahme, aber die richtige Grössenordnung für die Frage,
+            wo sich eine schaltbare Steckdose lohnt.
+          </Text>
+          {devices.standby.map((row) => (
+            <View key={row.entity_id} style={styles.rankRow}>
+              <Ionicons name="flash-outline" size={16} color={colors.warn} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rankName} numberOfLines={1}>
+                  {row.name}
+                </Text>
+                <Text style={styles.hint}>
+                  {row.watts} W · {row.kwh_year} kWh im Jahr
+                </Text>
+              </View>
+              {row.cost_year ? (
+                <Text style={styles.rankValue}>
+                  {row.cost_year.toFixed(0)} {devices.currency}/Jahr
+                </Text>
+              ) : null}
+            </View>
+          ))}
+        </Card>
+      ) : null}
 
       <Card style={styles.card}>
         <View
@@ -295,6 +381,18 @@ function MonthCard({
         <Fact label="bisher" value={`${soFar.toFixed(1)} kWh`} />
         {price ? (
           <Fact label="Kosten" value={`${(soFar * price).toFixed(2)} ${currency}`} />
+        ) : null}
+        {months.forecast && months.forecast.days_done >= 3 ? (
+          <Fact
+            label="Hochrechnung"
+            value={`${months.forecast.projected_kwh.toFixed(0)} kWh`}
+          />
+        ) : null}
+        {months.year_ago_kwh ? (
+          <Fact
+            label={`${monthName(months.month)} im Vorjahr`}
+            value={`${months.year_ago_kwh.toFixed(1)} kWh`}
+          />
         ) : null}
         <Fact
           label={`${monthName(months.last_month)}, gleicher Zeitraum`}
@@ -423,7 +521,21 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     stack: { gap: space.gap },
     // Nur zum Messen der verfügbaren Breite für den Verlauf.
-    measure: { height: 0 },
+    rankRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
+  rankNumber: {
+    color: colors.inkFaint,
+    fontSize: 13,
+    fontWeight: '700',
+    width: 18,
+    textAlign: 'center',
+  },
+  rankName: { color: colors.ink, fontSize: 14, fontWeight: '600' },
+  rankValue: {
+    color: colors.inkSoft,
+    fontSize: 13,
+    fontVariant: ['tabular-nums'],
+  },
+  measure: { height: 0 },
     card: { minHeight: 0, gap: 12 },
     heading: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
     hint: { color: colors.inkFaint, fontSize: 12, lineHeight: 18 },

@@ -29,6 +29,14 @@ haben. Die Automatik hält sich dann bis zum nächsten Tag zurück.
         elevation: 15                # erst, wenn die Sonne hoch genug steht
         temperature: 22              # ab dieser Aussentemperatur
         position: 30                 # wie weit zu (0 = ganz zu)
+
+Sturmschutz: Meldet die Wetterwarnung Sturm, fahren alle Storen hoch und
+bleiben oben, bis die Warnung vorbei ist. Somfy-Behänge nehmen im Wind
+Schaden, und das ist teurer als jeder Sonnenschutz – deshalb sticht der
+Sturmschutz jede andere Regel, auch die Handsperre.
+
+    storm: alert.meteoalarm         # Entität der Wetterwarnung (optional)
+    storm_events: [wind, sturm]     # Stichworte im Warnungstext
 """
 
 from __future__ import annotations
@@ -48,6 +56,14 @@ INTERVAL = 300.0
 # Beruhigung fährt die Store bei jeder Wolke auf und zu, und das hört man
 # im ganzen Haus.
 RELEASE_DELAY = 900.0
+
+# Stichworte, an denen eine Wind- oder Sturmwarnung erkannt wird. Klein
+# geschrieben verglichen, damit «Sturmböen» und «WIND» gleichermassen
+# treffen.
+DEFAULT_STORM_WORDS = ("wind", "sturm", "storm", "gale", "orkan", "böen", "boen")
+# Erst ab dieser Stufe wird hochgefahren. «Minor» ist eine Vorwarnung, bei
+# der man nicht die halbe Wohnung verdunkeln lassen will.
+STORM_SEVERITIES = ("Moderate", "Severe", "Extreme")
 
 DEFAULT_ELEVATION = 15.0
 DEFAULT_TEMPERATURE = 22.0
@@ -85,6 +101,29 @@ def parse_windows(raw: Any) -> list[dict[str, Any]]:
     return windows
 
 
+def storm_warning(state: dict[str, Any], words: tuple[str, ...] | list[str]) -> bool:
+    """Ist gerade eine Wind-/Sturmwarnung aktiv? (rein, testbar)
+
+    Nur Warnungen ab «Moderate»: Eine Vorwarnung soll nicht das ganze Haus
+    aufreissen, ein aufziehender Sturm schon.
+    """
+    alerts = state.get("alerts")
+    if not isinstance(alerts, list):
+        return False
+    lowered = tuple(word.lower() for word in words)
+    for alert in alerts:
+        if not isinstance(alert, dict):
+            continue
+        if alert.get("severity") not in STORM_SEVERITIES:
+            continue
+        text = " ".join(
+            str(alert.get(key) or "") for key in ("event", "headline", "title", "description")
+        ).lower()
+        if any(word in text for word in lowered):
+            return True
+    return False
+
+
 def should_shade(
     window: dict[str, Any], elevation: float, azimuth: float, temperature: float | None
 ) -> bool:
@@ -114,6 +153,12 @@ class ShadingIntegration(Integration):
                 "'cover' und 'azimuth: [von, bis]'"
             )
         self._temperature_id = str(self.config.get("temperature") or "")
+        # Sturmschutz: Ohne Warn-Entität bleibt er einfach aus.
+        self._storm_id = str(self.config.get("storm") or "")
+        self._storm_words = tuple(
+            str(word) for word in (self.config.get("storm_events") or DEFAULT_STORM_WORDS)
+        )
+        self._storming = False
         # Je Store: seit wann beschattet, und seit wann die Sonne weg ist.
         self._shaded: dict[str, bool] = {}
         self._clear_since: dict[str, float] = {}
@@ -181,12 +226,37 @@ class ShadingIntegration(Integration):
             float(location.get("longitude", 8.0675)),
         )
 
+    def _storm(self) -> bool:
+        if not self._storm_id:
+            return False
+        entity = self.hub.registry.get(self._storm_id)
+        if entity is None:
+            return False
+        return storm_warning(entity.state, self._storm_words)
+
     async def check(self) -> None:
         now = datetime.now()
         today = now.strftime("%Y-%m-%d")
         lat, lon = self._location()
         elevation, azimuth = astro.sun_position(now, lat, lon)
         temperature = self._temperature()
+
+        # Sturm sticht alles: Ein beschädigter Behang kostet mehr als jede
+        # aufgeheizte Stube, und auch die Handsperre gilt hier nicht.
+        storming = self._storm()
+        if storming:
+            if not self._storming:
+                self.log.warning(
+                    "Sturmwarnung – alle Storen fahren hoch und bleiben oben"
+                )
+                for window in self._windows:
+                    await self._set(window["cover"], 100)
+                    self._shaded[window["cover"]] = False
+                self._storming = True
+            return
+        if self._storming:
+            self.log.info("Sturmwarnung vorbei – Beschattung arbeitet wieder normal")
+            self._storming = False
 
         for window in self._windows:
             cover = window["cover"]

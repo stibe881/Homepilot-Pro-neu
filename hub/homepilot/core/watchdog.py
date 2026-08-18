@@ -65,11 +65,37 @@ ENERGY_INTERVAL = 600.0
 # Fehlermeldung («[Errno 28] No space left on device») sagt niemandem,
 # dass Docker-Reste die Ursache sind. Bei 85 % bleibt Zeit zum Aufräumen.
 DISK_WARN_PERCENT = 85
+# Ab dieser Nachtprognose wird an die Balkonpflanzen erinnert. Drei Grad
+# statt null: Am Boden ist es kälter als in zwei Metern Höhe, und wer erst
+# bei null gewarnt wird, hat die Geranien schon verloren.
+FROST_BELOW = 3.0
 # Nicht öfter als einmal am Tag mahnen, solange es knapp bleibt.
 DISK_REMIND = 24 * 3600
 
 # Integrationen ohne eigene Verbindung, die nie „ausfallen“ können.
 IGNORE = frozenset({"demo", "helpers", "group", "adaptive", "presence_sim", "alarm"})
+
+
+def frost_night(days: list[Any], today: str) -> dict[str, Any] | None:
+    """Kommt heute Nacht Frost? (rein, testbar)
+
+    Geschaut wird auf die Tiefstwerte von heute und morgen – die kalte
+    Stunde liegt vor Sonnenaufgang und gehört je nach Uhrzeit zum einen
+    oder anderen Kalendertag.
+    """
+    for entry in list(days or [])[:2]:
+        if not isinstance(entry, dict):
+            continue
+        day = str(entry.get("date") or "")
+        if day < today:
+            continue
+        try:
+            low = float(entry.get("low"))
+        except (TypeError, ValueError):
+            continue
+        if low < FROST_BELOW:
+            return {"date": day, "low": low}
+    return None
 
 
 def disk_usage(path: str) -> dict[str, Any] | None:
@@ -198,6 +224,8 @@ class Watchdog:
         self._energy_day: str | None = None
         self._energy_written: float = 0.0
         self._energy_last: float = 0.0
+        # Für welchen Tag zuletzt vor Frost gewarnt wurde.
+        self._frost_day: str | None = None
         # Wann zuletzt vor knappem Speicherplatz gewarnt wurde.
         self._disk_warned: float = 0.0
         # Letzte gemessene Belegung - für den System-Screen.
@@ -249,6 +277,7 @@ class Watchdog:
         await self._check_leaks(entities)
         self._record_energy(entities)
         await self._check_disk()
+        await self._check_frost(entities)
         down = down_integrations(entities)
 
         # Strikes hochzählen bzw. zurücksetzen.
@@ -279,6 +308,33 @@ class Watchdog:
                     f"{name} wieder da",
                     f"Die Integration '{name}' ist nach {minutes} Minuten wieder erreichbar.",
                 )
+
+    async def _check_frost(self, entities: list[Any]) -> None:
+        """Vor der ersten Frostnacht an die Pflanzen auf dem Balkon erinnern.
+
+        Einmal je Tag, und nur abends: Eine Frostwarnung um neun Uhr
+        morgens für dieselbe Nacht ist eine Warnung, die man bis zum Abend
+        wieder vergessen hat.
+        """
+        hour = datetime.now().hour
+        if hour < 16:
+            return
+        weather = next((e for e in entities if getattr(e, "kind", "") == "weather"), None)
+        if weather is None:
+            return
+        today = datetime.now().strftime("%Y-%m-%d")
+        frost = frost_night(weather.state.get("days") or [], today)
+        if frost is None:
+            return
+        if self._frost_day == frost["date"]:
+            return
+        self._frost_day = frost["date"]
+        await self._notify(
+            "Frost angekündigt",
+            f"Heute Nacht sinkt es auf {frost['low']} °C. "
+            "Empfindliche Pflanzen vom Balkon holen.",
+            category="frost",
+        )
 
     async def _check_disk(self) -> None:
         """Speicherplatz dort prüfen, wo der Hub wirklich schreibt."""
