@@ -996,3 +996,29 @@ def test_geofence_zones_need_an_id():
 
     zones = parse_zones([{"id": "stefan", "name": "Stefan"}, {"name": "ohne Kennung"}])
     assert zones == [{"id": "stefan", "name": "Stefan"}]
+
+
+def test_protect_events_become_a_timeline():
+    """«Letzte Bewegung um 16:45» beantwortet nur die halbe Frage."""
+    from homepilot.integrations.unifi_protect import parse_events
+
+    payload = [
+        {"id": "1", "type": "motion", "start": 1_700_000_000_000, "camera": "cam1"},
+        {
+            "id": "2",
+            "type": "smartDetectZone",
+            "start": 1_700_000_600_000,
+            "end": 1_700_000_620_000,
+            "camera": "cam1",
+            "smartDetectTypes": ["person"],
+        },
+        # Andere Kamera und Verwaltungskram bleiben draussen.
+        {"id": "3", "type": "motion", "start": 1_700_000_100_000, "camera": "cam2"},
+        {"id": "4", "type": "update", "start": 1_700_000_200_000, "camera": "cam1"},
+        # Ohne Startzeit lässt sich nichts einordnen.
+        {"id": "5", "type": "motion", "camera": "cam1"},
+    ]
+    rows = parse_events(payload, "cam1")
+    assert [row["id"] for row in rows] == ["2", "1"]
+    assert rows[0]["label"] == "Erkannt"
+    assert rows[0]["detected"] == ["person"]

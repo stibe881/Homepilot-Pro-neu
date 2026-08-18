@@ -34,6 +34,7 @@
       "expo-font",
       "expo-video",
       "@bacons/apple-targets"
-    ]
+    ],
+    "scheme": "homepilot"
   }
 }

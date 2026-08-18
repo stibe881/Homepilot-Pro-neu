@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Image,
+  Linking,
   Modal,
   Pressable,
   ScrollView,
@@ -23,6 +24,7 @@ import { EntityCard } from '../components/EntityCard';
 import { skyFromIcon } from '../components/CoverVisual';
 import { HistoryChart } from '../components/HistoryChart';
 import { CameraLive } from '../components/CameraLive';
+import { CameraTimeline } from '../components/CameraTimeline';
 import { OpenDoors } from '../components/OpenDoors';
 import { RunningAppliances } from '../components/RunningAppliances';
 import { Rail, Section } from '../components/Rail';
@@ -206,6 +208,35 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (tap.type === 'alarm') setSection('alarm');
   }, []);
   useNotificationTap(onNotificationTap);
+
+  // Abkürzungen aus dem Widget und von NFC-Aufklebern: homepilot://door
+  // öffnet die Türe (mit Rückfrage), //alloff und //alarm springen an die
+  // passende Stelle. Bewusst kein blindes Schalten aus dem Sperrbildschirm
+  // heraus - die Türe geht erst nach dem zweiten Tipp auf.
+  useEffect(() => {
+    const handle = (url: string | null) => {
+      if (!url || !url.startsWith('homepilot://')) return;
+      const what = url.replace('homepilot://', '').split(/[/?]/)[0];
+      if (what === 'door') {
+        const door =
+          entities.find(
+            (entity) => entity.kind === 'lock' && entity.commands.includes('open_door')
+          ) ?? entities.find((entity) => entity.kind === 'lock');
+        if (door) {
+          setSection('home');
+          setConfirm({ entity: door, command: door.commands.includes('open_door') ? 'open_door' : 'unlatch' });
+        }
+      } else if (what === 'alloff') {
+        setSection('home');
+        setRoom(ALL_ROOMS);
+      } else if (what === 'alarm') {
+        setSection('alarm');
+      }
+    };
+    Linking.getInitialURL().then(handle).catch(() => {});
+    const subscription = Linking.addEventListener('url', (event) => handle(event.url));
+    return () => subscription.remove();
+  }, [entities]);
   useEffect(() => {
     if (!settings.panel) return;
     const timer = setInterval(() => {
@@ -1129,6 +1160,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           camera={fullscreenCamera}
           uri={snapshotUrl(fullscreenCamera)}
           streamUri={streamUrl(fullscreenCamera)}
+          settings={settings}
           onClose={() => setFullscreen(null)}
           colors={colors}
           styles={styles}
@@ -1282,6 +1314,7 @@ function CameraFullscreen({
   camera,
   uri,
   streamUri,
+  settings,
   onClose,
   colors,
   styles,
@@ -1289,6 +1322,7 @@ function CameraFullscreen({
   camera: Entity;
   uri?: string;
   streamUri?: string;
+  settings: HubSettings;
   onClose: () => void;
   colors: Colors;
   styles: ReturnType<typeof makeStyles>;
@@ -1336,6 +1370,13 @@ function CameraFullscreen({
             </Text>
           </View>
         )}
+        <View style={styles.timelineBox}>
+          <CameraTimeline
+            entity={camera}
+            settings={settings}
+            refreshKey={String(camera.state.last_motion ?? '')}
+          />
+        </View>
         <View style={styles.doorbellButtons}>
           <Text
             style={[
@@ -1415,6 +1456,22 @@ function DoorbellOverlay({
           </View>
         )}
         <View style={styles.doorbellButtons}>
+          {/* Sprechen läuft über die Ring-App: Die Gegensprech-Verbindung
+              ist WebRTC gegen Rings Server, und die gibt der Hersteller
+              nicht heraus. Ein Tipp führt dorthin, statt einen Knopf zu
+              zeigen, der nichts kann. */}
+          <Pressable
+            onPress={() => {
+              Linking.openURL('ring://').catch(() =>
+                Linking.openURL('https://account.ring.com/').catch(() => {})
+              );
+            }}
+            accessibilityRole="button"
+            style={styles.doorbellTalk}
+          >
+            <Ionicons name="mic-outline" size={20} color="#FFFFFF" />
+            <Text style={styles.doorbellOpenText}>Sprechen (Ring-App)</Text>
+          </Pressable>
           {lock ? (
             <Pressable
               onPress={() => {
@@ -1575,6 +1632,7 @@ function GroupButton({
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
   root: { flex: 1 },
+  timelineBox: { paddingHorizontal: 16, paddingTop: 10 },
   offlineBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1716,6 +1774,17 @@ const makeStyles = (colors: Colors) =>
     width: '100%',
   },
   doorbellButtons: { gap: 10 },
+  doorbellTalk: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 14,
+    borderRadius: radius.control,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+  },
   // Live-Video: 16:9 einpassen statt es in die Bildschirmhöhe zu strecken –
   // gestreckt schneidet der Player links und rechts ab.
   videoBox: { flex: 1, justifyContent: 'center' },

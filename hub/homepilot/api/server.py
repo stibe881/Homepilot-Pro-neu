@@ -618,6 +618,31 @@ def create_app(hub: Hub) -> FastAPI:
         hub.data.set("trash", [])
         return {"ok": True}
 
+    @app.get("/api/entities/{entity_id}/events")
+    async def camera_events(
+        entity_id: str, request: Request, hours: int = 24
+    ) -> dict[str, Any]:
+        """Zeitleiste einer Kamera: Bewegungen und Klingeln der letzten Stunden.
+
+        «Letzte Bewegung um 16:45» beantwortet nur die halbe Frage – man
+        will wissen, was über den Tag los war. Kann die Integration das
+        nicht, kommt eine leere Liste statt eines Fehlers.
+        """
+        user = current_user(request)
+        entity = hub.registry.get(entity_id)
+        if entity is None or not user.may_see(entity.id, entity.kind, entity.integration):
+            raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
+        service = hub.integrations.get(entity.integration)
+        getter = getattr(service, "events", None)
+        if not callable(getter):
+            return {"events": [], "supported": False}
+        try:
+            events = await getter(entity, hours=max(1, min(72, hours)))
+        except Exception as err:
+            log.debug("Ereignisse von %s nicht abrufbar: %s", entity_id, err)
+            return {"events": [], "supported": True}
+        return {"events": events, "supported": True}
+
     @app.get("/api/system/audit")
     async def system_audit(
         request: Request, limit: int = 200, entity_id: str | None = None

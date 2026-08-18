@@ -150,6 +150,17 @@ grep -c NotificationImage ios/HomePilot.xcodeproj/project.pbxproj
 Kommt dort eine Zahl grösser 0, steckt das Ziel im Projekt. Der Ordner
 `ios/` wird erzeugt und ist von Git ausgenommen – er darf danach weg.
 
+## Widget für Homescreen und Sperrbildschirm
+
+Neben der Benachrichtigungs-Erweiterung liegt im Repo ein zweites Ziel:
+`app/targets/widget/`. Es baut beim EAS-Build automatisch mit und bringt
+drei Abkürzungen (Haustüre, Alles aus, Alarm) auf Homescreen und
+Sperrbildschirm. Eingerichtet wird es wie jedes Widget – Details und die
+Begründung, warum es keine Zustände anzeigt, stehen in
+[nfc-und-widget.md](nfc-und-widget.md).
+
+Auch dafür gilt: Ein `eas update` genügt nicht, das Ziel ist nativ.
+
 ## Updates verteilen
 
 Code-Änderungen (unsere täglichen Verbesserungen) lassen sich ohne neuen

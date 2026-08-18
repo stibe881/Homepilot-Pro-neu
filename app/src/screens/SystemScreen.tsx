@@ -712,6 +712,11 @@ function ShortcutsCard({
             Aktion «Inhalte von URL abrufen» anlegen und einsetzen – der Name
             des Kurzbefehls wird der Satz, den du Siri sagst.
           </Text>
+          <Text style={styles.hint}>
+            Derselbe Kurzbefehl lässt sich auf einen NFC-Aufkleber legen:
+            einer am Eingang für «Alles aus», einer am Nachttisch für
+            «Schlafen». Schritt für Schritt in docs/nfc-und-widget.md.
+          </Text>
           <TextInput
             style={styles.configInput}
             value={query}

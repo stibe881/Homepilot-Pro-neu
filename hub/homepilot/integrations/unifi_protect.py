@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import json
 import struct
+import time
 import zlib
 from datetime import datetime, timezone
 from typing import Any
@@ -175,6 +176,54 @@ def privacy_patch(
         "micVolume": restore.get("micVolume", 100),
         "recordingSettings": {"mode": restore.get("mode") or "always"},
     }
+
+
+# Ereignisarten, die jemanden interessieren. Alles andere (Aufnahme
+# gestartet, Firmware aktualisiert) gehört ins Protect-Log, nicht in die
+# Zeitleiste einer Wohnungs-App.
+EVENT_LABELS = {
+    "motion": "Bewegung",
+    "smartDetectZone": "Erkannt",
+    "smartDetectLine": "Erkannt",
+    "ring": "Geklingelt",
+}
+
+
+def parse_events(payload: Any, camera_id: str, limit: int = 40) -> list[dict[str, Any]]:
+    """Protect-Ereignisse in eine Zeitleiste übersetzen (rein, testbar).
+
+    Jüngste zuerst. ``smartDetectTypes`` sagt, *was* erkannt wurde
+    (person, vehicle) – das ist der Unterschied zwischen «da war was» und
+    «da stand jemand».
+    """
+    rows: list[dict[str, Any]] = []
+    for event in payload or []:
+        if not isinstance(event, dict):
+            continue
+        kind = str(event.get("type") or "")
+        if kind not in EVENT_LABELS:
+            continue
+        if event.get("camera") not in (None, camera_id):
+            continue
+        start = _iso(event.get("start"))
+        if start is None:
+            continue
+        detected = [
+            str(item) for item in (event.get("smartDetectTypes") or []) if item
+        ]
+        rows.append(
+            {
+                "id": str(event.get("id") or start),
+                "type": kind,
+                "label": EVENT_LABELS[kind],
+                "start": start,
+                "end": _iso(event.get("end")),
+                "detected": detected,
+                "score": event.get("score"),
+            }
+        )
+    rows.sort(key=lambda row: row["start"], reverse=True)
+    return rows[:limit]
 
 
 def camera_state(camera: dict[str, Any], quality: str = "medium") -> dict[str, Any]:
@@ -397,6 +446,38 @@ class UnifiProtectIntegration(Integration):
     async def stream_url(self, entity: Entity) -> str | None:
         alias = self._aliases.get(entity.id)
         return rtsp_url(self._host, alias) if alias else None
+
+    async def events(self, entity: Entity, hours: int = 24, limit: int = 40) -> list[dict[str, Any]]:
+        """Bewegungen und Klingeln der letzten Stunden.
+
+        «Letzte Bewegung um 16:45» beantwortet nur die halbe Frage – man
+        will wissen, was über den Tag los war. Protect führt diese Liste
+        ohnehin; hier wird sie nur auf das Nötige eingedampft.
+        """
+        camera_id = next(
+            (cid for cid, eid in self._cameras.items() if eid == entity.id), None
+        )
+        if camera_id is None:
+            return []
+        now = int(time.time() * 1000)
+        start = now - max(1, hours) * 3600 * 1000
+        headers = {"X-CSRF-Token": self._csrf} if self._csrf else {}
+        try:
+            async with self._session.get(
+                f"{self._base}/proxy/protect/api/events",
+                params={"start": str(start), "end": str(now), "cameras": camera_id},
+                headers=headers,
+            ) as response:
+                if response.status == 401:
+                    await self._login()
+                    return await self.events(entity, hours, limit)
+                if response.status >= 400:
+                    return []
+                payload = await response.json()
+        except Exception as err:
+            self.log.debug("Ereignisse von %s nicht abrufbar: %s", entity.name, err)
+            return []
+        return parse_events(payload, camera_id, limit)
 
     async def snapshot(self, entity: Entity) -> bytes | None:
         camera_id = next(
