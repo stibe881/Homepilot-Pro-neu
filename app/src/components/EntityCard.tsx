@@ -1015,9 +1015,13 @@ export function sortPlaylists(playlists: string[], order: string[]): string[] {
 export function SpotifyPanel({
   entity,
   onCommand,
+  hideDevices = false,
 }: {
   entity: Entity;
   onCommand: (command: string, data?: Record<string, any>) => void;
+  /** Boxen-Zeile weglassen – auf der Startseite übernimmt sie der
+   *  Lautsprecher-Wähler in der Kopfzeile der Musikkarte. */
+  hideDevices?: boolean;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -1069,8 +1073,8 @@ export function SpotifyPanel({
 
   return (
     <View style={styles.stack}>
-      <Text style={styles.mediaLabel}>Abspielen auf</Text>
-      {devices.length > 0 ? (
+      {!hideDevices ? <Text style={styles.mediaLabel}>Abspielen auf</Text> : null}
+      {hideDevices ? null : devices.length > 0 ? (
         <View style={styles.deviceRow}>
           {devices.map((name) => {
             const selected = name === target;

@@ -225,9 +225,12 @@ integrations:
   #   client_secret: "${SPOTIFY_CLIENT_SECRET}"
 
   # Roborock-Staubsauger. Braucht: pip install python-roborock
+  # position_interval: Wie oft die Position während der Reinigung geholt
+  # wird (Sekunden) – der Punkt auf der Karte wandert dann live mit.
   # - integration: roborock
   #   username: "${ROBOROCK_EMAIL}"
   #   password: "${ROBOROCK_PASSWORD}"
+  #   position_interval: 15
 
   # Google Cast (Chromecast, Cast-Lautsprecher). Braucht: pip install pychromecast
   # Feste IPs statt mDNS-Suche – dem Gerät im Router eine feste Adresse geben.

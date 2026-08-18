@@ -44,6 +44,25 @@ export function SidePanel({
     (chosenId ? players.find((entity) => entity.id === chosenId) : undefined) ??
     pickPlayer(entities);
 
+  // Der Wähler übernimmt auch das Verschieben: Kennt Spotify die Box, zieht
+  // die Musik dorthin um (wie früher die «Abspielen auf»-Chips) und die
+  // Spotify-Karte bleibt stehen. Fremde Boxen wechseln nur die Ansicht.
+  const spotify = players.find((entity) => entity.commands.includes('play_playlist'));
+  const choose = (speaker: Entity) => {
+    const devices: string[] = Array.isArray(spotify?.state.devices)
+      ? spotify!.state.devices
+      : [];
+    if (spotify && speaker.id !== spotify.id && devices.includes(speaker.name)) {
+      onCommand?.(spotify.id, 'play_on', {
+        device: speaker.name,
+        play: spotify.state.state === 'playing',
+      });
+      setChosenId(spotify.id);
+    } else {
+      setChosenId(speaker.id);
+    }
+  };
+
   return (
     <View style={[styles.column, width ? { width } : { flex: 1 }]}>
       {weather ? <WeatherPanel entity={weather} /> : null}
@@ -51,7 +70,8 @@ export function SidePanel({
         <MediaPanel
           entity={player}
           players={players}
-          onSelect={setChosenId}
+          activeDevice={spotify?.state.device ?? null}
+          onSelect={choose}
           onCommand={onCommand}
         />
       ) : null}
@@ -80,6 +100,7 @@ export function pickPlayer(entities: Entity[]): Entity | undefined {
 function MediaPanel({
   entity,
   players,
+  activeDevice,
   onSelect,
   onCommand,
 }: {
@@ -87,19 +108,23 @@ function MediaPanel({
   /** Alle Medien-Geräte, nicht nur das gerade gezeigte – für die
    *  Lautsprecherwahl. Bei nur einem Gerät bleibt die Zeile weg. */
   players: Entity[];
-  onSelect: (entityId: string) => void;
+  /** Box, auf der Spotify gerade spielt – für Etikett und Markierung. */
+  activeDevice?: string | null;
+  onSelect: (speaker: Entity) => void;
   onCommand: (entityId: string, command: string, data?: Record<string, any>) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const playing = entity.state.state === 'playing';
   // Zugeklappt zeigt die Karte nur den Namen des gewählten Players – die
-  // volle Liste erst auf Antippen. Dauerhaft ausgeklappt war sie drei
-  // Zeilen Chips hoch, direkt über dem «Abspielen auf» von Spotify, das
-  // dieselben Boxen gleich noch einmal aufzählt.
+  // volle Liste erst auf Antippen. Eine Box antippen heisst: Musik dorthin
+  // (die frühere «Abspielen auf»-Zeile ist hier aufgegangen).
   const [pickerOpen, setPickerOpen] = useState(false);
   const command = (name: string, data?: Record<string, any>) =>
     onCommand(entity.id, name, data);
+  const isSpotify = entity.commands.includes('play_playlist');
+  const pickerLabel =
+    isSpotify && activeDevice ? `${entity.name} · ${activeDevice}` : entity.name;
 
   return (
     <Card style={styles.mediaCard}>
@@ -115,7 +140,7 @@ function MediaPanel({
             style={({ pressed }) => [styles.speakerPicker, pressed && { opacity: 0.7 }]}
           >
             <Text style={styles.speakerPickerText} numberOfLines={1}>
-              {entity.name}
+              {pickerLabel}
             </Text>
             <Ionicons
               name={pickerOpen ? 'chevron-up' : 'chevron-down'}
@@ -128,17 +153,19 @@ function MediaPanel({
       {pickerOpen && players.length > 1 ? (
         <View style={styles.speakerRow}>
           {players.map((speaker) => {
-            const selected = speaker.id === entity.id;
+            const selected =
+              speaker.id === entity.id ||
+              (isSpotify && activeDevice != null && speaker.name === activeDevice);
             return (
               <Pressable
                 key={speaker.id}
                 onPress={() => {
-                  onSelect(speaker.id);
+                  onSelect(speaker);
                   setPickerOpen(false);
                 }}
                 accessibilityRole="radio"
                 accessibilityState={{ selected }}
-                accessibilityLabel={`${speaker.name} anzeigen`}
+                accessibilityLabel={`Musik auf ${speaker.name}`}
                 style={[styles.speakerChip, selected && styles.speakerChipActive]}
               >
                 {speaker.state.state === 'playing' ? (
@@ -214,7 +241,12 @@ function MediaPanel({
       ) : null}
 
       {entity.commands.includes('play_playlist') ? (
-        <SpotifyPanel entity={entity} onCommand={(name, data) => command(name, data)} />
+        // Ohne Boxen-Zeile: Die Lautsprecherwahl sitzt oben in der Kopfzeile.
+        <SpotifyPanel
+          entity={entity}
+          hideDevices
+          onCommand={(name, data) => command(name, data)}
+        />
       ) : null}
     </Card>
   );

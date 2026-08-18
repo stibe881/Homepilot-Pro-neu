@@ -283,6 +283,9 @@ class RoborockIntegration(Integration):
         self._zone_clean = RoborockCommand.APP_ZONED_CLEAN
         self._set_fan = RoborockCommand.SET_CUSTOM_MODE
         self._interval = float(self.config.get("scan_interval", 60))
+        # Während der Reinigung wird die Position öfter geholt als der
+        # restliche Status, damit der Punkt auf der Karte live mitwandert.
+        self._position_interval = float(self.config.get("position_interval", 15))
         # entity_id → Umrechnung Bild-Anteile ↔ Karten-Millimeter, wird bei
         # jedem Karten-Abruf aufgefrischt (die Karte kann sich verschieben).
         self._calibration: dict[str, dict[str, float]] = {}
@@ -447,9 +450,41 @@ class RoborockIntegration(Integration):
         await self.hub.registry.update_state(entity_id, state)
 
     async def _poll_loop(self) -> None:
+        # Zwei Takte in einer Schleife: Der Status kommt alle scan_interval
+        # Sekunden, die Position eines gerade reinigenden Saugers öfter –
+        # sie ändert sich im Sekundentakt, der Akkustand nicht.
+        elapsed = 0.0
         while True:
-            await asyncio.sleep(self._interval)
-            await self._refresh_all()
+            await asyncio.sleep(self._position_interval)
+            elapsed += self._position_interval
+            await self._track_positions()
+            if elapsed >= self._interval:
+                elapsed = 0.0
+                await self._refresh_all()
+
+    async def _track_positions(self) -> None:
+        """Position der reinigenden Sauger nachführen (die anderen stehen).
+
+        Der Kartenabruf ist der teuerste Einzelaufruf der Bibliothek –
+        deshalb nur für Geräte, die sich wirklich bewegen.
+        """
+        for entity_id, device in self._devices.items():
+            entity = self.hub.registry.get(entity_id)
+            if entity is None or entity.state.get("state") != "cleaning":
+                continue
+            try:
+                map_trait = getattr(device.v1_properties, "map_content", None)
+                if map_trait is None:
+                    continue
+                await _maybe_await(map_trait.refresh())
+                calibration = map_calibration(map_trait.map_data)
+                if calibration:
+                    self._calibration[entity_id] = calibration
+                position = robot_position(map_trait.map_data)
+                if position:
+                    await self.hub.registry.update_state(entity_id, {"robot": position})
+            except Exception as err:
+                self.log.debug("Position von %s nicht abrufbar: %s", device.name, err)
 
     async def _refresh_all(self) -> None:
         for entity_id, device in self._devices.items():
