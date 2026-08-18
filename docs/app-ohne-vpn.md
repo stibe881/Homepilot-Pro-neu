@@ -73,6 +73,19 @@ Adresse als Hub vor; abtippen muss man nichts.
 - *Force SSL* und *HSTS* an.
 - *Block Common Exploits* an.
 
+## Zwei Stolpersteine
+
+**Der Hub prüft `web_root` genau einmal, beim Start.** Wer erst den
+Container startet und dann die Dateien kopiert, sieht im Log «enthält
+keine index.html» – und die Wurzel liefert weiter die Schnittstelle. Nach
+dem Kopieren also einmal `docker restart homepilot-hub`.
+
+**Ohne «Websockets Support» lädt die App, verbindet aber nicht.** Der
+Proxy filtert dann die Upgrade-Kopfzeilen weg, der Hub sieht auf `/ws` nur
+einen gewöhnlichen GET und antwortet 404. Von aussen erkennbar: Ein
+WebSocket-Handschlag müsste `101 Switching Protocols` zurückbringen –
+kommt stattdessen JSON mit 404, ist das Häkchen aus.
+
 ## 5. Prüfen
 
 ```bash
