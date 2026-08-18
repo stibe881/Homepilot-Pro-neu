@@ -44,6 +44,7 @@ from ..core import watchdog
 from ..core import users as users_module
 from ..core import config_edit
 from ..core import confighistory
+from ..core import guestpass
 from ..core.config_edit import add_cast_device
 from ..integrations import alarm as alarm_module
 from ..core.errors import HomePilotError, UnknownEntityError, UnsupportedCommandError
@@ -138,6 +139,15 @@ class UserUpdateRequest(BaseModel):
     expires: str | None = None
     # Zeitfenster {"from": "07:00", "to": "20:00"}; leer hebt es auf.
     hours: dict[str, str] | None = None
+
+
+class PassRequest(BaseModel):
+    """Ein Einmal-Link: ein Gerät, ein Befehl, wenige Minuten."""
+
+    entity_id: str
+    command: str = "unlatch"
+    minutes: int = guestpass.DEFAULT_MINUTES
+    label: str = ""
 
 
 class PrefsRequest(BaseModel):
@@ -524,6 +534,14 @@ def create_app(hub: Hub) -> FastAPI:
             "entries": hub.log_buffer.entries(limit=min(500, max(1, limit)), level=level)
         }
 
+    @app.get("/api/system/audit")
+    async def system_audit(
+        request: Request, limit: int = 200, entity_id: str | None = None
+    ) -> dict[str, Any]:
+        """Zugriffsprotokoll: wer hat wann was geschaltet."""
+        require(request, Capability.EDIT_CONFIG)
+        return {"entries": hub.audit.entries(limit=min(500, max(1, limit)), entity_id=entity_id)}
+
     @app.get("/api/config/history")
     async def config_history(request: Request) -> dict[str, Any]:
         """Frühere Fassungen der config.yaml (jüngste zuerst)."""
@@ -594,6 +612,9 @@ def create_app(hub: Hub) -> FastAPI:
         entity = hub.registry.get(entity_id)
         if entity is None or not user.may_see(entity.id, entity.kind, entity.integration):
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
+        hub.audit.record(
+            user.name, entity, body.command, throttle_module.client_address(request)
+        )
         try:
             with as_source(user_source(user.name)):
                 entity = await hub.integrations.dispatch_command(
@@ -1496,6 +1517,139 @@ def create_app(hub: Hub) -> FastAPI:
             raise HTTPException(status_code=409, detail=str(err)) from err
         return {"user": updated.as_dict()}
 
+    @app.post("/api/users/{name}/token")
+    async def rotate_user_token(name: str, request: Request) -> dict[str, Any]:
+        """Ein frisches Token ausstellen, das alte sofort ungültig machen.
+
+        Für den Ernstfall gedacht: Ein Token ist irgendwo gelandet, wo es
+        nicht hingehört. Wer sein eigenes wechselt, fliegt damit selbst
+        raus - das ist beabsichtigt und steht in der Antwort.
+        """
+        actor = require(request, Capability.MANAGE_USERS)
+        try:
+            token = hub.users.rotate_token(name)
+        except HomePilotError as err:
+            raise HTTPException(status_code=409, detail=str(err)) from err
+        log.warning("Token von '%s' wurde durch '%s' ersetzt", name, actor.name)
+        from ..qr import setup_payload
+
+        return {
+            "ok": True,
+            "name": name,
+            "token": token,
+            "self": actor.name == name,
+            "payload": setup_payload(
+                hub.config.api.host, hub.config.api.port, token, name
+            ),
+        }
+
+    # ── Einmal-Türöffnung ──────────────────────────────────────────────────
+
+    def pass_base_url() -> str | None:
+        return str((hub.config.push or {}).get("public_url") or "") or None
+
+    @app.get("/api/passes")
+    async def list_passes(request: Request) -> dict[str, Any]:
+        require(request, Capability.MANAGE_USERS)
+        base = pass_base_url()
+        return {"passes": [entry.as_dict(base) for entry in hub.passes.all()]}
+
+    @app.post("/api/passes")
+    async def create_pass(body: PassRequest, request: Request) -> dict[str, Any]:
+        """Einen Einmal-Link ausstellen.
+
+        Nur für Geräte, die der Ausstellende auch selbst bedienen dürfte -
+        sonst wäre der Link ein Weg, die eigenen Grenzen zu umgehen.
+        """
+        user = require(request, Capability.MANAGE_USERS)
+        entity = hub.registry.get(body.entity_id)
+        if entity is None or not user.may_see(entity.id, entity.kind, entity.integration):
+            raise HTTPException(status_code=404, detail="Unbekanntes Gerät")
+        if body.command not in entity.commands:
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{entity.name}' kennt den Befehl '{body.command}' nicht",
+            )
+        entry = hub.passes.create(
+            entity_id=body.entity_id,
+            command=body.command,
+            created_by=user.name,
+            minutes=body.minutes,
+            label=body.label,
+        )
+        log.warning(
+            "Einmal-Link für %s (%s) ausgestellt von %s, gültig %d Minuten",
+            entity.name,
+            body.command,
+            user.name,
+            max(1, min(guestpass.MAX_MINUTES, body.minutes)),
+        )
+        base = pass_base_url()
+        if base is None:
+            log.warning(
+                "Ohne 'push.public_url' in der config.yaml kennt der Hub seine "
+                "Adresse von aussen nicht - der Link muss von Hand gebaut werden."
+            )
+        return {"ok": True, "pass": entry.as_dict(base)}
+
+    @app.delete("/api/passes/{token}")
+    async def revoke_pass(token: str, request: Request) -> dict[str, Any]:
+        require(request, Capability.MANAGE_USERS)
+        return {"ok": hub.passes.revoke(token)}
+
+    @app.post("/einmal/{token}")
+    @app.get("/einmal/{token}")
+    async def redeem_pass(token: str, request: Request) -> Response:
+        """Den Link einlösen - ohne Anmeldung, dafür genau einmal.
+
+        Bewusst auch per GET: Der Empfänger tippt die Adresse an, sonst
+        bräuchte er ein Formular. Die Adresse selbst ist das Geheimnis.
+        """
+        # Auch hier die Bremse: Sonst liesse sich der Token-Raum in Ruhe
+        # durchprobieren, wenn jemand die Adresse kennt.
+        address = throttle_module.client_address(request)
+        waiting = throttle.blocked_for(address)
+        if waiting > 0:
+            return Response(
+                content="Zu viele Versuche. Später nochmal.",
+                status_code=429,
+                media_type="text/plain; charset=utf-8",
+            )
+        try:
+            entry = hub.passes.redeem(token)
+        except KeyError:
+            throttle.failed(address)
+            return Response(
+                content="Dieser Link gilt nicht mehr.",
+                status_code=410,
+                media_type="text/plain; charset=utf-8",
+            )
+        throttle.succeeded(address)
+        entity = hub.registry.get(entry.entity_id)
+        if entity is None:
+            return Response(
+                content="Das Gerät gibt es nicht mehr.",
+                status_code=404,
+                media_type="text/plain; charset=utf-8",
+            )
+        hub.audit.record(f"Einmal-Link von {entry.created_by}", entity, entry.command, address)
+        log.warning(
+            "Einmal-Link eingelöst: %s → %s (von %s)", entity.name, entry.command, address
+        )
+        try:
+            with as_source(user_source(f"Einmal-Link ({entry.created_by})")):
+                await hub.integrations.dispatch_command(entry.entity_id, entry.command, {})
+        except HomePilotError as err:
+            return Response(
+                content=f"Hat nicht geklappt: {err}",
+                status_code=502,
+                media_type="text/plain; charset=utf-8",
+            )
+        return Response(
+            content=f"{entity.name}: erledigt. Dieser Link gilt jetzt nicht mehr.",
+            media_type="text/plain; charset=utf-8",
+        )
+
     @app.get("/api/users/{name}/pairing")
     async def user_pairing(name: str, request: Request) -> dict[str, Any]:
         """Kopplungs-Daten für den QR-Code: dieselbe Form wie der
@@ -1593,6 +1747,12 @@ def create_app(hub: Hub) -> FastAPI:
                         )
                         continue
                     try:
+                        # Die Entität ist oben schon geholt - nur festhalten,
+                        # wer hier was ausgelöst hat.
+                        if entity is not None:
+                            hub.audit.record(
+                                user.name, entity, message.get("command", "")
+                            )
                         with as_source(user_source(user.name)):
                             await hub.integrations.dispatch_command(
                                 entity_id,

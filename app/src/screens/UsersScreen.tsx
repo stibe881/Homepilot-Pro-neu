@@ -182,6 +182,9 @@ export function UsersScreen({ settings, currentUser }: Props) {
   // Detailansicht: gewählter Benutzer + geladene Kopplungs-Daten.
   const [detail, setDetail] = useState<HubUser | null>(null);
   const [pairing, setPairing] = useState<string | null>(null);
+  // Zwei-Schritt-Rückfrage fürs Token-Wechseln – das ist nicht umkehrbar.
+  const [rotateAsk, setRotateAsk] = useState<string | null>(null);
+  const [rotateNote, setRotateNote] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setError(null);
@@ -432,6 +435,70 @@ export function UsersScreen({ settings, currentUser }: Props) {
                   )}
 
                   {detail.editable ? (
+                    <View style={styles.rotateBox}>
+                      <Text style={styles.formLabel}>Token</Text>
+                      <Text style={styles.qrHint}>
+                        Ist das Token irgendwo gelandet, wo es nicht hingehört –
+                        Screenshot, Chat, verlorenes Telefon –, hier ein neues
+                        ausstellen. Das alte gilt sofort nicht mehr; die App
+                        dieser Person muss den QR-Code neu scannen.
+                      </Text>
+                      <Pressable
+                        onPress={async () => {
+                          if (rotateAsk !== detail.name) {
+                            setRotateAsk(detail.name);
+                            return;
+                          }
+                          setRotateAsk(null);
+                          try {
+                            const response = await fetch(
+                              `${settings.url}/api/users/${encodeURIComponent(
+                                detail.name
+                              )}/token`,
+                              { method: 'POST', headers }
+                            );
+                            const body = await response.json();
+                            if (!response.ok) throw new Error(body.detail ?? 'Fehlgeschlagen');
+                            setPairing(body.payload ?? null);
+                            setRotateNote(
+                              body.self
+                                ? 'Neues Token gesetzt – deine eigene Verbindung ist jetzt ungültig. QR-Code neu scannen.'
+                                : 'Neues Token gesetzt. Der QR-Code oben zeigt bereits das neue.'
+                            );
+                          } catch (err: any) {
+                            setRotateNote(String(err.message ?? err));
+                          }
+                        }}
+                        accessibilityRole="button"
+                        style={({ pressed }) => [
+                          styles.rotateButton,
+                          rotateAsk === detail.name && { borderColor: colors.danger },
+                          pressed && { opacity: 0.7 },
+                        ]}
+                      >
+                        <Ionicons
+                          name="refresh-outline"
+                          size={15}
+                          color={rotateAsk === detail.name ? colors.danger : colors.ink}
+                        />
+                        <Text
+                          style={[
+                            styles.rotateText,
+                            rotateAsk === detail.name && { color: colors.danger },
+                          ]}
+                        >
+                          {rotateAsk === detail.name
+                            ? 'Wirklich? Altes Token wird ungültig'
+                            : 'Neues Token ausstellen'}
+                        </Text>
+                      </Pressable>
+                      {rotateNote ? (
+                        <Text style={styles.qrHint}>{rotateNote}</Text>
+                      ) : null}
+                    </View>
+                  ) : null}
+
+                  {detail.editable ? (
                     <AccessLimits
                       detail={detail}
                       styles={styles}
@@ -607,6 +674,20 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       marginTop: 6,
     },
+    rotateBox: { gap: 8, marginTop: 4 },
+    rotateButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      alignSelf: 'flex-start',
+      gap: 8,
+      paddingHorizontal: 14,
+      paddingVertical: 9,
+      borderRadius: radius.control,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    rotateText: { color: colors.ink, fontSize: 13, fontWeight: '700' },
     qrHint: {
       color: colors.inkSoft,
       fontSize: 13,

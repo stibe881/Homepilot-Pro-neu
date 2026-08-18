@@ -128,6 +128,27 @@ export interface LogEntry {
   message: string;
 }
 
+export interface AuditEntry {
+  at: number;
+  user: string;
+  entity_id: string;
+  entity: string;
+  command: string;
+  address?: string;
+}
+
+export interface OneTimePass {
+  token: string;
+  entity_id: string;
+  command: string;
+  expires: number;
+  seconds_left: number;
+  used_at: number | null;
+  created_by: string;
+  label: string;
+  url?: string;
+}
+
 export interface ConfigVersion {
   name: string;
   size: number;

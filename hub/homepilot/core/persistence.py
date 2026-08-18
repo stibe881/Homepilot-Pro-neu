@@ -35,6 +35,8 @@ EMPTY: dict[str, Any] = {
     # gehört der App (z.B. Kachel-Reihenfolgen); der Hub reicht ihn nur
     # durch, damit jedes Gerät derselben Person dieselbe Ansicht zeigt.
     "user_prefs": [],
+    # Zugriffsprotokoll: wer hat wann was geschaltet.
+    "audit": [],
 }
 
 

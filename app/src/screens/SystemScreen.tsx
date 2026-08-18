@@ -4,7 +4,9 @@ import { Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-nativ
 
 import { ConfigVersion, Entity, HubSettings, LogEntry, SystemStatus, User } from '../api/types';
 import { PushState, pushHint } from '../hooks/usePushRegistration';
+import { AccessLog } from '../components/AccessLog';
 import { Card } from '../components/Card';
+import { DoorPass } from '../components/DoorPass';
 import { Colors, radius, space, type, useColors } from '../theme';
 
 /**
@@ -229,6 +231,14 @@ export function SystemScreen({
 
       {user?.capabilities?.includes('edit_config') ? (
         <LogCard settings={settings} headers={headers} />
+      ) : null}
+
+      {user?.capabilities?.includes('edit_config') ? (
+        <AccessLog settings={settings} headers={headers} />
+      ) : null}
+
+      {user?.capabilities?.includes('manage_users') ? (
+        <DoorPass settings={settings} headers={headers} entities={entities} />
       ) : null}
 
       {user?.capabilities?.includes('pause_automations') ? (

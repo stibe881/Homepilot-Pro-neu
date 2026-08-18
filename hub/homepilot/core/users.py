@@ -257,6 +257,27 @@ class UserRegistry:
         self._changed()
         return True
 
+    def rotate_token(self, name: str) -> str:
+        """Ein frisches Token ausstellen und das alte sofort ungültig machen.
+
+        Gedacht für den Ernstfall: Ein Token ist irgendwo gelandet, wo es
+        nicht hingehört (Screenshot, Chat, verlorenes Telefon). Dann muss
+        es in Sekunden zu ersetzen sein und nicht erst nach einer Runde
+        durch die config.yaml – die App verliert dabei zwar ihre
+        Verbindung, aber genau das ist ja der Zweck.
+        """
+        user = self.by_name(name)
+        if user is None:
+            raise ConfigError(f"Unbekannter Benutzer: {name}")
+        if not user.editable:
+            raise ConfigError(
+                f"'{name}' steht in der config.yaml – dort das Token ändern "
+                "und den Hub neu starten"
+            )
+        user.token = secrets.token_urlsafe(24)
+        self._changed()
+        return user.token
+
     def update(
         self,
         name: str,

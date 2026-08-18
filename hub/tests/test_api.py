@@ -503,3 +503,94 @@ def test_system_log_returns_recent_warnings():
         # Info-Meldungen bleiben draussen - sonst ersäuft die Ansicht.
         logging.getLogger("homepilot.test").info("nur eine Notiz")
         assert not any("nur eine Notiz" in entry["message"] for entry in entries)
+
+
+def _pass_hub():
+    return Hub(
+        make_config(
+            token="geheim",
+            users=[{"name": "Stefan", "role": "besitzer", "token": "t-stefan"}],
+        )
+    )
+
+
+def test_one_time_pass_works_exactly_once():
+    """Der Zettel für den Paketboten: genau ein Gerät, ein Befehl, ein
+    Gebrauch - und danach zerreisst er sich selbst."""
+    hub = _pass_hub()
+    with TestClient(create_app(hub)) as client:
+        headers = {"Authorization": "Bearer t-stefan"}
+        created = client.post(
+            "/api/passes",
+            json={"entity_id": "demo.light_livingroom", "command": "turn_on", "minutes": 5},
+            headers=headers,
+        )
+        assert created.status_code == 200
+        token = created.json()["pass"]["token"]
+
+        # Ohne jede Anmeldung einlösbar - die Adresse ist das Geheimnis.
+        assert client.get(f"/einmal/{token}").status_code == 200
+        assert (
+            client.get("/api/entities/demo.light_livingroom", headers=headers)
+            .json()["state"]["state"]
+            == "on"
+        )
+        # Ein zweites Mal geht nicht.
+        assert client.get(f"/einmal/{token}").status_code == 410
+        # Erfundene Adressen ebensowenig.
+        assert client.get("/einmal/ausgedacht").status_code == 410
+
+
+def test_one_time_pass_refuses_unknown_command():
+    hub = _pass_hub()
+    with TestClient(create_app(hub)) as client:
+        headers = {"Authorization": "Bearer t-stefan"}
+        response = client.post(
+            "/api/passes",
+            json={"entity_id": "demo.temp_livingroom", "command": "unlatch"},
+            headers=headers,
+        )
+        assert response.status_code == 400
+
+
+def test_rotating_a_token_locks_out_the_old_one():
+    hub = Hub(make_config(token="geheim"))
+    with TestClient(create_app(hub)) as client:
+        owner = {"Authorization": "Bearer geheim"}
+        client.post(
+            "/api/users",
+            json={"name": "Gast", "role": "gast", "token": "t-gast"},
+            headers=owner,
+        )
+        assert client.get("/api/entities", headers={"Authorization": "Bearer t-gast"}).status_code == 200
+
+        rotated = client.post("/api/users/Gast/token", headers=owner)
+        assert rotated.status_code == 200
+        neu = rotated.json()["token"]
+        assert neu != "t-gast"
+
+        # Das alte Token ist sofort wertlos, das neue gilt.
+        assert client.get("/api/entities", headers={"Authorization": "Bearer t-gast"}).status_code == 401
+        assert client.get("/api/entities", headers={"Authorization": f"Bearer {neu}"}).status_code == 200
+
+
+def test_audit_records_who_switched_what():
+    hub = Hub(
+        make_config(
+            token="geheim",
+            users=[{"name": "Stefan", "role": "besitzer", "token": "t-stefan"}],
+        )
+    )
+    with TestClient(create_app(hub)) as client:
+        headers = {"Authorization": "Bearer t-stefan"}
+        client.post(
+            "/api/entities/demo.light_livingroom/command",
+            json={"command": "turn_on"},
+            headers=headers,
+        )
+        entries = client.get("/api/system/audit", headers=headers).json()["entries"]
+        assert entries[0]["user"] == "Stefan"
+        assert entries[0]["command"] == "turn_on"
+        assert entries[0]["entity_id"] == "demo.light_livingroom"
+        # Eine Lampe braucht keine Adresse - nur Schloss und Alarm.
+        assert "address" not in entries[0]

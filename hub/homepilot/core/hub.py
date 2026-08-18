@@ -15,6 +15,8 @@ from .automation import AutomationEngine
 from .config import HubConfig
 from .events import EventBus
 from .integration import IntegrationManager
+from .audit import AuditLog
+from .guestpass import PassStore
 from .logbuffer import install as install_log_buffer
 from .persistence import DataStore
 from .watchdog import Watchdog
@@ -46,6 +48,11 @@ class Hub:
         # Die letzten Warnungen und Fehler – die App zeigt sie unter System,
         # damit man dafür nicht per SSH ins Container-Log muss.
         self.log_buffer = install_log_buffer()
+        # Wer hat wann was geschaltet - überlebt den Neustart, anders als
+        # die flüchtige Liste «Zuletzt passiert» in der App.
+        self.audit = AuditLog(self)
+        # Einmal-Links für die Türe – nur im Speicher, siehe guestpass.py.
+        self.passes = PassStore()
         self.users = parse_users(config.users, config.api.token)
         # In der App angelegte Benutzer und Automationen liegen neben der
         # Konfiguration, damit sie ohne Datenbank einen Neustart überleben.
