@@ -30,6 +30,8 @@ export interface Scene {
   on_start?: boolean;
   /** Frei benannte Kategorie zum Gruppieren in der Liste. */
   category?: string | null;
+  /** Übergangszeit in Sekunden – Helligkeiten werden angefahren. */
+  transition?: number;
 }
 
 export interface User {

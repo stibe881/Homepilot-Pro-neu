@@ -37,6 +37,10 @@ EMPTY: dict[str, Any] = {
     "user_prefs": [],
     # Zugriffsprotokoll: wer hat wann was geschaltet.
     "audit": [],
+    # Verlauf der Ablauf-Läufe (jüngste zuerst) – überlebt den Neustart.
+    "automation_runs": [],
+    # Papierkorb für gelöschte Szenen und Abläufe.
+    "trash": [],
 }
 
 

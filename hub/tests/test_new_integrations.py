@@ -977,3 +977,22 @@ def test_frost_night_looks_at_today_and_tomorrow():
     # Übermorgen ist zu weit weg, dafür gibt es die Wettervorhersage.
     assert frost_night(days[:1], "2026-04-10") is None
     assert frost_night([], "2026-04-10") is None
+
+
+def test_geofence_normalises_the_many_names_for_the_same_thing():
+    """Kurzbefehle und Tasker nennen dasselbe verschieden – einmal
+    übersetzt statt in jedem Ablauf."""
+    from homepilot.integrations.geofence import normalise_event
+
+    for word in ("enter", "arrived", "home", "true", "IN"):
+        assert normalise_event(word) == "home"
+    for word in ("leave", "exited", "away", "false", "0"):
+        assert normalise_event(word) == "away"
+    assert normalise_event("vielleicht") is None
+
+
+def test_geofence_zones_need_an_id():
+    from homepilot.integrations.geofence import parse_zones
+
+    zones = parse_zones([{"id": "stefan", "name": "Stefan"}, {"name": "ohne Kennung"}])
+    assert zones == [{"id": "stefan", "name": "Stefan"}]

@@ -306,6 +306,77 @@ def _parse_hhmm(value: str) -> tuple[int, int]:
     return int(hours), int(minutes)
 
 
+def opposing(first: str, second: str) -> bool:
+    """Heben sich zwei Befehle gegenseitig auf? (rein, testbar)"""
+    pairs = (
+        {"turn_on", "turn_off"},
+        {"open", "close"},
+        {"lock", "unlock"},
+        {"arm", "disarm"},
+        {"start", "stop"},
+        {"play", "pause"},
+    )
+    return any({first, second} == pair for pair in pairs)
+
+
+def _targets(actions: list[dict[str, Any]]) -> dict[str, set[str]]:
+    """Gerät → Befehle, die dieser Ablauf darauf loslässt (rein)."""
+    result: dict[str, set[str]] = {}
+    for action in actions or []:
+        if not isinstance(action, dict):
+            continue
+        entity_id = action.get("entity_id")
+        command = action.get("command")
+        if isinstance(entity_id, str) and isinstance(command, str):
+            result.setdefault(entity_id, set()).add(command)
+    return result
+
+
+def find_conflicts(automations: list[Any]) -> list[dict[str, Any]]:
+    """Abläufe, die dasselbe Gerät gegensätzlich schalten (rein, testbar).
+
+    Kein Fehler, sondern ein Hinweis: Manchmal ist genau das gewollt (der
+    eine schaltet ein, der andere später aus). Aber wenn nachts das Licht
+    von selbst angeht, sucht man genau diese Liste - und findet sie sonst
+    erst nach einer halben Stunde Lesen.
+    """
+    rows: list[dict[str, Any]] = []
+    enabled = [a for a in automations if getattr(a, "enabled", True)]
+    for index, first in enumerate(enabled):
+        first_targets = _targets(
+            list(getattr(first, "actions", [])) + list(getattr(first, "otherwise", []))
+        )
+        for second in enabled[index + 1 :]:
+            second_targets = _targets(
+                list(getattr(second, "actions", []))
+                + list(getattr(second, "otherwise", []))
+            )
+            for entity_id, commands in first_targets.items():
+                other = second_targets.get(entity_id)
+                if not other:
+                    continue
+                clashing = sorted(
+                    {
+                        f"{one}/{two}"
+                        for one in commands
+                        for two in other
+                        if opposing(one, two)
+                    }
+                )
+                if clashing:
+                    rows.append(
+                        {
+                            "entity_id": entity_id,
+                            "commands": clashing,
+                            "automations": [
+                                {"id": first.id, "alias": first.alias},
+                                {"id": second.id, "alias": second.alias},
+                            ],
+                        }
+                    )
+    return rows
+
+
 class AutomationEngine:
     def __init__(self, hub: "Hub") -> None:
         # Protokoll der letzten Läufe, jüngster zuerst – auch der nicht
@@ -350,6 +421,7 @@ class AutomationEngine:
         self.automations = parse_automations(configs) + parse_automations(
             stored or [], editable=True
         )
+        self._restore_runs()
         self._unsubscribe = self.hub.bus.subscribe("state_changed", self._on_state_changed)
         for automation in self.automations:
             for trigger in automation.triggers:
@@ -433,6 +505,15 @@ class AutomationEngine:
                 target += timedelta(days=1)
             await asyncio.sleep((target - now).total_seconds())
             self._schedule(automation)
+
+    def _restore_runs(self) -> None:
+        """Den Verlauf früherer Läufe zurückholen (jüngste zuerst)."""
+        try:
+            stored = self.hub.data.get("automation_runs")
+        except Exception:
+            return
+        if stored:
+            self.runs = list(stored)[:RUN_LIMIT]
 
     def _location(self) -> tuple[float, float]:
         loc = getattr(self.hub.config, "location", None) or {}
@@ -557,6 +638,13 @@ class AutomationEngine:
             },
         )
         del self.runs[RUN_LIMIT:]
+        # Auch auf die Platte: Nach einem Neustart ist sonst genau die
+        # Spur weg, der man nachgeht - «heute Nacht ging das Licht an, und
+        # jetzt weiss niemand, warum».
+        try:
+            self.hub.data.set("automation_runs", self.runs)
+        except Exception:
+            log.debug("Ablauf-Verlauf nicht schreibbar", exc_info=True)
 
     def _conditions_hold(self, automation: Automation) -> tuple[bool, list[str]]:
         """Stimmen die Bedingungen? Ohne Bedingungen: ja.

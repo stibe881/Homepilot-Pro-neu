@@ -43,6 +43,9 @@ class Scene:
     on_start: bool = False
     # Frei benannte Kategorie zum Gruppieren in der App (siehe Automation).
     category: str | None = None
+    # Übergangszeit in Sekunden: Helligkeiten werden über diese Dauer
+    # angefahren statt schlagartig gesetzt – Lichtwecker und Einschlaflicht.
+    transition: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -55,7 +58,34 @@ class Scene:
             "room": self.room,
             "on_start": self.on_start,
             "category": self.category,
+            "transition": self.transition,
         }
+
+
+# Länger als eine Stunde ist kein Übergang mehr, sondern ein Ablauf.
+MAX_TRANSITION = 3600
+# So oft wird während eines Übergangs nachgestellt. Alle fünf Sekunden:
+# oft genug, dass es fliessend wirkt, selten genug, dass eine Hue-Bridge
+# bei einer halbstündigen Rampe nicht in die Knie geht.
+TRANSITION_STEP = 5.0
+
+
+def ramp(start: int, target: int, seconds: float, step: float = TRANSITION_STEP) -> list[tuple[float, int]]:
+    """Die Zwischenschritte eines Übergangs (rein, testbar).
+
+    Liefert Paare aus Wartezeit und Zielwert. Der letzte Schritt trifft
+    den Zielwert immer genau – eine Rampe, die bei 97 % endet, wäre ein
+    Fehler, den man abends im Bett sieht.
+    """
+    if seconds <= 0 or start == target:
+        return [(0.0, target)]
+    count = max(1, int(seconds / step))
+    steps: list[tuple[float, int]] = []
+    for index in range(1, count + 1):
+        value = round(start + (target - start) * index / count)
+        steps.append((step if index > 1 else 0.0, value))
+    steps[-1] = (steps[-1][0], target)
+    return steps
 
 
 def parse_scenes(configs: list[dict[str, Any]], editable: bool = False) -> list[Scene]:
@@ -81,6 +111,7 @@ def parse_scenes(configs: list[dict[str, Any]], editable: bool = False) -> list[
                 room=str(room) if room else None,
                 on_start=bool(config.get("on_start")),
                 category=str(config["category"]) if config.get("category") else None,
+                transition=max(0, min(MAX_TRANSITION, int(config.get("transition") or 0))),
             )
         )
     return scenes
@@ -88,6 +119,9 @@ def parse_scenes(configs: list[dict[str, Any]], editable: bool = False) -> list[
 
 class SceneManager:
     def __init__(self, hub: "Hub") -> None:
+        # Laufende Übergänge – festgehalten, damit sie nicht vom
+        # Müllsammler eingezogen werden, bevor sie fertig sind.
+        self._fades: set[asyncio.Task] = set()
         self.hub = hub
         self.scenes: list[Scene] = []
 
@@ -118,6 +152,12 @@ class SceneManager:
         with as_source(scene_source(scene.id, scene.name)):
             for action in scene.actions:
                 try:
+                    # Mit Übergangszeit werden Helligkeiten angefahren statt
+                    # gesetzt. Alles andere (an, aus, Storen) bleibt sofort:
+                    # Ein Schalter, der «langsam» schaltet, gibt es nicht.
+                    if scene.transition > 0 and action["command"] == "set_brightness":
+                        await self._fade(scene, action)
+                        continue
                     await self.hub.integrations.dispatch_command(
                         action["entity_id"], action["command"], action.get("data") or {}
                     )
@@ -138,3 +178,43 @@ class SceneManager:
             len(scene.actions),
         )
         return {"scene": scene.as_dict(), "failed": failed}
+
+    async def _fade(self, scene: Scene, action: dict[str, Any]) -> None:
+        """Eine Helligkeit über die Übergangszeit anfahren.
+
+        Im Hintergrund, damit die übrigen Aktionen der Szene nicht warten –
+        eine halbstündige Rampe darf das Licht im Flur nicht aufhalten. Der
+        Startwert kommt vom Gerät selbst; ist es aus, beginnt die Rampe bei
+        null und schaltet mit dem ersten Schritt ein.
+        """
+        entity_id = action["entity_id"]
+        target = int((action.get("data") or {}).get("brightness") or 0)
+        entity = self.hub.registry.get(entity_id)
+        current = 0
+        if entity is not None and entity.state.get("state") == "on":
+            try:
+                current = int(entity.state.get("brightness") or 0)
+            except (TypeError, ValueError):
+                current = 0
+        steps = ramp(current, target, scene.transition)
+
+        async def run() -> None:
+            for wait, value in steps:
+                if wait:
+                    await asyncio.sleep(wait)
+                try:
+                    await self.hub.integrations.dispatch_command(
+                        entity_id, "set_brightness", {"brightness": value}
+                    )
+                except Exception as err:
+                    log.warning(
+                        "Szene '%s': Übergang für %s abgebrochen (%s)",
+                        scene.name,
+                        entity_id,
+                        err,
+                    )
+                    return
+
+        task = asyncio.create_task(run())
+        self._fades.add(task)
+        task.add_done_callback(self._fades.discard)

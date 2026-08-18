@@ -87,3 +87,19 @@ async def test_scene_is_recorded_as_source():
         assert sources[0]["label"] == "Kino"
     finally:
         await hub.stop()
+
+
+def test_ramp_hits_the_target_exactly():
+    """Eine Rampe, die bei 97 % endet, wäre ein Fehler, den man abends im
+    Bett sieht."""
+    from homepilot.core.scenes import ramp
+
+    steps = ramp(0, 100, 30, step=5)
+    assert len(steps) == 6
+    assert steps[0] == (0.0, 17)
+    assert steps[-1] == (5.0, 100)
+    # Abwärts genauso.
+    assert ramp(100, 0, 20, step=5)[-1][1] == 0
+    # Ohne Zeit oder ohne Weg: ein einziger Schritt.
+    assert ramp(40, 40, 60) == [(0.0, 40)]
+    assert ramp(0, 80, 0) == [(0.0, 80)]

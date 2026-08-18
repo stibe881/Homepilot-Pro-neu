@@ -158,7 +158,7 @@ export function usedCategories(items: { category?: string | null }[]): string[] 
 }
 
 /** Was der Editor anbietet – bewusst wenig, aber vollständig bedienbar. */
-type TriggerKind = 'state' | 'threshold' | 'interval' | 'time' | 'sun';
+type TriggerKind = 'state' | 'threshold' | 'interval' | 'time' | 'sun' | 'geofence';
 type StepKind = 'command' | 'scene' | 'hue_scene' | 'notify' | 'delay' | 'wait_until';
 type ConditionKind = 'none' | 'sun' | 'time';
 
@@ -329,6 +329,12 @@ function triggerToConfig(t: TriggerDraft): Record<string, any> {
     trigger[t.thresholdOp] = Number(t.thresholdValue) || 0;
     return trigger;
   }
+  if (t.kind === 'geofence') {
+    // Ein Geofence ist im Hub ein gewöhnlicher Zustand (home/away) – der
+    // eigene Auslöser-Typ ist reine Bedienhilfe, damit niemand wissen
+    // muss, dass «Stefan kommt heim» ein Zustandswechsel ist.
+    return { type: 'state', entity_id: t.entityId, to: t.toState };
+  }
   const state: Record<string, any> = { type: 'state', entity_id: t.entityId, to: t.toState };
   if (t.fromState) state.from = t.fromState;
   if (t.attribute) state.attribute = t.attribute;
@@ -349,7 +355,9 @@ function triggerFromConfig(t: any): TriggerDraft {
             ? 'interval'
             : threshold
               ? 'threshold'
-              : 'state',
+              : String(t?.entity_id ?? '').startsWith('geofence.')
+                ? 'geofence'
+                : 'state',
     entityId: t?.entity_id ?? '',
     toState: t?.to ?? 'on',
     fromState: t?.from ?? '',
@@ -567,6 +575,15 @@ export function AutomationsScreen({
   // Je Abschnitt ein eigenes Suchfeld – die Listen sind unabhängig.
   const [autoQuery, setAutoQuery] = useState('');
   const [runs, setRuns] = useState<Run[]>([]);
+  // Abläufe, die dasselbe Gerät gegensätzlich schalten – kein Fehler,
+  // aber die erste Frage, wenn nachts das Licht von selbst angeht.
+  const [conflicts, setConflicts] = useState<
+    { entity_id: string; commands: string[]; automations: { id: string; alias: string }[] }[]
+  >([]);
+  const [trash, setTrash] = useState<
+    { kind: string; id: string; name: string; at: number; by: string }[]
+  >([]);
+  const [trashOpen, setTrashOpen] = useState(false);
   const [hueScenes, setHueScenes] = useState<string[]>([]);
   const [sceneQuery, setSceneQuery] = useState('');
   // Aufgeklappte Kategorien, getrennt je Abschnitt. Standard ist
@@ -590,6 +607,14 @@ export function AutomationsScreen({
       .then((data) => setAutomations(data.automations ?? []))
       .catch((err) => setError(String(err.message ?? err)));
 
+    fetch(`${settings.url}/api/automations/conflicts`, { headers })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => setConflicts(data?.conflicts ?? []))
+      .catch(() => setConflicts([]));
+    fetch(`${settings.url}/api/trash`, { headers })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => setTrash(data?.trash ?? []))
+      .catch(() => setTrash([]));
     fetch(`${settings.url}/api/automations/runs`, { headers })
       .then((response) => (response.ok ? response.json() : null))
       .then((data) => setRuns(data?.runs ?? []))
@@ -684,6 +709,7 @@ export function AutomationsScreen({
       icon: sceneDraft.icon,
       room: sceneDraft.room || null,
       on_start: !!sceneDraft.onStart,
+      transition: Math.max(0, Number(sceneDraft.transition) || 0),
       category: sceneDraft.category?.trim() || null,
       actions: sceneDraft.actions
         .filter((action) => action.entity_id)
@@ -730,9 +756,42 @@ export function AutomationsScreen({
     return <Text style={styles.note}>Wird geladen …</Text>;
   }
 
+  const restore = async (kind: string, id: string) => {
+    await fetch(`${settings.url}/api/trash/${kind}/${id}/restore`, {
+      method: 'POST',
+      headers,
+    }).catch(() => {});
+    load();
+  };
+
   return (
     <View style={styles.list}>
       <Text style={[styles.sectionTitle, { marginTop: 0 }]}>Abläufe</Text>
+
+      {conflicts.length > 0 ? (
+        <Card style={styles.card}>
+          <View style={styles.cardHead}>
+            <Ionicons name="git-compare-outline" size={18} color={colors.warn} />
+            <Text style={[styles.title, { flex: 1 }]}>
+              {conflicts.length === 1
+                ? 'Ein Gerät wird gegensätzlich geschaltet'
+                : `${conflicts.length} Geräte werden gegensätzlich geschaltet`}
+            </Text>
+          </View>
+          {conflicts.map((conflict, index) => (
+            <Text key={index} style={styles.detail}>
+              {entities.find((entity) => entity.id === conflict.entity_id)?.name ??
+                conflict.entity_id}
+              : «{conflict.automations[0].alias}» und «{conflict.automations[1].alias}»
+            </Text>
+          ))}
+          <Text style={styles.triggerNote}>
+            Kein Fehler – oft ist genau das gewollt (der eine schaltet ein, der
+            andere später aus). Geht aber nachts das Licht von selbst an,
+            steht die Ursache hier.
+          </Text>
+        </Card>
+      ) : null}
       {mayEdit ? (
         <Pressable
           onPress={() =>
@@ -849,6 +908,7 @@ export function AutomationsScreen({
               name: '',
               icon: SCENE_ICONS[0],
               onStart: false,
+              transition: 0,
               actions: [],
             })
           }
@@ -908,6 +968,7 @@ export function AutomationsScreen({
                           icon: scene.icon,
                           room: scene.room ?? undefined,
                           onStart: !!scene.on_start,
+                          transition: Number(scene.transition) || 0,
                           category: scene.category ?? undefined,
                           actions: (scene.actions ?? []).map((action) => ({
                             entity_id: action.entity_id,
@@ -930,6 +991,57 @@ export function AutomationsScreen({
           />
         </>
       )}
+
+      {mayEdit && trash.length > 0 ? (
+        <Card style={styles.card}>
+          <Pressable
+            onPress={() => setTrashOpen((open) => !open)}
+            accessibilityRole="button"
+            style={styles.cardHead}
+          >
+            <Ionicons name="trash-outline" size={18} color={colors.inkSoft} />
+            <Text style={[styles.title, { flex: 1 }]}>
+              Papierkorb ({trash.length})
+            </Text>
+            <Ionicons
+              name={trashOpen ? 'chevron-up' : 'chevron-down'}
+              size={20}
+              color={colors.inkSoft}
+            />
+          </Pressable>
+          {trashOpen ? (
+            <>
+              {trash.map((row) => (
+                <View key={`${row.kind}:${row.id}`} style={styles.cardHead}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.detail}>{row.name}</Text>
+                    <Text style={styles.triggerNote}>
+                      {row.kind === 'scene' ? 'Szene' : 'Ablauf'} · gelöscht am{' '}
+                      {new Date(row.at * 1000).toLocaleDateString('de-CH', {
+                        day: 'numeric',
+                        month: 'short',
+                      })}
+                      {row.by && row.by !== '?' ? ` von ${row.by}` : ''}
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={() => restore(row.kind, row.id)}
+                    accessibilityRole="button"
+                    style={({ pressed }) => [styles.newButton, pressed && { opacity: 0.75 }]}
+                  >
+                    <Ionicons name="arrow-undo-outline" size={16} color={colors.ink} />
+                    <Text style={styles.newText}>Zurückholen</Text>
+                  </Pressable>
+                </View>
+              ))}
+              <Text style={styles.triggerNote}>
+                Gelöschtes bleibt 30 Tage liegen und verschwindet danach von
+                selbst.
+              </Text>
+            </>
+          ) : null}
+        </Card>
+      ) : null}
 
       <Editor
         draft={draft}
@@ -1133,6 +1245,8 @@ interface SceneDraft {
   room?: string;
   /** Auf der Startseite als Schnellaktion anzeigen. */
   onStart?: boolean;
+  /** Übergangszeit in Sekunden – Helligkeiten werden angefahren. */
+  transition?: number;
   actions: {
     entity_id: string;
     command: string;
@@ -1537,6 +1651,24 @@ function SceneEditor({
             value={draft.onStart ? 'yes' : 'no'}
             onSelect={(value) => set({ onStart: value === 'yes' })}
           />
+        </Field>
+
+        <Field label="Übergang">
+          <Choice
+            options={[
+              { key: '0', label: 'Sofort' },
+              { key: '300', label: '5 Min' },
+              { key: '900', label: '15 Min' },
+              { key: '1800', label: '30 Min' },
+            ]}
+            value={String(draft.transition ?? 0)}
+            onSelect={(value) => set({ transition: Number(value) })}
+          />
+          <Text style={styles.triggerNote}>
+            Über diese Zeit werden Helligkeiten sanft angefahren statt
+            geschaltet – als Lichtwecker oder Einschlaflicht. An und Aus,
+            Storen und alles andere bleiben sofort.
+          </Text>
         </Field>
 
         <Field label="Diese Geräte schalten">
@@ -2042,6 +2174,11 @@ function TriggerRow({
           { key: 'time', label: 'Uhrzeit' },
           { key: 'sun', label: 'Sonnenstand' },
           { key: 'interval', label: 'Regelmässig' },
+          // Nur anbieten, wenn es auch Zonen gibt – ein leerer Auslöser
+          // wäre ein Versprechen, das der Hub nicht halten kann.
+          ...(entities.some((entity) => entity.id.startsWith('geofence.'))
+            ? [{ key: 'geofence', label: 'Ort' }]
+            : []),
         ]}
         value={trigger.kind}
         onSelect={(kind) => onChange({ kind: kind as TriggerKind })}
@@ -2106,6 +2243,29 @@ function TriggerRow({
               wechselt.
             </Text>
           ) : null}
+        </>
+      ) : trigger.kind === 'geofence' ? (
+        <>
+          <Picker
+            items={entities
+              .filter((entity) => entity.id.startsWith('geofence.'))
+              .map((entity) => ({ key: entity.id, label: entity.name }))}
+            value={trigger.entityId}
+            onSelect={(entityId) => onChange({ entityId })}
+          />
+          <Choice
+            options={[
+              { key: 'home', label: 'kommt an' },
+              { key: 'away', label: 'geht weg' },
+            ]}
+            value={trigger.toState === 'away' ? 'away' : 'home'}
+            onSelect={(toState) => onChange({ toState })}
+          />
+          <Text style={styles.triggerNote}>
+            Das Telefon meldet den Wechsel selbst – auf dem iPhone über die
+            Kurzbefehle-App («Wenn ich ankomme» → Inhalte von URL abrufen).
+            Steht in docs/geofence.md.
+          </Text>
         </>
       ) : trigger.kind === 'threshold' ? (
         <>

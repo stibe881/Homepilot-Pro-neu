@@ -42,9 +42,11 @@ from ..core import snapshots
 from ..core import throttle as throttle_module
 from ..core import watchdog
 from ..core import users as users_module
+from ..core import automation as automation_module
 from ..core import config_edit
 from ..core import confighistory
 from ..core import guestpass
+from ..core import trash as trash_module
 from ..core.config_edit import add_cast_device
 from ..integrations import alarm as alarm_module
 from ..core.errors import HomePilotError, UnknownEntityError, UnsupportedCommandError
@@ -104,6 +106,9 @@ class SceneRequest(BaseModel):
     on_start: bool = False
     # Frei gewählter Name zum Gruppieren in der App.
     category: str | None = None
+    # Übergangszeit in Sekunden: Helligkeiten werden angefahren statt
+    # gesetzt – Lichtwecker, Einschlaflicht.
+    transition: int = 0
 
 
 class PushPrefsRequest(BaseModel):
@@ -139,6 +144,14 @@ class UserUpdateRequest(BaseModel):
     expires: str | None = None
     # Zeitfenster {"from": "07:00", "to": "20:00"}; leer hebt es auf.
     hours: dict[str, str] | None = None
+
+
+class GeofenceRequest(BaseModel):
+    """Ortswechsel eines Telefons: enter/leave (oder home/away)."""
+
+    event: str
+    # Ohne Zone gilt der Name des angemeldeten Benutzers.
+    zone: str | None = None
 
 
 class PassRequest(BaseModel):
@@ -292,6 +305,13 @@ def create_app(hub: Hub) -> FastAPI:
         return hub.status()
 
     # ── Konfiguration aus der App bearbeiten ──────────────────────────────
+
+    def _user_name(request: Request) -> str:
+        """Wer gerade handelt – für Papierkorb und Protokoll."""
+        try:
+            return current_user(request).name
+        except HTTPException:
+            return "?"
 
     def config_path() -> str:
         path = hub.config.source_path
@@ -533,6 +553,70 @@ def create_app(hub: Hub) -> FastAPI:
         return {
             "entries": hub.log_buffer.entries(limit=min(500, max(1, limit)), level=level)
         }
+
+    @app.get("/api/automations/conflicts")
+    async def automation_conflicts(request: Request) -> dict[str, Any]:
+        """Abläufe, die dasselbe Gerät gegensätzlich schalten.
+
+        Kein Fehler – manchmal ist genau das gewollt. Aber wenn nachts das
+        Licht von selbst angeht, sucht man diese Liste.
+        """
+        require(request, Capability.EDIT_AUTOMATIONS)
+        return {"conflicts": automation_module.find_conflicts(hub.automations.automations)}
+
+    @app.get("/api/automations/{automation_id}/runs")
+    async def automation_runs(automation_id: str, request: Request) -> dict[str, Any]:
+        """Der Verlauf genau dieses Ablaufs – was er tat und was nicht."""
+        require(request, Capability.EDIT_AUTOMATIONS)
+        return {
+            "runs": [
+                run
+                for run in hub.automations.runs
+                if run.get("automation_id") == automation_id
+            ][:50]
+        }
+
+    # ── Papierkorb ─────────────────────────────────────────────────────────
+
+    @app.get("/api/trash")
+    async def list_trash(request: Request) -> dict[str, Any]:
+        require(request, Capability.EDIT_AUTOMATIONS)
+        rows = trash_module.purge(hub.data.get("trash"))
+        hub.data.set("trash", rows)
+        return {
+            "trash": [
+                {k: v for k, v in row.items() if k != "item"} | {"id": (row.get("item") or {}).get("id")}
+                for row in rows
+            ],
+            "keep_days": trash_module.KEEP_DAYS,
+        }
+
+    @app.post("/api/trash/{kind}/{item_id}/restore")
+    async def restore_from_trash(kind: str, item_id: str, request: Request) -> dict[str, Any]:
+        """Gelöschtes zurückholen – es landet wieder dort, wo es herkam."""
+        require(request, Capability.EDIT_AUTOMATIONS)
+        if kind not in ("scene", "automation"):
+            raise HTTPException(status_code=400, detail="Unbekannte Art")
+        row, rest = trash_module.take(hub.data.get("trash"), kind, item_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Nicht (mehr) im Papierkorb")
+        key = "scenes" if kind == "scene" else "automations"
+        existing = hub.data.get(key)
+        if any(entry.get("id") == item_id for entry in existing):
+            raise HTTPException(status_code=409, detail="Gibt es schon wieder")
+        hub.data.set(key, [*existing, row["item"]])
+        hub.data.set("trash", rest)
+        if kind == "scene":
+            hub.reload_scenes()
+        else:
+            await hub.reload_automations()
+        return {"ok": True, "restored": row["name"]}
+
+    @app.delete("/api/trash")
+    async def empty_trash(request: Request) -> dict[str, Any]:
+        require(request, Capability.EDIT_AUTOMATIONS)
+        hub.data.set("trash", [])
+        return {"ok": True}
 
     @app.get("/api/system/audit")
     async def system_audit(
@@ -862,6 +946,7 @@ def create_app(hub: Hub) -> FastAPI:
             "actions": body.actions,
             "room": body.room,
             "on_start": body.on_start,
+            "transition": body.transition,
             "category": body.category,
         }
         hub.data.set("scenes", [*stored_scenes(), entry])
@@ -889,6 +974,7 @@ def create_app(hub: Hub) -> FastAPI:
                 "actions": body.actions,
                 "room": body.room,
                 "on_start": body.on_start,
+                "transition": body.transition,
                 "category": body.category,
             }
             if entry["id"] == scene_id
@@ -909,7 +995,12 @@ def create_app(hub: Hub) -> FastAPI:
                 status_code=404,
                 detail="Nur in der App angelegte Szenen lassen sich hier löschen",
             )
+        gone = next(entry for entry in stored if entry["id"] == scene_id)
         hub.data.set("scenes", remaining)
+        hub.data.set(
+            "trash",
+            trash_module.put(hub.data.get("trash"), "scene", gone, _user_name(request)),
+        )
         hub.reload_scenes()
         return {"ok": True}
 
@@ -1002,7 +1093,14 @@ def create_app(hub: Hub) -> FastAPI:
                 status_code=404,
                 detail="Nur in der App angelegte Abläufe lassen sich hier löschen",
             )
+        gone = next(entry for entry in stored if entry["id"] == automation_id)
         hub.data.set("automations", remaining)
+        hub.data.set(
+            "trash",
+            trash_module.put(
+                hub.data.get("trash"), "automation", gone, _user_name(request)
+            ),
+        )
         await hub.reload_automations()
         return {"ok": True}
 
@@ -1570,6 +1668,36 @@ def create_app(hub: Hub) -> FastAPI:
                 hub.config.api.host, hub.config.api.port, token, name
             ),
         }
+
+    # ── Geofence ───────────────────────────────────────────────────────────
+
+    @app.post("/api/presence/geofence")
+    async def report_geofence(body: GeofenceRequest, request: Request) -> dict[str, Any]:
+        """Das Telefon meldet Ankommen oder Weggehen.
+
+        Aufgerufen von den iOS-Kurzbefehlen («Wenn ich ankomme» → Inhalte
+        von URL abrufen) oder von Tasker. Bewusst ein eigener Endpunkt und
+        kein Kommando: Eine Zone ist nichts, was sich schalten lässt.
+        """
+        user = current_user(request)
+        service = hub.integrations.get("geofence")
+        if service is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Die geofence-Integration ist nicht eingerichtet",
+            )
+        # Ohne Angabe gilt der eigene Name - so genügt im Kurzbefehl die
+        # Adresse plus das Ereignis.
+        zone = body.zone or user.name.lower()
+        try:
+            state = await service.report(zone, body.event)
+        except KeyError:
+            raise HTTPException(
+                status_code=404, detail=f"Unbekannte Zone: {zone}"
+            ) from None
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+        return {"ok": True, "zone": zone, "state": state}
 
     # ── Einmal-Türöffnung ──────────────────────────────────────────────────
 

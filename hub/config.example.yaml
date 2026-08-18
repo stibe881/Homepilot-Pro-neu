@@ -175,6 +175,16 @@ integrations:
   #   # Behang kostet mehr als jede aufgeheizte Stube.
   #   storm: meteoalarm.warnungen     # Entität der Wetterwarnung
 
+  # Geofence: Ankommen und Weggehen, gemeldet vom Telefon selbst (iOS-
+  # Kurzbefehle oder Tasker → POST /api/presence/geofence). Merkt den
+  # Aufbruch Minuten früher als das WLAN – siehe docs/geofence.md.
+  # - integration: geofence
+  #   zones:
+  #     - id: stefan
+  #       name: Stefan
+  #     - id: livia
+  #       name: Livia
+
   # UniFi: Anwesenheitserkennung anhand verbundener Geräte.
   # Liefert zusätzlich unifi.anyone_home und unifi.clients_total.
   # - integration: unifi
