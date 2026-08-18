@@ -606,6 +606,32 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
     ? { Authorization: `Bearer ${settings.token}` }
     : {};
 
+  // Beim Öffnen einmal nachsehen, ob auf dem Host gerade gebaut wird –
+  // etwa weil man während eines Laufs kurz woanders war (der Fortschritt
+  // lebt nur in diesem Bildschirm) oder jemand anderes das Update
+  // angestossen hat. Läuft etwas, hängt sich der Balken wieder dran.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(`${settings.url}/api/system/update/status`, { headers });
+        if (cancelled || !response.ok) return;
+        const data = (await response.json()) as UpdateStatus;
+        if (cancelled) return;
+        if (data.available && data.state === 'running') {
+          setProgress(data);
+          setBusy(true); // startet die laufende Abfrage unten
+        }
+      } catch {
+        // Kein Status erreichbar – dann eben kein Balken beim Einstieg.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Solange ein Bau laufen könnte, alle zwei Sekunden nach dem Stand
   // fragen – hört von selbst auf, sobald er fertig ist, fehlschlägt, oder
   // der Dienst gar keinen Fortschritt kennt (available: false).
