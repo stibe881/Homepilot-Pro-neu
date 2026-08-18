@@ -230,10 +230,18 @@ homepilot → Webhook* einen Stack-Webhook aktivieren und die Adresse in
 `/opt/homepilot/github-credentials.env` eintragen:
 
 ```
-PORTAINER_WEBHOOK_URL=https://portainer.example.com/api/stacks/webhooks/xxxxxxxx
+PORTAINER_WEBHOOK_URL=https://10.10.1.13:9443/api/stacks/webhooks/xxxxxxxx
+PORTAINER_INSECURE=1
 ```
 
 `rebuild-hub.sh` ruft sie am Ende von selbst auf.
+
+Die zweite Zeile braucht es, weil Portainer sein Zertifikat auf Port 9443
+selbst ausstellt – ohne sie bricht der Aufruf mit einem Zertifikatsfehler
+ab, mitten im sonst fertigen Update. Vertretbar ist das nur, weil der
+Aufruf im eigenen Netz bleibt und nichts Geheimes überträgt: Die Adresse
+selbst ist das Geheimnis. Wer Portainer hinter einem richtigen Zertifikat
+betreibt, lässt die Zeile weg und behält die Prüfung.
 
 ### Ab dann
 

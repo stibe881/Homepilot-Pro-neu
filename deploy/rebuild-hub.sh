@@ -44,6 +44,12 @@
 #
 #   PORTAINER_WEBHOOK_URL=https://portainer.example.com/api/stacks/webhooks/xxxxxxxx
 #
+# Laeuft Portainer auf Port 9443 mit seinem selbst ausgestellten
+# Zertifikat, kommt eine Zeile dazu - sonst bricht curl mit einem
+# Zertifikatsfehler ab, mitten im sonst fertigen Update:
+#
+#   PORTAINER_INSECURE=1
+#
 # Ist die Variable gesetzt, ruft dieses Skript sie am Ende automatisch auf.
 
 set -euo pipefail
@@ -91,7 +97,21 @@ echo "✓ Abbild '$IMAGE' ist aktuell."
 
 if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
   echo "→ Löse den Portainer-Webhook aus …"
-  curl -fsS -X POST "$PORTAINER_WEBHOOK_URL"
+  # Portainer stellt sein Zertifikat auf Port 9443 selbst aus. Prüfen lässt
+  # es sich deshalb nicht - und ohne die folgende Zeile bricht curl mit
+  # einem Zertifikatsfehler ab, mitten im sonst fertigen Update.
+  #
+  # Bewusst als eigene Variable und nicht fest eingebaut: Wer Portainer
+  # hinter einem richtigen Zertifikat betreibt, soll die Prüfung behalten.
+  # Vertretbar ist das Abschalten nur, weil der Aufruf im eigenen Netz
+  # bleibt und nichts Geheimes überträgt - die Adresse selbst ist das
+  # Geheimnis, und die kennt der Angreifer dann ohnehin schon.
+  INSECURE=""
+  if [ "${PORTAINER_INSECURE:-0}" = "1" ]; then
+    INSECURE="--insecure"
+  fi
+  # shellcheck disable=SC2086
+  curl -fsS $INSECURE -X POST "$PORTAINER_WEBHOOK_URL"
   echo ""
   echo "✓ Fertig – der Stack rollt gerade mit dem frischen Abbild neu aus."
 else
