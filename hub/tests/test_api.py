@@ -450,3 +450,56 @@ def test_without_a_web_folder_the_hub_stays_a_plain_api(tmp_path):
         # Kein Absturz, nur keine Oberfläche.
         assert client.get("/").status_code == 404
         assert client.get("/api/health").status_code == 200
+
+
+def test_config_history_keeps_the_previous_version(tmp_path):
+    """Gültig heisst nicht richtig - vor jedem Speichern wird die bisherige
+    Fassung weggelegt, damit der alte Wortlaut nicht verloren geht."""
+    path = tmp_path / "config.yaml"
+    path.write_text("integrations:\n  - integration: demo\n", encoding="utf-8")
+
+    hub = Hub(make_config(token="geheim", source_path=str(path)))
+    with TestClient(create_app(hub)) as client:
+        headers = {"Authorization": "Bearer geheim"}
+        assert client.get("/api/config/history", headers=headers).json() == {"versions": []}
+
+        client.put(
+            "/api/config",
+            json={
+                "content": "integrations:\n  - integration: demo\n"
+                "rooms:\n  Küche: [demo.light_livingroom]\n"
+            },
+            headers=headers,
+        )
+        versions = client.get("/api/config/history", headers=headers).json()["versions"]
+        assert len(versions) == 1
+
+        name = versions[0]["name"]
+        old = client.get(f"/api/config/history/{name}", headers=headers).json()
+        assert "rooms" not in old["content"]
+
+        # Zurückholen läuft durch dieselbe Prüfung und sichert seinerseits.
+        result = client.post(f"/api/config/history/{name}/restore", headers=headers).json()
+        assert result["ok"] and result["restored"] == name
+        assert "rooms" not in path.read_text(encoding="utf-8")
+        assert len(client.get("/api/config/history", headers=headers).json()["versions"]) == 2
+
+        # Pfad-Tricks prallen ab.
+        assert client.get("/api/config/history/..%2Fconfig.yaml", headers=headers).status_code == 404
+
+
+def test_system_log_returns_recent_warnings():
+    """Die App soll «warum ist nichts passiert» beantworten können, ohne
+    dass jemand per SSH ins Container-Log steigt."""
+    import logging
+
+    hub = Hub(make_config(token="geheim"))
+    with TestClient(create_app(hub)) as client:
+        logging.getLogger("homepilot.test").warning("Storen fahren nicht: Gateway weg")
+        entries = client.get(
+            "/api/system/log", headers={"Authorization": "Bearer geheim"}
+        ).json()["entries"]
+        assert any("Gateway weg" in entry["message"] for entry in entries)
+        # Info-Meldungen bleiben draussen - sonst ersäuft die Ansicht.
+        logging.getLogger("homepilot.test").info("nur eine Notiz")
+        assert not any("nur eine Notiz" in entry["message"] for entry in entries)

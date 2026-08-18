@@ -117,4 +117,19 @@ export interface SystemStatus {
   outages?: { integration: string; since: number; ended: number | null }[];
   /** Gerade ausgefallene Integrationen. */
   down?: string[];
+  /** Belegung des Datenträgers – läuft er voll, scheitert jedes Speichern. */
+  disk?: { percent: number; free_gb: number; total_gb: number } | null;
+}
+
+export interface LogEntry {
+  at: number;
+  level: string;
+  logger: string;
+  message: string;
+}
+
+export interface ConfigVersion {
+  name: string;
+  size: number;
+  created: number;
 }

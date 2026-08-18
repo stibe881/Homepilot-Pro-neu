@@ -22,8 +22,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from . import energy
@@ -57,8 +59,32 @@ OPEN_CLASSES = frozenset({"contact", "door", "window", "garage"})
 # dieselbe Datei am Tag; alle zehn Minuten genügt für einen Monatsvergleich
 # und beim Tageswechsel wird ohnehin sofort geschrieben.
 ENERGY_INTERVAL = 600.0
+# Ab dieser Belegung wird der Speicherplatz gemeldet. Nicht erst bei 100 %:
+# Läuft die Platte voll, scheitert *jedes* Schreiben - Konfiguration
+# speichern, Lautsprecher übernehmen, Sicherung anlegen -, und die
+# Fehlermeldung («[Errno 28] No space left on device») sagt niemandem,
+# dass Docker-Reste die Ursache sind. Bei 85 % bleibt Zeit zum Aufräumen.
+DISK_WARN_PERCENT = 85
+# Nicht öfter als einmal am Tag mahnen, solange es knapp bleibt.
+DISK_REMIND = 24 * 3600
+
 # Integrationen ohne eigene Verbindung, die nie „ausfallen“ können.
 IGNORE = frozenset({"demo", "helpers", "group", "adaptive", "presence_sim", "alarm"})
+
+
+def disk_usage(path: str) -> dict[str, Any] | None:
+    """Belegung des Datenträgers, auf dem ``path`` liegt (None = unlesbar)."""
+    try:
+        usage = shutil.disk_usage(path)
+    except OSError:
+        return None
+    if usage.total <= 0:
+        return None
+    return {
+        "percent": round(usage.used / usage.total * 100),
+        "free_gb": round(usage.free / 1_000_000_000, 1),
+        "total_gb": round(usage.total / 1_000_000_000, 1),
+    }
 
 
 def down_integrations(entities: list[Any]) -> set[str]:
@@ -172,6 +198,10 @@ class Watchdog:
         self._energy_day: str | None = None
         self._energy_written: float = 0.0
         self._energy_last: float = 0.0
+        # Wann zuletzt vor knappem Speicherplatz gewarnt wurde.
+        self._disk_warned: float = 0.0
+        # Letzte gemessene Belegung - für den System-Screen.
+        self.disk: dict[str, Any] | None = None
         # Aktuell als ausgefallen gemeldete Integrationen (seit Zeitstempel).
         self.down_since: dict[str, float] = {}
         # Protokoll der letzten Ausfälle für die App (jüngste zuerst).
@@ -218,6 +248,7 @@ class Watchdog:
         await self._check_open(entities)
         await self._check_leaks(entities)
         self._record_energy(entities)
+        await self._check_disk()
         down = down_integrations(entities)
 
         # Strikes hochzählen bzw. zurücksetzen.
@@ -248,6 +279,29 @@ class Watchdog:
                     f"{name} wieder da",
                     f"Die Integration '{name}' ist nach {minutes} Minuten wieder erreichbar.",
                 )
+
+    async def _check_disk(self) -> None:
+        """Speicherplatz dort prüfen, wo der Hub wirklich schreibt."""
+        path = self.hub.config.data_file or "/"
+        folder = str(Path(path).parent if self.hub.config.data_file else path)
+        usage = disk_usage(folder)
+        if usage is None:
+            return
+        self.disk = usage
+        if usage["percent"] < DISK_WARN_PERCENT:
+            self._disk_warned = 0.0
+            return
+        now = time.time()
+        if now - self._disk_warned < DISK_REMIND:
+            return
+        self._disk_warned = now
+        await self._notify(
+            "Speicherplatz wird knapp",
+            f"Der Datenträger ist zu {usage['percent']} % belegt "
+            f"(noch {usage['free_gb']} von {usage['total_gb']} GB frei). "
+            "Läuft er voll, lässt sich nichts mehr speichern.",
+            category="disk",
+        )
 
     async def _check_devices(self, entities: list[Any]) -> None:
         """Einzelne überwachte Geräte, die nicht mehr antworten."""

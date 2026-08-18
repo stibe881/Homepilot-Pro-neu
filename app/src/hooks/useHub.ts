@@ -9,6 +9,9 @@ export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
 const ACTIVITY_LIMIT = 20;
 const CACHE_KEY = 'homepilot.snapshot';
+// Benutzer und Raumreihenfolge gehören dazu: Ohne sie stünde beim Start
+// ohne Verbindung zwar die Geräteliste, aber ohne Navigation und Räume.
+const CACHE_META_KEY = 'homepilot.snapshot.meta';
 /** So lange gilt eine Kachel nach dem Tippen als „wird geschaltet“. */
 const PENDING_TIMEOUT = 6000;
 // Befehle, die naturgemäss länger dauern: Eine schlafende Spotify-Box wird
@@ -118,6 +121,9 @@ export function useHub(url: string | null, token: string | null) {
   const [pending, setPending] = useState<Record<string, boolean>>({});
   /** true, solange die Daten aus dem Zwischenspeicher stammen. */
   const [stale, setStale] = useState(true);
+  // Wann der gezeigte Stand entstanden ist – ohne Verbindung sagt die App
+  // damit, wie alt das ist, was da steht.
+  const [cachedAt, setCachedAt] = useState<number | null>(null);
   const [undo, setUndo] = useState<UndoOffer | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -141,6 +147,15 @@ export function useHub(url: string | null, token: string | null) {
               : Object.fromEntries(cached.map((entity) => [entity.id, entity]))
           );
         }
+      })
+      .catch(() => {});
+    AsyncStorage.getItem(CACHE_META_KEY)
+      .then((raw) => {
+        if (!raw || cancelled) return;
+        const meta = JSON.parse(raw);
+        setUser((prev) => prev ?? meta.user ?? null);
+        setRoomOrder((prev) => (prev.length > 0 ? prev : meta.rooms ?? []));
+        if (typeof meta.at === 'number') setCachedAt(meta.at);
       })
       .catch(() => {});
     return () => {
@@ -204,9 +219,15 @@ export function useHub(url: string | null, token: string | null) {
           setUser(message.user ?? null);
           setRoomOrder(message.rooms ?? []);
           setStale(false);
+          const at = Date.now();
+          setCachedAt(at);
           AsyncStorage.setItem(CACHE_KEY, JSON.stringify(message.entities)).catch(
             () => {}
           );
+          AsyncStorage.setItem(
+            CACHE_META_KEY,
+            JSON.stringify({ user: message.user ?? null, rooms: message.rooms ?? [], at })
+          ).catch(() => {});
         } else if (
           message.type === 'state_changed' ||
           message.type === 'entity_added'
@@ -493,6 +514,7 @@ export function useHub(url: string | null, token: string | null) {
     error,
     pending,
     stale,
+    cachedAt,
     undo,
     undoLast,
     dismissUndo: () => setUndo(null),

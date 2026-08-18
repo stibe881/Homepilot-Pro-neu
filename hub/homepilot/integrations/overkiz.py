@@ -182,7 +182,7 @@ class OverkizIntegration(Integration):
         # Laufzeit je Storen - daraus macht die App eine Bewegung, die mit
         # der echten Store mithält.
         self._moves: dict[str, dict[str, float]] = {}
-        self._travel: dict[str, float] = {}
+        self._travel: dict[str, float] = self._stored_travel()
         self._url_by_entity: dict[str, str] = {}
         self._cmd_by_entity: dict[str, dict[str, list[str]]] = {}
         for device in await self._client.get_devices():
@@ -255,6 +255,32 @@ class OverkizIntegration(Integration):
 
     # ── Gateway → Hub ────────────────────────────────────────────────────────
 
+    def _stored_travel(self) -> dict[str, float]:
+        """Gelernte Laufzeiten aus der Datendatei holen.
+
+        Ohne das begänne das Lernen nach jedem Neustart von vorn - und bis
+        zur nächsten vollen Fahrt liefe die Animation wieder nach Annahme
+        statt nach Messung.
+        """
+        result: dict[str, float] = {}
+        for entry in self.hub.data.get("cover_travel"):
+            if not isinstance(entry, dict):
+                continue
+            entity_id = entry.get("entity_id")
+            seconds = entry.get("seconds")
+            if isinstance(entity_id, str) and isinstance(seconds, (int, float)):
+                result[entity_id] = float(seconds)
+        return result
+
+    def _save_travel(self) -> None:
+        self.hub.data.set(
+            "cover_travel",
+            [
+                {"entity_id": entity_id, "seconds": round(seconds, 1)}
+                for entity_id, seconds in sorted(self._travel.items())
+            ],
+        )
+
     async def _event_loop(self) -> None:
         """Live-Updates über den Ereigniskanal des Gateways."""
         while True:
@@ -300,6 +326,7 @@ class OverkizIntegration(Integration):
                 self._moves.pop(entity_id, None)
                 if travel is not None:
                     self._travel[entity_id] = travel
+                    self._save_travel()
                     await self.hub.registry.update_state(
                         entity_id, {"travel_seconds": round(travel, 1)}
                     )

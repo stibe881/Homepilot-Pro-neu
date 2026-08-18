@@ -92,6 +92,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     status,
     user,
     error,
+    cachedAt,
     pending,
     undo,
     undoLast,
@@ -1038,6 +1039,25 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
         >
+          {status !== 'connected' && entities.length > 0 ? (
+            // Getrennt, aber wir haben den letzten Stand: lieber alte Werte
+            // mit deutlichem Hinweis als eine leere Seite. Geschaltet wird
+            // trotzdem nicht - die Befehle liefen ins Leere.
+            <View style={styles.offlineBanner}>
+              <Ionicons name="cloud-offline-outline" size={16} color={colors.warn} />
+              <Text style={styles.offlineText} numberOfLines={2}>
+                {status === 'connecting' ? 'Verbinde …' : 'Keine Verbindung'} – gezeigt
+                wird der letzte bekannte Stand
+                {cachedAt
+                  ? ` von ${new Date(cachedAt).toLocaleTimeString('de-CH', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}`
+                  : ''}
+                .
+              </Text>
+            </View>
+          ) : null}
           <TopStrip
             entities={entities}
             status={status}
@@ -1555,6 +1575,18 @@ function GroupButton({
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
   root: { flex: 1 },
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    borderRadius: radius.control,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.warn,
+  },
+  offlineText: { color: colors.onGradient, fontSize: 13, flex: 1 },
   allOffRow: { alignItems: 'flex-start', marginTop: 4 },
   searchButton: {
     width: 34,

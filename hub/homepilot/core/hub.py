@@ -15,6 +15,7 @@ from .automation import AutomationEngine
 from .config import HubConfig
 from .events import EventBus
 from .integration import IntegrationManager
+from .logbuffer import install as install_log_buffer
 from .persistence import DataStore
 from .watchdog import Watchdog
 from . import push as push_service
@@ -42,6 +43,9 @@ class Hub:
         # Kamerabilder, die einer Push-Nachricht beiliegen: nur im Speicher
         # und nur wenige Minuten gültig (siehe core/snapshots.py).
         self.snapshots = SnapshotStore()
+        # Die letzten Warnungen und Fehler – die App zeigt sie unter System,
+        # damit man dafür nicht per SSH ins Container-Log muss.
+        self.log_buffer = install_log_buffer()
         self.users = parse_users(config.users, config.api.token)
         # In der App angelegte Benutzer und Automationen liegen neben der
         # Konfiguration, damit sie ohne Datenbank einen Neustart überleben.
@@ -351,6 +355,8 @@ class Hub:
                 "built_at": os.environ.get("HOMEPILOT_BUILD_TIME", "unbekannt"),
             },
             "energy": self.config.energy,
+            # Speicherplatz: läuft er voll, scheitert jedes Speichern.
+            "disk": self.watchdog.disk,
             # Ausfall-Protokoll des Wächters (jüngste zuerst).
             "outages": self.watchdog.outages,
             "down": sorted(self.watchdog.down_since),

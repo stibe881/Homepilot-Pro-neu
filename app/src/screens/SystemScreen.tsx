@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { Entity, HubSettings, SystemStatus, User } from '../api/types';
+import { ConfigVersion, Entity, HubSettings, LogEntry, SystemStatus, User } from '../api/types';
 import { PushState, pushHint } from '../hooks/usePushRegistration';
 import { Card } from '../components/Card';
 import { Colors, radius, space, type, useColors } from '../theme';
@@ -94,6 +94,19 @@ export function SystemScreen({
           <Fact label="Laufzeit" value={uptime(status.uptime_seconds)} />
           <Fact label="Datenbank" value={status.database ?? 'keine'} />
           <Fact label="Push-Geräte" value={String(status.push_devices)} />
+          {status.disk ? (
+            <Fact
+              label="Speicher belegt"
+              value={`${status.disk.percent} %`}
+              tone={
+                status.disk.percent >= 90
+                  ? colors.danger
+                  : status.disk.percent >= 85
+                    ? colors.warn
+                    : colors.on
+              }
+            />
+          ) : null}
         </View>
 
         {status.build ? (
@@ -193,8 +206,29 @@ export function SystemScreen({
         </Card>
       ) : null}
 
+      {status.disk && status.disk.percent >= 85 ? (
+        <Card style={styles.card}>
+          <Text style={styles.heading}>Speicherplatz wird knapp</Text>
+          <Text style={styles.rowDetail}>
+            {status.disk.percent} % belegt – noch {status.disk.free_gb} von{' '}
+            {status.disk.total_gb} GB frei. Läuft der Datenträger voll, lässt sich
+            nichts mehr speichern: keine Konfiguration, keine Lautsprecher, keine
+            Sicherung.
+          </Text>
+          <Text style={styles.hint}>
+            Meist sind es Docker-Reste. Auf dem Host aufräumen mit{'\n'}
+            docker image prune -a -f{'\n'}
+            docker builder prune -f
+          </Text>
+        </Card>
+      ) : null}
+
       {user?.capabilities?.includes('edit_config') ? (
         <ConfigCard settings={settings} headers={headers} />
+      ) : null}
+
+      {user?.capabilities?.includes('edit_config') ? (
+        <LogCard settings={settings} headers={headers} />
       ) : null}
 
       {user?.capabilities?.includes('pause_automations') ? (
@@ -262,6 +296,111 @@ export function SystemScreen({
  *  Der Hub validiert vor dem Speichern die komplette Datei – eine kaputte
  *  Konfiguration kann hier also nicht auf der Platte landen. Nach dem
  *  Neustart verbindet sich die App von selbst wieder. */
+/**
+ * Die letzten Warnungen und Fehler des Hubs.
+ *
+ * Beantwortet die Frage «warum ist nichts passiert», ohne dass jemand per
+ * SSH ins Container-Log steigen muss. Bewusst erst auf Antippen geladen –
+ * niemand braucht das Log bei jedem Öffnen des System-Screens.
+ */
+function LogCard({
+  settings,
+  headers,
+}: {
+  settings: HubSettings;
+  headers: Record<string, string>;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [entries, setEntries] = useState<LogEntry[] | null>(null);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  const load = async () => {
+    setBusy(true);
+    setNote(null);
+    try {
+      const response = await fetch(`${settings.url}/api/system/log?limit=100`, { headers });
+      if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
+      const body = await response.json();
+      setEntries(Array.isArray(body.entries) ? body.entries : []);
+    } catch (err: any) {
+      setNote(String(err.message ?? err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card style={styles.card}>
+      <Pressable
+        onPress={() => {
+          const next = !open;
+          setOpen(next);
+          if (next && entries === null) load();
+        }}
+        accessibilityRole="button"
+        style={styles.logHead}
+      >
+        <Text style={styles.heading}>Protokoll</Text>
+        <Ionicons
+          name={open ? 'chevron-up' : 'chevron-down'}
+          size={20}
+          color={colors.inkSoft}
+        />
+      </Pressable>
+      {!open ? (
+        <Text style={styles.hint}>
+          Die letzten Warnungen und Fehler des Hubs – antippen zum Öffnen.
+        </Text>
+      ) : (
+        <>
+          {note ? <Text style={styles.errorLine}>{note}</Text> : null}
+          {entries === null ? (
+            <Text style={styles.hint}>{busy ? 'Wird geladen …' : ''}</Text>
+          ) : entries.length === 0 ? (
+            <Text style={styles.hint}>
+              Nichts zu melden – seit dem letzten Start gab es keine Warnung.
+            </Text>
+          ) : (
+            <View style={styles.logList}>
+              {entries.map((entry, index) => (
+                <View key={index} style={styles.logRow}>
+                  <Ionicons
+                    name={entry.level === 'ERROR' || entry.level === 'CRITICAL'
+                      ? 'alert-circle'
+                      : 'warning-outline'}
+                    size={16}
+                    color={
+                      entry.level === 'ERROR' || entry.level === 'CRITICAL'
+                        ? colors.danger
+                        : colors.warn
+                    }
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.logMessage}>{entry.message}</Text>
+                    <Text style={styles.rowDetail}>
+                      {new Date(entry.at * 1000).toLocaleString('de-CH', {
+                        day: 'numeric',
+                        month: 'short',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}{' '}
+                      · {entry.logger}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+          <Button label={busy ? 'Lädt …' : 'Aktualisieren'} onPress={load} />
+        </>
+      )}
+    </Card>
+  );
+}
+
 function ConfigCard({
   settings,
   headers,
@@ -277,6 +416,9 @@ function ConfigCard({
   // Hinweise des Hubs: doppelte Geräteadressen, Räume, die auf nichts
   // zeigen. Die liefen bisher nur beim Start ins Log.
   const [warnings, setWarnings] = useState<string[]>([]);
+  // Frühere Fassungen – erst auf Wunsch geladen.
+  const [versions, setVersions] = useState<ConfigVersion[] | null>(null);
+  const [restoring, setRestoring] = useState<string | null>(null);
 
   const load = () => {
     setMessage(null);
@@ -394,7 +536,74 @@ function ConfigCard({
           </View>
           <View style={styles.buttons}>
             <Button label="Backup teilen" onPress={backup} />
+            <Button
+              label={versions === null ? 'Frühere Fassungen' : 'Fassungen ausblenden'}
+              onPress={async () => {
+                if (versions !== null) {
+                  setVersions(null);
+                  return;
+                }
+                try {
+                  const response = await fetch(`${settings.url}/api/config/history`, {
+                    headers,
+                  });
+                  const body = await response.json();
+                  setVersions(Array.isArray(body.versions) ? body.versions : []);
+                } catch {
+                  setVersions([]);
+                }
+              }}
+            />
           </View>
+          {versions !== null ? (
+            <View style={styles.warnBox}>
+              {versions.length === 0 ? (
+                <Text style={styles.rowDetail}>
+                  Noch keine früheren Fassungen – ab dem nächsten Speichern
+                  wird jede vorherige Fassung hier aufbewahrt.
+                </Text>
+              ) : (
+                versions.map((version) => (
+                  <View key={version.name} style={styles.versionRow}>
+                    <Ionicons name="document-text-outline" size={16} color={colors.inkSoft} />
+                    <Text style={[styles.rowDetail, { flex: 1 }]}>
+                      {new Date(version.created * 1000).toLocaleString('de-CH', {
+                        day: 'numeric',
+                        month: 'short',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </Text>
+                    <Button
+                      label={restoring === version.name ? 'Wirklich?' : 'Ansehen'}
+                      onPress={async () => {
+                        try {
+                          const response = await fetch(
+                            `${settings.url}/api/config/history/${version.name}`,
+                            { headers }
+                          );
+                          const body = await response.json();
+                          if (typeof body.content === 'string') {
+                            setContent(body.content);
+                            setMessage(
+                              'Fassung geladen – sie steht jetzt im Feld oben. ' +
+                                'Mit «Speichern» wird sie übernommen.'
+                            );
+                          }
+                        } catch {
+                          setMessage('Fassung nicht lesbar.');
+                        }
+                      }}
+                    />
+                  </View>
+                ))
+              )}
+              <Text style={styles.rowDetail}>
+                Vor jedem Speichern legt der Hub die bisherige Fassung hier ab –
+                die letzten zwanzig bleiben erhalten.
+              </Text>
+            </View>
+          ) : null}
           <Text style={styles.rowDetail}>
             „Backup teilen" sichert die aktuelle config.yaml über das Teilen-Menü
             (Dateien, E-Mail …). Zum Wiederherstellen den gesicherten Text hier
@@ -1069,6 +1278,12 @@ const makeStyles = (colors: Colors) =>
     textAlignVertical: 'top',
   },
   configMessage: { color: colors.inkSoft, fontSize: 13, lineHeight: 19 },
+  logHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  logList: { gap: 12 },
+  logRow: { flexDirection: 'row', gap: 10 },
+  logMessage: { color: colors.ink, fontSize: 13, lineHeight: 18 },
+  errorLine: { color: colors.danger, fontSize: 13, fontWeight: '600' },
+  versionRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
   buildRow: { gap: 8, marginTop: 4 },
   updateButton: {
     flexDirection: 'row',

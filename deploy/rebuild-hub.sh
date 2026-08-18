@@ -128,6 +128,14 @@ if [ -n "$WEB_ROOT" ] && [ "$WEB_ROOT" != "/" ] && [ -d "$WEB_ROOT" ]; then
   fi
 fi
 
+# Den laufenden Stand beiseitelegen, bevor der neue entsteht. Kommt der
+# neue nicht hoch, wird diese Marke wieder zur Hauptmarke - ohne sie
+# müsste man den alten Commit von Hand suchen und neu bauen.
+PREV_IMAGE_ID=""
+if PREV_IMAGE_ID=$(docker image inspect "$IMAGE" -f '{{.Id}}' 2>/dev/null); then
+  docker tag "$PREV_IMAGE_ID" "$IMAGE:prev" >/dev/null 2>&1 || PREV_IMAGE_ID=""
+fi
+
 echo "→ Baue das Abbild neu (ohne Cache) …"
 # Commit und Bauzeit wandern ins Abbild. Ohne sie zeigt die App nur
 # «läuft», und nach einem Update sieht man nicht, ob der Container
@@ -226,13 +234,37 @@ if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
        && curl -fsS -m 3 "http://127.0.0.1:8123/api/health" >/dev/null 2>&1; then
       echo ""
       echo "✓ Fertig - der Hub läuft mit dem frischen Abbild."
+      echo "  (Der vorherige Stand bleibt als '$IMAGE:prev' liegen.)"
       exit 0
     fi
   done
   echo ""
   if [ "$RUNNING_IMAGE_ID" = "keiner" ]; then
     echo "✗ Portainer hat den Container entfernt, aber keinen neuen"
-    echo "  gestartet. Von Hand: Portainer → Stacks → homepilot →"
+    echo "  gestartet."
+    # Genau der Fall, für den die Marke da ist: Es läuft nichts mehr, und
+    # das neue Abbild ist offenbar schuld. Zurück auf den letzten Stand,
+    # der nachweislich lief, und noch einmal ausrollen.
+    if [ -n "$PREV_IMAGE_ID" ]; then
+      echo "→ Falle auf den vorherigen Stand zurück …"
+      docker tag "$PREV_IMAGE_ID" "$IMAGE"
+      # shellcheck disable=SC2086
+      if curl -fsS $INSECURE -X POST "$PORTAINER_WEBHOOK_URL"; then
+        for _ in $(seq 1 30); do
+          sleep 2
+          BACK=$(docker inspect -f '{{.Image}}' "$CONTAINER" 2>/dev/null || echo "keiner")
+          if [ "$BACK" = "$PREV_IMAGE_ID" ]; then
+            echo ""
+            echo "✓ Der vorherige Stand läuft wieder. Das neue Abbild kam"
+            echo "  nicht hoch - im Container-Log steht, warum:"
+            echo "    docker logs --tail 200 $CONTAINER"
+            exit 1
+          fi
+        done
+      fi
+      echo "✗ Auch der Rückfall kam nicht durch."
+    fi
+    echo "  Von Hand: Portainer → Stacks → homepilot →"
     echo "  Update the stack → Re-pull image AUS → Deploy."
   else
     echo "✗ Portainer hat den Container nicht gewechselt - der alte Stand"

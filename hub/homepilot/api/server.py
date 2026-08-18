@@ -43,6 +43,7 @@ from ..core import throttle as throttle_module
 from ..core import watchdog
 from ..core import users as users_module
 from ..core import config_edit
+from ..core import confighistory
 from ..core.config_edit import add_cast_device
 from ..integrations import alarm as alarm_module
 from ..core.errors import HomePilotError, UnknownEntityError, UnsupportedCommandError
@@ -325,6 +326,9 @@ def create_app(hub: Hub) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(err)) from err
         except OSError as err:
             raise HTTPException(status_code=500, detail=f"Schreiben fehlgeschlagen: {err}") from err
+        # Vorherige Fassung wegsichern, bevor sie überschrieben wird -
+        # gültig heisst nicht richtig, und der alte Wortlaut ist dann weg.
+        confighistory.snapshot(path)
         temp.replace(path)
         log.info("Konfiguration über die App gespeichert (%s)", path)
         # Diese Prüfungen liefen bisher nur beim Start ins Log – wer in der
@@ -507,6 +511,47 @@ def create_app(hub: Hub) -> FastAPI:
             return {"available": False}
         data["available"] = True
         return data
+
+    @app.get("/api/system/log")
+    async def system_log(request: Request, limit: int = 100, level: str | None = None) -> dict[str, Any]:
+        """Die letzten Warnungen und Fehler des Hubs.
+
+        Damit beantwortet die App die Frage «warum ist nichts passiert»,
+        ohne dass jemand per SSH ins Container-Log steigen muss.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        return {
+            "entries": hub.log_buffer.entries(limit=min(500, max(1, limit)), level=level)
+        }
+
+    @app.get("/api/config/history")
+    async def config_history(request: Request) -> dict[str, Any]:
+        """Frühere Fassungen der config.yaml (jüngste zuerst)."""
+        require(request, Capability.EDIT_CONFIG)
+        return {"versions": confighistory.versions(config_path())}
+
+    @app.get("/api/config/history/{name}")
+    async def config_history_read(name: str, request: Request) -> dict[str, Any]:
+        require(request, Capability.EDIT_CONFIG)
+        try:
+            return {"name": name, "content": confighistory.read(config_path(), name)}
+        except (ValueError, FileNotFoundError) as err:
+            raise HTTPException(status_code=404, detail=f"Fassung nicht gefunden: {err}") from err
+
+    @app.post("/api/config/history/{name}/restore")
+    async def config_history_restore(name: str, request: Request) -> dict[str, Any]:
+        """Eine frühere Fassung zurückholen.
+
+        Sie läuft durch dieselbe Prüfung wie jede Änderung - und der
+        aktuelle Stand wird vorher seinerseits gesichert, damit auch das
+        Zurückholen umkehrbar bleibt.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        try:
+            content = confighistory.read(config_path(), name)
+        except (ValueError, FileNotFoundError) as err:
+            raise HTTPException(status_code=404, detail=f"Fassung nicht gefunden: {err}") from err
+        return {**save_config(content), "restored": name}
 
     @app.get("/api/system/backups")
     async def list_backups(request: Request) -> dict[str, Any]:
