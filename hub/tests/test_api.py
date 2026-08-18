@@ -310,6 +310,39 @@ def test_the_update_button_stays_off_without_an_address():
         assert "update.webhook_url" in response.json()["detail"]
 
 
+def test_user_prefs_are_stored_per_user():
+    """Kachel-Reihenfolgen u.ä. gehören der Person, nicht dem Gerät - jeder
+    Benutzer bekommt genau seine eigenen zurück."""
+    hub = Hub(
+        make_config(
+            token="geheim",
+            users=[
+                {"name": "Stefan", "role": "besitzer", "token": "t-stefan"},
+                {"name": "Livia", "role": "bewohner", "token": "t-livia"},
+            ],
+        )
+    )
+    with TestClient(create_app(hub)) as client:
+        stefan = {"Authorization": "Bearer t-stefan"}
+        livia = {"Authorization": "Bearer t-livia"}
+        assert client.get("/api/prefs", headers=stefan).json() == {"prefs": {}}
+
+        payload = {"prefs": {"order": {"light": ["a", "b"]}}}
+        assert client.put("/api/prefs", json=payload, headers=stefan).json() == {"ok": True}
+        assert client.get("/api/prefs", headers=stefan).json() == payload
+        # Livia sieht Stefans Reihenfolge nicht.
+        assert client.get("/api/prefs", headers=livia).json() == {"prefs": {}}
+
+        # Überschreiben ersetzt den ganzen Stand des Benutzers.
+        second = {"prefs": {"order": {"light": ["b", "a"]}}}
+        client.put("/api/prefs", json=second, headers=stefan)
+        assert client.get("/api/prefs", headers=stefan).json() == second
+
+        # Masslose Inhalte prallt der Hub ab, statt die Datei zu fluten.
+        huge = {"prefs": {"blob": "x" * 40_000}}
+        assert client.put("/api/prefs", json=huge, headers=stefan).status_code == 413
+
+
 def test_update_status_is_unavailable_without_the_status_endpoint():
     """Nur update-listener.py bietet /status - ein reiner Portainer-Webhook
     (oder gar keine Adresse) kennt keinen Fortschritt. Die App soll dann

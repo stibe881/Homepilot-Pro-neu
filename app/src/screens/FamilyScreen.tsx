@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Image,
   Linking,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,6 +15,7 @@ import * as ImagePicker from 'expo-image-picker';
 
 import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
+import { DraggableList } from '../components/DraggableList';
 import { Colors, radius, space, useColors } from '../theme';
 import { RecipeBook } from './RecipeBook';
 import { ROLE_LABELS } from './UsersScreen';
@@ -43,6 +45,9 @@ interface Props {
   settings: HubSettings;
   entities: Entity[];
   currentUser?: { name: string; role: string } | null;
+  /** Selbst gezogene Reihenfolge der Modul-Kacheln (je Benutzer, vom Hub). */
+  moduleOrder?: string[];
+  onReorderModules?: (keys: string[]) => void;
 }
 
 type ModuleKey =
@@ -960,7 +965,13 @@ function MonthCalendar({
 
 // ── Hauptkomponente ─────────────────────────────────────────────────────────
 
-export function FamilyScreen({ settings, entities, currentUser }: Props) {
+export function FamilyScreen({
+  settings,
+  entities,
+  currentUser,
+  moduleOrder,
+  onReorderModules,
+}: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const headers = useMemo(
@@ -971,6 +982,7 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
   const [data, setData] = useState<FamilyData>({});
   const [members, setMembers] = useState<Member[]>([]);
   const [view, setView] = useState<ModuleKey | null>(null);
+  const [reorderOpen, setReorderOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [calMode, setCalMode] = useState<'list' | 'month'>('list');
 
@@ -1872,9 +1884,30 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
     { key: 'documents', icon: 'folder-open-outline', label: 'Dokumentsafe', sub: 'Wichtige Angaben' },
   ];
 
+  // Selbst gezogene Reihenfolge anwenden; Unbekanntes bleibt an seinem
+  // gewachsenen Platz hinten.
+  const moduleRank = new Map((moduleOrder ?? []).map((key, index) => [key, index]));
+  const orderedModules = [...modules].sort((a, b) => {
+    const ai = moduleRank.has(a.key) ? (moduleRank.get(a.key) as number) : Infinity;
+    const bi = moduleRank.has(b.key) ? (moduleRank.get(b.key) as number) : Infinity;
+    return ai !== bi ? ai - bi : modules.indexOf(a) - modules.indexOf(b);
+  });
+
   return (
     <View style={styles.stack}>
-      <Text style={styles.title}>Familie</Text>
+      <View style={styles.titleRow}>
+        <Text style={styles.title}>Familie</Text>
+        {onReorderModules ? (
+          <Pressable
+            onPress={() => setReorderOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Reihenfolge der Module ändern"
+            style={({ pressed }) => [styles.reorderButton, pressed && { opacity: 0.7 }]}
+          >
+            <Ionicons name="swap-vertical" size={16} color={colors.onGradient} />
+          </Pressable>
+        ) : null}
+      </View>
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       {/* Tagesüberblick */}
@@ -1928,7 +1961,7 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
 
       {/* Module */}
       <View style={styles.tileRow}>
-        {modules.map((module) => (
+        {orderedModules.map((module) => (
           <Card key={module.key} style={styles.moduleTile} onPress={() => setView(module.key)}>
             <Ionicons name={module.icon} size={24} color={colors.accent} />
             <Text style={styles.moduleLabel}>{module.label}</Text>
@@ -1938,6 +1971,35 @@ export function FamilyScreen({ settings, entities, currentUser }: Props) {
           </Card>
         ))}
       </View>
+
+      <Modal
+        visible={reorderOpen}
+        animationType="slide"
+        onRequestClose={() => setReorderOpen(false)}
+      >
+        <View style={styles.reorderSheet}>
+          <View style={styles.reorderHead}>
+            <Text style={styles.viewTitle}>Reihenfolge</Text>
+            <Pressable onPress={() => setReorderOpen(false)} accessibilityLabel="Fertig">
+              <Ionicons name="checkmark" size={26} color={colors.ink} />
+            </Pressable>
+          </View>
+          <Text style={styles.reorderHint}>
+            Am Griff ☰ ziehen, um die Modul-Kacheln umzusortieren. Die
+            Reihenfolge wird bei deinem Benutzer gespeichert und gilt auf
+            allen deinen Geräten.
+          </Text>
+          <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+            <DraggableList
+              items={orderedModules.map((module) => ({
+                id: module.key,
+                name: module.label,
+              }))}
+              onReorder={(keys) => onReorderModules?.(keys)}
+            />
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1946,6 +2008,17 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     stack: { gap: space.gap },
     title: { color: colors.onGradient, fontSize: 18, fontWeight: '700' },
+    titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    reorderButton: {
+      padding: 8,
+      borderRadius: radius.control,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    reorderSheet: { flex: 1, backgroundColor: colors.panel, padding: 20, paddingTop: 60, gap: 10 },
+    reorderHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    reorderHint: { color: colors.inkSoft, fontSize: 13, lineHeight: 19 },
     error: { color: colors.danger, fontSize: 13, fontWeight: '600' },
     hint: { color: colors.onGradientSoft, fontSize: 12, lineHeight: 17 },
 

@@ -36,6 +36,7 @@ import { Toast, UndoToast } from '../components/Toast';
 import { TopStrip } from '../components/TopStrip';
 import { useHub } from '../hooks/useHub';
 import { Tap, useNotificationTap } from '../hooks/useNotificationTap';
+import { usePrefs } from '../hooks/usePrefs';
 import { usePushRegistration } from '../hooks/usePushRegistration';
 import { breakpoints, Colors, radius, space, type, useColors } from '../theme';
 import { AutomationsScreen } from './AutomationsScreen';
@@ -190,6 +191,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // nicht in den Einstellungen stehenbleiben.
   usePanelMode(!!settings.panel);
   const push = usePushRegistration(settings, status === 'connected');
+  // Persönliche Reihenfolgen – je Benutzer auf dem Hub, geräteübergreifend.
+  const { prefs, setOrder } = usePrefs(settings, status === 'connected');
 
   // Antippen einer Alarm-Nachricht führt direkt zur Kamera des betroffenen
   // Raums. Wer nachts geweckt wird, soll nicht erst durch die Räume suchen.
@@ -336,8 +339,26 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Favoriten zuerst, dann was gerade läuft, dann der Rest.
   const byFavorite = (a: Entity, b: Entity) =>
     Number(favorites.includes(b.id)) - Number(favorites.includes(a.id));
-  // Selbst gezogene Reihenfolge – unbekannte Geräte hängen sich hinten an.
-  const orderIndex = new Map((settings.order ?? []).map((id, i) => [id, i]));
+  // Welche Ansicht hat gerade eine eigene Reihenfolge? Räume je Raum,
+  // die Geräteart-Seiten je Seite. «Alle» auf der Startseite bewusst
+  // nicht: Dort gruppiert die Ansicht selbst.
+  const orderScope =
+    section === 'devices'
+      ? 'devices'
+      : section === 'light'
+        ? 'light'
+        : section === 'covers'
+          ? 'covers'
+          : section === 'home' && room !== ALL_ROOMS
+            ? `room:${room}`
+            : null;
+  // Selbst gezogene Reihenfolge – je Benutzer auf dem Hub gespeichert.
+  // Die alte, nur lokal gespeicherte Geräte-Reihenfolge bleibt als
+  // Rückfalloption, bis einmal neu gezogen wurde.
+  const orderIds =
+    (orderScope ? prefs.order?.[orderScope] : undefined) ??
+    (orderScope === 'devices' ? settings.order ?? [] : []);
+  const orderIndex = new Map(orderIds.map((id, i) => [id, i]));
   const byOrder = (a: Entity, b: Entity) => {
     const ai = orderIndex.has(a.id) ? (orderIndex.get(a.id) as number) : Infinity;
     const bi = orderIndex.has(b.id) ? (orderIndex.get(b.id) as number) : Infinity;
@@ -356,10 +377,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       )
     : shown;
 
-  const running = section === 'home' ? shown.filter(isActive).sort(byFavorite) : [];
+  // Hat ein Raum eine selbst gezogene Reihenfolge, gilt genau sie - dann
+  // entfällt auch die Zweiteilung «Aktiv/Ruhend», die Kacheln stehen, wo
+  // man sie hingezogen hat.
+  const customOrdered = orderScope != null && orderIds.length > 0;
+  const running =
+    section === 'home' && !customOrdered ? shown.filter(isActive).sort(byFavorite) : [];
   const rest =
     section === 'home'
-      ? shown.filter((entity) => !isActive(entity)).sort(byFavorite)
+      ? customOrdered
+        ? [...shown].sort(byOrder)
+        : shown.filter((entity) => !isActive(entity)).sort(byFavorite)
       : [...found].sort(byOrder);
 
   // Bei vielen Räumen wird die Startseite im „Alle“-Modus nach Räumen
@@ -527,7 +555,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       );
     }
     if (section === 'family') {
-      return <FamilyScreen settings={settings} entities={entities} currentUser={user} />;
+      return (
+        <FamilyScreen
+          settings={settings}
+          entities={entities}
+          currentUser={user}
+          moduleOrder={prefs.order?.family}
+          onReorderModules={(keys) => setOrder('family', keys)}
+        />
+      );
     }
 
     // Zurück-Zeile für alles, was über „Einstellungen“ erreicht wird.
@@ -746,7 +782,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 : `${rest.length} ${rest.length === 1 ? 'Gerät' : 'Geräte'} gefunden`}
             </Text>
           ) : null}
-          {section === 'devices' && !searching ? (
+          {orderScope && !searching && rest.length > 1 ? (
             <Pressable
               onPress={() => setReorderOpen(true)}
               accessibilityRole="button"
@@ -772,17 +808,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 </Pressable>
               </View>
               <Text style={styles.reorderHint}>
-                Am Griff ☰ ziehen, um Geräte umzusortieren. Die Reihenfolge gilt
-                für die Geräteliste.
+                Am Griff ☰ ziehen, um die Kacheln umzusortieren. Die Reihenfolge
+                gilt für diese Ansicht und wird bei deinem Benutzer gespeichert –
+                sie erscheint so auf allen deinen Geräten.
               </Text>
               <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
                 <DraggableList
                   // Bewusst die ungefilterte Liste: sortiert wird immer über
-                  // alle Geräte, auch wenn gerade eine Suche aktiv war.
+                  // alle Geräte der Ansicht, auch wenn gerade gesucht wurde.
                   items={[...shown]
                     .sort(byOrder)
                     .map((entity) => ({ id: entity.id, name: entity.name }))}
-                  onReorder={(ids) => onSaveSettings({ ...settings, order: ids })}
+                  onReorder={(ids) => (orderScope ? setOrder(orderScope, ids) : undefined)}
                 />
               </ScrollView>
             </View>

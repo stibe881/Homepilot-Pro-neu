@@ -31,6 +31,10 @@ EMPTY: dict[str, Any] = {
     # In der App gesetzte Geräte-Metadaten: [{entity_id, name?, favorite?,
     # group?}] – für Umbenennen, Favoriten und Gruppen.
     "entity_meta": [],
+    # Persönliche Oberflächen-Einstellungen: [{user, prefs}]. Der Inhalt
+    # gehört der App (z.B. Kachel-Reihenfolgen); der Hub reicht ihn nur
+    # durch, damit jedes Gerät derselben Person dieselbe Ansicht zeigt.
+    "user_prefs": [],
 }
 
 

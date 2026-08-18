@@ -20,6 +20,7 @@ WebSocket-Protokoll (/ws):
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import threading
@@ -136,6 +137,15 @@ class UserUpdateRequest(BaseModel):
     expires: str | None = None
     # Zeitfenster {"from": "07:00", "to": "20:00"}; leer hebt es auf.
     hours: dict[str, str] | None = None
+
+
+class PrefsRequest(BaseModel):
+    prefs: dict[str, Any]
+
+
+# Obergrenze der persönlichen Einstellungen je Benutzer - genug für viele
+# Reihenfolgen, zu wenig, um die Datendatei zu fluten.
+PREFS_BYTES = 32_768
 
 
 class ConfigRequest(BaseModel):
@@ -1095,6 +1105,37 @@ def create_app(hub: Hub) -> FastAPI:
         hub.data.set("push_prefs", list(stored.values()))
         hub.push.muted = push.parse_muted(hub.data.get("push_prefs"))
         return {"ok": True, "muted": sorted(hub.push.muted.get(user.name, set()))}
+
+    # ── Persönliche Oberflächen-Einstellungen ──────────────────────────────
+    # Kachel-Reihenfolgen und Ähnliches: je Benutzer gespeichert, damit jedes
+    # Gerät derselben Person dieselbe Ansicht zeigt. Der Inhalt gehört der
+    # App – der Hub prüft nur, dass es ein Objekt in vernünftiger Grösse ist.
+
+    @app.get("/api/prefs")
+    async def get_prefs(request: Request) -> dict[str, Any]:
+        user = current_user(request)
+        for entry in hub.data.get("user_prefs"):
+            if isinstance(entry, dict) and entry.get("user") == user.name:
+                stored = entry.get("prefs")
+                return {"prefs": stored if isinstance(stored, dict) else {}}
+        return {"prefs": {}}
+
+    @app.put("/api/prefs")
+    async def put_prefs(body: PrefsRequest, request: Request) -> dict[str, Any]:
+        user = current_user(request)
+        if len(json.dumps(body.prefs, ensure_ascii=False)) > PREFS_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail="Die persönlichen Einstellungen sind zu gross geworden.",
+            )
+        entries = [
+            entry
+            for entry in hub.data.get("user_prefs")
+            if isinstance(entry, dict) and entry.get("user") != user.name
+        ]
+        entries.append({"user": user.name, "prefs": body.prefs})
+        hub.data.set("user_prefs", entries)
+        return {"ok": True}
 
     # ── Lautsprecher ───────────────────────────────────────────────────────
 
