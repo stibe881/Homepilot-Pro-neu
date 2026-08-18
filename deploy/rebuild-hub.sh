@@ -181,13 +181,35 @@ if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
     INSECURE="--insecure"
   fi
   # Scheitert der Webhook, darf das Skript nicht einfach sterben - der
-  # Container ist schon weg, und jemand muss erfahren, wie es weitergeht.
+  # alte Container läuft ja weiter, und jemand muss erfahren, was fehlt.
+  # curls Rückgabewert sagt ziemlich genau, woran es lag; das hier zu
+  # übersetzen erspart die Suche im Netz.
   # shellcheck disable=SC2086
   if ! curl -fsS $INSECURE -X POST "$PORTAINER_WEBHOOK_URL"; then
+    CURL_CODE=$?
     echo ""
-    echo "✗ Der Portainer-Webhook hat nicht geantwortet. Das Abbild ist"
-    echo "  gebaut, aber der Container läuft nicht - jetzt von Hand:"
-    echo "  Portainer → Stacks → homepilot → Update the stack → Deploy."
+    echo "✗ Der Portainer-Webhook hat nicht geantwortet (curl-Code $CURL_CODE)."
+    echo "  Das neue Abbild ist gebaut, aber nicht ausgerollt - der Hub läuft"
+    echo "  mit dem BISHERIGEN Stand weiter. Das Haus ist also nicht offline."
+    case "$CURL_CODE" in
+      60|35|51)
+        echo "  Ursache: Zertifikatsfehler. Portainer stellt sein Zertifikat"
+        echo "  auf 9443 selbst aus - in $CREDENTIALS_FILE gehört die Zeile:"
+        echo "    PORTAINER_INSECURE=1"
+        ;;
+      7|28)
+        echo "  Ursache: Portainer war nicht erreichbar. Läuft der Container?"
+        echo "    docker ps --filter name=portainer"
+        ;;
+      22)
+        echo "  Ursache: Portainer lehnt die Adresse ab (meist 404). Der"
+        echo "  Webhook wurde vermutlich neu erzeugt - in Portainer unter"
+        echo "  Stacks → homepilot → Webhook die Adresse ablesen und in"
+        echo "  $CREDENTIALS_FILE als PORTAINER_WEBHOOK_URL eintragen."
+        ;;
+    esac
+    echo "  Von Hand ausrollen: Portainer → Stacks → homepilot →"
+    echo "  Update the stack → Re-pull image AUS → Deploy."
     exit 1
   fi
 
