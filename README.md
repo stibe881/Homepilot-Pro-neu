@@ -214,6 +214,9 @@ Szenen per Siri/Widget auslösen: [`docs/siri-und-widgets.md`](docs/siri-und-wid
 ## Von unterwegs
 
 Für die App: VPN ins Heimnetz, [`docs/fernzugriff.md`](docs/fernzugriff.md).
+Ohne VPN geht es auch – die Web-Fassung lässt sich vom Hub ausliefern
+(`web_root`), dann hängt die Steuerung aber am offenen Internet:
+[`docs/app-ohne-vpn.md`](docs/app-ohne-vpn.md).
 Der Hub gehört immer ins Heimnetz – er spricht lokal mit CCU, Hue-Bridge und
 Kameras. Nur das Kamerabild in der Push-Nachricht braucht eine öffentliche
 Adresse, und auch die nur für einen einzigen Pfad:

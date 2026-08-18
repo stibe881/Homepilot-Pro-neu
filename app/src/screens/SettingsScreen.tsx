@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { HubSettings } from '../api/types';
 import { Card } from '../components/Card';
+import { defaultHubUrl } from '../lib/origin';
 import { applySetup, QrScanner } from '../components/QrScanner';
 import { Colors, radius, ThemeMode, type, useColors } from '../theme';
 
@@ -29,7 +30,7 @@ interface Props {
 export function SettingsScreen({ initial, onSave, onCancel, embedded, user }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const [url, setUrl] = useState(initial?.url ?? 'http://192.168.1.10:8123');
+  const [url, setUrl] = useState(initial?.url ?? defaultHubUrl());
   const [token, setToken] = useState(initial?.token ?? '');
   const [name, setName] = useState(initial?.name ?? '');
   const [theme, setTheme] = useState<ThemeMode>(initial?.theme ?? 'system');

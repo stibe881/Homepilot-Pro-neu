@@ -50,6 +50,14 @@ Deine UniFi-Konsole kann selbst WireGuard-Server spielen:
 Voraussetzung: eine öffentliche IPv4 oder DynDNS auf dem Anschluss; bei
 CGNAT (manche Glasfaser-Anbieter) nimm Variante A.
 
+## Ganz ohne VPN?
+
+Möglich, aber mit anderen Folgen: Die Web-Fassung der App lässt sich vom
+Hub selbst ausliefern und über eine Subdomain aufrufen. Dann hängt die
+ganze Steuerung am offenen Internet, geschützt allein durch das Token.
+Wer das bewusst will, findet den Weg samt Absicherung in
+[app-ohne-vpn.md](app-ohne-vpn.md).
+
 ## Was du NICHT tun solltest
 
 - Port 8123 im Router freigeben – der Hub wäre offen im Internet, mit

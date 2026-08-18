@@ -31,12 +31,14 @@ from typing import Any
 import aiohttp
 from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from ..core.config import ConfigError, load_config
 from ..core import energy as energy_module
 from ..core import push
 from ..core import snapshots
+from ..core import throttle as throttle_module
 from ..core import watchdog
 from ..core import users as users_module
 from ..core import config_edit
@@ -170,6 +172,10 @@ COMMAND_WORDS = {
 
 
 def create_app(hub: Hub) -> FastAPI:
+    # Eine Bremse je Hub-Instanz, nicht global: Tests sollen sich nicht
+    # gegenseitig aussperren.
+    throttle = throttle_module.Throttle()
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         await hub.start()
@@ -198,9 +204,25 @@ def create_app(hub: Hub) -> FastAPI:
         return request.query_params.get("token")
 
     def current_user(request: Request) -> User:
+        # Sobald der Hub von aussen erreichbar ist, klopfen Scanner an.
+        # Die Bremse zählt nur Fehlversuche – wer ein gültiges Token hat,
+        # darf so oft, wie er will.
+        address = throttle_module.client_address(request)
+        waiting = throttle.blocked_for(address)
+        if waiting > 0:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Zu viele Fehlversuche. In {round(waiting)} Sekunden wieder.",
+                headers={"Retry-After": str(round(waiting))},
+            )
         user = hub.users.by_token(token_from(request))
         if user is None:
+            if throttle.failed(address):
+                log.warning(
+                    "%s gesperrt: zu viele ungültige Tokens", address
+                )
             raise HTTPException(status_code=401, detail="Ungültiges Token")
+        throttle.succeeded(address)
         return user
 
     def require(request: Request, capability: str) -> User:
@@ -1474,4 +1496,31 @@ def create_app(hub: Hub) -> FastAPI:
                 unsubscribe()
             sender_task.cancel()
 
+    _serve_web(app, hub)
     return app
+
+
+def _serve_web(app: FastAPI, hub: Hub) -> None:
+    """Die gebaute Web-Fassung der App unter «/» ausliefern.
+
+    Ganz am Ende eingehängt und deshalb hinter allen Routen: Ein Mount auf
+    «/» würde sonst die Schnittstelle überdecken.
+
+    Ohne Ordner passiert nichts – der Hub bleibt dann reine Schnittstelle,
+    so wie bisher.
+    """
+    root = hub.config.web_root
+    if not root:
+        return
+    folder = Path(root)
+    if not (folder / "index.html").exists():
+        log.warning(
+            "web_root %s enthält keine index.html – die Web-Fassung wird "
+            "nicht ausgeliefert. Gebaut wird sie mit «npx expo export "
+            "--platform web» im Ordner app/.",
+            folder,
+        )
+        return
+    # html=True liefert index.html für «/» aus.
+    app.mount("/", StaticFiles(directory=str(folder), html=True), name="web")
+    log.info("Web-Fassung der App wird aus %s ausgeliefert", folder)

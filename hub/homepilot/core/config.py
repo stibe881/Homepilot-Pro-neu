@@ -51,6 +51,10 @@ class HubConfig:
     # Update aus der App: {webhook_url: "https://…"} – die Adresse, die
     # angestossen wird. Ohne Eintrag bleibt der Knopf aus.
     update: dict[str, Any] = field(default_factory=dict)
+    # Ordner mit der gebauten Web-Fassung der App. Ist er da, liefert der
+    # Hub sie unter «/» aus – dann genügt eine Adresse für App und
+    # Schnittstelle. Leer = der Hub bleibt reine Schnittstelle.
+    web_root: str | None = None
     # Wohin in der App angelegte Benutzer und Automationen geschrieben werden.
     data_file: str | None = None
     # Woher diese Konfiguration geladen wurde – für den Editor in der App.
@@ -138,6 +142,10 @@ def load_config(path: str | Path) -> HubConfig:
     if not isinstance(streaming, dict):
         raise ConfigError("'streaming' muss ein Mapping sein (mediamtx_api, mediamtx_hls)")
 
+    web_root = raw.get("web_root")
+    if web_root is not None and not isinstance(web_root, str):
+        raise ConfigError("'web_root' muss ein Pfad sein")
+
     update_config = raw.get("update") or {}
     if not isinstance(update_config, dict):
         raise ConfigError("'update' muss ein Mapping sein (webhook_url)")
@@ -174,5 +182,6 @@ def load_config(path: str | Path) -> HubConfig:
         location=location,
         push=push_config,
         update=update_config,
+        web_root=str(web_root) if web_root else None,
         source_path=str(path),
     )

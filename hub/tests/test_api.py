@@ -355,3 +355,37 @@ def test_checking_a_broken_config_does_not_write_it(tmp_path):
         assert result["error"]
         # Und die echte Datei ist unverändert.
         assert "demo" in path.read_text(encoding="utf-8")
+
+
+def test_the_web_app_is_served_but_never_shadows_the_api(tmp_path):
+    """Ein Mount auf «/» würde die Schnittstelle überdecken, wenn er zu
+    früh käme – dann bekäme die App auf jeden Aufruf eine HTML-Seite."""
+    web = tmp_path / "web"
+    web.mkdir()
+    (web / "index.html").write_text("<html>HomePilot</html>", encoding="utf-8")
+    (web / "app.js").write_text("// code", encoding="utf-8")
+
+    hub = Hub(make_config(token="geheim", web_root=str(web)))
+    with TestClient(create_app(hub)) as client:
+        # Die Oberfläche kommt.
+        response = client.get("/")
+        assert response.status_code == 200
+        assert "HomePilot" in response.text
+        assert client.get("/app.js").status_code == 200
+
+        # Und die Schnittstelle funktioniert weiterhin – samt Tokenprüfung.
+        assert client.get("/api/entities").status_code == 401
+        assert (
+            client.get(
+                "/api/entities", headers={"Authorization": "Bearer geheim"}
+            ).status_code
+            == 200
+        )
+
+
+def test_without_a_web_folder_the_hub_stays_a_plain_api(tmp_path):
+    hub = Hub(make_config(token="geheim", web_root=str(tmp_path / "gibtsnicht")))
+    with TestClient(create_app(hub)) as client:
+        # Kein Absturz, nur keine Oberfläche.
+        assert client.get("/").status_code == 404
+        assert client.get("/api/health").status_code == 200

@@ -374,6 +374,18 @@ energy:
 # update:
 #   webhook_url: https://portainer.example.com/api/stacks/webhooks/xxxxxxxx
 
+# Web-Fassung der App vom Hub ausliefern lassen.
+#
+# Damit erreicht man die App über dieselbe Adresse wie die Schnittstelle –
+# praktisch, wenn man ohne VPN von unterwegs zugreifen will. Der Preis:
+# Die ganze Steuerung hängt dann am offenen Internet, geschützt allein
+# durch das Token. Was das heisst und wie man es absichert, steht in
+# docs/app-ohne-vpn.md.
+#
+# Gebaut wird sie mit «npm run build:web» im Ordner app/, der Inhalt von
+# app/dist/ kommt dann hierher.
+# web_root: /config/web
+
 # Räume: Die App macht daraus ihre Reiter. Ohne diesen Abschnitt zeigt sie
 # einfach alle Geräte ohne Reiter an.
 rooms:
