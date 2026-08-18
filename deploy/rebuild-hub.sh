@@ -95,10 +95,11 @@ echo ""
 echo "✓ Abbild '$IMAGE' ist aktuell."
 
 if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
-  # Jetzt erst den alten Container weichen lassen - das neue Abbild steht
-  # schon bereit, die Lücke ist so kurz wie möglich.
-  echo "→ Entferne den alten Container …"
-  docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+  # Der alte Container bleibt bewusst stehen: Den Tausch macht Portainer
+  # beim Ausrollen selbst. Scheitert es dort (etwa am Re-pull eines lokal
+  # gebauten Abbilds), läuft der alte Stand einfach weiter - ein
+  # misslungenes Update ist dann ein Nicht-Ereignis, kein Ausfall.
+  NEW_IMAGE_ID=$(docker image inspect "$IMAGE" -f '{{.Id}}')
   echo "→ Löse den Portainer-Webhook aus …"
   # Portainer stellt sein Zertifikat auf Port 9443 selbst aus. Prüfen lässt
   # es sich deshalb nicht - und ohne die folgende Zeile bricht curl mit
@@ -125,25 +126,33 @@ if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
   fi
 
   # Der Webhook meldet nur «angenommen» - ob das Ausrollen gelingt,
-  # entscheidet sich danach. Bekannter Stolperstein: Portainer versucht
-  # dabei ein Re-pull, und ein lokal gebautes Abbild liegt in keiner
-  # Registry. Deshalb hier nachsehen, ob der Hub wirklich wiederkommt,
-  # statt auf Verdacht «Fertig» zu sagen.
-  echo "→ Warte, bis der Hub wieder antwortet …"
-  for _ in $(seq 1 30); do
+  # entscheidet sich danach. Woran man den Erfolg erkennt: Der laufende
+  # Container zeigt auf das frisch gebaute Abbild. Der Hub selbst kann
+  # dabei kurz weg sein (der Tausch), deshalb zusätzlich auf /api/health
+  # warten.
+  echo "→ Warte auf den Wechsel …"
+  for _ in $(seq 1 45); do
     sleep 2
-    if curl -fsS -m 3 "http://127.0.0.1:8123/api/health" >/dev/null 2>&1; then
+    RUNNING_IMAGE_ID=$(docker inspect -f '{{.Image}}' "$CONTAINER" 2>/dev/null || echo "keiner")
+    if [ "$RUNNING_IMAGE_ID" = "$NEW_IMAGE_ID" ] \
+       && curl -fsS -m 3 "http://127.0.0.1:8123/api/health" >/dev/null 2>&1; then
       echo ""
       echo "✓ Fertig - der Hub läuft mit dem frischen Abbild."
       exit 0
     fi
   done
   echo ""
-  echo "✗ Der Webhook wurde angenommen, aber der Hub ist nach einer Minute"
-  echo "  nicht zurück. Meist scheitert Portainer am Re-pull des lokalen"
-  echo "  Abbilds. Von Hand: Portainer → Stacks → homepilot →"
-  echo "  Update the stack → Re-pull image AUS → Deploy."
-  echo "  Den Grund zeigt: docker logs portainer"
+  if [ "$RUNNING_IMAGE_ID" = "keiner" ]; then
+    echo "✗ Portainer hat den Container entfernt, aber keinen neuen"
+    echo "  gestartet. Von Hand: Portainer → Stacks → homepilot →"
+    echo "  Update the stack → Re-pull image AUS → Deploy."
+  else
+    echo "✗ Portainer hat den Container nicht gewechselt - der alte Stand"
+    echo "  läuft weiter (das Haus ist also nicht offline). Meist scheitert"
+    echo "  das Ausrollen am Re-pull des lokal gebauten Abbilds."
+    echo "  Von Hand: Portainer → Stacks → homepilot →"
+    echo "  Update the stack → Re-pull image AUS → Deploy."
+  fi
   exit 1
 else
   echo "  Jetzt in Portainer: Stacks → homepilot → Update the stack → Deploy."
