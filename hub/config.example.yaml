@@ -371,6 +371,17 @@ energy:
 # Portainer (Stacks → homepilot → Webhook) oder ein eigener kleiner Dienst
 # auf dem Host, der rebuild-hub.sh startet. Ohne Eintrag bleibt der Knopf
 # ohne Wirkung und sagt das auch.
+# Zwei Möglichkeiten:
+#
+#   a) Der Update-Listener auf dem Host (deploy/update-listener.py). Der
+#      baut das Abbild neu *und* rollt aus – ein Tipp genügt. Braucht ein
+#      Geheimnis, weil er auf dem Host baut. Einrichtung: deploy/portainer.md
+# update:
+#   webhook_url: http://172.17.0.1:9126/update
+#   token: "${UPDATE_SECRET}"
+#
+#   b) Nur der Portainer-Webhook. Der rollt den Stack mit dem *vorhandenen*
+#      Abbild neu aus – er baut nicht. Also nur ein Neustart, kein Update.
 # update:
 #   webhook_url: https://portainer.example.com/api/stacks/webhooks/xxxxxxxx
 

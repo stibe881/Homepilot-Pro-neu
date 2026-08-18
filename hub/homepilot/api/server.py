@@ -444,10 +444,15 @@ def create_app(hub: Hub) -> FastAPI:
                 ),
             )
         log.warning("Update angefordert von %s", user.name)
+        # Ein Dienst, der auf dem Host baut, darf nicht ohne Nachweis
+        # anspringen. Der Portainer-Webhook braucht dagegen keinen – seine
+        # Adresse ist selbst das Geheimnis.
+        secret = str((hub.config.update or {}).get("token") or "")
+        headers = {"Authorization": f"Bearer {secret}"} if secret else {}
         try:
             timeout = aiohttp.ClientTimeout(total=30)
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(url) as response:
+                async with session.post(url, headers=headers) as response:
                     text = (await response.text())[:200]
                     if response.status >= 400:
                         raise HTTPException(

@@ -1,0 +1,34 @@
+# Nimmt den Update-Knopf der App entgegen und baut auf dem Host.
+#
+# Einrichtung:
+#   sudo cp deploy/update-listener.py /opt/homepilot/
+#   sudo chmod +x /opt/homepilot/update-listener.py
+#   sudo cp deploy/homepilot-update.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now homepilot-update
+#
+# Nachsehen, was er tut:
+#   journalctl -u homepilot-update -f
+
+[Unit]
+Description=HomePilot Update-Listener
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+# Dieselbe Datei, aus der rebuild-hub.sh seine Zugangsdaten liest.
+# Dort gehört zusätzlich UPDATE_SECRET hinein.
+EnvironmentFile=/opt/homepilot/github-credentials.env
+ExecStart=/usr/bin/python3 /opt/homepilot/update-listener.py
+Restart=on-failure
+RestartSec=10
+
+# Der Dienst baut Container-Abbilder – er braucht Docker und damit root.
+# Genau deshalb steht er hier und nicht im Hub-Container: So bleibt der
+# weitreichende Zugriff bei einem Dienst, der nichts aus dem Internet holt
+# und dessen ganze Aufgabe in einem Aufruf besteht.
+User=root
+
+[Install]
+WantedBy=multi-user.target
