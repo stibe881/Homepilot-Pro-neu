@@ -147,6 +147,91 @@ def room_boxes(map_data: Any) -> tuple[dict[int, list[float]], dict[str, int] | 
     return boxes, {"width": width, "height": height}
 
 
+def _image_size(map_data: Any) -> tuple[Any, int, int] | None:
+    """Bild samt gerenderter Grösse – None, wenn (noch) keine Karte da ist."""
+    image = getattr(map_data, "image", None)
+    if image is None or getattr(image, "is_empty", True):
+        return None
+    dimensions = image.dimensions
+    width = max(1, round(dimensions.width * dimensions.scale))
+    height = max(1, round(dimensions.height * dimensions.scale))
+    return dimensions, width, height
+
+
+def _point_cls() -> Any:
+    try:
+        from vacuum_map_parser_base.map_data import Point
+    except ImportError:  # in Tests ohne Kartenbibliothek
+        from types import SimpleNamespace as Point  # type: ignore[assignment]
+    return Point
+
+
+def map_calibration(map_data: Any) -> dict[str, float] | None:
+    """Umrechnung Karten-Millimeter ↔ Bild-Anteile, als affine Faktoren.
+
+    to_img ist eine reine Verschiebung+Skalierung je Achse; zwei Stützpunkte
+    genügen also, um sie umkehrbar festzuhalten. Gebraucht wird das für die
+    Zonenreinigung: Die App wählt die Zone auf dem Bild (Anteile 0..1), der
+    Sauger will Karten-Millimeter.
+    """
+    size = _image_size(map_data)
+    if size is None:
+        return None
+    dimensions, width, height = size
+    point = _point_cls()
+    p0 = dimensions.to_img(point(x=0, y=0))
+    p1 = dimensions.to_img(point(x=10_000, y=10_000))
+    ax = (p1.x - p0.x) / 10_000
+    ay = (p1.y - p0.y) / 10_000
+    if ax == 0 or ay == 0:
+        return None
+    return {
+        "ax": ax, "bx": float(p0.x),
+        "ay": ay, "by": float(p0.y),
+        "width": float(width), "height": float(height),
+    }
+
+
+def robot_position(map_data: Any) -> list[float] | None:
+    """Position des Saugers als Bild-Anteile [x, y] – None ohne Karte/Position."""
+    size = _image_size(map_data)
+    if size is None:
+        return None
+    dimensions, width, height = size
+    position = getattr(map_data, "vacuum_position", None)
+    if position is None:
+        return None
+    pixel = dimensions.to_img(position)
+    x = pixel.x / width
+    y = pixel.y / height
+    if not (0.0 <= x <= 1.0 and 0.0 <= y <= 1.0):
+        return None
+    return [round(x, 4), round(y, 4)]
+
+
+def zone_clean_params(zone: Any, calibration: dict[str, float]) -> list[list[int]]:
+    """Parameter für APP_ZONED_CLEAN aus einer Bild-Zone (rein, testbar).
+
+    ``zone`` sind zwei Ecken als Bild-Anteile [x0, y0, x1, y1]; der Sauger
+    erwartet Karten-Millimeter mit x0<x1 und y0<y1 – nach dem Umrechnen wird
+    deshalb sortiert (die Bild-y-Achse zeigt meist in die Gegenrichtung).
+    """
+    if not (isinstance(zone, (list, tuple)) and len(zone) == 4):
+        raise ValueError("clean_zone braucht data.zone mit [x0, y0, x1, y1] (Anteile 0..1)")
+    fx0, fy0, fx1, fy1 = (float(value) for value in zone)
+    xs = sorted(
+        round((fx * calibration["width"] - calibration["bx"]) / calibration["ax"])
+        for fx in (fx0, fx1)
+    )
+    ys = sorted(
+        round((fy * calibration["height"] - calibration["by"]) / calibration["ay"])
+        for fy in (fy0, fy1)
+    )
+    if xs[0] == xs[1] or ys[0] == ys[1]:
+        raise ValueError("Die Zone hat keine Fläche – zwei verschiedene Ecken wählen")
+    return [[xs[0], ys[0], xs[1], ys[1], 1]]
+
+
 def segment_clean_params(room_ids: list[Any]) -> list[dict[str, Any]]:
     """Parameter für APP_SEGMENT_CLEAN (rein, testbar).
 
@@ -195,8 +280,12 @@ class RoborockIntegration(Integration):
             "locate": RoborockCommand.FIND_ME,
         }
         self._segment_clean = RoborockCommand.APP_SEGMENT_CLEAN
+        self._zone_clean = RoborockCommand.APP_ZONED_CLEAN
         self._set_fan = RoborockCommand.SET_CUSTOM_MODE
         self._interval = float(self.config.get("scan_interval", 60))
+        # entity_id → Umrechnung Bild-Anteile ↔ Karten-Millimeter, wird bei
+        # jedem Karten-Abruf aufgefrischt (die Karte kann sich verschieben).
+        self._calibration: dict[str, dict[str, float]] = {}
 
         # Anmeldung: Gespeichertes Token bevorzugen. Sonst mit Passwort, was
         # aber bei vielen Konten nicht mehr geht (E-Mail-Code, Fehler 2031) –
@@ -262,7 +351,7 @@ class RoborockIntegration(Integration):
                 EntityKind.VACUUM,
                 name or "Roborock",
                 state={"state": "unknown", "fan_speeds": list(FAN_SPEEDS)},
-                commands=[*self._commands, "clean_rooms", "set_fan_speed"],
+                commands=[*self._commands, "clean_rooms", "clean_zone", "set_fan_speed"],
                 available=False,
             )
             self._devices[entity.id] = device
@@ -347,6 +436,12 @@ class RoborockIntegration(Integration):
                         room["box"] = boxes[room["id"]]
                 if size:
                     state["map"] = size
+                calibration = map_calibration(map_trait.map_data)
+                if calibration:
+                    self._calibration[entity_id] = calibration
+                position = robot_position(map_trait.map_data)
+                if position:
+                    state["robot"] = position
         except Exception as err:
             self.log.debug("Raum-Bereiche von %s nicht abrufbar: %s", device.name, err)
         await self.hub.registry.update_state(entity_id, state)
@@ -380,6 +475,21 @@ class RoborockIntegration(Integration):
             await _maybe_await(
                 sender.send(self._segment_clean, params=segment_clean_params(data.get("rooms")))
             )
+        elif command == "clean_zone":
+            calibration = self._calibration.get(entity.id)
+            if calibration is None:
+                # Karte einmal holen – die Umrechnung fällt dabei mit ab.
+                await self.snapshot(entity)
+                calibration = self._calibration.get(entity.id)
+            if calibration is None:
+                raise ConfigError(
+                    "Ohne Karte keine Zonenreinigung – der Sauger liefert gerade keine."
+                )
+            await _maybe_await(
+                sender.send(
+                    self._zone_clean, params=zone_clean_params(data.get("zone"), calibration)
+                )
+            )
         elif command == "set_fan_speed":
             await _maybe_await(
                 sender.send(self._set_fan, params=[fan_speed_code(data.get("level"))])
@@ -398,6 +508,19 @@ class RoborockIntegration(Integration):
             if map_trait is None:
                 return None
             await _maybe_await(map_trait.refresh())
+            # Die frisch geladene Karte weiss, wo der Sauger gerade steht –
+            # das wandert als Nebeneffekt in den Zustand, damit die App die
+            # Position zeigen kann, ohne die Karte doppelt abzurufen. Die
+            # Umrechnung für die Zonenreinigung frischt dabei gleich mit auf.
+            try:
+                calibration = map_calibration(map_trait.map_data)
+                if calibration:
+                    self._calibration[entity.id] = calibration
+                position = robot_position(map_trait.map_data)
+                if position:
+                    await self.hub.registry.update_state(entity.id, {"robot": position})
+            except Exception:
+                pass
             return map_trait.image_content
         except Exception as err:
             self.log.debug("Karte von %s nicht abrufbar: %s", device.name, err)

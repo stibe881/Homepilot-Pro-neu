@@ -323,6 +323,39 @@ def test_room_boxes_without_image():
     assert room_boxes(_Empty()) == ({}, None)
 
 
+def test_robot_position_as_image_fractions():
+    from homepilot.integrations.roborock import robot_position
+
+    class _WithRobot(_MapData):
+        from types import SimpleNamespace
+
+        vacuum_position = SimpleNamespace(x=50, y=30)
+
+    # x 50/200 → 0.25; y gespiegelt zu 70/100 → 0.7
+    assert robot_position(_WithRobot()) == [0.25, 0.7]
+    # Ohne Position (Sauger meldet keine): None statt geratener Werte.
+    assert robot_position(_MapData()) is None
+
+
+def test_zone_clean_params_inverts_the_map_projection():
+    import pytest as _pytest
+
+    from homepilot.integrations.roborock import map_calibration, zone_clean_params
+
+    calibration = map_calibration(_MapData())
+    assert calibration is not None
+    # Die Bild-Zone von Raum 16 (siehe test_room_boxes_to_image_fractions)
+    # muss zurück auf dessen Karten-Millimeter führen - die Umrechnung ist
+    # die exakte Umkehrung, egal wie herum die Ecken angegeben sind.
+    assert zone_clean_params([0.1, 0.6, 0.3, 0.9], calibration) == [[20, 10, 60, 40, 1]]
+    assert zone_clean_params([0.3, 0.9, 0.1, 0.6], calibration) == [[20, 10, 60, 40, 1]]
+    # Eine Zone ohne Fläche ist ein Bedienfehler.
+    with _pytest.raises(ValueError):
+        zone_clean_params([0.2, 0.5, 0.2, 0.9], calibration)
+    with _pytest.raises(ValueError):
+        zone_clean_params(None, calibration)
+
+
 # ── Google Cast ──────────────────────────────────────────────────────────
 
 

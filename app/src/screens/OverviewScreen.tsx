@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Entity, Scene } from '../api/types';
 import { Card } from '../components/Card';
+import { VacuumHome } from '../components/VacuumHome';
 import { Colors, radius, space, useColors } from '../theme';
 
 /**
@@ -34,23 +35,6 @@ const MONTHS = [
   'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
   'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember',
 ];
-
-/** «Reinigt · 82 %» – Zustand und Akku in einer Zeile (rein, testbar). */
-function vacuumText(vacuum: Entity): string {
-  const labels: Record<string, string> = {
-    cleaning: 'Reinigt',
-    returning: 'Fährt zur Station',
-    charging: 'Lädt',
-    charging_complete: 'Geladen',
-    docked: 'An der Station',
-    idle: 'Bereit',
-    paused: 'Pausiert',
-    error: 'Fehler',
-  };
-  const state = labels[String(vacuum.state.state ?? '')] ?? String(vacuum.state.state ?? '–');
-  const battery = vacuum.state.battery;
-  return battery != null ? `${state} · ${battery} %` : state;
-}
 
 function two(value: number): string {
   return value < 10 ? `0${value}` : String(value);
@@ -355,51 +339,12 @@ export function OverviewScreen({
       {vacuum ? (
         <View style={styles.tileRow}>
           <Tile styles={styles} colors={colors} width="100%" icon="hardware-chip-outline" title={vacuum.name}>
-            <View style={styles.vacuumRow}>
-              <View style={{ flex: 1, gap: 4 }}>
-                <Text
-                  style={[
-                    styles.tileState,
-                    vacuum.state.state === 'cleaning' && { color: colors.accent },
-                  ]}
-                >
-                  {vacuumText(vacuum)}
-                </Text>
-                {vacuum.commands.includes('start') ? (
-                  <Action
-                    styles={styles}
-                    icon={vacuum.state.state === 'cleaning' ? 'home-outline' : 'play-outline'}
-                    accent={vacuum.state.state !== 'cleaning'}
-                    label={vacuum.state.state === 'cleaning' ? 'Zur Station' : 'Saugen starten'}
-                    onPress={() =>
-                      onCommand(
-                        vacuum.id,
-                        vacuum.state.state === 'cleaning' ? 'dock' : 'start'
-                      )
-                    }
-                  />
-                ) : null}
-              </View>
-              {snapshotUri?.(vacuum) ? (
-                // Die Karte des Saugers – dasselbe Bild wie auf der
-                // Gerätekachel, nur eben dort, wo man morgens hinschaut.
-                // Beim Reinigen bekommt die Adresse einen Minutenanhang,
-                // sonst bliebe der Bild-Cache auf dem alten Stand und der
-                // Sauger stünde auf der Karte fest, während er längst im
-                // nächsten Zimmer ist.
-                <Image
-                  source={{
-                    uri:
-                      snapshotUri(vacuum) +
-                      (vacuum.state.state === 'cleaning'
-                        ? `&t=${Math.floor(now.getTime() / 60000)}`
-                        : ''),
-                  }}
-                  style={styles.vacuumMap}
-                  resizeMode="contain"
-                />
-              ) : null}
-            </View>
+            <VacuumHome
+              entity={vacuum}
+              uri={snapshotUri?.(vacuum)}
+              now={now}
+              onCommand={onCommand}
+            />
           </Tile>
         </View>
       ) : null}
@@ -663,10 +608,6 @@ const makeStyles = (colors: Colors) =>
     tileHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     tileTitle: { color: colors.inkSoft, fontSize: 13, fontWeight: '700', flex: 1 },
     tileState: { color: colors.ink, fontSize: 16, fontWeight: '600' },
-    vacuumRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-    // Die Karte ist quer – flach und breit statt quadratisch, sonst
-    // besteht die Kachel zur Hälfte aus Leere.
-    vacuumMap: { width: '55%', maxWidth: 260, aspectRatio: 4 / 3, borderRadius: radius.control },
     tileSub: { color: colors.inkSoft, fontSize: 13 },
 
 
