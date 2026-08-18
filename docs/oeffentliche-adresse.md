@@ -135,19 +135,34 @@ mit (auf Android sofort, auf iOS mit dem eigenen App-Build – siehe
 
 ## Prüfen
 
-Vom Handy **im Mobilfunknetz**, nicht im WLAN:
+Von aussen, also vom Handy **im Mobilfunknetz** oder von einem fremden
+Rechner – nicht aus dem eigenen WLAN.
 
-```
-https://homepilot.deinedomain.ch/api/entities   → 404 (richtig so)
-https://homepilot.deinedomain.ch/api/push/image/irgendwas → 404
-```
+Wichtig ist dabei weniger die Zahl 404 als die **Form der Antwort**: Beide
+Seiten antworten mit 404, aber unterschiedlich. Daran erkennt man, wer
+geantwortet hat.
 
-Das zweite 404 heisst „die Kennung gibt es nicht" und ist genau das, was
-auch eine abgelaufene Adresse liefert – von aussen ist beides nicht zu
-unterscheiden, und das ist Absicht.
+| Aufruf | Falsch (Beschränkung fehlt) | Richtig |
+|---|---|---|
+| `/` | `{"detail":"Not Found"}` | nginx-Seite „404 Not Found" |
+| `/api/health` | `{"ok":true,"entities":42}` | nginx-Seite „404 Not Found" |
+| `/api/push/image/test` | `{"detail":"Kein Bild"}` | `{"detail":"Kein Bild"}` |
 
-Ein echter Test geht nur über einen echten Alarm: auslösen, und die Meldung
-muss das Bild zeigen.
+- **JSON** heisst: Die Anfrage ist bis zum Hub durchgelaufen.
+- **Die nginx-Seite** heisst: Der Proxy hat sie vorher abgefangen.
+
+Die dritte Zeile ist die entscheidende – dort *muss* JSON vom Hub kommen,
+sonst käme auch das Bild nie durch. Und `{"detail":"Kein Bild"}` heisst
+schlicht «diese Kennung gibt es nicht»; genau dasselbe liefert eine
+abgelaufene Adresse. Von aussen ist beides nicht zu unterscheiden, und das
+ist Absicht.
+
+Dass `/` mit `{"detail":"Not Found"}` antwortet, ist übrigens normal und
+kein Fehler: Der Hub ist reine API und hat gar keine Startseite. Solange
+diese Antwort aber von aussen ankommt, steht die Tür offen.
+
+Ein vollständiger Test geht nur über einen echten Alarm: auslösen, und die
+Meldung muss das Bild zeigen.
 
 ## Was du weiterhin nicht tun solltest
 
