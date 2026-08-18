@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Entity } from '../api/types';
 import { ConnectionStatus } from '../hooks/useHub';
@@ -23,6 +23,16 @@ function statusColor(colors: Colors, status: ConnectionStatus): string {
 export function nextCalendarEvent(calendar: Entity | undefined): any | null {
   const events: any[] = Array.isArray(calendar?.state.events) ? calendar!.state.events : [];
   return events.find((event) => !event.birthday) ?? null;
+}
+
+/** Routen-Adressen zu einem Termin-Ort (rein, testbar). Beide zeigen die
+ *  Route ab dem aktuellen Standort, nicht bloss die Karte des Ziels. */
+export function googleMapsRoute(destination: string): string {
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}&travelmode=driving`;
+}
+
+export function appleMapsRoute(destination: string): string {
+  return `https://maps.apple.com/?daddr=${encodeURIComponent(destination)}&dirflg=d`;
 }
 
 /**
@@ -50,6 +60,8 @@ export function TopStrip({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [lightsOpen, setLightsOpen] = useState(false);
   const [eventOpen, setEventOpen] = useState(false);
+  // Nachfrage «womit öffnen?» nach dem Tipp auf den Termin-Ort.
+  const [routeAsk, setRouteAsk] = useState(false);
   const temperature = entities.find(
     (entity) => entity.kind === 'sensor' && entity.state.unit === '°C'
   );
@@ -179,14 +191,61 @@ export function TopStrip({
                 <Text style={styles.heading}>{event.summary ?? '—'}</Text>
                 <Text style={styles.eventWhen}>{eventWhenText(event)}</Text>
                 {event.location ? (
-                  <View style={styles.eventLocationRow}>
-                    <Ionicons name="location-outline" size={16} color={colors.inkSoft} />
-                    <Text style={styles.eventLocation}>{event.location}</Text>
+                  <Pressable
+                    onPress={() => setRouteAsk((v) => !v)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Route zu ${event.location}`}
+                    style={({ pressed }) => [
+                      styles.eventLocationRow,
+                      pressed && { opacity: 0.7 },
+                    ]}
+                  >
+                    <Ionicons name="location-outline" size={16} color={colors.accent} />
+                    <Text style={[styles.eventLocation, { color: colors.accent }]}>
+                      {event.location}
+                    </Text>
+                    <Ionicons
+                      name={routeAsk ? 'chevron-up' : 'navigate-outline'}
+                      size={14}
+                      color={colors.inkSoft}
+                    />
+                  </Pressable>
+                ) : null}
+                {routeAsk && event.location ? (
+                  <View style={styles.routeRow}>
+                    <Pressable
+                      onPress={() => {
+                        Linking.openURL(googleMapsRoute(String(event.location))).catch(() => {});
+                        setRouteAsk(false);
+                      }}
+                      accessibilityRole="button"
+                      style={({ pressed }) => [styles.routeButton, pressed && { opacity: 0.7 }]}
+                    >
+                      <Ionicons name="map-outline" size={15} color={colors.ink} />
+                      <Text style={styles.routeButtonText}>Google Maps</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => {
+                        Linking.openURL(appleMapsRoute(String(event.location))).catch(() => {});
+                        setRouteAsk(false);
+                      }}
+                      accessibilityRole="button"
+                      style={({ pressed }) => [styles.routeButton, pressed && { opacity: 0.7 }]}
+                    >
+                      <Ionicons name="navigate-circle-outline" size={15} color={colors.ink} />
+                      <Text style={styles.routeButtonText}>Apple Karten</Text>
+                    </Pressable>
                   </View>
                 ) : null}
               </>
             ) : null}
-            <Pressable onPress={() => setEventOpen(false)} style={styles.close}>
+            <Pressable
+              onPress={() => {
+                setEventOpen(false);
+                setRouteAsk(false);
+              }}
+              style={styles.close}
+            >
               <Text style={styles.closeText}>Schliessen</Text>
             </Pressable>
           </Pressable>
@@ -343,6 +402,20 @@ const makeStyles = (colors: Colors) =>
   eventWhen: { color: colors.inkSoft, fontSize: 15, fontWeight: '500' },
   eventLocationRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   eventLocation: { color: colors.inkSoft, fontSize: 14, flexShrink: 1 },
+  routeRow: { flexDirection: 'row', gap: 8 },
+  routeButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: radius.control,
+    backgroundColor: colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  routeButtonText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
   close: {
     alignItems: 'center',
     paddingVertical: 12,

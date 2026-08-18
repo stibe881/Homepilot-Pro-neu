@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Entity, Scene } from '../api/types';
 import { Card } from '../components/Card';
 import { KIND_ICONS, shortState } from '../components/RoomTile';
+import { appleMapsRoute, googleMapsRoute } from '../components/TopStrip';
 import { VacuumHome } from '../components/VacuumHome';
 import { Colors, radius, space, useColors } from '../theme';
 
@@ -137,6 +138,8 @@ export function OverviewScreen({
 
   // ── Demo-Zustände für noch nicht eingebundene Geräte ───────────────────
   const [demoFlatLocked, setDemoFlatLocked] = useState(true);
+  // Nachfrage «Route womit öffnen?» unter dem Termin-Ort.
+  const [routeAsk, setRouteAsk] = useState(false);
   const [demoAlarmArmed, setDemoAlarmArmed] = useState(false);
   const [confirm, setConfirm] = useState<string | null>(null);
 
@@ -222,7 +225,12 @@ export function OverviewScreen({
           hour: '2-digit',
           minute: '2-digit',
         });
-    return { title: event.summary ?? '—', when, demo: false };
+    return {
+      title: event.summary ?? '—',
+      when,
+      demo: false,
+      location: typeof event.location === 'string' ? event.location : null,
+    };
   };
 
   const termin = eventLine(nextEvent, 'Zahnarzt', 'Mo 14:30');
@@ -364,6 +372,43 @@ export function OverviewScreen({
             {termin.title}
           </Text>
           {termin.when ? <Text style={styles.tileSub}>{termin.when}</Text> : null}
+          {'location' in termin && termin.location ? (
+            <>
+              <Pressable
+                onPress={() => setRouteAsk((v) => !v)}
+                accessibilityRole="button"
+                accessibilityLabel={`Route zu ${termin.location}`}
+                style={({ pressed }) => [styles.terminOrtRow, pressed && { opacity: 0.7 }]}
+              >
+                <Ionicons name="location-outline" size={13} color={colors.accent} />
+                <Text style={styles.terminOrt} numberOfLines={1}>
+                  {termin.location}
+                </Text>
+              </Pressable>
+              {routeAsk ? (
+                <View style={styles.routeRow}>
+                  <Action
+                    styles={styles}
+                    label="Google Maps"
+                    icon="map-outline"
+                    onPress={() => {
+                      Linking.openURL(googleMapsRoute(termin.location!)).catch(() => {});
+                      setRouteAsk(false);
+                    }}
+                  />
+                  <Action
+                    styles={styles}
+                    label="Apple Karten"
+                    icon="navigate-outline"
+                    onPress={() => {
+                      Linking.openURL(appleMapsRoute(termin.location!)).catch(() => {});
+                      setRouteAsk(false);
+                    }}
+                  />
+                </View>
+              ) : null}
+            </>
+          ) : null}
         </Tile>
         <Tile styles={styles} colors={colors} width={tileWidth} icon="gift-outline" title="Nächster Geburtstag" demo={geburtstag.demo}>
           <Text style={styles.tileState} numberOfLines={1}>
@@ -699,6 +744,9 @@ const makeStyles = (colors: Colors) =>
     tileTitle: { color: colors.inkSoft, fontSize: 13, fontWeight: '700', flex: 1 },
     tileState: { color: colors.ink, fontSize: 16, fontWeight: '600' },
     tileSub: { color: colors.inkSoft, fontSize: 13 },
+    terminOrtRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+    terminOrt: { color: colors.accent, fontSize: 12, flexShrink: 1 },
+    routeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
 
     favRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
     favChip: {

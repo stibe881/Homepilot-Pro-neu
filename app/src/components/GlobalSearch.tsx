@@ -72,12 +72,17 @@ export function search(
       label: room,
       detail: `${entities.filter((entity) => entity.room === room).length} Geräte`,
     })),
-    ...entities.map((entity) => ({
-      kind: 'entity' as const,
-      id: entity.id,
-      label: entity.name,
-      detail: entity.room ?? entity.integration,
-    })),
+    // Nur Geräte mit Raum: Die Geräteliste ist das Verwaltungswerkzeug für
+    // alles, was die Integrationen liefern – wer einem Gerät dort keinen
+    // Raum gibt, will es im Alltag nicht sehen, auch nicht als Suchtreffer.
+    ...entities
+      .filter((entity) => entity.room)
+      .map((entity) => ({
+        kind: 'entity' as const,
+        id: entity.id,
+        label: entity.name,
+        detail: entity.room ?? entity.integration,
+      })),
     ...scenes.map((scene) => ({
       kind: 'scene' as const,
       id: scene.id,
