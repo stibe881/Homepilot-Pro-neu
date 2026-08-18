@@ -4,7 +4,7 @@ Die App spricht den Hub direkt über seine lokale Adresse an
 (`http://<hub-ip>:8123`). Unterwegs erreichst du die nicht – und einen Port
 nach aussen öffnen wäre die falsche Lösung: Der Hub steuert Türen.
 
-Der richtige Weg ist ein **VPN ins Heimnetz**. Zwei bewährte Varianten:
+Der richtige Weg für die App ist ein **VPN ins Heimnetz**. Zwei bewährte Varianten:
 
 ## Variante A: Tailscale (am einfachsten, ~15 Minuten)
 
@@ -55,3 +55,10 @@ CGNAT (manche Glasfaser-Anbieter) nimm Variante A.
 - Port 8123 im Router freigeben – der Hub wäre offen im Internet, mit
   Türöffner.
 - HTTP über fremde Tunnel-Dienste ohne Authentisierung schleifen.
+
+## Eine Ausnahme: das Bild in der Push-Nachricht
+
+Genau eine Sache lässt sich nicht über VPN lösen – das Kamerabild in der
+Alarm-Meldung. Das Telefon zeigt sie an, bevor die App läuft, und holt das
+Bild selbst. Dafür braucht es eine öffentliche Adresse, aber nur für einen
+einzigen Pfad: [oeffentliche-adresse.md](oeffentliche-adresse.md).

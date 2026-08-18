@@ -211,6 +211,14 @@ Abwesenheitsmodus, adaptives Licht):
 [`hub/docs/automationen-rezepte.md`](hub/docs/automationen-rezepte.md).
 Szenen per Siri/Widget auslösen: [`docs/siri-und-widgets.md`](docs/siri-und-widgets.md).
 
+## Von unterwegs
+
+Für die App: VPN ins Heimnetz, [`docs/fernzugriff.md`](docs/fernzugriff.md).
+Der Hub gehört immer ins Heimnetz – er spricht lokal mit CCU, Hue-Bridge und
+Kameras. Nur das Kamerabild in der Push-Nachricht braucht eine öffentliche
+Adresse, und auch die nur für einen einzigen Pfad:
+[`docs/oeffentliche-adresse.md`](docs/oeffentliche-adresse.md).
+
 Jeder ausgeführte Lauf wird in `automation_runs` protokolliert.
 
 ## Nächste Schritte
