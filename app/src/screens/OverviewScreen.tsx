@@ -30,6 +30,10 @@ interface Props {
   countdowns?: { text: string; date: string; on_start?: boolean }[];
   /** Karten-/Schnappschuss-Adresse eines Geräts – für die Saugerkarte. */
   snapshotUri?: (entity: Entity) => string | undefined;
+  /** Als Favorit markierte Geräte-IDs. Kommt von aussen, weil der Stern
+   *  in der Geräteliste in die Geräte-Einstellungen schreibt und nicht in
+   *  die Entität – wer nur `entity.favorite` liest, sieht nie etwas. */
+  favoriteIds?: string[];
 }
 
 const WEEKDAYS = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
@@ -84,6 +88,7 @@ export function OverviewScreen({
   onActivateScene,
   countdowns,
   snapshotUri,
+  favoriteIds = [],
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -109,7 +114,11 @@ export function OverviewScreen({
     entities.find((e) => /alarm/i.test(e.name) && e.kind === 'switch');
   const covers = entities.filter((e) => e.kind === 'cover');
   // In der Geräteliste als Favorit markiert – die stehen hier griffbereit.
-  const favorites = entities.filter((e) => e.favorite);
+  // Beide Wege zählen: der Stern auf der Kachel (Geräte-Einstellungen) und
+  // die Markierung an der Entität selbst.
+  const favorites = entities.filter(
+    (e) => favoriteIds.includes(e.id) || e.favorite
+  );
 
   // Schnellaktionen: alle im Szenen-Editor für die Startseite markierten
   // Szenen. Solange keine markiert ist, springen «Kino» und «Schlafen»

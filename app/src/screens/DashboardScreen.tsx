@@ -617,6 +617,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               onActivateScene={activateScene}
               countdowns={startCountdowns}
               snapshotUri={snapshotUrl}
+              favoriteIds={favorites}
             />
           </View>
           <SidePanel
