@@ -13,7 +13,7 @@ import { Card } from './Card';
  * öffnet die volle Raumansicht.
  */
 
-const KIND_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
+export const KIND_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   light: 'bulb-outline',
   switch: 'power-outline',
   sensor: 'thermometer-outline',
@@ -31,7 +31,7 @@ const KIND_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
 };
 
 /** Kurzer Zustand für die rechte Spalte – nur für nicht schaltbare Geräte. */
-function shortState(entity: Entity): string {
+export function shortState(entity: Entity): string {
   const state = entity.state.state;
   switch (entity.kind) {
     case 'cover': {

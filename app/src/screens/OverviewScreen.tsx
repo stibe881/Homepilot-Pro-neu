@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Entity, Scene } from '../api/types';
 import { Card } from '../components/Card';
+import { KIND_ICONS, shortState } from '../components/RoomTile';
 import { VacuumHome } from '../components/VacuumHome';
 import { Colors, radius, space, useColors } from '../theme';
 
@@ -106,6 +107,8 @@ export function OverviewScreen({
     entities.find((e) => e.kind === 'alarm') ??
     entities.find((e) => /alarm/i.test(e.name) && e.kind === 'switch');
   const covers = entities.filter((e) => e.kind === 'cover');
+  // In der Geräteliste als Favorit markiert – die stehen hier griffbereit.
+  const favorites = entities.filter((e) => e.favorite);
 
   // Schnellaktionen: alle im Szenen-Editor für die Startseite markierten
   // Szenen. Solange keine markiert ist, springen «Kino» und «Schlafen»
@@ -466,6 +469,26 @@ export function OverviewScreen({
         </Text>
       ) : null}
 
+      {/* Favoriten aus der Geräteliste – zwischen Schnellaktionen und
+          Zugang, damit die eigenen Griffbereit-Geräte oben stehen. */}
+      {favorites.length > 0 ? (
+        <>
+          <Text style={styles.groupLabel}>Favoriten</Text>
+          <View style={styles.favRow}>
+            {favorites.map((entity) => (
+              <FavoriteChip
+                key={entity.id}
+                entity={entity}
+                pending={!!pending[entity.id]}
+                onCommand={onCommand}
+                styles={styles}
+                colors={colors}
+              />
+            ))}
+          </View>
+        </>
+      ) : null}
+
       {/* Zugang steht immer gleich unter den Schnellaktionen. Danach
           tauschen Haushalt und Heute je nach Tageszeit den Platz: morgens
           zuerst der Tag (Termine, Musik), abends zuerst die Wohnung. */}
@@ -486,6 +509,73 @@ export function OverviewScreen({
 }
 
 type OverviewStyles = ReturnType<typeof makeStyles>;
+
+/** Ein Favorit als kompakter Chip: Symbol, Name, Zustand. Schaltbares
+ *  schaltet ein Tipp um; Storen wechseln zwischen auf und zu; der Rest
+ *  zeigt nur an. Auf Modulebene wie Tile und Action – innerhalb der
+ *  Komponente definiert würde jeder Live-Update laufende Berührungen
+ *  abbrechen. */
+function FavoriteChip({
+  entity,
+  pending,
+  onCommand,
+  styles,
+  colors,
+}: {
+  entity: Entity;
+  pending: boolean;
+  onCommand: (entityId: string, command: string, data?: Record<string, any>) => void;
+  styles: OverviewStyles;
+  colors: Colors;
+}) {
+  const state = String(entity.state.state ?? '');
+  const active = state === 'on' || state === 'playing' || state === 'cleaning';
+  const tap = () => {
+    if (entity.commands.includes('toggle')) {
+      onCommand(entity.id, 'toggle');
+    } else if (entity.commands.includes('turn_on')) {
+      onCommand(entity.id, state === 'on' ? 'turn_off' : 'turn_on');
+    } else if (entity.kind === 'cover' && entity.commands.includes('open')) {
+      onCommand(entity.id, state === 'closed' ? 'open' : 'close');
+    }
+  };
+  const switchable =
+    entity.commands.includes('toggle') ||
+    entity.commands.includes('turn_on') ||
+    (entity.kind === 'cover' && entity.commands.includes('open'));
+
+  return (
+    <Pressable
+      onPress={switchable ? tap : undefined}
+      disabled={!switchable}
+      accessibilityRole={switchable ? 'button' : undefined}
+      accessibilityLabel={entity.name}
+      style={({ pressed }) => [
+        styles.favChip,
+        active && styles.favChipActive,
+        (pressed || pending) && { opacity: 0.6 },
+      ]}
+    >
+      <Ionicons
+        name={KIND_ICONS[entity.kind] ?? 'cube-outline'}
+        size={18}
+        color={active ? colors.accent : colors.inkSoft}
+      />
+      <View style={{ flexShrink: 1 }}>
+        <Text style={styles.favName} numberOfLines={1}>
+          {entity.name}
+        </Text>
+        <Text style={[styles.favState, active && { color: colors.accent }]} numberOfLines={1}>
+          {entity.kind === 'light' || entity.kind === 'switch'
+            ? state === 'on'
+              ? 'An'
+              : 'Aus'
+            : shortState(entity)}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
 
 function Badge({ label, styles }: { label: string; styles: OverviewStyles }) {
   return (
@@ -609,6 +699,23 @@ const makeStyles = (colors: Colors) =>
     tileTitle: { color: colors.inkSoft, fontSize: 13, fontWeight: '700', flex: 1 },
     tileState: { color: colors.ink, fontSize: 16, fontWeight: '600' },
     tileSub: { color: colors.inkSoft, fontSize: 13 },
+
+    favRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    favChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      borderRadius: radius.control,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      maxWidth: '100%',
+    },
+    favChipActive: { borderColor: colors.accent },
+    favName: { color: colors.ink, fontSize: 14, fontWeight: '600' },
+    favState: { color: colors.inkFaint, fontSize: 12 },
 
 
     badge: {
