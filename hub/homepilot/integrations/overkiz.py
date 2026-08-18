@@ -28,6 +28,7 @@ set_position und – wo vorhanden – set_tilt.
 from __future__ import annotations
 
 import asyncio
+import time
 import json
 import os
 from pathlib import Path
@@ -92,11 +93,37 @@ def cover_state(states: dict[str, Any]) -> dict[str, Any]:
     orientation = states.get(ORIENTATION)
     if orientation is not None:
         try:
-            result["tilt"] = max(0, min(100, int(orientation)))
+            # Wie bei der Position dreht der Hub auch hier: Overkiz zählt
+            # die Lamellen als Geschlossenheit (100 = zu), die App denkt in
+            # «offen %» – sonst zeigt sie geschlossene Lamellen als offen.
+            result["tilt"] = max(0, min(100, 100 - int(orientation)))
         except (TypeError, ValueError):
             pass
     result.setdefault("state", "unknown")
     return result
+
+
+# Grenzen für die gelernte Laufzeit: Schneller als 5 s fährt kein Storen
+# komplett, und über 3 Minuten ist eher ein hängengebliebener Messwert.
+TRAVEL_MIN = 5.0
+TRAVEL_MAX = 180.0
+
+
+def learned_travel(
+    old: float | None, start: float, target: float, seconds: float
+) -> float | None:
+    """Volle Laufzeit (0 bis 100 %) aus einer beobachteten Fahrt (rein, testbar).
+
+    Kurze Fahrten (unter 20 % Weg oder 3 s) sind zu ungenau zum Lernen; aus
+    dem Rest wird auf die volle Strecke hochgerechnet und mit dem bisherigen
+    Wert gemittelt, damit ein Ausreisser nicht alles verstellt.
+    """
+    fraction = abs(target - start) / 100
+    if fraction < 0.2 or seconds < 3:
+        return None
+    full = seconds / fraction
+    estimate = full if old is None else (old + full) / 2
+    return max(TRAVEL_MIN, min(TRAVEL_MAX, estimate))
 
 
 class OverkizIntegration(Integration):
@@ -151,6 +178,11 @@ class OverkizIntegration(Integration):
         # device_url → entity_id und zurück; je Entität die Abbildung
         # App-Kommando → echter Overkiz-Kommandoname (open→up bei RTS usw.).
         self._devices: dict[str, str] = {}
+        # Laufzeit-Lernen: angestossene Fahrten und die gelernte volle
+        # Laufzeit je Storen - daraus macht die App eine Bewegung, die mit
+        # der echten Store mithält.
+        self._moves: dict[str, dict[str, float]] = {}
+        self._travel: dict[str, float] = {}
         self._url_by_entity: dict[str, str] = {}
         self._cmd_by_entity: dict[str, dict[str, list[str]]] = {}
         for device in await self._client.get_devices():
@@ -253,6 +285,25 @@ class OverkizIntegration(Integration):
             updates.pop("position", None)
         await self.hub.registry.update_state(entity_id, updates, available=True)
 
+        # Laufzeit lernen: Meldet das Gateway die Zielposition einer von uns
+        # angestossenen Fahrt, ist die Fahrtzeit bekannt.
+        move = self._moves.get(entity_id)
+        position = updates.get("position")
+        if move and isinstance(position, (int, float)):
+            if abs(position - move["target"]) <= 2:
+                travel = learned_travel(
+                    self._travel.get(entity_id),
+                    move["start"],
+                    move["target"],
+                    time.monotonic() - move["at"],
+                )
+                self._moves.pop(entity_id, None)
+                if travel is not None:
+                    self._travel[entity_id] = travel
+                    await self.hub.registry.update_state(
+                        entity_id, {"travel_seconds": round(travel, 1)}
+                    )
+
     # ── Hub → Gateway ────────────────────────────────────────────────────────
 
     async def handle_command(self, entity: Entity, command: str, data: dict[str, Any]) -> None:
@@ -262,6 +313,24 @@ class OverkizIntegration(Integration):
         variants = self._cmd_by_entity.get(entity.id, {}).get(command)
         if not variants:
             raise ConfigError(f"Diese Storen kennen das Kommando '{command}' nicht")
+        # Fahrt fürs Laufzeit-Lernen vormerken (Halt beendet die Messung).
+        if command in ("open", "close", "set_position"):
+            start = entity.state.get("position")
+            if isinstance(start, (int, float)):
+                target = (
+                    100.0
+                    if command == "open"
+                    else 0.0
+                    if command == "close"
+                    else float(max(0, min(100, int(data.get("position", 0)))))
+                )
+                self._moves[entity.id] = {
+                    "start": float(start),
+                    "target": target,
+                    "at": time.monotonic(),
+                }
+        elif command == "stop":
+            self._moves.pop(entity.id, None)
         # Parameter bestimmen. Wichtig: leere Liste statt None – sonst wird aus
         # dem JSON-null in der Gateway-Firmware ein 'nil' und der Befehl fällt
         # mit UNSPECIFIED_ERROR / error:'nil' durch.
@@ -269,7 +338,8 @@ class OverkizIntegration(Integration):
             # App: offen %, Overkiz: geschlossen %.
             params: list[Any] = [max(0, min(100, 100 - int(data.get("position", 0))))]
         elif command == "set_tilt":
-            params = [max(0, min(100, int(data.get("tilt", 0))))]
+            # App: offen %, Overkiz: geschlossen % - wie bei set_position.
+            params = [max(0, min(100, 100 - int(data.get("tilt", 0))))]
         else:
             params = []
 

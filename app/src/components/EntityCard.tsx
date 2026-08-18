@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import {
   Image,
   Modal,
@@ -358,54 +358,8 @@ export function EntityCard({
       case 'lock':
         return <LockBody entity={entity} onCommand={onCommand} pending={pending} />;
 
-      case 'cover': {
-        // Storen/Rollläden/Raffstoren: ein Fenster, über das sich die Storen
-        // sichtbar bewegen. Darunter hoch/stopp/runter und – wo möglich –
-        // Position und Lamellenwinkel als Schieberegler.
-        const pos = entity.state.position;
-        const tilt = entity.state.tilt;
-        // Fällt die Position, leiten wir sie aus dem Zustand ab, damit sich
-        // die Grafik trotzdem bewegt (zu = 0, offen = 100).
-        const openPct =
-          typeof pos === 'number'
-            ? pos
-            : entity.state.state === 'closed'
-              ? 0
-              : entity.state.state === 'partial'
-                ? 50
-                : 100;
-        return (
-          <View style={styles.stack}>
-            <CoverVisual open={openPct} tilt={typeof tilt === 'number' ? tilt : undefined} sky={sky} />
-            <Pill
-              label={
-                entity.state.state === 'closed'
-                  ? 'Geschlossen'
-                  : entity.state.state === 'partial'
-                    ? `${typeof pos === 'number' ? pos : openPct}% offen`.trim()
-                    : 'Offen'
-              }
-            />
-            {entity.commands.includes('set_position') && typeof pos === 'number' ? (
-              <View style={styles.stack}>
-                <Text style={styles.hint}>Position: {pos} % offen</Text>
-                <Bar value={pos} onChange={(value) => onCommand('set_position', { position: value })} />
-              </View>
-            ) : null}
-            {entity.commands.includes('set_tilt') && typeof tilt === 'number' ? (
-              <View style={styles.stack}>
-                <Text style={styles.hint}>Lamellen: {tilt} %</Text>
-                <Bar value={tilt} onChange={(value) => onCommand('set_tilt', { tilt: value })} />
-              </View>
-            ) : null}
-            <View style={styles.mediaRow}>
-              <MediaButton icon="chevron-up" label="Hoch" onPress={() => onCommand('open')} />
-              <MediaButton icon="stop" label="Stopp" onPress={() => onCommand('stop')} />
-              <MediaButton icon="chevron-down" label="Runter" onPress={() => onCommand('close')} />
-            </View>
-          </View>
-        );
-      }
+      case 'cover':
+        return <CoverBody entity={entity} sky={sky} onCommand={onCommand} />;
 
       case 'calendar': {
         const events: any[] = entity.state.events ?? [];
@@ -1416,6 +1370,130 @@ function CameraSnapshot({
         backgroundColor: colors.surfaceSoft,
       }}
     />
+  );
+}
+
+/** Sanft nachgeführte Anzeige-Position.
+ *
+ * Somfy meldet die Position nur grob (oft erst am Ende der Fahrt). Statt zu
+ * springen, gleitet die Anzeige mit der Geschwindigkeit der echten Store
+ * zum Ziel – die volle Laufzeit lernt der Hub aus beobachteten Fahrten
+ * (state.travel_seconds) und liefert sie mit; ohne Messung gelten 25 s. */
+function useGlide(target: number, fullTravelSeconds: number): number {
+  const [display, setDisplay] = useState(target);
+  const goal = useRef(target);
+  goal.current = target;
+  useEffect(() => {
+    const tick = 150;
+    const timer = setInterval(() => {
+      setDisplay((current) => {
+        const step = (100 / Math.max(3, fullTravelSeconds)) * (tick / 1000);
+        const aim = goal.current;
+        if (Math.abs(aim - current) <= step) return aim;
+        return current + Math.sign(aim - current) * step;
+      });
+    }, tick);
+    return () => clearInterval(timer);
+  }, [fullTravelSeconds]);
+  return display;
+}
+
+/** Storen/Rollläden/Raffstoren: ein Fenster, über das sich die Storen in
+ *  Echtzeit bewegen. Darunter hoch/stopp/runter und – wo möglich –
+ *  Position und Lamellenwinkel als Schieberegler.
+ *
+ *  Eigene Komponente statt Inline-Zweig, weil die gleitende Position
+ *  eigene Hooks braucht. Ein Knopfdruck setzt das Ziel sofort («weiss ja,
+ *  wohin die Fahrt geht»), die nächste Meldung des Hubs übernimmt. */
+function CoverBody({
+  entity,
+  sky,
+  onCommand,
+}: {
+  entity: Entity;
+  sky?: Sky;
+  onCommand: (command: string, data?: Record<string, any>) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const pos = entity.state.position;
+  const tilt = entity.state.tilt;
+  // Fällt die Position, leiten wir sie aus dem Zustand ab, damit sich die
+  // Grafik trotzdem bewegt (zu = 0, offen = 100).
+  const reported =
+    typeof pos === 'number'
+      ? pos
+      : entity.state.state === 'closed'
+        ? 0
+        : entity.state.state === 'partial'
+          ? 50
+          : 100;
+  const travel =
+    typeof entity.state.travel_seconds === 'number' ? entity.state.travel_seconds : 25;
+
+  // Zwischen Knopfdruck und erster Hub-Meldung fährt die Anzeige schon aufs
+  // Ziel zu; sobald der Hub etwas Neues meldet, gilt wieder er.
+  const [anticipated, setAnticipated] = useState<number | null>(null);
+  const lastReported = useRef(reported);
+  useEffect(() => {
+    if (reported !== lastReported.current) {
+      lastReported.current = reported;
+      setAnticipated(null);
+    }
+  }, [reported]);
+
+  const target = anticipated ?? reported;
+  const display = useGlide(target, travel);
+  const shown = Math.round(display);
+  const moving = Math.abs(display - target) > 1;
+
+  const go = (command: 'open' | 'stop' | 'close') => {
+    if (command === 'open') setAnticipated(100);
+    else if (command === 'close') setAnticipated(0);
+    // Halt: an Ort stehen bleiben, bis der Hub die echte Position meldet.
+    else setAnticipated(display);
+    onCommand(command);
+  };
+
+  return (
+    <View style={styles.stack}>
+      <CoverVisual open={display} tilt={typeof tilt === 'number' ? tilt : undefined} sky={sky} />
+      <Pill
+        label={
+          moving
+            ? `${shown}% · fährt`
+            : shown <= 1
+              ? 'Geschlossen'
+              : shown >= 99
+                ? 'Offen'
+                : `${shown}% offen`
+        }
+        tone={moving ? colors.accent : undefined}
+      />
+      {entity.commands.includes('set_position') && typeof pos === 'number' ? (
+        <View style={styles.stack}>
+          <Text style={styles.hint}>Position: {shown} % offen</Text>
+          <Bar
+            value={shown}
+            onChange={(value) => {
+              setAnticipated(value);
+              onCommand('set_position', { position: value });
+            }}
+          />
+        </View>
+      ) : null}
+      {entity.commands.includes('set_tilt') && typeof tilt === 'number' ? (
+        <View style={styles.stack}>
+          <Text style={styles.hint}>Lamellen: {tilt} % offen</Text>
+          <Bar value={tilt} onChange={(value) => onCommand('set_tilt', { tilt: value })} />
+        </View>
+      ) : null}
+      <View style={styles.mediaRow}>
+        <MediaButton icon="chevron-up" label="Hoch" onPress={() => go('open')} />
+        <MediaButton icon="stop" label="Stopp" onPress={() => go('stop')} />
+        <MediaButton icon="chevron-down" label="Runter" onPress={() => go('close')} />
+      </View>
+    </View>
   );
 }
 

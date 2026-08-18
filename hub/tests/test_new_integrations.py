@@ -686,7 +686,8 @@ def test_meteoalarm_area_filter():
 def test_overkiz_cover_state_position_and_tilt():
     from homepilot.integrations.overkiz import cover_state
 
-    # Overkiz: closure 30 = 70 % offen; Lamellen 45.
+    # Overkiz zählt Geschlossenheit: closure 30 = 70 % offen, Lamellen-
+    # Orientierung 45 = 55 % offen - beides wird gedreht.
     state = cover_state(
         {
             "core:ClosureState": 30,
@@ -695,8 +696,22 @@ def test_overkiz_cover_state_position_and_tilt():
         }
     )
     assert state["position"] == 70
-    assert state["tilt"] == 45
+    assert state["tilt"] == 55
     assert state["state"] == "partial"
+
+
+def test_overkiz_learned_travel():
+    from homepilot.integrations.overkiz import learned_travel
+
+    # Volle Fahrt in 24 s: gelernt sind 24 s.
+    assert learned_travel(None, 100, 0, 24) == 24
+    # Halbe Fahrt in 15 s: hochgerechnet 30 s, gemittelt mit den alten 24 -> 27.
+    assert learned_travel(24, 100, 50, 15) == 27
+    # Zu kurze Fahrten lehren nichts.
+    assert learned_travel(24, 50, 40, 2.5) is None
+    assert learned_travel(24, 50, 60, 10) is None
+    # Ausreisser werden eingefangen.
+    assert learned_travel(None, 100, 0, 600) == 180
 
 
 def test_overkiz_cover_state_open_and_closed():

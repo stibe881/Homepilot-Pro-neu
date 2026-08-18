@@ -712,7 +712,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
         style={({ pressed }) => [styles.updateButton, pressed && { opacity: 0.8 }]}
       >
         <Ionicons name="cloud-download-outline" size={16} color={colors.ink} />
-        <Text style={styles.updateText}>{busy ? 'Läuft …' : 'Update anstossen'}</Text>
+        <Text style={styles.updateText}>{busy ? 'Läuft …' : 'Update'}</Text>
       </Pressable>
       {showBar ? (
         <View
