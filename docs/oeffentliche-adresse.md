@@ -33,8 +33,22 @@ Wenn zuhause schon andere Seiten über den Nginx Proxy Manager laufen, hast
 du Portweiterleitung und Zertifikate bereits – dann ist der Hetzner-Server
 nur nötig, wenn du deine Heim-IP nicht preisgeben willst (siehe Variante B).
 
-1. **DNS**: `homepilot.deinedomain.ch` als A-Record auf deine Heim-IP, oder
-   als CNAME auf den DynDNS-Namen, den die anderen Seiten schon nutzen.
+1. **DNS in der Hetzner-Konsole** (DNS → Zone der Domain → *Record
+   hinzufügen*):
+
+   | Feld | Wert |
+   |---|---|
+   | Type | `CNAME` |
+   | Name | `homepilot` |
+   | Value | der Name, auf den deine anderen Heim-Seiten schon zeigen |
+   | TTL | `300` |
+
+   **CNAME statt A-Record**, wenn deine anderen Seiten über einen
+   DynDNS-Namen laufen: Dann pflegt der bestehende Updater die Adresse
+   weiter, und dieser Eintrag stimmt für immer. Nur wenn du eine feste
+   IPv4 hast, nimm einen `A`-Record mit dieser Adresse – bei einer
+   wechselnden IP zeigt ein fester A-Record irgendwann ins Leere, und zwar
+   still.
 2. **UniFi**: Portweiterleitung 80 und 443 auf den Nginx Proxy Manager –
    die steht für die anderen Seiten schon.
 3. **Nginx Proxy Manager** → *Proxy Hosts* → *Add Proxy Host*:
@@ -91,6 +105,20 @@ nach Hause.
        }
    }
    ```
+
+## Wenn Port 80 zu bleiben soll
+
+Let's Encrypt prüft normalerweise über Port 80. Ist der bei dir zu (oder
+willst du ihn zulassen), kann der Nginx Proxy Manager stattdessen über die
+**DNS-API von Hetzner** prüfen – dann muss von aussen gar nichts erreichbar
+sein, um an ein Zertifikat zu kommen:
+
+1. Hetzner DNS → *API-Tokens* → Token erzeugen.
+2. Im NPM beim Zertifikat **Use a DNS Challenge** → Provider `Hetzner` →
+   Token einsetzen.
+
+Für Variante A brauchst du das meist nicht – deine anderen Seiten holen
+ihre Zertifikate ja schon über Port 80.
 
 ## Danach im Hub eintragen
 
