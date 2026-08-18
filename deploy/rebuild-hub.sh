@@ -68,12 +68,11 @@ fi
 : "${GITHUB_USER:?GITHUB_USER fehlt – siehe Kopf dieses Skripts}"
 : "${GITHUB_TOKEN:?GITHUB_TOKEN fehlt – siehe Kopf dieses Skripts}"
 
-echo "→ Stoppe und entferne den laufenden Container (falls vorhanden) …"
-docker stop "$CONTAINER" >/dev/null 2>&1 || true
-docker rm "$CONTAINER" >/dev/null 2>&1 || true
-
-echo "→ Entferne das alte Abbild (falls vorhanden) …"
-docker image rm "$IMAGE" >/dev/null 2>&1 || true
+# Der alte Container läuft absichtlich weiter, während gebaut wird: Das
+# neue Abbild entsteht daneben, unter demselben Namen. Erst ganz am Ende,
+# unmittelbar vor dem Neuausrollen, wird gewechselt - so ist der Hub
+# Sekunden weg statt Minuten. Und geht der Bau schief, läuft der alte
+# Stand einfach weiter, statt dass das Haus ohne Steuerung dasteht.
 
 echo "→ Hole den neuesten Code von ${REPO}@${BRANCH} …"
 rm -rf "$WORKDIR"
@@ -96,6 +95,10 @@ echo ""
 echo "✓ Abbild '$IMAGE' ist aktuell."
 
 if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
+  # Jetzt erst den alten Container weichen lassen - das neue Abbild steht
+  # schon bereit, die Lücke ist so kurz wie möglich.
+  echo "→ Entferne den alten Container …"
+  docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
   echo "→ Löse den Portainer-Webhook aus …"
   # Portainer stellt sein Zertifikat auf Port 9443 selbst aus. Prüfen lässt
   # es sich deshalb nicht - und ohne die folgende Zeile bricht curl mit
@@ -110,10 +113,20 @@ if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
   if [ "${PORTAINER_INSECURE:-0}" = "1" ]; then
     INSECURE="--insecure"
   fi
+  # Scheitert der Webhook, darf das Skript nicht einfach sterben - der
+  # Container ist schon weg, und jemand muss erfahren, wie es weitergeht.
   # shellcheck disable=SC2086
-  curl -fsS $INSECURE -X POST "$PORTAINER_WEBHOOK_URL"
-  echo ""
-  echo "✓ Fertig – der Stack rollt gerade mit dem frischen Abbild neu aus."
+  if curl -fsS $INSECURE -X POST "$PORTAINER_WEBHOOK_URL"; then
+    echo ""
+    echo "✓ Fertig – der Stack rollt gerade mit dem frischen Abbild neu aus."
+  else
+    echo ""
+    echo "✗ Der Portainer-Webhook hat nicht geantwortet. Das Abbild ist"
+    echo "  gebaut, aber der Container läuft nicht - jetzt von Hand:"
+    echo "  Portainer → Stacks → homepilot → Update the stack → Deploy."
+    exit 1
+  fi
 else
   echo "  Jetzt in Portainer: Stacks → homepilot → Update the stack → Deploy."
+  echo "  Der alte Container läuft bis dahin weiter."
 fi
