@@ -93,6 +93,11 @@ function MediaPanel({
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const playing = entity.state.state === 'playing';
+  // Zugeklappt zeigt die Karte nur den Namen des gewählten Players – die
+  // volle Liste erst auf Antippen. Dauerhaft ausgeklappt war sie drei
+  // Zeilen Chips hoch, direkt über dem «Abspielen auf» von Spotify, das
+  // dieselben Boxen gleich noch einmal aufzählt.
+  const [pickerOpen, setPickerOpen] = useState(false);
   const command = (name: string, data?: Record<string, any>) =>
     onCommand(entity.id, name, data);
 
@@ -101,29 +106,48 @@ function MediaPanel({
       <View style={styles.mediaHead}>
         <Ionicons name="musical-notes-outline" size={18} color={colors.inkSoft} />
         <Text style={styles.heading}>Musik</Text>
+        {players.length > 1 ? (
+          <Pressable
+            onPress={() => setPickerOpen((v) => !v)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: pickerOpen }}
+            accessibilityLabel="Lautsprecher wählen"
+            style={({ pressed }) => [styles.speakerPicker, pressed && { opacity: 0.7 }]}
+          >
+            <Text style={styles.speakerPickerText} numberOfLines={1}>
+              {entity.name}
+            </Text>
+            <Ionicons
+              name={pickerOpen ? 'chevron-up' : 'chevron-down'}
+              size={14}
+              color={colors.inkSoft}
+            />
+          </Pressable>
+        ) : null}
       </View>
-      {players.length > 1 ? (
+      {pickerOpen && players.length > 1 ? (
         <View style={styles.speakerRow}>
           {players.map((speaker) => {
             const selected = speaker.id === entity.id;
             return (
               <Pressable
                 key={speaker.id}
-                onPress={() => onSelect(speaker.id)}
+                onPress={() => {
+                  onSelect(speaker.id);
+                  setPickerOpen(false);
+                }}
                 accessibilityRole="radio"
                 accessibilityState={{ selected }}
                 accessibilityLabel={`${speaker.name} anzeigen`}
                 style={[styles.speakerChip, selected && styles.speakerChipActive]}
               >
-                <Ionicons
-                  name={
-                    speaker.state.state === 'playing'
-                      ? 'volume-high-outline'
-                      : 'volume-medium-outline'
-                  }
-                  size={13}
-                  color={selected ? '#FFFFFF' : colors.inkSoft}
-                />
+                {speaker.state.state === 'playing' ? (
+                  <Ionicons
+                    name="volume-high-outline"
+                    size={13}
+                    color={selected ? '#FFFFFF' : colors.accent}
+                  />
+                ) : null}
                 <Text
                   style={[styles.speakerChipText, selected && styles.speakerChipTextActive]}
                   numberOfLines={1}
@@ -345,6 +369,20 @@ const makeStyles = (colors: Colors) =>
   column: { gap: 14 },
   mediaCard: { gap: 8, minHeight: 0 },
   mediaHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  speakerPicker: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginLeft: 'auto',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    maxWidth: '60%',
+  },
+  speakerPickerText: { fontSize: 12, color: colors.inkSoft, fontWeight: '600', flexShrink: 1 },
   speakerRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   speakerChip: {
     flexDirection: 'row',
