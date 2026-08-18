@@ -355,6 +355,42 @@ def test_room_boxes_without_image():
     assert room_boxes(_Empty()) == ({}, None)
 
 
+def test_consumables_become_percent_left():
+    from datetime import timedelta
+
+    from homepilot.integrations.roborock import parse_consumables
+
+    class _Consumable:
+        main_brush_work_time = timedelta(hours=150)  # halbe Lebensdauer (300 h)
+        side_brush_work_time = 720_000  # Sekunden: 200 h → aufgebraucht
+        filter_work_time = None  # fehlt → weglassen
+        sensor_dirty_time = 0
+
+    parts = {entry["part"]: entry for entry in parse_consumables(_Consumable())}
+    assert parts["main_brush_work_time"]["percent_left"] == 50
+    assert parts["side_brush_work_time"]["percent_left"] == 0
+    assert parts["sensor_dirty_time"]["percent_left"] == 100
+    assert "filter_work_time" not in parts
+
+
+def test_dock_state_collects_known_fields():
+    from types import SimpleNamespace
+
+    from homepilot.integrations.roborock import dock_state
+
+    status = SimpleNamespace(
+        dock_error_status_name="none",
+        dock_type_name="empty_wash_fill_dry_dock",
+        wash_phase=2,
+        dry_status=1,
+    )
+    dock = dock_state(status)
+    # «none» ist keine Störung und gehört nicht in die Anzeige.
+    assert "error" not in dock
+    assert dock["type"] == "empty_wash_fill_dry_dock"
+    assert dock["wash_phase"] == 2 and dock["drying"] == 1
+
+
 def test_robot_position_as_image_fractions():
     from homepilot.integrations.roborock import robot_position
 

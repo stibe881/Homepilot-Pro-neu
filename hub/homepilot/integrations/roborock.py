@@ -80,6 +80,9 @@ def vacuum_state(status: Any) -> dict[str, Any]:
     clean_time = getattr(status, "clean_time", None)
     if clean_time:
         result["clean_minutes"] = round(float(clean_time) / 60)
+    dock = dock_state(status)
+    if dock:
+        result["dock"] = dock
     fan = getattr(status, "fan_power", None)
     if fan is not None:
         # Enum (hat .name) oder roher Code – auf einen der vier Namen bringen.
@@ -145,6 +148,71 @@ def room_boxes(map_data: Any) -> tuple[dict[int, list[float]], dict[str, int] | 
             round(min(1.0, max(ys)), 4),
         ]
     return boxes, {"width": width, "height": height}
+
+
+# Verschleissteile: Attributname der Bibliothek, Anzeigename und die von
+# Roborock empfohlene Lebensdauer in Stunden.
+CONSUMABLE_PARTS = (
+    ("main_brush_work_time", "Hauptbürste", 300),
+    ("side_brush_work_time", "Seitenbürste", 200),
+    ("filter_work_time", "Filter", 150),
+    ("sensor_dirty_time", "Sensoren reinigen", 30),
+)
+
+
+def parse_consumables(consumable: Any) -> list[dict[str, Any]]:
+    """Verschleissteile in App-taugliche Einträge übersetzen (rein, testbar).
+
+    Die Bibliothek liefert Einsatzzeit je Teil (Sekunden oder timedelta);
+    daraus wird «wie viel Leben ist noch übrig» in Prozent.
+    """
+    parts: list[dict[str, Any]] = []
+    for attr, label, life_hours in CONSUMABLE_PARTS:
+        raw = getattr(consumable, attr, None)
+        if raw is None:
+            continue
+        try:
+            seconds = raw.total_seconds() if hasattr(raw, "total_seconds") else float(raw)
+        except (TypeError, ValueError):
+            continue
+        used_hours = seconds / 3600
+        percent_left = max(0, min(100, round(100 - (used_hours / life_hours) * 100)))
+        parts.append(
+            {
+                "part": attr,
+                "label": label,
+                "used_hours": round(used_hours),
+                "life_hours": life_hours,
+                "percent_left": percent_left,
+            }
+        )
+    return parts
+
+
+def dock_state(status: Any) -> dict[str, Any]:
+    """Was der Status über die Ladestation verrät (rein, testbar).
+
+    Bewusst defensiv über getattr: Welche Felder es gibt, hängt an Modell
+    und Bibliotheksversion – was fehlt, fehlt einfach.
+    """
+    dock: dict[str, Any] = {}
+    mapping = {
+        "dock_error_status_name": "error",
+        "dock_type_name": "type",
+        "wash_phase": "wash_phase",
+        "dry_status": "drying",
+        "dust_collection_status": "dust_collection",
+        "auto_dust_collection": "auto_empty",
+    }
+    for attr, key in mapping.items():
+        value = getattr(status, attr, None)
+        if value is None:
+            continue
+        name = getattr(value, "name", None)
+        dock[key] = name if name is not None else value
+    if str(dock.get("error")) in ("none", "None", "ok"):
+        dock.pop("error", None)
+    return dock
 
 
 def _image_size(map_data: Any) -> tuple[Any, int, int] | None:
@@ -282,6 +350,20 @@ class RoborockIntegration(Integration):
         self._segment_clean = RoborockCommand.APP_SEGMENT_CLEAN
         self._zone_clean = RoborockCommand.APP_ZONED_CLEAN
         self._set_fan = RoborockCommand.SET_CUSTOM_MODE
+        # Stations-Kommandos gibt es nicht auf jedem Modell und nicht in
+        # jeder Bibliotheksfassung - was fehlt, bekommt die App gar nicht
+        # erst als Kommando angeboten.
+        self._dock_commands = {
+            command: value
+            for command, name in (
+                ("collect_dust", "APP_START_COLLECT_DUST"),
+                ("stop_collect_dust", "APP_STOP_COLLECT_DUST"),
+                ("wash_mop", "APP_START_WASH"),
+                ("stop_wash", "APP_STOP_WASH"),
+            )
+            if (value := getattr(RoborockCommand, name, None)) is not None
+        }
+        self._reset_consumable = getattr(RoborockCommand, "RESET_CONSUMABLE", None)
         self._interval = float(self.config.get("scan_interval", 60))
         # Während der Reinigung wird die Position öfter geholt als der
         # restliche Status, damit der Punkt auf der Karte live mitwandert.
@@ -354,7 +436,14 @@ class RoborockIntegration(Integration):
                 EntityKind.VACUUM,
                 name or "Roborock",
                 state={"state": "unknown", "fan_speeds": list(FAN_SPEEDS)},
-                commands=[*self._commands, "clean_rooms", "clean_zone", "set_fan_speed"],
+                commands=[
+                    *self._commands,
+                    *self._dock_commands,
+                    "clean_rooms",
+                    "clean_zone",
+                    "set_fan_speed",
+                    *(["reset_consumable"] if self._reset_consumable else []),
+                ],
                 available=False,
             )
             self._devices[entity.id] = device
@@ -497,6 +586,22 @@ class RoborockIntegration(Integration):
             except Exception as err:
                 self.log.warning("Roborock %s nicht erreichbar: %s", device.name, err)
                 await self.hub.registry.update_state(entity_id, {}, available=False)
+                continue
+            # Verschleissteile fuer die Wartungsansicht - nicht jedes Modell
+            # und nicht jede Bibliotheksfassung liefert sie.
+            try:
+                trait = getattr(device.v1_properties, "consumable", None) or getattr(
+                    device.v1_properties, "consumables", None
+                )
+                if trait is not None:
+                    await _maybe_await(trait.refresh())
+                    parts = parse_consumables(trait)
+                    if parts:
+                        await self.hub.registry.update_state(
+                            entity_id, {"maintenance": parts}
+                        )
+            except Exception as err:
+                self.log.debug("Verschleissteile von %s nicht abrufbar: %s", device.name, err)
 
     async def handle_command(self, entity: Entity, command: str, data: dict[str, Any]) -> None:
         device = self._devices[entity.id]
@@ -525,6 +630,13 @@ class RoborockIntegration(Integration):
                     self._zone_clean, params=zone_clean_params(data.get("zone"), calibration)
                 )
             )
+        elif command in self._dock_commands:
+            await _maybe_await(sender.send(self._dock_commands[command]))
+        elif command == "reset_consumable":
+            part = str(data.get("part") or "")
+            if part not in {entry[0] for entry in CONSUMABLE_PARTS}:
+                raise ValueError("reset_consumable braucht data.part (bekanntes Teil)")
+            await _maybe_await(sender.send(self._reset_consumable, params=[part]))
         elif command == "set_fan_speed":
             await _maybe_await(
                 sender.send(self._set_fan, params=[fan_speed_code(data.get("level"))])

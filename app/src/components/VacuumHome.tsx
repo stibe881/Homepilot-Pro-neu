@@ -66,18 +66,33 @@ export function padBox(box: Box, pad: number): Box {
   ];
 }
 
+/** Welches Zimmer liegt an diesem Punkt? (rein, testbar)
+ *
+ *  Die Zimmer-Bereiche sind achsenparallele Rechtecke um schief liegende
+ *  Räume – sie überlappen sich deshalb kräftig (der Gang einer diagonalen
+ *  Wohnung umschliesst als Rechteck halbe Nachbarzimmer). Von allen
+ *  Treffern gewinnt darum das kleinste Rechteck: Es beschreibt den Punkt
+ *  am genauesten. */
+export function roomAt(rooms: VacuumRoom[], x: number, y: number): VacuumRoom | null {
+  let best: VacuumRoom | null = null;
+  let bestArea = Infinity;
+  for (const room of rooms) {
+    const box = room.box;
+    if (!Array.isArray(box)) continue;
+    if (x < box[0] || x > box[2] || y < box[1] || y > box[3]) continue;
+    const area = (box[2] - box[0]) * (box[3] - box[1]);
+    if (area < bestArea) {
+      best = room;
+      bestArea = area;
+    }
+  }
+  return best;
+}
+
 /** In welchem Zimmer steht der Sauger? (rein, testbar) */
 export function robotRoom(rooms: VacuumRoom[], robot: number[] | undefined): VacuumRoom | null {
   if (!Array.isArray(robot) || robot.length !== 2) return null;
-  const [x, y] = robot;
-  return (
-    rooms.find(
-      (room) =>
-        Array.isArray(room.box) &&
-        x >= room.box[0] && x <= room.box[2] &&
-        y >= room.box[1] && y <= room.box[3]
-    ) ?? null
-  );
+  return roomAt(rooms, robot[0], robot[1]);
 }
 
 /** Eine Fläche vom Bild- in den Ausschnitt-Raum umrechnen (rein). */
@@ -115,7 +130,7 @@ function CroppedMap({
   children?: React.ReactNode;
 }) {
   const colors = useColors();
-  const [layout, setLayout] = useState({ width: 0, height: 0 });
+  const frame = React.useRef<View>(null);
   const cropWidth = crop[2] - crop[0];
   const cropHeight = crop[3] - crop[1];
   const source = mapSize && mapSize.height > 0 ? mapSize.width / mapSize.height : 4 / 3;
@@ -123,17 +138,25 @@ function CroppedMap({
 
   return (
     <Pressable
-      onLayout={(event) => setLayout(event.nativeEvent.layout)}
+      ref={frame as any}
       onPress={(event) => {
-        if (!onPressPoint || layout.width === 0 || layout.height === 0) return;
+        if (!onPressPoint) return;
+        // Bildschirm-Koordinaten gegen die gemessene Lage des Rahmens –
+        // locationX/offsetX wären je nach Plattform relativ zum getroffenen
+        // Kind (etwa dem vergrösserten Kartenbild) und zeigten dann auf das
+        // falsche Zimmer.
         const native: any = event.nativeEvent;
-        // Native liefert locationX, das Web offsetX – eines von beiden ist da.
-        const px = native.locationX ?? native.offsetX;
-        const py = native.locationY ?? native.offsetY;
-        if (typeof px !== 'number' || typeof py !== 'number') return;
-        onPressPoint(
-          crop[0] + (px / layout.width) * cropWidth,
-          crop[1] + (py / layout.height) * cropHeight
+        const pageX = native.pageX ?? native.changedTouches?.[0]?.pageX;
+        const pageY = native.pageY ?? native.changedTouches?.[0]?.pageY;
+        if (typeof pageX !== 'number' || typeof pageY !== 'number') return;
+        (frame.current as any)?.measureInWindow?.(
+          (x: number, y: number, width: number, height: number) => {
+            if (width <= 0 || height <= 0) return;
+            onPressPoint(
+              crop[0] + ((pageX - x) / width) * cropWidth,
+              crop[1] + ((pageY - y) / height) * cropHeight
+            );
+          }
         );
       }}
       style={{
@@ -206,6 +229,11 @@ export function VacuumHome({
   const robot = Array.isArray(entity.state.robot) ? (entity.state.robot as number[]) : undefined;
   const cleaning = entity.state.state === 'cleaning';
   const [dialog, setDialog] = useState<{ mode: CleanMode; preselect?: number } | null>(null);
+  const [stationOpen, setStationOpen] = useState(false);
+  const [careOpen, setCareOpen] = useState(false);
+  const maintenance: any[] = Array.isArray(entity.state.maintenance)
+    ? entity.state.maintenance
+    : [];
 
   // Beim Reinigen jede Minute ein frisches Bild, sonst hielte der Cache den
   // Sauger auf der Karte fest, während er längst im nächsten Zimmer ist.
@@ -233,6 +261,26 @@ export function VacuumHome({
           {vacuumText(entity)}
           {cleaning && currentRoom ? ` · ${currentRoom.name}` : ''}
         </Text>
+        {entity.commands.includes('dock') ? (
+          <Pressable
+            onPress={() => setStationOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Ladestation"
+            style={({ pressed }) => [styles.iconButton, pressed && { opacity: 0.75 }]}
+          >
+            <Ionicons name="battery-charging-outline" size={16} color={colors.ink} />
+          </Pressable>
+        ) : null}
+        {maintenance.length > 0 ? (
+          <Pressable
+            onPress={() => setCareOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Wartung"
+            style={({ pressed }) => [styles.iconButton, pressed && { opacity: 0.75 }]}
+          >
+            <Ionicons name="construct-outline" size={16} color={colors.ink} />
+          </Pressable>
+        ) : null}
         {entity.commands.includes('start') ? (
           <Pressable
             onPress={() =>
@@ -257,15 +305,7 @@ export function VacuumHome({
             uri={liveUri}
             crop={crop}
             mapSize={mapSize}
-            onPressPoint={(x, y) => {
-              const hit = rooms.find(
-                (room) =>
-                  Array.isArray(room.box) &&
-                  x >= room.box[0] && x <= room.box[2] &&
-                  y >= room.box[1] && y <= room.box[3]
-              );
-              openDialog(hit?.id);
-            }}
+            onPressPoint={(x, y) => openDialog(roomAt(rooms, x, y)?.id)}
           >
             {rooms.map((room) => {
               if (!Array.isArray(room.box)) return null;
@@ -308,6 +348,19 @@ export function VacuumHome({
         </Pressable>
       ) : null}
 
+      <StationDialog
+        visible={stationOpen}
+        entity={entity}
+        onClose={() => setStationOpen(false)}
+        onCommand={onCommand}
+      />
+      <CareDialog
+        visible={careOpen}
+        entity={entity}
+        maintenance={maintenance}
+        onClose={() => setCareOpen(false)}
+        onCommand={onCommand}
+      />
       <CleanDialog
         visible={dialog != null}
         initialMode={dialog?.mode ?? 'full'}
@@ -442,12 +495,7 @@ function CleanDialog({
                       )
                   : mode === 'rooms'
                     ? (x, y) => {
-                        const hit = rooms.find(
-                          (room) =>
-                            Array.isArray(room.box) &&
-                            x >= room.box[0] && x <= room.box[2] &&
-                            y >= room.box[1] && y <= room.box[3]
-                        );
+                        const hit = roomAt(rooms, x, y);
                         if (hit) toggleRoom(hit.id);
                       }
                     : undefined
@@ -576,6 +624,199 @@ function CleanDialog({
   );
 }
 
+
+/** Übersetzungen für die Stations-Angaben – Unbekanntes erscheint roh,
+ *  besser als gar nicht. */
+const DOCK_LABELS: Record<string, string> = {
+  error: 'Störung',
+  type: 'Stationstyp',
+  wash_phase: 'Waschgang',
+  drying: 'Trocknung',
+  dust_collection: 'Staubentleerung',
+  auto_empty: 'Automatische Entleerung',
+};
+
+const DOCK_VALUE_LABELS: Record<string, string> = {
+  empty_wash_fill_dry_dock: 'Absaugen, Waschen, Trocknen',
+  auto_empty_dock: 'Absaug-Station',
+  wash_fill_dock: 'Waschstation',
+  no_dock: 'Einfache Ladestation',
+};
+
+/** Ladestation: was sie meldet, und was sie auf Zuruf tut. */
+function StationDialog({
+  visible,
+  entity,
+  onClose,
+  onCommand,
+}: {
+  visible: boolean;
+  entity: Entity;
+  onClose: () => void;
+  onCommand: (entityId: string, command: string, data?: Record<string, any>) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const dock = (entity.state.dock ?? {}) as Record<string, any>;
+  const run = (command: string) => {
+    onCommand(entity.id, command);
+    onClose();
+  };
+  const actions: { command: string; label: string; icon: any }[] = [
+    { command: 'dock', label: 'Zur Station fahren', icon: 'home-outline' },
+    { command: 'collect_dust', label: 'Staub absaugen', icon: 'trash-outline' },
+    { command: 'wash_mop', label: 'Mopp waschen', icon: 'water-outline' },
+    { command: 'stop_wash', label: 'Waschen stoppen', icon: 'stop-circle-outline' },
+    { command: 'locate', label: 'Sauger finden', icon: 'search-outline' },
+  ].filter((action) => entity.commands.includes(action.command));
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} onPress={onClose}>
+        <Pressable style={styles.sheet} onPress={() => {}}>
+          <Text style={styles.sheetTitle}>Ladestation</Text>
+          <View style={{ gap: 6 }}>
+            {entity.state.battery != null ? (
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Akku</Text>
+                <Text style={styles.infoValue}>{entity.state.battery} %</Text>
+              </View>
+            ) : null}
+            {Object.entries(dock).map(([key, value]) => (
+              <View key={key} style={styles.infoRow}>
+                <Text style={styles.infoLabel}>{DOCK_LABELS[key] ?? key}</Text>
+                <Text
+                  style={[styles.infoValue, key === 'error' && { color: colors.danger }]}
+                  numberOfLines={1}
+                >
+                  {DOCK_VALUE_LABELS[String(value)] ?? String(value)}
+                </Text>
+              </View>
+            ))}
+            {Object.keys(dock).length === 0 ? (
+              <Text style={styles.dialogHint}>
+                Die Station meldet gerade keine weiteren Angaben.
+              </Text>
+            ) : null}
+          </View>
+          <View style={{ gap: 8 }}>
+            {actions.map((action) => (
+              <Pressable
+                key={action.command}
+                onPress={() => run(action.command)}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.listButton, pressed && { opacity: 0.7 }]}
+              >
+                <Ionicons name={action.icon} size={16} color={colors.ink} />
+                <Text style={styles.listButtonText}>{action.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <Pressable onPress={onClose} style={styles.cancel}>
+            <Text style={styles.cancelText}>Schliessen</Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+/** Wartung: Verschleissteile mit Rest-Lebensdauer, je mit Zurücksetzen
+ *  nach dem Tausch (zweiter Tipp bestätigt). */
+function CareDialog({
+  visible,
+  entity,
+  maintenance,
+  onClose,
+  onCommand,
+}: {
+  visible: boolean;
+  entity: Entity;
+  maintenance: any[];
+  onClose: () => void;
+  onCommand: (entityId: string, command: string, data?: Record<string, any>) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [confirm, setConfirm] = useState<string | null>(null);
+  useEffect(() => {
+    if (!visible) setConfirm(null);
+  }, [visible]);
+  const canReset = entity.commands.includes('reset_consumable');
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} onPress={onClose}>
+        <Pressable style={styles.sheet} onPress={() => {}}>
+          <Text style={styles.sheetTitle}>Wartung</Text>
+          {maintenance.map((part) => {
+            const percent = Number(part.percent_left ?? 0);
+            const tone =
+              percent <= 10 ? colors.danger : percent <= 30 ? colors.warn : colors.on;
+            return (
+              <View key={String(part.part)} style={{ gap: 6 }}>
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>{part.label ?? part.part}</Text>
+                  <Text style={[styles.infoValue, { color: tone }]}>
+                    {percent} % übrig
+                  </Text>
+                </View>
+                <View style={styles.careTrack}>
+                  <View
+                    style={[
+                      styles.careFill,
+                      { width: `${Math.max(2, percent)}%`, backgroundColor: tone },
+                    ]}
+                  />
+                </View>
+                <View style={styles.infoRow}>
+                  <Text style={styles.dialogHint}>
+                    ~{part.used_hours ?? '?'} von {part.life_hours ?? '?'} h im Einsatz
+                  </Text>
+                  {canReset ? (
+                    <Pressable
+                      onPress={() => {
+                        if (confirm === part.part) {
+                          onCommand(entity.id, 'reset_consumable', { part: part.part });
+                          setConfirm(null);
+                        } else {
+                          setConfirm(String(part.part));
+                        }
+                      }}
+                      accessibilityRole="button"
+                      style={({ pressed }) => [
+                        styles.resetButton,
+                        confirm === part.part && { borderColor: colors.danger },
+                        pressed && { opacity: 0.7 },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.resetText,
+                          confirm === part.part && { color: colors.danger },
+                        ]}
+                      >
+                        {confirm === part.part ? 'Wirklich zurücksetzen?' : 'Zurücksetzen'}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              </View>
+            );
+          })}
+          <Text style={styles.dialogHint}>
+            Zurücksetzen nach dem Tausch bzw. der Reinigung des Teils – der
+            Zähler beginnt dann wieder bei 100 %.
+          </Text>
+          <Pressable onPress={onClose} style={styles.cancel}>
+            <Text style={styles.cancelText}>Schliessen</Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     stack: { gap: 10 },
@@ -593,6 +834,51 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     actionText: { color: colors.ink, fontSize: 13, fontWeight: '700' },
+    iconButton: {
+      width: 34,
+      height: 30,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: radius.control,
+      backgroundColor: colors.surfaceStrong,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    infoRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 10,
+    },
+    infoLabel: { color: colors.inkSoft, fontSize: 14 },
+    infoValue: { color: colors.ink, fontSize: 14, fontWeight: '600', flexShrink: 1 },
+    listButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingVertical: 11,
+      paddingHorizontal: 14,
+      borderRadius: radius.control,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    listButtonText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
+    careTrack: {
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: colors.surfaceSoft,
+      overflow: 'hidden',
+    },
+    careFill: { height: '100%', borderRadius: 3 },
+    resetButton: {
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    resetText: { color: colors.inkSoft, fontSize: 12, fontWeight: '600' },
     hint: { color: colors.inkFaint, fontSize: 12 },
     plainMap: { width: '100%', aspectRatio: 4 / 3, borderRadius: radius.control },
     roomLabel: {

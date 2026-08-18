@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Image,
   Modal,
@@ -18,6 +18,7 @@ import { Entity, HubSettings } from '../api/types';
 import { Bar } from '../components/Bar';
 import { Card } from '../components/Card';
 import { DraggableList } from '../components/DraggableList';
+import { CellLayout, DragCell, reorderByDrop } from '../components/DragGrid';
 import { EntityCard } from '../components/EntityCard';
 import { skyFromIcon } from '../components/CoverVisual';
 import { HistoryChart } from '../components/HistoryChart';
@@ -380,7 +381,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Hat ein Raum eine selbst gezogene Reihenfolge, gilt genau sie - dann
   // entfällt auch die Zweiteilung «Aktiv/Ruhend», die Kacheln stehen, wo
   // man sie hingezogen hat.
-  const customOrdered = orderScope != null && orderIds.length > 0;
+  const customOrdered =
+    orderScope != null && (orderIds.length > 0 || (editing && !searching));
   const running =
     section === 'home' && !customOrdered ? shown.filter(isActive).sort(byFavorite) : [];
   const rest =
@@ -426,7 +428,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // oben, dann Beleuchtung, Store, Medien, alles Übrige unter „Weitere“.
   // Leere Kategorien werden weggelassen. „Store“ (Storen/Rollläden)
   // erscheint so von selbst nur in Räumen mit solchen Geräten.
-  const categorized = section === 'home' && room !== ALL_ROOMS && !editing;
+  const categorized =
+    section === 'home' && room !== ALL_ROOMS && !editing && !customOrdered;
   const roomScenes = useMemo(
     () => (categorized ? scenes.filter((scene) => scene.room === room) : []),
     [categorized, scenes, room]
@@ -473,6 +476,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const fullscreenCamera = fullscreen
     ? entities.find((entity) => entity.id === fullscreen)
     : undefined;
+
+  // ── Kacheln direkt im Raster ziehen (Anpassen-Modus) ───────────────────
+  const dragEnabled =
+    editing && orderScope != null && !searching && !grouped && !categorized;
+  const cellLayouts = useRef(new Map<string, CellLayout>()).current;
+  const [drag, setDrag] = useState<{ id: string; dx: number; dy: number } | null>(null);
+  const startDrag = useCallback((id: string) => setDrag({ id, dx: 0, dy: 0 }), []);
+  const moveDrag = useCallback(
+    (dx: number, dy: number) => setDrag((d) => (d ? { ...d, dx, dy } : d)),
+    []
+  );
 
   const renderCard = (entity: Entity) => (
     <EntityCard
@@ -528,6 +542,33 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       }
     />
   );
+
+  const restIds = rest.map((entity) => entity.id);
+  const endDrag = (id: string, dx: number, dy: number) => {
+    setDrag(null);
+    if (!orderScope) return;
+    const next = reorderByDrop(restIds, cellLayouts, id, dx, dy);
+    if (next) setOrder(orderScope, next);
+  };
+  const renderCell = (entity: Entity) =>
+    dragEnabled && cardWidth ? (
+      <DragCell
+        key={entity.id}
+        id={entity.id}
+        width={cardWidth}
+        dragging={drag?.id === entity.id}
+        dx={drag?.id === entity.id ? drag.dx : 0}
+        dy={drag?.id === entity.id ? drag.dy : 0}
+        onStart={startDrag}
+        onMove={moveDrag}
+        onEnd={endDrag}
+        onLayout={(cellId, layout) => cellLayouts.set(cellId, layout)}
+      >
+        {renderCard(entity)}
+      </DragCell>
+    ) : (
+      renderCard(entity)
+    );
 
   const content = () => {
     if (section === 'start') {
@@ -851,7 +892,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               <Text style={styles.backText}>Räume</Text>
             </Pressable>
           ) : null}
-          {section === 'home' || section === 'devices' ? (
+          {section === 'home' ||
+          section === 'devices' ||
+          section === 'light' ||
+          section === 'covers' ? (
             <Pressable
               onPress={() => setEditing((value) => !value)}
               accessibilityRole="button"
@@ -947,8 +991,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           {!grouped && !categorized && !roomTiles && running.length > 0 && rest.length > 0 ? (
             <Text style={styles.sectionLabel}>Ruhend</Text>
           ) : null}
+          {!grouped && !categorized && !roomTiles && dragEnabled && rest.length > 1 ? (
+            <Text style={styles.sectionLabel}>
+              Kacheln am Griff ✥ an die gewünschte Stelle ziehen
+            </Text>
+          ) : null}
           {!grouped && !categorized && !roomTiles ? (
-            <View style={styles.grid}>{cardWidth ? rest.map(renderCard) : null}</View>
+            <View style={styles.grid}>{cardWidth ? rest.map(renderCell) : null}</View>
           ) : null}
 
           {inRoom.length === 0 ? (
