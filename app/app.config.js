@@ -12,14 +12,17 @@
  * frischer Klon hätte dann stillschweigend keine Benachrichtigungen. Die
  * Team-ID dagegen ist eine Kontokennung und bleibt draussen.
  *
- * Einmalig im Ordner `app/` eine Datei `.env` anlegen (Git ignoriert sie):
+ * Einmalig im Ordner `app/` eine Datei `.env` anlegen (Git ignoriert sie,
+ * `.env.example` daneben ist die Vorlage):
  *
  *   HOMEPILOT_APPLE_TEAM_ID=ABCDE12345
  *
  * Sie steht auf https://developer.apple.com/account unter «Membership».
- * Für EAS-Builds gehört derselbe Wert zusätzlich in die `eas.json` unter
- * `build.<profil>.env` – der Build läuft auf einem fremden Rechner und
- * sieht deine `.env` nicht.
+ * Der EAS-Build läuft auf einem fremden Rechner und sieht deine `.env`
+ * nicht; dort denselben Wert einmalig hinterlegen:
+ *
+ *   eas env:create --environment production \
+ *     --name HOMEPILOT_APPLE_TEAM_ID --value ABCDE12345 --visibility sensitive
  *
  * Ohne den Wert bleibt alles wie bisher; nur der iOS-Build meldet dann,
  * dass ihm die Angabe fehlt. Android und Expo Go sind nicht betroffen.

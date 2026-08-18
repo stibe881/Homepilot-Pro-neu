@@ -25,21 +25,12 @@ Kontingent reicht für den Privatgebrauch).
 cd app
 npm install -g eas-cli
 eas login                # Expo-Konto
-eas build:configure      # legt eas.json an, Projekt-ID in app.json
 ```
 
-In `app/app.json` prüfen/ergänzen (Name und Bundle-ID):
-
-```json
-{
-  "expo": {
-    "name": "HomePilot",
-    "slug": "homepilot",
-    "ios": { "bundleIdentifier": "ch.stibe.homepilot" },
-    "android": { "package": "ch.stibe.homepilot" }
-  }
-}
-```
+Mehr ist nicht nötig: `eas.json` liegt bereits im Repo (Profile
+`development`, `preview`, `production`), und Name, Bundle-ID, Paketname und
+EAS-Projekt-Kennung stehen in der `app.json`. `eas build:configure` würde
+die vorhandene `eas.json` nur überschreiben – also weglassen.
 
 ## Build fürs iPhone/iPad
 
@@ -109,28 +100,34 @@ Dieses Ziel liegt bereits im Repo unter `app/targets/notification-image/`
 und wird beim Build automatisch mitgebaut. Bundle-ID, Paketname und
 EAS-Projekt-Kennung stehen in der `app.json` – sie sind keine Geheimnisse
 und für jeden Build dieser App gleich. Was fehlt, ist die Team-ID zum
-Signieren. Im Ordner `app/` eine Datei `.env` anlegen (Git ignoriert sie):
+Signieren. Sie steht auf <https://developer.apple.com/account> unter
+«Membership details» und ist zehn Zeichen lang.
+
+Sie wird an zwei Stellen gebraucht, weil es zwei Rechner gibt:
+
+**Auf deinem Rechner** – nur für lokale Prüfläufe (`expo prebuild`). Im
+Ordner `app/` eine Datei `.env` anlegen; als Vorlage liegt `.env.example`
+daneben, und Git lässt die `.env` aussen vor:
 
 ```
 HOMEPILOT_APPLE_TEAM_ID=ABCDE12345
 ```
 
-Sie steht auf <https://developer.apple.com/account> unter «Membership».
+**Auf dem EAS-Baurechner** – der sieht deine `.env` nicht. Den Wert dort
+einmalig hinterlegen, statt ihn in die `eas.json` zu schreiben (die liegt
+im Repo, und dann stünde die Kontokennung dauerhaft darin):
 
-Für den EAS-Build gehört derselbe Wert zusätzlich in die `eas.json`, denn
-der Build läuft auf einem fremden Rechner und sieht deine `.env` nicht:
-
-```json
-{
-  "build": {
-    "production": {
-      "env": {
-        "HOMEPILOT_APPLE_TEAM_ID": "ABCDE12345"
-      }
-    }
-  }
-}
+```bash
+cd app
+eas env:create --environment production \
+  --name HOMEPILOT_APPLE_TEAM_ID --value ABCDE12345 --visibility sensitive
 ```
+
+Die Profile in der `eas.json` sind bereits an die passende Umgebung
+gebunden (`production` → `production`), der Wert steht dem Build also
+automatisch zur Verfügung. Ältere `eas-cli`-Fassungen kennen den Befehl
+noch als `eas secret:create --scope project --name … --value …`; beides
+landet am selben Ort.
 
 Danach einmal `eas build --platform ios --profile production`. Ein
 `eas update` genügt hier nicht: Das Ziel ist nativ, es braucht einen neuen
