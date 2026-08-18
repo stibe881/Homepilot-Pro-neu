@@ -467,6 +467,37 @@ def create_app(hub: Hub) -> FastAPI:
             ) from err
         return {"ok": True}
 
+    @app.get("/api/system/update/status")
+    async def update_status(request: Request) -> dict[str, Any]:
+        """Live-Fortschritt des Host-Baus, für einen Fortschrittsbalken in der App.
+
+        Nur der beiliegende ``deploy/update-listener.py`` kennt einen
+        Fortschritt (er beobachtet die Ausgabe von rebuild-hub.sh live) –
+        ein reiner Portainer-Stack-Webhook hat kein Gegenstück dazu. Ohne
+        passende Adresse kommt hier schlicht ``available: false`` zurück,
+        kein Fehler: Die App blendet den Balken dann einfach aus.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        url = str((hub.config.update or {}).get("webhook_url") or "")
+        if not url.endswith("/update"):
+            return {"available": False}
+        status_url = url[: -len("/update")] + "/status"
+        secret = str((hub.config.update or {}).get("token") or "")
+        headers = {"Authorization": f"Bearer {secret}"} if secret else {}
+        try:
+            timeout = aiohttp.ClientTimeout(total=5)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(status_url, headers=headers) as response:
+                    if response.status != 200:
+                        return {"available": False}
+                    data = await response.json()
+        except Exception:
+            return {"available": False}
+        if not isinstance(data, dict):
+            return {"available": False}
+        data["available"] = True
+        return data
+
     @app.get("/api/system/backups")
     async def list_backups(request: Request) -> dict[str, Any]:
         """Vorhandene Sicherungen der App-Daten (jüngste zuerst)."""

@@ -541,6 +541,46 @@ function ShortcutsCard({
   );
 }
 
+interface UpdateStatus {
+  available: boolean;
+  state?: 'idle' | 'running' | 'ok' | 'error';
+  stage?: string | null;
+  message?: string | null;
+}
+
+const STAGE_LABEL: Record<string, string> = {
+  clone: 'Code holen',
+  web: 'Web-Fassung bauen',
+  build: 'Abbild bauen',
+  built: 'Abbild fertig',
+  deploy: 'Ausrollen anstossen',
+  deploy_wait: 'Auf Wechsel warten',
+  manual: 'Bereit – von Hand ausrollen',
+  done: 'Fertig',
+};
+
+// Feste Stufen statt echter Prozente: Der Bau selbst (docker build, ebenso
+// der Web-Export) meldet keinen Fortschritt in Zahlen, nur diese Phasen.
+// Der Balken springt also zwischen ihnen statt gleichmässig zu laufen –
+// ehrlicher als ein Balken, der eine Genauigkeit vortäuscht, die es nicht
+// gibt. "web" kommt bei den meisten Aufbauten nie vor (kein Web-Ordner
+// eingerichtet) – dann geht es direkt von "clone" zu "build".
+const STAGE_PERCENT: Record<string, number> = {
+  clone: 5,
+  web: 20,
+  build: 50,
+  built: 70,
+  deploy: 80,
+  deploy_wait: 90,
+  manual: 95,
+  done: 100,
+};
+
+const POLL_MS = 2000;
+// Nach 20 Minuten ohne Ergebnis eher aufhören als endlos weiterzufragen –
+// der Host-Wächter in rebuild-hub.sh gibt ohnehin nach einer Stunde auf.
+const MAX_POLLS = 600;
+
 /**
  * Update anstossen.
  *
@@ -548,16 +588,77 @@ function ShortcutsCard({
  * und hat weder das Repository noch Docker zur Hand. Was er kann: eine
  * Adresse aufrufen, die das auf dem Host anstösst. Steht keine in der
  * config.yaml, sagt der Knopf genau das, statt so zu tun als ob.
+ *
+ * Läuft dort der beiliegende update-listener.py, liefert er einen echten
+ * Fortschritt (welche Phase gerade dran ist) – den fragt diese Karte alle
+ * zwei Sekunden ab und zeigt ihn als Balken. Bei einem reinen Portainer-
+ * Webhook gibt es das nicht; dann bleibt es wie bisher bei "läuft".
  */
 function UpdateButton({ settings }: { settings: HubSettings }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [note, setNote] = useState<string | null>(null);
+  const [noteError, setNoteError] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<UpdateStatus | null>(null);
+
+  const headers: Record<string, string> = settings.token
+    ? { Authorization: `Bearer ${settings.token}` }
+    : {};
+
+  // Solange ein Bau laufen könnte, alle zwei Sekunden nach dem Stand
+  // fragen – hört von selbst auf, sobald er fertig ist, fehlschlägt, oder
+  // der Dienst gar keinen Fortschritt kennt (available: false).
+  useEffect(() => {
+    if (!busy) return undefined;
+    let cancelled = false;
+    let polls = 0;
+    const poll = async () => {
+      polls += 1;
+      try {
+        const response = await fetch(`${settings.url}/api/system/update/status`, { headers });
+        if (cancelled) return;
+        if (!response.ok) {
+          if (response.status === 404) setBusy(false); // älterer Hub ohne dieses Endpunkt
+          return;
+        }
+        const data = (await response.json()) as UpdateStatus;
+        if (cancelled) return;
+        setProgress(data);
+        if (!data.available || data.state === 'ok' || data.state === 'error') {
+          setBusy(false);
+          if (data.state === 'error') {
+            setNoteError(true);
+            setNote(data.message || 'Bau fehlgeschlagen – Details im Log auf dem Host.');
+          } else if (data.state === 'ok') {
+            setNoteError(false);
+            setNote('Fertig – der Hub läuft mit dem frischen Stand.');
+          }
+        }
+      } catch {
+        // Ein verpasster Poll ist kein Grund aufzugeben – der nächste in
+        // zwei Sekunden reicht.
+      }
+      if (!cancelled && polls >= MAX_POLLS) {
+        setBusy(false);
+        setNoteError(true);
+        setNote('Keine Rückmeldung mehr vom Update-Dienst – im Log auf dem Host nachsehen.');
+      }
+    };
+    poll();
+    const timer = setInterval(poll, POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busy, settings.url, settings.token]);
 
   const run = async () => {
     setBusy(true);
     setNote(null);
+    setNoteError(false);
+    setProgress(null);
     try {
       const response = await fetch(`${settings.url}/api/system/update`, {
         method: 'POST',
@@ -567,11 +668,14 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
       if (!response.ok) throw new Error(body?.detail ?? `Hub antwortet mit ${response.status}`);
       setNote('Angestossen. Der Host baut jetzt – das dauert ein paar Minuten.');
     } catch (err: any) {
-      setNote(String(err.message ?? err));
-    } finally {
       setBusy(false);
+      setNoteError(true);
+      setNote(String(err.message ?? err));
     }
   };
+
+  const showBar = busy && progress?.available !== false;
+  const percent = progress?.stage ? (STAGE_PERCENT[progress.stage] ?? 5) : 5;
 
   return (
     <>
@@ -584,7 +688,24 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
         <Ionicons name="cloud-download-outline" size={16} color={colors.ink} />
         <Text style={styles.updateText}>{busy ? 'Läuft …' : 'Update anstossen'}</Text>
       </Pressable>
-      {note ? <Text style={styles.rowDetail}>{note}</Text> : null}
+      {showBar ? (
+        <View
+          style={styles.progressTrack}
+          accessibilityRole="progressbar"
+          accessibilityValue={{ min: 0, max: 100, now: percent }}
+        >
+          <View style={[styles.progressFill, { width: `${percent}%` }]} />
+        </View>
+      ) : null}
+      {showBar && progress?.stage ? (
+        <Text style={styles.rowDetail}>
+          {STAGE_LABEL[progress.stage] ?? progress.stage}
+          {progress.message ? ` · ${progress.message}` : ''}
+        </Text>
+      ) : null}
+      {note ? (
+        <Text style={[styles.rowDetail, noteError && { color: colors.danger }]}>{note}</Text>
+      ) : null}
     </>
   );
 }
@@ -936,6 +1057,17 @@ const makeStyles = (colors: Colors) =>
     borderColor: colors.surfaceBorder,
   },
   updateText: { color: colors.ink, fontSize: 13, fontWeight: '700' },
+  progressTrack: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.surfaceSoft,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 3,
+    backgroundColor: colors.accent,
+  },
   warnBox: {
     gap: 6,
     padding: 12,

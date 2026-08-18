@@ -11,6 +11,12 @@ Stattdessen dieser kleine Dienst *neben* dem Container: Er hört auf genau
 einen Aufruf, startet ``rebuild-hub.sh`` und antwortet sofort. Das Bauen
 dauert Minuten – wer darauf wartet, läuft in jeden Timeout.
 
+Damit der Update-Knopf in der App einen echten Fortschrittsbalken zeigen
+kann, statt nur "läuft" zu sagen, liest dieser Dienst die Ausgabe von
+rebuild-hub.sh live mit und merkt sich, in welcher Phase der Bau gerade
+steckt (``GET /status``) – dieselben Zeilen, die auch im journalctl
+stehen, nur strukturiert statt als Text.
+
 Ohne Fremdbibliotheken, damit auf dem Host nichts zu installieren ist.
 
 ── Einrichtung ──────────────────────────────────────────────────────────
@@ -36,11 +42,13 @@ from __future__ import annotations
 
 import hmac
 import http.server
+import json
 import logging
 import os
 import subprocess
 import sys
 import threading
+import time
 
 # Nur auf dem Docker-Bridge-Gateway lauschen, nicht auf allen Adressen.
 # Damit ist der Dienst aus den Containern erreichbar, aber nicht aus dem
@@ -50,37 +58,130 @@ PORT = int(os.environ.get("UPDATE_LISTEN_PORT", "9126"))
 SCRIPT = os.environ.get("UPDATE_SCRIPT", "/opt/homepilot/rebuild-hub.sh")
 SECRET = os.environ.get("UPDATE_SECRET", "")
 
+# Ein Bau, der über eine Stunde ohne Ende läuft, ist hängengeblieben statt
+# nur langsam – dann lieber abbrechen, als für immer "läuft" zu zeigen.
+WATCHDOG_SECONDS = 3600
+
 log = logging.getLogger("update-listener")
 
 # Damit nicht zwei Bauläufe gleichzeitig starten, wenn jemand zweimal tippt.
 _running = threading.Lock()
 
+# Die einzelnen Zeilen, an denen rebuild-hub.sh erkennen lässt, in welcher
+# Phase es gerade steckt (siehe dessen echo-Zeilen). Reihenfolge ist die
+# der Ausführung, nicht wichtig für die Erkennung selbst.
+_STAGE_MARKERS = (
+    ("Hole den neuesten Code", "clone"),
+    ("Baue die Web-Fassung der App", "web"),
+    ("Baue das Abbild neu", "build"),
+    ("alte Schichten aufgeräumt", "built"),
+    ("Löse den Portainer-Webhook aus", "deploy"),
+    ("Warte auf den Wechsel", "deploy_wait"),
+    ("Jetzt in Portainer", "manual"),
+)
+
+_status_lock = threading.Lock()
+# state: idle | running | ok | error
+_status = {
+    "state": "idle",
+    "stage": None,
+    "message": None,
+    "started_at": None,
+    "updated_at": None,
+}
+
+
+def _set_status(**fields) -> None:
+    with _status_lock:
+        _status.update(fields)
+        _status["updated_at"] = time.time()
+
+
+def _handle_line(line: str) -> None:
+    """Eine Ausgabezeile des Bau-Skripts einordnen (nicht rein – schreibt
+    in den geteilten Status, aber ohne Seiteneffekte sonst)."""
+    if line.startswith("✗"):
+        _set_status(state="error", message=line.lstrip("✗").strip())
+        return
+    if line.startswith("✓") and "frischen Abbild" in line:
+        _set_status(state="ok", stage="done", message=line.lstrip("✓").strip())
+        return
+    for marker, stage in _STAGE_MARKERS:
+        if marker in line:
+            _set_status(stage=stage, message=line.lstrip("→").strip())
+            return
+    # Kein erkanntes Stichwort – trotzdem als letzte Zeile zeigen, damit
+    # sichtbar bleibt, dass sich etwas tut (z.B. während docker build).
+    with _status_lock:
+        if _status["state"] == "running":
+            _status["message"] = line
+            _status["updated_at"] = time.time()
+
 
 def build() -> None:
-    """rebuild-hub.sh laufen lassen und das Ergebnis protokollieren."""
+    """rebuild-hub.sh laufen lassen, Ausgabe live in den Status spiegeln."""
     if not _running.acquire(blocking=False):
         log.warning("Es läuft schon ein Bau – der zweite Aufruf wird verworfen")
         return
+    _set_status(state="running", stage="clone", message=None, started_at=time.time())
+
+    timed_out = False
+    proc: subprocess.Popen | None = None
+    watchdog: threading.Timer | None = None
+    returncode = -1
     try:
         log.info("Starte %s", SCRIPT)
-        result = subprocess.run(
-            [SCRIPT], capture_output=True, text=True, timeout=3600
+        proc = subprocess.Popen(
+            [SCRIPT], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
         )
-        if result.returncode == 0:
-            log.info("Bau fertig:\n%s", result.stdout[-2000:])
-        else:
-            log.error(
-                "Bau fehlgeschlagen (%s):\n%s\n%s",
-                result.returncode,
-                result.stdout[-2000:],
-                result.stderr[-2000:],
-            )
-    except subprocess.TimeoutExpired:
-        log.error("Bau abgebrochen: über eine Stunde ohne Ende")
-    except Exception:
+
+        def _give_up() -> None:
+            nonlocal timed_out
+            timed_out = True
+            if proc is not None:
+                proc.kill()
+
+        watchdog = threading.Timer(WATCHDOG_SECONDS, _give_up)
+        watchdog.start()
+
+        assert proc.stdout is not None
+        for raw in proc.stdout:
+            line = raw.rstrip("\n")
+            if not line:
+                continue
+            log.info(line)
+            _handle_line(line)
+        returncode = proc.wait()
+    except Exception as err:
+        _set_status(state="error", message=str(err))
         log.exception("Bau konnte nicht gestartet werden")
-    finally:
         _running.release()
+        return
+    finally:
+        if watchdog is not None:
+            watchdog.cancel()
+
+    with _status_lock:
+        if timed_out:
+            _status["state"] = "error"
+            _status["message"] = "Abgebrochen: über eine Stunde ohne Ende"
+        elif _status["state"] == "running":
+            # Durchgelaufen, ohne dass eine der bekannten Endzeilen kam –
+            # bei Erfolg dennoch als fertig zählen, sonst bliebe die App
+            # für immer bei "läuft".
+            if returncode == 0:
+                _status["state"] = "ok"
+                _status["stage"] = _status["stage"] or "done"
+            else:
+                _status["state"] = "error"
+                _status["message"] = _status["message"] or f"Beendet mit Code {returncode}"
+        _status["updated_at"] = time.time()
+
+    if timed_out or returncode != 0:
+        log.error("Bau fehlgeschlagen (Code %s)", returncode)
+    else:
+        log.info("Bau fertig")
+    _running.release()
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -97,16 +198,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def do_POST(self) -> None:  # noqa: N802
-        if self.path.rstrip("/") != "/update":
-            self._answer(404, "Nicht gefunden\n")
-            return
-
+    def _authorized(self) -> bool:
         header = self.headers.get("Authorization", "")
         given = header.removeprefix("Bearer ").strip()
         # compare_digest, damit die Antwortzeit nichts über das Geheimnis
         # verrät.
-        if not SECRET or not hmac.compare_digest(given, SECRET):
+        return bool(SECRET) and hmac.compare_digest(given, SECRET)
+
+    def do_POST(self) -> None:  # noqa: N802
+        if self.path.rstrip("/") != "/update":
+            self._answer(404, "Nicht gefunden\n")
+            return
+        if not self._authorized():
             log.warning("Abgelehnt: falsches oder fehlendes Geheimnis")
             self._answer(403, "Nicht erlaubt\n")
             return
@@ -117,6 +220,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self._answer(202, "Bau gestartet\n")
 
     def do_GET(self) -> None:  # noqa: N802
+        if self.path.rstrip("/") == "/status":
+            # Derselbe Schutz wie /update: Der Stand eines Baus (welcher
+            # Commit, welche Fehlermeldung) ist nichts, was ohne das
+            # geteilte Geheimnis herausgehen soll.
+            if not self._authorized():
+                self._answer(403, "Nicht erlaubt\n")
+                return
+            with _status_lock:
+                body = json.dumps(_status).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         # Für einen Blick von Hand, ob der Dienst überhaupt läuft.
         self._answer(200, "update-listener läuft\n")
 

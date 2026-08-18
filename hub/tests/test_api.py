@@ -310,6 +310,34 @@ def test_the_update_button_stays_off_without_an_address():
         assert "update.webhook_url" in response.json()["detail"]
 
 
+def test_update_status_is_unavailable_without_the_status_endpoint():
+    """Nur update-listener.py bietet /status - ein reiner Portainer-Webhook
+    (oder gar keine Adresse) kennt keinen Fortschritt. Die App soll dann
+    einfach keinen Balken zeigen, statt gegen einen Fehler zu laufen."""
+    hub = Hub(make_config(token="geheim"))
+    with TestClient(create_app(hub)) as client:
+        response = client.get(
+            "/api/system/update/status", headers={"Authorization": "Bearer geheim"}
+        )
+        assert response.status_code == 200
+        assert response.json() == {"available": False}
+
+    hub = Hub(
+        make_config(
+            token="geheim",
+            update={
+                "webhook_url": "https://portainer.example.com/api/stacks/webhooks/xxxx"
+            },
+        )
+    )
+    with TestClient(create_app(hub)) as client:
+        response = client.get(
+            "/api/system/update/status", headers={"Authorization": "Bearer geheim"}
+        )
+        assert response.status_code == 200
+        assert response.json() == {"available": False}
+
+
 def test_saving_the_config_reports_what_looks_wrong(tmp_path):
     """Diese Prüfungen liefen bisher nur beim Start ins Log – wer in der App
     speicherte, sah die doppelte Adresse also nie."""

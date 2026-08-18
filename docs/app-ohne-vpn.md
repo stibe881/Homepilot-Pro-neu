@@ -64,6 +64,30 @@ die also weiterhin Vorrang haben. App und Schnittstelle teilen sich damit
 eine Adresse, und die Web-Fassung schlägt beim ersten Start die eigene
 Adresse als Hub vor; abtippen muss man nichts.
 
+## Schritte 1 und 2 automatisch: der Update-Knopf
+
+Läuft bei dir bereits [`deploy/rebuild-hub.sh`](../deploy/rebuild-hub.sh)
+über den Update-Dienst (siehe [portainer.md](../deploy/portainer.md)),
+erledigt es die ersten beiden Schritte von selbst, sobald der Ordner aus
+Schritt 2 einmal existiert:
+
+```bash
+mkdir -p /opt/homepilot/web
+```
+
+Ab dann baut jeder Klick auf «Update anstossen» in der App auch die
+Web-Fassung neu – in einem Wegwerf-Container, ohne dass Node auf dem
+Docker-Host installiert sein muss – und legt sie direkt in diesen Ordner.
+Schlägt nur der Web-Bau fehl, bleibt die zuletzt funktionierende Fassung
+online; der Hub selbst wird trotzdem weitergebaut. Existiert der Ordner
+nicht, überspringt das Skript diesen Teil einfach – dann bleibt es beim
+manuellen Weg über `npm run build:web` und `scp`.
+
+Ein `docker restart` nach dem Kopieren brauchst du dabei nur beim
+allerersten Mal (siehe Stolperstein unten) – danach tauscht der
+Update-Vorgang den Container ohnehin bei jedem Lauf, und die neuen
+Dateien werden dabei automatisch mit ausgeliefert.
+
 ## 4. Im Nginx Proxy Manager
 
 - Die Sperre aus [oeffentliche-adresse.md](oeffentliche-adresse.md) **muss

@@ -51,6 +51,14 @@
 #   PORTAINER_INSECURE=1
 #
 # Ist die Variable gesetzt, ruft dieses Skript sie am Ende automatisch auf.
+#
+# ── Optional: die Web-Fassung der App gleich mit ──────────────────────
+#
+# Existiert der Zielordner der Web-Fassung (siehe docs/app-ohne-vpn.md)
+# schon, baut dieses Skript sie bei jedem Lauf gleich mit - in einem
+# Wegwerf-Container, ohne dass Node auf dem Host installiert sein muss.
+# Ein eigener Ordner dafür ist der einzige Schalter; ohne ihn passiert
+# hier nichts Neues.
 
 set -euo pipefail
 
@@ -60,6 +68,7 @@ WORKDIR="/tmp/homepilot-build"
 CREDENTIALS_FILE="/opt/homepilot/github-credentials.env"
 CONTAINER="homepilot-hub"
 IMAGE="homepilot-hub"
+WEB_ROOT="${HOMEPILOT_WEB_ROOT:-/opt/homepilot/web}"
 
 if [ -f "$CREDENTIALS_FILE" ]; then
   # shellcheck disable=SC1090
@@ -78,6 +87,27 @@ echo "→ Hole den neuesten Code von ${REPO}@${BRANCH} …"
 rm -rf "$WORKDIR"
 git clone --depth 1 -b "$BRANCH" \
   "https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/${REPO}.git" "$WORKDIR"
+
+if [ -n "$WEB_ROOT" ] && [ "$WEB_ROOT" != "/" ] && [ -d "$WEB_ROOT" ]; then
+  echo "→ Baue die Web-Fassung der App …"
+  # node:20-bookworm-slim statt alpine: Metro/Expo bringen gelegentlich
+  # Pakete mit, die eine echte glibc statt musl erwarten - das Abbild ist
+  # etwas grösser, bleibt dafür aber Überraschungen erspart. Bleibt danach
+  # im Docker-Cache liegen, kein erneuter Download bei jedem Lauf.
+  if docker run --rm \
+      -v "$WORKDIR/app:/app" -w /app \
+      node:20-bookworm-slim \
+      sh -c "npm ci --no-audit --no-fund && npm run build:web"; then
+    # Den alten Stand erst jetzt wegräumen, nicht vorher - schlägt der Bau
+    # fehl, bleibt die zuletzt funktionierende Fassung online.
+    find "$WEB_ROOT" -mindepth 1 -delete
+    cp -r "$WORKDIR/app/dist/." "$WEB_ROOT/"
+    echo "✓ Web-Fassung aktualisiert."
+  else
+    echo "⚠ Web-Bau fehlgeschlagen - die bisherige Fassung bleibt online."
+    echo "  Der Hub selbst wird trotzdem weitergebaut."
+  fi
+fi
 
 echo "→ Baue das Abbild neu (ohne Cache) …"
 # Commit und Bauzeit wandern ins Abbild. Ohne sie zeigt die App nur
