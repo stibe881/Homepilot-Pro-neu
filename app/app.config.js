@@ -21,7 +21,7 @@
  * Der EAS-Build läuft auf einem fremden Rechner und sieht deine `.env`
  * nicht; dort denselben Wert einmalig hinterlegen:
  *
- *   eas env:create --environment production \
+ *   npx eas-cli@latest env:set --environment production \
  *     --name HOMEPILOT_APPLE_TEAM_ID --value ABCDE12345 --visibility sensitive
  *
  * Ohne den Wert bleibt alles wie bisher; nur der iOS-Build meldet dann,

@@ -119,15 +119,21 @@ im Repo, und dann stünde die Kontokennung dauerhaft darin):
 
 ```bash
 cd app
-eas env:create --environment production \
+npx eas-cli@latest env:set --environment production \
   --name HOMEPILOT_APPLE_TEAM_ID --value ABCDE12345 --visibility sensitive
 ```
 
 Die Profile in der `eas.json` sind bereits an die passende Umgebung
 gebunden (`production` → `production`), der Wert steht dem Build also
 automatisch zur Verfügung. Ältere `eas-cli`-Fassungen kennen den Befehl
-noch als `eas secret:create --scope project --name … --value …`; beides
-landet am selben Ort.
+noch als `eas env:create` oder `eas secret:create --scope project --name …
+--value …`; alle drei landen am selben Ort.
+
+`npx eas-cli@latest` lädt das Werkzeug bei Bedarf und funktioniert ohne
+vorherige Installation. Mit `npm install -g eas-cli` lässt es sich auch
+dauerhaft einrichten – dann aber nach der Installation das Fenster der
+Eingabeaufforderung einmal schliessen und neu öffnen, sonst kennt Windows
+den Befehl `eas` in der noch offenen Sitzung nicht.
 
 Danach einmal `eas build --platform ios --profile production`. Ein
 `eas update` genügt hier nicht: Das Ziel ist nativ, es braucht einen neuen
