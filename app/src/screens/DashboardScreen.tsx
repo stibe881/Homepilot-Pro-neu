@@ -952,7 +952,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
         >
-          <TopStrip entities={entities} status={status} now={now} />
+          <TopStrip entities={entities} status={status} now={now} onCommand={sendCommand} />
 
           <View style={styles.greetingRow}>
             <View style={styles.greeting}>

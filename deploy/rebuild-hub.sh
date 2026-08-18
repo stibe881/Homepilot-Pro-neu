@@ -91,8 +91,16 @@ docker build --no-cache \
 
 rm -rf "$WORKDIR"
 
-echo ""
-echo "✓ Abbild '$IMAGE' ist aktuell."
+# Jeder Bauversuch läuft ohne Cache – jede Schicht entsteht neu, die vorige
+# verliert nur ihre Markierung (dasselbe Tag zeigt jetzt aufs neue Abbild)
+# und bleibt als "dangling" auf der Platte liegen. Der noch laufende
+# Container hält sein Abbild weiter fest, das räumt Docker also nicht weg -
+# ungenutzte Reste von zwei oder mehr Durchläufen zuvor aber schon. Ohne
+# dieses Aufräumen füllt sich die Platte nach ein paar Updates von selbst,
+# und dann schlägt nicht nur der nächste Bau fehl, sondern jedes Schreiben
+# auf /config (Konfiguration speichern, Lautsprecher-Gruppen, Szenen …).
+docker image prune -f >/dev/null
+echo "✓ Abbild '$IMAGE' ist aktuell, alte Schichten aufgeräumt."
 
 if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
   # Der alte Container bleibt bewusst stehen: Den Tausch macht Portainer

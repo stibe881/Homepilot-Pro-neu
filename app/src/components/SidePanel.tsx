@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Activity, Entity } from '../api/types';
@@ -32,13 +32,28 @@ export function SidePanel({
   const alert = entities.find((entity) => entity.kind === 'alert');
   // Warnung nur zeigen, wenn es wirklich eine gibt (für den gewählten Ort).
   const hasAlert = alert && (alert.state.count ?? 0) > 0;
-  const player = pickPlayer(entities);
+  const players = useMemo(
+    () => entities.filter((entity) => entity.kind === 'media_player'),
+    [entities]
+  );
+  // Von Hand gewählte Box, solange es sie noch gibt – sonst die naheliegende
+  // (siehe pickPlayer): So sieht man immer nur eine Karte, aber jede Box
+  // lässt sich ansehen und bedienen, nicht nur die gerade spielende.
+  const [chosenId, setChosenId] = useState<string | null>(null);
+  const player =
+    (chosenId ? players.find((entity) => entity.id === chosenId) : undefined) ??
+    pickPlayer(entities);
 
   return (
     <View style={[styles.column, width ? { width } : { flex: 1 }]}>
       {weather ? <WeatherPanel entity={weather} /> : null}
       {player && onCommand ? (
-        <MediaPanel entity={player} onCommand={onCommand} />
+        <MediaPanel
+          entity={player}
+          players={players}
+          onSelect={setChosenId}
+          onCommand={onCommand}
+        />
       ) : null}
       {hasAlert ? <AlertPanel entity={alert!} /> : null}
     </View>
@@ -64,9 +79,15 @@ export function pickPlayer(entities: Entity[]): Entity | undefined {
  * Nachbarkacheln auf seine Höhe; hier stört er niemanden. */
 function MediaPanel({
   entity,
+  players,
+  onSelect,
   onCommand,
 }: {
   entity: Entity;
+  /** Alle Medien-Geräte, nicht nur das gerade gezeigte – für die
+   *  Lautsprecherwahl. Bei nur einem Gerät bleibt die Zeile weg. */
+  players: Entity[];
+  onSelect: (entityId: string) => void;
   onCommand: (entityId: string, command: string, data?: Record<string, any>) => void;
 }) {
   const colors = useColors();
@@ -81,6 +102,39 @@ function MediaPanel({
         <Ionicons name="musical-notes-outline" size={18} color={colors.inkSoft} />
         <Text style={styles.heading}>Musik</Text>
       </View>
+      {players.length > 1 ? (
+        <View style={styles.speakerRow}>
+          {players.map((speaker) => {
+            const selected = speaker.id === entity.id;
+            return (
+              <Pressable
+                key={speaker.id}
+                onPress={() => onSelect(speaker.id)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected }}
+                accessibilityLabel={`${speaker.name} anzeigen`}
+                style={[styles.speakerChip, selected && styles.speakerChipActive]}
+              >
+                <Ionicons
+                  name={
+                    speaker.state.state === 'playing'
+                      ? 'volume-high-outline'
+                      : 'volume-medium-outline'
+                  }
+                  size={13}
+                  color={selected ? '#FFFFFF' : colors.inkSoft}
+                />
+                <Text
+                  style={[styles.speakerChipText, selected && styles.speakerChipTextActive]}
+                  numberOfLines={1}
+                >
+                  {speaker.name}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
       <Text style={styles.mediaTrack} numberOfLines={1}>
         {entity.state.track ?? 'Nichts läuft'}
       </Text>
@@ -291,6 +345,25 @@ const makeStyles = (colors: Colors) =>
   column: { gap: 14 },
   mediaCard: { gap: 8, minHeight: 0 },
   mediaHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  speakerRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  speakerChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    maxWidth: '100%',
+  },
+  speakerChipActive: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  speakerChipText: { fontSize: 12, color: colors.inkSoft, flexShrink: 1 },
+  speakerChipTextActive: { color: '#FFFFFF' },
   mediaTrack: { color: colors.ink, fontSize: 16, fontWeight: '600' },
   mediaArtist: { color: colors.inkSoft, fontSize: 13 },
   mediaButtons: { flexDirection: 'row', gap: 8, marginTop: 2 },
