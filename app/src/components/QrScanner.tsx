@@ -130,7 +130,7 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     screen: {
       flex: 1,
-      backgroundColor: colors.surfaceStrong,
+      backgroundColor: colors.gradient[1],
       padding: 22,
       gap: 18,
       paddingTop: 60,

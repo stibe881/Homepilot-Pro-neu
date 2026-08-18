@@ -318,7 +318,7 @@ const makeStyles = (colors: Colors) =>
     gap: 10,
     padding: 18,
     borderRadius: radius.card,
-    backgroundColor: colors.surfaceStrong,
+    backgroundColor: colors.gradient[1],
     borderWidth: 1,
     borderColor: colors.surfaceBorder,
   },
