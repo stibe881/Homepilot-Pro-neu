@@ -262,6 +262,7 @@ export function EntityCard({
 
       case 'camera': {
         const online = entity.state.state === 'online';
+        const privacyOn = entity.state.privacy === 'on';
         return (
           <View style={styles.stack}>
             {snapshotUri && online ? (
@@ -279,6 +280,9 @@ export function EntityCard({
               label={online ? 'Online' : 'Offline'}
               tone={online ? colors.on : colors.danger}
             />
+            {privacyOn ? (
+              <Pill label="Privatsphäre aktiv" tone={colors.accent} solid />
+            ) : null}
             {entity.state.ring === 'on' ? (
               <Pill label="Klingelt" tone={colors.danger} solid />
             ) : null}
@@ -297,6 +301,36 @@ export function EntityCard({
             ) : null}
             {entity.state.stream && online ? (
               <Text style={styles.detail}>Tippen für Live-Bild</Text>
+            ) : null}
+            {entity.commands.includes('set_privacy') ? (
+              // Bild schwarz, Mikrofon stumm, Aufnahme aus – und alles
+              // zurück, wie es war, beim zweiten Tipp.
+              <Pressable
+                onPress={(event: any) => {
+                  // Nicht die Kachel «Live-Bild öffnen» auslösen.
+                  event?.stopPropagation?.();
+                  onCommand('set_privacy', { enabled: !privacyOn });
+                }}
+                accessibilityRole="switch"
+                accessibilityState={{ checked: privacyOn }}
+                accessibilityLabel="Privatsphäre"
+                style={({ pressed }) => [
+                  styles.privacyButton,
+                  privacyOn && styles.privacyButtonActive,
+                  pressed && { opacity: 0.7 },
+                ]}
+              >
+                <Ionicons
+                  name={privacyOn ? 'eye-off' : 'eye-off-outline'}
+                  size={15}
+                  color={privacyOn ? '#FFFFFF' : colors.inkSoft}
+                />
+                <Text
+                  style={[styles.privacyText, privacyOn && { color: '#FFFFFF' }]}
+                >
+                  {privacyOn ? 'Privatsphäre beenden' : 'Privatsphäre'}
+                </Text>
+              </Pressable>
             ) : null}
           </View>
         );
@@ -1925,6 +1959,20 @@ const makeStyles = (colors: Colors) =>
   },
   deviceChipText: { fontSize: 12, color: colors.inkSoft, flexShrink: 1 },
   deviceChipTextActive: { color: '#FFFFFF' },
+  privacyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-end',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  privacyButtonActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  privacyText: { fontSize: 12, fontWeight: '700', color: colors.inkSoft },
   cleanRoomsButton: {
     flexDirection: 'row',
     alignItems: 'center',

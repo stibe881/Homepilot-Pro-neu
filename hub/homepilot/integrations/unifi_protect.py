@@ -126,6 +126,57 @@ def rtsp_url(host: str, alias: str) -> str:
     return f"rtsp://{host}:7447/{alias}"
 
 
+# Name der Zone, die der Hub für den Privatsphäre-Modus anlegt. Über den
+# Namen erkennt er sie auch wieder – selbst gezeichnete Zonen aus der
+# Protect-App bleiben unangetastet.
+PRIVACY_ZONE = "HomePilot Privatsphäre"
+
+
+def has_privacy_zone(camera: dict[str, Any]) -> bool:
+    """Ist die Privatsphäre-Zone des Hubs gesetzt? (rein, testbar)"""
+    return any(
+        (zone or {}).get("name") == PRIVACY_ZONE
+        for zone in camera.get("privacyZones") or []
+    )
+
+
+def privacy_patch(
+    enabled: bool, camera: dict[str, Any], restore: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Der PATCH-Körper zum Ein-/Ausschalten der Privatsphäre (rein, testbar).
+
+    Einschalten legt eine bildfüllende schwarze Zone, stellt das Mikrofon
+    stumm und die Aufnahme ab – wie der Privatsphäre-Schalter in Home
+    Assistant. Ausschalten entfernt genau unsere Zone und stellt Mikrofon
+    und Aufnahme auf die gemerkten vorherigen Werte zurück (ohne gemerkte:
+    Mikrofon voll, Aufnahme «always»).
+    """
+    zones = [
+        zone
+        for zone in camera.get("privacyZones") or []
+        if (zone or {}).get("name") != PRIVACY_ZONE
+    ]
+    if enabled:
+        zones.append(
+            {
+                "name": PRIVACY_ZONE,
+                "color": "#85BCEC",
+                "points": [[0, 0], [1, 0], [1, 1], [0, 1]],
+            }
+        )
+        return {
+            "privacyZones": zones,
+            "micVolume": 0,
+            "recordingSettings": {"mode": "never"},
+        }
+    restore = restore or {}
+    return {
+        "privacyZones": zones,
+        "micVolume": restore.get("micVolume", 100),
+        "recordingSettings": {"mode": restore.get("mode") or "always"},
+    }
+
+
 def camera_state(camera: dict[str, Any], quality: str = "medium") -> dict[str, Any]:
     """Übersetzt ein Kamera-Objekt der API in Entitäts-Attribute."""
     state: dict[str, Any] = {
@@ -134,6 +185,7 @@ def camera_state(camera: dict[str, Any], quality: str = "medium") -> dict[str, A
         "motion": "on" if camera.get("isMotionDetected") else "off",
         # Sagt der App, ob sie ein Live-Bild anbieten darf.
         "stream": rtsp_alias(camera, quality) is not None,
+        "privacy": "on" if has_privacy_zone(camera) else "off",
     }
     if camera.get("lastMotion"):
         state["last_motion"] = _iso(camera.get("lastMotion"))
@@ -161,6 +213,9 @@ class UnifiProtectIntegration(Integration):
         self._cameras: dict[str, str] = {}
         # Entitäts-ID → RTSP-Name des Live-Kanals (fehlt, wenn RTSP aus ist)
         self._aliases: dict[str, str] = {}
+        # Entitäts-ID → Mikrofon/Aufnahmemodus vor dem Privatsphäre-Modus,
+        # damit das Ausschalten den alten Zustand wiederherstellt.
+        self._privacy_restore: dict[str, dict[str, Any]] = {}
 
         # Der Controller nutzt ein selbstsigniertes Zertifikat; die Anmeldung
         # läuft über Cookies, deshalb bekommt die Session einen Cookie-Speicher.
@@ -227,6 +282,7 @@ class UnifiProtectIntegration(Integration):
                 EntityKind.CAMERA,
                 camera.get("name") or "Kamera",
                 state=camera_state(camera, self._quality),
+                commands=["set_privacy"],
             )
             self._cameras[camera_id] = entity.id
             entity_id = entity.id
@@ -294,9 +350,49 @@ class UnifiProtectIntegration(Integration):
             await self._refresh()
 
     async def handle_command(self, entity: Entity, command: str, data: dict[str, Any]) -> None:
-        # Kameras sind bewusst nur lesend – Aufnahmemodi umzustellen gehört
-        # in die Protect-App, nicht auf eine Wandtafel.
+        # Kameras bleiben weitgehend lesend – einzige Ausnahme ist der
+        # Privatsphäre-Modus: bildfüllende schwarze Zone, Mikrofon stumm,
+        # Aufnahme aus. Das ist genau der Fall «wir sind zuhause und wollen
+        # gerade nicht gefilmt werden», und der gehört auf die Wandtafel.
+        if command == "set_privacy":
+            await self._set_privacy(entity, bool(data.get("enabled")))
+            return
         raise ConfigError("Kameras lassen sich hier nicht steuern")
+
+    async def _set_privacy(self, entity: Entity, enabled: bool) -> None:
+        camera_id = next(
+            (cid for cid, eid in self._cameras.items() if eid == entity.id), None
+        )
+        if camera_id is None:
+            raise ConfigError("Diese Kamera kennt der Controller nicht")
+        headers = {"X-CSRF-Token": self._csrf} if self._csrf else {}
+        # Frischen Stand holen: Fremde Zonen sollen erhalten bleiben, und
+        # Mikrofon/Aufnahmemodus werden fürs spätere Zurückstellen gemerkt.
+        async with self._session.get(
+            f"{self._base}/proxy/protect/api/cameras/{camera_id}", headers=headers
+        ) as response:
+            if response.status == 401:
+                await self._login()
+                return await self._set_privacy(entity, enabled)
+            response.raise_for_status()
+            camera = await response.json()
+        if enabled and not has_privacy_zone(camera):
+            self._privacy_restore[entity.id] = {
+                "micVolume": camera.get("micVolume", 100),
+                "mode": (camera.get("recordingSettings") or {}).get("mode"),
+            }
+        patch = privacy_patch(enabled, camera, self._privacy_restore.get(entity.id))
+        async with self._session.patch(
+            f"{self._base}/proxy/protect/api/cameras/{camera_id}",
+            json=patch,
+            headers=headers,
+        ) as response:
+            response.raise_for_status()
+        if not enabled:
+            self._privacy_restore.pop(entity.id, None)
+        await self.hub.registry.update_state(
+            entity.id, {"privacy": "on" if enabled else "off"}
+        )
 
     async def stream_url(self, entity: Entity) -> str | None:
         alias = self._aliases.get(entity.id)

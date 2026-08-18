@@ -87,9 +87,29 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
     }
   };
 
+  /** Fehlertexte des Hubs lesbar machen – bei Eingabefehlern liefert
+   *  FastAPI eine Liste von Objekten statt eines Satzes. */
+  const detailText = (data: any, status: number): string => {
+    const detail = data?.detail;
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail)) {
+      return detail.map((entry: any) => entry?.msg ?? JSON.stringify(entry)).join(', ');
+    }
+    return `Hub antwortet mit ${status}`;
+  };
+
   /** Eine gefundene Box in die config.yaml eintragen – der Hub ergänzt dort
    *  zwei Zeilen und lässt den Rest der Datei in Ruhe. */
   const adopt = async (entry: Speaker) => {
+    if (!entry.host) {
+      // Kommt bei Gruppen vor, deren Adresse das Netz gerade nicht meldet –
+      // ohne Adresse gibt es nichts einzutragen.
+      setError(
+        `Für «${entry.name}» meldet das Netz keine Adresse. Die Gruppe in der ` +
+          'Google-Home-App einmal kurz bespielen, dann hier erneut suchen.'
+      );
+      return;
+    }
     setAdopting(keyOf(entry));
     setError(null);
     try {
@@ -104,7 +124,7 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(data.detail ?? `Hub antwortet mit ${response.status}`);
+        throw new Error(detailText(data, response.status));
       }
       setPending((prev) => (prev.includes(entry.name) ? prev : [...prev, entry.name]));
       load();
@@ -112,6 +132,17 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
       setError(String(err.message ?? err));
     } finally {
       setAdopting(null);
+    }
+  };
+
+  /** Hub neu starten, damit frisch eingetragene Boxen erscheinen. */
+  const [restarting, setRestarting] = useState(false);
+  const restartNow = async () => {
+    setRestarting(true);
+    try {
+      await fetch(`${settings.url}/api/system/restart`, { method: 'POST', headers });
+    } catch {
+      // Die Verbindung reisst beim Neustart sowieso ab – kein Fehler.
     }
   };
 
@@ -140,7 +171,11 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
     );
   };
 
-  if (error) {
+  // Nur wenn schon die erste Suche scheitert, gibt es nichts zu zeigen.
+  // Fehler bei einer Aktion erscheinen als Banner über der Liste – vorher
+  // ersetzten sie die ganze Seite, und ein Fehlschlag sah aus wie «nichts
+  // passiert».
+  if (error && speakers == null) {
     return <Text style={styles.note}>Lautsprecher nicht abrufbar: {error}</Text>;
   }
 
@@ -152,6 +187,31 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
 
   return (
     <View style={styles.list}>
+      {error ? <Text style={styles.errorBanner}>{error}</Text> : null}
+      {pending.length > 0 ? (
+        <Card style={styles.card}>
+          <Text style={styles.wait}>
+            Eingetragen: {pending.join(', ')}. Sichtbar als Gerät wird das erst
+            nach einem Neustart des Hubs.
+          </Text>
+          <Pressable
+            onPress={restartNow}
+            accessibilityRole="button"
+            disabled={restarting}
+            style={({ pressed }) => [styles.button, (pressed || restarting) && { opacity: 0.7 }]}
+          >
+            <Ionicons name="refresh-circle-outline" size={16} color="#FFFFFF" />
+            <Text style={styles.buttonText}>
+              {restarting ? 'Hub startet neu …' : 'Jetzt neu starten'}
+            </Text>
+          </Pressable>
+          {restarting ? (
+            <Text style={styles.hint}>
+              Die Verbindung reisst dabei kurz ab und kommt von selbst wieder.
+            </Text>
+          ) : null}
+        </Card>
+      ) : null}
       <Card style={styles.card}>
         <Text style={styles.heading}>Gruppen</Text>
         <Text style={styles.hint}>
@@ -242,12 +302,6 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
           Gruppe wird genauso eingetragen wie eine einzelne Box – für den Hub
           ist sie ein Gerät.
         </Text>
-        {pending.length > 0 ? (
-          <Text style={styles.wait}>
-            Neu eingetragen: {pending.join(', ')}. Unter Einstellungen → System
-            neu starten, dann erscheinen sie als Geräte.
-          </Text>
-        ) : null}
         <Pressable
           onPress={load}
           accessibilityRole="button"
@@ -292,6 +346,12 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     adoptText: { color: colors.accent, fontSize: 11, fontWeight: '700' },
+    errorBanner: {
+      color: colors.danger,
+      fontSize: 13,
+      fontWeight: '600',
+      lineHeight: 19,
+    },
     badgeOk: { color: colors.on, fontSize: 11, fontWeight: '700' },
     button: {
       flexDirection: 'row',

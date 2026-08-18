@@ -56,6 +56,37 @@ def test_decode_ws_message_rejects_truncated_data():
 # ── UniFi Protect: Kamera-Zustand ────────────────────────────────────────
 
 
+def test_privacy_patch_round_trip():
+    from homepilot.integrations.unifi_protect import (
+        PRIVACY_ZONE,
+        has_privacy_zone,
+        privacy_patch,
+    )
+
+    camera = {
+        "privacyZones": [{"name": "Eigene Zone", "points": [[0, 0], [0.5, 0.5]]}],
+        "micVolume": 80,
+        "recordingSettings": {"mode": "detections"},
+    }
+    on = privacy_patch(True, camera)
+    # Fremde Zonen bleiben, unsere kommt dazu; Mikrofon stumm, Aufnahme aus.
+    assert [zone["name"] for zone in on["privacyZones"]] == ["Eigene Zone", PRIVACY_ZONE]
+    assert on["micVolume"] == 0
+    assert on["recordingSettings"] == {"mode": "never"}
+
+    with_zone = {**camera, "privacyZones": on["privacyZones"]}
+    assert has_privacy_zone(with_zone) and not has_privacy_zone(camera)
+
+    off = privacy_patch(False, with_zone, {"micVolume": 80, "mode": "detections"})
+    assert [zone["name"] for zone in off["privacyZones"]] == ["Eigene Zone"]
+    assert off["micVolume"] == 80
+    assert off["recordingSettings"] == {"mode": "detections"}
+    # Ohne gemerkte Werte: sinnvolle Standardwerte statt stumm zu bleiben.
+    fallback = privacy_patch(False, with_zone)
+    assert fallback["micVolume"] == 100
+    assert fallback["recordingSettings"] == {"mode": "always"}
+
+
 def test_camera_state_maps_connection_and_motion():
     state = camera_state(
         {
@@ -77,6 +108,7 @@ def test_camera_state_offline_without_motion():
         "state": "offline",
         "recording": None,
         "motion": "off",
+        "privacy": "off",
         "stream": False,
     }
 

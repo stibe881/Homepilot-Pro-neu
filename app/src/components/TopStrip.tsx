@@ -47,11 +47,15 @@ export function TopStrip({
   entities,
   status,
   now,
+  hidden = [],
   onCommand,
 }: {
   entities: Entity[];
   status: ConnectionStatus;
   now: Date;
+  /** Ausgeblendete Geräte – wer eine Lampe aus den Alltagsansichten
+   *  verbannt hat, will sie auch hier nicht mitgezählt sehen. */
+  hidden?: string[];
   /** Für «Licht aus» direkt aus dem Popup – ohne sie bleibt die Zeile
    *  reine Anzeige. */
   onCommand?: (entityId: string, command: string, data?: Record<string, any>) => void;
@@ -74,7 +78,8 @@ export function TopStrip({
   const litEntities = entities.filter(
     (entity) =>
       (entity.kind === 'light' || entity.kind === 'switch') &&
-      entity.state.state === 'on'
+      entity.state.state === 'on' &&
+      !hidden.includes(entity.id)
   );
   const lightsOn = litEntities.length;
   const vacuum = entities.find(
