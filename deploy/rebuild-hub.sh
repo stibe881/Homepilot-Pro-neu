@@ -116,16 +116,35 @@ if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
   # Scheitert der Webhook, darf das Skript nicht einfach sterben - der
   # Container ist schon weg, und jemand muss erfahren, wie es weitergeht.
   # shellcheck disable=SC2086
-  if curl -fsS $INSECURE -X POST "$PORTAINER_WEBHOOK_URL"; then
-    echo ""
-    echo "✓ Fertig – der Stack rollt gerade mit dem frischen Abbild neu aus."
-  else
+  if ! curl -fsS $INSECURE -X POST "$PORTAINER_WEBHOOK_URL"; then
     echo ""
     echo "✗ Der Portainer-Webhook hat nicht geantwortet. Das Abbild ist"
     echo "  gebaut, aber der Container läuft nicht - jetzt von Hand:"
     echo "  Portainer → Stacks → homepilot → Update the stack → Deploy."
     exit 1
   fi
+
+  # Der Webhook meldet nur «angenommen» - ob das Ausrollen gelingt,
+  # entscheidet sich danach. Bekannter Stolperstein: Portainer versucht
+  # dabei ein Re-pull, und ein lokal gebautes Abbild liegt in keiner
+  # Registry. Deshalb hier nachsehen, ob der Hub wirklich wiederkommt,
+  # statt auf Verdacht «Fertig» zu sagen.
+  echo "→ Warte, bis der Hub wieder antwortet …"
+  for _ in $(seq 1 30); do
+    sleep 2
+    if curl -fsS -m 3 "http://127.0.0.1:8123/api/health" >/dev/null 2>&1; then
+      echo ""
+      echo "✓ Fertig - der Hub läuft mit dem frischen Abbild."
+      exit 0
+    fi
+  done
+  echo ""
+  echo "✗ Der Webhook wurde angenommen, aber der Hub ist nach einer Minute"
+  echo "  nicht zurück. Meist scheitert Portainer am Re-pull des lokalen"
+  echo "  Abbilds. Von Hand: Portainer → Stacks → homepilot →"
+  echo "  Update the stack → Re-pull image AUS → Deploy."
+  echo "  Den Grund zeigt: docker logs portainer"
+  exit 1
 else
   echo "  Jetzt in Portainer: Stacks → homepilot → Update the stack → Deploy."
   echo "  Der alte Container läuft bis dahin weiter."
