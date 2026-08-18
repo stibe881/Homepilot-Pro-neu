@@ -57,13 +57,24 @@ nur nötig, wenn du deine Heim-IP nicht preisgeben willst (siehe Variante B).
    - *Block Common Exploits* an, *Websockets* aus (die braucht nur die App,
      und die kommt über VPN)
    - Reiter *SSL*: Let's-Encrypt-Zertifikat anfordern, *Force SSL* an
-4. Reiter **Advanced**, und das hier hinein:
+
+   **Die Reihenfolge ist wichtig: zuerst das Zertifikat, dann abriegeln.**
+   Let's Encrypt prüft über `http://.../.well-known/acme-challenge/…`, dass
+   dir die Domain gehört. Steht die Sperre aus Schritt 4 schon, kommt diese
+   Prüfung nicht durch und die Zertifikatserstellung scheitert – der Nginx
+   Proxy Manager meldet dann nur ein nichtssagendes «Internal Error».
+
+4. Erst wenn das Zertifikat steht: Reiter **Advanced**, und das hier hinein:
 
    ```nginx
    # Alles ausser dem Bild zur Push-Nachricht gibt es hier nicht.
    # Eine Regex-Location sticht die von NPM erzeugte Prefix-Location –
    # der Bildpfad fällt durch und wird ganz normal weitergereicht.
-   location ~ ^/(?!api/push/image/) {
+   #
+   # .well-known muss offen bleiben, sonst kann Let's Encrypt in 90 Tagen
+   # nicht mehr verlängern – und das fällt erst auf, wenn das Zertifikat
+   # abgelaufen ist.
+   location ~ ^/(?!api/push/image/|\.well-known/) {
        return 404;
    }
    ```
@@ -147,6 +158,17 @@ geantwortet hat.
 | `/` | `{"detail":"Not Found"}` | nginx-Seite „404 Not Found" |
 | `/api/health` | `{"ok":true,"entities":42}` | nginx-Seite „404 Not Found" |
 | `/api/push/image/test` | `{"detail":"Kein Bild"}` | `{"detail":"Kein Bild"}` |
+
+Am zuverlässigsten mit `curl`, weil dort auch der Absender steht:
+
+```bash
+curl -i https://homepilot.deinedomain.ch/api/health
+curl -i https://homepilot.deinedomain.ch/api/push/image/test
+```
+
+In der Kopfzeile `Server:` steht `openresty` (der Proxy hat geantwortet)
+oder `uvicorn` (der Hub hat geantwortet). Das ist eindeutiger als die Zahl
+404, die von beiden kommen kann.
 
 - **JSON** heisst: Die Anfrage ist bis zum Hub durchgelaufen.
 - **Die nginx-Seite** heisst: Der Proxy hat sie vorher abgefangen.
