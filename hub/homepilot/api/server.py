@@ -170,6 +170,16 @@ class RecoverRequest(BaseModel):
     email: str
 
 
+class UpdateTriggerRequest(BaseModel):
+    """Was der Update-Knopf mitschickt. Auf Modulebene, wie alle Modelle
+    hier - lokal definiert hielte FastAPI den Body für Query-Parameter."""
+
+    # Zusätzlich einen iOS-Build auf den EAS-Servern anstossen. Kostet
+    # Bauminuten im Kontingent und erzeugt eine TestFlight-Fassung -
+    # deshalb eine bewusste Wahl in der App, nie die Vorgabe.
+    ios: bool = False
+
+
 class EmailRequest(BaseModel):
     """Anmelde-Adresse eines Benutzers setzen (leer = löschen)."""
 
@@ -565,7 +575,9 @@ def create_app(hub: Hub) -> FastAPI:
         return {"shortcuts": items}
 
     @app.post("/api/system/update")
-    async def trigger_update(request: Request) -> dict[str, Any]:
+    async def trigger_update(
+        request: Request, body: UpdateTriggerRequest | None = None
+    ) -> dict[str, Any]:
         """Stösst die eingerichtete Update-Adresse an.
 
         Was der Hub *nicht* kann: sich selbst neu bauen. Er läuft in einem
@@ -588,7 +600,16 @@ def create_app(hub: Hub) -> FastAPI:
                     "deploy/portainer.md."
                 ),
             )
-        log.warning("Update angefordert von %s", user.name)
+        wants_ios = bool(body and body.ios)
+        if wants_ios:
+            # Nur der Listener versteht den Parameter; einem
+            # Portainer-Webhook schadet er nicht, er ignoriert ihn.
+            url += ("&" if "?" in url else "?") + "ios=1"
+        log.warning(
+            "Update angefordert von %s%s",
+            user.name,
+            " (mit iOS-Build)" if wants_ios else "",
+        )
         # Ein Dienst, der auf dem Host baut, darf nicht ohne Nachweis
         # anspringen. Der Portainer-Webhook braucht dagegen keinen – seine
         # Adresse ist selbst das Geheimnis.

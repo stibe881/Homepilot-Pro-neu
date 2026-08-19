@@ -782,6 +782,7 @@ const STAGE_LABEL: Record<string, string> = {
   web: 'Web-Fassung bauen',
   build: 'Abbild bauen',
   built: 'Abbild fertig',
+  ios: 'iOS-Build an EAS übergeben',
   deploy: 'Ausrollen anstossen',
   deploy_wait: 'Auf Wechsel warten',
   manual: 'Bereit – von Hand ausrollen',
@@ -799,6 +800,7 @@ const STAGE_PERCENT: Record<string, number> = {
   web: 20,
   build: 50,
   built: 70,
+  ios: 75,
   deploy: 80,
   deploy_wait: 90,
   manual: 95,
@@ -916,7 +918,13 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busy, settings.url, settings.token]);
 
-  const run = async () => {
+  // Erst fragen, dann bauen: Ein iOS-Build kostet Bauminuten im
+  // EAS-Kontingent und erzeugt eine neue TestFlight-Fassung - das soll
+  // eine bewusste Wahl sein, kein Nebeneffekt jedes Updates.
+  const [asking, setAsking] = useState(false);
+
+  const run = async (ios: boolean) => {
+    setAsking(false);
     setBusy(true);
     setNote(null);
     setNoteError(false);
@@ -924,11 +932,19 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
     try {
       const response = await fetch(`${settings.url}/api/system/update`, {
         method: 'POST',
-        headers: settings.token ? { Authorization: `Bearer ${settings.token}` } : {},
+        headers: {
+          ...(settings.token ? { Authorization: `Bearer ${settings.token}` } : {}),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ ios }),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) throw new Error(body?.detail ?? `Hub antwortet mit ${response.status}`);
-      setNote('Angestossen. Der Host baut jetzt – das dauert ein paar Minuten.');
+      setNote(
+        ios
+          ? 'Angestossen. Der Host baut den Hub, danach geht der iOS-Build an EAS – TestFlight meldet sich.'
+          : 'Angestossen. Der Host baut jetzt – das dauert ein paar Minuten.'
+      );
     } catch (err: any) {
       setBusy(false);
       setNoteError(true);
@@ -942,7 +958,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
   return (
     <>
       <Pressable
-        onPress={run}
+        onPress={() => setAsking(true)}
         disabled={busy}
         accessibilityRole="button"
         style={({ pressed }) => [styles.updateButton, pressed && { opacity: 0.8 }]}
@@ -950,6 +966,41 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
         <Ionicons name="cloud-download-outline" size={16} color={colors.ink} />
         <Text style={styles.updateText}>{busy ? 'Läuft …' : 'Update'}</Text>
       </Pressable>
+
+      {asking ? (
+        <View style={styles.updateAsk}>
+          <Text style={styles.updateAskText}>
+            Auch einen iOS-Build erstellen und bei Apple einreichen? Braucht
+            es nur, wenn sich an der App selbst etwas geändert hat – der Hub
+            wird in beiden Fällen aktualisiert.
+          </Text>
+          <View style={styles.updateAskRow}>
+            <Pressable
+              onPress={() => run(false)}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.updateAskButton, pressed && { opacity: 0.7 }]}
+            >
+              <Text style={styles.updateAskButtonText}>Nur Hub</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => run(true)}
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.updateAskButton,
+                styles.updateAskPrimary,
+                pressed && { opacity: 0.7 },
+              ]}
+            >
+              <Text style={[styles.updateAskButtonText, { color: '#FFFFFF' }]}>
+                Hub + iOS-Build
+              </Text>
+            </Pressable>
+            <Pressable onPress={() => setAsking(false)} hitSlop={8} accessibilityLabel="Abbrechen">
+              <Ionicons name="close" size={18} color={colors.inkSoft} />
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
       {showBar ? (
         <View
           style={styles.progressTrack}
@@ -1320,6 +1371,25 @@ const makeStyles = (colors: Colors) =>
   // Zwei Zeilen statt einer langen: Der Zeitstempel bricht sonst mitten
   // im Datum um und liest sich wie ein Fehler.
   buildText: { gap: 2 },
+  updateAsk: {
+    gap: 8,
+    padding: 12,
+    borderRadius: radius.control,
+    backgroundColor: colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  updateAskText: { color: colors.inkSoft, fontSize: 12, lineHeight: 18 },
+  updateAskRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  updateAskButton: {
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+    borderRadius: radius.control,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  updateAskPrimary: { backgroundColor: colors.accent, borderColor: colors.accent },
+  updateAskButtonText: { color: colors.ink, fontSize: 13, fontWeight: '700' },
   // Mehrzeilig und markierbar: Im Fehlerfall steht hier die Ursache samt
   // Abhilfe – oft ein Befehl, den man kopieren will.
   noteText: { color: colors.inkSoft, fontSize: 13, lineHeight: 19 },

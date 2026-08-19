@@ -148,6 +148,25 @@ sudo systemctl restart homepilot-update
 Danach den Stack neu deployen, damit der Hub den neuen Wert bekommt.
 Was der Listener sieht, steht in `journalctl -u homepilot-update -f`.
 
+## iOS-Build über den Update-Knopf
+
+Der Update-Knopf in der App fragt, ob zusätzlich ein iOS-Build erstellt
+und bei Apple eingereicht werden soll. Gebaut wird auf den EAS-Servern;
+docker01 stösst nur an. Dafür braucht die Zugangsdatei einen
+EAS-Zugriffs-Token (expo.dev → Account settings → Access tokens):
+
+```
+EXPO_TOKEN=...
+```
+
+Ohne den Eintrag sagt der Lauf das klar und baut den Hub trotzdem. Der
+Anstoss wartet nicht auf den fertigen Build (--no-wait) – ob er gelang,
+zeigt expo.dev bzw. die TestFlight-Mail von Apple.
+
+Damit das Einreichen ohne Rückfrage durchläuft, muss in EAS einmal ein
+App-Store-Connect-API-Schlüssel hinterlegt sein (passiert beim ersten
+`eas submit` von Hand, danach gilt er für alle weiteren).
+
 ## «pull access denied for homepilot-hub»
 
 Portainer zieht vor dem Ausrollen standardmässig alle Abbilder des Stacks

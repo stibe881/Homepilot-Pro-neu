@@ -166,7 +166,6 @@ fi
 # Stand einfach weiter, statt dass das Haus ohne Steuerung dasteht.
 
 echo "→ Hole den neuesten Code von ${REPO}@${BRANCH} …"
-rm -rf "$WORKDIR"
 git clone --depth 1 -b "$BRANCH" \
   "https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/${REPO}.git" "$WORKDIR"
 
@@ -228,8 +227,6 @@ docker build --no-cache \
   --build-arg "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   -t "$IMAGE" "$WORKDIR/hub"
 
-rm -rf "$WORKDIR"
-
 # Jeder Bauversuch läuft ohne Cache – jede Schicht entsteht neu, die vorige
 # verliert nur ihre Markierung (dasselbe Tag zeigt jetzt aufs neue Abbild)
 # und bleibt als "dangling" auf der Platte liegen. Der noch laufende
@@ -249,6 +246,46 @@ docker image prune -f >/dev/null
 docker builder prune -f --keep-storage 2GB >/dev/null 2>&1 \
   || docker builder prune -f >/dev/null 2>&1 || true
 echo "✓ Abbild '$IMAGE' ist aktuell, alte Schichten aufgeräumt."
+
+# ── Optional: iOS-Build anstossen ───────────────────────────────────────
+#
+# Nur auf ausdrücklichen Wunsch (HOMEPILOT_IOS_BUILD=1, gesetzt vom
+# Update-Knopf in der App, wenn man dort «mit iOS-Build» wählt). Ein
+# App-Store-Build kostet Bauminuten im EAS-Kontingent und erzeugt eine
+# neue TestFlight-Fassung - das soll kein Nebeneffekt jedes Updates sein.
+#
+# Gebaut wird auf den EAS-Servern; dieser Rechner stösst nur an. Dafür
+# braucht es einen Zugriffs-Token (expo.dev → Account → Access tokens)
+# in der Zugangsdatei:
+#
+#   EXPO_TOKEN=...
+#
+# --auto-submit reicht den fertigen Build gleich bei Apple ein;
+# --no-wait beendet den Aufruf, sobald der Auftrag angenommen ist -
+# sonst hielte er diesen Lauf 20 Minuten fest, für nichts.
+if [ "${HOMEPILOT_IOS_BUILD:-0}" = "1" ]; then
+  EXPO_TOKEN="${EXPO_TOKEN:-}"; EXPO_TOKEN="${EXPO_TOKEN%$'\r'}"
+  if [ -z "$EXPO_TOKEN" ]; then
+    echo "⚠ iOS-Build gewünscht, aber EXPO_TOKEN fehlt in $CREDENTIALS_FILE."
+    echo "  Token erzeugen auf expo.dev → Account settings → Access tokens."
+  else
+    echo "→ Stosse den iOS-Build an (EAS baut, Apple bekommt ihn direkt) …"
+    if docker run --rm -e EXPO_TOKEN="$EXPO_TOKEN" \
+        -v "$WORKDIR/app:/app" -w /app \
+        node:20-bookworm-slim \
+        sh -c "npm ci --no-audit --no-fund >/dev/null 2>&1 && \
+               npx eas-cli@latest build --platform ios --profile production \
+                 --auto-submit --non-interactive --no-wait"; then
+      echo "✓ iOS-Build läuft auf den EAS-Servern - TestFlight meldet sich."
+    else
+      echo "⚠ iOS-Build liess sich nicht anstossen - das Hub-Update selbst"
+      echo "  ist davon unberührt. Details: expo.dev/accounts/stibe88."
+    fi
+  fi
+fi
+
+# Erst jetzt aufräumen: Der iOS-Block oben braucht $WORKDIR/app noch.
+rm -rf "$WORKDIR"
 
 # Was dieser Lauf gekostet hat. Die Zahl ist die eigentliche Auskunft:
 # Ein Update darf Platz brauchen, aber nicht bei jedem Mal denselben

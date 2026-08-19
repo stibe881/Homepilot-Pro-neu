@@ -75,6 +75,7 @@ _STAGE_MARKERS = (
     ("Baue die Web-Fassung der App", "web"),
     ("Baue das Abbild neu", "build"),
     ("alte Schichten aufgeräumt", "built"),
+    ("Stosse den iOS-Build an", "ios"),
     ("Löse den Portainer-Webhook aus", "deploy"),
     ("Warte auf den Wechsel", "deploy_wait"),
     ("Jetzt in Portainer", "manual"),
@@ -136,7 +137,7 @@ def _handle_line(line: str) -> None:
                 _status["updated_at"] = time.time()
 
 
-def build() -> None:
+def build(ios: bool = False) -> None:
     """rebuild-hub.sh laufen lassen, Ausgabe live in den Status spiegeln."""
     if not _running.acquire(blocking=False):
         log.warning("Es läuft schon ein Bau – der zweite Aufruf wird verworfen")
@@ -149,8 +150,16 @@ def build() -> None:
     returncode = -1
     try:
         log.info("Starte %s", SCRIPT)
+        env = dict(os.environ)
+        if ios:
+            env["HOMEPILOT_IOS_BUILD"] = "1"
         proc = subprocess.Popen(
-            [SCRIPT], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
+            [SCRIPT],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            env=env,
         )
 
         def _give_up() -> None:
@@ -224,7 +233,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return bool(SECRET) and hmac.compare_digest(given, SECRET)
 
     def do_POST(self) -> None:  # noqa: N802
-        if self.path.rstrip("/") != "/update":
+        path, _, query = self.path.partition("?")
+        if path.rstrip("/") != "/update":
             self._answer(404, "Nicht gefunden\n")
             return
         if not self._authorized():
@@ -232,10 +242,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._answer(403, "Nicht erlaubt\n")
             return
 
+        # ios=1: Nach dem Hub-Bau zusätzlich den iOS-Build auf den
+        # EAS-Servern anstossen. Kommt vom Update-Knopf der App, wenn dort
+        # «mit iOS-Build» gewählt wurde - nie von selbst, ein
+        # App-Store-Build ist kein Nebeneffekt.
+        ios = "ios=1" in query
+
         # Sofort antworten und im Hintergrund bauen: Der Bau dauert
         # Minuten, jede offene Verbindung liefe in einen Timeout.
-        threading.Thread(target=build, daemon=True).start()
-        self._answer(202, "Bau gestartet\n")
+        threading.Thread(target=build, kwargs={"ios": ios}, daemon=True).start()
+        self._answer(202, "Bau gestartet (mit iOS-Build)\n" if ios else "Bau gestartet\n")
 
     def do_GET(self) -> None:  # noqa: N802
         if self.path.rstrip("/") == "/status":
