@@ -530,6 +530,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       key={entity.id}
       entity={entity}
       width={cardWidth!}
+      // Gehört dieser Spot zu einer zusammengefassten Leuchte? Unter
+      // Geräte ist er sonst nicht von einer einzelnen Lampe zu
+      // unterscheiden, und man wundert sich, warum er im Raum fehlt.
+      partOf={
+        entity.combined_into
+          ? entities.find((item) => item.id === entity.combined_into)?.name ?? null
+          : null
+      }
       pending={pending[entity.id]}
       pricePerKwh={energy?.price_per_kwh}
       currency={energy?.currency ?? 'CHF'}
@@ -1083,6 +1091,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           style={styles.scroll}
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
+          // Während eine Kachel am Finger hängt, darf die Seite nicht
+          // mitscrollen: Sonst wandert der Inhalt unter der Kachel weg,
+          // sie bleibt scheinbar an ihrem Platz kleben, und beim
+          // Loslassen landet sie dort, wo sie war.
+          scrollEnabled={!drag}
         >
           {status !== 'connected' && entities.length > 0 ? (
             // Getrennt, aber wir haben den letzten Stand: lieber alte Werte

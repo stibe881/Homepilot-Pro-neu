@@ -14,6 +14,13 @@ import { radius, useColors } from '../theme';
  * würde mehr springen als helfen.
  */
 
+/** Nur für den Browser: Ohne diese beiden Angaben gewinnt die
+ *  Wisch-Geste der Seite - sie scrollt, und die Kachel folgt dem Finger
+ *  nur ein Stück weit. React Native kennt die Eigenschaften nicht,
+ *  deshalb als loses Objekt und nicht im Stil-Typ. Auf nativen Geräten
+ *  werden sie schlicht ignoriert. */
+const WEB_GRIP = { touchAction: 'none', userSelect: 'none' } as const;
+
 export interface CellLayout {
   x: number;
   y: number;
@@ -129,6 +136,7 @@ export function DragCell({
           left: 8,
           width: 32,
           height: 32,
+          ...WEB_GRIP,
           alignItems: 'center',
           justifyContent: 'center',
           borderRadius: radius.pill,

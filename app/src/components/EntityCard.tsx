@@ -52,6 +52,12 @@ interface Props {
   snapshotUri?: string;
   /** Storen-Kacheln: aktuelle Wetterlage für den Himmel hinter dem Fenster. */
   sky?: Sky;
+  /** Name der zusammengefassten Leuchte, in der dieses Licht aufgeht.
+   *
+   *  Unter Geräte ist ein solcher Spot sonst nicht von einer einzelnen
+   *  Lampe zu unterscheiden – und man wundert sich, warum er im Raum
+   *  fehlt und beim Schalten der Leuchte mitgeht. */
+  partOf?: string | null;
 }
 
 /** Warnstufen brauchen je nach Palette andere Farben. */
@@ -82,6 +88,7 @@ export function EntityCard({
   chart,
   snapshotUri,
   sky,
+  partOf,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -465,6 +472,15 @@ export function EntityCard({
         // halbbreiten Telefonkachel passt sonst nicht alles nebeneinander
         // und die hinteren Symbole ragen aus der Kachel heraus.
         <View style={styles.editBox}>
+          {partOf ? (
+            <View style={styles.partOfRow}>
+              <Ionicons name="git-merge-outline" size={12} color={colors.inkFaint} />
+              <Text style={styles.partOfText} numberOfLines={1}>
+                gehört zu «{partOf}»
+              </Text>
+            </View>
+          ) : null}
+
           {(onSetRoom && rooms) || (onSetGroup && groups) ? (
             <View style={styles.editChips}>
               {onSetRoom && rooms ? (
@@ -2061,6 +2077,8 @@ const makeStyles = (colors: Colors) =>
   },
   renameSaveText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
   mediaRow: { flexDirection: 'row', gap: 10 },
+  partOfRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
+  partOfText: { color: colors.inkFaint, fontSize: 11, fontWeight: '600', flex: 1 },
   // Grill: Störung nach vorne – ein leerer Pelletbehälter lässt das
   // Fleisch kalt werden, während man drinnen sitzt.
   grillProblem: { color: colors.warn, fontSize: 13, fontWeight: '700' },
