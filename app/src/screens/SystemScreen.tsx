@@ -1132,6 +1132,37 @@ function PushTestCard({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Die angemeldeten Telefone. Ohne diese Liste zeigte die Fehlermeldung
+  // «alte Einträge entfernen» auf eine Tür, die es nicht gab - man sah
+  // nur eine Zahl und konnte nichts tun.
+  const [devices, setDevices] = useState<
+    { token: string; user: string; label: string }[] | null
+  >(null);
+
+  const loadDevices = useCallback(() => {
+    fetch(`${settings.url}/api/push/devices`, { headers })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => setDevices(data?.devices ?? null))
+      .catch(() => setDevices(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.url, settings.token]);
+
+  useEffect(() => {
+    loadDevices();
+  }, [loadDevices]);
+
+  const removeDevice = async (token: string) => {
+    try {
+      await fetch(`${settings.url}/api/push/unregister`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+    } catch {
+      // Der nächste loadDevices zeigt den echten Stand.
+    }
+    loadDevices();
+  };
 
   const test = async () => {
     setBusy(true);
@@ -1174,6 +1205,38 @@ function PushTestCard({
         <Button label={busy ? 'Sendet …' : 'Push testen'} onPress={test} primary />
       </View>
       <Text style={styles.hint}>{message ?? pushHint(push)}</Text>
+
+      {devices && devices.length > 0 ? (
+        <View style={styles.pushList}>
+          {devices.map((device) => (
+            <View key={device.token} style={styles.pushRow}>
+              <Ionicons name="phone-portrait-outline" size={16} color={colors.inkSoft} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowTitle}>
+                  {device.label || 'Unbenanntes Gerät'} · {device.user}
+                </Text>
+                <Text style={styles.rowDetail} numberOfLines={1}>
+                  {device.token.slice(0, 28)}…
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => removeDevice(device.token)}
+                accessibilityRole="button"
+                accessibilityLabel={`${device.label || device.user} abmelden`}
+                hitSlop={8}
+              >
+                <Ionicons name="trash-outline" size={17} color={colors.inkSoft} />
+              </Pressable>
+            </View>
+          ))}
+          <Text style={styles.hint}>
+            Ein entferntes Gerät meldet sich beim nächsten Öffnen der App von
+            selbst wieder an. Entfernen lohnt sich für Altlasten – etwa Tokens
+            aus der Expo-Go-Zeit, die Apple mit «gehört zu einer anderen
+            App-Kennung» ablehnt.
+          </Text>
+        </View>
+      ) : null}
     </Card>
   );
 }
@@ -1371,6 +1434,8 @@ const makeStyles = (colors: Colors) =>
   // Zwei Zeilen statt einer langen: Der Zeitstempel bricht sonst mitten
   // im Datum um und liest sich wie ein Fehler.
   buildText: { gap: 2 },
+  pushList: { gap: 10, marginTop: 4 },
+  pushRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   updateAsk: {
     gap: 8,
     padding: 12,

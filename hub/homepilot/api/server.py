@@ -1628,6 +1628,18 @@ def create_app(hub: Hub) -> FastAPI:
         device = hub.push.register(body.token, user.name, body.label)
         return {"ok": True, "device": device.as_dict()}
 
+    @app.get("/api/push/devices")
+    async def list_push_devices(request: Request) -> dict[str, Any]:
+        """Die angemeldeten Telefone - zum Nachsehen und Aufräumen.
+
+        Bisher gab es nur die Zählung, und die Fehlermeldung «alte
+        Einträge entfernen» zeigte auf eine Tür, die es nicht gab. Das
+        volle Token ist dabei: Es ist die Adresse fürs Entfernen, und wer
+        hier hineindarf (Besitzer), darf ohnehin senden.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        return {"devices": [device.as_dict() for device in hub.push.devices]}
+
     @app.post("/api/push/unregister")
     async def unregister_push(body: PushRegistration, request: Request) -> dict[str, Any]:
         current_user(request)
