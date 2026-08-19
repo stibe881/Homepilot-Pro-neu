@@ -77,6 +77,40 @@ fi
 : "${GITHUB_USER:?GITHUB_USER fehlt – siehe Kopf dieses Skripts}"
 : "${GITHUB_TOKEN:?GITHUB_TOKEN fehlt – siehe Kopf dieses Skripts}"
 
+# Vorabprüfung: Antwortet Portainer überhaupt, und stolpert curl über
+# das Zertifikat? Das kostet eine Sekunde und erspart die Enttäuschung,
+# nach fünf Minuten Bauzeit am letzten Schritt zu scheitern. Bewusst nur
+# eine Warnung: Das Abbild zu bauen lohnt sich auch dann, denn ausrollen
+# lässt es sich danach von Hand.
+#
+# Bewusst GET auf /api/status und nicht der Webhook selbst - ein POST
+# dorthin würde genau das Ausrollen auslösen, das hier erst geprüft wird.
+if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
+  PRE_INSECURE=""
+  if [ "${PORTAINER_INSECURE:-0}" = "1" ]; then
+    PRE_INSECURE="--insecure"
+  fi
+  PORTAINER_BASE="${PORTAINER_WEBHOOK_URL%%/api/*}"
+  # shellcheck disable=SC2086
+  curl -fsS $PRE_INSECURE -o /dev/null --max-time 10 "$PORTAINER_BASE/api/status" \
+    2>/dev/null || PRE_CODE=$?
+  case "${PRE_CODE:-0}" in
+    0|22) ;;   # 22 = Portainer antwortet, mag nur diese Adresse nicht
+    60|35|51)
+      echo "⚠ Portainer: Zertifikatsfehler (curl-Code ${PRE_CODE})."
+      echo "  Es stellt sein Zertifikat auf 9443 selbst aus. In"
+      echo "  $CREDENTIALS_FILE gehört die Zeile:"
+      echo "    PORTAINER_INSECURE=1"
+      echo "  Ohne sie wird das Ausrollen am Ende scheitern - gebaut wird"
+      echo "  trotzdem, ausrollen geht dann von Hand in Portainer."
+      ;;
+    7|28)
+      echo "⚠ Portainer ist nicht erreichbar (curl-Code ${PRE_CODE})."
+      echo "  Läuft der Container?  docker ps --filter name=portainer"
+      ;;
+  esac
+fi
+
 # Der alte Container läuft absichtlich weiter, während gebaut wird: Das
 # neue Abbild entsteht daneben, unter demselben Namen. Erst ganz am Ende,
 # unmittelbar vor dem Neuausrollen, wird gewechselt - so ist der Hub
