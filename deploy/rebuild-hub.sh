@@ -257,15 +257,44 @@ if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
   if [ "${PORTAINER_INSECURE:-0}" = "1" ]; then
     INSECURE="--insecure"
   fi
-  # Scheitert der Webhook, darf das Skript nicht einfach sterben - der
-  # alte Container läuft ja weiter, und jemand muss erfahren, was fehlt.
-  # curls Rückgabewert sagt ziemlich genau, woran es lag; das hier zu
-  # übersetzen erspart die Suche im Netz.
+
+  # pullimage=false ist hier keine Feinheit, sondern Voraussetzung: Das
+  # Abbild entsteht auf diesem Rechner und liegt in keiner Registry.
+  # Portainer zieht vor dem Ausrollen standardmässig alle Abbilder des
+  # Stacks neu - und scheitert dann mit «pull access denied for
+  # homepilot-hub, repository does not exist». Der Stack bleibt auf dem
+  # alten Stand, obwohl das neue Abbild fertig danebenliegt.
+  HOOK_URL="$PORTAINER_WEBHOOK_URL"
+  case "$HOOK_URL" in
+    *pullimage=*) ;;
+    *\?*) HOOK_URL="$HOOK_URL&pullimage=false" ;;
+    *)    HOOK_URL="$HOOK_URL?pullimage=false" ;;
+  esac
+
+  # Bewusst ohne -f: Bei einem Fehler ist Portainers Antworttext die
+  # eigentliche Auskunft ("pull access denied …"), und -f wirft ihn weg.
+  # Genau das hat die Suche nach diesem Fehler unnötig lange gemacht.
+  HOOK_BODY=$(mktemp)
+  CURL_CODE=0
   # shellcheck disable=SC2086
-  if ! curl -fsS $INSECURE -X POST "$PORTAINER_WEBHOOK_URL"; then
-    CURL_CODE=$?
+  HTTP_CODE=$(curl -sS $INSECURE -o "$HOOK_BODY" -w '%{http_code}' \
+    --max-time 60 -X POST "$HOOK_URL") || CURL_CODE=$?
+
+  case "${HTTP_CODE:-000}" in
+    2*) OK_HOOK=1 ;;
+    *)  OK_HOOK=0 ;;
+  esac
+  if [ "$CURL_CODE" != "0" ]; then
+    OK_HOOK=0
+  fi
+
+  if [ "$OK_HOOK" != "1" ]; then
     echo ""
-    echo "✗ Der Portainer-Webhook hat nicht geantwortet (curl-Code $CURL_CODE)."
+    if [ "$CURL_CODE" != "0" ]; then
+      echo "✗ Der Portainer-Webhook war nicht erreichbar (curl-Code $CURL_CODE)."
+    else
+      echo "✗ Portainer hat das Ausrollen abgelehnt (HTTP $HTTP_CODE)."
+    fi
     echo "  Das neue Abbild ist gebaut, aber nicht ausgerollt - der Hub läuft"
     echo "  mit dem BISHERIGEN Stand weiter. Das Haus ist also nicht offline."
     case "$CURL_CODE" in
@@ -278,17 +307,31 @@ if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
         echo "  Ursache: Portainer war nicht erreichbar. Läuft der Container?"
         echo "    docker ps --filter name=portainer"
         ;;
-      22)
-        echo "  Ursache: Portainer lehnt die Adresse ab (meist 404). Der"
-        echo "  Webhook wurde vermutlich neu erzeugt - in Portainer unter"
-        echo "  Stacks → homepilot → Webhook die Adresse ablesen und in"
-        echo "  $CREDENTIALS_FILE als PORTAINER_WEBHOOK_URL eintragen."
-        ;;
     esac
+    if [ "$HTTP_CODE" = "404" ]; then
+      echo "  Ursache: Den Webhook gibt es nicht mehr. In Portainer unter"
+      echo "  Stacks → homepilot → Webhook die Adresse ablesen und in"
+      echo "  $CREDENTIALS_FILE als PORTAINER_WEBHOOK_URL eintragen."
+    fi
+    if grep -q "pull access denied" "$HOOK_BODY" 2>/dev/null; then
+      echo "  Ursache: Portainer wollte das Abbild aus einer Registry holen."
+      echo "  Es entsteht aber auf diesem Rechner und liegt in keiner."
+      echo "  Dieses Skript hängt dafür 'pullimage=false' an - greift das"
+      echo "  nicht, im Stack unter «Update the stack» Re-pull image AUS."
+    fi
+    # Was Portainer selbst sagt, gekürzt - der Text nennt oft genau das
+    # Abbild und die Zeile, an der es hängt.
+    if [ -s "$HOOK_BODY" ]; then
+      echo "  Portainer sagt:"
+      head -c 600 "$HOOK_BODY" | tr '\n' ' ' | fold -w 76 -s | sed 's/^/    /'
+      echo ""
+    fi
+    rm -f "$HOOK_BODY"
     echo "  Von Hand ausrollen: Portainer → Stacks → homepilot →"
     echo "  Update the stack → Re-pull image AUS → Deploy."
     exit 1
   fi
+  rm -f "$HOOK_BODY"
 
   # Der Webhook meldet nur «angenommen» - ob das Ausrollen gelingt,
   # entscheidet sich danach. Woran man den Erfolg erkennt: Der laufende

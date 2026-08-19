@@ -148,6 +148,30 @@ sudo systemctl restart homepilot-update
 Danach den Stack neu deployen, damit der Hub den neuen Wert bekommt.
 Was der Listener sieht, steht in `journalctl -u homepilot-update -f`.
 
+## «pull access denied for homepilot-hub»
+
+Portainer zieht vor dem Ausrollen standardmässig alle Abbilder des Stacks
+neu. Das Hub-Abbild entsteht aber auf diesem Rechner und liegt in keiner
+Registry – der Zug scheitert, und der ganze Stack bleibt auf dem alten
+Stand, obwohl das neue Abbild fertig danebenliegt:
+
+```
+{"message":"Failed to update the stack","details":"… pull access denied
+for homepilot-hub, repository does not exist or may require 'docker
+login' …"}
+```
+
+`rebuild-hub.sh` hängt deshalb `pullimage=false` an die Webhook-Adresse.
+Von Hand:
+
+```bash
+curl -i -sS --insecure -X POST "$PORTAINER_WEBHOOK_URL?pullimage=false"
+```
+
+`204` heisst angenommen. Greift der Parameter nicht, geht es über die
+Oberfläche: **Stacks → homepilot → Update the stack → Re-pull image AUS →
+Deploy.**
+
 ## Damit der Platz nicht mehr knapp wird
 
 Drei Schritte, danach ist Ruhe. Der erste ist der wichtige.
