@@ -102,6 +102,14 @@ GITHUB_TOKEN="${GITHUB_TOKEN:-}"; GITHUB_TOKEN="${GITHUB_TOKEN%$'\r'}"
 # dann sagt das die Zeile mit /opt und /var/log.
 PLATZ_LOG="/opt/homepilot/platz.log"
 
+# Wo Docker seine Daten hält. Nicht fest verdrahten: Auf einer
+# Snap-Installation liegt alles unter /var/snap/docker/common/…, und
+# /var/lib/docker ist ein fast leerer Rest. Wer dort nachsieht, misst am
+# eigentlichen Verbrauch vorbei - genau das ist mir passiert.
+docker_root() {
+  docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo /var/lib/docker
+}
+
 platz_frei_kb() { df --output=avail -k / | tail -1 | tr -d ' '; }
 
 platz_notiz() {
@@ -110,7 +118,7 @@ platz_notiz() {
     echo "── $1  $(date '+%Y-%m-%d %H:%M:%S')"
     echo "   frei: $(numfmt --to=iec --from-unit=1024 "$(platz_frei_kb)")"
     docker system df 2>/dev/null | tail -n +2 | sed 's/^/   /'
-    du -sxh /opt/homepilot /var/log 2>/dev/null | sed 's/^/   /'
+    du -sxh /opt/homepilot /var/log "$(docker_root)" 2>/dev/null | sed 's/^/   /'
   } >> "$PLATZ_LOG" 2>/dev/null || true
 }
 
@@ -266,8 +274,9 @@ docker system df 2>/dev/null | sed 's/^/  /'
 # ist das Erste, was man nach einer Störung braucht, und der richtige Ort
 # für die Lösung ist ohnehin ein Deckel in der daemon.json (siehe
 # deploy/README.md), nicht ein Wegwerfen bei jedem Bau.
-if [ -d /var/lib/docker/containers ]; then
-  BIG=$(find /var/lib/docker/containers -name '*-json.log' -size +100M 2>/dev/null || true)
+DOCKER_ROOT="$(docker_root)"
+if [ -d "$DOCKER_ROOT/containers" ]; then
+  BIG=$(find "$DOCKER_ROOT/containers" -name '*-json.log' -size +100M 2>/dev/null || true)
   if [ -n "$BIG" ]; then
     echo "⚠ Container-Protokolle über 100 MB:"
     # shellcheck disable=SC2086

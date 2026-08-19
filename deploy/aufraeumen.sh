@@ -43,6 +43,14 @@ KEEP_CACHE="${HOMEPILOT_KEEP_CACHE:-2GB}"
 # Obergrenze fürs Journal des Systems.
 KEEP_JOURNAL="${HOMEPILOT_KEEP_JOURNAL:-200M}"
 
+# Wo Docker seine Daten hält. Nicht fest verdrahten: Auf einer
+# Snap-Installation liegt alles unter /var/snap/docker/common/…, und
+# /var/lib/docker ist ein fast leerer Rest. Wer dort nachsieht, misst am
+# eigentlichen Verbrauch vorbei - genau das ist mir passiert.
+docker_root() {
+  docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo /var/lib/docker
+}
+
 frei() { df --output=avail -k / | tail -1 | tr -d ' '; }
 
 VORHER=$(frei)
@@ -73,8 +81,9 @@ docker system df 2>/dev/null | sed 's/^/  /' || true
 # Und der Fresser, den dieses Skript bewusst stehen lässt: Wenn hier
 # etwas auftaucht, fehlt der Deckel in der compose-Datei bzw. in der
 # daemon.json. Melden statt löschen.
-if [ -d /var/lib/docker/containers ]; then
-  BIG=$(find /var/lib/docker/containers -name '*-json.log' -size +100M 2>/dev/null || true)
+DOCKER_ROOT="$(docker_root)"
+if [ -d "$DOCKER_ROOT/containers" ]; then
+  BIG=$(find "$DOCKER_ROOT/containers" -name '*-json.log' -size +100M 2>/dev/null || true)
   if [ -n "$BIG" ]; then
     echo "⚠ Container-Protokolle über 100 MB - Deckel fehlt (siehe README.md):"
     # shellcheck disable=SC2086

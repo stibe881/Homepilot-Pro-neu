@@ -306,8 +306,29 @@ Sofort nachsehen, ohne auf ein Update zu warten:
 ```bash
 docker system df
 docker images homepilot-hub
-sudo du -xh --max-depth=1 /var/lib/docker | sort -h | tail
+# Wo Docker wirklich liegt - NICHT /var/lib/docker annehmen:
+sudo du -xh --max-depth=1 "$(docker info --format '{{.DockerRootDir}}')" | sort -h | tail
 sudo du -sh /opt/homepilot/backups /opt/homepilot/web
+```
+
+**Achtung bei Snap-Docker.** Ist Docker über Snap installiert, liegen die
+Daten unter `/var/snap/docker/common/var-lib-docker`, und
+`/var/lib/docker` ist ein fast leerer Rest von einer früheren
+Installation. Wer dort misst, misst am Verbrauch vorbei. Dasselbe gilt
+für die Konfiguration: Der Deckel für die Protokolle gehört dann in
+`/var/snap/docker/current/config/daemon.json`, nicht in
+`/etc/docker/daemon.json`. Woran man es erkennt:
+
+```bash
+snap list docker 2>/dev/null && echo "Docker läuft über Snap"
+docker info --format '{{.DockerRootDir}}'
+```
+
+Findet sich der Verbrauch weder bei Docker noch in `/opt/homepilot`,
+liegt er ganz woanders auf der Platte:
+
+```bash
+sudo du -xh --max-depth=1 / | sort -h | tail -15
 ```
 
 Zwei Abbilder à ~1 GB sind normal und beabsichtigt: Das zweite ist der
