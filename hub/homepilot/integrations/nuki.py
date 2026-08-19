@@ -20,6 +20,7 @@ Das Smart Lock Pro (4./5. Generation) hängt selbst im WLAN – der Hub spricht
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 import aiohttp
@@ -53,6 +54,62 @@ ACTIONS: dict[str, int] = {
 
 # Gerätetyp 2 ist der Nuki Opener (Gegensprechanlage) – dafür haben wir Ring.
 OPENER_TYPE = 2
+
+
+def action_error(status: int, body: str) -> str:
+    """Aus einer abgelehnten Aktion einen brauchbaren Satz machen (rein).
+
+    Nuki antwortet im Fehlerfall mit einem Java-Stapelabbild
+    (``{"stackTrace":[],"suppressedExceptions":[]}``). Das in die App zu
+    reichen hilft niemandem - man liest es dreimal und weiss danach
+    gleich viel. Der Statuscode dagegen sagt ziemlich genau, woran es
+    liegt.
+    """
+    if status == 423:
+        return (
+            "Das Schloss ist gerade nicht erreichbar. Den Zustand liefert "
+            "Nuki aus dem Zwischenspeicher, zum Schalten braucht es aber "
+            "eine lebende Verbindung - Bridge stromlos, WLAN weg oder das "
+            "Schloss antwortet nicht."
+        )
+    if status == 401:
+        return (
+            "Der Nuki-Zugang gilt nicht mehr. Im Nuki-Web-Konto unter "
+            "«API» ein neues Token erzeugen und als NUKI_TOKEN hinterlegen."
+        )
+    if status == 403:
+        return (
+            "Der Nuki-Zugang darf diese Aktion nicht. Beim Token fehlt das "
+            "Recht «smartlock.action»."
+        )
+    if status == 404:
+        return (
+            "Nuki kennt dieses Schloss nicht mehr - wurde es neu gekoppelt "
+            "oder aus dem Konto entfernt?"
+        )
+    if status == 429:
+        return "Zu viele Anfragen an Nuki. Kurz warten und nochmals."
+    if status >= 500:
+        return f"Der Nuki-Dienst hat ein Problem (HTTP {status})."
+    # Unbekanntes ehrlich durchreichen - aber ohne das leere Stapelabbild,
+    # das in jeder Antwort steht und nie etwas beiträgt. Über den Parser
+    # statt über Textersatz: Sonst bleiben Kommas zurück, wo die
+    # entfernten Felder standen.
+    text = body.strip()
+    try:
+        payload = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        payload = None
+    if isinstance(payload, dict):
+        rest = {
+            key: value
+            for key, value in payload.items()
+            if key not in ("stackTrace", "suppressedExceptions") and value not in ([], {}, None, "")
+        }
+        text = json.dumps(rest, ensure_ascii=False) if rest else ""
+    if not text or text == "{}":
+        return f"Nuki lehnt die Aktion ab (HTTP {status})."
+    return f"Nuki lehnt die Aktion ab (HTTP {status}): {text[:160]}"
 
 
 def lock_state(payload: dict[str, Any]) -> dict[str, Any]:
@@ -164,9 +221,15 @@ class NukiIntegration(Integration):
         ) as response:
             if response.status >= 400:
                 detail = await response.text()
-                raise ConnectionError(
-                    f"Nuki-Aktion fehlgeschlagen ({response.status}): {detail[:200]}"
+                message = action_error(response.status, detail)
+                self.log.warning(
+                    "Nuki '%s': %s (HTTP %d, Antwort: %s)",
+                    entity.name,
+                    command,
+                    response.status,
+                    detail[:200],
                 )
+                raise ConnectionError(message)
         # Optimistisch den Zwischenzustand melden; kurz danach echten Stand holen.
         moving = {"unlock": "unlocking", "lock": "locking", "unlatch": "unlatching"}
         await self.hub.registry.update_state(entity.id, {"state": moving[command]})

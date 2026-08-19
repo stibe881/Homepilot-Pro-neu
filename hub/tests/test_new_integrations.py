@@ -1022,3 +1022,28 @@ def test_protect_events_become_a_timeline():
     assert [row["id"] for row in rows] == ["2", "1"]
     assert rows[0]["label"] == "Erkannt"
     assert rows[0]["detected"] == ["person"]
+
+
+def test_nuki_errors_become_readable_sentences():
+    """Nuki antwortet mit einem leeren Java-Stapelabbild. Das in die App
+    zu reichen hilft niemandem - man liest es dreimal und weiss danach
+    gleich viel. Der Statuscode dagegen sagt, woran es liegt."""
+    from homepilot.integrations.nuki import action_error
+
+    leer = '{"stackTrace":[],"suppressedExceptions":[]}'
+    # Der Fall aus der Praxis: Lesen geht (aus Nukis Zwischenspeicher),
+    # Schalten nicht - dafür braucht es eine lebende Verbindung.
+    assert "nicht erreichbar" in action_error(423, leer)
+    assert "Token" in action_error(401, leer)
+    assert "smartlock.action" in action_error(403, leer)
+    assert "kennt dieses Schloss nicht" in action_error(404, leer)
+    assert "Zu viele" in action_error(429, leer)
+    assert "Nuki-Dienst" in action_error(502, leer)
+
+    # Unbekanntes bleibt lesbar, aber ohne das leere Stapelabbild - und
+    # ohne die Kommas, die ein blosser Textersatz zurückliesse.
+    with_detail = '{"stackTrace":[],"suppressedExceptions":[],"detail":"bad action"}'
+    assert action_error(400, with_detail).endswith('{"detail": "bad action"}')
+    assert action_error(400, leer).endswith("(HTTP 400).")
+    # Auch wenn gar kein JSON kommt.
+    assert "kein json" in action_error(418, "kein json")
