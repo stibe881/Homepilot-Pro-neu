@@ -41,6 +41,11 @@ EMPTY: dict[str, Any] = {
     "automation_runs": [],
     # Papierkorb für gelöschte Szenen und Abläufe.
     "trash": [],
+    # Angemeldete Sitzungen (nur Hashwerte, siehe sessions.py).
+    "sessions": [],
+    # Anmelde-Adressen je Benutzer: [{name, email}]. Getrennt von den
+    # Benutzern, damit auch die aus der config.yaml eine bekommen können.
+    "emails": [],
 }
 
 

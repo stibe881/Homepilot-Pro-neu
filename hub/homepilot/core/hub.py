@@ -17,6 +17,7 @@ from .events import EventBus
 from .integration import IntegrationManager
 from .audit import AuditLog
 from .guestpass import PassStore
+from .sessions import SessionStore
 from .logbuffer import install as install_log_buffer
 from .persistence import DataStore
 from .watchdog import Watchdog
@@ -57,6 +58,10 @@ class Hub:
         # In der App angelegte Benutzer und Automationen liegen neben der
         # Konfiguration, damit sie ohne Datenbank einen Neustart überleben.
         self.data = DataStore(config.data_file)
+        # Sitzungen aus der Anmeldung mit E-Mail und Passwort. Sie liegen
+        # lokal, damit der Hub ohne Internet weiterarbeitet - erst nach
+        # dem DataStore, weil sie dort hineinschreiben.
+        self.sessions = SessionStore(self.data)
         self.store: Store | None = None
         self.watchdog = Watchdog(self)
         # Wandelt Kamerabilder in HLS um – läuft nur, solange jemand zuschaut.
@@ -191,8 +196,15 @@ class Hub:
                 )
             except Exception as err:
                 log.warning("Gespeicherter Benutzer übersprungen: %s", err)
+        # Anmelde-Adressen: getrennt gespeichert, damit auch Benutzer aus
+        # der config.yaml eine bekommen können, ohne die Datei anzufassen.
+        for entry in self.data.get("emails"):
+            user = self.users.by_name(str(entry.get("name") or ""))
+            if user is not None:
+                user.email = str(entry.get("email") or "").strip().lower() or None
         # Ab jetzt jede Änderung mitschreiben.
         self.users.on_change = lambda users: self.data.set("users", users)
+        self.users.on_email_change = lambda rows: self.data.set("emails", rows)
         # Gibt es gespeicherte Benutzer, ist die API nicht mehr offen.
         if self.users.users:
             self.users.open_access = False

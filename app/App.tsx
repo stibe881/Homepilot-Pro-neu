@@ -10,6 +10,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { HubSettings } from './src/api/types';
 import { DashboardScreen } from './src/screens/DashboardScreen';
+import { LoginScreen } from './src/screens/LoginScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { ThemeProvider, useTheme } from './src/theme';
 
@@ -43,6 +44,8 @@ export default function App() {
   // ist – und bleibt dann dauerhaft leer. Scheitert das Laden, geht es
   // trotzdem weiter: lieber ohne Symbole als gar keine Oberfläche.
   const [fontsLoaded, fontError] = useFonts(Ionicons.font);
+  // Beim ersten Start: Anmeldung oder doch der alte Weg über den QR-Code?
+  const [useToken, setUseToken] = useState(false);
   const fontsSettled = fontsLoaded || fontError != null;
 
   useEffect(() => {
@@ -61,7 +64,14 @@ export default function App() {
       <ThemeProvider mode={settings?.theme ?? 'system'}>
         <Background>
           {settings === undefined || !fontsSettled ? null : settings === null ? (
-            <SettingsScreen initial={null} onSave={save} />
+            // Beim ersten Start die Anmeldung mit E-Mail und Passwort; der
+            // QR-Code-Weg liegt einen Tipp daneben – für Wandpanels und
+            // für den Fall, dass der Anmeldedienst gerade nicht mag.
+            useToken ? (
+              <SettingsScreen initial={null} onSave={save} onCancel={() => setUseToken(false)} />
+            ) : (
+              <LoginScreen initial={null} onSave={save} onUseToken={() => setUseToken(true)} />
+            )
           ) : (
             <DashboardScreen settings={settings} onSaveSettings={save} />
           )}

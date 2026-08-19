@@ -153,6 +153,10 @@ class User:
     # Zugang nur in diesem Zeitfenster, z.B. {"from": "07:00", "to": "20:00"}.
     # Für Kinder gedacht: Licht im eigenen Zimmer ja, um Mitternacht nicht.
     hours: dict[str, str] = field(default_factory=dict)
+    # E-Mail-Adresse für die Anmeldung mit Passwort. Sie ist zugleich die
+    # Einladung: Registrieren kann sich nur, wessen Adresse hier schon
+    # steht – sonst legte sich jeder mit der Hub-Adresse ein Konto an.
+    email: str | None = None
 
     def active(self, now: "datetime | None" = None) -> bool:
         """Darf dieser Benutzer *jetzt* herein? (rein, testbar)
@@ -201,6 +205,7 @@ class User:
             "expires": self.expires,
             "hours": dict(self.hours),
             "active": self.active(),
+            "email": self.email,
         }
         if include_token:
             data["token"] = self.token
@@ -212,6 +217,8 @@ class UserRegistry:
 
     def __init__(self, users: list[User], open_access: bool = False) -> None:
         self._users = list(users)
+        # Wird gerufen, wenn sich eine Anmelde-Adresse ändert.
+        self.on_email_change: Any = None
         # Wird gerufen, wenn sich die in der App verwalteten Benutzer ändern.
         self.on_change: Any = None
         # Ohne konfigurierte Benutzer und ohne Token ist die API offen –
@@ -256,6 +263,45 @@ class UserRegistry:
         self._users.remove(user)
         self._changed()
         return True
+
+    def by_email(self, email: str | None) -> User | None:
+        """Benutzer zu einer E-Mail-Adresse (Gross/Klein egal)."""
+        if not email:
+            return None
+        wanted = email.strip().lower()
+        for user in self._users:
+            if (user.email or "").strip().lower() == wanted:
+                return user
+        return None
+
+    def set_email(self, name: str, email: str | None) -> User:
+        """Die Anmelde-Adresse setzen oder löschen.
+
+        Auch für Benutzer aus der config.yaml erlaubt: Die Adresse ist
+        keine Berechtigung, sondern nur der Weg hinein – und sie soll sich
+        eintragen lassen, ohne die Datei anzufassen. Gespeichert wird sie
+        deshalb getrennt (siehe emails in der Datendatei).
+        """
+        user = self.by_name(name)
+        if user is None:
+            raise ConfigError(f"Unbekannter Benutzer: {name}")
+        wanted = (email or "").strip().lower() or None
+        if wanted:
+            other = self.by_email(wanted)
+            if other is not None and other.name != name:
+                raise ConfigError(
+                    f"Diese Adresse gehört schon zu '{other.name}'"
+                )
+        user.email = wanted
+        if self.on_email_change:
+            self.on_email_change(
+                [
+                    {"name": entry.name, "email": entry.email}
+                    for entry in self._users
+                    if entry.email
+                ]
+            )
+        return user
 
     def rotate_token(self, name: str) -> str:
         """Ein frisches Token ausstellen und das alte sofort ungültig machen.

@@ -56,6 +56,8 @@ interface HubUser {
   hours?: { from?: string; to?: string };
   /** Darf diese Person gerade herein? Rechnet Ablauf und Fenster mit. */
   active?: boolean;
+  /** Anmelde-Adresse – zugleich die Einladung zur Registrierung. */
+  email?: string | null;
 }
 
 interface Props {
@@ -185,6 +187,8 @@ export function UsersScreen({ settings, currentUser }: Props) {
   // Zwei-Schritt-Rückfrage fürs Token-Wechseln – das ist nicht umkehrbar.
   const [rotateAsk, setRotateAsk] = useState<string | null>(null);
   const [rotateNote, setRotateNote] = useState<string | null>(null);
+  // Getippte Adressen, bis sie gespeichert sind.
+  const [emailDraft, setEmailDraft] = useState<Record<string, string>>({});
 
   const load = useCallback(() => {
     setError(null);
@@ -433,6 +437,60 @@ export function UsersScreen({ settings, currentUser }: Props) {
                       </Text>
                     </>
                   )}
+
+                  <View style={styles.rotateBox}>
+                    <Text style={styles.formLabel}>Anmeldung mit E-Mail</Text>
+                    <Text style={styles.qrHint}>
+                      Trägst du hier eine Adresse ein, kann sich diese Person
+                      selbst ein Konto anlegen und sich mit E-Mail und Passwort
+                      anmelden – ohne QR-Code. Ohne Eintrag weist der Hub jede
+                      Registrierung ab.
+                    </Text>
+                    <TextInput
+                      style={styles.input}
+                      value={emailDraft[detail.name] ?? detail.email ?? ''}
+                      onChangeText={(value) =>
+                        setEmailDraft((prev) => ({ ...prev, [detail.name]: value }))
+                      }
+                      placeholder="name@example.ch"
+                      placeholderTextColor={colors.inkFaint}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      keyboardType="email-address"
+                    />
+                    <Pressable
+                      onPress={async () => {
+                        const value = (emailDraft[detail.name] ?? detail.email ?? '').trim();
+                        try {
+                          const response = await fetch(
+                            `${settings.url}/api/users/${encodeURIComponent(
+                              detail.name
+                            )}/email`,
+                            {
+                              method: 'PUT',
+                              headers: { ...headers, 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ email: value || null }),
+                            }
+                          );
+                          const body = await response.json();
+                          if (!response.ok) throw new Error(body.detail ?? 'Fehlgeschlagen');
+                          setRotateNote(
+                            value
+                              ? `${value} kann sich jetzt registrieren.`
+                              : 'Adresse entfernt.'
+                          );
+                          load();
+                        } catch (err: any) {
+                          setRotateNote(String(err.message ?? err));
+                        }
+                      }}
+                      accessibilityRole="button"
+                      style={({ pressed }) => [styles.rotateButton, pressed && { opacity: 0.7 }]}
+                    >
+                      <Ionicons name="mail-outline" size={15} color={colors.ink} />
+                      <Text style={styles.rotateText}>Adresse speichern</Text>
+                    </Pressable>
+                  </View>
 
                   {detail.editable ? (
                     <View style={styles.rotateBox}>

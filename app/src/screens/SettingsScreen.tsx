@@ -36,14 +36,72 @@ export function SettingsScreen({ initial, onSave, onCancel, embedded, user }: Pr
   const [theme, setTheme] = useState<ThemeMode>(initial?.theme ?? 'system');
   const [panel, setPanel] = useState(!!initial?.panel);
   const [scanning, setScanning] = useState(false);
+  // Zwei-Schritt-Rückfrage für «überall abmelden» – das wirft auch das
+  // Gerät hinaus, auf dem man gerade tippt.
+  const [logoutAll, setLogoutAll] = useState<'idle' | 'ask'>('idle');
 
   const form = (
     <Card style={styles.card}>
       <Text style={styles.title}>Hub verbinden</Text>
       {user ? (
-        <Text style={styles.account}>
-          Angemeldet als {user.name} · {user.role}
-        </Text>
+        <>
+          <Text style={styles.account}>
+            Angemeldet als {user.name} · {user.role}
+          </Text>
+          <View style={styles.logoutRow}>
+            <Pressable
+              onPress={async () => {
+                // Abmelden beendet nur diese Sitzung; ein fest vergebenes
+                // Token bliebe gültig – dann bleibt die App eben verbunden.
+                await fetch(`${url.replace(/\/$/, '')}/api/auth/logout`, {
+                  method: 'POST',
+                  headers: { Authorization: `Bearer ${token}` },
+                }).catch(() => {});
+                onSave({ url, token: '', name, theme, panel });
+              }}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.logout, pressed && { opacity: 0.7 }]}
+            >
+              <Ionicons name="log-out-outline" size={15} color={colors.ink} />
+              <Text style={styles.logoutText}>Abmelden</Text>
+            </Pressable>
+            <Pressable
+              onPress={async () => {
+                if (logoutAll !== 'ask') {
+                  setLogoutAll('ask');
+                  setTimeout(() => setLogoutAll('idle'), 4000);
+                  return;
+                }
+                setLogoutAll('idle');
+                await fetch(`${url.replace(/\/$/, '')}/api/auth/sessions`, {
+                  method: 'DELETE',
+                  headers: { Authorization: `Bearer ${token}` },
+                }).catch(() => {});
+                onSave({ url, token: '', name, theme, panel });
+              }}
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.logout,
+                logoutAll === 'ask' && { borderColor: colors.danger },
+                pressed && { opacity: 0.7 },
+              ]}
+            >
+              <Ionicons
+                name="phone-portrait-outline"
+                size={15}
+                color={logoutAll === 'ask' ? colors.danger : colors.ink}
+              />
+              <Text
+                style={[
+                  styles.logoutText,
+                  logoutAll === 'ask' && { color: colors.danger },
+                ]}
+              >
+                {logoutAll === 'ask' ? 'Wirklich überall?' : 'Überall abmelden'}
+              </Text>
+            </Pressable>
+          </View>
+        </>
       ) : null}
 
       <Pressable
@@ -258,6 +316,19 @@ const makeStyles = (colors: Colors) =>
     fontSize: 16,
   },
   account: { color: colors.inkSoft, fontSize: 13, marginTop: -8 },
+  logoutRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  logout: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radius.control,
+    backgroundColor: colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  logoutText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
   scan: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -43,6 +43,9 @@ export interface User {
   enabled?: boolean;
   /** Freigegebene Bereiche für Gäste (licht, storen, familie, …). */
   features?: string[];
+  /** Anmelde-Adresse – zugleich die Einladung: Nur wessen Adresse hier
+   *  steht, kann sich mit Passwort registrieren. */
+  email?: string | null;
 }
 
 export interface Source {

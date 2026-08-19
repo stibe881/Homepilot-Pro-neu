@@ -39,6 +39,7 @@ from ..core.config import ConfigError, load_config
 from ..core import energy as energy_module
 from ..core import push
 from ..core import snapshots
+from ..core import supabase_auth
 from ..core import throttle as throttle_module
 from ..core import watchdog
 from ..core import users as users_module
@@ -146,6 +147,31 @@ class UserUpdateRequest(BaseModel):
     hours: dict[str, str] | None = None
 
 
+class LoginRequest(BaseModel):
+    """Anmeldung mit E-Mail und Passwort."""
+
+    email: str
+    password: str
+    # Name des Geräts – damit man in der Sitzungsliste sieht, welches
+    # Telefon das war.
+    label: str = ""
+
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+
+
+class RecoverRequest(BaseModel):
+    email: str
+
+
+class EmailRequest(BaseModel):
+    """Anmelde-Adresse eines Benutzers setzen (leer = löschen)."""
+
+    email: str | None = None
+
+
 class GeofenceRequest(BaseModel):
     """Ortswechsel eines Telefons: enter/leave (oder home/away)."""
 
@@ -249,7 +275,16 @@ def create_app(hub: Hub) -> FastAPI:
                 detail=f"Zu viele Fehlversuche. In {round(waiting)} Sekunden wieder.",
                 headers={"Retry-After": str(round(waiting))},
             )
-        user = hub.users.by_token(token_from(request))
+        token = token_from(request)
+        user = hub.users.by_token(token)
+        if user is None:
+            # Kein festes Token – vielleicht eine Sitzung aus der Anmeldung
+            # mit E-Mail und Passwort.
+            name = hub.sessions.user_for(token or "")
+            if name:
+                user = hub.users.by_name(name)
+                if user is not None and not user.active():
+                    user = None
         if user is None:
             if throttle.failed(address):
                 log.warning(
@@ -1693,6 +1728,179 @@ def create_app(hub: Hub) -> FastAPI:
                 hub.config.api.host, hub.config.api.port, token, name
             ),
         }
+
+    # ── Anmeldung mit E-Mail und Passwort ──────────────────────────────────
+    #
+    # Der Hub spricht selbst mit Supabase, nicht die App: So bleibt der
+    # Anon-Key auf dem Hub, und die App kennt weiterhin genau eine Adresse.
+    # Nach erfolgreicher Anmeldung stellt der Hub eine eigene Sitzung aus –
+    # danach braucht der Alltag kein Internet mehr.
+
+    def auth_service() -> supabase_auth.SupabaseAuth | None:
+        config = hub.config.supabase or {}
+        url = str(config.get("url") or "")
+        anon = str(config.get("anon_key") or "")
+        if not (url and anon):
+            return None
+        return supabase_auth.SupabaseAuth(url, anon)
+
+    @app.get("/api/auth/config")
+    async def auth_config() -> dict[str, Any]:
+        """Was die Anmeldemaske anbieten darf – ohne Anmeldung abrufbar.
+
+        Enthält bewusst nichts Verräterisches: nur ob es die Anmeldung mit
+        Passwort überhaupt gibt.
+        """
+        return {"password_login": auth_service() is not None}
+
+    @app.post("/api/auth/login")
+    async def auth_login(body: LoginRequest, request: Request) -> dict[str, Any]:
+        """Anmelden und eine Sitzung für dieses Gerät bekommen."""
+        service = auth_service()
+        if service is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Anmeldung mit Passwort ist nicht eingerichtet.",
+            )
+        # Dieselbe Bremse wie bei den Tokens: Sonst liesse sich hier in
+        # Ruhe ein Passwort durchprobieren.
+        address = throttle_module.client_address(request)
+        waiting = throttle.blocked_for(address)
+        if waiting > 0:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Zu viele Fehlversuche. In {round(waiting)} Sekunden wieder.",
+                headers={"Retry-After": str(round(waiting))},
+            )
+        try:
+            session = await service.sign_in(body.email, body.password)
+        except supabase_auth.AuthError as err:
+            if err.status in (400, 401, 403):
+                throttle.failed(address)
+            raise HTTPException(status_code=err.status, detail=str(err)) from err
+
+        user = hub.users.by_email(session["email"])
+        if user is None:
+            # Das Konto gibt es bei Supabase, aber niemand im Haus hat die
+            # Adresse eingetragen. Bewusst dieselbe Auskunft wie bei einem
+            # falschen Passwort – wer fremde Adressen durchprobiert, soll
+            # daraus nichts lernen.
+            throttle.failed(address)
+            log.warning(
+                "Anmeldung mit unbekannter Adresse %s abgelehnt", session["email"]
+            )
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Diese Adresse ist im Haus nicht freigegeben. Wer schon "
+                    "Zugang hat, kann sie unter Benutzer eintragen."
+                ),
+            )
+        if not user.active():
+            raise HTTPException(
+                status_code=403, detail=f"Der Zugang von '{user.name}' ist gesperrt."
+            )
+        throttle.succeeded(address)
+        token = hub.sessions.create(user.name, body.label or "Unbenanntes Gerät")
+        log.warning("%s hat sich mit Passwort angemeldet (%s)", user.name, address)
+        return {"token": token, "user": user_payload(user)}
+
+    @app.post("/api/auth/register")
+    async def auth_register(body: RegisterRequest, request: Request) -> dict[str, Any]:
+        """Konto anlegen – Supabase verschickt die Bestätigungs-E-Mail.
+
+        Nur für Adressen, die im Haus schon eingetragen sind. Sonst legte
+        sich jeder, der die Adresse des Hubs kennt, ein Konto an – und der
+        Hub verschickte auf Zuruf E-Mails an Fremde.
+        """
+        service = auth_service()
+        if service is None:
+            raise HTTPException(
+                status_code=503, detail="Anmeldung mit Passwort ist nicht eingerichtet."
+            )
+        address = throttle_module.client_address(request)
+        if throttle.blocked_for(address) > 0:
+            raise HTTPException(status_code=429, detail="Zu viele Versuche.")
+        user = hub.users.by_email(body.email)
+        if user is None:
+            throttle.failed(address)
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Für diese Adresse ist kein Zugang vorgesehen. Bitte jemanden "
+                    "im Haus, dich unter Benutzer einzutragen."
+                ),
+            )
+        try:
+            await service.sign_up(body.email, body.password)
+        except supabase_auth.AuthError as err:
+            raise HTTPException(status_code=err.status, detail=str(err)) from err
+        log.warning("Konto für %s angelegt, Bestätigung verschickt", body.email)
+        return {
+            "ok": True,
+            "message": (
+                "Fast geschafft: Wir haben dir eine E-Mail geschickt. Bestätige "
+                "die Adresse darin, danach kannst du dich anmelden."
+            ),
+        }
+
+    @app.post("/api/auth/recover")
+    async def auth_recover(body: RecoverRequest) -> dict[str, Any]:
+        """Passwort vergessen.
+
+        Die Antwort ist immer dieselbe – ob es zu einer Adresse ein Konto
+        gibt, geht niemanden etwas an, der sie nur eintippt.
+        """
+        service = auth_service()
+        if service is not None:
+            try:
+                await service.recover(body.email)
+            except supabase_auth.AuthError as err:
+                if err.status == 503:
+                    raise HTTPException(status_code=503, detail=str(err)) from err
+        return {
+            "ok": True,
+            "message": (
+                "Falls es zu dieser Adresse ein Konto gibt, ist die E-Mail "
+                "unterwegs."
+            ),
+        }
+
+    @app.post("/api/auth/logout")
+    async def auth_logout(request: Request) -> dict[str, Any]:
+        """Diese Sitzung beenden – das feste Token bleibt davon unberührt."""
+        current_user(request)
+        return {"ok": hub.sessions.revoke(token_from(request) or "")}
+
+    @app.get("/api/auth/sessions")
+    async def auth_sessions(request: Request) -> dict[str, Any]:
+        """Die eigenen angemeldeten Geräte."""
+        user = current_user(request)
+        return {"sessions": hub.sessions.list_for(user.name)}
+
+    @app.delete("/api/auth/sessions")
+    async def auth_revoke_all(request: Request) -> dict[str, Any]:
+        """Überall abmelden – der Knopf für «Telefon verloren»."""
+        user = current_user(request)
+        count = hub.sessions.revoke_user(user.name)
+        log.warning("%s hat alle Sitzungen beendet (%d)", user.name, count)
+        return {"ok": True, "revoked": count}
+
+    @app.put("/api/users/{name}/email")
+    async def set_user_email(
+        name: str, body: EmailRequest, request: Request
+    ) -> dict[str, Any]:
+        """Die Anmelde-Adresse einer Person setzen – zugleich die Einladung.
+
+        Erst danach kann sich diese Person registrieren; ohne Eintrag
+        weist der Hub jede Registrierung ab.
+        """
+        require(request, Capability.MANAGE_USERS)
+        try:
+            user = hub.users.set_email(name, body.email)
+        except HomePilotError as err:
+            raise HTTPException(status_code=409, detail=str(err)) from err
+        return {"user": user.as_dict()}
 
     # ── Geofence ───────────────────────────────────────────────────────────
 
