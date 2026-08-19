@@ -8,7 +8,9 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "build:web": "expo export --platform web --output-dir dist && node scripts/patch-web-html.mjs dist"
+    "build:web": "expo export --platform web --output-dir dist && node scripts/patch-web-html.mjs dist",
+    "release:ios": "eas build --platform ios --profile production --auto-submit --non-interactive",
+    "release:update": "eas update --branch production"
   },
   "dependencies": {
     "@bacons/apple-targets": "^5.0.0",

@@ -34,8 +34,25 @@ die vorhandene `eas.json` nur überschreiben – also weglassen.
 
 ## Build fürs iPhone/iPad
 
+Der ganze Weg bis TestFlight in einem Befehl – baut, und reicht den
+fertigen Build selbst bei Apple ein:
+
+```bash
+npm run release:ios
+```
+
+Die Build-Nummer zählt EAS dabei selbst hoch (Apple verlangt je Version
+eindeutige Nummern). Wer nur bauen will, ohne einzureichen:
+
 ```bash
 eas build --platform ios --profile production
+```
+
+Und für reine Code-Änderungen ohne neue native Pakete genügt statt
+alledem:
+
+```bash
+npm run release:update -- --message "kurzer Satz"
 ```
 
 Beim ersten Mal fragt EAS nach dem Apple-Konto und legt Zertifikate selbst
