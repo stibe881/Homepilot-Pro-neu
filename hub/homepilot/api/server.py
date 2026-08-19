@@ -546,6 +546,21 @@ def create_app(hub: Hub) -> FastAPI:
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(url, headers=headers) as response:
                     text = (await response.text())[:200]
+                    if response.status == 403:
+                        # Der Listener kennt nur einen Grund für 403: Das
+                        # Geheimnis passt nicht. Das steht an zwei Orten,
+                        # und wer eines davon dreht, sucht sonst lange.
+                        raise HTTPException(
+                            status_code=502,
+                            detail=(
+                                "Das Update-Geheimnis stimmt nicht überein. Es muss "
+                                "an zwei Stellen gleich sein: 'update.token' des "
+                                "Hubs (Umgebungsvariable UPDATE_SECRET) und "
+                                "UPDATE_SECRET in /opt/homepilot/"
+                                "github-credentials.env auf dem Host. Nach dem "
+                                "Ändern dort: systemctl restart homepilot-update."
+                            ),
+                        )
                     if response.status >= 400:
                         raise HTTPException(
                             status_code=502,

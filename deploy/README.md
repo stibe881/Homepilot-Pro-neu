@@ -124,3 +124,26 @@ bei systemd unter `/etc/homepilot`.
 Beide Ports müssen nur im lokalen Netz erreichbar sein. **Gib den Hub nicht
 direkt ins Internet frei** – für den Zugriff von unterwegs ist ein VPN der
 richtige Weg, und UniFi bringt eines mit (WireGuard unter *Teleport/VPN*).
+
+## «403: Nicht erlaubt» beim Update-Knopf
+
+Der Listener kennt für 403 genau einen Grund: Das Geheimnis passt nicht.
+Es steht an **zwei** Orten und muss dort Zeichen für Zeichen gleich sein:
+
+| Wo | Was |
+|---|---|
+| Portainer-Stack | `UPDATE_SECRET` – landet über `${UPDATE_SECRET}` in `update.token` der `config.yaml` |
+| Docker-Host | `UPDATE_SECRET=` in `/opt/homepilot/github-credentials.env` |
+
+Wer eines davon dreht, muss das andere mitziehen. Neu setzen:
+
+```bash
+NEU=$(openssl rand -base64 32)
+echo "$NEU"                                    # in den Portainer-Stack kopieren
+sudo sed -i '/^UPDATE_SECRET=/d' /opt/homepilot/github-credentials.env
+echo "UPDATE_SECRET=$NEU" | sudo tee -a /opt/homepilot/github-credentials.env
+sudo systemctl restart homepilot-update
+```
+
+Danach den Stack neu deployen, damit der Hub den neuen Wert bekommt.
+Was der Listener sieht, steht in `journalctl -u homepilot-update -f`.
