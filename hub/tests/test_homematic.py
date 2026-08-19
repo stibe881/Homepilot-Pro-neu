@@ -437,3 +437,22 @@ def test_the_datapoint_tells_what_kind_of_sensor_it_is():
     # Unklares bleibt offen: Eine falsche Angabe wäre schlimmer als keine.
     assert guess_device_class("ACTUAL_TEMPERATURE") is None
     assert guess_device_class(None) is None
+
+
+def test_illumination_becomes_a_measurable_value():
+    """Melder messen nebenbei die Helligkeit - genau die will man in einem
+    Ablauf vergleichen. «Nur wenn unter 20 Lux» ist die ehrliche Regel für
+    «es ist dunkel»; der Sonnenstand weiss nichts von einem trüben
+    Novembernachmittag."""
+    from homepilot.integrations.homematic import lux_to_state
+
+    assert lux_to_state(23.456) == {"illumination": 23.5}
+    # Stockdunkel ist ein Messwert, kein fehlender Wert.
+    assert lux_to_state(0) == {"illumination": 0.0}
+    # Alles, was keine Zahl ist, wird verworfen statt als 0 Lux
+    # eingetragen - sonst liefe «unter 20 Lux» am hellen Mittag.
+    assert lux_to_state(None) == {}
+    assert lux_to_state(True) == {}
+    assert lux_to_state("") == {}
+    # Manche Fassungen liefern Zahlen als Text.
+    assert lux_to_state("42") == {"illumination": 42.0}

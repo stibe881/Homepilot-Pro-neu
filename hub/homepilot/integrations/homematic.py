@@ -42,6 +42,14 @@ in der Kanalliste im Log:
         kind: binary_sensor
         datapoint: PRESENCE_DETECTION_STATE
 
+Bewegungs- und Präsenzmelder messen nebenbei die Helligkeit. Der Hub liest
+sie von selbst mit und legt sie als ``illumination`` (Lux) an dieselbe
+Entität. Damit lässt sich in einem Ablauf «nur wenn es dunkel ist» am
+echten Messwert festmachen statt am Sonnenstand – der weiss nichts von
+einem trüben Novembernachmittag. Findet der Melder keinen solchen
+Datenpunkt, passiert nichts; wer den Namen kennt, kann ihn mit
+``illumination_datapoint`` angeben.
+
       - address: "0001D8A9B12347:1"     # HmIP-SWSD (Rauchwarnmelder)
         port: 2010
         name: Rauchmelder Flur
@@ -144,6 +152,11 @@ LOW_BAT = "LOW_BAT"
 LEVEL = "LEVEL"
 # Messkanal einer Schalt-Messsteckdose (HmIP-PSM, HM-ES-PMSw1): Momentanleistung.
 POWER = "POWER"
+# Helligkeit in Lux. Melder heissen sie unterschiedlich: HmIP-SMI und
+# HmIP-SPI liefern ILLUMINATION, manche Fassungen zusätzlich
+# CURRENT_ILLUMINATION (der Momentanwert statt des Mittels über die
+# Messperiode). Der Hub probiert der Reihe nach und nimmt, was da ist.
+ILLUMINATION_DATAPOINTS = ("ILLUMINATION", "CURRENT_ILLUMINATION")
 
 # Kanalarten, auf denen sich wirklich schalten lässt. Messkanäle heissen
 # ähnlich (SWITCH_TRANSMITTER, ENERGIE_METER_TRANSMITTER), können es aber
@@ -265,6 +278,22 @@ def value_to_state(value: Any, datapoint: str, dimmable: bool) -> dict[str, Any]
     if isinstance(value, bool):
         return {"state": "on" if value else "off"}
     return {"state": value}
+
+
+def lux_to_state(value: Any) -> dict[str, Any]:
+    """Helligkeitsmessung in den Zustand (rein, testbar).
+
+    Melder liefern Lux als Zahl. Alles andere - None nach einem
+    Lesefehler, ein leerer Text - wird verworfen statt als 0 Lux
+    eingetragen: «stockdunkel» wäre eine Behauptung, kein Messwert, und
+    ein Ablauf «nur wenn unter 20 Lux» liefe damit am hellen Mittag.
+    """
+    if isinstance(value, bool) or value is None:
+        return {}
+    try:
+        return {"illumination": round(float(value), 1)}
+    except (TypeError, ValueError):
+        return {}
 
 
 def maintenance_address(address: str) -> str:
@@ -420,6 +449,11 @@ class HomematicIntegration(Integration):
         self._by_datapoint: dict[tuple[str, str], str] = {}
         # Messkanäle getrennt: sie liefern kein state, sondern nur 'power'.
         self._by_power: dict[tuple[str, str], str] = {}
+        # Helligkeit der Melder: liefert kein state, sondern 'illumination'.
+        self._by_lux: dict[tuple[str, str], str] = {}
+        # Kanäle, die diesen Datenpunkt nicht kennen - einmal gemerkt,
+        # dann nicht mehr gefragt.
+        self._missing_lux: set[tuple[str, str]] = set()
         self._devices: dict[str, dict[str, Any]] = {}
 
         for device in self.config.get("devices") or []:
@@ -519,6 +553,16 @@ class HomematicIntegration(Integration):
             self._by_datapoint[(address, datapoint)] = entity.id
         if power_address:
             self._by_power[(power_address, power_datapoint)] = entity.id
+        # Helligkeit liegt auf demselben Kanal wie die Ja/Nein-Meldung -
+        # anders als beim Strom, der einen eigenen Messkanal hat.
+        if kind == EntityKind.BINARY_SENSOR:
+            wanted = device.get("illumination_datapoint")
+            candidates = (
+                (str(wanted),) if wanted else ILLUMINATION_DATAPOINTS
+            )
+            self._devices[entity.id]["illumination"] = candidates
+            for name in candidates:
+                self._by_lux[(address, name)] = entity.id
         # Batteriewarnung: Der Wartungskanal gehört zum Gerät, nicht zum
         # Kanal – mehrere Entitäten desselben Geräts teilen ihn sich.
         self._by_battery.setdefault(
@@ -669,6 +713,24 @@ class HomematicIntegration(Integration):
                         (info["power_address"], info["power_datapoint"]),
                         f"Messkanal {info['power_address']} nicht lesbar: {err}",
                     )
+
+            # Helligkeit der Melder. Der erste Datenpunkt, den der Kanal
+            # kennt, gewinnt; kennt er keinen, wird nicht weiter gefragt -
+            # sonst stünde bei jedem Durchlauf dieselbe Warnung im Log.
+            for name in info.get("illumination") or ():
+                if (info["address"], name) in self._missing_lux:
+                    continue
+                try:
+                    lux = await self._call(
+                        "getValue", info["address"], name, port=port
+                    )
+                except Exception:
+                    self._missing_lux.add((info["address"], name))
+                    continue
+                measured = lux_to_state(lux)
+                if measured:
+                    changes.update(measured)
+                    break
 
             if changes:
                 await self.hub.registry.update_state(entity_id, changes, available=True)
@@ -874,11 +936,16 @@ class HomematicIntegration(Integration):
                 changes = press_to_state(key, time.time())
             else:
                 changes = value_to_state(value, key, info["dimmable"])
+        elif (address, key) in self._by_power:
+            entity_id = self._by_power[(address, key)]
+            changes = power_to_state(value)
+            if not changes:
+                return ""
         else:
-            entity_id = self._by_power.get((address, key))
+            entity_id = self._by_lux.get((address, key))
             if entity_id is None:
                 return ""
-            changes = power_to_state(value)
+            changes = lux_to_state(value)
             if not changes:
                 return ""
 

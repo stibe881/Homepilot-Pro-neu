@@ -47,6 +47,41 @@ interface Run {
  * Ein Wandtaster kennt kein «an»/«aus» – er meldet einen Druck. Nach an/aus
  * gefragt käme ein Auslöser heraus, der nie eintritt. Dasselbe gilt für
  * Storen, Schlösser und die Alarmanlage: Jede Art hat ihre eigenen Worte. */
+/** Deutsche Namen der Messwerte, die in Bedingungen taugen. */
+const MEASURE_LABELS: Record<string, string> = {
+  illumination: 'Helligkeit (Lux)',
+  temperature: 'Temperatur',
+  humidity: 'Feuchte',
+  power: 'Leistung (W)',
+  brightness: 'Helligkeit (%)',
+  battery: 'Batterie (%)',
+  position: 'Position (%)',
+  tilt: 'Lamellen (%)',
+  count: 'Anzahl',
+  home: 'Anwesend',
+};
+
+/** Welche Zahlenwerte dieses Gerät liefert (rein, testbar).
+ *
+ *  Ein Präsenzmelder meldet «an/aus» – aber daneben oft auch die
+ *  Helligkeit in Lux. Genau die will man vergleichen: «nur wenn unter 20»
+ *  ist die ehrliche Regel für «es ist dunkel», der Sonnenstand weiss
+ *  nichts von einem trüben Novembernachmittag.
+ *
+ *  Nur bekannte Messwerte, nicht jedes Zahlenfeld: Ein Ablauf auf
+ *  «members_on» wäre technisch möglich und praktisch Unsinn. */
+export function measurableAttributes(
+  entity?: Entity
+): { key: string; label: string }[] {
+  if (!entity) return [];
+  return Object.keys(MEASURE_LABELS)
+    .filter((key) => {
+      const value = (entity.state as Record<string, unknown>)[key];
+      return typeof value === 'number';
+    })
+    .map((key) => ({ key, label: MEASURE_LABELS[key] }));
+}
+
 export function stateOptions(entity?: Entity): { key: string; label: string }[] {
   switch (entity?.kind) {
     case 'button':
@@ -265,6 +300,8 @@ interface StateCondition {
   entity_id: string;
   op: Compare;
   value: string;
+  /** Welcher Messwert verglichen wird. Leer = der Zustand selbst. */
+  attribute?: string;
 }
 
 interface Draft {
@@ -1948,6 +1985,8 @@ function Editor({
                         op === 'is'
                           ? fittingState(chosen, entry.value)
                           : String(Number(entry.value) || 0),
+                      // «ist» vergleicht immer den Zustand selbst.
+                      attribute: op === 'is' ? undefined : entry.attribute,
                     })
                   }
                 />
@@ -1964,7 +2003,31 @@ function Editor({
                     placeholder="z.B. 30"
                   />
                 )}
-                {entry.op !== 'is' ? (
+                {entry.op !== 'is' && measurableAttributes(chosen).length > 0 ? (
+                  <>
+                    <Choice
+                      options={[
+                        { key: '', label: 'Zustand' },
+                        ...measurableAttributes(chosen),
+                      ]}
+                      value={entry.attribute ?? ''}
+                      onSelect={(attribute) => setEntry({ attribute })}
+                    />
+                    {entry.attribute === 'illumination' ? (
+                      <Text style={styles.triggerNote}>
+                        Lux, gemessen vom Melder selbst. Als Anhalt: unter 10
+                        ist Nacht, 50 eine gemütliche Wohnzimmerbeleuchtung,
+                        über 1000 heller Tag. Was dein Melder gerade misst,
+                        steht unter Geräte auf seiner Kachel – daran den Wert
+                        festmachen, nicht raten.
+                      </Text>
+                    ) : (
+                      <Text style={styles.triggerNote}>
+                        Vergleicht diesen Messwert des Geräts.
+                      </Text>
+                    )}
+                  </>
+                ) : entry.op !== 'is' ? (
                   <Text style={styles.triggerNote}>
                     Vergleicht den Zahlenwert des Geräts – etwa die Helligkeit
                     eines Dämmerungssensors oder die Anzahl anwesender
@@ -2737,12 +2800,16 @@ function buildConditions(draft: Draft): Record<string, any>[] {
   }
   for (const entry of draft.stateConditions) {
     if (!entry.entity_id) continue;
+    const base: Record<string, any> = { type: 'state', entity_id: entry.entity_id };
+    // Ohne Angabe vergleicht der Hub den Zustand selbst - dann gehört das
+    // Feld auch nicht in die gespeicherte Form.
+    if (entry.attribute) base.attribute = entry.attribute;
     if (entry.op === 'above') {
-      conditions.push({ type: 'state', entity_id: entry.entity_id, above: Number(entry.value) || 0 });
+      conditions.push({ ...base, above: Number(entry.value) || 0 });
     } else if (entry.op === 'below') {
-      conditions.push({ type: 'state', entity_id: entry.entity_id, below: Number(entry.value) || 0 });
+      conditions.push({ ...base, below: Number(entry.value) || 0 });
     } else {
-      conditions.push({ type: 'state', entity_id: entry.entity_id, equals: entry.value });
+      conditions.push({ ...base, equals: entry.value });
     }
   }
   return conditions;
