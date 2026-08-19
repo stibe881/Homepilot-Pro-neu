@@ -75,3 +75,33 @@ def test_without_the_section_there_is_no_picture_in_the_message(tmp_path):
     path = tmp_path / "config.yaml"
     path.write_text("integrations:\n  - integration: demo\n", encoding="utf-8")
     assert load_config(path).push == {}
+
+
+def test_duplicate_keys_are_reported_not_swallowed():
+    """YAML nimmt bei doppeltem Schlüssel wortlos den letzten.
+
+    Steht ``energy:`` zweimal in der Datei, gilt der zweite Preis – ohne
+    Fehler, ohne Warnung. Genau so sucht man den falschen Betrag wochenlang
+    an der falschen Stelle.
+    """
+    from homepilot.core.config import read_yaml
+
+    data, duplicates = read_yaml(
+        "energy:\n"
+        "  price_per_kwh: 0.2541\n"
+        "rooms: {}\n"
+        "energy:\n"
+        "  price_per_kwh: 0.32\n"
+    )
+    assert data["energy"]["price_per_kwh"] == 0.32
+    assert [entry.split(" ")[0] for entry in duplicates] == ["energy"]
+    # Die Zeilennummer gehört dazu, sonst sucht man in 300 Zeilen.
+    assert "Zeile 4" in duplicates[0]
+
+    # Auch verschachtelt, und saubere Dateien melden nichts.
+    _, nested = read_yaml("supabase:\n  url: a\n  url: b\n")
+    assert [entry.split(" ")[0] for entry in nested] == ["url"]
+    assert read_yaml("a: 1\nb: 2\n")[1] == []
+
+    # Ein Schlüssel darf in verschiedenen Blöcken gleich heissen.
+    assert read_yaml("a:\n  name: x\nb:\n  name: y\n")[1] == []

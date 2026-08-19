@@ -313,12 +313,18 @@ class Hub:
     def _config_problems(self) -> list[str]:
         """Was in der config.yaml auffällt – einmal beim Start ins Log.
 
-        Beides sind Fehler, die man sonst erst Wochen später bemerkt, weil
-        nichts abstürzt: ein doppelt kopierter Geräteeintrag und eine
-        Raumzuordnung, die auf ein längst umbenanntes Gerät zeigt.
+        Alles Fehler, die man sonst erst Wochen später bemerkt, weil
+        nichts abstürzt: ein doppelt kopierter Geräteeintrag, eine
+        Raumzuordnung auf ein längst umbenanntes Gerät – und ein doppelt
+        vergebener Schlüssel, von dem YAML wortlos den letzten nimmt.
         """
         known = {entity.id for entity in self.registry.all()}
         return [
+            *(
+                f"'{key}' steht mehrfach in der config.yaml – YAML nimmt "
+                "den letzten Eintrag, der erste ist wirkungslos."
+                for key in self.config.duplicate_keys
+            ),
             *config_edit.duplicate_devices(self.config.integrations),
             *config_edit.unused_rooms(self.config.rooms, known),
         ]

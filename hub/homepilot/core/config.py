@@ -15,6 +15,43 @@ from .errors import ConfigError
 ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
+class DuplicateKeyLoader(yaml.SafeLoader):
+    """YAML-Leser, der doppelt vergebene Schlüssel meldet.
+
+    YAML nimmt bei einem doppelten Schlüssel wortlos den letzten. Steht
+    also ``energy:`` zweimal in der Datei, gilt der zweite Preis und der
+    erste ist weg – ohne Fehler, ohne Warnung, und man sucht den falschen
+    Betrag wochenlang an der falschen Stelle. Das hier ist die Warnung.
+    """
+
+    def __init__(self, stream: Any) -> None:
+        super().__init__(stream)
+        self.duplicates: list[str] = []
+
+    def construct_mapping(self, node: Any, deep: bool = False) -> dict[Any, Any]:
+        seen: set[Any] = set()
+        for key_node, _ in node.value:
+            try:
+                key = self.construct_object(key_node, deep=deep)
+            except Exception:
+                continue
+            if not isinstance(key, (str, int, float, bool)):
+                continue
+            if key in seen:
+                self.duplicates.append(f"{key} (Zeile {key_node.start_mark.line + 1})")
+            seen.add(key)
+        return super().construct_mapping(node, deep=deep)
+
+
+def read_yaml(text: str) -> tuple[Any, list[str]]:
+    """YAML lesen und dabei doppelte Schlüssel einsammeln (rein, testbar)."""
+    loader = DuplicateKeyLoader(text)
+    try:
+        return loader.get_single_data(), loader.duplicates
+    finally:
+        loader.dispose()
+
+
 @dataclass
 class ApiConfig:
     host: str = "0.0.0.0"
@@ -59,6 +96,10 @@ class HubConfig:
     data_file: str | None = None
     # Woher diese Konfiguration geladen wurde – für den Editor in der App.
     source_path: str | None = None
+    # Doppelt vergebene Schlüssel, die YAML still verworfen hat. Kein
+    # Fehler – der Hub soll deswegen nicht stehenbleiben –, aber etwas,
+    # das der System-Screen zeigen muss.
+    duplicate_keys: list[str] = field(default_factory=list)
 
 
 def expand_env(value: Any) -> Any:
@@ -102,7 +143,8 @@ def load_config(path: str | Path) -> HubConfig:
         raise ConfigError(f"Konfigurationsdatei nicht gefunden: {path}")
 
     try:
-        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        raw, duplicates = read_yaml(path.read_text(encoding="utf-8"))
+        raw = raw or {}
     except yaml.YAMLError as err:
         # Als ConfigError weiterreichen, damit der Fehler überall lesbar
         # ankommt – etwa als Meldung im Konfigurations-Editor der App.
@@ -196,4 +238,5 @@ def load_config(path: str | Path) -> HubConfig:
         update=update_config,
         web_root=str(web_root) if web_root else None,
         source_path=str(path),
+        duplicate_keys=duplicates,
     )
