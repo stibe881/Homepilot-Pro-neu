@@ -56,8 +56,16 @@ class Entity:
     display_name: str | None = None
     # Auf der Startseite als Favorit anzeigen.
     favorite: bool = False
-    # Frei wählbare Gruppe (z.B. «Storen Süd»), zum gemeinsamen Schalten.
+    # Frei wählbare Anzeige-Kategorie (z.B. «Decke»), rein zum Sortieren
+    # innerhalb eines Raums. Sie fasst nichts zusammen.
     group: str | None = None
+    # Kennung der Lampe, in der diese Entität aufgeht – gesetzt, wenn sie
+    # Mitglied einer zusammengefassten Leuchte ist. Eine Deckenlampe mit
+    # fünf Spots soll ein Licht sein, nicht fünf: Wer das hier stehen hat,
+    # verschwindet aus Räumen, Suche und Zählung und ist nur noch unter
+    # Geräte zu finden. Bedienen lässt er sich dort weiterhin einzeln –
+    # zum Ausrichten beim Einbau braucht man das.
+    combined_into: str | None = None
     # Zeitpunkt (Epoch-Sekunden), zu dem das Gerät zuletzt erreichbar war –
     # für «zuletzt gesehen vor …» bei offline-Geräten.
     last_seen: float | None = None
@@ -74,5 +82,6 @@ class Entity:
             "room": self.room,
             "favorite": self.favorite,
             "group": self.group,
+            "combined_into": self.combined_into,
             "last_seen": self.last_seen,
         }

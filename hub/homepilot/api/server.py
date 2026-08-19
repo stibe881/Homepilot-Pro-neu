@@ -40,6 +40,7 @@ from ..core import energy as energy_module
 from ..core import push
 from ..core import snapshots
 from ..core import supabase_auth
+from ..integrations import group as group_module
 from . import invitepage
 from ..core import throttle as throttle_module
 from ..core import watchdog
@@ -230,6 +231,15 @@ def moment(text: str | None) -> float:
     if stamp.tzinfo is None:
         stamp = stamp.astimezone()
     return stamp.timestamp()
+
+
+class LightGroupRequest(BaseModel):
+    """Mehrere Lampen zu einer Leuchte zusammenfassen."""
+
+    name: str
+    members: list[str]
+    # light (Standard) oder switch.
+    kind: str = "light"
 
 
 class PrefsRequest(BaseModel):
@@ -2036,6 +2046,105 @@ def create_app(hub: Hub) -> FastAPI:
             media_type="text/html; charset=utf-8",
             headers={"Cache-Control": "no-store"},
         )
+
+    # ── Zusammengefasste Leuchten ──────────────────────────────────────────
+    #
+    # Eine Deckenlampe mit fünf Spots ist ein Licht, nicht fünf. Was hier
+    # entsteht, schaltet alle Mitglieder gemeinsam; die Mitglieder
+    # verschwinden aus Räumen, Suche und Zählung und bleiben nur unter
+    # Geräte einzeln bedienbar.
+
+    def group_service() -> Any:
+        service = hub.integrations.get("group")
+        if service is None:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Die group-Integration ist nicht eingerichtet. In der "
+                    "config.yaml genügt die Zeile '- integration: group'."
+                ),
+            )
+        return service
+
+    @app.get("/api/lightgroups")
+    async def list_light_groups(request: Request) -> dict[str, Any]:
+        current_user(request)
+        return {"groups": hub.data.get("light_groups")}
+
+    @app.post("/api/lightgroups")
+    async def create_light_group(
+        body: LightGroupRequest, request: Request
+    ) -> dict[str, Any]:
+        user = require(request, Capability.EDIT_CONFIG)
+        service = group_service()
+        name = body.name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Die Leuchte braucht einen Namen")
+        if len(body.members) < 2:
+            raise HTTPException(
+                status_code=400,
+                detail="Eine Leuchte fasst mindestens zwei Lampen zusammen",
+            )
+        taken: set[str] = set()
+        for existing in hub.data.get("light_groups"):
+            taken.update(str(m) for m in existing.get("members", []))
+        for entity_id in body.members:
+            entity = hub.registry.get(entity_id)
+            if entity is None:
+                raise HTTPException(
+                    status_code=404, detail=f"Unbekanntes Gerät: {entity_id}"
+                )
+            if entity.integration == "group":
+                raise HTTPException(
+                    status_code=400,
+                    detail="Eine Leuchte lässt sich nicht in eine andere stecken",
+                )
+            if entity_id in taken:
+                # Sonst wäre unklar, welche Leuchte den Spot schaltet, und
+                # er verschwände aus beiden Ansichten halb.
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"'{entity.name}' gehört schon zu einer Leuchte",
+                )
+        object_id = group_module.slug(name)
+        rows = hub.data.get("light_groups")
+        if any(row.get("id") == object_id for row in rows):
+            raise HTTPException(
+                status_code=409, detail=f"Eine Leuchte '{name}' gibt es schon"
+            )
+        rows.append(
+            {
+                "id": object_id,
+                "name": name,
+                "members": list(body.members),
+                "kind": "switch" if body.kind == "switch" else "light",
+            }
+        )
+        hub.data.set("light_groups", rows)
+        await service.rebuild()
+        log.warning("%s hat die Leuchte '%s' angelegt", user.name, name)
+        return {"ok": True, "id": f"group.{object_id}"}
+
+    @app.delete("/api/lightgroups/{group_id}")
+    async def delete_light_group(group_id: str, request: Request) -> dict[str, Any]:
+        user = require(request, Capability.EDIT_CONFIG)
+        service = group_service()
+        # Auch "group.decke" akzeptieren - so lässt sich die Kennung aus
+        # der Geräteliste direkt weiterreichen.
+        wanted = group_id.split(".", 1)[-1]
+        rows = [row for row in hub.data.get("light_groups") if row.get("id") != wanted]
+        if len(rows) == len(hub.data.get("light_groups")):
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    "Diese Leuchte kennt der Hub nicht - steht sie in der "
+                    "config.yaml, gehört sie auch dort geändert."
+                ),
+            )
+        hub.data.set("light_groups", rows)
+        await service.rebuild()
+        log.warning("%s hat die Leuchte '%s' aufgelöst", user.name, wanted)
+        return {"ok": True}
 
     # ── Geofence ───────────────────────────────────────────────────────────
 

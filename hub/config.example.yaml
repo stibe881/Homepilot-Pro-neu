@@ -303,6 +303,16 @@ integrations:
 
   # Pit-Boss-Pelletgrill (auch Louisiana Grills). Braucht: pip install pytboss
   # Ausführlich in docs/grill.md.
+  # Mehrere Lampen als eine Leuchte. Eine Deckenlampe mit fünf Spots
+  # soll ein Licht sein, nicht fünf - die Mitglieder verschwinden dann
+  # aus Räumen, Suche und Zählung. Anlegen geht auch in der App unter
+  # Geräte; die Zeile hier genügt dafür.
+  # - integration: group
+  #   groups:
+  #     - id: decke_wohnzimmer
+  #       name: Deckenlampe Wohnzimmer
+  #       members: [hue.spot_1, hue.spot_2, hue.spot_3]
+
   # - integration: pitboss
   #   name: Grill
   #   model: PBV4PS2            # steht auf dem Typenschild

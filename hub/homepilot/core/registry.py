@@ -23,8 +23,13 @@ class EntityRegistry:
         self.room_provider: RoomProvider | None = None
         # Liefert {name?, favorite?, group?} pro Entität (in der App gesetzt).
         self.meta_provider: MetaProvider | None = None
+        # Liefert die Kennung der zusammengefassten Leuchte, in der eine
+        # Entität aufgeht – oder None. Gefüllt von der group-Integration.
+        self.combined_provider: RoomProvider | None = None
 
     def _apply_meta(self, entity: Entity) -> None:
+        if self.combined_provider is not None:
+            entity.combined_into = self.combined_provider(entity.id)
         if self.meta_provider is None:
             return
         meta = self.meta_provider(entity.id) or {}
@@ -52,6 +57,25 @@ class EntityRegistry:
                 entity.state = {**restored, **entity.state}
         self._entities[entity.id] = entity
         await self.bus.publish("entity_added", {"entity": entity.as_dict()})
+
+    async def set_combined(self, entity_id: str, group_id: str | None) -> None:
+        """Diese Entität geht in einer zusammengefassten Leuchte auf – oder
+        nicht mehr. Meldet die Änderung, damit die App sie sofort aus- bzw.
+        wieder einblendet."""
+        entity = self._entities.get(entity_id)
+        if entity is None or entity.combined_into == group_id:
+            return
+        entity.combined_into = group_id
+        await self.bus.publish(
+            "state_changed",
+            {
+                "entity_id": entity_id,
+                "old_state": dict(entity.state),
+                "new_state": dict(entity.state),
+                "entity": entity.as_dict(),
+                "source": current_source(),
+            },
+        )
 
     async def set_room(self, entity_id: str, room: str | None) -> None:
         """Ändert die Raumzuordnung einer Entität und meldet es der App."""

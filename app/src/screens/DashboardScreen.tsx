@@ -50,6 +50,7 @@ import { AlarmScreen } from './AlarmScreen';
 import { EnergyScreen } from './EnergyScreen';
 import { SpeakersScreen } from './SpeakersScreen';
 import { SystemScreen } from './SystemScreen';
+import { LightGroups } from '../components/LightGroups';
 import { UsersScreen } from './UsersScreen';
 
 const ALL_ROOMS = 'Alle';
@@ -358,15 +359,19 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         ? base.filter((entity) => !entity.room)
         : base.filter((entity) => entity.room === room);
 
-  // Ausgeblendete verschwinden aus den Alltagsansichten, bleiben aber unter
-  // „Geräte“ sichtbar – sonst käme man nie wieder an sie heran.
+  // Ausgeblendete und in einer Leuchte aufgegangene Spots verschwinden
+  // aus den Alltagsansichten, bleiben aber unter „Geräte“ sichtbar –
+  // sonst käme man nie wieder an sie heran, und beim Ausrichten nach dem
+  // Einbau braucht man den einzelnen Spot.
   const shown =
     (section === 'home' ||
       section === 'light' ||
       section === 'covers' ||
       section === 'cameras') &&
     !editing
-      ? inRoom.filter((entity) => !hidden.includes(entity.id))
+      ? inRoom.filter(
+          (entity) => !hidden.includes(entity.id) && !entity.combined_into
+        )
       : inRoom;
 
   // Favoriten zuerst, dann was gerade läuft, dann der Rest.
@@ -946,6 +951,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               entities={entities}
               groups={groupNames}
               onCommand={sendCommand}
+            />
+          ) : null}
+
+          {section === 'devices' && !editing && !searching ? (
+            <LightGroups
+              settings={settings}
+              headers={{ Authorization: `Bearer ${settings.token}` }}
+              entities={entities}
             />
           ) : null}
 

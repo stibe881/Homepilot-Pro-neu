@@ -46,6 +46,9 @@ EMPTY: dict[str, Any] = {
     # Anmelde-Adressen je Benutzer: [{name, email}]. Getrennt von den
     # Benutzern, damit auch die aus der config.yaml eine bekommen können.
     "emails": [],
+    # In der App zusammengefasste Leuchten: [{id, name, members, kind}].
+    # Eine Deckenlampe mit fünf Spots ist ein Licht, nicht fünf.
+    "light_groups": [],
 }
 
 

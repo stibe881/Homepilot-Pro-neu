@@ -10,6 +10,12 @@ export interface Entity {
   room?: string | null;
   /** In der App als Favorit markiert – erscheint auf der Startseite. */
   favorite?: boolean;
+  /** Kennung der Leuchte, in der dieses Licht aufgeht.
+   *
+   *  Eine Deckenlampe mit fünf Spots ist ein Licht, nicht fünf: Wer das
+   *  gesetzt hat, verschwindet aus Räumen, Suche und Zählung und ist nur
+   *  noch unter Geräte zu finden. */
+  combined_into?: string | null;
   /** Frei wählbare Gruppe (z.B. «Storen Süd») zum gemeinsamen Schalten. */
   group?: string | null;
   /** Epoch-Sekunden, wann das Gerät zuletzt erreichbar war. */

@@ -79,7 +79,10 @@ export function TopStrip({
     (entity) =>
       (entity.kind === 'light' || entity.kind === 'switch') &&
       entity.state.state === 'on' &&
-      !hidden.includes(entity.id)
+      !hidden.includes(entity.id) &&
+      // Sonst zählte eine Deckenlampe mit fünf Spots sechsmal: einmal als
+      // Leuchte und fünfmal einzeln.
+      !entity.combined_into
   );
   const lightsOn = litEntities.length;
   const vacuum = entities.find(
