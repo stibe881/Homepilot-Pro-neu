@@ -240,6 +240,9 @@ class LightGroupRequest(BaseModel):
     members: list[str]
     # light (Standard) oder switch.
     kind: str = "light"
+    # Sollen die Einzelnen aus Räumen, Suche und Zählung verschwinden?
+    # Standard ja - das ist der Fall, für den es die Zusammenfassung gibt.
+    hide_members: bool = True
 
 
 class PrefsRequest(BaseModel):
@@ -2118,6 +2121,7 @@ def create_app(hub: Hub) -> FastAPI:
                 "name": name,
                 "members": list(body.members),
                 "kind": "switch" if body.kind == "switch" else "light",
+                "hide_members": bool(body.hide_members),
             }
         )
         hub.data.set("light_groups", rows)

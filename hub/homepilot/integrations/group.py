@@ -5,11 +5,15 @@ die Bridge meldet fünf Lichter. Bedienen will man sie aber als eines –
 niemand schaltet Spot 3 allein ein.
 
 Deshalb entsteht hier eine Entität, die alle Mitglieder gemeinsam
-schaltet, dimmt und färbt. Die Mitglieder verschwinden dabei aus Räumen,
-Suche und Zählung («wieviele Lichter sind an») – sonst wäre nichts
-gewonnen, es stünde nur eine Kachel mehr da und die Zählung wäre doppelt.
-Unter Geräte bleiben sie sichtbar und einzeln bedienbar; beim Ausrichten
-nach dem Einbau braucht man genau das.
+schaltet, dimmt und färbt. Auf Wunsch verschwinden die Mitglieder dabei aus Räumen,
+Suche und Zählung («wieviele Lichter sind an») – bei einer Deckenlampe
+mit fünf Spots ist das der eigentliche Gewinn, sonst stünde nur eine
+Kachel mehr da und die Zählung wäre doppelt. Wer die Einzelnen behalten
+will (zwei Stehlampen, die man meist gemeinsam, manchmal aber einzeln
+schaltet), setzt ``hide_members: false``.
+
+Unter Geräte bleiben sie in jedem Fall sichtbar und einzeln bedienbar;
+beim Ausrichten nach dem Einbau braucht man genau das.
 
 Nicht zu verwechseln mit der Anzeige-Kategorie (``group`` an einer
 Entität): Die sortiert nur Kacheln innerhalb eines Raums und fasst
@@ -128,6 +132,8 @@ class GroupIntegration(Integration):
         self._members: dict[str, list[str]] = {}
         self._groups_of: dict[str, list[str]] = {}
         self._is_light: dict[str, bool] = {}
+        # Leuchten, deren Mitglieder aus den Alltagsansichten verschwinden.
+        self._hides: set[str] = set()
 
         # Der Registry sagen, wo sie die Zugehörigkeit erfragen kann –
         # damit auch Entitäten, die erst später auftauchen (eine Bridge
@@ -146,8 +152,13 @@ class GroupIntegration(Integration):
         return [dict(item) for item in self.hub.data.get("light_groups")]
 
     def _combined_of(self, entity_id: str) -> str | None:
-        groups = self._groups_of.get(entity_id)
-        return groups[0] if groups else None
+        """Zu welcher Leuchte gehört diese Entität – und soll sie deswegen
+        verschwinden? Nur dann steht hier etwas: ``combined_into`` ist für
+        die App das Zeichen zum Ausblenden, nicht bloss eine Notiz."""
+        for group_id in self._groups_of.get(entity_id, []):
+            if group_id in self._hides:
+                return group_id
+        return None
 
     async def _build(self, definitions: list[dict[str, Any]]) -> None:
         """Leuchten anlegen und Mitglieder markieren."""
@@ -157,6 +168,9 @@ class GroupIntegration(Integration):
             if not object_id or not members:
                 continue
             is_light = str(item.get("kind", "light")) == "light"
+            # Standard: ausblenden. Das ist der Fall, für den es die
+            # Zusammenfassung gibt; das Gegenteil ist die Ausnahme.
+            hides = bool(item.get("hide_members", True))
             resolved = [self.hub.registry.get(m) for m in members]
             entity = await self.add_entity(
                 object_id,
@@ -167,9 +181,11 @@ class GroupIntegration(Integration):
             )
             self._members[entity.id] = members
             self._is_light[entity.id] = is_light
+            if hides:
+                self._hides.add(entity.id)
             for member in members:
                 self._groups_of.setdefault(member, []).append(entity.id)
-                await self.hub.registry.set_combined(member, entity.id)
+                await self.hub.registry.set_combined(member, self._combined_of(member))
 
     async def rebuild(self) -> None:
         """Nach einer Änderung in der App: alles neu aufbauen.
@@ -185,6 +201,7 @@ class GroupIntegration(Integration):
         self._members.clear()
         self._groups_of.clear()
         self._is_light.clear()
+        self._hides.clear()
         await self._build(self._configured() + self._stored())
 
     def _on_change(self, _event: str, data: dict[str, Any]) -> None:
@@ -199,7 +216,7 @@ class GroupIntegration(Integration):
             self.start_task(self._adopt(entity_id, group_id))
 
     async def _adopt(self, entity_id: str, group_id: str) -> None:
-        await self.hub.registry.set_combined(entity_id, group_id)
+        await self.hub.registry.set_combined(entity_id, self._combined_of(entity_id))
         await self._recompute(group_id)
 
     async def _recompute(self, group_id: str) -> None:

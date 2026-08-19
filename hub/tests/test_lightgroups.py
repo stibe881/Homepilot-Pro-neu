@@ -165,3 +165,38 @@ def test_dissolving_a_lamp_gives_the_spots_back():
         assert "group.decke" not in entities
         for member in ("demo.light_livingroom", "demo.light_bedroom"):
             assert entities[member]["combined_into"] is None
+
+
+def test_members_can_stay_visible_if_wanted():
+    """Zwei Stehlampen, die man meist gemeinsam und manchmal einzeln
+    schaltet: Dort ist das Ausblenden falsch. Bei der Deckenlampe mit
+    fünf Spots ist es der ganze Sinn - deshalb ist es die Vorgabe."""
+    hub = _hub()
+    with TestClient(create_app(hub)) as client:
+        headers = {"Authorization": "Bearer t-stefan"}
+        client.post(
+            "/api/lightgroups",
+            json={
+                "name": "Stehlampen",
+                "members": ["demo.light_livingroom", "demo.light_bedroom"],
+                "hide_members": False,
+            },
+            headers=headers,
+        )
+        entities = {e["id"]: e for e in client.get("/api/entities", headers=headers).json()}
+        assert "group.stehlampen" in entities
+        # Sichtbar geblieben - und trotzdem Mitglied.
+        for member in ("demo.light_livingroom", "demo.light_bedroom"):
+            assert entities[member]["combined_into"] is None
+
+        # Geschaltet werden sie trotzdem gemeinsam.
+        client.post(
+            "/api/entities/group.stehlampen/command",
+            json={"command": "turn_on"},
+            headers=headers,
+        )
+        for member in ("demo.light_livingroom", "demo.light_bedroom"):
+            assert (
+                client.get(f"/api/entities/{member}", headers=headers).json()["state"]["state"]
+                == "on"
+            )

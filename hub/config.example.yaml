@@ -312,6 +312,11 @@ integrations:
   #     - id: decke_wohnzimmer
   #       name: Deckenlampe Wohnzimmer
   #       members: [hue.spot_1, hue.spot_2, hue.spot_3]
+  #       # Sollen die Einzelnen aus Räumen, Suche und Zählung
+  #       # verschwinden? Standard ja - das ist der Sinn bei einer
+  #       # Deckenlampe. Bei zwei Stehlampen, die man meist gemeinsam
+  #       # und manchmal einzeln schaltet, lieber false.
+  #       hide_members: true
 
   # - integration: pitboss
   #   name: Grill

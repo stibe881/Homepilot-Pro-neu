@@ -26,6 +26,7 @@ interface LightGroup {
   name: string;
   members: string[];
   kind?: string;
+  hide_members?: boolean;
 }
 
 export function LightGroups({
@@ -43,6 +44,10 @@ export function LightGroups({
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [picked, setPicked] = useState<string[]>([]);
+  // Vorgabe: ausblenden. Das ist der Fall, für den es die Zusammenfassung
+  // gibt - fünf Spots als ein Licht. Wer zwei Stehlampen meist gemeinsam
+  // und manchmal einzeln schaltet, nimmt den Haken weg.
+  const [hideMembers, setHideMembers] = useState(true);
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -81,12 +86,17 @@ export function LightGroups({
       const response = await fetch(`${settings.url}/api/lightgroups`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), members: picked }),
+        body: JSON.stringify({
+          name: name.trim(),
+          members: picked,
+          hide_members: hideMembers,
+        }),
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.detail ?? 'Fehlgeschlagen');
       setName('');
       setPicked([]);
+      setHideMembers(true);
       setOpen(false);
       setNote(`«${name.trim()}» angelegt.`);
       await load();
@@ -130,6 +140,7 @@ export function LightGroups({
             <Text style={styles.rowTitle}>{group.name}</Text>
             <Text style={styles.rowDetail} numberOfLines={2}>
               {group.members.map(nameOf).join(' · ')}
+              {group.hide_members === false ? ' · einzeln sichtbar' : ''}
             </Text>
           </View>
           <Pressable
@@ -182,6 +193,27 @@ export function LightGroups({
               );
             })}
           </View>
+          <Pressable
+            onPress={() => setHideMembers((prev) => !prev)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: hideMembers }}
+            style={({ pressed }) => [styles.check, pressed && { opacity: 0.7 }]}
+          >
+            <Ionicons
+              name={hideMembers ? 'checkbox' : 'square-outline'}
+              size={20}
+              color={hideMembers ? colors.accent : colors.inkSoft}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.checkTitle}>Einzelne Lampen ausblenden</Text>
+              <Text style={styles.checkHint}>
+                {hideMembers
+                  ? 'Sie verschwinden aus Räumen, Suche und der Zählung oben – hier unter Geräte bleiben sie einzeln bedienbar.'
+                  : 'Sie bleiben überall sichtbar und lassen sich weiterhin einzeln schalten. Die Zählung oben zählt sie dann mit.'}
+              </Text>
+            </View>
+          </Pressable>
+
           <View style={styles.buttons}>
             <Pressable
               onPress={() => {
@@ -256,6 +288,15 @@ const makeStyles = (colors: Colors) =>
     chipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
     chipText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
     chipTextActive: { color: '#FFFFFF' },
+    check: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 10,
+      marginTop: 8,
+      paddingVertical: 4,
+    },
+    checkTitle: { color: colors.ink, fontSize: 14, fontWeight: '600' },
+    checkHint: { color: colors.inkFaint, fontSize: 12, lineHeight: 17, marginTop: 2 },
     buttons: { flexDirection: 'row', gap: 8, marginTop: 4 },
     primary: {
       flex: 1,
