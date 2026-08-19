@@ -86,9 +86,17 @@ _status = {
     "state": "idle",
     "stage": None,
     "message": None,
+    # Die Zeilen nach einer Fehlermeldung: rebuild-hub.sh schreibt dort
+    # die Ursache und was zu tun ist. Ohne dieses Feld landete davon
+    # nichts in der App - man sah nur, DASS es schiefging.
+    "detail": None,
     "started_at": None,
     "updated_at": None,
 }
+
+# So viele Folgezeilen einer Fehlermeldung werden mitgenommen. Genug für
+# die Ursache samt Abhilfe, zu wenig, um eine Bauausgabe durchzureichen.
+DETAIL_LINES = 12
 
 
 def _set_status(**fields) -> None:
@@ -101,7 +109,7 @@ def _handle_line(line: str) -> None:
     """Eine Ausgabezeile des Bau-Skripts einordnen (nicht rein – schreibt
     in den geteilten Status, aber ohne Seiteneffekte sonst)."""
     if line.startswith("✗"):
-        _set_status(state="error", message=line.lstrip("✗").strip())
+        _set_status(state="error", message=line.lstrip("✗").strip(), detail=None)
         return
     if line.startswith("✓") and "frischen Abbild" in line:
         _set_status(state="ok", stage="done", message=line.lstrip("✓").strip())
@@ -110,12 +118,22 @@ def _handle_line(line: str) -> None:
         if marker in line:
             _set_status(stage=stage, message=line.lstrip("→").strip())
             return
-    # Kein erkanntes Stichwort – trotzdem als letzte Zeile zeigen, damit
-    # sichtbar bleibt, dass sich etwas tut (z.B. während docker build).
     with _status_lock:
         if _status["state"] == "running":
+            # Kein erkanntes Stichwort – trotzdem als letzte Zeile zeigen,
+            # damit sichtbar bleibt, dass sich etwas tut (docker build).
             _status["message"] = line
             _status["updated_at"] = time.time()
+        elif _status["state"] == "error":
+            # Nach einem ✗ folgen die Zeilen, die erklären, woran es lag
+            # und was zu tun ist. Die gehören zur Meldung, nicht in den
+            # Papierkorb – genau sie fehlten bisher in der App, und ohne
+            # sie sieht man nur, dass etwas schiefging.
+            gathered = (_status["detail"] or "").splitlines()
+            if len(gathered) < DETAIL_LINES:
+                gathered.append(line.strip())
+                _status["detail"] = "\n".join(gathered)
+                _status["updated_at"] = time.time()
 
 
 def build() -> None:

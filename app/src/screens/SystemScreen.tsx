@@ -773,6 +773,8 @@ interface UpdateStatus {
   state?: 'idle' | 'running' | 'ok' | 'error';
   stage?: string | null;
   message?: string | null;
+  /** Ursache und Abhilfe, mehrzeilig – nur im Fehlerfall gesetzt. */
+  detail?: string | null;
 }
 
 const STAGE_LABEL: Record<string, string> = {
@@ -882,7 +884,14 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
           setBusy(false);
           if (data.state === 'error') {
             setNoteError(true);
-            setNote(data.message || 'Bau fehlgeschlagen – Details im Log auf dem Host.');
+            // Die Ursache steht in den Zeilen nach der Fehlermeldung.
+            // Sie hier wegzulassen hiesse: «ging schief», Punkt – und
+            // die Suche beginnt per SSH auf dem Host von vorne.
+            setNote(
+              [data.message || 'Bau fehlgeschlagen.', data.detail]
+                .filter(Boolean)
+                .join('\n')
+            );
           } else if (data.state === 'ok') {
             setNoteError(false);
             setNote('Fertig – der Hub läuft mit dem frischen Stand.');
@@ -957,7 +966,12 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
         </Text>
       ) : null}
       {note ? (
-        <Text style={[styles.rowDetail, noteError && { color: colors.danger }]}>{note}</Text>
+        <Text
+          style={[styles.noteText, noteError && { color: colors.danger }]}
+          selectable
+        >
+          {note}
+        </Text>
       ) : null}
     </>
   );
@@ -1306,6 +1320,9 @@ const makeStyles = (colors: Colors) =>
   // Zwei Zeilen statt einer langen: Der Zeitstempel bricht sonst mitten
   // im Datum um und liest sich wie ein Fehler.
   buildText: { gap: 2 },
+  // Mehrzeilig und markierbar: Im Fehlerfall steht hier die Ursache samt
+  // Abhilfe – oft ein Befehl, den man kopieren will.
+  noteText: { color: colors.inkSoft, fontSize: 13, lineHeight: 19 },
   updateButton: {
     flexDirection: 'row',
     alignItems: 'center',
