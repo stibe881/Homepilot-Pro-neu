@@ -1066,3 +1066,38 @@ def test_apple_rejections_say_what_to_do():
     assert "deinstalliert" in explain("DeviceNotRegistered", apple)
     # Und was wir nicht kennen, bleibt unverändert stehen.
     assert explain("", "etwas ganz anderes") == "etwas ganz anderes"
+
+
+def test_push_devices_survive_a_restart():
+    """Bisher lagen die Anmeldungen nur im Speicher: Nach jedem Update war
+    niemand mehr erreichbar, bis alle ihre App wieder geöffnet hatten -
+    und ausgerechnet dann will man Nachrichten am wenigsten missen."""
+    from homepilot.core.push import PushService
+
+    gespeichert: list[list[dict]] = []
+    service = PushService()
+    service.on_change = gespeichert.append
+
+    service.register("ExponentPushToken[abc]", "Stefan", "iPhone")
+    service.register("ExponentPushToken[def]", "Livia", "iPhone Livia")
+    assert len(gespeichert[-1]) == 2
+
+    # Nach dem Neustart: neuer Dienst, gespeicherte Zeilen zurück.
+    danach = PushService()
+    danach.restore(gespeichert[-1])
+    assert {d.token for d in danach.devices} == {
+        "ExponentPushToken[abc]",
+        "ExponentPushToken[def]",
+    }
+    assert danach.devices[0].user in ("Stefan", "Livia")
+
+    # Was kein Expo-Token ist, kommt gar nicht erst zurück - sonst
+    # schleppte eine einmal kaputte Datei den Fehler ewig mit.
+    frisch = PushService()
+    frisch.restore([{"token": "unsinn", "user": "X"}, {"user": "ohne Token"}])
+    assert frisch.devices == []
+
+    # Abmelden wird ebenfalls gesichert, sonst käme das Gerät nach dem
+    # nächsten Start wieder.
+    service.unregister("ExponentPushToken[abc]")
+    assert len(gespeichert[-1]) == 1

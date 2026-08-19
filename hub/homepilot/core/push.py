@@ -233,6 +233,10 @@ class PushService:
 
     def __init__(self, session_factory=None) -> None:
         self._devices: dict[str, PushDevice] = {}
+        # Wird vom Hub gesetzt: Ruf mich, wenn sich die Geräteliste
+        # ändert. Bewusst ein Rückruf und kein DataStore hier - der
+        # Push-Dienst soll nichts über die Ablage wissen müssen.
+        self.on_change: Any = None
         self.muted = {}
         self._session_factory = session_factory or (
             lambda: aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15))
@@ -242,15 +246,40 @@ class PushService:
     def devices(self) -> list[PushDevice]:
         return list(self._devices.values())
 
+    def restore(self, rows: list[dict[str, Any]]) -> None:
+        """Gespeicherte Anmeldungen zurückholen (beim Start).
+
+        Ein Token, das inzwischen tot ist, merkt der erste Sendeversuch -
+        Expo meldet DeviceNotRegistered, und der Eintrag fliegt dann von
+        selbst raus. Beim Laden zu prüfen wäre eine Netzanfrage im
+        Startpfad und brächte nichts.
+        """
+        for row in rows:
+            token = str(row.get("token") or "")
+            if is_expo_token(token):
+                self._devices[token] = PushDevice(
+                    token=token,
+                    user=str(row.get("user") or ""),
+                    label=str(row.get("label") or ""),
+                )
+
+    def _changed(self) -> None:
+        if self.on_change is not None:
+            self.on_change([device.as_dict() for device in self.devices])
+
     def register(self, token: str, user: str, label: str = "") -> PushDevice:
         device = PushDevice(token=token, user=user, label=label)
         # Nach Token abgelegt: Meldet sich dasselbe Gerät erneut an, wird der
         # Eintrag ersetzt statt verdoppelt.
         self._devices[token] = device
+        self._changed()
         return device
 
     def unregister(self, token: str) -> bool:
-        return self._devices.pop(token, None) is not None
+        gone = self._devices.pop(token, None) is not None
+        if gone:
+            self._changed()
+        return gone
 
     def recipients(
         self, users: list[Any], to: str = "all", category: str | None = None

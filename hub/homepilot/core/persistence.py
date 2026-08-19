@@ -46,6 +46,11 @@ EMPTY: dict[str, Any] = {
     # Anmelde-Adressen je Benutzer: [{name, email}]. Getrennt von den
     # Benutzern, damit auch die aus der config.yaml eine bekommen können.
     "emails": [],
+    # Angemeldete Telefone für Push: [{token, user, label}]. Ohne das
+    # wäre nach jedem Neustart des Hubs niemand mehr erreichbar, bis alle
+    # ihre App wieder geöffnet haben - und genau dann, nach einem Update,
+    # will man Nachrichten am wenigsten missen.
+    "push_devices": [],
     # In der App zusammengefasste Leuchten: [{id, name, members, kind}].
     # Eine Deckenlampe mit fünf Spots ist ein Licht, nicht fünf.
     "light_groups": [],

@@ -124,6 +124,12 @@ class Hub:
                 "Nur im eigenen Netz vertretbar."
             )
         self.push.muted = push_service.parse_muted(self.data.get("push_prefs"))
+        # Angemeldete Telefone zurückholen und künftige Änderungen sichern.
+        # Ohne das wäre nach jedem Neustart niemand erreichbar, bis alle
+        # ihre App wieder geöffnet haben - und ausgerechnet nach einem
+        # Update will man Nachrichten am wenigsten missen.
+        self.push.restore(self.data.get("push_devices"))
+        self.push.on_change = lambda rows: self.data.set("push_devices", rows)
         for problem in self._config_problems():
             log.warning("Konfiguration: %s", problem)
         log.info(
