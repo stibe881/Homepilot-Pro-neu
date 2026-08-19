@@ -266,6 +266,25 @@ def create_app(hub: Hub) -> FastAPI:
             return header.removeprefix("Bearer ").strip()
         return request.query_params.get("token")
 
+    def user_for_token(token: str | None) -> User | None:
+        """Wer gehört zu diesem Token? – für HTTP und WebSocket dieselbe Antwort.
+
+        Zwei Arten von Token führen zum selben Benutzer: das feste aus der
+        Konfiguration (QR-Code, Kurzbefehle, NFC) und die Sitzung aus der
+        Anmeldung mit E-Mail und Passwort. Bewusst an einer Stelle: Stünde
+        die Auflösung zweimal im Code, hinge irgendwann eine der beiden
+        zurück – und dann kommt man zwar durch die Anmeldung, aber der
+        Zustandskanal bleibt zu.
+        """
+        user = hub.users.by_token(token)
+        if user is not None:
+            return user
+        name = hub.sessions.user_for(token or "")
+        if not name:
+            return None
+        user = hub.users.by_name(name)
+        return user if user is not None and user.active() else None
+
     def current_user(request: Request) -> User:
         # Sobald der Hub von aussen erreichbar ist, klopfen Scanner an.
         # Die Bremse zählt nur Fehlversuche – wer ein gültiges Token hat,
@@ -278,16 +297,7 @@ def create_app(hub: Hub) -> FastAPI:
                 detail=f"Zu viele Fehlversuche. In {round(waiting)} Sekunden wieder.",
                 headers={"Retry-After": str(round(waiting))},
             )
-        token = token_from(request)
-        user = hub.users.by_token(token)
-        if user is None:
-            # Kein festes Token – vielleicht eine Sitzung aus der Anmeldung
-            # mit E-Mail und Passwort.
-            name = hub.sessions.user_for(token or "")
-            if name:
-                user = hub.users.by_name(name)
-                if user is not None and not user.active():
-                    user = None
+        user = user_for_token(token_from(request))
         if user is None:
             if throttle.failed(address):
                 log.warning(
@@ -2147,7 +2157,7 @@ def create_app(hub: Hub) -> FastAPI:
         token = (
             websocket.query_params.get("token") or header.removeprefix("Bearer ").strip()
         )
-        user = hub.users.by_token(token)
+        user = user_for_token(token)
         if user is None:
             await websocket.close(code=4401)
             return

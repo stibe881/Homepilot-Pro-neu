@@ -5,7 +5,9 @@ laufen und trotzdem prüfen, was der Hub daraus macht – wer hereindarf, wer
 nicht, und was von einer Anmeldung übrig bleibt.
 """
 
+import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from homepilot.api import create_app
 from homepilot.core import supabase_auth
@@ -317,3 +319,33 @@ def test_sessions_expire_and_are_capped():
 
     many = [{"user": "a", "seen": now - index, "hash": str(index)} for index in range(20)]
     assert len(prune(many, now)) == PER_USER
+
+
+def test_the_session_also_opens_the_websocket(monkeypatch):
+    """Sonst kommt man durch die Anmeldung und die App bleibt «getrennt».
+
+    Der Zustandskanal ist die eigentliche Verbindung – wer sich anmeldet,
+    aber keinen Snapshot bekommt, sieht eine tote App.
+    """
+    hub, _ = make_auth_hub(monkeypatch)
+    with TestClient(create_app(hub)) as client:
+        client.put(
+            "/api/users/Stefan/email",
+            json={"email": "stefan@example.ch"},
+            headers={"Authorization": "Bearer geheim"},
+        )
+        token = client.post(
+            "/api/auth/login",
+            json={"email": "stefan@example.ch", "password": "richtig"},
+        ).json()["token"]
+
+        with client.websocket_connect(f"/ws?token={token}") as socket:
+            first = socket.receive_json()
+        assert first["type"] == "snapshot"
+        assert first["user"]["name"] == "Stefan"
+
+        # Eine beendete Sitzung kommt auch nicht mehr durch.
+        client.post("/api/auth/logout", headers={"Authorization": f"Bearer {token}"})
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect(f"/ws?token={token}") as socket:
+                socket.receive_json()
