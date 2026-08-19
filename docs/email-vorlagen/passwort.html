@@ -1,0 +1,37 @@
+<!-- Supabase: Authentication → Emails → Templates → "Reset password"
+     Betreff: Neues Passwort für HomePilot -->
+<div style="margin:0;padding:24px 12px;background:#F3F4F6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <div style="max-width:480px;margin:0 auto;background:#FFFFFF;border-radius:14px;padding:32px 28px;">
+
+    <div style="font-size:13px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:#3B82F6;">
+      HomePilot
+    </div>
+
+    <h1 style="margin:14px 0 0;font-size:22px;line-height:30px;color:#111827;font-weight:700;">
+      Neues Passwort festlegen
+    </h1>
+
+    <p style="margin:16px 0 0;font-size:15px;line-height:23px;color:#4B5563;">
+      Für <strong style="color:#374151;">{{ .Email }}</strong> wurde ein
+      neues Passwort angefordert.
+    </p>
+
+    <div style="margin:26px 0 0;">
+      <a href="{{ .ConfirmationURL }}"
+         style="display:inline-block;padding:14px 26px;background:#3B82F6;color:#FFFFFF;font-size:16px;font-weight:700;text-decoration:none;border-radius:10px;">
+        Passwort ändern
+      </a>
+    </div>
+
+    <hr style="border:0;border-top:1px solid #E5E7EB;margin:26px 0 0;">
+
+    <p style="margin:18px 0 0;font-size:12px;line-height:19px;color:#9CA3AF;">
+      Der Link gilt nur einmal und läuft nach 24 Stunden ab.
+    </p>
+    <p style="margin:10px 0 0;font-size:12px;line-height:19px;color:#9CA3AF;">
+      Warst du das nicht? Dann tu nichts – dein bisheriges Passwort bleibt
+      gültig, solange dieser Link nicht benutzt wird.
+    </p>
+
+  </div>
+</div>

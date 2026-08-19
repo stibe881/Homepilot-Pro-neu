@@ -60,6 +60,27 @@ Unter *Authentication → URL Configuration* bei *Redirect URLs* die Adresse
 `https://homepilot.familie-gross.ch/einladung` freigeben – sonst weist
 Supabase den Link aus der E-Mail ab.
 
+**3b. Die E-Mails.** Supabases Standardtext («You've been invited to
+create an account») nennt HomePilot mit keinem Wort – wer ihn bekommt,
+hält ihn zurecht für Werbung oder Betrug. Unter *Authentication → Emails
+→ Templates* die beiden Vorlagen ersetzen:
+
+| Vorlage | Betreff | Datei |
+|---|---|---|
+| Invite user | Dein Zugang zu HomePilot | [`email-vorlagen/einladung.html`](email-vorlagen/einladung.html) |
+| Reset password | Neues Passwort für HomePilot | [`email-vorlagen/passwort.html`](email-vorlagen/passwort.html) |
+
+Beide kommen ohne Bilder und ohne nachgeladene Schriften aus: Postfächer
+blockieren beides, und eine Einladung, von der nur ein graues Kästchen
+ankommt, wirkt erst recht unseriös.
+
+Der **Absender** lässt sich damit nicht ändern – ohne eigenen SMTP-Server
+verschickt Supabase alles als `noreply@mail.app.supabase.io`. Wer
+«HomePilot &lt;post@familie-gross.ch&gt;» im Postfach stehen haben will,
+hinterlegt unter *Project Settings → Authentication → SMTP Settings*
+einen eigenen Mailserver. Der eingebaute Versand ist ausserdem auf wenige
+Nachrichten pro Stunde begrenzt – für vier Einladungen reicht er.
+
 **4. Hub neu starten.** Danach zeigt die App beim ersten Start die
 Anmeldemaske statt der Token-Eingabe.
 

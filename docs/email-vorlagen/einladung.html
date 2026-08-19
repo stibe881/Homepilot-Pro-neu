@@ -1,0 +1,50 @@
+<!-- Supabase: Authentication → Emails → Templates → "Invite user"
+     Betreff: Dein Zugang zu HomePilot
+
+     Bewusst ohne Bilder und ohne nachgeladene Schriften: Die meisten
+     Postfächer blockieren beides, und eine Einladung, bei der nur ein
+     graues Kästchen ankommt, wirkt wie Betrug. Alles steht inline –
+     Gmail und Outlook werfen <style>-Blöcke im Kopf weg. -->
+<div style="margin:0;padding:24px 12px;background:#F3F4F6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <div style="max-width:480px;margin:0 auto;background:#FFFFFF;border-radius:14px;padding:32px 28px;">
+
+    <div style="font-size:13px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:#3B82F6;">
+      HomePilot
+    </div>
+
+    <h1 style="margin:14px 0 0;font-size:22px;line-height:30px;color:#111827;font-weight:700;">
+      Du hast Zugang zu unserem Zuhause bekommen
+    </h1>
+
+    <p style="margin:16px 0 0;font-size:15px;line-height:23px;color:#4B5563;">
+      Mit HomePilot steuert unsere Familie Licht, Storen, Türen und alles
+      Übrige im Haus. Für dich ist ein Zugang eingerichtet worden – es
+      fehlt nur noch dein Passwort.
+    </p>
+
+    <div style="margin:26px 0 0;">
+      <a href="{{ .ConfirmationURL }}"
+         style="display:inline-block;padding:14px 26px;background:#3B82F6;color:#FFFFFF;font-size:16px;font-weight:700;text-decoration:none;border-radius:10px;">
+        Passwort festlegen
+      </a>
+    </div>
+
+    <p style="margin:22px 0 0;font-size:13px;line-height:20px;color:#6B7280;">
+      Danach meldest du dich in der HomePilot-App mit
+      <strong style="color:#374151;">{{ .Email }}</strong> und deinem
+      Passwort an.
+    </p>
+
+    <hr style="border:0;border-top:1px solid #E5E7EB;margin:26px 0 0;">
+
+    <p style="margin:18px 0 0;font-size:12px;line-height:19px;color:#9CA3AF;">
+      Der Link gilt nur einmal und läuft nach 24 Stunden ab. Ist er
+      abgelaufen, bitte um eine neue Einladung.
+    </p>
+    <p style="margin:10px 0 0;font-size:12px;line-height:19px;color:#9CA3AF;">
+      Du erwartest keine solche Einladung? Dann tu nichts – ohne diesen
+      Link entsteht kein Zugang.
+    </p>
+
+  </div>
+</div>
