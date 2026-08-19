@@ -1047,3 +1047,22 @@ def test_nuki_errors_become_readable_sentences():
     assert action_error(400, leer).endswith("(HTTP 400).")
     # Auch wenn gar kein JSON kommt.
     assert "kein json" in action_error(418, "kein json")
+
+
+def test_apple_rejections_say_what_to_do():
+    """Apple lehnt mit «TopicDisallowed» ab und Expo reicht den Text durch.
+    Lesbar ist er, hilfreich nicht - er sagt nicht, was zu tun wäre."""
+    from homepilot.core.push import explain
+
+    apple = (
+        "The Apple Push Notification service failed to send the notification "
+        "(reason: TopicDisallowed, status code: 400)."
+    )
+    hilfe = explain("", apple)
+    assert "anderen App-Kennung" in hilfe
+    assert "Push-Geräte" in hilfe
+
+    # Expos eigene Codes gehen vor - sie sind genauer.
+    assert "deinstalliert" in explain("DeviceNotRegistered", apple)
+    # Und was wir nicht kennen, bleibt unverändert stehen.
+    assert explain("", "etwas ganz anderes") == "etwas ganz anderes"

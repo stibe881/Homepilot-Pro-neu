@@ -82,6 +82,34 @@ ERROR_HINTS = {
     "MessageRateExceeded": "Zu viele Nachrichten in kurzer Zeit – später erneut.",
 }
 
+# Was Apple selbst ablehnt, reicht Expo im Klartext durch, ohne eigenen
+# Code. Die Rohtexte sind zwar lesbar, sagen aber nicht, was zu tun ist.
+APNS_HINTS = {
+    "TopicDisallowed": (
+        "Apple lehnt die Nachricht ab: Der Push-Token gehört zu einer "
+        "anderen App-Kennung, als das hinterlegte Zertifikat abdeckt. "
+        "Meist ein alter Token – noch von Expo Go oder einem früheren "
+        "Build. Unter System → Push-Geräte die alten Einträge entfernen "
+        "und die App einmal öffnen; sie meldet sich neu an. Bleibt es "
+        "dabei, fehlt der App-Kennung im Apple-Konto die Berechtigung "
+        "«Push Notifications» (Developer-Portal → Identifiers)."
+    ),
+    "BadDeviceToken": (
+        "Apple kennt diesen Token nicht (mehr) – oder er stammt aus einem "
+        "Build für die Entwicklungsumgebung, während produktiv gesendet "
+        "wird. Gerät unter System → Push-Geräte entfernen und die App "
+        "einmal öffnen."
+    ),
+    "DeviceTokenNotForTopic": (
+        "Der Token gehört zu einer anderen App. Unter System → "
+        "Push-Geräte entfernen und neu anmelden lassen."
+    ),
+    "ExpiredProviderToken": (
+        "Expos Zugangsdaten für Apple sind abgelaufen. Einmal "
+        "«npx eas-cli credentials -p ios» und den Push-Schlüssel erneuern."
+    ),
+}
+
 
 def is_expo_token(token: str) -> bool:
     return token.startswith("ExponentPushToken[") or token.startswith("ExpoPushToken[")
@@ -109,10 +137,20 @@ class PushResult:
 
 
 def explain(code: str, message: str) -> str:
-    """Aus einem Expo-Fehlercode einen brauchbaren Satz machen (rein)."""
+    """Aus einem Expo-Fehlercode einen brauchbaren Satz machen (rein).
+
+    Zwei Quellen: Expos eigene Codes und das, was Apple ablehnt. Letzteres
+    kommt ohne Code, nur als Text – deshalb wird darin nach dem Grund
+    gesucht, statt ihn wörtlich durchzureichen. «TopicDisallowed» sagt
+    einem niemandem etwas; «der Token gehört zu einer anderen App-Kennung»
+    schon.
+    """
     hint = ERROR_HINTS.get(code)
     if hint:
         return hint
+    for reason, text in APNS_HINTS.items():
+        if reason in message or reason == code:
+            return text
     return message or code or "Unbekannter Fehler des Push-Dienstes"
 
 
