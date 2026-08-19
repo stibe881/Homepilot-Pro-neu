@@ -147,8 +147,8 @@ Durchprobieren und gegen Dauerbeschuss, der den Hub sonst beschäftigt hält.
 In Safari die Adresse öffnen, teilen → **«Zum Home-Bildschirm»**. Danach
 läuft HomePilot ohne Browser-Leisten, wie eine installierte App.
 
-Damit das auch aussieht wie eine App, richtet sich die Web-Fassung beim
-Start selbst ein (`app/src/lib/webframe.web.ts`):
+Damit das auch aussieht wie eine App, ergänzt der Web-Bau die
+`index.html` um ein paar Angaben (`app/scripts/patch-web-html.mjs`):
 
 - **Die Seite scrollt nicht, nur der Inhalt.** Ohne das wandern die obere
   Zeile («3 Lichter an») und die untere Leiste aus dem Bild, sobald man
@@ -161,6 +161,15 @@ Start selbst ein (`app/src/lib/webframe.web.ts`):
   der falschen Stelle.
 - Kein Gummiband-Effekt am Rand und kein Zoom beim Doppeltipp auf eine
   Kachel.
+
+- **`theme-color`** in der Farbe des Hintergrunds. Ohne sie malt iOS den
+  Bereich hinter der Statusleiste weiss – ein heller Balken über der
+  dunklen App.
+- **`apple-mobile-web-app-capable`** und **`…-status-bar-style`**. Diese
+  beiden liest iOS, *bevor* JavaScript läuft: beim Hinzufügen zum
+  Homescreen und bei jedem Start. Nachträglich per Skript eingefügt
+  kommen sie zu spät – deshalb stehen sie in der HTML-Datei und nicht im
+  App-Code.
 
 Zoomen mit zwei Fingern bleibt absichtlich erlaubt: Wer schlecht sieht,
 soll es können.

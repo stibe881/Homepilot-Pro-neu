@@ -8,7 +8,6 @@ import React, { useEffect, useState } from 'react';
 import { StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { fixWebFrame } from './src/lib/webframe';
 
 import { HubSettings } from './src/api/types';
 import { DashboardScreen } from './src/screens/DashboardScreen';
@@ -60,12 +59,6 @@ export default function App() {
     setSettings(next);
     AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => {});
   };
-
-  // Einmal beim Start: Die Web-Fassung braucht einen festen Rahmen,
-  // sonst scrollt auf dem iPhone die Seite statt des Inhalts.
-  useEffect(() => {
-    fixWebFrame();
-  }, []);
 
   return (
     <SafeAreaProvider>
