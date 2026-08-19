@@ -161,16 +161,47 @@ for homepilot-hub, repository does not exist or may require 'docker
 login' …"}
 ```
 
-`rebuild-hub.sh` hängt deshalb `pullimage=false` an die Webhook-Adresse.
-Von Hand:
+Gelöst wird das in der compose-Datei, beim Dienst `hub`:
 
-```bash
-curl -i -sS --insecure -X POST "$PORTAINER_WEBHOOK_URL?pullimage=false"
+```yaml
+    image: homepilot-hub
+    pull_policy: never
 ```
 
-`204` heisst angenommen. Greift der Parameter nicht, geht es über die
-Oberfläche: **Stacks → homepilot → Update the stack → Re-pull image AUS →
-Deploy.**
+Damit überspringt Compose dieses Abbild beim Ziehen – und nur dieses;
+`mediamtx` kommt weiter von Docker Hub. `never` und nicht `build`, weil
+`rebuild-hub.sh` bereits gebaut hat, mit `--no-cache` und der
+Commit-Kennung im Abbild.
+
+`rebuild-hub.sh` hängt zusätzlich `pullimage=false` an die
+Webhook-Adresse. Das kostet nichts, wird aber nicht von jeder
+Portainer-Fassung beachtet – die Zeile in der compose-Datei ist die, auf
+die es ankommt.
+
+### Henne und Ei
+
+Die neue compose-Datei kommt über den Webhook – der aber gerade
+scheitert. Der Ausweg ist **einmal** über die Oberfläche:
+
+**Stacks → homepilot → Update the stack → Re-pull image AUS → Deploy.**
+
+Danach ist `pull_policy: never` im Stack, und der Webhook läuft wieder.
+
+### Falls es damit immer noch zieht
+
+Dann beachtet die Portainer-Fassung `pull_policy` nicht. Der sichere Weg
+ist dann eine eigene kleine Registry auf dem Host:
+
+```bash
+docker run -d --restart unless-stopped --name registry \
+  -p 127.0.0.1:5000:5000 -v registry-data:/var/lib/registry registry:2
+```
+
+In `rebuild-hub.sh` nach dem Bauen `docker tag homepilot-hub
+127.0.0.1:5000/homepilot-hub && docker push …`, und in der compose-Datei
+`image: 127.0.0.1:5000/homepilot-hub`. Dann geht der Zug ins Leere
+zurück auf den eigenen Rechner und gelingt. Mehr Aufwand, dafür
+unabhängig davon, was Portainer beim Ausrollen tut.
 
 ## Damit der Platz nicht mehr knapp wird
 

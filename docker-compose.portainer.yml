@@ -15,6 +15,16 @@ services:
     # ("<stack>-hub"), und beim kleinsten Umbenennen des Stacks rollte
     # Portainer wortlos wieder den alten Stand aus.
     image: homepilot-hub
+    # Dieses Abbild entsteht auf dem Docker-Host (deploy/rebuild-hub.sh)
+    # und liegt in keiner Registry. Ohne diese Zeile versucht Portainer
+    # es vor jedem Ausrollen zu ziehen, scheitert mit «pull access denied
+    # for homepilot-hub» - und bricht dann den ganzen Stack ab, obwohl
+    # das frische Abbild fertig danebenliegt.
+    #
+    # 'never' und nicht 'build': Gebaut wird bereits im Skript, mit
+    # --no-cache und mit der Commit-Kennung im Abbild. Portainer soll es
+    # benutzen, nicht ein zweites Mal bauen.
+    pull_policy: never
     container_name: homepilot-hub
     restart: unless-stopped
 
