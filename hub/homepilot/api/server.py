@@ -200,6 +200,10 @@ class PassRequest(BaseModel):
     entity_id: str | None = None
     command: str = "unlatch"
     minutes: int = guestpass.DEFAULT_MINUTES
+    # Festes Fenster statt «ab jetzt für N Minuten» – ISO-Zeitpunkte mit
+    # Zone, so wie sie das Telefon kennt. Ohne beides zählen die Minuten.
+    starts: str | None = None
+    ends: str | None = None
     label: str = ""
 
     def wanted(self) -> list[PassTarget]:
@@ -208,6 +212,24 @@ class PassRequest(BaseModel):
         if self.entity_id:
             return [PassTarget(entity_id=self.entity_id, command=self.command)]
         return []
+
+
+def moment(text: str | None) -> float:
+    """ISO-Zeitpunkt aus der App in Unix-Zeit (rein, testbar).
+
+    Die App schickt die Zone mit ("2026-08-21T09:00:00+02:00"). Fehlt sie
+    trotzdem, gilt die Zeit des Hubs – der steht im selben Haus wie die
+    Türe, das ist die vernünftigere Annahme als UTC.
+    """
+    if not text:
+        return 0.0
+    try:
+        stamp = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as err:
+        raise ValueError(f"Unlesbarer Zeitpunkt: {text}") from err
+    if stamp.tzinfo is None:
+        stamp = stamp.astimezone()
+    return stamp.timestamp()
 
 
 class PrefsRequest(BaseModel):
@@ -2087,17 +2109,30 @@ def create_app(hub: Hub) -> FastAPI:
                 )
             targets.append((item.entity_id, item.command))
             names.append(entity.name)
-        entry = hub.passes.create(
-            targets=targets,
-            created_by=user.name,
-            minutes=body.minutes,
-            label=body.label,
-        )
+        try:
+            starts = moment(body.starts)
+            until = moment(body.ends) or None
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+        try:
+            entry = hub.passes.create(
+                targets=targets,
+                created_by=user.name,
+                minutes=body.minutes,
+                label=body.label,
+                starts=starts,
+                until=until,
+            )
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
         log.warning(
-            "Einmal-Link für %s ausgestellt von %s, gültig %d Minuten",
+            "Einmal-Link für %s ausgestellt von %s, gültig %s bis %s",
             " + ".join(names),
             user.name,
-            max(1, min(guestpass.MAX_MINUTES, body.minutes)),
+            datetime.fromtimestamp(entry.starts).isoformat(timespec="minutes")
+            if entry.starts
+            else "sofort",
+            datetime.fromtimestamp(entry.expires).isoformat(timespec="minutes"),
         )
         base = pass_base_url()
         if base is None:

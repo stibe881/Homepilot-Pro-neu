@@ -150,6 +150,10 @@ export interface OneTimePass {
   entity_id: string;
   command: string;
   expires: number;
+  /** Ab wann er gilt (Unix-Sekunden) – null heisst sofort. */
+  starts?: number | null;
+  /** Ausgestellt, aber noch nicht gültig. */
+  pending?: boolean;
   seconds_left: number;
   used_at: number | null;
   created_by: string;

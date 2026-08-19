@@ -143,6 +143,10 @@ export function RoomTile({
               </Pressable>
             ) : moves ? (
               // Storen: Zustand plus die Pfeile, die gerade etwas bewirken.
+              //
+              // Ein voller Pfeil, kein Winkel (chevron): Der Winkel heisst
+              // überall sonst «aufklappen» oder «herunterladen» – hier
+              // fährt aber wirklich etwas nach oben oder unten.
               <View style={styles.coverCell}>
                 <Text style={styles.rowState} numberOfLines={1}>
                   {shortState(entity)}
@@ -155,7 +159,7 @@ export function RoomTile({
                     accessibilityLabel={`${entity.name} hochfahren`}
                     style={({ pressed }) => [styles.arrow, pressed && { opacity: 0.6 }]}
                   >
-                    <Ionicons name="chevron-up" size={14} color={colors.ink} />
+                    <Ionicons name="arrow-up" size={14} color={colors.ink} />
                   </Pressable>
                 ) : null}
                 {moves.down ? (
@@ -166,7 +170,7 @@ export function RoomTile({
                     accessibilityLabel={`${entity.name} runterfahren`}
                     style={({ pressed }) => [styles.arrow, pressed && { opacity: 0.6 }]}
                   >
-                    <Ionicons name="chevron-down" size={14} color={colors.ink} />
+                    <Ionicons name="arrow-down" size={14} color={colors.ink} />
                   </Pressable>
                 ) : null}
               </View>

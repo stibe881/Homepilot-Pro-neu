@@ -600,6 +600,91 @@ def test_a_pass_is_only_issued_if_every_door_checks_out():
         assert client.get("/api/passes", headers=headers).json()["passes"] == []
 
 
+def test_a_pass_can_be_planned_for_a_window():
+    """Nicht jeder Zugang ist «der Bote steht jetzt da».
+
+    Die Reinigung kommt Donnerstag von 9 bis 12 - dafür braucht es einen
+    Link, der vorher wertlos ist und danach von selbst verfällt.
+    """
+    from datetime import datetime, timedelta
+
+    hub = _pass_hub()
+    with TestClient(create_app(hub)) as client:
+        headers = {"Authorization": "Bearer t-stefan"}
+        beginn = datetime.now().astimezone() + timedelta(hours=2)
+        ende = beginn + timedelta(hours=3)
+        created = client.post(
+            "/api/passes",
+            json={
+                "entity_id": "demo.light_livingroom",
+                "command": "turn_on",
+                "starts": beginn.isoformat(),
+                "ends": ende.isoformat(),
+            },
+            headers=headers,
+        )
+        assert created.status_code == 200
+        entry = created.json()["pass"]
+        assert entry["pending"] is True
+
+        # Vor dem Beginn wertlos - und zwar mit derselben Auskunft wie ein
+        # erfundener Link, damit niemand lernt, dass Warten sich lohnt.
+        früh = client.get(f"/einmal/{entry['token']}")
+        assert früh.status_code == 410
+        assert früh.text == client.get("/einmal/ausgedacht").text
+        assert (
+            client.get("/api/entities/demo.light_livingroom", headers=headers)
+            .json()["state"]["state"]
+            != "on"
+        )
+
+
+def test_a_planned_pass_refuses_nonsense_windows():
+    from datetime import datetime, timedelta
+
+    hub = _pass_hub()
+    with TestClient(create_app(hub)) as client:
+        headers = {"Authorization": "Bearer t-stefan"}
+        jetzt = datetime.now().astimezone()
+
+        def versuch(starts, ends):
+            return client.post(
+                "/api/passes",
+                json={
+                    "entity_id": "demo.light_livingroom",
+                    "command": "turn_on",
+                    "starts": starts.isoformat(),
+                    "ends": ends.isoformat(),
+                },
+                headers=headers,
+            )
+
+        # Ende vor Beginn.
+        assert versuch(jetzt + timedelta(hours=3), jetzt + timedelta(hours=1)).status_code == 400
+        # Komplett in der Vergangenheit.
+        assert versuch(jetzt - timedelta(days=2), jetzt - timedelta(days=1)).status_code == 400
+        # Länger als erlaubt - ein vergessener Jahres-Link ist kein Zugang,
+        # sondern ein Loch.
+        zu_lang = versuch(jetzt, jetzt + timedelta(days=90))
+        assert zu_lang.status_code == 400
+        assert "30 Tage" in zu_lang.json()["detail"]
+        # Unlesbarer Zeitpunkt.
+        assert (
+            client.post(
+                "/api/passes",
+                json={
+                    "entity_id": "demo.light_livingroom",
+                    "command": "turn_on",
+                    "starts": "irgendwann",
+                    "ends": jetzt.isoformat(),
+                },
+                headers=headers,
+            ).status_code
+            == 400
+        )
+        assert client.get("/api/passes", headers=headers).json()["passes"] == []
+
+
 def test_one_time_pass_refuses_unknown_command():
     hub = _pass_hub()
     with TestClient(create_app(hub)) as client:

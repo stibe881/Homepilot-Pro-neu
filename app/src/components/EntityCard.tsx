@@ -1489,9 +1489,9 @@ function CoverBody({
         </View>
       ) : null}
       <View style={styles.mediaRow}>
-        <MediaButton icon="chevron-up" label="Hoch" onPress={() => go('open')} />
+        <MediaButton icon="arrow-up" label="Hoch" onPress={() => go('open')} />
         <MediaButton icon="stop" label="Stopp" onPress={() => go('stop')} />
-        <MediaButton icon="chevron-down" label="Runter" onPress={() => go('close')} />
+        <MediaButton icon="arrow-down" label="Runter" onPress={() => go('close')} />
       </View>
     </View>
   );

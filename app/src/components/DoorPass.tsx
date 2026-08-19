@@ -4,6 +4,7 @@ import { Pressable, Share, StyleSheet, Text, View } from 'react-native';
 
 import { Entity, HubSettings, OneTimePass } from '../api/types';
 import { Card } from '../components/Card';
+import { DateTimePick, readable, snap } from './DateTimePick';
 import { Colors, radius, type, useColors } from '../theme';
 
 /**
@@ -18,6 +19,11 @@ import { Colors, radius, type, useColors } from '../theme';
  * braucht: Haustüre und Wohnungstüre. Zwei getrennte Links wären hier
  * nicht sicherer, nur unbrauchbar – der Bote bekäme zwei Adressen und
  * müsste im Treppenhaus die richtige erwischen.
+ *
+ * Zwei Wege zur Gültigkeit, weil es zwei Fälle gibt: «der Bote steht
+ * jetzt vor der Türe» (Minuten ab sofort) und «die Reinigung kommt
+ * Donnerstag von 9 bis 12» (fester Zeitraum). Der geplante Link ist
+ * vorher wertlos und verfällt danach von selbst.
  *
  * Nach einem Neustart des Hubs gelten alle Links nicht mehr – das ist die
  * sichere Richtung und Absicht.
@@ -38,6 +44,10 @@ export function DoorPass({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [passes, setPasses] = useState<OneTimePass[] | null>(null);
   const [minutes, setMinutes] = useState(15);
+  // 'jetzt' = die Minuten-Chips, 'zeitraum' = Beginn und Ende.
+  const [mode, setMode] = useState<'jetzt' | 'zeitraum'>('jetzt');
+  const [from, setFrom] = useState(() => snap(new Date(Date.now() + 60 * 60_000)));
+  const [until, setUntil] = useState(() => snap(new Date(Date.now() + 4 * 60 * 60_000)));
   // Mehrfachauswahl: leer heisst «die erste Türe» – so ist der Knopf nie
   // wirkungslos, auch wenn noch nichts angetippt wurde.
   const [chosen, setChosen] = useState<string[]>([]);
@@ -81,6 +91,10 @@ export function DoorPass({
 
   const create = async () => {
     if (targets.length === 0) return;
+    if (mode === 'zeitraum' && until.getTime() <= from.getTime()) {
+      setNote('Das Ende muss nach dem Beginn liegen.');
+      return;
+    }
     setNote(null);
     try {
       const response = await fetch(`${settings.url}/api/passes`, {
@@ -91,7 +105,11 @@ export function DoorPass({
             entity_id: door.id,
             command: openCommand(door),
           })),
-          minutes,
+          // Die Zone kommt mit – der Hub soll nicht raten müssen, was
+          // «09:00» in der Sommerzeit bedeutet.
+          ...(mode === 'zeitraum'
+            ? { starts: isoWithZone(from), ends: isoWithZone(until) }
+            : { minutes }),
         }),
       });
       const body = await response.json();
@@ -153,6 +171,33 @@ export function DoorPass({
       ) : null}
 
       <View style={styles.chipRow}>
+        {(
+          [
+            ['jetzt', 'Ab jetzt'],
+            ['zeitraum', 'Zeitraum'],
+          ] as const
+        ).map(([key, text]) => (
+          <Pressable
+            key={key}
+            onPress={() => setMode(key)}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: mode === key }}
+            style={[styles.chip, mode === key && styles.chipActive]}
+          >
+            <Text style={[styles.chipText, mode === key && styles.chipTextActive]}>
+              {text}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {mode === 'zeitraum' ? (
+        <>
+          <DateTimePick label="Ab" value={from} onChange={setFrom} />
+          <DateTimePick label="Bis" value={until} onChange={setUntil} />
+        </>
+      ) : (
+      <View style={styles.chipRow}>
         {MINUTES.map((value) => (
           <Pressable
             key={value}
@@ -167,6 +212,7 @@ export function DoorPass({
           </Pressable>
         ))}
       </View>
+      )}
 
       <Pressable
         onPress={create}
@@ -187,9 +233,17 @@ export function DoorPass({
           {(passes ?? []).map((entry) => (
             <View key={entry.token} style={styles.row}>
               <Ionicons
-                name={entry.used_at ? 'checkmark-circle' : 'time-outline'}
+                name={
+                  entry.used_at
+                    ? 'checkmark-circle'
+                    : entry.pending
+                      ? 'calendar-outline'
+                      : 'time-outline'
+                }
                 size={18}
-                color={entry.used_at ? colors.on : colors.warn}
+                color={
+                  entry.used_at ? colors.on : entry.pending ? colors.inkSoft : colors.warn
+                }
               />
               <View style={{ flex: 1 }}>
                 <Text style={styles.rowTitle}>
@@ -207,7 +261,9 @@ export function DoorPass({
                         'de-CH',
                         { hour: '2-digit', minute: '2-digit' }
                       )}`
-                    : `noch ${Math.max(1, Math.round(entry.seconds_left / 60))} min gültig`}
+                    : entry.pending && entry.starts
+                      ? `gilt ab ${readable(new Date(entry.starts * 1000))}`
+                      : `noch ${Math.max(1, Math.round(entry.seconds_left / 60))} min gültig`}
                 </Text>
               </View>
               <Pressable
@@ -229,6 +285,21 @@ export function DoorPass({
         </View>
       ) : null}
     </Card>
+  );
+}
+
+/** ISO mit Zonenversatz, z.B. «2026-08-21T09:00:00+02:00».
+ *
+ *  toISOString() würde nach UTC umrechnen – rechnerisch richtig, aber
+ *  dann steht im Protokoll des Hubs eine andere Stunde als die, die man
+ *  eingetippt hat. Mit dem Versatz bleibt beides erkennbar. */
+function isoWithZone(date: Date): string {
+  const offset = -date.getTimezoneOffset();
+  const sign = offset >= 0 ? '+' : '-';
+  const pad = (value: number) => String(Math.floor(Math.abs(value))).padStart(2, '0');
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return (
+    local.toISOString().slice(0, 19) + sign + pad(offset / 60) + ':' + pad(offset % 60)
   );
 }
 
