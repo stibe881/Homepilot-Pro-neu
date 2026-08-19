@@ -144,6 +144,9 @@ export interface AuditEntry {
 
 export interface OneTimePass {
   token: string;
+  /** Alle Türen dieses Links, in Auslösereihenfolge. */
+  targets?: { entity_id: string; command: string }[];
+  /** Die erste Türe – für Anzeigen, wo eine genügt. */
   entity_id: string;
   command: string;
   expires: number;

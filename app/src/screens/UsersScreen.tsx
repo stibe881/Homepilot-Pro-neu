@@ -3,8 +3,9 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 
-import { HubSettings } from '../api/types';
+import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
+import { DoorPass } from '../components/DoorPass';
 import { Colors, radius, space, useColors } from '../theme';
 
 /**
@@ -63,6 +64,9 @@ interface HubUser {
 interface Props {
   settings: HubSettings;
   currentUser?: { name: string; role: string } | null;
+  /** Für die Einmal-Türöffnung – sie gehört zur Zugangsverwaltung und
+   *  nicht in den System-Screen, wo es sonst um den Betrieb geht. */
+  entities?: Entity[];
 }
 
 /** Mehrfach-Auswahl der Gast-Bereiche als Chips. */
@@ -166,7 +170,7 @@ function FeatureChips({
   );
 }
 
-export function UsersScreen({ settings, currentUser }: Props) {
+export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const headers = useMemo(
@@ -393,6 +397,8 @@ export function UsersScreen({ settings, currentUser }: Props) {
           <Text style={styles.newButtonText}>Benutzer anlegen</Text>
         </Pressable>
       )}
+
+      <DoorPass settings={settings} headers={headers} entities={entities} />
 
       {/* Detail: QR-Code, Sperren, Bereiche, Löschen */}
       <Modal

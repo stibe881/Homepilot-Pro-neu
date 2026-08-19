@@ -11,8 +11,13 @@ import { Colors, radius, type, useColors } from '../theme';
  *
  * Der Fall: Das Paket steht vor der Türe, man selbst im Zug. Ein
  * Gastzugang wäre dafür zu viel – der sähe alles und stünde Tage später
- * noch herum. Hier gibt es stattdessen einen Link, der genau ein Gerät,
- * genau einen Befehl, genau einmal und nur wenige Minuten lang auslöst.
+ * noch herum. Hier gibt es stattdessen einen Link, der genau einmal und
+ * nur wenige Minuten lang öffnet.
+ *
+ * Mehrere Türen in einem Link, weil ein Paket im Mehrfamilienhaus beides
+ * braucht: Haustüre und Wohnungstüre. Zwei getrennte Links wären hier
+ * nicht sicherer, nur unbrauchbar – der Bote bekäme zwei Adressen und
+ * müsste im Treppenhaus die richtige erwischen.
  *
  * Nach einem Neustart des Hubs gelten alle Links nicht mehr – das ist die
  * sichere Richtung und Absicht.
@@ -33,7 +38,9 @@ export function DoorPass({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [passes, setPasses] = useState<OneTimePass[] | null>(null);
   const [minutes, setMinutes] = useState(15);
-  const [chosen, setChosen] = useState<string | null>(null);
+  // Mehrfachauswahl: leer heisst «die erste Türe» – so ist der Knopf nie
+  // wirkungslos, auch wenn noch nichts angetippt wurde.
+  const [chosen, setChosen] = useState<string[]>([]);
   const [note, setNote] = useState<string | null>(null);
 
   // Alles, was sich öffnen lässt: Schlösser und Türöffner.
@@ -42,7 +49,17 @@ export function DoorPass({
       entity.kind === 'lock' &&
       (entity.commands.includes('unlatch') || entity.commands.includes('open_door'))
   );
-  const target = doors.find((door) => door.id === chosen) ?? doors[0];
+  const selected = doors.filter((door) => chosen.includes(door.id));
+  const targets = selected.length > 0 ? selected : doors.slice(0, 1);
+
+  const toggle = (id: string) =>
+    setChosen((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+
+  /** Welchen Befehl diese Türe zum Öffnen versteht. */
+  const openCommand = (door: Entity) =>
+    door.commands.includes('unlatch') ? 'unlatch' : 'open_door';
 
   const load = async () => {
     try {
@@ -63,14 +80,19 @@ export function DoorPass({
   }, [settings.url, settings.token]);
 
   const create = async () => {
-    if (!target) return;
+    if (targets.length === 0) return;
     setNote(null);
-    const command = target.commands.includes('unlatch') ? 'unlatch' : 'open_door';
     try {
       const response = await fetch(`${settings.url}/api/passes`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entity_id: target.id, command, minutes }),
+        body: JSON.stringify({
+          targets: targets.map((door) => ({
+            entity_id: door.id,
+            command: openCommand(door),
+          })),
+          minutes,
+        }),
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.detail ?? 'Fehlgeschlagen');
@@ -101,26 +123,33 @@ export function DoorPass({
       </Text>
 
       {doors.length > 1 ? (
-        <View style={styles.chipRow}>
-          {doors.map((door) => (
-            <Pressable
-              key={door.id}
-              onPress={() => setChosen(door.id)}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: door.id === target?.id }}
-              style={[styles.chip, door.id === target?.id && styles.chipActive]}
-            >
-              <Text
-                style={[
-                  styles.chipText,
-                  door.id === target?.id && styles.chipTextActive,
-                ]}
-              >
-                {door.name}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
+        <>
+          <View style={styles.chipRow}>
+            {doors.map((door) => {
+              const active = targets.some((item) => item.id === door.id);
+              return (
+                <Pressable
+                  key={door.id}
+                  onPress={() => toggle(door.id)}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: active }}
+                  style={[styles.chip, active && styles.chipActive]}
+                >
+                  {active ? (
+                    <Ionicons name="checkmark" size={13} color="#FFFFFF" />
+                  ) : null}
+                  <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                    {door.name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={styles.hint}>
+            Mehrere antippen für einen Link, der beide öffnet – für ein Paket
+            im Mehrfamilienhaus braucht es Haus- und Wohnungstüre.
+          </Text>
+        </>
       ) : null}
 
       <View style={styles.chipRow}>
@@ -145,7 +174,11 @@ export function DoorPass({
         style={({ pressed }) => [styles.create, pressed && { opacity: 0.8 }]}
       >
         <Ionicons name="key-outline" size={16} color="#FFFFFF" />
-        <Text style={styles.createText}>Link erstellen und teilen</Text>
+        <Text style={styles.createText}>
+          {targets.length > 1
+            ? `Link für ${targets.length} Türen erstellen`
+            : 'Link erstellen und teilen'}
+        </Text>
       </Pressable>
       {note ? <Text style={styles.note}>{note}</Text> : null}
 
@@ -160,8 +193,13 @@ export function DoorPass({
               />
               <View style={{ flex: 1 }}>
                 <Text style={styles.rowTitle}>
-                  {entities.find((item) => item.id === entry.entity_id)?.name ??
-                    entry.entity_id}
+                  {(entry.targets ?? [{ entity_id: entry.entity_id, command: '' }])
+                    .map(
+                      (target) =>
+                        entities.find((item) => item.id === target.entity_id)?.name ??
+                        target.entity_id
+                    )
+                    .join(' + ')}
                 </Text>
                 <Text style={styles.rowDetail}>
                   {entry.used_at
@@ -202,6 +240,9 @@ const makeStyles = (colors: Colors) =>
     note: { color: colors.warn, fontSize: 12, lineHeight: 18 },
     chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
     chip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
       paddingHorizontal: 12,
       paddingVertical: 7,
       borderRadius: 999,

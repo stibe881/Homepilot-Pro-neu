@@ -183,13 +183,31 @@ class GeofenceRequest(BaseModel):
     zone: str | None = None
 
 
-class PassRequest(BaseModel):
-    """Ein Einmal-Link: ein Gerät, ein Befehl, wenige Minuten."""
-
+class PassTarget(BaseModel):
     entity_id: str
+    command: str = "unlatch"
+
+
+class PassRequest(BaseModel):
+    """Ein Einmal-Link: ein bis mehrere Türen, wenige Minuten.
+
+    Mehrere, weil im Mehrfamilienhaus ein Paket beides braucht – Haustüre
+    und Wohnungstüre. Die alte Form mit einem einzelnen Gerät bleibt
+    gültig, damit bestehende Kurzbefehle weiterlaufen.
+    """
+
+    targets: list[PassTarget] | None = None
+    entity_id: str | None = None
     command: str = "unlatch"
     minutes: int = guestpass.DEFAULT_MINUTES
     label: str = ""
+
+    def wanted(self) -> list[PassTarget]:
+        if self.targets:
+            return self.targets
+        if self.entity_id:
+            return [PassTarget(entity_id=self.entity_id, command=self.command)]
+        return []
 
 
 class PrefsRequest(BaseModel):
@@ -2046,25 +2064,38 @@ def create_app(hub: Hub) -> FastAPI:
         sonst wäre der Link ein Weg, die eigenen Grenzen zu umgehen.
         """
         user = require(request, Capability.MANAGE_USERS)
-        entity = hub.registry.get(body.entity_id)
-        if entity is None or not user.may_see(entity.id, entity.kind, entity.integration):
-            raise HTTPException(status_code=404, detail="Unbekanntes Gerät")
-        if body.command not in entity.commands:
+        wanted = body.wanted()
+        if not wanted:
             raise HTTPException(
-                status_code=400,
-                detail=f"'{entity.name}' kennt den Befehl '{body.command}' nicht",
+                status_code=400, detail="Ein Einmal-Link ohne Tür öffnet nichts"
             )
+        # Erst alles prüfen, dann ausstellen: Ein Link, bei dem die zweite
+        # Türe nicht aufgeht, ist schlimmer als gar keiner - der Bote steht
+        # dann im Haus und kommt nicht weiter.
+        targets: list[tuple[str, str]] = []
+        names: list[str] = []
+        for item in wanted:
+            entity = hub.registry.get(item.entity_id)
+            if entity is None or not user.may_see(
+                entity.id, entity.kind, entity.integration
+            ):
+                raise HTTPException(status_code=404, detail="Unbekanntes Gerät")
+            if item.command not in entity.commands:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"'{entity.name}' kennt den Befehl '{item.command}' nicht",
+                )
+            targets.append((item.entity_id, item.command))
+            names.append(entity.name)
         entry = hub.passes.create(
-            entity_id=body.entity_id,
-            command=body.command,
+            targets=targets,
             created_by=user.name,
             minutes=body.minutes,
             label=body.label,
         )
         log.warning(
-            "Einmal-Link für %s (%s) ausgestellt von %s, gültig %d Minuten",
-            entity.name,
-            body.command,
+            "Einmal-Link für %s ausgestellt von %s, gültig %d Minuten",
+            " + ".join(names),
             user.name,
             max(1, min(guestpass.MAX_MINUTES, body.minutes)),
         )
@@ -2109,28 +2140,44 @@ def create_app(hub: Hub) -> FastAPI:
                 media_type="text/plain; charset=utf-8",
             )
         throttle.succeeded(address)
-        entity = hub.registry.get(entry.entity_id)
-        if entity is None:
-            return Response(
-                content="Das Gerät gibt es nicht mehr.",
-                status_code=404,
-                media_type="text/plain; charset=utf-8",
+
+        # Alle Türen des Links, in der gespeicherten Reihenfolge. Der Link
+        # ist mit dem Einlösen verbraucht - auch wenn eine Türe klemmt.
+        # Ein Link, der nach halbem Erfolg weitergilt, liesse sich sonst
+        # beliebig oft wiederholen.
+        opened: list[str] = []
+        failed: list[str] = []
+        for entity_id, command in entry.targets:
+            entity = hub.registry.get(entity_id)
+            if entity is None:
+                failed.append(f"{entity_id} (gibt es nicht mehr)")
+                continue
+            hub.audit.record(f"Einmal-Link von {entry.created_by}", entity, command, address)
+            log.warning(
+                "Einmal-Link eingelöst: %s → %s (von %s)", entity.name, command, address
             )
-        hub.audit.record(f"Einmal-Link von {entry.created_by}", entity, entry.command, address)
-        log.warning(
-            "Einmal-Link eingelöst: %s → %s (von %s)", entity.name, entry.command, address
-        )
-        try:
-            with as_source(user_source(f"Einmal-Link ({entry.created_by})")):
-                await hub.integrations.dispatch_command(entry.entity_id, entry.command, {})
-        except HomePilotError as err:
+            try:
+                with as_source(user_source(f"Einmal-Link ({entry.created_by})")):
+                    await hub.integrations.dispatch_command(entity_id, command, {})
+            except HomePilotError as err:
+                log.error("Einmal-Link: %s liess sich nicht öffnen: %s", entity.name, err)
+                failed.append(f"{entity.name} ({err})")
+            else:
+                opened.append(entity.name)
+
+        if not opened:
             return Response(
-                content=f"Hat nicht geklappt: {err}",
+                content="Hat nicht geklappt: " + ", ".join(failed) + "\n",
                 status_code=502,
                 media_type="text/plain; charset=utf-8",
             )
+        text = " und ".join(opened) + ": erledigt."
+        if failed:
+            # Halber Erfolg gehört gesagt, sonst steht der Bote im
+            # Treppenhaus und rüttelt an der falschen Türe.
+            text += " Nicht geklappt hat: " + ", ".join(failed) + "."
         return Response(
-            content=f"{entity.name}: erledigt. Dieser Link gilt jetzt nicht mehr.",
+            content=text + " Dieser Link gilt jetzt nicht mehr.\n",
             media_type="text/plain; charset=utf-8",
         )
 

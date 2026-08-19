@@ -541,6 +541,65 @@ def test_one_time_pass_works_exactly_once():
         assert client.get("/einmal/ausgedacht").status_code == 410
 
 
+def test_one_time_pass_can_open_two_doors():
+    """Im Mehrfamilienhaus braucht ein Paket beides: Haus- und Wohnungstüre.
+
+    Zwei getrennte Links wären hier nicht sicherer, nur unbrauchbar - der
+    Bote bekäme zwei Adressen und müsste im Treppenhaus raten.
+    """
+    hub = _pass_hub()
+    with TestClient(create_app(hub)) as client:
+        headers = {"Authorization": "Bearer t-stefan"}
+        created = client.post(
+            "/api/passes",
+            json={
+                "targets": [
+                    {"entity_id": "demo.light_livingroom", "command": "turn_on"},
+                    {"entity_id": "demo.switch_coffee", "command": "turn_on"},
+                ],
+                "minutes": 5,
+            },
+            headers=headers,
+        )
+        assert created.status_code == 200
+        entry = created.json()["pass"]
+        assert [target["entity_id"] for target in entry["targets"]] == [
+            "demo.light_livingroom",
+            "demo.switch_coffee",
+        ]
+
+        answer = client.get(f"/einmal/{entry['token']}")
+        assert answer.status_code == 200
+        for entity_id in ("demo.light_livingroom", "demo.switch_coffee"):
+            assert (
+                client.get(f"/api/entities/{entity_id}", headers=headers)
+                .json()["state"]["state"]
+                == "on"
+            )
+        # Auch ein Link über zwei Türen gilt nur einmal.
+        assert client.get(f"/einmal/{entry['token']}").status_code == 410
+
+
+def test_a_pass_is_only_issued_if_every_door_checks_out():
+    """Sonst stünde der Bote im Haus und käme nicht weiter."""
+    hub = _pass_hub()
+    with TestClient(create_app(hub)) as client:
+        headers = {"Authorization": "Bearer t-stefan"}
+        response = client.post(
+            "/api/passes",
+            json={
+                "targets": [
+                    {"entity_id": "demo.light_livingroom", "command": "turn_on"},
+                    {"entity_id": "demo.temp_livingroom", "command": "unlatch"},
+                ]
+            },
+            headers=headers,
+        )
+        assert response.status_code == 400
+        # Nichts ausgestellt, und das Licht ist auch nicht angegangen.
+        assert client.get("/api/passes", headers=headers).json()["passes"] == []
+
+
 def test_one_time_pass_refuses_unknown_command():
     hub = _pass_hub()
     with TestClient(create_app(hub)) as client:

@@ -5,9 +5,14 @@ Gastzugang wäre dafür zu viel – der könnte alles sehen und stünde noch
 Tage später herum. Was gebraucht wird, ist ein Zettel mit genau einer
 Befugnis, der sich nach Gebrauch selbst zerreisst.
 
-Deshalb: eine zufällige Adresse, ein Gerät, ein Befehl, ein Gebrauch,
-und ein Ablauf in Minuten. Bewusst nur im Speicher – nach einem Neustart
-gilt kein einziger davon mehr, und das ist die sichere Richtung.
+Deshalb: eine zufällige Adresse, ein Gebrauch, ein Ablauf in Minuten.
+Bewusst nur im Speicher – nach einem Neustart gilt kein einziger davon
+mehr, und das ist die sichere Richtung.
+
+Ein Link kann mehrere Türen öffnen. Wer im Mehrfamilienhaus wohnt,
+braucht für ein Paket beides: Haustüre und Wohnungstüre. Zwei getrennte
+Links wären hier nicht sicherer, nur unbrauchbar – der Bote bekäme zwei
+Adressen und müsste im Treppenhaus die richtige erwischen.
 """
 
 from __future__ import annotations
@@ -25,28 +30,43 @@ MAX_OPEN = 20
 
 
 class Pass:
-    __slots__ = ("token", "entity_id", "command", "expires", "used_at", "created_by", "label")
+    __slots__ = ("token", "targets", "expires", "used_at", "created_by", "label")
 
     def __init__(
         self,
         token: str,
-        entity_id: str,
-        command: str,
+        targets: list[tuple[str, str]],
         expires: float,
         created_by: str,
         label: str = "",
     ) -> None:
         self.token = token
-        self.entity_id = entity_id
-        self.command = command
+        # [(entity_id, command), …] – in dieser Reihenfolge ausgelöst.
+        # Bei zwei Türen also erst die Haustüre, dann die Wohnungstüre;
+        # umgekehrt stünde der Bote vor einer offenen Wohnung im
+        # verschlossenen Haus.
+        self.targets = list(targets)
         self.expires = expires
         self.used_at: float | None = None
         self.created_by = created_by
         self.label = label
 
+    @property
+    def entity_id(self) -> str:
+        """Das erste Ziel – für Protokoll und Anzeige, wo eines genügt."""
+        return self.targets[0][0] if self.targets else ""
+
+    @property
+    def command(self) -> str:
+        return self.targets[0][1] if self.targets else ""
+
     def as_dict(self, base_url: str | None = None) -> dict[str, Any]:
         row: dict[str, Any] = {
             "token": self.token,
+            "targets": [
+                {"entity_id": entity_id, "command": command}
+                for entity_id, command in self.targets
+            ],
             "entity_id": self.entity_id,
             "command": self.command,
             "expires": self.expires,
@@ -66,20 +86,20 @@ class PassStore:
 
     def create(
         self,
-        entity_id: str,
-        command: str,
+        targets: list[tuple[str, str]],
         created_by: str,
         minutes: int = DEFAULT_MINUTES,
         label: str = "",
     ) -> Pass:
+        if not targets:
+            raise ValueError("Ein Einmal-Link ohne Ziel öffnet nichts")
         self.purge()
         minutes = max(1, min(MAX_MINUTES, int(minutes)))
         # 32 Byte Zufall: Raten ist damit keine Angriffsart, auch wenn die
         # Adresse ohne jede Anmeldung funktioniert.
         entry = Pass(
             token=secrets.token_urlsafe(32),
-            entity_id=entity_id,
-            command=command,
+            targets=targets,
             expires=time.time() + minutes * 60,
             created_by=created_by,
             label=label,

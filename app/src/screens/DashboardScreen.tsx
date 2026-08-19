@@ -784,7 +784,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       return (
         <View style={styles.stack}>
           {back}
-          <UsersScreen settings={settings} currentUser={user} />
+          <UsersScreen settings={settings} currentUser={user} entities={entities} />
         </View>
       );
     }
