@@ -9,6 +9,12 @@
 services:
   hub:
     build: ./hub
+    # Ausdrücklich benannt, nicht dem Compose-Standard überlassen: Der
+    # gebaute Stand kommt von deploy/rebuild-hub.sh, das genau unter
+    # diesem Namen baut. Ohne die Zeile hiesse das Abbild nach dem Stack
+    # ("<stack>-hub"), und beim kleinsten Umbenennen des Stacks rollte
+    # Portainer wortlos wieder den alten Stand aus.
+    image: homepilot-hub
     container_name: homepilot-hub
     restart: unless-stopped
 
