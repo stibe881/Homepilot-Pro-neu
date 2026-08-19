@@ -148,7 +148,83 @@ sudo systemctl restart homepilot-update
 Danach den Stack neu deployen, damit der Hub den neuen Wert bekommt.
 Was der Listener sieht, steht in `journalctl -u homepilot-update -f`.
 
-## Wenn der Platz weniger wird
+## Damit der Platz nicht mehr knapp wird
+
+Drei Schritte, danach ist Ruhe. Der erste ist der wichtige.
+
+### 1. Deckel auf die Container-Protokolle (einmalig)
+
+Der grösste stille Fresser. Docker schreibt die Ausgabe jedes Containers
+ohne Obergrenze, und kein `prune` fasst sie an.
+
+Für Hub und mediamtx steht der Deckel bereits in der compose-Datei
+(`logging: max-size 10m, max-file 3` → höchstens 30 MB je Container).
+Er greift beim **nächsten Ausrollen des Stacks**. Bewusst dort und nicht
+in der `daemon.json`: So braucht es keinen Neustart des Docker-Dienstes,
+der jeden anderen Container auf dem Rechner mitreissen würde.
+
+Für die übrigen Container (Portainer, Nginx Proxy Manager, …) gilt der
+Deckel aus `/etc/docker/daemon.json`:
+
+```json
+{
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "10m", "max-file": "3" }
+}
+```
+
+```bash
+sudo systemctl restart docker
+```
+
+**Achtung:** Dieser Neustart startet alle Container neu – also zu einem
+Zeitpunkt, an dem ein kurzer Ausfall nichts ausmacht. Der Deckel gilt
+danach für **neu erstellte** Container; die laufenden übernehmen ihn beim
+nächsten Neuausrollen ihres Stacks.
+
+Die vorhandenen, bereits grossen Dateien einmalig leeren (die Container
+dürfen dabei laufen):
+
+```bash
+sudo du -sh /var/lib/docker/containers/*/*-json.log | sort -h | tail -5
+sudo sh -c 'truncate -s 0 /var/lib/docker/containers/*/*-json.log'
+```
+
+Damit ist das bisherige Protokoll weg – also nur, wenn gerade nichts zu
+untersuchen ist.
+
+### 2. Wöchentliches Aufräumen (einmalig einrichten)
+
+`aufraeumen.sh` räumt jede Woche weg, was von selbst wächst: verwaiste
+Abbild-Schichten, BuildKits Zwischenspeicher (auf 2 GB gedeckelt), Netze
+ohne Container und ein zu grosses Journal. Es fasst weder Datenträger noch
+Protokolle an.
+
+```bash
+sudo cp deploy/aufraeumen.sh /opt/homepilot/
+sudo chmod +x /opt/homepilot/aufraeumen.sh
+sudo cp deploy/homepilot-aufraeumen.* /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now homepilot-aufraeumen.timer
+```
+
+Nachsehen:
+
+```bash
+systemctl list-timers homepilot-aufraeumen
+journalctl -u homepilot-aufraeumen -n 40
+```
+
+Im Journal steht nach jedem Lauf, wieviel frei wurde und was Docker noch
+belegt – falls es doch wieder eng wird, muss niemand raten.
+
+### 3. Die Warnung ernst nehmen
+
+Der Hub meldet ab 85 % Belegung von selbst, im System-Screen und als
+Push. Das ist das Netz für den Fall, dass etwas Neues wächst, an das hier
+niemand gedacht hat.
+
+## Wenn der Platz trotzdem weniger wird
 
 `rebuild-hub.sh` räumt bei jedem Lauf auf, aber nur das, was vom Bauen
 übrig bleibt: verwaiste Abbild-Schichten und BuildKits Zwischenspeicher

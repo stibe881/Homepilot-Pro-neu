@@ -18,6 +18,22 @@ services:
     container_name: homepilot-hub
     restart: unless-stopped
 
+    # Deckel für das Protokoll dieses Containers. Docker schreibt die
+    # Ausgabe sonst ohne Obergrenze in eine Datei, die wächst, solange der
+    # Container läuft - bei einem gesprächigen Dienst um Gigabytes im
+    # Jahr, und kein «prune» fasst sie an. Drei Dateien à 10 MB heisst:
+    # höchstens 30 MB, und die letzten Tage bleiben lesbar.
+    #
+    # Bewusst hier und nicht in der daemon.json: Das gilt beim nächsten
+    # Ausrollen des Stacks, ohne den Docker-Dienst neu zu starten - der
+    # würde jeden anderen Container auf dem Rechner mitreissen.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+
     # Das eigene Netz des Rechners statt eines Docker-Netzes: Der Hub muss
     # Hue-Bridge, CCU und MQTT-Broker direkt erreichen, und die CCU schickt
     # ihre Events aktiv an den Hub zurück.
@@ -81,6 +97,14 @@ services:
     image: bluenviron/mediamtx:latest-ffmpeg
     container_name: homepilot-mediamtx
     restart: unless-stopped
+
+    # Gleicher Deckel wie beim Hub - siehe dort.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
     # Gleiches Netz wie der Hub: Er spricht den Dienst über 127.0.0.1 an,
     # und die Kameras sind direkt erreichbar.
     network_mode: host

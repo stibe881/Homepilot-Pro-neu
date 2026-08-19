@@ -1,0 +1,14 @@
+# Einmal pro Woche, nachts. Persistent=true holt den Lauf nach, wenn der
+# Rechner zum vorgesehenen Zeitpunkt aus war - sonst überspringt ein
+# Neustart am Sonntagabend die ganze Woche.
+[Unit]
+Description=HomePilot Aufräumen wöchentlich
+
+[Timer]
+OnCalendar=Sun 03:30
+Persistent=true
+# Nicht alle Rechner gleichzeitig loslaufen lassen.
+RandomizedDelaySec=30m
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,11 @@
+# Wöchentliches Aufräumen auf dem Docker-Host. Siehe aufraeumen.sh.
+[Unit]
+Description=HomePilot Aufräumen (Docker und Journal)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/homepilot/aufraeumen.sh
+# Braucht Docker und das Journal, also root - wie der Update-Dienst.
+User=root
