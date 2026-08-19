@@ -73,7 +73,19 @@ def expand_env(value: Any) -> Any:
             name = match.group(1)
             resolved = os.environ.get(name)
             if resolved is None:
-                raise ConfigError(f"Umgebungsvariable '{name}' ist nicht gesetzt")
+                # Die häufigste Ursache ist nicht ein Tippfehler, sondern
+                # die Annahme, eine Variable im Portainer-Stack reiche aus.
+                # Portainer setzt sie aber nur in die compose-Datei ein; in
+                # den Container kommt sie erst durch eine Zeile in deren
+                # environment-Liste. Das gehört in die Meldung, sonst sucht
+                # man an der falschen Stelle.
+                raise ConfigError(
+                    f"Umgebungsvariable '{name}' ist nicht gesetzt. Steht sie "
+                    "im Portainer-Stack, fehlt sie zusätzlich in der "
+                    f"environment-Liste der docker-compose-Datei "
+                    f"(Zeile '- {name}=${{{name}:-}}') – erst die reicht sie "
+                    "in den Container weiter."
+                )
             return resolved
 
         return ENV_PATTERN.sub(replace, value)

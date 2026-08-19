@@ -20,8 +20,13 @@ services:
       # Keys stehen nicht in der config.yaml, sondern kommen aus .env
       # (siehe deploy/README.md).
       - HOMEPILOT_TOKEN=${HOMEPILOT_TOKEN}
+      - UPDATE_SECRET=${UPDATE_SECRET:-}
       - TOKEN_STEFAN=${TOKEN_STEFAN:-}
+      - TOKEN_PARTNERIN=${TOKEN_PARTNERIN:-}
+      - TOKEN_GAST=${TOKEN_GAST:-}
       - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY:-}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:-}
+      - OVERKIZ_TOKEN=${OVERKIZ_TOKEN:-}
       - MQTT_USER=${MQTT_USER:-}
       - MQTT_PASSWORD=${MQTT_PASSWORD:-}
       - UNIFI_USER=${UNIFI_USER:-}

@@ -65,12 +65,22 @@ Ring-Token). **Diesen Ordner ins Backup aufnehmen.**
    | `HOMEPILOT_TOKEN` | ein langes Zufallstoken (`openssl rand -base64 32`) |
    | `TOKEN_STEFAN` | dein persönliches Benutzer-Token (ebenso erzeugt) |
    | `SUPABASE_SERVICE_KEY` | der service_role-Key aus dem Supabase-Dashboard |
+   | `SUPABASE_ANON_KEY` | der anon-Key – für die Anmeldung mit E-Mail und Passwort |
 
    Dazu je nach aktivierten Integrationen: `MQTT_USER`, `MQTT_PASSWORD`,
    `UNIFI_USER`, `UNIFI_PASSWORD`, `HUE_APP_KEY`, `HUE_SYNC_TOKEN`,
    `SPOTIFY_*`, `GOOGLE_*`, `ROBOROCK_EMAIL`, `ROBOROCK_PASSWORD`,
-   `NUKI_TOKEN`, `VZUG_USER`, `VZUG_PASSWORD`
+   `NUKI_TOKEN`, `VZUG_USER`, `VZUG_PASSWORD`, `OVERKIZ_TOKEN`
    (die vollständige Liste steht in `docker-compose.portainer.yml`).
+
+   > **Eine Variable hier einzutragen genügt nicht.** Portainer setzt sie
+   > beim Deployen nur in die compose-Datei ein. In den Container kommt sie
+   > erst durch eine Zeile in deren `environment:`-Liste – also
+   > `- SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:-}`. Alle Variablen aus der
+   > `config.example.yaml` stehen dort bereits; wer eine *neue* erfindet,
+   > trägt sie an beiden Orten ein. Sonst kommt beim Speichern der
+   > Konfiguration «Umgebungsvariable … ist nicht gesetzt», obwohl sie im
+   > Stack sichtbar ist.
 
 5. **Deploy the stack.** Portainer klont das Repository und baut das
    Abbild – der erste Start dauert ein bis zwei Minuten.
