@@ -74,6 +74,17 @@ if [ -f "$CREDENTIALS_FILE" ]; then
   # shellcheck disable=SC1090
   . "$CREDENTIALS_FILE"
 fi
+# Wagenrücklauf am Zeilenende wegschneiden. Wer die Datei einmal unter
+# Windows bearbeitet hat, hat CRLF drin – dann ist der Wert nicht "1",
+# sondern "1\r", der Vergleich weiter unten schlägt fehl und die Prüfung
+# des Zertifikats bleibt an, ohne dass man sähe warum. Dasselbe bei der
+# Adresse: ein angehängtes \r macht aus ihr eine, die es nicht gibt.
+PORTAINER_INSECURE="${PORTAINER_INSECURE:-0}"
+PORTAINER_INSECURE="${PORTAINER_INSECURE%$'\r'}"
+PORTAINER_WEBHOOK_URL="${PORTAINER_WEBHOOK_URL:-}"
+PORTAINER_WEBHOOK_URL="${PORTAINER_WEBHOOK_URL%$'\r'}"
+GITHUB_USER="${GITHUB_USER:-}"; GITHUB_USER="${GITHUB_USER%$'\r'}"
+GITHUB_TOKEN="${GITHUB_TOKEN:-}"; GITHUB_TOKEN="${GITHUB_TOKEN%$'\r'}"
 : "${GITHUB_USER:?GITHUB_USER fehlt – siehe Kopf dieses Skripts}"
 : "${GITHUB_TOKEN:?GITHUB_TOKEN fehlt – siehe Kopf dieses Skripts}"
 
