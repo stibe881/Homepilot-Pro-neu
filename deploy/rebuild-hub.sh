@@ -88,6 +88,35 @@ GITHUB_TOKEN="${GITHUB_TOKEN:-}"; GITHUB_TOKEN="${GITHUB_TOKEN%$'\r'}"
 : "${GITHUB_USER:?GITHUB_USER fehlt – siehe Kopf dieses Skripts}"
 : "${GITHUB_TOKEN:?GITHUB_TOKEN fehlt – siehe Kopf dieses Skripts}"
 
+# ── Platzmessung ───────────────────────────────────────────────────────
+#
+# Nach jedem Update war weniger Platz da, und wir haben mehrfach geraten
+# statt gemessen. Das hier schreibt vor und nach jedem Lauf mit, wieviel
+# frei ist und was Docker belegt - nach zwei Läufen steht in der Datei,
+# was wirklich wächst, statt einer Vermutung.
+#
+# Bewusst kein "du" über /var/lib/docker: Auf einer gewachsenen
+# Installation läuft das minutenlang und würde jedes Update ausbremsen.
+# "docker system df" beantwortet dieselbe Frage in einer Sekunde. Bleibt
+# Docker flach und der freie Platz sinkt trotzdem, liegt es ausserhalb -
+# dann sagt das die Zeile mit /opt und /var/log.
+PLATZ_LOG="/opt/homepilot/platz.log"
+
+platz_frei_kb() { df --output=avail -k / | tail -1 | tr -d ' '; }
+
+platz_notiz() {
+  # $1 = "vorher" | "nachher"
+  {
+    echo "── $1  $(date '+%Y-%m-%d %H:%M:%S')"
+    echo "   frei: $(numfmt --to=iec --from-unit=1024 "$(platz_frei_kb)")"
+    docker system df 2>/dev/null | tail -n +2 | sed 's/^/   /'
+    du -sxh /opt/homepilot /var/log 2>/dev/null | sed 's/^/   /'
+  } >> "$PLATZ_LOG" 2>/dev/null || true
+}
+
+FREI_VORHER=$(platz_frei_kb)
+platz_notiz vorher
+
 # Vorabprüfung: Antwortet Portainer überhaupt, und stolpert curl über
 # das Zertifikat? Das kostet eine Sekunde und erspart die Enttäuschung,
 # nach fünf Minuten Bauzeit am letzten Schritt zu scheitern. Bewusst nur
@@ -213,11 +242,21 @@ docker builder prune -f --keep-storage 2GB >/dev/null 2>&1 \
   || docker builder prune -f >/dev/null 2>&1 || true
 echo "✓ Abbild '$IMAGE' ist aktuell, alte Schichten aufgeräumt."
 
-# Was Docker jetzt noch belegt - und wieviel davon Platz auf der Platte
-# ist. Ohne diese Zeilen merkt man erst am vollen Datenträger, dass etwas
-# wächst, und rät dann, was es war.
+# Was dieser Lauf gekostet hat. Die Zahl ist die eigentliche Auskunft:
+# Ein Update darf Platz brauchen, aber nicht bei jedem Mal denselben
+# wieder - bleibt die Differenz Lauf für Lauf negativ, wächst etwas, das
+# hier niemand aufräumt.
+platz_notiz nachher
+FREI_NACHHER=$(platz_frei_kb)
+DIFF=$((FREI_NACHHER - FREI_VORHER))
 echo "→ Platz:"
-df -h --output=avail,pcent / | tail -1 | sed 's/^/  frei: /'
+echo "  frei: $(numfmt --to=iec --from-unit=1024 "$FREI_NACHHER")"
+if [ "$DIFF" -lt 0 ]; then
+  echo "  dieser Lauf hat $(numfmt --to=iec --from-unit=1024 $((0 - DIFF))) gekostet"
+elif [ "$DIFF" -gt 0 ]; then
+  echo "  dieser Lauf hat $(numfmt --to=iec --from-unit=1024 "$DIFF") frei gemacht"
+fi
+echo "  Verlauf: $PLATZ_LOG"
 docker system df 2>/dev/null | sed 's/^/  /'
 
 # Der Fresser, den kein prune anfasst: die Ausgabe der Container selbst.

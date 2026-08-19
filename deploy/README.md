@@ -279,6 +279,45 @@ Der Hub meldet ab 85 % Belegung von selbst, im System-Screen und als
 Push. Das ist das Netz für den Fall, dass etwas Neues wächst, an das hier
 niemand gedacht hat.
 
+## Wenn nach jedem Update weniger frei ist
+
+Nicht weiter raten – messen. `rebuild-hub.sh` schreibt seit Neuem vor und
+nach jedem Lauf mit, wieviel frei ist und was Docker belegt, und nennt am
+Ende die Differenz dieses Laufs:
+
+```
+→ Platz:
+  frei: 12G
+  dieser Lauf hat 340M gekostet
+  Verlauf: /opt/homepilot/platz.log
+```
+
+Nach zwei, drei Updates steht in `/opt/homepilot/platz.log`, was
+tatsächlich wächst. Drei Fälle:
+
+| Was der Verlauf zeigt | Wo es liegt |
+|---|---|
+| «Images» wächst je Lauf | Ein altes Abbild wird nicht aufgeräumt – `docker images homepilot-hub` zeigt, wie viele es sind (zwei sind richtig: `latest` und `prev`) |
+| «Build Cache» wächst über 2 GB | Der Deckel greift nicht – die Docker-Fassung kennt `--keep-storage` nicht mehr |
+| Docker bleibt flach, frei sinkt | Es liegt ausserhalb von Docker – dann sagt die Zeile mit `/opt/homepilot` und `/var/log`, wo |
+
+Sofort nachsehen, ohne auf ein Update zu warten:
+
+```bash
+docker system df
+docker images homepilot-hub
+sudo du -xh --max-depth=1 /var/lib/docker | sort -h | tail
+sudo du -sh /opt/homepilot/backups /opt/homepilot/web
+```
+
+Zwei Abbilder à ~1 GB sind normal und beabsichtigt: Das zweite ist der
+Rückweg, wenn ein Update nicht hochkommt. Wer den nicht braucht, kann es
+loswerden – dann fehlt aber die automatische Rückrollung:
+
+```bash
+docker rmi homepilot-hub:prev
+```
+
 ## Wenn der Platz trotzdem weniger wird
 
 `rebuild-hub.sh` räumt bei jedem Lauf auf, aber nur das, was vom Bauen
