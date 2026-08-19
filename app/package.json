@@ -24,6 +24,7 @@
     "expo-linear-gradient": "~15.0.8",
     "expo-notifications": "~0.32.17",
     "expo-status-bar": "~3.0.9",
+    "expo-updates": "~29.0.0",
     "expo-video": "~3.0.16",
     "hls.js": "^1.7.0",
     "react": "19.1.0",
