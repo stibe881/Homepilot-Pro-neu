@@ -141,3 +141,30 @@ Durchprobieren und gegen Dauerbeschuss, der den Hub sonst beschäftigt hält.
   nicht will, dreht für diesen Host die Protokollierung ab.
 - Ein Fehler im Hub, in FastAPI oder in einer Integration ist ab jetzt von
   aussen erreichbar. Beim VPN-Weg war er das nicht.
+
+## Auf dem iPhone-Homescreen
+
+In Safari die Adresse öffnen, teilen → **«Zum Home-Bildschirm»**. Danach
+läuft HomePilot ohne Browser-Leisten, wie eine installierte App.
+
+Damit das auch aussieht wie eine App, richtet sich die Web-Fassung beim
+Start selbst ein (`app/src/lib/webframe.web.ts`):
+
+- **Die Seite scrollt nicht, nur der Inhalt.** Ohne das wandern die obere
+  Zeile («3 Lichter an») und die untere Leiste aus dem Bild, sobald man
+  wischt – man zoomt dann heraus, um beides zu sehen.
+- **`100dvh` statt `100vh`.** Auf iOS meint `vh` die Höhe *mit*
+  eingeblendeten Leisten; mit `vh` ragt der untere Rand unter die
+  Home-Anzeige.
+- **`viewport-fit=cover`.** Erst damit gibt iOS die Masse von Kerbe und
+  Home-Anzeige heraus – ohne meldet es überall 0, und die App polstert an
+  der falschen Stelle.
+- Kein Gummiband-Effekt am Rand und kein Zoom beim Doppeltipp auf eine
+  Kachel.
+
+Zoomen mit zwei Fingern bleibt absichtlich erlaubt: Wer schlecht sieht,
+soll es können.
+
+**Nach einem Update** hält iOS die alte Fassung hartnäckig fest. Der
+verlässliche Weg: Symbol vom Homescreen löschen, Adresse in Safari neu
+aufrufen, wieder hinzufügen.
