@@ -3,8 +3,13 @@
 Warum überhaupt: Bisher ist ein Token die Anmeldung – gut für ein
 Wandpanel, unpraktisch für Menschen. Wer sein Telefon wechselt, braucht
 einen QR-Code von jemandem, der schon drin ist. Mit E-Mail und Passwort
-meldet sich jeder selbst an, und die Bestätigungs-E-Mail beweist
-nebenbei, dass die Adresse stimmt.
+meldet sich jeder selbst an.
+
+Wer ein Konto bekommt, entscheidet aber ausschliesslich der Besitzer des
+Hubs: Er trägt eine Person unter Benutzer ein und schickt ihr eine
+Einladung. Es gibt bewusst keine Selbstregistrierung – ein Haus ist kein
+Dienst, bei dem man sich anmeldet, und niemand von aussen soll den Hub
+dazu bringen können, Fremden E-Mails zu schicken.
 
 Warum trotzdem nicht *nur* Supabase: Der Hub steuert das Haus und muss
 das auch dann tun, wenn das Internet weg ist. Deshalb ist Supabase hier
@@ -12,8 +17,8 @@ nur die Anmeldestelle – wer sich einmal angemeldet hat, bekommt vom Hub
 eine eigene Sitzung, die lokal gilt. Danach braucht der Alltag kein
 Supabase mehr.
 
-Der Hub spricht dabei selbst mit Supabase, nicht die App. Damit bleibt
-der Anon-Key auf dem Hub, und die App kennt weiterhin nur eine einzige
+Der Hub spricht dabei selbst mit Supabase, nicht die App. Damit bleiben
+die Schlüssel auf dem Hub, und die App kennt weiterhin genau eine
 Adresse: die des Hubs.
 """
 
@@ -21,6 +26,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import quote
 
 import aiohttp
 
@@ -32,7 +38,7 @@ TIMEOUT = 15.0
 
 
 class AuthError(Exception):
-    """Anmeldung oder Registrierung abgelehnt – mit lesbarem Grund."""
+    """Anmeldung, Einladung oder Passwortwechsel abgelehnt – mit Grund."""
 
     def __init__(self, message: str, status: int = 400) -> None:
         super().__init__(message)
@@ -47,6 +53,7 @@ def error_text(status: int, payload: Any) -> str:
     stehen sie schief.
     """
     raw = ""
+    code = ""
     if isinstance(payload, dict):
         raw = str(
             payload.get("error_description")
@@ -55,7 +62,9 @@ def error_text(status: int, payload: Any) -> str:
             or payload.get("error")
             or ""
         )
-    lowered = raw.lower()
+        # Supabase nennt den Grund oft nur im Kürzel, nicht im Satz.
+        code = str(payload.get("error_code") or payload.get("code") or "")
+    lowered = f"{raw} {code}".lower()
     if "email not confirmed" in lowered:
         return (
             "Die E-Mail-Adresse ist noch nicht bestätigt. Schau in dein "
@@ -64,7 +73,12 @@ def error_text(status: int, payload: Any) -> str:
     if "invalid login" in lowered or status == 400 and "credential" in lowered:
         return "E-Mail-Adresse oder Passwort stimmen nicht."
     if "user already registered" in lowered or "already been registered" in lowered:
-        return "Für diese Adresse gibt es schon ein Konto. Melde dich an."
+        return "Für diese Adresse gibt es schon ein Konto."
+    if "not_admin" in lowered or status == 403 and "admin" in lowered:
+        return (
+            "Der Hub darf bei Supabase keine Einladungen verschicken. In der "
+            "config.yaml fehlt 'supabase.service_key'."
+        )
     if "password should be" in lowered or "weak password" in lowered:
         return "Das Passwort ist zu kurz – mindestens acht Zeichen."
     if status == 429:
@@ -91,24 +105,50 @@ def parse_session(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 class SupabaseAuth:
-    """Die drei Wege: anmelden, registrieren, Passwort vergessen."""
+    """Die Wege: anmelden, einladen, Passwort setzen, Passwort vergessen."""
 
-    def __init__(self, url: str, anon_key: str, timeout: float = TIMEOUT) -> None:
+    def __init__(
+        self,
+        url: str,
+        anon_key: str,
+        service_key: str = "",
+        timeout: float = TIMEOUT,
+    ) -> None:
         self.base = url.rstrip("/") + "/auth/v1"
         self._anon = anon_key
+        # Nur fürs Einladen nötig. Der Anon-Key darf das absichtlich nicht –
+        # sonst könnte jeder, der ihn kennt, Konten anlegen lassen.
+        self._service = service_key
         self._timeout = aiohttp.ClientTimeout(total=timeout)
 
-    def _headers(self) -> dict[str, str]:
-        return {
+    @property
+    def can_invite(self) -> bool:
+        return bool(self._service)
+
+    def _headers(self, bearer: str = "") -> dict[str, str]:
+        headers = {
             "apikey": self._anon,
             "Content-Type": "application/json",
         }
+        if bearer:
+            # Beim Einladen ist der Bearer der Dienstschlüssel, beim
+            # Passwortsetzen das Ticket aus der E-Mail.
+            headers["apikey"] = bearer if bearer == self._service else self._anon
+            headers["Authorization"] = f"Bearer {bearer}"
+        return headers
 
-    async def _post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
+    async def _post(
+        self, path: str, body: dict[str, Any], bearer: str = ""
+    ) -> dict[str, Any]:
+        return await self._send("POST", path, body, bearer)
+
+    async def _send(
+        self, method: str, path: str, body: dict[str, Any], bearer: str = ""
+    ) -> dict[str, Any]:
         try:
             async with aiohttp.ClientSession(timeout=self._timeout) as session:
-                async with session.post(
-                    f"{self.base}{path}", json=body, headers=self._headers()
+                async with session.request(
+                    method, f"{self.base}{path}", json=body, headers=self._headers(bearer)
                 ) as response:
                     payload: Any = {}
                     try:
@@ -145,21 +185,52 @@ class SupabaseAuth:
             )
         return session
 
-    async def sign_up(self, email: str, password: str) -> dict[str, Any]:
-        """Konto anlegen – Supabase verschickt die Bestätigungs-E-Mail."""
-        payload = await self._post(
-            "/signup", {"email": email.strip().lower(), "password": password}
-        )
-        return parse_session(payload)
+    async def invite(self, email: str, redirect_to: str = "") -> dict[str, Any]:
+        """Jemanden einladen – Supabase verschickt die E-Mail.
 
-    async def recover(self, email: str) -> None:
+        Das ist der einzige Weg zu einem Konto. ``redirect_to`` ist die
+        Seite, auf der die eingeladene Person ihr Passwort setzt; ohne
+        Angabe nimmt Supabase die im Projekt hinterlegte Site-URL.
+        """
+        if not self._service:
+            raise AuthError(
+                "Der Hub darf bei Supabase keine Einladungen verschicken. In "
+                "der config.yaml fehlt 'supabase.service_key'.",
+                503,
+            )
+        path = "/invite"
+        if redirect_to:
+            path += f"?redirect_to={quote(redirect_to, safe='')}"
+        payload = await self._post(
+            path, {"email": email.strip().lower()}, bearer=self._service
+        )
+        return {"id": str(payload.get("id") or ""), "email": email.strip().lower()}
+
+    async def set_password(self, access_token: str, password: str) -> dict[str, Any]:
+        """Passwort setzen – mit dem Ticket aus der Einladungs-E-Mail.
+
+        Supabase hat die Adresse damit zugleich bestätigt: Das Ticket kam
+        ja nur dort an.
+        """
+        payload = await self._send(
+            "PUT", "/user", {"password": password}, bearer=access_token
+        )
+        email = str(payload.get("email") or "").strip().lower()
+        if not email:
+            raise AuthError("Der Link ist abgelaufen. Bitte um eine neue Einladung.", 401)
+        return {"email": email}
+
+    async def recover(self, email: str, redirect_to: str = "") -> None:
         """Passwort-Vergessen-Mail anstossen.
 
         Die Antwort ist bewusst immer dieselbe: Ob es zu einer Adresse ein
         Konto gibt, geht niemanden etwas an, der sie nur eintippt.
         """
+        path = "/recover"
+        if redirect_to:
+            path += f"?redirect_to={quote(redirect_to, safe='')}"
         try:
-            await self._post("/recover", {"email": email.strip().lower()})
+            await self._post(path, {"email": email.strip().lower()})
         except AuthError as err:
             if err.status == 503:
                 raise

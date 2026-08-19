@@ -24,7 +24,9 @@ supabase:
   # Für die Anmeldung mit E-Mail und Passwort (Supabase Auth). Der
   # anon-Key ist öffentlich gedacht und darf hier stehen – er allein
   # erlaubt nichts ausser dem Anmeldeversuch. Ohne ihn bleibt es beim
-  # Token/QR-Code. Siehe docs/anmeldung.md.
+  # Token/QR-Code. Einladungen verschickt der service_key von oben;
+  # eine Selbstregistrierung gibt es bewusst nicht. Siehe
+  # docs/anmeldung.md.
   anon_key: "${SUPABASE_ANON_KEY}"
   history: true
   flush_interval: 5

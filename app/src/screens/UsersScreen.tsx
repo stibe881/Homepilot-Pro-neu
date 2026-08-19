@@ -56,7 +56,7 @@ interface HubUser {
   hours?: { from?: string; to?: string };
   /** Darf diese Person gerade herein? Rechnet Ablauf und Fenster mit. */
   active?: boolean;
-  /** Anmelde-Adresse – zugleich die Einladung zur Registrierung. */
+  /** Anmelde-Adresse – Voraussetzung für die Einladung. */
   email?: string | null;
 }
 
@@ -441,10 +441,10 @@ export function UsersScreen({ settings, currentUser }: Props) {
                   <View style={styles.rotateBox}>
                     <Text style={styles.formLabel}>Anmeldung mit E-Mail</Text>
                     <Text style={styles.qrHint}>
-                      Trägst du hier eine Adresse ein, kann sich diese Person
-                      selbst ein Konto anlegen und sich mit E-Mail und Passwort
-                      anmelden – ohne QR-Code. Ohne Eintrag weist der Hub jede
-                      Registrierung ab.
+                      Erst die Adresse eintragen, dann einladen. Die Person
+                      bekommt eine E-Mail, setzt darin ihr Passwort und meldet
+                      sich danach ohne QR-Code an. Selbst anlegen kann sich
+                      niemand ein Konto – der Weg führt immer über diesen Knopf.
                     </Text>
                     <TextInput
                       style={styles.input}
@@ -476,7 +476,7 @@ export function UsersScreen({ settings, currentUser }: Props) {
                           if (!response.ok) throw new Error(body.detail ?? 'Fehlgeschlagen');
                           setRotateNote(
                             value
-                              ? `${value} kann sich jetzt registrieren.`
+                              ? `${value} gespeichert. Jetzt einladen.`
                               : 'Adresse entfernt.'
                           );
                           load();
@@ -489,6 +489,35 @@ export function UsersScreen({ settings, currentUser }: Props) {
                     >
                       <Ionicons name="mail-outline" size={15} color={colors.ink} />
                       <Text style={styles.rotateText}>Adresse speichern</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={async () => {
+                        setRotateNote('Einladung geht raus …');
+                        try {
+                          const response = await fetch(
+                            `${settings.url}/api/users/${encodeURIComponent(
+                              detail.name
+                            )}/invite`,
+                            { method: 'POST', headers }
+                          );
+                          const body = await response.json();
+                          if (!response.ok) throw new Error(body.detail ?? 'Fehlgeschlagen');
+                          setRotateNote(body.message ?? 'Einladung verschickt.');
+                        } catch (err: any) {
+                          setRotateNote(String(err.message ?? err));
+                        }
+                      }}
+                      disabled={!detail.email}
+                      accessibilityRole="button"
+                      style={({ pressed }) => [
+                        styles.rotateButton,
+                        (pressed || !detail.email) && { opacity: 0.6 },
+                      ]}
+                    >
+                      <Ionicons name="paper-plane-outline" size={15} color={colors.ink} />
+                      <Text style={styles.rotateText}>
+                        {detail.email ? 'Einladung schicken' : 'Zuerst Adresse speichern'}
+                      </Text>
                     </Pressable>
                   </View>
 

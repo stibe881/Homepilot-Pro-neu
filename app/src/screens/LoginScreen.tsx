@@ -10,17 +10,20 @@ import { Colors, radius, type, useColors } from '../theme';
 /**
  * Anmelden mit E-Mail und Passwort.
  *
+ * Bewusst ohne «Konto anlegen»: Ein Haus ist kein Dienst, bei dem man
+ * sich anmeldet. Wer Zugang bekommt, entscheidet der Besitzer – er trägt
+ * die Person unter Benutzer ein und schickt ihr eine Einladung. In der
+ * E-Mail setzt sie ihr Passwort, danach führt dieser Schirm hinein.
+ *
  * Der Weg über den QR-Code bleibt daneben bestehen – für Wandpanels und
- * für den Fall, dass der Anmeldedienst gerade nicht erreichbar ist. Aber
- * für Menschen ist das hier der normale Weg: Wer sein Telefon wechselt,
- * braucht niemanden, der ihm einen Code hinhält.
+ * für den Fall, dass der Anmeldedienst gerade nicht erreichbar ist.
  *
  * Die App spricht dabei nur mit dem Hub. Der wiederum spricht mit
  * Supabase – so bleibt der Schlüssel dort, wo er hingehört, und die App
  * kennt weiterhin genau eine Adresse.
  */
 
-type Mode = 'login' | 'register' | 'recover';
+type Mode = 'login' | 'recover';
 
 /** Sieht das nach einer E-Mail-Adresse aus? (rein, testbar)
  *
@@ -90,12 +93,7 @@ export function LoginScreen({
     setError(null);
     setNote(null);
     const base = url.replace(/\/$/, '');
-    const path =
-      mode === 'login'
-        ? '/api/auth/login'
-        : mode === 'register'
-          ? '/api/auth/register'
-          : '/api/auth/recover';
+    const path = mode === 'login' ? '/api/auth/login' : '/api/auth/recover';
     try {
       const response = await fetch(`${base}${path}`, {
         method: 'POST',
@@ -123,7 +121,6 @@ export function LoginScreen({
         return;
       }
       setNote(body.message ?? 'Erledigt.');
-      if (mode === 'register') setMode('login');
     } catch (err: any) {
       setError(String(err.message ?? err));
     } finally {
@@ -131,8 +128,7 @@ export function LoginScreen({
     }
   };
 
-  const title =
-    mode === 'login' ? 'Anmelden' : mode === 'register' ? 'Konto anlegen' : 'Passwort vergessen';
+  const title = mode === 'login' ? 'Anmelden' : 'Passwort vergessen';
 
   return (
     <View style={styles.screen}>
@@ -184,12 +180,12 @@ export function LoginScreen({
                   style={styles.input}
                   value={password}
                   onChangeText={setPassword}
-                  placeholder={mode === 'register' ? 'mindestens acht Zeichen' : ''}
+                  placeholder=""
                   placeholderTextColor={colors.inkFaint}
                   secureTextEntry
                   autoCapitalize="none"
                   autoCorrect={false}
-                  textContentType={mode === 'register' ? 'newPassword' : 'password'}
+                  textContentType="password"
                 />
               </>
             ) : null}
@@ -209,41 +205,27 @@ export function LoginScreen({
                 color="#FFFFFF"
               />
               <Text style={styles.primaryText}>
-                {busy
-                  ? 'Einen Moment …'
-                  : mode === 'login'
-                    ? 'Anmelden'
-                    : mode === 'register'
-                      ? 'Konto anlegen'
-                      : 'E-Mail schicken'}
+                {busy ? 'Einen Moment …' : mode === 'login' ? 'Anmelden' : 'E-Mail schicken'}
               </Text>
             </Pressable>
 
             <View style={styles.links}>
-              {mode !== 'login' ? (
+              {mode === 'login' ? (
+                <Pressable onPress={() => { setMode('recover'); setError(null); }}>
+                  <Text style={styles.link}>Passwort vergessen</Text>
+                </Pressable>
+              ) : (
                 <Pressable onPress={() => { setMode('login'); setError(null); }}>
                   <Text style={styles.link}>Zurück zum Anmelden</Text>
                 </Pressable>
-              ) : (
-                <>
-                  <Pressable onPress={() => { setMode('register'); setError(null); }}>
-                    <Text style={styles.link}>Konto anlegen</Text>
-                  </Pressable>
-                  <Pressable onPress={() => { setMode('recover'); setError(null); }}>
-                    <Text style={styles.link}>Passwort vergessen</Text>
-                  </Pressable>
-                </>
               )}
             </View>
 
-            {mode === 'register' ? (
-              <Text style={styles.hint}>
-                Anlegen kann nur, wessen Adresse im Haus schon eingetragen ist.
-                Bitte jemanden mit Zugang, dich unter Benutzer aufzunehmen.
-                Danach kommt eine Bestätigungs-E-Mail – erst nach dem Klick
-                darin funktioniert die Anmeldung.
-              </Text>
-            ) : null}
+            <Text style={styles.hint}>
+              Noch kein Zugang? Konten legt nur der Besitzer des Hubs an. Bitte
+              ihn um eine Einladung – sie kommt per E-Mail, darin setzt du dein
+              Passwort.
+            </Text>
 
             <Pressable onPress={onUseToken} style={styles.secondary}>
               <Ionicons name="qr-code-outline" size={16} color={colors.ink} />

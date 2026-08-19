@@ -17,11 +17,13 @@ from .conftest import make_config
 class FakeAuth:
     """Ein Supabase, das tut, was der Test gerade braucht."""
 
-    def __init__(self, url="https://x.supabase.co", anon_key="anon"):
-        self.signed_up: list[tuple[str, str]] = []
+    def __init__(self, url="https://x.supabase.co", anon_key="anon", service_key="srv"):
+        self.invited: list[tuple[str, str]] = []
         self.recovered: list[str] = []
+        self.passwords: list[tuple[str, str]] = []
         self.accounts = {"stefan@example.ch": "richtig"}
         self.unconfirmed: set[str] = set()
+        self.can_invite = bool(service_key)
 
     async def sign_in(self, email, password):
         email = email.strip().lower()
@@ -31,11 +33,19 @@ class FakeAuth:
             raise supabase_auth.AuthError("Noch nicht bestätigt.", 403)
         return {"id": "u1", "email": email, "confirmed": True, "access_token": "jwt"}
 
-    async def sign_up(self, email, password):
-        self.signed_up.append((email.strip().lower(), password))
-        return {"id": "u2", "email": email, "confirmed": False, "access_token": ""}
+    async def invite(self, email, redirect_to=""):
+        if not self.can_invite:
+            raise supabase_auth.AuthError("Kein Dienstschlüssel.", 503)
+        self.invited.append((email.strip().lower(), redirect_to))
+        return {"id": "u2", "email": email.strip().lower()}
 
-    async def recover(self, email):
+    async def set_password(self, access_token, password):
+        if access_token != "ticket":
+            raise supabase_auth.AuthError("Der Link ist abgelaufen.", 401)
+        self.passwords.append((access_token, password))
+        return {"email": "stefan@example.ch"}
+
+    async def recover(self, email, redirect_to=""):
         self.recovered.append(email.strip().lower())
 
 
@@ -46,7 +56,12 @@ def make_auth_hub(monkeypatch, fake=None):
         make_config(
             token="geheim",
             users=[{"name": "Stefan", "role": "besitzer", "token": "t-stefan"}],
-            supabase={"url": "https://x.supabase.co", "anon_key": "anon"},
+            supabase={
+                "url": "https://x.supabase.co",
+                "anon_key": "anon",
+                "service_key": "srv",
+            },
+            push={"public_url": "https://haus.example.ch"},
         )
     )
     return hub, fake
@@ -59,7 +74,11 @@ def test_login_needs_an_address_that_the_house_knows(monkeypatch):
     hub, _ = make_auth_hub(monkeypatch)
     with TestClient(create_app(hub)) as client:
         owner = {"Authorization": "Bearer geheim"}
-        assert client.get("/api/auth/config").json() == {"password_login": True}
+        assert client.get("/api/auth/config").json() == {
+            "password_login": True,
+            "self_signup": False,
+            "invite": True,
+        }
 
         # Noch ohne Eintrag: abgewiesen, obwohl das Passwort stimmt.
         refused = client.post(
@@ -68,7 +87,7 @@ def test_login_needs_an_address_that_the_house_knows(monkeypatch):
         )
         assert refused.status_code == 403
 
-        # Besitzer trägt die Adresse ein – das ist die Einladung.
+        # Besitzer trägt die Adresse ein.
         assert (
             client.put(
                 "/api/users/Stefan/email",
@@ -110,28 +129,85 @@ def test_wrong_password_is_refused(monkeypatch):
         assert response.status_code == 400
 
 
-def test_registration_only_for_invited_addresses(monkeypatch):
-    """Sonst verschickte der Hub auf Zuruf E-Mails an Fremde."""
+def test_nobody_can_sign_up_on_their_own(monkeypatch):
+    """Es gibt keine Selbstregistrierung – der Weg führt über den Besitzer.
+
+    Sonst legte sich jeder, der die Adresse des Hubs kennt, ein Konto an,
+    und der Hub verschickte auf Zuruf E-Mails an Fremde."""
     hub, fake = make_auth_hub(monkeypatch)
     with TestClient(create_app(hub)) as client:
-        fremd = client.post(
+        gone = client.post(
             "/api/auth/register",
             json={"email": "fremd@example.ch", "password": "geheim12"},
         )
-        assert fremd.status_code == 403
-        assert fake.signed_up == []
+        assert gone.status_code == 404
+        assert fake.invited == []
+
+
+def test_only_the_owner_invites_and_only_with_an_address(monkeypatch):
+    hub, fake = make_auth_hub(monkeypatch)
+    with TestClient(create_app(hub)) as client:
+        owner = {"Authorization": "Bearer geheim"}
+
+        # Ohne Anmeldung geht gar nichts.
+        assert client.post("/api/users/Stefan/invite").status_code == 401
+
+        # Eingetragen ist noch keine Adresse – dann gibt es nichts zu schicken.
+        assert client.post("/api/users/Stefan/invite", headers=owner).status_code == 400
+        assert fake.invited == []
 
         client.put(
-            "/api/users/Stefan/email",
-            json={"email": "stefan@example.ch"},
-            headers={"Authorization": "Bearer geheim"},
+            "/api/users/Stefan/email", json={"email": "stefan@example.ch"}, headers=owner
         )
+        sent = client.post("/api/users/Stefan/invite", headers=owner)
+        assert sent.status_code == 200
+        # Der Link in der E-Mail führt auf die Seite des Hubs, nicht zu Supabase.
+        assert fake.invited == [
+            ("stefan@example.ch", "https://haus.example.ch/einladung")
+        ]
+
+        # Unbekannte Person: 404, und nichts verschickt.
+        assert client.post("/api/users/Niemand/invite", headers=owner).status_code == 404
+        assert len(fake.invited) == 1
+
+
+def test_password_is_set_with_the_ticket_from_the_mail(monkeypatch):
+    """Wer das Ticket hat, hat das Postfach – mehr braucht es nicht."""
+    hub, fake = make_auth_hub(monkeypatch)
+    with TestClient(create_app(hub)) as client:
+        # Zu kurz wird gar nicht erst weitergereicht.
+        short = client.post(
+            "/api/auth/password", json={"access_token": "ticket", "password": "kurz"}
+        )
+        assert short.status_code == 400
+        assert fake.passwords == []
+
+        # Falsches oder abgelaufenes Ticket.
+        assert (
+            client.post(
+                "/api/auth/password", json={"access_token": "alt", "password": "geheim12"}
+            ).status_code
+            == 401
+        )
+
         ok = client.post(
-            "/api/auth/register",
-            json={"email": "stefan@example.ch", "password": "geheim12"},
+            "/api/auth/password", json={"access_token": "ticket", "password": "geheim12"}
         )
         assert ok.status_code == 200
-        assert fake.signed_up == [("stefan@example.ch", "geheim12")]
+        assert fake.passwords == [("ticket", "geheim12")]
+
+
+def test_the_invite_page_is_reachable_without_login(monkeypatch):
+    """Der Link landet im Browser, oft auf einem Gerät ohne App."""
+    hub, _ = make_auth_hub(monkeypatch)
+    with TestClient(create_app(hub)) as client:
+        page = client.get("/einladung")
+        assert page.status_code == 200
+        assert "Passwort setzen" in page.text
+        # Die Seite selbst kennt kein Geheimnis: weder Projekt noch
+        # Schlüssel. Sie redet nur mit dem Hub.
+        assert "x.supabase.co" not in page.text
+        assert "/api/auth/password" in page.text
 
 
 def test_recover_says_the_same_thing_either_way(monkeypatch):
@@ -205,7 +281,11 @@ def test_revoke_all_sessions(monkeypatch):
 def test_without_supabase_there_is_no_password_login():
     hub = Hub(make_config(token="geheim"))
     with TestClient(create_app(hub)) as client:
-        assert client.get("/api/auth/config").json() == {"password_login": False}
+        assert client.get("/api/auth/config").json() == {
+            "password_login": False,
+            "self_signup": False,
+            "invite": False,
+        }
         assert (
             client.post(
                 "/api/auth/login", json={"email": "a@b.ch", "password": "x"}
@@ -220,6 +300,7 @@ def test_error_text_translates_the_usual_suspects():
     assert "nicht bestätigt" in error_text(400, {"msg": "Email not confirmed"})
     assert "stimmen nicht" in error_text(400, {"msg": "Invalid login credentials"})
     assert "schon ein Konto" in error_text(422, {"msg": "User already registered"})
+    assert "service_key" in error_text(403, {"msg": "User not allowed", "code": "not_admin"})
     assert "zu kurz" in error_text(422, {"msg": "Password should be at least 8 characters"})
     # Unbekanntes bleibt stehen, statt verschluckt zu werden.
     assert error_text(500, {"message": "boom"}) == "boom"

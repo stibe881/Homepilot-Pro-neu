@@ -2,13 +2,19 @@
 
 Bisher war ein Token die Anmeldung: gut für ein Wandpanel, unpraktisch für
 Menschen. Wer sein Telefon wechselt, braucht sonst jemanden, der ihm einen
-QR-Code hinhält. Mit E-Mail und Passwort meldet sich jeder selbst an, und
-die Bestätigungs-E-Mail beweist nebenbei, dass die Adresse stimmt.
+QR-Code hinhält. Mit E-Mail und Passwort meldet sich jeder selbst an.
+
+**Es gibt bewusst keine Selbstregistrierung.** Ein Haus ist kein Dienst,
+bei dem man sich anmeldet. Wer Zugang bekommt, entscheidet der Besitzer:
+Er trägt die Person unter *Benutzer* ein und schickt ihr eine Einladung.
+In der E-Mail setzt sie ihr Passwort – fertig. Ohne diesen Weg gäbe es
+zwei Löcher: Jeder, der die Adresse des Hubs kennt, könnte sich ein Konto
+anlegen, und der Hub verschickte auf Zuruf E-Mails an Fremde.
 
 ## Wie es aufgebaut ist
 
 Die App spricht **nur mit dem Hub**. Der Hub wiederum spricht mit Supabase.
-Damit bleibt der Schlüssel dort, wo er hingehört, und die App kennt
+Damit bleiben die Schlüssel dort, wo sie hingehören, und die App kennt
 weiterhin genau eine Adresse.
 
 Nach erfolgreicher Anmeldung stellt der Hub eine **eigene Sitzung** aus.
@@ -28,9 +34,9 @@ Hände bekommt, hat damit noch keinen Zugang.
 
 **1. Supabase-Projekt.** Du hast bereits eines (für den Verlauf). Unter
 *Project Settings → API* stehen zwei Schlüssel: `service_role` (den kennt
-der Hub schon) und `anon`. Nur der `anon`-Key ist neu nötig – er ist
-öffentlich gedacht und erlaubt für sich allein nichts ausser dem
-Anmeldeversuch.
+der Hub schon – er ist es auch, der die Einladungen verschicken darf) und
+`anon`. Nur der `anon`-Key ist neu nötig; er ist öffentlich gedacht und
+erlaubt für sich allein nichts ausser dem Anmeldeversuch.
 
 **2. In der `config.yaml`:**
 
@@ -39,33 +45,52 @@ supabase:
   url: "https://dein-projekt.supabase.co"
   service_key: "${SUPABASE_SERVICE_KEY}"
   anon_key: "${SUPABASE_ANON_KEY}"
+
+push:
+  public_url: "https://homepilot.familie-gross.ch"
 ```
 
 Die Umgebungsvariable `SUPABASE_ANON_KEY` gehört in die Stack-Konfiguration
-in Portainer, nicht in die Datei.
+in Portainer, nicht in die Datei. `push.public_url` gibt es meist schon
+(für die Kamerabilder in den Push-Nachrichten); der Einladungslink führt
+auf `<public_url>/einladung`.
 
-**3. In Supabase:** *Authentication → Providers → Email* einschalten und
-**«Confirm email»** aktiviert lassen – das ist die Bestätigungs-E-Mail.
-Unter *Authentication → URL Configuration* die Adresse des Hubs als *Site
-URL* eintragen (`https://homepilot.familie-gross.ch`), damit der Link in
-der E-Mail dorthin führt.
+**3. In Supabase:** *Authentication → Providers → Email* einschalten.
+Unter *Authentication → URL Configuration* bei *Redirect URLs* die Adresse
+`https://homepilot.familie-gross.ch/einladung` freigeben – sonst weist
+Supabase den Link aus der E-Mail ab.
 
 **4. Hub neu starten.** Danach zeigt die App beim ersten Start die
 Anmeldemaske statt der Token-Eingabe.
 
-## Wer darf sich registrieren
+## Jemanden aufnehmen
 
-Nur, wessen Adresse im Haus schon eingetragen ist. Sonst legte sich jeder,
-der die Adresse des Hubs kennt, ein Konto an – und der Hub verschickte auf
-Zuruf E-Mails an Fremde.
+In der App unter **Benutzer** die Person auswählen, dann:
 
-Also: In der App unter **Benutzer** die Person auswählen und ihre
-**Anmelde-Adresse** eintragen. Das ist die Einladung. Danach kann sie in
-der App auf «Konto anlegen», bekommt die Bestätigungs-E-Mail, klickt den
-Link und meldet sich an.
+1. **Anmelde-Adresse eintragen** und speichern.
+2. **«Einladung schicken»** antippen.
 
-Ein Konto bei Supabase allein genügt nicht: Wer sich mit einer nicht
-eingetragenen Adresse anmeldet, wird abgewiesen.
+Die Person bekommt eine E-Mail, tippt auf den Link, landet auf der Seite
+`/einladung` des Hubs und setzt dort ihr Passwort. Danach meldet sie sich
+in der App mit E-Mail und Passwort an.
+
+Der Knopf funktioniert zugleich als Erinnerung: Eine zweite Einladung
+ersetzt einfach die erste.
+
+Zwei Riegel, unabhängig voneinander:
+
+- Einladen darf nur, wer die Berechtigung **Benutzer verwalten** hat.
+- Anmelden kann sich nur, wessen Adresse im Haus eingetragen ist. Ein
+  Konto bei Supabase allein genügt nicht – wer mit einer unbekannten
+  Adresse kommt, wird abgewiesen, mit derselben Auskunft wie bei einem
+  falschen Passwort.
+
+Das Ticket in der E-Mail ist der ganze Nachweis: Wer es hat, hat das
+Postfach. Es steht im Fragment der Adresse (`#access_token=…`) und wird
+deshalb nie an einen Server geschickt – die Seite gibt es bewusst an den
+Hub weiter, und der spricht mit Supabase. Der Link gilt einmal und nur
+begrenzt; ist er abgelaufen, sagt die Seite das und man schickt eine neue
+Einladung.
 
 ## Was mit den alten Tokens passiert
 
@@ -88,5 +113,6 @@ Zwei Knöpfe, beide unter Einstellungen:
 - **Neues Token ausstellen** (unter Benutzer) macht zusätzlich das feste
   Token ungültig.
 
-Das Passwort selbst ändert man über «Passwort vergessen» – die E-Mail
-kommt von Supabase.
+Das Passwort ändert man über **«Passwort vergessen»** in der Anmeldemaske.
+Die E-Mail kommt von Supabase und führt auf dieselbe Seite wie die
+Einladung.
