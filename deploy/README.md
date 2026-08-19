@@ -147,3 +147,92 @@ sudo systemctl restart homepilot-update
 
 Danach den Stack neu deployen, damit der Hub den neuen Wert bekommt.
 Was der Listener sieht, steht in `journalctl -u homepilot-update -f`.
+
+## Wenn der Platz weniger wird
+
+`rebuild-hub.sh` räumt bei jedem Lauf auf, aber nur das, was vom Bauen
+übrig bleibt: verwaiste Abbild-Schichten und BuildKits Zwischenspeicher
+(auf 2 GB gedeckelt). Am Ende zeigt es, wieviel Platz noch frei ist und
+was Docker belegt.
+
+Drei Dinge wachsen ausserhalb davon.
+
+### 1. Die Protokolle der Container
+
+Der grösste stille Fresser. Docker schreibt die Ausgabe jedes Containers
+in eine Datei, **ohne Obergrenze**. Bei einem gesprächigen Dienst sind das
+Gigabytes im Jahr, und kein `prune` fasst sie an. Nachsehen:
+
+```bash
+sudo du -sh /var/lib/docker/containers/*/*-json.log | sort -h | tail -5
+```
+
+Die Lösung ist ein Deckel, nicht regelmässiges Löschen. In
+`/etc/docker/daemon.json`:
+
+```json
+{
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "10m", "max-file": "3" }
+}
+```
+
+```bash
+sudo systemctl restart docker
+```
+
+Das gilt für **neu erstellte** Container – die laufenden behalten ihre
+alte Einstellung, bis der Stack einmal neu ausgerollt wird. Die
+vorhandenen Dateien einmalig leeren (die Container dürfen dabei laufen):
+
+```bash
+sudo sh -c 'truncate -s 0 /var/lib/docker/containers/*/*-json.log'
+```
+
+Damit ist das bisherige Protokoll weg – also nur tun, wenn gerade nichts
+zu untersuchen ist.
+
+### 2. Das Journal des Systems
+
+```bash
+journalctl --disk-usage
+sudo journalctl --vacuum-size=200M
+```
+
+Dauerhaft: `SystemMaxUse=200M` in `/etc/systemd/journald.conf`.
+
+### 3. Gestoppte Container und alte Abbilder
+
+`rebuild-hub.sh` löscht nur **verwaiste** Schichten. Abbilder, an denen
+noch ein gestoppter Container hängt, bleiben absichtlich liegen.
+
+## Was man dabei nicht tun sollte
+
+**`docker system prune -a --volumes` ist gefährlich.** Zwei Dinge daran:
+
+- `--volumes` löscht Datenträger, an denen gerade kein *laufender*
+  Container hängt. Darunter fällt die Datenbank von Nginx Proxy Manager –
+  mit ihr alle Proxy-Einträge und Zertifikate.
+- `-a` löscht auch Abbilder, deren Container nur gerade gestoppt sind.
+  Die müssen danach alle neu geladen werden, und bei einem selbst
+  gebauten Abbild ohne Registry heisst das: neu bauen.
+
+Aus demselben Grund steht im Skript `docker image prune -f` ohne `-a` und
+`docker builder prune --keep-storage 2GB` statt `--all`. Wer wirklich
+aufräumen will, macht es in dieser Reihenfolge und schaut zwischendurch
+hin:
+
+```bash
+docker system df                    # erst messen
+docker image prune -f               # nur verwaiste Schichten
+docker builder prune -f --keep-storage 2GB
+docker container prune              # fragt nach; gestoppte Container
+```
+
+Volumes bleiben aussen vor. Wer meint, einen loszuwerden, schaut ihn sich
+vorher einzeln an:
+
+```bash
+docker volume ls
+docker volume inspect <name>
+```

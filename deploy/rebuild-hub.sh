@@ -168,6 +168,30 @@ docker builder prune -f --keep-storage 2GB >/dev/null 2>&1 \
   || docker builder prune -f >/dev/null 2>&1 || true
 echo "✓ Abbild '$IMAGE' ist aktuell, alte Schichten aufgeräumt."
 
+# Was Docker jetzt noch belegt - und wieviel davon Platz auf der Platte
+# ist. Ohne diese Zeilen merkt man erst am vollen Datenträger, dass etwas
+# wächst, und rät dann, was es war.
+echo "→ Platz:"
+df -h --output=avail,pcent / | tail -1 | sed 's/^/  frei: /'
+docker system df 2>/dev/null | sed 's/^/  /'
+
+# Der Fresser, den kein prune anfasst: die Ausgabe der Container selbst.
+# Docker schreibt sie ohne Deckel in eine Datei je Container, und die
+# wächst, solange der Container läuft - bei einem gesprächigen Dienst um
+# Gigabytes im Jahr. Bewusst nur melden und nicht löschen: Das Protokoll
+# ist das Erste, was man nach einer Störung braucht, und der richtige Ort
+# für die Lösung ist ohnehin ein Deckel in der daemon.json (siehe
+# deploy/README.md), nicht ein Wegwerfen bei jedem Bau.
+if [ -d /var/lib/docker/containers ]; then
+  BIG=$(find /var/lib/docker/containers -name '*-json.log' -size +100M 2>/dev/null || true)
+  if [ -n "$BIG" ]; then
+    echo "⚠ Container-Protokolle über 100 MB:"
+    # shellcheck disable=SC2086
+    du -h $BIG 2>/dev/null | sed 's/^/  /'
+    echo "  Dauerhaft deckeln: /etc/docker/daemon.json (siehe deploy/README.md)."
+  fi
+fi
+
 if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
   # Der alte Container bleibt bewusst stehen: Den Tausch macht Portainer
   # beim Ausrollen selbst. Scheitert es dort (etwa am Re-pull eines lokal
