@@ -6,6 +6,7 @@ import { ConfigVersion, Entity, HubSettings, LogEntry, SystemStatus, User } from
 import { PushState, pushHint } from '../hooks/usePushRegistration';
 import { AccessLog } from '../components/AccessLog';
 import { Card } from '../components/Card';
+import { localTime, timeAgo } from '../lib/zeit';
 import { Colors, radius, space, type, useColors } from '../theme';
 
 /**
@@ -112,12 +113,19 @@ export function SystemScreen({
 
         {status.build ? (
           <View style={styles.buildRow}>
-            <Text style={styles.rowDetail}>
-              HomePilot {status.build.version} · Stand {status.build.commit}
-              {status.build.built_at !== 'unbekannt'
-                ? ` · gebaut ${status.build.built_at}`
-                : ''}
-            </Text>
+            <View style={styles.buildText}>
+              <Text style={styles.rowDetail}>
+                HomePilot {status.build.version} · Stand {status.build.commit}
+              </Text>
+              {localTime(status.build.built_at) ? (
+                <Text style={styles.rowDetail}>
+                  gebaut {localTime(status.build.built_at)}
+                  {timeAgo(status.build.built_at)
+                    ? ` (${timeAgo(status.build.built_at)})`
+                    : ''}
+                </Text>
+              ) : null}
+            </View>
             <UpdateButton settings={settings} />
           </View>
         ) : null}
@@ -1295,6 +1303,9 @@ const makeStyles = (colors: Colors) =>
   errorLine: { color: colors.danger, fontSize: 13, fontWeight: '600' },
   versionRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
   buildRow: { gap: 8, marginTop: 4 },
+  // Zwei Zeilen statt einer langen: Der Zeitstempel bricht sonst mitten
+  // im Datum um und liest sich wie ein Fehler.
+  buildText: { gap: 2 },
   updateButton: {
     flexDirection: 'row',
     alignItems: 'center',
