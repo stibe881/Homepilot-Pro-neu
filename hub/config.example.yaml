@@ -301,6 +301,18 @@ integrations:
   # - integration: ring
   #   scan_interval: 300
 
+  # Pit-Boss-Pelletgrill (auch Louisiana Grills). Braucht: pip install pytboss
+  # Ausführlich in docs/grill.md.
+  # - integration: pitboss
+  #   name: Grill
+  #   model: PBV4PS2            # steht auf dem Typenschild
+  #   host: 10.10.1.60          # lokal – ohne Umweg über die Hersteller-Cloud
+  #   # grill_id: "..."         # Alternative: über die Cloud, Kennung aus der App
+  #   scan_interval: 30
+  #   # Anzünden aus der Ferne ist absichtlich aus – es entfacht ein Feuer
+  #   # in einem Gerät, neben dem niemand stehen muss.
+  #   allow_remote_start: false
+
   # Matter über den python-matter-server (läuft als eigener Dienst, siehe
   # docker-compose.yml). Geräte koppeln:
   #   python -m homepilot.integrations.matter -c config.yaml --pair <Code>

@@ -386,6 +386,11 @@ export function EntityCard({
       }
 
       case 'appliance':
+        // Der Grill ist zwar auch ein Gerät, aber beim Grillen zählt etwas
+        // anderes als bei der Spülmaschine: Temperatur, Fühler, Pellets.
+        if (entity.integration === 'pitboss') {
+          return <GrillBody entity={entity} onCommand={onCommand} />;
+        }
         return (
           <View style={styles.stack}>
             <Pill
@@ -1405,6 +1410,114 @@ function useGlide(target: number, fullTravelSeconds: number): number {
  *  Eigene Komponente statt Inline-Zweig, weil die gleitende Position
  *  eigene Hooks braucht. Ein Knopfdruck setzt das Ziel sofort («weiss ja,
  *  wohin die Fahrt geht»), die nächste Meldung des Hubs übernimmt. */
+/**
+ * Pelletgrill.
+ *
+ * Was beim Grillen wirklich zählt, steht oben: die Temperatur im Garraum
+ * und die der Fleischfühler. Alles andere ist Beiwerk – ausser einer
+ * Störung, die gehört nach vorne, weil ein leerer Pelletbehälter das
+ * Fleisch kalt werden lässt, während man drinnen sitzt.
+ *
+ * Anzünden ist zweistufig und erscheint nur, wenn es in der config.yaml
+ * freigegeben ist. Es entfacht ein Feuer in einem Gerät, neben dem gerade
+ * niemand stehen muss – ein einzelner Fehlgriff soll das nicht auslösen.
+ */
+function GrillBody({
+  entity,
+  onCommand,
+}: {
+  entity: Entity;
+  onCommand: (command: string, data?: Record<string, unknown>) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [askStart, setAskStart] = useState(false);
+
+  const unit = entity.state.unit ?? '°C';
+  const temperature = entity.state.temperature;
+  const target = entity.state.target;
+  const running = entity.state.state === 'running';
+  const probes: Record<string, number> = entity.state.probes ?? {};
+  const problem = entity.state.problem;
+
+  // Der Grill nimmt nur bestimmte Sollwerte an und rundet selbst auf den
+  // nächsten – deshalb genügen hier grobe Schritte.
+  const step = (delta: number) =>
+    onCommand('set_temperature', { temperature: Math.round((target ?? 100) + delta) });
+
+  return (
+    <View style={styles.stack}>
+      <Pill
+        label={
+          running
+            ? typeof temperature === 'number'
+              ? `${temperature} ${unit}`
+              : 'Läuft'
+            : 'Aus'
+        }
+        tone={running ? colors.accent : undefined}
+      />
+
+      {problem ? <Text style={styles.grillProblem}>{problem}</Text> : null}
+
+      {running && typeof target === 'number' ? (
+        <View style={styles.grillRow}>
+          <Pressable
+            onPress={() => step(-5)}
+            hitSlop={6}
+            accessibilityLabel="Temperatur senken"
+            style={({ pressed }) => [styles.grillStep, pressed && { opacity: 0.6 }]}
+          >
+            <Ionicons name="remove" size={16} color={colors.ink} />
+          </Pressable>
+          <Text style={styles.hint}>
+            Ziel {target} {unit}
+          </Text>
+          <Pressable
+            onPress={() => step(5)}
+            hitSlop={6}
+            accessibilityLabel="Temperatur erhöhen"
+            style={({ pressed }) => [styles.grillStep, pressed && { opacity: 0.6 }]}
+          >
+            <Ionicons name="add" size={16} color={colors.ink} />
+          </Pressable>
+        </View>
+      ) : null}
+
+      {Object.entries(probes).map(([number, value]) => (
+        <Text key={number} style={styles.detail}>
+          Fühler {number}: {value} {unit}
+        </Text>
+      ))}
+
+      <View style={styles.mediaRow}>
+        {entity.commands.includes('turn_on') ? (
+          <MediaButton
+            icon={askStart ? 'flame' : 'flame-outline'}
+            label={askStart ? 'Wirklich?' : 'Anzünden'}
+            onPress={() => {
+              if (askStart) {
+                setAskStart(false);
+                onCommand('turn_on');
+              } else {
+                setAskStart(true);
+              }
+            }}
+          />
+        ) : null}
+        {entity.commands.includes('light_on') ? (
+          <MediaButton
+            icon="bulb-outline"
+            label="Licht"
+            onPress={() => onCommand(entity.state.light ? 'light_off' : 'light_on')}
+          />
+        ) : null}
+        <MediaButton icon="power" label="Aus" onPress={() => onCommand('turn_off')} />
+      </View>
+    </View>
+  );
+}
+
 function CoverBody({
   entity,
   sky,
@@ -1948,6 +2061,18 @@ const makeStyles = (colors: Colors) =>
   },
   renameSaveText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
   mediaRow: { flexDirection: 'row', gap: 10 },
+  // Grill: Störung nach vorne – ein leerer Pelletbehälter lässt das
+  // Fleisch kalt werden, während man drinnen sitzt.
+  grillProblem: { color: colors.warn, fontSize: 13, fontWeight: '700' },
+  grillRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  grillStep: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.track,
+  },
   mediaLabel: {
     color: colors.inkFaint,
     fontSize: 11,

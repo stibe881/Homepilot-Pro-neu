@@ -25,6 +25,10 @@ ring = ["ring-doorbell>=0.9"]
 # Auf die 1.x-Serie festgelegt: pyoverkiz 2.x hat eine andere Client-API
 # und verlangt Python 3.12. 1.20.6 läuft ab 3.10 und ist die getestete Basis.
 overkiz = ["pyoverkiz>=1.13,<2.0"]
+# Pit-Boss-Pelletgrill. Verlangt Python 3.12 – das Abbild bringt es mit,
+# eine lokale Entwicklungsumgebung auf 3.11 nicht. Deshalb hier und nicht
+# in den Grundabhängigkeiten.
+pitboss = ["pytboss>=2026.8"]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",

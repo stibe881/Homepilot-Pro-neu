@@ -157,6 +157,7 @@ Nachbesserungen bei Zugangsdaten und Feldnamen.
 | `hue` | Philips Hue Bridge, lokale CLIP-v2-API + SSE-Eventstream |
 | `unifi` | Anwesenheit über verbundene Clients, UniFi OS und Standalone |
 | `geofence` | Ankommen und Weggehen, gemeldet vom Telefon selbst (iOS-Kurzbefehle/Tasker) – merkt den Aufbruch Minuten früher als das WLAN ([Einrichtung](docs/geofence.md)) |
+| `pitboss` | Pit-Boss-Pelletgrill: Garraum- und Fühlertemperatur, Sollwert, Störungen. Lokal oder über die Hersteller-Cloud; Anzünden aus der Ferne ist absichtlich abgeschaltet ([Einrichtung](docs/grill.md)) |
 | `twinkly` | Lokale REST-API mit Challenge-Response-Anmeldung |
 | `vzug` | Lokale Home-API, nur lesend (Status, Programm, Restlaufzeit) |
 | `unifi_protect` | Kameras: eigener Menüpunkt „Kameras", Live-Bild im Vollbild mit unter einer Sekunde Rückstand (RTSP → Low-Latency-HLS über mediamtx, ffmpeg als Rückfall, ohne Neucodierung), Bewegung und Klingeln live über den Ereignisstrom ([Einrichtung](docs/kameras.md)) |
