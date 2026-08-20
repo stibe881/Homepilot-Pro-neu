@@ -308,6 +308,12 @@ DOCKERFILE
   echo "⚠ 'npm ci' ist fehlgeschlagen - ohne die Abhängigkeiten lassen sich"
   echo "  weder die Web-Fassung noch der iOS-Build erzeugen. Die Ausgabe"
   echo "  darüber nennt die Ursache."
+  echo "  Häufigster Fall: 'Missing … from lock file'. Dann steht ein Paket"
+  echo "  in app/package.json, aber nicht in app/package-lock.json - 'npm"
+  echo "  ci' baut bewusst nur nach der Sperrdatei. Zu beheben im Repo,"
+  echo "  nicht hier: im Ordner app/ einmal"
+  echo "    npm install --package-lock-only"
+  echo "  laufen lassen und die geänderte package-lock.json einchecken."
   return 1
 }
 
