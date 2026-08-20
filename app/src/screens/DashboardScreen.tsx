@@ -57,6 +57,8 @@ import { KitchenTimer } from '../components/KitchenTimer';
 import { WhatsNew } from '../components/WhatsNew';
 import { LightGroups } from '../components/LightGroups';
 import { UsersScreen } from './UsersScreen';
+import { confirm as confirmBiometrie, needsCheck } from '../lib/biometrie';
+import { BioLock } from '../components/BioLock';
 
 const ALL_ROOMS = 'Alle';
 /** Befehle, die ein gesperrtes Gerät nur nach Rückfrage annimmt. Lesende
@@ -222,7 +224,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   usePanelMode(!!settings.panel);
   const push = usePushRegistration(settings, status === 'connected');
   // Persönliche Reihenfolgen – je Benutzer auf dem Hub, geräteübergreifend.
-  const { prefs, setOrder, setSeenChanges } = usePrefs(settings, status === 'connected');
+  const { prefs, setOrder, setSeenChanges, setBioLock } = usePrefs(
+    settings,
+    status === 'connected'
+  );
 
   // Antippen einer Alarm-Nachricht führt direkt zur Kamera des betroffenen
   // Raums. Wer nachts geweckt wird, soll nicht erst durch die Räume suchen.
@@ -287,15 +292,22 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
    * zu fehlen, an die niemand gedacht hat.
    */
   const guardedCommand = useCallback(
-    (entityId: string, command: string, data?: Record<string, any>) => {
+    async (entityId: string, command: string, data?: Record<string, any>) => {
       const entity = entities.find((item) => item.id === entityId);
       if (entity && locked.includes(entityId) && SWITCHING.has(command)) {
         setConfirm({ entity, command, data });
         return;
       }
+      // Face ID vor dem Aufschliessen und Entschärfen, wenn eingeschaltet.
+      // Das ist eine Hürde vor dem Absenden, kein Ersatz für Rechte oder
+      // die Alarm-PIN - der Hub prüft beides weiterhin selbst.
+      if (prefs.bioLock && needsCheck(command, entity?.kind)) {
+        const erlaubt = await confirmBiometrie(command);
+        if (!erlaubt) return;
+      }
       sendCommand(entityId, command, data);
     },
-    [entities, locked, sendCommand]
+    [entities, locked, sendCommand, prefs.bioLock]
   );
 
   const toggleIn = (list: string[], id: string) =>
@@ -675,7 +687,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               now={now}
               pending={pending}
               wide={hasRail}
-              onCommand={sendCommand}
+              onCommand={guardedCommand}
               onActivateScene={activateScene}
               countdowns={startCountdowns}
               snapshotUri={snapshotUrl}
@@ -687,7 +699,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           <SidePanel
             entities={entities}
             width={hasSidePanel ? panelWidth : undefined}
-            onCommand={sendCommand}
+            onCommand={guardedCommand}
           />
         </View>
       );
@@ -864,6 +876,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         <View style={styles.stack}>
           {back}
           <SettingsScreen initial={settings} onSave={onSaveSettings} user={user} embedded />
+          <BioLock enabled={!!prefs.bioLock} onChange={setBioLock} />
           <PushPrefs settings={settings} />
         </View>
       );
@@ -1023,7 +1036,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             <GroupControls
               entities={entities}
               groups={groupNames}
-              onCommand={sendCommand}
+              onCommand={guardedCommand}
             />
           ) : null}
 
@@ -1139,7 +1152,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         <SidePanel
             entities={entities}
             width={hasSidePanel ? panelWidth : undefined}
-            onCommand={sendCommand}
+            onCommand={guardedCommand}
           />
       </View>
     );
@@ -1192,7 +1205,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             status={status}
             now={now}
             hidden={hidden}
-            onCommand={sendCommand}
+            onCommand={guardedCommand}
           />
 
           <View style={styles.greetingRow}>

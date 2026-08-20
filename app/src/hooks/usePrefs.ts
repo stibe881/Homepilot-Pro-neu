@@ -17,6 +17,10 @@ export interface UserPrefs {
   /** Bis zu welchem Stand die «Was ist neu»-Karte weggeklickt wurde –
    *  je Person, damit Livia sie trotzdem noch sieht. */
   seenChanges?: string;
+  /** Vor heiklen Aktionen – Türe öffnen, Alarm entschärfen – erst Face ID
+   *  bzw. Fingerabdruck verlangen. Gehört zur Person und nicht zum Gerät:
+   *  Wer es einschaltet, meint es überall. */
+  bioLock?: boolean;
 }
 
 export function usePrefs(settings: HubSettings, connected: boolean) {
@@ -82,5 +86,12 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     [save]
   );
 
-  return { prefs, setOrder, setSeenChanges };
+  const setBioLock = useCallback(
+    (on: boolean) => {
+      save({ ...latest.current, bioLock: on });
+    },
+    [save]
+  );
+
+  return { prefs, setOrder, setSeenChanges, setBioLock };
 }

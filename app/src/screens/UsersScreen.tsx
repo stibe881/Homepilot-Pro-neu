@@ -1,12 +1,31 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 
 import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
 import { DoorPass } from '../components/DoorPass';
 import { Colors, radius, space, type, useColors } from '../theme';
+
+/** ISO-Datum für «in n Tagen ab heute» - für die Ablauf-Schnellwahl. */
+function isoInDays(days: number): string {
+  const datum = new Date();
+  datum.setHours(12, 0, 0, 0);
+  datum.setDate(datum.getDate() + days);
+  return `${datum.getFullYear()}-${String(datum.getMonth() + 1).padStart(2, '0')}-${String(
+    datum.getDate()
+  ).padStart(2, '0')}`;
+}
 
 /**
  * Benutzerverwaltung: Wer hat Zugang zum Haus, mit welcher Rolle?
@@ -98,6 +117,37 @@ function AccessLimits({
   return (
     <>
       <Text style={styles.formLabel}>Zugang läuft ab (optional)</Text>
+      <View style={styles.expiryRow}>
+        {[
+          { label: '2 Tage', days: 2 },
+          { label: '1 Woche', days: 7 },
+          { label: '1 Monat', days: 30 },
+          { label: 'unbegrenzt', days: null },
+        ].map((option) => {
+          const wert = option.days === null ? '' : isoInDays(option.days);
+          return (
+            <Pressable
+              key={option.label}
+              onPress={() => {
+                setExpires(wert);
+                onChange({ expires: wert });
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={`Zugang ${option.label}`}
+              style={[styles.expiryChip, expires === wert && styles.expiryChipActive]}
+            >
+              <Text
+                style={[
+                  styles.expiryChipText,
+                  expires === wert && styles.expiryChipTextActive,
+                ]}
+              >
+                {option.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
       <TextInput
         style={styles.input}
         value={expires}
@@ -458,6 +508,45 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                       <Text style={styles.qrHint}>
                         In der HomePilot-App der Person: «QR-Code vom Hub scannen» –
                         Verbindung und Token werden automatisch übernommen.
+                      </Text>
+                      {pairing ? (
+                        <Pressable
+                          onPress={() => {
+                            // Wer nicht danebensteht, kann keinen QR-Code
+                            // scannen. Derselbe Inhalt als Text, zum
+                            // Verschicken - mit dem Ablaufdatum dabei,
+                            // damit der Empfänger weiss, woran er ist.
+                            const bis = detail.expires
+                              ? `\n\nDer Zugang läuft am ${detail.expires} ab.`
+                              : '';
+                            Share.share({
+                              message:
+                                `Zugang zu unserem HomePilot für ${detail.name}:\n\n` +
+                                `${pairing}\n\n` +
+                                'In der HomePilot-App unter «Verbinden» einfügen.' +
+                                bis,
+                            }).catch(() => {});
+                          }}
+                          accessibilityRole="button"
+                          style={({ pressed }) => [
+                            styles.shareButton,
+                            pressed && { opacity: 0.8 },
+                          ]}
+                        >
+                          <Ionicons
+                            name="share-outline"
+                            size={17}
+                            color={colors.ink}
+                          />
+                          <Text style={styles.shareButtonText}>
+                            Zugang als Nachricht senden
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                      <Text style={styles.qrHint}>
+                        Der Text enthält das Token – er ist der Schlüssel zum
+                        Haus. Schick ihn einzeln und nicht in eine Gruppe, und
+                        setz oben ein Ablaufdatum, wenn der Zugang enden soll.
                       </Text>
                     </>
                   )}
@@ -1123,6 +1212,29 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     rotateText: { color: colors.ink, fontSize: 13, fontWeight: '700' },
+    expiryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+    expiryChip: {
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+      borderRadius: 999,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    expiryChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+    expiryChipText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
+    expiryChipTextActive: { color: '#FFFFFF' },
+    shareButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      paddingVertical: 11,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    shareButtonText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
     qrHint: {
       color: colors.inkSoft,
       fontSize: 13,
