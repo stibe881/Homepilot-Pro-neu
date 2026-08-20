@@ -87,7 +87,11 @@ export const type = {
 };
 
 /** Ab dieser Breite ist Platz für Seitenleiste und rechte Spalte. */
-export const breakpoints = { rail: 760, sidePanel: 1100 };
+// sidePanel bei 1000: Ein iPad im Querformat misst je nach Modell 1024
+// bis 1180 Punkte. Bei 1100 fielen die kleineren durch das Raster und
+// zeigten Wetter und Player untereinander statt rechts - obwohl der Platz
+// dafür da ist. Im Hochformat (768-834) bleibt es bewusst einspaltig.
+export const breakpoints = { rail: 760, sidePanel: 1000 };
 
 export type ThemeMode = 'system' | 'auto' | 'light' | 'dark';
 

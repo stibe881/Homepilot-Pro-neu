@@ -328,6 +328,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
 
   const hasRail = width >= breakpoints.rail;
   const hasSidePanel = width >= breakpoints.sidePanel;
+  // Auf dem knapperen Tablet etwas schmaler, damit dem Hauptbereich genug
+  // bleibt: 1024 minus Navigationsleiste minus Spalte sind sonst keine
+  // 600 Punkte für die Kacheln.
+  const panelWidth = width >= 1100 ? PANEL_WIDTH : 300;
   // Kameras brauchen Fläche – dort weniger Spalten als bei Schaltkacheln.
   const columns =
     section === 'cameras' ? (hasRail ? 2 : 1) : hasRail ? 3 : width >= 380 ? 2 : 1;
@@ -676,11 +680,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               countdowns={startCountdowns}
               snapshotUri={snapshotUrl}
               favoriteIds={favorites}
+              favoriteOrder={prefs.order?.favorites}
+              onReorderFavorites={(ids) => setOrder('favorites', ids)}
             />
           </View>
           <SidePanel
             entities={entities}
-            width={hasSidePanel ? PANEL_WIDTH : undefined}
+            width={hasSidePanel ? panelWidth : undefined}
             onCommand={sendCommand}
           />
         </View>
@@ -1128,7 +1134,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
 
         <SidePanel
             entities={entities}
-            width={hasSidePanel ? PANEL_WIDTH : undefined}
+            width={hasSidePanel ? panelWidth : undefined}
             onCommand={sendCommand}
           />
       </View>

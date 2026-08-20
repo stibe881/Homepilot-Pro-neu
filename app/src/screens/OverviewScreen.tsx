@@ -1,9 +1,18 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
-import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  Linking,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
 import { Entity, Scene } from '../api/types';
 import { Card } from '../components/Card';
+import { DraggableList } from '../components/DraggableList';
 import { KIND_ICONS, shortState } from '../components/RoomTile';
 import { appleMapsRoute, googleMapsRoute } from '../components/TopStrip';
 import { VacuumHome } from '../components/VacuumHome';
@@ -34,6 +43,9 @@ interface Props {
    *  in der Geräteliste in die Geräte-Einstellungen schreibt und nicht in
    *  die Entität – wer nur `entity.favorite` liest, sieht nie etwas. */
   favoriteIds?: string[];
+  /** Selbst gezogene Reihenfolge der Favoriten (Gerätekennungen). */
+  favoriteOrder?: string[];
+  onReorderFavorites?: (ids: string[]) => void;
 }
 
 const WEEKDAYS = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
@@ -89,6 +101,8 @@ export function OverviewScreen({
   countdowns,
   snapshotUri,
   favoriteIds = [],
+  favoriteOrder,
+  onReorderFavorites,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -116,9 +130,19 @@ export function OverviewScreen({
   // In der Geräteliste als Favorit markiert – die stehen hier griffbereit.
   // Beide Wege zählen: der Stern auf der Kachel (Geräte-Einstellungen) und
   // die Markierung an der Entität selbst.
-  const favorites = entities.filter(
+  const favoriten = entities.filter(
     (e) => favoriteIds.includes(e.id) || e.favorite
   );
+  // Selbst gezogene Reihenfolge anwenden; neu hinzugekommene Favoriten
+  // hängen sich hinten an, statt die gewachsene Ordnung durcheinander zu
+  // bringen. Dieselbe Regel wie bei den Familien-Kacheln.
+  const favRang = new Map((favoriteOrder ?? []).map((id, index) => [id, index]));
+  const favorites = [...favoriten].sort((a, b) => {
+    const ai = favRang.has(a.id) ? (favRang.get(a.id) as number) : Infinity;
+    const bi = favRang.has(b.id) ? (favRang.get(b.id) as number) : Infinity;
+    return ai !== bi ? ai - bi : favoriten.indexOf(a) - favoriten.indexOf(b);
+  });
+  const [favOrdnen, setFavOrdnen] = useState(false);
 
   // Schnellaktionen: alle im Szenen-Editor für die Startseite markierten
   // Szenen. Solange keine markiert ist, springen «Kino» und «Schlafen»
@@ -527,7 +551,47 @@ export function OverviewScreen({
           Zugang, damit die eigenen Griffbereit-Geräte oben stehen. */}
       {favorites.length > 0 ? (
         <>
-          <Text style={styles.groupLabel}>Favoriten</Text>
+          <View style={styles.favHead}>
+            <Text style={[styles.groupLabel, { flex: 1 }]}>Favoriten</Text>
+            {onReorderFavorites && favorites.length > 1 ? (
+              <Pressable
+                onPress={() => setFavOrdnen(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Reihenfolge der Favoriten ändern"
+                hitSlop={8}
+                style={({ pressed }) => [pressed && { opacity: 0.6 }]}
+              >
+                <Ionicons name="swap-vertical" size={16} color={colors.onGradient} />
+              </Pressable>
+            ) : null}
+          </View>
+          <Modal
+            visible={favOrdnen}
+            animationType="slide"
+            onRequestClose={() => setFavOrdnen(false)}
+          >
+            <View style={styles.reorderSheet}>
+              <View style={styles.reorderHead}>
+                <Text style={styles.reorderTitle}>Favoriten ordnen</Text>
+                <Pressable onPress={() => setFavOrdnen(false)} accessibilityLabel="Fertig">
+                  <Ionicons name="checkmark" size={26} color={colors.ink} />
+                </Pressable>
+              </View>
+              <Text style={styles.reorderHint}>
+                Am Griff ☰ ziehen. Die Reihenfolge wird bei deinem Benutzer
+                gespeichert und gilt auf allen deinen Geräten.
+              </Text>
+              <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+                <DraggableList
+                  items={favorites.map((entity) => ({
+                    id: entity.id,
+                    name: entity.name,
+                  }))}
+                  onReorder={(ids) => onReorderFavorites?.(ids)}
+                />
+              </ScrollView>
+            </View>
+          </Modal>
           <View style={styles.favRow}>
             {favorites.map((entity) => (
               <FavoriteChip
@@ -726,6 +790,11 @@ function Action({
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
+    favHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    reorderSheet: { flex: 1, backgroundColor: colors.panel, padding: 20, paddingTop: 60, gap: 10 },
+    reorderHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    reorderTitle: { color: colors.ink, fontSize: 18, fontWeight: '700' },
+    reorderHint: { color: colors.inkSoft, fontSize: 13, lineHeight: 19 },
     stack: { gap: space.gap },
     headRow: { flexDirection: 'row', gap: space.gap },
     clockCard: { flex: 1, minHeight: 0, justifyContent: 'center' },
