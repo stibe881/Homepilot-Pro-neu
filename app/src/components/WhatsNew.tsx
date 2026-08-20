@@ -120,7 +120,16 @@ const makeStyles = (colors: Colors) =>
       justifyContent: 'center',
       padding: 20,
     },
-    card: { minHeight: 0, gap: 8, maxHeight: '80%' },
+    // Undurchsichtig, nicht wie sonst die Karten: colors.surface ist
+    // durchscheinend (im Dunkelmodus 10 % Weiss). Auf dem Verlauf der
+    // Startseite trägt das, über dem abgedunkelten Hintergrund eines
+    // Fensters wird der Text unlesbar - dort braucht es eine Fläche.
+    card: {
+      minHeight: 0,
+      gap: 8,
+      maxHeight: '80%',
+      backgroundColor: colors.panel,
+    },
     // Viele Änderungen auf einmal sollen das Fenster nicht über den Rand
     // schieben - dann sieht man die Knöpfe nicht mehr.
     list: { flexGrow: 0 },
