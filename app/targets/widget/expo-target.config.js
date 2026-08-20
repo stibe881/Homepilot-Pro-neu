@@ -8,4 +8,10 @@ module.exports = {
   // Wie bei der Benachrichtigungs-Erweiterung bewusst niedriger als die
   // App – das Widget nutzt nichts Neueres.
   deploymentTarget: '16.1',
+  // Dieselbe App-Gruppe wie die Haupt-App: Nur darüber kommt das Widget
+  // an Hub-Adresse und Token, um den Türstatus zu zeigen. Ohne diesen
+  // Eintrag liest es eine leere Ablage und bleibt bei den Abkürzungen.
+  entitlements: {
+    'com.apple.security.application-groups': ['group.me.stibe.homepilot'],
+  },
 };

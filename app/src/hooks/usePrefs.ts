@@ -21,6 +21,10 @@ export interface UserPrefs {
    *  bzw. Fingerabdruck verlangen. Gehört zur Person und nicht zum Gerät:
    *  Wer es einschaltet, meint es überall. */
   bioLock?: boolean;
+  /** Das Homescreen-Widget mit Daten aus dem Haus versorgen. Aus heisst:
+   *  Es zeigt nur die drei Abkürzungen, und in der App-Gruppe liegt kein
+   *  Token. */
+  widgetData?: boolean;
 }
 
 export function usePrefs(settings: HubSettings, connected: boolean) {
@@ -93,5 +97,12 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     [save]
   );
 
-  return { prefs, setOrder, setSeenChanges, setBioLock };
+  const setWidgetData = useCallback(
+    (on: boolean) => {
+      save({ ...latest.current, widgetData: on });
+    },
+    [save]
+  );
+
+  return { prefs, setOrder, setSeenChanges, setBioLock, setWidgetData };
 }

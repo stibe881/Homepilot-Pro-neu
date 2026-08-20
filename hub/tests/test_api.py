@@ -949,3 +949,42 @@ def test_web_app_cache_headers(tmp_path):
         bundle = client.get("/_expo/static/js/bundle-abc123.js")
         assert bundle.status_code == 200
         assert "immutable" in bundle.headers["cache-control"]
+
+
+def test_the_glance_stays_small_and_says_what_is_open():
+    """Fürs Widget: Es fragt alle Viertelstunde an und läuft auf einem
+    Telefon, das gerade nichts anderes tut. Was es nicht braucht, soll es
+    nicht übertragen - deshalb eine eigene, winzige Antwort statt der
+    ganzen Geräteliste."""
+    hub = Hub(make_config(token="geheim", integrations=[{"integration": "demo"}]))
+    with TestClient(create_app(hub)) as client:
+        headers = {"Authorization": "Bearer geheim"}
+        antwort = client.get("/api/glance", headers=headers)
+        assert antwort.status_code == 200
+        daten = antwort.json()
+        # Genau diese Schlüssel, nicht mehr.
+        assert set(daten) == {
+            "doors_open",
+            "lights_on",
+            "next_event",
+            "alarm",
+            "at",
+        }
+        assert isinstance(daten["doors_open"], list)
+        assert isinstance(daten["lights_on"], int)
+
+        # Brennt ein Licht, zählt es mit.
+        client.post(
+            "/api/entities/demo.light_livingroom/command",
+            json={"command": "turn_on"},
+            headers=headers,
+        )
+        assert client.get("/api/glance", headers=headers).json()["lights_on"] >= 1
+
+
+def test_the_glance_needs_a_token():
+    """Was offen steht und wann der nächste Termin ist, geht niemanden an,
+    der das Token nicht hat."""
+    hub = Hub(make_config(token="geheim", integrations=[{"integration": "demo"}]))
+    with TestClient(create_app(hub)) as client:
+        assert client.get("/api/glance").status_code in (401, 403)

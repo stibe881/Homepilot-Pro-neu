@@ -10,7 +10,12 @@
     "backgroundColor": "#0f1115",
     "ios": {
       "bundleIdentifier": "ch.stibe.homepilot",
-      "supportsTablet": true
+      "supportsTablet": true,
+      "entitlements": {
+        "com.apple.security.application-groups": [
+          "group.me.stibe.homepilot"
+        ]
+      }
     },
     "android": {
       "package": "ch.stibe.homepilot",

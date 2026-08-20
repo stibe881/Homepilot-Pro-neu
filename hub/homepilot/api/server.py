@@ -3020,6 +3020,50 @@ def create_app(hub: Hub) -> FastAPI:
             media_type="text/plain; charset=utf-8",
         )
 
+    @app.get("/api/glance")
+    async def glance(request: Request) -> dict[str, Any]:
+        """Der Blick aufs Haus in drei Zeilen - fürs Widget.
+
+        Bewusst eine eigene, winzige Antwort statt der ganzen
+        Geräteliste: Das Widget fragt alle Viertelstunde an und läuft auf
+        einem Telefon, das gerade nichts anderes tut. Was es nicht
+        braucht, soll es nicht übertragen.
+        """
+        current_user(request)
+        entities = hub.registry.all()
+
+        offen = [
+            entity
+            for entity in entities
+            if entity.kind == "lock"
+            and str(entity.state.get("state")) in ("unlocked", "unlatched")
+        ]
+        lichter = [
+            entity
+            for entity in entities
+            if entity.kind == "light" and str(entity.state.get("state")) == "on"
+        ]
+        kalender = next((e for e in entities if e.kind == "calendar"), None)
+        termin = None
+        if kalender is not None:
+            events = kalender.state.get("events") or []
+            if events:
+                erster = events[0]
+                termin = {
+                    "summary": str(erster.get("summary") or "Termin"),
+                    "start": erster.get("start"),
+                    "all_day": bool(erster.get("all_day")),
+                }
+
+        alarm = next((e for e in entities if e.kind == "alarm"), None)
+        return {
+            "doors_open": [entity.name for entity in offen],
+            "lights_on": len(lichter),
+            "next_event": termin,
+            "alarm": str(alarm.state.get("state")) if alarm is not None else None,
+            "at": datetime.now().isoformat(timespec="seconds"),
+        }
+
     @app.get("/api/suggestions/scene")
     async def scene_suggestion(request: Request) -> dict[str, Any]:
         """Eine erkannte Gewohnheit - oder nichts.

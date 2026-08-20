@@ -61,6 +61,8 @@ import { SceneSuggestion } from '../components/SceneSuggestion';
 import { UsersScreen } from './UsersScreen';
 import { confirm as confirmBiometrie, needsCheck } from '../lib/biometrie';
 import { BioLock } from '../components/BioLock';
+import { WidgetSetting } from '../components/WidgetSetting';
+import { syncWidget } from '../lib/widget';
 
 const ALL_ROOMS = 'Alle';
 /** Befehle, die ein gesperrtes Gerät nur nach Rückfrage annimmt. Lesende
@@ -226,10 +228,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   usePanelMode(!!settings.panel);
   const push = usePushRegistration(settings, status === 'connected');
   // Persönliche Reihenfolgen – je Benutzer auf dem Hub, geräteübergreifend.
-  const { prefs, setOrder, setSeenChanges, setBioLock } = usePrefs(
+  const { prefs, setOrder, setSeenChanges, setBioLock, setWidgetData } = usePrefs(
     settings,
     status === 'connected'
   );
+
+  // Das Widget lebt in einem eigenen Prozess und kennt die Einstellungen
+  // nicht - Adresse und Token wandern deshalb in die geteilte App-Gruppe.
+  // Bei jeder Änderung neu, damit ein gewechseltes Token nicht ein
+  // Widget zurücklässt, das ins Leere fragt.
+  useEffect(() => {
+    syncWidget(settings, !!prefs.widgetData);
+  }, [settings.url, settings.token, prefs.widgetData]);
 
   // Antippen einer Alarm-Nachricht führt direkt zur Kamera des betroffenen
   // Raums. Wer nachts geweckt wird, soll nicht erst durch die Räume suchen.
@@ -887,6 +897,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           {back}
           <SettingsScreen initial={settings} onSave={onSaveSettings} user={user} embedded />
           <BioLock enabled={!!prefs.bioLock} onChange={setBioLock} />
+          <WidgetSetting enabled={!!prefs.widgetData} onChange={setWidgetData} />
           <PushPrefs settings={settings} />
         </View>
       );
