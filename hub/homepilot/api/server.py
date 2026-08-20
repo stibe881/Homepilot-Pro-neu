@@ -2294,6 +2294,39 @@ def create_app(hub: Hub) -> FastAPI:
         family_user(request)
         return {name: hub.data.get(f"family_{name}") for name in sorted(FAMILY_COLLECTIONS)}
 
+    async def tell_the_assignee(
+        collection: str, item: dict[str, Any], by: str, vorher: str | None = None
+    ) -> None:
+        """Der zugewiesenen Person Bescheid geben.
+
+        Eine Liste ohne Namen erledigt niemand - und ein Name, den die
+        betroffene Person nie sieht, auch nicht. Deshalb geht eine
+        Nachricht raus, sobald jemandem etwas zugeteilt wird.
+
+        Nicht an sich selbst: Wer sich eine Aufgabe notiert, weiss davon.
+        Und nur bei einer Änderung - sonst käme bei jedem Abhaken eine
+        neue Nachricht für dieselbe Zuteilung.
+        """
+        if collection not in ("tasks", "chores"):
+            return
+        wer = str(item.get("member") or "").strip()
+        if not wer or wer == by or wer == str(vorher or "").strip():
+            return
+        was = str(item.get("text") or "").strip() or "Ein Eintrag"
+        frist = str(item.get("due") or "").strip()
+        tokens = hub.push.recipients(hub.users.users, to=wer, category="tasks")
+        if not tokens:
+            return
+        try:
+            await hub.push.send(
+                tokens,
+                "Aufgaben" if collection == "tasks" else "Ämtli",
+                f"{was} ist jetzt bei dir" + (f" - bis {frist}" if frist else "."),
+                data={"kind": "family", "collection": collection},
+            )
+        except Exception as err:  # eine Nachricht ist kein Grund zu scheitern
+            log.warning("Zuweisungs-Nachricht an %s fehlgeschlagen: %s", wer, err)
+
     @app.post("/api/family/{collection}")
     async def family_add(
         collection: str, body: dict[str, Any], request: Request
@@ -2307,21 +2340,24 @@ def create_app(hub: Hub) -> FastAPI:
         item["author"] = user.name
         item["created"] = datetime.now().isoformat(timespec="seconds")
         hub.data.set(key, [*hub.data.get(key), item])
+        await tell_the_assignee(collection, item, user.name)
         return item
 
     @app.put("/api/family/{collection}/{item_id}")
     async def family_update(
         collection: str, item_id: str, body: dict[str, Any], request: Request
     ) -> dict[str, Any]:
-        family_user(request)
+        user = family_user(request)
         key = family_key(collection)
         items = hub.data.get(key)
         for item in items:
             if item.get("id") == item_id:
+                vorher = str(item.get("member") or "")
                 item.update(
                     {k: v for k, v in body.items() if k not in ("id", "author", "created")}
                 )
                 hub.data.set(key, items)
+                await tell_the_assignee(collection, item, user.name, vorher)
                 return item
         raise HTTPException(status_code=404, detail="Eintrag nicht gefunden")
 

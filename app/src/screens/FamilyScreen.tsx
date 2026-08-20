@@ -63,7 +63,8 @@ type ModuleKey =
   | 'packlists'
   | 'countdowns'
   | 'recipes'
-  | 'documents';
+  | 'documents'
+  | 'chores';
 
 const WEEK_DAYS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
 
@@ -354,6 +355,62 @@ function EventForm({
 
 /** Aufgabe anlegen: Text, optional zuständige Person und Punktwert.
  *  Beim Abhaken werden die Punkte der Person automatisch gutgeschrieben. */
+/**
+ * Die nächste Fälligkeit einer wiederkehrenden Aufgabe (rein, testbar).
+ *
+ * Gerechnet wird ab der bisherigen Frist, nicht ab heute: Wer den
+ * Montags-Abfall am Dienstag abhakt, soll nicht künftig dienstags
+ * erinnert werden. Liegt die Frist schon in der Vergangenheit, rückt sie
+ * weiter, bis sie in der Zukunft liegt - sonst stapelten sich nach zwei
+ * Wochen Ferien vierzehn überfällige Einträge. Dieselbe Regel gilt im
+ * Hub (core/chores.py), damit beide Seiten dasselbe Datum errechnen.
+ */
+export function nextDue(current: string | null | undefined, repeat: string): string {
+  const heute = new Date();
+  heute.setHours(12, 0, 0, 0);
+  const start = current ? new Date(`${String(current).slice(0, 10)}T12:00:00`) : heute;
+  const basis = Number.isNaN(start.getTime()) ? new Date(heute) : start;
+  const tag = basis.getDate();
+  let naechste = new Date(basis);
+  // Immer ab dem Ausgangsdatum rechnen, nie ab dem zuletzt errechneten:
+  // Sonst wandert eine Frist auf dem 31. über den Februar (28.) für immer
+  // auf den 28. - der geklammerte Tag wäre der neue Ausgangswert.
+  for (let schritte = 1; schritte < 400; schritte += 1) {
+    if (repeat === 'monthly') {
+      naechste = new Date(basis.getFullYear(), basis.getMonth() + schritte, 1, 12);
+      const letzter = new Date(
+        naechste.getFullYear(),
+        naechste.getMonth() + 1,
+        0
+      ).getDate();
+      naechste.setDate(Math.min(tag, letzter));
+    } else {
+      naechste = new Date(basis);
+      naechste.setDate(basis.getDate() + (repeat === 'daily' ? 1 : 7) * schritte);
+    }
+    if (naechste > heute) break;
+  }
+  return `${naechste.getFullYear()}-${String(naechste.getMonth() + 1).padStart(2, '0')}-${String(
+    naechste.getDate()
+  ).padStart(2, '0')}`;
+}
+
+/**
+ * Wer ist als Nächstes dran? (rein, testbar)
+ *
+ * Steht die aktuelle Person nicht mehr in der Reihe - jemand ist
+ * ausgezogen oder wurde aus dem Ämtli genommen -, beginnt die Reihe
+ * wieder vorn, statt stehenzubleiben. Dieselbe Regel wie im Hub
+ * (core/chores.py).
+ */
+export function rotateMember(members: string[], current: unknown): string | null {
+  const reihe = members.map((name) => String(name).trim()).filter(Boolean);
+  if (reihe.length === 0) return null;
+  if (reihe.length === 1) return reihe[0];
+  const index = reihe.indexOf(String(current));
+  return index < 0 ? reihe[0] : reihe[(index + 1) % reihe.length];
+}
+
 /** ISO-Datum (YYYY-MM-DD) für «in n Tagen ab heute» (rein genug, testbar). */
 function isoInDays(days: number): string {
   const date = new Date();
@@ -386,6 +443,117 @@ const DUE_OPTIONS: { key: string; label: string; days: number | null }[] = [
   { key: 'week', label: 'in 1 Woche', days: 7 },
 ];
 
+/** Wie oft sich eine Aufgabe wiederholt. «Einmalig» ist die Vorgabe -
+ *  die meisten Aufgaben sind es. */
+const REPEAT_OPTIONS = [
+  { key: 'none', label: 'einmalig' },
+  { key: 'daily', label: 'täglich' },
+  { key: 'weekly', label: 'wöchentlich' },
+  { key: 'monthly', label: 'monatlich' },
+];
+
+function ChoreAddRow({
+  members,
+  onAdd,
+  styles,
+  colors,
+}: {
+  members: Member[];
+  onAdd: (text: string, reihe: string[], points: number, repeat: string) => void;
+  styles: Styles;
+  colors: Colors;
+}) {
+  const [text, setText] = useState('');
+  const [reihe, setReihe] = useState<string[]>([]);
+  const [points, setPoints] = useState(0);
+  const [repeat, setRepeat] = useState('weekly');
+  const submit = () => {
+    // Ohne Reihe wäre es kein Ämtli, sondern eine Aufgabe - dafür gibt es
+    // die Aufgabenliste.
+    if (!text.trim() || reihe.length === 0) return;
+    onAdd(text.trim(), reihe, points, repeat);
+    setText('');
+    setReihe([]);
+    setPoints(0);
+    setRepeat('weekly');
+  };
+  return (
+    <View style={{ gap: 8 }}>
+      <View style={styles.addRow}>
+        <TextInput
+          style={[styles.input, { flex: 1 }]}
+          value={text}
+          onChangeText={setText}
+          placeholder="Neues Ämtli, z.B. Bad putzen …"
+          placeholderTextColor={colors.inkFaint}
+          onSubmitEditing={submit}
+        />
+        <Pressable
+          onPress={submit}
+          style={[styles.addButton, reihe.length === 0 && { opacity: 0.5 }]}
+          accessibilityLabel="Ämtli anlegen"
+        >
+          <Ionicons name="add" size={22} color="#FFFFFF" />
+        </Pressable>
+      </View>
+      <Text style={styles.formHintSmall}>
+        Wer steht in der Reihe? Die Reihenfolge ist die des Antippens.
+      </Text>
+      <View style={styles.chipRow}>
+        {members.map((m) => {
+          const platz = reihe.indexOf(m.name);
+          return (
+            <Pressable
+              key={m.name}
+              onPress={() =>
+                setReihe((prev) =>
+                  prev.includes(m.name)
+                    ? prev.filter((name) => name !== m.name)
+                    : [...prev, m.name]
+                )
+              }
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: platz >= 0 }}
+              style={[styles.chip, platz >= 0 && styles.chipActive]}
+            >
+              <Text style={[styles.chipText, platz >= 0 && styles.chipTextActive]}>
+                {platz >= 0 ? `${platz + 1}. ` : ''}
+                {m.name}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      <View style={styles.chipRow}>
+        {REPEAT_OPTIONS.filter((option) => option.key !== 'none').map((option) => (
+          <Pressable
+            key={option.key}
+            onPress={() => setRepeat(option.key)}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: repeat === option.key }}
+            style={[styles.chip, repeat === option.key && styles.chipActive]}
+          >
+            <Text style={[styles.chipText, repeat === option.key && styles.chipTextActive]}>
+              {option.label}
+            </Text>
+          </Pressable>
+        ))}
+        {[1, 2, 5].map((value) => (
+          <Pressable
+            key={value}
+            onPress={() => setPoints(points === value ? 0 : value)}
+            style={[styles.chip, points === value && styles.chipActive]}
+          >
+            <Text style={[styles.chipText, points === value && styles.chipTextActive]}>
+              {value} P
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 function TaskAddRow({
   members,
   onAdd,
@@ -393,7 +561,13 @@ function TaskAddRow({
   colors,
 }: {
   members: Member[];
-  onAdd: (text: string, member: string | null, points: number, due: string | null) => void;
+  onAdd: (
+    text: string,
+    member: string | null,
+    points: number,
+    due: string | null,
+    repeat: string
+  ) => void;
   styles: Styles;
   colors: Colors;
 }) {
@@ -401,15 +575,24 @@ function TaskAddRow({
   const [member, setMember] = useState<string | null>(null);
   const [points, setPoints] = useState(0);
   const [dueKey, setDueKey] = useState('none');
+  const [repeat, setRepeat] = useState('none');
   const submit = () => {
     if (!text.trim()) return;
     const option = DUE_OPTIONS.find((o) => o.key === dueKey);
-    const due = option && option.days != null ? isoInDays(option.days) : null;
-    onAdd(text.trim(), member, points, due);
+    // Eine Wiederholung ohne Frist hat nichts, ab dem sie weiterrücken
+    // könnte - dann gilt heute als Start.
+    const due =
+      option && option.days != null
+        ? isoInDays(option.days)
+        : repeat !== 'none'
+          ? isoInDays(0)
+          : null;
+    onAdd(text.trim(), member, points, due, repeat);
     setText('');
     setMember(null);
     setPoints(0);
     setDueKey('none');
+    setRepeat('none');
   };
   return (
     <View style={{ gap: 8 }}>
@@ -446,6 +629,21 @@ function TaskAddRow({
           >
             <Text style={[styles.chipText, points === value && styles.chipTextActive]}>
               {value} P
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+      <View style={styles.chipRow}>
+        {REPEAT_OPTIONS.map((option) => (
+          <Pressable
+            key={option.key}
+            onPress={() => setRepeat(option.key)}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: repeat === option.key }}
+            style={[styles.chip, repeat === option.key && styles.chipActive]}
+          >
+            <Text style={[styles.chipText, repeat === option.key && styles.chipTextActive]}>
+              {option.label}
             </Text>
           </Pressable>
         ))}
@@ -1077,6 +1275,18 @@ export function FamilyScreen({
   const todayCount = events.filter((event) => isToday(event.start)).length;
   const openTasks = (data.tasks ?? []).filter((task) => !task.done).length;
   const pinCount = (data.pins ?? []).length;
+  // Wer gerade dran ist, steht auf der Kachel - das ist die Frage, die
+  // man sich beim Blick auf «Ämtli» stellt.
+  const chores: any[] = data.chores ?? [];
+  const meineChores = chores.filter(
+    (chore: any) => chore.member && chore.member === currentUser?.name
+  );
+  const choreSub =
+    chores.length === 0
+      ? 'Reihe festlegen'
+      : meineChores.length > 0
+        ? `${meineChores.length} bei dir`
+        : `${chores.length} in der Reihe`;
 
   const eventWhen = (event: any) =>
     event.all_day
@@ -1192,6 +1402,23 @@ export function FamilyScreen({
     const pending = tasks.filter((task) => task.pending_reward);
 
     const toggleTask = (task: any) => {
+      // Wiederkehrendes verschwindet nicht, es rückt weiter: Der Haushalt
+      // hört ja nicht auf. Punkte werden dabei trotzdem fällig.
+      if (!task.done && task.repeat && task.repeat !== 'none') {
+        if (task.member && Number(task.points) > 0) {
+          add('rewards', {
+            member: task.member,
+            points: Number(task.points),
+            reason: task.text,
+          });
+        }
+        update('tasks', task.id, {
+          done: false,
+          pending_reward: false,
+          due: nextDue(task.due, task.repeat),
+        });
+        return;
+      }
       // Punkte-Aufgaben werden beim Abhaken NICHT sofort gutgeschrieben,
       // sondern warten auf die Bestätigung eines Elternteils (#20).
       if (!task.done && task.member && Number(task.points) > 0 && !task.rewarded) {
@@ -1217,6 +1444,12 @@ export function FamilyScreen({
       if (Number(task.points) > 0) parts.push(`${task.points} Punkte`);
       const due = dueInfo(task.due);
       if (due && !task.done) parts.push(due.label);
+      if (task.repeat && task.repeat !== 'none') {
+        parts.push(
+          REPEAT_OPTIONS.find((option) => option.key === task.repeat)?.label ??
+            task.repeat
+        );
+      }
       if (task.pending_reward) parts.push('wartet auf Bestätigung');
       return parts.join(' · ') || undefined;
     };
@@ -1286,8 +1519,15 @@ export function FamilyScreen({
           ))}
           <TaskAddRow
             members={members}
-            onAdd={(text, member, points, due) =>
-              add('tasks', { text, done: false, member, points, ...(due ? { due } : {}) })
+            onAdd={(text, member, points, due, repeat) =>
+              add('tasks', {
+                text,
+                done: false,
+                member,
+                points,
+                repeat,
+                ...(due ? { due } : {}),
+              })
             }
             styles={styles}
             colors={colors}
@@ -1553,6 +1793,149 @@ export function FamilyScreen({
               </View>
             </Card>
           ))}
+      </View>
+    );
+  }
+
+  if (view === 'chores') {
+    const liste: any[] = data.chores ?? [];
+
+    /** Erledigt: Punkte gutschreiben, Reihe weiterrücken, Frist neu setzen.
+     *
+     * Genau diese drei Schritte macht sonst jemand von Hand - und einer
+     * davon geht immer vergessen, meistens das Weiterrücken. */
+    const erledigt = (chore: any) => {
+      const reihe: string[] = Array.isArray(chore.members) ? chore.members : [];
+      const naechster = rotateMember(reihe, chore.member);
+      if (chore.member && Number(chore.points) > 0) {
+        add('rewards', {
+          member: chore.member,
+          points: Number(chore.points),
+          reason: `Ämtli: ${chore.text}`,
+        });
+      }
+      update('chores', chore.id, {
+        member: naechster,
+        due: nextDue(chore.due, chore.repeat || 'weekly'),
+        last_done: isoInDays(0),
+        last_by: chore.member ?? null,
+      });
+    };
+
+    return (
+      <View style={styles.stack}>
+        <BackHead title="Ämtli" onBack={goBack} styles={styles} colors={colors} />
+        <Text style={styles.hint}>
+          Wer dran ist, entscheidet die Reihe – nicht die Diskussion am
+          Sonntagabend. Nach «Erledigt» rückt sie von selbst weiter, die
+          Frist wandert mit, und die Punkte gehen an den, der es gemacht
+          hat.
+        </Text>
+
+        <Card style={styles.listCard}>
+          <ChoreAddRow
+            members={members}
+            onAdd={(text, reihe, points, repeat) =>
+              add('chores', {
+                text,
+                members: reihe,
+                member: reihe[0] ?? null,
+                points,
+                repeat,
+                due: nextDue(isoInDays(-1), repeat),
+              })
+            }
+            styles={styles}
+            colors={colors}
+          />
+        </Card>
+
+        {liste.map((chore: any) => {
+          const faellig = dueInfo(chore.due);
+          const reihe: string[] = Array.isArray(chore.members) ? chore.members : [];
+          const naechster = rotateMember(reihe, chore.member);
+          return (
+            <Card key={chore.id} style={styles.listCard}>
+              <View style={styles.checkRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.checkText}>{chore.text}</Text>
+                  <Text
+                    style={[
+                      styles.checkSub,
+                      faellig?.overdue ? { color: colors.danger, fontWeight: '600' } : null,
+                    ]}
+                  >
+                    {[
+                      chore.member ? `${chore.member} ist dran` : 'niemand zugeteilt',
+                      faellig?.label,
+                      Number(chore.points) > 0 ? `${chore.points} Punkte` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </Text>
+                  {chore.last_by ? (
+                    <Text style={styles.checkSub}>
+                      zuletzt: {chore.last_by}
+                      {chore.last_done ? ` am ${chore.last_done}` : ''}
+                    </Text>
+                  ) : null}
+                </View>
+                <Pressable
+                  onPress={() => remove('chores', chore.id)}
+                  style={styles.deleteTap}
+                  accessibilityLabel={`${chore.text} löschen`}
+                >
+                  <Ionicons name="close" size={18} color={colors.inkFaint} />
+                </Pressable>
+              </View>
+              <View style={styles.chipRow}>
+                {reihe.map((name) => (
+                  <View
+                    key={name}
+                    style={[styles.chip, chore.member === name && styles.chipActive]}
+                  >
+                    <Text
+                      style={[
+                        styles.chipText,
+                        chore.member === name && styles.chipTextActive,
+                      ]}
+                    >
+                      {name}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+              <View style={styles.choreButtons}>
+                <Pressable
+                  onPress={() => erledigt(chore)}
+                  accessibilityRole="button"
+                  style={({ pressed }) => [styles.choreDone, pressed && { opacity: 0.85 }]}
+                >
+                  <Ionicons name="checkmark" size={17} color="#FFFFFF" />
+                  <Text style={styles.choreDoneText}>Erledigt</Text>
+                </Pressable>
+                {naechster && naechster !== chore.member ? (
+                  <Pressable
+                    onPress={() => update('chores', chore.id, { member: naechster })}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Weiter an ${naechster}`}
+                    style={({ pressed }) => [styles.choreSkip, pressed && { opacity: 0.7 }]}
+                  >
+                    <Ionicons name="play-skip-forward" size={15} color={colors.ink} />
+                    <Text style={styles.choreSkipText}>Weiter an {naechster}</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </Card>
+          );
+        })}
+
+        {liste.length === 0 ? (
+          <Text style={styles.hint}>
+            Noch keine Ämtli. Trag oben eines ein und wähle, wer in der Reihe
+            steht.
+          </Text>
+        ) : null}
       </View>
     );
   }
@@ -2008,6 +2391,7 @@ export function FamilyScreen({
     { key: 'shopping', icon: 'cart-outline', label: 'Einkaufsliste', sub: `${(data.shopping ?? []).filter((item) => !item.done).length} Einträge` },
     { key: 'meals', icon: 'restaurant-outline', label: 'Essensplaner', sub: 'Wochenplan' },
     { key: 'pins', icon: 'chatbox-outline', label: 'Pinnwand', sub: `${pinCount} ${pinCount === 1 ? 'Eintrag' : 'Einträge'}` },
+    { key: 'chores', icon: 'repeat-outline', label: 'Ämtli', sub: choreSub },
     { key: 'rewards', icon: 'trophy-outline', label: 'Belohnungen', sub: 'Punkte sammeln' },
     { key: 'contacts', icon: 'call-outline', label: 'Kontakte', sub: 'Wichtige Nummern' },
     { key: 'routines', icon: 'time-outline', label: 'Routinen', sub: 'Tagesabläufe' },
@@ -2260,6 +2644,30 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       paddingVertical: 13,
     },
+    choreButtons: { flexDirection: 'row', gap: 8, marginTop: 4 },
+    choreDone: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      flex: 1,
+      paddingVertical: 10,
+      borderRadius: radius.control,
+      backgroundColor: colors.on,
+    },
+    choreDoneText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+    choreSkip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingVertical: 10,
+      paddingHorizontal: 12,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    choreSkipText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
+    formHintSmall: { color: colors.inkFaint, fontSize: 12 },
     stapleRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
     staple: {
       flexDirection: 'row',
