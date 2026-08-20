@@ -4,6 +4,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 
 import { Entity, HubSettings, Scene, User } from '../api/types';
 import { Card } from '../components/Card';
+import { PushRules } from '../components/PushRules';
 import { Colors, radius, space, type, useColors } from '../theme';
 
 interface Automation {
@@ -936,6 +937,12 @@ export function AutomationsScreen({
           />
         </>
       )}
+
+      {/* Die eingebauten Wächter-Nachrichten als eigene Kategorie «Push»:
+          Sie gehören zu den Abläufen - der Hub tut hier etwas von sich
+          aus -, sind aber keine gespeicherten Automationen, sondern
+          Regeln mit Schalter und Schwelle. */}
+      <PushRules settings={settings} mayEdit={mayEdit} />
 
       <Text style={styles.sectionTitle}>Szenen</Text>
       {mayEdit ? (

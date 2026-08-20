@@ -44,6 +44,7 @@ from ..integrations import group as group_module
 from . import invitepage
 from ..core import throttle as throttle_module
 from ..core import watchdog
+from ..core import notifyrules
 from ..core import users as users_module
 from ..core import automation as automation_module
 from ..core import config_edit
@@ -118,6 +119,13 @@ class PushPrefsRequest(BaseModel):
     """Abbestellte Nachrichtenarten eines Benutzers."""
 
     muted: list[str] = []
+
+
+class NotifyRuleRequest(BaseModel):
+    """Änderung an einer eingebauten Wächter-Nachricht (Abläufe → Push)."""
+
+    enabled: bool = True
+    params: dict[str, float] = {}
 
 
 class SpeakerRequest(BaseModel):
@@ -1459,6 +1467,33 @@ def create_app(hub: Hub) -> FastAPI:
         hub.data.set("push_prefs", list(stored.values()))
         hub.push.muted = push.parse_muted(hub.data.get("push_prefs"))
         return {"ok": True, "muted": sorted(hub.push.muted.get(user.name, set()))}
+
+    # ── Eingebaute Wächter-Nachrichten (Abläufe → Push) ────────────────────
+    # Global, nicht je Benutzer: Diese Regeln bestimmen, ob und wann der Hub
+    # überhaupt meldet. Wer sie nur für sich nicht will, bestellt die
+    # Kategorie unter Benachrichtigungen ab.
+
+    @app.get("/api/notifyrules")
+    async def list_notify_rules(request: Request) -> dict[str, Any]:
+        current_user(request)
+        return {"rules": notifyrules.describe(hub.data.get("notify_rules"))}
+
+    @app.put("/api/notifyrules/{key}")
+    async def set_notify_rule(
+        key: str, body: NotifyRuleRequest, request: Request
+    ) -> dict[str, Any]:
+        require(request, Capability.EDIT_AUTOMATIONS)
+        try:
+            stored = notifyrules.store(
+                hub.data.get("notify_rules"), key, body.enabled, body.params
+            )
+        except ValueError as err:
+            raise HTTPException(status_code=404, detail=str(err))
+        hub.data.set("notify_rules", stored)
+        # Sofort übernehmen, nicht erst in der nächsten Wächter-Runde:
+        # Wer den Schalter umlegt, erwartet, dass er ab jetzt gilt.
+        hub.watchdog.rules = notifyrules.effective(stored)
+        return {"rules": notifyrules.describe(stored)}
 
     # ── Persönliche Oberflächen-Einstellungen ──────────────────────────────
     # Kachel-Reihenfolgen und Ähnliches: je Benutzer gespeichert, damit jedes

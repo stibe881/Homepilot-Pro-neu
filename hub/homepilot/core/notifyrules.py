@@ -1,0 +1,234 @@
+"""Regeln für die eingebauten Push-Nachrichten des Wächters.
+
+Der Wächter meldet Ausfälle, offene Fenster, Frost und Ähnliches. Bisher
+waren Schwellen und Wartezeiten fest einprogrammiert – wer die Erinnerung
+an die volle Waschmaschine nach vier statt zwei Stunden wollte, musste den
+Quelltext ändern. Jetzt stehen diese Nachrichten als Regeln in der App
+(Abläufe → Push): jede lässt sich abschalten, und wo es eine Schwelle
+gibt, lässt sie sich verstellen.
+
+Bewusst nicht dabei: die Alarm-Nachrichten. Eine Alarmanlage, deren
+Auslöse-Push man versehentlich abschalten kann, ist keine. Wer einzelne
+Kategorien für sich persönlich nicht will, stellt das weiter unter
+Benachrichtigungen ab – das hier gilt für alle.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+# Beschreibung je Parameter: Grenzen halten Tippfehler fern (eine Erinnerung
+# nach 0 Stunden wäre Dauerfeuer, eine Frostwarnung bei 40 °C nie still).
+# {key, label, unit, default, min, max, step}
+Param = dict[str, Any]
+
+# Die Regeln in Anzeige-Reihenfolge. `category` ist zugleich der Schlüssel
+# der Push-Kategorie (siehe push.CATEGORIES) – so greifen persönliche
+# Abbestellungen weiterhin.
+RULES: list[dict[str, Any]] = [
+    {
+        "key": "leak",
+        "title": "Wasser gemeldet",
+        "detail": "Sofort, sobald ein Wassermelder Wasser meldet – unabhängig "
+        "davon, ob die Alarmanlage scharf ist.",
+        "params": [],
+    },
+    {
+        "key": "battery",
+        "title": "Batterie schwach",
+        "detail": "Einmal je Gerät, sobald es eine schwache Batterie meldet. "
+        "Nach dem Wechsel ist die Warnung wieder scharf.",
+        "params": [],
+    },
+    {
+        "key": "outage",
+        "title": "Integration ausgefallen",
+        "detail": "Wenn eine ganze Anbindung (z.B. Hue) nicht mehr antwortet – "
+        "und wieder, wenn sie zurück ist.",
+        "params": [
+            {
+                "key": "minutes",
+                "label": "Melden nach",
+                "unit": "Minuten",
+                "default": 2,
+                "min": 1,
+                "max": 60,
+                "step": 1,
+            }
+        ],
+    },
+    {
+        "key": "device_down",
+        "title": "Überwachtes Gerät antwortet nicht",
+        "detail": "Für Sensoren, die der Alarmanlage zugeordnet sind: dort "
+        "wäre ein stiller Ausfall ein blinder Fleck.",
+        "params": [
+            {
+                "key": "minutes",
+                "label": "Melden nach",
+                "unit": "Minuten",
+                "default": 30,
+                "min": 5,
+                "max": 720,
+                "step": 5,
+            }
+        ],
+    },
+    {
+        "key": "open",
+        "title": "Fenster/Tür steht offen",
+        "detail": "Erinnert einmal je Öffnung – wer schliesst und wieder "
+        "öffnet, fängt neu an.",
+        "params": [
+            {
+                "key": "hours",
+                "label": "Erinnern nach",
+                "unit": "Stunden",
+                "default": 2,
+                "min": 1,
+                "max": 24,
+                "step": 1,
+            }
+        ],
+    },
+    {
+        "key": "appliance",
+        "title": "Haushaltgerät noch voll",
+        "detail": "Erinnert an die fertige, aber nicht ausgeräumte Maschine – "
+        "einmal je Programmlauf.",
+        "params": [
+            {
+                "key": "hours",
+                "label": "Erinnern nach",
+                "unit": "Stunden",
+                "default": 2,
+                "min": 1,
+                "max": 24,
+                "step": 1,
+            }
+        ],
+    },
+    {
+        "key": "frost",
+        "title": "Frost angekündigt",
+        "detail": "Abends, wenn die Nacht kälter wird als die Schwelle – für "
+        "die Pflanzen auf dem Balkon. Drei Grad statt null, weil es am Boden "
+        "kälter ist als in Messhöhe.",
+        "params": [
+            {
+                "key": "below",
+                "label": "Warnen unter",
+                "unit": "°C",
+                "default": 3.0,
+                "min": -5.0,
+                "max": 10.0,
+                "step": 0.5,
+            }
+        ],
+    },
+    {
+        "key": "disk",
+        "title": "Speicherplatz wird knapp",
+        "detail": "Höchstens einmal am Tag, solange es knapp bleibt. Nicht "
+        "erst bei 100 %: Eine volle Platte verhindert jedes Speichern.",
+        "params": [
+            {
+                "key": "percent",
+                "label": "Warnen ab",
+                "unit": "% belegt",
+                "default": 85,
+                "min": 50,
+                "max": 99,
+                "step": 1,
+            }
+        ],
+    },
+]
+
+BY_KEY: dict[str, dict[str, Any]] = {rule["key"]: rule for rule in RULES}
+
+
+def _clamp(value: Any, spec: Param) -> float:
+    """Einen Parameterwert in seine Grenzen zwingen (rein, testbar).
+
+    Kein Fehler bei Unsinn, sondern der nächstliegende erlaubte Wert:
+    Gespeicherte Regeln sollen den Hub nie am Starten hindern.
+    """
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return float(spec["default"])
+    number = max(float(spec["min"]), min(float(spec["max"]), number))
+    # Ganzzahlige Parameter bleiben ganzzahlig – «2.5 Minuten» liest sich
+    # wie ein Fehler, auch wenn der Wächter damit rechnen könnte.
+    if float(spec["step"]) == int(spec["step"]) and float(spec["default"]) == int(
+        spec["default"]
+    ):
+        return float(round(number))
+    return number
+
+
+def effective(stored: Any) -> dict[str, dict[str, Any]]:
+    """Gespeicherte Regeln mit den Vorgaben verschmelzen (rein, testbar).
+
+    Ergebnis je Regel: {enabled, params}. Unbekannte Schlüssel fliegen
+    raus, fehlende bekommen die Vorgabe – eine neue Regel ist damit sofort
+    aktiv, ohne dass jemand etwas speichern muss.
+    """
+    by_key: dict[str, dict[str, Any]] = {}
+    for entry in stored or []:
+        if isinstance(entry, dict) and entry.get("key") in BY_KEY:
+            by_key[str(entry["key"])] = entry
+
+    result: dict[str, dict[str, Any]] = {}
+    for rule in RULES:
+        entry = by_key.get(rule["key"], {})
+        params = entry.get("params") if isinstance(entry.get("params"), dict) else {}
+        result[rule["key"]] = {
+            "enabled": entry.get("enabled") is not False,
+            "params": {
+                spec["key"]: _clamp(params.get(spec["key"], spec["default"]), spec)
+                for spec in rule["params"]
+            },
+        }
+    return result
+
+
+def store(stored: Any, key: str, enabled: bool, params: dict[str, Any]) -> list[dict[str, Any]]:
+    """Eine Regel in die gespeicherte Liste einsetzen (rein, testbar).
+
+    Gespeichert wird die ganze Regel, nicht nur die Abweichung: So bleibt
+    nachvollziehbar, mit welchen Werten eine Nachricht rausging, auch wenn
+    sich die Vorgaben in einer späteren Version ändern.
+    """
+    if key not in BY_KEY:
+        raise ValueError(f"Unbekannte Regel '{key}'")
+    cleaned = {
+        spec["key"]: _clamp(params.get(spec["key"], spec["default"]), spec)
+        for spec in BY_KEY[key]["params"]
+    }
+    entry = {"key": key, "enabled": bool(enabled), "params": cleaned}
+    rest = [
+        item
+        for item in (stored or [])
+        if isinstance(item, dict) and item.get("key") in BY_KEY and item.get("key") != key
+    ]
+    return [*rest, entry]
+
+
+def describe(stored: Any) -> list[dict[str, Any]]:
+    """Die Regeln für die App: Metadaten plus aktuelle Werte (rein)."""
+    current = effective(stored)
+    return [
+        {
+            "key": rule["key"],
+            "title": rule["title"],
+            "detail": rule["detail"],
+            "enabled": current[rule["key"]]["enabled"],
+            "params": [
+                {**spec, "value": current[rule["key"]]["params"][spec["key"]]}
+                for spec in rule["params"]
+            ],
+        }
+        for rule in RULES
+    ]

@@ -54,6 +54,10 @@ EMPTY: dict[str, Any] = {
     # In der App zusammengefasste Leuchten: [{id, name, members, kind}].
     # Eine Deckenlampe mit fünf Spots ist ein Licht, nicht fünf.
     "light_groups": [],
+    # Regeln für die eingebauten Wächter-Nachrichten: [{key, enabled,
+    # params}] – siehe notifyrules.py. Was hier nicht steht, läuft mit
+    # den Vorgaben.
+    "notify_rules": [],
 }
 
 

@@ -28,29 +28,19 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from . import energy
+from . import energy, notifyrules
 
 if TYPE_CHECKING:
     from .hub import Hub
 
 log = logging.getLogger(__name__)
 
-# Erst nach zwei Fehlrunden melden – ein einzelner Timeout ist kein Ausfall.
-GRACE_ROUNDS = 2
+# Schwellen und Wartezeiten (Karenzminuten, Erinnerungsstunden, Frost- und
+# Speichergrenze) stehen nicht mehr hier: Sie sind einstellbare Regeln in
+# notifyrules.py und werden je Runde aus dem Datenspeicher gelesen.
 INTERVAL = 60.0
-# So lange darf ein einzelnes Gerät schweigen, bevor es gemeldet wird.
-# Grosszügiger als bei Integrationen: Ein Funkgerät verpasst mal eine Runde.
-DEVICE_GRACE_ROUNDS = 30
-# So lange nach dem Programmende wird an die volle Maschine erinnert.
-# Zwei Stunden: lang genug, dass man nicht wegen des Wegs vom Keller
-# gemahnt wird, kurz genug, dass die Wäsche nicht über Nacht knittert.
-APPLIANCE_REMINDER = 2 * 3600
 # So viele Programmläufe bleiben gespeichert – reicht für Monate.
 CYCLE_LIMIT = 300
-# So lange darf ein Fenster offen stehen, bevor der Hub daran erinnert.
-# Zwei Stunden: kurz genug, dass im Winter nicht der halbe Tag zum Fenster
-# hinausgeheizt wird, lang genug fürs bewusste Lüften.
-OPEN_REMINDER = 2 * 3600
 # Melder, bei denen «offen» Heizkosten bedeutet. Ein Bewegungsmelder, der
 # lange «on» meldet, ist dagegen kein Grund zur Sorge.
 OPEN_CLASSES = frozenset({"contact", "door", "window", "garage"})
@@ -59,15 +49,10 @@ OPEN_CLASSES = frozenset({"contact", "door", "window", "garage"})
 # dieselbe Datei am Tag; alle zehn Minuten genügt für einen Monatsvergleich
 # und beim Tageswechsel wird ohnehin sofort geschrieben.
 ENERGY_INTERVAL = 600.0
-# Ab dieser Belegung wird der Speicherplatz gemeldet. Nicht erst bei 100 %:
-# Läuft die Platte voll, scheitert *jedes* Schreiben - Konfiguration
-# speichern, Lautsprecher übernehmen, Sicherung anlegen -, und die
-# Fehlermeldung («[Errno 28] No space left on device») sagt niemandem,
-# dass Docker-Reste die Ursache sind. Bei 85 % bleibt Zeit zum Aufräumen.
-DISK_WARN_PERCENT = 85
-# Ab dieser Nachtprognose wird an die Balkonpflanzen erinnert. Drei Grad
-# statt null: Am Boden ist es kälter als in zwei Metern Höhe, und wer erst
-# bei null gewarnt wird, hat die Geranien schon verloren.
+# Ab dieser Nachtprognose wird an die Balkonpflanzen erinnert, wenn niemand
+# etwas anderes einstellt. Drei Grad statt null: Am Boden ist es kälter als
+# in zwei Metern Höhe, und wer erst bei null gewarnt wird, hat die Geranien
+# schon verloren.
 FROST_BELOW = 3.0
 # Nicht öfter als einmal am Tag mahnen, solange es knapp bleibt.
 DISK_REMIND = 24 * 3600
@@ -76,7 +61,9 @@ DISK_REMIND = 24 * 3600
 IGNORE = frozenset({"demo", "helpers", "group", "adaptive", "presence_sim", "alarm"})
 
 
-def frost_night(days: list[Any], today: str) -> dict[str, Any] | None:
+def frost_night(
+    days: list[Any], today: str, below: float = FROST_BELOW
+) -> dict[str, Any] | None:
     """Kommt heute Nacht Frost? (rein, testbar)
 
     Geschaut wird auf die Tiefstwerte von heute und morgen – die kalte
@@ -93,7 +80,7 @@ def frost_night(days: list[Any], today: str) -> dict[str, Any] | None:
             low = float(entry.get("low"))
         except (TypeError, ValueError):
             continue
-        if low < FROST_BELOW:
+        if low < below:
             return {"date": day, "low": low}
     return None
 
@@ -230,6 +217,9 @@ class Watchdog:
         self._disk_warned: float = 0.0
         # Letzte gemessene Belegung - für den System-Screen.
         self.disk: dict[str, Any] | None = None
+        # Regeln für die eingebauten Nachrichten – zu Beginn die Vorgaben,
+        # jede Runde frisch aus dem Datenspeicher (die App ändert sie dort).
+        self.rules = notifyrules.effective(None)
         # Aktuell als ausgefallen gemeldete Integrationen (seit Zeitstempel).
         self.down_since: dict[str, float] = {}
         # Protokoll der letzten Ausfälle für die App (jüngste zuerst).
@@ -269,6 +259,9 @@ class Watchdog:
         }
 
     async def check(self) -> None:
+        # Frisch lesen, nicht cachen: Die App ändert die Regeln im
+        # Datenspeicher, und die nächste Runde soll sie schon kennen.
+        self.rules = notifyrules.effective(self.hub.data.get("notify_rules"))
         entities = self.hub.registry.all()
         await self._check_appliances(entities)
         await self._check_devices(entities)
@@ -287,15 +280,19 @@ class Watchdog:
             if name not in down:
                 self._strikes.pop(name)
 
-        # Neu ausgefallen (Karenz überschritten)?
+        # Neu ausgefallen (Karenz überschritten)? Eine Runde dauert eine
+        # Minute, darum sind die eingestellten Minuten zugleich die Runden.
+        # «>=» statt «==»: Wer die Karenz mitten in einem Ausfall verkürzt,
+        # soll die Meldung noch bekommen, nicht verpasst haben.
+        grace = max(1, round(self.rules["outage"]["params"]["minutes"]))
         for name, strikes in self._strikes.items():
-            if strikes == GRACE_ROUNDS and name not in self.down_since:
+            if strikes >= grace and name not in self.down_since:
                 self.down_since[name] = time.time()
                 self._log_outage(name, ended=None)
                 await self._notify(
                     f"{name} nicht erreichbar",
                     f"Die Integration '{name}' antwortet seit "
-                    f"{round(GRACE_ROUNDS * INTERVAL / 60)} Minuten nicht mehr.",
+                    f"{strikes} Minuten nicht mehr.",
                 )
 
         # Wieder zurück?
@@ -323,7 +320,8 @@ class Watchdog:
         if weather is None:
             return
         today = datetime.now().strftime("%Y-%m-%d")
-        frost = frost_night(weather.state.get("days") or [], today)
+        below = float(self.rules["frost"]["params"]["below"])
+        frost = frost_night(weather.state.get("days") or [], today, below)
         if frost is None:
             return
         if self._frost_day == frost["date"]:
@@ -344,7 +342,7 @@ class Watchdog:
         if usage is None:
             return
         self.disk = usage
-        if usage["percent"] < DISK_WARN_PERCENT:
+        if usage["percent"] < round(self.rules["disk"]["params"]["percent"]):
             self._disk_warned = 0.0
             return
         now = time.time()
@@ -375,11 +373,12 @@ class Watchdog:
                 continue
             strikes = self._device_strikes.get(entity.id, 0) + 1
             self._device_strikes[entity.id] = strikes
-            if strikes == DEVICE_GRACE_ROUNDS and entity.id not in self._reported_down:
+            grace = max(1, round(self.rules["device_down"]["params"]["minutes"]))
+            if strikes >= grace and entity.id not in self._reported_down:
                 self._reported_down.add(entity.id)
                 await self._notify(
                     f"{entity.name} antwortet nicht",
-                    f"Seit {round(DEVICE_GRACE_ROUNDS * INTERVAL / 60)} Minuten "
+                    f"Seit {strikes} Minuten "
                     "keine Meldung – die Alarmanlage hat dort einen blinden Fleck.",
                     "device_down",
                 )
@@ -414,7 +413,8 @@ class Watchdog:
             since = self._finished_at.get(entity.id)
             if since is None or entity.id in self._reminded:
                 continue
-            if now - since >= APPLIANCE_REMINDER:
+            reminder = self.rules["appliance"]["params"]["hours"] * 3600
+            if now - since >= reminder:
                 self._reminded.add(entity.id)
                 hours = round((now - since) / 3600)
                 await self._notify(
@@ -495,11 +495,12 @@ class Watchdog:
         """
         now = time.time()
         offen = {entity.id for entity in open_contacts(entities)}
+        reminder = self.rules["open"]["params"]["hours"] * 3600
         for entity in open_contacts(entities):
             since = self._open_since.setdefault(entity.id, now)
             if entity.id in self._reported_open:
                 continue
-            if now - since >= OPEN_REMINDER:
+            if now - since >= reminder:
                 self._reported_open.add(entity.id)
                 hours = round((now - since) / 3600)
                 await self._notify(
@@ -563,6 +564,13 @@ class Watchdog:
                 break
 
     async def _notify(self, title: str, body: str, category: str = "outage") -> None:
+        rule = self.rules.get(category)
+        if rule is not None and not rule["enabled"]:
+            # Abgeschaltet heisst: keine Push an niemanden. Geprüft wird
+            # weiter (der System-Screen zeigt Ausfälle trotzdem), und das
+            # Log behält eine Spur, falls jemand die Regel vergessen hat.
+            log.info("%s – %s (Regel '%s' abgeschaltet)", title, body, category)
+            return
         log.warning("%s – %s", title, body)
         try:
             tokens = self.hub.push.recipients(self.hub.users.users, "all", category)
