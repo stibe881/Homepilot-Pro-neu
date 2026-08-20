@@ -130,6 +130,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
+  // Die Einrichtung hinter den Einstellungen gehört der Besitzerrolle -
+  // erkennbar an manage_users, die sonst niemand hat. Auch die Suche hält
+  // sich daran, sonst führte sie an der Menüführung vorbei hinein.
+  const istBesitzer = (user?.capabilities ?? []).includes('manage_users');
+
   const [section, setSection] = useState<Section>('start');
   const [room, setRoom] = useState(ALL_ROOMS);
   const [now, setNow] = useState(() => new Date());
@@ -709,7 +714,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     );
 
     if (section === 'settings') {
-      const caps = user?.capabilities ?? [];
+      // Alles ausser «Konto & Verbindung» ist Sache der Besitzerin bzw.
+      // des Besitzers. Bewohner bedienen das Haus über die Startseite; die
+      // Einrichtung dahinter - wer darf was, welche Abläufe laufen, was der
+      // Hub gerade treibt - gehört nicht in jede Hand. Der Hub prüft die
+      // Rechte ohnehin noch einmal selbst.
       const items: {
         key: Section;
         icon: keyof typeof Ionicons.glyphMap;
@@ -722,56 +731,56 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           icon: 'people-circle-outline',
           label: 'Benutzerverwaltung',
           detail: 'Zugänge und Rollen: Besitzer, Mitbewohner, Gast',
-          show: caps.includes('manage_users'),
-        },
-        {
-          key: 'devices',
-          icon: 'list-outline',
-          label: 'Geräte',
-          detail: 'Alle Geräte, auch ausgeblendete',
-          show: true,
+          show: istBesitzer,
         },
         {
           key: 'automations',
           icon: 'git-branch-outline',
           label: 'Abläufe',
           detail: 'Automationen und Szenen',
-          show: caps.includes('view_automations'),
+          show: istBesitzer,
         },
         {
           key: 'alarm',
           icon: 'shield-checkmark-outline',
           label: 'Alarmanlage',
           detail: 'Sensoren, Modi und Verlauf',
-          show: caps.includes('edit_config'),
+          show: istBesitzer,
+        },
+        {
+          key: 'devices',
+          icon: 'list-outline',
+          label: 'Geräte',
+          detail: 'Alle Geräte, auch ausgeblendete',
+          show: istBesitzer,
         },
         {
           key: 'speakers',
           icon: 'volume-high-outline',
           label: 'Lautsprecher',
           detail: 'Boxen und Gruppen im Netz',
-          show: caps.includes('edit_config'),
+          show: istBesitzer,
         },
         {
           key: 'energy',
           icon: 'flash-outline',
           label: 'Energie',
           detail: 'Verbrauch und Kosten je Gerät',
-          show: caps.includes('view_system'),
+          show: istBesitzer,
         },
         {
           key: 'system',
           icon: 'pulse-outline',
           label: 'System',
           detail: 'Integrationen, Sicherung, Konfiguration',
-          show: caps.includes('view_system'),
+          show: istBesitzer,
         },
         {
           key: 'activity',
           icon: 'timer-outline',
           label: 'Zuletzt passiert',
           detail: 'Protokoll der letzten Änderungen',
-          show: true,
+          show: istBesitzer,
         },
         {
           key: 'account',
@@ -1290,7 +1299,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           } else if (hit.kind === 'scene') {
             activateScene(hit.id);
           } else if (hit.kind === 'automation') {
-            setSection('automations');
+            // Für alle anderen bleibt der Treffer folgenlos - die Abläufe
+            // sind kein Bereich, den die Suche aufsperren soll.
+            if (istBesitzer) setSection('automations');
           } else {
             // Gerät: in die Geräteliste und dort danach filtern – so sieht
             // man es samt Bedienelementen, statt nur den Raum zu wechseln.

@@ -463,6 +463,12 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
     Object.keys(entity.state ?? {}).some((key) => key.startsWith('probe_'))
   );
   const cover = entities.find((entity) => entity.kind === 'cover');
+  // Irgendein Gerät, das seinen Ladestand meldet - Türsensor, Schloss,
+  // Thermostat. Als Vorlage genügt eines; welches gemeint ist, wählt man
+  // im Editor.
+  const battery = entities.find(
+    (entity) => typeof entity.state?.battery === 'number'
+  );
   const offScene = scenes.find((scene) => scene.id === 'alles_aus');
   const firstOff = entities.find((entity) => entity.commands.includes('turn_off'));
 
@@ -667,6 +673,35 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
             kind: 'notify' as StepKind,
             title: 'Fleisch ist so weit',
             body: 'Sonde 1 hat 63 °C erreicht.',
+          },
+        ],
+      },
+    });
+  }
+
+  if (battery) {
+    templates.push({
+      label: 'Batterie wird schwach',
+      icon: 'battery-half-outline',
+      draft: {
+        ...EMPTY,
+        alias: 'Batterie wird schwach',
+        triggers: [
+          {
+            ...EMPTY_TRIGGER,
+            kind: 'threshold' as TriggerKind,
+            entityId: battery.id,
+            attribute: 'battery',
+            thresholdOp: 'below',
+            thresholdValue: '20',
+          },
+        ],
+        steps: [
+          {
+            ...EMPTY_STEP,
+            kind: 'notify' as StepKind,
+            title: 'Batterie wird schwach',
+            body: `${battery.name} meldet weniger als 20 % - Batterie bereitlegen.`,
           },
         ],
       },
