@@ -91,6 +91,11 @@ _status = {
     # die Ursache und was zu tun ist. Ohne dieses Feld landete davon
     # nichts in der App - man sah nur, DASS es schiefging.
     "detail": None,
+    # ⚠-Zeilen des Bau-Skripts: Dinge, die schiefgingen, ohne den Bau zu
+    # stoppen - etwa ein fehlgeschlagener Web-Bau, bei dem die alte
+    # Fassung online bleibt. Bisher standen sie nur im Journal, und in
+    # der App sah danach alles nach Erfolg aus.
+    "warnings": [],
     "started_at": None,
     "updated_at": None,
 }
@@ -111,6 +116,11 @@ def _handle_line(line: str) -> None:
     in den geteilten Status, aber ohne Seiteneffekte sonst)."""
     if line.startswith("✗"):
         _set_status(state="error", message=line.lstrip("✗").strip(), detail=None)
+        return
+    if line.startswith("⚠"):
+        with _status_lock:
+            _status["warnings"] = [*_status["warnings"], line.lstrip("⚠").strip()]
+            _status["updated_at"] = time.time()
         return
     if line.startswith("✓") and "frischen Abbild" in line:
         _set_status(state="ok", stage="done", message=line.lstrip("✓").strip())
@@ -142,7 +152,13 @@ def build(ios: bool = False) -> None:
     if not _running.acquire(blocking=False):
         log.warning("Es läuft schon ein Bau – der zweite Aufruf wird verworfen")
         return
-    _set_status(state="running", stage="clone", message=None, started_at=time.time())
+    _set_status(
+        state="running",
+        stage="clone",
+        message=None,
+        warnings=[],
+        started_at=time.time(),
+    )
 
     timed_out = False
     proc: subprocess.Popen | None = None

@@ -2568,7 +2568,7 @@ class WebStatics(StaticFiles):
     def file_response(self, *args: Any, **kwargs: Any):
         response = super().file_response(*args, **kwargs)
         path = str(getattr(response, "path", "")).replace("\\", "/")
-        if path.endswith(".html"):
+        if path.endswith((".html", "version.json")):
             response.headers["Cache-Control"] = "no-cache"
         elif "/_expo/" in path:
             response.headers["Cache-Control"] = "public, max-age=31536000, immutable"

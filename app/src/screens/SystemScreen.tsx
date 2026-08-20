@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Platform, Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { ConfigVersion, Entity, HubSettings, LogEntry, SystemStatus, User } from '../api/types';
 import { PushState, pushHint } from '../hooks/usePushRegistration';
@@ -129,6 +129,7 @@ export function SystemScreen({
             <UpdateButton settings={settings} />
           </View>
         ) : null}
+        {status.build ? <WebVersionNote hubCommit={status.build.commit} /> : null}
 
         {showOffline ? (
           offline(entities).length === 0 ? (
@@ -775,6 +776,9 @@ interface UpdateStatus {
   message?: string | null;
   /** Ursache und Abhilfe, mehrzeilig – nur im Fehlerfall gesetzt. */
   detail?: string | null;
+  /** Schiefgegangenes, das den Bau nicht stoppte – etwa ein
+   *  fehlgeschlagener Web-Bau, bei dem die alte Fassung online bleibt. */
+  warnings?: string[];
 }
 
 const STAGE_LABEL: Record<string, string> = {
@@ -825,6 +829,40 @@ const MAX_POLLS = 600;
  * zwei Sekunden ab und zeigt ihn als Balken. Bei einem reinen Portainer-
  * Webhook gibt es das nicht; dann bleibt es wie bisher bei "läuft".
  */
+/** Passt das Bundle im Browser zum laufenden Hub? (nur Web)
+ *
+ * Das Bau-Skript legt neben die Web-Fassung eine version.json mit dem
+ * Commit. Weicht er vom Hub ab, zeigt der Browser einen alten Stand -
+ * meist hängt er im Cache, manchmal ist der Web-Bau beim Update
+ * fehlgeschlagen. Genau diese Frage («warum sehe ich die neue Funktion
+ * nicht?») war bisher nur per SSH zu beantworten. */
+function WebVersionNote({ hubCommit }: { hubCommit: string }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [webCommit, setWebCommit] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    fetch('/version.json', { cache: 'no-store' })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => setWebCommit(data?.commit ?? null))
+      .catch(() => {});
+  }, []);
+
+  if (Platform.OS !== 'web' || !webCommit || webCommit === hubCommit) {
+    return null;
+  }
+  return (
+    <Text style={[styles.hint, { color: colors.warn }]}>
+      Die geladene Web-Fassung ist Stand {webCommit}, der Hub läuft mit{' '}
+      {hubCommit}. Die Seite einmal komplett neu laden – zeigt sie danach
+      immer noch den alten Stand, ist beim Update der Web-Bau
+      fehlgeschlagen (die Meldung dazu erscheint nach dem nächsten Update
+      hier beim Update-Knopf).
+    </Text>
+  );
+}
+
 function UpdateButton({ settings }: { settings: HubSettings }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -895,8 +933,19 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
                 .join('\n')
             );
           } else if (data.state === 'ok') {
-            setNoteError(false);
-            setNote('Fertig – der Hub läuft mit dem frischen Stand.');
+            const warned = (data.warnings ?? []).filter(Boolean);
+            if (warned.length > 0) {
+              // «Fertig» wäre hier die halbe Wahrheit: Der Hub ist neu,
+              // aber etwas blieb auf dem alten Stand - das gehört vor
+              // die Augen, nicht ins Journal auf dem Host.
+              setNoteError(true);
+              setNote(
+                ['Fertig, aber mit Vorbehalt:', ...warned].join('\n')
+              );
+            } else {
+              setNoteError(false);
+              setNote('Fertig – der Hub läuft mit dem frischen Stand.');
+            }
           }
         }
       } catch {

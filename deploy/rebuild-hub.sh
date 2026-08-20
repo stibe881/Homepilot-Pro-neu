@@ -188,6 +188,17 @@ if [ -f /opt/homepilot/update-listener.py ] \
   echo "  sudo systemctl restart homepilot-update   (nicht während eines Baus)"
 fi
 
+# Schon hier bestimmen, nicht erst beim Abbild: Der Stempel wandert auch
+# in die Web-Fassung (version.json), damit die App prüfen kann, ob das
+# Bundle im Browser zum laufenden Hub passt.
+COMMIT="$(git -C "$WORKDIR" rev-parse --short HEAD)"
+
+if [ -n "$WEB_ROOT" ] && [ "$WEB_ROOT" != "/" ] && [ ! -d "$WEB_ROOT" ]; then
+  # Bisher wurde hier stumm übersprungen - und niemand erfuhr, warum die
+  # Web-Fassung nie neuer wurde.
+  echo "⚠ Web-Ordner $WEB_ROOT fehlt - die Web-Fassung wird nicht gebaut."
+  echo "  Anlegen mit: sudo mkdir -p $WEB_ROOT"
+fi
 if [ -n "$WEB_ROOT" ] && [ "$WEB_ROOT" != "/" ] && [ -d "$WEB_ROOT" ]; then
   echo "→ Baue die Web-Fassung der App …"
   # node:20-bookworm-slim statt alpine: Metro/Expo bringen gelegentlich
@@ -202,7 +213,9 @@ if [ -n "$WEB_ROOT" ] && [ "$WEB_ROOT" != "/" ] && [ -d "$WEB_ROOT" ]; then
     # fehl, bleibt die zuletzt funktionierende Fassung online.
     find "$WEB_ROOT" -mindepth 1 -delete
     cp -r "$WORKDIR/app/dist/." "$WEB_ROOT/"
-    echo "✓ Web-Fassung aktualisiert."
+    # Der Stempel, mit dem die App prüft, ob ihr Bundle zum Hub passt.
+    printf '{"commit":"%s"}\n' "$COMMIT" > "$WEB_ROOT/version.json"
+    echo "✓ Web-Fassung aktualisiert (Stand $COMMIT)."
   else
     echo "⚠ Web-Bau fehlgeschlagen - die bisherige Fassung bleibt online."
     echo "  Der Hub selbst wird trotzdem weitergebaut."
@@ -218,10 +231,9 @@ if PREV_IMAGE_ID=$(docker image inspect "$IMAGE" -f '{{.Id}}' 2>/dev/null); then
 fi
 
 echo "→ Baue das Abbild neu (ohne Cache) …"
-# Commit und Bauzeit wandern ins Abbild. Ohne sie zeigt die App nur
-# «läuft», und nach einem Update sieht man nicht, ob der Container
-# wirklich der neue ist.
-COMMIT="$(git -C "$WORKDIR" rev-parse --short HEAD)"
+# Commit und Bauzeit wandern ins Abbild (COMMIT stammt von weiter oben).
+# Ohne sie zeigt die App nur «läuft», und nach einem Update sieht man
+# nicht, ob der Container wirklich der neue ist.
 docker build --no-cache \
   --build-arg "GIT_COMMIT=$COMMIT" \
   --build-arg "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
