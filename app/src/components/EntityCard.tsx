@@ -1218,11 +1218,20 @@ function PlaylistSheet({
   const needle = query.trim().toLowerCase();
   // Im Bearbeiten-Modus auch die ausgeblendeten zeigen – sonst kommt man
   // nie wieder an sie heran.
-  const listed = sorted.filter(
+  const gefiltert = sorted.filter(
     (name) =>
       (editing || !hidden.includes(name)) &&
       (!needle || name.toLowerCase().includes(needle))
   );
+  // Ausgeblendete ans Ende: Oben steht dann, was man wirklich benutzt,
+  // und die Ausgeblendeten sammeln sich unten, statt die Liste zu
+  // durchsetzen. Ausserhalb des Bearbeitens sind sie ohnehin nicht dabei.
+  const listed = editing
+    ? [
+        ...gefiltert.filter((name) => !hidden.includes(name)),
+        ...gefiltert.filter((name) => hidden.includes(name)),
+      ]
+    : gefiltert;
 
   const move = (name: string, delta: number) => {
     const next = [...sorted];
@@ -1233,13 +1242,21 @@ function PlaylistSheet({
     onSave(next, hidden);
   };
 
-  const toggleHidden = (name: string) =>
+  const toggleHidden = (name: string) => {
+    const wirdAusgeblendet = !hidden.includes(name);
+    // Beim Ausblenden auch in der gespeicherten Reihenfolge nach hinten:
+    // Sonst bliebe eine unsichtbare Lücke zwischen zwei Playlists stehen,
+    // über die die Pfeile daneben hinwegschöben, ohne dass sich sichtbar
+    // etwas ändert.
     onSave(
-      sorted,
-      hidden.includes(name)
-        ? hidden.filter((entry) => entry !== name)
-        : [...hidden, name]
+      wirdAusgeblendet
+        ? [...sorted.filter((entry) => entry !== name), name]
+        : sorted,
+      wirdAusgeblendet
+        ? [...hidden, name]
+        : hidden.filter((entry) => entry !== name)
     );
+  };
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>

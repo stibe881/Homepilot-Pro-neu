@@ -999,10 +999,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               <Text style={styles.backText}>Räume</Text>
             </Pressable>
           ) : null}
-          {section === 'home' ||
-          section === 'devices' ||
-          section === 'light' ||
-          section === 'covers' ? (
+          {/* Kacheln anpassen heisst: verschieben, ausblenden, sperren,
+              Gruppen vergeben. Das prägt die Ansicht für alle im Haus und
+              gehört deshalb zur Einrichtung, nicht zum Bedienen. */}
+          {istBesitzer &&
+          (section === 'home' ||
+            section === 'devices' ||
+            section === 'light' ||
+            section === 'covers') ? (
             <Pressable
               onPress={() => setEditing((value) => !value)}
               accessibilityRole="button"
