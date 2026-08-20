@@ -728,6 +728,28 @@ function GuestWifiCard({
     payload: string;
   } | null>(null);
   const [open, setOpen] = useState(false);
+  // Gutscheine fürs Captive Portal - null heisst: keine UniFi-Anbindung.
+  const [vouchers, setVouchers] = useState<
+    | {
+        id: string;
+        code: string;
+        note: string;
+        minutes: number;
+        used: boolean;
+      }[]
+    | null
+  >(null);
+  const [voucherNote, setVoucherNote] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const loadVouchers = () => {
+    fetch(`${settings.url}/api/wifi/vouchers`, { headers })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (data) setVouchers(data.vouchers ?? []);
+      })
+      .catch(() => {});
+  };
 
   useEffect(() => {
     fetch(`${settings.url}/api/wifi`, { headers })
@@ -736,10 +758,44 @@ function GuestWifiCard({
         if (data?.payload) setWifi(data);
       })
       .catch(() => {});
+    loadVouchers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.url, settings.token]);
 
-  if (!wifi) return null;
+  const createVoucher = async (hours: number) => {
+    setBusy(true);
+    setVoucherNote(null);
+    try {
+      const response = await fetch(`${settings.url}/api/wifi/vouchers`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hours }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.detail ?? `Hub antwortet mit ${response.status}`);
+      setVoucherNote(`Neuer Gutschein: ${body.voucher?.code ?? '?'}`);
+      loadVouchers();
+    } catch (err: any) {
+      setVoucherNote(String(err.message ?? err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteVoucher = async (id: string) => {
+    await fetch(`${settings.url}/api/wifi/vouchers/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers,
+    }).catch(() => {});
+    loadVouchers();
+  };
+
+  const durationLabel = (minutes: number) =>
+    minutes >= 1440 && minutes % 1440 === 0
+      ? `${minutes / 1440} Tag${minutes / 1440 === 1 ? '' : 'e'}`
+      : `${Math.round(minutes / 60)} Std.`;
+
+  if (!wifi && (vouchers == null || vouchers.length === 0)) return null;
 
   return (
     <Card style={styles.card}>
@@ -757,7 +813,7 @@ function GuestWifiCard({
           color={colors.inkSoft}
         />
       </Pressable>
-      {open ? (
+      {open && wifi ? (
         <>
           <View style={styles.qrBox}>
             <QRCode value={wifi.payload} size={190} backgroundColor="#FFFFFF" />
@@ -784,6 +840,68 @@ function GuestWifiCard({
           </Text>
         </>
       ) : null}
+
+      {open && vouchers != null ? (
+        <>
+          <Text style={styles.formLabel}>Portal-Gutscheine</Text>
+          {vouchers.length === 0 ? (
+            <Text style={styles.qrHint}>Keine offenen Gutscheine.</Text>
+          ) : (
+            vouchers.map((voucher) => (
+              <View
+                key={voucher.id}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
+              >
+                <Text style={styles.voucherCode} selectable>
+                  {voucher.code}
+                </Text>
+                <Text style={[styles.qrHint, { flex: 1 }]} numberOfLines={1}>
+                  {durationLabel(voucher.minutes)}
+                  {voucher.note ? ` · ${voucher.note}` : ''}
+                  {voucher.used ? ' · eingelöst' : ''}
+                </Text>
+                <Pressable
+                  onPress={() => deleteVoucher(voucher.id)}
+                  accessibilityLabel="Gutschein löschen"
+                  hitSlop={8}
+                >
+                  <Ionicons name="trash-outline" size={17} color={colors.inkSoft} />
+                </Pressable>
+              </View>
+            ))
+          )}
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {[
+              { hours: 4, label: '4 Std.' },
+              { hours: 24, label: '1 Tag' },
+              { hours: 72, label: '3 Tage' },
+              { hours: 168, label: '1 Woche' },
+            ].map((option) => (
+              <Pressable
+                key={option.hours}
+                onPress={() => createVoucher(option.hours)}
+                disabled={busy}
+                accessibilityRole="button"
+                style={({ pressed }) => [
+                  styles.voucherChip,
+                  (pressed || busy) && { opacity: 0.6 },
+                ]}
+              >
+                <Text style={styles.voucherChipText}>+ {option.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+          {voucherNote ? (
+            <Text style={styles.qrHint} selectable>
+              {voucherNote}
+            </Text>
+          ) : null}
+          <Text style={styles.qrHint}>
+            Einmal-Codes fürs Anmeldefenster (Captive Portal). Die Dauer
+            zählt ab der ersten Anmeldung; danach verfällt der Code.
+          </Text>
+        </>
+      ) : null}
     </Card>
   );
 }
@@ -794,6 +912,22 @@ const makeStyles = (colors: Colors) =>
     title: { color: colors.onGradient, fontSize: 18, fontWeight: '700' },
     cardTitle: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
     card: { minHeight: 0, gap: 10 },
+    voucherCode: {
+      color: colors.ink,
+      fontSize: 16,
+      fontWeight: '800',
+      fontVariant: ['tabular-nums'],
+      letterSpacing: 1,
+    },
+    voucherChip: {
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+      borderRadius: 999,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    voucherChipText: { color: colors.ink, fontSize: 13, fontWeight: '700' },
     intro: { color: colors.onGradientSoft, fontSize: 13, lineHeight: 19, maxWidth: 520 },
     note: { color: colors.inkSoft, fontSize: 14 },
     error: { color: colors.danger, fontSize: 13, fontWeight: '600' },

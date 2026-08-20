@@ -93,3 +93,30 @@ def test_timer_cancel():
         assert client.delete(f"/api/timers/{timer_id}").status_code == 200
         assert client.get("/api/timers").json()["timers"] == []
         assert client.delete(f"/api/timers/{timer_id}").status_code == 404
+
+
+def test_voucher_shaping():
+    from homepilot.integrations.unifi import format_voucher, shape_voucher
+
+    assert format_voucher("0123456789") == "01234-56789"
+    assert format_voucher(" 98765-43210 ") == "98765-43210"
+    shaped = shape_voucher(
+        {"_id": "abc", "code": "1112223334", "duration": 1440, "used": 0, "note": "Gast"}
+    )
+    assert shaped == {
+        "id": "abc",
+        "code": "11122-23334",
+        "note": "Gast",
+        "minutes": 1440,
+        "created": None,
+        "used": False,
+    }
+
+
+def test_vouchers_need_the_unifi_integration():
+    hub = Hub(make_config())
+    with TestClient(create_app(hub)) as client:
+        answer = client.get("/api/wifi/vouchers")
+        assert answer.status_code == 404
+        assert "unifi" in answer.json()["detail"]
+        assert client.post("/api/wifi/vouchers", json={"hours": 24}).status_code == 404

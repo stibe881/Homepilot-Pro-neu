@@ -38,6 +38,27 @@ def normalise_mac(mac: str) -> str:
     return mac.strip().lower().replace("-", ":")
 
 
+def format_voucher(code: str) -> str:
+    """«0123456789» → «01234-56789», wie auf der Portal-Seite (rein)."""
+    cleaned = str(code or "").strip()
+    if len(cleaned) == 10 and cleaned.isdigit():
+        return f"{cleaned[:5]}-{cleaned[5:]}"
+    return cleaned
+
+
+def shape_voucher(row: dict[str, Any]) -> dict[str, Any]:
+    """Ein Voucher des Controllers in die Form der App (rein, testbar)."""
+    return {
+        "id": str(row.get("_id") or ""),
+        "code": format_voucher(str(row.get("code") or "")),
+        "note": str(row.get("note") or ""),
+        # Gültigkeitsdauer ab erster Anmeldung, in Minuten.
+        "minutes": int(row.get("duration") or 0),
+        "created": row.get("create_time"),
+        "used": int(row.get("used") or 0) > 0,
+    }
+
+
 def presence_from_clients(
     clients: list[dict[str, Any]], macs: list[str]
 ) -> dict[str, bool]:
@@ -146,6 +167,73 @@ class UnifiIntegration(Integration):
                 response.raise_for_status()
                 payload = await response.json()
         return payload.get("data", [])
+
+    async def _api(
+        self,
+        method: str,
+        path: str,
+        json: dict[str, Any] | None = None,
+        params: dict[str, str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Ein Aufruf der Netzwerk-API, mit Neu-Anmeldung bei 401."""
+        url = f"{self._base}{self._prefix}{path}"
+        headers = {"X-CSRF-Token": self._csrf} if self._csrf else {}
+        async with self._session.request(
+            method, url, json=json, params=params, headers=headers
+        ) as response:
+            if response.status == 401:
+                await self._login()
+                headers = {"X-CSRF-Token": self._csrf} if self._csrf else {}
+                async with self._session.request(
+                    method, url, json=json, params=params, headers=headers
+                ) as retry:
+                    retry.raise_for_status()
+                    payload = await retry.json(content_type=None)
+            else:
+                response.raise_for_status()
+                payload = await response.json(content_type=None)
+        return payload.get("data", []) if isinstance(payload, dict) else []
+
+    # ── Hotspot-Voucher ────────────────────────────────────────────────────
+    # Für das Captive Portal: Der Hub stellt Gutscheine aus, statt dass
+    # jemand dafür in den Controller muss. Einmal-Codes (quota 1), damit
+    # ein weitergereichter Zettel nicht zur Dauerkarte wird.
+
+    async def list_vouchers(self) -> list[dict[str, Any]]:
+        rows = await self._api("GET", f"/api/s/{self._site}/stat/voucher")
+        vouchers = [shape_voucher(row) for row in rows]
+        return sorted(vouchers, key=lambda entry: entry.get("created") or 0, reverse=True)
+
+    async def create_voucher(self, minutes: int, note: str = "") -> dict[str, Any]:
+        result = await self._api(
+            "POST",
+            f"/api/s/{self._site}/cmd/hotspot",
+            json={
+                "cmd": "create-voucher",
+                "expire": max(30, int(minutes)),
+                "n": 1,
+                "quota": 1,
+                "note": note[:80] or "HomePilot",
+            },
+        )
+        created = result[0].get("create_time") if result else None
+        # Der Controller gibt beim Anlegen nur den Zeitstempel zurück -
+        # den Code holt erst die Voucher-Liste.
+        rows = await self._api(
+            "GET",
+            f"/api/s/{self._site}/stat/voucher",
+            params={"create_time": str(created)} if created else None,
+        )
+        if not rows:
+            raise ConnectionError("Voucher angelegt, aber nicht auffindbar")
+        return shape_voucher(rows[0])
+
+    async def delete_voucher(self, voucher_id: str) -> None:
+        await self._api(
+            "POST",
+            f"/api/s/{self._site}/cmd/hotspot",
+            json={"cmd": "delete-voucher", "_id": voucher_id},
+        )
 
     # ── Abfrage ────────────────────────────────────────────────────────────
 

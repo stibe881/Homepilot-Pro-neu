@@ -139,6 +139,13 @@ class GoodNightRequest(BaseModel):
     arm_alarm: bool = False
 
 
+class VoucherRequest(BaseModel):
+    """Ein WLAN-Gutschein fürs Captive Portal."""
+
+    hours: float = 24
+    note: str = ""
+
+
 class TimerRequest(BaseModel):
     """Ein Küchen-Timer: Minuten und was danach gesagt wird."""
 
@@ -1020,6 +1027,63 @@ def create_app(hub: Hub) -> FastAPI:
                 open_network=open_network,
             ),
         }
+
+    def unifi_service():
+        """Die UniFi-Anbindung - oder ein lesbares 404."""
+        service = hub.integrations.get("unifi")
+        if service is None or not hasattr(service, "list_vouchers"):
+            raise HTTPException(
+                status_code=404,
+                detail="Voucher brauchen die UniFi-Anbindung (integration: unifi).",
+            )
+        return service
+
+    @app.get("/api/wifi/vouchers")
+    async def list_wifi_vouchers(request: Request) -> dict[str, Any]:
+        require(request, Capability.CONTROL)
+        try:
+            return {"vouchers": await unifi_service().list_vouchers()}
+        except HTTPException:
+            raise
+        except Exception as err:
+            raise HTTPException(
+                status_code=502, detail=f"UniFi-Controller: {err}"
+            ) from err
+
+    @app.post("/api/wifi/vouchers")
+    async def create_wifi_voucher(body: VoucherRequest, request: Request) -> dict[str, Any]:
+        """Einen Einmal-Gutschein fürs Captive Portal ausstellen.
+
+        Aus der App statt aus dem Controller: Besuch bekommt Tür, WLAN und
+        Gutschein aus derselben Karte. Einmal-Codes, damit ein
+        weitergereichter Zettel nicht zur Dauerkarte wird.
+        """
+        user = require(request, Capability.CONTROL)
+        hours = max(0.5, min(24 * 30, float(body.hours)))
+        try:
+            voucher = await unifi_service().create_voucher(
+                round(hours * 60), note=body.note.strip() or f"Gast ({user.name})"
+            )
+        except HTTPException:
+            raise
+        except Exception as err:
+            raise HTTPException(
+                status_code=502, detail=f"UniFi-Controller: {err}"
+            ) from err
+        return {"ok": True, "voucher": voucher}
+
+    @app.delete("/api/wifi/vouchers/{voucher_id}")
+    async def delete_wifi_voucher(voucher_id: str, request: Request) -> dict[str, Any]:
+        require(request, Capability.CONTROL)
+        try:
+            await unifi_service().delete_voucher(voucher_id)
+        except HTTPException:
+            raise
+        except Exception as err:
+            raise HTTPException(
+                status_code=502, detail=f"UniFi-Controller: {err}"
+            ) from err
+        return {"ok": True}
 
     @app.get("/api/system/changes")
     async def system_changes(request: Request) -> dict[str, Any]:
