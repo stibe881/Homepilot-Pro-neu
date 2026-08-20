@@ -122,7 +122,7 @@ def _handle_line(line: str) -> None:
             _status["warnings"] = [*_status["warnings"], line.lstrip("⚠").strip()]
             _status["updated_at"] = time.time()
         return
-    if line.startswith("✓") and "frischen Abbild" in line:
+    if line.startswith("✓") and ("frischen Abbild" in line or "neuesten Stand" in line):
         _set_status(state="ok", stage="done", message=line.lstrip("✓").strip())
         return
     for marker, stage in _STAGE_MARKERS:

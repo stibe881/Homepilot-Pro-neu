@@ -202,9 +202,14 @@ COMMIT="$(git -C "$WORKDIR" rev-parse --short HEAD)"
 # nach Version gar nicht erst neu aus.
 RUNNING_COMMIT=$(docker exec "$CONTAINER" printenv HOMEPILOT_COMMIT 2>/dev/null || echo "")
 if [ -n "$RUNNING_COMMIT" ] && [ "$RUNNING_COMMIT" = "$COMMIT" ]; then
-  echo "⚠ Der Hub läuft bereits mit Stand $COMMIT - auf GitHub liegt nichts"
-  echo "  Neueres. Gebaut wird trotzdem; wechselt Portainer den Container"
-  echo "  nicht, ist das hier der Grund und kein Fehler."
+  if [ "${HOMEPILOT_IOS_BUILD:-0}" = "1" ]; then
+    echo "→ Der Hub läuft bereits mit Stand $COMMIT - dieser Lauf gilt vor"
+    echo "  allem dem iOS-Build."
+  else
+    echo "⚠ Der Hub läuft bereits mit Stand $COMMIT - auf GitHub liegt nichts"
+    echo "  Neueres. Gebaut wird trotzdem; wechselt Portainer den Container"
+    echo "  nicht, ist das hier der Grund und kein Fehler."
+  fi
 fi
 
 # «Was ist neu»: die Betreffzeilen seit dem laufenden Stand wandern als
@@ -511,18 +516,23 @@ if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
     fi
     echo "  Von Hand: Portainer → Stacks → homepilot →"
     echo "  Update the stack → Re-pull image AUS → Deploy."
+  elif [ -n "$RUNNING_COMMIT" ] && [ "$RUNNING_COMMIT" = "$COMMIT" ]; then
+    # Kein Fehler: Es lief schon der neueste Stand, und bei unverändertem
+    # Git-Stand rollt Portainer nicht neu aus. Genau so sieht der Lauf
+    # «nur ein iOS-Build, bitte» aus - der endete hier früher fälschlich
+    # als Fehlermeldung, und der angestossene iOS-Build ging darin unter.
+    echo ""
+    echo "✓ Fertig - der Hub läuft bereits mit dem neuesten Stand ($COMMIT)."
+    if [ "${HOMEPILOT_IOS_BUILD:-0}" = "1" ]; then
+      echo "  Der iOS-Build wurde angestossen - TestFlight meldet sich."
+    fi
+    exit 0
   else
     echo "✗ Portainer hat den Container nicht gewechselt - der alte Stand"
     echo "  läuft weiter (das Haus ist also nicht offline)."
-    if [ -n "$RUNNING_COMMIT" ] && [ "$RUNNING_COMMIT" = "$COMMIT" ]; then
-      echo "  Wahrscheinlichste Erklärung: Es lief schon Stand $COMMIT, und"
-      echo "  bei unverändertem Git-Stand rollt Portainer nicht neu aus."
-      echo "  Das ist dann kein Fehler - es gab schlicht nichts Neues."
-    else
-      echo "  Mögliche Gründe: Das Ausrollen dauert noch (gleich nochmal in"
-      echo "  der App nachsehen), oder es scheitert in Portainer - dort unter"
-      echo "  Stacks → homepilot steht das Protokoll des letzten Ausrollens."
-    fi
+    echo "  Mögliche Gründe: Das Ausrollen dauert noch (gleich nochmal in"
+    echo "  der App nachsehen), oder es scheitert in Portainer - dort unter"
+    echo "  Stacks → homepilot steht das Protokoll des letzten Ausrollens."
     echo "  Von Hand: Portainer → Stacks → homepilot →"
     echo "  Update the stack → Re-pull image AUS → Deploy."
   fi
