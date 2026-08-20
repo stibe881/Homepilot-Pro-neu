@@ -20,6 +20,7 @@ WebSocket-Protokoll (/ws):
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
 import os
@@ -134,6 +135,16 @@ class GoodNightRequest(BaseModel):
 
     night_lights: list[str] = []
     arm_alarm: bool = False
+
+
+class BroadcastRequest(BaseModel):
+    """Eine Durchsage an die Lautsprecher im Haus."""
+
+    text: str
+    # Leer = alle Cast-Boxen; sonst nur die genannten.
+    speakers: list[str] = []
+    # Lautstärke in Prozent für die Durchsage (None = so lassen).
+    volume: int | None = None
 
 
 class SpeakerRequest(BaseModel):
@@ -890,6 +901,97 @@ def create_app(hub: Hub) -> FastAPI:
             "alarm": alarm_result,
             "alarm_error": alarm_error,
         }
+
+    # ── Durchsage ──────────────────────────────────────────────────────────
+
+    @app.post("/api/broadcast")
+    async def broadcast(body: BroadcastRequest, request: Request) -> dict[str, Any]:
+        """«Essen ist fertig» auf die Cast-Boxen im Haus.
+
+        Der Hub macht aus dem Text eine MP3 (gTTS) und lässt sie die
+        Boxen abspielen. Die Ton-Adresse wird aus der Anfrage abgeleitet:
+        Dieselbe Adresse, unter der die App den Hub erreicht, erreichen
+        im Normalfall auch die Lautsprecher.
+        """
+        user = require(request, Capability.CONTROL)
+        text = body.text.strip()
+        if not text:
+            raise HTTPException(status_code=400, detail="Ohne Text keine Durchsage.")
+        if len(text) > 200:
+            raise HTTPException(
+                status_code=400,
+                detail="Bitte kurz halten - eine Durchsage ist kein Vortrag "
+                "(höchstens 200 Zeichen).",
+            )
+        try:
+            from gtts import gTTS
+        except ImportError as err:
+            raise HTTPException(
+                status_code=503,
+                detail="Sprachausgabe nicht installiert - das Abbild braucht "
+                "das Extra 'speech' (gTTS).",
+            ) from err
+
+        def synthesize() -> bytes:
+            buffer = io.BytesIO()
+            gTTS(text=text, lang="de").write_to_fp(buffer)
+            return buffer.getvalue()
+
+        try:
+            audio = await asyncio.to_thread(synthesize)
+        except Exception as err:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Sprachausgabe fehlgeschlagen (braucht Internet): {err}",
+            ) from err
+
+        token = hub.snapshots.put(audio)
+        url = f"{str(request.base_url).rstrip('/')}/api/broadcast/{token}.mp3"
+
+        wanted = set(body.speakers)
+        targets = [
+            entity
+            for entity in hub.registry.all()
+            if "play_url" in entity.commands
+            and entity.available
+            and (not wanted or entity.id in wanted)
+        ]
+        if not targets:
+            raise HTTPException(
+                status_code=404,
+                detail="Kein Lautsprecher erreichbar, der Durchsagen kann.",
+            )
+        sent: list[str] = []
+        errors: list[str] = []
+        for entity in targets:
+            try:
+                with as_source(user_source(user.name)):
+                    await hub.integrations.dispatch_command(
+                        entity.id,
+                        "play_url",
+                        {"url": url, "volume": body.volume},
+                    )
+                sent.append(entity.name)
+            except Exception as err:
+                errors.append(f"{entity.name}: {err}")
+        return {"sent": sent, "errors": errors}
+
+    @app.get("/api/broadcast/{token}.mp3")
+    async def broadcast_audio(token: str) -> Response:
+        """Die Durchsage-MP3 - bewusst ohne Anmeldung, wie das Push-Bild.
+
+        Die Boxen können keinen Token mitschicken. Vertretbar aus denselben
+        Gründen: 32 zufällige Bytes als Kennung, wenige Minuten gültig,
+        nur im Arbeitsspeicher, dahinter eine einzelne Tondatei.
+        """
+        audio = hub.snapshots.get(token)
+        if audio is None:
+            raise HTTPException(status_code=404, detail="Keine Durchsage")
+        return Response(
+            content=audio,
+            media_type="audio/mpeg",
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.get("/api/system/changes")
     async def system_changes(request: Request) -> dict[str, Any]:

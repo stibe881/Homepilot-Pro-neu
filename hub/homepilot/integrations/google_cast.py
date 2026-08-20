@@ -200,6 +200,8 @@ class GoogleCastIntegration(Integration):
                 commands=[
                     "play", "pause", "toggle", "next", "previous",
                     "volume_up", "volume_down", "set_volume", "mute",
+                    # Eine Ton-Adresse abspielen - Grundlage der Durchsage.
+                    "play_url",
                 ],
                 available=False,
             )
@@ -514,6 +516,24 @@ class GoogleCastIntegration(Integration):
             if muted is None:
                 muted = not bool(entity.state.get("muted"))
             await asyncio.to_thread(cast.set_volume_muted, bool(muted))
+        elif command == "play_url":
+            # Eine Ton-Adresse abspielen - die Durchsage («Essen ist
+            # fertig») kommt als frisch erzeugte MP3 vom Hub selbst.
+            url = str(data.get("url") or "")
+            if not url:
+                raise ConfigError("play_url braucht eine 'url'")
+            content_type = str(data.get("content_type") or "audio/mpeg")
+            volume = data.get("volume")
+
+            def start() -> None:
+                if volume is not None:
+                    cast.set_volume(max(0.0, min(1.0, float(volume) / 100)))
+                controller.play_media(url, content_type)
+                # Warten, bis der Player übernommen hat - sonst ginge eine
+                # gleich folgende zweite Durchsage verloren.
+                controller.block_until_active(timeout=10)
+
+            await asyncio.to_thread(start)
         else:
             raise ConfigError(f"Cast kennt das Kommando '{command}' nicht")
 

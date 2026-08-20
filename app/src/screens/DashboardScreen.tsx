@@ -51,6 +51,7 @@ import { EnergyScreen } from './EnergyScreen';
 import { SpeakersScreen } from './SpeakersScreen';
 import { SystemScreen } from './SystemScreen';
 import { EntityHistory } from '../components/EntityHistory';
+import { Broadcast } from '../components/Broadcast';
 import { GoodNight } from '../components/GoodNight';
 import { WhatsNew } from '../components/WhatsNew';
 import { LightGroups } from '../components/LightGroups';
@@ -795,7 +796,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       return (
         <View style={styles.stack}>
           {back}
-          <SpeakersScreen settings={settings} />
+          <>
+            <Broadcast settings={settings} entities={entities} />
+            <SpeakersScreen settings={settings} />
+          </>
         </View>
       );
     }

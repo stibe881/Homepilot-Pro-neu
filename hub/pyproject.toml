@@ -29,6 +29,8 @@ overkiz = ["pyoverkiz>=1.13,<2.0"]
 # eine lokale Entwicklungsumgebung auf 3.11 nicht. Deshalb hier und nicht
 # in den Grundabhängigkeiten.
 pitboss = ["pytboss>=2026.8"]
+# Durchsagen: Text zu Sprache über gTTS (braucht Internet zur Laufzeit).
+speech = ["gTTS>=2.5"]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
