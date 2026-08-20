@@ -166,7 +166,10 @@ fi
 # Stand einfach weiter, statt dass das Haus ohne Steuerung dasteht.
 
 echo "→ Hole den neuesten Code von ${REPO}@${BRANCH} …"
-git clone --depth 1 -b "$BRANCH" \
+# --depth 50 statt 1: Aus der jüngeren Geschichte entsteht die
+# «Was ist neu»-Liste in der App (Commit-Betreffzeilen seit dem Stand,
+# der gerade läuft). Fünfzig reichen für jede realistische Update-Lücke.
+git clone --depth 50 -b "$BRANCH" \
   "https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/${REPO}.git" "$WORKDIR"
 
 # Sich selbst auffrischen - gilt ab dem NÄCHSTEN Lauf. mv ersetzt die Datei
@@ -202,6 +205,19 @@ if [ -n "$RUNNING_COMMIT" ] && [ "$RUNNING_COMMIT" = "$COMMIT" ]; then
   echo "⚠ Der Hub läuft bereits mit Stand $COMMIT - auf GitHub liegt nichts"
   echo "  Neueres. Gebaut wird trotzdem; wechselt Portainer den Container"
   echo "  nicht, ist das hier der Grund und kein Fehler."
+fi
+
+# «Was ist neu»: die Betreffzeilen seit dem laufenden Stand wandern als
+# changes.txt ins Abbild - die App zeigt sie nach dem Update einmal an.
+# Kennt die (flache) Geschichte den alten Stand nicht, eben die letzten
+# zehn; besser eine grosszügige Liste als gar keine.
+CHANGES_FILE="$WORKDIR/hub/homepilot/changes.txt"
+if [ -n "$RUNNING_COMMIT" ] \
+   && git -C "$WORKDIR" cat-file -e "$RUNNING_COMMIT^{commit}" 2>/dev/null; then
+  git -C "$WORKDIR" log --format='%s' "$RUNNING_COMMIT..HEAD" > "$CHANGES_FILE" 2>/dev/null || true
+fi
+if [ ! -s "$CHANGES_FILE" ]; then
+  git -C "$WORKDIR" log --format='%s' -n 10 > "$CHANGES_FILE" 2>/dev/null || true
 fi
 
 if [ -n "$WEB_ROOT" ] && [ "$WEB_ROOT" != "/" ] && [ ! -d "$WEB_ROOT" ]; then

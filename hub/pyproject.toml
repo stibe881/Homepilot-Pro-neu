@@ -40,6 +40,10 @@ dev = [
 [tool.setuptools.packages.find]
 include = ["homepilot*"]
 
+[tool.setuptools.package-data]
+# Die «Was ist neu»-Liste, die das Bau-Skript vor dem Abbild-Bau erzeugt.
+homepilot = ["changes.txt"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

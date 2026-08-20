@@ -51,6 +51,8 @@ import { EnergyScreen } from './EnergyScreen';
 import { SpeakersScreen } from './SpeakersScreen';
 import { SystemScreen } from './SystemScreen';
 import { EntityHistory } from '../components/EntityHistory';
+import { GoodNight } from '../components/GoodNight';
+import { WhatsNew } from '../components/WhatsNew';
 import { LightGroups } from '../components/LightGroups';
 import { UsersScreen } from './UsersScreen';
 
@@ -213,7 +215,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   usePanelMode(!!settings.panel);
   const push = usePushRegistration(settings, status === 'connected');
   // Persönliche Reihenfolgen – je Benutzer auf dem Hub, geräteübergreifend.
-  const { prefs, setOrder } = usePrefs(settings, status === 'connected');
+  const { prefs, setOrder, setSeenChanges } = usePrefs(settings, status === 'connected');
 
   // Antippen einer Alarm-Nachricht führt direkt zur Kamera des betroffenen
   // Raums. Wer nachts geweckt wird, soll nicht erst durch die Räume suchen.
@@ -934,12 +936,23 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           {/* Im „Alle“-Modus alle Szenen, im Raum nur dessen Szenen. */}
           {section === 'home' && room === ALL_ROOMS ? (
             <>
+              {/* Einmal nach jedem Update: was sich geändert hat. */}
+              <WhatsNew
+                settings={settings}
+                seen={prefs.seenChanges}
+                onSeen={setSeenChanges}
+              />
               <SceneRow scenes={scenes} onActivate={activateScene} />
               <View style={styles.allOffRow}>
                 <AllOff
                   entities={entities}
                   locked={locked}
                   onCommand={sendCommand}
+                />
+                <GoodNight
+                  settings={settings}
+                  entities={entities}
+                  mayEdit={!!user?.capabilities?.includes('edit_automations')}
                 />
               </View>
             </>
@@ -1701,7 +1714,13 @@ const makeStyles = (colors: Colors) =>
     borderColor: colors.warn,
   },
   offlineText: { color: colors.onGradient, fontSize: 13, flex: 1 },
-  allOffRow: { alignItems: 'flex-start', marginTop: 4 },
+  allOffRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 4,
+  },
   searchButton: {
     width: 34,
     height: 34,

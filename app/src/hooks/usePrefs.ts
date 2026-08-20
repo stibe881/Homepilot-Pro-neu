@@ -14,6 +14,9 @@ export interface UserPrefs {
   /** Kachel-Reihenfolgen je Ansicht: Schlüssel wie «devices», «light»,
    *  «covers», «room:Küche», «family». */
   order?: Record<string, string[]>;
+  /** Bis zu welchem Stand die «Was ist neu»-Karte weggeklickt wurde –
+   *  je Person, damit Livia sie trotzdem noch sieht. */
+  seenChanges?: string;
 }
 
 export function usePrefs(settings: HubSettings, connected: boolean) {
@@ -72,5 +75,12 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     [save]
   );
 
-  return { prefs, setOrder };
+  const setSeenChanges = useCallback(
+    (commit: string) => {
+      save({ ...latest.current, seenChanges: commit });
+    },
+    [save]
+  );
+
+  return { prefs, setOrder, setSeenChanges };
 }

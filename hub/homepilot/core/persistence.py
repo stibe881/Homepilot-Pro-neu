@@ -58,6 +58,9 @@ EMPTY: dict[str, Any] = {
     # params}] – siehe notifyrules.py. Was hier nicht steht, läuft mit
     # den Vorgaben.
     "notify_rules": [],
+    # Gute-Nacht-Knopf: höchstens ein Eintrag {night_lights: [ids],
+    # arm_alarm: bool}. Als Liste, weil der DataStore Listen verwaltet.
+    "goodnight": [],
 }
 
 

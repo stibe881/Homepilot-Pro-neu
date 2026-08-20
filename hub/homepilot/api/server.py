@@ -49,6 +49,7 @@ from ..core import users as users_module
 from ..core import automation as automation_module
 from ..core import config_edit
 from ..core import confighistory
+from ..core import goodnight as goodnight_module
 from ..core import guestpass
 from ..core import trash as trash_module
 from ..core.config_edit import add_cast_device
@@ -126,6 +127,13 @@ class NotifyRuleRequest(BaseModel):
 
     enabled: bool = True
     params: dict[str, float] = {}
+
+
+class GoodNightRequest(BaseModel):
+    """Einstellungen des Gute-Nacht-Knopfs."""
+
+    night_lights: list[str] = []
+    arm_alarm: bool = False
 
 
 class SpeakerRequest(BaseModel):
@@ -787,6 +795,111 @@ def create_app(hub: Hub) -> FastAPI:
             log.debug("Ereignisse von %s nicht abrufbar: %s", entity_id, err)
             return {"events": [], "supported": True}
         return {"events": events, "supported": True}
+
+    # ── Gute Nacht ─────────────────────────────────────────────────────────
+
+    def goodnight_settings() -> dict[str, Any]:
+        for entry in hub.data.get("goodnight"):
+            if isinstance(entry, dict):
+                return {
+                    "night_lights": [str(x) for x in entry.get("night_lights") or []],
+                    "arm_alarm": bool(entry.get("arm_alarm")),
+                }
+        return {"night_lights": [], "arm_alarm": False}
+
+    @app.get("/api/goodnight")
+    async def get_goodnight(request: Request) -> dict[str, Any]:
+        require(request, Capability.CONTROL)
+        return goodnight_settings()
+
+    @app.put("/api/goodnight")
+    async def set_goodnight(body: GoodNightRequest, request: Request) -> dict[str, Any]:
+        require(request, Capability.EDIT_AUTOMATIONS)
+        known = {entity.id for entity in hub.registry.all()}
+        hub.data.set(
+            "goodnight",
+            [
+                {
+                    "night_lights": [x for x in body.night_lights if x in known],
+                    "arm_alarm": body.arm_alarm,
+                }
+            ],
+        )
+        return goodnight_settings()
+
+    @app.post("/api/goodnight/run")
+    async def run_goodnight(request: Request) -> dict[str, Any]:
+        """Der letzte Gang durchs Haus: Lichter aus, Bericht, ggf. Alarm.
+
+        Türen werden gemeldet, nie abgeschlossen - eine Tür, die sich von
+        selbst verriegelt, sperrt irgendwann jemanden aus.
+        """
+        user = require(request, Capability.CONTROL)
+        settings = goodnight_settings()
+        entities = hub.registry.all()
+
+        turned_off: list[str] = []
+        with as_source(user_source(user.name)):
+            for entity in goodnight_module.lights_to_off(
+                entities, settings["night_lights"]
+            ):
+                try:
+                    await hub.integrations.dispatch_command(entity.id, "turn_off")
+                    turned_off.append(entity.name)
+                except Exception:
+                    log.debug("Gute Nacht: %s nicht schaltbar", entity.id, exc_info=True)
+
+        alarm_result: str | None = None
+        alarm_error: str | None = None
+        if settings["arm_alarm"]:
+            anlage = next((e for e in entities if e.kind == "alarm"), None)
+            if anlage is None:
+                alarm_error = "Keine Alarmanlage eingerichtet."
+            else:
+                try:
+                    with as_source(user_source(user.name)):
+                        await hub.integrations.dispatch_command(anlage.id, "arm_night")
+                    alarm_result = "nacht"
+                except HomePilotError as err:
+                    # Meist: ein bewachtes Fenster steht offen. Der Text
+                    # der Anlage sagt, welches.
+                    alarm_error = str(err)
+
+        return {
+            "lights_off": turned_off,
+            "kept_on": [
+                entity.name
+                for entity in entities
+                if entity.id in set(settings["night_lights"])
+                and str(entity.state.get("state")) == "on"
+            ],
+            "open": [e.name for e in goodnight_module.open_windows(entities)],
+            "unlocked": [e.name for e in goodnight_module.unlocked_locks(entities)],
+            "alarm": alarm_result,
+            "alarm_error": alarm_error,
+        }
+
+    @app.get("/api/system/changes")
+    async def system_changes(request: Request) -> dict[str, Any]:
+        """Was dieses Update mitbrachte - für die «Was ist neu»-Karte.
+
+        Die Liste (Commit-Betreffzeilen seit dem vorherigen Stand) legt
+        das Bau-Skript als changes.txt neben den Code. Ohne Datei oder
+        leer: einfach nichts anzeigen - besser keine Karte als eine
+        erfundene.
+        """
+        current_user(request)
+        commit = os.environ.get("HOMEPILOT_COMMIT", "unbekannt")
+        path = Path(__file__).resolve().parent.parent / "changes.txt"
+        try:
+            lines = [
+                line.strip()
+                for line in path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+        except OSError:
+            lines = []
+        return {"commit": commit, "changes": lines[:12]}
 
     @app.get("/api/system/audit")
     async def system_audit(
