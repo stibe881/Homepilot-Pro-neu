@@ -64,6 +64,7 @@ export function TopStrip({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [lightsOpen, setLightsOpen] = useState(false);
   const [eventOpen, setEventOpen] = useState(false);
+  const [alertsOpen, setAlertsOpen] = useState(false);
   // Nachfrage «womit öffnen?» nach dem Tipp auf den Termin-Ort.
   const [routeAsk, setRouteAsk] = useState(false);
   const temperature = entities.find(
@@ -131,6 +132,7 @@ export function TopStrip({
             icon="warning-outline"
             text={`${alerts.state.count ?? ''} Warnung${alerts.state.count === 1 ? '' : 'en'}`}
             tone={colors.warn}
+            onPress={() => setAlertsOpen(true)}
           />
         ) : null}
       </View>
@@ -259,6 +261,50 @@ export function TopStrip({
           </Pressable>
         </Pressable>
       </Modal>
+
+      <Modal
+        visible={alertsOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAlertsOpen(false)}
+      >
+        <Pressable style={styles.backdrop} onPress={() => setAlertsOpen(false)}>
+          <Pressable style={styles.sheet} onPress={() => {}}>
+            <Text style={styles.heading}>
+              {(alerts?.state.count ?? 0) === 1
+                ? 'Wetterwarnung'
+                : `${alerts?.state.count} Wetterwarnungen`}
+            </Text>
+            <ScrollView style={{ maxHeight: 380 }}>
+              {(alerts?.state.alerts ?? []).map((warning: any, index: number) => (
+                <View key={index} style={styles.alertRow}>
+                  <Ionicons
+                    name="warning"
+                    size={18}
+                    color={severityTone(colors, warning.severity)}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.alertTitle}>
+                      {warning.event ?? warning.title ?? 'Warnung'}
+                      {warning.severity
+                        ? ` · ${SEVERITY_LABEL[warning.severity] ?? warning.severity}`
+                        : ''}
+                    </Text>
+                    {alertWindow(warning) ? (
+                      <Text style={styles.alertDetail}>{alertWindow(warning)}</Text>
+                    ) : null}
+                    {warning.area ? (
+                      <Text style={styles.alertDetail} numberOfLines={2}>
+                        {warning.area}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -335,6 +381,41 @@ export function eventWhenText(event: any): string {
   return endTime ? `${day} · ${startTime}–${endTime}` : `${day} · ${startTime}`;
 }
 
+const SEVERITY_LABEL: Record<string, string> = {
+  Minor: 'geringfügig',
+  Moderate: 'mässig',
+  Severe: 'schwer',
+  Extreme: 'extrem',
+};
+
+/** Warnstufe in eine Farbe – ab «Severe» ist es kein Hinweis mehr. */
+function severityTone(colors: Colors, severity?: string): string {
+  return severity === 'Severe' || severity === 'Extreme' ? colors.danger : colors.warn;
+}
+
+/** «Mi 14:00 bis Do 06:00» aus onset/expires – leer, wenn nichts da ist. */
+export function alertWindow(warning: {
+  onset?: string | null;
+  expires?: string | null;
+}): string {
+  const part = (iso?: string | null) => {
+    if (!iso) return null;
+    const stamp = new Date(iso);
+    if (Number.isNaN(stamp.getTime())) return null;
+    return stamp.toLocaleString('de-CH', {
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+  const from = part(warning.onset);
+  const to = part(warning.expires);
+  if (from && to) return `${from} bis ${to}`;
+  if (from) return `ab ${from}`;
+  if (to) return `bis ${to}`;
+  return '';
+}
+
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
   row: {
@@ -389,6 +470,14 @@ const makeStyles = (colors: Colors) =>
     borderWidth: 1,
     borderColor: colors.surfaceBorder,
   },
+  alertRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    paddingVertical: 8,
+  },
+  alertTitle: { color: colors.ink, fontSize: 15, fontWeight: '700' },
+  alertDetail: { color: colors.inkSoft, fontSize: 13, lineHeight: 19, marginTop: 2 },
   heading: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
   lightRow: {
     flexDirection: 'row',
