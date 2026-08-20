@@ -200,3 +200,77 @@ def test_members_can_stay_visible_if_wanted():
                 client.get(f"/api/entities/{member}", headers=headers).json()["state"]["state"]
                 == "on"
             )
+
+
+def _shared_hub():
+    """Zwei Benutzer am selben Hub - Stefan darf einrichten, Livia nicht."""
+    return Hub(
+        make_config(
+            token="geheim",
+            users=[
+                {"name": "Stefan", "role": "besitzer", "token": "t-stefan"},
+                {"name": "Livia", "role": "bewohner", "token": "t-livia"},
+            ],
+            integrations=[{"integration": "demo"}, {"integration": "group"}],
+        )
+    )
+
+
+def test_a_lamp_made_on_one_device_reaches_all_the_others():
+    """Zusammenfassen ist eine Eigenschaft des Hauses, keine Ansichtssache
+    des Geräts, auf dem man gerade tippt: Wer die Deckenlampe einmal
+    anlegt, soll sie auf jedem Telefon und bei jeder Person vorfinden -
+    ohne dort dasselbe noch einmal zu tun."""
+    hub = _shared_hub()
+    with TestClient(create_app(hub)) as client:
+        stefan = {"Authorization": "Bearer t-stefan"}
+        livia = {"Authorization": "Bearer t-livia"}
+
+        # Livia hat die App offen, während Stefan zusammenfasst.
+        with client.websocket_connect("/ws?token=t-livia") as livias_app:
+            assert livias_app.receive_json()["type"] == "snapshot"
+
+            client.post(
+                "/api/lightgroups",
+                json={
+                    "name": "Deckenlampe Wohnzimmer",
+                    "members": ["demo.light_livingroom", "demo.light_bedroom"],
+                },
+                headers=stefan,
+            )
+
+            # Ihr Gerät erfährt davon von selbst: die neue Leuchte kommt
+            # dazu, die Spots melden, wozu sie jetzt gehören.
+            angekommen: dict[str, str | None] = {}
+            for _ in range(6):
+                message = livias_app.receive_json()
+                entity = message.get("entity") or {}
+                if message["type"] == "entity_added":
+                    angekommen[entity["id"]] = "neu"
+                elif message["type"] == "state_changed":
+                    angekommen[entity["id"]] = entity.get("combined_into")
+                if "group.deckenlampe_wohnzimmer" in angekommen and len(angekommen) >= 3:
+                    break
+
+        assert angekommen.get("group.deckenlampe_wohnzimmer") == "neu"
+        for member in ("demo.light_livingroom", "demo.light_bedroom"):
+            assert angekommen.get(member) == "group.deckenlampe_wohnzimmer"
+
+        # Und auch, wer erst später hinzukommt, sieht dasselbe Haus.
+        entities = {e["id"]: e for e in client.get("/api/entities", headers=livia).json()}
+        assert "group.deckenlampe_wohnzimmer" in entities
+        assert entities["demo.light_livingroom"]["combined_into"] == (
+            "group.deckenlampe_wohnzimmer"
+        )
+        assert [row["name"] for row in client.get("/api/lightgroups", headers=livia).json()[
+            "groups"
+        ]] == ["Deckenlampe Wohnzimmer"]
+
+        # Einrichten bleibt trotzdem Sache der Besitzerin bzw. des
+        # Besitzers - sonst löst das Kind die Deckenlampe versehentlich auf.
+        verweigert = client.post(
+            "/api/lightgroups",
+            json={"name": "Noch eine", "members": ["demo.switch_coffee", "demo.light_kitchen"]},
+            headers=livia,
+        )
+        assert verweigert.status_code == 403

@@ -90,10 +90,22 @@ export function LightGroups({
     }
   };
 
+  // Welche Leuchten der Hub gerade führt. Legt jemand auf einem anderen
+  // Telefon eine an oder löst eine auf, kommt das hier über die
+  // Live-Verbindung als Gerät herein - dann muss diese Liste mitziehen.
+  // Ohne das zeigte dieses Gerät weiter den Stand von vorhin, bis man den
+  // Bildschirm neu öffnet, und es sähe so aus, als gälte die
+  // Zusammenfassung nur dort, wo man sie gemacht hat.
+  const groupIds = entities
+    .filter((entity) => entity.integration === 'group')
+    .map((entity) => entity.id)
+    .sort()
+    .join(',');
+
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.url, settings.token]);
+  }, [settings.url, settings.token, groupIds]);
 
   const nameOf = (id: string) => entities.find((item) => item.id === id)?.name ?? id;
 
@@ -175,6 +187,9 @@ export function LightGroups({
         Eine Deckenlampe mit mehreren Spots soll ein Licht sein, nicht fünf.
         Zusammengefasste Lampen verschwinden aus den Räumen und aus der
         Zählung oben; hier unter Geräte bleiben sie einzeln bedienbar.
+        Einmal hier eingerichtet, gilt es für alle Geräte und für die ganze
+        Familie – das ist eine Eigenschaft des Hauses, keine Einstellung
+        dieses Telefons.
       </Text>
 
       {(groups ?? []).map((group) => {
