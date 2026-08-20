@@ -364,18 +364,31 @@ STALE_LISTENER_HINT = (
     "3. Was der Dienst kann, sagt er selbst: curl -s http://127.0.0.1:9126/"
 )
 
+# Der zweite stille Weg, auf dem ein iOS-Build ausbleibt: Gebaut wird auf
+# den EAS-Servern, und dafür braucht der Docker-Host einen Zugangs-Token.
+# Fehlt er, baut das Skript den Hub fertig und überspringt den iOS-Teil -
+# das Update meldet «fertig», und in TestFlight kommt nie etwas an.
+MISSING_EXPO_TOKEN_HINT = (
+    "Auf dem Server fehlt der Zugang zu EAS - ohne ihn lässt sich kein "
+    "iOS-Build anstossen. Der Hub selbst liesse sich mit «Nur Hub» "
+    "aktualisieren.\n"
+    "1. Token erzeugen auf expo.dev → Account settings → Access tokens.\n"
+    "2. Auf dem Server eintragen: echo 'EXPO_TOKEN=…' | sudo tee -a "
+    "/opt/homepilot/github-credentials.env\n"
+    "3. Danach: sudo systemctl restart homepilot-update"
+)
 
-async def listener_features(
+
+async def listener_status(
     status_url: str, headers: dict[str, str]
-) -> list[str] | None:
-    """Was der Update-Dienst auf dem Host kann – oder None, wenn er es
-    nicht sagt.
+) -> dict[str, Any] | None:
+    """Was der Update-Dienst auf dem Host über sich sagt – oder None.
 
     None heisst ausdrücklich «unbekannt», nicht «kann nichts»: Ältere
-    Fassungen kennen die Liste noch nicht, und ein Portainer-Webhook hat
-    gar kein /status. In beiden Fällen wird wie bisher losgeschickt und
-    erst die Antwort ausgewertet – hier etwas zu blockieren, würde ein
-    funktionierendes Update verhindern, um einen Hinweis zu geben.
+    Fassungen kennen die Auskunft noch nicht, und ein Portainer-Webhook
+    hat gar kein /status. In beiden Fällen wird wie bisher losgeschickt
+    und erst die Antwort ausgewertet – hier etwas zu blockieren, würde
+    ein funktionierendes Update verhindern, um einen Hinweis zu geben.
     """
     try:
         timeout = aiohttp.ClientTimeout(total=5)
@@ -386,9 +399,7 @@ async def listener_features(
                 data = await response.json(content_type=None)
     except Exception:
         return None
-    if not isinstance(data, dict) or not isinstance(data.get("features"), list):
-        return None
-    return [str(item) for item in data["features"]]
+    return data if isinstance(data, dict) else None
 
 
 # Wie ein Kommando im Namen eines Kurzbefehls heisst – «Licht turn_on» wäre
@@ -720,12 +731,17 @@ def create_app(hub: Hub) -> FastAPI:
 
         if wants_ios and is_listener:
             # Vorher fragen statt hinterher rätseln: Neuere Fassungen des
-            # Dienstes zählen unter /status auf, was sie können. Fehlt dort
-            # «ios», wird gar nicht erst gebaut - sonst liefe ein Update
-            # durch, das den iOS-Build stillschweigend weglässt.
-            features = await listener_features(status_url, headers)
-            if features is not None and "ios" not in features:
+            # Dienstes sagen unter /status, was sie können und ob der
+            # Zugang zu EAS bereitliegt. Stimmt eines nicht, wird gar
+            # nicht erst gebaut - sonst liefe ein Update durch, das den
+            # iOS-Build stillschweigend weglässt, und in TestFlight käme
+            # nichts an, ohne dass irgendwo stünde warum.
+            status = await listener_status(status_url, headers)
+            features = (status or {}).get("features")
+            if isinstance(features, list) and "ios" not in [str(f) for f in features]:
                 raise HTTPException(status_code=502, detail=STALE_LISTENER_HINT)
+            if (status or {}).get("expo_token") is False:
+                raise HTTPException(status_code=502, detail=MISSING_EXPO_TOKEN_HINT)
 
         if wants_ios:
             # Nur der Listener versteht den Parameter; einem

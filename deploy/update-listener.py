@@ -69,6 +69,37 @@ WATCHDOG_SECONDS = 3600
 # hier dazu, damit die App sie ankündigen kann, bevor sie ins Leere läuft.
 FEATURES = ["status", "warnings", "ios"]
 
+# Dieselbe Datei, aus der rebuild-hub.sh seine Zugangsdaten liest.
+CREDENTIALS_FILE = os.environ.get(
+    "UPDATE_CREDENTIALS", "/opt/homepilot/github-credentials.env"
+)
+
+
+def has_expo_token() -> bool:
+    """Liegt ein EXPO_TOKEN bereit? Nur ja/nein, nie der Wert selbst.
+
+    Ohne ihn baut rebuild-hub.sh den Hub, überspringt aber den iOS-Build –
+    das Update sieht danach aus wie geglückt, und in TestFlight kommt
+    nichts an. Genau diese Auskunft fehlte dem Hub, um vorher zu warnen.
+
+    Nachgesehen wird an beiden Stellen, an denen auch das Bau-Skript
+    sucht: in der eigenen Umgebung und in der Zugangsdatei. Sonst hiesse
+    es «fehlt», sobald jemand den Token einträgt, ohne diesen Dienst neu
+    zu starten – obwohl der Bau ihn längst fände.
+    """
+    if os.environ.get("EXPO_TOKEN", "").strip():
+        return True
+    try:
+        with open(CREDENTIALS_FILE, encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                name, _, value = line.strip().partition("=")
+                if name.strip() == "EXPO_TOKEN" and value.strip().strip("\"'"):
+                    return True
+    except OSError:
+        pass
+    return False
+
+
 log = logging.getLogger("update-listener")
 
 # Damit nicht zwei Bauläufe gleichzeitig starten, wenn jemand zweimal tippt.
@@ -285,7 +316,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._answer(403, "Nicht erlaubt\n")
                 return
             with _status_lock:
-                body = json.dumps({**_status, "features": FEATURES}).encode("utf-8")
+                body = json.dumps(
+                    {
+                        **_status,
+                        "features": FEATURES,
+                        "expo_token": has_expo_token(),
+                    }
+                ).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
@@ -297,7 +334,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # von Fähigkeiten nichts verrät, was nicht ohnehin im Repository
         # steht; genau dafür ist sie da: nachsehen können, ohne erst das
         # Geheimnis herauszusuchen.
-        self._answer(200, f"update-listener läuft (kann: {', '.join(FEATURES)})\n")
+        self._answer(
+            200,
+            f"update-listener läuft (kann: {', '.join(FEATURES)}; "
+            f"EXPO_TOKEN: {'da' if has_expo_token() else 'fehlt'})\n",
+        )
 
 
 def main() -> int:

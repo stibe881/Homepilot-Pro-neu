@@ -380,11 +380,16 @@ def test_update_asks_the_listener_what_it_can_do_before_sending_ios():
 
     class VersionedListener(http.server.BaseHTTPRequestHandler):
         features = ["status", "warnings"]  # noch ohne «ios»
+        expo_token = True
         posts = 0
 
         def do_GET(self):  # noqa: N802
             body = json_module.dumps(
-                {"state": "idle", "features": type(self).features}
+                {
+                    "state": "idle",
+                    "features": type(self).features,
+                    "expo_token": type(self).expo_token,
+                }
             ).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -430,6 +435,23 @@ def test_update_asks_the_listener_what_it_can_do_before_sending_ios():
                 "/api/system/update", json={"ios": True}, headers=auth
             ).json() == {"ok": True, "ios_ignored": True}
             assert VersionedListener.posts == 2
+
+            # Der zweite stille Weg: Der Dienst kann iOS, aber auf dem
+            # Server liegt kein Zugang zu EAS. Dann käme in TestFlight
+            # nichts an, während das Update «fertig» meldet.
+            VersionedListener.expo_token = False
+            response = client.post(
+                "/api/system/update", json={"ios": True}, headers=auth
+            )
+            assert response.status_code == 502
+            assert "EXPO_TOKEN" in response.json()["detail"]
+            assert VersionedListener.posts == 2  # nichts angestossen
+
+            # «Nur Hub» bleibt davon unberührt - dafür braucht es kein EAS.
+            assert client.post("/api/system/update", headers=auth).json() == {
+                "ok": True
+            }
+            assert VersionedListener.posts == 3
     finally:
         server.shutdown()
 
