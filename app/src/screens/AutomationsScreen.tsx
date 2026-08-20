@@ -60,6 +60,10 @@ const MEASURE_LABELS: Record<string, string> = {
   tilt: 'Lamellen (%)',
   count: 'Anzahl',
   home: 'Anwesend',
+  probe_1: 'Grill-Sonde 1 (°C)',
+  probe_2: 'Grill-Sonde 2 (°C)',
+  probe_3: 'Grill-Sonde 3 (°C)',
+  probe_4: 'Grill-Sonde 4 (°C)',
 };
 
 /** Welche Zahlenwerte dieses Gerät liefert (rein, testbar).
@@ -201,7 +205,7 @@ export function usedCategories(items: { category?: string | null }[]): string[] 
 
 /** Was der Editor anbietet – bewusst wenig, aber vollständig bedienbar. */
 type TriggerKind = 'state' | 'threshold' | 'interval' | 'time' | 'sun' | 'geofence';
-type StepKind = 'command' | 'scene' | 'hue_scene' | 'notify' | 'delay' | 'wait_until';
+type StepKind = 'command' | 'scene' | 'hue_scene' | 'notify' | 'broadcast' | 'delay' | 'wait_until';
 type ConditionKind = 'none' | 'sun' | 'time';
 
 /** Ein einzelner Auslöser – ein Ablauf kann mehrere haben («oder»). */
@@ -222,6 +226,10 @@ interface TriggerDraft {
   thresholdValue: string;
   /** Intervall-Trigger: alle n Sekunden. */
   intervalSeconds: string;
+  /** Erst auslösen, wenn der Zustand so lange bestehen bleibt (Minuten).
+   *  «Alle weg» heisst erst nach zehn Minuten wirklich alle weg - nicht
+   *  beim kurzen Gang zum Briefkasten. Leer = sofort. */
+  forMinutes: string;
 }
 
 /**
@@ -258,6 +266,9 @@ interface StepDraft {
   waitOp: Compare;
   waitValue: string;
   waitTimeout: string;
+  /** Durchsage: was gesagt wird, und auf welchen Boxen (leer = alle). */
+  broadcastText: string;
+  broadcastSpeakers: string[];
 }
 
 const EMPTY_STEP: StepDraft = {
@@ -273,6 +284,8 @@ const EMPTY_STEP: StepDraft = {
   waitOp: 'is',
   waitValue: 'off',
   waitTimeout: '300',
+  broadcastText: '',
+  broadcastSpeakers: [],
 };
 
 /** Ein neuer Auslöser für dieses Gerät – mit einem Zustand, den es auch
@@ -297,6 +310,7 @@ const EMPTY_TRIGGER: TriggerDraft = {
   thresholdOp: 'below',
   thresholdValue: '5',
   intervalSeconds: '600',
+  forMinutes: '',
 };
 
 /** «ist» vergleicht den Zustand, «über»/«unter» eine Zahl – für Helligkeit,
@@ -364,6 +378,7 @@ function triggerToConfig(t: TriggerDraft): Record<string, any> {
   if (t.kind === 'interval') {
     return { type: 'interval', seconds: Math.max(10, Number(t.intervalSeconds) || 600) };
   }
+  const hold = Math.max(0, Number(t.forMinutes) || 0) * 60;
   if (t.kind === 'threshold') {
     // Löst beim Übertritt aus, nicht bei jeder Schwankung darunter: Der
     // Tumbler ist fertig, wenn die Leistung von «über 5 W» auf «unter 5 W»
@@ -371,17 +386,21 @@ function triggerToConfig(t: TriggerDraft): Record<string, any> {
     const trigger: Record<string, any> = { type: 'state', entity_id: t.entityId };
     if (t.attribute) trigger.attribute = t.attribute;
     trigger[t.thresholdOp] = Number(t.thresholdValue) || 0;
+    if (hold > 0) trigger.for = hold;
     return trigger;
   }
   if (t.kind === 'geofence') {
     // Ein Geofence ist im Hub ein gewöhnlicher Zustand (home/away) – der
     // eigene Auslöser-Typ ist reine Bedienhilfe, damit niemand wissen
     // muss, dass «Stefan kommt heim» ein Zustandswechsel ist.
-    return { type: 'state', entity_id: t.entityId, to: t.toState };
+    const trigger: Record<string, any> = { type: 'state', entity_id: t.entityId, to: t.toState };
+    if (hold > 0) trigger.for = hold;
+    return trigger;
   }
   const state: Record<string, any> = { type: 'state', entity_id: t.entityId, to: t.toState };
   if (t.fromState) state.from = t.fromState;
   if (t.attribute) state.attribute = t.attribute;
+  if (hold > 0) state.for = hold;
   return state;
 }
 
@@ -412,6 +431,7 @@ function triggerFromConfig(t: any): TriggerDraft {
     thresholdOp: t?.above !== undefined ? 'above' : 'below',
     thresholdValue: String(t?.above ?? t?.below ?? EMPTY_TRIGGER.thresholdValue),
     intervalSeconds: String(t?.seconds ?? EMPTY_TRIGGER.intervalSeconds),
+    forMinutes: t?.for ? String(Math.round(Number(t.for) / 60)) : '',
   };
 }
 
@@ -439,6 +459,9 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
   const appliance = entities.find((entity) => entity.kind === 'appliance');
   const alert = entities.find((entity) => entity.kind === 'alert');
   const vacuum = entities.find((entity) => entity.commands.includes('clean_rooms'));
+  const grill = entities.find((entity) =>
+    Object.keys(entity.state ?? {}).some((key) => key.startsWith('probe_'))
+  );
   const cover = entities.find((entity) => entity.kind === 'cover');
   const offScene = scenes.find((scene) => scene.id === 'alles_aus');
   const firstOff = entities.find((entity) => entity.commands.includes('turn_off'));
@@ -450,7 +473,10 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
       draft: {
         ...EMPTY,
         alias: 'Alles aus, wenn niemand zuhause',
-        triggers: [{ ...EMPTY_TRIGGER, entityId: presence.id, toState: 'off' }],
+        // Zehn Minuten Haltezeit: Der Gang zum Briefkasten ist kein Auszug.
+        triggers: [
+          { ...EMPTY_TRIGGER, entityId: presence.id, toState: 'off', forMinutes: '10' },
+        ],
         steps: [
           offScene
             ? { ...EMPTY_STEP, kind: 'scene' as StepKind, sceneId: offScene.id }
@@ -472,7 +498,9 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
       draft: {
         ...EMPTY,
         alias: 'Scharf, wenn niemand mehr da ist',
-        triggers: [{ ...EMPTY_TRIGGER, entityId: presence.id, toState: 'off' }],
+        triggers: [
+          { ...EMPTY_TRIGGER, entityId: presence.id, toState: 'off', forMinutes: '10' },
+        ],
         steps: [{ ...EMPTY_STEP, commandActions: [{ entity_id: alarm.id, command: 'arm_away' }] }],
       },
     });
@@ -594,6 +622,35 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
       });
     }
   }
+  if (grill) {
+    templates.push({
+      label: 'Grill: Sonde meldet',
+      icon: 'flame-outline',
+      draft: {
+        ...EMPTY,
+        alias: 'Fleisch hat Zieltemperatur',
+        triggers: [
+          {
+            ...EMPTY_TRIGGER,
+            kind: 'threshold' as TriggerKind,
+            entityId: grill.id,
+            attribute: 'probe_1',
+            thresholdOp: 'above',
+            thresholdValue: '63',
+          },
+        ],
+        steps: [
+          {
+            ...EMPTY_STEP,
+            kind: 'notify' as StepKind,
+            title: 'Fleisch ist so weit',
+            body: 'Sonde 1 hat 63 °C erreicht.',
+          },
+        ],
+      },
+    });
+  }
+
   return templates;
 }
 
@@ -2355,6 +2412,25 @@ function TriggerRow({
               wechselt.
             </Text>
           ) : null}
+          <View style={styles.rowGap}>
+            <Choice
+              options={[
+                { key: '', label: 'sofort' },
+                { key: '5', label: 'bleibt 5 Min. so' },
+                { key: '10', label: 'bleibt 10 Min. so' },
+                { key: '30', label: 'bleibt 30 Min. so' },
+              ]}
+              value={trigger.forMinutes}
+              onSelect={(forMinutes) => onChange({ forMinutes })}
+            />
+          </View>
+          {trigger.forMinutes ? (
+            <Text style={styles.triggerNote}>
+              Löst erst aus, wenn der Zustand {trigger.forMinutes} Minuten
+              bestehen bleibt - der kurze Gang zum Briefkasten zählt so
+              nicht als «alle weg».
+            </Text>
+          ) : null}
         </>
       ) : trigger.kind === 'geofence' ? (
         <>
@@ -2378,6 +2454,25 @@ function TriggerRow({
             Kurzbefehle-App («Wenn ich ankomme» → Inhalte von URL abrufen).
             Steht in docs/geofence.md.
           </Text>
+          <View style={styles.rowGap}>
+            <Choice
+              options={[
+                { key: '', label: 'sofort' },
+                { key: '5', label: 'bleibt 5 Min. so' },
+                { key: '10', label: 'bleibt 10 Min. so' },
+                { key: '30', label: 'bleibt 30 Min. so' },
+              ]}
+              value={trigger.forMinutes}
+              onSelect={(forMinutes) => onChange({ forMinutes })}
+            />
+          </View>
+          {trigger.forMinutes ? (
+            <Text style={styles.triggerNote}>
+              Löst erst aus, wenn der Zustand {trigger.forMinutes} Minuten
+              bestehen bleibt - der kurze Gang zum Briefkasten zählt so
+              nicht als «alle weg».
+            </Text>
+          ) : null}
         </>
       ) : trigger.kind === 'threshold' ? (
         <>
@@ -2419,6 +2514,25 @@ function TriggerRow({
             Tumbler ist fertig, wenn die Leistung von über 5 W auf unter 5 W
             fällt – nicht jedes Mal, wenn 2.1 W zu 2.0 W wird.
           </Text>
+          <View style={styles.rowGap}>
+            <Choice
+              options={[
+                { key: '', label: 'sofort' },
+                { key: '5', label: 'bleibt 5 Min. so' },
+                { key: '10', label: 'bleibt 10 Min. so' },
+                { key: '30', label: 'bleibt 30 Min. so' },
+              ]}
+              value={trigger.forMinutes}
+              onSelect={(forMinutes) => onChange({ forMinutes })}
+            />
+          </View>
+          {trigger.forMinutes ? (
+            <Text style={styles.triggerNote}>
+              Löst erst aus, wenn der Zustand {trigger.forMinutes} Minuten
+              bestehen bleibt - der kurze Gang zum Briefkasten zählt so
+              nicht als «alle weg».
+            </Text>
+          ) : null}
         </>
       ) : trigger.kind === 'interval' ? (
         <>
@@ -2537,6 +2651,9 @@ function StepList({
               { key: 'scene', label: 'Szene' },
               ...(hueScenes.length > 0 ? [{ key: 'hue_scene', label: 'Hue-Szene' }] : []),
               { key: 'notify', label: 'Nachricht' },
+              ...(entities.some((entity) => entity.commands.includes('play_url'))
+                ? [{ key: 'broadcast', label: 'Durchsage' }]
+                : []),
               { key: 'delay', label: 'Warten' },
               { key: 'wait_until', label: 'Warten bis' },
             ]}
@@ -2607,6 +2724,39 @@ function StepList({
                 erreichbare Adresse stehen, sonst kommt die Nachricht ohne
                 Bild an. Auf dem iPhone braucht es zusätzlich einen eigenen
                 App-Build (siehe docs/eigener-app-build.md).
+              </Text>
+            </>
+          ) : step.kind === 'broadcast' ? (
+            <>
+              <TextInput
+                style={styles.input}
+                value={step.broadcastText}
+                onChangeText={(broadcastText) => setStep(index, { broadcastText })}
+                placeholder="Essen ist fertig!"
+                placeholderTextColor={colors.inkFaint}
+                maxLength={200}
+              />
+              {entities.filter((entity) => entity.commands.includes('play_url'))
+                .length > 1 ? (
+                <Choice
+                  multi
+                  options={entities
+                    .filter((entity) => entity.commands.includes('play_url'))
+                    .map((entity) => ({ key: entity.id, label: entity.name }))}
+                  values={step.broadcastSpeakers}
+                  onSelect={(id) =>
+                    setStep(index, {
+                      broadcastSpeakers: step.broadcastSpeakers.includes(id)
+                        ? step.broadcastSpeakers.filter((entry) => entry !== id)
+                        : [...step.broadcastSpeakers, id],
+                    })
+                  }
+                />
+              ) : null}
+              <Text style={styles.triggerNote}>
+                Der Text wird auf den Cast-Boxen vorgelesen - ohne Auswahl
+                auf allen. Braucht Internet (Sprachausgabe) und dass die
+                App den Hub mindestens einmal erreicht hat.
               </Text>
             </>
           ) : step.kind === 'delay' ? (
@@ -2887,6 +3037,18 @@ function stepToActions(step: StepDraft): Record<string, any>[] {
       },
     ];
   }
+  if (step.kind === 'broadcast') {
+    if (!step.broadcastText.trim()) return [];
+    return [
+      {
+        type: 'broadcast',
+        text: step.broadcastText.trim(),
+        ...(step.broadcastSpeakers.length > 0
+          ? { speakers: step.broadcastSpeakers }
+          : {}),
+      },
+    ];
+  }
   if (step.kind === 'delay') {
     const seconds = Number(step.seconds) || 0;
     return seconds > 0 ? [{ type: 'delay', seconds }] : [];
@@ -2962,6 +3124,13 @@ function actionsToSteps(actions: Record<string, any>[]): StepDraft[] {
         title: action.title ?? '',
         body: action.body ?? '',
         notifyCamera: action.camera ?? '',
+      });
+    } else if (type === 'broadcast') {
+      steps.push({
+        ...EMPTY_STEP,
+        kind: 'broadcast',
+        broadcastText: action.text ?? '',
+        broadcastSpeakers: Array.isArray(action.speakers) ? action.speakers : [],
       });
     } else if (type === 'delay') {
       steps.push({ ...EMPTY_STEP, kind: 'delay', seconds: String(action.seconds ?? 60) });

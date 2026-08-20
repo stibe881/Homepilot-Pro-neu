@@ -537,6 +537,29 @@ automations:
   #       entity_id: overkiz.markise_terrasse
   #       command: close
 
+  # Durchsage aus einem Ablauf: Text wird auf den Cast-Boxen vorgelesen.
+  # «speakers» weglassen = alle Boxen. Auslöser mit «for» (Sekunden)
+  # warten, bis der Zustand so lange bestehen bleibt - «alle weg» heisst
+  # erst nach zehn Minuten wirklich alle weg.
+  # - id: abendessen
+  #   alias: Essenszeit
+  #   trigger:
+  #     - type: time
+  #       at: "18:00"
+  #   action:
+  #     - type: broadcast
+  #       text: "Essen ist fertig!"
+  # - id: alle_weg
+  #   alias: Lichter aus, wenn alle weg
+  #   trigger:
+  #     - type: state
+  #       entity_id: unifi.anyone_home
+  #       to: "off"
+  #       for: 600
+  #   action:
+  #     - type: scene
+  #       scene: alles_aus
+
   # Hitzeschutz: bei Sonne und >25 °C die Storen halb schliessen.
   # - id: hitzeschutz
   #   alias: Hitzeschutz Süd

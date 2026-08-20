@@ -113,6 +113,13 @@ def grill_state(state: dict[str, Any]) -> dict[str, Any]:
         "auger": bool(state.get("motorState")),
         "light": bool(state.get("lightState")),
         "probes": probe_temperatures(state),
+        # Dieselben Werte zusätzlich flach (probe_1 …): Nur so taugen sie
+        # als messbares Attribut in Abläufen - «Sonde 1 über 63 °C» kann
+        # nicht in ein verschachteltes Wörterbuch hineinschauen.
+        **{
+            f"probe_{number}": temp
+            for number, temp in probe_temperatures(state).items()
+        },
         "faults": problems,
         "problem": problems[0] if problems else None,
     }

@@ -52,6 +52,7 @@ import { SpeakersScreen } from './SpeakersScreen';
 import { SystemScreen } from './SystemScreen';
 import { EntityHistory } from '../components/EntityHistory';
 import { Broadcast } from '../components/Broadcast';
+import { ClimateOverview } from '../components/ClimateOverview';
 import { GoodNight } from '../components/GoodNight';
 import { KidsView } from '../components/KidsView';
 import { WhatsNew } from '../components/WhatsNew';
@@ -964,6 +965,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 onSeen={setSeenChanges}
               />
               <SceneRow scenes={scenes} onActivate={activateScene} />
+              <ClimateOverview settings={settings} entities={entities} />
               <View style={styles.allOffRow}>
                 <AllOff
                   entities={entities}

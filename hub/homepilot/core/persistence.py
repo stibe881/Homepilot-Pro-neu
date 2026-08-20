@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import tempfile
 import time
 from pathlib import Path
@@ -64,6 +65,9 @@ EMPTY: dict[str, Any] = {
     # PIN fürs Entschärfen der Alarmanlage: höchstens ein Eintrag
     # {salt, hash} - die PIN selbst liegt nie im Klartext.
     "alarm_pin": [],
+    # Zuletzt gesehene Hub-Adresse aus App-Anfragen: [{url}]. Damit
+    # können Abläufe auch direkt nach einem Neustart durchsagen.
+    "hub_base": [],
 }
 
 
@@ -158,6 +162,12 @@ class DataStore:
             folder.mkdir(parents=True, exist_ok=True)
             stamp = time.strftime("%Y-%m-%d_%H%M%S", time.localtime())
             target = folder / f"homepilot-data-{stamp}.json"
+            # Zwei Sicherungen in derselben Sekunde (etwa die automatische
+            # vor einem Zurückspielen) dürfen sich nicht überschreiben.
+            counter = 2
+            while target.exists():
+                target = folder / f"homepilot-data-{stamp}-{counter}.json"
+                counter += 1
             target.write_text(
                 json.dumps(self._data, ensure_ascii=False, indent=2), encoding="utf-8"
             )
@@ -182,3 +192,38 @@ class DataStore:
         if not entries:
             return None
         return max(0.0, time.time() - entries[0]["created"])
+
+    def backup_bytes(self, name: str) -> bytes:
+        """Den Inhalt einer Sicherung lesen - fürs Herunterladen.
+
+        Der Name wird streng geprüft: Er kommt aus einer URL, und ohne
+        Prüfung wäre das ein Fenster auf beliebige Dateien des Hubs.
+        """
+        return self._backup_file(name).read_bytes()
+
+    def restore_backup(self, name: str) -> None:
+        """Eine Sicherung zurückspielen.
+
+        Der aktuelle Stand wird vorher selbst gesichert - ein Zurückspielen,
+        das den letzten Stand vernichtet, wäre die falsche Rettungsleine.
+        Danach braucht der Hub einen Neustart: Benutzer, Abläufe und Szenen
+        werden beim Start aus der Datei aufgebaut.
+        """
+        file = self._backup_file(name)
+        payload = json.loads(file.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("Die Sicherung ist beschädigt (kein Objekt).")
+        self.backup()
+        self._data = payload
+        self.save()
+
+    def _backup_file(self, name: str) -> Path:
+        folder = self._backup_dir()
+        if folder is None:
+            raise ValueError("Ohne Datei-Speicher gibt es keine Sicherungen.")
+        if not re.fullmatch(r"homepilot-data-[A-Za-z0-9_.-]+\.json", name):
+            raise ValueError(f"Unbekannte Sicherung: {name}")
+        file = folder / name
+        if not file.is_file():
+            raise ValueError(f"Unbekannte Sicherung: {name}")
+        return file

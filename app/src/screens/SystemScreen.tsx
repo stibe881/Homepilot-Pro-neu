@@ -1312,6 +1312,9 @@ function BackupCard({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [backups, setBackups] = useState<any[] | null>(null);
   const [busy, setBusy] = useState(false);
+  const [listOpen, setListOpen] = useState(false);
+  const [confirmRestore, setConfirmRestore] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
 
   const load = useCallback(() => {
     fetch(`${settings.url}/api/system/backups`, { headers })
@@ -1348,9 +1351,65 @@ function BackupCard({
       })
     : null;
 
+  const download = async (name: string) => {
+    // Nur im Web: Dort kann der Browser die Datei speichern. Der Link
+    // allein genügt nicht - der Abruf braucht das Token im Header.
+    try {
+      const response = await fetch(
+        `${settings.url}/api/system/backups/${encodeURIComponent(name)}`,
+        { headers }
+      );
+      if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = name;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setNote(String(err.message ?? err));
+    }
+  };
+
+  const restore = async (name: string) => {
+    if (confirmRestore !== name) {
+      setConfirmRestore(name);
+      return;
+    }
+    setConfirmRestore(null);
+    setBusy(true);
+    setNote(null);
+    try {
+      const response = await fetch(
+        `${settings.url}/api/system/backups/${encodeURIComponent(name)}/restore`,
+        { method: 'POST', headers }
+      );
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.detail ?? `Hub antwortet mit ${response.status}`);
+      setNote(body.hinweis ?? 'Zurückgespielt - der Hub startet neu.');
+    } catch (err: any) {
+      setNote(String(err.message ?? err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <Card style={styles.card}>
-      <Text style={styles.heading}>Sicherung</Text>
+      <Pressable
+        onPress={() => setListOpen((open) => !open)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: listOpen }}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+      >
+        <Text style={[styles.heading, { flex: 1 }]}>Sicherung</Text>
+        <Ionicons
+          name={listOpen ? 'chevron-up' : 'chevron-down'}
+          size={18}
+          color={colors.inkSoft}
+        />
+      </Pressable>
       <Text style={styles.rowDetail}>
         {backups == null
           ? 'wird geladen …'
@@ -1359,12 +1418,66 @@ function BackupCard({
             : `${backups.length} Sicherung(en) · zuletzt ${when}`}
       </Text>
       <View style={styles.buttons}>
-        <Button label={busy ? 'Sichert …' : 'Jetzt sichern'} onPress={runBackup} primary />
+        <Button label={busy ? 'Arbeitet …' : 'Jetzt sichern'} onPress={runBackup} primary />
       </View>
+
+      {listOpen
+        ? (backups ?? []).map((entry) => (
+            <View key={entry.name} style={styles.row}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowDetail}>
+                  {new Date(entry.created * 1000).toLocaleString('de-CH', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                  {' · '}
+                  {Math.max(1, Math.round(entry.size / 1024))} kB
+                </Text>
+              </View>
+              {Platform.OS === 'web' ? (
+                <Pressable
+                  onPress={() => download(entry.name)}
+                  accessibilityLabel="Herunterladen"
+                  hitSlop={8}
+                >
+                  <Ionicons name="download-outline" size={18} color={colors.inkSoft} />
+                </Pressable>
+              ) : null}
+              <Pressable
+                onPress={() => restore(entry.name)}
+                accessibilityRole="button"
+                style={({ pressed }) => [
+                  styles.smallAction,
+                  confirmRestore === entry.name && { borderColor: colors.danger },
+                  pressed && { opacity: 0.7 },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.smallActionText,
+                    confirmRestore === entry.name && { color: colors.danger },
+                  ]}
+                >
+                  {confirmRestore === entry.name ? 'Wirklich?' : 'Zurückspielen'}
+                </Text>
+              </Pressable>
+            </View>
+          ))
+        : null}
+      {note ? (
+        <Text style={styles.rowDetail} selectable>
+          {note}
+        </Text>
+      ) : null}
       <Text style={styles.hint}>
         Benutzer, Abläufe, Szenen und Familien-Daten werden täglich automatisch
-        gesichert (die letzten 14). Die Kopien liegen im Ordner „backups“ neben
-        der homepilot-data.json auf dem Hub.
+        gesichert (die letzten 14). Zurückspielen sichert den aktuellen Stand
+        zuerst und startet den Hub neu. Fürs Herunterladen die Web-Fassung am
+        Computer öffnen - eine Kopie ausserhalb des Hubs schützt auch bei
+        einem Plattenschaden.
       </Text>
     </Card>
   );
@@ -1503,6 +1616,14 @@ const makeStyles = (colors: Colors) =>
     borderWidth: 1,
     borderColor: colors.surfaceBorder,
   },
+  smallAction: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  smallActionText: { color: colors.inkSoft, fontSize: 12, fontWeight: '700' },
   updateAskTitle: { color: colors.ink, fontSize: 14, fontWeight: '700' },
   updateAskText: { color: colors.inkSoft, fontSize: 12, lineHeight: 18 },
   updateAskRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },

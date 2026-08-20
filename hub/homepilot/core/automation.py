@@ -238,6 +238,10 @@ def describe_action(action: dict[str, Any], name_of: Any = None) -> str:
         wer = action.get("to") or "alle"
         bild = " mit Kamerabild" if action.get("camera") else ""
         return f"Nachricht an {wer}: «{action.get('title') or action.get('body') or ''}»{bild}"
+    if atype == "broadcast":
+        boxen = action.get("speakers") or []
+        wo = f" auf {len(boxen)} Box(en)" if boxen else " auf allen Boxen"
+        return f"Durchsage{wo}: «{action.get('text') or ''}»"
     return f"unbekannte Aktion «{atype}»"
 
 
@@ -388,6 +392,8 @@ class AutomationEngine:
         self._timer_tasks: list[asyncio.Task] = []
         self._run_tasks: set[asyncio.Task] = set()
         self._running: set[str] = set()
+        # Laufende «bleibt so für X»-Wartezeiten je (Automation, Auslöser).
+        self._held_tasks: dict[tuple[str, int], asyncio.Task] = {}
         # Bis zu diesem Zeitpunkt laufen keine Automationen – für Abende mit
         # Gästen oder wenn man selbst am Basteln ist.
         self.paused_until: datetime | None = None
@@ -451,15 +457,16 @@ class AutomationEngine:
         if self._unsubscribe:
             self._unsubscribe()
             self._unsubscribe = None
-        for task in [*self._timer_tasks, *self._run_tasks]:
+        for task in [*self._timer_tasks, *self._run_tasks, *self._held_tasks.values()]:
             task.cancel()
-        for task in [*self._timer_tasks, *self._run_tasks]:
+        for task in [*self._timer_tasks, *self._run_tasks, *self._held_tasks.values()]:
             try:
                 await task
             except (asyncio.CancelledError, Exception):
                 pass
         self._timer_tasks.clear()
         self._run_tasks.clear()
+        self._held_tasks.clear()
 
     # ── Trigger ────────────────────────────────────────────────────────────
 
@@ -467,12 +474,68 @@ class AutomationEngine:
         for automation in self.automations:
             if not automation.enabled:
                 continue
-            for trigger in automation.triggers:
+            for index, trigger in enumerate(automation.triggers):
                 if trigger.get("type", "state") != "state":
                     continue
                 if self._state_trigger_matches(trigger, data):
-                    self._schedule(automation)
+                    hold = float(trigger.get("for") or 0)
+                    if hold > 0:
+                        # «bleibt so für X»: erst warten, dann prüfen, ob
+                        # der Zustand noch gilt - «alle weg» heisst erst
+                        # nach zehn Minuten wirklich alle weg, nicht beim
+                        # kurzen Gang zum Briefkasten.
+                        self._schedule_held(automation, index, trigger, hold)
+                    else:
+                        self._schedule(automation)
                     break
+
+    def _schedule_held(
+        self,
+        automation: Automation,
+        index: int,
+        trigger: dict[str, Any],
+        hold: float,
+    ) -> None:
+        key = (automation.id, index)
+        pending = self._held_tasks.get(key)
+        if pending is not None and not pending.done():
+            # Es läuft schon eine Wartezeit für genau diesen Auslöser -
+            # ein Flackern startet sie nicht neu.
+            return
+
+        async def wait_and_check() -> None:
+            await asyncio.sleep(hold)
+            if self._trigger_still_holds(trigger):
+                self._schedule(automation)
+
+        task = asyncio.create_task(wait_and_check())
+        self._held_tasks[key] = task
+        task.add_done_callback(lambda _t: self._held_tasks.pop(key, None))
+
+    def _trigger_still_holds(self, trigger: dict[str, Any]) -> bool:
+        """Gilt der Zielzustand des Auslösers immer noch? (für ``for``)
+
+        Nur der Zielzustand zählt - «from» ist nach der Wartezeit
+        naturgemäss Geschichte. Ohne prüfbares Ziel (bare Trigger) gilt
+        die Wartezeit als bestanden.
+        """
+        entity = self.hub.registry.get(str(trigger.get("entity_id") or ""))
+        if entity is None:
+            return False
+        value = entity.state.get(trigger.get("attribute", "state"))
+        if "above" in trigger or "below" in trigger:
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                return False
+            if "above" in trigger and not number > float(trigger["above"]):
+                return False
+            if "below" in trigger and not number < float(trigger["below"]):
+                return False
+            return True
+        if "to" in trigger:
+            return value == trigger["to"]
+        return True
 
     @staticmethod
     def _state_trigger_matches(trigger: dict[str, Any], data: dict[str, Any]) -> bool:
@@ -767,6 +830,18 @@ class AutomationEngine:
             await hue.activate_scene(str(action.get("scene") or ""))
         elif atype == "notify":
             await self._notify(automation, action)
+        elif atype == "broadcast":
+            # Durchsage auf die Cast-Boxen: «Es hat geklingelt»,
+            # «Waschmaschine ist fertig». Die Quelle bleibt der Ablauf -
+            # say.speak() überschreibt sie nicht.
+            from . import say
+
+            await say.speak(
+                self.hub,
+                str(action.get("text") or ""),
+                speakers=[str(s) for s in action.get("speakers") or []] or None,
+                volume=action.get("volume"),
+            )
         else:
             log.warning("Unbekannter Aktionstyp in '%s': %s", automation.alias, atype)
 

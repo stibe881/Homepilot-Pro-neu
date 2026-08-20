@@ -51,6 +51,7 @@ from ..core import automation as automation_module
 from ..core import config_edit
 from ..core import confighistory
 from ..core import goodnight as goodnight_module
+from ..core import say
 from ..core import guestpass
 from ..core import trash as trash_module
 from ..core.config_edit import add_cast_device
@@ -918,67 +919,19 @@ def create_app(hub: Hub) -> FastAPI:
         im Normalfall auch die Lautsprecher.
         """
         user = require(request, Capability.CONTROL)
-        text = body.text.strip()
-        if not text:
-            raise HTTPException(status_code=400, detail="Ohne Text keine Durchsage.")
-        if len(text) > 200:
-            raise HTTPException(
-                status_code=400,
-                detail="Bitte kurz halten - eine Durchsage ist kein Vortrag "
-                "(höchstens 200 Zeichen).",
-            )
+        # Die Adresse merken - Abläufe brauchen sie für ihre Durchsagen.
+        say.remember_base(hub, str(request.base_url))
         try:
-            from gtts import gTTS
-        except ImportError as err:
-            raise HTTPException(
-                status_code=503,
-                detail="Sprachausgabe nicht installiert - das Abbild braucht "
-                "das Extra 'speech' (gTTS).",
-            ) from err
-
-        def synthesize() -> bytes:
-            buffer = io.BytesIO()
-            gTTS(text=text, lang="de").write_to_fp(buffer)
-            return buffer.getvalue()
-
-        try:
-            audio = await asyncio.to_thread(synthesize)
-        except Exception as err:
-            raise HTTPException(
-                status_code=502,
-                detail=f"Sprachausgabe fehlgeschlagen (braucht Internet): {err}",
-            ) from err
-
-        token = hub.snapshots.put(audio)
-        url = f"{str(request.base_url).rstrip('/')}/api/broadcast/{token}.mp3"
-
-        wanted = set(body.speakers)
-        targets = [
-            entity
-            for entity in hub.registry.all()
-            if "play_url" in entity.commands
-            and entity.available
-            and (not wanted or entity.id in wanted)
-        ]
-        if not targets:
-            raise HTTPException(
-                status_code=404,
-                detail="Kein Lautsprecher erreichbar, der Durchsagen kann.",
+            return await say.speak(
+                hub,
+                body.text,
+                speakers=body.speakers or None,
+                volume=body.volume,
+                base=str(request.base_url),
+                source=user_source(user.name),
             )
-        sent: list[str] = []
-        errors: list[str] = []
-        for entity in targets:
-            try:
-                with as_source(user_source(user.name)):
-                    await hub.integrations.dispatch_command(
-                        entity.id,
-                        "play_url",
-                        {"url": url, "volume": body.volume},
-                    )
-                sent.append(entity.name)
-            except Exception as err:
-                errors.append(f"{entity.name}: {err}")
-        return {"sent": sent, "errors": errors}
+        except HomePilotError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
 
     @app.get("/api/broadcast/{token}.mp3")
     async def broadcast_audio(token: str) -> Response:
@@ -1073,6 +1026,46 @@ def create_app(hub: Hub) -> FastAPI:
                 detail="Ohne Datei-Speicher (z.B. reiner Demo-Hub) gibt es nichts zu sichern",
             )
         return {"ok": True, "backup": result, "backups": hub.data.backups()}
+
+    @app.get("/api/system/backups/{name}")
+    async def download_backup(name: str, request: Request) -> Response:
+        """Eine Sicherung herunterladen - für die Kopie ausserhalb des Hubs.
+
+        Die täglichen Sicherungen liegen auf derselben Platte wie das
+        Original; gegen einen Plattenschaden hilft nur eine Kopie woanders.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        try:
+            payload = hub.data.backup_bytes(name)
+        except ValueError as err:
+            raise HTTPException(status_code=404, detail=str(err)) from err
+        return Response(
+            content=payload,
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{name}"'},
+        )
+
+    @app.post("/api/system/backups/{name}/restore")
+    async def restore_backup(name: str, request: Request) -> dict[str, Any]:
+        """Eine Sicherung zurückspielen - für den Tag, an dem jemand
+        versehentlich zehn Abläufe gelöscht hat.
+
+        Der aktuelle Stand wird vorher gesichert, danach startet der Hub
+        neu: Benutzer, Abläufe und Szenen entstehen beim Start aus der
+        Datei, ein halb ausgetauschter Zustand im laufenden Betrieb wäre
+        keiner von beiden.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        try:
+            hub.data.restore_backup(name)
+        except (ValueError, OSError, json.JSONDecodeError) as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+        threading.Timer(0.8, _exit_for_restart).start()
+        return {
+            "ok": True,
+            "hinweis": "Zurückgespielt - der Hub startet jetzt neu. Der "
+            "vorherige Stand liegt als frische Sicherung daneben.",
+        }
 
     # ── Entitäten ──────────────────────────────────────────────────────────
 

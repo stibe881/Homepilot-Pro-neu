@@ -70,7 +70,7 @@ def test_broadcast_validates_and_reports_missing_speakers():
         # Ohne Text keine Durchsage.
         assert client.post("/api/broadcast", json={"text": "  "}).status_code == 400
         # Ohne Cast-Box (oder ohne gTTS im Abbild) kommt ein lesbarer
-        # Fehler - je nach Umgebung 503 (gTTS fehlt) oder 404 (keine Box).
+        # Fehler als 400 - der Text sagt, woran es liegt.
         answer = client.post("/api/broadcast", json={"text": "Essen ist fertig"})
-        assert answer.status_code in (404, 503)
-        assert "detail" in answer.json()
+        assert answer.status_code == 400
+        assert answer.json()["detail"]
