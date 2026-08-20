@@ -26,9 +26,15 @@ from typing import Any
 from ..core import astro
 from ..core.entity import Entity
 from ..core.integration import Integration
+from ..core.source import as_source
 
 DEFAULT_LAT = 47.1445
 DEFAULT_LON = 8.0675
+
+# Damit der Verlauf in der App «· Anwesenheitssimulation» zeigt statt gar
+# nichts: Ohne Quelle sähe der Schaltvorgang aus, als hätte jemand am
+# Gerät gedrückt - und die Frage «warum ging das Licht an?» bliebe offen.
+SOURCE = {"kind": "simulation", "label": "Anwesenheitssimulation"}
 
 
 class PresenceSimIntegration(Integration):
@@ -78,7 +84,8 @@ class PresenceSimIntegration(Integration):
                 continue
             command = "turn_off" if entity.state.get("state") == "on" else "turn_on"
             try:
-                await self.hub.integrations.dispatch_command(light_id, command)
+                with as_source(SOURCE):
+                    await self.hub.integrations.dispatch_command(light_id, command)
                 self.log.info("Anwesenheitssimulation: %s %s", light_id, command)
             except Exception as err:
                 self.log.debug("presence_sim: %s (%s)", light_id, err)
