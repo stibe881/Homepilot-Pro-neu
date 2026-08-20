@@ -56,6 +56,7 @@ import { KidsView } from '../components/KidsView';
 import { KitchenTimer } from '../components/KitchenTimer';
 import { WhatsNew } from '../components/WhatsNew';
 import { LightGroups } from '../components/LightGroups';
+import { DeviceTools } from '../components/DeviceTools';
 import { UsersScreen } from './UsersScreen';
 import { confirm as confirmBiometrie, needsCheck } from '../lib/biometrie';
 import { BioLock } from '../components/BioLock';
@@ -641,6 +642,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   () => setHistoryFor(entity.id)
                 : undefined
       }
+      onLongPress={
+        // Überall dasselbe: langes Drücken zeigt den Verlauf dieses
+        // Geräts. Unter Geräte tut das schon ein Tipp - dort wäre ein
+        // zweiter Weg nur verwirrend.
+        !editing && section !== 'devices' && HISTORY_KINDS.has(entity.kind)
+          ? () => setHistoryFor(entity.id)
+          : undefined
+      }
       chart={
         expanded === entity.id && cardWidth ? (
           <HistoryChart entity={entity} settings={settings} width={cardWidth - 32} />
@@ -1037,6 +1046,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               entities={entities}
               groups={groupNames}
               onCommand={guardedCommand}
+            />
+          ) : null}
+
+          {section === 'devices' && !editing && !searching && istBesitzer ? (
+            <DeviceTools
+              settings={settings}
+              headers={{ Authorization: `Bearer ${settings.token}` }}
+              entities={shown}
+              rooms={roomOrder}
+              groups={groupNames}
+              onDone={reloadScenes}
             />
           ) : null}
 

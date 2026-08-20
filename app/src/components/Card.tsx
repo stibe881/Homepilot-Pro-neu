@@ -18,12 +18,14 @@ export function Card({
   tint,
   dimmed,
   onPress,
+  onLongPress,
 }: {
   children: React.ReactNode;
   style?: ViewStyle;
   tint?: string;
   dimmed?: boolean;
   onPress?: () => void;
+  onLongPress?: () => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -33,10 +35,11 @@ export function Card({
     dimmed ? styles.dimmed : null,
     style,
   ];
-  if (onPress) {
+  if (onPress || onLongPress) {
     return (
       <Pressable
         onPress={onPress}
+        onLongPress={onLongPress}
         accessibilityRole="button"
         style={({ pressed }) => [...content, pressed && { opacity: 0.85 }]}
       >

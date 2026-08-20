@@ -47,6 +47,10 @@ interface Props {
   onSetGroup?: (group: string | null) => void;
   /** Sensorkacheln lassen sich antippen und zeigen dann ihren Verlauf. */
   onPress?: () => void;
+  /** Langes Drücken: Vorschau mit Verlauf – überall, nicht nur unter
+   *  Geräte. «Warum ging das um drei Uhr an?» stellt sich dort, wo man
+   *  die Kachel sieht. */
+  onLongPress?: () => void;
   chart?: React.ReactNode;
   /** Kamerakacheln: URL des Schnappschuss-Endpunkts (inkl. Token). */
   snapshotUri?: string;
@@ -85,6 +89,7 @@ export function EntityCard({
   groups,
   onSetGroup,
   onPress,
+  onLongPress,
   chart,
   snapshotUri,
   sky,
@@ -486,6 +491,7 @@ export function EntityCard({
       }
       dimmed={!entity.available || (hidden && !editing)}
       onPress={onPress}
+      onLongPress={onLongPress}
     >
       {editing ? (
         // Chips und Knöpfe stehen in zwei umbrechenden Zeilen: auf einer

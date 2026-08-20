@@ -46,6 +46,7 @@ from . import invitepage
 from ..core import throttle as throttle_module
 from ..core import watchdog
 from ..core import notifyrules
+from ..core import replace as replace_module
 from ..core import users as users_module
 from ..core import automation as automation_module
 from ..core import config_edit
@@ -3016,6 +3017,102 @@ def create_app(hub: Hub) -> FastAPI:
             content=text + " Dieser Link gilt jetzt nicht mehr.\n",
             media_type="text/plain; charset=utf-8",
         )
+
+    @app.post("/api/entities/{old_id}/replace/{new_id}")
+    async def replace_entity(
+        old_id: str, new_id: str, request: Request
+    ) -> dict[str, Any]:
+        """Alle Verweise vom alten auf das neue Gerät umhängen.
+
+        Eine Lampe geht kaputt, die neue meldet sich unter einer anderen
+        Kennung - und damit zeigen Szenen, Abläufe, Favoriten, die
+        Raumzuordnung und die zusammengefassten Leuchten ins Leere. Nichts
+        davon wirft einen Fehler: Der Hub überspringt stillschweigend, was
+        er nicht kennt. Man merkt es Wochen später, wenn abends ein Licht
+        nicht mehr angeht.
+
+        Von Hand ist das eine halbe Stunde Suchen an sechs Stellen.
+        """
+        user = require(request, Capability.EDIT_CONFIG)
+        if old_id == new_id:
+            raise HTTPException(
+                status_code=400, detail="Altes und neues Gerät sind dasselbe"
+            )
+        neu = hub.registry.get(new_id)
+        if neu is None:
+            raise HTTPException(status_code=404, detail=f"Unbekanntes Gerät: {new_id}")
+
+        betroffen: dict[str, int] = {}
+
+        szenen = hub.data.get("scenes")
+        treffer = sum(
+            replace_module.swap_in_actions(szene.get("actions") or [], old_id, new_id)
+            for szene in szenen
+        )
+        if treffer:
+            hub.data.set("scenes", szenen)
+            betroffen["Szenen"] = treffer
+
+        ablaeufe = hub.data.get("automations")
+        treffer = sum(
+            replace_module.swap_in_automation(ablauf, old_id, new_id)
+            for ablauf in ablaeufe
+        )
+        if treffer:
+            hub.data.set("automations", ablaeufe)
+            betroffen["Abläufe"] = treffer
+
+        for key, label in (
+            ("entity_rooms", "Raumzuordnung"),
+            ("entity_meta", "Name/Favorit/Gruppe"),
+        ):
+            rows = hub.data.get(key)
+            treffer = replace_module.swap_in_rows(rows, old_id, new_id)
+            if treffer:
+                hub.data.set(key, rows)
+                betroffen[label] = treffer
+
+        leuchten = hub.data.get("light_groups")
+        treffer = replace_module.swap_in_light_groups(leuchten, old_id, new_id)
+        if treffer:
+            hub.data.set("light_groups", leuchten)
+            betroffen["Zusammengefasste Leuchten"] = treffer
+
+        # Die Szenen und Abläufe im Speicher neu einlesen, sonst gilt die
+        # Änderung erst nach einem Neustart - und bis dahin schaltet der
+        # Hub weiter das alte, nicht mehr vorhandene Gerät.
+        hub.reload_scenes()
+        await hub.reload_automations()
+
+        # Raum und Name sitzen zusätzlich an der Entität selbst - die
+        # umgeschriebene Zeile allein wirkt erst nach einem Neustart.
+        for row in hub.data.get("entity_rooms"):
+            if row.get("entity_id") == new_id:
+                try:
+                    await hub.registry.set_room(new_id, row.get("room"))
+                except UnknownEntityError:
+                    pass
+        for row in hub.data.get("entity_meta"):
+            if row.get("entity_id") == new_id:
+                try:
+                    await hub.registry.set_meta(new_id, row)
+                except UnknownEntityError:
+                    pass
+
+        # Zusammengefasste Leuchten neu aufbauen, damit die neue Lampe
+        # sofort mitschaltet.
+        gruppe = hub.integrations.get("group")
+        if gruppe is not None and "Zusammengefasste Leuchten" in betroffen:
+            await gruppe.rebuild()
+
+        log.warning(
+            "%s hat %s durch %s ersetzt (%s)",
+            user.name,
+            old_id,
+            new_id,
+            betroffen or "keine Verweise",
+        )
+        return {"ok": True, "changed": betroffen}
 
     @app.get("/api/users/{name}/pairing")
     async def user_pairing(name: str, request: Request) -> dict[str, Any]:
