@@ -58,6 +58,10 @@ export function LightGroups({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [groups, setGroups] = useState<LightGroup[] | null>(null);
   const [open, setOpen] = useState(false);
+  // Kennung der Leuchte, die gerade bearbeitet wird - null heisst: neu
+  // anlegen. Dasselbe Formular für beides, damit Ändern nicht heisst:
+  // auflösen und noch einmal von vorn.
+  const [editing, setEditing] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [picked, setPicked] = useState<string[]>([]);
   // Raum der neuen Leuchte. undefined = noch nichts angetippt, dann gilt
@@ -109,6 +113,14 @@ export function LightGroups({
 
   const nameOf = (id: string) => entities.find((item) => item.id === id)?.name ?? id;
 
+  /** Die Entität zu einer Leuchte heisst «group.<kennung>».
+   *
+   * Die Liste unter /api/lightgroups nennt nur die blosse Kennung. Wer
+   * beides gleichsetzt, findet die Entität nie: Der Raum stand deshalb
+   * immer auf «Kein Raum», und das Zuweisen lief in einen 404. */
+  const entityIdOf = (group: LightGroup) =>
+    group.id.startsWith('group.') ? group.id : `group.${group.id}`;
+
   const toggle = (id: string) =>
     setPicked((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
@@ -122,6 +134,56 @@ export function LightGroups({
       }
     );
     if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
+  };
+
+  const startEdit = (group: LightGroup) => {
+    setEditing(group.id);
+    setName(group.name);
+    setPicked([...group.members]);
+    setHideMembers(group.hide_members !== false);
+    setRoom(undefined);
+    setNote(null);
+    setOpen(true);
+  };
+
+  const abbrechen = () => {
+    setOpen(false);
+    setEditing(null);
+    setPicked([]);
+    setName('');
+    setRoom(undefined);
+    setHideMembers(true);
+  };
+
+  const save = async () => {
+    if (editing === null) return create();
+    setNote(null);
+    setBusy(true);
+    try {
+      const response = await fetch(`${settings.url}/api/lightgroups/${editing}`, {
+        method: 'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name.trim(),
+          members: picked,
+          hide_members: hideMembers,
+        }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.detail ?? 'Fehlgeschlagen');
+      // Ein bewusst gewählter Raum gilt auch beim Ändern; ohne Auswahl
+      // bleibt der bisherige, den der Hub über den Neuaufbau rettet.
+      if (room !== undefined && body.id) {
+        await setGroupRoom(body.id, room);
+      }
+      setNote(`«${name.trim()}» geändert.`);
+      abbrechen();
+      await load();
+    } catch (err: any) {
+      setNote(String(err.message ?? err));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const create = async () => {
@@ -193,7 +255,8 @@ export function LightGroups({
       </Text>
 
       {(groups ?? []).map((group) => {
-        const currentRoom = entities.find((item) => item.id === group.id)?.room ?? null;
+        const entityId = entityIdOf(group);
+        const currentRoom = entities.find((item) => item.id === entityId)?.room ?? null;
         return (
           <View key={group.id} style={{ gap: 8 }}>
             <View style={styles.row}>
@@ -221,6 +284,14 @@ export function LightGroups({
                 </Pressable>
               ) : null}
               <Pressable
+                onPress={() => startEdit(group)}
+                accessibilityRole="button"
+                accessibilityLabel={`${group.name} bearbeiten`}
+                hitSlop={8}
+              >
+                <Ionicons name="create-outline" size={18} color={colors.inkSoft} />
+              </Pressable>
+              <Pressable
                 onPress={() => dissolve(group)}
                 accessibilityRole="button"
                 accessibilityLabel={`${group.name} auflösen`}
@@ -239,7 +310,7 @@ export function LightGroups({
                       onPress={async () => {
                         setRoomPickFor(null);
                         try {
-                          await setGroupRoom(group.id, option);
+                          await setGroupRoom(entityId, option);
                           setNote(
                             option
                               ? `«${group.name}» erscheint jetzt im Raum ${option}.`
@@ -281,7 +352,9 @@ export function LightGroups({
           <View style={styles.chipRow}>
             {candidates.map((entity) => {
               const active = picked.includes(entity.id);
-              const taken = !!entity.combined_into;
+              // Die eigenen Mitglieder sind beim Bearbeiten natürlich
+              // «vergeben» - sonst liesse sich keine Lampe behalten.
+              const taken = !!entity.combined_into && !active;
               return (
                 <Pressable
                   key={entity.id}
@@ -350,19 +423,11 @@ export function LightGroups({
           </Pressable>
 
           <View style={styles.buttons}>
-            <Pressable
-              onPress={() => {
-                setOpen(false);
-                setPicked([]);
-                setName('');
-                setRoom(undefined);
-              }}
-              style={styles.secondary}
-            >
+            <Pressable onPress={abbrechen} style={styles.secondary}>
               <Text style={styles.secondaryText}>Abbrechen</Text>
             </Pressable>
             <Pressable
-              onPress={create}
+              onPress={save}
               disabled={busy || picked.length < 2 || !name.trim()}
               accessibilityRole="button"
               style={({ pressed }) => [
@@ -371,7 +436,11 @@ export function LightGroups({
               ]}
             >
               <Text style={styles.primaryText}>
-                {picked.length < 2 ? 'Mindestens zwei wählen' : 'Zusammenfassen'}
+                {picked.length < 2
+                  ? 'Mindestens zwei wählen'
+                  : editing !== null
+                    ? 'Änderungen speichern'
+                    : 'Zusammenfassen'}
               </Text>
             </Pressable>
           </View>

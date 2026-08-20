@@ -274,3 +274,96 @@ def test_a_lamp_made_on_one_device_reaches_all_the_others():
             headers=livia,
         )
         assert verweigert.status_code == 403
+
+
+def test_a_lamp_can_be_changed_without_losing_its_identity():
+    """Ändern statt auflösen-und-neu-anlegen: Die Kennung «group.decke»
+    steht in Szenen, Abläufen und der Raumzuordnung. Wer nur den Namen
+    korrigieren will, darf sie nicht verlieren - sonst zeigen alle
+    Verweise ins Leere, und niemand sieht, woran es lag."""
+    hub = _hub()
+    with TestClient(create_app(hub)) as client:
+        headers = {"Authorization": "Bearer t-stefan"}
+        client.post(
+            "/api/lightgroups",
+            json={"name": "Decke", "members": ["demo.light_livingroom", "demo.light_bedroom"]},
+            headers=headers,
+        )
+        client.put(
+            "/api/entities/group.decke/room",
+            json={"room": "Wohnzimmer"},
+            headers=headers,
+        )
+
+        geaendert = client.put(
+            "/api/lightgroups/group.decke",
+            json={
+                "name": "Deckenlampe Wohnzimmer",
+                "members": ["demo.light_livingroom", "demo.switch_coffee"],
+            },
+            headers=headers,
+        )
+        assert geaendert.status_code == 200
+        # Die Kennung bleibt, obwohl der Name ein ganz anderer ist.
+        assert geaendert.json()["id"] == "group.decke"
+
+        entities = {e["id"]: e for e in client.get("/api/entities", headers=headers).json()}
+        assert entities["group.decke"]["name"] == "Deckenlampe Wohnzimmer"
+        # Der Raum überlebt den Neuaufbau - sonst stünde die Leuchte nach
+        # jeder Namenskorrektur wieder raumlos da.
+        assert entities["group.decke"]["room"] == "Wohnzimmer"
+        # Neues Mitglied drin, altes wieder frei.
+        assert entities["demo.switch_coffee"]["combined_into"] == "group.decke"
+        assert entities["demo.light_bedroom"]["combined_into"] is None
+
+
+def test_changing_a_lamp_keeps_the_rules_that_apply_when_creating_one():
+    """Dieselben Grenzen wie beim Anlegen - sonst liesse sich über den
+    Umweg «ändern» eine Lampe zwei Leuchten zuschlagen."""
+    hub = _hub()
+    with TestClient(create_app(hub)) as client:
+        headers = {"Authorization": "Bearer t-stefan"}
+        client.post(
+            "/api/lightgroups",
+            json={"name": "Decke", "members": ["demo.light_livingroom", "demo.light_bedroom"]},
+            headers=headers,
+        )
+        client.post(
+            "/api/lightgroups",
+            json={"name": "Küche", "members": ["demo.switch_coffee", "demo.motion_hall"]},
+            headers=headers,
+        )
+
+        # Eine Lampe der anderen Leuchte wegnehmen: nein.
+        doppelt = client.put(
+            "/api/lightgroups/decke",
+            json={"name": "Decke", "members": ["demo.light_livingroom", "demo.switch_coffee"]},
+            headers=headers,
+        )
+        assert doppelt.status_code == 409
+
+        # Die eigenen Mitglieder behalten: selbstverständlich ja.
+        gleich = client.put(
+            "/api/lightgroups/decke",
+            json={"name": "Decke oben", "members": ["demo.light_livingroom", "demo.light_bedroom"]},
+            headers=headers,
+        )
+        assert gleich.status_code == 200
+
+        # Zu wenige Mitglieder, und eine Leuchte, die es nicht gibt.
+        assert (
+            client.put(
+                "/api/lightgroups/decke",
+                json={"name": "Decke", "members": ["demo.light_livingroom"]},
+                headers=headers,
+            ).status_code
+            == 400
+        )
+        assert (
+            client.put(
+                "/api/lightgroups/gibtsnicht",
+                json={"name": "X", "members": ["demo.light_livingroom", "demo.light_bedroom"]},
+                headers=headers,
+            ).status_code
+            == 404
+        )

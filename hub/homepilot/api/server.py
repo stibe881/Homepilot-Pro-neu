@@ -2703,6 +2703,83 @@ def create_app(hub: Hub) -> FastAPI:
         log.warning("%s hat die Leuchte '%s' angelegt", user.name, name)
         return {"ok": True, "id": f"group.{object_id}"}
 
+    @app.put("/api/lightgroups/{group_id}")
+    async def update_light_group(
+        group_id: str, body: LightGroupRequest, request: Request
+    ) -> dict[str, Any]:
+        """Eine bestehende Leuchte ändern: Name, Mitglieder, Sichtbarkeit.
+
+        Ohne das blieb nur auflösen und neu anlegen - und dabei geht die
+        Kennung verloren, an der Szenen, Abläufe und die Raumzuordnung
+        hängen. Genau deshalb bleibt sie hier unangetastet, auch wenn der
+        Name sich ändert: Aus «Decke» wird «Deckenlampe», und alles, was
+        auf sie zeigt, zeigt weiter auf sie.
+        """
+        user = require(request, Capability.EDIT_CONFIG)
+        service = group_service()
+        wanted = group_id.split(".", 1)[-1]
+        rows = hub.data.get("light_groups")
+        treffer = next((row for row in rows if row.get("id") == wanted), None)
+        if treffer is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    "Diese Leuchte kennt der Hub nicht - steht sie in der "
+                    "config.yaml, gehört sie auch dort geändert."
+                ),
+            )
+
+        name = body.name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Die Leuchte braucht einen Namen")
+        if len(body.members) < 2:
+            raise HTTPException(
+                status_code=400,
+                detail="Eine Leuchte fasst mindestens zwei Lampen zusammen",
+            )
+
+        # Mitglieder anderer Leuchten bleiben tabu - die eigenen sind es
+        # naturgemäss nicht, sonst liesse sich nie eine Lampe behalten.
+        fremd: set[str] = set()
+        for row in rows:
+            if row.get("id") != wanted:
+                fremd.update(str(m) for m in row.get("members", []))
+        for entity_id in body.members:
+            entity = hub.registry.get(entity_id)
+            if entity is None:
+                raise HTTPException(
+                    status_code=404, detail=f"Unbekanntes Gerät: {entity_id}"
+                )
+            if entity.integration == "group":
+                raise HTTPException(
+                    status_code=400,
+                    detail="Eine Leuchte lässt sich nicht in eine andere stecken",
+                )
+            if entity_id in fremd:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"'{entity.name}' gehört schon zu einer Leuchte",
+                )
+
+        treffer["name"] = name
+        treffer["members"] = list(body.members)
+        treffer["kind"] = "switch" if body.kind == "switch" else "light"
+        treffer["hide_members"] = bool(body.hide_members)
+        hub.data.set("light_groups", rows)
+        # Die Raumzuordnung hängt an der Entität, nicht an dieser Zeile:
+        # Der Neuaufbau legt sie neu an, also vorher merken und danach
+        # zurückgeben - sonst stünde die Leuchte plötzlich raumlos da.
+        entity = hub.registry.get(f"group.{wanted}")
+        raum = entity.room if entity is not None else None
+        await service.rebuild()
+        if raum:
+            try:
+                await hub.registry.set_room(f"group.{wanted}", raum)
+            except UnknownEntityError:
+                pass
+        log.warning("%s hat die Leuchte '%s' geändert", user.name, name)
+        return {"ok": True, "id": f"group.{wanted}"}
+
     @app.delete("/api/lightgroups/{group_id}")
     async def delete_light_group(group_id: str, request: Request) -> dict[str, Any]:
         user = require(request, Capability.EDIT_CONFIG)
