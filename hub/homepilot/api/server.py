@@ -1791,12 +1791,17 @@ def create_app(hub: Hub) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(err)) from err
 
     @app.post("/api/alarm/disarm")
-    async def alarm_disarm(body: AlarmDisarmRequest, request: Request) -> dict[str, Any]:
+    async def alarm_disarm(
+        request: Request,
+        # Ohne Body gültig - ältere App-Fassungen schicken keinen, und ohne
+        # gesetzte PIN braucht es auch keinen.
+        body: AlarmDisarmRequest | None = None,
+    ) -> dict[str, Any]:
         user = require(request, Capability.CONTROL)
         try:
             return await alarm_service().disarm(
                 by=user.name,
-                pin=body.pin or None,
+                pin=(body.pin if body else "") or None,
                 address=throttle_module.client_address(request),
             )
         except HomePilotError as err:
