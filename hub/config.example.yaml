@@ -37,9 +37,16 @@ supabase:
 
 # Gäste-WLAN: Die Benutzerverwaltung zeigt daraus einen QR-Code, den
 # Besuch mit der Telefon-Kamera scannt - Tür und WLAN aus einer Karte.
+# Klassisch (WPA-Passwort):
 # guest_wifi:
 #   ssid: "Familie Gross Gast"
 #   password: "${GAST_WLAN_PASSWORT}"
+# Mit Captive Portal (z.B. UniFi-Hotspot): Das Netz ist offen, der QR
+# verbindet nur - das Portal-Passwort steht als Text unter dem Code.
+# guest_wifi:
+#   ssid: "Familie Gross Gast"
+#   auth: open
+#   portal_password: "${GAST_PORTAL_PASSWORT}"   # weglassen bei blossem Bestätigen
 
 # Standort für Sonnenauf-/-untergangs-Trigger (Storen, adaptives Licht).
 # Ohne diesen Abschnitt wird Zell LU angenommen.

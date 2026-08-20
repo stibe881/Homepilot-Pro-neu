@@ -19,6 +19,30 @@ def test_wifi_payload_escapes_special_characters():
     assert "H:true;" in wifi_payload("Netz", "pw", hidden=True)
 
 
+def test_wifi_payload_open_network_for_captive_portal():
+    """Captive Portal: Das Netz ist offen, der QR verbindet nur."""
+    payload = wifi_payload("Gast", open_network=True)
+    assert payload == "WIFI:T:nopass;S:Gast;;"
+    assert "P:" not in payload
+
+
+def test_wifi_endpoint_with_captive_portal():
+    hub = Hub(
+        make_config(
+            guest_wifi={
+                "ssid": "Gast",
+                "auth": "open",
+                "portal_password": "sommer24",
+            }
+        )
+    )
+    with TestClient(create_app(hub)) as client:
+        data = client.get("/api/wifi").json()
+        assert data["open"] is True
+        assert data["portal_password"] == "sommer24"
+        assert data["payload"].startswith("WIFI:T:nopass;")
+
+
 def test_wifi_endpoint_serves_config_or_404():
     ohne = Hub(make_config())
     with TestClient(create_app(ohne)) as client:

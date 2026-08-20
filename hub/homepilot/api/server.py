@@ -997,7 +997,13 @@ def create_app(hub: Hub) -> FastAPI:
         wifi = hub.config.guest_wifi or {}
         ssid = str(wifi.get("ssid") or "")
         password = str(wifi.get("password") or "")
-        if not ssid or not password:
+        # Captive Portal (z.B. UniFi-Hotspot): Das Netz ist offen, der QR
+        # verbindet nur - das Portal-Passwort steht als Text daneben.
+        portal = str(wifi.get("portal_password") or "")
+        open_network = str(wifi.get("auth") or "").lower() in ("open", "nopass") or (
+            not password and bool(portal)
+        )
+        if not ssid or (not password and not open_network):
             raise HTTPException(
                 status_code=404,
                 detail="Kein Gäste-WLAN hinterlegt (guest_wifi in der config.yaml).",
@@ -1005,7 +1011,14 @@ def create_app(hub: Hub) -> FastAPI:
         return {
             "ssid": ssid,
             "password": password,
-            "payload": qr_module.wifi_payload(ssid, password, bool(wifi.get("hidden"))),
+            "portal_password": portal,
+            "open": open_network,
+            "payload": qr_module.wifi_payload(
+                ssid,
+                password,
+                bool(wifi.get("hidden")),
+                open_network=open_network,
+            ),
         }
 
     @app.get("/api/system/changes")

@@ -720,9 +720,13 @@ function GuestWifiCard({
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const [wifi, setWifi] = useState<{ ssid: string; password: string; payload: string } | null>(
-    null
-  );
+  const [wifi, setWifi] = useState<{
+    ssid: string;
+    password: string;
+    portal_password?: string;
+    open?: boolean;
+    payload: string;
+  } | null>(null);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -759,8 +763,20 @@ function GuestWifiCard({
             <QRCode value={wifi.payload} size={190} backgroundColor="#FFFFFF" />
           </View>
           <Text style={styles.qrHint}>
-            {wifi.ssid} · Passwort: {wifi.password}
+            {wifi.ssid}
+            {wifi.password ? ` · Passwort: ${wifi.password}` : ' · offenes Netz'}
           </Text>
+          {wifi.portal_password ? (
+            <Text style={styles.qrHint}>
+              Nach dem Verbinden öffnet sich die Anmeldeseite - dort dieses
+              Passwort eingeben: {wifi.portal_password}
+            </Text>
+          ) : wifi.open ? (
+            <Text style={styles.qrHint}>
+              Nach dem Verbinden öffnet sich die Anmeldeseite (Captive
+              Portal) - dort bestätigen bzw. anmelden.
+            </Text>
+          ) : null}
           <Text style={styles.qrHint}>
             Mit der Telefon-Kamera scannen - das WLAN verbindet sich von
             selbst. Passt zur Einmal-Türöffnung: Besuch bekommt Tür und

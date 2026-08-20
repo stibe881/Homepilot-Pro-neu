@@ -17,18 +17,27 @@ import socket
 from .core.users import Role, UserRegistry
 
 
-def wifi_payload(ssid: str, password: str, hidden: bool = False) -> str:
+def wifi_payload(
+    ssid: str, password: str = "", hidden: bool = False, open_network: bool = False
+) -> str:
     """Der Standard-WLAN-QR-Inhalt, den Telefonkameras verstehen (rein).
 
     Sonderzeichen werden nach Vorschrift entwertet - ein Passwort mit
     Semikolon ist sonst ein kaputter Code statt ein sicheres Passwort.
+
+    ``open_network`` ist der Captive-Portal-Fall (z.B. UniFi-Hotspot):
+    Das Netz selbst ist offen, der QR verbindet nur - das Passwort fragt
+    danach die Anmeldeseite ab, nicht das WLAN.
     """
     def escape(text: str) -> str:
         for char in ("\\", ";", ",", ":", '"'):
             text = text.replace(char, "\\" + char)
         return text
 
-    parts = f"WIFI:T:WPA;S:{escape(ssid)};P:{escape(password)};"
+    if open_network:
+        parts = f"WIFI:T:nopass;S:{escape(ssid)};"
+    else:
+        parts = f"WIFI:T:WPA;S:{escape(ssid)};P:{escape(password)};"
     if hidden:
         parts += "H:true;"
     return parts + ";"
