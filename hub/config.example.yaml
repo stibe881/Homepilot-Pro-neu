@@ -77,11 +77,12 @@ integrations:
   #   only_after_dark: true
 
   # Unwetterwarnungen von MeteoAlarm (offizieller CAP/Atom-Feed).
-  # 'areas' filtert auf die eigene Region – Warnungen erscheinen in der App
-  # nur, wenn es welche gibt.
+  # Gefiltert wird über das Warnpolygon: Es erscheinen nur Warnungen, deren
+  # Gebiet den Standort aus 'location' enthält. Kein 'areas' mehr nötig -
+  # Namensfilter wie "Luzern" trafen auch die falsche Region
+  # («Luzern-Alpnach» liegt am Vierwaldstättersee, nicht in Zell).
   - integration: meteoalarm
     countries: [switzerland]
-    areas: ["Luzern", "Zentralschweiz"]
     scan_interval: 900
 
   # Wetterlage und 7-Tage-Vorhersage (Open-Meteo, kostenlos, kein Schlüssel).

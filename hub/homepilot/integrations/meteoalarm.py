@@ -1,12 +1,20 @@
 """Unwetterwarnungen von MeteoAlarm (offizieller CAP/Atom-Feed).
 
+Gefiltert wird nach dem Warnpolygon, nicht nach dem Gebietsnamen: Jede
+Warnung bringt die Umrisse ihrer Warnregion mit, und der Hub prüft, ob der
+eigene Standort (config.location) darin liegt. Namensfilter wie «Luzern»
+klangen richtig, trafen aber die falsche Region – «Luzern» steckt auch in
+«Luzern-Alpnach», und die liegt am Vierwaldstättersee, nicht in Zell.
+
 Konfiguration:
   - integration: meteoalarm
     countries: [switzerland]
-    # Nur Warnungen anzeigen, deren Gebiet einen dieser Begriffe enthält.
-    # Für Zell LU passen die Kantons-/Regionsnamen, unter denen MeteoAlarm
-    # Warnungen ausgibt. Weglassen = alle Warnungen des Landes.
-    areas: ["Luzern", "Zentralschweiz"]
+    # Standort für den Polygon-Vergleich. Weglassen = config.location.
+    # latitude: 47.1445
+    # longitude: 8.0675
+    # Nur als Rückfallebene, wenn kein Standort bekannt ist oder eine
+    # Warnung ohne Polygon kommt: Gebietsname muss einen Begriff enthalten.
+    # areas: ["Entlebuch"]
     scan_interval: 900  # Sekunden
 """
 
@@ -31,6 +39,23 @@ NS = {
 SEVERITY_ORDER = ["Minor", "Moderate", "Severe", "Extreme"]
 
 
+def parse_polygon(text: str) -> list[tuple[float, float]]:
+    """CAP-Polygon «lat,lon lat,lon …» in Koordinatenpaare (rein, testbar).
+
+    Unlesbare Stücke werden übersprungen statt die ganze Warnung zu
+    verwerfen – ein kaputter Punkt im Umriss ist kein Grund, eine
+    Unwetterwarnung zu unterschlagen.
+    """
+    points = []
+    for pair in (text or "").split():
+        lat, _, lon = pair.partition(",")
+        try:
+            points.append((float(lat), float(lon)))
+        except ValueError:
+            continue
+    return points
+
+
 def parse_feed(xml_text: str) -> list[dict[str, Any]]:
     """Extrahiert Warnungen aus dem Atom-Feed (separat testbar)."""
     root = ET.fromstring(xml_text)
@@ -40,6 +65,10 @@ def parse_feed(xml_text: str) -> list[dict[str, Any]]:
             element = entry.find(path, NS)
             return element.text.strip() if element is not None and element.text else None
 
+        polygons = [
+            parse_polygon(element.text or "")
+            for element in entry.findall("cap:polygon", NS)
+        ]
         alerts.append(
             {
                 "title": text("atom:title"),
@@ -48,9 +77,54 @@ def parse_feed(xml_text: str) -> list[dict[str, Any]]:
                 "onset": text("cap:onset") or text("cap:effective"),
                 "expires": text("cap:expires"),
                 "area": text("cap:areaDesc"),
+                # Nur fürs Filtern – vor dem Veröffentlichen wird der
+                # Umriss entfernt, die App braucht keine hundert Punkte.
+                "polygons": [poly for poly in polygons if len(poly) >= 3],
             }
         )
     return alerts
+
+
+def point_in_polygon(lat: float, lon: float, polygon: list[tuple[float, float]]) -> bool:
+    """Liegt der Punkt im Umriss? (Strahl-Verfahren, rein, testbar)
+
+    Der Klassiker: Ein gedachter Strahl vom Punkt nach Osten – schneidet er
+    die Umrisskanten ungerade oft, liegt der Punkt innen. Randgenauigkeit
+    ist hier egal: Wohnhäuser stehen nicht auf der Warnregionsgrenze.
+    """
+    inside = False
+    for index in range(len(polygon)):
+        lat1, lon1 = polygon[index - 1]
+        lat2, lon2 = polygon[index]
+        if (lat1 > lat) == (lat2 > lat):
+            continue
+        crossing = lon1 + (lat - lat1) / (lat2 - lat1) * (lon2 - lon1)
+        if crossing > lon:
+            inside = not inside
+    return inside
+
+
+def filter_by_location(
+    alerts: list[dict[str, Any]],
+    lat: float,
+    lon: float,
+    areas: list[str],
+) -> list[dict[str, Any]]:
+    """Behält Warnungen, deren Warnregion den Standort enthält (rein).
+
+    Warnungen ganz ohne Polygon fallen auf den Namensfilter zurück – und
+    ohne konfigurierte Begriffe werden sie behalten: lieber eine Warnung
+    zu viel als eine unterschlagene.
+    """
+    kept = []
+    for alert in alerts:
+        polygons = alert.get("polygons") or []
+        if polygons:
+            if any(point_in_polygon(lat, lon, poly) for poly in polygons):
+                kept.append(alert)
+        elif not areas or filter_by_area([alert], areas):
+            kept.append(alert)
+    return kept
 
 
 def filter_by_area(
@@ -91,6 +165,19 @@ class MeteoAlarmIntegration(Integration):
             str(country).lower() for country in self.config.get("countries", ["switzerland"])
         ]
         self._areas: list[str] = [str(area) for area in self.config.get("areas", [])]
+        # Standort für den Polygon-Vergleich: eigener Eintrag schlägt
+        # config.location, und wie überall sonst ist Zell LU die Vorgabe -
+        # so filtert auch eine Konfiguration ohne 'location' richtig.
+        location = getattr(self.hub.config, "location", None) or {}
+        try:
+            self._lat = float(
+                self.config.get("latitude", location.get("latitude", 47.1445))
+            )
+            self._lon = float(
+                self.config.get("longitude", location.get("longitude", 8.0675))
+            )
+        except (TypeError, ValueError):
+            self._lat = self._lon = None  # type: ignore[assignment]
         self._interval = float(self.config.get("scan_interval", 900))
 
         for country in self._countries:
@@ -119,7 +206,16 @@ class MeteoAlarmIntegration(Integration):
             await self.hub.registry.update_state(entity_id, {}, available=False)
             return
 
-        alerts = filter_by_area(alerts, self._areas)
+        if self._lat is not None and self._lon is not None:
+            alerts = filter_by_location(alerts, self._lat, self._lon, self._areas)
+        else:
+            alerts = filter_by_area(alerts, self._areas)
+        # Die Umrisse haben ihren Dienst getan – in den Zustand gehören
+        # sie nicht, die App zeigt nur Titel, Gebiet und Zeiten.
+        alerts = [
+            {key: value for key, value in alert.items() if key != "polygons"}
+            for alert in alerts
+        ]
 
         await self.hub.registry.update_state(
             entity_id,

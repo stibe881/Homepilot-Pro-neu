@@ -33,6 +33,9 @@ from .users import Role, User, parse_users
 
 log = logging.getLogger(__name__)
 
+# «Nicht übergeben» - damit None als echter Wert («entfernen») frei bleibt.
+UNSET: Any = object()
+
 
 class Hub:
     def __init__(self, config: HubConfig) -> None:
@@ -262,23 +265,26 @@ class Hub:
         self,
         entity_id: str,
         *,
-        name: str | None = None,
-        favorite: bool | None = None,
-        group: str | None = None,
+        name: Any = UNSET,
+        favorite: Any = UNSET,
+        group: Any = UNSET,
     ) -> None:
         """Setzt Anzeigename, Favorit-Flag oder Gruppe einer Entität.
 
-        Nur die übergebenen Felder ändern sich; der Rest bleibt. Gespeichert
-        wird in der homepilot-data.json und überlebt Neustarts.
+        Nur die übergebenen Felder ändern sich; der Rest bleibt. UNSET statt
+        None als Vorgabe, weil None hier eine Bedeutung hat: «Keine Gruppe»
+        kommt aus der App als group=null - das muss die Gruppe entfernen,
+        nicht stillschweigend nichts tun. Gespeichert wird in der
+        homepilot-data.json und überlebt Neustarts.
         """
         current = dict(self._meta_by_entity.get(entity_id, {}))
         current.pop("entity_id", None)
-        if name is not None:
-            current["name"] = name.strip() or None
-        if favorite is not None:
+        if name is not UNSET:
+            current["name"] = (name or "").strip() or None
+        if favorite is not UNSET:
             current["favorite"] = bool(favorite)
-        if group is not None:
-            current["group"] = group.strip() or None
+        if group is not UNSET:
+            current["group"] = (group or "").strip() or None
         # Leere Felder entfernen, damit der Eintrag nicht anwächst.
         cleaned = {k: v for k, v in current.items() if v}
         if cleaned:

@@ -172,6 +172,17 @@ def test_entity_meta_rename_favorite_group():
         entities = {e["id"]: e for e in client.get("/api/entities").json()}
         assert entities["demo.light_livingroom"]["name"] == "Stehlampe"
 
+        # «Keine Gruppe» kommt aus der App als group=null - das muss die
+        # Gruppe wirklich entfernen, nicht stillschweigend nichts tun.
+        response = client.put(
+            "/api/entities/demo.light_livingroom/meta",
+            json={"group": None},
+        )
+        entity = response.json()["entity"]
+        assert entity["group"] is None
+        # Der Name blieb dabei unangetastet.
+        assert entity["name"] == "Stehlampe"
+
 
 def test_entity_meta_unknown_entity_is_404():
     with make_client() as client:

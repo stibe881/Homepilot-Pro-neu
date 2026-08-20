@@ -908,12 +908,10 @@ def create_app(hub: Hub) -> FastAPI:
         require(request, Capability.EDIT_CONFIG)
         if hub.registry.get(entity_id) is None:
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
-        await hub.set_entity_meta(
-            entity_id,
-            name=body.name,
-            favorite=body.favorite,
-            group=body.group,
-        )
+        # Nur die tatsächlich mitgeschickten Felder weitergeben: group=null
+        # heisst «Keine Gruppe» (entfernen) und ist etwas anderes als ein
+        # gar nicht mitgeschicktes group.
+        await hub.set_entity_meta(entity_id, **body.model_dump(exclude_unset=True))
         return {"ok": True, "entity": hub.registry.get(entity_id).as_dict()}
 
     @app.get("/api/entities/{entity_id}/snapshot")
