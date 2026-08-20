@@ -371,6 +371,13 @@ users:
   #   role: gast
   #   token: "${TOKEN_GAST}"
   #   allow: ["hue.*", "mqtt.sonoff_gaestezimmer"]
+  # Kinder-Ansicht: Die App zeigt dieser Person nur die genannten Räume,
+  # als grosse Knöpfe - ohne Einstellungen, Alarm und den Rest. Lässt
+  # sich auch in der App unter Benutzerverwaltung antippen.
+  # - name: Levin
+  #   role: bewohner
+  #   token: "${TOKEN_LEVIN}"
+  #   simple_rooms: ["Levin"]
 
 # Szenen: eine benannte Liste von Kommandos, mit einem Tippen auslösbar.
 scenes:

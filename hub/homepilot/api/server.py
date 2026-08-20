@@ -165,6 +165,8 @@ class UserRequest(BaseModel):
     features: list[str] = []
     expires: str | None = None
     hours: dict[str, str] = {}
+    # Kinder-Ansicht: nur diese Räume, als grosse Knöpfe.
+    simple_rooms: list[str] = []
 
 
 class UserUpdateRequest(BaseModel):
@@ -174,6 +176,8 @@ class UserUpdateRequest(BaseModel):
     expires: str | None = None
     # Zeitfenster {"from": "07:00", "to": "20:00"}; leer hebt es auf.
     hours: dict[str, str] | None = None
+    # Kinder-Ansicht an/aus bzw. Räume ändern; leere Liste hebt sie auf.
+    simple_rooms: list[str] | None = None
 
 
 class LoginRequest(BaseModel):
@@ -2013,6 +2017,7 @@ def create_app(hub: Hub) -> FastAPI:
                     features=body.features,
                     expires=body.expires or None,
                     hours=users_module.parse_hours(body.hours),
+                    simple_rooms=[str(r) for r in body.simple_rooms],
                     # In der App angelegt: wird gespeichert und ist dort
                     # auch wieder löschbar.
                     editable=True,
@@ -2116,6 +2121,7 @@ def create_app(hub: Hub) -> FastAPI:
                 features=body.features,
                 expires=body.expires,
                 hours=body.hours,
+                simple_rooms=body.simple_rooms,
             )
         except HomePilotError as err:
             raise HTTPException(status_code=409, detail=str(err)) from err

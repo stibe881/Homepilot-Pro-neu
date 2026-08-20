@@ -57,6 +57,8 @@ interface HubUser {
   hours?: { from?: string; to?: string };
   /** Darf diese Person gerade herein? Rechnet Ablauf und Fenster mit. */
   active?: boolean;
+  /** Kinder-Ansicht: nur diese Räume, als grosse Knöpfe. */
+  simple_rooms?: string[];
   /** Anmelde-Adresse – Voraussetzung für die Einladung. */
   email?: string | null;
 }
@@ -176,6 +178,16 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
   const headers = useMemo(
     () => ({ Authorization: `Bearer ${settings.token}` }),
     [settings.token]
+  );
+
+  // Räume für die Kinder-Ansicht - aus den Geräten hergeleitet, wie
+  // überall sonst: Ein Raum existiert, sobald ihm etwas zugeordnet ist.
+  const roomNames = useMemo(
+    () =>
+      Array.from(
+        new Set(entities.map((entity) => entity.room).filter(Boolean) as string[])
+      ).sort((a, b) => a.localeCompare(b)),
+    [entities]
   );
 
   const [users, setUsers] = useState<HubUser[] | null>(null);
@@ -600,6 +612,46 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                     />
                   ) : null}
 
+                  {detail.editable ? (
+                    <>
+                      <Text style={styles.formLabel}>Kinder-Ansicht</Text>
+                      <Text style={styles.formHint}>
+                        Angetippte Räume erscheinen dieser Person als grosse
+                        Knöpfe - ohne Einstellungen, Alarm und den Rest der
+                        Wohnung. Nichts angetippt = normale App.
+                      </Text>
+                      <View style={styles.roleRow}>
+                        {roomNames.map((room) => {
+                          const active = (detail.simple_rooms ?? []).includes(room);
+                          return (
+                            <Pressable
+                              key={room}
+                              onPress={() => {
+                                const current = detail.simple_rooms ?? [];
+                                const next = active
+                                  ? current.filter((entry) => entry !== room)
+                                  : [...current, room];
+                                patchUser(detail.name, { simple_rooms: next });
+                              }}
+                              accessibilityRole="checkbox"
+                              accessibilityState={{ checked: active }}
+                              style={[styles.roleChip, active && styles.roleChipActive]}
+                            >
+                              <Text
+                                style={[
+                                  styles.roleChipText,
+                                  active && styles.roleChipTextActive,
+                                ]}
+                              >
+                                {room}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </>
+                  ) : null}
+
                   {detail.editable && detail.role === 'gast' ? (
                     <>
                       <Text style={styles.formLabel}>Darf sehen und bedienen</Text>
@@ -690,6 +742,7 @@ const makeStyles = (colors: Colors) =>
 
     form: { minHeight: 0, gap: 8 },
     formLabel: { color: colors.inkSoft, fontSize: 12, fontWeight: '700' },
+    formHint: { color: colors.inkFaint, fontSize: 12, lineHeight: 17 },
     input: {
       backgroundColor: colors.surfaceSoft,
       borderRadius: radius.control,

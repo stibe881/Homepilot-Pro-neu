@@ -30,6 +30,7 @@ from .snapshots import SnapshotStore
 from .store import Store
 from .streams import MEDIAMTX_API, MEDIAMTX_HLS, StreamManager
 from .supabase import SupabaseClient
+from . import users as users_module
 from .users import Role, User, parse_users
 
 log = logging.getLogger(__name__)
@@ -206,6 +207,13 @@ class Hub:
                         editable=True,
                         enabled=bool(entry.get("enabled", True)),
                         features=entry.get("features") or [],
+                        simple_rooms=entry.get("simple_rooms") or [],
+                        # Ohne diese beiden verlor ein in der App angelegter
+                        # Gast sein Ablaufdatum und Zeitfenster beim ersten
+                        # Neustart - still, und genau dann, wenn man sich
+                        # darauf verliess.
+                        expires=str(entry["expires"]) if entry.get("expires") else None,
+                        hours=users_module.parse_hours(entry.get("hours")),
                     )
                 )
             except Exception as err:

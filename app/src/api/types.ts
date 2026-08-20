@@ -52,6 +52,8 @@ export interface User {
   /** Anmelde-Adresse. Nur wessen Adresse hier
    *  steht, kann eingeladen werden und sich dann mit Passwort anmelden. */
   email?: string | null;
+  /** Kinder-Ansicht: nur diese Räume, als grosse Knöpfe. */
+  simple_rooms?: string[];
 }
 
 export interface Source {

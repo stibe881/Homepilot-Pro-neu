@@ -53,6 +53,7 @@ import { SystemScreen } from './SystemScreen';
 import { EntityHistory } from '../components/EntityHistory';
 import { Broadcast } from '../components/Broadcast';
 import { GoodNight } from '../components/GoodNight';
+import { KidsView } from '../components/KidsView';
 import { WhatsNew } from '../components/WhatsNew';
 import { LightGroups } from '../components/LightGroups';
 import { UsersScreen } from './UsersScreen';
@@ -543,6 +544,22 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     (dx: number, dy: number) => setDrag((d) => (d ? { ...d, dx, dy } : d)),
     []
   );
+
+  // Kinder-Ansicht: Wer nur seine Räume sehen soll, bekommt genau die -
+  // als grosse Knöpfe, ohne Tabs, Einstellungen und den Rest der Wohnung.
+  // Die Rechte prüft weiterhin der Hub; das hier ist die Vereinfachung.
+  if (user?.simple_rooms && user.simple_rooms.length > 0) {
+    return (
+      <KidsView
+        name={user.name}
+        rooms={user.simple_rooms}
+        entities={entities}
+        scenes={scenes}
+        onCommand={(entityId, command) => guardedCommand(entityId, command)}
+        onActivateScene={activateScene}
+      />
+    );
+  }
 
   const renderCard = (entity: Entity) => (
     <EntityCard

@@ -157,6 +157,10 @@ class User:
     # Einladung: Registrieren kann sich nur, wessen Adresse hier schon
     # steht – sonst legte sich jeder mit der Hub-Adresse ein Konto an.
     email: str | None = None
+    # Kinder-Ansicht: Nur diese Räume, als grosse Knöpfe, ohne alles
+    # andere. Gedacht für Levin und Lina - das eigene Zimmer ja, die
+    # Alarmanlage und der Rest der Wohnung nicht.
+    simple_rooms: list[str] = field(default_factory=list)
 
     def active(self, now: "datetime | None" = None) -> bool:
         """Darf dieser Benutzer *jetzt* herein? (rein, testbar)
@@ -206,6 +210,7 @@ class User:
             "hours": dict(self.hours),
             "active": self.active(),
             "email": self.email,
+            "simple_rooms": list(self.simple_rooms),
         }
         if include_token:
             data["token"] = self.token
@@ -331,6 +336,7 @@ class UserRegistry:
         features: list[str] | None = None,
         expires: str | None = None,
         hours: dict[str, str] | None = None,
+        simple_rooms: list[str] | None = None,
     ) -> User:
         """Gast sperren/entsperren oder Bereiche ändern – Token bleibt gleich."""
         user = self.by_name(name)
@@ -351,6 +357,8 @@ class UserRegistry:
             user.expires = expires.strip() or None
         if hours is not None:
             user.hours = parse_hours(hours)
+        if simple_rooms is not None:
+            user.simple_rooms = [str(r) for r in simple_rooms]
         self._changed()
         return user
 
@@ -366,6 +374,7 @@ class UserRegistry:
                 "features": list(user.features),
                 "expires": user.expires,
                 "hours": dict(user.hours),
+                "simple_rooms": list(user.simple_rooms),
             }
             for user in self._users
             if user.editable
@@ -403,6 +412,9 @@ def parse_users(raw: list[dict[str, Any]], legacy_token: str | None) -> UserRegi
         features = entry.get("features") or []
         if not isinstance(features, list):
             raise ConfigError(f"'features' bei {name} muss eine Liste sein")
+        simple_rooms = entry.get("simple_rooms") or []
+        if not isinstance(simple_rooms, list):
+            raise ConfigError(f"'simple_rooms' bei {name} muss eine Liste sein")
         users.append(
             User(
                 name=str(name),
@@ -413,6 +425,7 @@ def parse_users(raw: list[dict[str, Any]], legacy_token: str | None) -> UserRegi
                 features=[str(f) for f in features],
                 expires=str(entry["expires"]) if entry.get("expires") else None,
                 hours=parse_hours(entry.get("hours")),
+                simple_rooms=[str(r) for r in simple_rooms],
             )
         )
 
