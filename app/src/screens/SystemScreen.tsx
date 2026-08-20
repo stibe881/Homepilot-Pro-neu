@@ -160,32 +160,7 @@ export function SystemScreen({
 
       <DeviceHealth entities={entities} />
 
-      <Card style={styles.card}>
-        <Text style={styles.heading}>Integrationen</Text>
-        {status.integrations.map((integration) => (
-          <View key={integration.name} style={styles.row}>
-            <Ionicons
-              name={integration.ok ? 'checkmark-circle' : 'alert-circle'}
-              size={20}
-              color={integration.ok ? colors.on : colors.danger}
-            />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.rowTitle}>{integration.name}</Text>
-              <Text style={styles.rowDetail} numberOfLines={2}>
-                {integration.ok
-                  ? `${integration.entities} Geräte` +
-                    (integration.unavailable
-                      ? `, ${integration.unavailable} nicht erreichbar`
-                      : '')
-                  : integration.error}
-              </Text>
-              {integration.health ? (
-                <Text style={styles.rowDetail}>{healthText(integration.health)}</Text>
-              ) : null}
-            </View>
-          </View>
-        ))}
-      </Card>
+      <IntegrationsCard integrations={status.integrations} />
 
       {(status.outages ?? []).length > 0 ? (
         <Card style={styles.card}>
@@ -1184,6 +1159,73 @@ export function offline(entities: Entity[]): Entity[] {
     );
 }
 
+/** Integrationen - eingeklappt, weil sie im Normalfall nichts zu sagen haben.
+ *
+ * Der Regelfall ist «alles läuft», und dann sind zehn Zeilen Haken nur
+ * Weg zwischen den Karten, die man wirklich sucht. Was nicht läuft,
+ * bleibt trotzdem sichtbar: Eine Störung einzuklappen hiesse, genau die
+ * eine Auskunft zu verstecken, für die es diese Karte gibt.
+ */
+function IntegrationsCard({
+  integrations,
+}: {
+  integrations: SystemStatus['integrations'];
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [open, setOpen] = useState(false);
+  const broken = integrations.filter((integration) => !integration.ok);
+  const shown = open ? integrations : broken;
+
+  return (
+    <Card style={styles.card}>
+      <Pressable
+        onPress={() => setOpen((value) => !value)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        style={styles.integrationHead}
+      >
+        <Text style={[styles.heading, { flex: 1 }]}>Integrationen</Text>
+        <Text
+          style={[styles.rowDetail, broken.length > 0 && { color: colors.danger }]}
+        >
+          {broken.length > 0
+            ? `${broken.length} gestört`
+            : `${integrations.length} · alle in Ordnung`}
+        </Text>
+        <Ionicons
+          name={open ? 'chevron-up' : 'chevron-down'}
+          size={18}
+          color={colors.inkSoft}
+        />
+      </Pressable>
+      {shown.map((integration) => (
+        <View key={integration.name} style={styles.row}>
+          <Ionicons
+            name={integration.ok ? 'checkmark-circle' : 'alert-circle'}
+            size={20}
+            color={integration.ok ? colors.on : colors.danger}
+          />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.rowTitle}>{integration.name}</Text>
+            <Text style={styles.rowDetail} numberOfLines={2}>
+              {integration.ok
+                ? `${integration.entities} Geräte` +
+                  (integration.unavailable
+                    ? `, ${integration.unavailable} nicht erreichbar`
+                    : '')
+                : integration.error}
+            </Text>
+            {integration.health ? (
+              <Text style={styles.rowDetail}>{healthText(integration.health)}</Text>
+            ) : null}
+          </View>
+        </View>
+      ))}
+    </Card>
+  );
+}
+
 /** Was eine Integration über ihren eigenen Zustand meldet (rein, testbar).
  *
  * Heute nur Homematic: Ob die CCU den Hub noch als Event-Empfänger kennt
@@ -1632,6 +1674,7 @@ const makeStyles = (colors: Colors) =>
   offlineList: { gap: 8, marginTop: 4 },
   factValue: { color: colors.ink, fontSize: 22, fontWeight: '700' },
   factLabel: { color: colors.inkSoft, fontSize: 12 },
+  integrationHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   rowTitle: { color: colors.ink, fontSize: 15, fontWeight: '600' },
   rowDetail: { color: colors.inkSoft, fontSize: 13 },
