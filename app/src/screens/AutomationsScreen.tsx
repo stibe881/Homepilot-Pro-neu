@@ -136,10 +136,10 @@ export function fittingState(entity: Entity | undefined, current: string): strin
  *
  * Beantwortet den häufigsten Support-Fall direkt in der Liste: «geht
  * nicht» heisst fast immer, dass eine Bedingung im Weg war. */
-export function lastRunText(runs: Run[], automationId: string): string {
-  const run = runs.find((entry) => entry.automation_id === automationId);
-  if (!run) return 'Noch nicht gelaufen';
-  const time = new Date(run.at * 1000).toLocaleTimeString('de-CH', {
+export function runLine(run: Run): string {
+  const time = new Date(run.at * 1000).toLocaleString('de-CH', {
+    day: 'numeric',
+    month: 'short',
     hour: '2-digit',
     minute: '2-digit',
   });
@@ -147,6 +147,12 @@ export function lastRunText(runs: Run[], automationId: string): string {
   if (run.executed) return `${time} · ausgeführt`;
   if (run.skipped.length > 0) return `${time} · übersprungen: ${run.skipped.join('; ')}`;
   return `${time} · übersprungen`;
+}
+
+export function lastRunText(runs: Run[], automationId: string): string {
+  const run = runs.find((entry) => entry.automation_id === automationId);
+  if (!run) return 'Noch nicht gelaufen';
+  return runLine(run);
 }
 
 /** Sammelname für alles ohne eigene Kategorie. */
@@ -629,6 +635,8 @@ export function AutomationsScreen({
   // und nicht wieder die ganze Liste.
   const [openAuto, setOpenAuto] = useState<string[]>([]);
   const [openScenes, setOpenScenes] = useState<string[]>([]);
+  // Ablauf, dessen Lauf-Verlauf gerade aufgeklappt ist.
+  const [runsFor, setRunsFor] = useState<string | null>(null);
   const templates = useMemo(() => buildTemplates(entities, scenes), [entities, scenes]);
 
   const mayEdit = !!user?.capabilities?.includes('edit_automations');
@@ -909,7 +917,41 @@ export function AutomationsScreen({
                       {automation.enabled === false ? ' · aus' : ''}
                     </Text>
                     <Text style={styles.detail}>{describe(automation)}</Text>
-                    <Text style={styles.detail}>{lastRunText(runs, automation.id)}</Text>
+                    {/* Antippbar: die letzten Läufe samt Begründung. «Warum
+                        lief das nicht?» steht dann da - z.B. «übersprungen:
+                        nur wenn dunkel» - statt nur des letzten Laufs. */}
+                    <Pressable
+                      onPress={() =>
+                        setRunsFor((prev) => (prev === automation.id ? null : automation.id))
+                      }
+                      accessibilityRole="button"
+                      accessibilityState={{ expanded: runsFor === automation.id }}
+                    >
+                      <Text style={styles.detail}>
+                        {lastRunText(runs, automation.id)}
+                        {runs.some((run) => run.automation_id === automation.id)
+                          ? runsFor === automation.id
+                            ? ' ▾'
+                            : ' ▸'
+                          : ''}
+                      </Text>
+                    </Pressable>
+                    {runsFor === automation.id ? (
+                      <View style={{ marginTop: 4, gap: 2 }}>
+                        {runs
+                          .filter((run) => run.automation_id === automation.id)
+                          .slice(0, 8)
+                          .map((run, index) => (
+                            <Text key={index} style={styles.triggerNote}>
+                              {runLine(run)}
+                            </Text>
+                          ))}
+                        <Text style={styles.triggerNote}>
+                          «Übersprungen» heisst: ausgelöst, aber eine Bedingung
+                          war nicht erfüllt - sie steht dahinter.
+                        </Text>
+                      </View>
+                    ) : null}
                   </View>
                   {automation.editable && mayEdit ? (
                     <>

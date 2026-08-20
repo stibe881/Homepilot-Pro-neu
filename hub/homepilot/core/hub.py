@@ -16,6 +16,7 @@ from .config import HubConfig
 from .events import EventBus
 from .integration import IntegrationManager
 from .audit import AuditLog
+from .eventlog import EventLog
 from .guestpass import PassStore
 from .sessions import SessionStore
 from .logbuffer import install as install_log_buffer
@@ -55,6 +56,10 @@ class Hub:
         # Wer hat wann was geschaltet - überlebt den Neustart, anders als
         # die flüchtige Liste «Zuletzt passiert» in der App.
         self.audit = AuditLog(self)
+        # Ereignisprotokoll je Gerät (jeder Zustandswechsel samt Quelle,
+        # auch von Abläufen und der Simulation) - siehe eventlog.py.
+        self.eventlog = EventLog()
+        self.bus.subscribe("state_changed", self.eventlog.record)
         # Einmal-Links für die Türe – nur im Speicher, siehe guestpass.py.
         self.passes = PassStore()
         self.users = parse_users(config.users, config.api.token)

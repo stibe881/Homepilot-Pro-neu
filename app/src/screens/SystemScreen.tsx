@@ -6,6 +6,7 @@ import { ConfigVersion, Entity, HubSettings, LogEntry, SystemStatus, User } from
 import { PushState, pushHint } from '../hooks/usePushRegistration';
 import { AccessLog } from '../components/AccessLog';
 import { Card } from '../components/Card';
+import { DeviceHealth } from '../components/DeviceHealth';
 import { localTime, timeAgo } from '../lib/zeit';
 import { Colors, radius, space, type, useColors } from '../theme';
 
@@ -156,6 +157,8 @@ export function SystemScreen({
           )
         ) : null}
       </Card>
+
+      <DeviceHealth entities={entities} />
 
       <Card style={styles.card}>
         <Text style={styles.heading}>Integrationen</Text>

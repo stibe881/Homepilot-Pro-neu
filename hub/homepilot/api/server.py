@@ -942,6 +942,23 @@ def create_app(hub: Hub) -> FastAPI:
             headers={"Cache-Control": "no-store"},
         )
 
+    # Bewusst /log und nicht /events: Unter /events liegt schon die
+    # Kamera-Zeitleiste (Bewegungen aus der Integration) - eine zweite
+    # Route mit demselben Pfad würde still verschattet.
+    @app.get("/api/entities/{entity_id}/log")
+    async def entity_log(entity_id: str, request: Request) -> dict[str, Any]:
+        """Die letzten Schaltvorgänge dieses Geräts, mit Quelle.
+
+        Beantwortet «warum ging das Licht um drei Uhr an?» ohne Scrollen
+        durch den Gesamtverlauf. Das Protokoll lebt im Speicher des Hubs
+        und beginnt nach einem Neustart leer - das sagt die App dazu.
+        """
+        user = current_user(request)
+        entity = hub.registry.get(entity_id)
+        if entity is None or not user.may_see(entity.id, entity.kind, entity.integration):
+            raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
+        return {"events": hub.eventlog.for_entity(entity_id)}
+
     async def camera_for(entity_id: str, request: Request):
         """Kamera-Entität samt Integration – oder ein sauberes 404."""
         user = current_user(request)

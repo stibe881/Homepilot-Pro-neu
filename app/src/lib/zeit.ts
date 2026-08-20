@@ -44,6 +44,27 @@ export function timeAgo(iso: string | null | undefined, now: number = Date.now()
   if (!iso || iso === 'unbekannt') return '';
   const stamp = new Date(asUtc(iso)).getTime();
   if (Number.isNaN(stamp)) return '';
+  return agoFrom(stamp, now);
+}
+
+/** Dasselbe für Unix-Sekunden, wie sie Entitäten und Protokolle tragen. */
+export function epochAgo(at: number | null | undefined, now: number = Date.now()): string {
+  if (!at || !Number.isFinite(at)) return '';
+  return agoFrom(at * 1000, now);
+}
+
+/** Unix-Sekunden als kurze Ortszeit, z.B. «20. Aug., 14:19». */
+export function epochTime(at: number | null | undefined): string {
+  if (!at || !Number.isFinite(at)) return '';
+  return new Date(at * 1000).toLocaleString('de-CH', {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function agoFrom(stamp: number, now: number): string {
   const seconds = Math.round((now - stamp) / 1000);
   // Kleine Abweichungen in die Zukunft kommen von ungleich gestellten
   // Uhren – als «gerade eben» zu zeigen ist ehrlicher als «in -2 Minuten».

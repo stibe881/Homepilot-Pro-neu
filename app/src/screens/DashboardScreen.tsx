@@ -50,6 +50,7 @@ import { AlarmScreen } from './AlarmScreen';
 import { EnergyScreen } from './EnergyScreen';
 import { SpeakersScreen } from './SpeakersScreen';
 import { SystemScreen } from './SystemScreen';
+import { EntityHistory } from '../components/EntityHistory';
 import { LightGroups } from '../components/LightGroups';
 import { UsersScreen } from './UsersScreen';
 
@@ -70,6 +71,19 @@ const SWITCHING = new Set([
 ]);
 // Pseudo-Raum für Geräte ohne Zuordnung – als Kachel und Ansicht öffenbar.
 const NO_ROOM = 'Weitere';
+// Gerätearten mit eigenem Verlauf (Tipp auf die Kachel unter Geräte).
+// Sensoren öffnen stattdessen ihre Messwert-Kurve, Kameras das Livebild.
+const HISTORY_KINDS = new Set([
+  'light',
+  'switch',
+  'cover',
+  'lock',
+  'climate',
+  'vacuum',
+  'appliance',
+  'media_player',
+  'binary_sensor',
+]);
 const PANEL_WIDTH = 340;
 
 interface Props {
@@ -125,6 +139,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [dismissedRing, setDismissedRing] = useState<string | null>(null);
   // Angetippte Kamera im Vollbild (Entitäts-ID, damit Live-Updates ankommen).
   const [fullscreen, setFullscreen] = useState<string | null>(null);
+  // Gerät, dessen Verlauf gerade offen ist (Geräte-Ansicht, Tipp auf die Kachel).
+  const [historyFor, setHistoryFor] = useState<string | null>(null);
   // Auf der Startseite markierte Countdowns aus dem Familie-Modul.
   const [startCountdowns, setStartCountdowns] = useState<
     { text: string; date: string; on_start?: boolean }[]
@@ -578,7 +594,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             ? () => setFullscreen(entity.id)
             : entity.kind === 'sensor'
               ? () => setExpanded((current) => (current === entity.id ? null : entity.id))
-              : undefined
+              : section === 'devices' && HISTORY_KINDS.has(entity.kind)
+                ? // Unter Geräte öffnet ein Tipp auf die Kachel den Verlauf
+                  // dieses Geräts - «warum ging das um drei Uhr an?».
+                  () => setHistoryFor(entity.id)
+                : undefined
       }
       chart={
         expanded === entity.id && cardWidth ? (
@@ -1192,6 +1212,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           onClose={() => setFullscreen(null)}
           colors={colors}
           styles={styles}
+        />
+      ) : null}
+
+      {historyFor && entities.find((entity) => entity.id === historyFor) ? (
+        <EntityHistory
+          entity={entities.find((entity) => entity.id === historyFor)!}
+          settings={settings}
+          onClose={() => setHistoryFor(null)}
         />
       ) : null}
 
