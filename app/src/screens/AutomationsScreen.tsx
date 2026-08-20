@@ -462,17 +462,25 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
   const grill = entities.find((entity) =>
     Object.keys(entity.state ?? {}).some((key) => key.startsWith('probe_'))
   );
-  const cover = entities.find((entity) => entity.kind === 'cover');
-  // Irgendein Gerät, das seinen Ladestand meldet - Türsensor, Schloss,
-  // Thermostat. Als Vorlage genügt eines; welches gemeint ist, wählt man
-  // im Editor.
-  const battery = entities.find(
+  // Bewusst alle, nicht der erste Fund: Eine Store am Abend zu schliessen
+  // und die übrigen offen zu lassen, ist keine Automation, sondern ein
+  // Versehen. Einzelne abwählen kann man im Editor immer noch.
+  const covers = entities.filter((entity) => entity.kind === 'cover');
+  const cover = covers[0];
+  // Jedes Gerät, das seinen Ladestand meldet - Türsensor, Schloss,
+  // Thermostat. Ein Ablauf mit einem Auslöser je Gerät ist hier richtig:
+  // Sonst überwacht man eine Batterie und übersieht die anderen sieben.
+  const batteries = entities.filter(
     (entity) => typeof entity.state?.battery === 'number'
   );
   const offScene = scenes.find((scene) => scene.id === 'alles_aus');
-  const firstOff = entities.find((entity) => entity.commands.includes('turn_off'));
+  // Ohne Szene «Alles aus»: alle Lichter. Ein einzelnes beliebiges Gerät
+  // auszuschalten wäre kein Anfang, den man nur noch speichern muss.
+  const allLights = entities.filter(
+    (entity) => entity.kind === 'light' && entity.commands.includes('turn_off')
+  );
 
-  if (presence && (offScene || firstOff)) {
+  if (presence && (offScene || allLights.length > 0)) {
     templates.push({
       label: 'Alles aus, wenn niemand da',
       icon: 'exit-outline',
@@ -488,7 +496,10 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
             ? { ...EMPTY_STEP, kind: 'scene' as StepKind, sceneId: offScene.id }
             : {
                 ...EMPTY_STEP,
-                commandActions: [{ entity_id: firstOff!.id, command: 'turn_off' }],
+                commandActions: allLights.map((entity) => ({
+                  entity_id: entity.id,
+                  command: 'turn_off',
+                })),
               },
         ],
       },
@@ -605,14 +616,35 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
     });
   }
   if (vacuum) {
+    // 'clean_rooms' mit leerer Liste lehnt der Sauger ab - die Vorlage
+    // liesse sich speichern und scheiterte beim Laufen. Fürs morgendliche
+    // Saugen ist ohnehin die ganze Wohnung gemeint: dafür 'start'. Kennt
+    // ein Sauger das nicht, kommen alle seine Räume in die Liste.
+    const rooms = vacuumRooms(vacuum);
+    const startet = vacuum.commands.includes('start');
     templates.push({
       label: 'Morgens saugen',
       icon: 'sparkles-outline',
       draft: {
         ...EMPTY,
         alias: 'Morgens saugen',
+        // Werktags um neun: Da ist das Haus meist leer, und niemand wird
+        // vom Sauger geweckt.
         triggers: [{ ...EMPTY_TRIGGER, kind: 'time', at: '09:00' }],
-        steps: [{ ...EMPTY_STEP, commandActions: [{ entity_id: vacuum.id, command: 'clean_rooms', rooms: [] }] }],
+        steps: [
+          {
+            ...EMPTY_STEP,
+            commandActions: [
+              startet || rooms.length === 0
+                ? { entity_id: vacuum.id, command: 'start' }
+                : {
+                    entity_id: vacuum.id,
+                    command: 'clean_rooms',
+                    rooms: rooms.map((raum) => raum.id),
+                  },
+            ],
+          },
+        ],
       },
     });
   }
@@ -624,7 +656,15 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
         ...EMPTY,
         alias: 'Storen zu bei Sonnenuntergang',
         triggers: [{ ...EMPTY_TRIGGER, kind: 'sun', sunEvent: 'sunset', sunOffset: '0' }],
-        steps: [{ ...EMPTY_STEP, commandActions: [{ entity_id: cover.id, command: 'close' }] }],
+        steps: [
+          {
+            ...EMPTY_STEP,
+            commandActions: covers.map((entity) => ({
+              entity_id: entity.id,
+              command: 'close',
+            })),
+          },
+        ],
       },
     });
     templates.push({
@@ -634,7 +674,15 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
         ...EMPTY,
         alias: 'Storen auf bei Sonnenaufgang',
         triggers: [{ ...EMPTY_TRIGGER, kind: 'sun', sunEvent: 'sunrise', sunOffset: '0' }],
-        steps: [{ ...EMPTY_STEP, commandActions: [{ entity_id: cover.id, command: 'open' }] }],
+        steps: [
+          {
+            ...EMPTY_STEP,
+            commandActions: covers.map((entity) => ({
+              entity_id: entity.id,
+              command: 'open',
+            })),
+          },
+        ],
       },
     });
     if (alert) {
@@ -645,7 +693,15 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
           ...EMPTY,
           alias: 'Sturmschutz',
           triggers: [{ ...EMPTY_TRIGGER, entityId: alert.id, toState: 'alert' }],
-          steps: [{ ...EMPTY_STEP, commandActions: [{ entity_id: cover.id, command: 'close' }] }],
+          steps: [
+            {
+              ...EMPTY_STEP,
+              commandActions: covers.map((entity) => ({
+                entity_id: entity.id,
+                command: 'close',
+              })),
+            },
+          ],
         },
       });
     }
@@ -679,29 +735,30 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
     });
   }
 
-  if (battery) {
+  if (batteries.length > 0) {
     templates.push({
       label: 'Batterie wird schwach',
       icon: 'battery-half-outline',
       draft: {
         ...EMPTY,
         alias: 'Batterie wird schwach',
-        triggers: [
-          {
-            ...EMPTY_TRIGGER,
-            kind: 'threshold' as TriggerKind,
-            entityId: battery.id,
-            attribute: 'battery',
-            thresholdOp: 'below',
-            thresholdValue: '20',
-          },
-        ],
+        // 20 % ist der Punkt, an dem eine Ersatzbatterie besorgt werden
+        // kann, bevor der Sensor stumm wird - bei 5 % wäre die Meldung
+        // eine Nachricht über etwas, das schon passiert ist.
+        triggers: batteries.map((entity) => ({
+          ...EMPTY_TRIGGER,
+          kind: 'threshold' as TriggerKind,
+          entityId: entity.id,
+          attribute: 'battery',
+          thresholdOp: 'below' as const,
+          thresholdValue: '20',
+        })),
         steps: [
           {
             ...EMPTY_STEP,
             kind: 'notify' as StepKind,
             title: 'Batterie wird schwach',
-            body: `${battery.name} meldet weniger als 20 % - Batterie bereitlegen.`,
+            body: 'Ein Gerät meldet weniger als 20 % - Batterie bereitlegen.',
           },
         ],
       },
