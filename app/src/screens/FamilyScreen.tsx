@@ -64,7 +64,10 @@ type ModuleKey =
   | 'countdowns'
   | 'recipes'
   | 'documents'
-  | 'chores';
+  | 'chores'
+  | 'emergency'
+  | 'medications'
+  | 'babysitter';
 
 const WEEK_DAYS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
 
@@ -451,6 +454,124 @@ const REPEAT_OPTIONS = [
   { key: 'weekly', label: 'wöchentlich' },
   { key: 'monthly', label: 'monatlich' },
 ];
+
+function PollAddRow({
+  onAdd,
+  styles,
+  colors,
+}: {
+  onAdd: (frage: string, optionen: string[]) => void;
+  styles: Styles;
+  colors: Colors;
+}) {
+  const [frage, setFrage] = useState('');
+  const [optionen, setOptionen] = useState('');
+  const submit = () => {
+    // Ohne mindestens zwei Antworten ist es keine Abstimmung, sondern eine
+    // Ankündigung - dafür gibt es die Pinnwand darüber.
+    const liste = optionen
+      .split(/[,\n]/)
+      .map((teil) => teil.trim())
+      .filter(Boolean);
+    if (!frage.trim() || liste.length < 2) return;
+    onAdd(frage.trim(), liste);
+    setFrage('');
+    setOptionen('');
+  };
+  return (
+    <View style={{ gap: 8 }}>
+      <TextInput
+        style={styles.input}
+        value={frage}
+        onChangeText={setFrage}
+        placeholder="Frage, z.B. Was gibt's am Sonntag?"
+        placeholderTextColor={colors.inkFaint}
+      />
+      <View style={styles.addRow}>
+        <TextInput
+          style={[styles.input, { flex: 1 }]}
+          value={optionen}
+          onChangeText={setOptionen}
+          placeholder="Antworten, mit Komma getrennt"
+          placeholderTextColor={colors.inkFaint}
+          onSubmitEditing={submit}
+        />
+        <Pressable
+          onPress={submit}
+          style={styles.addButton}
+          accessibilityLabel="Abstimmung anlegen"
+        >
+          <Ionicons name="add" size={22} color="#FFFFFF" />
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function MedicationAddRow({
+  members,
+  onAdd,
+  styles,
+  colors,
+}: {
+  members: Member[];
+  onAdd: (text: string, member: string | null, days: number) => void;
+  styles: Styles;
+  colors: Colors;
+}) {
+  const [text, setText] = useState('');
+  const [member, setMember] = useState<string | null>(null);
+  const [days, setDays] = useState(0);
+  const submit = () => {
+    if (!text.trim()) return;
+    onAdd(text.trim(), member, days);
+    setText('');
+    setMember(null);
+    setDays(0);
+  };
+  return (
+    <View style={{ gap: 8 }}>
+      <View style={styles.addRow}>
+        <TextInput
+          style={[styles.input, { flex: 1 }]}
+          value={text}
+          onChangeText={setText}
+          placeholder="Was, z.B. Amoxicillin 3× täglich …"
+          placeholderTextColor={colors.inkFaint}
+          onSubmitEditing={submit}
+        />
+        <Pressable onPress={submit} style={styles.addButton} accessibilityLabel="Hinzufügen">
+          <Ionicons name="add" size={22} color="#FFFFFF" />
+        </Pressable>
+      </View>
+      <View style={styles.chipRow}>
+        {members.map((m) => (
+          <Pressable
+            key={m.name}
+            onPress={() => setMember(member === m.name ? null : m.name)}
+            style={[styles.chip, member === m.name && styles.chipActive]}
+          >
+            <Text style={[styles.chipText, member === m.name && styles.chipTextActive]}>
+              {m.name}
+            </Text>
+          </Pressable>
+        ))}
+        {[5, 7, 10].map((value) => (
+          <Pressable
+            key={value}
+            onPress={() => setDays(days === value ? 0 : value)}
+            accessibilityLabel={`Kur über ${value} Tage`}
+            style={[styles.chip, days === value && styles.chipActive]}
+          >
+            <Text style={[styles.chipText, days === value && styles.chipTextActive]}>
+              {value} Tage
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
 
 function ChoreAddRow({
   members,
@@ -1281,6 +1402,12 @@ export function FamilyScreen({
   const meineChores = chores.filter(
     (chore: any) => chore.member && chore.member === currentUser?.name
   );
+  const notfall: any[] = data.emergency ?? [];
+  const notfallSub =
+    notfall.length > 0 ? `${notfall.length} Einträge` : 'Noch nichts hinterlegt';
+  const meds: any[] = data.medications ?? [];
+  const offeneMeds = meds.filter((med: any) => !med.done).length;
+  const medSub = offeneMeds > 0 ? `${offeneMeds} laufend` : 'Nichts einzunehmen';
   const choreSub =
     chores.length === 0
       ? 'Reihe festlegen'
@@ -1766,6 +1893,21 @@ export function FamilyScreen({
 
   if (view === 'pins') {
     const pins: any[] = data.pins ?? [];
+    const polls: any[] = data.polls ?? [];
+    const ich = currentUser?.name ?? '';
+
+    /** Eine Stimme abgeben oder zurückziehen.
+     *
+     * Die Stimmen stehen als {Person: Antwort} am Eintrag - so sieht man,
+     * wer noch fehlt. Genau das ist der Punkt gegenüber fünf Antworten im
+     * Familienchat, bei denen niemand mehr weiss, wer sich gemeldet hat. */
+    const stimmen = (poll: any, antwort: string) => {
+      const bisher = { ...(poll.votes ?? {}) };
+      if (bisher[ich] === antwort) delete bisher[ich];
+      else bisher[ich] = antwort;
+      update('polls', poll.id, { votes: bisher });
+    };
+
     return (
       <View style={styles.stack}>
         <BackHead title="Pinnwand" onBack={goBack} styles={styles} colors={colors} />
@@ -1776,6 +1918,72 @@ export function FamilyScreen({
           styles={styles}
           colors={colors}
         />
+
+        <Card style={styles.listCard}>
+          <Text style={styles.groupTitle}>Abstimmung</Text>
+          <PollAddRow
+            onAdd={(frage, optionen) =>
+              add('polls', { text: frage, options: optionen, votes: {} })
+            }
+            styles={styles}
+            colors={colors}
+          />
+        </Card>
+
+        {polls
+          .slice()
+          .reverse()
+          .map((poll: any) => {
+            const votes: Record<string, string> = poll.votes ?? {};
+            const optionen: string[] = Array.isArray(poll.options) ? poll.options : [];
+            const fehlen = members
+              .map((m) => m.name)
+              .filter((name) => !votes[name]);
+            return (
+              <Card key={poll.id} style={styles.pinCard}>
+                <View style={styles.checkRow}>
+                  <Text style={[styles.checkText, { flex: 1 }]}>{poll.text}</Text>
+                  <Pressable
+                    onPress={() => remove('polls', poll.id)}
+                    style={styles.deleteTap}
+                    accessibilityLabel="Abstimmung löschen"
+                  >
+                    <Ionicons name="trash-outline" size={16} color={colors.inkFaint} />
+                  </Pressable>
+                </View>
+                {optionen.map((option) => {
+                  const dafuer = Object.entries(votes)
+                    .filter(([, wahl]) => wahl === option)
+                    .map(([name]) => name);
+                  const meine = votes[ich] === option;
+                  return (
+                    <Pressable
+                      key={option}
+                      onPress={() => stimmen(poll, option)}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: meine }}
+                      style={[styles.pollRow, meine && styles.pollRowMine]}
+                    >
+                      <Ionicons
+                        name={meine ? 'radio-button-on' : 'radio-button-off'}
+                        size={18}
+                        color={meine ? colors.accent : colors.inkSoft}
+                      />
+                      <Text style={[styles.checkText, { flex: 1 }]}>{option}</Text>
+                      <Text style={styles.checkSub}>
+                        {dafuer.length > 0 ? dafuer.join(', ') : '–'}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+                <Text style={styles.checkSub}>
+                  {fehlen.length === 0
+                    ? 'Alle haben abgestimmt.'
+                    : `Es fehlen: ${fehlen.join(', ')}`}
+                </Text>
+              </Card>
+            );
+          })}
         {pins
           .slice()
           .reverse()
@@ -1935,6 +2143,272 @@ export function FamilyScreen({
             Noch keine Ämtli. Trag oben eines ein und wähle, wer in der Reihe
             steht.
           </Text>
+        ) : null}
+      </View>
+    );
+  }
+
+  if (view === 'babysitter') {
+    const notfaelle: any[] = data.emergency ?? [];
+    const kontakte: any[] = data.contacts ?? [];
+    const routinen: any[] = data.routines ?? [];
+    const heuteMeds = (data.medications ?? []).filter((med: any) => !med.done);
+    const heute = isoInDays(0);
+
+    return (
+      <View style={styles.stack}>
+        <BackHead title="Babysitter" onBack={goBack} styles={styles} colors={colors} />
+        <Text style={styles.hint}>
+          Eine Seite zum Hinlegen oder Zeigen: Notfallblatt, wichtige
+          Nummern, die Abendroutine und was heute noch einzunehmen ist.
+          Zusammengetragen aus den anderen Modulen – hier gibt es nichts
+          zusätzlich zu pflegen.
+        </Text>
+
+        {notfaelle.length > 0 ? (
+          <>
+            <Text style={styles.groupLabel}>Im Notfall</Text>
+            {notfaelle.map((eintrag: any) => (
+              <Card key={eintrag.id} style={styles.pinCard}>
+                <Text style={styles.checkText}>{eintrag.text}</Text>
+                {eintrag.body ? (
+                  <Text style={styles.checkSub} selectable>
+                    {eintrag.body}
+                  </Text>
+                ) : null}
+              </Card>
+            ))}
+          </>
+        ) : null}
+
+        {kontakte.length > 0 ? (
+          <>
+            <Text style={styles.groupLabel}>Nummern</Text>
+            <Card style={styles.listCard}>
+              {kontakte.map((kontakt: any) => (
+                <View key={kontakt.id} style={styles.checkRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.checkText}>{kontakt.text}</Text>
+                    {kontakt.body ? (
+                      <Text style={styles.checkSub} selectable>
+                        {kontakt.body}
+                      </Text>
+                    ) : null}
+                  </View>
+                  {kontakt.body ? (
+                    <Pressable
+                      onPress={() =>
+                        Linking.openURL(`tel:${String(kontakt.body).replace(/[^+\d]/g, '')}`)
+                      }
+                      style={styles.callButton}
+                      accessibilityLabel={`${kontakt.text} anrufen`}
+                    >
+                      <Ionicons name="call" size={16} color="#FFFFFF" />
+                    </Pressable>
+                  ) : null}
+                </View>
+              ))}
+            </Card>
+          </>
+        ) : null}
+
+        {heuteMeds.length > 0 ? (
+          <>
+            <Text style={styles.groupLabel}>Heute noch einzunehmen</Text>
+            <Card style={styles.listCard}>
+              {heuteMeds.map((med: any) => {
+                const genommen: string[] = Array.isArray(med.taken) ? med.taken : [];
+                return (
+                  <View key={med.id} style={styles.checkRow}>
+                    <Ionicons
+                      name={
+                        genommen.includes(heute) ? 'checkmark-circle' : 'ellipse-outline'
+                      }
+                      size={22}
+                      color={genommen.includes(heute) ? colors.on : colors.warn}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.checkText}>{med.text}</Text>
+                      <Text style={styles.checkSub}>
+                        {[
+                          med.member ? `für ${med.member}` : null,
+                          genommen.includes(heute) ? 'heute schon gegeben' : 'heute offen',
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </Card>
+          </>
+        ) : null}
+
+        {routinen.length > 0 ? (
+          <>
+            <Text style={styles.groupLabel}>Routinen</Text>
+            <Card style={styles.listCard}>
+              {routinen.map((routine: any) => (
+                <View key={routine.id} style={styles.checkRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.checkText}>{routine.text}</Text>
+                    {routine.body ? (
+                      <Text style={styles.checkSub}>{routine.body}</Text>
+                    ) : null}
+                  </View>
+                </View>
+              ))}
+            </Card>
+          </>
+        ) : null}
+
+        {notfaelle.length === 0 && kontakte.length === 0 && routinen.length === 0 ? (
+          <Text style={styles.hint}>
+            Noch nichts zusammenzutragen. Füll das Notfallblatt, die Kontakte
+            und die Routinen – diese Seite baut sich daraus von selbst.
+          </Text>
+        ) : null}
+      </View>
+    );
+  }
+
+  if (view === 'emergency') {
+    const eintraege: any[] = data.emergency ?? [];
+    return (
+      <View style={styles.stack}>
+        <BackHead title="Notfallblatt" onBack={goBack} styles={styles} colors={colors} />
+        <Text style={styles.hint}>
+          Was jemand wissen muss, der im Ernstfall bei euch ist – Allergien,
+          Blutgruppe, Versichertennummer, wen man anruft. Bewusst kurz und
+          auf einer Seite: Im Notfall liest niemand einen Ordner.
+        </Text>
+        <Text style={styles.formHintSmall}>
+          Keine Passwörter und keine Kartennummern hier hinein – dieses Blatt
+          zeigt man im Zweifel einer fremden Person.
+        </Text>
+        {eintraege.map((eintrag: any) => (
+          <Card key={eintrag.id} style={styles.pinCard}>
+            <View style={styles.checkRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.checkText}>{eintrag.text}</Text>
+                {eintrag.body ? (
+                  <Text style={styles.checkSub} selectable>
+                    {eintrag.body}
+                  </Text>
+                ) : null}
+              </View>
+              <Pressable
+                onPress={() => remove('emergency', eintrag.id)}
+                style={styles.deleteTap}
+                accessibilityLabel={`${eintrag.text} löschen`}
+              >
+                <Ionicons name="close" size={18} color={colors.inkFaint} />
+              </Pressable>
+            </View>
+          </Card>
+        ))}
+        <TwoFieldForm
+          labels={['Wer/Was (z.B. Lina – Allergien)', 'Angaben']}
+          multilineSecond
+          onAdd={(text, body) => add('emergency', { text, body })}
+          styles={styles}
+          colors={colors}
+        />
+      </View>
+    );
+  }
+
+  if (view === 'medications') {
+    const liste: any[] = data.medications ?? [];
+    const heute = isoInDays(0);
+
+    /** Eingenommen: Häkchen für heute, und die Kur zählt einen Tag runter. */
+    const eingenommen = (med: any) => {
+      const genommen: string[] = Array.isArray(med.taken) ? med.taken : [];
+      if (genommen.includes(heute)) {
+        update('medications', med.id, {
+          taken: genommen.filter((tag) => tag !== heute),
+        });
+        return;
+      }
+      const neu = [...genommen, heute];
+      const tage = Number(med.days) || 0;
+      update('medications', med.id, {
+        taken: neu,
+        // Eine Kur über zehn Tage endet nach zehn Häkchen von selbst -
+        // sonst erinnert sie bis in alle Ewigkeit weiter.
+        done: tage > 0 && neu.length >= tage,
+      });
+    };
+
+    return (
+      <View style={styles.stack}>
+        <BackHead title="Medikamente" onBack={goBack} styles={styles} colors={colors} />
+        <Text style={styles.hint}>
+          Für Kuren über mehrere Tage: Antibiotika, Tropfen, Salben. Ein
+          Häkchen je Tag – so sieht man am Abend, ob es schon jemand
+          gegeben hat, statt zu raten.
+        </Text>
+        <Card style={styles.listCard}>
+          <MedicationAddRow
+            members={members}
+            onAdd={(text, member, days) =>
+              add('medications', { text, member, days, taken: [], done: false })
+            }
+            styles={styles}
+            colors={colors}
+          />
+        </Card>
+        {liste.map((med: any) => {
+          const genommen: string[] = Array.isArray(med.taken) ? med.taken : [];
+          const heuteSchon = genommen.includes(heute);
+          const tage = Number(med.days) || 0;
+          return (
+            <Card
+              key={med.id}
+              style={{ ...styles.listCard, ...(med.done ? { opacity: 0.5 } : {}) }}
+            >
+              <View style={styles.checkRow}>
+                <Pressable
+                  onPress={() => eingenommen(med)}
+                  disabled={med.done}
+                  style={styles.checkTap}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: heuteSchon }}
+                  accessibilityLabel={`${med.text} für heute abhaken`}
+                >
+                  <Ionicons
+                    name={heuteSchon ? 'checkmark-circle' : 'ellipse-outline'}
+                    size={24}
+                    color={heuteSchon ? colors.on : colors.inkSoft}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.checkText}>{med.text}</Text>
+                    <Text style={styles.checkSub}>
+                      {[
+                        med.member ? `für ${med.member}` : null,
+                        tage > 0 ? `Tag ${Math.min(genommen.length + (heuteSchon ? 0 : 1), tage)} von ${tage}` : null,
+                        med.done ? 'Kur beendet' : heuteSchon ? 'heute erledigt' : 'heute offen',
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </Text>
+                  </View>
+                </Pressable>
+                <Pressable
+                  onPress={() => remove('medications', med.id)}
+                  style={styles.deleteTap}
+                  accessibilityLabel={`${med.text} löschen`}
+                >
+                  <Ionicons name="close" size={18} color={colors.inkFaint} />
+                </Pressable>
+              </View>
+            </Card>
+          );
+        })}
+        {liste.length === 0 ? (
+          <Text style={styles.hint}>Nichts eingetragen.</Text>
         ) : null}
       </View>
     );
@@ -2394,6 +2868,24 @@ export function FamilyScreen({
     { key: 'chores', icon: 'repeat-outline', label: 'Ämtli', sub: choreSub },
     { key: 'rewards', icon: 'trophy-outline', label: 'Belohnungen', sub: 'Punkte sammeln' },
     { key: 'contacts', icon: 'call-outline', label: 'Kontakte', sub: 'Wichtige Nummern' },
+    {
+      key: 'emergency',
+      icon: 'medkit-outline',
+      label: 'Notfallblatt',
+      sub: notfallSub,
+    },
+    {
+      key: 'medications',
+      icon: 'medical-outline',
+      label: 'Medikamente',
+      sub: medSub,
+    },
+    {
+      key: 'babysitter',
+      icon: 'happy-outline',
+      label: 'Babysitter',
+      sub: 'Alles Wichtige auf einer Seite',
+    },
     { key: 'routines', icon: 'time-outline', label: 'Routinen', sub: 'Tagesabläufe' },
     { key: 'packlists', icon: 'briefcase-outline', label: 'Packlisten', sub: 'Ferien & Ausflüge' },
     { key: 'countdowns', icon: 'hourglass-outline', label: 'Countdowns', sub: 'Tage zählen' },
@@ -2644,6 +3136,15 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       paddingVertical: 13,
     },
+    pollRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingVertical: 8,
+      paddingHorizontal: 10,
+      borderRadius: radius.control,
+    },
+    pollRowMine: { backgroundColor: colors.surfaceSoft },
     choreButtons: { flexDirection: 'row', gap: 8, marginTop: 4 },
     choreDone: {
       flexDirection: 'row',
