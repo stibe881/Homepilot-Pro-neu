@@ -700,6 +700,24 @@ def create_app(hub: Hub) -> FastAPI:
                                 "Ändern dort: systemctl restart homepilot-update."
                             ),
                         )
+                    if response.status == 404 and wants_ios and is_listener:
+                        # Die ältesten Fassungen des Listeners vergleichen
+                        # den Pfad mitsamt Anhang - «/update?ios=1» passt
+                        # dann nicht auf «/update», und es kommt 404. Ohne
+                        # Übersetzung stünde hier nur «Nicht gefunden», und
+                        # die Suche ginge in die falsche Richtung.
+                        raise HTTPException(
+                            status_code=502,
+                            detail=(
+                                "Der Update-Dienst auf dem Server ist noch eine "
+                                "ältere Fassung, die den iOS-Schalter nicht kennt "
+                                "- sie stolpert schon über die Adresse mit "
+                                "'?ios=1'. Abhilfe: auf dem Server einmal 'sudo "
+                                "systemctl restart homepilot-update' ausführen, "
+                                "dann den Update-Knopf erneut drücken. «Nur Hub» "
+                                "funktioniert auch ohne den Neustart."
+                            ),
+                        )
                     if response.status >= 400:
                         raise HTTPException(
                             status_code=502,

@@ -369,6 +369,50 @@ def test_update_reports_when_the_listener_ignores_the_ios_switch():
         server.shutdown()
 
 
+def test_update_explains_the_404_of_the_oldest_listener():
+    """Die ältesten Listener-Fassungen vergleichen den Pfad mitsamt Anhang:
+    «/update?ios=1» passt nicht auf «/update» → 404. Ein blosses «Nicht
+    gefunden» schickte die Suche in die falsche Richtung - der Hub soll
+    sagen, dass es der veraltete Dienst ist und wie man ihn erneuert."""
+    import http.server
+    import threading
+
+    class OldestListener(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            # Wie vor dem iOS-Schalter: kein partition("?") - der Anhang
+            # bleibt im Pfad kleben und führt zu 404.
+            if self.path.rstrip("/") != "/update":
+                self.send_response(404)
+                self.end_headers()
+                self.wfile.write(b"Nicht gefunden\n")
+                return
+            self.send_response(202)
+            self.end_headers()
+            self.wfile.write(b"Bau gestartet\n")
+
+        def log_message(self, *_args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), OldestListener)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{server.server_address[1]}/update"
+    auth = {"Authorization": "Bearer geheim"}
+    try:
+        hub = Hub(make_config(token="geheim", update={"webhook_url": url}))
+        with TestClient(create_app(hub)) as client:
+            response = client.post(
+                "/api/system/update", json={"ios": True}, headers=auth
+            )
+            assert response.status_code == 502
+            assert "restart homepilot-update" in response.json()["detail"]
+            # Ohne iOS-Wunsch funktioniert dieselbe alte Fassung weiterhin.
+            assert client.post("/api/system/update", headers=auth).json() == {
+                "ok": True
+            }
+    finally:
+        server.shutdown()
+
+
 def test_user_prefs_are_stored_per_user():
     """Kachel-Reihenfolgen u.ä. gehören der Person, nicht dem Gerät - jeder
     Benutzer bekommt genau seine eigenen zurück."""
