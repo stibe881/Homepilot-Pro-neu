@@ -475,6 +475,15 @@ export function EntityCard({
   return (
     <Card
       style={{ width }}
+      // Eine offene Türe ist keine Nebensache: Die Kachel färbt sich, statt
+      // es nur danebenzuschreiben. Beim Aufsperren dreht das Schloss noch
+      // (unlocking) - erst wenn es wirklich offen ist, färbt es sich.
+      tint={
+        entity.kind === 'lock' &&
+        ['unlocked', 'unlatched'].includes(String(entity.state.state))
+          ? colors.dangerSoft
+          : undefined
+      }
       dimmed={!entity.available || (hidden && !editing)}
       onPress={onPress}
     >

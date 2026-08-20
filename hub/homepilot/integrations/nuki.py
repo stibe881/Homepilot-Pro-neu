@@ -230,11 +230,37 @@ class NukiIntegration(Integration):
                     detail[:200],
                 )
                 raise ConnectionError(message)
-        # Optimistisch den Zwischenzustand melden; kurz danach echten Stand holen.
+        # Optimistisch den Zwischenzustand melden; danach nachfassen, bis
+        # das Schloss wirklich steht.
         moving = {"unlock": "unlocking", "lock": "locking", "unlatch": "unlatching"}
         await self.hub.registry.update_state(entity.id, {"state": moving[command]})
-        await asyncio.sleep(3)
-        await self._refresh()
+        self.start_task(self._settle(entity.id))
+
+    # Zustände, bei denen das Schloss noch dreht - solange lohnt das
+    # Nachfragen.
+    MOVING_STATES = frozenset({"locking", "unlocking", "unlatching"})
+    # Wann nach einem Befehl nachgesehen wird, in Sekunden ab dem Befehl.
+    # Ein Nuki braucht rund fünf Sekunden für eine Umdrehung; die eine
+    # Abfrage nach drei Sekunden, die hier früher stand, traf es also
+    # mitten in der Bewegung - und danach kam bis zum nächsten regulären
+    # Durchgang eine Minute lang nichts mehr. Genau so fühlt sich die
+    # Kachel an, als hinge sie.
+    SETTLE_DELAYS = (3, 3, 4, 5, 8)
+
+    async def _settle(self, entity_id: str) -> None:
+        """Nach einem Befehl mehrmals nachsehen, bis das Schloss steht."""
+        for delay in self.SETTLE_DELAYS:
+            await asyncio.sleep(delay)
+            try:
+                await self._refresh()
+            except Exception as err:  # eine verpasste Abfrage ist kein Grund
+                self.log.debug("Nuki-Nachfrage fehlgeschlagen: %s", err)
+                continue
+            entity = self.hub.registry.get(entity_id)
+            if entity is None:
+                return
+            if str(entity.state.get("state")) not in self.MOVING_STATES:
+                return
 
 
 INTEGRATION = NukiIntegration

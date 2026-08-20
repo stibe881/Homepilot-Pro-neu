@@ -37,6 +37,9 @@ export const lightColors = {
   accent: '#2F6BF6',
   warn: '#F5A524',
   danger: '#E5484D',
+  // Wie onSoft, nur zum Warnen: eine ganze Kachel in kräftigem Rot
+  // schreit, ein Hauch davon zeigt hin. Für die aufgeschlossene Türe.
+  dangerSoft: 'rgba(229, 72, 77, 0.16)',
 
   track: 'rgba(35, 40, 51, 0.10)',
   warmCool: ['#F5A524', '#FFFFFF', '#8CC5FF'] as [string, string, ...string[]],
@@ -70,6 +73,7 @@ export const darkColors: Colors = {
   accent: '#6E9BFF',
   warn: '#FFC061',
   danger: '#FF7B7B',
+  dangerSoft: 'rgba(255, 123, 123, 0.18)',
 
   track: 'rgba(255, 255, 255, 0.13)',
   warmCool: ['#E09A3E', '#F2EDE4', '#7FB2F0'],
