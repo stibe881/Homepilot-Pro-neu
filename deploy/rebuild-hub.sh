@@ -300,6 +300,12 @@ FROM node:20-bookworm-slim
 WORKDIR /app
 COPY . .
 RUN npm ci --no-audit --no-fund
+# EAS bestimmt sonst über Git, welche Dateien es hochlädt. Hier gibt es
+# kein Git (der Ordner ist aus dem Abbild, nicht aus einer Arbeitskopie),
+# deshalb läuft der Build mit EAS_NO_VCS=1 - und dann ist diese Liste das
+# Einzige, was node_modules vom Upload fernhält. Ohne sie wandern
+# hunderte Megabyte zu Expo, die dort ohnehin neu installiert werden.
+RUN printf 'node_modules/\ndist/\n.expo/\n.git/\n' > .easignore
 DOCKERFILE
   then
     DEPS_GEBAUT=1
@@ -425,6 +431,7 @@ if [ "${HOMEPILOT_IOS_BUILD:-0}" = "1" ]; then
   else
     echo "→ Stosse den iOS-Build an (EAS baut, Apple bekommt ihn direkt) …"
     if app_abbild && docker run --rm -e EXPO_TOKEN="$EXPO_TOKEN" \
+        -e EAS_NO_VCS=1 \
         "$DEPS_IMAGE" \
         npx eas-cli@latest build --platform ios --profile production \
           --auto-submit --non-interactive --no-wait; then
