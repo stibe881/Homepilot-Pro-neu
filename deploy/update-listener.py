@@ -62,6 +62,13 @@ SECRET = os.environ.get("UPDATE_SECRET", "")
 # nur langsam – dann lieber abbrechen, als für immer "läuft" zu zeigen.
 WATCHDOG_SECONDS = 3600
 
+# Was diese Fassung kann. Der Hub fragt das ab, bevor er einen Knopf
+# schickt, den ältere Fassungen nicht kennen: Dann steht in der App, dass
+# der Dienst auf dem Server zu alt ist – statt eines nackten „404 Nicht
+# gefunden", das in die falsche Richtung zeigt. Neue Fähigkeiten kommen
+# hier dazu, damit die App sie ankündigen kann, bevor sie ins Leere läuft.
+FEATURES = ["status", "warnings", "ios"]
+
 log = logging.getLogger("update-listener")
 
 # Damit nicht zwei Bauläufe gleichzeitig starten, wenn jemand zweimal tippt.
@@ -278,15 +285,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._answer(403, "Nicht erlaubt\n")
                 return
             with _status_lock:
-                body = json.dumps(_status).encode("utf-8")
+                body = json.dumps({**_status, "features": FEATURES}).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
             return
-        # Für einen Blick von Hand, ob der Dienst überhaupt läuft.
-        self._answer(200, "update-listener läuft\n")
+        # Für einen Blick von Hand, ob der Dienst überhaupt läuft – und
+        # mit welcher Fassung. Ohne Geheimnis erreichbar, weil eine Liste
+        # von Fähigkeiten nichts verrät, was nicht ohnehin im Repository
+        # steht; genau dafür ist sie da: nachsehen können, ohne erst das
+        # Geheimnis herauszusuchen.
+        self._answer(200, f"update-listener läuft (kann: {', '.join(FEATURES)})\n")
 
 
 def main() -> int:
@@ -303,8 +314,31 @@ def main() -> int:
         log.error("%s ist nicht ausführbar", SCRIPT)
         return 1
 
-    server = http.server.ThreadingHTTPServer((HOST, PORT), Handler)
-    log.info("Warte auf %s:%s (Skript: %s)", HOST, PORT, SCRIPT)
+    try:
+        server = http.server.ThreadingHTTPServer((HOST, PORT), Handler)
+    except OSError as err:
+        # Der Fall, der die längste Suche kostet: Es horcht schon etwas auf
+        # dem Port – meist ein von Hand gestarteter Listener von früher.
+        # Dann startet dieser Dienst nie durch, und die App redet weiter
+        # mit dem alten Prozess. Ohne diese Zeile stünde im Journal nur
+        # «Address already in use».
+        log.error(
+            "%s:%s lässt sich nicht belegen (%s). Läuft dort noch ein "
+            "anderer Listener? Nachsehen mit: ss -lptn 'sport = :%s' - "
+            "diesen Prozess beenden und den Dienst erneut starten.",
+            HOST,
+            PORT,
+            err,
+            PORT,
+        )
+        return 1
+    log.info(
+        "Warte auf %s:%s (Skript: %s, kann: %s)",
+        HOST,
+        PORT,
+        SCRIPT,
+        ", ".join(FEATURES),
+    )
     try:
         server.serve_forever()
     except KeyboardInterrupt:

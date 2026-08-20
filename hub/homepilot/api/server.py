@@ -346,6 +346,51 @@ class MetaRequest(BaseModel):
     group: str | None = None
 
 
+# Was in der App steht, wenn der Update-Dienst auf dem Server den
+# iOS-Schalter nicht kennt. Ein nacktes «404 Nicht gefunden» schickte die
+# Suche in die falsche Richtung; und weil der übliche Rat (einmal neu
+# starten) nicht immer greift, steht hier auch, wie man nachsieht, was
+# wirklich auf dem Port horcht - ein von Hand gestarteter Prozess von
+# früher belegt ihn sonst weiter, und der Neustart des Dienstes ändert
+# nichts.
+STALE_LISTENER_HINT = (
+    "Der Update-Dienst auf dem Server ist noch eine ältere Fassung, die den "
+    "iOS-Schalter nicht kennt. «Nur Hub» funktioniert davon unberührt.\n"
+    "1. Auf dem Server: sudo systemctl restart homepilot-update\n"
+    "2. Ändert das nichts, horcht dort vermutlich noch ein alter Prozess "
+    "von Hand. Nachsehen mit: sudo ss -lptn 'sport = :9126' - läuft dort "
+    "etwas ausserhalb von homepilot-update, dieses beenden und den Dienst "
+    "erneut starten.\n"
+    "3. Was der Dienst kann, sagt er selbst: curl -s http://127.0.0.1:9126/"
+)
+
+
+async def listener_features(
+    status_url: str, headers: dict[str, str]
+) -> list[str] | None:
+    """Was der Update-Dienst auf dem Host kann – oder None, wenn er es
+    nicht sagt.
+
+    None heisst ausdrücklich «unbekannt», nicht «kann nichts»: Ältere
+    Fassungen kennen die Liste noch nicht, und ein Portainer-Webhook hat
+    gar kein /status. In beiden Fällen wird wie bisher losgeschickt und
+    erst die Antwort ausgewertet – hier etwas zu blockieren, würde ein
+    funktionierendes Update verhindern, um einen Hinweis zu geben.
+    """
+    try:
+        timeout = aiohttp.ClientTimeout(total=5)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(status_url, headers=headers) as response:
+                if response.status != 200:
+                    return None
+                data = await response.json(content_type=None)
+    except Exception:
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("features"), list):
+        return None
+    return [str(item) for item in data["features"]]
+
+
 # Wie ein Kommando im Namen eines Kurzbefehls heisst – «Licht turn_on» wäre
 # als Siri-Satz unbrauchbar.
 COMMAND_WORDS = {
@@ -666,6 +711,22 @@ def create_app(hub: Hub) -> FastAPI:
         # der Hub eine veraltete Fassung und kann es sagen, statt dass der
         # iOS-Build kommentarlos ausbleibt.
         is_listener = url.rstrip("/").endswith("/update")
+        status_url = url.rstrip("/")[: -len("/update")] + "/status"
+        # Ein Dienst, der auf dem Host baut, darf nicht ohne Nachweis
+        # anspringen. Der Portainer-Webhook braucht dagegen keinen – seine
+        # Adresse ist selbst das Geheimnis.
+        secret = str((hub.config.update or {}).get("token") or "")
+        headers = {"Authorization": f"Bearer {secret}"} if secret else {}
+
+        if wants_ios and is_listener:
+            # Vorher fragen statt hinterher rätseln: Neuere Fassungen des
+            # Dienstes zählen unter /status auf, was sie können. Fehlt dort
+            # «ios», wird gar nicht erst gebaut - sonst liefe ein Update
+            # durch, das den iOS-Build stillschweigend weglässt.
+            features = await listener_features(status_url, headers)
+            if features is not None and "ios" not in features:
+                raise HTTPException(status_code=502, detail=STALE_LISTENER_HINT)
+
         if wants_ios:
             # Nur der Listener versteht den Parameter; einem
             # Portainer-Webhook schadet er nicht, er ignoriert ihn.
@@ -675,11 +736,6 @@ def create_app(hub: Hub) -> FastAPI:
             user.name,
             " (mit iOS-Build)" if wants_ios else "",
         )
-        # Ein Dienst, der auf dem Host baut, darf nicht ohne Nachweis
-        # anspringen. Der Portainer-Webhook braucht dagegen keinen – seine
-        # Adresse ist selbst das Geheimnis.
-        secret = str((hub.config.update or {}).get("token") or "")
-        headers = {"Authorization": f"Bearer {secret}"} if secret else {}
         try:
             timeout = aiohttp.ClientTimeout(total=30)
             async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -707,16 +763,7 @@ def create_app(hub: Hub) -> FastAPI:
                         # Übersetzung stünde hier nur «Nicht gefunden», und
                         # die Suche ginge in die falsche Richtung.
                         raise HTTPException(
-                            status_code=502,
-                            detail=(
-                                "Der Update-Dienst auf dem Server ist noch eine "
-                                "ältere Fassung, die den iOS-Schalter nicht kennt "
-                                "- sie stolpert schon über die Adresse mit "
-                                "'?ios=1'. Abhilfe: auf dem Server einmal 'sudo "
-                                "systemctl restart homepilot-update' ausführen, "
-                                "dann den Update-Knopf erneut drücken. «Nur Hub» "
-                                "funktioniert auch ohne den Neustart."
-                            ),
+                            status_code=502, detail=STALE_LISTENER_HINT
                         )
                     if response.status >= 400:
                         raise HTTPException(

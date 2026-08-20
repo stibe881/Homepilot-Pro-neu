@@ -182,14 +182,58 @@ if ! cmp -s "$WORKDIR/deploy/rebuild-hub.sh" "$0"; then
   mv "$0.neu" "$0"
   echo "→ Skript selbst aktualisiert - der neue Stand gilt ab dem nächsten Lauf."
 fi
-# Den Update-Dienst nur hinlegen, nie hier neu starten: Ein Neustart würde
-# genau den Bau abwürgen, den er gerade beaufsichtigt.
+# Den Update-Dienst hier nur hinlegen, nie sofort neu starten: Ein
+# Neustart würde genau den Bau abwürgen, den er gerade beaufsichtigt (er
+# ist dessen Elternprozess). Der Neustart wird stattdessen für gleich
+# nach diesem Lauf vorgemerkt - siehe dienst_neustart_planen unten.
+#
+# Bis hierher stand an dieser Stelle «danach einmal von Hand». Genau das
+# blieb verlässlich liegen, und der Dienst lief monatelang mit einer
+# Fassung, die neuere Knöpfe der App nicht kennt - ohne dass irgendwo
+# stand, dass er der Grund ist.
+LISTENER_ERNEUERT=0
 if [ -f /opt/homepilot/update-listener.py ] \
    && ! cmp -s "$WORKDIR/deploy/update-listener.py" /opt/homepilot/update-listener.py; then
-  cp "$WORKDIR/deploy/update-listener.py" /opt/homepilot/update-listener.py
-  echo "→ update-listener.py aktualisiert - danach einmal von Hand:"
-  echo "  sudo systemctl restart homepilot-update   (nicht während eines Baus)"
+  if cp "$WORKDIR/deploy/update-listener.py" /opt/homepilot/update-listener.py; then
+    LISTENER_ERNEUERT=1
+    echo "→ update-listener.py aktualisiert - der Dienst startet gleich nach"
+    echo "  diesem Lauf von selbst neu."
+  else
+    echo "⚠ update-listener.py liess sich nicht nach /opt/homepilot kopieren."
+    echo "  Der Update-Dienst bleibt damit auf seinem alten Stand."
+  fi
+elif [ ! -f /opt/homepilot/update-listener.py ]; then
+  # Ohne diese Zeile bliebe es still: Liegt der Dienst woanders, greift
+  # die Auffrischung oben nie - und niemand erfährt davon.
+  echo "⚠ /opt/homepilot/update-listener.py gibt es nicht - der Update-Dienst"
+  echo "  liegt offenbar anderswo und frischt sich hier nicht mit auf."
+  echo "  Wo er wirklich liegt, sagt: systemctl show -p ExecStart homepilot-update"
 fi
+
+# Der Neustart, sobald dieser Lauf vorbei ist. systemd-run legt dafür eine
+# eigene, kurzlebige Einheit an - die hängt nicht am Dienst, den sie neu
+# startet, und überlebt deshalb dessen Neustart. Ein «systemctl restart»
+# von hier aus würde sich selbst (und diesen Bau) mitnehmen.
+dienst_neustart_planen() {
+  [ "$LISTENER_ERNEUERT" = "1" ] || return 0
+  if ! command -v systemd-run >/dev/null 2>&1; then
+    echo "⚠ systemd-run fehlt - den Update-Dienst bitte von Hand neu starten:"
+    echo "  sudo systemctl restart homepilot-update"
+    return 0
+  fi
+  # 20 Sekunden: genug, damit der Dienst die letzten Zeilen dieses Laufs
+  # noch liest und der App «fertig» meldet, bevor er sich neu startet.
+  if systemd-run --collect --on-active=20 \
+      systemctl restart homepilot-update >/dev/null 2>&1; then
+    echo "→ Der Update-Dienst startet in 20 Sekunden mit dem neuen Stand neu."
+  else
+    echo "⚠ Der Neustart des Update-Dienstes liess sich nicht vormerken."
+    echo "  Bitte von Hand: sudo systemctl restart homepilot-update"
+  fi
+}
+# Über die EXIT-Falle, damit der Neustart auch dann kommt, wenn der Lauf
+# vorzeitig endet - gerade dann ist der neue Dienst wichtig.
+trap dienst_neustart_planen EXIT
 
 # Schon hier bestimmen, nicht erst beim Abbild: Der Stempel wandert auch
 # in die Web-Fassung (version.json), damit die App prüfen kann, ob das

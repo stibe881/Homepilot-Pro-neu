@@ -369,6 +369,71 @@ def test_update_reports_when_the_listener_ignores_the_ios_switch():
         server.shutdown()
 
 
+def test_update_asks_the_listener_what_it_can_do_before_sending_ios():
+    """Neuere Fassungen des Dienstes zählen unter /status auf, was sie
+    können. Fehlt dort «ios», wird gar nicht erst gebaut - ein Update, das
+    den gewünschten iOS-Build stillschweigend weglässt, ist schlimmer als
+    eine klare Absage."""
+    import http.server
+    import json as json_module
+    import threading
+
+    class VersionedListener(http.server.BaseHTTPRequestHandler):
+        features = ["status", "warnings"]  # noch ohne «ios»
+        posts = 0
+
+        def do_GET(self):  # noqa: N802
+            body = json_module.dumps(
+                {"state": "idle", "features": type(self).features}
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):  # noqa: N802
+            type(self).posts += 1
+            self.send_response(202)
+            self.send_header("Content-Length", "14")
+            self.end_headers()
+            self.wfile.write(b"Bau gestartet\n")
+
+        def log_message(self, *_args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), VersionedListener)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{server.server_address[1]}/update"
+    auth = {"Authorization": "Bearer geheim"}
+    try:
+        hub = Hub(make_config(token="geheim", update={"webhook_url": url}))
+        with TestClient(create_app(hub)) as client:
+            response = client.post(
+                "/api/system/update", json={"ios": True}, headers=auth
+            )
+            assert response.status_code == 502
+            assert "restart homepilot-update" in response.json()["detail"]
+            # Und zwar, ohne den Bau überhaupt anzustossen.
+            assert VersionedListener.posts == 0
+
+            # «Nur Hub» geht auch bei so einem Dienst - der Bau selbst
+            # funktioniert ja.
+            assert client.post("/api/system/update", headers=auth).json() == {
+                "ok": True
+            }
+            assert VersionedListener.posts == 1
+
+            # Meldet der Dienst «ios», wird losgeschickt.
+            VersionedListener.features = ["status", "warnings", "ios"]
+            assert client.post(
+                "/api/system/update", json={"ios": True}, headers=auth
+            ).json() == {"ok": True, "ios_ignored": True}
+            assert VersionedListener.posts == 2
+    finally:
+        server.shutdown()
+
+
 def test_update_explains_the_404_of_the_oldest_listener():
     """Die ältesten Listener-Fassungen vergleichen den Pfad mitsamt Anhang:
     «/update?ios=1» passt nicht auf «/update» → 404. Ein blosses «Nicht

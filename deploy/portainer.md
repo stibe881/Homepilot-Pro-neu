@@ -212,11 +212,26 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now homepilot-update
 ```
 
-Prüfen, ob er läuft:
+Prüfen, ob er läuft – die Antwort nennt auch, was diese Fassung kann
+(`ios` fehlt dort, solange eine ältere Fassung läuft):
 
 ```bash
 curl http://172.17.0.1:9126/
 journalctl -u homepilot-update -f
+```
+
+Von Hand auffrischen muss man ihn nicht: `rebuild-hub.sh` legt bei jedem
+Update die neue Fassung nach `/opt/homepilot/` und merkt den Neustart des
+Dienstes für gleich nach dem Lauf vor (über `systemd-run`, damit der
+Neustart nicht den Bau abwürgt, der ihn ausgelöst hat).
+
+Antwortet der Dienst mit einer alten Fähigkeitsliste, obwohl er neu
+gestartet wurde, horcht auf dem Port vermutlich noch ein von Hand
+gestarteter Prozess von früher – der Dienst kommt dann gar nicht ans
+Netz (`Address already in use` im Journal):
+
+```bash
+sudo ss -lptn 'sport = :9126'
 ```
 
 Der Dienst hört **nur** auf dem Docker-Bridge-Gateway. Aus den Containern
