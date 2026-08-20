@@ -660,6 +660,12 @@ def create_app(hub: Hub) -> FastAPI:
                 ),
             )
         wants_ios = bool(body and body.ios)
+        # Nur update-listener.py versteht den iOS-Parameter - und auch der
+        # erst in seiner heutigen Fassung. Seine Antwort verrät, ob er ihn
+        # verstanden hat («Bau gestartet (mit iOS-Build)») - daran erkennt
+        # der Hub eine veraltete Fassung und kann es sagen, statt dass der
+        # iOS-Build kommentarlos ausbleibt.
+        is_listener = url.rstrip("/").endswith("/update")
         if wants_ios:
             # Nur der Listener versteht den Parameter; einem
             # Portainer-Webhook schadet er nicht, er ignoriert ihn.
@@ -705,6 +711,8 @@ def create_app(hub: Hub) -> FastAPI:
             raise HTTPException(
                 status_code=502, detail=f"Update-Adresse nicht erreichbar: {err}"
             ) from err
+        if wants_ios and is_listener and "ios" not in text.lower():
+            return {"ok": True, "ios_ignored": True}
         return {"ok": True}
 
     @app.get("/api/system/update/status")

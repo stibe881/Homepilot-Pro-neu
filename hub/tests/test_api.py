@@ -321,6 +321,54 @@ def test_the_update_button_stays_off_without_an_address():
         assert "update.webhook_url" in response.json()["detail"]
 
 
+def test_update_reports_when_the_listener_ignores_the_ios_switch():
+    """Ein älterer update-listener kennt ?ios=1 nicht und baut still nur
+    den Hub - TestFlight bliebe stumm, und niemand wüsste warum. Der Hub
+    erkennt die alte Fassung an deren Antwort («Bau gestartet» ohne
+    iOS-Zusatz) und sagt es der App."""
+    import http.server
+    import threading
+
+    class FakeListener(http.server.BaseHTTPRequestHandler):
+        answer = b"Bau gestartet\n"
+
+        def do_POST(self):  # noqa: N802
+            body = type(self).answer
+            self.send_response(202)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeListener)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{server.server_address[1]}/update"
+    auth = {"Authorization": "Bearer geheim"}
+    try:
+        hub = Hub(make_config(token="geheim", update={"webhook_url": url}))
+        with TestClient(create_app(hub)) as client:
+            # Alte Fassung + iOS-Wunsch → Warnung an die App.
+            response = client.post(
+                "/api/system/update", json={"ios": True}, headers=auth
+            )
+            assert response.json() == {"ok": True, "ios_ignored": True}
+            # Ohne iOS-Wunsch gibt es nichts zu bemängeln.
+            assert client.post("/api/system/update", headers=auth).json() == {
+                "ok": True
+            }
+
+            # Die heutige Fassung bestätigt den iOS-Build in ihrer Antwort.
+            FakeListener.answer = b"Bau gestartet (mit iOS-Build)\n"
+            response = client.post(
+                "/api/system/update", json={"ios": True}, headers=auth
+            )
+            assert response.json() == {"ok": True}
+    finally:
+        server.shutdown()
+
+
 def test_user_prefs_are_stored_per_user():
     """Kachel-Reihenfolgen u.ä. gehören der Person, nicht dem Gerät - jeder
     Benutzer bekommt genau seine eigenen zurück."""

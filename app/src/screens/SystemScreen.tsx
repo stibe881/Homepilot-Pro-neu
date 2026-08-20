@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { ConfigVersion, Entity, HubSettings, LogEntry, SystemStatus, User } from '../api/types';
@@ -885,6 +885,11 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
   const [noteError, setNoteError] = useState(false);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<UpdateStatus | null>(null);
+  // Der Hub merkt an der Antwort des Update-Dienstes, ob der den
+  // iOS-Schalter überhaupt versteht. Ein Ref statt State, weil die
+  // Antwort erst eintrifft, wenn die laufende Abfrage unten schon
+  // gestartet ist - sie soll den frischen Wert sehen.
+  const iosIgnored = useRef(false);
 
   const headers: Record<string, string> = settings.token
     ? { Authorization: `Bearer ${settings.token}` }
@@ -949,7 +954,20 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
             );
           } else if (data.state === 'ok') {
             const warned = (data.warnings ?? []).filter(Boolean);
-            if (warned.length > 0) {
+            if (iosIgnored.current) {
+              // Der Hub ist neu, aber der iOS-Build blieb aus - der
+              // Update-Dienst auf dem Server ist noch eine Fassung, die
+              // den Schalter nicht kennt. Ohne diesen Hinweis sähe alles
+              // nach Erfolg aus, und TestFlight bliebe stumm.
+              setNoteError(true);
+              setNote(
+                [
+                  'Fertig - der Hub ist neu, aber der iOS-Build wurde nicht angestossen:',
+                  'Der Update-Dienst auf dem Server ist noch eine ältere Fassung und kennt den iOS-Schalter nicht.',
+                  'Auf dem Server einmal «sudo systemctl restart homepilot-update» ausführen - beim nächsten Update klappt es dann.',
+                ].join('\n')
+              );
+            } else if (warned.length > 0) {
               // «Fertig» wäre hier die halbe Wahrheit: Der Hub ist neu,
               // aber etwas blieb auf dem alten Stand - das gehört vor
               // die Augen, nicht ins Journal auf dem Host.
@@ -993,6 +1011,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
     setNote(null);
     setNoteError(false);
     setProgress(null);
+    iosIgnored.current = false;
     try {
       const response = await fetch(`${settings.url}/api/system/update`, {
         method: 'POST',
@@ -1004,11 +1023,21 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) throw new Error(body?.detail ?? `Hub antwortet mit ${response.status}`);
-      setNote(
-        ios
-          ? 'Angestossen. Der Host baut den Hub, danach geht der iOS-Build an EAS – TestFlight meldet sich.'
-          : 'Angestossen. Der Host baut jetzt – das dauert ein paar Minuten.'
-      );
+      iosIgnored.current = Boolean(body?.ios_ignored);
+      if (iosIgnored.current) {
+        setNoteError(true);
+        setNote(
+          'Angestossen - aber der Update-Dienst auf dem Server kennt den iOS-Schalter noch nicht. ' +
+            'Es wird nur der Hub gebaut. Abhilfe: auf dem Server einmal ' +
+            '«sudo systemctl restart homepilot-update» ausführen.'
+        );
+      } else {
+        setNote(
+          ios
+            ? 'Angestossen. Der Host baut den Hub, danach geht der iOS-Build an EAS – TestFlight meldet sich.'
+            : 'Angestossen. Der Host baut jetzt – das dauert ein paar Minuten.'
+        );
+      }
     } catch (err: any) {
       setBusy(false);
       setNoteError(true);
