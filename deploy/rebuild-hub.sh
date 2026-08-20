@@ -193,6 +193,17 @@ fi
 # Bundle im Browser zum laufenden Hub passt.
 COMMIT="$(git -C "$WORKDIR" rev-parse --short HEAD)"
 
+# Läuft dieser Stand schon? Dann trotzdem bauen (ein Neubau schadet nie),
+# aber es dazusagen: Ein «Update» ohne neuen Commit sieht sonst nach
+# einem Fehler aus - und bei unverändertem Git-Stand rollt Portainer je
+# nach Version gar nicht erst neu aus.
+RUNNING_COMMIT=$(docker exec "$CONTAINER" printenv HOMEPILOT_COMMIT 2>/dev/null || echo "")
+if [ -n "$RUNNING_COMMIT" ] && [ "$RUNNING_COMMIT" = "$COMMIT" ]; then
+  echo "⚠ Der Hub läuft bereits mit Stand $COMMIT - auf GitHub liegt nichts"
+  echo "  Neueres. Gebaut wird trotzdem; wechselt Portainer den Container"
+  echo "  nicht, ist das hier der Grund und kein Fehler."
+fi
+
 if [ -n "$WEB_ROOT" ] && [ "$WEB_ROOT" != "/" ] && [ ! -d "$WEB_ROOT" ]; then
   # Bisher wurde hier stumm übersprungen - und niemand erfuhr, warum die
   # Web-Fassung nie neuer wurde.
@@ -436,8 +447,17 @@ if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
   # dabei kurz weg sein (der Tausch), deshalb zusätzlich auf /api/health
   # warten.
   echo "→ Warte auf den Wechsel …"
-  for _ in $(seq 1 45); do
+  # Grosszügig warten: Portainer klont bei Repo-Stacks erst das Repo neu,
+  # erstellt dann den Container, und der Hub braucht seinen Start. 90
+  # Sekunden waren dafür zu knapp - das Skript meldete «nicht gewechselt»,
+  # während Portainer noch mitten in der Arbeit steckte.
+  TICK=0
+  for _ in $(seq 1 150); do
     sleep 2
+    TICK=$((TICK + 1))
+    if [ $((TICK % 15)) -eq 0 ]; then
+      echo "→ Warte auf den Wechsel … ($((TICK * 2)) s)"
+    fi
     RUNNING_IMAGE_ID=$(docker inspect -f '{{.Image}}' "$CONTAINER" 2>/dev/null || echo "keiner")
     if [ "$RUNNING_IMAGE_ID" = "$NEW_IMAGE_ID" ] \
        && curl -fsS -m 3 "http://127.0.0.1:8123/api/health" >/dev/null 2>&1; then
@@ -477,8 +497,16 @@ if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
     echo "  Update the stack → Re-pull image AUS → Deploy."
   else
     echo "✗ Portainer hat den Container nicht gewechselt - der alte Stand"
-    echo "  läuft weiter (das Haus ist also nicht offline). Meist scheitert"
-    echo "  das Ausrollen am Re-pull des lokal gebauten Abbilds."
+    echo "  läuft weiter (das Haus ist also nicht offline)."
+    if [ -n "$RUNNING_COMMIT" ] && [ "$RUNNING_COMMIT" = "$COMMIT" ]; then
+      echo "  Wahrscheinlichste Erklärung: Es lief schon Stand $COMMIT, und"
+      echo "  bei unverändertem Git-Stand rollt Portainer nicht neu aus."
+      echo "  Das ist dann kein Fehler - es gab schlicht nichts Neues."
+    else
+      echo "  Mögliche Gründe: Das Ausrollen dauert noch (gleich nochmal in"
+      echo "  der App nachsehen), oder es scheitert in Portainer - dort unter"
+      echo "  Stacks → homepilot steht das Protokoll des letzten Ausrollens."
+    fi
     echo "  Von Hand: Portainer → Stacks → homepilot →"
     echo "  Update the stack → Re-pull image AUS → Deploy."
   fi
