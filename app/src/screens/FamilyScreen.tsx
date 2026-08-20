@@ -18,6 +18,7 @@ import { Card } from '../components/Card';
 import { DraggableList } from '../components/DraggableList';
 import { Colors, radius, space, useColors } from '../theme';
 import { RecipeBook } from './RecipeBook';
+import { ingredientsToShopping, shopCategory } from '../lib/einkauf';
 import { ROLE_LABELS } from './UsersScreen';
 
 /**
@@ -134,6 +135,7 @@ function CheckRow({
   highlight,
   onToggle,
   onDelete,
+  onRemember,
   styles,
   colors,
 }: {
@@ -143,6 +145,9 @@ function CheckRow({
   highlight?: string;
   onToggle: () => void;
   onDelete: () => void;
+  /** Langer Druck: als Standardartikel merken. Fehlt der Rückruf, passiert
+   *  beim langen Drücken nichts - etwa weil es ihn schon gibt. */
+  onRemember?: () => void;
   styles: Styles;
   colors: Colors;
 }) {
@@ -150,6 +155,7 @@ function CheckRow({
     <View style={styles.checkRow}>
       <Pressable
         onPress={onToggle}
+        onLongPress={onRemember}
         style={styles.checkTap}
         accessibilityRole="checkbox"
         accessibilityState={{ checked: !!item.done }}
@@ -1305,16 +1311,71 @@ export function FamilyScreen({
     const usedCats = SHOP_CATEGORIES.filter((cat) =>
       items.some((item) => catOf(item) === cat)
     );
+    // Standardartikel: was jede Woche in den Wagen wandert. Ein Tipp
+    // legt sie an, statt sie jedes Mal zu tippen - und wer sie einmal
+    // von Hand einträgt, kann sie danach als Standard merken.
+    const staples: any[] = data.staples ?? [];
+    const aufListe = new Set(
+      items.map((item: any) => String(item.text ?? '').trim().toLowerCase())
+    );
     return (
       <View style={styles.stack}>
         <BackHead title="Einkaufsliste" onBack={goBack} styles={styles} colors={colors} />
         <Card style={styles.listCard}>
           <ShoppingAddRow
-            onAdd={(text, category) => add('shopping', { text, category, done: false })}
+            onAdd={(text, category) =>
+              add('shopping', { text, category: category || shopCategory(text), done: false })
+            }
             styles={styles}
             colors={colors}
           />
         </Card>
+        {staples.length > 0 ? (
+          <Card style={styles.listCard}>
+            <Text style={styles.groupTitle}>Standardartikel</Text>
+            <View style={styles.stapleRow}>
+              {staples.map((staple: any) => {
+                const drauf = aufListe.has(
+                  String(staple.text ?? '').trim().toLowerCase()
+                );
+                return (
+                  <Pressable
+                    key={staple.id}
+                    onPress={() =>
+                      drauf
+                        ? undefined
+                        : add('shopping', {
+                            text: staple.text,
+                            category: staple.category || shopCategory(staple.text),
+                            done: false,
+                          })
+                    }
+                    onLongPress={() => remove('staples', staple.id)}
+                    disabled={drauf}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      drauf
+                        ? `${staple.text} steht schon auf der Liste`
+                        : `${staple.text} auf die Liste`
+                    }
+                    style={[styles.staple, drauf && { opacity: 0.4 }]}
+                  >
+                    <Ionicons
+                      name={drauf ? 'checkmark' : 'add'}
+                      size={13}
+                      color={colors.inkSoft}
+                    />
+                    <Text style={styles.stapleText}>{staple.text}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Text style={styles.hint}>
+              Tippen legt den Artikel auf die Liste. Lange drücken entfernt
+              ihn aus den Standardartikeln.
+            </Text>
+          </Card>
+        ) : null}
         {usedCats.map((cat) => (
           <Card key={cat} style={styles.listCard}>
             <Text style={styles.groupTitle}>{cat}</Text>
@@ -1326,6 +1387,21 @@ export function FamilyScreen({
                   item={item}
                   onToggle={() => update('shopping', item.id, { done: !item.done })}
                   onDelete={() => remove('shopping', item.id)}
+                  // Lange drücken macht einen Standardartikel daraus -
+                  // dort, wo man merkt, dass man ihn schon wieder tippt.
+                  onRemember={
+                    staples.some(
+                      (staple: any) =>
+                        String(staple.text ?? '').toLowerCase() ===
+                        String(item.text ?? '').toLowerCase()
+                    )
+                      ? undefined
+                      : () =>
+                          add('staples', {
+                            text: item.text,
+                            category: item.category ?? null,
+                          })
+                  }
                   styles={styles}
                   colors={colors}
                 />
@@ -1352,9 +1428,34 @@ export function FamilyScreen({
     const planned = meals.filter((meal) => String(meal.text ?? '').trim());
     // Alle geplanten Gerichte auf die Einkaufsliste – jedes als ein Eintrag,
     // Doppelte überspringen. Kategorie «Sonstiges», dort lässt es sich ordnen.
+    const recipes: any[] = data.recipes ?? [];
+    // Zu welchen Gerichten kennen wir das Rezept? Nur bei denen lassen
+    // sich Zutaten holen; für den Rest bleibt der Name des Gerichts, den
+    // man dann von Hand ergänzt.
+    const geplanteRezepte = planned
+      .map((meal: any) =>
+        recipes.find(
+          (recipe) =>
+            recipe.id === meal.recipe_id ||
+            String(recipe.text ?? '') === String(meal.text ?? '')
+        )
+      )
+      .filter(Boolean);
+
+    const vorhanden = () =>
+      (data.shopping ?? []).map((item: any) => String(item.text ?? ''));
+
+    /** Zutaten aller geplanten Rezepte - der eigentliche Wocheneinkauf. */
+    const zutatenEinkauf = () => {
+      const neu = ingredientsToShopping(geplanteRezepte, vorhanden());
+      neu.forEach((eintrag) => add('shopping', { ...eintrag, done: false }));
+      return neu.length;
+    };
+
+    /** Nur die Namen der Gerichte - für Geplantes ohne hinterlegtes Rezept. */
     const toShopping = () => {
       const existing = new Set(
-        (data.shopping ?? []).map((item: any) => String(item.text ?? '').toLowerCase())
+        vorhanden().map((text) => text.toLowerCase())
       );
       planned.forEach((meal) => {
         const text = String(meal.text).trim();
@@ -1388,21 +1489,36 @@ export function FamilyScreen({
             );
           })}
         </Card>
+        {geplanteRezepte.length > 0 ? (
+          <Pressable
+            onPress={zutatenEinkauf}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.mealShopButton, pressed && { opacity: 0.85 }]}
+          >
+            <Ionicons name="basket-outline" size={18} color="#FFFFFF" />
+            <Text style={styles.mealShopText}>
+              Wocheneinkauf: Zutaten aus {geplanteRezepte.length} Rezept
+              {geplanteRezepte.length === 1 ? '' : 'en'}
+            </Text>
+          </Pressable>
+        ) : null}
         {planned.length > 0 ? (
           <Pressable
             onPress={toShopping}
             accessibilityRole="button"
-            style={({ pressed }) => [styles.mealShopButton, pressed && { opacity: 0.85 }]}
+            style={({ pressed }) => [styles.mealNameButton, pressed && { opacity: 0.85 }]}
           >
-            <Ionicons name="cart-outline" size={18} color="#FFFFFF" />
-            <Text style={styles.mealShopText}>
-              {planned.length} Gericht{planned.length === 1 ? '' : 'e'} auf die Einkaufsliste
+            <Ionicons name="cart-outline" size={18} color={colors.ink} />
+            <Text style={styles.mealNameText}>
+              Nur die {planned.length} Gerichtnamen auf die Liste
             </Text>
           </Pressable>
         ) : null}
         <Text style={styles.hint}>
-          Trag pro Tag ein, was es gibt. «Auf die Einkaufsliste» legt jedes
-          Gericht als Eintrag an – Zutaten ergänzt du dort.
+          Trag pro Tag ein, was es gibt – am besten über «Planen» im
+          Rezeptbuch. Dann kennt der Wocheneinkauf die Zutaten und sortiert
+          sie gleich nach Ladengang. Ohne hinterlegtes Rezept bleibt der
+          Name des Gerichts, den du auf der Liste ergänzt.
         </Text>
       </View>
     );
@@ -1815,7 +1931,24 @@ export function FamilyScreen({
           onDelete={(id) => remove('recipes', id)}
           planMeal={(day, text) => {
             const entry = meals.find((meal) => meal.day === day);
-            entry ? update('meals', entry.id, { text }) : add('meals', { day, text });
+            // Die Kennung des Rezepts mitschreiben: Nur so kann der
+            // Wocheneinkauf später die Zutaten dazu finden, statt bloss
+            // den Namen des Gerichts auf die Liste zu setzen.
+            const rezept = (data.recipes ?? []).find(
+              (item: any) => String(item.text ?? '') === text
+            );
+            const patch = { text, recipe_id: rezept?.id ?? null };
+            entry ? update('meals', entry.id, patch) : add('meals', { day, ...patch });
+          }}
+          onShopping={(recipe) => {
+            const neu = ingredientsToShopping(
+              [recipe],
+              (data.shopping ?? []).map((item: any) => String(item.text ?? ''))
+            );
+            neu.forEach((eintrag) =>
+              add('shopping', { ...eintrag, done: false })
+            );
+            return neu.length;
           }}
           onClose={goBack}
         />
@@ -2127,6 +2260,30 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       paddingVertical: 13,
     },
+    stapleRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+    staple: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 999,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    stapleText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
+    mealNameButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      paddingVertical: 11,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    mealNameText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
     mealShopText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
     confirmRow: {
       flexDirection: 'row',

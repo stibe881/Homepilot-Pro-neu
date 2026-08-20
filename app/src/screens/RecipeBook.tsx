@@ -36,6 +36,11 @@ interface Props {
   onUpdate: (id: string, patch: Record<string, any>) => void;
   onDelete: (id: string) => void;
   planMeal: (day: string, text: string) => void;
+  /** Zutaten dieses Rezepts auf die Einkaufsliste. Meldet zurück, wie
+   *  viele Posten wirklich dazugekommen sind - schon Vorhandenes zählt
+   *  nicht mit, und «0 hinzugefügt» ist eine ehrlichere Antwort als ein
+   *  wortloses Häkchen. */
+  onShopping: (recipe: any) => number;
   onClose: () => void;
 }
 
@@ -587,6 +592,7 @@ function RecipeDetail({
   onDelete,
   onToggleFavorite,
   planMeal,
+  onShopping,
   styles,
   colors,
 }: {
@@ -596,6 +602,7 @@ function RecipeDetail({
   onDelete: () => void;
   onToggleFavorite: () => void;
   planMeal: (day: string, text: string) => void;
+  onShopping: (recipe: any) => number;
   styles: Styles;
   colors: Colors;
 }) {
@@ -604,6 +611,9 @@ function RecipeDetail({
   const [planOpen, setPlanOpen] = useState(false);
   const [planned, setPlanned] = useState<string | null>(null);
   const [cooking, setCooking] = useState(false);
+  // Wie viele Posten der letzte Klick auf «Einkauf» wirklich hinzugefügt
+  // hat. null = noch nicht gedrückt.
+  const [eingekauft, setEingekauft] = useState<number | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const factor = baseServings > 0 ? servings / baseServings : 1;
@@ -810,6 +820,23 @@ function RecipeDetail({
           <Ionicons name="calendar-outline" size={18} color="#FFFFFF" />
           <Text style={styles.actionButtonText}>{planned ? `${planned} ✓` : 'Planen'}</Text>
         </Pressable>
+        {ingredients.length > 0 ? (
+          <Pressable
+            onPress={() => setEingekauft(onShopping(recipe))}
+            accessibilityRole="button"
+            accessibilityLabel="Zutaten auf die Einkaufsliste"
+            style={[styles.actionButton, { backgroundColor: colors.warn }]}
+          >
+            <Ionicons name="cart-outline" size={18} color="#FFFFFF" />
+            <Text style={styles.actionButtonText}>
+              {eingekauft === null
+                ? 'Einkauf'
+                : eingekauft === 0
+                  ? 'Schon drauf'
+                  : `+${eingekauft} ✓`}
+            </Text>
+          </Pressable>
+        ) : null}
         {steps.length > 0 ? (
           <Pressable
             onPress={() => setCooking(true)}
@@ -866,6 +893,7 @@ export function RecipeBook({
   onUpdate,
   onDelete,
   planMeal,
+  onShopping,
   onClose,
 }: Props) {
   const colors = useColors();
@@ -951,6 +979,7 @@ export function RecipeBook({
         }}
         onToggleFavorite={() => toggleFavorite(recipe)}
         planMeal={planMeal}
+        onShopping={onShopping}
         styles={styles}
         colors={colors}
       />

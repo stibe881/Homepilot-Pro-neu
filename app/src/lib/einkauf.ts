@@ -1,0 +1,171 @@
+/**
+ * Zutaten auf die Einkaufsliste bringen.
+ *
+ * Zwei Dinge, die von Hand jedes Mal nerven: Man schreibt die Zutaten aus
+ * dem Rezept ab, und man sortiert sie hinterher nach Ladengang, damit man
+ * nicht dreimal durch den Laden läuft. Beides ist Rechnerarbeit.
+ *
+ * Bewusst reine Funktionen ohne React: Die Zuordnung «Rüebli gehört zu
+ * Früchte & Gemüse» ist die Stelle, an der es falsch wird, und sie lässt
+ * sich nur prüfen, wenn sie für sich steht.
+ */
+
+/** Die Gänge, in der Reihenfolge, in der man durch den Laden geht. */
+export const SHOP_CATEGORIES = [
+  'Früchte & Gemüse',
+  'Milchprodukte',
+  'Brot & Backwaren',
+  'Fleisch & Fisch',
+  'Getränke',
+  'Tiefkühl',
+  'Vorrat',
+  'Haushalt',
+  'Sonstiges',
+];
+
+/**
+ * Stichwörter je Gang. Bewusst kleingeschrieben und ohne Endungen, damit
+ * «Rüebli», «rüebli» und «Rüeblis» gleich landen. Die Liste muss nicht
+ * vollständig sein - was sie nicht kennt, kommt unter «Sonstiges» und
+ * lässt sich dort in einem Griff verschieben. Lieber ein paar Einträge
+ * unsortiert als ein falsch einsortiertes Poulet in den Milchprodukten.
+ */
+const KEYWORDS: [string, string[]][] = [
+  [
+    'Früchte & Gemüse',
+    [
+      'apfel', 'äpfel', 'banane', 'zitrone', 'limette', 'orange', 'beere',
+      'erdbeer', 'himbeer', 'traube', 'birne', 'pfirsich', 'melone', 'kiwi',
+      'salat', 'tomate', 'gurke', 'rüebli', 'karotte', 'zwiebel', 'knoblauch',
+      'kartoffel', 'peperoni', 'paprika', 'lauch', 'sellerie', 'zucchetti',
+      'zucchini', 'aubergine', 'broccoli', 'brokkoli', 'blumenkohl', 'spinat',
+      'pilz', 'champignon', 'kürbis', 'randen', 'kohl', 'bohnen', 'erbsen',
+      'ingwer', 'petersilie', 'basilikum', 'schnittlauch', 'rucola', 'avocado',
+    ],
+  ],
+  [
+    'Milchprodukte',
+    [
+      'milch', 'rahm', 'sahne', 'butter', 'joghurt', 'quark', 'käse', 'kaese',
+      'mozzarella', 'parmesan', 'gruyère', 'gruyere', 'feta', 'mascarpone',
+      'crème', 'creme fraiche', 'hüttenkäse', 'ei', 'eier',
+    ],
+  ],
+  [
+    'Brot & Backwaren',
+    ['brot', 'brötchen', 'weggli', 'gipfeli', 'baguette', 'toast', 'zopf', 'semmel'],
+  ],
+  [
+    'Fleisch & Fisch',
+    [
+      'poulet', 'huhn', 'hähnchen', 'rind', 'schwein', 'kalb', 'hack',
+      'gehacktes', 'speck', 'schinken', 'wurst', 'salami', 'cervelat',
+      'lachs', 'fisch', 'thon', 'thunfisch', 'crevette', 'garnele', 'entrecôte',
+    ],
+  ],
+  [
+    'Getränke',
+    ['wasser', 'saft', 'wein', 'bier', 'cola', 'sirup', 'kaffee', 'tee', 'milchkaffee'],
+  ],
+  ['Tiefkühl', ['tiefkühl', 'gefroren', 'glace', 'eis', 'pommes']],
+  [
+    'Vorrat',
+    [
+      'mehl', 'zucker', 'salz', 'pfeffer', 'öl', 'oel', 'essig', 'reis',
+      'teigwaren', 'nudeln', 'spaghetti', 'penne', 'hörnli', 'linsen',
+      'konserve', 'dose', 'passata', 'ketchup', 'senf', 'mayonnaise', 'honig',
+      'schokolade', 'kakao', 'backpulver', 'hefe', 'bouillon', 'gewürz',
+      'paprikapulver', 'curry', 'zimt', 'vanille', 'nuss', 'mandel',
+    ],
+  ],
+  [
+    'Haushalt',
+    [
+      'wc-papier', 'küchenpapier', 'abfallsack', 'waschmittel', 'spülmittel',
+      'putzmittel', 'zahnpasta', 'shampoo', 'seife', 'schwamm',
+    ],
+  ],
+];
+
+/**
+ * In welchen Gang gehört diese Zutat? (rein, testbar)
+ *
+ * Es gewinnt das LÄNGSTE passende Stichwort, nicht die erste Kategorie:
+ * «Paprikapulver» enthält «paprika» (Gemüse) und «paprikapulver»
+ * (Vorrat) - und ein Gewürz gehört nicht ins Gemüseregal. Bei gleicher
+ * Länge entscheidet die Reihenfolge der Gänge.
+ */
+export function shopCategory(name: string): string {
+  const needle = String(name ?? '').toLowerCase();
+  if (!needle.trim()) return 'Sonstiges';
+  let treffer = '';
+  let gefunden = 'Sonstiges';
+  for (const [category, words] of KEYWORDS) {
+    for (const word of words) {
+      if (word.length > treffer.length && needle.includes(word)) {
+        treffer = word;
+        gefunden = category;
+      }
+    }
+  }
+  return gefunden;
+}
+
+export interface ShoppingDraft {
+  text: string;
+  category: string;
+}
+
+/** Wie eine Zutat auf der Liste heisst: «250 ml Ketchup» (rein). */
+export function ingredientLabel(ingredient: any): string {
+  const name = String(ingredient?.name ?? '').trim();
+  if (!name) return '';
+  const amount = ingredient?.amount;
+  const unit = String(ingredient?.unit ?? '').trim();
+  const menge = [
+    typeof amount === 'number' && Number.isFinite(amount)
+      ? String(amount).replace('.', ',')
+      : '',
+    unit,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return menge ? `${menge} ${name}` : name;
+}
+
+/**
+ * Zutaten mehrerer Rezepte zu Einkaufs-Einträgen (rein, testbar).
+ *
+ * Doppelte fallen weg - wer für zwei Gerichte Zwiebeln braucht, will
+ * keinen zweiten Eintrag, sondern beim Einkaufen einmal daran denken.
+ * Verglichen wird der blosse Name ohne Menge: «2 Zwiebeln» und «1
+ * Zwiebel» sind derselbe Posten. Was schon auf der Liste steht, kommt
+ * nicht noch einmal dazu.
+ */
+export function ingredientsToShopping(
+  recipes: any[],
+  vorhanden: string[] = []
+): ShoppingDraft[] {
+  const gesehen = new Set(
+    vorhanden.map((text) => String(text ?? '').trim().toLowerCase())
+  );
+  const result: ShoppingDraft[] = [];
+  for (const recipe of recipes) {
+    const ingredients: any[] = Array.isArray(recipe?.ingredients)
+      ? recipe.ingredients
+      : [];
+    for (const ingredient of ingredients) {
+      const name = String(ingredient?.name ?? '').trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      if (gesehen.has(key)) continue;
+      gesehen.add(key);
+      // Auch der volle Text zählt als gesehen, damit ein bereits auf der
+      // Liste stehendes «250 ml Ketchup» kein zweites «Ketchup» erzeugt.
+      const text = ingredientLabel(ingredient);
+      gesehen.add(text.toLowerCase());
+      result.push({ text, category: shopCategory(name) });
+    }
+  }
+  return result;
+}
