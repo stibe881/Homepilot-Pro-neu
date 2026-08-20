@@ -735,6 +735,7 @@ function GuestWifiCard({
         code: string;
         note: string;
         minutes: number;
+        created?: number | null;
         used: boolean;
       }[]
     | null
@@ -773,7 +774,7 @@ function GuestWifiCard({
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.detail ?? `Hub antwortet mit ${response.status}`);
-      setVoucherNote(`Neuer Gutschein: ${body.voucher?.code ?? '?'}`);
+      setVoucherNote('In den Vorrat gelegt.');
       loadVouchers();
     } catch (err: any) {
       setVoucherNote(String(err.message ?? err));
@@ -794,6 +795,23 @@ function GuestWifiCard({
     minutes >= 1440 && minutes % 1440 === 0
       ? `${minutes / 1440} Tag${minutes / 1440 === 1 ? '' : 'e'}`
       : `${Math.round(minutes / 60)} Std.`;
+
+  // Der Spender: Gezeigt wird genau ein Gutschein - der älteste noch
+  // nicht eingelöste. Wird er verwendet, rückt beim nächsten Abgleich
+  // der nächste nach.
+  const fresh = (vouchers ?? [])
+    .filter((voucher) => !voucher.used)
+    .sort((a, b) => (a.created ?? 0) - (b.created ?? 0));
+  const current = fresh[0] ?? null;
+
+  useEffect(() => {
+    if (!open || vouchers == null) return;
+    // Kurzer Takt mit Absicht: Genau in dem Moment, in dem der Gast den
+    // Code eintippt, schaut man auf diese Karte.
+    const timer = setInterval(loadVouchers, 8000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, vouchers == null]);
 
   if (!wifi && (vouchers == null || vouchers.length === 0)) return null;
 
@@ -843,32 +861,35 @@ function GuestWifiCard({
 
       {open && vouchers != null ? (
         <>
-          <Text style={styles.formLabel}>Portal-Gutscheine</Text>
-          {vouchers.length === 0 ? (
-            <Text style={styles.qrHint}>Keine offenen Gutscheine.</Text>
-          ) : (
-            vouchers.map((voucher) => (
-              <View
-                key={voucher.id}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
-              >
-                <Text style={styles.voucherCode} selectable>
-                  {voucher.code}
-                </Text>
-                <Text style={[styles.qrHint, { flex: 1 }]} numberOfLines={1}>
-                  {durationLabel(voucher.minutes)}
-                  {voucher.note ? ` · ${voucher.note}` : ''}
-                  {voucher.used ? ' · eingelöst' : ''}
+          <Text style={styles.formLabel}>Portal-Gutschein</Text>
+          {current ? (
+            <View style={styles.voucherBox}>
+              <Text style={styles.voucherBig} selectable>
+                {current.code}
+              </Text>
+              <Text style={styles.qrHint}>
+                {durationLabel(current.minutes)} ab der ersten Anmeldung
+                {current.note ? ` · ${current.note}` : ''}
+              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <Text style={[styles.qrHint, { flex: 1 }]}>
+                  {fresh.length > 1
+                    ? `Wird er eingelöst, rückt der nächste nach (${fresh.length - 1} im Vorrat).`
+                    : 'Letzter Gutschein im Vorrat - unten Nachschub anlegen.'}
                 </Text>
                 <Pressable
-                  onPress={() => deleteVoucher(voucher.id)}
-                  accessibilityLabel="Gutschein löschen"
+                  onPress={() => deleteVoucher(current.id)}
+                  accessibilityLabel="Diesen Gutschein löschen"
                   hitSlop={8}
                 >
                   <Ionicons name="trash-outline" size={17} color={colors.inkSoft} />
                 </Pressable>
               </View>
-            ))
+            </View>
+          ) : (
+            <Text style={styles.qrHint}>
+              Kein Gutschein im Vorrat - unten einen anlegen.
+            </Text>
           )}
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             {[
@@ -918,6 +939,23 @@ const makeStyles = (colors: Colors) =>
       fontWeight: '800',
       fontVariant: ['tabular-nums'],
       letterSpacing: 1,
+    },
+    voucherBox: {
+      alignItems: 'center',
+      gap: 6,
+      paddingVertical: 14,
+      paddingHorizontal: 12,
+      borderRadius: radius.control,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    voucherBig: {
+      color: colors.ink,
+      fontSize: 28,
+      fontWeight: '800',
+      fontVariant: ['tabular-nums'],
+      letterSpacing: 2,
     },
     voucherChip: {
       paddingHorizontal: 12,
