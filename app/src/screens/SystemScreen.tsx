@@ -865,6 +865,13 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
   // Antwort erst eintrifft, wenn die laufende Abfrage unten schon
   // gestartet ist - sie soll den frischen Wert sehen.
   const iosIgnored = useRef(false);
+  // Der Status des Update-Dienstes ist ein einziger, der auch nach dem
+  // Bau stehen bleibt. Zwischen «Update gedrückt» und «der Dienst hat
+  // begonnen» liegen ein, zwei Sekunden - in denen die Abfrage noch das
+  // ERGEBNIS DES VORIGEN LAUFS liest. Wurde der rot beendet, färbte das
+  // die frische Meldung «Angestossen …» rot, obwohl nichts schiefging.
+  // Deshalb zählt der Status erst, wenn er einmal «running» gesagt hat.
+  const laufBegonnen = useRef(false);
 
   const headers: Record<string, string> = settings.token
     ? { Authorization: `Bearer ${settings.token}` }
@@ -883,6 +890,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
         const data = (await response.json()) as UpdateStatus;
         if (cancelled) return;
         if (data.available && data.state === 'running') {
+          laufBegonnen.current = true;
           setProgress(data);
           setBusy(true); // startet die laufende Abfrage unten
         }
@@ -914,6 +922,12 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
         }
         const data = (await response.json()) as UpdateStatus;
         if (cancelled) return;
+        if (!laufBegonnen.current && data.available) {
+          // Noch nicht angelaufen: Was hier steht, gehört zum vorherigen
+          // Lauf. Warten, statt dessen Ergebnis für unseres zu halten.
+          if (data.state !== 'running') return;
+          laufBegonnen.current = true;
+        }
         setProgress(data);
         if (!data.available || data.state === 'ok' || data.state === 'error') {
           setBusy(false);
@@ -987,6 +1001,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
     setNoteError(false);
     setProgress(null);
     iosIgnored.current = false;
+    laufBegonnen.current = false;
     try {
       const response = await fetch(`${settings.url}/api/system/update`, {
         method: 'POST',
