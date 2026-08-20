@@ -967,6 +967,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               settings={settings}
               headers={{ Authorization: `Bearer ${settings.token}` }}
               entities={entities}
+              rooms={roomOrder}
             />
           ) : null}
 

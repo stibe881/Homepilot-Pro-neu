@@ -969,12 +969,22 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
 
       {asking ? (
         <View style={styles.updateAsk}>
+          <Text style={styles.updateAskTitle}>Update wirklich starten?</Text>
           <Text style={styles.updateAskText}>
-            Auch einen iOS-Build erstellen und bei Apple einreichen? Braucht
-            es nur, wenn sich an der App selbst etwas geändert hat – der Hub
-            wird in beiden Fällen aktualisiert.
+            Der Host holt den neusten Stand, baut den Hub neu und startet ihn
+            – das dauert ein paar Minuten, die App ist dabei kurz getrennt.
+            «Hub + iOS-Build» reicht die App zusätzlich über EAS bei App
+            Store Connect ein; das braucht es nur, wenn sich an der App
+            selbst etwas geändert hat.
           </Text>
           <View style={styles.updateAskRow}>
+            <Pressable
+              onPress={() => setAsking(false)}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.updateAskButton, pressed && { opacity: 0.7 }]}
+            >
+              <Text style={styles.updateAskButtonText}>Abbrechen</Text>
+            </Pressable>
             <Pressable
               onPress={() => run(false)}
               accessibilityRole="button"
@@ -994,9 +1004,6 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
               <Text style={[styles.updateAskButtonText, { color: '#FFFFFF' }]}>
                 Hub + iOS-Build
               </Text>
-            </Pressable>
-            <Pressable onPress={() => setAsking(false)} hitSlop={8} accessibilityLabel="Abbrechen">
-              <Ionicons name="close" size={18} color={colors.inkSoft} />
             </Pressable>
           </View>
         </View>
@@ -1444,6 +1451,7 @@ const makeStyles = (colors: Colors) =>
     borderWidth: 1,
     borderColor: colors.surfaceBorder,
   },
+  updateAskTitle: { color: colors.ink, fontSize: 14, fontWeight: '700' },
   updateAskText: { color: colors.inkSoft, fontSize: 12, lineHeight: 18 },
   updateAskRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   updateAskButton: {

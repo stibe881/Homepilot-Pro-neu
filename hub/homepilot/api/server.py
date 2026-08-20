@@ -2549,5 +2549,27 @@ def _serve_web(app: FastAPI, hub: Hub) -> None:
         )
         return
     # html=True liefert index.html für «/» aus.
-    app.mount("/", StaticFiles(directory=str(folder), html=True), name="web")
+    app.mount("/", WebStatics(directory=str(folder), html=True), name="web")
     log.info("Web-Fassung der App wird aus %s ausgeliefert", folder)
+
+
+class WebStatics(StaticFiles):
+    """StaticFiles mit passenden Cache-Regeln für eine Expo-Web-App.
+
+    Ohne sie hält der Browser - besonders die Homescreen-Fassung auf dem
+    iPhone - die index.html fest und zeigt wochenlang das alte Bundle:
+    Neue Funktionen «fehlen» dann im Web, obwohl der Hub sie längst
+    ausliefert. Die HTML-Datei muss deshalb bei jedem Öffnen nachgefragt
+    werden (no-cache heisst: nachfragen, 304 genügt). Die Bundles unter
+    _expo/ tragen einen Hash im Namen - die dürfen ewig im Cache bleiben,
+    ein neues Bundle hat einen neuen Namen.
+    """
+
+    def file_response(self, *args: Any, **kwargs: Any):
+        response = super().file_response(*args, **kwargs)
+        path = str(getattr(response, "path", "")).replace("\\", "/")
+        if path.endswith(".html"):
+            response.headers["Cache-Control"] = "no-cache"
+        elif "/_expo/" in path:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response

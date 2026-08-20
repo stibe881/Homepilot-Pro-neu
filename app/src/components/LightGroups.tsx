@@ -29,14 +29,30 @@ interface LightGroup {
   hide_members?: boolean;
 }
 
+/** Der Raum, den alle gewählten Lampen teilen – sonst keiner (rein).
+ *
+ * Die Spots einer Deckenlampe hängen im selben Zimmer wie die Lampe;
+ * dieser Vorschlag stimmt also fast immer und spart einen Handgriff. */
+export function sharedRoom(entities: Entity[], picked: string[]): string | null {
+  const rooms = picked.map(
+    (id) => entities.find((entity) => entity.id === id)?.room ?? null
+  );
+  const first = rooms[0] ?? null;
+  return first && rooms.every((room) => room === first) ? first : null;
+}
+
 export function LightGroups({
   settings,
   headers,
   entities,
+  rooms = [],
 }: {
   settings: HubSettings;
   headers: Record<string, string>;
   entities: Entity[];
+  /** Raumnamen für die Zuordnung – die Leuchte soll dort erscheinen,
+   *  wo vorher ihre Spots standen. */
+  rooms?: string[];
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -44,6 +60,11 @@ export function LightGroups({
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [picked, setPicked] = useState<string[]>([]);
+  // Raum der neuen Leuchte. undefined = noch nichts angetippt, dann gilt
+  // der Vorschlag aus den gewählten Lampen; null = bewusst «Kein Raum».
+  const [room, setRoom] = useState<string | null | undefined>(undefined);
+  // Für welche bestehende Leuchte gerade die Raumwahl offen ist.
+  const [roomPickFor, setRoomPickFor] = useState<string | null>(null);
   // Vorgabe: ausblenden. Das ist der Fall, für den es die Zusammenfassung
   // gibt - fünf Spots als ein Licht. Wer zwei Stehlampen meist gemeinsam
   // und manchmal einzeln schaltet, nimmt den Haken weg.
@@ -79,6 +100,18 @@ export function LightGroups({
   const toggle = (id: string) =>
     setPicked((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
+  const setGroupRoom = async (groupId: string, target: string | null) => {
+    const response = await fetch(
+      `${settings.url}/api/entities/${encodeURIComponent(groupId)}/room`,
+      {
+        method: 'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room: target }),
+      }
+    );
+    if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
+  };
+
   const create = async () => {
     setNote(null);
     setBusy(true);
@@ -94,11 +127,22 @@ export function LightGroups({
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.detail ?? 'Fehlgeschlagen');
+      // Nicht angetippt = Vorschlag aus den gewählten Lampen; die Leuchte
+      // soll im selben Zimmer erscheinen wie vorher ihre Spots.
+      const target = room === undefined ? sharedRoom(entities, picked) : room;
+      if (target && body.id) {
+        await setGroupRoom(body.id, target);
+      }
       setName('');
       setPicked([]);
       setHideMembers(true);
+      setRoom(undefined);
       setOpen(false);
-      setNote(`«${name.trim()}» angelegt.`);
+      setNote(
+        target
+          ? `«${name.trim()}» angelegt – erscheint im Raum ${target}.`
+          : `«${name.trim()}» angelegt.`
+      );
       await load();
     } catch (err: any) {
       setNote(String(err.message ?? err));
@@ -133,26 +177,78 @@ export function LightGroups({
         Zählung oben; hier unter Geräte bleiben sie einzeln bedienbar.
       </Text>
 
-      {(groups ?? []).map((group) => (
-        <View key={group.id} style={styles.row}>
-          <Ionicons name="bulb-outline" size={18} color={colors.accent} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.rowTitle}>{group.name}</Text>
-            <Text style={styles.rowDetail} numberOfLines={2}>
-              {group.members.map(nameOf).join(' · ')}
-              {group.hide_members === false ? ' · einzeln sichtbar' : ''}
-            </Text>
+      {(groups ?? []).map((group) => {
+        const currentRoom = entities.find((item) => item.id === group.id)?.room ?? null;
+        return (
+          <View key={group.id} style={{ gap: 8 }}>
+            <View style={styles.row}>
+              <Ionicons name="bulb-outline" size={18} color={colors.accent} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowTitle}>{group.name}</Text>
+                <Text style={styles.rowDetail} numberOfLines={2}>
+                  {group.members.map(nameOf).join(' · ')}
+                  {group.hide_members === false ? ' · einzeln sichtbar' : ''}
+                </Text>
+              </View>
+              {rooms.length > 0 ? (
+                <Pressable
+                  onPress={() =>
+                    setRoomPickFor((prev) => (prev === group.id ? null : group.id))
+                  }
+                  accessibilityRole="button"
+                  accessibilityLabel={`Raum von ${group.name} wählen`}
+                  style={({ pressed }) => [styles.roomChip, pressed && { opacity: 0.6 }]}
+                >
+                  <Ionicons name="home-outline" size={12} color={colors.ink} />
+                  <Text style={styles.roomChipText} numberOfLines={1}>
+                    {currentRoom ?? 'Kein Raum'}
+                  </Text>
+                </Pressable>
+              ) : null}
+              <Pressable
+                onPress={() => dissolve(group)}
+                accessibilityRole="button"
+                accessibilityLabel={`${group.name} auflösen`}
+                hitSlop={8}
+              >
+                <Ionicons name="unlink-outline" size={18} color={colors.inkSoft} />
+              </Pressable>
+            </View>
+            {roomPickFor === group.id ? (
+              <View style={styles.chipRow}>
+                {[...rooms, null].map((option) => {
+                  const active = option === currentRoom;
+                  return (
+                    <Pressable
+                      key={option ?? '__none'}
+                      onPress={async () => {
+                        setRoomPickFor(null);
+                        try {
+                          await setGroupRoom(group.id, option);
+                          setNote(
+                            option
+                              ? `«${group.name}» erscheint jetzt im Raum ${option}.`
+                              : `«${group.name}» ist keinem Raum mehr zugeordnet.`
+                          );
+                        } catch (err: any) {
+                          setNote(String(err.message ?? err));
+                        }
+                      }}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: active }}
+                      style={[styles.chip, active && styles.chipActive]}
+                    >
+                      <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                        {option ?? 'Kein Raum'}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
           </View>
-          <Pressable
-            onPress={() => dissolve(group)}
-            accessibilityRole="button"
-            accessibilityLabel={`${group.name} auflösen`}
-            hitSlop={8}
-          >
-            <Ionicons name="unlink-outline" size={18} color={colors.inkSoft} />
-          </Pressable>
-        </View>
-      ))}
+        );
+      })}
 
       {open ? (
         <View style={styles.form}>
@@ -193,6 +289,30 @@ export function LightGroups({
               );
             })}
           </View>
+          {rooms.length > 0 ? (
+            <>
+              <Text style={styles.label}>In welchem Raum steht die Leuchte?</Text>
+              <View style={styles.chipRow}>
+                {[...rooms, null].map((option) => {
+                  const effective = room === undefined ? sharedRoom(entities, picked) : room;
+                  const active = option === effective;
+                  return (
+                    <Pressable
+                      key={option ?? '__none'}
+                      onPress={() => setRoom(option)}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: active }}
+                      style={[styles.chip, active && styles.chipActive]}
+                    >
+                      <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                        {option ?? 'Kein Raum'}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </>
+          ) : null}
           <Pressable
             onPress={() => setHideMembers((prev) => !prev)}
             accessibilityRole="checkbox"
@@ -220,6 +340,7 @@ export function LightGroups({
                 setOpen(false);
                 setPicked([]);
                 setName('');
+                setRoom(undefined);
               }}
               style={styles.secondary}
             >
@@ -261,6 +382,19 @@ const makeStyles = (colors: Colors) =>
     row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     rowTitle: { color: colors.ink, fontSize: 14, fontWeight: '600' },
     rowDetail: { color: colors.inkSoft, fontSize: 12, lineHeight: 17 },
+    roomChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: 999,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      maxWidth: 140,
+    },
+    roomChipText: { color: colors.ink, fontSize: 12, fontWeight: '600' },
     form: { gap: 8 },
     label: { color: colors.inkSoft, fontSize: 12, fontWeight: '700', marginTop: 4 },
     input: {

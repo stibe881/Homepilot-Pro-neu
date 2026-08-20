@@ -749,3 +749,24 @@ def test_audit_records_who_switched_what():
         assert entries[0]["entity_id"] == "demo.light_livingroom"
         # Eine Lampe braucht keine Adresse - nur Schloss und Alarm.
         assert "address" not in entries[0]
+
+
+def test_web_app_cache_headers(tmp_path):
+    """Die Homescreen-Fassung hielt die index.html im Cache und zeigte
+    wochenlang das alte Bundle - neue Funktionen «fehlten» im Web. Die
+    HTML-Datei muss deshalb bei jedem Öffnen nachgefragt werden, die
+    gehashten Bundles dürfen dafür ewig liegen bleiben."""
+    (tmp_path / "index.html").write_text("<html></html>")
+    bundles = tmp_path / "_expo" / "static" / "js"
+    bundles.mkdir(parents=True)
+    (bundles / "bundle-abc123.js").write_text("// js")
+
+    hub = Hub(make_config(web_root=str(tmp_path)))
+    with TestClient(create_app(hub)) as client:
+        page = client.get("/")
+        assert page.status_code == 200
+        assert page.headers["cache-control"] == "no-cache"
+
+        bundle = client.get("/_expo/static/js/bundle-abc123.js")
+        assert bundle.status_code == 200
+        assert "immutable" in bundle.headers["cache-control"]
