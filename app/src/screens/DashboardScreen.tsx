@@ -31,7 +31,6 @@ import { Rail, Section } from '../components/Rail';
 import { RoomTabs } from '../components/RoomTabs';
 import { RoomTile } from '../components/RoomTile';
 import { SceneRow } from '../components/SceneRow';
-import { AllOff } from '../components/AllOff';
 import { GlobalSearch } from '../components/GlobalSearch';
 import { PushPrefs } from '../components/PushPrefs';
 import { ActivityCard, SidePanel } from '../components/SidePanel';
@@ -53,7 +52,6 @@ import { SystemScreen } from './SystemScreen';
 import { EntityHistory } from '../components/EntityHistory';
 import { Broadcast } from '../components/Broadcast';
 import { ClimateOverview } from '../components/ClimateOverview';
-import { GoodNight } from '../components/GoodNight';
 import { KidsView } from '../components/KidsView';
 import { KitchenTimer } from '../components/KitchenTimer';
 import { WhatsNew } from '../components/WhatsNew';
@@ -974,21 +972,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 seen={prefs.seenChanges}
                 onSeen={setSeenChanges}
               />
-              <SceneRow scenes={scenes} onActivate={activateScene} />
+              {/* Keine Kürzel mehr über der Raumliste: Szenen stehen in
+                  ihrem Raum, «Alles aus» und «Gute Nacht» sind entfallen.
+                  Die Übersicht soll die Räume zeigen, nicht mit Knöpfen
+                  beginnen, die man einmal am Tag braucht. */}
               <ClimateOverview settings={settings} entities={entities} />
-              <KitchenTimer settings={settings} />
-              <View style={styles.allOffRow}>
-                <AllOff
-                  entities={entities}
-                  locked={locked}
-                  onCommand={sendCommand}
-                />
-                <GoodNight
-                  settings={settings}
-                  entities={entities}
-                  mayEdit={!!user?.capabilities?.includes('edit_automations')}
-                />
-              </View>
             </>
           ) : null}
           {section === 'home' && editing && rooms.length > 0 ? (
@@ -1078,6 +1066,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             </View>
           ) : null}
 
+          {/* Der Küchen-Timer gehört in die Küche - dort steht man, wenn
+              die Nudeln aufgesetzt sind, und nicht in der Raumübersicht. */}
+          {section === 'home' && room !== ALL_ROOMS && /küche/i.test(room) ? (
+            <KitchenTimer settings={settings} />
+          ) : null}
           {/* Ein Raum: nach Kategorien (Szenen, Beleuchtung, Store, Medien). */}
           {categorized ? (
             <>
