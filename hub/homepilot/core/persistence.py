@@ -61,6 +61,9 @@ EMPTY: dict[str, Any] = {
     # Gute-Nacht-Knopf: höchstens ein Eintrag {night_lights: [ids],
     # arm_alarm: bool}. Als Liste, weil der DataStore Listen verwaltet.
     "goodnight": [],
+    # PIN fürs Entschärfen der Alarmanlage: höchstens ein Eintrag
+    # {salt, hash} - die PIN selbst liegt nie im Klartext.
+    "alarm_pin": [],
 }
 
 

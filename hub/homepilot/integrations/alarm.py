@@ -41,7 +41,9 @@ und Licht vertreiben jemanden. Drei Anlässe:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import secrets
 import time
 from typing import Any
 
@@ -50,8 +52,22 @@ from ..core import streams
 from ..core.entity import Entity, EntityKind
 from ..core.errors import HomePilotError
 from ..core.integration import Integration
+from ..core.throttle import Throttle
 
 log = logging.getLogger(__name__)
+
+
+def hash_pin(pin: str, salt: str) -> str:
+    """PIN gesalzen hashen (rein, testbar) - im Klartext liegt sie nie."""
+    return hashlib.sha256((salt + pin).encode("utf-8")).hexdigest()
+
+
+def valid_pin(entry: dict[str, Any], pin: str) -> bool:
+    """Stimmt die PIN mit dem gespeicherten Eintrag überein? (rein)"""
+    salt = str(entry.get("salt") or "")
+    return bool(salt) and secrets.compare_digest(
+        hash_pin(pin, salt), str(entry.get("hash") or "")
+    )
 
 # Die scharfen Modi. «aus» ist kein Modus, sondern deren Abwesenheit.
 MODES = ("nacht", "ausser_haus", "urlaub")
@@ -260,6 +276,8 @@ class AlarmIntegration(Integration):
         self._timer: asyncio.Task | None = None
         self._state = DISARMED
         self._mode: str | None = None
+        # Fünf PIN-Fehlversuche in fünf Minuten, dann fünf Minuten Pause.
+        self._pin_throttle = Throttle(limit=5, window=300.0, block=300.0)
         # Zeitpunkt, an dem die laufende Verzögerung abläuft.
         self._until: float | None = None
         # Was am Ende dieser Verzögerung passiert – die App beschriftet den
@@ -319,6 +337,8 @@ class AlarmIntegration(Integration):
             ),
             "next_action": self._next,
             "last_trigger": self._last,
+            # Die App zeigt daraus das PIN-Feld vor dem Entschärfen.
+            "pin_required": self.pin_required(),
         }
 
     async def _publish(self) -> None:
@@ -409,7 +429,57 @@ class AlarmIntegration(Integration):
             )
         return {"ok": True, "state": self._state}
 
-    async def disarm(self, by: str = "") -> dict[str, Any]:
+    # ── PIN fürs Entschärfen ───────────────────────────────────────────────
+    # Die Anlage lässt sich aus der App entschärfen, sobald das Telefon
+    # entsperrt ist. Eine kurze PIN nur für diesen einen Vorgang schützt,
+    # falls das Telefon offen herumliegt. Bewusst überall durchgesetzt
+    # (auch Szenen und Abläufe): Eine Hintertür, die der PIN ausweicht,
+    # wäre keine PIN.
+
+    def _pin_entry(self) -> dict[str, Any] | None:
+        for entry in self.hub.data.get("alarm_pin"):
+            if isinstance(entry, dict) and entry.get("hash"):
+                return entry
+        return None
+
+    def pin_required(self) -> bool:
+        return self._pin_entry() is not None
+
+    def set_pin(self, pin: str | None) -> None:
+        """PIN setzen oder (mit leerem Wert) entfernen - nur Besitzer."""
+        if not pin:
+            self.hub.data.set("alarm_pin", [])
+            return
+        if not pin.isdigit() or not (4 <= len(pin) <= 8):
+            raise HomePilotError("Die PIN muss aus 4 bis 8 Ziffern bestehen.")
+        salt = secrets.token_hex(8)
+        self.hub.data.set("alarm_pin", [{"salt": salt, "hash": hash_pin(pin, salt)}])
+
+    def check_pin(self, pin: str | None, address: str = "app") -> None:
+        """Wirft einen lesbaren Fehler, wenn die PIN fehlt oder falsch ist.
+
+        Mit Drossel: Fünf Fehlversuche, dann fünf Minuten Pause - eine
+        vierstellige PIN ohne Drossel wäre in Minuten durchprobiert.
+        """
+        entry = self._pin_entry()
+        if entry is None:
+            return
+        wait = self._pin_throttle.blocked_for(address)
+        if wait > 0:
+            raise HomePilotError(
+                f"Zu viele Fehlversuche - gesperrt für {round(wait)} Sekunden."
+            )
+        if not pin:
+            raise HomePilotError("Zum Entschärfen braucht es die PIN.")
+        if not valid_pin(entry, str(pin)):
+            self._pin_throttle.failed(address)
+            raise HomePilotError("Falsche PIN.")
+        self._pin_throttle.succeeded(address)
+
+    async def disarm(
+        self, by: str = "", pin: str | None = None, address: str = "app"
+    ) -> dict[str, Any]:
+        self.check_pin(pin, address)
         self._cancel_timer()
         was = self._state
         self._state = DISARMED
@@ -718,14 +788,17 @@ class AlarmIntegration(Integration):
         self, entity: Entity, command: str, data: dict[str, Any]
     ) -> None:
         force = bool(data.get("force"))
+        # Die PIN kann als data.pin mitkommen (Karten, Szenen); fehlt sie
+        # und ist eine gesetzt, erklärt der Fehler, was zu tun ist.
+        pin = str(data.get("pin") or "") or None
         if command in ("disarm", "turn_off"):
-            await self.disarm()
+            await self.disarm(pin=pin)
             return
         if command == "toggle":
             if self._state == DISARMED:
                 await self.arm("ausser_haus", force=force)
             else:
-                await self.disarm()
+                await self.disarm(pin=pin)
             return
         mode = {
             "arm_night": "nacht",

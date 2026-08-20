@@ -295,6 +295,18 @@ class AlarmArmRequest(BaseModel):
     force: bool = False
 
 
+class AlarmDisarmRequest(BaseModel):
+    """Entschärfen – mit PIN, falls eine gesetzt ist."""
+
+    pin: str = ""
+
+
+class AlarmPinRequest(BaseModel):
+    """PIN fürs Entschärfen setzen; leer = entfernen."""
+
+    pin: str = ""
+
+
 class MetaRequest(BaseModel):
     """Anzeigename, Favorit oder Gruppe – nur gesetzte Felder ändern sich."""
 
@@ -1779,9 +1791,31 @@ def create_app(hub: Hub) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(err)) from err
 
     @app.post("/api/alarm/disarm")
-    async def alarm_disarm(request: Request) -> dict[str, Any]:
+    async def alarm_disarm(body: AlarmDisarmRequest, request: Request) -> dict[str, Any]:
         user = require(request, Capability.CONTROL)
-        return await alarm_service().disarm(by=user.name)
+        try:
+            return await alarm_service().disarm(
+                by=user.name,
+                pin=body.pin or None,
+                address=throttle_module.client_address(request),
+            )
+        except HomePilotError as err:
+            # Falsche oder fehlende PIN - lesbar zurück, kein Stacktrace.
+            raise HTTPException(status_code=403, detail=str(err)) from err
+
+    @app.put("/api/alarm/pin")
+    async def alarm_set_pin(body: AlarmPinRequest, request: Request) -> dict[str, Any]:
+        """PIN fürs Entschärfen setzen oder (leer) entfernen.
+
+        Nur Besitzer: Wer die PIN ändern darf, kann sie auch aushebeln -
+        das gehört in dieselben Hände wie die Benutzerverwaltung.
+        """
+        require(request, Capability.MANAGE_USERS)
+        try:
+            alarm_service().set_pin(body.pin or None)
+        except HomePilotError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+        return {"ok": True, "pin_required": alarm_service().pin_required()}
 
     # ── Push ───────────────────────────────────────────────────────────────
 

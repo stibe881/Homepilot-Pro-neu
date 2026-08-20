@@ -46,6 +46,8 @@ interface AlarmState {
     /** Kurzer Mitschnitt, sobald er fertig ist. */
     clip?: string | null;
   } | null;
+  /** Zum Entschärfen braucht es die PIN. */
+  pin_required?: boolean;
 }
 
 /** Ein Schaltbefehl, den die Anlage selbst auslöst. */
@@ -151,6 +153,10 @@ export function AlarmScreen({
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [pendingMode, setPendingMode] = useState<string | null>(null);
+  // PIN-Abfrage vor dem Entschärfen (nur wenn eine PIN gesetzt ist).
+  const [pinAsk, setPinAsk] = useState(false);
+  const [pinValue, setPinValue] = useState('');
+  const [pinError, setPinError] = useState<string | null>(null);
   // Welcher Modus gerade zusammengestellt wird.
   const [tab, setTab] = useState('nacht');
   // Adresse des Mitschnitts, solange er im Vollbild läuft.
@@ -233,12 +239,34 @@ export function AlarmScreen({
     load();
   };
 
-  const disarm = async () => {
+  const disarm = async (pin?: string) => {
+    // Mit gesetzter PIN erst das Feld zeigen - der Hub würde ohne PIN
+    // ohnehin ablehnen, aber die App soll fragen statt fehlschlagen.
+    if (data?.state.pin_required && pin === undefined) {
+      setPinAsk(true);
+      setPinValue('');
+      return;
+    }
     setNote(null);
     setPendingMode(null);
-    await fetch(`${settings.url}/api/alarm/disarm`, { method: 'POST', headers }).catch(
-      () => {}
-    );
+    try {
+      const response = await fetch(`${settings.url}/api/alarm/disarm`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: pin ?? '' }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        // Falsche PIN & Co.: Feld offen lassen, Fehler dort zeigen.
+        setPinError(body.detail ?? `Hub antwortet mit ${response.status}`);
+        return;
+      }
+      setPinAsk(false);
+      setPinError(null);
+    } catch (err: any) {
+      setPinError(String(err.message ?? err));
+      return;
+    }
     load();
   };
 
@@ -342,13 +370,55 @@ export function AlarmScreen({
 
         {data.state.state !== 'unscharf' ? (
           <Pressable
-            onPress={disarm}
+            onPress={() => disarm()}
             accessibilityRole="button"
             style={({ pressed }) => [styles.disarm, pressed && { opacity: 0.85 }]}
           >
             <Text style={styles.disarmText}>Unscharf schalten</Text>
           </Pressable>
         ) : null}
+
+        {pinAsk ? (
+          <View style={styles.pinRow}>
+            <TextInput
+              style={styles.pinInput}
+              value={pinValue}
+              onChangeText={(text) => {
+                setPinValue(text.replace(/[^0-9]/g, ''));
+                setPinError(null);
+              }}
+              placeholder="PIN"
+              placeholderTextColor={colors.inkFaint}
+              keyboardType="number-pad"
+              secureTextEntry
+              maxLength={8}
+              autoFocus
+              onSubmitEditing={() => disarm(pinValue)}
+            />
+            <Pressable
+              onPress={() => disarm(pinValue)}
+              disabled={pinValue.length < 4}
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.pinConfirm,
+                (pressed || pinValue.length < 4) && { opacity: 0.6 },
+              ]}
+            >
+              <Text style={styles.pinConfirmText}>Entschärfen</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setPinAsk(false);
+                setPinError(null);
+              }}
+              hitSlop={8}
+              accessibilityLabel="Abbrechen"
+            >
+              <Ionicons name="close" size={20} color={colors.inkSoft} />
+            </Pressable>
+          </View>
+        ) : null}
+        {pinError ? <Text style={styles.warn}>{pinError}</Text> : null}
 
         {note ? (
           <>
@@ -513,6 +583,12 @@ export function AlarmScreen({
       />
 
       <AlarmSettings settings={data.settings} onSave={(next) => save({ settings: next })} />
+
+      <PinCard
+        hub={settings}
+        required={!!data.state.pin_required}
+        onChanged={load}
+      />
 
       {data.history.length > 0 ? (
         <Card style={styles.card}>
@@ -905,6 +981,91 @@ function Toggle({
   );
 }
 
+/** PIN fürs Entschärfen: setzen, ändern, entfernen (nur Besitzer).
+ *
+ * Die Anlage lässt sich aus der App entschärfen, sobald das Telefon
+ * entsperrt ist - die PIN schützt, falls es offen herumliegt. Sie gilt
+ * überall, auch für Szenen und Abläufe: eine Hintertür wäre keine PIN. */
+function PinCard({
+  hub,
+  required,
+  onChanged,
+}: {
+  hub: HubSettings;
+  required: boolean;
+  onChanged: () => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [value, setValue] = useState('');
+  const [note, setNote] = useState<string | null>(null);
+
+  const submit = async (pin: string) => {
+    setNote(null);
+    try {
+      const response = await fetch(`${hub.url}/api/alarm/pin`, {
+        method: 'PUT',
+        headers: {
+          ...(hub.token ? { Authorization: `Bearer ${hub.token}` } : {}),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ pin }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.detail ?? `Hub antwortet mit ${response.status}`);
+      setValue('');
+      setNote(pin ? 'PIN gesetzt.' : 'PIN entfernt.');
+      onChanged();
+    } catch (err: any) {
+      setNote(String(err.message ?? err));
+    }
+  };
+
+  return (
+    <Card style={styles.card}>
+      <Text style={styles.heading}>PIN fürs Entschärfen</Text>
+      <Text style={styles.rowDetail}>
+        {required
+          ? 'Eine PIN ist gesetzt - Entschärfen geht nur noch mit ihr, auch aus Szenen und Abläufen.'
+          : 'Ohne PIN kann jeder mit entsperrtem Telefon die Anlage entschärfen. 4 bis 8 Ziffern.'}
+      </Text>
+      <View style={styles.pinRow}>
+        <TextInput
+          style={styles.pinInput}
+          value={value}
+          onChangeText={(text) => setValue(text.replace(/[^0-9]/g, ''))}
+          placeholder={required ? 'Neue PIN' : 'PIN wählen'}
+          placeholderTextColor={colors.inkFaint}
+          keyboardType="number-pad"
+          secureTextEntry
+          maxLength={8}
+        />
+        <Pressable
+          onPress={() => submit(value)}
+          disabled={value.length < 4}
+          accessibilityRole="button"
+          style={({ pressed }) => [
+            styles.pinConfirm,
+            (pressed || value.length < 4) && { opacity: 0.6 },
+          ]}
+        >
+          <Text style={styles.pinConfirmText}>{required ? 'Ändern' : 'Setzen'}</Text>
+        </Pressable>
+        {required ? (
+          <Pressable
+            onPress={() => submit('')}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.pinRemove, pressed && { opacity: 0.7 }]}
+          >
+            <Text style={styles.pinRemoveText}>Entfernen</Text>
+          </Pressable>
+        ) : null}
+      </View>
+      {note ? <Text style={styles.rowDetail}>{note}</Text> : null}
+    </Card>
+  );
+}
+
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     list: { gap: space.gap },
@@ -978,6 +1139,34 @@ const makeStyles = (colors: Colors) =>
     },
     modeActive: { backgroundColor: colors.accent, borderColor: colors.accent },
     modeText: { color: colors.ink, fontSize: 12, fontWeight: '700' },
+    pinRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    pinInput: {
+      flex: 1,
+      backgroundColor: colors.surfaceSoft,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      color: colors.ink,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      fontSize: 16,
+      letterSpacing: 4,
+    },
+    pinConfirm: {
+      paddingVertical: 11,
+      paddingHorizontal: 16,
+      borderRadius: radius.control,
+      backgroundColor: colors.accent,
+    },
+    pinConfirmText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+    pinRemove: {
+      paddingVertical: 11,
+      paddingHorizontal: 12,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    pinRemoveText: { color: colors.inkSoft, fontSize: 14, fontWeight: '600' },
     disarm: {
       paddingVertical: 13,
       borderRadius: radius.control,
