@@ -65,6 +65,7 @@ type ModuleKey =
   | 'recipes'
   | 'documents'
   | 'chores'
+  | 'woche'
   | 'emergency'
   | 'medications'
   | 'babysitter';
@@ -2273,6 +2274,121 @@ export function FamilyScreen({
     );
   }
 
+  if (view === 'woche') {
+    // Montag dieser Woche als Ausgangspunkt: In der Schweiz beginnt die
+    // Woche am Montag, und der Essensplan ist ohnehin so aufgebaut.
+    const montag = new Date(today);
+    montag.setHours(0, 0, 0, 0);
+    montag.setDate(montag.getDate() - ((montag.getDay() + 6) % 7));
+
+    const tage = WEEK_DAYS.map((name, index) => {
+      const datum = new Date(montag);
+      datum.setDate(montag.getDate() + index);
+      const iso = `${datum.getFullYear()}-${String(datum.getMonth() + 1).padStart(2, '0')}-${String(
+        datum.getDate()
+      ).padStart(2, '0')}`;
+      return {
+        name,
+        datum,
+        iso,
+        heute:
+          datum.getFullYear() === today.getFullYear() &&
+          datum.getMonth() === today.getMonth() &&
+          datum.getDate() === today.getDate(),
+        termine: events.filter((event: any) => {
+          const start = new Date(event.start);
+          return (
+            start.getFullYear() === datum.getFullYear() &&
+            start.getMonth() === datum.getMonth() &&
+            start.getDate() === datum.getDate()
+          );
+        }),
+        essen: (data.meals ?? []).find((meal: any) => meal.day === name),
+        aemtli: (data.chores ?? []).filter(
+          (chore: any) => String(chore.due ?? '').slice(0, 10) === iso
+        ),
+        aufgaben: (data.tasks ?? []).filter(
+          (task: any) => !task.done && String(task.due ?? '').slice(0, 10) === iso
+        ),
+      };
+    });
+
+    return (
+      <View style={styles.stack}>
+        <BackHead title="Wochenplan" onBack={goBack} styles={styles} colors={colors} />
+        <Text style={styles.hint}>
+          Sonntagabend eine Seite statt vier Module: was ansteht, was es zu
+          essen gibt, wer welches Ämtli hat. Ändern lässt sich alles dort,
+          wo es hingehört – hier wird nur gezeigt.
+        </Text>
+        {tage.map((tag) => {
+          const leer =
+            tag.termine.length === 0 &&
+            !tag.essen?.text &&
+            tag.aemtli.length === 0 &&
+            tag.aufgaben.length === 0;
+          return (
+            <Card
+              key={tag.name}
+              style={{
+                ...styles.listCard,
+                ...(tag.heute ? { borderColor: colors.accent } : {}),
+              }}
+            >
+              <View style={styles.weekHead}>
+                <Text style={[styles.groupTitle, tag.heute && { color: colors.accent }]}>
+                  {tag.name}
+                </Text>
+                <Text style={styles.checkSub}>
+                  {tag.datum.getDate()}.{tag.datum.getMonth() + 1}.
+                  {tag.heute ? ' · heute' : ''}
+                </Text>
+              </View>
+
+              {tag.termine.map((event: any, index: number) => (
+                <View key={`t${index}`} style={styles.weekRowItem}>
+                  <Ionicons name="calendar-outline" size={15} color={colors.inkSoft} />
+                  <Text style={[styles.checkText, { flex: 1 }]} numberOfLines={1}>
+                    {event.summary ?? event.title ?? 'Termin'}
+                  </Text>
+                </View>
+              ))}
+
+              {tag.essen?.text ? (
+                <View style={styles.weekRowItem}>
+                  <Ionicons name="restaurant-outline" size={15} color={colors.inkSoft} />
+                  <Text style={[styles.checkText, { flex: 1 }]}>{tag.essen.text}</Text>
+                </View>
+              ) : null}
+
+              {tag.aemtli.map((chore: any) => (
+                <View key={chore.id} style={styles.weekRowItem}>
+                  <Ionicons name="repeat-outline" size={15} color={colors.inkSoft} />
+                  <Text style={[styles.checkText, { flex: 1 }]}>
+                    {chore.text}
+                    {chore.member ? ` – ${chore.member}` : ''}
+                  </Text>
+                </View>
+              ))}
+
+              {tag.aufgaben.map((task: any) => (
+                <View key={task.id} style={styles.weekRowItem}>
+                  <Ionicons name="checkbox-outline" size={15} color={colors.inkSoft} />
+                  <Text style={[styles.checkText, { flex: 1 }]}>
+                    {task.text}
+                    {task.member ? ` – ${task.member}` : ''}
+                  </Text>
+                </View>
+              ))}
+
+              {leer ? <Text style={styles.checkSub}>nichts geplant</Text> : null}
+            </Card>
+          );
+        })}
+      </View>
+    );
+  }
+
   if (view === 'emergency') {
     const eintraege: any[] = data.emergency ?? [];
     return (
@@ -2860,6 +2976,12 @@ export function FamilyScreen({
     label: string;
     sub: string;
   }[] = [
+    {
+      key: 'woche',
+      icon: 'grid-outline',
+      label: 'Wochenplan',
+      sub: 'Termine, Essen und Ämtli',
+    },
     { key: 'kalender', icon: 'calendar-outline', label: 'Kalender', sub: todayCount > 0 ? `${todayCount} heute` : 'Keine Termine heute' },
     { key: 'tasks', icon: 'checkbox-outline', label: 'Aufgaben', sub: openTasks > 0 ? `${openTasks} offen` : 'Alles erledigt' },
     { key: 'shopping', icon: 'cart-outline', label: 'Einkaufsliste', sub: `${(data.shopping ?? []).filter((item) => !item.done).length} Einträge` },
@@ -3136,6 +3258,12 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       paddingVertical: 13,
     },
+    weekHead: {
+      flexDirection: 'row',
+      alignItems: 'baseline',
+      justifyContent: 'space-between',
+    },
+    weekRowItem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     pollRow: {
       flexDirection: 'row',
       alignItems: 'center',
