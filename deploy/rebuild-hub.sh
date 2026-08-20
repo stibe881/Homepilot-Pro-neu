@@ -269,6 +269,48 @@ if [ ! -s "$CHANGES_FILE" ]; then
   git -C "$WORKDIR" log --format='%s' -n 10 > "$CHANGES_FILE" 2>/dev/null || true
 fi
 
+# ── Das Abbild mit den App-Abhängigkeiten ──────────────────────────────
+#
+# Web-Fassung und iOS-Build brauchen beide ein `npm ci` im Ordner app/.
+# Beides lief früher über `docker run -v "$WORKDIR/app:/app"` - und genau
+# daran scheiterte es auf einem Docker aus dem Snap: Der Dienst sieht ein
+# eigenes /tmp, der Ordner kam im Container leer an, und `npm ci` brach
+# nach Sekunden ab. Sichtbar war davon nur «liess sich nicht anstossen».
+#
+# `docker build` hat dieses Problem nicht: Den Bau-Kontext packt der
+# Client und schickt ihn an den Dienst - kein Pfad, den der Dienst selbst
+# finden müsste. Deshalb wandert die Installation hierher, und beide
+# Schritte laufen anschliessend in einem Abbild statt auf einer
+# eingehängten Ablage.
+#
+# node:20-bookworm-slim statt alpine: Metro/Expo bringen gelegentlich
+# Pakete mit, die eine echte glibc statt musl erwarten.
+DEPS_IMAGE="homepilot-appdeps"
+WEB_IMAGE="homepilot-webdist"
+DEPS_GEBAUT=0
+
+app_abbild() {
+  # Nur einmal je Lauf, auch wenn Web-Fassung und iOS-Build beide fragen.
+  if [ "$DEPS_GEBAUT" = "1" ]; then
+    return 0
+  fi
+  echo "→ Installiere die App-Abhängigkeiten (einmal für Web und iOS) …"
+  if docker build -t "$DEPS_IMAGE" -f - "$WORKDIR/app" <<'DOCKERFILE'
+FROM node:20-bookworm-slim
+WORKDIR /app
+COPY . .
+RUN npm ci --no-audit --no-fund
+DOCKERFILE
+  then
+    DEPS_GEBAUT=1
+    return 0
+  fi
+  echo "⚠ 'npm ci' ist fehlgeschlagen - ohne die Abhängigkeiten lassen sich"
+  echo "  weder die Web-Fassung noch der iOS-Build erzeugen. Die Ausgabe"
+  echo "  darüber nennt die Ursache."
+  return 1
+}
+
 if [ -n "$WEB_ROOT" ] && [ "$WEB_ROOT" != "/" ] && [ ! -d "$WEB_ROOT" ]; then
   # Bisher wurde hier stumm übersprungen - und niemand erfuhr, warum die
   # Web-Fassung nie neuer wurde.
@@ -277,18 +319,20 @@ if [ -n "$WEB_ROOT" ] && [ "$WEB_ROOT" != "/" ] && [ ! -d "$WEB_ROOT" ]; then
 fi
 if [ -n "$WEB_ROOT" ] && [ "$WEB_ROOT" != "/" ] && [ -d "$WEB_ROOT" ]; then
   echo "→ Baue die Web-Fassung der App …"
-  # node:20-bookworm-slim statt alpine: Metro/Expo bringen gelegentlich
-  # Pakete mit, die eine echte glibc statt musl erwarten - das Abbild ist
-  # etwas grösser, bleibt dafür aber Überraschungen erspart. Bleibt danach
-  # im Docker-Cache liegen, kein erneuter Download bei jedem Lauf.
-  if docker run --rm \
-      -v "$WORKDIR/app:/app" -w /app \
-      node:20-bookworm-slim \
-      sh -c "npm ci --no-audit --no-fund && npm run build:web"; then
+  # Eine Schicht auf dem Abhängigkeits-Abbild; das fertige dist/ holt
+  # danach `docker cp` heraus - auch das über die Schnittstelle, ohne
+  # einen Pfad, den der Docker-Dienst selbst finden müsste.
+  if app_abbild && docker build -t "$WEB_IMAGE" - <<DOCKERFILE
+FROM ${DEPS_IMAGE}
+RUN npm run build:web
+DOCKERFILE
+  then
     # Den alten Stand erst jetzt wegräumen, nicht vorher - schlägt der Bau
     # fehl, bleibt die zuletzt funktionierende Fassung online.
     find "$WEB_ROOT" -mindepth 1 -delete
-    cp -r "$WORKDIR/app/dist/." "$WEB_ROOT/"
+    HILFS_ID=$(docker create "$WEB_IMAGE")
+    docker cp "$HILFS_ID:/app/dist/." "$WEB_ROOT/"
+    docker rm -f "$HILFS_ID" >/dev/null 2>&1 || true
     # Der Stempel, mit dem die App prüft, ob ihr Bundle zum Hub passt.
     printf '{"commit":"%s"}\n' "$COMMIT" > "$WEB_ROOT/version.json"
     echo "✓ Web-Fassung aktualisiert (Stand $COMMIT)."
@@ -358,12 +402,10 @@ if [ "${HOMEPILOT_IOS_BUILD:-0}" = "1" ]; then
     echo "  Token erzeugen auf expo.dev → Account settings → Access tokens."
   else
     echo "→ Stosse den iOS-Build an (EAS baut, Apple bekommt ihn direkt) …"
-    if docker run --rm -e EXPO_TOKEN="$EXPO_TOKEN" \
-        -v "$WORKDIR/app:/app" -w /app \
-        node:20-bookworm-slim \
-        sh -c "npm ci --no-audit --no-fund >/dev/null 2>&1 && \
-               npx eas-cli@latest build --platform ios --profile production \
-                 --auto-submit --non-interactive --no-wait"; then
+    if app_abbild && docker run --rm -e EXPO_TOKEN="$EXPO_TOKEN" \
+        "$DEPS_IMAGE" \
+        npx eas-cli@latest build --platform ios --profile production \
+          --auto-submit --non-interactive --no-wait; then
       echo "✓ iOS-Build läuft auf den EAS-Servern - TestFlight meldet sich."
     else
       echo "⚠ iOS-Build liess sich nicht anstossen - das Hub-Update selbst"
@@ -374,6 +416,11 @@ fi
 
 # Erst jetzt aufräumen: Der iOS-Block oben braucht $WORKDIR/app noch.
 rm -rf "$WORKDIR"
+
+# Die Hilfsabbilder sind Zwischenschritte, keine Ergebnisse - die Marken
+# weg, damit sie sich nicht Lauf für Lauf sammeln. Die Schichten bleiben
+# im Bau-Zwischenspeicher, den weiter oben schon ein Deckel begrenzt.
+docker image rm -f "$WEB_IMAGE" "$DEPS_IMAGE" >/dev/null 2>&1 || true
 
 # Was dieser Lauf gekostet hat. Die Zahl ist die eigentliche Auskunft:
 # Ein Update darf Platz brauchen, aber nicht bei jedem Mal denselben
