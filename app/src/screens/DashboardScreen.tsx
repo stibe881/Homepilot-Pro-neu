@@ -55,6 +55,7 @@ import { Broadcast } from '../components/Broadcast';
 import { ClimateOverview } from '../components/ClimateOverview';
 import { GoodNight } from '../components/GoodNight';
 import { KidsView } from '../components/KidsView';
+import { KitchenTimer } from '../components/KitchenTimer';
 import { WhatsNew } from '../components/WhatsNew';
 import { LightGroups } from '../components/LightGroups';
 import { UsersScreen } from './UsersScreen';
@@ -966,6 +967,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               />
               <SceneRow scenes={scenes} onActivate={activateScene} />
               <ClimateOverview settings={settings} entities={entities} />
+              <KitchenTimer settings={settings} />
               <View style={styles.allOffRow}>
                 <AllOff
                   entities={entities}

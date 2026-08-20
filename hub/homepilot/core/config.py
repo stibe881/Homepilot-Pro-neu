@@ -77,6 +77,9 @@ class HubConfig:
     energy: dict[str, Any] = field(default_factory=dict)
     # Standort für Sonnenauf-/-untergangs-Trigger. Standard: Zell LU.
     location: dict[str, Any] = field(default_factory=dict)
+    # Gäste-WLAN: {ssid, password, hidden?}. Die Benutzerverwaltung zeigt
+    # daraus einen QR-Code, den Gäste mit der Kamera scannen.
+    guest_wifi: dict[str, Any] = field(default_factory=dict)
     # Live-Bild: Adressen von mediamtx, falls es nicht neben dem Hub läuft
     # ({mediamtx_api, mediamtx_hls}). Leer = die Standardadressen probieren.
     streaming: dict[str, Any] = field(default_factory=dict)
@@ -192,6 +195,10 @@ def load_config(path: str | Path) -> HubConfig:
     if not isinstance(location, dict):
         raise ConfigError("'location' muss ein Mapping sein (latitude, longitude)")
 
+    guest_wifi = raw.get("guest_wifi") or {}
+    if not isinstance(guest_wifi, dict):
+        raise ConfigError("'guest_wifi' muss ein Mapping sein (ssid, password)")
+
     streaming = raw.get("streaming") or {}
     if not isinstance(streaming, dict):
         raise ConfigError("'streaming' muss ein Mapping sein (mediamtx_api, mediamtx_hls)")
@@ -234,6 +241,7 @@ def load_config(path: str | Path) -> HubConfig:
         streaming=streaming,
         energy=energy,
         location=location,
+        guest_wifi=guest_wifi,
         push=push_config,
         update=update_config,
         web_root=str(web_root) if web_root else None,

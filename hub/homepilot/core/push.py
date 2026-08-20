@@ -39,6 +39,7 @@ CATEGORIES: dict[str, str] = {
     "appliance": "Haushaltgerät fertig",
     "tasks": "Fällige Aufgaben",
     "automation": "Nachricht aus einem Ablauf",
+    "timer": "Küchen-Timer",
     "test": "Push-Test",
 }
 

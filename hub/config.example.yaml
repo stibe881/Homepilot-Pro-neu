@@ -30,7 +30,16 @@ supabase:
   anon_key: "${SUPABASE_ANON_KEY}"
   history: true
   flush_interval: 5
+  # Off-Site-Kopie der täglichen Sicherung in diesen Storage-Bucket
+  # (einmal im Supabase-Dashboard anlegen, privat). Leer = keine Kopie.
+  # backup_bucket: backups
   history_exclude: []          # z.B. ["demo.*"] – kein Verlauf für diese Entitäten
+
+# Gäste-WLAN: Die Benutzerverwaltung zeigt daraus einen QR-Code, den
+# Besuch mit der Telefon-Kamera scannt - Tür und WLAN aus einer Karte.
+# guest_wifi:
+#   ssid: "Familie Gross Gast"
+#   password: "${GAST_WLAN_PASSWORT}"
 
 # Standort für Sonnenauf-/-untergangs-Trigger (Storen, adaptives Licht).
 # Ohne diesen Abschnitt wird Zell LU angenommen.

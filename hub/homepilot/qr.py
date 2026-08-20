@@ -17,6 +17,23 @@ import socket
 from .core.users import Role, UserRegistry
 
 
+def wifi_payload(ssid: str, password: str, hidden: bool = False) -> str:
+    """Der Standard-WLAN-QR-Inhalt, den Telefonkameras verstehen (rein).
+
+    Sonderzeichen werden nach Vorschrift entwertet - ein Passwort mit
+    Semikolon ist sonst ein kaputter Code statt ein sicheres Passwort.
+    """
+    def escape(text: str) -> str:
+        for char in ("\\", ";", ",", ":", '"'):
+            text = text.replace(char, "\\" + char)
+        return text
+
+    parts = f"WIFI:T:WPA;S:{escape(ssid)};P:{escape(password)};"
+    if hidden:
+        parts += "H:true;"
+    return parts + ";"
+
+
 def local_ip() -> str:
     """Die Adresse, unter der andere Geräte im Netz den Hub erreichen."""
     try:

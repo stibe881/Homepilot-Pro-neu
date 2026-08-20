@@ -17,6 +17,20 @@ function statusColor(colors: Colors, status: ConnectionStatus): string {
   return status === 'connecting' ? colors.warn : colors.danger;
 }
 
+/** Melder, bei denen «offen» wirklich offen heisst (rein, testbar).
+ *
+ *  Dieselbe Auswahl wie beim Wächter: Nur Kontakte - ein Bewegungsmelder,
+ *  der lange «on» meldet, heizt nicht zum Fenster hinaus. */
+const OPEN_CLASSES = new Set(['contact', 'door', 'window', 'garage']);
+
+export function openContacts(entities: Entity[]): Entity[] {
+  return entities.filter(
+    (entity) =>
+      OPEN_CLASSES.has(String(entity.state?.device_class ?? '')) &&
+      entity.state?.state === 'on'
+  );
+}
+
 /** Der nächste echte Termin – dasselbe Ereignis, das der Hub in
  *  `state.state`/`next_start` zusammenfasst, hier aber mit allem drum
  *  herum (Ort, Ende, ganztägig) für die Detailansicht (rein, testbar). */
@@ -65,6 +79,7 @@ export function TopStrip({
   const [lightsOpen, setLightsOpen] = useState(false);
   const [eventOpen, setEventOpen] = useState(false);
   const [alertsOpen, setAlertsOpen] = useState(false);
+  const [openOpen, setOpenOpen] = useState(false);
   // Nachfrage «womit öffnen?» nach dem Tipp auf den Termin-Ort.
   const [routeAsk, setRouteAsk] = useState(false);
   const temperature = entities.find(
@@ -96,6 +111,7 @@ export function TopStrip({
   const alerts = entities.find(
     (entity) => entity.kind === 'alert' && entity.state.state === 'alert'
   );
+  const offen = openContacts(entities);
 
   return (
     <View style={styles.row}>
@@ -117,6 +133,13 @@ export function TopStrip({
             icon="bulb-outline"
             text={lightsOn === 1 ? '1 an' : `${lightsOn} an`}
             onPress={() => setLightsOpen(true)}
+          />
+        ) : null}
+        {offen.length > 0 ? (
+          <Chip
+            icon="alert-circle-outline"
+            text={offen.length === 1 ? '1 offen' : `${offen.length} offen`}
+            onPress={() => setOpenOpen(true)}
           />
         ) : null}
         {vacuum ? <Chip icon="sparkles-outline" text="saugt" /> : null}
@@ -182,6 +205,37 @@ export function TopStrip({
               ))}
             </ScrollView>
             <Pressable onPress={() => setLightsOpen(false)} style={styles.close}>
+              <Text style={styles.closeText}>Schliessen</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={openOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setOpenOpen(false)}
+      >
+        <Pressable style={styles.backdrop} onPress={() => setOpenOpen(false)}>
+          <Pressable style={styles.sheet} onPress={() => {}}>
+            <Text style={styles.heading}>
+              {offen.length === 1 ? 'Ein Fenster/eine Tür offen' : `${offen.length} offen`}
+            </Text>
+            <ScrollView style={{ maxHeight: 360 }}>
+              {offen.map((entity) => (
+                <View key={entity.id} style={styles.lightRow}>
+                  <Ionicons name="alert-circle-outline" size={18} color={colors.warn} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.lightName}>{entity.name}</Text>
+                    {entity.room ? (
+                      <Text style={styles.lightRoom}>{entity.room}</Text>
+                    ) : null}
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+            <Pressable onPress={() => setOpenOpen(false)} style={styles.close}>
               <Text style={styles.closeText}>Schliessen</Text>
             </Pressable>
           </Pressable>

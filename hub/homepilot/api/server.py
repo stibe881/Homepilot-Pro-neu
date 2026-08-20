@@ -52,6 +52,7 @@ from ..core import config_edit
 from ..core import confighistory
 from ..core import goodnight as goodnight_module
 from ..core import say
+from .. import qr as qr_module
 from ..core import guestpass
 from ..core import trash as trash_module
 from ..core.config_edit import add_cast_device
@@ -136,6 +137,13 @@ class GoodNightRequest(BaseModel):
 
     night_lights: list[str] = []
     arm_alarm: bool = False
+
+
+class TimerRequest(BaseModel):
+    """Ein Küchen-Timer: Minuten und was danach gesagt wird."""
+
+    minutes: float
+    text: str = ""
 
 
 class BroadcastRequest(BaseModel):
@@ -950,6 +958,56 @@ def create_app(hub: Hub) -> FastAPI:
             headers={"Cache-Control": "no-store"},
         )
 
+    # ── Küchen-Timer ───────────────────────────────────────────────────────
+
+    @app.get("/api/timers")
+    async def list_timers(request: Request) -> dict[str, Any]:
+        require(request, Capability.CONTROL)
+        return {"timers": hub.timers.list()}
+
+    @app.post("/api/timers")
+    async def start_timer(body: TimerRequest, request: Request) -> dict[str, Any]:
+        """Der Eierwecker, den man nie suchen muss: Nach Ablauf kommt eine
+        Push an alle und - wo Boxen stehen - eine Durchsage."""
+        user = require(request, Capability.CONTROL)
+        say.remember_base(hub, str(request.base_url))
+        try:
+            entry = hub.timers.start(body.minutes, body.text, by=user.name)
+        except HomePilotError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+        return {"ok": True, "timer": entry, "timers": hub.timers.list()}
+
+    @app.delete("/api/timers/{timer_id}")
+    async def cancel_timer(timer_id: str, request: Request) -> dict[str, Any]:
+        require(request, Capability.CONTROL)
+        if not hub.timers.cancel(timer_id):
+            raise HTTPException(status_code=404, detail="Diesen Timer gibt es nicht (mehr).")
+        return {"ok": True, "timers": hub.timers.list()}
+
+    # ── Gäste-WLAN ─────────────────────────────────────────────────────────
+
+    @app.get("/api/wifi")
+    async def guest_wifi(request: Request) -> dict[str, Any]:
+        """Der Gäste-WLAN-Zugang als QR-Inhalt - für die Benutzerverwaltung.
+
+        Kommt aus der config.yaml (guest_wifi) und ist bewusst für alle
+        Angemeldeten sichtbar: Wer das WLAN zeigt, zeigt es einem Gast.
+        """
+        require(request, Capability.CONTROL)
+        wifi = hub.config.guest_wifi or {}
+        ssid = str(wifi.get("ssid") or "")
+        password = str(wifi.get("password") or "")
+        if not ssid or not password:
+            raise HTTPException(
+                status_code=404,
+                detail="Kein Gäste-WLAN hinterlegt (guest_wifi in der config.yaml).",
+            )
+        return {
+            "ssid": ssid,
+            "password": password,
+            "payload": qr_module.wifi_payload(ssid, password, bool(wifi.get("hidden"))),
+        }
+
     @app.get("/api/system/changes")
     async def system_changes(request: Request) -> dict[str, Any]:
         """Was dieses Update mitbrachte - für die «Was ist neu»-Karte.
@@ -1013,7 +1071,7 @@ def create_app(hub: Hub) -> FastAPI:
     async def list_backups(request: Request) -> dict[str, Any]:
         """Vorhandene Sicherungen der App-Daten (jüngste zuerst)."""
         require(request, Capability.EDIT_CONFIG)
-        return {"backups": hub.data.backups()}
+        return {"backups": hub.data.backups(), "offsite": hub.offsite}
 
     @app.post("/api/system/backup")
     async def make_backup(request: Request) -> dict[str, Any]:

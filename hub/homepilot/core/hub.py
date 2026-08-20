@@ -17,6 +17,7 @@ from .events import EventBus
 from .integration import IntegrationManager
 from .audit import AuditLog
 from .eventlog import EventLog
+from .timers import KitchenTimers
 from .guestpass import PassStore
 from .sessions import SessionStore
 from .logbuffer import install as install_log_buffer
@@ -63,6 +64,10 @@ class Hub:
         self.bus.subscribe("state_changed", self.eventlog.record)
         # Einmal-Links für die Türe – nur im Speicher, siehe guestpass.py.
         self.passes = PassStore()
+        # Küchen-Timer (siehe timers.py) - nur im Speicher.
+        self.timers = KitchenTimers(self)
+        # Stand der Off-Site-Sicherung nach Supabase, für den System-Screen.
+        self.offsite: dict[str, Any] | None = None
         self.users = parse_users(config.users, config.api.token)
         # In der App angelegte Benutzer und Automationen liegen neben der
         # Konfiguration, damit sie ohne Datenbank einen Neustart überleben.
@@ -161,11 +166,37 @@ class Hub:
             while True:
                 age = self.data.last_backup_age()
                 if age is None or age >= 86_400:
-                    self.data.backup()
+                    made = self.data.backup()
+                    if made:
+                        await self._offsite_backup(made["name"])
                 await self._remind_due_tasks()
                 await asyncio.sleep(86_400)
         except asyncio.CancelledError:
             raise
+
+    async def _offsite_backup(self, name: str) -> None:
+        """Die frische Sicherung zusätzlich in den Supabase-Bucket legen.
+
+        Lokale Sicherungen liegen auf derselben Platte wie das Original -
+        gegen einen Plattenschaden hilft nur die Kopie woanders. Jeder
+        Fehler landet im Status (System → Sicherung), nie im Weg der
+        lokalen Sicherung.
+        """
+        supabase = self.config.supabase or {}
+        bucket = str(supabase.get("backup_bucket", "backups") or "")
+        url, key = supabase.get("url"), supabase.get("service_key")
+        if not (bucket and url and key):
+            return
+        from . import offsite
+
+        try:
+            payload = self.data.backup_bytes(name)
+            await offsite.upload(str(url), str(key), bucket, name, payload)
+            await offsite.prune(str(url), str(key), bucket)
+            self.offsite = {"ok": True, "at": time.time(), "name": name, "error": None}
+        except Exception as err:
+            self.offsite = {"ok": False, "at": time.time(), "name": name, "error": str(err)}
+            log.warning("Off-Site-Sicherung fehlgeschlagen: %s", err)
 
     async def _remind_due_tasks(self) -> None:
         """Schickt einmal am Tag eine Push für heute fällige Familien-Aufgaben.
@@ -423,6 +454,7 @@ class Hub:
                 pass
         await self.streams.stop_all()
         await self.watchdog.stop()
+        await self.timers.stop()
         await self.automations.stop()
         await self.integrations.teardown_all()
         if self.store:

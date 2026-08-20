@@ -333,6 +333,12 @@ function LogCard({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [offsite, setOffsite] = useState<{
+    ok: boolean;
+    at: number;
+    name: string;
+    error?: string | null;
+  } | null>(null);
 
   const load = async () => {
     setBusy(true);
@@ -870,6 +876,12 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [note, setNote] = useState<string | null>(null);
+  const [offsite, setOffsite] = useState<{
+    ok: boolean;
+    at: number;
+    name: string;
+    error?: string | null;
+  } | null>(null);
   const [noteError, setNoteError] = useState(false);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<UpdateStatus | null>(null);
@@ -1315,11 +1327,20 @@ function BackupCard({
   const [listOpen, setListOpen] = useState(false);
   const [confirmRestore, setConfirmRestore] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [offsite, setOffsite] = useState<{
+    ok: boolean;
+    at: number;
+    name: string;
+    error?: string | null;
+  } | null>(null);
 
   const load = useCallback(() => {
     fetch(`${settings.url}/api/system/backups`, { headers })
       .then((response) => (response.ok ? response.json() : { backups: [] }))
-      .then((data) => setBackups(data.backups ?? []))
+      .then((data) => {
+        setBackups(data.backups ?? []);
+        setOffsite(data.offsite ?? null);
+      })
       .catch(() => setBackups([]));
   }, [settings.url, settings.token]);
 
@@ -1470,6 +1491,23 @@ function BackupCard({
       {note ? (
         <Text style={styles.rowDetail} selectable>
           {note}
+        </Text>
+      ) : null}
+      {offsite ? (
+        <Text
+          style={[styles.rowDetail, !offsite.ok && { color: colors.warn }]}
+          selectable
+        >
+          {offsite.ok
+            ? `Off-Site-Kopie in Supabase: zuletzt ${new Date(
+                offsite.at * 1000
+              ).toLocaleString('de-CH', {
+                day: '2-digit',
+                month: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}`
+            : `Off-Site-Kopie fehlgeschlagen: ${offsite.error ?? 'unbekannt'}`}
         </Text>
       ) : null}
       <Text style={styles.hint}>

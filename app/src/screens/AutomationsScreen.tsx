@@ -535,6 +535,28 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
         ],
       },
     });
+    if (entities.some((entity) => entity.commands.includes('play_url'))) {
+      // Wer die Klingel im Garten oder mit Kopfhörern verpasst, hört
+      // sie über die Boxen trotzdem.
+      templates.push({
+        label: 'Klingel-Ansage auf den Boxen',
+        icon: 'megaphone-outline',
+        draft: {
+          ...EMPTY,
+          alias: 'Klingel auf die Lautsprecher',
+          triggers: [
+            { ...EMPTY_TRIGGER, entityId: doorbell.id, attribute: 'ring', toState: 'on' },
+          ],
+          steps: [
+            {
+              ...EMPTY_STEP,
+              kind: 'broadcast' as StepKind,
+              broadcastText: 'Es hat geklingelt!',
+            },
+          ],
+        },
+      });
+    }
   }
   if (appliance) {
     templates.push({

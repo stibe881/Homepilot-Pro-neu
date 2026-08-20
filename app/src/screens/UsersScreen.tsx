@@ -6,7 +6,7 @@ import QRCode from 'react-native-qrcode-svg';
 import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
 import { DoorPass } from '../components/DoorPass';
-import { Colors, radius, space, useColors } from '../theme';
+import { Colors, radius, space, type, useColors } from '../theme';
 
 /**
  * Benutzerverwaltung: Wer hat Zugang zum Haus, mit welcher Rolle?
@@ -412,6 +412,8 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
 
       <DoorPass settings={settings} headers={headers} entities={entities} />
 
+      <GuestWifiCard settings={settings} headers={headers} />
+
       {/* Detail: QR-Code, Sperren, Bereiche, Löschen */}
       <Modal
         visible={detail !== null}
@@ -705,10 +707,77 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
   );
 }
 
+/** Gäste-WLAN als QR-Code - Besuch scannt mit der Kamera, fertig.
+
+    Kommt aus der config.yaml (guest_wifi). Ohne Eintrag erscheint die
+    Karte gar nicht - besser keine Karte als eine leere. */
+function GuestWifiCard({
+  settings,
+  headers,
+}: {
+  settings: HubSettings;
+  headers: Record<string, string>;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [wifi, setWifi] = useState<{ ssid: string; password: string; payload: string } | null>(
+    null
+  );
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    fetch(`${settings.url}/api/wifi`, { headers })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (data?.payload) setWifi(data);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.url, settings.token]);
+
+  if (!wifi) return null;
+
+  return (
+    <Card style={styles.card}>
+      <Pressable
+        onPress={() => setOpen((value) => !value)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+      >
+        <Ionicons name="wifi-outline" size={18} color={colors.inkSoft} />
+        <Text style={[styles.cardTitle, { flex: 1 }]}>Gäste-WLAN</Text>
+        <Ionicons
+          name={open ? 'chevron-up' : 'chevron-down'}
+          size={18}
+          color={colors.inkSoft}
+        />
+      </Pressable>
+      {open ? (
+        <>
+          <View style={styles.qrBox}>
+            <QRCode value={wifi.payload} size={190} backgroundColor="#FFFFFF" />
+          </View>
+          <Text style={styles.qrHint}>
+            {wifi.ssid} · Passwort: {wifi.password}
+          </Text>
+          <Text style={styles.qrHint}>
+            Mit der Telefon-Kamera scannen - das WLAN verbindet sich von
+            selbst. Passt zur Einmal-Türöffnung: Besuch bekommt Tür und
+            WLAN aus derselben Karte.
+          </Text>
+        </>
+      ) : null}
+    </Card>
+  );
+}
+
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     stack: { gap: space.gap },
     title: { color: colors.onGradient, fontSize: 18, fontWeight: '700' },
+    cardTitle: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
+    card: { minHeight: 0, gap: 10 },
     intro: { color: colors.onGradientSoft, fontSize: 13, lineHeight: 19, maxWidth: 520 },
     note: { color: colors.inkSoft, fontSize: 14 },
     error: { color: colors.danger, fontSize: 13, fontWeight: '600' },
