@@ -47,6 +47,8 @@ from ..core import throttle as throttle_module
 from ..core import watchdog
 from ..core import notifyrules
 from ..core import replace as replace_module
+from ..core import maintenance
+from ..core import suggest
 from ..core import users as users_module
 from ..core import automation as automation_module
 from ..core import config_edit
@@ -3017,6 +3019,102 @@ def create_app(hub: Hub) -> FastAPI:
             content=text + " Dieser Link gilt jetzt nicht mehr.\n",
             media_type="text/plain; charset=utf-8",
         )
+
+    @app.get("/api/suggestions/scene")
+    async def scene_suggestion(request: Request) -> dict[str, Any]:
+        """Eine erkannte Gewohnheit - oder nichts.
+
+        Nichts ist der Normalfall und keine Fehlermeldung: Die meisten
+        Haushalte haben keine so klare Gewohnheit, und dann soll auch
+        nichts vorgeschlagen werden.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        muster = suggest.find_pattern(hub.eventlog.all())
+        if muster is None:
+            return {"suggestion": None}
+        namen = {
+            entity.id: entity.name
+            for entity in hub.registry.all()
+            if entity.id in muster["entity_ids"]
+        }
+        # Geräte, die es nicht mehr gibt, fallen raus - ein Vorschlag mit
+        # einer toten Kennung liesse sich nicht speichern.
+        muster["entity_ids"] = [
+            gerät for gerät in muster["entity_ids"] if gerät in namen
+        ]
+        if len(muster["entity_ids"]) < suggest.MIN_ENTITIES:
+            return {"suggestion": None}
+        return {
+            "suggestion": {
+                **muster,
+                "text": suggest.describe(muster, namen),
+                "names": [namen[gerät] for gerät in muster["entity_ids"]],
+            }
+        }
+
+    class MaintenanceRequest(BaseModel):
+        """Eine Wartung: was, wie oft, ab wann."""
+
+        text: str
+        interval_days: int = 90
+        due: str | None = None
+
+    @app.get("/api/maintenance")
+    async def list_maintenance(request: Request) -> dict[str, Any]:
+        current_user(request)
+        rows = hub.data.get("maintenance")
+        return {
+            "items": rows,
+            "due": maintenance.due_items(rows),
+        }
+
+    @app.post("/api/maintenance")
+    async def add_maintenance(
+        body: MaintenanceRequest, request: Request
+    ) -> dict[str, Any]:
+        require(request, Capability.EDIT_CONFIG)
+        import secrets
+
+        name = body.text.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Die Wartung braucht einen Namen")
+        intervall = maintenance.clean_interval(body.interval_days)
+        item = {
+            "id": secrets.token_urlsafe(6),
+            "text": name,
+            "interval_days": intervall,
+            # Ohne Angabe beginnt die Frist heute - wer eine Wartung
+            # einträgt, hat sie meistens gerade gemacht.
+            "due": body.due or maintenance.next_after(None, intervall),
+            "last_done": None,
+        }
+        hub.data.set("maintenance", [*hub.data.get("maintenance"), item])
+        return item
+
+    @app.post("/api/maintenance/{item_id}/done")
+    async def maintenance_done(item_id: str, request: Request) -> dict[str, Any]:
+        """Quittieren: die nächste Frist zählt ab heute."""
+        user = require(request, Capability.EDIT_CONFIG)
+        rows = hub.data.get("maintenance")
+        for row in rows:
+            if row.get("id") == item_id:
+                heute = datetime.now().date().isoformat()
+                row["last_done"] = heute
+                row["due"] = maintenance.next_after(heute, row.get("interval_days"))
+                hub.data.set("maintenance", rows)
+                log.info("%s hat '%s' quittiert", user.name, row.get("text"))
+                return row
+        raise HTTPException(status_code=404, detail="Wartung nicht gefunden")
+
+    @app.delete("/api/maintenance/{item_id}")
+    async def delete_maintenance(item_id: str, request: Request) -> dict[str, Any]:
+        require(request, Capability.EDIT_CONFIG)
+        rows = hub.data.get("maintenance")
+        rest = [row for row in rows if row.get("id") != item_id]
+        if len(rest) == len(rows):
+            raise HTTPException(status_code=404, detail="Wartung nicht gefunden")
+        hub.data.set("maintenance", rest)
+        return {"ok": True}
 
     @app.post("/api/entities/{old_id}/replace/{new_id}")
     async def replace_entity(

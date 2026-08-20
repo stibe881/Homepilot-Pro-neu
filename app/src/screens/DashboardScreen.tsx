@@ -57,6 +57,7 @@ import { KitchenTimer } from '../components/KitchenTimer';
 import { WhatsNew } from '../components/WhatsNew';
 import { LightGroups } from '../components/LightGroups';
 import { DeviceTools } from '../components/DeviceTools';
+import { SceneSuggestion } from '../components/SceneSuggestion';
 import { UsersScreen } from './UsersScreen';
 import { confirm as confirmBiometrie, needsCheck } from '../lib/biometrie';
 import { BioLock } from '../components/BioLock';
@@ -894,6 +895,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       return (
         <View style={styles.stack}>
           {back}
+          {/* Was der Hub im Verlauf gesehen hat - als Angebot, nicht als
+              Tat. Hier oben, weil man beim Öffnen der Abläufe ohnehin
+              über Automatisieren nachdenkt. */}
+          <SceneSuggestion settings={settings} onCreated={reloadScenes} />
           <AutomationsScreen
             settings={settings}
             user={user}

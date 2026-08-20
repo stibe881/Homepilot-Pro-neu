@@ -7,6 +7,7 @@ import { PushState, pushHint } from '../hooks/usePushRegistration';
 import { AccessLog } from '../components/AccessLog';
 import { Card } from '../components/Card';
 import { DeviceHealth } from '../components/DeviceHealth';
+import { Maintenance } from '../components/Maintenance';
 import { localTime, timeAgo } from '../lib/zeit';
 import { Colors, radius, space, type, useColors } from '../theme';
 
@@ -158,6 +159,7 @@ export function SystemScreen({
         ) : null}
       </Card>
 
+      <Maintenance settings={settings} />
       <DeviceHealth entities={entities} />
 
       <IntegrationsCard integrations={status.integrations} />

@@ -78,6 +78,15 @@ class EventLog:
             }
         )
 
+    def all(self) -> list[dict[str, Any]]:
+        """Alle gemerkten Ereignisse, älteste zuerst.
+
+        Für die Musterkennung (core/suggest.py). Der Ring hält rund 2000
+        Ereignisse und überlebt keinen Neustart - was hier steht, ist die
+        jüngere Vergangenheit, nicht das Archiv.
+        """
+        return list(self._events)
+
     def for_entity(self, entity_id: str, limit: int = 50) -> list[dict[str, Any]]:
         """Die letzten Ereignisse eines Geräts, jüngste zuerst."""
         found = [

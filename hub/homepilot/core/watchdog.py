@@ -28,7 +28,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from . import energy, notifyrules
+from . import energy, maintenance, notifyrules
 
 if TYPE_CHECKING:
     from .hub import Hub
@@ -212,6 +212,7 @@ class Watchdog:
         self._energy_written: float = 0.0
         self._energy_last: float = 0.0
         # Für welchen Tag zuletzt vor Frost gewarnt wurde.
+        self._maintenance_day: str | None = None
         self._frost_day: str | None = None
         # Wann zuletzt vor knappem Speicherplatz gewarnt wurde.
         self._disk_warned: float = 0.0
@@ -271,6 +272,7 @@ class Watchdog:
         self._record_energy(entities)
         await self._check_disk()
         await self._check_frost(entities)
+        await self._check_maintenance()
         down = down_integrations(entities)
 
         # Strikes hochzählen bzw. zurücksetzen.
@@ -332,6 +334,33 @@ class Watchdog:
             f"Heute Nacht sinkt es auf {frost['low']} °C. "
             "Empfindliche Pflanzen vom Balkon holen.",
             category="frost",
+        )
+
+    async def _check_maintenance(self) -> None:
+        """Einmal täglich an fällige Wartungen erinnern.
+
+        Morgens um neun und nicht abends: Einen Filter bestellt man
+        tagsüber. Und nur einmal je Tag - eine Erinnerung, die jede Minute
+        wiederkommt, schaltet man ab, und dann fehlt sie, wenn es darauf
+        ankommt.
+        """
+        jetzt = datetime.now()
+        if jetzt.hour != 9:
+            return
+        heute = jetzt.strftime("%Y-%m-%d")
+        if self._maintenance_day == heute:
+            return
+        faellig = maintenance.due_items(self.hub.data.get("maintenance"))
+        if not faellig:
+            # Den Tag trotzdem merken: Sonst prüft er die ganze Stunde
+            # lang jede Minute erneut.
+            self._maintenance_day = heute
+            return
+        self._maintenance_day = heute
+        await self._notify(
+            "Wartung steht an",
+            "\n".join(maintenance.describe(row) for row in faellig[:5]),
+            category="maintenance",
         )
 
     async def _check_disk(self) -> None:
