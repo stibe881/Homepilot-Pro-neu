@@ -412,7 +412,11 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
 
       <DoorPass settings={settings} headers={headers} entities={entities} />
 
-      <GuestWifiCard settings={settings} headers={headers} />
+      <GuestWifiCard
+        settings={settings}
+        headers={headers}
+        canConfigure={currentUser?.role === 'besitzer'}
+      />
 
       {/* Detail: QR-Code, Sperren, Bereiche, Löschen */}
       <Modal
@@ -714,9 +718,13 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
 function GuestWifiCard({
   settings,
   headers,
+  canConfigure = false,
 }: {
   settings: HubSettings;
   headers: Record<string, string>;
+  /** Nur wer die Konfiguration ändern darf, bekommt den Einrichtungshinweis
+   *  zu sehen - für Gäste wäre er eine Anleitung ins Nichts. */
+  canConfigure?: boolean;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -813,7 +821,31 @@ function GuestWifiCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, vouchers == null]);
 
-  if (!wifi && (vouchers == null || vouchers.length === 0)) return null;
+  // Nichts eingerichtet: Für die Besitzerin bzw. den Besitzer steht hier,
+  // was fehlt - für alle anderen bleibt die Karte weg. Sich stumm
+  // auszublenden war die schlechtere Hälfte davon: Man sucht dann eine
+  // Karte, die es gibt, und findet keinen Hinweis, woran es liegt.
+  if (!wifi && (vouchers == null || vouchers.length === 0)) {
+    if (!canConfigure) return null;
+    return (
+      <Card style={styles.card}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Ionicons name="wifi-outline" size={18} color={colors.inkSoft} />
+          <Text style={[styles.cardTitle, { flex: 1 }]}>Gäste-WLAN</Text>
+        </View>
+        <Text style={styles.formHint}>
+          Noch nicht eingerichtet. In der config.yaml des Hubs fehlt der
+          Abschnitt «guest_wifi» - mit ihm zeigt diese Karte einen QR-Code
+          zum Anmelden. Läuft das Gäste-Netz über ein Captive Portal,
+          genügt der Netzname; das Netz selbst ist ja offen.
+        </Text>
+        <Text style={styles.formHint}>
+          Für Gutscheine kommt die UniFi-Integration dazu: Der Hub stellt
+          sie dann selbst aus, und niemand muss dafür in den Controller.
+        </Text>
+      </Card>
+    );
+  }
 
   return (
     <Card style={styles.card}>
