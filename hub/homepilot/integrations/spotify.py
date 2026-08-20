@@ -128,6 +128,23 @@ def pick_device(
     return next(iter(device_ids.values()), None)
 
 
+def album_image(images: list[dict[str, Any]]) -> str | None:
+    """Die passende Cover-Grösse für eine Kachel (rein, testbar).
+
+    Bevorzugt wird das kleinste Bild ab 200 Pixel Breite; gibt es nur
+    kleinere, das grösste davon - Hauptsache, es gibt überhaupt eines.
+    """
+    with_url = [img for img in images if img.get("url")]
+    if not with_url:
+        return None
+    big_enough = [img for img in with_url if (img.get("width") or 0) >= 200]
+    if big_enough:
+        chosen = min(big_enough, key=lambda img: img.get("width") or 0)
+    else:
+        chosen = max(with_url, key=lambda img: img.get("width") or 0)
+    return str(chosen["url"])
+
+
 def parse_playback(payload: dict[str, Any] | None) -> dict[str, Any]:
     """Übersetzt /me/player in Entitäts-Attribute.
 
@@ -139,6 +156,7 @@ def parse_playback(payload: dict[str, Any] | None) -> dict[str, Any]:
             "state": "idle",
             "track": None,
             "artist": None,
+            "image": None,
             "device": None,
             "context_uri": None,
             "shuffle": False,
@@ -153,6 +171,9 @@ def parse_playback(payload: dict[str, Any] | None) -> dict[str, Any]:
         "state": "playing" if payload.get("is_playing") else "paused",
         "track": item.get("name"),
         "artist": artists or None,
+        # Albumcover für die Player-Karte. Spotify liefert mehrere Grössen,
+        # gross zuerst - die mittlere reicht für eine Kachel und spart Daten.
+        "image": album_image((item.get("album") or {}).get("images") or []),
         "device": device.get("name"),
         # Woraus gerade gespielt wird. Spotify nennt hier nur die URI –
         # den Namen kennt erst, wer die Playlists des Kontos hat.

@@ -174,15 +174,26 @@ export function EntityCard({
         const hasRemote = entity.commands.includes('dpad_up');
         return (
           <View style={styles.stack}>
-            <Text style={styles.value} numberOfLines={1}>
-              {entity.state.track ?? 'Nichts läuft'}
-            </Text>
-            {entity.state.artist ? (
-              <Text style={styles.hint} numberOfLines={1}>
-                {entity.state.artist}
-                {entity.state.device ? ` · ${entity.state.device}` : ''}
-              </Text>
-            ) : null}
+            <View style={styles.nowPlayingRow}>
+              {entity.state.image ? (
+                <Image
+                  source={{ uri: String(entity.state.image) }}
+                  style={styles.coverArt}
+                  accessibilityIgnoresInvertColors
+                />
+              ) : null}
+              <View style={{ flex: 1 }}>
+                <Text style={styles.value} numberOfLines={2}>
+                  {entity.state.track ?? 'Nichts läuft'}
+                </Text>
+                {entity.state.artist ? (
+                  <Text style={styles.hint} numberOfLines={1}>
+                    {entity.state.artist}
+                    {entity.state.device ? ` · ${entity.state.device}` : ''}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
             {entity.commands.includes('next') ? (
               <View style={styles.mediaRow}>
                 <MediaButton icon="play-skip-back" label="Zurück"
@@ -2000,6 +2011,13 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
   body: { gap: 8 },
   stack: { gap: 8 },
+  nowPlayingRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  coverArt: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.control,
+    backgroundColor: colors.surfaceSoft,
+  },
   editBox: { gap: 8 },
   editChips: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
   editButtons: {

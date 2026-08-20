@@ -77,6 +77,7 @@ def cast_media_state(
     app: str | None,
     volume: float | None,
     muted: bool | None = None,
+    image: str | None = None,
 ) -> dict[str, Any]:
     """Übersetzt Cast-Status in Entitäts-Attribute (rein, testbar)."""
     if player_state == "PLAYING":
@@ -89,6 +90,8 @@ def cast_media_state(
         "state": state,
         "track": title or None,
         "artist": artist or None,
+        # Cover des laufenden Titels, sofern die sendende App eines mitgibt.
+        "image": image or None,
         "app": app if app and app != "Backdrop" else None,
     }
     if volume is not None:
@@ -296,6 +299,12 @@ class GoogleCastIntegration(Integration):
     async def _push_state(self, entity_id: str, cast: Any) -> None:
         media = getattr(cast.media_controller, "status", None)
         status = getattr(cast, "status", None)
+        # pychromecast liefert Cover als Liste von MediaImage(url, …).
+        images = getattr(media, "images", None) or []
+        image = next(
+            (getattr(img, "url", None) for img in images if getattr(img, "url", None)),
+            None,
+        )
         await self.hub.registry.update_state(
             entity_id,
             cast_media_state(
@@ -305,6 +314,7 @@ class GoogleCastIntegration(Integration):
                 getattr(status, "display_name", None),
                 getattr(status, "volume_level", None),
                 getattr(status, "volume_muted", None),
+                image=image,
             ),
             available=True,
         )

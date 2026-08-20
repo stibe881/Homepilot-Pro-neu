@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Activity, Entity } from '../api/types';
 import { Colors, radius, type, useColors } from '../theme';
@@ -83,10 +83,17 @@ export function SidePanel({
 /** Welcher Player gehört auf die Startseite? (rein, testbar)
  *
  * Spielt irgendwo Musik, ist es dieser; sonst Spotify mit Playlists und
- * Boxenwahl vor einer stillen Cast-Box. */
+ * Boxenwahl vor einer stillen Cast-Box. Spielen mehrere dasselbe (Spotify
+ * über eine Cast-Box: beide melden «playing»), gewinnt Spotify - nur dort
+ * gibt es Zufall, Wiederholen und den Sprung zurück. Mit der blossen Box
+ * fehlten diese Knöpfe ausgerechnet dann, wenn Musik lief. */
 export function pickPlayer(entities: Entity[]): Entity | undefined {
   const players = entities.filter((entity) => entity.kind === 'media_player');
   return (
+    players.find(
+      (entity) =>
+        entity.state.state === 'playing' && entity.commands.includes('play_playlist')
+    ) ??
     players.find((entity) => entity.state.state === 'playing') ??
     players.find((entity) => entity.commands.includes('play_playlist')) ??
     players[0]
@@ -186,16 +193,37 @@ function MediaPanel({
           })}
         </View>
       ) : null}
-      <Text style={styles.mediaTrack} numberOfLines={1}>
-        {entity.state.track ?? 'Nichts läuft'}
-      </Text>
-      {entity.state.artist ? (
-        <Text style={styles.mediaArtist} numberOfLines={1}>
-          {entity.state.artist}
-        </Text>
-      ) : null}
+      <View style={styles.nowPlayingRow}>
+        {entity.state.image ? (
+          <Image
+            source={{ uri: String(entity.state.image) }}
+            style={styles.coverArt}
+            accessibilityIgnoresInvertColors
+          />
+        ) : null}
+        <View style={styles.nowPlayingText}>
+          <Text style={styles.mediaTrack} numberOfLines={2}>
+            {entity.state.track ?? 'Nichts läuft'}
+          </Text>
+          {entity.state.artist ? (
+            <Text style={styles.mediaArtist} numberOfLines={1}>
+              {entity.state.artist}
+            </Text>
+          ) : null}
+        </View>
+      </View>
 
       <View style={styles.mediaButtons}>
+        {entity.commands.includes('previous') ? (
+          <Pressable
+            onPress={() => command('previous')}
+            accessibilityRole="button"
+            accessibilityLabel="Voriger Titel"
+            style={styles.playButton}
+          >
+            <Ionicons name="play-skip-back" size={18} color={colors.ink} />
+          </Pressable>
+        ) : null}
         <Pressable
           onPress={() => command(playing ? 'pause' : 'play')}
           accessibilityRole="button"
@@ -434,6 +462,14 @@ const makeStyles = (colors: Colors) =>
   },
   speakerChipText: { fontSize: 12, color: colors.inkSoft, flexShrink: 1 },
   speakerChipTextActive: { color: '#FFFFFF' },
+  nowPlayingRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  coverArt: {
+    width: 56,
+    height: 56,
+    borderRadius: radius.control,
+    backgroundColor: colors.surfaceSoft,
+  },
+  nowPlayingText: { flex: 1, gap: 2 },
   mediaTrack: { color: colors.ink, fontSize: 16, fontWeight: '600' },
   mediaArtist: { color: colors.inkSoft, fontSize: 13 },
   mediaButtons: { flexDirection: 'row', gap: 8, marginTop: 2 },

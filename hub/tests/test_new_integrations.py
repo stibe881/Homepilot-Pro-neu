@@ -157,6 +157,13 @@ def test_playback_playing():
             "item": {
                 "name": "Yesterday",
                 "artists": [{"name": "The Beatles"}],
+                "album": {
+                    "images": [
+                        {"url": "https://img.example/640.jpg", "width": 640},
+                        {"url": "https://img.example/300.jpg", "width": 300},
+                        {"url": "https://img.example/64.jpg", "width": 64},
+                    ]
+                },
             },
             "device": {"name": "Wohnzimmer"},
         }
@@ -165,6 +172,9 @@ def test_playback_playing():
         "state": "playing",
         "track": "Yesterday",
         "artist": "The Beatles",
+        # Die mittlere Cover-Grösse: gross genug für die Kachel, klein
+        # genug fürs Datenvolumen.
+        "image": "https://img.example/300.jpg",
         "device": "Wohnzimmer",
         # Ohne «context» in der Antwort läuft der Song einzeln, nicht aus
         # einer Playlist.
@@ -173,6 +183,20 @@ def test_playback_playing():
         "shuffle": False,
         "repeat": "off",
     }
+
+
+def test_album_image_picks_a_sensible_size():
+    from homepilot.integrations.spotify import album_image
+
+    # Ohne Bilder gibt es kein Cover - und keinen Fehler.
+    assert album_image([]) is None
+    assert album_image([{"width": 300}]) is None  # Eintrag ohne URL
+    # Nur winzige Bilder: dann eben das grösste davon.
+    assert (
+        album_image([{"url": "a", "width": 64}, {"url": "b", "width": 160}]) == "b"
+    )
+    # Spotify ohne Grössenangabe: Hauptsache, es gibt überhaupt eines.
+    assert album_image([{"url": "a"}]) == "a"
 
 
 def test_playback_multiple_artists():
@@ -435,9 +459,19 @@ def test_cast_state_playing():
         "state": "playing",
         "track": "Yesterday",
         "artist": "The Beatles",
+        "image": None,
         "app": "Spotify",
         "volume": 45,
     }
+
+
+def test_cast_passes_cover_art_through():
+    from homepilot.integrations.google_cast import cast_media_state
+
+    state = cast_media_state(
+        "PLAYING", "X", None, "Spotify", 0.5, image="https://img.example/cover.jpg"
+    )
+    assert state["image"] == "https://img.example/cover.jpg"
 
 
 def test_cast_backdrop_counts_as_idle_app():
