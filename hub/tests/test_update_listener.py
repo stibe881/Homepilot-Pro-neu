@@ -92,3 +92,22 @@ def test_the_token_itself_never_leaves_the_host(monkeypatch, credentials):
     listener = load_listener(monkeypatch, credentials, None)
     assert listener.has_expo_token() is True
     assert "streng-geheim" not in str(listener.FEATURES)
+
+
+def test_a_second_build_is_refused_out_loud(monkeypatch, credentials):
+    """Der Kern des Ärgers: Läuft schon ein Bau, wurde der zweite Aufruf
+    verworfen - beantwortet aber mit «Bau gestartet». Wer während der
+    Wartezeit auf Portainer nochmals drückte, sah eine Bestätigung und
+    bekam nichts. Die Sperre hält jetzt der Aufrufer, damit er es sagen
+    kann."""
+    listener = load_listener(monkeypatch, credentials, None)
+    assert listener._running.acquire(blocking=False) is True
+    try:
+        # Solange gebaut wird, ist die Sperre belegt - genau daran erkennt
+        # do_POST, dass es 409 statt 202 antworten muss.
+        assert listener._running.acquire(blocking=False) is False
+    finally:
+        listener._running.release()
+    # Danach ist wieder frei.
+    assert listener._running.acquire(blocking=False) is True
+    listener._running.release()

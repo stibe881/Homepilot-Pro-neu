@@ -772,6 +772,20 @@ def create_app(hub: Hub) -> FastAPI:
                                 "Ändern dort: systemctl restart homepilot-update."
                             ),
                         )
+                    if response.status == 409:
+                        # Der Dienst baut schon. Früher hat er trotzdem
+                        # «Bau gestartet» geantwortet - wer während der
+                        # Wartezeit auf Portainer nochmals drückte, bekam
+                        # eine Bestätigung und nichts weiter.
+                        raise HTTPException(
+                            status_code=409,
+                            detail=(
+                                "Es läuft bereits ein Update. Dieser Wunsch "
+                                "wurde nicht übernommen - warte, bis der "
+                                "laufende Bau fertig ist, und drücke dann "
+                                "erneut. Der Fortschritt steht oben."
+                            ),
+                        )
                     if response.status == 404 and wants_ios and is_listener:
                         # Die ältesten Fassungen des Listeners vergleichen
                         # den Pfad mitsamt Anhang - «/update?ios=1» passt

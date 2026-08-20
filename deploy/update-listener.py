@@ -186,10 +186,15 @@ def _handle_line(line: str) -> None:
 
 
 def build(ios: bool = False) -> None:
-    """rebuild-hub.sh laufen lassen, Ausgabe live in den Status spiegeln."""
-    if not _running.acquire(blocking=False):
-        log.warning("Es läuft schon ein Bau – der zweite Aufruf wird verworfen")
-        return
+    """rebuild-hub.sh laufen lassen, Ausgabe live in den Status spiegeln.
+
+    Die Sperre hält bereits der Aufrufer (siehe do_POST) – so erfährt der,
+    ob überhaupt gebaut wird, und kann es beantworten. Früher wurde sie
+    hier geholt: Der zweite Aufruf bekam dann trotzdem «Bau gestartet» zu
+    hören, während er in Wahrheit im Papierkorb landete. Wer während der
+    Wartezeit auf Portainer noch einmal auf Update drückte, sah eine
+    Bestätigung und bekam nichts – dreimal hintereinander.
+    """
     _set_status(
         state="running",
         stage="clone",
@@ -236,11 +241,14 @@ def build(ios: bool = False) -> None:
     except Exception as err:
         _set_status(state="error", message=str(err))
         log.exception("Bau konnte nicht gestartet werden")
-        _running.release()
         return
     finally:
         if watchdog is not None:
             watchdog.cancel()
+        # Immer freigeben, auf jedem Weg hier hinaus. Bliebe die Sperre
+        # nach einem Fehler liegen, lehnte der Dienst jedes weitere Update
+        # ab, bis ihn jemand neu startet - und niemand wüsste, warum.
+        _running.release()
 
     with _status_lock:
         if timed_out:
@@ -262,7 +270,6 @@ def build(ios: bool = False) -> None:
         log.error("Bau fehlgeschlagen (Code %s)", returncode)
     else:
         log.info("Bau fertig")
-    _running.release()
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -302,8 +309,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # App-Store-Build ist kein Nebeneffekt.
         ios = "ios=1" in query
 
+        # Läuft schon einer, ist das keine Kleinigkeit zum Verschweigen:
+        # Der neue Wunsch (etwa «diesmal mit iOS-Build») geht dabei
+        # verloren, und wer nur eine Bestätigung sieht, wartet auf etwas,
+        # das nie kommt.
+        if not _running.acquire(blocking=False):
+            log.warning("Abgelehnt: es läuft bereits ein Bau")
+            self._answer(
+                409,
+                "Es läuft bereits ein Bau. Der Wunsch wurde NICHT "
+                "übernommen - bitte warten, bis der laufende fertig ist, "
+                "und danach erneut auslösen.\n",
+            )
+            return
+
         # Sofort antworten und im Hintergrund bauen: Der Bau dauert
-        # Minuten, jede offene Verbindung liefe in einen Timeout.
+        # Minuten, jede offene Verbindung liefe in einen Timeout. Die
+        # Sperre gibt der Bau selbst wieder frei.
         threading.Thread(target=build, kwargs={"ios": ios}, daemon=True).start()
         self._answer(202, "Bau gestartet (mit iOS-Build)\n" if ios else "Bau gestartet\n")
 
