@@ -327,15 +327,31 @@ FROM ${DEPS_IMAGE}
 RUN npm run build:web
 DOCKERFILE
   then
-    # Den alten Stand erst jetzt wegräumen, nicht vorher - schlägt der Bau
-    # fehl, bleibt die zuletzt funktionierende Fassung online.
-    find "$WEB_ROOT" -mindepth 1 -delete
+    # Erst danebenlegen, dann tauschen. Der Live-Ordner wird nur geleert,
+    # wenn eine vollständige neue Fassung bereitliegt - sonst stünde bei
+    # einem Abbruch mitten im Kopieren gar keine App mehr da, und der Hub
+    # liefert ohne index.html beim nächsten Start nur noch die
+    # Schnittstelle aus.
+    STAGING="${WEB_ROOT%/}.neu"
+    rm -rf "$STAGING"
+    mkdir -p "$STAGING"
     HILFS_ID=$(docker create "$WEB_IMAGE")
-    docker cp "$HILFS_ID:/app/dist/." "$WEB_ROOT/"
+    docker cp "$HILFS_ID:/app/dist/." "$STAGING/" || true
     docker rm -f "$HILFS_ID" >/dev/null 2>&1 || true
-    # Der Stempel, mit dem die App prüft, ob ihr Bundle zum Hub passt.
-    printf '{"commit":"%s"}\n' "$COMMIT" > "$WEB_ROOT/version.json"
-    echo "✓ Web-Fassung aktualisiert (Stand $COMMIT)."
+    if [ -f "$STAGING/index.html" ]; then
+      # Der Stempel, mit dem die App prüft, ob ihr Bundle zum Hub passt.
+      printf '{"commit":"%s"}\n' "$COMMIT" > "$STAGING/version.json"
+      # Den Ordner selbst behalten, nur seinen Inhalt tauschen: Er ist in
+      # den Container eingehängt, ein neuer Ordner wäre dort unsichtbar.
+      find "$WEB_ROOT" -mindepth 1 -delete
+      cp -r "$STAGING/." "$WEB_ROOT/"
+      rm -rf "$STAGING"
+      echo "✓ Web-Fassung aktualisiert (Stand $COMMIT)."
+    else
+      rm -rf "$STAGING"
+      echo "⚠ Der Web-Bau lieferte keine index.html - die bisherige Fassung"
+      echo "  bleibt online. Der Hub selbst wird trotzdem weitergebaut."
+    fi
   else
     echo "⚠ Web-Bau fehlgeschlagen - die bisherige Fassung bleibt online."
     echo "  Der Hub selbst wird trotzdem weitergebaut."
