@@ -187,11 +187,19 @@ einstellen, dass Befehle aus der Ferne einen Code brauchen. Dann in die
 
 **Umziehen von der alten Kachel.** Wer den Nuki schon über die
 `nuki`-Integration eingebunden hat, bekommt sonst zwei Kacheln für
-dieselbe Türe. Nach dem Koppeln in der App unter **Einstellungen →
-Geräte** das alte Gerät lange drücken → *Gerät ersetzen* → das neue
-`matter.…` wählen. Szenen, Abläufe, Favoriten und die Raumzuordnung
-wandern mit. Danach kann der `nuki`-Block aus der `config.yaml`
-verschwinden – samt `NUKI_TOKEN`.
+dieselbe Türe. In der App unter **Einstellungen → Geräte** steht oben die
+Karte *Werkzeuge* mit dem Knopf **Gerät ersetzen**: dort das alte wählen,
+dann das neue `matter.…`. Szenen, Abläufe, Favorit und Raumzuordnung
+wandern mit.
+
+Wichtig ist die Reihenfolge: Beide Integrationen müssen dabei in der
+`config.yaml` stehen, sonst gibt es kein altes Gerät mehr, von dem
+umzuziehen wäre. Erst danach den `nuki`-Block auskommentieren – samt
+`NUKI_TOKEN`.
+
+(Die Karte *Werkzeuge* zeigt sich nur der Besitzerrolle, und sie
+verschwindet, solange im Suchfeld darüber etwas steht oder der
+Anpassen-Modus läuft.)
 
 Ein Gerät kann übrigens beides gleichzeitig: In der Nuki-App bleibt das
 Schloss, wie es war, auch wenn es zusätzlich in unserer Matter-Fabric
