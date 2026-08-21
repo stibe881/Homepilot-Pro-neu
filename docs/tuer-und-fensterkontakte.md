@@ -109,6 +109,40 @@ ankommt, bevor man drüben abschaltet. Auf Dauer lohnt es sich, den Sensor
 in der alten Steuerung zu entfernen, sobald er hier zuverlässig läuft.
 Ein Blick auf den Batteriestand in der Kachel zeigt, ob es eilt.
 
+## Eine andere Steuerung ablösen
+
+Wer Matter-Geräte von Home Assistant (oder einer anderen Zentrale)
+hierher holt und die alte danach abschalten will, geht in dieser
+Reihenfolge vor. Die ersten beiden Schritte kosten nichts und ersparen
+einen Abend.
+
+**1. Wer trägt das Thread-Netz?** Das ist die Frage, an der der Umzug
+scheitern kann. Thread-Geräte hängen nicht an der Steuerung, sondern an
+einem Border-Router – und wenn der in der alten Zentrale steckt (etwa ein
+USB-Stick am Home-Assistant-Rechner), verschwindet mit ihr das Netz, und
+die Sensoren sind weg, obwohl sie hier sauber gekoppelt waren.
+
+In Home Assistant steht es unter *Einstellungen → Geräte & Dienste →
+Thread*: Dort sind die bekannten Netzwerke und ihre Border-Router
+aufgeführt. Steht dort ein Netz von Apple oder Google als bevorzugtes,
+läuft Thread über deren Geräte und übersteht die Abschaltung. Ist der
+Border-Router die alte Zentrale selbst, muss zuerst ein anderer her –
+HomePod mini, Apple TV 4K, Nest Hub 2 – und die Geräte müssen in dessen
+Netz.
+
+**2. Hierher koppeln** (siehe oben, über den geteilten Code) und ein paar
+Tage laufen lassen. Nicht aus Vorsicht allein: Ein Sensor, der nur alle
+paar Stunden meldet, zeigt sich erst mit der Zeit.
+
+**3. In der alten Zentrale das Gerät löschen** – ausdrücklich löschen,
+nicht bloss die Zentrale abschalten. Beim Löschen verlässt sie die Fabric
+auf dem Gerät. Wird sie einfach abgeschaltet, bleibt der Eintrag dort
+stehen: Das Gerät versucht weiter, eine Steuerung zu erreichen, die es
+nicht mehr gibt, und das kostet Batterie und einen der wenigen
+Fabric-Plätze.
+
+**4. Erst dann abschalten.**
+
 ## 4. Benennen und einsortieren
 
 Der Sensor meldet sich mit dem Namen, der in der koppelnden App steht –
