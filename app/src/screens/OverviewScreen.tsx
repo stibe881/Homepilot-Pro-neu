@@ -109,9 +109,29 @@ export function OverviewScreen({
 
   // ── Echte Geräte, wo vorhanden ─────────────────────────────────────────
   const frontDoor = pick(entities, 'lock', undefined, 'ring');
+  // Die Wohnungstüre ist das Schloss, das sich auf- und abschliessen
+  // lässt - unabhängig davon, wie es angebunden ist. Vorher stand hier
+  // der Herstellername, im Muster wie in der Integration: Dasselbe Nuki
+  // über Matter fiel damit heraus, und die Kachel zeigte wieder die
+  // Demo, obwohl das Schloss danebenstand.
+  //
+  // Der Name hat trotzdem Vorrang: Wer eines «Wohnungstüre» nennt, meint
+  // dieses. Sonst das erste echte Schloss - «echt» heisst, es kann
+  // abschliessen; ein blosser Türöffner wie die Gegensprechanlage kann
+  // das nicht und ist oben schon die Haustüre.
   const flatDoor =
-    pick(entities, 'lock', /nuki|wohnung/i) ??
-    entities.find((e) => e.integration === 'nuki' && e.kind === 'lock');
+    entities.find(
+      (entity) =>
+        entity.kind === 'lock' &&
+        entity.id !== frontDoor?.id &&
+        /wohnung|haustür|wohnungstür/i.test(entity.name)
+    ) ??
+    entities.find(
+      (entity) =>
+        entity.kind === 'lock' &&
+        entity.id !== frontDoor?.id &&
+        entity.commands.includes('lock')
+    );
   const vacuum = pick(entities, 'vacuum');
   const dishwasher = pick(entities, 'appliance', /geschirr/i);
   const washer = pick(entities, 'appliance', /wasch/i);
@@ -295,7 +315,23 @@ export function OverviewScreen({
           />
         </Tile>
 
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="key-outline" title="Wohnungstüre" demo={!flatDoor}>
+        {/* Beide Kacheln färben sich, statt es nur danebenzuschreiben:
+            Eine offene Wohnungstüre und eine scharfe Alarmanlage sind
+            Zustände, die man im Vorbeigehen sehen soll - dieselbe Farbe
+            wie auf der Gerätekachel. */}
+        <Tile
+          styles={styles}
+          colors={colors}
+          width={tileWidth}
+          icon="key-outline"
+          title="Wohnungstüre"
+          demo={!flatDoor}
+          tint={
+            (flatDoor ? String(flatDoor.state.state) !== 'locked' : !demoFlatLocked)
+              ? colors.dangerSoft
+              : undefined
+          }
+        >
           <Text style={styles.tileState}>
             {flatDoor
               ? String(flatDoor.state.state) === 'locked'
@@ -335,7 +371,15 @@ export function OverviewScreen({
           </View>
         </Tile>
 
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="shield-checkmark-outline" title="Alarmanlage" demo={!alarm}>
+        <Tile
+          styles={styles}
+          colors={colors}
+          width={tileWidth}
+          icon="shield-checkmark-outline"
+          title="Alarmanlage"
+          demo={!alarm}
+          tint={alarmArmed ? colors.dangerSoft : undefined}
+        >
           <Text
             style={[
               styles.tileState,
@@ -711,6 +755,7 @@ function Tile({
   styles,
   colors,
   width,
+  tint,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
@@ -719,9 +764,11 @@ function Tile({
   styles: OverviewStyles;
   colors: Colors;
   width: '31.5%' | '48%' | '100%';
+  /** Hintergrund für Zustände, die man im Vorbeigehen sehen soll. */
+  tint?: string;
 }) {
   return (
-    <Card style={{ ...styles.tile, width }}>
+    <Card style={{ ...styles.tile, width }} tint={tint}>
       <View style={styles.tileHead}>
         <Ionicons name={icon} size={18} color={colors.inkSoft} />
         <Text style={styles.tileTitle} numberOfLines={1}>

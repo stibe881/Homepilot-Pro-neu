@@ -316,7 +316,13 @@ export function AlarmScreen({
   return (
     <View style={styles.list}>
       {/* Zustand und Bedienung */}
-      <Card style={styles.card}>
+      {/* Dieselbe Einfärbung wie bei der Wohnungstüre: Eine scharfe
+          Anlage ist ein Zustand, den man sehen soll, bevor man die Türe
+          aufmacht - nicht einer, den man liest. */}
+      <Card
+        style={styles.card}
+        tint={data.state.state !== 'unscharf' ? colors.dangerSoft : undefined}
+      >
         <View style={styles.stateHead}>
           <View style={[styles.lamp, { backgroundColor: look.color }]} />
           <View style={{ flex: 1 }}>
