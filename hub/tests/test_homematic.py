@@ -454,3 +454,88 @@ def test_illumination_becomes_a_measurable_value():
     assert lux_to_state("") == {}
     # Manche Fassungen liefern Zahlen als Text.
     assert lux_to_state("42") == {"illumination": 42.0}
+
+
+def test_duty_cycle_of_reads_only_usable_values():
+    """Der Sendespeicher – aber nur, wo die CCU wirklich einen liefert."""
+    from homepilot.integrations.homematic import duty_cycle_of
+
+    werte = duty_cycle_of(
+        [
+            {"ADDRESS": "OEQ1234567", "DUTY_CYCLE": 12, "CONNECTED": True},
+            {"ADDRESS": "HmIP-RCV-1", "DUTY_CYCLE": -1},
+            {"ADDRESS": "OHNE", "DUTY_CYCLE": None},
+            {"ADDRESS": "", "DUTY_CYCLE": 5},
+            {"ADDRESS": "TEXT", "DUTY_CYCLE": "unbekannt"},
+            {"ADDRESS": "RUND", "DUTY_CYCLE": 17.6},
+        ]
+    )
+    assert werte == {"OEQ1234567": 12, "RUND": 18}
+
+
+def test_duty_cycle_of_survives_nonsense():
+    from homepilot.integrations.homematic import duty_cycle_of
+
+    assert duty_cycle_of(None) == {}
+    assert duty_cycle_of([]) == {}
+    assert duty_cycle_of(["kein dict"]) == {}
+    # True ist in Python eine Zahl – als Prozentwert wäre das Unsinn.
+    assert duty_cycle_of([{"ADDRESS": "A", "DUTY_CYCLE": True}]) == {}
+
+
+async def test_duty_cycle_becomes_a_sensor(hub):
+    """Man soll das Volllaufen kommen sehen, statt vor einer stummen
+    Funkstrecke zu stehen."""
+
+    class _CCUmitInterface(_FakeCCU):
+        async def call(self, method: str, *args, port: int = 0):
+            if method == "listBidcosInterfaces":
+                return [{"ADDRESS": "OEQ1234567", "DUTY_CYCLE": 42}]
+            return await super().call(method, *args, port=port)
+
+    ccu = _CCUmitInterface({("0001D3C99C6A2B:3", "STATE"): True})
+    integration = await _setup(
+        hub,
+        ccu,
+        [
+            {
+                "address": "0001D3C99C6A2B:3",
+                "port": 2001,
+                "name": "Tumbler",
+                "kind": "switch",
+            }
+        ],
+    )
+    try:
+        sensor = hub.registry.get("homematic.duty_cycle_OEQ1234567")
+        assert sensor is not None
+        assert sensor.state["state"] == 42
+        assert sensor.state["unit"] == "%"
+    finally:
+        await integration.teardown()
+
+
+async def test_no_duty_cycle_sensor_without_a_value(hub):
+    """Eine Schnittstelle, die nichts meldet, bekommt keinen Messwert –
+    einer, der ewig auf null steht, wäre schlimmer als keiner."""
+    ccu = _FakeCCU({("0001D3C99C6A2B:3", "STATE"): True})
+    integration = await _setup(
+        hub,
+        ccu,
+        [
+            {
+                "address": "0001D3C99C6A2B:3",
+                "port": 2001,
+                "name": "Tumbler",
+                "kind": "switch",
+            }
+        ],
+    )
+    try:
+        assert not [
+            entity
+            for entity in hub.registry.all()
+            if "duty_cycle" in entity.id
+        ]
+    finally:
+        await integration.teardown()

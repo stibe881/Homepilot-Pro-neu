@@ -59,3 +59,34 @@ def test_invalid_json_is_ignored():
 
 def test_unknown_suffix_is_ignored():
     assert parse_payload("UPTIME", "irgendwas") == ({}, None)
+
+
+def _integration(**config):
+    from homepilot.integrations.mqtt import MqttIntegration
+
+    integration = MqttIntegration(hub=None, config={"broker": "b", **config})  # type: ignore[arg-type]
+    integration._tls = bool(config.get("tls", False))
+    integration._tls_insecure = bool(config.get("tls_insecure", False))
+    return integration
+
+
+def test_ohne_tls_bleibt_es_wie_bisher():
+    """Die Vorgabe ändert sich nicht – None heisst bei aiomqtt «kein TLS»."""
+    assert _integration()._tls_context() is None
+
+
+def test_mit_tls_werden_zertifikate_geprueft():
+    context = _integration(tls=True)._tls_context()
+    assert context is not None
+    assert context.check_hostname is True
+
+
+def test_tls_insecure_verschluesselt_ohne_pruefung():
+    """Für einen Broker mit selbst ausgestelltem Zertifikat – und nur
+    dann. Dass man es hinschreiben muss, ist der Punkt."""
+    import ssl
+
+    context = _integration(tls=True, tls_insecure=True)._tls_context()
+    assert context is not None
+    assert context.check_hostname is False
+    assert context.verify_mode == ssl.CERT_NONE

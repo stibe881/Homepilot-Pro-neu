@@ -1852,15 +1852,26 @@ def create_app(hub: Hub) -> FastAPI:
             None,
         )
         if source is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Nur in der App angelegte Abläufe lassen sich kopieren",
-            )
+            # Aus der config.yaml. Der lief bisher ins Leere («nur in der
+            # App angelegte lassen sich kopieren») – und damit gab es
+            # keinen Weg von der Datei zur Bedienbarkeit. Eine Kopie ist
+            # genau dieser Weg: Das Original in der Datei bleibt, wie es
+            # ist, die Kopie liegt in der App und ist änderbar.
+            laufend = hub.automations.get(automation_id)
+            if laufend is None:
+                raise HTTPException(status_code=404, detail="Ablauf nicht gefunden")
+            source = laufend.as_config()
+            # Aus der Datei kopiert und dann in der App bearbeitet: Wer
+            # den ursprünglichen nicht abschaltet, hat ihn zweimal. Die
+            # Kopie kommt deshalb ausgeschaltet – ein Ablauf, der beim
+            # Kopieren losgeht, ist eine Überraschung.
+            source = {**source, "enabled": False}
         copy = {
             **source,
             "id": f"app_{_secrets.token_hex(4)}",
             "alias": f"{source.get('alias', 'Ablauf')} (Kopie)",
         }
+        copy.pop("editable", None)
         hub.data.set("automations", [*stored_automations(), copy])
         await hub.reload_automations()
         return {"automation": copy}

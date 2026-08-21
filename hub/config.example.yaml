@@ -132,6 +132,10 @@ integrations:
   #   port: 1883
   #   username: "${MQTT_USER}"
   #   password: "${MQTT_PASSWORD}"
+  #   # Ohne tls gehen Benutzername und Passwort im Klartext übers Netz.
+  #   # Im eigenen WLAN mit eigenem Broker vertretbar – sobald der Broker
+  #   # ausserhalb steht, Pflicht (dann meist Port 8883).
+  #   tls: false
   #   devices:
   #     - topic: sonoff_kueche
   #       name: Steckdose Küche

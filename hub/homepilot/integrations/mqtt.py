@@ -6,6 +6,8 @@ Konfiguration:
     port: 1883
     username: "${MQTT_USER}"
     password: "${MQTT_PASSWORD}"
+    tls: false                     # true: verschlüsselt, dann Port 8883
+    tls_insecure: false            # nur für ein selbst ausgestelltes Zertifikat
     devices:
       - topic: sonoff_kueche       # Tasmota-Topic des Geräts
         name: Steckdose Küche
@@ -19,12 +21,23 @@ Tasmota spricht drei Topic-Präfixe:
 
 Sonoff-Geräte mit Original-Firmware sprechen dagegen die eWeLink-Cloud und
 müssen erst mit Tasmota geflasht werden.
+
+**Zur Verschlüsselung.** Ohne ``tls`` gehen Benutzername und Passwort im
+Klartext über das Netz, und jeder im WLAN kann mitlesen *und* mitschalten.
+Im eigenen Netz mit eigenem Broker ist das vertretbar – dieselbe Steckdose
+liesse sich dort ohnehin direkt ansprechen. Es soll aber eine Entscheidung
+sein und kein Versehen: Deshalb steht die Möglichkeit hier, und der Hub
+sagt beim Start einmal, wie er verbunden ist.
+
+Sobald der Broker ausserhalb des eigenen Netzes steht, ist ``tls: true``
+Pflicht. Der übliche Port ist dann 8883.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import ssl
 from typing import Any
 
 import aiomqtt
@@ -118,6 +131,28 @@ def parse_payload(
 class MqttIntegration(Integration):
     name = "mqtt"
 
+    def _tls_context(self) -> ssl.SSLContext | None:
+        """Der TLS-Zusammenhang – oder None für eine offene Verbindung.
+
+        ``None`` ist bei aiomqtt genau «kein TLS» und damit der bisherige
+        Zustand; die Vorgabe ändert sich nicht. Wer ``tls: true`` setzt,
+        bekommt geprüfte Zertifikate. Wer zusätzlich ``tls_insecure: true``
+        setzt, bekommt eine verschlüsselte Leitung ohne Prüfung – das ist
+        für einen selbst ausgestellten Broker gedacht und steht im Log,
+        damit es nicht als «ist ja sicher» durchgeht.
+        """
+        if not self._tls:
+            return None
+        context = ssl.create_default_context()
+        if self._tls_insecure:
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+            self.log.warning(
+                "MQTT: tls_insecure ist gesetzt – die Verbindung ist "
+                "verschlüsselt, aber das Zertifikat wird nicht geprüft."
+            )
+        return context
+
     async def setup(self) -> None:
         self._broker = self.config.get("broker")
         if not self._broker:
@@ -125,6 +160,12 @@ class MqttIntegration(Integration):
         self._port = int(self.config.get("port", 1883))
         self._username = self.config.get("username")
         self._password = self.config.get("password")
+        self._tls = bool(self.config.get("tls", False))
+        # Nur für einen Broker mit selbst ausgestelltem Zertifikat. Es
+        # ausdrücklich hinschreiben zu müssen, ist der Punkt: Ein still
+        # abgeschalteter Zertifikatscheck ist schlimmer als gar kein TLS,
+        # weil er wie Sicherheit aussieht.
+        self._tls_insecure = bool(self.config.get("tls_insecure", False))
         self._client: aiomqtt.Client | None = None
 
         # Geräte-Topic → (entity_id, relay) und die Umkehrung für Kommandos
@@ -164,10 +205,19 @@ class MqttIntegration(Integration):
                     port=self._port,
                     username=self._username,
                     password=self._password,
+                    tls_context=self._tls_context(),
                 ) as client:
                     self._client = client
                     delay = 1.0
-                    self.log.info("Mit MQTT-Broker %s verbunden", self._broker)
+                    self.log.info(
+                        "Mit MQTT-Broker %s verbunden (%s)",
+                        self._broker,
+                        "verschlüsselt"
+                        if self._tls and not self._tls_insecure
+                        else "verschlüsselt, Zertifikat ungeprüft"
+                        if self._tls
+                        else "unverschlüsselt",
+                    )
                     for topic in self._devices:
                         await client.subscribe(f"tele/{topic}/#")
                         await client.subscribe(f"stat/{topic}/#")

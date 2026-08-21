@@ -1043,11 +1043,20 @@ export function AutomationsScreen({
   };
 
   /** Kopie anlegen – sechs fast gleiche Taster-Abläufe tippt niemand. */
+  /** Kopie anlegen – auch von einem, der aus der config.yaml stammt. */
   const duplicate = async (id: string) => {
+    const quelle = automations?.find((entry) => entry.id === id);
     await fetch(`${settings.url}/api/automations/${id}/duplicate`, {
       method: 'POST',
       headers,
     }).catch(() => {});
+    // Bei einem aus der Datei ist der Hinweis der Punkt: Die Kopie liegt
+    // jetzt in der App, ist aber aus – sonst liefe derselbe Ablauf zweimal.
+    onNote?.(
+      quelle && !quelle.editable
+        ? `«${quelle.alias}» als Kopie übernommen – noch ausgeschaltet`
+        : 'Kopie angelegt'
+    );
     load();
   };
 
@@ -1346,7 +1355,28 @@ export function AutomationsScreen({
                       </Pressable>
                     </>
                   ) : (
-                    <Text style={styles.badge}>aus config.yaml</Text>
+                    <>
+                      {/* Der fehlende Weg von der Datei zur Bedienbarkeit:
+                          Das Original bleibt unangetastet, die Kopie liegt
+                          in der App und ist änderbar. Sie kommt
+                          ausgeschaltet – sonst liefe derselbe Ablauf ab
+                          sofort zweimal. */}
+                      {mayEdit ? (
+                        <Pressable
+                          onPress={() => duplicate(automation.id)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${automation.alias} als Kopie in die App übernehmen`}
+                          style={styles.iconButton}
+                        >
+                          <Ionicons
+                            name="download-outline"
+                            size={20}
+                            color={colors.inkSoft}
+                          />
+                        </Pressable>
+                      ) : null}
+                      <Text style={styles.badge}>aus config.yaml</Text>
+                    </>
                   )}
                 </View>
               </Card>

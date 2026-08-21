@@ -47,3 +47,49 @@ def test_opposing_pairs():
     assert opposing("unlock", "lock")
     assert not opposing("turn_on", "turn_on")
     assert not opposing("turn_on", "open")
+
+
+def test_an_automation_from_the_file_can_be_copied_into_the_app():
+    """Der fehlende Weg von der config.yaml zur Bedienbarkeit.
+
+    Was in der Datei steht, ist in der App absichtlich nur lesbar. Bisher
+    endete das dort: «Nur in der App angelegte Abläufe lassen sich
+    kopieren». Damit war jeder Ablauf aus der Datei ein Ablauf, den man
+    nur am Rechner ändern konnte.
+    """
+    from fastapi.testclient import TestClient
+
+    from homepilot.api import create_app
+    from homepilot.core.hub import Hub
+
+    from .conftest import make_config
+
+    aus_datei = {
+        "id": "flurlicht",
+        "alias": "Flurlicht",
+        "trigger": [{"type": "state", "entity_id": "demo.motion_hall", "to": "on"}],
+        "action": [
+            {"type": "command", "entity_id": "demo.light_livingroom", "command": "turn_on"}
+        ],
+    }
+    hub = Hub(make_config(automations=[aus_datei]))
+    with TestClient(create_app(hub)) as client:
+        original = {
+            entry["id"]: entry for entry in client.get("/api/automations").json()["automations"]
+        }["flurlicht"]
+        assert original["editable"] is False
+
+        kopie = client.post("/api/automations/flurlicht/duplicate").json()["automation"]
+        assert kopie["alias"] == "Flurlicht (Kopie)"
+        assert kopie["id"].startswith("app_")
+        # Ausgeschaltet: Sonst liefe derselbe Ablauf ab sofort zweimal.
+        assert kopie["enabled"] is False
+
+        danach = {entry["id"]: entry for entry in client.get("/api/automations").json()["automations"]}
+        assert danach[kopie["id"]]["editable"] is True
+        # Das Original in der Datei bleibt, wie es war.
+        assert danach["flurlicht"]["editable"] is False
+        assert danach["flurlicht"]["enabled"] is True
+
+        # Was es nirgends gibt, bleibt ein sauberes 404.
+        assert client.post("/api/automations/gibtsnicht/duplicate").status_code == 404

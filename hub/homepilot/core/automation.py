@@ -931,11 +931,18 @@ class AutomationEngine:
         except Exception as err:
             log.warning("Automation '%s': Nachholen fehlgeschlagen: %s", alias, err)
 
+    def get(self, automation_id: str) -> Automation | None:
+        """Ein laufender Ablauf, egal woher er stammt.
+
+        Die API kennt sonst nur die in der App angelegten (die stehen in
+        der homepilot-data.json). Was aus der config.yaml kommt, gab es
+        für sie nicht – und damit auch keinen Weg, es zu kopieren.
+        """
+        return next((a for a in self.automations if a.id == automation_id), None)
+
     def diagnose(self, automation_id: str) -> dict[str, Any] | None:
         """Warum ein Ablauf schweigt – je Auslöser eine Auskunft."""
-        automation = next(
-            (a for a in self.automations if a.id == automation_id), None
-        )
+        automation = self.get(automation_id)
         if automation is None:
             return None
         jetzt = time.time()

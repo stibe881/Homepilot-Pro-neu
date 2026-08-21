@@ -271,6 +271,36 @@ def command_error(address: str, datapoint: str, fault: Exception) -> str:
     return f"CCU meldet für {address}: {text}"
 
 
+def duty_cycle_of(interfaces: Any) -> dict[str, int]:
+    """Sendespeicher je Funk-Schnittstelle, in Prozent (rein, testbar).
+
+    Der Duty Cycle ist die gesetzlich begrenzte Sendezeit im 868-MHz-Band.
+    Läuft er voll, schaltet nichts mehr – und zwar ohne Fehlermeldung am
+    Gerät, es passiert einfach nichts. Bisher tauchte er nur in der
+    Erklärung eines Timeouts auf, also erst, wenn es schon zu spät war.
+
+    Die CCU liefert die Liste über ``listBidcosInterfaces``. Was keinen
+    lesbaren Wert hat (HmIP-Schnittstellen melden ihn nicht immer), fällt
+    weg – lieber kein Messwert als einer, der immer null zeigt.
+    """
+    result: dict[str, int] = {}
+    for interface in interfaces or []:
+        if not isinstance(interface, dict):
+            continue
+        address = str(interface.get("ADDRESS") or "").strip()
+        roh = interface.get("DUTY_CYCLE")
+        if not address or roh is None or isinstance(roh, bool):
+            continue
+        try:
+            prozent = int(round(float(roh)))
+        except (TypeError, ValueError):
+            continue
+        # -1 heisst «kenne ich nicht», und über 100 gibt es nicht.
+        if 0 <= prozent <= 100:
+            result[address] = prozent
+    return result
+
+
 def value_to_state(value: Any, datapoint: str, dimmable: bool) -> dict[str, Any]:
     """Übersetzt einen CCU-Wert in Entitäts-Attribute.
 
@@ -470,6 +500,8 @@ class HomematicIntegration(Integration):
         # dann nicht mehr gefragt.
         self._missing_lux: set[tuple[str, str]] = set()
         self._devices: dict[str, dict[str, Any]] = {}
+        # Sendespeicher je Funk-Schnittstelle: object_id → (Adresse, Port).
+        self._duty: dict[str, tuple[str, int]] = {}
 
         for device in self.config.get("devices") or []:
             await self._add_device(device)
@@ -477,11 +509,59 @@ class HomematicIntegration(Integration):
         for port in sorted(self._ports()):
             channels = await self._log_available_channels(port)
             self._use_switch_channels(port, channels)
+        await self._add_duty_cycle_sensors()
         await self._refresh_all()
 
         if self._callback_port:
             await self._start_callbacks()
         self.start_task(self._poll_loop())
+
+    async def _add_duty_cycle_sensors(self) -> None:
+        """Je Funk-Schnittstelle ein Messwert «Sendespeicher».
+
+        Man sieht das Volllaufen damit kommen, statt vor einer stummen
+        Funkstrecke zu stehen: Über 80 Prozent schaltet die CCU von sich
+        aus nichts mehr, ohne dass ein Gerät einen Fehler meldet.
+
+        Nur dort, wo die CCU wirklich einen Wert liefert. Nicht jede
+        Schnittstelle kennt ``listBidcosInterfaces``, und HmIP meldet ihn
+        nicht immer – ein Messwert, der ewig auf null steht, wäre
+        schlimmer als keiner.
+        """
+        for port in sorted(self._ports()):
+            try:
+                interfaces = await self._call("listBidcosInterfaces", port=port)
+            except Exception as err:
+                self.log.debug("Port %s ohne listBidcosInterfaces (%s)", port, err)
+                continue
+            for address, prozent in duty_cycle_of(interfaces).items():
+                object_id = f"duty_cycle_{address.replace(':', '_').replace('-', '_')}"
+                self._duty[object_id] = (address, port)
+                await self.add_entity(
+                    object_id,
+                    EntityKind.SENSOR,
+                    f"Sendespeicher {address}",
+                    state={"state": prozent, "unit": "%"},
+                )
+
+    async def _refresh_duty_cycle(self) -> None:
+        """Die Sendespeicher nachlesen – einmal je Schnittstelle."""
+        ports = {port for _, port in self._duty.values()}
+        for port in sorted(ports):
+            try:
+                interfaces = await self._call("listBidcosInterfaces", port=port)
+            except Exception as err:
+                self.log.debug("Sendespeicher auf Port %s nicht lesbar: %s", port, err)
+                continue
+            werte = duty_cycle_of(interfaces)
+            for object_id, (address, eigener_port) in self._duty.items():
+                if eigener_port != port or address not in werte:
+                    continue
+                await self.hub.registry.update_state(
+                    f"{self.name}.{object_id}",
+                    {"state": werte[address], "unit": "%"},
+                    available=True,
+                )
 
     def _ports(self) -> set[int]:
         """Alle Ports, die tatsächlich gebraucht werden."""
@@ -753,6 +833,7 @@ class HomematicIntegration(Integration):
                 await self.hub.registry.update_state(entity_id, {}, available=False)
 
         await self._refresh_batteries()
+        await self._refresh_duty_cycle()
 
     async def _refresh_batteries(self) -> None:
         """Den Wartungskanal je Gerät einmal lesen.
