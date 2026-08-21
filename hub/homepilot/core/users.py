@@ -161,6 +161,14 @@ class User:
     # andere. Gedacht für Levin und Lina - das eigene Zimmer ja, die
     # Alarmanlage und der Rest der Wohnung nicht.
     simple_rooms: list[str] = field(default_factory=list)
+    # Kein Mensch, sondern ein Zugang: das einzelne api.token aus der
+    # Konfiguration, mit dem Skripte und das Wandpanel hereinkommen. Es
+    # gehört in kein Verzeichnis von Personen - dort stünde es zwischen
+    # Livia und Levin, ohne dass jemand es je anlegen oder ändern könnte.
+    # Der Zugang bleibt davon unberührt, und im Protokoll steht der Name
+    # weiterhin: Dort ist «wer war das» die Frage, und «Hub-Token» eine
+    # brauchbare Antwort.
+    system: bool = False
 
     def active(self, now: "datetime | None" = None) -> bool:
         """Darf dieser Benutzer *jetzt* herein? (rein, testbar)
@@ -430,7 +438,9 @@ def parse_users(raw: list[dict[str, Any]], legacy_token: str | None) -> UserRegi
         )
 
     if legacy_token and not any(user.token == legacy_token for user in users):
-        users.append(User(name="Hub-Token", role=Role.OWNER, token=legacy_token))
+        users.append(
+            User(name="Hub-Token", role=Role.OWNER, token=legacy_token, system=True)
+        )
 
     if users and not any(user.role == Role.OWNER for user in users):
         raise ConfigError("Mindestens ein Benutzer muss die Rolle 'besitzer' haben")

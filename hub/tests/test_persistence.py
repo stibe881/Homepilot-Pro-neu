@@ -285,3 +285,30 @@ def test_house_prefs_have_an_upper_bound(tmp_path):
         riesig = {"order": {"devices": ["x" * 1000 for _ in range(200)]}}
         response = client.put("/api/houseprefs", json={"prefs": riesig}, headers=auth())
         assert response.status_code == 413
+
+
+def test_the_hub_token_is_no_person(tmp_path):
+    """Das api.token ist ein Zugang, kein Mensch.
+
+    Es stand in der Benutzerverwaltung zwischen den anderen - liess sich
+    aber weder anlegen noch ändern noch löschen, weil es aus der
+    Konfiguration kommt. Eine Zeile, die nur Fragen aufwarf. Der Zugang
+    selbst bleibt: Skripte und das Wandpanel kommen damit weiterhin
+    herein, und im Protokoll steht der Name auch weiterhin.
+    """
+    from homepilot.core.config import ApiConfig, HubConfig
+
+    config = HubConfig(
+        api=ApiConfig(token="t-hub"),
+        integrations=[{"integration": "demo"}],
+        users=[OWNER],
+        data_file=str(tmp_path / "daten.json"),
+    )
+    with TestClient(create_app(Hub(config))) as client:
+        namen = [entry["name"] for entry in client.get("/api/users", headers=auth()).json()]
+        assert namen == ["Stefan"]
+
+        # Aber hereinkommen tut er weiterhin, und zwar als Besitzer.
+        me = client.get("/api/me", headers={"Authorization": "Bearer t-hub"})
+        assert me.status_code == 200
+        assert me.json()["role"] == "besitzer"

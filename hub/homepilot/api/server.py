@@ -2267,8 +2267,15 @@ def create_app(hub: Hub) -> FastAPI:
 
     @app.get("/api/users")
     async def list_users(request: Request) -> list[dict[str, Any]]:
+        """Die Menschen im Haushalt.
+
+        Ohne den Hub-Token: Der ist ein Zugang für Skripte und das
+        Wandpanel, kein Mensch. In der Benutzerverwaltung stand er
+        zwischen den anderen, liess sich aber weder anlegen noch ändern
+        noch löschen - eine Zeile, die nur Fragen aufwarf.
+        """
         require(request, Capability.MANAGE_USERS)
-        return [user.as_dict() for user in hub.users.users]
+        return [user.as_dict() for user in hub.users.users if not user.system]
 
     @app.post("/api/users")
     async def create_user(body: UserRequest, request: Request) -> dict[str, Any]:
