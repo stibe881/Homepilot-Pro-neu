@@ -105,38 +105,93 @@ class HubConfig:
     duplicate_keys: list[str] = field(default_factory=list)
 
 
-def expand_env(value: Any) -> Any:
+# Geheimnisse neben der Konfiguration, für alles, was nicht in der
+# config.yaml stehen soll.
+#
+# Der Weg über Umgebungsvariablen hat einen Haken, der jedes Mal Zeit
+# kostet: Bei Portainer genügt es nicht, die Variable im Stack zu setzen -
+# sie muss zusätzlich in der environment-Liste der compose-Datei stehen,
+# und die liegt im Repository. Für jedes neue Geheimnis also ein Commit,
+# ein Ausrollen und die Gelegenheit, genau das zu vergessen.
+#
+# Diese Datei ist die Abkürzung: eine Zeile je Geheimnis, gleich neben der
+# config.yaml, die ohnehin nicht im Repository liegt. Umgebungsvariablen
+# haben weiterhin Vorrang - was bereits läuft, ändert sich dadurch nicht.
+SECRETS_FILE = "secrets.env"
+
+
+def read_secrets(path: str | Path) -> dict[str, str]:
+    """Zeilen der Form NAME=WERT lesen (rein, testbar).
+
+    Bewusst anspruchslos: keine Fortsetzungszeilen, keine Ersetzungen im
+    Wert. Leerzeilen und '#'-Zeilen werden übersprungen, umschliessende
+    Anführungszeichen fallen weg - sonst landet das Zeichen im Schlüssel
+    und man sucht den Fehler im Gerät.
+    """
+    datei = Path(path)
+    if not datei.is_file():
+        return {}
+    werte: dict[str, str] = {}
+    for zeile in datei.read_text(encoding="utf-8").splitlines():
+        zeile = zeile.strip()
+        if not zeile or zeile.startswith("#") or "=" not in zeile:
+            continue
+        name, _, wert = zeile.partition("=")
+        name = name.strip()
+        if not name:
+            continue
+        wert = wert.strip()
+        if len(wert) >= 2 and wert[0] == wert[-1] and wert[0] in "\"'":
+            wert = wert[1:-1]
+        werte[name] = wert
+    return werte
+
+
+def expand_env(value: Any, extra: dict[str, str] | None = None) -> Any:
     """Ersetzt ${VARIABLE} rekursiv durch Umgebungsvariablen.
 
     So bleiben Tokens und Keys aus der Konfigurationsdatei heraus. Eine
     nicht gesetzte Variable ist ein Fehler – lieber ein klarer Abbruch als
     ein Hub, der sich still ohne Datenbank verbindet.
+
+    `extra` sind die Werte aus der secrets.env neben der Konfiguration.
+    Die echte Umgebung geht vor: Wer eine Variable im Container setzt,
+    soll damit auch gewinnen.
     """
+    extra = extra or {}
+
     if isinstance(value, str):
         def replace(match: re.Match[str]) -> str:
             name = match.group(1)
             resolved = os.environ.get(name)
             if resolved is None:
-                # Die häufigste Ursache ist nicht ein Tippfehler, sondern
-                # die Annahme, eine Variable im Portainer-Stack reiche aus.
-                # Portainer setzt sie aber nur in die compose-Datei ein; in
-                # den Container kommt sie erst durch eine Zeile in deren
-                # environment-Liste. Das gehört in die Meldung, sonst sucht
-                # man an der falschen Stelle.
+                resolved = extra.get(name)
+            if resolved is None:
+                # Zuerst der einfache Weg, dann der bisherige: Die
+                # häufigste Ursache ist nicht ein Tippfehler, sondern die
+                # Annahme, eine Variable im Portainer-Stack reiche aus.
+                # Portainer setzt sie aber nur in die compose-Datei ein;
+                # in den Container kommt sie erst durch eine Zeile in
+                # deren environment-Liste. Das gehört in die Meldung,
+                # sonst sucht man an der falschen Stelle.
                 raise ConfigError(
-                    f"Umgebungsvariable '{name}' ist nicht gesetzt. Steht sie "
-                    "im Portainer-Stack, fehlt sie zusätzlich in der "
-                    f"environment-Liste der docker-compose-Datei "
-                    f"(Zeile '- {name}=${{{name}:-}}') – erst die reicht sie "
-                    "in den Container weiter."
+                    f"Umgebungsvariable '{name}' ist nicht gesetzt. Am "
+                    f"einfachsten trägst du sie in die Datei {SECRETS_FILE} "
+                    "neben dieser Konfiguration ein (eine Zeile "
+                    f"'{name}=…'); der Hub liest sie beim Start mit. "
+                    "Der andere Weg führt über den Portainer-Stack - dann "
+                    "fehlt sie zusätzlich in der environment-Liste der "
+                    f"docker-compose-Datei (Zeile "
+                    f"'- {name}=${{{name}:-}}'), erst die reicht sie in "
+                    "den Container weiter."
                 )
             return resolved
 
         return ENV_PATTERN.sub(replace, value)
     if isinstance(value, dict):
-        return {key: expand_env(item) for key, item in value.items()}
+        return {key: expand_env(item, extra) for key, item in value.items()}
     if isinstance(value, list):
-        return [expand_env(item) for item in value]
+        return [expand_env(item, extra) for item in value]
     return value
 
 
@@ -154,7 +209,7 @@ def load_config(path: str | Path) -> HubConfig:
         raise ConfigError(f"Kein gültiges YAML: {err}") from err
     if not isinstance(raw, dict):
         raise ConfigError("Konfiguration muss ein YAML-Mapping sein")
-    raw = expand_env(raw)
+    raw = expand_env(raw, read_secrets(path.parent / SECRETS_FILE))
 
     api_raw = raw.get("api") or {}
     origins = api_raw.get("cors_origins")

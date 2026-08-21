@@ -634,6 +634,31 @@ if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
     fi
   done
   echo ""
+  # Der Wechsel hat nicht innerhalb der Wartezeit geklappt. Bevor daraus
+  # eine Diagnose wird: nachsehen, was tatsächlich läuft. Früher stand
+  # hier pauschal «Portainer hat den Container nicht gewechselt» - auch
+  # dann, wenn Portainer sauber gewechselt hatte und bloss der Hub nicht
+  # hochkam. Das schickte die Fehlersuche in die falsche Richtung.
+  RUNNING_IMAGE_ID=$(docker inspect -f '{{.Image}}' "$CONTAINER" 2>/dev/null || echo "keiner")
+  NOW_COMMIT=$(docker exec "$CONTAINER" printenv HOMEPILOT_COMMIT 2>/dev/null || echo "")
+  if [ "$RUNNING_IMAGE_ID" = "$NEW_IMAGE_ID" ]; then
+    echo "✗ Der neue Stand läuft, antwortet aber nicht."
+    echo "  Portainer hat also sauber gewechselt - der Hub selbst kommt"
+    echo "  nicht hoch. Fast immer steht der Grund in der ersten"
+    echo "  Fehlermeldung seines Protokolls:"
+    echo ""
+    docker logs --tail 40 "$CONTAINER" 2>&1 | sed 's/^/    /'
+    echo ""
+    echo "  Häufig ist es die config.yaml: ein Tippfehler, ein Block, der"
+    echo "  eine Umgebungsvariable erwartet, die im Portainer-Stack fehlt."
+    echo "  Ist der Fehler behoben, genügt ein Neustart des Containers -"
+    echo "  neu bauen muss man dafür nicht:"
+    echo "    docker restart $CONTAINER"
+    echo ""
+    echo "  Zurück auf den vorherigen Stand ginge notfalls so:"
+    echo "    docker tag $IMAGE:prev $IMAGE && docker restart $CONTAINER"
+    exit 1
+  fi
   if [ "$RUNNING_IMAGE_ID" = "keiner" ]; then
     echo "✗ Portainer hat den Container entfernt, aber keinen neuen"
     echo "  gestartet."
@@ -661,12 +686,11 @@ if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
     fi
     echo "  Von Hand: Portainer → Stacks → homepilot →"
     echo "  Update the stack → Re-pull image AUS → Deploy."
-  elif [ -n "$RUNNING_COMMIT" ] && [ "$RUNNING_COMMIT" = "$COMMIT" ]; then
+  elif [ -n "$NOW_COMMIT" ] && [ "$NOW_COMMIT" = "$COMMIT" ]; then
     # Kein Fehler: Es lief schon der neueste Stand, und bei unverändertem
     # Git-Stand rollt Portainer nicht neu aus. Genau so sieht der Lauf
     # «nur ein iOS-Build, bitte» aus - der endete hier früher fälschlich
     # als Fehlermeldung, und der angestossene iOS-Build ging darin unter.
-    echo ""
     echo "✓ Fertig - der Hub läuft bereits mit dem neuesten Stand ($COMMIT)."
     if [ "${HOMEPILOT_IOS_BUILD:-0}" = "1" ]; then
       echo "  Der iOS-Build wurde angestossen - TestFlight meldet sich."
@@ -675,9 +699,18 @@ if [ -n "${PORTAINER_WEBHOOK_URL:-}" ]; then
   else
     echo "✗ Portainer hat den Container nicht gewechselt - der alte Stand"
     echo "  läuft weiter (das Haus ist also nicht offline)."
-    echo "  Mögliche Gründe: Das Ausrollen dauert noch (gleich nochmal in"
-    echo "  der App nachsehen), oder es scheitert in Portainer - dort unter"
-    echo "  Stacks → homepilot steht das Protokoll des letzten Ausrollens."
+    if [ -n "$NOW_COMMIT" ]; then
+      echo "  Im Container steckt weiterhin $NOW_COMMIT, gebaut ist $COMMIT."
+    fi
+    echo "  Der Webhook meldet nur «angenommen»; was danach schiefgeht,"
+    echo "  steht allein in Portainers Protokoll - und das führt fast"
+    echo "  immer auf einen dieser drei Punkte:"
+    echo "    1. «Re-pull image» ist im Stack an. Das Abbild entsteht hier"
+    echo "       und liegt in keiner Registry, das Ziehen scheitert und"
+    echo "       reisst das ganze Ausrollen mit. Ausschalten."
+    echo "    2. Der Stack zeigt auf einen anderen Zweig als den gebauten"
+    echo "       ($BRANCH). Dann klont Portainer etwas anderes."
+    echo "    3. Der Webhook gehört zu einem anderen Stack."
     echo "  Von Hand: Portainer → Stacks → homepilot →"
     echo "  Update the stack → Re-pull image AUS → Deploy."
   fi

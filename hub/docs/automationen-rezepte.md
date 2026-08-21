@@ -136,15 +136,18 @@ Auslöser kommt.
 ### In der App
 
 *Abläufe → Ablauf öffnen → „… dann das tun"*: Sobald ein Schritt „Warten"
-oder „Warten bis" dabei ist, erscheint darunter die Wahl **„Wenn der
-Auslöser während der Wartezeit erneut kommt"**. Ohne Warte-Schritt bleibt
-sie ausgeblendet – die Frage stellt sich dann nicht.
+oder „Warten bis" dabei ist, erscheint darunter die Wahl **„Wenn er dabei
+erneut ausgelöst wird"** – „nichts tun" oder „von vorn beginnen". Ohne
+Warte-Schritt bleibt sie ausgeblendet: Die Frage stellt sich dann nicht.
+Fertig zusammengesetzt gibt es das auch als Vorlage **„Licht bei
+Bewegung, mit Nachlauf"**.
 
 Zwei Dinge, die leicht überraschen:
 
-- Der abgebrochene Lauf steht trotzdem im Verlauf. Er hat ja etwas getan –
-  das Licht ging an. Ohne diesen Eintrag fehlte im Protokoll genau der
-  Moment, den man sucht.
+- Der abgebrochene Durchgang taucht im Verlauf nicht auf. Das ist
+  Absicht: Bei einem Flurlicht stünde dort sonst bei jeder Bewegung ein
+  abgebrochener Lauf neben dem neuen, und die hundert gemerkten Läufe
+  wären binnen eines Abends voll davon.
 - Beim Ausschalten von Hand mitten in der Wartezeit schaltet der Ablauf
   danach trotzdem noch einmal aus. Das ist harmlos; wer es sauber will,
   hängt vor das Ausschalten ein `wait_until` oder prüft mit einer
@@ -197,6 +200,11 @@ Zwei Dinge, die leicht überraschen:
 Statt `helpers.abwesend` lässt sich auch `unifi.anyone_home` verwenden
 (dann `switch_active: "off"` bei presence_sim und `equals: "off"` in der
 Bedingung).
+
+4. Treppenhauslicht: Bewegung schaltet ein, jede weitere Bewegung
+   verlängert – aus erst eine Weile nach der letzten. Das ist genau das
+   Rezept **[Bewegungslicht](#bewegungslicht)** weiter oben; entscheidend
+   ist dort die Zeile `mode: restart`.
 
 ## Tumbler ist fertig
 

@@ -17,7 +17,12 @@ from typing import TYPE_CHECKING, Any, ClassVar, Coroutine
 import aiohttp
 
 from .entity import Entity
-from .errors import HomePilotError, UnknownEntityError, UnsupportedCommandError
+from .errors import (
+    ConfigError,
+    HomePilotError,
+    UnknownEntityError,
+    UnsupportedCommandError,
+)
 
 if TYPE_CHECKING:
     from .hub import Hub
@@ -115,6 +120,27 @@ def load_integration_class(name: str) -> type[Integration]:
     return cls
 
 
+# Wie oft ein gescheiterter Anlauf wiederholt wird. Fünf Minuten sind
+# lang genug, dass ein Dienst sich erholen kann, und kurz genug, dass man
+# nicht den halben Abend ohne Türklingel dasteht.
+RETRY_SECONDS = 300
+
+
+def is_permanent(err: Exception) -> bool:
+    """Lohnt sich ein zweiter Anlauf? (rein, testbar)
+
+    ConfigError heisst: An der Konfiguration stimmt etwas nicht - eine
+    fehlende Bibliothek, eine Datei, die es nicht gibt, ein Pflichtfeld,
+    das leer blieb. Das wird beim zwanzigsten Versuch nicht anders.
+
+    Alles andere ist im Zweifel vorübergehend: eine Zeitüberschreitung zur
+    Hersteller-Cloud, ein Gerät, das gerade neu startet, ein Netz, das
+    beim Hochfahren des Rechners noch nicht stand. Genau dafür ist der
+    Wiederanlauf da.
+    """
+    return isinstance(err, ConfigError)
+
+
 class IntegrationManager:
     def __init__(self, hub: "Hub") -> None:
         self.hub = hub
@@ -122,6 +148,12 @@ class IntegrationManager:
         # Auch fehlgeschlagene Integrationen merken, damit die App zeigen
         # kann, was klemmt – sonst steht es nur im Log auf dem Hub-Rechner.
         self._failed: dict[str, str] = {}
+        # Und ihre Konfiguration, um es später noch einmal zu versuchen.
+        # Ohne das blieb eine Integration bis zum nächsten Neustart des
+        # Hubs weg, bloss weil ihre Cloud im falschen Moment nicht
+        # antwortete - und niemand startet den Hub neu, ohne es zu merken.
+        self._retry: dict[str, dict[str, Any]] = {}
+        self._retry_task: asyncio.Task | None = None
 
     @property
     def loaded(self) -> list[str]:
@@ -155,9 +187,60 @@ class IntegrationManager:
             except Exception as err:
                 # Eine kaputte Integration darf den Hub-Start nicht verhindern.
                 self._failed[name] = str(err) or err.__class__.__name__
-                log.exception("Setup der Integration '%s' fehlgeschlagen", name)
+                if is_permanent(err):
+                    self._retry.pop(name, None)
+                    log.error("Integration '%s': %s", name, self._failed[name])
+                else:
+                    self._retry[name] = config
+                    log.exception(
+                        "Setup der Integration '%s' fehlgeschlagen – neuer "
+                        "Anlauf in %d Minuten",
+                        name,
+                        RETRY_SECONDS // 60,
+                    )
+        self._start_retries()
+
+    def _start_retries(self) -> None:
+        if not self._retry:
+            return
+        if self._retry_task is None or self._retry_task.done():
+            self._retry_task = asyncio.create_task(self._retry_loop())
+
+    async def _retry_loop(self) -> None:
+        """Gescheiterte Anläufe in Ruhe wiederholen, bis sie stehen."""
+        while self._retry:
+            await asyncio.sleep(RETRY_SECONDS)
+            for name, config in list(self._retry.items()):
+                try:
+                    cls = load_integration_class(name)
+                    instance = cls(self.hub, config)
+                    await instance.setup()
+                except Exception as err:
+                    self._failed[name] = str(err) or err.__class__.__name__
+                    if is_permanent(err):
+                        self._retry.pop(name, None)
+                        log.error("Integration '%s': %s", name, self._failed[name])
+                    else:
+                        # Leise: Der erste Fehlschlag steht schon im Log,
+                        # und der Zustand ist im System-Bildschirm zu sehen.
+                        log.debug(
+                            "Integration '%s' weiterhin nicht bereit: %s", name, err
+                        )
+                    continue
+                self._integrations[name] = instance
+                self._failed.pop(name, None)
+                self._retry.pop(name, None)
+                log.info("Integration %s geladen (nach erneutem Anlauf)", name)
+
+    def stop_retries(self) -> None:
+        task = self._retry_task
+        self._retry_task = None
+        self._retry.clear()
+        if task is not None and not task.done():
+            task.cancel()
 
     async def teardown_all(self) -> None:
+        self.stop_retries()
         for integration in self._integrations.values():
             try:
                 await integration.teardown()

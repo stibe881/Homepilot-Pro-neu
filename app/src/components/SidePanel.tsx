@@ -33,11 +33,7 @@ export function SidePanel({
   const alert = entities.find((entity) => entity.kind === 'alert');
   // Warnung nur zeigen, wenn es wirklich eine gibt (für den gewählten Ort).
   const hasAlert = alert && (alert.state.count ?? 0) > 0;
-  // Ohne Fernseher: Hier geht es um Musik. Der Fernseher meldet sich als
-  // «media_player» und stand deshalb mit in der Boxenwahl - man wählte
-  // ihn, und statt Musik bekam man eine Fernbedienung ohne Bild. Er hat
-  // seine eigene Ansicht unter Medien.
-  const players = useMemo(() => entities.filter(isSpeaker), [entities]);
+  const players = useMemo(() => entities.filter(istMusikbox), [entities]);
   // Von Hand gewählte Box, solange es sie noch gibt – sonst die naheliegende
   // (siehe pickPlayer): So sieht man immer nur eine Karte, aber jede Box
   // lässt sich ansehen und bedienen, nicht nur die gerade spielende.
@@ -82,8 +78,22 @@ export function SidePanel({
   );
 }
 
-/** Eine Box, kein Fernseher (rein, testbar). */
-export function isSpeaker(entity: Entity): boolean {
+/** Musikbox oder Fernseher? (rein, testbar)
+ *
+ * Beide sind für den Hub «media_player» – bedienen möchte man sie aber an
+ * verschiedenen Orten. Der Player auf der Startseite ist die Stelle für
+ * «was läuft gerade und mach lauter»; ein Fernseher gehört dort nicht hin,
+ * seine Karte im Raum kann ohnehin mehr (Apps, Einschlaf-Timer, Tasten).
+ *
+ * Unterschieden wird an den Befehlen, nicht am Hersteller: Was ein
+ * Steuerkreuz oder einen App-Start kennt, ist ein Fernseher. Das gilt auch
+ * für den nächsten, der nicht von Nvidia kommt.
+ */
+export function istMusikbox(entity: Entity): boolean {
+  // Die Regel selbst steht in lib/geraeteart.ts – dieselbe, an der auch
+  // die Geräteauswahl der Abläufe «Fernseher» oder «Lautsprecher»
+  // anschreibt. Zwei Definitionen liefen früher oder später auseinander,
+  // und dann hiesse dasselbe Gerät an zwei Orten Verschiedenes.
   return entity.kind === 'media_player' && !isTelevision(entity);
 }
 
@@ -95,7 +105,7 @@ export function isSpeaker(entity: Entity): boolean {
  * gibt es Zufall, Wiederholen und den Sprung zurück. Mit der blossen Box
  * fehlten diese Knöpfe ausgerechnet dann, wenn Musik lief. */
 export function pickPlayer(entities: Entity[]): Entity | undefined {
-  const players = entities.filter(isSpeaker);
+  const players = entities.filter(istMusikbox);
   return (
     players.find(
       (entity) =>

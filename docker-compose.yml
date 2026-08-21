@@ -65,6 +65,7 @@ services:
       - UNIFI_PASSWORD=${UNIFI_PASSWORD:-}
       - HUE_APP_KEY=${HUE_APP_KEY:-}
       - NUKI_TOKEN=${NUKI_TOKEN:-}
+      - TUYA_KEY_PROJEKTOR=${TUYA_KEY_PROJEKTOR:-}
       - VZUG_USER=${VZUG_USER:-}
       - VZUG_PASSWORD=${VZUG_PASSWORD:-}
       - TZ=Europe/Zurich

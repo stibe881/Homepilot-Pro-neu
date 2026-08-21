@@ -737,135 +737,282 @@ def test_the_dry_run_changes_nothing():
     asyncio.run(check())
 
 
-# ── Erneut ausgelöst, während der Ablauf noch wartet ────────────────────────
-#
-# Das Bewegungslicht: an bei Bewegung, nach einer Weile wieder aus. Was
-# passiert, wenn während dieser Weile noch jemand durchgeht, ist eine
-# Entscheidung und keine Nebensache - beide Antworten sind für sich
-# richtig, nur eben in verschiedenen Räumen.
+async def test_a_second_ring_triggers_again():
+    """Klingelt es zweimal, läuft der Ablauf zweimal.
 
-
-def motion_light(mode: str | None = None, seconds: float = 0.2) -> dict:
-    """Bewegung → Licht an, warten, Licht aus."""
-    automation = {
-        "id": "bewegungslicht",
-        "alias": "Bewegungslicht Flur",
-        "trigger": [{"type": "state", "entity_id": "demo.motion_hall", "to": "on"}],
-        "action": [
-            {"type": "command", "entity_id": "demo.light_livingroom", "command": "turn_on"},
-            {"type": "delay", "seconds": seconds},
-            {"type": "command", "entity_id": "demo.light_livingroom", "command": "turn_off"},
-        ],
-    }
-    if mode is not None:
-        automation["mode"] = mode
-    return automation
-
-
-async def move(hub) -> None:
-    """Eine Bewegung melden – auch die zweite, kurz nach der ersten."""
-    await hub.registry.update_state("demo.motion_hall", {"state": "off"})
-    await hub.registry.update_state("demo.motion_hall", {"state": "on"})
-    await settle()
-
-
-def light_state(hub) -> str:
-    return hub.registry.get("demo.light_livingroom").state["state"]
-
-
-async def test_mode_single_keeps_the_first_wait():
-    """Vorgabe: Das Licht geht aus, wann es die erste Bewegung sagt.
-
-    Für einen Durchgangsraum das Gewünschte – dort will man kein Licht,
-    das sich immer weiter selbst verlängert.
+    Der Fall aus dem Betrieb: «ring» stand nach dem ersten Mal auf «on» und
+    blieb dort hängen - ein Neustart des Hubs mitten in den drei Minuten
+    reicht dafür. Beim nächsten Läuten stand wieder «on» da, die Prüfung
+    «hat sich etwas geändert?» verwarf es, und die Push blieb aus, ohne
+    dass irgendwo ein Fehler stand.
     """
-    hub = await run_hub([motion_light()])
+    hub = await run_hub(
+        [
+            {
+                "id": "klingel",
+                "alias": "Es klingelt",
+                "trigger": [
+                    {
+                        "type": "state",
+                        "entity_id": "test.klingel",
+                        "attribute": "ring",
+                        "to": "on",
+                    }
+                ],
+                "action": [
+                    {
+                        "type": "command",
+                        "entity_id": "demo.light_livingroom",
+                        "command": "toggle",
+                    }
+                ],
+            }
+        ]
+    )
     try:
-        await move(hub)
-        assert light_state(hub) == "on"
+        await hub.registry.add(
+            Entity(
+                id="test.klingel",
+                kind=EntityKind.CAMERA,
+                name="Haustüre",
+                integration="test",
+                state={"state": "online", "ring": "on", "last_ring": "10:00"},
+            )
+        )
+        light = "demo.light_livingroom"
+        await hub.integrations.dispatch_command(light, "turn_off")
+        await settle()
 
-        # Zweite Bewegung mitten in der Wartezeit: wird verworfen.
-        await asyncio.sleep(0.1)
-        await move(hub)
-        assert light_state(hub) == "on"
+        # «ring» steht schon auf «on» – nur der Zeitpunkt ist neu.
+        await hub.registry.update_state(
+            "test.klingel", {"ring": "on", "last_ring": "10:05"}
+        )
+        await settle()
+        assert hub.registry.get(light).state["state"] == "on"
 
-        # 0.2 s nach der *ersten* Bewegung ist Schluss, nicht nach der zweiten.
-        await asyncio.sleep(0.2)
-        assert light_state(hub) == "off"
+        await hub.registry.update_state(
+            "test.klingel", {"ring": "on", "last_ring": "10:09"}
+        )
+        await settle()
+        assert hub.registry.get(light).state["state"] == "off"
     finally:
         await hub.stop()
 
 
-async def test_mode_restart_begins_the_wait_again():
-    """«restart»: Solange sich etwas rührt, bleibt das Licht an."""
-    hub = await run_hub([motion_light(mode="restart")])
-    try:
-        await move(hub)
-        assert light_state(hub) == "on"
+async def test_a_ring_does_not_trigger_an_unrelated_state_rule():
+    """Der Zeitstempel gilt nur für sein eigenes Feld.
 
+    Sonst liesse ein Klingeln jeden Ablauf loslaufen, der auf «Gerät ist
+    online» wartet - dort hat sich nichts geändert.
+    """
+    hub = await run_hub(
+        [
+            {
+                "id": "online",
+                "alias": "Kamera ist online",
+                "trigger": [
+                    {"type": "state", "entity_id": "test.klingel", "to": "online"}
+                ],
+                "action": [
+                    {
+                        "type": "command",
+                        "entity_id": "demo.light_livingroom",
+                        "command": "turn_on",
+                    }
+                ],
+            }
+        ]
+    )
+    try:
+        await hub.registry.add(
+            Entity(
+                id="test.klingel",
+                kind=EntityKind.CAMERA,
+                name="Haustüre",
+                integration="test",
+                state={"state": "online", "ring": "off"},
+            )
+        )
+        light = "demo.light_livingroom"
+        await hub.integrations.dispatch_command(light, "turn_off")
+        await settle()
+
+        await hub.registry.update_state(
+            "test.klingel", {"ring": "on", "last_ring": "10:05"}
+        )
+        await settle()
+        assert hub.registry.get(light).state["state"] == "off"
+    finally:
+        await hub.stop()
+
+
+async def test_motion_light_stays_on_while_there_is_movement():
+    """Treppenhauslicht: Die Nachlaufzeit zählt ab der letzten Bewegung.
+
+    Genau der Fall, für den es «mode: restart» gibt. Ohne ihn wurde der
+    zweite Auslöser verworfen, weil der Ablauf noch in seiner Wartezeit
+    stand - und das Licht ging nach der Zeit ab der *ersten* Bewegung
+    aus, mitten im Betrieb.
+    """
+    hub = await run_hub(
+        [
+            {
+                "id": "bewegungslicht",
+                "alias": "Licht bei Bewegung",
+                "mode": "restart",
+                "trigger": [
+                    {"type": "state", "entity_id": "test.melder", "to": "on"}
+                ],
+                "action": [
+                    {
+                        "type": "command",
+                        "entity_id": "demo.light_livingroom",
+                        "command": "turn_on",
+                    },
+                    # Im Test Sekundenbruchteile statt vier Minuten.
+                    {"type": "delay", "seconds": 0.3},
+                    {
+                        "type": "command",
+                        "entity_id": "demo.light_livingroom",
+                        "command": "turn_off",
+                    },
+                ],
+            }
+        ]
+    )
+    try:
+        await hub.registry.add(
+            Entity(
+                id="test.melder",
+                kind=EntityKind.BINARY_SENSOR,
+                name="Bewegung Eingang",
+                integration="test",
+                state={"state": "off"},
+            )
+        )
+        licht = "demo.light_livingroom"
+        await hub.integrations.dispatch_command(licht, "turn_off")
+        await settle()
+
+        # Erste Bewegung: Licht an, Nachlauf beginnt.
+        await hub.registry.update_state("test.melder", {"state": "on"})
+        await settle()
+        assert hub.registry.get(licht).state["state"] == "on"
+
+        # Nach der halben Wartezeit neue Bewegung – der Nachlauf beginnt
+        # von vorn, das Licht bleibt an.
         await asyncio.sleep(0.15)
-        await move(hub)
-
-        # Wäre die erste Wartezeit weitergelaufen, wäre hier schon aus.
-        await asyncio.sleep(0.1)
-        assert light_state(hub) == "on"
-
+        await hub.registry.update_state("test.melder", {"state": "off"})
+        await hub.registry.update_state("test.melder", {"state": "on"})
+        await settle()
+        # Nach der ursprünglichen Wartezeit müsste es ohne Nachlauf
+        # bereits dunkel sein.
         await asyncio.sleep(0.2)
-        assert light_state(hub) == "off"
+        assert hub.registry.get(licht).state["state"] == "on"
+
+        # Bleibt es ruhig, geht es aus.
+        await asyncio.sleep(0.25)
+        assert hub.registry.get(licht).state["state"] == "off"
     finally:
         await hub.stop()
+
+
+async def test_without_the_mode_a_second_trigger_is_still_ignored():
+    """Die Vorgabe bleibt, wo sie hingehört: einmal ist einmal.
+
+    Eine Nachricht soll nicht doppelt kommen, bloss weil sich etwas
+    zweimal geregt hat.
+    """
+    hub = await run_hub(
+        [
+            {
+                "id": "einmal",
+                "alias": "Nur einmal",
+                "trigger": [
+                    {"type": "state", "entity_id": "test.melder", "to": "on"}
+                ],
+                "action": [
+                    {"type": "delay", "seconds": 0.3},
+                    {
+                        "type": "command",
+                        "entity_id": "demo.light_livingroom",
+                        "command": "toggle",
+                    },
+                ],
+            }
+        ]
+    )
+    try:
+        await hub.registry.add(
+            Entity(
+                id="test.melder",
+                kind=EntityKind.BINARY_SENSOR,
+                name="Bewegung Eingang",
+                integration="test",
+                state={"state": "off"},
+            )
+        )
+        licht = "demo.light_livingroom"
+        await hub.integrations.dispatch_command(licht, "turn_off")
+        await settle()
+
+        await hub.registry.update_state("test.melder", {"state": "on"})
+        await settle()
+        await asyncio.sleep(0.1)
+        await hub.registry.update_state("test.melder", {"state": "off"})
+        await hub.registry.update_state("test.melder", {"state": "on"})
+        await settle()
+        await asyncio.sleep(0.4)
+        # Genau ein Umschalten, nicht zwei.
+        assert hub.registry.get(licht).state["state"] == "on"
+    finally:
+        await hub.stop()
+
+
+def test_mode_is_parsed_conservatively():
+    """Nur «restart» bricht ab – ein Tippfehler tut nichts Unerwartetes.
+
+    Ein verschriebenes «neustart» darf nicht dazu führen, dass ein
+    laufender Ablauf plötzlich abgebrochen wird: Die zurückhaltende
+    Variante ist die sichere.
+    """
+    assert parse_automations([{"id": "a"}])[0].mode == "single"
+    assert parse_automations([{"id": "a", "mode": "restart"}])[0].mode == "restart"
+    assert parse_automations([{"id": "a", "mode": "neustart"}])[0].mode == "single"
+    # Und der Modus überlebt den Weg zurück in die gespeicherte Form.
+    gespeichert = parse_automations([{"id": "a", "mode": "restart"}])[0].as_config()
+    assert gespeichert["mode"] == "restart"
 
 
 async def test_without_a_wait_the_light_simply_stays_on():
     """Keine Zeit angegeben = niemand schaltet aus.
 
     Das ist kein Sonderfall im Code, sondern das Fehlen der beiden
-    Schritte: Der Ablauf ist nach dem Einschalten fertig.
+    Schritte: Der Ablauf ist nach dem Einschalten fertig, und das Licht
+    bleibt an, bis es jemand von Hand oder ein anderer Ablauf ausmacht.
     """
-    automation = {
-        "id": "bewegungslicht_ohne_zeit",
-        "trigger": [{"type": "state", "entity_id": "demo.motion_hall", "to": "on"}],
-        "action": [
-            {"type": "command", "entity_id": "demo.light_livingroom", "command": "turn_on"}
-        ],
-    }
-    hub = await run_hub([automation])
+    hub = await run_hub(
+        [
+            {
+                "id": "bewegungslicht_ohne_zeit",
+                "trigger": [
+                    {"type": "state", "entity_id": "demo.motion_hall", "to": "on"}
+                ],
+                "action": [
+                    {
+                        "type": "command",
+                        "entity_id": "demo.light_livingroom",
+                        "command": "turn_on",
+                    }
+                ],
+            }
+        ]
+    )
     try:
-        await move(hub)
-        assert light_state(hub) == "on"
+        await hub.registry.update_state("demo.motion_hall", {"state": "on"})
+        await settle()
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "on"
         await asyncio.sleep(0.3)
-        assert light_state(hub) == "on"
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "on"
     finally:
         await hub.stop()
-
-
-async def test_a_restarted_run_stays_in_the_history():
-    """Der abgebrochene Lauf verschwindet nicht aus dem Protokoll.
-
-    Sonst stünde im Verlauf nur der letzte – und die Frage «wann ging das
-    Licht eigentlich an?» bliebe unbeantwortet.
-    """
-    hub = await run_hub([motion_light(mode="restart")])
-    try:
-        await move(hub)
-        await asyncio.sleep(0.05)
-        # Schon jetzt steht der abgebrochene Lauf im Protokoll - er hat ja
-        # etwas getan, auch wenn er sein Ende nie erreicht.
-        await move(hub)
-        await asyncio.sleep(0.05)
-        assert len(hub.automations.runs) == 1
-        # Und der Nachfolger kommt dazu, sobald er durch ist.
-        await asyncio.sleep(0.25)
-        runs = [run for run in hub.automations.runs if run["automation_id"] == "bewegungslicht"]
-        assert len(runs) == 2
-        assert all(run["executed"] and not run["error"] for run in runs)
-    finally:
-        await hub.stop()
-
-
-def test_mode_is_parsed_conservatively():
-    """Nur «restart» bricht ab – ein Tippfehler tut nichts Unerwartetes."""
-    assert parse_automations([{"id": "a"}])[0].mode == "single"
-    assert parse_automations([{"id": "a", "mode": "restart"}])[0].mode == "restart"
-    assert parse_automations([{"id": "a", "mode": "neustart"}])[0].mode == "single"
-    assert parse_automations([{"id": "a", "mode": "restart"}])[0].as_config()["mode"] == "restart"

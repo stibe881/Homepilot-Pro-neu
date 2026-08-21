@@ -167,7 +167,8 @@ Nachbesserungen bei Zugangsdaten und Feldnamen.
 | `google_cast` | Chromecast & Co.: was läuft, Play/Pause/Weiter, Lautstärke und Stumm (`pip install "homepilot[cast]"`) |
 | `google_calendar` | Die nächsten Termine als Kachel (Cloud, Refresh-Token) |
 | `androidtv` | Fernbedienung, App-Anzeige, Lautstärke; einmalige PIN-Kopplung: `python -m homepilot.integrations.androidtv -c config.yaml` |
-| `ring` | Klingeln und Bewegung als Push, Akku und Status per Abfrage, Türöffner beim Ring Intercom (Zwei-Schritt-Bestätigung in der App); einmalige 2FA-Anmeldung: `python -m homepilot.integrations.ring -c config.yaml` |
+| `tuya` | Tuya-Lampen, -Steckdosen und -Projektoren lokal im eigenen Netz – schnell, ohne Cloud im Alltag, Änderungen aus der Hersteller-App kommen als Push an ([Einrichtung](docs/tuya.md)). Schlüssel holen: `python -m homepilot.integrations.tuya --cloud` |
+| `ring` | Klingeln und Bewegung als Push, mit eigener Abfrage als Netz darunter, falls der Ereigniskanal wegbricht ([Fehlersuche](docs/tuerklingel.md)); Akku und Status per Abfrage, Türöffner beim Ring Intercom (Zwei-Schritt-Bestätigung in der App); einmalige 2FA-Anmeldung: `python -m homepilot.integrations.ring -c config.yaml` |
 | `matter` | Lichter, Steckdosen, Sensoren und Türschlösser über matterjs-server (eigener Dienst, Block in docker-compose.yml); Tür-/Fensterkontakte und Schlösser mit Batteriestand ([Einrichtung](docs/tuer-und-fensterkontakte.md)); Protokoll end-to-end gegen einen nachgebauten Dienst getestet. Geräte koppeln: `python -m homepilot.integrations.matter -c config.yaml --pair <Code>` |
 | `overkiz` | Somfy TaHoma & Co.: Storen, Rollläden, Raffstoren mit Position und Lamellenwinkel (lokale API übers Gateway); einmalige Anmeldung: `python -m homepilot.integrations.overkiz -c config.yaml` |
 | `nuki` | Nuki Smart Lock (4./5. Gen): auf-/abschliessen und aufziehen über die Nuki-Web-API; Token auf web.nuki.io erzeugen |

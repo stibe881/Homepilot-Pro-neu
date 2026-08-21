@@ -87,3 +87,36 @@ def test_family_blocks_guests_and_unknown_lists():
             ).status_code
             == 404
         )
+
+
+def test_a_single_family_list_can_be_fetched():
+    """Die Kopfzeile fragt jede Minute nach der Einkaufsliste.
+
+    Ohne diesen Weg blieb nur /api/family - alles auf einmal, Rezepte und
+    Dokumente eingeschlossen. Wer es einzeln versuchte, bekam «Methode
+    nicht erlaubt» und in der App eine leere Liste, die aussah, als wäre
+    nichts einzukaufen. Genau so war es.
+    """
+    with make_client() as client:
+        client.post(
+            "/api/family/shopping", json={"text": "Milch"}, headers=auth("t-resident")
+        )
+        client.post(
+            "/api/family/shopping", json={"text": "Brot"}, headers=auth("t-resident")
+        )
+
+        antwort = client.get("/api/family/shopping", headers=auth("t-owner"))
+        assert antwort.status_code == 200
+        assert [eintrag["text"] for eintrag in antwort.json()] == ["Milch", "Brot"]
+
+        # Eine leere Liste ist eine leere Liste, kein Fehler.
+        assert client.get("/api/family/pins", headers=auth("t-owner")).json() == []
+        # Erfundene Listen gibt es nicht.
+        assert (
+            client.get("/api/family/unfug", headers=auth("t-owner")).status_code == 404
+        )
+        # Und Gäste bleiben draussen, wie bei allen Familienlisten.
+        assert (
+            client.get("/api/family/shopping", headers=auth("t-guest")).status_code
+            == 403
+        )

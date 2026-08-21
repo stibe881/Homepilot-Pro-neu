@@ -102,14 +102,14 @@ class AutomationRequest(BaseModel):
     # Was stattdessen läuft, wenn die Bedingungen nicht passen.
     otherwise: list[dict[str, Any]] = []
     enabled: bool = True
+    # Was geschieht, wenn er noch läuft und erneut ausgelöst wird:
+    # «single» verwirft den zweiten Auslöser, «restart» beginnt von vorn
+    # (Nachlauf, siehe core/automation.py).
+    mode: str = "single"
     # «all» = alle Bedingungen müssen stimmen, «any» = eine genügt.
     match: str = "all"
     # Frei gewählter Name zum Gruppieren in der App.
     category: str | None = None
-    # Was ein erneuter Auslöser tut, während der Ablauf noch in einer
-    # Wartezeit steht: «single» lässt ihn zu Ende laufen, «restart» beginnt
-    # die Wartezeit von vorn.
-    mode: str = "single"
 
 
 class SceneRequest(BaseModel):
@@ -1704,9 +1704,9 @@ def create_app(hub: Hub) -> FastAPI:
             "action": body.action,
             "otherwise": body.otherwise,
             "enabled": body.enabled,
+            "mode": body.mode,
             "match": body.match,
             "category": body.category,
-            "mode": body.mode,
         }
         hub.data.set("automations", [*stored_automations(), entry])
         await hub.reload_automations()
@@ -1733,9 +1733,9 @@ def create_app(hub: Hub) -> FastAPI:
                 "action": body.action,
                 "otherwise": body.otherwise,
                 "enabled": body.enabled,
+                "mode": body.mode,
                 "match": body.match,
                 "category": body.category,
-                "mode": body.mode,
             }
             if entry["id"] == automation_id
             else entry
@@ -2386,6 +2386,20 @@ def create_app(hub: Hub) -> FastAPI:
             )
         except Exception as err:  # eine Nachricht ist kein Grund zu scheitern
             log.warning("Zuweisungs-Nachricht an %s fehlgeschlagen: %s", wer, err)
+
+    @app.get("/api/family/{collection}")
+    async def family_one(collection: str, request: Request) -> list[dict[str, Any]]:
+        """Eine einzelne Liste.
+
+        Ohne diesen Weg blieb nur /api/family - und das liefert alles auf
+        einmal, Rezepte und Dokumente eingeschlossen. Für die Kopfzeile,
+        die jede Minute nach der Einkaufsliste fragt, ist das die falsche
+        Grössenordnung; und wer es trotzdem einzeln versuchte, bekam vom
+        Server ein «Methode nicht erlaubt» und in der App eine leere
+        Liste, die aussah, als wäre nichts einzukaufen.
+        """
+        family_user(request)
+        return list(hub.data.get(family_key(collection)))
 
     @app.post("/api/family/{collection}")
     async def family_add(

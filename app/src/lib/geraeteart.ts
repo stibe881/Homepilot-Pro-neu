@@ -52,17 +52,21 @@ const NACH_EINHEIT: Record<string, string> = {
  * Bild, Apps und eine Fernbedienung. Wo es um Musik geht – der Player
  * auf der Startseite, eine Durchsage – hat er nichts verloren.
  *
- * Erkannt an der Integration und, für alles Künftige, an den Knöpfen:
- * Wer Apps starten oder ein Steuerkreuz bedienen kann, ist keine Box.
- * Ein Chromecast am Fernseher bleibt dabei eine Box – er kann nur Ton
- * abspielen, und genau dafür wird er hier gebraucht.
+ * Unterschieden wird an den Befehlen, nicht am Hersteller: Was ein
+ * Steuerkreuz oder einen App-Start kennt, ist ein Fernseher – das gilt
+ * auch für den nächsten, der nicht von Nvidia kommt. Ein Chromecast am
+ * Fernseher bleibt dabei eine Box: Er kann nur Ton abspielen, und genau
+ * dafür wird er hier gebraucht.
  */
 export function isTelevision(entity: Entity): boolean {
   if (entity.kind !== 'media_player') return false;
-  return (
-    entity.integration === 'androidtv' ||
-    entity.commands.includes('launch_app') ||
-    entity.commands.includes('dpad_up')
+  // Wehrhaft gegen Einträge ohne Befehlsliste: Diese Prüfung läuft über
+  // jedes Medien-Gerät, und ein einziger Ausrutscher darüber nähme den
+  // ganzen Player von der Startseite – Playlists inbegriffen. Im Zweifel
+  // also keine Behauptung, es sei ein Fernseher.
+  if (!Array.isArray(entity.commands)) return false;
+  return entity.commands.some(
+    (command) => command === 'dpad_up' || command === 'launch_app'
   );
 }
 

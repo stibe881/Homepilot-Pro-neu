@@ -667,6 +667,105 @@ def test_ring_event_fields():
     assert event_fields("on_demand", 1755200000.0) == {}
 
 
+class _Alert:
+    """Eine aktive Meldung, so wie ring_doorbell sie liefert."""
+
+    def __init__(self, doorbot_id, ident, kind, now, expires_in=180):
+        self.doorbot_id = doorbot_id
+        self.id = ident
+        self.kind = kind
+        self.now = now
+        self.expires_in = expires_in
+
+
+def test_ring_new_alerts_reports_each_ring_once():
+    """Dieselbe Klingel bleibt bei Ring Minuten lang «aktiv».
+
+    Ohne Gedächtnis käme sie bei jeder Abfrage erneut - alle zehn Sekunden
+    eine Nachricht, bis sie abläuft.
+    """
+    from homepilot.integrations.ring import new_alerts
+
+    klingel = _Alert(11, 5001, "ding", 1000.0)
+    frisch, gemerkt = new_alerts([klingel], {}, 1005.0)
+    assert [event.id for event in frisch] == [5001]
+
+    # Zweite Abfrage, dieselbe Meldung – nichts Neues.
+    frisch, gemerkt = new_alerts([klingel], gemerkt, 1015.0)
+    assert frisch == []
+
+    # Bewegung am selben Gerät ist etwas anderes.
+    frisch, gemerkt = new_alerts(
+        [klingel, _Alert(11, 5002, "motion", 1020.0)], gemerkt, 1025.0
+    )
+    assert [event.kind for event in frisch] == ["motion"]
+
+
+def test_ring_new_alerts_forgets_what_has_expired():
+    """Das Gedächtnis darf nicht mit jedem Besucher wachsen."""
+    from homepilot.integrations.ring import new_alerts
+
+    _, gemerkt = new_alerts([_Alert(11, 5001, "ding", 1000.0, 60)], {}, 1000.0)
+    assert len(gemerkt) == 1
+    _, gemerkt = new_alerts([], gemerkt, 1100.0)
+    assert gemerkt == {}
+
+
+def test_ring_retry_delay_grows_and_stops_growing():
+    from homepilot.integrations.ring import RETRY_SECONDS, retry_delay
+
+    assert retry_delay(1) == RETRY_SECONDS[0]
+    assert retry_delay(2) == RETRY_SECONDS[1]
+    assert retry_delay(99) == RETRY_SECONDS[-1]
+    # Ein unsinniger Zähler soll keinen Absturz geben.
+    assert retry_delay(0) == RETRY_SECONDS[0]
+
+
+class _Empfaenger:
+    def __init__(self, laeuft):
+        self._laeuft = laeuft
+
+    def is_started(self):
+        return self._laeuft
+
+
+class _Zuhoerer:
+    def __init__(self, started=True, empfaenger=None):
+        self.started = started
+        self._receiver = empfaenger
+
+
+def test_ring_channel_alive_sees_a_self_terminated_push_client():
+    """«started» heisst nur: niemand hat ihn gestoppt.
+
+    Der Fall aus dem Betrieb: firebase_messaging meldet «erfolgreich
+    angemeldet» und schaltet sich eine Sekunde später wegen einer
+    beschädigten Anmeldung selbst ab. Der Zuhörer darüber merkt davon
+    nichts - von aussen sah alles gut aus, und es klingelte bloss nie.
+    """
+    from homepilot.integrations.ring import channel_alive
+
+    assert channel_alive(_Zuhoerer(True, _Empfaenger(True))) is True
+    assert channel_alive(_Zuhoerer(True, _Empfaenger(False))) is False
+    # Gestoppt ist gestoppt.
+    assert channel_alive(_Zuhoerer(False, _Empfaenger(True))) is False
+    # Ohne Einblick gilt er als gesund – die Abfrage fängt den Fall auf.
+    assert channel_alive(_Zuhoerer(True, None)) is True
+    assert channel_alive(None) is False
+
+
+def test_ring_health_detail_names_the_reason():
+    """Die eine Störung, die man sonst nie bemerkt, steht im Klartext da."""
+    from homepilot.integrations.ring import health_detail
+
+    assert "verbunden" in health_detail(True, None)
+    kaputt = health_detail(False, "Anmeldung beim Push-Dienst abgelehnt")
+    assert "nicht verbunden" in kaputt
+    assert "Anmeldung beim Push-Dienst abgelehnt" in kaputt
+    # Auch ohne bekannten Grund eine brauchbare Auskunft.
+    assert "nicht verbunden" in health_detail(False, None)
+
+
 # ── Google Calendar ──────────────────────────────────────────────────────
 
 

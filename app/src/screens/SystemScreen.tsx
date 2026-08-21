@@ -1192,7 +1192,14 @@ function IntegrationsCard({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [open, setOpen] = useState(false);
   const broken = integrations.filter((integration) => !integration.ok);
-  const shown = open ? integrations : broken;
+  // Eine Integration kann laufen und trotzdem halb taub sein: Ring lädt
+  // seine Geräte, aber der Ereigniskanal steht nicht, und dann klingelt
+  // es nur noch in der Wohnung. Von aussen sieht das aus wie «alles in
+  // Ordnung» – deshalb kommt es hier neben die echten Störungen.
+  const gestoert = integrations.filter(
+    (integration) => integration.ok && integration.health?.ok === false
+  );
+  const shown = open ? integrations : [...broken, ...gestoert];
 
   return (
     <Card style={styles.card}>
@@ -1204,11 +1211,17 @@ function IntegrationsCard({
       >
         <Text style={[styles.heading, { flex: 1 }]}>Integrationen</Text>
         <Text
-          style={[styles.rowDetail, broken.length > 0 && { color: colors.danger }]}
+          style={[
+            styles.rowDetail,
+            gestoert.length > 0 && { color: colors.warn },
+            broken.length > 0 && { color: colors.danger },
+          ]}
         >
           {broken.length > 0
             ? `${broken.length} gestört`
-            : `${integrations.length} · alle in Ordnung`}
+            : gestoert.length > 0
+              ? `${gestoert.length} eingeschränkt`
+              : `${integrations.length} · alle in Ordnung`}
         </Text>
         <Ionicons
           name={open ? 'chevron-up' : 'chevron-down'}
@@ -1219,9 +1232,21 @@ function IntegrationsCard({
       {shown.map((integration) => (
         <View key={integration.name} style={styles.row}>
           <Ionicons
-            name={integration.ok ? 'checkmark-circle' : 'alert-circle'}
+            name={
+              !integration.ok
+                ? 'alert-circle'
+                : integration.health?.ok === false
+                  ? 'warning'
+                  : 'checkmark-circle'
+            }
             size={20}
-            color={integration.ok ? colors.on : colors.danger}
+            color={
+              !integration.ok
+                ? colors.danger
+                : integration.health?.ok === false
+                  ? colors.warn
+                  : colors.on
+            }
           />
           <View style={{ flex: 1 }}>
             <Text style={styles.rowTitle}>{integration.name}</Text>
@@ -1245,11 +1270,21 @@ function IntegrationsCard({
 
 /** Was eine Integration über ihren eigenen Zustand meldet (rein, testbar).
  *
- * Heute nur Homematic: Ob die CCU den Hub noch als Event-Empfänger kennt
- * und wann zuletzt etwas ankam. Bleibt das lange leer, obwohl Geräte aktiv
- * sind, ist die Anmeldung weg – und dann kommt gar nichts mehr an, ohne
- * dass irgendwo ein Fehler stünde. */
+ * Es geht immer um dieselbe Art Störung: Die Verbindung steht, Geräte sind
+ * da, und trotzdem kommt nichts mehr an – bei Homematic, wenn die CCU den
+ * Hub als Empfänger vergessen hat, bei Ring, wenn der Ereigniskanal nicht
+ * zustande kam. Beides sieht von aussen aus wie «es ist halt nichts
+ * passiert».
+ *
+ * Wer den Satz selbst schreiben kann, schickt ihn als `detail` mit – die
+ * Integration weiss besser als dieser Bildschirm, was ihre Zahlen
+ * bedeuten. Ohne `detail` gilt die Homematic-Form. */
 export function healthText(health: Record<string, any>): string {
+  if (typeof health.detail === 'string' && health.detail) {
+    return typeof health.last_event === 'number'
+      ? `${health.detail} · letztes Ereignis ${lastSeen(health.last_event)}`
+      : health.detail;
+  }
   const parts: string[] = [];
   const registered = health.registered as string[] | undefined;
   parts.push(
