@@ -60,6 +60,27 @@ an. Nach ~15 Minuten gibt es einen Link; die Installation läuft am
 saubersten über **TestFlight** (`eas submit --platform ios`), dann bekommt
 die Familie die App wie aus dem App Store und erhält Updates automatisch.
 
+### Die Frage nach der Verschlüsselung
+
+App Store Connect fragt bei jedem Build, welche Verschlüsselung die App
+benutzt. Die Antwort lautet hier: **keine der aufgezählten**. Die App
+rechnet nichts selbst – sie ruft den Hub über `https` auf, und das
+erledigt iOS. Genau dafür gibt es die Ausnahme in Apples
+Exportbestimmungen (die Sperre für den Zugriff auf das Handy zählt
+ebenfalls ausdrücklich nicht dazu).
+
+Damit die Frage nicht bei jedem Build erneut kommt, steht die Antwort in
+der `app.json`:
+
+```json
+"ios": { "config": { "usesNonExemptEncryption": false } }
+```
+
+Daraus macht der Build `ITSAppUsesNonExemptEncryption = false` in der
+Info.plist, und App Store Connect fragt nicht mehr. Sollte die App
+irgendwann selbst verschlüsseln – etwa Daten vor dem Ablegen –, gilt die
+Ausnahme nicht mehr und der Eintrag muss weg.
+
 ## Push-Nachrichten scharf schalten
 
 Der Hub verschickt Pushes bereits über den Expo-Dienst. Die App meldet ihr

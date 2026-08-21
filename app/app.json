@@ -11,6 +11,9 @@
     "ios": {
       "bundleIdentifier": "ch.stibe.homepilot",
       "supportsTablet": true,
+      "config": {
+        "usesNonExemptEncryption": false
+      },
       "entitlements": {
         "com.apple.security.application-groups": [
           "group.me.stibe.homepilot"
