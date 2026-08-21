@@ -48,6 +48,7 @@ from ..core import watchdog
 from ..core import notifyrules
 from ..core import replace as replace_module
 from ..core import maintenance
+from ..core import shopping as shopping_module
 from ..core import suggest
 from ..core import users as users_module
 from ..core import automation as automation_module
@@ -2401,6 +2402,21 @@ def create_app(hub: Hub) -> FastAPI:
         family_user(request)
         return list(hub.data.get(family_key(collection)))
 
+    @app.get("/api/shopping/known")
+    async def shopping_known(request: Request, q: str = "") -> list[str]:
+        """Schon einmal eingekaufte Artikel – für die Vervollständigung.
+
+        Bewusst im Hub und nicht auf dem Telefon: Was Livia einträgt, soll
+        Stefan vorgeschlagen bekommen. Ein Gedächtnis je Gerät wäre nach
+        einer Neuinstallation ausserdem leer.
+
+        Eigener Weg statt /api/family/{collection}: Das ist keine
+        Familienliste, die man ansieht und abhakt, sondern eine Zutat der
+        Eingabe.
+        """
+        family_user(request)
+        return shopping_module.suggestions(hub.data.get("shopping_known"), q)
+
     @app.post("/api/family/{collection}")
     async def family_add(
         collection: str, body: dict[str, Any], request: Request
@@ -2414,6 +2430,16 @@ def create_app(hub: Hub) -> FastAPI:
         item["author"] = user.name
         item["created"] = datetime.now().isoformat(timespec="seconds")
         hub.data.set(key, [*hub.data.get(key), item])
+        # Einkaufsartikel gehen ins Gedächtnis für die Vervollständigung.
+        # Nicht die Liste selbst dafür nehmen: Erledigtes wird irgendwann
+        # entfernt, und dann wäre «Milch» wieder unbekannt.
+        if collection == "shopping":
+            hub.data.set(
+                "shopping_known",
+                shopping_module.remember(
+                    hub.data.get("shopping_known"), str(item.get("text") or "")
+                ),
+            )
         await tell_the_assignee(collection, item, user.name)
         return item
 

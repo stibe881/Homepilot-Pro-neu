@@ -41,6 +41,7 @@ import { Tap, useNotificationTap } from '../hooks/useNotificationTap';
 import { usePrefs } from '../hooks/usePrefs';
 import { usePushRegistration } from '../hooks/usePushRegistration';
 import { breakpoints, Colors, radius, space, type, useColors } from '../theme';
+import { shopCategory } from '../lib/einkauf';
 import { AutomationsScreen } from './AutomationsScreen';
 import { FamilyScreen } from './FamilyScreen';
 import { OverviewScreen } from './OverviewScreen';
@@ -229,6 +230,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Familie - nur die offenen Einträge, denn oben zählt, was noch fehlt.
   const [einkauf, setEinkauf] = useState<any[]>([]);
   const [laeden, setLaeden] = useState<any[]>([]);
+  // Schon einmal eingekaufte Artikel – die Vervollständigung im Fenster
+  // der Kopfzeile lebt davon. Kommt aus dem Hub, nicht vom Gerät: Was
+  // Livia einträgt, soll Stefan vorgeschlagen bekommen.
+  const [bekannt, setBekannt] = useState<string[]>([]);
   const ladeEinkauf = useCallback(() => {
     if (!settings.url || !settings.token) return;
     const headers = { Authorization: `Bearer ${settings.token}` };
@@ -241,6 +246,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     fetch(`${settings.url}/api/family/shops`, { headers })
       .then((response) => (response.ok ? response.json() : []))
       .then((rows) => setLaeden(Array.isArray(rows) ? rows : []))
+      .catch(() => {});
+    fetch(`${settings.url}/api/shopping/known`, { headers })
+      .then((response) => (response.ok ? response.json() : []))
+      .then((rows) => setBekannt(Array.isArray(rows) ? rows.map(String) : []))
       .catch(() => {});
   }, [settings.url, settings.token]);
   useEffect(() => {
@@ -270,6 +279,37 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       })
         .catch(() => {})
         .finally(ladeEinkauf);
+    },
+    [settings.url, settings.token, ladeEinkauf]
+  );
+
+  /** Einen Artikel auf die Liste setzen – aus dem Fenster der Kopfzeile.
+   *
+   *  Der Eintrag erscheint sofort, mit einer vorläufigen Kennung: Wer
+   *  drei Sachen hintereinander eintippt, soll nicht nach jeder auf den
+   *  Hub warten. Der Abruf danach ersetzt ihn durch den echten. */
+  const kaufeEin = useCallback(
+    async (text: string) => {
+      const name = text.trim();
+      if (!name || !settings.url) return;
+      setEinkauf((liste) => [...liste, { id: `neu-${name}`, text: name }]);
+      setBekannt((liste) => [name, ...liste.filter((entry) => entry !== name)]);
+      try {
+        await fetch(`${settings.url}/api/family/shopping`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${settings.token}`,
+            'Content-Type': 'application/json',
+          },
+          // Der Gang wird hier bestimmt und nicht im Hub: Dieselbe
+          // Zuordnung sortiert die Liste, und sie steht in lib/einkauf.ts.
+          body: JSON.stringify({ text: name, category: shopCategory(name) }),
+        });
+      } catch {
+        // Kein Netz: Der Abruf gleich darauf räumt den vorläufigen
+        // Eintrag wieder weg.
+      }
+      ladeEinkauf();
     },
     [settings.url, settings.token, ladeEinkauf]
   );
@@ -1498,9 +1538,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             now={now}
             hidden={hidden}
             onCommand={guardedCommand}
-            shopping={einkauf}
-            shops={laeden}
-            onShoppingDone={hakeAb}
+            {...(hiddenSections.includes('family')
+              ? {}
+              : {
+                  shopping: einkauf,
+                  shops: laeden,
+                  onShoppingDone: hakeAb,
+                  knownItems: bekannt,
+                  onShoppingAdd: kaufeEin,
+                })}
             showClock={!!settings.panel}
           />
 

@@ -81,3 +81,55 @@ def describe(shop: dict[str, Any], offen: list[dict[str, Any]]) -> tuple[str, st
     if len(texte) > 4:
         kopf += f" und {len(texte) - 4} weitere"
     return (f"Du bist im {name}", kopf or f"{len(offen)} Einträge auf der Liste")
+
+
+# So viele Namen merkt sich der Hub für die Vervollständigung. Zweihundert
+# decken einen Haushalt mit Abstand ab; die Grenze steht nur da, damit die
+# Liste nach Jahren nicht unbemerkt wächst.
+KNOWN_LIMIT = 200
+
+
+def remember(known: list[Any], text: str, limit: int = KNOWN_LIMIT) -> list[str]:
+    """Einen eingekauften Artikel ins Gedächtnis aufnehmen (rein, testbar).
+
+    Wozu: Wer «Milch» zum zwanzigsten Mal einträgt, soll ihn nicht zum
+    zwanzigsten Mal ausschreiben müssen. Erledigte Einträge werden
+    irgendwann entfernt - die Liste selbst taugt deshalb nicht als
+    Gedächtnis.
+
+    Der zuletzt benutzte Name steht vorn: Ein Vorschlag ist umso besser,
+    je frischer er ist. Gross-/Kleinschreibung unterscheidet nicht -
+    «milch» und «Milch» sind derselbe Posten, und behalten wird die
+    zuletzt getippte Schreibweise. Leeres wird nicht gemerkt.
+    """
+    name = str(text or "").strip()
+    if not name:
+        return [str(entry) for entry in known if str(entry).strip()]
+    unten = name.lower()
+    rest = [
+        str(entry)
+        for entry in known
+        if str(entry).strip() and str(entry).strip().lower() != unten
+    ]
+    return [name, *rest][: max(1, limit)]
+
+
+def suggestions(known: list[Any], query: str, limit: int = 8) -> list[str]:
+    """Vorschläge zu einem angetippten Anfang (rein, testbar).
+
+    Wer «mi» tippt, meint eher «Milch» als «Salami» - was vorn beginnt,
+    steht deshalb vor dem, was das Gesuchte bloss enthält. Ohne Eingabe
+    kommen die zuletzt benutzten Namen; das ist beim leeren Feld der
+    nützlichste Anfang, denn eingekauft wird meistens dasselbe.
+    """
+    namen = [str(entry) for entry in known if str(entry).strip()]
+    suche = str(query or "").strip().lower()
+    if not suche:
+        return namen[:limit]
+    vorn = [name for name in namen if name.lower().startswith(suche)]
+    drin = [
+        name
+        for name in namen
+        if suche in name.lower() and not name.lower().startswith(suche)
+    ]
+    return [*vorn, *drin][:limit]

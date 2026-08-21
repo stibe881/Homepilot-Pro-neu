@@ -9,6 +9,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 
@@ -63,6 +64,8 @@ export function TopStrip({
   onCommand,
   shopping,
   shops,
+  knownItems,
+  onShoppingAdd,
   onShoppingDone,
   showClock = false,
 }: {
@@ -80,6 +83,10 @@ export function TopStrip({
   shopping?: any[];
   /** Die angelegten Läden (Familie → Einkaufsliste → Läden). */
   shops?: Shop[];
+  /** Schon einmal eingekaufte Artikel – für die Vervollständigung. */
+  knownItems?: string[];
+  /** Einen Artikel auf die Liste setzen, direkt aus dem Fenster. */
+  onShoppingAdd?: (text: string) => void;
   /** Einen Eintrag abhaken – direkt im Laden, ohne Umweg über Familie. */
   onShoppingDone?: (id: string) => void;
   /** Uhrzeit anzeigen – nur fürs Wandpanel gedacht. */
@@ -98,6 +105,9 @@ export function TopStrip({
   // Coop Willisau steht, hat damit nicht entschieden, was Livia in
   // Lörrach sieht.
   const [shopId, setShopId] = useState<string>(ALLGEMEIN.id);
+  // Was gerade eingetippt wird. Bleibt beim Schliessen stehen - wer aus
+  // Versehen danebentippt, hat es nicht verloren.
+  const [neuerArtikel, setNeuerArtikel] = useState('');
   const temperature = entities.find(
     (entity) => entity.kind === 'sensor' && entity.state.unit === '°C'
   );
@@ -135,6 +145,11 @@ export function TopStrip({
   const laeden = [ALLGEMEIN, ...(shops ?? [])];
   const laden = laeden.find((entry) => entry.id === shopId) ?? ALLGEMEIN;
   const gaenge = groupForShop(einkauf, laden);
+  const vorschlaege = artikelVorschlaege(
+    knownItems ?? [],
+    neuerArtikel,
+    einkauf.map((eintrag: any) => String(eintrag?.text ?? ''))
+  );
 
   return (
     <View style={styles.row}>
@@ -168,16 +183,29 @@ export function TopStrip({
             />
           </Blinkend>
         ) : null}
-        {/* Orange, sobald etwas fehlt: Die Einkaufsliste ist der einzige
+        {/* Immer da, damit man auch etwas *eintragen* kann - eine Liste,
+            die erst erscheint, wenn schon etwas drauf steht, ist genau
+            dann nicht da, wenn man sie braucht. Orange erst, sobald
+            wirklich etwas fehlt: Die Einkaufsliste ist der einzige
             Eintrag hier, der einen zum Handeln bringt, statt nur zu
             berichten - man geht ohnehin gleich aus dem Haus. */}
-        {einkauf.length > 0 ? (
-          <Chip
-            icon="cart"
-            tone={colors.warn}
-            text={einkauf.length === 1 ? '1 einkaufen' : `${einkauf.length} einkaufen`}
-            onPress={() => setShopOpen(true)}
-          />
+        {/* Wer die Familienlisten nicht sehen darf, bekommt auch den
+            Einkaufszettel nicht: Ohne 'shopping' bleibt der Eintrag weg,
+            statt einem Gast ein leeres Fenster anzubieten, in dem jedes
+            Eintragen am Hub scheitert. */}
+        {shopping ? (
+        <Chip
+          icon="cart"
+          tone={einkauf.length > 0 ? colors.warn : undefined}
+          text={
+            einkauf.length === 0
+              ? 'Einkaufen'
+              : einkauf.length === 1
+                ? '1 einkaufen'
+                : `${einkauf.length} einkaufen`
+          }
+          onPress={() => setShopOpen(true)}
+        />
         ) : null}
         {vacuum ? <Chip icon="sparkles-outline" text="saugt" /> : null}
         {calendar ? (
@@ -338,9 +366,73 @@ export function TopStrip({
               </ScrollView>
             ) : null}
 
-            <ScrollView style={{ maxHeight: 360 }}>
+            {/* Eintragen, wo man die Liste ohnehin gerade ansieht. Der
+                häufigste Fall ist «mir fällt noch etwas ein», und dafür
+                erst unter Familie nachzuschlagen war ein Umweg. */}
+            {onShoppingAdd ? (
+              <>
+                <View style={styles.addRow}>
+                  <Ionicons name="add" size={17} color={colors.inkFaint} />
+                  <TextInput
+                    style={styles.addInput}
+                    value={neuerArtikel}
+                    onChangeText={setNeuerArtikel}
+                    placeholder="Was fehlt?"
+                    placeholderTextColor={colors.inkFaint}
+                    autoCorrect={false}
+                    returnKeyType="done"
+                    onSubmitEditing={() => {
+                      onShoppingAdd(neuerArtikel);
+                      setNeuerArtikel('');
+                    }}
+                  />
+                  {neuerArtikel.trim() ? (
+                    <Pressable
+                      onPress={() => {
+                        onShoppingAdd(neuerArtikel);
+                        setNeuerArtikel('');
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${neuerArtikel.trim()} eintragen`}
+                      hitSlop={8}
+                    >
+                      <Ionicons name="arrow-forward-circle" size={22} color={colors.accent} />
+                    </Pressable>
+                  ) : null}
+                </View>
+                {vorschlaege.length > 0 ? (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={{ flexGrow: 0 }}
+                    contentContainerStyle={styles.shopRow}
+                    keyboardShouldPersistTaps="handled"
+                  >
+                    {vorschlaege.map((name) => (
+                      <Pressable
+                        key={name}
+                        onPress={() => {
+                          onShoppingAdd(name);
+                          setNeuerArtikel('');
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${name} eintragen`}
+                        style={({ pressed }) => [styles.shopChip, pressed && { opacity: 0.7 }]}
+                      >
+                        <Text style={styles.shopChipText}>{name}</Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                ) : null}
+              </>
+            ) : null}
+
+            <ScrollView style={{ maxHeight: 360 }} keyboardShouldPersistTaps="handled">
               {gaenge.length === 0 ? (
-                <Text style={styles.lightRoom}>Die Liste ist leer.</Text>
+                <Text style={styles.lightRoom}>
+                  Die Liste ist leer
+                  {onShoppingAdd ? ' – oben eintragen, was fehlt.' : '.'}
+                </Text>
               ) : null}
               {gaenge.map((gang) => (
                 <View key={gang.category}>
@@ -586,6 +678,35 @@ function Chip({
   );
 }
 
+/**
+ * Vorschläge fürs Eingabefeld der Einkaufsliste (rein, testbar).
+ *
+ * Der Hub liefert die schon einmal eingekauften Namen; hier fällt weg,
+ * was ohnehin gerade auf der Liste steht - ein Vorschlag, der einen
+ * Eintrag verdoppeln würde, ist keiner. Was mit dem Getippten *beginnt*,
+ * steht vor dem, was es bloss enthält: Wer «mi» tippt, meint eher Milch
+ * als Salami.
+ *
+ * Ohne Eingabe die zuletzt benutzten - beim leeren Feld ist das der
+ * nützlichste Anfang, denn eingekauft wird meistens dasselbe.
+ */
+export function artikelVorschlaege(
+  bekannt: string[],
+  eingabe: string,
+  schonDrauf: string[] = [],
+  limit = 6
+): string[] {
+  const drauf = new Set(schonDrauf.map((text) => text.trim().toLowerCase()));
+  const frei = bekannt.filter((name) => !drauf.has(name.trim().toLowerCase()));
+  const suche = eingabe.trim().toLowerCase();
+  if (!suche) return frei.slice(0, limit);
+  const vorn = frei.filter((name) => name.toLowerCase().startsWith(suche));
+  const drin = frei.filter(
+    (name) => name.toLowerCase().includes(suche) && !name.toLowerCase().startsWith(suche)
+  );
+  return [...vorn, ...drin].slice(0, limit);
+}
+
 function round(value: any): string {
   return typeof value === 'number' ? String(Math.round(value * 10) / 10) : String(value ?? '–');
 }
@@ -724,6 +845,17 @@ const makeStyles = (colors: Colors) =>
   alertDetail: { color: colors.inkSoft, fontSize: 13, lineHeight: 19, marginTop: 2 },
   heading: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
   shopRow: { flexDirection: 'row', gap: 6, paddingBottom: 4 },
+  addRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: colors.surfaceSoft,
+    borderRadius: radius.control,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  addInput: { flex: 1, paddingVertical: 10, color: colors.ink, fontSize: 15 },
   shopChip: {
     paddingVertical: 6,
     paddingHorizontal: 12,

@@ -120,3 +120,82 @@ def test_a_single_family_list_can_be_fetched():
             client.get("/api/family/shopping", headers=auth("t-guest")).status_code
             == 403
         )
+
+
+# ── Gedächtnis der Einkaufsliste ───────────────────────────────────────────
+
+
+def test_remember_keeps_the_latest_spelling_in_front():
+    from homepilot.core.shopping import remember
+
+    known: list = []
+    for text in ["Milch", "Brot", "Rüebli"]:
+        known = remember(known, text)
+    assert known == ["Rüebli", "Brot", "Milch"]
+
+    # Derselbe Posten in anderer Schreibweise verdoppelt nicht, sondern
+    # rückt nach vorn - und behält die zuletzt getippte Fassung.
+    known = remember(known, "milch")
+    assert known == ["milch", "Rüebli", "Brot"]
+
+    # Leeres merkt sich niemand.
+    assert remember(known, "   ") == known
+    # Und die Liste wächst nicht unbegrenzt.
+    voll = remember([f"Posten {i}" for i in range(300)], "Neu", limit=5)
+    assert len(voll) == 5 and voll[0] == "Neu"
+
+
+def test_suggestions_prefer_what_starts_with_the_query():
+    from homepilot.core.shopping import suggestions
+
+    known = ["Salami", "Milch", "Mineralwasser", "Brot"]
+    # «mi» meint eher Milch als Salami - Anfang schlägt Enthalten.
+    assert suggestions(known, "mi") == ["Milch", "Mineralwasser", "Salami"]
+    # Ohne Eingabe die zuletzt benutzten: Eingekauft wird meistens dasselbe.
+    assert suggestions(known, "") == known
+    assert suggestions(known, "xyz") == []
+    assert suggestions(known, "mi", limit=1) == ["Milch"]
+
+
+def test_added_articles_are_remembered_for_next_time():
+    """Was einmal auf der Liste stand, wird beim nächsten Mal vorgeschlagen.
+
+    Auch dann noch, wenn der Eintrag längst abgehakt und entfernt ist -
+    genau dafür gibt es das eigene Gedächtnis.
+    """
+    with make_client() as client:
+        created = client.post(
+            "/api/family/shopping",
+            json={"text": "Milch", "category": "Milchprodukte"},
+            headers=auth("t-resident"),
+        )
+        assert created.status_code == 200
+        client.post(
+            "/api/family/shopping", json={"text": "Rüebli"}, headers=auth("t-owner")
+        )
+
+        known = client.get("/api/shopping/known", headers=auth("t-owner")).json()
+        assert known == ["Rüebli", "Milch"]
+        treffer = client.get(
+            "/api/shopping/known", params={"q": "mil"}, headers=auth("t-owner")
+        ).json()
+        assert treffer == ["Milch"]
+
+        # Eintrag wieder weg - der Vorschlag bleibt.
+        client.delete(
+            f"/api/family/shopping/{created.json()['id']}", headers=auth("t-owner")
+        )
+        assert "Milch" in client.get(
+            "/api/shopping/known", headers=auth("t-owner")
+        ).json()
+
+
+def test_other_family_lists_do_not_fill_the_shopping_memory():
+    """Eine Aufgabe ist kein Einkaufsartikel."""
+    with make_client() as client:
+        client.post(
+            "/api/family/tasks",
+            json={"text": "Steuererklärung"},
+            headers=auth("t-owner"),
+        )
+        assert client.get("/api/shopping/known", headers=auth("t-owner")).json() == []
