@@ -1640,6 +1640,45 @@ function BackupCard({
     }
   };
 
+  /**
+   * Das Haus auf einem Blatt – für die Ferienvertretung.
+   *
+   * Der Hub stellt es zusammen (core/hausblatt.py), damit es auf jedem
+   * Gerät dasselbe ist und nur enthält, was die anfragende Person auch
+   * sehen darf. Hier bleibt nur die Frage, was damit geschieht: im
+   * Browser drucken, auf dem Telefon teilen.
+   */
+  const hausblatt = async () => {
+    setNote(null);
+    try {
+      const response = await fetch(`${settings.url}/api/system/hausblatt`, { headers });
+      if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
+      const text = await response.text();
+      if (Platform.OS !== 'web') {
+        await Share.share({ title: 'Hausblatt', message: text });
+        return;
+      }
+      // Ein eigenes Fenster statt window.print() auf der App selbst: Sonst
+      // druckte man die Bedienoberfläche mit Kacheln und Schaltern aus.
+      const fenster = window.open('', '_blank');
+      if (!fenster) {
+        setNote('Der Browser hat das Druckfenster blockiert.');
+        return;
+      }
+      fenster.document.write(
+        '<html><head><title>Hausblatt</title></head><body>' +
+          '<pre style="font:13px/1.5 ui-monospace,monospace;white-space:pre-wrap">' +
+          text.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!) +
+          '</pre></body></html>'
+      );
+      fenster.document.close();
+      fenster.focus();
+      fenster.print();
+    } catch (err: any) {
+      setNote(String(err.message ?? err));
+    }
+  };
+
   const restore = async (name: string) => {
     if (confirmRestore !== name) {
       setConfirmRestore(name);
@@ -1690,11 +1729,19 @@ function BackupCard({
         {Platform.OS === 'web' ? (
           <Button label="Alles als Datei" onPress={exportieren} />
         ) : null}
+        <Button
+          label={Platform.OS === 'web' ? 'Hausblatt drucken' : 'Hausblatt teilen'}
+          onPress={hausblatt}
+        />
       </View>
       <Text style={styles.rowDetail}>
         {Platform.OS === 'web'
           ? 'Die Datei enthält Abläufe, Szenen, Listen und Räume – keine Token, keine Sitzungen, kein Zugriffsprotokoll.'
           : 'Alles als Datei herunterladen geht in der Web-Fassung – das Telefon hat keinen Ort, an dem sie liegen bliebe.'}
+      </Text>
+      <Text style={styles.rowDetail}>
+        Das Hausblatt ist eine Seite für die Ferienvertretung: Räume, Szenen
+        und vor allem, was von selbst passiert.
       </Text>
 
       {listOpen

@@ -59,6 +59,7 @@ from ..core import (
 )
 from ..core import energy as energy_module
 from ..core import goodnight as goodnight_module
+from ..core import hausblatt as hausblatt_module
 from ..core import replace as replace_module
 from ..core import shopping as shopping_module
 from ..core import throttle as throttle_module
@@ -1327,6 +1328,58 @@ def create_app(hub: Hub) -> FastAPI:
             media_type="application/json",
             headers={"Content-Disposition": f'attachment; filename="{name}"'},
         )
+
+    @app.get("/api/system/hausblatt")
+    async def hausblatt_text(request: Request) -> Response:
+        """Das Haus auf einem Blatt – für die Ferienvertretung.
+
+        Wer zwei Wochen giesst, bekommt sonst die App in die Hand
+        gedrückt. Was er wirklich braucht, passt auf eine Seite – vor
+        allem das, was von selbst passiert: Ein Licht, das um 22 Uhr von
+        allein ausgeht, erschreckt jemanden, der es nicht weiss.
+
+        Nur, was die anfragende Person auch sehen darf: Ein Gast, dem
+        drei Räume freigegeben sind, bekommt kein Blatt über das ganze
+        Haus.
+        """
+        user = current_user(request)
+        sichtbar = [
+            entity
+            for entity in hub.registry.all()
+            if user.may_see(entity.id, entity.kind, entity.integration)
+        ]
+        raeume: dict[str, list[dict[str, Any]]] = {}
+        for name in hub.known_rooms():
+            raeume[name] = [
+                entity.as_dict() for entity in sichtbar if entity.room == name
+            ]
+        ohne_raum = [entity.as_dict() for entity in sichtbar if not entity.room]
+        if ohne_raum:
+            raeume["Ohne Raum"] = ohne_raum
+
+        hinweise = [
+            "Bedient wird alles über die App – dieselbe Adresse wie im Browser.",
+            "Was hier von selbst passiert, lässt sich unter «Abläufe» kurz "
+            "abschalten, ohne es zu löschen.",
+        ]
+        # Die Alarmanlage gehört zum Haus und ist immer geladen – aber
+        # ein Gast sieht sie nie, und dann gehört der Hinweis auch nicht
+        # aufs Blatt.
+        if any(entity.get("kind") == "alarm" for entity in
+               (e.as_dict() for e in sichtbar)):
+            hinweise.append(
+                "Die Alarmanlage ist eingerichtet. Vor dem Weggehen unter "
+                "«Alarmanlage» scharf schalten, beim Kommen entschärfen."
+            )
+
+        text = hausblatt_module.hausblatt(
+            haus="HomePilot – das Haus auf einem Blatt",
+            raeume=raeume,
+            szenen=[scene.as_dict() for scene in hub.scenes.scenes],
+            ablaeufe=[a.as_dict() for a in hub.automations.automations],
+            hinweise=hinweise,
+        )
+        return Response(content=text, media_type="text/plain; charset=utf-8")
 
     @app.get("/api/system/export")
     async def export_data(request: Request) -> Response:

@@ -90,12 +90,34 @@ export const type = {
   label: 14,
 };
 
-/** Ab dieser Breite ist Platz für Seitenleiste und rechte Spalte. */
-// sidePanel bei 1000: Ein iPad im Querformat misst je nach Modell 1024
-// bis 1180 Punkte. Bei 1100 fielen die kleineren durch das Raster und
-// zeigten Wetter und Player untereinander statt rechts - obwohl der Platz
-// dafür da ist. Im Hochformat (768-834) bleibt es bewusst einspaltig.
-export const breakpoints = { rail: 760, sidePanel: 1000 };
+/**
+ * Ab dieser Breite ist Platz für Seitenleiste und rechte Spalte.
+ *
+ * Die Zahlen stammen aus dieser Wohnung und nicht aus der Browser-Welt.
+ * Was hier tatsächlich vorkommt, in Punkten:
+ *
+ * | Gerät | hoch | quer |
+ * | --- | --- | --- |
+ * | iPhone | 375–430 | 812–932 |
+ * | iPad mini | **744** | 1133 |
+ * | iPad 10.9" | 820 | 1180 |
+ * | iPad Pro 11" | 834 | 1194 |
+ * | iPad Pro 12.9" | 1024 | 1366 |
+ * | iPad geteilt (Split View) | 320–507 | – |
+ *
+ * `rail` bei 700 und nicht bei 760: Dazwischen liegt genau der iPad mini
+ * im Hochformat mit 744. Mit 760 sah er aus wie ein sehr grosses Telefon
+ * – ohne Seitenleiste, obwohl der Platz dafür längst da ist. Unter 700
+ * kommt nur noch die geteilte Ansicht, und dort ist die Telefon-
+ * Darstellung richtig.
+ *
+ * `sidePanel` bleibt bei 1000: Ein iPad im Querformat misst je nach
+ * Modell 1024 bis 1180. Bei 1100 fielen die kleineren durch das Raster
+ * und zeigten Wetter und Player untereinander statt rechts. Im Hochformat
+ * bekommt nur das 12,9-Zoll-iPad (1024) die rechte Spalte – bei ihm
+ * bleiben daneben immer noch über 600 Punkte für die Kacheln.
+ */
+export const breakpoints = { rail: 700, sidePanel: 1000 };
 
 export type ThemeMode = 'system' | 'auto' | 'light' | 'dark';
 

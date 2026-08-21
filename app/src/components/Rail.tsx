@@ -120,7 +120,15 @@ export function Rail({
               color={selected ? colors.ink : colors.onGradientSoft}
             />
             {!vertical && (
-              <Text style={[styles.barLabel, selected && { color: colors.ink }]}>
+              // Eine Zeile, notfalls abgeschnitten: In der geteilten
+              // Ansicht auf dem iPad ist die App 320 Punkte breit, und
+              // «Einstellungen» ist dort breiter als sein Feld. Vorher
+              // ragte es über den rechten Rand hinaus und schob die ganze
+              // Seite drei Punkte nach links.
+              <Text
+                numberOfLines={1}
+                style={[styles.barLabel, selected && { color: colors.ink }]}
+              >
                 {item.label}
               </Text>
             )}
@@ -158,6 +166,10 @@ const makeStyles = (colors: Colors) =>
   },
   barItem: {
     flex: 1,
+    // Ohne minWidth: 0 darf ein Flex-Kind breiter werden als sein
+    // Anteil, sobald sein Inhalt es verlangt – dann schiebt die längste
+    // Beschriftung die Leiste über den Rand.
+    minWidth: 0,
     alignItems: 'center',
     gap: 3,
     paddingVertical: 6,
@@ -167,6 +179,7 @@ const makeStyles = (colors: Colors) =>
     fontSize: 11,
     fontWeight: '600',
     color: colors.onGradientSoft,
+    maxWidth: '100%',
   },
   selected: {
     backgroundColor: colors.surfaceStrong,

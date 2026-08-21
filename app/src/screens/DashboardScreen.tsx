@@ -42,6 +42,7 @@ import { usePrefs } from '../hooks/usePrefs';
 import { usePushRegistration } from '../hooks/usePushRegistration';
 import { breakpoints, Colors, radius, space, type, useColors } from '../theme';
 import { findeArtikel, mengeUndName, mitMenge, shopCategory } from '../lib/einkauf';
+import { schleier } from '../lib/nachtabsenkung';
 import { hubClient, onHubFehler } from '../api/client';
 import { Auffangnetz } from '../components/Auffangnetz';
 import { AutomationsScreen } from './AutomationsScreen';
@@ -427,6 +428,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // kehrt die Ansicht zur Startseite zurück – ein fest montiertes iPad soll
   // nicht in den Einstellungen stehenbleiben.
   usePanelMode(!!settings.panel);
+  // Und nachts wird es dunkler. `now` tickt ohnehin jede halbe Minute
+  // weiter; damit der Schleier nach einer Berührung nicht bis zum
+  // nächsten Tick hell bleibt, hängt er auch an lastTouch.
+  const nachtSchleier = useMemo(
+    () => schleier(now, lastTouch, !!settings.panel),
+    [now, lastTouch, settings.panel]
+  );
   const push = usePushRegistration(settings, status === 'connected');
   // Wie das Haus aussieht: auf dem Hub, für alle gleich. Nur die
   // Lesemarke der «Was ist neu»-Karte bleibt persönlich.
@@ -1796,6 +1804,23 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         onDismiss={() => setNote(null)}
         bottomInset={insets.bottom}
       />
+
+      {/* Nachtabsenkung fürs Wandpanel. Der Schleier lässt Berührungen
+          durch: Ein Panel, bei dem der erste Tipp nur das Aufwecken ist,
+          ärgert genau die Person, die schnell das Licht ausmachen wollte.
+          Warum es dunkler und nicht dunkel wird, steht in
+          lib/nachtabsenkung.ts. */}
+      {nachtSchleier > 0 ? (
+        <View
+          pointerEvents="none"
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={[
+            StyleSheet.absoluteFillObject,
+            { backgroundColor: `rgba(0,0,0,${nachtSchleier.toFixed(2)})` },
+          ]}
+        />
+      ) : null}
     </View>
   );
 }

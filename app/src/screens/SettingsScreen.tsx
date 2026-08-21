@@ -190,7 +190,8 @@ export function SettingsScreen({ initial, onSave, onCancel, embedded, user }: Pr
           <Text style={styles.label}>Wandpanel-Modus</Text>
           <Text style={styles.panelHint}>
             Bildschirm bleibt an, Ansicht kehrt nach drei Minuten zur Startseite
-            zurück – für ein fest montiertes iPad.
+            zurück, und nach Sonnenuntergang wird es dunkler – für ein fest
+            montiertes iPad. Eine Berührung macht es sofort wieder hell.
           </Text>
         </View>
         <View style={[styles.switch, panel && styles.switchOn]}>
