@@ -61,6 +61,15 @@ export function SidePanel({
     }
   };
 
+  // Nichts zu zeigen heisst: keine Spalte. Vorher stand auf einem
+  // Tablet im Querformat eine leere Fläche von 340 Punkten am rechten
+  // Rand, weil die Spalte ihre Breite auch dann beanspruchte, wenn weder
+  // Wetter noch Musik noch eine Warnung darin lagen - ein knappes Drittel
+  // des Bildschirms für nichts. Aufgefallen ist es erst, als die
+  // Startseite einmal im Browser auf iPad-Grösse gemessen wurde.
+  const zeigtEtwas = !!weather || (!!player && !!onCommand) || !!hasAlert;
+  if (!zeigtEtwas) return null;
+
   return (
     <View style={[styles.column, width ? { width } : { flex: 1 }]}>
       {weather ? <WeatherPanel entity={weather} /> : null}

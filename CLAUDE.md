@@ -57,6 +57,52 @@ Der Web-Bau ist die einzige Prüfung, die den ganzen Baum durchzieht: Ein
 kaputter Import in einer selten benutzten Datei fällt weder `tsc` noch
 ESLint auf, dem Bündler aber sofort.
 
+## Die App im Browser ansehen, ohne das Haus anzufassen
+
+Für Layout-Fragen («sieht das auf dem iPad richtig aus?») braucht es
+keinen echten Hub. Ein Demo-Hub, die Web-Fassung und ein Browser genügen –
+und man kann dabei messen statt schauen:
+
+```bash
+# 1. Hub mit der Demo-Integration, auf einem eigenen Port
+cat > /tmp/probe.yaml <<'YAML'
+api: { host: 127.0.0.1, port: 8199, token: probe-token }
+integrations: [{ integration: demo }]
+rooms: { Wohnzimmer: [demo.light_livingroom], Flur: [demo.motion_hall] }
+automations: []
+YAML
+cd hub && python -m homepilot --config /tmp/probe.yaml &
+
+# 2. Web-Fassung bauen und ausliefern
+cd app && npx expo export --platform web --output-dir /tmp/web
+cd /tmp/web && python3 -m http.server 8188 &
+```
+
+Im Browser `http://127.0.0.1:8188` öffnen, das Fenster auf iPad-Grösse
+stellen (1180 × 820 für ein 11-Zoll quer) und die Zugangsdaten setzen:
+
+```js
+localStorage.setItem('homepilot.settings', JSON.stringify({
+  url: 'http://127.0.0.1:8199', token: 'probe-token', theme: 'dark',
+}));
+```
+
+Ob etwas seitlich hinausragt, sagt die Konsole verlässlicher als das Auge:
+
+```js
+document.documentElement.scrollWidth > window.innerWidth   // seitlicher Überlauf?
+[...document.querySelectorAll('div')]
+  .filter((el) => el.getBoundingClientRect().right > window.innerWidth + 1)
+```
+
+So ist die leere 340-Punkte-Spalte auf der Startseite aufgefallen: Die
+rechte Spalte beanspruchte ihre Breite auch dann, wenn weder Wetter noch
+Musik noch eine Warnung darin lagen.
+
+Was der Browser **nicht** beantwortet: alles, was nur nativ passiert –
+Tastatur, Haptik, Widgets, Sicherheitsabstände. Dafür führt kein Weg am
+Gerät vorbei.
+
 ## Wie hier geschrieben wird
 
 Der bestehende Code ist der Massstab – lies eine Nachbardatei, bevor du

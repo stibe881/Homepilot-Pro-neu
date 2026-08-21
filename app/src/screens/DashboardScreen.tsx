@@ -2183,7 +2183,7 @@ const makeStyles = (colors: Colors) =>
   },
   lockConfirmText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
   frame: { flex: 1, flexDirection: 'row' },
-  scroll: { flex: 1 },
+  scroll: { flex: 1, minWidth: 0 },
   content: {
     paddingHorizontal: space.page,
     paddingTop: 14,
@@ -2220,7 +2220,13 @@ const makeStyles = (colors: Colors) =>
     alignItems: 'flex-start',
   },
   stack: { gap: space.gap * 1.4 },
-  main: { flex: 1 },
+  // minWidth: 0 ist hier kein Zierrat. Ohne das kann eine Flex-Spalte
+  // nicht unter die Breite ihres Inhalts schrumpfen: Ein zu breites Kind
+  // macht die Spalte breiter, und die Nachbarspalte wandert aus dem Bild.
+  // Genau so sieht der abgeschnittene rechte Rand auf dem iPad aus. Im
+  // Browser bei 1180 Punkten liess er sich nicht nachstellen - die Zeile
+  // kostet nichts und nimmt die wahrscheinlichste Ursache weg.
+  main: { flex: 1, minWidth: 0 },
   backRow: {
     flexDirection: 'row',
     alignItems: 'center',
