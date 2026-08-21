@@ -71,23 +71,38 @@ def crosses_threshold(
     return False
 
 
-# Wandtaster melden bei jedem Druck denselben Wert – «kurz gedrückt» bleibt
-# «kurz gedrückt». Damit der zweite Druck nicht als «nichts geändert»
-# durchfällt, tragen solche Entitäten den Zeitpunkt des Drucks mit.
-PRESS_MARKER = "last_press"
+# Manche Meldungen tragen bei jedem Mal denselben Wert: Ein Wandtaster
+# meldet wieder «kurz gedrückt», eine Klingel wieder «klingelt». Die
+# Prüfung «hat sich etwas geändert?» würde das zweite Mal verwerfen - und
+# genau das ist der Fall, den man automatisieren will.
+#
+# Deshalb führen solche Entitäten neben dem Wert einen Zeitstempel mit.
+# Welcher zu welchem Feld gehört, steht hier: Der Stempel zählt nur für
+# sein eigenes Feld. Täte er es für alle, liesse ein Klingeln auch einen
+# Ablauf loslaufen, der auf «Gerät ist online» wartet - obwohl dort nichts
+# geschehen ist.
+EVENT_MARKERS = {
+    "state": "last_press",
+    "ring": "last_ring",
+    "motion": "last_motion",
+}
 
 
-def _pressed_again(data: dict[str, Any]) -> bool:
+def _event_again(attribute: str, data: dict[str, Any]) -> bool:
     """Ein neues Ereignis trotz gleichen Zustands? (rein, testbar)
 
-    Ohne das hätte ein Wandtaster genau einmal funktioniert: Beim zweiten
-    Druck auf dieselbe Taste steht wieder «short» da, und die Prüfung
-    «hat sich etwas geändert?» hätte ihn verworfen.
+    Ohne das hätte ein Wandtaster genau einmal funktioniert - und eine
+    Türklingel auch nur so lange, bis das Feld «ring» einmal auf «on»
+    hängen blieb: Beim nächsten Läuten stünde dort wieder «on», und die
+    Änderungsprüfung liesse den Ablauf still durchfallen.
     """
-    new = data.get("new_state") or {}
-    if PRESS_MARKER not in new:
+    marker = EVENT_MARKERS.get(attribute)
+    if marker is None:
         return False
-    return (data.get("old_state") or {}).get(PRESS_MARKER) != new[PRESS_MARKER]
+    new = data.get("new_state") or {}
+    if marker not in new:
+        return False
+    return (data.get("old_state") or {}).get(marker) != new[marker]
 
 
 @dataclass
@@ -544,7 +559,7 @@ class AutomationEngine:
         attribute = trigger.get("attribute", "state")
         old = data["old_state"].get(attribute)
         new = data["new_state"].get(attribute)
-        if old == new and not _pressed_again(data):
+        if old == new and not _event_again(attribute, data):
             return False
         if "above" in trigger or "below" in trigger:
             return crosses_threshold(old, new, trigger.get("above"), trigger.get("below"))

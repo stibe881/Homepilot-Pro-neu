@@ -22,6 +22,13 @@ Klingeln und Bewegung kommen als Push über den Ereigniskanal der Ring-App
 (Firebase); Gerätestatus und Akku werden zusätzlich alle scan_interval
 Sekunden abgefragt. Die Kacheln benutzen dieselben Felder wie UniFi
 Protect (state/motion/last_motion/last_ring) – die App kennt sie schon.
+
+Kommt der Ereigniskanal nicht zustande, ist das die eine Störung, die man
+nie bemerkt: Nichts stürzt ab, die Kacheln stehen da wie immer, es
+klingelt bloss niemand mehr in der App. Deshalb zwei Dinge – der Hub
+versucht es immer wieder statt einmal beim Start, und solange der Kanal
+fehlt, fragt er die aktiven Meldungen alle paar Sekunden selbst ab. Wie
+es gerade steht, sagt health() und damit der System-Bildschirm.
 """
 
 from __future__ import annotations
@@ -39,6 +46,74 @@ from ..core.errors import ConfigError
 from ..core.integration import Integration
 
 USER_AGENT = "HomePilot/1.0"
+
+# Ersatzweg: Ring führt eine Liste der gerade laufenden Meldungen – die
+# gleiche, aus der auch die Ring-App ihre Nachricht baut.
+#
+# Zehn Sekunden, solange der Push-Kanal fehlt: Für eine Türklingel ist das
+# die Grenze des Erträglichen, wer davorsteht wartet nicht länger.
+DING_POLL_SECONDS = 10
+# Dreissig Sekunden, während er steht. Nicht aus Misstrauen gegen den
+# Push-Kanal an sich, sondern gegen das, was er im Fehlerfall meldet: Er
+# gilt als «gestartet», bis ihn jemand stoppt. Reisst die Verbindung
+# darunter weg, sieht von aussen alles gut aus und es kommt bloss nichts
+# mehr an. Diese Abfrage ist das Netz darunter; doppelt gemeldete
+# Ereignisse fallen ohnehin heraus.
+DING_POLL_BACKUP_SECONDS = 30
+
+# Abstände zwischen den Anläufen für den Ereigniskanal. Erst rasch,
+# danach ruhiger: Wenn Ring den Dienst verweigert, hilft es niemandem,
+# alle dreissig Sekunden anzuklopfen.
+RETRY_SECONDS = [30, 60, 300, 900, 1800]
+
+
+def retry_delay(attempt: int) -> float:
+    """Wartezeit vor dem nächsten Anlauf (rein, testbar)."""
+    if attempt < 1:
+        return RETRY_SECONDS[0]
+    return RETRY_SECONDS[min(attempt, len(RETRY_SECONDS)) - 1]
+
+
+def alert_key(event: Any) -> tuple[int, int, str]:
+    """Kennung einer Meldung – dieselbe Klingel zweimal ist einmal."""
+    return (int(event.doorbot_id), int(event.id), str(event.kind))
+
+
+def new_alerts(
+    alerts: list[Any], seen: dict[tuple[int, int, str], float], now: float
+) -> tuple[list[Any], dict[tuple[int, int, str], float]]:
+    """Welche Meldungen neu sind, und was man sich merken muss (rein, testbar).
+
+    Eine Meldung bleibt bei Ring ein paar Minuten «aktiv». Ohne Gedächtnis
+    käme dieselbe Klingel bei jeder Abfrage erneut - alle zehn Sekunden
+    eine Nachricht, bis sie abläuft. Gemerkt wird bis zum Ablauf und
+    keinen Moment länger, sonst wächst die Liste mit jedem Besucher.
+    """
+    frisch = []
+    behalten = {key: bis for key, bis in seen.items() if bis > now}
+    for event in alerts:
+        try:
+            key = alert_key(event)
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if key in behalten:
+            continue
+        begonnen = float(getattr(event, "now", None) or now)
+        dauer = float(getattr(event, "expires_in", None) or 60)
+        behalten[key] = begonnen + dauer
+        frisch.append(event)
+    return frisch, behalten
+
+
+def health_detail(events_ok: bool, error: str | None) -> str:
+    """Was im System-Bildschirm über den Ereigniskanal steht (rein, testbar)."""
+    if events_ok:
+        return "Ereigniskanal verbunden – Klingeln kommt sofort an"
+    grund = f" ({error})" if error else ""
+    return (
+        f"Ereigniskanal nicht verbunden{grund} – Klingeln wird ersatzweise "
+        f"alle {DING_POLL_SECONDS} s abgefragt"
+    )
 
 
 def device_state(
@@ -82,6 +157,13 @@ def event_fields(kind: str, now: float) -> dict[str, Any]:
 
 class RingIntegration(Integration):
     name = "ring"
+
+    # Als Klassenvorgaben, damit health() auch dann antwortet, wenn das
+    # Setup unterwegs steckengeblieben ist.
+    _events_ok = False
+    _last_event: float | None = None
+    _listen_error: str | None = None
+    _listener: Any = None
 
     async def setup(self) -> None:
         try:
@@ -158,16 +240,27 @@ class RingIntegration(Integration):
         if not self._devices:
             self.log.warning("Ring-Konto verbunden, aber keine Geräte gefunden")
 
+        self._seen_alerts: dict[tuple[int, int, str], float] = {}
+        self._listener: Any = None
         self.start_task(self._poll_loop())
-        self.start_task(self._listen())
+        self.start_task(self._listen_loop())
+        self.start_task(self._ding_loop())
+
+    def health(self) -> dict[str, Any]:
+        """Steht der schnelle Weg? Das ist hier die ganze Frage.
+
+        Ohne diese Auskunft ist ein toter Ereigniskanal von aussen nicht
+        von «es hat halt niemand geklingelt» zu unterscheiden.
+        """
+        return {
+            "ok": self._events_ok,
+            "detail": health_detail(self._events_ok, self._listen_error),
+            "last_event": self._last_event,
+        }
 
     async def teardown(self) -> None:
-        listener = getattr(self, "_listener", None)
-        if listener is not None:
-            try:
-                await listener.stop()
-            except Exception:
-                pass
+        await self._stop_listener()
+        self._events_ok = False
         await super().teardown()
 
     def _save(self, key: str, value: dict[str, Any]) -> None:
@@ -200,18 +293,54 @@ class RingIntegration(Integration):
             except Exception as err:
                 self.log.warning("Ring-Abfrage fehlgeschlagen: %s", err)
 
-    async def _listen(self) -> None:
-        """Push-Ereignisse (Klingeln, Bewegung) über den Kanal der Ring-App."""
+    async def _listen_loop(self) -> None:
+        """Den Ereigniskanal offenhalten – nicht nur einmal anklopfen.
+
+        Vorher gab es genau einen Anlauf beim Start. Fiel der aus - Ring
+        gerade schlecht gelaunt, das Netz noch nicht da -, blieb die
+        Klingel für immer stumm, und im Log stand eine Zeile, die man
+        Wochen später sucht. Jetzt versucht es der Hub weiter und merkt
+        auch, wenn der Kanal später abreisst.
+        """
         loop = asyncio.get_running_loop()
 
         def on_event(event: Any) -> None:
             asyncio.run_coroutine_threadsafe(self._handle_event(event), loop)
 
+        versuch = 0
+        while True:
+            if await self._start_listener(on_event):
+                versuch = 0
+                # Steht er, gibt es nichts zu tun ausser hinzusehen.
+                while getattr(self._listener, "started", False):
+                    await asyncio.sleep(60)
+                self._events_ok = False
+                self._listen_error = "Verbindung abgerissen"
+                self.log.warning("Ring-Ereigniskanal abgerissen – neuer Anlauf")
+                await self._stop_listener()
+                continue
+            versuch += 1
+            wartezeit = retry_delay(versuch)
+            # Einmal laut, danach leise: Eine Störung, die eine Stunde
+            # dauert, soll das Log nicht füllen. Sichtbar bleibt sie über
+            # health() im System-Bildschirm.
+            melden = self.log.warning if versuch == 1 else self.log.debug
+            melden(
+                "Ring-Ereigniskanal nicht verfügbar (%s) – Klingeln kommt "
+                "ersatzweise über die Abfrage alle %ss, nächster Anlauf in %ss",
+                self._listen_error or "Grund unbekannt",
+                DING_POLL_SECONDS,
+                int(wartezeit),
+            )
+            await asyncio.sleep(wartezeit)
+
+    async def _start_listener(self, on_event: Any) -> bool:
+        """Ein Anlauf, notfalls mit frischer Credential; True bei Erfolg."""
         # Erster Versuch mit der gespeicherten Credential. Ist sie beschädigt
         # (z.B. 'Incorrect padding' aus firebase_messaging beim Dekodieren
         # eines alten Eintrags), verwerfen und einmal frisch registrieren.
         if await self._try_listen(on_event, self._stored.get("listener")):
-            return
+            return True
         if self._stored.get("listener") is not None:
             self.log.warning(
                 "Ring-Push-Credential unbrauchbar – wird verworfen und neu registriert"
@@ -219,44 +348,97 @@ class RingIntegration(Integration):
             self._stored.pop("listener", None)
             self._save("listener", None)
             if await self._try_listen(on_event, None):
-                return
-        self.log.warning(
-            "Ring-Ereigniskanal nicht verfügbar – Klingeln/Bewegung kommen nur "
-            "verzögert über die Abfrage (alle %ss)",
-            self.config.get("scan_interval", 300),
-        )
+                return True
+        return False
+
+    async def _stop_listener(self) -> None:
+        listener, self._listener = self._listener, None
+        if listener is None:
+            return
+        try:
+            await listener.stop()
+        except Exception:
+            pass
 
     async def _try_listen(self, on_event: Any, credentials: Any) -> bool:
         """Ereigniskanal mit gegebener Credential starten; True bei Erfolg."""
-        from ring_doorbell import RingEventListener
-
-        listener = RingEventListener(
-            self._ring,
-            credentials=credentials,
-            credentials_updated_callback=lambda creds: self._save("listener", creds),
-        )
+        listener = None
         try:
+            from ring_doorbell import RingEventListener
+
+            listener = RingEventListener(
+                self._ring,
+                credentials=credentials,
+                credentials_updated_callback=lambda creds: self._save("listener", creds),
+            )
             if not await listener.start():
+                # start() meldet False, wenn Ring die Anmeldung abweist -
+                # der Grund steht dann im Log von ring_doorbell selbst.
+                self._listen_error = "Anmeldung beim Push-Dienst abgelehnt"
                 return False
             listener.add_notification_callback(on_event)
             self._listener = listener
+            self._events_ok = True
+            self._listen_error = None
             self.log.info("Ring-Ereigniskanal verbunden")
             return True
+        except asyncio.CancelledError:
+            raise
         except Exception as err:
-            self.log.debug("Ring-Ereigniskanal-Start fehlgeschlagen: %s", err)
-            try:
-                await listener.stop()
-            except Exception:
-                pass
+            self._listen_error = f"{err.__class__.__name__}: {err}" if str(err) else err.__class__.__name__
+            if listener is not None:
+                try:
+                    await listener.stop()
+                except Exception:
+                    pass
             return False
 
+    async def _ding_loop(self) -> None:
+        """Aktive Meldungen selbst abfragen – der zweite Weg zur Klingel.
+
+        Er kostet einen Aufruf und macht den Unterschied zwischen «die
+        Klingel geht nicht» und «die Klingel geht ein paar Sekunden
+        später». Was der Push-Kanal schon gebracht hat, erkennt
+        new_alerts wieder; es wird kein zweites Mal gemeldet.
+        """
+        while True:
+            await asyncio.sleep(
+                DING_POLL_BACKUP_SECONDS if self._events_ok else DING_POLL_SECONDS
+            )
+            if not self._devices:
+                continue
+            try:
+                await self._ring.async_update_dings()
+                frisch, self._seen_alerts = new_alerts(
+                    list(self._ring.active_alerts()), self._seen_alerts, time.time()
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as err:
+                self.log.debug("Ring-Meldungen nicht abrufbar: %s", err)
+                continue
+            for event in frisch:
+                await self._handle_event(event)
+
     async def _handle_event(self, event: Any) -> None:
-        entity_id = self._by_ring_id.get(int(event.doorbot_id))
+        try:
+            entity_id = self._by_ring_id.get(int(event.doorbot_id))
+        except (TypeError, ValueError):
+            return
         if entity_id is None:
             return
         fields = event_fields(event.kind, event.now or time.time())
         if not fields:
             return
+        # Auch was über den Push-Kanal kam, vormerken: Sonst holt die
+        # Abfrage dieselbe Meldung gleich noch einmal aus der Liste.
+        try:
+            self._seen_alerts[alert_key(event)] = float(
+                getattr(event, "now", None) or time.time()
+            ) + float(getattr(event, "expires_in", None) or 60)
+        except (TypeError, ValueError, AttributeError):
+            pass
+        self._last_event = time.time()
         await self.hub.registry.update_state(entity_id, fields, available=True)
 
         # 'Bewegung'/'Klingelt' nach Ablauf wieder löschen, damit die Kachel

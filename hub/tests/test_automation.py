@@ -735,3 +735,112 @@ def test_the_dry_run_changes_nothing():
             await hub.stop()
 
     asyncio.run(check())
+
+
+async def test_a_second_ring_triggers_again():
+    """Klingelt es zweimal, läuft der Ablauf zweimal.
+
+    Der Fall aus dem Betrieb: «ring» stand nach dem ersten Mal auf «on» und
+    blieb dort hängen - ein Neustart des Hubs mitten in den drei Minuten
+    reicht dafür. Beim nächsten Läuten stand wieder «on» da, die Prüfung
+    «hat sich etwas geändert?» verwarf es, und die Push blieb aus, ohne
+    dass irgendwo ein Fehler stand.
+    """
+    hub = await run_hub(
+        [
+            {
+                "id": "klingel",
+                "alias": "Es klingelt",
+                "trigger": [
+                    {
+                        "type": "state",
+                        "entity_id": "test.klingel",
+                        "attribute": "ring",
+                        "to": "on",
+                    }
+                ],
+                "action": [
+                    {
+                        "type": "command",
+                        "entity_id": "demo.light_livingroom",
+                        "command": "toggle",
+                    }
+                ],
+            }
+        ]
+    )
+    try:
+        await hub.registry.add(
+            Entity(
+                id="test.klingel",
+                kind=EntityKind.CAMERA,
+                name="Haustüre",
+                integration="test",
+                state={"state": "online", "ring": "on", "last_ring": "10:00"},
+            )
+        )
+        light = "demo.light_livingroom"
+        await hub.integrations.dispatch_command(light, "turn_off")
+        await settle()
+
+        # «ring» steht schon auf «on» – nur der Zeitpunkt ist neu.
+        await hub.registry.update_state(
+            "test.klingel", {"ring": "on", "last_ring": "10:05"}
+        )
+        await settle()
+        assert hub.registry.get(light).state["state"] == "on"
+
+        await hub.registry.update_state(
+            "test.klingel", {"ring": "on", "last_ring": "10:09"}
+        )
+        await settle()
+        assert hub.registry.get(light).state["state"] == "off"
+    finally:
+        await hub.stop()
+
+
+async def test_a_ring_does_not_trigger_an_unrelated_state_rule():
+    """Der Zeitstempel gilt nur für sein eigenes Feld.
+
+    Sonst liesse ein Klingeln jeden Ablauf loslaufen, der auf «Gerät ist
+    online» wartet - dort hat sich nichts geändert.
+    """
+    hub = await run_hub(
+        [
+            {
+                "id": "online",
+                "alias": "Kamera ist online",
+                "trigger": [
+                    {"type": "state", "entity_id": "test.klingel", "to": "online"}
+                ],
+                "action": [
+                    {
+                        "type": "command",
+                        "entity_id": "demo.light_livingroom",
+                        "command": "turn_on",
+                    }
+                ],
+            }
+        ]
+    )
+    try:
+        await hub.registry.add(
+            Entity(
+                id="test.klingel",
+                kind=EntityKind.CAMERA,
+                name="Haustüre",
+                integration="test",
+                state={"state": "online", "ring": "off"},
+            )
+        )
+        light = "demo.light_livingroom"
+        await hub.integrations.dispatch_command(light, "turn_off")
+        await settle()
+
+        await hub.registry.update_state(
+            "test.klingel", {"ring": "on", "last_ring": "10:05"}
+        )
+        await settle()
+        assert hub.registry.get(light).state["state"] == "off"
+    finally:
+        await hub.stop()
