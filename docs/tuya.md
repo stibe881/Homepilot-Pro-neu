@@ -58,10 +58,22 @@ docker exec -it homepilot-hub python -m homepilot.integrations.tuya --scan
         version: 3.4        # steht in der Ausgabe von --cloud/--scan
 ```
 
-Den Schlüssel als Umgebungsvariable in Portainer hinterlegen
-(`TUYA_KEY_PROJEKTOR`), nicht wörtlich in die Datei – wie bei allen
-Geheimnissen. Hub neu starten, fertig: Der Projektor erscheint als Licht
-mit Helligkeit und Farbreihe auf der Kachel.
+Den Schlüssel nicht wörtlich in die Datei schreiben, sondern daneben in
+die `secrets.env` – eine Zeile genügt:
+
+```
+TUYA_KEY_PROJEKTOR=9feb…
+```
+
+Die Datei liegt neben der config.yaml, gehört nicht ins Repository und
+braucht sonst nichts. Hub neu starten, fertig: Der Projektor erscheint als
+Licht mit Helligkeit und Farbreihe auf der Kachel.
+
+(Der andere Weg – Umgebungsvariable im Portainer-Stack – funktioniert
+weiterhin und geht sogar vor. Er verlangt aber zusätzlich eine Zeile in
+der environment-Liste der docker-compose.yml, und die liegt im
+Repository. Für ein neues Geheimnis heisst das jedes Mal: Commit,
+ausrollen, hoffen.)
 
 ## 5. Was kann das Gerät wirklich? (bei Bedarf)
 

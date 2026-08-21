@@ -105,3 +105,76 @@ def test_duplicate_keys_are_reported_not_swallowed():
 
     # Ein Schlüssel darf in verschiedenen Blöcken gleich heissen.
     assert read_yaml("a:\n  name: x\nb:\n  name: y\n")[1] == []
+
+
+def test_secrets_file_next_to_the_config(tmp_path):
+    """Geheimnisse ohne Umweg über die compose-Datei.
+
+    Der Weg über Umgebungsvariablen kostete bei Portainer jedes Mal einen
+    Commit: Die Variable im Stack allein genügt nicht, sie muss zusätzlich
+    in der environment-Liste der compose-Datei stehen - und die liegt im
+    Repository.
+    """
+    from homepilot.core.config import load_config, read_secrets
+
+    (tmp_path / "secrets.env").write_text(
+        "# Kommentar\n"
+        "\n"
+        "TUYA_KEY=geheim123\n"
+        'MIT_ANFUEHRUNG="auch geheim"\n'
+        "OHNE_GLEICH\n"
+        "  MIT_LEERRAUM  =  getrimmt  \n",
+        encoding="utf-8",
+    )
+    werte = read_secrets(tmp_path / "secrets.env")
+    assert werte == {
+        "TUYA_KEY": "geheim123",
+        "MIT_ANFUEHRUNG": "auch geheim",
+        "MIT_LEERRAUM": "getrimmt",
+    }
+    # Eine fehlende Datei ist kein Fehler, sondern der Normalfall.
+    assert read_secrets(tmp_path / "gibtsnicht.env") == {}
+
+    (tmp_path / "config.yaml").write_text(
+        "integrations:\n"
+        "  - integration: tuya\n"
+        "    devices:\n"
+        "      - name: Projektor\n"
+        "        id: bf1\n"
+        '        key: "${TUYA_KEY}"\n',
+        encoding="utf-8",
+    )
+    config = load_config(tmp_path / "config.yaml")
+    assert config.integrations[0]["devices"][0]["key"] == "geheim123"
+
+
+def test_real_environment_beats_the_secrets_file(tmp_path, monkeypatch):
+    """Was im Container gesetzt ist, gewinnt – sonst überschriebe eine
+    vergessene Zeile in der Datei still den echten Wert."""
+    from homepilot.core.config import load_config
+
+    (tmp_path / "secrets.env").write_text("TUYA_KEY=aus_datei\n", encoding="utf-8")
+    (tmp_path / "config.yaml").write_text(
+        'integrations:\n  - integration: tuya\n    key: "${TUYA_KEY}"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("TUYA_KEY", "aus_umgebung")
+    config = load_config(tmp_path / "config.yaml")
+    assert config.integrations[0]["key"] == "aus_umgebung"
+
+
+def test_missing_variable_names_both_ways(tmp_path):
+    """Die Meldung muss den einfachen Weg zuerst nennen."""
+    import pytest
+
+    from homepilot.core.config import ConfigError, load_config
+
+    (tmp_path / "config.yaml").write_text(
+        'integrations:\n  - integration: tuya\n    key: "${FEHLT}"\n', encoding="utf-8"
+    )
+    with pytest.raises(ConfigError) as fehler:
+        load_config(tmp_path / "config.yaml")
+    text = str(fehler.value)
+    assert "secrets.env" in text
+    assert "FEHLT" in text
+    assert "docker-compose" in text

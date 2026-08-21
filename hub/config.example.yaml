@@ -1,6 +1,17 @@
 # HomePilot-Pro-Konfiguration – nach config.yaml kopieren und anpassen.
-# ${VARIABLE} wird aus Umgebungsvariablen gelesen, damit Keys nicht in der
-# Datei landen.
+#
+# ${VARIABLE} wird ersetzt, damit Tokens und Keys nicht in dieser Datei
+# stehen. Woher der Wert kommt, in dieser Reihenfolge:
+#
+#   1. secrets.env neben dieser Datei – eine Zeile je Geheimnis:
+#          TUYA_KEY_PROJEKTOR=9feb…
+#      Die Datei gehört nicht ins Repository (.gitignore kennt sie schon)
+#      und braucht sonst nichts. Der einfache Weg.
+#   2. Eine echte Umgebungsvariable des Containers. Sie geht vor – wer
+#      etwas im Container setzt, soll damit auch gewinnen. Bei Portainer
+#      genügt dafür der Stack allein nicht: Die Variable muss zusätzlich
+#      in der environment-Liste der docker-compose.yml stehen, sonst kommt
+#      sie nicht im Container an.
 
 api:
   host: 0.0.0.0

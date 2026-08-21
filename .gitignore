@@ -7,6 +7,8 @@ __pycache__/
 
 # Konfiguration mit Zugangsdaten
 hub/config.yaml
+# Geheimnisse neben der Konfiguration (siehe core/config.py).
+hub/secrets.env
 
 # Die Matter-Fabric: Schlüssel und Zertifikate der gekoppelten Geräte.
 # Gehört ins Backup, aber nie ins Repository.
