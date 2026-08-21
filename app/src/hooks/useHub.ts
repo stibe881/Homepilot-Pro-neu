@@ -67,8 +67,19 @@ export function undoLabel(
   return 'geschaltet';
 }
 
-/** Kurzfassung einer Änderung für die Liste „Zuletzt passiert“. */
-function describe(entity: Entity, newState: Record<string, any>): string | null {
+/** Kurzfassung einer Änderung für die Liste „Zuletzt passiert“.
+ *
+ *  `null`, wenn sich am Zustand nichts geändert hat: Der Hub meldet auch
+ *  dann eine Änderung, wenn nur ein Stern, ein Name oder eine Gruppe
+ *  gesetzt wurde - damit jedes Gerät es sofort sieht. In «Zuletzt
+ *  passiert» stünde sonst «eingeschaltet», weil das Licht ohnehin an
+ *  war, und die Liste behauptete etwas, das niemand getan hat. */
+function describe(
+  entity: Entity,
+  newState: Record<string, any>,
+  oldState: Record<string, any>
+): string | null {
+  if (JSON.stringify(newState) === JSON.stringify(oldState)) return null;
   const value = newState.state;
   if (value === 'on') return 'eingeschaltet';
   if (value === 'off') return 'ausgeschaltet';
@@ -235,7 +246,11 @@ export function useHub(url: string | null, token: string | null) {
           clearPending(message.entity.id);
           setEntityMap((prev) => ({ ...prev, [message.entity.id]: message.entity }));
           if (message.type === 'state_changed') {
-            const summary = describe(message.entity, message.new_state);
+            const summary = describe(
+              message.entity,
+              message.new_state,
+              message.old_state
+            );
             if (summary) {
               setActivity((prev) =>
                 [

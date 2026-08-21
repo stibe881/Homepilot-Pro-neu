@@ -207,10 +207,14 @@ export function SettingsScreen({ initial, onSave, onCancel, embedded, user }: Pr
             name: name.trim(),
             theme,
             panel,
-            // Favoriten, Ausgeblendete und Reihenfolge bleiben erhalten.
-            favorites: initial?.favorites,
+            // Was sonst noch im Gerät steht, bleibt erhalten: Wer die
+            // Adresse ändert, will nicht seine ausgeblendeten Geräte
+            // verlieren - und schon gar nicht die Sperren, die bisher
+            // hier fehlten und bei jedem Speichern still verschwanden.
             hidden: initial?.hidden,
+            locked: initial?.locked,
             order: initial?.order,
+            favorites: initial?.favorites,
           })
         }
       >

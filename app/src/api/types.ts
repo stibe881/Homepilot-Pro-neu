@@ -84,7 +84,11 @@ export interface HubSettings {
   name?: string;
   /** Erscheinungsbild: system, auto (nach Uhrzeit), light oder dark. */
   theme?: 'system' | 'auto' | 'light' | 'dark';
-  /** Entitäten, die auf der Startseite zuerst kommen. */
+  /** Veraltet: Favoriten lagen einmal hier – also im Speicher genau
+   *  dieses Telefons, und waren nach einer Neuinstallation weg. Sie
+   *  stehen jetzt beim Gerät auf dem Hub (`Entity.favorite`). Das Feld
+   *  bleibt nur, damit die alten Sterne beim ersten Start übernommen
+   *  werden können (siehe lib/favoriten.ts); danach ist es leer. */
   favorites?: string[];
   /** Entitäten, die auf der Startseite nicht erscheinen. */
   hidden?: string[];

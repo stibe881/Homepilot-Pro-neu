@@ -63,6 +63,7 @@ import { confirm as confirmBiometrie, needsCheck } from '../lib/biometrie';
 import { BioLock } from '../components/BioLock';
 import { Widgets } from '../components/Widgets';
 import { Ablage, syncWidget } from '../lib/widget';
+import { favoritenVon, zuUebernehmen } from '../lib/favoriten';
 import { resolveButtons, widgetCommand } from '../lib/widgetButtons';
 
 const ALL_ROOMS = 'Alle';
@@ -280,9 +281,34 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     return () => clearInterval(timer);
   }, [settings.panel, lastTouch]);
 
-  const favorites = settings.favorites ?? [];
+  // Der Stern steht beim Gerät auf dem Hub, nicht in den
+  // Geräte-Einstellungen: Sonst hält er nur so lange wie die
+  // Installation auf genau diesem Telefon.
+  const favorites = useMemo(() => favoritenVon(entities), [entities]);
   const hidden = settings.hidden ?? [];
   const locked = settings.locked ?? [];
+
+  // Einmalige Übernahme der alten, gerätelokalen Favoriten. Danach wird
+  // die lokale Liste geleert, damit dieselben Sterne nicht bei jedem
+  // Start erneut losgeschickt werden.
+  const uebernommen = useRef(false);
+  useEffect(() => {
+    if (uebernommen.current) return;
+    const alte = zuUebernehmen(settings.favorites, entities);
+    if (alte.length === 0) {
+      // Nichts zu tun - aber wenn lokal noch etwas steht, obwohl der Hub
+      // schon Favoriten kennt, ist es Altlast und darf weg.
+      if ((settings.favorites ?? []).length > 0 && entities.length > 0) {
+        uebernommen.current = true;
+        onSaveSettings({ ...settings, favorites: [] });
+      }
+      return;
+    }
+    uebernommen.current = true;
+    alte.forEach((id) => setEntityMeta(id, { favorite: true }));
+    onSaveSettings({ ...settings, favorites: [] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entities.length]);
 
   /**
    * Ein gesperrtes Gerät schaltet nur nach ausdrücklicher Rückfrage.
@@ -663,7 +689,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       favorite={favorites.includes(entity.id)}
       hidden={hidden.includes(entity.id)}
       onToggleFavorite={() =>
-        onSaveSettings({ ...settings, favorites: toggleIn(favorites, entity.id) })
+        setEntityMeta(entity.id, { favorite: !favorites.includes(entity.id) })
       }
       onToggleHidden={() =>
         onSaveSettings({ ...settings, hidden: toggleIn(hidden, entity.id) })

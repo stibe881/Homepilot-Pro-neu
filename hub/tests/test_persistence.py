@@ -183,3 +183,42 @@ def test_due_task_reminder_pushes_once_per_day(tmp_path):
     # Zweiter Aufruf am selben Tag erinnert nicht erneut.
     asyncio.run(hub._remind_due_tasks())
     assert len(sent) == 1
+
+
+def test_favorite_survives_a_restart_and_reaches_every_device(tmp_path):
+    """Der Stern gehört dem Haus, nicht dem Telefon.
+
+    Er lag einmal im Speicher der App - also nur auf dem Gerät, auf dem
+    jemand ihn gesetzt hatte, und nach einer Neuinstallation war er weg.
+    Jetzt steht er beim Gerät auf dem Hub; jede App, die die Liste holt,
+    sieht ihn. Das ist die ganze Zusage, und dieser Test hält sie fest.
+    """
+    data_file = tmp_path / "daten.json"
+
+    with TestClient(create_app(Hub(make_config(data_file)))) as client:
+        response = client.put(
+            "/api/entities/demo.light_livingroom/meta",
+            json={"favorite": True},
+            headers=auth(),
+        )
+        assert response.status_code == 200
+
+    # Neuer Hub, dieselbe Datei - und eine App, die nichts von vorher weiss.
+    with TestClient(create_app(Hub(make_config(data_file)))) as client:
+        entities = {e["id"]: e for e in client.get("/api/entities", headers=auth()).json()}
+        assert entities["demo.light_livingroom"]["favorite"] is True
+        # Und nur dieses eine - ein Stern färbt nicht auf die Nachbarn ab.
+        assert [e["id"] for e in entities.values() if e["favorite"]] == [
+            "demo.light_livingroom"
+        ]
+
+    # Wieder gelöst, bleibt gelöst.
+    with TestClient(create_app(Hub(make_config(data_file)))) as client:
+        client.put(
+            "/api/entities/demo.light_livingroom/meta",
+            json={"favorite": False},
+            headers=auth(),
+        )
+    with TestClient(create_app(Hub(make_config(data_file)))) as client:
+        entities = {e["id"]: e for e in client.get("/api/entities", headers=auth()).json()}
+        assert entities["demo.light_livingroom"]["favorite"] is False
