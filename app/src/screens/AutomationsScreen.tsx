@@ -87,7 +87,54 @@ export function measurableAttributes(
     .map((key) => ({ key, label: MEASURE_LABELS[key] }));
 }
 
-export function stateOptions(entity?: Entity): { key: string; label: string }[] {
+/**
+ * Die Zustände, auf die sich ein Ablauf stützen kann.
+ *
+ * Meist ist das der Zustand selbst («an», «offen»). Manche Geräte melden
+ * daneben Ereignisse in eigenen Feldern: Eine Türklingel klingelt, eine
+ * Kamera sieht Bewegung – beides steht nicht in `state`, sondern in
+ * `ring` bzw. `motion`. Solche Optionen tragen deshalb ihr Feld mit sich
+ * und einen zusammengesetzten Schlüssel, damit «an» (Zustand) und «an»
+ * (klingelt) auseinanderzuhalten sind.
+ */
+export interface StateOption {
+  /** Eindeutig über alle Felder: 'on', 'ring:on', 'motion:on'. */
+  key: string;
+  label: string;
+  /** Zustandsfeld, falls nicht `state`. */
+  attribute?: string;
+  /** Der Wert, auf den gewartet wird. */
+  to: string;
+}
+
+/** Schlüssel aus dem, was im Ablauf steht – fürs Wiederfinden der Auswahl. */
+export function optionKey(attribute: string | undefined, to: string): string {
+  return attribute ? `${attribute}:${to}` : to;
+}
+
+export function stateOptions(entity?: Entity): StateOption[] {
+  const ereignisse: StateOption[] = [];
+  // Nur, was das Gerät auch meldet: Ein Auslöser für ein Feld, das nie
+  // kommt, wäre eine Attrappe.
+  if (entity && 'ring' in entity.state) {
+    ereignisse.push({ key: 'ring:on', label: 'klingelt', attribute: 'ring', to: 'on' });
+  }
+  if (entity && 'motion' in entity.state) {
+    ereignisse.push({
+      key: 'motion:on',
+      label: 'sieht Bewegung',
+      attribute: 'motion',
+      to: 'on',
+    });
+  }
+  return [
+    ...ereignisse,
+    ...plainStates(entity).map((zustand) => ({ ...zustand, to: zustand.key })),
+  ];
+}
+
+/** Die Zustände des Felds `state` selbst, je Geräteart. */
+function plainStates(entity?: Entity): { key: string; label: string }[] {
   switch (entity?.kind) {
     case 'button':
       return [
@@ -130,10 +177,35 @@ export function stateOptions(entity?: Entity): { key: string; label: string }[] 
 }
 
 /** Ein Zustand, der zu diesem Gerät passt – nach einem Gerätewechsel steht
- *  sonst «an» bei einem Taster (rein, testbar). */
+ *  sonst «an» bei einem Taster (rein, testbar).
+ *
+ *  Nur Zustände, keine Ereignisse: «klingelt» ist ein Augenblick und
+ *  taugt als Bedingung nicht – wenn der Ablauf sie prüft, ist er längst
+ *  vorbei. */
 export function fittingState(entity: Entity | undefined, current: string): string {
-  const options = stateOptions(entity);
+  const options = conditionOptions(entity);
   return options.some((option) => option.key === current) ? current : options[0].key;
+}
+
+/** Was sich als Bedingung prüfen lässt: der Zustand selbst. */
+export function conditionOptions(entity?: Entity): StateOption[] {
+  return stateOptions(entity).filter((option) => !option.attribute);
+}
+
+/** Feld und Wert eines Auslösers, passend zum neuen Gerät (rein, testbar).
+ *
+ *  Beim Gerätewechsel muss beides mitwandern: «klingelt» ergibt bei einer
+ *  Lampe keinen Sinn, und ein Feld, das dort nie gefüllt wird, wäre ein
+ *  Auslöser, auf den man vergeblich wartet. */
+export function fittingTrigger(
+  entity: Entity | undefined,
+  attribute: string,
+  to: string
+): { attribute: string; toState: string } {
+  const options = stateOptions(entity);
+  const key = optionKey(attribute || undefined, to);
+  const treffer = options.find((option) => option.key === key) ?? options[0];
+  return { attribute: treffer.attribute ?? '', toState: treffer.to };
 }
 
 /** Was dieser Ablauf zuletzt getan hat – und warum nicht (rein, testbar).
@@ -453,9 +525,12 @@ interface Template {
 function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
   const templates: Template[] = [];
   const presence = entities.find((entity) => entity.id.endsWith('anyone_home'));
-  const doorbell = entities.find(
-    (entity) => entity.kind === 'camera' && 'last_ring' in entity.state
-  );
+  // Alles, was klingeln kann - die Gegensprechanlage an der Haustüre
+  // ebenso wie eine Türklingel mit Kamera. Vorher wurde nach «last_ring»
+  // gesucht: Das entsteht erst beim ersten Klingeln, und die Vorlage für
+  // «Nachricht, wenn es klingelt» tauchte deshalb erst auf, nachdem man
+  // sie schon gebraucht hätte.
+  const doorbell = entities.find((entity) => 'ring' in entity.state);
   const appliance = entities.find((entity) => entity.kind === 'appliance');
   const alert = entities.find((entity) => entity.kind === 'alert');
   const vacuum = entities.find((entity) => entity.commands.includes('clean_rooms'));
@@ -2212,7 +2287,7 @@ function Editor({
                 />
                 {entry.op === 'is' ? (
                   <Choice
-                    options={stateOptions(chosen)}
+                    options={conditionOptions(chosen)}
                     value={entry.value}
                     onSelect={(value) => setEntry({ value })}
                   />
@@ -2500,9 +2575,11 @@ function TriggerRow({
                 entityId,
                 // Ein Taster kennt kein «an» – nach dem Wechsel muss der
                 // Zustand zum neuen Gerät passen, sonst stünde da ein
-                // Auslöser, der nie eintritt.
-                toState: fittingState(
+                // Auslöser, der nie eintritt. Dasselbe gilt fürs Feld:
+                // «klingelt» ergibt bei einer Lampe keinen Sinn.
+                ...fittingTrigger(
                   entities.find((entity) => entity.id === entityId),
+                  trigger.attribute,
                   trigger.toState
                 ),
               })
@@ -2510,8 +2587,20 @@ function TriggerRow({
           />
           <Choice
             options={stateOptions(chosen)}
-            value={trigger.toState}
-            onSelect={(toState) => onChange({ toState, attribute: '', fromState: '' })}
+            value={optionKey(trigger.attribute, trigger.toState)}
+            onSelect={(key) => {
+              // Der Schlüssel trägt das Feld mit: «ring:on» heisst
+              // klingeln, «on» heisst der Zustand selbst. Sonst liesse
+              // sich beides nicht auseinanderhalten.
+              const gewaehlt = stateOptions(chosen).find(
+                (option) => option.key === key
+              );
+              onChange({
+                toState: gewaehlt?.to ?? key,
+                attribute: gewaehlt?.attribute ?? '',
+                fromState: '',
+              });
+            }}
           />
           {chosen?.kind === 'button' ? (
             <Text style={styles.triggerNote}>

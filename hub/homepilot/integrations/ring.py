@@ -41,12 +41,24 @@ from ..core.integration import Integration
 USER_AGENT = "HomePilot/1.0"
 
 
-def device_state(battery: Any, connection: str | None) -> dict[str, Any]:
-    """Übersetzt Gerätedaten in Entitäts-Attribute (rein, testbar)."""
+def device_state(
+    battery: Any, connection: str | None, *, klingel: bool = False
+) -> dict[str, Any]:
+    """Übersetzt Gerätedaten in Entitäts-Attribute (rein, testbar).
+
+    `klingel` setzt das Feld «ring» von Anfang an auf «off». Das ist kein
+    Schönheitsfehler: Ohne den Eintrag gibt es das Feld erst, nachdem es
+    zum ersten Mal geklingelt hat - und bis dahin lässt sich kein Ablauf
+    darauf bauen, weil weder der Editor noch die Vorlagen es sehen. Wer
+    eine Nachricht beim Klingeln einrichten will, müsste also warten, bis
+    jemand klingelt.
+    """
     state: dict[str, Any] = {
         "state": "offline" if connection == "offline" else "online",
         "motion": "off",
     }
+    if klingel:
+        state["ring"] = "off"
     if battery is not None:
         try:
             state["battery"] = int(battery)
@@ -108,12 +120,17 @@ class RingIntegration(Integration):
         self._clear_tasks: dict[str, asyncio.Task] = {}
 
         devices = self._ring.devices()
+        klingeln = {int(device.id) for device in devices.doorbells}
         for device in list(devices.doorbells) + list(devices.stickup_cams):
             entity = await self.add_entity(
                 str(device.id),
                 EntityKind.CAMERA,
                 device.name,
-                state=device_state(device.battery_life, device.connection_status),
+                state=device_state(
+                    device.battery_life,
+                    device.connection_status,
+                    klingel=int(device.id) in klingeln,
+                ),
                 commands=[],
             )
             self._devices[entity.id] = device
@@ -128,7 +145,11 @@ class RingIntegration(Integration):
                 str(device.id),
                 EntityKind.LOCK,
                 device.name or "Türöffner",
-                state=device_state(device.battery_life, device.connection_status),
+                # Eine Gegensprechanlage klingelt ebenfalls - und zwar an
+                # genau der Türe, an der man es wissen will.
+                state=device_state(
+                    device.battery_life, device.connection_status, klingel=True
+                ),
                 commands=["open_door"],
             )
             self._devices[entity.id] = device

@@ -574,6 +574,23 @@ def test_ring_device_state():
     assert device_state(None, "offline") == {"state": "offline", "motion": "off"}
 
 
+def test_a_doorbell_has_its_ring_field_before_it_ever_rings():
+    """Sonst lässt sich kein Ablauf darauf bauen.
+
+    Ohne den Eintrag entsteht «ring» erst beim ersten Klingeln - und bis
+    dahin sehen weder der Ablauf-Editor noch die Vorlagen, dass dieses
+    Gerät klingeln kann. Wer eine Nachricht dafür einrichten will, müsste
+    warten, bis jemand vor der Türe steht.
+    """
+    from homepilot.integrations.ring import device_state
+
+    klingel = device_state(90, None, klingel=True)
+    assert klingel["ring"] == "off"
+    # Eine Kamera ohne Klingel bekommt das Feld nicht - sie kann nicht
+    # klingeln, und ein Auslöser dafür wäre eine Attrappe.
+    assert "ring" not in device_state(90, None)
+
+
 def test_gast_sieht_tueroeffner_nicht_ohne_freigabe():
     from homepilot.core.users import Role, User
 
