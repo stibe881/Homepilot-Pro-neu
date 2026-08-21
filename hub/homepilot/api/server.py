@@ -119,6 +119,9 @@ class AutomationRequest(BaseModel):
     match: str = "all"
     # Frei gewählter Name zum Gruppieren in der App.
     category: str | None = None
+    # Bis wann der Ablauf ruht: Unix-Sekunden oder ein ISO-Zeitstempel.
+    # Anders als «enabled: false» meldet er sich von selbst zurück.
+    quiet_until: float | str | None = None
 
 
 class SceneRequest(BaseModel):
@@ -1720,6 +1723,7 @@ def create_app(hub: Hub) -> FastAPI:
             "mode": body.mode,
             "match": body.match,
             "category": body.category,
+            "quiet_until": body.quiet_until,
         }
         hub.data.set("automations", [*stored_automations(), entry])
         await hub.reload_automations()
@@ -1749,6 +1753,7 @@ def create_app(hub: Hub) -> FastAPI:
                 "mode": body.mode,
                 "match": body.match,
                 "category": body.category,
+                "quiet_until": body.quiet_until,
             }
             if entry["id"] == automation_id
             else entry

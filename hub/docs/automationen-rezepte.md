@@ -153,6 +153,65 @@ Zwei Dinge, die leicht überraschen:
   hängt vor das Ausschalten ein `wait_until` oder prüft mit einer
   Bedingung.
 
+## Drei Dinge, die jeder Ablauf kann
+
+Neben Auslöser, Bedingung und Aktion gibt es drei Angaben, die man selten
+braucht und dann dringend.
+
+### `mode` – was ein erneuter Auslöser tut
+
+| Wert | Wirkung | Wofür |
+| --- | --- | --- |
+| `single` (Vorgabe) | Der zweite Auslöser wird verworfen | Nachrichten – sie sollen nicht doppelt kommen |
+| `restart` | Der laufende Durchgang bricht ab und beginnt von vorn | Nachlauf beim Bewegungslicht |
+| `queued` | Der zweite Lauf reiht sich an und kommt danach | Klingel: zweimal läuten heisst zweimal Bescheid |
+
+Bei `queued` stauen sich höchstens zwanzig Läufe – danach werden weitere
+verworfen und eine Warnung steht im Log. Ohne diese Grenze baute ein
+Melder im Dauerfeuer tausend Durchgänge auf, die dann stundenlang
+nacheinander abliefen.
+
+### `quiet_until` – bis morgen Ruhe
+
+```yaml
+- id: bewegungslicht_flur
+  quiet_until: "2026-12-27T08:00:00"
+  ...
+```
+
+Der Ablauf bleibt eingeschaltet, löst aber bis dahin nicht aus. Der
+Unterschied zu `enabled: false` ist, dass er sich von selbst zurückmeldet:
+Wer über die Festtage abschaltet, schaltet im Januar sonst nicht wieder
+ein. Unlesbares im Feld heisst «ruht nicht» – ein Ablauf, der wegen eines
+Tippfehlers für immer schweigt, wäre schlimmer als einer, der zu früh
+wieder anläuft.
+
+### `type: automation` – einen anderen Ablauf mitausführen
+
+```yaml
+- id: gute_nacht
+  alias: Gute Nacht
+  trigger:
+    - type: state
+      entity_id: homematic.0031A0C9A6F400_1
+      to: short
+  action:
+    - type: automation
+      automation_id: alles_aus      # dessen Aktionen laufen hier mit
+    - type: command
+      entity_id: nuki.wohnungstuere
+      command: lock
+```
+
+«Alles aus» steht sonst in fünf Abläufen fast gleich – beim Weggehen, zur
+Nacht, beim Scharfschalten – und beim Ändern muss man alle fünf anfassen.
+
+Es laufen nur die **Aktionen** des anderen, nicht seine Bedingungen: Wer
+ihn hier aufruft, hat sich entschieden. Seine Bedingungen gelten für seine
+eigenen Auslöser. Ein Ablauf, der sich selbst aufruft, wird abgefangen,
+und tiefer als drei Ebenen geht es nicht – zwei Abläufe, die einander
+rufen, liefen sonst endlos.
+
 ## Abwesenheitsmodus
 
 1. Einen Helfer-Schalter anlegen (Integration `helpers`):

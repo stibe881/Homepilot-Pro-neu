@@ -18,12 +18,27 @@ Aktionen:
   - {type: scene, scene} / {type: hue_scene, scene}
   - {type: notify, title?, body?, to?, camera?}
   - {type: wait_until, ...Bedingung, timeout?: sekunden}
+  - {type: automation, automation_id}   # die Aktionen eines anderen mitausführen
 
 Läuft ein Ablauf noch (etwa in einem ``delay``) und wird erneut
-ausgelöst, entscheidet ``mode``: ``single`` verwirft den zweiten Auslöser
-(Vorgabe), ``restart`` bricht den laufenden Durchgang ab und beginnt von
-vorn. Letzteres ist der Nachlauf eines Treppenhauslichts - vier Minuten
-nach der *letzten* Bewegung, nicht nach der ersten.
+ausgelöst, entscheidet ``mode``:
+
+  - ``single`` (Vorgabe) verwirft den zweiten Auslöser.
+  - ``restart`` bricht den laufenden Durchgang ab und beginnt von vorn -
+    der Nachlauf eines Treppenhauslichts, vier Minuten nach der *letzten*
+    Bewegung statt nach der ersten.
+  - ``queued`` reiht ihn an: Zweimal klingeln gibt zwei Nachrichten, nicht
+    eine verworfene. Höchstens ``QUEUE_LIMIT`` stauen sich.
+
+``quiet_until`` (Unix-Sekunden oder ISO-Zeitstempel) lässt einen Ablauf
+bis zu einem Zeitpunkt ruhen. Anders als ``enabled: false`` meldet er sich
+von selbst zurück - wer über die Festtage das Bewegungslicht abschaltet,
+schaltet es im Januar sonst nicht wieder ein.
+
+Wird der Hub mitten in einer Wartezeit beendet, schreibt er den offenen
+Rest weg und holt ihn beim nächsten Start nach (fällig heisst sofort,
+sonst nach der Restzeit; älter als zwei Stunden wird verworfen). Ohne das
+blieb nach jeder Auslieferung ein Licht an, das hätte ausgehen sollen.
 
 Passt eine Bedingung nicht, kann statt der Aktionen ein zweiter Satz
 laufen (``otherwise``) – sonst bräuchte «sonst mach das andere» zwei
@@ -140,6 +155,11 @@ class Automation:
     # Modus stünde man nach genau vier Minuten im Dunkeln, egal wie viel
     # Betrieb war.
     mode: str = "single"
+    # Bis wann der Ablauf ruht (Unix-Sekunden). Ein-/Ausschalten allein
+    # genügte nicht: Wer über die Festtage das Bewegungslicht ruhen lässt,
+    # schaltet es ab - und im Januar nicht wieder ein. Mit einer Frist
+    # meldet er sich von selbst zurück.
+    quiet_until: float | None = None
     # Wie die Bedingungen verknüpft sind: «all» = alle müssen stimmen,
     # «any» = eine genügt. Auslöser sind davon nicht betroffen – sie sind
     # Ereignisse und können gar nicht gleichzeitig eintreten, ein «und»
@@ -161,6 +181,7 @@ class Automation:
             "editable": self.editable,
             "enabled": self.enabled,
             "mode": self.mode,
+            "quiet_until": self.quiet_until,
             "match": self.match,
             "category": self.category,
         }
@@ -176,6 +197,7 @@ class Automation:
             "otherwise": self.otherwise,
             "enabled": self.enabled,
             "mode": self.mode,
+            "quiet_until": self.quiet_until,
             "match": self.match,
             "category": self.category,
         }
@@ -191,6 +213,16 @@ PENDING_LIMIT = 50
 # Update und jeden Stromausfall ab; was länger her ist, will man nicht
 # mitten in der Nacht noch ausgeführt bekommen.
 PENDING_MAX_AGE = 2 * 3600
+
+# Wie viele Läufe sich bei «queued» höchstens stauen dürfen. Ohne Grenze
+# baute ein Melder im Dauerfeuer tausend Durchgänge auf, die dann
+# stundenlang nacheinander abliefen.
+QUEUE_LIMIT = 20
+
+# Wie tief ein Ablauf andere Abläufe aufrufen darf. Drei Ebenen decken
+# jeden sinnvollen Fall; alles darüber ist ein Kreis, den man nicht
+# bemerkt hat.
+CALL_DEPTH = 3
 
 # «Warten bis»: wie oft nachgesehen wird, und wie lange höchstens, wenn im
 # Ablauf keine eigene Frist steht. Eine Frist muss sein – sonst bliebe ein
@@ -318,6 +350,40 @@ def describe_condition(condition: dict[str, Any], value: Any) -> str:
     return f"{name} passt nicht"
 
 
+# Die drei Arten, mit einem erneuten Auslöser umzugehen.
+MODES = ("single", "restart", "queued")
+
+
+def parse_mode(value: Any) -> str:
+    """Welcher Modus gemeint ist (rein, testbar).
+
+    Alles Unbekannte wird «single»: Ein Tippfehler soll nicht dazu führen,
+    dass ein laufender Ablauf abgebrochen oder eine Nachricht doppelt
+    verschickt wird. Die zurückhaltende Variante ist die sichere.
+    """
+    text = str(value or "").strip().lower()
+    return text if text in MODES else "single"
+
+
+def parse_quiet_until(value: Any) -> float | None:
+    """Bis wann ein Ablauf ruht (rein, testbar).
+
+    Erlaubt sind Unix-Sekunden und ein ISO-Zeitstempel - Letzteres, weil
+    das die App schickt und man es in der config.yaml lesen kann.
+    Unbrauchbares heisst «ruht nicht»: Ein Ablauf, der wegen eines
+    Tippfehlers für immer schweigt, ist schlimmer als einer, der zu früh
+    wieder anläuft.
+    """
+    if value is None or value is False:
+        return None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    try:
+        return datetime.fromisoformat(str(value)).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
 def _as_list(value: Any) -> list[dict[str, Any]]:
     if value is None:
         return []
@@ -342,7 +408,8 @@ def parse_automations(
                 otherwise=_as_list(config.get("otherwise")),
                 editable=editable,
                 enabled=config.get("enabled", True) is not False,
-                mode="restart" if str(config.get("mode")) == "restart" else "single",
+                mode=parse_mode(config.get("mode")),
+                quiet_until=parse_quiet_until(config.get("quiet_until")),
                 match="any" if str(config.get("match")) == "any" else "all",
                 category=str(config["category"]) if config.get("category") else None,
             )
@@ -446,6 +513,10 @@ class AutomationEngine:
         # Wann die Wartezeit des jeweils laufenden Durchgangs endet. Je
         # Task, weil mehrere Abläufe gleichzeitig warten können.
         self._deadlines: dict[asyncio.Task, float] = {}
+        # Wie viele Läufe je Ablauf noch anstehen (nur bei «queued»).
+        self._queued: dict[str, int] = {}
+        # Wie tief die Aufrufkette gerade ist (Ablauf ruft Ablauf).
+        self._depth: dict[str, int] = {}
         # Laufende «bleibt so für X»-Wartezeiten je (Automation, Auslöser).
         self._held_tasks: dict[tuple[str, int], asyncio.Task] = {}
         # Bis zu diesem Zeitpunkt laufen keine Automationen – für Abende mit
@@ -779,7 +850,30 @@ class AutomationEngine:
         if self.paused:
             log.debug("Automation '%s' übersprungen (pausiert)", automation.alias)
             return
+        if automation.quiet_until and time.time() < automation.quiet_until:
+            # Ruht noch. Anders als «ausgeschaltet» meldet er sich von
+            # selbst zurück - deshalb hier und nicht in `enabled`.
+            log.debug(
+                "Automation '%s' ruht noch (%.0f Minuten)",
+                automation.alias,
+                (automation.quiet_until - time.time()) / 60,
+            )
+            return
         if automation.id in self._running:
+            if automation.mode == "queued":
+                # Der Reihe nach: Zweimal klingeln soll zwei Nachrichten
+                # geben, nicht eine verworfene. Die Grenze ist da, damit
+                # ein Melder im Dauerfeuer nicht tausend Läufe aufstaut.
+                warteschlange = self._queued.setdefault(automation.id, 0)
+                if warteschlange >= QUEUE_LIMIT:
+                    log.warning(
+                        "Automation '%s': %d Läufe stauen sich - weiterer verworfen",
+                        automation.alias,
+                        warteschlange,
+                    )
+                    return
+                self._queued[automation.id] = warteschlange + 1
+                return
             if automation.mode != "restart":
                 # Läuft die Automation bereits (z.B. in einem delay),
                 # nicht erneut starten.
@@ -845,9 +939,9 @@ class AutomationEngine:
                 )
                 # Alles, was jetzt folgt, wird der Automation zugeschrieben.
                 with as_source(automation_source(automation.id, automation.alias)):
-                    # noqa-Grund: Die Zählung wird nach der Schleife
-                    # gebraucht, nicht darin - sie sagt im Abbruchfall, wo
-                    # der Lauf stand.
+                    # Die Zählung wird nach der Schleife gebraucht, nicht
+                    # darin - sie sagt im Abbruchfall, wo der Lauf stand.
+                    # Deshalb unten die Ausnahme von B007.
                     for position, action in enumerate(actions):  # noqa: B007
                         await self._execute_action(automation, action)
         except asyncio.CancelledError:
@@ -870,6 +964,14 @@ class AutomationEngine:
             log.exception("Automation '%s' fehlgeschlagen", automation.alias)
         finally:
             self._running.discard(automation.id)
+            # Steht noch einer an? Dann jetzt - der Reihe nach heisst:
+            # einer nach dem anderen, nicht alle gleichzeitig.
+            offen = self._queued.get(automation.id, 0)
+            if offen > 0 and not self._stopping:
+                self._queued[automation.id] = offen - 1
+                self._schedule(automation)
+            else:
+                self._queued.pop(automation.id, None)
             # Die Frist der eigenen Wartezeit ist jetzt ausgewertet.
             eigener = asyncio.current_task()
             if eigener is not None:
@@ -1057,6 +1159,8 @@ class AutomationEngine:
                 log.warning("Hue-Szene in '%s', aber keine Hue-Bridge", automation.alias)
                 return
             await hue.activate_scene(str(action.get("scene") or ""))
+        elif atype == "automation":
+            await self._run_other(automation, action)
         elif atype == "notify":
             await self._notify(automation, action)
         elif atype == "broadcast":
@@ -1099,6 +1203,51 @@ class AutomationEngine:
                 )
                 return
             await asyncio.sleep(WAIT_POLL)
+
+    async def _run_other(self, automation: Automation, action: dict[str, Any]) -> None:
+        """Die Aktionen eines anderen Ablaufs mitausführen.
+
+        Wozu: «Alles aus» steht in fünf Abläufen fast gleich - beim
+        Weggehen, zur Nacht, beim Scharfschalten. Bisher musste man es
+        kopieren und beim Ändern alle fünf anfassen. Jetzt ruft man den
+        einen auf.
+
+        Nur die Aktionen, nicht die Bedingungen des anderen: Wer ihn hier
+        aufruft, hat sich entschieden. Dessen Bedingungen gelten für seine
+        eigenen Auslöser, nicht für diesen Aufruf - alles andere wäre eine
+        Falle, die man erst im Betrieb bemerkt.
+        """
+        ziel_id = str(action.get("automation_id") or action.get("automation") or "")
+        ziel = next((a for a in self.automations if a.id == ziel_id), None)
+        if ziel is None:
+            log.warning(
+                "Automation '%s' ruft '%s' auf - den gibt es nicht",
+                automation.alias,
+                ziel_id or "(ohne Kennung)",
+            )
+            return
+        if ziel.id == automation.id:
+            # Ein Ablauf, der sich selbst aufruft, läuft bis der Speicher
+            # voll ist. Lieber hier abfangen als im Haus.
+            log.warning("Automation '%s' ruft sich selbst auf - übersprungen", ziel.alias)
+            return
+        tiefe = self._depth.get(automation.id, 0)
+        if tiefe >= CALL_DEPTH:
+            # Zwei Abläufe, die einander rufen, tun das sonst endlos.
+            log.warning(
+                "Automation '%s': Aufrufkette zu tief (%d) - '%s' nicht ausgeführt",
+                automation.alias,
+                tiefe,
+                ziel.alias,
+            )
+            return
+        log.info("Automation '%s' führt '%s' mit aus", automation.alias, ziel.alias)
+        self._depth[ziel.id] = tiefe + 1
+        try:
+            for weitere in ziel.actions:
+                await self._execute_action(ziel, weitere)
+        finally:
+            self._depth.pop(ziel.id, None)
 
     async def _notify(self, automation: Automation, action: dict[str, Any]) -> None:
         tokens = self.hub.push.recipients(

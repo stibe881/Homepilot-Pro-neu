@@ -1137,3 +1137,130 @@ async def test_a_rest_from_yesterday_is_dropped():
         assert hub.registry.get("demo.light_livingroom").state["state"] == "on"
     finally:
         await hub.stop()
+
+
+# ── Ruhezeit, Warteschlange, Ablauf ruft Ablauf ────────────────────────────
+
+
+def test_quiet_until_accepts_both_forms():
+    from homepilot.core.automation import parse_quiet_until
+
+    assert parse_quiet_until(None) is None
+    assert parse_quiet_until(1787000000) == 1787000000
+    assert parse_quiet_until("2026-12-27T08:00:00") > 0
+    # Unbrauchbares heisst «ruht nicht»: Ein Ablauf, der wegen eines
+    # Tippfehlers für immer schweigt, wäre schlimmer.
+    assert parse_quiet_until("übermorgen") is None
+
+
+def test_mode_falls_back_to_single():
+    from homepilot.core.automation import parse_mode
+
+    assert parse_mode("restart") == "restart"
+    assert parse_mode("queued") == "queued"
+    assert parse_mode("QUEUED") == "queued"
+    assert parse_mode("neustart") == "single"
+    assert parse_mode(None) == "single"
+
+
+async def test_a_resting_automation_stays_quiet():
+    """«Bis morgen aus» – und danach wieder von selbst da."""
+    automation = {
+        "id": "ruht",
+        "trigger": [{"type": "state", "entity_id": "demo.motion_hall", "to": "on"}],
+        "action": [
+            {"type": "command", "entity_id": "demo.light_livingroom", "command": "turn_on"}
+        ],
+        "quiet_until": time.time() + 3600,
+    }
+    hub = await run_hub([automation])
+    try:
+        await hub.registry.update_state("demo.motion_hall", {"state": "on"})
+        await settle()
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "off"
+
+        # Die Ruhezeit ist um – ohne dass jemand etwas eingeschaltet hätte.
+        hub.automations.automations[0].quiet_until = time.time() - 1
+        await hub.registry.update_state("demo.motion_hall", {"state": "off"})
+        await hub.registry.update_state("demo.motion_hall", {"state": "on"})
+        await settle()
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "on"
+    finally:
+        await hub.stop()
+
+
+async def test_queued_runs_one_after_another():
+    """Zweimal klingeln gibt zwei Nachrichten, nicht eine verworfene."""
+    automation = {
+        "id": "der_reihe_nach",
+        "mode": "queued",
+        "trigger": [{"type": "state", "entity_id": "test.klingel", "to": "on"}],
+        "action": [
+            {"type": "command", "entity_id": "demo.light_bedroom", "command": "toggle"},
+            {"type": "delay", "seconds": 0.05},
+        ],
+    }
+    hub = await run_hub([automation])
+    try:
+        await hub.registry.add(
+            Entity(id="test.klingel", kind=EntityKind.BINARY_SENSOR, name="Klingel",
+                   integration="test", state={"state": "off"})
+        )
+        for n in range(3):
+            await hub.registry.update_state(
+                "test.klingel", {"state": "on", "last_press": float(n)}
+            )
+            await settle()
+        # Alle drei laufen – nacheinander, nicht gleichzeitig.
+        await asyncio.sleep(0.35)
+        runs = [r for r in hub.automations.runs if r["automation_id"] == "der_reihe_nach"]
+        assert len(runs) == 3
+    finally:
+        await hub.stop()
+
+
+async def test_one_automation_can_run_another():
+    """«Alles aus» steht in fünf Abläufen fast gleich – jetzt nur noch einmal."""
+    gemeinsam = {
+        "id": "alles_aus",
+        "alias": "Alles aus",
+        "trigger": [],
+        "action": [
+            {"type": "command", "entity_id": "demo.light_livingroom", "command": "turn_off"},
+            {"type": "command", "entity_id": "demo.light_bedroom", "command": "turn_off"},
+        ],
+    }
+    ruft = {
+        "id": "gute_nacht",
+        "trigger": [{"type": "state", "entity_id": "demo.motion_hall", "to": "on"}],
+        "action": [{"type": "automation", "automation_id": "alles_aus"}],
+    }
+    hub = await run_hub([gemeinsam, ruft])
+    try:
+        for licht in ("demo.light_livingroom", "demo.light_bedroom"):
+            await hub.integrations.dispatch_command(licht, "turn_on")
+        await settle()
+        await hub.registry.update_state("demo.motion_hall", {"state": "on"})
+        await settle()
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "off"
+        assert hub.registry.get("demo.light_bedroom").state["state"] == "off"
+    finally:
+        await hub.stop()
+
+
+async def test_an_automation_that_calls_itself_is_stopped():
+    """Sonst läuft es, bis der Speicher voll ist."""
+    automation = {
+        "id": "schleife",
+        "trigger": [{"type": "state", "entity_id": "demo.motion_hall", "to": "on"}],
+        "action": [{"type": "automation", "automation_id": "schleife"}],
+    }
+    hub = await run_hub([automation])
+    try:
+        await hub.registry.update_state("demo.motion_hall", {"state": "on"})
+        await settle()
+        await asyncio.sleep(0.05)
+        # Angekommen, aber nicht weitergelaufen.
+        assert len(hub.automations.runs) == 1
+    finally:
+        await hub.stop()

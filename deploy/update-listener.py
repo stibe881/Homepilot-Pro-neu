@@ -321,7 +321,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # verrät.
         return bool(SECRET) and hmac.compare_digest(given, SECRET)
 
-    def do_POST(self) -> None:  # noqa: N802
+    # do_POST und do_GET heissen so, weil BaseHTTPRequestHandler danach
+    # sucht - nicht nach unserer Namenskonvention.
+    def do_POST(self) -> None:
         path, _, query = self.path.partition("?")
         if path.rstrip("/") != "/update":
             self._answer(404, "Nicht gefunden\n")
@@ -357,7 +359,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         threading.Thread(target=build, kwargs={"ios": ios}, daemon=True).start()
         self._answer(202, "Bau gestartet (mit iOS-Build)\n" if ios else "Bau gestartet\n")
 
-    def do_GET(self) -> None:  # noqa: N802
+    def do_GET(self) -> None:
         if self.path.rstrip("/") == "/status":
             # Derselbe Schutz wie /update: Der Stand eines Baus (welcher
             # Commit, welche Fehlermeldung) ist nichts, was ohne das
