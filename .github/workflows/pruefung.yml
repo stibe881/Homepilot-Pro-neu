@@ -61,6 +61,9 @@ jobs:
       - name: Linter
         working-directory: app
         run: npx eslint .
+      - name: Tests
+        working-directory: app
+        run: npx jest --ci
       # Der Web-Bau ist die einzige Prüfung, die den ganzen Baum wirklich
       # durchzieht: Ein Importfehler in einer selten benutzten Datei fällt
       # weder tsc noch ESLint auf, dem Bündler aber sofort.

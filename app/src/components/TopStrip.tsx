@@ -17,7 +17,7 @@ import {
 
 import { Entity } from '../api/types';
 import { hasOpenDoor, openContacts } from './OpenDoors';
-import { ALLGEMEIN, Shop, groupForShop } from '../lib/einkauf';
+import { ALLGEMEIN, Shop, artikelVorschlaege, groupForShop } from '../lib/einkauf';
 import { ConnectionStatus } from '../hooks/useHub';
 import { useEscape } from '../hooks/useEscape';
 import { Colors, radius, type, useColors } from '../theme';
@@ -694,35 +694,6 @@ function Chip({
       {content}
     </Pressable>
   );
-}
-
-/**
- * Vorschläge fürs Eingabefeld der Einkaufsliste (rein, testbar).
- *
- * Der Hub liefert die schon einmal eingekauften Namen; hier fällt weg,
- * was ohnehin gerade auf der Liste steht - ein Vorschlag, der einen
- * Eintrag verdoppeln würde, ist keiner. Was mit dem Getippten *beginnt*,
- * steht vor dem, was es bloss enthält: Wer «mi» tippt, meint eher Milch
- * als Salami.
- *
- * Ohne Eingabe die zuletzt benutzten - beim leeren Feld ist das der
- * nützlichste Anfang, denn eingekauft wird meistens dasselbe.
- */
-export function artikelVorschlaege(
-  bekannt: string[],
-  eingabe: string,
-  schonDrauf: string[] = [],
-  limit = 6
-): string[] {
-  const drauf = new Set(schonDrauf.map((text) => text.trim().toLowerCase()));
-  const frei = bekannt.filter((name) => !drauf.has(name.trim().toLowerCase()));
-  const suche = eingabe.trim().toLowerCase();
-  if (!suche) return frei.slice(0, limit);
-  const vorn = frei.filter((name) => name.toLowerCase().startsWith(suche));
-  const drin = frei.filter(
-    (name) => name.toLowerCase().includes(suche) && !name.toLowerCase().startsWith(suche)
-  );
-  return [...vorn, ...drin].slice(0, limit);
 }
 
 function round(value: any): string {

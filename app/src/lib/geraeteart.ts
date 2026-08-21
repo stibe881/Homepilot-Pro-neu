@@ -177,3 +177,42 @@ export function deviceKindIcon(entity: Entity): string {
       return 'ellipse-outline';
   }
 }
+
+/** Musikbox oder Fernseher? (rein, testbar)
+ *
+ * Beide sind für den Hub «media_player» – bedienen möchte man sie aber an
+ * verschiedenen Orten. Der Player auf der Startseite ist die Stelle für
+ * «was läuft gerade und mach lauter»; ein Fernseher gehört dort nicht hin,
+ * seine Karte im Raum kann ohnehin mehr (Apps, Einschlaf-Timer, Tasten).
+ *
+ * Unterschieden wird an den Befehlen, nicht am Hersteller: Was ein
+ * Steuerkreuz oder einen App-Start kennt, ist ein Fernseher. Das gilt auch
+ * für den nächsten, der nicht von Nvidia kommt.
+ */
+export function istMusikbox(entity: Entity): boolean {
+  // Die Regel selbst steht in lib/geraeteart.ts – dieselbe, an der auch
+  // die Geräteauswahl der Abläufe «Fernseher» oder «Lautsprecher»
+  // anschreibt. Zwei Definitionen liefen früher oder später auseinander,
+  // und dann hiesse dasselbe Gerät an zwei Orten Verschiedenes.
+  return entity.kind === 'media_player' && !isTelevision(entity);
+}
+
+/** Welcher Player gehört auf die Startseite? (rein, testbar)
+ *
+ * Spielt irgendwo Musik, ist es dieser; sonst Spotify mit Playlists und
+ * Boxenwahl vor einer stillen Cast-Box. Spielen mehrere dasselbe (Spotify
+ * über eine Cast-Box: beide melden «playing»), gewinnt Spotify - nur dort
+ * gibt es Zufall, Wiederholen und den Sprung zurück. Mit der blossen Box
+ * fehlten diese Knöpfe ausgerechnet dann, wenn Musik lief. */
+export function pickPlayer(entities: Entity[]): Entity | undefined {
+  const players = entities.filter(istMusikbox);
+  return (
+    players.find(
+      (entity) =>
+        entity.state.state === 'playing' && entity.commands.includes('play_playlist')
+    ) ??
+    players.find((entity) => entity.state.state === 'playing') ??
+    players.find((entity) => entity.commands.includes('play_playlist')) ??
+    players[0]
+  );
+}
