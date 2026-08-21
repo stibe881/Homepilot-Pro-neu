@@ -1501,6 +1501,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             shopping={einkauf}
             shops={laeden}
             onShoppingDone={hakeAb}
+            showClock={!!settings.panel}
           />
 
           <View style={styles.greetingRow}>

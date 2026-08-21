@@ -67,6 +67,7 @@ export function TopStrip({
   shopping,
   shops,
   onShoppingDone,
+  showClock = false,
 }: {
   entities: Entity[];
   status: ConnectionStatus;
@@ -84,6 +85,8 @@ export function TopStrip({
   shops?: Shop[];
   /** Einen Eintrag abhaken – direkt im Laden, ohne Umweg über Familie. */
   onShoppingDone?: (id: string) => void;
+  /** Uhrzeit anzeigen – nur fürs Wandpanel gedacht. */
+  showClock?: boolean;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -196,9 +199,15 @@ export function TopStrip({
           <View style={[styles.dot, { backgroundColor: statusColor(colors, status) }]} />
           <Text style={styles.chipText}>{STATUS_LABEL[status]}</Text>
         </View>
-        <Text style={styles.clock}>
-          {now.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })}
-        </Text>
+        {/* Nur auf dem Wandpanel. Telefon und Rechner zeigen die Uhrzeit
+            ohnehin am Bildschirmrand - hier wäre sie ein zweites Mal
+            dasselbe. Ein fest montiertes Tablet im Vollbild hat dagegen
+            keine, und dort ist sie oft der Grund, hinzuschauen. */}
+        {showClock ? (
+          <Text style={styles.clock}>
+            {now.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })}
+          </Text>
+        ) : null}
       </View>
 
       <Modal
