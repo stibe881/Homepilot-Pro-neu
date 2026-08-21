@@ -16,7 +16,13 @@ import {
 
 import { Entity } from '../api/types';
 import { hasOpenDoor, openContacts } from './OpenDoors';
-import { ALLGEMEIN, Shop, artikelVorschlaege, groupForShop } from '../lib/einkauf';
+import {
+  ALLGEMEIN,
+  Shop,
+  artikelVorschlaege,
+  groupForShop,
+  mengeUndName,
+} from '../lib/einkauf';
 import { tapped } from '../lib/haptics';
 import { kann } from '../lib/plattform';
 import { ConnectionStatus } from '../hooks/useHub';
@@ -71,6 +77,8 @@ export function TopStrip({
   knownItems,
   onShoppingAdd,
   onShoppingDone,
+  onShoppingRemove,
+  onShoppingCount,
   showClock = false,
 }: {
   entities: Entity[];
@@ -93,6 +101,10 @@ export function TopStrip({
   onShoppingAdd?: (text: string) => void;
   /** Einen Eintrag abhaken – direkt im Laden, ohne Umweg über Familie. */
   onShoppingDone?: (id: string) => void;
+  /** Einen Eintrag wegnehmen, ohne ihn gekauft zu haben (Vertipper). */
+  onShoppingRemove?: (id: string) => void;
+  /** Die Stückzahl setzen. Unter eins fällt der Posten weg. */
+  onShoppingCount?: (id: string, menge: number) => void;
   /** Uhrzeit anzeigen – nur fürs Wandpanel gedacht. */
   showClock?: boolean;
 }) {
@@ -455,40 +467,81 @@ export function TopStrip({
               {gaenge.map((gang) => (
                 <View key={gang.category}>
                   <Text style={styles.gangLabel}>{gang.category}</Text>
-                  {gang.items.map((eintrag: any) => (
-                    <Pressable
-                      key={eintrag.id}
-                      onPress={
-                        onShoppingDone
-                          ? () => {
-                              // Im Laden schaut man auf das Regal, nicht aufs
-                              // Telefon – der kurze Impuls sagt, dass der Tipp
-                              // gesessen hat.
-                              tapped();
-                              onShoppingDone(String(eintrag.id));
-                            }
-                          : undefined
-                      }
-                      accessibilityRole="checkbox"
-                      accessibilityState={{ checked: false }}
-                      accessibilityLabel={`${eintrag.text} abhaken`}
-                      style={({ pressed }) => [styles.lightRow, pressed && { opacity: 0.6 }]}
-                    >
-                      <Ionicons
-                        name={onShoppingDone ? 'ellipse-outline' : 'cart-outline'}
-                        size={20}
-                        color={colors.inkFaint}
-                      />
-                      <Text style={[styles.lightName, { flex: 1 }]}>{eintrag.text}</Text>
-                    </Pressable>
-                  ))}
+                  {gang.items.map((eintrag: any) => {
+                    const { menge, name } = mengeUndName(String(eintrag.text ?? ''));
+                    return (
+                      <View key={eintrag.id} style={styles.lightRow}>
+                        <Pressable
+                          onPress={
+                            onShoppingDone
+                              ? () => {
+                                  // Im Laden schaut man auf das Regal, nicht
+                                  // aufs Telefon – der kurze Impuls sagt, dass
+                                  // der Tipp gesessen hat.
+                                  tapped();
+                                  onShoppingDone(String(eintrag.id));
+                                }
+                              : undefined
+                          }
+                          accessibilityRole="checkbox"
+                          accessibilityState={{ checked: false }}
+                          accessibilityLabel={`${eintrag.text} abhaken`}
+                          hitSlop={4}
+                          style={({ pressed }) => [styles.einkaufTap, pressed && { opacity: 0.6 }]}
+                        >
+                          <Ionicons
+                            name={onShoppingDone ? 'ellipse-outline' : 'cart-outline'}
+                            size={20}
+                            color={colors.inkFaint}
+                          />
+                          <Text style={[styles.lightName, { flex: 1 }]} numberOfLines={1}>
+                            {menge > 1 ? `${menge}× ${name}` : name}
+                          </Text>
+                        </Pressable>
+                        {/* Menge und Wegnehmen stehen rechts und sind bewusst
+                            klein: Der grosse Griff ist das Abhaken, alles
+                            andere braucht man selten – aber dann sofort. */}
+                        {onShoppingCount ? (
+                          <>
+                            <Pressable
+                              onPress={() => onShoppingCount(String(eintrag.id), menge - 1)}
+                              accessibilityRole="button"
+                              accessibilityLabel={`${name}: eines weniger`}
+                              hitSlop={10}
+                            >
+                              <Ionicons name="remove" size={17} color={colors.inkFaint} />
+                            </Pressable>
+                            <Pressable
+                              onPress={() => onShoppingCount(String(eintrag.id), menge + 1)}
+                              accessibilityRole="button"
+                              accessibilityLabel={`${name}: eines mehr`}
+                              hitSlop={10}
+                            >
+                              <Ionicons name="add" size={17} color={colors.inkFaint} />
+                            </Pressable>
+                          </>
+                        ) : null}
+                        {onShoppingRemove ? (
+                          <Pressable
+                            onPress={() => onShoppingRemove(String(eintrag.id))}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${name} von der Liste nehmen`}
+                            hitSlop={10}
+                          >
+                            <Ionicons name="close" size={17} color={colors.inkFaint} />
+                          </Pressable>
+                        ) : null}
+                      </View>
+                    );
+                  })}
                 </View>
               ))}
             </ScrollView>
 
             {onShoppingDone && einkauf.length > 0 ? (
               <Text style={styles.lightRoom}>
-                Antippen hakt ab – der Eintrag verschwindet sofort.
+                Antippen hakt ab. Mit − und + die Stückzahl, mit × einen
+                Vertipper wieder loswerden.
               </Text>
             ) : null}
             <Pressable onPress={() => setShopOpen(false)} style={styles.close}>
@@ -879,6 +932,9 @@ const makeStyles = (colors: Colors) =>
     gap: 12,
     paddingVertical: 7,
   },
+  // Der Griff zum Abhaken nimmt die ganze übrige Breite: Wer im Laden
+  // mit einer Hand tippt, trifft sonst die kleinen Knöpfe daneben.
+  einkaufTap: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
   lightName: { color: colors.ink, fontSize: 15, fontWeight: '600' },
   lightRoom: { color: colors.inkFaint, fontSize: 12 },
   offButton: {

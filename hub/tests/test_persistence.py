@@ -312,3 +312,44 @@ def test_the_hub_token_is_no_person(tmp_path):
         me = client.get("/api/me", headers={"Authorization": "Bearer t-hub"})
         assert me.status_code == 200
         assert me.json()["role"] == "besitzer"
+
+
+def test_export_leaves_the_secrets_at_home():
+    """Ein Export landet in einer Mail – Token dürfen nicht mitfahren."""
+    store = DataStore(None)
+    store.set("users", [{"name": "Stefan", "role": "besitzer", "token": "geheim"}])
+    store.set("automations", [{"id": "a1", "alias": "Flurlicht"}])
+    store.set("sessions", [{"hash": "abc"}])
+    store.set("audit", [{"who": "Stefan", "what": "turn_on"}])
+    store.set("push_devices", [{"token": "ExponentPushToken[x]"}])
+
+    daten = store.export()
+
+    assert daten["automations"][0]["alias"] == "Flurlicht"
+    # Wer im Haushalt lebt, gehört zum eigenen Bestand – sein Schlüssel nicht.
+    assert daten["users"][0]["name"] == "Stefan"
+    assert daten["users"][0]["role"] == "besitzer"
+    assert "token" not in daten["users"][0]
+    for heikel in ("sessions", "audit", "push_devices", "alarm_pin"):
+        assert heikel not in daten
+
+
+def test_strip_users_keeps_everything_harmless():
+    from homepilot.core.persistence import strip_users
+
+    users = strip_users([{"name": "Livia", "role": "bewohner", "rooms": ["Küche"], "token": "x"}])
+    assert users[0]["rooms"] == ["Küche"]
+    assert "token" not in users[0]
+
+
+def test_export_over_the_api_is_a_download_without_secrets(tmp_path):
+    hub = Hub(make_config(tmp_path / "d.json"))
+    with TestClient(create_app(hub)) as client:
+        hub.data.set("sessions", [{"hash": "abc"}])
+        hub.data.set("automations", [{"id": "a1", "alias": "Flurlicht"}])
+        response = client.get("/api/system/export", headers=auth())
+        assert response.status_code == 200
+        assert "attachment" in response.headers["content-disposition"]
+        daten = response.json()
+        assert daten["automations"][0]["alias"] == "Flurlicht"
+        assert "sessions" not in daten

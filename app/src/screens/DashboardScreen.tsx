@@ -41,7 +41,7 @@ import { Tap, useNotificationTap } from '../hooks/useNotificationTap';
 import { usePrefs } from '../hooks/usePrefs';
 import { usePushRegistration } from '../hooks/usePushRegistration';
 import { breakpoints, Colors, radius, space, type, useColors } from '../theme';
-import { shopCategory } from '../lib/einkauf';
+import { findeArtikel, mengeUndName, mitMenge, shopCategory } from '../lib/einkauf';
 import { hubClient, onHubFehler } from '../api/client';
 import { Auffangnetz } from '../components/Auffangnetz';
 import { AutomationsScreen } from './AutomationsScreen';
@@ -247,6 +247,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Einkaufsliste und Läden für die Kopfzeile. Dieselbe Quelle wie unter
   // Familie - nur die offenen Einträge, denn oben zählt, was noch fehlt.
   const [einkauf, setEinkauf] = useState<any[]>([]);
+  // Dieselbe Liste als Ref: Die Rückrufe unten hängen sonst an jeder
+  // Änderung der Liste und bauen sich bei jedem Tippen neu auf – und die
+  // Kopfzeile mit ihnen.
+  const einkaufRef = useRef<any[]>([]);
+  einkaufRef.current = einkauf;
+  // Was gerade abgehakt wurde, für einen Moment aufgehoben.
+  const [einkaufUndo, setEinkaufUndo] = useState<{ id: string; text: string } | null>(null);
   const [laeden, setLaeden] = useState<any[]>([]);
   // Schon einmal eingekaufte Artikel – die Vervollständigung im Fenster
   // der Kopfzeile lebt davon. Kommt aus dem Hub, nicht vom Gerät: Was
@@ -284,6 +291,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
    *  Kopfzeile, statt bis zum nächsten Abruf stehen zu bleiben. */
   const hakeAb = useCallback(
     (id: string) => {
+      // Vor dem Wegnehmen merken, was da stand: Im Laden tippt man daneben,
+      // und dann steht man vor dem Regal und weiss nicht mehr, was es war.
+      const weg = einkaufRef.current.find((eintrag) => eintrag.id === id);
+      if (weg) setEinkaufUndo({ id, text: String(weg.text ?? '') });
       setEinkauf((liste) => liste.filter((eintrag) => eintrag.id !== id));
       // Nicht still: Wer im Laden abhakt und dabei ins Leere greift, soll
       // es erfahren – sonst kauft er es nicht und denkt, er habe es.
@@ -296,6 +307,64 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     [hub, ladeEinkauf]
   );
 
+  /**
+   * Einen Posten wegnehmen, ohne ihn gekauft zu haben.
+   *
+   * Abhaken heisst «habe ich» – das ist etwas anderes als «war ein
+   * Vertipper». Vorher ging Letzteres nur unter Familie, also genau dort
+   * nicht, wo man steht, wenn es auffällt.
+   */
+  const entferneEinkauf = useCallback(
+    (id: string) => {
+      setEinkauf((liste) => liste.filter((eintrag) => eintrag.id !== id));
+      hub
+        .del(`/api/family/shopping/${encodeURIComponent(id)}`, { fallback: null })
+        .finally(ladeEinkauf);
+    },
+    [hub, ladeEinkauf]
+  );
+
+  /**
+   * Die Stückzahl eines Postens ändern.
+   *
+   * Die Menge steht im Text und nicht in einem eigenen Feld: «2× Milch»
+   * ist auch für den lesbar, der die Liste unter Familie oder im
+   * Rohzustand ansieht, und der Hub muss nichts davon wissen. Fällt sie
+   * unter eins, ist der Posten weg – ein «0× Milch» will niemand sehen.
+   */
+  const setzeMenge = useCallback(
+    (id: string, menge: number) => {
+      const eintrag = einkaufRef.current.find((row) => row.id === id);
+      if (!eintrag) return;
+      const { name } = mengeUndName(String(eintrag.text ?? ''));
+      if (menge < 1) {
+        entferneEinkauf(id);
+        return;
+      }
+      const text = mitMenge(name, Math.min(99, menge));
+      setEinkauf((liste) =>
+        liste.map((row) => (row.id === id ? { ...row, text } : row))
+      );
+      hub
+        .put(`/api/family/shopping/${encodeURIComponent(id)}`, { text }, { fallback: null })
+        .finally(ladeEinkauf);
+    },
+    [hub, ladeEinkauf, entferneEinkauf]
+  );
+
+  /** Ein Abhaken zurücknehmen – der Posten steht wieder offen auf der Liste. */
+  const nimmAbhakenZurueck = useCallback(() => {
+    const zurueck = einkaufUndo;
+    if (!zurueck) return;
+    setEinkaufUndo(null);
+    setEinkauf((liste) => [...liste, { id: zurueck.id, text: zurueck.text }]);
+    hub
+      .put(`/api/family/shopping/${encodeURIComponent(zurueck.id)}`, { done: false }, {
+        fallback: null,
+      })
+      .finally(ladeEinkauf);
+  }, [einkaufUndo, hub, ladeEinkauf]);
+
   /** Einen Artikel auf die Liste setzen – aus dem Fenster der Kopfzeile.
    *
    *  Der Eintrag erscheint sofort, mit einer vorläufigen Kennung: Wer
@@ -305,6 +374,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     async (text: string) => {
       const name = text.trim();
       if (!name || !settings.url) return;
+      // Schon drauf? Dann meint «Milch» den vorhandenen Posten und nicht
+      // einen zweiten. Wer zwei Einträge «Milch» auf der Liste hat, kauft
+      // im Zweifel beide.
+      const schonDa = findeArtikel(einkaufRef.current, name);
+      if (schonDa) {
+        const jetzt = mengeUndName(String(schonDa.text ?? ''));
+        setzeMenge(String(schonDa.id), jetzt.menge + mengeUndName(name).menge);
+        return;
+      }
       setEinkauf((liste) => [...liste, { id: `neu-${name}`, text: name }]);
       setBekannt((liste) => [name, ...liste.filter((entry) => entry !== name)]);
       // Der Gang wird hier bestimmt und nicht im Hub: Dieselbe Zuordnung
@@ -318,7 +396,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       );
       ladeEinkauf();
     },
-    [hub, settings.url, ladeEinkauf]
+    [hub, settings.url, ladeEinkauf, setzeMenge]
   );
 
   // Die Ablaufnamen einmal holen, damit die Suche sie kennt.
@@ -1553,6 +1631,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   shopping: einkauf,
                   shops: laeden,
                   onShoppingDone: hakeAb,
+                  onShoppingRemove: entferneEinkauf,
+                  onShoppingCount: setzeMenge,
                   knownItems: bekannt,
                   onShoppingAdd: kaufeEin,
                 })}
@@ -1691,17 +1771,26 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         bottomInset={insets.bottom}
       />
       {/* Nur wenn nichts schiefging – ein fehlgeschlagener Befehl hat nichts
-          hinterlassen, was man zurücknehmen müsste. */}
+          hinterlassen, was man zurücknehmen müsste.
+
+          Das Abhaken im Laden hat Vorrang vor einer Schaltung: Es ist die
+          jüngere Handlung, und es ist die, bei der man danebentippt. */}
       <UndoToast
-        what={error || abrufFehler ? null : undo}
-        onUndo={undoLast}
-        onDismiss={dismissUndo}
+        what={
+          error || abrufFehler
+            ? null
+            : einkaufUndo
+              ? { name: mengeUndName(einkaufUndo.text).name, label: 'abgehakt' }
+              : undo
+        }
+        onUndo={einkaufUndo ? nimmAbhakenZurueck : undoLast}
+        onDismiss={einkaufUndo ? () => setEinkaufUndo(null) : dismissUndo}
         bottomInset={insets.bottom}
       />
       {/* Gelungenes tritt hinter beides zurück: Wer gerade einen Fehler
           liest, braucht nicht noch ein Häkchen daneben. */}
       <Bestaetigung
-        text={error || abrufFehler || undo ? null : note}
+        text={error || abrufFehler || undo || einkaufUndo ? null : note}
         onDismiss={() => setNote(null)}
         bottomInset={insets.bottom}
       />

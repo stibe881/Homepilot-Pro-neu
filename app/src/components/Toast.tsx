@@ -113,6 +113,15 @@ export function UndoToast({
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  // Die Beschreibung oben sagte «nur ein paar Sekunden», die Umsetzung
+  // liess das Angebot stehen, bis etwas Neues kam. Bei einer Schaltung
+  // fiel das nicht auf – da folgt schnell die nächste. Beim Abhaken im
+  // Laden schon: Dort bliebe «Rückgängig» zwischen zwei Regalen liegen.
+  useEffect(() => {
+    if (!what) return;
+    const timer = setTimeout(onDismiss, 6000);
+    return () => clearTimeout(timer);
+  }, [what, onDismiss]);
 
   if (!what) return null;
 

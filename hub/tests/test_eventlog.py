@@ -54,3 +54,40 @@ def test_events_over_the_api():
         assert events and events[0]["state"] == "on"
         # Unbekanntes Gerät bleibt ein sauberes 404.
         assert client.get("/api/entities/nope.nope/log").status_code == 404
+
+
+def test_span_says_the_log_is_young_and_not_full():
+    """Ein frisches Protokoll: Anfang bekannt, Puffer nicht übergelaufen."""
+    log = EventLog()
+    leer = log.span()
+    assert leer["count"] == 0
+    assert leer["oldest"] is None
+    assert leer["full"] is False
+    assert leer["started"] > 0
+
+    log.record(
+        "state_changed",
+        {
+            "entity_id": "hue.lampe",
+            "entity": {"kind": "light"},
+            "old_state": {"state": "off"},
+            "new_state": {"state": "on"},
+            "source": {"kind": "user", "label": "Stefan"},
+        },
+    )
+    voll = log.span()
+    assert voll["count"] == 1
+    # Der älteste Eintrag kann nicht vor dem Start des Protokolls liegen.
+    assert voll["oldest"] >= leer["started"]
+
+
+def test_span_reaches_the_api():
+    hub = Hub(make_config())
+    with TestClient(create_app(hub)) as client:
+        client.post(
+            "/api/entities/demo.light_livingroom/command",
+            json={"command": "turn_on"},
+        )
+        body = client.get("/api/entities/demo.light_livingroom/log").json()
+        assert body["log"]["count"] >= 1
+        assert body["log"]["limit"] == 2000

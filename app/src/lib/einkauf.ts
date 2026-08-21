@@ -134,6 +134,57 @@ export function ingredientLabel(ingredient: any): string {
 }
 
 /**
+ * Menge und Name aus einem Eintrag lesen (rein, testbar).
+ *
+ * Auf der Liste steht, was jemand getippt hat: «2 Milch», «2x Milch»,
+ * «2× Milch», «2 Liter Milch». Für die Anzeige und fürs Zusammenlegen
+ * braucht es beides getrennt – sonst sind «Milch» und «2 Milch» zwei
+ * Posten, und man steht mit drei Litern zu Hause.
+ *
+ * Nur die *führende* Zahl zählt, und nur wenn danach noch etwas kommt.
+ * «7 Up» wäre sonst sieben Ups, deshalb greift die Regel erst ab einer
+ * Zahl mit einem Trennzeichen dahinter (`x`, `×` oder Leerzeichen) und
+ * lässt Namen in Ruhe, die mit einer Zahl anfangen und keine Menge
+ * meinen. Ganz vermeiden lässt sich das nicht – «7 Up» bleibt der Preis
+ * dafür, dass «2 Milch» funktioniert.
+ */
+export function mengeUndName(text: string): { menge: number; name: string } {
+  const roh = String(text ?? '').trim();
+  const treffer = /^(\d{1,3})\s*(?:[x×]\s*|\s)(.+)$/i.exec(roh);
+  if (!treffer) return { menge: 1, name: roh };
+  const menge = Number(treffer[1]);
+  const name = treffer[2].trim();
+  // «0 Milch» und «1 Milch» sind keine Mengenangaben, die man anzeigen
+  // müsste – und ein leerer Name wäre gar keiner.
+  if (!name || menge < 2 || menge > 99) return { menge: 1, name: roh };
+  return { menge, name };
+}
+
+/** Wie ein Eintrag mit Menge geschrieben wird: «3× Milch» (rein, testbar). */
+export function mitMenge(name: string, menge: number): string {
+  const sauber = String(name ?? '').trim();
+  return menge > 1 ? `${menge}× ${sauber}` : sauber;
+}
+
+/**
+ * Steht der Artikel schon auf der Liste? (rein, testbar)
+ *
+ * Verglichen wird der blosse Name ohne Menge: Wer «Milch» tippt und
+ * «2× Milch» liegt schon da, meint den vorhandenen Posten. Zurück kommt
+ * der ganze Eintrag, damit der Aufrufer seine Kennung hat.
+ */
+export function findeArtikel<T extends { text?: unknown }>(
+  liste: T[],
+  text: string
+): T | undefined {
+  const gesucht = mengeUndName(text).name.toLowerCase();
+  if (!gesucht) return undefined;
+  return liste.find(
+    (eintrag) => mengeUndName(String(eintrag.text ?? '')).name.toLowerCase() === gesucht
+  );
+}
+
+/**
  * Zutaten mehrerer Rezepte zu Einkaufs-Einträgen (rein, testbar).
  *
  * Doppelte fallen weg - wer für zwei Gerichte Zwiebeln braucht, will

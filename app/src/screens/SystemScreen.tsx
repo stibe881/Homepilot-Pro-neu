@@ -1610,6 +1610,36 @@ function BackupCard({
     }
   };
 
+  /**
+   * Alles Eigene als eine Datei – Abläufe, Szenen, Listen, Räume.
+   *
+   * Nicht dasselbe wie eine Sicherung: Die bleibt im Haus und enthält
+   * alles. Der Export geht auf ein Telefon oder in eine Mail, und dort
+   * haben Token, Sitzungen und das Zugriffsprotokoll nichts verloren –
+   * der Hub lässt sie weg.
+   *
+   * Nur im Browser, wie beim Herunterladen einer Sicherung: Das Telefon
+   * hat keinen Ort, an dem eine Datei liegen bliebe. Auf dem Telefon
+   * steht deshalb der Satz, wo es geht, statt eines Knopfes, der nichts
+   * tut.
+   */
+  const exportieren = async () => {
+    setNote(null);
+    try {
+      const response = await fetch(`${settings.url}/api/system/export`, { headers });
+      if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `homepilot-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setNote(String(err.message ?? err));
+    }
+  };
+
   const restore = async (name: string) => {
     if (confirmRestore !== name) {
       setConfirmRestore(name);
@@ -1657,7 +1687,15 @@ function BackupCard({
       </Text>
       <View style={styles.buttons}>
         <Button label={busy ? 'Arbeitet …' : 'Jetzt sichern'} onPress={runBackup} primary />
+        {Platform.OS === 'web' ? (
+          <Button label="Alles als Datei" onPress={exportieren} />
+        ) : null}
       </View>
+      <Text style={styles.rowDetail}>
+        {Platform.OS === 'web'
+          ? 'Die Datei enthält Abläufe, Szenen, Listen und Räume – keine Token, keine Sitzungen, kein Zugriffsprotokoll.'
+          : 'Alles als Datei herunterladen geht in der Web-Fassung – das Telefon hat keinen Ort, an dem sie liegen bliebe.'}
+      </Text>
 
       {listOpen
         ? (backups ?? []).map((entry) => (

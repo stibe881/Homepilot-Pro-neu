@@ -56,6 +56,11 @@ def worth_recording(kind: str, old: dict[str, Any], new: dict[str, Any]) -> bool
 class EventLog:
     def __init__(self) -> None:
         self._events: deque[dict[str, Any]] = deque(maxlen=LIMIT)
+        # Wann dieses Protokoll zu zählen begann. Ohne diesen Zeitpunkt
+        # lässt sich «nichts aufgezeichnet» nicht von «nichts passiert»
+        # unterscheiden: Beides sieht in der App gleich aus, meint aber
+        # Gegenteiliges - einmal fehlt das Gedächtnis, einmal die Handlung.
+        self.started = time.time()
 
     def record(self, _event_type: str, data: dict[str, Any]) -> None:
         """Bus-Listener für state_changed - still bei allem Unpassenden."""
@@ -93,3 +98,23 @@ class EventLog:
             event for event in self._events if event["entity_id"] == entity_id
         ]
         return list(reversed(found))[:limit]
+
+    def span(self) -> dict[str, Any]:
+        """Wie weit das Protokoll zurückreicht - und warum nicht weiter.
+
+        Eine Kurve ohne diese Angabe ist nicht zu lesen: Zwei Einträge
+        heissen entweder «hier passiert wenig» oder «der Hub lief erst
+        zehn Minuten», und die App kann das von sich aus nicht wissen.
+
+        `full` sagt, ob der Ring bereits übergelaufen ist. Dann ist der
+        Anfang nicht mehr der Start des Hubs, sondern die Kante des
+        Puffers - und älteres ist endgültig weg.
+        """
+        oldest = self._events[0]["at"] if self._events else None
+        return {
+            "started": self.started,
+            "oldest": oldest,
+            "count": len(self._events),
+            "limit": LIMIT,
+            "full": len(self._events) >= LIMIT,
+        }

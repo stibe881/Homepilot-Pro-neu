@@ -86,6 +86,47 @@ EMPTY: dict[str, Any] = {
 }
 
 
+# Was einen Export nie verlassen darf.
+#
+# Nicht dasselbe wie «was eine Sicherung enthält»: Die Sicherung ist die
+# Datei selbst und gehört auf eine Platte im Haus. Ein Export landet auf
+# einem Telefon, in einer Mail, in einer Cloud - dorthin gehören weder
+# Anmelde-Token noch offene Sitzungen noch das Zugriffsprotokoll.
+#
+# Bewusst eine Sperrliste und keine Erlaubnisliste: Wer künftig einen
+# Schlüssel hinzufügt, soll ihn hier eintragen müssen, statt dass er
+# stillschweigend mitgeht. Neue harmlose Listen erscheinen sofort im
+# Export, neue heikle fallen auf.
+SECRETS = frozenset(
+    {
+        "sessions",
+        "push_devices",
+        "audit",
+        "alarm_pin",
+        "hub_base",
+        "emails",
+    }
+)
+
+
+def strip_users(users: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Benutzer ohne alles, womit man sich anmelden könnte (rein, testbar).
+
+    Wer im Haushalt lebt und was er darf, gehört zum eigenen Datenbestand
+    und in den Export. Sein Token nicht: Damit wäre der Export ein
+    Generalschlüssel, und ein Export liegt irgendwann in einer Mail.
+    """
+    sauber = []
+    for user in users:
+        ohne = {
+            key: value
+            for key, value in user.items()
+            if key not in {"token", "password", "hash", "salt", "pin"}
+        }
+        sauber.append(ohne)
+    return sauber
+
+
 class DataStore:
     def __init__(self, path: str | Path | None) -> None:
         # Ohne Pfad läuft alles nur im Speicher – so legen Tests und
@@ -207,6 +248,24 @@ class DataStore:
         if not entries:
             return None
         return max(0.0, time.time() - entries[0]["created"])
+
+    def export(self) -> dict[str, Any]:
+        """Der eigene Datenbestand als lesbare Struktur.
+
+        Für den Knopf «alles als Datei»: Abläufe, Szenen, Familienlisten,
+        Räume, Läden - was jemand über die Jahre eingerichtet hat, ohne
+        dass er dafür an den Rechner muss. Es ist zugleich die Sicherung,
+        die jeder versteht.
+
+        Was fehlt, steht in `SECRETS` und im Kommentar dort.
+        """
+        daten = {
+            key: value
+            for key, value in self._data.items()
+            if key not in SECRETS
+        }
+        daten["users"] = strip_users(daten.get("users", []))
+        return daten
 
     def backup_bytes(self, name: str) -> bytes:
         """Den Inhalt einer Sicherung lesen - fürs Herunterladen.

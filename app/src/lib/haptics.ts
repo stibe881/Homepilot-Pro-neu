@@ -31,7 +31,6 @@ function load(): Haptics | null {
     return null;
   }
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     module_ = require('expo-haptics') as Haptics;
   } catch {
     module_ = null;

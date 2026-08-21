@@ -4,6 +4,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 
 import { Entity, HubSettings } from '../api/types';
 import { epochAgo, epochTime } from '../lib/zeit';
+import { LogSpan, reichweiteText } from '../lib/verlauf';
 import { Fehlschlag, Laedt, Leer } from './Zustand';
 import { Colors, radius, type, useColors } from '../theme';
 
@@ -58,6 +59,7 @@ export function EntityHistory({
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [events, setEvents] = useState<HistoryEvent[] | null>(null);
+  const [span, setSpan] = useState<LogSpan | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -71,7 +73,10 @@ export function EntityHistory({
         if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
         return response.json();
       })
-      .then((data) => setEvents(data.events ?? []))
+      .then((data) => {
+        setEvents(data.events ?? []);
+        setSpan(data.log ?? null);
+      })
       .catch((err) => setError(String(err.message ?? err)));
   }, [entity.id, settings.url, settings.token]);
 
@@ -95,7 +100,10 @@ export function EntityHistory({
             <Leer
               icon="time-outline"
               titel="Noch nichts aufgezeichnet"
-              hinweis="Das Protokoll beginnt beim Start des Hubs – nach einem Update ist es zunächst leer."
+              hinweis={
+                reichweiteText(span) ||
+                'Das Protokoll beginnt beim Start des Hubs – nach einem Update ist es zunächst leer.'
+              }
             />
           ) : null}
 
@@ -117,11 +125,14 @@ export function EntityHistory({
           </ScrollView>
 
           {events != null && events.length > 0 ? (
-            <Text style={styles.hint}>
-              «Am Gerät / von aussen» heisst: Der Wechsel kam nicht über den
-              Hub – Wandschalter, Hersteller-App oder eine Zeitschaltung im
-              Gerät selbst.
-            </Text>
+            <>
+              <Text style={styles.hint}>{reichweiteText(span)}</Text>
+              <Text style={styles.hint}>
+                «Am Gerät / von aussen» heisst: Der Wechsel kam nicht über den
+                Hub – Wandschalter, Hersteller-App oder eine Zeitschaltung im
+                Gerät selbst.
+              </Text>
+            </>
           ) : null}
         </Pressable>
       </Pressable>

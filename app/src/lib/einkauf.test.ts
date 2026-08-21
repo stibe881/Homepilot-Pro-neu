@@ -12,6 +12,9 @@ import {
   ingredientsToShopping,
   shopCategory,
   shopOrder,
+  findeArtikel,
+  mengeUndName,
+  mitMenge,
 } from './einkauf';
 
 describe('shopCategory', () => {
@@ -134,5 +137,61 @@ describe('ingredientsToShopping', () => {
 
   it('überspringt namenlose Zutaten, statt leere Zeilen anzulegen', () => {
     expect(ingredientsToShopping([{ ingredients: [{ amount: 3 }] }])).toEqual([]);
+  });
+});
+
+describe('mengeUndName', () => {
+  it('liest «2 Milch» als zwei Milch', () => {
+    expect(mengeUndName('2 Milch')).toEqual({ menge: 2, name: 'Milch' });
+  });
+
+  it('versteht 2x, 2× und 2 gleich', () => {
+    expect(mengeUndName('2x Milch').menge).toBe(2);
+    expect(mengeUndName('2× Milch').menge).toBe(2);
+    expect(mengeUndName('2 Milch').menge).toBe(2);
+  });
+
+  it('lässt einen Namen ohne Menge in Ruhe', () => {
+    expect(mengeUndName('Milch')).toEqual({ menge: 1, name: 'Milch' });
+  });
+
+  it('behandelt «1 Milch» nicht als Menge – eins schreibt man nicht hin', () => {
+    expect(mengeUndName('1 Milch')).toEqual({ menge: 1, name: '1 Milch' });
+  });
+
+  it('lässt eine Mengenangabe mit Einheit unangetastet', () => {
+    // «250 ml Ketchup» ist ein Name mit Einheit, keine Stückzahl – die
+    // Zahl darf nicht als Anzahl Ketchups gelesen werden.
+    expect(mengeUndName('250 ml Ketchup').menge).toBe(1);
+  });
+});
+
+describe('findeArtikel', () => {
+  const liste = [
+    { id: 'a', text: '2× Milch' },
+    { id: 'b', text: 'Brot' },
+  ];
+
+  it('findet den Posten unabhängig von der Menge', () => {
+    expect(findeArtikel(liste, 'Milch')?.id).toBe('a');
+    expect(findeArtikel(liste, '3 Milch')?.id).toBe('a');
+  });
+
+  it('unterscheidet Gross- und Kleinschreibung nicht', () => {
+    expect(findeArtikel(liste, 'brot')?.id).toBe('b');
+  });
+
+  it('gibt nichts zurück, was nicht drauf steht', () => {
+    expect(findeArtikel(liste, 'Butter')).toBeUndefined();
+  });
+});
+
+describe('mitMenge', () => {
+  it('schreibt ab zwei die Menge davor', () => {
+    expect(mitMenge('Milch', 3)).toBe('3× Milch');
+  });
+
+  it('lässt eine einzelne Sache ohne Zahl', () => {
+    expect(mitMenge('Milch', 1)).toBe('Milch');
   });
 });

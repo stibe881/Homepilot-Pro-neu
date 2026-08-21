@@ -1328,6 +1328,31 @@ def create_app(hub: Hub) -> FastAPI:
             headers={"Content-Disposition": f'attachment; filename="{name}"'},
         )
 
+    @app.get("/api/system/export")
+    async def export_data(request: Request) -> Response:
+        """Alles Eigene als eine Datei – Abläufe, Szenen, Listen, Räume.
+
+        Der Unterschied zur Sicherung ist nicht die Technik, sondern wohin
+        es geht: Eine Sicherung bleibt im Haus, ein Export landet auf einem
+        Telefon oder in einer Mail. Deshalb fehlen hier Token, Sitzungen,
+        Push-Geräte und das Zugriffsprotokoll (siehe `SECRETS` in
+        persistence.py) – und deshalb darf ihn auch nur auslösen, wer
+        ohnehin alles ändern könnte.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        daten = hub.data.export()
+        # Ohne Datum im Namen liegen nach dem dritten Mal drei Dateien
+        # namens «homepilot-export.json» im Ordner.
+        tag = datetime.now().strftime("%Y-%m-%d")
+        payload = json.dumps(daten, ensure_ascii=False, indent=2).encode("utf-8")
+        return Response(
+            content=payload,
+            media_type="application/json",
+            headers={
+                "Content-Disposition": f'attachment; filename="homepilot-{tag}.json"'
+            },
+        )
+
     @app.post("/api/system/backups/{name}/restore")
     async def restore_backup(name: str, request: Request) -> dict[str, Any]:
         """Eine Sicherung zurückspielen - für den Tag, an dem jemand
@@ -1464,7 +1489,12 @@ def create_app(hub: Hub) -> FastAPI:
         entity = hub.registry.get(entity_id)
         if entity is None or not user.may_see(entity.id, entity.kind, entity.integration):
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
-        return {"events": hub.eventlog.for_entity(entity_id)}
+        # Die Spanne kommt mit: Ohne sie kann die App nicht sagen, ob
+        # «drei Einträge» wenig Betrieb heisst oder ein junger Hub.
+        return {
+            "events": hub.eventlog.for_entity(entity_id),
+            "log": hub.eventlog.span(),
+        }
 
     async def camera_for(entity_id: str, request: Request):
         """Kamera-Entität samt Integration – oder ein sauberes 404."""
