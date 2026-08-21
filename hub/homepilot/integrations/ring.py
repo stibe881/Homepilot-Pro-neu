@@ -306,7 +306,7 @@ class RingIntegration(Integration):
     # ── Gerät → Hub ────────────────────────────────────────────────────────
 
     async def _poll_loop(self) -> None:
-        interval = int(self.config.get("scan_interval", 300))
+        interval = int(self.scan_interval())
         while True:
             await asyncio.sleep(interval)
             try:

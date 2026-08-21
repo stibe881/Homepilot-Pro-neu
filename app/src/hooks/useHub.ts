@@ -4,6 +4,8 @@ import { AppState } from 'react-native';
 
 import { Activity, Entity, Scene, ServerMessage, User } from '../api/types';
 import { failed, tapped, triggered } from '../lib/haptics';
+import { UndoOffer, undoCommand, undoLabel } from '../lib/rueckgaengig';
+import { QueuedCommand, enqueue, stillFresh } from '../lib/warteschlange';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
@@ -21,52 +23,6 @@ const SLOW_COMMAND_TIMEOUT = 45000;
 const SLOW_COMMANDS = new Set(['play_playlist', 'play_on']);
 /** So lange steht das Angebot, eine Schaltung zurückzunehmen. */
 const UNDO_TIMEOUT = 8000;
-/** Befehle, deren Wirkung sich sauber umkehren lässt. */
-const UNDOABLE = new Set(['turn_on', 'turn_off', 'toggle', 'set_brightness']);
-
-/** Ein versehentlich geschaltetes Gerät, das sich zurücknehmen lässt. */
-export interface UndoOffer {
-  entityId: string;
-  name: string;
-  label: string;
-  command: string;
-  data?: Record<string, any>;
-}
-
-/**
- * Der Befehl, der den Zustand von vorher wiederherstellt (rein, testbar).
- *
- * Bewusst aus dem *alten Zustand* abgeleitet und nicht als Gegenstück zum
- * Befehl: Wer eine auf 30 % gedimmte Lampe ausschaltet, will beim
- * Rückgängigmachen wieder 30 % und nicht volle Helligkeit.
- *
- * ``null``, wenn der Ausgangszustand unbekannt war – dann lieber gar kein
- * Angebot als eines, das etwas anderes tut als es verspricht.
- */
-export function undoCommand(
-  before: Record<string, any>,
-  command: string
-): { command: string; data?: Record<string, any> } | null {
-  if (!UNDOABLE.has(command)) return null;
-  if (before.state === 'off') return { command: 'turn_off' };
-  if (before.state !== 'on') return null;
-  if (typeof before.brightness === 'number') {
-    return { command: 'set_brightness', data: { brightness: before.brightness } };
-  }
-  return { command: 'turn_on' };
-}
-
-/** Was gerade passiert ist, in einem Wort – für das Rückgängig-Band. */
-export function undoLabel(
-  before: Record<string, any>,
-  after: Record<string, any>
-): string {
-  if (after.state === 'off') return 'ausgeschaltet';
-  if (before.state !== 'on') return 'eingeschaltet';
-  if (after.brightness !== before.brightness) return 'gedimmt';
-  return 'geschaltet';
-}
-
 /** Kurzfassung einer Änderung für die Liste „Zuletzt passiert“.
  *
  *  `null`, wenn sich am Zustand nichts geändert hat: Der Hub meldet auch
@@ -136,6 +92,9 @@ export function useHub(url: string | null, token: string | null) {
   // damit, wie alt das ist, was da steht.
   const [cachedAt, setCachedAt] = useState<number | null>(null);
   const [undo, setUndo] = useState<UndoOffer | null>(null);
+  // Befehle, die getippt wurden, während die Verbindung weg war. Sie
+  // gehen raus, sobald sie wieder da ist – siehe enqueue() oben.
+  const [queued, setQueued] = useState<QueuedCommand[]>([]);
 
   const wsRef = useRef<WebSocket | null>(null);
   const attemptRef = useRef(0);
@@ -364,7 +323,11 @@ export function useHub(url: string | null, token: string | null) {
     (entityId: string, command: string, data?: Record<string, any>) => {
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) {
-        setError('Keine Verbindung zum Hub');
+        // Vorher lief der Tipp ins Leere und hinterliess nur «keine
+        // Verbindung». Jetzt wartet er – und man sieht, worauf.
+        const wartet = { entityId, command, data, at: Date.now() };
+        setQueued((prev) => enqueue(prev, wartet));
+        setError('Keine Verbindung – der Befehl geht raus, sobald der Hub wieder da ist');
         return false;
       }
 
@@ -419,6 +382,36 @@ export function useHub(url: string | null, token: string | null) {
     },
     [send]
   );
+
+  /**
+   * Wartende Befehle abschicken, sobald die Verbindung wieder steht.
+   *
+   * Bewusst hier und nicht im ``onopen`` der Verbindung: Dort gäbe es
+   * ``send`` noch nicht, und die Schlange müsste als Ref an der
+   * Verbindungsschleife hängen, die sich bei jedem Neuaufbau erneuert.
+   *
+   * Der Hub bekommt zuerst seinen Schnappschuss und schickt ihn zurück;
+   * die kleine Verzögerung sorgt dafür, dass unsere Befehle danach
+   * kommen und nicht von der Bestandsaufnahme überschrieben werden.
+   */
+  useEffect(() => {
+    if (status !== 'connected' || queued.length === 0) return;
+    const timer = setTimeout(() => {
+      const jetzt = Date.now();
+      const raus = stillFresh(queued, jetzt);
+      setQueued([]);
+      if (raus.length < queued.length) {
+        setError(
+          `${queued.length - raus.length} Befehl(e) waren zu alt und wurden ` +
+            'nicht mehr geschickt'
+        );
+      }
+      for (const eintrag of raus) {
+        send(eintrag.entityId, eintrag.command, eintrag.data);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [status, queued, send]);
 
   const undoLast = useCallback(() => {
     if (!undo) return;
@@ -528,6 +521,8 @@ export function useHub(url: string | null, token: string | null) {
     user,
     error,
     pending,
+    // Wie viele Befehle darauf warten, dass der Hub wieder da ist.
+    queued: queued.length,
     stale,
     cachedAt,
     undo,

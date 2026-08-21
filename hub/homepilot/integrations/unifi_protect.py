@@ -255,7 +255,7 @@ class UnifiProtectIntegration(Integration):
             raise ConfigError("unifi_protect braucht 'host', 'username' und 'password'")
 
         self._base = f"https://{self._host}"
-        self._interval = float(self.config.get("scan_interval", 120))
+        self._interval = self.scan_interval()
         self._quality = str(self.config.get("stream_quality", "medium")).lower()
         self._csrf: str | None = None
         # Kamera-ID der API → Entitäts-ID im Hub

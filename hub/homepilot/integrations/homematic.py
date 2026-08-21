@@ -442,7 +442,7 @@ class HomematicIntegration(Integration):
             raise ConfigError("homematic braucht 'host' in der Konfiguration")
         self._host = host
         self._port = int(self.config.get("port", 2001))
-        self._interval = float(self.config.get("scan_interval", 300))
+        self._interval = self.scan_interval()
         self._callback_port = int(self.config.get("callback_port", 9125))
         self._server: _CallbackServer | None = None
         # Bestätigte Anmeldungen (Kennung aus dem PONG der CCU).

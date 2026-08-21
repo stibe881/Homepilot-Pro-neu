@@ -96,7 +96,7 @@ class VZugIntegration(Integration):
         devices = self.config.get("devices") or []
         if not devices:
             raise ConfigError("vzug braucht mindestens ein Gerät unter 'devices'")
-        self._interval = float(self.config.get("scan_interval", 60))
+        self._interval = self.scan_interval()
         self._session = self.http_session()
 
         # entity_id → (host, auth)

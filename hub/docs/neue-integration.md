@@ -62,11 +62,25 @@ lehnt der Hub ab, bevor deine Integration es sieht.
 
 **Nicht erreichbar ≠ aus.** Bei Verbindungsproblemen
 `update_state(entity_id, {}, available=False)` – die App zeigt das Gerät dann
-ausgegraut, statt „aus" zu behaupten.
+ausgegraut, statt „aus" zu behaupten. `available` beantwortet genau eine
+Frage: *Antwortet das Gerät?* Was es sonst noch heissen könnte und warum
+nicht, steht bei `available` in `core/entity.py` – lies das einmal, bevor
+du es setzt. Kurz: nicht bei „ausgeschaltet", nicht bei „kennt diesen
+Befehl nicht", und nicht beim ersten Zeitablauf, sondern erst nach
+mehreren vergeblichen Versuchen in Folge.
+
+`last_seen` setzt die Registry selbst, bei jeder Meldung – auch bei einer
+unveränderten. Du musst nichts dafür tun.
 
 **Push schlägt Polling.** Liefert das Gerät Events (SSE, WebSocket, MQTT),
 diese nutzen und Polling nur als Fallback in grossem Intervall – siehe
 `integrations/hue.py`.
+
+**Den Takt nicht selbst erfinden.** `self.scan_interval()` liefert ihn:
+was in der config.yaml steht, sonst die Vorgabe aus der Tabelle
+`SCAN_INTERVALS` in `core/integration.py`. Dort steht auch, welche
+Grössenordnung wofür gilt – trag deine Integration ein, statt eine
+sechzehnte Zahl irgendwo hinzuschreiben.
 
 **Fehler beim Setup sind nicht fatal.** Wirft `setup()`, wird die Integration
 übersprungen und der Rest des Hubs startet normal. Also ruhig hart scheitern,

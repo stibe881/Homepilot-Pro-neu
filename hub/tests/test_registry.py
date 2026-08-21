@@ -75,3 +75,37 @@ async def test_entity_without_room_stays_none():
     registry.room_provider = {}.get
     await registry.add(make_light())
     assert registry.get("demo.light").room is None
+
+
+async def test_last_seen_follows_reporting_not_changing():
+    """Ein Licht, das seit Tagen brennt, ist nicht «seit Tagen nicht gesehen».
+
+    Der Fall aus dem Betrieb: Die Homematic meldet alle fünf Minuten
+    denselben Zustand. Weil sich nichts *ändert*, blieb «zuletzt gesehen»
+    auf dem letzten Schaltvorgang stehen – und die App zeigte bei einem
+    kerngesunden Gerät «vor 7 Tagen».
+    """
+    registry = EntityRegistry(EventBus())
+    await registry.add(make_light())
+    await registry.update_state("demo.light", {"state": "on"})
+    zuerst = registry.get("demo.light").last_seen
+    assert zuerst is not None
+
+    # Dieselbe Meldung noch einmal: kein Ereignis, aber ein Lebenszeichen.
+    registry.get("demo.light").last_seen = zuerst - 3600
+    await registry.update_state("demo.light", {"state": "on"})
+    assert registry.get("demo.light").last_seen > zuerst - 3600
+
+
+async def test_last_seen_stays_put_while_the_device_is_gone():
+    registry = EntityRegistry(EventBus())
+    await registry.add(make_light())
+    await registry.update_state("demo.light", {"state": "on"})
+    await registry.update_state("demo.light", {}, available=False)
+    weg = registry.get("demo.light").last_seen
+
+    # Der Abruf läuft weiter und meldet weiterhin «nicht erreichbar» –
+    # das darf den Zeitpunkt nicht fortschreiben, sonst steht bei einem
+    # seit Wochen toten Gerät «gerade eben».
+    await registry.update_state("demo.light", {}, available=False)
+    assert registry.get("demo.light").last_seen == weg

@@ -188,7 +188,7 @@ class HueIntegration(Integration):
 
     async def _poll_loop(self) -> None:
         while True:
-            await asyncio.sleep(float(self.config.get("scan_interval", 300)))
+            await asyncio.sleep(self.scan_interval())
             await self._refresh()
 
     # ── Hub → Bridge ───────────────────────────────────────────────────────

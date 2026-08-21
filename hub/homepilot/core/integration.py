@@ -31,6 +31,51 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
+# Wie oft eine Integration von sich aus nachfragt, in Sekunden.
+#
+# Diese Zahlen standen je einzeln in ihrer Integration – acht verschiedene
+# Werte an fünfzehn Stellen, jede für sich plausibel und zusammen nicht zu
+# überblicken. Wer wissen wollte, was der Hub im Leerlauf eigentlich tut,
+# musste fünfzehn Dateien öffnen.
+#
+# Die Werte selbst bleiben, wie sie waren; sie sind nicht willkürlich:
+#
+# - **30 s** – etwas, das man im Sekundentakt erwartet: Anwesenheit, was
+#   gerade läuft, ein Lichtereffekt. Alles lokal, also billig.
+# - **60 s** – Geräte, die eine Weile brauchen und nichts von selbst
+#   melden: Staubsauger, Waschmaschine, Schloss.
+# - **120–300 s** – Cloud und Bridges. Häufiger wäre unhöflich gegenüber
+#   fremden Servern und bringt nichts: Was schnell sein muss, kommt bei
+#   diesen ohnehin per Push.
+# - **900–1800 s** – Wetter und Unwetterwarnungen. Sie ändern sich nicht
+#   schneller.
+#
+# `scan_interval` in der config.yaml sticht immer. Wer einen Wert hier
+# ändert, ändert ihn für alle, die ihn nicht selbst gesetzt haben.
+SCAN_INTERVALS: dict[str, float] = {
+    "google_calendar": 300,
+    "homematic": 300,
+    "hue": 300,
+    "hue_sync": 30,
+    "meteoalarm": 900,
+    "nuki": 60,
+    "pitboss": 30,
+    "ring": 300,
+    "roborock": 60,
+    "spotify": 30,
+    "twinkly": 30,
+    "unifi": 30,
+    "unifi_protect": 120,
+    "vzug": 60,
+    "weather": 1800,
+}
+
+# Für alles, was in der Tabelle fehlt. Eine Minute ist der Kompromiss, mit
+# dem man nichts kaputt macht: schnell genug, dass es nicht auffällt, und
+# langsam genug, dass es niemanden stört.
+FALLBACK_INTERVAL = 60.0
+
+
 class Integration(ABC):
     name: ClassVar[str]
 
@@ -40,6 +85,32 @@ class Integration(ABC):
         self.log = logging.getLogger(f"homepilot.integrations.{self.name}")
         self._tasks: list[asyncio.Task] = []
         self._sessions: list[aiohttp.ClientSession] = []
+
+    def scan_interval(self) -> float:
+        """Wie oft diese Integration nachfragt, in Sekunden.
+
+        Reihenfolge: was in der config.yaml steht, sonst die Tabelle
+        `SCAN_INTERVALS` oben, sonst `FALLBACK_INTERVAL`. Eine unsinnige
+        Angabe (null, negativ, Text) fällt auf die Vorgabe zurück statt
+        eine Schleife ohne Pause zu bauen – ein Tippfehler in der
+        config.yaml soll den Hub nicht auf hundert Prozent CPU bringen.
+        """
+        vorgabe = SCAN_INTERVALS.get(self.name, FALLBACK_INTERVAL)
+        try:
+            gewuenscht = float(self.config.get("scan_interval", vorgabe))
+        except (TypeError, ValueError):
+            self.log.warning(
+                "scan_interval ist keine Zahl – bleibe bei %.0f s", vorgabe
+            )
+            return float(vorgabe)
+        if gewuenscht <= 0:
+            self.log.warning(
+                "scan_interval %.0f ist kein sinnvoller Takt – bleibe bei %.0f s",
+                gewuenscht,
+                vorgabe,
+            )
+            return float(vorgabe)
+        return gewuenscht
 
     @abstractmethod
     async def setup(self) -> None:

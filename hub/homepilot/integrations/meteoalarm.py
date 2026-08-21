@@ -182,7 +182,7 @@ class MeteoAlarmIntegration(Integration):
             )
         except (TypeError, ValueError):
             self._lat = self._lon = None  # type: ignore[assignment]
-        self._interval = float(self.config.get("scan_interval", 900))
+        self._interval = self.scan_interval()
 
         for country in self._countries:
             await self.add_entity(

@@ -142,7 +142,7 @@ class NukiIntegration(Integration):
                 "(Nuki Web muss in der Nuki-App aktiviert sein)"
             )
         self._headers = {"Authorization": f"Bearer {token}"}
-        self._interval = float(self.config.get("scan_interval", 60))
+        self._interval = self.scan_interval()
         self._session = self.http_session(timeout=aiohttp.ClientTimeout(total=20))
 
         # entity_id → smartlockId

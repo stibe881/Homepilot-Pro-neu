@@ -80,6 +80,7 @@ export function TopStrip({
   onShoppingRemove,
   onShoppingCount,
   showClock = false,
+  queued = 0,
 }: {
   entities: Entity[];
   status: ConnectionStatus;
@@ -107,6 +108,8 @@ export function TopStrip({
   onShoppingCount?: (id: string, menge: number) => void;
   /** Uhrzeit anzeigen – nur fürs Wandpanel gedacht. */
   showClock?: boolean;
+  /** Wie viele Befehle darauf warten, dass der Hub wieder da ist. */
+  queued?: number;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -252,7 +255,14 @@ export function TopStrip({
       <View style={styles.chips}>
         <View style={styles.chip}>
           <View style={[styles.dot, { backgroundColor: statusColor(colors, status) }]} />
-          <Text style={styles.chipText}>{STATUS_LABEL[status]}</Text>
+          {/* Ohne diese Zahl ist ein Tipp im Funkloch nicht von einem
+              verschluckten Befehl zu unterscheiden – beides sieht nach
+              «nichts passiert» aus. */}
+          <Text style={styles.chipText}>
+            {queued > 0
+              ? `${STATUS_LABEL[status]} · ${queued} wartet`
+              : STATUS_LABEL[status]}
+          </Text>
         </View>
         {/* Nur auf dem Wandpanel. Telefon und Rechner zeigen die Uhrzeit
             ohnehin am Bildschirmrand - hier wäre sie ein zweites Mal

@@ -138,16 +138,21 @@ class EntityRegistry:
         old_state = dict(entity.state)
         new_state = {**old_state, **changes}
         availability_changed = available is not None and available != entity.available
+
+        # «Zuletzt gesehen» hängt am Melden, nicht am Ändern. Das stand
+        # vorher unter der Abkürzung weiter unten – mit der Folge, dass ein
+        # Licht, das seit einer Woche brennt und alle fünf Minuten
+        # brav dasselbe meldet, in der App als «zuletzt gesehen vor 7
+        # Tagen» stand. Genau umgekehrt: Es meldet sich pausenlos.
+        if available is not False and (available is True or entity.available):
+            entity.last_seen = time.time()
+
         if new_state == old_state and not availability_changed:
             return
 
         entity.state = new_state
         if available is not None:
             entity.available = available
-        # «Zuletzt gesehen» merkt sich den letzten Moment, in dem das Gerät
-        # erreichbar war – so lange es lebt, wird der Zeitpunkt fortgeschrieben.
-        if entity.available:
-            entity.last_seen = time.time()
 
         await self.bus.publish(
             "state_changed",

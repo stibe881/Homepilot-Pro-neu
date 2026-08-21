@@ -78,7 +78,7 @@ class UnifiIntegration(Integration):
             raise ConfigError("unifi braucht 'host', 'username' und 'password'")
 
         self._site = self.config.get("site", "default")
-        self._interval = float(self.config.get("scan_interval", 30))
+        self._interval = self.scan_interval()
         # Ein Telefon fällt gern kurz aus dem WLAN. Ohne Karenzzeit meldet
         # der Hub dann „niemand zuhause“ und schaltet das Licht aus, während
         # man auf dem Sofa sitzt – die eine Erfahrung, nach der man dem

@@ -53,7 +53,7 @@ class HueSyncIntegration(Integration):
             raise ConfigError("hue_sync braucht 'host' und 'access_token'")
 
         self._base = f"https://{host}/api/v1"
-        self._interval = float(self.config.get("scan_interval", 30))
+        self._interval = self.scan_interval()
         # Selbstsigniertes Zertifikat, wie bei der Hue Bridge.
         self._session = self.http_session(
             connector=aiohttp.TCPConnector(ssl=False),

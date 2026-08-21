@@ -41,7 +41,7 @@ class TwinklyIntegration(Integration):
             raise ConfigError("twinkly braucht 'host' in der Konfiguration")
         self._base = f"http://{host}/xled/v1"
         self._default_mode = self.config.get("default_mode", "movie")
-        self._interval = float(self.config.get("scan_interval", 30))
+        self._interval = self.scan_interval()
         self._token: str | None = None
         self._token_expires_at = 0.0
         self._session = self.http_session()

@@ -251,7 +251,7 @@ class SpotifyIntegration(Integration):
 
             self._webplayer = WebPlayerAuth(self._sp_dc)
 
-        self._interval = float(self.config.get("scan_interval", 30))
+        self._interval = self.scan_interval()
         self._session = self.http_session(timeout=aiohttp.ClientTimeout(total=15))
         self._access_token: str | None = None
         self._token_expires_at = 0.0

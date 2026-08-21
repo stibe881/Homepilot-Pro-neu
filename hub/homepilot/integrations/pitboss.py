@@ -45,10 +45,11 @@ from ..core.entity import Entity, EntityKind
 from ..core.errors import ConfigError, HomePilotError
 from ..core.integration import Integration
 
-# Wie oft nachgefragt wird. Beim lokalen Weg gibt es keine Meldungen von
-# sich aus, nur Abfragen; 30 Sekunden sind beim Grillen genau genug und
-# belasten die kleine Platine nicht.
-DEFAULT_INTERVAL = 30.0
+# Wie oft nachgefragt wird, steht in core/integration.py bei allen anderen
+# (SCAN_INTERVALS). Der Grund für die 30 Sekunden gehört aber hierher:
+# Beim lokalen Weg meldet der Grill nichts von sich aus, es gibt nur
+# Abfragen – 30 Sekunden sind beim Grillen genau genug und belasten die
+# kleine Platine nicht.
 
 
 def slug(name: str) -> str:
@@ -151,7 +152,7 @@ class PitBossIntegration(Integration):
                 "(Cloud) – genau eines von beiden."
             )
         self._name = str(self.config.get("name") or "Grill")
-        self._interval = float(self.config.get("scan_interval", DEFAULT_INTERVAL))
+        self._interval = self.scan_interval()
         # Ohne diesen Schalter fehlt das Kommando ganz, statt nur versteckt
         # zu sein: Was es nicht gibt, kann auch kein Ablauf auslösen.
         self._may_start = bool(self.config.get("allow_remote_start", False))

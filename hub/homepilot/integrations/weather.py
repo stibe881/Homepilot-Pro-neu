@@ -108,7 +108,7 @@ class WeatherIntegration(Integration):
     async def setup(self) -> None:
         self._lat = float(self.config.get("latitude", 47.1445))
         self._lon = float(self.config.get("longitude", 8.0675))
-        self._interval = float(self.config.get("scan_interval", 1800))
+        self._interval = self.scan_interval()
         self._session = self.http_session(timeout=aiohttp.ClientTimeout(total=30))
 
         await self.add_entity(

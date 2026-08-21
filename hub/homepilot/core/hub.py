@@ -1,5 +1,33 @@
 """Der Hub verdrahtet Event-Bus, Registry, Store, Integrationen, Szenen,
-Automationen, Benutzer und Benachrichtigungen."""
+Automationen, Benutzer und Benachrichtigungen.
+
+Die Reihenfolge in ``start()`` ist keine Geschmacksfrage - jeder Schritt
+setzt den vorigen voraus. Wer etwas dazwischenschiebt, sollte wissen,
+warum es dort steht und nicht anderswo:
+
+1. **Daten laden** (``data.load``). Alles Weitere liest daraus.
+2. **Raumzuordnung** setzen, *bevor* die erste Entität entsteht. Die
+   Registry fragt sie beim Anlegen ab; wer sie später setzt, hat Geräte
+   ohne Raum, bis sie das nächste Mal melden.
+3. **Metadaten** (Name, Favorit, Gruppe) - aus demselben Grund vorher.
+4. **Store** (Supabase, freiwillig). Er darf fehlen; dann fehlt der
+   Verlauf, sonst nichts.
+5. **Benutzer** aus der Datei. Muss vor der API stehen, sonst käme die
+   erste Anfrage an einem leeren Benutzerverzeichnis an.
+6. **Integrationen** (``setup_all``). Erst hier entstehen Entitäten. Die
+   Alarmanlage kommt dazu, auch wenn sie nirgends steht: Sie gehört zum
+   Haus, nicht zu einer Geräteanbindung.
+7. **Szenen**, dann **Abläufe**. Abläufe verweisen auf Szenen und auf
+   Entitäten - beide müssen vorher da sein, sonst zeigt ein frisch
+   gestarteter Ablauf auf nichts.
+8. **Wächter** und **Sicherungsschleife**. Zuletzt, weil sie beide auf
+   den fertigen Zustand schauen: Ein Wächter, der während des Aufbaus
+   losläuft, meldet lauter Geräte als vermisst, die es gleich gibt.
+9. **Push** wiederherstellen. Ohne das wäre nach jedem Neustart niemand
+   erreichbar, bis alle ihre App einmal geöffnet haben.
+
+``stop()`` läuft sinngemäss rückwärts.
+"""
 
 from __future__ import annotations
 

@@ -49,6 +49,30 @@ class Entity:
     integration: str
     state: dict[str, Any] = field(default_factory=dict)
     commands: list[str] = field(default_factory=list)
+    # Antwortet das Gerät? – und *nur* das.
+    #
+    # Dreissig Stellen setzen dieses Feld, und sie meinten nicht alle
+    # dasselbe. Die App macht daraus ein einziges «nicht erreichbar»,
+    # also braucht es eine einzige Bedeutung:
+    #
+    # **False heisst: Der Hub hat es versucht und keine Antwort bekommen.**
+    # Ein Funkgerät, das nicht mehr meldet. Eine Bridge, die einen Fehler
+    # zurückgibt. Eine Cloud, die nicht antwortet.
+    #
+    # **False heisst ausdrücklich nicht:**
+    #
+    # - «ausgeschaltet» – das steht in ``state``. Eine Steckdose, die aus
+    #   ist, ist erreichbar.
+    # - «hat noch nie etwas gemeldet» – ein Wandtaster hat keinen Zustand,
+    #   den man abfragen könnte; er ist trotzdem da.
+    # - «kann diesen Befehl nicht» – das steht in ``commands``.
+    # - «Cloud gerade langsam» – ein einzelner Zeitablauf ist kein
+    #   Ausfall. Erst wenn mehrere Versuche in Folge scheitern, ist es
+    #   einer; sonst blinkt die halbe Wohnung im Minutentakt rot.
+    #
+    # ``last_seen`` gehört dazu und wird zentral in der Registry gesetzt:
+    # bei jeder Meldung, nicht nur bei jeder Änderung. Ein Gerät, das
+    # unverändert weiterberichtet, ist gesehen worden.
     available: bool = True
     # Raum aus der Konfiguration; die App gruppiert danach.
     room: str | None = None

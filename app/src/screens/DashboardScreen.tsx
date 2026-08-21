@@ -150,6 +150,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     error,
     cachedAt,
     pending,
+    queued,
     undo,
     undoLast,
     dismissUndo,
@@ -1637,6 +1638,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   onShoppingAdd: kaufeEin,
                 })}
             showClock={!!settings.panel}
+            queued={queued}
           />
           </Auffangnetz>
 

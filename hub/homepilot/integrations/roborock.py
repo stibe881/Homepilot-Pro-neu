@@ -363,7 +363,7 @@ class RoborockIntegration(Integration):
             if (value := getattr(RoborockCommand, name, None)) is not None
         }
         self._reset_consumable = getattr(RoborockCommand, "RESET_CONSUMABLE", None)
-        self._interval = float(self.config.get("scan_interval", 60))
+        self._interval = self.scan_interval()
         # Während der Reinigung wird die Position öfter geholt als der
         # restliche Status, damit der Punkt auf der Karte live mitwandert.
         self._position_interval = float(self.config.get("position_interval", 15))

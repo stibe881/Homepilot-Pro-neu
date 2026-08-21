@@ -163,7 +163,7 @@ class GoogleCalendarIntegration(Integration):
         # Ein oder mehrere Kalender; 'calendar_id' bleibt als Einzahl gültig.
         ids = self.config.get("calendar_ids") or [self.config.get("calendar_id", "primary")]
         self._calendar_ids = [str(calendar_id) for calendar_id in ids]
-        self._interval = float(self.config.get("scan_interval", 300))
+        self._interval = self.scan_interval()
         self._session = self.http_session(timeout=aiohttp.ClientTimeout(total=20))
         self._access_token: str | None = None
         self._token_expires_at = 0.0
