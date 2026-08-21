@@ -19,6 +19,12 @@ Aktionen:
   - {type: notify, title?, body?, to?, camera?}
   - {type: wait_until, ...Bedingung, timeout?: sekunden}
 
+Läuft ein Ablauf noch (etwa in einem ``delay``) und wird erneut
+ausgelöst, entscheidet ``mode``: ``single`` verwirft den zweiten Auslöser
+(Vorgabe), ``restart`` bricht den laufenden Durchgang ab und beginnt von
+vorn. Letzteres ist der Nachlauf eines Treppenhauslichts - vier Minuten
+nach der *letzten* Bewegung, nicht nach der ersten.
+
 Passt eine Bedingung nicht, kann statt der Aktionen ein zweiter Satz
 laufen (``otherwise``) – sonst bräuchte «sonst mach das andere» zwei
 Abläufe mit gegenteiliger Bedingung, die man beim Ändern beide anfassen
@@ -121,6 +127,20 @@ class Automation:
     # löschen: Ein Ablauf, den man im Sommer nicht braucht, ist im Winter
     # sonst neu zu bauen.
     enabled: bool = True
+    # Was geschieht, wenn der Ablauf noch läuft und erneut ausgelöst wird.
+    #
+    # «single» (Vorgabe): Der zweite Auslöser wird verworfen. Richtig für
+    # alles, was einmal geschehen soll - eine Nachricht kommt sonst
+    # doppelt.
+    #
+    # «restart»: Der laufende Durchgang wird abgebrochen und von vorn
+    # begonnen. Das ist der Nachlauf, den man von einem Treppenhauslicht
+    # kennt: Bewegung schaltet ein und wartet vier Minuten; kommt in
+    # dieser Zeit neue Bewegung, beginnen die vier Minuten von vorn, und
+    # erst vier Minuten nach der letzten Bewegung geht es aus. Ohne diesen
+    # Modus stünde man nach genau vier Minuten im Dunkeln, egal wie viel
+    # Betrieb war.
+    mode: str = "single"
     # Wie die Bedingungen verknüpft sind: «all» = alle müssen stimmen,
     # «any» = eine genügt. Auslöser sind davon nicht betroffen – sie sind
     # Ereignisse und können gar nicht gleichzeitig eintreten, ein «und»
@@ -141,6 +161,7 @@ class Automation:
             "otherwise": self.otherwise,
             "editable": self.editable,
             "enabled": self.enabled,
+            "mode": self.mode,
             "match": self.match,
             "category": self.category,
         }
@@ -155,6 +176,7 @@ class Automation:
             "action": self.actions,
             "otherwise": self.otherwise,
             "enabled": self.enabled,
+            "mode": self.mode,
             "match": self.match,
             "category": self.category,
         }
@@ -313,6 +335,7 @@ def parse_automations(
                 otherwise=_as_list(config.get("otherwise")),
                 editable=editable,
                 enabled=config.get("enabled", True) is not False,
+                mode="restart" if str(config.get("mode")) == "restart" else "single",
                 match="any" if str(config.get("match")) == "any" else "all",
                 category=str(config["category"]) if config.get("category") else None,
             )
@@ -407,6 +430,9 @@ class AutomationEngine:
         self._timer_tasks: list[asyncio.Task] = []
         self._run_tasks: set[asyncio.Task] = set()
         self._running: set[str] = set()
+        # Der laufende Durchgang je Ablauf - nur «restart» braucht ihn,
+        # um ihn abbrechen zu können.
+        self._tasks_by_id: dict[str, asyncio.Task] = {}
         # Laufende «bleibt so für X»-Wartezeiten je (Automation, Auslöser).
         self._held_tasks: dict[tuple[str, int], asyncio.Task] = {}
         # Bis zu diesem Zeitpunkt laufen keine Automationen – für Abende mit
@@ -623,12 +649,27 @@ class AutomationEngine:
         if self.paused:
             log.debug("Automation '%s' übersprungen (pausiert)", automation.alias)
             return
-        # Läuft die Automation bereits (z.B. in einem delay), nicht erneut starten.
         if automation.id in self._running:
-            return
+            if automation.mode != "restart":
+                # Läuft die Automation bereits (z.B. in einem delay),
+                # nicht erneut starten.
+                return
+            # Nachlauf: Der laufende Durchgang wartet gerade ab - er wird
+            # abgebrochen und gleich neu begonnen, damit die Wartezeit von
+            # vorn zählt.
+            laeuft = self._tasks_by_id.pop(automation.id, None)
+            if laeuft is not None and not laeuft.done():
+                laeuft.cancel()
+            self._running.discard(automation.id)
         task = asyncio.create_task(self._run(automation))
+        self._tasks_by_id[automation.id] = task
         self._run_tasks.add(task)
         task.add_done_callback(self._run_tasks.discard)
+        task.add_done_callback(
+            lambda done, key=automation.id: self._tasks_by_id.pop(key, None)
+            if self._tasks_by_id.get(key) is done
+            else None
+        )
 
     async def trigger_now(self, automation_id: str, ignore_conditions: bool = True) -> bool:
         """Einen Ablauf sofort ausführen – für den «Testen»-Knopf der App.
@@ -671,6 +712,13 @@ class AutomationEngine:
                 with as_source(automation_source(automation.id, automation.alias)):
                     for action in actions:
                         await self._execute_action(automation, action)
+        except asyncio.CancelledError:
+            # Abgebrochen, weil derselbe Ablauf gerade neu beginnt
+            # (mode: restart). Das ist kein Fehler und gehört auch nicht
+            # ins Protokoll - dort stünde sonst bei jeder Bewegung ein
+            # abgebrochener Lauf neben dem neuen.
+            self._running.discard(automation.id)
+            raise
         except Exception as err:
             error = str(err)
             log.exception("Automation '%s' fehlgeschlagen", automation.alias)

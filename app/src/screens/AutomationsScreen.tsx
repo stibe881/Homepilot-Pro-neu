@@ -20,6 +20,7 @@ interface Automation {
   category?: string | null;
   /** Verknüpfung der Bedingungen: 'all' oder 'any'. */
   match?: string;
+  mode?: string;
   /** Ausgeschaltete Abläufe bleiben stehen, laufen aber nicht. */
   enabled?: boolean;
 }
@@ -417,6 +418,9 @@ interface Draft {
   steps: StepDraft[];
   /** Was stattdessen läuft, wenn die Bedingungen nicht passen. */
   elseSteps: StepDraft[];
+  /** Was geschieht, wenn er noch läuft und erneut ausgelöst wird:
+   *  «single» verwirft den zweiten Auslöser, «restart» beginnt von vorn. */
+  mode: 'single' | 'restart';
   /** Frei benannte Kategorie zum Gruppieren in der Liste. */
   category: string;
   /** Ausgeschaltet: bleibt stehen, läuft aber nicht. */
@@ -435,6 +439,7 @@ const EMPTY: Draft = {
   weekdays: [],
   steps: [{ ...EMPTY_STEP }],
   elseSteps: [],
+  mode: 'single',
   category: '',
   enabled: true,
 };
@@ -604,6 +609,44 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
         alias: 'Unscharf, wenn jemand heimkommt',
         triggers: [{ ...EMPTY_TRIGGER, entityId: presence.id, toState: 'on' }],
         steps: [{ ...EMPTY_STEP, commandActions: [{ entity_id: alarm.id, command: 'disarm' }] }],
+      },
+    });
+  }
+  // Bewegungslicht mit Nachlauf - der Klassiker, und der einzige Ablauf,
+  // bei dem die Wahl «von vorn beginnen» wirklich den Unterschied macht.
+  const motion = entities.find(
+    (entity) =>
+      entity.kind === 'binary_sensor' &&
+      (entity.state?.device_class === 'motion' ||
+        /bewegung|motion/i.test(entity.name))
+  );
+  if (motion && allLights.length > 0) {
+    // Das Licht im selben Raum wäre das richtige - welcher das ist, weiss
+    // hier niemand. Deshalb das erste, und im Editor tauscht man es in
+    // zwei Tipps. Ein leerer Anfang wäre keiner.
+    const licht = allLights[0];
+    templates.push({
+      label: 'Licht bei Bewegung, mit Nachlauf',
+      icon: 'walk-outline',
+      draft: {
+        ...EMPTY,
+        alias: `Licht bei Bewegung (${motion.name})`,
+        triggers: [{ ...EMPTY_TRIGGER, entityId: motion.id, toState: 'on' }],
+        // «von vorn beginnen»: Jede neue Bewegung verlängert die vier
+        // Minuten. Ohne das ginge das Licht vier Minuten nach der ersten
+        // Bewegung aus - mitten im Betrieb.
+        mode: 'restart',
+        steps: [
+          {
+            ...EMPTY_STEP,
+            commandActions: [{ entity_id: licht.id, command: 'turn_on' }],
+          },
+          { ...EMPTY_STEP, kind: 'delay' as StepKind, seconds: '240' },
+          {
+            ...EMPTY_STEP,
+            commandActions: [{ entity_id: licht.id, command: 'turn_off' }],
+          },
+        ],
       },
     });
   }
@@ -928,6 +971,7 @@ export function AutomationsScreen({
       condition: buildConditions(draft),
       action: stepsToActions(draft.steps),
       otherwise: stepsToActions(draft.elseSteps),
+      mode: draft.mode,
       match: draft.match,
       enabled: draft.enabled,
       category: draft.category.trim() || null,
@@ -2388,6 +2432,24 @@ function Editor({
             styles={styles}
             onChange={(steps) => set({ steps })}
           />
+          {hatWartezeit(draft.steps) ? (
+            <>
+              <Text style={styles.label}>Wenn er dabei erneut ausgelöst wird</Text>
+              <Choice
+                options={[
+                  { key: 'single', label: 'nichts tun' },
+                  { key: 'restart', label: 'von vorn beginnen' },
+                ]}
+                value={draft.mode}
+                onSelect={(mode) => set({ mode: mode as 'single' | 'restart' })}
+              />
+              <Text style={styles.triggerNote}>
+                {draft.mode === 'restart'
+                  ? 'Der laufende Durchgang wird abgebrochen und beginnt neu – die Wartezeit zählt also ab dem letzten Mal. Das ist der Nachlauf eines Treppenhauslichts: Bewegung schaltet ein, jede weitere Bewegung verlängert.'
+                  : 'Ein zweiter Auslöser wird verworfen, solange der Ablauf noch wartet. Richtig für alles, was einmal geschehen soll – eine Nachricht käme sonst doppelt.'}
+              </Text>
+            </>
+          ) : null}
         </Field>
 
         <Field label="… sonst">
@@ -2965,9 +3027,15 @@ function StepList({
           ) : step.kind === 'delay' ? (
             <>
               <Choice
+                // Die kurzen Stufen dazwischen sind kein Zierrat: Ein
+                // Nachlauf für ein Treppenhaus liegt bei zwei bis vier
+                // Minuten, und zwischen «1 Min.» und «5 Min.» lag genau
+                // das, was man dafür braucht.
                 options={[
                   { key: '30', label: '30 Sek.' },
                   { key: '60', label: '1 Min.' },
+                  { key: '120', label: '2 Min.' },
+                  { key: '240', label: '4 Min.' },
                   { key: '300', label: '5 Min.' },
                   { key: '600', label: '10 Min.' },
                   { key: '1800', label: '30 Min.' },
@@ -3033,6 +3101,17 @@ function StepList({
       </Pressable>
     </>
   );
+}
+
+/** Wartet dieser Ablauf irgendwo? (rein, testbar)
+ *
+ * Nur dann bedeutet «erneut ausgelöst» überhaupt etwas: Ein Ablauf, der
+ * in Millisekunden durch ist, wird nie mitten im Lauf noch einmal
+ * angestossen. Den Wähler trotzdem hinzustellen hiesse, eine Frage zu
+ * stellen, die sich nicht stellt.
+ */
+export function hatWartezeit(steps: { kind: string }[]): boolean {
+  return steps.some((step) => step.kind === 'delay' || step.kind === 'wait_until');
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -3378,6 +3457,7 @@ function toDraft(automation: Automation): Draft {
     weekdays: Array.isArray(condition.weekdays) ? condition.weekdays.map(Number) : [],
     steps: withAtLeastOne(actionsToSteps(automation.actions ?? [])),
     elseSteps: actionsToSteps(automation.otherwise ?? []),
+    mode: automation.mode === 'restart' ? 'restart' : 'single',
     category: automation.category ?? '',
     enabled: automation.enabled !== false,
   };

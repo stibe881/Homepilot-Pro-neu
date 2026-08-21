@@ -844,3 +844,126 @@ async def test_a_ring_does_not_trigger_an_unrelated_state_rule():
         assert hub.registry.get(light).state["state"] == "off"
     finally:
         await hub.stop()
+
+
+async def test_motion_light_stays_on_while_there_is_movement():
+    """Treppenhauslicht: Die Nachlaufzeit zählt ab der letzten Bewegung.
+
+    Genau der Fall, für den es «mode: restart» gibt. Ohne ihn wurde der
+    zweite Auslöser verworfen, weil der Ablauf noch in seiner Wartezeit
+    stand - und das Licht ging nach der Zeit ab der *ersten* Bewegung
+    aus, mitten im Betrieb.
+    """
+    hub = await run_hub(
+        [
+            {
+                "id": "bewegungslicht",
+                "alias": "Licht bei Bewegung",
+                "mode": "restart",
+                "trigger": [
+                    {"type": "state", "entity_id": "test.melder", "to": "on"}
+                ],
+                "action": [
+                    {
+                        "type": "command",
+                        "entity_id": "demo.light_livingroom",
+                        "command": "turn_on",
+                    },
+                    # Im Test Sekundenbruchteile statt vier Minuten.
+                    {"type": "delay", "seconds": 0.3},
+                    {
+                        "type": "command",
+                        "entity_id": "demo.light_livingroom",
+                        "command": "turn_off",
+                    },
+                ],
+            }
+        ]
+    )
+    try:
+        await hub.registry.add(
+            Entity(
+                id="test.melder",
+                kind=EntityKind.BINARY_SENSOR,
+                name="Bewegung Eingang",
+                integration="test",
+                state={"state": "off"},
+            )
+        )
+        licht = "demo.light_livingroom"
+        await hub.integrations.dispatch_command(licht, "turn_off")
+        await settle()
+
+        # Erste Bewegung: Licht an, Nachlauf beginnt.
+        await hub.registry.update_state("test.melder", {"state": "on"})
+        await settle()
+        assert hub.registry.get(licht).state["state"] == "on"
+
+        # Nach der halben Wartezeit neue Bewegung – der Nachlauf beginnt
+        # von vorn, das Licht bleibt an.
+        await asyncio.sleep(0.15)
+        await hub.registry.update_state("test.melder", {"state": "off"})
+        await hub.registry.update_state("test.melder", {"state": "on"})
+        await settle()
+        # Nach der ursprünglichen Wartezeit müsste es ohne Nachlauf
+        # bereits dunkel sein.
+        await asyncio.sleep(0.2)
+        assert hub.registry.get(licht).state["state"] == "on"
+
+        # Bleibt es ruhig, geht es aus.
+        await asyncio.sleep(0.25)
+        assert hub.registry.get(licht).state["state"] == "off"
+    finally:
+        await hub.stop()
+
+
+async def test_without_the_mode_a_second_trigger_is_still_ignored():
+    """Die Vorgabe bleibt, wo sie hingehört: einmal ist einmal.
+
+    Eine Nachricht soll nicht doppelt kommen, bloss weil sich etwas
+    zweimal geregt hat.
+    """
+    hub = await run_hub(
+        [
+            {
+                "id": "einmal",
+                "alias": "Nur einmal",
+                "trigger": [
+                    {"type": "state", "entity_id": "test.melder", "to": "on"}
+                ],
+                "action": [
+                    {"type": "delay", "seconds": 0.3},
+                    {
+                        "type": "command",
+                        "entity_id": "demo.light_livingroom",
+                        "command": "toggle",
+                    },
+                ],
+            }
+        ]
+    )
+    try:
+        await hub.registry.add(
+            Entity(
+                id="test.melder",
+                kind=EntityKind.BINARY_SENSOR,
+                name="Bewegung Eingang",
+                integration="test",
+                state={"state": "off"},
+            )
+        )
+        licht = "demo.light_livingroom"
+        await hub.integrations.dispatch_command(licht, "turn_off")
+        await settle()
+
+        await hub.registry.update_state("test.melder", {"state": "on"})
+        await settle()
+        await asyncio.sleep(0.1)
+        await hub.registry.update_state("test.melder", {"state": "off"})
+        await hub.registry.update_state("test.melder", {"state": "on"})
+        await settle()
+        await asyncio.sleep(0.4)
+        # Genau ein Umschalten, nicht zwei.
+        assert hub.registry.get(licht).state["state"] == "on"
+    finally:
+        await hub.stop()

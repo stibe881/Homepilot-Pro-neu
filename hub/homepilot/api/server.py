@@ -102,6 +102,10 @@ class AutomationRequest(BaseModel):
     # Was stattdessen läuft, wenn die Bedingungen nicht passen.
     otherwise: list[dict[str, Any]] = []
     enabled: bool = True
+    # Was geschieht, wenn er noch läuft und erneut ausgelöst wird:
+    # «single» verwirft den zweiten Auslöser, «restart» beginnt von vorn
+    # (Nachlauf, siehe core/automation.py).
+    mode: str = "single"
     # «all» = alle Bedingungen müssen stimmen, «any» = eine genügt.
     match: str = "all"
     # Frei gewählter Name zum Gruppieren in der App.
@@ -1700,6 +1704,7 @@ def create_app(hub: Hub) -> FastAPI:
             "action": body.action,
             "otherwise": body.otherwise,
             "enabled": body.enabled,
+            "mode": body.mode,
             "match": body.match,
             "category": body.category,
         }
@@ -1728,6 +1733,7 @@ def create_app(hub: Hub) -> FastAPI:
                 "action": body.action,
                 "otherwise": body.otherwise,
                 "enabled": body.enabled,
+                "mode": body.mode,
                 "match": body.match,
                 "category": body.category,
             }

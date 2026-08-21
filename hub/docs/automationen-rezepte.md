@@ -118,6 +118,42 @@ Statt `helpers.abwesend` lässt sich auch `unifi.anyone_home` verwenden
 (dann `switch_active: "off"` bei presence_sim und `equals: "off"` in der
 Bedingung).
 
+4. Treppenhauslicht: Bewegung schaltet ein, jede weitere Bewegung
+   verlängert – aus erst vier Minuten nach der letzten:
+
+   ```yaml
+   - id: licht_eingang
+     alias: Licht bei Bewegung (Eingang)
+     mode: restart
+     trigger:
+       - type: state
+         entity_id: homematic.0031A0C9A6F400_3
+         to: "on"
+     action:
+       - type: command
+         entity_id: hue.eingang
+         command: turn_on
+       - type: delay
+         seconds: 240
+       - type: command
+         entity_id: hue.eingang
+         command: turn_off
+   ```
+
+   `mode: restart` ist hier das Entscheidende. Ohne diese Zeile wird ein
+   zweiter Auslöser verworfen, solange der Ablauf noch wartet – das Licht
+   ginge dann vier Minuten nach der **ersten** Bewegung aus, mitten im
+   Betrieb. Mit ihr bricht der laufende Durchgang ab und beginnt von
+   vorn: Die Wartezeit zählt ab der letzten Bewegung.
+
+   Die Vorgabe bleibt `single`, und das aus gutem Grund: Eine Nachricht
+   soll nicht doppelt kommen, bloss weil sich etwas zweimal geregt hat.
+
+   In der App steht die Wahl unter «… dann das tun», sobald der Ablauf
+   irgendwo wartet: «Wenn er dabei erneut ausgelöst wird → von vorn
+   beginnen». Fertig vorbereitet gibt es das auch als Vorlage «Licht bei
+   Bewegung, mit Nachlauf».
+
 ## Tumbler ist fertig
 
 Der Tumbler hängt an einer Homematic IP Schalt-Messsteckdose (HmIP-PSM). Er
