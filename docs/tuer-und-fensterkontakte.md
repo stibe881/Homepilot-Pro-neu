@@ -198,8 +198,8 @@ umzuziehen wäre. Erst danach den `nuki`-Block auskommentieren – samt
 `NUKI_TOKEN`.
 
 (Die Karte *Werkzeuge* zeigt sich nur der Besitzerrolle, und sie
-verschwindet, solange im Suchfeld darüber etwas steht oder der
-Anpassen-Modus läuft.)
+verschwindet, solange im Suchfeld darüber etwas steht – dann sollen die
+Treffer oben stehen.)
 
 Ein Gerät kann übrigens beides gleichzeitig: In der Nuki-App bleibt das
 Schloss, wie es war, auch wenn es zusätzlich in unserer Matter-Fabric

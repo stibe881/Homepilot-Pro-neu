@@ -1184,7 +1184,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             />
           ) : null}
 
-          {section === 'devices' && !editing && !searching && istBesitzer ? (
+          {/* Auch im Anpassen-Modus - gerade dort. Die Werkzeuge sind
+              Einrichtung, und der Anpassen-Modus ist der Ort dafür; sie
+              dort auszublenden hiess, sie genau dann zu verstecken, wenn
+              jemand sie sucht. Beim Suchen bleiben sie weg: Dann sollen
+              die Treffer oben stehen, nicht eine Karte davor. */}
+          {section === 'devices' && !searching && istBesitzer ? (
             <DeviceTools
               settings={settings}
               headers={{ Authorization: `Bearer ${settings.token}` }}
