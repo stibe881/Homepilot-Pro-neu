@@ -169,3 +169,70 @@ export function ingredientsToShopping(
   }
   return result;
 }
+
+/**
+ * Ein Laden: wie er heisst, in welcher Reihenfolge man ihn durchläuft.
+ *
+ * Die Gänge stehen in jedem Laden anders. Im einen kommt zuerst das
+ * Gemüse, im anderen die Getränke – und wer die Liste in der falschen
+ * Reihenfolge abarbeitet, läuft dreimal durch. Deshalb gehört die
+ * Reihenfolge zum Laden und nicht zur Liste.
+ */
+export interface Shop {
+  id: string;
+  name: string;
+  /** Kategorien in Laufreihenfolge. Was fehlt, kommt hinten dazu. */
+  categories?: string[];
+  /** Kennung der Geofence-Zone, falls dieser Laden eine hat – damit der
+   *  Hub weiss, dass man gerade dort steht. */
+  zone?: string;
+}
+
+/** Der Laden, der immer da ist: keine eigene Reihenfolge, keine Zone. */
+export const ALLGEMEIN: Shop = { id: 'allgemein', name: 'Allgemein' };
+
+/**
+ * Die Gänge eines Ladens in Laufreihenfolge (rein, testbar).
+ *
+ * Was der Laden nennt, kommt zuerst – in seiner Reihenfolge. Alles
+ * Übrige hängt hinten an, in der Standardreihenfolge: Ein Gang, den
+ * niemand einsortiert hat, soll nicht verschwinden, sondern am Ende
+ * auftauchen.
+ */
+export function shopOrder(shop?: Shop | null): string[] {
+  const eigene = (shop?.categories ?? []).filter((name) =>
+    SHOP_CATEGORIES.includes(name)
+  );
+  const rest = SHOP_CATEGORIES.filter((name) => !eigene.includes(name));
+  return [...eigene, ...rest];
+}
+
+/**
+ * Einkaufs-Einträge nach den Gängen eines Ladens gruppieren (rein,
+ * testbar).
+ *
+ * Leere Gänge fallen weg – eine Überschrift ohne Einträge ist eine
+ * Zeile, die man beim Einkaufen überliest und die trotzdem Platz kostet.
+ * Innerhalb eines Gangs bleibt die Reihenfolge, in der die Einträge
+ * angelegt wurden: Wer zuletzt «Milch» dazuschreibt, sucht sie unten.
+ */
+export function groupForShop(
+  items: { category?: string }[],
+  shop?: Shop | null
+): { category: string; items: any[] }[] {
+  const reihenfolge = shopOrder(shop);
+  const rang = new Map(reihenfolge.map((name, index) => [name, index]));
+  const eimer = new Map<string, any[]>();
+  for (const item of items) {
+    // Was keine bekannte Kategorie trägt, landet unter «Sonstiges» statt
+    // in einem eigenen Gang, den es im Laden nicht gibt.
+    const roh = String((item as any).category ?? '');
+    const category = rang.has(roh) ? roh : 'Sonstiges';
+    const liste = eimer.get(category);
+    if (liste) liste.push(item);
+    else eimer.set(category, [item]);
+  }
+  return [...eimer.entries()]
+    .sort((a, b) => (rang.get(a[0]) ?? 999) - (rang.get(b[0]) ?? 999))
+    .map(([category, gruppe]) => ({ category, items: gruppe }));
+}

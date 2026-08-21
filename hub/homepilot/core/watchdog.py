@@ -28,7 +28,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from . import energy, maintenance, notifyrules
+from . import energy, maintenance, notifyrules, shopping
 
 if TYPE_CHECKING:
     from .hub import Hub
@@ -213,6 +213,9 @@ class Watchdog:
         self._energy_last: float = 0.0
         # Für welchen Tag zuletzt vor Frost gewarnt wurde.
         self._maintenance_day: str | None = None
+        # Je Ladenzone der Zeitpunkt des Betretens, für den schon erinnert
+        # wurde. Beim nächsten Besuch ist der ein anderer.
+        self._shop_reminded: dict[str, Any] = {}
         self._frost_day: str | None = None
         # Wann zuletzt vor knappem Speicherplatz gewarnt wurde.
         self._disk_warned: float = 0.0
@@ -273,6 +276,7 @@ class Watchdog:
         await self._check_disk()
         await self._check_frost(entities)
         await self._check_maintenance()
+        await self._check_shopping(entities)
         down = down_integrations(entities)
 
         # Strikes hochzählen bzw. zurücksetzen.
@@ -362,6 +366,34 @@ class Watchdog:
             "\n".join(maintenance.describe(row) for row in faellig[:5]),
             category="maintenance",
         )
+
+    async def _check_shopping(self, entities: list[Any]) -> None:
+        """Im Laden daran erinnern, was noch auf der Liste steht.
+
+        Nur für Läden, denen jemand eine Geofence-Zone gegeben hat, und
+        erst nach ein paar Minuten Aufenthalt: Eine Nachricht beim
+        Vorbeifahren wäre eine, die man abschaltet.
+        """
+        shops = self.hub.data.get("family_shops")
+        if not shops:
+            return
+        offen = shopping.open_items(self.hub.data.get("family_shopping"))
+        if not offen:
+            return
+        zonen = {
+            entity.id.split(".", 1)[1]: entity.state
+            for entity in entities
+            if entity.id.startswith("geofence.")
+        }
+        jetzt = time.time()
+        for shop in shopping.due_reminders(
+            shops, zonen, len(offen), jetzt, self._shop_reminded
+        ):
+            zone = str(shop.get("zone"))
+            stand = zonen.get(zone) or {}
+            self._shop_reminded[zone] = stand.get("changed_at")
+            titel, text = shopping.describe(shop, offen)
+            await self._notify(titel, text, category="shopping")
 
     async def _check_disk(self) -> None:
         """Speicherplatz dort prüfen, wo der Hub wirklich schreibt."""

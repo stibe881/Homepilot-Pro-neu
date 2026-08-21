@@ -3,6 +3,7 @@ import React, { useMemo, useState } from 'react';
 import { Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Entity } from '../api/types';
+import { ALLGEMEIN, Shop, groupForShop } from '../lib/einkauf';
 import { ConnectionStatus } from '../hooks/useHub';
 import { Colors, radius, type, useColors } from '../theme';
 
@@ -63,6 +64,9 @@ export function TopStrip({
   now,
   hidden = [],
   onCommand,
+  shopping,
+  shops,
+  onShoppingDone,
 }: {
   entities: Entity[];
   status: ConnectionStatus;
@@ -73,6 +77,13 @@ export function TopStrip({
   /** Für «Licht aus» direkt aus dem Popup – ohne sie bleibt die Zeile
    *  reine Anzeige. */
   onCommand?: (entityId: string, command: string, data?: Record<string, any>) => void;
+  /** Offene Einträge der Einkaufsliste – erledigte sind schon
+   *  ausgefiltert, hier zählt nur, was noch fehlt. */
+  shopping?: any[];
+  /** Die angelegten Läden (Familie → Einkaufsliste → Läden). */
+  shops?: Shop[];
+  /** Einen Eintrag abhaken – direkt im Laden, ohne Umweg über Familie. */
+  onShoppingDone?: (id: string) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -82,6 +93,11 @@ export function TopStrip({
   const [openOpen, setOpenOpen] = useState(false);
   // Nachfrage «womit öffnen?» nach dem Tipp auf den Termin-Ort.
   const [routeAsk, setRouteAsk] = useState(false);
+  const [shopOpen, setShopOpen] = useState(false);
+  // Welcher Laden gerade gilt. Auf dem Gerät und nicht im Hub: Wer im
+  // Coop Willisau steht, hat damit nicht entschieden, was Livia in
+  // Lörrach sieht.
+  const [shopId, setShopId] = useState<string>(ALLGEMEIN.id);
   const temperature = entities.find(
     (entity) => entity.kind === 'sensor' && entity.state.unit === '°C'
   );
@@ -112,6 +128,10 @@ export function TopStrip({
     (entity) => entity.kind === 'alert' && entity.state.state === 'alert'
   );
   const offen = openContacts(entities);
+  const einkauf = shopping ?? [];
+  const laeden = [ALLGEMEIN, ...(shops ?? [])];
+  const laden = laeden.find((entry) => entry.id === shopId) ?? ALLGEMEIN;
+  const gaenge = groupForShop(einkauf, laden);
 
   return (
     <View style={styles.row}>
@@ -140,6 +160,17 @@ export function TopStrip({
             icon="alert-circle-outline"
             text={offen.length === 1 ? '1 offen' : `${offen.length} offen`}
             onPress={() => setOpenOpen(true)}
+          />
+        ) : null}
+        {/* Orange, sobald etwas fehlt: Die Einkaufsliste ist der einzige
+            Eintrag hier, der einen zum Handeln bringt, statt nur zu
+            berichten - man geht ohnehin gleich aus dem Haus. */}
+        {einkauf.length > 0 ? (
+          <Chip
+            icon="cart"
+            tone={colors.warn}
+            text={einkauf.length === 1 ? '1 einkaufen' : `${einkauf.length} einkaufen`}
+            onPress={() => setShopOpen(true)}
           />
         ) : null}
         {vacuum ? <Chip icon="sparkles-outline" text="saugt" /> : null}
@@ -533,6 +564,26 @@ const makeStyles = (colors: Colors) =>
   alertTitle: { color: colors.ink, fontSize: 15, fontWeight: '700' },
   alertDetail: { color: colors.inkSoft, fontSize: 13, lineHeight: 19, marginTop: 2 },
   heading: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
+  shopRow: { flexDirection: 'row', gap: 6, paddingBottom: 4 },
+  shopChip: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  shopChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  shopChipText: { color: colors.ink, fontSize: 13 },
+  shopChipTextActive: { color: '#FFFFFF', fontWeight: '600' },
+  gangLabel: {
+    color: colors.inkSoft,
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginTop: 10,
+    marginBottom: 2,
+  },
   lightRow: {
     flexDirection: 'row',
     alignItems: 'center',

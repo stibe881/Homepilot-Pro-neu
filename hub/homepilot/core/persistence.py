@@ -47,6 +47,10 @@ EMPTY: dict[str, Any] = {
     # DataStore Listen speichert - `get` gäbe von einem Objekt nur die
     # Schlüssel zurück.
     "house_prefs": [],
+    # Läden für die Einkaufsliste: [{id, name, categories, zone}]. Die
+    # Reihenfolge der Gänge gehört zum Laden, nicht zur Liste - im einen
+    # kommt zuerst das Gemüse, im anderen die Getränke.
+    "family_shops": [],
     # Zugriffsprotokoll: wer hat wann was geschaltet.
     "audit": [],
     # Verlauf der Ablauf-Läufe (jüngste zuerst) – überlebt den Neustart.

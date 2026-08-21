@@ -225,6 +225,49 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     };
   }, [settings.url, settings.token]);
 
+  // Einkaufsliste und Läden für die Kopfzeile. Dieselbe Quelle wie unter
+  // Familie - nur die offenen Einträge, denn oben zählt, was noch fehlt.
+  const [einkauf, setEinkauf] = useState<any[]>([]);
+  const [laeden, setLaeden] = useState<any[]>([]);
+  const ladeEinkauf = useCallback(() => {
+    if (!settings.url || !settings.token) return;
+    const headers = { Authorization: `Bearer ${settings.token}` };
+    fetch(`${settings.url}/api/family/shopping`, { headers })
+      .then((response) => (response.ok ? response.json() : []))
+      .then((rows) =>
+        setEinkauf(Array.isArray(rows) ? rows.filter((row: any) => !row.done) : [])
+      )
+      .catch(() => {});
+    fetch(`${settings.url}/api/family/shops`, { headers })
+      .then((response) => (response.ok ? response.json() : []))
+      .then((rows) => setLaeden(Array.isArray(rows) ? rows : []))
+      .catch(() => {});
+  }, [settings.url, settings.token]);
+  useEffect(() => {
+    ladeEinkauf();
+    const timer = setInterval(ladeEinkauf, 60000);
+    return () => clearInterval(timer);
+  }, [ladeEinkauf]);
+
+  /** Einen Eintrag im Laden abhaken - er verschwindet sofort aus der
+   *  Kopfzeile, statt bis zum nächsten Abruf stehen zu bleiben. */
+  const hakeAb = useCallback(
+    (id: string) => {
+      setEinkauf((liste) => liste.filter((eintrag) => eintrag.id !== id));
+      fetch(`${settings.url}/api/family/shopping/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${settings.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ done: true }),
+      })
+        .catch(() => {})
+        .finally(ladeEinkauf);
+    },
+    [settings.url, settings.token, ladeEinkauf]
+  );
+
   // Die Ablaufnamen einmal holen, damit die Suche sie kennt.
   useEffect(() => {
     if (!settings.url || !settings.token || status !== 'connected') return;
@@ -1437,6 +1480,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             now={now}
             hidden={hidden}
             onCommand={guardedCommand}
+            shopping={einkauf}
+            shops={laeden}
+            onShoppingDone={hakeAb}
           />
 
           <View style={styles.greetingRow}>

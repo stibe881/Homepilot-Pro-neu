@@ -16,6 +16,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
 import { DraggableList } from '../components/DraggableList';
+import { Shops } from '../components/Shops';
 import { Colors, radius, space, useColors } from '../theme';
 import { RecipeBook } from './RecipeBook';
 import { ingredientsToShopping, shopCategory } from '../lib/einkauf';
@@ -1787,6 +1788,15 @@ export function FamilyScreen({
             <Text style={styles.resetText}>{done.length} Erledigte entfernen</Text>
           </Pressable>
         ) : null}
+        {/* Ganz unten, eingeklappt: Die Läden richtet man einmal ein und
+            danach jahrelang nicht mehr - über der Liste stünden sie im
+            Weg. */}
+        <Shops
+          shops={data.shops ?? []}
+          onAdd={(shop) => add('shops', shop)}
+          onUpdate={(id, changes) => update('shops', id, changes)}
+          onRemove={(id) => remove('shops', id)}
+        />
       </View>
     );
   }
