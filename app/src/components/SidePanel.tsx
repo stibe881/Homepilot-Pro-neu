@@ -90,6 +90,10 @@ export function SidePanel({
  */
 export function istMusikbox(entity: Entity): boolean {
   if (entity.kind !== 'media_player') return false;
+  // Wehrhaft gegen Einträge ohne Befehlsliste: Diese Funktion läuft über
+  // jedes Medien-Gerät, und ein einziger Ausrutscher darüber nähme den
+  // ganzen Player von der Startseite - Playlists inbegriffen.
+  if (!Array.isArray(entity.commands)) return true;
   return !entity.commands.some(
     (command) => command === 'dpad_up' || command === 'launch_app'
   );

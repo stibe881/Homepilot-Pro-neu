@@ -2381,6 +2381,20 @@ def create_app(hub: Hub) -> FastAPI:
         except Exception as err:  # eine Nachricht ist kein Grund zu scheitern
             log.warning("Zuweisungs-Nachricht an %s fehlgeschlagen: %s", wer, err)
 
+    @app.get("/api/family/{collection}")
+    async def family_one(collection: str, request: Request) -> list[dict[str, Any]]:
+        """Eine einzelne Liste.
+
+        Ohne diesen Weg blieb nur /api/family - und das liefert alles auf
+        einmal, Rezepte und Dokumente eingeschlossen. Für die Kopfzeile,
+        die jede Minute nach der Einkaufsliste fragt, ist das die falsche
+        Grössenordnung; und wer es trotzdem einzeln versuchte, bekam vom
+        Server ein «Methode nicht erlaubt» und in der App eine leere
+        Liste, die aussah, als wäre nichts einzukaufen.
+        """
+        family_user(request)
+        return list(hub.data.get(family_key(collection)))
+
     @app.post("/api/family/{collection}")
     async def family_add(
         collection: str, body: dict[str, Any], request: Request
