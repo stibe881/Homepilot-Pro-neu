@@ -288,6 +288,26 @@ def error_hint(antwort: Any) -> str | None:
     return TUYA_ERRORS.get(nummer)
 
 
+def is_error(antwort: Any) -> bool:
+    """Ist das eine Fehlermeldung statt eines Zustands? (rein, testbar)
+
+    Wichtig, weil tinytuya Fehler nicht wirft, sondern zurückgibt - und
+    zwar sofort. Wer das für eine leere Antwort hält und weiterschleift,
+    dreht sich tausendmal je Sekunde im Kreis.
+    """
+    return isinstance(antwort, dict) and bool(antwort.get("Error"))
+
+
+def error_text(antwort: Any) -> str:
+    """Was in der Warnung stehen soll (rein, testbar)."""
+    hinweis = error_hint(antwort)
+    if hinweis:
+        return hinweis
+    if isinstance(antwort, dict):
+        return str(antwort.get("Error") or antwort)
+    return str(antwort)
+
+
 def light_commands(nummern: dict[str, int], kind: str) -> list[str]:
     """Welche Kommandos das Gerät anbieten darf (rein, testbar).
 
@@ -326,8 +346,6 @@ class TuyaIntegration(Integration):
         # Fäden auf demselben Socket vertragen sich bei tinytuya nicht;
         # deshalb schickt niemand direkt, sondern legt in die Schlange.
         self._queues: dict[str, queue.Queue] = {}
-        # Je Gerät merken, ob der Klartext-Hinweis schon im Log stand.
-        self._gemeldet: dict[str, bool] = {}
         self._workers: dict[str, threading.Thread] = {}
         self._stop = threading.Event()
         self._geraete: dict[str, dict[str, Any]] = {}
@@ -442,6 +460,15 @@ class TuyaIntegration(Integration):
                 if device is None:
                     device = self._connect(schluessel)
                     antwort = device.status()
+                    # tinytuya wirft nicht, es antwortet: Ein falscher
+                    # Schlüssel kommt als Wörterbuch mit 'Error' zurück,
+                    # und zwar sofort. Genau deshalb muss das hier eine
+                    # Ausnahme werden - sonst gilt der Draht als
+                    # aufgebaut, jede Runde kostet keine Zeit, und die
+                    # Schleife brennt einen Prozessorkern nieder, während
+                    # der Hub nebenan nicht mehr zum Starten kommt.
+                    if is_error(antwort):
+                        raise ConnectionError(error_text(antwort))
                     self._melden(schluessel, antwort, verfuegbar=True)
                     if fehler_gemeldet:
                         self.log.info("Tuya-Gerät %s wieder erreichbar", schluessel)
@@ -477,12 +504,23 @@ class TuyaIntegration(Integration):
                     letzter_schlag = jetzt
 
                 if jetzt - letzte_abfrage >= REFRESH_SECONDS:
-                    self._melden(schluessel, device.status(), verfuegbar=True)
+                    antwort = device.status()
+                    if is_error(antwort):
+                        raise ConnectionError(error_text(antwort))
+                    self._melden(schluessel, antwort, verfuegbar=True)
                     letzte_abfrage = jetzt
 
                 antwort = device.receive()
+                if is_error(antwort):
+                    raise ConnectionError(error_text(antwort))
                 if antwort:
                     self._melden(schluessel, antwort, verfuegbar=True)
+                else:
+                    # Untergrenze für eine Runde. receive() wartet im
+                    # Normalfall bis zum Zeitablauf, aber darauf ist kein
+                    # Verlass - und eine Schleife ohne Boden ist kein
+                    # Wartezustand, sondern eine Last.
+                    self._stop.wait(0.2)
             except Exception as err:
                 if not fehler_gemeldet:
                     self.log.warning(
@@ -525,14 +563,6 @@ class TuyaIntegration(Integration):
         if isinstance(antwort, dict):
             if antwort.get("Error"):
                 verfuegbar = False
-                # Einmal im Klartext sagen, was die Nummer bedeutet -
-                # sonst steht «Err 914» im Log und man sucht in Foren.
-                hinweis = error_hint(antwort)
-                if hinweis and not self._gemeldet.get(schluessel):
-                    self._gemeldet[schluessel] = True
-                    self.log.warning("Tuya-Gerät %s: %s", schluessel, hinweis)
-            else:
-                self._gemeldet.pop(schluessel, None)
             dps = antwort.get("dps") or {}
         asyncio.run_coroutine_threadsafe(
             self._uebernehmen(schluessel, dps, verfuegbar), self._loop

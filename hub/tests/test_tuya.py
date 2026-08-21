@@ -150,3 +150,27 @@ def test_tuya_error_numbers_become_sentences():
     assert error_hint({"Err": "4711"}) is None
     assert error_hint({"dps": {"20": True}}) is None
     assert error_hint(None) is None
+
+
+def test_an_error_answer_is_not_a_state():
+    """tinytuya wirft nicht, es antwortet – und zwar sofort.
+
+    Der Unterschied ist der zwischen «Gerät meldet nichts Neues» und
+    «Gerät weist uns ab». Wer beides gleich behandelt, dreht sich in der
+    Empfangsschleife tausendmal je Sekunde im Kreis und legt damit den
+    ganzen Hub lahm - genau so geschehen.
+    """
+    from homepilot.integrations.tuya import error_text, is_error
+
+    fehler = {"Error": "Check device key or version", "Err": "914", "Payload": None}
+    assert is_error(fehler) is True
+    assert "Schlüssel" in error_text(fehler)
+
+    # Ein echter Zustand ist kein Fehler.
+    assert is_error({"dps": {"20": True}}) is False
+    # Und eine leere Antwort auch nicht - die heisst «nichts Neues».
+    assert is_error(None) is False
+    assert is_error({}) is False
+
+    # Unbekannte Nummern ergeben trotzdem einen brauchbaren Text.
+    assert error_text({"Error": "Irgendwas", "Err": "4711"}) == "Irgendwas"
