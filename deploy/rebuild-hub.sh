@@ -166,6 +166,12 @@ fi
 # Stand einfach weiter, statt dass das Haus ohne Steuerung dasteht.
 
 echo "→ Hole den neuesten Code von ${REPO}@${BRANCH} …"
+# Reste eines abgebrochenen Laufs zuerst weg. Aufgeräumt wird sonst erst
+# ganz am Ende - bricht ein Lauf vorher ab (Portainer weg, Bau
+# fehlgeschlagen), bleibt der Ordner liegen, und der nächste `git clone`
+# scheitert an «destination path already exists». Mit `set -e` stirbt das
+# Skript dann sofort, und der Update-Knopf tut scheinbar grundlos nichts.
+rm -rf "$WORKDIR"
 # --depth 50 statt 1: Aus der jüngeren Geschichte entsteht die
 # «Was ist neu»-Liste in der App (Commit-Betreffzeilen seit dem Stand,
 # der gerade läuft). Fünfzig reichen für jede realistische Update-Lücke.
@@ -239,6 +245,10 @@ trap dienst_neustart_planen EXIT
 # in die Web-Fassung (version.json), damit die App prüfen kann, ob das
 # Bundle im Browser zum laufenden Hub passt.
 COMMIT="$(git -C "$WORKDIR" rev-parse --short HEAD)"
+# Ausdrücklich hinschreiben, woraus gebaut wird. Zeigt HOMEPILOT_BRANCH
+# auf etwas anderes als erwartet, baut der Knopf beharrlich den falschen
+# Stand - und das sieht von aussen aus wie «die Änderung kam nicht an».
+echo "→ Gebaut wird ${BRANCH} @ ${COMMIT} ($(git -C "$WORKDIR" log -1 --format='%s'))"
 
 # Läuft dieser Stand schon? Dann trotzdem bauen (ein Neubau schadet nie),
 # aber es dazusagen: Ein «Update» ohne neuen Commit sieht sonst nach

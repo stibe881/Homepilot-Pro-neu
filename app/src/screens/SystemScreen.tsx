@@ -1,6 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import Constants from 'expo-constants';
+import * as Updates from 'expo-updates';
 
 import { ConfigVersion, Entity, HubSettings, LogEntry, SystemStatus, User } from '../api/types';
 import { PushState, pushHint } from '../hooks/usePushRegistration';
@@ -132,6 +134,7 @@ export function SystemScreen({
           </View>
         ) : null}
         {status.build ? <WebVersionNote hubCommit={status.build.commit} /> : null}
+        <AppVersionNote />
 
         {showOffline ? (
           offline(entities).length === 0 ? (
@@ -822,6 +825,49 @@ const MAX_POLLS = 600;
  * meist hängt er im Cache, manchmal ist der Web-Bau beim Update
  * fehlgeschlagen. Genau diese Frage («warum sehe ich die neue Funktion
  * nicht?») war bisher nur per SSH zu beantworten. */
+/**
+ * Welchen Stand die installierte App selbst ausführt.
+ *
+ * Für den Browser gab es das schon (WebVersionNote, version.json) – auf
+ * dem Telefon gab es gar nichts. Nach einem TestFlight-Update blieb
+ * deshalb nur ein Gefühl: «meine Änderung ist nicht drin», ohne
+ * Möglichkeit, es nachzusehen.
+ *
+ * Die eigentliche Falle ist dabei nicht der Bau, sondern was danach
+ * kommt: Die App fragt beim Start bei EAS nach einer Aktualisierung
+ * (``checkAutomatically: ON_LOAD``), und weil ``runtimeVersion`` an der
+ * App-Version hängt, die sich selten ändert, passt eine *ältere*
+ * veröffentlichte Fassung formal noch auf einen frischen Build. Läuft
+ * sie, zeigt die App alten Code, obwohl TestFlight gerade Neues gebracht
+ * hat. Genau das steht hier: mitgeliefert oder nachgeladen.
+ */
+function AppVersionNote() {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  if (Platform.OS === 'web') return null;
+
+  const gebaut = Updates.createdAt ? localTime(Updates.createdAt.toISOString()) : null;
+  const nachgeladen = Updates.isEmbeddedLaunch === false;
+  return (
+    <>
+      <Text style={styles.hint}>
+        App {Constants.expoConfig?.version ?? '?'}
+        {Updates.runtimeVersion ? ` · Laufzeit ${Updates.runtimeVersion}` : ''}
+        {gebaut ? ` · Stand ${gebaut}` : ''}
+        {nachgeladen ? ' · nachgeladen' : ' · mitgeliefert'}
+      </Text>
+      {nachgeladen ? (
+        <Text style={[styles.hint, { color: colors.warn }]}>
+          Diese App führt nicht ihren eigenen Stand aus, sondern eine über
+          die Luft nachgeladene Fassung – die kann älter sein als das, was
+          TestFlight gerade gebracht hat. Fehlt eine Änderung, die im Build
+          drin sein müsste, ist das der wahrscheinliche Grund.
+        </Text>
+      ) : null}
+    </>
+  );
+}
+
 function WebVersionNote({ hubCommit }: { hubCommit: string }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
