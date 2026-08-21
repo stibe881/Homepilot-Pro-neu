@@ -193,11 +193,36 @@ Kommt dort eine Zahl grösser 0, steckt das Ziel im Projekt. Der Ordner
 Neben der Benachrichtigungs-Erweiterung liegt im Repo ein zweites Ziel:
 `app/targets/widget/`. Es baut beim EAS-Build automatisch mit und bringt
 drei Abkürzungen (Haustüre, Alles aus, Alarm) auf Homescreen und
-Sperrbildschirm. Eingerichtet wird es wie jedes Widget – Details und die
-Begründung, warum es keine Zustände anzeigt, stehen in
+Sperrbildschirm – und auf Wunsch den Hausstand dazu. Details stehen in
 [nfc-und-widget.md](nfc-und-widget.md).
 
 Auch dafür gilt: Ein `eas update` genügt nicht, das Ziel ist nativ.
+
+### Die App-Gruppe im Apple-Portal
+
+Das Widget ist ein eigener Prozess und kennt die Einstellungen der App
+nicht. Damit es den Türstatus zeigen kann, legt die App Hub-Adresse und
+Token in einer **App-Gruppe** ab – einer Ablage, die beide sehen. Apple
+verlangt dafür einen Eintrag im Entwickler-Portal, und den kann kein
+Skript anlegen:
+
+1. developer.apple.com → *Certificates, Identifiers & Profiles* →
+   **Identifiers** → oben auf **App Groups** umschalten → **+**
+2. Beschreibung frei wählen, Kennung exakt: `group.me.stibe.homepilot`
+3. Danach unter **Identifiers → App IDs** bei **beiden** Kennungen –
+   `ch.stibe.homepilot` und `ch.stibe.homepilot.widget` – die Fähigkeit
+   **App Groups** anhaken und die eben angelegte Gruppe auswählen.
+
+Fehlt dieser Schritt, bricht der iOS-Build ab, bevor er überhaupt
+anfängt: Apple weist die Anfrage zurück
+(«Unexpected or invalid value at data.relationships.bundleIdCapabilities»),
+und im Update-Protokoll steht der Hinweis mit diesen Schritten. Das
+Hub-Update selbst ist davon nicht betroffen.
+
+Der Build läuft mit `EXPO_NO_CAPABILITY_SYNC=1`, versucht die Fähigkeiten
+also gar nicht erst selbst nachzuziehen. Das ist Absicht: Für
+App-Gruppen schickt EAS eine Anfrage, die Apple auch dann zurückweist,
+wenn im Portal alles stimmt – und nimmt den ganzen Build mit.
 
 ## Updates verteilen
 

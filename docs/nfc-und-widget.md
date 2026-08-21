@@ -48,7 +48,19 @@ Wer den direkten Weg trotzdem will, baut ihn sich als Kurzbefehl (siehe
 oben) und legt diesen auf den Sperrbildschirm – dann liegt die
 Entscheidung bei dir und nicht bei der App.
 
-**Warum keine Zustände im Widget.** Ein Widget, das «3 Lichter an»
-anzeigt, müsste Adresse und Token in einer geteilten Ablage halten und
-alle paar Minuten das Haus anfragen. Für drei Knöpfe ist das der falsche
-Preis, und ein Token mehr im System ist eine Angriffsfläche mehr.
+**Zustände im Widget – auf Wunsch.** Neben den Knöpfen kann das Widget
+auch zeigen, ob eine Türe offen steht, wie viele Lichter brennen und was
+als Nächstes im Kalender ansteht. Das ist ein Schalter in den
+Einstellungen («Widget zeigt den Hausstand»), und er steht dort aus
+gutem Grund: Dafür müssen Hub-Adresse und Token in einer geteilten
+Ablage liegen, auf die auch das Widget zugreift – ein eigener Prozess,
+also ein Ort mehr, an dem das Token liegt.
+
+Für eine blosse Knopfleiste wäre das der falsche Preis; für den Blick
+«steht bei uns eine Türe offen» ist die Rechnung eine andere. Wer sie
+anders sieht, lässt den Schalter aus: Dann bleibt die Ablage leer, und
+das Widget zeigt nur die drei Abkürzungen. Erreicht es den Hub nicht,
+schreibt es «nicht erreichbar», statt den letzten Stand weiter als
+Tatsache auszugeben.
+
+Aktualisiert wird alle 15 Minuten – häufiger lässt iOS ohnehin nicht zu.

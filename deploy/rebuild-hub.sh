@@ -430,16 +430,41 @@ if [ "${HOMEPILOT_IOS_BUILD:-0}" = "1" ]; then
     echo "  Token erzeugen auf expo.dev → Account settings → Access tokens."
   else
     echo "→ Stosse den iOS-Build an (EAS baut, Apple bekommt ihn direkt) …"
+    # EXPO_NO_CAPABILITY_SYNC=1: EAS möchte die Fähigkeiten der Bundle-ID
+    # im Apple-Portal selbst nachziehen. Für App-Gruppen schickt es dabei
+    # eine Anfrage, die Apple zurückweist («Unexpected or invalid value at
+    # data.relationships.bundleIdCapabilities») - und bricht den ganzen
+    # Build ab, obwohl im Portal alles stimmt. Also gar nicht erst
+    # versuchen: Die Fähigkeiten werden dort von Hand gesetzt, einmalig,
+    # und danach ändern sie sich nicht mehr.
+    IOS_LOG=$(mktemp)
     if app_abbild && docker run --rm -e EXPO_TOKEN="$EXPO_TOKEN" \
         -e EAS_NO_VCS=1 \
+        -e EXPO_NO_CAPABILITY_SYNC=1 \
         "$DEPS_IMAGE" \
         npx eas-cli@latest build --platform ios --profile production \
-          --auto-submit --non-interactive --no-wait; then
+          --auto-submit --non-interactive --no-wait 2>&1 | tee "$IOS_LOG"
+      [ "${PIPESTATUS[0]}" = "0" ]; then
       echo "✓ iOS-Build läuft auf den EAS-Servern - TestFlight meldet sich."
     else
       echo "⚠ iOS-Build liess sich nicht anstossen - das Hub-Update selbst"
-      echo "  ist davon unberührt. Details: expo.dev/accounts/stibe88."
+      echo "  ist davon unberührt."
+      # Der häufigste Grund hat eine Lösung, die nicht im Log steht:
+      # Die App-Gruppe muss im Apple-Portal existieren und beiden
+      # Bundle-IDs zugewiesen sein. Wer das liest, soll wissen, wohin -
+      # nicht bloss, dass etwas schiefging.
+      if grep -qiE "application-groups|app group|bundleIdCapabilities" "$IOS_LOG"; then
+        echo "  Es fehlt die App-Gruppe im Apple-Portal. Einmalig:"
+        echo "  1. developer.apple.com → Identifiers → App Groups → +"
+        echo "     Name frei, Kennung: group.me.stibe.homepilot"
+        echo "  2. Bei ch.stibe.homepilot und ch.stibe.homepilot.widget"
+        echo "     «App Groups» anhaken und die Gruppe auswählen."
+        echo "  Danach Update mit iOS-Build noch einmal auslösen."
+      else
+        echo "  Details: expo.dev/accounts/stibe88."
+      fi
     fi
+    rm -f "$IOS_LOG"
   fi
 fi
 

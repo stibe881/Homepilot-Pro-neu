@@ -4,6 +4,12 @@ module.exports = {
   // Handgriffe, für die man sonst die App öffnet.
   type: 'widget',
   name: 'HomePilotWidget',
+  // Ausgeschrieben, obwohl das Plugin dieselbe Kennung auch selbst
+  // ableiten würde: Sie steht so im Apple-Portal und in den
+  // Bereitstellungsprofilen. Was dort festgeschrieben ist, soll nicht
+  // von einer Ableitung abhängen, die eine neue Fassung des Plugins
+  // anders treffen könnte.
+  bundleIdentifier: '.widget',
   displayName: 'HomePilot',
   // Wie bei der Benachrichtigungs-Erweiterung bewusst niedriger als die
   // App – das Widget nutzt nichts Neueres.

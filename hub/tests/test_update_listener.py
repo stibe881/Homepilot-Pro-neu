@@ -111,3 +111,59 @@ def test_a_second_build_is_refused_out_loud(monkeypatch, credentials):
     # Danach ist wieder frei.
     assert listener._running.acquire(blocking=False) is True
     listener._running.release()
+
+
+def test_a_warning_keeps_the_lines_that_say_what_to_do(monkeypatch, credentials):
+    """Die Abhilfe steht unter der Warnung, nicht in ihr.
+
+    rebuild-hub.sh schreibt «⚠ iOS-Build liess sich nicht anstossen» und
+    darunter eingerückt die Schritte im Apple-Portal. Fielen die weg,
+    stünde in der App nur, dass etwas schiefging – und die Anleitung läge
+    im Journal auf dem Host, wo sie niemand sucht.
+    """
+    listener = load_listener(monkeypatch, credentials, None)
+    for zeile in (
+        "⚠ iOS-Build liess sich nicht anstossen - das Hub-Update selbst",
+        "  ist davon unberührt.",
+        "  Es fehlt die App-Gruppe im Apple-Portal. Einmalig:",
+        "  1. developer.apple.com → Identifiers → App Groups → +",
+    ):
+        listener._handle_line(zeile)
+
+    assert len(listener._status["warnings"]) == 1
+    warnung = listener._status["warnings"][0]
+    assert warnung.startswith("iOS-Build liess sich nicht anstossen")
+    assert "Es fehlt die App-Gruppe im Apple-Portal" in warnung
+    assert "developer.apple.com" in warnung
+
+
+def test_indented_lines_elsewhere_do_not_land_in_the_warning(monkeypatch, credentials):
+    """Eingerückt ist im Bau-Protokoll vieles – die Platz-Notiz etwa.
+
+    Nur was direkt unter einer Warnung steht, gehört zu ihr. Sonst
+    sammelte eine einzige Warnung nach und nach den halben Lauf ein.
+    """
+    listener = load_listener(monkeypatch, credentials, None)
+    listener._handle_line("⚠ Web-Bau fehlgeschlagen")
+    listener._handle_line("  die alte Fassung bleibt online.")
+    listener._handle_line("→ Platz:")
+    listener._handle_line("  frei: 12G")
+
+    assert len(listener._status["warnings"]) == 1
+    assert "die alte Fassung bleibt online." in listener._status["warnings"][0]
+    assert "frei: 12G" not in listener._status["warnings"][0]
+
+
+def test_a_new_run_starts_without_the_previous_warning_open(monkeypatch, credentials):
+    """Zwei Läufe hintereinander: Der zweite beginnt mit leerer Liste.
+
+    Bliebe die Sammelstelle des ersten offen, liefe die erste eingerückte
+    Zeile des zweiten Laufs in eine Warnung, die es nicht mehr gibt.
+    """
+    listener = load_listener(monkeypatch, credentials, None)
+    listener._handle_line("⚠ Etwas ging schief")
+    listener._warn_open = False  # was build() beim Start ohnehin tut
+    listener._status["warnings"] = []
+    listener._handle_line("  eine eingerückte Zeile")
+
+    assert listener._status["warnings"] == []

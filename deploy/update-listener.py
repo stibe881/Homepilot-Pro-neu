@@ -142,6 +142,16 @@ _status = {
 # die Ursache samt Abhilfe, zu wenig, um eine Bauausgabe durchzureichen.
 DETAIL_LINES = 12
 
+# Dasselbe für eine Warnung. Ihre Abhilfe steht in den eingerückten
+# Zeilen darunter - etwa die Schritte im Apple-Portal, ohne die kein
+# iOS-Build startet. Ohne sie sähe man nur «liess sich nicht anstossen»
+# und müsste die Anleitung per SSH im Journal suchen.
+WARN_LINES = 8
+
+# Läuft gerade eine Warnung, deren eingerückte Folgezeilen noch zu ihr
+# gehören? Wird von der ersten nicht eingerückten Zeile beendet.
+_warn_open = False
+
 
 def _set_status(**fields) -> None:
     with _status_lock:
@@ -152,14 +162,30 @@ def _set_status(**fields) -> None:
 def _handle_line(line: str) -> None:
     """Eine Ausgabezeile des Bau-Skripts einordnen (nicht rein – schreibt
     in den geteilten Status, aber ohne Seiteneffekte sonst)."""
+    global _warn_open
     if line.startswith("✗"):
+        _warn_open = False
         _set_status(state="error", message=line.lstrip("✗").strip(), detail=None)
         return
     if line.startswith("⚠"):
+        _warn_open = True
         with _status_lock:
             _status["warnings"] = [*_status["warnings"], line.lstrip("⚠").strip()]
             _status["updated_at"] = time.time()
         return
+    if _warn_open and line.startswith("  ") and line.strip():
+        # Eingerückt und direkt unter der Warnung: Das ist ihre Begründung
+        # oder die Abhilfe, nicht die nächste Meldung.
+        with _status_lock:
+            letzte = _status["warnings"][-1] if _status["warnings"] else None
+            if letzte is not None and letzte.count("\n") < WARN_LINES:
+                _status["warnings"] = [
+                    *_status["warnings"][:-1],
+                    letzte + "\n" + line.strip(),
+                ]
+                _status["updated_at"] = time.time()
+        return
+    _warn_open = False
     if line.startswith("✓") and ("frischen Abbild" in line or "neuesten Stand" in line):
         _set_status(state="ok", stage="done", message=line.lstrip("✓").strip())
         return
@@ -195,6 +221,8 @@ def build(ios: bool = False) -> None:
     Wartezeit auf Portainer noch einmal auf Update drückte, sah eine
     Bestätigung und bekam nichts – dreimal hintereinander.
     """
+    global _warn_open
+    _warn_open = False
     _set_status(
         state="running",
         stage="clone",
