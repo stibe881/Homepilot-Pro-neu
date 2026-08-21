@@ -126,6 +126,16 @@ def load_integration_class(name: str) -> type[Integration]:
 # nicht den halben Abend ohne Türklingel dasteht.
 RETRY_SECONDS = 300
 
+# Wie lange der Start einer Integration dauern darf.
+#
+# Einzelne HTTP-Aufrufe haben längst ein Limit (siehe http_session), der
+# Start selbst hatte keines: Hängt eine Bibliothek beim Verbinden - eine
+# Bridge, die den Handschlag nicht beendet -, wartet der ganze Hub auf
+# sie, und kein einziges Gerät im Haus reagiert. Neunzig Sekunden sind
+# grosszügig für Matter und Bluetooth und immer noch weit unter «das Haus
+# ist kaputt».
+SETUP_TIMEOUT = 90.0
+
 
 def is_permanent(err: Exception) -> bool:
     """Lohnt sich ein zweiter Anlauf? (rein, testbar)
@@ -140,6 +150,22 @@ def is_permanent(err: Exception) -> bool:
     Wiederanlauf da.
     """
     return isinstance(err, ConfigError)
+
+
+def setup_error(name: str, err: Exception) -> str:
+    """Warum der Start scheiterte, in einem Satz (rein, testbar).
+
+    «TimeoutError» allein sagt niemandem, was zu tun ist. Ein abgelaufenes
+    Zeitlimit beim Start heisst fast immer: Das Gerät oder die Cloud
+    antwortet nicht - und dann will man wissen, dass es nicht am Hub liegt.
+    """
+    if isinstance(err, TimeoutError):
+        return (
+            f"'{name}' hat sich in {SETUP_TIMEOUT:.0f} Sekunden nicht "
+            "gemeldet - Gerät, Bridge oder Cloud antwortet nicht. Der Hub "
+            "läuft weiter und versucht es erneut."
+        )
+    return str(err) or err.__class__.__name__
 
 
 class IntegrationManager:
@@ -181,13 +207,13 @@ class IntegrationManager:
             try:
                 cls = load_integration_class(name)
                 instance = cls(self.hub, config)
-                await instance.setup()
+                await asyncio.wait_for(instance.setup(), timeout=SETUP_TIMEOUT)
                 self._integrations[name] = instance
                 self._failed.pop(name, None)
                 log.info("Integration %s geladen", name)
             except Exception as err:
                 # Eine kaputte Integration darf den Hub-Start nicht verhindern.
-                self._failed[name] = str(err) or err.__class__.__name__
+                self._failed[name] = setup_error(name, err)
                 if is_permanent(err):
                     self._retry.pop(name, None)
                     log.error("Integration '%s': %s", name, self._failed[name])
@@ -215,9 +241,9 @@ class IntegrationManager:
                 try:
                     cls = load_integration_class(name)
                     instance = cls(self.hub, config)
-                    await instance.setup()
+                    await asyncio.wait_for(instance.setup(), timeout=SETUP_TIMEOUT)
                 except Exception as err:
-                    self._failed[name] = str(err) or err.__class__.__name__
+                    self._failed[name] = setup_error(name, err)
                     if is_permanent(err):
                         self._retry.pop(name, None)
                         log.error("Integration '%s': %s", name, self._failed[name])

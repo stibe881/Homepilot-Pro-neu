@@ -184,6 +184,14 @@ class Automation:
 # So viele Läufe merkt sich der Hub – genug, um einen Abend nachzuvollziehen.
 RUN_LIMIT = 100
 
+# Wo die unterbrochenen Wartezeiten liegen, und wie viele höchstens.
+PENDING_KEY = "automation_pending"
+PENDING_LIMIT = 50
+# Älter als das wird nicht mehr nachgeholt. Zwei Stunden decken jedes
+# Update und jeden Stromausfall ab; was länger her ist, will man nicht
+# mitten in der Nacht noch ausgeführt bekommen.
+PENDING_MAX_AGE = 2 * 3600
+
 # «Warten bis»: wie oft nachgesehen wird, und wie lange höchstens, wenn im
 # Ablauf keine eigene Frist steht. Eine Frist muss sein – sonst bliebe ein
 # Ablauf für immer stehen, wenn die Tür offen bleibt.
@@ -432,6 +440,12 @@ class AutomationEngine:
         # Der laufende Durchgang je Ablauf - nur «restart» braucht ihn,
         # um ihn abbrechen zu können.
         self._tasks_by_id: dict[str, asyncio.Task] = {}
+        # Fährt der Hub herunter? Dann ist ein Abbruch kein Neubeginn,
+        # sondern eine unterbrochene Wartezeit, die später weitergehen soll.
+        self._stopping = False
+        # Wann die Wartezeit des jeweils laufenden Durchgangs endet. Je
+        # Task, weil mehrere Abläufe gleichzeitig warten können.
+        self._deadlines: dict[asyncio.Task, float] = {}
         # Laufende «bleibt so für X»-Wartezeiten je (Automation, Auslöser).
         self._held_tasks: dict[tuple[str, int], asyncio.Task] = {}
         # Bis zu diesem Zeitpunkt laufen keine Automationen – für Abende mit
@@ -468,6 +482,8 @@ class AutomationEngine:
             stored or [], editable=True
         )
         self._restore_runs()
+        # Was der letzte Halt offen liess, zuerst - noch vor den Auslösern.
+        self._hole_rest()
         self._unsubscribe = self.hub.bus.subscribe("state_changed", self._on_state_changed)
         for automation in self.automations:
             for trigger in automation.triggers:
@@ -494,6 +510,9 @@ class AutomationEngine:
             log.info("%d Automationen geladen", len(self.automations))
 
     async def stop(self) -> None:
+        # Vor dem Abbrechen: Was jetzt an Wartezeiten stirbt, soll beim
+        # nächsten Start weitergehen und nicht als «restart» gelten.
+        self._stopping = True
         if self._unsubscribe:
             self._unsubscribe()
             self._unsubscribe = None
@@ -612,6 +631,115 @@ class AutomationEngine:
             await asyncio.sleep((target - now).total_seconds())
             self._schedule(automation)
 
+    # ── Unterbrochene Wartezeiten ──────────────────────────────────────────
+    #
+    # Der Fall: Ein Bewegungslicht ist an und wartet vier Minuten aufs
+    # Ausschalten. Genau dann kommt ein Update, der Hub startet neu - und
+    # das Licht bleibt an, bis es jemand bemerkt. Nach jeder Auslieferung
+    # passiert das, und niemand sagt es.
+    #
+    # Deshalb wird beim Herunterfahren weggeschrieben, was noch offen war
+    # und wann es fällig gewesen wäre. Beim nächsten Start wird es
+    # nachgeholt: fällig heisst sofort, sonst nach der Restzeit.
+
+    def _merke_rest(
+        self, automation: Automation, actions: list[dict[str, Any]], position: int
+    ) -> None:
+        """Den unerledigten Teil eines Laufs wegschreiben."""
+        rest = actions[position + 1 :]
+        if not rest:
+            return
+        task = asyncio.current_task()
+        faellig = self._deadlines.get(task) if task is not None else None
+        offen = [
+            eintrag
+            for eintrag in self.hub.data.get(PENDING_KEY)
+            if eintrag.get("automation_id") != automation.id
+        ]
+        offen.append(
+            {
+                "automation_id": automation.id,
+                "alias": automation.alias,
+                "actions": rest,
+                # Ohne laufende Wartezeit sofort fällig: Dann wurde mitten
+                # in einer Aktion abgebrochen, und der Rest gehört gleich
+                # nachgeholt.
+                "resume_at": faellig if faellig is not None else time.time(),
+            }
+        )
+        try:
+            self.hub.data.set(PENDING_KEY, offen[:PENDING_LIMIT])
+        except Exception:
+            log.debug("Offene Wartezeit nicht schreibbar", exc_info=True)
+        log.info(
+            "Automation '%s': %d Schritt(e) offen, wird nach dem Start nachgeholt",
+            automation.alias,
+            len(rest),
+        )
+
+    def _hole_rest(self) -> None:
+        """Beim Start: nachholen, was der letzte Halt offen liess."""
+        try:
+            offen = list(self.hub.data.get(PENDING_KEY))
+        except Exception:
+            return
+        if not offen:
+            return
+        # Sofort leeren: Scheitert das Nachholen, soll es nicht bei jedem
+        # Start erneut versucht werden - ein Licht, das seit gestern aus
+        # ist, muss nicht heute nochmals ausgeschaltet werden.
+        try:
+            self.hub.data.set(PENDING_KEY, [])
+        except Exception:
+            pass
+        for eintrag in offen:
+            task = asyncio.create_task(self._rest_nachholen(eintrag))
+            self._run_tasks.add(task)
+            task.add_done_callback(self._run_tasks.discard)
+
+    async def _rest_nachholen(self, eintrag: dict[str, Any]) -> None:
+        alias = str(eintrag.get("alias") or eintrag.get("automation_id") or "?")
+        actions = [a for a in eintrag.get("actions") or [] if isinstance(a, dict)]
+        if not actions:
+            return
+        wartet = float(eintrag.get("resume_at") or 0) - time.time()
+        # Zu lange her: Was gestern hätte geschehen sollen, holt man heute
+        # nicht nach. Ein Ausschalten wäre harmlos, eine Durchsage um drei
+        # Uhr morgens nicht.
+        if wartet < -PENDING_MAX_AGE:
+            log.info(
+                "Automation '%s': offener Rest ist %.0f Minuten alt - verworfen",
+                alias,
+                -wartet / 60,
+            )
+            return
+        if wartet > 0:
+            log.info(
+                "Automation '%s': noch %.0f Sekunden Wartezeit aus der Zeit vor "
+                "dem Neustart",
+                alias,
+                wartet,
+            )
+            await asyncio.sleep(wartet)
+        automation = next(
+            (a for a in self.automations if a.id == eintrag.get("automation_id")), None
+        )
+        if automation is None:
+            # Der Ablauf wurde inzwischen gelöscht oder umbenannt. Der Rest
+            # läuft trotzdem: Er war schon beschlossen, als der Hub ging.
+            automation = Automation(
+                id=str(eintrag.get("automation_id") or "?"), alias=alias, triggers=[]
+            )
+        log.info("Automation '%s': hole %d offene(n) Schritt(e) nach", alias, len(actions))
+        try:
+            with as_source(automation_source(automation.id, automation.alias)):
+                for action in actions:
+                    await self._execute_action(automation, action)
+        except asyncio.CancelledError:
+            raise
+        except Exception as err:
+            log.warning("Automation '%s': Nachholen fehlgeschlagen: %s", alias, err)
+
     def _restore_runs(self) -> None:
         """Den Verlauf früherer Läufe zurückholen (jüngste zuerst)."""
         try:
@@ -697,6 +825,11 @@ class AutomationEngine:
         self._running.add(automation.id)
         error: str | None = None
         executed = False
+        actions: list[dict[str, Any]] = []
+        # Bei welcher Aktion der Lauf gerade steht. Nur für den Fall, dass
+        # der Hub mitten hinein herunterfährt - dann wird ab hier später
+        # weitergemacht.
+        position = 0
         try:
             held, failed = self._conditions_hold(automation)
             # Der «sonst»-Zweig ist ein vollwertiger Lauf und wird auch als
@@ -712,20 +845,35 @@ class AutomationEngine:
                 )
                 # Alles, was jetzt folgt, wird der Automation zugeschrieben.
                 with as_source(automation_source(automation.id, automation.alias)):
-                    for action in actions:
+                    # noqa-Grund: Die Zählung wird nach der Schleife
+                    # gebraucht, nicht darin - sie sagt im Abbruchfall, wo
+                    # der Lauf stand.
+                    for position, action in enumerate(actions):  # noqa: B007
                         await self._execute_action(automation, action)
         except asyncio.CancelledError:
             # Abgebrochen, weil derselbe Ablauf gerade neu beginnt
             # (mode: restart). Das ist kein Fehler und gehört auch nicht
             # ins Protokoll - dort stünde sonst bei jeder Bewegung ein
             # abgebrochener Lauf neben dem neuen.
+            #
+            # Fährt dagegen der Hub herunter, ist es kein Neubeginn: Dann
+            # bleibt eine Wartezeit auf halbem Weg stehen, und das Licht,
+            # das in vier Minuten ausgehen sollte, bleibt an. Was noch
+            # fehlt, wird deshalb weggeschrieben und beim nächsten Start
+            # nachgeholt.
             self._running.discard(automation.id)
+            if self._stopping and executed:
+                self._merke_rest(automation, actions, position)
             raise
         except Exception as err:
             error = str(err)
             log.exception("Automation '%s' fehlgeschlagen", automation.alias)
         finally:
             self._running.discard(automation.id)
+            # Die Frist der eigenen Wartezeit ist jetzt ausgewertet.
+            eigener = asyncio.current_task()
+            if eigener is not None:
+                self._deadlines.pop(eigener, None)
 
         # Auch der nicht ausgeführte Lauf wird protokolliert – mit dem
         # Grund. Genau danach sucht man, wenn ein Ablauf schweigt.
@@ -880,7 +1028,23 @@ class AutomationEngine:
                 action["entity_id"], action["command"], action.get("data") or {}
             )
         elif atype == "delay":
-            await asyncio.sleep(float(action["seconds"]))
+            sekunden = float(action["seconds"])
+            # Die Frist festhalten, solange gewartet wird: Bricht der Hub
+            # mitten hinein ab, weiss der nächste Start, wie viel noch
+            # übrig war - und nicht bloss, dass irgendetwas offen ist.
+            task = asyncio.current_task()
+            if task is not None:
+                self._deadlines[task] = time.time() + sekunden
+            try:
+                await asyncio.sleep(sekunden)
+            except BaseException:
+                # Die Frist bewusst stehen lassen: Genau jetzt braucht sie
+                # der Abbruchzweig in _run, um zu wissen, wie viel Wartezeit
+                # noch offen war. Aufgeräumt wird dort im finally.
+                raise
+            else:
+                if task is not None:
+                    self._deadlines.pop(task, None)
         elif atype == "wait_until":
             await self._wait_until(automation, action)
         elif atype == "scene":

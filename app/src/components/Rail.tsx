@@ -24,6 +24,32 @@ export type Section =
   | 'widgets'
   | 'account';
 
+/**
+ * Wie ein Bereich heisst, wenn man ihn benennen muss – in Meldungen und
+ * im Auffangnetz («Kameras lässt sich gerade nicht anzeigen»). Die Leiste
+ * zeigt nur sieben davon; die übrigen erreicht man über Einstellungen und
+ * brauchen trotzdem einen Namen.
+ */
+export const SECTION_LABEL: Record<Section, string> = {
+  start: 'Start',
+  home: 'Räume',
+  light: 'Licht',
+  covers: 'Storen',
+  cameras: 'Kameras',
+  family: 'Familie',
+  settings: 'Einstellungen',
+  devices: 'Geräte',
+  automations: 'Abläufe',
+  system: 'System',
+  energy: 'Energie',
+  alarm: 'Alarmanlage',
+  speakers: 'Boxen',
+  users: 'Benutzer',
+  activity: 'Zuletzt passiert',
+  widgets: 'Widgets',
+  account: 'Konto',
+};
+
 /** `needs` nennt die Berechtigung, ohne die der Punkt gar nicht erscheint. */
 const ITEMS: {
   key: Section;

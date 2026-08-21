@@ -10,6 +10,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 
 import { HubSettings } from './src/api/types';
+import { Auffangnetz } from './src/components/Auffangnetz';
 import { DashboardScreen } from './src/screens/DashboardScreen';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
@@ -74,7 +75,11 @@ export default function App() {
               <LoginScreen initial={null} onSave={save} onUseToken={() => setUseToken(true)} />
             )
           ) : (
-            <DashboardScreen settings={settings} onSaveSettings={save} />
+            // Das äusserste Netz. Weiter innen sitzen weitere, je Bereich –
+            // dieses hier fängt nur, was gar nicht mehr anders zu fangen ist.
+            <Auffangnetz bereich="Die App">
+              <DashboardScreen settings={settings} onSaveSettings={save} />
+            </Auffangnetz>
           )}
         </Background>
       </ThemeProvider>

@@ -3,8 +3,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   Animated,
+  KeyboardAvoidingView,
   Linking,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -17,6 +19,7 @@ import { Entity } from '../api/types';
 import { hasOpenDoor, openContacts } from './OpenDoors';
 import { ALLGEMEIN, Shop, groupForShop } from '../lib/einkauf';
 import { ConnectionStatus } from '../hooks/useHub';
+import { useEscape } from '../hooks/useEscape';
 import { Colors, radius, type, useColors } from '../theme';
 
 const STATUS_LABEL: Record<ConnectionStatus, string> = {
@@ -108,6 +111,14 @@ export function TopStrip({
   // Was gerade eingetippt wird. Bleibt beim Schliessen stehen - wer aus
   // Versehen danebentippt, hat es nicht verloren.
   const [neuerArtikel, setNeuerArtikel] = useState('');
+
+  // Im Browser schliesst Escape das offene Fenster. Am Telefon gibt es
+  // dafür die Geste, am Rechner gab es bisher nichts.
+  useEscape(lightsOpen, () => setLightsOpen(false));
+  useEscape(openOpen, () => setOpenOpen(false));
+  useEscape(shopOpen, () => setShopOpen(false));
+  useEscape(eventOpen, () => setEventOpen(false));
+  useEscape(alertsOpen, () => setAlertsOpen(false));
   const temperature = entities.find(
     (entity) => entity.kind === 'sensor' && entity.state.unit === '°C'
   );
@@ -323,6 +334,12 @@ export function TopStrip({
         animationType="fade"
         onRequestClose={() => setShopOpen(false)}
       >
+        {/* Ohne das schiebt sich auf dem Telefon die Tastatur über das
+            Eingabefeld, sobald man etwas eintragen will. */}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1 }}
+        >
         <Pressable style={styles.backdrop} onPress={() => setShopOpen(false)}>
           <Pressable style={styles.sheet} onPress={() => {}}>
             {/* Beim Abhaken des letzten Eintrags bleibt das Fenster offen –
@@ -470,6 +487,7 @@ export function TopStrip({
             </Pressable>
           </Pressable>
         </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal

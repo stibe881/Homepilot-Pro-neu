@@ -1,4 +1,5 @@
 import asyncio
+import time
 
 from homepilot.core.automation import (
     Automation,
@@ -1013,6 +1014,126 @@ async def test_without_a_wait_the_light_simply_stays_on():
         await settle()
         assert hub.registry.get("demo.light_livingroom").state["state"] == "on"
         await asyncio.sleep(0.3)
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "on"
+    finally:
+        await hub.stop()
+
+
+# ── Unterbrochene Wartezeiten ──────────────────────────────────────────────
+
+
+def nachlauf_ablauf(seconds: float) -> dict:
+    """Licht an, warten, Licht aus – der Fall, der einen Neustart trifft."""
+    return {
+        "id": "nachlauf",
+        "alias": "Licht mit Nachlauf",
+        "trigger": [{"type": "state", "entity_id": "demo.motion_hall", "to": "on"}],
+        "action": [
+            {
+                "type": "command",
+                "entity_id": "demo.light_livingroom",
+                "command": "turn_on",
+            },
+            {"type": "delay", "seconds": seconds},
+            {
+                "type": "command",
+                "entity_id": "demo.light_livingroom",
+                "command": "turn_off",
+            },
+        ],
+    }
+
+
+async def test_a_restart_during_the_wait_does_not_leave_the_light_on():
+    """Nach einem Update ging das Licht nicht mehr aus.
+
+    Der Ablauf stand mitten im `delay`; beim Herunterfahren starb die
+    Aufgabe, und niemand schaltete je wieder aus. Jetzt wird der offene
+    Rest weggeschrieben und beim nächsten Start nachgeholt.
+    """
+    hub = await run_hub([nachlauf_ablauf(30)])
+    try:
+        await hub.registry.update_state("demo.motion_hall", {"state": "on"})
+        await settle()
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "on"
+    finally:
+        # Mitten in der Wartezeit herunterfahren.
+        await hub.stop()
+
+    offen = hub.data.get("automation_pending")
+    assert len(offen) == 1
+    assert offen[0]["automation_id"] == "nachlauf"
+    # Nur das Ausschalten ist noch offen – das Einschalten war schon.
+    assert [a["command"] for a in offen[0]["actions"]] == ["turn_off"]
+    # Und die Frist steht: rund dreissig Sekunden in der Zukunft.
+    assert offen[0]["resume_at"] > time.time() + 20
+
+
+async def test_an_overdue_rest_is_carried_out_at_once():
+    """War die Frist beim Start längst um, wird sofort nachgeholt."""
+    hub = await run_hub([nachlauf_ablauf(0.05)])
+    try:
+        await hub.integrations.dispatch_command("demo.light_livingroom", "turn_on")
+        await settle()
+        # Ein offener Rest, der vor einer Minute fällig gewesen wäre.
+        hub.data.set(
+            "automation_pending",
+            [
+                {
+                    "automation_id": "nachlauf",
+                    "alias": "Licht mit Nachlauf",
+                    "actions": [
+                        {
+                            "type": "command",
+                            "entity_id": "demo.light_livingroom",
+                            "command": "turn_off",
+                        }
+                    ],
+                    "resume_at": time.time() - 60,
+                }
+            ],
+        )
+        hub.automations._hole_rest()
+        await settle()
+        await asyncio.sleep(0.05)
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "off"
+        # Und der Eintrag ist weg, damit er nicht bei jedem Start erneut läuft.
+        assert hub.data.get("automation_pending") == []
+    finally:
+        await hub.stop()
+
+
+async def test_a_rest_from_yesterday_is_dropped():
+    """Was gestern hätte geschehen sollen, holt man heute nicht nach.
+
+    Ein Ausschalten wäre harmlos – eine Durchsage um drei Uhr morgens
+    nicht. Deshalb gilt eine Altersgrenze.
+    """
+    hub = await run_hub([nachlauf_ablauf(0.05)])
+    try:
+        await hub.integrations.dispatch_command("demo.light_livingroom", "turn_on")
+        await settle()
+        hub.data.set(
+            "automation_pending",
+            [
+                {
+                    "automation_id": "nachlauf",
+                    "alias": "Licht mit Nachlauf",
+                    "actions": [
+                        {
+                            "type": "command",
+                            "entity_id": "demo.light_livingroom",
+                            "command": "turn_off",
+                        }
+                    ],
+                    "resume_at": time.time() - 20 * 3600,
+                }
+            ],
+        )
+        hub.automations._hole_rest()
+        await settle()
+        await asyncio.sleep(0.05)
+        # Unverändert: Der Rest war zu alt.
         assert hub.registry.get("demo.light_livingroom").state["state"] == "on"
     finally:
         await hub.stop()

@@ -27,7 +27,7 @@ import { CameraLive } from '../components/CameraLive';
 import { CameraTimeline } from '../components/CameraTimeline';
 import { OpenDoors } from '../components/OpenDoors';
 import { RunningAppliances } from '../components/RunningAppliances';
-import { Rail, Section } from '../components/Rail';
+import { SECTION_LABEL, Rail, Section } from '../components/Rail';
 import { RoomTabs } from '../components/RoomTabs';
 import { RoomTile } from '../components/RoomTile';
 import { SceneRow } from '../components/SceneRow';
@@ -42,6 +42,7 @@ import { usePrefs } from '../hooks/usePrefs';
 import { usePushRegistration } from '../hooks/usePushRegistration';
 import { breakpoints, Colors, radius, space, type, useColors } from '../theme';
 import { shopCategory } from '../lib/einkauf';
+import { Auffangnetz } from '../components/Auffangnetz';
 import { AutomationsScreen } from './AutomationsScreen';
 import { FamilyScreen } from './FamilyScreen';
 import { OverviewScreen } from './OverviewScreen';
@@ -1532,6 +1533,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               </Text>
             </View>
           ) : null}
+          <Auffangnetz bereich="Die Kopfzeile">
           <TopStrip
             entities={entities}
             status={status}
@@ -1549,6 +1551,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 })}
             showClock={!!settings.panel}
           />
+          </Auffangnetz>
 
           <View style={styles.greetingRow}>
             <View style={styles.greeting}>
@@ -1577,7 +1580,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             </View>
           </View>
 
-          {content()}
+          {/* Je Bereich ein eigenes Netz: Reisst die Kameraansicht, sollen
+              Licht und Storen bedienbar bleiben. Ein Haus, das zu drei
+              Vierteln geht, ist mehr wert als eines, das gar nicht mehr
+              reagiert. Der Schlüssel wechselt mit dem Bereich, damit ein
+              gefangener Fehler beim Weiterblättern nicht kleben bleibt. */}
+          <Auffangnetz key={section} bereich={SECTION_LABEL[section] ?? 'Dieser Bereich'}>
+            {content()}
+          </Auffangnetz>
         </ScrollView>
       </View>
 
