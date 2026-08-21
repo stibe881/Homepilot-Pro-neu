@@ -6,6 +6,7 @@ import { Entity, HubSettings, Scene, User } from '../api/types';
 import { Card } from '../components/Card';
 import { PushRules } from '../components/PushRules';
 import { Colors, radius, space, type, useColors } from '../theme';
+import { deviceKindIcon, deviceKindLabel } from '../lib/geraeteart';
 
 interface Automation {
   id: string;
@@ -1785,7 +1786,10 @@ function SceneDevices({
     ? all.filter(
         (entity) =>
           entity.name.toLowerCase().includes(needle) ||
-          (entity.room ?? '').toLowerCase().includes(needle)
+          (entity.room ?? '').toLowerCase().includes(needle) ||
+          // Auch über die Art: «Saugroboter» findet ihn, ohne dass man
+          // wissen muss, dass er «Rosa» heisst.
+          deviceKindLabel(entity).toLowerCase().includes(needle)
       )
     : all;
   const byId = new Map(actions.map((action) => [action.entity_id, action]));
@@ -1798,7 +1802,16 @@ function SceneDevices({
   for (const room of order) {
     groups.push({
       room,
-      items: devices.filter((entity) => (entity.room || 'Weitere') === room),
+      items: devices
+        .filter((entity) => (entity.room || 'Weitere') === room)
+        // Nach Art, dann nach Name: So stehen die Lichter eines Raums
+        // beieinander und die Storen auch – in der Reihenfolge, in der
+        // die Integration sie meldet, standen sie durcheinander.
+        .sort(
+          (a, b) =>
+            deviceKindLabel(a).localeCompare(deviceKindLabel(b)) ||
+            a.name.localeCompare(b.name)
+        ),
     });
   }
 
@@ -1902,6 +1915,7 @@ function SceneDevices({
                   onPress={() => toggle(entity)}
                   accessibilityRole="checkbox"
                   accessibilityState={{ checked: included }}
+                  accessibilityLabel={`${entity.name}, ${deviceKindLabel(entity)}`}
                   style={styles.deviceHead}
                 >
                   <Ionicons
@@ -1909,7 +1923,12 @@ function SceneDevices({
                     size={24}
                     color={included ? colors.on : colors.inkFaint}
                   />
-                  <Text style={styles.deviceName}>{entity.name}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.deviceName}>{entity.name}</Text>
+                    {/* Wofür das Gerät steht. «Flur» allein sagt nicht, ob
+                        das Licht oder der Melder gemeint ist. */}
+                    <Text style={styles.pickKind}>{deviceKindLabel(entity)}</Text>
+                  </View>
                 </Pressable>
                 {included ? (
                   <View style={{ gap: 6 }}>
@@ -2314,8 +2333,8 @@ function Editor({
                     <Ionicons name="trash-outline" size={18} color={colors.danger} />
                   </Pressable>
                 </View>
-                <Picker
-                  items={entities.map((entity) => ({ key: entity.id, label: entity.name }))}
+                <EntityPicker
+                  entities={entities}
                   value={entry.entity_id}
                   onSelect={(entity_id) =>
                     setEntry({
@@ -2657,8 +2676,8 @@ function TriggerRow({
         </>
       ) : trigger.kind === 'state' ? (
         <>
-          <Picker
-            items={entities.map((entity) => ({ key: entity.id, label: entity.name }))}
+          <EntityPicker
+            entities={entities}
             value={trigger.entityId}
             onSelect={(entityId) =>
               onChange({
@@ -2727,10 +2746,8 @@ function TriggerRow({
         </>
       ) : trigger.kind === 'geofence' ? (
         <>
-          <Picker
-            items={entities
-              .filter((entity) => entity.id.startsWith('geofence.'))
-              .map((entity) => ({ key: entity.id, label: entity.name }))}
+          <EntityPicker
+            entities={entities.filter((entity) => entity.id.startsWith('geofence.'))}
             value={trigger.entityId}
             onSelect={(entityId) => onChange({ entityId })}
           />
@@ -2769,8 +2786,8 @@ function TriggerRow({
         </>
       ) : trigger.kind === 'threshold' ? (
         <>
-          <Picker
-            items={entities.map((entity) => ({ key: entity.id, label: entity.name }))}
+          <EntityPicker
+            entities={entities}
             value={trigger.entityId}
             onSelect={(entityId) => onChange({ entityId })}
           />
@@ -2999,14 +3016,10 @@ function StepList({
                 placeholder="Text"
                 placeholderTextColor={colors.inkFaint}
               />
-              <Picker
-                items={[
-                  { key: '', label: 'Kein Bild' },
-                  ...entities
-                    .filter((entity) => entity.kind === 'camera')
-                    .map((entity) => ({ key: entity.id, label: entity.name })),
-                ]}
-                placeholder="Kamera fürs Bild suchen …"
+              <EntityPicker
+                entities={entities.filter((entity) => entity.kind === 'camera')}
+                noneLabel="Kein Bild"
+                placeholder="Kamera suchen …"
                 value={step.notifyCamera}
                 onSelect={(notifyCamera) => setStep(index, { notifyCamera })}
               />
@@ -3071,9 +3084,8 @@ function StepList({
             </>
           ) : (
             <>
-              <Picker
-                items={entities.map((entity) => ({ key: entity.id, label: entity.name }))}
-                placeholder="Gerät suchen …"
+              <EntityPicker
+                entities={entities}
                 value={step.waitEntityId}
                 onSelect={(waitEntityId) => setStep(index, { waitEntityId })}
               />
@@ -3224,6 +3236,191 @@ function Picker({
           </Pressable>
         ))}
       </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+/** Die Geräte, die zur Suche passen – nach Raum gebündelt (rein, testbar).
+ *
+ * Gesucht wird über Name, Raum **und Geräteart**: «Bewegung» findet den
+ * Melder auch dann, wenn er «Flur 2» heisst. Genau daran scheiterte die
+ * alte Auswahl – wer den Namen nicht auswendig wusste, fand nichts.
+ *
+ * Das bereits Gewählte bleibt immer dabei, auch wenn es nicht zur Suche
+ * passt: Sonst stünde beim Tippen plötzlich nirgends mehr, was gerade
+ * eingestellt ist.
+ */
+export function groupEntities(
+  entities: Entity[],
+  query: string,
+  chosen?: string
+): { room: string; items: Entity[] }[] {
+  const needle = query.trim().toLowerCase();
+  const hits = needle
+    ? entities.filter(
+        (entity) =>
+          entity.id === chosen ||
+          entity.name.toLowerCase().includes(needle) ||
+          (entity.room ?? '').toLowerCase().includes(needle) ||
+          deviceKindLabel(entity).toLowerCase().includes(needle)
+      )
+    : entities;
+
+  const rooms = Array.from(new Set(hits.map((entity) => entity.room || 'Weitere')));
+  // «Weitere» ganz nach unten – dort steht, was keinem Raum zugeordnet
+  // ist, und das sucht man am seltensten.
+  rooms.sort((a, b) => (a === 'Weitere' ? 1 : b === 'Weitere' ? -1 : a.localeCompare(b)));
+  return rooms.map((room) => ({
+    room,
+    items: hits
+      .filter((entity) => (entity.room || 'Weitere') === room)
+      // Innerhalb des Raums nach Art, dann nach Name: So stehen die
+      // Lichter beieinander und die Melder auch.
+      .sort(
+        (a, b) =>
+          deviceKindLabel(a).localeCompare(deviceKindLabel(b)) ||
+          a.name.localeCompare(b.name)
+      ),
+  }));
+}
+
+/**
+ * Ein Gerät auswählen: Suchfeld, nach Raum gebündelt, eine Zeile je Gerät
+ * mit Symbol, Name und Geräteart.
+ *
+ * Vorher war das eine einzige waagrechte Reihe von Chips. Bei über
+ * hundert Geräten hiess das: wischen, bis man das Richtige sieht – und
+ * weil in den Chips nur der Name stand, war «Flur» genauso gut das Licht
+ * wie der Melder. Beides ist hier behoben.
+ */
+function EntityPicker({
+  entities,
+  value,
+  onSelect,
+  placeholder = 'Gerät, Raum oder Art suchen …',
+  noneLabel,
+}: {
+  entities: Entity[];
+  value: string;
+  onSelect: (id: string) => void;
+  placeholder?: string;
+  /** Beschriftung für «nichts davon» – ohne sie gibt es die Zeile nicht. */
+  noneLabel?: string;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [query, setQuery] = useState('');
+  // Kurze Listen brauchen kein Suchfeld; es stünde nur im Weg.
+  const searchable = entities.length > 8;
+  const groups = useMemo(
+    () => groupEntities(entities, searchable ? query : '', value),
+    [entities, query, searchable, value]
+  );
+  const chosen = entities.find((entity) => entity.id === value);
+
+  const row = (
+    key: string,
+    label: string,
+    sub: string | null,
+    icon: string,
+    selected: boolean,
+    onPress: () => void
+  ) => (
+    <Pressable
+      key={key}
+      onPress={onPress}
+      accessibilityRole="radio"
+      accessibilityState={{ selected }}
+      accessibilityLabel={sub ? `${label}, ${sub}` : label}
+      style={({ pressed }) => [
+        styles.pickRow,
+        selected && styles.pickRowActive,
+        pressed && { opacity: 0.75 },
+      ]}
+    >
+      <Ionicons
+        name={icon as keyof typeof Ionicons.glyphMap}
+        size={19}
+        color={selected ? colors.accent : colors.inkFaint}
+      />
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.pickName, selected && styles.pickNameActive]} numberOfLines={1}>
+          {label}
+        </Text>
+        {sub ? <Text style={styles.pickKind}>{sub}</Text> : null}
+      </View>
+      {selected ? (
+        <Ionicons name="checkmark-circle" size={20} color={colors.accent} />
+      ) : null}
+    </Pressable>
+  );
+
+  return (
+    <View style={{ gap: 8 }}>
+      {searchable ? (
+        <View style={styles.deviceSearch}>
+          <Ionicons name="search" size={15} color={colors.inkFaint} />
+          <TextInput
+            style={styles.deviceSearchInput}
+            value={query}
+            onChangeText={setQuery}
+            placeholder={placeholder}
+            placeholderTextColor={colors.inkFaint}
+            autoCorrect={false}
+            autoCapitalize="none"
+          />
+          {query ? (
+            <Pressable onPress={() => setQuery('')} hitSlop={8} accessibilityLabel="Suche löschen">
+              <Ionicons name="close-circle" size={17} color={colors.inkFaint} />
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+
+      {/* Bei langen Listen wandert das Gewählte beim Tippen ausser Sicht.
+          Eine Zeile oben sagt, woran man gerade ist. */}
+      {searchable && chosen ? (
+        <Text style={styles.snapshotHint}>
+          Gewählt: {chosen.name} · {deviceKindLabel(chosen)}
+        </Text>
+      ) : null}
+
+      {/* Eigener Scrollbereich mit fester Höhe: Sonst schöbe eine Liste
+          mit hundert Geräten den Rest des Editors ausser Sicht. */}
+      <ScrollView
+        style={styles.pickList}
+        nestedScrollEnabled
+        keyboardShouldPersistTaps="handled"
+      >
+        {noneLabel
+          ? row(
+              '__ohne',
+              noneLabel,
+              null,
+              'remove-circle-outline',
+              value === '',
+              () => onSelect('')
+            )
+          : null}
+        {groups.length === 0 ? (
+          <Text style={styles.snapshotHint}>Nichts gefunden.</Text>
+        ) : null}
+        {groups.map((group) => (
+          <View key={group.room}>
+            <Text style={styles.groupLabel}>{group.room}</Text>
+            {group.items.map((entity) =>
+              row(
+                entity.id,
+                entity.name,
+                deviceKindLabel(entity),
+                deviceKindIcon(entity),
+                value === entity.id,
+                () => onSelect(entity.id)
+              )
+            )}
+          </View>
+        ))}
       </ScrollView>
     </View>
   );
@@ -3577,6 +3774,30 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     deviceSearchInput: { flex: 1, paddingVertical: 10, color: colors.ink, fontSize: 15 },
+    // Geräteauswahl: eine Zeile je Gerät statt einer endlosen Chip-Reihe.
+    pickList: {
+      backgroundColor: colors.surfaceSoft,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      // Über zehn Zeilen wird die Seite unbedienbar lang; hier scrollt
+      // die Auswahl in sich selbst.
+      maxHeight: 320,
+    },
+    pickRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingVertical: 9,
+      paddingHorizontal: 6,
+      borderRadius: radius.control,
+    },
+    pickRowActive: { backgroundColor: colors.surface },
+    pickName: { color: colors.ink, fontSize: 15, fontWeight: '600' },
+    pickNameActive: { color: colors.accent },
+    pickKind: { color: colors.inkFaint, fontSize: 12, marginTop: 1 },
     groupHead: {
       flexDirection: 'row',
       alignItems: 'center',
