@@ -1,8 +1,19 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useMemo, useState } from 'react';
-import { Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  AccessibilityInfo,
+  Animated,
+  Linking,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
 import { Entity } from '../api/types';
+import { hasOpenDoor, openContacts } from './OpenDoors';
 import { ALLGEMEIN, Shop, groupForShop } from '../lib/einkauf';
 import { ConnectionStatus } from '../hooks/useHub';
 import { Colors, radius, type, useColors } from '../theme';
@@ -16,20 +27,6 @@ const STATUS_LABEL: Record<ConnectionStatus, string> = {
 function statusColor(colors: Colors, status: ConnectionStatus): string {
   if (status === 'connected') return colors.on;
   return status === 'connecting' ? colors.warn : colors.danger;
-}
-
-/** Melder, bei denen «offen» wirklich offen heisst (rein, testbar).
- *
- *  Dieselbe Auswahl wie beim Wächter: Nur Kontakte - ein Bewegungsmelder,
- *  der lange «on» meldet, heizt nicht zum Fenster hinaus. */
-const OPEN_CLASSES = new Set(['contact', 'door', 'window', 'garage']);
-
-export function openContacts(entities: Entity[]): Entity[] {
-  return entities.filter(
-    (entity) =>
-      OPEN_CLASSES.has(String(entity.state?.device_class ?? '')) &&
-      entity.state?.state === 'on'
-  );
 }
 
 /** Der nächste echte Termin – dasselbe Ereignis, das der Hub in
@@ -131,6 +128,9 @@ export function TopStrip({
     (entity) => entity.kind === 'alert' && entity.state.state === 'alert'
   );
   const offen = openContacts(entities);
+  // Ein gekipptes Fenster ist eine Notiz, eine offene Wohnungstüre etwas,
+  // das man jetzt wissen will - deshalb blinkt nur die Türe.
+  const tuerOffen = hasOpenDoor(entities);
   const einkauf = shopping ?? [];
   const laeden = [ALLGEMEIN, ...(shops ?? [])];
   const laden = laeden.find((entry) => entry.id === shopId) ?? ALLGEMEIN;
@@ -159,11 +159,14 @@ export function TopStrip({
           />
         ) : null}
         {offen.length > 0 ? (
-          <Chip
-            icon="alert-circle-outline"
-            text={offen.length === 1 ? '1 offen' : `${offen.length} offen`}
-            onPress={() => setOpenOpen(true)}
-          />
+          <Blinkend an={tuerOffen}>
+            <Chip
+              icon="alert-circle-outline"
+              tone={colors.warn}
+              text={offen.length === 1 ? '1 offen' : `${offen.length} offen`}
+              onPress={() => setOpenOpen(true)}
+            />
+          </Blinkend>
         ) : null}
         {/* Orange, sobald etwas fehlt: Die Einkaufsliste ist der einzige
             Eintrag hier, der einen zum Handeln bringt, statt nur zu
@@ -401,6 +404,58 @@ export function TopStrip({
       </Modal>
     </View>
   );
+}
+
+/**
+ * Lässt sein Kind pulsieren, solange `an` gilt.
+ *
+ * Für den einen Fall, in dem eine Anzeige mehr will als gelesen zu
+ * werden: Die Wohnungstüre steht offen. Blinken ist dafür das richtige
+ * Mittel und für alles andere das falsche – deshalb hat es hier keinen
+ * zweiten Verwendungszweck.
+ *
+ * Wer im Betriebssystem «Bewegung reduzieren» eingeschaltet hat, bekommt
+ * kein Blinken, sondern die dauerhaft eingefärbte Anzeige. Die Auskunft
+ * bleibt dieselbe, nur die Bewegung fällt weg.
+ */
+function Blinkend({ an, children }: { an: boolean; children: React.ReactNode }) {
+  const opacity = useRef(new Animated.Value(1)).current;
+  const [ruhig, setRuhig] = useState(false);
+
+  useEffect(() => {
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then(setRuhig)
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!an || ruhig) {
+      opacity.setValue(1);
+      return;
+    }
+    const puls = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 0.3,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    puls.start();
+    return () => {
+      puls.stop();
+      opacity.setValue(1);
+    };
+  }, [an, ruhig, opacity]);
+
+  if (!an) return <>{children}</>;
+  return <Animated.View style={{ opacity }}>{children}</Animated.View>;
 }
 
 function Chip({
