@@ -18,12 +18,12 @@ RUN apt-get update \
 
 # Abhängigkeiten zuerst, damit Docker sie beim Ändern von Code nicht
 # jedes Mal neu installiert. Im Container sind alle optionalen
-# Integrationsbibliotheken dabei (Ring, Roborock, Cast, Android TV) –
+# Integrationsbibliotheken dabei (Ring, Roborock, Cast, Android TV, Tuya) –
 # auf einem Hub-Server zählt Vollständigkeit mehr als Abbildgrösse.
 WORKDIR /app
 COPY pyproject.toml ./
 COPY homepilot ./homepilot
-RUN pip install --no-cache-dir ".[roborock,cast,androidtv,ring,overkiz,pitboss,speech]"
+RUN pip install --no-cache-dir ".[roborock,cast,androidtv,ring,overkiz,pitboss,speech,tuya]"
 
 # Nicht als root laufen lassen.
 RUN useradd --create-home --uid 1000 homepilot

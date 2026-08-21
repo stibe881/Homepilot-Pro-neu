@@ -16,6 +16,7 @@ import { Entity } from '../api/types';
 import { Colors, radius, type, useColors } from '../theme';
 import { Bar } from './Bar';
 import { Card, CardFooter } from './Card';
+import { ColorRow } from './ColorRow';
 import { CoverVisual, Sky } from './CoverVisual';
 import { TvApps } from './TvApps';
 import { TvSleep } from './TvSleep';
@@ -128,7 +129,13 @@ export function EntityCard({
 
   const body = () => {
     switch (entity.kind) {
-      case 'light':
+      case 'light': {
+        // Die Farbreihe steht auch bei ausgeschaltetem Licht da: Ein Tipp
+        // darauf schaltet ein und stellt die Farbe in einem Zug – so
+        // gedacht ist es beim Sternenprojektor am Abend.
+        const farben = entity.commands.includes('set_color') ? (
+          <ColorRow entity={entity} onCommand={onCommand} />
+        ) : null;
         return entity.commands.includes('set_brightness') ? (
           <View style={styles.stack}>
             <Bar
@@ -138,10 +145,17 @@ export function EntityCard({
             <Text style={styles.hint}>
               {isOn ? `${Math.round(entity.state.brightness ?? 100)} % Helligkeit` : 'Aus'}
             </Text>
+            {farben}
+          </View>
+        ) : farben ? (
+          <View style={styles.stack}>
+            <BigValue value={isOn ? 'An' : 'Aus'} on={isOn} />
+            {farben}
           </View>
         ) : (
           <BigValue value={isOn ? 'An' : 'Aus'} on={isOn} />
         );
+      }
 
       case 'switch':
         return <BigValue value={isOn ? 'An' : 'Aus'} on={isOn} note={powerNote()} />;

@@ -1,0 +1,98 @@
+# Tuya: Sternenprojektor und andere Tuya-Geräte, lokal
+
+Der Smart Star Projector läuft über Tuya – wie sehr viele günstige Lampen,
+Steckdosen und LED-Bänder. HomePilot spricht sie **lokal** an: schnell,
+ohne Internet, und Änderungen aus der Hersteller-App kommen trotzdem an.
+
+Der Preis dafür ist ein einmaliger Umweg: Tuya verschlüsselt auch im
+eigenen Netz, und den **lokalen Schlüssel** rückt der Hersteller nur über
+ein (kostenloses) Entwicklerkonto heraus. Eine halbe Stunde, einmal –
+danach braucht es weder Konto noch Cloud im Alltag.
+
+## 1. Gerät in der Tuya-App (Smart Life) anlernen
+
+Falls noch nicht geschehen: Das Gerät gehört in die App **Smart Life**
+oder **Tuya Smart** – über die läuft es ja heute schon via Home Assistant.
+Nichts löschen: Der lokale Schlüssel gehört zur Anlernung; wer das Gerät
+neu anlernt, bekommt einen neuen Schlüssel und darf Schritt 3 wiederholen.
+
+## 2. Entwicklerkonto anlegen (einmalig)
+
+1. Auf [iot.tuya.com](https://iot.tuya.com) ein Konto erstellen.
+2. **Cloud → Create Cloud Project.** Region **Central Europe**,
+   die vorgeschlagenen APIs übernehmen (wichtig: *IoT Core* und
+   *Authorization*).
+3. Im Projekt: **Devices → Link Tuya App Account → Add App Account.**
+   Den QR-Code mit der Smart-Life-App scannen (Ich → oben rechts
+   Scan-Symbol). Danach stehen die eigenen Geräte im Projekt.
+4. Unter **Overview** stehen **Access ID** und **Access Secret** – die
+   braucht der nächste Schritt.
+
+## 3. Lokale Schlüssel holen
+
+Auf docker01:
+
+```
+docker exec -it homepilot-hub python -m homepilot.integrations.tuya --cloud
+```
+
+Region `eu`, dann Access ID und Access Secret eingeben. Der Aufruf listet
+alle Geräte samt Schlüssel und druckt den fertigen Block für die
+config.yaml. Die Zugangsdaten werden nur für diesen Aufruf gebraucht und
+nirgends gespeichert.
+
+Wer mag, prüft vorher, was im Netz überhaupt antwortet:
+
+```
+docker exec -it homepilot-hub python -m homepilot.integrations.tuya --scan
+```
+
+## 4. In die config.yaml eintragen
+
+```yaml
+  - integration: tuya
+    devices:
+      - name: Sternenprojektor
+        id: bf1234567890abcdefgh
+        key: "${TUYA_KEY_PROJEKTOR}"
+        version: 3.4        # steht in der Ausgabe von --cloud/--scan
+```
+
+Den Schlüssel als Umgebungsvariable in Portainer hinterlegen
+(`TUYA_KEY_PROJEKTOR`), nicht wörtlich in die Datei – wie bei allen
+Geheimnissen. Hub neu starten, fertig: Der Projektor erscheint als Licht
+mit Helligkeit und Farbreihe auf der Kachel.
+
+## 5. Was kann das Gerät wirklich? (bei Bedarf)
+
+Tuya beschreibt Fähigkeiten als nummerierte Datenpunkte, und die Nummern
+sind je nach Gerät anders. Die verbreitete Belegung für Lampen ist
+voreingestellt; was der Projektor tatsächlich meldet, zeigt:
+
+```
+docker exec -it homepilot-hub python -m homepilot.integrations.tuya \
+  -c /config/config.yaml --dps Sternenprojektor
+```
+
+Punkte mit Pfeil kennt der Hub schon. Ein zusätzlicher Ein/Aus-Punkt –
+beim Sternenprojektor typischerweise Laser und Nebel getrennt – wird als
+eigener Schalter eingetragen und ist damit sofort in Szenen und Abläufen
+brauchbar:
+
+```yaml
+      - name: Sternenprojektor
+        id: bf1234567890abcdefgh
+        key: "${TUYA_KEY_PROJEKTOR}"
+        switches:
+          - name: Laserpunkte
+            dp: 102
+```
+
+Weicht die Belegung ab (ältere Geräte zählen 1–6 statt 20–25), hilft
+`legacy: true`; einzelne Nummern lassen sich unter `dps:` überschreiben.
+
+## Home Assistant ablösen
+
+Sobald der Projektor hier läuft, kann die Tuya-Integration in Home
+Assistant weg – es gibt nichts zu übernehmen, beide lesen dasselbe Gerät.
+Nur nicht das Gerät aus der Smart-Life-App löschen (siehe Schritt 1).

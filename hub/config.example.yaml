@@ -335,6 +335,22 @@ integrations:
   # - integration: ring
   #   scan_interval: 300
 
+  # Tuya-Geräte lokal im eigenen Netz (Lampen, Steckdosen, Projektoren).
+  # Braucht: pip install tinytuya. Ausführlich in docs/tuya.md.
+  # Schlüssel holen:  python -m homepilot.integrations.tuya --cloud
+  # Datenpunkte sehen: python -m homepilot.integrations.tuya -c config.yaml --dps Sternenprojektor
+  # - integration: tuya
+  #   devices:
+  #     - name: Sternenprojektor
+  #       id: bf1234567890abcdefgh
+  #       key: "${TUYA_KEY_PROJEKTOR}"
+  #       # ip: 192.168.1.77       # optional, sonst wird gesucht
+  #       # version: 3.4           # optional, Standard 3.3
+  #       # Zusätzliche Ein/Aus-Datenpunkte als eigene Schalter:
+  #       # switches:
+  #       #   - name: Sterne
+  #       #     dp: 101
+
   # Pit-Boss-Pelletgrill (auch Louisiana Grills). Braucht: pip install pytboss
   # Ausführlich in docs/grill.md.
   # Mehrere Lampen als eine Leuchte. Eine Deckenlampe mit fünf Spots
