@@ -71,6 +71,29 @@ const ALL_ROOMS = 'Alle';
 /** Befehle, die ein gesperrtes Gerät nur nach Rückfrage annimmt. Lesende
  *  Befehle und Lautstärke gehören nicht dazu – gesperrt ist der Herd, nicht
  *  die Fernbedienung. */
+/**
+ * Unter welchem Namen die Reihenfolge einer Gruppe gespeichert wird.
+ *
+ * Die Favoritengruppe teilt sich den Namen mit der Startseite: Wer sie
+ * dort ordnet, hat sie hier genauso - es ist dieselbe Frage.
+ */
+function groupScope(key: string): string {
+  if (key === '__fav') return 'favorites';
+  if (key === '__none') return 'room:__none';
+  return `room:${key}`;
+}
+
+/** Nach gespeicherter Reihenfolge sortieren, Unbekanntes alphabetisch
+ *  hinten anhängen (rein, testbar). */
+export function sortByOrder(items: Entity[], order?: string[]): Entity[] {
+  const rang = new Map((order ?? []).map((id, index) => [id, index]));
+  return [...items].sort((a, b) => {
+    const ai = rang.has(a.id) ? (rang.get(a.id) as number) : Infinity;
+    const bi = rang.has(b.id) ? (rang.get(b.id) as number) : Infinity;
+    return ai !== bi ? ai - bi : a.name.localeCompare(b.name);
+  });
+}
+
 const SWITCHING = new Set([
   'turn_on',
   'turn_off',
@@ -608,8 +631,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (noRoom.length > 0) {
       result.push({ key: '__none', label: 'Weitere', items: noRoom });
     }
-    return result;
-  }, [grouped, rooms, shown, favorites]);
+    // Jede Gruppe in ihrer eigenen Reihenfolge - sonst liesse sich zwar
+    // ziehen, aber beim nächsten Öffnen stünde wieder alles alphabetisch.
+    return result.map((gruppe) => ({
+      ...gruppe,
+      items: sortByOrder(gruppe.items, prefs.order?.[groupScope(gruppe.key)]),
+    }));
+  }, [grouped, rooms, shown, favorites, prefs.order]);
 
   // Ein einzelner Raum wird nach Kategorien gegliedert: Szenen des Raums
   // oben, dann Beleuchtung, Store, Medien, alles Übrige unter „Weitere“.
@@ -665,8 +693,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     : undefined;
 
   // ── Kacheln direkt im Raster ziehen (Anpassen-Modus) ───────────────────
-  const dragEnabled =
-    editing && orderScope != null && !searching && !grouped && !categorized;
+  //
+  // Früher war Ziehen an eine einzige Reihenfolge gebunden und deshalb
+  // ausgerechnet dort abgeschaltet, wo man «Anpassen» am ehesten drückt:
+  // auf «Räume → Alle». Der Anpassen-Modus gruppiert dort nach Zimmern,
+  // und gruppiert hiess: keine Griffe. Jetzt hat jede Gruppe ihre eigene
+  // Reihenfolge - was innerhalb eines Zimmers oben steht, ist ohnehin die
+  // Frage, die man sich stellt.
+  const dragEnabled = editing && !searching && !categorized;
   const cellLayouts = useRef(new Map<string, CellLayout>()).current;
   const [drag, setDrag] = useState<{ id: string; dx: number; dy: number } | null>(null);
   const startDrag = useCallback((id: string) => setDrag({ id, dx: 0, dy: 0 }), []);
@@ -762,32 +796,43 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     />
   );
 
-  const restIds = rest.map((entity) => entity.id);
-  const endDrag = (id: string, dx: number, dy: number) => {
-    setDrag(null);
-    if (!orderScope) return;
-    const next = reorderByDrop(restIds, cellLayouts, id, dx, dy);
-    if (next) setOrder(orderScope, next);
+  /**
+   * Kacheln einer Liste ziehbar machen.
+   *
+   * `scope` sagt, unter welchem Namen die neue Reihenfolge gespeichert
+   * wird, `items` welche Kacheln miteinander tauschen. Beides gehört
+   * zusammen: Innerhalb eines Zimmers soll sich die Reihenfolge dieses
+   * Zimmers ändern, nicht die aller Geräte.
+   */
+  const zellen = (scope: string | null, items: Entity[]) => {
+    const ids = items.map((entity) => entity.id);
+    const onEnd = (id: string, dx: number, dy: number) => {
+      setDrag(null);
+      if (!scope) return;
+      const next = reorderByDrop(ids, cellLayouts, id, dx, dy);
+      if (next) setOrder(scope, next);
+    };
+    return (entity: Entity) =>
+      dragEnabled && scope && cardWidth ? (
+        <DragCell
+          key={entity.id}
+          id={entity.id}
+          width={cardWidth}
+          dragging={drag?.id === entity.id}
+          dx={drag?.id === entity.id ? drag.dx : 0}
+          dy={drag?.id === entity.id ? drag.dy : 0}
+          onStart={startDrag}
+          onMove={moveDrag}
+          onEnd={onEnd}
+          onLayout={(cellId, layout) => cellLayouts.set(cellId, layout)}
+        >
+          {renderCard(entity)}
+        </DragCell>
+      ) : (
+        renderCard(entity)
+      );
   };
-  const renderCell = (entity: Entity) =>
-    dragEnabled && cardWidth ? (
-      <DragCell
-        key={entity.id}
-        id={entity.id}
-        width={cardWidth}
-        dragging={drag?.id === entity.id}
-        dx={drag?.id === entity.id ? drag.dx : 0}
-        dy={drag?.id === entity.id ? drag.dy : 0}
-        onStart={startDrag}
-        onMove={moveDrag}
-        onEnd={endDrag}
-        onLayout={(cellId, layout) => cellLayouts.set(cellId, layout)}
-      >
-        {renderCard(entity)}
-      </DragCell>
-    ) : (
-      renderCard(entity)
-    );
+  const renderCell = zellen(orderScope, rest);
 
   const content = () => {
     if (section === 'start') {
@@ -1279,13 +1324,25 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             </>
           ) : null}
 
+          {/* Der Hinweis gehört dorthin, wo gezogen werden kann - auch
+              über die nach Zimmern gruppierte Ansicht, in der es bisher
+              gar nicht ging. */}
+          {grouped && dragEnabled && groups.some((group) => group.items.length > 1) ? (
+            <Text style={styles.sectionLabel}>
+              Kacheln am Griff ✥ an die gewünschte Stelle ziehen – innerhalb
+              ihres Zimmers
+            </Text>
+          ) : null}
+
           {/* „Alle“ mit vielen Räumen: nach Zimmer gruppiert. */}
           {grouped
             ? groups.map((group) => (
                 <View key={group.key} style={styles.group}>
                   <Text style={styles.groupLabel}>{group.label}</Text>
                   <View style={styles.grid}>
-                    {cardWidth ? group.items.map(renderCard) : null}
+                    {cardWidth
+                      ? group.items.map(zellen(groupScope(group.key), group.items))
+                      : null}
                   </View>
                 </View>
               ))
@@ -1297,6 +1354,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           {!grouped && !categorized && !roomTiles && dragEnabled && rest.length > 1 ? (
             <Text style={styles.sectionLabel}>
               Kacheln am Griff ✥ an die gewünschte Stelle ziehen
+            </Text>
+          ) : null}
+          {/* Warum die Griffe fehlen, statt sie wortlos wegzulassen: In
+              einer gefilterten Liste zu ordnen ergäbe eine Reihenfolge,
+              die nur zu dieser Suche passt. */}
+          {editing && searching ? (
+            <Text style={styles.sectionLabel}>
+              Zum Ordnen die Suche leeren – in einer gefilterten Liste zu
+              ziehen ergäbe eine Reihenfolge, die nur dazu passt.
             </Text>
           ) : null}
           {!grouped && !categorized && !roomTiles ? (
