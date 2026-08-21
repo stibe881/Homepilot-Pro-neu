@@ -105,6 +105,38 @@ def new_alerts(
     return frisch, behalten
 
 
+# Ein Kanal, der sich beim Verbinden gleich wieder verabschiedet, hat fast
+# immer eine kaputt gespeicherte Push-Anmeldung. Wer länger als das durch-
+# hält, hatte ein anderes Problem - und dessen Anmeldung wegzuwerfen wäre
+# nur eine unnötige Neuregistrierung bei Ring.
+QUICK_DEATH_SECONDS = 60
+
+
+def channel_alive(listener: Any) -> bool:
+    """Steht der Ereigniskanal wirklich noch? (rein, testbar)
+
+    «started» am Zuhörer heisst bloss, dass ihn niemand gestoppt hat. Der
+    Push-Client darunter schaltet sich bei einem Fehler selbst ab - genau
+    das passiert bei einer beschädigten Anmeldung, eine Sekunde nach dem
+    «erfolgreich angemeldet». Von aussen sah dann alles gut aus, und es
+    klingelte bloss nie.
+
+    Fehlt der Einblick (ältere Fassung der Bibliothek), gilt der Kanal als
+    in Ordnung: Lieber einen toten Kanal übersehen als einen gesunden
+    ständig neu aufbauen - die Abfrage fängt den Fall ohnehin auf.
+    """
+    if not getattr(listener, "started", False):
+        return False
+    receiver = getattr(listener, "_receiver", None)
+    pruefen = getattr(receiver, "is_started", None)
+    if not callable(pruefen):
+        return True
+    try:
+        return bool(pruefen())
+    except Exception:
+        return True
+
+
 def health_detail(events_ok: bool, error: str | None) -> str:
     """Was im System-Bildschirm über den Ereigniskanal steht (rein, testbar)."""
     if events_ok:
@@ -311,13 +343,31 @@ class RingIntegration(Integration):
         while True:
             if await self._start_listener(on_event):
                 versuch = 0
-                # Steht er, gibt es nichts zu tun ausser hinzusehen.
-                while getattr(self._listener, "started", False):
-                    await asyncio.sleep(60)
+                verbunden_seit = time.time()
+                # Steht er, gibt es nichts zu tun ausser hinzusehen - aber
+                # genau hinsehen: eine Viertelminute, nicht eine ganze.
+                while channel_alive(self._listener):
+                    await asyncio.sleep(15)
                 self._events_ok = False
-                self._listen_error = "Verbindung abgerissen"
-                self.log.warning("Ring-Ereigniskanal abgerissen – neuer Anlauf")
+                stand = time.time() - verbunden_seit
                 await self._stop_listener()
+                if stand < QUICK_DEATH_SECONDS and self._stored.get("listener"):
+                    # Sofort wieder weg: Das ist die Handschrift einer
+                    # beschädigten Push-Anmeldung («Incorrect padding» aus
+                    # firebase_messaging). Sie wegzuwerfen ist der einzige
+                    # Weg - mit ihr geht es beim nächsten Mal genauso aus.
+                    self._listen_error = "Push-Anmeldung beschädigt"
+                    self.log.warning(
+                        "Ring-Ereigniskanal brach nach %.0f s wieder ab – die "
+                        "gespeicherte Push-Anmeldung wird verworfen und neu "
+                        "registriert",
+                        stand,
+                    )
+                    self._stored.pop("listener", None)
+                    self._save("listener", None)
+                else:
+                    self._listen_error = "Verbindung abgerissen"
+                    self.log.warning("Ring-Ereigniskanal abgerissen – neuer Anlauf")
                 continue
             versuch += 1
             wartezeit = retry_delay(versuch)

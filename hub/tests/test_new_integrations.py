@@ -721,6 +721,39 @@ def test_ring_retry_delay_grows_and_stops_growing():
     assert retry_delay(0) == RETRY_SECONDS[0]
 
 
+class _Empfaenger:
+    def __init__(self, laeuft):
+        self._laeuft = laeuft
+
+    def is_started(self):
+        return self._laeuft
+
+
+class _Zuhoerer:
+    def __init__(self, started=True, empfaenger=None):
+        self.started = started
+        self._receiver = empfaenger
+
+
+def test_ring_channel_alive_sees_a_self_terminated_push_client():
+    """«started» heisst nur: niemand hat ihn gestoppt.
+
+    Der Fall aus dem Betrieb: firebase_messaging meldet «erfolgreich
+    angemeldet» und schaltet sich eine Sekunde später wegen einer
+    beschädigten Anmeldung selbst ab. Der Zuhörer darüber merkt davon
+    nichts - von aussen sah alles gut aus, und es klingelte bloss nie.
+    """
+    from homepilot.integrations.ring import channel_alive
+
+    assert channel_alive(_Zuhoerer(True, _Empfaenger(True))) is True
+    assert channel_alive(_Zuhoerer(True, _Empfaenger(False))) is False
+    # Gestoppt ist gestoppt.
+    assert channel_alive(_Zuhoerer(False, _Empfaenger(True))) is False
+    # Ohne Einblick gilt er als gesund – die Abfrage fängt den Fall auf.
+    assert channel_alive(_Zuhoerer(True, None)) is True
+    assert channel_alive(None) is False
+
+
 def test_ring_health_detail_names_the_reason():
     """Die eine Störung, die man sonst nie bemerkt, steht im Klartext da."""
     from homepilot.integrations.ring import health_detail

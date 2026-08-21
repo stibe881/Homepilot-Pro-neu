@@ -174,3 +174,29 @@ def test_an_error_answer_is_not_a_state():
 
     # Unbekannte Nummern ergeben trotzdem einen brauchbaren Text.
     assert error_text({"Error": "Irgendwas", "Err": "4711"}) == "Irgendwas"
+
+
+def test_a_half_written_address_is_caught_at_the_start():
+    """«10.10.23» sieht wie eine Adresse aus und ist keine.
+
+    Der Systemaufruf darunter macht daraus klaglos 10.10.0.23. Ohne diese
+    Prüfung redet der Hub mit dem falschen Gerät, und die Kachel sagt
+    «nie gesehen» - was nach einem Netzproblem aussieht und keines ist.
+    """
+    import pytest
+
+    from homepilot.core.errors import ConfigError
+    from homepilot.integrations.tuya import check_address
+
+    assert check_address("10.10.1.23") == "10.10.1.23"
+    # Keine Angabe ist in Ordnung – dann sucht der Hub selbst.
+    assert check_address(None) is None
+    assert check_address("  ") is None
+
+    with pytest.raises(ConfigError) as fehler:
+        check_address("10.10.23")
+    assert "10.10.23" in str(fehler.value)
+    assert "--scan" in str(fehler.value)
+
+    with pytest.raises(ConfigError):
+        check_address("Sternenprojektor")

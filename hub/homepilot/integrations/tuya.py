@@ -43,6 +43,7 @@ was ein bestimmtes Gerät wirklich meldet, zeigt
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import queue
 import threading
@@ -308,6 +309,33 @@ def error_text(antwort: Any) -> str:
     return str(antwort)
 
 
+def check_address(roh: Any) -> str | None:
+    """Die Adresse prüfen, bevor irgendetwas versucht wird (rein, testbar).
+
+    «10.10.23» sieht wie eine Adresse aus und ist keine: Der Systemaufruf
+    darunter macht daraus klaglos 10.10.0.23, und der Hub redet fortan
+    mit dem falschen Gerät oder mit niemandem. Das Ergebnis ist eine
+    Kachel, die «nie gesehen» sagt - die unbrauchbarste aller Auskünfte,
+    weil sie nach einem Netzproblem aussieht.
+
+    Leer heisst «keine Angabe», und das ist in Ordnung: Dann sucht der
+    Hub das Gerät selbst.
+    """
+    text = str(roh or "").strip()
+    if not text:
+        return None
+    try:
+        ipaddress.ip_address(text)
+    except ValueError:
+        raise ConfigError(
+            f"tuya: '{text}' ist keine gültige IP-Adresse. Eine IPv4-Adresse "
+            "hat vier durch Punkte getrennte Zahlen (z.B. 10.10.1.23). Die "
+            "richtige zeigt: python -m homepilot.integrations.tuya --scan – "
+            "oder die Zeile weglassen, dann sucht der Hub das Gerät selbst."
+        ) from None
+    return text
+
+
 def light_commands(nummern: dict[str, int], kind: str) -> list[str]:
     """Welche Kommandos das Gerät anbieten darf (rein, testbar).
 
@@ -374,6 +402,7 @@ class TuyaIntegration(Integration):
                 "'python -m homepilot.integrations.tuya --cloud'"
             )
         name = str(block.get("name") or geraete_id)
+        check_address(block.get("ip"))
         kind = EntityKind.SWITCH if block.get("kind") == "switch" else EntityKind.LIGHT
         nummern = dps_map(block)
         bereich = brightness_range(block)
@@ -432,7 +461,7 @@ class TuyaIntegration(Integration):
         block = self._geraete[schluessel]["config"]
         device = tinytuya.Device(
             schluessel,
-            address=block.get("ip") or None,
+            address=check_address(block.get("ip")),
             local_key=str(block.get("key")),
             persist=True,
         )

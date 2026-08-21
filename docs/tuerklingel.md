@@ -36,6 +36,33 @@ Zeile über den Ereigniskanal. Zwei Möglichkeiten:
   E-Mail, Passwort und den zugeschickten Code eingeben, danach den Hub neu
   starten.
 
+### «Ereigniskanal verbunden» – und trotzdem klingelt nichts
+
+Es gibt einen Fall dazwischen, der genau so aussah wie alles in Ordnung:
+Die Anmeldung beim Push-Dienst gelingt, und eine Sekunde später schaltet
+sich der Client wegen einer beschädigten gespeicherten Anmeldung selbst
+ab (`Incorrect padding` im Protokoll). Im Log stand «Ring-Ereigniskanal
+verbunden», danach nie wieder etwas.
+
+Der Hub erkennt das inzwischen selbst: Bricht der Kanal innerhalb einer
+Minute nach dem Verbinden wieder ab, wirft er die gespeicherte
+Push-Anmeldung weg und registriert sich neu. Von Hand geht dasselbe so –
+danach den Hub neu starten:
+
+```
+docker exec homepilot-hub python -c "
+import json, pathlib
+p = pathlib.Path('/config/ring-token.json')
+d = json.loads(p.read_text())
+d.pop('listener', None)
+p.write_text(json.dumps(d))
+print('Push-Anmeldung entfernt')
+"
+```
+
+Das betrifft nur die Push-Anmeldung, nicht die Kontoanmeldung – der
+2FA-Code wird dabei nicht erneut gebraucht.
+
 **Station 3 prüfen:** Abläufe → der betreffende Ablauf → «Verlauf». Steht
 dort kein Lauf zur Klingelzeit, hat der Auslöser nicht gepasst; steht dort
 ein übersprungener Lauf, war es eine Bedingung. Kam der Lauf durch und
