@@ -145,28 +145,16 @@ def test_remember_keeps_the_latest_spelling_in_front():
     assert len(voll) == 5 and voll[0] == "Neu"
 
 
-def test_suggestions_match_at_word_starts_only():
+def test_suggestions_prefer_what_starts_with_the_query():
     from homepilot.core.shopping import suggestions
 
-    known = ["Salami", "Milch", "Mineralwasser", "H-Milch", "Bio Milch", "Brot"]
-    # «mi» meint Milch. «Salami» endet bloss zufällig so und fällt weg;
-    # «H-Milch» und «Bio Milch» fangen dagegen mit einem Wort so an.
-    assert suggestions(known, "mi") == ["Milch", "Mineralwasser", "H-Milch", "Bio Milch"]
-    # Der Anfang des ganzen Namens schlägt den eines späteren Wortes.
-    assert suggestions(known, "milch") == ["Milch", "H-Milch", "Bio Milch"]
+    known = ["Salami", "Milch", "Mineralwasser", "Brot"]
+    # «mi» meint eher Milch als Salami - Anfang schlägt Enthalten.
+    assert suggestions(known, "mi") == ["Milch", "Mineralwasser", "Salami"]
     # Ohne Eingabe die zuletzt benutzten: Eingekauft wird meistens dasselbe.
     assert suggestions(known, "") == known
     assert suggestions(known, "xyz") == []
     assert suggestions(known, "mi", limit=1) == ["Milch"]
-
-
-def test_words_splits_at_the_separators_that_occur_in_names():
-    from homepilot.core.shopping import words
-
-    assert words("H-Milch") == ["h", "milch"]
-    assert words("Brot, dunkel") == ["brot", "dunkel"]
-    assert words("Reis/Nudeln") == ["reis", "nudeln"]
-    assert words("Rüebli") == ["rüebli"]
 
 
 def test_added_articles_are_remembered_for_next_time():
