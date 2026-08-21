@@ -26,6 +26,16 @@ interface Automation {
   enabled?: boolean;
 }
 
+/** Je Auslöser: kam er überhaupt an? Antwort von /diagnose. */
+interface TriggerHealth {
+  type: string;
+  entity_id?: string;
+  ok: boolean;
+  hinweis: string;
+  zuletzt_gefeuert_vor?: number | null;
+  zuletzt_gemeldet_vor?: number | null;
+}
+
 /** Was der Ablauf jetzt täte – ohne dass etwas passiert. */
 interface DryRun {
   conditions_hold: boolean;
@@ -955,6 +965,10 @@ export function AutomationsScreen({
   const [openScenes, setOpenScenes] = useState<string[]>([]);
   // Ablauf, dessen Lauf-Verlauf gerade aufgeklappt ist.
   const [runsFor, setRunsFor] = useState<string | null>(null);
+  // Die Auskunft «warum schweigt der?» je Ablauf – erst auf Wunsch geholt,
+  // denn sie kostet einen eigenen Aufruf und interessiert nur, wenn etwas
+  // nicht stimmt.
+  const [diagnose, setDiagnose] = useState<Record<string, TriggerHealth[]>>({});
   const templates = useMemo(() => buildTemplates(entities, scenes), [entities, scenes]);
 
   const mayEdit = !!user?.capabilities?.includes('edit_automations');
@@ -1240,9 +1254,26 @@ export function AutomationsScreen({
                         lief das nicht?» steht dann da - z.B. «übersprungen:
                         nur wenn dunkel» - statt nur des letzten Laufs. */}
                     <Pressable
-                      onPress={() =>
-                        setRunsFor((prev) => (prev === automation.id ? null : automation.id))
-                      }
+                      onPress={() => {
+                        const auf = runsFor === automation.id;
+                        setRunsFor(auf ? null : automation.id);
+                        // Beim Aufklappen gleich nachfragen, ob der
+                        // Auslöser überhaupt ankommt - der Lauf-Verlauf
+                        // allein beantwortet das nicht.
+                        if (!auf && !diagnose[automation.id]) {
+                          fetch(
+                            `${settings.url}/api/automations/${automation.id}/diagnose`,
+                            { headers }
+                          )
+                            .then((r) => (r.ok ? r.json() : null))
+                            .then((d) =>
+                              d?.triggers
+                                ? setDiagnose((v) => ({ ...v, [automation.id]: d.triggers }))
+                                : null
+                            )
+                            .catch(() => {});
+                        }
+                      }}
                       accessibilityRole="button"
                       accessibilityState={{ expanded: runsFor === automation.id }}
                     >
@@ -1269,6 +1300,19 @@ export function AutomationsScreen({
                           «Übersprungen» heisst: ausgelöst, aber eine Bedingung
                           war nicht erfüllt - sie steht dahinter.
                         </Text>
+                        {/* Und die andere Hälfte der Antwort: Kam der
+                            Auslöser überhaupt? Ein Melder mit leerer
+                            Batterie hinterlässt im Lauf-Verlauf nichts. */}
+                        {(diagnose[automation.id] ?? [])
+                          .filter((t) => !t.ok)
+                          .map((t, index) => (
+                            <Text
+                              key={`d${index}`}
+                              style={[styles.triggerNote, { color: colors.warn }]}
+                            >
+                              {t.hinweis}
+                            </Text>
+                          ))}
                       </View>
                     ) : null}
                   </View>

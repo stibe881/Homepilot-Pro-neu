@@ -892,6 +892,22 @@ def create_app(hub: Hub) -> FastAPI:
         require(request, Capability.EDIT_AUTOMATIONS)
         return {"conflicts": automation_module.find_conflicts(hub.automations.automations)}
 
+    @app.get("/api/automations/{automation_id}/diagnose")
+    async def automation_diagnose(automation_id: str, request: Request) -> dict[str, Any]:
+        """Warum schweigt dieser Ablauf?
+
+        Der Lauf-Verlauf sagt, was gelaufen ist – nicht, ob der Auslöser
+        überhaupt ankam. Genau das ist aber der häufigere Fall: ein Melder
+        mit leerer Batterie, ein falscher Kanal, ein Zustand, den das Gerät
+        nie meldet. Hier steht je Auslöser, wann er zuletzt gefeuert hat
+        und wann sich sein Gerät zuletzt überhaupt gemeldet hat.
+        """
+        require(request, Capability.VIEW_AUTOMATIONS)
+        bericht = hub.automations.diagnose(automation_id)
+        if bericht is None:
+            raise HTTPException(status_code=404, detail="Ablauf nicht gefunden")
+        return bericht
+
     @app.get("/api/automations/{automation_id}/runs")
     async def automation_runs(automation_id: str, request: Request) -> dict[str, Any]:
         """Der Verlauf genau dieses Ablaufs – was er tat und was nicht."""

@@ -1264,3 +1264,79 @@ async def test_an_automation_that_calls_itself_is_stopped():
         assert len(hub.automations.runs) == 1
     finally:
         await hub.stop()
+
+
+# ── «Warum geht der Ablauf nicht?» ─────────────────────────────────────────
+
+
+def test_trigger_health_separates_the_three_reasons():
+    from homepilot.core.automation import describe_trigger_health
+
+    trigger = {"type": "state", "entity_id": "hm.melder", "to": "on"}
+    jetzt = 1000.0
+
+    # 1. Das Gerät meldet sich gar nicht.
+    stumm = describe_trigger_health(trigger, None, None, None, jetzt)
+    assert stumm["ok"] is False
+    assert "noch nie gemeldet" in stumm["hinweis"]
+
+    # 2. Es meldet sich, aber nie mit dem gesuchten Wert. Der häufigste
+    #    Einrichtungsfehler: falscher Kanal, falscher Zustand.
+    daneben = describe_trigger_health(trigger, "off", None, jetzt - 30, jetzt)
+    assert daneben["ok"] is False
+    assert "nie mit dem gesuchten Wert" in daneben["hinweis"]
+    assert "«off»" in daneben["hinweis"] and "«on»" in daneben["hinweis"]
+    assert daneben["zuletzt_gemeldet_vor"] == 30.0
+
+    # 3. Er hat gefeuert - was danach war, steht im Lauf-Verlauf.
+    gut = describe_trigger_health(trigger, "on", jetzt - 5, jetzt - 5, jetzt)
+    assert gut["ok"] is True
+    assert gut["zuletzt_gefeuert_vor"] == 5.0
+
+    # Zeit- und Sonnen-Auslöser hängen an keinem Gerät.
+    zeit = describe_trigger_health({"type": "time", "at": "18:30"}, None, None, None, jetzt)
+    assert zeit["ok"] is True
+
+
+async def test_diagnose_sees_a_sensor_that_never_reports_the_wanted_value():
+    """Der Melder lebt, meldet aber nie «on» – etwa ein falscher Kanal."""
+    automation = {
+        "id": "bewegung",
+        "alias": "Licht bei Bewegung",
+        "trigger": [{"type": "state", "entity_id": "demo.motion_hall", "to": "on"}],
+        "action": [
+            {"type": "command", "entity_id": "demo.light_livingroom", "command": "turn_on"}
+        ],
+    }
+    hub = await run_hub([automation])
+    try:
+        bericht = hub.automations.diagnose("bewegung")
+        assert bericht["triggers"][0]["ok"] is False
+        assert "noch nie gemeldet" in bericht["triggers"][0]["hinweis"]
+
+        # Der Melder meldet sich – aber mit dem falschen Wert.
+        await hub.registry.update_state("demo.motion_hall", {"state": "unknown"})
+        await settle()
+        bericht = hub.automations.diagnose("bewegung")
+        assert bericht["triggers"][0]["ok"] is False
+        assert "nie mit dem gesuchten Wert" in bericht["triggers"][0]["hinweis"]
+        assert bericht["triggers"][0]["zuletzt_gemeldet_vor"] is not None
+
+        # Und jetzt richtig.
+        await hub.registry.update_state("demo.motion_hall", {"state": "on"})
+        await settle()
+        bericht = hub.automations.diagnose("bewegung")
+        assert bericht["triggers"][0]["ok"] is True
+    finally:
+        await hub.stop()
+
+
+def test_diagnose_returns_nothing_for_an_unknown_automation():
+    from homepilot.core.automation import AutomationEngine
+
+    class LeererHub:
+        pass
+
+    engine = AutomationEngine.__new__(AutomationEngine)
+    engine.automations = []
+    assert engine.diagnose("gibt-es-nicht") is None

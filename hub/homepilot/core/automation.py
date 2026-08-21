@@ -384,6 +384,67 @@ def parse_quiet_until(value: Any) -> float | None:
         return None
 
 
+def describe_trigger_health(
+    trigger: dict[str, Any],
+    wert: Any,
+    gefeuert: float | None,
+    gemeldet: float | None,
+    jetzt: float,
+) -> dict[str, Any]:
+    """Warum ein Auslöser schweigt, in einem Satz (rein, testbar).
+
+    Der häufigste Support-Fall lautet «der Ablauf geht nicht», und dahinter
+    stecken drei ganz verschiedene Ursachen:
+
+      - Das Gerät meldet sich gar nicht (Batterie leer, Funk weg).
+      - Es meldet sich, aber nie mit dem gesuchten Wert (falscher Kanal,
+        falscher Zustand eingetragen).
+      - Es hat gefeuert, und dann hat eine Bedingung geblockt - das steht
+        schon im Lauf-Verlauf.
+
+    Der Lauf-Verlauf kennt nur den dritten Fall. Diese Auskunft trennt die
+    beiden anderen.
+    """
+    def her(zeitpunkt: float | None) -> float | None:
+        return None if zeitpunkt is None else round(jetzt - zeitpunkt, 1)
+
+    art = str(trigger.get("type", "state"))
+    if art != "state":
+        return {
+            "type": art,
+            "ok": True,
+            "hinweis": "Zeit- oder Sonnen-Auslöser – er hängt an keinem Gerät.",
+        }
+
+    entity_id = str(trigger.get("entity_id") or "")
+    ziel = trigger.get("to")
+    if gemeldet is None:
+        hinweis = (
+            f"«{entity_id}» hat sich noch nie gemeldet, seit der Hub läuft. "
+            "Stimmt die Kennung, und ist das Gerät erreichbar?"
+        )
+        ok = False
+    elif gefeuert is None:
+        hinweis = (
+            f"«{entity_id}» meldet sich, aber nie mit dem gesuchten Wert. "
+            f"Jetzt steht dort «{wert}»"
+            + (f", gesucht ist «{ziel}»." if ziel is not None else ".")
+        )
+        ok = False
+    else:
+        hinweis = "Der Auslöser hat schon gefeuert – was danach geschah, steht im Verlauf."
+        ok = True
+    return {
+        "type": art,
+        "entity_id": entity_id,
+        "ok": ok,
+        "wert": wert,
+        "zuletzt_gefeuert_vor": her(gefeuert),
+        "zuletzt_gemeldet_vor": her(gemeldet),
+        "hinweis": hinweis,
+    }
+
+
 def _as_list(value: Any) -> list[dict[str, Any]]:
     if value is None:
         return []
@@ -515,6 +576,12 @@ class AutomationEngine:
         self._deadlines: dict[asyncio.Task, float] = {}
         # Wie viele Läufe je Ablauf noch anstehen (nur bei «queued»).
         self._queued: dict[str, int] = {}
+        # Wann ein Auslöser zuletzt gepasst hat und wann sich sein Gerät
+        # zuletzt überhaupt gemeldet hat - je (Ablauf, Nummer des
+        # Auslösers). Das beantwortet «kam der Auslöser an?», was der
+        # Lauf-Verlauf nicht kann: Dort steht nur, was gelaufen ist.
+        self._gefeuert: dict[tuple[str, int], float] = {}
+        self._gemeldet: dict[tuple[str, int], float] = {}
         # Wie tief die Aufrufkette gerade ist (Ablauf ruft Ablauf).
         self._depth: dict[str, int] = {}
         # Laufende «bleibt so für X»-Wartezeiten je (Automation, Auslöser).
@@ -604,13 +671,22 @@ class AutomationEngine:
     # ── Trigger ────────────────────────────────────────────────────────────
 
     def _on_state_changed(self, _event_type: str, data: dict[str, Any]) -> None:
+        jetzt = time.time()
         for automation in self.automations:
             if not automation.enabled:
                 continue
             for index, trigger in enumerate(automation.triggers):
                 if trigger.get("type", "state") != "state":
                     continue
+                # Auch wenn der Auslöser *nicht* passt: Dass sich das Gerät
+                # überhaupt gemeldet hat, ist die halbe Antwort auf «warum
+                # geht der Ablauf nicht». Ohne das bleibt nur Raten, ob der
+                # Melder schweigt oder ob er nur nie den gesuchten Wert
+                # meldet.
+                if trigger.get("entity_id") == data.get("entity_id"):
+                    self._gemeldet[(automation.id, index)] = jetzt
                 if self._state_trigger_matches(trigger, data):
+                    self._gefeuert[(automation.id, index)] = jetzt
                     hold = float(trigger.get("for") or 0)
                     if hold > 0:
                         # «bleibt so für X»: erst warten, dann prüfen, ob
@@ -810,6 +886,41 @@ class AutomationEngine:
             raise
         except Exception as err:
             log.warning("Automation '%s': Nachholen fehlgeschlagen: %s", alias, err)
+
+    def diagnose(self, automation_id: str) -> dict[str, Any] | None:
+        """Warum ein Ablauf schweigt – je Auslöser eine Auskunft."""
+        automation = next(
+            (a for a in self.automations if a.id == automation_id), None
+        )
+        if automation is None:
+            return None
+        jetzt = time.time()
+        auslöser = []
+        for index, trigger in enumerate(automation.triggers):
+            entity = self.hub.registry.get(str(trigger.get("entity_id") or ""))
+            wert = (
+                entity.state.get(trigger.get("attribute", "state"))
+                if entity is not None
+                else None
+            )
+            auslöser.append(
+                describe_trigger_health(
+                    trigger,
+                    wert,
+                    self._gefeuert.get((automation.id, index)),
+                    self._gemeldet.get((automation.id, index)),
+                    jetzt,
+                )
+            )
+        return {
+            "automation_id": automation.id,
+            "alias": automation.alias,
+            "enabled": automation.enabled,
+            "ruht_bis": automation.quiet_until,
+            "laeuft_gerade": automation.id in self._running,
+            "triggers": auslöser,
+            "runs": [r for r in self.runs if r.get("automation_id") == automation.id][:10],
+        }
 
     def _restore_runs(self) -> None:
         """Den Verlauf früherer Läufe zurückholen (jüngste zuerst)."""
