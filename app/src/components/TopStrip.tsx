@@ -285,6 +285,101 @@ export function TopStrip({
         </Pressable>
       </Modal>
 
+      {/* Die Einkaufsliste im Laden: Gänge in der Reihenfolge dieses
+          Ladens, ein Tipp hakt ab. Die Ladenwahl steht oben - im Coop
+          läuft man anders herum als im Volg, und wer die Liste in der
+          falschen Reihenfolge abarbeitet, geht dreimal durch. */}
+      <Modal
+        visible={shopOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShopOpen(false)}
+      >
+        <Pressable style={styles.backdrop} onPress={() => setShopOpen(false)}>
+          <Pressable style={styles.sheet} onPress={() => {}}>
+            {/* Beim Abhaken des letzten Eintrags bleibt das Fenster offen –
+                «0 Sachen einkaufen» wäre dann eine seltsame Überschrift. */}
+            <Text style={styles.heading}>
+              {einkauf.length === 0
+                ? 'Einkaufsliste'
+                : einkauf.length === 1
+                  ? '1 Sache einkaufen'
+                  : `${einkauf.length} Sachen einkaufen`}
+            </Text>
+
+            {/* Nur wenn es überhaupt etwas zu wählen gibt: Mit einem
+                einzigen Laden wäre die Zeile eine Behauptung von
+                Auswahl. */}
+            {laeden.length > 1 ? (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={{ flexGrow: 0 }}
+                contentContainerStyle={styles.shopRow}
+              >
+                {laeden.map((entry) => (
+                  <Pressable
+                    key={entry.id}
+                    onPress={() => setShopId(entry.id)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: entry.id === laden.id }}
+                    style={[styles.shopChip, entry.id === laden.id && styles.shopChipActive]}
+                  >
+                    <Text
+                      style={[
+                        styles.shopChipText,
+                        entry.id === laden.id && styles.shopChipTextActive,
+                      ]}
+                    >
+                      {entry.name}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            ) : null}
+
+            <ScrollView style={{ maxHeight: 360 }}>
+              {gaenge.length === 0 ? (
+                <Text style={styles.lightRoom}>Die Liste ist leer.</Text>
+              ) : null}
+              {gaenge.map((gang) => (
+                <View key={gang.category}>
+                  <Text style={styles.gangLabel}>{gang.category}</Text>
+                  {gang.items.map((eintrag: any) => (
+                    <Pressable
+                      key={eintrag.id}
+                      onPress={
+                        onShoppingDone ? () => onShoppingDone(String(eintrag.id)) : undefined
+                      }
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: false }}
+                      accessibilityLabel={`${eintrag.text} abhaken`}
+                      style={({ pressed }) => [styles.lightRow, pressed && { opacity: 0.6 }]}
+                    >
+                      <Ionicons
+                        name={onShoppingDone ? 'ellipse-outline' : 'cart-outline'}
+                        size={20}
+                        color={colors.inkFaint}
+                      />
+                      <Text style={[styles.lightName, { flex: 1 }]}>{eintrag.text}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ))}
+            </ScrollView>
+
+            {onShoppingDone && einkauf.length > 0 ? (
+              <Text style={styles.lightRoom}>
+                Antippen hakt ab – der Eintrag verschwindet sofort.
+              </Text>
+            ) : null}
+            <Pressable onPress={() => setShopOpen(false)} style={styles.close}>
+              <Text style={styles.closeText}>Schliessen</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       <Modal
         visible={eventOpen}
         transparent
