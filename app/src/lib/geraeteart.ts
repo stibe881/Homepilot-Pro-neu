@@ -44,6 +44,28 @@ const NACH_EINHEIT: Record<string, string> = {
   lx: 'Helligkeitsfühler',
 };
 
+/**
+ * Ist das ein Fernseher? (rein, testbar)
+ *
+ * Beides sind für den Hub «media_player», im Haushalt aber zwei ganz
+ * verschiedene Dinge: Auf einer Box läuft Musik, ein Fernseher hat ein
+ * Bild, Apps und eine Fernbedienung. Wo es um Musik geht – der Player
+ * auf der Startseite, eine Durchsage – hat er nichts verloren.
+ *
+ * Erkannt an der Integration und, für alles Künftige, an den Knöpfen:
+ * Wer Apps starten oder ein Steuerkreuz bedienen kann, ist keine Box.
+ * Ein Chromecast am Fernseher bleibt dabei eine Box – er kann nur Ton
+ * abspielen, und genau dafür wird er hier gebraucht.
+ */
+export function isTelevision(entity: Entity): boolean {
+  if (entity.kind !== 'media_player') return false;
+  return (
+    entity.integration === 'androidtv' ||
+    entity.commands.includes('launch_app') ||
+    entity.commands.includes('dpad_up')
+  );
+}
+
 export function deviceKindLabel(entity: Entity): string {
   const deviceClass = String(entity.state?.device_class ?? '');
 
@@ -99,11 +121,7 @@ export function deviceKindLabel(entity: Entity): string {
       return 'Kalender';
 
     case 'media_player':
-      if (entity.integration === 'androidtv') return 'Fernseher';
-      // Ein Gerät, das Sender kennt, ist ein Fernseher; eines, das nur
-      // spielt und pausiert, eine Box.
-      if (entity.commands.includes('launch_app')) return 'Fernseher';
-      return 'Lautsprecher';
+      return isTelevision(entity) ? 'Fernseher' : 'Lautsprecher';
 
     default:
       return 'Gerät';
@@ -150,7 +168,7 @@ export function deviceKindIcon(entity: Entity): string {
     case 'calendar':
       return 'calendar-outline';
     case 'media_player':
-      return entity.integration === 'androidtv' ? 'tv-outline' : 'musical-notes-outline';
+      return isTelevision(entity) ? 'tv-outline' : 'musical-notes-outline';
     default:
       return 'ellipse-outline';
   }
