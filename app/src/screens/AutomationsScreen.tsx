@@ -22,6 +22,8 @@ interface Automation {
   match?: string;
   /** Ausgeschaltete Abläufe bleiben stehen, laufen aber nicht. */
   enabled?: boolean;
+  /** Was ein erneuter Auslöser während einer Wartezeit tut: 'single' oder 'restart'. */
+  mode?: string;
 }
 
 /** Was der Ablauf jetzt täte – ohne dass etwas passiert. */
@@ -421,6 +423,10 @@ interface Draft {
   category: string;
   /** Ausgeschaltet: bleibt stehen, läuft aber nicht. */
   enabled: boolean;
+  /** Kommt der Auslöser erneut, während der Ablauf noch wartet:
+   *  'single' lässt die laufende Wartezeit zu Ende gehen, 'restart'
+   *  beginnt sie von vorn. Ohne Wartezeit ohne Wirkung. */
+  mode: 'single' | 'restart';
 }
 
 const EMPTY: Draft = {
@@ -437,6 +443,7 @@ const EMPTY: Draft = {
   elseSteps: [],
   category: '',
   enabled: true,
+  mode: 'single',
 };
 
 /** Einen Trigger-Entwurf in die gespeicherte Form bringen (rein, testbar). */
@@ -548,12 +555,70 @@ function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
   const batteries = entities.filter(
     (entity) => typeof entity.state?.battery === 'number'
   );
+  // Bewegungsmelder: entweder als eigene Entität (device_class 'motion',
+  // etwa der HmIP-SMI) oder als Feld an einer Kamera. Der eigene Melder
+  // hat Vorrang - er sitzt im Raum, die Kamera schaut ihn bloss an.
+  const motion =
+    entities.find((entity) => entity.state?.device_class === 'motion') ??
+    entities.find((entity) => 'motion' in (entity.state ?? {}));
   const offScene = scenes.find((scene) => scene.id === 'alles_aus');
   // Ohne Szene «Alles aus»: alle Lichter. Ein einzelnes beliebiges Gerät
   // auszuschalten wäre kein Anfang, den man nur noch speichern muss.
   const allLights = entities.filter(
     (entity) => entity.kind === 'light' && entity.commands.includes('turn_off')
   );
+
+  if (motion && allLights.length > 0) {
+    // Der häufigste Ablauf überhaupt - und der, bei dem man am ehesten an
+    // der falschen Stelle landet: ohne «Wartezeit neu starten» geht im
+    // Flur das Licht aus, während man noch davorsteht.
+    const light =
+      allLights.find((entity) => entity.room && entity.room === motion.room) ??
+      allLights[0];
+    templates.push({
+      label: 'Licht bei Bewegung',
+      icon: 'walk-outline',
+      draft: {
+        ...EMPTY,
+        alias: `Licht bei Bewegung${motion.room ? ` ${motion.room}` : ''}`,
+        mode: 'restart',
+        triggers: [
+          {
+            ...EMPTY_TRIGGER,
+            entityId: motion.id,
+            toState: 'on',
+            attribute: 'motion' in (motion.state ?? {}) ? 'motion' : '',
+          },
+        ],
+        // Nur wenn es dunkel ist. Am gemessenen Lux, falls der Melder ihn
+        // liefert - der Sonnenstand weiss nichts von einem trüben
+        // Novembernachmittag.
+        ...(typeof motion.state?.illumination === 'number'
+          ? {
+              stateConditions: [
+                {
+                  entity_id: motion.id,
+                  op: 'below' as Compare,
+                  value: '20',
+                  attribute: 'illumination',
+                },
+              ],
+            }
+          : { conditionKind: 'sun' as ConditionKind, conditionSun: 'down' as const }),
+        steps: [
+          {
+            ...EMPTY_STEP,
+            commandActions: [{ entity_id: light.id, command: 'turn_on' }],
+          },
+          { ...EMPTY_STEP, kind: 'delay' as StepKind, seconds: '300' },
+          {
+            ...EMPTY_STEP,
+            commandActions: [{ entity_id: light.id, command: 'turn_off' }],
+          },
+        ],
+      },
+    });
+  }
 
   if (presence && (offScene || allLights.length > 0)) {
     templates.push({
@@ -931,6 +996,7 @@ export function AutomationsScreen({
       match: draft.match,
       enabled: draft.enabled,
       category: draft.category.trim() || null,
+      mode: draft.mode,
     };
     const url = draft.id
       ? `${settings.url}/api/automations/${draft.id}`
@@ -2388,6 +2454,30 @@ function Editor({
             styles={styles}
             onChange={(steps) => set({ steps })}
           />
+
+          {/* Nur zeigen, wenn der Ablauf überhaupt wartet: Ohne Wartezeit
+              ist er vorbei, ehe der nächste Auslöser kommt – die Frage
+              stellt sich dann gar nicht. */}
+          {draft.steps.some((step) => step.kind === 'delay' || step.kind === 'wait_until') ? (
+            <>
+              <Text style={styles.label}>
+                Wenn der Auslöser während der Wartezeit erneut kommt
+              </Text>
+              <Choice
+                options={[
+                  { key: 'single', label: 'Wartezeit weiterlaufen lassen' },
+                  { key: 'restart', label: 'Wartezeit neu starten' },
+                ]}
+                value={draft.mode}
+                onSelect={(mode) => set({ mode: mode as 'single' | 'restart' })}
+              />
+              <Text style={styles.triggerNote}>
+                {draft.mode === 'restart'
+                  ? 'Der Ablauf beginnt von vorn. Beim Bewegungslicht heisst das: Es bleibt an, solange sich noch etwas rührt, und geht erst die eingestellte Zeit nach der letzten Bewegung aus.'
+                  : 'Der laufende Ablauf zählt, der neue Auslöser wird verworfen. Beim Bewegungslicht heisst das: Es geht die eingestellte Zeit nach der ersten Bewegung aus – auch wenn zwischendurch noch jemand durchgeht.'}
+              </Text>
+            </>
+          ) : null}
         </Field>
 
         <Field label="… sonst">
@@ -3373,6 +3463,10 @@ function toDraft(automation: Automation): Draft {
         entity_id: entry.entity_id,
         op: ('above' in entry ? 'above' : 'below' in entry ? 'below' : 'is') as Compare,
         value: String(entry.above ?? entry.below ?? entry.equals ?? 'on'),
+        // Beim Speichern wird das Feld mitgeschrieben, beim Öffnen fiel es
+        // bisher weg: Wer einen Ablauf mit «Helligkeit unter 20» erneut
+        // speicherte, verglich danach den Zustand statt den Messwert.
+        ...(entry.attribute ? { attribute: String(entry.attribute) } : {}),
       })),
     match: automation.match === 'any' ? 'any' : 'all',
     weekdays: Array.isArray(condition.weekdays) ? condition.weekdays.map(Number) : [],
@@ -3380,6 +3474,7 @@ function toDraft(automation: Automation): Draft {
     elseSteps: actionsToSteps(automation.otherwise ?? []),
     category: automation.category ?? '',
     enabled: automation.enabled !== false,
+    mode: automation.mode === 'restart' ? 'restart' : 'single',
   };
 }
 

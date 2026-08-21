@@ -106,6 +106,10 @@ class AutomationRequest(BaseModel):
     match: str = "all"
     # Frei gewählter Name zum Gruppieren in der App.
     category: str | None = None
+    # Was ein erneuter Auslöser tut, während der Ablauf noch in einer
+    # Wartezeit steht: «single» lässt ihn zu Ende laufen, «restart» beginnt
+    # die Wartezeit von vorn.
+    mode: str = "single"
 
 
 class SceneRequest(BaseModel):
@@ -1702,6 +1706,7 @@ def create_app(hub: Hub) -> FastAPI:
             "enabled": body.enabled,
             "match": body.match,
             "category": body.category,
+            "mode": body.mode,
         }
         hub.data.set("automations", [*stored_automations(), entry])
         await hub.reload_automations()
@@ -1730,6 +1735,7 @@ def create_app(hub: Hub) -> FastAPI:
                 "enabled": body.enabled,
                 "match": body.match,
                 "category": body.category,
+                "mode": body.mode,
             }
             if entry["id"] == automation_id
             else entry

@@ -523,6 +523,40 @@ automations:
         command: turn_on
         data: { brightness: 80 }
 
+  # Bewegungslicht: an bei Bewegung, nach einer Weile wieder aus.
+  # 'mode' entscheidet, was eine erneute Bewegung während der Wartezeit
+  # tut - beide Antworten sind richtig, nur in verschiedenen Räumen:
+  #   single (Vorgabe) = der laufende Ablauf zählt, das Licht geht 5 Min
+  #                      nach der *ersten* Bewegung aus. Für Durchgänge.
+  #   restart          = die Wartezeit beginnt von vorn, das Licht bleibt
+  #                      an, solange sich etwas rührt. Für Flur und Bad.
+  # Lässt man Warten und Ausschalten weg, bleibt das Licht an, bis es
+  # jemand von Hand oder ein anderer Ablauf ausschaltet.
+  # - id: bewegungslicht_flur
+  #   alias: Licht Flur bei Bewegung
+  #   mode: restart
+  #   trigger:
+  #     - type: state
+  #       entity_id: homematic.0031A0C9A6F400_3
+  #       to: "on"
+  #   condition:
+  #     # Am gemessenen Lux, nicht am Sonnenstand - der weiss nichts von
+  #     # einem trüben Novembernachmittag.
+  #     - type: state
+  #       entity_id: homematic.0031A0C9A6F400_3
+  #       attribute: illumination
+  #       below: 20
+  #   action:
+  #     - type: command
+  #       entity_id: hue.flur
+  #       command: turn_on
+  #       data: { brightness: 40 }
+  #     - type: delay
+  #       seconds: 300
+  #     - type: command
+  #       entity_id: hue.flur
+  #       command: turn_off
+
   # Szene und Benachrichtigung sind ebenfalls Aktionen.
   # - id: feierabend
   #   alias: Feierabend

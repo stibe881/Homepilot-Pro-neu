@@ -988,3 +988,71 @@ def test_the_glance_needs_a_token():
     hub = Hub(make_config(token="geheim", integrations=[{"integration": "demo"}]))
     with TestClient(create_app(hub)) as client:
         assert client.get("/api/glance").status_code in (401, 403)
+
+
+def test_mode_survives_saving_and_reloading():
+    """«Wartezeit neu starten» darf beim Speichern nicht verlorengehen.
+
+    Die App schickt das Feld mit, der Hub muss es ablegen und beim
+    Auflisten wieder herausgeben – sonst stünde die Wahl im Editor, hätte
+    aber keine Wirkung.
+    """
+    with make_client() as client:
+        created = client.post(
+            "/api/automations",
+            json={
+                "alias": "Bewegungslicht",
+                "trigger": [
+                    {"type": "state", "entity_id": "demo.motion_hall", "to": "on"}
+                ],
+                "action": [
+                    {
+                        "type": "command",
+                        "entity_id": "demo.light_livingroom",
+                        "command": "turn_on",
+                    },
+                    {"type": "delay", "seconds": 300},
+                ],
+                "mode": "restart",
+            },
+        )
+        assert created.status_code == 200
+        automation_id = created.json()["automation"]["id"]
+
+        listing = client.get("/api/automations").json()["automations"]
+        stored = next(entry for entry in listing if entry["id"] == automation_id)
+        assert stored["mode"] == "restart"
+
+        # Und wieder zurück auf die Vorgabe.
+        client.put(
+            f"/api/automations/{automation_id}",
+            json={
+                "alias": "Bewegungslicht",
+                "trigger": [
+                    {"type": "state", "entity_id": "demo.motion_hall", "to": "on"}
+                ],
+                "action": [],
+                "mode": "single",
+            },
+        )
+        listing = client.get("/api/automations").json()["automations"]
+        stored = next(entry for entry in listing if entry["id"] == automation_id)
+        assert stored["mode"] == "single"
+
+
+def test_an_automation_without_mode_stays_single():
+    """Ältere gespeicherte Abläufe kennen das Feld nicht – sie sollen sich
+    verhalten wie bisher, nicht plötzlich abbrechen."""
+    with make_client() as client:
+        created = client.post(
+            "/api/automations",
+            json={
+                "alias": "Ohne mode",
+                "trigger": [{"type": "time", "at": "03:00"}],
+                "action": [],
+            },
+        )
+        automation_id = created.json()["automation"]["id"]
+        listing = client.get("/api/automations").json()["automations"]
+        stored = next(entry for entry in listing if entry["id"] == automation_id)
+        assert stored["mode"] == "single"

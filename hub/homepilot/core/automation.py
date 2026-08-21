@@ -23,6 +23,21 @@ Passt eine Bedingung nicht, kann statt der Aktionen ein zweiter Satz
 laufen (``otherwise``) – sonst bräuchte «sonst mach das andere» zwei
 Abläufe mit gegenteiliger Bedingung, die man beim Ändern beide anfassen
 muss.
+
+``mode`` entscheidet, was ein erneuter Auslöser tut, während der Ablauf
+noch läuft – also mitten in einem ``delay``:
+
+  - ``single`` (Vorgabe): Der laufende Ablauf zählt, der neue Auslöser
+    wird verworfen. Das Licht geht dann so lange nach der *ersten*
+    Bewegung aus, wie die Wartezeit sagt – auch wenn zwischendurch noch
+    jemand durchgeht.
+  - ``restart``: Der laufende Ablauf wird abgebrochen und von vorn
+    gestartet. Die Wartezeit läuft ab der *letzten* Bewegung – im Flur
+    das, was man erwartet.
+
+Ohne Wartezeit ändert ``mode`` nichts: Ein Ablauf, der bloss einschaltet,
+ist vorbei, ehe der nächste Auslöser kommt. Das Licht bleibt dann an, bis
+es jemand oder ein anderer Ablauf ausschaltet.
 """
 
 from __future__ import annotations
@@ -115,6 +130,13 @@ class Automation:
     # Liste erlaubter Namen: Wer einen neuen tippt, hat ihn damit angelegt –
     # eine Kategorie ohne Einträge braucht niemand.
     category: str | None = None
+    # Was ein erneuter Auslöser tut, solange der Ablauf noch läuft – also
+    # mitten in einer Wartezeit. «single» lässt ihn zu Ende laufen und
+    # verwirft den neuen Auslöser, «restart» bricht ab und fängt von vorn
+    # an. Für ein Bewegungslicht ist das der ganze Unterschied zwischen
+    # «geht 5 Minuten nach der ersten Bewegung aus» und «bleibt an, solange
+    # sich noch etwas rührt».
+    mode: str = "single"
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -128,6 +150,7 @@ class Automation:
             "enabled": self.enabled,
             "match": self.match,
             "category": self.category,
+            "mode": self.mode,
         }
 
     def as_config(self) -> dict[str, Any]:
@@ -142,6 +165,7 @@ class Automation:
             "enabled": self.enabled,
             "match": self.match,
             "category": self.category,
+            "mode": self.mode,
         }
 
 
@@ -300,6 +324,10 @@ def parse_automations(
                 enabled=config.get("enabled", True) is not False,
                 match="any" if str(config.get("match")) == "any" else "all",
                 category=str(config["category"]) if config.get("category") else None,
+                # Alles ausser «restart» ist «single»: Ein Tippfehler soll
+                # nicht dazu führen, dass ein laufender Ablauf abgebrochen
+                # wird – die zurückhaltende Variante ist die sichere.
+                mode="restart" if str(config.get("mode")) == "restart" else "single",
             )
         )
     return automations
@@ -391,7 +419,9 @@ class AutomationEngine:
         self._unsubscribe = None
         self._timer_tasks: list[asyncio.Task] = []
         self._run_tasks: set[asyncio.Task] = set()
-        self._running: set[str] = set()
+        # Der gerade laufende Task je Ablauf. Eine blosse Kennung genügte
+        # nicht mehr: Für «restart» muss der alte Lauf abbrechbar sein.
+        self._running: dict[str, asyncio.Task] = {}
         # Laufende «bleibt so für X»-Wartezeiten je (Automation, Auslöser).
         self._held_tasks: dict[tuple[str, int], asyncio.Task] = {}
         # Bis zu diesem Zeitpunkt laufen keine Automationen – für Abende mit
@@ -467,6 +497,7 @@ class AutomationEngine:
         self._timer_tasks.clear()
         self._run_tasks.clear()
         self._held_tasks.clear()
+        self._running.clear()
 
     # ── Trigger ────────────────────────────────────────────────────────────
 
@@ -608,10 +639,23 @@ class AutomationEngine:
         if self.paused:
             log.debug("Automation '%s' übersprungen (pausiert)", automation.alias)
             return
-        # Läuft die Automation bereits (z.B. in einem delay), nicht erneut starten.
-        if automation.id in self._running:
-            return
+        current = self._running.get(automation.id)
+        if current is not None and not current.done():
+            if automation.mode != "restart":
+                # «single»: Der laufende Ablauf (z.B. in einer Wartezeit)
+                # zählt, der neue Auslöser wird verworfen.
+                return
+            # «restart»: Der laufende Lauf hört hier auf – die Wartezeit
+            # beginnt gleich von vorn. Was er schon getan hat, bleibt
+            # getan; was nach der Wartezeit käme (das Ausschalten),
+            # übernimmt der neue Lauf.
+            log.debug("Automation '%s' läuft neu an (mode: restart)", automation.alias)
+            current.cancel()
         task = asyncio.create_task(self._run(automation))
+        # Erst hier eintragen, nicht erst im Lauf selbst: Zwei Auslöser im
+        # selben Moment starteten sonst beide, weil der erste den Eintrag
+        # noch gar nicht gesetzt hatte.
+        self._running[automation.id] = task
         self._run_tasks.add(task)
         task.add_done_callback(self._run_tasks.discard)
 
@@ -636,7 +680,6 @@ class AutomationEngine:
     # ── Ausführung ─────────────────────────────────────────────────────────
 
     async def _run(self, automation: Automation) -> None:
-        self._running.add(automation.id)
         error: str | None = None
         executed = False
         try:
@@ -656,11 +699,22 @@ class AutomationEngine:
                 with as_source(automation_source(automation.id, automation.alias)):
                     for action in actions:
                         await self._execute_action(automation, action)
+        except asyncio.CancelledError:
+            # Erneut ausgelöst (mode: restart) oder der Hub fährt herunter:
+            # Der Lauf endet hier. Was bis dahin geschah – das Licht ging an –
+            # ist trotzdem geschehen und gehört ins Protokoll. Ohne diesen
+            # Eintrag fehlte im Verlauf genau der Moment, den man sucht.
+            self._note(automation, executed=executed, error=None, skipped=[])
+            raise
         except Exception as err:
             error = str(err)
             log.exception("Automation '%s' fehlgeschlagen", automation.alias)
         finally:
-            self._running.discard(automation.id)
+            # Nur den eigenen Eintrag räumen: Bei «restart» steht dort
+            # schon der Nachfolger, und den dürfte ein abgebrochener
+            # Vorgänger nicht mit wegwischen.
+            if self._running.get(automation.id) is asyncio.current_task():
+                self._running.pop(automation.id, None)
 
         # Auch der nicht ausgeführte Lauf wird protokolliert – mit dem
         # Grund. Genau danach sucht man, wenn ein Ablauf schweigt.

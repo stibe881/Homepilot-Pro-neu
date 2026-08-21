@@ -70,6 +70,86 @@ Prüft alle 15 Minuten: Sonne oben **und** über 25 °C → Storen halb schliess
       data: { position: 30 }     # 30 % offen
 ```
 
+## Bewegungslicht
+
+Licht an bei Bewegung, nach einer Weile wieder aus. Die Wartezeit ist ein
+gewöhnlicher `delay`-Schritt zwischen Ein- und Ausschalten:
+
+```yaml
+- id: bewegungslicht_flur
+  alias: Licht Flur bei Bewegung
+  mode: restart              # siehe unten
+  trigger:
+    - type: state
+      entity_id: homematic.0031A0C9A6F400_3
+      to: "on"
+  condition:
+    # Nur wenn es wirklich dunkel ist – am Messwert des Melders, nicht am
+    # Sonnenstand: Der weiss nichts von einem trüben Novembernachmittag.
+    - type: state
+      entity_id: homematic.0031A0C9A6F400_3
+      attribute: illumination
+      below: 20
+  action:
+    - type: command
+      entity_id: hue.flur
+      command: turn_on
+      data: { brightness: 40 }
+    - type: delay
+      seconds: 300
+    - type: command
+      entity_id: hue.flur
+      command: turn_off
+```
+
+### Was passiert bei erneuter Bewegung?
+
+Genau die Frage entscheidet `mode` – und beide Antworten sind richtig, nur
+eben in verschiedenen Räumen:
+
+| `mode` | Wirkung | Wofür |
+| --- | --- | --- |
+| `single` (Vorgabe) | Der laufende Ablauf zählt, die neue Bewegung wird verworfen. Das Licht geht **5 Minuten nach der ersten** Bewegung aus. | Durchgangsräume: Ein Licht, das sich selbst immer weiter verlängert, will man dort nicht. |
+| `restart` | Der laufende Ablauf bricht ab und beginnt von vorn. Das Licht geht **5 Minuten nach der letzten** Bewegung aus. | Flur, Keller, Bad – überall, wo man sich aufhält. |
+
+### Ohne Wartezeit
+
+Lässt man `delay` und das Ausschalten weg, bleibt das Licht an, bis es
+jemand von Hand oder ein anderer Ablauf ausschaltet:
+
+```yaml
+- id: bewegungslicht_ohne_zeit
+  alias: Licht Keller bei Bewegung
+  trigger:
+    - type: state
+      entity_id: homematic.0031A0C9A6F400_3
+      to: "on"
+  action:
+    - type: command
+      entity_id: hue.keller
+      command: turn_on
+```
+
+`mode` ist dann wirkungslos: Der Ablauf ist vorbei, ehe der nächste
+Auslöser kommt.
+
+### In der App
+
+*Abläufe → Ablauf öffnen → „… dann das tun"*: Sobald ein Schritt „Warten"
+oder „Warten bis" dabei ist, erscheint darunter die Wahl **„Wenn der
+Auslöser während der Wartezeit erneut kommt"**. Ohne Warte-Schritt bleibt
+sie ausgeblendet – die Frage stellt sich dann nicht.
+
+Zwei Dinge, die leicht überraschen:
+
+- Der abgebrochene Lauf steht trotzdem im Verlauf. Er hat ja etwas getan –
+  das Licht ging an. Ohne diesen Eintrag fehlte im Protokoll genau der
+  Moment, den man sucht.
+- Beim Ausschalten von Hand mitten in der Wartezeit schaltet der Ablauf
+  danach trotzdem noch einmal aus. Das ist harmlos; wer es sauber will,
+  hängt vor das Ausschalten ein `wait_until` oder prüft mit einer
+  Bedingung.
+
 ## Abwesenheitsmodus
 
 1. Einen Helfer-Schalter anlegen (Integration `helpers`):
