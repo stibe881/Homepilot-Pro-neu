@@ -61,8 +61,12 @@ def parse_feed(xml_text: str) -> list[dict[str, Any]]:
     root = ET.fromstring(xml_text)
     alerts = []
     for entry in root.findall("atom:entry", NS):
-        def text(path: str) -> str | None:
-            element = entry.find(path, NS)
+        # Der Eintrag wird ausdrücklich gebunden. Ohne das griffe die
+        # Funktion auf die Schleifenvariable zu - solange sie noch in
+        # derselben Runde aufgerufen wird, geht das gut, und beim ersten
+        # Verschieben nach unten stillschweigend nicht mehr.
+        def text(path: str, eintrag: Any = entry) -> str | None:
+            element = eintrag.find(path, NS)
             return element.text.strip() if element is not None and element.text else None
 
         polygons = [

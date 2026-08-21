@@ -1,11 +1,9 @@
 import asyncio
+import xmlrpc.client
 
 import pytest
 
-import xmlrpc.client
-
 from homepilot.integrations import homematic
-
 from homepilot.integrations.homematic import (
     HomematicIntegration,
     command_error,

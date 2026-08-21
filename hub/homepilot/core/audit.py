@@ -59,7 +59,7 @@ def trim(rows: list[dict[str, Any]], limit: int = LIMIT) -> list[dict[str, Any]]
 
 
 class AuditLog:
-    def __init__(self, hub: "Hub") -> None:
+    def __init__(self, hub: Hub) -> None:
         self.hub = hub
 
     def record(

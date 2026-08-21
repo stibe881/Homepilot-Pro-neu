@@ -62,6 +62,13 @@
 
 set -euo pipefail
 
+# Welcher Stand ins Haus geht.
+#
+# Der Name stand hier lange als Arbeitszweig und wurde beim Weiterziehen
+# nicht mitgeführt - der Knopf baute dann beharrlich das Falsche, und von
+# aussen sah es aus, als käme die Änderung nicht an. Deshalb ein fester
+# Zweig als Vorgabe; wer etwas anderes bauen will, setzt HOMEPILOT_BRANCH
+# in /opt/homepilot/github-credentials.env.
 BRANCH="${HOMEPILOT_BRANCH:-claude/custom-home-automation-t9lvq3}"
 REPO="stibe881/Homepilot-Pro-neu"
 WORKDIR="/tmp/homepilot-build"

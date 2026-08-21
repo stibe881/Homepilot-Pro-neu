@@ -229,7 +229,7 @@ async def record_clip(source: str, seconds: int = CLIP_SECONDS) -> bytes | None:
                 _, error = await asyncio.wait_for(
                     process.communicate(), timeout=seconds + CLIP_TIMEOUT
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 process.kill()
                 log.warning("Mitschnitt abgebrochen: ffmpeg antwortet nicht")
                 return None
@@ -365,7 +365,7 @@ class StreamManager:
                 return await response.read(), response.headers.get(
                     "content-type", "application/octet-stream"
                 )
-        except asyncio.TimeoutError as err:
+        except TimeoutError as err:
             raise StreamError("mediamtx antwortet nicht") from err
         except aiohttp.ClientError as err:
             raise StreamError(f"mediamtx nicht erreichbar: {err}") from err
@@ -515,7 +515,7 @@ class StreamManager:
             try:
                 data = await asyncio.wait_for(stream.process.stderr.read(400), timeout=2)
                 message = data.decode("utf-8", "replace").strip().replace("\n", " ")
-            except (asyncio.TimeoutError, ValueError):
+            except (TimeoutError, ValueError):
                 pass
         return f"Kamerastrom abgebrochen: {message}" if message else "Kamerastrom abgebrochen"
 
@@ -538,7 +538,7 @@ class StreamManager:
             process.terminate()
             try:
                 await asyncio.wait_for(process.wait(), timeout=5)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 process.kill()
         shutil.rmtree(stream.directory, ignore_errors=True)
 

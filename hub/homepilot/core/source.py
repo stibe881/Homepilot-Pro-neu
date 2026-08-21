@@ -11,9 +11,10 @@ jede Integration hindurchgereicht werden.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any, Iterator
+from typing import Any
 
 _current: ContextVar[dict[str, Any] | None] = ContextVar("homepilot_source", default=None)
 

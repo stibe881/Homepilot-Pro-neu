@@ -14,7 +14,7 @@ from .conftest import make_config
 def test_wifi_payload_escapes_special_characters():
     assert (
         wifi_payload("Familie Gross", "ge;heim:12")
-        == "WIFI:T:WPA;S:Familie Gross;P:ge\;heim\\:12;;"
+        == "WIFI:T:WPA;S:Familie Gross;P:ge\\;heim\\:12;;"
     )
     assert "H:true;" in wifi_payload("Netz", "pw", hidden=True)
 

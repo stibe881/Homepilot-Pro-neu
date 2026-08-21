@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View, ViewStyle } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 
-import { Colors, radius, useColors } from '../theme';
+import { radius, useColors } from '../theme';
 
 /**
  * Live-Bild einer Kamera.

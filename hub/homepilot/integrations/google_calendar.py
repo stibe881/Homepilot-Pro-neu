@@ -30,7 +30,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -116,7 +116,7 @@ def parse_events(items: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
             try:
                 end_dt = datetime.fromisoformat(end.replace("Z", "+00:00"))
                 if end_dt.tzinfo is None:
-                    end_dt = end_dt.replace(tzinfo=timezone.utc)
+                    end_dt = end_dt.replace(tzinfo=UTC)
                 if end_dt <= now:
                     continue
             except ValueError:
@@ -223,7 +223,7 @@ class GoogleCalendarIntegration(Integration):
 
     async def _refresh(self) -> None:
         entity_id = self.entity_id("next")
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         merged: list[dict[str, Any]] = []
         try:
             token = await self._ensure_token()
@@ -328,18 +328,17 @@ async def _login_main(config_path: str) -> int:
     )
     code = input("\nCode: ").strip()
 
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            TOKEN_URL,
-            data={
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": REDIRECT,
-            },
-        ) as response:
-            payload = await response.json()
+    async with aiohttp.ClientSession() as session, session.post(
+        TOKEN_URL,
+        data={
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": REDIRECT,
+        },
+    ) as response:
+        payload = await response.json()
     refresh_token = payload.get("refresh_token")
     if not refresh_token:
         print(f"✗ Kein refresh_token erhalten: {payload}")

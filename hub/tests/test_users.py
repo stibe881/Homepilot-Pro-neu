@@ -1,8 +1,8 @@
+from datetime import datetime, timedelta
+
 import pytest
 
 from homepilot.core.errors import ConfigError
-from datetime import datetime, timedelta
-
 from homepilot.core.users import (
     Capability,
     Role,

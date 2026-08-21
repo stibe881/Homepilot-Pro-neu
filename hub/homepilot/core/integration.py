@@ -12,7 +12,8 @@ import asyncio
 import importlib
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, ClassVar, Coroutine
+from collections.abc import Coroutine
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import aiohttp
 
@@ -33,7 +34,7 @@ log = logging.getLogger(__name__)
 class Integration(ABC):
     name: ClassVar[str]
 
-    def __init__(self, hub: "Hub", config: dict[str, Any]) -> None:
+    def __init__(self, hub: Hub, config: dict[str, Any]) -> None:
         self.hub = hub
         self.config = config
         self.log = logging.getLogger(f"homepilot.integrations.{self.name}")
@@ -142,7 +143,7 @@ def is_permanent(err: Exception) -> bool:
 
 
 class IntegrationManager:
-    def __init__(self, hub: "Hub") -> None:
+    def __init__(self, hub: Hub) -> None:
         self.hub = hub
         self._integrations: dict[str, Integration] = {}
         # Auch fehlgeschlagene Integrationen merken, damit die App zeigen

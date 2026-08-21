@@ -33,19 +33,18 @@ async def upload(
     """Eine Sicherung hochladen (x-upsert: derselbe Name überschreibt)."""
     target = f"{url.rstrip('/')}/storage/v1/object/{bucket}/{name}"
     timeout = aiohttp.ClientTimeout(total=60)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(
-            target,
-            data=payload,
-            headers={
-                **_headers(service_key),
-                "Content-Type": "application/json",
-                "x-upsert": "true",
-            },
-        ) as response:
-            if response.status >= 400:
-                body = (await response.text())[:300]
-                raise RuntimeError(f"Upload → {response.status}: {body}")
+    async with aiohttp.ClientSession(timeout=timeout) as session, session.post(
+        target,
+        data=payload,
+        headers={
+            **_headers(service_key),
+            "Content-Type": "application/json",
+            "x-upsert": "true",
+        },
+    ) as response:
+        if response.status >= 400:
+            body = (await response.text())[:300]
+            raise RuntimeError(f"Upload → {response.status}: {body}")
 
 
 async def prune(url: str, service_key: str, bucket: str, keep: int = KEEP) -> None:

@@ -118,7 +118,7 @@ def parse_scenes(configs: list[dict[str, Any]], editable: bool = False) -> list[
 
 
 class SceneManager:
-    def __init__(self, hub: "Hub") -> None:
+    def __init__(self, hub: Hub) -> None:
         # Laufende Übergänge – festgehalten, damit sie nicht vom
         # Müllsammler eingezogen werden, bevor sie fertig sind.
         self._fades: set[asyncio.Task] = set()

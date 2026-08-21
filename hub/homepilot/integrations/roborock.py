@@ -32,7 +32,6 @@ from ..core.entity import Entity, EntityKind
 from ..core.errors import ConfigError
 from ..core.integration import Integration
 
-
 # Saugstärke-Stufen → Code (V2, moderne S-Serie). Für die App bewusst auf
 # vier verständliche Stufen reduziert.
 FAN_SPEEDS: dict[str, int] = {

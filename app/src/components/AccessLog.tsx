@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AuditEntry, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
-import { Colors, radius, type, useColors } from '../theme';
+import { Colors, type, useColors } from '../theme';
 
 /**
  * Zugriffsprotokoll: wer hat wann was geschaltet.

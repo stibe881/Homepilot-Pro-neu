@@ -1,0 +1,71 @@
+# Was bei jedem Push läuft.
+#
+# Der Grund: Ein Fehler soll auffallen, solange er noch billig ist – und
+# nicht abends, wenn das Licht nicht angeht. Die drei Prüfungen sind genau
+# die, die man vor einem Commit ohnehin von Hand laufen lässt.
+#
+# Hub und App laufen getrennt: Wer nur an der App arbeitet, wartet nicht
+# auf den Hub, und die Ausgabe sagt sofort, welche Seite klemmt.
+
+name: Prüfung
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  hub:
+    name: Hub – Tests, Linter, Typen
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Abhängigkeiten
+        working-directory: hub
+        run: pip install -e ".[dev]"
+      - name: Linter
+        working-directory: hub
+        run: ruff check .
+      - name: Tests
+        working-directory: hub
+        run: pytest -q --cov=homepilot --cov-report=term-missing:skip-covered
+      # Die Typprüfung darf vorerst rot sein, ohne den Lauf zu stoppen:
+      # Sie kommt in ein gewachsenes Projekt und meldet zu Beginn viel.
+      # Sobald die Zahl bei null ist, kommt das continue-on-error weg.
+      - name: Typen (noch nicht bindend)
+        working-directory: hub
+        continue-on-error: true
+        run: mypy homepilot
+
+  app:
+    name: App – Typen, Linter, Web-Bau
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Abhängigkeiten
+        working-directory: app
+        run: npm ci --no-audit --no-fund
+      - name: Typen
+        working-directory: app
+        run: npx tsc --noEmit
+      - name: Linter
+        working-directory: app
+        run: npx eslint .
+      # Der Web-Bau ist die einzige Prüfung, die den ganzen Baum wirklich
+      # durchzieht: Ein Importfehler in einer selten benutzten Datei fällt
+      # weder tsc noch ESLint auf, dem Bündler aber sofort.
+      - name: Web-Fassung bauen
+        working-directory: app
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: npx expo export --platform web --output-dir /tmp/webbau

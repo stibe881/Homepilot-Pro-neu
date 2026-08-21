@@ -309,8 +309,10 @@ class AndroidTvIntegration(Integration):
 
         try:
             zahl = int(minutes) if minutes is not None else 0
-        except (TypeError, ValueError):
-            raise ValueError("sleep_timer braucht data.minutes als Zahl (0 = aus)")
+        except (TypeError, ValueError) as err:
+            raise ValueError(
+                "sleep_timer braucht data.minutes als Zahl (0 = aus)"
+            ) from err
 
         if zahl <= 0:
             await self.hub.registry.update_state(entity_id, {"sleep_until": None})

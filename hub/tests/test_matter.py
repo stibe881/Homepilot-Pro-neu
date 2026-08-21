@@ -12,7 +12,6 @@ from homepilot.core.config import load_config
 from homepilot.core.hub import Hub
 from homepilot.integrations.matter import (
     battery_percent,
-    node_lines,
     classify,
     endpoint_device_types,
     endpoint_name,
@@ -21,6 +20,7 @@ from homepilot.integrations.matter import (
     lock_commands,
     lock_state,
     node_endpoints,
+    node_lines,
 )
 
 # ── Reine Funktionen ─────────────────────────────────────────────────────

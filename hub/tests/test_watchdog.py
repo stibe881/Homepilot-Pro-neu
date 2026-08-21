@@ -1,12 +1,15 @@
 """Integrations-Wächter: Ausfall erkennen, melden, Entwarnung geben."""
 
-import asyncio
 import time
 
 from homepilot.core.config import ApiConfig, HubConfig
 from homepilot.core.hub import Hub
-from homepilot.core.watchdog import cycle_stats, low_batteries, watched_entities
-from homepilot.core.watchdog import down_integrations
+from homepilot.core.watchdog import (
+    cycle_stats,
+    down_integrations,
+    low_batteries,
+    watched_entities,
+)
 
 
 class _E:

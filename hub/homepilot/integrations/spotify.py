@@ -37,7 +37,7 @@ import asyncio
 import json as jsonlib
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, urlsplit, parse_qs
+from urllib.parse import parse_qs, quote, urlsplit
 
 import aiohttp
 
@@ -660,17 +660,16 @@ async def _login_main(config_path: str) -> int:
     )
     code = extract_code(input("\nAdresse oder Code: "))
 
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            ACCOUNTS,
-            data={
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": REDIRECT,
-            },
-            auth=aiohttp.BasicAuth(client_id, client_secret),
-        ) as response:
-            payload = await response.json(content_type=None)
+    async with aiohttp.ClientSession() as session, session.post(
+        ACCOUNTS,
+        data={
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": REDIRECT,
+        },
+        auth=aiohttp.BasicAuth(client_id, client_secret),
+    ) as response:
+        payload = await response.json(content_type=None)
 
     error = payload.get("error")
     if error == "invalid_client":

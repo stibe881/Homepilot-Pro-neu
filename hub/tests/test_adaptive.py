@@ -1,6 +1,6 @@
 """Farbtemperatur-Kurve der adaptiven Beleuchtung."""
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from homepilot.integrations.adaptive import target_mirek
 

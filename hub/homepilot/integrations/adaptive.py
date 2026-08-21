@@ -18,10 +18,8 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
-from typing import Any
 
 from ..core import astro
-from ..core.entity import Entity
 from ..core.integration import Integration
 
 DEFAULT_LAT = 47.1445

@@ -1,7 +1,5 @@
 import asyncio
 
-import pytest
-
 from homepilot.core.config import ApiConfig, HubConfig
 from homepilot.core.hub import Hub
 from homepilot.core.store import Store

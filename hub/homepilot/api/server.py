@@ -20,7 +20,6 @@ WebSocket-Protokoll (/ws):
 from __future__ import annotations
 
 import asyncio
-import io
 import json
 import logging
 import os
@@ -31,36 +30,42 @@ from pathlib import Path
 from typing import Any
 
 import aiohttp
-from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi import (
+    FastAPI,
+    HTTPException,
+    Request,
+    Response,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from ..core.config import ConfigError, load_config
-from ..core import energy as energy_module
-from ..core import push
-from ..core import snapshots
-from ..core import supabase_auth
-from ..integrations import group as group_module
-from . import invitepage
-from ..core import throttle as throttle_module
-from ..core import watchdog
-from ..core import notifyrules
-from ..core import replace as replace_module
-from ..core import maintenance
-from ..core import shopping as shopping_module
-from ..core import suggest
-from ..core import users as users_module
-from ..core import automation as automation_module
-from ..core import config_edit
-from ..core import confighistory
-from ..core import goodnight as goodnight_module
-from ..core import say
 from .. import qr as qr_module
-from ..core import guestpass
+from ..core import automation as automation_module
+from ..core import (
+    config_edit,
+    confighistory,
+    guestpass,
+    maintenance,
+    notifyrules,
+    push,
+    say,
+    snapshots,
+    suggest,
+    supabase_auth,
+    watchdog,
+)
+from ..core import energy as energy_module
+from ..core import goodnight as goodnight_module
+from ..core import replace as replace_module
+from ..core import shopping as shopping_module
+from ..core import throttle as throttle_module
 from ..core import trash as trash_module
+from ..core import users as users_module
+from ..core.config import ConfigError, load_config
 from ..core.config_edit import add_cast_device
-from ..integrations import alarm as alarm_module
 from ..core.errors import HomePilotError, UnknownEntityError, UnsupportedCommandError
 from ..core.hub import Hub
 from ..core.source import as_source, user_source
@@ -71,6 +76,9 @@ from ..core.streams import (
     strip_low_latency,
 )
 from ..core.users import GUEST_FEATURES, Capability, Role, User, parse_users
+from ..integrations import alarm as alarm_module
+from ..integrations import group as group_module
+from . import invitepage
 
 log = logging.getLogger(__name__)
 
@@ -446,8 +454,12 @@ def create_app(hub: Hub) -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=hub.config.api.cors_origins,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        # Nur was die App wirklich schickt. Vorher stand hier zweimal «*» -
+        # im eigenen Netz belanglos, aber sobald der Hub von aussen
+        # erreichbar ist, ist das unnötig weit offen. Die Herkunft war
+        # schon einstellbar, der Rest nicht.
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
     )
 
     # ── Authentifizierung ──────────────────────────────────────────────────
@@ -1768,7 +1780,7 @@ def create_app(hub: Hub) -> FastAPI:
         return {"ok": True}
 
     @app.get("/api/automations/runs")
-    async def automation_runs(request: Request) -> dict[str, Any]:
+    async def automation_runs_all(request: Request) -> dict[str, Any]:
         """Was die Abläufe zuletzt getan haben – und was nicht, mit Grund.
 
         Der häufigste Support-Fall lautet «der Ablauf geht nicht». Ohne
@@ -1981,7 +1993,7 @@ def create_app(hub: Hub) -> FastAPI:
                 hub.data.get("notify_rules"), key, body.enabled, body.params
             )
         except ValueError as err:
-            raise HTTPException(status_code=404, detail=str(err))
+            raise HTTPException(status_code=404, detail=str(err)) from err
         hub.data.set("notify_rules", stored)
         # Sofort übernehmen, nicht erst in der nächsten Wächter-Runde:
         # Wer den Schalter umlegt, erwartet, dass er ab jetzt gilt.

@@ -20,10 +20,10 @@ Muster wie beim Homematic-Callback.
 from __future__ import annotations
 
 import asyncio
-import time
 import hashlib
 import json
 import threading
+import time
 from typing import Any
 
 import aiohttp
@@ -31,7 +31,6 @@ import aiohttp
 from ..core.entity import Entity, EntityKind
 from ..core.errors import ConfigError
 from ..core.integration import Integration
-
 
 # Der übliche Cast-Port. Eine Lautsprechergruppe hat einen eigenen, denn
 # sie läuft auf der Adresse einer ihrer Boxen.
@@ -339,9 +338,9 @@ class GoogleCastIntegration(Integration):
         deshalb spielen sie auch synchron, und genau deshalb kann der Hub
         eine solche Gruppe nur benutzen, nicht selbst herstellen.
         """
+        import zeroconf
         from pychromecast.const import CAST_TYPE_GROUP
         from pychromecast.discovery import CastBrowser, SimpleCastListener
-        import zeroconf
 
         def browse() -> list[dict[str, Any]]:
             found: dict[str, dict[str, Any]] = {}
@@ -439,18 +438,17 @@ class GoogleCastIntegration(Integration):
             # Abgelehnte Anfragen kommen teils mit leerem Rumpf zurück –
             # deshalb erst Text lesen und erklärend scheitern statt an
             # ungültigem JSON zu sterben.
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    DEVICE_AUTH,
-                    json={
-                        "clientId": controller.client_id,
-                        "deviceId": controller.device_id,
-                    },
-                    headers={"Authorization": f"Bearer {access_token}"},
-                    timeout=aiohttp.ClientTimeout(total=10),
-                ) as response:
-                    status = response.status
-                    text = await response.text()
+            async with aiohttp.ClientSession() as session, session.post(
+                DEVICE_AUTH,
+                json={
+                    "clientId": controller.client_id,
+                    "deviceId": controller.device_id,
+                },
+                headers={"Authorization": f"Bearer {access_token}"},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                status = response.status
+                text = await response.text()
             try:
                 payload = json.loads(text) if text else {}
             except ValueError:

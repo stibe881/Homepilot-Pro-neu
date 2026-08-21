@@ -40,8 +40,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from . import astro
-from . import snapshots
+from . import astro, snapshots
 from .source import as_source, automation_source
 
 if TYPE_CHECKING:
@@ -420,7 +419,7 @@ def find_conflicts(automations: list[Any]) -> list[dict[str, Any]]:
 
 
 class AutomationEngine:
-    def __init__(self, hub: "Hub") -> None:
+    def __init__(self, hub: Hub) -> None:
         # Protokoll der letzten Läufe, jüngster zuerst – auch der nicht
         # ausgeführten, denn genau die wirft man dem Hub vor.
         self.runs: list[dict[str, Any]] = []

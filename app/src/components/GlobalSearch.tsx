@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 
 import { Entity, Scene } from '../api/types';
-import { Colors, radius, type, useColors } from '../theme';
+import { Colors, radius, useColors } from '../theme';
 
 /**
  * Ein Suchfeld für alles.

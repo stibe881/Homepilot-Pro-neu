@@ -313,12 +313,6 @@ function LogCard({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
-  const [offsite, setOffsite] = useState<{
-    ok: boolean;
-    at: number;
-    name: string;
-    error?: string | null;
-  } | null>(null);
 
   const load = async () => {
     setBusy(true);
@@ -421,7 +415,6 @@ function ConfigCard({
   const [warnings, setWarnings] = useState<string[]>([]);
   // Frühere Fassungen – erst auf Wunsch geladen.
   const [versions, setVersions] = useState<ConfigVersion[] | null>(null);
-  const [restoring, setRestoring] = useState<string | null>(null);
 
   const load = () => {
     setMessage(null);
@@ -578,7 +571,7 @@ function ConfigCard({
                       })}
                     </Text>
                     <Button
-                      label={restoring === version.name ? 'Wirklich?' : 'Ansehen'}
+                      label="Ansehen"
                       onPress={async () => {
                         try {
                           const response = await fetch(
@@ -899,12 +892,6 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [note, setNote] = useState<string | null>(null);
-  const [offsite, setOffsite] = useState<{
-    ok: boolean;
-    at: number;
-    name: string;
-    error?: string | null;
-  } | null>(null);
   const [noteError, setNoteError] = useState(false);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<UpdateStatus | null>(null);

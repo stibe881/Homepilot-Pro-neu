@@ -28,9 +28,9 @@ set_position und – wo vorhanden – set_tilt.
 from __future__ import annotations
 
 import asyncio
-import time
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any
 

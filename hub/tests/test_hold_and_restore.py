@@ -1,6 +1,5 @@
 """Haltezeit am Auslöser, Sicherung zurückspielen, Durchsage-Basis."""
 
-import json
 import time
 
 from fastapi.testclient import TestClient

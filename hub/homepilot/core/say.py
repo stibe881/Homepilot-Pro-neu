@@ -16,9 +16,8 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
-from typing import TYPE_CHECKING, Any
-
 from contextlib import nullcontext
+from typing import TYPE_CHECKING, Any
 
 from .errors import HomePilotError
 from .source import as_source
@@ -31,7 +30,7 @@ log = logging.getLogger(__name__)
 MAX_TEXT = 200
 
 
-def base_url(hub: "Hub") -> str | None:
+def base_url(hub: Hub) -> str | None:
     """Die zuletzt gesehene Hub-Adresse - oder None, wenn noch keine App
     vorbeikam."""
     for entry in hub.data.get("hub_base"):
@@ -40,7 +39,7 @@ def base_url(hub: "Hub") -> str | None:
     return None
 
 
-def remember_base(hub: "Hub", url: str) -> None:
+def remember_base(hub: Hub, url: str) -> None:
     """Die Adresse aus einer App-Anfrage festhalten (nur bei Änderung -
     sonst schriebe jede Anfrage die Datendatei neu)."""
     cleaned = str(url).rstrip("/")
@@ -59,7 +58,7 @@ def synthesize(text: str) -> bytes:
 
 
 async def speak(
-    hub: "Hub",
+    hub: Hub,
     text: str,
     speakers: list[str] | None = None,
     volume: int | None = None,

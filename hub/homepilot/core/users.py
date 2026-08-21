@@ -16,12 +16,11 @@ from __future__ import annotations
 import fnmatch
 import re
 import secrets
-from datetime import datetime
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from .errors import ConfigError
-
 
 _HHMM = re.compile(r"\d{2}:\d{2}")
 
@@ -116,7 +115,7 @@ def parse_hours(raw: Any) -> dict[str, str]:
     return {"from": start, "to": end}
 
 
-def in_hours(hours: dict[str, str], now: "datetime") -> bool:
+def in_hours(hours: dict[str, str], now: datetime) -> bool:
     """Liegt dieser Moment im Zeitfenster? (rein, testbar)
 
     Ein Fenster über Mitternacht («22:00 bis 06:00») ist der Normalfall bei
@@ -170,7 +169,7 @@ class User:
     # brauchbare Antwort.
     system: bool = False
 
-    def active(self, now: "datetime | None" = None) -> bool:
+    def active(self, now: datetime | None = None) -> bool:
         """Darf dieser Benutzer *jetzt* herein? (rein, testbar)
 
         Getrennt von ``enabled``: Das ist die Entscheidung eines Menschen,

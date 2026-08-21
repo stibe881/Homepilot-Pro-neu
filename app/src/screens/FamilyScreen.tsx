@@ -1856,7 +1856,11 @@ export function FamilyScreen({
                 entry={entry}
                 onSave={(text) => {
                   if (entry) {
-                    text ? update('meals', entry.id, { text }) : remove('meals', entry.id);
+                    if (text) {
+                      update('meals', entry.id, { text });
+                    } else {
+                      remove('meals', entry.id);
+                    }
                   } else if (text) {
                     add('meals', { day, text });
                   }
@@ -2921,7 +2925,11 @@ export function FamilyScreen({
               (item: any) => String(item.text ?? '') === text
             );
             const patch = { text, recipe_id: rezept?.id ?? null };
-            entry ? update('meals', entry.id, patch) : add('meals', { day, ...patch });
+            if (entry) {
+              update('meals', entry.id, patch);
+            } else {
+              add('meals', { day, ...patch });
+            }
           }}
           onShopping={(recipe) => {
             const neu = ingredientsToShopping(

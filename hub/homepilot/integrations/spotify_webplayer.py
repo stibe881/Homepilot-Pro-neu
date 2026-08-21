@@ -22,7 +22,6 @@ import hmac
 import json
 import struct
 import time
-from typing import Any
 
 import aiohttp
 

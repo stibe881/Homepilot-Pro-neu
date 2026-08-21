@@ -31,6 +31,17 @@ USER homepilot
 
 EXPOSE 8123
 
+# Ob der Hub noch antwortet - nicht bloss, ob der Prozess noch existiert.
+# Ein hängender Hub sah für Docker bisher kerngesund aus, und der
+# Neustart-Mechanismus griff nie. Der Aufruf ist absichtlich ohne Token:
+# /api/health sagt nur, dass die Anwendung antwortet, und verrät nichts.
+#
+# start-period ist grosszügig: Beim ersten Start verbindet sich der Hub
+# mit CCU, Bridge und Broker, und das darf dauern, ohne dass er dabei als
+# krank gilt.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
+  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8123/api/health', timeout=4).status == 200 else 1)"
+
 # Der Pfad zur Konfiguration wird als Volume hereingereicht.
 # Welcher Stand hier läuft. Ohne das lässt sich nach einem Update nicht
 # unterscheiden, ob der Container wirklich neu ist oder ob Portainer das

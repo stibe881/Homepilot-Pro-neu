@@ -3,7 +3,7 @@ import React, { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Entity } from '../api/types';
-import { Colors, radius, useColors } from '../theme';
+import { Colors, useColors } from '../theme';
 import { Card } from './Card';
 
 /**

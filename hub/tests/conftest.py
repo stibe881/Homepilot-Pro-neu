@@ -5,11 +5,11 @@ from homepilot.core.hub import Hub
 
 
 def make_config(**kwargs) -> HubConfig:
-    defaults = dict(
-        api=ApiConfig(token=kwargs.pop("token", None)),
-        integrations=[{"integration": "demo"}],
-        automations=[],
-    )
+    defaults = {
+        "api": ApiConfig(token=kwargs.pop("token", None)),
+        "integrations": [{"integration": "demo"}],
+        "automations": [],
+    }
     defaults.update(kwargs)
     return HubConfig(**defaults)
 

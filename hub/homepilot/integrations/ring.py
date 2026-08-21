@@ -37,11 +37,11 @@ import asyncio
 import json
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from ..core.entity import Entity, EntityKind
+from ..core.entity import EntityKind
 from ..core.errors import ConfigError
 from ..core.integration import Integration
 
@@ -179,7 +179,7 @@ def event_fields(kind: str, now: float) -> dict[str, Any]:
 
     Ring meldet 'ding' (geklingelt) und 'motion' (Bewegung erkannt).
     """
-    stamp = datetime.fromtimestamp(now, tz=timezone.utc).isoformat()
+    stamp = datetime.fromtimestamp(now, tz=UTC).isoformat()
     if kind == "ding":
         return {"last_ring": stamp, "ring": "on"}
     if kind == "motion":
@@ -519,7 +519,7 @@ class RingIntegration(Integration):
         # Kurze Rückmeldung auf der Kachel, dann zurück zum Ruhezustand.
         await self.hub.registry.update_state(
             entity.id,
-            {"state": "opened", "last_opened": datetime.now(timezone.utc).isoformat()},
+            {"state": "opened", "last_opened": datetime.now(UTC).isoformat()},
         )
         old = self._clear_tasks.pop(f"{entity.id}:opened", None)
         if old:

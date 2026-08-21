@@ -188,7 +188,7 @@ def low_batteries(entities: list[Any]) -> list[Any]:
 
 
 class Watchdog:
-    def __init__(self, hub: "Hub") -> None:
+    def __init__(self, hub: Hub) -> None:
         self.hub = hub
         # Integration → Anzahl Fehlrunden in Folge.
         self._strikes: dict[str, int] = {}

@@ -3,6 +3,7 @@
 import json
 import struct
 import zlib
+from datetime import UTC
 
 import pytest
 
@@ -770,11 +771,11 @@ def test_ring_health_detail_names_the_reason():
 
 
 def test_calendar_next_event():
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from homepilot.integrations.google_calendar import parse_events
 
-    now = datetime(2026, 8, 15, 8, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 15, 8, 0, tzinfo=UTC)
     state = parse_events(
         [
             {
@@ -798,11 +799,11 @@ def test_calendar_next_event():
 
 
 def test_calendar_skips_finished_events():
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from homepilot.integrations.google_calendar import parse_events
 
-    now = datetime(2026, 8, 15, 12, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 15, 12, 0, tzinfo=UTC)
     state = parse_events(
         [
             {
@@ -818,11 +819,11 @@ def test_calendar_skips_finished_events():
 
 
 def test_calendar_empty_means_free():
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from homepilot.integrations.google_calendar import parse_events
 
-    state = parse_events([], datetime.now(timezone.utc))
+    state = parse_events([], datetime.now(UTC))
     assert state["state"] == "frei"
     assert state["next_start"] is None
 
@@ -930,11 +931,11 @@ def test_overkiz_cover_state_open_and_closed():
 
 
 def test_calendar_marks_birthdays_and_sorts():
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from homepilot.integrations.google_calendar import is_birthday_calendar, parse_events
 
-    now = datetime(2026, 8, 16, 8, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 16, 8, 0, tzinfo=UTC)
     state = parse_events(
         [
             {

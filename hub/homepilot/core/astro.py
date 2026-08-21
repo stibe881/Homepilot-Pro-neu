@@ -9,7 +9,7 @@ POSIX-Zeitstempel (inkl. Sommerzeit).
 from __future__ import annotations
 
 import math
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 # Offizieller Zenit inkl. atmosphärischer Refraktion und Sonnenscheibe.
 ZENITH = 90.833
@@ -62,7 +62,7 @@ def sun_event(day: date, lat: float, lon: float, sunset: bool) -> datetime | Non
     whole = int(hours)
     minute = int(round((hours - whole) * 60))
     # In seltenen Fällen rundet die Minute auf 60 – dann eine Stunde weiter.
-    base = datetime(day.year, day.month, day.day, tzinfo=timezone.utc) + timedelta(
+    base = datetime(day.year, day.month, day.day, tzinfo=UTC) + timedelta(
         hours=whole, minutes=minute
     )
     return base.astimezone().replace(tzinfo=None)
@@ -105,7 +105,7 @@ def sun_position(when: datetime, lat: float, lon: float) -> tuple[float, float]:
     Dieselbe Näherung wie oben (NOAA), gut auf ein Zehntelgrad – für
     Storen ist das reichlich genau.
     """
-    stamp = when.astimezone(timezone.utc)
+    stamp = when.astimezone(UTC)
     # Julianisches Datum.
     jd = stamp.timestamp() / 86400.0 + 2440587.5
     d = jd - 2451545.0

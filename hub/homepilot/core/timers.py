@@ -26,7 +26,7 @@ MAX_TEXT = 100
 
 
 class KitchenTimers:
-    def __init__(self, hub: "Hub") -> None:
+    def __init__(self, hub: Hub) -> None:
         self.hub = hub
         # id → {id, text, ends_at, by, task}
         self._timers: dict[str, dict[str, Any]] = {}

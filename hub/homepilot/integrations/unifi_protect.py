@@ -25,7 +25,7 @@ import json
 import struct
 import time
 import zlib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import aiohttp
@@ -85,7 +85,7 @@ def login_error(status: int) -> str:
 def _iso(millis: Any) -> str | None:
     if not millis:
         return None
-    return datetime.fromtimestamp(int(millis) / 1000, tz=timezone.utc).isoformat()
+    return datetime.fromtimestamp(int(millis) / 1000, tz=UTC).isoformat()
 
 
 # Kanäle einer Protect-Kamera, von der besten zur sparsamsten Auflösung.

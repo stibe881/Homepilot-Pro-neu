@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 import fnmatch
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from .supabase import SupabaseClient
@@ -31,11 +31,11 @@ MAX_PENDING_HISTORY = 5000
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class Store:
-    def __init__(self, hub: "Hub", client: SupabaseClient, config: dict[str, Any]) -> None:
+    def __init__(self, hub: Hub, client: SupabaseClient, config: dict[str, Any]) -> None:
         self.hub = hub
         self.client = client
         self.history_enabled: bool = bool(config.get("history", True))
@@ -181,7 +181,7 @@ class Store:
     # ── Lesen ──────────────────────────────────────────────────────────────
 
     async def history(self, entity_id: str, hours: float = 24, limit: int = 500) -> list[dict]:
-        since = datetime.now(timezone.utc) - timedelta(hours=hours)
+        since = datetime.now(UTC) - timedelta(hours=hours)
         return await self.client.select(
             "state_history",
             {

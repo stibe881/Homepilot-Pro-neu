@@ -1,6 +1,6 @@
 """Sonnenauf-/-untergang – Plausibilität für Zell LU."""
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 from homepilot.core import astro
 
@@ -52,28 +52,28 @@ def test_offset_verschiebt():
 def test_the_sun_stands_in_the_south_at_noon():
     """Nicht die Uhrzeit entscheidet, sondern die Himmelsrichtung: Im
     Sommer steht die Sonne um acht Uhr längst am Himmel, aber im Osten."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from homepilot.core.astro import sun_position
 
     # 21. Juni, 12:00 UTC über Zell LU – Sonnenhöchststand knapp danach.
-    mittag = datetime(2026, 6, 21, 12, 0, tzinfo=timezone.utc)
+    mittag = datetime(2026, 6, 21, 12, 0, tzinfo=UTC)
     elevation, azimuth = sun_position(mittag, 47.1445, 8.0675)
     assert 60 < elevation < 70          # hoch im Sommer
     assert 160 < azimuth < 200          # ungefähr Süden
 
-    morgen = datetime(2026, 6, 21, 5, 0, tzinfo=timezone.utc)
+    morgen = datetime(2026, 6, 21, 5, 0, tzinfo=UTC)
     elevation, azimuth = sun_position(morgen, 47.1445, 8.0675)
     assert 0 < elevation < 25           # noch flach
     assert 60 < azimuth < 100           # im Osten
 
 
 def test_the_sun_is_below_the_horizon_at_night():
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from homepilot.core.astro import sun_position
 
-    nacht = datetime(2026, 1, 15, 1, 0, tzinfo=timezone.utc)
+    nacht = datetime(2026, 1, 15, 1, 0, tzinfo=UTC)
     elevation, _ = sun_position(nacht, 47.1445, 8.0675)
     assert elevation < 0
 

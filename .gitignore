@@ -10,6 +10,18 @@ hub/config.yaml
 # Geheimnisse neben der Konfiguration (siehe core/config.py).
 hub/secrets.env
 
+# Der Haushalts-Speicher. Hier stehen im Betrieb Benutzer *samt Tokens*,
+# Sitzungen, Push-Geräte und das Zugriffsprotokoll - der Standardpfad ist
+# neben der config.yaml (core/config.py). Ein `git add -A` auf dem Hub
+# hätte sie sonst mitgenommen. Die leere Fassung liegt als
+# homepilot-data.example.json daneben.
+hub/homepilot-data.json
+
+# Die Anmeldungen, die sich Integrationen selbst neben den Speicher legen:
+# Ring, Google-Kalender, Overkiz, Roborock. Dasselbe Argument.
+hub/*-token.json
+hub/**/*-token.json
+
 # Die Matter-Fabric: Schlüssel und Zertifikate der gekoppelten Geräte.
 # Gehört ins Backup, aber nie ins Repository.
 hub/matter/

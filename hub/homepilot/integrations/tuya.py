@@ -678,7 +678,7 @@ class TuyaIntegration(Integration):
         self._queues[schluessel].put(({str(dp): wert for dp, wert in nutzlast.items()}, future))
         try:
             await asyncio.wait_for(future, timeout=15)
-        except asyncio.TimeoutError as err:
+        except TimeoutError as err:
             raise ConnectionError(
                 f"Tuya-Gerät {schluessel} antwortet nicht"
             ) from err
