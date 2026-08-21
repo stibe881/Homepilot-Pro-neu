@@ -161,7 +161,7 @@ erzeugen. Dann wie oben:
 
 ```bash
 docker exec -it homepilot-hub \
-  python -m homepilot.integrations.matter -c /config/config.yaml --pair <Code>
+  python -m homepilot.integrations.matter -c /config/config.yaml --pair 34970112332
 ```
 
 **Was die Kachel dann kann.** Dieselben drei Knöpfe wie über die

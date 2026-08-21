@@ -585,7 +585,12 @@ async def _cli_main(config_path: str, pair_code: str | None) -> int:
 
             nodes = await command("get_nodes")
             if not nodes:
-                print("Noch keine Geräte gekoppelt. Koppeln mit: --pair <Code>")
+                # Ohne spitze Klammern: Die Zeile wird kopiert und
+                # eingefügt, und eine Shell liest «<» als Umleitung.
+                print(
+                    "Noch keine Geräte gekoppelt. Koppeln mit: "
+                    "--pair 34970112332 (der Code aus der App des Geräts)"
+                )
                 return 0
             for node in nodes:
                 attributes = node.get("attributes") or {}

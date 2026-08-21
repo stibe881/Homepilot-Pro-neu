@@ -347,7 +347,7 @@ integrations:
 
   # Matter über matterjs-server (läuft als eigener Dienst, siehe
   # docker-compose.yml - er braucht host-Netz und IPv6). Geräte koppeln:
-  #   python -m homepilot.integrations.matter -c config.yaml --pair <Code>
+  #   python -m homepilot.integrations.matter -c config.yaml --pair 34970112332
   # Tür-/Fensterkontakte (z.B. Aqara P2) melden offen/geschlossen und ihren
   # Batteriestand; offene Türen erscheinen auf der Startseite.
   # Anleitung inkl. Teilen aus Apple/Google Home: docs/tuer-und-fensterkontakte.md
