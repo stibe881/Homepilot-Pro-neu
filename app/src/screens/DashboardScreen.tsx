@@ -42,6 +42,7 @@ import { usePrefs } from '../hooks/usePrefs';
 import { usePushRegistration } from '../hooks/usePushRegistration';
 import { breakpoints, Colors, radius, space, type, useColors } from '../theme';
 import { shopCategory } from '../lib/einkauf';
+import { hubClient, onHubFehler } from '../api/client';
 import { Auffangnetz } from '../components/Auffangnetz';
 import { AutomationsScreen } from './AutomationsScreen';
 import { FamilyScreen } from './FamilyScreen';
@@ -159,6 +160,19 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     reloadScenes,
     dismissError,
   } = useHub(settings.url, settings.token);
+  // Ein Weg zum Hub für alle Abfragen dieses Bildschirms – mit Zeitlimit
+  // und mit einer Meldung, wenn etwas schiefgeht.
+  const hub = useMemo(
+    () => hubClient(settings.url, settings.token),
+    [settings.url, settings.token]
+  );
+  // Fehlgeschlagene Abrufe. Der Toast zeigte bisher nur Befehle, die der
+  // Hub abgelehnt hat - eine Abfrage, die ins Leere lief, blieb stumm.
+  const [abrufFehler, setAbrufFehler] = useState<string | null>(null);
+  useEffect(
+    () => onHubFehler((fehler) => setAbrufFehler(fehler.message)),
+    []
+  );
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
@@ -237,22 +251,20 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [bekannt, setBekannt] = useState<string[]>([]);
   const ladeEinkauf = useCallback(() => {
     if (!settings.url || !settings.token) return;
-    const headers = { Authorization: `Bearer ${settings.token}` };
-    fetch(`${settings.url}/api/family/shopping`, { headers })
-      .then((response) => (response.ok ? response.json() : []))
-      .then((rows) =>
-        setEinkauf(Array.isArray(rows) ? rows.filter((row: any) => !row.done) : [])
-      )
-      .catch(() => {});
-    fetch(`${settings.url}/api/family/shops`, { headers })
-      .then((response) => (response.ok ? response.json() : []))
-      .then((rows) => setLaeden(Array.isArray(rows) ? rows : []))
-      .catch(() => {});
-    fetch(`${settings.url}/api/shopping/known`, { headers })
-      .then((response) => (response.ok ? response.json() : []))
-      .then((rows) => setBekannt(Array.isArray(rows) ? rows.map(String) : []))
-      .catch(() => {});
-  }, [settings.url, settings.token]);
+    // «still»: Das hier läuft jede Minute. Eine Einblendung je Minute wäre
+    // schlimmer als der Fehler – dass etwas klemmt, sieht man am
+    // Verbindungspunkt in der Kopfzeile.
+    const leise = { fallback: [] as any[], still: true };
+    hub.get<any[]>('/api/family/shopping', leise).then((rows) =>
+      setEinkauf(Array.isArray(rows) ? rows.filter((row: any) => !row.done) : [])
+    );
+    hub.get<any[]>('/api/family/shops', leise).then((rows) =>
+      setLaeden(Array.isArray(rows) ? rows : [])
+    );
+    hub.get<any[]>('/api/shopping/known', leise).then((rows) =>
+      setBekannt(Array.isArray(rows) ? rows.map(String) : [])
+    );
+  }, [hub, settings.url, settings.token]);
   useEffect(() => {
     ladeEinkauf();
     const timer = setInterval(ladeEinkauf, 60000);
@@ -270,18 +282,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const hakeAb = useCallback(
     (id: string) => {
       setEinkauf((liste) => liste.filter((eintrag) => eintrag.id !== id));
-      fetch(`${settings.url}/api/family/shopping/${encodeURIComponent(id)}`, {
-        method: 'PUT',
-        headers: {
-          Authorization: `Bearer ${settings.token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ done: true }),
-      })
-        .catch(() => {})
+      // Nicht still: Wer im Laden abhakt und dabei ins Leere greift, soll
+      // es erfahren – sonst kauft er es nicht und denkt, er habe es.
+      hub
+        .put(`/api/family/shopping/${encodeURIComponent(id)}`, { done: true }, {
+          fallback: null,
+        })
         .finally(ladeEinkauf);
     },
-    [settings.url, settings.token, ladeEinkauf]
+    [hub, ladeEinkauf]
   );
 
   /** Einen Artikel auf die Liste setzen – aus dem Fenster der Kopfzeile.
@@ -295,24 +304,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       if (!name || !settings.url) return;
       setEinkauf((liste) => [...liste, { id: `neu-${name}`, text: name }]);
       setBekannt((liste) => [name, ...liste.filter((entry) => entry !== name)]);
-      try {
-        await fetch(`${settings.url}/api/family/shopping`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${settings.token}`,
-            'Content-Type': 'application/json',
-          },
-          // Der Gang wird hier bestimmt und nicht im Hub: Dieselbe
-          // Zuordnung sortiert die Liste, und sie steht in lib/einkauf.ts.
-          body: JSON.stringify({ text: name, category: shopCategory(name) }),
-        });
-      } catch {
-        // Kein Netz: Der Abruf gleich darauf räumt den vorläufigen
-        // Eintrag wieder weg.
-      }
+      // Der Gang wird hier bestimmt und nicht im Hub: Dieselbe Zuordnung
+      // sortiert die Liste, und sie steht in lib/einkauf.ts.
+      // Schlägt es fehl, sagt es die Einblendung, und der Abruf gleich
+      // darauf räumt den vorläufigen Eintrag wieder weg.
+      await hub.post(
+        '/api/family/shopping',
+        { text: name, category: shopCategory(name) },
+        { fallback: null }
+      );
       ladeEinkauf();
     },
-    [settings.url, settings.token, ladeEinkauf]
+    [hub, settings.url, ladeEinkauf]
   );
 
   // Die Ablaufnamen einmal holen, damit die Suche sie kennt.
@@ -1675,11 +1678,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         }}
       />
 
-      <Toast message={error} onDismiss={dismissError} bottomInset={insets.bottom} />
+      {/* Ein abgelehnter Befehl hat Vorrang: Er ist die Antwort auf etwas,
+          das man gerade angetippt hat. Ein fehlgeschlagener Abruf kommt,
+          wenn sonst nichts ansteht. */}
+      <Toast
+        message={error ?? abrufFehler}
+        onDismiss={error ? dismissError : () => setAbrufFehler(null)}
+        bottomInset={insets.bottom}
+      />
       {/* Nur wenn nichts schiefging – ein fehlgeschlagener Befehl hat nichts
           hinterlassen, was man zurücknehmen müsste. */}
       <UndoToast
-        what={error ? null : undo}
+        what={error || abrufFehler ? null : undo}
         onUndo={undoLast}
         onDismiss={dismissUndo}
         bottomInset={insets.bottom}
