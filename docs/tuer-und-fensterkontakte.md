@@ -1,9 +1,11 @@
 # Tür- und Fensterkontakte (Aqara P2 über Matter)
 
 Der Aqara Door and Window Sensor P2 spricht Matter über Thread und braucht
-deshalb **keinen Aqara-Hub** – aber einen Thread-Border-Router im Haus
-(HomePod mini, Apple TV 4K, Google Nest Hub 2, Echo 4) und den
-Matter-Controller-Dienst neben dem Hub.
+deshalb **keinen Aqara-Hub** – aber zweierlei sonst: einen
+Thread-Border-Router im Haus (HomePod mini, Apple TV 4K, Google Nest Hub 2,
+Echo 4) und den Matter-Controller-Dienst neben dem Hub. Ohne
+Border-Router kommt kein Thread-Gerät ins Netz; der Controller allein
+genügt nicht.
 
 Steht ein Kontakt offen, zeigt die App das oben auf der Startseite neben der
 Begrüssung: „Tür offen" mit dem Namen des Geräts. Sind alle zu, verschwindet
@@ -11,29 +13,41 @@ der Hinweis ganz.
 
 ## 1. Matter-Dienst starten
 
-Der Hub bringt keinen eigenen Matter-Stack mit; er spricht mit dem
-offiziellen `python-matter-server`. In der `docker-compose.portainer.yml`
-steht der Block schon fertig – nur die Kommentarzeichen entfernen:
+Der Hub bringt keinen eigenen Matter-Stack mit; er spricht mit
+**matterjs-server**. Der Block steht fertig in der
+`docker-compose.portainer.yml` – es genügt **Update the stack → Deploy**.
 
-```yaml
-  matter:
-    image: ghcr.io/home-assistant-libs/python-matter-server:stable
-    container_name: homepilot-matter
-    restart: unless-stopped
-    network_mode: host
-    security_opt:
-      - apparmor=unconfined
-    volumes:
-      - matter-data:/data
-      - /run/dbus:/run/dbus:ro
+Vorher einmalig auf dem Docker-Host, sonst darf der Dienst nicht in sein
+Datenverzeichnis schreiben:
 
-volumes:
-  matter-data:
+```bash
+sudo mkdir -p /opt/homepilot/matter
+sudo chown -R 1000:1000 /opt/homepilot/matter
 ```
 
-Danach **Update the stack → Deploy**. Das Volume `matter-data` hält die
-Schlüssel der Matter-Fabric – **ins Backup aufnehmen**, sonst müssen alle
-Geräte neu gekoppelt werden.
+Dort liegen die Schlüssel der Matter-Fabric. Der Ordner liegt bewusst
+neben der `config.yaml` und nicht in einem Docker-Volume: So wandert er
+mit `/opt/homepilot` ins Backup. **Geht er verloren, muss jedes Gerät neu
+gekoppelt werden.**
+
+Zwei Dinge müssen auf dem Rechner stimmen, sonst startet der Dienst gar
+nicht oder findet nichts:
+
+- **host-Netz.** Matter findet Geräte über mDNS, und das kommt durch kein
+  Docker-Bridge-Netz. Steht schon so im Stack.
+- **IPv6.** Der Dienst bindet mDNS an `[::]:5353` und bricht ohne IPv6
+  beim Start ab (`Cannot bind to {::}:5353`). Prüfen mit
+  `ip -6 addr` – kommt nichts, ist IPv6 auf dem Host abgeschaltet.
+
+Im Netz selbst müssen Hub und Geräte einander sehen: gleiches VLAN, oder
+mDNS-Weiterleitung im UniFi eingeschaltet.
+
+> **Warum nicht mehr `python-matter-server`?** Der ist seit dem 23. Juni
+> 2026 eingestellt, 8.1.2 war die letzte Fassung. matterjs-server spricht
+> dieselbe Schnittstelle und übernimmt beim ersten Start ein vorhandenes
+> Datenverzeichnis – wer den alten laufen hat, kann also umstellen, ohne
+> neu zu koppeln. Vorher eine Kopie des Datenverzeichnisses anlegen und
+> nie beide gleichzeitig darauf laufen lassen.
 
 ## 2. Integration einschalten
 

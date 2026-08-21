@@ -345,8 +345,8 @@ integrations:
   #   # in einem Gerät, neben dem niemand stehen muss.
   #   allow_remote_start: false
 
-  # Matter über den python-matter-server (läuft als eigener Dienst, siehe
-  # docker-compose.yml). Geräte koppeln:
+  # Matter über matterjs-server (läuft als eigener Dienst, siehe
+  # docker-compose.yml - er braucht host-Netz und IPv6). Geräte koppeln:
   #   python -m homepilot.integrations.matter -c config.yaml --pair <Code>
   # Tür-/Fensterkontakte (z.B. Aqara P2) melden offen/geschlossen und ihren
   # Batteriestand; offene Türen erscheinen auf der Startseite.

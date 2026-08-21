@@ -8,6 +8,10 @@ __pycache__/
 # Konfiguration mit Zugangsdaten
 hub/config.yaml
 
+# Die Matter-Fabric: Schlüssel und Zertifikate der gekoppelten Geräte.
+# Gehört ins Backup, aber nie ins Repository.
+hub/matter/
+
 # Node / Expo
 node_modules/
 .expo/

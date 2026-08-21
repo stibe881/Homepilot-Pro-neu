@@ -1,20 +1,29 @@
-"""Matter – Geräte über den Matter-Controller-Dienst (python-matter-server).
+"""Matter – Geräte über den Matter-Controller-Dienst.
 
 Konfiguration:
   - integration: matter
     url: ws://127.0.0.1:5580/ws
 
 Matter braucht einen Controller, der dauerhaft die "Fabric" hält (Schlüssel,
-Zertifikate, Thread/WLAN-Zugänge). Das übernimmt der offizielle
-python-matter-server als eigener Dienst – am einfachsten per Docker auf dem
-Hub-Rechner (Block dazu in docker-compose.yml). Diese Integration ist nur
-ein WebSocket-Client darauf und braucht keine zusätzliche Bibliothek.
+Zertifikate, Thread/WLAN-Zugänge). Das übernimmt ein eigener Dienst neben
+dem Hub – der Block dazu steht in der docker-compose.yml. Diese Integration
+ist nur ein WebSocket-Client darauf und braucht keine zusätzliche
+Bibliothek.
 
-Dienst starten:
-    docker run -d --name matter-server --restart unless-stopped \
-        --network host --security-opt apparmor=unconfined \
-        -v matter-data:/data \
-        ghcr.io/home-assistant-libs/python-matter-server:stable
+Welcher Dienst: **matterjs-server** (matter.js). Der frühere
+python-matter-server ist seit dem 23. Juni 2026 eingestellt; 8.1.2 war die
+letzte Fassung. Der Nachfolger spricht dieselbe Schnittstelle – dieselben
+Befehle, dieselben Ereignisse, dieselben Attributpfade – und übernimmt beim
+ersten Start ein vorhandenes Datenverzeichnis. Wer noch den alten laufen
+hat, wird also weiter bedient; neu aufgesetzt wird der neue.
+
+    docker run -d --name matterjs-server --restart unless-stopped \
+        --network host -v /opt/homepilot/matter:/data \
+        ghcr.io/matter-js/matterjs-server:stable
+
+Zwei Dinge, an denen es sonst scheitert: Der Dienst braucht **host-Netz**
+(mDNS geht nicht durch ein Bridge-Netz) und **IPv6 auf dem Host** – er
+bindet mDNS an [::]:5353 und startet ohne IPv6 gar nicht.
 
 Gerät koppeln (Code steht auf dem Gerät oder in dessen App):
     python -m homepilot.integrations.matter -c config.yaml --pair MT:Y.K90-Q...
@@ -51,6 +60,14 @@ DEVICE_TYPE_KINDS = {
     263: EntityKind.BINARY_SENSOR,  # Occupancy Sensor
     21: EntityKind.BINARY_SENSOR,   # Contact Sensor
 }
+
+# Kleinste Schema-Fassung des Dienstes, mit der diese Integration umgehen
+# kann. Darunter sahen Knoten und Attribute anders aus; darüber ist die
+# Schnittstelle bisher abwärtskompatibel geblieben - der Dienst nennt
+# seinerseits, ab welcher Fassung er noch bedient (min_supported_schema).
+# Geprüft wird das beim Verbinden, damit ein Bruch als Satz im Protokoll
+# steht und nicht als rätselhaft leere Geräteliste.
+MIN_SCHEMA = 6
 
 # Cluster-IDs (dezimal, wie in den Attributpfaden "endpunkt/cluster/attribut").
 ON_OFF = 6
@@ -204,15 +221,28 @@ class MatterIntegration(Integration):
     # ── Dienst → Hub ───────────────────────────────────────────────────────
 
     async def _connect_loop(self) -> None:
+        versuche = 0
         while True:
             try:
                 async with self._session.ws_connect(self._url, heartbeat=30) as ws:
                     self._ws = ws
                     info = await ws.receive_json()
                     self.log.info(
-                        "Mit Matter-Dienst verbunden (Schema %s, SDK %s)",
-                        info.get("schema_version"), info.get("sdk_version"),
+                        "Mit Matter-Dienst verbunden (Schema %s, mindestens %s, SDK %s)",
+                        info.get("schema_version"),
+                        info.get("min_supported_schema_version"),
+                        info.get("sdk_version"),
                     )
+                    schema = info.get("schema_version")
+                    if isinstance(schema, int) and schema < MIN_SCHEMA:
+                        self.log.warning(
+                            "Der Matter-Dienst meldet Schema %s, diese Integration "
+                            "erwartet mindestens %s. Geräte könnten fehlen oder "
+                            "falsch dastehen - den Dienst aktualisieren "
+                            "(ghcr.io/matter-js/matterjs-server:stable).",
+                            schema, MIN_SCHEMA,
+                        )
+                    versuche = 0
                     # Lesen muss parallel laufen, sonst käme die Antwort auf
                     # start_listening nie an (Deadlock).
                     reader = asyncio.create_task(self._read_loop(ws))
@@ -234,10 +264,25 @@ class MatterIntegration(Integration):
                 self._pending.clear()
                 for entity_id in self._entities:
                     await self.hub.registry.update_state(entity_id, {}, available=False)
-                self.log.debug(
-                    "Matter-Dienst %s nicht erreichbar (%s), neuer Versuch in 30s",
-                    self._url, err,
-                )
+                # Beim ersten Mal laut, danach leise: Ein Dienst, der nicht
+                # läuft, ist eine Meldung wert - aber keine alle 30 Sekunden.
+                # Der Hinweis auf IPv6 steht dabei, weil das der Grund ist,
+                # aus dem der Dienst am häufigsten gar nicht erst startet:
+                # Er bindet mDNS an [::]:5353.
+                if versuche == 0:
+                    self.log.warning(
+                        "Matter-Dienst %s nicht erreichbar (%s). Läuft der "
+                        "Container? Er braucht host-Netz und IPv6 auf dem "
+                        "Rechner - ohne IPv6 startet er nicht.",
+                        self._url, err,
+                    )
+                else:
+                    self.log.debug(
+                        "Matter-Dienst %s weiterhin nicht erreichbar (%s), "
+                        "Versuch %s",
+                        self._url, err, versuche + 1,
+                    )
+                versuche += 1
                 await asyncio.sleep(30)
 
     async def _read_loop(self, ws: aiohttp.ClientWebSocketResponse) -> None:

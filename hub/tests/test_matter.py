@@ -110,30 +110,75 @@ NODE = {
 
 
 class FakeMatterServer:
-    """Spricht das Protokoll des python-matter-server nach."""
+    """Spricht das Protokoll des Controller-Dienstes nach.
 
-    def __init__(self):
+    Der Begrüssungsrahmen ist der von matterjs-server: Schema 13, dazu die
+    kleinste Fassung, die er noch bedient. Der frühere python-matter-server
+    meldete dasselbe Feld mit kleinerer Zahl - beide werden gelesen.
+    """
+
+    def __init__(self, nodes=None, schema: int = 13):
         self.commands: list[dict] = []
         self.ws: web.WebSocketResponse | None = None
+        self.nodes = nodes if nodes is not None else [NODE]
+        self.schema = schema
 
     async def handler(self, request):
         ws = web.WebSocketResponse()
         await ws.prepare(request)
         self.ws = ws
-        await ws.send_json({"fabric_id": 1, "schema_version": 11, "sdk_version": "test"})
+        await ws.send_json(
+            {
+                "fabric_id": 1,
+                "schema_version": self.schema,
+                "min_supported_schema_version": 11,
+                "sdk_version": "matter-server/1.4.0 (matter.js/1.6.0)",
+            }
+        )
         async for msg in ws:
             if msg.type != WSMsgType.TEXT:
                 break
             data = json.loads(msg.data)
             self.commands.append(data)
             if data["command"] == "start_listening":
-                await ws.send_json({"message_id": data["message_id"], "result": [NODE]})
+                await ws.send_json(
+                    {"message_id": data["message_id"], "result": self.nodes}
+                )
             else:
                 await ws.send_json({"message_id": data["message_id"], "result": None})
         return ws
 
     async def send_event(self, event, data):
         await self.ws.send_json({"event": event, "data": data})
+
+
+# Ein Tür-/Fensterkontakt, wie matterjs-server ihn liefert: Die
+# DeviceTypeList kommt tag-basiert, also mit den TLV-Feldnummern als
+# Schlüssel statt mit Namen ("0" = deviceType, "1" = revision). Genau
+# daran scheitert ein Parser, der nur "deviceType" kennt - und dann steht
+# der Sensor nirgends, ohne dass irgendwo ein Fehler auftaucht.
+KONTAKT = {
+    "node_id": 7,
+    "available": True,
+    "attributes": {
+        "0/40/5": "Balkontüre",
+        "1/29/0": [{"0": 21, "1": 1}],
+        # BooleanState: True heisst Kontakt geschlossen.
+        "1/69/0": True,
+        "1/47/12": 176,
+    },
+}
+
+
+async def _serve(server):
+    app = web.Application()
+    app.router.add_get("/ws", server.handler)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 0)
+    await site.start()
+    server.port = runner.addresses[0][1]
+    return runner
 
 
 @pytest.fixture
@@ -194,3 +239,68 @@ async def test_matter_end_to_end(fake_server, tmp_path):
         assert commands[-1]["args"]["payload"]["level"] == 127
     finally:
         await hub.stop()
+
+
+async def test_contact_sensor_from_a_tag_based_service(tmp_path):
+    """Stefans Aqara-Kontakt, so wie matterjs-server ihn meldet.
+
+    Der Weg von der Wohnungstüre bis in die App führt über drei Stellen,
+    die alle stimmen müssen: die tag-basierte Gerätetypliste, der
+    BooleanState (True = zu) und der Batteriestand in halben Prozent. Geht
+    eine davon schief, fehlt entweder der Sensor ganz oder er meldet das
+    Gegenteil - und «Tür offen» auf der Startseite wäre eine Falschaussage.
+    """
+    server = FakeMatterServer(nodes=[KONTAKT])
+    runner = await _serve(server)
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        "api: { host: 127.0.0.1, port: 18132, token: t }\n"
+        "integrations:\n"
+        "  - integration: matter\n"
+        f"    url: ws://127.0.0.1:{server.port}/ws\n"
+    )
+    hub = Hub(load_config(str(config_file)))
+    await hub.start()
+    try:
+        await _wait_for(lambda: hub.registry.get("matter.7_1") is not None)
+        entity = hub.registry.get("matter.7_1")
+        assert entity.kind == "binary_sensor"
+        assert entity.name == "Balkontüre"
+        # Zu, also nicht «aktiv» - und als Kontakt erkannt, sonst hielte
+        # die Startseite ihn für einen Bewegungsmelder.
+        assert entity.state["state"] == "off"
+        assert entity.state["device_class"] == "contact"
+        assert entity.state["battery"] == 88
+
+        # Türe geht auf.
+        await server.send_event("attribute_updated", [7, "1/69/0", False])
+        await _wait_for(lambda: hub.registry.get("matter.7_1").state["state"] == "on")
+    finally:
+        await hub.stop()
+        await runner.cleanup()
+
+
+async def test_an_old_service_is_named_in_the_log(tmp_path, caplog):
+    """Ein zu alter Dienst soll als Satz im Protokoll stehen.
+
+    Sonst zeigt sich der Bruch als leere Geräteliste, und die Suche
+    beginnt beim Falschen.
+    """
+    server = FakeMatterServer(schema=4)
+    runner = await _serve(server)
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        "api: { host: 127.0.0.1, port: 18133, token: t }\n"
+        "integrations:\n"
+        "  - integration: matter\n"
+        f"    url: ws://127.0.0.1:{server.port}/ws\n"
+    )
+    hub = Hub(load_config(str(config_file)))
+    with caplog.at_level("WARNING"):
+        await hub.start()
+        try:
+            await _wait_for(lambda: hub.registry.get("matter.12_1") is not None)
+        finally:
+            await hub.stop()
+            await runner.cleanup()
+    assert any("Schema 4" in record.getMessage() for record in caplog.records)

@@ -144,18 +144,46 @@ services:
       # Nicht auf Vorrat umpacken: erst wenn jemand zuschaut.
       - MTX_HLSALWAYSREMUX=false
 
-  # Matter-Controller – Kommentarzeichen entfernen, wenn die
-  # matter-Integration in der config.yaml aktiv ist.
-  # matter:
-  #   image: ghcr.io/home-assistant-libs/python-matter-server:stable
-  #   container_name: homepilot-matter
-  #   restart: unless-stopped
-  #   network_mode: host
-  #   security_opt:
-  #     - apparmor=unconfined
-  #   volumes:
-  #     - matter-data:/data
-  #     - /run/dbus:/run/dbus:ro
-
-# volumes:
-#   matter-data:
+  # Matter-Controller. Hält die Fabric - Schlüssel, Zertifikate, die
+  # Zugänge zu WLAN und Thread - und spricht mit den Geräten. Der Hub ist
+  # nur ein WebSocket-Client darauf (ws://127.0.0.1:5580/ws).
+  #
+  # matter.js und nicht mehr der python-matter-server: Der ist seit dem
+  # 23. Juni 2026 eingestellt, 8.1.2 war die letzte Fassung. Der
+  # Nachfolger spricht dieselbe Schnittstelle und übernimmt beim ersten
+  # Start ein vorhandenes Datenverzeichnis.
+  #
+  # host-Netz ist Pflicht: Matter findet Geräte über mDNS, und das geht
+  # nicht durch ein Docker-Bridge-Netz. Ebenso Pflicht ist **IPv6 auf dem
+  # Host** - der Dienst bindet mDNS an [::]:5353 und startet ohne IPv6
+  # gar nicht erst («Cannot bind to {::}:5353»).
+  #
+  # Das Datenverzeichnis liegt bewusst als Ordner neben der config.yaml
+  # und nicht in einem Docker-Volume: Dort steht die Fabric, und ohne sie
+  # muss jedes Gerät neu gekoppelt werden. Als Ordner wandert sie mit
+  # /opt/homepilot ins Backup, ein Volume übersieht man.
+  #
+  # Einmalig auf dem Host, sonst darf der Dienst nicht hineinschreiben:
+  #   sudo mkdir -p /opt/homepilot/matter
+  #   sudo chown -R 1000:1000 /opt/homepilot/matter
+  matter:
+    image: ghcr.io/matter-js/matterjs-server:stable
+    container_name: homepilot-matter
+    restart: unless-stopped
+    network_mode: host
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      - TZ=Europe/Zurich
+      # Bluetooth für Geräte, die fabrikneu aus der Packung kommen. Hat
+      # der Rechner keinen Adapter, schadet es nicht - dann koppelt man
+      # über einen geteilten Code aus Apple Home (siehe
+      # docs/tuer-und-fensterkontakte.md).
+      - NOBLE_BINDINGS=dbus
+      - BLUETOOTH_ADAPTER=0
+    volumes:
+      - /opt/homepilot/matter:/data
+      - /run/dbus:/run/dbus:ro
