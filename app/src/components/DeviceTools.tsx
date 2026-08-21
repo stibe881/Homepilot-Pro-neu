@@ -24,14 +24,19 @@ export function DeviceTools({
   settings,
   headers,
   entities,
+  alle,
   rooms,
   groups,
   onDone,
 }: {
   settings: HubSettings;
   headers: Record<string, string>;
-  /** Die Geräte der aktuellen Ansicht – nur die lassen sich auswählen. */
+  /** Die Geräte der aktuellen Ansicht – die Sammelaktion arbeitet auf
+   *  ihnen, und genau das ist ihr Sinn: erst filtern, dann zuweisen. */
   entities: Entity[];
+  /** Alle Geräte des Hauses – fürs Ersetzen. Dort wäre die gefilterte
+   *  Liste falsch: Das neue Gerät heisst fast nie wie das alte. */
+  alle: Entity[];
   rooms: string[];
   groups: string[];
   /** Nach einer Änderung: Liste neu laden. */
@@ -53,7 +58,7 @@ export function DeviceTools({
     setNeu(null);
   };
 
-  const nameOf = (id: string) => entities.find((e) => e.id === id)?.name ?? id;
+  const nameOf = (id: string) => alle.find((e) => e.id === id)?.name ?? id;
 
   const setzeRaum = async (raum: string | null) => {
     setBusy(true);
@@ -245,7 +250,7 @@ export function DeviceTools({
               <ScrollView>
                 <Text style={styles.footerLabel}>Altes Gerät</Text>
                 <View style={styles.chipWrap}>
-                  {entities.map((entity) => (
+                  {alle.map((entity) => (
                     <Pressable
                       key={entity.id}
                       onPress={() => setAlt(entity.id === alt ? null : entity.id)}
@@ -261,7 +266,7 @@ export function DeviceTools({
                 </View>
                 <Text style={styles.footerLabel}>Neues Gerät</Text>
                 <View style={styles.chipWrap}>
-                  {entities
+                  {alle
                     .filter((entity) => entity.id !== alt)
                     .map((entity) => (
                       <Pressable

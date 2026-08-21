@@ -197,9 +197,10 @@ Wichtig ist die Reihenfolge: Beide Integrationen müssen dabei in der
 umzuziehen wäre. Erst danach den `nuki`-Block auskommentieren – samt
 `NUKI_TOKEN`.
 
-(Die Karte *Werkzeuge* zeigt sich nur der Besitzerrolle, und sie
-verschwindet, solange im Suchfeld darüber etwas steht – dann sollen die
-Treffer oben stehen.)
+(Die Karte *Werkzeuge* zeigt sich nur der Besitzerrolle. Die Auswahl
+darin listet alle Geräte, auch wenn oben ein Suchbegriff steht – das neue
+Gerät heisst fast nie wie das alte. Der Nuki über Matter meldet sich zum
+Beispiel als «Smart Lock Pro».)
 
 Ein Gerät kann übrigens beides gleichzeitig: In der Nuki-App bleibt das
 Schloss, wie es war, auch wenn es zusätzlich in unserer Matter-Fabric

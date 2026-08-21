@@ -1184,16 +1184,21 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             />
           ) : null}
 
-          {/* Auch im Anpassen-Modus - gerade dort. Die Werkzeuge sind
-              Einrichtung, und der Anpassen-Modus ist der Ort dafür; sie
-              dort auszublenden hiess, sie genau dann zu verstecken, wenn
-              jemand sie sucht. Beim Suchen bleiben sie weg: Dann sollen
-              die Treffer oben stehen, nicht eine Karte davor. */}
-          {section === 'devices' && !searching && istBesitzer ? (
+          {/* Immer sichtbar, solange man unter Geräte steht. Vorher
+              verschwand die Karte im Anpassen-Modus und beim Suchen -
+              also in genau den beiden Lagen, aus denen heraus man sie
+              braucht: Wer eine Kachel anpasst, richtet ein; wer sucht,
+              hat das Gerät gerade gefunden, um das es geht. */}
+          {section === 'devices' && istBesitzer ? (
             <DeviceTools
               settings={settings}
               headers={{ Authorization: `Bearer ${settings.token}` }}
               entities={shown}
+              // Ersetzen braucht den ganzen Bestand: Das neue Gerät heisst
+              // fast nie wie das alte, und wer nach «nuki» sucht, findet
+              // ein «Smart Lock Pro» nicht - hätte es dann aber auch nicht
+              // zur Auswahl.
+              alle={entities}
               rooms={roomOrder}
               groups={groupNames}
               onDone={reloadScenes}
