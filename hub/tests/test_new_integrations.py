@@ -592,6 +592,24 @@ def test_app_list_never_shows_a_raw_package_id():
     assert app_list({"apps": [None, "", {"name": "Ohne Paket"}, 42]}, {}) == []
 
 
+def test_sleep_left_counts_down_and_never_shows_zero():
+    """Solange etwas läuft, soll auch etwas dastehen.
+
+    Aufgerundet, damit in der letzten halben Minute «1 min» steht und
+    nicht «0» - eine Null neben einem laufenden Timer liest sich wie ein
+    Fehler. Abgelaufen heisst dagegen ausdrücklich «kein Timer».
+    """
+    from homepilot.integrations.androidtv import sleep_left
+
+    assert sleep_left(None, 1000.0) is None
+    assert sleep_left(1000.0 + 30 * 60, 1000.0) == 30
+    assert sleep_left(1000.0 + 29 * 60 + 30, 1000.0) == 30
+    assert sleep_left(1000.0 + 61, 1000.0) == 2
+    assert sleep_left(1000.0 + 30, 1000.0) == 1
+    assert sleep_left(1000.0, 1000.0) is None
+    assert sleep_left(900.0, 1000.0) is None
+
+
 def test_cert_paths_are_stable_and_shared():
     from homepilot.integrations.androidtv import cert_paths
 

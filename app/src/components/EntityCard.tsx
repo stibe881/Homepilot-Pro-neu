@@ -18,6 +18,7 @@ import { Bar } from './Bar';
 import { Card, CardFooter } from './Card';
 import { CoverVisual, Sky } from './CoverVisual';
 import { TvApps } from './TvApps';
+import { TvSleep } from './TvSleep';
 import { TvRemote } from './TvRemote';
 
 interface Props {
@@ -221,6 +222,9 @@ export function EntityCard({
                 braucht man erst danach. */}
             {entity.commands.includes('launch_app') ? (
               <TvApps entity={entity} onCommand={onCommand} />
+            ) : null}
+            {entity.commands.includes('sleep_timer') ? (
+              <TvSleep entity={entity} onCommand={onCommand} />
             ) : null}
             {hasRemote ? (
               <TvRemote

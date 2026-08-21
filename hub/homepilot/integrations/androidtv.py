@@ -26,6 +26,7 @@ im Event-Loop an.
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 from typing import Any
 
@@ -147,6 +148,26 @@ def tv_state(is_on: bool, current_app: str | None, volume_info: Any) -> dict[str
     return result
 
 
+# Was der Einschlaf-Timer anbietet. Halbe Stunden bis zweieinhalb - wer
+# länger wach bleibt, schaltet ohnehin selbst aus.
+SLEEP_MINUTES = [30, 60, 90, 120, 150]
+
+
+def sleep_left(until: float | None, now: float) -> int | None:
+    """Wie viele Minuten der Timer noch läuft (rein, testbar).
+
+    Aufgerundet: In der letzten halben Minute steht «1 min» statt «0» -
+    solange noch etwas läuft, soll auch etwas dastehen. `None` heisst:
+    kein Timer.
+    """
+    if until is None:
+        return None
+    rest = until - now
+    if rest <= 0:
+        return None
+    return max(1, int(rest // 60) + (1 if rest % 60 else 0))
+
+
 def cert_paths(cert_dir: str | Path, host: str) -> tuple[str, str]:
     """Zertifikat und Schlüssel für einen Fernseher – Integration und
     Pairing-Helfer müssen zwingend dieselben Pfade berechnen."""
@@ -177,6 +198,8 @@ class AndroidTvIntegration(Integration):
 
         cert_dir = self.config.get("cert_dir") or str(Path(self.hub.config.data_file).parent)
         self._remotes: dict[str, Any] = {}
+        # Laufende Einschlaf-Timer je Gerät.
+        self._sleep: dict[str, asyncio.Task] = {}
 
         for device in devices:
             host = device.get("host")
@@ -186,12 +209,21 @@ class AndroidTvIntegration(Integration):
                 str(host).replace(".", "_"),
                 EntityKind.MEDIA_PLAYER,
                 device.get("name", f"Android TV {host}"),
-                state={"state": "off", "apps": app_list(self.config, device)},
+                state={
+                    "state": "off",
+                    "apps": app_list(self.config, device),
+                    # Zeitpunkt, zu dem der Fernseher von selbst ausgeht -
+                    # als Zeitstempel und nicht als Restminuten, damit die
+                    # App mitzählen kann, ohne dass der Hub im Minutentakt
+                    # etwas schickt.
+                    "sleep_until": None,
+                    "sleep_minutes": SLEEP_MINUTES,
+                },
                 commands=[
                     "turn_on", "turn_off", "toggle",
                     "play", "pause", "next", "previous",
                     "volume_up", "volume_down", "mute",
-                    "home", "back", "launch_app",
+                    "home", "back", "launch_app", "sleep_timer",
                     "dpad_up", "dpad_down", "dpad_left", "dpad_right", "ok",
                 ],
                 available=False,
@@ -200,6 +232,9 @@ class AndroidTvIntegration(Integration):
 
     async def teardown(self) -> None:
         await super().teardown()
+        for task in self._sleep.values():
+            task.cancel()
+        self._sleep.clear()
         for remote in self._remotes.values():
             try:
                 remote.disconnect()
@@ -252,11 +287,50 @@ class AndroidTvIntegration(Integration):
         self.log.info("Mit Android TV %s verbunden", host)
 
     async def _push_state(self, entity_id: str, remote: Any, available: bool = True) -> None:
-        await self.hub.registry.update_state(
-            entity_id,
-            tv_state(bool(remote.is_on), remote.current_app, remote.volume_info),
-            available=available,
-        )
+        zustand = tv_state(bool(remote.is_on), remote.current_app, remote.volume_info)
+        # Wer den Fernseher selbst ausschaltet, meint es auch - dann läuft
+        # kein Timer mehr, und in der Kachel steht auch keiner. Sonst
+        # zählte dort eine Zahl herunter, die nichts mehr bewirkt.
+        if zustand["state"] == "off" and entity_id in self._sleep:
+            await self._set_sleep(entity_id, None)
+        await self.hub.registry.update_state(entity_id, zustand, available=available)
+
+    # ── Einschlaf-Timer ────────────────────────────────────────────────────
+
+    async def _set_sleep(self, entity_id: str, minutes: Any) -> None:
+        """Timer setzen, verlängern oder abbrechen.
+
+        Er lebt im Hub und nicht in der App: Wer einschläft, sperrt sein
+        Telefon - ein Timer, der davon abhinge, wäre keiner.
+        """
+        laufend = self._sleep.pop(entity_id, None)
+        if laufend is not None:
+            laufend.cancel()
+
+        try:
+            zahl = int(minutes) if minutes is not None else 0
+        except (TypeError, ValueError):
+            raise ValueError("sleep_timer braucht data.minutes als Zahl (0 = aus)")
+
+        if zahl <= 0:
+            await self.hub.registry.update_state(entity_id, {"sleep_until": None})
+            return
+
+        bis = time.time() + zahl * 60
+        await self.hub.registry.update_state(entity_id, {"sleep_until": bis})
+        self._sleep[entity_id] = self.start_task(self._sleep_loop(entity_id, zahl * 60))
+
+    async def _sleep_loop(self, entity_id: str, seconds: float) -> None:
+        try:
+            await asyncio.sleep(seconds)
+        except asyncio.CancelledError:
+            raise
+        self._sleep.pop(entity_id, None)
+        await self.hub.registry.update_state(entity_id, {"sleep_until": None})
+        remote = self._remotes.get(entity_id)
+        if remote is not None and remote.is_on:
+            self.log.info("Einschlaf-Timer abgelaufen: %s geht aus", entity_id)
+            remote.send_key_command("KEYCODE_POWER")
 
     # ── Hub → Gerät ────────────────────────────────────────────────────────
 
@@ -276,6 +350,9 @@ class AndroidTvIntegration(Integration):
             if not app:
                 raise ValueError("launch_app braucht data.app (Paket-ID oder Link)")
             remote.send_launch_app_command(str(app))
+            return
+        if command == "sleep_timer":
+            await self._set_sleep(entity.id, data.get("minutes"))
             return
         remote.send_key_command(KEYMAP[command])
 
