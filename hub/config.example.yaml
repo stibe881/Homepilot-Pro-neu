@@ -288,13 +288,30 @@ integrations:
   #     - primary
   #     - addressbook#contacts@group.v.calendar.google.com   # Geburtstage
 
-  # Android TV / Google TV. Braucht: pip install androidtvremote2
+  # Android TV / Google TV (auch Nvidia Shield). Braucht:
+  #   pip install androidtvremote2
   # Einmalige PIN-Kopplung am Fernseher:
   #   python -m homepilot.integrations.androidtv -c config.yaml
+  #
+  # «apps» bestimmt, was die Kachel zum Starten anbietet. Ohne Eintrag
+  # eine kurze Vorgabe (Plex, Zattoo, YouTube, Netflix, Disney+, Prime).
+  # Das Protokoll kann Apps starten, aber nicht aufzählen - deshalb steht
+  # die Liste hier und kommt nicht vom Fernseher. Den Paketnamen zeigt
+  # der Play-Store in der Adresszeile («?id=…»).
   # - integration: androidtv
+  #   # Gilt für alle Geräte darunter …
+  #   apps:
+  #     - com.plexapp.android
+  #     - com.zattoo.player
+  #     - { name: Mediathek, app: tv.arte.plus7 }
   #   devices:
   #     - host: 192.168.1.50
-  #       name: Wohnzimmer TV
+  #       name: Fernseher Wohnzimmer
+  #     - host: 192.168.1.51
+  #       name: Fernseher Schlafzimmer
+  #       # … und lässt sich je Gerät ganz ersetzen.
+  #       apps:
+  #         - com.plexapp.android
 
   # Overkiz (Somfy TaHoma & Co.): Storen, Rollläden, Markisen.
   # Braucht: pip install pyoverkiz. Entwicklermodus im Somfy-Konto

@@ -17,6 +17,7 @@ import { Colors, radius, type, useColors } from '../theme';
 import { Bar } from './Bar';
 import { Card, CardFooter } from './Card';
 import { CoverVisual, Sky } from './CoverVisual';
+import { TvApps } from './TvApps';
 import { TvRemote } from './TvRemote';
 
 interface Props {
@@ -215,6 +216,12 @@ export function EntityCard({
               </View>
             ) : null}
             <ShuffleRepeat entity={entity} onCommand={onCommand} />
+            {/* Vor der Fernbedienung: «Zattoo oder Plex» ist die Frage,
+                die man einer Fernsehkachel stellt - das Steuerkreuz
+                braucht man erst danach. */}
+            {entity.commands.includes('launch_app') ? (
+              <TvApps entity={entity} onCommand={onCommand} />
+            ) : null}
             {hasRemote ? (
               <TvRemote
                 visible={remoteOpen}

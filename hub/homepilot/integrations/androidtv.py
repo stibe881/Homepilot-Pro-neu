@@ -43,10 +43,63 @@ APP_NAMES = {
     "com.disney.disneyplus": "Disney+",
     "com.amazon.amazonvideo.livingroom": "Prime Video",
     "com.plexapp.android": "Plex",
+    "com.zattoo.player": "Zattoo",
     "com.google.android.apps.tv.launcherx": None,  # Startbildschirm
     "com.android.systemui": None,
     "com.google.android.tvlauncher": None,
 }
+
+# Was die Kachel zum Starten anbietet. Bewusst eine kurze Liste statt
+# aller installierten Apps: Das Protokoll kennt keine Abfrage dafür - es
+# kann Apps starten, aber nicht aufzählen. Wer eine andere App will,
+# trägt sie in der config.yaml ein; den Paketnamen zeigt der Play-Store
+# in der Adresszeile («?id=…»).
+DEFAULT_APPS: list[dict[str, str]] = [
+    {"name": "Plex", "app": "com.plexapp.android"},
+    {"name": "Zattoo", "app": "com.zattoo.player"},
+    {"name": "YouTube", "app": "com.google.android.youtube.tv"},
+    {"name": "Netflix", "app": "com.netflix.ninja"},
+    {"name": "Disney+", "app": "com.disney.disneyplus"},
+    {"name": "Prime Video", "app": "com.amazon.amazonvideo.livingroom"},
+]
+
+
+def app_list(block: dict[str, Any], device: dict[str, Any]) -> list[dict[str, str]]:
+    """Welche Apps dieses Gerät anbietet (rein, testbar).
+
+    Drei Ebenen, von unten nach oben: die Vorgabe, eine Liste für alle
+    Geräte, eine Liste für dieses eine. Das Spezifischere gewinnt ganz -
+    wer für den Schlafzimmer-Fernseher nur Plex will, soll nicht die
+    ganze Vorgabe daneben stehen haben.
+
+    Ein Eintrag darf auch nur ein Paketname sein; dann steht der bekannte
+    Anzeigename dort, sonst der letzte Namensteil - eine rohe Paket-ID
+    soll auf keinem Knopf stehen.
+    """
+    roh = device.get("apps")
+    if roh is None:
+        roh = block.get("apps")
+    if roh is None:
+        return list(DEFAULT_APPS)
+
+    apps: list[dict[str, str]] = []
+    for eintrag in roh:
+        if isinstance(eintrag, str):
+            paket = eintrag.strip()
+            name = APP_NAMES.get(paket) or paket.rsplit(".", 1)[-1].title()
+        elif isinstance(eintrag, dict):
+            paket = str(eintrag.get("app") or "").strip()
+            name = str(
+                eintrag.get("name")
+                or APP_NAMES.get(paket)
+                or (paket.rsplit(".", 1)[-1].title() if paket else "")
+            )
+        else:
+            continue
+        if paket:
+            apps.append({"name": name, "app": paket})
+    return apps
+
 
 # Kommando der App → Taste der Fernbedienung.
 KEYMAP = {
@@ -133,7 +186,7 @@ class AndroidTvIntegration(Integration):
                 str(host).replace(".", "_"),
                 EntityKind.MEDIA_PLAYER,
                 device.get("name", f"Android TV {host}"),
-                state={"state": "off"},
+                state={"state": "off", "apps": app_list(self.config, device)},
                 commands=[
                     "turn_on", "turn_off", "toggle",
                     "play", "pause", "next", "previous",

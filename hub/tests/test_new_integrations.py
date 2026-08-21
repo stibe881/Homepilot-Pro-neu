@@ -556,6 +556,42 @@ def test_app_name_launcher_counts_as_nothing():
     assert app_name("tv.arte.plus7") == "Plus7"
 
 
+def test_app_list_defaults_and_overrides():
+    """Was auf den Knöpfen der Kachel steht.
+
+    Das Protokoll kann Apps starten, aber nicht aufzählen - die Liste
+    kommt also aus der Konfiguration. Drei Ebenen, und das Spezifischere
+    gewinnt ganz: Wer für den Schlafzimmer-Fernseher nur Plex will, soll
+    nicht die ganze Vorgabe daneben stehen haben.
+    """
+    from homepilot.integrations.androidtv import DEFAULT_APPS, app_list
+
+    assert app_list({}, {}) == DEFAULT_APPS
+    assert [app["name"] for app in DEFAULT_APPS][:3] == ["Plex", "Zattoo", "YouTube"]
+
+    # Liste für alle Geräte des Blocks.
+    alle = app_list({"apps": ["com.plexapp.android"]}, {})
+    assert alle == [{"name": "Plex", "app": "com.plexapp.android"}]
+
+    # Das Gerät sticht den Block.
+    eigen = app_list(
+        {"apps": ["com.plexapp.android"]},
+        {"apps": [{"name": "Kino", "app": "com.beispiel.kino"}]},
+    )
+    assert eigen == [{"name": "Kino", "app": "com.beispiel.kino"}]
+
+
+def test_app_list_never_shows_a_raw_package_id():
+    """Auf einem Knopf soll kein «com.foo.bar» stehen."""
+    from homepilot.integrations.androidtv import app_list
+
+    apps = app_list({"apps": ["com.zattoo.player", "tv.arte.plus7", {"app": "x.y.kodi"}]}, {})
+    assert [app["name"] for app in apps] == ["Zattoo", "Plus7", "Kodi"]
+
+    # Unsinn fällt heraus, statt eine leere Schaltfläche zu erzeugen.
+    assert app_list({"apps": [None, "", {"name": "Ohne Paket"}, 42]}, {}) == []
+
+
 def test_cert_paths_are_stable_and_shared():
     from homepilot.integrations.androidtv import cert_paths
 
