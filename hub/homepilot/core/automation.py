@@ -445,6 +445,45 @@ def describe_trigger_health(
     }
 
 
+# Wie lange ein Zeit-Auslöser höchstens am Stück schläft.
+#
+# Vorher wurde die ganze Differenz bis zum Ziel in einem Zug verschlafen.
+# `asyncio.sleep` rechnet in monotoner Zeit, die Wanduhr aber nicht: Bei
+# der Umstellung im Frühling verschiebt sich alles um eine Stunde, im
+# Herbst ebenso in die andere Richtung, und nach einem Ruhezustand des
+# Rechners stimmt gar nichts mehr. Wer stattdessen in Stücken schläft und
+# jedes Mal neu gegen die Wanduhr rechnet, trifft die Zeit auch dann.
+TIME_STEP = 900.0
+
+
+def next_time_fire(
+    jetzt: datetime, hour: int, minute: int, gefeuert_am: Any
+) -> tuple[bool, float, Any]:
+    """Ist ein Zeit-Auslöser fällig, und wie lange bis zur nächsten Prüfung?
+
+    Rein und testbar - und das ist der Punkt: Die Zeitumstellung lässt
+    sich sonst nur zweimal im Jahr beobachten.
+
+    ``gefeuert_am`` ist das Datum, an dem zuletzt ausgelöst wurde. Daran
+    hängt der Herbst: Am Umstellungstag gibt es 02:30 zweimal, und ein
+    Ablauf soll trotzdem einmal laufen.
+
+    Der Frühling geht andersherum: 02:30 gibt es an diesem Tag gar nicht.
+    Statt den Lauf zu verlieren, feuert er, sobald die Uhr daran vorbei
+    ist - also um 03:00. Lieber eine halbe Stunde spät als gar nicht.
+    """
+    ziel = jetzt.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if jetzt >= ziel:
+        feuern = gefeuert_am != jetzt.date()
+        if feuern:
+            gefeuert_am = jetzt.date()
+        rest = ((ziel + timedelta(days=1)) - jetzt).total_seconds()
+    else:
+        feuern = False
+        rest = (ziel - jetzt).total_seconds()
+    return feuern, min(max(rest, 1.0), TIME_STEP), gefeuert_am
+
+
 def _as_list(value: Any) -> list[dict[str, Any]]:
     if value is None:
         return []
@@ -770,13 +809,18 @@ class AutomationEngine:
 
     async def _time_loop(self, automation: Automation, at: str) -> None:
         hour, minute = _parse_hhmm(at)
+        start = datetime.now()
+        # Beim Start nicht nachträglich feuern: Wer den Hub um 20 Uhr neu
+        # startet, will den 18:30-Ablauf nicht sofort ausgeführt bekommen.
+        ziel_heute = start.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        gefeuert_am = start.date() if start >= ziel_heute else None
         while True:
-            now = datetime.now()
-            target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-            if target <= now:
-                target += timedelta(days=1)
-            await asyncio.sleep((target - now).total_seconds())
-            self._schedule(automation)
+            feuern, schlafen, gefeuert_am = next_time_fire(
+                datetime.now(), hour, minute, gefeuert_am
+            )
+            if feuern:
+                self._schedule(automation)
+            await asyncio.sleep(schlafen)
 
     # ── Unterbrochene Wartezeiten ──────────────────────────────────────────
     #

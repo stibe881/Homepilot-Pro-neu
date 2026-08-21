@@ -278,10 +278,13 @@ class IntegrationManager:
     async def dispatch_command(
         self, entity_id: str, command: str, data: dict[str, Any] | None = None
     ) -> Entity:
+        self.hub.counters.zaehle("commands")
         entity = self.hub.registry.get(entity_id)
         if entity is None:
+            self.hub.counters.zaehle("commands_unknown_entity")
             raise UnknownEntityError(entity_id)
         if command not in entity.commands:
+            self.hub.counters.zaehle("commands_unsupported")
             raise UnsupportedCommandError(entity_id, command)
         integration = self._integrations.get(entity.integration)
         if integration is None:

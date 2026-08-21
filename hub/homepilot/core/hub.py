@@ -10,7 +10,7 @@ import time
 from typing import Any
 
 from .. import __version__
-from . import config_edit
+from . import config_edit, metrics
 from . import push as push_service
 from . import users as users_module
 from .audit import AuditLog
@@ -72,6 +72,8 @@ class Hub:
         # In der App angelegte Benutzer und Automationen liegen neben der
         # Konfiguration, damit sie ohne Datenbank einen Neustart überleben.
         self.data = DataStore(config.data_file)
+        # Was der Hub tut, mitzählen - siehe core/metrics.py.
+        self.counters = metrics.Counters()
         # Sitzungen aus der Anmeldung mit E-Mail und Passwort. Sie liegen
         # lokal, damit der Hub ohne Internet weiterarbeitet - erst nach
         # dem DataStore, weil sie dort hineinschreiben.
@@ -436,6 +438,14 @@ class Hub:
                 "built_at": os.environ.get("HOMEPILOT_BUILD_TIME", "unbekannt"),
             },
             "energy": self.config.energy,
+            # Was der Hub über sich selbst weiss. Bisher stand hier nur der
+            # Plattenplatz; ein wachsender Speicherverbrauch fiel deshalb
+            # erst auf, wenn der Rechner stand.
+            "runtime": {
+                **metrics.process_stats(),
+                "counters": self.counters.as_dict(),
+                "commands_per_hour": self.counters.pro_stunde("commands"),
+            },
             # Speicherplatz: läuft er voll, scheitert jedes Speichern.
             "disk": self.watchdog.disk,
             # Ausfall-Protokoll des Wächters (jüngste zuerst).

@@ -1340,3 +1340,103 @@ def test_diagnose_returns_nothing_for_an_unknown_automation():
     engine = AutomationEngine.__new__(AutomationEngine)
     engine.automations = []
     assert engine.diagnose("gibt-es-nicht") is None
+
+
+# ── Zeitumstellung ─────────────────────────────────────────────────────────
+#
+# Vorher verschlief ein Zeit-Auslöser die ganze Differenz bis zum Ziel in
+# einem Zug. asyncio rechnet in monotoner Zeit, die Wanduhr aber nicht -
+# und zweimal im Jahr laufen die beiden eine Stunde auseinander.
+
+
+def test_a_time_trigger_fires_once_a_day():
+    from datetime import date
+    from datetime import datetime as dt
+
+    from homepilot.core.automation import TIME_STEP, next_time_fire
+
+    # Vormittags: noch nicht fällig, und es wird nicht ewig geschlafen.
+    feuern, schlafen, gefeuert = next_time_fire(dt(2026, 3, 15, 9, 0), 18, 30, None)
+    assert feuern is False
+    assert schlafen == TIME_STEP
+
+    # Kurz davor: der Rest, nicht mehr.
+    feuern, schlafen, gefeuert = next_time_fire(dt(2026, 3, 15, 18, 25), 18, 30, None)
+    assert feuern is False and schlafen == 300
+
+    # Fällig.
+    feuern, schlafen, gefeuert = next_time_fire(dt(2026, 3, 15, 18, 30), 18, 30, None)
+    assert feuern is True and gefeuert == date(2026, 3, 15)
+
+    # Und danach nicht noch einmal am selben Tag.
+    feuern, _, gefeuert = next_time_fire(dt(2026, 3, 15, 18, 45), 18, 30, gefeuert)
+    assert feuern is False
+
+    # Am nächsten Tag wieder.
+    feuern, _, gefeuert = next_time_fire(dt(2026, 3, 16, 18, 30), 18, 30, gefeuert)
+    assert feuern is True and gefeuert == date(2026, 3, 16)
+
+
+def test_the_hub_does_not_fire_the_whole_day_on_startup():
+    """Wer um 20 Uhr neu startet, will den 18:30-Ablauf nicht sofort."""
+    from datetime import datetime as dt
+
+    start = dt(2026, 3, 15, 20, 0)
+    ziel = start.replace(hour=18, minute=30, second=0, microsecond=0)
+    gefeuert = start.date() if start >= ziel else None
+    from homepilot.core.automation import next_time_fire
+
+    feuern, _, _ = next_time_fire(start, 18, 30, gefeuert)
+    assert feuern is False
+
+
+def test_spring_forward_does_not_lose_the_run():
+    """Am 29. März 2026 springt die Uhr von 02:00 auf 03:00.
+
+    Ein Ablauf um 02:30 hat an diesem Tag keine Uhrzeit. Verlieren wäre
+    die schlechtere Antwort - er läuft, sobald die Uhr daran vorbei ist.
+    """
+    from datetime import date
+    from datetime import datetime as dt
+
+    from homepilot.core.automation import next_time_fire
+
+    # Vor dem Sprung: noch nicht fällig.
+    feuern, _, gefeuert = next_time_fire(dt(2026, 3, 29, 1, 59), 2, 30, None)
+    assert feuern is False
+
+    # Nach dem Sprung ist es 03:00 - 02:30 gab es nie.
+    feuern, _, gefeuert = next_time_fire(dt(2026, 3, 29, 3, 0), 2, 30, gefeuert)
+    assert feuern is True and gefeuert == date(2026, 3, 29)
+
+    # Aber nur einmal.
+    feuern, _, _ = next_time_fire(dt(2026, 3, 29, 3, 15), 2, 30, gefeuert)
+    assert feuern is False
+
+
+def test_falling_back_does_not_run_it_twice():
+    """Am 25. Oktober 2026 gibt es 02:30 zweimal – der Ablauf läuft einmal."""
+    from datetime import datetime as dt
+
+    from homepilot.core.automation import next_time_fire
+
+    feuern, _, gefeuert = next_time_fire(dt(2026, 10, 25, 2, 30), 2, 30, None)
+    assert feuern is True
+
+    # Die Uhr ist auf 02:00 zurückgesprungen; 02:30 kommt ein zweites Mal.
+    feuern, _, gefeuert = next_time_fire(dt(2026, 10, 25, 2, 30), 2, 30, gefeuert)
+    assert feuern is False
+
+
+def test_a_missed_run_is_caught_up_not_skipped():
+    """Der Rechner war im Ruhezustand – der Ablauf holt es nach.
+
+    Innerhalb desselben Tages ist «eine Stunde zu spät» besser als «gar
+    nicht»: Die Storen sollen auch dann noch zufahren.
+    """
+    from datetime import datetime as dt
+
+    from homepilot.core.automation import next_time_fire
+
+    feuern, _, _ = next_time_fire(dt(2026, 3, 15, 19, 45), 18, 30, None)
+    assert feuern is True
