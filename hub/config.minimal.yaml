@@ -1,0 +1,38 @@
+# Die kurze Fassung: zwanzig Zeilen bis zum ersten geschalteten Licht.
+#
+# Die grosse config.example.yaml ist Referenz und Anleitung in einem und
+# darin sehr gut - nur eben 700 Zeilen lang. Wer neu anfängt, will nicht
+# 700 Zeilen lesen, sondern etwas, das läuft.
+#
+# Schrittweise Anleitung: docs/erste-stunde.md
+# Alle Integrationen mit Beispiel: config.example.yaml
+
+api:
+  # 0.0.0.0 mit Absicht: Mit 127.0.0.1 erreichst du den Hub nur vom
+  # Rechner selbst, nicht vom Telefon.
+  host: 0.0.0.0
+  port: 8123
+  # openssl rand -base64 32
+  token: hier-ein-langes-zufaelliges-token
+
+integrations:
+  # Die Demo-Wohnung: ein Licht, eine Steckdose, ein Bewegungsmelder, ein
+  # Fühler. Zum Ausprobieren, bevor ein echtes Gerät dranhängt - und
+  # später als Spielwiese für Abläufe.
+  - integration: demo
+
+  # Und jetzt deins. Die Beispiele stehen in config.example.yaml; bei
+  # Homematic schreibt der Hub beim Start alle Kanäle ins Log, da suchst
+  # du deine Adresse heraus.
+  #
+  # - integration: hue
+  #   host: 192.168.1.20
+  #   app_key: "${HUE_APP_KEY}"
+
+rooms:
+  # Raumname → Geräte darin. Daraus macht die App ihre Reiter.
+  Wohnzimmer: [demo.light_livingroom, demo.temp_livingroom]
+  Küche: [demo.switch_coffee]
+  Flur: [demo.motion_hall]
+
+automations: []

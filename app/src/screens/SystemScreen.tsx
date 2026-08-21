@@ -135,6 +135,7 @@ export function SystemScreen({
         ) : null}
         {status.build ? <WebVersionNote hubCommit={status.build.commit} /> : null}
         <AppVersionNote />
+        <WasIstNeu settings={settings} />
 
         {showOffline ? (
           offline(entities).length === 0 ? (
@@ -799,25 +800,64 @@ const POLL_MS = 2000;
 const MAX_POLLS = 600;
 
 /**
- * Update anstossen.
+ * «Was ist neu» – auch noch nach zwei Wochen.
  *
- * Der Hub kann sich nicht selbst neu bauen – er läuft in einem Container
- * und hat weder das Repository noch Docker zur Hand. Was er kann: eine
- * Adresse aufrufen, die das auf dem Host anstösst. Steht keine in der
- * config.yaml, sagt der Knopf genau das, statt so zu tun als ob.
+ * Die Karte nach dem Update zeigt sich genau einmal und ist danach weg.
+ * Wer später wissen will, was sich geändert hat, hatte keinen Weg dorthin
+ * – dabei liegt die Liste ohnehin im Hub (changes.txt, vom Bau-Skript
+ * daneben gelegt).
  *
- * Läuft dort der beiliegende update-listener.py, liefert er einen echten
- * Fortschritt (welche Phase gerade dran ist) – den fragt diese Karte alle
- * zwei Sekunden ab und zeigt ihn als Balken. Bei einem reinen Portainer-
- * Webhook gibt es das nicht; dann bleibt es wie bisher bei "läuft".
+ * Hier steht sie zusammengeklappt: eine Zeile, die man antippt. Immer
+ * ausgeklappt wäre sie in dem Bildschirm, in dem man nach einem Fehler
+ * sucht, nur Lärm.
  */
-/** Passt das Bundle im Browser zum laufenden Hub? (nur Web)
- *
- * Das Bau-Skript legt neben die Web-Fassung eine version.json mit dem
- * Commit. Weicht er vom Hub ab, zeigt der Browser einen alten Stand -
- * meist hängt er im Cache, manchmal ist der Web-Bau beim Update
- * fehlgeschlagen. Genau diese Frage («warum sehe ich die neue Funktion
- * nicht?») war bisher nur per SSH zu beantworten. */
+function WasIstNeu({ settings }: { settings: HubSettings }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [offen, setOffen] = useState(false);
+  const [changes, setChanges] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    if (!offen || changes !== null) return;
+    fetch(`${settings.url}/api/system/changes`, {
+      headers: settings.token ? { Authorization: `Bearer ${settings.token}` } : {},
+    })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => setChanges(Array.isArray(data?.changes) ? data.changes : []))
+      .catch(() => setChanges([]));
+  }, [offen, changes, settings.url, settings.token]);
+
+  return (
+    <>
+      <Pressable
+        onPress={() => setOffen((v) => !v)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: offen }}
+      >
+        <Text style={styles.hint}>Was dieses Update mitbrachte {offen ? '▾' : '▸'}</Text>
+      </Pressable>
+      {offen ? (
+        <View style={{ gap: 2, marginTop: 2 }}>
+          {changes === null ? (
+            <Text style={styles.hint}>Wird geholt …</Text>
+          ) : changes.length === 0 ? (
+            <Text style={styles.hint}>
+              Keine Liste vorhanden – sie entsteht beim Bau und fehlt, wenn der
+              Hub von Hand gestartet wurde.
+            </Text>
+          ) : (
+            changes.map((zeile, index) => (
+              <Text key={index} style={styles.hint}>
+                · {zeile}
+              </Text>
+            ))
+          )}
+        </View>
+      ) : null}
+    </>
+  );
+}
+
 /**
  * Welchen Stand die installierte App selbst ausführt.
  *
@@ -861,6 +901,13 @@ function AppVersionNote() {
   );
 }
 
+/** Passt das Bundle im Browser zum laufenden Hub? (nur Web)
+ *
+ * Das Bau-Skript legt neben die Web-Fassung eine version.json mit dem
+ * Commit. Weicht er vom Hub ab, zeigt der Browser einen alten Stand -
+ * meist hängt er im Cache, manchmal ist der Web-Bau beim Update
+ * fehlgeschlagen. Genau diese Frage («warum sehe ich die neue Funktion
+ * nicht?») war bisher nur per SSH zu beantworten. */
 function WebVersionNote({ hubCommit }: { hubCommit: string }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -888,6 +935,19 @@ function WebVersionNote({ hubCommit }: { hubCommit: string }) {
   );
 }
 
+/**
+ * Update anstossen.
+ *
+ * Der Hub kann sich nicht selbst neu bauen – er läuft in einem Container
+ * und hat weder das Repository noch Docker zur Hand. Was er kann: eine
+ * Adresse aufrufen, die das auf dem Host anstösst. Steht keine in der
+ * config.yaml, sagt der Knopf genau das, statt so zu tun als ob.
+ *
+ * Läuft dort der beiliegende update-listener.py, liefert er einen echten
+ * Fortschritt (welche Phase gerade dran ist) – den fragt diese Karte alle
+ * zwei Sekunden ab und zeigt ihn als Balken. Bei einem reinen Portainer-
+ * Webhook gibt es das nicht; dann bleibt es wie bisher bei "läuft".
+ */
 function UpdateButton({ settings }: { settings: HubSettings }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);

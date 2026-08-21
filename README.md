@@ -9,6 +9,21 @@ React Native für iPhone, iPad und Web) + Supabase als Datenbank.
 └── supabase/   # Datenbankschema und Einrichtung
 ```
 
+## Wo anfangen
+
+Sechzehn Seiten erklären je ein Thema. Diese vier sind der Einstieg:
+
+| Seite | Beantwortet |
+| --- | --- |
+| [Erste Stunde](docs/erste-stunde.md) | Vom leeren Rechner bis zum ersten Licht, das auf einen Tipp angeht |
+| [Aufbau](docs/aufbau.md) | Wie Hub, App, Integrationen und Supabase zueinander stehen |
+| [Entscheidungen](docs/entscheidungen.md) | Warum selbst gebaut, warum eine JSON-Datei, warum Expo |
+| [Integrationen](docs/integrationen.md) | Alle dreissig auf einen Blick – was sie tun, was sie brauchen |
+
+Wer Code ändert, liest zuerst die [CLAUDE.md](CLAUDE.md): Konventionen,
+Prüfschritte und der Weg, die App im Browser anzusehen, ohne das Haus
+anzufassen.
+
 ## Architektur
 
 ```
@@ -51,6 +66,7 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
 cp config.example.yaml config.yaml     # Integrationen anpassen
+# oder klein anfangen:  cp config.minimal.yaml config.yaml
 export HOMEPILOT_TOKEN="ein-langes-zufaelliges-token"
 export SUPABASE_SERVICE_KEY="eyJ..."
 python -m homepilot -c config.yaml
@@ -174,9 +190,13 @@ Nachbesserungen bei Zugangsdaten und Feldnamen.
 | `nuki` | Nuki Smart Lock (4./5. Gen): auf-/abschliessen und aufziehen über die Nuki-Web-API; Token auf web.nuki.io erzeugen |
 | `weather` | Wetterlage und 7-Tage-Vorhersage (Open-Meteo, kostenlos, kein Schlüssel) |
 
-Damit sind **alle 16 geplanten Produkte angebunden.** Anleitung zum
-Selberschreiben weiterer Integrationen:
-[`hub/docs/neue-integration.md`](hub/docs/neue-integration.md)
+Damit sind **alle 16 geplanten Produkte angebunden.** Eine Übersicht über
+alle dreissig – was sie tun, was sie brauchen, was ohne Internet weiterläuft
+– steht in [`docs/integrationen.md`](docs/integrationen.md).
+
+Selber eine schreiben: [`hub/docs/neue-integration.md`](hub/docs/neue-integration.md).
+Damit sie in der App auch eine Kachel bekommt:
+[`hub/docs/neue-kachel.md`](hub/docs/neue-kachel.md).
 
 ## Automationen
 
