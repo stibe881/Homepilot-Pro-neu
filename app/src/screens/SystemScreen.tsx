@@ -10,6 +10,7 @@ import { AccessLog } from '../components/AccessLog';
 import { Card } from '../components/Card';
 import { DeviceHealth } from '../components/DeviceHealth';
 import { Maintenance } from '../components/Maintenance';
+import { Fehlschlag, Laedt } from '../components/Zustand';
 import { localTime, timeAgo } from '../lib/zeit';
 import { Colors, radius, space, type, useColors } from '../theme';
 
@@ -74,10 +75,10 @@ export function SystemScreen({
   };
 
   if (error) {
-    return <Text style={styles.note}>Systemzustand nicht abrufbar: {error}</Text>;
+    return <Fehlschlag text={`Systemzustand nicht abrufbar: ${error}`} onRetry={load} />;
   }
   if (!status) {
-    return <Text style={styles.note}>Wird geladen …</Text>;
+    return <Laedt was="Systemzustand" />;
   }
 
   const paused = status.automations.paused_until;
@@ -713,7 +714,7 @@ function ShortcutsCard({
             multiline={false}
           />
           {items == null ? (
-            <Text style={styles.hint}>Wird geladen …</Text>
+            <Laedt was="Dateien" klein />
           ) : (
             shown.slice(0, 40).map((item) => (
               <Pressable

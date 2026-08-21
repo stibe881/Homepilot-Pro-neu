@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Card } from './Card';
+import { entsperrName } from '../lib/plattform';
 import { available, HEIKEL } from '../lib/biometrie';
 import { Colors, radius, type, useColors } from '../theme';
 
@@ -38,7 +39,7 @@ export function BioLock({
     };
   }, []);
 
-  const name = Platform.OS === 'ios' ? 'Face ID' : 'Fingerabdruck';
+  const name = entsperrName();
 
   return (
     <Card style={styles.card}>

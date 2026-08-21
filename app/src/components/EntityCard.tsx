@@ -633,7 +633,11 @@ export function EntityCard({
           }}
         />
       ) : null}
-      <View style={styles.body}>{body()}</View>
+      {/* Solange der Befehl unterwegs ist, sitzt die Kachel noch auf dem
+          alten Stand – die Schieber und Pfeile darin zeigen also etwas,
+          das gleich nicht mehr stimmt. Blass gestellt sagt das jeder
+          Kachelart auf einmal, ohne dass jede es einzeln wissen muss. */}
+      <View style={[styles.body, pending && { opacity: 0.55 }]}>{body()}</View>
       {chart}
       <CardFooter
         title={entity.name}
@@ -1334,7 +1338,12 @@ function PlaylistSheet({
               autoCorrect={false}
             />
             {query ? (
-              <Pressable onPress={() => setQuery('')} hitSlop={8}>
+              <Pressable
+                onPress={() => setQuery('')}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Suche leeren"
+              >
                 <Ionicons name="close-circle" size={17} color={colors.inkFaint} />
               </Pressable>
             ) : null}
@@ -1368,6 +1377,7 @@ function PlaylistSheet({
                       style={styles.playlistIcon}
                     >
                       <Ionicons
+                        accessibilityLabel={off ? 'ausgeblendet' : 'sichtbar'}
                         name={off ? 'eye-off' : 'eye'}
                         size={20}
                         color={off ? colors.inkFaint : colors.accent}

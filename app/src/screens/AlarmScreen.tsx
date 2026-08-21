@@ -5,6 +5,8 @@ import { VideoView, useVideoPlayer } from 'expo-video';
 
 import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
+import { Fehlschlag, Laedt } from '../components/Zustand';
+import { tapped, triggered } from '../lib/haptics';
 import { Colors, radius, space, type, useColors } from '../theme';
 
 /**
@@ -202,6 +204,9 @@ export function AlarmScreen({
   };
 
   const arm = async (mode: string, force = false) => {
+    // Scharfschalten ist die folgenreichste Schaltung der App – und man
+    // macht sie oft im Weggehen, mit dem Blick schon an der Tür.
+    triggered();
     setPendingMode(mode);
     setNote(null);
     try {
@@ -247,6 +252,7 @@ export function AlarmScreen({
       setPinValue('');
       return;
     }
+    tapped();
     setNote(null);
     setPendingMode(null);
     try {
@@ -270,8 +276,8 @@ export function AlarmScreen({
     load();
   };
 
-  if (error) return <Text style={styles.note}>Alarmanlage nicht abrufbar: {error}</Text>;
-  if (!data) return <Text style={styles.note}>Wird geladen …</Text>;
+  if (error) return <Fehlschlag text={`Alarmanlage nicht abrufbar: ${error}`} onRetry={load} />;
+  if (!data) return <Laedt was="Alarmanlage" />;
 
   const look = stateLook(data.state, colors);
   const assigned = new Map(data.sensors.map((entry) => [entry.entity_id, entry]));

@@ -537,7 +537,12 @@ function CookMode({
         ) : (
           <>
             <View style={styles.cookHead}>
-              <Pressable onPress={onClose} hitSlop={8}>
+              <Pressable
+                onPress={onClose}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Kochmodus beenden"
+              >
                 <Ionicons name="close" size={24} color={colors.ink} />
               </Pressable>
               <Text style={styles.cookTitle} numberOfLines={1}>
@@ -646,18 +651,36 @@ function RecipeDetail({
             </View>
           )}
           <View style={styles.detailTop}>
-            <Pressable onPress={onBack} style={styles.roundButton} hitSlop={6}>
+            <Pressable
+              onPress={onBack}
+              style={styles.roundButton}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityLabel="Zurück zur Liste"
+            >
               <Ionicons name="arrow-back" size={20} color="#FFFFFF" />
             </Pressable>
             <View style={{ flexDirection: 'row', gap: 8 }}>
-              <Pressable onPress={onToggleFavorite} style={styles.roundButton} hitSlop={6}>
+              <Pressable
+                onPress={onToggleFavorite}
+                style={styles.roundButton}
+                hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel={recipe.favorite ? 'Favorit entfernen' : 'Als Favorit merken'}
+              >
                 <Ionicons
                   name={recipe.favorite ? 'heart' : 'heart-outline'}
                   size={20}
                   color={recipe.favorite ? '#FF5A6E' : '#FFFFFF'}
                 />
               </Pressable>
-              <Pressable onPress={onEdit} style={styles.roundButton} hitSlop={6}>
+              <Pressable
+                onPress={onEdit}
+                style={styles.roundButton}
+                hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel="Rezept bearbeiten"
+              >
                 <Ionicons name="pencil-outline" size={19} color="#FFFFFF" />
               </Pressable>
               <Pressable
@@ -728,6 +751,8 @@ function RecipeDetail({
                 onPress={() => setServings((value) => Math.max(1, value - 1))}
                 style={styles.stepperButton}
                 hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel="Eine Portion weniger"
               >
                 <Ionicons name="remove" size={18} color={colors.ink} />
               </Pressable>
@@ -736,6 +761,8 @@ function RecipeDetail({
                 onPress={() => setServings((value) => Math.min(99, value + 1))}
                 style={styles.stepperButton}
                 hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel="Eine Portion mehr"
               >
                 <Ionicons name="add" size={18} color={colors.ink} />
               </Pressable>
@@ -1009,7 +1036,13 @@ export function RecipeBook({
             {favoriteCount === 1 ? 'Favorit' : 'Favoriten'}
           </Text>
         </View>
-        <Pressable onPress={onClose} style={styles.roundButtonDim} hitSlop={6}>
+        <Pressable
+          onPress={onClose}
+          style={styles.roundButtonDim}
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel="Kochbuch schliessen"
+        >
           <Ionicons name="close" size={20} color={colors.ink} />
         </Pressable>
       </View>

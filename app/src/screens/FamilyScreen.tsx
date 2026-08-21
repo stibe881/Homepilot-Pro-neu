@@ -20,6 +20,7 @@ import { Shops } from '../components/Shops';
 import { Colors, radius, space, useColors } from '../theme';
 import { RecipeBook } from './RecipeBook';
 import { ingredientsToShopping, shopCategory } from '../lib/einkauf';
+import { tapped } from '../lib/haptics';
 import { ROLE_LABELS } from './UsersScreen';
 
 /**
@@ -160,7 +161,13 @@ function CheckRow({
   return (
     <View style={styles.checkRow}>
       <Pressable
-        onPress={onToggle}
+        onPress={() => {
+          // Abhaken ist die häufigste Bewegung in diesem Bildschirm –
+          // und die einzige, bei der man danach gleich weiterwischt,
+          // ohne hinzusehen.
+          tapped();
+          onToggle();
+        }}
         onLongPress={onRemember}
         style={styles.checkTap}
         accessibilityRole="checkbox"
@@ -1531,6 +1538,7 @@ export function FamilyScreen({
     const pending = tasks.filter((task) => task.pending_reward);
 
     const toggleTask = (task: any) => {
+      tapped();
       // Wiederkehrendes verschwindet nicht, es rückt weiter: Der Haushalt
       // hört ja nicht auf. Punkte werden dabei trotzdem fällig.
       if (!task.done && task.repeat && task.repeat !== 'none') {
@@ -2010,7 +2018,12 @@ export function FamilyScreen({
                   {pin.author}
                   {pin.created ? ` · ${pin.created.slice(0, 10)}` : ''}
                 </Text>
-                <Pressable onPress={() => remove('pins', pin.id)} style={styles.deleteTap}>
+                <Pressable
+                  onPress={() => remove('pins', pin.id)}
+                  style={styles.deleteTap}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Notiz «${pin.text}» löschen`}
+                >
                   <Ionicons name="trash-outline" size={16} color={colors.inkFaint} />
                 </Pressable>
               </View>
@@ -2770,7 +2783,12 @@ export function FamilyScreen({
             >
               <Ionicons name="call" size={24} color="#FFFFFF" />
             </Pressable>
-            <Pressable onPress={() => remove('contacts', contact.id)} style={styles.deleteTap}>
+            <Pressable
+              onPress={() => remove('contacts', contact.id)}
+              style={styles.deleteTap}
+              accessibilityRole="button"
+              accessibilityLabel={`${contact.text} löschen`}
+            >
               <Ionicons name="close" size={18} color={colors.inkFaint} />
             </Pressable>
           </Card>
@@ -2889,6 +2907,8 @@ export function FamilyScreen({
               <Pressable
                 onPress={() => remove('countdowns', countdown.id)}
                 style={styles.deleteTap}
+                accessibilityRole="button"
+                accessibilityLabel={`Countdown «${countdown.text}» löschen`}
               >
                 <Ionicons name="close" size={18} color={colors.inkFaint} />
               </Pressable>
@@ -2969,6 +2989,8 @@ export function FamilyScreen({
               <Pressable
                 onPress={() => remove('documents', document.id)}
                 style={styles.deleteTap}
+                accessibilityRole="button"
+                accessibilityLabel={`Eintrag «${document.text}» löschen`}
               >
                 <Ionicons name="trash-outline" size={16} color={colors.inkFaint} />
               </Pressable>

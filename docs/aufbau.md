@@ -105,6 +105,7 @@ Wurzelverzeichnis, zusammen mit den Konventionen und den Prüfschritten.
 
 - [Erste Stunde](erste-stunde.md) – vom leeren Rechner zum ersten Licht
 - [Entscheidungen](entscheidungen.md) – warum es so aussieht und nicht anders
+- [Plattformen](plattformen.md) – was auf welchem Gerät geht
 - [Neue Integration](../hub/docs/neue-integration.md) – ein Gerät anbinden
 - [Neue Kachel](../hub/docs/neue-kachel.md) – wie es in der App erscheint
 - [Betrieb](../deploy/README.md) – dauerhaft laufen lassen

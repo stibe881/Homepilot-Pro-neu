@@ -15,6 +15,7 @@ import QRCode from 'react-native-qrcode-svg';
 import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
 import { DoorPass } from '../components/DoorPass';
+import { Fehlschlag, Laedt } from '../components/Zustand';
 import { Colors, radius, space, type, useColors } from '../theme';
 
 /** ISO-Datum für «in n Tagen ab heute» - für die Ablauf-Schnellwahl. */
@@ -369,8 +370,8 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
         Bereiche einschränken und jederzeit sperren – ohne neues Token.
       </Text>
 
-      {users === null && !error ? <Text style={styles.note}>Wird geladen …</Text> : null}
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {users === null && !error ? <Laedt was="Benutzer" /> : null}
+      {error ? <Fehlschlag text={error} onRetry={load} /> : null}
 
       {(users ?? []).map((user) => (
         <Card key={user.name} style={styles.userCard} onPress={() => openDetail(user)}>

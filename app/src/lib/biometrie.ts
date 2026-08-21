@@ -1,5 +1,5 @@
 import * as LocalAuthentication from 'expo-local-authentication';
-import { Platform } from 'react-native';
+import { kann } from './plattform';
 
 /**
  * Face ID / Fingerabdruck vor heiklen Aktionen.
@@ -37,7 +37,7 @@ export function needsCheck(command: string, kind?: string): boolean {
 
 /** Ist auf diesem Gerät überhaupt eine Biometrie eingerichtet? */
 export async function available(): Promise<boolean> {
-  if (Platform.OS === 'web') return false;
+  if (!kann.biometrie) return false;
   try {
     const hardware = await LocalAuthentication.hasHardwareAsync();
     if (!hardware) return false;

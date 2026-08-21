@@ -46,6 +46,54 @@ export function Toast({
 }
 
 /**
+ * Die kurze Bestätigung, dass etwas geklappt hat.
+ *
+ * Bisher schloss sich das Fenster nach dem Speichern eines Ablaufs
+ * einfach – und man wusste nur, dass es weg ist, nicht ob es angekommen
+ * ist. Bei einem Ablauf, der erst in einer Woche das erste Mal feuert,
+ * merkt man den Unterschied sonst nie.
+ *
+ * Der Text sagt, *was* passiert ist («Ablauf gespeichert», «Szene
+ * gelöscht»), nicht bloss «Erledigt». Drei Sekunden reichen – wer sie
+ * verpasst, hat die Liste dahinter ohnehin schon aktualisiert vor sich.
+ */
+export function Bestaetigung({
+  text,
+  onDismiss,
+  bottomInset = 0,
+}: {
+  text: string | null;
+  onDismiss: () => void;
+  bottomInset?: number;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  useEffect(() => {
+    if (!text) return;
+    const timer = setTimeout(onDismiss, 3000);
+    return () => clearTimeout(timer);
+  }, [text, onDismiss]);
+
+  if (!text) return null;
+
+  return (
+    <Pressable
+      onPress={onDismiss}
+      accessibilityRole="alert"
+      accessibilityLiveRegion="polite"
+      style={[styles.wrapper, { bottom: bottomInset + 20 }]}
+    >
+      <View style={styles.toast}>
+        <Ionicons name="checkmark-circle-outline" size={20} color={colors.on} />
+        <Text style={styles.text} numberOfLines={2}>
+          {text}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
+/**
  * Das Angebot, die letzte Schaltung zurückzunehmen.
  *
  * Steht nur ein paar Sekunden: Ein «Rückgängig», das dauerhaft liegen

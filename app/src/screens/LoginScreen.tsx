@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { HubSettings } from '../api/types';
 import { Card } from '../components/Card';
 import { defaultHubUrl } from '../lib/origin';
+import { geraeteName } from '../lib/plattform';
 import { Colors, radius, type, useColors } from '../theme';
 
 /**
@@ -104,7 +105,7 @@ export function LoginScreen({
             : {
                 email: email.trim(),
                 password,
-                label: deviceLabel(),
+                label: geraeteName(),
               }
         ),
       });
@@ -236,13 +237,6 @@ export function LoginScreen({
       </Card>
     </View>
   );
-}
-
-/** Wie das Gerät in der Sitzungsliste heissen soll. */
-function deviceLabel(): string {
-  if (Platform.OS === 'ios') return 'iPhone/iPad';
-  if (Platform.OS === 'android') return 'Android';
-  return 'Browser';
 }
 
 const makeStyles = (colors: Colors) =>

@@ -3,6 +3,8 @@ import * as Notifications from 'expo-notifications';
 import { useEffect, useState } from 'react';
 import { Platform } from 'react-native';
 
+import { geraeteName, kann } from '../lib/plattform';
+
 import { HubSettings } from '../api/types';
 
 /** Woran die Anmeldung steht – damit ein Fehlschlag sichtbar wird. */
@@ -39,7 +41,7 @@ export function usePushRegistration(
 
   useEffect(() => {
     if (!connected) return;
-    if (Platform.OS === 'web') {
+    if (!kann.push) {
       setPush({ state: 'web' });
       return;
     }
@@ -72,7 +74,7 @@ export function usePushRegistration(
         );
         if (cancelled || !pushToken) return;
 
-        const label = Platform.OS === 'ios' ? 'iPhone/iPad' : 'Android';
+        const label = geraeteName();
         const response = await fetch(`${settings.url}/api/push/register`, {
           method: 'POST',
           headers: {

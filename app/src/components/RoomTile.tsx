@@ -136,6 +136,7 @@ export function RoomTile({
                 onPress={() => onCommand(entity.id, 'toggle')}
                 hitSlop={8}
                 accessibilityRole="switch"
+                accessibilityLabel={`${entity.name} ${on ? 'ausschalten' : 'einschalten'}`}
                 accessibilityState={{ checked: on }}
                 style={[styles.toggle, on && styles.toggleOn]}
               >

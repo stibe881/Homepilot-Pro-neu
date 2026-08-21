@@ -6,7 +6,6 @@ import {
   KeyboardAvoidingView,
   Linking,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -18,6 +17,8 @@ import {
 import { Entity } from '../api/types';
 import { hasOpenDoor, openContacts } from './OpenDoors';
 import { ALLGEMEIN, Shop, artikelVorschlaege, groupForShop } from '../lib/einkauf';
+import { tapped } from '../lib/haptics';
+import { kann } from '../lib/plattform';
 import { ConnectionStatus } from '../hooks/useHub';
 import { useEscape } from '../hooks/useEscape';
 import { Colors, radius, type, useColors } from '../theme';
@@ -337,7 +338,7 @@ export function TopStrip({
         {/* Ohne das schiebt sich auf dem Telefon die Tastatur über das
             Eingabefeld, sobald man etwas eintragen will. */}
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={kann.tastaturSchiebt ? 'padding' : undefined}
           style={{ flex: 1 }}
         >
         <Pressable style={styles.backdrop} onPress={() => setShopOpen(false)}>
@@ -458,7 +459,15 @@ export function TopStrip({
                     <Pressable
                       key={eintrag.id}
                       onPress={
-                        onShoppingDone ? () => onShoppingDone(String(eintrag.id)) : undefined
+                        onShoppingDone
+                          ? () => {
+                              // Im Laden schaut man auf das Regal, nicht aufs
+                              // Telefon – der kurze Impuls sagt, dass der Tipp
+                              // gesessen hat.
+                              tapped();
+                              onShoppingDone(String(eintrag.id));
+                            }
+                          : undefined
                       }
                       accessibilityRole="checkbox"
                       accessibilityState={{ checked: false }}

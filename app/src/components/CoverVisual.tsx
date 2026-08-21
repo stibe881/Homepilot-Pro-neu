@@ -107,8 +107,19 @@ export function CoverVisual({ open, tilt, sky = 'clear', height = 128 }: Props) 
   const maxGap = hasTilt ? unit * 0.6 : 1.2;
   const gap = slat.interpolate({ inputRange: [0, 1], outputRange: [hasTilt ? 1 : 1.2, maxGap] });
 
+  // Für die Sprachausgabe ist das Bild sonst eine leere Fläche: Wer die
+  // App vorlesen lässt, erfährt nirgends, wie weit die Store steht – die
+  // Zahl trägt bisher allein das Bild.
+  const gesprochen =
+    `Store ${clamp(open)} % offen` +
+    (hasTilt ? `, Lamellen ${clamp(tilt as number)} %` : '');
+
   return (
-    <View style={[styles.frame, { height }]}>
+    <View
+      style={[styles.frame, { height }]}
+      accessibilityRole="image"
+      accessibilityLabel={gesprochen}
+    >
       <LinearGradient colors={colours} start={{ x: 0.2, y: 0 }} end={{ x: 0.8, y: 1 }} style={StyleSheet.absoluteFill} />
       <Weather sky={sky} height={height} />
       <View style={styles.mullion} />

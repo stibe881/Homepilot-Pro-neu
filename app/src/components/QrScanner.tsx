@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import React, { useMemo, useState } from 'react';
-import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { HubSettings } from '../api/types';
 import { Colors, radius, useColors } from '../theme';
+import { kann } from '../lib/plattform';
 
 /** Was der Hub in den QR-Code schreibt. */
 export interface ScannedSetup {
@@ -60,7 +61,7 @@ export function QrScanner({
   };
 
   const body = () => {
-    if (Platform.OS === 'web') {
+    if (!kann.qrScan) {
       return (
         <Text style={styles.note}>
           Das Scannen funktioniert in der App auf iPhone und iPad. Im Browser

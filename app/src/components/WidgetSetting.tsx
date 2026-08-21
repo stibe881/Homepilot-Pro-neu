@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Card } from './Card';
+import { kann } from '../lib/plattform';
 import { Colors, type, useColors } from '../theme';
 
 /**
@@ -26,7 +27,7 @@ export function WidgetSetting({
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  if (Platform.OS !== 'ios') return null;
+  if (!kann.widgets) return null;
 
   return (
     <Card style={styles.card}>

@@ -34,7 +34,7 @@ import { SceneRow } from '../components/SceneRow';
 import { GlobalSearch } from '../components/GlobalSearch';
 import { PushPrefs } from '../components/PushPrefs';
 import { ActivityCard, SidePanel } from '../components/SidePanel';
-import { Toast, UndoToast } from '../components/Toast';
+import { Bestaetigung, Toast, UndoToast } from '../components/Toast';
 import { TopStrip } from '../components/TopStrip';
 import { useHub } from '../hooks/useHub';
 import { Tap, useNotificationTap } from '../hooks/useNotificationTap';
@@ -169,6 +169,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Fehlgeschlagene Abrufe. Der Toast zeigte bisher nur Befehle, die der
   // Hub abgelehnt hat - eine Abfrage, die ins Leere lief, blieb stumm.
   const [abrufFehler, setAbrufFehler] = useState<string | null>(null);
+  // Kurze Bestätigungen aus den Unterbildschirmen. Sie landen hier,
+  // weil nur der Rahmen einen Platz hat, der nicht mitscrollt.
+  const [note, setNote] = useState<string | null>(null);
   useEffect(
     () => onHubFehler((fehler) => setAbrufFehler(fehler.message)),
     []
@@ -1185,6 +1188,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             entities={entities}
             scenes={scenes}
             onScenesChanged={reloadScenes}
+            onNote={setNote}
           />
         </View>
       );
@@ -1694,6 +1698,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         onDismiss={dismissUndo}
         bottomInset={insets.bottom}
       />
+      {/* Gelungenes tritt hinter beides zurück: Wer gerade einen Fehler
+          liest, braucht nicht noch ein Häkchen daneben. */}
+      <Bestaetigung
+        text={error || abrufFehler || undo ? null : note}
+        onDismiss={() => setNote(null)}
+        bottomInset={insets.bottom}
+      />
     </View>
   );
 }
@@ -1826,6 +1837,7 @@ function CameraFullscreen({
           <View style={styles.videoBox}>
             <CameraLive
               uri={streamUri!}
+              label={`Live-Bild ${camera.name}`}
               style={styles.videoFrame}
               onFailed={(message) => setLiveFailed(message)}
             />
@@ -1923,6 +1935,7 @@ function DoorbellOverlay({
           <View style={styles.videoBox}>
             <CameraLive
               uri={`${base}/stream.m3u8?token=${token}`}
+              label="Live-Bild der Türklingel"
               style={styles.videoFrame}
               onFailed={(message) => setLiveFailed(message)}
             />

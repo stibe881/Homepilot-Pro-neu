@@ -138,8 +138,20 @@ export function ClimateOverview({
         <>
           {rows.map((row) => {
             const span = range[row.temp.id];
+            // Vorgelesen ergäbe die Zeile «45 Prozent, 21,3 Grad» – die
+            // Bedeutung der Zahlen steckt allein in ihrer Position. Deshalb
+            // trägt die Zeile den ganzen Satz, und die Teile darin nichts.
+            const gesprochen =
+              `${row.room}: ${Number(row.temp.state.state).toFixed(1)} Grad` +
+              (row.humidity != null ? `, ${Math.round(row.humidity)} Prozent Feuchte` : '') +
+              (span ? `, heute ${span.min.toFixed(1)} bis ${span.max.toFixed(1)} Grad` : '');
             return (
-              <View key={row.temp.id} style={styles.row}>
+              <View
+                key={row.temp.id}
+                style={styles.row}
+                accessible
+                accessibilityLabel={gesprochen}
+              >
                 <View style={{ flex: 1 }}>
                   <Text style={styles.name}>{row.room}</Text>
                   <Text style={styles.detail}>

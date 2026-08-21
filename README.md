@@ -19,6 +19,7 @@ Sechzehn Seiten erklären je ein Thema. Diese vier sind der Einstieg:
 | [Aufbau](docs/aufbau.md) | Wie Hub, App, Integrationen und Supabase zueinander stehen |
 | [Entscheidungen](docs/entscheidungen.md) | Warum selbst gebaut, warum eine JSON-Datei, warum Expo |
 | [Integrationen](docs/integrationen.md) | Alle dreissig auf einen Blick – was sie tun, was sie brauchen |
+| [Plattformen](docs/plattformen.md) | Was auf iPhone, iPad und im Browser jeweils geht |
 
 Wer Code ändert, liest zuerst die [CLAUDE.md](CLAUDE.md): Konventionen,
 Prüfschritte und der Weg, die App im Browser anzusehen, ohne das Haus

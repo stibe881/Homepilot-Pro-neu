@@ -15,11 +15,11 @@
  *   useEscape(offen, () => setOffen(false));
  */
 import { useEffect } from 'react';
-import { Platform } from 'react-native';
+import { kann } from '../lib/plattform';
 
 export function useEscape(aktiv: boolean, schliessen: () => void) {
   useEffect(() => {
-    if (Platform.OS !== 'web' || !aktiv) return;
+    if (!kann.escapeTaste || !aktiv) return;
     // `document` gibt es auf Web immer – die Prüfung ist für den
     // Server-Durchlauf beim Bauen der statischen Seite.
     if (typeof document === 'undefined') return;

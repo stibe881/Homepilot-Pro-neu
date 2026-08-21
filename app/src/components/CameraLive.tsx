@@ -20,11 +20,15 @@ export function CameraLive({
   style,
   muted = true,
   onFailed,
+  label = 'Live-Bild der Kamera',
 }: {
   uri: string;
   style?: ViewStyle;
   muted?: boolean;
   onFailed?: (message: string) => void;
+  /** Was hier zu sehen ist – für die Sprachausgabe. Ohne bleibt vom
+   *  Livebild nur eine schwarze Fläche ohne Namen. */
+  label?: string;
 }) {
   const colors = useColors();
   const [failed, setFailed] = useState<string | null>(null);
@@ -54,7 +58,11 @@ export function CameraLive({
 
   if (failed) {
     return (
-      <View style={[styles.fallback, { backgroundColor: colors.surfaceSoft }, style]}>
+      <View
+        style={[styles.fallback, { backgroundColor: colors.surfaceSoft }, style]}
+        accessibilityRole="image"
+        accessibilityLabel={`${label}: ${failed}`}
+      >
         <Text style={[styles.note, { color: colors.inkSoft }]}>{failed}</Text>
       </View>
     );
@@ -63,6 +71,7 @@ export function CameraLive({
   return (
     <VideoView
       player={player}
+      accessibilityLabel={label}
       style={[styles.video, style]}
       contentFit="contain"
       nativeControls={false}

@@ -15,11 +15,14 @@ export function CameraLive({
   uri,
   muted = true,
   onFailed,
+  label = 'Live-Bild der Kamera',
 }: {
   uri: string;
   style?: ViewStyle;
   muted?: boolean;
   onFailed?: (message: string) => void;
+  /** Was hier zu sehen ist – für die Sprachausgabe. */
+  label?: string;
 }) {
   const ref = useRef<HTMLVideoElement | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
@@ -84,6 +87,8 @@ export function CameraLive({
   if (failed) {
     return (
       <div
+        role="img"
+        aria-label={`${label}: ${failed}`}
         style={{
           flex: 1,
           width: '100%',
@@ -105,6 +110,7 @@ export function CameraLive({
   return (
     <video
       ref={ref}
+      aria-label={label}
       muted={muted}
       autoPlay
       playsInline

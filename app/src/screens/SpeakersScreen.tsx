@@ -245,7 +245,12 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
               </View>
               <Badge entry={entry} />
               {!members[keyOf(entry)] ? (
-                <Pressable onPress={() => loadMembers(entry)} hitSlop={8}>
+                <Pressable
+                  onPress={() => loadMembers(entry)}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Mitglieder von ${entry.name} zeigen`}
+                >
                   <Ionicons name="information-circle-outline" size={20} color={colors.inkSoft} />
                 </Pressable>
               ) : null}

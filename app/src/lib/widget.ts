@@ -1,4 +1,4 @@
-import { Platform } from 'react-native';
+import { kann } from './plattform';
 
 import { HubSettings } from '../api/types';
 import { WidgetButton } from './widgetButtons';
@@ -40,7 +40,7 @@ const APP_GROUP = 'group.me.stibe.homepilot';
 export type Ablage = 'kein-widget' | 'ok' | 'fehlt';
 
 function storage(): any | null {
-  if (Platform.OS !== 'ios') return null;
+  if (!kann.widgets) return null;
   try {
     // Erst zur Laufzeit laden: Auf Android und im Web gibt es das Modul
     // gar nicht, und ein Import oben würde den Start zerlegen.

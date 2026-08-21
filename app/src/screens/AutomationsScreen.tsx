@@ -5,6 +5,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 import { Entity, HubSettings, Scene, User } from '../api/types';
 import { Card } from '../components/Card';
 import { PushRules } from '../components/PushRules';
+import { Fehlschlag, Laedt } from '../components/Zustand';
 import { Colors, radius, space, type, useColors } from '../theme';
 import { deviceKindIcon, deviceKindLabel } from '../lib/geraeteart';
 
@@ -931,12 +932,16 @@ export function AutomationsScreen({
   entities,
   scenes,
   onScenesChanged,
+  onNote,
 }: {
   settings: HubSettings;
   user: User | null;
   entities: Entity[];
   scenes: Scene[];
   onScenesChanged?: () => void;
+  /** Kurze Bestätigung nach oben melden – dort hängt die Einblendung
+   *  am Bildschirm statt an der mitscrollenden Liste. */
+  onNote?: (text: string) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -1029,6 +1034,7 @@ export function AutomationsScreen({
         body: JSON.stringify(body),
       });
       if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
+      onNote?.(draft.id ? `«${body.alias}» gespeichert` : `«${body.alias}» angelegt`);
       setDraft(null);
       load();
     } catch (err: any) {
@@ -1053,6 +1059,7 @@ export function AutomationsScreen({
         headers,
       });
       if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
+      onNote?.('Ablauf einmal ausgeführt');
     } catch (err: any) {
       setError(String(err.message ?? err));
     }
@@ -1073,10 +1080,14 @@ export function AutomationsScreen({
   };
 
   const remove = async (id: string) => {
+    const name = automations?.find((item) => item.id === id)?.alias ?? 'Ablauf';
     await fetch(`${settings.url}/api/automations/${id}`, {
       method: 'DELETE',
       headers,
     }).catch(() => {});
+    // Der Papierkorb ist der eigentliche Rückweg – der Hinweis sagt, dass
+    // es ihn gibt. Sonst sucht man ihn erst, wenn man ihn braucht.
+    onNote?.(`«${name}» in den Papierkorb gelegt`);
     setDraft(null);
     load();
   };
@@ -1112,6 +1123,7 @@ export function AutomationsScreen({
         body: JSON.stringify(body),
       });
       if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
+      onNote?.(sceneDraft.id ? `Szene «${body.name}» gespeichert` : `Szene «${body.name}» angelegt`);
       setSceneDraft(null);
       onScenesChanged?.();
     } catch (err: any) {
@@ -1129,10 +1141,10 @@ export function AutomationsScreen({
   };
 
   if (error) {
-    return <Text style={styles.note}>Abläufe nicht abrufbar: {error}</Text>;
+    return <Fehlschlag text={`Abläufe nicht abrufbar: ${error}`} onRetry={load} />;
   }
   if (!automations) {
-    return <Text style={styles.note}>Wird geladen …</Text>;
+    return <Laedt was="Abläufe" />;
   }
 
   const restore = async (kind: string, id: string) => {
@@ -1617,7 +1629,12 @@ function SearchBox({
         placeholderTextColor={colors.inkFaint}
       />
       {value ? (
-        <Pressable onPress={() => onChange('')} hitSlop={8}>
+        <Pressable
+          onPress={() => onChange('')}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Eingabe leeren"
+        >
           <Ionicons name="close-circle" size={17} color={colors.inkFaint} />
         </Pressable>
       ) : null}
@@ -1940,7 +1957,12 @@ function SceneDevices({
           placeholderTextColor={colors.inkFaint}
         />
         {query ? (
-          <Pressable onPress={() => setQuery('')} hitSlop={8}>
+          <Pressable
+            onPress={() => setQuery('')}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Suche leeren"
+          >
             <Ionicons name="close-circle" size={17} color={colors.inkFaint} />
           </Pressable>
         ) : null}
@@ -2083,6 +2105,7 @@ function SceneEditor({
                 key={icon}
                 onPress={() => set({ icon })}
                 accessibilityRole="radio"
+                accessibilityLabel={`Symbol ${icon}`}
                 accessibilityState={{ selected: draft.icon === icon }}
                 style={[styles.choice, draft.icon === icon && styles.choiceActive]}
               >

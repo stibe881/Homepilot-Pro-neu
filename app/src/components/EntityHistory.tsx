@@ -4,6 +4,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 
 import { Entity, HubSettings } from '../api/types';
 import { epochAgo, epochTime } from '../lib/zeit';
+import { Fehlschlag, Laedt, Leer } from './Zustand';
 import { Colors, radius, type, useColors } from '../theme';
 
 /**
@@ -88,15 +89,14 @@ export function EntityHistory({
             </Pressable>
           </View>
 
-          {error ? <Text style={styles.hint}>Nicht abrufbar: {error}</Text> : null}
-          {events == null && !error ? (
-            <Text style={styles.hint}>Wird geladen …</Text>
-          ) : null}
+          {error ? <Fehlschlag text={`Nicht abrufbar: ${error}`} /> : null}
+          {events == null && !error ? <Laedt was="Verlauf" klein /> : null}
           {events != null && events.length === 0 ? (
-            <Text style={styles.hint}>
-              Noch nichts aufgezeichnet. Das Protokoll beginnt beim Start des
-              Hubs – nach einem Update ist es zunächst leer.
-            </Text>
+            <Leer
+              icon="time-outline"
+              titel="Noch nichts aufgezeichnet"
+              hinweis="Das Protokoll beginnt beim Start des Hubs – nach einem Update ist es zunächst leer."
+            />
           ) : null}
 
           <ScrollView style={{ maxHeight: 420 }}>
