@@ -30,7 +30,7 @@ Melder und Taster (Homematic IP, alle auf ``port: 2010``). Entscheidend ist
 je Gerät der richtige Datenpunkt – welchen Kanal es hat, steht beim Start
 in der Kanalliste im Log:
 
-      - address: "0001D8A9B12345:1"     # HmIP-SMI, HmIP-SMI55
+      - address: "0001D8A9B12345:1"     # HmIP-SMI
         port: 2010
         name: Bewegung Flur
         kind: binary_sensor
@@ -69,8 +69,23 @@ ohne ihn kommen Tastendrücke gar nicht an, denn abfragen lassen sie sich
 nicht.
 
 Beim 6-fach-Taster hat jede Taste einen eigenen Kanal (:1 … :6), beim
-2-fach-Taster :1 und :2. Der HmIP-SMI55 vereint beides: Tasten auf :1/:2
-und den Bewegungsmelder auf einem eigenen Kanal.
+2-fach-Taster :1 und :2. Der HmIP-SMI55(-2) vereint beides in einem
+Gehäuse - drei Einträge für ein Gerät, jede Funktion ihr Kanal: die
+untere Taste auf :1, die obere auf :2, der Bewegungsmelder auf :3.
+
+      - address: "0031A0C9A6F400:3"
+        port: 2010
+        name: Bewegung Flur
+        kind: binary_sensor
+        datapoint: MOTION
+      - address: "0031A0C9A6F400:2"
+        port: 2010
+        name: Taster Flur oben
+        kind: button
+      - address: "0031A0C9A6F400:1"
+        port: 2010
+        name: Taster Flur unten
+        kind: button
 
 Geräte dürfen einzeln einen anderen ``port`` angeben – so laufen klassische
 Homematic- (2001) und Homematic-IP-Geräte (2010) gemischt über dieselbe
