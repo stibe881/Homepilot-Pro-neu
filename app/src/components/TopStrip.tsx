@@ -678,14 +678,27 @@ function Chip({
   );
 }
 
+/** Woran ein Wort endet – dieselben Zeichen wie im Hub (core/shopping.py):
+ *  Leerzeichen und was in Artikelnamen wirklich vorkommt («H-Milch»,
+ *  «Reis/Nudeln», «Brot, dunkel»). */
+const WORTGRENZE = /[\s\-/,.;:()[\]&+]+/;
+
 /**
  * Vorschläge fürs Eingabefeld der Einkaufsliste (rein, testbar).
  *
  * Der Hub liefert die schon einmal eingekauften Namen; hier fällt weg,
  * was ohnehin gerade auf der Liste steht - ein Vorschlag, der einen
- * Eintrag verdoppeln würde, ist keiner. Was mit dem Getippten *beginnt*,
- * steht vor dem, was es bloss enthält: Wer «mi» tippt, meint eher Milch
- * als Salami.
+ * Eintrag verdoppeln würde, ist keiner.
+ *
+ * Verglichen wird an Wortanfängen, nicht irgendwo im Namen: Wer «mi»
+ * tippt, meint «Milch», und «Salami» vorgeschlagen zu bekommen, weil das
+ * Wort zufällig so endet, hilft niemandem. «H-Milch» und «Bio Milch»
+ * kommen dagegen mit - dort fängt ein Wort so an. Der Anfang des ganzen
+ * Namens schlägt den eines späteren Wortes.
+ *
+ * Dieselbe Regel wie in core/shopping.py: Der Hub schickt die Liste
+ * vorgefiltert, hier wird beim Tippen weitergefiltert - liefen die
+ * beiden auseinander, spränge der Vorschlag beim ersten Buchstaben um.
  *
  * Ohne Eingabe die zuletzt benutzten - beim leeren Feld ist das der
  * nützlichste Anfang, denn eingekauft wird meistens dasselbe.
@@ -701,10 +714,15 @@ export function artikelVorschlaege(
   const suche = eingabe.trim().toLowerCase();
   if (!suche) return frei.slice(0, limit);
   const vorn = frei.filter((name) => name.toLowerCase().startsWith(suche));
-  const drin = frei.filter(
-    (name) => name.toLowerCase().includes(suche) && !name.toLowerCase().startsWith(suche)
+  const spaeter = frei.filter(
+    (name) =>
+      !vorn.includes(name) &&
+      name
+        .toLowerCase()
+        .split(WORTGRENZE)
+        .some((wort) => wort.startsWith(suche))
   );
-  return [...vorn, ...drin].slice(0, limit);
+  return [...vorn, ...spaeter].slice(0, limit);
 }
 
 function round(value: any): string {

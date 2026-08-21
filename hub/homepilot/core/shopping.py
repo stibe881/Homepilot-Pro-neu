@@ -14,6 +14,7 @@ funktioniert trotzdem, er sortiert dann nur die Liste.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 # Wie lange jemand dort sein muss. Vier Minuten sind lang genug, um an
@@ -114,22 +115,37 @@ def remember(known: list[Any], text: str, limit: int = KNOWN_LIMIT) -> list[str]
     return [name, *rest][: max(1, limit)]
 
 
+# Woran ein Wort endet: Leerzeichen und die Zeichen, die in Artikelnamen
+# tatsächlich vorkommen («H-Milch», «Reis/Nudeln», «Brot, dunkel»).
+WORD_BREAK = re.compile(r"[\s\-/,.;:()\[\]&+]+")
+
+
+def words(name: str) -> list[str]:
+    """Die Wörter eines Artikelnamens, kleingeschrieben (rein, testbar)."""
+    return [teil for teil in WORD_BREAK.split(str(name).lower()) if teil]
+
+
 def suggestions(known: list[Any], query: str, limit: int = 8) -> list[str]:
     """Vorschläge zu einem angetippten Anfang (rein, testbar).
 
-    Wer «mi» tippt, meint eher «Milch» als «Salami» - was vorn beginnt,
-    steht deshalb vor dem, was das Gesuchte bloss enthält. Ohne Eingabe
-    kommen die zuletzt benutzten Namen; das ist beim leeren Feld der
-    nützlichste Anfang, denn eingekauft wird meistens dasselbe.
+    Verglichen wird an Wortanfängen, nicht irgendwo im Namen: Wer «mi»
+    tippt, meint «Milch», und «Salami» als Vorschlag zu bekommen, weil
+    das Wort zufällig so endet, hilft niemandem. «H-Milch» und «Bio
+    Milch» kommen dagegen mit - dort fängt ein Wort so an.
+
+    Der Anfang des ganzen Namens schlägt den eines späteren Wortes:
+    «Milch» steht vor «H-Milch». Ohne Eingabe kommen die zuletzt
+    benutzten Namen; das ist beim leeren Feld der nützlichste Anfang,
+    denn eingekauft wird meistens dasselbe.
     """
     namen = [str(entry) for entry in known if str(entry).strip()]
     suche = str(query or "").strip().lower()
     if not suche:
         return namen[:limit]
     vorn = [name for name in namen if name.lower().startswith(suche)]
-    drin = [
+    spaeter = [
         name
         for name in namen
-        if suche in name.lower() and not name.lower().startswith(suche)
+        if name not in vorn and any(wort.startswith(suche) for wort in words(name))
     ]
-    return [*vorn, *drin][:limit]
+    return [*vorn, *spaeter][:limit]
