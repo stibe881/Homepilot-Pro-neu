@@ -77,7 +77,8 @@ einen zusätzlichen Kopplungscode erzeugen:
 
 - **Apple Home:** Gerät → Zahnrad → *Gerät oder Zubehör teilen* → *Kopplungscode*
 - **Google Home:** Gerät → Einstellungen → *Mit Matter-App verknüpfen*
-- **Home Assistant:** Gerät → *Zu anderem Netzwerk hinzufügen*
+- **Home Assistant:** Einstellungen → Geräte → das Gerät → Menü (⋮) →
+  *Matter-Gerät teilen*
 
 Der angezeigte 11-stellige Code gilt einmalig und ein paar Minuten lang.
 Damit im Container:
@@ -96,6 +97,17 @@ Gekoppelte Geräte auflisten:
 docker exec -it homepilot-hub \
   python -m homepilot.integrations.matter -c /config/config.yaml
 ```
+
+**Was zwei Steuerungen kosten.** Ein Gerät in zwei Fabrics zu halten ist
+erlaubt und praktisch – aber nicht gratis: Jede Steuerung hält ihre eigene
+Verbindung zum Sensor, und ein batteriebetriebenes Thread-Gerät wacht
+dafür entsprechend öfter auf. Bei einem Tür-/Fensterkontakt heisst das
+grob: halb so lange bis zum Batteriewechsel.
+
+Für den Übergang ist das in Ordnung – man will sehen, dass hier alles
+ankommt, bevor man drüben abschaltet. Auf Dauer lohnt es sich, den Sensor
+in der alten Steuerung zu entfernen, sobald er hier zuverlässig läuft.
+Ein Blick auf den Batteriestand in der Kachel zeigt, ob es eilt.
 
 ## 4. Benennen und einsortieren
 
