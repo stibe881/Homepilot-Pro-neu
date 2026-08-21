@@ -189,6 +189,27 @@ def test_unlatch_only_where_it_differs_from_unlock():
     assert has_unbolt({"1/257/0": 1}, 1) is False
 
 
+def test_the_command_list_beats_the_feature_map():
+    """Was das Gerät annimmt, zählt mehr als was es können soll.
+
+    Die FeatureMap liefert nicht jeder Dienst mit - fehlt sie, sähe ein
+    Schloss ärmer aus, als es ist, und «Auf + öffnen» verschwände. Die
+    Liste der angenommenen Befehle ist deshalb die erste Quelle.
+    """
+    # Nur die Befehlsliste, keine FeatureMap: 0x27 ist UnboltDoor.
+    assert has_unbolt({"1/257/65529": [0, 1, 0x27]}, 1) is True
+    assert has_unbolt({"1/257/65529": [0, 1]}, 1) is False
+
+    # Steht sie da, entscheidet sie - auch gegen eine FeatureMap, die
+    # etwas anderes behauptet.
+    assert has_unbolt({"1/257/65529": [0, 1], "1/257/65532": 1 << 12}, 1) is False
+
+    # Und ohne beides: nein. Ein Knopf, der ins Leere führt, wird im
+    # Hausflur gedrückt.
+    assert has_unbolt({}, 1) is False
+    assert has_unbolt({"1/257/65532": "unsinn"}, 1) is False
+
+
 # ── End-to-End gegen den nachgebauten Dienst ─────────────────────────────
 
 NODE = {

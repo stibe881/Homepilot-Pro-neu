@@ -248,6 +248,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     const timer = setInterval(ladeEinkauf, 60000);
     return () => clearInterval(timer);
   }, [ladeEinkauf]);
+  // Und immer dann, wenn die Startseite wieder erscheint: Wer gerade
+  // unter Familie etwas eingetragen hat, will es oben sofort sehen und
+  // nicht bis zur nächsten Minute warten.
+  useEffect(() => {
+    if (section === 'start') ladeEinkauf();
+  }, [section, ladeEinkauf]);
 
   /** Einen Eintrag im Laden abhaken - er verschwindet sofort aus der
    *  Kopfzeile, statt bis zum nächsten Abruf stehen zu bleiben. */

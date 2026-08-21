@@ -889,27 +889,34 @@ function LockBody({
             onPress={() => onCommand(locked ? 'unlock' : 'lock')}
           />
         </View>
-        <Pressable
-          disabled={pending || moving}
-          onPress={() => {
-            if (armed) {
-              setArmed(false);
-              onCommand('unlatch');
-            } else {
-              setArmed(true);
-            }
-          }}
-          accessibilityRole="button"
-          style={({ pressed }) => [
-            styles.lockButton,
-            armed && styles.lockButtonArmed,
-            (pressed || pending || moving) && { opacity: 0.7 },
-          ]}>
-          <Ionicons name={armed ? 'lock-open' : 'key-outline'} size={16} color="#FFFFFF" />
-          <Text style={styles.lockButtonText}>
-            {armed ? 'Wirklich öffnen?' : 'Auf + öffnen'}
-          </Text>
-        </Pressable>
+        {/* Nur, wo das Schloss die Falle wirklich ziehen kann. Der Knopf
+            stand vorher immer da - bei einem Schloss ohne diese Fähigkeit
+            führte er zu «Kommando wird nicht unterstützt», und die Türe
+            blieb zu. Ein Knopf, der nichts tun kann, ist schlimmer als
+            keiner: Man drückt ihn im Hausflur und wartet. */}
+        {entity.commands.includes('unlatch') ? (
+          <Pressable
+            disabled={pending || moving}
+            onPress={() => {
+              if (armed) {
+                setArmed(false);
+                onCommand('unlatch');
+              } else {
+                setArmed(true);
+              }
+            }}
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.lockButton,
+              armed && styles.lockButtonArmed,
+              (pressed || pending || moving) && { opacity: 0.7 },
+            ]}>
+            <Ionicons name={armed ? 'lock-open' : 'key-outline'} size={16} color="#FFFFFF" />
+            <Text style={styles.lockButtonText}>
+              {armed ? 'Wirklich öffnen?' : 'Auf + öffnen'}
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
     );
   }

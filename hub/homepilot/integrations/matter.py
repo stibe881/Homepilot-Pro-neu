@@ -106,11 +106,17 @@ def _attr(attributes: dict[str, Any], endpoint: int, cluster: int, attr: int) ->
 LOCK_STATE_ATTR = 0
 LOCK_DOOR_STATE_ATTR = 3
 FEATURE_MAP_ATTR = 0xFFFC
+# Was der Cluster an Befehlen annimmt. Verlässlicher als die FeatureMap:
+# Die sagt, was das Gerät kann, diese Liste, was es auch entgegennimmt -
+# und manche Dienste liefern die FeatureMap gar nicht mit.
+ACCEPTED_COMMANDS_ATTR = 0xFFF9
 BAT_CHARGE_LEVEL_ATTR = 14
 
 # Bit 12 der FeatureMap: Das Schloss kann den Riegel getrennt von der
 # Falle bewegen.
 UNBOLT_FEATURE = 1 << 12
+# UnboltDoor im DoorLock-Cluster.
+UNBOLT_COMMAND = 0x27
 
 LOCK_STATES = {
     # Weder ganz zu noch ganz auf. Bewusst als «aufgeschlossen» gelesen
@@ -127,7 +133,23 @@ DOOR_STATES = {0: "open", 1: "closed"}
 
 
 def has_unbolt(attributes: dict[str, Any], endpoint: int) -> bool:
-    """Kann das Schloss den Riegel getrennt von der Falle bewegen? (rein)"""
+    """Kann das Schloss den Riegel getrennt von der Falle bewegen? (rein)
+
+    Zwei Quellen, und die erste ist die bessere: Die Liste der
+    angenommenen Befehle sagt, was das Gerät wirklich entgegennimmt. Die
+    FeatureMap sagt nur, was es könnte - und manche Dienste liefern sie
+    gar nicht erst mit, was das Schloss dann ärmer aussehen lässt, als es
+    ist.
+
+    Fehlt beides, lautet die Antwort nein. Das ist die sichere Seite: Ein
+    Knopf «Auf + öffnen», der ins Leere führt, wird im Hausflur gedrückt,
+    und dann steht man da.
+    """
+    befehle = _attr(attributes, endpoint, DOOR_LOCK, ACCEPTED_COMMANDS_ATTR)
+    if isinstance(befehle, list):
+        return any(
+            isinstance(befehl, int) and befehl == UNBOLT_COMMAND for befehl in befehle
+        )
     features = _attr(attributes, endpoint, DOOR_LOCK, FEATURE_MAP_ATTR)
     try:
         return bool(int(features) & UNBOLT_FEATURE)
@@ -644,7 +666,9 @@ INTEGRATION = MatterIntegration
 # aufnehmen (QR-Code-Inhalt "MT:..." oder der 11-stellige Zahlencode).
 
 
-async def _cli_main(config_path: str, pair_code: str | None) -> int:
+async def _cli_main(
+    config_path: str, pair_code: str | None, dump_node: int | None = None
+) -> int:
     from ..core.config import load_config
 
     config = load_config(config_path)
@@ -695,6 +719,18 @@ async def _cli_main(config_path: str, pair_code: str | None) -> int:
                 return 0
 
             nodes = await command("get_nodes")
+            if dump_node is not None:
+                # Alles, was der Dienst über einen Knoten weiss. Für den
+                # Fall, dass ein Gerät nicht auftaucht oder weniger kann,
+                # als es sollte: Was hier fehlt, kann der Hub nicht sehen.
+                for node in nodes:
+                    if int(node.get("node_id", -1)) != dump_node:
+                        continue
+                    for pfad, wert in sorted((node.get("attributes") or {}).items()):
+                        print(f"  {pfad} = {wert!r}")
+                    return 0
+                print(f"✗ Knoten {dump_node} ist nicht gekoppelt.")
+                return 1
             if not nodes:
                 # Ohne spitze Klammern: Die Zeile wird kopiert und
                 # eingefügt, und eine Shell liest «<» als Umleitung.
@@ -716,5 +752,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Matter-Kopplung für HomePilot")
     parser.add_argument("-c", "--config", required=True, help="Pfad zur config.yaml des Hubs")
     parser.add_argument("--pair", help="Kopplungscode (QR-Inhalt MT:… oder Zahlencode)")
+    parser.add_argument(
+        "--dump",
+        type=int,
+        metavar="KNOTEN",
+        help="Alle Attribute eines Knotens ausgeben (Nummer aus der Liste)",
+    )
     args = parser.parse_args()
-    sys.exit(asyncio.run(_cli_main(args.config, args.pair)))
+    sys.exit(asyncio.run(_cli_main(args.config, args.pair, args.dump)))
