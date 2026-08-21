@@ -64,6 +64,7 @@ import { BioLock } from '../components/BioLock';
 import { Widgets } from '../components/Widgets';
 import { Ablage, syncWidget } from '../lib/widget';
 import { favoritenVon, zuUebernehmen } from '../lib/favoriten';
+import { altesUebernehmen } from '../lib/hausprefs';
 import { resolveButtons, widgetCommand } from '../lib/widgetButtons';
 
 const ALL_ROOMS = 'Alle';
@@ -229,15 +230,37 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // nicht in den Einstellungen stehenbleiben.
   usePanelMode(!!settings.panel);
   const push = usePushRegistration(settings, status === 'connected');
-  // Persönliche Reihenfolgen – je Benutzer auf dem Hub, geräteübergreifend.
+  // Wie das Haus aussieht: auf dem Hub, für alle gleich. Nur die
+  // Lesemarke der «Was ist neu»-Karte bleibt persönlich.
   const {
     prefs,
+    hausGeladen,
+    setHausPrefs,
+    eigenePrefs,
     setOrder,
+    setHidden,
+    setLocked,
     setSeenChanges,
     setBioLock,
     setWidgetData,
     setWidgetButtons,
   } = usePrefs(settings, status === 'connected');
+
+  // Einmalige Übernahme dessen, was vorher im Gerät und beim Benutzer
+  // lag. Erst nach der ersten Antwort des Hubs - sonst sähe die
+  // Übernahme ein leeres Haus, wo nur die Antwort noch unterwegs ist.
+  const uebernahmeLief = useRef(false);
+  useEffect(() => {
+    if (uebernahmeLief.current || !hausGeladen) return;
+    const next = altesUebernehmen(prefs, settings, eigenePrefs as Record<string, any>);
+    if (next === null) {
+      uebernahmeLief.current = true;
+      return;
+    }
+    uebernahmeLief.current = true;
+    setHausPrefs(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hausGeladen]);
 
   // Das Widget lebt in einem eigenen Prozess und kennt die Einstellungen
   // nicht - Knöpfe, Adresse und Token wandern deshalb in die geteilte
@@ -285,8 +308,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Geräte-Einstellungen: Sonst hält er nur so lange wie die
   // Installation auf genau diesem Telefon.
   const favorites = useMemo(() => favoritenVon(entities), [entities]);
-  const hidden = settings.hidden ?? [];
-  const locked = settings.locked ?? [];
+  const hidden = prefs.hidden ?? [];
+  const locked = prefs.locked ?? [];
 
   // Einmalige Übernahme der alten, gerätelokalen Favoriten. Danach wird
   // die lokale Liste geleert, damit dieselben Sterne nicht bei jedem
@@ -522,8 +545,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Die alte, nur lokal gespeicherte Geräte-Reihenfolge bleibt als
   // Rückfalloption, bis einmal neu gezogen wurde.
   const orderIds =
-    (orderScope ? prefs.order?.[orderScope] : undefined) ??
-    (orderScope === 'devices' ? settings.order ?? [] : []);
+    (orderScope ? prefs.order?.[orderScope] : undefined) ?? [];
   const orderIndex = new Map(orderIds.map((id, i) => [id, i]));
   const byOrder = (a: Entity, b: Entity) => {
     const ai = orderIndex.has(a.id) ? (orderIndex.get(a.id) as number) : Infinity;
@@ -691,13 +713,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       onToggleFavorite={() =>
         setEntityMeta(entity.id, { favorite: !favorites.includes(entity.id) })
       }
-      onToggleHidden={() =>
-        onSaveSettings({ ...settings, hidden: toggleIn(hidden, entity.id) })
-      }
+      onToggleHidden={() => setHidden(toggleIn(hidden, entity.id))}
       locked={locked.includes(entity.id)}
-      onToggleLocked={() =>
-        onSaveSettings({ ...settings, locked: toggleIn(locked, entity.id) })
-      }
+      onToggleLocked={() => setLocked(toggleIn(locked, entity.id))}
       rooms={editing ? roomOrder : undefined}
       onSetRoom={
         editing ? (room) => setEntityRoom(entity.id, room) : undefined
@@ -898,8 +916,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           icon: 'apps-outline',
           label: 'Widgets',
           detail: 'Knöpfe auf Homescreen und Sperrbildschirm',
-          // Wie das Konto Sache jeder Person: Wer welche Knöpfe auf
-          // seinem Telefon hat, geht niemanden sonst etwas an.
+          // Für alle sichtbar, obwohl es die Ansicht des Hauses ändert:
+          // Wer ein Widget auf seinem Telefon hat, muss nachsehen können,
+          // was darauf liegt - und die Anleitung zum Hinzufügen braucht
+          // ohnehin jeder selbst.
           show: true,
         },
         {
@@ -1112,7 +1132,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               {/* Einmal nach jedem Update: was sich geändert hat. */}
               <WhatsNew
                 settings={settings}
-                seen={prefs.seenChanges}
+                seen={eigenePrefs.seenChanges}
                 onSeen={setSeenChanges}
               />
               {/* Keine Kürzel mehr über der Raumliste: Szenen stehen in

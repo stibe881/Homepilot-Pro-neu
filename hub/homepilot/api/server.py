@@ -313,6 +313,12 @@ class PrefsRequest(BaseModel):
 # Reihenfolgen, zu wenig, um die Datendatei zu fluten.
 PREFS_BYTES = 32_768
 
+# Dasselbe für die haushaltsweiten Einstellungen. Grosszügiger, weil dort
+# die Reihenfolgen aller Ansichten zusammenkommen - aber immer noch eine
+# Grenze: Was hier landet, ist eine Handvoll Listen von Kennungen, keine
+# Ablage für Beliebiges.
+HOUSE_PREFS_BYTES = 131_072
+
 
 class ConfigRequest(BaseModel):
     content: str
@@ -2004,6 +2010,44 @@ def create_app(hub: Hub) -> FastAPI:
         ]
         entries.append({"user": user.name, "prefs": body.prefs})
         hub.data.set("user_prefs", entries)
+        return {"ok": True}
+
+    # ── Haushaltsweite Oberflächen-Einstellungen ───────────────────────────
+    # Was ausgeblendet ist, was gesperrt, in welcher Reihenfolge die Kacheln
+    # stehen, was im Widget liegt: Das prägt die Ansicht des Hauses und soll
+    # überall gleich aussehen - auf dem Wandpanel wie auf dem Telefon, bei
+    # Stefan wie bei Livia. Früher lag das im Speicher der App und war nach
+    # einer Neuinstallation weg.
+
+    @app.get("/api/houseprefs")
+    async def get_house_prefs(request: Request) -> dict[str, Any]:
+        # Kein require: Wer angemeldet ist, sieht das Haus - und damit die
+        # Ansicht, in der es eingerichtet ist. Etwas anderes zu zeigen als
+        # das, was da ist, hülfe niemandem.
+        current_user(request)
+        for entry in hub.data.get("house_prefs"):
+            if isinstance(entry, dict):
+                stored = entry.get("prefs")
+                return {"prefs": stored if isinstance(stored, dict) else {}}
+        return {"prefs": {}}
+
+    @app.put("/api/houseprefs")
+    async def put_house_prefs(body: PrefsRequest, request: Request) -> dict[str, Any]:
+        """Die Ansicht des Hauses ändern.
+
+        CONTROL und nicht EDIT_CONFIG: Hier stehen Oberflächen-Einstellungen,
+        keine Rechte. Auch die Sperre ist eine Rückfrage in der App, kein
+        Zugangsschutz - sie schützt vor Versehen, nicht vor Absicht. Wer ein
+        Gerät schalten darf, darf auch einstellen, wie es dasteht. Die App
+        zeigt «Anpassen» trotzdem nur der Besitzerrolle.
+        """
+        require(request, Capability.CONTROL)
+        if len(json.dumps(body.prefs, ensure_ascii=False)) > HOUSE_PREFS_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail="Die Einstellungen des Hauses sind zu gross geworden.",
+            )
+        hub.data.set("house_prefs", [{"prefs": body.prefs}])
         return {"ok": True}
 
     # ── Lautsprecher ───────────────────────────────────────────────────────

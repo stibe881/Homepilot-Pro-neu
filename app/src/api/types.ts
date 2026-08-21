@@ -84,17 +84,22 @@ export interface HubSettings {
   name?: string;
   /** Erscheinungsbild: system, auto (nach Uhrzeit), light oder dark. */
   theme?: 'system' | 'auto' | 'light' | 'dark';
-  /** Veraltet: Favoriten lagen einmal hier – also im Speicher genau
-   *  dieses Telefons, und waren nach einer Neuinstallation weg. Sie
-   *  stehen jetzt beim Gerät auf dem Hub (`Entity.favorite`). Das Feld
-   *  bleibt nur, damit die alten Sterne beim ersten Start übernommen
-   *  werden können (siehe lib/favoriten.ts); danach ist es leer. */
+  // Die vier folgenden Felder sind Altlast, kein Speicherort mehr.
+  //
+  // Sie lagen hier – also im Speicher genau dieses Telefons – und waren
+  // nach einer Neuinstallation weg. Der Stern steht jetzt beim Gerät auf
+  // dem Hub (`Entity.favorite`), der Rest in den haushaltsweiten
+  // Einstellungen (`/api/houseprefs`, siehe hooks/usePrefs.ts). Was hier
+  // noch steht, wird einmalig übernommen (lib/favoriten.ts,
+  // lib/hausprefs.ts) und danach nicht mehr gelesen.
+
+  /** Veraltet – siehe oben. Nur noch für die Übernahme. */
   favorites?: string[];
-  /** Entitäten, die auf der Startseite nicht erscheinen. */
+  /** Veraltet – siehe oben. Nur noch für die Übernahme. */
   hidden?: string[];
-  /** Gesperrte Geräte: schalten nur nach ausdrücklicher Rückfrage. */
+  /** Veraltet – siehe oben. Nur noch für die Übernahme. */
   locked?: string[];
-  /** Selbst gewählte Reihenfolge der Geräte (Entitäts-IDs, per Ziehen). */
+  /** Veraltet – siehe oben. Nur noch für die Übernahme. */
   order?: string[];
   /** Wandpanel: Bildschirm bleibt an, kehrt von selbst zur Startseite zurück. */
   panel?: boolean;

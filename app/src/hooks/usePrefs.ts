@@ -3,39 +3,67 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { HubSettings } from '../api/types';
 
 /**
- * Persönliche Oberflächen-Einstellungen – je Benutzer auf dem Hub abgelegt.
+ * Einstellungen der Oberfläche – zwei Ablagen, ein Muster.
  *
- * Anders als die HubSettings (die dem Gerät gehören: Adresse, Token,
- * Panel-Modus) gehören diese Einstellungen der Person: Wer auf dem iPad
- * die Kacheln umsortiert, sieht dieselbe Reihenfolge auch auf dem Telefon.
- * Der Hub speichert sie unter dem angemeldeten Benutzer (/api/prefs).
+ * **Haushaltsweit** (`/api/houseprefs`): wie das Haus aussieht.
+ * Ausgeblendete und gesperrte Geräte, Kachel-Reihenfolgen, die Knöpfe im
+ * Widget, die Face-ID-Hürde. Wer das anpasst, passt es für alle an – auf
+ * dem Wandpanel wie auf dem Telefon, bei Stefan wie bei Livia. Das ist
+ * der ausdrückliche Wunsch: Eine Wohnung, die bei jedem anders aussieht,
+ * ist keine eingerichtete Wohnung.
+ *
+ * **Persönlich** (`/api/prefs`): was nur einen selbst angeht. Übrig
+ * geblieben ist die Lesemarke der «Was ist neu»-Karte – und die gehört
+ * dorthin: Sie ist keine Einstellung, sondern ein «gelesen». Wäre sie
+ * haushaltsweit, nähme der Erste sie allen anderen weg.
+ *
+ * Beides liegt auf dem Hub, nicht im Speicher der App: Sonst hält es
+ * genau so lange wie die Installation auf diesem einen Telefon.
  */
-export interface UserPrefs {
+
+/** Wie das Haus für alle aussieht. */
+export interface HousePrefs {
   /** Kachel-Reihenfolgen je Ansicht: Schlüssel wie «devices», «light»,
-   *  «covers», «room:Küche», «family». */
+   *  «covers», «room:Küche», «favorites», «family». */
   order?: Record<string, string[]>;
-  /** Bis zu welchem Stand die «Was ist neu»-Karte weggeklickt wurde –
-   *  je Person, damit Livia sie trotzdem noch sieht. */
-  seenChanges?: string;
+  /** Geräte, die auf der Startseite nicht erscheinen. */
+  hidden?: string[];
+  /** Gesperrte Geräte: schalten nur nach ausdrücklicher Rückfrage. */
+  locked?: string[];
   /** Vor heiklen Aktionen – Türe öffnen, Alarm entschärfen – erst Face ID
-   *  bzw. Fingerabdruck verlangen. Gehört zur Person und nicht zum Gerät:
-   *  Wer es einschaltet, meint es überall. */
+   *  bzw. Fingerabdruck verlangen. */
   bioLock?: boolean;
   /** Das Homescreen-Widget mit Daten aus dem Haus versorgen. Aus heisst:
    *  Es zeigt nur die Knöpfe, und in der App-Gruppe liegt kein Token. */
   widgetData?: boolean;
-  /** Welche Knöpfe im Widget liegen – Schlüssel wie «door»,
-   *  «scene:kino», «entity:light.kueche». Ohne Eintrag die drei, mit
-   *  denen jeder anfängt. */
+  /** Welche Knöpfe im Widget liegen – Schlüssel wie «door», «scene:kino»,
+   *  «entity:light.kueche». Ohne Eintrag die drei, mit denen jeder
+   *  anfängt. */
   widgetButtons?: string[];
 }
 
-export function usePrefs(settings: HubSettings, connected: boolean) {
-  const [prefs, setPrefs] = useState<UserPrefs>({});
-  // Die jeweils neueste Fassung für den Speicher-Aufruf – ohne Ref würde
-  // ein schneller zweiter Zug den ersten mit veralteten Daten überschreiben.
-  const latest = useRef<UserPrefs>({});
-  latest.current = prefs;
+/** Was nur einen selbst angeht. */
+export interface UserPrefs {
+  /** Bis zu welchem Stand die «Was ist neu»-Karte weggeklickt wurde –
+   *  je Person, damit Livia sie trotzdem noch sieht. */
+  seenChanges?: string;
+}
+
+/**
+ * Die gemeinsame Mechanik beider Ablagen: laden, halten, zurückschreiben.
+ *
+ * Der Setzer setzt immer auf der neuesten Fassung auf – ohne die Ref
+ * überschriebe ein schneller zweiter Zug den ersten mit veralteten Daten.
+ */
+function useStore<T extends object>(
+  settings: HubSettings,
+  connected: boolean,
+  pfad: string
+): { werte: T; geladen: boolean; setzen: (next: T) => void } {
+  const [werte, setWerte] = useState<T>({} as T);
+  const [geladen, setGeladen] = useState(false);
+  const latest = useRef<T>({} as T);
+  latest.current = werte;
 
   const headers: Record<string, string> = settings.token
     ? { Authorization: `Bearer ${settings.token}`, 'Content-Type': 'application/json' }
@@ -44,26 +72,32 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
   useEffect(() => {
     if (!connected || !settings.url || !settings.token) return;
     let cancelled = false;
-    fetch(`${settings.url}/api/prefs`, { headers })
+    fetch(`${settings.url}${pfad}`, { headers })
       .then((response) => (response.ok ? response.json() : null))
       .then((body) => {
-        if (!cancelled && body && typeof body.prefs === 'object' && body.prefs) {
-          setPrefs(body.prefs);
+        if (cancelled) return;
+        if (body && typeof body.prefs === 'object' && body.prefs) {
+          setWerte(body.prefs);
         }
+        // Auch eine leere Antwort ist eine Antwort: Erst danach darf die
+        // Übernahme alter Einstellungen entscheiden, ob dort schon etwas
+        // steht – sonst überschriebe sie beim ersten Zeichnen fleissig
+        // Werte, die gerade noch unterwegs sind.
+        setGeladen(true);
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connected, settings.url, settings.token]);
+  }, [connected, settings.url, settings.token, pfad]);
 
-  const save = useCallback(
-    (next: UserPrefs) => {
-      setPrefs(next);
+  const setzen = useCallback(
+    (next: T) => {
+      setWerte(next);
       latest.current = next;
       if (!settings.url || !settings.token) return;
-      fetch(`${settings.url}/api/prefs`, {
+      fetch(`${settings.url}${pfad}`, {
         method: 'PUT',
         headers,
         body: JSON.stringify({ prefs: next }),
@@ -73,53 +107,78 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
       });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [settings.url, settings.token]
+    [settings.url, settings.token, pfad]
   );
+
+  return { werte, geladen, setzen };
+}
+
+export function usePrefs(settings: HubSettings, connected: boolean) {
+  const haus = useStore<HousePrefs>(settings, connected, '/api/houseprefs');
+  const eigen = useStore<UserPrefs>(settings, connected, '/api/prefs');
+  // Über die Ref, damit die Setzer stabil bleiben: Hingen sie am Wert,
+  // bekäme jedes Ziehen einer Kachel eine neue Funktion und alles, was
+  // davon abhängt, zeichnete neu.
+  const hausJetzt = useRef<HousePrefs>({});
+  hausJetzt.current = haus.werte;
+  const eigenJetzt = useRef<UserPrefs>({});
+  eigenJetzt.current = eigen.werte;
+
+  const setzeHaus = haus.setzen;
+  const setzeEigen = eigen.setzen;
 
   const setOrder = useCallback(
     (scope: string, ids: string[]) => {
-      save({
-        ...latest.current,
-        order: { ...(latest.current.order ?? {}), [scope]: ids },
+      setzeHaus({
+        ...hausJetzt.current,
+        order: { ...(hausJetzt.current.order ?? {}), [scope]: ids },
       });
     },
-    [save]
+    [setzeHaus]
   );
 
-  const setSeenChanges = useCallback(
-    (commit: string) => {
-      save({ ...latest.current, seenChanges: commit });
-    },
-    [save]
+  const setHidden = useCallback(
+    (ids: string[]) => setzeHaus({ ...hausJetzt.current, hidden: ids }),
+    [setzeHaus]
+  );
+
+  const setLocked = useCallback(
+    (ids: string[]) => setzeHaus({ ...hausJetzt.current, locked: ids }),
+    [setzeHaus]
   );
 
   const setBioLock = useCallback(
-    (on: boolean) => {
-      save({ ...latest.current, bioLock: on });
-    },
-    [save]
+    (on: boolean) => setzeHaus({ ...hausJetzt.current, bioLock: on }),
+    [setzeHaus]
   );
 
   const setWidgetData = useCallback(
-    (on: boolean) => {
-      save({ ...latest.current, widgetData: on });
-    },
-    [save]
+    (on: boolean) => setzeHaus({ ...hausJetzt.current, widgetData: on }),
+    [setzeHaus]
   );
 
   const setWidgetButtons = useCallback(
-    (keys: string[]) => {
-      save({ ...latest.current, widgetButtons: keys });
-    },
-    [save]
+    (keys: string[]) => setzeHaus({ ...hausJetzt.current, widgetButtons: keys }),
+    [setzeHaus]
+  );
+
+  const setSeenChanges = useCallback(
+    (commit: string) => setzeEigen({ ...eigenJetzt.current, seenChanges: commit }),
+    [setzeEigen]
   );
 
   return {
-    prefs,
+    prefs: haus.werte,
+    hausGeladen: haus.geladen,
+    /** Alles auf einmal setzen – für die Übernahme alter Einstellungen. */
+    setHausPrefs: setzeHaus,
+    eigenePrefs: eigen.werte,
     setOrder,
-    setSeenChanges,
+    setHidden,
+    setLocked,
     setBioLock,
     setWidgetData,
     setWidgetButtons,
+    setSeenChanges,
   };
 }

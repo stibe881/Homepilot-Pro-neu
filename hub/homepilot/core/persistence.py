@@ -33,9 +33,20 @@ EMPTY: dict[str, Any] = {
     # group?}] – für Umbenennen, Favoriten und Gruppen.
     "entity_meta": [],
     # Persönliche Oberflächen-Einstellungen: [{user, prefs}]. Der Inhalt
-    # gehört der App (z.B. Kachel-Reihenfolgen); der Hub reicht ihn nur
-    # durch, damit jedes Gerät derselben Person dieselbe Ansicht zeigt.
+    # gehört der App (z.B. die Lesemarke der «Was ist neu»-Karte); der Hub
+    # reicht ihn nur durch, damit jedes Gerät derselben Person dasselbe
+    # zeigt.
     "user_prefs": [],
+    # Wie das Haus für alle aussieht: ausgeblendete und gesperrte Geräte,
+    # Kachel-Reihenfolgen, Widget-Knöpfe. Wie user_prefs, nur ohne Benutzer
+    # - genau ein Eintrag [{prefs}]. Das ist der ganze Zweck: Wer etwas
+    # anpasst, passt es für alle an, und ein neues Telefon findet die
+    # Wohnung so vor, wie sie eingerichtet ist.
+    #
+    # Eine Liste mit einem Eintrag und kein blosses Objekt, weil der
+    # DataStore Listen speichert - `get` gäbe von einem Objekt nur die
+    # Schlüssel zurück.
+    "house_prefs": [],
     # Zugriffsprotokoll: wer hat wann was geschaltet.
     "audit": [],
     # Verlauf der Ablauf-Läufe (jüngste zuerst) – überlebt den Neustart.

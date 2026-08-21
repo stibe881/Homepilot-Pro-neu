@@ -259,8 +259,8 @@ export function Widgets({
         ) : (
           <Text style={styles.hint}>
             Ein Widget gibt es zurzeit nur auf iPhone und iPad. Die
-            Einstellungen hier gelten, sobald du die App dort öffnest – sie
-            liegen beim Benutzer, nicht beim Gerät.
+            Einstellungen hier gelten, sobald die App dort geöffnet wird –
+            sie liegen im Haus, nicht im Gerät.
           </Text>
         )}
       </Card>

@@ -41,9 +41,10 @@ Grösse wählen. Für den Sperrbildschirm: Sperrbildschirm lange drücken →
 
 **Welche Knöpfe.** In der App unter *Einstellungen → Widgets*. Dort
 lassen sich neben den drei Abkürzungen auch Szenen und einzelne Geräte
-auf die Knöpfe legen, ordnen und wieder entfernen. Das gilt je Person,
-nicht je Gerät: Wer auf dem iPad umstellt, hat es auch auf dem Telefon.
-Eine Änderung ist sofort da, das Widget muss nicht neu angelegt werden.
+auf die Knöpfe legen, ordnen und wieder entfernen. Das gilt fürs ganze
+Haus: Wer auf dem iPad umstellt, hat es auch auf dem Telefon – und alle
+anderen ebenso. Eine Änderung ist sofort da, das Widget muss nicht neu
+angelegt werden.
 
 Den eigentlichen Knopf «Widget hinzufügen» kann keine App anbieten – iOS
 behält das Auflegen auf den Homescreen bei sich. Deshalb steht in der App

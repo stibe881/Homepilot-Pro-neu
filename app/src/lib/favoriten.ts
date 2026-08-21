@@ -12,8 +12,8 @@ import { Entity } from '../api/types';
  * legt ihn in der homepilot-data.json ab, und alle sehen dasselbe. Der
  * Preis: Wer einen Stern setzt, setzt ihn für alle. Das ist die
  * ausdrückliche Absicht – eine Startseite, auf der bei jedem etwas
- * anderes steht, war nie gewollt. Die *Reihenfolge* der Favoriten bleibt
- * dagegen persönlich (siehe usePrefs), denn die kostet niemanden etwas.
+ * anderes steht, war nie gewollt. Dasselbe gilt für die Reihenfolge, für
+ * ausgeblendete und gesperrte Geräte: alles im Haus (siehe usePrefs).
  */
 
 /**

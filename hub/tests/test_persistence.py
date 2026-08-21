@@ -222,3 +222,66 @@ def test_favorite_survives_a_restart_and_reaches_every_device(tmp_path):
     with TestClient(create_app(Hub(make_config(data_file)))) as client:
         entities = {e["id"]: e for e in client.get("/api/entities", headers=auth()).json()}
         assert entities["demo.light_livingroom"]["favorite"] is False
+
+
+def test_house_prefs_are_shared_and_survive_a_restart(tmp_path):
+    """Was jemand anpasst, gilt für alle - und bleibt.
+
+    Der Unterschied zu /api/prefs ist der ganze Zweck: Dort liegt je
+    Benutzer, was nur ihn angeht; hier liegt einmal, wie das Haus
+    aussieht. Ein zweites Telefon soll die Wohnung so vorfinden, wie sie
+    eingerichtet ist - nicht leer.
+    """
+    data_file = tmp_path / "daten.json"
+
+    with TestClient(create_app(Hub(make_config(data_file)))) as client:
+        angelegt = client.post(
+            "/api/users", json={"name": "Livia", "role": "bewohner"}, headers=auth()
+        )
+        livia_token = angelegt.json()["user"]["token"]
+        response = client.put(
+            "/api/houseprefs",
+            json={"prefs": {"hidden": ["demo.temp_livingroom"], "locked": []}},
+            headers=auth(),
+        )
+        assert response.status_code == 200
+
+    with TestClient(create_app(Hub(make_config(data_file)))) as client:
+        # Dieselbe Antwort für jede angemeldete Person.
+        for token in ("t-owner", livia_token):
+            prefs = client.get("/api/houseprefs", headers=auth(token)).json()["prefs"]
+            assert prefs["hidden"] == ["demo.temp_livingroom"]
+
+        # Und wer schalten darf, darf auch anpassen - sonst müsste für
+        # jede ausgeblendete Kachel die Besitzerin herhalten.
+        response = client.put(
+            "/api/houseprefs",
+            json={"prefs": {"hidden": [], "locked": ["demo.light_livingroom"]}},
+            headers=auth(livia_token),
+        )
+        assert response.status_code == 200
+        prefs = client.get("/api/houseprefs", headers=auth()).json()["prefs"]
+        assert prefs["locked"] == ["demo.light_livingroom"]
+
+
+def test_house_prefs_stay_out_of_the_personal_ones(tmp_path):
+    """Zwei Ablagen, die sich nicht ins Gehege kommen."""
+    data_file = tmp_path / "daten.json"
+    with TestClient(create_app(Hub(make_config(data_file)))) as client:
+        client.put("/api/houseprefs", json={"prefs": {"hidden": ["a"]}}, headers=auth())
+        client.put("/api/prefs", json={"prefs": {"seenChanges": "abc"}}, headers=auth())
+
+        assert client.get("/api/houseprefs", headers=auth()).json()["prefs"] == {
+            "hidden": ["a"]
+        }
+        assert client.get("/api/prefs", headers=auth()).json()["prefs"] == {
+            "seenChanges": "abc"
+        }
+
+
+def test_house_prefs_have_an_upper_bound(tmp_path):
+    """Eine Ablage für Listen von Kennungen, nicht für Beliebiges."""
+    with TestClient(create_app(Hub(make_config(tmp_path / "d.json")))) as client:
+        riesig = {"order": {"devices": ["x" * 1000 for _ in range(200)]}}
+        response = client.put("/api/houseprefs", json={"prefs": riesig}, headers=auth())
+        assert response.status_code == 413
