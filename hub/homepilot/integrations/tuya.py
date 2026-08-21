@@ -266,6 +266,28 @@ def light_state(
     return zustand
 
 
+# Was Tuya im Fehlerfall zurückgibt, ist eine Nummer. Die drei, die man
+# beim Einrichten wirklich trifft, in Klartext - sonst sucht man nach
+# «Err 914» und findet Forenbeiträge von 2019.
+TUYA_ERRORS = {
+    "901": "Das Gerät hat die Verbindung abgewiesen – meist ist die IP falsch.",
+    "905": "Das Gerät antwortet nicht. Ist es am Strom und im selben Netz?",
+    "914": (
+        "Schlüssel oder Protokollfassung passen nicht. Die Fassung zeigt "
+        "--scan; der Schlüssel ändert sich, sobald das Gerät in der "
+        "Hersteller-App neu angelernt wurde – dann --cloud noch einmal."
+    ),
+}
+
+
+def error_hint(antwort: Any) -> str | None:
+    """Aus Tuyas Fehlernummer einen brauchbaren Satz machen (rein, testbar)."""
+    if not isinstance(antwort, dict):
+        return None
+    nummer = str(antwort.get("Err") or "").strip()
+    return TUYA_ERRORS.get(nummer)
+
+
 def light_commands(nummern: dict[str, int], kind: str) -> list[str]:
     """Welche Kommandos das Gerät anbieten darf (rein, testbar).
 
@@ -304,6 +326,8 @@ class TuyaIntegration(Integration):
         # Fäden auf demselben Socket vertragen sich bei tinytuya nicht;
         # deshalb schickt niemand direkt, sondern legt in die Schlange.
         self._queues: dict[str, queue.Queue] = {}
+        # Je Gerät merken, ob der Klartext-Hinweis schon im Log stand.
+        self._gemeldet: dict[str, bool] = {}
         self._workers: dict[str, threading.Thread] = {}
         self._stop = threading.Event()
         self._geraete: dict[str, dict[str, Any]] = {}
@@ -501,6 +525,14 @@ class TuyaIntegration(Integration):
         if isinstance(antwort, dict):
             if antwort.get("Error"):
                 verfuegbar = False
+                # Einmal im Klartext sagen, was die Nummer bedeutet -
+                # sonst steht «Err 914» im Log und man sucht in Foren.
+                hinweis = error_hint(antwort)
+                if hinweis and not self._gemeldet.get(schluessel):
+                    self._gemeldet[schluessel] = True
+                    self.log.warning("Tuya-Gerät %s: %s", schluessel, hinweis)
+            else:
+                self._gemeldet.pop(schluessel, None)
             dps = antwort.get("dps") or {}
         asyncio.run_coroutine_threadsafe(
             self._uebernehmen(schluessel, dps, verfuegbar), self._loop
@@ -708,6 +740,9 @@ async def _dps_main(config_path: str, gesucht: str) -> int:
         print(f"\n{geraet.get('name')} ({geraet['id']}):")
         if not isinstance(antwort, dict) or antwort.get("Error"):
             print(f"  ✗ {antwort}")
+            hinweis = error_hint(antwort)
+            if hinweis:
+                print(f"    {hinweis}")
             continue
         dps = antwort.get("dps") or {}
         if not dps:

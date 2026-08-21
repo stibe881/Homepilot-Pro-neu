@@ -137,3 +137,16 @@ def test_light_commands_promise_only_what_exists():
     weiss = light_commands(dps_map({"dps": {"color": None}}), EntityKind.LIGHT)
     assert "set_color" not in weiss
     assert "set_brightness" in weiss
+
+
+def test_tuya_error_numbers_become_sentences():
+    """«Err 914» ist keine Auskunft, sondern eine Suchaufgabe."""
+    from homepilot.integrations.tuya import error_hint
+
+    hinweis = error_hint({"Error": "Check device key or version", "Err": "914"})
+    assert hinweis and "Schlüssel" in hinweis and "--scan" in hinweis
+    assert error_hint({"Err": "905"})
+    # Unbekannte Nummern und Nicht-Fehler ergeben keinen erfundenen Satz.
+    assert error_hint({"Err": "4711"}) is None
+    assert error_hint({"dps": {"20": True}}) is None
+    assert error_hint(None) is None
