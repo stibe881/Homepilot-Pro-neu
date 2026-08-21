@@ -147,12 +147,23 @@ services:
         max-file: "3"
     environment:
       - TZ=Europe/Zurich
-      # Bluetooth für Geräte, die fabrikneu aus der Packung kommen. Hat
-      # der Rechner keinen Adapter, schadet es nicht - dann koppelt man
-      # über einen geteilten Code aus Apple Home (siehe
-      # docs/tuer-und-fensterkontakte.md).
-      - NOBLE_BINDINGS=dbus
-      - BLUETOOTH_ADAPTER=0
     volumes:
       - ./hub/matter:/data
-      - /run/dbus:/run/dbus:ro
+    # Kein Bluetooth. Das ist eine Entscheidung, keine Auslassung:
+    # docker01 ist eine VM und hat keinen Adapter. Fordert der Dienst
+    # trotzdem BLE an (NOBLE_BINDINGS=dbus samt /run/dbus), findet er
+    # keinen bluez-Dienst, bricht die dbus-Verbindung weg und der ganze
+    # Container stirbt mit «Error: write EPIPE» - nicht etwa nur die
+    # Bluetooth-Funktion.
+    #
+    # Gebraucht wird BLE nur für Geräte, die fabrikneu aus der Packung
+    # kommen. Was schon in Apple oder Google Home hängt, koppelt man über
+    # einen dort erzeugten Code, und der läuft übers Netz.
+    #
+    # Auf einem Rechner MIT Adapter (prüfen: ls /sys/class/bluetooth)
+    # kommen diese drei Zeilen dazu:
+    #   environment:
+    #     - NOBLE_BINDINGS=dbus
+    #     - BLUETOOTH_ADAPTER=0
+    #   volumes:
+    #     - /run/dbus:/run/dbus:ro

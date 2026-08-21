@@ -21,9 +21,12 @@ hat, wird also weiter bedient; neu aufgesetzt wird der neue.
         --network host -v /opt/homepilot/matter:/data \
         ghcr.io/matter-js/matterjs-server:stable
 
-Zwei Dinge, an denen es sonst scheitert: Der Dienst braucht **host-Netz**
+Drei Dinge, an denen es sonst scheitert: Der Dienst braucht **host-Netz**
 (mDNS geht nicht durch ein Bridge-Netz) und **IPv6 auf dem Host** – er
-bindet mDNS an [::]:5353 und startet ohne IPv6 gar nicht.
+bindet mDNS an [::]:5353 und startet ohne IPv6 gar nicht. Und **kein
+Bluetooth ohne Adapter**: Wer ihm NOBLE_BINDINGS=dbus mitgibt, ohne dass
+ein bluez-Dienst läuft, bekommt keinen Dienst ohne Bluetooth, sondern gar
+keinen – der Container stirbt an «write EPIPE».
 
 Gerät koppeln (Code steht auf dem Gerät oder in dessen App):
     python -m homepilot.integrations.matter -c config.yaml --pair MT:Y.K90-Q...

@@ -42,6 +42,18 @@ nicht oder findet nichts:
 Im Netz selbst müssen Hub und Geräte einander sehen: gleiches VLAN, oder
 mDNS-Weiterleitung im UniFi eingeschaltet.
 
+**Bluetooth ist absichtlich aus.** Es wird nur für Geräte gebraucht, die
+fabrikneu aus der Packung kommen; was schon in Apple oder Google Home
+hängt, koppelt man über einen dort erzeugten Code, und der läuft übers
+Netz. Auf einem Rechner ohne Adapter – jede virtuelle Maschine – ist es
+nicht bloss nutzlos: Der Dienst sucht dann einen bluez-Dienst am
+dbus-Socket, findet keinen, und der **ganze Container stirbt** mit
+`Error: write EPIPE`. Nicht nur die Bluetooth-Funktion.
+
+Ob der Rechner überhaupt einen hat: `ls /sys/class/bluetooth`. Kommt
+nichts, bleibt es aus – die drei Zeilen dafür stehen auskommentiert im
+Stack.
+
 > **Warum nicht mehr `python-matter-server`?** Der ist seit dem 23. Juni
 > 2026 eingestellt, 8.1.2 war die letzte Fassung. matterjs-server spricht
 > dieselbe Schnittstelle und übernimmt beim ersten Start ein vorhandenes
