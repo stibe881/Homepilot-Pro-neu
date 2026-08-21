@@ -353,6 +353,9 @@ integrations:
   # Anleitung inkl. Teilen aus Apple/Google Home: docs/tuer-und-fensterkontakte.md
   # - integration: matter
   #   url: ws://127.0.0.1:5580/ws
+  #   # Nur nötig, wenn ein Türschloss für Befehle aus der Ferne einen
+  #   # Code verlangt (Nuki-App → Einstellungen → Matter).
+  #   # pin: "123456"
 
   # V-ZUG-Geräte (lokale Home-API, nur lesend). Die Geräte müssen über
   # V-ZUG-Home im WLAN sein; im Router feste IPs vergeben. Die Namen

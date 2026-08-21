@@ -1,6 +1,6 @@
 """Matter: reine Übersetzungslogik plus End-to-End gegen einen
-nachgebauten Matter-Dienst (dasselbe WebSocket-Protokoll wie der echte
-python-matter-server, nur mit festen Antworten)."""
+nachgebauten Matter-Dienst (dasselbe WebSocket-Protokoll wie
+matterjs-server, nur mit festen Antworten)."""
 
 import asyncio
 import json
@@ -16,6 +16,9 @@ from homepilot.integrations.matter import (
     endpoint_device_types,
     endpoint_name,
     endpoint_state,
+    has_unbolt,
+    lock_commands,
+    lock_state,
     node_endpoints,
 )
 
@@ -93,6 +96,67 @@ def test_node_endpoints_and_name():
     # Ohne Endpunkt-Label fällt der Name auf den Knoten zurück.
     assert endpoint_name({"0/40/3": "Sensor XY"}, 5, 2) == "Sensor XY"
     assert endpoint_name({}, 5, 2) == "Matter 5-2"
+
+
+# ── Türschloss ───────────────────────────────────────────────────────────
+
+
+def _schloss(lock_state_value, *, unbolt=True, door=None, battery=None, level=None):
+    attributes = {
+        "1/29/0": [{"0": 10, "1": 1}],
+        "1/257/0": lock_state_value,
+        "1/257/65532": (1 << 12) if unbolt else 0,
+    }
+    if door is not None:
+        attributes["1/257/3"] = door
+    if battery is not None:
+        attributes["1/47/12"] = battery
+    if level is not None:
+        attributes["1/47/14"] = level
+    return attributes
+
+
+def test_a_door_lock_is_recognised_as_such():
+    """Ohne diesen Eintrag taucht ein Matter-Schloss nirgends auf - es
+    fehlt einfach, ohne Fehlermeldung."""
+    assert classify([10]) == "lock"
+    assert node_endpoints({"attributes": _schloss(1)}) == [(1, "lock")]
+
+
+def test_lock_states_read_the_safe_way():
+    """«Nicht ganz verschlossen» ist nicht verschlossen.
+
+    Matter kennt für den Zwischenzustand einen eigenen Wert. Ihn als
+    «unbekannt» zu lesen hiesse, die Kachel grau zu lassen, wo sie rot
+    gehört - die Türe steht dann eben nicht sicher zu.
+    """
+    assert lock_state(_schloss(1), 1)["state"] == "locked"
+    assert lock_state(_schloss(2), 1)["state"] == "unlocked"
+    assert lock_state(_schloss(0), 1)["state"] == "unlocked"
+    assert lock_state(_schloss(3), 1)["state"] == "unlatched"
+    assert lock_state(_schloss(None), 1)["state"] == "unknown"
+
+
+def test_lock_reports_door_and_battery():
+    """Türsensor und Akku stehen in derselben Kachel wie beim Nuki über
+    dessen eigene Schnittstelle - der Umzug soll nichts wegnehmen."""
+    state = lock_state(_schloss(1, door=0, battery=150, level=0), 1)
+    assert state["door"] == "open"
+    assert state["battery"] == 75
+    assert "battery_critical" not in state
+
+    state = lock_state(_schloss(1, door=1, battery=20, level=2), 1)
+    assert state["door"] == "closed"
+    assert state["battery"] == 10
+    assert state["battery_critical"] is True
+
+
+def test_unlatch_only_where_it_differs_from_unlock():
+    """Zwei Knöpfe, die dasselbe tun, sind ein Knopf zu viel."""
+    assert lock_commands(_schloss(1, unbolt=True), 1) == ["lock", "unlock", "unlatch"]
+    assert lock_commands(_schloss(1, unbolt=False), 1) == ["lock", "unlock"]
+    assert has_unbolt(_schloss(1, unbolt=True), 1) is True
+    assert has_unbolt({"1/257/0": 1}, 1) is False
 
 
 # ── End-to-End gegen den nachgebauten Dienst ─────────────────────────────
@@ -304,3 +368,128 @@ async def test_an_old_service_is_named_in_the_log(tmp_path, caplog):
             await hub.stop()
             await runner.cleanup()
     assert any("Schema 4" in record.getMessage() for record in caplog.records)
+
+
+SCHLOSS_NODE = {
+    "node_id": 3,
+    "available": True,
+    "attributes": {
+        "0/40/5": "Wohnungstüre",
+        "1/29/0": [{"0": 10, "1": 1}],
+        "1/257/0": 1,
+        "1/257/3": 1,
+        "1/257/65532": 1 << 12,
+        "1/47/12": 180,
+    },
+}
+
+
+async def test_door_lock_end_to_end(tmp_path):
+    """Der Weg von der Kachel bis zum Schloss.
+
+    Drei Befehle, drei verschiedene Matter-Kommandos - und «Aufschliessen»
+    darf die Türe gerade nicht aufziehen. Wer das vertauscht, öffnet die
+    Wohnungstüre, wo jemand nur den Riegel lösen wollte.
+    """
+    server = FakeMatterServer(nodes=[SCHLOSS_NODE])
+    runner = await _serve(server)
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        "api: { host: 127.0.0.1, port: 18134, token: t }\n"
+        "integrations:\n"
+        "  - integration: matter\n"
+        f"    url: ws://127.0.0.1:{server.port}/ws\n"
+    )
+    hub = Hub(load_config(str(config_file)))
+    await hub.start()
+    try:
+        await _wait_for(lambda: hub.registry.get("matter.3_1") is not None)
+        entity = hub.registry.get("matter.3_1")
+        assert entity.kind == "lock"
+        assert entity.name == "Wohnungstüre"
+        assert entity.state["state"] == "locked"
+        assert entity.state["door"] == "closed"
+        assert entity.state["battery"] == 90
+        assert entity.commands == ["lock", "unlock", "unlatch"]
+
+        async def letztes(command):
+            await hub.integrations.dispatch_command("matter.3_1", command)
+            befehle = [c for c in server.commands if c["command"] == "device_command"]
+            return befehle[-1]["args"]
+
+        args = await letztes("unlock")
+        assert args["command_name"] == "UnboltDoor", "nur der Riegel, nicht die Falle"
+        assert args["cluster_id"] == 257
+
+        args = await letztes("unlatch")
+        assert args["command_name"] == "UnlockDoor"
+
+        args = await letztes("lock")
+        assert args["command_name"] == "LockDoor"
+
+        # Das Schloss meldet «aufgeschlossen» - die Kachel folgt.
+        await server.send_event("attribute_updated", [3, "1/257/0", 2])
+        await _wait_for(lambda: hub.registry.get("matter.3_1").state["state"] == "unlocked")
+    finally:
+        await hub.stop()
+        await runner.cleanup()
+
+
+async def test_a_simple_lock_gets_no_unlatch_button(tmp_path):
+    """Ein Schloss ohne getrennten Riegel bekommt zwei Knöpfe, nicht drei -
+    und «unlock» geht dort an UnlockDoor, weil es nichts anderes gibt."""
+    node = {
+        "node_id": 4,
+        "available": True,
+        "attributes": {
+            "0/40/5": "Kellertüre",
+            "1/29/0": [{"0": 10, "1": 1}],
+            "1/257/0": 1,
+            "1/257/65532": 0,
+        },
+    }
+    server = FakeMatterServer(nodes=[node])
+    runner = await _serve(server)
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        "api: { host: 127.0.0.1, port: 18135, token: t }\n"
+        "integrations:\n"
+        "  - integration: matter\n"
+        f"    url: ws://127.0.0.1:{server.port}/ws\n"
+    )
+    hub = Hub(load_config(str(config_file)))
+    await hub.start()
+    try:
+        await _wait_for(lambda: hub.registry.get("matter.4_1") is not None)
+        assert hub.registry.get("matter.4_1").commands == ["lock", "unlock"]
+        await hub.integrations.dispatch_command("matter.4_1", "unlock")
+        befehle = [c for c in server.commands if c["command"] == "device_command"]
+        assert befehle[-1]["args"]["command_name"] == "UnlockDoor"
+    finally:
+        await hub.stop()
+        await runner.cleanup()
+
+
+async def test_a_pin_is_sent_when_configured(tmp_path):
+    """Manche Schlösser weisen Befehle aus der Ferne ohne PIN ab."""
+    server = FakeMatterServer(nodes=[SCHLOSS_NODE])
+    runner = await _serve(server)
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        "api: { host: 127.0.0.1, port: 18136, token: t }\n"
+        "integrations:\n"
+        "  - integration: matter\n"
+        f"    url: ws://127.0.0.1:{server.port}/ws\n"
+        "    pin: '123456'\n"
+    )
+    hub = Hub(load_config(str(config_file)))
+    await hub.start()
+    try:
+        await _wait_for(lambda: hub.registry.get("matter.3_1") is not None)
+        await hub.integrations.dispatch_command("matter.3_1", "lock")
+        befehle = [c for c in server.commands if c["command"] == "device_command"]
+        assert befehle[-1]["args"]["payload"]["pinCode"] == "123456"
+    finally:
+        await hub.stop()
+        await runner.cleanup()
+

@@ -147,6 +147,12 @@ services:
         max-file: "3"
     environment:
       - TZ=Europe/Zurich
+      # Nur auf dem Rechner selbst erreichbar. Von Haus aus horcht der
+      # Dienst auf 0.0.0.0:5580 - ohne Anmeldung, und wer ihn erreicht,
+      # kann jedes gekoppelte Gerät schalten. Bei einem Türschloss ist
+      # das kein Schönheitsfehler. Der Hub läuft im selben host-Netz und
+      # erreicht ihn über 127.0.0.1.
+      - LISTEN_ADDRESS=127.0.0.1
     volumes:
       - ./hub/matter:/data
     # Kein Bluetooth. Das ist eine Entscheidung, keine Auslassung:

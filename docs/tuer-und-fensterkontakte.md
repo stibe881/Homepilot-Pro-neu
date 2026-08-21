@@ -1,4 +1,4 @@
-# Tür- und Fensterkontakte (Aqara P2 über Matter)
+# Matter: Tür- und Fensterkontakte, Türschloss
 
 Der Aqara Door and Window Sensor P2 spricht Matter über Thread und braucht
 deshalb **keinen Aqara-Hub** – aber zweierlei sonst: einen
@@ -146,3 +146,54 @@ Auch ohne Matter funktioniert dasselbe: Jeder Kontakt, dessen Zustand
 `device_class: contact` trägt – oder dessen Name nach Tür/Fenster klingt –
 landet im Hinweis auf der Startseite. Beim Nuki Smart Lock Pro kommt der
 eingebaute Türsensor dazu, der meldet „offen" ganz von selbst.
+
+## Das Nuki Smart Lock über Matter
+
+Der Nuki Smart Lock Pro spricht ebenfalls Matter – und das ist mehr als
+eine Geschmacksfrage: Über die Nuki-Web-API läuft jede Antwort über die
+Nuki-Cloud, und der Hub fragt nach, statt benachrichtigt zu werden.
+Deshalb dauert es nach dem Auf- oder Abschliessen, bis die Kachel folgt.
+Über Matter passiert alles im Haus, und das Schloss meldet sich von
+selbst.
+
+**Koppeln.** In der Nuki-App: *Einstellungen → Matter* → Kopplungscode
+erzeugen. Dann wie oben:
+
+```bash
+docker exec -it homepilot-hub \
+  python -m homepilot.integrations.matter -c /config/config.yaml --pair <Code>
+```
+
+**Was die Kachel dann kann.** Dieselben drei Knöpfe wie über die
+Nuki-Schnittstelle – abschliessen, aufschliessen, «Auf + öffnen» – dazu
+Akkustand und, falls der Türsensor eingelernt ist, ob die Türe selbst
+offen steht.
+
+Der Unterschied zwischen den beiden «auf» steckt in Matter selbst:
+*Aufschliessen* fährt nur den Riegel zurück, die Türe bleibt zu und muss
+aufgedrückt werden. *Auf + öffnen* zieht zusätzlich die Falle. Kann ein
+Schloss das nicht getrennt, zeigt die App den dritten Knopf gar nicht
+erst – zwei Knöpfe, die dasselbe tun, sind ein Knopf zu viel.
+
+**Verlangt das Schloss einen PIN?** In der Nuki-App lässt sich
+einstellen, dass Befehle aus der Ferne einen Code brauchen. Dann in die
+`config.yaml`:
+
+```yaml
+  - integration: matter
+    url: ws://127.0.0.1:5580/ws
+    pin: "123456"
+```
+
+**Umziehen von der alten Kachel.** Wer den Nuki schon über die
+`nuki`-Integration eingebunden hat, bekommt sonst zwei Kacheln für
+dieselbe Türe. Nach dem Koppeln in der App unter **Einstellungen →
+Geräte** das alte Gerät lange drücken → *Gerät ersetzen* → das neue
+`matter.…` wählen. Szenen, Abläufe, Favoriten und die Raumzuordnung
+wandern mit. Danach kann der `nuki`-Block aus der `config.yaml`
+verschwinden – samt `NUKI_TOKEN`.
+
+Ein Gerät kann übrigens beides gleichzeitig: In der Nuki-App bleibt das
+Schloss, wie es war, auch wenn es zusätzlich in unserer Matter-Fabric
+steht.
+

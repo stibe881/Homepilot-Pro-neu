@@ -34,7 +34,8 @@ Gerät koppeln (Code steht auf dem Gerät oder in dessen App):
 
 Danach erscheinen die Endpunkte automatisch als Entitäten. Unterstützt:
 Lichter (an/aus, Helligkeit), Steckdosen, Temperatur-/Feuchte-/Licht-
-Sensoren, Anwesenheits- und Kontaktsensoren.
+Sensoren, Anwesenheits- und Kontaktsensoren sowie Türschlösser
+(abschliessen, aufschliessen, aufziehen).
 """
 
 from __future__ import annotations
@@ -62,6 +63,7 @@ DEVICE_TYPE_KINDS = {
     262: EntityKind.SENSOR,  # Light Sensor
     263: EntityKind.BINARY_SENSOR,  # Occupancy Sensor
     21: EntityKind.BINARY_SENSOR,   # Contact Sensor
+    10: EntityKind.LOCK,            # Door Lock
 }
 
 # Kleinste Schema-Fassung des Dienstes, mit der diese Integration umgehen
@@ -80,6 +82,7 @@ BASIC_INFO = 40
 BRIDGED_INFO = 57
 BOOLEAN_STATE = 69
 POWER_SOURCE = 47
+DOOR_LOCK = 257
 ILLUMINANCE = 1024
 TEMPERATURE = 1026
 HUMIDITY = 1029
@@ -88,6 +91,95 @@ OCCUPANCY = 1030
 
 def _attr(attributes: dict[str, Any], endpoint: int, cluster: int, attr: int) -> Any:
     return attributes.get(f"{endpoint}/{cluster}/{attr}")
+
+
+# ── Türschloss ────────────────────────────────────────────────────────────
+# Matter kennt beim Schloss zwei verschiedene «auf»: den Riegel
+# zurückfahren (UnboltDoor) und zusätzlich die Falle ziehen, sodass die
+# Türe aufgeht (UnlockDoor). Ein Nuki Smart Lock Pro kann beides; einfache
+# Schlösser kennen nur UnlockDoor, und das schliesst dann bloss auf.
+#
+# Welches Verhalten gilt, sagt das Gerät selbst über sein Unbolt-Merkmal
+# in der FeatureMap. Danach richten sich auch die Knöpfe in der App: «Auf
+# + öffnen» erscheint nur, wo es etwas anderes tut als «Aufschliessen».
+
+LOCK_STATE_ATTR = 0
+LOCK_DOOR_STATE_ATTR = 3
+FEATURE_MAP_ATTR = 0xFFFC
+BAT_CHARGE_LEVEL_ATTR = 14
+
+# Bit 12 der FeatureMap: Das Schloss kann den Riegel getrennt von der
+# Falle bewegen.
+UNBOLT_FEATURE = 1 << 12
+
+LOCK_STATES = {
+    # Weder ganz zu noch ganz auf. Bewusst als «aufgeschlossen» gelesen
+    # und nicht als «unbekannt»: Was nicht sicher verschlossen ist, soll
+    # in der App rot dastehen, nicht beruhigend grau.
+    0: "unlocked",
+    1: "locked",
+    2: "unlocked",
+    3: "unlatched",
+}
+
+# DoorState (nur mit Türsensor im Schloss): steht die Türe selbst offen?
+DOOR_STATES = {0: "open", 1: "closed"}
+
+
+def has_unbolt(attributes: dict[str, Any], endpoint: int) -> bool:
+    """Kann das Schloss den Riegel getrennt von der Falle bewegen? (rein)"""
+    features = _attr(attributes, endpoint, DOOR_LOCK, FEATURE_MAP_ATTR)
+    try:
+        return bool(int(features) & UNBOLT_FEATURE)
+    except (TypeError, ValueError):
+        return False
+
+
+def lock_commands(attributes: dict[str, Any], endpoint: int) -> list[str]:
+    """Welche Knöpfe dieses Schloss verdient (rein, testbar).
+
+    «unlatch» nur, wo es etwas anderes tut als «unlock» – sonst stünden
+    zwei Knöpfe da, die dasselbe auslösen.
+    """
+    if has_unbolt(attributes, endpoint):
+        return ["lock", "unlock", "unlatch"]
+    return ["lock", "unlock"]
+
+
+def lock_state(attributes: dict[str, Any], endpoint: int) -> dict[str, Any]:
+    """Attribute eines Schloss-Endpunkts → Entitäts-Zustand (rein, testbar).
+
+    Dieselben Namen wie bei der Nuki-Web-API, damit die Kachel in der App
+    dieselbe bleibt – wer von dort auf Matter umzieht, soll nicht eine
+    andere Anzeige bekommen.
+    """
+    raw = _attr(attributes, endpoint, DOOR_LOCK, LOCK_STATE_ATTR)
+    state: dict[str, Any] = {"state": LOCK_STATES.get(raw, "unknown")}
+
+    door = DOOR_STATES.get(_attr(attributes, endpoint, DOOR_LOCK, LOCK_DOOR_STATE_ATTR))
+    if door is not None:
+        state["door"] = door
+
+    battery = battery_percent(attributes)
+    if battery is not None:
+        state["battery"] = battery
+    # BatChargeLevel: 0 in Ordnung, 1 Warnung, 2 kritisch. Ein Schloss,
+    # dessen Akku leer wird, ist kein Schönheitsfehler - deshalb steht es
+    # in der Kachel, auch wenn der Prozentwert fehlt.
+    for path, value in attributes.items():
+        parts = str(path).split("/")
+        if (
+            len(parts) == 3
+            and parts[1] == str(POWER_SOURCE)
+            and parts[2] == str(BAT_CHARGE_LEVEL_ATTR)
+        ):
+            try:
+                if int(value) > 0:
+                    state["battery_critical"] = True
+            except (TypeError, ValueError):
+                pass
+            break
+    return state
 
 
 def endpoint_device_types(attributes: dict[str, Any], endpoint: int) -> list[int]:
@@ -148,6 +240,9 @@ def battery_percent(attributes: dict[str, Any]) -> int | None:
 
 def endpoint_state(attributes: dict[str, Any], endpoint: int, kind: str) -> dict[str, Any]:
     """Attribute eines Endpunkts → Entitäts-Zustand (rein, testbar)."""
+    if kind == EntityKind.LOCK:
+        return lock_state(attributes, endpoint)
+
     if kind in (EntityKind.LIGHT, EntityKind.SWITCH):
         on = _attr(attributes, endpoint, ON_OFF, 0)
         state: dict[str, Any] = {"state": "on" if on else "off"}
@@ -212,6 +307,11 @@ class MatterIntegration(Integration):
         self._url = self.config.get("url") or "ws://127.0.0.1:5580/ws"
         if not str(self._url).startswith(("ws://", "wss://")):
             raise ConfigError("matter.url muss mit ws:// oder wss:// beginnen")
+        # Manche Schlösser verlangen für Befehle aus der Ferne einen
+        # PIN-Code. Ohne ihn weisen sie ab, mit falschem ebenso - deshalb
+        # steht er in der Konfiguration und nicht im Code.
+        pin = self.config.get("pin")
+        self._pin = str(pin) if pin not in (None, "") else None
         self._session = self.http_session(timeout=aiohttp.ClientTimeout(total=None))
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._message_id = 0
@@ -328,11 +428,12 @@ class MatterIntegration(Integration):
             entity_id = self.entity_id(f"{node_id}_{endpoint}")
             if entity_id not in self._entities:
                 self._entities[entity_id] = (node_id, endpoint, kind)
-                commands = (
-                    ["turn_on", "turn_off", "toggle"]
-                    if kind in (EntityKind.LIGHT, EntityKind.SWITCH)
-                    else []
-                )
+                if kind == EntityKind.LOCK:
+                    commands = lock_commands(attributes, endpoint)
+                elif kind in (EntityKind.LIGHT, EntityKind.SWITCH):
+                    commands = ["turn_on", "turn_off", "toggle"]
+                else:
+                    commands = []
                 await self.add_entity(
                     f"{node_id}_{endpoint}",
                     kind,
@@ -373,7 +474,12 @@ class MatterIntegration(Integration):
             self._pending.pop(message_id, None)
 
     async def handle_command(self, entity: Entity, command: str, data: dict[str, Any]) -> None:
-        node_id, endpoint, _kind = self._entities[entity.id]
+        node_id, endpoint, kind = self._entities[entity.id]
+
+        if kind == EntityKind.LOCK:
+            await self._lock_command(node_id, endpoint, command)
+            return
+
         if command == "toggle":
             command = "turn_off" if entity.state.get("state") == "on" else "turn_on"
 
@@ -395,6 +501,39 @@ class MatterIntegration(Integration):
             "device_command",
             node_id=node_id, endpoint_id=endpoint, cluster_id=ON_OFF,
             command_name="On" if command == "turn_on" else "Off", payload={},
+        )
+
+
+    async def _lock_command(self, node_id: int, endpoint: int, command: str) -> None:
+        """Abschliessen, aufschliessen, aufziehen.
+
+        «unlock» ist die Stelle, an der Matter zwei Wege kennt: Wo das
+        Schloss den Riegel getrennt bewegen kann, fährt UnboltDoor nur ihn
+        zurück - die Türe bleibt zu und muss aufgedrückt werden. UnlockDoor
+        zieht zusätzlich die Falle. Wo es das Merkmal nicht gibt, ist
+        UnlockDoor schlicht «aufschliessen».
+
+        Ein Schloss, das für Fernbedienung einen PIN verlangt, weist die
+        Befehle sonst zurück; dafür gibt es `pin` in der Konfiguration.
+        """
+        attributes = (self._nodes.get(node_id) or {}).get("attributes") or {}
+        unbolt = has_unbolt(attributes, endpoint)
+        if command == "lock":
+            name = "LockDoor"
+        elif command == "unlatch":
+            name = "UnlockDoor"
+        elif command == "unlock":
+            name = "UnboltDoor" if unbolt else "UnlockDoor"
+        else:
+            raise ValueError(f"Unbekannter Schloss-Befehl: {command}")
+
+        payload: dict[str, Any] = {}
+        if self._pin:
+            payload["pinCode"] = self._pin
+        await self._command(
+            "device_command",
+            node_id=node_id, endpoint_id=endpoint, cluster_id=DOOR_LOCK,
+            command_name=name, payload=payload,
         )
 
 
