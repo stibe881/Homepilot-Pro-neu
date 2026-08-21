@@ -12,6 +12,7 @@ from homepilot.core.config import load_config
 from homepilot.core.hub import Hub
 from homepilot.integrations.matter import (
     battery_percent,
+    node_lines,
     classify,
     endpoint_device_types,
     endpoint_name,
@@ -96,6 +97,35 @@ def test_node_endpoints_and_name():
     # Ohne Endpunkt-Label fällt der Name auf den Knoten zurück.
     assert endpoint_name({"0/40/3": "Sensor XY"}, 5, 2) == "Sensor XY"
     assert endpoint_name({}, 5, 2) == "Matter 5-2"
+
+
+def test_the_listing_names_what_it_cannot_use():
+    """Ein Gerät, das der Hub nicht versteht, darf nicht unsichtbar sein.
+
+    Vorher fehlte es in der App - und die Liste im Terminal schwieg
+    ebenfalls, weil sie nur zeigte, was sie erkannte. Damit sieht die Suche
+    aus wie «gar nicht gekoppelt», obwohl das Gerät längst da ist.
+    """
+    node = {
+        "node_id": 1,
+        "attributes": {
+            # Endpunkt 0 ist die Verwaltung jedes Knotens, kein Gerät.
+            "0/29/0": [{"0": 22}],
+            "0/40/5": "Smart Lock Pro",
+            "1/29/0": [{"0": 10}],
+            "2/29/0": [{"0": 999}],
+        },
+    }
+    zeilen = node_lines(node)
+    assert zeilen[0] == "Knoten 1 Endpunkt 1: Smart Lock Pro (lock)"
+    assert "Gerätetyp 999 wird noch nicht unterstützt" in zeilen[1]
+    assert not any("Endpunkt 0" in zeile for zeile in zeilen)
+
+
+def test_a_node_without_usable_endpoints_says_so():
+    """Schweigen wäre hier dasselbe wie «nichts gefunden»."""
+    zeilen = node_lines({"node_id": 9, "attributes": {"0/29/0": [{"0": 22}]}})
+    assert zeilen == ["Knoten 9: kein nutzbarer Endpunkt gefunden"]
 
 
 # ── Türschloss ───────────────────────────────────────────────────────────

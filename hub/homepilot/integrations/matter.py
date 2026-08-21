@@ -300,6 +300,43 @@ def node_endpoints(node: dict[str, Any]) -> list[tuple[int, str]]:
     return result
 
 
+def node_lines(node: dict[str, Any]) -> list[str]:
+    """Ein Knoten als Zeilen fürs Terminal (rein, testbar).
+
+    Genannt werden auch Endpunkte, mit denen der Hub nichts anfangen kann.
+    Vorher tauchten sie nirgends auf - ein Gerät fehlte dann in der App,
+    und die Liste hier schwieg dazu ebenfalls. Wer den Gerätetyp sieht,
+    weiss wenigstens, wonach er fragen muss.
+    """
+    attributes = node.get("attributes") or {}
+    node_id = node.get("node_id")
+    zeilen: list[str] = []
+    endpoints: set[int] = set()
+    for path in attributes:
+        try:
+            endpoints.add(int(str(path).split("/", 1)[0]))
+        except ValueError:
+            continue
+    for endpoint in sorted(endpoints):
+        typen = endpoint_device_types(attributes, endpoint)
+        if not typen:
+            continue
+        name = endpoint_name(attributes, node_id, endpoint)
+        kind = classify(typen)
+        if kind is not None:
+            zeilen.append(f"Knoten {node_id} Endpunkt {endpoint}: {name} ({kind})")
+        elif endpoint != 0:
+            # Endpunkt 0 ist die Verwaltung jedes Knotens und nie ein Gerät.
+            liste = ", ".join(str(t) for t in typen)
+            zeilen.append(
+                f"Knoten {node_id} Endpunkt {endpoint}: {name} "
+                f"- Gerätetyp {liste} wird noch nicht unterstützt"
+            )
+    if not zeilen:
+        zeilen.append(f"Knoten {node_id}: kein nutzbarer Endpunkt gefunden")
+    return zeilen
+
+
 class MatterIntegration(Integration):
     name = "matter"
 
@@ -504,6 +541,67 @@ class MatterIntegration(Integration):
         )
 
 
+    # ── Für die App (siehe api/server.py, /api/matter) ─────────────────────
+
+    def uebersicht(self) -> dict[str, Any]:
+        """Was die App über den Matter-Teil des Hauses zeigen soll.
+
+        Bewusst aus dem Stand, den diese Integration ohnehin hält, statt
+        den Dienst neu zu fragen: Der Bildschirm soll sofort dastehen, und
+        was hier steht, ist genau das, woraus auch die Kacheln entstehen.
+        """
+        knoten = []
+        for node_id, node in sorted(self._nodes.items()):
+            attributes = node.get("attributes") or {}
+            geraete = [
+                {
+                    "entity_id": self.entity_id(f"{node_id}_{endpoint}"),
+                    "name": endpoint_name(attributes, node_id, endpoint),
+                    "kind": kind,
+                }
+                for endpoint, kind in node_endpoints(node)
+            ]
+            knoten.append(
+                {
+                    "node_id": node_id,
+                    "name": endpoint_name(attributes, node_id, 0),
+                    "available": bool(node.get("available", True)),
+                    "battery": battery_percent(attributes),
+                    "entities": geraete,
+                }
+            )
+        return {
+            "available": True,
+            "connected": self._ws is not None,
+            "url": self._url,
+            "nodes": knoten,
+        }
+
+    async def pair(self, code: str) -> dict[str, Any]:
+        """Ein Gerät in die Fabric aufnehmen.
+
+        Der Code ist ein Geheimnis auf Zeit und taucht deshalb nirgends im
+        Protokoll auf - weder hier noch in der Fehlermeldung, die die App
+        zu sehen bekommt.
+        """
+        self.log.info("Matter: koppele ein neues Gerät …")
+        node = await self._command("commission_with_code", code=code.strip())
+        node_id = (node or {}).get("node_id")
+        self.log.info("Matter: Gerät als Knoten %s aufgenommen", node_id)
+        if node:
+            await self._sync_node(node)
+        return {"node_id": node_id}
+
+    async def unpair(self, node_id: int) -> None:
+        """Ein Gerät aus der Fabric entfernen.
+
+        Die Entitäten verschwinden über das node_removed-Ereignis des
+        Dienstes - nicht hier von Hand, damit es nur einen Weg gibt, auf
+        dem Geräte gehen.
+        """
+        self.log.info("Matter: entferne Knoten %s", node_id)
+        await self._command("remove_node", node_id=node_id)
+
     async def _lock_command(self, node_id: int, endpoint: int, command: str) -> None:
         """Abschliessen, aufschliessen, aufziehen.
 
@@ -553,6 +651,19 @@ async def _cli_main(config_path: str, pair_code: str | None) -> int:
     blocks = [b for b in config.integrations if b.get("integration") == "matter"]
     url = (blocks[0].get("url") if blocks else None) or "ws://127.0.0.1:5580/ws"
 
+    # Dieses Werkzeug spricht den Matter-Dienst direkt an - der Hub daneben
+    # tut das nur, wenn die Integration in der config.yaml steht. Ohne
+    # diesen Hinweis sieht man hier ein sauber gekoppeltes Gerät und in der
+    # App nichts, und nichts erklärt den Unterschied.
+    if not blocks:
+        print(f"⚠ In {config_path} steht kein matter-Block.")
+        print("  Dieser Aufruf funktioniert trotzdem - der Hub bindet die")
+        print("  Geräte aber erst ein, wenn dort steht:")
+        print("    - integration: matter")
+        print("      url: ws://127.0.0.1:5580/ws")
+        print("  Danach den Hub neu starten.")
+        print()
+
     async with aiohttp.ClientSession() as session:
         try:
             ws = await session.ws_connect(url)
@@ -593,10 +704,8 @@ async def _cli_main(config_path: str, pair_code: str | None) -> int:
                 )
                 return 0
             for node in nodes:
-                attributes = node.get("attributes") or {}
-                for endpoint, kind in node_endpoints(node):
-                    name = endpoint_name(attributes, node["node_id"], endpoint)
-                    print(f"  Knoten {node['node_id']} Endpunkt {endpoint}: {name} ({kind})")
+                for zeile in node_lines(node):
+                    print(f"  {zeile}")
             return 0
 
 
