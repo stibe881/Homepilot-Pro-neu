@@ -32,11 +32,22 @@ bekommt die URL, den Header trägt die App bei.
 ## Widget auf Homescreen und Sperrbildschirm
 
 Ab dem nächsten eigenen Build (`eas build`) bringt HomePilot ein Widget
-mit drei Abkürzungen: **Haustüre**, **Alles aus** und **Alarm**.
+mit bis zu vier Knöpfen. Voreingestellt sind **Haustüre**, **Alles aus**
+und **Alarm**.
 
 **Einrichten.** Auf dem Homescreen lange drücken → *+* → «HomePilot» →
 Grösse wählen. Für den Sperrbildschirm: Sperrbildschirm lange drücken →
 *Anpassen* → Bereich unter der Uhr antippen → «HomePilot».
+
+**Welche Knöpfe.** In der App unter *Einstellungen → Widgets*. Dort
+lassen sich neben den drei Abkürzungen auch Szenen und einzelne Geräte
+auf die Knöpfe legen, ordnen und wieder entfernen. Das gilt je Person,
+nicht je Gerät: Wer auf dem iPad umstellt, hat es auch auf dem Telefon.
+Eine Änderung ist sofort da, das Widget muss nicht neu angelegt werden.
+
+Den eigentlichen Knopf «Widget hinzufügen» kann keine App anbieten – iOS
+behält das Auflegen auf den Homescreen bei sich. Deshalb steht in der App
+die Anleitung statt eines Knopfes, der nichts täte.
 
 **Was passiert beim Antippen.** Das Widget schaltet nichts direkt, es
 öffnet die App an der richtigen Stelle: Bei «Haustüre» steht die
@@ -59,8 +70,10 @@ also ein Ort mehr, an dem das Token liegt.
 Für eine blosse Knopfleiste wäre das der falsche Preis; für den Blick
 «steht bei uns eine Türe offen» ist die Rechnung eine andere. Wer sie
 anders sieht, lässt den Schalter aus: Dann bleibt die Ablage leer, und
-das Widget zeigt nur die drei Abkürzungen. Erreicht es den Hub nicht,
-schreibt es «nicht erreichbar», statt den letzten Stand weiter als
-Tatsache auszugeben.
+das Widget schreibt «in der App einschalten» – nicht «nicht erreichbar».
+Der Unterschied ist Absicht: Das eine ist eine Entscheidung, das andere
+eine Störung. «Nicht erreichbar» steht nur da, wenn der Schalter an ist
+und der Hub trotzdem nicht antwortet – dann sagt das Widget das
+ausdrücklich, statt den letzten Stand weiter als Tatsache auszugeben.
 
 Aktualisiert wird alle 15 Minuten – häufiger lässt iOS ohnehin nicht zu.

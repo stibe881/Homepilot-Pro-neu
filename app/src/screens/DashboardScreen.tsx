@@ -61,8 +61,9 @@ import { SceneSuggestion } from '../components/SceneSuggestion';
 import { UsersScreen } from './UsersScreen';
 import { confirm as confirmBiometrie, needsCheck } from '../lib/biometrie';
 import { BioLock } from '../components/BioLock';
-import { WidgetSetting } from '../components/WidgetSetting';
-import { syncWidget } from '../lib/widget';
+import { Widgets } from '../components/Widgets';
+import { Ablage, syncWidget } from '../lib/widget';
+import { resolveButtons, widgetCommand } from '../lib/widgetButtons';
 
 const ALL_ROOMS = 'Alle';
 /** Befehle, die ein gesperrtes Gerät nur nach Rückfrage annimmt. Lesende
@@ -228,18 +229,33 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   usePanelMode(!!settings.panel);
   const push = usePushRegistration(settings, status === 'connected');
   // Persönliche Reihenfolgen – je Benutzer auf dem Hub, geräteübergreifend.
-  const { prefs, setOrder, setSeenChanges, setBioLock, setWidgetData } = usePrefs(
-    settings,
-    status === 'connected'
-  );
+  const {
+    prefs,
+    setOrder,
+    setSeenChanges,
+    setBioLock,
+    setWidgetData,
+    setWidgetButtons,
+  } = usePrefs(settings, status === 'connected');
 
   // Das Widget lebt in einem eigenen Prozess und kennt die Einstellungen
-  // nicht - Adresse und Token wandern deshalb in die geteilte App-Gruppe.
-  // Bei jeder Änderung neu, damit ein gewechseltes Token nicht ein
-  // Widget zurücklässt, das ins Leere fragt.
+  // nicht - Knöpfe, Adresse und Token wandern deshalb in die geteilte
+  // App-Gruppe. Bei jeder Änderung neu, damit ein gewechseltes Token
+  // nicht ein Widget zurücklässt, das ins Leere fragt, und eine
+  // gelöschte Szene keinen Knopf, der nirgends hinführt.
+  const widgetButtons = useMemo(
+    () => resolveButtons(prefs.widgetButtons, scenes, entities),
+    [prefs.widgetButtons, scenes, entities]
+  );
+  const [widgetAblage, setWidgetAblage] = useState<Ablage>('kein-widget');
   useEffect(() => {
-    syncWidget(settings, !!prefs.widgetData);
-  }, [settings.url, settings.token, prefs.widgetData]);
+    // Erst, wenn etwas da ist: Vor der ersten Antwort des Hubs sind
+    // Szenen und Geräte leer, und eine Szene, die es «noch nicht gibt»,
+    // fiele aus der Knopfliste heraus - das Widget stünde kurz mit
+    // weniger Knöpfen da, als jemand eingestellt hat.
+    if (entities.length === 0 && scenes.length === 0) return;
+    setWidgetAblage(syncWidget(settings, !!prefs.widgetData, widgetButtons));
+  }, [settings.url, settings.token, prefs.widgetData, widgetButtons, entities.length, scenes.length]);
 
   // Antippen einer Alarm-Nachricht führt direkt zur Kamera des betroffenen
   // Raums. Wer nachts geweckt wird, soll nicht erst durch die Räume suchen.
@@ -252,34 +268,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   }, []);
   useNotificationTap(onNotificationTap);
 
-  // Abkürzungen aus dem Widget und von NFC-Aufklebern: homepilot://door
-  // öffnet die Türe (mit Rückfrage), //alloff und //alarm springen an die
-  // passende Stelle. Bewusst kein blindes Schalten aus dem Sperrbildschirm
-  // heraus - die Türe geht erst nach dem zweiten Tipp auf.
-  useEffect(() => {
-    const handle = (url: string | null) => {
-      if (!url || !url.startsWith('homepilot://')) return;
-      const what = url.replace('homepilot://', '').split(/[/?]/)[0];
-      if (what === 'door') {
-        const door =
-          entities.find(
-            (entity) => entity.kind === 'lock' && entity.commands.includes('open_door')
-          ) ?? entities.find((entity) => entity.kind === 'lock');
-        if (door) {
-          setSection('home');
-          setConfirm({ entity: door, command: door.commands.includes('open_door') ? 'open_door' : 'unlatch' });
-        }
-      } else if (what === 'alloff') {
-        setSection('home');
-        setRoom(ALL_ROOMS);
-      } else if (what === 'alarm') {
-        setSection('alarm');
-      }
-    };
-    Linking.getInitialURL().then(handle).catch(() => {});
-    const subscription = Linking.addEventListener('url', (event) => handle(event.url));
-    return () => subscription.remove();
-  }, [entities]);
   useEffect(() => {
     if (!settings.panel) return;
     const timer = setInterval(() => {
@@ -321,6 +309,67 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     },
     [entities, locked, sendCommand, prefs.bioLock]
   );
+
+  // Abkürzungen aus dem Widget und von NFC-Aufklebern: homepilot://door
+  // öffnet die Türe (mit Rückfrage), //alloff und //alarm springen an die
+  // passende Stelle, //scene/<id> löst eine Szene aus und //entity/<id>
+  // schaltet ein Gerät.
+  //
+  // Kein blindes Schalten aus dem Sperrbildschirm heraus: Schlösser
+  // bekommen immer die Rückfrage, alles andere geht durch
+  // guardedCommand - dieselbe Hürde wie beim Antippen einer Kachel,
+  // samt Sperre und Face ID. Ein Widget-Knopf darf nicht mehr dürfen als
+  // die App selbst.
+  //
+  // Steht hier unten und nicht weiter oben, weil er guardedCommand
+  // braucht: Ein useEffect, dessen Abhängigkeit noch gar nicht angelegt
+  // ist, wirft beim ersten Zeichnen.
+  useEffect(() => {
+    const handle = (url: string | null) => {
+      if (!url || !url.startsWith('homepilot://')) return;
+      const [what, ...rest] = url.replace('homepilot://', '').split(/[/?]/);
+      const id = rest.length > 0 ? decodeURIComponent(rest.join('/')) : '';
+      if (what === 'door') {
+        const door =
+          entities.find(
+            (entity) => entity.kind === 'lock' && entity.commands.includes('open_door')
+          ) ?? entities.find((entity) => entity.kind === 'lock');
+        if (door) {
+          setSection('home');
+          setConfirm({ entity: door, command: door.commands.includes('open_door') ? 'open_door' : 'unlatch' });
+        }
+      } else if (what === 'alloff') {
+        setSection('home');
+        setRoom(ALL_ROOMS);
+      } else if (what === 'alarm') {
+        setSection('alarm');
+      } else if (what === 'scene' && id) {
+        if (scenes.some((scene) => scene.id === id)) {
+          setSection('start');
+          activateScene(id);
+        }
+      } else if (what === 'entity' && id) {
+        const entity = entities.find((item) => item.id === id);
+        if (!entity) return;
+        setSection('start');
+        if (entity.kind === 'lock') {
+          // Ein Schloss fragt immer nach - auch das eigene Wohnzimmer
+          // hat eine Türe, und der Sperrbildschirm ist kein Ort für
+          // einen einzigen Tipp.
+          setConfirm({
+            entity,
+            command: entity.commands.includes('open_door') ? 'open_door' : 'unlatch',
+          });
+          return;
+        }
+        const command = widgetCommand(entity);
+        if (command) guardedCommand(entity.id, command);
+      }
+    };
+    Linking.getInitialURL().then(handle).catch(() => {});
+    const subscription = Linking.addEventListener('url', (event) => handle(event.url));
+    return () => subscription.remove();
+  }, [entities, scenes, activateScene, guardedCommand]);
 
   const toggleIn = (list: string[], id: string) =>
     list.includes(id) ? list.filter((item) => item !== id) : [...list, id];
@@ -819,6 +868,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           show: istBesitzer,
         },
         {
+          key: 'widgets',
+          icon: 'apps-outline',
+          label: 'Widgets',
+          detail: 'Knöpfe auf Homescreen und Sperrbildschirm',
+          // Wie das Konto Sache jeder Person: Wer welche Knöpfe auf
+          // seinem Telefon hat, geht niemanden sonst etwas an.
+          show: true,
+        },
+        {
           key: 'account',
           icon: 'person-outline',
           label: 'Konto & Verbindung',
@@ -897,8 +955,23 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           {back}
           <SettingsScreen initial={settings} onSave={onSaveSettings} user={user} embedded />
           <BioLock enabled={!!prefs.bioLock} onChange={setBioLock} />
-          <WidgetSetting enabled={!!prefs.widgetData} onChange={setWidgetData} />
           <PushPrefs settings={settings} />
+        </View>
+      );
+    }
+    if (section === 'widgets') {
+      return (
+        <View style={styles.stack}>
+          {back}
+          <Widgets
+            buttons={prefs.widgetButtons}
+            onButtons={setWidgetButtons}
+            dataEnabled={!!prefs.widgetData}
+            onDataEnabled={setWidgetData}
+            ablage={widgetAblage}
+            scenes={scenes}
+            entities={entities}
+          />
         </View>
       );
     }

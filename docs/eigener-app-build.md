@@ -192,8 +192,8 @@ Kommt dort eine Zahl grösser 0, steckt das Ziel im Projekt. Der Ordner
 
 Neben der Benachrichtigungs-Erweiterung liegt im Repo ein zweites Ziel:
 `app/targets/widget/`. Es baut beim EAS-Build automatisch mit und bringt
-drei Abkürzungen (Haustüre, Alles aus, Alarm) auf Homescreen und
-Sperrbildschirm – und auf Wunsch den Hausstand dazu. Details stehen in
+bis zu vier frei gewählte Knöpfe auf Homescreen und Sperrbildschirm –
+und auf Wunsch den Hausstand dazu. Details stehen in
 [nfc-und-widget.md](nfc-und-widget.md).
 
 Auch dafür gilt: Ein `eas update` genügt nicht, das Ziel ist nativ.

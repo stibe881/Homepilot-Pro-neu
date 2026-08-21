@@ -8,10 +8,10 @@ import { Colors, type, useColors } from '../theme';
 /**
  * Schalter für den Inhalt des Homescreen-Widgets.
  *
- * Ohne ihn zeigt das Widget nur die drei Abkürzungen – mit ihm auch, ob
- * eine Türe offen steht und was als Nächstes ansteht. Der Preis steht
- * daneben, statt im Kleingedruckten: Dafür liegen Adresse und Token in
- * der geteilten App-Gruppe, also auch im Widget-Prozess.
+ * Ohne ihn zeigt das Widget nur die Knöpfe – mit ihm auch, ob eine Türe
+ * offen steht und was als Nächstes ansteht. Der Preis steht daneben,
+ * statt im Kleingedruckten: Dafür liegen Adresse und Token in der
+ * geteilten App-Gruppe, also auch im Widget-Prozess.
  *
  * Auf Android und im Web gibt es kein Widget – dort erscheint die Karte
  * gar nicht, statt einen Schalter anzubieten, der nichts tut.
@@ -46,7 +46,7 @@ export function WidgetSetting({
           <Text style={styles.hint}>
             {enabled
               ? 'Türstatus und nächster Termin, alle 15 Minuten aktualisiert.'
-              : 'Aus: Das Widget zeigt nur Haustüre, Alles aus und Alarm.'}
+              : 'Aus: Das Widget zeigt nur die Knöpfe, ohne Zustände.'}
           </Text>
         </View>
         <Ionicons

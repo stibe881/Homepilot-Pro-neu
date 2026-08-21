@@ -21,6 +21,7 @@ export type Section =
   | 'speakers'
   | 'users'
   | 'activity'
+  | 'widgets'
   | 'account';
 
 /** `needs` nennt die Berechtigung, ohne die der Punkt gar nicht erscheint. */

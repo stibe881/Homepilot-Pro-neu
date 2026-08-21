@@ -61,6 +61,11 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
   // wechseln.
   const [testing, setTesting] = useState(false);
   const [testNote, setTestNote] = useState<string | null>(null);
+  // Zu: Die Karte listet dreizehn Schalter, die man einmal einstellt und
+  // dann jahrelang nicht anfasst. Aufgeklappt schiebt sie alles darunter
+  // aus dem Bild - unter «Konto & Verbindung» sucht man aber meist die
+  // Hub-Adresse, nicht die Batteriewarnung.
+  const [offen, setOffen] = useState(false);
 
   const headers: Record<string, string> = settings.token
     ? { Authorization: `Bearer ${settings.token}` }
@@ -79,7 +84,12 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
       .catch((err) => setError(String(err.message ?? err)));
   }, [settings.url, settings.token]);
 
-  useEffect(load, [load]);
+  // Erst laden, wenn jemand hinsieht: Zugeklappt ist die Antwort des
+  // Hubs nichts wert, und beim Öffnen der Einstellungen laufen ohnehin
+  // schon genug Abfragen los.
+  useEffect(() => {
+    if (offen) load();
+  }, [offen, load]);
 
   const toggle = async (key: string) => {
     const next = muted.includes(key)
@@ -127,18 +137,29 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
     }
   };
 
-  if (error) {
-    return (
-      <Card style={styles.card}>
-        <Text style={styles.heading}>Benachrichtigungen</Text>
-        <Text style={styles.hint}>Nicht abrufbar: {error}</Text>
-      </Card>
-    );
-  }
-
   return (
     <Card style={styles.card}>
-      <Text style={styles.heading}>Benachrichtigungen</Text>
+      <Pressable
+        onPress={() => setOffen((war) => !war)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: offen }}
+        style={({ pressed }) => [styles.headRow, pressed && { opacity: 0.8 }]}
+      >
+        <View style={{ flex: 1 }}>
+          <Text style={styles.heading}>Benachrichtigungen</Text>
+          <Text style={styles.hint}>
+            Was auf dein Telefon kommt – gilt nur für dich.
+          </Text>
+        </View>
+        <Ionicons
+          name={offen ? 'chevron-up' : 'chevron-down'}
+          size={20}
+          color={colors.inkFaint}
+        />
+      </Pressable>
+
+      {!offen ? null : (
+      <>
       <View style={styles.headRow}>
         <Text style={styles.hint}>
           Gilt nur für dich – andere im Haushalt stellen es für sich ein.
@@ -155,7 +176,9 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
       </View>
       {testNote ? <Text style={styles.hint}>{testNote}</Text> : null}
 
-      {categories == null ? (
+      {error ? (
+        <Text style={styles.hint}>Nicht abrufbar: {error}</Text>
+      ) : categories == null ? (
         <Text style={styles.hint}>Wird geladen …</Text>
       ) : (
         groupCategories(categories).map((section) => (
@@ -191,6 +214,8 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
             </View>
           </View>
         ))
+      )}
+      </>
       )}
     </Card>
   );

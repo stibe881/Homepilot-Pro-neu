@@ -22,9 +22,12 @@ export interface UserPrefs {
    *  Wer es einschaltet, meint es überall. */
   bioLock?: boolean;
   /** Das Homescreen-Widget mit Daten aus dem Haus versorgen. Aus heisst:
-   *  Es zeigt nur die drei Abkürzungen, und in der App-Gruppe liegt kein
-   *  Token. */
+   *  Es zeigt nur die Knöpfe, und in der App-Gruppe liegt kein Token. */
   widgetData?: boolean;
+  /** Welche Knöpfe im Widget liegen – Schlüssel wie «door»,
+   *  «scene:kino», «entity:light.kueche». Ohne Eintrag die drei, mit
+   *  denen jeder anfängt. */
+  widgetButtons?: string[];
 }
 
 export function usePrefs(settings: HubSettings, connected: boolean) {
@@ -104,5 +107,19 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     [save]
   );
 
-  return { prefs, setOrder, setSeenChanges, setBioLock, setWidgetData };
+  const setWidgetButtons = useCallback(
+    (keys: string[]) => {
+      save({ ...latest.current, widgetButtons: keys });
+    },
+    [save]
+  );
+
+  return {
+    prefs,
+    setOrder,
+    setSeenChanges,
+    setBioLock,
+    setWidgetData,
+    setWidgetButtons,
+  };
 }

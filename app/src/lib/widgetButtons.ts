@@ -1,0 +1,237 @@
+import { Entity, Scene } from '../api/types';
+
+/**
+ * Die Knöpfe im Homescreen-Widget.
+ *
+ * Bis vor Kurzem standen sie fest im Widget: Haustüre, Alles aus, Alarm.
+ * Für den Anfang richtig, auf Dauer falsch – wer abends «Kino» drückt und
+ * die Haustüre nie über das Widget öffnet, hat drei Knöpfe, von denen
+ * zwei nichts für ihn tun.
+ *
+ * Also eine Liste von Schlüsseln, die die Person selbst zusammenstellt.
+ * Aufgelöst wird sie hier: aus «scene:kino» wird ein Titel, ein Symbol
+ * und die Adresse, die die App beim Antippen öffnet. Das Widget selbst
+ * kennt nur noch das Ergebnis – es liest fertige Knöpfe aus der
+ * App-Gruppe und muss weder Szenen noch Geräte verstehen.
+ *
+ * Warum überhaupt Adressen statt Befehle: Ein Widget-Tipp schaltet nichts
+ * selbst, er öffnet die App an der richtigen Stelle. Ein Türöffner, der
+ * sich vom gesperrten Bildschirm aus mit einem Tipp auslösen liesse, wäre
+ * genau der Knopf, den man nicht will.
+ */
+
+export interface WidgetButton {
+  /** Was gespeichert wird: 'door', 'alloff', 'alarm', 'scene:<id>',
+   *  'entity:<id>'. */
+  key: string;
+  /** Beschriftung im Widget – kurz, dort ist wenig Platz. */
+  title: string;
+  /** SF-Symbol. Bewusst nur alte, sichere Namen: Ein Symbol, das die
+   *  iOS-Fassung nicht kennt, zeichnet nichts, und der Knopf wäre leer. */
+  symbol: string;
+  /** homepilot://… – dieselben Adressen, die auch ein NFC-Aufkleber
+   *  benutzt. */
+  url: string;
+}
+
+/** Mehr passt selbst auf die grosse Widget-Grösse nicht nebeneinander. */
+export const MAX_BUTTONS = 4;
+
+/** Womit jeder anfängt, solange nichts eingestellt wurde. */
+export const STANDARD = ['door', 'alloff', 'alarm'];
+
+const FEST: Record<string, WidgetButton> = {
+  door: {
+    key: 'door',
+    title: 'Haustüre',
+    symbol: 'key.fill',
+    url: 'homepilot://door',
+  },
+  alloff: {
+    key: 'alloff',
+    title: 'Alles aus',
+    symbol: 'power',
+    url: 'homepilot://alloff',
+  },
+  alarm: {
+    key: 'alarm',
+    title: 'Alarm',
+    symbol: 'shield.fill',
+    url: 'homepilot://alarm',
+  },
+};
+
+/** Symbol je Geräteart. Der Rückfall ist absichtlich ein Symbol und kein
+ *  leeres Feld – lieber ein neutrales Kästchen als ein Knopf ohne Bild. */
+const SYMBOLE: Record<string, string> = {
+  light: 'lightbulb.fill',
+  switch: 'power',
+  outlet: 'power',
+  lock: 'key.fill',
+  cover: 'arrow.up.arrow.down',
+  climate: 'thermometer',
+  media_player: 'speaker.wave.2.fill',
+  vacuum: 'wand.and.stars',
+  fan: 'wind',
+};
+
+/** Befehle, die einen Knopf sinnvoll machen. */
+const SCHALTBAR = new Set([
+  'toggle',
+  'turn_on',
+  'turn_off',
+  'open',
+  'close',
+  'open_door',
+  'unlatch',
+  'lock',
+  'unlock',
+  'start',
+]);
+
+/** Im Widget ist die Zeile schmal. Lieber gekürzt als umgebrochen. */
+export function kurz(name: string, max = 14): string {
+  const sauber = name.trim();
+  if (sauber.length <= max) return sauber;
+  return sauber.slice(0, max - 1).trimEnd() + '…';
+}
+
+/**
+ * Einen Schlüssel zu einem Knopf machen – oder `null`, wenn es das, was
+ * er meint, nicht mehr gibt.
+ *
+ * Der Fall ist nicht theoretisch: Wer eine Szene löscht, deren Knopf im
+ * Widget liegt, soll dort keinen Knopf sehen, der ins Leere führt.
+ */
+export function resolveButton(
+  key: string,
+  scenes: Scene[],
+  entities: Entity[]
+): WidgetButton | null {
+  if (FEST[key]) return FEST[key];
+  if (key.startsWith('scene:')) {
+    const id = key.slice('scene:'.length);
+    const scene = scenes.find((entry) => entry.id === id);
+    if (!scene) return null;
+    return {
+      key,
+      title: kurz(scene.name),
+      symbol: 'sparkles',
+      url: `homepilot://scene/${encodeURIComponent(id)}`,
+    };
+  }
+  if (key.startsWith('entity:')) {
+    const id = key.slice('entity:'.length);
+    const entity = entities.find((entry) => entry.id === id);
+    if (!entity) return null;
+    return {
+      key,
+      title: kurz(entity.name),
+      symbol: SYMBOLE[entity.kind] ?? 'square.grid.2x2.fill',
+      url: `homepilot://entity/${encodeURIComponent(id)}`,
+    };
+  }
+  return null;
+}
+
+/**
+ * Die gespeicherte Liste zu Knöpfen machen.
+ *
+ * Verschwundenes fällt still heraus, Doppeltes ebenfalls, und mehr als
+ * MAX_BUTTONS kommen nicht durch – die Liste kommt vom Hub und könnte
+ * aus einer älteren Fassung stammen.
+ */
+export function resolveButtons(
+  keys: string[] | undefined,
+  scenes: Scene[],
+  entities: Entity[]
+): WidgetButton[] {
+  const gewählt = keys ?? STANDARD;
+  const gesehen = new Set<string>();
+  const knöpfe: WidgetButton[] = [];
+  for (const key of gewählt) {
+    if (gesehen.has(key)) continue;
+    gesehen.add(key);
+    const knopf = resolveButton(key, scenes, entities);
+    if (knopf) knöpfe.push(knopf);
+    if (knöpfe.length >= MAX_BUTTONS) break;
+  }
+  return knöpfe;
+}
+
+/**
+ * Was sich noch hinzufügen lässt.
+ *
+ * Nur Schaltbares: Ein Temperaturfühler als Widget-Knopf wäre ein Knopf,
+ * der beim Antippen nichts tun kann. Ausgeblendetes und in einer Leuchte
+ * aufgegangene Lichter ebenfalls nicht – die tauchen in der App auch
+ * nirgends auf.
+ */
+export function addableButtons(
+  chosen: string[],
+  scenes: Scene[],
+  entities: Entity[]
+): WidgetButton[] {
+  const drin = new Set(chosen);
+  const angebot: WidgetButton[] = [];
+  for (const key of Object.keys(FEST)) {
+    if (!drin.has(key)) angebot.push(FEST[key]);
+  }
+  for (const scene of scenes) {
+    const key = `scene:${scene.id}`;
+    if (drin.has(key)) continue;
+    const knopf = resolveButton(key, scenes, entities);
+    if (knopf) angebot.push(knopf);
+  }
+  for (const entity of entities) {
+    const key = `entity:${entity.id}`;
+    if (drin.has(key)) continue;
+    if (entity.combined_into) continue;
+    if (!entity.commands.some((command) => SCHALTBAR.has(command))) continue;
+    const knopf = resolveButton(key, scenes, entities);
+    if (knopf) angebot.push(knopf);
+  }
+  return angebot;
+}
+
+/**
+ * Welcher Befehl hinter einem Geräteknopf steckt.
+ *
+ * Umschalten, wo das Gerät es kann – sonst das Gegenteil des jetzigen
+ * Zustands. `null` heisst: Dieses Gerät lässt sich so nicht bedienen,
+ * dann passiert nichts. Schlösser stehen bewusst nicht hier; die
+ * bekommen ihre Rückfrage, statt einen Befehl.
+ */
+export function widgetCommand(entity: Entity): string | null {
+  const kann = (command: string) => entity.commands.includes(command);
+  if (kann('toggle')) return 'toggle';
+  const an = entity.state.state === 'on' || entity.state.state === 'open';
+  if (an) {
+    if (kann('turn_off')) return 'turn_off';
+    if (kann('close')) return 'close';
+  } else {
+    if (kann('turn_on')) return 'turn_on';
+    if (kann('open')) return 'open';
+  }
+  return null;
+}
+
+/**
+ * Einen Knopf um eine Stelle verschieben.
+ *
+ * Rein, damit sich das Verhalten am Rand prüfen lässt: Der erste kann
+ * nicht weiter nach oben, der letzte nicht weiter nach unten – dort
+ * passiert nichts, statt dass der Knopf ans andere Ende springt.
+ */
+export function moveButton(
+  keys: string[],
+  index: number,
+  richtung: -1 | 1
+): string[] {
+  const ziel = index + richtung;
+  if (index < 0 || index >= keys.length) return keys;
+  if (ziel < 0 || ziel >= keys.length) return keys;
+  const next = [...keys];
+  [next[index], next[ziel]] = [next[ziel], next[index]];
+  return next;
+}
