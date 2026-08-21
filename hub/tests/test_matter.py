@@ -210,6 +210,36 @@ def test_the_command_list_beats_the_feature_map():
     assert has_unbolt({"1/257/65532": "unsinn"}, 1) is False
 
 
+# Die Attribute eines echten Nuki Smart Lock Pro, wie matterjs-server sie
+# meldet. Aufgehoben, weil sie einen Irrtum festhalten: Die FeatureMap ist
+# 0 - nach ihr könnte das Schloss gar nichts. In der Liste der
+# angenommenen Befehle steht 39 (UnboltDoor), und die stimmt.
+NUKI_ECHT = {
+    "1/29/0": [{"0": 10}],
+    "1/257/0": 2,
+    "1/257/2": True,
+    "1/257/3": None,
+    "1/257/65529": [0, 1, 11, 12, 13, 14, 15, 16, 26, 27, 29, 34, 36, 38, 39, 40, 41],
+    "1/257/65532": 0,
+}
+
+
+def test_a_real_nuki_can_unlatch_despite_an_empty_feature_map():
+    """Der Fall, der «Kommando wird nicht unterstützt» ausgelöst hat.
+
+    Nach der FeatureMap kann dieses Schloss nichts - sie ist 0. Wer sich
+    darauf verlässt, nimmt einem Nuki Smart Lock Pro das Aufziehen weg,
+    obwohl es danebensteht und es kann.
+    """
+    assert has_unbolt(NUKI_ECHT, 1) is True
+    assert lock_commands(NUKI_ECHT, 1) == ["lock", "unlock", "unlatch"]
+    # Und der Zustand liest sich richtig: 2 heisst aufgeschlossen.
+    assert lock_state(NUKI_ECHT, 1)["state"] == "unlocked"
+    # Kein Türsensor eingelernt: dann steht dort auch nichts, statt
+    # «geschlossen» zu behaupten.
+    assert "door" not in lock_state(NUKI_ECHT, 1)
+
+
 # ── End-to-End gegen den nachgebauten Dienst ─────────────────────────────
 
 NODE = {

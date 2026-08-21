@@ -943,12 +943,22 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       // Hub gerade treibt - gehört nicht in jede Hand. Der Hub prüft die
       // Rechte ohnehin noch einmal selbst.
       const items: {
-        key: Section;
+        key: Section | 'search';
         icon: keyof typeof Ionicons.glyphMap;
         label: string;
         detail: string;
         show: boolean;
+        /** Statt zu einem Bereich zu wechseln: etwas öffnen. */
+        onPress?: () => void;
       }[] = [
+        {
+          key: 'search',
+          icon: 'search-outline',
+          label: 'Suche',
+          detail: 'Geräte, Räume, Szenen und Abläufe auf einmal',
+          show: true,
+          onPress: () => setSearchOpen(true),
+        },
         {
           key: 'users',
           icon: 'people-circle-outline',
@@ -1031,7 +1041,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             .map((item) => (
               <Pressable
                 key={item.key}
-                onPress={() => setSection(item.key)}
+                onPress={() =>
+                  item.onPress ? item.onPress() : setSection(item.key as Section)
+                }
                 accessibilityRole="button"
                 style={({ pressed }) => [styles.settingsItem, pressed && { opacity: 0.8 }]}
               >
@@ -1509,14 +1521,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               </Text>
             </View>
             <View style={styles.greetingNotes}>
-              <Pressable
-                onPress={() => setSearchOpen(true)}
-                accessibilityRole="button"
-                accessibilityLabel="Suchen"
-                style={({ pressed }) => [styles.searchButton, pressed && { opacity: 0.7 }]}
-              >
-                <Ionicons name="search" size={18} color={colors.onGradientSoft} />
-              </Pressable>
+              {/* Die Suche sitzt in den Einstellungen. Auf der Startseite
+                  stand sie neben Begrüssung und Hausstand - und nahm dort
+                  Platz weg für etwas, das man selten braucht: Wer ein
+                  Gerät sucht, geht ohnehin in die Geräteliste. */}
               <RunningAppliances entities={entities} />
               <OpenDoors entities={entities} />
             </View>
