@@ -97,12 +97,12 @@ def month_window(year: int, month: int) -> tuple[str, str]:
     """
     from datetime import timedelta
 
-    erster = datetime(year, month, 1, tzinfo=timezone.utc)
+    erster = datetime(year, month, 1, tzinfo=UTC)
     naechster = datetime(
         year + (1 if month == 12 else 0),
         1 if month == 12 else month + 1,
         1,
-        tzinfo=timezone.utc,
+        tzinfo=UTC,
     )
     von = erster - timedelta(days=7)
     bis = naechster + timedelta(days=7)
@@ -147,7 +147,7 @@ def due_reminders(
         except ValueError:
             continue
         if beginn.tzinfo is None:
-            beginn = beginn.replace(tzinfo=timezone.utc)
+            beginn = beginn.replace(tzinfo=UTC)
         if now <= beginn <= grenze:
             faellig.append(event)
     return faellig

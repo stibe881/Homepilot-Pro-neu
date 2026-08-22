@@ -1401,11 +1401,11 @@ def test_calendar_month_window_reaches_into_the_neighbouring_weeks():
 
 def test_calendar_reminders_are_due_once_and_skip_all_day():
     """«Ferien beginnen» eine Viertelstunde vorher zu melden hilft niemandem."""
-    from datetime import datetime, timezone
+    from datetime import UTC, datetime
 
     from homepilot.integrations.google_calendar import due_reminders
 
-    jetzt = datetime(2026, 8, 21, 9, 0, tzinfo=timezone.utc)
+    jetzt = datetime(2026, 8, 21, 9, 0, tzinfo=UTC)
     events = [
         {"id": "a", "summary": "Zahnarzt", "start": "2026-08-21T09:10:00+00:00"},
         {"id": "b", "summary": "Später", "start": "2026-08-21T11:00:00+00:00"},
@@ -1424,7 +1424,7 @@ def test_calendar_reminders_are_due_once_and_skip_all_day():
 
 def test_calendar_events_carry_their_id_and_origin():
     """Ohne beides lässt sich ein Termin weder ändern noch löschen."""
-    from datetime import datetime, timezone
+    from datetime import UTC, datetime
 
     from homepilot.integrations.google_calendar import parse_events
 
@@ -1439,7 +1439,7 @@ def test_calendar_events_carry_their_id_and_origin():
                 "end": {"dateTime": "2026-08-22T21:00:00+00:00"},
             }
         ],
-        datetime(2026, 8, 21, tzinfo=timezone.utc),
+        datetime(2026, 8, 21, tzinfo=UTC),
     )
     event = zustand["events"][0]
     assert event["id"] == "abc123"
