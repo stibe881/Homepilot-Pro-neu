@@ -10,6 +10,8 @@ import {
   triggerFromConfig,
   istLichtFein,
   lichtKurz,
+  nachlaufLabel,
+  sekundenWert,
   melderMitLux,
   minutenLabel,
   minutenWert,
@@ -338,5 +340,45 @@ describe('lichtKurz', () => {
     expect(lichtKurz({ brightness: 'adaptive' })).toBe('angepasst');
     expect(lichtKurz({ brightness: 40 })).toBe('40 %');
     expect(lichtKurz({ color: '#FF2D2D' })).toBe('an');
+    expect(lichtKurz({ brightness: 40, off_after: 240 })).toBe('40 %, 4 Min.');
+  });
+});
+
+describe('Nachlauf – wie lange bleibt das Licht an?', () => {
+  const licht = (over = {}) => ({
+    ...EMPTY_STEP,
+    kind: 'command' as const,
+    commandActions: [{ entity_id: 'hue.flur', command: 'turn_on', ...over }],
+  });
+
+  it('macht aus dem blossen Einschalten einen Licht-Schritt mit Nachlauf', () => {
+    const [action] = stepToActions(licht({ offAfter: 240 }));
+    expect(action.type).toBe('light');
+    expect(action.off_after).toBe(240);
+  });
+
+  it('bleibt ohne Nachlauf das schlichte Kommando', () => {
+    expect(stepToActions(licht())[0].type).toBe('command');
+  });
+
+  it('liest den Nachlauf unverändert zurück', () => {
+    const gespeichert = stepToActions(licht({ offAfter: 300 }));
+    const [step] = actionsToSteps(gespeichert);
+    expect(step.commandActions[0].offAfter).toBe(300);
+    expect(stepToActions(step)).toEqual(gespeichert);
+  });
+
+  it('schreibt die Zeit so, wie sie auf dem Knopf steht', () => {
+    expect(nachlaufLabel(30)).toBe('30 Sek.');
+    expect(nachlaufLabel(240)).toBe('4 Min.');
+    expect(nachlaufLabel(5400)).toBe('1 h 30 min');
+    expect(nachlaufLabel(0)).toBe('an lassen');
+  });
+
+  it('rechnet eingetippte Minuten in Sekunden um', () => {
+    expect(sekundenWert('15')).toBe('900');
+    // Nichts eingetippt heisst «an lassen», nicht «sofort aus».
+    expect(sekundenWert('')).toBe('');
+    expect(sekundenWert('0')).toBe('');
   });
 });

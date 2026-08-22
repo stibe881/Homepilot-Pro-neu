@@ -10,7 +10,14 @@ import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Entity } from '../../api/types';
 import { useColors } from '../../theme';
 import { deviceKindIcon, deviceKindLabel } from '../../lib/geraeteart';
-import { NO_CATEGORY, minutenLabel, minutenWert } from './entwurf';
+import {
+  NACHLAUF_STUFEN,
+  NO_CATEGORY,
+  minutenLabel,
+  minutenWert,
+  nachlaufLabel,
+  sekundenWert,
+} from './entwurf';
 import { makeStyles } from './stil';
 
 export function CategoryField({
@@ -150,6 +157,61 @@ export function MinutenWahl({
           value={value}
           placeholder={placeholder}
           onCommit={(text) => onChange(minutenWert(text))}
+        />
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * Wie lange eine Lampe an bleibt – der Nachlauf eines Licht-Schritts.
+ *
+ * Dasselbe Muster wie die Haltedauer oben, aber in Sekunden: Eine halbe
+ * Minute im WC ist eine ehrliche Angabe, und der Hub rechnet ohnehin in
+ * Sekunden. Eingetippt wird trotzdem in Minuten – wer «45» meint, meint
+ * dort keine Sekunden.
+ */
+export function NachlaufWahl({
+  value,
+  onChange,
+}: {
+  /** Sekunden als Text; leer heisst «an lassen». */
+  value: string;
+  onChange: (seconds: string) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const vorgabe = NACHLAUF_STUFEN.some((stufe) => stufe.key === value);
+  const [offen, setOffen] = useState(!vorgabe && !!value);
+  const eigen = offen || (!vorgabe && !!value);
+
+  return (
+    <>
+      <View style={styles.rowGap}>
+        <Choice
+          options={[
+            ...NACHLAUF_STUFEN,
+            {
+              key: EIGEN,
+              label: eigen && value && !vorgabe ? nachlaufLabel(value) : 'eigene Zeit',
+            },
+          ]}
+          value={eigen ? EIGEN : value}
+          onSelect={(key) => {
+            if (key === EIGEN) {
+              setOffen(true);
+              return;
+            }
+            setOffen(false);
+            onChange(key);
+          }}
+        />
+      </View>
+      {eigen ? (
+        <NumberField
+          value={value ? String(Math.round(Number(value) / 60)) : ''}
+          placeholder="Minuten, z.B. 15"
+          onCommit={(text) => onChange(sekundenWert(text))}
         />
       ) : null}
     </>

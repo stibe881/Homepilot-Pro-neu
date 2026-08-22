@@ -9,7 +9,12 @@ import asyncio
 
 import pytest
 
-from homepilot.core.automation import describe_action, find_conflicts, parse_automations
+from homepilot.core.automation import (
+    PENDING_KEY,
+    describe_action,
+    find_conflicts,
+    parse_automations,
+)
 from homepilot.core.config import ApiConfig, HubConfig
 from homepilot.core.entity import Entity
 from homepilot.core.hub import Hub
@@ -233,3 +238,121 @@ async def test_farbe_schlaegt_weiss_statt_beides_zu_setzen():
         assert gesendet == ["turn_on", "set_color"]
     finally:
         await hub.stop()
+
+
+# ── Nachlauf: wie lange bleibt das Licht an? ───────────────────────────────
+
+
+def test_beschreibung_nennt_den_nachlauf():
+    zeile = describe_action(
+        {"type": "light", "entity_id": "hue.flur", "off_after": 240}
+    )
+    assert zeile == "hue.flur: Licht an, in 4 Min wieder aus"
+
+
+NACHLAUF = {
+    "id": "flurlicht",
+    "alias": "Flurlicht bei Bewegung",
+    "trigger": [{"type": "state", "entity_id": "demo.motion_hall", "to": "on"}],
+    "action": [
+        {
+            "type": "light",
+            "entity_id": "demo.light_livingroom",
+            "brightness": 60,
+            "off_after": 0.05,
+        }
+    ],
+}
+
+
+@pytest.mark.asyncio
+async def test_das_licht_geht_nach_der_nachlaufzeit_von_selbst_aus():
+    hub = await hub_mit([NACHLAUF])
+    try:
+        await hub.integrations.dispatch_command("demo.motion_hall", "turn_on")
+        await settle()
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "on"
+        await asyncio.sleep(0.1)
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "off"
+    finally:
+        await hub.stop()
+
+
+@pytest.mark.asyncio
+async def test_der_ablauf_wartet_nicht_auf_den_nachlauf():
+    # Der Punkt gegenüber «an, warten, aus»: Der nächste Schritt ist sofort
+    # dran, und ein zweiter Auslöser findet den Ablauf nicht beschäftigt.
+    hub = await hub_mit(
+        [
+            {
+                **NACHLAUF,
+                "action": [
+                    NACHLAUF["action"][0],
+                    {
+                        "type": "command",
+                        "entity_id": "demo.switch_coffee",
+                        "command": "turn_on",
+                    },
+                ],
+            }
+        ]
+    )
+    try:
+        await hub.integrations.dispatch_command("demo.motion_hall", "turn_on")
+        await settle()
+        assert hub.registry.get("demo.switch_coffee").state["state"] == "on"
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "on"
+    finally:
+        await hub.stop()
+
+
+@pytest.mark.asyncio
+async def test_neue_bewegung_verlaengert_statt_zweimal_zu_zaehlen():
+    hub = await hub_mit([{**NACHLAUF, "action": [{**NACHLAUF["action"][0], "off_after": 0.15}]}])
+    try:
+        await hub.integrations.dispatch_command("demo.motion_hall", "turn_on")
+        await settle()
+        await asyncio.sleep(0.1)
+        # Jemand ist noch da: Der Melder feuert erneut.
+        await hub.integrations.dispatch_command("demo.motion_hall", "turn_off")
+        await hub.integrations.dispatch_command("demo.motion_hall", "turn_on")
+        await settle()
+        await asyncio.sleep(0.1)
+        # Wäre der erste Zeitgeber stehen geblieben, wäre es jetzt dunkel.
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "on"
+    finally:
+        await hub.stop()
+
+
+@pytest.mark.asyncio
+async def test_wer_selbst_ausschaltet_wird_nicht_ueberstimmt():
+    hub = await hub_mit([{**NACHLAUF, "action": [{**NACHLAUF["action"][0], "off_after": 0.05}]}])
+    try:
+        await hub.integrations.dispatch_command("demo.motion_hall", "turn_on")
+        await settle()
+        await hub.integrations.dispatch_command("demo.light_livingroom", "turn_on")
+        await hub.registry.update_state("demo.light_livingroom", {"brightness": 100})
+        await asyncio.sleep(0.1)
+        # Der Zeitgeber schaltet aus, was noch an ist - mehr nicht.
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "off"
+    finally:
+        await hub.stop()
+
+
+@pytest.mark.asyncio
+async def test_ein_offener_nachlauf_ueberlebt_den_halt():
+    # Sonst bliebe nach jeder Auslieferung irgendwo ein Licht an, bis es
+    # jemand bemerkt.
+    hub = await hub_mit([{**NACHLAUF, "action": [{**NACHLAUF["action"][0], "off_after": 60}]}])
+    await hub.integrations.dispatch_command("demo.motion_hall", "turn_on")
+    await settle()
+    await hub.stop()
+    offen = hub.data.get(PENDING_KEY)
+    eintrag = next(e for e in offen if str(e["automation_id"]).startswith("nachlauf:"))
+    assert eintrag["actions"] == [
+        {
+            "type": "command",
+            "entity_id": "demo.light_livingroom",
+            "command": "turn_off",
+        }
+    ]

@@ -14,7 +14,7 @@ import { PALETTE } from '../../components/ColorRow';
 import { RueckwegBefehl, SceneActionDraft, snapshotAction } from '../../lib/szenen';
 import { Fassung, VersionsSection } from './editor';
 import { WEISSTOENE, vacuumRooms } from './entwurf';
-import { CategoryField, Choice, Field } from './felder';
+import { CategoryField, Choice, Field, NachlaufWahl } from './felder';
 import { makeStyles } from './stil';
 
 export interface SceneDraft {
@@ -487,6 +487,22 @@ export function SceneDevices({
                           />
                         ))}
                       </View>
+                    ) : null}
+                    {/* Und wie lange sie an bleibt. Vorher brauchte das
+                        drei Schritte – an, warten, aus –, und der
+                        Warte-Schritt hielt den ganzen Ablauf auf. */}
+                    {lichtFein && istAnschalten(action!.command) ? (
+                      <>
+                        <Text style={styles.groupLabel}>Wie lange an?</Text>
+                        <NachlaufWahl
+                          value={action!.offAfter ? String(action!.offAfter) : ''}
+                          onChange={(seconds) =>
+                            setField(entity.id, {
+                              offAfter: seconds ? Number(seconds) : undefined,
+                            })
+                          }
+                        />
+                      </>
                     ) : null}
                     {lichtFein && istAnschalten(action!.command) &&
                     entity.commands.includes('set_color_temp') ? (

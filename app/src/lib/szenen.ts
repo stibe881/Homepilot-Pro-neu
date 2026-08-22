@@ -31,6 +31,9 @@ export interface SceneActionDraft {
    *  die Lux des Melders und rechnet die Helligkeit daraus. Nur sinnvoll,
    *  wenn ein Auslöser überhaupt Helligkeit misst. */
   adaptive?: boolean;
+  /** Nachlauf in Sekunden: So lange bleibt die Lampe an, dann schaltet der
+   *  Hub sie von selbst aus. 0 oder fehlend heisst «an lassen». */
+  offAfter?: number;
 }
 
 /**
