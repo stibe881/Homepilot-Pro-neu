@@ -26,7 +26,7 @@ import inspect
 from pathlib import Path
 from typing import Any
 
-from ..core import tokenstore
+from ..core import kartenform, tokenstore
 from ..core.entity import Entity, EntityKind
 from ..core.errors import ConfigError
 from ..core.integration import Integration
@@ -230,6 +230,135 @@ def _point_cls() -> Any:
     except ImportError:  # in Tests ohne Kartenbibliothek
         from types import SimpleNamespace as Point  # type: ignore[assignment]
     return Point
+
+
+# Farben, die zur Karte gehören und zu keinem Zimmer: Boden, Wände,
+# Aussenbereich, gefahrene Wege. Aus der Palette des Karten-Parsers
+# abgeschrieben, weil wir sie beim Zählen überspringen müssen - sonst
+# gewinnt in einem kleinen Zimmer die Wandfarbe.
+NICHT_ZIMMER: frozenset[tuple[int, int, int]] = frozenset(
+    {
+        (32, 115, 185),  # Boden
+        (19, 87, 148),  # ausserhalb
+        (100, 196, 254),  # Wand
+        (93, 109, 126),  # graue Wand
+        (147, 194, 238),  # gefahrener Weg
+        (0xA9, 0xF7, 0xA9),  # Teppich
+        (0, 0, 0),  # Hindernisse, Beschriftung
+        (255, 255, 255),  # Sauger
+    }
+)
+
+# So fein wird ein Zimmer abgetastet. 56 Zellen je Seite treffen die
+# Form auf ein bis zwei Prozent genau und ergeben je Zimmer selten mehr
+# als ein paar Dutzend Rechtecke - fein genug fürs Auge, grob genug für
+# eine Antwort, die über die Leitung geht.
+FORM_RASTER = 56
+# Unter diesem Anteil der Bounding Box gilt die Farbsuche als
+# fehlgeschlagen: Dann ist die Karte anders eingefärbt, als wir denken,
+# und das Rechteck von vorher ist die ehrlichere Auskunft.
+FORM_MINDESTANTEIL = 0.05
+
+
+def _zimmerfarbe(
+    pixel: Any, box_px: tuple[int, int, int, int], proben: int = 64
+) -> tuple[int, int, int] | None:
+    """Die Farbe, die dieses Zimmer im Kartenbild hat (rein bis auf PIL).
+
+    Bewusst nicht aus der Palette gerechnet: Welche Farbe Nummer 7
+    bekommt, entscheidet der Karten-Parser, und er darf sie sich
+    überschreiben lassen. Was wirklich im Bild steht, weiss nur das Bild.
+    In der engen Hülle eines Zimmers ist dessen eigene Farbe die
+    häufigste - alles andere sind Wände am Rand und ein Stück Nachbar in
+    der Ecke.
+
+    Abgetastet statt jeden Pixel gelesen: Für «welche Farbe kommt am
+    häufigsten vor» genügen ein paar tausend Proben. Über jeden Pixel zu
+    gehen kostete bei einer diagonalen Wohnung mit grossen Hüllen eine
+    halbe Sekunde - beim Start, wo der Hub gerade alles andere auch tut.
+    """
+    zaehler: dict[tuple[int, int, int], int] = {}
+    x0, y0, x1, y1 = box_px
+    spalten = max(1, min(proben, x1 - x0))
+    reihen = max(1, min(proben, y1 - y0))
+    schritt_x = (x1 - x0) / spalten
+    schritt_y = (y1 - y0) / reihen
+    for reihe in range(reihen):
+        y = int(y0 + (reihe + 0.5) * schritt_y)
+        for spalte in range(spalten):
+            farbe = pixel[int(x0 + (spalte + 0.5) * schritt_x), y][:3]
+            if farbe in NICHT_ZIMMER:
+                continue
+            zaehler[farbe] = zaehler.get(farbe, 0) + 1
+    if not zaehler:
+        return None
+    return max(zaehler.items(), key=lambda eintrag: eintrag[1])[0]
+
+
+def room_shapes(map_data: Any, boxes: dict[int, list[float]]) -> dict[int, list[list[float]]]:
+    """Je Zimmer seine tatsächliche Form – als Liste von Rechtecken.
+
+    Die Karte kennt je Zimmer nur eine achsenparallele Hülle. Bei einer
+    diagonal geschnittenen Wohnung überlappen sich diese Hüllen kräftig:
+    Ein Tipp auf den Gang liegt in vier davon, und die Auswahl, die
+    danach aufleuchtet, deckt halbe Nachbarzimmer mit ab.
+
+    Die echte Form steht im gerenderten Bild - jedes Zimmer hat dort
+    seine eigene Farbe. Hier werden die Pixel dieser Farbe eingesammelt
+    und zu wenigen Rechtecken zusammengefasst (kartenform.py).
+
+    Schlägt das fehl (kein Bild, keine Farbe, zu wenig getroffen), fehlt
+    das Zimmer im Ergebnis und die App bleibt bei seiner Hülle.
+    """
+    image = getattr(map_data, "image", None)
+    if image is None or getattr(image, "is_empty", True):
+        return {}
+    daten = getattr(image, "data", None)
+    if daten is None:
+        return {}
+    breite, hoehe = daten.size
+    if breite <= 0 or hoehe <= 0:
+        return {}
+    pixel = daten.load()
+
+    formen: dict[int, list[list[float]]] = {}
+    for nummer, box in boxes.items():
+        x0 = max(0, min(breite - 1, int(box[0] * breite)))
+        y0 = max(0, min(hoehe - 1, int(box[1] * hoehe)))
+        x1 = max(x0 + 1, min(breite, int(round(box[2] * breite))))
+        y1 = max(y0 + 1, min(hoehe, int(round(box[3] * hoehe))))
+        farbe = _zimmerfarbe(pixel, (x0, y0, x1, y1))
+        if farbe is None:
+            continue
+
+        # Abtasten statt jeden Pixel: Ein Zimmer, das 300 Pixel breit
+        # ist, braucht keine 300 Spalten in der Antwort.
+        spalten = min(FORM_RASTER, x1 - x0)
+        reihen = min(FORM_RASTER, y1 - y0)
+        schritt_x = (x1 - x0) / spalten
+        schritt_y = (y1 - y0) / reihen
+        maske: list[list[bool]] = []
+        for reihe in range(reihen):
+            y = min(hoehe - 1, int(y0 + (reihe + 0.5) * schritt_y))
+            maske.append(
+                [
+                    pixel[min(breite - 1, int(x0 + (spalte + 0.5) * schritt_x)), y][:3] == farbe
+                    for spalte in range(spalten)
+                ]
+            )
+        rechtecke = kartenform.als_anteile(
+            kartenform.rechtecke_aus_maske(maske),
+            (x0, y0),
+            (schritt_x, schritt_y),
+            (breite, hoehe),
+        )
+        # Zu wenig getroffen heisst: Die Annahme über die Farbe stimmte
+        # nicht. Dann lieber die Hülle als ein paar Krümel.
+        hull = max(1e-6, (box[2] - box[0]) * (box[3] - box[1]))
+        if kartenform.flaeche(rechtecke) / hull < FORM_MINDESTANTEIL:
+            continue
+        formen[int(nummer)] = rechtecke
+    return formen
 
 
 def map_calibration(map_data: Any) -> dict[str, float] | None:
@@ -518,9 +647,15 @@ class RoborockIntegration(Integration):
             if map_trait is not None:
                 await _maybe_await(map_trait.refresh())
                 boxes, size = room_boxes(map_trait.map_data)
+                # Die tatsächliche Form dazu, wo sie sich aus dem Bild
+                # lesen lässt: Damit trifft ein Tipp das Zimmer, auf das
+                # man gezeigt hat, und nicht das mit der kleinsten Hülle.
+                shapes = room_shapes(map_trait.map_data, boxes)
                 for room in rooms:
                     if room["id"] in boxes:
                         room["box"] = boxes[room["id"]]
+                    if room["id"] in shapes:
+                        room["shape"] = shapes[room["id"]]
                 if size:
                     state["map"] = size
                 calibration = map_calibration(map_trait.map_data)

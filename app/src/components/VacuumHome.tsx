@@ -3,6 +3,17 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { CommandData, Entity } from '../api/types';
+import {
+  Box,
+  VacuumRoom,
+  contentBox,
+  inCrop,
+  padBox,
+  robotRoom,
+  roomAt,
+  shapeInCrop,
+  vacuumText,
+} from '../lib/saugerkarte';
 import { Colors, radius, type, useColors } from '../theme';
 
 /** Ein Verschleissteil des Saugers, wie der Hub es meldet. */
@@ -28,93 +39,58 @@ interface WartungsTeil {
  * Zimmer (auch mehrere) oder eine frei aufgezogene Zone.
  */
 
-export interface VacuumRoom {
-  id: number;
-  name: string;
-  /** [x0, y0, x1, y1] als Anteile (0..1) des Kartenbilds. */
-  box?: number[];
-}
+// Das Rechnen wohnt in src/lib/saugerkarte.ts – dort ist es prüfbar.
+// Re-exportiert, weil andere Stellen VacuumRoom von hier importieren.
+export type { VacuumRoom } from '../lib/saugerkarte';
+export { contentBox, padBox, roomAt, robotRoom, vacuumText } from '../lib/saugerkarte';
 
-type Box = [number, number, number, number];
-
-/** «Reinigt · 82 %» – Zustand und Akku in einer Zeile (rein, testbar). */
-export function vacuumText(vacuum: Entity): string {
-  const labels: Record<string, string> = {
-    cleaning: 'Reinigt',
-    returning: 'Fährt zur Station',
-    charging: 'Lädt',
-    charging_complete: 'Geladen',
-    docked: 'An der Station',
-    idle: 'Bereit',
-    paused: 'Pausiert',
-    error: 'Fehler',
-  };
-  const state = labels[String(vacuum.state.state ?? '')] ?? String(vacuum.state.state ?? '–');
-  const battery = vacuum.state.battery;
-  return battery != null ? `${state} · ${battery} %` : state;
-}
-
-/** Umriss aller Räume mit etwas Rand – der Bereich des Bilds, der wirklich
- *  Wohnung zeigt (rein, testbar). */
-export function contentBox(rooms: VacuumRoom[], pad = 0.03): Box | null {
-  const boxes = rooms.map((room) => room.box).filter(Array.isArray) as number[][];
-  if (boxes.length === 0) return null;
-  const x0 = Math.min(...boxes.map((box) => box[0]));
-  const y0 = Math.min(...boxes.map((box) => box[1]));
-  const x1 = Math.max(...boxes.map((box) => box[2]));
-  const y1 = Math.max(...boxes.map((box) => box[3]));
-  return padBox([x0, y0, x1, y1], pad);
-}
-
-export function padBox(box: Box, pad: number): Box {
-  return [
-    Math.max(0, box[0] - pad),
-    Math.max(0, box[1] - pad),
-    Math.min(1, box[2] + pad),
-    Math.min(1, box[3] + pad),
-  ];
-}
-
-/** Welches Zimmer liegt an diesem Punkt? (rein, testbar)
+/**
+ * Ein ausgewähltes Zimmer, seiner tatsächlichen Form nach.
  *
- *  Die Zimmer-Bereiche sind achsenparallele Rechtecke um schief liegende
- *  Räume – sie überlappen sich deshalb kräftig (der Gang einer diagonalen
- *  Wohnung umschliesst als Rechteck halbe Nachbarzimmer). Von allen
- *  Treffern gewinnt darum das kleinste Rechteck: Es beschreibt den Punkt
- *  am genauesten. */
-export function roomAt(rooms: VacuumRoom[], x: number, y: number): VacuumRoom | null {
-  let best: VacuumRoom | null = null;
-  let bestArea = Infinity;
-  for (const room of rooms) {
-    const box = room.box;
-    if (!Array.isArray(box)) continue;
-    if (x < box[0] || x > box[2] || y < box[1] || y > box[3]) continue;
-    const area = (box[2] - box[0]) * (box[3] - box[1]);
-    if (area < bestArea) {
-      best = room;
-      bestArea = area;
-    }
-  }
-  return best;
-}
+ * Bisher lag über der Auswahl ein weisses Rechteck – die Hülle des
+ * Zimmers. Bei einer diagonal geschnittenen Wohnung deckt die halbe
+ * Nachbarräume mit ab, und man wählt scheinbar den halben Flur mit aus.
+ *
+ * Der Hub liefert die Form als Liste von Rechtecken; hier wird jedes zu
+ * einer View. Ein Zimmer sind ein paar Dutzend davon - günstiger als
+ * SVG und ohne dessen Rundungsfehler an den Kanten.
+ *
+ * Das Übermass (`SAUM`) schliesst die Haarlinien, die zwischen zwei
+ * prozentual positionierten Nachbarn sonst durchscheinen. Die Rechtecke
+ * überlappen sich dadurch minimal – bei einer durchscheinenden Füllung
+ * sieht man das nicht, weil sie in *einer* Ebene liegen.
+ */
+const SAUM = 0.004;
 
-/** In welchem Zimmer steht der Sauger? (rein, testbar) */
-export function robotRoom(rooms: VacuumRoom[], robot: number[] | undefined): VacuumRoom | null {
-  if (!Array.isArray(robot) || robot.length !== 2) return null;
-  return roomAt(rooms, robot[0], robot[1]);
-}
-
-/** Eine Fläche vom Bild- in den Ausschnitt-Raum umrechnen (rein). */
-function inCrop(box: number[], crop: Box): Box | null {
-  const width = crop[2] - crop[0];
-  const height = crop[3] - crop[1];
-  if (width <= 0 || height <= 0) return null;
-  const x0 = (box[0] - crop[0]) / width;
-  const y0 = (box[1] - crop[1]) / height;
-  const x1 = (box[2] - crop[0]) / width;
-  const y1 = (box[3] - crop[1]) / height;
-  if (x1 <= 0 || y1 <= 0 || x0 >= 1 || y0 >= 1) return null;
-  return [Math.max(0, x0), Math.max(0, y0), Math.min(1, x1), Math.min(1, y1)];
+function RoomShape({
+  shape,
+  crop,
+  farbe,
+}: {
+  shape: number[][] | undefined;
+  crop: Box;
+  farbe: string;
+}) {
+  const teile = shapeInCrop(shape, crop);
+  if (teile.length === 0) return null;
+  return (
+    <>
+      {teile.map(([x, y, w, h], index) => (
+        <View
+          key={index}
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            left: `${x * 100}%`,
+            top: `${y * 100}%`,
+            width: `${(w + SAUM) * 100}%`,
+            height: `${(h + SAUM) * 100}%`,
+            backgroundColor: farbe,
+          }}
+        />
+      ))}
+    </>
+  );
 }
 
 /**
@@ -515,11 +491,29 @@ function CleanDialog({
                     : undefined
               }
             >
+              {/* Erst die Flächen, dann die Namen: Sonst deckt die
+                  Hervorhebung des einen Zimmers die Beschriftung des
+                  Nachbarn zu. */}
+              {rooms.map((room) => {
+                const active = mode === 'rooms' && selected.includes(room.id);
+                if (!active) return null;
+                return (
+                  <RoomShape
+                    key={`form-${room.id}`}
+                    shape={room.shape}
+                    crop={crop}
+                    farbe="rgba(47,107,246,0.55)"
+                  />
+                );
+              })}
               {rooms.map((room) => {
                 if (!Array.isArray(room.box)) return null;
                 const area = inCrop(room.box, crop);
                 if (!area) return null;
                 const active = mode === 'rooms' && selected.includes(room.id);
+                // Ohne Form bleibt es beim Rahmen um die Hülle – besser
+                // ungenau als unsichtbar.
+                const rahmen = active && !Array.isArray(room.shape);
                 return (
                   <View
                     key={room.id}
@@ -532,10 +526,10 @@ function CleanDialog({
                       height: `${(area[3] - area[1]) * 100}%`,
                       alignItems: 'center',
                       justifyContent: 'center',
-                      borderWidth: active ? 2 : 0,
+                      borderWidth: rahmen ? 2 : 0,
                       borderColor: '#FFFFFF',
                       borderRadius: 6,
-                      backgroundColor: active ? 'rgba(47,107,246,0.45)' : 'transparent',
+                      backgroundColor: rahmen ? 'rgba(47,107,246,0.45)' : 'transparent',
                     }}
                   >
                     <Text numberOfLines={1} style={styles.roomLabel}>
