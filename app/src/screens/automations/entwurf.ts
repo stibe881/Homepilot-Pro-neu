@@ -5,7 +5,7 @@
  */
 
 import { Entity } from '../../api/types';
-import { datumUhr } from '../../lib/format';
+import { datumUhr, dauerText } from '../../lib/format';
 
 /**
  * Die gespeicherte Form eines Ablauf-Bausteins (Auslöser, Bedingung,
@@ -701,6 +701,38 @@ export function delayLabel(seconds: string): string {
   if (value < 60) return `${value} Sekunden`;
   const minutes = Math.round(value / 60);
   return `${minutes} Minute${minutes === 1 ? '' : 'n'}`;
+}
+
+/** Höchste eintippbare Haltedauer: eine Woche.
+ *
+ * Nicht, weil längere unmöglich wären, sondern weil sich «10080» noch
+ * erklären lässt und ein verrutschtes «100000» (69 Tage) nicht. */
+export const MAX_MINUTEN = 7 * 24 * 60;
+
+/** Eine Minutenzahl so, wie man sie ausspricht (rein, testbar).
+ *
+ * «125» liest sich schlechter als «2 h 5 min» – und beim Prüfen der
+ * eigenen Eingabe zählt genau das: ob die Zahl das meint, was man wollte.
+ * Ganze Tage bleiben Tage: «1440 min» wäre richtig und trotzdem
+ * unlesbar. */
+export function minutenLabel(minutes: string | number): string {
+  const value = Math.max(0, Math.round(Number(minutes) || 0));
+  if (value === 0) return 'sofort';
+  if (value % 1440 === 0) {
+    const tage = value / 1440;
+    return `${tage} Tag${tage === 1 ? '' : 'e'}`;
+  }
+  return dauerText(value);
+}
+
+/** Eine eingetippte Haltedauer auf das, was gespeichert wird (rein, testbar).
+ *
+ * Leer, null oder Unsinn heisst «sofort» – das ist die Vorgabe und der
+ * einzige Wert, bei dem das Feld leer bleiben darf. */
+export function minutenWert(text: string): string {
+  const value = Math.round(Number(text) || 0);
+  if (value <= 0) return '';
+  return String(Math.min(MAX_MINUTEN, value));
 }
 
 /** Die Bedingung eines Ablaufs in die gespeicherte Form (rein, testbar). */

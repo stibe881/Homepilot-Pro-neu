@@ -10,7 +10,7 @@ import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Entity } from '../../api/types';
 import { useColors } from '../../theme';
 import { deviceKindIcon, deviceKindLabel } from '../../lib/geraeteart';
-import { NO_CATEGORY } from './entwurf';
+import { NO_CATEGORY, minutenLabel, minutenWert } from './entwurf';
 import { makeStyles } from './stil';
 
 export function CategoryField({
@@ -81,6 +81,78 @@ export function NumberField({
       placeholderTextColor={colors.inkFaint}
       keyboardType="numbers-and-punctuation"
     />
+  );
+}
+
+/** Schlüssel des Knopfs, der das Eingabefeld aufklappt. Kann keine
+ *  Minutenzahl sein und kollidiert darum mit keiner Vorgabe. */
+const EIGEN = 'eigen';
+
+/**
+ * Haltedauer: die üblichen Zeiten als Knöpfe, alles andere zum Eintippen.
+ *
+ * Vorher gab es genau 5, 10 und 30 Minuten. Wer «erst, wenn seit zwei
+ * Stunden niemand da ist» wollte, war damit am Ende – die Zahl stand als
+ * Sekunden in der gespeicherten Form längst frei, nur eintippen liess sie
+ * sich nicht. Wer den Ablauf danach in der App öffnete und speicherte,
+ * verlor seinen Wert sogar an die nächste Vorgabe.
+ *
+ * Ein eingetippter Wert bleibt darum als eigener Knopf stehen und
+ * beschriftet sich selbst: «120» steht als «2 Std.» da, damit man beim
+ * Hinsehen merkt, wenn eine Null zu viel im Feld gelandet ist.
+ */
+export function MinutenWahl({
+  value,
+  options,
+  onChange,
+  placeholder = 'Minuten, z.B. 45',
+}: {
+  /** Minuten als Text; leer heisst «sofort». */
+  value: string;
+  /** Die vorgegebenen Knöpfe, ohne den eigenen. */
+  options: { key: string; label: string }[];
+  onChange: (minutes: string) => void;
+  placeholder?: string;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const vorgabe = options.some((option) => option.key === value);
+  // Ein Wert, den keine Vorgabe trifft, klappt das Feld von selbst auf –
+  // sonst stünde ein gespeichertes «120» da, ohne dass eine Auswahl
+  // markiert wäre.
+  const [offen, setOffen] = useState(!vorgabe && !!value);
+  const eigen = offen || (!vorgabe && !!value);
+
+  return (
+    <>
+      <View style={styles.rowGap}>
+        <Choice
+          options={[
+            ...options,
+            {
+              key: EIGEN,
+              label: eigen && value && !vorgabe ? minutenLabel(value) : 'eigene Zeit',
+            },
+          ]}
+          value={eigen ? EIGEN : value}
+          onSelect={(key) => {
+            if (key === EIGEN) {
+              setOffen(true);
+              return;
+            }
+            setOffen(false);
+            onChange(key);
+          }}
+        />
+      </View>
+      {eigen ? (
+        <NumberField
+          value={value}
+          placeholder={placeholder}
+          onCommit={(text) => onChange(minutenWert(text))}
+        />
+      ) : null}
+    </>
   );
 }
 

@@ -8,6 +8,8 @@ import {
   actionsToSteps,
   toDraft,
   triggerFromConfig,
+  minutenLabel,
+  minutenWert,
   triggerIcon,
   triggerToConfig,
   zeitpunktLabel,
@@ -207,5 +209,42 @@ describe('zeitpunktLabel (Punkte 159/161)', () => {
     expect(zeitpunktLabel(heute, jetzt)).toBe('heute 21:12');
     expect(zeitpunktLabel(morgen, jetzt)).toBe('morgen 06:00');
     expect(zeitpunktLabel(montag, jetzt)).toBe('Mo 09:05');
+  });
+});
+
+describe('eigene Haltedauer', () => {
+  it('schreibt die eingetippten Minuten aus', () => {
+    expect(minutenLabel('45')).toBe('45 min');
+    expect(minutenLabel('125')).toBe('2 h 5 min');
+    expect(minutenLabel('120')).toBe('2 h');
+  });
+
+  it('nennt ganze Tage Tage – «1440 min» wäre richtig und unlesbar', () => {
+    expect(minutenLabel('1440')).toBe('1 Tag');
+    expect(minutenLabel('2880')).toBe('2 Tage');
+  });
+
+  it('nennt die leere Angabe «sofort»', () => {
+    expect(minutenLabel('')).toBe('sofort');
+    expect(minutenLabel('0')).toBe('sofort');
+  });
+
+  it('macht aus Unsinn und Null wieder «sofort»', () => {
+    expect(minutenWert('')).toBe('');
+    expect(minutenWert('abc')).toBe('');
+    expect(minutenWert('-5')).toBe('');
+  });
+
+  it('rundet und deckelt bei einer Woche', () => {
+    expect(minutenWert('45.6')).toBe('46');
+    // Ein verrutschtes «100000» wären 69 Tage.
+    expect(minutenWert('100000')).toBe('10080');
+  });
+
+  it('trägt die eigene Zahl durch die gespeicherte Form und zurück', () => {
+    const trigger = { ...EMPTY_TRIGGER, kind: 'state' as const, entityId: 'demo.x', forMinutes: '125' };
+    const config = triggerToConfig(trigger);
+    expect(config.for).toBe(125 * 60);
+    expect(triggerFromConfig(config).forMinutes).toBe('125');
   });
 });

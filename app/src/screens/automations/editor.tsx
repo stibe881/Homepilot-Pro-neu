@@ -12,7 +12,15 @@ import { Colors, useColors } from '../../theme';
 import { ablaufSatz } from '../../lib/ablaufsatz';
 import { datumUhr } from '../../lib/format';
 import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, hatWartezeit, measurableAttributes, newTrigger, optionKey, stateOptions, stepsToActions, triggerToConfig, weekdayLabel } from './entwurf';
-import { CategoryField, Choice, EntityPicker, Field, NumberField, Picker } from './felder';
+import {
+  CategoryField,
+  Choice,
+  EntityPicker,
+  Field,
+  MinutenWahl,
+  NumberField,
+  Picker,
+} from './felder';
 import { makeStyles } from './stil';
 import { SceneDevices } from './szenen-editor';
 
@@ -951,18 +959,17 @@ export function TriggerRow({
               wechselt.
             </Text>
           ) : null}
-          <View style={styles.rowGap}>
-            <Choice
-              options={[
-                { key: '', label: 'sofort' },
-                { key: '5', label: 'bleibt 5 Min. so' },
-                { key: '10', label: 'bleibt 10 Min. so' },
-                { key: '30', label: 'bleibt 30 Min. so' },
-              ]}
-              value={trigger.forMinutes}
-              onSelect={(forMinutes) => onChange({ forMinutes })}
-            />
-          </View>
+          <MinutenWahl
+            options={[
+              { key: '', label: 'sofort' },
+              { key: '5', label: 'bleibt 5 Min. so' },
+              { key: '10', label: 'bleibt 10 Min. so' },
+              { key: '30', label: 'bleibt 30 Min. so' },
+            ]}
+            value={trigger.forMinutes}
+            onChange={(forMinutes) => onChange({ forMinutes })}
+            placeholder="Minuten, z.B. 45"
+          />
           {trigger.forMinutes ? (
             <Text style={styles.triggerNote}>
               Löst erst aus, wenn der Zustand {trigger.forMinutes} Minuten
@@ -988,18 +995,17 @@ export function TriggerRow({
               onChange({ availabilityTo: availabilityTo as TriggerDraft['availabilityTo'] })
             }
           />
-          <View style={styles.rowGap}>
-            <Choice
-              options={[
-                { key: '', label: 'sofort' },
-                { key: '10', label: 'seit 10 Min.' },
-                { key: '60', label: 'seit 1 Std.' },
-                { key: '1440', label: 'seit 1 Tag' },
-              ]}
-              value={trigger.forMinutes}
-              onSelect={(forMinutes) => onChange({ forMinutes })}
-            />
-          </View>
+          <MinutenWahl
+            options={[
+              { key: '', label: 'sofort' },
+              { key: '10', label: 'seit 10 Min.' },
+              { key: '60', label: 'seit 1 Std.' },
+              { key: '1440', label: 'seit 1 Tag' },
+            ]}
+            value={trigger.forMinutes}
+            onChange={(forMinutes) => onChange({ forMinutes })}
+            placeholder="Minuten, z.B. 180"
+          />
           <Text style={styles.triggerNote}>
             Löst aus, wenn das Gerät {trigger.availabilityTo === 'weg'
               ? 'nicht mehr antwortet'
@@ -1028,18 +1034,17 @@ export function TriggerRow({
             Kurzbefehle-App («Wenn ich ankomme» → Inhalte von URL abrufen).
             Steht in docs/geofence.md.
           </Text>
-          <View style={styles.rowGap}>
-            <Choice
-              options={[
-                { key: '', label: 'sofort' },
-                { key: '5', label: 'bleibt 5 Min. so' },
-                { key: '10', label: 'bleibt 10 Min. so' },
-                { key: '30', label: 'bleibt 30 Min. so' },
-              ]}
-              value={trigger.forMinutes}
-              onSelect={(forMinutes) => onChange({ forMinutes })}
-            />
-          </View>
+          <MinutenWahl
+            options={[
+              { key: '', label: 'sofort' },
+              { key: '5', label: 'bleibt 5 Min. so' },
+              { key: '10', label: 'bleibt 10 Min. so' },
+              { key: '30', label: 'bleibt 30 Min. so' },
+            ]}
+            value={trigger.forMinutes}
+            onChange={(forMinutes) => onChange({ forMinutes })}
+            placeholder="Minuten, z.B. 45"
+          />
           {trigger.forMinutes ? (
             <Text style={styles.triggerNote}>
               Löst erst aus, wenn der Zustand {trigger.forMinutes} Minuten
@@ -1088,18 +1093,17 @@ export function TriggerRow({
             Tumbler ist fertig, wenn die Leistung von über 5 W auf unter 5 W
             fällt – nicht jedes Mal, wenn 2.1 W zu 2.0 W wird.
           </Text>
-          <View style={styles.rowGap}>
-            <Choice
-              options={[
-                { key: '', label: 'sofort' },
-                { key: '5', label: 'bleibt 5 Min. so' },
-                { key: '10', label: 'bleibt 10 Min. so' },
-                { key: '30', label: 'bleibt 30 Min. so' },
-              ]}
-              value={trigger.forMinutes}
-              onSelect={(forMinutes) => onChange({ forMinutes })}
-            />
-          </View>
+          <MinutenWahl
+            options={[
+              { key: '', label: 'sofort' },
+              { key: '5', label: 'bleibt 5 Min. so' },
+              { key: '10', label: 'bleibt 10 Min. so' },
+              { key: '30', label: 'bleibt 30 Min. so' },
+            ]}
+            value={trigger.forMinutes}
+            onChange={(forMinutes) => onChange({ forMinutes })}
+            placeholder="Minuten, z.B. 45"
+          />
           {trigger.forMinutes ? (
             <Text style={styles.triggerNote}>
               Löst erst aus, wenn der Zustand {trigger.forMinutes} Minuten
