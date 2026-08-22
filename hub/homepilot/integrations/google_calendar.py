@@ -10,6 +10,8 @@ Konfiguration:
       - primary
       - addressbook#contacts@group.v.calendar.google.com
     scan_interval: 300
+    # Wie viele Minuten vor einem Termin eine Nachricht kommt (0 = keine).
+    remind_minutes: 15
 
 Einmalige Einrichtung (~10 Minuten):
   1. console.cloud.google.com → Projekt anlegen → «Google Calendar API»
@@ -85,6 +87,72 @@ def build_event(
     }
 
 
+def month_window(year: int, month: int) -> tuple[str, str]:
+    """Anfang und Ende eines Monats als RFC-3339 (rein, testbar).
+
+    Grosszügig gerechnet - eine Woche davor und danach -, weil die
+    Monatsansicht die angeschnittenen Wochen mit anzeigt. Ohne diese
+    Ränder blieben in der ersten und letzten Zeile Termine unsichtbar,
+    die auf dem Bildschirm sehr wohl zu sehen sind.
+    """
+    from datetime import timedelta
+
+    erster = datetime(year, month, 1, tzinfo=timezone.utc)
+    naechster = datetime(
+        year + (1 if month == 12 else 0),
+        1 if month == 12 else month + 1,
+        1,
+        tzinfo=timezone.utc,
+    )
+    von = erster - timedelta(days=7)
+    bis = naechster + timedelta(days=7)
+    return (
+        von.isoformat().replace("+00:00", "Z"),
+        bis.isoformat().replace("+00:00", "Z"),
+    )
+
+
+def due_reminders(
+    events: list[dict[str, Any]],
+    now: datetime,
+    minutes: int,
+    schon_erinnert: set[str],
+) -> list[dict[str, Any]]:
+    """Für welche Termine jetzt eine Erinnerung fällig ist (rein, testbar).
+
+    Ganztägige Termine bleiben aussen vor: «Ferien beginnen» eine
+    Viertelstunde vorher zu melden, hilft niemandem - und um Mitternacht
+    schon gar nicht.
+
+    Erinnert wird nur einmal je Termin. Ohne dieses Gedächtnis käme bei
+    jeder Abfrage eine neue Nachricht, bis der Termin beginnt.
+    """
+    from datetime import timedelta
+
+    if minutes <= 0:
+        return []
+    faellig = []
+    grenze = now + timedelta(minutes=minutes)
+    for event in events:
+        if event.get("all_day") or event.get("birthday"):
+            continue
+        kennung = str(event.get("id") or event.get("start") or "")
+        if not kennung or kennung in schon_erinnert:
+            continue
+        roh = event.get("start")
+        if not roh:
+            continue
+        try:
+            beginn = datetime.fromisoformat(str(roh).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if beginn.tzinfo is None:
+            beginn = beginn.replace(tzinfo=timezone.utc)
+        if now <= beginn <= grenze:
+            faellig.append(event)
+    return faellig
+
+
 def is_birthday_calendar(calendar_id: str) -> bool:
     """Googles Geburtstags-Kalender (aus den Kontakten) erkennen."""
     return "#contacts" in calendar_id or "birthday" in calendar_id.lower()
@@ -122,6 +190,11 @@ def parse_events(items: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
                 pass
         upcoming.append(
             {
+                # Kennung und Herkunft: Ohne beide lässt sich ein Termin
+                # weder ändern noch löschen - Google verlangt zu jeder
+                # Kennung den Kalender, in dem sie gilt.
+                "id": event.get("id"),
+                "calendar": event.get("_calendar"),
                 "summary": event.get("summary") or "(ohne Titel)",
                 "start": start,
                 "end": end,
@@ -171,10 +244,13 @@ class GoogleCalendarIntegration(Integration):
             "next",
             EntityKind.CALENDAR,
             self.config.get("name", "Kalender"),
-            state={"state": "frei", "events": []},
-            commands=["create_event"],
+            state={"state": "frei", "events": [], "calendars": self._calendar_ids},
+            commands=["create_event", "update_event", "delete_event"],
             available=False,
         )
+        # Wie lange vor einem Termin gemeldet wird. 0 schaltet es ab.
+        self._remind = int(self.config.get("remind_minutes", 0))
+        self._reminded: set[str] = set()
         await self._refresh()
         self.start_task(self._poll_loop())
 
@@ -221,7 +297,7 @@ class GoogleCalendarIntegration(Integration):
                 url = (
                     f"{API}/calendars/{quote(calendar_id)}/events"
                     f"?timeMin={now.isoformat().replace('+00:00', 'Z')}"
-                    "&maxResults=10&singleEvents=true&orderBy=startTime"
+                    "&maxResults=25&singleEvents=true&orderBy=startTime"
                 )
                 async with self._session.get(
                     url, headers={"Authorization": f"Bearer {token}"}
@@ -235,6 +311,7 @@ class GoogleCalendarIntegration(Integration):
                     payload = await response.json()
                 birthday = is_birthday_calendar(calendar_id)
                 for item in payload.get("items", []):
+                    item["_calendar"] = calendar_id
                     if birthday:
                         item["_birthday"] = True
                     merged.append(item)
@@ -243,37 +320,156 @@ class GoogleCalendarIntegration(Integration):
             await self.hub.registry.update_state(entity_id, {}, available=False)
             return
 
-        await self.hub.registry.update_state(
-            entity_id, parse_events(merged, now), available=True
-        )
+        zustand = parse_events(merged, now)
+        await self.hub.registry.update_state(entity_id, zustand, available=True)
+        await self._remind_soon(zustand.get("events") or [], now)
+
+    async def _remind_soon(self, events: list[dict[str, Any]], now: datetime) -> None:
+        """Kurz vor dem Termin Bescheid geben.
+
+        Der Hub kennt die Termine ohnehin - eine Erinnerung daraus kostet
+        nichts als diese paar Zeilen, und sie erreicht auch das Telefon,
+        auf dem niemand den Kalender eingerichtet hat.
+        """
+        faellig = due_reminders(events, now, self._remind, self._reminded)
+        if not faellig:
+            return
+        for event in faellig:
+            self._reminded.add(str(event.get("id") or event.get("start")))
+        # Das Gedächtnis nicht wachsen lassen: Was nicht mehr in der
+        # Terminliste steht, ist vorbei und darf vergessen werden.
+        aktuell = {str(e.get("id") or e.get("start")) for e in events}
+        self._reminded &= aktuell
+        try:
+            tokens = self.hub.push.recipients(self.hub.users.users, category="calendar")
+            if not tokens:
+                return
+            for event in faellig:
+                wann = str(event.get("start") or "")[11:16]
+                ort = event.get("location")
+                await self.hub.push.send(
+                    tokens,
+                    "Gleich ein Termin",
+                    f"{event.get('summary')} um {wann}"
+                    + (f" – {ort}" if ort else ""),
+                    data={"kind": "calendar"},
+                )
+        except Exception as err:  # eine Nachricht ist kein Grund zu scheitern
+            self.log.warning("Termin-Erinnerung fehlgeschlagen: %s", err)
+
+    async def events_between(self, von: str, bis: str) -> list[dict[str, Any]]:
+        """Termine eines Zeitraums – für die Monatsansicht.
+
+        Der Zustand der Entität trägt nur die nächsten zwölf Termine; das
+        ist für eine Kachel richtig und für ein Monatsraster zu wenig. Wer
+        einen Monat zurückblättert, sah dort bisher ein leeres Raster und
+        musste glauben, es sei nichts gewesen.
+        """
+        token = await self._ensure_token()
+        merged: list[dict[str, Any]] = []
+        for calendar_id in self._calendar_ids:
+            url = (
+                f"{API}/calendars/{quote(calendar_id)}/events"
+                f"?timeMin={quote(von)}&timeMax={quote(bis)}"
+                "&maxResults=250&singleEvents=true&orderBy=startTime"
+            )
+            async with self._session.get(
+                url, headers={"Authorization": f"Bearer {token}"}
+            ) as response:
+                if response.status == 404:
+                    continue
+                response.raise_for_status()
+                payload = await response.json()
+            birthday = is_birthday_calendar(calendar_id)
+            for item in payload.get("items", []):
+                item["_calendar"] = calendar_id
+                if birthday:
+                    item["_birthday"] = True
+                merged.append(item)
+        # Dieselbe Übersetzung wie sonst, aber ohne den Filter «nur was
+        # noch kommt» - ein Rückblick ist hier ja der Zweck.
+        umgesetzt = []
+        for event in merged:
+            start, end, all_day = _event_bounds(event)
+            umgesetzt.append(
+                {
+                    "id": event.get("id"),
+                    "calendar": event.get("_calendar"),
+                    "summary": event.get("summary") or "(ohne Titel)",
+                    "start": start,
+                    "end": end,
+                    "all_day": all_day,
+                    "location": event.get("location"),
+                    "birthday": bool(event.get("_birthday")),
+                }
+            )
+        umgesetzt.sort(key=lambda event: event.get("start") or "")
+        return umgesetzt
 
 
     async def handle_command(self, entity: Any, command: str, data: dict[str, Any]) -> None:
-        if command != "create_event":
-            raise ConfigError(f"Kalender kennt das Kommando '{command}' nicht")
-        body = build_event(
-            str(data.get("summary", "")),
-            str(data.get("date", "")),
-            str(data.get("time", "")),
-            int(data.get("duration", 60)),
-        )
         token = await self._ensure_token()
-        # Immer in den Hauptkalender – Geburtstags- u.ä. Kalender sind
-        # von Google verwaltet und nicht beschreibbar.
-        target = next(
-            (c for c in self._calendar_ids if not is_birthday_calendar(c)), "primary"
-        )
-        async with self._session.post(
-            f"{API}/calendars/{quote(target)}/events",
-            headers={"Authorization": f"Bearer {token}"},
-            json=body,
-        ) as response:
-            if response.status >= 400:
-                detail = await response.text()
-                raise ConnectionError(
-                    f"Termin konnte nicht angelegt werden ({response.status}): {detail[:200]}"
+        kopf = {"Authorization": f"Bearer {token}"}
+
+        if command == "create_event":
+            body = build_event(
+                str(data.get("summary", "")),
+                str(data.get("date", "")),
+                str(data.get("time", "")),
+                int(data.get("duration", 60)),
+            )
+            # Immer in den Hauptkalender – Geburtstags- u.ä. Kalender sind
+            # von Google verwaltet und nicht beschreibbar.
+            target = next(
+                (c for c in self._calendar_ids if not is_birthday_calendar(c)), "primary"
+            )
+            async with self._session.post(
+                f"{API}/calendars/{quote(target)}/events", headers=kopf, json=body
+            ) as response:
+                await self._raise_for(response, "angelegt")
+
+        elif command in ("update_event", "delete_event"):
+            event_id = str(data.get("id") or "").strip()
+            if not event_id:
+                raise ConfigError("Dazu fehlt die Kennung des Termins")
+            # Der Kalender gehört zur Kennung: Dieselbe Kennung in einem
+            # anderen Kalender gibt es schlicht nicht.
+            calendar_id = str(data.get("calendar") or "").strip() or next(
+                (c for c in self._calendar_ids if not is_birthday_calendar(c)), "primary"
+            )
+            if is_birthday_calendar(calendar_id):
+                raise ConfigError(
+                    "Geburtstage kommen aus den Google-Kontakten und lassen "
+                    "sich hier nicht ändern"
                 )
+            ziel = f"{API}/calendars/{quote(calendar_id)}/events/{quote(event_id)}"
+            if command == "delete_event":
+                async with self._session.delete(ziel, headers=kopf) as response:
+                    await self._raise_for(response, "gelöscht")
+            else:
+                body = build_event(
+                    str(data.get("summary", "")),
+                    str(data.get("date", "")),
+                    str(data.get("time", "")),
+                    int(data.get("duration", 60)),
+                )
+                async with self._session.put(
+                    ziel, headers=kopf, json=body
+                ) as response:
+                    await self._raise_for(response, "geändert")
+        else:
+            raise ConfigError(f"Kalender kennt das Kommando '{command}' nicht")
+
         await self._refresh()
+
+    @staticmethod
+    async def _raise_for(response: Any, was: str) -> None:
+        if response.status < 400:
+            return
+        detail = await response.text()
+        raise ConnectionError(
+            f"Termin konnte nicht {was} werden ({response.status}): {detail[:200]}"
+        )
 
 
 INTEGRATION = GoogleCalendarIntegration

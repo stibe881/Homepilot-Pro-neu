@@ -27,7 +27,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from . import energy, maintenance, notifyrules, shopping
+from . import energy, familie, maintenance, notifyrules, shopping
 
 # Die reinen Regeln wohnen in watchrules.py; hier bleiben Takt und
 # Gedächtnis. Die Namen werden re-exportiert - Server und Tests
@@ -96,6 +96,10 @@ class Watchdog:
         # Je Ladenzone der Zeitpunkt des Betretens, für den schon erinnert
         # wurde. Beim nächsten Besuch ist der ein anderer.
         self._shop_reminded: dict[str, Any] = {}
+        # Je Tag und Gabe einmal erinnern, nicht jede Minute.
+        self._med_reminded: set[str] = set()
+        self._birthday_day: str | None = None
+        self._emergency_day: str | None = None
         self._frost_day: str | None = None
         # Wann zuletzt vor knappem Speicherplatz gewarnt wurde.
         self._disk_warned: float = 0.0
@@ -190,6 +194,9 @@ class Watchdog:
         await self._check_frost(entities)
         await self._check_maintenance()
         await self._check_shopping(entities)
+        await self._check_medications()
+        await self._check_birthdays()
+        await self._check_emergency()
         down = down_integrations(entities)
 
         # Strikes hochzählen bzw. zurücksetzen.
@@ -307,6 +314,97 @@ class Watchdog:
             self._shop_reminded[zone] = stand.get("changed_at")
             titel, text = shopping.describe(shop, offen)
             await self._notify(titel, text, category="shopping")
+
+    async def _check_medications(self) -> None:
+        """An die fällige Gabe erinnern – an die zuständige Person.
+
+        Antibiotika sind meist dreimal täglich, und die Abendgabe ist die,
+        die untergeht. Erinnert wird je Tag und Tageszeit genau einmal:
+        Eine Nachricht, die im Minutentakt wiederkommt, schaltet man ab -
+        und dann fehlt sie an dem Abend, an dem es darauf ankommt.
+        """
+        meds = self.hub.data.get("family_medications")
+        if not meds:
+            return
+        jetzt = datetime.now()
+        tag = jetzt.strftime("%Y-%m-%d")
+        for med, offen in familie.due_medications(meds, tag, jetzt.hour):
+            for slot in offen:
+                marke = f"{med.get('id')}:{tag}:{slot}"
+                if marke in self._med_reminded:
+                    continue
+                self._med_reminded.add(marke)
+                await self._notify(
+                    "Medikament fällig",
+                    familie.describe(med, [slot]),
+                    category="medication",
+                    to=str(med.get("member") or "").strip() or None,
+                )
+        # Das Gedächtnis nicht wachsen lassen - was von gestern ist, ist
+        # vorbei.
+        self._med_reminded = {
+            marke for marke in self._med_reminded if f":{tag}:" in marke
+        }
+
+    async def _check_birthdays(self) -> None:
+        """Am Morgen daran erinnern, wer heute Geburtstag hat.
+
+        Die Daten liegen in den Kontakten; sich die Liste anzusehen musste
+        man bisher selbst daran denken - und genau das vergisst man.
+        """
+        jetzt = datetime.now()
+        if jetzt.hour != 8:
+            return
+        heute = jetzt.strftime("%Y-%m-%d")
+        if self._birthday_day == heute:
+            return
+        self._birthday_day = heute
+        namen = [
+            str(contact.get("text") or "").strip()
+            for contact in familie.birthdays_on(
+                self.hub.data.get("family_contacts"), jetzt.date()
+            )
+        ]
+        namen = [name for name in namen if name]
+        if not namen:
+            return
+        await self._notify(
+            "Geburtstag heute",
+            ", ".join(namen) + (" hat" if len(namen) == 1 else " haben") + " heute Geburtstag.",
+            category="birthday",
+        )
+
+    async def _check_emergency(self) -> None:
+        """Einmal im Jahr daran erinnern, das Notfallblatt anzusehen.
+
+        Ein Blatt von vorletztem Jahr ist gefährlicher als keines: Man
+        verlässt sich darauf, und die Nummer der Kinderärztin stimmt nicht
+        mehr. Nur wenn überhaupt etwas darauf steht - ein leeres Blatt
+        anzumahnen wäre Lärm.
+        """
+        eintraege = self.hub.data.get("family_emergency")
+        if not eintraege:
+            return
+        jetzt = datetime.now()
+        if jetzt.hour != 9:
+            return
+        heute = jetzt.strftime("%Y-%m-%d")
+        if self._emergency_day == heute:
+            return
+        self._emergency_day = heute
+        geprueft = None
+        for eintrag in eintraege:
+            if isinstance(eintrag, dict) and eintrag.get("checked"):
+                neuer = str(eintrag["checked"])
+                geprueft = max(geprueft, neuer) if geprueft else neuer
+        if not familie.emergency_stale(geprueft, jetzt.date()):
+            return
+        await self._notify(
+            "Notfallblatt prüfen",
+            "Seit über einem Jahr nicht mehr angesehen. Stimmen Nummern, "
+            "Allergien und Versicherung noch?",
+            category="maintenance",
+        )
 
     async def _check_disk(self) -> None:
         """Speicherplatz dort prüfen, wo der Hub wirklich schreibt."""
@@ -545,7 +643,15 @@ class Watchdog:
                 entry["ended"] = time.time()
                 break
 
-    async def _notify(self, title: str, body: str, category: str = "outage") -> None:
+    async def _notify(
+        self,
+        title: str,
+        body: str,
+        category: str = "outage",
+        to: str | None = None,
+    ) -> None:
+        """`to` schickt an eine Person statt an alle - eine Gabe für Lina
+        geht die anderen nichts an."""
         rule = self.rules.get(category)
         if rule is not None and not rule["enabled"]:
             # Abgeschaltet heisst: keine Push an niemanden. Geprüft wird
@@ -555,7 +661,9 @@ class Watchdog:
             return
         log.warning("%s – %s", title, body)
         try:
-            tokens = self.hub.push.recipients(self.hub.users.users, "all", category)
+            tokens = self.hub.push.recipients(
+                self.hub.users.users, to or "all", category
+            )
             await self.hub.push.send(tokens, title=title, body=body)
         except Exception:
             log.exception("Wächter-Push nicht zustellbar")

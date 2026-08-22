@@ -1380,3 +1380,68 @@ def test_push_devices_survive_a_restart():
     # nächsten Start wieder.
     service.unregister("ExponentPushToken[abc]")
     assert len(gespeichert[-1]) == 1
+
+
+def test_calendar_month_window_reaches_into_the_neighbouring_weeks():
+    """Die Monatsansicht zeigt die angeschnittenen Wochen mit.
+
+    Ohne die Ränder blieben in der ersten und letzten Zeile Termine
+    unsichtbar, die auf dem Bildschirm sehr wohl zu sehen sind.
+    """
+    from homepilot.integrations.google_calendar import month_window
+
+    von, bis = month_window(2026, 3)
+    assert von.startswith("2026-02-22")
+    assert bis.startswith("2026-04-08")
+    # Jahreswechsel darf nicht ins Leere laufen.
+    von, bis = month_window(2026, 12)
+    assert von.startswith("2026-11-24")
+    assert bis.startswith("2027-01-08")
+
+
+def test_calendar_reminders_are_due_once_and_skip_all_day():
+    """«Ferien beginnen» eine Viertelstunde vorher zu melden hilft niemandem."""
+    from datetime import datetime, timezone
+
+    from homepilot.integrations.google_calendar import due_reminders
+
+    jetzt = datetime(2026, 8, 21, 9, 0, tzinfo=timezone.utc)
+    events = [
+        {"id": "a", "summary": "Zahnarzt", "start": "2026-08-21T09:10:00+00:00"},
+        {"id": "b", "summary": "Später", "start": "2026-08-21T11:00:00+00:00"},
+        {"id": "c", "summary": "Ferien", "start": "2026-08-21T09:05:00+00:00", "all_day": True},
+        {"id": "d", "summary": "Lina", "start": "2026-08-21T09:05:00+00:00", "birthday": True},
+        {"id": "e", "summary": "Vorbei", "start": "2026-08-21T08:00:00+00:00"},
+    ]
+    faellig = due_reminders(events, jetzt, 15, set())
+    assert [event["id"] for event in faellig] == ["a"]
+
+    # Einmal erinnert ist erinnert - sonst käme bei jeder Abfrage eine neue.
+    assert due_reminders(events, jetzt, 15, {"a"}) == []
+    # Abgeschaltet heisst abgeschaltet.
+    assert due_reminders(events, jetzt, 0, set()) == []
+
+
+def test_calendar_events_carry_their_id_and_origin():
+    """Ohne beides lässt sich ein Termin weder ändern noch löschen."""
+    from datetime import datetime, timezone
+
+    from homepilot.integrations.google_calendar import parse_events
+
+    zustand = parse_events(
+        [
+            {
+                "id": "abc123",
+                "_calendar": "primary",
+                "summary": "Elternabend",
+                "location": "Schulhaus Zell",
+                "start": {"dateTime": "2026-08-22T19:00:00+00:00"},
+                "end": {"dateTime": "2026-08-22T21:00:00+00:00"},
+            }
+        ],
+        datetime(2026, 8, 21, tzinfo=timezone.utc),
+    )
+    event = zustand["events"][0]
+    assert event["id"] == "abc123"
+    assert event["calendar"] == "primary"
+    assert event["location"] == "Schulhaus Zell"
