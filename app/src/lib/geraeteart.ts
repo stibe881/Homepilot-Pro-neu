@@ -197,6 +197,20 @@ export function istMusikbox(entity: Entity): boolean {
   return entity.kind === 'media_player' && !isTelevision(entity);
 }
 
+/** Die Musikboxen eines Raums (rein, testbar).
+ *
+ * Für die Spalte rechts: Steht man im Wohnzimmer, gehört dorthin die Box
+ * des Wohnzimmers – auch wenn oben in der Spalte gerade die Küchenbox
+ * läuft. Ohne Raum («Alle») gibt es keine solche Box, dann bleibt die
+ * Liste leer. */
+export function musikboxenImRaum(
+  entities: Entity[],
+  room: string | null | undefined
+): Entity[] {
+  if (!room) return [];
+  return entities.filter((entity) => istMusikbox(entity) && entity.room === room);
+}
+
 /** Welcher Player gehört auf die Startseite? (rein, testbar)
  *
  * Spielt irgendwo Musik, ist es dieser; sonst Spotify mit Playlists und
