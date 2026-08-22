@@ -74,6 +74,9 @@ from .tuya_logic import (  # noqa: F401
     REFRESH_SECONDS,
     brightness_range,
     check_address,
+    check_key,
+    cloud_report,
+    cloud_raw_hint,
     decode_color,
     dps_map,
     encode_color,
@@ -134,12 +137,16 @@ class TuyaIntegration(Integration):
 
     async def _add_device(self, block: dict[str, Any]) -> None:
         geraete_id = str(block.get("id") or "").strip()
-        key = str(block.get("key") or "").strip()
-        if not geraete_id or not key:
+        if not geraete_id:
             raise ConfigError(
-                "tuya: jedes Gerät braucht 'id' und 'key' – die holt "
+                "tuya: jedes Gerät braucht eine 'id' – die holt "
                 "'python -m homepilot.integrations.tuya --cloud'"
             )
+        # Erst prüfen, dann anlegen: Ein Schlüssel falscher Länge wird von
+        # tinytuya abgewiesen, noch bevor es das Gerät anspricht - mit
+        # derselben Fehlernummer wie eine falsche Protokollfassung. Wer
+        # das nicht weiss, sucht danach an der falschen Stelle.
+        key = check_key(block.get("key"))
         name = str(block.get("name") or geraete_id)
         check_address(block.get("ip"))
         kind = EntityKind.SWITCH if block.get("kind") == "switch" else EntityKind.LIGHT
@@ -459,6 +466,26 @@ def _scan(seconds: int) -> int:
     return 0
 
 
+def roh_antwort(wolke: Any) -> str:
+    """Die Wolke direkt fragen und die Antwort deuten.
+
+    Der Endpunkt ist derselbe, den tinytuya benutzt – nur ohne dessen
+    Aufbereitung, die den Fehlergrund gerade dann verliert, wenn man ihn
+    braucht.
+    """
+    pfad = "/v1.0/iot-01/associated-users/devices"
+    try:
+        antwort = wolke.cloudrequest(pfad)
+    except AttributeError:
+        return (
+            "Diese tinytuya-Fassung kann den Endpunkt nicht direkt "
+            "abfragen – ohne Rohantwort bleibt nur die Liste oben."
+        )
+    except Exception as fehler:  # noqa: BLE001 - reine Diagnose
+        return f"Der Aufruf {pfad} ist gescheitert: {fehler}"
+    return cloud_raw_hint(antwort)
+
+
 def _cloud() -> int:
     import getpass
 
@@ -481,23 +508,16 @@ def _cloud() -> int:
         print(f"✗ Tuya antwortet: {geraete}")
         return 1
 
-    print("\n# Fertig zum Einfügen in die config.yaml:\n")
-    print("  - integration: tuya")
-    print("    devices:")
-    for geraet in geraete:
-        schluessel = geraet.get("key") or ""
-        print(f"      - name: {geraet.get('name') or geraet.get('id')}")
-        print(f"        id: {geraet.get('id')}")
-        print(f"        key: \"{schluessel}\"")
-        if geraet.get("ip"):
-            print(f"        ip: {geraet['ip']}")
-        if geraet.get("version"):
-            print(f"        version: {geraet['version']}")
-    print(
-        "\nDie Schlüssel sind Geheimnisse – sie gehören in die config.yaml\n"
-        "auf dem Hub, nicht in ein Repository."
-    )
-    return 0
+    print()
+    print(cloud_report(geraete))
+    if not geraete:
+        # tinytuya schluckt bei einer leeren Liste, warum sie leer ist:
+        # «kein Konto verknüpft» und «IoT Core nicht freigeschaltet»
+        # sehen von aussen gleich aus, brauchen aber verschiedene
+        # Handgriffe. Die Rohantwort unterscheidet die beiden.
+        print()
+        print(roh_antwort(wolke))
+    return 0 if geraete else 1
 
 
 def _geraete_aus_config(config_path: str, gesucht: str) -> list[dict[str, Any]]:

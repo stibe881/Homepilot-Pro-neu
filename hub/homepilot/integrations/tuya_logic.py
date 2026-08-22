@@ -232,9 +232,10 @@ TUYA_ERRORS = {
     "901": "Das Gerät hat die Verbindung abgewiesen – meist ist die IP falsch.",
     "905": "Das Gerät antwortet nicht. Ist es am Strom und im selben Netz?",
     "914": (
-        "Schlüssel oder Protokollfassung passen nicht. Die Fassung zeigt "
-        "--scan; der Schlüssel ändert sich, sobald das Gerät in der "
-        "Hersteller-App neu angelernt wurde – dann --cloud noch einmal."
+        "Schlüssel oder Protokollfassung passen nicht. Zuerst die Länge des "
+        "Schlüssels prüfen: genau 16 Zeichen, nicht 32 (das wäre die UUID). "
+        "Sonst hilft --probe, alle Fassungen durchzuprobieren, und --cloud "
+        "holt den Schlüssel frisch."
     ),
 }
 
@@ -265,6 +266,41 @@ def error_text(antwort: Any) -> str:
     if isinstance(antwort, dict):
         return str(antwort.get("Error") or antwort)
     return str(antwort)
+
+
+# Ein lokaler Tuya-Schlüssel ist ein AES-128-Schlüssel: genau sechzehn
+# Zeichen. Alles andere weist tinytuya ab, noch bevor es das Gerät
+# überhaupt anspricht - und antwortet mit derselben Nummer wie bei einer
+# falschen Protokollfassung. Deshalb gehört die Länge geprüft, bevor
+# jemand einen Abend lang Fassungen durchprobiert.
+KEY_LENGTH = 16
+
+
+def check_key(roh: Any) -> str:
+    """Den lokalen Schlüssel prüfen, bevor irgendetwas versucht wird.
+
+    Der häufigste Fehlgriff ist nicht ein Tippfehler, sondern das falsche
+    Feld: Im Tuya-Entwicklerportal stehen neben dem lokalen Schlüssel
+    auch die Geräte-UUID und ein «Secret», beide 32 Zeichen lang und
+    beide sehen aus, als gehörten sie hierher. Wer eines davon einträgt,
+    bekommt Fehler 914 - «Schlüssel oder Protokollfassung passen nicht» -
+    und sucht danach an der Fassung.
+    """
+    text = str(roh or "").strip()
+    if not text:
+        raise ConfigError(
+            "tuya: 'key' fehlt. Der lokale Schlüssel hat 16 Zeichen und "
+            "kommt aus: python -m homepilot.integrations.tuya --cloud"
+        )
+    if len(text) != KEY_LENGTH:
+        raise ConfigError(
+            f"tuya: Der lokale Schlüssel hat {len(text)} Zeichen, nötig sind "
+            f"{KEY_LENGTH}. Wahrscheinlich ist es die Geräte-UUID oder das "
+            "«Secret» aus dem Tuya-Portal – beide sind 32 Zeichen lang und "
+            "sehen genauso aus. Den richtigen zeigt: "
+            "python -m homepilot.integrations.tuya --cloud (Feld 'key')."
+        )
+    return text
 
 
 def check_address(roh: Any) -> str | None:
@@ -312,3 +348,126 @@ def light_commands(nummern: dict[str, int], kind: str) -> list[str]:
     return befehle
 
 
+
+KEINE_GERAETE = (
+    "✗ Das Projekt kennt kein einziges Gerät.\n"
+    "\n"
+    "Die Zugangsdaten stimmen also – sonst käme hier eine Fehlermeldung.\n"
+    "Was fehlt, ist fast immer die Verknüpfung zwischen dem Entwickler-\n"
+    "projekt und dem Konto, in dem der Projektor tatsächlich steht:\n"
+    "\n"
+    "  1. iot.tuya.com → Cloud → dein Projekt → Reiter «Devices»\n"
+    "  2. «Link Tuya App Account» → «Add App Account»\n"
+    "  3. Den QR-Code mit der Smart-Life-App scannen: «Ich» → das\n"
+    "     Scan-Symbol oben rechts.\n"
+    "\n"
+    "Wenn das schon gemacht ist, passt meist etwas anderes nicht:\n"
+    "  · Ein anderes Konto verknüpft als das, in dem der Projektor liegt.\n"
+    "  · Die falsche Region – ein Konto ist an eine Region gebunden, und\n"
+    "    ein Projekt sieht nur Konten seiner eigenen.\n"
+    "  · Im Projekt unter «Service API» fehlt «IoT Core», oder die\n"
+    "    Testphase ist abgelaufen (dort verlängern, ist kostenlos)."
+)
+
+
+def cloud_report(geraete: list[dict[str, Any]]) -> str:
+    """Was der --cloud-Aufruf ausgibt (rein, testbar).
+
+    Eine leere Liste ist der wahrscheinlichste Ausgang und war bisher der
+    stummste: Der Block wurde gedruckt, nur ohne Geräte darunter. Das
+    sieht wie ein Ergebnis aus und ist eine Fehlermeldung.
+    """
+    if not geraete:
+        return KEINE_GERAETE
+
+    zeilen = ["# Fertig zum Einfügen in die config.yaml:", "", "  - integration: tuya", "    devices:"]
+    krumme: list[str] = []
+    for geraet in geraete:
+        schluessel = str(geraet.get("key") or "")
+        name = geraet.get("name") or geraet.get("id")
+        zeilen.append(f"      - name: {name}")
+        zeilen.append(f"        id: {geraet.get('id')}")
+        zeilen.append(f'        key: "{schluessel}"')
+        if geraet.get("ip"):
+            zeilen.append(f"        ip: {geraet['ip']}")
+        if geraet.get("version"):
+            zeilen.append(f"        version: {geraet['version']}")
+        if len(schluessel) != KEY_LENGTH:
+            krumme.append(f"{name} ({len(schluessel)} Zeichen)")
+
+    zeilen.append("")
+    zeilen.append("Die Schlüssel sind Geheimnisse – sie gehören in die config.yaml")
+    zeilen.append("auf dem Hub, nicht in ein Repository.")
+    if krumme:
+        zeilen.append("")
+        zeilen.append(
+            "Achtung, kein brauchbarer Schlüssel bei: "
+            + ", ".join(krumme)
+            + f". Ein lokaler Schlüssel hat {KEY_LENGTH} Zeichen. Meist hilft "
+            "es, das Gerät in der Smart-Life-App einmal zu entfernen und neu "
+            "anzulernen."
+        )
+    return "\n".join(zeilen)
+
+
+#: Was Tuya im Feld 'code' zurückgibt, in Klartext samt Handgriff.
+CLOUD_CODES: dict[int, str] = {
+    1004: (
+        "Die Signatur stimmt nicht – Access ID und Access Secret gehören "
+        "nicht zusammen, oder eines davon hat ein Leerzeichen zu viel."
+    ),
+    1010: "Das Token ist abgelaufen. Den Aufruf einfach wiederholen.",
+    1106: (
+        "Keine Berechtigung. Das ist der häufigste Fall: Dem Projekt ist "
+        "kein Smart-Life-Konto zugeordnet (Devices → Link Tuya App Account)."
+    ),
+    2406: (
+        "Falsche Region. Das Konto gehört zu einer anderen Datenzentrale als "
+        "das Projekt – im Projekt steht oben, welche es ist."
+    ),
+    28841002: (
+        "Die API «IoT Core» ist im Projekt nicht abonniert. Im Projekt unter "
+        "«Service API» → «Go to Authorize» hinzufügen, sie ist kostenlos."
+    ),
+    28841105: (
+        "Das Abo für «IoT Core» ist abgelaufen. Im Projekt unter «Service "
+        "API» verlängern – die Verlängerung ist kostenlos."
+    ),
+}
+
+
+def cloud_raw_hint(antwort: Any) -> str:
+    """Die Rohantwort der Wolke in Klartext (rein, testbar).
+
+    tinytuya gibt bei allen diesen Fällen dieselbe leere Liste zurück.
+    Von aussen sieht «kein Konto verknüpft» genau gleich aus wie «IoT
+    Core nicht abonniert» – die Handgriffe sind aber verschieden, und
+    ohne diesen Unterschied probiert man beide abwechselnd durch.
+    """
+    if not isinstance(antwort, dict):
+        return f"Antwort von Tuya (unerwartete Form): {antwort!r}"
+
+    if antwort.get("success"):
+        ergebnis = antwort.get("result") or {}
+        geraete = ergebnis.get("devices") if isinstance(ergebnis, dict) else ergebnis
+        anzahl = len(geraete) if isinstance(geraete, list) else 0
+        if anzahl:
+            return f"Tuya meldet {anzahl} Gerät(e) – die Liste oben ist also unvollständig."
+        return (
+            "Tuya antwortet ohne Fehler und mit null Geräten. Das Projekt ist "
+            "erreichbar und freigeschaltet, es ist ihm nur kein Konto mit "
+            "Geräten zugeordnet: Devices → Link Tuya App Account → Add App "
+            "Account → «Tuya App Account Authorization», QR-Code mit der "
+            "Smart-Life-App scannen (Ich → Scan-Symbol oben rechts)."
+        )
+
+    code = antwort.get("code")
+    meldung = str(antwort.get("msg") or "ohne Meldung")
+    zeilen = [f"Tuya lehnt ab – Code {code}: {meldung}"]
+    try:
+        erklaerung = CLOUD_CODES.get(int(code))
+    except (TypeError, ValueError):
+        erklaerung = None
+    if erklaerung:
+        zeilen.append(erklaerung)
+    return "\n".join(zeilen)

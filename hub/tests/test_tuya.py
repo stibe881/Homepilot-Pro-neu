@@ -144,7 +144,10 @@ def test_tuya_error_numbers_become_sentences():
     from homepilot.integrations.tuya import error_hint
 
     hinweis = error_hint({"Error": "Check device key or version", "Err": "914"})
-    assert hinweis and "Schlüssel" in hinweis and "--scan" in hinweis
+    # Die Länge zuerst: Ein Schlüssel mit 32 Zeichen ist der häufigste
+    # Grund, und tinytuya weist ihn ab, bevor es das Gerät anspricht.
+    assert hinweis and "16 Zeichen" in hinweis
+    assert "--probe" in hinweis and "--cloud" in hinweis
     assert error_hint({"Err": "905"})
     # Unbekannte Nummern und Nicht-Fehler ergeben keinen erfundenen Satz.
     assert error_hint({"Err": "4711"}) is None
@@ -200,3 +203,118 @@ def test_a_half_written_address_is_caught_at_the_start():
 
     with pytest.raises(ConfigError):
         check_address("Sternenprojektor")
+
+
+def test_a_local_key_has_sixteen_characters():
+    """Der häufigste Fehlgriff ist nicht ein Tippfehler, sondern das
+    falsche Feld.
+
+    Im Tuya-Portal stehen neben dem lokalen Schlüssel die Geräte-UUID und
+    ein «Secret» – beide 32 Zeichen und beide sehen aus, als gehörten sie
+    hierher. tinytuya weist so etwas mit Fehler 914 ab, noch bevor es das
+    Gerät anspricht: derselben Nummer wie bei einer falschen
+    Protokollfassung. Man sucht dann einen Abend lang an der Fassung.
+    """
+    import pytest
+
+    from homepilot.core.errors import ConfigError
+    from homepilot.integrations.tuya_logic import check_key
+
+    assert check_key("0123456789abcdef") == "0123456789abcdef"
+    assert check_key("  0123456789abcdef  ") == "0123456789abcdef"
+
+    with pytest.raises(ConfigError) as fehler:
+        check_key("9feb9535ccf34ffcae2607f741861ebe")
+    text = str(fehler.value)
+    assert "32 Zeichen" in text and "16" in text
+    assert "UUID" in text
+
+    with pytest.raises(ConfigError):
+        check_key("")
+    with pytest.raises(ConfigError):
+        check_key(None)
+
+
+def test_cloud_report_sagt_was_eine_leere_liste_bedeutet() -> None:
+    """Kein Gerät ist eine Auskunft, kein leerer Block.
+
+    Bisher druckte --cloud auch dann brav «Fertig zum Einfügen» samt
+    Kopfzeilen – nur ohne Geräte darunter. Das liest sich wie ein
+    Ergebnis, ist aber der häufigste Fehlerfall: Das Entwicklerprojekt
+    ist mit keinem Smart-Life-Konto verknüpft.
+    """
+    from homepilot.integrations.tuya_logic import cloud_report
+
+    text = cloud_report([])
+    assert "kein einziges Gerät" in text
+    assert "Link Tuya App Account" in text
+    assert "Region" in text
+    assert "Fertig zum Einfügen" not in text
+
+
+def test_cloud_report_druckt_einen_einfuegbaren_block() -> None:
+    from homepilot.integrations.tuya_logic import cloud_report
+
+    text = cloud_report(
+        [
+            {
+                "id": "bfb6f69fb592a761e3b6cb",
+                "name": "Sternenprojektor",
+                "key": "0123456789abcdef",
+                "ip": "10.10.1.23",
+                "version": "3.3",
+            }
+        ]
+    )
+    assert "  - integration: tuya" in text
+    assert "      - name: Sternenprojektor" in text
+    assert '        key: "0123456789abcdef"' in text
+    assert "        ip: 10.10.1.23" in text
+    assert "        version: 3.3" in text
+    assert "Achtung" not in text
+
+
+def test_cloud_report_warnt_bei_zu_kurzem_schluessel() -> None:
+    """Auch die Wolke liefert manchmal einen leeren Schlüssel.
+
+    Dann steht das Gerät zwar im Block, taugt aber nicht – und ohne
+    Hinweis trägt man es ein und sucht danach am falschen Ort.
+    """
+    from homepilot.integrations.tuya_logic import cloud_report
+
+    text = cloud_report([{"id": "abc", "name": "Steckdose", "key": ""}])
+    assert "Achtung" in text
+    assert "Steckdose (0 Zeichen)" in text
+
+
+def test_cloud_raw_hint_unterscheidet_die_faelle() -> None:
+    """Leer ist nicht gleich leer.
+
+    «Kein Konto verknüpft» und «IoT Core nicht abonniert» führen beide zu
+    einer leeren Geräteliste, brauchen aber verschiedene Handgriffe im
+    Portal. Wer den Unterschied nicht sieht, probiert beide abwechselnd.
+    """
+    from homepilot.integrations.tuya_logic import cloud_raw_hint
+
+    leer = cloud_raw_hint({"success": True, "result": []})
+    assert "null Geräten" in leer
+    assert "Link Tuya App Account" in leer
+
+    fehlt = cloud_raw_hint({"success": False, "code": 28841002, "msg": "no permissions"})
+    assert "28841002" in fehlt
+    assert "IoT Core" in fehlt
+
+    region = cloud_raw_hint({"success": False, "code": 2406, "msg": "skill id invalid"})
+    assert "Region" in region
+
+    unbekannt = cloud_raw_hint({"success": False, "code": 9999, "msg": "was auch immer"})
+    assert "9999" in unbekannt and "was auch immer" in unbekannt
+
+    assert "unerwartete Form" in cloud_raw_hint("kaputt")
+
+
+def test_cloud_raw_hint_meldet_gefundene_geraete() -> None:
+    from homepilot.integrations.tuya_logic import cloud_raw_hint
+
+    text = cloud_raw_hint({"success": True, "result": {"devices": [{"id": "a"}]}})
+    assert "1 Gerät" in text

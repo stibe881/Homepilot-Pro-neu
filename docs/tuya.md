@@ -41,6 +41,24 @@ alle Geräte samt Schlüssel und druckt den fertigen Block für die
 config.yaml. Die Zugangsdaten werden nur für diesen Aufruf gebraucht und
 nirgends gespeichert.
 
+### Der Aufruf listet gar keine Geräte
+
+Kommt keine Fehlermeldung, aber auch kein Gerät, dann stimmen die
+Zugangsdaten – nur sieht das Projekt keine Geräte. Der Reihe nach:
+
+* **Verknüpfung fehlt.** Schritt 3 oben ist der übliche Grund: iot.tuya.com
+  → Cloud → Projekt → **Devices → Link Tuya App Account → Add App Account**,
+  QR-Code mit der Smart-Life-App scannen (*Ich* → Scan-Symbol oben rechts).
+* **Falsches Konto verknüpft.** In der Smart-Life-App unter *Ich* steht,
+  mit welchem Konto man angemeldet ist. Verknüpft sein muss genau das, in
+  dem der Projektor liegt.
+* **Falsche Region.** Ein Konto gehört zu einer Region, und ein Projekt
+  sieht nur Konten seiner eigenen. Steht das Projekt auf *Central Europe*,
+  ist die Antwort auf die Regionsfrage `eu`.
+* **IoT Core fehlt oder ist abgelaufen.** Im Projekt unter *Service API*
+  muss **IoT Core** stehen. Die Testphase läuft nach einigen Monaten aus
+  und lässt sich dort kostenlos verlängern.
+
 Wer mag, prüft vorher, was im Netz überhaupt antwortet:
 
 ```
@@ -102,7 +120,19 @@ brauchbar:
 
 ## «Schlüssel oder Protokollfassung passen nicht» (Fehler 914)
 
-Tuya sagt nicht, welches von beiden es ist. Statt zu raten:
+**Zuerst die Länge zählen.** Ein lokaler Tuya-Schlüssel hat **genau 16
+Zeichen** – er ist ein AES-128-Schlüssel. Im Tuya-Portal stehen daneben
+die Geräte-**UUID** und ein **Secret**, beide 32 Zeichen lang und beide
+sehen aus, als gehörten sie hierher. Trägt man eines davon ein, weist
+tinytuya es ab, *bevor* es das Gerät überhaupt anspricht – und meldet
+dieselbe Nummer 914 wie bei einer falschen Protokollfassung. Man sucht
+dann einen Abend lang an der Fassung.
+
+Der Hub prüft das seit dieser Fassung beim Start und sagt es im
+Klartext. Den richtigen Schlüssel zeigt `--cloud` im Feld `key`.
+
+Stimmt die Länge und kommt trotzdem 914, sagt Tuya nicht, woran es
+liegt. Statt zu raten:
 
 ```
 docker exec -it homepilot-hub python -m homepilot.integrations.tuya \
