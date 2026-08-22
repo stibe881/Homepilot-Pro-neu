@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Image, Linking, Modal, Pressable, ScrollView, Share, Text, TextInput, View } from 'react-native';
 
@@ -96,6 +97,8 @@ const QUEUE_KEY = 'homepilot.family.queue';
 const SEEN_KEY = 'homepilot.family.seen';
 /** Welche Kacheln ausgeblendet sind – je Gerät, wie die Reihenfolge. */
 const HIDDEN_KEY = 'homepilot.family.hidden';
+/** Kennung fürs Wachhalten im Einkaufs-Modus. */
+const EINKAUF_TAG = 'homepilot-einkauf';
 
 export function FamilyScreen({
   settings,
@@ -454,6 +457,18 @@ export function FamilyScreen({
       .then((raw) => setVersteckteModule(raw ? JSON.parse(raw) : []))
       .catch(() => {});
   }, []);
+
+  // Punkt 173: Im Laden hält man das Telefon in einer Hand und in der
+  // anderen den Wagen – ein Bildschirm, der alle 30 Sekunden zugeht, ist
+  // dort dasselbe Ärgernis wie beim Kochen. Wachhalten ist eine Zugabe:
+  // wo es das nicht gibt (Web), kauft man wie bisher ein.
+  useEffect(() => {
+    if (!imLaden) return;
+    activateKeepAwakeAsync(EINKAUF_TAG).catch(() => {});
+    return () => {
+      deactivateKeepAwake(EINKAUF_TAG).catch(() => {});
+    };
+  }, [imLaden]);
 
   const ladeKorb = useCallback(() => {
     hub
@@ -3802,6 +3817,23 @@ export function FamilyScreen({
           <Text style={styles.resetText}>Kacheln ausblenden</Text>
         </Pressable>
       ) : null}
+
+      {/* Punkt 169: Eine Seite, die auch ohne HomePilot noch aufgeht –
+          zum Ansehen, Drucken oder Weitergeben. Der Hub legt sie
+          monatlich neben die Sicherungen. */}
+      <Pressable
+        onPress={() =>
+          Linking.openURL(
+            `${settings.url.replace(/\/+$/, '')}/api/family-book?token=${encodeURIComponent(
+              settings.token
+            )}`
+          )
+        }
+        accessibilityRole="button"
+        style={styles.clearButton}
+      >
+        <Text style={styles.resetText}>Familienbuch ansehen</Text>
+      </Pressable>
 
       {/* Punkt 167: Ein Fehlgriff neben dem Häkchen löschte bis jetzt
           endgültig – die Abläufe hatten seit je einen Papierkorb. */}

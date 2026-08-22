@@ -271,6 +271,7 @@ function DifficultyBadge({ recipe, styles, colors }: { recipe: Rezept; styles: S
 function RecipeTile({
   recipe,
   width,
+  settings,
   onOpen,
   onToggleFavorite,
   styles,
@@ -278,16 +279,18 @@ function RecipeTile({
 }: {
   recipe: Rezept;
   width: number;
+  settings?: HubSettings;
   onOpen: () => void;
   onToggleFavorite: () => void;
   styles: Styles;
   colors: Colors;
 }) {
   const minutes = totalMinutes(recipe);
+  const bild = bildUri(recipe.image_url, settings);
   return (
     <Pressable onPress={onOpen} style={[styles.tile, { width }]}>
-      {recipe.image_url ? (
-        <Image source={{ uri: String(recipe.image_url) }} style={styles.tileImage} resizeMode="cover" />
+      {bild ? (
+        <Image source={{ uri: bild }} style={styles.tileImage} resizeMode="cover" />
       ) : (
         <View style={[styles.tileImage, styles.tilePlaceholder]}>
           <Text style={styles.tileEmoji}>{categoryEmoji(String(recipe.category ?? ''))}</Text>
@@ -581,7 +584,11 @@ function RecipeForm({
         accessibilityRole="button"
       >
         {image ? (
-          <Image source={{ uri: image }} style={styles.photoPreview} resizeMode="cover" />
+          <Image
+            source={{ uri: String(bildUri(image, settings) ?? image) }}
+            style={styles.photoPreview}
+            resizeMode="cover"
+          />
         ) : (
           <View style={styles.photoPlaceholder}>
             <Ionicons name="images-outline" size={28} color={colors.inkSoft} />
@@ -636,7 +643,11 @@ function RecipeForm({
         ) : null}
       </View>
       {original ? (
-        <Image source={{ uri: original }} style={styles.photoPreview} resizeMode="contain" />
+        <Image
+          source={{ uri: String(bildUri(original, settings) ?? original) }}
+          style={styles.photoPreview}
+          resizeMode="contain"
+        />
       ) : null}
 
       <TextInput
@@ -1291,9 +1302,9 @@ function RecipeDetail({
     <View style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={styles.detailStack}>
         <View>
-          {recipe.image_url ? (
+          {bildUri(recipe.image_url, settings) ? (
             <Image
-              source={{ uri: String(recipe.image_url) }}
+              source={{ uri: String(bildUri(recipe.image_url, settings)) }}
               style={styles.detailImage}
               resizeMode="cover"
             />
@@ -1519,7 +1530,7 @@ function RecipeDetail({
           <>
             <Text style={styles.sectionTitle}>Original</Text>
             <Image
-              source={{ uri: String(recipe.original_url) }}
+              source={{ uri: String(bildUri(recipe.original_url, settings)) }}
               style={styles.originalBild}
               resizeMode="contain"
             />
@@ -1718,6 +1729,25 @@ function haeufigeZutaten(recipes: Rezept[], limit = 18): string[] {
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .slice(0, limit)
     .map(([name]) => name);
+}
+
+/**
+ * Aus dem gespeicherten Bildverweis eine anzeigbare Adresse machen
+ * (Punkt 193, rein bis auf die Einstellungen).
+ *
+ * Rezepte, deren Bild noch als data-URI im Datenspeicher steckt, gehen
+ * unverändert durch. Wer neu speichert, bekommt vom Hub eine Adresse wie
+ * «/api/recipes/r1/bild?v=abc» – die braucht Hub-Adresse und Token, weil
+ * `<Image>` keinen Kopf mitschicken kann.
+ */
+export function bildUri(wert: unknown, settings?: HubSettings): string | null {
+  const text = String(wert ?? '').trim();
+  if (!text) return null;
+  if (!text.startsWith('/')) return text;
+  if (!settings?.url) return null;
+  const basis = settings.url.replace(/\/+$/, '');
+  const trenner = text.includes('?') ? '&' : '?';
+  return `${basis}${text}${trenner}token=${encodeURIComponent(settings.token ?? '')}`;
 }
 
 // ── Hauptkomponente ─────────────────────────────────────────────────────────
@@ -2170,6 +2200,7 @@ export function RecipeBook({
                   key={recipe.id}
                   recipe={recipe}
                   width={tileWidth}
+                  settings={settings}
                   onOpen={() => setScreen({ kind: 'detail', id: recipe.id })}
                   onToggleFavorite={() => toggleFavorite(recipe)}
                   styles={styles}

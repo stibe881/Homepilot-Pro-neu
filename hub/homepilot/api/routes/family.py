@@ -450,7 +450,9 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
 
     # ── Familienbuch und Hausadresse ──────────────────────────────────────
 
-    @app.get("/api/family/buch")
+    # Eigener Weg, nicht /api/family/buch: Dort steht schon
+    # /api/family/{collection}, und «buch» wäre eine unbekannte Liste.
+    @app.get("/api/family-book")
     async def family_book(request: Request) -> Response:
         """Die Familiendaten als lesbare Seite (Punkt 169).
 
