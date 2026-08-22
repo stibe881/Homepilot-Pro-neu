@@ -12,10 +12,13 @@ import { wochentagDatumKurz, wochentagUhr } from '../lib/format';
 import { Shop, ingredientsToShopping, shopCategory } from '../lib/einkauf';
 import {
   ABEND_FELDER,
+  BABYSITTER_FEATURES,
+  BABYSITTER_USER,
   KALENDER_FARBEN,
   NOTRUFE,
   ROLLEN,
   NOTFALL_FELDER,
+  babysitterZugang,
   fuerBabysitter,
   geprueftVor,
   gabenVon,
@@ -88,6 +91,9 @@ export function FamilyScreen({
   const [monatLaedt, setMonatLaedt] = useState(false);
   const [letzterMonat, setLetzterMonat] = useState('');
   const [terminOffen, setTerminOffen] = useState<FamilyItem | null>(null);
+  // Babysitter-Zugang: der Gastbenutzer und sein frisches Token.
+  const [babysitterUser, setBabysitterUser] = useState<FamilyItem | null>(null);
+  const [babysitterToken, setBabysitterToken] = useState<string | null>(null);
   // Vom Essensplaner direkt ins Rezept springen (Punkt 146).
   const [rezeptStart, setRezeptStart] = useState<string | null>(null);
   // «Was koche ich heute?» im Planer (Punkt 139): Die Saat hält die
@@ -247,6 +253,80 @@ export function FamilyScreen({
     );
     if (!tracker) return null;
     return tracker.state.state === 'on' ? 'home' : 'away';
+  };
+
+  // ── Babysitter-Zugang ──────────────────────────────────────────────────
+  // Nur Eltern dürfen das: Die Benutzerverwaltung prüft es ohnehin, aber
+  // einen Knopf hinzustellen, der «keine Berechtigung» antwortet, ist
+  // keine Bedienung.
+  const darfBenutzer =
+    currentUser?.role === 'besitzer' || currentUser?.role === 'bewohner';
+  const babysitterAktiv = !!babysitterUser?.enabled;
+
+  const ladeBabysitter = useCallback(() => {
+    if (!darfBenutzer) return;
+    hub
+      .get<FamilyItem[]>('/api/users', { still: true })
+      .then((liste) =>
+        setBabysitterUser(
+          (Array.isArray(liste) ? liste : []).find(
+            (user) => user.name === BABYSITTER_USER
+          ) ?? null
+        )
+      )
+      .catch(() => setBabysitterUser(null));
+  }, [hub, darfBenutzer]);
+
+  useEffect(() => {
+    if (view === 'babysitter') ladeBabysitter();
+  }, [view, ladeBabysitter]);
+
+  const oeffneBabysitter = async (bis: string) => {
+    const zugang = babysitterZugang(new Date(), bis);
+    try {
+      if (babysitterUser) {
+        await hub.put(
+          `/api/users/${encodeURIComponent(BABYSITTER_USER)}`,
+          { enabled: true, features: BABYSITTER_FEATURES, ...zugang },
+          { still: true }
+        );
+      } else {
+        const antwort = await hub.post<{ user?: FamilyItem; token?: string }>(
+          '/api/users',
+          {
+            name: BABYSITTER_USER,
+            role: 'gast',
+            features: BABYSITTER_FEATURES,
+            ...zugang,
+          },
+          { still: true }
+        );
+        // Das Token gibt es genau einmal – beim Anlegen. Danach steht es
+        // nirgends mehr, und das ist so gewollt.
+        setBabysitterToken(antwort?.token ?? antwort?.user?.token ?? null);
+      }
+      ladeBabysitter();
+    } catch (err) {
+      setError(
+        `Zugang nicht geöffnet (${err instanceof Error ? err.message : err})`
+      );
+    }
+  };
+
+  const schliesseBabysitter = async () => {
+    try {
+      await hub.put(
+        `/api/users/${encodeURIComponent(BABYSITTER_USER)}`,
+        { enabled: false },
+        { still: true }
+      );
+      setBabysitterToken(null);
+      ladeBabysitter();
+    } catch (err) {
+      setError(
+        `Zugang nicht geschlossen (${err instanceof Error ? err.message : err})`
+      );
+    }
   };
 
   const goBack = () => setView(null);
@@ -1243,6 +1323,62 @@ export function FamilyScreen({
               </Pressable>
             ))}
           </View>
+        ) : null}
+
+        {/* Vom Merkblatt zum Zugang: Bisher war das hier eine Seite, die
+            nur sieht, wer ohnehin schon in der App ist. Der Babysitter
+            hat sie also gar nie zu Gesicht bekommen. Der Zugang benutzt,
+            was es für Gäste längst gibt - Ablaufdatum und Zeitfenster -,
+            und gibt nur Licht und Familie frei: keine Türen, kein Alarm,
+            keine Kameras. Was man nicht freigibt, muss man später nicht
+            bereuen. */}
+        {darfBenutzer ? (
+          <Card style={styles.listCard}>
+            <View style={styles.checkRow}>
+              <Ionicons
+                name={babysitterAktiv ? 'lock-open-outline' : 'lock-closed-outline'}
+                size={20}
+                color={babysitterAktiv ? colors.on : colors.inkSoft}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.checkText}>Zugang für heute Abend</Text>
+                <Text style={styles.checkSub}>
+                  {babysitterAktiv
+                    ? `Offen bis ${babysitterUser?.hours?.to ?? '?'} Uhr – Licht und diese Seite`
+                    : 'Geschlossen. Öffnen legt einen Gastzugang an, der von selbst endet.'}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.chipRow}>
+              {['21:00', '22:00', '23:00', '00:30'].map((bis) => (
+                <Pressable
+                  key={bis}
+                  onPress={() => oeffneBabysitter(bis)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Zugang bis ${bis} öffnen`}
+                  style={styles.chip}
+                >
+                  <Text style={styles.chipText}>bis {bis}</Text>
+                </Pressable>
+              ))}
+              {babysitterAktiv ? (
+                <Pressable
+                  onPress={schliesseBabysitter}
+                  accessibilityRole="button"
+                  style={[styles.chip, { borderColor: colors.danger }]}
+                >
+                  <Text style={[styles.chipText, { color: colors.danger }]}>
+                    Jetzt schliessen
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+            {babysitterToken ? (
+              <Text style={styles.checkSub} selectable>
+                Anmeldung: Benutzer «{BABYSITTER_USER}», Token {babysitterToken}
+              </Text>
+            ) : null}
+          </Card>
         ) : null}
 
         <Text style={styles.hint}>

@@ -199,6 +199,14 @@ Selber eine schreiben: [`hub/docs/neue-integration.md`](hub/docs/neue-integratio
 Damit sie in der App auch eine Kachel bekommt:
 [`hub/docs/neue-kachel.md`](hub/docs/neue-kachel.md).
 
+## Familie
+
+Kontakte, Notfallblatt, Medikamente, Babysitter, Wochenplan, Kalender und
+die geteilten Listen – sechs Module, die sich gegenseitig tragen: Jede
+Angabe wird an genau einer Stelle gepflegt, und die Babysitter-Seite baut
+sich daraus von selbst. Was wo hingehört und was der Hub von selbst
+meldet: [`docs/familie.md`](docs/familie.md).
+
 ## Automationen
 
 Deklarativ in `config.yaml` (Trigger → Bedingungen → Aktionen):

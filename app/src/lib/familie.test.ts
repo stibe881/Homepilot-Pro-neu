@@ -8,6 +8,8 @@
  * speicherten, und zeigte deshalb eine Namensliste ohne Nummern.
  */
 import {
+  BABYSITTER_FEATURES,
+  babysitterZugang,
   fuerBabysitter,
   gabenVon,
   genommenMap,
@@ -171,5 +173,30 @@ describe('Wochenplan', () => {
     expect(isoTag(plusWochen(montag, 1))).toBe('2026-08-24');
     expect(isoTag(plusWochen(montag, -1))).toBe('2026-08-10');
     expect(kurzDatum(new Date('2026-08-21T00:00:00'))).toBe('21.8.');
+  });
+});
+
+describe('Babysitter-Zugang', () => {
+  it('gibt nur frei, was ein Babysitter braucht', () => {
+    // Keine Türen, kein Alarm, keine Kameras: Was man nicht freigibt,
+    // muss man später nicht bereuen.
+    expect(BABYSITTER_FEATURES).toEqual(['licht', 'familie']);
+  });
+
+  it('lässt den Zugang am selben Abend enden', () => {
+    const jetzt = new Date('2026-08-21T18:30:00');
+    expect(babysitterZugang(jetzt, '23:00')).toEqual({
+      expires: '2026-08-21',
+      hours: { from: '18:30', to: '23:00' },
+    });
+  });
+
+  it('reicht über Mitternacht bis in den nächsten Tag', () => {
+    // Sonst wäre der Zugang genau dann weg, wenn man ihn noch braucht.
+    const jetzt = new Date('2026-08-21T19:00:00');
+    expect(babysitterZugang(jetzt, '00:30')).toEqual({
+      expires: '2026-08-22',
+      hours: { from: '19:00', to: '00:30' },
+    });
   });
 });

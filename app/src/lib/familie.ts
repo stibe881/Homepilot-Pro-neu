@@ -164,6 +164,17 @@ export function notfallText(eintraege: Eintrag[], haus?: string): string {
   return zeilen.join('\n');
 }
 
+/** «JJJJ-MM-TT» ohne Zeitzonen-Überraschung (rein, testbar).
+ *
+ *  toISOString() rechnet nach UTC um – und macht aus einem Montagabend
+ *  in Zürich einen Montag, aus einem Sonntagabend im Winter aber schon
+ *  den Montag. Deshalb von Hand. */
+export function isoTag(datum: Date): string {
+  const monat = String(datum.getMonth() + 1).padStart(2, '0');
+  const tag = String(datum.getDate()).padStart(2, '0');
+  return `${datum.getFullYear()}-${monat}-${tag}`;
+}
+
 // ── Babysitter ──────────────────────────────────────────────────────────
 
 /**
@@ -180,6 +191,39 @@ export const ABEND_FELDER = [
   { key: 'wifi', label: 'WLAN', placeholder: 'Netz und Passwort' },
   { key: 'notes', label: 'Sonst noch', placeholder: 'z.B. Hund nicht in die Küche' },
 ] as const;
+
+/** Der Benutzer, den der Babysitter-Zugang anlegt und wiederverwendet. */
+export const BABYSITTER_USER = 'Babysitter';
+
+/**
+ * Die Bereiche, die ein Babysitter braucht – und nur die.
+ *
+ * Licht, damit er das Kinderzimmer dunkel machen kann. Familie, damit er
+ * diese Seite sieht. Keine Türen, kein Alarm, keine Kameras: Was man
+ * nicht freigibt, muss man später nicht bereuen.
+ */
+export const BABYSITTER_FEATURES = ['licht', 'familie'];
+
+/**
+ * Bis wann der Zugang gilt (rein, testbar).
+ *
+ * Zurück gegeben wird beides, was der Hub kennt: das Ablaufdatum und das
+ * Zeitfenster. Endet der Abend nach Mitternacht, gilt das Datum von
+ * morgen – sonst wäre der Zugang genau dann weg, wenn man ihn noch
+ * braucht.
+ */
+export function babysitterZugang(
+  jetzt: Date,
+  bis: string
+): { expires: string; hours: { from: string; to: string } } {
+  const [stunde] = bis.split(':').map(Number);
+  const ende = new Date(jetzt);
+  if (stunde < jetzt.getHours()) ende.setDate(ende.getDate() + 1);
+  const von = `${String(jetzt.getHours()).padStart(2, '0')}:${String(
+    jetzt.getMinutes()
+  ).padStart(2, '0')}`;
+  return { expires: isoTag(ende), hours: { from: von, to: bis } };
+}
 
 // ── Medikamente ─────────────────────────────────────────────────────────
 
@@ -312,17 +356,6 @@ export function montagVon(datum: Date): Date {
   montag.setHours(0, 0, 0, 0);
   montag.setDate(montag.getDate() - ((montag.getDay() + 6) % 7));
   return montag;
-}
-
-/** «JJJJ-MM-TT» ohne Zeitzonen-Überraschung (rein, testbar).
- *
- *  toISOString() rechnet nach UTC um – und macht aus einem Montagabend
- *  in Zürich einen Montag, aus einem Sonntagabend im Winter aber schon
- *  den Montag. Deshalb von Hand. */
-export function isoTag(datum: Date): string {
-  const monat = String(datum.getMonth() + 1).padStart(2, '0');
-  const tag = String(datum.getDate()).padStart(2, '0');
-  return `${datum.getFullYear()}-${monat}-${tag}`;
 }
 
 /** Verschiebt ein Datum um ganze Wochen (rein, testbar). */
