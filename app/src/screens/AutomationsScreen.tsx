@@ -444,6 +444,10 @@ interface Draft {
   conditionBefore: string;
   /** Zusätzliche Bedingungen «nur wenn Gerät … ist / über / unter». */
   stateConditions: StateCondition[];
+  /** Bedingungen, die der Editor (noch) nicht bauen kann – etwa
+   *  geschachtelte und/oder-Gruppen aus der config.yaml. Sie werden
+   *  unverändert mitgespeichert, statt beim Öffnen stumm zu verschwinden. */
+  extraConditions: Record<string, unknown>[];
   /** Wie die Bedingungen verknüpft sind: alle oder eine genügt. */
   match: 'all' | 'any';
   /** Erlaubte Wochentage der Uhrzeit-Bedingung (0 = Montag). Leer = alle. */
@@ -471,6 +475,7 @@ const EMPTY: Draft = {
   conditionAfter: '',
   conditionBefore: '',
   stateConditions: [],
+  extraConditions: [],
   match: 'all',
   weekdays: [],
   steps: [{ ...EMPTY_STEP }],
@@ -1126,6 +1131,70 @@ export function AutomationsScreen({
     }
   };
 
+  /** Frühere Fassungen eines Ablaufs laden – stabil über useCallback, weil
+   *  der Editor bei jedem Tastendruck neu rendert und die Liste sonst bei
+   *  jedem Buchstaben neu vom Hub geholt würde. */
+  const loadAutomationVersions = useCallback(async (): Promise<Fassung[]> => {
+    if (!draft?.id) return [];
+    try {
+      const response = await fetch(
+        `${settings.url}/api/edit-history/automation/${draft.id}`,
+        { headers }
+      );
+      if (!response.ok) return [];
+      return (await response.json()).versions ?? [];
+    } catch {
+      // Ohne Fassungen zeigt der Editor schlicht keinen Abschnitt.
+    }
+    return [];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft?.id, settings.url, settings.token]);
+
+  const loadSceneVersions = useCallback(async (): Promise<Fassung[]> => {
+    if (!sceneDraft?.id) return [];
+    try {
+      const response = await fetch(
+        `${settings.url}/api/edit-history/scene/${sceneDraft.id}`,
+        { headers }
+      );
+      if (!response.ok) return [];
+      return (await response.json()).versions ?? [];
+    } catch {
+      // Ohne Fassungen zeigt der Editor schlicht keinen Abschnitt.
+    }
+    return [];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sceneDraft?.id, settings.url, settings.token]);
+
+  /** Eine frühere Fassung zurückholen; der Editor schliesst, weil sein
+   *  Entwurf danach veraltet wäre. */
+  const restoreVersion = async (
+    kind: 'automation' | 'scene',
+    id: string,
+    at: number
+  ): Promise<boolean> => {
+    try {
+      const response = await fetch(
+        `${settings.url}/api/edit-history/${kind}/${id}/restore`,
+        {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ at }),
+        }
+      );
+      if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
+      const restored = (await response.json()).restored;
+      onNote?.(`Frühere Fassung von «${restored}» zurückgeholt`);
+      setDraft(null);
+      setSceneDraft(null);
+      load();
+      return true;
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
+      return false;
+    }
+  };
+
   const remove = async (id: string) => {
     const name = automations?.find((item) => item.id === id)?.alias ?? 'Ablauf';
     await fetch(`${settings.url}/api/automations/${id}`, {
@@ -1632,6 +1701,10 @@ export function AutomationsScreen({
         onDelete={draft?.id ? () => remove(draft.id!) : undefined}
         onTest={draft?.id ? () => test(draft.id!) : undefined}
         onDryRun={draft?.id ? () => dryRun(draft.id!) : undefined}
+        onVersions={draft?.id ? loadAutomationVersions : undefined}
+        onRestoreVersion={
+          draft?.id ? (at) => restoreVersion('automation', draft.id!, at) : undefined
+        }
         onCancel={() => setDraft(null)}
       />
       <SceneEditor
@@ -1644,6 +1717,12 @@ export function AutomationsScreen({
         onCancel={() => setSceneDraft(null)}
         onTest={sceneDraft?.id ? () => testScene(sceneDraft.id!) : undefined}
         onRevert={revertScene}
+        onVersions={sceneDraft?.id ? loadSceneVersions : undefined}
+        onRestoreVersion={
+          sceneDraft?.id
+            ? (at) => restoreVersion('scene', sceneDraft.id!, at)
+            : undefined
+        }
       />
     </View>
   );
@@ -2219,6 +2298,8 @@ function SceneEditor({
   onCancel,
   onTest,
   onRevert,
+  onVersions,
+  onRestoreVersion,
 }: {
   draft: SceneDraft | null;
   entities: Entity[];
@@ -2231,6 +2312,9 @@ function SceneEditor({
   /** Nur bei gespeicherten Szenen: einmal auslösen, Rückweg merken. */
   onTest?: () => Promise<RueckwegBefehl[]>;
   onRevert?: (befehle: RueckwegBefehl[]) => void;
+  /** Frühere Fassungen laden bzw. eine zurückholen (nur beim Bearbeiten). */
+  onVersions?: () => Promise<Fassung[]>;
+  onRestoreVersion?: (at: number) => Promise<boolean>;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -2380,6 +2464,9 @@ function SceneEditor({
             Lichter, Schalter und Storen wieder her, Schlösser nur zu.
           </Text>
         ) : null}
+        {onVersions && onRestoreVersion ? (
+          <VersionsSection load={onVersions} restore={onRestoreVersion} />
+        ) : null}
         {onDelete ? (
           <Pressable style={styles.delete} onPress={onDelete} accessibilityRole="button">
             <Text style={styles.deleteText}>Szene löschen</Text>
@@ -2401,6 +2488,8 @@ function Editor({
   onDelete,
   onTest,
   onDryRun,
+  onVersions,
+  onRestoreVersion,
   onCancel,
 }: {
   draft: Draft | null;
@@ -2417,6 +2506,9 @@ function Editor({
   onTest?: () => void;
   /** Nur bei gespeicherten Abläufen: zeigen, was jetzt passieren würde. */
   onDryRun?: () => Promise<DryRun | null>;
+  /** Frühere Fassungen laden bzw. eine zurückholen (nur beim Bearbeiten). */
+  onVersions?: () => Promise<Fassung[]>;
+  onRestoreVersion?: (at: number) => Promise<boolean>;
   onCancel: () => void;
 }) {
   const colors = useColors();
@@ -2742,6 +2834,16 @@ function Editor({
             <Text style={styles.addRowText}>Gerätebedingung hinzufügen</Text>
           </Pressable>
 
+          {draft.extraConditions.length > 0 ? (
+            <Text style={styles.triggerNote}>
+              Dazu {draft.extraConditions.length === 1
+                ? 'eine Bedingungsgruppe'
+                : `${draft.extraConditions.length} Bedingungsgruppen`}{' '}
+              aus der Konfiguration – hier nicht änderbar, sie bleiben beim
+              Speichern erhalten.
+            </Text>
+          ) : null}
+
           {buildConditions(draft).length > 1 ? (
             <>
               <Choice
@@ -2906,6 +3008,9 @@ function Editor({
             würde. Gespeicherte Änderungen zuerst sichern.
           </Text>
         ) : null}
+        {onVersions && onRestoreVersion ? (
+          <VersionsSection load={onVersions} restore={onRestoreVersion} />
+        ) : null}
         {onDelete ? (
           <Pressable style={styles.delete} onPress={onDelete} accessibilityRole="button">
             <Text style={styles.deleteText}>Ablauf löschen</Text>
@@ -2913,6 +3018,81 @@ function Editor({
         ) : null}
       </ScrollView>
     </Modal>
+  );
+}
+
+/** Eine frühere Fassung, wie GET /api/edit-history sie liefert. */
+interface Fassung {
+  at: number;
+  by?: string;
+  name?: string;
+}
+
+/** «Frühere Fassungen» im Editor – das Gegenstück zum Papierkorb fürs
+ *  Überschreiben. Zeigt nichts, solange es keine Fassungen gibt: Wer noch
+ *  nie gespeichert hat, braucht auch keinen Rückweg. */
+function VersionsSection({
+  load,
+  restore,
+}: {
+  load: () => Promise<Fassung[]>;
+  restore: (at: number) => Promise<boolean>;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [rows, setRows] = useState<Fassung[]>([]);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    load().then((versions) => {
+      if (mounted) setRows(versions);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, [load]);
+  if (rows.length === 0) return null;
+  return (
+    <View style={{ gap: 6 }}>
+      <Text style={styles.label}>Frühere Fassungen</Text>
+      {rows.map((row) => (
+        <View key={row.at} style={styles.cardHead}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.detail}>
+              {new Date(row.at * 1000).toLocaleString('de-CH', {
+                day: 'numeric',
+                month: 'short',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </Text>
+            <Text style={styles.triggerNote}>
+              {row.by && row.by !== '?' ? `gespeichert von ${row.by}` : 'gespeichert'}
+            </Text>
+          </View>
+          <Pressable
+            disabled={busy}
+            onPress={async () => {
+              setBusy(true);
+              const ok = await restore(row.at);
+              if (!ok) setBusy(false);
+            }}
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.newButton,
+              (pressed || busy) && { opacity: 0.6 },
+            ]}
+          >
+            <Ionicons name="arrow-undo-outline" size={16} color={colors.ink} />
+            <Text style={styles.newText}>Zurückholen</Text>
+          </Pressable>
+        </View>
+      ))}
+      <Text style={styles.triggerNote}>
+        Beim Zurückholen wird der jetzige Stand selbst zur Fassung – es geht
+        also nichts verloren.
+      </Text>
+    </View>
   );
 }
 
@@ -3891,6 +4071,8 @@ function buildConditions(draft: Draft): Record<string, any>[] {
       conditions.push({ ...base, equals: entry.value });
     }
   }
+  // Was der Editor nicht kennt (Gruppen u.ä.), bleibt erhalten.
+  conditions.push(...(draft.extraConditions ?? []));
   return conditions;
 }
 
@@ -4059,6 +4241,14 @@ function toDraft(automation: Automation): Draft {
         // speicherte, verglich danach den Zustand statt den Messwert.
         ...(entry.attribute ? { attribute: String(entry.attribute) } : {}),
       })),
+    // Alles, was der Editor nicht abbilden kann (Gruppen, zweite
+    // Zeitfenster), unverändert mittragen – sonst löscht «Öffnen und
+    // Speichern» genau die Bedingung, die jemand in der config.yaml
+    // gebaut hat.
+    extraConditions: all.filter(
+      (entry) =>
+        entry !== condition && !((entry.type ?? 'state') === 'state' && entry.entity_id)
+    ),
     match: automation.match === 'any' ? 'any' : 'all',
     weekdays: Array.isArray(condition.weekdays) ? condition.weekdays.map(Number) : [],
     steps: withAtLeastOne(actionsToSteps(automation.actions ?? [])),

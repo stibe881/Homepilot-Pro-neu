@@ -337,6 +337,74 @@ class IntegrationManager:
         if task is not None and not task.done():
             task.cancel()
 
+    async def reload(self, name: str) -> dict[str, Any]:
+        """Eine einzelne Integration neu anlaufen lassen.
+
+        Beim Einrichten eines neuen Geräts ist das der Unterschied
+        zwischen zwei Sekunden und zwei Minuten: config.yaml ändern,
+        neu laden, fertig – statt den ganzen Hub durchzustarten und
+        dabei jede andere Integration mitzureissen.
+
+        Die Konfiguration kommt frisch von der Platte: Wer die
+        config.yaml geändert hat, will genau diese Änderung sehen, nicht
+        den Stand vom Hub-Start. Alte Entitäten der Integration werden
+        vorher ausgetragen – sonst blieben umbenannte oder entfernte
+        Geräte als Karteileichen stehen.
+        """
+        from .config import load_config
+
+        if not self.hub.config.source_path:
+            raise HomePilotError(
+                "Ohne config.yaml-Pfad (Tests, eingebetteter Hub) gibt es "
+                "nichts neu zu laden."
+            )
+        frisch = load_config(self.hub.config.source_path)
+        config = next(
+            (
+                entry
+                for entry in frisch.integrations
+                if entry.get("integration") == name
+            ),
+            None,
+        )
+        # Die Alarmanlage steht oft nicht in der Datei – sie gehört zum
+        # Haus und wird beim Start still ergänzt. Gleiches Recht hier.
+        if config is None and name == "alarm":
+            config = {"integration": "alarm"}
+        if config is None:
+            raise HomePilotError(
+                f"'{name}' steht nicht (mehr) in der config.yaml – zum "
+                "Entfernen reicht das; zum Laden muss sie dort stehen."
+            )
+
+        alt_instanz = self._integrations.pop(name, None)
+        if alt_instanz is not None:
+            try:
+                await alt_instanz.teardown()
+            except Exception:
+                log.exception("Teardown von '%s' beim Neuladen fehlgeschlagen", name)
+        # Karteileichen austragen: Entitäten der alten Fassung.
+        for entity in list(self.hub.registry.all()):
+            if entity.integration == name:
+                await self.hub.registry.remove(entity.id)
+        self._failed.pop(name, None)
+        self._retry.pop(name, None)
+
+        try:
+            cls = load_integration_class(name)
+            instance = cls(self.hub, config)
+            await asyncio.wait_for(instance.setup(), timeout=SETUP_TIMEOUT)
+        except Exception as err:
+            self._failed[name] = setup_error(name, err)
+            if not is_permanent(err):
+                self._retry[name] = config
+                self._start_retries()
+            log.error("Neuladen von '%s' fehlgeschlagen: %s", name, self._failed[name])
+            return {"ok": False, "error": self._failed[name]}
+        self._integrations[name] = instance
+        log.info("Integration %s neu geladen", name)
+        return {"ok": True, "error": None}
+
     async def teardown_all(self) -> None:
         self.stop_retries()
         for integration in self._integrations.values():

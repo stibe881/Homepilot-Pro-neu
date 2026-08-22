@@ -696,6 +696,80 @@ def test_actions_are_described_in_readable_german():
     )
 
 
+def test_condition_groups_nest_and_and_or():
+    """«(Wohnzimmer an oder Kaffee an) und Wohnzimmer an» – die flache
+    Liste kannte nur ein einziges und/oder für alles."""
+
+    async def check():
+        hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+        await hub.start()
+        try:
+            await hub.registry.update_state("demo.light_livingroom", {"state": "on"})
+            licht_an = {"type": "state", "entity_id": "demo.light_livingroom", "equals": "on"}
+            kaffee_an = {"type": "state", "entity_id": "demo.switch_coffee", "equals": "on"}
+            oder = {"type": "group", "match": "any", "conditions": [licht_an, kaffee_an]}
+            und = {"type": "group", "conditions": [oder, licht_an]}
+            assert hub.automations._check_condition(oder) is True
+            assert hub.automations._check_condition(und) is True
+            assert (
+                hub.automations._check_condition(
+                    {"type": "group", "conditions": [licht_an, kaffee_an]}
+                )
+                is False
+            )
+            # Leer heisst «gilt» – wie bei der leeren Bedingungsliste.
+            assert hub.automations._check_condition({"type": "group"}) is True
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())
+
+
+def test_the_dry_run_shows_when_each_action_happens():
+    """«Geht das Licht in fünf Minuten wirklich aus?» – der Trockenlauf
+    soll die Wartezeiten aufsummieren, nicht der Leser."""
+    from homepilot.core.automation import offset_label, timed_actions
+
+    assert offset_label(0) == "sofort"
+    assert offset_label(30) == "nach 30 s"
+    assert offset_label(240) == "nach 4 Min"
+    assert offset_label(270) == "nach 4 Min 30 s"
+    assert offset_label(4200) == "nach 1 Std 10 Min"
+
+    namen = {"demo.light_livingroom": "Stehlampe"}.get
+    zeilen = timed_actions(
+        [
+            {"type": "command", "entity_id": "demo.light_livingroom", "command": "turn_on"},
+            {"type": "delay", "seconds": 240},
+            {"type": "command", "entity_id": "demo.light_livingroom", "command": "turn_off"},
+        ],
+        namen,
+    )
+    assert zeilen == [
+        "sofort: Stehlampe: turn_on",
+        "240 Sekunden warten",
+        "nach 4 Min: Stehlampe: turn_off",
+    ]
+
+    # Nach einem «warten bis» ist der Versatz eine Obergrenze.
+    zeilen = timed_actions(
+        [
+            {"type": "wait_until", "entity_id": "demo.light_livingroom",
+             "equals": "off", "timeout": 60},
+            {"type": "command", "entity_id": "demo.light_livingroom", "command": "turn_off"},
+        ],
+        namen,
+    )
+    assert zeilen[1] == "spätestens nach 1 Min: Stehlampe: turn_off"
+
+    # Ohne Wartezeiten bleibt die Liste unverändert – kein «sofort»-Lärm.
+    zeilen = timed_actions(
+        [{"type": "command", "entity_id": "demo.light_livingroom", "command": "toggle"}],
+        namen,
+    )
+    assert zeilen == ["Stehlampe: toggle"]
+
+
 def test_the_dry_run_changes_nothing():
     """Genau das ist der Punkt: Der Testlauf über /trigger fährt die Storen
     wirklich aus."""

@@ -162,6 +162,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     user,
     error,
     cachedAt,
+    familyChangedAt,
     pending,
     queued,
     undo,
@@ -310,9 +311,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   }, [hub, settings.url, settings.token]);
   useEffect(() => {
     ladeEinkauf();
-    const timer = setInterval(ladeEinkauf, 60000);
+    // Nur noch als Rückfalltakt: Änderungen kommen über den WebSocket
+    // (family_changed, unten). Die Viertelstunde fängt verpasste
+    // Ereignisse ab - etwa wenn die Verbindung kurz weg war.
+    const timer = setInterval(ladeEinkauf, 15 * 60000);
     return () => clearInterval(timer);
   }, [ladeEinkauf]);
+  // Der Hub meldet jede Änderung an den Familienlisten sofort - so steht
+  // das Abgehakte des einen beim anderen ohne Minute Wartezeit.
+  useEffect(() => {
+    if (familyChangedAt) ladeEinkauf();
+  }, [familyChangedAt, ladeEinkauf]);
   // Und immer dann, wenn die Startseite wieder erscheint: Wer gerade
   // unter Familie etwas eingetragen hat, will es oben sofort sehen und
   // nicht bis zur nächsten Minute warten.
@@ -1126,6 +1135,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           currentUser={user}
           moduleOrder={prefs.order?.family}
           onReorderModules={(keys) => setOrder('family', keys)}
+          changedAt={familyChangedAt}
         />
       );
     }

@@ -39,6 +39,30 @@ def test_an_automation_is_rewritten_in_all_four_places():
     assert ablauf["otherwise"][0]["entity_id"] == "hue.neu"
 
 
+def test_a_condition_group_is_rewritten_in_depth():
+    """Bedingungsgruppen schachteln – ein flacher Durchlauf liesse genau
+    die Verweise stehen, die in der Gruppe stecken."""
+    ablauf = {
+        "condition": [
+            {
+                "type": "group",
+                "match": "any",
+                "conditions": [
+                    {"entity_id": "hue.alt", "equals": "on"},
+                    {
+                        "type": "group",
+                        "conditions": [{"entity_id": "hue.alt", "equals": "off"}],
+                    },
+                ],
+            }
+        ],
+    }
+    assert swap_in_automation(ablauf, "hue.alt", "hue.neu") == 2
+    gruppe = ablauf["condition"][0]
+    assert gruppe["conditions"][0]["entity_id"] == "hue.neu"
+    assert gruppe["conditions"][1]["conditions"][0]["entity_id"] == "hue.neu"
+
+
 def test_untouched_entries_stay_untouched():
     """Ein Ersetzen, das Nachbareinträge mitnimmt, wäre schlimmer als
     keines - dann steht die halbe Wohnung falsch."""

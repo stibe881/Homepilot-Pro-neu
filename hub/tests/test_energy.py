@@ -170,3 +170,36 @@ def test_standby_costs_ignores_the_extremes():
     # 12 W rund um die Uhr sind gut 105 kWh im Jahr.
     assert rows[0]["kwh_year"] == 105.1
     assert rows[0]["cost_year"] == 29.43
+
+
+def test_hourly_counter_readings_become_usage_per_hour():
+    """Gespeichert sind Zählerstände, die Anzeige will Differenzen – und
+    eine ausgefallene Stunde trägt ihren Nachholwert, statt geglättet zu
+    werden."""
+    from homepilot.core.energy import HOUR_LIMIT, hourly_usage, record_hour
+
+    hours: list = []
+    # Zählerstände über den Morgen: 0.4 → 0.9 → (Loch) → 2.1 kWh.
+    hours = record_hour(hours, "2026-08-22", 7, 0.4)
+    hours = record_hour(hours, "2026-08-22", 8, 0.9)
+    hours = record_hour(hours, "2026-08-22", 10, 2.1)
+    # Zweimal dieselbe Stunde: der Höchststand gewinnt.
+    hours = record_hour(hours, "2026-08-22", 10, 1.8)
+    # Ein anderer Tag stört nicht.
+    hours = record_hour(hours, "2026-08-21", 23, 9.9)
+
+    verlauf = hourly_usage(hours, "2026-08-22")
+    assert verlauf == [
+        {"hour": 7, "kwh": 0.4},
+        {"hour": 8, "kwh": 0.5},
+        {"hour": 10, "kwh": 1.2},
+    ]
+
+    # Die Liste bleibt bei zwei Tagen Stunden gedeckelt.
+    for hour in range(24):
+        hours = record_hour(hours, "2026-08-23", hour, hour * 0.1 + 0.1)
+        hours = record_hour(hours, "2026-08-24", hour, hour * 0.1 + 0.1)
+        hours = record_hour(hours, "2026-08-25", hour, hour * 0.1 + 0.1)
+    assert len(hours) == HOUR_LIMIT
+    # Und was hinausfällt, ist das Älteste.
+    assert all(entry["day"] >= "2026-08-24" for entry in hours)

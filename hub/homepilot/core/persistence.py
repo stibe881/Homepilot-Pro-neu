@@ -57,6 +57,12 @@ EMPTY: dict[str, Any] = {
     "automation_runs": [],
     # Papierkorb für gelöschte Szenen und Abläufe.
     "trash": [],
+    # Frühere Fassungen bearbeiteter Szenen und Abläufe (editversions.py) -
+    # das Gegenstück zum Papierkorb fürs Überschreiben.
+    "edit_versions": [],
+    # Stundenstände des Stromzählers der letzten zwei Tage (energy.py) -
+    # beantwortet «wann?», die Tageswerte nur «wie viel?».
+    "energy_hours": [],
     # Angemeldete Sitzungen (nur Hashwerte, siehe sessions.py).
     "sessions": [],
     # Anmelde-Adressen je Benutzer: [{name, email}]. Getrennt von den
@@ -127,12 +133,24 @@ def strip_users(users: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sauber
 
 
+## So lange nach einem Schreibvorgang werden weitere nur vorgemerkt.
+#
+# Der Wächter schreibt in einer Runde gern drei Listen nacheinander
+# (Energie-Tage, Energie-Stunden, Ablauf-Verlauf) - und jede davon schrieb
+# bisher die ganze Datei samt fsync neu. Eine Sekunde Sammelzeit macht
+# daraus einen Schreibvorgang; verlieren kann ein harter Absturz damit
+# höchstens diese eine Sekunde. Der geordnete Halt ruft flush().
+FLUSH_DELAY = 1.0
+
+
 class DataStore:
     def __init__(self, path: str | Path | None) -> None:
         # Ohne Pfad läuft alles nur im Speicher – so legen Tests und
         # programmatisch gebaute Hubs keine Dateien nebenher an.
         self.path = Path(path) if path else None
         self._data: dict[str, Any] = dict(EMPTY)
+        self._dirty = False
+        self._last_write = 0.0
 
     def load(self) -> dict[str, Any]:
         if self.path is None or not self.path.exists():
@@ -159,6 +177,26 @@ class DataStore:
         self.save()
 
     def save(self) -> None:
+        """Speichern - gesammelt statt bei jedem Aufruf.
+
+        Der erste Aufruf schreibt sofort; was innerhalb von ``FLUSH_DELAY``
+        danach kommt, wird nur vorgemerkt und von ``flush()`` nachgeholt
+        (der Hub ruft es im Takt und beim Halt). So wird aus einem Schwall
+        von drei ``set()`` ein einziger Schreibvorgang mit fsync.
+        """
+        if self.path is None:
+            return
+        self._dirty = True
+        if time.monotonic() - self._last_write < FLUSH_DELAY:
+            return
+        self._write()
+
+    def flush(self) -> None:
+        """Vorgemerktes jetzt schreiben - beim Halt und im Takt des Hubs."""
+        if self._dirty and self.path is not None:
+            self._write()
+
+    def _write(self) -> None:
         """Schreibt über eine temporäre Datei.
 
         Bei einem Stromausfall mitten im Schreiben bliebe sonst eine halbe
@@ -166,6 +204,8 @@ class DataStore:
         """
         if self.path is None:
             return
+        self._dirty = False
+        self._last_write = time.monotonic()
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with tempfile.NamedTemporaryFile(

@@ -51,6 +51,9 @@ interface Props {
   /** Selbst gezogene Reihenfolge der Modul-Kacheln (je Benutzer, vom Hub). */
   moduleOrder?: string[];
   onReorderModules?: (keys: string[]) => void;
+  /** Zeitstempel der letzten Familien-Änderung (family_changed über den
+   *  WebSocket) – ändert er sich, lädt der Bildschirm neu. */
+  changedAt?: number;
 }
 
 type ModuleKey =
@@ -1305,6 +1308,7 @@ export function FamilyScreen({
   currentUser,
   moduleOrder,
   onReorderModules,
+  changedAt,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -1331,6 +1335,12 @@ export function FamilyScreen({
   }, [settings.url, headers]);
 
   useEffect(load, [load]);
+
+  // Änderungen anderer Geräte kommen als Fingerzeig über den WebSocket –
+  // was Livia abhakt, steht bei Stefan sofort, ohne Minutentakt-Abfrage.
+  useEffect(() => {
+    if (changedAt) load();
+  }, [changedAt, load]);
 
   useEffect(() => {
     fetch(`${settings.url}/api/users`, { headers })

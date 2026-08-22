@@ -12,6 +12,7 @@ Bedingungen:
   - {type: state, entity_id, attribute?: "state", equals? | above? | below?}
   - {type: time, after?: "HH:MM", before?: "HH:MM", weekdays?: [0..6]}
   - {type: sun, state: "up"|"down"}   # steht die Sonne über dem Horizont?
+  - {type: group, match: "any"|"all", conditions: [...]}  # und/oder geschachtelt
 
 Aktionen:
   - {type: command, entity_id, command, data?}
@@ -329,6 +330,74 @@ def describe_action(action: dict[str, Any], name_of: Any = None) -> str:
     return f"unbekannte Aktion «{atype}»"
 
 
+def offset_label(seconds: float) -> str:
+    """«sofort», «nach 30 s», «nach 4 Min» – wann eine Aktion dran ist
+    (rein, testbar)."""
+    ganze = int(round(seconds))
+    if ganze <= 0:
+        return "sofort"
+    if ganze < 60:
+        return f"nach {ganze} s"
+    stunden, rest = divmod(ganze, 3600)
+    minuten, sekunden = divmod(rest, 60)
+    teile: list[str] = []
+    if stunden:
+        teile.append(f"{stunden} Std")
+    if minuten:
+        teile.append(f"{minuten} Min")
+    # Sekundenreste nur unterhalb einer Stunde – «nach 2 Std 5 s» hilft
+    # niemandem, «nach 4 Min 30 s» dagegen schon.
+    if sekunden and not stunden:
+        teile.append(f"{sekunden} s")
+    return "nach " + " ".join(teile)
+
+
+def timed_actions(actions: list[dict[str, Any]], name_of: Any = None) -> list[str]:
+    """Die Aktionsliste mit Zeitversatz – für den Trockenlauf (rein, testbar).
+
+    «Was geschieht in fünf Minuten – und geht das Licht dann wirklich
+    aus?» Bisher zählte der Trockenlauf die Aktionen nur auf; bei einem
+    Ablauf mit Wartezeiten musste man den Versatz im Kopf aufsummieren.
+    Jetzt trägt jede Aktion ihren Zeitpunkt: Verzögerungen summieren
+    sich, ein «warten bis» zählt mit seiner Frist als spätester
+    Zeitpunkt («spätestens nach …»). Ohne Wartezeiten bleibt die Liste,
+    wie sie war – ein «sofort» vor jeder Zeile wäre nur Lärm.
+    """
+    hat_wartezeit = any(
+        action.get("type") in ("delay", "wait_until") for action in actions
+    )
+    lines: list[str] = []
+    offset = 0.0
+    nur_spaetestens = False
+    for action in actions:
+        atype = action.get("type", "command")
+        if atype == "delay":
+            try:
+                offset += float(action.get("seconds") or 0)
+            except (TypeError, ValueError):
+                pass
+            lines.append(describe_action(action, name_of))
+            continue
+        if atype == "wait_until":
+            try:
+                offset += max(1.0, float(action.get("timeout") or WAIT_TIMEOUT))
+            except (TypeError, ValueError):
+                offset += WAIT_TIMEOUT
+            # Die Bedingung kann früher zutreffen – ab hier ist der
+            # Versatz eine Obergrenze, kein Termin.
+            nur_spaetestens = True
+            lines.append(describe_action(action, name_of))
+            continue
+        if not hat_wartezeit:
+            lines.append(describe_action(action, name_of))
+            continue
+        prefix = offset_label(offset)
+        if nur_spaetestens and offset > 0:
+            prefix = f"spätestens {prefix}"
+        lines.append(f"{prefix}: {describe_action(action, name_of)}")
+    return lines
+
+
 def describe_condition(condition: dict[str, Any], value: Any) -> str:
     """Warum eine Bedingung nicht passte, in einem Satz (rein, testbar).
 
@@ -336,6 +405,10 @@ def describe_condition(condition: dict[str, Any], value: Any) -> str:
     ist unter 30» beantwortet die Frage sofort.
     """
     ctype = condition.get("type", "state")
+    if ctype == "group":
+        subs = [c for c in condition.get("conditions") or [] if isinstance(c, dict)]
+        art = "oder" if str(condition.get("match", "all")) == "any" else "und"
+        return f"«{art}»-Gruppe mit {len(subs)} Bedingungen nicht erfüllt"
     if ctype == "time":
         days = parse_weekdays(condition.get("weekdays"))
         if days and datetime.now().weekday() not in days:
@@ -1313,7 +1386,7 @@ class AutomationEngine:
             "conditions_hold": held,
             "skipped": failed,
             "branch": "aktionen" if held else "sonst",
-            "would_run": [describe_action(action, name_of) for action in actions],
+            "would_run": timed_actions(actions, name_of),
         }
 
     def _value_of(self, condition: dict[str, Any]) -> Any:
@@ -1327,6 +1400,19 @@ class AutomationEngine:
 
     def _check_condition(self, condition: dict[str, Any]) -> bool:
         ctype = condition.get("type", "state")
+        if ctype == "group":
+            # «(Wochenende oder Ferien) und dunkel» ging bisher nicht: Die
+            # Bedingungsliste kannte nur ein einziges und/oder für alles.
+            # Eine Gruppe verknüpft ihre Unterbedingungen selbst und darf
+            # weitere Gruppen enthalten.
+            subs = [c for c in condition.get("conditions") or [] if isinstance(c, dict)]
+            if not subs:
+                # Wie bei der leeren Bedingungsliste: leer heisst «gilt» –
+                # eine vergessene Gruppe soll auffallen, nicht lähmen.
+                return True
+            if str(condition.get("match", "all")) == "any":
+                return any(self._check_condition(c) for c in subs)
+            return all(self._check_condition(c) for c in subs)
         if ctype == "state":
             entity = self.hub.registry.get(condition.get("entity_id", ""))
             if entity is None:

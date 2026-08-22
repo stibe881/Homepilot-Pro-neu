@@ -90,3 +90,64 @@ def test_say_remembers_the_base_address():
     # Unverändert = kein erneutes Schreiben nötig, aber gleicher Wert.
     say.remember_base(hub, "http://10.10.1.20:8123")
     assert say.base_url(hub) == "http://10.10.1.20:8123"
+
+
+def test_a_spoken_sentence_survives_without_internet(tmp_path, monkeypatch):
+    """«Es hat geklingelt» liegt nach dem ersten Mal im Vorrat - und kommt
+    von dort auch, wenn gTTS gerade kein Netz hat."""
+    import asyncio
+
+    hub = Hub(make_config())
+    hub.config.data_file = str(tmp_path / "daten.json")
+    say.remember_base(hub, "http://10.10.1.20:8123")
+
+    # Vorrat direkt füllen - synthesize selbst braucht Internet.
+    folder = say.cache_dir(hub)
+    say.store_audio(folder, "Es hat geklingelt", b"mp3-bytes")
+    assert say.cached_audio(folder, "Es hat geklingelt") == b"mp3-bytes"
+    assert say.cached_audio(folder, "Anderer Satz") is None
+
+    # gTTS fällt aus - der Satz aus dem Vorrat geht trotzdem raus.
+    def kaputt(text):
+        raise RuntimeError("kein Netz")
+
+    monkeypatch.setattr(say, "synthesize", kaputt)
+
+    async def check():
+        await hub.start()
+        try:
+            # Ein Cast-Lautsprecher, der play_url kann.
+            from homepilot.core.entity import Entity
+
+            box = Entity(
+                id="cast.stube",
+                name="Box Stube",
+                kind="media",
+                integration="demo",
+                commands=["play_url"],
+            )
+            await hub.registry.add(box)
+            gesagt = []
+
+            async def merken(entity_id, command, data):
+                gesagt.append((entity_id, command, data))
+
+            monkeypatch.setattr(hub.integrations, "dispatch_command", merken)
+            result = await say.speak(hub, "Es hat geklingelt")
+            assert result["sent"] == ["Box Stube"]
+            assert gesagt and gesagt[0][1] == "play_url"
+
+            # Ein unbekannter Satz scheitert ehrlich mit einem lesbaren
+            # Grund (hier: gTTS fehlt bzw. hat kein Netz) - statt still
+            # nichts zu sagen.
+            from homepilot.core.errors import HomePilotError
+
+            try:
+                await say.speak(hub, "Noch nie gesagt")
+                raise AssertionError("hätte scheitern müssen")
+            except HomePilotError:
+                pass
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())

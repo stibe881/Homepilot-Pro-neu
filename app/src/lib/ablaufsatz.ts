@@ -59,6 +59,15 @@ function triggerSatz(trigger: Roh, entities: Entity[]): string {
 }
 
 function bedingungSatz(condition: Roh, entities: Entity[]): string {
+  if (condition.type === 'group') {
+    // Geschachtelte und/oder-Gruppen des Hubs – in Klammern, damit die
+    // Verknüpfung im Satz lesbar bleibt: «(Wochenende oder Ferien) und dunkel».
+    const teile = ((condition.conditions ?? []) as Roh[])
+      .map((sub) => bedingungSatz(sub, entities))
+      .filter(Boolean);
+    if (teile.length === 0) return '';
+    return `(${teile.join(condition.match === 'any' ? ' oder ' : ' und ')})`;
+  }
   if (condition.type === 'sun') {
     return condition.state === 'up' ? 'hell' : 'dunkel';
   }

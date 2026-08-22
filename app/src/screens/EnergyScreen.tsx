@@ -34,6 +34,9 @@ interface Months {
   };
   /** Derselbe Monat im Vorjahr; 0 heisst «wissen wir noch nicht». */
   year_ago_kwh?: number;
+  /** Verbrauch je Stunde – beantwortet «wann?», nicht nur «wie viel?». */
+  hours_today?: { hour: number; kwh: number }[];
+  hours_yesterday?: { hour: number; kwh: number }[];
 }
 
 interface DeviceEnergy {
@@ -209,6 +212,8 @@ export function EnergyScreen({
         ) : null}
       </Card>
 
+      <HoursCard months={months} styles={styles} />
+
       <MonthCard
         months={months}
         price={price}
@@ -330,6 +335,91 @@ export function EnergyScreen({
 
       <Cycles stats={cycles} styles={styles} colors={colors} />
     </View>
+  );
+}
+
+/**
+ * Der Tagesverlauf in Stunden.
+ *
+ * Der Tageswert sagt, *wie viel* verbraucht wurde – erst die Stunden
+ * sagen, *wann*: der Backofen um 18 Uhr, nicht der Kühlschrank. Gestern
+ * liegt zum Umschalten daneben, mit derselben Skala, damit die Balken
+ * vergleichbar bleiben.
+ */
+function HoursCard({
+  months,
+  styles,
+}: {
+  months: Months | null;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  const [day, setDay] = useState<'today' | 'yesterday'>('today');
+  const today = months?.hours_today ?? [];
+  const yesterday = months?.hours_yesterday ?? [];
+  // Unter zwei Stunden gibt es keinen Verlauf zu sehen.
+  if (!months || today.length + yesterday.length < 2) return null;
+
+  const shown = day === 'today' ? today : yesterday;
+  const byHour = new Map(shown.map((entry) => [entry.hour, entry.kwh]));
+  const peak = Math.max(
+    0.05,
+    ...today.map((entry) => entry.kwh),
+    ...yesterday.map((entry) => entry.kwh)
+  );
+  const total = shown.reduce((sum, entry) => sum + entry.kwh, 0);
+
+  return (
+    <Card style={styles.card}>
+      <Text style={styles.heading}>Tagesverlauf</Text>
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        {(['today', 'yesterday'] as const).map((key) => (
+          <Pressable
+            key={key}
+            onPress={() => setDay(key)}
+            accessibilityRole="button"
+            style={[styles.hourChip, day === key && styles.hourChipActive]}
+          >
+            <Text
+              style={[styles.hourChipText, day === key && styles.hourChipTextActive]}
+            >
+              {key === 'today' ? 'heute' : 'gestern'}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+      {shown.length === 0 ? (
+        <Text style={styles.hint}>
+          {day === 'today'
+            ? 'Für heute liegt noch nichts vor.'
+            : 'Von gestern liegt nichts vor – die Stunden werden erst seit ' +
+              'diesem Stand mitgeschrieben.'}
+        </Text>
+      ) : (
+        <>
+          <View style={styles.days}>
+            {Array.from({ length: 24 }, (_, hour) => (
+              <View key={hour} style={styles.dayColumn}>
+                <View
+                  style={[
+                    styles.dayBar,
+                    {
+                      height: Math.max(
+                        byHour.has(hour) ? 2 : 0,
+                        Math.round(((byHour.get(hour) ?? 0) / peak) * 48)
+                      ),
+                    },
+                  ]}
+                />
+              </View>
+            ))}
+          </View>
+          <Text style={styles.rowDetail}>
+            Ein Balken je Stunde (0–23 Uhr), zusammen {total.toFixed(1)} kWh.
+            Die Skala ist für heute und gestern dieselbe.
+          </Text>
+        </>
+      )}
+    </Card>
   );
 }
 
@@ -572,4 +662,17 @@ const makeStyles = (colors: Colors) =>
     },
     dayColumn: { flex: 1, justifyContent: 'flex-end', minWidth: 3 },
     dayBar: { borderRadius: 2, backgroundColor: colors.accent },
+    hourChip: {
+      paddingHorizontal: 12,
+      paddingVertical: 5,
+      borderRadius: radius.pill,
+      backgroundColor: colors.track,
+      borderWidth: 1,
+      borderColor: 'transparent',
+    },
+    // Wie die Favoriten-Chips der Übersicht: aktiv heisst Akzent-Rand,
+    // nicht gefüllt – so bleibt der Text in jeder Theme-Farbe lesbar.
+    hourChipActive: { borderColor: colors.accent },
+    hourChipText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
+    hourChipTextActive: { color: colors.ink },
   });

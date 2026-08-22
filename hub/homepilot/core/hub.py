@@ -40,7 +40,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import __version__
-from . import config_edit, metrics
+from . import config_edit, metrics, persistence
 from . import push as push_service
 from . import users as users_module
 from .audit import AuditLog
@@ -170,6 +170,10 @@ class Hub:
         self.started_at = time.time()
         self.watchdog.start()
         self._backup_task = asyncio.create_task(self._backup_loop())
+        # Gesammelte Schreibvorgänge nachholen: Der DataStore schreibt bei
+        # einem Schwall nur den ersten sofort (siehe persistence.FLUSH_DELAY);
+        # dieser Takt bringt den Rest zeitnah auf die Platte.
+        self._flush_task = asyncio.create_task(self._flush_loop())
 
         if self.users.open_access:
             log.warning(
@@ -194,6 +198,20 @@ class Hub:
             len(self.users.users),
             "Supabase" if self.store else "keine",
         )
+
+    async def _flush_loop(self) -> None:
+        """Vorgemerkte Schreibvorgänge des DataStore auf die Platte bringen.
+
+        Der Takt entspricht der Sammelzeit: Länger warten hiesse bei einem
+        harten Absturz mehr verlieren, kürzer brächte nichts, weil der
+        DataStore ohnehin erst nach der Sammelzeit wieder schreibt.
+        """
+        try:
+            while True:
+                await asyncio.sleep(persistence.FLUSH_DELAY)
+                self.data.flush()
+        except asyncio.CancelledError:
+            raise
 
     async def _backup_loop(self) -> None:
         """Sichert die App-Daten täglich – beim Start sofort, sonst alle 24 h.
@@ -522,13 +540,14 @@ class Hub:
         ring_pfad = self._log_ring_path()
         if ring_pfad:
             self.log_buffer.save(ring_pfad)
-        task = getattr(self, "_backup_task", None)
-        if task is not None:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+        for name in ("_backup_task", "_flush_task"):
+            task = getattr(self, name, None)
+            if task is not None:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
         await self.streams.stop_all()
         await self.watchdog.stop()
         await self.timers.stop()
@@ -537,6 +556,9 @@ class Hub:
         if self.store:
             await self.store.stop()
             self.store = None
+        # Was der DataStore noch gesammelt hat, muss vor dem Ende auf die
+        # Platte - der Takt dafür ist oben schon beendet.
+        self.data.flush()
         self.registry.state_provider = None
         self.registry.room_provider = None
         self.registry.meta_provider = None

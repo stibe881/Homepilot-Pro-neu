@@ -167,7 +167,11 @@ export function SystemScreen({
       {/* Die Geräte-Gesundheit steht jetzt unter «Geräte» – dort sucht
           man nach einem Gerät, hier nach dem Hub. */}
 
-      <IntegrationsCard integrations={status.integrations} />
+      <IntegrationsCard
+        integrations={status.integrations}
+        settings={settings}
+        onReloaded={load}
+      />
 
       {(status.outages ?? []).length > 0 ? (
         <Card style={styles.card}>
@@ -1279,12 +1283,49 @@ export function offline(entities: Entity[]): Entity[] {
  */
 function IntegrationsCard({
   integrations,
+  settings,
+  onReloaded,
 }: {
   integrations: SystemStatus['integrations'];
+  settings: HubSettings;
+  /** Nach einem Neuladen: Status frisch holen. */
+  onReloaded: () => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [open, setOpen] = useState(false);
+  const [busyName, setBusyName] = useState<string | null>(null);
+  const [reloadNote, setReloadNote] = useState<string | null>(null);
+
+  /** Eine Integration neu anlaufen lassen – config.yaml geändert, neu
+   *  laden, fertig. Vorher hiess das: den ganzen Hub durchstarten. */
+  const reload = async (name: string) => {
+    setBusyName(name);
+    setReloadNote(null);
+    try {
+      const response = await fetch(
+        `${settings.url}/api/integrations/${encodeURIComponent(name)}/reload`,
+        {
+          method: 'POST',
+          headers: settings.token ? { Authorization: `Bearer ${settings.token}` } : {},
+        }
+      );
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(body.detail ?? `Hub antwortet mit ${response.status}`);
+      }
+      setReloadNote(
+        body.ok
+          ? `${name} neu geladen.`
+          : `${name}: ${body.error ?? 'Neuladen fehlgeschlagen'}`
+      );
+    } catch (err) {
+      setReloadNote(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusyName(null);
+      onReloaded();
+    }
+  };
   const broken = integrations.filter((integration) => !integration.ok);
   // Eine Integration kann laufen und trotzdem halb taub sein: Ring lädt
   // seine Geräte, aber der Ereigniskanal steht nicht, und dann klingelt
@@ -1323,6 +1364,7 @@ function IntegrationsCard({
           color={colors.inkSoft}
         />
       </Pressable>
+      {reloadNote ? <Text style={styles.hint}>{reloadNote}</Text> : null}
       {shown.map((integration) => (
         <View key={integration.name} style={styles.row}>
           <Ionicons
@@ -1356,6 +1398,19 @@ function IntegrationsCard({
               <Text style={styles.rowDetail}>{healthText(integration.health)}</Text>
             ) : null}
           </View>
+          <Pressable
+            onPress={() => reload(integration.name)}
+            disabled={busyName !== null}
+            accessibilityRole="button"
+            accessibilityLabel={`${integration.name} neu laden`}
+            hitSlop={8}
+          >
+            <Ionicons
+              name={busyName === integration.name ? 'hourglass-outline' : 'refresh-outline'}
+              size={18}
+              color={busyName ? colors.inkFaint : colors.inkSoft}
+            />
+          </Pressable>
         </View>
       ))}
     </Card>

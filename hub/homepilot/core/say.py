@@ -9,14 +9,22 @@ Die Basis-Adresse merkt sich der Hub von den Anfragen der App: Dieselbe
 Adresse, unter der die App den Hub erreicht, erreichen im Normalfall
 auch die Lautsprecher. Gespeichert wird sie mit, damit ein Ablauf auch
 direkt nach einem Neustart durchsagen kann.
+
+gTTS braucht Internet - und «Es hat geklingelt» soll auch durchkommen,
+wenn die Leitung gerade tot ist. Deshalb wandert jedes erzeugte MP3 in
+einen kleinen Vorrat auf der Platte; ein schon einmal gesprochener Satz
+kommt von dort, mit oder ohne Netz. Die immergleichen Ablauf-Durchsagen
+liegen so nach dem ersten Mal dauerhaft bereit.
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import io
 import logging
 from contextlib import nullcontext
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .errors import HomePilotError
@@ -28,6 +36,47 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 MAX_TEXT = 200
+
+# So viele gesprochene Sätze bleiben im Vorrat. Ein MP3 sind ~20-50 KB;
+# die Standardsätze eines Haushalts sind eine Handvoll.
+CACHE_LIMIT = 40
+
+
+def cache_dir(hub: Hub) -> Path | None:
+    """Wo der Vorrat liegt: neben der Datendatei. Ohne sie (Tests, Demo
+    im Speicher) auch kein Vorrat."""
+    if not hub.config.data_file:
+        return None
+    return Path(hub.config.data_file).parent / "say-cache"
+
+
+def cache_file(folder: Path, text: str) -> Path:
+    """Die Datei zu einem Satz (rein, testbar). Der Name ist ein Hash -
+    Umlaute, Länge und Schrägstriche im Text gehen ihn nichts an."""
+    key = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+    return folder / f"{key}.mp3"
+
+
+def cached_audio(folder: Path, text: str) -> bytes | None:
+    """Den Satz aus dem Vorrat holen, wenn er da ist."""
+    try:
+        return cache_file(folder, text).read_bytes()
+    except OSError:
+        return None
+
+
+def store_audio(folder: Path, text: str, audio: bytes) -> None:
+    """Den Satz in den Vorrat legen - still bei jedem Fehler: Der Vorrat
+    ist eine Zugabe, keine Voraussetzung fürs Durchsagen."""
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        cache_file(folder, text).write_bytes(audio)
+        # Die ältesten hinauswerfen, wenn es zu viele werden.
+        files = sorted(folder.glob("*.mp3"), key=lambda f: f.stat().st_mtime)
+        for stale in files[: max(0, len(files) - CACHE_LIMIT)]:
+            stale.unlink(missing_ok=True)
+    except OSError as err:
+        log.debug("Durchsage-Vorrat nicht schreibbar: %s", err)
 
 
 def base_url(hub: Hub) -> str | None:
@@ -74,14 +123,6 @@ async def speak(
             "Bitte kurz halten - eine Durchsage ist kein Vortrag "
             f"(höchstens {MAX_TEXT} Zeichen)."
         )
-    try:
-        import gtts  # noqa: F401
-    except ImportError as err:
-        raise HomePilotError(
-            "Sprachausgabe nicht installiert - das Abbild braucht das "
-            "Extra 'speech' (gTTS)."
-        ) from err
-
     address = (base or "").rstrip("/") or base_url(hub)
     if not address:
         raise HomePilotError(
@@ -89,12 +130,29 @@ async def speak(
             "dann kennt der Hub sie."
         )
 
-    try:
-        audio = await asyncio.to_thread(synthesize, cleaned)
-    except Exception as err:
-        raise HomePilotError(
-            f"Sprachausgabe fehlgeschlagen (braucht Internet): {err}"
-        ) from err
+    # Erst der Vorrat, dann das Netz: Ein schon einmal gesprochener Satz
+    # kommt sofort und auch ohne Internet.
+    folder = cache_dir(hub)
+    audio = cached_audio(folder, cleaned) if folder else None
+    if audio is None:
+        # Erst hier nach gTTS fragen: Ein Satz aus dem Vorrat braucht
+        # weder die Bibliothek noch Internet.
+        try:
+            import gtts  # noqa: F401
+        except ImportError as err:
+            raise HomePilotError(
+                "Sprachausgabe nicht installiert - das Abbild braucht das "
+                "Extra 'speech' (gTTS)."
+            ) from err
+        try:
+            audio = await asyncio.to_thread(synthesize, cleaned)
+        except Exception as err:
+            raise HomePilotError(
+                f"Sprachausgabe fehlgeschlagen (braucht Internet, und dieser "
+                f"Satz liegt noch nicht im Vorrat): {err}"
+            ) from err
+        if folder:
+            store_audio(folder, cleaned, audio)
 
     token = hub.snapshots.put(audio)
     url = f"{address}/api/broadcast/{token}.mp3"

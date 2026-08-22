@@ -37,6 +37,30 @@ def test_datastore_writes_atomically(tmp_path):
     assert oct(path.stat().st_mode)[-3:] == "600"
 
 
+def test_a_burst_of_writes_becomes_one_write(tmp_path):
+    """Drei set() in einer Runde (Energie-Tage, -Stunden, Ablauf-Verlauf)
+    sollen die Datei einmal schreiben, nicht dreimal - und flush() holt
+    den Rest nach, ohne dass etwas verloren geht."""
+    path = tmp_path / "daten.json"
+    store = DataStore(path)
+    store.set("users", [{"name": "Gast", "token": "g"}])
+    # Der erste Schreibvorgang landet sofort …
+    assert json.loads(path.read_text())["users"][0]["name"] == "Gast"
+
+    # … der Schwall direkt danach nur im Speicher.
+    store.set("audit", [{"was": "eins"}])
+    store.set("audit", [{"was": "zwei"}])
+    assert json.loads(path.read_text())["audit"] == []
+
+    # flush() (im Hub im Takt und beim Halt) bringt den letzten Stand.
+    store.flush()
+    assert json.loads(path.read_text())["audit"] == [{"was": "zwei"}]
+    # Und ohne Vorgemerktes schreibt flush() nicht erneut.
+    before = path.stat().st_mtime_ns
+    store.flush()
+    assert path.stat().st_mtime_ns == before
+
+
 def test_broken_file_does_not_stop_the_hub(tmp_path):
     path = tmp_path / "kaputt.json"
     path.write_text("{kein json", encoding="utf-8")

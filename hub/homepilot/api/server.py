@@ -10,6 +10,7 @@ WebSocket-Protokoll (/ws):
     {"type": "snapshot", "entities": [...], "user": {...}, "rooms": [...]}
     {"type": "state_changed", "entity": {...}, "source": {...}, ...}
     {"type": "entity_added" | "entity_removed", ...}
+    {"type": "family_changed", "collection": "shopping"}   # nur der Fingerzeig
     {"type": "result", "ok": false, "error": "...", "entity_id": "..."}
     {"type": "pong"}
   Client → Server:
@@ -25,7 +26,7 @@ import logging
 import os
 import threading
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +58,7 @@ from ..core import (
     supabase_auth,
     watchdog,
 )
+from ..core import editversions as editversions_module
 from ..core import energy as energy_module
 from ..core import goodnight as goodnight_module
 from ..core import hausblatt as hausblatt_module
@@ -97,6 +99,11 @@ class CommandRequest(BaseModel):
 
 class PauseRequest(BaseModel):
     seconds: float = 7200
+
+
+class RestoreVersionRequest(BaseModel):
+    # Der Zeitstempel ist die Kennung der Fassung (siehe editversions.py).
+    at: float
 
 
 class PushRegistration(BaseModel):
@@ -966,6 +973,64 @@ def create_app(hub: Hub) -> FastAPI:
         hub.data.set("trash", [])
         return {"ok": True}
 
+    # ── Frühere Fassungen (das Gegenstück zum Papierkorb fürs Überschreiben) ──
+
+    @app.get("/api/edit-history/{kind}/{item_id}")
+    async def list_edit_versions(
+        kind: str, item_id: str, request: Request
+    ) -> dict[str, Any]:
+        require(request, Capability.EDIT_AUTOMATIONS)
+        if kind not in ("scene", "automation"):
+            raise HTTPException(status_code=400, detail="Unbekannte Art")
+        rows = editversions_module.versions_of(
+            hub.data.get("edit_versions"), kind, item_id
+        )
+        # Ohne den vollen Inhalt: Die App braucht Zeitpunkt und Urheber,
+        # zurückgeholt wird über den Zeitstempel.
+        return {
+            "versions": [
+                {k: v for k, v in row.items() if k != "item"} for row in rows
+            ]
+        }
+
+    @app.post("/api/edit-history/{kind}/{item_id}/restore")
+    async def restore_edit_version(
+        kind: str, item_id: str, body: RestoreVersionRequest, request: Request
+    ) -> dict[str, Any]:
+        """Eine frühere Fassung zurückholen.
+
+        Der jetzige Stand wird dabei selbst zur Fassung - Zurückholen ist
+        damit ebenso wenig endgültig wie das Speichern davor.
+        """
+        require(request, Capability.EDIT_AUTOMATIONS)
+        if kind not in ("scene", "automation"):
+            raise HTTPException(status_code=400, detail="Unbekannte Art")
+        rows = hub.data.get("edit_versions")
+        row = editversions_module.find(rows, kind, item_id, body.at)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Fassung nicht (mehr) da")
+        key = "scenes" if kind == "scene" else "automations"
+        stored = hub.data.get(key)
+        current = next((entry for entry in stored if entry.get("id") == item_id), None)
+        if current is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Nur in der App angelegte Einträge haben Fassungen",
+            )
+        hub.data.set(
+            "edit_versions",
+            editversions_module.remember(rows, kind, current, _user_name(request)),
+        )
+        hub.data.set(
+            key,
+            [row["item"] if entry.get("id") == item_id else entry for entry in stored],
+        )
+        if kind == "scene":
+            hub.reload_scenes()
+        else:
+            await hub.reload_automations()
+        return {"ok": True, "restored": row["name"]}
+
     @app.get("/api/entities/{entity_id}/events")
     async def camera_events(
         entity_id: str, request: Request, hours: int = 24
@@ -1331,6 +1396,21 @@ def create_app(hub: Hub) -> FastAPI:
             media_type="application/json",
             headers={"Content-Disposition": f'attachment; filename="{name}"'},
         )
+
+    @app.post("/api/integrations/{name}/reload")
+    async def reload_integration(name: str, request: Request) -> dict[str, Any]:
+        """Eine Integration neu anlaufen lassen, ohne den Hub durchzustarten.
+
+        Beim Einrichten eines neuen Geräts der Unterschied zwischen zwei
+        Sekunden und zwei Minuten. Die Konfiguration kommt frisch von der
+        Platte – wer die config.yaml geändert hat, sieht genau diese
+        Änderung.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        try:
+            return await hub.integrations.reload(name)
+        except HomePilotError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
 
     @app.get("/api/system/hausblatt")
     async def hausblatt_text(request: Request) -> Response:
@@ -1744,6 +1824,15 @@ def create_app(hub: Hub) -> FastAPI:
                 status_code=404,
                 detail="Nur in der App angelegte Szenen lassen sich hier ändern",
             )
+        # Die bisherige Fassung aufheben - Überschreiben soll so wenig
+        # endgültig sein wie Löschen (dafür gibt es den Papierkorb).
+        bisher = next(entry for entry in stored if entry["id"] == scene_id)
+        hub.data.set(
+            "edit_versions",
+            editversions_module.remember(
+                hub.data.get("edit_versions"), "scene", bisher, _user_name(request)
+            ),
+        )
         updated = [
             {
                 "id": scene_id,
@@ -1844,6 +1933,14 @@ def create_app(hub: Hub) -> FastAPI:
                 status_code=404,
                 detail="Nur in der App angelegte Abläufe lassen sich hier ändern",
             )
+        # Wie bei den Szenen: die bisherige Fassung aufheben.
+        bisher = next(entry for entry in stored if entry["id"] == automation_id)
+        hub.data.set(
+            "edit_versions",
+            editversions_module.remember(
+                hub.data.get("edit_versions"), "automation", bisher, _user_name(request)
+            ),
+        )
         updated = [
             {
                 "id": automation_id,
@@ -2029,6 +2126,12 @@ def create_app(hub: Hub) -> FastAPI:
         # letztes Jahr» sagt mehr als eine nackte Zwischensumme.
         totals["forecast"] = energy_module.forecast(totals, today)
         totals["year_ago_kwh"] = energy_module.year_ago(days, totals["month"])
+        # Die Stunden von heute und gestern: «warum war gestern so hoch?»
+        # beantwortet erst der Blick auf den Tagesverlauf.
+        hours = hub.data.get("energy_hours")
+        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        totals["hours_today"] = energy_module.hourly_usage(hours, today)
+        totals["hours_yesterday"] = energy_module.hourly_usage(hours, yesterday)
         return totals
 
     @app.get("/api/energy/devices")
@@ -2496,6 +2599,17 @@ def create_app(hub: Hub) -> FastAPI:
             raise HTTPException(status_code=404, detail=f"Unbekannte Liste: {collection}")
         return f"family_{collection}"
 
+    async def family_changed(collection: str) -> None:
+        """Allen offenen Apps sagen, dass sich eine Liste geändert hat.
+
+        Die App fragte bisher im Minutentakt nach - wer beim Einkaufen
+        etwas abhakt, dessen Änderung erschien beim anderen bis zu eine
+        Minute später. Über den WebSocket kommt nur der Fingerzeig
+        («shopping hat sich geändert»); die Daten holt die App selbst,
+        derselbe Weg wie bisher.
+        """
+        await hub.bus.publish("family_changed", {"collection": collection})
+
     @app.get("/api/family")
     async def family_all(request: Request) -> dict[str, Any]:
         family_user(request)
@@ -2587,6 +2701,7 @@ def create_app(hub: Hub) -> FastAPI:
                 ),
             )
         await tell_the_assignee(collection, item, user.name)
+        await family_changed(collection)
         return item
 
     @app.put("/api/family/{collection}/{item_id}")
@@ -2604,6 +2719,7 @@ def create_app(hub: Hub) -> FastAPI:
                 )
                 hub.data.set(key, items)
                 await tell_the_assignee(collection, item, user.name, vorher)
+                await family_changed(collection)
                 return item
         raise HTTPException(status_code=404, detail="Eintrag nicht gefunden")
 
@@ -2618,6 +2734,7 @@ def create_app(hub: Hub) -> FastAPI:
         if len(remaining) == len(items):
             raise HTTPException(status_code=404, detail="Eintrag nicht gefunden")
         hub.data.set(key, remaining)
+        await family_changed(collection)
         return {"ok": True}
 
     @app.put("/api/users/{name}")
@@ -3546,6 +3663,12 @@ def create_app(hub: Hub) -> FastAPI:
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
 
         def forward(event_type: str, data: dict[str, Any]) -> None:
+            # Familien-Ereignisse gelten nur für Rollen, die die Listen
+            # auch abrufen dürfen - dieselbe Regel wie in family_user().
+            if event_type == "family_changed" and (
+                user.role == Role.GUEST and "familie" not in user.features
+            ):
+                return
             entity = data.get("entity")
             if entity and not user.may_see(entity["id"], entity["kind"], entity.get("integration", "")):
                 return
@@ -3555,6 +3678,9 @@ def create_app(hub: Hub) -> FastAPI:
             hub.bus.subscribe("state_changed", forward),
             hub.bus.subscribe("entity_added", forward),
             hub.bus.subscribe("entity_removed", forward),
+            # Nur der Fingerzeig «Liste X hat sich geändert» - die App holt
+            # die Daten selbst, statt im Minutentakt zu fragen.
+            hub.bus.subscribe("family_changed", forward),
         ]
 
         async def sender() -> None:

@@ -74,6 +74,9 @@ export type ServerMessage =
     }
   | { type: 'entity_added'; entity: Entity }
   | { type: 'entity_removed'; entity_id: string }
+  /** Nur der Fingerzeig «Liste X hat sich geändert» – die Daten holt die
+   *  App über REST, derselbe Weg wie bisher. */
+  | { type: 'family_changed'; collection: string }
   | { type: 'pong' }
   | { type: 'result'; ok: boolean; error?: string; entity_id?: string };
 

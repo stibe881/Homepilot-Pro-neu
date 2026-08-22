@@ -95,6 +95,10 @@ export function useHub(url: string | null, token: string | null) {
   // Befehle, die getippt wurden, während die Verbindung weg war. Sie
   // gehen raus, sobald sie wieder da ist – siehe enqueue() oben.
   const [queued, setQueued] = useState<QueuedCommand[]>([]);
+  // Zeitstempel der letzten Familien-Änderung vom Hub. Wer die Listen
+  // zeigt, lädt neu, wenn sich dieser Wert ändert – statt im Minutentakt
+  // zu fragen, ob sich etwas geändert haben könnte.
+  const [familyChangedAt, setFamilyChangedAt] = useState(0);
 
   const wsRef = useRef<WebSocket | null>(null);
   const attemptRef = useRef(0);
@@ -226,6 +230,8 @@ export function useHub(url: string | null, token: string | null) {
               );
             }
           }
+        } else if (message.type === 'family_changed') {
+          setFamilyChangedAt(Date.now());
         } else if (message.type === 'entity_removed') {
           setEntityMap((prev) => {
             const next = { ...prev };
@@ -525,6 +531,7 @@ export function useHub(url: string | null, token: string | null) {
     queued: queued.length,
     stale,
     cachedAt,
+    familyChangedAt,
     undo,
     undoLast,
     dismissUndo: () => setUndo(null),

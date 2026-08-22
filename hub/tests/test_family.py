@@ -199,3 +199,34 @@ def test_other_family_lists_do_not_fill_the_shopping_memory():
             headers=auth("t-owner"),
         )
         assert client.get("/api/shopping/known", headers=auth("t-owner")).json() == []
+
+
+def test_a_change_reaches_open_apps_over_the_websocket():
+    """Statt Minutentakt-Abfrage: Wer die Liste offen hat, bekommt einen
+    Fingerzeig - und Gäste ohne Familien-Bereich bekommen keinen."""
+    with make_client() as client:
+        with client.websocket_connect("/ws?token=t-owner") as app:
+            assert app.receive_json()["type"] == "snapshot"
+
+            client.post(
+                "/api/family/shopping",
+                json={"text": "Milch", "done": False},
+                headers=auth("t-resident"),
+            )
+
+            message = app.receive_json()
+            while message["type"] not in ("family_changed",):
+                message = app.receive_json()
+            assert message["collection"] == "shopping"
+
+        # Der Gast (ohne Familien-Bereich) bekommt den Fingerzeig nicht -
+        # nach dem Eintrag kommt bei ihm nur die Antwort auf sein Ping.
+        with client.websocket_connect("/ws?token=t-guest") as gast:
+            assert gast.receive_json()["type"] == "snapshot"
+            client.post(
+                "/api/family/shopping",
+                json={"text": "Brot", "done": False},
+                headers=auth("t-resident"),
+            )
+            gast.send_json({"type": "ping"})
+            assert gast.receive_json()["type"] == "pong"

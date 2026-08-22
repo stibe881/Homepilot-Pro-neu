@@ -594,7 +594,9 @@ class Watchdog:
         total = energy.total_today(entities)
 
         if self._energy_day and day != self._energy_day:
-            self._write_energy(self._energy_day, self._energy_last)
+            # Der Vortag endet in seiner letzten Stunde – nicht in der
+            # Stunde, in der der Wächter den Wechsel bemerkt.
+            self._write_energy(self._energy_day, self._energy_last, hour=23)
             self._energy_written = 0.0
         self._energy_last = total
 
@@ -602,9 +604,9 @@ class Watchdog:
             return
         self._energy_day = day
         self._energy_written = now
-        self._write_energy(day, total)
+        self._write_energy(day, total, hour=datetime.now().hour)
 
-    def _write_energy(self, day: str, kwh: float) -> None:
+    def _write_energy(self, day: str, kwh: float, hour: int | None = None) -> None:
         """Ohne Messgerät gibt es nichts zu schreiben – ein Tag ohne Eintrag
         zählt in der Monatssumme ohnehin als 0."""
         if kwh <= 0:
@@ -612,6 +614,12 @@ class Watchdog:
         self.hub.data.set(
             "energy_days", energy.record_day(self.hub.data.get("energy_days"), day, kwh)
         )
+        # Daneben der Stundenstand – er beantwortet «wann?», nicht «wie viel?».
+        if hour is not None:
+            self.hub.data.set(
+                "energy_hours",
+                energy.record_hour(self.hub.data.get("energy_hours"), day, hour, kwh),
+            )
 
     async def _check_open(self, entities: list[Any]) -> None:
         """Fenster, das seit Stunden offen steht.

@@ -35,6 +35,23 @@ def swap_in_actions(actions: list[dict[str, Any]], old: str, new: str) -> int:
     return count
 
 
+def _swap_in_condition(condition: dict[str, Any], old: str, new: str) -> int:
+    """Eine Bedingung samt Untergruppen (rein).
+
+    Bedingungsgruppen ({type: group, conditions: [...]}) schachteln
+    beliebig tief - ein flacher Durchlauf liesse genau die Verweise
+    stehen, die in einer Gruppe stecken.
+    """
+    count = 0
+    if condition.get("entity_id") == old:
+        condition["entity_id"] = new
+        count += 1
+    for sub in condition.get("conditions") or []:
+        if isinstance(sub, dict):
+            count += _swap_in_condition(sub, old, new)
+    return count
+
+
 def swap_in_automation(automation: dict[str, Any], old: str, new: str) -> int:
     """Alle Stellen eines Ablaufs (rein).
 
@@ -49,11 +66,15 @@ def swap_in_automation(automation: dict[str, Any], old: str, new: str) -> int:
     # condition, action); die App spricht in der Mehrzahl. Beides
     # bedienen, statt sich auf eine Schreibweise zu verlassen - sonst
     # greift das Ersetzen genau dort nicht, wo die Daten wirklich liegen.
-    for key in ("trigger", "triggers", "condition", "conditions"):
+    for key in ("trigger", "triggers"):
         for entry in automation.get(key) or []:
             if isinstance(entry, dict) and entry.get("entity_id") == old:
                 entry["entity_id"] = new
                 count += 1
+    for key in ("condition", "conditions"):
+        for entry in automation.get(key) or []:
+            if isinstance(entry, dict):
+                count += _swap_in_condition(entry, old, new)
     for key in ("action", "actions", "otherwise"):
         count += swap_in_actions(automation.get(key) or [], old, new)
     return count

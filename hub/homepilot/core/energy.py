@@ -64,6 +64,75 @@ def record_day(days: list[dict], day: str, kwh: float) -> list[dict]:
     return entries[-DAY_LIMIT:]
 
 
+# Zwei Tage Stundenwerte - genug für «heute gegen gestern», und die
+# Datei bleibt klein. Alles Ältere steckt in den Tageswerten.
+HOUR_LIMIT = 48
+
+
+def record_hour(hours: list[dict], day: str, hour: int, kwh: float) -> list[dict]:
+    """Den Zählerstand je Stunde festhalten (rein, testbar).
+
+    Der Tageswert sagt *wie viel*, aber nicht *wann* - und «warum war
+    gestern so hoch?» beantwortet erst der Blick auf die Stunden (der
+    Backofen um 18 Uhr, nicht der Kühlschrank). Wie beim Tag zählt der
+    Höchststand der Stunde: Der Zähler wächst nur, also ist er zugleich
+    der Stand am Stundenende.
+    """
+    entries: list[dict] = []
+    found = False
+    for entry in hours or []:
+        if not isinstance(entry, dict) or not entry.get("day"):
+            continue
+        copy = dict(entry)
+        if copy["day"] == day and int(copy.get("hour") or 0) == hour:
+            found = True
+            try:
+                before = float(copy.get("kwh") or 0)
+            except (TypeError, ValueError):
+                before = 0.0
+            copy["kwh"] = round(max(before, kwh), 3)
+        entries.append(copy)
+    if not found:
+        entries.append({"day": day, "hour": int(hour), "kwh": round(kwh, 3)})
+    entries.sort(key=lambda entry: (str(entry["day"]), int(entry.get("hour") or 0)))
+    return entries[-HOUR_LIMIT:]
+
+
+def hourly_usage(hours: list[dict], day: str) -> list[dict]:
+    """Der Verbrauch je Stunde eines Tages (rein, testbar).
+
+    Gespeichert sind Zählerstände; die Anzeige will Differenzen. Der
+    Bezugspunkt jeder Stunde ist der letzte davor bekannte Stand desselben
+    Tages (um Mitternacht steht der Zähler auf 0). Fehlt eine Stunde -
+    Hub war aus - trägt die nächste den Nachholwert; das ist ehrlicher,
+    als Löcher zu glätten.
+    """
+    stunden = sorted(
+        (
+            entry
+            for entry in hours or []
+            if isinstance(entry, dict) and str(entry.get("day") or "") == day
+        ),
+        key=lambda entry: int(entry.get("hour") or 0),
+    )
+    rows: list[dict] = []
+    vorher = 0.0
+    for entry in stunden:
+        try:
+            stand = float(entry.get("kwh") or 0)
+        except (TypeError, ValueError):
+            continue
+        rows.append(
+            {
+                "hour": int(entry.get("hour") or 0),
+                # Ein Rückwärtssprung wäre ein Messfehler - dann lieber 0.
+                "kwh": round(max(0.0, stand - vorher), 3),
+            }
+        )
+        vorher = max(vorher, stand)
+    return rows
+
+
 def previous_month(month: str) -> str:
     """«2026-01» → «2025-12» (rein, testbar)."""
     year, number = int(month[:4]), int(month[5:7])

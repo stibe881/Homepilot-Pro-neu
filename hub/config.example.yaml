@@ -69,6 +69,14 @@ integrations:
   # Virtuelle Geräte zum Entwickeln und Testen – später entfernen.
   - integration: demo
 
+  # Absichtlich unzuverlässige Geräte für die Fehlerpfade: ein Licht, das
+  # jeden dritten Befehl schluckt, ein Sensor, der regelmässig verstummt,
+  # einer mit Ausreissern. Zum Prüfen von Wächter, «verstummt»-Auslösern
+  # und der App-Anzeige – nicht für den Alltag.
+  # - integration: gremlin
+  #   pace: 30      # Sekunden je Schritt
+  #   seed: 7       # optional: macht die Launen reproduzierbar
+
   # Helfer-Schalter: virtuelle An/Aus-Zustände für Modi (input_boolean).
   # - integration: helpers
   #   switches:

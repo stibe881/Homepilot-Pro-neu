@@ -84,6 +84,33 @@ describe('ablaufSatz', () => {
     expect(satz).toBe('Wenn Bewegung Flur verstummt seit 60 Min, dann Durchsage.');
   });
 
+  it('setzt Bedingungsgruppen in Klammern – die Verknüpfung muss lesbar sein', () => {
+    const satz = ablaufSatz(
+      {
+        triggers: [{ type: 'state', entity_id: 'hm.bewegung', to: 'on' }],
+        conditions: [
+          {
+            type: 'group',
+            match: 'any',
+            conditions: [
+              { entity_id: 'hue.flur', equals: 'on' },
+              { entity_id: 'hm.fenster', equals: 'open' },
+            ],
+          },
+          { type: 'sun', state: 'down' },
+        ],
+        actions: [{ type: 'command', entity_id: 'hue.flur', command: 'turn_on' }],
+        otherwise: [],
+        match: 'all',
+      },
+      entities,
+      scenes
+    );
+    expect(satz).toContain(
+      'nur wenn (Licht Flur ist on oder Fenster Küche ist open) und dunkel'
+    );
+  });
+
   it('schweigt, solange der Entwurf leer ist', () => {
     expect(
       ablaufSatz(
