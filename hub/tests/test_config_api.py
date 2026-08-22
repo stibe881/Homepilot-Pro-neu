@@ -171,3 +171,108 @@ def test_a_resident_may_not_adopt_speakers(client):
         json={"name": "Terrasse", "host": "10.10.1.25"},
     )
     assert response.status_code == 403
+
+
+# ── Bedienoberfläche: Gliederung und gezielte Änderungen ─────────────────
+
+
+def test_the_outline_names_the_sections_and_the_values(client):
+    antwort = client.get("/api/config/outline", headers=auth("t-owner"))
+    assert antwort.status_code == 200
+    body = antwort.json()
+    schluessel = [abschnitt["key"] for abschnitt in body["sections"]]
+    assert "api" in schluessel and "integrations" in schluessel
+    # Dazu die gelesenen Werte – damit die App nichts von YAML wissen muss.
+    assert body["data"]["api"]["port"] == 18150
+    # Und der Text, auf dem beides beruht: Beide Ansichten arbeiten am
+    # selben Stand, sonst überschreibt eine die andere.
+    assert body["content"].startswith("api:")
+
+
+def test_the_outline_survives_a_broken_file(client, tmp_path):
+    client.config_file.write_text("api: {\n  kaputt\n")
+    body = client.get("/api/config/outline", headers=auth("t-owner")).json()
+    # Kein Absturz, keine leere Seite: Die Gliederung kommt aus dem Text.
+    assert body["error"]
+    assert [a["key"] for a in body["sections"]] == ["api"]
+
+
+def test_editing_computes_but_does_not_save(client):
+    vorher = client.get("/api/config", headers=auth("t-owner")).json()["content"]
+    antwort = client.post(
+        "/api/config/edit",
+        json={"content": vorher, "path": ["location", "address"], "value": "Musterweg 3"},
+        headers=auth("t-owner"),
+    )
+    assert antwort.status_code == 200
+    assert "address: Musterweg 3" in antwort.json()["content"]
+    # Auf der Platte steht weiterhin der alte Stand – gespeichert wird
+    # über den einen Weg, der prüft.
+    assert "address" not in client.config_file.read_text()
+
+
+def test_a_computed_change_goes_through_the_normal_save(client):
+    vorher = client.get("/api/config", headers=auth("t-owner")).json()["content"]
+    neu = client.post(
+        "/api/config/edit",
+        json={"content": vorher, "path": ["location", "latitude"], "value": 47.1445},
+        headers=auth("t-owner"),
+    ).json()["content"]
+    gespeichert = client.put("/api/config", json={"content": neu}, headers=auth("t-owner"))
+    assert gespeichert.status_code == 200
+    assert "latitude: 47.1445" in client.config_file.read_text()
+
+
+def test_replacing_a_block_needs_both_ends(client):
+    vorher = client.get("/api/config", headers=auth("t-owner")).json()["content"]
+    antwort = client.post(
+        "/api/config/edit",
+        json={"content": vorher, "text": "irgendwas"},
+        headers=auth("t-owner"),
+    )
+    assert antwort.status_code == 400
+
+
+def test_only_who_may_edit_the_config_sees_the_outline(client):
+    assert client.get("/api/config/outline", headers=auth("t-resident")).status_code == 403
+    assert (
+        client.post(
+            "/api/config/edit",
+            json={"content": "a: 1", "path": ["a"], "value": 2},
+            headers=auth("t-resident"),
+        ).status_code
+        == 403
+    )
+
+
+def test_an_edit_answers_with_a_matching_outline(client):
+    """Zeilennummern stimmen nur für genau einen Text – deshalb kommen
+    Text und Gliederung immer zusammen zurück."""
+    vorher = client.get("/api/config/outline", headers=auth("t-owner")).json()
+    antwort = client.post(
+        "/api/config/edit",
+        json={
+            "content": vorher["content"],
+            "path": ["location", "latitude"],
+            "value": 47.1,
+        },
+        headers=auth("t-owner"),
+    ).json()
+    assert antwort["data"]["location"]["latitude"] == 47.1
+    # Der neue Abschnitt steht in der Gliederung, und seine Zeilen
+    # zeigen auf den Text, der danebensteht.
+    location = [a for a in antwort["sections"] if a["key"] == "location"][0]
+    ausschnitt = antwort["content"].splitlines()[location["start"] : location["end"]]
+    assert any("latitude: 47.1" in zeile for zeile in ausschnitt)
+
+
+def test_asking_for_the_outline_of_an_unsaved_text(client):
+    """Nach dem Tippen im Textmodus muss die Übersicht neu gegliedert
+    werden – sonst zeigt sie auf Zeilen, die es nicht mehr gibt."""
+    antwort = client.post(
+        "/api/config/edit",
+        json={"content": "api:\n  port: 1\nrooms:\n  Bad: []\n"},
+        headers=auth("t-owner"),
+    ).json()
+    assert [a["key"] for a in antwort["sections"]] == ["api", "rooms"]
+    assert antwort["data"]["rooms"] == {"Bad": []}

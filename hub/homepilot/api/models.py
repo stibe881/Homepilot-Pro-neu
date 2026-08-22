@@ -298,6 +298,33 @@ class ConfigRequest(BaseModel):
     content: str
 
 
+class ConfigEditRequest(BaseModel):
+    """Eine gezielte Änderung an der Konfiguration – gerechnet, nicht gespeichert.
+
+    Der Hub gibt den geänderten Text zurück; gespeichert wird er wie jede
+    Änderung über PUT /api/config. So gibt es genau einen Speicherweg mit
+    Prüfung, Verlauf und Neustart – die Bedienoberfläche ist bloss eine
+    andere Art, den Text zu erzeugen.
+    """
+
+    content: str
+    # Entweder einen Bereich ersetzen …
+    start: int | None = None
+    end: int | None = None
+    text: str | None = None
+    # … oder einen einzelnen Wert setzen (path leer = nichts tun).
+    path: list[str] = []
+    # Null nimmt den Wert zurück; Zahlen und Wahrheitswerte bleiben, was
+    # sie sind.
+    value: str | int | float | bool | None = None
+    # Ausdrücklich löschen – sonst wäre «value: null» nicht von «nicht
+    # mitgeschickt» zu unterscheiden.
+    remove: bool = False
+    # … oder einen Bereich aus- bzw. wieder einkommentieren: der übliche
+    # Weg, eine Anbindung vorübergehend stillzulegen.
+    enabled: bool | None = None
+
+
 class RoomRequest(BaseModel):
     room: str | None = None
 

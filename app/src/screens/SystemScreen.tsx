@@ -5,12 +5,13 @@ import Constants from 'expo-constants';
 import * as Updates from 'expo-updates';
 
 import { HubFehler, hubClient } from '../api/client';
-import { ConfigVersion, Entity, HubSettings, LogEntry, SystemStatus, User } from '../api/types';
+import { Entity, HubSettings, LogEntry, SystemStatus, User } from '../api/types';
 import { PushState, pushHint } from '../hooks/usePushRegistration';
 import { AccessLog } from '../components/AccessLog';
 import { Card } from '../components/Card';
 import { Maintenance } from '../components/Maintenance';
 import { Fehlschlag, Laedt } from '../components/Zustand';
+import { ConfigCard } from './system/konfiguration';
 import { datumUhr, uhr } from '../lib/format';
 import { localTime, timeAgo } from '../lib/zeit';
 import { Colors, radius, space, type, useColors } from '../theme';
@@ -286,11 +287,6 @@ export function SystemScreen({
   );
 }
 
-/** Die config.yaml des Hubs direkt in der App bearbeiten.
- *
- *  Der Hub validiert vor dem Speichern die komplette Datei – eine kaputte
- *  Konfiguration kann hier also nicht auf der Platte landen. Nach dem
- *  Neustart verbindet sich die App von selbst wieder. */
 /**
  * Die letzten Warnungen und Fehler des Hubs.
  *
@@ -391,235 +387,6 @@ function LogCard({ settings }: { settings: HubSettings }) {
   );
 }
 
-function ConfigCard({ settings }: { settings: HubSettings }) {
-  const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  const hub = useMemo(
-    () => hubClient(settings.url, settings.token),
-    [settings.url, settings.token]
-  );
-  const [content, setContent] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  // Hinweise des Hubs: doppelte Geräteadressen, Räume, die auf nichts
-  // zeigen. Die liefen bisher nur beim Start ins Log.
-  const [warnings, setWarnings] = useState<string[]>([]);
-  // Frühere Fassungen – erst auf Wunsch geladen.
-  const [versions, setVersions] = useState<ConfigVersion[] | null>(null);
-
-  const load = () => {
-    setMessage(null);
-    // Die Karte zeigt Fehler selbst an - deshalb «still».
-    hub
-      .get<{ content: string }>('/api/config', { still: true })
-      .then((data) => setContent(data.content))
-      .catch((err) => setMessage(String(err instanceof Error ? err.message : err)));
-  };
-
-  const save = async (restart: boolean) => {
-    if (content == null) return;
-    setBusy(true);
-    setMessage(null);
-    try {
-      // Bei Tippfehlern steckt die genaue Validierungsmeldung des Hubs im
-      // detail-Feld - die rohe Antwort lesen, statt sie im Client zu
-      // verlieren.
-      const response = await fetch(`${settings.url}/api/config`, {
-        method: 'PUT',
-        headers: {
-          Authorization: `Bearer ${settings.token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ content }),
-      });
-      if (!response.ok) {
-        const body = await response.json().catch(() => null);
-        throw new Error(body?.detail ?? `Hub antwortet mit ${response.status}`);
-      }
-      const body = await response.json().catch(() => null);
-      setWarnings(body?.warnings ?? []);
-      if (restart) {
-        await hub.post('/api/system/restart', undefined, { fallback: null, still: true });
-        setMessage('Gespeichert – der Hub startet neu. Die App verbindet sich gleich wieder.');
-      } else {
-        setMessage('Gespeichert. Wirksam wird die Änderung beim nächsten Neustart.');
-      }
-    } catch (err) {
-      setMessage(String(err instanceof Error ? err.message : err));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  /** Prüfen, ohne zu speichern – damit man den Fehler sieht, bevor er auf
-   *  der Platte steht. */
-  const check = async () => {
-    if (content == null) return;
-    setBusy(true);
-    setMessage(null);
-    try {
-      const body = await hub.post<{ ok: boolean; error?: string; warnings?: string[] }>(
-        '/api/config/check',
-        { content },
-        { still: true }
-      );
-      setWarnings(body.warnings ?? []);
-      setMessage(
-        body.ok
-          ? body.warnings?.length
-            ? 'Gültig – aber sieh dir die Hinweise unten an.'
-            : 'Gültig, nichts auffällig.'
-          : body.error ?? 'Ungültig.'
-      );
-    } catch (err) {
-      setMessage(String(err instanceof Error ? err.message : err));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const backup = async () => {
-    if (content == null) return;
-    try {
-      await Share.share({
-        title: 'HomePilot-Konfiguration',
-        message: content,
-      });
-    } catch (err) {
-      setMessage(String(err instanceof Error ? err.message : err));
-    }
-  };
-
-  return (
-    <Card style={styles.card}>
-      <Text style={styles.heading}>Konfiguration</Text>
-      {content == null ? (
-        <>
-          <Text style={styles.rowDetail}>
-            Die config.yaml des Hubs ansehen und ändern – Integrationen,
-            Räume, Benutzer. Vor dem Speichern prüft der Hub die ganze Datei.
-          </Text>
-          <View style={styles.buttons}>
-            <Button label="Konfiguration laden" onPress={load} />
-          </View>
-        </>
-      ) : (
-        <>
-          <TextInput
-            multiline
-            value={content}
-            onChangeText={setContent}
-            autoCapitalize="none"
-            autoCorrect={false}
-            spellCheck={false}
-            style={styles.configInput}
-          />
-          <View style={styles.buttons}>
-            <Button label={busy ? 'Prüft …' : 'Nur prüfen'} onPress={check} />
-            <Button label={busy ? 'Speichert …' : 'Speichern'} onPress={() => save(false)} />
-            <Button
-              label="Speichern & neu starten"
-              onPress={() => save(true)}
-              primary
-            />
-          </View>
-          <View style={styles.buttons}>
-            <Button label="Backup teilen" onPress={backup} />
-            <Button
-              label={versions === null ? 'Frühere Fassungen' : 'Fassungen ausblenden'}
-              onPress={async () => {
-                if (versions !== null) {
-                  setVersions(null);
-                  return;
-                }
-                const body = await hub.get<{ versions?: ConfigVersion[] }>(
-                  '/api/config/history',
-                  { fallback: { versions: [] }, still: true }
-                );
-                setVersions(Array.isArray(body.versions) ? body.versions : []);
-              }}
-            />
-          </View>
-          {versions !== null ? (
-            <View style={styles.warnBox}>
-              {versions.length === 0 ? (
-                <Text style={styles.rowDetail}>
-                  Noch keine früheren Fassungen – ab dem nächsten Speichern
-                  wird jede vorherige Fassung hier aufbewahrt.
-                </Text>
-              ) : (
-                versions.map((version) => (
-                  <View key={version.name} style={styles.versionRow}>
-                    <Ionicons name="document-text-outline" size={16} color={colors.inkSoft} />
-                    <Text style={[styles.rowDetail, { flex: 1 }]}>
-                      {datumUhr(version.created * 1000)}
-                    </Text>
-                    <Button
-                      label="Ansehen"
-                      onPress={async () => {
-                        try {
-                          const body = await hub.get<{ content?: string }>(
-                            `/api/config/history/${version.name}`,
-                            { still: true }
-                          );
-                          if (typeof body.content === 'string') {
-                            setContent(body.content);
-                            setMessage(
-                              'Fassung geladen – sie steht jetzt im Feld oben. ' +
-                                'Mit «Speichern» wird sie übernommen.'
-                            );
-                          }
-                        } catch {
-                          setMessage('Fassung nicht lesbar.');
-                        }
-                      }}
-                    />
-                  </View>
-                ))
-              )}
-              <Text style={styles.rowDetail}>
-                Vor jedem Speichern legt der Hub die bisherige Fassung hier ab –
-                die letzten zwanzig bleiben erhalten.
-              </Text>
-            </View>
-          ) : null}
-          <Text style={styles.rowDetail}>
-            „Backup teilen" sichert die aktuelle config.yaml über das Teilen-Menü
-            (Dateien, E-Mail …). Zum Wiederherstellen den gesicherten Text hier
-            einfügen und speichern.
-          </Text>
-        </>
-      )}
-      {message ? <Text style={styles.configMessage}>{message}</Text> : null}
-      {warnings.length > 0 ? (
-        <View style={styles.warnBox}>
-          {warnings.map((warning, index) => (
-            <View key={index} style={styles.row}>
-              <Ionicons name="warning-outline" size={16} color={colors.warn} />
-              <Text style={styles.warnText}>{warning}</Text>
-            </View>
-          ))}
-          <Text style={styles.rowDetail}>
-            Kein Fehler – der Hub startet damit. Aber beides sind Dinge, die
-            man sonst erst Wochen später bemerkt, weil nichts abstürzt.
-          </Text>
-        </View>
-      ) : null}
-    </Card>
-  );
-}
-
-/**
- * Fertige Bausteine für Apple Kurzbefehle.
- *
- * Die Anleitung erklärt, wie man einen von Hand zusammensetzt – und genau
- * das ist die Hürde: URL, Methode, zwei Header und ein JSON-Rumpf, für jede
- * Szene aufs Neue. Hier steht alles fertig zum Kopieren.
- *
- * Das eigene Token liegt bei. Deshalb steht die Karte hinter dem üblichen
- * Login und nicht auf der Startseite – und deshalb liefert der Hub nur, was
- * der Anfragende ohnehin sehen darf.
- */
 function ShortcutsCard({ settings }: { settings: HubSettings }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
