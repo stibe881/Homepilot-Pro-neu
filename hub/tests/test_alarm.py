@@ -808,3 +808,67 @@ def test_the_entry_delay_is_no_longer_silent(tmp_path):
             await hub.stop()
 
     asyncio.run(check())
+
+
+def test_the_test_run_plays_the_whole_alarm_once(tmp_path, monkeypatch):
+    """Ob Sirene und Nachricht überhaupt funktionieren, erfuhr man sonst
+    beim ersten echten Einbruch."""
+    from homepilot.integrations import alarm as alarm_module
+
+    monkeypatch.setattr(alarm_module, "TEST_SIREN_SECONDS", 0.01)
+
+    async def check():
+        hub = make_hub(tmp_path)
+        await hub.start()
+        try:
+            service = hub.integrations.get("alarm")
+            await service.update_config(
+                {
+                    "actions": {
+                        "trigger": [
+                            {"entity_id": "demo.light_livingroom", "command": "turn_on"}
+                        ],
+                        "clear": [
+                            {"entity_id": "demo.light_livingroom", "command": "turn_off"}
+                        ],
+                    },
+                }
+            )
+            result = await service.test_run(by="Stefan")
+            assert result["ok"] is True
+            # Nach dem Test ist aufgeräumt: Sirene aus, Anlage unverändert
+            # unscharf, und der Verlauf weiss, dass es ein Test war.
+            assert hub.registry.get("demo.light_livingroom").state["state"] == "off"
+            assert service._state_dict()["state"] == "unscharf"
+            assert any(entry["kind"] == "test" for entry in service.history)
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())
+
+
+def test_the_test_run_refuses_while_armed(tmp_path):
+    """Ein Test, während die Anlage wacht, wäre von einem Einbruch nicht
+    zu unterscheiden."""
+
+    async def check():
+        hub = make_hub(tmp_path)
+        await hub.start()
+        try:
+            await hub.registry.add(contact("test.tuer"))
+            service = hub.integrations.get("alarm")
+            await service.update_config(
+                {
+                    "sensors": [{"entity_id": "test.tuer", "modes": ["ausser_haus"]}],
+                    "settings": {"exit_delay": 0, "entry_delay": 0},
+                }
+            )
+            await service.arm("ausser_haus")
+            from homepilot.core.errors import HomePilotError
+
+            with pytest.raises(HomePilotError):
+                await service.test_run()
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())

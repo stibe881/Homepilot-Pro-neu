@@ -143,9 +143,13 @@ export function byRoom(candidates: Candidate[]): { room: string; items: Candidat
 
 export function AlarmScreen({
   settings,
+  onEntity,
   entities = [],
 }: {
   settings: HubSettings;
+  /** Einen Sensor in der Geräteliste zeigen – für die antippbaren Namen
+   *  in der «noch offen»-Warnung. */
+  onEntity?: (name: string) => void;
   /** Alle Geräte – für die Auswahl, was die Anlage selbst schalten soll. */
   entities?: Entity[];
 }) {
@@ -163,6 +167,14 @@ export function AlarmScreen({
   const [tab, setTab] = useState('nacht');
   // Adresse des Mitschnitts, solange er im Vollbild läuft.
   const [clip, setClip] = useState<string | null>(null);
+  // Verlauf: welcher Art, und ob alle fünfzig oder nur der Anfang.
+  const [historyKind, setHistoryKind] = useState<'alle' | 'armed' | 'disarmed' | 'triggered'>(
+    'alle'
+  );
+  const [historyAll, setHistoryAll] = useState(false);
+  // Namen der offenen Sensoren aus der letzten Scharfschalt-Absage.
+  const [offenBeimScharfschalten, setOffenBeimScharfschalten] = useState<string[]>([]);
+  const [testNote, setTestNote] = useState<string | null>(null);
 
   const headers: Record<string, string> = settings.token
     ? { Authorization: `Bearer ${settings.token}` }
@@ -225,6 +237,10 @@ export function AlarmScreen({
         if ((body.open ?? []).length > 0) {
           parts.push(`Noch offen: ${body.open.join(', ')}`);
         }
+        // Die offenen für die antippbaren Chips daneben – ein Name als
+        // toter Text hilft niemandem, der mit dem Telefon an der Tür
+        // steht und nicht weiss, welches Fenster gemeint ist.
+        setOffenBeimScharfschalten(Array.isArray(body.open) ? body.open : []);
         if ((body.offline ?? []).length > 0) {
           parts.push(`Antwortet nicht: ${body.offline.join(', ')}`);
         }
@@ -238,6 +254,7 @@ export function AlarmScreen({
         return;
       }
       setPendingMode(null);
+      setOffenBeimScharfschalten([]);
     } catch (err: any) {
       setNote(String(err.message ?? err));
     }
@@ -292,6 +309,12 @@ export function AlarmScreen({
   };
 
   const tabLabel = MODES.find((mode) => mode.key === tab)?.label ?? '';
+
+  const gefilterterVerlauf =
+    historyKind === 'alle'
+      ? data.history
+      : data.history.filter((event) => event.kind === historyKind);
+  const gezeigterVerlauf = historyAll ? gefilterterVerlauf : gefilterterVerlauf.slice(0, 12);
 
   /** Alle Sensoren auf einmal in den gewählten Modus nehmen oder daraus
    *  entfernen – «Ausser Haus» heisst meistens schlicht alles. */
@@ -435,6 +458,21 @@ export function AlarmScreen({
         {note ? (
           <>
             <Text style={styles.warn}>{note}</Text>
+            {offenBeimScharfschalten.length > 0 && onEntity ? (
+              <View style={styles.chipRow}>
+                {offenBeimScharfschalten.map((name) => (
+                  <Pressable
+                    key={name}
+                    onPress={() => onEntity(name)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${name} in der Geräteliste zeigen`}
+                    style={({ pressed }) => [styles.smallButton, pressed && { opacity: 0.7 }]}
+                  >
+                    <Text style={styles.smallButtonText}>{name} →</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
             {pendingMode ? (
               <Pressable
                 onPress={() => arm(pendingMode, true)}
@@ -594,6 +632,41 @@ export function AlarmScreen({
         onSave={(actions) => save({ actions })}
       />
 
+      {/* Probealarm: Ob Sirene, Lichter und Nachricht überhaupt
+          funktionieren, erfährt man sonst beim ersten echten Einbruch. */}
+      <Card style={styles.card}>
+        <Text style={styles.heading}>Probealarm</Text>
+        <Text style={styles.hint}>
+          Spielt einmal durch, was ein Einbruch auslösen würde: Nachricht,
+          dann für drei Sekunden die eingestellten Schaltbefehle, dann
+          wieder aus. Geht nur bei unscharfer Anlage.
+        </Text>
+        <Pressable
+          onPress={async () => {
+            setTestNote(null);
+            try {
+              const response = await fetch(`${settings.url}/api/alarm/test`, {
+                method: 'POST',
+                headers,
+              });
+              const body = await response.json().catch(() => ({}));
+              if (!response.ok) {
+                throw new Error(body.detail ?? `Hub antwortet mit ${response.status}`);
+              }
+              setTestNote(String(body.hinweis ?? 'Probealarm durchgespielt.'));
+            } catch (err) {
+              setTestNote(err instanceof Error ? err.message : String(err));
+            }
+            load();
+          }}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.smallButton, pressed && { opacity: 0.7 }]}
+        >
+          <Text style={styles.smallButtonText}>Jetzt durchspielen</Text>
+        </Pressable>
+        {testNote ? <Text style={styles.hint}>{testNote}</Text> : null}
+      </Card>
+
       <AlarmSettings settings={data.settings} onSave={(next) => save({ settings: next })} />
 
       <PinCard
@@ -605,7 +678,37 @@ export function AlarmScreen({
       {data.history.length > 0 ? (
         <Card style={styles.card}>
           <Text style={styles.heading}>Verlauf</Text>
-          {data.history.slice(0, 12).map((event, index) => (
+          {/* Nach einem Einbruch fragt man «wann war die Anlage unscharf,
+              während niemand da war?» – zwölf Zeilen ohne Filter waren
+              dafür eine Sackgasse, obwohl der Hub fünfzig aufhebt. */}
+          <View style={styles.chipRow}>
+            {(
+              [
+                ['alle', 'Alles'],
+                ['armed', 'Scharf'],
+                ['disarmed', 'Unscharf'],
+                ['triggered', 'Alarm'],
+              ] as const
+            ).map(([key, label]) => (
+              <Pressable
+                key={key}
+                onPress={() => setHistoryKind(key)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: historyKind === key }}
+                style={[styles.smallButton, historyKind === key && styles.tabOn]}
+              >
+                <Text
+                  style={[
+                    styles.smallButtonText,
+                    historyKind === key && { color: '#FFFFFF' },
+                  ]}
+                >
+                  {label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          {gezeigterVerlauf.map((event, index) => (
             <View key={index} style={styles.row}>
               <Ionicons
                 name={
@@ -634,6 +737,17 @@ export function AlarmScreen({
               </View>
             </View>
           ))}
+          {gefilterterVerlauf.length > gezeigterVerlauf.length ? (
+            <Pressable
+              onPress={() => setHistoryAll(true)}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.smallButton, pressed && { opacity: 0.7 }]}
+            >
+              <Text style={styles.smallButtonText}>
+                Alle {gefilterterVerlauf.length} zeigen
+              </Text>
+            </Pressable>
+          ) : null}
         </Card>
       ) : null}
 

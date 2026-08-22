@@ -79,6 +79,8 @@ MODE_LABELS = {
 
 # Zustände der Anlage.
 DISARMED = "unscharf"
+# Wie lange die Sirene beim Probealarm läuft.
+TEST_SIREN_SECONDS = 3.0
 ARMING = "scharfschaltend"
 ARMED = "scharf"
 ENTRY = "eintritt"
@@ -675,6 +677,37 @@ class AlarmIntegration(Integration):
             raise
         except Exception as err:
             log.warning("Mitschnitt zum Alarm fehlgeschlagen: %s", err)
+
+    async def test_run(self, by: str = "") -> dict[str, Any]:
+        """Probealarm: einmal durchspielen, was ein Einbruch auslösen würde.
+
+        Ob die Sirene angeht, die Push-Nachricht ankommt und die Lichter
+        schalten, erfuhr man sonst beim ersten echten Einbruch – der
+        denkbar schlechteste Moment, um ein leeres Aktionsfeld zu
+        entdecken. Hier laufen die trigger-Aktionen für ein paar
+        Sekunden, dann räumen die clear-Aktionen auf. Der Zustand der
+        Anlage bleibt unangetastet: Ein Test schaltet nicht scharf und
+        nicht unscharf.
+        """
+        if self._state != DISARMED:
+            raise HomePilotError(
+                "Probealarm nur bei unscharfer Anlage – ein Test, während "
+                "sie wacht, wäre von einem Einbruch nicht zu unterscheiden."
+            )
+        await self._notify(
+            "Probealarm",
+            "Das ist ein Test. Sirene und Lichter gehen gleich für ein "
+            "paar Sekunden an.",
+            "alarm_test",
+        )
+        await self._run_actions("trigger")
+        # Lang genug, um die Sirene zu hören; kurz genug, dass niemand
+        # die Nachbarn beruhigen muss.
+        await asyncio.sleep(TEST_SIREN_SECONDS)
+        await self._run_actions("clear")
+        self._note("test", "Probealarm ausgeführt", by)
+        return {"ok": True, "hinweis": "Probealarm durchgespielt – Sirene, "
+                "Lichter und Nachricht liefen einmal an und wieder aus."}
 
     async def _run_actions(self, slot: str) -> None:
         """Die eingestellten Schaltbefehle für diesen Anlass ausführen.

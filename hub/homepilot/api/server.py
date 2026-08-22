@@ -2331,6 +2331,20 @@ def create_app(hub: Hub) -> FastAPI:
             # Falsche oder fehlende PIN - lesbar zurück, kein Stacktrace.
             raise HTTPException(status_code=403, detail=str(err)) from err
 
+    @app.post("/api/alarm/test")
+    async def alarm_test(request: Request) -> dict[str, Any]:
+        """Probealarm: Sirene, Lichter und Nachricht einmal durchspielen.
+
+        Die einzige Möglichkeit nachzusehen, ob die Anlage überhaupt
+        etwas tut, bevor es darauf ankommt. Nur wer die Konfiguration
+        ändern darf, darf testen – ein Gast soll keine Sirene starten.
+        """
+        user = require(request, Capability.EDIT_CONFIG)
+        try:
+            return await alarm_service().test_run(by=user.name)
+        except HomePilotError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
     @app.put("/api/alarm/pin")
     async def alarm_set_pin(body: AlarmPinRequest, request: Request) -> dict[str, Any]:
         """PIN fürs Entschärfen setzen oder (leer) entfernen.

@@ -1220,7 +1220,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       return (
         <View style={styles.stack}>
           {back}
-          <AlarmScreen settings={settings} entities={entities} />
+          <AlarmScreen
+            settings={settings}
+            entities={entities}
+            onEntity={(name) => {
+              // Der Name aus der «noch offen»-Warnung führt in die
+              // Geräteliste, vorgefiltert – statt tot dazustehen.
+              setSection('devices');
+              setQuery(name);
+            }}
+          />
         </View>
       );
     }
