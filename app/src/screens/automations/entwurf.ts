@@ -35,6 +35,10 @@ export interface Automation {
   cooldown?: number;
   /** Ausgeschaltete Abläufe bleiben stehen, laufen aber nicht. */
   enabled?: boolean;
+  /** Ruht bis (Unix-Sekunden) - «aus bis morgen», Punkt 159. */
+  quiet_until?: number | null;
+  /** Nächster geplanter Lauf (Unix-Sekunden), nur Zeit/Sonne - Punkt 161. */
+  next_run?: number | null;
 }
 
 /** Je Auslöser: kam er überhaupt an? Antwort von /diagnose. */
@@ -329,6 +333,9 @@ export interface TriggerDraft {
   forMinutes: string;
   /** Erreichbarkeits-Auslöser: verstummt das Gerät oder kommt es wieder? */
   availabilityTo: 'weg' | 'wieder-da';
+  /** ± Minuten Zufalls-Versatz für Zeit/Sonne (Punkt 155): Storen, die
+   *  sekundengleich fahren, verraten die Zeitschaltuhr. Leer = pünktlich. */
+  jitter: string;
 }
 
 /**
@@ -360,6 +367,10 @@ export interface StepDraft {
   body: string;
   /** Kamera, deren Bild der Nachricht beiliegt. Leer = ohne Bild. */
   notifyCamera: string;
+  /** Wer die Nachricht bekommt (Punkt 158): leer = alle; sonst ein
+   *  Benutzername - «Waschmaschine fertig» piepst dann nur bei dem, der
+   *  sie ausräumt. */
+  notifyTo: string;
   /** Wartezeit in Sekunden. */
   seconds: string;
   /** «Warten bis»: worauf, und wie lange höchstens. */
@@ -380,6 +391,7 @@ export const EMPTY_STEP: StepDraft = {
   title: '',
   body: '',
   notifyCamera: '',
+  notifyTo: '',
   seconds: '60',
   waitEntityId: '',
   waitOp: 'is',
@@ -413,6 +425,7 @@ export const EMPTY_TRIGGER: TriggerDraft = {
   intervalSeconds: '600',
   forMinutes: '',
   availabilityTo: 'weg',
+  jitter: '',
 };
 
 /** «ist» vergleicht den Zustand, «über»/«unter» eine Zahl – für Helligkeit,
@@ -447,6 +460,9 @@ export interface Draft {
   match: 'all' | 'any';
   /** Erlaubte Wochentage der Uhrzeit-Bedingung (0 = Montag). Leer = alle. */
   weekdays: number[];
+  /** «ausser an Feiertagen» (Punkt 154): Auffahrt ist ein Donnerstag,
+   *  aber kein Werktag - der Hub kennt die Luzerner Feiertage. */
+  exceptHolidays: boolean;
   /** Was der Ablauf tut – der Reihe nach. */
   steps: StepDraft[];
   /** Was stattdessen läuft, wenn die Bedingungen nicht passen. */
@@ -473,6 +489,7 @@ export const EMPTY: Draft = {
   extraConditions: [],
   match: 'all',
   weekdays: [],
+  exceptHolidays: false,
   steps: [{ ...EMPTY_STEP }],
   elseSteps: [],
   mode: 'single',
@@ -483,11 +500,17 @@ export const EMPTY: Draft = {
 
 /** Einen Trigger-Entwurf in die gespeicherte Form bringen (rein, testbar). */
 export function triggerToConfig(t: TriggerDraft): BausteinConfig {
+  const jitter = Math.max(0, Math.min(240, Number(t.jitter) || 0));
   if (t.kind === 'sun') {
-    return { type: 'sun', event: t.sunEvent, offset: Number(t.sunOffset) || 0 };
+    return {
+      type: 'sun',
+      event: t.sunEvent,
+      offset: Number(t.sunOffset) || 0,
+      ...(jitter > 0 ? { jitter } : {}),
+    };
   }
   if (t.kind === 'time') {
-    return { type: 'time', at: t.at };
+    return { type: 'time', at: t.at, ...(jitter > 0 ? { jitter } : {}) };
   }
   if (t.kind === 'interval') {
     return { type: 'interval', seconds: Math.max(10, Number(t.intervalSeconds) || 600) };
@@ -558,6 +581,7 @@ export function triggerFromConfig(t: BausteinConfig): TriggerDraft {
     intervalSeconds: String(t?.seconds ?? EMPTY_TRIGGER.intervalSeconds),
     forMinutes: t?.for ? String(Math.round(Number(t.for) / 60)) : '',
     availabilityTo: t?.type === 'availability' && t?.to === true ? 'wieder-da' : 'weg',
+    jitter: t?.jitter ? String(t.jitter) : '',
   };
 }
 
@@ -587,6 +611,25 @@ export function weekdayLabel(days: number[]): string {
     .join(', ');
 }
 
+/** «heute 21:12», «morgen 06:00» oder «Mo 09:00» (rein, testbar).
+ *
+ *  Für die nächste Ausführung (Punkt 161) und «ruht bis» (Punkt 159) -
+ *  ein nackter Zeitstempel beantwortet die Frage «wann?» nicht. */
+export function zeitpunktLabel(ts: number, jetzt: Date = new Date()): string {
+  const dann = new Date(ts * 1000);
+  const uhr = `${String(dann.getHours()).padStart(2, '0')}:${String(
+    dann.getMinutes()
+  ).padStart(2, '0')}`;
+  const tage = Math.floor(
+    (new Date(dann.getFullYear(), dann.getMonth(), dann.getDate()).getTime() -
+      new Date(jetzt.getFullYear(), jetzt.getMonth(), jetzt.getDate()).getTime()) /
+      86_400_000
+  );
+  if (tage === 0) return `heute ${uhr}`;
+  if (tage === 1) return `morgen ${uhr}`;
+  return `${WEEKDAY_LABELS[(dann.getDay() + 6) % 7]} ${uhr}`;
+}
+
 /** Lesbarer Text für eine Wartezeit (rein, testbar). */
 export function delayLabel(seconds: string): string {
   const value = Number(seconds) || 0;
@@ -609,8 +652,14 @@ export function buildConditions(draft: Draft): BausteinConfig[] {
     if (draft.weekdays.length > 0 && draft.weekdays.length < 7) {
       condition.weekdays = [...draft.weekdays].sort((a, b) => a - b);
     }
+    if (draft.exceptHolidays) condition.except_holidays = true;
     // Eine Bedingung ganz ohne Angabe wäre sinnlos – dann keine.
-    if (condition.after || condition.before || condition.weekdays) {
+    if (
+      condition.after ||
+      condition.before ||
+      condition.weekdays ||
+      condition.except_holidays
+    ) {
       conditions.push(condition);
     }
   }
@@ -649,7 +698,7 @@ export function stepToActions(step: StepDraft): BausteinConfig[] {
     return [
       {
         type: 'notify',
-        to: 'all',
+        to: step.notifyTo || 'all',
         title: step.title,
         body: step.body,
         ...(step.notifyCamera ? { camera: step.notifyCamera } : {}),
@@ -747,6 +796,7 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
         title: action.title ?? '',
         body: action.body ?? '',
         notifyCamera: action.camera ?? '',
+        notifyTo: action.to && action.to !== 'all' ? String(action.to) : '',
       });
     } else if (type === 'broadcast') {
       steps.push({
@@ -808,6 +858,7 @@ export function toDraft(automation: Automation): Draft {
     ),
     match: automation.match === 'any' ? 'any' : 'all',
     weekdays: Array.isArray(condition.weekdays) ? condition.weekdays.map(Number) : [],
+    exceptHolidays: condition.except_holidays === true,
     steps: withAtLeastOne(actionsToSteps(automation.actions ?? [])),
     elseSteps: actionsToSteps(automation.otherwise ?? []),
     mode: automation.mode === 'restart' ? 'restart' : 'single',

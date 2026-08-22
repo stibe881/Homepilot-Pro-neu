@@ -21,7 +21,14 @@ from ...core import editversions as editversions_module
 from ...core import trash as trash_module
 from ...core.users import Capability, Role
 from ..context import ApiContext
-from ..models import AutomationRequest, PauseRequest, RestoreVersionRequest, SceneRequest
+from ..models import (
+    AutomationRequest,
+    PauseRequest,
+    ProbeStepRequest,
+    RestoreVersionRequest,
+    SceneRequest,
+    SnoozeRequest,
+)
 
 log = logging.getLogger(__name__)
 
@@ -302,7 +309,11 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         require(request, Capability.VIEW_AUTOMATIONS)
         return {
             "automations": [
-                automation.as_dict() for automation in hub.automations.automations
+                # next_run (Punkt 161): «heute 21:12» in der Liste statt
+                # Kopfrechnen über Sonnenuntergang plus Versatz.
+                automation.as_dict()
+                | {"next_run": hub.automations.next_run(automation)}
+                for automation in hub.automations.automations
             ],
             "paused_until": (
                 hub.automations.paused_until.isoformat()
@@ -386,6 +397,52 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         ]
         hub.data.set("automations", updated)
         await hub.reload_automations()
+        return {"ok": True}
+
+    @app.post("/api/automations/{automation_id}/snooze")
+    async def snooze_automation(
+        automation_id: str, body: SnoozeRequest, request: Request
+    ) -> dict[str, Any]:
+        """«Aus bis morgen» statt nur aus (Punkt 159 der Werkbank).
+
+        Heute Abend soll das Bewegungslicht schweigen (Gäste schlafen im
+        Flur) - also schaltet man den Ablauf aus. Und vergisst ihn wieder
+        einzuschalten. Mit einer Frist meldet er sich von selbst zurück;
+        ``until: null`` weckt ihn sofort.
+        """
+        require(request, Capability.EDIT_AUTOMATIONS)
+        stored = stored_automations()
+        if not any(entry["id"] == automation_id for entry in stored):
+            raise HTTPException(
+                status_code=404,
+                detail="Nur in der App angelegte Abläufe lassen sich hier ändern",
+            )
+        until = automation_module.parse_quiet_until(body.until)
+        updated = [
+            {**entry, "quiet_until": until} if entry["id"] == automation_id else entry
+            for entry in stored
+        ]
+        hub.data.set("automations", updated)
+        await hub.reload_automations()
+        return {"ok": True, "quiet_until": until}
+
+    @app.post("/api/automations/probestep")
+    async def probe_step(body: ProbeStepRequest, request: Request) -> dict[str, Any]:
+        """Einen einzelnen Schritt ausführen, nicht den ganzen Ablauf (164).
+
+        Der Probelauf zählt auf, der Testlauf führt alles aus - hier
+        liegt das Dazwischen: die eine Durchsage, die eine Nachricht,
+        bevor man den Ablauf speichert.
+        """
+        require(request, Capability.EDIT_AUTOMATIONS)
+        try:
+            await hub.automations.probe_action(body.action)
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+        except Exception as err:
+            raise HTTPException(
+                status_code=502, detail=f"Schritt fehlgeschlagen: {err}"
+            ) from err
         return {"ok": True}
 
     @app.delete("/api/automations/{automation_id}")

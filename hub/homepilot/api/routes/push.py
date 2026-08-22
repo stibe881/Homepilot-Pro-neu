@@ -129,6 +129,26 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
 
     # ── Push ───────────────────────────────────────────────────────────────
 
+    @app.get("/api/push/targets")
+    async def push_targets(request: Request) -> dict[str, Any]:
+        """Wer als Empfänger einer Ablauf-Nachricht in Frage kommt (158).
+
+        Nur Namen und Rollen, keine Tokens: Der Ablauf-Editor braucht
+        eine Auswahl, keine Benutzerverwaltung - deshalb genügt hier
+        EDIT_AUTOMATIONS statt MANAGE_USERS.
+        """
+        require(request, Capability.EDIT_AUTOMATIONS)
+        from ...core.users import Role
+
+        return {
+            "names": [
+                user.name
+                for user in hub.users.users
+                if not user.system and user.role != Role.GUEST
+            ],
+            "roles": sorted(Role.ALL),
+        }
+
     @app.post("/api/push/register")
     async def register_push(body: PushRegistration, request: Request) -> dict[str, Any]:
         user = current_user(request)

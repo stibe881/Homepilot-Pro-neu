@@ -23,6 +23,18 @@ class PauseRequest(BaseModel):
     seconds: float = 7200
 
 
+class SnoozeRequest(BaseModel):
+    """Bis wann ein Ablauf ruht - None weckt ihn sofort."""
+
+    until: str | float | None = None
+
+
+class ProbeStepRequest(BaseModel):
+    """Ein einzelner Ablauf-Schritt zum Ausprobieren (Punkt 164)."""
+
+    action: dict[str, Any]
+
+
 class RestoreVersionRequest(BaseModel):
     # Der Zeitstempel ist die Kennung der Fassung (siehe editversions.py).
     at: float

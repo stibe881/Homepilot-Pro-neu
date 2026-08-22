@@ -11,7 +11,7 @@ import { HubFehler, hubClient } from '../api/client';
 import { datumKurz } from '../lib/format';
 import { RueckwegBefehl, sceneActionsToDraft, szenenRueckweg } from '../lib/szenen';
 import { Editor, Fassung } from './automations/editor';
-import { Automation, Draft, DryRun, EMPTY, Run, TriggerHealth, buildConditions, describe, groupByCategory, lastRunText, newTrigger, runLine, search, stepsToActions, toDraft, triggerToConfig, usedCategories } from './automations/entwurf';
+import { Automation, Draft, DryRun, EMPTY, Run, StepDraft, TriggerHealth, buildConditions, describe, groupByCategory, lastRunText, newTrigger, runLine, search, stepToActions, stepsToActions, toDraft, triggerToConfig, usedCategories, zeitpunktLabel } from './automations/entwurf';
 import { Groups, SearchBox } from './automations/felder';
 import { makeStyles } from './automations/stil';
 import { SCENE_ICONS, SceneDraft, SceneEditor } from './automations/szenen-editor';
@@ -77,6 +77,8 @@ export function AutomationsScreen({
   // denn sie kostet einen eigenen Aufruf und interessiert nur, wenn etwas
   // nicht stimmt.
   const [diagnose, setDiagnose] = useState<Record<string, TriggerHealth[]>>({});
+  // Mögliche Nachricht-Empfänger für den Editor (Punkt 158).
+  const [empfaenger, setEmpfaenger] = useState<string[]>([]);
   const templates = useMemo(() => buildTemplates(entities, scenes), [entities, scenes]);
 
   const mayEdit = !!user?.capabilities?.includes('edit_automations');
@@ -115,6 +117,12 @@ export function AutomationsScreen({
         still: true,
       })
       .then((data) => setHueScenes(data?.scenes ?? []));
+    hub
+      .get<{ names?: string[] } | null>('/api/push/targets', {
+        fallback: null,
+        still: true,
+      })
+      .then((data) => setEmpfaenger(data?.names ?? []));
   }, [hub]);
 
   useEffect(load, [load]);
@@ -170,6 +178,51 @@ export function AutomationsScreen({
         : 'Kopie angelegt'
     );
     load();
+  };
+
+  /** «Aus bis morgen früh» (Punkt 159): Statt den Ablauf auszuschalten
+   *  und ihn drei Wochen später im Dunkeln zu vermissen, ruht er bis
+   *  06:00 und meldet sich selbst zurück. */
+  const snooze = async (automation: Automation, wecken: boolean) => {
+    const morgen = new Date();
+    morgen.setDate(morgen.getDate() + 1);
+    morgen.setHours(6, 0, 0, 0);
+    const ok = await hub.post(
+      `/api/automations/${automation.id}/snooze`,
+      { until: wecken ? null : morgen.getTime() / 1000 },
+      { fallback: null, still: true }
+    );
+    if (ok === null) {
+      onNote?.('Nicht gespeichert – der Hub war nicht erreichbar');
+      return;
+    }
+    onNote?.(
+      wecken
+        ? `«${automation.alias}» ist wieder wach`
+        : `«${automation.alias}» ruht bis morgen 06:00`
+    );
+    load();
+  };
+
+  /** Genau einen Schritt ausführen (Punkt 164) – so, wie er gerade im
+   *  Editor steht, auch ungespeichert. */
+  const probeStep = async (step: StepDraft): Promise<boolean> => {
+    const actions = stepToActions(step);
+    if (actions.length === 0) {
+      onNote?.('Der Schritt ist noch leer – zuerst etwas auswählen');
+      return false;
+    }
+    for (const action of actions) {
+      const ok = await hub.post('/api/automations/probestep', { action }, {
+        fallback: null,
+        still: true,
+      });
+      if (ok === null) {
+        onNote?.('Schritt fehlgeschlagen – Näheres steht im Hub-Log');
+        return false;
+      }
+    }
+    return true;
   };
 
   /** Den gespeicherten Ablauf einmal sofort ausführen – der «Testen»-Knopf. */
@@ -483,6 +536,20 @@ export function AutomationsScreen({
                       {automation.enabled === false ? ' · aus' : ''}
                     </Text>
                     <Text style={styles.detail}>{describe(automation)}</Text>
+                    {/* «heute 21:12» statt Kopfrechnen über Sonnenuntergang
+                        plus Versatz (Punkt 161) - nur bei Zeit/Sonne, ein
+                        Bewegungsmelder hat keinen Kalender. */}
+                    {automation.enabled !== false && automation.next_run ? (
+                      <Text style={styles.detail}>
+                        Nächste Ausführung: {zeitpunktLabel(automation.next_run)}
+                      </Text>
+                    ) : null}
+                    {automation.quiet_until &&
+                    automation.quiet_until * 1000 > Date.now() ? (
+                      <Text style={[styles.detail, { color: colors.warn }]}>
+                        Ruht bis {zeitpunktLabel(automation.quiet_until)}
+                      </Text>
+                    ) : null}
                     {/* Antippbar: die letzten Läufe samt Begründung. «Warum
                         lief das nicht?» steht dann da - z.B. «übersprungen:
                         nur wenn dunkel» - statt nur des letzten Laufs. */}
@@ -553,6 +620,39 @@ export function AutomationsScreen({
                   </View>
                   {automation.editable && mayEdit ? (
                     <>
+                      {automation.enabled !== false ? (
+                        // Punkt 159: «aus bis morgen» statt aus - den
+                        // wieder einzuschalten vergisst man drei Wochen.
+                        <Pressable
+                          onPress={() =>
+                            snooze(
+                              automation,
+                              !!(
+                                automation.quiet_until &&
+                                automation.quiet_until * 1000 > Date.now()
+                              )
+                            )
+                          }
+                          accessibilityLabel={
+                            automation.quiet_until &&
+                            automation.quiet_until * 1000 > Date.now()
+                              ? `${automation.alias} wieder wecken`
+                              : `${automation.alias} bis morgen früh ruhen lassen`
+                          }
+                          style={styles.iconButton}
+                        >
+                          <Ionicons
+                            name={
+                              automation.quiet_until &&
+                              automation.quiet_until * 1000 > Date.now()
+                                ? 'sunny-outline'
+                                : 'moon-outline'
+                            }
+                            size={20}
+                            color={colors.inkSoft}
+                          />
+                        </Pressable>
+                      ) : null}
                       <Pressable
                         onPress={() => duplicate(automation.id)}
                         accessibilityLabel={`${automation.alias} kopieren`}
@@ -747,6 +847,8 @@ export function AutomationsScreen({
         scenes={scenes}
         categories={usedCategories(automations)}
         hueScenes={hueScenes}
+        empfaenger={empfaenger}
+        onProbeStep={mayEdit ? probeStep : undefined}
         onChange={setDraft}
         onSave={save}
         onDelete={draft?.id ? () => remove(draft.id!) : undefined}

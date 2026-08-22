@@ -22,6 +22,8 @@ export function Editor({
   scenes,
   categories,
   hueScenes,
+  empfaenger,
+  onProbeStep,
   onChange,
   onSave,
   onDelete,
@@ -38,6 +40,10 @@ export function Editor({
   categories: string[];
   /** Szenen der Hue-Bridge; leer, wenn keine Bridge verbunden ist. */
   hueScenes: string[];
+  /** Mögliche Nachricht-Empfänger (Punkt 158); leer = keine Auswahl. */
+  empfaenger?: string[];
+  /** Einen einzelnen Schritt sofort ausführen (Punkt 164). */
+  onProbeStep?: (step: StepDraft) => Promise<boolean>;
   onChange: (draft: Draft) => void;
   onSave: () => void;
   onDelete?: () => void;
@@ -239,6 +245,25 @@ export function Editor({
                   ? 'Kein Tag gewählt heisst jeden Tag.'
                   : `Nur ${weekdayLabel(draft.weekdays)}.`}
               </Text>
+              <Pressable
+                onPress={() => set({ exceptHolidays: !draft.exceptHolidays })}
+                accessibilityRole="switch"
+                accessibilityState={{ checked: draft.exceptHolidays }}
+                style={styles.holidayToggle}
+              >
+                <Ionicons
+                  name={draft.exceptHolidays ? 'checkbox' : 'square-outline'}
+                  size={20}
+                  color={draft.exceptHolidays ? colors.accent : colors.inkSoft}
+                />
+                <Text style={styles.holidayText}>ausser an Feiertagen</Text>
+              </Pressable>
+              {draft.exceptHolidays ? (
+                <Text style={styles.triggerNote}>
+                  Der Hub kennt die Luzerner Feiertage – Auffahrt ist dann kein
+                  Werktag, und der Sauger bleibt in der Ecke.
+                </Text>
+              ) : null}
             </>
           ) : null}
 
@@ -414,6 +439,8 @@ export function Editor({
             entities={entities}
             scenes={scenes}
             hueScenes={hueScenes}
+            empfaenger={empfaenger}
+            onProbeStep={onProbeStep}
             colors={colors}
             styles={styles}
             onChange={(steps) => set({ steps })}
@@ -481,6 +508,8 @@ export function Editor({
               entities={entities}
               scenes={scenes}
               hueScenes={hueScenes}
+              empfaenger={empfaenger}
+              onProbeStep={onProbeStep}
               colors={colors}
               styles={styles}
               onChange={(elseSteps) => set({ elseSteps })}
@@ -939,6 +968,25 @@ export function TriggerRow({
           placeholderTextColor={colors.inkFaint}
         />
       )}
+      {trigger.kind === 'time' || trigger.kind === 'sun' ? (
+        <>
+          <TextInput
+            style={styles.input}
+            value={trigger.jitter}
+            onChangeText={(jitter) => onChange({ jitter })}
+            placeholder="± Minuten zufällig (leer = pünktlich)"
+            placeholderTextColor={colors.inkFaint}
+            keyboardType="numeric"
+          />
+          {Number(trigger.jitter) > 0 ? (
+            <Text style={styles.triggerNote}>
+              Jeden Tag neu gewürfelt, bis {Math.min(240, Number(trigger.jitter))} Min
+              früher oder später – Storen, die aufs Sekundengleiche fahren,
+              verraten jedem Beobachter die Zeitschaltuhr.
+            </Text>
+          ) : null}
+        </>
+      ) : null}
     </View>
   );
 }
@@ -959,6 +1007,8 @@ export function StepList({
   entities,
   scenes,
   hueScenes,
+  empfaenger = [],
+  onProbeStep,
   colors,
   styles,
   onChange,
@@ -967,10 +1017,17 @@ export function StepList({
   entities: Entity[];
   scenes: Scene[];
   hueScenes: string[];
+  /** Mögliche Nachricht-Empfänger (Punkt 158); leer = keine Auswahl. */
+  empfaenger?: string[];
+  /** Genau diesen einen Schritt ausführen (Punkt 164) - so, wie er
+   *  gerade dasteht, auch ungespeichert. */
+  onProbeStep?: (step: StepDraft) => Promise<boolean>;
   colors: Colors;
   styles: ReturnType<typeof makeStyles>;
   onChange: (steps: StepDraft[]) => void;
 }) {
+  // Welcher Schritt gerade probiert wurde - für das kurze Häkchen.
+  const [probiert, setProbiert] = useState<number | null>(null);
   const setStep = (index: number, patch: Partial<StepDraft>) =>
     onChange(steps.map((step, i) => (i === index ? { ...step, ...patch } : step)));
   const remove = (index: number) => onChange(steps.filter((_, i) => i !== index));
@@ -1024,6 +1081,29 @@ export function StepList({
                   />
                 </Pressable>
               </>
+            ) : null}
+            {onProbeStep &&
+            !['delay', 'wait_until'].includes(step.kind) ? (
+              // Punkt 164: die eine Durchsage, die eine Nachricht
+              // ausprobieren, ohne dass die Storen mitfahren - und ohne
+              // vorher speichern zu müssen.
+              <Pressable
+                onPress={async () => {
+                  if ((await onProbeStep(step)) === true) {
+                    setProbiert(index);
+                    setTimeout(() => setProbiert(null), 2500);
+                  }
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Nur diesen Schritt jetzt ausführen"
+                hitSlop={8}
+              >
+                <Ionicons
+                  name={probiert === index ? 'checkmark' : 'play-outline'}
+                  size={17}
+                  color={probiert === index ? colors.on : colors.inkSoft}
+                />
+              </Pressable>
             ) : null}
             <Pressable
               onPress={() => copy(index)}
@@ -1103,6 +1183,19 @@ export function StepList({
                 placeholder="Text"
                 placeholderTextColor={colors.inkFaint}
               />
+              {empfaenger.length > 1 ? (
+                // Punkt 158: «Waschmaschine fertig» muss nicht das ganze
+                // Haus wecken - der Hub kannte das to-Feld längst, nur
+                // der Editor bot es nicht an.
+                <Choice
+                  options={[
+                    { key: '', label: 'An alle' },
+                    ...empfaenger.map((name) => ({ key: name, label: name })),
+                  ]}
+                  value={step.notifyTo}
+                  onSelect={(notifyTo) => setStep(index, { notifyTo })}
+                />
+              ) : null}
               <EntityPicker
                 entities={entities.filter((entity) => entity.kind === 'camera')}
                 noneLabel="Kein Bild"

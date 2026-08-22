@@ -52,12 +52,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from . import astro, snapshots
+from . import astro, feiertage, snapshots
 from .source import as_source, automation_source
 
 if TYPE_CHECKING:
@@ -413,6 +414,11 @@ def describe_condition(condition: dict[str, Any], value: Any) -> str:
         days = parse_weekdays(condition.get("weekdays"))
         if days and datetime.now().weekday() not in days:
             return f"Heute ist {WEEKDAYS[datetime.now().weekday()]}, verlangt sind {weekday_label(days)}"
+        if condition.get("except_holidays") and feiertage.ist_feiertag(
+            datetime.now().date()
+        ):
+            name = feiertage.feiertage(datetime.now().year).get(datetime.now().date(), "")
+            return f"Heute ist ein Feiertag ({name})"
         window = " bis ".join(
             part for part in (condition.get("after"), condition.get("before")) if part
         )
@@ -585,6 +591,29 @@ def next_time_fire(
         feuern = False
         rest = (ziel - jetzt).total_seconds()
     return feuern, min(max(rest, 1.0), TIME_STEP), gefeuert_am
+
+
+def jitter_minutes(trigger: dict[str, Any]) -> int:
+    """± Minuten Zufalls-Versatz eines Zeit-/Sonnen-Auslösers (rein).
+
+    Punkt 155 der Werkbank: Storen, die 365 Tage im Jahr sekundengleich
+    fahren, erzählen jedem Beobachter «hier wohnt eine Zeitschaltuhr».
+    Unbrauchbares heisst null, und mehr als vier Stunden sind kein
+    Versatz mehr, sondern ein anderer Zeitpunkt.
+    """
+    try:
+        wert = float(trigger.get("jitter") or 0)
+    except (TypeError, ValueError):
+        return 0
+    return int(max(0.0, min(240.0, wert)))
+
+
+def shifted_hhmm(hour: int, minute: int, minus_minutes: int) -> tuple[int, int]:
+    """Eine Uhrzeit um Minuten nach vorn schieben, über Mitternacht hinweg
+    (rein, testbar). Der Zufalls-Versatz beginnt am frühesten Punkt des
+    Fensters und würfelt von dort nach hinten."""
+    total = (hour * 60 + minute - minus_minutes) % (24 * 60)
+    return total // 60, total % 60
 
 
 def _as_list(value: Any) -> list[dict[str, Any]]:
@@ -777,7 +806,9 @@ class AutomationEngine:
                     self._timer_tasks.append(task)
                 elif trigger.get("type") == "time":
                     task = asyncio.create_task(
-                        self._time_loop(automation, str(trigger["at"]))
+                        self._time_loop(
+                            automation, str(trigger["at"]), jitter_minutes(trigger)
+                        )
                     )
                     self._timer_tasks.append(task)
                 elif trigger.get("type") == "sun":
@@ -786,6 +817,7 @@ class AutomationEngine:
                             automation,
                             str(trigger.get("event", "sunset")),
                             float(trigger.get("offset", 0)),
+                            jitter_minutes(trigger),
                         )
                     )
                     self._timer_tasks.append(task)
@@ -953,8 +985,11 @@ class AutomationEngine:
             await asyncio.sleep(seconds)
             self._schedule(automation)
 
-    async def _time_loop(self, automation: Automation, at: str) -> None:
-        hour, minute = _parse_hhmm(at)
+    async def _time_loop(self, automation: Automation, at: str, jitter: int = 0) -> None:
+        # Mit Zufalls-Versatz (Punkt 155) beginnt das Fenster `jitter`
+        # Minuten VOR der eingestellten Zeit; gewürfelt wird dann bis zu
+        # 2×`jitter` nach hinten - zusammen ±jitter um den Zielpunkt.
+        hour, minute = shifted_hhmm(*_parse_hhmm(at), jitter)
         start = datetime.now()
         # Beim Start nicht nachträglich feuern: Wer den Hub um 20 Uhr neu
         # startet, will den 18:30-Ablauf nicht sofort ausgeführt bekommen.
@@ -965,6 +1000,8 @@ class AutomationEngine:
                 datetime.now(), hour, minute, gefeuert_am
             )
             if feuern:
+                if jitter > 0:
+                    await asyncio.sleep(random.uniform(0, 2 * jitter * 60))
                 self._schedule(automation)
             await asyncio.sleep(schlafen)
 
@@ -1142,7 +1179,9 @@ class AutomationEngine:
         except (TypeError, ValueError):
             return DEFAULT_LAT, DEFAULT_LON
 
-    async def _sun_loop(self, automation: Automation, event: str, offset: float) -> None:
+    async def _sun_loop(
+        self, automation: Automation, event: str, offset: float, jitter: int = 0
+    ) -> None:
         lat, lon = self._location()
         sunset = event != "sunrise"
         while True:
@@ -1152,6 +1191,10 @@ class AutomationEngine:
                 await asyncio.sleep(6 * 3600)
                 continue
             delay = (nxt - datetime.now()).total_seconds()
+            if jitter > 0:
+                # Jeden Tag neu gewürfelt (Punkt 155): mal vor, mal nach
+                # dem Sonnenstand, nie zweimal gleich.
+                delay += random.uniform(-jitter * 60, jitter * 60)
             if delay > 0:
                 await asyncio.sleep(delay)
             self._schedule(automation)
@@ -1217,6 +1260,58 @@ class AutomationEngine:
             if self._tasks_by_id.get(key) is done
             else None
         )
+
+    def next_run(self, automation: Automation) -> float | None:
+        """Wann der nächste Zeit- oder Sonnen-Auslöser fällig ist (Punkt 161).
+
+        Unix-Sekunden, ``None`` wenn nichts planbar ist - Zustands- und
+        Intervall-Auslöser haben keinen Kalender. Der Zufalls-Versatz
+        bleibt aussen vor: Angezeigt wird der Zielpunkt, gewürfelt wird
+        erst beim Feuern.
+        """
+        if not automation.enabled:
+            return None
+        jetzt = datetime.now()
+        kandidaten: list[float] = []
+        for trigger in automation.triggers:
+            art = str(trigger.get("type", "state"))
+            if art == "time":
+                try:
+                    hour, minute = _parse_hhmm(str(trigger.get("at")))
+                except (TypeError, ValueError):
+                    continue
+                ziel = jetzt.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                if ziel <= jetzt:
+                    ziel += timedelta(days=1)
+                kandidaten.append(ziel.timestamp())
+            elif art == "sun":
+                lat, lon = self._location()
+                nxt = astro.next_sun_event(
+                    jetzt,
+                    lat,
+                    lon,
+                    str(trigger.get("event", "sunset")) != "sunrise",
+                    float(trigger.get("offset", 0) or 0),
+                )
+                if nxt is not None:
+                    kandidaten.append(nxt.timestamp())
+        return min(kandidaten) if kandidaten else None
+
+    async def probe_action(self, action: dict[str, Any]) -> None:
+        """Eine einzelne Aktion ausführen, ohne den Ablauf (Punkt 164).
+
+        Beim Einrichten will man oft nur wissen, ob Schritt drei - die
+        Durchsage, das Kamerabild - so ankommt wie gedacht, ohne dass
+        für jede Formulierungsprobe die Storen mitfahren.
+
+        Warten wäre hier sinnlos, und einen anderen Ablauf aufzurufen
+        wäre kein Einzelschritt mehr - beides wird abgelehnt.
+        """
+        atype = str(action.get("type", "command"))
+        if atype in ("delay", "wait_until", "automation"):
+            raise ValueError(f"«{atype}» lässt sich nicht einzeln ausprobieren")
+        probe = Automation(id="probeschritt", alias="Probeschritt", triggers=[])
+        await self._execute_action(probe, action)
 
     async def trigger_now(self, automation_id: str, ignore_conditions: bool = True) -> bool:
         """Einen Ablauf sofort ausführen – für den «Testen»-Knopf der App.
@@ -1433,6 +1528,12 @@ class AutomationEngine:
         if ctype == "time":
             days = parse_weekdays(condition.get("weekdays"))
             if days and datetime.now().weekday() not in days:
+                return False
+            # «ausser an Feiertagen» (Punkt 154): Auffahrt ist ein
+            # Donnerstag, aber kein Werktag - der Sauger soll das wissen.
+            if condition.get("except_holidays") and feiertage.ist_feiertag(
+                datetime.now().date()
+            ):
                 return False
             now = datetime.now().time()
             if "after" in condition:

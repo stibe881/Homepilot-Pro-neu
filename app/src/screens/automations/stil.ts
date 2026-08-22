@@ -174,6 +174,13 @@ export const makeStyles = (colors: Colors) =>
     previewHead: { color: colors.ink, fontSize: 13, fontWeight: '700', marginTop: 4 },
     previewLine: { color: colors.inkSoft, fontSize: 13, lineHeight: 19 },
     weekdayRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
+    holidayToggle: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 4,
+    },
+    holidayText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
     weekday: {
       paddingVertical: 6,
       paddingHorizontal: 10,

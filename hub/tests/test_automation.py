@@ -1,6 +1,8 @@
 import asyncio
 import time
 
+import pytest
+
 from homepilot.core.automation import (
     Automation,
     describe_condition,
@@ -530,6 +532,172 @@ def test_the_weekday_decides_before_the_clock():
             await hub.stop()
 
     asyncio.run(check())
+
+
+def test_a_holiday_blocks_a_time_condition_that_excludes_holidays(monkeypatch):
+    """«Werktags saugen» soll an Auffahrt schweigen (Punkt 154). Der
+    Kalender wird untergeschoben - der Test soll jeden Tag laufen, nicht
+    nur an Feiertagen."""
+
+    async def check():
+        hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+        await hub.start()
+        try:
+            from homepilot.core import feiertage
+
+            engine = hub.automations
+            monkeypatch.setattr(feiertage, "ist_feiertag", lambda _tag: True)
+            assert not engine._check_condition({"type": "time", "except_holidays": True})
+            # Ohne das Häkchen bleibt der Feiertag ein Tag wie jeder.
+            assert engine._check_condition({"type": "time"})
+            monkeypatch.setattr(feiertage, "ist_feiertag", lambda _tag: False)
+            assert engine._check_condition({"type": "time", "except_holidays": True})
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())
+
+
+def test_jitter_is_bounded_and_typo_proof():
+    """Der Zufalls-Versatz (Punkt 155): Unsinn heisst null, und mehr als
+    vier Stunden sind kein Versatz mehr."""
+    from homepilot.core.automation import jitter_minutes, shifted_hhmm
+
+    assert jitter_minutes({"jitter": 10}) == 10
+    assert jitter_minutes({"jitter": "15"}) == 15
+    assert jitter_minutes({}) == 0
+    assert jitter_minutes({"jitter": "viel"}) == 0
+    assert jitter_minutes({"jitter": -5}) == 0
+    assert jitter_minutes({"jitter": 9999}) == 240
+
+    # Das Fenster beginnt VOR der Zielzeit - auch über Mitternacht.
+    assert shifted_hhmm(21, 30, 15) == (21, 15)
+    assert shifted_hhmm(0, 10, 30) == (23, 40)
+    assert shifted_hhmm(7, 0, 0) == (7, 0)
+
+
+def test_next_run_names_the_next_time_trigger():
+    """«Nächste Ausführung: heute 21:12» (Punkt 161) - für Zeit-Auslöser
+    auf die Minute, für Zustands-Auslöser ehrlich gar nicht."""
+
+    async def check():
+        hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+        await hub.start()
+        try:
+            from datetime import datetime, timedelta
+
+            from homepilot.core.automation import Automation
+
+            engine = hub.automations
+            in_zwei_stunden = datetime.now() + timedelta(hours=2)
+            zeit = Automation(
+                id="z",
+                alias="Zeit",
+                triggers=[{"type": "time", "at": in_zwei_stunden.strftime("%H:%M")}],
+            )
+            geplant = engine.next_run(zeit)
+            assert geplant is not None
+            erwartet = in_zwei_stunden.replace(second=0, microsecond=0).timestamp()
+            assert abs(geplant - erwartet) < 60
+
+            zustand = Automation(
+                id="s",
+                alias="Zustand",
+                triggers=[{"type": "state", "entity_id": "demo.light_livingroom"}],
+            )
+            assert engine.next_run(zustand) is None
+            # Ausgeschaltete haben keinen nächsten Lauf.
+            zeit.enabled = False
+            assert engine.next_run(zeit) is None
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())
+
+
+def test_probe_action_refuses_waiting():
+    """Ein einzelner Schritt (Punkt 164): schalten ja, warten nein - auf
+    ein «delay» einzeln zu warten ergäbe keinen Sinn."""
+
+    async def check():
+        hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+        await hub.start()
+        try:
+            engine = hub.automations
+            await engine.probe_action(
+                {"entity_id": "demo.light_livingroom", "command": "turn_on"}
+            )
+            licht = hub.registry.get("demo.light_livingroom")
+            assert licht is not None and licht.state.get("state") == "on"
+
+            with pytest.raises(ValueError):
+                await engine.probe_action({"type": "delay", "seconds": 5})
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())
+
+
+def test_snooze_puts_an_automation_to_rest_and_wakes_it():
+    """«Aus bis morgen» (Punkt 159): Die Frist landet im gespeicherten
+    Ablauf und verschwindet mit until=null wieder."""
+    from fastapi.testclient import TestClient
+
+    from homepilot.api import create_app
+
+    from .conftest import make_config
+
+    hub = Hub(
+        make_config(
+            token="geheim",
+            users=[{"name": "Stefan", "role": "besitzer", "token": "t-stefan"}],
+            integrations=[{"integration": "demo"}],
+        )
+    )
+    with TestClient(create_app(hub)) as client:
+        headers = {"Authorization": "Bearer t-stefan"}
+        angelegt = client.post(
+            "/api/automations",
+            json={
+                "alias": "Bewegungslicht Flur",
+                "trigger": [{"entity_id": "demo.motion_hall", "to": "on"}],
+                "action": [{"entity_id": "demo.light_livingroom", "command": "turn_on"}],
+            },
+            headers=headers,
+        ).json()["automation"]
+
+        morgen = time.time() + 8 * 3600
+        antwort = client.post(
+            f"/api/automations/{angelegt['id']}/snooze",
+            json={"until": morgen},
+            headers=headers,
+        )
+        assert antwort.status_code == 200
+        zeile = next(
+            a
+            for a in client.get("/api/automations", headers=headers).json()["automations"]
+            if a["id"] == angelegt["id"]
+        )
+        assert zeile["quiet_until"] == pytest.approx(morgen, abs=1)
+
+        # until=null weckt ihn sofort.
+        client.post(
+            f"/api/automations/{angelegt['id']}/snooze", json={"until": None}, headers=headers
+        )
+        zeile = next(
+            a
+            for a in client.get("/api/automations", headers=headers).json()["automations"]
+            if a["id"] == angelegt["id"]
+        )
+        assert zeile["quiet_until"] is None
+
+        # Aus der config.yaml stammende gehören der Datei.
+        assert (
+            client.post(
+                "/api/automations/gibtsnicht/snooze", json={"until": morgen}, headers=headers
+            ).status_code
+            == 404
+        )
 
 
 # ── «Sonst»-Zweig ──────────────────────────────────────────────────────────
