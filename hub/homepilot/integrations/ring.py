@@ -849,7 +849,29 @@ async def _diagnose_main(config_path: str) -> int:
         print(f"\nKein Token in {token_file} – zuerst anmelden (ohne --diagnose).")
         return 1
 
+    # Ohne gespeicherte Push-Anmeldung würde die Bibliothek hier eine
+    # neue registrieren - eine Wegwerf-Anmeldung, die nirgends landet.
+    # Genau davon wird PHONE_REGISTRATION_ERROR ausgelöst, und wer bei
+    # einer Störung fünfmal die Diagnose laufen lässt, erzeugt damit die
+    # Krankheit, die er sucht. Also nicht.
+    if stored.get("listener") is None:
+        print(
+            "\nKeine Push-Anmeldung gespeichert – hier wird bewusst keine "
+            "angelegt.\nDer Hub registriert sich beim nächsten Anlauf selbst; "
+            "jede Anmeldung von Hand\nist eine Anfrage mehr an einen Dienst, "
+            "der bei Problemen ohnehin abweist."
+        )
+        if all(erreichbar.values()):
+            print("→ Der Weg ist offen. Hub neu starten und das Protokoll ansehen.")
+            return 0
+        print(f"→ {push_diagnose(erreichbar, [])}")
+        return 1
+
     print("\nAnmeldeversuch beim Push-Dienst …")
+    print(
+        "  (Der laufende Hub teilt sich diese Anmeldung – er baut seinen "
+        "Kanal danach neu auf.)"
+    )
     mitschnitt = _LogMitschnitt("firebase_messaging")
     fehler: str | None = None
     with mitschnitt:
@@ -860,7 +882,9 @@ async def _diagnose_main(config_path: str) -> int:
             ring = Ring(auth)
             await ring.async_create_session()
             await ring.async_update_devices()
-            listener = RingEventListener(ring, credentials=stored.get("listener"))
+            # Ausdrücklich ohne credentials_updated_callback: Die Diagnose
+            # sieht nach, sie schreibt nicht.
+            listener = RingEventListener(ring, credentials=stored["listener"])
             gestartet = await listener.start()
             if gestartet:
                 print("  ✓ Ereigniskanal steht – Klingeln kommt sofort an.")

@@ -56,6 +56,12 @@ wer auf dem Host misst, misst das falsche Netz – dann sieht alles offen
 aus und der Hub kommt trotzdem nicht durch. Deshalb nennt die Ausgabe
 zuerst, von welchem Rechner aus sie misst.
 
+Der zweite Teil – der Anmeldeversuch – teilt sich die Push-Anmeldung mit
+dem laufenden Hub; der baut seinen Kanal danach neu auf. Und er legt
+bewusst **keine** neue Anmeldung an, wenn keine gespeichert ist: Genau
+davon kommt `PHONE_REGISTRATION_ERROR`, und wer bei einer Störung fünfmal
+die Diagnose laufen lässt, erzeugte sonst die Krankheit, die er sucht.
+
 Zwei Ausgänge, zwei verschiedene Baustellen:
 
 - **Ein ✗ bei einer Adresse** – das ist das eigene Netz und reparierbar.
