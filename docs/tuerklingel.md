@@ -23,18 +23,61 @@ Zeile über den Ereigniskanal. Zwei Möglichkeiten:
 
 - *«Ereigniskanal verbunden – Klingeln kommt sofort an»*: Station 1 ist in
   Ordnung, weiter bei Station 3.
-- *«Ereigniskanal nicht verbunden (…)»* mit gelbem Zeichen: Ring hat die
-  Anmeldung für den Push-Dienst abgelehnt. Das Klingeln kommt trotzdem an,
-  nur bis zu zehn Sekunden später – die Abfrage übernimmt. Der Hub
-  versucht den Kanal weiter aufzubauen; hilft das über Stunden nicht, ist
-  meist das Ring-Token abgelaufen:
+- *«Ereigniskanal nicht verbunden. …»* mit gelbem Zeichen: Der Push-Weg
+  steht nicht. Das Klingeln kommt trotzdem an, nur bis zu zehn Sekunden
+  später – die Abfrage übernimmt. Was dahinter steckt, sagt der Satz
+  daneben; die nächsten zwei Abschnitte gehen die beiden Fälle durch.
 
-  ```
-  docker exec -it homepilot-hub python -m homepilot.integrations.ring -c /config/config.yaml
-  ```
+### Woran es liegt – die Diagnose
 
-  E-Mail, Passwort und den zugeschickten Code eingeben, danach den Hub neu
-  starten.
+Der Ereigniskanal läuft technisch über **Googles** Push-Dienst, nicht
+über Ring. Das ist Rings Wahl, und es hat eine Folge, die man nicht
+erwartet: Wer Google im Heimnetz sperrt – Firewall-Regel, Pi-hole, ein
+eigenes VLAN –, sperrt damit die Türklingel aus, ohne dass irgendwo
+«Türklingel» steht.
+
+Drei Adressen sind beteiligt:
+
+| Adresse | wofür |
+| --- | --- |
+| `android.clients.google.com:443` | Anmeldung (GCM-Checkin) |
+| `fcm.googleapis.com:443` | Registrierung (FCM) |
+| `mtalk.google.com:5228` | die Dauerverbindung (MCS) |
+
+Nachsehen, ohne auf den nächsten Anlauf zu warten:
+
+```
+docker exec homepilot-hub \
+    python -m homepilot.integrations.ring -c /config/config.yaml --diagnose
+```
+
+**Im Container, nicht auf dem Host.** Dort gelten andere Netzregeln, und
+wer auf dem Host misst, misst das falsche Netz – dann sieht alles offen
+aus und der Hub kommt trotzdem nicht durch. Deshalb nennt die Ausgabe
+zuerst, von welchem Rechner aus sie misst.
+
+Zwei Ausgänge, zwei verschiedene Baustellen:
+
+- **Ein ✗ bei einer Adresse** – das ist das eigene Netz und reparierbar.
+- **Alles ✓, trotzdem `PHONE_REGISTRATION_ERROR`** – Google lehnt die
+  Registrierung ab. Das passiert und geht meist von selbst wieder; der
+  Hub versucht es weiter (30 s, 1 min, 5, 15, dann alle 30 min).
+
+Wer den Weg über Google gar nicht will, setzt `events: false` in den
+`ring`-Block der config.yaml: Dann ist die Abfrage der reguläre Weg, und
+die Warnung im System-Bildschirm verschwindet.
+
+### Wenn das Ring-Token abgelaufen ist
+
+Hilft die Diagnose nicht weiter und steht dort etwas von Authentifizierung,
+ist meist die Kontoanmeldung fällig:
+
+```
+docker exec -it homepilot-hub python -m homepilot.integrations.ring -c /config/config.yaml
+```
+
+E-Mail, Passwort und den zugeschickten Code eingeben, danach den Hub neu
+starten.
 
 ### «Ereigniskanal verbunden» – und trotzdem klingelt nichts
 

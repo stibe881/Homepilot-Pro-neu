@@ -374,7 +374,8 @@ integrations:
 
   # Ring-Türklingeln und -Kameras. Braucht: pip install ring-doorbell
   # Einmalige Anmeldung mit 2FA-Code:
-  #   python -m homepilot.integrations.ring -c config.yaml
+  #   docker exec -it homepilot-hub \
+  #       python -m homepilot.integrations.ring -c /config/config.yaml
   # Der Ereigniskanal (sofortiges Klingeln) läuft über Googles
   # Push-Dienst - das ist Rings Wahl. Wer Google bewusst aussperrt,
   # setzt events: false; die Klingel kommt dann über die

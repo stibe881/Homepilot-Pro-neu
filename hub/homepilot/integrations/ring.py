@@ -11,8 +11,9 @@ Voraussetzung:  pip install "homepilot[ring]"  bzw.  pip install ring-doorbell
 
 Einrichtung (einmalig, Ring schickt einen 2FA-Code per Mail/SMS):
   1. Den Block oben in die config.yaml eintragen.
-  2. Auf dem Hub-Rechner ausführen:
-         python -m homepilot.integrations.ring -c config.yaml
+  2. Im Hub ausführen (im Container, dort liegt ring-doorbell):
+         docker exec -it homepilot-hub \
+             python -m homepilot.integrations.ring -c /config/config.yaml
      E-Mail, Passwort und den zugeschickten Code eingeben.
   3. Hub (neu) starten.
 
@@ -46,7 +47,11 @@ Cloud Messaging» wird so entweder «mtalk.google.com:5228 nicht
 erreichbar - Firewall?» oder «Google lehnt die Anmeldung ab
 (PHONE_REGISTRATION_ERROR)». Von Hand nachsehen:
 
-    python -m homepilot.integrations.ring -c config.yaml --diagnose
+    docker exec homepilot-hub \
+        python -m homepilot.integrations.ring -c /config/config.yaml --diagnose
+
+Im Container, nicht auf dem Host: Dort gelten andere Netzregeln, und wer
+auf dem Host misst, misst das falsche Netz.
 """
 
 from __future__ import annotations
@@ -346,7 +351,8 @@ class RingIntegration(Integration):
         if stored is None:
             raise ConfigError(
                 f"{self._token_file} fehlt oder ist unlesbar – einmalig anmelden mit: "
-                "python -m homepilot.integrations.ring -c config.yaml"
+                "docker exec -it homepilot-hub python -m "
+                "homepilot.integrations.ring -c /config/config.yaml"
             )
         self._stored = stored
 
@@ -727,7 +733,8 @@ INTEGRATION = RingIntegration
 
 
 # ── Anmelde-Helfer ─────────────────────────────────────────────────────────
-# Aufruf:  python -m homepilot.integrations.ring -c config.yaml
+# Aufruf:  docker exec -it homepilot-hub \
+#              python -m homepilot.integrations.ring -c /config/config.yaml
 # Fragt E-Mail, Passwort und den 2FA-Code ab und legt das Token dorthin,
 # wo der Hub es liest. Das Passwort wird nicht gespeichert.
 
@@ -769,7 +776,8 @@ async def _login_main(config_path: str) -> int:
 async def _diagnose_main(config_path: str) -> int:
     """Warum kommt der Ereigniskanal nicht zustande?
 
-    Aufruf:  python -m homepilot.integrations.ring -c config.yaml --diagnose
+    Aufruf:  docker exec homepilot-hub \
+                 python -m homepilot.integrations.ring -c /config/config.yaml --diagnose
 
     Der System-Bildschirm sagt, *dass* es klemmt; hier steht, *woran*.
     Zwei Teile: Kommt der Rechner an Googles Adressen heran, und was
@@ -781,6 +789,13 @@ async def _diagnose_main(config_path: str) -> int:
 
     logging.basicConfig(level=logging.WARNING, format="  %(name)s: %(message)s")
 
+    # Wo gemessen wird, gehört dazu: Im Container gelten andere Regeln
+    # als auf dem Docker-Host, und wer auf dem Host misst, misst das
+    # falsche Netz - dann sieht alles offen aus und der Hub kommt
+    # trotzdem nicht durch.
+    import socket
+
+    print(f"Gemessen von: {socket.gethostname()}")
     print("Erreichbarkeit der Push-Adressen (Google, nicht Ring):")
     erreichbar: dict[str, bool] = {}
     for host, port, zweck in PUSH_ENDPOINTS:
