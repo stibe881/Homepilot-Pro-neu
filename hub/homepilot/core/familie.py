@@ -148,9 +148,7 @@ def birthdays_on(contacts: list[dict[str, Any]], tag: date) -> list[dict[str, An
         if teile is None:
             continue
         tag_im_monat, monat = teile
-        if (tag_im_monat, monat) == (tag.day, tag.month):
-            treffer.append(contact)
-        elif (
+        if (tag_im_monat, monat) == (tag.day, tag.month) or (
             (tag_im_monat, monat) == (29, 2)
             and (tag.day, tag.month) == (28, 2)
             and not _ist_schaltjahr(tag.year)

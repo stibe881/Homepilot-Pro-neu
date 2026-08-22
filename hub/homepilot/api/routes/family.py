@@ -18,9 +18,9 @@ from fastapi import (
 )
 
 from ...core import rezeptimport
-from ...integrations import google_calendar as calendar_module
 from ...core import shopping as shopping_module
 from ...core.users import Role, User
+from ...integrations import google_calendar as calendar_module
 from ..context import ApiContext
 from ..models import RecipeImportRequest
 
