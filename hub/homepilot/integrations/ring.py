@@ -132,6 +132,11 @@ def new_alerts(
 # nur eine unnötige Neuregistrierung bei Ring.
 QUICK_DEATH_SECONDS = 60
 
+# Wie lange ein frisch aufgebauter Kanal Zeit bekommt, bevor über ihn
+# geurteilt wird. start() kehrt zurück, sobald die Anmeldung durch ist;
+# der Push-Client darunter meldet sich erst danach als «läuft».
+STARTUP_GRACE_SECONDS = 30
+
 
 def channel_alive(listener: Any) -> bool:
     """Steht der Ereigniskanal wirklich noch? (rein, testbar)
@@ -335,6 +340,9 @@ class RingIntegration(Integration):
     _last_event: float | None = None
     _listen_error: str | None = None
     _listener: Any = None
+    # Wurde die gespeicherte Push-Anmeldung in diesem Lauf schon einmal
+    # verworfen? Ein zweites Mal brächte nichts als Last für Google.
+    _neu_registriert = False
 
     async def setup(self) -> None:
         try:
@@ -488,20 +496,35 @@ class RingIntegration(Integration):
         versuch = 0
         while True:
             if await self._start_listener(on_event):
-                versuch = 0
                 verbunden_seit = time.time()
-                # Steht er, gibt es nichts zu tun ausser hinzusehen - aber
-                # genau hinsehen: eine Viertelminute, nicht eine ganze.
+                # Anlaufzeit, bevor geurteilt wird: start() kehrt zurück,
+                # sobald die Anmeldung durch ist - der Push-Client darunter
+                # meldet sich erst ein paar Sekunden später als «läuft».
+                # Ohne diese Pause galt jeder frisch aufgebaute Kanal
+                # sofort als tot, und der Hub registrierte sich im
+                # Sekundentakt neu bei Google, bis der es abwies.
+                await asyncio.sleep(STARTUP_GRACE_SECONDS)
                 while channel_alive(self._listener):
+                    versuch = 0
                     await asyncio.sleep(15)
                 self._events_ok = False
                 stand = time.time() - verbunden_seit
                 await self._stop_listener()
-                if stand < QUICK_DEATH_SECONDS and self._stored.get("listener"):
+                if (
+                    stand < QUICK_DEATH_SECONDS
+                    and self._stored.get("listener")
+                    and not self._neu_registriert
+                ):
                     # Sofort wieder weg: Das ist die Handschrift einer
                     # beschädigten Push-Anmeldung («Incorrect padding» aus
                     # firebase_messaging). Sie wegzuwerfen ist der einzige
                     # Weg - mit ihr geht es beim nächsten Mal genauso aus.
+                    #
+                    # Aber genau einmal: Stirbt auch die frische Anmeldung
+                    # sofort, liegt es nicht an ihr, und jede weitere
+                    # Registrierung wäre nur eine Anfrage mehr an einen
+                    # Dienst, der ohnehin gerade abweist.
+                    self._neu_registriert = True
                     self._listen_error = "Push-Anmeldung beschädigt"
                     self.log.warning(
                         "Ring-Ereigniskanal brach nach %.0f s wieder ab – die "
@@ -514,6 +537,10 @@ class RingIntegration(Integration):
                 else:
                     self._listen_error = "Verbindung abgerissen"
                     self.log.warning("Ring-Ereigniskanal abgerissen – neuer Anlauf")
+                # Auch nach einem Abriss warten: Ein Wiederanlauf ohne
+                # Pause ist kein Wiederanlauf, sondern eine Schleife.
+                versuch += 1
+                await asyncio.sleep(retry_delay(versuch))
                 continue
             versuch += 1
             wartezeit = retry_delay(versuch)
