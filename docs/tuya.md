@@ -41,6 +41,37 @@ alle Geräte samt Schlüssel und druckt den fertigen Block für die
 config.yaml. Die Zugangsdaten werden nur für diesen Aufruf gebraucht und
 nirgends gespeichert.
 
+### «IoT Core service subscription has expired»
+
+Code 28841002. Die Testphase von IoT Core ist abgelaufen – und sie lässt
+sich nicht erneuern: Sie gilt **einmal je Entwicklerkonto**, nicht je
+Projekt. Ein neues Projekt im selben Konto bringt deshalb nichts, die
+Antwort lautet «You have subscribed to the trial edition before».
+
+Der Ausweg ist ein zweites Entwicklerkonto mit einer anderen
+E-Mail-Adresse. Entwicklerkonto und Smart-Life-Konto sind zwei
+verschiedene Dinge: Das neue Konto ist nur die Hülle für ein neues
+Projekt, verknüpft wird darin wieder das bestehende Smart-Life-Konto per
+QR-Code. Die Geräte, die App und eine allenfalls noch laufende
+Home-Assistant-Integration bleiben unberührt.
+
+1. Abmelden, mit einer anderen Adresse neu registrieren (ein Alias
+   genügt).
+2. Cloud → Development → **Create Cloud Project**, Data Center *Central
+   Europe*. IoT Core wird dabei mit frischer Testphase abonniert.
+3. Devices → Link Tuya App Account → Add App Account → **Tuya App
+   Account Authorization**, QR-Code scannen.
+4. Access ID und Secret des neuen Projekts für `--cloud` benutzen.
+
+Der Schlüssel gilt danach dauerhaft. Ob das Projekt später abläuft,
+merkt der Hub nie – er spricht ausschliesslich lokal mit dem Gerät.
+
+Führt auch das nicht zum Ziel, liest **tuya-cloudcutter** den Schlüssel
+direkt vom Gerät aus und kann auf Wunsch eine freie Firmware aufspielen
+(OpenBeken, ESPHome). Das braucht einen Linux-Rechner mit einem
+WLAN-Stick, der Zugangspunkt-Betrieb beherrscht, und das Gerät muss
+danach neu eingerichtet werden.
+
 ### Der Aufruf listet gar keine Geräte
 
 Kommt keine Fehlermeldung, aber auch kein Gerät, dann stimmen die
