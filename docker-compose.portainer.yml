@@ -89,6 +89,8 @@ services:
       - NUKI_TOKEN=${NUKI_TOKEN:-}
       - VZUG_USER=${VZUG_USER:-}
       - VZUG_PASSWORD=${VZUG_PASSWORD:-}
+      # Fehlte hier – der lokale Tuya-Schlüssel gehört in beide Fassungen.
+      - TUYA_KEY_PROJEKTOR=${TUYA_KEY_PROJEKTOR:-}
       - TZ=Europe/Zurich
 
     healthcheck:

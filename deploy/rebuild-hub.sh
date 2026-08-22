@@ -29,6 +29,26 @@
 # ...und danach in Portainer einmal Stacks → homepilot → "Update the
 # stack" → Deploy klicken, damit der Container das frische Abbild nutzt.
 #
+# ── Wegweiser durch die ~740 Zeilen ─────────────────────────────────────
+#
+# Das Skript ist lang, weil es die ganze Auslieferung trägt. Die Abschnitte
+# (suchbar über «── Titel ──»):
+#
+#   Selbst-Auffrischung   Das Skript holt sich zuerst selbst den neuesten
+#                         Stand – Änderungen daran greifen deshalb erst
+#                         beim ÜBERNÄCHSTEN Lauf.
+#   Platzmessung          Vor dem Bau prüfen, ob die Platte reicht.
+#   Klonen + Hub-Abbild   Frischer Klon von BRANCH, Docker-Build.
+#   Web-Fassung           expo export, atomar nach web_root getauscht.
+#   App-Abhängigkeiten    Ein Abbild mit node_modules, gecacht über den
+#                         Hash von package-lock.json.
+#   iOS-Build             Nur mit HOMEPILOT_IOS_BUILD=1; EAS baut, Apple
+#                         bekommt ihn direkt.
+#
+# Zwei Regeln fürs Ändern: shellcheck muss sauber bleiben (läuft in der
+# CI), und wer einen Schritt anfasst, testet ihn über den Update-Knopf
+# zweimal – wegen der Selbst-Auffrischung zählt erst der zweite Lauf.
+#
 # ── Optional: auch den letzten Klick automatisieren ─────────────────────
 #
 # Dieses Skript startet den Container absichtlich nicht selbst - deine
@@ -446,7 +466,14 @@ if [ "${HOMEPILOT_IOS_BUILD:-0}" = "1" ]; then
     echo "⚠ iOS-Build gewünscht, aber EXPO_TOKEN fehlt in $CREDENTIALS_FILE."
     echo "  Token erzeugen auf expo.dev → Account settings → Access tokens."
   else
+    # Die App-Version bestimmt die runtimeVersion – und damit, welche
+    # OTA-Fassungen auf diesen Build passen. Sie gehört ins Log: Ein
+    # Build mit unveränderter Version nimmt auch alle alten OTA-Fassungen
+    # an (Punkt 12 der Werkbank-Liste; Aufräumen: deploy/ota-aufraeumen.sh).
+    APP_VERSION=$(python3 -c "import json; print(json.load(open('$WORKDIR/app/app.json'))['expo']['version'])" 2>/dev/null || echo "?")
     echo "→ Stosse den iOS-Build an (EAS baut, Apple bekommt ihn direkt) …"
+    echo "  App-Version $APP_VERSION – bei einer Auslieferung mit Änderungen"
+    echo "  gehört sie hochgezählt (app/app.json, siehe CLAUDE.md)."
     # EXPO_NO_CAPABILITY_SYNC=1: EAS möchte die Fähigkeiten der Bundle-ID
     # im Apple-Portal selbst nachziehen. Für App-Gruppen schickt es dabei
     # eine Anfrage, die Apple zurückweist («Unexpected or invalid value at

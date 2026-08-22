@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import argparse
-import logging
 
 import uvicorn
 
 from .api import create_app
+from .core import logform
 from .core.config import load_config
 from .core.hub import Hub
 from .qr import setup_hint
@@ -22,10 +22,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-    )
+    # HOMEPILOT_LOG=json schaltet auf JSON-Zeilen um – für «zeig mir alle
+    # Fehler der Homematic der letzten Stunde» als jq-Abfrage statt grep.
+    logform.configure(verbose=args.verbose)
 
     config = load_config(args.config)
     hub = Hub(config)

@@ -221,6 +221,8 @@ def low_batteries(entities: list[Any]) -> list[Any]:
 class Watchdog:
     def __init__(self, hub: Hub) -> None:
         self.hub = hub
+        # Wann zuletzt ein Lebenszeichen hinausging.
+        self._heartbeat_sent = 0.0
         # Integration → Anzahl Fehlrunden in Folge.
         self._strikes: dict[str, int] = {}
         # Gerät → Fehlrunden in Folge, und was schon gemeldet wurde.
@@ -280,6 +282,39 @@ class Watchdog:
                 await self.check()
             except Exception:
                 log.exception("Wächter-Runde fehlgeschlagen")
+            # Nach der Runde, nicht davor: Das Lebenszeichen soll heissen
+            # «der Wächter arbeitet», nicht bloss «der Prozess existiert».
+            await self._heartbeat()
+
+    async def _heartbeat(self) -> None:
+        """Das Lebenszeichen an den Dienst ausserhalb des Hauses.
+
+        Der Wächter überwacht die Integrationen – aber wenn der Hub
+        selbst steht, meldet das niemand, denn der Melder ist mit weg.
+        Deshalb die Umkehrung: Ein Dienst wie healthchecks.io *erwartet*
+        den Ping und schreibt an, wenn er ausbleibt. Ein Fehlschlag hier
+        ist still (debug): Wenn das Internet weg ist, schlägt der Dienst
+        ja gerade von selbst Alarm.
+        """
+        config = self.hub.config.heartbeat or {}
+        url = str(config.get("url") or "")
+        if not url:
+            return
+        minutes = float(config.get("minutes") or 5)
+        now = time.time()
+        if now - self._heartbeat_sent < minutes * 60:
+            return
+        self._heartbeat_sent = now
+        try:
+            import aiohttp
+
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url) as response:
+                    if response.status >= 400:
+                        log.debug("Lebenszeichen: %s → %s", url, response.status)
+        except Exception as err:
+            log.debug("Lebenszeichen nicht durchgekommen: %s", err)
 
     def _guarded(self) -> set[str]:
         """Die Sensoren, die der Alarmanlage zugeordnet sind."""

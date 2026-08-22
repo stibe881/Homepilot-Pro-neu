@@ -91,6 +91,11 @@ class HubConfig:
     # Update aus der App: {webhook_url: "https://…"} – die Adresse, die
     # angestossen wird. Ohne Eintrag bleibt der Knopf aus.
     update: dict[str, Any] = field(default_factory=dict)
+    # Totmannschalter: {url: "https://hc-ping.com/…", minutes?: 5}. Der
+    # Wächter meldet dorthin regelmässig «lebe noch»; bleibt das aus,
+    # schlägt der Dienst (z.B. healthchecks.io) Alarm. Der Wächter selbst
+    # kann den Ausfall des Hubs nicht melden – er fällt mit aus.
+    heartbeat: dict[str, Any] = field(default_factory=dict)
     # Ordner mit der gebauten Web-Fassung der App. Ist er da, liefert der
     # Hub sie unter «/» aus – dann genügt eine Adresse für App und
     # Schnittstelle. Leer = der Hub bleibt reine Schnittstelle.
@@ -266,6 +271,18 @@ def load_config(path: str | Path) -> HubConfig:
     if not isinstance(update_config, dict):
         raise ConfigError("'update' muss ein Mapping sein (webhook_url)")
 
+    heartbeat_config = raw.get("heartbeat") or {}
+    if not isinstance(heartbeat_config, dict):
+        raise ConfigError("'heartbeat' muss ein Mapping sein (url, minutes)")
+    heartbeat_url = heartbeat_config.get("url")
+    if heartbeat_url is not None and not str(heartbeat_url).startswith(
+        ("http://", "https://")
+    ):
+        raise ConfigError(
+            "'heartbeat.url' muss mit http:// oder https:// beginnen, "
+            f"nicht «{heartbeat_url}»"
+        )
+
     push_config = raw.get("push") or {}
     if not isinstance(push_config, dict):
         raise ConfigError("'push' muss ein Mapping sein (public_url)")
@@ -299,6 +316,7 @@ def load_config(path: str | Path) -> HubConfig:
         guest_wifi=guest_wifi,
         push=push_config,
         update=update_config,
+        heartbeat=heartbeat_config,
         web_root=str(web_root) if web_root else None,
         source_path=str(path),
         duplicate_keys=duplicates,

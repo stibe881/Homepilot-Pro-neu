@@ -35,6 +35,8 @@ import asyncio
 import logging
 import os
 import time
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from .. import __version__
@@ -121,6 +123,13 @@ class Hub:
         # Rebuild ist sonst nicht zu erkennen, ob der Container den neuen
         # Stand fährt oder den alten weiterlaufen lässt.
         log.info("Hub startet … (HomePilot %s)", __version__)
+        # Die Meldungen von vor dem Neustart zurück in den Ring – die
+        # Frage «warum hat er neu gestartet?» stellt man genau jetzt.
+        ring_pfad = self._log_ring_path()
+        if ring_pfad:
+            zurueck = self.log_buffer.load(ring_pfad)
+            if zurueck:
+                log.info("%d Meldungen aus dem vorigen Lauf übernommen", zurueck)
         # Die Raumzuordnung muss stehen, bevor die erste Entität entsteht.
         # Grundlage ist die config.yaml; in der App gesetzte Zuordnungen
         # (aus der homepilot-data.json) haben Vorrang.
@@ -223,10 +232,28 @@ class Hub:
             payload = self.data.backup_bytes(name)
             await offsite.upload(str(url), str(key), bucket, name, payload)
             await offsite.prune(str(url), str(key), bucket)
+            # Die Matter-Fabrik dazu: Ohne sie müsste nach einem
+            # Plattenschaden jedes Matter-Gerät neu gekoppelt werden.
+            matter = offsite.matter_tar(self._matter_dir())
+            if matter is not None:
+                heute = datetime.now().strftime("%Y-%m-%d")
+                await offsite.upload(
+                    str(url), str(key), bucket, f"matter-fabrik-{heute}.tar.gz", matter
+                )
+                await offsite.prune_prefix(
+                    str(url), str(key), bucket, "matter-fabrik-", offsite.MATTER_KEEP
+                )
             self.offsite = {"ok": True, "at": time.time(), "name": name, "error": None}
         except Exception as err:
             self.offsite = {"ok": False, "at": time.time(), "name": name, "error": str(err)}
             log.warning("Off-Site-Sicherung fehlgeschlagen: %s", err)
+
+    def _matter_dir(self) -> str:
+        """Wo die Matter-Fabrik liegt: neben der config.yaml, wie in der
+        Anleitung – ohne Konfigurationspfad gibt es auch keine Fabrik."""
+        if not self.config.source_path:
+            return ""
+        return str(Path(self.config.source_path).parent / "matter")
 
     async def _remind_due_tasks(self) -> None:
         """Schickt einmal am Tag eine Push für heute fällige Familien-Aufgaben.
@@ -481,8 +508,20 @@ class Hub:
             "down": sorted(self.watchdog.down_since),
         }
 
+    def _log_ring_path(self) -> str | None:
+        """Wo der Log-Ring den Neustart überdauert: neben der Datendatei.
+        Ohne Datendatei (Tests, Demo im Speicher) auch keine Übergabe."""
+        if not self.config.data_file:
+            return None
+        return str(Path(self.config.data_file).parent / "log-uebergabe.json")
+
     async def stop(self) -> None:
         log.info("Hub stoppt …")
+        # Den Ring einmal weglegen – ein Schreibvorgang je Neustart, und
+        # die Antwort auf «warum hat er neu gestartet?» übersteht ihn.
+        ring_pfad = self._log_ring_path()
+        if ring_pfad:
+            self.log_buffer.save(ring_pfad)
         task = getattr(self, "_backup_task", None)
         if task is not None:
             task.cancel()

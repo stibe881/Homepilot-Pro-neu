@@ -512,6 +512,15 @@ energy:
 # update:
 #   webhook_url: https://portainer.example.com/api/stacks/webhooks/xxxxxxxx
 
+# Totmannschalter: Der Wächter meldet regelmässig «lebe noch» an einen
+# Dienst ausserhalb des Hauses (z.B. healthchecks.io, kostenlos). Bleibt
+# das Lebenszeichen aus, schreibt DER dich an – der Hub selbst kann
+# seinen eigenen Ausfall nicht melden, sein Melder fällt mit aus.
+#
+# heartbeat:
+#   url: https://hc-ping.com/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+#   minutes: 5          # Takt; beim Dienst etwas mehr Frist einstellen
+
 # Web-Fassung der App vom Hub ausliefern lassen.
 #
 # Damit erreicht man die App über dieselbe Adresse wie die Schnittstelle –

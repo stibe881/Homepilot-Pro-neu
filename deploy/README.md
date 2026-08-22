@@ -114,6 +114,51 @@ Die zweite Datei legt der Hub neben der Konfiguration an und schreibt sie
 also keine halbe Datei. Bei Docker liegen beide im hereingereichten Ordner,
 bei systemd unter `/etc/homepilot`.
 
+Dazu kommt der Ordner **`matter/`** neben der `config.yaml`: Er trägt die
+Schlüssel aller gekoppelten Matter-Geräte. Geht er verloren, muss jedes
+Gerät neu gekoppelt werden. Ist Supabase eingerichtet, legt der Hub ihn
+seit Kurzem als `matter-fabrik-<datum>.tar.gz` mit in den Backup-Bucket.
+
+## Die Wiederherstellungs-Probe (einmal im Jahr)
+
+Eine Sicherung, die nie zurückgespielt wurde, ist eine Vermutung. Die
+Probe kostet zehn Minuten und braucht kein zweites Gerät – ein leerer
+Ordner auf demselben Rechner genügt:
+
+```bash
+mkdir -p /tmp/probe && cd /tmp/probe
+
+# 1. Die jüngste Sicherung aus dem Supabase-Bucket holen
+#    (Dashboard → Storage → backups → herunterladen), oder lokal:
+cp /pfad/zum/hub/backups/homepilot-data-*.json . | true
+cp "$(ls -t /pfad/zum/hub/backups/homepilot-data-*.json | head -1)" \
+   homepilot-data.json
+
+# 2. Eine minimale config.yaml daneben legen (Demo genügt):
+cat > config.yaml <<'YAML'
+api: { host: 127.0.0.1, port: 8123, token: probe }
+integrations: [{ integration: demo }]
+automations: []
+YAML
+
+# 3. Starten und nachsehen
+python -m homepilot -c config.yaml
+```
+
+Dann im Browser `http://127.0.0.1:8123/api/health` – und in der App (oder
+per `curl -H "Authorization: Bearer probe" .../api/automations`)
+nachzählen: **Sind die Benutzer da? Die Abläufe? Die Szenen?** Wenn ja,
+war die Sicherung eine Sicherung. Wenn nein, ist heute der richtige Tag,
+das herauszufinden – nicht der Tag des Plattenschadens.
+
+Für die Matter-Fabrik: `matter-fabrik-<datum>.tar.gz` aus dem Bucket in
+einen leeren Ordner entpacken (`tar -xzf`) und prüfen, dass
+`fabric.json` und die Zertifikate darin liegen.
+
+Derselbe Rundlauf läuft übrigens bei jedem Testlauf automatisch mit
+(`hub/tests/test_offsite.py`) – die Jahresprobe prüft zusätzlich, dass
+auch der *Weg über den Bucket* funktioniert, nicht nur das Dateiformat.
+
 ## Ports
 
 | Port | Wofür | Wer spricht ihn an |

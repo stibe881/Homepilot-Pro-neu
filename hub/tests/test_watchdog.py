@@ -467,3 +467,62 @@ def test_open_contacts_ignores_unreachable_sensors():
     fenster = melder("hm.fenster", "contact")
     fenster.available = False
     assert open_contacts([fenster]) == []
+
+
+def test_heartbeat_respects_its_own_pace(monkeypatch):
+    """Der Wächter dreht jede Minute – das Lebenszeichen geht trotzdem
+    nur im eingestellten Takt hinaus, und ohne url gar nicht."""
+    import asyncio
+
+    import aiohttp
+
+    from homepilot.core.config import ApiConfig, HubConfig
+    from homepilot.core.hub import Hub
+
+    aufrufe = []
+
+    class FakeResponse:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+    class FakeSession:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        def get(self, url):
+            aufrufe.append(url)
+            return FakeResponse()
+
+    monkeypatch.setattr(aiohttp, "ClientSession", FakeSession)
+
+    async def check():
+        hub = Hub(
+            HubConfig(
+                api=ApiConfig(),
+                integrations=[],
+                automations=[],
+                heartbeat={"url": "https://hc-ping.com/test", "minutes": 5},
+            )
+        )
+        await hub.watchdog._heartbeat()
+        await hub.watchdog._heartbeat()
+        await hub.watchdog._heartbeat()
+        # Drei Runden, ein Ping – die übrigen fielen unter den Takt.
+        assert aufrufe == ["https://hc-ping.com/test"]
+
+        ohne = Hub(HubConfig(api=ApiConfig(), integrations=[], automations=[]))
+        await ohne.watchdog._heartbeat()
+        assert len(aufrufe) == 1
+
+    asyncio.run(check())
