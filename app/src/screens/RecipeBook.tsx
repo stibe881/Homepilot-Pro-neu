@@ -544,6 +544,8 @@ function CookMode({
   // kann ihn nicht antippen – genau der eine Ort, an dem das Einschlafen
   // nachweislich stört. Derselbe Mechanismus wie im Wandpanel-Modus.
   useEffect(() => {
+    // Wachhalten ist eine Zugabe - wo es das nicht gibt (Web), kocht man
+    // mit Bildschirmsperre wie bisher.
     activateKeepAwakeAsync(KOCH_TAG).catch(() => {});
     return () => {
       deactivateKeepAwake(KOCH_TAG).catch(() => {});
@@ -964,6 +966,8 @@ function RecipeDetail({
           </View>
         ))}
 
+        {/* Die .catch(() => {}) an den Links: Ohne Browser passiert
+            schlicht nichts - kein Fehlerfall. */}
         {recipe.source_url ? (
           <Pressable onPress={() => Linking.openURL(String(recipe.source_url)).catch(() => {})}>
             <Text style={styles.sourceLink}>Quelle: {String(recipe.source_url)}</Text>

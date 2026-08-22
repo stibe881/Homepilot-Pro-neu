@@ -46,6 +46,7 @@ export function useNotificationTap(onTap: (tap: Tap) => void) {
         const tap = tapFromResponse(response);
         if (tap) onTap(tap);
       })
+      // Ohne letzte Nachricht startet die App schlicht auf der Startseite.
       .catch(() => {});
 
     const subscription = Notifications.addNotificationResponseReceivedListener(

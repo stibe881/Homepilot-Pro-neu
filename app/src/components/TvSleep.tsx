@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Entity } from '../api/types';
 import { Colors, radius, useColors } from '../theme';
+import { useTakt } from '../hooks/useTakt';
 
 /**
  * Einschlaf-Timer auf der Fernsehkachel.
@@ -61,11 +62,7 @@ export function TvSleep({
   // Nur mitzählen, solange etwas läuft. Ein Zähler, der auch bei
   // abgeschaltetem Timer jede Viertelminute neu zeichnet, kostet Akku für
   // nichts.
-  useEffect(() => {
-    if (rest === null) return;
-    const timer = setInterval(() => setJetzt(Date.now()), 15000);
-    return () => clearInterval(timer);
-  }, [rest === null]);
+  useTakt(() => setJetzt(Date.now()), rest === null ? null : 15000);
 
   if (auswahl.length === 0) return null;
 

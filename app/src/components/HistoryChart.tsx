@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Path, Line as SvgLine } from 'react-native-svg';
 
-import { Entity, HubSettings } from '../api/types';
+import { Entity } from '../api/types';
+import { useSettings } from '../hooks/HubContext';
 import { Colors, radius, useColors } from '../theme';
 
 interface Point {
@@ -25,15 +26,16 @@ const RANGES: { hours: number; label: string }[] = [
  */
 export function HistoryChart({
   entity,
-  settings,
   width,
   height = 120,
 }: {
   entity: Entity;
-  settings: HubSettings;
   width: number;
   height?: number;
 }) {
+  // Zugangsdaten aus dem Context statt als Prop-Schleppe durch
+  // EntityCard und EnergyScreen (Punkt 61 der Werkbank).
+  const settings = useSettings();
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [points, setPoints] = useState<Point[] | null>(null);

@@ -16,6 +16,7 @@ import { DraggableList } from '../components/DraggableList';
 import { KIND_ICONS, shortState } from '../components/RoomTile';
 import { appleMapsRoute, googleMapsRoute } from '../components/TopStrip';
 import { VacuumHome } from '../components/VacuumHome';
+import { wochentagUhr } from '../lib/format';
 import { Colors, radius, space, useColors } from '../theme';
 
 /**
@@ -273,11 +274,7 @@ export function OverviewScreen({
     if (!event) return { title: 'Nichts geplant', when: '', demo: false };
     const when = event.all_day
       ? 'ganztägig'
-      : new Date(event.start).toLocaleString('de-CH', {
-          weekday: 'short',
-          hour: '2-digit',
-          minute: '2-digit',
-        });
+      : wochentagUhr(new Date(event.start));
     return {
       title: event.summary ?? '—',
       when,
@@ -469,6 +466,7 @@ export function OverviewScreen({
                     label="Google Maps"
                     icon="map-outline"
                     onPress={() => {
+                      // Keine Karten-App ist kein Fehler dieser Karte.
                       Linking.openURL(googleMapsRoute(termin.location!)).catch(() => {});
                       setRouteAsk(false);
                     }}
@@ -478,6 +476,7 @@ export function OverviewScreen({
                     label="Apple Karten"
                     icon="navigate-outline"
                     onPress={() => {
+                      // Wie daneben: ohne Karten-App passiert nichts.
                       Linking.openURL(appleMapsRoute(termin.location!)).catch(() => {});
                       setRouteAsk(false);
                     }}

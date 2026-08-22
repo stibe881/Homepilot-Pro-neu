@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { hubClient } from '../api/client';
 import { HubSettings } from '../api/types';
 import { Card } from './Card';
 import { Colors, radius, type, useColors } from '../theme';
@@ -53,36 +54,47 @@ export function Maintenance({ settings }: { settings: HubSettings }) {
   const [text, setText] = useState('');
   const [tage, setTage] = useState(180);
 
-  const headers: Record<string, string> = settings.token
-    ? { Authorization: `Bearer ${settings.token}` }
-    : {};
+  const hub = useMemo(
+    () => hubClient(settings.url, settings.token),
+    [settings.url, settings.token]
+  );
 
   const laden = useCallback(() => {
-    fetch(`${settings.url}/api/maintenance`, { headers })
-      .then((response) => (response.ok ? response.json() : null))
+    // Ohne Verbindung bleibt die Karte beim letzten Stand - das
+    // Verbindungsproblem zeigt die Kopfzeile, nicht jede Karte einzeln.
+    hub
+      .get<{ items?: Item[]; due?: Item[] } | null>('/api/maintenance', {
+        fallback: null,
+        still: true,
+      })
       .then((body) => {
         if (!body) return;
         setItems(Array.isArray(body.items) ? body.items : []);
         setFaellig(Array.isArray(body.due) ? body.due : []);
-      })
-      .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.url, settings.token]);
+      });
+  }, [hub]);
 
   useEffect(laden, [laden]);
 
   const schicken = async (pfad: string, method: string) => {
-    await fetch(`${settings.url}${pfad}`, { method, headers }).catch(() => {});
+    // Kein eigener Fehlertext: laden() gleich danach zeigt den echten
+    // Stand - ein gescheitertes Abhaken steht damit sichtbar wieder da.
+    if (method === 'DELETE') {
+      await hub.del(pfad, { fallback: null });
+    } else {
+      await hub.post(pfad, undefined, { fallback: null });
+    }
     laden();
   };
 
   const anlegen = async () => {
     if (!text.trim()) return;
-    await fetch(`${settings.url}/api/maintenance`, {
-      method: 'POST',
-      headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: text.trim(), interval_days: tage }),
-    }).catch(() => {});
+    // Auch hier: laden() zeigt gleich, ob der Eintrag angekommen ist.
+    await hub.post(
+      '/api/maintenance',
+      { text: text.trim(), interval_days: tage },
+      { fallback: null }
+    );
     setText('');
     setOffen(false);
     laden();

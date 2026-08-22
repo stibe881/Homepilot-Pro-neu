@@ -44,6 +44,7 @@ import { usePrefs } from '../hooks/usePrefs';
 import { usePushRegistration } from '../hooks/usePushRegistration';
 import { breakpoints, Colors, radius, space, type, useColors } from '../theme';
 import { findeArtikel, mengeUndName, mitMenge, shopCategory } from '../lib/einkauf';
+import { uhr } from '../lib/format';
 import { deviceKindLabel } from '../lib/geraeteart';
 import { szenenFuerRaum } from '../lib/szenen';
 import {
@@ -82,6 +83,8 @@ import { Ablage, syncWidget } from '../lib/widget';
 import { favoritenVon, zuUebernehmen } from '../lib/favoriten';
 import { altesUebernehmen } from '../lib/hausprefs';
 import { resolveButtons, widgetCommand, mitDirekt } from '../lib/widgetButtons';
+import { HubProvider } from '../hooks/HubContext';
+import { useTakt } from '../hooks/useTakt';
 
 const ALL_ROOMS = 'Alle';
 /** Befehle, die ein gesperrtes Gerät nur nach Rückfrage annimmt. Lesende
@@ -147,6 +150,17 @@ interface Props {
 function isActive(entity: Entity): boolean {
   const value = entity.state.state;
   return value === 'on' || value === 'running' || value === 'alert';
+}
+
+/** Das Wenige, das die Startseiten-Suche von einem Ablauf braucht. */
+interface SuchAblauf {
+  id: string;
+  alias: string;
+  category?: string | null;
+  triggers?: unknown[];
+  conditions?: unknown[];
+  actions?: unknown[];
+  otherwise?: unknown[];
 }
 
 export function DashboardScreen({ settings, onSaveSettings }: Props) {
@@ -233,17 +247,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   >([]);
   const [searchOpen, setSearchOpen] = useState(false);
   // Abläufe – nur für die Suche; die Liste selbst lebt im Ablauf-Screen.
-  const [automations, setAutomations] = useState<
-    {
-      id: string;
-      alias: string;
-      category?: string | null;
-      triggers?: unknown[];
-      conditions?: unknown[];
-      actions?: unknown[];
-      otherwise?: unknown[];
-    }[]
-  >([]);
+  const [automations, setAutomations] = useState<SuchAblauf[]>([]);
   // Rückfrage vor dem Schalten eines gesperrten Geräts.
   const [confirm, setConfirm] = useState<{
     entity: Entity;
@@ -251,32 +255,23 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     data?: Record<string, any>;
   } | null>(null);
 
-  useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 30000);
-    return () => clearInterval(timer);
-  }, []);
+  useTakt(() => setNow(new Date()), 30000);
 
   // Startseiten-Countdowns laden (und minütlich frisch halten, damit ein
   // frisch gesetzter Stern zeitnah erscheint).
-  useEffect(() => {
+  const ladeCountdowns = useCallback(() => {
     if (!settings.url || !settings.token) return;
-    let alive = true;
-    const load = () =>
-      fetch(`${settings.url}/api/family/countdowns`, {
-        headers: { Authorization: `Bearer ${settings.token}` },
-      })
-        .then((response) => (response.ok ? response.json() : []))
-        .then((rows) => {
-          if (alive) setStartCountdowns(Array.isArray(rows) ? rows : []);
-        })
-        .catch(() => {});
-    load();
-    const timer = setInterval(load, 60000);
-    return () => {
-      alive = false;
-      clearInterval(timer);
-    };
-  }, [settings.url, settings.token]);
+    // Ohne Antwort einfach keine Countdown-Kärtchen.
+    hub
+      .get<{ text: string; date: string; on_start?: boolean }[]>(
+        '/api/family/countdowns',
+        { fallback: [], still: true }
+      )
+      .then((rows) => setStartCountdowns(Array.isArray(rows) ? rows : []));
+     
+  }, [hub, settings.url, settings.token]);
+  useEffect(ladeCountdowns, [ladeCountdowns]);
+  useTakt(ladeCountdowns, 60000);
 
   // Einkaufsliste und Läden für die Kopfzeile. Dieselbe Quelle wie unter
   // Familie - nur die offenen Einträge, denn oben zählt, was noch fehlt.
@@ -309,14 +304,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       setBekannt(Array.isArray(rows) ? rows.map(String) : [])
     );
   }, [hub, settings.url, settings.token]);
-  useEffect(() => {
-    ladeEinkauf();
-    // Nur noch als Rückfalltakt: Änderungen kommen über den WebSocket
-    // (family_changed, unten). Die Viertelstunde fängt verpasste
-    // Ereignisse ab - etwa wenn die Verbindung kurz weg war.
-    const timer = setInterval(ladeEinkauf, 15 * 60000);
-    return () => clearInterval(timer);
-  }, [ladeEinkauf]);
+  useEffect(ladeEinkauf, [ladeEinkauf]);
+  // Nur noch als Rückfalltakt: Änderungen kommen über den WebSocket
+  // (family_changed, unten). Die Viertelstunde fängt verpasste
+  // Ereignisse ab - etwa wenn die Verbindung kurz weg war.
+  useTakt(ladeEinkauf, 15 * 60000);
   // Der Hub meldet jede Änderung an den Familienlisten sofort - so steht
   // das Abgehakte des einen beim anderen ohne Minute Wartezeit.
   useEffect(() => {
@@ -445,10 +437,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   useEffect(() => {
     if (!settings.url || !settings.token || status !== 'connected') return;
     let alive = true;
-    fetch(`${settings.url}/api/automations`, {
-      headers: { Authorization: `Bearer ${settings.token}` },
-    })
-      .then((response) => (response.ok ? response.json() : []))
+    hub
+      .get<{ automations?: SuchAblauf[] } | SuchAblauf[]>('/api/automations', {
+        fallback: [],
+        still: true,
+      })
       .then((rows) => {
         // Der Hub antwortet mit {automations: [...], paused_until} – der
         // alte Array-Check liess die Liste immer leer, und die Suche
@@ -456,6 +449,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         const liste = Array.isArray(rows) ? rows : rows?.automations;
         if (alive) setAutomations(Array.isArray(liste) ? liste : []);
       })
+      // Ohne Antwort keine Vorschläge - die Startseite trägt das.
       .catch(() => {});
     return () => {
       alive = false;
@@ -549,17 +543,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   }, []);
   useNotificationTap(onNotificationTap);
 
-  useEffect(() => {
-    if (!settings.panel) return;
-    const timer = setInterval(() => {
+  useTakt(
+    () => {
       if (Date.now() - lastTouch > 180000) {
         setSection('start');
         setEditing(false);
         setRoom(ALL_ROOMS);
       }
-    }, 30000);
-    return () => clearInterval(timer);
-  }, [settings.panel, lastTouch]);
+    },
+    settings.panel ? 30000 : null
+  );
 
   // Der Stern steht beim Gerät auf dem Hub, nicht in den
   // Geräte-Einstellungen: Sonst hält er nur so lange wie die
@@ -676,6 +669,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         if (command) guardedCommand(entity.id, command);
       }
     };
+    // Kein Start-Link ist der Normalfall - dann startet die App normal.
     Linking.getInitialURL().then(handle).catch(() => {});
     const subscription = Linking.addEventListener('url', (event) => handle(event.url));
     return () => subscription.remove();
@@ -1055,7 +1049,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       }
       chart={
         expanded === entity.id && cardWidth ? (
-          <HistoryChart entity={entity} settings={settings} width={cardWidth - 32} />
+          <HistoryChart entity={entity} width={cardWidth - 32} />
         ) : undefined
       }
     />
@@ -1880,6 +1874,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   };
 
   return (
+    <HubProvider settings={settings} entities={entities} user={user}>
     <View style={styles.root} onTouchStart={() => setLastTouch(Date.now())}>
       <View style={[styles.frame, { paddingTop: insets.top }]}>
         {hasRail ? (
@@ -1912,10 +1907,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 {status === 'connecting' ? 'Verbinde …' : 'Keine Verbindung'} – gezeigt
                 wird der letzte bekannte Stand
                 {cachedAt
-                  ? ` von ${new Date(cachedAt).toLocaleTimeString('de-CH', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}`
+                  ? ` von ${uhr(cachedAt)}`
                   : ''}
                 .
               </Text>
@@ -2116,6 +2108,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         />
       ) : null}
     </View>
+    </HubProvider>
   );
 }
 
@@ -2181,6 +2174,8 @@ const PANEL_TAG = 'homepilot-panel';
 function usePanelMode(active: boolean) {
   useEffect(() => {
     if (!active) return;
+    // Wachhalten ist eine Zugabe - wo es fehlt (Web), sperrt der
+    // Bildschirm wie immer.
     activateKeepAwakeAsync(PANEL_TAG).catch(() => {});
     return () => {
       deactivateKeepAwake(PANEL_TAG).catch(() => {});
@@ -2232,10 +2227,7 @@ function CameraFullscreen({
   // drei Sekunden als ein schwarzes Rechteck. Der Grund wird angezeigt,
   // sonst lässt sich aus der Ferne nichts diagnostizieren.
   const [liveFailed, setLiveFailed] = useState<string | null>(null);
-  useEffect(() => {
-    const timer = setInterval(() => setTick((value) => value + 1), 3000);
-    return () => clearInterval(timer);
-  }, []);
+  useTakt(() => setTick((value) => value + 1), 3000);
   const online = camera.state.state === 'online';
   const live = online && !liveFailed && !!streamUri && camera.state.stream === true;
 
@@ -2322,10 +2314,7 @@ function DoorbellOverlay({
   const [tick, setTick] = useState(0);
   const [liveFailed, setLiveFailed] = useState<string | null>(null);
   // Alle 3 Sekunden ein frisches Bild, solange das Vollbild offen ist.
-  useEffect(() => {
-    const timer = setInterval(() => setTick((value) => value + 1), 3000);
-    return () => clearInterval(timer);
-  }, []);
+  useTakt(() => setTick((value) => value + 1), 3000);
   const base =
     settings.url && settings.token
       ? `${settings.url.replace(/\/+$/, '')}/api/entities/${encodeURIComponent(
@@ -2364,6 +2353,8 @@ function DoorbellOverlay({
               zeigen, der nichts kann. */}
           <Pressable
             onPress={() => {
+              // Erst die App, dann der Browser - klappt beides nicht,
+              // gibt es schlicht kein Ring-Konto auf diesem Gerät.
               Linking.openURL('ring://').catch(() =>
                 Linking.openURL('https://account.ring.com/').catch(() => {})
               );

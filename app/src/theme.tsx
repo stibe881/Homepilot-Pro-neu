@@ -10,8 +10,9 @@
  * ausserhalb, weil sie sich nicht ändern.
  */
 
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useMemo, useState } from 'react';
 import { useColorScheme } from 'react-native';
+import { useTakt } from './hooks/useTakt';
 
 export const lightColors = {
   gradient: ['#8B9AB0', '#6C7C94', '#556579'] as [string, string, ...string[]],
@@ -178,12 +179,10 @@ export function ThemeProvider({
   const scheme = useColorScheme();
   const [now, setNow] = useState(() => new Date());
 
-  // Nur im Zeitmodus muss die Uhr überhaupt beobachtet werden.
-  useEffect(() => {
-    if (mode !== 'auto') return;
-    const timer = setInterval(() => setNow(new Date()), 60000);
-    return () => clearInterval(timer);
-  }, [mode]);
+  // Nur im Zeitmodus muss die Uhr überhaupt beobachtet werden - und der
+  // Takt schweigt im Hintergrund, holt aber beim Aufwachen sofort nach:
+  // So stimmt hell/dunkel gleich nach dem Entsperren.
+  useTakt(() => setNow(new Date()), mode === 'auto' ? 60000 : null);
 
   const value = useMemo<ThemeValue>(() => {
     const dark =

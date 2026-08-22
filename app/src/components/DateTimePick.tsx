@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { datumVoll, uhr } from '../lib/format';
 import { Colors, radius, useColors } from '../theme';
 
 /**
@@ -60,16 +61,9 @@ export function snap(date: Date, step = 15): Date {
   return copy;
 }
 
-/** «Do, 21.08.2026, 09:00» */
+/** «Do., 21.08.2026, 09:00» */
 export function readable(date: Date): string {
-  return date.toLocaleString('de-CH', {
-    weekday: 'short',
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return `${datumVoll(date)}, ${uhr(date)}`;
 }
 
 export function DateTimePick({
@@ -171,7 +165,7 @@ export function DateTimePick({
           <View style={styles.timeRow}>
             <Stepper label="Stunde" onLess={() => shift(-60)} onMore={() => shift(60)} />
             <Text style={styles.clock}>
-              {value.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })}
+              {uhr(value)}
             </Text>
             <Stepper label="Minute" onLess={() => shift(-15)} onMore={() => shift(15)} />
           </View>

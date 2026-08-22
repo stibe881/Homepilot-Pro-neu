@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { hubClient } from '../api/client';
 import { Entity, HubSettings } from '../api/types';
 import { Colors, radius, type, useColors } from '../theme';
 
@@ -50,19 +51,19 @@ export function GoodNight({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const headers: Record<string, string> = settings.token
-    ? { Authorization: `Bearer ${settings.token}` }
-    : {};
+  const hub = useMemo(
+    () => hubClient(settings.url, settings.token),
+    [settings.url, settings.token]
+  );
 
   useEffect(() => {
-    fetch(`${settings.url}/api/goodnight`, { headers })
-      .then((response) => (response.ok ? response.json() : null))
+    // Ohne Antwort gelten die Vorgaben - der Knopf funktioniert trotzdem.
+    hub
+      .get<any>('/api/goodnight', { fallback: null, still: true })
       .then((data) => {
         if (data) setConfig({ night_lights: data.night_lights ?? [], arm_alarm: !!data.arm_alarm });
-      })
-      .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.url, settings.token]);
+      });
+  }, [hub]);
 
   const lights = entities.filter(
     (entity) => entity.kind === 'light' && !entity.combined_into
@@ -75,29 +76,18 @@ export function GoodNight({
 
   const saveConfig = async (next: GoodNightSettings) => {
     setConfig(next);
-    try {
-      await fetch(`${settings.url}/api/goodnight`, {
-        method: 'PUT',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify(next),
-      });
-    } catch {
-      // Beim nächsten Öffnen wird der gespeicherte Stand neu geladen.
-    }
+    // Scheitert es, sagt die Einblendung des Clients warum; beim nächsten
+    // Öffnen wird der gespeicherte Stand neu geladen.
+    await hub.put('/api/goodnight', next, { fallback: null });
   };
 
   const run = async () => {
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch(`${settings.url}/api/goodnight/run`, {
-        method: 'POST',
-        headers,
-      });
-      if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
-      setResult(await response.json());
-    } catch (err: any) {
-      setError(String(err.message ?? err));
+      setResult(await hub.post('/api/goodnight/run', undefined, { still: true }));
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
     } finally {
       setBusy(false);
     }

@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { HubFehler, hubClient } from '../api/client';
 import { HubSettings } from '../api/types';
 import { Card } from '../components/Card';
 import { Colors, radius, space, type, useColors } from '../theme';
@@ -52,19 +53,25 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
     ? { Authorization: `Bearer ${settings.token}` }
     : {};
 
+  // Das Übernehmen unten bleibt ein roher fetch-Aufruf: Seine
+  // Fehlermeldung kommt aus dem detail-Feld der Hub-Antwort.
+  const hub = useMemo(
+    () => hubClient(settings.url, settings.token),
+    [settings.url, settings.token]
+  );
+
   const load = useCallback(() => {
     setBusy(true);
     setError(null);
-    fetch(`${settings.url}/api/speakers`, { headers })
-      .then((response) => {
-        if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
-        return response.json();
+    hub
+      .get<{ speakers?: Speaker[]; configured?: string[] }>('/api/speakers', {
+        still: true,
       })
       .then((data) => {
         setSpeakers(data.speakers ?? []);
         setConfigured(data.configured ?? []);
       })
-      .catch((err) => setError(String(err.message ?? err)))
+      .catch((err) => setError(err instanceof HubFehler ? err.message : String(err)))
       .finally(() => setBusy(false));
   }, [settings.url, settings.token]);
 
@@ -74,17 +81,12 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
    *  jeweils eine Verbindung zur Box. */
   const loadMembers = async (entry: Speaker) => {
     const id = keyOf(entry);
-    try {
-      const response = await fetch(
-        `${settings.url}/api/speakers/members?host=${encodeURIComponent(entry.host)}` +
-          `&port=${entry.port ?? 8009}`,
-        { headers }
-      );
-      const data = await response.json();
-      setMembers((prev) => ({ ...prev, [id]: data.members ?? [] }));
-    } catch {
-      setMembers((prev) => ({ ...prev, [id]: [] }));
-    }
+    const data = await hub.get<{ members?: string[] }>(
+      `/api/speakers/members?host=${encodeURIComponent(entry.host)}` +
+        `&port=${entry.port ?? 8009}`,
+      { fallback: { members: [] }, still: true }
+    );
+    setMembers((prev) => ({ ...prev, [id]: data.members ?? [] }));
   };
 
   /** Fehlertexte des Hubs lesbar machen – bei Eingabefehlern liefert
@@ -139,11 +141,8 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
   const [restarting, setRestarting] = useState(false);
   const restartNow = async () => {
     setRestarting(true);
-    try {
-      await fetch(`${settings.url}/api/system/restart`, { method: 'POST', headers });
-    } catch {
-      // Die Verbindung reisst beim Neustart sowieso ab – kein Fehler.
-    }
+    // Die Verbindung reisst beim Neustart sowieso ab – kein Fehler.
+    await hub.post('/api/system/restart', undefined, { fallback: null, still: true });
   };
 
   /** Der Zustand rechts in der Zeile: schon eingebunden, gerade eingetragen

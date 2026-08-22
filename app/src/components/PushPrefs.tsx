@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { HubFehler, hubClient } from '../api/client';
 import { HubSettings } from '../api/types';
 import { Card } from './Card';
 import { Colors, type, useColors } from '../theme';
@@ -67,22 +68,23 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
   // Hub-Adresse, nicht die Batteriewarnung.
   const [offen, setOffen] = useState(false);
 
-  const headers: Record<string, string> = settings.token
-    ? { Authorization: `Bearer ${settings.token}` }
-    : {};
+  const hub = useMemo(
+    () => hubClient(settings.url, settings.token),
+    [settings.url, settings.token]
+  );
 
   const load = useCallback(() => {
-    fetch(`${settings.url}/api/push/categories`, { headers })
-      .then((response) => {
-        if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
-        return response.json();
+    // Die Karte zeigt Fehler selbst an - deshalb «still».
+    hub
+      .get<{ categories?: any[]; muted?: string[] }>('/api/push/categories', {
+        still: true,
       })
       .then((data) => {
         setCategories(data.categories ?? []);
         setMuted(data.muted ?? []);
       })
-      .catch((err) => setError(String(err.message ?? err)));
-  }, [settings.url, settings.token]);
+      .catch((err) => setError(err instanceof HubFehler ? err.message : String(err)));
+  }, [hub]);
 
   // Erst laden, wenn jemand hinsieht: Zugeklappt ist die Antwort des
   // Hubs nichts wert, und beim Öffnen der Einstellungen laufen ohnehin
@@ -98,16 +100,14 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
     // Sofort umschalten, damit das Antippen nicht hakt; der Hub bestätigt.
     setMuted(next);
     try {
-      const response = await fetch(`${settings.url}/api/push/categories`, {
-        method: 'PUT',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ muted: next }),
-      });
-      if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
-      const data = await response.json();
+      const data = await hub.put<{ muted?: string[] }>(
+        '/api/push/categories',
+        { muted: next },
+        { still: true }
+      );
       setMuted(data.muted ?? next);
-    } catch (err: any) {
-      setError(String(err.message ?? err));
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
       load();
     }
   };
@@ -116,12 +116,11 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
     setTesting(true);
     setTestNote(null);
     try {
-      const response = await fetch(`${settings.url}/api/push/test`, {
-        method: 'POST',
-        headers,
-      });
-      if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
-      const data = await response.json();
+      const data = await hub.post<{ sent?: number; errors?: string[] }>(
+        '/api/push/test',
+        undefined,
+        { still: true }
+      );
       const problems: string[] = Array.isArray(data.errors) ? data.errors : [];
       if (problems.length > 0) {
         setTestNote(problems.join(' '));

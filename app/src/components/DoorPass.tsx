@@ -2,8 +2,11 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, Share, StyleSheet, Text, View } from 'react-native';
 
+import { hubClient } from '../api/client';
 import { Entity, HubSettings, OneTimePass } from '../api/types';
 import { Card } from '../components/Card';
+import { useTakt } from '../hooks/useTakt';
+import { uhr } from '../lib/format';
 import { DateTimePick, readable, snap } from './DateTimePick';
 import { Colors, radius, type, useColors } from '../theme';
 
@@ -71,23 +74,25 @@ export function DoorPass({
   const openCommand = (door: Entity) =>
     door.commands.includes('unlatch') ? 'unlatch' : 'open_door';
 
+  const hub = useMemo(
+    () => hubClient(settings.url, settings.token),
+    [settings.url, settings.token]
+  );
+
   const load = async () => {
-    try {
-      const response = await fetch(`${settings.url}/api/passes`, { headers });
-      const body = await response.json();
-      setPasses(Array.isArray(body.passes) ? body.passes : []);
-    } catch {
-      setPasses([]);
-    }
+    const body = await hub.get<{ passes?: OneTimePass[] }>('/api/passes', {
+      fallback: { passes: [] },
+      still: true,
+    });
+    setPasses(Array.isArray(body.passes) ? body.passes : []);
   };
 
   useEffect(() => {
     load();
-    // Die Restzeit läuft ab – einmal pro Minute nachziehen.
-    const timer = setInterval(load, 60_000);
-    return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.url, settings.token]);
+  // Die Restzeit läuft ab – einmal pro Minute nachziehen.
+  useTakt(load, 60_000);
 
   const create = async () => {
     if (targets.length === 0) return;
@@ -117,6 +122,7 @@ export function DoorPass({
       await load();
       const url = body.pass?.url;
       if (url) {
+        // Abgebrochenes Teilen ist eine Entscheidung, kein Fehler.
         Share.share({ message: url }).catch(() => {});
       } else {
         setNote(
@@ -257,10 +263,7 @@ export function DoorPass({
                 </Text>
                 <Text style={styles.rowDetail}>
                   {entry.used_at
-                    ? `benutzt um ${new Date(entry.used_at * 1000).toLocaleTimeString(
-                        'de-CH',
-                        { hour: '2-digit', minute: '2-digit' }
-                      )}`
+                    ? `benutzt um ${uhr(entry.used_at * 1000)}`
                     : entry.pending && entry.starts
                       ? `gilt ab ${readable(new Date(entry.starts * 1000))}`
                       : `noch ${Math.max(1, Math.round(entry.seconds_left / 60))} min gültig`}
@@ -268,10 +271,9 @@ export function DoorPass({
               </View>
               <Pressable
                 onPress={async () => {
-                  await fetch(`${settings.url}/api/passes/${entry.token}`, {
-                    method: 'DELETE',
-                    headers,
-                  }).catch(() => {});
+                  // load() gleich danach ist die Rückmeldung: Ein Pass,
+                  // der nicht gelöscht werden konnte, bleibt sichtbar.
+                  await hub.del(`/api/passes/${entry.token}`, { fallback: null });
                   load();
                 }}
                 accessibilityRole="button"

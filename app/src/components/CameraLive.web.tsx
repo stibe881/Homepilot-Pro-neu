@@ -45,6 +45,7 @@ export function CameraLive({
     // Safari und die Browser auf iOS können HLS direkt.
     if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = uri;
+      // Autoplay darf der Browser verweigern - dann startet der erste Tipp.
       video.play().catch(() => {});
       return () => {
         video.removeAttribute('src');
@@ -79,6 +80,7 @@ export function CameraLive({
     });
     hls.loadSource(uri);
     hls.attachMedia(video);
+    // Wie oben: verweigertes Autoplay heisst nur «erst antippen».
     video.play().catch(() => {});
 
     return () => hls.destroy();

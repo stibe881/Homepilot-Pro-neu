@@ -2,8 +2,10 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { hubClient } from '../api/client';
 import { AuditEntry, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
+import { datumUhr } from '../lib/format';
 import { Colors, type, useColors } from '../theme';
 
 /**
@@ -16,32 +18,25 @@ import { Colors, type, useColors } from '../theme';
  * Erst auf Antippen geladen: Die Frage stellt man selten, und wenn, dann
  * gezielt.
  */
-export function AccessLog({
-  settings,
-  headers,
-}: {
-  settings: HubSettings;
-  headers: Record<string, string>;
-}) {
+export function AccessLog({ settings }: { settings: HubSettings }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const hub = useMemo(
+    () => hubClient(settings.url, settings.token),
+    [settings.url, settings.token]
+  );
   const [entries, setEntries] = useState<AuditEntry[] | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
     setBusy(true);
-    try {
-      const response = await fetch(`${settings.url}/api/system/audit?limit=150`, {
-        headers,
-      });
-      const body = await response.json();
-      setEntries(Array.isArray(body.entries) ? body.entries : []);
-    } catch {
-      setEntries([]);
-    } finally {
-      setBusy(false);
-    }
+    const body = await hub.get<{ entries?: AuditEntry[] }>(
+      '/api/system/audit?limit=150',
+      { fallback: { entries: [] } }
+    );
+    setEntries(Array.isArray(body.entries) ? body.entries : []);
+    setBusy(false);
   };
 
   return (
@@ -81,12 +76,7 @@ export function AccessLog({
                 </Text>
                 <Text style={styles.rowDetail}>
                   {commandLabel(row.command)} ·{' '}
-                  {new Date(row.at * 1000).toLocaleString('de-CH', {
-                    day: 'numeric',
-                    month: 'short',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
+                  {datumUhr(row.at * 1000)}
                   {row.address ? ` · ${row.address}` : ''}
                 </Text>
               </View>

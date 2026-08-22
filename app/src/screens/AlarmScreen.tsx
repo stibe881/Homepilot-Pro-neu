@@ -3,9 +3,12 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 
+import { HubFehler, hubClient } from '../api/client';
 import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
 import { Fehlschlag, Laedt } from '../components/Zustand';
+import { useTakt } from '../hooks/useTakt';
+import { datumUhr } from '../lib/format';
 import { tapped, triggered } from '../lib/haptics';
 import { Colors, radius, space, type, useColors } from '../theme';
 
@@ -179,39 +182,39 @@ export function AlarmScreen({
   const headers: Record<string, string> = settings.token
     ? { Authorization: `Bearer ${settings.token}` }
     : {};
+  // Die Schalt-Aufrufe unten bleiben rohe fetch-Aufrufe mit Absicht: Ihre
+  // Antworten tragen auch im Fehlerfall Inhalt (detail, offene Sensoren,
+  // schwache Batterien), den der zentrale Client nicht durchreicht.
+  const client = useMemo(
+    () => hubClient(settings.url, settings.token),
+    [settings.url, settings.token]
+  );
 
   const load = useCallback(() => {
-    fetch(`${settings.url}/api/alarm`, { headers })
-      .then((response) => {
-        if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
-        return response.json();
-      })
+    // Der Bildschirm zeigt Fehler selbst an - deshalb «still».
+    client
+      .get<Overview>('/api/alarm', { still: true })
       .then(setData)
-      .catch((err) => setError(String(err.message ?? err)));
-  }, [settings.url, settings.token]);
+      .catch((err) => setError(err instanceof HubFehler ? err.message : String(err)));
+  }, [client]);
 
   useEffect(load, [load]);
 
   // Während einer Verzögerung läuft ein Countdown – da muss die Anzeige
   // öfter nachziehen als sonst.
-  useEffect(() => {
-    const running =
-      data?.state.state === 'scharfschaltend' || data?.state.state === 'eintritt';
-    // Die Wartezeit bis zum Wiederscharfschalten dauert Minuten – da reicht
-    // ein gemächlicherer Takt als bei den Verzögerungen von Sekunden.
-    const waiting = data?.state.next_action === 'rearm';
-    const timer = setInterval(load, running ? 1000 : waiting ? 5000 : 15000);
-    return () => clearInterval(timer);
-  }, [load, data?.state.state, data?.state.next_action]);
+  const running =
+    data?.state.state === 'scharfschaltend' || data?.state.state === 'eintritt';
+  // Die Wartezeit bis zum Wiederscharfschalten dauert Minuten – da reicht
+  // ein gemächlicherer Takt als bei den Verzögerungen von Sekunden.
+  const waiting = data?.state.next_action === 'rearm';
+  useTakt(load, running ? 1000 : waiting ? 5000 : 15000);
 
   const save = async (patch: Record<string, any>) => {
     // Sofort im Bild nachziehen, damit das Antippen nicht hakt.
     setData((prev) => (prev ? { ...prev, ...patch } : prev));
-    await fetch(`${settings.url}/api/alarm`, {
-      method: 'PUT',
-      headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch),
-    }).catch(() => {});
+    // Ging es schief, holt der Sekunden-Takt oben gleich den echten
+    // Stand - die optimistische Anzeige steht dann sichtbar zurück.
+    await client.put('/api/alarm', patch, { fallback: null, still: true });
     load();
   };
 
@@ -726,12 +729,7 @@ export function AlarmScreen({
               <View style={{ flex: 1 }}>
                 <Text style={styles.rowTitle}>{event.text}</Text>
                 <Text style={styles.rowDetail}>
-                  {new Date(event.at * 1000).toLocaleString('de-CH', {
-                    day: '2-digit',
-                    month: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
+                  {datumUhr(event.at * 1000)}
                   {event.by ? ` · ${event.by}` : ''}
                 </Text>
               </View>

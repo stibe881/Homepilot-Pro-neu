@@ -7,6 +7,7 @@ import { epochAgo, epochTime } from '../lib/zeit';
 import { LogSpan, reichweiteText } from '../lib/verlauf';
 import { Fehlschlag, Laedt, Leer } from './Zustand';
 import { Colors, radius, type, useColors } from '../theme';
+import { hubClient } from '../api/client';
 
 /**
  * Verlauf eines einzelnen Geräts: wann schaltete es, und wer war es.
@@ -63,21 +64,13 @@ export function EntityHistory({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const headers: Record<string, string> = settings.token
-      ? { Authorization: `Bearer ${settings.token}` }
-      : {};
-    fetch(`${settings.url}/api/entities/${encodeURIComponent(entity.id)}/log`, {
-      headers,
-    })
-      .then((response) => {
-        if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
-        return response.json();
-      })
+    hubClient(settings.url, settings.token)
+      .get<{ events?: never[]; log?: never } & Record<string, unknown>>(`/api/entities/${encodeURIComponent(entity.id)}/log`, { still: true })
       .then((data) => {
         setEvents(data.events ?? []);
         setSpan(data.log ?? null);
       })
-      .catch((err) => setError(String(err.message ?? err)));
+      .catch((err) => setError(String(err instanceof Error ? err.message : err)));
   }, [entity.id, settings.url, settings.token]);
 
   return (

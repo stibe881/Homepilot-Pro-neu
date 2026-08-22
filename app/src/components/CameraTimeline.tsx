@@ -3,7 +3,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Entity, HubSettings } from '../api/types';
+import { uhr } from '../lib/format';
 import { Colors, radius, useColors } from '../theme';
+import { hubClient } from '../api/client';
 
 /**
  * Was an dieser Kamera über den Tag los war.
@@ -53,17 +55,18 @@ export function CameraTimeline({
 
   useEffect(() => {
     let cancelled = false;
-    const headers: Record<string, string> = settings.token
-      ? { Authorization: `Bearer ${settings.token}` }
-      : {};
-    fetch(`${settings.url}/api/entities/${entity.id}/events?hours=24`, { headers })
-      .then((response) => (response.ok ? response.json() : null))
+    // Ohne Antwort bleibt die Zeitleiste leer - das Kamerabild darüber
+    // funktioniert unabhängig davon.
+    hubClient(settings.url, settings.token)
+      .get<{ supported?: boolean; events?: unknown } | null>(
+        `/api/entities/${entity.id}/events?hours=24`,
+        { fallback: null, still: true }
+      )
       .then((body) => {
         if (cancelled || !body) return;
         setSupported(body.supported !== false);
         setEvents(Array.isArray(body.events) ? body.events : []);
-      })
-      .catch(() => {});
+      });
     return () => {
       cancelled = true;
     };
@@ -106,10 +109,7 @@ export function CameraTimeline({
                   color={ring ? colors.danger : person ? colors.warn : colors.inkSoft}
                 />
                 <Text style={styles.time}>
-                  {new Date(event.start).toLocaleTimeString('de-CH', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
+                  {uhr(new Date(event.start))}
                 </Text>
                 <Text style={styles.label} numberOfLines={1}>
                   {event.detected.length > 0 ? detectedLabel(event.detected) : event.label}

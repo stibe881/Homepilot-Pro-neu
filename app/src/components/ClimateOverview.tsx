@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { hubClient } from '../api/client';
 import { Entity, HubSettings } from '../api/types';
 import { Card } from './Card';
 import { Colors, type, useColors } from '../theme';
@@ -83,15 +84,16 @@ export function ClimateOverview({
 
   useEffect(() => {
     if (!open || rows.length === 0) return;
-    const headers: Record<string, string> = settings.token
-      ? { Authorization: `Bearer ${settings.token}` }
-      : {};
     let cancelled = false;
     // Min/Max aus dem Verlauf - je Sensor eine Abfrage, nur beim Öffnen.
     // Ohne Datenbank (503) bleibt die Spalte einfach leer.
+    const client = hubClient(settings.url, settings.token);
     rows.forEach((row) => {
-      fetch(`${settings.url}/api/entities/${row.temp.id}/history?hours=24`, { headers })
-        .then((response) => (response.ok ? response.json() : null))
+      client
+        .get<{ history?: { state?: Record<string, unknown> }[] } | null>(
+          `/api/entities/${row.temp.id}/history?hours=24`,
+          { fallback: null, still: true }
+        )
         .then((data) => {
           if (cancelled || !data) return;
           const values = (data.history ?? [])
@@ -106,6 +108,8 @@ export function ClimateOverview({
             },
           }));
         })
+        // Ohne Verlauf bleiben die Kacheln ohne Kurve - Messwerte stehen
+        // trotzdem da.
         .catch(() => {});
     });
     return () => {

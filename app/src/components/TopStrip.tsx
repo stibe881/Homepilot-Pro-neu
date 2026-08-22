@@ -23,6 +23,7 @@ import {
   groupForShop,
   mengeUndName,
 } from '../lib/einkauf';
+import { uhr, wochentagDatum, wochentagUhr } from '../lib/format';
 import { tapped } from '../lib/haptics';
 import { kann } from '../lib/plattform';
 import { ConnectionStatus } from '../hooks/useHub';
@@ -270,7 +271,7 @@ export function TopStrip({
             keine, und dort ist sie oft der Grund, hinzuschauen. */}
         {showClock ? (
           <Text style={styles.clock}>
-            {now.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })}
+            {uhr(now)}
           </Text>
         ) : null}
       </View>
@@ -599,6 +600,7 @@ export function TopStrip({
                   <View style={styles.routeRow}>
                     <Pressable
                       onPress={() => {
+                        // Keine Karten-App ist kein Fehler der Kopfzeile.
                         Linking.openURL(googleMapsRoute(String(event.location))).catch(() => {});
                         setRouteAsk(false);
                       }}
@@ -610,6 +612,7 @@ export function TopStrip({
                     </Pressable>
                     <Pressable
                       onPress={() => {
+                        // Wie daneben: ohne Karten-App passiert schlicht nichts.
                         Linking.openURL(appleMapsRoute(String(event.location))).catch(() => {});
                         setRouteAsk(false);
                       }}
@@ -702,6 +705,7 @@ function Blinkend({ an, children }: { an: boolean; children: React.ReactNode }) 
   useEffect(() => {
     AccessibilityInfo.isReduceMotionEnabled()
       .then(setRuhig)
+      // Nicht abfragbar heisst: normal animieren.
       .catch(() => {});
   }, []);
 
@@ -776,7 +780,7 @@ function round(value: any): string {
 function clockTime(iso: any): string {
   const date = new Date(String(iso));
   if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' });
+  return uhr(date);
 }
 
 /** Datum/Zeit eines Termins ausgeschrieben – für die Detailansicht (rein,
@@ -785,24 +789,16 @@ export function eventWhenText(event: any): string {
   if (event.all_day) {
     const date = new Date(String(event.start));
     if (Number.isNaN(date.getTime())) return 'ganztägig';
-    return `Ganztägig · ${date.toLocaleDateString('de-CH', {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-    })}`;
+    return `Ganztägig · ${wochentagDatum(date)}`;
   }
   const start = new Date(String(event.start));
   if (Number.isNaN(start.getTime())) return '';
-  const day = start.toLocaleDateString('de-CH', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-  });
-  const startTime = start.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' });
+  const day = wochentagDatum(start);
+  const startTime = uhr(start);
   const end = event.end ? new Date(String(event.end)) : null;
   const endTime =
     end && !Number.isNaN(end.getTime())
-      ? end.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })
+      ? uhr(end)
       : null;
   return endTime ? `${day} · ${startTime}–${endTime}` : `${day} · ${startTime}`;
 }
@@ -828,11 +824,7 @@ export function alertWindow(warning: {
     if (!iso) return null;
     const stamp = new Date(iso);
     if (Number.isNaN(stamp.getTime())) return null;
-    return stamp.toLocaleString('de-CH', {
-      weekday: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    return wochentagUhr(stamp);
   };
   const from = part(warning.onset);
   const to = part(warning.expires);

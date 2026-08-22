@@ -56,6 +56,8 @@ export function SettingsScreen({ initial, onSave, onCancel, embedded, user }: Pr
                 await fetch(`${url.replace(/\/$/, '')}/api/auth/logout`, {
                   method: 'POST',
                   headers: { Authorization: `Bearer ${token}` },
+                  // Best effort: Lokal wird die Sitzung gleich vergessen -
+                  // erreicht der Abruf den Hub nicht, läuft sie dort ab.
                 }).catch(() => {});
                 onSave({ url, token: '', name, theme, panel });
               }}
@@ -76,6 +78,8 @@ export function SettingsScreen({ initial, onSave, onCancel, embedded, user }: Pr
                 await fetch(`${url.replace(/\/$/, '')}/api/auth/sessions`, {
                   method: 'DELETE',
                   headers: { Authorization: `Bearer ${token}` },
+                  // Best effort wie beim Abmelden: Was der Hub nicht
+                  // erfährt, läuft dort von selbst ab.
                 }).catch(() => {});
                 onSave({ url, token: '', name, theme, panel });
               }}

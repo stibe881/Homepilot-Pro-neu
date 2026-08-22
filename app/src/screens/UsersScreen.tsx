@@ -12,11 +12,13 @@ import {
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 
+import { HubFehler, hubClient } from '../api/client';
 import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
 import { DoorPass } from '../components/DoorPass';
 import { Fehlschlag, Laedt } from '../components/Zustand';
 import { Colors, radius, space, type, useColors } from '../theme';
+import { useTakt } from '../hooks/useTakt';
 
 /** ISO-Datum für «in n Tagen ab heute» - für die Ablauf-Schnellwahl. */
 function isoInDays(days: number): string {
@@ -230,6 +232,13 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
     () => ({ Authorization: `Bearer ${settings.token}` }),
     [settings.token]
   );
+  const hub = useMemo(
+    () => hubClient(settings.url, settings.token),
+    [settings.url, settings.token]
+  );
+  // Die Mutationen unten bleiben bewusst rohe fetch-Aufrufe: Ihre
+  // Fehlermeldungen kommen aus dem detail-Feld der Hub-Antwort, das der
+  // Client nicht durchreicht.
 
   // Räume für die Kinder-Ansicht - aus den Geräten hergeleitet, wie
   // überall sonst: Ein Raum existiert, sobald ihm etwas zugeordnet ist.
@@ -259,14 +268,12 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
 
   const load = useCallback(() => {
     setError(null);
-    fetch(`${settings.url}/api/users`, { headers })
-      .then((response) => {
-        if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
-        return response.json();
-      })
+    // Der Bildschirm zeigt Fehler selbst an - deshalb «still».
+    hub
+      .get<HubUser[]>('/api/users', { still: true })
       .then(setUsers)
-      .catch((err) => setError(String(err.message ?? err)));
-  }, [settings.url, headers]);
+      .catch((err) => setError(err instanceof HubFehler ? err.message : String(err)));
+  }, [hub]);
 
   useEffect(load, [load]);
 
@@ -274,15 +281,15 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
     setDetail(user);
     setPairing(null);
     try {
-      const response = await fetch(
-        `${settings.url}/api/users/${encodeURIComponent(user.name)}/pairing`,
-        { headers }
+      const body = await hub.get<{ payload: string }>(
+        `/api/users/${encodeURIComponent(user.name)}/pairing`,
+        { still: true }
       );
-      if (!response.ok) throw new Error(String(response.status));
-      const body = await response.json();
       setPairing(body.payload);
-    } catch (err: any) {
-      setError(`Kopplungs-Code nicht abrufbar (${err.message ?? err})`);
+    } catch (err) {
+      setError(
+        `Kopplungs-Code nicht abrufbar (${err instanceof Error ? err.message : err})`
+      );
     }
   };
 
@@ -526,6 +533,8 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                                 `${pairing}\n\n` +
                                 'In der HomePilot-App unter «Verbinden» einfügen.' +
                                 bis,
+                              // Abgebrochenes Teilen ist eine
+                              // Entscheidung, kein Fehler.
                             }).catch(() => {});
                           }}
                           accessibilityRole="button"
@@ -818,6 +827,10 @@ function GuestWifiCard({
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const hub = useMemo(
+    () => hubClient(settings.url, settings.token),
+    [settings.url, settings.token]
+  );
   const [wifi, setWifi] = useState<{
     ssid: string;
     password: string;
@@ -842,21 +855,31 @@ function GuestWifiCard({
   const [busy, setBusy] = useState(false);
 
   const loadVouchers = () => {
-    fetch(`${settings.url}/api/wifi/vouchers`, { headers })
-      .then((response) => (response.ok ? response.json() : null))
+    // Ohne Antwort bleibt die Karte beim letzten Stand.
+    hub
+      .get<{ vouchers?: any[] } | null>('/api/wifi/vouchers', {
+        fallback: null,
+        still: true,
+      })
       .then((data) => {
         if (data) setVouchers(data.vouchers ?? []);
-      })
-      .catch(() => {});
+      });
   };
 
   useEffect(() => {
-    fetch(`${settings.url}/api/wifi`, { headers })
-      .then((response) => (response.ok ? response.json() : null))
+    // Kein WLAN eingerichtet sieht gleich aus wie keine Antwort - die
+    // Karte erklärt dann, wie man es einrichtet.
+    hub
+      .get<{
+        ssid: string;
+        password: string;
+        portal_password?: string;
+        open?: boolean;
+        payload: string;
+      } | null>('/api/wifi', { fallback: null, still: true })
       .then((data) => {
         if (data?.payload) setWifi(data);
-      })
-      .catch(() => {});
+      });
     loadVouchers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.url, settings.token]);
@@ -882,10 +905,12 @@ function GuestWifiCard({
   };
 
   const deleteVoucher = async (id: string) => {
-    await fetch(`${settings.url}/api/wifi/vouchers/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-      headers,
-    }).catch(() => {});
+    // loadVouchers() gleich danach ist die Rückmeldung: Ein Gutschein,
+    // der nicht gelöscht werden konnte, steht sichtbar wieder da.
+    await hub.del(`/api/wifi/vouchers/${encodeURIComponent(id)}`, {
+      fallback: null,
+      still: true,
+    });
     loadVouchers();
   };
 
@@ -902,14 +927,9 @@ function GuestWifiCard({
     .sort((a, b) => (a.created ?? 0) - (b.created ?? 0));
   const current = fresh[0] ?? null;
 
-  useEffect(() => {
-    if (!open || vouchers == null) return;
-    // Kurzer Takt mit Absicht: Genau in dem Moment, in dem der Gast den
-    // Code eintippt, schaut man auf diese Karte.
-    const timer = setInterval(loadVouchers, 8000);
-    return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, vouchers == null]);
+  // Kurzer Takt mit Absicht: Genau in dem Moment, in dem der Gast den
+  // Code eintippt, schaut man auf diese Karte.
+  useTakt(loadVouchers, open && vouchers != null ? 8000 : null);
 
   // Nichts eingerichtet: Für die Besitzerin bzw. den Besitzer steht hier,
   // was fehlt - für alle anderen bleibt die Karte weg. Sich stumm

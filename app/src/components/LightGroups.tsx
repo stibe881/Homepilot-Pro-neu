@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { hubClient } from '../api/client';
 import { Entity, HubSettings } from '../api/types';
 import { Card } from './Card';
 import { Colors, radius, type, useColors } from '../theme';
@@ -84,14 +85,19 @@ export function LightGroups({
       entity.integration !== 'group'
   );
 
+  // Die Speichern/Auflösen-Aufrufe unten bleiben rohe fetch-Aufrufe: Ihre
+  // Fehlermeldung kommt aus dem detail-Feld der Hub-Antwort.
+  const hub = useMemo(
+    () => hubClient(settings.url, settings.token),
+    [settings.url, settings.token]
+  );
+
   const load = async () => {
-    try {
-      const response = await fetch(`${settings.url}/api/lightgroups`, { headers });
-      const body = await response.json();
-      setGroups(Array.isArray(body.groups) ? body.groups : []);
-    } catch {
-      setGroups([]);
-    }
+    const body = await hub.get<{ groups?: LightGroup[] }>('/api/lightgroups', {
+      fallback: { groups: [] },
+      still: true,
+    });
+    setGroups(Array.isArray(body.groups) ? body.groups : []);
   };
 
   // Welche Leuchten der Hub gerade führt. Legt jemand auf einem anderen
@@ -125,15 +131,11 @@ export function LightGroups({
     setPicked((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
   const setGroupRoom = async (groupId: string, target: string | null) => {
-    const response = await fetch(
-      `${settings.url}/api/entities/${encodeURIComponent(groupId)}/room`,
-      {
-        method: 'PUT',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ room: target }),
-      }
+    await hub.put(
+      `/api/entities/${encodeURIComponent(groupId)}/room`,
+      { room: target },
+      { still: true }
     );
-    if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
   };
 
   const startEdit = (group: LightGroup) => {

@@ -2,9 +2,11 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { hubClient } from '../api/client';
 import { HubSettings } from '../api/types';
 import { Card } from './Card';
 import { Colors, radius, type, useColors } from '../theme';
+import { useTakt } from '../hooks/useTakt';
 
 /**
  * Küchen-Timer: Minuten wählen, und der Hub meldet sich.
@@ -40,36 +42,42 @@ export function KitchenTimer({ settings }: { settings: HubSettings }) {
   // Uhr für die Restzeit – tickt nur, solange Timer laufen.
   const [now, setNow] = useState(() => Date.now() / 1000);
 
-  const headers: Record<string, string> = settings.token
-    ? { Authorization: `Bearer ${settings.token}` }
-    : {};
+  // Das Starten unten bleibt ein roher fetch-Aufruf: Seine Fehlermeldung
+  // kommt aus dem detail-Feld der Hub-Antwort.
+  const hub = useMemo(
+    () => hubClient(settings.url, settings.token),
+    [settings.url, settings.token]
+  );
 
   const load = useCallback(() => {
-    fetch(`${settings.url}/api/timers`, { headers })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data) => setTimers(data?.timers ?? []))
-      .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.url, settings.token]);
+    // Ohne Antwort bleibt die Karte beim letzten Stand.
+    hub
+      .get<{ timers?: Timer[] } | null>('/api/timers', { fallback: null, still: true })
+      .then((data) => {
+        if (data) setTimers(data.timers ?? []);
+      });
+  }, [hub]);
 
   useEffect(load, [load]);
 
-  useEffect(() => {
-    if (timers.length === 0) return;
-    const tick = setInterval(() => {
+  useTakt(
+    () => {
       setNow(Date.now() / 1000);
       // Abgelaufene verschwinden von selbst – einmal nachladen genügt.
       if (timers.some((timer) => timer.ends_at <= Date.now() / 1000)) load();
-    }, 1000);
-    return () => clearInterval(tick);
-  }, [timers, load]);
+    },
+    timers.length > 0 ? 1000 : null
+  );
 
   const start = async (minutes: number) => {
     setNote(null);
     try {
       const response = await fetch(`${settings.url}/api/timers`, {
         method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
+        headers: {
+          Authorization: `Bearer ${settings.token}`,
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ minutes, text: text.trim() }),
       });
       const body = await response.json().catch(() => ({}));
@@ -82,16 +90,12 @@ export function KitchenTimer({ settings }: { settings: HubSettings }) {
   };
 
   const cancel = async (id: string) => {
-    try {
-      const response = await fetch(`${settings.url}/api/timers/${encodeURIComponent(id)}`, {
-        method: 'DELETE',
-        headers,
-      });
-      const body = await response.json().catch(() => ({}));
-      if (response.ok) setTimers(body.timers ?? []);
-    } catch {
-      load();
-    }
+    const body = await hub.del<{ timers?: Timer[] } | null>(
+      `/api/timers/${encodeURIComponent(id)}`,
+      { fallback: null, still: true }
+    );
+    if (body) setTimers(body.timers ?? []);
+    else load();
   };
 
   return (

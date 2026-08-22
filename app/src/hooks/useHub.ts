@@ -122,6 +122,7 @@ export function useHub(url: string | null, token: string | null) {
           );
         }
       })
+      // Kein Zwischenspeicher ist kein Fehler - dann kommt alles frisch.
       .catch(() => {});
     AsyncStorage.getItem(CACHE_META_KEY)
       .then((raw) => {
@@ -131,6 +132,7 @@ export function useHub(url: string | null, token: string | null) {
         setRoomOrder((prev) => (prev.length > 0 ? prev : meta.rooms ?? []));
         if (typeof meta.at === 'number') setCachedAt(meta.at);
       })
+      // Wie oben: fehlende Metadaten füllen sich mit dem Schnappschuss.
       .catch(() => {});
     return () => {
       cancelled = true;
@@ -201,6 +203,8 @@ export function useHub(url: string | null, token: string | null) {
           AsyncStorage.setItem(
             CACHE_META_KEY,
             JSON.stringify({ user: message.user ?? null, rooms: message.rooms ?? [], at })
+            // Ein nicht geschriebener Zwischenspeicher kostet nur den
+            // schnellen Start beim nächsten Öffnen.
           ).catch(() => {});
         } else if (
           message.type === 'state_changed' ||

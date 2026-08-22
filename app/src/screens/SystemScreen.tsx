@@ -4,12 +4,14 @@ import { Platform, Pressable, Share, StyleSheet, Text, TextInput, View } from 'r
 import Constants from 'expo-constants';
 import * as Updates from 'expo-updates';
 
+import { HubFehler, hubClient } from '../api/client';
 import { ConfigVersion, Entity, HubSettings, LogEntry, SystemStatus, User } from '../api/types';
 import { PushState, pushHint } from '../hooks/usePushRegistration';
 import { AccessLog } from '../components/AccessLog';
 import { Card } from '../components/Card';
 import { Maintenance } from '../components/Maintenance';
 import { Fehlschlag, Laedt } from '../components/Zustand';
+import { datumUhr, uhr } from '../lib/format';
 import { localTime, timeAgo } from '../lib/zeit';
 import { Colors, radius, space, type, useColors } from '../theme';
 
@@ -41,35 +43,33 @@ export function SystemScreen({
   // welche sieben?
   const [showOffline, setShowOffline] = useState(false);
 
-  const headers: Record<string, string> = settings.token
-    ? { Authorization: `Bearer ${settings.token}` }
-    : {};
+  const hub = useMemo(
+    () => hubClient(settings.url, settings.token),
+    [settings.url, settings.token]
+  );
 
   const load = useCallback(() => {
-    fetch(`${settings.url}/api/system/status`, { headers })
-      .then((response) => {
-        if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
-        return response.json();
-      })
+    // Der Bildschirm hat seine eigene Fehleranzeige - deshalb «still»,
+    // sonst käme dieselbe Meldung zusätzlich als Einblendung.
+    hub
+      .get<SystemStatus>('/api/system/status', { still: true })
       .then(setStatus)
-      .catch((err) => setError(String(err.message ?? err)));
+      .catch((err) => setError(err instanceof HubFehler ? err.message : String(err)));
 
     if (user?.capabilities?.includes('manage_users')) {
-      fetch(`${settings.url}/api/users`, { headers })
-        .then((response) => (response.ok ? response.json() : null))
-        .then(setUsers)
-        .catch(() => setUsers(null));
+      hub
+        .get<User[] | null>('/api/users', { fallback: null, still: true })
+        .then(setUsers);
     }
-  }, [settings.url, settings.token, user?.role]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hub, user?.role]);
 
   useEffect(load, [load]);
 
   const pause = async (seconds: number) => {
-    await fetch(`${settings.url}/api/automations/pause`, {
-      method: 'POST',
-      headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ seconds }),
-    }).catch(() => {});
+    // Die Anzeige lädt gleich neu - steht die Pause dann nicht da, sieht
+    // man das Scheitern direkt am Zustand (und als Einblendung).
+    await hub.post('/api/automations/pause', { seconds }, { fallback: null });
     load();
   };
 
@@ -186,12 +186,7 @@ export function SystemScreen({
               <View style={{ flex: 1 }}>
                 <Text style={styles.rowTitle}>{outage.integration}</Text>
                 <Text style={styles.rowDetail}>
-                  {new Date(outage.since * 1000).toLocaleString('de-CH', {
-                    day: 'numeric',
-                    month: 'short',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
+                  {datumUhr(outage.since * 1000)}
                   {outage.ended
                     ? ` – wieder da nach ${Math.max(
                         1,
@@ -223,15 +218,15 @@ export function SystemScreen({
       ) : null}
 
       {user?.capabilities?.includes('edit_config') ? (
-        <ConfigCard settings={settings} headers={headers} />
+        <ConfigCard settings={settings} />
       ) : null}
 
       {user?.capabilities?.includes('edit_config') ? (
-        <LogCard settings={settings} headers={headers} />
+        <LogCard settings={settings} />
       ) : null}
 
       {user?.capabilities?.includes('edit_config') ? (
-        <AccessLog settings={settings} headers={headers} />
+        <AccessLog settings={settings} />
       ) : null}
 
       {user?.capabilities?.includes('pause_automations') ? (
@@ -240,10 +235,7 @@ export function SystemScreen({
           <Text style={styles.rowDetail}>
             {status.automations.count} Abläufe ·{' '}
             {paused
-              ? `pausiert bis ${new Date(paused).toLocaleTimeString('de-CH', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}`
+              ? `pausiert bis ${uhr(new Date(paused))}`
               : 'aktiv'}
           </Text>
           <View style={styles.buttons}>
@@ -281,12 +273,12 @@ export function SystemScreen({
         </Card>
       ) : null}
 
-      <PushTestCard settings={settings} headers={headers} push={push} />
+      <PushTestCard settings={settings} push={push} />
 
-      <ShortcutsCard settings={settings} headers={headers} />
+      <ShortcutsCard settings={settings} />
 
       {user?.capabilities?.includes('edit_config') ? (
-        <BackupCard settings={settings} headers={headers} />
+        <BackupCard settings={settings} />
       ) : null}
 
       <VoiceHelpCard />
@@ -306,15 +298,13 @@ export function SystemScreen({
  * SSH ins Container-Log steigen muss. Bewusst erst auf Antippen geladen –
  * niemand braucht das Log bei jedem Öffnen des System-Screens.
  */
-function LogCard({
-  settings,
-  headers,
-}: {
-  settings: HubSettings;
-  headers: Record<string, string>;
-}) {
+function LogCard({ settings }: { settings: HubSettings }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const hub = useMemo(
+    () => hubClient(settings.url, settings.token),
+    [settings.url, settings.token]
+  );
   const [entries, setEntries] = useState<LogEntry[] | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -324,12 +314,14 @@ function LogCard({
     setBusy(true);
     setNote(null);
     try {
-      const response = await fetch(`${settings.url}/api/system/log?limit=100`, { headers });
-      if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
-      const body = await response.json();
+      // Die Karte zeigt Fehler selbst an - deshalb «still».
+      const body = await hub.get<{ entries?: LogEntry[] }>(
+        '/api/system/log?limit=100',
+        { still: true }
+      );
       setEntries(Array.isArray(body.entries) ? body.entries : []);
-    } catch (err: any) {
-      setNote(String(err.message ?? err));
+    } catch (err) {
+      setNote(String(err instanceof Error ? err.message : err));
     } finally {
       setBusy(false);
     }
@@ -384,12 +376,7 @@ function LogCard({
                   <View style={{ flex: 1 }}>
                     <Text style={styles.logMessage}>{entry.message}</Text>
                     <Text style={styles.rowDetail}>
-                      {new Date(entry.at * 1000).toLocaleString('de-CH', {
-                        day: 'numeric',
-                        month: 'short',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}{' '}
+                      {datumUhr(entry.at * 1000)}{' '}
                       · {entry.logger}
                     </Text>
                   </View>
@@ -404,15 +391,13 @@ function LogCard({
   );
 }
 
-function ConfigCard({
-  settings,
-  headers,
-}: {
-  settings: HubSettings;
-  headers: Record<string, string>;
-}) {
+function ConfigCard({ settings }: { settings: HubSettings }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const hub = useMemo(
+    () => hubClient(settings.url, settings.token),
+    [settings.url, settings.token]
+  );
   const [content, setContent] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -424,13 +409,11 @@ function ConfigCard({
 
   const load = () => {
     setMessage(null);
-    fetch(`${settings.url}/api/config`, { headers })
-      .then((response) => {
-        if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
-        return response.json();
-      })
+    // Die Karte zeigt Fehler selbst an - deshalb «still».
+    hub
+      .get<{ content: string }>('/api/config', { still: true })
       .then((data) => setContent(data.content))
-      .catch((err) => setMessage(String(err.message ?? err)));
+      .catch((err) => setMessage(String(err instanceof Error ? err.message : err)));
   };
 
   const save = async (restart: boolean) => {
@@ -438,9 +421,15 @@ function ConfigCard({
     setBusy(true);
     setMessage(null);
     try {
+      // Bei Tippfehlern steckt die genaue Validierungsmeldung des Hubs im
+      // detail-Feld - die rohe Antwort lesen, statt sie im Client zu
+      // verlieren.
       const response = await fetch(`${settings.url}/api/config`, {
         method: 'PUT',
-        headers: { ...headers, 'Content-Type': 'application/json' },
+        headers: {
+          Authorization: `Bearer ${settings.token}`,
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ content }),
       });
       if (!response.ok) {
@@ -450,14 +439,13 @@ function ConfigCard({
       const body = await response.json().catch(() => null);
       setWarnings(body?.warnings ?? []);
       if (restart) {
-        await fetch(`${settings.url}/api/system/restart`, { method: 'POST', headers });
+        await hub.post('/api/system/restart', undefined, { fallback: null, still: true });
         setMessage('Gespeichert – der Hub startet neu. Die App verbindet sich gleich wieder.');
       } else {
         setMessage('Gespeichert. Wirksam wird die Änderung beim nächsten Neustart.');
       }
-    } catch (err: any) {
-      // Hier steht bei Tippfehlern die genaue Validierungsmeldung des Hubs.
-      setMessage(String(err.message ?? err));
+    } catch (err) {
+      setMessage(String(err instanceof Error ? err.message : err));
     } finally {
       setBusy(false);
     }
@@ -470,22 +458,21 @@ function ConfigCard({
     setBusy(true);
     setMessage(null);
     try {
-      const response = await fetch(`${settings.url}/api/config/check`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
-      });
-      const body = await response.json();
+      const body = await hub.post<{ ok: boolean; error?: string; warnings?: string[] }>(
+        '/api/config/check',
+        { content },
+        { still: true }
+      );
       setWarnings(body.warnings ?? []);
       setMessage(
         body.ok
           ? body.warnings?.length
             ? 'Gültig – aber sieh dir die Hinweise unten an.'
             : 'Gültig, nichts auffällig.'
-          : body.error
+          : body.error ?? 'Ungültig.'
       );
-    } catch (err: any) {
-      setMessage(String(err.message ?? err));
+    } catch (err) {
+      setMessage(String(err instanceof Error ? err.message : err));
     } finally {
       setBusy(false);
     }
@@ -545,15 +532,11 @@ function ConfigCard({
                   setVersions(null);
                   return;
                 }
-                try {
-                  const response = await fetch(`${settings.url}/api/config/history`, {
-                    headers,
-                  });
-                  const body = await response.json();
-                  setVersions(Array.isArray(body.versions) ? body.versions : []);
-                } catch {
-                  setVersions([]);
-                }
+                const body = await hub.get<{ versions?: ConfigVersion[] }>(
+                  '/api/config/history',
+                  { fallback: { versions: [] }, still: true }
+                );
+                setVersions(Array.isArray(body.versions) ? body.versions : []);
               }}
             />
           </View>
@@ -569,22 +552,16 @@ function ConfigCard({
                   <View key={version.name} style={styles.versionRow}>
                     <Ionicons name="document-text-outline" size={16} color={colors.inkSoft} />
                     <Text style={[styles.rowDetail, { flex: 1 }]}>
-                      {new Date(version.created * 1000).toLocaleString('de-CH', {
-                        day: 'numeric',
-                        month: 'short',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
+                      {datumUhr(version.created * 1000)}
                     </Text>
                     <Button
                       label="Ansehen"
                       onPress={async () => {
                         try {
-                          const response = await fetch(
-                            `${settings.url}/api/config/history/${version.name}`,
-                            { headers }
+                          const body = await hub.get<{ content?: string }>(
+                            `/api/config/history/${version.name}`,
+                            { still: true }
                           );
-                          const body = await response.json();
                           if (typeof body.content === 'string') {
                             setContent(body.content);
                             setMessage(
@@ -643,15 +620,13 @@ function ConfigCard({
  * Login und nicht auf der Startseite – und deshalb liefert der Hub nur, was
  * der Anfragende ohnehin sehen darf.
  */
-function ShortcutsCard({
-  settings,
-  headers,
-}: {
-  settings: HubSettings;
-  headers: Record<string, string>;
-}) {
+function ShortcutsCard({ settings }: { settings: HubSettings }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const hub = useMemo(
+    () => hubClient(settings.url, settings.token),
+    [settings.url, settings.token]
+  );
   const [items, setItems] = useState<any[] | null>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -659,11 +634,13 @@ function ShortcutsCard({
 
   useEffect(() => {
     if (!open || items) return;
-    fetch(`${settings.url}/api/shortcuts`, { headers })
-      .then((response) => (response.ok ? response.json() : { shortcuts: [] }))
-      .then((data) => setItems(data.shortcuts ?? []))
-      .catch(() => setItems([]));
-  }, [open, items, settings.url]);
+    hub
+      .get<{ shortcuts?: any[] }>('/api/shortcuts', {
+        fallback: { shortcuts: [] },
+        still: true,
+      })
+      .then((data) => setItems(data.shortcuts ?? []));
+  }, [open, items, hub]);
 
   const shown = (items ?? []).filter((item) =>
     item.name.toLowerCase().includes(query.trim().toLowerCase())
@@ -819,18 +796,22 @@ const MAX_POLLS = 600;
 function WasIstNeu({ settings }: { settings: HubSettings }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const hub = useMemo(
+    () => hubClient(settings.url, settings.token),
+    [settings.url, settings.token]
+  );
   const [offen, setOffen] = useState(false);
   const [changes, setChanges] = useState<string[] | null>(null);
 
   useEffect(() => {
     if (!offen || changes !== null) return;
-    fetch(`${settings.url}/api/system/changes`, {
-      headers: settings.token ? { Authorization: `Bearer ${settings.token}` } : {},
-    })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data) => setChanges(Array.isArray(data?.changes) ? data.changes : []))
-      .catch(() => setChanges([]));
-  }, [offen, changes, settings.url, settings.token]);
+    hub
+      .get<{ changes?: string[] } | null>('/api/system/changes', {
+        fallback: null,
+        still: true,
+      })
+      .then((data) => setChanges(Array.isArray(data?.changes) ? data.changes : []));
+  }, [offen, changes, hub]);
 
   return (
     <>
@@ -923,6 +904,7 @@ function WebVersionNote({ hubCommit }: { hubCommit: string }) {
     fetch('/version.json', { cache: 'no-store' })
       .then((response) => (response.ok ? response.json() : null))
       .then((data) => setWebCommit(data?.commit ?? null))
+      // Nur eine Zusatzinfo im Web - ohne sie fehlt bloss die Zeile.
       .catch(() => {});
   }, []);
 
@@ -977,6 +959,10 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
     ? { Authorization: `Bearer ${settings.token}` }
     : {};
 
+  // Die Abrufe hier bleiben roh (ohne hubClient): Sie unterscheiden
+  // Statuscodes einzeln (404 = älterer Hub ohne den Endpunkt) und laufen
+  // während eines Updates, wenn der Hub absichtlich neu startet - eine
+  // Einblendung je fehlgeschlagenem Poll wäre dann nur Lärm.
   // Beim Öffnen einmal nachsehen, ob auf dem Host gerade gebaut wird –
   // etwa weil man während eines Laufs kurz woanders war (der Fortschritt
   // lebt nur in diesem Bildschirm) oder jemand anderes das Update
@@ -1081,6 +1067,10 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
       }
     };
     poll();
+    // Bewusst kein useTakt: Dieser Poll läuft nur, solange ein Update
+    // läuft und jemand zuschaut - und er darf im Hintergrund gerade
+    // nicht schweigen, sonst verpasst er das Ende des Baus und meldet
+    // beim Zurückkommen «keine Rückmeldung», obwohl alles gut ging.
     const timer = setInterval(poll, POLL_MS);
     return () => {
       cancelled = true;
@@ -1303,6 +1293,8 @@ function IntegrationsCard({
     setBusyName(name);
     setReloadNote(null);
     try {
+      // Roh statt über den Client: Die Begründung eines Fehlschlags
+      // steckt im detail-Feld der Antwort.
       const response = await fetch(
         `${settings.url}/api/integrations/${encodeURIComponent(name)}/reload`,
         {
@@ -1462,17 +1454,13 @@ export function lastSeen(epochSeconds?: number | null): string {
 }
 
 /** Push testen: schickt dem angemeldeten Gerät eine Probe-Benachrichtigung. */
-function PushTestCard({
-  settings,
-  headers,
-  push,
-}: {
-  settings: HubSettings;
-  headers: Record<string, string>;
-  push: PushState;
-}) {
+function PushTestCard({ settings, push }: { settings: HubSettings; push: PushState }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const hub = useMemo(
+    () => hubClient(settings.url, settings.token),
+    [settings.url, settings.token]
+  );
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // Die angemeldeten Telefone. Ohne diese Liste zeigte die Fehlermeldung
@@ -1483,27 +1471,21 @@ function PushTestCard({
   >(null);
 
   const loadDevices = useCallback(() => {
-    fetch(`${settings.url}/api/push/devices`, { headers })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data) => setDevices(data?.devices ?? null))
-      .catch(() => setDevices(null));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.url, settings.token]);
+    hub
+      .get<{ devices?: { token: string; user: string; label: string }[] } | null>(
+        '/api/push/devices',
+        { fallback: null, still: true }
+      )
+      .then((data) => setDevices(data?.devices ?? null));
+  }, [hub]);
 
   useEffect(() => {
     loadDevices();
   }, [loadDevices]);
 
   const removeDevice = async (token: string) => {
-    try {
-      await fetch(`${settings.url}/api/push/unregister`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token }),
-      });
-    } catch {
-      // Der nächste loadDevices zeigt den echten Stand.
-    }
+    // Der nächste loadDevices zeigt den echten Stand.
+    await hub.post('/api/push/unregister', { token }, { fallback: null, still: true });
     loadDevices();
   };
 
@@ -1511,12 +1493,11 @@ function PushTestCard({
     setBusy(true);
     setMessage(null);
     try {
-      const response = await fetch(`${settings.url}/api/push/test`, {
-        method: 'POST',
-        headers,
-      });
-      if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
-      const data = await response.json();
+      const data = await hub.post<{ sent?: number; errors?: string[] }>(
+        '/api/push/test',
+        undefined,
+        { still: true }
+      );
       // Der Hub wartet auf die Zustell-Quittung. Meldet der Push-Dienst
       // etwas, ist das der eigentliche Grund – wichtiger als jede Zählung.
       const problems: string[] = Array.isArray(data.errors) ? data.errors : [];
@@ -1585,15 +1566,18 @@ function PushTestCard({
 }
 
 /** Sicherungen der App-Daten: täglich automatisch, hier auch von Hand. */
-function BackupCard({
-  settings,
-  headers,
-}: {
-  settings: HubSettings;
-  headers: Record<string, string>;
-}) {
+function BackupCard({ settings }: { settings: HubSettings }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const hub = useMemo(
+    () => hubClient(settings.url, settings.token),
+    [settings.url, settings.token]
+  );
+  // Für die Rohabrufe unten (Blob/Text) - der Client liefert nur JSON.
+  const headers = useMemo(
+    () => ({ Authorization: `Bearer ${settings.token}` }),
+    [settings.token]
+  );
   const [backups, setBackups] = useState<any[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [listOpen, setListOpen] = useState(false);
@@ -1607,28 +1591,28 @@ function BackupCard({
   } | null>(null);
 
   const load = useCallback(() => {
-    fetch(`${settings.url}/api/system/backups`, { headers })
-      .then((response) => (response.ok ? response.json() : { backups: [] }))
+    hub
+      .get<{ backups?: any[]; offsite?: any }>('/api/system/backups', {
+        fallback: { backups: [] },
+        still: true,
+      })
       .then((data) => {
         setBackups(data.backups ?? []);
         setOffsite(data.offsite ?? null);
-      })
-      .catch(() => setBackups([]));
-  }, [settings.url, settings.token]);
+      });
+  }, [hub]);
 
   useEffect(load, [load]);
 
   const runBackup = async () => {
     setBusy(true);
     try {
-      const response = await fetch(`${settings.url}/api/system/backup`, {
-        method: 'POST',
-        headers,
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setBackups(data.backups ?? []);
-      }
+      const data = await hub.post<{ backups?: any[] } | null>(
+        '/api/system/backup',
+        undefined,
+        { fallback: null }
+      );
+      if (data) setBackups(data.backups ?? []);
     } finally {
       setBusy(false);
     }
@@ -1636,12 +1620,7 @@ function BackupCard({
 
   const latest = backups && backups[0];
   const when = latest
-    ? new Date(latest.created * 1000).toLocaleString('de-CH', {
-        day: '2-digit',
-        month: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-      })
+    ? datumUhr(latest.created * 1000)
     : null;
 
   const download = async (name: string) => {
@@ -1743,6 +1722,8 @@ function BackupCard({
     setBusy(true);
     setNote(null);
     try {
+      // Roh statt über den Client: Bei einem Fehlschlag steckt die
+      // eigentliche Begründung des Hubs im detail-Feld der Antwort.
       const response = await fetch(
         `${settings.url}/api/system/backups/${encodeURIComponent(name)}/restore`,
         { method: 'POST', headers }
@@ -1750,8 +1731,8 @@ function BackupCard({
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.detail ?? `Hub antwortet mit ${response.status}`);
       setNote(body.hinweis ?? 'Zurückgespielt - der Hub startet neu.');
-    } catch (err: any) {
-      setNote(String(err.message ?? err));
+    } catch (err) {
+      setNote(String(err instanceof Error ? err.message : err));
     } finally {
       setBusy(false);
     }
@@ -1804,13 +1785,7 @@ function BackupCard({
             <View key={entry.name} style={styles.row}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.rowDetail}>
-                  {new Date(entry.created * 1000).toLocaleString('de-CH', {
-                    day: '2-digit',
-                    month: '2-digit',
-                    year: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
+                  {datumUhr(entry.created * 1000)}
                   {' · '}
                   {Math.max(1, Math.round(entry.size / 1024))} kB
                 </Text>
@@ -1856,14 +1831,7 @@ function BackupCard({
           selectable
         >
           {offsite.ok
-            ? `Off-Site-Kopie in Supabase: zuletzt ${new Date(
-                offsite.at * 1000
-              ).toLocaleString('de-CH', {
-                day: '2-digit',
-                month: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit',
-              })}`
+            ? `Off-Site-Kopie in Supabase: zuletzt ${datumUhr(offsite.at * 1000)}`
             : `Off-Site-Kopie fehlgeschlagen: ${offsite.error ?? 'unbekannt'}`}
         </Text>
       ) : null}

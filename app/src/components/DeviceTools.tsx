@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { hubClient } from '../api/client';
 import { Entity, HubSettings } from '../api/types';
 import { Card } from './Card';
 import { Colors, radius, type, useColors } from '../theme';
@@ -60,15 +61,18 @@ export function DeviceTools({
 
   const nameOf = (id: string) => alle.find((e) => e.id === id)?.name ?? id;
 
+  const hub = useMemo(
+    () => hubClient(settings.url, settings.token),
+    [settings.url, settings.token]
+  );
+
   const setzeRaum = async (raum: string | null) => {
     setBusy(true);
     setNote(null);
     try {
       for (const id of gewaehlt) {
-        await fetch(`${settings.url}/api/entities/${encodeURIComponent(id)}/room`, {
-          method: 'PUT',
-          headers: { ...headers, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ room: raum }),
+        await hub.put(`/api/entities/${encodeURIComponent(id)}/room`, { room: raum }, {
+          still: true,
         });
       }
       setNote(
@@ -88,10 +92,8 @@ export function DeviceTools({
     setNote(null);
     try {
       for (const id of gewaehlt) {
-        await fetch(`${settings.url}/api/entities/${encodeURIComponent(id)}/meta`, {
-          method: 'PUT',
-          headers: { ...headers, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ group: gruppe }),
+        await hub.put(`/api/entities/${encodeURIComponent(id)}/meta`, { group: gruppe }, {
+          still: true,
         });
       }
       setNote(

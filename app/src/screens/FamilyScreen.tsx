@@ -13,12 +13,14 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 
+import { HubFehler, hubClient } from '../api/client';
 import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
 import { DraggableList } from '../components/DraggableList';
 import { Shops } from '../components/Shops';
 import { Colors, radius, space, useColors } from '../theme';
 import { RecipeBook } from './RecipeBook';
+import { monatJahr, uhr, wochentagDatumKurz, wochentagUhr } from '../lib/format';
 import { ingredientsToShopping, shopCategory } from '../lib/einkauf';
 import { tapped } from '../lib/haptics';
 import { ROLE_LABELS } from './UsersScreen';
@@ -1225,7 +1227,7 @@ function MonthCalendar({
           <Ionicons name="chevron-back" size={22} color={colors.ink} />
         </Pressable>
         <Text style={styles.calTitle}>
-          {month.toLocaleDateString('de-CH', { month: 'long', year: 'numeric' })}
+          {monatJahr(month)}
         </Text>
         <Pressable
           onPress={() => setMonth(new Date(year, mon + 1, 1))}
@@ -1284,10 +1286,7 @@ function MonthCalendar({
                 <Text style={styles.checkSub}>
                   {event.all_day
                     ? 'ganztägig'
-                    : new Date(event.start).toLocaleTimeString('de-CH', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
+                    : uhr(new Date(event.start))}
                 </Text>
               </View>
             ))
@@ -1312,11 +1311,6 @@ export function FamilyScreen({
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const headers = useMemo(
-    () => ({ Authorization: `Bearer ${settings.token}` }),
-    [settings.token]
-  );
-
   const [data, setData] = useState<FamilyData>({});
   const [members, setMembers] = useState<Member[]>([]);
   const [view, setView] = useState<ModuleKey | null>(null);
@@ -1324,15 +1318,25 @@ export function FamilyScreen({
   const [error, setError] = useState<string | null>(null);
   const [calMode, setCalMode] = useState<'list' | 'month'>('list');
 
+  const hub = useMemo(
+    () => hubClient(settings.url, settings.token),
+    [settings.url, settings.token]
+  );
+
   const load = useCallback(() => {
-    fetch(`${settings.url}/api/family`, { headers })
-      .then((response) => (response.ok ? response.json() : Promise.reject(response.status)))
+    // Der Bildschirm zeigt Fehler selbst an - deshalb «still».
+    hub
+      .get<FamilyData>('/api/family', { still: true })
       .then((payload) => {
         setData(payload);
         setError(null);
       })
-      .catch((err) => setError(`Familiendaten nicht abrufbar (${err})`));
-  }, [settings.url, headers]);
+      .catch((err) =>
+        setError(
+          `Familiendaten nicht abrufbar (${err instanceof HubFehler ? err.message : err})`
+        )
+      );
+  }, [hub]);
 
   useEffect(load, [load]);
 
@@ -1343,60 +1347,53 @@ export function FamilyScreen({
   }, [changedAt, load]);
 
   useEffect(() => {
-    fetch(`${settings.url}/api/users`, { headers })
-      .then((response) => (response.ok ? response.json() : Promise.reject()))
-      .then(setMembers)
-      .catch(() =>
-        setMembers(currentUser ? [{ name: currentUser.name, role: currentUser.role }] : [])
+    hub
+      .get<Member[] | null>('/api/users', { fallback: null, still: true })
+      .then((rows) =>
+        setMembers(
+          rows ?? (currentUser ? [{ name: currentUser.name, role: currentUser.role }] : [])
+        )
       );
-  }, [settings.url, headers, currentUser]);
+  }, [hub, currentUser]);
 
   // ── Änderungen an den Hub ──────────────────────────────────────────────
 
   const add = useCallback(
     async (collection: string, item: Record<string, any>) => {
       try {
-        const response = await fetch(`${settings.url}/api/family/${collection}`, {
-          method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/json' },
-          body: JSON.stringify(item),
-        });
-        if (!response.ok) throw new Error(String(response.status));
+        await hub.post(`/api/family/${collection}`, item, { still: true });
         load();
-      } catch (err: any) {
-        setError(`Speichern fehlgeschlagen (${err.message ?? err})`);
+      } catch (err) {
+        setError(
+          `Speichern fehlgeschlagen (${err instanceof Error ? err.message : err})`
+        );
       }
     },
-    [settings.url, headers, load]
+    [hub, load]
   );
 
   const update = useCallback(
     async (collection: string, id: string, patch: Record<string, any>) => {
       try {
-        await fetch(`${settings.url}/api/family/${collection}/${id}`, {
-          method: 'PUT',
-          headers: { ...headers, 'Content-Type': 'application/json' },
-          body: JSON.stringify(patch),
-        });
+        // Scheitert es, zeigt load() im finally den echten Stand - und
+        // die Einblendung des Clients sagt, warum.
+        await hub.put(`/api/family/${collection}/${id}`, patch, { fallback: null });
       } finally {
         load();
       }
     },
-    [settings.url, headers, load]
+    [hub, load]
   );
 
   const remove = useCallback(
     async (collection: string, id: string) => {
       try {
-        await fetch(`${settings.url}/api/family/${collection}/${id}`, {
-          method: 'DELETE',
-          headers,
-        });
+        await hub.del(`/api/family/${collection}/${id}`, { fallback: null });
       } finally {
         load();
       }
     },
-    [settings.url, headers, load]
+    [hub, load]
   );
 
   // ── Abgeleitete Werte ──────────────────────────────────────────────────
@@ -1436,16 +1433,8 @@ export function FamilyScreen({
 
   const eventWhen = (event: any) =>
     event.all_day
-      ? new Date(event.start).toLocaleDateString('de-CH', {
-          weekday: 'short',
-          day: 'numeric',
-          month: 'short',
-        })
-      : new Date(event.start).toLocaleString('de-CH', {
-          weekday: 'short',
-          hour: '2-digit',
-          minute: '2-digit',
-        });
+      ? wochentagDatumKurz(new Date(event.start))
+      : wochentagUhr(new Date(event.start));
 
   const presenceOf = (name: string): 'home' | 'away' | null => {
     const first = name.split(' ')[0].toLowerCase();
@@ -1513,23 +1502,15 @@ export function FamilyScreen({
           <EventForm
             onAdd={async (summary, date, time) => {
               try {
-                const response = await fetch(
-                  `${settings.url}/api/entities/${encodeURIComponent(calendar.id)}/command`,
-                  {
-                    method: 'POST',
-                    headers: { ...headers, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      command: 'create_event',
-                      data: { summary, date, time },
-                    }),
-                  }
+                await hub.post(
+                  `/api/entities/${encodeURIComponent(calendar.id)}/command`,
+                  { command: 'create_event', data: { summary, date, time } },
+                  { still: true }
                 );
-                if (!response.ok) {
-                  const body = await response.json().catch(() => null);
-                  throw new Error(body?.detail ?? response.status);
-                }
-              } catch (err: any) {
-                setError(`Termin nicht angelegt (${err.message ?? err})`);
+              } catch (err) {
+                setError(
+                  `Termin nicht angelegt (${err instanceof Error ? err.message : err})`
+                );
               }
             }}
             styles={styles}

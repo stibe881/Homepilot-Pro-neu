@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { HubSettings } from '../api/types';
 import { Card } from './Card';
 import { Colors, type, useColors } from '../theme';
+import { HubFehler, hubClient } from '../api/client';
 
 /**
  * Die eingebauten Push-Nachrichten des Hubs als Kategorie «Push» unter
@@ -62,19 +63,18 @@ export function PushRules({
   // Zugeklappt wie die anderen Kategorien: erst die Übersicht.
   const [open, setOpen] = useState(false);
 
-  const headers: Record<string, string> = settings.token
-    ? { Authorization: `Bearer ${settings.token}` }
-    : {};
+  const hub = useMemo(
+    () => hubClient(settings.url, settings.token),
+    [settings.url, settings.token]
+  );
 
   const load = useCallback(() => {
-    fetch(`${settings.url}/api/notifyrules`, { headers })
-      .then((response) => {
-        if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
-        return response.json();
-      })
+    // Die Karte zeigt Fehler selbst an - deshalb «still».
+    hub
+      .get<{ rules?: Rule[] }>('/api/notifyrules', { still: true })
       .then((data) => setRules(data.rules ?? []))
-      .catch((err) => setError(String(err.message ?? err)));
-  }, [settings.url, settings.token]);
+      .catch((err) => setError(err instanceof HubFehler ? err.message : String(err)));
+  }, [hub]);
 
   useEffect(load, [load]);
 
@@ -85,18 +85,16 @@ export function PushRules({
       (prev ?? []).map((entry) => (entry.key === rule.key ? rule : entry))
     );
     try {
-      const response = await fetch(`${settings.url}/api/notifyrules/${rule.key}`, {
-        method: 'PUT',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const data = await hub.put<{ rules?: Rule[] }>(
+        `/api/notifyrules/${rule.key}`,
+        {
           enabled: rule.enabled,
           params: Object.fromEntries(
             rule.params.map((param) => [param.key, param.value])
           ),
-        }),
-      });
-      if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
-      const data = await response.json();
+        },
+        { still: true }
+      );
       setRules(data.rules ?? []);
     } catch (err: any) {
       setError(String(err.message ?? err));

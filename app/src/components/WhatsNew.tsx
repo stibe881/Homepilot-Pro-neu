@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { hubClient } from '../api/client';
 import { HubSettings } from '../api/types';
 import { Card } from './Card';
 import { Colors, radius, type, useColors } from '../theme';
@@ -37,17 +38,17 @@ export function WhatsNew({
   const [changes, setChanges] = useState<string[]>([]);
 
   useEffect(() => {
-    const headers: Record<string, string> = settings.token
-      ? { Authorization: `Bearer ${settings.token}` }
-      : {};
-    fetch(`${settings.url}/api/system/changes`, { headers })
-      .then((response) => (response.ok ? response.json() : null))
+    // Ohne Antwort bleibt die Karte einfach weg - sie ist eine Zugabe.
+    hubClient(settings.url, settings.token)
+      .get<{ commit?: unknown; changes?: unknown } | null>('/api/system/changes', {
+        fallback: null,
+        still: true,
+      })
       .then((data) => {
         if (!data) return;
         setCommit(typeof data.commit === 'string' ? data.commit : null);
         setChanges(Array.isArray(data.changes) ? data.changes : []);
-      })
-      .catch(() => {});
+      });
   }, [settings.url, settings.token]);
 
   // Von Hand geschlossen, ohne «Alles klar»: für diesen Besuch weg, beim

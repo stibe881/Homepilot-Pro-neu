@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { hubClient } from '../api/client';
 import { HubSettings } from '../api/types';
 import { Card } from './Card';
 import { Colors, radius, type, useColors } from '../theme';
@@ -45,11 +46,15 @@ export function SceneSuggestion({
   const headers: Record<string, string> = settings.token
     ? { Authorization: `Bearer ${settings.token}` }
     : {};
+  const hub = useMemo(
+    () => hubClient(settings.url, settings.token),
+    [settings.url, settings.token]
+  );
 
   useEffect(() => {
     let abgebrochen = false;
-    fetch(`${settings.url}/api/suggestions/scene`, { headers })
-      .then((response) => (response.ok ? response.json() : null))
+    hub
+      .get<{ suggestion?: Suggestion } | null>('/api/suggestions/scene', { fallback: null, still: true })
       .then((body) => {
         if (abgebrochen || !body?.suggestion) return;
         setSuggestion(body.suggestion);
@@ -61,6 +66,7 @@ export function SceneSuggestion({
               : 'Mein Licht'
         );
       })
+      // Ohne Vorschlag einfach kein Kärtchen - nichts fehlt.
       .catch(() => {});
     return () => {
       abgebrochen = true;

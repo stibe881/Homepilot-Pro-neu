@@ -8,7 +8,9 @@ import { PushRules } from '../components/PushRules';
 import { Fehlschlag, Laedt } from '../components/Zustand';
 import { Colors, radius, space, type, useColors } from '../theme';
 import { deviceKindIcon, deviceKindLabel } from '../lib/geraeteart';
+import { HubFehler, hubClient } from '../api/client';
 import { ablaufSatz } from '../lib/ablaufsatz';
+import { datumKurz, datumUhr } from '../lib/format';
 import {
   RueckwegBefehl,
   SceneActionDraft,
@@ -236,12 +238,7 @@ export function fittingTrigger(
  * Beantwortet den häufigsten Support-Fall direkt in der Liste: «geht
  * nicht» heisst fast immer, dass eine Bedingung im Weg war. */
 export function runLine(run: Run): string {
-  const time = new Date(run.at * 1000).toLocaleString('de-CH', {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  const time = datumUhr(run.at * 1000);
   if (run.error) return `${time} · Fehler: ${run.error}`;
   if (run.executed) return `${time} · ausgeführt`;
   if (run.skipped.length > 0) return `${time} · übersprungen: ${run.skipped.join('; ')}`;
@@ -1019,37 +1016,42 @@ export function AutomationsScreen({
   const templates = useMemo(() => buildTemplates(entities, scenes), [entities, scenes]);
 
   const mayEdit = !!user?.capabilities?.includes('edit_automations');
-  const headers: Record<string, string> = settings.token
-    ? { Authorization: `Bearer ${settings.token}` }
-    : {};
+  const hub = useMemo(
+    () => hubClient(settings.url, settings.token),
+    [settings.url, settings.token]
+  );
 
   const load = useCallback(() => {
-    fetch(`${settings.url}/api/automations`, { headers })
-      .then((response) => {
-        if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
-        return response.json();
-      })
+    // Der Bildschirm hat seine eigene Fehleranzeige - deshalb «still».
+    hub
+      .get<{ automations?: Automation[] }>('/api/automations', { still: true })
       .then((data) => setAutomations(data.automations ?? []))
-      .catch((err) => setError(String(err.message ?? err)));
+      .catch((err) => setError(err instanceof HubFehler ? err.message : String(err)));
 
-    fetch(`${settings.url}/api/automations/conflicts`, { headers })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data) => setConflicts(data?.conflicts ?? []))
-      .catch(() => setConflicts([]));
-    fetch(`${settings.url}/api/trash`, { headers })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data) => setTrash(data?.trash ?? []))
-      .catch(() => setTrash([]));
-    fetch(`${settings.url}/api/automations/runs`, { headers })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data) => setRuns(data?.runs ?? []))
-      .catch(() => setRuns([]));
-
-    fetch(`${settings.url}/api/hue/scenes`, { headers })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data) => setHueScenes(data?.scenes ?? []))
-      .catch(() => setHueScenes([]));
-  }, [settings.url, settings.token]);
+    // Die Beikost (Konflikte, Papierkorb, Verlauf, Hue-Szenen) darf
+    // fehlen, ohne dass die Seite meckert.
+    hub
+      .get<{ conflicts?: any[] } | null>('/api/automations/conflicts', {
+        fallback: null,
+        still: true,
+      })
+      .then((data) => setConflicts(data?.conflicts ?? []));
+    hub
+      .get<{ trash?: any[] } | null>('/api/trash', { fallback: null, still: true })
+      .then((data) => setTrash(data?.trash ?? []));
+    hub
+      .get<{ runs?: Run[] } | null>('/api/automations/runs', {
+        fallback: null,
+        still: true,
+      })
+      .then((data) => setRuns(data?.runs ?? []));
+    hub
+      .get<{ scenes?: string[] } | null>('/api/hue/scenes', {
+        fallback: null,
+        still: true,
+      })
+      .then((data) => setHueScenes(data?.scenes ?? []));
+  }, [hub]);
 
   useEffect(load, [load]);
 
@@ -1067,21 +1069,17 @@ export function AutomationsScreen({
       enabled: draft.enabled,
       category: draft.category.trim() || null,
     };
-    const url = draft.id
-      ? `${settings.url}/api/automations/${draft.id}`
-      : `${settings.url}/api/automations`;
     try {
-      const response = await fetch(url, {
-        method: draft.id ? 'PUT' : 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
+      if (draft.id) {
+        await hub.put(`/api/automations/${draft.id}`, body, { still: true });
+      } else {
+        await hub.post('/api/automations', body, { still: true });
+      }
       onNote?.(draft.id ? `«${body.alias}» gespeichert` : `«${body.alias}» angelegt`);
       setDraft(null);
       load();
-    } catch (err: any) {
-      setError(String(err.message ?? err));
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
     }
   };
 
@@ -1089,10 +1087,17 @@ export function AutomationsScreen({
   /** Kopie anlegen – auch von einem, der aus der config.yaml stammt. */
   const duplicate = async (id: string) => {
     const quelle = automations?.find((entry) => entry.id === id);
-    await fetch(`${settings.url}/api/automations/${id}/duplicate`, {
-      method: 'POST',
-      headers,
-    }).catch(() => {});
+    const antwort = await hub.post<{ ok?: boolean } | null>(
+      `/api/automations/${id}/duplicate`,
+      undefined,
+      { fallback: null, still: true }
+    );
+    if (!antwort) {
+      // Kein stummes Scheitern: Sonst steht «Kopie angelegt» da, und es
+      // gibt keine.
+      onNote?.('Kopie fehlgeschlagen – der Hub war nicht erreichbar');
+      return;
+    }
     // Bei einem aus der Datei ist der Hinweis der Punkt: Die Kopie liegt
     // jetzt in der App, ist aber aus – sonst liefe derselbe Ablauf zweimal.
     onNote?.(
@@ -1106,27 +1111,19 @@ export function AutomationsScreen({
   /** Den gespeicherten Ablauf einmal sofort ausführen – der «Testen»-Knopf. */
   const test = async (id: string) => {
     try {
-      const response = await fetch(`${settings.url}/api/automations/${id}/trigger`, {
-        method: 'POST',
-        headers,
-      });
-      if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
+      await hub.post(`/api/automations/${id}/trigger`, undefined, { still: true });
       onNote?.('Ablauf einmal ausgeführt');
-    } catch (err: any) {
-      setError(String(err.message ?? err));
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
     }
   };
 
   /** Zeigt, was der Ablauf jetzt täte – ohne dass etwas passiert. */
   const dryRun = async (id: string): Promise<DryRun | null> => {
     try {
-      const response = await fetch(`${settings.url}/api/automations/${id}/dryrun`, {
-        headers,
-      });
-      if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
-      return await response.json();
-    } catch (err: any) {
-      setError(String(err.message ?? err));
+      return await hub.get<DryRun>(`/api/automations/${id}/dryrun`, { still: true });
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
       return null;
     }
   };
@@ -1136,35 +1133,22 @@ export function AutomationsScreen({
    *  jedem Buchstaben neu vom Hub geholt würde. */
   const loadAutomationVersions = useCallback(async (): Promise<Fassung[]> => {
     if (!draft?.id) return [];
-    try {
-      const response = await fetch(
-        `${settings.url}/api/edit-history/automation/${draft.id}`,
-        { headers }
-      );
-      if (!response.ok) return [];
-      return (await response.json()).versions ?? [];
-    } catch {
-      // Ohne Fassungen zeigt der Editor schlicht keinen Abschnitt.
-    }
-    return [];
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft?.id, settings.url, settings.token]);
+    // Ohne Fassungen zeigt der Editor schlicht keinen Abschnitt.
+    const body = await hub.get<{ versions?: Fassung[] } | null>(
+      `/api/edit-history/automation/${draft.id}`,
+      { fallback: null, still: true }
+    );
+    return body?.versions ?? [];
+  }, [draft?.id, hub]);
 
   const loadSceneVersions = useCallback(async (): Promise<Fassung[]> => {
     if (!sceneDraft?.id) return [];
-    try {
-      const response = await fetch(
-        `${settings.url}/api/edit-history/scene/${sceneDraft.id}`,
-        { headers }
-      );
-      if (!response.ok) return [];
-      return (await response.json()).versions ?? [];
-    } catch {
-      // Ohne Fassungen zeigt der Editor schlicht keinen Abschnitt.
-    }
-    return [];
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sceneDraft?.id, settings.url, settings.token]);
+    const body = await hub.get<{ versions?: Fassung[] } | null>(
+      `/api/edit-history/scene/${sceneDraft.id}`,
+      { fallback: null, still: true }
+    );
+    return body?.versions ?? [];
+  }, [sceneDraft?.id, hub]);
 
   /** Eine frühere Fassung zurückholen; der Editor schliesst, weil sein
    *  Entwurf danach veraltet wäre. */
@@ -1174,16 +1158,11 @@ export function AutomationsScreen({
     at: number
   ): Promise<boolean> => {
     try {
-      const response = await fetch(
-        `${settings.url}/api/edit-history/${kind}/${id}/restore`,
-        {
-          method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ at }),
-        }
+      const { restored } = await hub.post<{ restored: string }>(
+        `/api/edit-history/${kind}/${id}/restore`,
+        { at },
+        { still: true }
       );
-      if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
-      const restored = (await response.json()).restored;
       onNote?.(`Frühere Fassung von «${restored}» zurückgeholt`);
       setDraft(null);
       setSceneDraft(null);
@@ -1197,13 +1176,18 @@ export function AutomationsScreen({
 
   const remove = async (id: string) => {
     const name = automations?.find((item) => item.id === id)?.alias ?? 'Ablauf';
-    await fetch(`${settings.url}/api/automations/${id}`, {
-      method: 'DELETE',
-      headers,
-    }).catch(() => {});
+    const ok = await hub
+      .del(`/api/automations/${id}`, { still: true })
+      .then(() => true)
+      .catch(() => false);
     // Der Papierkorb ist der eigentliche Rückweg – der Hinweis sagt, dass
-    // es ihn gibt. Sonst sucht man ihn erst, wenn man ihn braucht.
-    onNote?.(`«${name}» in den Papierkorb gelegt`);
+    // es ihn gibt. Und wenn das Löschen scheiterte, muss genau das
+    // dastehen, nicht die halbe Wahrheit.
+    onNote?.(
+      ok
+        ? `«${name}» in den Papierkorb gelegt`
+        : `«${name}» konnte nicht gelöscht werden – Hub nicht erreichbar`
+    );
     setDraft(null);
     load();
   };
@@ -1244,21 +1228,17 @@ export function AutomationsScreen({
           return [{ entity_id, command }];
         }),
     };
-    const url = sceneDraft.id
-      ? `${settings.url}/api/scenes/${sceneDraft.id}`
-      : `${settings.url}/api/scenes`;
     try {
-      const response = await fetch(url, {
-        method: sceneDraft.id ? 'PUT' : 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
+      if (sceneDraft.id) {
+        await hub.put(`/api/scenes/${sceneDraft.id}`, body, { still: true });
+      } else {
+        await hub.post('/api/scenes', body, { still: true });
+      }
       onNote?.(sceneDraft.id ? `Szene «${body.name}» gespeichert` : `Szene «${body.name}» angelegt`);
       setSceneDraft(null);
       onScenesChanged?.();
-    } catch (err: any) {
-      setError(String(err.message ?? err));
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
     }
   };
 
@@ -1274,11 +1254,7 @@ export function AutomationsScreen({
     const scene = scenes.find((entry) => entry.id === id);
     const rueckweg = szenenRueckweg(entities, scene?.entity_ids ?? []);
     try {
-      const response = await fetch(`${settings.url}/api/scenes/${id}/activate`, {
-        method: 'POST',
-        headers,
-      });
-      if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
+      await hub.post(`/api/scenes/${id}/activate`, undefined, { still: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       return [];
@@ -1287,24 +1263,33 @@ export function AutomationsScreen({
   };
 
   const revertScene = async (befehle: RueckwegBefehl[]) => {
+    let daneben = 0;
     for (const befehl of befehle) {
-      await fetch(
-        `${settings.url}/api/entities/${encodeURIComponent(befehl.entity_id)}/command`,
-        {
-          method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ command: befehl.command, data: befehl.data ?? {} }),
-        }
-      ).catch(() => {});
+      const gut = await hub
+        .post(
+          `/api/entities/${encodeURIComponent(befehl.entity_id)}/command`,
+          { command: befehl.command, data: befehl.data ?? {} },
+          { still: true }
+        )
+        .then(() => true)
+        .catch(() => false);
+      if (!gut) daneben += 1;
     }
-    onNote?.('Zustand von vorher wiederhergestellt');
+    onNote?.(
+      daneben === 0
+        ? 'Zustand von vorher wiederhergestellt'
+        : `Zustand von vorher wiederhergestellt – ${daneben} Gerät(e) haben nicht reagiert`
+    );
   };
 
   const removeScene = async (id: string) => {
-    await fetch(`${settings.url}/api/scenes/${id}`, {
-      method: 'DELETE',
-      headers,
-    }).catch(() => {});
+    const ok = await hub
+      .del(`/api/scenes/${id}`, { still: true })
+      .then(() => true)
+      .catch(() => false);
+    if (!ok) {
+      onNote?.('Szene konnte nicht gelöscht werden – Hub nicht erreichbar');
+    }
     setSceneDraft(null);
     onScenesChanged?.();
   };
@@ -1317,10 +1302,13 @@ export function AutomationsScreen({
   }
 
   const restore = async (kind: string, id: string) => {
-    await fetch(`${settings.url}/api/trash/${kind}/${id}/restore`, {
-      method: 'POST',
-      headers,
-    }).catch(() => {});
+    const ok = await hub
+      .post(`/api/trash/${kind}/${id}/restore`, undefined, { still: true })
+      .then(() => true)
+      .catch(() => false);
+    if (!ok) {
+      onNote?.('Zurückholen fehlgeschlagen – vielleicht gibt es den Eintrag schon wieder');
+    }
     load();
   };
 
@@ -1442,17 +1430,19 @@ export function AutomationsScreen({
                         // Auslöser überhaupt ankommt - der Lauf-Verlauf
                         // allein beantwortet das nicht.
                         if (!auf && !diagnose[automation.id]) {
-                          fetch(
-                            `${settings.url}/api/automations/${automation.id}/diagnose`,
-                            { headers }
-                          )
-                            .then((r) => (r.ok ? r.json() : null))
-                            .then((d) =>
-                              d?.triggers
-                                ? setDiagnose((v) => ({ ...v, [automation.id]: d.triggers }))
-                                : null
+                          // Ohne Diagnose bleibt die Zeile leer – der
+                          // Rest der Liste funktioniert weiter.
+                          hub
+                            .get<{ triggers?: TriggerHealth[] } | null>(
+                              `/api/automations/${automation.id}/diagnose`,
+                              { fallback: null, still: true }
                             )
-                            .catch(() => {});
+                            .then((d) => {
+                              const zeilen = d?.triggers;
+                              if (zeilen) {
+                                setDiagnose((v) => ({ ...v, [automation.id]: zeilen }));
+                              }
+                            });
                         }
                       }}
                       accessibilityRole="button"
@@ -1664,10 +1654,7 @@ export function AutomationsScreen({
                     <Text style={styles.detail}>{row.name}</Text>
                     <Text style={styles.triggerNote}>
                       {row.kind === 'scene' ? 'Szene' : 'Ablauf'} · gelöscht am{' '}
-                      {new Date(row.at * 1000).toLocaleDateString('de-CH', {
-                        day: 'numeric',
-                        month: 'short',
-                      })}
+                      {datumKurz(row.at * 1000)}
                       {row.by && row.by !== '?' ? ` von ${row.by}` : ''}
                     </Text>
                   </View>
@@ -3059,12 +3046,7 @@ function VersionsSection({
         <View key={row.at} style={styles.cardHead}>
           <View style={{ flex: 1 }}>
             <Text style={styles.detail}>
-              {new Date(row.at * 1000).toLocaleString('de-CH', {
-                day: 'numeric',
-                month: 'short',
-                hour: '2-digit',
-                minute: '2-digit',
-              })}
+              {datumUhr(row.at * 1000)}
             </Text>
             <Text style={styles.triggerNote}>
               {row.by && row.by !== '?' ? `gespeichert von ${row.by}` : 'gespeichert'}

@@ -38,6 +38,10 @@ function load(): Haptics | null {
   return module_;
 }
 
+// Die .catch(() => {}) unten sind Absicht: Haptik ist eine Zugabe.
+// Ein Gerät ohne Motor (Web, alte iPads) darf deswegen nie eine
+// Fehlermeldung sehen.
+
 /** Bestätigt eine Schaltung – der übliche Fall. */
 export function tapped() {
   const haptics = load();

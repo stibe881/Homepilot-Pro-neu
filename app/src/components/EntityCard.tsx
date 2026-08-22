@@ -13,6 +13,8 @@ import {
 } from 'react-native';
 
 import { Entity } from '../api/types';
+import { useTakt } from '../hooks/useTakt';
+import { datumKurz, uhr, wochentagUhr } from '../lib/format';
 import { Colors, radius, type, useColors } from '../theme';
 import { Bar } from './Bar';
 import { Card, CardFooter } from './Card';
@@ -1146,6 +1148,8 @@ export function SpotifyPanel({
     AsyncStorage.setItem(
       prefsKey,
       JSON.stringify({ order: nextOrder, hidden: nextHidden })
+      // Nicht speicherbar heisst nur: beim nächsten Start wieder die
+      // Standard-Reihenfolge.
     ).catch(() => {});
   };
 
@@ -1475,10 +1479,7 @@ function CameraSnapshot({
   const colors = useColors();
   const [tick, setTick] = useState(0);
   const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    const timer = setInterval(() => setTick((value) => value + 1), refreshMs);
-    return () => clearInterval(timer);
-  }, [refreshMs]);
+  useTakt(() => setTick((value) => value + 1), refreshMs);
   if (failed) {
     return null; // Gerät ohne Bild: Kachel bleibt wie bisher.
   }
@@ -1508,18 +1509,17 @@ function useGlide(target: number, fullTravelSeconds: number): number {
   const [display, setDisplay] = useState(target);
   const goal = useRef(target);
   goal.current = target;
-  useEffect(() => {
-    const tick = 150;
-    const timer = setInterval(() => {
+  const tick = 150;
+  useTakt(
+    () =>
       setDisplay((current) => {
         const step = (100 / Math.max(3, fullTravelSeconds)) * (tick / 1000);
         const aim = goal.current;
         if (Math.abs(aim - current) <= step) return aim;
         return current + Math.sign(aim - current) * step;
-      });
-    }, tick);
-    return () => clearInterval(timer);
-  }, [fullTravelSeconds]);
+      }),
+    tick
+  );
   return display;
 }
 
@@ -1887,10 +1887,7 @@ function VacuumMap({
   const colors = useColors();
   const [tick, setTick] = useState(0);
   const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    const timer = setInterval(() => setTick((value) => value + 1), 60_000);
-    return () => clearInterval(timer);
-  }, []);
+  useTakt(() => setTick((value) => value + 1), 60_000);
   const separator = uri.includes('?') ? '&' : '?';
 
   if (failed) {
@@ -2022,9 +2019,8 @@ function eventTime(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
   const today = new Date();
-  const time = date.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' });
-  if (date.toDateString() === today.toDateString()) return time;
-  return `${date.toLocaleDateString('de-CH', { weekday: 'short' })} ${time}`;
+  if (date.toDateString() === today.toDateString()) return uhr(date);
+  return wochentagUhr(date);
 }
 
 /** Uhrzeit heute, sonst Datum – für „letzte Bewegung“. */
@@ -2032,10 +2028,7 @@ function clock(iso: string): string {
   const date = new Date(iso);
   const today = new Date();
   const sameDay = date.toDateString() === today.toDateString();
-  const time = date.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' });
-  return sameDay
-    ? `um ${time}`
-    : `am ${date.toLocaleDateString('de-CH', { day: 'numeric', month: 'numeric' })} um ${time}`;
+  return sameDay ? `um ${uhr(date)}` : `am ${datumKurz(date)} um ${uhr(date)}`;
 }
 
 function BigValue({ value, on, note }: { value: string; on?: boolean; note?: string }) {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { HubSettings } from '../api/types';
+import { hubClient } from '../api/client';
 
 /**
  * Einstellungen der Oberfläche – zwei Ablagen, ein Muster.
@@ -68,15 +69,11 @@ function useStore<T extends object>(
   const latest = useRef<T>({} as T);
   latest.current = werte;
 
-  const headers: Record<string, string> = settings.token
-    ? { Authorization: `Bearer ${settings.token}`, 'Content-Type': 'application/json' }
-    : { 'Content-Type': 'application/json' };
-
   useEffect(() => {
     if (!connected || !settings.url || !settings.token) return;
     let cancelled = false;
-    fetch(`${settings.url}${pfad}`, { headers })
-      .then((response) => (response.ok ? response.json() : null))
+    hubClient(settings.url, settings.token)
+      .get<{ prefs?: T } | null>(pfad, { fallback: null, still: true })
       .then((body) => {
         if (cancelled) return;
         if (body && typeof body.prefs === 'object' && body.prefs) {
@@ -92,7 +89,7 @@ function useStore<T extends object>(
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [connected, settings.url, settings.token, pfad]);
 
   const setzen = useCallback(
@@ -100,16 +97,14 @@ function useStore<T extends object>(
       setWerte(next);
       latest.current = next;
       if (!settings.url || !settings.token) return;
-      fetch(`${settings.url}${pfad}`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify({ prefs: next }),
-      }).catch(() => {
-        // Nicht gespeichert heisst: gilt nur auf diesem Gerät, bis die
-        // Verbindung zurück ist – kein Grund, die Bedienung zu stören.
+      // Nicht gespeichert heisst: gilt nur auf diesem Gerät, bis die
+      // Verbindung zurück ist – kein Grund, die Bedienung zu stören.
+      hubClient(settings.url, settings.token).put(pfad, { prefs: next }, {
+        fallback: null,
+        still: true,
       });
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
     [settings.url, settings.token, pfad]
   );
 

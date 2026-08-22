@@ -3,6 +3,7 @@ import React, { useMemo, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Activity, Entity } from '../api/types';
+import { uhr, wochentag } from '../lib/format';
 import { istMusikbox, pickPlayer } from '../lib/geraeteart';
 import { Colors, radius, type, useColors } from '../theme';
 import { Bar } from './Bar';
@@ -295,10 +296,7 @@ export function ActivityCard({ activity, limit = 30 }: { activity: Activity[]; l
                   : ''}
               </Text>
               <Text style={styles.activityTime}>
-                {new Date(item.at).toLocaleTimeString('de-CH', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
+                {uhr(item.at)}
               </Text>
             </View>
           ))}
@@ -358,7 +356,7 @@ function WeatherPanel({ entity }: { entity: Entity }) {
 function weekdayShort(date: string): string {
   const parsed = new Date(`${date}T12:00:00`);
   if (Number.isNaN(parsed.getTime())) return '';
-  return parsed.toLocaleDateString('de-CH', { weekday: 'short' }).replace('.', '');
+  return wochentag(parsed);
 }
 
 function AlertPanel({ entity }: { entity: Entity }) {

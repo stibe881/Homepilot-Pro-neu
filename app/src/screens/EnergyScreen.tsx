@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { HubFehler, hubClient } from '../api/client';
 import { Entity, HubSettings, SystemStatus } from '../api/types';
 import { Card } from '../components/Card';
 import { HistoryChart } from '../components/HistoryChart';
@@ -116,33 +117,32 @@ export function EnergyScreen({
   const [expanded, setExpanded] = useState<string | null>(null);
   const [width, setWidth] = useState(0);
 
+  const hub = useMemo(
+    () => hubClient(settings.url, settings.token),
+    [settings.url, settings.token]
+  );
   const load = useCallback(() => {
-    const headers: Record<string, string> = settings.token
-      ? { Authorization: `Bearer ${settings.token}` }
-      : {};
-    fetch(`${settings.url}/api/system/status`, { headers })
-      .then((response) => {
-        if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
-        return response.json();
-      })
+    // Der Bildschirm zeigt Fehler selbst an - deshalb «still».
+    hub
+      .get<SystemStatus>('/api/system/status', { still: true })
       .then(setStatus)
-      .catch((err) => setError(String(err.message ?? err)));
+      .catch((err) => setError(err instanceof HubFehler ? err.message : String(err)));
     // Der Monatsvergleich und die Programmläufe sind hübsch, aber nicht
     // lebenswichtig – schlägt der Abruf fehl, bleibt die Karte einfach weg,
     // statt die ganze Seite mit einem Fehler zu belegen.
-    fetch(`${settings.url}/api/energy/months`, { headers })
-      .then((response) => (response.ok ? response.json() : null))
-      .then(setMonths)
-      .catch(() => setMonths(null));
-    fetch(`${settings.url}/api/energy/devices`, { headers })
-      .then((response) => (response.ok ? response.json() : null))
-      .then(setDevices)
-      .catch(() => setDevices(null));
-    fetch(`${settings.url}/api/appliances/cycles`, { headers })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data) => setCycles(data?.stats ?? []))
-      .catch(() => setCycles([]));
-  }, [settings.url, settings.token]);
+    hub
+      .get<Months | null>('/api/energy/months', { fallback: null, still: true })
+      .then(setMonths);
+    hub
+      .get<DeviceEnergy | null>('/api/energy/devices', { fallback: null, still: true })
+      .then(setDevices);
+    hub
+      .get<{ stats?: CycleStat[] } | null>('/api/appliances/cycles', {
+        fallback: null,
+        still: true,
+      })
+      .then((data) => setCycles(data?.stats ?? []));
+  }, [hub]);
 
   useEffect(load, [load]);
 
@@ -323,7 +323,6 @@ export function EnergyScreen({
                 {open && width > 0 ? (
                   <HistoryChart
                     entity={entity}
-                    settings={settings}
                     width={Math.max(120, width - 78)}
                   />
                 ) : null}
