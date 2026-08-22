@@ -37,6 +37,16 @@ ist Rings Wahl, nicht unsere. Wer Google im Heimnetz bewusst aussperrt,
 setzt ``events: false``: Dann übernimmt die 10-Sekunden-Abfrage von
 vornherein, ohne Warnung im System-Bildschirm und ohne vergebliche
 Anläufe alle halbe Stunde.
+
+Klemmt er, sagt das der System-Bildschirm - und seit push_diagnose()
+auch, *woran*: Der Hub prüft dann die drei Google-Adressen (siehe
+PUSH_ENDPOINTS) und schreibt mit, was die Push-Bibliothek unterwegs
+meldet. Aus «RuntimeError: Unable to establish subscription with Google
+Cloud Messaging» wird so entweder «mtalk.google.com:5228 nicht
+erreichbar - Firewall?» oder «Google lehnt die Anmeldung ab
+(PHONE_REGISTRATION_ERROR)». Von Hand nachsehen:
+
+    python -m homepilot.integrations.ring -c config.yaml --diagnose
 """
 
 from __future__ import annotations
@@ -143,6 +153,64 @@ def channel_alive(listener: Any) -> bool:
         return True
 
 
+# Die drei Adressen, über die Rings Ereigniskanal läuft. Sie gehören
+# Google, nicht Ring – wer sie im Netz sperrt (Gäste-VLAN, Pi-hole,
+# Firewall-Regel «kein Google»), sperrt damit die Türklingel aus, ohne
+# dass irgendwo «Türklingel» steht. Genau darum stehen sie hier
+# namentlich: Die Meldung soll sagen, welche fehlt.
+PUSH_ENDPOINTS: list[tuple[str, int, str]] = [
+    ("android.clients.google.com", 443, "Anmeldung (GCM-Checkin)"),
+    ("fcm.googleapis.com", 443, "Registrierung (FCM)"),
+    ("mtalk.google.com", 5228, "Dauerverbindung (MCS)"),
+]
+
+# So lange darf ein Erreichbarkeitstest dauern. Kurz: Es geht nicht um
+# eine Messung, sondern um «kommt überhaupt etwas durch».
+REACH_TIMEOUT = 4.0
+
+
+def push_diagnose(erreichbar: dict[str, bool], meldungen: list[str]) -> str:
+    """Aus Erreichbarkeit und Bibliotheks-Log einen brauchbaren Satz machen.
+
+    (rein, testbar)
+
+    «RuntimeError: Unable to establish subscription with Google Cloud
+    Messaging» ist wahr und hilft niemandem: Der Satz nennt weder, was
+    fehlgeschlagen ist, noch was man dagegen tun könnte. Der eigentliche
+    Grund steht im Log von firebase_messaging – oder er steht nirgends,
+    weil schon die Verbindung nicht zustande kam.
+
+    Die Reihenfolge ist Absicht: Erst das, was man selbst ändern kann
+    (ein gesperrter Weg im eigenen Netz), dann das, was man aussitzen
+    muss (Google lehnt ab).
+    """
+    fehlend = [
+        f"{host}:{port}"
+        for host, port, _zweck in PUSH_ENDPOINTS
+        if erreichbar.get(host) is False
+    ]
+    if fehlend:
+        return (
+            ", ".join(fehlend)
+            + " ist vom Hub aus gesperrt – Firewall, Pi-hole oder VLAN?"
+        )
+    text = " ".join(meldungen)
+    if "PHONE_REGISTRATION_ERROR" in text:
+        return (
+            "Google lehnt die Anmeldung ab (PHONE_REGISTRATION_ERROR) – "
+            "das ist Googles Seite, der Hub versucht es weiter"
+        )
+    if "AUTHENTICATION_FAILED" in text or "401" in text:
+        return "Google weist die Anmeldung zurück (Authentifizierung)"
+    if "TOO_MANY_REGISTRATIONS" in text or "429" in text:
+        return "zu viele Anmeldungen in kurzer Zeit – später wieder"
+    for zeile in reversed(meldungen):
+        sauber = zeile.strip()
+        if sauber:
+            return sauber
+    return "Grund unbekannt – alle Google-Adressen sind erreichbar"
+
+
 def health_detail(events_ok: bool, error: str | None, abgeschaltet: bool = False) -> str:
     """Was im System-Bildschirm über den Ereigniskanal steht (rein, testbar)."""
     if abgeschaltet:
@@ -153,9 +221,15 @@ def health_detail(events_ok: bool, error: str | None, abgeschaltet: bool = False
         )
     if events_ok:
         return "Ereigniskanal verbunden – Klingeln kommt sofort an"
-    grund = f" ({error})" if error else ""
+    # Der Grund als eigener Satz, nicht in Klammern: Er enthält oft
+    # selbst welche, und «(RuntimeError: … (MCS))» liest niemand.
+    grund = ""
+    if error:
+        # Kein zweiter Punkt hinter einem Fragezeichen.
+        schluss = "" if error.rstrip().endswith((".", "!", "?")) else "."
+        grund = f"{error.rstrip()}{schluss} "
     return (
-        f"Ereigniskanal nicht verbunden{grund} – Klingeln wird ersatzweise "
+        f"Ereigniskanal nicht verbunden. {grund}Klingeln wird ersatzweise "
         f"alle {DING_POLL_SECONDS} s abgefragt"
     )
 
@@ -197,6 +271,54 @@ def event_fields(kind: str, now: float) -> dict[str, Any]:
     if kind == "motion":
         return {"last_motion": stamp, "motion": "on"}
     return {}
+
+
+class _LogMitschnitt:
+    """Fängt für die Dauer eines Anlaufs mit, was eine fremde Bibliothek meldet.
+
+    Die Push-Bibliothek protokolliert den echten Grund – «GCM register
+    request attempt 2 out of 2 has failed with Error=PHONE_REGISTRATION_
+    ERROR» – und wirft danach eine Ausnahme, in der davon nichts mehr
+    steht. Ohne diesen Mitschnitt landet im System-Bildschirm ein
+    RuntimeError ohne Aussage, und man sucht die Ursache im falschen
+    Haus.
+
+    Bewusst nur während des Anlaufs und mit Obergrenze: ein Horchposten,
+    kein zweites Log.
+    """
+
+    LIMIT = 8
+
+    def __init__(self, logger_name: str) -> None:
+        self._name = logger_name
+        self.zeilen: list[str] = []
+        self._handler: Any = None
+
+    def __enter__(self) -> _LogMitschnitt:
+        import logging
+
+        sammler = self
+
+        class _Handler(logging.Handler):
+            def emit(self, record: logging.LogRecord) -> None:
+                if len(sammler.zeilen) >= _LogMitschnitt.LIMIT:
+                    return
+                try:
+                    sammler.zeilen.append(record.getMessage())
+                except Exception:
+                    pass
+
+        self._handler = _Handler(level=logging.WARNING)
+        logger = logging.getLogger(self._name)
+        logger.addHandler(self._handler)
+        return self
+
+    def __exit__(self, *_ausnahme: Any) -> None:
+        import logging
+
+        if self._handler is not None:
+            logging.getLogger(self._name).removeHandler(self._handler)
+            self._handler = None
 
 
 class RingIntegration(Integration):
@@ -428,9 +550,47 @@ class RingIntegration(Integration):
         except Exception:
             pass
 
+    async def _reachable(self) -> dict[str, bool]:
+        """Kommt der Hub überhaupt an Googles Push-Adressen? (nur bei Fehlschlag)
+
+        Ein reiner TCP-Verbindungsversuch, kein Handschlag: Es geht um
+        «ist der Weg offen», nicht um «funktioniert der Dienst».
+        """
+        ergebnis: dict[str, bool] = {}
+        for host, port, _zweck in PUSH_ENDPOINTS:
+            try:
+                verbindung = asyncio.open_connection(host, port)
+                reader, writer = await asyncio.wait_for(verbindung, REACH_TIMEOUT)
+                del reader
+                writer.close()
+                try:
+                    await writer.wait_closed()
+                except Exception:
+                    pass
+                ergebnis[host] = True
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                ergebnis[host] = False
+        return ergebnis
+
     async def _try_listen(self, on_event: Any, credentials: Any) -> bool:
         """Ereigniskanal mit gegebener Credential starten; True bei Erfolg."""
         listener = None
+        # Was die Push-Bibliothek unterwegs meldet, mitschreiben: Der
+        # eigentliche Grund («GCM register … PHONE_REGISTRATION_ERROR»)
+        # steht in ihrem Log, nicht in der Ausnahme, die bei uns ankommt.
+        mitschnitt = _LogMitschnitt("firebase_messaging")
+        with mitschnitt:
+            erfolg = await self._listen_once(on_event, credentials, listener)
+        if not erfolg and self._listen_error:
+            # Erst jetzt nachsehen, ob der Weg überhaupt offen ist – bei
+            # jedem Start wäre das drei Verbindungen für nichts.
+            erreichbar = await self._reachable()
+            self._listen_error = push_diagnose(erreichbar, mitschnitt.zeilen)
+        return erfolg
+
+    async def _listen_once(self, on_event: Any, credentials: Any, listener: Any) -> bool:
         try:
             from ring_doorbell import RingEventListener
 
@@ -606,11 +766,98 @@ async def _login_main(config_path: str) -> int:
     return 0
 
 
+async def _diagnose_main(config_path: str) -> int:
+    """Warum kommt der Ereigniskanal nicht zustande?
+
+    Aufruf:  python -m homepilot.integrations.ring -c config.yaml --diagnose
+
+    Der System-Bildschirm sagt, *dass* es klemmt; hier steht, *woran*.
+    Zwei Teile: Kommt der Rechner an Googles Adressen heran, und was
+    antwortet Google auf einen echten Anmeldeversuch.
+    """
+    import logging
+
+    from ..core.config import load_config
+
+    logging.basicConfig(level=logging.WARNING, format="  %(name)s: %(message)s")
+
+    print("Erreichbarkeit der Push-Adressen (Google, nicht Ring):")
+    erreichbar: dict[str, bool] = {}
+    for host, port, zweck in PUSH_ENDPOINTS:
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, port), REACH_TIMEOUT
+            )
+            del reader
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+            erreichbar[host] = True
+            print(f"  ✓ {host}:{port} – {zweck}")
+        except Exception as err:
+            erreichbar[host] = False
+            print(f"  ✗ {host}:{port} – {zweck} ({err.__class__.__name__})")
+
+    config = load_config(config_path)
+    blocks = [b for b in config.integrations if b.get("integration") == "ring"]
+    token_file = tokenstore.token_file(
+        config.data_file, blocks[0] if blocks else None, "ring"
+    )
+    stored = tokenstore.load(token_file)
+    if stored is None:
+        print(f"\nKein Token in {token_file} – zuerst anmelden (ohne --diagnose).")
+        return 1
+
+    print("\nAnmeldeversuch beim Push-Dienst …")
+    mitschnitt = _LogMitschnitt("firebase_messaging")
+    fehler: str | None = None
+    with mitschnitt:
+        try:
+            from ring_doorbell import Auth, Ring, RingEventListener
+
+            auth = Auth(USER_AGENT, token=stored.get("token"))
+            ring = Ring(auth)
+            await ring.async_create_session()
+            await ring.async_update_devices()
+            listener = RingEventListener(ring, credentials=stored.get("listener"))
+            gestartet = await listener.start()
+            if gestartet:
+                print("  ✓ Ereigniskanal steht – Klingeln kommt sofort an.")
+                await listener.stop()
+            else:
+                fehler = "Anmeldung beim Push-Dienst abgelehnt"
+            await auth.async_close()
+        except Exception as err:
+            fehler = f"{err.__class__.__name__}: {err}"
+
+    for zeile in mitschnitt.zeilen:
+        print(f"  … {zeile}")
+    if fehler is None:
+        return 0
+    print(f"\n✗ {fehler}")
+    print(f"→ {push_diagnose(erreichbar, mitschnitt.zeilen)}")
+    print(
+        "\nWer den Weg über Google gar nicht will: 'events: false' in den "
+        f"ring-Block der config.yaml. Dann fragt der Hub alle {DING_POLL_SECONDS} s "
+        "selbst nach – ohne Warnung im System-Bildschirm."
+    )
+    return 1
+
+
 if __name__ == "__main__":
     import argparse
     import sys
 
     parser = argparse.ArgumentParser(description="Ring-Anmeldung für HomePilot")
     parser.add_argument("-c", "--config", required=True, help="Pfad zur config.yaml des Hubs")
+    parser.add_argument(
+        "--diagnose",
+        action="store_true",
+        help="Nicht anmelden, sondern prüfen, warum der Ereigniskanal fehlt",
+    )
     args = parser.parse_args()
+    if args.diagnose:
+        sys.exit(asyncio.run(_diagnose_main(args.config)))
     sys.exit(asyncio.run(_login_main(args.config)))

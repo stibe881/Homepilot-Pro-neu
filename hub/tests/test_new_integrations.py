@@ -1525,3 +1525,80 @@ def test_calendar_events_carry_their_id_and_origin():
     assert event["id"] == "abc123"
     assert event["calendar"] == "primary"
     assert event["location"] == "Schulhaus Zell"
+
+
+# ── Ring: warum der Ereigniskanal klemmt (Diagnose) ──────────────────────
+
+
+def test_ring_diagnose_names_the_blocked_address_first():
+    """Erst das, was man selbst ändern kann."""
+    from homepilot.integrations.ring import push_diagnose
+
+    text = push_diagnose(
+        {
+            "android.clients.google.com": True,
+            "fcm.googleapis.com": True,
+            "mtalk.google.com": False,
+        },
+        ["GCM register request attempt 2 out of 2 has failed with Error=PHONE_REGISTRATION_ERROR"],
+    )
+    assert "mtalk.google.com:5228" in text
+    assert "Firewall" in text
+
+
+def test_ring_diagnose_reads_the_library_log_when_the_way_is_open():
+    from homepilot.integrations.ring import push_diagnose
+
+    offen = {
+        "android.clients.google.com": True,
+        "fcm.googleapis.com": True,
+        "mtalk.google.com": True,
+    }
+    text = push_diagnose(
+        offen,
+        ["GCM register request attempt 2 out of 2 has failed with Error=PHONE_REGISTRATION_ERROR"],
+    )
+    assert "PHONE_REGISTRATION_ERROR" in text
+    assert "Googles Seite" in text
+
+
+def test_ring_diagnose_falls_back_to_the_last_line():
+    from homepilot.integrations.ring import push_diagnose
+
+    offen = {host: True for host, _p, _z in __import__(
+        "homepilot.integrations.ring", fromlist=["PUSH_ENDPOINTS"]
+    ).PUSH_ENDPOINTS}
+    assert push_diagnose(offen, ["irgendwas ging schief"]) == "irgendwas ging schief"
+    # Und wenn gar nichts kam, ist auch das eine Auskunft.
+    assert "Grund unbekannt" in push_diagnose(offen, [])
+
+
+def test_ring_log_capture_only_listens_while_it_should():
+    """Der Horchposten darf nicht liegen bleiben."""
+    import logging
+
+    from homepilot.integrations.ring import _LogMitschnitt
+
+    logger = logging.getLogger("firebase_messaging")
+    vorher = len(logger.handlers)
+    mitschnitt = _LogMitschnitt("firebase_messaging")
+    with mitschnitt:
+        logger.warning("GCM checkin failed on attempt 1 out of 2")
+        logger.info("das interessiert nicht")
+    assert mitschnitt.zeilen == ["GCM checkin failed on attempt 1 out of 2"]
+    assert len(logger.handlers) == vorher
+    # Nach dem Ende schweigt er.
+    logger.warning("danach")
+    assert len(mitschnitt.zeilen) == 1
+
+
+def test_ring_log_capture_has_a_ceiling():
+    import logging
+
+    from homepilot.integrations.ring import _LogMitschnitt
+
+    logger = logging.getLogger("firebase_messaging")
+    with _LogMitschnitt("firebase_messaging") as mitschnitt:
+        for nummer in range(50):
+            logger.warning("Zeile %s", nummer)
+    assert len(mitschnitt.zeilen) == _LogMitschnitt.LIMIT
