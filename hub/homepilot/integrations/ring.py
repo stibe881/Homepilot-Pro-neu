@@ -559,19 +559,30 @@ class RingIntegration(Integration):
 
     async def _start_listener(self, on_event: Any) -> bool:
         """Ein Anlauf, notfalls mit frischer Credential; True bei Erfolg."""
-        # Erster Versuch mit der gespeicherten Credential. Ist sie beschädigt
-        # (z.B. 'Incorrect padding' aus firebase_messaging beim Dekodieren
-        # eines alten Eintrags), verwerfen und einmal frisch registrieren.
-        if await self._try_listen(on_event, self._stored.get("listener")):
-            return True
-        if self._stored.get("listener") is not None:
-            self.log.warning(
-                "Ring-Push-Credential unbrauchbar – wird verworfen und neu registriert"
-            )
-            self._stored.pop("listener", None)
-            self._save("listener", None)
-            if await self._try_listen(on_event, None):
-                return True
+        # Was die Push-Bibliothek unterwegs meldet, mitschreiben: Der
+        # eigentliche Grund («GCM register … PHONE_REGISTRATION_ERROR»)
+        # steht in ihrem Log, nicht in der Ausnahme, die bei uns ankommt.
+        mitschnitt = _LogMitschnitt("firebase_messaging")
+        with mitschnitt:
+            # Erster Versuch mit der gespeicherten Credential. Ist sie
+            # beschädigt (z.B. 'Incorrect padding' aus firebase_messaging
+            # beim Dekodieren eines alten Eintrags), verwerfen und einmal
+            # frisch registrieren.
+            erfolg = await self._try_listen(on_event, self._stored.get("listener"))
+            if not erfolg and self._stored.get("listener") is not None:
+                self.log.warning(
+                    "Ring-Push-Credential unbrauchbar – wird verworfen und neu registriert"
+                )
+                self._stored.pop("listener", None)
+                self._save("listener", None)
+                erfolg = await self._try_listen(on_event, None)
+        if erfolg or not self._listen_error:
+            return erfolg
+        # Erst jetzt nachsehen, ob der Weg überhaupt offen ist – und
+        # einmal je Runde, nicht je Anlauf: Sonst sind es sechs
+        # Verbindungen für dieselbe Auskunft.
+        erreichbar = await self._reachable()
+        self._listen_error = push_diagnose(erreichbar, mitschnitt.zeilen)
         return False
 
     async def _stop_listener(self) -> None:
@@ -610,20 +621,6 @@ class RingIntegration(Integration):
     async def _try_listen(self, on_event: Any, credentials: Any) -> bool:
         """Ereigniskanal mit gegebener Credential starten; True bei Erfolg."""
         listener = None
-        # Was die Push-Bibliothek unterwegs meldet, mitschreiben: Der
-        # eigentliche Grund («GCM register … PHONE_REGISTRATION_ERROR»)
-        # steht in ihrem Log, nicht in der Ausnahme, die bei uns ankommt.
-        mitschnitt = _LogMitschnitt("firebase_messaging")
-        with mitschnitt:
-            erfolg = await self._listen_once(on_event, credentials, listener)
-        if not erfolg and self._listen_error:
-            # Erst jetzt nachsehen, ob der Weg überhaupt offen ist – bei
-            # jedem Start wäre das drei Verbindungen für nichts.
-            erreichbar = await self._reachable()
-            self._listen_error = push_diagnose(erreichbar, mitschnitt.zeilen)
-        return erfolg
-
-    async def _listen_once(self, on_event: Any, credentials: Any, listener: Any) -> bool:
         try:
             from ring_doorbell import RingEventListener
 
