@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
-import React, { useMemo, useState } from 'react';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Image,
   Linking,
@@ -35,12 +36,16 @@ interface Props {
   onAdd: (recipe: Record<string, any>) => void;
   onUpdate: (id: string, patch: Record<string, any>) => void;
   onDelete: (id: string) => void;
-  planMeal: (day: string, text: string) => void;
-  /** Zutaten dieses Rezepts auf die Einkaufsliste. Meldet zurück, wie
-   *  viele Posten wirklich dazugekommen sind - schon Vorhandenes zählt
-   *  nicht mit, und «0 hinzugefügt» ist eine ehrlichere Antwort als ein
-   *  wortloses Häkchen. */
-  onShopping: (recipe: any) => number;
+  /** Mit der Rezept-Kennung, nicht nur dem Namen: Zwei Rezepte
+   *  «Lasagne» – oder eines, das später umbenannt wird – und der
+   *  Wocheneinkauf fände die Zutaten sonst nicht mehr. */
+  planMeal: (day: string, text: string, recipeId: string) => void;
+  /** Zutaten dieses Rezepts auf die Einkaufsliste – mit dem Faktor der
+   *  eingestellten Portionen. Meldet zurück, wie viele Posten wirklich
+   *  dazugekommen sind - schon Vorhandenes zählt nicht mit, und «0
+   *  hinzugefügt» ist eine ehrlichere Antwort als ein wortloses
+   *  Häkchen. */
+  onShopping: (recipe: any, faktor: number) => number;
   onClose: () => void;
 }
 
@@ -485,6 +490,8 @@ function RecipeForm({
 }
 
 /** Geführter Kochmodus: erst Mise en Place, dann ein Schritt pro Seite. */
+const KOCH_TAG = 'homepilot-kochen';
+
 function CookMode({
   recipe,
   factor,
@@ -500,6 +507,15 @@ function CookMode({
 }) {
   // -1 = Mise en Place, 0..n-1 = Schritte.
   const [step, setStep] = useState(-1);
+  // Beim Kochen bleibt der Bildschirm an: Man hat Teig an den Händen und
+  // kann ihn nicht antippen – genau der eine Ort, an dem das Einschlafen
+  // nachweislich stört. Derselbe Mechanismus wie im Wandpanel-Modus.
+  useEffect(() => {
+    activateKeepAwakeAsync(KOCH_TAG).catch(() => {});
+    return () => {
+      deactivateKeepAwake(KOCH_TAG).catch(() => {});
+    };
+  }, []);
   const steps = stepTexts(recipe);
   const ingredients: any[] = Array.isArray(recipe.ingredients) ? recipe.ingredients : [];
 
@@ -606,8 +622,8 @@ function RecipeDetail({
   onEdit: () => void;
   onDelete: () => void;
   onToggleFavorite: () => void;
-  planMeal: (day: string, text: string) => void;
-  onShopping: (recipe: any) => number;
+  planMeal: (day: string, text: string, recipeId: string) => void;
+  onShopping: (recipe: any, faktor: number) => number;
   styles: Styles;
   colors: Colors;
 }) {
@@ -849,7 +865,7 @@ function RecipeDetail({
         </Pressable>
         {ingredients.length > 0 ? (
           <Pressable
-            onPress={() => setEingekauft(onShopping(recipe))}
+            onPress={() => setEingekauft(onShopping(recipe, factor))}
             accessibilityRole="button"
             accessibilityLabel="Zutaten auf die Einkaufsliste"
             style={[styles.actionButton, { backgroundColor: colors.warn }]}
@@ -883,7 +899,7 @@ function RecipeDetail({
               <Pressable
                 key={day}
                 onPress={() => {
-                  planMeal(day, recipe.text);
+                  planMeal(day, recipe.text, String(recipe.id));
                   setPlanned(day.slice(0, 2));
                   setPlanOpen(false);
                 }}

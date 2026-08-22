@@ -426,3 +426,44 @@ async def test_water_is_reported_immediately_no_matter_the_alarm_state():
         assert len(sent) > before
     finally:
         await hub.stop()
+
+
+def test_open_contacts_counts_the_door_sensor_in_a_lock():
+    """Der Riegel sagt nichts darüber, ob die Türe offen *steht*."""
+    from homepilot.core.watchdog import open_contacts
+
+    schloss = type(
+        "E",
+        (),
+        {
+            "id": "nuki.haustuer",
+            "name": "Haustüre",
+            "kind": "lock",
+            "integration": "nuki",
+            "available": True,
+            "state": {"state": "locked", "door": "open"},
+        },
+    )()
+    assert [entity.id for entity in open_contacts([schloss])] == ["nuki.haustuer"]
+    schloss.state = {"state": "unlocked", "door": "closed"}
+    # Aufgeschlossen, aber zu: nicht offen. Genau diesen Fall zählte das
+    # Widget vorher falsch herum.
+    assert open_contacts([schloss]) == []
+
+
+def test_open_contacts_falls_back_to_the_name():
+    """Ohne device_class entscheidet der Name – wie in der App."""
+    from homepilot.core.watchdog import open_contacts
+
+    fenster = melder("matter.kueche", "")
+    fenster.name = "Fenster Küche"
+    assert [entity.id for entity in open_contacts([fenster])] == ["matter.kueche"]
+
+
+def test_open_contacts_ignores_unreachable_sensors():
+    """Ein Kontakt, der nicht mehr meldet, weiss nicht, ob offen ist."""
+    from homepilot.core.watchdog import open_contacts
+
+    fenster = melder("hm.fenster", "contact")
+    fenster.available = False
+    assert open_contacts([fenster]) == []

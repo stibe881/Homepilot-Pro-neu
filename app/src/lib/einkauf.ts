@@ -116,11 +116,18 @@ export interface ShoppingDraft {
   category: string;
 }
 
-/** Wie eine Zutat auf der Liste heisst: «250 ml Ketchup» (rein). */
-export function ingredientLabel(ingredient: any): string {
+/** Wie eine Zutat auf der Liste heisst: «250 ml Ketchup» (rein).
+ *
+ * `faktor` rechnet die Menge auf die gewählte Portionenzahl um – auf eine
+ * Nachkommastelle gerundet, weil «666,6667 g Mehl» niemandem hilft. */
+export function ingredientLabel(ingredient: any, faktor = 1): string {
   const name = String(ingredient?.name ?? '').trim();
   if (!name) return '';
-  const amount = ingredient?.amount;
+  const roh = ingredient?.amount;
+  const amount =
+    typeof roh === 'number' && Number.isFinite(roh)
+      ? Math.round(roh * faktor * 10) / 10
+      : roh;
   const unit = String(ingredient?.unit ?? '').trim();
   const menge = [
     typeof amount === 'number' && Number.isFinite(amount)
@@ -195,7 +202,8 @@ export function findeArtikel<T extends { text?: unknown }>(
  */
 export function ingredientsToShopping(
   recipes: any[],
-  vorhanden: string[] = []
+  vorhanden: string[] = [],
+  faktor = 1
 ): ShoppingDraft[] {
   const gesehen = new Set(
     vorhanden.map((text) => String(text ?? '').trim().toLowerCase())
@@ -213,7 +221,7 @@ export function ingredientsToShopping(
       gesehen.add(key);
       // Auch der volle Text zählt als gesehen, damit ein bereits auf der
       // Liste stehendes «250 ml Ketchup» kein zweites «Ketchup» erzeugt.
-      const text = ingredientLabel(ingredient);
+      const text = ingredientLabel(ingredient, faktor);
       gesehen.add(text.toLowerCase());
       result.push({ text, category: shopCategory(name) });
     }

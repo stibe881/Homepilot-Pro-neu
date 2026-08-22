@@ -195,3 +195,32 @@ describe('mitMenge', () => {
     expect(mitMenge('Milch', 1)).toBe('Milch');
   });
 });
+
+describe('ingredientsToShopping mit Portionen-Faktor', () => {
+  const rezept = {
+    ingredients: [
+      { name: 'Mehl', amount: 250, unit: 'g' },
+      { name: 'Salz' },
+    ],
+  };
+
+  it('rechnet die Mengen auf die gewählten Portionen um', () => {
+    const liste = ingredientsToShopping([rezept], [], 2);
+    expect(liste[0].text).toBe('500 g Mehl');
+    // Ohne Menge bleibt der Name der Name – «2× Salz» wäre Unsinn.
+    expect(liste[1].text).toBe('Salz');
+  });
+
+  it('rundet auf eine Nachkommastelle – niemand wiegt 666,6667 g', () => {
+    const drittel = ingredientsToShopping(
+      [{ ingredients: [{ name: 'Mehl', amount: 500, unit: 'g' }] }],
+      [],
+      4 / 3
+    );
+    expect(drittel[0].text).toBe('666,7 g Mehl');
+  });
+
+  it('ohne Faktor bleibt alles wie es war', () => {
+    expect(ingredientsToShopping([rezept])[0].text).toBe('250 g Mehl');
+  });
+});

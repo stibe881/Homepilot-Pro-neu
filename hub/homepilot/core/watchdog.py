@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import shutil
 import time
 from datetime import datetime
@@ -157,19 +158,49 @@ def cycle_stats(cycles: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(result, key=lambda entry: entry["name"])
 
 
+# Wo die Integration keine Geräteklasse liefert, entscheidet der Name –
+# dieselbe Regel wie in der App (components/OpenDoors.tsx). Die beiden
+# Fassungen müssen dasselbe zählen: Das Widget hat «Alles zu» behauptet,
+# während die App das offene Küchenfenster zeigte, weil der Hub hier nur
+# Schlösser zählte.
+OPENING_NAME = re.compile(
+    r"t(ü|ue)r|door|fenster|window|balkon|terrasse|garage|tor\b", re.IGNORECASE
+)
+
+
 def open_contacts(entities: list[Any]) -> list[Any]:
     """Fenster und Türen, die gerade offen stehen (rein, testbar).
 
-    Nur Kontakte: Ein Bewegungsmelder, der lange «on» meldet, heizt nicht
-    zum Fenster hinaus. Die Zuordnung kommt aus ``device_class`` – ohne sie
-    ist ein Melder für den Hub bloss ein Ja/Nein.
+    Die eine Fassung für Wächter, Glance (Widget) und Hausblatt – das
+    Gegenstück zu ``openContacts`` in der App, mit denselben Regeln:
+
+    - Nur Kontakte: Ein Bewegungsmelder, der lange «on» meldet, heizt
+      nicht zum Fenster hinaus.
+    - Ein Schloss mit Türsensor zählt mit: Der Riegel sagt nichts
+      darüber, ob die Türe offen *steht* (``door: open``).
+    - Ohne ``device_class`` entscheidet der Name – besser als einen
+      Kontakt zu übergehen, dessen Integration die Klasse nicht meldet.
+    - Nicht erreichbare Geräte zählen nicht: Ihr letzter Stand kann
+      Stunden alt sein, und «Fenster offen» ist eine Behauptung, die
+      stimmen muss.
     """
-    return [
-        entity
-        for entity in entities
-        if str(entity.state.get("device_class") or "") in OPEN_CLASSES
-        and str(entity.state.get("state")) == "on"
-    ]
+    result = []
+    for entity in entities:
+        if not getattr(entity, "available", True):
+            continue
+        if entity.kind == "lock":
+            if str(entity.state.get("door") or "") == "open":
+                result.append(entity)
+            continue
+        if entity.kind != "binary_sensor":
+            continue
+        klasse = str(entity.state.get("device_class") or "")
+        is_contact = (
+            klasse in OPEN_CLASSES if klasse else bool(OPENING_NAME.search(entity.name))
+        )
+        if is_contact and str(entity.state.get("state")) == "on":
+            result.append(entity)
+    return result
 
 
 def leaks(entities: list[Any]) -> list[Any]:

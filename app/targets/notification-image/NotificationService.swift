@@ -1,4 +1,5 @@
 import UserNotifications
+import WidgetKit
 
 /// Hängt das Kamerabild an eine eintreffende Push-Nachricht.
 ///
@@ -25,6 +26,11 @@ class NotificationService: UNNotificationServiceExtension {
     withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void
   ) {
     self.contentHandler = contentHandler
+    // Der Push ist der Moment, in dem sich am Haus etwas geändert hat -
+    // Klingel, Alarm, Wasser. Das Widget würde davon sonst erst bei der
+    // nächsten Viertelstunde erfahren; dieser eine Aufruf macht daraus
+    // ein «jetzt», ohne einen einzigen zusätzlichen Abruf.
+    WidgetCenter.shared.reloadAllTimelines()
     let mutable = request.content.mutableCopy() as? UNMutableNotificationContent
     self.content = mutable
 

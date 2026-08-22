@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Entity } from '../api/types';
@@ -43,16 +43,32 @@ export function AllOff({
   entities,
   locked = [],
   onCommand,
+  openSignal = 0,
+  compact = false,
 }: {
   entities: Entity[];
   /** Gesperrte Geräte – die tauchen hier gar nicht auf. */
   locked?: string[];
   onCommand: (entityId: string, command: string) => void;
+  /** Zählt hoch, wenn jemand von aussen öffnen will – der Widget-Knopf
+   *  «Alles aus» landet hier, statt nur die App zu öffnen und dann
+   *  nichts zu tun. Die Rückfrage bleibt: Auch vom Sperrbildschirm aus
+   *  soll niemand ungefragt die Waschmaschine erwischen. */
+  openSignal?: number;
+  /** Als kleiner Chip statt als voller Knopf – für die Zeile neben den
+   *  Raum-Reitern. */
+  compact?: boolean;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [open, setOpen] = useState(false);
   const [skip, setSkip] = useState<string[]>([]);
+  useEffect(() => {
+    if (openSignal > 0) start();
+    // start hängt an on/skip und ändert sich jede Runde – hier zählt nur
+    // das Signal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openSignal]);
 
   const on = switchableOn(entities, locked);
 
@@ -75,10 +91,15 @@ export function AllOff({
       <Pressable
         onPress={start}
         accessibilityRole="button"
-        style={({ pressed }) => [styles.button, pressed && { opacity: 0.8 }]}
+        style={({ pressed }) => [
+          compact ? styles.chip : styles.button,
+          pressed && { opacity: 0.8 },
+        ]}
       >
-        <Ionicons name="power-outline" size={18} color={colors.ink} />
-        <Text style={styles.buttonText}>Alles aus ({on.length})</Text>
+        <Ionicons name="power-outline" size={compact ? 15 : 18} color={colors.ink} />
+        <Text style={compact ? styles.chipText : styles.buttonText}>
+          Alles aus ({on.length})
+        </Text>
       </Pressable>
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
@@ -153,6 +174,18 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     buttonText: { color: colors.ink, fontSize: 14, fontWeight: '700' },
+    chip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    chipText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
     backdrop: {
       flex: 1,
       backgroundColor: 'rgba(0,0,0,0.5)',

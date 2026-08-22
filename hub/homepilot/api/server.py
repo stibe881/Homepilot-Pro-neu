@@ -3256,12 +3256,12 @@ def create_app(hub: Hub) -> FastAPI:
         current_user(request)
         entities = hub.registry.all()
 
-        offen = [
-            entity
-            for entity in entities
-            if entity.kind == "lock"
-            and str(entity.state.get("state")) in ("unlocked", "unlatched")
-        ]
+        # Dieselbe Zählung wie in der App (open_contacts): Kontakte samt
+        # Türsensor im Schloss. Vorher zählte das Widget nur Schlösser –
+        # und behauptete «Alles zu», während das Küchenfenster offen
+        # stand. Eine Anzeige, die man im Vorbeigehen liest und nicht
+        # nachprüft, muss stimmen oder schweigen.
+        offen = watchdog.open_contacts(entities)
         lichter = [
             entity
             for entity in entities

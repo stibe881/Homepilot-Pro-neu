@@ -8,6 +8,7 @@ import { PushRules } from '../components/PushRules';
 import { Fehlschlag, Laedt } from '../components/Zustand';
 import { Colors, radius, space, type, useColors } from '../theme';
 import { deviceKindIcon, deviceKindLabel } from '../lib/geraeteart';
+import { SceneActionDraft, sceneActionsToDraft, snapshotAction } from '../lib/szenen';
 
 interface Automation {
   id: string;
@@ -336,6 +337,8 @@ interface StepDraft {
     command: string;
     rooms?: number[];
     position?: number;
+    brightness?: number;
+    color?: string;
   }[];
   sceneId: string;
   /** Name einer auf der Hue-Bridge gespeicherten Szene. */
@@ -1112,14 +1115,22 @@ export function AutomationsScreen({
       category: sceneDraft.category?.trim() || null,
       actions: sceneDraft.actions
         .filter((action) => action.entity_id)
-        .map(({ entity_id, command, rooms, position }) => {
+        // flatMap, weil aus einem Eintrag zwei Aktionen werden können:
+        // Helligkeit und Farbe sind zwei Befehle an dasselbe Licht.
+        .flatMap(({ entity_id, command, rooms, position, brightness, color }) => {
           if (command === 'clean_rooms') {
-            return { entity_id, command, data: { rooms: rooms ?? [] } };
+            return [{ entity_id, command, data: { rooms: rooms ?? [] } }];
           }
           if (command === 'set_position') {
-            return { entity_id, command, data: { position: position ?? 50 } };
+            return [{ entity_id, command, data: { position: position ?? 50 } }];
           }
-          return { entity_id, command };
+          if (command === 'set_brightness') {
+            return [
+              { entity_id, command, data: { brightness: brightness ?? 50 } },
+              ...(color ? [{ entity_id, command: 'set_color', data: { color } }] : []),
+            ];
+          }
+          return [{ entity_id, command }];
         }),
     };
     const url = sceneDraft.id
@@ -1461,11 +1472,7 @@ export function AutomationsScreen({
                           onStart: !!scene.on_start,
                           transition: Number(scene.transition) || 0,
                           category: scene.category ?? undefined,
-                          actions: (scene.actions ?? []).map((action) => ({
-                            entity_id: action.entity_id,
-                            command: action.command,
-                            rooms: action.data?.rooms,
-                          })),
+                          actions: sceneActionsToDraft(scene.actions ?? []),
                         })
                       }
                       accessibilityLabel={`${scene.name} bearbeiten`}
@@ -1743,13 +1750,7 @@ interface SceneDraft {
   onStart?: boolean;
   /** Übergangszeit in Sekunden – Helligkeiten werden angefahren. */
   transition?: number;
-  actions: {
-    entity_id: string;
-    command: string;
-    rooms?: number[];
-    /** Zielposition in Prozent, wenn das Kommando 'set_position' ist. */
-    position?: number;
-  }[];
+  actions: SceneActionDraft[];
   /** Frei benannte Kategorie zum Gruppieren in der Liste. */
   category?: string;
 }
@@ -1772,6 +1773,11 @@ function isSceneDevice(entity: Entity): boolean {
     entity.kind === 'cover' ||
     entity.kind === 'lock' ||
     entity.kind === 'media_player' ||
+    // Die Alarmanlage kann arm_night/arm_away/arm_vacation/disarm – sie
+    // fiel hier nur durchs Sieb, weil sie kein turn_on hat. Damit ging
+    // «beim Weggehen scharf» ausgerechnet nicht in der App, obwohl der
+    // Gute-Nacht-Knopf es längst vormacht.
+    entity.kind === 'alarm' ||
     entity.commands.includes('clean_rooms') ||
     entity.commands.includes('start')
   );
@@ -1831,27 +1837,26 @@ function baseCommandOptions(entity: Entity): { key: string; label: string }[] {
       { key: 'pause', label: 'Musik aus' },
     ];
   }
-  return [
+  if (entity.kind === 'alarm') {
+    // Dieselben Namen wie auf dem Alarm-Bildschirm – «scharf (Nacht)»
+    // statt arm_night, damit niemand raten muss, was ein Modus tut.
+    return [
+      { key: 'arm_night', label: 'scharf (Nacht)' },
+      { key: 'arm_away', label: 'scharf (Ausser Haus)' },
+      { key: 'arm_vacation', label: 'scharf (Urlaub)' },
+      { key: 'disarm', label: 'unscharf' },
+    ];
+  }
+  const options = [
     { key: 'turn_on', label: 'ein' },
     { key: 'turn_off', label: 'aus' },
   ];
-}
-
-/** Das Kommando, das den aktuellen Zustand eines Geräts festhält (rein,
- *  testbar) – Grundlage für «Aktuellen Zustand übernehmen». */
-function snapshotCommand(entity: Entity): string {
-  const state = entity.state.state;
-  if (entity.kind === 'cover') {
-    const position = entity.state.position;
-    if (typeof position === 'number') return position <= 5 ? 'close' : 'open';
-    return state === 'closed' ? 'close' : 'open';
+  // «ein mit Helligkeit» nur, wo das Gerät wirklich dimmen kann – ein
+  // Schalter mit Helligkeitsregler wäre ein Knopf, der nichts tut.
+  if (entity.commands.includes('set_brightness')) {
+    options.splice(1, 0, { key: 'set_brightness', label: 'ein, gedimmt' });
   }
-  if (entity.kind === 'lock') return state === 'locked' ? 'lock' : 'unlock';
-  if (entity.kind === 'vacuum') return state === 'cleaning' ? 'start' : 'dock';
-  // «Aus laufender Musik»: spielt gerade etwas, nimmt die Szene das Abspielen
-  // auf – aktiviert man sie später, läuft die Musik weiter.
-  if (entity.kind === 'media_player') return state === 'playing' ? 'play' : 'pause';
-  return state === 'on' ? 'turn_on' : 'turn_off';
+  return options;
 }
 
 /** Geräte-Checkliste statt Zeilen mit Dropdown: antippen nimmt ein Gerät in
@@ -1916,10 +1921,7 @@ function SceneDevices({
     if (byId.has(entity.id)) {
       onActions(actions.filter((action) => action.entity_id !== entity.id));
     } else {
-      onActions([
-        ...actions,
-        { entity_id: entity.id, command: snapshotCommand(entity), rooms: [] },
-      ]);
+      onActions([...actions, snapshotAction(entity)]);
     }
   };
 
@@ -1934,6 +1936,13 @@ function SceneDevices({
     onActions(
       actions.map((action) =>
         action.entity_id === entityId ? { ...action, position } : action
+      )
+    );
+
+  const setBrightness = (entityId: string, brightness: number) =>
+    onActions(
+      actions.map((action) =>
+        action.entity_id === entityId ? { ...action, brightness } : action
       )
     );
 
@@ -1952,11 +1961,14 @@ function SceneDevices({
     );
 
   const snapshot = () =>
-    onActions(devices.map((entity) => ({
-      entity_id: entity.id,
-      command: snapshotCommand(entity),
-      rooms: [],
-    })));
+    onActions(
+      devices
+        // Die Alarmanlage nur, wenn man sie ausdrücklich anwählt: Eine
+        // Szene «Kino», die per Schnappschuss heimlich «unscharf»
+        // eingesammelt hat, entschärft sonst abends die Anlage.
+        .filter((entity) => entity.kind !== 'alarm')
+        .map(snapshotAction)
+    );
 
   return (
     <View style={{ gap: 10 }}>
@@ -2059,6 +2071,19 @@ function SceneDevices({
                         ]}
                         value={String(action!.position ?? 50)}
                         onSelect={(key) => setPosition(entity.id, Number(key))}
+                      />
+                    ) : null}
+                    {action!.command === 'set_brightness' ? (
+                      <Choice
+                        options={[
+                          { key: '10', label: '10 %' },
+                          { key: '25', label: '25 %' },
+                          { key: '50', label: '50 %' },
+                          { key: '75', label: '75 %' },
+                          { key: '100', label: '100 %' },
+                        ]}
+                        value={String(action!.brightness ?? 50)}
+                        onSelect={(key) => setBrightness(entity.id, Number(key))}
                       />
                     ) : null}
                   </View>
@@ -3683,6 +3708,9 @@ function stepToActions(step: StepDraft): Record<string, any>[] {
       if (action.command === 'set_position') {
         built.data = { position: action.position ?? 50 };
       }
+      if (action.command === 'set_brightness') {
+        built.data = { brightness: action.brightness ?? 50 };
+      }
       return built;
     });
 }
@@ -3710,6 +3738,7 @@ function actionsToSteps(actions: Record<string, any>[]): StepDraft[] {
         command: action.command ?? 'turn_on',
         rooms: action.data?.rooms ?? [],
         position: action.data?.position,
+        brightness: action.data?.brightness,
       };
       const last = steps[steps.length - 1];
       if (last && last.kind === 'command') {

@@ -2936,25 +2936,27 @@ export function FamilyScreen({
           onAdd={(recipe) => add('recipes', recipe)}
           onUpdate={(id, patch) => update('recipes', id, patch)}
           onDelete={(id) => remove('recipes', id)}
-          planMeal={(day, text) => {
+          planMeal={(day, text, recipeId) => {
             const entry = meals.find((meal) => meal.day === day);
-            // Die Kennung des Rezepts mitschreiben: Nur so kann der
-            // Wocheneinkauf später die Zutaten dazu finden, statt bloss
-            // den Namen des Gerichts auf die Liste zu setzen.
-            const rezept = (data.recipes ?? []).find(
-              (item: any) => String(item.text ?? '') === text
-            );
-            const patch = { text, recipe_id: rezept?.id ?? null };
+            // Die Kennung kommt direkt vom Rezeptbuch mit – nicht mehr
+            // über den Namen gesucht. Zwei Rezepte «Lasagne», oder eines,
+            // das später umbenannt wird, und die Namenssuche hätte die
+            // Zutaten dem falschen (oder keinem) Rezept zugeordnet.
+            const patch = { text, recipe_id: recipeId || null };
             if (entry) {
               update('meals', entry.id, patch);
             } else {
               add('meals', { day, ...patch });
             }
           }}
-          onShopping={(recipe) => {
+          onShopping={(recipe, faktor) => {
+            // Mit dem Portionen-Faktor: Wer «8 statt 4» eingestellt hat,
+            // bekam vorher die Mengen für vier – und merkte es nicht im
+            // Laden, sondern beim Kochen.
             const neu = ingredientsToShopping(
               [recipe],
-              (data.shopping ?? []).map((item: any) => String(item.text ?? ''))
+              (data.shopping ?? []).map((item: any) => String(item.text ?? '')),
+              faktor
             );
             neu.forEach((eintrag) =>
               add('shopping', { ...eintrag, done: false })

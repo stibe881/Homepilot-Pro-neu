@@ -86,7 +86,7 @@ func ladeShortcuts() -> [Shortcut] {
 enum Hausstand {
     case aus
     case nichtErreicht
-    case da(doorsOpen: [String], lightsOn: Int, nextEvent: String?)
+    case da(doorsOpen: [String], lightsOn: Int, nextEvent: String?, alarm: String?)
 }
 
 func ladeGlance() async -> Hausstand {
@@ -117,10 +117,14 @@ func ladeGlance() async -> Hausstand {
         if let event = json["next_event"] as? [String: Any] {
             termin = event["summary"] as? String
         }
+        // Der Alarmzustand kam schon immer mit und wurde weggeworfen –
+        // dabei ist «habe ich scharf geschaltet?» genau die Frage, für
+        // die man ein Sperrbildschirm-Widget anlegt.
         return .da(
             doorsOpen: (json["doors_open"] as? [String]) ?? [],
             lightsOn: (json["lights_on"] as? Int) ?? 0,
-            nextEvent: termin
+            nextEvent: termin,
+            alarm: json["alarm"] as? String
         )
     } catch {
         return .nichtErreicht
@@ -165,12 +169,12 @@ struct Entry: TimelineEntry {
 
     /// Fürs runde Sperrbildschirm-Widget: Steht etwas offen?
     var etwasOffen: Bool {
-        if case .da(let türen, _, _) = glance { return !türen.isEmpty }
+        if case .da(let türen, _, _, _) = glance { return !türen.isEmpty }
         return false
     }
 
     var termin: String? {
-        if case .da(_, _, let termin) = glance { return termin }
+        if case .da(_, _, let termin, _) = glance { return termin }
         return nil
     }
 }
@@ -196,7 +200,7 @@ struct StatusZeile: View {
             Label("nicht erreichbar", systemImage: "wifi.slash")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-        case .da(let türen, let lichter, _):
+        case .da(let türen, let lichter, _, let alarm):
             if !türen.isEmpty {
                 Label(
                     türen.count == 1
@@ -215,6 +219,23 @@ struct StatusZeile: View {
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            }
+            // «Habe ich scharf geschaltet?» – die Frage, für die man das
+            // Widget anlegt, und die man sich im Auto stellt. «unscharf»
+            // wird nicht angezeigt: Der Normalzustand braucht keine Zeile.
+            if let alarm = alarm, alarm != "unscharf" {
+                Label(
+                    alarm == "scharf"
+                        ? "Alarm scharf"
+                        : alarm == "scharfschaltend"
+                            ? "Alarm wird scharf"
+                            : alarm == "ausgeloest"
+                                ? "Alarm ausgelöst!"
+                                : alarm,
+                    systemImage: alarm == "ausgeloest" ? "bell.badge.fill" : "shield.fill"
+                )
+                .font(.caption2)
+                .foregroundStyle(alarm == "ausgeloest" ? Color.red : Color.secondary)
             }
         }
     }

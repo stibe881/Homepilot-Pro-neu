@@ -28,6 +28,7 @@ import { CameraTimeline } from '../components/CameraTimeline';
 import { OpenDoors } from '../components/OpenDoors';
 import { RunningAppliances } from '../components/RunningAppliances';
 import { SECTION_LABEL, Rail, Section } from '../components/Rail';
+import { AllOff } from '../components/AllOff';
 import { RoomTabs } from '../components/RoomTabs';
 import { RoomTile } from '../components/RoomTile';
 import { SceneRow } from '../components/SceneRow';
@@ -42,6 +43,7 @@ import { usePrefs } from '../hooks/usePrefs';
 import { usePushRegistration } from '../hooks/usePushRegistration';
 import { breakpoints, Colors, radius, space, type, useColors } from '../theme';
 import { findeArtikel, mengeUndName, mitMenge, shopCategory } from '../lib/einkauf';
+import { deviceKindLabel } from '../lib/geraeteart';
 import { schleier } from '../lib/nachtabsenkung';
 import { hubClient, onHubFehler } from '../api/client';
 import { Auffangnetz } from '../components/Auffangnetz';
@@ -196,6 +198,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
   const [lastTouch, setLastTouch] = useState(() => Date.now());
+  // Zählt hoch, wenn der Widget-Knopf «Alles aus» gedrückt wurde – die
+  // Rückfrage öffnet sich dann von selbst, statt dass die App nur
+  // aufgeht und nichts tut.
+  const [allOffSignal, setAllOffSignal] = useState(0);
   // Türklingel-Vollbild: pro Klingel-Ereignis einmal zeigen, bis es
   // weggewischt wird (Schlüssel = Kamera + Zeitpunkt des Klingelns).
   const [dismissedRing, setDismissedRing] = useState<string | null>(null);
@@ -596,6 +602,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       } else if (what === 'alloff') {
         setSection('home');
         setRoom(ALL_ROOMS);
+        // Der Knopf hiess «Alles aus» – dann soll auch die Rückfrage
+        // dazu aufgehen, nicht bloss die Raumübersicht. Vorher tippte
+        // man, nichts passierte, und man tippte nochmal.
+        setAllOffSignal((n) => n + 1);
       } else if (what === 'alarm') {
         setSection('alarm');
       } else if (what === 'scene' && id) {
@@ -764,7 +774,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const searching = section === 'devices' && needle.length > 0;
   const found = searching
     ? shown.filter((entity) =>
-        [entity.name, entity.room ?? '', entity.group ?? '', entity.integration]
+        [
+          entity.name,
+          entity.room ?? '',
+          entity.group ?? '',
+          entity.integration,
+          // Auch über die Art – dieselbe Regel wie in der Geräteauswahl
+          // der Abläufe: «Saugroboter» findet ihn, ohne dass man wissen
+          // muss, dass er «Rosa» heisst. Zwei gleich aussehende
+          // Suchfelder, die verschieden können, sind schlimmer als eines,
+          // das wenig kann.
+          deviceKindLabel(entity),
+        ]
           .join(' ')
           .toLowerCase()
           .includes(needle)
@@ -1377,10 +1398,20 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 onSeen={setSeenChanges}
               />
               {/* Keine Kürzel mehr über der Raumliste: Szenen stehen in
-                  ihrem Raum, «Alles aus» und «Gute Nacht» sind entfallen.
-                  Die Übersicht soll die Räume zeigen, nicht mit Knöpfen
-                  beginnen, die man einmal am Tag braucht. */}
+                  ihrem Raum. Die Übersicht soll die Räume zeigen, nicht
+                  mit Knöpfen beginnen, die man einmal am Tag braucht –
+                  «Alles aus» steht deshalb unten, nach den Räumen, und
+                  der Widget-Knopf öffnet seine Rückfrage direkt. */}
               <ClimateOverview settings={settings} entities={entities} />
+              <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
+                <AllOff
+                  entities={entities}
+                  locked={locked}
+                  onCommand={guardedCommand}
+                  openSignal={allOffSignal}
+                  compact
+                />
+              </View>
             </>
           ) : null}
           {section === 'home' && editing && rooms.length > 0 ? (
