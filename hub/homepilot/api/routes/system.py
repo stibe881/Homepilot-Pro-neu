@@ -35,7 +35,7 @@ from ...core.errors import HomePilotError
 from ...core.users import Capability, parse_users
 from .. import configio
 from ..context import ApiContext
-from ..models import ConfigRequest, UpdateTriggerRequest
+from ..models import ConfigEditRequest, ConfigRequest, UpdateTriggerRequest
 
 log = logging.getLogger(__name__)
 
@@ -147,6 +147,88 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
 
     def save_config(content: str) -> dict[str, Any]:
         return configio.save_config(hub, content)
+
+    @app.get("/api/config/outline")
+    async def config_outline(request: Request) -> dict[str, Any]:
+        """Die Konfiguration als Gliederung – für die Bedienoberfläche.
+
+        Zeilenbereiche statt eines geparsten Baums: Wer einen Block
+        zurückschreibt, schreibt genau das zurück, was er gesehen hat -
+        samt Kommentaren und Reihenfolge. Dazu die gelesenen Werte, damit
+        die App etwas anzeigen kann, ohne selbst YAML zu können.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        path = config_path()
+        try:
+            content = Path(path).read_text(encoding="utf-8")
+        except OSError as err:
+            raise HTTPException(
+                status_code=500, detail=f"Konfiguration nicht lesbar: {err}"
+            ) from err
+        return _outline_antwort(content)
+
+    @app.post("/api/config/edit")
+    async def config_edit_route(body: ConfigEditRequest, request: Request) -> dict[str, Any]:
+        """Eine gezielte Änderung rechnen – ohne zu speichern.
+
+        Bewusst getrennt: Gespeichert wird über PUT /api/config, mit
+        derselben Prüfung, demselben Verlauf und demselben Neustart wie
+        eine von Hand getippte Änderung. Die Bedienoberfläche ist nur ein
+        anderer Weg, den Text zu erzeugen - kein zweiter Weg auf die
+        Platte.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        if body.path:
+            wert = None if body.remove else body.value
+            neu = config_edit.set_scalar(body.content, list(body.path), wert)
+        elif body.start is not None and body.end is not None:
+            if body.enabled is not None:
+                neu = config_edit.toggle_block(
+                    body.content, body.start, body.end, body.enabled
+                )
+            else:
+                neu = config_edit.replace_block(
+                    body.content, body.start, body.end, body.text or ""
+                )
+        elif body.start is None and body.end is None and body.text is None:
+            # Nichts zu ändern: Dann ist die Frage «wie sieht dieser Text
+            # gegliedert aus». Die App braucht das nach jedem Tippen im
+            # Textmodus - sonst zeigen die Zeilennummern der Übersicht
+            # auf Stellen, die es nicht mehr gibt.
+            neu = body.content
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Ein Block braucht 'start' und 'end' – halb geht nicht",
+            )
+        return _outline_antwort(neu)
+
+    def _outline_antwort(content: str) -> dict[str, Any]:
+        """Text, Gliederung und gelesene Werte – immer zusammen.
+
+        Getrennt wären sie eine Fehlerquelle: Die Gliederung nennt
+        Zeilennummern, und die stimmen nur für genau diesen Text. Wer
+        beides einzeln holt, zeigt irgendwann auf eine Zeile, die
+        inzwischen woanders steht.
+        """
+        import yaml
+
+        try:
+            daten = yaml.safe_load(content) or {}
+        except yaml.YAMLError as err:
+            # Kaputtes YAML ist kein Grund, gar nichts zu zeigen: Die
+            # Gliederung entsteht aus dem Text und steht auch dann.
+            return {
+                "content": content,
+                "sections": config_edit.outline(content),
+                "data": {},
+                "error": str(err),
+            }
+        return {
+            "content": content,
+            "sections": config_edit.outline(content),
+            "data": daten if isinstance(daten, dict) else {},
+        }
 
     @app.post("/api/config/check")
     async def check_config(body: ConfigRequest, request: Request) -> dict[str, Any]:
