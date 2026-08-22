@@ -38,6 +38,14 @@ Die verbreitete Belegung für Lampen ist voreingestellt (siehe DEFAULT_DPS);
 was ein bestimmtes Gerät wirklich meldet, zeigt
 
     python -m homepilot.integrations.tuya -c config.yaml --dps Sternenprojektor
+
+Meldet der Hub «Schlüssel oder Protokollfassung passen nicht» (Tuyas
+Fehler 914), sagt Tuya nicht, welches von beiden es ist. Statt zu raten:
+
+    python -m homepilot.integrations.tuya -c config.yaml --probe Sternenprojektor
+
+Das probiert jede Fassung einmal durch. Antwortet eine, steht sie da;
+antwortet keine, liegt es am Schlüssel.
 """
 
 from __future__ import annotations
@@ -492,6 +500,95 @@ def _cloud() -> int:
     return 0
 
 
+def _geraete_aus_config(config_path: str, gesucht: str) -> list[dict[str, Any]]:
+    """Die passenden Geräte aus der config.yaml – oder eine leere Liste."""
+    from ..core.config import load_config
+
+    config = load_config(config_path)
+    blocks = [b for b in config.integrations if b.get("integration") == "tuya"]
+    if not blocks:
+        print("✗ In der config.yaml steht kein 'tuya'-Block.")
+        return []
+    treffer = [
+        geraet
+        for block in blocks
+        for geraet in (block.get("devices") or [])
+        if gesucht.lower() in str(geraet.get("name", "")).lower()
+        or gesucht == str(geraet.get("id"))
+    ]
+    if not treffer:
+        namen = [
+            str(geraet.get("name"))
+            for block in blocks
+            for geraet in (block.get("devices") or [])
+        ]
+        print(f"✗ '{gesucht}' ist keines von: {', '.join(namen) or '(keine)'}")
+    return treffer
+
+
+# Die Fassungen, die Tuya-Geräte im Umlauf sprechen. 3.3 ist die
+# häufigste, 3.4 und 3.5 handeln zusätzlich einen Sitzungsschlüssel aus.
+PROTOKOLL_FASSUNGEN = [3.1, 3.2, 3.3, 3.4, 3.5]
+
+
+async def _probe_main(config_path: str, gesucht: str) -> int:
+    """Alle Protokollfassungen durchprobieren.
+
+    Fehler 914 heisst «Schlüssel oder Fassung passen nicht» - und welches
+    von beiden, sagt Tuya nicht. Statt zu raten wird hier jede Fassung
+    einmal angefragt: Antwortet eine mit Daten, ist es die; antwortet
+    keine, liegt es am Schlüssel.
+
+    Was der Rundruf im Netz meldet, ist übrigens nicht immer die Fassung,
+    mit der das Gerät dann wirklich spricht - genau deshalb gibt es das
+    hier.
+    """
+    import tinytuya
+
+    treffer = _geraete_aus_config(config_path, gesucht)
+    if not treffer:
+        return 1
+
+    for geraet in treffer:
+        print(f"\n{geraet.get('name')} ({geraet['id']}):")
+        adresse = check_address(geraet.get("ip"))
+        erfolg = None
+        for fassung in PROTOKOLL_FASSUNGEN:
+            device = tinytuya.Device(
+                str(geraet["id"]), address=adresse, local_key=str(geraet["key"])
+            )
+            device.set_version(fassung)
+            device.set_socketTimeout(5)
+            antwort = await asyncio.to_thread(device.status)
+            try:
+                device.close()
+            except Exception:
+                pass
+            if is_error(antwort):
+                print(f"  {fassung}  ✗ {error_text(antwort)[:80]}")
+                continue
+            dps = (antwort or {}).get("dps") or {}
+            print(f"  {fassung}  ✓ antwortet mit {len(dps)} Datenpunkten")
+            erfolg = fassung
+            break
+
+        if erfolg is not None:
+            print(
+                f"\n  → In die config.yaml: version: {erfolg}\n"
+                "    Danach den Hub neu starten."
+            )
+        else:
+            print(
+                "\n  → Keine Fassung kam durch. Dann stimmt der Schlüssel nicht\n"
+                "    mehr: python -m homepilot.integrations.tuya --cloud\n"
+                "    Er ändert sich, sobald das Gerät in der Hersteller-App neu\n"
+                "    angelernt wurde. Auch möglich: Eine andere Steuerung (z.B.\n"
+                "    LocalTuya in Home Assistant) hält die eine lokale\n"
+                "    Verbindung besetzt, die das Gerät zulässt."
+            )
+    return 0
+
+
 async def _dps_main(config_path: str, gesucht: str) -> int:
     import tinytuya
 
@@ -576,6 +673,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--dps", metavar="NAME", help="Datenpunkte eines eingerichteten Geräts zeigen"
     )
+    parser.add_argument(
+        "--probe",
+        metavar="NAME",
+        help="Alle Protokollfassungen durchprobieren (bei Fehler 914)",
+    )
     args = parser.parse_args()
 
     if args.scan is not None:
@@ -586,4 +688,8 @@ if __name__ == "__main__":
         if not args.config:
             parser.error("--dps braucht auch -c config.yaml")
         sys.exit(asyncio.run(_dps_main(args.config, args.dps)))
-    parser.error("Nichts zu tun – --scan, --cloud oder --dps wählen")
+    if args.probe:
+        if not args.config:
+            parser.error("--probe braucht auch -c config.yaml")
+        sys.exit(asyncio.run(_probe_main(args.config, args.probe)))
+    parser.error("Nichts zu tun – --scan, --cloud, --dps oder --probe wählen")
