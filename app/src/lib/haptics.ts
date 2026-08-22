@@ -16,10 +16,10 @@ import { Platform } from 'react-native';
  */
 
 type Haptics = {
-  impactAsync: (style: any) => Promise<void>;
-  notificationAsync: (style: any) => Promise<void>;
-  ImpactFeedbackStyle: { Light: any; Medium: any };
-  NotificationFeedbackType: { Warning: any };
+  impactAsync: (style: unknown) => Promise<void>;
+  notificationAsync: (style: unknown) => Promise<void>;
+  ImpactFeedbackStyle: { Light: unknown; Medium: unknown };
+  NotificationFeedbackType: { Warning: unknown };
 };
 
 let module_: Haptics | null | undefined;

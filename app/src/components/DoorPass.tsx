@@ -130,8 +130,8 @@ export function DoorPass({
             'In der config.yaml unter push.public_url eintragen.'
         );
       }
-    } catch (err: any) {
-      setNote(String(err.message ?? err));
+    } catch (err) {
+      setNote(String(err instanceof Error ? err.message : err));
     }
   };
 

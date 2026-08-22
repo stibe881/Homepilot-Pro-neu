@@ -2,8 +2,17 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { Entity } from '../api/types';
+import { CommandData, Entity } from '../api/types';
 import { Colors, radius, type, useColors } from '../theme';
+
+/** Ein Verschleissteil des Saugers, wie der Hub es meldet. */
+interface WartungsTeil {
+  part?: string;
+  label?: string;
+  percent_left?: number;
+  used_hours?: number;
+  life_hours?: number;
+}
 
 /**
  * Saugerkarte für die Startseite.
@@ -138,6 +147,9 @@ function CroppedMap({
 
   return (
     <Pressable
+      // Der View-Ref hat measureInWindow, aber die Pressable-Typen wissen
+      // das nicht - Plattform-Messung bleibt eine getypte Lücke.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ref={frame as any}
       onPress={(event) => {
         if (!onPressPoint) return;
@@ -145,10 +157,12 @@ function CroppedMap({
         // locationX/offsetX wären je nach Plattform relativ zum getroffenen
         // Kind (etwa dem vergrösserten Kartenbild) und zeigten dann auf das
         // falsche Zimmer.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const native: any = event.nativeEvent;
         const pageX = native.pageX ?? native.changedTouches?.[0]?.pageX;
         const pageY = native.pageY ?? native.changedTouches?.[0]?.pageY;
         if (typeof pageX !== 'number' || typeof pageY !== 'number') return;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (frame.current as any)?.measureInWindow?.(
           (x: number, y: number, width: number, height: number) => {
             if (width <= 0 || height <= 0) return;
@@ -220,7 +234,7 @@ export function VacuumHome({
   entity: Entity;
   uri?: string;
   now: Date;
-  onCommand: (entityId: string, command: string, data?: Record<string, any>) => void;
+  onCommand: (entityId: string, command: string, data?: CommandData) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -231,7 +245,7 @@ export function VacuumHome({
   const [dialog, setDialog] = useState<{ mode: CleanMode; preselect?: number } | null>(null);
   const [stationOpen, setStationOpen] = useState(false);
   const [careOpen, setCareOpen] = useState(false);
-  const maintenance: any[] = Array.isArray(entity.state.maintenance)
+  const maintenance: WartungsTeil[] = Array.isArray(entity.state.maintenance)
     ? entity.state.maintenance
     : [];
 
@@ -400,7 +414,7 @@ function CleanDialog({
   mapSize?: { width: number; height: number };
   robot?: number[];
   onClose: () => void;
-  onCommand: (entityId: string, command: string, data?: Record<string, any>) => void;
+  onCommand: (entityId: string, command: string, data?: CommandData) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -653,22 +667,23 @@ function StationDialog({
   visible: boolean;
   entity: Entity;
   onClose: () => void;
-  onCommand: (entityId: string, command: string, data?: Record<string, any>) => void;
+  onCommand: (entityId: string, command: string, data?: CommandData) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const dock = (entity.state.dock ?? {}) as Record<string, any>;
+  const dock = (entity.state.dock ?? {}) as Record<string, unknown>;
   const run = (command: string) => {
     onCommand(entity.id, command);
     onClose();
   };
-  const actions: { command: string; label: string; icon: any }[] = [
+  const alle: { command: string; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
     { command: 'dock', label: 'Zur Station fahren', icon: 'home-outline' },
     { command: 'collect_dust', label: 'Staub absaugen', icon: 'trash-outline' },
     { command: 'wash_mop', label: 'Mopp waschen', icon: 'water-outline' },
     { command: 'stop_wash', label: 'Waschen stoppen', icon: 'stop-circle-outline' },
     { command: 'locate', label: 'Sauger finden', icon: 'search-outline' },
-  ].filter((action) => entity.commands.includes(action.command));
+  ];
+  const actions = alle.filter((action) => entity.commands.includes(action.command));
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -732,9 +747,9 @@ function CareDialog({
 }: {
   visible: boolean;
   entity: Entity;
-  maintenance: any[];
+  maintenance: WartungsTeil[];
   onClose: () => void;
-  onCommand: (entityId: string, command: string, data?: Record<string, any>) => void;
+  onCommand: (entityId: string, command: string, data?: CommandData) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);

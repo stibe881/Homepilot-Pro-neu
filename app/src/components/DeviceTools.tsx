@@ -80,8 +80,8 @@ export function DeviceTools({
       );
       schliessen();
       onDone();
-    } catch (err: any) {
-      setNote(String(err?.message ?? err));
+    } catch (err) {
+      setNote(String(err instanceof Error ? err.message : err));
     } finally {
       setBusy(false);
     }
@@ -101,8 +101,8 @@ export function DeviceTools({
       );
       schliessen();
       onDone();
-    } catch (err: any) {
-      setNote(String(err?.message ?? err));
+    } catch (err) {
+      setNote(String(err instanceof Error ? err.message : err));
     } finally {
       setBusy(false);
     }
@@ -127,8 +127,8 @@ export function DeviceTools({
       );
       schliessen();
       onDone();
-    } catch (err: any) {
-      setNote(String(err?.message ?? err));
+    } catch (err) {
+      setNote(String(err instanceof Error ? err.message : err));
     } finally {
       setBusy(false);
     }

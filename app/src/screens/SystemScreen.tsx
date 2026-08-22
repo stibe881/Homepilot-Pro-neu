@@ -485,8 +485,8 @@ function ConfigCard({ settings }: { settings: HubSettings }) {
         title: 'HomePilot-Konfiguration',
         message: content,
       });
-    } catch (err: any) {
-      setMessage(String(err.message ?? err));
+    } catch (err) {
+      setMessage(String(err instanceof Error ? err.message : err));
     }
   };
 
@@ -627,7 +627,7 @@ function ShortcutsCard({ settings }: { settings: HubSettings }) {
     () => hubClient(settings.url, settings.token),
     [settings.url, settings.token]
   );
-  const [items, setItems] = useState<any[] | null>(null);
+  const [items, setItems] = useState<Kurzbefehl[] | null>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [copied, setCopied] = useState<string | null>(null);
@@ -635,7 +635,7 @@ function ShortcutsCard({ settings }: { settings: HubSettings }) {
   useEffect(() => {
     if (!open || items) return;
     hub
-      .get<{ shortcuts?: any[] }>('/api/shortcuts', {
+      .get<{ shortcuts?: Kurzbefehl[] }>('/api/shortcuts', {
         fallback: { shortcuts: [] },
         still: true,
       })
@@ -646,7 +646,7 @@ function ShortcutsCard({ settings }: { settings: HubSettings }) {
     item.name.toLowerCase().includes(query.trim().toLowerCase())
   );
 
-  const share = async (item: any) => {
+  const share = async (item: Kurzbefehl) => {
     const lines = [
       `URL: ${item.url}`,
       `Methode: ${item.method}`,
@@ -732,6 +732,31 @@ function ShortcutsCard({ settings }: { settings: HubSettings }) {
       ) : null}
     </Card>
   );
+}
+
+/** Ein fertiger Siri-Kurzbefehl, wie /api/shortcuts ihn liefert. */
+interface Kurzbefehl {
+  kind: string;
+  name: string;
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  body?: unknown;
+}
+
+/** Eine Sicherung aus /api/system/backups. */
+interface Sicherung {
+  name: string;
+  created: number;
+  size: number;
+}
+
+/** Stand der Off-Site-Kopie in Supabase. */
+interface Offsite {
+  ok: boolean;
+  at: number;
+  name: string;
+  error?: string | null;
 }
 
 interface UpdateStatus {
@@ -1118,10 +1143,10 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
             : 'Angestossen. Der Host baut jetzt – das dauert ein paar Minuten.'
         );
       }
-    } catch (err: any) {
+    } catch (err) {
       setBusy(false);
       setNoteError(true);
-      setNote(String(err.message ?? err));
+      setNote(String(err instanceof Error ? err.message : err));
     }
   };
 
@@ -1420,7 +1445,7 @@ function IntegrationsCard({
  * Wer den Satz selbst schreiben kann, schickt ihn als `detail` mit – die
  * Integration weiss besser als dieser Bildschirm, was ihre Zahlen
  * bedeuten. Ohne `detail` gilt die Homematic-Form. */
-export function healthText(health: Record<string, any>): string {
+export function healthText(health: Record<string, unknown>): string {
   if (typeof health.detail === 'string' && health.detail) {
     return typeof health.last_event === 'number'
       ? `${health.detail} · letztes Ereignis ${lastSeen(health.last_event)}`
@@ -1512,8 +1537,8 @@ function PushTestCard({ settings, push }: { settings: HubSettings; push: PushSta
       } else {
         setMessage(pushHint(push));
       }
-    } catch (err: any) {
-      setMessage(String(err.message ?? err));
+    } catch (err) {
+      setMessage(String(err instanceof Error ? err.message : err));
     } finally {
       setBusy(false);
     }
@@ -1578,7 +1603,7 @@ function BackupCard({ settings }: { settings: HubSettings }) {
     () => ({ Authorization: `Bearer ${settings.token}` }),
     [settings.token]
   );
-  const [backups, setBackups] = useState<any[] | null>(null);
+  const [backups, setBackups] = useState<Sicherung[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [listOpen, setListOpen] = useState(false);
   const [confirmRestore, setConfirmRestore] = useState<string | null>(null);
@@ -1592,7 +1617,7 @@ function BackupCard({ settings }: { settings: HubSettings }) {
 
   const load = useCallback(() => {
     hub
-      .get<{ backups?: any[]; offsite?: any }>('/api/system/backups', {
+      .get<{ backups?: Sicherung[]; offsite?: Offsite }>('/api/system/backups', {
         fallback: { backups: [] },
         still: true,
       })
@@ -1607,7 +1632,7 @@ function BackupCard({ settings }: { settings: HubSettings }) {
   const runBackup = async () => {
     setBusy(true);
     try {
-      const data = await hub.post<{ backups?: any[] } | null>(
+      const data = await hub.post<{ backups?: Sicherung[] } | null>(
         '/api/system/backup',
         undefined,
         { fallback: null }
@@ -1639,8 +1664,8 @@ function BackupCard({ settings }: { settings: HubSettings }) {
       link.download = name;
       link.click();
       URL.revokeObjectURL(url);
-    } catch (err: any) {
-      setNote(String(err.message ?? err));
+    } catch (err) {
+      setNote(String(err instanceof Error ? err.message : err));
     }
   };
 
@@ -1669,8 +1694,8 @@ function BackupCard({ settings }: { settings: HubSettings }) {
       link.download = `homepilot-${new Date().toISOString().slice(0, 10)}.json`;
       link.click();
       URL.revokeObjectURL(url);
-    } catch (err: any) {
-      setNote(String(err.message ?? err));
+    } catch (err) {
+      setNote(String(err instanceof Error ? err.message : err));
     }
   };
 
@@ -1708,8 +1733,8 @@ function BackupCard({ settings }: { settings: HubSettings }) {
       fenster.document.close();
       fenster.focus();
       fenster.print();
-    } catch (err: any) {
-      setNote(String(err.message ?? err));
+    } catch (err) {
+      setNote(String(err instanceof Error ? err.message : err));
     }
   };
 
@@ -1905,7 +1930,7 @@ function Button({
   );
 }
 
-function roleIcon(role: string): any {
+function roleIcon(role: string): keyof typeof Ionicons.glyphMap {
   if (role === 'besitzer') return 'key-outline';
   if (role === 'gast') return 'person-outline';
   return 'people-outline';

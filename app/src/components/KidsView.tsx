@@ -121,7 +121,7 @@ export function KidsView({
                 accessibilityRole="button"
                 style={({ pressed }) => [styles.big, pressed && { opacity: 0.7 }]}
               >
-                <Ionicons name={(scene.icon as any) || 'sparkles'} size={30} color={colors.ink} />
+                <Ionicons name={(scene.icon as keyof typeof Ionicons.glyphMap) || 'sparkles'} size={30} color={colors.ink} />
                 <Text style={styles.bigText}>{scene.name}</Text>
               </Pressable>
             ))}

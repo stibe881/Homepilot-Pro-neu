@@ -52,8 +52,8 @@ export function Broadcast({
           (errors.length > 0 ? ` Nicht erreicht: ${errors.join(' · ')}` : '')
       );
       setText('');
-    } catch (err: any) {
-      setNote(String(err.message ?? err));
+    } catch (err) {
+      setNote(String(err instanceof Error ? err.message : err));
     } finally {
       setBusy(false);
     }

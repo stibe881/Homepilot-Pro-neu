@@ -89,11 +89,11 @@ export function usePushRegistration(
           return;
         }
         setPush({ state: 'registered', label });
-      } catch (err: any) {
+      } catch (err) {
         // Benachrichtigungen sind eine Zugabe – ein Fehler hier darf die
         // App nicht stören, aber verschwiegen wird er auch nicht mehr.
         if (!cancelled) {
-          setPush({ state: 'failed', detail: String(err?.message ?? err) });
+          setPush({ state: 'failed', detail: String(err instanceof Error ? err.message : err) });
         }
       }
     })();

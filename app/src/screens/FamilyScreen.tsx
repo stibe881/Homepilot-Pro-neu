@@ -9,10 +9,10 @@ import { Shops } from '../components/Shops';
 import { useColors } from '../theme';
 import { RecipeBook } from './RecipeBook';
 import { wochentagDatumKurz, wochentagUhr } from '../lib/format';
-import { ingredientsToShopping, shopCategory } from '../lib/einkauf';
+import { Shop, ingredientsToShopping, shopCategory } from '../lib/einkauf';
 import { tapped } from '../lib/haptics';
 import { ROLE_LABELS } from './UsersScreen';
-import { AddRow, BackHead, CheckRow, ChoreAddRow, ContactForm, ContactPhoto, CountdownForm, EventForm, FamilyData, GroupedChecklist, MealRow, MedicationAddRow, Member, ModuleKey, MonthCalendar, PollAddRow, Props, REPEAT_OPTIONS, SHOP_CATEGORIES, ShoppingAddRow, TaskAddRow, TwoFieldForm, WEEK_DAYS, birthdayLabel, daysUntilBirthday, dueInfo, isoInDays, nextDue, parseSwissDate, pickPhoto, rotateMember } from './family/bausteine';
+import { AddRow, BackHead, CheckRow, ChoreAddRow, ContactForm, ContactPhoto, CountdownForm, EventForm, FamilyData, FamilyItem, GroupedChecklist, MealRow, MedicationAddRow, Member, ModuleKey, MonthCalendar, PollAddRow, Props, REPEAT_OPTIONS, SHOP_CATEGORIES, ShoppingAddRow, TaskAddRow, TwoFieldForm, WEEK_DAYS, birthdayLabel, daysUntilBirthday, dueInfo, isoInDays, nextDue, parseSwissDate, pickPhoto, rotateMember } from './family/bausteine';
 import { makeStyles } from './family/stil';
 
 /**
@@ -87,7 +87,7 @@ export function FamilyScreen({
   // ── Änderungen an den Hub ──────────────────────────────────────────────
 
   const add = useCallback(
-    async (collection: string, item: Record<string, any>) => {
+    async (collection: string, item: FamilyItem) => {
       try {
         await hub.post(`/api/family/${collection}`, item, { still: true });
         load();
@@ -101,7 +101,7 @@ export function FamilyScreen({
   );
 
   const update = useCallback(
-    async (collection: string, id: string, patch: Record<string, any>) => {
+    async (collection: string, id: string, patch: FamilyItem) => {
       try {
         // Scheitert es, zeigt load() im finally den echten Stand - und
         // die Einblendung des Clients sagt, warum.
@@ -127,10 +127,10 @@ export function FamilyScreen({
   // ── Abgeleitete Werte ──────────────────────────────────────────────────
 
   const calendar = entities.find((entity) => entity.kind === 'calendar');
-  const events: any[] = Array.isArray(calendar?.state.events) ? calendar!.state.events : [];
+  const events: FamilyItem[] = Array.isArray(calendar?.state.events) ? calendar!.state.events : [];
   const today = new Date();
-  const isToday = (value: any) => {
-    const date = new Date(value);
+  const isToday = (value: unknown) => {
+    const date = new Date(value as string);
     return (
       date.getFullYear() === today.getFullYear() &&
       date.getMonth() === today.getMonth() &&
@@ -142,15 +142,15 @@ export function FamilyScreen({
   const pinCount = (data.pins ?? []).length;
   // Wer gerade dran ist, steht auf der Kachel - das ist die Frage, die
   // man sich beim Blick auf «Ämtli» stellt.
-  const chores: any[] = data.chores ?? [];
+  const chores: FamilyItem[] = data.chores ?? [];
   const meineChores = chores.filter(
-    (chore: any) => chore.member && chore.member === currentUser?.name
+    (chore: FamilyItem) => chore.member && chore.member === currentUser?.name
   );
-  const notfall: any[] = data.emergency ?? [];
+  const notfall: FamilyItem[] = data.emergency ?? [];
   const notfallSub =
     notfall.length > 0 ? `${notfall.length} Einträge` : 'Noch nichts hinterlegt';
-  const meds: any[] = data.medications ?? [];
-  const offeneMeds = meds.filter((med: any) => !med.done).length;
+  const meds: FamilyItem[] = data.medications ?? [];
+  const offeneMeds = meds.filter((med: FamilyItem) => !med.done).length;
   const medSub = offeneMeds > 0 ? `${offeneMeds} laufend` : 'Nichts einzunehmen';
   const choreSub =
     chores.length === 0
@@ -159,7 +159,7 @@ export function FamilyScreen({
         ? `${meineChores.length} bei dir`
         : `${chores.length} in der Reihe`;
 
-  const eventWhen = (event: any) =>
+  const eventWhen = (event: FamilyItem) =>
     event.all_day
       ? wochentagDatumKurz(new Date(event.start))
       : wochentagUhr(new Date(event.start));
@@ -250,13 +250,13 @@ export function FamilyScreen({
   }
 
   if (view === 'tasks') {
-    const tasks: any[] = data.tasks ?? [];
+    const tasks: FamilyItem[] = data.tasks ?? [];
     // Eltern (Besitzer/Bewohner) dürfen Punkte bestätigen; Kinder/Gäste nicht.
     const isParent =
       currentUser?.role === 'besitzer' || currentUser?.role === 'bewohner';
     const pending = tasks.filter((task) => task.pending_reward);
 
-    const toggleTask = (task: any) => {
+    const toggleTask = (task: FamilyItem) => {
       tapped();
       // Wiederkehrendes verschwindet nicht, es rückt weiter: Der Haushalt
       // hört ja nicht auf. Punkte werden dabei trotzdem fällig.
@@ -283,7 +283,7 @@ export function FamilyScreen({
         update('tasks', task.id, { done: !task.done, pending_reward: false });
       }
     };
-    const confirmReward = (task: any) => {
+    const confirmReward = (task: FamilyItem) => {
       add('rewards', {
         member: task.member,
         points: Number(task.points),
@@ -291,10 +291,10 @@ export function FamilyScreen({
       });
       update('tasks', task.id, { rewarded: true, pending_reward: false });
     };
-    const rejectReward = (task: any) =>
+    const rejectReward = (task: FamilyItem) =>
       update('tasks', task.id, { pending_reward: false, done: false });
 
-    const taskSub = (task: any) => {
+    const taskSub = (task: FamilyItem) => {
       const parts = [];
       if (task.member) parts.push(`für ${task.member}`);
       if (Number(task.points) > 0) parts.push(`${task.points} Punkte`);
@@ -398,11 +398,11 @@ export function FamilyScreen({
   }
 
   if (view === 'shopping') {
-    const items: any[] = data.shopping ?? [];
+    const items: FamilyItem[] = data.shopping ?? [];
     const done = items.filter((item) => item.done);
     // Nach Kategorie gruppieren, in der Ladenrundgang-Reihenfolge. Einträge
     // ohne Kategorie (alt oder aus dem Essensplan) landen unter «Sonstiges».
-    const catOf = (item: any) =>
+    const catOf = (item: FamilyItem) =>
       SHOP_CATEGORIES.includes(item.category) ? item.category : 'Sonstiges';
     const usedCats = SHOP_CATEGORIES.filter((cat) =>
       items.some((item) => catOf(item) === cat)
@@ -410,9 +410,9 @@ export function FamilyScreen({
     // Standardartikel: was jede Woche in den Wagen wandert. Ein Tipp
     // legt sie an, statt sie jedes Mal zu tippen - und wer sie einmal
     // von Hand einträgt, kann sie danach als Standard merken.
-    const staples: any[] = data.staples ?? [];
+    const staples: FamilyItem[] = data.staples ?? [];
     const aufListe = new Set(
-      items.map((item: any) => String(item.text ?? '').trim().toLowerCase())
+      items.map((item: FamilyItem) => String(item.text ?? '').trim().toLowerCase())
     );
     return (
       <View style={styles.stack}>
@@ -430,7 +430,7 @@ export function FamilyScreen({
           <Card style={styles.listCard}>
             <Text style={styles.groupTitle}>Standardartikel</Text>
             <View style={styles.stapleRow}>
-              {staples.map((staple: any) => {
+              {staples.map((staple: FamilyItem) => {
                 const drauf = aufListe.has(
                   String(staple.text ?? '').trim().toLowerCase()
                 );
@@ -487,7 +487,7 @@ export function FamilyScreen({
                   // dort, wo man merkt, dass man ihn schon wieder tippt.
                   onRemember={
                     staples.some(
-                      (staple: any) =>
+                      (staple: FamilyItem) =>
                         String(staple.text ?? '').toLowerCase() ===
                         String(item.text ?? '').toLowerCase()
                     )
@@ -519,7 +519,7 @@ export function FamilyScreen({
             danach jahrelang nicht mehr - über der Liste stünden sie im
             Weg. */}
         <Shops
-          shops={data.shops ?? []}
+          shops={(data.shops ?? []) as unknown as Shop[]}
           onAdd={(shop) => add('shops', shop)}
           onUpdate={(id, changes) => update('shops', id, changes)}
           onRemove={(id) => remove('shops', id)}
@@ -529,16 +529,16 @@ export function FamilyScreen({
   }
 
   if (view === 'meals') {
-    const meals: any[] = data.meals ?? [];
+    const meals: FamilyItem[] = data.meals ?? [];
     const planned = meals.filter((meal) => String(meal.text ?? '').trim());
     // Alle geplanten Gerichte auf die Einkaufsliste – jedes als ein Eintrag,
     // Doppelte überspringen. Kategorie «Sonstiges», dort lässt es sich ordnen.
-    const recipes: any[] = data.recipes ?? [];
+    const recipes: FamilyItem[] = data.recipes ?? [];
     // Zu welchen Gerichten kennen wir das Rezept? Nur bei denen lassen
     // sich Zutaten holen; für den Rest bleibt der Name des Gerichts, den
     // man dann von Hand ergänzt.
     const geplanteRezepte = planned
-      .map((meal: any) =>
+      .map((meal: FamilyItem) =>
         recipes.find(
           (recipe) =>
             recipe.id === meal.recipe_id ||
@@ -548,11 +548,11 @@ export function FamilyScreen({
       .filter(Boolean);
 
     const vorhanden = () =>
-      (data.shopping ?? []).map((item: any) => String(item.text ?? ''));
+      (data.shopping ?? []).map((item: FamilyItem) => String(item.text ?? ''));
 
     /** Zutaten aller geplanten Rezepte - der eigentliche Wocheneinkauf. */
     const zutatenEinkauf = () => {
-      const neu = ingredientsToShopping(geplanteRezepte, vorhanden());
+      const neu = ingredientsToShopping(geplanteRezepte.filter(Boolean) as FamilyItem[], vorhanden());
       neu.forEach((eintrag) => add('shopping', { ...eintrag, done: false }));
       return neu.length;
     };
@@ -634,8 +634,8 @@ export function FamilyScreen({
   }
 
   if (view === 'pins') {
-    const pins: any[] = data.pins ?? [];
-    const polls: any[] = data.polls ?? [];
+    const pins: FamilyItem[] = data.pins ?? [];
+    const polls: FamilyItem[] = data.polls ?? [];
     const ich = currentUser?.name ?? '';
 
     /** Eine Stimme abgeben oder zurückziehen.
@@ -643,7 +643,7 @@ export function FamilyScreen({
      * Die Stimmen stehen als {Person: Antwort} am Eintrag - so sieht man,
      * wer noch fehlt. Genau das ist der Punkt gegenüber fünf Antworten im
      * Familienchat, bei denen niemand mehr weiss, wer sich gemeldet hat. */
-    const stimmen = (poll: any, antwort: string) => {
+    const stimmen = (poll: FamilyItem, antwort: string) => {
       const bisher = { ...(poll.votes ?? {}) };
       if (bisher[ich] === antwort) delete bisher[ich];
       else bisher[ich] = antwort;
@@ -675,7 +675,7 @@ export function FamilyScreen({
         {polls
           .slice()
           .reverse()
-          .map((poll: any) => {
+          .map((poll: FamilyItem) => {
             const votes: Record<string, string> = poll.votes ?? {};
             const optionen: string[] = Array.isArray(poll.options) ? poll.options : [];
             const fehlen = members
@@ -753,13 +753,13 @@ export function FamilyScreen({
   }
 
   if (view === 'chores') {
-    const liste: any[] = data.chores ?? [];
+    const liste: FamilyItem[] = data.chores ?? [];
 
     /** Erledigt: Punkte gutschreiben, Reihe weiterrücken, Frist neu setzen.
      *
      * Genau diese drei Schritte macht sonst jemand von Hand - und einer
      * davon geht immer vergessen, meistens das Weiterrücken. */
-    const erledigt = (chore: any) => {
+    const erledigt = (chore: FamilyItem) => {
       const reihe: string[] = Array.isArray(chore.members) ? chore.members : [];
       const naechster = rotateMember(reihe, chore.member);
       if (chore.member && Number(chore.points) > 0) {
@@ -805,7 +805,7 @@ export function FamilyScreen({
           />
         </Card>
 
-        {liste.map((chore: any) => {
+        {liste.map((chore: FamilyItem) => {
           const faellig = dueInfo(chore.due);
           const reihe: string[] = Array.isArray(chore.members) ? chore.members : [];
           const naechster = rotateMember(reihe, chore.member);
@@ -896,10 +896,10 @@ export function FamilyScreen({
   }
 
   if (view === 'babysitter') {
-    const notfaelle: any[] = data.emergency ?? [];
-    const kontakte: any[] = data.contacts ?? [];
-    const routinen: any[] = data.routines ?? [];
-    const heuteMeds = (data.medications ?? []).filter((med: any) => !med.done);
+    const notfaelle: FamilyItem[] = data.emergency ?? [];
+    const kontakte: FamilyItem[] = data.contacts ?? [];
+    const routinen: FamilyItem[] = data.routines ?? [];
+    const heuteMeds = (data.medications ?? []).filter((med: FamilyItem) => !med.done);
     const heute = isoInDays(0);
 
     return (
@@ -915,7 +915,7 @@ export function FamilyScreen({
         {notfaelle.length > 0 ? (
           <>
             <Text style={styles.groupLabel}>Im Notfall</Text>
-            {notfaelle.map((eintrag: any) => (
+            {notfaelle.map((eintrag: FamilyItem) => (
               <Card key={eintrag.id} style={styles.pinCard}>
                 <Text style={styles.checkText}>{eintrag.text}</Text>
                 {eintrag.body ? (
@@ -932,7 +932,7 @@ export function FamilyScreen({
           <>
             <Text style={styles.groupLabel}>Nummern</Text>
             <Card style={styles.listCard}>
-              {kontakte.map((kontakt: any) => (
+              {kontakte.map((kontakt: FamilyItem) => (
                 <View key={kontakt.id} style={styles.checkRow}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.checkText}>{kontakt.text}</Text>
@@ -963,7 +963,7 @@ export function FamilyScreen({
           <>
             <Text style={styles.groupLabel}>Heute noch einzunehmen</Text>
             <Card style={styles.listCard}>
-              {heuteMeds.map((med: any) => {
+              {heuteMeds.map((med: FamilyItem) => {
                 const genommen: string[] = Array.isArray(med.taken) ? med.taken : [];
                 return (
                   <View key={med.id} style={styles.checkRow}>
@@ -996,7 +996,7 @@ export function FamilyScreen({
           <>
             <Text style={styles.groupLabel}>Routinen</Text>
             <Card style={styles.listCard}>
-              {routinen.map((routine: any) => (
+              {routinen.map((routine: FamilyItem) => (
                 <View key={routine.id} style={styles.checkRow}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.checkText}>{routine.text}</Text>
@@ -1041,7 +1041,7 @@ export function FamilyScreen({
           datum.getFullYear() === today.getFullYear() &&
           datum.getMonth() === today.getMonth() &&
           datum.getDate() === today.getDate(),
-        termine: events.filter((event: any) => {
+        termine: events.filter((event: FamilyItem) => {
           const start = new Date(event.start);
           return (
             start.getFullYear() === datum.getFullYear() &&
@@ -1049,12 +1049,12 @@ export function FamilyScreen({
             start.getDate() === datum.getDate()
           );
         }),
-        essen: (data.meals ?? []).find((meal: any) => meal.day === name),
+        essen: (data.meals ?? []).find((meal: FamilyItem) => meal.day === name),
         aemtli: (data.chores ?? []).filter(
-          (chore: any) => String(chore.due ?? '').slice(0, 10) === iso
+          (chore: FamilyItem) => String(chore.due ?? '').slice(0, 10) === iso
         ),
         aufgaben: (data.tasks ?? []).filter(
-          (task: any) => !task.done && String(task.due ?? '').slice(0, 10) === iso
+          (task: FamilyItem) => !task.done && String(task.due ?? '').slice(0, 10) === iso
         ),
       };
     });
@@ -1091,7 +1091,7 @@ export function FamilyScreen({
                 </Text>
               </View>
 
-              {tag.termine.map((event: any, index: number) => (
+              {tag.termine.map((event: FamilyItem, index: number) => (
                 <View key={`t${index}`} style={styles.weekRowItem}>
                   <Ionicons name="calendar-outline" size={15} color={colors.inkSoft} />
                   <Text style={[styles.checkText, { flex: 1 }]} numberOfLines={1}>
@@ -1107,7 +1107,7 @@ export function FamilyScreen({
                 </View>
               ) : null}
 
-              {tag.aemtli.map((chore: any) => (
+              {tag.aemtli.map((chore: FamilyItem) => (
                 <View key={chore.id} style={styles.weekRowItem}>
                   <Ionicons name="repeat-outline" size={15} color={colors.inkSoft} />
                   <Text style={[styles.checkText, { flex: 1 }]}>
@@ -1117,7 +1117,7 @@ export function FamilyScreen({
                 </View>
               ))}
 
-              {tag.aufgaben.map((task: any) => (
+              {tag.aufgaben.map((task: FamilyItem) => (
                 <View key={task.id} style={styles.weekRowItem}>
                   <Ionicons name="checkbox-outline" size={15} color={colors.inkSoft} />
                   <Text style={[styles.checkText, { flex: 1 }]}>
@@ -1136,7 +1136,7 @@ export function FamilyScreen({
   }
 
   if (view === 'emergency') {
-    const eintraege: any[] = data.emergency ?? [];
+    const eintraege: FamilyItem[] = data.emergency ?? [];
     return (
       <View style={styles.stack}>
         <BackHead title="Notfallblatt" onBack={goBack} styles={styles} colors={colors} />
@@ -1149,7 +1149,7 @@ export function FamilyScreen({
           Keine Passwörter und keine Kartennummern hier hinein – dieses Blatt
           zeigt man im Zweifel einer fremden Person.
         </Text>
-        {eintraege.map((eintrag: any) => (
+        {eintraege.map((eintrag: FamilyItem) => (
           <Card key={eintrag.id} style={styles.pinCard}>
             <View style={styles.checkRow}>
               <View style={{ flex: 1 }}>
@@ -1182,11 +1182,11 @@ export function FamilyScreen({
   }
 
   if (view === 'medications') {
-    const liste: any[] = data.medications ?? [];
+    const liste: FamilyItem[] = data.medications ?? [];
     const heute = isoInDays(0);
 
     /** Eingenommen: Häkchen für heute, und die Kur zählt einen Tag runter. */
-    const eingenommen = (med: any) => {
+    const eingenommen = (med: FamilyItem) => {
       const genommen: string[] = Array.isArray(med.taken) ? med.taken : [];
       if (genommen.includes(heute)) {
         update('medications', med.id, {
@@ -1222,7 +1222,7 @@ export function FamilyScreen({
             colors={colors}
           />
         </Card>
-        {liste.map((med: any) => {
+        {liste.map((med: FamilyItem) => {
           const genommen: string[] = Array.isArray(med.taken) ? med.taken : [];
           const heuteSchon = genommen.includes(heute);
           const tage = Number(med.days) || 0;
@@ -1277,8 +1277,8 @@ export function FamilyScreen({
   }
 
   if (view === 'rewards') {
-    const log: any[] = data.rewards ?? [];
-    const catalog: any[] = data.rewards_catalog ?? [];
+    const log: FamilyItem[] = data.rewards ?? [];
+    const catalog: FamilyItem[] = data.rewards_catalog ?? [];
     const pointsOf = (name: string) =>
       log
         .filter((entry) => entry.member === name)
@@ -1288,7 +1288,7 @@ export function FamilyScreen({
       .sort((a, b) => String(b.created ?? '').localeCompare(String(a.created ?? '')))
       .slice(0, 8);
 
-    const redeem = (memberName: string, prize: any) => {
+    const redeem = (memberName: string, prize: FamilyItem) => {
       const cost = Number(prize.cost) || 0;
       if (pointsOf(memberName) < cost) return;
       add('rewards', {
@@ -1433,7 +1433,7 @@ export function FamilyScreen({
   }
 
   if (view === 'contacts') {
-    const contacts: any[] = data.contacts ?? [];
+    const contacts: FamilyItem[] = data.contacts ?? [];
     // Kontakte mit hinterlegtem Geburtstag – nach Nähe des nächsten sortiert.
     const upcoming = contacts
       .map((contact) => ({ contact, days: daysUntilBirthday(contact.birthday) }))
@@ -1589,7 +1589,7 @@ export function FamilyScreen({
   }
 
   if (view === 'countdowns') {
-    const countdowns: any[] = data.countdowns ?? [];
+    const countdowns: FamilyItem[] = data.countdowns ?? [];
     return (
       <View style={styles.stack}>
         <BackHead title="Countdowns" onBack={goBack} styles={styles} colors={colors} />
@@ -1646,7 +1646,7 @@ export function FamilyScreen({
   }
 
   if (view === 'recipes') {
-    const meals: any[] = data.meals ?? [];
+    const meals: FamilyItem[] = data.meals ?? [];
     return (
       <View style={[styles.stack, { flex: 1 }]}>
         <RecipeBook
@@ -1675,7 +1675,7 @@ export function FamilyScreen({
             // Laden, sondern beim Kochen.
             const neu = ingredientsToShopping(
               [recipe],
-              (data.shopping ?? []).map((item: any) => String(item.text ?? '')),
+              (data.shopping ?? []).map((item: FamilyItem) => String(item.text ?? '')),
               faktor
             );
             neu.forEach((eintrag) =>
@@ -1690,7 +1690,7 @@ export function FamilyScreen({
   }
 
   if (view === 'documents') {
-    const documents: any[] = data.documents ?? [];
+    const documents: FamilyItem[] = data.documents ?? [];
     return (
       <View style={styles.stack}>
         <BackHead title="Dokumentsafe" onBack={goBack} styles={styles} colors={colors} />

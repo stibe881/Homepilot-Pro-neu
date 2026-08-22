@@ -20,6 +20,18 @@ import { minutenImText } from '../lib/kochzeit';
 import { Colors, radius, useColors } from '../theme';
 
 /**
+ * Ein Rezept bzw. eine Zutat, wie der Hub sie speichert (Punkt 60 der
+ * Werkbank). Offen mit Absicht: Die Felder (title, ingredients, servings,
+ * source, last_cooked …) wachsen mit dem Modul, und sie hier abschliessend
+ * zu tippen hiesse, das Hub-Schema zu duplizieren. Der eine Alias ersetzt
+ * die dreissig verstreuten `any` von vorher.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type Rezept = Record<string, any>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type Zutat = Record<string, any>;
+
+/**
  * Rezeptbuch: Übersicht mit Foto-Kacheln, Suche und Filtern; Detailansicht
  * mit Portionen-Umrechnung; «Planen» trägt das Gericht in den Essensplaner
  * ein, «Kochen» führt Schritt für Schritt durch die Zubereitung.
@@ -33,12 +45,12 @@ type Styles = ReturnType<typeof makeStyles>;
 const WEEK_DAYS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
 
 interface Props {
-  recipes: any[];
+  recipes: Rezept[];
   /** Hub-Zugang – für die Küchenuhr im Kochmodus. Ohne fehlt der Knopf. */
   settings?: HubSettings;
   currentUser?: { name: string } | null;
-  onAdd: (recipe: Record<string, any>) => void;
-  onUpdate: (id: string, patch: Record<string, any>) => void;
+  onAdd: (recipe: Rezept) => void;
+  onUpdate: (id: string, patch: Rezept) => void;
   onDelete: (id: string) => void;
   /** Mit der Rezept-Kennung, nicht nur dem Namen: Zwei Rezepte
    *  «Lasagne» – oder eines, das später umbenannt wird – und der
@@ -49,7 +61,7 @@ interface Props {
    *  dazugekommen sind - schon Vorhandenes zählt nicht mit, und «0
    *  hinzugefügt» ist eine ehrlichere Antwort als ein wortloses
    *  Häkchen. */
-  onShopping: (recipe: any, faktor: number) => number;
+  onShopping: (recipe: Rezept, faktor: number) => number;
   onClose: () => void;
 }
 
@@ -64,7 +76,7 @@ export function timeLabel(minutes: number): string {
 }
 
 /** Gesamtzeit eines Rezepts: Vorbereitung + Kochen + Ruhen. */
-export function totalMinutes(recipe: any): number {
+export function totalMinutes(recipe: Rezept): number {
   return ['prep_time', 'cook_time', 'rest_time']
     .map((key) => Number(recipe?.[key]) || 0)
     .reduce((a, b) => a + b, 0);
@@ -79,7 +91,7 @@ const DIFFICULTY: Record<string, { label: string; tone: 'on' | 'warn' | 'danger'
   schwer: { label: 'Anspruchsvoll', tone: 'danger' },
 };
 
-export function difficultyInfo(value: any) {
+export function difficultyInfo(value: unknown) {
   return DIFFICULTY[String(value ?? '').toLowerCase()] ?? null;
 }
 
@@ -98,7 +110,7 @@ export function categoryEmoji(name: string): string {
 }
 
 /** Menge skaliert auf die gewählten Portionen, hübsch formatiert. */
-export function scaledAmount(amount: any, factor: number): string {
+export function scaledAmount(amount: unknown, factor: number): string {
   const value = Number(amount);
   if (!Number.isFinite(value)) return String(amount ?? '');
   const scaled = value * factor;
@@ -107,7 +119,7 @@ export function scaledAmount(amount: any, factor: number): string {
 }
 
 /** Tipps/Hinweise/Notizen: Text, Liste oder Liste von {text} → Zeilen. */
-export function listOfTexts(value: any): string[] {
+export function listOfTexts(value: unknown): string[] {
   if (!value) return [];
   return (Array.isArray(value) ? value : [value])
     .map((entry) => (typeof entry === 'string' ? entry : String(entry?.text ?? '')))
@@ -116,8 +128,8 @@ export function listOfTexts(value: any): string[] {
 }
 
 /** Zutaten in der Reihenfolge ihrer Gruppen («Die Basis», «Die Würze» …). */
-export function ingredientGroups(ingredients: any[]): { label: string; items: any[] }[] {
-  const groups: { label: string; items: any[] }[] = [];
+export function ingredientGroups(ingredients: Zutat[]): { label: string; items: Zutat[] }[] {
+  const groups: { label: string; items: Zutat[] }[] = [];
   for (const ingredient of ingredients) {
     const label = String(ingredient?.category ?? '').trim();
     const last = groups[groups.length - 1];
@@ -128,7 +140,7 @@ export function ingredientGroups(ingredients: any[]): { label: string; items: an
 }
 
 /** Suche über Titel, Beschreibung, Zutaten, Kategorie und Schlagwörter. */
-export function matchesSearch(recipe: any, query: string): boolean {
+export function matchesSearch(recipe: Rezept, query: string): boolean {
   const needle = query.trim().toLowerCase();
   if (!needle) return true;
   const haystack = [
@@ -137,7 +149,7 @@ export function matchesSearch(recipe: any, query: string): boolean {
     recipe.category,
     ...(Array.isArray(recipe.tags) ? recipe.tags : []),
     ...(Array.isArray(recipe.ingredients)
-      ? recipe.ingredients.map((ingredient: any) => ingredient?.name)
+      ? recipe.ingredients.map((ingredient: Zutat) => ingredient?.name)
       : []),
   ]
     .map((part) => String(part ?? '').toLowerCase())
@@ -156,8 +168,8 @@ const UNITS = new Set([
 
 /** «250 ml Ketchup» → {amount, unit, name}; «Die Würze:» eröffnet eine
  *  Gruppe. Was nicht passt, bleibt unverändert der Zutatenname. */
-export function parseIngredients(text: string): any[] {
-  const result: any[] = [];
+export function parseIngredients(text: string): Zutat[] {
+  const result: Zutat[] = [];
   let category = '';
   for (const raw of text.split('\n')) {
     const line = raw.replace(/^[-•*]\s*/, '').trim();
@@ -166,7 +178,7 @@ export function parseIngredients(text: string): any[] {
       category = line.slice(0, -1).trim();
       continue;
     }
-    const entry: any = { name: line };
+    const entry: Zutat = { name: line };
     const match = line.match(/^(\d+(?:[.,]\d+)?)\s+(\S+)\s+(.+)$/);
     if (match && UNITS.has(match[2].toLowerCase().replace(/\.$/, ''))) {
       entry.amount = Number(match[1].replace(',', '.'));
@@ -186,7 +198,7 @@ export function parseIngredients(text: string): any[] {
 }
 
 /** Umkehrung fürs Bearbeiten: Zutatenliste → Textzeilen mit Gruppen. */
-export function serializeIngredients(ingredients: any[]): string {
+export function serializeIngredients(ingredients: Zutat[]): string {
   const lines: string[] = [];
   let lastCategory = '';
   for (const ingredient of ingredients) {
@@ -211,8 +223,8 @@ export function parseSteps(text: string): { text: string }[] {
     .map((line) => ({ text: line }));
 }
 
-function stepTexts(recipe: any): string[] {
-  const raw: any[] = Array.isArray(recipe?.instructions) ? recipe.instructions : [];
+function stepTexts(recipe: Rezept): string[] {
+  const raw: Zutat[] = Array.isArray(recipe?.instructions) ? recipe.instructions : [];
   return raw
     .map((step) => (typeof step === 'string' ? step : String(step?.text ?? '')))
     .map((text) => text.trim())
@@ -221,7 +233,7 @@ function stepTexts(recipe: any): string[] {
 
 // ── Bausteine ───────────────────────────────────────────────────────────────
 
-function DifficultyBadge({ recipe, styles, colors }: { recipe: any; styles: Styles; colors: Colors }) {
+function DifficultyBadge({ recipe, styles, colors }: { recipe: Rezept; styles: Styles; colors: Colors }) {
   const info = difficultyInfo(recipe.difficulty);
   if (!info) return null;
   return (
@@ -241,7 +253,7 @@ function RecipeTile({
   styles,
   colors,
 }: {
-  recipe: any;
+  recipe: Rezept;
   width: number;
   onOpen: () => void;
   onToggleFavorite: () => void;
@@ -300,8 +312,8 @@ function RecipeForm({
   styles,
   colors,
 }: {
-  initial?: any;
-  onSave: (recipe: Record<string, any>) => void;
+  initial?: Rezept;
+  onSave: (recipe: Rezept) => void;
   onCancel: () => void;
   styles: Styles;
   colors: Colors;
@@ -349,7 +361,7 @@ function RecipeForm({
 
   const submit = () => {
     if (!title.trim()) return;
-    const recipe: Record<string, any> = { text: title.trim() };
+    const recipe: Rezept = { text: title.trim() };
     recipe.image_url = image || null;
     recipe.description = description.trim();
     recipe.category = category.trim();
@@ -528,7 +540,7 @@ function CookMode({
   styles,
   colors,
 }: {
-  recipe: any;
+  recipe: Rezept;
   factor: number;
   /** Für die Küchenuhr – ohne Hub-Zugang gibt es den Knopf nicht. */
   settings?: HubSettings;
@@ -552,7 +564,7 @@ function CookMode({
     };
   }, []);
   const steps = stepTexts(recipe);
-  const ingredients: any[] = Array.isArray(recipe.ingredients) ? recipe.ingredients : [];
+  const ingredients: Zutat[] = Array.isArray(recipe.ingredients) ? recipe.ingredients : [];
   // «20 Minuten backen» → ein Knopf, der die Küchenuhr des Hubs stellt.
   // Die Durchsage kommt dann auch im Wohnzimmer an.
   const [uhrGestellt, setUhrGestellt] = useState<number | null>(null);
@@ -737,7 +749,7 @@ function RecipeDetail({
   styles,
   colors,
 }: {
-  recipe: any;
+  recipe: Rezept;
   onBack: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -746,7 +758,7 @@ function RecipeDetail({
   /** Der Kochmodus wurde bis zum Ende durchlaufen. */
   onCooked?: () => void;
   planMeal: (day: string, text: string, recipeId: string) => void;
-  onShopping: (recipe: any, faktor: number) => number;
+  onShopping: (recipe: Rezept, faktor: number) => number;
   styles: Styles;
   colors: Colors;
 }) {
@@ -761,7 +773,7 @@ function RecipeDetail({
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const factor = baseServings > 0 ? servings / baseServings : 1;
-  const ingredients: any[] = Array.isArray(recipe.ingredients) ? recipe.ingredients : [];
+  const ingredients: Zutat[] = Array.isArray(recipe.ingredients) ? recipe.ingredients : [];
   const steps = stepTexts(recipe);
   const minutes = totalMinutes(recipe);
   const difficulty = difficultyInfo(recipe.difficulty);
@@ -1124,7 +1136,7 @@ export function RecipeBook({
   }, [recipes, query, filter, currentUser]);
 
   const favoriteCount = recipes.filter((recipe) => recipe.favorite).length;
-  const toggleFavorite = (recipe: any) =>
+  const toggleFavorite = (recipe: Rezept) =>
     onUpdate(recipe.id, { favorite: !recipe.favorite });
 
   if (screen.kind === 'form') {

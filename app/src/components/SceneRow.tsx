@@ -33,7 +33,7 @@ export function SceneRow({
           style={({ pressed }) => [styles.scene, pressed && { opacity: 0.65 }]}
         >
           <Ionicons
-            name={(scene.icon as any) || 'sparkles-outline'}
+            name={(scene.icon as keyof typeof Ionicons.glyphMap) || 'sparkles-outline'}
             size={17}
             color={colors.ink}
           />

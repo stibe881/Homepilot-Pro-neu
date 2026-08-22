@@ -96,8 +96,8 @@ export function PushRules({
         { still: true }
       );
       setRules(data.rules ?? []);
-    } catch (err: any) {
-      setError(String(err.message ?? err));
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
       load();
     }
   };

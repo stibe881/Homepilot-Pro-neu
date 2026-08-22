@@ -91,11 +91,11 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
 
   /** Fehlertexte des Hubs lesbar machen – bei Eingabefehlern liefert
    *  FastAPI eine Liste von Objekten statt eines Satzes. */
-  const detailText = (data: any, status: number): string => {
+  const detailText = (data: { detail?: unknown }, status: number): string => {
     const detail = data?.detail;
     if (typeof detail === 'string') return detail;
     if (Array.isArray(detail)) {
-      return detail.map((entry: any) => entry?.msg ?? JSON.stringify(entry)).join(', ');
+      return detail.map((entry: { msg?: string }) => entry?.msg ?? JSON.stringify(entry)).join(', ');
     }
     return `Hub antwortet mit ${status}`;
   };
@@ -130,8 +130,8 @@ export function SpeakersScreen({ settings }: { settings: HubSettings }) {
       }
       setPending((prev) => (prev.includes(entry.name) ? prev : [...prev, entry.name]));
       load();
-    } catch (err: any) {
-      setError(String(err.message ?? err));
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
     } finally {
       setAdopting(null);
     }

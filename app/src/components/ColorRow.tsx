@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { Entity } from '../api/types';
+import { CommandData, Entity } from '../api/types';
 import { Colors, useColors } from '../theme';
 
 /**
@@ -78,7 +78,7 @@ export function ColorRow({
   onCommand,
 }: {
   entity: Entity;
-  onCommand: (command: string, data?: Record<string, any>) => void;
+  onCommand: (command: string, data?: CommandData) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);

@@ -95,8 +95,8 @@ export function SceneSuggestion({
       setNote(`«${name.trim()}» angelegt – zu finden bei den Szenen.`);
       setSuggestion(null);
       onCreated();
-    } catch (err: any) {
-      setNote(String(err?.message ?? err));
+    } catch (err) {
+      setNote(String(err instanceof Error ? err.message : err));
     } finally {
       setBusy(false);
     }

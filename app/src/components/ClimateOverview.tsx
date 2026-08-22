@@ -97,7 +97,7 @@ export function ClimateOverview({
         .then((data) => {
           if (cancelled || !data) return;
           const values = (data.history ?? [])
-            .map((entry: any) => Number(entry.state?.state))
+            .map((entry) => Number(entry.state?.state))
             .filter((value: number) => Number.isFinite(value));
           if (values.length === 0) return;
           setRange((prev) => ({

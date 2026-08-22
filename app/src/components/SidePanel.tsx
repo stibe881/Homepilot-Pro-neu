@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { Activity, Entity } from '../api/types';
+import { Activity, CommandData, Entity, EntityState } from '../api/types';
 import { uhr, wochentag } from '../lib/format';
 import { istMusikbox, pickPlayer } from '../lib/geraeteart';
 import { Colors, radius, type, useColors } from '../theme';
@@ -26,7 +26,7 @@ export function SidePanel({
   entities: Entity[];
   width?: number;
   /** Für den Player – ohne ihn bleibt er weg statt tot dazustehen. */
-  onCommand?: (entityId: string, command: string, data?: Record<string, any>) => void;
+  onCommand?: (entityId: string, command: string, data?: CommandData) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -106,7 +106,7 @@ function MediaPanel({
   /** Box, auf der Spotify gerade spielt – für Etikett und Markierung. */
   activeDevice?: string | null;
   onSelect: (speaker: Entity) => void;
-  onCommand: (entityId: string, command: string, data?: Record<string, any>) => void;
+  onCommand: (entityId: string, command: string, data?: CommandData) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -115,7 +115,7 @@ function MediaPanel({
   // volle Liste erst auf Antippen. Eine Box antippen heisst: Musik dorthin
   // (die frühere «Abspielen auf»-Zeile ist hier aufgegangen).
   const [pickerOpen, setPickerOpen] = useState(false);
-  const command = (name: string, data?: Record<string, any>) =>
+  const command = (name: string, data?: CommandData) =>
     onCommand(entity.id, name, data);
   const isSpotify = entity.commands.includes('play_playlist');
   const pickerLabel =
@@ -311,13 +311,13 @@ export function ActivityCard({ activity, limit = 30 }: { activity: Activity[]; l
 function WeatherPanel({ entity }: { entity: Entity }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const days: any[] = Array.isArray(entity.state.days) ? entity.state.days : [];
+  const days: EntityState[] = Array.isArray(entity.state.days) ? entity.state.days : [];
 
   return (
     <Card style={styles.alertCard}>
       <View style={styles.weatherNow}>
         <Ionicons
-          name={(entity.state.icon as any) ?? 'partly-sunny-outline'}
+          name={(entity.state.icon as keyof typeof Ionicons.glyphMap) ?? 'partly-sunny-outline'}
           size={40}
           color={colors.ink}
         />
@@ -338,7 +338,7 @@ function WeatherPanel({ entity }: { entity: Entity }) {
               <Text style={styles.dayName}>
                 {index === 0 ? 'Heute' : weekdayShort(day.date)}
               </Text>
-              <Ionicons name={(day.icon as any) ?? 'cloud-outline'} size={20} color={colors.inkSoft} />
+              <Ionicons name={(day.icon as keyof typeof Ionicons.glyphMap) ?? 'cloud-outline'} size={20} color={colors.inkSoft} />
               <Text style={styles.dayHigh}>{day.high != null ? `${day.high}°` : '–'}</Text>
               <Text style={styles.dayLow}>{day.low != null ? `${day.low}°` : ''}</Text>
               {day.rain != null && day.rain >= 20 ? (
@@ -365,7 +365,7 @@ function AlertPanel({ entity }: { entity: Entity }) {
   const count = entity.state.count ?? 0;
   const severity = entity.state.max_severity;
   const tone = count > 0 ? severityColor(colors, severity) : colors.on;
-  const alerts: any[] = entity.state.alerts ?? [];
+  const alerts: Record<string, string | undefined>[] = entity.state.alerts ?? [];
 
   return (
     <Card style={styles.alertCard}>
@@ -391,7 +391,7 @@ function AlertPanel({ entity }: { entity: Entity }) {
             <View
               style={[
                 styles.severityBar,
-                { backgroundColor: severityColor(colors, item.severity) },
+                { backgroundColor: severityColor(colors, item.severity ?? '') },
               ]}
             />
             <View style={{ flex: 1 }}>

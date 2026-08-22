@@ -8,7 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
-import { Entity } from '../../api/types';
+import { CommandData, Entity } from '../../api/types';
 import { useColors } from '../../theme';
 import { makeStyles } from './stil';
 
@@ -18,7 +18,7 @@ export function ShuffleRepeat({
   onCommand,
 }: {
   entity: Entity;
-  onCommand: (command: string, data?: Record<string, any>) => void;
+  onCommand: (command: string, data?: CommandData) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -108,7 +108,7 @@ export function SpotifyPanel({
   hideDevices = false,
 }: {
   entity: Entity;
-  onCommand: (command: string, data?: Record<string, any>) => void;
+  onCommand: (command: string, data?: CommandData) => void;
   /** Boxen-Zeile weglassen – auf der Startseite übernimmt sie der
    *  Lautsprecher-Wähler in der Kopfzeile der Musikkarte. */
   hideDevices?: boolean;
@@ -466,7 +466,7 @@ export function MediaButton({
   label,
   onPress,
 }: {
-  icon: any;
+  icon: keyof typeof Ionicons.glyphMap;
   label: string;
   onPress: () => void;
 }) {

@@ -26,7 +26,7 @@ const QUEUE_LIMIT = 20;
 export interface QueuedCommand {
   entityId: string;
   command: string;
-  data?: Record<string, any>;
+  data?: Record<string, unknown>;
   at: number;
 }
 

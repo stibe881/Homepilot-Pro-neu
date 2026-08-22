@@ -26,7 +26,7 @@ import { HousePrefs } from '../hooks/usePrefs';
 export function altesUebernehmen(
   haus: HousePrefs,
   lokal: HubSettings,
-  persoenlich: Record<string, any>
+  persoenlich: Record<string, unknown>
 ): HousePrefs | null {
   // Steht im Haus schon etwas, ist die Übernahme gelaufen.
   if (Object.keys(haus).length > 0) return null;

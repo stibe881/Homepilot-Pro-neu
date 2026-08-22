@@ -190,7 +190,7 @@ export function EditButton({
   label,
   onPress,
 }: {
-  icon: any;
+  icon: keyof typeof Ionicons.glyphMap;
   active: boolean;
   label: string;
   onPress?: () => void;

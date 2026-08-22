@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { Entity } from '../api/types';
+import { CommandData, Entity } from '../api/types';
 import { Colors, radius, useColors } from '../theme';
 
 /**
@@ -41,7 +41,7 @@ export function TvApps({
   onCommand,
 }: {
   entity: Entity;
-  onCommand: (command: string, data?: Record<string, any>) => void;
+  onCommand: (command: string, data?: CommandData) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);

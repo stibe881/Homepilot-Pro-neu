@@ -59,7 +59,7 @@ export function GoodNight({
   useEffect(() => {
     // Ohne Antwort gelten die Vorgaben - der Knopf funktioniert trotzdem.
     hub
-      .get<any>('/api/goodnight', { fallback: null, still: true })
+      .get<{ night_lights?: string[]; arm_alarm?: boolean } | null>('/api/goodnight', { fallback: null, still: true })
       .then((data) => {
         if (data) setConfig({ night_lights: data.night_lights ?? [], arm_alarm: !!data.arm_alarm });
       });

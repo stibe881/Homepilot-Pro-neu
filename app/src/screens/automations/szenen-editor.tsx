@@ -484,7 +484,7 @@ export function SceneEditor({
                 style={[styles.choice, draft.icon === icon && styles.choiceActive]}
               >
                 <Ionicons
-                  name={icon as any}
+                  name={icon as keyof typeof Ionicons.glyphMap}
                   size={18}
                   color={draft.icon === icon ? colors.surfaceStrong : colors.inkSoft}
                 />

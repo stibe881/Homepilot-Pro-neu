@@ -17,6 +17,22 @@ import { makeStyles } from './automations/stil';
 import { SCENE_ICONS, SceneDraft, SceneEditor } from './automations/szenen-editor';
 import { buildTemplates } from './automations/vorlagen';
 
+/** Ein gegensätzlich geschaltetes Gerät aus /api/automations/conflicts. */
+interface Konflikt {
+  entity_id: string;
+  commands: string[];
+  automations: { id: string; alias: string }[];
+}
+
+/** Eine Zeile des Papierkorbs aus /api/trash. */
+interface PapierkorbZeile {
+  kind: string;
+  id: string;
+  name: string;
+  at: number;
+  by: string;
+}
+
 export function AutomationsScreen({
   settings,
   user,
@@ -45,12 +61,8 @@ export function AutomationsScreen({
   const [runs, setRuns] = useState<Run[]>([]);
   // Abläufe, die dasselbe Gerät gegensätzlich schalten – kein Fehler,
   // aber die erste Frage, wenn nachts das Licht von selbst angeht.
-  const [conflicts, setConflicts] = useState<
-    { entity_id: string; commands: string[]; automations: { id: string; alias: string }[] }[]
-  >([]);
-  const [trash, setTrash] = useState<
-    { kind: string; id: string; name: string; at: number; by: string }[]
-  >([]);
+  const [conflicts, setConflicts] = useState<Konflikt[]>([]);
+  const [trash, setTrash] = useState<PapierkorbZeile[]>([]);
   const [trashOpen, setTrashOpen] = useState(false);
   const [hueScenes, setHueScenes] = useState<string[]>([]);
   const [sceneQuery, setSceneQuery] = useState('');
@@ -83,13 +95,13 @@ export function AutomationsScreen({
     // Die Beikost (Konflikte, Papierkorb, Verlauf, Hue-Szenen) darf
     // fehlen, ohne dass die Seite meckert.
     hub
-      .get<{ conflicts?: any[] } | null>('/api/automations/conflicts', {
+      .get<{ conflicts?: Konflikt[] } | null>('/api/automations/conflicts', {
         fallback: null,
         still: true,
       })
       .then((data) => setConflicts(data?.conflicts ?? []));
     hub
-      .get<{ trash?: any[] } | null>('/api/trash', { fallback: null, still: true })
+      .get<{ trash?: PapierkorbZeile[] } | null>('/api/trash', { fallback: null, still: true })
       .then((data) => setTrash(data?.trash ?? []));
     hub
       .get<{ runs?: Run[] } | null>('/api/automations/runs', {
@@ -645,7 +657,7 @@ export function AutomationsScreen({
             renderItem={(scene) => (
               <Card key={scene.id} style={styles.card}>
                 <View style={styles.cardHead}>
-                  <Ionicons name={scene.icon as any} size={20} color={colors.inkSoft} />
+                  <Ionicons name={scene.icon as keyof typeof Ionicons.glyphMap} size={20} color={colors.inkSoft} />
                   <View style={{ flex: 1 }}>
                     <Text style={styles.title}>{scene.name}</Text>
                     <Text style={styles.detail}>

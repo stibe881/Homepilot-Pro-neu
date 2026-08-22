@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 
-import { Entity, Scene } from '../api/types';
+import { CommandData, Entity, KalenderEintrag, Scene } from '../api/types';
 import { Card } from '../components/Card';
 import { DraggableList } from '../components/DraggableList';
 import { KIND_ICONS, shortState } from '../components/RoomTile';
@@ -34,7 +34,7 @@ interface Props {
   now: Date;
   pending: Record<string, boolean>;
   wide: boolean;
-  onCommand: (entityId: string, command: string, data?: Record<string, any>) => void;
+  onCommand: (entityId: string, command: string, data?: CommandData) => void;
   onActivateScene: (sceneId: string) => void;
   /** Auf der Startseite markierte Countdowns (aus dem Familie-Modul). */
   countdowns?: { text: string; date: string; on_start?: boolean }[];
@@ -62,7 +62,7 @@ function two(value: number): string {
 /** «in X Tagen» bis zu einem Datum – für den nächsten Geburtstag (rein,
  *  testbar). Reine Datumsangaben («2026-08-20») werden auf Mittag gesetzt,
  *  damit die Zeitzone die Tageszahl nicht verschiebt. */
-function daysUntilText(value: any): string {
+function daysUntilText(value: unknown): string {
   const raw = String(value ?? '').trim();
   const iso = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T12:00:00` : raw;
   const target = new Date(iso);
@@ -263,13 +263,13 @@ export function OverviewScreen({
       : 'Fertig';
 
   // Kalender: nächster Termin und – als eigener Platz – nächster Geburtstag.
-  const events: any[] = Array.isArray(calendar?.state.events) ? calendar!.state.events : [];
-  const isBirthday = (event: any) =>
+  const events: KalenderEintrag[] = Array.isArray(calendar?.state.events) ? calendar!.state.events : [];
+  const isBirthday = (event: KalenderEintrag) =>
     event.birthday || /geburtstag|birthday/i.test(event.summary ?? '');
   const birthday = events.find(isBirthday);
   const nextEvent = events.find((event) => !isBirthday(event));
 
-  const eventLine = (event: any | undefined, demoText: string, demoWhen: string) => {
+  const eventLine = (event: KalenderEintrag | undefined, demoText: string, demoWhen: string) => {
     if (!calendar) return { title: demoText, when: demoWhen, demo: true };
     if (!event) return { title: 'Nichts geplant', when: '', demo: false };
     const when = event.all_day
@@ -527,7 +527,7 @@ export function OverviewScreen({
             <>
               <View style={styles.weatherNow}>
                 <Ionicons
-                  name={(weather.state.icon as any) ?? 'cloud-outline'}
+                  name={(weather.state.icon as keyof typeof Ionicons.glyphMap) ?? 'cloud-outline'}
                   size={34}
                   color={colors.ink}
                 />
@@ -685,7 +685,7 @@ function FavoriteChip({
 }: {
   entity: Entity;
   pending: boolean;
-  onCommand: (entityId: string, command: string, data?: Record<string, any>) => void;
+  onCommand: (entityId: string, command: string, data?: CommandData) => void;
   styles: OverviewStyles;
   colors: Colors;
 }) {

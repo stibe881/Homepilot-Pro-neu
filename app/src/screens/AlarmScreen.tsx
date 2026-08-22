@@ -20,6 +20,11 @@ import { Colors, radius, space, type, useColors } from '../theme';
  * und kommt von dort zurück.
  */
 
+/** Die Einstellungen der Anlage, wie der Hub sie speichert - offen, weil
+ *  die Felder dem Hub gehören (Punkt 60 der Werkbank). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AlarmConfig = Record<string, any>;
+
 interface Sensor {
   entity_id: string;
   modes: string[];
@@ -69,7 +74,7 @@ interface After {
 interface Overview {
   state: AlarmState;
   sensors: Sensor[];
-  settings: Record<string, any>;
+  settings: AlarmConfig;
   after_trigger: Record<string, After>;
   actions: Record<string, AlarmAction[]>;
   history: { kind: string; text: string; by?: string; at: number }[];
@@ -209,7 +214,7 @@ export function AlarmScreen({
   const waiting = data?.state.next_action === 'rearm';
   useTakt(load, running ? 1000 : waiting ? 5000 : 15000);
 
-  const save = async (patch: Record<string, any>) => {
+  const save = async (patch: AlarmConfig) => {
     // Sofort im Bild nachziehen, damit das Antippen nicht hakt.
     setData((prev) => (prev ? { ...prev, ...patch } : prev));
     // Ging es schief, holt der Sekunden-Takt oben gleich den echten
@@ -258,8 +263,8 @@ export function AlarmScreen({
       }
       setPendingMode(null);
       setOffenBeimScharfschalten([]);
-    } catch (err: any) {
-      setNote(String(err.message ?? err));
+    } catch (err) {
+      setNote(String(err instanceof Error ? err.message : err));
     }
     load();
   };
@@ -289,8 +294,8 @@ export function AlarmScreen({
       }
       setPinAsk(false);
       setPinError(null);
-    } catch (err: any) {
-      setPinError(String(err.message ?? err));
+    } catch (err) {
+      setPinError(String(err instanceof Error ? err.message : err));
       return;
     }
     load();
@@ -1011,8 +1016,8 @@ function AlarmSettings({
   settings,
   onSave,
 }: {
-  settings: Record<string, any>;
-  onSave: (settings: Record<string, any>) => void;
+  settings: AlarmConfig;
+  onSave: (settings: AlarmConfig) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -1140,8 +1145,8 @@ function PinCard({
       setValue('');
       setNote(pin ? 'PIN gesetzt.' : 'PIN entfernt.');
       onChanged();
-    } catch (err: any) {
-      setNote(String(err.message ?? err));
+    } catch (err) {
+      setNote(String(err instanceof Error ? err.message : err));
     }
   };
 

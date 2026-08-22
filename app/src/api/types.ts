@@ -1,9 +1,49 @@
+/**
+ * Der Zustand einer Entität, wie der Hub ihn schickt (Punkt 60 der
+ * Werkbank). Die häufigen Felder sind benannt und getippt – wer
+ * `state.brightness` liest, bekommt eine Zahl, nicht `any`. Der offene
+ * Index darunter bleibt mit Absicht: Jede Integration darf zusätzliche
+ * Felder mitschicken, und die App soll sie anzeigen können, ohne dass
+ * hier jedes Hub-Schema dupliziert wird.
+ */
+export interface EntityState {
+  /** Der Hauptzustand: 'on'/'off', ein Messwert, 'cleaning', 'locked' … */
+  state?: string | number | boolean | null;
+  unit?: string;
+  brightness?: number;
+  position?: number;
+  color?: string;
+  color_temp?: number;
+  battery?: number;
+  power?: number;
+  energy_today?: number;
+  temperature?: number;
+  volume?: number;
+  muted?: boolean;
+  device_class?: string;
+  error?: string | null;
+  // Alles Weitere je nach Integration (rooms, playlists, events, robot …).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
+}
+
+/** Die Zusatzdaten eines Befehls (brightness, position, rooms …) - dieselbe
+ *  offene Form wie der Zustand, aus demselben Grund. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type CommandData = Record<string, any>;
+
+/** Ein Kalender-Termin, wie ihn die Google-Kalender-Integration in den
+ *  Zustand legt (summary, start, end, all_day, birthday …). Offen aus
+ *  demselben Grund wie EntityState. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type KalenderEintrag = Record<string, any>;
+
 export interface Entity {
   id: string;
   kind: string;
   name: string;
   integration: string;
-  state: Record<string, any>;
+  state: EntityState;
   commands: string[];
   available: boolean;
   /** Raum aus der Hub-Konfiguration; die App gruppiert danach. */
@@ -27,7 +67,7 @@ export interface Scene {
   name: string;
   icon: string;
   entity_ids: string[];
-  actions?: { entity_id: string; command: string; data?: Record<string, any> }[];
+  actions?: { entity_id: string; command: string; data?: CommandData }[];
   /** In der App angelegt – lässt sich dort auch ändern und löschen. */
   editable?: boolean;
   /** Optionaler Raum – dann erscheint die Szene in dessen Kategorie „Szenen“. */
@@ -68,8 +108,8 @@ export type ServerMessage =
       type: 'state_changed';
       entity: Entity;
       entity_id: string;
-      old_state: Record<string, any>;
-      new_state: Record<string, any>;
+      old_state: EntityState;
+      new_state: EntityState;
       source?: Source;
     }
   | { type: 'entity_added'; entity: Entity }
@@ -131,7 +171,7 @@ export interface SystemStatus {
     entities: number;
     unavailable: number;
     /** Was die Integration selbst über ihren Zustand weiss (optional). */
-    health?: Record<string, any>;
+    health?: Record<string, unknown>;
   }[];
   automations: { count: number; paused_until: string | null };
   push_devices: number;

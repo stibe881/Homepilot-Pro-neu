@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Path, Line as SvgLine } from 'react-native-svg';
 
-import { Entity } from '../api/types';
+import { Entity, EntityState } from '../api/types';
 import { useSettings } from '../hooks/HubContext';
 import { Colors, radius, useColors } from '../theme';
 
@@ -62,7 +62,7 @@ export function HistoryChart({
       .then((data) => {
         if (cancelled) return;
         const parsed: Point[] = (data.history ?? [])
-          .map((row: any) => ({
+          .map((row: { recorded_at: string; state?: EntityState }) => ({
             at: new Date(row.recorded_at).getTime(),
             value: Number(row.state?.state),
           }))
@@ -74,7 +74,7 @@ export function HistoryChart({
         }
       })
       .catch((err) => {
-        if (!cancelled) setNote(String(err.message ?? err));
+        if (!cancelled) setNote(String(err instanceof Error ? err.message : err));
       });
 
     return () => {

@@ -7,14 +7,24 @@
 import { Entity } from '../../api/types';
 import { datumUhr } from '../../lib/format';
 
+/**
+ * Die gespeicherte Form eines Ablauf-Bausteins (Auslöser, Bedingung,
+ * Aktion) - dieselbe, die der Hub in der config.yaml führt. Ein offenes
+ * Objekt mit Absicht (Punkt 60 der Werkbank): Die Felder je Art sauber zu
+ * tippen hiesse, die Hub-Schemas hier zu duplizieren; der eine Alias
+ * ersetzt die achtzehn verstreuten `any` von vorher.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type BausteinConfig = Record<string, any>;
+
 export interface Automation {
   id: string;
   alias: string;
-  triggers: any[];
-  conditions: any[];
-  actions: any[];
+  triggers: BausteinConfig[];
+  conditions: BausteinConfig[];
+  actions: BausteinConfig[];
   /** Was stattdessen läuft, wenn die Bedingungen nicht passen. */
-  otherwise?: any[];
+  otherwise?: BausteinConfig[];
   editable: boolean;
   /** Frei benannte Kategorie zum Gruppieren (vom Hub, kann fehlen). */
   category?: string | null;
@@ -472,7 +482,7 @@ export const EMPTY: Draft = {
 };
 
 /** Einen Trigger-Entwurf in die gespeicherte Form bringen (rein, testbar). */
-export function triggerToConfig(t: TriggerDraft): Record<string, any> {
+export function triggerToConfig(t: TriggerDraft): BausteinConfig {
   if (t.kind === 'sun') {
     return { type: 'sun', event: t.sunEvent, offset: Number(t.sunOffset) || 0 };
   }
@@ -496,7 +506,7 @@ export function triggerToConfig(t: TriggerDraft): Record<string, any> {
     // Löst beim Übertritt aus, nicht bei jeder Schwankung darunter: Der
     // Tumbler ist fertig, wenn die Leistung von «über 5 W» auf «unter 5 W»
     // fällt – nicht jedes Mal, wenn 2.1 W zu 2.0 W wird.
-    const trigger: Record<string, any> = { type: 'state', entity_id: t.entityId };
+    const trigger: BausteinConfig = { type: 'state', entity_id: t.entityId };
     if (t.attribute) trigger.attribute = t.attribute;
     trigger[t.thresholdOp] = Number(t.thresholdValue) || 0;
     if (hold > 0) trigger.for = hold;
@@ -506,11 +516,11 @@ export function triggerToConfig(t: TriggerDraft): Record<string, any> {
     // Ein Geofence ist im Hub ein gewöhnlicher Zustand (home/away) – der
     // eigene Auslöser-Typ ist reine Bedienhilfe, damit niemand wissen
     // muss, dass «Stefan kommt heim» ein Zustandswechsel ist.
-    const trigger: Record<string, any> = { type: 'state', entity_id: t.entityId, to: t.toState };
+    const trigger: BausteinConfig = { type: 'state', entity_id: t.entityId, to: t.toState };
     if (hold > 0) trigger.for = hold;
     return trigger;
   }
-  const state: Record<string, any> = { type: 'state', entity_id: t.entityId, to: t.toState };
+  const state: BausteinConfig = { type: 'state', entity_id: t.entityId, to: t.toState };
   if (t.fromState) state.from = t.fromState;
   if (t.attribute) state.attribute = t.attribute;
   if (hold > 0) state.for = hold;
@@ -518,7 +528,7 @@ export function triggerToConfig(t: TriggerDraft): Record<string, any> {
 }
 
 /** Umgekehrt: gespeicherter Trigger → Entwurf (rein, testbar). */
-export function triggerFromConfig(t: any): TriggerDraft {
+export function triggerFromConfig(t: BausteinConfig): TriggerDraft {
   const threshold = t?.above !== undefined || t?.below !== undefined;
   return {
     ...EMPTY_TRIGGER,
@@ -586,12 +596,12 @@ export function delayLabel(seconds: string): string {
 }
 
 /** Die Bedingung eines Ablaufs in die gespeicherte Form (rein, testbar). */
-export function buildConditions(draft: Draft): Record<string, any>[] {
-  const conditions: Record<string, any>[] = [];
+export function buildConditions(draft: Draft): BausteinConfig[] {
+  const conditions: BausteinConfig[] = [];
   if (draft.conditionKind === 'sun') {
     conditions.push({ type: 'sun', state: draft.conditionSun });
   } else if (draft.conditionKind === 'time') {
-    const condition: Record<string, any> = { type: 'time' };
+    const condition: BausteinConfig = { type: 'time' };
     if (draft.conditionAfter) condition.after = draft.conditionAfter;
     if (draft.conditionBefore) condition.before = draft.conditionBefore;
     // Alle sieben Tage anzugeben heisst dasselbe wie keinen – dann lieber
@@ -606,7 +616,7 @@ export function buildConditions(draft: Draft): Record<string, any>[] {
   }
   for (const entry of draft.stateConditions) {
     if (!entry.entity_id) continue;
-    const base: Record<string, any> = { type: 'state', entity_id: entry.entity_id };
+    const base: BausteinConfig = { type: 'state', entity_id: entry.entity_id };
     // Ohne Angabe vergleicht der Hub den Zustand selbst - dann gehört das
     // Feld auch nicht in die gespeicherte Form.
     if (entry.attribute) base.attribute = entry.attribute;
@@ -628,7 +638,7 @@ export function buildConditions(draft: Draft): Record<string, any>[] {
  * Ein Schritt kann mehrere Aktionen ergeben: «Gerät schalten» mit drei
  * angehakten Lampen sind drei Kommandos.
  */
-export function stepToActions(step: StepDraft): Record<string, any>[] {
+export function stepToActions(step: StepDraft): BausteinConfig[] {
   if (step.kind === 'scene') {
     return step.sceneId ? [{ type: 'scene', scene: step.sceneId }] : [];
   }
@@ -664,7 +674,7 @@ export function stepToActions(step: StepDraft): Record<string, any>[] {
   }
   if (step.kind === 'wait_until') {
     if (!step.waitEntityId) return [];
-    const action: Record<string, any> = {
+    const action: BausteinConfig = {
       type: 'wait_until',
       entity_id: step.waitEntityId,
       timeout: Number(step.waitTimeout) || 300,
@@ -677,7 +687,7 @@ export function stepToActions(step: StepDraft): Record<string, any>[] {
   return step.commandActions
     .filter((action) => action.entity_id)
     .map((action) => {
-      const built: Record<string, any> = {
+      const built: BausteinConfig = {
         type: 'command',
         entity_id: action.entity_id,
         command: action.command,
@@ -696,7 +706,7 @@ export function stepToActions(step: StepDraft): Record<string, any>[] {
 }
 
 /** Alle Schritte der Reihe nach (rein, testbar). */
-export function stepsToActions(steps: StepDraft[]): Record<string, any>[] {
+export function stepsToActions(steps: StepDraft[]): BausteinConfig[] {
   return steps.flatMap(stepToActions);
 }
 
@@ -708,7 +718,7 @@ export function stepsToActions(steps: StepDraft[]): Record<string, any>[] {
  * Checkliste mit drei Lampen beim nächsten Öffnen eine Liste aus drei
  * Schritten, und die Bedienung wüchse mit jedem Speichern.
  */
-export function actionsToSteps(actions: Record<string, any>[]): StepDraft[] {
+export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
   const steps: StepDraft[] = [];
   for (const action of actions ?? []) {
     const type = action.type ?? 'command';

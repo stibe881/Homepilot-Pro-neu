@@ -181,8 +181,8 @@ export function LightGroups({
       setNote(`«${name.trim()}» geändert.`);
       abbrechen();
       await load();
-    } catch (err: any) {
-      setNote(String(err.message ?? err));
+    } catch (err) {
+      setNote(String(err instanceof Error ? err.message : err));
     } finally {
       setBusy(false);
     }
@@ -220,8 +220,8 @@ export function LightGroups({
           : `«${name.trim()}» angelegt.`
       );
       await load();
-    } catch (err: any) {
-      setNote(String(err.message ?? err));
+    } catch (err) {
+      setNote(String(err instanceof Error ? err.message : err));
     } finally {
       setBusy(false);
     }
@@ -237,8 +237,8 @@ export function LightGroups({
       if (!response.ok) throw new Error(body.detail ?? 'Fehlgeschlagen');
       setNote(`«${group.name}» aufgelöst – die Lampen sind wieder einzeln da.`);
       await load();
-    } catch (err: any) {
-      setNote(String(err.message ?? err));
+    } catch (err) {
+      setNote(String(err instanceof Error ? err.message : err));
     }
   };
 
@@ -318,8 +318,8 @@ export function LightGroups({
                               ? `«${group.name}» erscheint jetzt im Raum ${option}.`
                               : `«${group.name}» ist keinem Raum mehr zugeordnet.`
                           );
-                        } catch (err: any) {
-                          setNote(String(err.message ?? err));
+                        } catch (err) {
+                          setNote(String(err instanceof Error ? err.message : err));
                         }
                       }}
                       accessibilityRole="radio"

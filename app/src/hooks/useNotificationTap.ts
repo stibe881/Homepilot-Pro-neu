@@ -23,6 +23,9 @@ export interface Tap {
 }
 
 /** Die Nutzdaten einer Nachricht auslesen (rein, testbar). */
+// Die Antwort kommt aus expo-notifications, das hier bewusst nicht
+// importiert wird (lazy, siehe unten) - deshalb offen getippt.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function tapFromResponse(response: any): Tap | null {
   const data = response?.notification?.request?.content?.data;
   if (!data || typeof data !== 'object') return null;

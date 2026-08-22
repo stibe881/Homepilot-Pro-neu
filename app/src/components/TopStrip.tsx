@@ -14,9 +14,10 @@ import {
   View,
 } from 'react-native';
 
-import { Entity } from '../api/types';
+import { CommandData, Entity, KalenderEintrag } from '../api/types';
 import { hasOpenDoor, openContacts } from './OpenDoors';
 import {
+  EinkaufZeile,
   ALLGEMEIN,
   Shop,
   artikelVorschlaege,
@@ -44,8 +45,8 @@ function statusColor(colors: Colors, status: ConnectionStatus): string {
 /** Der nächste echte Termin – dasselbe Ereignis, das der Hub in
  *  `state.state`/`next_start` zusammenfasst, hier aber mit allem drum
  *  herum (Ort, Ende, ganztägig) für die Detailansicht (rein, testbar). */
-export function nextCalendarEvent(calendar: Entity | undefined): any | null {
-  const events: any[] = Array.isArray(calendar?.state.events) ? calendar!.state.events : [];
+export function nextCalendarEvent(calendar: Entity | undefined): KalenderEintrag | null {
+  const events: KalenderEintrag[] = Array.isArray(calendar?.state.events) ? calendar!.state.events : [];
   return events.find((event) => !event.birthday) ?? null;
 }
 
@@ -91,10 +92,10 @@ export function TopStrip({
   hidden?: string[];
   /** Für «Licht aus» direkt aus dem Popup – ohne sie bleibt die Zeile
    *  reine Anzeige. */
-  onCommand?: (entityId: string, command: string, data?: Record<string, any>) => void;
+  onCommand?: (entityId: string, command: string, data?: CommandData) => void;
   /** Offene Einträge der Einkaufsliste – erledigte sind schon
    *  ausgefiltert, hier zählt nur, was noch fehlt. */
-  shopping?: any[];
+  shopping?: EinkaufZeile[];
   /** Die angelegten Läden (Familie → Einkaufsliste → Läden). */
   shops?: Shop[];
   /** Schon einmal eingekaufte Artikel – für die Vervollständigung. */
@@ -176,7 +177,7 @@ export function TopStrip({
   const vorschlaege = artikelVorschlaege(
     knownItems ?? [],
     neuerArtikel,
-    einkauf.map((eintrag: any) => String(eintrag?.text ?? ''))
+    einkauf.map((eintrag) => String(eintrag?.text ?? ''))
   );
 
   return (
@@ -478,7 +479,7 @@ export function TopStrip({
               {gaenge.map((gang) => (
                 <View key={gang.category}>
                   <Text style={styles.gangLabel}>{gang.category}</Text>
-                  {gang.items.map((eintrag: any) => {
+                  {gang.items.map((eintrag: EinkaufZeile) => {
                     const { menge, name } = mengeUndName(String(eintrag.text ?? ''));
                     return (
                       <View key={eintrag.id} style={styles.lightRow}>
@@ -653,7 +654,7 @@ export function TopStrip({
                 : `${alerts?.state.count} Wetterwarnungen`}
             </Text>
             <ScrollView style={{ maxHeight: 380 }}>
-              {(alerts?.state.alerts ?? []).map((warning: any, index: number) => (
+              {(alerts?.state.alerts ?? []).map((warning: Record<string, string | undefined>, index: number) => (
                 <View key={index} style={styles.alertRow}>
                   <Ionicons
                     name="warning"
@@ -772,12 +773,12 @@ function Chip({
   );
 }
 
-function round(value: any): string {
+function round(value: unknown): string {
   return typeof value === 'number' ? String(Math.round(value * 10) / 10) : String(value ?? '–');
 }
 
 /** "16:00" aus einem ISO-Zeitstempel – ganztägige Termine haben keinen. */
-function clockTime(iso: any): string {
+function clockTime(iso: unknown): string {
   const date = new Date(String(iso));
   if (Number.isNaN(date.getTime())) return '';
   return uhr(date);
@@ -785,7 +786,7 @@ function clockTime(iso: any): string {
 
 /** Datum/Zeit eines Termins ausgeschrieben – für die Detailansicht (rein,
  *  testbar). */
-export function eventWhenText(event: any): string {
+export function eventWhenText(event: KalenderEintrag): string {
   if (event.all_day) {
     const date = new Date(String(event.start));
     if (Number.isNaN(date.getTime())) return 'ganztägig';

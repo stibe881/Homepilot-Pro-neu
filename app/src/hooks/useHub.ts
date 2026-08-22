@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
-import { Activity, Entity, Scene, ServerMessage, User } from '../api/types';
+import { Activity, CommandData, Entity, EntityState, Scene, ServerMessage, User } from '../api/types';
 import { failed, tapped, triggered } from '../lib/haptics';
 import { UndoOffer, undoCommand, undoLabel } from '../lib/rueckgaengig';
 import { QueuedCommand, enqueue, stillFresh } from '../lib/warteschlange';
@@ -32,8 +32,8 @@ const UNDO_TIMEOUT = 8000;
  *  war, und die Liste behauptete etwas, das niemand getan hat. */
 function describe(
   entity: Entity,
-  newState: Record<string, any>,
-  oldState: Record<string, any>
+  newState: EntityState,
+  oldState: EntityState
 ): string | null {
   if (JSON.stringify(newState) === JSON.stringify(oldState)) return null;
   const value = newState.state;
@@ -54,8 +54,8 @@ function describe(
 function expectedState(
   entity: Entity,
   command: string,
-  data?: Record<string, any>
-): Record<string, any> | null {
+  data?: CommandData
+): EntityState | null {
   const state = { ...entity.state };
   if (command === 'turn_on') state.state = 'on';
   else if (command === 'turn_off') state.state = 'off';
@@ -330,7 +330,7 @@ export function useHub(url: string | null, token: string | null) {
   }, [url, token, status, reloadScenes]);
 
   const send = useCallback(
-    (entityId: string, command: string, data?: Record<string, any>) => {
+    (entityId: string, command: string, data?: CommandData) => {
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         // Vorher lief der Tipp ins Leere und hinterliess nur «keine
@@ -370,7 +370,7 @@ export function useHub(url: string | null, token: string | null) {
   );
 
   const sendCommand = useCallback(
-    (entityId: string, command: string, data?: Record<string, any>) => {
+    (entityId: string, command: string, data?: CommandData) => {
       const entity = entitiesRef.current[entityId];
       const before = entity ? { ...entity.state } : null;
       if (!send(entityId, command, data)) return;
@@ -446,12 +446,12 @@ export function useHub(url: string | null, token: string | null) {
           failed();
           setError(
             `${result.failed.length} Gerät(e) haben nicht reagiert: ` +
-              result.failed.map((item: any) => item.entity_id).join(', ')
+              result.failed.map((item: { entity_id: string }) => item.entity_id).join(', ')
           );
         }
-      } catch (err: any) {
+      } catch (err) {
         failed();
-        setError(`Szene fehlgeschlagen: ${err.message ?? err}`);
+        setError(`Szene fehlgeschlagen: ${err instanceof Error ? err.message : err}`);
       }
     },
     [url, token]
@@ -476,8 +476,8 @@ export function useHub(url: string | null, token: string | null) {
           body: JSON.stringify({ room }),
         });
         if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
-      } catch (err: any) {
-        setError(`Raum konnte nicht gesetzt werden: ${err.message ?? err}`);
+      } catch (err) {
+        setError(`Raum konnte nicht gesetzt werden: ${err instanceof Error ? err.message : err}`);
       }
     },
     [url, token]
@@ -512,8 +512,8 @@ export function useHub(url: string | null, token: string | null) {
           }
         );
         if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
-      } catch (err: any) {
-        setError(`Änderung konnte nicht gespeichert werden: ${err.message ?? err}`);
+      } catch (err) {
+        setError(`Änderung konnte nicht gespeichert werden: ${err instanceof Error ? err.message : err}`);
       }
     },
     [url, token]

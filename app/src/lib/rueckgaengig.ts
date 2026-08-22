@@ -1,3 +1,5 @@
+import { CommandData, EntityState } from '../api/types';
+
 /**
  * Das Angebot, die letzte Schaltung zurückzunehmen.
  *
@@ -15,7 +17,7 @@ export interface UndoOffer {
   name: string;
   label: string;
   command: string;
-  data?: Record<string, any>;
+  data?: CommandData;
 }
 
 /**
@@ -29,9 +31,9 @@ export interface UndoOffer {
  * Angebot als eines, das etwas anderes tut als es verspricht.
  */
 export function undoCommand(
-  before: Record<string, any>,
+  before: EntityState,
   command: string
-): { command: string; data?: Record<string, any> } | null {
+): { command: string; data?: CommandData } | null {
   if (!UNDOABLE.has(command)) return null;
   if (before.state === 'off') return { command: 'turn_off' };
   if (before.state !== 'on') return null;
@@ -43,8 +45,8 @@ export function undoCommand(
 
 /** Was gerade passiert ist, in einem Wort – für das Rückgängig-Band. */
 export function undoLabel(
-  before: Record<string, any>,
-  after: Record<string, any>
+  before: EntityState,
+  after: EntityState
 ): string {
   if (after.state === 'off') return 'ausgeschaltet';
   if (before.state !== 'on') return 'eingeschaltet';

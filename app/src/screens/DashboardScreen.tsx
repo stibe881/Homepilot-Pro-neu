@@ -15,7 +15,7 @@ import {
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Entity, HubSettings } from '../api/types';
+import { CommandData, Entity, HubSettings } from '../api/types';
 import { Bar } from '../components/Bar';
 import { Card } from '../components/Card';
 import { DraggableList } from '../components/DraggableList';
@@ -43,7 +43,7 @@ import { Tap, useNotificationTap } from '../hooks/useNotificationTap';
 import { usePrefs } from '../hooks/usePrefs';
 import { usePushRegistration } from '../hooks/usePushRegistration';
 import { breakpoints, Colors, radius, space, type, useColors } from '../theme';
-import { findeArtikel, mengeUndName, mitMenge, shopCategory } from '../lib/einkauf';
+import { EinkaufZeile, Shop, findeArtikel, mengeUndName, mitMenge, shopCategory } from '../lib/einkauf';
 import { uhr } from '../lib/format';
 import { deviceKindLabel } from '../lib/geraeteart';
 import { szenenFuerRaum } from '../lib/szenen';
@@ -252,7 +252,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [confirm, setConfirm] = useState<{
     entity: Entity;
     command: string;
-    data?: Record<string, any>;
+    data?: CommandData;
   } | null>(null);
 
   useTakt(() => setNow(new Date()), 30000);
@@ -275,15 +275,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
 
   // Einkaufsliste und Läden für die Kopfzeile. Dieselbe Quelle wie unter
   // Familie - nur die offenen Einträge, denn oben zählt, was noch fehlt.
-  const [einkauf, setEinkauf] = useState<any[]>([]);
+  const [einkauf, setEinkauf] = useState<EinkaufZeile[]>([]);
   // Dieselbe Liste als Ref: Die Rückrufe unten hängen sonst an jeder
   // Änderung der Liste und bauen sich bei jedem Tippen neu auf – und die
   // Kopfzeile mit ihnen.
-  const einkaufRef = useRef<any[]>([]);
+  const einkaufRef = useRef<EinkaufZeile[]>([]);
   einkaufRef.current = einkauf;
   // Was gerade abgehakt wurde, für einen Moment aufgehoben.
   const [einkaufUndo, setEinkaufUndo] = useState<{ id: string; text: string } | null>(null);
-  const [laeden, setLaeden] = useState<any[]>([]);
+  const [laeden, setLaeden] = useState<Shop[]>([]);
   // Schon einmal eingekaufte Artikel – die Vervollständigung im Fenster
   // der Kopfzeile lebt davon. Kommt aus dem Hub, nicht vom Gerät: Was
   // Livia einträgt, soll Stefan vorgeschlagen bekommen.
@@ -293,14 +293,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     // «still»: Das hier läuft jede Minute. Eine Einblendung je Minute wäre
     // schlimmer als der Fehler – dass etwas klemmt, sieht man am
     // Verbindungspunkt in der Kopfzeile.
-    const leise = { fallback: [] as any[], still: true };
-    hub.get<any[]>('/api/family/shopping', leise).then((rows) =>
-      setEinkauf(Array.isArray(rows) ? rows.filter((row: any) => !row.done) : [])
+    const leise = { fallback: [] as EinkaufZeile[], still: true };
+    hub.get<EinkaufZeile[]>('/api/family/shopping', leise).then((rows) =>
+      setEinkauf(Array.isArray(rows) ? rows.filter((row) => !row.done) : [])
     );
-    hub.get<any[]>('/api/family/shops', leise).then((rows) =>
+    hub.get<Shop[]>('/api/family/shops', leise as { fallback: Shop[]; still: true }).then((rows) =>
       setLaeden(Array.isArray(rows) ? rows : [])
     );
-    hub.get<any[]>('/api/shopping/known', leise).then((rows) =>
+    hub.get<string[]>('/api/shopping/known', { fallback: [], still: true }).then((rows) =>
       setBekannt(Array.isArray(rows) ? rows.map(String) : [])
     );
   }, [hub, settings.url, settings.token]);
@@ -497,7 +497,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const uebernahmeLief = useRef(false);
   useEffect(() => {
     if (uebernahmeLief.current || !hausGeladen) return;
-    const next = altesUebernehmen(prefs, settings, eigenePrefs as Record<string, any>);
+    const next = altesUebernehmen(prefs, settings, eigenePrefs as Record<string, unknown>);
     if (next === null) {
       uebernahmeLief.current = true;
       return;
@@ -591,7 +591,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
    * zu fehlen, an die niemand gedacht hat.
    */
   const guardedCommand = useCallback(
-    async (entityId: string, command: string, data?: Record<string, any>) => {
+    async (entityId: string, command: string, data?: CommandData) => {
       const entity = entities.find((item) => item.id === entityId);
       if (entity && locked.includes(entityId) && SWITCHING.has(command)) {
         setConfirm({ entity, command, data });
@@ -745,7 +745,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Storen-Fenstern. Fehlt das Gerät, bleibt es sonnig.
   const sky = useMemo(() => {
     const weather = entities.find((entity) => entity.kind === 'weather');
-    return skyFromIcon(weather?.state?.icon, weather?.state?.state);
+    const grund = weather?.state?.state;
+    return skyFromIcon(weather?.state?.icon, grund == null ? undefined : String(grund));
   }, [entities]);
 
   // „Licht“ und „Storen“ zeigen genau eine Geräteart, „Geräte“ bewusst
@@ -2402,7 +2403,7 @@ function GroupControls({
 }: {
   entities: Entity[];
   groups: string[];
-  onCommand: (entityId: string, command: string, data?: Record<string, any>) => void;
+  onCommand: (entityId: string, command: string, data?: CommandData) => void;
 }) {
   return (
     <View style={{ gap: space.gap }}>
@@ -2425,7 +2426,7 @@ function GroupRow({
 }: {
   name: string;
   members: Entity[];
-  onCommand: (entityId: string, command: string, data?: Record<string, any>) => void;
+  onCommand: (entityId: string, command: string, data?: CommandData) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -2449,7 +2450,7 @@ function GroupRow({
   const fan = (
     list: Entity[],
     command: string,
-    data?: Record<string, any>
+    data?: CommandData
   ) => list.forEach((entity) => onCommand(entity.id, command, data));
 
   return (

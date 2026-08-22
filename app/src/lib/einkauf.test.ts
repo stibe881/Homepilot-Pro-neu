@@ -82,7 +82,7 @@ describe('groupForShop', () => {
     const sonstiges = groupForShop(liste, ALLGEMEIN).find(
       (g) => g.category === 'Sonstiges'
     );
-    expect(sonstiges?.items.map((i: { text: string }) => i.text)).toEqual(['Batterien']);
+    expect(sonstiges?.items.map((i) => String(i.text))).toEqual(['Batterien']);
   });
 
   it('behält innerhalb eines Gangs die Reihenfolge des Eintragens', () => {
@@ -91,7 +91,7 @@ describe('groupForShop', () => {
       { id: '2', text: 'Rahm', category: 'Milchprodukte' },
     ];
     expect(
-      groupForShop(zwei, ALLGEMEIN)[0].items.map((i: { text: string }) => i.text)
+      groupForShop(zwei, ALLGEMEIN)[0].items.map((i) => String(i.text))
     ).toEqual(['Milch', 'Rahm']);
   });
 });

@@ -111,6 +111,14 @@ export function shopCategory(name: string): string {
   return gefunden;
 }
 
+/**
+ * Eine Zeile der Einkaufsliste bzw. eine Rezept-Zutat, wie der Hub sie
+ * speichert (Punkt 60 der Werkbank) - offen, weil die Felder dem Hub
+ * gehören; der Alias ersetzt die verstreuten `any`.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type EinkaufZeile = Record<string, any>;
+
 export interface ShoppingDraft {
   text: string;
   category: string;
@@ -120,7 +128,7 @@ export interface ShoppingDraft {
  *
  * `faktor` rechnet die Menge auf die gewählte Portionenzahl um – auf eine
  * Nachkommastelle gerundet, weil «666,6667 g Mehl» niemandem hilft. */
-export function ingredientLabel(ingredient: any, faktor = 1): string {
+export function ingredientLabel(ingredient: EinkaufZeile, faktor = 1): string {
   const name = String(ingredient?.name ?? '').trim();
   if (!name) return '';
   const roh = ingredient?.amount;
@@ -201,7 +209,7 @@ export function findeArtikel<T extends { text?: unknown }>(
  * nicht noch einmal dazu.
  */
 export function ingredientsToShopping(
-  recipes: any[],
+  recipes: EinkaufZeile[],
   vorhanden: string[] = [],
   faktor = 1
 ): ShoppingDraft[] {
@@ -210,7 +218,7 @@ export function ingredientsToShopping(
   );
   const result: ShoppingDraft[] = [];
   for (const recipe of recipes) {
-    const ingredients: any[] = Array.isArray(recipe?.ingredients)
+    const ingredients: EinkaufZeile[] = Array.isArray(recipe?.ingredients)
       ? recipe.ingredients
       : [];
     for (const ingredient of ingredients) {
@@ -278,14 +286,14 @@ export function shopOrder(shop?: Shop | null): string[] {
 export function groupForShop(
   items: { category?: string }[],
   shop?: Shop | null
-): { category: string; items: any[] }[] {
+): { category: string; items: EinkaufZeile[] }[] {
   const reihenfolge = shopOrder(shop);
   const rang = new Map(reihenfolge.map((name, index) => [name, index]));
-  const eimer = new Map<string, any[]>();
+  const eimer = new Map<string, EinkaufZeile[]>();
   for (const item of items) {
     // Was keine bekannte Kategorie trägt, landet unter «Sonstiges» statt
     // in einem eigenen Gang, den es im Laden nicht gibt.
-    const roh = String((item as any).category ?? '');
+    const roh = String((item as EinkaufZeile).category ?? '');
     const category = rang.has(roh) ? roh : 'Sonstiges';
     const liste = eimer.get(category);
     if (liste) liste.push(item);

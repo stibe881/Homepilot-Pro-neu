@@ -76,7 +76,7 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
   const load = useCallback(() => {
     // Die Karte zeigt Fehler selbst an - deshalb «still».
     hub
-      .get<{ categories?: any[]; muted?: string[] }>('/api/push/categories', {
+      .get<{ categories?: { key: string; label: string; description?: string }[]; muted?: string[] }>('/api/push/categories', {
         still: true,
       })
       .then((data) => {
@@ -129,8 +129,8 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
       } else {
         setTestNote('Kein Gerät angemeldet – die App auf dem Telefon einmal öffnen.');
       }
-    } catch (err: any) {
-      setTestNote(String(err.message ?? err));
+    } catch (err) {
+      setTestNote(String(err instanceof Error ? err.message : err));
     } finally {
       setTesting(false);
     }

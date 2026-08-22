@@ -109,9 +109,9 @@ function AccessLimits({
   onChange,
 }: {
   detail: { expires?: string | null; hours?: { from?: string; to?: string }; active?: boolean };
-  styles: any;
+  styles: ReturnType<typeof makeStyles>;
   colors: Colors;
-  onChange: (patch: Record<string, any>) => void;
+  onChange: (patch: Record<string, unknown>) => void;
 }) {
   const [expires, setExpires] = useState(detail.expires ?? '');
   const [from, setFrom] = useState(detail.hours?.from ?? '');
@@ -293,7 +293,7 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
     }
   };
 
-  const patchUser = async (name: string, body: Record<string, any>) => {
+  const patchUser = async (name: string, body: Record<string, unknown>) => {
     setError(null);
     try {
       const response = await fetch(
@@ -310,8 +310,8 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
       }
       if (payload?.user) setDetail(payload.user);
       load();
-    } catch (err: any) {
-      setError(String(err.message ?? err));
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
     }
   };
 
@@ -338,8 +338,8 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
       // Direkt die Detailansicht mit dem QR-Code öffnen – so lässt sich das
       // neue Mitglied sofort koppeln.
       openDetail(body.user);
-    } catch (err: any) {
-      setError(String(err.message ?? err));
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
     }
   };
 
@@ -357,8 +357,8 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
       setConfirmDelete(null);
       setDetail(null);
       load();
-    } catch (err: any) {
-      setError(String(err.message ?? err));
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
     }
   };
 
@@ -603,8 +603,8 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                               : 'Adresse entfernt.'
                           );
                           load();
-                        } catch (err: any) {
-                          setRotateNote(String(err.message ?? err));
+                        } catch (err) {
+                          setRotateNote(String(err instanceof Error ? err.message : err));
                         }
                       }}
                       accessibilityRole="button"
@@ -626,8 +626,8 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                           const body = await response.json();
                           if (!response.ok) throw new Error(body.detail ?? 'Fehlgeschlagen');
                           setRotateNote(body.message ?? 'Einladung verschickt.');
-                        } catch (err: any) {
-                          setRotateNote(String(err.message ?? err));
+                        } catch (err) {
+                          setRotateNote(String(err instanceof Error ? err.message : err));
                         }
                       }}
                       disabled={!detail.email}
@@ -675,8 +675,8 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                                 ? 'Neues Token gesetzt – deine eigene Verbindung ist jetzt ungültig. QR-Code neu scannen.'
                                 : 'Neues Token gesetzt. Der QR-Code oben zeigt bereits das neue.'
                             );
-                          } catch (err: any) {
-                            setRotateNote(String(err.message ?? err));
+                          } catch (err) {
+                            setRotateNote(String(err instanceof Error ? err.message : err));
                           }
                         }}
                         accessibilityRole="button"
@@ -814,6 +814,16 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
 
     Kommt aus der config.yaml (guest_wifi). Ohne Eintrag erscheint die
     Karte gar nicht - besser keine Karte als eine leere. */
+/** Ein WLAN-Gutschein, wie /api/wifi/vouchers ihn führt. */
+interface Gutschein {
+  id: string;
+  code: string;
+  note: string;
+  minutes: number;
+  created?: number | null;
+  used: boolean;
+}
+
 function GuestWifiCard({
   settings,
   headers,
@@ -857,7 +867,7 @@ function GuestWifiCard({
   const loadVouchers = () => {
     // Ohne Antwort bleibt die Karte beim letzten Stand.
     hub
-      .get<{ vouchers?: any[] } | null>('/api/wifi/vouchers', {
+      .get<{ vouchers?: Gutschein[] } | null>('/api/wifi/vouchers', {
         fallback: null,
         still: true,
       })
@@ -897,8 +907,8 @@ function GuestWifiCard({
       if (!response.ok) throw new Error(body.detail ?? `Hub antwortet mit ${response.status}`);
       setVoucherNote('In den Vorrat gelegt.');
       loadVouchers();
-    } catch (err: any) {
-      setVoucherNote(String(err.message ?? err));
+    } catch (err) {
+      setVoucherNote(String(err instanceof Error ? err.message : err));
     } finally {
       setBusy(false);
     }

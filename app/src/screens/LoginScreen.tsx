@@ -122,8 +122,8 @@ export function LoginScreen({
         return;
       }
       setNote(body.message ?? 'Erledigt.');
-    } catch (err: any) {
-      setError(String(err.message ?? err));
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
     } finally {
       setBusy(false);
     }

@@ -84,8 +84,8 @@ export function KitchenTimer({ settings }: { settings: HubSettings }) {
       if (!response.ok) throw new Error(body.detail ?? `Hub antwortet mit ${response.status}`);
       setTimers(body.timers ?? []);
       setText('');
-    } catch (err: any) {
-      setNote(String(err.message ?? err));
+    } catch (err) {
+      setNote(String(err instanceof Error ? err.message : err));
     }
   };
 

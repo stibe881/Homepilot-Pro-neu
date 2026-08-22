@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
 import { Image, Pressable, Text, View } from 'react-native';
 
-import { Entity } from '../api/types';
+import { CommandData, Entity, KalenderEintrag } from '../api/types';
 import { useColors } from '../theme';
 import { Bar } from './Bar';
 import { Card, CardFooter } from './Card';
@@ -20,7 +20,7 @@ import { BigValue, Pill, clock, eventTime, format, integrationLabel, severityCol
 interface Props {
   entity: Entity;
   width: number;
-  onCommand: (command: string, data?: Record<string, any>) => void;
+  onCommand: (command: string, data?: CommandData) => void;
   /** Kommando unterwegs – die Kachel zeigt das, statt still zu wirken. */
   pending?: boolean;
   /** Strompreis für die Kostenanzeige, z.B. 0.32 */
@@ -352,6 +352,9 @@ export function EntityCard({
               // Bild schwarz, Mikrofon stumm, Aufnahme aus – und alles
               // zurück, wie es war, beim zweiten Tipp.
               <Pressable
+                // Web kennt stopPropagation, nativ nicht - deshalb offen
+                // getippt und optional aufgerufen.
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 onPress={(event: any) => {
                   // Nicht die Kachel «Live-Bild öffnen» auslösen.
                   event?.stopPropagation?.();
@@ -384,7 +387,7 @@ export function EntityCard({
 
       case 'vacuum': {
         const cleaning = entity.state.state === 'cleaning';
-        const rooms: any[] = Array.isArray(entity.state.rooms) ? entity.state.rooms : [];
+        const rooms: { id: number; name: string; box?: number[] }[] = Array.isArray(entity.state.rooms) ? entity.state.rooms : [];
         const canCleanRooms = entity.commands.includes('clean_rooms') && rooms.length > 0;
         // Räume mit Kartenkoordinaten → direkt auf der Karte antippbar.
         const mappable = canCleanRooms && rooms.some((room) => Array.isArray(room.box));
@@ -408,7 +411,7 @@ export function EntityCard({
         return <CoverBody entity={entity} sky={sky} onCommand={onCommand} />;
 
       case 'calendar': {
-        const events: any[] = entity.state.events ?? [];
+        const events: KalenderEintrag[] = entity.state.events ?? [];
         return (
           <View style={styles.stack}>
             <Text style={styles.value} numberOfLines={1}>
@@ -455,7 +458,7 @@ export function EntityCard({
       case 'alert': {
         const count = entity.state.count ?? 0;
         const severity = entity.state.max_severity;
-        const alerts: any[] = entity.state.alerts ?? [];
+        const alerts: Record<string, string | undefined>[] = entity.state.alerts ?? [];
         return (
           <View style={styles.stack}>
             <Pill

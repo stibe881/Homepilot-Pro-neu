@@ -7,7 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { Image, Pressable, Text, View } from 'react-native';
 
-import { Entity } from '../../api/types';
+import { CommandData, Entity } from '../../api/types';
 import { useTakt } from '../../hooks/useTakt';
 import { radius, useColors } from '../../theme';
 import { Bar } from '../Bar';
@@ -23,7 +23,7 @@ export function LockBody({
   pending,
 }: {
   entity: Entity;
-  onCommand: (command: string, data?: Record<string, any>) => void;
+  onCommand: (command: string, data?: CommandData) => void;
   pending?: boolean;
 }) {
   const colors = useColors();
@@ -341,7 +341,7 @@ export function CoverBody({
 }: {
   entity: Entity;
   sky?: Sky;
-  onCommand: (command: string, data?: Record<string, any>) => void;
+  onCommand: (command: string, data?: CommandData) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -451,7 +451,7 @@ export function VacuumBody({
   mappable: boolean;
   canCleanRooms: boolean;
   cleaning: boolean;
-  onCommand: (command: string, data?: Record<string, any>) => void;
+  onCommand: (command: string, data?: CommandData) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -480,7 +480,7 @@ export function VacuumBody({
       ) : null}
 
       <Pill
-        label={vacuumLabel(entity.state.state)}
+        label={vacuumLabel(entity.state.state == null ? undefined : String(entity.state.state))}
         tone={cleaning ? colors.accent : entity.state.error ? colors.danger : undefined}
       />
       <Text style={styles.hint}>

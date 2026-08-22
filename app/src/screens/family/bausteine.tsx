@@ -14,7 +14,17 @@ import { Colors } from '../../theme';
 import { monatJahr, uhr } from '../../lib/format';
 import { tapped } from '../../lib/haptics';
 
-export type FamilyData = Record<string, any[]>;
+/**
+ * Ein Eintrag einer Familienliste, wie der Hub ihn speichert (Punkt 60
+ * der Werkbank). Ein offenes Objekt mit Absicht: Die Felder je Liste
+ * (done, member, due, day, votes …) sauber zu tippen hiesse, die
+ * Hub-Schemas hier zu duplizieren - der eine Alias ersetzt dafür die
+ * sechzig verstreuten `any` von vorher.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type FamilyItem = Record<string, any>;
+
+export type FamilyData = Record<string, FamilyItem[]>;
 import { makeStyles } from './stil';
 
 export type Styles = ReturnType<typeof makeStyles>;
@@ -130,7 +140,7 @@ export function CheckRow({
   styles,
   colors,
 }: {
-  item: any;
+  item: FamilyItem;
   sub?: string;
   /** Farbe für die Unterzeile, z.B. Rot bei überfälligen Aufgaben. */
   highlight?: string;
@@ -192,12 +202,12 @@ export function GroupedChecklist({
   styles,
   colors,
 }: {
-  items: any[];
+  items: FamilyItem[];
   groupNoun: string;
   itemPlaceholder: string;
   onAdd: (group: string, text: string) => void;
-  onToggle: (item: any) => void;
-  onDelete: (item: any) => void;
+  onToggle: (item: FamilyItem) => void;
+  onDelete: (item: FamilyItem) => void;
   onResetGroup: (group: string) => void;
   /** Ganze Gruppe (samt Einträgen) löschen – optional. */
   onDeleteGroup?: (group: string) => void;
@@ -867,7 +877,7 @@ export function ContactPhoto({
   size,
   styles,
 }: {
-  contact: any;
+  contact: FamilyItem;
   size: number;
   styles: Styles;
 }) {
@@ -966,7 +976,7 @@ export function ContactForm({
 
 /** Tage bis zum nächsten Geburtstag (Jahr egal), aus «TT.MM.» oder
  *  «TT.MM.JJJJ» (rein, testbar). Null, wenn nichts Brauchbares dasteht. */
-export function daysUntilBirthday(value: any): number | null {
+export function daysUntilBirthday(value: unknown): number | null {
   const match = /^(\d{1,2})\.(\d{1,2})\.?(\d{4})?$/.exec(String(value ?? '').trim());
   if (!match) return null;
   const day = Number(match[1]);
@@ -980,7 +990,7 @@ export function daysUntilBirthday(value: any): number | null {
 }
 
 /** Geburtstags-Text: «heute! 🎉», «morgen» oder «in N Tagen». */
-export function birthdayLabel(value: any): string | null {
+export function birthdayLabel(value: unknown): string | null {
   const days = daysUntilBirthday(value);
   if (days == null) return null;
   if (days === 0) return 'Geburtstag heute! 🎉';
@@ -989,7 +999,7 @@ export function birthdayLabel(value: any): string | null {
 }
 
 /** Datum «TT.MM.JJJJ» oder ISO → Date (Mitternacht lokal). */
-export function parseSwissDate(value: any): Date | null {
+export function parseSwissDate(value: unknown): Date | null {
   if (!value) return null;
   const swiss = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(String(value).trim());
   if (swiss) {
@@ -1008,7 +1018,7 @@ export function MealRow({
   styles,
 }: {
   day: string;
-  entry: any | undefined;
+  entry: FamilyItem | undefined;
   onSave: (text: string) => void;
   colors: Colors;
   styles: Styles;
@@ -1163,7 +1173,7 @@ export function MonthCalendar({
   styles,
   colors,
 }: {
-  events: any[];
+  events: FamilyItem[];
   styles: Styles;
   colors: Colors;
 }) {
@@ -1174,7 +1184,7 @@ export function MonthCalendar({
   const key = (date: Date) =>
     `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
   // Termine je Tagesschlüssel sammeln.
-  const byDay = new Map<string, any[]>();
+  const byDay = new Map<string, FamilyItem[]>();
   for (const event of events) {
     const date = new Date(event.start);
     if (Number.isNaN(date.getTime())) continue;

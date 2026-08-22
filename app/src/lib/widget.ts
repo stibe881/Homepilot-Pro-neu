@@ -39,6 +39,9 @@ const APP_GROUP = 'group.me.stibe.homepilot';
  */
 export type Ablage = 'kein-widget' | 'ok' | 'fehlt';
 
+// Das Modul wird erst zur Laufzeit geladen (unten) - einen Typ gibt es
+// deshalb hier nicht.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function storage(): any | null {
   if (!kann.widgets) return null;
   try {

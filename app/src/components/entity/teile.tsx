@@ -60,7 +60,7 @@ export function Pill({ label, tone, solid }: { label: string; tone?: string; sol
   );
 }
 
-export function format(value: any): string {
+export function format(value: unknown): string {
   if (typeof value === 'number') {
     return String(Math.round(value * 10) / 10);
   }
