@@ -14,15 +14,20 @@ import {
   ABEND_FELDER,
   NOTRUFE,
   ROLLEN,
+  NOTFALL_FELDER,
   fuerBabysitter,
+  geprueftVor,
   gabenVon,
   genommenMap,
+  hakeGabe,
   kurFertig,
   medZeile,
   mitRolle,
   notfallText,
+  notfallUeberfaellig,
   notfallZeilen,
   nummernVon,
+  offeneGaben,
   rollenVon,
   waehlbar,
 } from '../lib/familie';
@@ -65,6 +70,10 @@ export function FamilyScreen({
   // Kontakte: nach Rolle filtern und einzelne bearbeiten.
   const [kontaktRolle, setKontaktRolle] = useState<string>('alle');
   const [kontaktBearbeitet, setKontaktBearbeitet] = useState<string | null>(null);
+  // Notfallblatt: welcher Eintrag gerade ausgefüllt wird.
+  const [notfallOffen, setNotfallOffen] = useState<string | null>(null);
+  // Medikamente: welcher Verlauf gerade aufgeklappt ist.
+  const [medVerlauf, setMedVerlauf] = useState<string | null>(null);
   // Vom Essensplaner direkt ins Rezept springen (Punkt 146).
   const [rezeptStart, setRezeptStart] = useState<string | null>(null);
   // «Was koche ich heute?» im Planer (Punkt 139): Die Saat hält die
@@ -1350,29 +1359,121 @@ export function FamilyScreen({
 
   if (view === 'emergency') {
     const eintraege: FamilyItem[] = data.emergency ?? [];
+    const heute = new Date();
+    // Der jüngste Prüfvermerk zählt fürs ganze Blatt: Geprüft wird es als
+    // Ganzes, nicht Person für Person.
+    const zuletzt = eintraege
+      .map((eintrag) => String(eintrag.checked ?? ''))
+      .filter(Boolean)
+      .sort()
+      .pop();
+    const ueberfaellig = eintraege.length > 0 && notfallUeberfaellig(zuletzt, heute);
+    const tage = geprueftVor(zuletzt, heute);
+
     return (
       <View style={styles.stack}>
         <BackHead title="Notfallblatt" onBack={goBack} styles={styles} colors={colors} />
         <Text style={styles.hint}>
-          Was jemand wissen muss, der im Ernstfall bei euch ist – Allergien,
-          Blutgruppe, Versichertennummer, wen man anruft. Bewusst kurz und
-          auf einer Seite: Im Notfall liest niemand einen Ordner.
+          Was jemand wissen muss, der im Ernstfall bei euch ist. Bewusst
+          kurz und auf einer Seite: Im Notfall liest niemand einen Ordner,
+          und niemand sucht – man liest der Reihe nach.
         </Text>
         <Text style={styles.formHintSmall}>
           Keine Passwörter und keine Kartennummern hier hinein – dieses Blatt
           zeigt man im Zweifel einer fremden Person.
         </Text>
-        {eintraege.map((eintrag: FamilyItem) => (
-          <Card key={eintrag.id} style={styles.pinCard}>
+
+        {/* Die Notrufnummern pflegt niemand, und im Ernstfall sucht sie
+            auch niemand. */}
+        <Text style={styles.groupLabel}>Notruf</Text>
+        <Card style={styles.listCard}>
+          {NOTRUFE.map((notruf) => (
+            <Pressable
+              key={notruf.nummer}
+              onPress={() => Linking.openURL(`tel:${waehlbar(notruf.nummer)}`)}
+              accessibilityRole="button"
+              accessibilityLabel={`${notruf.label} ${notruf.nummer} anrufen`}
+              style={styles.checkRow}
+            >
+              <Ionicons name="call-outline" size={18} color={colors.danger} />
+              <Text style={[styles.checkText, { flex: 1 }]}>{notruf.label}</Text>
+              <Text style={styles.contactName}>{notruf.nummer}</Text>
+            </Pressable>
+          ))}
+        </Card>
+
+        {eintraege.length > 0 ? (
+          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+            <Pressable
+              onPress={() =>
+                Share.share({ message: notfallText(eintraege) }).catch(() => {})
+              }
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.75 }]}
+            >
+              <Ionicons name="share-outline" size={16} color={colors.accent} />
+              <Text style={styles.addRowText}>Als eine Seite teilen</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {/* Ein Blatt von vorletztem Jahr ist gefährlicher als keines: Man
+            verlässt sich darauf, und die Nummer der Kinderärztin stimmt
+            nicht mehr. */}
+        {eintraege.length > 0 ? (
+          <Card style={styles.listCard}>
             <View style={styles.checkRow}>
+              <Ionicons
+                name={ueberfaellig ? 'alert-circle' : 'checkmark-circle'}
+                size={20}
+                color={ueberfaellig ? colors.warn : colors.on}
+              />
               <View style={{ flex: 1 }}>
-                <Text style={styles.checkText}>{eintrag.text}</Text>
-                {eintrag.body ? (
-                  <Text style={styles.checkSub} selectable>
-                    {eintrag.body}
-                  </Text>
-                ) : null}
+                <Text style={styles.checkText}>
+                  {tage === null
+                    ? 'Noch nie geprüft'
+                    : tage === 0
+                      ? 'Heute geprüft'
+                      : `Zuletzt geprüft vor ${tage} Tagen`}
+                </Text>
+                <Text style={styles.checkSub}>
+                  Stimmen Nummern, Allergien und Versicherung noch?
+                </Text>
               </View>
+              <Pressable
+                onPress={() => {
+                  const stempel = isoInDays(0);
+                  for (const eintrag of eintraege) {
+                    update('emergency', eintrag.id, { checked: stempel });
+                  }
+                }}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.chip, pressed && { opacity: 0.8 }]}
+              >
+                <Text style={styles.chipText}>Geprüft</Text>
+              </Pressable>
+            </View>
+          </Card>
+        ) : null}
+
+        {eintraege.map((eintrag: FamilyItem) => (
+          <Card key={eintrag.id} style={styles.listCard}>
+            <View style={styles.checkRow}>
+              <Text style={[styles.contactName, { flex: 1 }]}>{eintrag.text}</Text>
+              <Pressable
+                onPress={() =>
+                  setNotfallOffen(notfallOffen === eintrag.id ? null : eintrag.id)
+                }
+                hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel={`${eintrag.text} bearbeiten`}
+              >
+                <Ionicons
+                  name={notfallOffen === eintrag.id ? 'chevron-up' : 'create-outline'}
+                  size={18}
+                  color={colors.inkSoft}
+                />
+              </Pressable>
               <Pressable
                 onPress={() => remove('emergency', eintrag.id)}
                 style={styles.deleteTap}
@@ -1381,12 +1482,69 @@ export function FamilyScreen({
                 <Ionicons name="close" size={18} color={colors.inkFaint} />
               </Pressable>
             </View>
+
+            {notfallOffen === eintrag.id ? (
+              <>
+                {NOTFALL_FELDER.map((feld) => (
+                  <View key={feld.key} style={{ gap: 4 }}>
+                    <Text style={styles.formHintSmall}>{feld.label}</Text>
+                    <TextInput
+                      style={styles.input}
+                      defaultValue={String(eintrag[feld.key] ?? '')}
+                      placeholder={feld.placeholder}
+                      placeholderTextColor={colors.inkFaint}
+                      onEndEditing={(event) =>
+                        update('emergency', eintrag.id, {
+                          [feld.key]: event.nativeEvent.text.trim(),
+                        })
+                      }
+                    />
+                  </View>
+                ))}
+                <Text style={styles.formHintSmall}>Sonst noch</Text>
+                <TextInput
+                  style={[styles.input, { minHeight: 70 }]}
+                  defaultValue={String(eintrag.body ?? '')}
+                  multiline
+                  placeholder="Alles, wofür es oben kein Feld gibt"
+                  placeholderTextColor={colors.inkFaint}
+                  onEndEditing={(event) =>
+                    update('emergency', eintrag.id, {
+                      body: event.nativeEvent.text.trim(),
+                    })
+                  }
+                />
+              </>
+            ) : (
+              <>
+                {notfallZeilen(eintrag).map((zeile) => (
+                  <View key={zeile.label} style={styles.checkRow}>
+                    <Text style={styles.checkSub}>{zeile.label}</Text>
+                    <Text style={[styles.checkText, { flex: 1 }]} selectable>
+                      {zeile.wert}
+                    </Text>
+                  </View>
+                ))}
+                {eintrag.body ? (
+                  <Text style={styles.checkSub} selectable>
+                    {eintrag.body}
+                  </Text>
+                ) : null}
+                {notfallZeilen(eintrag).length === 0 && !eintrag.body ? (
+                  <Text style={styles.checkSub}>
+                    Noch nichts ausgefüllt – auf den Stift tippen.
+                  </Text>
+                ) : null}
+              </>
+            )}
           </Card>
         ))}
-        <TwoFieldForm
-          labels={['Wer/Was (z.B. Lina – Allergien)', 'Angaben']}
-          multilineSecond
-          onAdd={(text, body) => add('emergency', { text, body })}
+
+        {/* Anlegen braucht nur den Namen: Die Felder füllt man danach, und
+            ein Formular mit sieben leeren Zeilen schreckt ab. */}
+        <AddRow
+          placeholder="Für wen? (z.B. Lina)"
+          onAdd={(text) => add('emergency', { text, checked: isoInDays(0) })}
           styles={styles}
           colors={colors}
         />
@@ -1397,79 +1555,66 @@ export function FamilyScreen({
   if (view === 'medications') {
     const liste: FamilyItem[] = data.medications ?? [];
     const heute = isoInDays(0);
-
-    /** Eingenommen: Häkchen für heute, und die Kur zählt einen Tag runter. */
-    const eingenommen = (med: FamilyItem) => {
-      const genommen: string[] = Array.isArray(med.taken) ? med.taken : [];
-      if (genommen.includes(heute)) {
-        update('medications', med.id, {
-          taken: genommen.filter((tag) => tag !== heute),
-        });
-        return;
-      }
-      const neu = [...genommen, heute];
-      const tage = Number(med.days) || 0;
-      update('medications', med.id, {
-        taken: neu,
-        // Eine Kur über zehn Tage endet nach zehn Häkchen von selbst -
-        // sonst erinnert sie bis in alle Ewigkeit weiter.
-        done: tage > 0 && neu.length >= tage,
-      });
-    };
+    const stunde = new Date().getHours();
 
     return (
       <View style={styles.stack}>
         <BackHead title="Medikamente" onBack={goBack} styles={styles} colors={colors} />
         <Text style={styles.hint}>
           Für Kuren über mehrere Tage: Antibiotika, Tropfen, Salben. Ein
-          Häkchen je Tag – so sieht man am Abend, ob es schon jemand
-          gegeben hat, statt zu raten.
+          Häkchen je Gabe – so sieht man am Abend, ob es schon jemand
+          gegeben hat, statt zu raten. Was fällig wird, meldet der Hub.
         </Text>
         <Card style={styles.listCard}>
           <MedicationAddRow
             members={members}
-            onAdd={(text, member, days) =>
-              add('medications', { text, member, days, taken: [], done: false })
+            onAdd={(werte) =>
+              add('medications', {
+                text: werte.text,
+                member: werte.member,
+                days: werte.days,
+                times: werte.times,
+                ...(werte.dose ? { dose: werte.dose } : {}),
+                ...(werte.reason ? { reason: werte.reason } : {}),
+                taken: {},
+                done: false,
+              })
             }
             styles={styles}
             colors={colors}
           />
         </Card>
+
         {liste.map((med: FamilyItem) => {
-          const genommen: string[] = Array.isArray(med.taken) ? med.taken : [];
-          const heuteSchon = genommen.includes(heute);
-          const tage = Number(med.days) || 0;
+          const fertig = kurFertig(med);
+          const genommen = genommenMap(med)[heute] ?? [];
+          const faellig = offeneGaben(med, heute, stunde);
           return (
             <Card
               key={med.id}
-              style={{ ...styles.listCard, ...(med.done ? { opacity: 0.5 } : {}) }}
+              style={{ ...styles.listCard, ...(fertig ? { opacity: 0.5 } : {}) }}
             >
               <View style={styles.checkRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.checkText}>{med.text}</Text>
+                  <Text style={styles.checkSub}>{medZeile(med, heute)}</Text>
+                  {med.reason ? (
+                    <Text style={styles.checkSub}>{med.reason}</Text>
+                  ) : null}
+                </View>
                 <Pressable
-                  onPress={() => eingenommen(med)}
-                  disabled={med.done}
-                  style={styles.checkTap}
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: heuteSchon }}
-                  accessibilityLabel={`${med.text} für heute abhaken`}
+                  onPress={() =>
+                    setMedVerlauf(medVerlauf === med.id ? null : med.id)
+                  }
+                  hitSlop={6}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Verlauf von ${med.text}`}
                 >
                   <Ionicons
-                    name={heuteSchon ? 'checkmark-circle' : 'ellipse-outline'}
-                    size={24}
-                    color={heuteSchon ? colors.on : colors.inkSoft}
+                    name={medVerlauf === med.id ? 'chevron-up' : 'time-outline'}
+                    size={18}
+                    color={colors.inkSoft}
                   />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.checkText}>{med.text}</Text>
-                    <Text style={styles.checkSub}>
-                      {[
-                        med.member ? `für ${med.member}` : null,
-                        tage > 0 ? `Tag ${Math.min(genommen.length + (heuteSchon ? 0 : 1), tage)} von ${tage}` : null,
-                        med.done ? 'Kur beendet' : heuteSchon ? 'heute erledigt' : 'heute offen',
-                      ]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </Text>
-                  </View>
                 </Pressable>
                 <Pressable
                   onPress={() => remove('medications', med.id)}
@@ -1479,6 +1624,82 @@ export function FamilyScreen({
                   <Ionicons name="close" size={18} color={colors.inkFaint} />
                 </Pressable>
               </View>
+
+              {/* Ein Knopf je Gabe statt einem je Tag: Antibiotika sind
+                  meist dreimal täglich, und die Abendgabe ist die, die
+                  untergeht. Was noch nicht an der Reihe ist, bleibt blass -
+                  abhaken kann man es trotzdem, wenn es früher passt. */}
+              {!fertig ? (
+                <View style={styles.chipRow}>
+                  {gabenVon(med).map((gabe) => {
+                    const schon = genommen.includes(gabe);
+                    const jetzt = faellig.includes(gabe);
+                    return (
+                      <Pressable
+                        key={gabe}
+                        onPress={() => {
+                          const stand = hakeGabe(med, heute, gabe);
+                          update('medications', med.id, {
+                            taken: stand.taken,
+                            done: stand.done,
+                            log: [
+                              ...(Array.isArray(med.log) ? med.log : []),
+                              {
+                                day: heute,
+                                slot: gabe,
+                                by: currentUser?.name ?? '?',
+                                at: new Date().toISOString(),
+                                undo: schon,
+                              },
+                            ].slice(-60),
+                          });
+                        }}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: schon }}
+                        accessibilityLabel={`${med.text} ${gabe} abhaken`}
+                        style={[
+                          styles.chip,
+                          schon && styles.chipActive,
+                          !schon && jetzt && { borderColor: colors.warn },
+                        ]}
+                      >
+                        <Ionicons
+                          name={schon ? 'checkmark-circle' : 'ellipse-outline'}
+                          size={14}
+                          color={schon ? '#FFFFFF' : jetzt ? colors.warn : colors.inkFaint}
+                        />
+                        <Text
+                          style={[
+                            styles.chipText,
+                            schon && styles.chipTextActive,
+                            !schon && !jetzt && { color: colors.inkFaint },
+                          ]}
+                        >
+                          {gabe}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : null}
+
+              {/* «Wann von wem» – genau danach fragt der Arzt beim nächsten
+                  Termin, und genau das weiss abends niemand mehr. */}
+              {medVerlauf === med.id ? (
+                <View style={{ gap: 4 }}>
+                  {(Array.isArray(med.log) ? [...med.log].reverse() : [])
+                    .slice(0, 12)
+                    .map((eintrag: FamilyItem, index: number) => (
+                      <Text key={index} style={styles.checkSub}>
+                        {eintrag.undo ? '↩ ' : '✓ '}
+                        {eintrag.day} {eintrag.slot} – {eintrag.by}
+                      </Text>
+                    ))}
+                  {!Array.isArray(med.log) || med.log.length === 0 ? (
+                    <Text style={styles.checkSub}>Noch nichts abgehakt.</Text>
+                  ) : null}
+                </View>
+              ) : null}
             </Card>
           );
         })}

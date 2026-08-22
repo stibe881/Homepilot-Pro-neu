@@ -11,7 +11,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Entity, HubSettings } from '../../api/types';
 import { Card } from '../../components/Card';
 import { Colors } from '../../theme';
-import { ROLLEN, rollenVon, toggleRolle } from '../../lib/familie';
+import { GABEN, ROLLEN, rollenVon, toggleRolle } from '../../lib/familie';
 import { monatJahr, uhr } from '../../lib/format';
 import { tapped } from '../../lib/haptics';
 
@@ -519,20 +519,43 @@ export function MedicationAddRow({
   colors,
 }: {
   members: Member[];
-  onAdd: (text: string, member: string | null, days: number) => void;
+  onAdd: (werte: {
+    text: string;
+    member: string | null;
+    days: number;
+    dose: string;
+    reason: string;
+    times: string[];
+  }) => void;
   styles: Styles;
   colors: Colors;
 }) {
   const [text, setText] = useState('');
+  const [dose, setDose] = useState('');
+  const [reason, setReason] = useState('');
   const [member, setMember] = useState<string | null>(null);
   const [days, setDays] = useState(0);
+  // Vorgabe morgens: die häufigste Kur, und die kürzeste Eingabe.
+  const [times, setTimes] = useState<string[]>(['morgens']);
+
   const submit = () => {
     if (!text.trim()) return;
-    onAdd(text.trim(), member, days);
+    onAdd({
+      text: text.trim(),
+      member,
+      days,
+      dose: dose.trim(),
+      reason: reason.trim(),
+      times: times.length > 0 ? times : ['morgens'],
+    });
     setText('');
+    setDose('');
+    setReason('');
     setMember(null);
     setDays(0);
+    setTimes(['morgens']);
   };
+
   return (
     <View style={{ gap: 8 }}>
       <View style={styles.addRow}>
@@ -540,7 +563,7 @@ export function MedicationAddRow({
           style={[styles.input, { flex: 1 }]}
           value={text}
           onChangeText={setText}
-          placeholder="Was, z.B. Amoxicillin 3× täglich …"
+          placeholder="Was, z.B. Amoxicillin"
           placeholderTextColor={colors.inkFaint}
           onSubmitEditing={submit}
         />
@@ -548,6 +571,49 @@ export function MedicationAddRow({
           <Ionicons name="add" size={22} color="#FFFFFF" />
         </Pressable>
       </View>
+
+      {/* Dosis und Grund: Für den, der die Gabe übernimmt, ist «5 ml» die
+          eigentliche Auskunft – und «wegen Mittelohrentzündung» beruhigt
+          den Babysitter mehr als der Name des Präparats. */}
+      <TextInput
+        style={styles.input}
+        value={dose}
+        onChangeText={setDose}
+        placeholder="Dosis, z.B. 5 ml (freiwillig)"
+        placeholderTextColor={colors.inkFaint}
+      />
+      <TextInput
+        style={styles.input}
+        value={reason}
+        onChangeText={setReason}
+        placeholder="Wofür, z.B. Mittelohrentzündung (freiwillig)"
+        placeholderTextColor={colors.inkFaint}
+      />
+
+      <Text style={styles.formHintSmall}>Wann?</Text>
+      <View style={styles.chipRow}>
+        {GABEN.map((gabe) => {
+          const aktiv = times.includes(gabe.key);
+          return (
+            <Pressable
+              key={gabe.key}
+              onPress={() =>
+                setTimes(
+                  aktiv ? times.filter((key) => key !== gabe.key) : [...times, gabe.key]
+                )
+              }
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: aktiv }}
+              style={[styles.chip, aktiv && styles.chipActive]}
+            >
+              <Text style={[styles.chipText, aktiv && styles.chipTextActive]}>
+                {gabe.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
       <View style={styles.chipRow}>
         {members.map((m) => (
           <Pressable
