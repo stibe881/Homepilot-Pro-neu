@@ -76,6 +76,7 @@ from .tuya_logic import (  # noqa: F401
     check_address,
     check_key,
     cloud_report,
+    cloud_raw_hint,
     decode_color,
     dps_map,
     encode_color,
@@ -465,6 +466,26 @@ def _scan(seconds: int) -> int:
     return 0
 
 
+def roh_antwort(wolke: Any) -> str:
+    """Die Wolke direkt fragen und die Antwort deuten.
+
+    Der Endpunkt ist derselbe, den tinytuya benutzt – nur ohne dessen
+    Aufbereitung, die den Fehlergrund gerade dann verliert, wenn man ihn
+    braucht.
+    """
+    pfad = "/v1.0/iot-01/associated-users/devices"
+    try:
+        antwort = wolke.cloudrequest(pfad)
+    except AttributeError:
+        return (
+            "Diese tinytuya-Fassung kann den Endpunkt nicht direkt "
+            "abfragen – ohne Rohantwort bleibt nur die Liste oben."
+        )
+    except Exception as fehler:  # noqa: BLE001 - reine Diagnose
+        return f"Der Aufruf {pfad} ist gescheitert: {fehler}"
+    return cloud_raw_hint(antwort)
+
+
 def _cloud() -> int:
     import getpass
 
@@ -489,6 +510,13 @@ def _cloud() -> int:
 
     print()
     print(cloud_report(geraete))
+    if not geraete:
+        # tinytuya schluckt bei einer leeren Liste, warum sie leer ist:
+        # «kein Konto verknüpft» und «IoT Core nicht freigeschaltet»
+        # sehen von aussen gleich aus, brauchen aber verschiedene
+        # Handgriffe. Die Rohantwort unterscheidet die beiden.
+        print()
+        print(roh_antwort(wolke))
     return 0 if geraete else 1
 
 

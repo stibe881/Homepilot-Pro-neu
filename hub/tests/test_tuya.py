@@ -285,3 +285,36 @@ def test_cloud_report_warnt_bei_zu_kurzem_schluessel() -> None:
     text = cloud_report([{"id": "abc", "name": "Steckdose", "key": ""}])
     assert "Achtung" in text
     assert "Steckdose (0 Zeichen)" in text
+
+
+def test_cloud_raw_hint_unterscheidet_die_faelle() -> None:
+    """Leer ist nicht gleich leer.
+
+    «Kein Konto verknüpft» und «IoT Core nicht abonniert» führen beide zu
+    einer leeren Geräteliste, brauchen aber verschiedene Handgriffe im
+    Portal. Wer den Unterschied nicht sieht, probiert beide abwechselnd.
+    """
+    from homepilot.integrations.tuya_logic import cloud_raw_hint
+
+    leer = cloud_raw_hint({"success": True, "result": []})
+    assert "null Geräten" in leer
+    assert "Link Tuya App Account" in leer
+
+    fehlt = cloud_raw_hint({"success": False, "code": 28841002, "msg": "no permissions"})
+    assert "28841002" in fehlt
+    assert "IoT Core" in fehlt
+
+    region = cloud_raw_hint({"success": False, "code": 2406, "msg": "skill id invalid"})
+    assert "Region" in region
+
+    unbekannt = cloud_raw_hint({"success": False, "code": 9999, "msg": "was auch immer"})
+    assert "9999" in unbekannt and "was auch immer" in unbekannt
+
+    assert "unerwartete Form" in cloud_raw_hint("kaputt")
+
+
+def test_cloud_raw_hint_meldet_gefundene_geraete() -> None:
+    from homepilot.integrations.tuya_logic import cloud_raw_hint
+
+    text = cloud_raw_hint({"success": True, "result": {"devices": [{"id": "a"}]}})
+    assert "1 Gerät" in text

@@ -408,3 +408,66 @@ def cloud_report(geraete: list[dict[str, Any]]) -> str:
             "anzulernen."
         )
     return "\n".join(zeilen)
+
+
+#: Was Tuya im Feld 'code' zurückgibt, in Klartext samt Handgriff.
+CLOUD_CODES: dict[int, str] = {
+    1004: (
+        "Die Signatur stimmt nicht – Access ID und Access Secret gehören "
+        "nicht zusammen, oder eines davon hat ein Leerzeichen zu viel."
+    ),
+    1010: "Das Token ist abgelaufen. Den Aufruf einfach wiederholen.",
+    1106: (
+        "Keine Berechtigung. Das ist der häufigste Fall: Dem Projekt ist "
+        "kein Smart-Life-Konto zugeordnet (Devices → Link Tuya App Account)."
+    ),
+    2406: (
+        "Falsche Region. Das Konto gehört zu einer anderen Datenzentrale als "
+        "das Projekt – im Projekt steht oben, welche es ist."
+    ),
+    28841002: (
+        "Die API «IoT Core» ist im Projekt nicht abonniert. Im Projekt unter "
+        "«Service API» → «Go to Authorize» hinzufügen, sie ist kostenlos."
+    ),
+    28841105: (
+        "Das Abo für «IoT Core» ist abgelaufen. Im Projekt unter «Service "
+        "API» verlängern – die Verlängerung ist kostenlos."
+    ),
+}
+
+
+def cloud_raw_hint(antwort: Any) -> str:
+    """Die Rohantwort der Wolke in Klartext (rein, testbar).
+
+    tinytuya gibt bei allen diesen Fällen dieselbe leere Liste zurück.
+    Von aussen sieht «kein Konto verknüpft» genau gleich aus wie «IoT
+    Core nicht abonniert» – die Handgriffe sind aber verschieden, und
+    ohne diesen Unterschied probiert man beide abwechselnd durch.
+    """
+    if not isinstance(antwort, dict):
+        return f"Antwort von Tuya (unerwartete Form): {antwort!r}"
+
+    if antwort.get("success"):
+        ergebnis = antwort.get("result") or {}
+        geraete = ergebnis.get("devices") if isinstance(ergebnis, dict) else ergebnis
+        anzahl = len(geraete) if isinstance(geraete, list) else 0
+        if anzahl:
+            return f"Tuya meldet {anzahl} Gerät(e) – die Liste oben ist also unvollständig."
+        return (
+            "Tuya antwortet ohne Fehler und mit null Geräten. Das Projekt ist "
+            "erreichbar und freigeschaltet, es ist ihm nur kein Konto mit "
+            "Geräten zugeordnet: Devices → Link Tuya App Account → Add App "
+            "Account → «Tuya App Account Authorization», QR-Code mit der "
+            "Smart-Life-App scannen (Ich → Scan-Symbol oben rechts)."
+        )
+
+    code = antwort.get("code")
+    meldung = str(antwort.get("msg") or "ohne Meldung")
+    zeilen = [f"Tuya lehnt ab – Code {code}: {meldung}"]
+    try:
+        erklaerung = CLOUD_CODES.get(int(code))
+    except (TypeError, ValueError):
+        erklaerung = None
+    if erklaerung:
+        zeilen.append(erklaerung)
+    return "\n".join(zeilen)
