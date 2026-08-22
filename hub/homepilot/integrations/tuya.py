@@ -74,6 +74,7 @@ from .tuya_logic import (  # noqa: F401
     REFRESH_SECONDS,
     brightness_range,
     check_address,
+    check_key,
     decode_color,
     dps_map,
     encode_color,
@@ -134,12 +135,16 @@ class TuyaIntegration(Integration):
 
     async def _add_device(self, block: dict[str, Any]) -> None:
         geraete_id = str(block.get("id") or "").strip()
-        key = str(block.get("key") or "").strip()
-        if not geraete_id or not key:
+        if not geraete_id:
             raise ConfigError(
-                "tuya: jedes Gerät braucht 'id' und 'key' – die holt "
+                "tuya: jedes Gerät braucht eine 'id' – die holt "
                 "'python -m homepilot.integrations.tuya --cloud'"
             )
+        # Erst prüfen, dann anlegen: Ein Schlüssel falscher Länge wird von
+        # tinytuya abgewiesen, noch bevor es das Gerät anspricht - mit
+        # derselben Fehlernummer wie eine falsche Protokollfassung. Wer
+        # das nicht weiss, sucht danach an der falschen Stelle.
+        key = check_key(block.get("key"))
         name = str(block.get("name") or geraete_id)
         check_address(block.get("ip"))
         kind = EntityKind.SWITCH if block.get("kind") == "switch" else EntityKind.LIGHT

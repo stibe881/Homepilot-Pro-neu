@@ -232,9 +232,10 @@ TUYA_ERRORS = {
     "901": "Das Gerät hat die Verbindung abgewiesen – meist ist die IP falsch.",
     "905": "Das Gerät antwortet nicht. Ist es am Strom und im selben Netz?",
     "914": (
-        "Schlüssel oder Protokollfassung passen nicht. Die Fassung zeigt "
-        "--scan; der Schlüssel ändert sich, sobald das Gerät in der "
-        "Hersteller-App neu angelernt wurde – dann --cloud noch einmal."
+        "Schlüssel oder Protokollfassung passen nicht. Zuerst die Länge des "
+        "Schlüssels prüfen: genau 16 Zeichen, nicht 32 (das wäre die UUID). "
+        "Sonst hilft --probe, alle Fassungen durchzuprobieren, und --cloud "
+        "holt den Schlüssel frisch."
     ),
 }
 
@@ -265,6 +266,41 @@ def error_text(antwort: Any) -> str:
     if isinstance(antwort, dict):
         return str(antwort.get("Error") or antwort)
     return str(antwort)
+
+
+# Ein lokaler Tuya-Schlüssel ist ein AES-128-Schlüssel: genau sechzehn
+# Zeichen. Alles andere weist tinytuya ab, noch bevor es das Gerät
+# überhaupt anspricht - und antwortet mit derselben Nummer wie bei einer
+# falschen Protokollfassung. Deshalb gehört die Länge geprüft, bevor
+# jemand einen Abend lang Fassungen durchprobiert.
+KEY_LENGTH = 16
+
+
+def check_key(roh: Any) -> str:
+    """Den lokalen Schlüssel prüfen, bevor irgendetwas versucht wird.
+
+    Der häufigste Fehlgriff ist nicht ein Tippfehler, sondern das falsche
+    Feld: Im Tuya-Entwicklerportal stehen neben dem lokalen Schlüssel
+    auch die Geräte-UUID und ein «Secret», beide 32 Zeichen lang und
+    beide sehen aus, als gehörten sie hierher. Wer eines davon einträgt,
+    bekommt Fehler 914 - «Schlüssel oder Protokollfassung passen nicht» -
+    und sucht danach an der Fassung.
+    """
+    text = str(roh or "").strip()
+    if not text:
+        raise ConfigError(
+            "tuya: 'key' fehlt. Der lokale Schlüssel hat 16 Zeichen und "
+            "kommt aus: python -m homepilot.integrations.tuya --cloud"
+        )
+    if len(text) != KEY_LENGTH:
+        raise ConfigError(
+            f"tuya: Der lokale Schlüssel hat {len(text)} Zeichen, nötig sind "
+            f"{KEY_LENGTH}. Wahrscheinlich ist es die Geräte-UUID oder das "
+            "«Secret» aus dem Tuya-Portal – beide sind 32 Zeichen lang und "
+            "sehen genauso aus. Den richtigen zeigt: "
+            "python -m homepilot.integrations.tuya --cloud (Feld 'key')."
+        )
+    return text
 
 
 def check_address(roh: Any) -> str | None:

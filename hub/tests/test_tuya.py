@@ -144,7 +144,10 @@ def test_tuya_error_numbers_become_sentences():
     from homepilot.integrations.tuya import error_hint
 
     hinweis = error_hint({"Error": "Check device key or version", "Err": "914"})
-    assert hinweis and "Schlüssel" in hinweis and "--scan" in hinweis
+    # Die Länge zuerst: Ein Schlüssel mit 32 Zeichen ist der häufigste
+    # Grund, und tinytuya weist ihn ab, bevor es das Gerät anspricht.
+    assert hinweis and "16 Zeichen" in hinweis
+    assert "--probe" in hinweis and "--cloud" in hinweis
     assert error_hint({"Err": "905"})
     # Unbekannte Nummern und Nicht-Fehler ergeben keinen erfundenen Satz.
     assert error_hint({"Err": "4711"}) is None
@@ -200,3 +203,33 @@ def test_a_half_written_address_is_caught_at_the_start():
 
     with pytest.raises(ConfigError):
         check_address("Sternenprojektor")
+
+
+def test_a_local_key_has_sixteen_characters():
+    """Der häufigste Fehlgriff ist nicht ein Tippfehler, sondern das
+    falsche Feld.
+
+    Im Tuya-Portal stehen neben dem lokalen Schlüssel die Geräte-UUID und
+    ein «Secret» – beide 32 Zeichen und beide sehen aus, als gehörten sie
+    hierher. tinytuya weist so etwas mit Fehler 914 ab, noch bevor es das
+    Gerät anspricht: derselben Nummer wie bei einer falschen
+    Protokollfassung. Man sucht dann einen Abend lang an der Fassung.
+    """
+    import pytest
+
+    from homepilot.core.errors import ConfigError
+    from homepilot.integrations.tuya_logic import check_key
+
+    assert check_key("0123456789abcdef") == "0123456789abcdef"
+    assert check_key("  0123456789abcdef  ") == "0123456789abcdef"
+
+    with pytest.raises(ConfigError) as fehler:
+        check_key("9feb9535ccf34ffcae2607f741861ebe")
+    text = str(fehler.value)
+    assert "32 Zeichen" in text and "16" in text
+    assert "UUID" in text
+
+    with pytest.raises(ConfigError):
+        check_key("")
+    with pytest.raises(ConfigError):
+        check_key(None)
