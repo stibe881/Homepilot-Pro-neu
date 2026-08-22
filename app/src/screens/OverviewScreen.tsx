@@ -17,6 +17,7 @@ import { KIND_ICONS, shortState } from '../components/RoomTile';
 import { appleMapsRoute, googleMapsRoute } from '../components/TopStrip';
 import { VacuumHome } from '../components/VacuumHome';
 import { wochentagUhr } from '../lib/format';
+import { applianceLine } from '../lib/haushalt';
 import { Colors, radius, space, useColors } from '../theme';
 
 /**
@@ -236,21 +237,10 @@ export function OverviewScreen({
   // definiert würden sie bei jedem Live-Update neu erzeugt und laufende
   // Berührungen abgebrochen.
 
-  const applianceState = (entity: Entity | undefined, demoText: string) => {
-    if (!entity) return { text: demoText, running: /läuft|trocknen/i.test(demoText) };
-    const value = String(entity.state.state ?? '');
-    const program = entity.state.program ? ` · ${entity.state.program}` : '';
-    const minutes =
-      entity.state.minutes_left != null ? ` · noch ${entity.state.minutes_left} min` : '';
-    const running = value === 'running' || value === 'on';
-    return {
-      text: (running ? 'Läuft' : value === 'idle' || value === 'off' ? 'Bereit' : value) + program + minutes,
-      running,
-    };
-  };
-
-  const dish = applianceState(dishwasher, 'Bereit');
-  const wash = applianceState(washer, 'Läuft · noch 32 min');
+  // Der Zustandstext liegt als reine Funktion in lib/haushalt.ts - dort
+  // steht auch, warum die Restzeit nur bei laufendem Gerät erscheint.
+  const dish = applianceLine(dishwasher, 'Bereit');
+  const wash = applianceLine(washer, 'Läuft · noch 32 min');
   // Der Tumbler hängt an einer Schalt-Messsteckdose: Ob er läuft, verrät
   // erst die Leistung – eingeschaltet ist die Steckdose auch danach noch.
   const tumblerWatts = tumbler ? Number(tumbler.state.power ?? 0) : 1450;

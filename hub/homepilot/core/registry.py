@@ -130,6 +130,14 @@ class EntityRegistry:
         """Merged Änderungen in den Zustand und publiziert state_changed.
 
         Publiziert nur, wenn sich tatsächlich etwas geändert hat.
+
+        Achtung, Falle: Gemerged heisst *gemerged*. Ein Feld, das eine
+        Integration in ``changes`` weglässt, behält seinen bisherigen
+        Wert - was Teil-Aktualisierungen erlaubt, aber Werte auch
+        festkleben lässt. Was verschwinden können muss (eine Restzeit,
+        ein laufendes Programm), gehört deshalb ausdrücklich als ``None``
+        hinein, nicht weggelassen. Genau daran hing wochenlang ein «noch
+        1 min» an einer längst fertigen Waschmaschine.
         """
         entity = self._entities.get(entity_id)
         if entity is None:

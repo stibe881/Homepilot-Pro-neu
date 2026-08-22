@@ -94,6 +94,9 @@ def test_parse_device_status_running():
         "status": "Programm läuft",
         "program_end": "1h 20min",
         "serial": "11021 123456",
+        # «1h 20min» lief früher in einen ValueError - die Kachel blieb
+        # ohne Restzeit, obwohl die Maschine sie meldete.
+        "minutes_left": 80,
     }
 
 

@@ -1031,8 +1031,13 @@ def test_vzug_minutes_until():
     assert minutes_until("13:30", noon) == 90       # Uhrzeit heute
     assert minutes_until("00:15", 23 * 60) == 75    # über Mitternacht
     assert minutes_until("42", noon) == 42          # rohe Minuten
+    # Die Firmware wechselt die Schreibweise; alle müssen ankommen.
+    assert minutes_until("1h 20min", noon) == 80
+    assert minutes_until("1h", noon) == 60
+    assert minutes_until("20min", noon) == 20
     assert minutes_until("", noon) is None
     assert minutes_until("kaputt", noon) is None
+    assert minutes_until("1h kaputt", noon) is None
 
 
 def test_vzug_status_reports_minutes_left():
@@ -1052,7 +1057,9 @@ def test_vzug_status_reports_minutes_left():
 
     idle = parse_device_status({"Inactive": "true"}, now_minutes=0)
     assert idle["state"] == "idle"
-    assert "minutes_left" not in idle
+    # Ausdrücklich None und nicht «Schlüssel weg»: Der Hub merged die
+    # Zustände, ein fehlendes Feld behielte seinen alten Wert.
+    assert idle["minutes_left"] is None
 
 
 def test_vzug_standby_with_display_on_is_not_running():
@@ -1066,7 +1073,7 @@ def test_vzug_standby_with_display_on_is_not_running():
         now_minutes=12 * 60,
     )
     assert standby["state"] == "idle"
-    assert "minutes_left" not in standby
+    assert standby["minutes_left"] is None
 
 
 def test_vzug_a_frozen_countdown_is_unmasked():
@@ -1084,7 +1091,7 @@ def test_vzug_a_frozen_countdown_is_unmasked():
     assert unfrozen_status(dict(laufend), merker, "vzug.wama", 120.0) == laufend
     # Nach sechs Minuten immer noch «1 min»: Das ist keine Restzeit mehr.
     entlarvt = unfrozen_status(dict(laufend), merker, "vzug.wama", 360.0)
-    assert "minutes_left" not in entlarvt
+    assert entlarvt["minutes_left"] is None
     assert entlarvt["state"] == "idle"
 
     # Eine Maschine, die WIRKLICH zählt, bleibt unangetastet ...
@@ -1107,12 +1114,85 @@ def test_vzug_a_frozen_countdown_is_unmasked():
     pausiert = {"state": "running", "minutes_left": 34}
     unfrozen_status(dict(pausiert), merker, "vzug.wama", 0.0)
     stehend = unfrozen_status(dict(pausiert), merker, "vzug.wama", 400.0)
-    assert "minutes_left" not in stehend
+    assert stehend["minutes_left"] is None
     assert stehend["state"] == "running"
 
     # Ist das Gerät fertig gemeldet, wird der Merker aufgeräumt.
     unfrozen_status({"state": "idle"}, merker, "vzug.wama", 500.0)
     assert "vzug.wama" not in merker
+
+
+def test_vzug_the_countdown_really_disappears_from_the_entity():
+    """Der eigentliche Fehler - und der Grund, warum die erste Korrektur
+    nichts brachte: registry.update_state *merged* die Änderungen. Ein
+    Feld, das die Integration einfach weglässt, behält seinen alten Wert.
+    Die Waschmaschine stand deshalb weiter auf «noch 1 min», obwohl der
+    Zustand längst auf «fertig» stand.
+
+    Dieser Test geht durch die echte Registry, nicht nur durchs dict -
+    genau dort war die Lücke."""
+    import asyncio
+
+    from homepilot.core.entity import Entity, EntityKind
+    from homepilot.core.events import EventBus
+    from homepilot.core.registry import EntityRegistry
+    from homepilot.integrations.vzug import parse_device_status, unfrozen_status
+
+    async def check():
+        registry = EntityRegistry(EventBus())
+        await registry.add(
+            Entity(
+                id="vzug.wama",
+                kind=EntityKind.APPLIANCE,
+                name="Waschmaschine",
+                integration="vzug",
+                state={"state": "unknown"},
+                commands=[],
+            )
+        )
+        merker: dict[str, tuple[int, float]] = {}
+        laeuft = {
+            "Inactive": "false",
+            "Program": "Kochwäsche",
+            "Status": "Läuft",
+            "ProgramEnd": {"End": "1"},
+        }
+
+        # Die Maschine meldet «noch 1 min» - erst einmal geglaubt.
+        for jetzt in (0.0, 60.0):
+            await registry.update_state(
+                "vzug.wama",
+                unfrozen_status(parse_device_status(laeuft), merker, "vzug.wama", jetzt),
+                available=True,
+            )
+        assert registry.get("vzug.wama").state["minutes_left"] == 1
+
+        # Sechs Minuten später steht dieselbe Zahl - das ist keine
+        # Restzeit mehr, und sie muss aus der Entität verschwinden.
+        await registry.update_state(
+            "vzug.wama",
+            unfrozen_status(parse_device_status(laeuft), merker, "vzug.wama", 400.0),
+            available=True,
+        )
+        zustand = registry.get("vzug.wama").state
+        assert zustand["minutes_left"] is None
+        assert zustand["state"] == "idle"
+
+        # Und auch der ganz normale Weg zum Programmende räumt sie weg:
+        # Das Gerät meldet «fertig», die Zahl darf nicht kleben bleiben.
+        await registry.update_state(
+            "vzug.wama",
+            parse_device_status({"Inactive": "false", "Program": "Eco",
+                                 "ProgramEnd": {"End": "5"}}),
+            available=True,
+        )
+        assert registry.get("vzug.wama").state["minutes_left"] == 5
+        await registry.update_state(
+            "vzug.wama", parse_device_status({"Inactive": "true"}), available=True
+        )
+        assert registry.get("vzug.wama").state["minutes_left"] is None
+
+    asyncio.run(check())
 
 
 def test_login_error_names_the_real_cause():

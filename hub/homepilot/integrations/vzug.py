@@ -17,6 +17,7 @@ spüler und Backofen auch gut so ist.
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from typing import Any
 
@@ -37,12 +38,6 @@ def minutes_until(end_text: str, now_minutes: int) -> int | None:
     text = str(end_text).strip().lower()
     if not text:
         return None
-    if "h" in text:
-        hours, _, minutes = text.partition("h")
-        try:
-            return int(hours or 0) * 60 + int(minutes or 0)
-        except ValueError:
-            return None
     if ":" in text:
         try:
             hours, minutes = text.split(":", 1)
@@ -51,10 +46,13 @@ def minutes_until(end_text: str, now_minutes: int) -> int | None:
             return None
         # Endet das Programm «vor jetzt», ist Mitternacht dazwischen.
         return end - now_minutes if end >= now_minutes else end + 24 * 60 - now_minutes
-    try:
-        return int(text)
-    except ValueError:
+    # Dauer-Formate. Ein einziges Muster statt getrennter Zweige, weil die
+    # Firmware zwischen «1h05», «1h 20min» und «45» wechselt - «1h 20min»
+    # lief vorher in einen ValueError und die Kachel blieb ohne Restzeit.
+    treffer = re.fullmatch(r"(?:(\d+)\s*h)?\s*(?:(\d+)\s*(?:min(?:uten)?|m)?)?", text)
+    if treffer is None or not (treffer.group(1) or treffer.group(2)):
         return None
+    return int(treffer.group(1) or 0) * 60 + int(treffer.group(2) or 0)
 
 
 def parse_device_status(
@@ -84,15 +82,22 @@ def parse_device_status(
         "program_end": end_text,
         "serial": payload.get("Serial") or None,
     }
+    # Immer setzen, auch als None - und das ist der Kern: Der Hub *merged*
+    # Zustandsänderungen (registry.update_state). Ein Feld, das einfach
+    # weggelassen wird, behält deshalb seinen alten Wert. Genau daran hing
+    # das «noch 1 min», das tagelang an einer längst fertigen Maschine
+    # klebte: Das Programmende verschwand aus der Antwort, die Zahl blieb.
+    minutes: int | None = None
     if laeuft and end_text:
         if now_minutes is None:
             from datetime import datetime
 
             local = datetime.now()
             now_minutes = local.hour * 60 + local.minute
-        minutes = minutes_until(end_text, now_minutes)
-        if minutes is not None and 0 <= minutes <= 24 * 60:
-            result["minutes_left"] = minutes
+        gerechnet = minutes_until(end_text, now_minutes)
+        if gerechnet is not None and 0 <= gerechnet <= 24 * 60:
+            minutes = gerechnet
+    result["minutes_left"] = minutes
     return result
 
 
@@ -129,7 +134,9 @@ def unfrozen_status(
         return status
     if jetzt - bisher[1] <= grenze:
         return status
-    result = {key: value for key, value in status.items() if key != "minutes_left"}
+    # Auf None setzen statt den Schlüssel wegzulassen - sonst holt der
+    # Merge in registry.update_state die eingefrorene Zahl zurück.
+    result = {**status, "minutes_left": None}
     if minutes <= 1:
         result["state"] = "idle"
     return result
