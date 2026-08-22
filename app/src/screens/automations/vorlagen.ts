@@ -445,6 +445,58 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
     });
   }
 
+  // Punkt 199: Der Fall, für den Familien so etwas überhaupt einrichten –
+  // das Kind ist von der Schule heimgekommen. Oder eben noch nicht.
+  const zonen = entities.filter((entity) => entity.id.startsWith('geofence.'));
+  for (const zone of zonen.slice(0, 3)) {
+    const wer = zone.name;
+    templates.push({
+      label: `${wer} ist angekommen`,
+      icon: 'location-outline',
+      draft: {
+        ...EMPTY,
+        alias: `${wer} ist zuhause`,
+        triggers: [{ ...EMPTY_TRIGGER, kind: 'geofence' as TriggerKind, entityId: zone.id, toState: 'home' }],
+        // Werktags nachmittags: Ohne Fenster piepst jede Heimkehr, auch
+        // die um sieben Uhr morgens vom Briefkasten.
+        conditionKind: 'time' as ConditionKind,
+        conditionAfter: '15:00',
+        conditionBefore: '18:00',
+        weekdays: [0, 1, 2, 3, 4],
+        steps: [
+          {
+            ...EMPTY_STEP,
+            kind: 'notify' as StepKind,
+            title: `${wer} ist zuhause`,
+            body: 'Gerade angekommen.',
+          },
+        ],
+      },
+    });
+    // Die stille Umkehrung, die man erst schätzt, wenn sie fehlt.
+    templates.push({
+      label: `${wer} ist um 17:30 noch nicht da`,
+      icon: 'alarm-outline',
+      draft: {
+        ...EMPTY,
+        alias: `${wer} um 17:30 noch nicht zuhause`,
+        triggers: [{ ...EMPTY_TRIGGER, kind: 'time' as TriggerKind, at: '17:30' }],
+        stateConditions: [
+          { entity_id: zone.id, op: 'is' as Compare, value: 'away' },
+        ],
+        weekdays: [0, 1, 2, 3, 4],
+        steps: [
+          {
+            ...EMPTY_STEP,
+            kind: 'notify' as StepKind,
+            title: `${wer} ist noch nicht zuhause`,
+            body: 'Um 17:30 immer noch unterwegs.',
+          },
+        ],
+      },
+    });
+  }
+
   return templates;
 }
 

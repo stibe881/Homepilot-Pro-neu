@@ -5,7 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Notifications from 'expo-notifications';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useState } from 'react';
-import { StyleSheet } from 'react-native';
+import { Platform, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 
@@ -36,6 +36,22 @@ Notifications.setNotificationHandler({
     shouldSetBadge: false,
   }),
 });
+
+/**
+ * Die Hintergrund-Aufgabe der Ortung registrieren (Punkt 194).
+ *
+ * Muss beim Laden des Moduls geschehen, nicht in einem Effekt: Wenn das
+ * Betriebssystem die App wegen einer Zonengrenze weckt, gibt es keine
+ * Komponente, die sie erst noch anmelden könnte.
+ *
+ * Auf Web bewusst nicht: Dort gibt es weder TaskManager noch
+ * Hintergrund-Standort, und ein fehlschlagender Import nähme die ganze
+ * Seite mit.
+ */
+if (Platform.OS !== 'web') {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  require('./src/lib/ortungstask');
+}
 
 const STORAGE_KEY = 'homepilot.settings';
 

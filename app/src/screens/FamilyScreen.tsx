@@ -163,8 +163,11 @@ export function FamilyScreen({
   const [hausadresse, setHausadresse] = useState<{ address: string; note: string } | null>(
     null
   );
-  // Wer gerade wo ist (Punkt 196).
+  // Wer gerade wo ist (Punkt 196) und warum es dort so steht (Punkt 219).
   const [anwesend, setAnwesend] = useState<Record<string, unknown>[]>([]);
+  const [ortungsDiagnose, setOrtungsDiagnose] = useState<Record<string, unknown>[] | null>(
+    null
+  );
   // «Was koche ich heute?» im Planer (Punkt 139): Die Saat hält die
   // Vorschläge stehen, bis jemand würfelt - sonst mischte jedes
   // Live-Update vom Hub die Liste um.
@@ -3639,6 +3642,37 @@ export function FamilyScreen({
             <Text key={String(person.zone ?? index)} style={styles.checkSub}>
               {anwesenheitsZeile(person, new Date())}
             </Text>
+          ))}
+          {/* Punkt 219: «Warum steht da weg?» – das Gegenstück zur
+              Ablauf-Diagnose. Der halbe Support-Fall beantwortet sich
+              damit selbst. */}
+          <Pressable
+            onPress={async () => {
+              if (ortungsDiagnose) {
+                setOrtungsDiagnose(null);
+                return;
+              }
+              const antwort = await hub.get<{ people: Record<string, unknown>[] } | null>(
+                '/api/presence/diagnose',
+                { fallback: null, still: true }
+              );
+              setOrtungsDiagnose(antwort?.people ?? []);
+            }}
+            accessibilityRole="button"
+            style={styles.clearButton}
+          >
+            <Text style={styles.resetText}>
+              {ortungsDiagnose ? 'Diagnose schliessen' : 'Warum steht da das?'}
+            </Text>
+          </Pressable>
+          {(ortungsDiagnose ?? []).map((zeile, index) => (
+            <View key={String(zeile.zone ?? index)} style={{ gap: 2 }}>
+              <Text style={styles.checkText}>{String(zeile.person ?? '?')}</Text>
+              <Text style={styles.checkSub}>
+                {String(zeile.hint ?? '')} · Quelle: {String(zeile.combined_source ?? '?')}
+                {zeile.battery != null ? ` · Akku ${String(zeile.battery)} %` : ''}
+              </Text>
+            </View>
           ))}
         </Card>
       ) : null}

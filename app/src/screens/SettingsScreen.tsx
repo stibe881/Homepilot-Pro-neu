@@ -4,7 +4,9 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { HubSettings } from '../api/types';
 import { Card } from '../components/Card';
+import { useOrtung } from '../hooks/useOrtung';
 import { defaultHubUrl } from '../lib/origin';
+import { PAUSEN, ortungsHinweis, pauseBis, pausiert } from '../lib/ortung';
 import { applySetup, QrScanner } from '../components/QrScanner';
 import { Colors, radius, ThemeMode, type, useColors } from '../theme';
 
@@ -25,11 +27,27 @@ interface Props {
   embedded?: boolean;
   /** Angemeldeter Benutzer – zeigt Name und Rolle an. */
   user?: { name: string; role: string } | null;
+  /** Wer die eigene Ortung sieht – für die Zeile im Profil (Punkt 197). */
+  familie?: string[];
 }
 
-export function SettingsScreen({ initial, onSave, onCancel, embedded, user }: Props) {
+export function SettingsScreen({
+  initial,
+  onSave,
+  onCancel,
+  embedded,
+  user,
+  familie = [],
+}: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  // Punkt 194/197: Die Ortung dieses Geräts – Gäste nie, und was läuft,
+  // steht hier und lässt sich aussetzen.
+  const ortung = useOrtung(
+    { url: initial?.url ?? '', token: initial?.token ?? '' } as HubSettings,
+    (user?.name ?? '').split(' ')[0].toLowerCase(),
+    !!user && user.role !== 'gast'
+  );
   const [url, setUrl] = useState(initial?.url ?? defaultHubUrl());
   const [token, setToken] = useState(initial?.token ?? '');
   const [name, setName] = useState(initial?.name ?? '');
@@ -202,6 +220,75 @@ export function SettingsScreen({ initial, onSave, onCancel, embedded, user }: Pr
           <View style={[styles.knob, panel && styles.knobOn]} />
         </View>
       </Pressable>
+
+      {/* Punkt 197: Sobald die App selbst ortet, ändert sich die Frage –
+          nicht «geht das technisch», sondern «weiss jeder, dass es
+          läuft». Ein Familiensystem, dem man beim Orten nicht zusehen
+          kann, wird abgeschaltet, zu Recht. */}
+      {ortung.moeglich ? (
+        <View style={styles.panelRow}>
+          <View style={{ flex: 1, gap: 6 }}>
+            <Pressable
+              onPress={() => ortung.schalten(!ortung.stand.aktiv)}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: ortung.stand.aktiv }}
+              style={({ pressed }) => [
+                { flexDirection: 'row', alignItems: 'center', gap: 12 },
+                pressed && { opacity: 0.7 },
+              ]}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={styles.label}>Ortung</Text>
+                <Text style={styles.panelHint}>
+                  {ortungsHinweis(
+                    ortung.stand.aktiv,
+                    ortung.stand.pausiertBis,
+                    new Date(),
+                    familie
+                  )}
+                </Text>
+              </View>
+              <View style={[styles.switch, ortung.stand.aktiv && styles.switchOn]}>
+                <View style={[styles.knob, ortung.stand.aktiv && styles.knobOn]} />
+              </View>
+            </Pressable>
+            <Text style={styles.panelHint}>
+              Überwacht wird nur die Grenze der Orte, die im Hub stehen –
+              kein laufender Standort, sonst wäre der Akku am Nachmittag
+              leer.
+            </Text>
+            {ortung.stand.hinweis ? (
+              <Text style={[styles.panelHint, { color: colors.warn }]}>
+                {ortung.stand.hinweis}
+              </Text>
+            ) : null}
+            {ortung.stand.aktiv ? (
+              <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                {pausiert(ortung.stand.pausiertBis, new Date()) ? (
+                  <Pressable
+                    onPress={() => ortung.weiter()}
+                    accessibilityRole="button"
+                    style={styles.mode}
+                  >
+                    <Text style={styles.modeText}>Weiterlaufen lassen</Text>
+                  </Pressable>
+                ) : (
+                  PAUSEN.map((pause) => (
+                    <Pressable
+                      key={pause.key}
+                      onPress={() => ortung.pausieren(pauseBis(pause.key, new Date()))}
+                      accessibilityRole="button"
+                      style={styles.mode}
+                    >
+                      <Text style={styles.modeText}>Pause: {pause.label}</Text>
+                    </Pressable>
+                  ))
+                )}
+              </View>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
 
       <Pressable
         style={({ pressed }) => [styles.save, pressed && { opacity: 0.8 }]}

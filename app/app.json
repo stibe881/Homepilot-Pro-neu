@@ -3,7 +3,7 @@
     "name": "HomePilot",
     "slug": "homepilot",
     "owner": "stibe88",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -41,7 +41,17 @@
     "plugins": [
       "expo-font",
       "expo-video",
-      "@bacons/apple-targets"
+      "@bacons/apple-targets",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "HomePilot meldet dem Hub zuhause, wenn du ankommst oder gehst – damit die Heizung rechtzeitig hochfährt und «alles aus» nicht läuft, während jemand da ist. Es wird nur die Grenze der hinterlegten Orte überwacht, kein laufender Standort.",
+          "locationWhenInUsePermission": "HomePilot meldet dem Hub, wenn du zuhause ankommst oder gehst.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true
+        }
+      ],
+      "expo-task-manager"
     ],
     "scheme": "homepilot",
     "updates": {
