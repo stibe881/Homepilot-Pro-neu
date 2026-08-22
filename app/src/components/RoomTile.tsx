@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Entity } from '../api/types';
 import { Colors, useColors } from '../theme';
 import { Card } from './Card';
+import { raumSymbol, raumZeile, wichtigeZuerst } from '../lib/raum';
 
 /**
  * Raum-Kachel für die Seite «Räume»: der Raumname, darunter kompakt die
@@ -85,29 +86,42 @@ export function RoomTile({
   name,
   items,
   width,
+  favorites = [],
   onOpen,
   onCommand,
 }: {
   name: string;
   items: Entity[];
   width: number;
+  /** Sterne entscheiden mit, welche Zeilen die Kachel zeigt. */
+  favorites?: string[];
   onOpen: () => void;
   onCommand: (entityId: string, command: string) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const shownItems = items.slice(0, MAX_ROWS);
+  // Nicht die Meldereihenfolge der Integration entscheidet, was in die
+  // sechs Zeilen passt, sondern was einem wichtig ist: Favoriten, dann
+  // Laufendes, dann Bedienbares, Messwerte zuletzt.
+  const shownItems = wichtigeZuerst(items, favorites).slice(0, MAX_ROWS);
   const moreCount = items.length - shownItems.length;
   const activeCount = items.filter(
     (entity) => entity.state.state === 'on' || entity.state.state === 'playing'
   ).length;
+  // Wie warm, was offen, ob Musik läuft – der Zustand des Raums, nicht
+  // nur seine Gerätezahl.
+  const zeile = raumZeile(items);
 
   return (
     <Card style={{ ...styles.tile, width }} onPress={onOpen}>
       <View style={styles.head}>
-        <Text style={styles.name} numberOfLines={1}>
-          {name}
-        </Text>
+        <View style={styles.titleRow}>
+          <Ionicons name={raumSymbol(name)} size={16} color={colors.inkSoft} />
+          <Text style={[styles.name, { flex: 1 }]} numberOfLines={1}>
+            {name}
+          </Text>
+        </View>
+        {zeile ? <Text style={styles.zeile}>{zeile}</Text> : null}
         <Text style={styles.count}>
           {activeCount > 0 ? `${activeCount} an · ` : ''}
           {items.length} Geräte
@@ -195,7 +209,9 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     tile: { minHeight: 0, gap: 8 },
     head: { gap: 1 },
+    titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     name: { color: colors.ink, fontSize: 17, fontWeight: '700' },
+    zeile: { color: colors.inkSoft, fontSize: 12 },
     count: { color: colors.inkFaint, fontSize: 12 },
     row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     rowName: { color: colors.inkSoft, fontSize: 13, flex: 1 },

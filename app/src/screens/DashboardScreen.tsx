@@ -53,6 +53,7 @@ import {
   sortiereGeraete,
 } from '../lib/geraetefilter';
 import { verweisText, verweiseAuf } from '../lib/verweise';
+import { raeumeSortiert, raumMesswerte, raumKategorien, raumZeile } from '../lib/raum';
 import { schleier } from '../lib/nachtabsenkung';
 import { hubClient, onHubFehler } from '../api/client';
 import { Auffangnetz } from '../components/Auffangnetz';
@@ -203,6 +204,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [gridWidth, setGridWidth] = useState(0);
   const [editing, setEditing] = useState(false);
   const [reorderOpen, setReorderOpen] = useState(false);
+  // «Räume ordnen»: Die Reihenfolge kam aus der config.yaml – wer sie
+  // ändern wollte, brauchte den Rechner.
+  const [roomsReorderOpen, setRoomsReorderOpen] = useState(false);
   // Suchbegriff der Geräteliste.
   const [query, setQuery] = useState('');
   // Filter und Sortierung der Geräteliste – die vier Fragen, mit denen
@@ -714,9 +718,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     const extra = Array.from(withDevices)
       .filter((name) => !roomOrder.includes(name))
       .sort((a, b) => a.localeCompare(b));
-    const named = [...ordered, ...extra];
+    const named = raeumeSortiert([...ordered, ...extra], prefs.order?.raeume);
     return named.length > 0 ? [ALL_ROOMS, ...named] : [];
-  }, [entities, roomOrder]);
+  }, [entities, roomOrder, prefs.order?.raeume]);
 
   // Alle vergebenen Gruppennamen – für die Auswahl im Anpassen-Modus.
   const groupNames = useMemo(
@@ -886,28 +890,25 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     () => (categorized ? szenenFuerRaum(scenes, entities, room) : []),
     [categorized, scenes, entities, room]
   );
+  // Jede Geräteart bekommt ihre Überschrift statt eines Topfs «Weitere» –
+  // in einem Bad mit Thermostat, Feuchtefühler und Handtuchtrockner war
+  // «Weitere» sonst die einzige. Messwerte stehen im Raumkopf, nicht als
+  // Kacheln. Favoriten bleiben je Gruppe vorn.
   const categories = useMemo(() => {
     if (!categorized) return [];
-    const order: { kind: string; label: string }[] = [
-      { kind: 'light', label: 'Beleuchtung' },
-      { kind: 'cover', label: 'Store' },
-      { kind: 'media_player', label: 'Medien' },
-    ];
-    const result: { key: string; label: string; items: Entity[] }[] = [];
-    const used = new Set<string>();
-    for (const cat of order) {
-      const items = shown.filter((entity) => entity.kind === cat.kind).sort(byFavorite);
-      if (items.length > 0) {
-        result.push({ key: cat.kind, label: cat.label, items });
-        items.forEach((entity) => used.add(entity.id));
-      }
-    }
-    const weitere = shown.filter((entity) => !used.has(entity.id)).sort(byFavorite);
-    if (weitere.length > 0) {
-      result.push({ key: '__weitere', label: 'Weitere', items: weitere });
-    }
-    return result;
+    return raumKategorien(shown, deviceKindLabel).map((gruppe) => ({
+      ...gruppe,
+      items: [...gruppe.items].sort(byFavorite),
+    }));
+    // byFavorite ist eine je Rendern neue Funktion über favorites.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [categorized, shown, favorites]);
+  // Kopfzeile und Messwert-Chips des Raums.
+  const raumKopf = categorized ? raumZeile(inRoom) : '';
+  const messwerte = useMemo(
+    () => (categorized ? raumMesswerte(shown) : []),
+    [categorized, shown]
+  );
 
   /** Standbild-Adresse einer Kamera (oder der Saugerkarte) am Hub. */
   const snapshotUrl = (entity: Entity) =>
@@ -1536,7 +1537,47 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             </>
           ) : null}
           {section === 'home' && editing && rooms.length > 0 ? (
-            <RoomTabs rooms={rooms} active={room} onSelect={setRoom} />
+            <>
+              <RoomTabs rooms={rooms} active={room} onSelect={setRoom} />
+              <Pressable
+                onPress={() => setRoomsReorderOpen(true)}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.reorderButton, pressed && { opacity: 0.8 }]}
+              >
+                <Ionicons name="swap-vertical" size={16} color={colors.onGradient} />
+                <Text style={styles.reorderText}>Räume ordnen</Text>
+              </Pressable>
+              <Modal
+                visible={roomsReorderOpen}
+                animationType="slide"
+                onRequestClose={() => setRoomsReorderOpen(false)}
+              >
+                <View style={styles.reorderSheet}>
+                  <View style={styles.reorderHead}>
+                    <Text style={styles.reorderTitle}>Räume ordnen</Text>
+                    <Pressable
+                      onPress={() => setRoomsReorderOpen(false)}
+                      accessibilityLabel="Fertig"
+                    >
+                      <Ionicons name="checkmark" size={26} color={colors.ink} />
+                    </Pressable>
+                  </View>
+                  <Text style={styles.reorderHint}>
+                    Am Griff ☰ ziehen – am besten in der Reihenfolge, in der
+                    man durch die Wohnung geht. Gilt für alle im Haus; ohne
+                    eigene Reihenfolge zählt die aus der config.yaml.
+                  </Text>
+                  <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+                    <DraggableList
+                      items={rooms
+                        .filter((name) => name !== ALL_ROOMS)
+                        .map((name) => ({ id: name, name }))}
+                      onReorder={(names) => setOrder('raeume', names)}
+                    />
+                  </ScrollView>
+                </View>
+              </Modal>
+            </>
           ) : null}
           {section === 'home' && room !== ALL_ROOMS && !editing ? (
             <Pressable
@@ -1635,6 +1676,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                     key={tile.name}
                     name={tile.name}
                     items={tile.items}
+                    favorites={favorites}
                     width={
                       hasRail
                         ? Math.floor((gridWidth - space.gap) / 2)
@@ -1655,6 +1697,87 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           {/* Ein Raum: nach Kategorien (Szenen, Beleuchtung, Store, Medien). */}
           {categorized ? (
             <>
+              {/* Der Raumkopf: wie warm, was offen, was läuft – die drei
+                  Dinge, die man wissen will, bevor man Kacheln liest.
+                  Daneben die Handgriffe für den ganzen Raum. */}
+              {raumKopf || messwerte.length > 0 ? (
+                <View style={styles.raumKopf}>
+                  {raumKopf ? <Text style={styles.raumKopfText}>{raumKopf}</Text> : null}
+                  {messwerte.length > 0 ? (
+                    <View style={styles.filterRow}>
+                      {messwerte.map((fuehler) => {
+                        const auf = expanded === fuehler.id;
+                        return (
+                          <Pressable
+                            key={fuehler.id}
+                            onPress={() =>
+                              setExpanded((current) =>
+                                current === fuehler.id ? null : fuehler.id
+                              )
+                            }
+                            accessibilityRole="button"
+                            accessibilityState={{ expanded: auf }}
+                            accessibilityLabel={`${fuehler.name}: ${fuehler.state.state}${fuehler.state.unit ?? ''}`}
+                            style={[styles.filterChip, auf && styles.filterChipOn]}
+                          >
+                            <Text
+                              style={[
+                                styles.filterChipText,
+                                auf && styles.filterChipTextOn,
+                              ]}
+                            >
+                              {fuehler.name} {String(fuehler.state.state ?? '–')}
+                              {fuehler.state.unit ?? ''}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  ) : null}
+                  {(() => {
+                    const auf = messwerte.find((fuehler) => fuehler.id === expanded);
+                    return auf && cardWidth ? renderCard(auf) : null;
+                  })()}
+                </View>
+              ) : null}
+              <View style={styles.filterRow}>
+                <AllOff
+                  entities={inRoom}
+                  locked={locked}
+                  onCommand={guardedCommand}
+                  compact
+                />
+                {inRoom.some(
+                  (entity) => entity.kind === 'cover' && entity.commands.includes('open')
+                ) ? (
+                  <>
+                    <Pressable
+                      onPress={() =>
+                        inRoom
+                          .filter((entity) => entity.kind === 'cover')
+                          .forEach((entity) => guardedCommand(entity.id, 'open'))
+                      }
+                      accessibilityRole="button"
+                      style={styles.filterChip}
+                    >
+                      <Ionicons name="arrow-up" size={13} color={colors.onGradientSoft} />
+                      <Text style={styles.filterChipText}>Storen hoch</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() =>
+                        inRoom
+                          .filter((entity) => entity.kind === 'cover')
+                          .forEach((entity) => guardedCommand(entity.id, 'close'))
+                      }
+                      accessibilityRole="button"
+                      style={styles.filterChip}
+                    >
+                      <Ionicons name="arrow-down" size={13} color={colors.onGradientSoft} />
+                      <Text style={styles.filterChipText}>Storen runter</Text>
+                    </Pressable>
+                  </>
+                ) : null}
+              </View>
               {roomScenes.length > 0 ? (
                 <View style={styles.group}>
                   <Text style={styles.groupLabel}>Szenen</Text>
@@ -2629,6 +2752,8 @@ const makeStyles = (colors: Colors) =>
   filterChipOn: { backgroundColor: colors.surfaceStrong },
   filterChipText: { color: colors.onGradientSoft, fontSize: 12, fontWeight: '600' },
   filterChipTextOn: { color: colors.ink },
+  raumKopf: { gap: 8 },
+  raumKopfText: { color: colors.onGradient, fontSize: 15, fontWeight: '600' },
   reorderButton: {
     flexDirection: 'row',
     alignItems: 'center',
