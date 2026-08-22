@@ -9,6 +9,7 @@ import {
   Modal,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -16,7 +17,9 @@ import {
 } from 'react-native';
 
 import { HubSettings } from '../api/types';
-import { minutenImText } from '../lib/kochzeit';
+import { zeitenImText } from '../lib/kochzeit';
+import { scaledAmount } from '../lib/mengen';
+import { rezeptAlsText } from '../lib/rezepttext';
 import { Colors, radius, useColors } from '../theme';
 
 /**
@@ -109,14 +112,9 @@ export function categoryEmoji(name: string): string {
   return '🍴';
 }
 
-/** Menge skaliert auf die gewählten Portionen, hübsch formatiert. */
-export function scaledAmount(amount: unknown, factor: number): string {
-  const value = Number(amount);
-  if (!Number.isFinite(value)) return String(amount ?? '');
-  const scaled = value * factor;
-  const rounded = Math.round(scaled * 100) / 100;
-  return String(Number.isInteger(rounded) ? rounded : rounded).replace('.', ',');
-}
+// Die reinen Helfer wohnen in src/lib (mengen.ts, rezepttext.ts), damit
+// die Tests sie ohne die Expo-Module dieses Bildschirms laden können.
+export { scaledAmount };
 
 /** Tipps/Hinweise/Notizen: Text, Liste oder Liste von {text} → Zeilen. */
 export function listOfTexts(value: unknown): string[] {
@@ -307,12 +305,16 @@ function RecipeTile({
 /** Erfassen und Bearbeiten – dieselbe Maske, beim Bearbeiten vorausgefüllt. */
 function RecipeForm({
   initial,
+  categories,
   onSave,
   onCancel,
   styles,
   colors,
 }: {
   initial?: Rezept;
+  /** Vorhandene Kategorien als antippbare Chips (Punkt 137) – sonst
+   *  entstehen «Dessert», «Desserts» und «dessert» nebeneinander. */
+  categories: string[];
   onSave: (recipe: Rezept) => void;
   onCancel: () => void;
   styles: Styles;
@@ -342,21 +344,54 @@ function RecipeForm({
   const [notes, setNotes] = useState(String(initial?.notes ?? ''));
   const [image, setImage] = useState<string>(String(initial?.image_url ?? ''));
 
-  // Foto aus der Galerie: als data-URI (Base64) speichern, damit es über den
-  // Familie-Store beim Hub liegt und nicht von einem lokalen Pfad abhängt.
-  const pickImage = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) return;
-    const result = await ImagePicker.launchImageLibraryAsync({
+  // Foto als data-URI (Base64) speichern, damit es über den Familie-Store
+  // beim Hub liegt und nicht von einem lokalen Pfad abhängt.
+  //
+  // Vor dem Speichern verkleinern (Punkt 138): Ein iPhone-Foto in
+  // Originalauflösung sind mehrere MB, und /api/family liefert bei jedem
+  // Öffnen ALLE Fotos mit. 1200 px reichen für Kachel und Detail.
+  const verkleinert = async (asset: { uri: string; base64?: string | null; width?: number }) => {
+    try {
+      if ((asset.width ?? 0) > 1200) {
+        // Zur Laufzeit laden statt oben importieren: Auf einem älteren
+        // Build ohne dieses native Modul soll die App nicht abstürzen,
+        // sondern das Foto unverkleinert nehmen wie bisher.
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { manipulateAsync, SaveFormat } = require('expo-image-manipulator');
+        const kleiner = await manipulateAsync(asset.uri, [{ resize: { width: 1200 } }], {
+          compress: 0.6,
+          format: SaveFormat.JPEG,
+          base64: true,
+        });
+        if (kleiner.base64) return `data:image/jpeg;base64,${kleiner.base64}`;
+      }
+    } catch {
+      // Verkleinern ist eine Zugabe - das Original tut es auch.
+    }
+    return asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : asset.uri;
+  };
+
+  // Galerie fürs Nachtragen, Kamera für den Moment, in dem das Gericht
+  // auf dem Tisch steht.
+  const pickImage = async (quelle: 'galerie' | 'kamera' = 'galerie') => {
+    const optionen = {
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.6,
       base64: true,
       allowsEditing: true,
-      aspect: [16, 10],
-    });
-    if (result.canceled || !result.assets?.length) return;
-    const asset = result.assets[0];
-    setImage(asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : asset.uri);
+      aspect: [16, 10] as [number, number],
+    };
+    const permission =
+      quelle === 'kamera'
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) return;
+    const result =
+      quelle === 'kamera'
+        ? await ImagePicker.launchCameraAsync(optionen).catch(() => null)
+        : await ImagePicker.launchImageLibraryAsync(optionen);
+    if (!result || result.canceled || !result.assets?.length) return;
+    setImage(await verkleinert(result.assets[0]));
   };
 
   const submit = () => {
@@ -410,21 +445,36 @@ function RecipeForm({
         <View style={{ width: 26 }} />
       </View>
 
-      <Pressable onPress={pickImage} style={styles.photoPick} accessibilityRole="button">
+      <Pressable
+        onPress={() => pickImage('galerie')}
+        style={styles.photoPick}
+        accessibilityRole="button"
+      >
         {image ? (
           <Image source={{ uri: image }} style={styles.photoPreview} resizeMode="cover" />
         ) : (
           <View style={styles.photoPlaceholder}>
-            <Ionicons name="camera-outline" size={28} color={colors.inkSoft} />
-            <Text style={styles.photoHint}>Foto hinzufügen</Text>
+            <Ionicons name="images-outline" size={28} color={colors.inkSoft} />
+            <Text style={styles.photoHint}>Foto aus der Galerie</Text>
           </View>
         )}
       </Pressable>
-      {image ? (
-        <Pressable onPress={() => setImage('')} accessibilityRole="button">
-          <Text style={[styles.sourceLink, { color: colors.inkSoft }]}>Foto entfernen</Text>
+      <View style={styles.formRow}>
+        <Pressable
+          onPress={() => pickImage('kamera')}
+          accessibilityRole="button"
+          style={styles.photoAction}
+        >
+          <Ionicons name="camera-outline" size={16} color={colors.accent} />
+          <Text style={styles.photoActionText}>Mit der Kamera</Text>
         </Pressable>
-      ) : null}
+        {image ? (
+          <Pressable onPress={() => setImage('')} accessibilityRole="button" style={styles.photoAction}>
+            <Ionicons name="trash-outline" size={16} color={colors.inkSoft} />
+            <Text style={[styles.photoActionText, { color: colors.inkSoft }]}>Foto entfernen</Text>
+          </Pressable>
+        ) : null}
+      </View>
 
       <TextInput
         style={styles.input}
@@ -450,6 +500,27 @@ function RecipeForm({
         />
         {numeric(servings, setServings, 'Portionen')}
       </View>
+      {categories.length > 0 ? (
+        // Die vorhandenen Kategorien zum Antippen: So entsteht nicht
+        // neben «Dessert» noch «Desserts». Frei tippen geht weiterhin.
+        <View style={styles.katChips}>
+          {categories.map((name) => {
+            const active = name === category.trim();
+            return (
+              <Pressable
+                key={name}
+                onPress={() => setCategory(active ? '' : name)}
+                accessibilityRole="button"
+                style={[styles.katChip, active && { backgroundColor: colors.accent }]}
+              >
+                <Text style={[styles.katChipText, active && { color: '#FFFFFF' }]}>
+                  {categoryEmoji(name)} {name}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
       <TextInput
         style={styles.input}
         value={tags}
@@ -565,13 +636,18 @@ function CookMode({
   }, []);
   const steps = stepTexts(recipe);
   const ingredients: Zutat[] = Array.isArray(recipe.ingredients) ? recipe.ingredients : [];
-  // «20 Minuten backen» → ein Knopf, der die Küchenuhr des Hubs stellt.
-  // Die Durchsage kommt dann auch im Wohnzimmer an.
-  const [uhrGestellt, setUhrGestellt] = useState<number | null>(null);
+  // «20 Minuten backen» → ein Knopf je Zeitangabe, der die Küchenuhr des
+  // Hubs stellt (Punkt 143: «10 Min köcheln, dann 20 Min ziehen» sind
+  // zwei Uhren). Die Durchsage kommt dann auch im Wohnzimmer an.
+  const [uhren, setUhren] = useState<number[]>([]);
   // «Wieviel Rahm war das nochmal?» – die Zutaten zum Aufklappen, ohne
   // zwei Schritte zurückzugehen.
   const [zutatenOffen, setZutatenOffen] = useState(false);
-  const schrittMinuten = step >= 0 ? minutenImText(steps[step] ?? '') : null;
+  // Abgehakte Zutaten im Mise en Place (Punkt 141): Man sieht, was schon
+  // auf der Arbeitsfläche steht - und merkt VOR dem Loskochen, dass der
+  // Rahm fehlt. Lebt nur in diesem Kochdurchgang, gespeichert wird nichts.
+  const [bereit, setBereit] = useState<Record<number, boolean>>({});
+  const schrittZeiten = step >= 0 ? zeitenImText(steps[step] ?? '') : [];
 
   const uhrStellen = async (minuten: number) => {
     if (!settings) return;
@@ -587,7 +663,7 @@ function CookMode({
           text: `${recipe.text} – Schritt ${step + 1}`,
         }),
       });
-      if (response.ok) setUhrGestellt(minuten);
+      if (response.ok) setUhren((laufend) => [...laufend, minuten]);
     } catch {
       // Keine Uhr ist ärgerlich, aber kein Grund, das Kochen zu stören.
     }
@@ -606,17 +682,29 @@ function CookMode({
             <ScrollView style={{ flex: 1 }}>
               <View style={styles.ingredientCard}>
                 {ingredients.map((ingredient, index) => (
-                  <View
+                  <Pressable
                     key={index}
+                    onPress={() => setBereit((stand) => ({ ...stand, [index]: !stand[index] }))}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: !!bereit[index] }}
                     style={[styles.ingredientRow, index > 0 && styles.ingredientDivider]}
                   >
-                    <Text style={styles.ingredientAmount}>
+                    <Ionicons
+                      name={bereit[index] ? 'checkmark-circle' : 'ellipse-outline'}
+                      size={20}
+                      color={bereit[index] ? colors.on : colors.inkFaint}
+                    />
+                    <Text
+                      style={[styles.ingredientAmount, bereit[index] && { opacity: 0.45 }]}
+                    >
                       {[scaledAmount(ingredient?.amount, factor), ingredient?.unit]
                         .filter(Boolean)
                         .join(' ')}
                     </Text>
-                    <Text style={styles.ingredientName}>{String(ingredient?.name ?? '')}</Text>
-                  </View>
+                    <Text style={[styles.ingredientName, bereit[index] && { opacity: 0.45 }]}>
+                      {String(ingredient?.name ?? '')}
+                    </Text>
+                  </Pressable>
                 ))}
               </View>
             </ScrollView>
@@ -655,23 +743,28 @@ function CookMode({
                 <Text style={styles.stepBadgeText}>SCHRITT {step + 1}</Text>
               </View>
               <Text style={styles.stepText}>{steps[step]}</Text>
-              {settings && schrittMinuten ? (
-                <Pressable
-                  onPress={() => uhrStellen(schrittMinuten)}
-                  accessibilityRole="button"
-                  style={({ pressed }) => [styles.uhrKnopf, pressed && { opacity: 0.8 }]}
-                >
-                  <Ionicons
-                    name={uhrGestellt === schrittMinuten ? 'checkmark' : 'timer-outline'}
-                    size={18}
-                    color={colors.accent}
-                  />
-                  <Text style={styles.uhrKnopfText}>
-                    {uhrGestellt === schrittMinuten
-                      ? `Uhr läuft (${schrittMinuten} Min)`
-                      : `Uhr stellen: ${schrittMinuten} Min`}
-                  </Text>
-                </Pressable>
+              {settings && schrittZeiten.length > 0 ? (
+                <View style={styles.uhrReihe}>
+                  {schrittZeiten.map((minuten) => (
+                    <Pressable
+                      key={minuten}
+                      onPress={() => uhrStellen(minuten)}
+                      accessibilityRole="button"
+                      style={({ pressed }) => [styles.uhrKnopf, pressed && { opacity: 0.8 }]}
+                    >
+                      <Ionicons
+                        name={uhren.includes(minuten) ? 'checkmark' : 'timer-outline'}
+                        size={18}
+                        color={colors.accent}
+                      />
+                      <Text style={styles.uhrKnopfText}>
+                        {uhren.includes(minuten)
+                          ? `Uhr läuft (${minuten} Min)`
+                          : `Uhr stellen: ${minuten} Min`}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
               ) : null}
             </View>
             {ingredients.length > 0 ? (
@@ -705,7 +798,10 @@ function CookMode({
             ) : null}
             <View style={styles.cookButtons}>
               <Pressable
-                onPress={() => setStep((value) => value - 1)}
+                onPress={() => {
+                  setStep((value) => value - 1);
+                  setUhren([]);
+                }}
                 style={[styles.ghostWide, { flex: 1 }]}
               >
                 <Text style={styles.ghostWideText}>← Zurück</Text>
@@ -715,7 +811,7 @@ function CookMode({
                   if (step + 1 < steps.length) {
                     setStep(step + 1);
                     setZutatenOffen(false);
-                    setUhrGestellt(null);
+                    setUhren([]);
                     return;
                   }
                   onFertig?.();
@@ -741,6 +837,7 @@ function RecipeDetail({
   settings,
   onBack,
   onEdit,
+  onDuplicate,
   onDelete,
   onToggleFavorite,
   onCooked,
@@ -752,6 +849,9 @@ function RecipeDetail({
   recipe: Rezept;
   onBack: () => void;
   onEdit: () => void;
+  /** Als Variante kopieren (Punkt 148): «Lasagne, aber vegetarisch»
+   *  beginnt sonst mit dem Neu-Erfassen des ganzen Rezepts. */
+  onDuplicate: () => void;
   onDelete: () => void;
   onToggleFavorite: () => void;
   settings?: HubSettings;
@@ -824,6 +924,31 @@ function RecipeDetail({
                   size={20}
                   color={recipe.favorite ? '#FF5A6E' : '#FFFFFF'}
                 />
+              </Pressable>
+              <Pressable
+                onPress={() =>
+                  // Mit den eingestellten Portionen - wer für 6 kocht und
+                  // teilt, meint die 6er-Mengen. Ohne Teilen-Blatt (Web)
+                  // passiert schlicht nichts.
+                  Share.share({ message: rezeptAlsText(recipe, factor, servings) }).catch(
+                    () => {}
+                  )
+                }
+                style={styles.roundButton}
+                hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel="Rezept als Text teilen"
+              >
+                <Ionicons name="share-outline" size={19} color="#FFFFFF" />
+              </Pressable>
+              <Pressable
+                onPress={onDuplicate}
+                style={styles.roundButton}
+                hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel="Rezept als Variante kopieren"
+              >
+                <Ionicons name="copy-outline" size={19} color="#FFFFFF" />
               </Pressable>
               <Pressable
                 onPress={onEdit}
@@ -1082,7 +1207,12 @@ function RecipeDetail({
 
 // ── Hauptkomponente ─────────────────────────────────────────────────────────
 
-type Screen = { kind: 'list' } | { kind: 'detail'; id: string } | { kind: 'form'; id?: string };
+type Screen =
+  | { kind: 'list' }
+  | { kind: 'detail'; id: string }
+  // `vorlage`: vorbefüllt ein NEUES Rezept (Variante, Punkt 148) - im
+  // Unterschied zu `id`, das ein bestehendes bearbeitet.
+  | { kind: 'form'; id?: string; vorlage?: Rezept };
 
 export function RecipeBook({
   recipes,
@@ -1131,6 +1261,18 @@ export function RecipeBook({
       list = [...list].sort((a, b) =>
         String(b.created ?? '').localeCompare(String(a.created ?? ''))
       );
+    } else if (filter === 'klassiker') {
+      // Die zwei Listen, aus denen man abends wirklich wählt (Punkt 140):
+      // was sich bewährt hat - und was mal wieder dran wäre.
+      list = [...list]
+        .filter((recipe) => Number(recipe.cooked_count) > 0)
+        .sort((a, b) => (Number(b.cooked_count) || 0) - (Number(a.cooked_count) || 0));
+    } else if (filter === 'lange') {
+      // Nie Gekochtes zuoberst (kein Datum = am längsten her), danach
+      // aufsteigend nach dem letzten Mal.
+      list = [...list].sort((a, b) =>
+        String(a.last_cooked ?? '').localeCompare(String(b.last_cooked ?? ''))
+      );
     }
     return list;
   }, [recipes, query, filter, currentUser]);
@@ -1145,7 +1287,8 @@ export function RecipeBook({
       : undefined;
     return (
       <RecipeForm
-        initial={editing}
+        initial={editing ?? screen.vorlage}
+        categories={categories}
         onSave={(recipe) => {
           if (editing) onUpdate(editing.id, recipe);
           else onAdd(recipe);
@@ -1172,12 +1315,32 @@ export function RecipeBook({
         recipe={recipe}
         settings={settings}
         onCooked={() =>
-          // Das Datum reicht – es beantwortet «wann gab es das zuletzt?»
-          // im Essensplaner und in der Detailansicht.
-          onUpdate(recipe.id, { last_cooked: new Date().toISOString().slice(0, 10) })
+          // Datum plus Zähler (Punkt 140): «wann zuletzt?» für den
+          // Essensplaner, «wie oft?» für die Klassiker-Sortierung.
+          onUpdate(recipe.id, {
+            last_cooked: new Date().toISOString().slice(0, 10),
+            cooked_count: (Number(recipe.cooked_count) || 0) + 1,
+          })
         }
         onBack={() => setScreen({ kind: 'list' })}
         onEdit={() => setScreen({ kind: 'form', id: recipe.id })}
+        onDuplicate={() => {
+          // Kopie ohne Kennung und Geschichte: Der Zähler, das «zuletzt
+          // gekocht» und das Herz gehören zum Original, nicht zur Variante.
+          const {
+            id: _id,
+            created: _created,
+            author: _author,
+            favorite: _favorite,
+            last_cooked: _lastCooked,
+            cooked_count: _cookedCount,
+            ...rest
+          } = recipe;
+          setScreen({
+            kind: 'form',
+            vorlage: { ...rest, text: `${String(recipe.text ?? '')} – Variante` },
+          });
+        }}
         onDelete={() => {
           onDelete(recipe.id);
           setScreen({ kind: 'list' });
@@ -1191,12 +1354,17 @@ export function RecipeBook({
     );
   }
 
-  const columns = 2;
-  const tileWidth = gridWidth > 0 ? Math.floor((gridWidth - 12) / columns) : 0;
+  // Spaltenzahl nach Breite statt fix zwei (Punkt 150): iPhone 2, iPad
+  // hoch 3, iPad quer 4. ~230 Punkte je Kachel halten Titel und Zeit
+  // lesbar; schmaler würde der Foto-Ausschnitt zur Briefmarke.
+  const columns = Math.max(2, Math.floor(gridWidth / 230));
+  const tileWidth = gridWidth > 0 ? Math.floor((gridWidth - 12 * (columns - 1)) / columns) : 0;
   const filters: { key: string; label: string; icon?: keyof typeof Ionicons.glyphMap }[] = [
     { key: 'alle', label: 'Alle', icon: 'book-outline' },
     { key: 'favoriten', label: 'Favoriten', icon: 'heart' },
     { key: 'neueste', label: 'Neueste', icon: 'time-outline' },
+    { key: 'klassiker', label: 'Klassiker', icon: 'ribbon-outline' },
+    { key: 'lange', label: 'Lange nicht gekocht', icon: 'hourglass-outline' },
     { key: 'meine', label: 'Meine', icon: 'person-outline' },
     ...categories.map((category) => ({
       key: `kat:${category}`,
@@ -1610,6 +1778,22 @@ const makeStyles = (colors: Colors) =>
       gap: 6,
     },
     photoHint: { color: colors.inkSoft, fontSize: 14, fontWeight: '600' },
+    photoAction: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingVertical: 6,
+      paddingHorizontal: 4,
+    },
+    photoActionText: { color: colors.accent, fontSize: 13, fontWeight: '600' },
+    katChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+    katChip: {
+      paddingHorizontal: 11,
+      paddingVertical: 6,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceStrong,
+    },
+    katChipText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
     formRow: { flexDirection: 'row', gap: 8 },
     input: {
       backgroundColor: colors.surfaceStrong,
@@ -1645,6 +1829,12 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     ghostWideText: { color: colors.ink, fontSize: 15, fontWeight: '700' },
+    uhrReihe: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'center',
+      gap: 8,
+    },
     uhrKnopf: {
       flexDirection: 'row',
       alignItems: 'center',
