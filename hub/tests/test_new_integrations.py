@@ -1055,6 +1055,66 @@ def test_vzug_status_reports_minutes_left():
     assert "minutes_left" not in idle
 
 
+def test_vzug_standby_with_display_on_is_not_running():
+    """«Inactive: false» heisst nur: Die Anzeige ist an. Ohne Programm und
+    Status läuft nichts - sonst steht die Maschine dauerhaft als «läuft»
+    auf der Startseite."""
+    from homepilot.integrations.vzug import parse_device_status
+
+    standby = parse_device_status(
+        {"Inactive": "false", "Program": "", "Status": "", "ProgramEnd": {"End": "1"}},
+        now_minutes=12 * 60,
+    )
+    assert standby["state"] == "idle"
+    assert "minutes_left" not in standby
+
+
+def test_vzug_a_frozen_countdown_is_unmasked():
+    """Der Fall aus dem Betrieb: tagelang «noch 1 min», obwohl längst
+    fertig. Eine laufende Maschine zählt runter - dieselbe Restzeit über
+    Minuten hinweg ist eine eingefrorene Anzeige."""
+    from homepilot.integrations.vzug import unfrozen_status
+
+    merker: dict[str, tuple[int, float]] = {}
+    laufend = {"state": "running", "minutes_left": 1, "program": "Eco"}
+
+    # Frisch gemeldet: alles gut, die Uhr beginnt zu laufen.
+    assert unfrozen_status(dict(laufend), merker, "vzug.wama", 0.0) == laufend
+    # Nach zwei Minuten unverändert: noch im Rahmen (Abfrage ist minütlich).
+    assert unfrozen_status(dict(laufend), merker, "vzug.wama", 120.0) == laufend
+    # Nach sechs Minuten immer noch «1 min»: Das ist keine Restzeit mehr.
+    entlarvt = unfrozen_status(dict(laufend), merker, "vzug.wama", 360.0)
+    assert "minutes_left" not in entlarvt
+    assert entlarvt["state"] == "idle"
+
+    # Eine Maschine, die WIRKLICH zählt, bleibt unangetastet ...
+    assert (
+        unfrozen_status(
+            {"state": "running", "minutes_left": 42}, merker, "vzug.gs", 0.0
+        )["minutes_left"]
+        == 42
+    )
+    assert (
+        unfrozen_status(
+            {"state": "running", "minutes_left": 41}, merker, "vzug.gs", 60.0
+        )["minutes_left"]
+        == 41
+    )
+
+    # ... und eine mittendrin pausierte verliert nur die stehende Restzeit,
+    # gilt aber nicht als fertig.
+    merker.clear()
+    pausiert = {"state": "running", "minutes_left": 34}
+    unfrozen_status(dict(pausiert), merker, "vzug.wama", 0.0)
+    stehend = unfrozen_status(dict(pausiert), merker, "vzug.wama", 400.0)
+    assert "minutes_left" not in stehend
+    assert stehend["state"] == "running"
+
+    # Ist das Gerät fertig gemeldet, wird der Merker aufgeräumt.
+    unfrozen_status({"state": "idle"}, merker, "vzug.wama", 500.0)
+    assert "vzug.wama" not in merker
+
+
 def test_login_error_names_the_real_cause():
     # 499 heisst «zweiter Faktor fehlt», nicht «Passwort falsch» – die
     # Meldung muss zur richtigen Abhilfe führen.

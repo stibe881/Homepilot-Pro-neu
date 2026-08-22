@@ -17,6 +17,7 @@ spüler und Backofen auch gut so ist.
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any
 
 import aiohttp
@@ -70,14 +71,20 @@ def parse_device_status(
     end_text = (
         (program_end.get("End") or None) if isinstance(program_end, dict) else None
     )
+    program = payload.get("Program") or None
+    status_text = payload.get("Status") or None
+    # «Inactive: false» heisst nur: Die Anzeige ist an. Ohne Programm und
+    # ohne Statustext läuft nichts - eine Maschine im Standby (Türe zu,
+    # Display wach) stand sonst dauerhaft als «läuft» auf der Startseite.
+    laeuft = not inactive and bool(program or status_text)
     result: dict[str, Any] = {
-        "state": "idle" if inactive else "running",
-        "program": payload.get("Program") or None,
-        "status": payload.get("Status") or None,
+        "state": "running" if laeuft else "idle",
+        "program": program,
+        "status": status_text,
         "program_end": end_text,
         "serial": payload.get("Serial") or None,
     }
-    if not inactive and end_text:
+    if laeuft and end_text:
         if now_minutes is None:
             from datetime import datetime
 
@@ -86,6 +93,45 @@ def parse_device_status(
         minutes = minutes_until(end_text, now_minutes)
         if minutes is not None and 0 <= minutes <= 24 * 60:
             result["minutes_left"] = minutes
+    return result
+
+
+def unfrozen_status(
+    status: dict[str, Any],
+    merker: dict[str, tuple[int, float]],
+    entity_id: str,
+    jetzt: float,
+    grenze: float = 300.0,
+) -> dict[str, Any]:
+    """Eine stehengebliebene Restzeit-Anzeige entlarven (rein, testbar).
+
+    Der Fall aus dem Betrieb: Waschmaschine und Geschirrspüler zeigten
+    tagelang «noch 1 min», obwohl sie längst fertig waren - manche
+    Firmware lässt am Programmende «Inactive: false» samt letzter
+    End-Angabe einfach stehen.
+
+    Die Physik hilft: Eine Maschine, die wirklich läuft, zählt runter.
+    Meldet ein Gerät über mehr als fünf Minuten dieselbe Restzeit, ist
+    das keine Restzeit, sondern eine eingefrorene Anzeige - sie fliegt
+    raus, und steht sie auf ≤ 1 Minute, ist das Programm durch und das
+    Gerät gilt als fertig.
+
+    ``merker`` hält je Gerät (Minutenzahl, seit wann) und wird hier
+    fortgeschrieben - hinein gehört immer dasselbe dict.
+    """
+    minutes = status.get("minutes_left")
+    if not isinstance(minutes, int) or status.get("state") != "running":
+        merker.pop(entity_id, None)
+        return status
+    bisher = merker.get(entity_id)
+    if bisher is None or bisher[0] != minutes:
+        merker[entity_id] = (minutes, jetzt)
+        return status
+    if jetzt - bisher[1] <= grenze:
+        return status
+    result = {key: value for key, value in status.items() if key != "minutes_left"}
+    if minutes <= 1:
+        result["state"] = "idle"
     return result
 
 
@@ -101,6 +147,9 @@ class VZugIntegration(Integration):
 
         # entity_id → (host, auth)
         self._devices: dict[str, tuple[str, aiohttp.BasicAuth | None]] = {}
+        # Je Gerät: welche Restzeit zuletzt gemeldet wurde und seit wann -
+        # für die Eingefroren-Erkennung (siehe unfrozen_status).
+        self._countdown: dict[str, tuple[int, float]] = {}
         # Geräte, die gerade nicht antworten. V-ZUG-Geräte schlafen im
         # Standby und melden dann 503 – bei jedem Abruf eine Warnung zu
         # schreiben flutet das Log und begräbt alles Wichtige darunter.
@@ -160,9 +209,10 @@ class VZugIntegration(Integration):
         if entity_id in self._down:
             self._down.discard(entity_id)
             self.log.info("V-ZUG %s wieder erreichbar", host)
-        await self.hub.registry.update_state(
-            entity_id, parse_device_status(payload), available=True
+        status = unfrozen_status(
+            parse_device_status(payload), self._countdown, entity_id, time.time()
         )
+        await self.hub.registry.update_state(entity_id, status, available=True)
 
 
 INTEGRATION = VZugIntegration
