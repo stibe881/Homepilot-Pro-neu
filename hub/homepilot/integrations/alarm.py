@@ -70,9 +70,12 @@ from .alarm_rules import (  # noqa: F401
     STAY,
     TEST_SIREN_SECONDS,
     TRIGGERED,
+    camera_for,
+    camera_motion_due,
     guards,
     hash_pin,
     is_sensor,
+    motion_started,
     nearest_camera,
     parse_actions,
     parse_after,
@@ -101,6 +104,10 @@ class AlarmIntegration(Integration):
         self._next: str | None = None
         self._last: dict[str, Any] | None = None
         self._clip_task: asyncio.Task | None = None
+        # Je Kamera, wann zuletzt eine Bewegungs-Nachricht rausging. Eine
+        # Kamera meldet Bewegung im Sekundentakt, solange sich etwas regt;
+        # ohne Abstand wäre das Telefon nach einer Minute unbenutzbar.
+        self._motion_seen: dict[str, float] = {}
 
         stored = self.hub.data.get("alarm")
         config = stored[0] if stored else {}
@@ -335,6 +342,7 @@ class AlarmIntegration(Integration):
         entity = self.hub.registry.get(str(entity_id))
         if entity is None or self._mode is None:
             return
+        await self._camera_motion(entity, payload)
         if not guards(self._sensors, entity.id, self._mode):
             return
         if not sensor_open(entity):
@@ -370,6 +378,46 @@ class AlarmIntegration(Integration):
 
         await self._trigger(entity)
 
+    async def _camera_motion(self, entity: Entity, payload: dict[str, Any]) -> None:
+        """Kamera sieht Bewegung, während scharf ist: Bild aufs Telefon.
+
+        Bisher gab es diese Nachricht nur, wenn die Kamera als Alarmsensor
+        zugeordnet war – und dann gleich mit Sirene. Wer die Anlage nicht
+        von einer vorbeilaufenden Katze auslösen lassen will, ordnet die
+        Kamera aber gerade *nicht* zu und erfuhr damit gar nichts. Jetzt
+        kommt das Bild, ohne dass etwas losgeht.
+
+        Die Nachricht trägt die Kamera mit: Ein Tipp darauf öffnet sie in
+        der App, statt dass man nachts erst durch die Räume sucht.
+        """
+        if entity.kind != EntityKind.CAMERA or self._state != ARMED:
+            return
+        if not self._settings.get("notify_camera_motion", True):
+            return
+        if not motion_started(payload.get("old_state"), payload.get("new_state")):
+            return
+        # Löst diese Kamera ohnehin den Alarm aus, kommt gleich die
+        # Alarm-Nachricht – zwei Meldungen zum selben Ereignis sind eine
+        # zu viel, und die mit der Sirene ist die wichtigere.
+        if self._mode and guards(self._sensors, entity.id, self._mode):
+            return
+        jetzt = time.time()
+        if not camera_motion_due(self._motion_seen, entity.id, jetzt):
+            return
+        self._motion_seen[entity.id] = jetzt
+        self._note("motion", f"Bewegung vor {entity.name}", "")
+        await self._notify(
+            "Bewegung vor der Kamera",
+            f"{entity.name} sieht Bewegung – die Anlage ist scharf.",
+            category="camera_motion",
+            data={
+                "type": "camera_motion",
+                "entity_id": entity.id,
+                "camera": entity.id,
+            },
+            image=await self._snapshot_url(entity.id),
+        )
+
     async def _trigger(self, entity: Entity) -> None:
         self._cancel_timer()
         mode = self._mode
@@ -391,7 +439,7 @@ class AlarmIntegration(Integration):
             # öffnet, und als Bild in der Nachricht selbst – sofern eine von
             # aussen erreichbare Adresse konfiguriert ist. Was dieses Bild
             # kostet, steht in core/snapshots.py.
-            camera = nearest_camera(self.hub.registry.all(), entity.room)
+            camera = camera_for(entity, self.hub.registry.all())
             await self._notify(
                 "🚨 Alarm ausgelöst",
                 f"{entity.name} – Modus {MODE_LABELS.get(mode or '', '?')}",
@@ -408,7 +456,7 @@ class AlarmIntegration(Integration):
         # auf ein Video zu warten wäre bei einem Alarm die falsche Reihen-
         # folge. Er landet stattdessen beim letzten Auslösen, wo die App ihn
         # zeigt, sobald er da ist.
-        self._start_clip(nearest_camera(self.hub.registry.all(), entity.room))
+        self._start_clip(camera_for(entity, self.hub.registry.all()))
 
         await self._apply_after(mode)
 

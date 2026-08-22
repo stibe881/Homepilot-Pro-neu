@@ -79,6 +79,10 @@ interface Overview {
   actions: Record<string, AlarmAction[]>;
   history: { kind: string; text: string; by?: string; at: number }[];
   candidates: Candidate[];
+  /** Kann der Hub überhaupt ein Bild mitschicken? Dafür braucht es
+   *  `push.public_url` in der config.yaml – ohne kommt die Nachricht
+   *  ohne Bild, und das soll dort stehen, wo man es erwartet. */
+  images?: boolean;
 }
 
 const MODES = [
@@ -675,7 +679,11 @@ export function AlarmScreen({
         {testNote ? <Text style={styles.hint}>{testNote}</Text> : null}
       </Card>
 
-      <AlarmSettings settings={data.settings} onSave={(next) => save({ settings: next })} />
+      <AlarmSettings
+        settings={data.settings}
+        images={data.images !== false}
+        onSave={(next) => save({ settings: next })}
+      />
 
       <PinCard
         hub={settings}
@@ -726,7 +734,11 @@ export function AlarmScreen({
                       ? 'lock-closed-outline'
                       : event.kind === 'entry'
                         ? 'time-outline'
-                        : 'lock-open-outline'
+                        : // Kamerabewegung, während scharf war: kein Alarm,
+                          // aber der Grund, warum das Telefon gebrummt hat.
+                          event.kind === 'motion'
+                          ? 'videocam-outline'
+                          : 'lock-open-outline'
                 }
                 size={18}
                 color={event.kind === 'triggered' ? colors.danger : colors.inkSoft}
@@ -1014,9 +1026,12 @@ function AlarmActions({
 
 function AlarmSettings({
   settings,
+  images,
   onSave,
 }: {
   settings: AlarmConfig;
+  /** Ob der Hub Bilder mitschicken kann (push.public_url gesetzt). */
+  images: boolean;
   onSave: (settings: AlarmConfig) => void;
 }) {
   const colors = useColors();
@@ -1073,6 +1088,24 @@ function AlarmSettings({
         value={!!settings.notify_arming}
         onChange={(value) => onSave({ ...settings, notify_arming: value })}
       />
+      <Toggle
+        label="Push, wenn eine Kamera Bewegung sieht"
+        detail={
+          images
+            ? 'Solange die Anlage scharf ist – mit Standbild. Ein Tipp auf die Nachricht öffnet die Kamera. Auch für Kameras, die kein Alarmsensor sind.'
+            : 'Solange die Anlage scharf ist. Ein Tipp auf die Nachricht öffnet die Kamera.'
+        }
+        value={settings.notify_camera_motion !== false}
+        onChange={(value) => onSave({ ...settings, notify_camera_motion: value })}
+      />
+      {settings.notify_camera_motion !== false && !images ? (
+        <Text style={styles.hint}>
+          Ohne «push.public_url» in der config.yaml des Hubs kommt die
+          Nachricht ohne Bild: Das Telefon zeigt sie an, bevor die App läuft,
+          und kann sie deshalb nicht mit Anmeldung nachladen. Die Kamera
+          öffnet sich beim Antippen trotzdem.
+        </Text>
+      ) : null}
     </Card>
   );
 }
