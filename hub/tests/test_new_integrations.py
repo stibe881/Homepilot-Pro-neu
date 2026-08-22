@@ -767,6 +767,20 @@ def test_ring_health_detail_names_the_reason():
     assert "nicht verbunden" in health_detail(False, None)
 
 
+def test_ring_health_detail_off_by_choice_is_no_warning():
+    """Wer Googles Push-Dienst bewusst aussperrt (events: false), hat
+    keine Störung - die Abfrage ist dann der normale Weg, nicht der
+    Ersatz. Kein «nicht verbunden», kein Warnton, dafür steht da, wie
+    schnell die Klingel trotzdem ankommt."""
+    from homepilot.integrations.ring import DING_POLL_SECONDS, health_detail
+
+    ruhig = health_detail(False, None, abgeschaltet=True)
+    assert "abgeschaltet" in ruhig
+    assert f"{DING_POLL_SECONDS} s" in ruhig
+    assert "nicht verbunden" not in ruhig
+    assert "ersatzweise" not in ruhig
+
+
 # ── Google Calendar ──────────────────────────────────────────────────────
 
 

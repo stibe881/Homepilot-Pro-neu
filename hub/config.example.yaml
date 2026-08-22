@@ -355,8 +355,13 @@ integrations:
   # Ring-Türklingeln und -Kameras. Braucht: pip install ring-doorbell
   # Einmalige Anmeldung mit 2FA-Code:
   #   python -m homepilot.integrations.ring -c config.yaml
+  # Der Ereigniskanal (sofortiges Klingeln) läuft über Googles
+  # Push-Dienst - das ist Rings Wahl. Wer Google bewusst aussperrt,
+  # setzt events: false; die Klingel kommt dann über die
+  # 10-Sekunden-Abfrage, ohne Warnung im System-Bildschirm.
   # - integration: ring
   #   scan_interval: 300
+  #   events: false
 
   # Tuya-Geräte lokal im eigenen Netz (Lampen, Steckdosen, Projektoren).
   # Braucht: pip install tinytuya. Ausführlich in docs/tuya.md.

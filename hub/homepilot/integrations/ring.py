@@ -4,6 +4,8 @@ Konfiguration:
   - integration: ring
     # token_file: /etc/homepilot/ring-token.json   # optional
     # scan_interval: 300
+    # events: false   # Ereigniskanal (läuft über Googles Push-Dienst)
+    #                 # gar nicht erst versuchen - siehe unten
 
 Voraussetzung:  pip install "homepilot[ring]"  bzw.  pip install ring-doorbell
 
@@ -29,6 +31,12 @@ klingelt bloss niemand mehr in der App. Deshalb zwei Dinge – der Hub
 versucht es immer wieder statt einmal beim Start, und solange der Kanal
 fehlt, fragt er die aktiven Meldungen alle paar Sekunden selbst ab. Wie
 es gerade steht, sagt health() und damit der System-Bildschirm.
+
+Der Ereigniskanal läuft technisch über Googles Push-Dienst (FCM) - das
+ist Rings Wahl, nicht unsere. Wer Google im Heimnetz bewusst aussperrt,
+setzt ``events: false``: Dann übernimmt die 10-Sekunden-Abfrage von
+vornherein, ohne Warnung im System-Bildschirm und ohne vergebliche
+Anläufe alle halbe Stunde.
 """
 
 from __future__ import annotations
@@ -135,8 +143,14 @@ def channel_alive(listener: Any) -> bool:
         return True
 
 
-def health_detail(events_ok: bool, error: str | None) -> str:
+def health_detail(events_ok: bool, error: str | None, abgeschaltet: bool = False) -> str:
     """Was im System-Bildschirm über den Ereigniskanal steht (rein, testbar)."""
+    if abgeschaltet:
+        # Bewusste Entscheidung, keine Störung - deshalb ohne Warnton.
+        return (
+            f"Ereigniskanal abgeschaltet (events: false) – Klingeln wird "
+            f"alle {DING_POLL_SECONDS} s abgefragt"
+        )
     if events_ok:
         return "Ereigniskanal verbunden – Klingeln kommt sofort an"
     grund = f" ({error})" if error else ""
@@ -272,8 +286,19 @@ class RingIntegration(Integration):
 
         self._seen_alerts: dict[tuple[int, int, str], float] = {}
         self._listener: Any = None
+        # events: false heisst: den Push-Weg (Google/FCM) gar nicht erst
+        # versuchen - die Abfrage unten ist dann der Hauptweg, keine
+        # Rückfallebene.
+        self._events_abgeschaltet = self.config.get("events") is False
         self.start_polling(self._refresh_devices)
-        self.start_task(self._listen_loop())
+        if not self._events_abgeschaltet:
+            self.start_task(self._listen_loop())
+        else:
+            self.log.info(
+                "Ring-Ereigniskanal per Konfiguration abgeschaltet - "
+                "Klingeln wird alle %ss abgefragt",
+                DING_POLL_SECONDS,
+            )
         self.start_task(self._ding_loop())
 
     def health(self) -> dict[str, Any]:
@@ -282,6 +307,12 @@ class RingIntegration(Integration):
         Ohne diese Auskunft ist ein toter Ereigniskanal von aussen nicht
         von «es hat halt niemand geklingelt» zu unterscheiden.
         """
+        if self._events_abgeschaltet:
+            return {
+                "ok": True,
+                "detail": health_detail(False, None, abgeschaltet=True),
+                "last_event": self._last_event,
+            }
         return {
             "ok": self._events_ok,
             "detail": health_detail(self._events_ok, self._listen_error),
