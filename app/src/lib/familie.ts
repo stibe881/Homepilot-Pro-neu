@@ -118,15 +118,38 @@ export function notfallZeilen(eintrag: Eintrag): { label: string; wert: string }
   })).filter((zeile) => zeile.wert.length > 0);
 }
 
-/** Schweizer Notrufnummern – die braucht niemand zu pflegen. */
-export const NOTRUFE = [
+export interface Notrufnummer {
+  label: string;
+  nummer: string;
+  /** Beratung statt Notruf: Die Opferhilfe sagt ausdrücklich, dass 142
+   *  keine Notrufnummer ist – bei akuter Gefahr gilt 117 oder 144.
+   *  Deshalb steht sie in der Liste, aber nicht unter «Notruf». */
+  beratung?: boolean;
+  /** Eine Zeile, die sagt, wofür die Nummer da ist. */
+  hinweis?: string;
+}
+
+/** Schweizer Notruf- und Beratungsnummern – die braucht niemand zu pflegen. */
+export const NOTRUFE: Notrufnummer[] = [
   { label: 'Sanität', nummer: '144' },
   { label: 'Vergiftung (Tox)', nummer: '145' },
   { label: 'Polizei', nummer: '117' },
   { label: 'Feuerwehr', nummer: '118' },
   { label: 'Rega', nummer: '1414' },
   { label: 'Ärztlicher Notfall LU', nummer: '0900 11 14 14' },
+  {
+    label: 'Opferhilfe',
+    nummer: '142',
+    beratung: true,
+    hinweis: 'Nach Gewalt – rund um die Uhr, kostenlos, vertraulich',
+  },
 ];
+
+/** Die echten Notrufe (rein). */
+export const NOTFALLNUMMERN = NOTRUFE.filter((n) => !n.beratung);
+
+/** Beratungsnummern – kein Ersatz für den Notruf (rein). */
+export const BERATUNGSNUMMERN = NOTRUFE.filter((n) => n.beratung);
 
 /**
  * Wie lange ist die letzte Prüfung her? (rein, testbar)
@@ -160,7 +183,17 @@ export function notfallText(eintraege: Eintrag[], haus?: string): string {
     if (frei) zeilen.push(`  ${frei}`);
     zeilen.push('');
   }
-  zeilen.push('Notruf: ' + NOTRUFE.map((n) => `${n.label} ${n.nummer}`).join(' · '));
+  zeilen.push(
+    'Notruf: ' + NOTFALLNUMMERN.map((n) => `${n.label} ${n.nummer}`).join(' · ')
+  );
+  // Getrennt aufgeführt, weil es etwas anderes ist: Wer auf dem Blatt
+  // «Notruf» liest, soll in akuter Gefahr nicht bei einer Beratungsstelle
+  // landen - und wer Beratung sucht, findet sie trotzdem.
+  if (BERATUNGSNUMMERN.length > 0) {
+    zeilen.push(
+      'Beratung: ' + BERATUNGSNUMMERN.map((n) => `${n.label} ${n.nummer}`).join(' · ')
+    );
+  }
   return zeilen.join('\n');
 }
 

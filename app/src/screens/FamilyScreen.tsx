@@ -15,7 +15,6 @@ import {
   BABYSITTER_FEATURES,
   BABYSITTER_USER,
   KALENDER_FARBEN,
-  NOTRUFE,
   ROLLEN,
   NOTFALL_FELDER,
   babysitterZugang,
@@ -42,7 +41,7 @@ import {
 import { tapped } from '../lib/haptics';
 import { kochVorschlaege, vorschlagsGrund, wuerfel } from '../lib/vorschlag';
 import { ROLE_LABELS } from './UsersScreen';
-import { AddRow, BackHead, CheckRow, ChoreAddRow, ContactForm, ContactPhoto, CountdownForm, EventForm, FamilyData, FamilyItem, GroupedChecklist, MealRow, MedicationAddRow, Member, ModuleKey, MonthCalendar, PollAddRow, Props, REPEAT_OPTIONS, SHOP_CATEGORIES, ShoppingAddRow, TaskAddRow, TwoFieldForm, WEEK_DAYS, birthdayLabel, daysUntilBirthday, dueInfo, isoInDays, nextDue, parseSwissDate, pickPhoto, rotateMember } from './family/bausteine';
+import { AddRow, BackHead, CheckRow, ChoreAddRow, ContactForm, ContactPhoto, CountdownForm, EventForm, FamilyData, FamilyItem, GroupedChecklist, MealRow, MedicationAddRow, Member, ModuleKey, MonthCalendar, Notrufliste, PollAddRow, Props, REPEAT_OPTIONS, SHOP_CATEGORIES, ShoppingAddRow, TaskAddRow, TwoFieldForm, WEEK_DAYS, birthdayLabel, daysUntilBirthday, dueInfo, isoInDays, nextDue, parseSwissDate, pickPhoto, rotateMember } from './family/bausteine';
 import { makeStyles } from './family/stil';
 
 /**
@@ -1506,22 +1505,7 @@ export function FamilyScreen({
           </>
         ) : null}
 
-        <Text style={styles.groupLabel}>Notruf</Text>
-        <Card style={styles.listCard}>
-          {NOTRUFE.map((notruf) => (
-            <Pressable
-              key={notruf.nummer}
-              onPress={() => Linking.openURL(`tel:${waehlbar(notruf.nummer)}`)}
-              accessibilityRole="button"
-              accessibilityLabel={`${notruf.label} ${notruf.nummer} anrufen`}
-              style={styles.checkRow}
-            >
-              <Ionicons name="call-outline" size={18} color={colors.danger} />
-              <Text style={[styles.checkText, { flex: 1 }]}>{notruf.label}</Text>
-              <Text style={styles.contactName}>{notruf.nummer}</Text>
-            </Pressable>
-          ))}
-        </Card>
+        <Notrufliste styles={styles} colors={colors} />
 
         {routinen.length > 0 ? (
           <>
@@ -1797,22 +1781,7 @@ export function FamilyScreen({
 
         {/* Die Notrufnummern pflegt niemand, und im Ernstfall sucht sie
             auch niemand. */}
-        <Text style={styles.groupLabel}>Notruf</Text>
-        <Card style={styles.listCard}>
-          {NOTRUFE.map((notruf) => (
-            <Pressable
-              key={notruf.nummer}
-              onPress={() => Linking.openURL(`tel:${waehlbar(notruf.nummer)}`)}
-              accessibilityRole="button"
-              accessibilityLabel={`${notruf.label} ${notruf.nummer} anrufen`}
-              style={styles.checkRow}
-            >
-              <Ionicons name="call-outline" size={18} color={colors.danger} />
-              <Text style={[styles.checkText, { flex: 1 }]}>{notruf.label}</Text>
-              <Text style={styles.contactName}>{notruf.nummer}</Text>
-            </Pressable>
-          ))}
-        </Card>
+        <Notrufliste styles={styles} colors={colors} />
 
         {eintraege.length > 0 ? (
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>

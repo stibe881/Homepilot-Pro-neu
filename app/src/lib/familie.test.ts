@@ -20,6 +20,8 @@ import {
   kurzDatum,
   medZeile,
   montagVon,
+  BERATUNGSNUMMERN,
+  NOTFALLNUMMERN,
   notfallText,
   notfallUeberfaellig,
   nummernVon,
@@ -101,6 +103,24 @@ describe('Notfallblatt', () => {
     expect(text).toContain('Schläft mit Nuggi');
     // Die Notrufnummern stehen immer darauf – sie pflegt niemand.
     expect(text).toContain('Sanität 144');
+  });
+
+  it('trennt Notruf- und Beratungsnummern sauber', () => {
+    expect(NOTFALLNUMMERN.map((n) => n.nummer)).toContain('144');
+    expect(NOTFALLNUMMERN.map((n) => n.nummer)).not.toContain('142');
+    expect(BERATUNGSNUMMERN.map((n) => n.nummer)).toEqual(['142']);
+    expect(BERATUNGSNUMMERN[0].hinweis).toBeTruthy();
+  });
+
+  it('führt die Opferhilfe unter Beratung, nicht unter Notruf', () => {
+    // 142 ist ausdrücklich keine Notrufnummer: Wer in akuter Gefahr die
+    // Notruf-Zeile liest, soll bei Polizei und Sanität landen.
+    const text = notfallText([], 'Zell');
+    const notruf = text.split('\n').find((z) => z.startsWith('Notruf:')) ?? '';
+    const beratung = text.split('\n').find((z) => z.startsWith('Beratung:')) ?? '';
+    expect(notruf).toContain('Polizei 117');
+    expect(notruf).not.toContain('142');
+    expect(beratung).toContain('Opferhilfe 142');
   });
 });
 

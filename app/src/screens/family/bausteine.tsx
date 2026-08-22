@@ -5,13 +5,13 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
-import { Image, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Image, Linking, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 
 import { Entity, HubSettings } from '../../api/types';
 import { Card } from '../../components/Card';
 import { Colors } from '../../theme';
-import { GABEN, ROLLEN, rollenVon, toggleRolle } from '../../lib/familie';
+import { BERATUNGSNUMMERN, GABEN, NOTFALLNUMMERN, ROLLEN, rollenVon, toggleRolle, waehlbar } from '../../lib/familie';
 import { monatJahr, uhr } from '../../lib/format';
 import { tapped } from '../../lib/haptics';
 
@@ -70,6 +70,56 @@ export const WEEK_DAYS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freit
 
 
 // ── Wiederverwendbare Bausteine (bewusst auf Modulebene) ────────────────────
+
+/**
+ * Notruf- und Beratungsnummern zum Antippen.
+ *
+ * Stand zweimal wortgleich im Bildschirm (Notfallblatt und
+ * Babysitter-Ansicht) - und musste beim Ergänzen der Opferhilfe zweimal
+ * angefasst werden. Einmal reicht.
+ *
+ * Notruf und Beratung sind getrennt, weil sie es sind: Die Opferhilfe
+ * sagt selbst, dass 142 keine Notrufnummer ist. Wer in akuter Gefahr auf
+ * die erste rote Zeile tippt, soll die Polizei erreichen.
+ */
+export function Notrufliste({ styles, colors }: { styles: Styles; colors: Colors }) {
+  const zeile = (
+    eintrag: { label: string; nummer: string; hinweis?: string },
+    farbe: string
+  ) => (
+    <Pressable
+      key={eintrag.nummer}
+      onPress={() => Linking.openURL(`tel:${waehlbar(eintrag.nummer)}`)}
+      accessibilityRole="button"
+      accessibilityLabel={`${eintrag.label} ${eintrag.nummer} anrufen`}
+      style={styles.checkRow}
+    >
+      <Ionicons name="call-outline" size={18} color={farbe} />
+      <View style={{ flex: 1 }}>
+        <Text style={styles.checkText}>{eintrag.label}</Text>
+        {eintrag.hinweis ? <Text style={styles.checkSub}>{eintrag.hinweis}</Text> : null}
+      </View>
+      <Text style={styles.contactName}>{eintrag.nummer}</Text>
+    </Pressable>
+  );
+
+  return (
+    <>
+      <Text style={styles.groupLabel}>Notruf</Text>
+      <Card style={styles.listCard}>
+        {NOTFALLNUMMERN.map((notruf) => zeile(notruf, colors.danger))}
+      </Card>
+      {BERATUNGSNUMMERN.length > 0 ? (
+        <>
+          <Text style={styles.groupLabel}>Beratung</Text>
+          <Card style={styles.listCard}>
+            {BERATUNGSNUMMERN.map((nummer) => zeile(nummer, colors.accent))}
+          </Card>
+        </>
+      ) : null}
+    </>
+  );
+}
 
 export function BackHead({
   title,
