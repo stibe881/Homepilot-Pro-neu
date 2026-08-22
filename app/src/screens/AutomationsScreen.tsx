@@ -196,6 +196,52 @@ export function AutomationsScreen({
     load();
   };
 
+  /** Einen Ablauf ein- oder ausschalten, ohne den Editor zu öffnen.
+   *
+   * Für die Push-Liste: Dort steht ein Ablauf neben den eingebauten
+   * Nachrichten, und die haben ihren Schalter direkt auf der Karte.
+   * «Bearbeiten → Haken → Speichern» wäre für dieselbe Handlung drei
+   * Schritte statt einem.
+   *
+   * Der Hub kennt keine Teil-Änderung: Ein PUT trägt den ganzen Ablauf.
+   * Deshalb geht er hier unverändert zurück – nur `enabled` ist neu. */
+  const setEnabled = async (automation: Automation, enabled: boolean) => {
+    // Sofort anzeigen, damit der Haken nicht hakt; der nachfolgende
+    // load() setzt den Stand des Hubs darüber.
+    setAutomations((prev) =>
+      (prev ?? []).map((entry) =>
+        entry.id === automation.id ? { ...entry, enabled } : entry
+      )
+    );
+    const ok = await hub.put(
+      `/api/automations/${automation.id}`,
+      {
+        alias: automation.alias,
+        trigger: automation.triggers,
+        condition: automation.conditions,
+        action: automation.actions,
+        otherwise: automation.otherwise ?? [],
+        mode: automation.mode ?? 'single',
+        match: automation.match ?? 'all',
+        cooldown: automation.cooldown ?? 0,
+        category: automation.category ?? null,
+        quiet_until: automation.quiet_until ?? null,
+        enabled,
+      },
+      { fallback: null, still: true }
+    );
+    if (ok === null) {
+      onNote?.('Nicht gespeichert – der Hub war nicht erreichbar');
+    } else {
+      onNote?.(
+        enabled
+          ? `«${automation.alias}» meldet wieder`
+          : `«${automation.alias}» meldet nichts mehr`
+      );
+    }
+    load();
+  };
+
   /** «Aus bis morgen früh» (Punkt 159): Statt den Ablauf auszuschalten
    *  und ihn drei Wochen später im Dunkeln zu vermissen, ruht er bis
    *  06:00 und meldet sich selbst zurück. */
@@ -784,11 +830,18 @@ export function AutomationsScreen({
         </>
       )}
 
-      {/* Die eingebauten Wächter-Nachrichten als eigene Kategorie «Push»:
-          Sie gehören zu den Abläufen - der Hub tut hier etwas von sich
-          aus -, sind aber keine gespeicherten Automationen, sondern
-          Regeln mit Schalter und Schwelle. */}
-      <PushRules settings={settings} mayEdit={mayEdit} />
+      {/* Alles, was aufs Telefon geht, als eigene Kategorie «Push»: die
+          eingebauten Wächter-Nachrichten (Regeln mit Schalter und
+          Schwelle, keine gespeicherten Abläufe) und darunter die eigenen
+          Abläufe, die eine Nachricht verschicken. Beide bleiben dort
+          bearbeitbar. */}
+      <PushRules
+        settings={settings}
+        mayEdit={mayEdit}
+        automations={automations}
+        onEdit={(automation) => setDraft(toDraft(automation))}
+        onToggle={setEnabled}
+      />
 
       <Text style={styles.sectionTitle}>Szenen</Text>
       {mayEdit ? (
