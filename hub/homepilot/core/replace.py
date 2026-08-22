@@ -111,6 +111,29 @@ def swap_in_light_groups(rows: list[dict[str, Any]], old: str, new: str) -> int:
     return count
 
 
+def stale_entity_rows(
+    rows: list[dict[str, Any]], known: set[str], loaded: set[str]
+) -> list[str]:
+    """Verwaiste Kennungen in entity_meta/entity_rooms (rein, testbar).
+
+    Verwaist heisst: Das Gerät gibt es nicht mehr, obwohl seine
+    Integration läuft. Die zweite Bedingung ist der Kern - eine
+    Integration, die heute nicht startet (Bridge aus, Cloud zickt), lässt
+    ihre Geräte nur *vorübergehend* verschwinden, und deren Namen und
+    Räume wegzuwerfen wäre genau der Fehlgriff, vor dem diese Funktion
+    schützen soll.
+    """
+    weg: list[str] = []
+    for row in rows or []:
+        entity_id = str(row.get("entity_id") or "")
+        if not entity_id or entity_id in known:
+            continue
+        integration = entity_id.split(".", 1)[0]
+        if integration in loaded:
+            weg.append(entity_id)
+    return weg
+
+
 def swap_in_list(values: list[Any], old: str, new: str) -> int:
     """Blosse Kennungslisten (Favoriten, Ausgeblendete, Gesperrte) (rein).
 

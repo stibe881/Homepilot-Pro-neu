@@ -27,6 +27,7 @@ import {
 import { uhr, wochentagDatum, wochentagUhr } from '../lib/format';
 import { tapped } from '../lib/haptics';
 import { kann } from '../lib/plattform';
+import { MAX_SCHRIFT } from '../lib/schrift';
 import { ConnectionStatus } from '../hooks/useHub';
 import { useEscape } from '../hooks/useEscape';
 import { Colors, radius, type, useColors } from '../theme';
@@ -260,7 +261,7 @@ export function TopStrip({
           {/* Ohne diese Zahl ist ein Tipp im Funkloch nicht von einem
               verschluckten Befehl zu unterscheiden – beides sieht nach
               «nichts passiert» aus. */}
-          <Text style={styles.chipText}>
+          <Text style={styles.chipText} maxFontSizeMultiplier={MAX_SCHRIFT}>
             {queued > 0
               ? `${STATUS_LABEL[status]} · ${queued} wartet`
               : STATUS_LABEL[status]}
@@ -270,8 +271,11 @@ export function TopStrip({
             ohnehin am Bildschirmrand - hier wäre sie ein zweites Mal
             dasselbe. Ein fest montiertes Tablet im Vollbild hat dagegen
             keine, und dort ist sie oft der Grund, hinzuschauen. */}
+        {/* Enge Stellen wachsen bis 160 % mit, dann ist Schluss - sonst
+            schiebt die Uhr die Chips aus der Kopfzeile (Punkt 66 der
+            Werkbank, Begründung in lib/schrift.ts). */}
         {showClock ? (
-          <Text style={styles.clock}>
+          <Text style={styles.clock} maxFontSizeMultiplier={MAX_SCHRIFT}>
             {uhr(now)}
           </Text>
         ) : null}
@@ -756,7 +760,11 @@ function Chip({
   const content = (
     <>
       <Ionicons name={icon} size={15} color={tone ?? colors.onGradientSoft} />
-      <Text style={[styles.chipText, tone ? { color: tone } : null]} numberOfLines={1}>
+      <Text
+        style={[styles.chipText, tone ? { color: tone } : null]}
+        numberOfLines={1}
+        maxFontSizeMultiplier={MAX_SCHRIFT}
+      >
         {text}
       </Text>
     </>

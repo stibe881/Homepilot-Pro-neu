@@ -52,6 +52,35 @@ export function DeviceTools({
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  /** Verwaiste Zuordnungen (Raum/Name) zu Geräten, die es nicht mehr
+   *  gibt, obwohl ihre Integration läuft - Punkt 83 der Werkbank. Der Hub
+   *  entscheidet, was verwaist ist; hier steht nur der Knopf. */
+  const aufraeumen = async () => {
+    setBusy(true);
+    setNote(null);
+    try {
+      const orphans = await hub.get<{ rooms: string[]; meta: string[] }>(
+        '/api/entities/orphans',
+        { still: true }
+      );
+      const anzahl = orphans.rooms.length + orphans.meta.length;
+      if (anzahl === 0) {
+        setNote('Nichts verwaist - alle Zuordnungen zeigen auf echte Geräte.');
+        return;
+      }
+      await hub.post('/api/entities/orphans/cleanup', undefined, { still: true });
+      setNote(
+        `${anzahl} verwaiste Zuordnung(en) entfernt - sie zeigten auf Geräte, ` +
+          'die es nicht mehr gibt.'
+      );
+      onDone();
+    } catch (err) {
+      setNote(String(err instanceof Error ? err.message : err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const schliessen = () => {
     setOffen(null);
     setGewaehlt([]);
@@ -153,6 +182,15 @@ export function DeviceTools({
         >
           <Ionicons name="swap-horizontal-outline" size={17} color={colors.ink} />
           <Text style={styles.buttonText}>Gerät ersetzen</Text>
+        </Pressable>
+        <Pressable
+          onPress={aufraeumen}
+          disabled={busy}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.button, (pressed || busy) && { opacity: 0.7 }]}
+        >
+          <Ionicons name="trash-bin-outline" size={17} color={colors.ink} />
+          <Text style={styles.buttonText}>Verwaistes aufräumen</Text>
         </Pressable>
       </View>
       {note ? <Text style={styles.note}>{note}</Text> : null}

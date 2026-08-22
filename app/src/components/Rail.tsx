@@ -3,6 +3,7 @@ import React, { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Colors, radius, useColors } from '../theme';
+import { MAX_SCHRIFT } from '../lib/schrift';
 
 export type Section =
   | 'start'
@@ -127,6 +128,9 @@ export function Rail({
               // Seite drei Punkte nach links.
               <Text
                 numberOfLines={1}
+                // Bis 160 % mitwachsen, dann halten - sonst schiebt die
+                // Leiste den Inhalt weg (Punkt 66, lib/schrift.ts).
+                maxFontSizeMultiplier={MAX_SCHRIFT}
                 style={[styles.barLabel, selected && { color: colors.ink }]}
               >
                 {item.label}

@@ -180,3 +180,38 @@ def test_replacing_refuses_the_impossible():
             ).status_code
             == 404
         )
+
+
+def test_orphaned_entries_are_found_but_offline_integrations_are_spared():
+    """Verwaist heisst: Gerät weg, Integration läuft. Eine Bridge, die
+    heute nicht hochkam, darf ihre Namen und Räume behalten."""
+    from homepilot.core.replace import stale_entity_rows
+
+    rows = [
+        {"entity_id": "hue.alt", "room": "Stube"},        # hue läuft, Gerät weg
+        {"entity_id": "hue.neu", "room": "Stube"},        # existiert
+        {"entity_id": "ring.tuer", "room": "Eingang"},    # ring ist heute aus
+        {"entity_id": "", "room": "kaputt"},
+    ]
+    weg = stale_entity_rows(rows, known={"hue.neu"}, loaded={"hue", "demo"})
+    assert weg == ["hue.alt"]
+
+
+def test_cleanup_endpoint_removes_only_true_orphans():
+    hub = Hub(make_config())
+    with TestClient(create_app(hub)) as client:
+        hub.data.set(
+            "entity_meta",
+            [
+                {"entity_id": "demo.gibtsnicht", "name": "Alt"},
+                {"entity_id": "demo.light_livingroom", "name": "Stehlampe"},
+                {"entity_id": "ring.tuer", "name": "Klingel"},  # ring läuft nicht
+            ],
+        )
+        orphans = client.get("/api/entities/orphans").json()
+        assert orphans["meta"] == ["demo.gibtsnicht"]
+
+        result = client.post("/api/entities/orphans/cleanup").json()
+        assert result["removed"] == {"entity_meta": 1}
+        rest = {row["entity_id"] for row in hub.data.get("entity_meta")}
+        assert rest == {"demo.light_livingroom", "ring.tuer"}

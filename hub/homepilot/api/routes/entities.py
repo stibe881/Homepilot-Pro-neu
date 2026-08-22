@@ -71,6 +71,46 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         user = current_user(request)
         return visible(user, hub.registry.all())
 
+    # ── Verwaiste Gerätedaten (Punkt 83 der Werkbank) ─────────────────────
+
+    @app.get("/api/entities/orphans")
+    async def list_orphans(request: Request) -> dict[str, Any]:
+        """Kennungen in Raum- und Meta-Zuordnung, deren Gerät es nicht mehr
+        gibt, obwohl seine Integration läuft. Kein Leck, aber Ballast -
+        und die Liste zeigt, was ein Aufräumen entfernen würde."""
+        require(request, Capability.EDIT_CONFIG)
+        known = {entity.id for entity in hub.registry.all()}
+        loaded = set(hub.integrations.loaded)
+        return {
+            "rooms": replace_module.stale_entity_rows(
+                hub.data.get("entity_rooms"), known, loaded
+            ),
+            "meta": replace_module.stale_entity_rows(
+                hub.data.get("entity_meta"), known, loaded
+            ),
+        }
+
+    @app.post("/api/entities/orphans/cleanup")
+    async def cleanup_orphans(request: Request) -> dict[str, Any]:
+        """Die verwaisten Einträge entfernen - bewusst nur auf Knopfdruck:
+        Automatisch beim Start hiesse, die Daten einer Integration
+        wegzuwerfen, die bloss heute nicht hochkam."""
+        user = require(request, Capability.EDIT_CONFIG)
+        known = {entity.id for entity in hub.registry.all()}
+        loaded = set(hub.integrations.loaded)
+        entfernt: dict[str, int] = {}
+        for key in ("entity_rooms", "entity_meta"):
+            rows = hub.data.get(key)
+            weg = set(replace_module.stale_entity_rows(rows, known, loaded))
+            if weg:
+                hub.data.set(
+                    key, [row for row in rows if row.get("entity_id") not in weg]
+                )
+                entfernt[key] = len(weg)
+        if entfernt:
+            log.info("%s hat verwaiste Gerätedaten entfernt: %s", user.name, entfernt)
+        return {"ok": True, "removed": entfernt}
+
     @app.get("/api/entities/{entity_id}")
     async def get_entity(entity_id: str, request: Request) -> dict[str, Any]:
         user = current_user(request)
@@ -393,4 +433,5 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             betroffen or "keine Verweise",
         )
         return {"ok": True, "changed": betroffen}
+
 
