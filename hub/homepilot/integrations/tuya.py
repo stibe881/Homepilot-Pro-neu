@@ -75,6 +75,7 @@ from .tuya_logic import (  # noqa: F401
     brightness_range,
     check_address,
     check_key,
+    cloud_report,
     decode_color,
     dps_map,
     encode_color,
@@ -486,23 +487,9 @@ def _cloud() -> int:
         print(f"✗ Tuya antwortet: {geraete}")
         return 1
 
-    print("\n# Fertig zum Einfügen in die config.yaml:\n")
-    print("  - integration: tuya")
-    print("    devices:")
-    for geraet in geraete:
-        schluessel = geraet.get("key") or ""
-        print(f"      - name: {geraet.get('name') or geraet.get('id')}")
-        print(f"        id: {geraet.get('id')}")
-        print(f"        key: \"{schluessel}\"")
-        if geraet.get("ip"):
-            print(f"        ip: {geraet['ip']}")
-        if geraet.get("version"):
-            print(f"        version: {geraet['version']}")
-    print(
-        "\nDie Schlüssel sind Geheimnisse – sie gehören in die config.yaml\n"
-        "auf dem Hub, nicht in ein Repository."
-    )
-    return 0
+    print()
+    print(cloud_report(geraete))
+    return 0 if geraete else 1
 
 
 def _geraete_aus_config(config_path: str, gesucht: str) -> list[dict[str, Any]]:

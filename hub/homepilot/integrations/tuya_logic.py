@@ -348,3 +348,63 @@ def light_commands(nummern: dict[str, int], kind: str) -> list[str]:
     return befehle
 
 
+
+KEINE_GERAETE = (
+    "✗ Das Projekt kennt kein einziges Gerät.\n"
+    "\n"
+    "Die Zugangsdaten stimmen also – sonst käme hier eine Fehlermeldung.\n"
+    "Was fehlt, ist fast immer die Verknüpfung zwischen dem Entwickler-\n"
+    "projekt und dem Konto, in dem der Projektor tatsächlich steht:\n"
+    "\n"
+    "  1. iot.tuya.com → Cloud → dein Projekt → Reiter «Devices»\n"
+    "  2. «Link Tuya App Account» → «Add App Account»\n"
+    "  3. Den QR-Code mit der Smart-Life-App scannen: «Ich» → das\n"
+    "     Scan-Symbol oben rechts.\n"
+    "\n"
+    "Wenn das schon gemacht ist, passt meist etwas anderes nicht:\n"
+    "  · Ein anderes Konto verknüpft als das, in dem der Projektor liegt.\n"
+    "  · Die falsche Region – ein Konto ist an eine Region gebunden, und\n"
+    "    ein Projekt sieht nur Konten seiner eigenen.\n"
+    "  · Im Projekt unter «Service API» fehlt «IoT Core», oder die\n"
+    "    Testphase ist abgelaufen (dort verlängern, ist kostenlos)."
+)
+
+
+def cloud_report(geraete: list[dict[str, Any]]) -> str:
+    """Was der --cloud-Aufruf ausgibt (rein, testbar).
+
+    Eine leere Liste ist der wahrscheinlichste Ausgang und war bisher der
+    stummste: Der Block wurde gedruckt, nur ohne Geräte darunter. Das
+    sieht wie ein Ergebnis aus und ist eine Fehlermeldung.
+    """
+    if not geraete:
+        return KEINE_GERAETE
+
+    zeilen = ["# Fertig zum Einfügen in die config.yaml:", "", "  - integration: tuya", "    devices:"]
+    krumme: list[str] = []
+    for geraet in geraete:
+        schluessel = str(geraet.get("key") or "")
+        name = geraet.get("name") or geraet.get("id")
+        zeilen.append(f"      - name: {name}")
+        zeilen.append(f"        id: {geraet.get('id')}")
+        zeilen.append(f'        key: "{schluessel}"')
+        if geraet.get("ip"):
+            zeilen.append(f"        ip: {geraet['ip']}")
+        if geraet.get("version"):
+            zeilen.append(f"        version: {geraet['version']}")
+        if len(schluessel) != KEY_LENGTH:
+            krumme.append(f"{name} ({len(schluessel)} Zeichen)")
+
+    zeilen.append("")
+    zeilen.append("Die Schlüssel sind Geheimnisse – sie gehören in die config.yaml")
+    zeilen.append("auf dem Hub, nicht in ein Repository.")
+    if krumme:
+        zeilen.append("")
+        zeilen.append(
+            "Achtung, kein brauchbarer Schlüssel bei: "
+            + ", ".join(krumme)
+            + f". Ein lokaler Schlüssel hat {KEY_LENGTH} Zeichen. Meist hilft "
+            "es, das Gerät in der Smart-Life-App einmal zu entfernen und neu "
+            "anzulernen."
+        )
+    return "\n".join(zeilen)

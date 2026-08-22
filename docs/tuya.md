@@ -41,6 +41,24 @@ alle Geräte samt Schlüssel und druckt den fertigen Block für die
 config.yaml. Die Zugangsdaten werden nur für diesen Aufruf gebraucht und
 nirgends gespeichert.
 
+### Der Aufruf listet gar keine Geräte
+
+Kommt keine Fehlermeldung, aber auch kein Gerät, dann stimmen die
+Zugangsdaten – nur sieht das Projekt keine Geräte. Der Reihe nach:
+
+* **Verknüpfung fehlt.** Schritt 3 oben ist der übliche Grund: iot.tuya.com
+  → Cloud → Projekt → **Devices → Link Tuya App Account → Add App Account**,
+  QR-Code mit der Smart-Life-App scannen (*Ich* → Scan-Symbol oben rechts).
+* **Falsches Konto verknüpft.** In der Smart-Life-App unter *Ich* steht,
+  mit welchem Konto man angemeldet ist. Verknüpft sein muss genau das, in
+  dem der Projektor liegt.
+* **Falsche Region.** Ein Konto gehört zu einer Region, und ein Projekt
+  sieht nur Konten seiner eigenen. Steht das Projekt auf *Central Europe*,
+  ist die Antwort auf die Regionsfrage `eu`.
+* **IoT Core fehlt oder ist abgelaufen.** Im Projekt unter *Service API*
+  muss **IoT Core** stehen. Die Testphase läuft nach einigen Monaten aus
+  und lässt sich dort kostenlos verlängern.
+
 Wer mag, prüft vorher, was im Netz überhaupt antwortet:
 
 ```

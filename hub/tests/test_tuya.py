@@ -233,3 +233,55 @@ def test_a_local_key_has_sixteen_characters():
         check_key("")
     with pytest.raises(ConfigError):
         check_key(None)
+
+
+def test_cloud_report_sagt_was_eine_leere_liste_bedeutet() -> None:
+    """Kein Gerät ist eine Auskunft, kein leerer Block.
+
+    Bisher druckte --cloud auch dann brav «Fertig zum Einfügen» samt
+    Kopfzeilen – nur ohne Geräte darunter. Das liest sich wie ein
+    Ergebnis, ist aber der häufigste Fehlerfall: Das Entwicklerprojekt
+    ist mit keinem Smart-Life-Konto verknüpft.
+    """
+    from homepilot.integrations.tuya_logic import cloud_report
+
+    text = cloud_report([])
+    assert "kein einziges Gerät" in text
+    assert "Link Tuya App Account" in text
+    assert "Region" in text
+    assert "Fertig zum Einfügen" not in text
+
+
+def test_cloud_report_druckt_einen_einfuegbaren_block() -> None:
+    from homepilot.integrations.tuya_logic import cloud_report
+
+    text = cloud_report(
+        [
+            {
+                "id": "bfb6f69fb592a761e3b6cb",
+                "name": "Sternenprojektor",
+                "key": "0123456789abcdef",
+                "ip": "10.10.1.23",
+                "version": "3.3",
+            }
+        ]
+    )
+    assert "  - integration: tuya" in text
+    assert "      - name: Sternenprojektor" in text
+    assert '        key: "0123456789abcdef"' in text
+    assert "        ip: 10.10.1.23" in text
+    assert "        version: 3.3" in text
+    assert "Achtung" not in text
+
+
+def test_cloud_report_warnt_bei_zu_kurzem_schluessel() -> None:
+    """Auch die Wolke liefert manchmal einen leeren Schlüssel.
+
+    Dann steht das Gerät zwar im Block, taugt aber nicht – und ohne
+    Hinweis trägt man es ein und sucht danach am falschen Ort.
+    """
+    from homepilot.integrations.tuya_logic import cloud_report
+
+    text = cloud_report([{"id": "abc", "name": "Steckdose", "key": ""}])
+    assert "Achtung" in text
+    assert "Steckdose (0 Zeichen)" in text
