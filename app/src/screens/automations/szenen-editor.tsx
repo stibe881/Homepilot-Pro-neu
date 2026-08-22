@@ -1,0 +1,594 @@
+/**
+ * Der Szenen-Editor samt Geräteliste und Befehls-Auswahl.
+ *
+ * Herausgelöst aus AutomationsScreen.tsx (Punkt 21 der Werkbank).
+ */
+import { Ionicons } from '@expo/vector-icons';
+import React, { useMemo, useState } from 'react';
+import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+
+import { Entity } from '../../api/types';
+import { useColors } from '../../theme';
+import { deviceKindLabel } from '../../lib/geraeteart';
+import { RueckwegBefehl, SceneActionDraft, snapshotAction } from '../../lib/szenen';
+import { Fassung, VersionsSection } from './editor';
+import { vacuumRooms } from './entwurf';
+import { CategoryField, Choice, Field } from './felder';
+import { makeStyles } from './stil';
+
+export interface SceneDraft {
+  id?: string;
+  name: string;
+  icon: string;
+  /** Optionaler Raum – dann erscheint die Szene in dessen Kategorie „Szenen“. */
+  room?: string;
+  /** Auf der Startseite als Schnellaktion anzeigen. */
+  onStart?: boolean;
+  /** Übergangszeit in Sekunden – Helligkeiten werden angefahren. */
+  transition?: number;
+  actions: SceneActionDraft[];
+  /** Frei benannte Kategorie zum Gruppieren in der Liste. */
+  category?: string;
+}
+
+/** Eine Handvoll passender Symbole reicht – die App bleibt aufgeräumt. */
+export const SCENE_ICONS = [
+  'sparkles-outline',
+  'sunny-outline',
+  'moon-outline',
+  'film-outline',
+  'wine-outline',
+  'home-outline',
+];
+
+/** Ein Gerät, das eine Szene schalten kann: Licht/Schalter, Storen, Schloss
+ *  oder Sauger. Nur diese lassen sich sinnvoll in einen Zustand versetzen. */
+export function isSceneDevice(entity: Entity): boolean {
+  return (
+    entity.commands.includes('turn_on') ||
+    entity.kind === 'cover' ||
+    entity.kind === 'lock' ||
+    entity.kind === 'media_player' ||
+    // Die Alarmanlage kann arm_night/arm_away/arm_vacation/disarm – sie
+    // fiel hier nur durchs Sieb, weil sie kein turn_on hat. Damit ging
+    // «beim Weggehen scharf» ausgerechnet nicht in der App, obwohl der
+    // Gute-Nacht-Knopf es längst vormacht.
+    entity.kind === 'alarm' ||
+    entity.commands.includes('clean_rooms') ||
+    entity.commands.includes('start')
+  );
+}
+
+/** Die Schalt-Optionen eines Geräts als Chips (rein, testbar).
+ *
+ * ``allowToggle`` gilt nur für Abläufe: Ein Wandtaster soll das Licht
+ * anmachen, wenn es aus ist, und ausmachen, wenn es an ist – dafür braucht
+ * es «umschalten». In einer Szene wäre dasselbe sinnlos, denn eine Szene
+ * beschreibt einen Zielzustand; was dabei herauskäme, hinge davon ab, wie
+ * das Licht gerade steht.
+ */
+export function commandOptions(
+  entity: Entity,
+  allowToggle = false
+): { key: string; label: string }[] {
+  const options = baseCommandOptions(entity);
+  // Nur anbieten, wo das Gerät es wirklich kann – Storen etwa können es nicht.
+  if (allowToggle && entity.commands.includes('toggle')) {
+    options.push({ key: 'toggle', label: 'umschalten' });
+  }
+  return options;
+}
+
+export function baseCommandOptions(entity: Entity): { key: string; label: string }[] {
+  if (entity.kind === 'cover') {
+    const options = [
+      { key: 'open', label: 'hoch' },
+      { key: 'close', label: 'runter' },
+    ];
+    // Halb runter für den Hitzeschutz – ganz zu wäre dunkel, ganz auf heiss.
+    if (entity.commands.includes('set_position')) {
+      options.push({ key: 'set_position', label: 'auf Position' });
+    }
+    return options;
+  }
+  if (entity.kind === 'lock') {
+    return [
+      { key: 'lock', label: 'abschliessen' },
+      { key: 'unlock', label: 'aufschliessen' },
+    ];
+  }
+  if (entity.kind === 'vacuum') {
+    const options = [
+      { key: 'start', label: 'saugen' },
+      { key: 'dock', label: 'zur Station' },
+    ];
+    if (vacuumRooms(entity).length > 0) {
+      options.push({ key: 'clean_rooms', label: 'Räume saugen' });
+    }
+    return options;
+  }
+  if (entity.kind === 'media_player') {
+    return [
+      { key: 'play', label: 'Musik an' },
+      { key: 'pause', label: 'Musik aus' },
+    ];
+  }
+  if (entity.kind === 'alarm') {
+    // Dieselben Namen wie auf dem Alarm-Bildschirm – «scharf (Nacht)»
+    // statt arm_night, damit niemand raten muss, was ein Modus tut.
+    return [
+      { key: 'arm_night', label: 'scharf (Nacht)' },
+      { key: 'arm_away', label: 'scharf (Ausser Haus)' },
+      { key: 'arm_vacation', label: 'scharf (Urlaub)' },
+      { key: 'disarm', label: 'unscharf' },
+    ];
+  }
+  const options = [
+    { key: 'turn_on', label: 'ein' },
+    { key: 'turn_off', label: 'aus' },
+  ];
+  // «ein mit Helligkeit» nur, wo das Gerät wirklich dimmen kann – ein
+  // Schalter mit Helligkeitsregler wäre ein Knopf, der nichts tut.
+  if (entity.commands.includes('set_brightness')) {
+    options.splice(1, 0, { key: 'set_brightness', label: 'ein, gedimmt' });
+  }
+  return options;
+}
+
+/** Geräte-Checkliste statt Zeilen mit Dropdown: antippen nimmt ein Gerät in
+ *  die Szene auf, ein zweiter Chip legt den Zielzustand fest. «Aktuellen
+ *  Zustand übernehmen» füllt alles in einem Tipp aus der Wirklichkeit. */
+export function SceneDevices({
+  entities,
+  actions,
+  onActions,
+  showSnapshot = true,
+  allowToggle = false,
+  sceneTransition = 0,
+}: {
+  entities: Entity[];
+  actions: SceneDraft['actions'];
+  onActions: (actions: SceneDraft['actions']) => void;
+  /** Übergangszeit der Szene – nur dann lohnt die Frage «diese Lampe
+   *  sofort?». */
+  sceneTransition?: number;
+  /** Der «Aktuellen Zustand übernehmen»-Knopf – für Szenen sinnvoll, für
+   *  Ablauf-Aktionen nicht (dort zählt der Zielzustand, nicht der jetzige). */
+  showSnapshot?: boolean;
+  /** «umschalten» als dritte Möglichkeit – nur in Abläufen sinnvoll. */
+  allowToggle?: boolean;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [query, setQuery] = useState('');
+
+  const needle = query.trim().toLowerCase();
+  const all = entities.filter(isSceneDevice);
+  const devices = needle
+    ? all.filter(
+        (entity) =>
+          entity.name.toLowerCase().includes(needle) ||
+          (entity.room ?? '').toLowerCase().includes(needle) ||
+          // Auch über die Art: «Saugroboter» findet ihn, ohne dass man
+          // wissen muss, dass er «Rosa» heisst.
+          deviceKindLabel(entity).toLowerCase().includes(needle)
+      )
+    : all;
+  const byId = new Map(actions.map((action) => [action.entity_id, action]));
+
+  // Nach Raum gruppieren; Geräte ohne Raum kommen unter «Weitere».
+  const groups: { room: string; items: Entity[] }[] = [];
+  const order = Array.from(
+    new Set(devices.map((entity) => entity.room || 'Weitere'))
+  ).sort((a, b) => (a === 'Weitere' ? 1 : b === 'Weitere' ? -1 : a.localeCompare(b)));
+  for (const room of order) {
+    groups.push({
+      room,
+      items: devices
+        .filter((entity) => (entity.room || 'Weitere') === room)
+        // Nach Art, dann nach Name: So stehen die Lichter eines Raums
+        // beieinander und die Storen auch – in der Reihenfolge, in der
+        // die Integration sie meldet, standen sie durcheinander.
+        .sort(
+          (a, b) =>
+            deviceKindLabel(a).localeCompare(deviceKindLabel(b)) ||
+            a.name.localeCompare(b.name)
+        ),
+    });
+  }
+
+  const toggle = (entity: Entity) => {
+    if (byId.has(entity.id)) {
+      onActions(actions.filter((action) => action.entity_id !== entity.id));
+    } else {
+      onActions([...actions, snapshotAction(entity)]);
+    }
+  };
+
+  const setCommand = (entityId: string, command: string) =>
+    onActions(
+      actions.map((action) =>
+        action.entity_id === entityId ? { ...action, command } : action
+      )
+    );
+
+  const setPosition = (entityId: string, position: number) =>
+    onActions(
+      actions.map((action) =>
+        action.entity_id === entityId ? { ...action, position } : action
+      )
+    );
+
+  const setBrightness = (entityId: string, brightness: number) =>
+    onActions(
+      actions.map((action) =>
+        action.entity_id === entityId ? { ...action, brightness } : action
+      )
+    );
+
+  const setRooms = (entityId: string, id: number) =>
+    onActions(
+      actions.map((action) => {
+        if (action.entity_id !== entityId) return action;
+        const current = action.rooms ?? [];
+        return {
+          ...action,
+          rooms: current.includes(id)
+            ? current.filter((entry) => entry !== id)
+            : [...current, id],
+        };
+      })
+    );
+
+  const snapshot = () =>
+    onActions(
+      devices
+        // Die Alarmanlage nur, wenn man sie ausdrücklich anwählt: Eine
+        // Szene «Kino», die per Schnappschuss heimlich «unscharf»
+        // eingesammelt hat, entschärft sonst abends die Anlage.
+        .filter((entity) => entity.kind !== 'alarm')
+        .map(snapshotAction)
+    );
+
+  return (
+    <View style={{ gap: 10 }}>
+      {showSnapshot ? (
+        <>
+          <Pressable
+            onPress={snapshot}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.snapshot, pressed && { opacity: 0.8 }]}
+          >
+            <Ionicons name="camera-outline" size={18} color={colors.accent} />
+            <Text style={styles.snapshotText}>Aktuellen Zustand übernehmen</Text>
+          </Pressable>
+          <Text style={styles.snapshotHint}>
+            Stell die Zimmer so ein, wie du sie in der Szene willst, und tippe
+            oben – oder wähle die Geräte einzeln.
+          </Text>
+        </>
+      ) : null}
+
+      <View style={styles.deviceSearch}>
+        <Ionicons name="search" size={15} color={colors.inkFaint} />
+        <TextInput
+          style={styles.deviceSearchInput}
+          value={query}
+          onChangeText={setQuery}
+          placeholder="Gerät oder Raum suchen …"
+          placeholderTextColor={colors.inkFaint}
+        />
+        {query ? (
+          <Pressable
+            onPress={() => setQuery('')}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Suche leeren"
+          >
+            <Ionicons name="close-circle" size={17} color={colors.inkFaint} />
+          </Pressable>
+        ) : null}
+      </View>
+      {actions.length > 0 ? (
+        <Text style={styles.snapshotHint}>{actions.length} Gerät(e) ausgewählt</Text>
+      ) : null}
+
+      {groups.length === 0 ? (
+        <Text style={styles.snapshotHint}>Nichts gefunden.</Text>
+      ) : null}
+      {groups.map((group) => (
+        <View key={group.room} style={{ gap: 6 }}>
+          <Text style={styles.groupLabel}>{group.room}</Text>
+          {group.items.map((entity) => {
+            const action = byId.get(entity.id);
+            const included = !!action;
+            const rooms = vacuumRooms(entity);
+            return (
+              <View key={entity.id} style={styles.deviceRow}>
+                <Pressable
+                  onPress={() => toggle(entity)}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: included }}
+                  accessibilityLabel={`${entity.name}, ${deviceKindLabel(entity)}`}
+                  style={styles.deviceHead}
+                >
+                  <Ionicons
+                    name={included ? 'checkmark-circle' : 'ellipse-outline'}
+                    size={24}
+                    color={included ? colors.on : colors.inkFaint}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.deviceName}>{entity.name}</Text>
+                    {/* Wofür das Gerät steht. «Flur» allein sagt nicht, ob
+                        das Licht oder der Melder gemeint ist. */}
+                    <Text style={styles.pickKind}>{deviceKindLabel(entity)}</Text>
+                  </View>
+                </Pressable>
+                {included ? (
+                  <View style={{ gap: 6 }}>
+                    <Choice
+                      options={commandOptions(entity, allowToggle)}
+                      value={action!.command}
+                      onSelect={(command) => setCommand(entity.id, command)}
+                    />
+                    {action!.command === 'clean_rooms' && rooms.length > 0 ? (
+                      <Choice
+                        multi
+                        options={rooms.map((room) => ({
+                          key: String(room.id),
+                          label: room.name,
+                        }))}
+                        values={(action!.rooms ?? []).map(String)}
+                        onSelect={(key) => setRooms(entity.id, Number(key))}
+                      />
+                    ) : null}
+                    {action!.command === 'set_position' ? (
+                      <Choice
+                        options={[
+                          { key: '25', label: '25 %' },
+                          { key: '50', label: '50 %' },
+                          { key: '75', label: '75 %' },
+                        ]}
+                        value={String(action!.position ?? 50)}
+                        onSelect={(key) => setPosition(entity.id, Number(key))}
+                      />
+                    ) : null}
+                    {action!.command === 'set_brightness' ? (
+                      <>
+                        <Choice
+                          options={[
+                            { key: '10', label: '10 %' },
+                            { key: '25', label: '25 %' },
+                            { key: '50', label: '50 %' },
+                            { key: '75', label: '75 %' },
+                            { key: '100', label: '100 %' },
+                          ]}
+                          value={String(action!.brightness ?? 50)}
+                          onSelect={(key) => setBrightness(entity.id, Number(key))}
+                        />
+                        {sceneTransition > 0 ? (
+                          // Beim Lichtwecker kommt die Decke über zwanzig
+                          // Minuten – die Nachttischlampe soll trotzdem
+                          // sofort an.
+                          <Choice
+                            options={[
+                              { key: 'szene', label: 'mit Übergang' },
+                              { key: 'sofort', label: 'sofort' },
+                            ]}
+                            value={action!.transition === 0 ? 'sofort' : 'szene'}
+                            onSelect={(key) =>
+                              onActions(
+                                actions.map((entry) =>
+                                  entry.entity_id === entity.id
+                                    ? {
+                                        ...entry,
+                                        transition: key === 'sofort' ? 0 : undefined,
+                                      }
+                                    : entry
+                                )
+                              )
+                            }
+                          />
+                        ) : null}
+                      </>
+                    ) : null}
+                  </View>
+                ) : null}
+              </View>
+            );
+          })}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+export function SceneEditor({
+  draft,
+  entities,
+  categories,
+  onChange,
+  onSave,
+  onDelete,
+  onCancel,
+  onTest,
+  onRevert,
+  onVersions,
+  onRestoreVersion,
+}: {
+  draft: SceneDraft | null;
+  entities: Entity[];
+  /** Schon vergebene Kategorien – als Vorschläge im Feld. */
+  categories: string[];
+  onChange: (draft: SceneDraft) => void;
+  onSave: () => void;
+  onDelete?: () => void;
+  onCancel: () => void;
+  /** Nur bei gespeicherten Szenen: einmal auslösen, Rückweg merken. */
+  onTest?: () => Promise<RueckwegBefehl[]>;
+  onRevert?: (befehle: RueckwegBefehl[]) => void;
+  /** Frühere Fassungen laden bzw. eine zurückholen (nur beim Bearbeiten). */
+  onVersions?: () => Promise<Fassung[]>;
+  onRestoreVersion?: (at: number) => Promise<boolean>;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  // Der gemerkte Rückweg nach «Ausprobieren» – solange er da ist, steht
+  // daneben «Doch nicht».
+  const [rueckweg, setRueckweg] = useState<RueckwegBefehl[] | null>(null);
+  if (!draft) return null;
+
+  const set = (patch: Partial<SceneDraft>) => onChange({ ...draft, ...patch });
+  // Räume aus den Geräten – für die Zuordnung der Szene zu einer Kategorie.
+  const sceneRooms = Array.from(
+    new Set(entities.map((entity) => entity.room).filter(Boolean) as string[])
+  ).sort((a, b) => a.localeCompare(b));
+
+  return (
+    <Modal visible animationType="slide" onRequestClose={onCancel}>
+      <ScrollView style={styles.editor} contentContainerStyle={styles.editorContent}>
+        <View style={styles.cardHead}>
+          <Text style={styles.editorTitle}>
+            {draft.id ? 'Szene bearbeiten' : 'Neue Szene'}
+          </Text>
+          <Pressable onPress={onCancel} accessibilityLabel="Abbrechen">
+            <Ionicons name="close" size={26} color={colors.ink} />
+          </Pressable>
+        </View>
+
+        <Field label="Name">
+          <TextInput
+            style={styles.input}
+            value={draft.name}
+            onChangeText={(name) => set({ name })}
+            placeholder="z.B. Feierabend"
+            placeholderTextColor={colors.inkFaint}
+          />
+        </Field>
+
+        <CategoryField
+          value={draft.category ?? ''}
+          known={categories}
+          onChange={(category) => set({ category })}
+        />
+
+        <Field label="Symbol">
+          <View style={styles.choices}>
+            {SCENE_ICONS.map((icon) => (
+              <Pressable
+                key={icon}
+                onPress={() => set({ icon })}
+                accessibilityRole="radio"
+                accessibilityLabel={`Symbol ${icon}`}
+                accessibilityState={{ selected: draft.icon === icon }}
+                style={[styles.choice, draft.icon === icon && styles.choiceActive]}
+              >
+                <Ionicons
+                  name={icon as any}
+                  size={18}
+                  color={draft.icon === icon ? colors.surfaceStrong : colors.inkSoft}
+                />
+              </Pressable>
+            ))}
+          </View>
+        </Field>
+
+        {sceneRooms.length > 0 ? (
+          <Field label="Raum (für die Kategorie „Szenen“)">
+            <Choice
+              options={[
+                { key: '', label: 'Kein Raum' },
+                ...sceneRooms.map((name) => ({ key: name, label: name })),
+              ]}
+              value={draft.room ?? ''}
+              onSelect={(room) => set({ room: room || undefined })}
+            />
+          </Field>
+        ) : null}
+
+        <Field label="Startseite">
+          <Choice
+            options={[
+              { key: 'yes', label: 'Als Schnellaktion anzeigen' },
+              { key: 'no', label: 'Nicht anzeigen' },
+            ]}
+            value={draft.onStart ? 'yes' : 'no'}
+            onSelect={(value) => set({ onStart: value === 'yes' })}
+          />
+        </Field>
+
+        <Field label="Übergang">
+          <Choice
+            options={[
+              { key: '0', label: 'Sofort' },
+              { key: '300', label: '5 Min' },
+              { key: '900', label: '15 Min' },
+              { key: '1800', label: '30 Min' },
+            ]}
+            value={String(draft.transition ?? 0)}
+            onSelect={(value) => set({ transition: Number(value) })}
+          />
+          <Text style={styles.triggerNote}>
+            Über diese Zeit werden Helligkeiten sanft angefahren statt
+            geschaltet – als Lichtwecker oder Einschlaflicht. An und Aus,
+            Storen und alles andere bleiben sofort.
+          </Text>
+        </Field>
+
+        <Field label="Diese Geräte schalten">
+          <SceneDevices
+            entities={entities}
+            actions={draft.actions}
+            onActions={(actions) => set({ actions })}
+            sceneTransition={draft.transition ?? 0}
+          />
+        </Field>
+
+        <Pressable style={styles.save} onPress={onSave} accessibilityRole="button">
+          <Text style={styles.saveText}>Speichern</Text>
+        </Pressable>
+        {onTest ? (
+          <Pressable
+            style={({ pressed }) => [styles.snapshot, pressed && { opacity: 0.8 }]}
+            onPress={async () => setRueckweg(await onTest())}
+            accessibilityRole="button"
+          >
+            <Ionicons name="flash-outline" size={18} color={colors.accent} />
+            <Text style={styles.snapshotText}>Ausprobieren</Text>
+          </Pressable>
+        ) : null}
+        {rueckweg && rueckweg.length > 0 && onRevert ? (
+          <Pressable
+            style={({ pressed }) => [styles.snapshot, pressed && { opacity: 0.8 }]}
+            onPress={() => {
+              onRevert(rueckweg);
+              setRueckweg(null);
+            }}
+            accessibilityRole="button"
+          >
+            <Ionicons name="arrow-undo-outline" size={18} color={colors.accent} />
+            <Text style={styles.snapshotText}>
+              Doch nicht – Zustand von vorher wiederherstellen
+            </Text>
+          </Pressable>
+        ) : null}
+        {onTest ? (
+          <Text style={styles.snapshotHint}>
+            «Ausprobieren» löst die gespeicherte Szene wirklich aus.
+            Gespeicherte Änderungen zuerst sichern – und der Rückweg stellt
+            Lichter, Schalter und Storen wieder her, Schlösser nur zu.
+          </Text>
+        ) : null}
+        {onVersions && onRestoreVersion ? (
+          <VersionsSection load={onVersions} restore={onRestoreVersion} />
+        ) : null}
+        {onDelete ? (
+          <Pressable style={styles.delete} onPress={onDelete} accessibilityRole="button">
+            <Text style={styles.deleteText}>Szene löschen</Text>
+          </Pressable>
+        ) : null}
+      </ScrollView>
+    </Modal>
+  );
+}
+
