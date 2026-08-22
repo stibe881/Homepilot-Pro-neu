@@ -409,4 +409,29 @@ export const makeStyles = (colors: Colors) =>
     },
     notrufButtonText: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
     addRowText: { color: colors.accent, fontSize: 14, fontWeight: '600' },
+    // Kleines Blatt über der Seite - fürs Ändern eines Termins.
+    modalBack: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.45)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 24,
+    },
+    modalCard: {
+      width: '100%',
+      maxWidth: 420,
+      gap: 12,
+      padding: 20,
+      borderRadius: 16,
+      // Deckend: Über einem abgedunkelten Hintergrund darf nichts
+      // durchscheinen, sonst kippt der Kontrast.
+      backgroundColor: colors.panel,
+    },
+    // Blätterleiste des Wochenplans.
+    weekNav: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 4,
+    },
   });

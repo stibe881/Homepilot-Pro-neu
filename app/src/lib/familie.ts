@@ -48,7 +48,7 @@ export function toggleRolle(current: string[], rolle: string): string[] {
  * Partner) kommt als `phone2` dazu – wer nur eine hat, merkt nichts.
  */
 export function nummernVon(contact: Eintrag): { label: string; nummer: string }[] {
-  const roh: [string, any][] = [
+  const roh: [string, unknown][] = [
     ['Mobil', contact?.phone],
     ['Weitere', contact?.phone2],
   ];
@@ -215,7 +215,7 @@ export function genommenMap(med: Eintrag): Record<string, string[]> {
   const roh = med?.taken;
   if (roh && !Array.isArray(roh) && typeof roh === 'object') {
     const sauber: Record<string, string[]> = {};
-    for (const [tag, werte] of Object.entries(roh as Record<string, any>)) {
+    for (const [tag, werte] of Object.entries(roh as Record<string, unknown>)) {
       if (Array.isArray(werte)) {
         sauber[tag] = werte.map(String).filter((key) => GABEN_KEYS.includes(key));
       }
@@ -292,6 +292,17 @@ export function medZeile(med: Eintrag, tag: string): string {
   }
   return teile.join(' · ');
 }
+
+// ── Kalender ────────────────────────────────────────────────────────────
+
+/**
+ * Farben je Kalender, in der Reihenfolge der Konfiguration.
+ *
+ * Bei mehreren Kalendern sieht man sonst nicht, wessen Termin es ist –
+ * und «Elternabend» im Geschäftskalender heisst etwas anderes als im
+ * Familienkalender.
+ */
+export const KALENDER_FARBEN = ['#2F6BF6', '#34C759', '#F5A524', '#AF52DE', '#FF6B6B'];
 
 // ── Wochenplan ──────────────────────────────────────────────────────────
 

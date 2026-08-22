@@ -1379,18 +1379,44 @@ export function CountdownForm({
 
 /** Monatsraster mit Punkten an Tagen mit Terminen; ein Tag antippen zeigt
  *  seine Termine darunter. Blättern über die Pfeile im Kopf. */
+/**
+ * Das Monatsraster.
+ *
+ * Es zeigt, was `events` hergibt – und genau da lag der Fehler: Der
+ * Zustand der Kalender-Entität trägt die nächsten zwölf Termine, nicht
+ * einen Monat. Wer zurückblätterte, sah ein leeres Raster und musste
+ * glauben, es sei nichts gewesen. Deshalb sagt diese Ansicht jetzt nach
+ * oben, welchen Monat sie zeigt, und bekommt die passenden Termine
+ * gereicht.
+ */
 export function MonthCalendar({
   events,
+  onMonat,
+  laedt,
+  onEvent,
   styles,
   colors,
 }: {
   events: FamilyItem[];
+  /** Welcher Monat gezeigt wird, als «JJJJ-MM». */
+  onMonat?: (monat: string) => void;
+  laedt?: boolean;
+  /** Antippen eines Termins – zum Ändern oder Löschen. */
+  onEvent?: (event: FamilyItem) => void;
   styles: Styles;
   colors: Colors;
 }) {
   const today = new Date();
   const [month, setMonth] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [selected, setSelected] = useState<string | null>(null);
+
+  // Beim Blättern die Termine des neuen Monats holen.
+  React.useEffect(() => {
+    onMonat?.(
+      `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}`
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [month.getFullYear(), month.getMonth()]);
 
   const key = (date: Date) =>
     `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
@@ -1428,6 +1454,7 @@ export function MonthCalendar({
         </Pressable>
         <Text style={styles.calTitle}>
           {monatJahr(month)}
+          {laedt ? ' …' : ''}
         </Text>
         <Pressable
           onPress={() => setMonth(new Date(year, mon + 1, 1))}
@@ -1478,17 +1505,31 @@ export function MonthCalendar({
         <Card style={styles.listCard}>
           {selectedEvents.length > 0 ? (
             selectedEvents.map((event, index) => (
-              <View key={index} style={styles.eventRow}>
+              <Pressable
+                key={index}
+                onPress={() => onEvent?.(event)}
+                disabled={!onEvent || event.birthday}
+                accessibilityRole={onEvent ? 'button' : undefined}
+                style={styles.eventRow}
+              >
                 <View style={styles.eventDot} />
-                <Text style={[styles.checkText, { flex: 1 }]} numberOfLines={2}>
-                  {event.summary ?? '—'}
-                </Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.checkText} numberOfLines={2}>
+                    {event.summary ?? '—'}
+                  </Text>
+                  {/* Der Ort kam schon immer vom Hub und wurde nie
+                      gezeigt – dabei ist «wo?» die zweite Frage nach
+                      «wann?». */}
+                  {event.location ? (
+                    <Text style={styles.checkSub} numberOfLines={1}>
+                      {event.location}
+                    </Text>
+                  ) : null}
+                </View>
                 <Text style={styles.checkSub}>
-                  {event.all_day
-                    ? 'ganztägig'
-                    : uhr(new Date(event.start))}
+                  {event.all_day ? 'ganztägig' : uhr(new Date(event.start))}
                 </Text>
-              </View>
+              </Pressable>
             ))
           ) : (
             <Text style={styles.hint}>Keine Termine an diesem Tag.</Text>

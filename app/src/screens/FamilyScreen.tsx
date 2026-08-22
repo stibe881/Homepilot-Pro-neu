@@ -12,6 +12,7 @@ import { wochentagDatumKurz, wochentagUhr } from '../lib/format';
 import { Shop, ingredientsToShopping, shopCategory } from '../lib/einkauf';
 import {
   ABEND_FELDER,
+  KALENDER_FARBEN,
   NOTRUFE,
   ROLLEN,
   NOTFALL_FELDER,
@@ -20,14 +21,18 @@ import {
   gabenVon,
   genommenMap,
   hakeGabe,
+  isoTag,
+  kurzDatum,
   kurFertig,
   medZeile,
   mitRolle,
+  montagVon,
   notfallText,
   notfallUeberfaellig,
   notfallZeilen,
   nummernVon,
   offeneGaben,
+  plusWochen,
   rollenVon,
   waehlbar,
 } from '../lib/familie';
@@ -74,6 +79,15 @@ export function FamilyScreen({
   const [notfallOffen, setNotfallOffen] = useState<string | null>(null);
   // Medikamente: welcher Verlauf gerade aufgeklappt ist.
   const [medVerlauf, setMedVerlauf] = useState<string | null>(null);
+  // Wochenplan: welche Woche, und wessen Zeilen.
+  const [wochenVersatz, setWochenVersatz] = useState(0);
+  const [wochenPerson, setWochenPerson] = useState('Alle');
+  // Kalender: die Termine des gezeigten Monats (die Entität trägt nur
+  // die nächsten zwölf), plus der Termin, den man gerade angetippt hat.
+  const [monatEvents, setMonatEvents] = useState<FamilyItem[] | null>(null);
+  const [monatLaedt, setMonatLaedt] = useState(false);
+  const [letzterMonat, setLetzterMonat] = useState('');
+  const [terminOffen, setTerminOffen] = useState<FamilyItem | null>(null);
   // Vom Essensplaner direkt ins Rezept springen (Punkt 146).
   const [rezeptStart, setRezeptStart] = useState<string | null>(null);
   // «Was koche ich heute?» im Planer (Punkt 139): Die Saat hält die
@@ -102,6 +116,32 @@ export function FamilyScreen({
   }, [hub]);
 
   useEffect(load, [load]);
+
+  /**
+   * Die Termine eines Monats holen.
+   *
+   * Der Zustand der Kalender-Entität trägt die nächsten zwölf Termine -
+   * für die Kachel richtig, fürs Monatsraster zu wenig. Wer einen Monat
+   * zurückblätterte, sah ein leeres Raster und musste glauben, es sei
+   * nichts gewesen.
+   */
+  const ladeMonat = useCallback(
+    (monat: string) => {
+      if (!monat) return;
+      setLetzterMonat(monat);
+      setMonatLaedt(true);
+      hub
+        .get<{ events: FamilyItem[] }>(`/api/calendar/events?month=${monat}`, {
+          still: true,
+        })
+        .then((payload) => setMonatEvents(payload.events ?? []))
+        // Ohne Kalender-Anbindung gibt es hier nichts zu holen - dann
+        // bleibt das Raster bei dem, was die Entität hergibt.
+        .catch(() => setMonatEvents(null))
+        .finally(() => setMonatLaedt(false));
+    },
+    [hub]
+  );
 
   // Änderungen anderer Geräte kommen als Fingerzeig über den WebSocket –
   // was Livia abhakt, steht bei Stefan sofort, ohne Minutentakt-Abfrage.
@@ -215,6 +255,19 @@ export function FamilyScreen({
 
   if (view === 'kalender') {
     const upcoming = events.slice(0, 10);
+    // Im Monatsraster die Termine des gezeigten Monats, in der Liste die
+    // anstehenden aus dem Zustand der Entität.
+    const rasterEvents = monatEvents ?? events;
+    // Mehrere Kalender: Ohne Unterscheidung sieht man nicht, wessen
+    // Termin es ist. Die Reihenfolge der Kalender ist die Farbe.
+    const kalenderListe: string[] = Array.isArray(calendar?.state.calendars)
+      ? calendar!.state.calendars.map(String)
+      : [];
+    const farbeVon = (event: FamilyItem) => {
+      const index = kalenderListe.indexOf(String(event.calendar ?? ''));
+      return index < 0 ? colors.accent : KALENDER_FARBEN[index % KALENDER_FARBEN.length];
+    };
+
     return (
       <View style={styles.stack}>
         <BackHead title="Kalender" onBack={goBack} styles={styles} colors={colors} />
@@ -238,29 +291,80 @@ export function FamilyScreen({
             </Pressable>
           ))}
         </View>
+
         {calMode === 'month' ? (
-          <MonthCalendar events={events} styles={styles} colors={colors} />
+          <MonthCalendar
+            events={rasterEvents}
+            laedt={monatLaedt}
+            onMonat={ladeMonat}
+            onEvent={(event) => setTerminOffen(event)}
+            styles={styles}
+            colors={colors}
+          />
         ) : (
-        <Card style={styles.listCard}>
-          {upcoming.length > 0 ? (
-            upcoming.map((event, index) => (
-              <View key={index} style={styles.eventRow}>
-                <View style={styles.eventDot} />
-                <Text style={[styles.checkText, { flex: 1 }]} numberOfLines={1}>
-                  {event.summary ?? '—'}
-                </Text>
-                <Text style={styles.checkSub}>{eventWhen(event)}</Text>
-              </View>
-            ))
-          ) : (
-            <Text style={styles.hint}>
-              {calendar
-                ? 'Keine anstehenden Termine.'
-                : 'Google Kalender in der config.yaml einbinden, dann stehen hier die echten Termine.'}
-            </Text>
-          )}
-        </Card>
+          <Card style={styles.listCard}>
+            {upcoming.length > 0 ? (
+              upcoming.map((event, index) => (
+                <Pressable
+                  key={index}
+                  onPress={() => (event.birthday ? undefined : setTerminOffen(event))}
+                  disabled={!!event.birthday}
+                  style={styles.eventRow}
+                >
+                  <View style={[styles.eventDot, { backgroundColor: farbeVon(event) }]} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.checkText} numberOfLines={1}>
+                      {event.summary ?? '—'}
+                    </Text>
+                    {event.location ? (
+                      <Pressable
+                        onPress={() =>
+                          Linking.openURL(
+                            `https://maps.google.com/?q=${encodeURIComponent(
+                              String(event.location)
+                            )}`
+                          )
+                        }
+                        accessibilityRole="link"
+                        accessibilityLabel={`Karte für ${event.location}`}
+                      >
+                        <Text style={[styles.checkSub, { color: colors.accent }]}>
+                          {event.location}
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                  <Text style={styles.checkSub}>{eventWhen(event)}</Text>
+                </Pressable>
+              ))
+            ) : (
+              <Text style={styles.hint}>
+                {calendar
+                  ? 'Keine anstehenden Termine.'
+                  : 'Google Kalender in der config.yaml einbinden, dann stehen hier die echten Termine.'}
+              </Text>
+            )}
+          </Card>
         )}
+
+        {kalenderListe.length > 1 ? (
+          <View style={styles.chipRow}>
+            {kalenderListe.map((id, index) => (
+              <View key={id} style={styles.chip}>
+                <View
+                  style={[
+                    styles.eventDot,
+                    { backgroundColor: KALENDER_FARBEN[index % KALENDER_FARBEN.length] },
+                  ]}
+                />
+                <Text style={styles.chipText} numberOfLines={1}>
+                  {id === 'primary' ? 'Hauptkalender' : id.split('@')[0]}
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
         {calendar && calendar.commands.includes('create_event') ? (
           <EventForm
             onAdd={async (summary, date, time) => {
@@ -270,6 +374,7 @@ export function FamilyScreen({
                   { command: 'create_event', data: { summary, date, time } },
                   { still: true }
                 );
+                if (calMode === 'month') ladeMonat(letzterMonat);
               } catch (err) {
                 setError(
                   `Termin nicht angelegt (${err instanceof Error ? err.message : err})`
@@ -280,6 +385,67 @@ export function FamilyScreen({
             colors={colors}
           />
         ) : null}
+
+        {/* Ändern und Löschen gab es bisher gar nicht – anlegen schon.
+            Ein Kalender, aus dem man nichts wieder herausbekommt, ist
+            eine Sackgasse. */}
+        <Modal
+          visible={!!terminOffen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setTerminOffen(null)}
+        >
+          <Pressable style={styles.modalBack} onPress={() => setTerminOffen(null)}>
+            <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
+              <Text style={styles.groupTitle}>{terminOffen?.summary}</Text>
+              <Text style={styles.checkSub}>
+                {terminOffen ? eventWhen(terminOffen) : ''}
+                {terminOffen?.location ? ` · ${terminOffen.location}` : ''}
+              </Text>
+              {calendar && calendar.commands.includes('delete_event') ? (
+                <Pressable
+                  onPress={async () => {
+                    const ziel = terminOffen;
+                    setTerminOffen(null);
+                    if (!ziel) return;
+                    try {
+                      await hub.post(
+                        `/api/entities/${encodeURIComponent(calendar.id)}/command`,
+                        {
+                          command: 'delete_event',
+                          data: { id: ziel.id, calendar: ziel.calendar },
+                        },
+                        { still: true }
+                      );
+                      if (calMode === 'month') ladeMonat(letzterMonat);
+                    } catch (err) {
+                      setError(
+                        `Termin nicht gelöscht (${err instanceof Error ? err.message : err})`
+                      );
+                    }
+                  }}
+                  accessibilityRole="button"
+                  style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.8 }]}
+                >
+                  <Ionicons name="trash-outline" size={16} color={colors.danger} />
+                  <Text style={[styles.addRowText, { color: colors.danger }]}>
+                    Termin löschen
+                  </Text>
+                </Pressable>
+              ) : null}
+              <Pressable
+                onPress={() => setTerminOffen(null)}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.8 }]}
+              >
+                <Ionicons name="close" size={16} color={colors.inkSoft} />
+                <Text style={[styles.addRowText, { color: colors.inkSoft }]}>
+                  Schliessen
+                </Text>
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        </Modal>
       </View>
     );
   }
@@ -1243,34 +1409,24 @@ export function FamilyScreen({
   }
 
   if (view === 'woche') {
-    // Montag dieser Woche als Ausgangspunkt: In der Schweiz beginnt die
-    // Woche am Montag, und der Essensplan ist ohnehin so aufgebaut.
-    const montag = new Date(today);
-    montag.setHours(0, 0, 0, 0);
-    montag.setDate(montag.getDate() - ((montag.getDay() + 6) % 7));
+    // Montag der angezeigten Woche. Blättern ist der Unterschied zwischen
+    // Nachschlagen und Planen: Am Sonntagabend plant man die kommende
+    // Woche, nicht die laufende.
+    const montag = plusWochen(montagVon(today), wochenVersatz);
+    const heuteIso = isoTag(today);
 
     const tage = WEEK_DAYS.map((name, index) => {
       const datum = new Date(montag);
       datum.setDate(montag.getDate() + index);
-      const iso = `${datum.getFullYear()}-${String(datum.getMonth() + 1).padStart(2, '0')}-${String(
-        datum.getDate()
-      ).padStart(2, '0')}`;
+      const iso = isoTag(datum);
       return {
         name,
         datum,
         iso,
-        heute:
-          datum.getFullYear() === today.getFullYear() &&
-          datum.getMonth() === today.getMonth() &&
-          datum.getDate() === today.getDate(),
-        termine: events.filter((event: FamilyItem) => {
-          const start = new Date(event.start);
-          return (
-            start.getFullYear() === datum.getFullYear() &&
-            start.getMonth() === datum.getMonth() &&
-            start.getDate() === datum.getDate()
-          );
-        }),
+        heute: iso === heuteIso,
+        termine: events.filter(
+          (event: FamilyItem) => isoTag(new Date(event.start)) === iso
+        ),
         essen: (data.meals ?? []).find((meal: FamilyItem) => meal.day === name),
         aemtli: (data.chores ?? []).filter(
           (chore: FamilyItem) => String(chore.due ?? '').slice(0, 10) === iso
@@ -1278,23 +1434,92 @@ export function FamilyScreen({
         aufgaben: (data.tasks ?? []).filter(
           (task: FamilyItem) => !task.done && String(task.due ?? '').slice(0, 10) === iso
         ),
+        geburtstage: (data.contacts ?? []).filter(
+          (contact: FamilyItem) =>
+            daysUntilBirthday(contact.birthday) ===
+            Math.round((datum.getTime() - new Date(heuteIso).getTime()) / 86_400_000)
+        ),
       };
     });
+
+    /** Eine Aufgabe oder ein Ämtli auf einen anderen Tag schieben. */
+    const verschiebe = (liste: 'tasks' | 'chores', eintrag: FamilyItem, tage_: number) => {
+      const alt = new Date(`${String(eintrag.due ?? heuteIso).slice(0, 10)}T00:00:00`);
+      alt.setDate(alt.getDate() + tage_);
+      update(liste, eintrag.id, { due: isoTag(alt) });
+    };
 
     return (
       <View style={styles.stack}>
         <BackHead title="Wochenplan" onBack={goBack} styles={styles} colors={colors} />
+
+        <View style={styles.weekNav}>
+          <Pressable
+            onPress={() => setWochenVersatz(wochenVersatz - 1)}
+            hitSlop={8}
+            accessibilityLabel="Vorherige Woche"
+          >
+            <Ionicons name="chevron-back" size={22} color={colors.ink} />
+          </Pressable>
+          <Pressable onPress={() => setWochenVersatz(0)} accessibilityRole="button">
+            <Text style={styles.calTitle}>
+              {wochenVersatz === 0
+                ? 'Diese Woche'
+                : `${kurzDatum(montag)} – ${kurzDatum(tage[6].datum)}`}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setWochenVersatz(wochenVersatz + 1)}
+            hitSlop={8}
+            accessibilityLabel="Nächste Woche"
+          >
+            <Ionicons name="chevron-forward" size={22} color={colors.ink} />
+          </Pressable>
+        </View>
+
+        {/* Bei vier Personen ist «wer hat wann was» die eigentliche Frage –
+            und die beantwortet eine Liste je Tag nicht. */}
+        <View style={styles.chipRow}>
+          {[{ name: 'Alle' }, ...members].map((m) => {
+            const aktiv = wochenPerson === m.name;
+            return (
+              <Pressable
+                key={m.name}
+                onPress={() => setWochenPerson(aktiv ? 'Alle' : m.name)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: aktiv }}
+                style={[styles.chip, aktiv && styles.chipActive]}
+              >
+                <Text style={[styles.chipText, aktiv && styles.chipTextActive]}>
+                  {m.name}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
         <Text style={styles.hint}>
-          Sonntagabend eine Seite statt vier Module: was ansteht, was es zu
-          essen gibt, wer welches Ämtli hat. Ändern lässt sich alles dort,
-          wo es hingehört – hier wird nur gezeigt.
+          Sonntagabend eine Seite statt vier Module. Essen und Zuteilungen
+          lassen sich hier direkt ändern – wer planen will, soll nicht
+          zwischen vier Modulen hin und her springen.
         </Text>
+
         {tage.map((tag) => {
+          const aemtli =
+            wochenPerson === 'Alle'
+              ? tag.aemtli
+              : tag.aemtli.filter((chore: FamilyItem) => chore.member === wochenPerson);
+          const aufgaben =
+            wochenPerson === 'Alle'
+              ? tag.aufgaben
+              : tag.aufgaben.filter((task: FamilyItem) => task.member === wochenPerson);
           const leer =
             tag.termine.length === 0 &&
             !tag.essen?.text &&
-            tag.aemtli.length === 0 &&
-            tag.aufgaben.length === 0;
+            aemtli.length === 0 &&
+            aufgaben.length === 0 &&
+            tag.geburtstage.length === 0;
+
           return (
             <Card
               key={tag.name}
@@ -1308,10 +1533,19 @@ export function FamilyScreen({
                   {tag.name}
                 </Text>
                 <Text style={styles.checkSub}>
-                  {tag.datum.getDate()}.{tag.datum.getMonth() + 1}.
+                  {kurzDatum(tag.datum)}
                   {tag.heute ? ' · heute' : ''}
                 </Text>
               </View>
+
+              {tag.geburtstage.map((contact: FamilyItem) => (
+                <View key={contact.id} style={styles.weekRowItem}>
+                  <Ionicons name="gift-outline" size={15} color={colors.warn} />
+                  <Text style={[styles.checkText, { flex: 1 }]}>
+                    {contact.text} hat Geburtstag
+                  </Text>
+                </View>
+              ))}
 
               {tag.termine.map((event: FamilyItem, index: number) => (
                 <View key={`t${index}`} style={styles.weekRowItem}>
@@ -1322,30 +1556,72 @@ export function FamilyScreen({
                 </View>
               ))}
 
-              {tag.essen?.text ? (
-                <View style={styles.weekRowItem}>
-                  <Ionicons name="restaurant-outline" size={15} color={colors.inkSoft} />
-                  <Text style={[styles.checkText, { flex: 1 }]}>{tag.essen.text}</Text>
-                </View>
-              ) : null}
+              {/* Das Essen direkt hier eintragen: Sonst muss man für einen
+                  Einfall den Essensplan öffnen und wieder zurück. */}
+              <View style={styles.weekRowItem}>
+                <Ionicons name="restaurant-outline" size={15} color={colors.inkSoft} />
+                <TextInput
+                  style={[styles.input, { flex: 1, paddingVertical: 6 }]}
+                  defaultValue={String(tag.essen?.text ?? '')}
+                  placeholder="Was gibt es?"
+                  placeholderTextColor={colors.inkFaint}
+                  onEndEditing={(event) => {
+                    const text = event.nativeEvent.text.trim();
+                    if (tag.essen) update('meals', tag.essen.id, { text });
+                    else if (text) add('meals', { text, day: tag.name });
+                  }}
+                />
+              </View>
 
-              {tag.aemtli.map((chore: FamilyItem) => (
+              {aemtli.map((chore: FamilyItem) => (
                 <View key={chore.id} style={styles.weekRowItem}>
                   <Ionicons name="repeat-outline" size={15} color={colors.inkSoft} />
                   <Text style={[styles.checkText, { flex: 1 }]}>
                     {chore.text}
                     {chore.member ? ` – ${chore.member}` : ''}
                   </Text>
+                  {/* Zuteilen ohne Umweg: ein Tipp gibt es dem Nächsten. */}
+                  <Pressable
+                    onPress={() =>
+                      update('chores', chore.id, {
+                        member: rotateMember(
+                          members.map((m) => m.name),
+                          chore.member
+                        ),
+                      })
+                    }
+                    hitSlop={6}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${chore.text} jemand anderem geben`}
+                  >
+                    <Ionicons name="person-outline" size={15} color={colors.inkSoft} />
+                  </Pressable>
                 </View>
               ))}
 
-              {tag.aufgaben.map((task: FamilyItem) => (
+              {aufgaben.map((task: FamilyItem) => (
                 <View key={task.id} style={styles.weekRowItem}>
                   <Ionicons name="checkbox-outline" size={15} color={colors.inkSoft} />
                   <Text style={[styles.checkText, { flex: 1 }]}>
                     {task.text}
                     {task.member ? ` – ${task.member}` : ''}
                   </Text>
+                  <Pressable
+                    onPress={() => verschiebe('tasks', task, -1)}
+                    hitSlop={6}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${task.text} einen Tag früher`}
+                  >
+                    <Ionicons name="chevron-back" size={15} color={colors.inkSoft} />
+                  </Pressable>
+                  <Pressable
+                    onPress={() => verschiebe('tasks', task, 1)}
+                    hitSlop={6}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${task.text} einen Tag später`}
+                  >
+                    <Ionicons name="chevron-forward" size={15} color={colors.inkSoft} />
+                  </Pressable>
                 </View>
               ))}
 
