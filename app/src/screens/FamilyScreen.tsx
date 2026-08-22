@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Linking, Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { Linking, Modal, Pressable, ScrollView, Share, Text, TextInput, View } from 'react-native';
 
 import { HubFehler, hubClient } from '../api/client';
 import { Card } from '../components/Card';
@@ -10,6 +10,35 @@ import { useColors } from '../theme';
 import { RecipeBook } from './RecipeBook';
 import { wochentagDatumKurz, wochentagUhr } from '../lib/format';
 import { Shop, ingredientsToShopping, shopCategory } from '../lib/einkauf';
+import {
+  ABEND_FELDER,
+  BABYSITTER_FEATURES,
+  BABYSITTER_USER,
+  KALENDER_FARBEN,
+  NOTRUFE,
+  ROLLEN,
+  NOTFALL_FELDER,
+  babysitterZugang,
+  fuerBabysitter,
+  geprueftVor,
+  gabenVon,
+  genommenMap,
+  hakeGabe,
+  isoTag,
+  kurzDatum,
+  kurFertig,
+  medZeile,
+  mitRolle,
+  montagVon,
+  notfallText,
+  notfallUeberfaellig,
+  notfallZeilen,
+  nummernVon,
+  offeneGaben,
+  plusWochen,
+  rollenVon,
+  waehlbar,
+} from '../lib/familie';
 import { tapped } from '../lib/haptics';
 import { kochVorschlaege, vorschlagsGrund, wuerfel } from '../lib/vorschlag';
 import { ROLE_LABELS } from './UsersScreen';
@@ -46,6 +75,25 @@ export function FamilyScreen({
   const [reorderOpen, setReorderOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [calMode, setCalMode] = useState<'list' | 'month'>('list');
+  // Kontakte: nach Rolle filtern und einzelne bearbeiten.
+  const [kontaktRolle, setKontaktRolle] = useState<string>('alle');
+  const [kontaktBearbeitet, setKontaktBearbeitet] = useState<string | null>(null);
+  // Notfallblatt: welcher Eintrag gerade ausgefüllt wird.
+  const [notfallOffen, setNotfallOffen] = useState<string | null>(null);
+  // Medikamente: welcher Verlauf gerade aufgeklappt ist.
+  const [medVerlauf, setMedVerlauf] = useState<string | null>(null);
+  // Wochenplan: welche Woche, und wessen Zeilen.
+  const [wochenVersatz, setWochenVersatz] = useState(0);
+  const [wochenPerson, setWochenPerson] = useState('Alle');
+  // Kalender: die Termine des gezeigten Monats (die Entität trägt nur
+  // die nächsten zwölf), plus der Termin, den man gerade angetippt hat.
+  const [monatEvents, setMonatEvents] = useState<FamilyItem[] | null>(null);
+  const [monatLaedt, setMonatLaedt] = useState(false);
+  const [letzterMonat, setLetzterMonat] = useState('');
+  const [terminOffen, setTerminOffen] = useState<FamilyItem | null>(null);
+  // Babysitter-Zugang: der Gastbenutzer und sein frisches Token.
+  const [babysitterUser, setBabysitterUser] = useState<FamilyItem | null>(null);
+  const [babysitterToken, setBabysitterToken] = useState<string | null>(null);
   // Vom Essensplaner direkt ins Rezept springen (Punkt 146).
   const [rezeptStart, setRezeptStart] = useState<string | null>(null);
   // «Was koche ich heute?» im Planer (Punkt 139): Die Saat hält die
@@ -74,6 +122,32 @@ export function FamilyScreen({
   }, [hub]);
 
   useEffect(load, [load]);
+
+  /**
+   * Die Termine eines Monats holen.
+   *
+   * Der Zustand der Kalender-Entität trägt die nächsten zwölf Termine -
+   * für die Kachel richtig, fürs Monatsraster zu wenig. Wer einen Monat
+   * zurückblätterte, sah ein leeres Raster und musste glauben, es sei
+   * nichts gewesen.
+   */
+  const ladeMonat = useCallback(
+    (monat: string) => {
+      if (!monat) return;
+      setLetzterMonat(monat);
+      setMonatLaedt(true);
+      hub
+        .get<{ events: FamilyItem[] }>(`/api/calendar/events?month=${monat}`, {
+          still: true,
+        })
+        .then((payload) => setMonatEvents(payload.events ?? []))
+        // Ohne Kalender-Anbindung gibt es hier nichts zu holen - dann
+        // bleibt das Raster bei dem, was die Entität hergibt.
+        .catch(() => setMonatEvents(null))
+        .finally(() => setMonatLaedt(false));
+    },
+    [hub]
+  );
 
   // Änderungen anderer Geräte kommen als Fingerzeig über den WebSocket –
   // was Livia abhakt, steht bei Stefan sofort, ohne Minutentakt-Abfrage.
@@ -181,12 +255,99 @@ export function FamilyScreen({
     return tracker.state.state === 'on' ? 'home' : 'away';
   };
 
+  // ── Babysitter-Zugang ──────────────────────────────────────────────────
+  // Nur Eltern dürfen das: Die Benutzerverwaltung prüft es ohnehin, aber
+  // einen Knopf hinzustellen, der «keine Berechtigung» antwortet, ist
+  // keine Bedienung.
+  const darfBenutzer =
+    currentUser?.role === 'besitzer' || currentUser?.role === 'bewohner';
+  const babysitterAktiv = !!babysitterUser?.enabled;
+
+  const ladeBabysitter = useCallback(() => {
+    if (!darfBenutzer) return;
+    hub
+      .get<FamilyItem[]>('/api/users', { still: true })
+      .then((liste) =>
+        setBabysitterUser(
+          (Array.isArray(liste) ? liste : []).find(
+            (user) => user.name === BABYSITTER_USER
+          ) ?? null
+        )
+      )
+      .catch(() => setBabysitterUser(null));
+  }, [hub, darfBenutzer]);
+
+  useEffect(() => {
+    if (view === 'babysitter') ladeBabysitter();
+  }, [view, ladeBabysitter]);
+
+  const oeffneBabysitter = async (bis: string) => {
+    const zugang = babysitterZugang(new Date(), bis);
+    try {
+      if (babysitterUser) {
+        await hub.put(
+          `/api/users/${encodeURIComponent(BABYSITTER_USER)}`,
+          { enabled: true, features: BABYSITTER_FEATURES, ...zugang },
+          { still: true }
+        );
+      } else {
+        const antwort = await hub.post<{ user?: FamilyItem; token?: string }>(
+          '/api/users',
+          {
+            name: BABYSITTER_USER,
+            role: 'gast',
+            features: BABYSITTER_FEATURES,
+            ...zugang,
+          },
+          { still: true }
+        );
+        // Das Token gibt es genau einmal – beim Anlegen. Danach steht es
+        // nirgends mehr, und das ist so gewollt.
+        setBabysitterToken(antwort?.token ?? antwort?.user?.token ?? null);
+      }
+      ladeBabysitter();
+    } catch (err) {
+      setError(
+        `Zugang nicht geöffnet (${err instanceof Error ? err.message : err})`
+      );
+    }
+  };
+
+  const schliesseBabysitter = async () => {
+    try {
+      await hub.put(
+        `/api/users/${encodeURIComponent(BABYSITTER_USER)}`,
+        { enabled: false },
+        { still: true }
+      );
+      setBabysitterToken(null);
+      ladeBabysitter();
+    } catch (err) {
+      setError(
+        `Zugang nicht geschlossen (${err instanceof Error ? err.message : err})`
+      );
+    }
+  };
+
   const goBack = () => setView(null);
 
   // ── Die einzelnen Modul-Ansichten ──────────────────────────────────────
 
   if (view === 'kalender') {
     const upcoming = events.slice(0, 10);
+    // Im Monatsraster die Termine des gezeigten Monats, in der Liste die
+    // anstehenden aus dem Zustand der Entität.
+    const rasterEvents = monatEvents ?? events;
+    // Mehrere Kalender: Ohne Unterscheidung sieht man nicht, wessen
+    // Termin es ist. Die Reihenfolge der Kalender ist die Farbe.
+    const kalenderListe: string[] = Array.isArray(calendar?.state.calendars)
+      ? calendar!.state.calendars.map(String)
+      : [];
+    const farbeVon = (event: FamilyItem) => {
+      const index = kalenderListe.indexOf(String(event.calendar ?? ''));
+      return index < 0 ? colors.accent : KALENDER_FARBEN[index % KALENDER_FARBEN.length];
+    };
+
     return (
       <View style={styles.stack}>
         <BackHead title="Kalender" onBack={goBack} styles={styles} colors={colors} />
@@ -210,29 +371,80 @@ export function FamilyScreen({
             </Pressable>
           ))}
         </View>
+
         {calMode === 'month' ? (
-          <MonthCalendar events={events} styles={styles} colors={colors} />
+          <MonthCalendar
+            events={rasterEvents}
+            laedt={monatLaedt}
+            onMonat={ladeMonat}
+            onEvent={(event) => setTerminOffen(event)}
+            styles={styles}
+            colors={colors}
+          />
         ) : (
-        <Card style={styles.listCard}>
-          {upcoming.length > 0 ? (
-            upcoming.map((event, index) => (
-              <View key={index} style={styles.eventRow}>
-                <View style={styles.eventDot} />
-                <Text style={[styles.checkText, { flex: 1 }]} numberOfLines={1}>
-                  {event.summary ?? '—'}
-                </Text>
-                <Text style={styles.checkSub}>{eventWhen(event)}</Text>
-              </View>
-            ))
-          ) : (
-            <Text style={styles.hint}>
-              {calendar
-                ? 'Keine anstehenden Termine.'
-                : 'Google Kalender in der config.yaml einbinden, dann stehen hier die echten Termine.'}
-            </Text>
-          )}
-        </Card>
+          <Card style={styles.listCard}>
+            {upcoming.length > 0 ? (
+              upcoming.map((event, index) => (
+                <Pressable
+                  key={index}
+                  onPress={() => (event.birthday ? undefined : setTerminOffen(event))}
+                  disabled={!!event.birthday}
+                  style={styles.eventRow}
+                >
+                  <View style={[styles.eventDot, { backgroundColor: farbeVon(event) }]} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.checkText} numberOfLines={1}>
+                      {event.summary ?? '—'}
+                    </Text>
+                    {event.location ? (
+                      <Pressable
+                        onPress={() =>
+                          Linking.openURL(
+                            `https://maps.google.com/?q=${encodeURIComponent(
+                              String(event.location)
+                            )}`
+                          )
+                        }
+                        accessibilityRole="link"
+                        accessibilityLabel={`Karte für ${event.location}`}
+                      >
+                        <Text style={[styles.checkSub, { color: colors.accent }]}>
+                          {event.location}
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                  <Text style={styles.checkSub}>{eventWhen(event)}</Text>
+                </Pressable>
+              ))
+            ) : (
+              <Text style={styles.hint}>
+                {calendar
+                  ? 'Keine anstehenden Termine.'
+                  : 'Google Kalender in der config.yaml einbinden, dann stehen hier die echten Termine.'}
+              </Text>
+            )}
+          </Card>
         )}
+
+        {kalenderListe.length > 1 ? (
+          <View style={styles.chipRow}>
+            {kalenderListe.map((id, index) => (
+              <View key={id} style={styles.chip}>
+                <View
+                  style={[
+                    styles.eventDot,
+                    { backgroundColor: KALENDER_FARBEN[index % KALENDER_FARBEN.length] },
+                  ]}
+                />
+                <Text style={styles.chipText} numberOfLines={1}>
+                  {id === 'primary' ? 'Hauptkalender' : id.split('@')[0]}
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
         {calendar && calendar.commands.includes('create_event') ? (
           <EventForm
             onAdd={async (summary, date, time) => {
@@ -242,6 +454,7 @@ export function FamilyScreen({
                   { command: 'create_event', data: { summary, date, time } },
                   { still: true }
                 );
+                if (calMode === 'month') ladeMonat(letzterMonat);
               } catch (err) {
                 setError(
                   `Termin nicht angelegt (${err instanceof Error ? err.message : err})`
@@ -252,6 +465,67 @@ export function FamilyScreen({
             colors={colors}
           />
         ) : null}
+
+        {/* Ändern und Löschen gab es bisher gar nicht – anlegen schon.
+            Ein Kalender, aus dem man nichts wieder herausbekommt, ist
+            eine Sackgasse. */}
+        <Modal
+          visible={!!terminOffen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setTerminOffen(null)}
+        >
+          <Pressable style={styles.modalBack} onPress={() => setTerminOffen(null)}>
+            <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
+              <Text style={styles.groupTitle}>{terminOffen?.summary}</Text>
+              <Text style={styles.checkSub}>
+                {terminOffen ? eventWhen(terminOffen) : ''}
+                {terminOffen?.location ? ` · ${terminOffen.location}` : ''}
+              </Text>
+              {calendar && calendar.commands.includes('delete_event') ? (
+                <Pressable
+                  onPress={async () => {
+                    const ziel = terminOffen;
+                    setTerminOffen(null);
+                    if (!ziel) return;
+                    try {
+                      await hub.post(
+                        `/api/entities/${encodeURIComponent(calendar.id)}/command`,
+                        {
+                          command: 'delete_event',
+                          data: { id: ziel.id, calendar: ziel.calendar },
+                        },
+                        { still: true }
+                      );
+                      if (calMode === 'month') ladeMonat(letzterMonat);
+                    } catch (err) {
+                      setError(
+                        `Termin nicht gelöscht (${err instanceof Error ? err.message : err})`
+                      );
+                    }
+                  }}
+                  accessibilityRole="button"
+                  style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.8 }]}
+                >
+                  <Ionicons name="trash-outline" size={16} color={colors.danger} />
+                  <Text style={[styles.addRowText, { color: colors.danger }]}>
+                    Termin löschen
+                  </Text>
+                </Pressable>
+              ) : null}
+              <Pressable
+                onPress={() => setTerminOffen(null)}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.8 }]}
+              >
+                <Ionicons name="close" size={16} color={colors.inkSoft} />
+                <Text style={[styles.addRowText, { color: colors.inkSoft }]}>
+                  Schliessen
+                </Text>
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        </Modal>
       </View>
     );
   }
@@ -982,20 +1256,234 @@ export function FamilyScreen({
 
   if (view === 'babysitter') {
     const notfaelle: FamilyItem[] = data.emergency ?? [];
-    const kontakte: FamilyItem[] = data.contacts ?? [];
+    // Nur die Nummern, die hierher gehören: Notfall, Arzt, Schule. Wer
+    // keine Rollen vergeben hat, bekommt weiterhin alle – eine leere
+    // Nummernliste ist auf dieser Seite der schlechtestmögliche Ausgang.
+    const kontakte = fuerBabysitter(data.contacts ?? []);
+    const eltern = (data.contacts ?? []).filter((contact: FamilyItem) =>
+      rollenVon(contact).includes('notfall')
+    );
     const routinen: FamilyItem[] = data.routines ?? [];
-    const heuteMeds = (data.medications ?? []).filter((med: FamilyItem) => !med.done);
     const heute = isoInDays(0);
+    const heuteMeds = (data.medications ?? []).filter(
+      (med: FamilyItem) => !kurFertig(med)
+    );
+    const abend: FamilyItem = (data.babysitter ?? [])[0] ?? {};
+
+    /** Die ganze Seite als Text – zum Weitergeben an jemanden ohne App. */
+    const alsText = () => {
+      const zeilen: string[] = ['FÜR DEN BABYSITTER', ''];
+      for (const feld of ABEND_FELDER) {
+        const wert = String(abend[feld.key] ?? '').trim();
+        if (wert) zeilen.push(`${feld.label}: ${wert}`);
+      }
+      if (zeilen.length > 2) zeilen.push('');
+      if (kontakte.length > 0) {
+        zeilen.push('NUMMERN');
+        for (const kontakt of kontakte) {
+          const nummern = nummernVon(kontakt)
+            .map((eintrag) => eintrag.nummer)
+            .join(' / ');
+          zeilen.push(`  ${kontakt.text}: ${nummern || '—'}`);
+        }
+        zeilen.push('');
+      }
+      if (heuteMeds.length > 0) {
+        zeilen.push('HEUTE EINZUNEHMEN');
+        for (const med of heuteMeds) {
+          zeilen.push(`  ${med.text} – ${medZeile(med, heute)}`);
+        }
+        zeilen.push('');
+      }
+      zeilen.push(notfallText(notfaelle));
+      return zeilen.join('\n');
+    };
 
     return (
       <View style={styles.stack}>
         <BackHead title="Babysitter" onBack={goBack} styles={styles} colors={colors} />
+
+        {/* Das Wichtigste zuerst und gross: Wer im Zweifel anzurufen ist.
+            In der Nummernliste zu suchen, während etwas los ist, ist
+            genau das, was man nicht können soll. */}
+        {eltern.length > 0 ? (
+          <View style={{ gap: 8 }}>
+            {eltern.slice(0, 2).map((kontakt: FamilyItem) => (
+              <Pressable
+                key={kontakt.id}
+                onPress={() =>
+                  Linking.openURL(`tel:${waehlbar(nummernVon(kontakt)[0]?.nummer)}`)
+                }
+                accessibilityRole="button"
+                accessibilityLabel={`${kontakt.text} anrufen`}
+                style={({ pressed }) => [styles.notrufButton, pressed && { opacity: 0.85 }]}
+              >
+                <Ionicons name="call" size={22} color="#FFFFFF" />
+                <Text style={styles.notrufButtonText}>{kontakt.text} anrufen</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+
+        {/* Vom Merkblatt zum Zugang: Bisher war das hier eine Seite, die
+            nur sieht, wer ohnehin schon in der App ist. Der Babysitter
+            hat sie also gar nie zu Gesicht bekommen. Der Zugang benutzt,
+            was es für Gäste längst gibt - Ablaufdatum und Zeitfenster -,
+            und gibt nur Licht und Familie frei: keine Türen, kein Alarm,
+            keine Kameras. Was man nicht freigibt, muss man später nicht
+            bereuen. */}
+        {darfBenutzer ? (
+          <Card style={styles.listCard}>
+            <View style={styles.checkRow}>
+              <Ionicons
+                name={babysitterAktiv ? 'lock-open-outline' : 'lock-closed-outline'}
+                size={20}
+                color={babysitterAktiv ? colors.on : colors.inkSoft}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.checkText}>Zugang für heute Abend</Text>
+                <Text style={styles.checkSub}>
+                  {babysitterAktiv
+                    ? `Offen bis ${babysitterUser?.hours?.to ?? '?'} Uhr – Licht und diese Seite`
+                    : 'Geschlossen. Öffnen legt einen Gastzugang an, der von selbst endet.'}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.chipRow}>
+              {['21:00', '22:00', '23:00', '00:30'].map((bis) => (
+                <Pressable
+                  key={bis}
+                  onPress={() => oeffneBabysitter(bis)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Zugang bis ${bis} öffnen`}
+                  style={styles.chip}
+                >
+                  <Text style={styles.chipText}>bis {bis}</Text>
+                </Pressable>
+              ))}
+              {babysitterAktiv ? (
+                <Pressable
+                  onPress={schliesseBabysitter}
+                  accessibilityRole="button"
+                  style={[styles.chip, { borderColor: colors.danger }]}
+                >
+                  <Text style={[styles.chipText, { color: colors.danger }]}>
+                    Jetzt schliessen
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+            {babysitterToken ? (
+              <Text style={styles.checkSub} selectable>
+                Anmeldung: Benutzer «{BABYSITTER_USER}», Token {babysitterToken}
+              </Text>
+            ) : null}
+          </Card>
+        ) : null}
+
         <Text style={styles.hint}>
-          Eine Seite zum Hinlegen oder Zeigen: Notfallblatt, wichtige
-          Nummern, die Abendroutine und was heute noch einzunehmen ist.
-          Zusammengetragen aus den anderen Modulen – hier gibt es nichts
-          zusätzlich zu pflegen.
+          Eine Seite zum Hinlegen oder Zeigen: was heute Abend gilt,
+          wichtige Nummern, was einzunehmen ist und das Notfallblatt. Bis
+          auf «Heute Abend» ist alles aus den anderen Modulen
+          zusammengetragen – hier gibt es nichts doppelt zu pflegen.
         </Text>
+
+        <Pressable
+          onPress={() => Share.share({ message: alsText() }).catch(() => {})}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.75 }]}
+        >
+          <Ionicons name="share-outline" size={16} color={colors.accent} />
+          <Text style={styles.addRowText}>Als Nachricht weitergeben</Text>
+        </Pressable>
+
+        {/* Die einzigen Angaben, die es sonst nirgends gibt – und genau
+            die Fragen, die am Türrahmen kommen. */}
+        <Text style={styles.groupLabel}>Heute Abend</Text>
+        <Card style={styles.listCard}>
+          {ABEND_FELDER.map((feld) => (
+            <View key={feld.key} style={{ gap: 4 }}>
+              <Text style={styles.formHintSmall}>{feld.label}</Text>
+              <TextInput
+                style={styles.input}
+                defaultValue={String(abend[feld.key] ?? '')}
+                placeholder={feld.placeholder}
+                placeholderTextColor={colors.inkFaint}
+                onEndEditing={(event) => {
+                  const wert = event.nativeEvent.text.trim();
+                  if (abend.id) update('babysitter', abend.id, { [feld.key]: wert });
+                  else add('babysitter', { text: 'Heute Abend', [feld.key]: wert });
+                }}
+              />
+            </View>
+          ))}
+        </Card>
+
+        {kontakte.length > 0 ? (
+          <>
+            <Text style={styles.groupLabel}>Nummern</Text>
+            <Card style={styles.listCard}>
+              {kontakte.map((kontakt: FamilyItem) => {
+                const nummern = nummernVon(kontakt);
+                return (
+                  <View key={kontakt.id} style={styles.checkRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.checkText}>{kontakt.text}</Text>
+                      {nummern.map((eintrag) => (
+                        <Text key={eintrag.nummer} style={styles.checkSub} selectable>
+                          {eintrag.nummer}
+                        </Text>
+                      ))}
+                      {nummern.length === 0 ? (
+                        <Text style={styles.checkSub}>keine Nummer hinterlegt</Text>
+                      ) : null}
+                    </View>
+                    {nummern.length > 0 ? (
+                      <Pressable
+                        onPress={() =>
+                          Linking.openURL(`tel:${waehlbar(nummern[0].nummer)}`)
+                        }
+                        style={styles.callButton}
+                        accessibilityLabel={`${kontakt.text} anrufen`}
+                      >
+                        <Ionicons name="call" size={16} color="#FFFFFF" />
+                      </Pressable>
+                    ) : null}
+                  </View>
+                );
+              })}
+            </Card>
+          </>
+        ) : null}
+
+        {heuteMeds.length > 0 ? (
+          <>
+            <Text style={styles.groupLabel}>Heute noch einzunehmen</Text>
+            <Card style={styles.listCard}>
+              {heuteMeds.map((med: FamilyItem) => {
+                const offen = gabenVon(med).filter(
+                  (gabe) => !(genommenMap(med)[heute] ?? []).includes(gabe)
+                );
+                return (
+                  <View key={med.id} style={styles.checkRow}>
+                    <Ionicons
+                      name={offen.length === 0 ? 'checkmark-circle' : 'ellipse-outline'}
+                      size={22}
+                      color={offen.length === 0 ? colors.on : colors.warn}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.checkText}>{med.text}</Text>
+                      <Text style={styles.checkSub}>{medZeile(med, heute)}</Text>
+                      {med.reason ? (
+                        <Text style={styles.checkSub}>{med.reason}</Text>
+                      ) : null}
+                    </View>
+                  </View>
+                );
+              })}
+            </Card>
+          </>
+        ) : null}
 
         {notfaelle.length > 0 ? (
           <>
@@ -1003,6 +1491,11 @@ export function FamilyScreen({
             {notfaelle.map((eintrag: FamilyItem) => (
               <Card key={eintrag.id} style={styles.pinCard}>
                 <Text style={styles.checkText}>{eintrag.text}</Text>
+                {notfallZeilen(eintrag).map((zeile) => (
+                  <Text key={zeile.label} style={styles.checkSub} selectable>
+                    {zeile.label}: {zeile.wert}
+                  </Text>
+                ))}
                 {eintrag.body ? (
                   <Text style={styles.checkSub} selectable>
                     {eintrag.body}
@@ -1013,69 +1506,22 @@ export function FamilyScreen({
           </>
         ) : null}
 
-        {kontakte.length > 0 ? (
-          <>
-            <Text style={styles.groupLabel}>Nummern</Text>
-            <Card style={styles.listCard}>
-              {kontakte.map((kontakt: FamilyItem) => (
-                <View key={kontakt.id} style={styles.checkRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.checkText}>{kontakt.text}</Text>
-                    {kontakt.body ? (
-                      <Text style={styles.checkSub} selectable>
-                        {kontakt.body}
-                      </Text>
-                    ) : null}
-                  </View>
-                  {kontakt.body ? (
-                    <Pressable
-                      onPress={() =>
-                        Linking.openURL(`tel:${String(kontakt.body).replace(/[^+\d]/g, '')}`)
-                      }
-                      style={styles.callButton}
-                      accessibilityLabel={`${kontakt.text} anrufen`}
-                    >
-                      <Ionicons name="call" size={16} color="#FFFFFF" />
-                    </Pressable>
-                  ) : null}
-                </View>
-              ))}
-            </Card>
-          </>
-        ) : null}
-
-        {heuteMeds.length > 0 ? (
-          <>
-            <Text style={styles.groupLabel}>Heute noch einzunehmen</Text>
-            <Card style={styles.listCard}>
-              {heuteMeds.map((med: FamilyItem) => {
-                const genommen: string[] = Array.isArray(med.taken) ? med.taken : [];
-                return (
-                  <View key={med.id} style={styles.checkRow}>
-                    <Ionicons
-                      name={
-                        genommen.includes(heute) ? 'checkmark-circle' : 'ellipse-outline'
-                      }
-                      size={22}
-                      color={genommen.includes(heute) ? colors.on : colors.warn}
-                    />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.checkText}>{med.text}</Text>
-                      <Text style={styles.checkSub}>
-                        {[
-                          med.member ? `für ${med.member}` : null,
-                          genommen.includes(heute) ? 'heute schon gegeben' : 'heute offen',
-                        ]
-                          .filter(Boolean)
-                          .join(' · ')}
-                      </Text>
-                    </View>
-                  </View>
-                );
-              })}
-            </Card>
-          </>
-        ) : null}
+        <Text style={styles.groupLabel}>Notruf</Text>
+        <Card style={styles.listCard}>
+          {NOTRUFE.map((notruf) => (
+            <Pressable
+              key={notruf.nummer}
+              onPress={() => Linking.openURL(`tel:${waehlbar(notruf.nummer)}`)}
+              accessibilityRole="button"
+              accessibilityLabel={`${notruf.label} ${notruf.nummer} anrufen`}
+              style={styles.checkRow}
+            >
+              <Ionicons name="call-outline" size={18} color={colors.danger} />
+              <Text style={[styles.checkText, { flex: 1 }]}>{notruf.label}</Text>
+              <Text style={styles.contactName}>{notruf.nummer}</Text>
+            </Pressable>
+          ))}
+        </Card>
 
         {routinen.length > 0 ? (
           <>
@@ -1094,46 +1540,29 @@ export function FamilyScreen({
             </Card>
           </>
         ) : null}
-
-        {notfaelle.length === 0 && kontakte.length === 0 && routinen.length === 0 ? (
-          <Text style={styles.hint}>
-            Noch nichts zusammenzutragen. Füll das Notfallblatt, die Kontakte
-            und die Routinen – diese Seite baut sich daraus von selbst.
-          </Text>
-        ) : null}
       </View>
     );
   }
 
   if (view === 'woche') {
-    // Montag dieser Woche als Ausgangspunkt: In der Schweiz beginnt die
-    // Woche am Montag, und der Essensplan ist ohnehin so aufgebaut.
-    const montag = new Date(today);
-    montag.setHours(0, 0, 0, 0);
-    montag.setDate(montag.getDate() - ((montag.getDay() + 6) % 7));
+    // Montag der angezeigten Woche. Blättern ist der Unterschied zwischen
+    // Nachschlagen und Planen: Am Sonntagabend plant man die kommende
+    // Woche, nicht die laufende.
+    const montag = plusWochen(montagVon(today), wochenVersatz);
+    const heuteIso = isoTag(today);
 
     const tage = WEEK_DAYS.map((name, index) => {
       const datum = new Date(montag);
       datum.setDate(montag.getDate() + index);
-      const iso = `${datum.getFullYear()}-${String(datum.getMonth() + 1).padStart(2, '0')}-${String(
-        datum.getDate()
-      ).padStart(2, '0')}`;
+      const iso = isoTag(datum);
       return {
         name,
         datum,
         iso,
-        heute:
-          datum.getFullYear() === today.getFullYear() &&
-          datum.getMonth() === today.getMonth() &&
-          datum.getDate() === today.getDate(),
-        termine: events.filter((event: FamilyItem) => {
-          const start = new Date(event.start);
-          return (
-            start.getFullYear() === datum.getFullYear() &&
-            start.getMonth() === datum.getMonth() &&
-            start.getDate() === datum.getDate()
-          );
-        }),
+        heute: iso === heuteIso,
+        termine: events.filter(
+          (event: FamilyItem) => isoTag(new Date(event.start)) === iso
+        ),
         essen: (data.meals ?? []).find((meal: FamilyItem) => meal.day === name),
         aemtli: (data.chores ?? []).filter(
           (chore: FamilyItem) => String(chore.due ?? '').slice(0, 10) === iso
@@ -1141,23 +1570,92 @@ export function FamilyScreen({
         aufgaben: (data.tasks ?? []).filter(
           (task: FamilyItem) => !task.done && String(task.due ?? '').slice(0, 10) === iso
         ),
+        geburtstage: (data.contacts ?? []).filter(
+          (contact: FamilyItem) =>
+            daysUntilBirthday(contact.birthday) ===
+            Math.round((datum.getTime() - new Date(heuteIso).getTime()) / 86_400_000)
+        ),
       };
     });
+
+    /** Eine Aufgabe oder ein Ämtli auf einen anderen Tag schieben. */
+    const verschiebe = (liste: 'tasks' | 'chores', eintrag: FamilyItem, tage_: number) => {
+      const alt = new Date(`${String(eintrag.due ?? heuteIso).slice(0, 10)}T00:00:00`);
+      alt.setDate(alt.getDate() + tage_);
+      update(liste, eintrag.id, { due: isoTag(alt) });
+    };
 
     return (
       <View style={styles.stack}>
         <BackHead title="Wochenplan" onBack={goBack} styles={styles} colors={colors} />
+
+        <View style={styles.weekNav}>
+          <Pressable
+            onPress={() => setWochenVersatz(wochenVersatz - 1)}
+            hitSlop={8}
+            accessibilityLabel="Vorherige Woche"
+          >
+            <Ionicons name="chevron-back" size={22} color={colors.ink} />
+          </Pressable>
+          <Pressable onPress={() => setWochenVersatz(0)} accessibilityRole="button">
+            <Text style={styles.calTitle}>
+              {wochenVersatz === 0
+                ? 'Diese Woche'
+                : `${kurzDatum(montag)} – ${kurzDatum(tage[6].datum)}`}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setWochenVersatz(wochenVersatz + 1)}
+            hitSlop={8}
+            accessibilityLabel="Nächste Woche"
+          >
+            <Ionicons name="chevron-forward" size={22} color={colors.ink} />
+          </Pressable>
+        </View>
+
+        {/* Bei vier Personen ist «wer hat wann was» die eigentliche Frage –
+            und die beantwortet eine Liste je Tag nicht. */}
+        <View style={styles.chipRow}>
+          {[{ name: 'Alle' }, ...members].map((m) => {
+            const aktiv = wochenPerson === m.name;
+            return (
+              <Pressable
+                key={m.name}
+                onPress={() => setWochenPerson(aktiv ? 'Alle' : m.name)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: aktiv }}
+                style={[styles.chip, aktiv && styles.chipActive]}
+              >
+                <Text style={[styles.chipText, aktiv && styles.chipTextActive]}>
+                  {m.name}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
         <Text style={styles.hint}>
-          Sonntagabend eine Seite statt vier Module: was ansteht, was es zu
-          essen gibt, wer welches Ämtli hat. Ändern lässt sich alles dort,
-          wo es hingehört – hier wird nur gezeigt.
+          Sonntagabend eine Seite statt vier Module. Essen und Zuteilungen
+          lassen sich hier direkt ändern – wer planen will, soll nicht
+          zwischen vier Modulen hin und her springen.
         </Text>
+
         {tage.map((tag) => {
+          const aemtli =
+            wochenPerson === 'Alle'
+              ? tag.aemtli
+              : tag.aemtli.filter((chore: FamilyItem) => chore.member === wochenPerson);
+          const aufgaben =
+            wochenPerson === 'Alle'
+              ? tag.aufgaben
+              : tag.aufgaben.filter((task: FamilyItem) => task.member === wochenPerson);
           const leer =
             tag.termine.length === 0 &&
             !tag.essen?.text &&
-            tag.aemtli.length === 0 &&
-            tag.aufgaben.length === 0;
+            aemtli.length === 0 &&
+            aufgaben.length === 0 &&
+            tag.geburtstage.length === 0;
+
           return (
             <Card
               key={tag.name}
@@ -1171,10 +1669,19 @@ export function FamilyScreen({
                   {tag.name}
                 </Text>
                 <Text style={styles.checkSub}>
-                  {tag.datum.getDate()}.{tag.datum.getMonth() + 1}.
+                  {kurzDatum(tag.datum)}
                   {tag.heute ? ' · heute' : ''}
                 </Text>
               </View>
+
+              {tag.geburtstage.map((contact: FamilyItem) => (
+                <View key={contact.id} style={styles.weekRowItem}>
+                  <Ionicons name="gift-outline" size={15} color={colors.warn} />
+                  <Text style={[styles.checkText, { flex: 1 }]}>
+                    {contact.text} hat Geburtstag
+                  </Text>
+                </View>
+              ))}
 
               {tag.termine.map((event: FamilyItem, index: number) => (
                 <View key={`t${index}`} style={styles.weekRowItem}>
@@ -1185,30 +1692,72 @@ export function FamilyScreen({
                 </View>
               ))}
 
-              {tag.essen?.text ? (
-                <View style={styles.weekRowItem}>
-                  <Ionicons name="restaurant-outline" size={15} color={colors.inkSoft} />
-                  <Text style={[styles.checkText, { flex: 1 }]}>{tag.essen.text}</Text>
-                </View>
-              ) : null}
+              {/* Das Essen direkt hier eintragen: Sonst muss man für einen
+                  Einfall den Essensplan öffnen und wieder zurück. */}
+              <View style={styles.weekRowItem}>
+                <Ionicons name="restaurant-outline" size={15} color={colors.inkSoft} />
+                <TextInput
+                  style={[styles.input, { flex: 1, paddingVertical: 6 }]}
+                  defaultValue={String(tag.essen?.text ?? '')}
+                  placeholder="Was gibt es?"
+                  placeholderTextColor={colors.inkFaint}
+                  onEndEditing={(event) => {
+                    const text = event.nativeEvent.text.trim();
+                    if (tag.essen) update('meals', tag.essen.id, { text });
+                    else if (text) add('meals', { text, day: tag.name });
+                  }}
+                />
+              </View>
 
-              {tag.aemtli.map((chore: FamilyItem) => (
+              {aemtli.map((chore: FamilyItem) => (
                 <View key={chore.id} style={styles.weekRowItem}>
                   <Ionicons name="repeat-outline" size={15} color={colors.inkSoft} />
                   <Text style={[styles.checkText, { flex: 1 }]}>
                     {chore.text}
                     {chore.member ? ` – ${chore.member}` : ''}
                   </Text>
+                  {/* Zuteilen ohne Umweg: ein Tipp gibt es dem Nächsten. */}
+                  <Pressable
+                    onPress={() =>
+                      update('chores', chore.id, {
+                        member: rotateMember(
+                          members.map((m) => m.name),
+                          chore.member
+                        ),
+                      })
+                    }
+                    hitSlop={6}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${chore.text} jemand anderem geben`}
+                  >
+                    <Ionicons name="person-outline" size={15} color={colors.inkSoft} />
+                  </Pressable>
                 </View>
               ))}
 
-              {tag.aufgaben.map((task: FamilyItem) => (
+              {aufgaben.map((task: FamilyItem) => (
                 <View key={task.id} style={styles.weekRowItem}>
                   <Ionicons name="checkbox-outline" size={15} color={colors.inkSoft} />
                   <Text style={[styles.checkText, { flex: 1 }]}>
                     {task.text}
                     {task.member ? ` – ${task.member}` : ''}
                   </Text>
+                  <Pressable
+                    onPress={() => verschiebe('tasks', task, -1)}
+                    hitSlop={6}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${task.text} einen Tag früher`}
+                  >
+                    <Ionicons name="chevron-back" size={15} color={colors.inkSoft} />
+                  </Pressable>
+                  <Pressable
+                    onPress={() => verschiebe('tasks', task, 1)}
+                    hitSlop={6}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${task.text} einen Tag später`}
+                  >
+                    <Ionicons name="chevron-forward" size={15} color={colors.inkSoft} />
+                  </Pressable>
                 </View>
               ))}
 
@@ -1222,29 +1771,121 @@ export function FamilyScreen({
 
   if (view === 'emergency') {
     const eintraege: FamilyItem[] = data.emergency ?? [];
+    const heute = new Date();
+    // Der jüngste Prüfvermerk zählt fürs ganze Blatt: Geprüft wird es als
+    // Ganzes, nicht Person für Person.
+    const zuletzt = eintraege
+      .map((eintrag) => String(eintrag.checked ?? ''))
+      .filter(Boolean)
+      .sort()
+      .pop();
+    const ueberfaellig = eintraege.length > 0 && notfallUeberfaellig(zuletzt, heute);
+    const tage = geprueftVor(zuletzt, heute);
+
     return (
       <View style={styles.stack}>
         <BackHead title="Notfallblatt" onBack={goBack} styles={styles} colors={colors} />
         <Text style={styles.hint}>
-          Was jemand wissen muss, der im Ernstfall bei euch ist – Allergien,
-          Blutgruppe, Versichertennummer, wen man anruft. Bewusst kurz und
-          auf einer Seite: Im Notfall liest niemand einen Ordner.
+          Was jemand wissen muss, der im Ernstfall bei euch ist. Bewusst
+          kurz und auf einer Seite: Im Notfall liest niemand einen Ordner,
+          und niemand sucht – man liest der Reihe nach.
         </Text>
         <Text style={styles.formHintSmall}>
           Keine Passwörter und keine Kartennummern hier hinein – dieses Blatt
           zeigt man im Zweifel einer fremden Person.
         </Text>
-        {eintraege.map((eintrag: FamilyItem) => (
-          <Card key={eintrag.id} style={styles.pinCard}>
+
+        {/* Die Notrufnummern pflegt niemand, und im Ernstfall sucht sie
+            auch niemand. */}
+        <Text style={styles.groupLabel}>Notruf</Text>
+        <Card style={styles.listCard}>
+          {NOTRUFE.map((notruf) => (
+            <Pressable
+              key={notruf.nummer}
+              onPress={() => Linking.openURL(`tel:${waehlbar(notruf.nummer)}`)}
+              accessibilityRole="button"
+              accessibilityLabel={`${notruf.label} ${notruf.nummer} anrufen`}
+              style={styles.checkRow}
+            >
+              <Ionicons name="call-outline" size={18} color={colors.danger} />
+              <Text style={[styles.checkText, { flex: 1 }]}>{notruf.label}</Text>
+              <Text style={styles.contactName}>{notruf.nummer}</Text>
+            </Pressable>
+          ))}
+        </Card>
+
+        {eintraege.length > 0 ? (
+          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+            <Pressable
+              onPress={() =>
+                Share.share({ message: notfallText(eintraege) }).catch(() => {})
+              }
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.75 }]}
+            >
+              <Ionicons name="share-outline" size={16} color={colors.accent} />
+              <Text style={styles.addRowText}>Als eine Seite teilen</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {/* Ein Blatt von vorletztem Jahr ist gefährlicher als keines: Man
+            verlässt sich darauf, und die Nummer der Kinderärztin stimmt
+            nicht mehr. */}
+        {eintraege.length > 0 ? (
+          <Card style={styles.listCard}>
             <View style={styles.checkRow}>
+              <Ionicons
+                name={ueberfaellig ? 'alert-circle' : 'checkmark-circle'}
+                size={20}
+                color={ueberfaellig ? colors.warn : colors.on}
+              />
               <View style={{ flex: 1 }}>
-                <Text style={styles.checkText}>{eintrag.text}</Text>
-                {eintrag.body ? (
-                  <Text style={styles.checkSub} selectable>
-                    {eintrag.body}
-                  </Text>
-                ) : null}
+                <Text style={styles.checkText}>
+                  {tage === null
+                    ? 'Noch nie geprüft'
+                    : tage === 0
+                      ? 'Heute geprüft'
+                      : `Zuletzt geprüft vor ${tage} Tagen`}
+                </Text>
+                <Text style={styles.checkSub}>
+                  Stimmen Nummern, Allergien und Versicherung noch?
+                </Text>
               </View>
+              <Pressable
+                onPress={() => {
+                  const stempel = isoInDays(0);
+                  for (const eintrag of eintraege) {
+                    update('emergency', eintrag.id, { checked: stempel });
+                  }
+                }}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.chip, pressed && { opacity: 0.8 }]}
+              >
+                <Text style={styles.chipText}>Geprüft</Text>
+              </Pressable>
+            </View>
+          </Card>
+        ) : null}
+
+        {eintraege.map((eintrag: FamilyItem) => (
+          <Card key={eintrag.id} style={styles.listCard}>
+            <View style={styles.checkRow}>
+              <Text style={[styles.contactName, { flex: 1 }]}>{eintrag.text}</Text>
+              <Pressable
+                onPress={() =>
+                  setNotfallOffen(notfallOffen === eintrag.id ? null : eintrag.id)
+                }
+                hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel={`${eintrag.text} bearbeiten`}
+              >
+                <Ionicons
+                  name={notfallOffen === eintrag.id ? 'chevron-up' : 'create-outline'}
+                  size={18}
+                  color={colors.inkSoft}
+                />
+              </Pressable>
               <Pressable
                 onPress={() => remove('emergency', eintrag.id)}
                 style={styles.deleteTap}
@@ -1253,12 +1894,69 @@ export function FamilyScreen({
                 <Ionicons name="close" size={18} color={colors.inkFaint} />
               </Pressable>
             </View>
+
+            {notfallOffen === eintrag.id ? (
+              <>
+                {NOTFALL_FELDER.map((feld) => (
+                  <View key={feld.key} style={{ gap: 4 }}>
+                    <Text style={styles.formHintSmall}>{feld.label}</Text>
+                    <TextInput
+                      style={styles.input}
+                      defaultValue={String(eintrag[feld.key] ?? '')}
+                      placeholder={feld.placeholder}
+                      placeholderTextColor={colors.inkFaint}
+                      onEndEditing={(event) =>
+                        update('emergency', eintrag.id, {
+                          [feld.key]: event.nativeEvent.text.trim(),
+                        })
+                      }
+                    />
+                  </View>
+                ))}
+                <Text style={styles.formHintSmall}>Sonst noch</Text>
+                <TextInput
+                  style={[styles.input, { minHeight: 70 }]}
+                  defaultValue={String(eintrag.body ?? '')}
+                  multiline
+                  placeholder="Alles, wofür es oben kein Feld gibt"
+                  placeholderTextColor={colors.inkFaint}
+                  onEndEditing={(event) =>
+                    update('emergency', eintrag.id, {
+                      body: event.nativeEvent.text.trim(),
+                    })
+                  }
+                />
+              </>
+            ) : (
+              <>
+                {notfallZeilen(eintrag).map((zeile) => (
+                  <View key={zeile.label} style={styles.checkRow}>
+                    <Text style={styles.checkSub}>{zeile.label}</Text>
+                    <Text style={[styles.checkText, { flex: 1 }]} selectable>
+                      {zeile.wert}
+                    </Text>
+                  </View>
+                ))}
+                {eintrag.body ? (
+                  <Text style={styles.checkSub} selectable>
+                    {eintrag.body}
+                  </Text>
+                ) : null}
+                {notfallZeilen(eintrag).length === 0 && !eintrag.body ? (
+                  <Text style={styles.checkSub}>
+                    Noch nichts ausgefüllt – auf den Stift tippen.
+                  </Text>
+                ) : null}
+              </>
+            )}
           </Card>
         ))}
-        <TwoFieldForm
-          labels={['Wer/Was (z.B. Lina – Allergien)', 'Angaben']}
-          multilineSecond
-          onAdd={(text, body) => add('emergency', { text, body })}
+
+        {/* Anlegen braucht nur den Namen: Die Felder füllt man danach, und
+            ein Formular mit sieben leeren Zeilen schreckt ab. */}
+        <AddRow
+          placeholder="Für wen? (z.B. Lina)"
+          onAdd={(text) => add('emergency', { text, checked: isoInDays(0) })}
           styles={styles}
           colors={colors}
         />
@@ -1269,79 +1967,66 @@ export function FamilyScreen({
   if (view === 'medications') {
     const liste: FamilyItem[] = data.medications ?? [];
     const heute = isoInDays(0);
-
-    /** Eingenommen: Häkchen für heute, und die Kur zählt einen Tag runter. */
-    const eingenommen = (med: FamilyItem) => {
-      const genommen: string[] = Array.isArray(med.taken) ? med.taken : [];
-      if (genommen.includes(heute)) {
-        update('medications', med.id, {
-          taken: genommen.filter((tag) => tag !== heute),
-        });
-        return;
-      }
-      const neu = [...genommen, heute];
-      const tage = Number(med.days) || 0;
-      update('medications', med.id, {
-        taken: neu,
-        // Eine Kur über zehn Tage endet nach zehn Häkchen von selbst -
-        // sonst erinnert sie bis in alle Ewigkeit weiter.
-        done: tage > 0 && neu.length >= tage,
-      });
-    };
+    const stunde = new Date().getHours();
 
     return (
       <View style={styles.stack}>
         <BackHead title="Medikamente" onBack={goBack} styles={styles} colors={colors} />
         <Text style={styles.hint}>
           Für Kuren über mehrere Tage: Antibiotika, Tropfen, Salben. Ein
-          Häkchen je Tag – so sieht man am Abend, ob es schon jemand
-          gegeben hat, statt zu raten.
+          Häkchen je Gabe – so sieht man am Abend, ob es schon jemand
+          gegeben hat, statt zu raten. Was fällig wird, meldet der Hub.
         </Text>
         <Card style={styles.listCard}>
           <MedicationAddRow
             members={members}
-            onAdd={(text, member, days) =>
-              add('medications', { text, member, days, taken: [], done: false })
+            onAdd={(werte) =>
+              add('medications', {
+                text: werte.text,
+                member: werte.member,
+                days: werte.days,
+                times: werte.times,
+                ...(werte.dose ? { dose: werte.dose } : {}),
+                ...(werte.reason ? { reason: werte.reason } : {}),
+                taken: {},
+                done: false,
+              })
             }
             styles={styles}
             colors={colors}
           />
         </Card>
+
         {liste.map((med: FamilyItem) => {
-          const genommen: string[] = Array.isArray(med.taken) ? med.taken : [];
-          const heuteSchon = genommen.includes(heute);
-          const tage = Number(med.days) || 0;
+          const fertig = kurFertig(med);
+          const genommen = genommenMap(med)[heute] ?? [];
+          const faellig = offeneGaben(med, heute, stunde);
           return (
             <Card
               key={med.id}
-              style={{ ...styles.listCard, ...(med.done ? { opacity: 0.5 } : {}) }}
+              style={{ ...styles.listCard, ...(fertig ? { opacity: 0.5 } : {}) }}
             >
               <View style={styles.checkRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.checkText}>{med.text}</Text>
+                  <Text style={styles.checkSub}>{medZeile(med, heute)}</Text>
+                  {med.reason ? (
+                    <Text style={styles.checkSub}>{med.reason}</Text>
+                  ) : null}
+                </View>
                 <Pressable
-                  onPress={() => eingenommen(med)}
-                  disabled={med.done}
-                  style={styles.checkTap}
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: heuteSchon }}
-                  accessibilityLabel={`${med.text} für heute abhaken`}
+                  onPress={() =>
+                    setMedVerlauf(medVerlauf === med.id ? null : med.id)
+                  }
+                  hitSlop={6}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Verlauf von ${med.text}`}
                 >
                   <Ionicons
-                    name={heuteSchon ? 'checkmark-circle' : 'ellipse-outline'}
-                    size={24}
-                    color={heuteSchon ? colors.on : colors.inkSoft}
+                    name={medVerlauf === med.id ? 'chevron-up' : 'time-outline'}
+                    size={18}
+                    color={colors.inkSoft}
                   />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.checkText}>{med.text}</Text>
-                    <Text style={styles.checkSub}>
-                      {[
-                        med.member ? `für ${med.member}` : null,
-                        tage > 0 ? `Tag ${Math.min(genommen.length + (heuteSchon ? 0 : 1), tage)} von ${tage}` : null,
-                        med.done ? 'Kur beendet' : heuteSchon ? 'heute erledigt' : 'heute offen',
-                      ]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </Text>
-                  </View>
                 </Pressable>
                 <Pressable
                   onPress={() => remove('medications', med.id)}
@@ -1351,6 +2036,82 @@ export function FamilyScreen({
                   <Ionicons name="close" size={18} color={colors.inkFaint} />
                 </Pressable>
               </View>
+
+              {/* Ein Knopf je Gabe statt einem je Tag: Antibiotika sind
+                  meist dreimal täglich, und die Abendgabe ist die, die
+                  untergeht. Was noch nicht an der Reihe ist, bleibt blass -
+                  abhaken kann man es trotzdem, wenn es früher passt. */}
+              {!fertig ? (
+                <View style={styles.chipRow}>
+                  {gabenVon(med).map((gabe) => {
+                    const schon = genommen.includes(gabe);
+                    const jetzt = faellig.includes(gabe);
+                    return (
+                      <Pressable
+                        key={gabe}
+                        onPress={() => {
+                          const stand = hakeGabe(med, heute, gabe);
+                          update('medications', med.id, {
+                            taken: stand.taken,
+                            done: stand.done,
+                            log: [
+                              ...(Array.isArray(med.log) ? med.log : []),
+                              {
+                                day: heute,
+                                slot: gabe,
+                                by: currentUser?.name ?? '?',
+                                at: new Date().toISOString(),
+                                undo: schon,
+                              },
+                            ].slice(-60),
+                          });
+                        }}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: schon }}
+                        accessibilityLabel={`${med.text} ${gabe} abhaken`}
+                        style={[
+                          styles.chip,
+                          schon && styles.chipActive,
+                          !schon && jetzt && { borderColor: colors.warn },
+                        ]}
+                      >
+                        <Ionicons
+                          name={schon ? 'checkmark-circle' : 'ellipse-outline'}
+                          size={14}
+                          color={schon ? '#FFFFFF' : jetzt ? colors.warn : colors.inkFaint}
+                        />
+                        <Text
+                          style={[
+                            styles.chipText,
+                            schon && styles.chipTextActive,
+                            !schon && !jetzt && { color: colors.inkFaint },
+                          ]}
+                        >
+                          {gabe}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : null}
+
+              {/* «Wann von wem» – genau danach fragt der Arzt beim nächsten
+                  Termin, und genau das weiss abends niemand mehr. */}
+              {medVerlauf === med.id ? (
+                <View style={{ gap: 4 }}>
+                  {(Array.isArray(med.log) ? [...med.log].reverse() : [])
+                    .slice(0, 12)
+                    .map((eintrag: FamilyItem, index: number) => (
+                      <Text key={index} style={styles.checkSub}>
+                        {eintrag.undo ? '↩ ' : '✓ '}
+                        {eintrag.day} {eintrag.slot} – {eintrag.by}
+                      </Text>
+                    ))}
+                  {!Array.isArray(med.log) || med.log.length === 0 ? (
+                    <Text style={styles.checkSub}>Noch nichts abgehakt.</Text>
+                  ) : null}
+                </View>
+              ) : null}
             </Card>
           );
         })}
@@ -1524,6 +2285,11 @@ export function FamilyScreen({
       .map((contact) => ({ contact, days: daysUntilBirthday(contact.birthday) }))
       .filter((entry) => entry.days != null)
       .sort((a, b) => (a.days ?? 999) - (b.days ?? 999));
+    // Nach Rolle filtern. «Alle» bleibt die Vorgabe: Wer keine Rollen
+    // vergeben hat, soll seine Liste unverändert vorfinden.
+    const gezeigt =
+      kontaktRolle === 'alle' ? contacts : mitRolle(contacts, kontaktRolle);
+
     return (
       <View style={styles.stack}>
         <BackHead title="Kontakte" onBack={goBack} styles={styles} colors={colors} />
@@ -1553,62 +2319,156 @@ export function FamilyScreen({
           </>
         ) : null}
 
+        {/* Der Filter erscheint erst, wenn es etwas zu filtern gibt. */}
+        {contacts.some((contact) => rollenVon(contact).length > 0) ? (
+          <View style={styles.chipRow}>
+            {[{ key: 'alle', label: 'Alle', icon: 'apps-outline' }, ...ROLLEN].map(
+              (rolle) => {
+                const aktiv = kontaktRolle === rolle.key;
+                return (
+                  <Pressable
+                    key={rolle.key}
+                    onPress={() => setKontaktRolle(rolle.key)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: aktiv }}
+                    style={[styles.chip, aktiv && styles.chipActive]}
+                  >
+                    <Ionicons
+                      name={rolle.icon as keyof typeof Ionicons.glyphMap}
+                      size={13}
+                      color={aktiv ? '#FFFFFF' : colors.inkSoft}
+                    />
+                    <Text style={[styles.chipText, aktiv && styles.chipTextActive]}>
+                      {rolle.label}
+                    </Text>
+                  </Pressable>
+                );
+              }
+            )}
+          </View>
+        ) : null}
+
         <Text style={styles.hint}>
-          Foto antippen ändert das Bild – die ganze Karte antippen ruft an.
-          Gross und mit Foto, damit auch die Kleinsten wissen, wer wer ist.
+          Foto antippen ändert das Bild – die Karte antippen ruft an. Gross
+          und mit Foto, damit auch die Kleinsten wissen, wer wer ist.
         </Text>
-        {contacts.map((contact) => (
-          <Card key={contact.id} style={styles.contactCard}>
-            <Pressable
-              onPress={async () => {
-                const photo = await pickPhoto();
-                if (photo) update('contacts', contact.id, { photo });
+
+        {gezeigt.map((contact) =>
+          kontaktBearbeitet === contact.id ? (
+            <ContactForm
+              key={contact.id}
+              vorhanden={contact}
+              onCancel={() => setKontaktBearbeitet(null)}
+              onSave={(werte) => {
+                update('contacts', contact.id, {
+                  text: werte.text,
+                  phone: werte.phone,
+                  phone2: werte.phone2,
+                  birthday: werte.birthday,
+                  roles: werte.roles,
+                  ...(werte.photo ? { photo: werte.photo } : {}),
+                });
+                setKontaktBearbeitet(null);
               }}
-              accessibilityLabel={`Foto von ${contact.text} ändern`}
-            >
-              <ContactPhoto contact={contact} size={64} styles={styles} />
-            </Pressable>
-            <Pressable
-              style={{ flex: 1 }}
-              onPress={() => Linking.openURL(`tel:${contact.phone}`)}
-              accessibilityRole="button"
-              accessibilityLabel={`${contact.text} anrufen`}
-            >
-              <Text style={styles.contactName}>{contact.text}</Text>
-              <Text style={styles.checkSub}>{contact.phone}</Text>
-              {birthdayLabel(contact.birthday) ? (
-                <Text style={styles.checkSub}>🎂 {birthdayLabel(contact.birthday)}</Text>
-              ) : null}
-            </Pressable>
-            <Pressable
-              onPress={() => Linking.openURL(`tel:${contact.phone}`)}
-              style={styles.callButton}
-              accessibilityLabel={`${contact.text} anrufen`}
-            >
-              <Ionicons name="call" size={24} color="#FFFFFF" />
-            </Pressable>
-            <Pressable
-              onPress={() => remove('contacts', contact.id)}
-              style={styles.deleteTap}
-              accessibilityRole="button"
-              accessibilityLabel={`${contact.text} löschen`}
-            >
-              <Ionicons name="close" size={18} color={colors.inkFaint} />
-            </Pressable>
-          </Card>
-        ))}
-        <ContactForm
-          onAdd={(text, phone, photo, birthday) =>
-            add('contacts', {
-              text,
-              phone,
-              ...(photo ? { photo } : {}),
-              ...(birthday ? { birthday } : {}),
-            })
-          }
-          styles={styles}
-          colors={colors}
-        />
+              styles={styles}
+              colors={colors}
+            />
+          ) : (
+            <Card key={contact.id} style={styles.contactCard}>
+              <Pressable
+                onPress={async () => {
+                  const photo = await pickPhoto();
+                  if (photo) update('contacts', contact.id, { photo });
+                }}
+                accessibilityLabel={`Foto von ${contact.text} ändern`}
+              >
+                <ContactPhoto contact={contact} size={64} styles={styles} />
+              </Pressable>
+              <Pressable
+                style={{ flex: 1 }}
+                onPress={() =>
+                  Linking.openURL(`tel:${waehlbar(nummernVon(contact)[0]?.nummer)}`)
+                }
+                accessibilityRole="button"
+                accessibilityLabel={`${contact.text} anrufen`}
+              >
+                <Text style={styles.contactName}>{contact.text}</Text>
+                {nummernVon(contact).map((eintrag) => (
+                  <Text key={eintrag.nummer} style={styles.checkSub}>
+                    {eintrag.nummer}
+                  </Text>
+                ))}
+                {birthdayLabel(contact.birthday) ? (
+                  <Text style={styles.checkSub}>🎂 {birthdayLabel(contact.birthday)}</Text>
+                ) : null}
+              </Pressable>
+
+              <View style={{ gap: 6, alignItems: 'center' }}>
+                <Pressable
+                  onPress={() =>
+                    Linking.openURL(`tel:${waehlbar(nummernVon(contact)[0]?.nummer)}`)
+                  }
+                  style={styles.callButton}
+                  accessibilityLabel={`${contact.text} anrufen`}
+                >
+                  <Ionicons name="call" size={22} color="#FFFFFF" />
+                </Pressable>
+                {/* Nicht jede Frage ist ein Anruf wert – «kommst du später?»
+                    schreibt man. */}
+                <Pressable
+                  onPress={() =>
+                    Linking.openURL(`sms:${waehlbar(nummernVon(contact)[0]?.nummer)}`)
+                  }
+                  hitSlop={6}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${contact.text} eine Nachricht schreiben`}
+                >
+                  <Ionicons name="chatbubble-outline" size={18} color={colors.inkSoft} />
+                </Pressable>
+              </View>
+
+              <View style={{ gap: 10 }}>
+                <Pressable
+                  onPress={() => setKontaktBearbeitet(contact.id)}
+                  hitSlop={6}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${contact.text} bearbeiten`}
+                >
+                  <Ionicons name="create-outline" size={18} color={colors.inkSoft} />
+                </Pressable>
+                <Pressable
+                  onPress={() => remove('contacts', contact.id)}
+                  style={styles.deleteTap}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${contact.text} löschen`}
+                >
+                  <Ionicons name="close" size={18} color={colors.inkFaint} />
+                </Pressable>
+              </View>
+            </Card>
+          )
+        )}
+
+        {gezeigt.length === 0 && contacts.length > 0 ? (
+          <Text style={styles.hint}>In dieser Rolle ist niemand eingetragen.</Text>
+        ) : null}
+
+        {kontaktBearbeitet === null ? (
+          <ContactForm
+            onSave={(werte) =>
+              add('contacts', {
+                text: werte.text,
+                phone: werte.phone,
+                ...(werte.phone2 ? { phone2: werte.phone2 } : {}),
+                ...(werte.photo ? { photo: werte.photo } : {}),
+                ...(werte.birthday ? { birthday: werte.birthday } : {}),
+                ...(werte.roles.length > 0 ? { roles: werte.roles } : {}),
+              })
+            }
+            styles={styles}
+            colors={colors}
+          />
+        ) : null}
       </View>
     );
   }

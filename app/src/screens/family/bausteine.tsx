@@ -11,6 +11,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Entity, HubSettings } from '../../api/types';
 import { Card } from '../../components/Card';
 import { Colors } from '../../theme';
+import { GABEN, ROLLEN, rollenVon, toggleRolle } from '../../lib/familie';
 import { monatJahr, uhr } from '../../lib/format';
 import { tapped } from '../../lib/haptics';
 
@@ -518,20 +519,43 @@ export function MedicationAddRow({
   colors,
 }: {
   members: Member[];
-  onAdd: (text: string, member: string | null, days: number) => void;
+  onAdd: (werte: {
+    text: string;
+    member: string | null;
+    days: number;
+    dose: string;
+    reason: string;
+    times: string[];
+  }) => void;
   styles: Styles;
   colors: Colors;
 }) {
   const [text, setText] = useState('');
+  const [dose, setDose] = useState('');
+  const [reason, setReason] = useState('');
   const [member, setMember] = useState<string | null>(null);
   const [days, setDays] = useState(0);
+  // Vorgabe morgens: die häufigste Kur, und die kürzeste Eingabe.
+  const [times, setTimes] = useState<string[]>(['morgens']);
+
   const submit = () => {
     if (!text.trim()) return;
-    onAdd(text.trim(), member, days);
+    onAdd({
+      text: text.trim(),
+      member,
+      days,
+      dose: dose.trim(),
+      reason: reason.trim(),
+      times: times.length > 0 ? times : ['morgens'],
+    });
     setText('');
+    setDose('');
+    setReason('');
     setMember(null);
     setDays(0);
+    setTimes(['morgens']);
   };
+
   return (
     <View style={{ gap: 8 }}>
       <View style={styles.addRow}>
@@ -539,7 +563,7 @@ export function MedicationAddRow({
           style={[styles.input, { flex: 1 }]}
           value={text}
           onChangeText={setText}
-          placeholder="Was, z.B. Amoxicillin 3× täglich …"
+          placeholder="Was, z.B. Amoxicillin"
           placeholderTextColor={colors.inkFaint}
           onSubmitEditing={submit}
         />
@@ -547,6 +571,49 @@ export function MedicationAddRow({
           <Ionicons name="add" size={22} color="#FFFFFF" />
         </Pressable>
       </View>
+
+      {/* Dosis und Grund: Für den, der die Gabe übernimmt, ist «5 ml» die
+          eigentliche Auskunft – und «wegen Mittelohrentzündung» beruhigt
+          den Babysitter mehr als der Name des Präparats. */}
+      <TextInput
+        style={styles.input}
+        value={dose}
+        onChangeText={setDose}
+        placeholder="Dosis, z.B. 5 ml (freiwillig)"
+        placeholderTextColor={colors.inkFaint}
+      />
+      <TextInput
+        style={styles.input}
+        value={reason}
+        onChangeText={setReason}
+        placeholder="Wofür, z.B. Mittelohrentzündung (freiwillig)"
+        placeholderTextColor={colors.inkFaint}
+      />
+
+      <Text style={styles.formHintSmall}>Wann?</Text>
+      <View style={styles.chipRow}>
+        {GABEN.map((gabe) => {
+          const aktiv = times.includes(gabe.key);
+          return (
+            <Pressable
+              key={gabe.key}
+              onPress={() =>
+                setTimes(
+                  aktiv ? times.filter((key) => key !== gabe.key) : [...times, gabe.key]
+                )
+              }
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: aktiv }}
+              style={[styles.chip, aktiv && styles.chipActive]}
+            >
+              <Text style={[styles.chipText, aktiv && styles.chipTextActive]}>
+                {gabe.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
       <View style={styles.chipRow}>
         {members.map((m) => (
           <Pressable
@@ -904,19 +971,43 @@ export function ContactPhoto({
 }
 
 /** Kontakt anlegen: Name, Nummer und Foto. */
+/**
+ * Kontakt anlegen – und derselbe Kasten zum Ändern.
+ *
+ * Bearbeiten fehlte ganz: Bei einer neuen Nummer musste man den Kontakt
+ * löschen und alles noch einmal eintippen, Foto und Geburtstag
+ * eingeschlossen. Das ist der Grund, warum Kontaktlisten veralten – nicht
+ * Nachlässigkeit, sondern der Preis einer Korrektur.
+ */
 export function ContactForm({
-  onAdd,
+  vorhanden,
+  onSave,
+  onCancel,
   styles,
   colors,
 }: {
-  onAdd: (text: string, phone: string, photo: string | null, birthday: string) => void;
+  /** Zum Ändern: der bestehende Eintrag. Fehlt er, wird angelegt. */
+  vorhanden?: FamilyItem;
+  onSave: (werte: {
+    text: string;
+    phone: string;
+    phone2: string;
+    photo: string | null;
+    birthday: string;
+    roles: string[];
+  }) => void;
+  onCancel?: () => void;
   styles: Styles;
   colors: Colors;
 }) {
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [birthday, setBirthday] = useState('');
-  const [photo, setPhoto] = useState<string | null>(null);
+  const [name, setName] = useState(String(vorhanden?.text ?? ''));
+  const [phone, setPhone] = useState(String(vorhanden?.phone ?? ''));
+  const [phone2, setPhone2] = useState(String(vorhanden?.phone2 ?? ''));
+  const [birthday, setBirthday] = useState(String(vorhanden?.birthday ?? ''));
+  const [photo, setPhoto] = useState<string | null>(vorhanden?.photo ?? null);
+  const [roles, setRoles] = useState<string[]>(rollenVon(vorhanden ?? {}));
+  const aendern = !!vorhanden;
+
   return (
     <View style={styles.formCard}>
       <View style={styles.contactFormRow}>
@@ -950,6 +1041,14 @@ export function ContactForm({
           />
           <TextInput
             style={styles.input}
+            value={phone2}
+            onChangeText={setPhone2}
+            placeholder="Zweite Nummer (Arbeit, Partner – freiwillig)"
+            placeholderTextColor={colors.inkFaint}
+            keyboardType="phone-pad"
+          />
+          <TextInput
+            style={styles.input}
             value={birthday}
             onChangeText={setBirthday}
             placeholder="Geburtstag (TT.MM. – freiwillig)"
@@ -957,19 +1056,69 @@ export function ContactForm({
           />
         </View>
       </View>
-      <Pressable
-        onPress={() => {
-          if (!name.trim() || !phone.trim()) return;
-          onAdd(name.trim(), phone.trim(), photo, birthday.trim());
-          setName('');
-          setPhone('');
-          setBirthday('');
-          setPhoto(null);
-        }}
-        style={styles.addWide}
-      >
-        <Text style={styles.addWideText}>Hinzufügen</Text>
-      </Pressable>
+
+      {/* Die Rolle entscheidet, wo der Kontakt auftaucht: Ein Babysitter
+          braucht die Kinderärztin, nicht den Gartenbauer. */}
+      <Text style={styles.formHintSmall}>Wofür ist dieser Kontakt da?</Text>
+      <View style={styles.chipRow}>
+        {ROLLEN.map((rolle) => {
+          const aktiv = roles.includes(rolle.key);
+          return (
+            <Pressable
+              key={rolle.key}
+              onPress={() => setRoles(toggleRolle(roles, rolle.key))}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: aktiv }}
+              style={[styles.chip, aktiv && styles.chipActive]}
+            >
+              <Ionicons
+                name={rolle.icon as keyof typeof Ionicons.glyphMap}
+                size={13}
+                color={aktiv ? '#FFFFFF' : colors.inkSoft}
+              />
+              <Text style={[styles.chipText, aktiv && styles.chipTextActive]}>
+                {rolle.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        {aendern && onCancel ? (
+          <Pressable
+            onPress={onCancel}
+            style={[styles.addWide, { flex: 1, backgroundColor: 'transparent' }]}
+          >
+            <Text style={[styles.addWideText, { color: colors.inkSoft }]}>Abbrechen</Text>
+          </Pressable>
+        ) : null}
+        <Pressable
+          onPress={() => {
+            if (!name.trim() || !phone.trim()) return;
+            onSave({
+              text: name.trim(),
+              phone: phone.trim(),
+              phone2: phone2.trim(),
+              photo,
+              birthday: birthday.trim(),
+              roles,
+            });
+            if (aendern) return;
+            setName('');
+            setPhone('');
+            setPhone2('');
+            setBirthday('');
+            setPhoto(null);
+            setRoles([]);
+          }}
+          style={[styles.addWide, { flex: 1 }]}
+        >
+          <Text style={styles.addWideText}>
+            {aendern ? 'Speichern' : 'Hinzufügen'}
+          </Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -1230,18 +1379,44 @@ export function CountdownForm({
 
 /** Monatsraster mit Punkten an Tagen mit Terminen; ein Tag antippen zeigt
  *  seine Termine darunter. Blättern über die Pfeile im Kopf. */
+/**
+ * Das Monatsraster.
+ *
+ * Es zeigt, was `events` hergibt – und genau da lag der Fehler: Der
+ * Zustand der Kalender-Entität trägt die nächsten zwölf Termine, nicht
+ * einen Monat. Wer zurückblätterte, sah ein leeres Raster und musste
+ * glauben, es sei nichts gewesen. Deshalb sagt diese Ansicht jetzt nach
+ * oben, welchen Monat sie zeigt, und bekommt die passenden Termine
+ * gereicht.
+ */
 export function MonthCalendar({
   events,
+  onMonat,
+  laedt,
+  onEvent,
   styles,
   colors,
 }: {
   events: FamilyItem[];
+  /** Welcher Monat gezeigt wird, als «JJJJ-MM». */
+  onMonat?: (monat: string) => void;
+  laedt?: boolean;
+  /** Antippen eines Termins – zum Ändern oder Löschen. */
+  onEvent?: (event: FamilyItem) => void;
   styles: Styles;
   colors: Colors;
 }) {
   const today = new Date();
   const [month, setMonth] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [selected, setSelected] = useState<string | null>(null);
+
+  // Beim Blättern die Termine des neuen Monats holen.
+  React.useEffect(() => {
+    onMonat?.(
+      `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}`
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [month.getFullYear(), month.getMonth()]);
 
   const key = (date: Date) =>
     `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
@@ -1279,6 +1454,7 @@ export function MonthCalendar({
         </Pressable>
         <Text style={styles.calTitle}>
           {monatJahr(month)}
+          {laedt ? ' …' : ''}
         </Text>
         <Pressable
           onPress={() => setMonth(new Date(year, mon + 1, 1))}
@@ -1329,17 +1505,31 @@ export function MonthCalendar({
         <Card style={styles.listCard}>
           {selectedEvents.length > 0 ? (
             selectedEvents.map((event, index) => (
-              <View key={index} style={styles.eventRow}>
+              <Pressable
+                key={index}
+                onPress={() => onEvent?.(event)}
+                disabled={!onEvent || event.birthday}
+                accessibilityRole={onEvent ? 'button' : undefined}
+                style={styles.eventRow}
+              >
                 <View style={styles.eventDot} />
-                <Text style={[styles.checkText, { flex: 1 }]} numberOfLines={2}>
-                  {event.summary ?? '—'}
-                </Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.checkText} numberOfLines={2}>
+                    {event.summary ?? '—'}
+                  </Text>
+                  {/* Der Ort kam schon immer vom Hub und wurde nie
+                      gezeigt – dabei ist «wo?» die zweite Frage nach
+                      «wann?». */}
+                  {event.location ? (
+                    <Text style={styles.checkSub} numberOfLines={1}>
+                      {event.location}
+                    </Text>
+                  ) : null}
+                </View>
                 <Text style={styles.checkSub}>
-                  {event.all_day
-                    ? 'ganztägig'
-                    : uhr(new Date(event.start))}
+                  {event.all_day ? 'ganztägig' : uhr(new Date(event.start))}
                 </Text>
-              </View>
+              </Pressable>
             ))
           ) : (
             <Text style={styles.hint}>Keine Termine an diesem Tag.</Text>

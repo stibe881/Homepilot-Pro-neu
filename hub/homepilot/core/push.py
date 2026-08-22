@@ -41,6 +41,9 @@ CATEGORIES: dict[str, str] = {
     "timer": "Küchen-Timer",
     "maintenance": "Wartung fällig",
     "shopping": "Einkaufsliste im Laden",
+    "calendar": "Termin steht an",
+    "medication": "Medikament fällig",
+    "birthday": "Geburtstag heute",
     "test": "Push-Test",
 }
 

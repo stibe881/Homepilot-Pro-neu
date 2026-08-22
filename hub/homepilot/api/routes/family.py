@@ -18,6 +18,7 @@ from fastapi import (
 )
 
 from ...core import rezeptimport
+from ...integrations import google_calendar as calendar_module
 from ...core import shopping as shopping_module
 from ...core.users import Role, User
 from ..context import ApiContext
@@ -40,7 +41,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "tasks", "shopping", "pins", "meals", "contacts", "routines",
             "rewards", "rewards_catalog", "packlists", "countdowns",
             "recipes", "documents", "staples", "chores", "medications",
-            "emergency", "polls", "shops",
+            "emergency", "polls", "shops", "babysitter",
         }
     )
 
@@ -149,6 +150,44 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             )
         except Exception as err:  # eine Nachricht ist kein Grund zu scheitern
             log.warning("Zuweisungs-Nachricht an %s fehlgeschlagen: %s", wer, err)
+
+    @app.get("/api/calendar/events")
+    async def calendar_events(request: Request, month: str = "") -> dict[str, Any]:
+        """Termine eines Monats – für die Monatsansicht in der App.
+
+        Der Zustand der Kalender-Entität trägt nur die nächsten zwölf
+        Termine. Das ist für die Kachel richtig und für ein Monatsraster
+        zu wenig: Wer einen Monat zurückblätterte, sah ein leeres Raster
+        und musste glauben, es sei nichts gewesen.
+
+        `month` als «JJJJ-MM»; ohne Angabe der laufende Monat.
+        """
+        current_user(request)
+        service = hub.integrations.get("google_calendar")
+        if service is None or not hasattr(service, "events_between"):
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    "Dafür braucht es die Kalender-Anbindung "
+                    "(integration: google_calendar)."
+                ),
+            )
+        heute = datetime.now()
+        try:
+            jahr, monat = (
+                (int(month[:4]), int(month[5:7])) if month else (heute.year, heute.month)
+            )
+            von, bis = calendar_module.month_window(jahr, monat)
+        except (ValueError, IndexError):
+            raise HTTPException(
+                status_code=400, detail="'month' erwartet die Form JJJJ-MM"
+            ) from None
+        try:
+            return {"events": await service.events_between(von, bis)}
+        except Exception as err:
+            raise HTTPException(
+                status_code=502, detail=f"Kalender nicht erreichbar: {err}"
+            ) from err
 
     @app.get("/api/family/{collection}")
     async def family_one(collection: str, request: Request) -> list[dict[str, Any]]:
