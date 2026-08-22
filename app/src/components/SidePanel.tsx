@@ -4,7 +4,7 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Activity, CommandData, Entity, EntityState } from '../api/types';
 import { uhr, wochentag } from '../lib/format';
-import { istMusikbox, pickPlayer } from '../lib/geraeteart';
+import { istMusikbox, musikboxenImRaum, pickPlayer } from '../lib/geraeteart';
 import { Colors, radius, type, useColors } from '../theme';
 import { Bar } from './Bar';
 import { Card } from './Card';
@@ -16,15 +16,26 @@ function severityColor(colors: Colors, severity: string): string {
 
 /**
  * Breite Spalte rechts (Tablet) bzw. Abschnitt unten (Telefon):
- * Wetterlage und was zuletzt im Haus passiert ist.
+ * Wetterlage, Musik und was zuletzt im Haus passiert ist.
+ *
+ * Steht ein Raum offen, kommt dessen Box als zweite Musikkarte darunter.
+ * Vorher lag sie als Kachel zwischen den Lampen des Raums: Man bediente
+ * die Musik des Wohnzimmers also an einer anderen Stelle als die Musik
+ * des Hauses, und beim Wechsel in den nächsten Raum sprang sie wieder
+ * woanders hin. Musik gehört in die Musik-Spalte – die des Raums, in dem
+ * man gerade steht, unter die grosse.
  */
 export function SidePanel({
   entities,
   width,
+  room,
   onCommand,
 }: {
   entities: Entity[];
   width?: number;
+  /** Offener Raum – dessen Box kommt als zweite Karte dazu. Ohne Raum
+   *  («Alle», Geräteseiten) bleibt es bei der einen. */
+  room?: string | null;
   /** Für den Player – ohne ihn bleibt er weg statt tot dazustehen. */
   onCommand?: (entityId: string, command: string, data?: CommandData) => void;
 }) {
@@ -62,13 +73,30 @@ export function SidePanel({
     }
   };
 
+  // Die Box des offenen Raums – immer die des Raums, in dem man gerade
+  // steht. Läuft sie ohnehin schon oben (weil sie die spielende des
+  // Hauses ist), bleibt es bei der einen Karte statt zweimal derselben.
+  const raumBoxen = useMemo(
+    () => musikboxenImRaum(entities, room),
+    [entities, room]
+  );
+  const [chosenRoomId, setChosenRoomId] = useState<string | null>(null);
+  const raumPlayer =
+    (chosenRoomId ? raumBoxen.find((entity) => entity.id === chosenRoomId) : undefined) ??
+    pickPlayer(raumBoxen);
+  const zeigtRaumPlayer = !!raumPlayer && raumPlayer.id !== player?.id;
+
   // Nichts zu zeigen heisst: keine Spalte. Vorher stand auf einem
   // Tablet im Querformat eine leere Fläche von 340 Punkten am rechten
   // Rand, weil die Spalte ihre Breite auch dann beanspruchte, wenn weder
   // Wetter noch Musik noch eine Warnung darin lagen - ein knappes Drittel
   // des Bildschirms für nichts. Aufgefallen ist es erst, als die
   // Startseite einmal im Browser auf iPad-Grösse gemessen wurde.
-  const zeigtEtwas = !!weather || (!!player && !!onCommand) || !!hasAlert;
+  const zeigtEtwas =
+    !!weather ||
+    (!!player && !!onCommand) ||
+    (zeigtRaumPlayer && !!onCommand) ||
+    !!hasAlert;
   if (!zeigtEtwas) return null;
 
   return (
@@ -80,6 +108,20 @@ export function SidePanel({
           players={players}
           activeDevice={spotify?.state.device ?? null}
           onSelect={choose}
+          onCommand={onCommand}
+        />
+      ) : null}
+      {/* Und darunter der Raum, in dem man steht. Eine Box hier
+          anzutippen wechselt nur die Ansicht innerhalb des Raums – die
+          Musik dorthin zu ziehen wäre der Umzug, den die grosse Karte
+          oben schon kann, und würde die Karte mit einer Box füllen, die
+          gar nicht in diesem Raum steht. */}
+      {zeigtRaumPlayer && onCommand ? (
+        <MediaPanel
+          entity={raumPlayer!}
+          players={raumBoxen}
+          titel={room ?? 'Musik'}
+          onSelect={(speaker) => setChosenRoomId(speaker.id)}
           onCommand={onCommand}
         />
       ) : null}
@@ -96,6 +138,7 @@ function MediaPanel({
   entity,
   players,
   activeDevice,
+  titel = 'Musik',
   onSelect,
   onCommand,
 }: {
@@ -105,6 +148,9 @@ function MediaPanel({
   players: Entity[];
   /** Box, auf der Spotify gerade spielt – für Etikett und Markierung. */
   activeDevice?: string | null;
+  /** Überschrift der Karte. Steht eine zweite darunter (die Box des
+   *  offenen Raums), sagt der Raumname, welche welche ist. */
+  titel?: string;
   onSelect: (speaker: Entity) => void;
   onCommand: (entityId: string, command: string, data?: CommandData) => void;
 }) {
@@ -125,7 +171,7 @@ function MediaPanel({
     <Card style={styles.mediaCard}>
       <View style={styles.mediaHead}>
         <Ionicons name="musical-notes-outline" size={18} color={colors.inkSoft} />
-        <Text style={styles.heading}>Musik</Text>
+        <Text style={styles.heading}>{titel}</Text>
         {players.length > 1 ? (
           <Pressable
             onPress={() => setPickerOpen((v) => !v)}

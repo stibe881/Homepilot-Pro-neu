@@ -63,6 +63,7 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from . import astro, feiertage, snapshots
+from . import light as licht
 from .source import as_source, automation_source
 
 if TYPE_CHECKING:
@@ -314,6 +315,28 @@ def describe_action(action: dict[str, Any], name_of: Any = None) -> str:
         elif "position" in data:
             extra = f" auf {data['position']} %"
         return f"{named(action.get('entity_id'))}: {action.get('command', '?')}{extra}"
+    if atype == "light":
+        teile: list[str] = []
+        helligkeit = action.get("brightness")
+        if isinstance(helligkeit, str) and helligkeit.lower() == "adaptive":
+            teile.append("an die Umgebung angepasst")
+        elif helligkeit is not None:
+            teile.append(f"{helligkeit} %")
+        if action.get("color"):
+            teile.append(f"Farbe {action['color']}")
+        if action.get("color_temp"):
+            teile.append(f"{round(1_000_000 / float(action['color_temp']))} K")
+        wie = ", ".join(teile) if teile else "an"
+        nachlauf = _seconds(action.get("off_after"))
+        # «und in 4 Min wieder aus» gehört in den Trockenlauf: Sonst steht
+        # da nur, dass das Licht angeht, und die Frage «und wann geht es
+        # aus?» bleibt offen.
+        dazu = (
+            f", {offset_label(nachlauf).replace('nach', 'in')} wieder aus"
+            if nachlauf > 0
+            else ""
+        )
+        return f"{named(action.get('entity_id'))}: Licht {wie}{dazu}"
     if atype == "delay":
         return f"{action.get('seconds', 0)} Sekunden warten"
     if atype == "wait_until":
@@ -338,6 +361,20 @@ def describe_action(action: dict[str, Any], name_of: Any = None) -> str:
             f"auf {action.get('to', 0)} % dimmen"
         )
     return f"unbekannte Aktion «{atype}»"
+
+
+def _seconds(value: Any) -> float:
+    """Eine Sekundenangabe aus der Konfiguration (rein, testbar).
+
+    Unsinn und Negatives ergeben 0 – also «kein Nachlauf», nicht «sofort
+    wieder aus»: Ein Tippfehler soll das Licht nicht ausknipsen, kaum dass
+    es an ist.
+    """
+    try:
+        zahl = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return zahl if zahl > 0 else 0.0
 
 
 def offset_label(seconds: float) -> str:
@@ -758,6 +795,11 @@ def _targets(actions: list[dict[str, Any]]) -> dict[str, set[str]]:
             continue
         entity_id = action.get("entity_id")
         command = action.get("command")
+        # Ein Licht-Schritt trägt kein «command», schaltet die Lampe aber
+        # ein - für die Frage «wer macht nachts das Licht an?» zählt er.
+        if action.get("type") == "light" and isinstance(entity_id, str):
+            result.setdefault(entity_id, set()).add("turn_on")
+            continue
         if isinstance(entity_id, str) and isinstance(command, str):
             result.setdefault(entity_id, set()).add(command)
     return result
@@ -832,6 +874,10 @@ class AutomationEngine:
         self._deadlines: dict[asyncio.Task, float] = {}
         # Wie viele Läufe je Ablauf noch anstehen (nur bei «queued»).
         self._queued: dict[str, int] = {}
+        # Laufende Nachläufe je Lampe: der Zeitgeber, der sie wieder
+        # ausschaltet, und wann er fällig ist. Je Lampe genau einer -
+        # neue Bewegung verlängert, statt einen zweiten zu starten.
+        self._nachlauf: dict[str, tuple[asyncio.Task, float]] = {}
         # Wann ein Auslöser zuletzt gepasst hat und wann sich sein Gerät
         # zuletzt überhaupt gemeldet hat - je (Ablauf, Nummer des
         # Auslösers). Das beantwortet «kam der Auslöser an?», was der
@@ -913,9 +959,14 @@ class AutomationEngine:
         # Vor dem Abbrechen: Was jetzt an Wartezeiten stirbt, soll beim
         # nächsten Start weitergehen und nicht als «restart» gelten.
         self._stopping = True
+        # Was jetzt an Nachläufen stirbt, schaltet sonst nie wieder aus.
+        self._merke_nachlaeufe()
         if self._unsubscribe:
             self._unsubscribe()
             self._unsubscribe = None
+        for task, _ in self._nachlauf.values():
+            task.cancel()
+        self._nachlauf.clear()
         for task in [*self._timer_tasks, *self._run_tasks, *self._held_tasks.values()]:
             task.cancel()
         for task in [*self._timer_tasks, *self._run_tasks, *self._held_tasks.values()]:
@@ -950,7 +1001,7 @@ class AutomationEngine:
                         if hold > 0:
                             self._schedule_held(automation, index, trigger, hold)
                         else:
-                            self._schedule(automation)
+                            self._schedule(automation, str(data.get("entity_id") or "") or None)
                         break
                     continue
                 if art != "state":
@@ -972,7 +1023,9 @@ class AutomationEngine:
                         # kurzen Gang zum Briefkasten.
                         self._schedule_held(automation, index, trigger, hold)
                     else:
-                        self._schedule(automation)
+                        # Welcher Melder gefeuert hat, entscheidet bei
+                        # «an die Helligkeit angepasst», wessen Lux gelten.
+                        self._schedule(automation, str(data.get("entity_id") or "") or None)
                     break
 
     def _schedule_held(
@@ -992,7 +1045,7 @@ class AutomationEngine:
         async def wait_and_check() -> None:
             await asyncio.sleep(hold)
             if self._trigger_still_holds(trigger):
-                self._schedule(automation)
+                self._schedule(automation, str(trigger.get("entity_id") or "") or None)
 
         task = asyncio.create_task(wait_and_check())
         self._held_tasks[key] = task
@@ -1333,7 +1386,14 @@ class AutomationEngine:
             for schluessel in [k for k, ts in gefeuert.items() if ts < grenze]:
                 del gefeuert[schluessel]
 
-    def _schedule(self, automation: Automation) -> None:
+    def _schedule(self, automation: Automation, ausloeser: str | None = None) -> None:
+        """Einen Lauf anstossen.
+
+        ``ausloeser`` ist das Gerät, dessen Meldung den Lauf ausgelöst hat -
+        nur Zustands- und Erreichbarkeits-Auslöser haben eines. Gebraucht
+        wird es von «Licht an die Helligkeit angepasst»: Hängen zwei Melder
+        am selben Ablauf, zählt die Helligkeit dort, wo sich etwas bewegt
+        hat, nicht die des anderen Zimmers."""
         if self.paused:
             log.debug("Automation '%s' übersprungen (pausiert)", automation.alias)
             return
@@ -1382,7 +1442,7 @@ class AutomationEngine:
                 laeuft.cancel()
             self._running.discard(automation.id)
         self._last_started[automation.id] = time.time()
-        task = asyncio.create_task(self._run(automation))
+        task = asyncio.create_task(self._run(automation, ausloeser))
         self._tasks_by_id[automation.id] = task
         self._run_tasks.add(task)
         task.add_done_callback(self._run_tasks.discard)
@@ -1515,7 +1575,7 @@ class AutomationEngine:
 
     # ── Ausführung ─────────────────────────────────────────────────────────
 
-    async def _run(self, automation: Automation) -> None:
+    async def _run(self, automation: Automation, ausloeser: str | None = None) -> None:
         self._running.add(automation.id)
         error: str | None = None
         executed = False
@@ -1553,7 +1613,7 @@ class AutomationEngine:
                     # darin - sie sagt im Abbruchfall, wo der Lauf stand.
                     # Deshalb unten die Ausnahme von B007.
                     for position, action in enumerate(actions):  # noqa: B007
-                        notiz = await self._execute_action(automation, action)
+                        notiz = await self._execute_action(automation, action, ausloeser)
                         if len(spur) < 40:
                             eintrag: dict[str, Any] = {
                                 "label": describe_action(action, name_of),
@@ -1776,7 +1836,10 @@ class AutomationEngine:
         return False
 
     async def _execute_action(
-        self, automation: Automation, action: dict[str, Any]
+        self,
+        automation: Automation,
+        action: dict[str, Any],
+        ausloeser: str | None = None,
     ) -> str | None:
         """Eine Aktion ausführen. Die Rückgabe ist eine kurze Notiz für
         die Schritt-Spur des Laufs (Punkt 160) - oder None."""
@@ -1803,6 +1866,8 @@ class AutomationEngine:
             else:
                 if task is not None:
                     self._deadlines.pop(task, None)
+        elif atype == "light":
+            return await self._light(automation, action, ausloeser)
         elif atype == "wait_until":
             return await self._wait_until(automation, action)
         elif atype == "fade":
@@ -1836,6 +1901,186 @@ class AutomationEngine:
         else:
             log.warning("Unbekannter Aktionstyp in '%s': %s", automation.alias, atype)
         return None
+
+    async def _light(
+        self,
+        automation: Automation,
+        action: dict[str, Any],
+        ausloeser: str | None = None,
+    ) -> str | None:
+        """Licht einschalten – mit Helligkeit, Farbe und Weissanteil.
+
+        Ein Bewegungslicht ist mehr als «an»: Nachts genügt ein gedämpftes
+        Warmweiss, am trüben Nachmittag braucht es die volle Lampe. Der
+        eine Schritt setzt beides in einem Zug, statt drei Aktionen
+        hintereinanderzuhängen, zwischen denen die Lampe sichtbar
+        umspringt.
+
+        ``brightness: "adaptive"`` holt die Helligkeit aus dem Melder, der
+        ausgelöst hat: siehe core/light.py, warum es dunkler statt heller
+        wird, je dunkler es ist.
+        """
+        entity_id = str(action.get("entity_id") or "")
+        entity = self.hub.registry.get(entity_id)
+        if entity is None:
+            log.warning(
+                "Licht-Schritt in '%s': Gerät «%s» gibt es nicht",
+                automation.alias,
+                entity_id,
+            )
+            return None
+
+        notiz: str | None = None
+        helligkeit: float | None = None
+        roh = action.get("brightness")
+        if isinstance(roh, str) and roh.strip().lower() == "adaptive":
+            lux = self._lux_for(automation, action, ausloeser)
+            if lux is None:
+                # Kein Messwert: Die Lampe geht trotzdem an - ein
+                # Bewegungslicht, das wegen eines stummen Fühlers dunkel
+                # bleibt, ist schlimmer als eines in Vorgabehelligkeit.
+                notiz = "kein Helligkeitswert – Lampe ohne Vorgabe an"
+            else:
+                helligkeit = licht.brightness_from_lux(lux)
+                notiz = f"{lux:.0f} lx → {helligkeit:.0f} %"
+        elif roh is not None:
+            try:
+                helligkeit = max(0.0, min(100.0, float(roh)))
+            except (TypeError, ValueError):
+                helligkeit = None
+
+        if helligkeit is not None and "set_brightness" in entity.commands:
+            await self.hub.integrations.dispatch_command(
+                entity_id, "set_brightness", {"brightness": helligkeit}
+            )
+        else:
+            await self.hub.integrations.dispatch_command(entity_id, "turn_on", {})
+
+        # Und wie lange sie an bleiben soll. Ohne diese Angabe brauchte ein
+        # Bewegungslicht drei Schritte (an, warten, aus) - und der
+        # Warte-Schritt hielt den ganzen Ablauf auf, sodass danach nichts
+        # mehr kommen konnte, ohne mitzuwarten.
+        nachlauf = _seconds(action.get("off_after"))
+        if nachlauf > 0:
+            self._plan_off(automation, entity_id, nachlauf)
+            notiz = f"{notiz}, " if notiz else ""
+            notiz = f"{notiz}danach {offset_label(nachlauf).removeprefix('nach ')} aus"
+
+        # Farbe und Weissanteil erst danach: Die Lampe ist dann schon an,
+        # und beides schliesst sich gegenseitig aus - wer eine Farbe
+        # angibt, bekommt keine Farbtemperatur darübergebügelt.
+        farbe = action.get("color")
+        weiss = action.get("color_temp")
+        if farbe and "set_color" in entity.commands:
+            await self.hub.integrations.dispatch_command(
+                entity_id, "set_color", {"color": str(farbe)}
+            )
+        elif weiss and "set_color_temp" in entity.commands:
+            await self.hub.integrations.dispatch_command(
+                entity_id, "set_color_temp", {"color_temp": float(weiss)}
+            )
+        return notiz
+
+    def _lux_for(
+        self,
+        automation: Automation,
+        action: dict[str, Any],
+        ausloeser: str | None,
+    ) -> float | None:
+        """Die Umgebungshelligkeit, an die sich das Licht anpassen soll.
+
+        In dieser Reihenfolge: das im Ablauf genannte Gerät (für von Hand
+        geschriebene config.yaml), sonst der Melder, der gerade ausgelöst
+        hat, sonst der erste Auslöser, der überhaupt Lux meldet. Ohne
+        jeden Wert: None - der Aufrufer schaltet dann ohne Vorgabe ein.
+        """
+        kandidaten: list[str] = []
+        genannt = action.get("lux_from")
+        if isinstance(genannt, str) and genannt:
+            kandidaten.append(genannt)
+        if ausloeser:
+            kandidaten.append(ausloeser)
+        kandidaten.extend(licht.lux_sources(automation.triggers))
+
+        for entity_id in kandidaten:
+            entity = self.hub.registry.get(entity_id)
+            if entity is None:
+                continue
+            wert = entity.state.get("illumination")
+            if isinstance(wert, (int, float)):
+                return float(wert)
+        return None
+
+    def _plan_off(self, automation: Automation, entity_id: str, seconds: float) -> None:
+        """Die Lampe nach der Nachlaufzeit wieder ausschalten.
+
+        Nebenher, nicht im Ablauf: Der Rest der Schritte läuft weiter,
+        während die Lampe brennt. Ein «warten»-Schritt täte das nicht - er
+        hielte alles auf, und ein zweiter Auslöser fände den Ablauf
+        beschäftigt vor.
+
+        Je Lampe genau ein Zeitgeber: Neue Bewegung während des Nachlaufs
+        verlängert ihn. Zwei Zeitgeber nebeneinander hiessen, dass das
+        Licht beim ersten ausgeht, obwohl gerade jemand im Flur steht.
+        """
+        laufend = self._nachlauf.pop(entity_id, None)
+        if laufend is not None and not laufend[0].done():
+            laufend[0].cancel()
+        faellig = time.time() + seconds
+
+        async def warten() -> None:
+            await asyncio.sleep(seconds)
+            entity = self.hub.registry.get(entity_id)
+            if entity is None or str(entity.state.get("state")) != "on":
+                # Jemand war schneller - dann gibt es nichts auszuschalten.
+                return
+            with as_source(automation_source(automation.id, automation.alias)):
+                await self.hub.integrations.dispatch_command(entity_id, "turn_off", {})
+
+        task = asyncio.create_task(warten())
+        self._nachlauf[entity_id] = (task, faellig)
+        self._run_tasks.add(task)
+        task.add_done_callback(self._run_tasks.discard)
+        task.add_done_callback(
+            lambda done, key=entity_id: self._nachlauf.pop(key, None)
+            if (self._nachlauf.get(key) or (None,))[0] is done
+            else None
+        )
+
+    def _merke_nachlaeufe(self) -> None:
+        """Offene Nachläufe über den Halt retten.
+
+        Ohne das bliebe nach jeder Auslieferung irgendwo ein Licht an, bis
+        es jemand bemerkt - genau der Fall, für den es die Nachhol-Liste
+        schon gibt. Der Eintrag trägt einen eigenen Schlüssel, damit er
+        einem offenen Rest desselben Ablaufs nicht in die Quere kommt.
+        """
+        if not self._nachlauf:
+            return
+        offen = [
+            eintrag
+            for eintrag in self.hub.data.get(PENDING_KEY)
+            if not str(eintrag.get("automation_id") or "").startswith("nachlauf:")
+        ]
+        for entity_id, (_task, faellig) in self._nachlauf.items():
+            offen.append(
+                {
+                    "automation_id": f"nachlauf:{entity_id}",
+                    "alias": f"Nachlauf {entity_id}",
+                    "actions": [
+                        {
+                            "type": "command",
+                            "entity_id": entity_id,
+                            "command": "turn_off",
+                        }
+                    ],
+                    "resume_at": faellig,
+                }
+            )
+        try:
+            self.hub.data.set(PENDING_KEY, offen[:PENDING_LIMIT])
+        except Exception:
+            log.debug("Offener Nachlauf nicht schreibbar", exc_info=True)
 
     async def _fade(self, automation: Automation, action: dict[str, Any]) -> None:
         """Weiches Licht (Punkt 157): über n Minuten von jetzt zum Ziel.

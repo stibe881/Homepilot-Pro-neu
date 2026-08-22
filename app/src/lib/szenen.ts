@@ -24,6 +24,16 @@ export interface SceneActionDraft {
    *  auch wenn die Szene langsam anfährt» – die Nachttischlampe beim
    *  Lichtwecker. undefined heisst: die Zeit der Szene gilt. */
   transition?: number;
+  /** Weissanteil als Mirek (153 = tageslichtweiss … 500 = sehr warm).
+   *  Nur in Abläufen; Szenen fragen bisher nicht danach. */
+  colorTemp?: number;
+  /** «An die Umgebungshelligkeit angepasst»: Der Hub nimmt beim Auslösen
+   *  die Lux des Melders und rechnet die Helligkeit daraus. Nur sinnvoll,
+   *  wenn ein Auslöser überhaupt Helligkeit misst. */
+  adaptive?: boolean;
+  /** Nachlauf in Sekunden: So lange bleibt die Lampe an, dann schaltet der
+   *  Hub sie von selbst aus. 0 oder fehlend heisst «an lassen». */
+  offAfter?: number;
 }
 
 /**

@@ -12,6 +12,7 @@
  */
 
 import { Entity } from '../api/types';
+import { dauerText } from './format';
 
 export interface GeraeteZeile {
   text: string;
@@ -30,6 +31,58 @@ export function applianceLine(
   if (!running) return { text: grund, running };
   const program = entity.state.program ? ` · ${entity.state.program}` : '';
   const minutes =
-    entity.state.minutes_left != null ? ` · noch ${entity.state.minutes_left} min` : '';
+    entity.state.minutes_left != null
+      ? ` · noch ${dauerText(Number(entity.state.minutes_left))}`
+      : '';
   return { text: grund + program + minutes, running };
+}
+
+/** Geräte an einer Messsteckdose, die zum Haushalt zählen. */
+const APPLIANCE_NAME = /tumbler|trockner|wasch|geschirr|sp(ü|ue)lmaschine/i;
+
+/** Ab dieser Leistung gilt ein Gerät an der Steckdose als «arbeitet». */
+const WORKING_WATTS = 5;
+
+export interface Working {
+  entity: Entity;
+  /** Kurze Zusatzangabe: Restzeit, Programm oder Leistung. */
+  note: string;
+}
+
+/**
+ * Welche Haushaltsgeräte arbeiten gerade? (rein, testbar)
+ *
+ * Zwei Quellen, weil die Geräte unterschiedlich angebunden sind: echte
+ * Haushaltsgeräte (V-ZUG & Co.) melden ihren Zustand selbst, ein Tumbler an
+ * der Schalt-Messsteckdose verrät es nur über die Leistung – eingeschaltet
+ * ist die Steckdose auch dann noch, wenn er längst fertig ist.
+ */
+export function workingAppliances(entities: Entity[]): Working[] {
+  const working: Working[] = [];
+  for (const entity of entities) {
+    if (!entity.available) continue;
+
+    if (entity.kind === 'appliance') {
+      const state = String(entity.state.state ?? '');
+      if (state !== 'running' && state !== 'on') continue;
+      const minutes = entity.state.minutes_left;
+      working.push({
+        entity,
+        note:
+          minutes != null
+            ? // «noch 233 min» rechnet sonst jeder selbst nach – meistens
+              // falsch. Über einer Stunde also «3 h 53 min».
+              `noch ${dauerText(Number(minutes))}`
+            : String(entity.state.program ?? 'läuft'),
+      });
+      continue;
+    }
+
+    const watts = Number(entity.state.power);
+    if (!Number.isFinite(watts)) continue;
+    if (!APPLIANCE_NAME.test(entity.name)) continue;
+    if (String(entity.state.state) === 'off' || watts <= WORKING_WATTS) continue;
+    working.push({ entity, note: `${Math.round(watts)} W` });
+  }
+  return working;
 }

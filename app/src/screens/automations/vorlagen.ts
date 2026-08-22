@@ -101,15 +101,25 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
               ],
             }
           : { conditionKind: 'sun' as ConditionKind, conditionSun: 'down' as const }),
+        // Ein Schritt, nicht drei: Die Lampe trägt ihren Nachlauf selbst,
+        // und der Ablauf ist nach dem Einschalten fertig statt vier
+        // Minuten lang beschäftigt. Verlängert wird trotzdem - der Hub
+        // stellt den Zeitgeber bei neuer Bewegung neu.
         steps: [
           {
             ...EMPTY_STEP,
-            commandActions: [{ entity_id: light.id, command: 'turn_on' }],
-          },
-          { ...EMPTY_STEP, kind: 'delay' as StepKind, seconds: '240' },
-          {
-            ...EMPTY_STEP,
-            commandActions: [{ entity_id: light.id, command: 'turn_off' }],
+            commandActions: [
+              {
+                entity_id: light.id,
+                command: 'turn_on',
+                offAfter: 240,
+                // Misst der Melder Lux, richtet sich die Helligkeit
+                // danach: nachts gedämpft statt Flutlicht.
+                ...(typeof motion.state?.illumination === 'number'
+                  ? { command: 'set_brightness', adaptive: true }
+                  : {}),
+              },
+            ],
           },
         ],
       },

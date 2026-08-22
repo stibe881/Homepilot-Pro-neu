@@ -51,6 +51,12 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "state": service._entity.as_dict()["state"],
             **service.config_dict(),
             "history": service.history,
+            # Ob überhaupt ein Bild in einer Nachricht landen kann: Ohne
+            # `push.public_url` gibt es keine Adresse, die das Telefon ohne
+            # Anmeldung erreicht (siehe core/snapshots.py). Die App sagt es
+            # dann dort, wo man das Bild erwartet - statt dass es einfach
+            # ausbleibt.
+            "images": bool((hub.config.push or {}).get("public_url")),
             "candidates": [
                 {
                     "entity_id": entity.id,

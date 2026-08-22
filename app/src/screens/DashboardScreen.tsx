@@ -45,7 +45,7 @@ import { usePushRegistration } from '../hooks/usePushRegistration';
 import { breakpoints, Colors, radius, space, type, useColors } from '../theme';
 import { EinkaufZeile, Shop, findeArtikel, mengeUndName, mitMenge, shopCategory } from '../lib/einkauf';
 import { uhr } from '../lib/format';
-import { deviceKindLabel } from '../lib/geraeteart';
+import { deviceKindLabel, musikboxenImRaum } from '../lib/geraeteart';
 import { szenenFuerRaum } from '../lib/szenen';
 import {
   GeraeteFilter,
@@ -766,6 +766,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         ? base.filter((entity) => !entity.room)
         : base.filter((entity) => entity.room === room);
 
+  // Welcher Raum steht offen? Nur dann bekommt die Spalte rechts die Box
+  // dieses Raums. «Weitere» (alles ohne Raum) ist keiner: Eine Karte
+  // «Weitere» über einer Box, die irgendwo steht, sagt nichts.
+  const offenerRaum =
+    section === 'home' && room !== ALL_ROOMS && room !== NO_ROOM ? room : null;
+  // Die Musik des Raums liegt rechts in der Spalte, unter der grossen
+  // Musikkarte - deshalb hier nicht noch einmal zwischen den Lampen.
+  const raumBoxen = musikboxenImRaum(inRoom, offenerRaum);
+
   // Ausgeblendete und in einer Leuchte aufgegangene Spots verschwinden
   // aus den Alltagsansichten, bleiben aber unter „Geräte“ sichtbar –
   // sonst käme man nie wieder an sie heran, und beim Ausrichten nach dem
@@ -777,7 +786,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       section === 'cameras') &&
     !editing
       ? inRoom.filter(
-          (entity) => !hidden.includes(entity.id) && !entity.combined_into
+          (entity) =>
+            !hidden.includes(entity.id) &&
+            !entity.combined_into &&
+            // Beim Anpassen bleibt sie stehen: Wer Kacheln ordnet oder
+            // ausblendet, muss sie greifen können.
+            !raumBoxen.some((box) => box.id === entity.id)
         )
       : inRoom;
 
@@ -1868,6 +1882,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         <SidePanel
             entities={entities}
             width={hasSidePanel ? panelWidth : undefined}
+            room={offenerRaum}
             onCommand={guardedCommand}
           />
       </View>

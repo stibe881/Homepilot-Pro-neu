@@ -257,6 +257,20 @@ export const makeStyles = (colors: Colors) =>
     },
     picker: { flexGrow: 0 },
     choices: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    /** Die Farbwahl einer Lampe im Ablauf – dieselben Punkte wie auf der
+     *  Gerätekachel, damit «das Blau von gestern» wiederfindbar bleibt. */
+    farbReihe: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
+    farbPunkt: {
+      width: 26,
+      height: 26,
+      borderRadius: 13,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    /** «Farbe unverändert»: der Punkt ohne Farbe, mit Kreuz. */
+    farbLeer: { backgroundColor: colors.surfaceSoft },
     choice: {
       paddingHorizontal: 14,
       paddingVertical: 9,

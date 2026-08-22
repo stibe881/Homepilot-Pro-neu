@@ -89,3 +89,17 @@ export function datumVoll(wann: Wann): string {
 export function monatJahr(wann: Wann): string {
   return als(wann).toLocaleDateString(LOCALE, { month: 'long', year: 'numeric' });
 }
+
+/** «45 min», «1 h», «2 h 5 min» – eine Dauer in Minuten, ausgesprochen.
+ *
+ * Über einer Stunde rechnet «noch 233 min» sonst jeder selbst nach, und
+ * meistens falsch. Ohne führende «0 h» und ohne baumelndes «0 min»
+ * (rein, testbar). */
+export function dauerText(minuten: number): string {
+  const gesamt = Math.max(0, Math.round(Number(minuten) || 0));
+  const stunden = Math.floor(gesamt / 60);
+  const rest = gesamt % 60;
+  if (stunden === 0) return `${rest} min`;
+  if (rest === 0) return `${stunden} h`;
+  return `${stunden} h ${rest} min`;
+}

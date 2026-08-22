@@ -10,10 +10,11 @@ import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-nativ
 import { Entity } from '../../api/types';
 import { useColors } from '../../theme';
 import { deviceKindLabel } from '../../lib/geraeteart';
+import { PALETTE } from '../../components/ColorRow';
 import { RueckwegBefehl, SceneActionDraft, snapshotAction } from '../../lib/szenen';
 import { Fassung, VersionsSection } from './editor';
-import { vacuumRooms } from './entwurf';
-import { CategoryField, Choice, Field } from './felder';
+import { WEISSTOENE, vacuumRooms } from './entwurf';
+import { CategoryField, Choice, Field, NachlaufWahl } from './felder';
 import { makeStyles } from './stil';
 
 export interface SceneDraft {
@@ -138,6 +139,18 @@ export function baseCommandOptions(entity: Entity): { key: string; label: string
 /** Geräte-Checkliste statt Zeilen mit Dropdown: antippen nimmt ein Gerät in
  *  die Szene auf, ein zweiter Chip legt den Zielzustand fest. «Aktuellen
  *  Zustand übernehmen» füllt alles in einem Tipp aus der Wirklichkeit. */
+/** Schlüssel des «angepasst»-Knopfs. Keine Prozentzahl, kollidiert also
+ *  mit keiner Stufe. */
+const ANGEPASST = 'lux';
+
+/** Schaltet dieser Befehl die Lampe ein? (rein, testbar)
+ *
+ * Nur dann lohnen Farbe und Weissanteil: Wer ausschaltet, braucht keine
+ * Lichtfarbe, und «umschalten» weiss vorher nicht, wohin es geht. */
+export function istAnschalten(command: string): boolean {
+  return command === 'turn_on' || command === 'set_brightness';
+}
+
 export function SceneDevices({
   entities,
   actions,
@@ -145,10 +158,17 @@ export function SceneDevices({
   showSnapshot = true,
   allowToggle = false,
   sceneTransition = 0,
+  luxSensors,
 }: {
   entities: Entity[];
   actions: SceneDraft['actions'];
   onActions: (actions: SceneDraft['actions']) => void;
+  /** Melder des Ablaufs, die Helligkeit messen. Ist die Liste da, bekommen
+   *  Lampen die Feinheiten dazu: Farbe, Weissanteil und - sobald ein
+   *  Melder Lux liefert - «an die Helligkeit angepasst». Szenen geben sie
+   *  nicht mit: Dort gibt es keinen Auslöser, an den man sich anpassen
+   *  könnte. */
+  luxSensors?: Entity[];
   /** Übergangszeit der Szene – nur dann lohnt die Frage «diese Lampe
    *  sofort?». */
   sceneTransition?: number;
@@ -161,6 +181,11 @@ export function SceneDevices({
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [query, setQuery] = useState('');
+  // Im Ablauf-Editor (dort kommt luxSensors mit) bekommen Lampen Farbe
+  // und Weissanteil dazu; ob es auch «angepasst» gibt, entscheidet der
+  // Melder: ohne Helligkeitsfühler wäre die Wahl eine Attrappe.
+  const lichtFein = luxSensors !== undefined;
+  const hatLux = (luxSensors ?? []).length > 0;
 
   const needle = query.trim().toLowerCase();
   const all = entities.filter(isSceneDevice);
@@ -219,10 +244,12 @@ export function SceneDevices({
       )
     );
 
-  const setBrightness = (entityId: string, brightness: number) =>
+  /** Ein Feld einer Geräte-Aktion ändern – für Farbe, Weiss und
+   *  «angepasst», die sich sonst dreimal fast gleich schrieben. */
+  const setField = (entityId: string, teil: Partial<SceneActionDraft>) =>
     onActions(
       actions.map((action) =>
-        action.entity_id === entityId ? { ...action, brightness } : action
+        action.entity_id === entityId ? { ...action, ...teil } : action
       )
     );
 
@@ -362,10 +389,34 @@ export function SceneDevices({
                             { key: '50', label: '50 %' },
                             { key: '75', label: '75 %' },
                             { key: '100', label: '100 %' },
+                            // Nur wenn ein Melder des Ablaufs Lux misst -
+                            // sonst stünde hier eine Wahl, die nichts
+                            // täte (siehe hub/core/light.py).
+                            ...(hatLux
+                              ? [{ key: ANGEPASST, label: 'an Helligkeit angepasst' }]
+                              : []),
                           ]}
-                          value={String(action!.brightness ?? 50)}
-                          onSelect={(key) => setBrightness(entity.id, Number(key))}
+                          value={
+                            action!.adaptive ? ANGEPASST : String(action!.brightness ?? 50)
+                          }
+                          onSelect={(key) =>
+                            key === ANGEPASST
+                              ? setField(entity.id, { adaptive: true })
+                              : setField(entity.id, {
+                                  adaptive: undefined,
+                                  brightness: Number(key),
+                                })
+                          }
                         />
+                        {action!.adaptive ? (
+                          <Text style={styles.snapshotHint}>
+                            Der Hub nimmt beim Auslösen die Helligkeit von{' '}
+                            {(luxSensors ?? []).map((m) => m.name).join(', ')} und
+                            rechnet daraus: stockdunkel gedämpft, am trüben
+                            Nachmittag voll. Kein Messwert heisst «an ohne
+                            Vorgabe» – dunkel bleibt die Lampe nie.
+                          </Text>
+                        ) : null}
                         {sceneTransition > 0 ? (
                           // Beim Lichtwecker kommt die Decke über zwanzig
                           // Minuten – die Nachttischlampe soll trotzdem
@@ -391,6 +442,86 @@ export function SceneDevices({
                           />
                         ) : null}
                       </>
+                    ) : null}
+                    {/* Farbe und Weissanteil, wenn die Lampe es kann und
+                        wir in einem Ablauf sind: «wenn sich die Lampe
+                        einschaltet, dann bitte so». */}
+                    {lichtFein && istAnschalten(action!.command) &&
+                    entity.commands.includes('set_color') ? (
+                      <View style={styles.farbReihe}>
+                        <Pressable
+                          onPress={() => setField(entity.id, { color: undefined })}
+                          accessibilityRole="radio"
+                          accessibilityState={{ selected: !action!.color }}
+                          accessibilityLabel="Farbe unverändert lassen"
+                          style={[
+                            styles.farbPunkt,
+                            styles.farbLeer,
+                            !action!.color && { borderColor: colors.ink, borderWidth: 2 },
+                          ]}
+                        >
+                          <Ionicons name="close" size={13} color={colors.inkFaint} />
+                        </Pressable>
+                        {PALETTE.map((farbe) => (
+                          <Pressable
+                            key={farbe.hex}
+                            onPress={() =>
+                              setField(entity.id, {
+                                color: farbe.hex,
+                                // Farbe und Weissanteil schliessen sich aus:
+                                // Die Lampe leuchtet in einem von beidem.
+                                colorTemp: undefined,
+                              })
+                            }
+                            accessibilityRole="radio"
+                            accessibilityState={{ selected: action!.color === farbe.hex }}
+                            accessibilityLabel={farbe.name}
+                            style={[
+                              styles.farbPunkt,
+                              { backgroundColor: farbe.hex },
+                              action!.color === farbe.hex && {
+                                borderColor: colors.ink,
+                                borderWidth: 2,
+                              },
+                            ]}
+                          />
+                        ))}
+                      </View>
+                    ) : null}
+                    {/* Und wie lange sie an bleibt. Vorher brauchte das
+                        drei Schritte – an, warten, aus –, und der
+                        Warte-Schritt hielt den ganzen Ablauf auf. */}
+                    {lichtFein && istAnschalten(action!.command) ? (
+                      <>
+                        <Text style={styles.groupLabel}>Wie lange an?</Text>
+                        <NachlaufWahl
+                          value={action!.offAfter ? String(action!.offAfter) : ''}
+                          onChange={(seconds) =>
+                            setField(entity.id, {
+                              offAfter: seconds ? Number(seconds) : undefined,
+                            })
+                          }
+                        />
+                      </>
+                    ) : null}
+                    {lichtFein && istAnschalten(action!.command) &&
+                    entity.commands.includes('set_color_temp') ? (
+                      <Choice
+                        options={[
+                          { key: '', label: 'Weiss unverändert' },
+                          ...WEISSTOENE.map((ton) => ({
+                            key: String(ton.mirek),
+                            label: ton.label,
+                          })),
+                        ]}
+                        value={action!.color ? '' : String(action!.colorTemp ?? '')}
+                        onSelect={(key) =>
+                          setField(entity.id, {
+                            colorTemp: key ? Number(key) : undefined,
+                            color: key ? undefined : action!.color,
+                          })
+                        }
+                      />
                     ) : null}
                   </View>
                 ) : null}

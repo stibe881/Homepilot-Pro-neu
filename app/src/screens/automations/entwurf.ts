@@ -5,7 +5,7 @@
  */
 
 import { Entity } from '../../api/types';
-import { datumUhr } from '../../lib/format';
+import { datumUhr, dauerText } from '../../lib/format';
 
 /**
  * Die gespeicherte Form eines Ablauf-Bausteins (Auslöser, Bedingung,
@@ -366,7 +366,14 @@ export interface StepDraft {
     rooms?: number[];
     position?: number;
     brightness?: number;
+    /** Lichtfarbe als #RRGGBB – nur bei Lampen, die Farbe können. */
     color?: string;
+    /** Weissanteil als Mirek (153 kühl … 500 warm). */
+    colorTemp?: number;
+    /** Helligkeit erst beim Auslösen aus den Lux des Melders rechnen. */
+    adaptive?: boolean;
+    /** Nachlauf in Sekunden – danach schaltet der Hub die Lampe aus. */
+    offAfter?: number;
   }[];
   sceneId: string;
   /** Name einer auf der Hue-Bridge gespeicherten Szene. */
@@ -703,6 +710,38 @@ export function delayLabel(seconds: string): string {
   return `${minutes} Minute${minutes === 1 ? '' : 'n'}`;
 }
 
+/** Höchste eintippbare Haltedauer: eine Woche.
+ *
+ * Nicht, weil längere unmöglich wären, sondern weil sich «10080» noch
+ * erklären lässt und ein verrutschtes «100000» (69 Tage) nicht. */
+export const MAX_MINUTEN = 7 * 24 * 60;
+
+/** Eine Minutenzahl so, wie man sie ausspricht (rein, testbar).
+ *
+ * «125» liest sich schlechter als «2 h 5 min» – und beim Prüfen der
+ * eigenen Eingabe zählt genau das: ob die Zahl das meint, was man wollte.
+ * Ganze Tage bleiben Tage: «1440 min» wäre richtig und trotzdem
+ * unlesbar. */
+export function minutenLabel(minutes: string | number): string {
+  const value = Math.max(0, Math.round(Number(minutes) || 0));
+  if (value === 0) return 'sofort';
+  if (value % 1440 === 0) {
+    const tage = value / 1440;
+    return `${tage} Tag${tage === 1 ? '' : 'e'}`;
+  }
+  return dauerText(value);
+}
+
+/** Eine eingetippte Haltedauer auf das, was gespeichert wird (rein, testbar).
+ *
+ * Leer, null oder Unsinn heisst «sofort» – das ist die Vorgabe und der
+ * einzige Wert, bei dem das Feld leer bleiben darf. */
+export function minutenWert(text: string): string {
+  const value = Math.round(Number(text) || 0);
+  if (value <= 0) return '';
+  return String(Math.min(MAX_MINUTEN, value));
+}
+
 /** Die Bedingung eines Ablaufs in die gespeicherte Form (rein, testbar). */
 export function buildConditions(draft: Draft): BausteinConfig[] {
   const conditions: BausteinConfig[] = [];
@@ -757,6 +796,86 @@ export function stateConditionToConfig(entry: StateCondition): BausteinConfig | 
   if (entry.op === 'above') return { ...base, above: Number(entry.value) || 0 };
   if (entry.op === 'below') return { ...base, below: Number(entry.value) || 0 };
   return { ...base, equals: entry.value };
+}
+
+/** Die Auslöser eines Ablaufs, die Helligkeit messen (rein, testbar).
+ *
+ * «An die Helligkeit angepasst» braucht einen Melder, der Lux liefert.
+ * Ein Bewegungsmelder ohne Helligkeitsfühler meldet nur an/aus – die
+ * Wahl gehört dann gar nicht erst auf den Bildschirm. */
+export function melderMitLux(
+  draft: { triggers: { entityId: string }[] },
+  entities: Entity[]
+): Entity[] {
+  const ids = Array.from(
+    new Set(draft.triggers.map((trigger) => trigger.entityId).filter(Boolean))
+  );
+  return ids
+    .map((id) => entities.find((entity) => entity.id === id))
+    .filter(
+      (entity): entity is Entity => !!entity && typeof entity.state.illumination === 'number'
+    );
+}
+
+/** Weisstöne, die zur Auswahl stehen: Mirek und was man dazu sagt.
+ *
+ * Mirek statt Kelvin, weil die Lampen so rechnen (153 = 6500 K, 500 =
+ * 2000 K) – auf dem Knopf steht trotzdem die Kelvin-Zahl, die auf jeder
+ * Glühbirnen-Packung steht. */
+export const WEISSTOENE: { key: string; label: string; mirek: number }[] = [
+  { key: 'warm', label: 'warmweiss', mirek: 370 },
+  { key: 'neutral', label: 'neutralweiss', mirek: 286 },
+  { key: 'kalt', label: 'tageslichtweiss', mirek: 200 },
+];
+
+/** Die angebotenen Nachlaufzeiten (Sekunden als Schlüssel).
+ *
+ * Sekunden statt Minuten, weil eine halbe Minute im WC eine ehrliche
+ * Angabe ist – und weil der Hub ohnehin in Sekunden rechnet. */
+export const NACHLAUF_STUFEN: { key: string; label: string }[] = [
+  { key: '', label: 'an lassen' },
+  { key: '30', label: '30 Sek.' },
+  { key: '60', label: '1 Min.' },
+  { key: '120', label: '2 Min.' },
+  { key: '300', label: '5 Min.' },
+  { key: '600', label: '10 Min.' },
+  { key: '1800', label: '30 Min.' },
+];
+
+/** Eingetippte Minuten als Sekunden, wie sie gespeichert werden
+ *  (rein, testbar). */
+export function sekundenWert(text: string): string {
+  const minuten = minutenWert(text);
+  return minuten ? String(Number(minuten) * 60) : '';
+}
+
+/** Eine Nachlaufzeit, wie sie auf dem Knopf steht (rein, testbar).
+ *
+ * In der Schreibweise der Knöpfe daneben – «5 Min.», nicht «5 min»:
+ * Zwei Schreibweisen in einer Reihe liest man als zwei verschiedene
+ * Dinge. Erst über einer Stunde übernimmt dauerText, wo «90 Min.» keine
+ * Antwort mehr wäre. */
+export function nachlaufLabel(seconds: string | number): string {
+  const wert = Math.max(0, Math.round(Number(seconds) || 0));
+  if (wert === 0) return 'an lassen';
+  if (wert < 60) return `${wert} Sek.`;
+  if (wert % 60 === 0 && wert < 3600) return `${wert / 60} Min.`;
+  return dauerText(wert / 60);
+}
+
+/** Hat dieser Schritt Licht-Feinheiten – Farbe, Weiss oder Anpassung?
+ *  (rein, testbar)
+ *
+ * Nur dann wird daraus ein Licht-Schritt. Ein blosses «einschalten»
+ * bleibt das schlichte Kommando, das es immer war. */
+export function istLichtFein(action: {
+  command: string;
+  color?: string;
+  colorTemp?: number;
+  adaptive?: boolean;
+  offAfter?: number;
+}): boolean {
+  return !!(action.adaptive || action.color || action.colorTemp || action.offAfter);
 }
 
 /** Einen einzelnen Schritt in die gespeicherte Form (rein, testbar).
@@ -824,6 +943,22 @@ export function stepToActions(step: StepDraft): BausteinConfig[] {
   return step.commandActions
     .filter((action) => action.entity_id)
     .map((action) => {
+      // Licht mit Feinheiten bekommt den eigenen Aktionstyp: Helligkeit,
+      // Farbe und Weissanteil gehen dann in einem Zug an die Lampe,
+      // statt als drei Kommandos hintereinander - dazwischen sähe man
+      // sie sichtbar umspringen. Ohne Feinheiten bleibt alles, wie es
+      // war; ein bestehender Ablauf ändert sich durch Öffnen nicht.
+      if (istLichtFein(action)) {
+        const licht: BausteinConfig = { type: 'light', entity_id: action.entity_id };
+        if (action.adaptive) licht.brightness = 'adaptive';
+        else if (action.command === 'set_brightness') {
+          licht.brightness = action.brightness ?? 50;
+        }
+        if (action.color) licht.color = action.color;
+        else if (action.colorTemp) licht.color_temp = action.colorTemp;
+        if (action.offAfter) licht.off_after = action.offAfter;
+        return licht;
+      }
       const built: BausteinConfig = {
         type: 'command',
         entity_id: action.entity_id,
@@ -866,6 +1001,27 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
         rooms: action.data?.rooms ?? [],
         position: action.data?.position,
         brightness: action.data?.brightness,
+      };
+      const last = steps[steps.length - 1];
+      if (last && last.kind === 'command') {
+        last.commandActions = [...last.commandActions, entry];
+      } else {
+        steps.push({ ...EMPTY_STEP, kind: 'command', commandActions: [entry] });
+      }
+    } else if (type === 'light') {
+      const adaptive = String(action.brightness ?? '') === 'adaptive';
+      const entry = {
+        entity_id: action.entity_id,
+        command:
+          adaptive || typeof action.brightness === 'number'
+            ? 'set_brightness'
+            : 'turn_on',
+        rooms: [],
+        brightness: typeof action.brightness === 'number' ? action.brightness : undefined,
+        adaptive: adaptive || undefined,
+        color: action.color ? String(action.color) : undefined,
+        colorTemp: action.color_temp ? Number(action.color_temp) : undefined,
+        offAfter: action.off_after ? Number(action.off_after) : undefined,
       };
       const last = steps[steps.length - 1];
       if (last && last.kind === 'command') {
@@ -995,6 +1151,20 @@ export function withAtLeastOne(steps: StepDraft[]): StepDraft[] {
   return steps.length > 0 ? steps : [{ ...EMPTY_STEP }];
 }
 
+/** Wie das Licht in der Listenzeile steht (rein, testbar).
+ *
+ * Mit dem Nachlauf, wenn es einen gibt: «Licht an» allein lässt die
+ * Frage offen, wann es wieder ausgeht. */
+export function lichtKurz(action: BausteinConfig): string {
+  const wie =
+    String(action.brightness ?? '') === 'adaptive'
+      ? 'angepasst'
+      : action.brightness != null
+        ? `${action.brightness} %`
+        : 'an';
+  return action.off_after ? `${wie}, ${nachlaufLabel(action.off_after)}` : wie;
+}
+
 export function describe(automation: Automation): string {
   const trigger = automation.triggers[0];
   const action = automation.actions.find((entry) => entry.type !== 'delay');
@@ -1015,13 +1185,15 @@ export function describe(automation: Automation): string {
               } → ${trigger.to ?? 'sich ändert'}`;
   const dann = !action
     ? 'ohne Aktion'
-    : action.type === 'scene'
-      ? `Szene ${action.scene}`
-      : action.type === 'notify'
-        ? 'Nachricht senden'
-        : action.command === 'clean_rooms'
-          ? `${action.entity_id}: ${action.data?.rooms?.length ?? 0} Räume saugen`
-          : `${action.entity_id} ${action.command}`;
+    : action.type === 'light'
+      ? `${action.entity_id}: Licht ${lichtKurz(action)}`
+      : action.type === 'scene'
+        ? `Szene ${action.scene}`
+        : action.type === 'notify'
+          ? 'Nachricht senden'
+          : action.command === 'clean_rooms'
+            ? `${action.entity_id}: ${action.data?.rooms?.length ?? 0} Räume saugen`
+            : `${action.entity_id} ${action.command}`;
   const mehr = automation.triggers.length > 1 ? ` (+${automation.triggers.length - 1})` : '';
   // Wie viele Schritte noch folgen – seit ein Ablauf mehrere Arten mischen
   // kann, sagt die erste Aktion allein zu wenig.

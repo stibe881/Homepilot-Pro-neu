@@ -28,6 +28,7 @@ EXPO_ENDPOINT = "https://exp.host/--/api/v2/push/send"
 CATEGORIES: dict[str, str] = {
     "alarm": "Alarm ausgelöst",
     "alarm_arming": "Alarmanlage scharf/unscharf",
+    "camera_motion": "Kamera sieht Bewegung (wenn scharf)",
     "outage": "Integration ausgefallen",
     "device_down": "Überwachtes Gerät antwortet nicht",
     "battery": "Batterie schwach",

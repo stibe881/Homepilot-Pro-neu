@@ -3,6 +3,7 @@ import React, { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Entity } from '../api/types';
+import { workingAppliances } from '../lib/haushalt';
 import { Colors, useColors } from '../theme';
 
 /**
@@ -13,18 +14,6 @@ import { Colors, useColors } from '../theme';
  * verschwindet der Hinweis ganz; nur dann bleibt er beim Hinsehen etwas
  * wert.
  */
-
-/** Geräte an einer Messsteckdose, die zum Haushalt zählen. */
-const APPLIANCE_NAME = /tumbler|trockner|wasch|geschirr|sp(ü|ue)lmaschine/i;
-
-/** Ab dieser Leistung gilt ein Gerät an der Steckdose als «arbeitet». */
-const WORKING_WATTS = 5;
-
-export interface Working {
-  entity: Entity;
-  /** Kurze Zusatzangabe: Restzeit, Programm oder Leistung. */
-  note: string;
-}
 
 /**
  * Passendes Symbol zum Gerät (rein, testbar).
@@ -39,42 +28,6 @@ export function applianceIcon(name: string): keyof typeof Ionicons.glyphMap {
   if (/wasch/i.test(name)) return 'water-outline';
   if (/geschirr|sp(ü|ue)lmaschine/i.test(name)) return 'restaurant-outline';
   return 'ellipse';
-}
-
-/**
- * Welche Haushaltsgeräte arbeiten gerade? (rein, testbar)
- *
- * Zwei Quellen, weil die Geräte unterschiedlich angebunden sind: echte
- * Haushaltsgeräte (V-ZUG & Co.) melden ihren Zustand selbst, ein Tumbler an
- * der Schalt-Messsteckdose verrät es nur über die Leistung – eingeschaltet
- * ist die Steckdose auch dann noch, wenn er längst fertig ist.
- */
-export function workingAppliances(entities: Entity[]): Working[] {
-  const working: Working[] = [];
-  for (const entity of entities) {
-    if (!entity.available) continue;
-
-    if (entity.kind === 'appliance') {
-      const state = String(entity.state.state ?? '');
-      if (state !== 'running' && state !== 'on') continue;
-      const minutes = entity.state.minutes_left;
-      working.push({
-        entity,
-        note:
-          minutes != null
-            ? `noch ${minutes} min`
-            : String(entity.state.program ?? 'läuft'),
-      });
-      continue;
-    }
-
-    const watts = Number(entity.state.power);
-    if (!Number.isFinite(watts)) continue;
-    if (!APPLIANCE_NAME.test(entity.name)) continue;
-    if (String(entity.state.state) === 'off' || watts <= WORKING_WATTS) continue;
-    working.push({ entity, note: `${Math.round(watts)} W` });
-  }
-  return working;
 }
 
 export function RunningAppliances({ entities }: { entities: Entity[] }) {

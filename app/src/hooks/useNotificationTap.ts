@@ -7,12 +7,14 @@ import { Platform } from 'react-native';
  *
  * Bisher öffnete sich nur die App – wer nachts vom Alarm geweckt wird,
  * musste sich dann erst durch die Räume zur richtigen Kamera tippen. Der
- * Hub legt der Alarmmeldung deshalb die Kamera des betroffenen Raums bei;
- * hier wird sie ausgepackt.
+ * Hub legt der Nachricht deshalb die Kamera bei: beim Alarm die des
+ * betroffenen Raums, bei einer Bewegungsmeldung die Kamera selbst, die sie
+ * gesehen hat. Hier wird sie ausgepackt.
  *
- * Bewusst kein Bild in der Nachricht selbst: Dafür bräuchte es eine von
- * aussen erreichbare Adresse ohne Anmeldung – das wäre der Sicherheit
- * zuliebe der falsche Handel.
+ * Das Standbild in der Nachricht selbst hängt am Hub: Es braucht eine von
+ * aussen erreichbare Adresse ohne Anmeldung (`push.public_url`, siehe
+ * hub/core/snapshots.py). Ohne sie kommt die Nachricht ohne Bild – der
+ * Sprung zur Kamera funktioniert trotzdem.
  */
 export interface Tap {
   /** Entitäts-Kennung einer Kamera, die geöffnet werden soll. */
