@@ -75,8 +75,8 @@ from .tuya_logic import (  # noqa: F401
     brightness_range,
     check_address,
     check_key,
-    cloud_report,
     cloud_raw_hint,
+    cloud_report,
     decode_color,
     dps_map,
     encode_color,
@@ -146,7 +146,7 @@ class TuyaIntegration(Integration):
         # tinytuya abgewiesen, noch bevor es das Gerät anspricht - mit
         # derselben Fehlernummer wie eine falsche Protokollfassung. Wer
         # das nicht weiss, sucht danach an der falschen Stelle.
-        key = check_key(block.get("key"))
+        check_key(block.get("key"))
         name = str(block.get("name") or geraete_id)
         check_address(block.get("ip"))
         kind = EntityKind.SWITCH if block.get("kind") == "switch" else EntityKind.LIGHT
