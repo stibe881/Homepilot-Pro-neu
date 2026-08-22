@@ -8,7 +8,6 @@ import { ConfigVersion, Entity, HubSettings, LogEntry, SystemStatus, User } from
 import { PushState, pushHint } from '../hooks/usePushRegistration';
 import { AccessLog } from '../components/AccessLog';
 import { Card } from '../components/Card';
-import { DeviceHealth } from '../components/DeviceHealth';
 import { Maintenance } from '../components/Maintenance';
 import { Fehlschlag, Laedt } from '../components/Zustand';
 import { localTime, timeAgo } from '../lib/zeit';
@@ -165,7 +164,8 @@ export function SystemScreen({
       </Card>
 
       <Maintenance settings={settings} />
-      <DeviceHealth entities={entities} />
+      {/* Die Geräte-Gesundheit steht jetzt unter «Geräte» – dort sucht
+          man nach einem Gerät, hier nach dem Hub. */}
 
       <IntegrationsCard integrations={status.integrations} />
 

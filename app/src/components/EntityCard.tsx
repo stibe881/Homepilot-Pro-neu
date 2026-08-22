@@ -65,6 +65,11 @@ interface Props {
    *  Lampe zu unterscheiden – und man wundert sich, warum er im Raum
    *  fehlt und beim Schalten der Leuchte mitgeht. */
   partOf?: string | null;
+  /** «in 2 Abläufen und 1 Szene» – antippbar, führt zu den Abläufen.
+   *  Nur auf der Geräteseite gesetzt: Wer vor einer Lampe steht, die von
+   *  selbst angeht, soll den Urheber finden, ohne alles durchzulesen. */
+  usedIn?: string;
+  onUsedIn?: () => void;
 }
 
 /** Warnstufen brauchen je nach Palette andere Farben. */
@@ -97,6 +102,8 @@ export function EntityCard({
   snapshotUri,
   sky,
   partOf,
+  usedIn,
+  onUsedIn,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -646,6 +653,18 @@ export function EntityCard({
         onToggle={toggle}
         pending={pending}
       />
+      {usedIn ? (
+        <Pressable
+          onPress={onUsedIn}
+          accessibilityRole="button"
+          accessibilityLabel={`${entity.name}: ${usedIn} – Abläufe öffnen`}
+          hitSlop={6}
+          style={styles.partOfRow}
+        >
+          <Ionicons name="git-branch-outline" size={12} color={colors.inkFaint} />
+          <Text style={styles.partOfText}>{usedIn}</Text>
+        </Pressable>
+      ) : null}
     </Card>
   );
 }

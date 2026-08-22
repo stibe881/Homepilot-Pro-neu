@@ -29,6 +29,7 @@ import { OpenDoors } from '../components/OpenDoors';
 import { RunningAppliances } from '../components/RunningAppliances';
 import { SECTION_LABEL, Rail, Section } from '../components/Rail';
 import { AllOff } from '../components/AllOff';
+import { DeviceHealth } from '../components/DeviceHealth';
 import { RoomTabs } from '../components/RoomTabs';
 import { RoomTile } from '../components/RoomTile';
 import { SceneRow } from '../components/SceneRow';
@@ -45,6 +46,13 @@ import { breakpoints, Colors, radius, space, type, useColors } from '../theme';
 import { findeArtikel, mengeUndName, mitMenge, shopCategory } from '../lib/einkauf';
 import { deviceKindLabel } from '../lib/geraeteart';
 import { szenenFuerRaum } from '../lib/szenen';
+import {
+  GeraeteFilter,
+  GeraeteSortierung,
+  passtFilter,
+  sortiereGeraete,
+} from '../lib/geraetefilter';
+import { verweisText, verweiseAuf } from '../lib/verweise';
 import { schleier } from '../lib/nachtabsenkung';
 import { hubClient, onHubFehler } from '../api/client';
 import { Auffangnetz } from '../components/Auffangnetz';
@@ -197,6 +205,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [reorderOpen, setReorderOpen] = useState(false);
   // Suchbegriff der Geräteliste.
   const [query, setQuery] = useState('');
+  // Filter und Sortierung der Geräteliste – die vier Fragen, mit denen
+  // man diese Seite öffnet, plus die Reihenfolge dazu.
+  const [deviceFilter, setDeviceFilter] = useState<GeraeteFilter>('');
+  const [deviceSort, setDeviceSort] = useState<GeraeteSortierung>('selbst');
   const [expanded, setExpanded] = useState<string | null>(null);
   const [lastTouch, setLastTouch] = useState(() => Date.now());
   // Zählt hoch, wenn der Widget-Knopf «Alles aus» gedrückt wurde – die
@@ -217,7 +229,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [searchOpen, setSearchOpen] = useState(false);
   // Abläufe – nur für die Suche; die Liste selbst lebt im Ablauf-Screen.
   const [automations, setAutomations] = useState<
-    { id: string; alias: string; category?: string | null }[]
+    {
+      id: string;
+      alias: string;
+      category?: string | null;
+      triggers?: unknown[];
+      conditions?: unknown[];
+      actions?: unknown[];
+      otherwise?: unknown[];
+    }[]
   >([]);
   // Rückfrage vor dem Schalten eines gesperrten Geräts.
   const [confirm, setConfirm] = useState<{
@@ -417,7 +437,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     })
       .then((response) => (response.ok ? response.json() : []))
       .then((rows) => {
-        if (alive) setAutomations(Array.isArray(rows) ? rows : []);
+        // Der Hub antwortet mit {automations: [...], paused_until} – der
+        // alte Array-Check liess die Liste immer leer, und die Suche
+        // fand nie einen Ablauf, ohne dass es jemandem auffiel.
+        const liste = Array.isArray(rows) ? rows : rows?.automations;
+        if (alive) setAutomations(Array.isArray(liste) ? liste : []);
       })
       .catch(() => {});
     return () => {
@@ -773,8 +797,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // damit «Küche», «Storen Süd» oder «hue» genauso finden wie der Gerätename.
   const needle = query.trim().toLowerCase();
   const searching = section === 'devices' && needle.length > 0;
+  const vorgefiltert =
+    section === 'devices' && deviceFilter
+      ? shown.filter((entity) => passtFilter(entity, deviceFilter, hidden))
+      : shown;
   const found = searching
-    ? shown.filter((entity) =>
+    ? vorgefiltert.filter((entity) =>
         [
           entity.name,
           entity.room ?? '',
@@ -791,7 +819,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           .toLowerCase()
           .includes(needle)
       )
-    : shown;
+    : vorgefiltert;
 
   // Hat ein Raum eine selbst gezogene Reihenfolge, gilt genau sie - dann
   // entfällt auch die Zweiteilung «Aktiv/Ruhend», die Kacheln stehen, wo
@@ -805,7 +833,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       ? customOrdered
         ? [...shown].sort(byOrder)
         : shown.filter((entity) => !isActive(entity)).sort(byFavorite)
-      : [...found].sort(byOrder);
+      : section === 'devices'
+        ? sortiereGeraete([...found].sort(byOrder), deviceSort, deviceKindLabel)
+        : [...found].sort(byOrder);
 
   // Bei vielen Räumen wird die Startseite im „Alle“-Modus nach Räumen
   // gruppiert (Überschrift je Zimmer), damit man das ganze Haus auf einen
@@ -946,6 +976,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           : null
       }
       pending={pending[entity.id]}
+      // Nur unter «Geräte»: Wo kommt das Gerät überall vor? Antippen
+      // führt zu den Abläufen.
+      usedIn={
+        section === 'devices'
+          ? (() => {
+              const { ablaeufe, szenen } = verweiseAuf(entity.id, automations, scenes);
+              return verweisText(ablaeufe.length, szenen.length) || undefined;
+            })()
+          : undefined
+      }
+      onUsedIn={() => setSection('automations')}
       pricePerKwh={energy?.price_per_kwh}
       currency={energy?.currency ?? 'CHF'}
       editing={editing}
@@ -1350,6 +1391,74 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 </Pressable>
               ) : null}
             </View>
+          ) : null}
+          {section === 'devices' ? (
+            <>
+              {/* Die vier Fragen, mit denen man diese Seite öffnet – als
+                  Knöpfe statt als Scrollarbeit. Die Zahl sagt gleich, ob
+                  sich das Antippen lohnt. */}
+              <View style={styles.filterRow}>
+                {(
+                  [
+                    ['offline', 'Nicht erreichbar'],
+                    ['batterie', 'Batterie'],
+                    ['ohne-raum', 'Ohne Raum'],
+                    ['ausgeblendet', 'Ausgeblendet'],
+                  ] as const
+                ).map(([key, label]) => {
+                  const anzahl = shown.filter((entity) =>
+                    passtFilter(entity, key, hidden)
+                  ).length;
+                  const an = deviceFilter === key;
+                  if (anzahl === 0 && !an) return null;
+                  return (
+                    <Pressable
+                      key={key}
+                      onPress={() => setDeviceFilter(an ? '' : key)}
+                      accessibilityRole="switch"
+                      accessibilityState={{ checked: an }}
+                      style={[styles.filterChip, an && styles.filterChipOn]}
+                    >
+                      <Text style={[styles.filterChipText, an && styles.filterChipTextOn]}>
+                        {label} · {anzahl}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+                <View style={{ flex: 1 }} />
+                <Pressable
+                  onPress={() =>
+                    setDeviceSort(
+                      deviceSort === 'selbst'
+                        ? 'raum'
+                        : deviceSort === 'raum'
+                          ? 'art'
+                          : deviceSort === 'art'
+                            ? 'gesehen'
+                            : 'selbst'
+                    )
+                  }
+                  accessibilityRole="button"
+                  accessibilityLabel="Sortierung wechseln"
+                  style={styles.filterChip}
+                >
+                  <Ionicons name="swap-vertical" size={12} color={colors.onGradientSoft} />
+                  <Text style={styles.filterChipText}>
+                    {deviceSort === 'selbst'
+                      ? 'eigene Reihenfolge'
+                      : deviceSort === 'raum'
+                        ? 'nach Raum'
+                        : deviceSort === 'art'
+                          ? 'nach Art'
+                          : 'lange nicht gesehen'}
+                  </Text>
+                </Pressable>
+              </View>
+              {/* Batterien und Stumme im Detail – vorher unter System,
+                  also auf dem Bildschirm für den Hub statt dem für die
+                  Geräte. */}
+              <DeviceHealth entities={entities} />
+            </>
           ) : null}
           {searching ? (
             <Text style={styles.searchCount}>
@@ -2505,6 +2614,21 @@ const makeStyles = (colors: Colors) =>
   },
   searchInput: { flex: 1, paddingVertical: 11, color: colors.ink, fontSize: 15 },
   searchCount: { color: colors.onGradientSoft, fontSize: 12, fontWeight: '600' },
+  filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  filterChipOn: { backgroundColor: colors.surfaceStrong },
+  filterChipText: { color: colors.onGradientSoft, fontSize: 12, fontWeight: '600' },
+  filterChipTextOn: { color: colors.ink },
   reorderButton: {
     flexDirection: 'row',
     alignItems: 'center',
