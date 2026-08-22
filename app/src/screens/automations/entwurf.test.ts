@@ -8,6 +8,9 @@ import {
   actionsToSteps,
   toDraft,
   triggerFromConfig,
+  istLichtFein,
+  lichtKurz,
+  melderMitLux,
   minutenLabel,
   minutenWert,
   triggerIcon,
@@ -246,5 +249,94 @@ describe('eigene Haltedauer', () => {
     const config = triggerToConfig(trigger);
     expect(config.for).toBe(125 * 60);
     expect(triggerFromConfig(config).forMinutes).toBe('125');
+  });
+});
+
+describe('Licht mit Feinheiten', () => {
+  const licht = (over = {}) => ({
+    ...EMPTY_STEP,
+    kind: 'command' as const,
+    commandActions: [
+      { entity_id: 'hue.flur', command: 'set_brightness', brightness: 50, ...over },
+    ],
+  });
+
+  it('bleibt ein schlichtes Kommando, solange nichts Feines dabei ist', () => {
+    // Sonst änderte sich ein bestehender Ablauf allein durchs Öffnen.
+    const [action] = stepToActions(licht());
+    expect(action.type).toBe('command');
+    expect(action.data.brightness).toBe(50);
+  });
+
+  it('wird zum Licht-Schritt, sobald eine Farbe dabei ist', () => {
+    const [action] = stepToActions(licht({ color: '#FFD9A0' }));
+    expect(action.type).toBe('light');
+    expect(action.color).toBe('#FFD9A0');
+    expect(action.brightness).toBe(50);
+  });
+
+  it('schreibt «adaptive» statt einer Zahl, wenn es sich anpassen soll', () => {
+    const [action] = stepToActions(licht({ adaptive: true }));
+    expect(action.type).toBe('light');
+    expect(action.brightness).toBe('adaptive');
+  });
+
+  it('nimmt den Weissanteil mit, wenn keine Farbe gesetzt ist', () => {
+    const [action] = stepToActions(licht({ colorTemp: 370 }));
+    expect(action.color_temp).toBe(370);
+    expect(action.color).toBeUndefined();
+  });
+
+  it('liest den Licht-Schritt unverändert zurück', () => {
+    const gespeichert = stepToActions(licht({ adaptive: true, color: '#FF2D2D' }));
+    const [step] = actionsToSteps(gespeichert);
+    expect(step.kind).toBe('command');
+    expect(step.commandActions[0]).toMatchObject({
+      entity_id: 'hue.flur',
+      command: 'set_brightness',
+      adaptive: true,
+      color: '#FF2D2D',
+    });
+    // Und wieder hinaus ergibt dasselbe wie vorher.
+    expect(stepToActions(step)).toEqual(gespeichert);
+  });
+
+  it('erkennt, wann ein Schritt Feinheiten hat', () => {
+    expect(istLichtFein({ command: 'turn_on' })).toBe(false);
+    expect(istLichtFein({ command: 'turn_on', color: '#FFD9A0' })).toBe(true);
+    expect(istLichtFein({ command: 'set_brightness', adaptive: true })).toBe(true);
+    expect(istLichtFein({ command: 'set_brightness', colorTemp: 286 })).toBe(true);
+  });
+});
+
+describe('melderMitLux', () => {
+  const melder = (id: string, illumination?: number) =>
+    ({
+      id,
+      kind: 'binary_sensor',
+      name: id,
+      integration: 'demo',
+      state: illumination === undefined ? { state: 'off' } : { state: 'off', illumination },
+      commands: [],
+      available: true,
+    }) as never;
+
+  it('nimmt nur Auslöser, die wirklich Lux melden', () => {
+    const entities = [melder('demo.mit', 12), melder('demo.ohne')];
+    const draft = { triggers: [{ entityId: 'demo.mit' }, { entityId: 'demo.ohne' }] };
+    expect(melderMitLux(draft, entities).map((entity) => entity.id)).toEqual(['demo.mit']);
+  });
+
+  it('bleibt leer, wenn kein Melder einen Helligkeitsfühler hat', () => {
+    // Dann gehört die Wahl «an Helligkeit angepasst» gar nicht erst hin.
+    expect(melderMitLux({ triggers: [{ entityId: 'demo.ohne' }] }, [melder('demo.ohne')])).toEqual([]);
+  });
+});
+
+describe('lichtKurz', () => {
+  it('sagt in der Liste, was die Lampe tut', () => {
+    expect(lichtKurz({ brightness: 'adaptive' })).toBe('angepasst');
+    expect(lichtKurz({ brightness: 40 })).toBe('40 %');
+    expect(lichtKurz({ color: '#FF2D2D' })).toBe('an');
   });
 });

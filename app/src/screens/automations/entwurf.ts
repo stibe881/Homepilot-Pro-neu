@@ -366,7 +366,12 @@ export interface StepDraft {
     rooms?: number[];
     position?: number;
     brightness?: number;
+    /** Lichtfarbe als #RRGGBB – nur bei Lampen, die Farbe können. */
     color?: string;
+    /** Weissanteil als Mirek (153 kühl … 500 warm). */
+    colorTemp?: number;
+    /** Helligkeit erst beim Auslösen aus den Lux des Melders rechnen. */
+    adaptive?: boolean;
   }[];
   sceneId: string;
   /** Name einer auf der Hue-Bridge gespeicherten Szene. */
@@ -791,6 +796,50 @@ export function stateConditionToConfig(entry: StateCondition): BausteinConfig | 
   return { ...base, equals: entry.value };
 }
 
+/** Die Auslöser eines Ablaufs, die Helligkeit messen (rein, testbar).
+ *
+ * «An die Helligkeit angepasst» braucht einen Melder, der Lux liefert.
+ * Ein Bewegungsmelder ohne Helligkeitsfühler meldet nur an/aus – die
+ * Wahl gehört dann gar nicht erst auf den Bildschirm. */
+export function melderMitLux(
+  draft: { triggers: { entityId: string }[] },
+  entities: Entity[]
+): Entity[] {
+  const ids = Array.from(
+    new Set(draft.triggers.map((trigger) => trigger.entityId).filter(Boolean))
+  );
+  return ids
+    .map((id) => entities.find((entity) => entity.id === id))
+    .filter(
+      (entity): entity is Entity => !!entity && typeof entity.state.illumination === 'number'
+    );
+}
+
+/** Weisstöne, die zur Auswahl stehen: Mirek und was man dazu sagt.
+ *
+ * Mirek statt Kelvin, weil die Lampen so rechnen (153 = 6500 K, 500 =
+ * 2000 K) – auf dem Knopf steht trotzdem die Kelvin-Zahl, die auf jeder
+ * Glühbirnen-Packung steht. */
+export const WEISSTOENE: { key: string; label: string; mirek: number }[] = [
+  { key: 'warm', label: 'warmweiss', mirek: 370 },
+  { key: 'neutral', label: 'neutralweiss', mirek: 286 },
+  { key: 'kalt', label: 'tageslichtweiss', mirek: 200 },
+];
+
+/** Hat dieser Schritt Licht-Feinheiten – Farbe, Weiss oder Anpassung?
+ *  (rein, testbar)
+ *
+ * Nur dann wird daraus ein Licht-Schritt. Ein blosses «einschalten»
+ * bleibt das schlichte Kommando, das es immer war. */
+export function istLichtFein(action: {
+  command: string;
+  color?: string;
+  colorTemp?: number;
+  adaptive?: boolean;
+}): boolean {
+  return !!(action.adaptive || action.color || action.colorTemp);
+}
+
 /** Einen einzelnen Schritt in die gespeicherte Form (rein, testbar).
  *
  * Ein Schritt kann mehrere Aktionen ergeben: «Gerät schalten» mit drei
@@ -856,6 +905,21 @@ export function stepToActions(step: StepDraft): BausteinConfig[] {
   return step.commandActions
     .filter((action) => action.entity_id)
     .map((action) => {
+      // Licht mit Feinheiten bekommt den eigenen Aktionstyp: Helligkeit,
+      // Farbe und Weissanteil gehen dann in einem Zug an die Lampe,
+      // statt als drei Kommandos hintereinander - dazwischen sähe man
+      // sie sichtbar umspringen. Ohne Feinheiten bleibt alles, wie es
+      // war; ein bestehender Ablauf ändert sich durch Öffnen nicht.
+      if (istLichtFein(action)) {
+        const licht: BausteinConfig = { type: 'light', entity_id: action.entity_id };
+        if (action.adaptive) licht.brightness = 'adaptive';
+        else if (action.command === 'set_brightness') {
+          licht.brightness = action.brightness ?? 50;
+        }
+        if (action.color) licht.color = action.color;
+        else if (action.colorTemp) licht.color_temp = action.colorTemp;
+        return licht;
+      }
       const built: BausteinConfig = {
         type: 'command',
         entity_id: action.entity_id,
@@ -898,6 +962,26 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
         rooms: action.data?.rooms ?? [],
         position: action.data?.position,
         brightness: action.data?.brightness,
+      };
+      const last = steps[steps.length - 1];
+      if (last && last.kind === 'command') {
+        last.commandActions = [...last.commandActions, entry];
+      } else {
+        steps.push({ ...EMPTY_STEP, kind: 'command', commandActions: [entry] });
+      }
+    } else if (type === 'light') {
+      const adaptive = String(action.brightness ?? '') === 'adaptive';
+      const entry = {
+        entity_id: action.entity_id,
+        command:
+          adaptive || typeof action.brightness === 'number'
+            ? 'set_brightness'
+            : 'turn_on',
+        rooms: [],
+        brightness: typeof action.brightness === 'number' ? action.brightness : undefined,
+        adaptive: adaptive || undefined,
+        color: action.color ? String(action.color) : undefined,
+        colorTemp: action.color_temp ? Number(action.color_temp) : undefined,
       };
       const last = steps[steps.length - 1];
       if (last && last.kind === 'command') {
@@ -1027,6 +1111,13 @@ export function withAtLeastOne(steps: StepDraft[]): StepDraft[] {
   return steps.length > 0 ? steps : [{ ...EMPTY_STEP }];
 }
 
+/** Wie das Licht in der Listenzeile steht (rein, testbar). */
+export function lichtKurz(action: BausteinConfig): string {
+  if (String(action.brightness ?? '') === 'adaptive') return 'angepasst';
+  if (action.brightness != null) return `${action.brightness} %`;
+  return 'an';
+}
+
 export function describe(automation: Automation): string {
   const trigger = automation.triggers[0];
   const action = automation.actions.find((entry) => entry.type !== 'delay');
@@ -1047,13 +1138,15 @@ export function describe(automation: Automation): string {
               } → ${trigger.to ?? 'sich ändert'}`;
   const dann = !action
     ? 'ohne Aktion'
-    : action.type === 'scene'
-      ? `Szene ${action.scene}`
-      : action.type === 'notify'
-        ? 'Nachricht senden'
-        : action.command === 'clean_rooms'
-          ? `${action.entity_id}: ${action.data?.rooms?.length ?? 0} Räume saugen`
-          : `${action.entity_id} ${action.command}`;
+    : action.type === 'light'
+      ? `${action.entity_id}: Licht ${lichtKurz(action)}`
+      : action.type === 'scene'
+        ? `Szene ${action.scene}`
+        : action.type === 'notify'
+          ? 'Nachricht senden'
+          : action.command === 'clean_rooms'
+            ? `${action.entity_id}: ${action.data?.rooms?.length ?? 0} Räume saugen`
+            : `${action.entity_id} ${action.command}`;
   const mehr = automation.triggers.length > 1 ? ` (+${automation.triggers.length - 1})` : '';
   // Wie viele Schritte noch folgen – seit ein Ablauf mehrere Arten mischen
   // kann, sagt die erste Aktion allein zu wenig.

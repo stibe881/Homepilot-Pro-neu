@@ -11,7 +11,7 @@ import { Entity, Scene } from '../../api/types';
 import { Colors, useColors } from '../../theme';
 import { ablaufSatz } from '../../lib/ablaufsatz';
 import { datumUhr } from '../../lib/format';
-import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, hatWartezeit, measurableAttributes, newTrigger, optionKey, stateOptions, stepsToActions, triggerToConfig, weekdayLabel } from './entwurf';
+import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, hatWartezeit, measurableAttributes, melderMitLux, newTrigger, optionKey, stateOptions, stepsToActions, triggerToConfig, weekdayLabel } from './entwurf';
 import {
   CategoryField,
   Choice,
@@ -87,6 +87,12 @@ export function Editor({
     });
   const removeTrigger = (index: number) =>
     set({ triggers: draft.triggers.filter((_, i) => i !== index) });
+
+  // Welche Auslöser dieses Ablaufs messen Helligkeit? Nur dann gibt es
+  // bei den Lampen «an Helligkeit angepasst» – ein Melder ohne
+  // Helligkeitsfühler kann nichts beisteuern, und die Wahl wäre eine
+  // Attrappe.
+  const luxSensors = melderMitLux(draft, entities);
 
   return (
     <Modal visible animationType="slide" onRequestClose={onCancel}>
@@ -609,6 +615,7 @@ export function Editor({
             scenes={scenes}
             hueScenes={hueScenes}
             empfaenger={empfaenger}
+            luxSensors={luxSensors}
             onProbeStep={onProbeStep}
             colors={colors}
             styles={styles}
@@ -678,6 +685,7 @@ export function Editor({
               scenes={scenes}
               hueScenes={hueScenes}
               empfaenger={empfaenger}
+              luxSensors={luxSensors}
               onProbeStep={onProbeStep}
               colors={colors}
               styles={styles}
@@ -1213,6 +1221,7 @@ export function StepList({
   scenes,
   hueScenes,
   empfaenger = [],
+  luxSensors = [],
   onProbeStep,
   colors,
   styles,
@@ -1222,6 +1231,10 @@ export function StepList({
   entities: Entity[];
   scenes: Scene[];
   hueScenes: string[];
+  /** Die Melder dieses Ablaufs, die Helligkeit messen – daraus wird die
+   *  Wahl «an Helligkeit angepasst» bei den Lampen. Leer heisst: kein
+   *  Auslöser misst Lux, und die Wahl bleibt weg. */
+  luxSensors?: Entity[];
   /** Mögliche Nachricht-Empfänger (Punkt 158); leer = keine Auswahl. */
   empfaenger?: string[];
   /** Genau diesen einen Schritt ausführen (Punkt 164) - so, wie er
@@ -1355,6 +1368,7 @@ export function StepList({
               onActions={(commandActions) => setStep(index, { commandActions })}
               showSnapshot={false}
               allowToggle
+              luxSensors={luxSensors}
             />
           ) : step.kind === 'scene' ? (
             <Picker
