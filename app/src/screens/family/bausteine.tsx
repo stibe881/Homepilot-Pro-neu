@@ -11,6 +11,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Entity, HubSettings } from '../../api/types';
 import { Card } from '../../components/Card';
 import { Colors } from '../../theme';
+import { ROLLEN, rollenVon, toggleRolle } from '../../lib/familie';
 import { monatJahr, uhr } from '../../lib/format';
 import { tapped } from '../../lib/haptics';
 
@@ -904,19 +905,43 @@ export function ContactPhoto({
 }
 
 /** Kontakt anlegen: Name, Nummer und Foto. */
+/**
+ * Kontakt anlegen – und derselbe Kasten zum Ändern.
+ *
+ * Bearbeiten fehlte ganz: Bei einer neuen Nummer musste man den Kontakt
+ * löschen und alles noch einmal eintippen, Foto und Geburtstag
+ * eingeschlossen. Das ist der Grund, warum Kontaktlisten veralten – nicht
+ * Nachlässigkeit, sondern der Preis einer Korrektur.
+ */
 export function ContactForm({
-  onAdd,
+  vorhanden,
+  onSave,
+  onCancel,
   styles,
   colors,
 }: {
-  onAdd: (text: string, phone: string, photo: string | null, birthday: string) => void;
+  /** Zum Ändern: der bestehende Eintrag. Fehlt er, wird angelegt. */
+  vorhanden?: FamilyItem;
+  onSave: (werte: {
+    text: string;
+    phone: string;
+    phone2: string;
+    photo: string | null;
+    birthday: string;
+    roles: string[];
+  }) => void;
+  onCancel?: () => void;
   styles: Styles;
   colors: Colors;
 }) {
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [birthday, setBirthday] = useState('');
-  const [photo, setPhoto] = useState<string | null>(null);
+  const [name, setName] = useState(String(vorhanden?.text ?? ''));
+  const [phone, setPhone] = useState(String(vorhanden?.phone ?? ''));
+  const [phone2, setPhone2] = useState(String(vorhanden?.phone2 ?? ''));
+  const [birthday, setBirthday] = useState(String(vorhanden?.birthday ?? ''));
+  const [photo, setPhoto] = useState<string | null>(vorhanden?.photo ?? null);
+  const [roles, setRoles] = useState<string[]>(rollenVon(vorhanden ?? {}));
+  const aendern = !!vorhanden;
+
   return (
     <View style={styles.formCard}>
       <View style={styles.contactFormRow}>
@@ -950,6 +975,14 @@ export function ContactForm({
           />
           <TextInput
             style={styles.input}
+            value={phone2}
+            onChangeText={setPhone2}
+            placeholder="Zweite Nummer (Arbeit, Partner – freiwillig)"
+            placeholderTextColor={colors.inkFaint}
+            keyboardType="phone-pad"
+          />
+          <TextInput
+            style={styles.input}
             value={birthday}
             onChangeText={setBirthday}
             placeholder="Geburtstag (TT.MM. – freiwillig)"
@@ -957,19 +990,69 @@ export function ContactForm({
           />
         </View>
       </View>
-      <Pressable
-        onPress={() => {
-          if (!name.trim() || !phone.trim()) return;
-          onAdd(name.trim(), phone.trim(), photo, birthday.trim());
-          setName('');
-          setPhone('');
-          setBirthday('');
-          setPhoto(null);
-        }}
-        style={styles.addWide}
-      >
-        <Text style={styles.addWideText}>Hinzufügen</Text>
-      </Pressable>
+
+      {/* Die Rolle entscheidet, wo der Kontakt auftaucht: Ein Babysitter
+          braucht die Kinderärztin, nicht den Gartenbauer. */}
+      <Text style={styles.formHintSmall}>Wofür ist dieser Kontakt da?</Text>
+      <View style={styles.chipRow}>
+        {ROLLEN.map((rolle) => {
+          const aktiv = roles.includes(rolle.key);
+          return (
+            <Pressable
+              key={rolle.key}
+              onPress={() => setRoles(toggleRolle(roles, rolle.key))}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: aktiv }}
+              style={[styles.chip, aktiv && styles.chipActive]}
+            >
+              <Ionicons
+                name={rolle.icon as keyof typeof Ionicons.glyphMap}
+                size={13}
+                color={aktiv ? '#FFFFFF' : colors.inkSoft}
+              />
+              <Text style={[styles.chipText, aktiv && styles.chipTextActive]}>
+                {rolle.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        {aendern && onCancel ? (
+          <Pressable
+            onPress={onCancel}
+            style={[styles.addWide, { flex: 1, backgroundColor: 'transparent' }]}
+          >
+            <Text style={[styles.addWideText, { color: colors.inkSoft }]}>Abbrechen</Text>
+          </Pressable>
+        ) : null}
+        <Pressable
+          onPress={() => {
+            if (!name.trim() || !phone.trim()) return;
+            onSave({
+              text: name.trim(),
+              phone: phone.trim(),
+              phone2: phone2.trim(),
+              photo,
+              birthday: birthday.trim(),
+              roles,
+            });
+            if (aendern) return;
+            setName('');
+            setPhone('');
+            setPhone2('');
+            setBirthday('');
+            setPhoto(null);
+            setRoles([]);
+          }}
+          style={[styles.addWide, { flex: 1 }]}
+        >
+          <Text style={styles.addWideText}>
+            {aendern ? 'Speichern' : 'Hinzufügen'}
+          </Text>
+        </Pressable>
+      </View>
     </View>
   );
 }

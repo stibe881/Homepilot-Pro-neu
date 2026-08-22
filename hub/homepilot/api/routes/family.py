@@ -41,7 +41,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "tasks", "shopping", "pins", "meals", "contacts", "routines",
             "rewards", "rewards_catalog", "packlists", "countdowns",
             "recipes", "documents", "staples", "chores", "medications",
-            "emergency", "polls", "shops",
+            "emergency", "polls", "shops", "babysitter",
         }
     )
 

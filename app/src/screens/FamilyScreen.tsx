@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Linking, Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { Linking, Modal, Pressable, ScrollView, Share, Text, TextInput, View } from 'react-native';
 
 import { HubFehler, hubClient } from '../api/client';
 import { Card } from '../components/Card';
@@ -10,6 +10,22 @@ import { useColors } from '../theme';
 import { RecipeBook } from './RecipeBook';
 import { wochentagDatumKurz, wochentagUhr } from '../lib/format';
 import { Shop, ingredientsToShopping, shopCategory } from '../lib/einkauf';
+import {
+  ABEND_FELDER,
+  NOTRUFE,
+  ROLLEN,
+  fuerBabysitter,
+  gabenVon,
+  genommenMap,
+  kurFertig,
+  medZeile,
+  mitRolle,
+  notfallText,
+  notfallZeilen,
+  nummernVon,
+  rollenVon,
+  waehlbar,
+} from '../lib/familie';
 import { tapped } from '../lib/haptics';
 import { kochVorschlaege, vorschlagsGrund, wuerfel } from '../lib/vorschlag';
 import { ROLE_LABELS } from './UsersScreen';
@@ -46,6 +62,9 @@ export function FamilyScreen({
   const [reorderOpen, setReorderOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [calMode, setCalMode] = useState<'list' | 'month'>('list');
+  // Kontakte: nach Rolle filtern und einzelne bearbeiten.
+  const [kontaktRolle, setKontaktRolle] = useState<string>('alle');
+  const [kontaktBearbeitet, setKontaktBearbeitet] = useState<string | null>(null);
   // Vom Essensplaner direkt ins Rezept springen (Punkt 146).
   const [rezeptStart, setRezeptStart] = useState<string | null>(null);
   // «Was koche ich heute?» im Planer (Punkt 139): Die Saat hält die
@@ -982,20 +1001,178 @@ export function FamilyScreen({
 
   if (view === 'babysitter') {
     const notfaelle: FamilyItem[] = data.emergency ?? [];
-    const kontakte: FamilyItem[] = data.contacts ?? [];
+    // Nur die Nummern, die hierher gehören: Notfall, Arzt, Schule. Wer
+    // keine Rollen vergeben hat, bekommt weiterhin alle – eine leere
+    // Nummernliste ist auf dieser Seite der schlechtestmögliche Ausgang.
+    const kontakte = fuerBabysitter(data.contacts ?? []);
+    const eltern = (data.contacts ?? []).filter((contact: FamilyItem) =>
+      rollenVon(contact).includes('notfall')
+    );
     const routinen: FamilyItem[] = data.routines ?? [];
-    const heuteMeds = (data.medications ?? []).filter((med: FamilyItem) => !med.done);
     const heute = isoInDays(0);
+    const heuteMeds = (data.medications ?? []).filter(
+      (med: FamilyItem) => !kurFertig(med)
+    );
+    const abend: FamilyItem = (data.babysitter ?? [])[0] ?? {};
+
+    /** Die ganze Seite als Text – zum Weitergeben an jemanden ohne App. */
+    const alsText = () => {
+      const zeilen: string[] = ['FÜR DEN BABYSITTER', ''];
+      for (const feld of ABEND_FELDER) {
+        const wert = String(abend[feld.key] ?? '').trim();
+        if (wert) zeilen.push(`${feld.label}: ${wert}`);
+      }
+      if (zeilen.length > 2) zeilen.push('');
+      if (kontakte.length > 0) {
+        zeilen.push('NUMMERN');
+        for (const kontakt of kontakte) {
+          const nummern = nummernVon(kontakt)
+            .map((eintrag) => eintrag.nummer)
+            .join(' / ');
+          zeilen.push(`  ${kontakt.text}: ${nummern || '—'}`);
+        }
+        zeilen.push('');
+      }
+      if (heuteMeds.length > 0) {
+        zeilen.push('HEUTE EINZUNEHMEN');
+        for (const med of heuteMeds) {
+          zeilen.push(`  ${med.text} – ${medZeile(med, heute)}`);
+        }
+        zeilen.push('');
+      }
+      zeilen.push(notfallText(notfaelle));
+      return zeilen.join('\n');
+    };
 
     return (
       <View style={styles.stack}>
         <BackHead title="Babysitter" onBack={goBack} styles={styles} colors={colors} />
+
+        {/* Das Wichtigste zuerst und gross: Wer im Zweifel anzurufen ist.
+            In der Nummernliste zu suchen, während etwas los ist, ist
+            genau das, was man nicht können soll. */}
+        {eltern.length > 0 ? (
+          <View style={{ gap: 8 }}>
+            {eltern.slice(0, 2).map((kontakt: FamilyItem) => (
+              <Pressable
+                key={kontakt.id}
+                onPress={() =>
+                  Linking.openURL(`tel:${waehlbar(nummernVon(kontakt)[0]?.nummer)}`)
+                }
+                accessibilityRole="button"
+                accessibilityLabel={`${kontakt.text} anrufen`}
+                style={({ pressed }) => [styles.notrufButton, pressed && { opacity: 0.85 }]}
+              >
+                <Ionicons name="call" size={22} color="#FFFFFF" />
+                <Text style={styles.notrufButtonText}>{kontakt.text} anrufen</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+
         <Text style={styles.hint}>
-          Eine Seite zum Hinlegen oder Zeigen: Notfallblatt, wichtige
-          Nummern, die Abendroutine und was heute noch einzunehmen ist.
-          Zusammengetragen aus den anderen Modulen – hier gibt es nichts
-          zusätzlich zu pflegen.
+          Eine Seite zum Hinlegen oder Zeigen: was heute Abend gilt,
+          wichtige Nummern, was einzunehmen ist und das Notfallblatt. Bis
+          auf «Heute Abend» ist alles aus den anderen Modulen
+          zusammengetragen – hier gibt es nichts doppelt zu pflegen.
         </Text>
+
+        <Pressable
+          onPress={() => Share.share({ message: alsText() }).catch(() => {})}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.75 }]}
+        >
+          <Ionicons name="share-outline" size={16} color={colors.accent} />
+          <Text style={styles.addRowText}>Als Nachricht weitergeben</Text>
+        </Pressable>
+
+        {/* Die einzigen Angaben, die es sonst nirgends gibt – und genau
+            die Fragen, die am Türrahmen kommen. */}
+        <Text style={styles.groupLabel}>Heute Abend</Text>
+        <Card style={styles.listCard}>
+          {ABEND_FELDER.map((feld) => (
+            <View key={feld.key} style={{ gap: 4 }}>
+              <Text style={styles.formHintSmall}>{feld.label}</Text>
+              <TextInput
+                style={styles.input}
+                defaultValue={String(abend[feld.key] ?? '')}
+                placeholder={feld.placeholder}
+                placeholderTextColor={colors.inkFaint}
+                onEndEditing={(event) => {
+                  const wert = event.nativeEvent.text.trim();
+                  if (abend.id) update('babysitter', abend.id, { [feld.key]: wert });
+                  else add('babysitter', { text: 'Heute Abend', [feld.key]: wert });
+                }}
+              />
+            </View>
+          ))}
+        </Card>
+
+        {kontakte.length > 0 ? (
+          <>
+            <Text style={styles.groupLabel}>Nummern</Text>
+            <Card style={styles.listCard}>
+              {kontakte.map((kontakt: FamilyItem) => {
+                const nummern = nummernVon(kontakt);
+                return (
+                  <View key={kontakt.id} style={styles.checkRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.checkText}>{kontakt.text}</Text>
+                      {nummern.map((eintrag) => (
+                        <Text key={eintrag.nummer} style={styles.checkSub} selectable>
+                          {eintrag.nummer}
+                        </Text>
+                      ))}
+                      {nummern.length === 0 ? (
+                        <Text style={styles.checkSub}>keine Nummer hinterlegt</Text>
+                      ) : null}
+                    </View>
+                    {nummern.length > 0 ? (
+                      <Pressable
+                        onPress={() =>
+                          Linking.openURL(`tel:${waehlbar(nummern[0].nummer)}`)
+                        }
+                        style={styles.callButton}
+                        accessibilityLabel={`${kontakt.text} anrufen`}
+                      >
+                        <Ionicons name="call" size={16} color="#FFFFFF" />
+                      </Pressable>
+                    ) : null}
+                  </View>
+                );
+              })}
+            </Card>
+          </>
+        ) : null}
+
+        {heuteMeds.length > 0 ? (
+          <>
+            <Text style={styles.groupLabel}>Heute noch einzunehmen</Text>
+            <Card style={styles.listCard}>
+              {heuteMeds.map((med: FamilyItem) => {
+                const offen = gabenVon(med).filter(
+                  (gabe) => !(genommenMap(med)[heute] ?? []).includes(gabe)
+                );
+                return (
+                  <View key={med.id} style={styles.checkRow}>
+                    <Ionicons
+                      name={offen.length === 0 ? 'checkmark-circle' : 'ellipse-outline'}
+                      size={22}
+                      color={offen.length === 0 ? colors.on : colors.warn}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.checkText}>{med.text}</Text>
+                      <Text style={styles.checkSub}>{medZeile(med, heute)}</Text>
+                      {med.reason ? (
+                        <Text style={styles.checkSub}>{med.reason}</Text>
+                      ) : null}
+                    </View>
+                  </View>
+                );
+              })}
+            </Card>
+          </>
+        ) : null}
 
         {notfaelle.length > 0 ? (
           <>
@@ -1003,6 +1180,11 @@ export function FamilyScreen({
             {notfaelle.map((eintrag: FamilyItem) => (
               <Card key={eintrag.id} style={styles.pinCard}>
                 <Text style={styles.checkText}>{eintrag.text}</Text>
+                {notfallZeilen(eintrag).map((zeile) => (
+                  <Text key={zeile.label} style={styles.checkSub} selectable>
+                    {zeile.label}: {zeile.wert}
+                  </Text>
+                ))}
                 {eintrag.body ? (
                   <Text style={styles.checkSub} selectable>
                     {eintrag.body}
@@ -1013,69 +1195,22 @@ export function FamilyScreen({
           </>
         ) : null}
 
-        {kontakte.length > 0 ? (
-          <>
-            <Text style={styles.groupLabel}>Nummern</Text>
-            <Card style={styles.listCard}>
-              {kontakte.map((kontakt: FamilyItem) => (
-                <View key={kontakt.id} style={styles.checkRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.checkText}>{kontakt.text}</Text>
-                    {kontakt.body ? (
-                      <Text style={styles.checkSub} selectable>
-                        {kontakt.body}
-                      </Text>
-                    ) : null}
-                  </View>
-                  {kontakt.body ? (
-                    <Pressable
-                      onPress={() =>
-                        Linking.openURL(`tel:${String(kontakt.body).replace(/[^+\d]/g, '')}`)
-                      }
-                      style={styles.callButton}
-                      accessibilityLabel={`${kontakt.text} anrufen`}
-                    >
-                      <Ionicons name="call" size={16} color="#FFFFFF" />
-                    </Pressable>
-                  ) : null}
-                </View>
-              ))}
-            </Card>
-          </>
-        ) : null}
-
-        {heuteMeds.length > 0 ? (
-          <>
-            <Text style={styles.groupLabel}>Heute noch einzunehmen</Text>
-            <Card style={styles.listCard}>
-              {heuteMeds.map((med: FamilyItem) => {
-                const genommen: string[] = Array.isArray(med.taken) ? med.taken : [];
-                return (
-                  <View key={med.id} style={styles.checkRow}>
-                    <Ionicons
-                      name={
-                        genommen.includes(heute) ? 'checkmark-circle' : 'ellipse-outline'
-                      }
-                      size={22}
-                      color={genommen.includes(heute) ? colors.on : colors.warn}
-                    />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.checkText}>{med.text}</Text>
-                      <Text style={styles.checkSub}>
-                        {[
-                          med.member ? `für ${med.member}` : null,
-                          genommen.includes(heute) ? 'heute schon gegeben' : 'heute offen',
-                        ]
-                          .filter(Boolean)
-                          .join(' · ')}
-                      </Text>
-                    </View>
-                  </View>
-                );
-              })}
-            </Card>
-          </>
-        ) : null}
+        <Text style={styles.groupLabel}>Notruf</Text>
+        <Card style={styles.listCard}>
+          {NOTRUFE.map((notruf) => (
+            <Pressable
+              key={notruf.nummer}
+              onPress={() => Linking.openURL(`tel:${waehlbar(notruf.nummer)}`)}
+              accessibilityRole="button"
+              accessibilityLabel={`${notruf.label} ${notruf.nummer} anrufen`}
+              style={styles.checkRow}
+            >
+              <Ionicons name="call-outline" size={18} color={colors.danger} />
+              <Text style={[styles.checkText, { flex: 1 }]}>{notruf.label}</Text>
+              <Text style={styles.contactName}>{notruf.nummer}</Text>
+            </Pressable>
+          ))}
+        </Card>
 
         {routinen.length > 0 ? (
           <>
@@ -1093,13 +1228,6 @@ export function FamilyScreen({
               ))}
             </Card>
           </>
-        ) : null}
-
-        {notfaelle.length === 0 && kontakte.length === 0 && routinen.length === 0 ? (
-          <Text style={styles.hint}>
-            Noch nichts zusammenzutragen. Füll das Notfallblatt, die Kontakte
-            und die Routinen – diese Seite baut sich daraus von selbst.
-          </Text>
         ) : null}
       </View>
     );
@@ -1524,6 +1652,11 @@ export function FamilyScreen({
       .map((contact) => ({ contact, days: daysUntilBirthday(contact.birthday) }))
       .filter((entry) => entry.days != null)
       .sort((a, b) => (a.days ?? 999) - (b.days ?? 999));
+    // Nach Rolle filtern. «Alle» bleibt die Vorgabe: Wer keine Rollen
+    // vergeben hat, soll seine Liste unverändert vorfinden.
+    const gezeigt =
+      kontaktRolle === 'alle' ? contacts : mitRolle(contacts, kontaktRolle);
+
     return (
       <View style={styles.stack}>
         <BackHead title="Kontakte" onBack={goBack} styles={styles} colors={colors} />
@@ -1553,62 +1686,156 @@ export function FamilyScreen({
           </>
         ) : null}
 
+        {/* Der Filter erscheint erst, wenn es etwas zu filtern gibt. */}
+        {contacts.some((contact) => rollenVon(contact).length > 0) ? (
+          <View style={styles.chipRow}>
+            {[{ key: 'alle', label: 'Alle', icon: 'apps-outline' }, ...ROLLEN].map(
+              (rolle) => {
+                const aktiv = kontaktRolle === rolle.key;
+                return (
+                  <Pressable
+                    key={rolle.key}
+                    onPress={() => setKontaktRolle(rolle.key)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: aktiv }}
+                    style={[styles.chip, aktiv && styles.chipActive]}
+                  >
+                    <Ionicons
+                      name={rolle.icon as keyof typeof Ionicons.glyphMap}
+                      size={13}
+                      color={aktiv ? '#FFFFFF' : colors.inkSoft}
+                    />
+                    <Text style={[styles.chipText, aktiv && styles.chipTextActive]}>
+                      {rolle.label}
+                    </Text>
+                  </Pressable>
+                );
+              }
+            )}
+          </View>
+        ) : null}
+
         <Text style={styles.hint}>
-          Foto antippen ändert das Bild – die ganze Karte antippen ruft an.
-          Gross und mit Foto, damit auch die Kleinsten wissen, wer wer ist.
+          Foto antippen ändert das Bild – die Karte antippen ruft an. Gross
+          und mit Foto, damit auch die Kleinsten wissen, wer wer ist.
         </Text>
-        {contacts.map((contact) => (
-          <Card key={contact.id} style={styles.contactCard}>
-            <Pressable
-              onPress={async () => {
-                const photo = await pickPhoto();
-                if (photo) update('contacts', contact.id, { photo });
+
+        {gezeigt.map((contact) =>
+          kontaktBearbeitet === contact.id ? (
+            <ContactForm
+              key={contact.id}
+              vorhanden={contact}
+              onCancel={() => setKontaktBearbeitet(null)}
+              onSave={(werte) => {
+                update('contacts', contact.id, {
+                  text: werte.text,
+                  phone: werte.phone,
+                  phone2: werte.phone2,
+                  birthday: werte.birthday,
+                  roles: werte.roles,
+                  ...(werte.photo ? { photo: werte.photo } : {}),
+                });
+                setKontaktBearbeitet(null);
               }}
-              accessibilityLabel={`Foto von ${contact.text} ändern`}
-            >
-              <ContactPhoto contact={contact} size={64} styles={styles} />
-            </Pressable>
-            <Pressable
-              style={{ flex: 1 }}
-              onPress={() => Linking.openURL(`tel:${contact.phone}`)}
-              accessibilityRole="button"
-              accessibilityLabel={`${contact.text} anrufen`}
-            >
-              <Text style={styles.contactName}>{contact.text}</Text>
-              <Text style={styles.checkSub}>{contact.phone}</Text>
-              {birthdayLabel(contact.birthday) ? (
-                <Text style={styles.checkSub}>🎂 {birthdayLabel(contact.birthday)}</Text>
-              ) : null}
-            </Pressable>
-            <Pressable
-              onPress={() => Linking.openURL(`tel:${contact.phone}`)}
-              style={styles.callButton}
-              accessibilityLabel={`${contact.text} anrufen`}
-            >
-              <Ionicons name="call" size={24} color="#FFFFFF" />
-            </Pressable>
-            <Pressable
-              onPress={() => remove('contacts', contact.id)}
-              style={styles.deleteTap}
-              accessibilityRole="button"
-              accessibilityLabel={`${contact.text} löschen`}
-            >
-              <Ionicons name="close" size={18} color={colors.inkFaint} />
-            </Pressable>
-          </Card>
-        ))}
-        <ContactForm
-          onAdd={(text, phone, photo, birthday) =>
-            add('contacts', {
-              text,
-              phone,
-              ...(photo ? { photo } : {}),
-              ...(birthday ? { birthday } : {}),
-            })
-          }
-          styles={styles}
-          colors={colors}
-        />
+              styles={styles}
+              colors={colors}
+            />
+          ) : (
+            <Card key={contact.id} style={styles.contactCard}>
+              <Pressable
+                onPress={async () => {
+                  const photo = await pickPhoto();
+                  if (photo) update('contacts', contact.id, { photo });
+                }}
+                accessibilityLabel={`Foto von ${contact.text} ändern`}
+              >
+                <ContactPhoto contact={contact} size={64} styles={styles} />
+              </Pressable>
+              <Pressable
+                style={{ flex: 1 }}
+                onPress={() =>
+                  Linking.openURL(`tel:${waehlbar(nummernVon(contact)[0]?.nummer)}`)
+                }
+                accessibilityRole="button"
+                accessibilityLabel={`${contact.text} anrufen`}
+              >
+                <Text style={styles.contactName}>{contact.text}</Text>
+                {nummernVon(contact).map((eintrag) => (
+                  <Text key={eintrag.nummer} style={styles.checkSub}>
+                    {eintrag.nummer}
+                  </Text>
+                ))}
+                {birthdayLabel(contact.birthday) ? (
+                  <Text style={styles.checkSub}>🎂 {birthdayLabel(contact.birthday)}</Text>
+                ) : null}
+              </Pressable>
+
+              <View style={{ gap: 6, alignItems: 'center' }}>
+                <Pressable
+                  onPress={() =>
+                    Linking.openURL(`tel:${waehlbar(nummernVon(contact)[0]?.nummer)}`)
+                  }
+                  style={styles.callButton}
+                  accessibilityLabel={`${contact.text} anrufen`}
+                >
+                  <Ionicons name="call" size={22} color="#FFFFFF" />
+                </Pressable>
+                {/* Nicht jede Frage ist ein Anruf wert – «kommst du später?»
+                    schreibt man. */}
+                <Pressable
+                  onPress={() =>
+                    Linking.openURL(`sms:${waehlbar(nummernVon(contact)[0]?.nummer)}`)
+                  }
+                  hitSlop={6}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${contact.text} eine Nachricht schreiben`}
+                >
+                  <Ionicons name="chatbubble-outline" size={18} color={colors.inkSoft} />
+                </Pressable>
+              </View>
+
+              <View style={{ gap: 10 }}>
+                <Pressable
+                  onPress={() => setKontaktBearbeitet(contact.id)}
+                  hitSlop={6}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${contact.text} bearbeiten`}
+                >
+                  <Ionicons name="create-outline" size={18} color={colors.inkSoft} />
+                </Pressable>
+                <Pressable
+                  onPress={() => remove('contacts', contact.id)}
+                  style={styles.deleteTap}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${contact.text} löschen`}
+                >
+                  <Ionicons name="close" size={18} color={colors.inkFaint} />
+                </Pressable>
+              </View>
+            </Card>
+          )
+        )}
+
+        {gezeigt.length === 0 && contacts.length > 0 ? (
+          <Text style={styles.hint}>In dieser Rolle ist niemand eingetragen.</Text>
+        ) : null}
+
+        {kontaktBearbeitet === null ? (
+          <ContactForm
+            onSave={(werte) =>
+              add('contacts', {
+                text: werte.text,
+                phone: werte.phone,
+                ...(werte.phone2 ? { phone2: werte.phone2 } : {}),
+                ...(werte.photo ? { photo: werte.photo } : {}),
+                ...(werte.birthday ? { birthday: werte.birthday } : {}),
+                ...(werte.roles.length > 0 ? { roles: werte.roles } : {}),
+              })
+            }
+            styles={styles}
+            colors={colors}
+          />
+        ) : null}
       </View>
     );
   }

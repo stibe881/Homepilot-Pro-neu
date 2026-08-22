@@ -395,4 +395,18 @@ export const makeStyles = (colors: Colors) =>
       alignItems: 'center',
       justifyContent: 'center',
     },
+    // Der grosse Knopf ganz oben auf der Babysitter-Seite: In der
+    // Nummernliste zu suchen, während etwas los ist, ist genau das, was
+    // man nicht können soll.
+    notrufButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 10,
+      paddingVertical: 16,
+      borderRadius: 14,
+      backgroundColor: colors.on,
+    },
+    notrufButtonText: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
+    addRowText: { color: colors.accent, fontSize: 14, fontWeight: '600' },
   });
