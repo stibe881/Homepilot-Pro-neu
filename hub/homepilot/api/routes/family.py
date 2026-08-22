@@ -17,9 +17,11 @@ from fastapi import (
     Request,
 )
 
+from ...core import rezeptimport
 from ...core import shopping as shopping_module
 from ...core.users import Role, User
 from ..context import ApiContext
+from ..models import RecipeImportRequest
 
 log = logging.getLogger(__name__)
 
@@ -68,6 +70,52 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     async def family_all(request: Request) -> dict[str, Any]:
         family_user(request)
         return {name: hub.data.get(f"family_{name}") for name in sorted(FAMILY_COLLECTIONS)}
+
+    @app.post("/api/recipes/import")
+    async def recipe_import(body: RecipeImportRequest, request: Request) -> dict[str, Any]:
+        """Ein Rezept von einer Web-Seite lesen (Punkt 136 der Werkbank).
+
+        Holt die Seite und liest das schema.org/Recipe aus dem Seitenkopf
+        - gespeichert wird hier nichts: Die App öffnet das Formular
+        vorbefüllt, nachbessern und sichern bleibt beim Benutzer.
+        """
+        family_user(request)
+        url = body.url.strip()
+        if not url.lower().startswith(("http://", "https://")):
+            raise HTTPException(status_code=400, detail="Das ist keine Web-Adresse")
+        import aiohttp
+
+        try:
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                # Mit Browser-Kennung: Manche Rezeptseiten liefern nackten
+                # Clients eine Hinweisseite statt des Rezepts.
+                async with session.get(
+                    url,
+                    headers={"User-Agent": "Mozilla/5.0 (HomePilot Rezeptimport)"},
+                    max_redirects=5,
+                ) as antwort:
+                    if antwort.status >= 400:
+                        raise HTTPException(
+                            status_code=502,
+                            detail=f"Die Seite antwortet mit {antwort.status}",
+                        )
+                    seite = await antwort.text(errors="replace")
+        except HTTPException:
+            raise
+        except Exception as err:
+            raise HTTPException(
+                status_code=502, detail=f"Seite nicht erreichbar: {err}"
+            ) from err
+
+        rezept = rezeptimport.recipe_from_html(seite)
+        if rezept is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Auf dieser Seite steckt kein maschinenlesbares Rezept",
+            )
+        rezept["source"] = url
+        return {"recipe": rezept}
 
     async def tell_the_assignee(
         collection: str, item: dict[str, Any], by: str, vorher: str | None = None

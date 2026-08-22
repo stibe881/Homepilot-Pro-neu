@@ -341,6 +341,29 @@ export const makeStyles = (colors: Colors) =>
     mealRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 6 },
     mealDay: { color: colors.inkSoft, fontSize: 13, fontWeight: '700', width: 28 },
     mealEmpty: { color: colors.inkFaint, fontSize: 14 },
+    // Der heutige Tag im Wochenplan (Punkt 146).
+    mealHeute: {
+      backgroundColor: colors.surfaceSoft,
+      borderRadius: radius.control,
+      paddingHorizontal: 8,
+      marginHorizontal: -8,
+    },
+    mealTile: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 0 },
+    mealThumb: { width: 52, height: 38, borderRadius: 8, backgroundColor: colors.surfaceStrong },
+    mealThumbLeer: { alignItems: 'center', justifyContent: 'center' },
+    mealTileMeta: { color: colors.inkSoft, fontSize: 12, marginTop: 1 },
+    // «Was koche ich heute?» im Essensplaner (Punkt 139).
+    vorschlagKopf: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 2,
+    },
+    vorschlagWurf: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+    vorschlagWurfText: { color: colors.accent, fontSize: 13, fontWeight: '600' },
+    vorschlagZeile: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
+    vorschlagName: { color: colors.ink, fontSize: 14, fontWeight: '600' },
+    vorschlagGrund: { color: colors.inkSoft, fontSize: 12 },
 
     contactCard: {
       minHeight: 0,

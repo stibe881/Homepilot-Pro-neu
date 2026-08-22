@@ -211,13 +211,16 @@ export function findeArtikel<T extends { text?: unknown }>(
 export function ingredientsToShopping(
   recipes: EinkaufZeile[],
   vorhanden: string[] = [],
-  faktor = 1
+  // Eine Zahl für alle Rezepte - oder je Rezept eine (Punkt 145: der
+  // Wochenplan kennt für jeden Tag seine eigenen Portionen).
+  faktor: number | number[] = 1
 ): ShoppingDraft[] {
   const gesehen = new Set(
     vorhanden.map((text) => String(text ?? '').trim().toLowerCase())
   );
   const result: ShoppingDraft[] = [];
-  for (const recipe of recipes) {
+  for (const [index, recipe] of recipes.entries()) {
+    const rezeptFaktor = Array.isArray(faktor) ? (faktor[index] ?? 1) : faktor;
     const ingredients: EinkaufZeile[] = Array.isArray(recipe?.ingredients)
       ? recipe.ingredients
       : [];
@@ -229,7 +232,7 @@ export function ingredientsToShopping(
       gesehen.add(key);
       // Auch der volle Text zählt als gesehen, damit ein bereits auf der
       // Liste stehendes «250 ml Ketchup» kein zweites «Ketchup» erzeugt.
-      const text = ingredientLabel(ingredient, faktor);
+      const text = ingredientLabel(ingredient, rezeptFaktor);
       gesehen.add(text.toLowerCase());
       result.push({ text, category: shopCategory(name) });
     }

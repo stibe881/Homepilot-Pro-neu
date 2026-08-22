@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Image,
@@ -14,12 +15,15 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from 'react-native';
 
 import { HubSettings } from '../api/types';
 import { zeitenImText } from '../lib/kochzeit';
 import { scaledAmount } from '../lib/mengen';
 import { rezeptAlsText } from '../lib/rezepttext';
+import { zutatenImSchritt } from '../lib/schrittzutaten';
+import { kochVorschlaege, vorschlagsGrund } from '../lib/vorschlag';
 import { Colors, radius, useColors } from '../theme';
 
 /**
@@ -52,13 +56,17 @@ interface Props {
   /** Hub-Zugang – für die Küchenuhr im Kochmodus. Ohne fehlt der Knopf. */
   settings?: HubSettings;
   currentUser?: { name: string } | null;
+  /** Gleich mit dieser Detailansicht öffnen – der Essensplaner springt
+   *  so direkt zum Gericht des Tages (Punkt 146). */
+  initialRecipeId?: string;
   onAdd: (recipe: Rezept) => void;
   onUpdate: (id: string, patch: Rezept) => void;
   onDelete: (id: string) => void;
   /** Mit der Rezept-Kennung, nicht nur dem Namen: Zwei Rezepte
    *  «Lasagne» – oder eines, das später umbenannt wird – und der
-   *  Wocheneinkauf fände die Zutaten sonst nicht mehr. */
-  planMeal: (day: string, text: string, recipeId: string) => void;
+   *  Wocheneinkauf fände die Zutaten sonst nicht mehr. Die Portionen
+   *  wandern mit (Punkt 145) – der Wocheneinkauf rechnet damit. */
+  planMeal: (day: string, text: string, recipeId: string, servings: number) => void;
   /** Zutaten dieses Rezepts auf die Einkaufsliste – mit dem Faktor der
    *  eingestellten Portionen. Meldet zurück, wie viele Posten wirklich
    *  dazugekommen sind - schon Vorhandenes zählt nicht mit, und «0
@@ -306,6 +314,7 @@ function RecipeTile({
 function RecipeForm({
   initial,
   categories,
+  settings,
   onSave,
   onCancel,
   styles,
@@ -315,6 +324,8 @@ function RecipeForm({
   /** Vorhandene Kategorien als antippbare Chips (Punkt 137) – sonst
    *  entstehen «Dessert», «Desserts» und «dessert» nebeneinander. */
   categories: string[];
+  /** Für den Link-Import (Punkt 136) – ohne Hub-Zugang fehlt das Feld. */
+  settings?: HubSettings;
   onSave: (recipe: Rezept) => void;
   onCancel: () => void;
   styles: Styles;
@@ -343,6 +354,52 @@ function RecipeForm({
   const [source, setSource] = useState(String(initial?.source ?? ''));
   const [notes, setNotes] = useState(String(initial?.notes ?? ''));
   const [image, setImage] = useState<string>(String(initial?.image_url ?? ''));
+
+  // Rezept aus einem Link übernehmen (Punkt 136): Der Hub liest das
+  // schema.org-Rezept aus dem Seitenkopf, das Formular füllt sich -
+  // nachbessern und speichern bleibt hier.
+  const [importUrl, setImportUrl] = useState('');
+  const [importStatus, setImportStatus] = useState('');
+  const vomLink = async () => {
+    if (!settings || !importUrl.trim() || importStatus === 'laedt') return;
+    setImportStatus('laedt');
+    try {
+      const response = await fetch(`${settings.url}/api/recipes/import`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(settings.token ? { Authorization: `Bearer ${settings.token}` } : {}),
+        },
+        body: JSON.stringify({ url: importUrl.trim() }),
+      });
+      if (!response.ok) {
+        // Der Hub sagt im detail-Feld, WORAN es lag («kein Rezept auf
+        // dieser Seite», «Seite nicht erreichbar») - das gehört hierhin.
+        const antwort = (await response.json().catch(() => null)) as {
+          detail?: string;
+        } | null;
+        setImportStatus(String(antwort?.detail ?? `Fehler ${response.status}`));
+        return;
+      }
+      const { recipe } = (await response.json()) as { recipe: Rezept };
+      setTitle(String(recipe.text ?? ''));
+      setDescription(String(recipe.description ?? ''));
+      setCategory(String(recipe.category ?? ''));
+      setTags(Array.isArray(recipe.tags) ? recipe.tags.join(', ') : '');
+      setServings(recipe.servings ? String(recipe.servings) : '');
+      setPrep(recipe.prep_time ? String(recipe.prep_time) : '');
+      setCook(recipe.cook_time ? String(recipe.cook_time) : '');
+      setImage(String(recipe.image_url ?? ''));
+      setIngredients(
+        Array.isArray(recipe.ingredients) ? recipe.ingredients.join('\n') : ''
+      );
+      setSteps(Array.isArray(recipe.instructions) ? recipe.instructions.join('\n') : '');
+      setSource(String(recipe.source ?? ''));
+      setImportStatus('');
+    } catch {
+      setImportStatus('Hub nicht erreichbar');
+    }
+  };
 
   // Foto als data-URI (Base64) speichern, damit es über den Familie-Store
   // beim Hub liegt und nicht von einem lokalen Pfad abhängt.
@@ -444,6 +501,42 @@ function RecipeForm({
         </Text>
         <View style={{ width: 26 }} />
       </View>
+
+      {!initial && settings ? (
+        <View>
+          <View style={styles.formRow}>
+            <TextInput
+              style={[styles.input, { flex: 1 }]}
+              value={importUrl}
+              onChangeText={setImportUrl}
+              placeholder="Link einer Rezeptseite – spart das Abtippen"
+              placeholderTextColor={colors.inkFaint}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              onSubmitEditing={vomLink}
+            />
+            <Pressable
+              onPress={vomLink}
+              accessibilityRole="button"
+              accessibilityLabel="Rezept aus dem Link übernehmen"
+              style={[styles.importKnopf, importStatus === 'laedt' && { opacity: 0.6 }]}
+            >
+              <Ionicons
+                name={importStatus === 'laedt' ? 'hourglass-outline' : 'download-outline'}
+                size={16}
+                color="#FFFFFF"
+              />
+              <Text style={styles.importKnopfText}>
+                {importStatus === 'laedt' ? 'Holt…' : 'Holen'}
+              </Text>
+            </Pressable>
+          </View>
+          {importStatus && importStatus !== 'laedt' ? (
+            <Text style={styles.importFehler}>{importStatus}</Text>
+          ) : null}
+        </View>
+      ) : null}
 
       <Pressable
         onPress={() => pickImage('galerie')}
@@ -648,16 +741,37 @@ function CookMode({
   // Rahm fehlt. Lebt nur in diesem Kochdurchgang, gespeichert wird nichts.
   const [bereit, setBereit] = useState<Record<number, boolean>>({});
   const schrittZeiten = step >= 0 ? zeitenImText(steps[step] ?? '') : [];
+  // Die Zutaten, die DIESER Schritt meint (Punkt 142) - direkt unter dem
+  // Schritt, statt die ganze Liste aufzuklappen.
+  const imSchritt = step >= 0 ? zutatenImSchritt(steps[step] ?? '', ingredients) : [];
+  // Querformat auf dem iPad (Punkt 151): Zutaten links stehend, Schritt
+  // rechts gross. Hochkant bleibt alles wie bisher.
+  const fenster = useWindowDimensions();
+  const quer = fenster.width > fenster.height && fenster.width >= 700;
+
+  // Schritt auf eine Box durchsagen (Punkt 144): Mit Teig an den Händen
+  // liest man schlecht. Die Boxenwahl merkt sich die App.
+  const [box, setBox] = useState<string>('');
+  const [boxen, setBoxen] = useState<{ id: string; name: string }[]>([]);
+  const [boxWahlOffen, setBoxWahlOffen] = useState(false);
+  const [vorgelesen, setVorgelesen] = useState(false);
+  useEffect(() => {
+    AsyncStorage.getItem('homepilot.kochbox')
+      .then((wert) => setBox(wert ?? ''))
+      .catch(() => {});
+  }, []);
+
+  const kopf = {
+    'Content-Type': 'application/json',
+    ...(settings?.token ? { Authorization: `Bearer ${settings.token}` } : {}),
+  };
 
   const uhrStellen = async (minuten: number) => {
     if (!settings) return;
     try {
       const response = await fetch(`${settings.url}/api/timers`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(settings.token ? { Authorization: `Bearer ${settings.token}` } : {}),
-        },
+        headers: kopf,
         body: JSON.stringify({
           minutes: minuten,
           text: `${recipe.text} – Schritt ${step + 1}`,
@@ -667,6 +781,47 @@ function CookMode({
     } catch {
       // Keine Uhr ist ärgerlich, aber kein Grund, das Kochen zu stören.
     }
+  };
+
+  const vorlesen = async () => {
+    if (!settings || step < 0) return;
+    try {
+      const response = await fetch(`${settings.url}/api/broadcast`, {
+        method: 'POST',
+        headers: kopf,
+        body: JSON.stringify({ text: steps[step], speakers: box ? [box] : [] }),
+      });
+      if (response.ok) setVorgelesen(true);
+    } catch {
+      // Keine Durchsage ist kein Grund, das Kochen zu stören.
+    }
+  };
+
+  const boxWahl = async () => {
+    setBoxWahlOffen((offen) => !offen);
+    if (boxen.length > 0 || !settings) return;
+    try {
+      const response = await fetch(`${settings.url}/api/entities`, { headers: kopf });
+      if (!response.ok) return;
+      const alle = (await response.json()) as {
+        id: string;
+        name: string;
+        commands?: string[];
+      }[];
+      setBoxen(
+        alle
+          .filter((entity) => (entity.commands ?? []).includes('play_url'))
+          .map((entity) => ({ id: entity.id, name: entity.name }))
+      );
+    } catch {
+      // Ohne Liste bleibt es bei «alle Boxen».
+    }
+  };
+
+  const boxWaehlen = (id: string) => {
+    setBox(id);
+    setBoxWahlOffen(false);
+    AsyncStorage.setItem('homepilot.kochbox', id).catch(() => {});
   };
 
   return (
@@ -713,118 +868,228 @@ function CookMode({
             </Pressable>
           </>
         ) : (
-          <>
-            <View style={styles.cookHead}>
-              <Pressable
-                onPress={onClose}
-                hitSlop={8}
-                accessibilityRole="button"
-                accessibilityLabel="Kochmodus beenden"
-              >
-                <Ionicons name="close" size={24} color={colors.ink} />
-              </Pressable>
-              <Text style={styles.cookTitle} numberOfLines={1}>
-                {recipe.text}
-              </Text>
-              <Text style={styles.cookCount}>
-                {step + 1}/{steps.length}
-              </Text>
-            </View>
-            <View style={styles.progressTrack}>
-              <View
-                style={[
-                  styles.progressFill,
-                  { width: `${((step + 1) / Math.max(1, steps.length)) * 100}%` },
-                ]}
-              />
-            </View>
-            <View style={styles.cookBody}>
-              <View style={styles.stepBadge}>
-                <Text style={styles.stepBadgeText}>SCHRITT {step + 1}</Text>
-              </View>
-              <Text style={styles.stepText}>{steps[step]}</Text>
-              {settings && schrittZeiten.length > 0 ? (
-                <View style={styles.uhrReihe}>
-                  {schrittZeiten.map((minuten) => (
-                    <Pressable
-                      key={minuten}
-                      onPress={() => uhrStellen(minuten)}
-                      accessibilityRole="button"
-                      style={({ pressed }) => [styles.uhrKnopf, pressed && { opacity: 0.8 }]}
-                    >
-                      <Ionicons
-                        name={uhren.includes(minuten) ? 'checkmark' : 'timer-outline'}
-                        size={18}
-                        color={colors.accent}
-                      />
-                      <Text style={styles.uhrKnopfText}>
-                        {uhren.includes(minuten)
-                          ? `Uhr läuft (${minuten} Min)`
-                          : `Uhr stellen: ${minuten} Min`}
-                      </Text>
-                    </Pressable>
-                  ))}
+          (() => {
+            const koerper = (
+              <View style={styles.cookBody}>
+                <View style={styles.stepBadge}>
+                  <Text style={styles.stepBadgeText}>SCHRITT {step + 1}</Text>
                 </View>
-              ) : null}
-            </View>
-            {ingredients.length > 0 ? (
-              <View>
-                <Pressable
-                  onPress={() => setZutatenOffen((offen) => !offen)}
-                  accessibilityRole="button"
-                  accessibilityState={{ expanded: zutatenOffen }}
-                  style={styles.zutatenToggle}
-                >
-                  <Ionicons
-                    name={zutatenOffen ? 'chevron-down' : 'chevron-up'}
-                    size={16}
-                    color={colors.inkSoft}
-                  />
-                  <Text style={styles.zutatenToggleText}>Zutaten</Text>
-                </Pressable>
-                {zutatenOffen ? (
-                  <ScrollView style={{ maxHeight: 180 }}>
-                    {ingredients.map((ingredient, index) => (
-                      <Text key={index} style={styles.zutatenZeile}>
+                <Text style={styles.stepText}>{steps[step]}</Text>
+                {imSchritt.length > 0 ? (
+                  // Nur was DIESER Schritt braucht - die ganze Liste
+                  // bleibt im Panel bzw. in der Querformat-Spalte.
+                  <View style={styles.schrittZutaten}>
+                    {imSchritt.map((ingredient, index) => (
+                      <Text key={index} style={styles.schrittZutatText}>
                         {[scaledAmount(ingredient?.amount, factor), ingredient?.unit]
                           .filter(Boolean)
                           .join(' ')}{' '}
                         {String(ingredient?.name ?? '')}
                       </Text>
                     ))}
-                  </ScrollView>
+                  </View>
+                ) : null}
+                {settings ? (
+                  <View style={styles.uhrReihe}>
+                    {schrittZeiten.map((minuten) => (
+                      <Pressable
+                        key={minuten}
+                        onPress={() => uhrStellen(minuten)}
+                        accessibilityRole="button"
+                        style={({ pressed }) => [styles.uhrKnopf, pressed && { opacity: 0.8 }]}
+                      >
+                        <Ionicons
+                          name={uhren.includes(minuten) ? 'checkmark' : 'timer-outline'}
+                          size={18}
+                          color={colors.accent}
+                        />
+                        <Text style={styles.uhrKnopfText}>
+                          {uhren.includes(minuten)
+                            ? `Uhr läuft (${minuten} Min)`
+                            : `Uhr stellen: ${minuten} Min`}
+                        </Text>
+                      </Pressable>
+                    ))}
+                    <Pressable
+                      onPress={vorlesen}
+                      onLongPress={boxWahl}
+                      accessibilityRole="button"
+                      accessibilityLabel="Schritt auf den Boxen vorlesen - lange drücken wählt die Box"
+                      style={({ pressed }) => [styles.uhrKnopf, pressed && { opacity: 0.8 }]}
+                    >
+                      <Ionicons
+                        name={vorgelesen ? 'checkmark' : 'megaphone-outline'}
+                        size={18}
+                        color={colors.accent}
+                      />
+                      <Text style={styles.uhrKnopfText}>
+                        {vorgelesen ? 'Angesagt' : 'Vorlesen'}
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+                {boxWahlOffen ? (
+                  <View style={styles.boxListe}>
+                    {[{ id: '', name: 'Alle Boxen' }, ...boxen].map((eintrag) => (
+                      <Pressable
+                        key={eintrag.id || 'alle'}
+                        onPress={() => boxWaehlen(eintrag.id)}
+                        accessibilityRole="button"
+                        style={styles.boxZeile}
+                      >
+                        <Ionicons
+                          name={box === eintrag.id ? 'radio-button-on' : 'radio-button-off'}
+                          size={16}
+                          color={colors.accent}
+                        />
+                        <Text style={styles.boxZeileText}>{eintrag.name}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
                 ) : null}
               </View>
-            ) : null}
-            <View style={styles.cookButtons}>
-              <Pressable
-                onPress={() => {
-                  setStep((value) => value - 1);
-                  setUhren([]);
-                }}
-                style={[styles.ghostWide, { flex: 1 }]}
-              >
-                <Text style={styles.ghostWideText}>← Zurück</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  if (step + 1 < steps.length) {
-                    setStep(step + 1);
-                    setZutatenOffen(false);
+            );
+            const knoepfe = (
+              <View style={styles.cookButtons}>
+                <Pressable
+                  onPress={() => {
+                    setStep((value) => value - 1);
                     setUhren([]);
-                    return;
-                  }
-                  onFertig?.();
-                  onClose();
-                }}
-                style={[styles.primaryWide, { flex: 1.4 }]}
-              >
-                <Text style={styles.primaryWideText}>
-                  {step + 1 < steps.length ? 'Weiter →' : 'Fertig ✓'}
-                </Text>
-              </Pressable>
-            </View>
-          </>
+                    setVorgelesen(false);
+                    setBoxWahlOffen(false);
+                  }}
+                  style={[styles.ghostWide, { flex: 1 }]}
+                >
+                  <Text style={styles.ghostWideText}>← Zurück</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    if (step + 1 < steps.length) {
+                      setStep(step + 1);
+                      setZutatenOffen(false);
+                      setUhren([]);
+                      setVorgelesen(false);
+                      setBoxWahlOffen(false);
+                      return;
+                    }
+                    onFertig?.();
+                    onClose();
+                  }}
+                  style={[styles.primaryWide, { flex: 1.4 }]}
+                >
+                  <Text style={styles.primaryWideText}>
+                    {step + 1 < steps.length ? 'Weiter →' : 'Fertig ✓'}
+                  </Text>
+                </Pressable>
+              </View>
+            );
+            return (
+              <>
+                <View style={styles.cookHead}>
+                  <Pressable
+                    onPress={onClose}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Kochmodus beenden"
+                  >
+                    <Ionicons name="close" size={24} color={colors.ink} />
+                  </Pressable>
+                  <Text style={styles.cookTitle} numberOfLines={1}>
+                    {recipe.text}
+                  </Text>
+                  <Text style={styles.cookCount}>
+                    {step + 1}/{steps.length}
+                  </Text>
+                </View>
+                <View style={styles.progressTrack}>
+                  <View
+                    style={[
+                      styles.progressFill,
+                      { width: `${((step + 1) / Math.max(1, steps.length)) * 100}%` },
+                    ]}
+                  />
+                </View>
+                {quer && ingredients.length > 0 ? (
+                  // iPad quer (Punkt 151): Zutaten links dauerhaft sichtbar
+                  // (mit denselben Haken wie im Mise en Place), Schritt
+                  // rechts gross.
+                  <View style={{ flex: 1, flexDirection: 'row', gap: 22 }}>
+                    <ScrollView style={styles.querSpalte}>
+                      <View style={styles.ingredientCard}>
+                        {ingredients.map((ingredient, index) => (
+                          <Pressable
+                            key={index}
+                            onPress={() =>
+                              setBereit((stand) => ({ ...stand, [index]: !stand[index] }))
+                            }
+                            accessibilityRole="checkbox"
+                            accessibilityState={{ checked: !!bereit[index] }}
+                            style={[styles.ingredientRow, index > 0 && styles.ingredientDivider]}
+                          >
+                            <Ionicons
+                              name={bereit[index] ? 'checkmark-circle' : 'ellipse-outline'}
+                              size={18}
+                              color={bereit[index] ? colors.on : colors.inkFaint}
+                            />
+                            <Text
+                              style={[styles.ingredientAmount, bereit[index] && { opacity: 0.45 }]}
+                            >
+                              {[scaledAmount(ingredient?.amount, factor), ingredient?.unit]
+                                .filter(Boolean)
+                                .join(' ')}
+                            </Text>
+                            <Text
+                              style={[styles.ingredientName, bereit[index] && { opacity: 0.45 }]}
+                            >
+                              {String(ingredient?.name ?? '')}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    </ScrollView>
+                    <View style={{ flex: 1 }}>
+                      {koerper}
+                      {knoepfe}
+                    </View>
+                  </View>
+                ) : (
+                  <>
+                    {koerper}
+                    {ingredients.length > 0 ? (
+                      <View>
+                        <Pressable
+                          onPress={() => setZutatenOffen((offen) => !offen)}
+                          accessibilityRole="button"
+                          accessibilityState={{ expanded: zutatenOffen }}
+                          style={styles.zutatenToggle}
+                        >
+                          <Ionicons
+                            name={zutatenOffen ? 'chevron-down' : 'chevron-up'}
+                            size={16}
+                            color={colors.inkSoft}
+                          />
+                          <Text style={styles.zutatenToggleText}>Zutaten</Text>
+                        </Pressable>
+                        {zutatenOffen ? (
+                          <ScrollView style={{ maxHeight: 180 }}>
+                            {ingredients.map((ingredient, index) => (
+                              <Text key={index} style={styles.zutatenZeile}>
+                                {[scaledAmount(ingredient?.amount, factor), ingredient?.unit]
+                                  .filter(Boolean)
+                                  .join(' ')}{' '}
+                                {String(ingredient?.name ?? '')}
+                              </Text>
+                            ))}
+                          </ScrollView>
+                        ) : null}
+                      </View>
+                    ) : null}
+                    {knoepfe}
+                  </>
+                )}
+              </>
+            );
+          })()
         )}
       </View>
     </Modal>
@@ -857,7 +1122,7 @@ function RecipeDetail({
   settings?: HubSettings;
   /** Der Kochmodus wurde bis zum Ende durchlaufen. */
   onCooked?: () => void;
-  planMeal: (day: string, text: string, recipeId: string) => void;
+  planMeal: (day: string, text: string, recipeId: string, servings: number) => void;
   onShopping: (recipe: Rezept, faktor: number) => number;
   styles: Styles;
   colors: Colors;
@@ -1177,7 +1442,10 @@ function RecipeDetail({
               <Pressable
                 key={day}
                 onPress={() => {
-                  planMeal(day, recipe.text, String(recipe.id));
+                  // Mit den gerade eingestellten Portionen (Punkt 145):
+                  // Kommt am Samstag Besuch, rechnet der Wocheneinkauf
+                  // dann auch mit den Samstag-Portionen.
+                  planMeal(day, recipe.text, String(recipe.id), servings);
                   setPlanned(day.slice(0, 2));
                   setPlanOpen(false);
                 }}
@@ -1218,6 +1486,7 @@ export function RecipeBook({
   recipes,
   settings,
   currentUser,
+  initialRecipeId,
   onAdd,
   onUpdate,
   onDelete,
@@ -1227,10 +1496,23 @@ export function RecipeBook({
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const [screen, setScreen] = useState<Screen>({ kind: 'list' });
+  const [screen, setScreen] = useState<Screen>(
+    initialRecipeId ? { kind: 'detail', id: initialRecipeId } : { kind: 'list' }
+  );
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('alle');
   const [gridWidth, setGridWidth] = useState(0);
+  // «Was koche ich heute?» (Punkt 139): Der Zähler ist der Würfelwurf -
+  // jede Erhöhung mischt die Vorschläge neu.
+  const [wurf, setWurf] = useState(0);
+  const heute = new Date().toISOString().slice(0, 10);
+  const vorschlaege = useMemo(
+    () => (wurf > 0 ? kochVorschlaege(recipes, 3, heute) : []),
+    // Absichtlich NICHT bei jeder Rezept-Änderung neu würfeln - nur wenn
+    // der Wurf-Zähler steigt oder das Buch ein anderes ist.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [wurf, recipes.length]
+  );
 
   const categories = useMemo(
     () =>
@@ -1289,6 +1571,7 @@ export function RecipeBook({
       <RecipeForm
         initial={editing ?? screen.vorlage}
         categories={categories}
+        settings={settings}
         onSave={(recipe) => {
           if (editing) onUpdate(editing.id, recipe);
           else onAdd(recipe);
@@ -1383,6 +1666,15 @@ export function RecipeBook({
           </Text>
         </View>
         <Pressable
+          onPress={() => setWurf((zahl) => (zahl > 0 ? 0 : zahl + 1))}
+          style={styles.roundButtonDim}
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel="Was koche ich heute? Vorschläge zeigen"
+        >
+          <Ionicons name="dice-outline" size={20} color={wurf > 0 ? colors.accent : colors.ink} />
+        </Pressable>
+        <Pressable
           onPress={onClose}
           style={styles.roundButtonDim}
           hitSlop={6}
@@ -1392,6 +1684,41 @@ export function RecipeBook({
           <Ionicons name="close" size={20} color={colors.ink} />
         </Pressable>
       </View>
+
+      {wurf > 0 && vorschlaege.length > 0 ? (
+        <View style={styles.vorschlagKarte}>
+          <View style={styles.vorschlagKopf}>
+            <Text style={styles.vorschlagTitel}>Was koche ich heute?</Text>
+            <Pressable
+              onPress={() => setWurf((zahl) => zahl + 1)}
+              accessibilityRole="button"
+              style={styles.vorschlagWurf}
+            >
+              <Ionicons name="refresh" size={15} color={colors.accent} />
+              <Text style={styles.vorschlagWurfText}>Nochmal würfeln</Text>
+            </Pressable>
+          </View>
+          {vorschlaege.map((recipe) => (
+            <Pressable
+              key={String(recipe.id)}
+              onPress={() => setScreen({ kind: 'detail', id: String(recipe.id) })}
+              accessibilityRole="button"
+              style={styles.vorschlagZeile}
+            >
+              <Text style={styles.vorschlagEmoji}>
+                {categoryEmoji(String(recipe.category ?? ''))}
+              </Text>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.vorschlagName} numberOfLines={1}>
+                  {String(recipe.text ?? '')}
+                </Text>
+                <Text style={styles.vorschlagGrund}>{vorschlagsGrund(recipe, heute)}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={colors.inkFaint} />
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
 
       <View style={styles.searchBox}>
         <Ionicons name="search" size={16} color={colors.inkFaint} />
@@ -1511,6 +1838,27 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.surfaceStrong,
     },
     filterText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
+    vorschlagKarte: {
+      backgroundColor: colors.surfaceStrong,
+      borderRadius: radius.card - 6,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      marginBottom: 10,
+      gap: 2,
+    },
+    vorschlagKopf: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 4,
+    },
+    vorschlagTitel: { color: colors.ink, fontSize: 15, fontWeight: '700' },
+    vorschlagWurf: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+    vorschlagWurfText: { color: colors.accent, fontSize: 13, fontWeight: '600' },
+    vorschlagZeile: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
+    vorschlagEmoji: { fontSize: 22 },
+    vorschlagName: { color: colors.ink, fontSize: 14, fontWeight: '600' },
+    vorschlagGrund: { color: colors.inkSoft, fontSize: 12 },
 
     // Kachel-Raster
     grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
@@ -1752,6 +2100,25 @@ const makeStyles = (colors: Colors) =>
       textAlign: 'center',
     },
     cookButtons: { flexDirection: 'row', gap: 10 },
+    schrittZutaten: {
+      alignItems: 'center',
+      gap: 3,
+      backgroundColor: colors.surfaceStrong,
+      borderRadius: radius.control,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+    },
+    schrittZutatText: { color: colors.inkSoft, fontSize: 15, fontWeight: '600' },
+    boxListe: {
+      backgroundColor: colors.surfaceStrong,
+      borderRadius: radius.control,
+      paddingHorizontal: 14,
+      paddingVertical: 6,
+      gap: 2,
+    },
+    boxZeile: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 7 },
+    boxZeileText: { color: colors.ink, fontSize: 14 },
+    querSpalte: { width: 300, flexGrow: 0 },
 
     // Formular
     formStack: { gap: 8, paddingBottom: 30 },
@@ -1794,6 +2161,17 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.surfaceStrong,
     },
     katChipText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
+    importKnopf: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: 14,
+      borderRadius: radius.control,
+      backgroundColor: colors.accent,
+      justifyContent: 'center',
+    },
+    importKnopfText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+    importFehler: { color: colors.danger, fontSize: 13, marginTop: 6 },
     formRow: { flexDirection: 'row', gap: 8 },
     input: {
       backgroundColor: colors.surfaceStrong,

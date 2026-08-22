@@ -138,6 +138,19 @@ describe('ingredientsToShopping', () => {
   it('überspringt namenlose Zutaten, statt leere Zeilen anzulegen', () => {
     expect(ingredientsToShopping([{ ingredients: [{ amount: 3 }] }])).toEqual([]);
   });
+
+  it('rechnet je Rezept mit seinem eigenen Portionen-Faktor (Punkt 145)', () => {
+    // Samstag kommt Besuch (Faktor 2), am Montag isst man zu viert wie
+    // im Rezept - der Wocheneinkauf darf das nicht über einen Kamm
+    // scheren.
+    const getrennt = [
+      { ingredients: [{ name: 'Rahm', amount: 200, unit: 'ml' }] },
+      { ingredients: [{ name: 'Hackfleisch', amount: 500, unit: 'g' }] },
+    ];
+    const daraus = ingredientsToShopping(getrennt, [], [2, 1]);
+    expect(daraus.find((e) => e.text.includes('Rahm'))?.text).toContain('400');
+    expect(daraus.find((e) => e.text.includes('Hackfleisch'))?.text).toContain('500');
+  });
 });
 
 describe('mengeUndName', () => {

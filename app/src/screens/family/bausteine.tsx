@@ -1013,12 +1013,22 @@ export function parseSwissDate(value: unknown): Date | null {
 export function MealRow({
   day,
   entry,
+  rezept,
+  heute,
+  onOpenRezept,
   onSave,
   colors,
   styles,
 }: {
   day: string;
   entry: FamilyItem | undefined;
+  /** Das hinterlegte Rezept (Punkt 146): Dann zeigt die Zeile Foto und
+   *  Kochzeit statt blossem Text, und Antippen öffnet das Rezept. */
+  rezept?: FamilyItem;
+  /** Der heutige Wochentag ist hervorgehoben - der Blick aufs iPad am
+   *  Kühlschrank beantwortet «was gibts heute?» ohne Suchen. */
+  heute?: boolean;
+  onOpenRezept?: () => void;
   onSave: (text: string) => void;
   colors: Colors;
   styles: Styles;
@@ -1029,9 +1039,61 @@ export function MealRow({
     setEditing(false);
     if (draft.trim() !== (entry?.text ?? '')) onSave(draft.trim());
   };
+  if (rezept && !editing) {
+    const minuten = ['prep_time', 'cook_time', 'rest_time']
+      .map((key) => Number(rezept[key]) || 0)
+      .reduce((a, b) => a + b, 0);
+    const meta = [
+      minuten > 0 ? `${minuten} Min` : '',
+      Number(entry?.servings) > 0 ? `${entry?.servings} Port.` : '',
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    return (
+      <View style={[styles.mealRow, heute && styles.mealHeute]}>
+        <Text style={[styles.mealDay, heute && { color: colors.accent }]}>
+          {day.slice(0, 2)}
+        </Text>
+        <Pressable
+          onPress={onOpenRezept}
+          accessibilityRole="button"
+          accessibilityLabel={`Rezept ${String(entry?.text ?? '')} öffnen`}
+          style={styles.mealTile}
+        >
+          {rezept.image_url ? (
+            <Image source={{ uri: String(rezept.image_url) }} style={styles.mealThumb} />
+          ) : (
+            <View style={[styles.mealThumb, styles.mealThumbLeer]}>
+              <Ionicons name="restaurant-outline" size={16} color={colors.inkSoft} />
+            </View>
+          )}
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.checkText} numberOfLines={1}>
+              {String(entry?.text ?? '')}
+            </Text>
+            {meta ? <Text style={styles.mealTileMeta}>{meta}</Text> : null}
+          </View>
+          <Ionicons name="chevron-forward" size={15} color={colors.inkFaint} />
+        </Pressable>
+        <Pressable
+          onPress={() => {
+            setDraft(entry?.text ?? '');
+            setEditing(true);
+          }}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={`${day} bearbeiten`}
+        >
+          <Ionicons name="pencil-outline" size={16} color={colors.inkSoft} />
+        </Pressable>
+      </View>
+    );
+  }
   return (
-    <View style={styles.mealRow}>
-      <Text style={styles.mealDay}>{day.slice(0, 2)}</Text>
+    <View style={[styles.mealRow, heute && styles.mealHeute]}>
+      <Text style={[styles.mealDay, heute && { color: colors.accent }]}>
+        {day.slice(0, 2)}
+      </Text>
       {editing ? (
         <TextInput
           style={[styles.input, { flex: 1 }]}

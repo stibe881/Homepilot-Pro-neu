@@ -105,6 +105,12 @@ class TimerRequest(BaseModel):
     text: str = ""
 
 
+class RecipeImportRequest(BaseModel):
+    """Eine Rezeptseite, aus der das Rezept gelesen werden soll."""
+
+    url: str
+
+
 class BroadcastRequest(BaseModel):
     """Eine Durchsage an die Lautsprecher im Haus."""
 

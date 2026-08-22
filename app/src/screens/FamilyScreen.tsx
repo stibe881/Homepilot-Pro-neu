@@ -11,6 +11,7 @@ import { RecipeBook } from './RecipeBook';
 import { wochentagDatumKurz, wochentagUhr } from '../lib/format';
 import { Shop, ingredientsToShopping, shopCategory } from '../lib/einkauf';
 import { tapped } from '../lib/haptics';
+import { kochVorschlaege, vorschlagsGrund, wuerfel } from '../lib/vorschlag';
 import { ROLE_LABELS } from './UsersScreen';
 import { AddRow, BackHead, CheckRow, ChoreAddRow, ContactForm, ContactPhoto, CountdownForm, EventForm, FamilyData, FamilyItem, GroupedChecklist, MealRow, MedicationAddRow, Member, ModuleKey, MonthCalendar, PollAddRow, Props, REPEAT_OPTIONS, SHOP_CATEGORIES, ShoppingAddRow, TaskAddRow, TwoFieldForm, WEEK_DAYS, birthdayLabel, daysUntilBirthday, dueInfo, isoInDays, nextDue, parseSwissDate, pickPhoto, rotateMember } from './family/bausteine';
 import { makeStyles } from './family/stil';
@@ -45,6 +46,12 @@ export function FamilyScreen({
   const [reorderOpen, setReorderOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [calMode, setCalMode] = useState<'list' | 'month'>('list');
+  // Vom Essensplaner direkt ins Rezept springen (Punkt 146).
+  const [rezeptStart, setRezeptStart] = useState<string | null>(null);
+  // «Was koche ich heute?» im Planer (Punkt 139): Die Saat hält die
+  // Vorschläge stehen, bis jemand würfelt - sonst mischte jedes
+  // Live-Update vom Hub die Liste um.
+  const [essWurf, setEssWurf] = useState(1);
 
   const hub = useMemo(
     () => hubClient(settings.url, settings.token),
@@ -550,9 +557,32 @@ export function FamilyScreen({
     const vorhanden = () =>
       (data.shopping ?? []).map((item: FamilyItem) => String(item.text ?? ''));
 
-    /** Zutaten aller geplanten Rezepte - der eigentliche Wocheneinkauf. */
+    /** Zutaten aller geplanten Rezepte - der eigentliche Wocheneinkauf.
+     *
+     *  Je Rezept mit seinem eigenen Portionen-Faktor (Punkt 145): Der
+     *  Samstag mit Besuch braucht die doppelten Mengen, der Montag die
+     *  normalen - über einen Kamm geschoren stimmte beides nicht. */
     const zutatenEinkauf = () => {
-      const neu = ingredientsToShopping(geplanteRezepte.filter(Boolean) as FamilyItem[], vorhanden());
+      const rezepteMitTag = planned
+        .map((meal) => ({
+          meal,
+          recipe: recipes.find(
+            (recipe) =>
+              recipe.id === meal.recipe_id ||
+              String(recipe.text ?? '') === String(meal.text ?? '')
+          ),
+        }))
+        .filter((paar) => paar.recipe);
+      const faktoren = rezepteMitTag.map(({ meal, recipe }) => {
+        const basis = Number(recipe?.servings) || 0;
+        const geplant = Number(meal.servings) || 0;
+        return basis > 0 && geplant > 0 ? geplant / basis : 1;
+      });
+      const neu = ingredientsToShopping(
+        rezepteMitTag.map((paar) => paar.recipe) as FamilyItem[],
+        vorhanden(),
+        faktoren
+      );
       neu.forEach((eintrag) => add('shopping', { ...eintrag, done: false }));
       return neu.length;
     };
@@ -570,21 +600,43 @@ export function FamilyScreen({
         }
       });
     };
+    // Montag ist 0 - getDay() zählt ab Sonntag.
+    const heuteName = WEEK_DAYS[(new Date().getDay() + 6) % 7];
+    const vorschlaege = kochVorschlaege(recipes, 3, new Date().toISOString().slice(0, 10), wuerfel(essWurf));
+    const oeffneRezept = (id: string) => {
+      setRezeptStart(id);
+      setView('recipes');
+    };
     return (
       <View style={styles.stack}>
         <BackHead title="Essensplaner" onBack={goBack} styles={styles} colors={colors} />
         <Card style={styles.listCard}>
           {WEEK_DAYS.map((day) => {
             const entry = meals.find((meal) => meal.day === day);
+            // Die Kachel gibt es nur mit hinterlegtem Rezept (Punkt 146)
+            // - sonst bleibt die Zeile das schlichte Textfeld.
+            const rezept = entry
+              ? recipes.find(
+                  (recipe) =>
+                    recipe.id === entry.recipe_id ||
+                    (entry.recipe_id == null &&
+                      String(recipe.text ?? '') === String(entry.text ?? ''))
+                )
+              : undefined;
             return (
               <MealRow
                 key={day}
                 day={day}
                 entry={entry}
+                rezept={rezept}
+                heute={day === heuteName}
+                onOpenRezept={rezept ? () => oeffneRezept(String(rezept.id)) : undefined}
                 onSave={(text) => {
                   if (entry) {
                     if (text) {
-                      update('meals', entry.id, { text });
+                      // Von Hand umgetippt: Die alte Rezept-Verknüpfung
+                      // (und ihre Portionen) gälte sonst fürs neue Gericht.
+                      update('meals', entry.id, { text, recipe_id: null, servings: null });
                     } else {
                       remove('meals', entry.id);
                     }
@@ -598,6 +650,39 @@ export function FamilyScreen({
             );
           })}
         </Card>
+        {vorschlaege.length > 0 ? (
+          <Card style={styles.listCard}>
+            <View style={styles.vorschlagKopf}>
+              <Text style={styles.groupTitle}>Was koche ich heute?</Text>
+              <Pressable
+                onPress={() => setEssWurf((zahl) => zahl + 1)}
+                accessibilityRole="button"
+                style={styles.vorschlagWurf}
+              >
+                <Ionicons name="refresh" size={15} color={colors.accent} />
+                <Text style={styles.vorschlagWurfText}>Nochmal würfeln</Text>
+              </Pressable>
+            </View>
+            {vorschlaege.map((recipe) => (
+              <Pressable
+                key={String(recipe.id)}
+                onPress={() => oeffneRezept(String(recipe.id))}
+                accessibilityRole="button"
+                style={styles.vorschlagZeile}
+              >
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.vorschlagName} numberOfLines={1}>
+                    {String(recipe.text ?? '')}
+                  </Text>
+                  <Text style={styles.vorschlagGrund}>
+                    {vorschlagsGrund(recipe, new Date().toISOString().slice(0, 10))}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={colors.inkFaint} />
+              </Pressable>
+            ))}
+          </Card>
+        ) : null}
         {geplanteRezepte.length > 0 ? (
           <Pressable
             onPress={zutatenEinkauf}
@@ -1653,16 +1738,22 @@ export function FamilyScreen({
           recipes={data.recipes ?? []}
           settings={settings}
           currentUser={currentUser}
+          initialRecipeId={rezeptStart ?? undefined}
           onAdd={(recipe) => add('recipes', recipe)}
           onUpdate={(id, patch) => update('recipes', id, patch)}
           onDelete={(id) => remove('recipes', id)}
-          planMeal={(day, text, recipeId) => {
+          planMeal={(day, text, recipeId, servings) => {
             const entry = meals.find((meal) => meal.day === day);
             // Die Kennung kommt direkt vom Rezeptbuch mit – nicht mehr
             // über den Namen gesucht. Zwei Rezepte «Lasagne», oder eines,
             // das später umbenannt wird, und die Namenssuche hätte die
             // Zutaten dem falschen (oder keinem) Rezept zugeordnet.
-            const patch = { text, recipe_id: recipeId || null };
+            // Die Portionen wandern mit (Punkt 145).
+            const patch = {
+              text,
+              recipe_id: recipeId || null,
+              servings: servings > 0 ? servings : null,
+            };
             if (entry) {
               update('meals', entry.id, patch);
             } else {
@@ -1683,7 +1774,13 @@ export function FamilyScreen({
             );
             return neu.length;
           }}
-          onClose={goBack}
+          onClose={() => {
+            // Wer aus dem Essensplaner kam, landet wieder dort - und der
+            // Sprung soll beim nächsten Öffnen nicht erneut im selben
+            // Rezept landen.
+            setView(rezeptStart ? 'meals' : null);
+            setRezeptStart(null);
+          }}
         />
       </View>
     );
