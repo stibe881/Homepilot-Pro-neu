@@ -3,6 +3,7 @@
 Trigger:
   - {type: state, entity_id, attribute?: "state", from?, to?}
   - {type: state, entity_id, attribute, above? | below?}   # Schwelle gekreuzt
+  - {type: availability, entity_id, to: false|true}  # meldet sich (nicht) mehr
   - {type: interval, seconds}
   - {type: time, at: "HH:MM"}
   - {type: sun, event: "sunrise"|"sunset", offset?: minuten}  # +/- Versatz
@@ -160,6 +161,11 @@ class Automation:
     # schaltet es ab - und im Januar nicht wieder ein. Mit einer Frist
     # meldet er sich von selbst zurück.
     quiet_until: float | None = None
+    # Frühestens wieder nach so vielen Sekunden. «mode» schützt nur,
+    # solange der Ablauf *läuft* – ein Ablauf ohne Wartezeit ist in einer
+    # Millisekunde durch, und ein zuckender Melder im Wind macht dann aus
+    # einer Durchsage zwanzig. Null heisst: kein Mindestabstand.
+    cooldown: float = 0.0
     # Wie die Bedingungen verknüpft sind: «all» = alle müssen stimmen,
     # «any» = eine genügt. Auslöser sind davon nicht betroffen – sie sind
     # Ereignisse und können gar nicht gleichzeitig eintreten, ein «und»
@@ -182,6 +188,7 @@ class Automation:
             "enabled": self.enabled,
             "mode": self.mode,
             "quiet_until": self.quiet_until,
+            "cooldown": self.cooldown,
             "match": self.match,
             "category": self.category,
         }
@@ -198,6 +205,7 @@ class Automation:
             "enabled": self.enabled,
             "mode": self.mode,
             "quiet_until": self.quiet_until,
+            "cooldown": self.cooldown,
             "match": self.match,
             "category": self.category,
         }
@@ -365,6 +373,19 @@ def parse_mode(value: Any) -> str:
     return text if text in MODES else "single"
 
 
+def parse_cooldown(value: Any) -> float:
+    """Der Mindestabstand in Sekunden (rein, testbar).
+
+    Unbrauchbares und Negatives heisst null: Ein Tippfehler darf einen
+    Ablauf bremsen, aber nicht stummschalten.
+    """
+    try:
+        sekunden = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, sekunden)
+
+
 def parse_quiet_until(value: Any) -> float | None:
     """Bis wann ein Ablauf ruht (rein, testbar).
 
@@ -409,6 +430,15 @@ def describe_trigger_health(
         return None if zeitpunkt is None else round(jetzt - zeitpunkt, 1)
 
     art = str(trigger.get("type", "state"))
+    if art == "availability":
+        return {
+            "type": art,
+            "ok": True,
+            "hinweis": (
+                "Erreichbarkeits-Auslöser – er feuert, wenn das Gerät "
+                "verstummt oder wiederkommt, nicht auf einen Zustand."
+            ),
+        }
     if art != "state":
         return {
             "type": art,
@@ -510,6 +540,7 @@ def parse_automations(
                 enabled=config.get("enabled", True) is not False,
                 mode=parse_mode(config.get("mode")),
                 quiet_until=parse_quiet_until(config.get("quiet_until")),
+                cooldown=parse_cooldown(config.get("cooldown")),
                 match="any" if str(config.get("match")) == "any" else "all",
                 category=str(config["category"]) if config.get("category") else None,
             )
@@ -600,6 +631,8 @@ class AutomationEngine:
         self.runs: list[dict[str, Any]] = []
         self.hub = hub
         self.automations: list[Automation] = []
+        # Wann jeder Ablauf zuletzt anlief – für den Mindestabstand.
+        self._last_started: dict[str, float] = {}
         self._unsubscribe = None
         self._timer_tasks: list[asyncio.Task] = []
         self._run_tasks: set[asyncio.Task] = set()
@@ -715,7 +748,22 @@ class AutomationEngine:
             if not automation.enabled:
                 continue
             for index, trigger in enumerate(automation.triggers):
-                if trigger.get("type", "state") != "state":
+                art = trigger.get("type", "state")
+                if art == "availability":
+                    # Die Flanke der Erreichbarkeit, nicht der Zustand:
+                    # Der Wächter schickt dafür bisher nur eine Push-
+                    # Nachricht – ein Ablauf kann jetzt darauf reagieren
+                    # («wenn der Rauchmelder verstummt, sag es laut»).
+                    if self._availability_trigger_matches(trigger, data):
+                        self._gefeuert[(automation.id, index)] = jetzt
+                        hold = float(trigger.get("for") or 0)
+                        if hold > 0:
+                            self._schedule_held(automation, index, trigger, hold)
+                        else:
+                            self._schedule(automation)
+                        break
+                    continue
+                if art != "state":
                     continue
                 # Auch wenn der Auslöser *nicht* passt: Dass sich das Gerät
                 # überhaupt gemeldet hat, ist die halbe Antwort auf «warum
@@ -770,6 +818,12 @@ class AutomationEngine:
         entity = self.hub.registry.get(str(trigger.get("entity_id") or ""))
         if entity is None:
             return False
+        if trigger.get("type") == "availability":
+            # «seit zehn Minuten stumm»: Nach der Wartezeit zählt, ob das
+            # Gerät immer noch (un)erreichbar ist – nicht die Flanke.
+            if "to" in trigger:
+                return bool(entity.available) == bool(trigger["to"])
+            return True
         value = entity.state.get(trigger.get("attribute", "state"))
         if "above" in trigger or "below" in trigger:
             try:
@@ -783,6 +837,25 @@ class AutomationEngine:
             return True
         if "to" in trigger:
             return value == trigger["to"]
+        return True
+
+    @staticmethod
+    def _availability_trigger_matches(
+        trigger: dict[str, Any], data: dict[str, Any]
+    ) -> bool:
+        """Hat sich die Erreichbarkeit dieses Geräts eben geändert?
+
+        ``to: false`` heisst «meldet sich nicht mehr» – der Fall, für den
+        es den Auslöser gibt. ``to: true`` («ist wieder da») gibt es der
+        Vollständigkeit halber mit; ohne ``to`` zählt jede Flanke.
+        """
+        if trigger.get("entity_id") != data.get("entity_id"):
+            return False
+        if not data.get("availability_changed"):
+            return False
+        entity = data.get("entity") or {}
+        if "to" in trigger:
+            return bool(entity.get("available")) == bool(trigger["to"])
         return True
 
     @staticmethod
@@ -1021,6 +1094,15 @@ class AutomationEngine:
                 (automation.quiet_until - time.time()) / 60,
             )
             return
+        if automation.cooldown > 0:
+            zuletzt = self._last_started.get(automation.id)
+            if zuletzt is not None and time.time() - zuletzt < automation.cooldown:
+                log.debug(
+                    "Automation '%s' übersprungen (Mindestabstand %.0f s)",
+                    automation.alias,
+                    automation.cooldown,
+                )
+                return
         if automation.id in self._running:
             if automation.mode == "queued":
                 # Der Reihe nach: Zweimal klingeln soll zwei Nachrichten
@@ -1047,6 +1129,7 @@ class AutomationEngine:
             if laeuft is not None and not laeuft.done():
                 laeuft.cancel()
             self._running.discard(automation.id)
+        self._last_started[automation.id] = time.time()
         task = asyncio.create_task(self._run(automation))
         self._tasks_by_id[automation.id] = task
         self._run_tasks.add(task)

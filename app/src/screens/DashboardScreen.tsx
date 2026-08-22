@@ -44,6 +44,7 @@ import { usePushRegistration } from '../hooks/usePushRegistration';
 import { breakpoints, Colors, radius, space, type, useColors } from '../theme';
 import { findeArtikel, mengeUndName, mitMenge, shopCategory } from '../lib/einkauf';
 import { deviceKindLabel } from '../lib/geraeteart';
+import { szenenFuerRaum } from '../lib/szenen';
 import { schleier } from '../lib/nachtabsenkung';
 import { hubClient, onHubFehler } from '../api/client';
 import { Auffangnetz } from '../components/Auffangnetz';
@@ -849,9 +850,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // erscheint so von selbst nur in Räumen mit solchen Geräten.
   const categorized =
     section === 'home' && room !== ALL_ROOMS && !editing && !customOrdered;
+  // Nicht nur das room-Feld: Eine Szene erscheint in jedem Raum, dessen
+  // Geräte sie schaltet. «Feierabend» stand vorher in höchstens einem.
   const roomScenes = useMemo(
-    () => (categorized ? scenes.filter((scene) => scene.room === room) : []),
-    [categorized, scenes, room]
+    () => (categorized ? szenenFuerRaum(scenes, entities, room) : []),
+    [categorized, scenes, entities, room]
   );
   const categories = useMemo(() => {
     if (!categorized) return [];

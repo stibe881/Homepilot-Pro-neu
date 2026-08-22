@@ -8,7 +8,14 @@ import { PushRules } from '../components/PushRules';
 import { Fehlschlag, Laedt } from '../components/Zustand';
 import { Colors, radius, space, type, useColors } from '../theme';
 import { deviceKindIcon, deviceKindLabel } from '../lib/geraeteart';
-import { SceneActionDraft, sceneActionsToDraft, snapshotAction } from '../lib/szenen';
+import { ablaufSatz } from '../lib/ablaufsatz';
+import {
+  RueckwegBefehl,
+  SceneActionDraft,
+  sceneActionsToDraft,
+  snapshotAction,
+  szenenRueckweg,
+} from '../lib/szenen';
 
 interface Automation {
   id: string;
@@ -24,6 +31,8 @@ interface Automation {
   /** Verknüpfung der Bedingungen: 'all' oder 'any'. */
   match?: string;
   mode?: string;
+  /** Frühestens wieder nach so vielen Sekunden (0 = kein Abstand). */
+  cooldown?: number;
   /** Ausgeschaltete Abläufe bleiben stehen, laufen aber nicht. */
   enabled?: boolean;
 }
@@ -290,7 +299,14 @@ export function usedCategories(items: { category?: string | null }[]): string[] 
 }
 
 /** Was der Editor anbietet – bewusst wenig, aber vollständig bedienbar. */
-type TriggerKind = 'state' | 'threshold' | 'interval' | 'time' | 'sun' | 'geofence';
+type TriggerKind =
+  | 'state'
+  | 'threshold'
+  | 'interval'
+  | 'time'
+  | 'sun'
+  | 'geofence'
+  | 'availability';
 type StepKind = 'command' | 'scene' | 'hue_scene' | 'notify' | 'broadcast' | 'delay' | 'wait_until';
 type ConditionKind = 'none' | 'sun' | 'time';
 
@@ -316,6 +332,8 @@ interface TriggerDraft {
    *  «Alle weg» heisst erst nach zehn Minuten wirklich alle weg - nicht
    *  beim kurzen Gang zum Briefkasten. Leer = sofort. */
   forMinutes: string;
+  /** Erreichbarkeits-Auslöser: verstummt das Gerät oder kommt es wieder? */
+  availabilityTo: 'weg' | 'wieder-da';
 }
 
 /**
@@ -399,6 +417,7 @@ const EMPTY_TRIGGER: TriggerDraft = {
   thresholdValue: '5',
   intervalSeconds: '600',
   forMinutes: '',
+  availabilityTo: 'weg',
 };
 
 /** «ist» vergleicht den Zustand, «über»/«unter» eine Zahl – für Helligkeit,
@@ -436,6 +455,8 @@ interface Draft {
   /** Was geschieht, wenn er noch läuft und erneut ausgelöst wird:
    *  «single» verwirft den zweiten Auslöser, «restart» beginnt von vorn. */
   mode: 'single' | 'restart';
+  /** Frühestens wieder nach so vielen Minuten. Leer = kein Abstand. */
+  cooldownMinutes: string;
   /** Frei benannte Kategorie zum Gruppieren in der Liste. */
   category: string;
   /** Ausgeschaltet: bleibt stehen, läuft aber nicht. */
@@ -455,6 +476,7 @@ const EMPTY: Draft = {
   steps: [{ ...EMPTY_STEP }],
   elseSteps: [],
   mode: 'single',
+  cooldownMinutes: '',
   category: '',
   enabled: true,
 };
@@ -471,6 +493,15 @@ function triggerToConfig(t: TriggerDraft): Record<string, any> {
     return { type: 'interval', seconds: Math.max(10, Number(t.intervalSeconds) || 600) };
   }
   const hold = Math.max(0, Number(t.forMinutes) || 0) * 60;
+  if (t.kind === 'availability') {
+    const trigger: { type: string; entity_id: string; to: boolean; for?: number } = {
+      type: 'availability',
+      entity_id: t.entityId,
+      to: t.availabilityTo !== 'weg',
+    };
+    if (hold > 0) trigger.for = hold;
+    return trigger;
+  }
   if (t.kind === 'threshold') {
     // Löst beim Übertritt aus, nicht bei jeder Schwankung darunter: Der
     // Tumbler ist fertig, wenn die Leistung von «über 5 W» auf «unter 5 W»
@@ -508,11 +539,13 @@ function triggerFromConfig(t: any): TriggerDraft {
           ? 'sun'
           : t?.type === 'interval'
             ? 'interval'
-            : threshold
-              ? 'threshold'
-              : String(t?.entity_id ?? '').startsWith('geofence.')
-                ? 'geofence'
-                : 'state',
+            : t?.type === 'availability'
+              ? 'availability'
+              : threshold
+                ? 'threshold'
+                : String(t?.entity_id ?? '').startsWith('geofence.')
+                  ? 'geofence'
+                  : 'state',
     entityId: t?.entity_id ?? '',
     toState: t?.to ?? 'on',
     fromState: t?.from ?? '',
@@ -524,6 +557,7 @@ function triggerFromConfig(t: any): TriggerDraft {
     thresholdValue: String(t?.above ?? t?.below ?? EMPTY_TRIGGER.thresholdValue),
     intervalSeconds: String(t?.seconds ?? EMPTY_TRIGGER.intervalSeconds),
     forMinutes: t?.for ? String(Math.round(Number(t.for) / 60)) : '',
+    availabilityTo: t?.type === 'availability' && t?.to === true ? 'wieder-da' : 'weg',
   };
 }
 
@@ -1023,6 +1057,7 @@ export function AutomationsScreen({
       action: stepsToActions(draft.steps),
       otherwise: stepsToActions(draft.elseSteps),
       mode: draft.mode,
+      cooldown: Math.max(0, Number(draft.cooldownMinutes) || 0) * 60,
       match: draft.match,
       enabled: draft.enabled,
       category: draft.category.trim() || null,
@@ -1117,7 +1152,7 @@ export function AutomationsScreen({
         .filter((action) => action.entity_id)
         // flatMap, weil aus einem Eintrag zwei Aktionen werden können:
         // Helligkeit und Farbe sind zwei Befehle an dasselbe Licht.
-        .flatMap(({ entity_id, command, rooms, position, brightness, color }) => {
+        .flatMap(({ entity_id, command, rooms, position, brightness, color, transition }) => {
           if (command === 'clean_rooms') {
             return [{ entity_id, command, data: { rooms: rooms ?? [] } }];
           }
@@ -1126,7 +1161,14 @@ export function AutomationsScreen({
           }
           if (command === 'set_brightness') {
             return [
-              { entity_id, command, data: { brightness: brightness ?? 50 } },
+              {
+                entity_id,
+                command,
+                data: {
+                  brightness: brightness ?? 50,
+                  ...(transition !== undefined ? { transition } : {}),
+                },
+              },
               ...(color ? [{ entity_id, command: 'set_color', data: { color } }] : []),
             ];
           }
@@ -1149,6 +1191,44 @@ export function AutomationsScreen({
     } catch (err: any) {
       setError(String(err.message ?? err));
     }
+  };
+
+  /**
+   * Eine gespeicherte Szene ausprobieren – mit Rückweg.
+   *
+   * Vorher hiess Szenenbauen: speichern, ins Zimmer gehen, schauen,
+   * zurückkommen, ändern. Jetzt: Ausprobieren, und wenn es nicht passt,
+   * «Doch nicht» – der Zustand von vorher kommt zurück (soweit er sich
+   * gefahrlos wiederherstellen lässt, siehe lib/szenen.ts).
+   */
+  const testScene = async (id: string): Promise<RueckwegBefehl[]> => {
+    const scene = scenes.find((entry) => entry.id === id);
+    const rueckweg = szenenRueckweg(entities, scene?.entity_ids ?? []);
+    try {
+      const response = await fetch(`${settings.url}/api/scenes/${id}/activate`, {
+        method: 'POST',
+        headers,
+      });
+      if (!response.ok) throw new Error(`Hub antwortet mit ${response.status}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      return [];
+    }
+    return rueckweg;
+  };
+
+  const revertScene = async (befehle: RueckwegBefehl[]) => {
+    for (const befehl of befehle) {
+      await fetch(
+        `${settings.url}/api/entities/${encodeURIComponent(befehl.entity_id)}/command`,
+        {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ command: befehl.command, data: befehl.data ?? {} }),
+        }
+      ).catch(() => {});
+    }
+    onNote?.('Zustand von vorher wiederhergestellt');
   };
 
   const removeScene = async (id: string) => {
@@ -1562,6 +1642,8 @@ export function AutomationsScreen({
         onSave={saveScene}
         onDelete={sceneDraft?.id ? () => removeScene(sceneDraft.id!) : undefined}
         onCancel={() => setSceneDraft(null)}
+        onTest={sceneDraft?.id ? () => testScene(sceneDraft.id!) : undefined}
+        onRevert={revertScene}
       />
     </View>
   );
@@ -1868,10 +1950,14 @@ function SceneDevices({
   onActions,
   showSnapshot = true,
   allowToggle = false,
+  sceneTransition = 0,
 }: {
   entities: Entity[];
   actions: SceneDraft['actions'];
   onActions: (actions: SceneDraft['actions']) => void;
+  /** Übergangszeit der Szene – nur dann lohnt die Frage «diese Lampe
+   *  sofort?». */
+  sceneTransition?: number;
   /** Der «Aktuellen Zustand übernehmen»-Knopf – für Szenen sinnvoll, für
    *  Ablauf-Aktionen nicht (dort zählt der Zielzustand, nicht der jetzige). */
   showSnapshot?: boolean;
@@ -2074,17 +2160,43 @@ function SceneDevices({
                       />
                     ) : null}
                     {action!.command === 'set_brightness' ? (
-                      <Choice
-                        options={[
-                          { key: '10', label: '10 %' },
-                          { key: '25', label: '25 %' },
-                          { key: '50', label: '50 %' },
-                          { key: '75', label: '75 %' },
-                          { key: '100', label: '100 %' },
-                        ]}
-                        value={String(action!.brightness ?? 50)}
-                        onSelect={(key) => setBrightness(entity.id, Number(key))}
-                      />
+                      <>
+                        <Choice
+                          options={[
+                            { key: '10', label: '10 %' },
+                            { key: '25', label: '25 %' },
+                            { key: '50', label: '50 %' },
+                            { key: '75', label: '75 %' },
+                            { key: '100', label: '100 %' },
+                          ]}
+                          value={String(action!.brightness ?? 50)}
+                          onSelect={(key) => setBrightness(entity.id, Number(key))}
+                        />
+                        {sceneTransition > 0 ? (
+                          // Beim Lichtwecker kommt die Decke über zwanzig
+                          // Minuten – die Nachttischlampe soll trotzdem
+                          // sofort an.
+                          <Choice
+                            options={[
+                              { key: 'szene', label: 'mit Übergang' },
+                              { key: 'sofort', label: 'sofort' },
+                            ]}
+                            value={action!.transition === 0 ? 'sofort' : 'szene'}
+                            onSelect={(key) =>
+                              onActions(
+                                actions.map((entry) =>
+                                  entry.entity_id === entity.id
+                                    ? {
+                                        ...entry,
+                                        transition: key === 'sofort' ? 0 : undefined,
+                                      }
+                                    : entry
+                                )
+                              )
+                            }
+                          />
+                        ) : null}
+                      </>
                     ) : null}
                   </View>
                 ) : null}
@@ -2105,6 +2217,8 @@ function SceneEditor({
   onSave,
   onDelete,
   onCancel,
+  onTest,
+  onRevert,
 }: {
   draft: SceneDraft | null;
   entities: Entity[];
@@ -2114,9 +2228,15 @@ function SceneEditor({
   onSave: () => void;
   onDelete?: () => void;
   onCancel: () => void;
+  /** Nur bei gespeicherten Szenen: einmal auslösen, Rückweg merken. */
+  onTest?: () => Promise<RueckwegBefehl[]>;
+  onRevert?: (befehle: RueckwegBefehl[]) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  // Der gemerkte Rückweg nach «Ausprobieren» – solange er da ist, steht
+  // daneben «Doch nicht».
+  const [rueckweg, setRueckweg] = useState<RueckwegBefehl[] | null>(null);
   if (!draft) return null;
 
   const set = (patch: Partial<SceneDraft>) => onChange({ ...draft, ...patch });
@@ -2221,12 +2341,45 @@ function SceneEditor({
             entities={entities}
             actions={draft.actions}
             onActions={(actions) => set({ actions })}
+            sceneTransition={draft.transition ?? 0}
           />
         </Field>
 
         <Pressable style={styles.save} onPress={onSave} accessibilityRole="button">
           <Text style={styles.saveText}>Speichern</Text>
         </Pressable>
+        {onTest ? (
+          <Pressable
+            style={({ pressed }) => [styles.snapshot, pressed && { opacity: 0.8 }]}
+            onPress={async () => setRueckweg(await onTest())}
+            accessibilityRole="button"
+          >
+            <Ionicons name="flash-outline" size={18} color={colors.accent} />
+            <Text style={styles.snapshotText}>Ausprobieren</Text>
+          </Pressable>
+        ) : null}
+        {rueckweg && rueckweg.length > 0 && onRevert ? (
+          <Pressable
+            style={({ pressed }) => [styles.snapshot, pressed && { opacity: 0.8 }]}
+            onPress={() => {
+              onRevert(rueckweg);
+              setRueckweg(null);
+            }}
+            accessibilityRole="button"
+          >
+            <Ionicons name="arrow-undo-outline" size={18} color={colors.accent} />
+            <Text style={styles.snapshotText}>
+              Doch nicht – Zustand von vorher wiederherstellen
+            </Text>
+          </Pressable>
+        ) : null}
+        {onTest ? (
+          <Text style={styles.snapshotHint}>
+            «Ausprobieren» löst die gespeicherte Szene wirklich aus.
+            Gespeicherte Änderungen zuerst sichern – und der Rückweg stellt
+            Lichter, Schalter und Storen wieder her, Schlösser nur zu.
+          </Text>
+        ) : null}
         {onDelete ? (
           <Pressable style={styles.delete} onPress={onDelete} accessibilityRole="button">
             <Text style={styles.deleteText}>Szene löschen</Text>
@@ -2306,6 +2459,29 @@ function Editor({
           Ein Ablauf ist ein Satz: „Wenn … passiert, dann … tun." Unten das
           Wenn und das Dann ausfüllen, oben einen Namen geben.
         </Text>
+
+        {/* Und hier steht dieser Satz auch – mitlaufend, mit Gerätenamen.
+            Wer «und» meinte und «oder» gebaut hat, liest es sofort, statt
+            es erst am Abend im dunklen Flur zu merken. */}
+        {(() => {
+          const satz = ablaufSatz(
+            {
+              triggers: draft.triggers.map(triggerToConfig),
+              conditions: buildConditions(draft),
+              actions: stepsToActions(draft.steps),
+              otherwise: stepsToActions(draft.elseSteps),
+              match: draft.match,
+            },
+            entities,
+            scenes
+          );
+          return satz ? (
+            <View style={styles.satzBox}>
+              <Ionicons name="chatbox-ellipses-outline" size={15} color={colors.accent} />
+              <Text style={styles.satzText}>{satz}</Text>
+            </View>
+          ) : null;
+        })()}
 
         <Field label="Name">
           <TextInput
@@ -2601,6 +2777,25 @@ function Editor({
             styles={styles}
             onChange={(steps) => set({ steps })}
           />
+          <Text style={styles.label}>Frühestens wieder nach</Text>
+          <Choice
+            options={[
+              { key: '', label: 'sofort wieder' },
+              { key: '1', label: '1 Min' },
+              { key: '5', label: '5 Min' },
+              { key: '30', label: '30 Min' },
+              { key: '120', label: '2 Std' },
+            ]}
+            value={draft.cooldownMinutes}
+            onSelect={(cooldownMinutes) => set({ cooldownMinutes })}
+          />
+          {draft.cooldownMinutes ? (
+            <Text style={styles.triggerNote}>
+              Nach einem Durchgang schweigt der Ablauf {draft.cooldownMinutes}{' '}
+              Minuten, auch wenn er erneut ausgelöst wird – gegen den
+              zuckenden Melder, der aus einer Durchsage zwanzig macht.
+            </Text>
+          ) : null}
           {hatWartezeit(draft.steps) ? (
             <>
               <Text style={styles.label}>Wenn er dabei erneut ausgelöst wird</Text>
@@ -2763,6 +2958,7 @@ function TriggerRow({
           { key: 'time', label: 'Uhrzeit' },
           { key: 'sun', label: 'Sonnenstand' },
           { key: 'interval', label: 'Regelmässig' },
+          { key: 'availability', label: 'Meldet sich nicht' },
           // Nur anbieten, wenn es auch Zonen gibt – ein leerer Auslöser
           // wäre ein Versprechen, das der Hub nicht halten kann.
           ...(entities.some((entity) => entity.id.startsWith('geofence.'))
@@ -2865,6 +3061,43 @@ function TriggerRow({
               nicht als «alle weg».
             </Text>
           ) : null}
+        </>
+      ) : trigger.kind === 'availability' ? (
+        <>
+          <EntityPicker
+            entities={entities}
+            value={trigger.entityId}
+            onSelect={(entityId) => onChange({ entityId })}
+          />
+          <Choice
+            options={[
+              { key: 'weg', label: 'verstummt' },
+              { key: 'wieder-da', label: 'ist wieder da' },
+            ]}
+            value={trigger.availabilityTo}
+            onSelect={(availabilityTo) =>
+              onChange({ availabilityTo: availabilityTo as TriggerDraft['availabilityTo'] })
+            }
+          />
+          <View style={styles.rowGap}>
+            <Choice
+              options={[
+                { key: '', label: 'sofort' },
+                { key: '10', label: 'seit 10 Min.' },
+                { key: '60', label: 'seit 1 Std.' },
+                { key: '1440', label: 'seit 1 Tag' },
+              ]}
+              value={trigger.forMinutes}
+              onSelect={(forMinutes) => onChange({ forMinutes })}
+            />
+          </View>
+          <Text style={styles.triggerNote}>
+            Löst aus, wenn das Gerät {trigger.availabilityTo === 'weg'
+              ? 'nicht mehr antwortet'
+              : 'sich zurückmeldet'} – etwa bei leerer Batterie oder
+            gestörtem Funk. Der Wächter schickt dafür nur eine
+            Push-Nachricht; hiermit kann man es sich auch ansagen lassen.
+          </Text>
         </>
       ) : trigger.kind === 'geofence' ? (
         <>
@@ -3027,6 +3260,16 @@ function StepList({
   const setStep = (index: number, patch: Partial<StepDraft>) =>
     onChange(steps.map((step, i) => (i === index ? { ...step, ...patch } : step)));
   const remove = (index: number) => onChange(steps.filter((_, i) => i !== index));
+  // «Licht an, warten, Licht aus» für den zweiten Flur tippte man bisher
+  // neu – ein Ablauf liess sich kopieren, ein Schritt nicht.
+  const copy = (index: number) => {
+    const kopie = {
+      ...steps[index],
+      commandActions: steps[index].commandActions.map((entry) => ({ ...entry })),
+      broadcastSpeakers: [...steps[index].broadcastSpeakers],
+    };
+    onChange([...steps.slice(0, index + 1), kopie, ...steps.slice(index + 1)]);
+  };
   const move = (index: number, delta: number) => {
     const target = index + delta;
     if (target < 0 || target >= steps.length) return;
@@ -3068,6 +3311,14 @@ function StepList({
                 </Pressable>
               </>
             ) : null}
+            <Pressable
+              onPress={() => copy(index)}
+              accessibilityRole="button"
+              accessibilityLabel="Schritt kopieren"
+              hitSlop={8}
+            >
+              <Ionicons name="copy-outline" size={17} color={colors.inkSoft} />
+            </Pressable>
             <Pressable
               onPress={() => remove(index)}
               accessibilityLabel="Schritt entfernen"
@@ -3813,6 +4064,9 @@ function toDraft(automation: Automation): Draft {
     steps: withAtLeastOne(actionsToSteps(automation.actions ?? [])),
     elseSteps: actionsToSteps(automation.otherwise ?? []),
     mode: automation.mode === 'restart' ? 'restart' : 'single',
+    cooldownMinutes: automation.cooldown
+      ? String(Math.round(automation.cooldown / 60))
+      : '',
     category: automation.category ?? '',
     enabled: automation.enabled !== false,
   };
@@ -3836,9 +4090,11 @@ function describe(automation: Automation): string {
           }`
         : trigger.type === 'interval'
           ? `alle ${trigger.seconds} s`
-          : `wenn ${trigger.entity_id}${
-              trigger.attribute ? `.${trigger.attribute}` : ''
-            } → ${trigger.to ?? 'sich ändert'}`;
+          : trigger.type === 'availability'
+            ? `wenn ${trigger.entity_id} ${trigger.to === true ? 'wiederkommt' : 'verstummt'}`
+            : `wenn ${trigger.entity_id}${
+                trigger.attribute ? `.${trigger.attribute}` : ''
+              } → ${trigger.to ?? 'sich ändert'}`;
   const dann = !action
     ? 'ohne Aktion'
     : action.type === 'scene'
@@ -3892,6 +4148,17 @@ const makeStyles = (colors: Colors) =>
     },
     snapshotText: { color: colors.accent, fontSize: 15, fontWeight: '700' },
     snapshotHint: { color: colors.inkFaint, fontSize: 12, lineHeight: 17 },
+    satzBox: {
+      flexDirection: 'row',
+      gap: 8,
+      alignItems: 'flex-start',
+      padding: 10,
+      borderRadius: radius.control,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    satzText: { color: colors.ink, fontSize: 13, lineHeight: 19, flex: 1 },
     groupLabel: {
       color: colors.inkSoft,
       fontSize: 13,

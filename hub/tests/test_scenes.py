@@ -103,3 +103,28 @@ def test_ramp_hits_the_target_exactly():
     # Ohne Zeit oder ohne Weg: ein einziger Schritt.
     assert ramp(40, 40, 60) == [(0.0, 40)]
     assert ramp(0, 80, 0) == [(0.0, 80)]
+
+
+def test_transition_for_lets_one_lamp_be_instant():
+    """Beim Lichtwecker kommt das Licht über zwanzig Minuten – die
+    Nachttischlampe soll trotzdem sofort angehen."""
+    from homepilot.core.scenes import Scene, transition_for
+
+    szene = Scene(id="wecker", name="Wecker", transition=1200)
+    langsam = {"entity_id": "hue.decke", "command": "set_brightness", "data": {"brightness": 80}}
+    sofort = {
+        "entity_id": "hue.nachttisch",
+        "command": "set_brightness",
+        "data": {"brightness": 30, "transition": 0},
+    }
+    eigene = {
+        "entity_id": "hue.flur",
+        "command": "set_brightness",
+        "data": {"brightness": 50, "transition": 60},
+    }
+    assert transition_for(szene, langsam) == 1200
+    assert transition_for(szene, sofort) == 0
+    assert transition_for(szene, eigene) == 60
+    # Unsinn fällt auf die Szene zurück, statt die Rampe zu zerlegen.
+    kaputt = {"entity_id": "x", "command": "set_brightness", "data": {"transition": "gleich"}}
+    assert transition_for(szene, kaputt) == 1200

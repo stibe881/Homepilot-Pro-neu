@@ -1440,3 +1440,95 @@ def test_a_missed_run_is_caught_up_not_skipped():
 
     feuern, _, _ = next_time_fire(dt(2026, 3, 15, 19, 45), 18, 30, None)
     assert feuern is True
+
+
+async def test_availability_trigger_fires_when_a_device_goes_silent():
+    """«Wenn der Rauchmelder verstummt, sag es laut» – der Wächter konnte
+    das bisher nur als Push-Nachricht, ein Ablauf gar nicht."""
+    hub = await run_hub(
+        [
+            {
+                "id": "melder_stumm",
+                "alias": "Melder verstummt",
+                "trigger": [
+                    {
+                        "type": "availability",
+                        "entity_id": "demo.motion_hall",
+                        "to": False,
+                    }
+                ],
+                "action": [
+                    {
+                        "type": "command",
+                        "entity_id": "demo.light_livingroom",
+                        "command": "turn_on",
+                    }
+                ],
+            }
+        ]
+    )
+    try:
+        # Ein blosser Zustandswechsel darf nicht auslösen …
+        await hub.registry.update_state("demo.motion_hall", {"state": "on"})
+        await settle()
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "off"
+
+        # … das Verstummen schon.
+        await hub.registry.update_state("demo.motion_hall", {}, available=False)
+        await settle()
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "on"
+
+        # Und die Wiederkehr ist nicht dieselbe Flanke.
+        await hub.integrations.dispatch_command("demo.light_livingroom", "turn_off")
+        await settle()
+        await hub.registry.update_state("demo.motion_hall", {}, available=True)
+        await settle()
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "off"
+    finally:
+        await hub.stop()
+
+
+def test_parse_cooldown_survives_nonsense():
+    """Ein Tippfehler darf bremsen, aber nicht stummschalten."""
+    from homepilot.core.automation import parse_cooldown
+
+    assert parse_cooldown(120) == 120.0
+    assert parse_cooldown("300") == 300.0
+    assert parse_cooldown(None) == 0.0
+    assert parse_cooldown("gleich") == 0.0
+    assert parse_cooldown(-5) == 0.0
+
+
+async def test_cooldown_swallows_the_stutter():
+    """Ein zuckender Melder im Wind macht sonst aus einer Durchsage
+    zwanzig – mode schützt nur, solange der Ablauf noch *läuft*."""
+    hub = await run_hub(
+        [
+            {
+                "id": "zaehler",
+                "alias": "Zähler",
+                "cooldown": 3600,
+                "trigger": [
+                    {"type": "state", "entity_id": "demo.motion_hall", "to": "on"}
+                ],
+                "action": [
+                    {
+                        "type": "command",
+                        "entity_id": "demo.light_livingroom",
+                        "command": "toggle",
+                    }
+                ],
+            }
+        ]
+    )
+    try:
+        for _ in range(3):
+            await hub.integrations.dispatch_command("demo.motion_hall", "turn_on")
+            await settle()
+            await hub.integrations.dispatch_command("demo.motion_hall", "turn_off")
+            await settle()
+        # Ohne Mindestabstand hätte toggle dreimal gefeuert und das Licht
+        # stünde wieder auf «an» – so lief genau ein Durchgang.
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "on"
+    finally:
+        await hub.stop()

@@ -88,6 +88,26 @@ def ramp(start: int, target: int, seconds: float, step: float = TRANSITION_STEP)
     return steps
 
 
+def transition_for(scene: Scene, action: dict[str, Any]) -> float:
+    """Die Übergangszeit dieser einen Aktion (rein, testbar).
+
+    ``data.transition`` sticht die Szene – auch mit null: «diese Lampe
+    sofort» ist beim Lichtwecker genau der Punkt. Unsinniges fällt auf
+    die Szene zurück, und mehr als MAX_TRANSITION ist kein Übergang mehr,
+    sondern ein Ablauf.
+    """
+    roh = (action.get("data") or {}).get("transition")
+    if roh is None:
+        return float(scene.transition)
+    try:
+        sekunden = float(roh)
+    except (TypeError, ValueError):
+        return float(scene.transition)
+    if sekunden < 0:
+        return float(scene.transition)
+    return min(sekunden, MAX_TRANSITION)
+
+
 def parse_scenes(configs: list[dict[str, Any]], editable: bool = False) -> list[Scene]:
     scenes = []
     for index, config in enumerate(configs):
@@ -155,8 +175,14 @@ class SceneManager:
                     # Mit Übergangszeit werden Helligkeiten angefahren statt
                     # gesetzt. Alles andere (an, aus, Storen) bleibt sofort:
                     # Ein Schalter, der «langsam» schaltet, gibt es nicht.
-                    if scene.transition > 0 and action["command"] == "set_brightness":
-                        await self._fade(scene, action)
+                    #
+                    # `data.transition` je Aktion sticht die Szene: Beim
+                    # Lichtwecker soll das Licht über zwanzig Minuten
+                    # kommen, die Nachttischlampe aber sofort an – vorher
+                    # galt die eine Zahl pauschal für jede Lampe.
+                    uebergang = transition_for(scene, action)
+                    if uebergang > 0 and action["command"] == "set_brightness":
+                        await self._fade(scene, action, uebergang)
                         continue
                     await self.hub.integrations.dispatch_command(
                         action["entity_id"], action["command"], action.get("data") or {}
@@ -179,7 +205,9 @@ class SceneManager:
         )
         return {"scene": scene.as_dict(), "failed": failed}
 
-    async def _fade(self, scene: Scene, action: dict[str, Any]) -> None:
+    async def _fade(
+        self, scene: Scene, action: dict[str, Any], seconds: float
+    ) -> None:
         """Eine Helligkeit über die Übergangszeit anfahren.
 
         Im Hintergrund, damit die übrigen Aktionen der Szene nicht warten –
@@ -196,7 +224,7 @@ class SceneManager:
                 current = int(entity.state.get("brightness") or 0)
             except (TypeError, ValueError):
                 current = 0
-        steps = ramp(current, target, scene.transition)
+        steps = ramp(current, target, seconds)
 
         async def run() -> None:
             for wait, value in steps:

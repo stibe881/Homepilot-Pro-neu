@@ -161,6 +161,10 @@ class EntityRegistry:
                 "old_state": old_state,
                 "new_state": dict(new_state),
                 "entity": entity.as_dict(),
+                # Ob sich gerade die *Erreichbarkeit* geändert hat – der
+                # Zustand sagt das nicht, und der Auslöser «meldet sich
+                # nicht mehr» braucht genau diese Flanke, nicht den Pegel.
+                "availability_changed": availability_changed,
                 # Wer die Änderung ausgelöst hat – Grundlage für die Frage
                 # „warum ist das passiert?“ in der App.
                 "source": current_source(),

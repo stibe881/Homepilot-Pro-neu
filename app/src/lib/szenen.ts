@@ -20,6 +20,10 @@ export interface SceneActionDraft {
   /** Lichtfarbe (Hex) – wird beim Speichern zu einer eigenen
    *  set_color-Aktion. Kommt aus dem Schnappschuss. */
   color?: string;
+  /** Eigene Übergangszeit dieser Lampe in Sekunden. 0 heisst «sofort,
+   *  auch wenn die Szene langsam anfährt» – die Nachttischlampe beim
+   *  Lichtwecker. undefined heisst: die Zeit der Szene gilt. */
+  transition?: number;
 }
 
 /**
@@ -97,7 +101,13 @@ export function sceneActionsToDraft(
   actions: {
     entity_id: string;
     command: string;
-    data?: { rooms?: number[]; position?: number; brightness?: number; color?: string };
+    data?: {
+      rooms?: number[];
+      position?: number;
+      brightness?: number;
+      color?: string;
+      transition?: number;
+    };
   }[]
 ): SceneActionDraft[] {
   const result: SceneActionDraft[] = [];
@@ -117,8 +127,105 @@ export function sceneActionsToDraft(
       rooms: action.data?.rooms,
       position: action.data?.position,
       brightness: action.data?.brightness,
+      transition: action.data?.transition,
       color: action.command === 'set_color' ? String(action.data?.color ?? '') : undefined,
     });
   }
   return result;
+}
+
+
+/** Ein Befehl, der einen Zustand von vorher wiederherstellt. */
+export interface RueckwegBefehl {
+  entity_id: string;
+  command: string;
+  data?: Record<string, number | string>;
+}
+
+/**
+ * Der Rückweg nach dem Ausprobieren einer Szene (rein, testbar).
+ *
+ * Vor dem Auslösen aufgerufen: Für jedes Gerät der Szene der Befehl, der
+ * den *jetzigen* Zustand wiederherstellt. So wird aus «speichern, ins
+ * Zimmer gehen, schauen, zurück, ändern» ein «Ausprobieren» mit einem
+ * «Doch nicht» daneben.
+ *
+ * Nur, was sich gefahrlos zurückstellen lässt:
+ *
+ * - Lichter und Schalter samt Helligkeit – der Hauptfall.
+ * - Storen auf ihre gemerkte Position.
+ * - Ein Schloss wird höchstens wieder *ab*geschlossen. Ein Rückgängig,
+ *   das eine Türe aufschliesst, ist keins.
+ * - Die Alarmanlage gar nicht: Wer sie in einer Szene schaltet, soll das
+ *   bewusst zurücknehmen, nicht über einen Sammelknopf.
+ */
+export function szenenRueckweg(
+  entities: Entity[],
+  entityIds: string[]
+): RueckwegBefehl[] {
+  const befehle: RueckwegBefehl[] = [];
+  for (const id of new Set(entityIds)) {
+    const entity = entities.find((entry) => entry.id === id);
+    if (!entity) continue;
+    const state = entity.state.state;
+    if (entity.kind === 'cover') {
+      if (
+        typeof entity.state.position === 'number' &&
+        entity.commands.includes('set_position')
+      ) {
+        befehle.push({
+          entity_id: id,
+          command: 'set_position',
+          data: { position: Math.round(entity.state.position) },
+        });
+      }
+      continue;
+    }
+    if (entity.kind === 'lock') {
+      if (state === 'locked') befehle.push({ entity_id: id, command: 'lock' });
+      continue;
+    }
+    if (entity.kind === 'alarm' || entity.kind === 'vacuum') continue;
+    if (!entity.commands.includes('turn_off')) continue;
+    if (state === 'on') {
+      if (
+        typeof entity.state.brightness === 'number' &&
+        entity.commands.includes('set_brightness')
+      ) {
+        befehle.push({
+          entity_id: id,
+          command: 'set_brightness',
+          data: { brightness: Math.round(entity.state.brightness) },
+        });
+      } else {
+        befehle.push({ entity_id: id, command: 'turn_on' });
+      }
+    } else if (state === 'off') {
+      befehle.push({ entity_id: id, command: 'turn_off' });
+    }
+  }
+  return befehle;
+}
+
+/**
+ * Die Szenen, die in diesem Raum etwas tun (rein, testbar).
+ *
+ * Bisher entschied allein das Feld `room` – ein einzelnes. «Feierabend»
+ * betrifft Wohnzimmer, Küche und die Storen und erschien in höchstens
+ * einem davon. Jetzt zählt zusätzlich, was die Szene *schaltet*: Sie
+ * erscheint in jedem Raum, dessen Geräte sie anfasst. Das Feld bleibt
+ * als Zuordnung von Hand bestehen.
+ */
+export function szenenFuerRaum<S extends { room?: string | null; entity_ids: string[] }>(
+  scenes: S[],
+  entities: Entity[],
+  room: string
+): S[] {
+  const imRaum = new Set(
+    entities.filter((entity) => entity.room === room).map((entity) => entity.id)
+  );
+  return scenes.filter(
+    (scene) =>
+      scene.room === room || scene.entity_ids.some((id) => imRaum.has(id))
+  );
 }
