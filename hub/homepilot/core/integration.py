@@ -12,7 +12,7 @@ import asyncio
 import importlib
 import logging
 from abc import ABC, abstractmethod
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import aiohttp
@@ -148,6 +148,43 @@ class Integration(ABC):
         task = asyncio.create_task(coro)
         self._tasks.append(task)
         return task
+
+    def start_polling(
+        self,
+        refresh: Callable[[], Coroutine],
+        interval: float | None = None,
+        sofort: bool = False,
+    ) -> asyncio.Task:
+        """Der Standard-Polltakt: schlafen, auffrischen, weiterleben.
+
+        Sechs Integrationen hatten sich dieselbe Schleife selbst gebaut -
+        und nicht alle gleich gut: Wo der Fehlerfang fehlte, beendete die
+        erste kaputte Antwort den Takt für immer, und die Geräte froren
+        kommentarlos ein. Hier ist er eingebaut: Ein Fehlschlag wird
+        protokolliert, der nächste Takt kommt trotzdem.
+
+        ``interval`` überschreibt scan_interval(); ``sofort`` frischt
+        einmal vor dem ersten Schlafen auf (wer seine Entitäten erst über
+        den ersten Abruf findet, braucht das).
+        """
+        takt = float(interval) if interval is not None else self.scan_interval()
+
+        async def _loop() -> None:
+            if sofort:
+                await self._poll_once(refresh)
+            while True:
+                await asyncio.sleep(takt)
+                await self._poll_once(refresh)
+
+        return self.start_task(_loop())
+
+    async def _poll_once(self, refresh: Callable[[], Coroutine]) -> None:
+        try:
+            await refresh()
+        except asyncio.CancelledError:
+            raise
+        except Exception as err:
+            self.log.warning("%s-Abfrage fehlgeschlagen: %s", self.name, err)
 
     def http_session(self, **kwargs: Any) -> aiohttp.ClientSession:
         """HTTP-Session, die beim Teardown automatisch geschlossen wird."""

@@ -28,12 +28,11 @@ set_position und – wo vorhanden – set_tilt.
 from __future__ import annotations
 
 import asyncio
-import json
-import os
 import time
 from pathlib import Path
 from typing import Any
 
+from ..core import tokenstore
 from ..core.entity import Entity, EntityKind
 from ..core.errors import ConfigError
 from ..core.integration import Integration
@@ -239,19 +238,10 @@ class OverkizIntegration(Integration):
         )
 
     def _token_file(self) -> Path:
-        return Path(
-            self.config.get("token_file")
-            or Path(self.hub.config.data_file).parent / "overkiz-token.json"
-        )
+        return tokenstore.token_file(self.hub.config.data_file, self.config, "overkiz")
 
     def _load_token(self) -> str | None:
-        path = self._token_file()
-        if not path.is_file():
-            return None
-        try:
-            return json.loads(path.read_text()).get("token")
-        except (OSError, json.JSONDecodeError):
-            return None
+        return tokenstore.value(self._token_file(), "token")
 
     # ── Gateway → Hub ────────────────────────────────────────────────────────
 
@@ -439,13 +429,10 @@ async def _login_main(config_path: str) -> int:
             print("  Ist der Entwicklermodus für das Gateway aktiviert?")
             return 1
 
-    token_file = Path(
-        (blocks[0].get("token_file") if blocks else None)
-        or Path(config.data_file).parent / "overkiz-token.json"
+    token_file = tokenstore.token_file(
+        config.data_file, blocks[0] if blocks else None, "overkiz"
     )
-    token_file.parent.mkdir(parents=True, exist_ok=True)
-    token_file.write_text(json.dumps({"token": token}))
-    os.chmod(token_file, 0o600)
+    tokenstore.save(token_file, {"token": token})
     print(f"✓ Lokales Token erstellt und in {token_file} gespeichert – jetzt den Hub starten.")
     return 0
 

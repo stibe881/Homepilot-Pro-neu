@@ -85,6 +85,8 @@ class AuditLog:
             )
             self.hub.data.set("audit", trim(rows))
         except Exception:
+            # Bewusst breit: Das Protokoll darf nie das Schalten verhindern,
+            # das es festhalten soll.
             log.exception("Zugriffsprotokoll nicht schreibbar")
 
     def entries(self, limit: int = 200, entity_id: str | None = None) -> list[dict[str, Any]]:

@@ -393,7 +393,7 @@ class StreamManager:
                 timeout=aiohttp.ClientTimeout(total=3),
             ) as response:
                 self._mediamtx = response.status < 400
-        except Exception:
+        except (TimeoutError, aiohttp.ClientError, OSError):
             self._mediamtx = False
         if self._mediamtx != was:
             log.info(

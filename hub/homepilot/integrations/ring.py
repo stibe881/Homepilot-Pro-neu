@@ -34,13 +34,11 @@ es gerade steht, sagt health() und damit der System-Bildschirm.
 from __future__ import annotations
 
 import asyncio
-import json
-import os
 import time
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
+from ..core import tokenstore
 from ..core.entity import EntityKind
 from ..core.errors import ConfigError
 from ..core.integration import Integration
@@ -205,16 +203,16 @@ class RingIntegration(Integration):
                 "ring-doorbell fehlt – installieren mit: pip install ring-doorbell"
             ) from err
 
-        self._token_file = Path(
-            self.config.get("token_file")
-            or Path(self.hub.config.data_file).parent / "ring-token.json"
+        self._token_file = tokenstore.token_file(
+            self.hub.config.data_file, self.config, "ring"
         )
-        if not self._token_file.is_file():
+        stored = tokenstore.load(self._token_file)
+        if stored is None:
             raise ConfigError(
-                f"{self._token_file} fehlt – einmalig anmelden mit: "
+                f"{self._token_file} fehlt oder ist unlesbar – einmalig anmelden mit: "
                 "python -m homepilot.integrations.ring -c config.yaml"
             )
-        self._stored = json.loads(self._token_file.read_text())
+        self._stored = stored
 
         from ring_doorbell import Auth, Ring
 
@@ -274,7 +272,7 @@ class RingIntegration(Integration):
 
         self._seen_alerts: dict[tuple[int, int, str], float] = {}
         self._listener: Any = None
-        self.start_task(self._poll_loop())
+        self.start_polling(self._refresh_devices)
         self.start_task(self._listen_loop())
         self.start_task(self._ding_loop())
 
@@ -298,32 +296,21 @@ class RingIntegration(Integration):
     def _save(self, key: str, value: dict[str, Any]) -> None:
         """Aufgefrischte Tokens sofort sichern, sonst sperrt Ring den Zugang aus."""
         self._stored[key] = value
-        tmp = self._token_file.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self._stored))
-        os.chmod(tmp, 0o600)
-        tmp.replace(self._token_file)
+        tokenstore.save(self._token_file, self._stored)
 
     # ── Gerät → Hub ────────────────────────────────────────────────────────
 
-    async def _poll_loop(self) -> None:
-        interval = int(self.scan_interval())
-        while True:
-            await asyncio.sleep(interval)
-            try:
-                await self._ring.async_update_devices()
-                devices = self._ring.devices()
-                for entity_id, old in list(self._devices.items()):
-                    device = devices.get_device(int(old.id))
-                    self._devices[entity_id] = device
-                    await self.hub.registry.update_state(
-                        entity_id,
-                        device_state(device.battery_life, device.connection_status),
-                        available=True,
-                    )
-            except asyncio.CancelledError:
-                raise
-            except Exception as err:
-                self.log.warning("Ring-Abfrage fehlgeschlagen: %s", err)
+    async def _refresh_devices(self) -> None:
+        await self._ring.async_update_devices()
+        devices = self._ring.devices()
+        for entity_id, old in list(self._devices.items()):
+            device = devices.get_device(int(old.id))
+            self._devices[entity_id] = device
+            await self.hub.registry.update_state(
+                entity_id,
+                device_state(device.battery_life, device.connection_status),
+                available=True,
+            )
 
     async def _listen_loop(self) -> None:
         """Den Ereigniskanal offenhalten – nicht nur einmal anklopfen.
@@ -563,9 +550,8 @@ async def _login_main(config_path: str) -> int:
 
     config = load_config(config_path)
     blocks = [b for b in config.integrations if b.get("integration") == "ring"]
-    token_file = Path(
-        (blocks[0].get("token_file") if blocks else None)
-        or Path(config.data_file).parent / "ring-token.json"
+    token_file = tokenstore.token_file(
+        config.data_file, blocks[0] if blocks else None, "ring"
     )
 
     username = input("Ring-E-Mail: ").strip()
@@ -584,9 +570,7 @@ async def _login_main(config_path: str) -> int:
     finally:
         await auth.async_close()
 
-    token_file.parent.mkdir(parents=True, exist_ok=True)
-    token_file.write_text(json.dumps({"token": token}))
-    os.chmod(token_file, 0o600)
+    tokenstore.save(token_file, {"token": token})
     print(f"✓ Angemeldet. Token liegt in {token_file} – jetzt den Hub starten.")
     return 0
 

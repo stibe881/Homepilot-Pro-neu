@@ -1018,7 +1018,9 @@ class AutomationEngine:
         """Beim Start: nachholen, was der letzte Halt offen liess."""
         try:
             offen = list(self.hub.data.get(PENDING_KEY))
-        except Exception:
+        except (TypeError, ValueError):
+            # Ein kaputter Eintrag im Datenspeicher - dann eben ohne
+            # Nachholen starten, statt gar nicht.
             return
         if not offen:
             return
@@ -1027,7 +1029,9 @@ class AutomationEngine:
         # ist, muss nicht heute nochmals ausgeschaltet werden.
         try:
             self.hub.data.set(PENDING_KEY, [])
-        except Exception:
+        except TypeError:
+            # Nicht serialisierbar hiesse: schon beim Schreiben kaputt.
+            # Das Leeren scheitern zu lassen, wäre trotzdem falsch.
             pass
         for eintrag in offen:
             task = asyncio.create_task(self._rest_nachholen(eintrag))
@@ -1123,7 +1127,8 @@ class AutomationEngine:
         """Den Verlauf früherer Läufe zurückholen (jüngste zuerst)."""
         try:
             stored = self.hub.data.get("automation_runs")
-        except Exception:
+        except (TypeError, ValueError):
+            # Kaputter Verlauf: lieber ohne Geschichte starten als gar nicht.
             return
         if stored:
             self.runs = list(stored)[:RUN_LIMIT]

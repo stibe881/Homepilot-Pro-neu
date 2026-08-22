@@ -28,8 +28,6 @@ Vorrang vor der Token-Datei.
 from __future__ import annotations
 
 import asyncio
-import json
-import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -37,6 +35,7 @@ from urllib.parse import quote
 
 import aiohttp
 
+from ..core import tokenstore
 from ..core.entity import EntityKind
 from ..core.errors import ConfigError
 from ..core.integration import Integration
@@ -180,19 +179,10 @@ class GoogleCalendarIntegration(Integration):
         self.start_task(self._poll_loop())
 
     def _token_file(self) -> Path:
-        return Path(
-            self.config.get("token_file")
-            or Path(self.hub.config.data_file).parent / "google-token.json"
-        )
+        return tokenstore.token_file(self.hub.config.data_file, self.config, "google")
 
     def _load_token(self) -> str | None:
-        path = self._token_file()
-        if not path.is_file():
-            return None
-        try:
-            return json.loads(path.read_text()).get("refresh_token")
-        except (OSError, json.JSONDecodeError):
-            return None
+        return tokenstore.value(self._token_file(), "refresh_token")
 
     async def _ensure_token(self) -> str:
         loop = asyncio.get_running_loop()
@@ -348,13 +338,10 @@ async def _login_main(config_path: str) -> int:
         )
         return 1
 
-    token_file = Path(
-        (blocks[0].get("token_file") if blocks else None)
-        or Path(config.data_file).parent / "google-token.json"
+    token_file = tokenstore.token_file(
+        config.data_file, blocks[0] if blocks else None, "google"
     )
-    token_file.parent.mkdir(parents=True, exist_ok=True)
-    token_file.write_text(json.dumps({"refresh_token": refresh_token}))
-    os.chmod(token_file, 0o600)
+    tokenstore.save(token_file, {"refresh_token": refresh_token})
     print(f"\n✓ Token gespeichert in {token_file} – jetzt den Hub (neu) starten.")
     return 0
 

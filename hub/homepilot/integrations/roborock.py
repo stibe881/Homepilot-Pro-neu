@@ -23,11 +23,10 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import json
-import os
 from pathlib import Path
 from typing import Any
 
+from ..core import tokenstore
 from ..core.entity import Entity, EntityKind
 from ..core.errors import ConfigError
 from ..core.integration import Integration
@@ -480,19 +479,16 @@ class RoborockIntegration(Integration):
             await _maybe_await(self._manager.close())
 
     def _token_file(self) -> Path:
-        return Path(
-            self.config.get("token_file")
-            or Path(self.hub.config.data_file).parent / "roborock-token.json"
-        )
+        return tokenstore.token_file(self.hub.config.data_file, self.config, "roborock")
 
     def _load_user_data(self, user_data_cls: Any) -> Any:
         """Gespeichertes UserData laden – None, wenn keins da/lesbar ist."""
-        path = self._token_file()
-        if not path.is_file():
+        data = tokenstore.load(self._token_file())
+        if data is None:
             return None
         try:
-            return user_data_cls.from_dict(json.loads(path.read_text()))
-        except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as err:
+            return user_data_cls.from_dict(data)
+        except (KeyError, TypeError, ValueError) as err:
             self.log.warning("roborock-token.json nicht lesbar (%s) – neu anmelden", err)
             return None
 
@@ -744,13 +740,10 @@ async def _login_main(config_path: str) -> int:
         f"region={getattr(user_data, 'region', '?')}"
     )
 
-    token_file = Path(
-        (blocks[0].get("token_file") if blocks else None)
-        or Path(config.data_file).parent / "roborock-token.json"
+    token_file = tokenstore.token_file(
+        config.data_file, blocks[0] if blocks else None, "roborock"
     )
-    token_file.parent.mkdir(parents=True, exist_ok=True)
-    token_file.write_text(json.dumps(user_data.as_dict()))
-    os.chmod(token_file, 0o600)
+    tokenstore.save(token_file, user_data.as_dict())
     print(f"✓ Token gespeichert in {token_file} – jetzt den Hub (neu) starten.")
     return 0
 

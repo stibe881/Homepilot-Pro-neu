@@ -41,6 +41,7 @@ from urllib.parse import parse_qs, quote, urlsplit
 
 import aiohttp
 
+from ..core import tokenstore
 from ..core.entity import Entity, EntityKind
 from ..core.errors import ConfigError
 from ..core.integration import Integration
@@ -227,11 +228,10 @@ class SpotifyIntegration(Integration):
         self._refresh_token = self.config.get("refresh_token")
         if not self._refresh_token:
             # Vom Anmelde-Helfer abgelegt (siehe Kopf dieser Datei).
-            token_file = Path(self.hub.config.data_file).parent / "spotify-token.json"
-            if token_file.exists():
-                self._refresh_token = jsonlib.loads(token_file.read_text()).get(
-                    "refresh_token"
-                )
+            self._refresh_token = tokenstore.value(
+                tokenstore.token_file(self.hub.config.data_file, self.config, "spotify"),
+                "refresh_token",
+            )
         if not (self._client_id and self._client_secret and self._refresh_token):
             raise ConfigError(
                 "spotify braucht 'client_id' und 'client_secret'; den refresh_token "
@@ -252,6 +252,7 @@ class SpotifyIntegration(Integration):
             self._webplayer = WebPlayerAuth(self._sp_dc)
 
         self._interval = self.scan_interval()
+        self._rounds = 0
         self._session = self.http_session(timeout=aiohttp.ClientTimeout(total=15))
         self._access_token: str | None = None
         self._token_expires_at = 0.0
@@ -276,7 +277,7 @@ class SpotifyIntegration(Integration):
         self._settle_task: asyncio.Task | None = None
         await self._load_playlists()
         await self._refresh()
-        self.start_task(self._poll_loop())
+        self.start_polling(self._takt, interval=self._interval)
 
     async def teardown(self) -> None:
         if self._settle_task is not None:
@@ -346,15 +347,12 @@ class SpotifyIntegration(Integration):
 
     # ── Spotify → Hub ──────────────────────────────────────────────────────
 
-    async def _poll_loop(self) -> None:
-        rounds = 0
-        while True:
-            await asyncio.sleep(self._interval)
-            await self._refresh()
-            rounds += 1
-            # Neue Playlisten tauchen ohne Neustart auf (~halbstündlich).
-            if rounds % max(1, int(1800 / self._interval)) == 0:
-                await self._load_playlists()
+    async def _takt(self) -> None:
+        await self._refresh()
+        self._rounds += 1
+        # Neue Playlisten tauchen ohne Neustart auf (~halbstündlich).
+        if self._rounds % max(1, int(1800 / self._interval)) == 0:
+            await self._load_playlists()
 
     async def _refresh(self) -> None:
         entity_id = self.entity_id("player")
@@ -705,8 +703,7 @@ async def _login_main(config_path: str) -> int:
         stored["sp_dc"] = sp_dc
 
     token_file = data_dir / "spotify-token.json"
-    token_file.write_text(jsonlib.dumps(stored))
-    token_file.chmod(0o600)
+    tokenstore.save(token_file, stored)
     print(f"\n✓ Angemeldet. Token gespeichert in {token_file}.")
     if sp_dc:
         print("  Mit sp_dc: schlafende Boxen werden beim Playlist-Start geweckt.")

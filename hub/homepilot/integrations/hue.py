@@ -64,7 +64,7 @@ class HueIntegration(Integration):
         await self._refresh()
         await self._load_scenes()
         self.start_task(self._event_loop())
-        self.start_task(self._poll_loop())
+        self.start_polling(self._refresh)
 
     # ── Bridge → Hub ───────────────────────────────────────────────────────
 
@@ -185,11 +185,6 @@ class HueIntegration(Integration):
             for item in event.get("data", []):
                 if item.get("type") == "light":
                     await self._apply_light(item)
-
-    async def _poll_loop(self) -> None:
-        while True:
-            await asyncio.sleep(self.scan_interval())
-            await self._refresh()
 
     # ── Hub → Bridge ───────────────────────────────────────────────────────
 

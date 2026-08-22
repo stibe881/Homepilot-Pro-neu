@@ -153,7 +153,9 @@ class SupabaseAuth:
                     payload: Any = {}
                     try:
                         payload = await response.json()
-                    except Exception:
+                    except (aiohttp.ClientError, ValueError):
+                        # Kein JSON in der Antwort - der Statuscode unten
+                        # sagt trotzdem, was los ist.
                         payload = {}
                     if response.status >= 400:
                         raise AuthError(error_text(response.status, payload), response.status)

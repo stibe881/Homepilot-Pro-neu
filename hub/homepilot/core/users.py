@@ -9,6 +9,17 @@ Drei Rollen, vom Alltag her gedacht:
 Jeder Benutzer hat sein eigenes Token. Damit steht in jedem Protokolleintrag,
 wer etwas geschaltet hat, und ein Zugang lässt sich einzeln zurückziehen,
 ohne dass alle anderen ein neues Token brauchen.
+
+**Warum die Tokens im Klartext liegen** (Punkt 33 der Werkbank, geprüft
+und bewusst so gelassen): Die Kopplung eines neuen Geräts läuft über
+einen QR-Code, den die App jederzeit neu anzeigen kann - dafür muss der
+Hub das Token *wiedergeben* können, nicht nur prüfen. Gehashte Tokens
+hiessen: Jede Neukopplung erzwingt ein neues Token, und alle anderen
+Geräte derselben Person fliegen raus. Die Abwägung dahinter: Die Datei
+(homepilot-data.json bzw. config.yaml) liegt nur auf dem Hub, ist 0600
+und steht in der .gitignore - wer sie lesen kann, hat den Rechner ohnehin.
+Anders die *Sitzungen* aus der E-Mail-Anmeldung: Die muss niemand je
+wieder ablesen, deshalb liegen dort nur Hashes (sessions.py).
 """
 
 from __future__ import annotations

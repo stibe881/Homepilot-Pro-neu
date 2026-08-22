@@ -33,7 +33,9 @@ class DuplicateKeyLoader(yaml.SafeLoader):
         for key_node, _ in node.value:
             try:
                 key = self.construct_object(key_node, deep=deep)
-            except Exception:
+            except yaml.YAMLError:
+                # Ein unlesbarer Schlüssel fällt weg - die Datei selbst wird
+                # gleich darauf regulär geprüft und meldet dann sauber.
                 continue
             if not isinstance(key, (str, int, float, bool)):
                 continue

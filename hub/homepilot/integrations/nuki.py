@@ -173,7 +173,7 @@ class NukiIntegration(Integration):
                 "Nuki: %s (%s)", lock.get("name"), lock_state(lock)["state"]
             )
 
-        self.start_task(self._poll_loop())
+        self.start_polling(self._refresh, interval=self._interval)
 
     async def _fetch_locks(self) -> list[dict[str, Any]]:
         async with self._session.get(
@@ -185,11 +185,6 @@ class NukiIntegration(Integration):
                 )
             response.raise_for_status()
             return await response.json()
-
-    async def _poll_loop(self) -> None:
-        while True:
-            await asyncio.sleep(self._interval)
-            await self._refresh()
 
     async def _refresh(self) -> None:
         try:

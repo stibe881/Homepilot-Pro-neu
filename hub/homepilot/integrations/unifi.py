@@ -127,7 +127,8 @@ class UnifiIntegration(Integration):
         )
 
         await self._login()
-        self.start_task(self._poll_loop())
+        # sofort: Die Geräteliste entsteht erst aus dem ersten Abruf.
+        self.start_polling(self._refresh, interval=self._interval, sofort=True)
 
     # ── Verbindung ─────────────────────────────────────────────────────────
 
@@ -236,11 +237,6 @@ class UnifiIntegration(Integration):
         )
 
     # ── Abfrage ────────────────────────────────────────────────────────────
-
-    async def _poll_loop(self) -> None:
-        while True:
-            await self._refresh()
-            await asyncio.sleep(self._interval)
 
     async def _refresh(self) -> None:
         try:
