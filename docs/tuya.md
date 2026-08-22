@@ -100,6 +100,27 @@ brauchbar:
             dp: 102
 ```
 
+## «Schlüssel oder Protokollfassung passen nicht» (Fehler 914)
+
+Tuya sagt nicht, welches von beiden es ist. Statt zu raten:
+
+```
+docker exec -it homepilot-hub python -m homepilot.integrations.tuya \
+  -c /config/config.yaml --probe Sternenprojektor
+```
+
+Das fragt das Gerät mit jeder Fassung einmal an. Antwortet eine mit
+Datenpunkten, gehört sie in die config.yaml unter `version:`. Antwortet
+keine, liegt es nicht an der Fassung – dann ist der lokale Schlüssel
+veraltet (`--cloud` holt ihn frisch; er ändert sich, sobald das Gerät in
+der Hersteller-App neu angelernt wurde).
+
+Ein dritter Fall, den keine Nummer verrät: **Eine andere Steuerung hält
+die Verbindung besetzt.** Tuya-Geräte lassen genau eine lokale Sitzung
+zu. Läuft der Projektor in Home Assistant noch über LocalTuya oder
+tuya-local (nicht über die Cloud-Integration), muss er dort deaktiviert
+werden.
+
 Weicht die Belegung ab (ältere Geräte zählen 1–6 statt 20–25), hilft
 `legacy: true`; einzelne Nummern lassen sich unter `dps:` überschreiben.
 
