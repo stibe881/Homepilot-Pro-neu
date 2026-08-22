@@ -755,6 +755,29 @@ def test_ring_channel_alive_sees_a_self_terminated_push_client():
     assert channel_alive(None) is False
 
 
+def test_ring_retry_never_hammers_the_registration():
+    """Ein Wiederanlauf ohne Pause ist kein Wiederanlauf, sondern eine Schleife.
+
+    Der Fall aus dem Betrieb: Ein frisch aufgebauter Kanal galt sofort als
+    tot - der Push-Client meldet sich erst Sekunden später als «läuft» -,
+    und der Hub warf die Anmeldung weg und registrierte sich neu. Im
+    Sekundentakt, bis Google mit PHONE_REGISTRATION_ERROR abwies.
+    """
+    from homepilot.integrations.ring import (
+        QUICK_DEATH_SECONDS,
+        RETRY_SECONDS,
+        STARTUP_GRACE_SECONDS,
+        retry_delay,
+    )
+
+    # Die Anlaufzeit muss kürzer sein als die Frist, ab der ein Abriss als
+    # «sofort» gilt - sonst gälte jeder Kanal als beschädigt.
+    assert 0 < STARTUP_GRACE_SECONDS < QUICK_DEATH_SECONDS
+    # Und jeder weitere Anlauf wartet länger als der vorige.
+    assert retry_delay(1) < retry_delay(2) <= retry_delay(99)
+    assert retry_delay(99) == RETRY_SECONDS[-1]
+
+
 def test_ring_health_detail_names_the_reason():
     """Die eine Störung, die man sonst nie bemerkt, steht im Klartext da."""
     from homepilot.integrations.ring import health_detail
