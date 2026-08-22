@@ -6,16 +6,25 @@ import { HubSettings } from '../api/types';
 import { Card } from './Card';
 import { Colors, type, useColors } from '../theme';
 import { HubFehler, hubClient } from '../api/client';
+import { pushAblaeufe, pushBeschreibung } from '../lib/pushablaeufe';
+import { Automation, triggerIcon } from '../screens/automations/entwurf';
 
 /**
- * Die eingebauten Push-Nachrichten des Hubs als Kategorie «Push» unter
+ * Alles, was das Haus aufs Telefon schickt – als Kategorie «Push» unter
  * den Abläufen.
  *
- * Frostwarnung, offene Fenster, volle Waschmaschine: Diese Nachrichten
- * verschickt der Hub von sich aus, und bisher waren Schwellen und
- * Wartezeiten fest einprogrammiert. Hier stehen sie neben den selbst
- * gebauten Abläufen – sichtbar, abschaltbar, und wo es eine Schwelle
- * gibt, verstellbar.
+ * Zwei Arten stehen hier nebeneinander, weil sie dieselbe Frage
+ * beantworten («was meldet mir das Haus?»):
+ *
+ * - Die **eingebauten Nachrichten** des Wächters: Frostwarnung, offene
+ *   Fenster, volle Waschmaschine. Sie verschickt der Hub von sich aus;
+ *   früher waren Schwellen und Wartezeiten fest einprogrammiert, jetzt
+ *   lassen sie sich abschalten und verstellen.
+ * - Die **selbst gebauten Abläufe**, die eine Nachricht verschicken.
+ *   Sie lagen bisher nur in der Ablauf-Liste unter ihrer Kategorie – wer
+ *   hier nachsah, welche Nachrichten es gibt, übersah genau die, die er
+ *   selbst gebaut hatte. Sie bleiben vollständig bearbeitbar: der
+ *   Schalter wirkt sofort, der Stift öffnet denselben Editor wie oben.
  *
  * Global, nicht je Person: Die Regeln bestimmen, ob der Hub überhaupt
  * meldet. Wer eine Kategorie nur für sich nicht will, bestellt sie in den
@@ -52,9 +61,18 @@ export function stepValue(param: RuleParam, direction: 1 | -1): number {
 export function PushRules({
   settings,
   mayEdit,
+  automations,
+  onEdit,
+  onToggle,
 }: {
   settings: HubSettings;
   mayEdit: boolean;
+  /** Alle Abläufe – die meldenden davon stehen hier mit drin. */
+  automations: Automation[] | null;
+  /** Den Ablauf im gewohnten Editor öffnen. */
+  onEdit: (automation: Automation) => void;
+  /** Ein- und ausschalten, ohne den Editor zu öffnen. */
+  onToggle: (automation: Automation, enabled: boolean) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -114,14 +132,20 @@ export function PushRules({
       ),
     });
 
-  if (error) {
-    return <Text style={styles.note}>Push-Regeln nicht abrufbar: {error}</Text>;
-  }
-  if (!rules) {
+  // Die eigenen Abläufe stehen schon in der Liste, die dieser Bildschirm
+  // ohnehin geholt hat - sie brauchen keinen zweiten Aufruf und bleiben
+  // darum auch sichtbar, wenn der für die eingebauten Regeln scheitert.
+  const ablaeufe = pushAblaeufe(automations);
+  const eingebaut = rules ?? [];
+
+  if (!rules && !error) {
     return null;
   }
 
-  const active = rules.filter((rule) => rule.enabled).length;
+  const active =
+    eingebaut.filter((rule) => rule.enabled).length +
+    ablaeufe.filter((automation) => automation.enabled !== false).length;
+  const gesamt = eingebaut.length + ablaeufe.length;
 
   return (
     <View style={{ gap: 10 }}>
@@ -138,13 +162,18 @@ export function PushRules({
         />
         <Text style={styles.groupTitle}>Push</Text>
         <Text style={styles.groupCount}>
-          {active === rules.length ? rules.length : `${active}/${rules.length}`}
+          {active === gesamt ? gesamt : `${active}/${gesamt}`}
         </Text>
       </Pressable>
 
       {open ? (
         <>
-          {rules.map((rule) => (
+          {error ? (
+            <Text style={styles.note}>
+              Eingebaute Push-Regeln nicht abrufbar: {error}
+            </Text>
+          ) : null}
+          {eingebaut.map((rule) => (
             <Card key={rule.key} style={styles.card}>
               <View style={styles.cardHead}>
                 <View style={{ flex: 1 }}>
@@ -210,12 +239,88 @@ export function PushRules({
                 : null}
             </Card>
           ))}
+
+          {/* Und darunter, in derselben Form: die selbst gebauten Abläufe,
+              die eine Nachricht verschicken. Sie bleiben Abläufe - der
+              Stift öffnet denselben Editor wie in der Liste oben. */}
+          {ablaeufe.map((automation) => {
+            const an = automation.enabled !== false;
+            return (
+              <Card key={automation.id} style={styles.card}>
+                <View style={styles.cardHead}>
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.titleRow}>
+                      {/* Worauf hört er? Uhr, Sonne, Bewegung - dasselbe
+                          Symbol wie in der Ablauf-Liste. */}
+                      <Ionicons
+                        name={triggerIcon(automation) as keyof typeof Ionicons.glyphMap}
+                        size={15}
+                        color={an ? colors.inkSoft : colors.inkFaint}
+                      />
+                      <Text
+                        style={[
+                          styles.title,
+                          { flexShrink: 1 },
+                          !an && { color: colors.inkFaint },
+                        ]}
+                      >
+                        {automation.alias}
+                        {an ? '' : ' · aus'}
+                      </Text>
+                    </View>
+                    <Text style={styles.detail}>{pushBeschreibung(automation)}</Text>
+                    <Text style={styles.origin}>
+                      Eigener Ablauf – steht auch oben in der Liste.
+                    </Text>
+                  </View>
+                  {automation.editable && mayEdit ? (
+                    <>
+                      <Pressable
+                        onPress={() => onToggle(automation, !an)}
+                        accessibilityRole="switch"
+                        accessibilityState={{ checked: an }}
+                        accessibilityLabel={`${automation.alias} ${an ? 'abschalten' : 'einschalten'}`}
+                        style={styles.iconButton}
+                      >
+                        <Ionicons
+                          name={an ? 'checkmark-circle' : 'ellipse-outline'}
+                          size={24}
+                          color={an ? colors.on : colors.inkFaint}
+                        />
+                      </Pressable>
+                      <Pressable
+                        onPress={() => onEdit(automation)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${automation.alias} bearbeiten`}
+                        style={styles.iconButton}
+                      >
+                        <Ionicons name="create-outline" size={20} color={colors.inkSoft} />
+                      </Pressable>
+                    </>
+                  ) : (
+                    // Aus der config.yaml: Der Hub führt ihn aus, die Datei
+                    // gehört aber nicht der App.
+                    <Text style={styles.badge}>
+                      {automation.editable ? 'nur lesen' : 'aus config.yaml'}
+                    </Text>
+                  )}
+                </View>
+              </Card>
+            );
+          })}
+
           <Text style={styles.footnote}>
-            Diese Regeln gelten für alle. Wer eine Art Nachricht nur für sich
-            nicht will, bestellt sie in den Einstellungen unter
+            Die eingebauten Regeln gelten für alle. Wer eine Art Nachricht nur
+            für sich nicht will, bestellt sie in den Einstellungen unter
             Benachrichtigungen ab. Die Alarm-Nachrichten stehen bewusst nicht
             hier – die lassen sich nicht abschalten.
           </Text>
+          {ablaeufe.length === 0 ? (
+            <Text style={styles.footnote}>
+              Eigene Abläufe mit dem Schritt «Nachricht senden» erscheinen hier
+              von selbst mit.
+            </Text>
+          ) : null}
         </>
       ) : null}
     </View>
@@ -243,8 +348,13 @@ const makeStyles = (colors: Colors) =>
     groupCount: { color: colors.onGradientSoft, fontSize: 12, fontWeight: '700' },
     card: { minHeight: 0, gap: 6 },
     cardHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     title: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
     detail: { color: colors.inkSoft, fontSize: type.cardSub, marginTop: 2 },
+    /** Woher die Nachricht kommt – leise, aber vorhanden: Sonst sucht man
+     *  den Ablauf, den man gerade abgeschaltet hat, oben vergeblich. */
+    origin: { color: colors.inkFaint, fontSize: 11, marginTop: 2 },
+    badge: { color: colors.inkFaint, fontSize: 11 },
     iconButton: { padding: 6 },
     paramRow: {
       flexDirection: 'row',

@@ -8,6 +8,13 @@ import {
   actionsToSteps,
   toDraft,
   triggerFromConfig,
+  istLichtFein,
+  lichtKurz,
+  nachlaufLabel,
+  sekundenWert,
+  melderMitLux,
+  minutenLabel,
+  minutenWert,
   triggerIcon,
   triggerToConfig,
   zeitpunktLabel,
@@ -207,5 +214,171 @@ describe('zeitpunktLabel (Punkte 159/161)', () => {
     expect(zeitpunktLabel(heute, jetzt)).toBe('heute 21:12');
     expect(zeitpunktLabel(morgen, jetzt)).toBe('morgen 06:00');
     expect(zeitpunktLabel(montag, jetzt)).toBe('Mo 09:05');
+  });
+});
+
+describe('eigene Haltedauer', () => {
+  it('schreibt die eingetippten Minuten aus', () => {
+    expect(minutenLabel('45')).toBe('45 min');
+    expect(minutenLabel('125')).toBe('2 h 5 min');
+    expect(minutenLabel('120')).toBe('2 h');
+  });
+
+  it('nennt ganze Tage Tage – «1440 min» wäre richtig und unlesbar', () => {
+    expect(minutenLabel('1440')).toBe('1 Tag');
+    expect(minutenLabel('2880')).toBe('2 Tage');
+  });
+
+  it('nennt die leere Angabe «sofort»', () => {
+    expect(minutenLabel('')).toBe('sofort');
+    expect(minutenLabel('0')).toBe('sofort');
+  });
+
+  it('macht aus Unsinn und Null wieder «sofort»', () => {
+    expect(minutenWert('')).toBe('');
+    expect(minutenWert('abc')).toBe('');
+    expect(minutenWert('-5')).toBe('');
+  });
+
+  it('rundet und deckelt bei einer Woche', () => {
+    expect(minutenWert('45.6')).toBe('46');
+    // Ein verrutschtes «100000» wären 69 Tage.
+    expect(minutenWert('100000')).toBe('10080');
+  });
+
+  it('trägt die eigene Zahl durch die gespeicherte Form und zurück', () => {
+    const trigger = { ...EMPTY_TRIGGER, kind: 'state' as const, entityId: 'demo.x', forMinutes: '125' };
+    const config = triggerToConfig(trigger);
+    expect(config.for).toBe(125 * 60);
+    expect(triggerFromConfig(config).forMinutes).toBe('125');
+  });
+});
+
+describe('Licht mit Feinheiten', () => {
+  const licht = (over = {}) => ({
+    ...EMPTY_STEP,
+    kind: 'command' as const,
+    commandActions: [
+      { entity_id: 'hue.flur', command: 'set_brightness', brightness: 50, ...over },
+    ],
+  });
+
+  it('bleibt ein schlichtes Kommando, solange nichts Feines dabei ist', () => {
+    // Sonst änderte sich ein bestehender Ablauf allein durchs Öffnen.
+    const [action] = stepToActions(licht());
+    expect(action.type).toBe('command');
+    expect(action.data.brightness).toBe(50);
+  });
+
+  it('wird zum Licht-Schritt, sobald eine Farbe dabei ist', () => {
+    const [action] = stepToActions(licht({ color: '#FFD9A0' }));
+    expect(action.type).toBe('light');
+    expect(action.color).toBe('#FFD9A0');
+    expect(action.brightness).toBe(50);
+  });
+
+  it('schreibt «adaptive» statt einer Zahl, wenn es sich anpassen soll', () => {
+    const [action] = stepToActions(licht({ adaptive: true }));
+    expect(action.type).toBe('light');
+    expect(action.brightness).toBe('adaptive');
+  });
+
+  it('nimmt den Weissanteil mit, wenn keine Farbe gesetzt ist', () => {
+    const [action] = stepToActions(licht({ colorTemp: 370 }));
+    expect(action.color_temp).toBe(370);
+    expect(action.color).toBeUndefined();
+  });
+
+  it('liest den Licht-Schritt unverändert zurück', () => {
+    const gespeichert = stepToActions(licht({ adaptive: true, color: '#FF2D2D' }));
+    const [step] = actionsToSteps(gespeichert);
+    expect(step.kind).toBe('command');
+    expect(step.commandActions[0]).toMatchObject({
+      entity_id: 'hue.flur',
+      command: 'set_brightness',
+      adaptive: true,
+      color: '#FF2D2D',
+    });
+    // Und wieder hinaus ergibt dasselbe wie vorher.
+    expect(stepToActions(step)).toEqual(gespeichert);
+  });
+
+  it('erkennt, wann ein Schritt Feinheiten hat', () => {
+    expect(istLichtFein({ command: 'turn_on' })).toBe(false);
+    expect(istLichtFein({ command: 'turn_on', color: '#FFD9A0' })).toBe(true);
+    expect(istLichtFein({ command: 'set_brightness', adaptive: true })).toBe(true);
+    expect(istLichtFein({ command: 'set_brightness', colorTemp: 286 })).toBe(true);
+  });
+});
+
+describe('melderMitLux', () => {
+  const melder = (id: string, illumination?: number) =>
+    ({
+      id,
+      kind: 'binary_sensor',
+      name: id,
+      integration: 'demo',
+      state: illumination === undefined ? { state: 'off' } : { state: 'off', illumination },
+      commands: [],
+      available: true,
+    }) as never;
+
+  it('nimmt nur Auslöser, die wirklich Lux melden', () => {
+    const entities = [melder('demo.mit', 12), melder('demo.ohne')];
+    const draft = { triggers: [{ entityId: 'demo.mit' }, { entityId: 'demo.ohne' }] };
+    expect(melderMitLux(draft, entities).map((entity) => entity.id)).toEqual(['demo.mit']);
+  });
+
+  it('bleibt leer, wenn kein Melder einen Helligkeitsfühler hat', () => {
+    // Dann gehört die Wahl «an Helligkeit angepasst» gar nicht erst hin.
+    expect(melderMitLux({ triggers: [{ entityId: 'demo.ohne' }] }, [melder('demo.ohne')])).toEqual([]);
+  });
+});
+
+describe('lichtKurz', () => {
+  it('sagt in der Liste, was die Lampe tut', () => {
+    expect(lichtKurz({ brightness: 'adaptive' })).toBe('angepasst');
+    expect(lichtKurz({ brightness: 40 })).toBe('40 %');
+    expect(lichtKurz({ color: '#FF2D2D' })).toBe('an');
+    expect(lichtKurz({ brightness: 40, off_after: 240 })).toBe('40 %, 4 Min.');
+  });
+});
+
+describe('Nachlauf – wie lange bleibt das Licht an?', () => {
+  const licht = (over = {}) => ({
+    ...EMPTY_STEP,
+    kind: 'command' as const,
+    commandActions: [{ entity_id: 'hue.flur', command: 'turn_on', ...over }],
+  });
+
+  it('macht aus dem blossen Einschalten einen Licht-Schritt mit Nachlauf', () => {
+    const [action] = stepToActions(licht({ offAfter: 240 }));
+    expect(action.type).toBe('light');
+    expect(action.off_after).toBe(240);
+  });
+
+  it('bleibt ohne Nachlauf das schlichte Kommando', () => {
+    expect(stepToActions(licht())[0].type).toBe('command');
+  });
+
+  it('liest den Nachlauf unverändert zurück', () => {
+    const gespeichert = stepToActions(licht({ offAfter: 300 }));
+    const [step] = actionsToSteps(gespeichert);
+    expect(step.commandActions[0].offAfter).toBe(300);
+    expect(stepToActions(step)).toEqual(gespeichert);
+  });
+
+  it('schreibt die Zeit so, wie sie auf dem Knopf steht', () => {
+    expect(nachlaufLabel(30)).toBe('30 Sek.');
+    expect(nachlaufLabel(240)).toBe('4 Min.');
+    expect(nachlaufLabel(5400)).toBe('1 h 30 min');
+    expect(nachlaufLabel(0)).toBe('an lassen');
+  });
+
+  it('rechnet eingetippte Minuten in Sekunden um', () => {
+    expect(sekundenWert('15')).toBe('900');
+    // Nichts eingetippt heisst «an lassen», nicht «sofort aus».
+    expect(sekundenWert('')).toBe('');
+    expect(sekundenWert('0')).toBe('');
   });
 });

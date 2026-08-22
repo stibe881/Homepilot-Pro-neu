@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { CommandData, Entity } from '../api/types';
 import { Colors, radius, useColors } from '../theme';
 import { useTakt } from '../hooks/useTakt';
+import { dauerText } from '../lib/format';
 
 /**
  * Einschlaf-Timer auf der Fernsehkachel.
@@ -17,15 +18,6 @@ import { useTakt } from '../hooks/useTakt';
 
 /** Vorgabe, falls der Hub noch keine Liste mitschickt (ältere Fassung). */
 const FALLBACK = [30, 60, 90, 120, 150];
-
-/** «1 h 30 min» – ohne führende «0 h» und ohne baumelndes «0 min». */
-export function dauerText(minuten: number): string {
-  const stunden = Math.floor(minuten / 60);
-  const rest = minuten % 60;
-  if (stunden === 0) return `${rest} min`;
-  if (rest === 0) return `${stunden} h`;
-  return `${stunden} h ${rest} min`;
-}
 
 /**
  * Verbleibende Minuten aus dem Zeitpunkt des Hubs (rein, testbar).

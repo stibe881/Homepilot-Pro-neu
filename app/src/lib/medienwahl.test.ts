@@ -6,7 +6,7 @@
  * ohne Bild – und bei stillem Haus kann er sogar die gezeigte Karte sein.
  */
 import type { Entity } from '../api/types';
-import { istMusikbox, pickPlayer } from './geraeteart';
+import { istMusikbox, musikboxenImRaum, pickPlayer } from './geraeteart';
 
 function medien(teile: Partial<Entity>): Entity {
   return {
@@ -80,5 +80,30 @@ describe('pickPlayer', () => {
 
   it('kommt mit einem Haus ohne Medien zurecht', () => {
     expect(pickPlayer([])).toBeUndefined();
+  });
+});
+
+describe('musikboxenImRaum', () => {
+  const wohnzimmer = medien({ id: 'cast.wohnzimmer', room: 'Wohnzimmer' });
+  const kueche = medien({ id: 'cast.kueche', room: 'Küche' });
+  const fernseher = medien({
+    id: 'tv.wohnzimmer',
+    room: 'Wohnzimmer',
+    commands: ['play', 'launch_app'],
+  });
+
+  it('nimmt nur die Boxen des offenen Raums', () => {
+    expect(
+      musikboxenImRaum([wohnzimmer, kueche], 'Wohnzimmer').map((entity) => entity.id)
+    ).toEqual(['cast.wohnzimmer']);
+  });
+
+  it('lässt den Fernseher des Raums draussen', () => {
+    expect(musikboxenImRaum([wohnzimmer, fernseher], 'Wohnzimmer')).toHaveLength(1);
+  });
+
+  it('gibt ohne offenen Raum nichts zurück', () => {
+    // «Alle» hat keine Raumbox - dort bleibt es bei der einen Karte.
+    expect(musikboxenImRaum([wohnzimmer, kueche], null)).toEqual([]);
   });
 });

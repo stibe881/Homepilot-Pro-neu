@@ -63,7 +63,17 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "notify_entry": False,
     # Wie viele Ereignisse der Verlauf behält.
     "history_limit": 50,
+    # Push, wenn eine Kamera Bewegung sieht, während scharf ist – mit Bild.
+    # Auch für Kameras, die *kein* Alarmsensor sind: Wer die Sirene nicht
+    # von einer vorbeilaufenden Katze auslösen lassen will, möchte das Bild
+    # trotzdem sehen.
+    "notify_camera_motion": True,
 }
+
+# Mindestabstand zwischen zwei Bewegungs-Nachrichten derselben Kamera.
+# Eine Kamera meldet Bewegung im Sekundentakt, solange sich etwas bewegt –
+# ohne Abstand wäre das Telefon nach einer Minute unbenutzbar.
+CAMERA_MOTION_COOLDOWN = 120.0
 
 # Was die Anlage selbst schaltet. Bisher schickte sie ausschliesslich eine
 # Push-Nachricht – für eine Alarmanlage zu wenig: Eine Sirene und volles
@@ -218,6 +228,42 @@ def nearest_camera(entities: list[Entity], room: str | None) -> str | None:
         if entity.kind == EntityKind.CAMERA and entity.room == room:
             return entity.id
     return None
+
+
+def motion_started(old_state: Any, new_state: Any) -> bool:
+    """Hat gerade eine Bewegung *begonnen*? (rein, testbar)
+
+    Die Flanke, nicht der Pegel: Eine Kamera meldet ihren Zustand immer
+    wieder; interessant ist der Moment, in dem aus «nichts» ein «da ist
+    jemand» wird.
+    """
+    alt = str((old_state or {}).get("motion") or "")
+    neu = str((new_state or {}).get("motion") or "")
+    return neu == "on" and alt != "on"
+
+
+def camera_motion_due(
+    seen: dict[str, float],
+    camera: str,
+    now: float,
+    cooldown: float = CAMERA_MOTION_COOLDOWN,
+) -> bool:
+    """Ist eine neue Bewegungs-Nachricht dieser Kamera fällig? (rein, testbar)"""
+    letzte = seen.get(camera)
+    return letzte is None or now - letzte >= cooldown
+
+
+def camera_for(entity: Entity, entities: list[Entity]) -> str | None:
+    """Welche Kamera gehört zu diesem Auslöser? (rein, testbar)
+
+    Ist der Auslöser selbst eine Kamera, ist die Frage beantwortet – auch
+    dann, wenn ihr niemand einen Raum zugeordnet hat. Vorher suchte auch
+    eine auslösende Kamera erst nach «einer Kamera in ihrem Raum» und ging
+    ohne Raum leer aus: keine Bild, kein Sprung zur Kamera beim Antippen.
+    """
+    if entity.kind == EntityKind.CAMERA:
+        return entity.id
+    return nearest_camera(entities, entity.room)
 
 
 def guards(sensors: dict[str, dict[str, Any]], entity_id: str, mode: str) -> bool:

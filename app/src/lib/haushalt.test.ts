@@ -19,6 +19,12 @@ describe('applianceLine', () => {
     expect(zeile.text).toBe('Läuft · Eco · noch 32 min');
   });
 
+  it('rechnet lange Restzeiten in Stunden um', () => {
+    // «noch 233 min» rechnet sonst jeder selbst nach – meistens falsch.
+    const zeile = applianceLine(geraet({ state: 'running', minutes_left: 233 }), '');
+    expect(zeile.text).toBe('Läuft · noch 3 h 53 min');
+  });
+
   it('schweigt über eine klebengebliebene Restzeit, wenn nichts läuft', () => {
     // Der Fehler aus dem Betrieb: Der Hub merged Zustände, eine alte
     // Restzeit bleibt im Feld stehen - und die Kachel sagte tagelang
