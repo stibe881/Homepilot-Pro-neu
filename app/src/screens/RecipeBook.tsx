@@ -3,6 +3,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Speech from 'expo-speech';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Image,
@@ -19,6 +20,14 @@ import {
 } from 'react-native';
 
 import { HubSettings } from '../api/types';
+import {
+  Box,
+  ZIEL_HIER,
+  istHier,
+  sprecherFuer,
+  zielListe,
+  zielName,
+} from '../lib/vorlesen';
 import { zeitenImText } from '../lib/kochzeit';
 import { scaledAmount } from '../lib/mengen';
 import { rezeptAlsText } from '../lib/rezepttext';
@@ -749,17 +758,32 @@ function CookMode({
   const fenster = useWindowDimensions();
   const quer = fenster.width > fenster.height && fenster.width >= 700;
 
-  // Schritt auf eine Box durchsagen (Punkt 144): Mit Teig an den Händen
-  // liest man schlecht. Die Boxenwahl merkt sich die App.
-  const [box, setBox] = useState<string>('');
-  const [boxen, setBoxen] = useState<{ id: string; name: string }[]>([]);
+  // Schritt vorlesen (Punkt 144): Mit Teig an den Händen liest man
+  // schlecht. Vorgelesen wird auf diesem Gerät - man liest dort mit, wo
+  // man steht; die Boxen bleiben als bewusste Wahl, etwa wenn das
+  // Telefon am Ladekabel im Flur hängt.
+  //
+  // Eigener Speicherschlüssel: Der alte hielt '' für «alle Boxen», und
+  // «alle Boxen» ist von «nie gewählt» nicht zu unterscheiden. So
+  // beginnen alle bei der neuen Vorgabe, statt weiter im Wohnzimmer
+  // vorgelesen zu bekommen.
+  const [box, setBox] = useState<string>(ZIEL_HIER);
+  const [boxen, setBoxen] = useState<Box[]>([]);
   const [boxWahlOffen, setBoxWahlOffen] = useState(false);
   const [vorgelesen, setVorgelesen] = useState(false);
   useEffect(() => {
-    AsyncStorage.getItem('homepilot.kochbox')
-      .then((wert) => setBox(wert ?? ''))
+    AsyncStorage.getItem('homepilot.vorleseziel')
+      .then((wert) => setBox(wert || ZIEL_HIER))
       .catch(() => {});
   }, []);
+
+  // Nichts soll weiterreden, wenn das Kochfenster zugeht.
+  useEffect(
+    () => () => {
+      Speech.stop();
+    },
+    []
+  );
 
   const kopf = {
     'Content-Type': 'application/json',
@@ -784,12 +808,20 @@ function CookMode({
   };
 
   const vorlesen = async () => {
-    if (!settings || step < 0) return;
+    if (step < 0) return;
+    if (istHier(box)) {
+      // Auf diesem Gerät: kein Umweg über den Hub, kein Netz nötig.
+      Speech.stop();
+      Speech.speak(steps[step], { language: 'de-CH' });
+      setVorgelesen(true);
+      return;
+    }
+    if (!settings) return;
     try {
       const response = await fetch(`${settings.url}/api/broadcast`, {
         method: 'POST',
         headers: kopf,
-        body: JSON.stringify({ text: steps[step], speakers: box ? [box] : [] }),
+        body: JSON.stringify({ text: steps[step], speakers: sprecherFuer(box) }),
       });
       if (response.ok) setVorgelesen(true);
     } catch {
@@ -821,7 +853,7 @@ function CookMode({
   const boxWaehlen = (id: string) => {
     setBox(id);
     setBoxWahlOffen(false);
-    AsyncStorage.setItem('homepilot.kochbox', id).catch(() => {});
+    AsyncStorage.setItem('homepilot.vorleseziel', id).catch(() => {});
   };
 
   return (
@@ -914,25 +946,35 @@ function CookMode({
                       onPress={vorlesen}
                       onLongPress={boxWahl}
                       accessibilityRole="button"
-                      accessibilityLabel="Schritt auf den Boxen vorlesen - lange drücken wählt die Box"
+                      accessibilityLabel={
+                        istHier(box)
+                          ? 'Schritt auf diesem Gerät vorlesen – lange drücken wählt eine Box'
+                          : 'Schritt auf den Boxen ansagen – lange drücken wählt das Ziel'
+                      }
                       style={({ pressed }) => [styles.uhrKnopf, pressed && { opacity: 0.8 }]}
                     >
                       <Ionicons
-                        name={vorgelesen ? 'checkmark' : 'megaphone-outline'}
+                        name={
+                          vorgelesen
+                            ? 'checkmark'
+                            : istHier(box)
+                              ? 'volume-high-outline'
+                              : 'megaphone-outline'
+                        }
                         size={18}
                         color={colors.accent}
                       />
                       <Text style={styles.uhrKnopfText}>
-                        {vorgelesen ? 'Angesagt' : 'Vorlesen'}
+                        {vorgelesen ? 'Gelesen' : zielName(box, boxen)}
                       </Text>
                     </Pressable>
                   </View>
                 ) : null}
                 {boxWahlOffen ? (
                   <View style={styles.boxListe}>
-                    {[{ id: '', name: 'Alle Boxen' }, ...boxen].map((eintrag) => (
+                    {zielListe(boxen).map((eintrag) => (
                       <Pressable
-                        key={eintrag.id || 'alle'}
+                        key={eintrag.id}
                         onPress={() => boxWaehlen(eintrag.id)}
                         accessibilityRole="button"
                         style={styles.boxZeile}
