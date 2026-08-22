@@ -370,6 +370,45 @@ KEINE_GERAETE = (
 )
 
 
+#: Wie die Wolke eine Eigenschaft nennt, und wie wir sie nennen.
+CLOUD_CODES_ZU_DPS: dict[str, str] = {
+    "switch": "switch",
+    "switch_led": "switch",
+    "work_mode": "mode",
+    "bright_value": "brightness",
+    "bright_value_v2": "brightness",
+    "temp_value": "color_temp",
+    "temp_value_v2": "color_temp",
+    "colour_data": "color",
+    "colour_data_v2": "color",
+    "scene_data": "scene",
+    "scene_data_v2": "scene",
+}
+
+
+def fehlende_dps(status: Any) -> list[str]:
+    """Welche Eigenschaften das Gerät gar nicht kennt (rein, testbar).
+
+    Die Voreinstellung nimmt an, dass eine Lampe Weiss kann. Viele können
+    das nicht - ein Sternenprojektor etwa hat nur Farbe. Dann steht in
+    der App ein Regler für Farbtemperatur, der nichts bewirkt: ein
+    Versprechen, das der Hub nicht halten kann.
+
+    Was die Wolke im Feld 'status' nicht aufführt, gibt es nicht.
+    """
+    if not isinstance(status, list) or not status:
+        return []
+    vorhanden = {
+        CLOUD_CODES_ZU_DPS[str(eintrag.get("code"))]
+        for eintrag in status
+        if isinstance(eintrag, dict) and str(eintrag.get("code")) in CLOUD_CODES_ZU_DPS
+    }
+    if "switch" not in vorhanden:
+        # Ohne den Schalter ist die Liste unvollständig, nicht das Gerät.
+        return []
+    return [name for name in ("brightness", "color_temp", "color") if name not in vorhanden]
+
+
 def cloud_report(geraete: list[dict[str, Any]]) -> str:
     """Was der --cloud-Aufruf ausgibt (rein, testbar).
 
@@ -392,6 +431,11 @@ def cloud_report(geraete: list[dict[str, Any]]) -> str:
             zeilen.append(f"        ip: {geraet['ip']}")
         if geraet.get("version"):
             zeilen.append(f"        version: {geraet['version']}")
+        fehlt = fehlende_dps(geraet.get("status"))
+        if fehlt:
+            zeilen.append("        dps:")
+            for name in fehlt:
+                zeilen.append(f"          {name}: null   # kennt das Gerät nicht")
         if len(schluessel) != KEY_LENGTH:
             krumme.append(f"{name} ({len(schluessel)} Zeichen)")
 

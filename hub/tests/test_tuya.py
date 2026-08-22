@@ -318,3 +318,52 @@ def test_cloud_raw_hint_meldet_gefundene_geraete() -> None:
 
     text = cloud_raw_hint({"success": True, "result": {"devices": [{"id": "a"}]}})
     assert "1 Gerät" in text
+
+
+def test_fehlende_dps_erkennt_eine_lampe_ohne_weiss() -> None:
+    """Ein Regler, der nichts bewirkt, ist schlimmer als keiner.
+
+    Der Sternenprojektor meldet Schalter, Modus, Helligkeit, Farbe und
+    Szene – aber kein temp_value. Ohne diesen Hinweis steht in der App
+    ein Regler für Farbtemperatur, den das Gerät stumm verwirft.
+    """
+    from homepilot.integrations.tuya_logic import fehlende_dps
+
+    status = [
+        {"code": "switch_led", "value": False},
+        {"code": "work_mode", "value": "colour"},
+        {"code": "bright_value_v2", "value": 800},
+        {"code": "colour_data_v2", "value": "{}"},
+        {"code": "scene_data_v2", "value": "{}"},
+        {"code": "countdown_1", "value": 0},
+    ]
+    assert fehlende_dps(status) == ["color_temp"]
+
+    # Eine vollständige Lampe: nichts zu melden.
+    assert fehlende_dps(status + [{"code": "temp_value_v2", "value": 500}]) == []
+
+    # Ohne Schalter ist die Auskunft unvollständig, nicht das Gerät -
+    # dann lieber nichts behaupten.
+    assert fehlende_dps([{"code": "countdown_1", "value": 0}]) == []
+    assert fehlende_dps(None) == []
+
+
+def test_cloud_report_schreibt_den_dps_block_gleich_mit() -> None:
+    from homepilot.integrations.tuya_logic import cloud_report
+
+    text = cloud_report(
+        [
+            {
+                "id": "bfb6f69fb592a761e3b6cb",
+                "name": "Smart Star Projector",
+                "key": "0123456789abcdef",
+                "status": [
+                    {"code": "switch_led", "value": False},
+                    {"code": "bright_value_v2", "value": 800},
+                    {"code": "colour_data_v2", "value": "{}"},
+                ],
+            }
+        ]
+    )
+    assert "        dps:" in text
+    assert "          color_temp: null" in text
