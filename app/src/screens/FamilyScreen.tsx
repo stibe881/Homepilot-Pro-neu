@@ -1,6 +1,7 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Linking, Modal, Pressable, ScrollView, Share, Text, TextInput, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Image, Linking, Modal, Pressable, ScrollView, Share, Text, TextInput, View } from 'react-native';
 
 import { HubFehler, hubClient } from '../api/client';
 import { Card } from '../components/Card';
@@ -9,7 +10,28 @@ import { Shops } from '../components/Shops';
 import { useColors } from '../theme';
 import { RecipeBook } from './RecipeBook';
 import { wochentagDatumKurz, wochentagUhr } from '../lib/format';
-import { Shop, ingredientsToShopping, shopCategory } from '../lib/einkauf';
+import {
+  Shop,
+  einkaufsText,
+  eintragen,
+  fuerLaden,
+  ingredientsToShopping,
+  ladenZaehler,
+  mengeAendern,
+  shopCategory,
+  zeilenAufteilen,
+} from '../lib/einkauf';
+import {
+  Vorgemerkt,
+  anwenden,
+  frisch,
+  istVorlaeufig,
+  merke,
+  standText,
+  vorlaeufigeId,
+} from '../lib/familiecache';
+import { herkunftText, neuSeit, suche, trefferName } from '../lib/familiensuche';
+import { anwesenheitKurz, anwesenheitsZeile } from '../lib/ortung';
 import {
   ABEND_FELDER,
   BABYSITTER_FEATURES,
@@ -17,10 +39,17 @@ import {
   KALENDER_FARBEN,
   ROLLEN,
   NOTFALL_FELDER,
+  abendLuecken,
+  babysitterKonto,
+  babysitterVorname,
   babysitterZugang,
   fuerBabysitter,
+  istBabysitterKonto,
+  protokollZeile,
+  PROTOKOLL_ZEILEN,
   geprueftVor,
   gabenVon,
+  kontaktVeraltet,
   genommenMap,
   hakeGabe,
   isoTag,
@@ -33,6 +62,8 @@ import {
   notfallUeberfaellig,
   notfallZeilen,
   nummernVon,
+  oeffnungsStatus,
+  schnellwahl,
   offeneGaben,
   plusWochen,
   rollenVon,
@@ -58,6 +89,14 @@ import { makeStyles } from './family/stil';
  */
 
 
+/** Wo der letzte bekannte Stand und die Warteschlange liegen. */
+const CACHE_KEY = 'homepilot.family.cache';
+const QUEUE_KEY = 'homepilot.family.queue';
+/** Wann jedes Modul zuletzt angesehen wurde – je Person im Gerät. */
+const SEEN_KEY = 'homepilot.family.seen';
+/** Welche Kacheln ausgeblendet sind – je Gerät, wie die Reihenfolge. */
+const HIDDEN_KEY = 'homepilot.family.hidden';
+
 export function FamilyScreen({
   settings,
   entities,
@@ -68,7 +107,8 @@ export function FamilyScreen({
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const [data, setData] = useState<FamilyData>({});
+  // Der Stand, wie der Hub ihn kennt …
+  const [serverData, setServerData] = useState<FamilyData>({});
   const [members, setMembers] = useState<Member[]>([]);
   const [view, setView] = useState<ModuleKey | null>(null);
   const [reorderOpen, setReorderOpen] = useState(false);
@@ -93,8 +133,38 @@ export function FamilyScreen({
   // Babysitter-Zugang: der Gastbenutzer und sein frisches Token.
   const [babysitterUser, setBabysitterUser] = useState<FamilyItem | null>(null);
   const [babysitterToken, setBabysitterToken] = useState<string | null>(null);
+  // Punkt 187: Mehrere Babysitter, jeder mit eigenem Zugang.
+  const [babysitterKonten, setBabysitterKonten] = useState<FamilyItem[]>([]);
+  const [babysitterName, setBabysitterName] = useState('');
+  // Punkt 184: «So sieht es der Babysitter» – zeigt die Lücken vorher.
+  const [babysitterVorschau, setBabysitterVorschau] = useState(false);
+  // Punkt 167: Was gelöscht wurde – dreissig Tage lang.
+  const [korb, setKorb] = useState<FamilyItem[]>([]);
+  const [korbOffen, setKorbOffen] = useState(false);
+  // Punkt 205: Ausgeblendete Kacheln – je Person im Gerät, wie die
+  // Reihenfolge. Was ausgeblendet ist, ist nicht weg, nur nicht im Weg.
+  const [versteckteModule, setVersteckteModule] = useState<string[]>([]);
+  const [ordnen, setOrdnen] = useState(false);
   // Vom Essensplaner direkt ins Rezept springen (Punkt 146).
   const [rezeptStart, setRezeptStart] = useState<string | null>(null);
+  // Einkaufsliste: welcher Laden gefiltert ist (Punkt 175) und ob der
+  // Einkaufs-Modus läuft (Punkt 173).
+  const [laden, setLaden] = useState('allgemein');
+  const [imLaden, setImLaden] = useState(false);
+  // Was nach dem üblichen Abstand wieder fällig wäre (Punkt 176).
+  const [faellig, setFaellig] = useState<{ text: string; days_since: number; interval: number }[]>(
+    []
+  );
+  // Suche über alle Listen (Punkt 166).
+  const [suchtext, setSuchtext] = useState('');
+  // Wann welches Modul zuletzt angesehen wurde (Punkt 168).
+  const [gesehen, setGesehen] = useState<Record<string, string>>({});
+  // Die Hausadresse aus der Konfiguration (Punkt 213).
+  const [hausadresse, setHausadresse] = useState<{ address: string; note: string } | null>(
+    null
+  );
+  // Wer gerade wo ist (Punkt 196).
+  const [anwesend, setAnwesend] = useState<Record<string, unknown>[]>([]);
   // «Was koche ich heute?» im Planer (Punkt 139): Die Saat hält die
   // Vorschläge stehen, bis jemand würfelt - sonst mischte jedes
   // Live-Update vom Hub die Liste um.
@@ -105,22 +175,139 @@ export function FamilyScreen({
     [settings.url, settings.token]
   );
 
+  // ── Ohne Netz lesbar bleiben (Punkte 165 und 172) ──────────────────────
+  //
+  // Der Geräte-Bildschirm legt seinen Stand längst im Gerät ab; die
+  // Familienseite tat es nicht. Wer im Ladenkeller die Einkaufsliste
+  // öffnete, sah nichts - und ein Häkchen dort lief ins Leere, ohne dass
+  // es jemand merkte.
+  const [stand, setStand] = useState<number | null>(null);
+  const [verbunden, setVerbunden] = useState(true);
+  const [offen, setOffen] = useState<Vorgemerkt[]>([]);
+  // Die Warteschlange auch zum Nachlesen, ohne den Effekt neu zu binden.
+  const offenRef = useRef<Vorgemerkt[]>([]);
+  offenRef.current = offen;
+
+  // Beim Öffnen sofort den letzten bekannten Stand zeigen, statt auf die
+  // Verbindung zu warten - derselbe Handel wie in useHub.
+  useEffect(() => {
+    let abgebrochen = false;
+    AsyncStorage.getItem(CACHE_KEY)
+      .then((raw) => {
+        if (!raw || abgebrochen) return;
+        const gespeichert = JSON.parse(raw);
+        setServerData((vorher) => (Object.keys(vorher).length > 0 ? vorher : gespeichert.data ?? {}));
+        if (typeof gespeichert.at === 'number') setStand((v) => v ?? gespeichert.at);
+      })
+      // Kein Zwischenspeicher ist kein Fehler - dann kommt alles frisch.
+      .catch(() => {});
+    AsyncStorage.getItem(QUEUE_KEY)
+      .then((raw) => {
+        if (!raw || abgebrochen) return;
+        setOffen(frisch(JSON.parse(raw), Date.now()));
+      })
+      .catch(() => {});
+    return () => {
+      abgebrochen = true;
+    };
+  }, []);
+
   const load = useCallback(() => {
     // Der Bildschirm zeigt Fehler selbst an - deshalb «still».
     hub
       .get<FamilyData>('/api/family', { still: true })
       .then((payload) => {
-        setData(payload);
+        setServerData(payload);
         setError(null);
+        setVerbunden(true);
+        const jetzt = Date.now();
+        setStand(jetzt);
+        AsyncStorage.setItem(
+          CACHE_KEY,
+          JSON.stringify({ data: payload, at: jetzt })
+        ).catch(() => {});
       })
-      .catch((err) =>
+      .catch((err) => {
+        setVerbunden(false);
         setError(
           `Familiendaten nicht abrufbar (${err instanceof HubFehler ? err.message : err})`
-        )
-      );
+        );
+      });
   }, [hub]);
 
   useEffect(load, [load]);
+
+  // … und der Stand, den man sieht: Server plus das, was noch wartet.
+  // Ohne diese Überlagerung springt das Häkchen zurück, und man tippt es
+  // ein zweites Mal.
+  const data = useMemo(() => anwenden(serverData, offen), [serverData, offen]);
+
+  // Was wartet, wird gespeichert: Die App darf zwischendurch beendet
+  // werden, ohne dass ein Häkchen verlorengeht.
+  useEffect(() => {
+    AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(offen)).catch(() => {});
+  }, [offen]);
+
+  /**
+   * Eine Änderung an den Hub - und wenn er nicht da ist, in die Warteschlange.
+   *
+   * Zurück kommt, ob es sofort geklappt hat. Der Aufrufer braucht das
+   * nicht; die Anzeige entsteht aus `offen`.
+   */
+  const senden = useCallback(
+    async (eintrag: Vorgemerkt): Promise<boolean> => {
+      try {
+        if (eintrag.kind === 'add') {
+          await hub.post(`/api/family/${eintrag.collection}`, eintrag.body ?? {}, {
+            still: true,
+          });
+        } else if (eintrag.kind === 'update') {
+          await hub.put(
+            `/api/family/${eintrag.collection}/${eintrag.id}`,
+            eintrag.body ?? {},
+            { still: true }
+          );
+        } else {
+          await hub.del(`/api/family/${eintrag.collection}/${eintrag.id}`, {
+            still: true,
+          });
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [hub]
+  );
+
+  // Sobald die Verbindung wieder steht, geht die Warteschlange raus -
+  // in der Reihenfolge, in der getippt wurde.
+  useEffect(() => {
+    if (!verbunden || offen.length === 0) return;
+    let abgebrochen = false;
+    (async () => {
+      const rest: Vorgemerkt[] = [];
+      for (const eintrag of offenRef.current) {
+        // Ein lokal angelegter Eintrag wird als Neuzugang geschickt; seine
+        // vorläufige Kennung kennt der Hub nicht.
+        const geschickt = await senden(
+          istVorlaeufig(eintrag.id) && eintrag.kind !== 'add'
+            ? { ...eintrag, kind: 'add' }
+            : eintrag
+        );
+        if (!geschickt) rest.push(eintrag);
+      }
+      if (abgebrochen) return;
+      setOffen(rest);
+      if (rest.length === 0) load();
+    })();
+    return () => {
+      abgebrochen = true;
+    };
+    // Absichtlich nur an `verbunden` und der Länge: Der Lauf soll einmal
+    // je Wiederverbindung starten, nicht bei jedem Zwischenstand.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [verbunden, offen.length]);
 
   /**
    * Die Termine eines Monats holen.
@@ -168,41 +355,150 @@ export function FamilyScreen({
 
   const add = useCallback(
     async (collection: string, item: FamilyItem) => {
-      try {
-        await hub.post(`/api/family/${collection}`, item, { still: true });
+      const eintrag: Vorgemerkt = {
+        kind: 'add',
+        collection,
+        id: vorlaeufigeId(Date.now()),
+        body: item,
+        at: Date.now(),
+      };
+      if (await senden(eintrag)) {
         load();
-      } catch (err) {
-        setError(
-          `Speichern fehlgeschlagen (${err instanceof Error ? err.message : err})`
-        );
+        return;
       }
+      // Kein Netz: vormerken statt schweigend verlieren.
+      setVerbunden(false);
+      setOffen((vorher) => merke(vorher, eintrag));
     },
-    [hub, load]
+    [senden, load]
   );
 
   const update = useCallback(
     async (collection: string, id: string, patch: FamilyItem) => {
-      try {
-        // Scheitert es, zeigt load() im finally den echten Stand - und
-        // die Einblendung des Clients sagt, warum.
-        await hub.put(`/api/family/${collection}/${id}`, patch, { fallback: null });
-      } finally {
+      const eintrag: Vorgemerkt = {
+        kind: 'update',
+        collection,
+        id,
+        body: patch,
+        at: Date.now(),
+      };
+      if (await senden(eintrag)) {
         load();
+        return;
       }
+      setVerbunden(false);
+      setOffen((vorher) => merke(vorher, eintrag));
     },
-    [hub, load]
+    [senden, load]
   );
 
   const remove = useCallback(
     async (collection: string, id: string) => {
-      try {
-        await hub.del(`/api/family/${collection}/${id}`, { fallback: null });
-      } finally {
+      const eintrag: Vorgemerkt = {
+        kind: 'remove',
+        collection,
+        id,
+        at: Date.now(),
+      };
+      if (await senden(eintrag)) {
         load();
+        return;
       }
+      setVerbunden(false);
+      setOffen((vorher) => merke(vorher, eintrag));
     },
-    [hub, load]
+    [senden, load]
   );
+
+  // Was der Hub nebenbei weiss: fällige Standardartikel, die Hausadresse
+  // und wer gerade da ist. Alles drei ohne Aufhebens - fehlt es, bleibt
+  // die jeweilige Zeile einfach weg.
+  useEffect(() => {
+    hub
+      .get<{ items: typeof faellig } | null>('/api/shopping/due', {
+        fallback: null,
+        still: true,
+      })
+      .then((payload) => setFaellig(payload?.items ?? []));
+    hub
+      .get<{ address: string; note: string } | null>('/api/haus/adresse', {
+        fallback: null,
+        still: true,
+      })
+      .then(setHausadresse);
+  }, [hub]);
+
+  useEffect(() => {
+    hub
+      .get<{ people: Record<string, unknown>[] } | null>('/api/presence', {
+        fallback: null,
+        still: true,
+      })
+      .then((payload) => setAnwesend(payload?.people ?? []));
+  }, [hub, changedAt]);
+
+  // Die Lesemarken je Modul liegen im Gerät: «neu» ist eine persönliche
+  // Frage, und ein zweites Telefon derselben Person darf ruhig eine
+  // eigene Antwort haben.
+  useEffect(() => {
+    AsyncStorage.getItem(SEEN_KEY)
+      .then((raw) => setGesehen(raw ? JSON.parse(raw) : {}))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    AsyncStorage.getItem(HIDDEN_KEY)
+      .then((raw) => setVersteckteModule(raw ? JSON.parse(raw) : []))
+      .catch(() => {});
+  }, []);
+
+  const ladeKorb = useCallback(() => {
+    hub
+      .get<{ items: FamilyItem[] } | null>('/api/family-trash', {
+        fallback: null,
+        still: true,
+      })
+      .then((payload) => setKorb(payload?.items ?? []));
+  }, [hub]);
+  useEffect(ladeKorb, [ladeKorb, changedAt]);
+
+  /** Eine Kachel aus- oder wieder einblenden (Punkt 205). */
+  const toggleModul = useCallback((key: string) => {
+    setVersteckteModule((vorher) => {
+      const neu = vorher.includes(key)
+        ? vorher.filter((eintrag) => eintrag !== key)
+        : [...vorher, key];
+      AsyncStorage.setItem(HIDDEN_KEY, JSON.stringify(neu)).catch(() => {});
+      return neu;
+    });
+  }, []);
+
+  /** Ein Modul als gesehen markieren (Punkt 168). */
+  const merkeGesehen = useCallback((modul: string) => {
+    setGesehen((vorher) => {
+      const neu = { ...vorher, [modul]: new Date().toISOString() };
+      AsyncStorage.setItem(SEEN_KEY, JSON.stringify(neu)).catch(() => {});
+      return neu;
+    });
+  }, []);
+
+  /**
+   * Die ehrliche Zeile über der Liste (Punkte 165 und 172).
+   *
+   * Ohne sie sieht ein alter Stand aus wie ein aktueller – und genau das
+   * ist der Schaden, nicht der alte Stand selbst.
+   */
+  const standHinweis = standText(stand, verbunden, offen.length, new Date());
+  const standZeile = standHinweis ? (
+    <View style={styles.standRow}>
+      <Ionicons
+        name={verbunden ? 'cloud-upload-outline' : 'cloud-offline-outline'}
+        size={15}
+        color={colors.inkSoft}
+      />
+      <Text style={styles.standText}>{standHinweis}</Text>
+    </View>
+  ) : null;
 
   // ── Abgeleitete Werte ──────────────────────────────────────────────────
 
@@ -266,14 +562,17 @@ export function FamilyScreen({
     if (!darfBenutzer) return;
     hub
       .get<FamilyItem[]>('/api/users', { still: true })
-      .then((liste) =>
-        setBabysitterUser(
-          (Array.isArray(liste) ? liste : []).find(
-            (user) => user.name === BABYSITTER_USER
-          ) ?? null
-        )
-      )
-      .catch(() => setBabysitterUser(null));
+      .then((liste) => {
+        // Punkt 187: Es gibt nicht mehr «den» Babysitter, sondern je
+        // Person einen Zugang - dann steht im Protokoll auch, wer da war.
+        const konten = (Array.isArray(liste) ? liste : []).filter(istBabysitterKonto);
+        setBabysitterKonten(konten);
+        setBabysitterUser(konten.find((user) => user.enabled) ?? konten[0] ?? null);
+      })
+      .catch(() => {
+        setBabysitterKonten([]);
+        setBabysitterUser(null);
+      });
   }, [hub, darfBenutzer]);
 
   useEffect(() => {
@@ -282,10 +581,12 @@ export function FamilyScreen({
 
   const oeffneBabysitter = async (bis: string) => {
     const zugang = babysitterZugang(new Date(), bis);
+    const konto = babysitterKonto(babysitterName);
+    const vorhanden = babysitterKonten.find((user) => user.name === konto);
     try {
-      if (babysitterUser) {
+      if (vorhanden) {
         await hub.put(
-          `/api/users/${encodeURIComponent(BABYSITTER_USER)}`,
+          `/api/users/${encodeURIComponent(konto)}`,
           { enabled: true, features: BABYSITTER_FEATURES, ...zugang },
           { still: true }
         );
@@ -293,7 +594,7 @@ export function FamilyScreen({
         const antwort = await hub.post<{ user?: FamilyItem; token?: string }>(
           '/api/users',
           {
-            name: BABYSITTER_USER,
+            name: konto,
             role: 'gast',
             features: BABYSITTER_FEATURES,
             ...zugang,
@@ -312,10 +613,36 @@ export function FamilyScreen({
     }
   };
 
-  const schliesseBabysitter = async () => {
+  /**
+   * «Noch eine Stunde» (Punkt 185).
+   *
+   * Wenn es später wird, legt man sonst den Zugang neu an - und der
+   * Babysitter muss sich neu anmelden, mitten im Abend.
+   */
+  const verlaengereBabysitter = async (konto: FamilyItem) => {
+    const bisher = String(konto.hours?.to ?? '22:00');
+    const [stunde, minute] = bisher.split(':').map(Number);
+    const spaeter = `${String((stunde + 1) % 24).padStart(2, '0')}:${String(
+      minute || 0
+    ).padStart(2, '0')}`;
     try {
       await hub.put(
-        `/api/users/${encodeURIComponent(BABYSITTER_USER)}`,
+        `/api/users/${encodeURIComponent(String(konto.name))}`,
+        { hours: { ...(konto.hours ?? {}), to: spaeter } },
+        { still: true }
+      );
+      ladeBabysitter();
+    } catch (err) {
+      setError(
+        `Zugang nicht verlängert (${err instanceof Error ? err.message : err})`
+      );
+    }
+  };
+
+  const schliesseBabysitter = async (name?: string) => {
+    try {
+      await hub.put(
+        `/api/users/${encodeURIComponent(name ?? String(babysitterUser?.name ?? BABYSITTER_USER))}`,
         { enabled: false },
         { still: true }
       );
@@ -678,35 +1005,119 @@ export function FamilyScreen({
   }
 
   if (view === 'shopping') {
-    const items: FamilyItem[] = data.shopping ?? [];
+    const alle: FamilyItem[] = data.shopping ?? [];
+    const shops = (data.shops ?? []) as unknown as Shop[];
+    // Punkt 175: Der Käse vom Hofladen und die Schrauben aus dem
+    // Baumarkt standen bisher zwischen der Migros-Ware.
+    const items = fuerLaden(alle, laden);
     const done = items.filter((item) => item.done);
+    const offeneItems = items.filter((item) => !item.done);
     // Nach Kategorie gruppieren, in der Ladenrundgang-Reihenfolge. Einträge
     // ohne Kategorie (alt oder aus dem Essensplan) landen unter «Sonstiges».
     const catOf = (item: FamilyItem) =>
       SHOP_CATEGORIES.includes(item.category) ? item.category : 'Sonstiges';
+    // Im Einkaufs-Modus verschwindet Erledigtes: Was im Wagen liegt,
+    // kostet nur Platz (Punkt 173).
+    const sichtbar = imLaden ? offeneItems : items;
     const usedCats = SHOP_CATEGORIES.filter((cat) =>
-      items.some((item) => catOf(item) === cat)
+      sichtbar.some((item) => catOf(item) === cat)
     );
     // Standardartikel: was jede Woche in den Wagen wandert. Ein Tipp
     // legt sie an, statt sie jedes Mal zu tippen - und wer sie einmal
     // von Hand einträgt, kann sie danach als Standard merken.
     const staples: FamilyItem[] = data.staples ?? [];
     const aufListe = new Set(
-      items.map((item: FamilyItem) => String(item.text ?? '').trim().toLowerCase())
+      alle.map((item: FamilyItem) => String(item.text ?? '').trim().toLowerCase())
     );
+    const zaehler = ladenZaehler(alle, shops);
+    const aktuellerShop = shops.find((shop) => shop.id === laden) ?? null;
+
+    /** Eintragen – mit Komma-Trennung und Zusammenlegen (174, 209). */
+    const eintragenAuf = (roh: string, category: string) => {
+      const teile = /[,;\n]/.test(roh)
+        ? zeilenAufteilen(roh)
+        : [{ text: roh.trim(), category: category || shopCategory(roh) }];
+      for (const teil of teile) {
+        const schritt = eintragen(alle, teil.text, teil.category);
+        if (schritt.kind === 'mehr') update('shopping', schritt.id, { text: schritt.text });
+        else
+          add('shopping', {
+            ...schritt.draft,
+            done: false,
+            ...(laden && laden !== 'allgemein' ? { shop: laden } : {}),
+          });
+      }
+    };
+
     return (
       <View style={styles.stack}>
         <BackHead title="Einkaufsliste" onBack={goBack} styles={styles} colors={colors} />
-        <Card style={styles.listCard}>
-          <ShoppingAddRow
-            onAdd={(text, category) =>
-              add('shopping', { text, category: category || shopCategory(text), done: false })
-            }
-            styles={styles}
-            colors={colors}
-          />
-        </Card>
-        {staples.length > 0 ? (
+        {standZeile}
+        {/* Punkt 173: Im Laden hält man das Telefon in einer Hand und in
+            der anderen den Wagen. */}
+        <Pressable
+          onPress={() => {
+            tapped();
+            setImLaden(!imLaden);
+          }}
+          style={styles.clearButton}
+          accessibilityRole="button"
+        >
+          <Text style={styles.resetText}>
+            {imLaden
+              ? `Fertig – noch ${offeneItems.length} offen`
+              : 'Ich bin im Laden'}
+          </Text>
+        </Pressable>
+        {shops.length > 0 ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View style={styles.chipRow}>
+              {zaehler.map(({ shop, offen: wieviel }) => (
+                <Pressable
+                  key={shop.id}
+                  onPress={() => setLaden(shop.id)}
+                  style={[styles.chip, laden === shop.id && styles.chipActive]}
+                >
+                  <Text
+                    style={[styles.chipText, laden === shop.id && styles.chipTextActive]}
+                  >
+                    {shop.name} ({wieviel})
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </ScrollView>
+        ) : null}
+        {imLaden ? null : (
+          <Card style={styles.listCard}>
+            <ShoppingAddRow onAdd={eintragenAuf} styles={styles} colors={colors} />
+          </Card>
+        )}
+        {/* Punkt 176: Was jede Woche fehlt, schlägt sich selbst vor. */}
+        {!imLaden && faellig.length > 0 ? (
+          <Card style={styles.listCard}>
+            <Text style={styles.groupTitle}>Fehlt vermutlich</Text>
+            <View style={styles.stapleRow}>
+              {faellig.map((vorschlag) => (
+                <Pressable
+                  key={vorschlag.text}
+                  onPress={() => eintragenAuf(vorschlag.text, '')}
+                  style={styles.staple}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${vorschlag.text} auf die Liste`}
+                >
+                  <Ionicons name="add" size={13} color={colors.inkSoft} />
+                  <Text style={styles.stapleText}>{vorschlag.text}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <Text style={styles.hint}>
+              {faellig[0].text} stand zuletzt vor {faellig[0].days_since} Tagen drauf,
+              sonst alle {faellig[0].interval}.
+            </Text>
+          </Card>
+        ) : null}
+        {!imLaden && staples.length > 0 ? (
           <Card style={styles.listCard}>
             <Text style={styles.groupTitle}>Standardartikel</Text>
             <View style={styles.stapleRow}>
@@ -718,13 +1129,7 @@ export function FamilyScreen({
                   <Pressable
                     key={staple.id}
                     onPress={() =>
-                      drauf
-                        ? undefined
-                        : add('shopping', {
-                            text: staple.text,
-                            category: staple.category || shopCategory(staple.text),
-                            done: false,
-                          })
+                      drauf ? undefined : eintragenAuf(String(staple.text ?? ''), String(staple.category ?? ''))
                     }
                     onLongPress={() => remove('staples', staple.id)}
                     disabled={drauf}
@@ -755,14 +1160,32 @@ export function FamilyScreen({
         {usedCats.map((cat) => (
           <Card key={cat} style={styles.listCard}>
             <Text style={styles.groupTitle}>{cat}</Text>
-            {items
+            {sichtbar
               .filter((item) => catOf(item) === cat)
               .map((item) => (
                 <CheckRow
                   key={item.id}
                   item={item}
+                  gross={imLaden}
+                  // Punkt 208: Woher der Posten kommt – im Laden fragt
+                  // man sich sonst, wofür die 250 g Kapern waren.
+                  sub={item.from ? `aus ${item.from}` : undefined}
+                  onSubPress={
+                    item.from_id
+                      ? () => {
+                          setRezeptStart(String(item.from_id));
+                          setView('recipes');
+                        }
+                      : undefined
+                  }
                   onToggle={() => update('shopping', item.id, { done: !item.done })}
                   onDelete={() => remove('shopping', item.id)}
+                  // Punkt 207: Menge verstellen, ohne den Text zu tippen.
+                  onCount={(delta) =>
+                    update('shopping', item.id, {
+                      text: mengeAendern(String(item.text ?? ''), delta),
+                    })
+                  }
                   // Lange drücken macht einen Standardartikel daraus -
                   // dort, wo man merkt, dass man ihn schon wieder tippt.
                   onRemember={
@@ -784,10 +1207,24 @@ export function FamilyScreen({
               ))}
           </Card>
         ))}
-        {items.length === 0 ? (
-          <Text style={styles.hint}>Die Liste ist leer. Trag oben ein, was fehlt.</Text>
+        {sichtbar.length === 0 ? (
+          <Text style={styles.hint}>
+            {imLaden ? 'Alles im Wagen.' : 'Die Liste ist leer. Trag oben ein, was fehlt.'}
+          </Text>
         ) : null}
-        {done.length > 0 ? (
+        {/* Punkt 177: Teilen, ohne die App zu verlangen. */}
+        {offeneItems.length > 0 ? (
+          <Pressable
+            onPress={() =>
+              Share.share({ message: einkaufsText(offeneItems, aktuellerShop) })
+            }
+            style={styles.clearButton}
+            accessibilityRole="button"
+          >
+            <Text style={styles.resetText}>Liste teilen</Text>
+          </Pressable>
+        ) : null}
+        {done.length > 0 && !imLaden ? (
           <Pressable
             onPress={() => done.forEach((item) => remove('shopping', item.id))}
             style={styles.clearButton}
@@ -798,12 +1235,14 @@ export function FamilyScreen({
         {/* Ganz unten, eingeklappt: Die Läden richtet man einmal ein und
             danach jahrelang nicht mehr - über der Liste stünden sie im
             Weg. */}
-        <Shops
-          shops={(data.shops ?? []) as unknown as Shop[]}
-          onAdd={(shop) => add('shops', shop)}
-          onUpdate={(id, changes) => update('shops', id, changes)}
-          onRemove={(id) => remove('shops', id)}
-        />
+        {imLaden ? null : (
+          <Shops
+            shops={shops}
+            onAdd={(shop) => add('shops', shop)}
+            onUpdate={(id, changes) => update('shops', id, changes)}
+            onRemove={(id) => remove('shops', id)}
+          />
+        )}
       </View>
     );
   }
@@ -1018,6 +1457,19 @@ export function FamilyScreen({
           styles={styles}
           colors={colors}
         />
+        {/* Punkt 206: Was an einer Pinnwand hängt, sind selten Sätze –
+            der Elternbrief, der Stundenplan, die Zeichnung. */}
+        <Pressable
+          onPress={async () => {
+            const foto = await pickPhoto();
+            if (foto) add('pins', { text: 'Foto', photo: foto });
+          }}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.75 }]}
+        >
+          <Ionicons name="image-outline" size={16} color={colors.accent} />
+          <Text style={styles.addRowText}>Foto anpinnen</Text>
+        </Pressable>
 
         <Card style={styles.listCard}>
           <Text style={styles.groupTitle}>Abstimmung</Text>
@@ -1089,12 +1541,27 @@ export function FamilyScreen({
           .reverse()
           .map((pin) => (
             <Card key={pin.id} style={styles.pinCard}>
+              {pin.photo ? (
+                <Pressable
+                  onPress={async () => {
+                    const foto = await pickPhoto();
+                    if (foto) update('pins', pin.id, { photo: foto });
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Bild austauschen"
+                >
+                  <Image
+                    source={{ uri: String(pin.photo) }}
+                    style={styles.pinPhoto}
+                    resizeMode="cover"
+                  />
+                </Pressable>
+              ) : null}
               <Text style={styles.checkText}>{pin.text}</Text>
               <View style={styles.pinFoot}>
-                <Text style={styles.checkSub}>
-                  {pin.author}
-                  {pin.created ? ` · ${pin.created.slice(0, 10)}` : ''}
-                </Text>
+                {/* Punkt 168: author und created standen in jedem Eintrag,
+                    ohne dass sie je jemand las. */}
+                <Text style={styles.checkSub}>{herkunftText(pin, new Date())}</Text>
                 <Pressable
                   onPress={() => remove('pins', pin.id)}
                   style={styles.deleteTap}
@@ -1268,6 +1735,12 @@ export function FamilyScreen({
       (med: FamilyItem) => !kurFertig(med)
     );
     const abend: FamilyItem = (data.babysitter ?? [])[0] ?? {};
+    const luecken = abendLuecken(abend, kontakte, hausadresse?.address);
+    // Punkt 214: Der Abendablauf steht im Routinen-Modul – abgetippt
+    // wurde er trotzdem noch einmal.
+    const abendRoutine = routinen.find(
+      (routine: FamilyItem) => routine.id === abend.routine_id
+    );
 
     /** Die ganze Seite als Text – zum Weitergeben an jemanden ohne App. */
     const alsText = () => {
@@ -1302,26 +1775,108 @@ export function FamilyScreen({
       <View style={styles.stack}>
         <BackHead title="Babysitter" onBack={goBack} styles={styles} colors={colors} />
 
+        {/* Punkt 213: Wer 144 wählt, muss als Erstes sagen, WO er ist –
+            und genau das weiss eine fremde Person im Haus nicht
+            auswendig. Darum ganz oben und in Grossschrift. */}
+        {hausadresse?.address ? (
+          <Card style={styles.adresseCard}>
+            <Text style={styles.adresseLabel}>WIR SIND HIER</Text>
+            <Text style={styles.adresseText} selectable>
+              {hausadresse.address}
+            </Text>
+            {hausadresse.note ? (
+              <Text style={styles.adresseNote}>{hausadresse.note}</Text>
+            ) : null}
+          </Card>
+        ) : null}
+
         {/* Das Wichtigste zuerst und gross: Wer im Zweifel anzurufen ist.
             In der Nummernliste zu suchen, während etwas los ist, ist
             genau das, was man nicht können soll. */}
         {eltern.length > 0 ? (
           <View style={{ gap: 8 }}>
+            {/* Punkt 183: Beide Eltern nacheinander, statt in der Liste
+                zu suchen. Der zweite Knopf ist der leise Weg - nicht
+                jede Frage muss mitten im Kino klingeln. */}
+            <Pressable
+              onPress={() => {
+                const nummern = eltern
+                  .map((kontakt: FamilyItem) => nummernVon(kontakt)[0]?.nummer)
+                  .filter(Boolean);
+                if (nummern[0]) Linking.openURL(`tel:${waehlbar(nummern[0])}`);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Eltern anrufen"
+              style={({ pressed }) => [styles.notrufButton, pressed && { opacity: 0.85 }]}
+            >
+              <Ionicons name="call" size={22} color="#FFFFFF" />
+              <Text style={styles.notrufButtonText}>Eltern anrufen</Text>
+            </Pressable>
             {eltern.slice(0, 2).map((kontakt: FamilyItem) => (
-              <Pressable
-                key={kontakt.id}
-                onPress={() =>
-                  Linking.openURL(`tel:${waehlbar(nummernVon(kontakt)[0]?.nummer)}`)
-                }
-                accessibilityRole="button"
-                accessibilityLabel={`${kontakt.text} anrufen`}
-                style={({ pressed }) => [styles.notrufButton, pressed && { opacity: 0.85 }]}
-              >
-                <Ionicons name="call" size={22} color="#FFFFFF" />
-                <Text style={styles.notrufButtonText}>{kontakt.text} anrufen</Text>
-              </Pressable>
+              <View key={kontakt.id} style={styles.addRow}>
+                <Pressable
+                  onPress={() =>
+                    Linking.openURL(`tel:${waehlbar(nummernVon(kontakt)[0]?.nummer)}`)
+                  }
+                  accessibilityRole="button"
+                  accessibilityLabel={`${kontakt.text} anrufen`}
+                  style={({ pressed }) => [
+                    styles.chip,
+                    { flex: 1 },
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  <Ionicons name="call-outline" size={14} color={colors.inkSoft} />
+                  <Text style={styles.chipText}>{kontakt.text}</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() =>
+                    Linking.openURL(
+                      `sms:${waehlbar(nummernVon(kontakt)[0]?.nummer)}&body=${encodeURIComponent(
+                        'Kurze Meldung: alles in Ordnung.'
+                      )}`
+                    )
+                  }
+                  accessibilityRole="button"
+                  accessibilityLabel={`${kontakt.text} kurz melden`}
+                  style={({ pressed }) => [styles.chip, pressed && { opacity: 0.7 }]}
+                >
+                  <Ionicons name="chatbubble-outline" size={14} color={colors.inkSoft} />
+                  <Text style={styles.chipText}>Kurz melden</Text>
+                </Pressable>
+              </View>
             ))}
           </View>
+        ) : null}
+
+        {/* Punkt 184: Ob das Blatt vollständig ist, merkt man sonst erst,
+            wenn angerufen wird. */}
+        {darfBenutzer ? (
+          <Pressable
+            onPress={() => setBabysitterVorschau(!babysitterVorschau)}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.75 }]}
+          >
+            <Ionicons name="eye-outline" size={16} color={colors.accent} />
+            <Text style={styles.addRowText}>
+              {babysitterVorschau ? 'Vorschau schliessen' : 'Vorschau: so sieht es der Babysitter'}
+            </Text>
+          </Pressable>
+        ) : null}
+        {babysitterVorschau ? (
+          <Card style={styles.listCard}>
+            <Text style={styles.groupTitle}>Was noch fehlt</Text>
+            {luecken.length === 0 ? (
+              <Text style={styles.hint}>Nichts – das Blatt ist vollständig.</Text>
+            ) : (
+              luecken.map((zeile) => (
+                <View key={zeile} style={styles.checkRow}>
+                  <Ionicons name="alert-circle-outline" size={16} color={colors.warn} />
+                  <Text style={[styles.checkSub, { flex: 1 }]}>{zeile}</Text>
+                </View>
+              ))
+            )}
+          </Card>
         ) : null}
 
         {/* Vom Merkblatt zum Zugang: Bisher war das hier eine Seite, die
@@ -1348,6 +1903,15 @@ export function FamilyScreen({
                 </Text>
               </View>
             </View>
+            {/* Punkt 187: Je Person ein Zugang – sonst steht im
+                Zugriffsprotokoll dieselbe Zeile für drei Menschen. */}
+            <TextInput
+              style={styles.input}
+              value={babysitterName}
+              onChangeText={setBabysitterName}
+              placeholder="Für wen? (z.B. Nina – freiwillig)"
+              placeholderTextColor={colors.inkFaint}
+            />
             <View style={styles.chipRow}>
               {['21:00', '22:00', '23:00', '00:30'].map((bis) => (
                 <Pressable
@@ -1360,23 +1924,55 @@ export function FamilyScreen({
                   <Text style={styles.chipText}>bis {bis}</Text>
                 </Pressable>
               ))}
-              {babysitterAktiv ? (
-                <Pressable
-                  onPress={schliesseBabysitter}
-                  accessibilityRole="button"
-                  style={[styles.chip, { borderColor: colors.danger }]}
-                >
-                  <Text style={[styles.chipText, { color: colors.danger }]}>
-                    Jetzt schliessen
-                  </Text>
-                </Pressable>
-              ) : null}
             </View>
             {babysitterToken ? (
               <Text style={styles.checkSub} selectable>
-                Anmeldung: Benutzer «{BABYSITTER_USER}», Token {babysitterToken}
+                Anmeldung: Benutzer «{babysitterKonto(babysitterName)}», Token{' '}
+                {babysitterToken}
               </Text>
             ) : null}
+            {/* Die bestehenden Zugänge – offen wie geschlossen. */}
+            {babysitterKonten.map((konto: FamilyItem) => (
+              <View key={String(konto.name)} style={styles.checkRow}>
+                <Ionicons
+                  name={konto.enabled ? 'lock-open-outline' : 'lock-closed-outline'}
+                  size={16}
+                  color={konto.enabled ? colors.on : colors.inkFaint}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.checkText}>
+                    {babysitterVorname(konto) || 'Babysitter'}
+                  </Text>
+                  <Text style={styles.checkSub}>
+                    {konto.enabled
+                      ? `offen bis ${konto.hours?.to ?? '?'} Uhr`
+                      : 'geschlossen'}
+                  </Text>
+                </View>
+                {konto.enabled ? (
+                  <>
+                    {/* Punkt 185: Wenn es später wird, statt den Zugang
+                        neu anzulegen. */}
+                    <Pressable
+                      onPress={() => verlaengereBabysitter(konto)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Noch eine Stunde"
+                      style={styles.chip}
+                    >
+                      <Text style={styles.chipText}>+1 h</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => schliesseBabysitter(String(konto.name))}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Zugang von ${konto.name} schliessen`}
+                      style={styles.deleteTap}
+                    >
+                      <Ionicons name="close" size={18} color={colors.danger} />
+                    </Pressable>
+                  </>
+                ) : null}
+              </View>
+            ))}
           </Card>
         ) : null}
 
@@ -1416,6 +2012,93 @@ export function FamilyScreen({
               />
             </View>
           ))}
+          {/* Punkt 214: Die Abendroutine steht schon im System – hier
+              wird sie verknüpft statt abgetippt. */}
+          {routinen.length > 0 ? (
+            <View style={{ gap: 4 }}>
+              <Text style={styles.formHintSmall}>Abendablauf (aus den Routinen)</Text>
+              <View style={styles.chipRow}>
+                {routinen.map((routine: FamilyItem) => {
+                  const aktiv = abend.routine_id === routine.id;
+                  return (
+                    <Pressable
+                      key={routine.id}
+                      onPress={() => {
+                        const wert = aktiv ? null : routine.id;
+                        if (abend.id) update('babysitter', abend.id, { routine_id: wert });
+                        else add('babysitter', { text: 'Heute Abend', routine_id: wert });
+                      }}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: aktiv }}
+                      style={[styles.chip, aktiv && styles.chipActive]}
+                    >
+                      <Text style={[styles.chipText, aktiv && styles.chipTextActive]}>
+                        {routine.text}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
+        </Card>
+
+        {/* Punkt 214: Ist eine Routine gewählt, steht sie gross da – so
+            genau, wie die Familie den Abend selbst lebt. */}
+        {abendRoutine ? (
+          <>
+            <Text style={styles.groupLabel}>Abendablauf</Text>
+            <Card style={styles.listCard}>
+              <Text style={styles.checkText}>{abendRoutine.text}</Text>
+              {abendRoutine.body ? (
+                <Text style={styles.checkSub} selectable>
+                  {abendRoutine.body}
+                </Text>
+              ) : null}
+            </Card>
+          </>
+        ) : null}
+
+        {/* Punkt 186: «Wann ist sie eingeschlafen? Hat er gegessen?» wird
+            am Türrahmen gefragt und halb vergessen. */}
+        <Text style={styles.groupLabel}>Wie war der Abend?</Text>
+        <Card style={styles.listCard}>
+          <View style={styles.chipRow}>
+            {PROTOKOLL_ZEILEN.map((zeile) => (
+              <Pressable
+                key={zeile}
+                onPress={() => {
+                  const neu = protokollZeile(String(abend.log ?? ''), zeile, new Date());
+                  if (abend.id) update('babysitter', abend.id, { log: neu });
+                  else add('babysitter', { text: 'Heute Abend', log: neu });
+                }}
+                accessibilityRole="button"
+                style={styles.chip}
+              >
+                <Ionicons name="add" size={13} color={colors.inkSoft} />
+                <Text style={styles.chipText}>{zeile}</Text>
+              </Pressable>
+            ))}
+          </View>
+          {abend.log ? (
+            <>
+              <Text style={styles.checkSub} selectable>
+                {abend.log}
+              </Text>
+              <Pressable
+                onPress={() => update('babysitter', abend.id, { log: '' })}
+                accessibilityRole="button"
+                style={styles.clearButton}
+              >
+                <Text style={styles.resetText}>Protokoll leeren</Text>
+              </Pressable>
+            </>
+          ) : (
+            <Text style={styles.hint}>
+              Ein Tipp schreibt die Zeile mit Uhrzeit – für die Eltern beim
+              Heimkommen und fürs nächste Mal.
+            </Text>
+          )}
         </Card>
 
         {kontakte.length > 0 ? (
@@ -2249,6 +2932,48 @@ export function FamilyScreen({
 
   if (view === 'contacts') {
     const contacts: FamilyItem[] = data.contacts ?? [];
+    const heute = new Date();
+
+    /** Anrufen – und den Kontakt dabei als benutzt vermerken (Punkt 211). */
+    const anrufen = (contact: FamilyItem, nummer: string) => {
+      if (!nummer) return;
+      update('contacts', contact.id, { last_used: isoTag(new Date()) });
+      Linking.openURL(`tel:${waehlbar(nummer)}`);
+    };
+
+    /** Einen Kontakt als vCard weitergeben (Punkt 181). */
+    const weitergeben = (contact: FamilyItem) => {
+      const zeilen = [
+        'BEGIN:VCARD',
+        'VERSION:3.0',
+        `FN:${String(contact.text ?? '')}`,
+        ...nummernVon(contact).map((e) => `TEL;TYPE=CELL:${e.nummer}`),
+        contact.email ? `EMAIL:${contact.email}` : '',
+        contact.address ? `ADR;TYPE=HOME:;;${String(contact.address).replace(/,/g, ';')}` : '',
+        contact.note ? `NOTE:${String(contact.note)}` : '',
+        'END:VCARD',
+      ].filter(Boolean);
+      Share.share({ message: zeilen.join('\n') });
+    };
+
+    /** Aus dem Telefonbuch des Geräts übernehmen (Punkt 179). */
+    const ausTelefonbuch = async (): Promise<{ name: string; phone: string } | null> => {
+      try {
+        // Erst hier laden: Im Browser gibt es das Modul nicht, und die
+        // Seite soll deswegen nicht schon beim Öffnen scheitern.
+        const Contacts = await import('expo-contacts');
+        const { status } = await Contacts.requestPermissionsAsync();
+        if (status !== 'granted') return null;
+        const gewaehlt = await Contacts.presentContactPickerAsync();
+        if (!gewaehlt) return null;
+        return {
+          name: String(gewaehlt.name ?? ''),
+          phone: String(gewaehlt.phoneNumbers?.[0]?.number ?? ''),
+        };
+      } catch {
+        return null;
+      }
+    };
     // Kontakte mit hinterlegtem Geburtstag – nach Nähe des nächsten sortiert.
     const upcoming = contacts
       .map((contact) => ({ contact, days: daysUntilBirthday(contact.birthday) }))
@@ -2286,6 +3011,28 @@ export function FamilyScreen({
               ))}
             </Card>
           </>
+        ) : null}
+
+        {/* Punkt 212: Angerufen werden immer dieselben drei. */}
+        {schnellwahl(contacts).length > 0 ? (
+          <Card style={styles.listCard}>
+            <View style={styles.schnellRow}>
+              {schnellwahl(contacts).map((contact) => (
+                <Pressable
+                  key={contact.id}
+                  onPress={() => anrufen(contact, nummernVon(contact)[0]?.nummer)}
+                  style={styles.schnellKnopf}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${contact.text} anrufen`}
+                >
+                  <ContactPhoto contact={contact} size={54} styles={styles} />
+                  <Text style={styles.schnellName} numberOfLines={1}>
+                    {String(contact.text ?? '').split(' ')[0]}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </Card>
         ) : null}
 
         {/* Der Filter erscheint erst, wenn es etwas zu filtern gibt. */}
@@ -2327,6 +3074,7 @@ export function FamilyScreen({
             <ContactForm
               key={contact.id}
               vorhanden={contact}
+              onImport={ausTelefonbuch}
               onCancel={() => setKontaktBearbeitet(null)}
               onSave={(werte) => {
                 update('contacts', contact.id, {
@@ -2335,6 +3083,13 @@ export function FamilyScreen({
                   phone2: werte.phone2,
                   birthday: werte.birthday,
                   roles: werte.roles,
+                  email: werte.email,
+                  address: werte.address,
+                  note: werte.note,
+                  hours: werte.hours,
+                  favorite: werte.favorite,
+                  // Wer den Kontakt anfasst, hat ihn geprüft (Punkt 182).
+                  checked: isoTag(new Date()),
                   ...(werte.photo ? { photo: werte.photo } : {}),
                 });
                 setKontaktBearbeitet(null);
@@ -2355,9 +3110,7 @@ export function FamilyScreen({
               </Pressable>
               <Pressable
                 style={{ flex: 1 }}
-                onPress={() =>
-                  Linking.openURL(`tel:${waehlbar(nummernVon(contact)[0]?.nummer)}`)
-                }
+                onPress={() => anrufen(contact, nummernVon(contact)[0]?.nummer)}
                 accessibilityRole="button"
                 accessibilityLabel={`${contact.text} anrufen`}
               >
@@ -2367,16 +3120,45 @@ export function FamilyScreen({
                     {eintrag.nummer}
                   </Text>
                 ))}
+                {/* Punkt 210: Bei der Praxis landet man mittwochs sonst
+                    auf dem Band. */}
+                {(() => {
+                  const status = oeffnungsStatus(contact.hours, heute);
+                  return status ? (
+                    <Text
+                      style={[
+                        styles.checkSub,
+                        status.offen ? { color: colors.on, fontWeight: '600' } : null,
+                      ]}
+                    >
+                      {status.text}
+                    </Text>
+                  ) : null;
+                })()}
+                {contact.address ? (
+                  <Text style={styles.checkSub}>📍 {contact.address}</Text>
+                ) : null}
+                {contact.email ? (
+                  <Text style={styles.checkSub}>✉️ {contact.email}</Text>
+                ) : null}
+                {contact.note ? (
+                  <Text style={styles.checkSub}>{contact.note}</Text>
+                ) : null}
                 {birthdayLabel(contact.birthday) ? (
                   <Text style={styles.checkSub}>🎂 {birthdayLabel(contact.birthday)}</Text>
+                ) : null}
+                {/* Punkt 182: Eine falsche Nummer merkt man sonst genau
+                    dann, wenn man sie braucht. */}
+                {kontaktVeraltet(contact, heute) ? (
+                  <Text style={[styles.checkSub, { color: colors.warn }]}>
+                    Seit zwei Jahren unangetastet – stimmt das noch?
+                  </Text>
                 ) : null}
               </Pressable>
 
               <View style={{ gap: 6, alignItems: 'center' }}>
                 <Pressable
-                  onPress={() =>
-                    Linking.openURL(`tel:${waehlbar(nummernVon(contact)[0]?.nummer)}`)
-                  }
+                  onPress={() => anrufen(contact, nummernVon(contact)[0]?.nummer)}
                   style={styles.callButton}
                   accessibilityLabel={`${contact.text} anrufen`}
                 >
@@ -2405,6 +3187,33 @@ export function FamilyScreen({
                 >
                   <Ionicons name="create-outline" size={18} color={colors.inkSoft} />
                 </Pressable>
+                {/* Punkt 178: Die Adresse ist erst dann nützlich, wenn
+                    sie zur Route führt. */}
+                {contact.address ? (
+                  <Pressable
+                    onPress={() =>
+                      Linking.openURL(
+                        `http://maps.apple.com/?daddr=${encodeURIComponent(
+                          String(contact.address)
+                        )}`
+                      )
+                    }
+                    hitSlop={6}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Route zu ${contact.text}`}
+                  >
+                    <Ionicons name="navigate-outline" size={18} color={colors.inkSoft} />
+                  </Pressable>
+                ) : null}
+                {/* Punkt 181: «Schick mir die Nummer der Kinderärztin». */}
+                <Pressable
+                  onPress={() => weitergeben(contact)}
+                  hitSlop={6}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${contact.text} weitergeben`}
+                >
+                  <Ionicons name="share-outline" size={18} color={colors.inkSoft} />
+                </Pressable>
                 <Pressable
                   onPress={() => remove('contacts', contact.id)}
                   style={styles.deleteTap}
@@ -2424,6 +3233,7 @@ export function FamilyScreen({
 
         {kontaktBearbeitet === null ? (
           <ContactForm
+            onImport={ausTelefonbuch}
             onSave={(werte) =>
               add('contacts', {
                 text: werte.text,
@@ -2432,6 +3242,11 @@ export function FamilyScreen({
                 ...(werte.photo ? { photo: werte.photo } : {}),
                 ...(werte.birthday ? { birthday: werte.birthday } : {}),
                 ...(werte.roles.length > 0 ? { roles: werte.roles } : {}),
+                ...(werte.email ? { email: werte.email } : {}),
+                ...(werte.address ? { address: werte.address } : {}),
+                ...(werte.note ? { note: werte.note } : {}),
+                ...(Object.keys(werte.hours).length > 0 ? { hours: werte.hours } : {}),
+                ...(werte.favorite ? { favorite: true } : {}),
               })
             }
             styles={styles}
@@ -2712,6 +3527,22 @@ export function FamilyScreen({
     return ai !== bi ? ai - bi : modules.indexOf(a) - modules.indexOf(b);
   });
 
+  // Punkt 205: Wer keine Medikamente verwaltet und keine Packlisten
+  // führt, scrollt trotzdem jeden Tag daran vorbei.
+  const sichtbareModule = orderedModules.filter(
+    (module) => ordnen || !versteckteModule.includes(module.key)
+  );
+  const versteckt = orderedModules.length - sichtbareModule.length;
+  // Punkt 168: Wo hat sich etwas getan, seit ich zuletzt hingeschaut habe?
+  const neues = neuSeit(data, gesehen, currentUser?.name ?? '');
+  // Punkt 166: «Wo stand nochmal die Nummer vom Kaminfeger?»
+  const treffer = suche(data, suchtext);
+
+  const oeffneModul = (key: ModuleKey) => {
+    merkeGesehen(key);
+    setView(key);
+  };
+
   return (
     <View style={styles.stack}>
       <View style={styles.titleRow}>
@@ -2728,6 +3559,57 @@ export function FamilyScreen({
         ) : null}
       </View>
       {error ? <Text style={styles.error}>{error}</Text> : null}
+      {standZeile}
+
+      {/* Punkt 166: Eine Suche über alle Listen – siebzehn Module sind zu
+          viele, um sie der Reihe nach durchzugehen. */}
+      <View style={styles.suchRow}>
+        <Ionicons name="search-outline" size={16} color={colors.inkSoft} />
+        <TextInput
+          style={[styles.input, { flex: 1 }]}
+          value={suchtext}
+          onChangeText={setSuchtext}
+          placeholder="Über alle Listen suchen …"
+          placeholderTextColor={colors.inkFaint}
+        />
+        {suchtext ? (
+          <Pressable onPress={() => setSuchtext('')} accessibilityLabel="Suche leeren">
+            <Ionicons name="close" size={18} color={colors.inkFaint} />
+          </Pressable>
+        ) : null}
+      </View>
+      {suchtext.trim().length >= 2 ? (
+        treffer.length === 0 ? (
+          <Text style={styles.hint}>Nichts gefunden.</Text>
+        ) : (
+          treffer.map((gruppe) => (
+            <Card key={gruppe.collection} style={styles.listCard}>
+              <Text style={styles.groupTitle}>{gruppe.label}</Text>
+              {gruppe.treffer.map((eintrag, index) => (
+                <Pressable
+                  key={`${eintrag.item.id ?? index}`}
+                  onPress={() => {
+                    setSuchtext('');
+                    oeffneModul(gruppe.collection as ModuleKey);
+                  }}
+                  accessibilityRole="button"
+                  style={styles.checkRow}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.trefferTitel}>{trefferName(eintrag.item)}</Text>
+                    {eintrag.fundstelle ? (
+                      <Text style={styles.trefferSub} numberOfLines={1}>
+                        {eintrag.fundstelle}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={colors.inkFaint} />
+                </Pressable>
+              ))}
+            </Card>
+          ))
+        )
+      ) : null}
 
       {/* Tagesüberblick */}
       <Card style={styles.summaryCard}>
@@ -2746,6 +3628,20 @@ export function FamilyScreen({
           <Text style={styles.summaryLabel}>Pins</Text>
         </View>
       </Card>
+
+      {/* Punkt 196: «Wer ist da?» ist die meistgestellte Frage im
+          Haushalt – sie stand bisher als Gerätekachel zwischen Lampen und
+          Storen. Ohne Karte, ohne Meterangaben. */}
+      {anwesend.length > 0 ? (
+        <Card style={styles.listCard}>
+          <Text style={styles.groupTitle}>{anwesenheitKurz(anwesend)}</Text>
+          {anwesend.map((person, index) => (
+            <Text key={String(person.zone ?? index)} style={styles.checkSub}>
+              {anwesenheitsZeile(person, new Date())}
+            </Text>
+          ))}
+        </Card>
+      ) : null}
 
       {/* Mitglieder */}
       <View style={styles.memberRow}>
@@ -2778,18 +3674,149 @@ export function FamilyScreen({
         })}
       </View>
 
+      {/* Punkt 171: Am Kühlschrank hängt ein iPad, und es zeigt die
+          Geräte. Für den Alltag interessanter ist dort die Familie –
+          gross genug für zwei Meter Abstand und ohne Bedienelemente. */}
+      {settings.panel && !suchtext ? (
+        <Card style={styles.panelCard}>
+          <Text style={styles.panelTitel}>HEUTE</Text>
+          {events.filter((event) => isToday(event.start)).length === 0 ? (
+            <Text style={styles.panelKlein}>Keine Termine.</Text>
+          ) : (
+            events
+              .filter((event) => isToday(event.start))
+              .slice(0, 4)
+              .map((event, index) => (
+                <Text key={String(event.id ?? index)} style={styles.panelZeile}>
+                  {eventWhen(event)} · {event.summary}
+                </Text>
+              ))
+          )}
+          <Text style={styles.panelTitel}>ES GIBT</Text>
+          <Text style={styles.panelZeile}>
+            {String(
+              (data.meals ?? []).find(
+                (meal: FamilyItem) =>
+                  meal.day === WEEK_DAYS[(new Date().getDay() + 6) % 7]
+              )?.text ?? 'noch nichts geplant'
+            )}
+          </Text>
+          <Text style={styles.panelTitel}>ÄMTLI HEUTE</Text>
+          <Text style={styles.panelKlein}>
+            {chores
+              .filter((chore: FamilyItem) => dueInfo(chore.due)?.overdue)
+              .map((chore: FamilyItem) => `${chore.text} – ${chore.member ?? '?'}`)
+              .join('   ·   ') || 'nichts fällig'}
+          </Text>
+          <Text style={styles.panelTitel}>EINKAUFEN</Text>
+          <Text style={styles.panelKlein}>
+            {(data.shopping ?? [])
+              .filter((item: FamilyItem) => !item.done)
+              .slice(0, 8)
+              .map((item: FamilyItem) => String(item.text))
+              .join(', ') || 'nichts offen'}
+          </Text>
+        </Card>
+      ) : null}
+
       {/* Module */}
       <View style={styles.tileRow}>
-        {orderedModules.map((module) => (
-          <Card key={module.key} style={styles.moduleTile} onPress={() => setView(module.key)}>
-            <Ionicons name={module.icon} size={24} color={colors.accent} />
-            <Text style={styles.moduleLabel}>{module.label}</Text>
-            <Text style={styles.moduleSub} numberOfLines={1}>
-              {module.sub}
-            </Text>
-          </Card>
-        ))}
+        {sichtbareModule.map((module) => {
+          const aus = versteckteModule.includes(module.key);
+          return (
+            <Card
+              key={module.key}
+              style={{ ...styles.moduleTile, ...(aus ? { opacity: 0.4 } : {}) }}
+              onPress={() =>
+                ordnen ? toggleModul(module.key) : oeffneModul(module.key)
+              }
+            >
+              <Ionicons
+                name={ordnen ? (aus ? 'eye-off-outline' : 'eye-outline') : module.icon}
+                size={24}
+                color={colors.accent}
+              />
+              <Text style={styles.moduleLabel}>{module.label}</Text>
+              <Text style={styles.moduleSub} numberOfLines={1}>
+                {ordnen ? (aus ? 'ausgeblendet' : 'sichtbar') : module.sub}
+              </Text>
+              {/* Punkt 168: Ein Punkt sagt, wo etwas dazugekommen ist. */}
+              {!ordnen && neues[module.key] ? <View style={styles.neuPunkt} /> : null}
+            </Card>
+          );
+        })}
       </View>
+      {versteckt > 0 || ordnen ? (
+        <Pressable
+          onPress={() => setOrdnen(!ordnen)}
+          accessibilityRole="button"
+          style={styles.clearButton}
+        >
+          <Text style={styles.resetText}>
+            {ordnen
+              ? 'Fertig'
+              : `${versteckt} ausgeblendete anzeigen`}
+          </Text>
+        </Pressable>
+      ) : null}
+      {!ordnen && versteckt === 0 ? (
+        <Pressable
+          onPress={() => setOrdnen(true)}
+          accessibilityRole="button"
+          style={styles.clearButton}
+        >
+          <Text style={styles.resetText}>Kacheln ausblenden</Text>
+        </Pressable>
+      ) : null}
+
+      {/* Punkt 167: Ein Fehlgriff neben dem Häkchen löschte bis jetzt
+          endgültig – die Abläufe hatten seit je einen Papierkorb. */}
+      {korb.length > 0 ? (
+        <Pressable
+          onPress={() => setKorbOffen(!korbOffen)}
+          accessibilityRole="button"
+          style={styles.clearButton}
+        >
+          <Text style={styles.resetText}>
+            {korbOffen ? 'Papierkorb schliessen' : `Papierkorb (${korb.length})`}
+          </Text>
+        </Pressable>
+      ) : null}
+      {korbOffen ? (
+        <Card style={styles.listCard}>
+          <Text style={styles.groupTitle}>Zuletzt gelöscht</Text>
+          {korb.slice(0, 20).map((row, index) => (
+            <View key={`${row.kind}-${index}`} style={styles.checkRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.checkText}>{String(row.name ?? '?')}</Text>
+                <Text style={styles.checkSub}>
+                  {String(row.kind ?? '')} · von {String(row.by ?? '?')}
+                </Text>
+              </View>
+              <Pressable
+                onPress={async () => {
+                  await hub.post(
+                    `/api/family-trash/${row.kind}/${(row.item ?? {}).id}/restore`,
+                    {},
+                    { fallback: null, still: true }
+                  );
+                  ladeKorb();
+                  load();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Zurückholen"
+                style={styles.chip}
+              >
+                <Text style={styles.chipText}>Zurück</Text>
+              </Pressable>
+            </View>
+          ))}
+          <Text style={styles.hint}>
+            Gelöschtes bleibt dreissig Tage liegen und verschwindet dann von
+            selbst.
+          </Text>
+        </Card>
+      ) : null}
 
       <Modal
         visible={reorderOpen}

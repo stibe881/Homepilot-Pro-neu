@@ -11,7 +11,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Entity, HubSettings } from '../../api/types';
 import { Card } from '../../components/Card';
 import { Colors } from '../../theme';
-import { BERATUNGSNUMMERN, GABEN, NOTFALLNUMMERN, ROLLEN, rollenVon, toggleRolle, waehlbar } from '../../lib/familie';
+import { BERATUNGSNUMMERN, GABEN, NOTFALLNUMMERN, ROLLEN, WOCHENTAGE, rollenVon, toggleRolle, waehlbar } from '../../lib/familie';
 import { monatJahr, uhr } from '../../lib/format';
 import { tapped } from '../../lib/haptics';
 
@@ -188,6 +188,9 @@ export function CheckRow({
   onToggle,
   onDelete,
   onRemember,
+  onSubPress,
+  onCount,
+  gross,
   styles,
   colors,
 }: {
@@ -200,11 +203,17 @@ export function CheckRow({
   /** Langer Druck: als Standardartikel merken. Fehlt der Rückruf, passiert
    *  beim langen Drücken nichts - etwa weil es ihn schon gibt. */
   onRemember?: () => void;
+  /** Tippen auf die Unterzeile, z.B. «aus Lasagne» öffnet das Rezept. */
+  onSubPress?: () => void;
+  /** Menge am Posten verstellen (Punkt 207). Ohne Rückruf keine Knöpfe. */
+  onCount?: (delta: number) => void;
+  /** Einkaufs-Modus: grosse Zeilen, grosse Trefferfläche (Punkt 173). */
+  gross?: boolean;
   styles: Styles;
   colors: Colors;
 }) {
   return (
-    <View style={styles.checkRow}>
+    <View style={[styles.checkRow, gross && styles.checkRowBig]}>
       <Pressable
         onPress={() => {
           // Abhaken ist die häufigste Bewegung in diesem Bildschirm –
@@ -220,20 +229,53 @@ export function CheckRow({
       >
         <Ionicons
           name={item.done ? 'checkmark-circle' : 'ellipse-outline'}
-          size={24}
+          size={gross ? 30 : 24}
           color={item.done ? colors.on : colors.inkSoft}
         />
         <View style={{ flex: 1 }}>
-          <Text style={[styles.checkText, item.done && styles.checkTextDone]}>
+          <Text
+            style={[
+              styles.checkText,
+              gross && styles.checkTextBig,
+              item.done && styles.checkTextDone,
+            ]}
+          >
             {item.text}
           </Text>
           {sub ? (
-            <Text style={[styles.checkSub, highlight ? { color: highlight, fontWeight: '600' } : null]}>
+            <Text
+              onPress={onSubPress}
+              style={[styles.checkSub, highlight ? { color: highlight, fontWeight: '600' } : null]}
+            >
               {sub}
             </Text>
           ) : null}
         </View>
       </Pressable>
+      {onCount && !item.done ? (
+        <View style={styles.countRow}>
+          <Pressable
+            onPress={() => {
+              tapped();
+              onCount(-1);
+            }}
+            style={styles.countTap}
+            accessibilityLabel="Einen weniger"
+          >
+            <Ionicons name="remove" size={18} color={colors.inkSoft} />
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              tapped();
+              onCount(1);
+            }}
+            style={styles.countTap}
+            accessibilityLabel="Einen mehr"
+          >
+            <Ionicons name="add" size={18} color={colors.inkSoft} />
+          </Pressable>
+        </View>
+      ) : null}
       <Pressable onPress={onDelete} style={styles.deleteTap} accessibilityLabel="Löschen">
         <Ionicons name="close" size={18} color={colors.inkFaint} />
       </Pressable>
@@ -924,6 +966,8 @@ export function ShoppingAddRow({
   styles,
   colors,
 }: {
+  /** Mehrere Posten in einem Zug: Der Aufrufer bekommt die Rohzeile und
+   *  teilt sie selbst (Punkt 209) - hier steht nur die Eingabe. */
   onAdd: (text: string, category: string) => void;
   styles: Styles;
   colors: Colors;
@@ -942,7 +986,7 @@ export function ShoppingAddRow({
           style={[styles.input, { flex: 1 }]}
           value={text}
           onChangeText={setText}
-          placeholder="Was fehlt? …"
+          placeholder="Was fehlt? (mehrere mit Komma) …"
           placeholderTextColor={colors.inkFaint}
           onSubmitEditing={submit}
         />
@@ -1033,6 +1077,7 @@ export function ContactForm({
   vorhanden,
   onSave,
   onCancel,
+  onImport,
   styles,
   colors,
 }: {
@@ -1045,7 +1090,18 @@ export function ContactForm({
     photo: string | null;
     birthday: string;
     roles: string[];
+    // Punkt 178: Was im Alltag fehlte. Die Adresse führt zur Route, die
+    // Mail zum Antrag an die Gemeinde, die Notiz sagt «Praxis Mi zu».
+    email: string;
+    address: string;
+    note: string;
+    // Punkt 210: Öffnungszeiten je Wochentag, «08:00-12:00, 14:00-18:30».
+    hours: Record<string, string>;
+    favorite: boolean;
   }) => void;
+  /** Aus dem Telefonbuch übernehmen (Punkt 179). Fehlt der Rückruf, gibt
+   *  es den Knopf nicht - etwa im Browser. */
+  onImport?: () => Promise<{ name: string; phone: string } | null>;
   onCancel?: () => void;
   styles: Styles;
   colors: Colors;
@@ -1056,6 +1112,18 @@ export function ContactForm({
   const [birthday, setBirthday] = useState(String(vorhanden?.birthday ?? ''));
   const [photo, setPhoto] = useState<string | null>(vorhanden?.photo ?? null);
   const [roles, setRoles] = useState<string[]>(rollenVon(vorhanden ?? {}));
+  const [email, setEmail] = useState(String(vorhanden?.email ?? ''));
+  const [address, setAddress] = useState(String(vorhanden?.address ?? ''));
+  const [note, setNote] = useState(String(vorhanden?.note ?? ''));
+  const [favorite, setFavorite] = useState(!!vorhanden?.favorite);
+  const [hours, setHours] = useState<Record<string, string>>(
+    (vorhanden?.hours as Record<string, string>) ?? {}
+  );
+  // Die Zusatzfelder sind ausgeklappt, sobald etwas drinsteht: Wer sie
+  // gefüllt hat, sucht sie nicht hinter einem Knopf.
+  const [mehr, setMehr] = useState(
+    !!(vorhanden?.email || vorhanden?.address || vorhanden?.note || vorhanden?.hours)
+  );
   const aendern = !!vorhanden;
 
   return (
@@ -1107,6 +1175,23 @@ export function ContactForm({
         </View>
       </View>
 
+      {onImport ? (
+        <Pressable
+          onPress={async () => {
+            const gewaehlt = await onImport();
+            if (!gewaehlt) return;
+            setName(gewaehlt.name || name);
+            setPhone(gewaehlt.phone || phone);
+          }}
+          style={[styles.addWide, { backgroundColor: 'transparent' }]}
+          accessibilityRole="button"
+        >
+          <Text style={[styles.addWideText, { color: colors.inkSoft }]}>
+            Aus dem Telefonbuch übernehmen
+          </Text>
+        </Pressable>
+      ) : null}
+
       {/* Die Rolle entscheidet, wo der Kontakt auftaucht: Ein Babysitter
           braucht die Kinderärztin, nicht den Gartenbauer. */}
       <Text style={styles.formHintSmall}>Wofür ist dieser Kontakt da?</Text>
@@ -1134,6 +1219,72 @@ export function ContactForm({
         })}
       </View>
 
+      <Pressable
+        onPress={() => setMehr(!mehr)}
+        accessibilityRole="button"
+        style={{ paddingVertical: 4 }}
+      >
+        <Text style={styles.formHintSmall}>
+          {mehr ? 'Weniger' : 'Mail, Adresse, Notiz, Öffnungszeiten …'}
+        </Text>
+      </Pressable>
+      {mehr ? (
+        <View style={{ gap: 8 }}>
+          <TextInput
+            style={styles.input}
+            value={email}
+            onChangeText={setEmail}
+            placeholder="E-Mail"
+            placeholderTextColor={colors.inkFaint}
+            keyboardType="email-address"
+            autoCapitalize="none"
+          />
+          <TextInput
+            style={styles.input}
+            value={address}
+            onChangeText={setAddress}
+            placeholder="Adresse (für die Route)"
+            placeholderTextColor={colors.inkFaint}
+          />
+          <TextInput
+            style={styles.input}
+            value={note}
+            onChangeText={setNote}
+            placeholder="Notiz (z.B. klingelt es zweimal)"
+            placeholderTextColor={colors.inkFaint}
+          />
+          <Text style={styles.formHintSmall}>
+            Öffnungszeiten – leer lassen, wo geschlossen ist.
+          </Text>
+          {WOCHENTAGE.map((tag) => (
+            <View key={tag} style={styles.addRow}>
+              <Text style={[styles.checkSub, { width: 28 }]}>{tag}</Text>
+              <TextInput
+                style={[styles.input, { flex: 1 }]}
+                value={hours[tag] ?? ''}
+                onChangeText={(wert) => setHours({ ...hours, [tag]: wert })}
+                placeholder="08:00-12:00, 14:00-18:30"
+                placeholderTextColor={colors.inkFaint}
+              />
+            </View>
+          ))}
+        </View>
+      ) : null}
+
+      <Pressable
+        onPress={() => setFavorite(!favorite)}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: favorite }}
+        style={styles.addRow}
+      >
+        <Ionicons
+          name={favorite ? 'star' : 'star-outline'}
+          size={18}
+          color={favorite ? colors.warn : colors.inkSoft}
+        />
+        <Text style={styles.formHintSmall}>In die Schnellwahl</Text>
+      </Pressable>
+
       <View style={{ flexDirection: 'row', gap: 8 }}>
         {aendern && onCancel ? (
           <Pressable
@@ -1153,6 +1304,13 @@ export function ContactForm({
               photo,
               birthday: birthday.trim(),
               roles,
+              email: email.trim(),
+              address: address.trim(),
+              note: note.trim(),
+              hours: Object.fromEntries(
+                Object.entries(hours).filter(([, wert]) => String(wert).trim())
+              ),
+              favorite,
             });
             if (aendern) return;
             setName('');
@@ -1161,6 +1319,11 @@ export function ContactForm({
             setBirthday('');
             setPhoto(null);
             setRoles([]);
+            setEmail('');
+            setAddress('');
+            setNote('');
+            setHours({});
+            setFavorite(false);
           }}
           style={[styles.addWide, { flex: 1 }]}
         >

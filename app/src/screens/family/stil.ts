@@ -89,6 +89,54 @@ export const makeStyles = (colors: Colors) =>
     checkTextDone: { textDecorationLine: 'line-through', color: colors.inkFaint },
     checkSub: { color: colors.inkSoft, fontSize: 12 },
     deleteTap: { padding: 8 },
+    // Einkaufs-Modus: Im Laden hält man das Telefon in einer Hand und in
+    // der anderen den Wagen - die Trefferfläche muss ohne Hinsehen
+    // treffbar sein.
+    checkRowBig: { minHeight: 56 },
+    checkTextBig: { fontSize: 20, fontWeight: '600' },
+    countRow: { flexDirection: 'row', alignItems: 'center' },
+    countTap: { paddingHorizontal: 6, paddingVertical: 8 },
+    // Kopfzeile über der Liste: «Stand von 14:12, keine Verbindung».
+    standRow: {
+      backgroundColor: colors.surfaceSoft,
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    standText: { color: colors.inkSoft, fontSize: 12, flex: 1 },
+    // Suche über alle Listen.
+    suchRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    trefferTitel: { color: colors.ink, fontSize: 14, fontWeight: '600' },
+    trefferSub: { color: colors.inkSoft, fontSize: 12 },
+    // Der Punkt auf der Kachel, wenn dort etwas Neues liegt.
+    neuPunkt: {
+      position: 'absolute',
+      top: 8,
+      right: 8,
+      width: 9,
+      height: 9,
+      borderRadius: 5,
+      backgroundColor: colors.on,
+    },
+    // Schnellwahl: grosse runde Knöpfe über der Kontaktliste.
+    schnellRow: { flexDirection: 'row', gap: 14, flexWrap: 'wrap' },
+    schnellKnopf: { alignItems: 'center', width: 68, gap: 4 },
+    schnellName: { color: colors.inkSoft, fontSize: 11, textAlign: 'center' },
+    // Die Hausadresse auf dem Babysitter- und Notfallblatt.
+    adresseCard: { gap: 2 },
+    adresseLabel: { color: colors.inkSoft, fontSize: 11, letterSpacing: 1 },
+    adresseText: { color: colors.ink, fontSize: 22, fontWeight: '700' },
+    adresseNote: { color: colors.inkSoft, fontSize: 13 },
+    // Foto an der Pinnwand: breit, damit ein Stundenplan lesbar bleibt.
+    pinPhoto: { width: '100%', height: 180, borderRadius: 10 },
+    // Wandpanel: aus zwei Metern lesbar, ohne Bedienelemente.
+    panelCard: { gap: 10 },
+    panelTitel: { color: colors.inkSoft, fontSize: 13, letterSpacing: 1.5 },
+    panelZeile: { color: colors.ink, fontSize: 26, fontWeight: '600' },
+    panelKlein: { color: colors.inkSoft, fontSize: 17 },
 
     addRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-end' },
     input: {

@@ -332,13 +332,95 @@ export const ABEND_FELDER = [
 export const BABYSITTER_USER = 'Babysitter';
 
 /**
+ * Der Kontoname für eine bestimmte Person (rein, testbar).
+ *
+ * Es gab genau einen Benutzer «Babysitter», den sich alle teilten
+ * (Punkt 187). Solange es eine Person ist, geht das; bei Nachbarin,
+ * Göttikind und Grosseltern steht im Zugriffsprotokoll dieselbe Zeile
+ * für drei Menschen. Mit dem Namen im Konto sieht man auch, wer wann da
+ * war.
+ */
+export function babysitterKonto(name?: string): string {
+  const sauber = String(name ?? '').trim().replace(/\s+/g, ' ');
+  return sauber ? `${BABYSITTER_USER} ${sauber}` : BABYSITTER_USER;
+}
+
+/** Gehört dieser Benutzer zu einem Babysitter-Zugang? (rein, testbar) */
+export function istBabysitterKonto(user: Eintrag): boolean {
+  const name = String(user?.name ?? '');
+  return name === BABYSITTER_USER || name.startsWith(`${BABYSITTER_USER} `);
+}
+
+/** Der blosse Vorname aus einem Kontonamen (rein, testbar). */
+export function babysitterVorname(user: Eintrag): string {
+  const name = String(user?.name ?? '');
+  return name.startsWith(`${BABYSITTER_USER} `)
+    ? name.slice(BABYSITTER_USER.length + 1)
+    : '';
+}
+
+/**
+ * Was auf dem Blatt fehlt (rein, testbar).
+ *
+ * «Vorschau: so sieht es der Babysitter» macht die Lücken vorher
+ * sichtbar (Punkt 184) – der Zugang gibt Licht und Familie frei, ob das
+ * Blatt am Abend wirklich vollständig ist, merkte man sonst erst, wenn
+ * angerufen wird.
+ */
+export function abendLuecken(
+  abend: Eintrag,
+  kontakte: Eintrag[],
+  adresse?: string
+): string[] {
+  const luecken: string[] = [];
+  if (!String(adresse ?? '').trim()) {
+    luecken.push('Die Hausadresse fehlt – wer 144 wählt, muss sagen, wo er ist.');
+  }
+  const mitNummer = (kontakte ?? []).filter((k) => nummernVon(k).length > 0);
+  if (mitNummer.length === 0) luecken.push('Keine einzige Nummer hinterlegt.');
+  const eltern = (kontakte ?? []).filter((k) => rollenVon(k).includes('notfall'));
+  if (eltern.length === 0) luecken.push('Niemand ist als Notfallkontakt markiert.');
+  for (const feld of ABEND_FELDER) {
+    if (!String(abend?.[feld.key] ?? '').trim()) {
+      luecken.push(`«${feld.label}» ist leer.`);
+    }
+  }
+  return luecken;
+}
+
+/**
+ * Vorgefertigte Zeilen fürs Abendprotokoll (Punkt 186).
+ *
+ * «Wann ist sie eingeschlafen? Hat er gegessen?» wird am Türrahmen
+ * gefragt und halb vergessen. Drei Tipper statt eines Aufsatzes.
+ */
+export const PROTOKOLL_ZEILEN = [
+  'Znacht gegessen ✓',
+  'eingeschlafen um',
+  'einmal aufgewacht',
+  'alles ruhig',
+  'Zähne geputzt ✓',
+] as const;
+
+/** Eine Zeile ans Protokoll hängen, mit Uhrzeit (rein, testbar). */
+export function protokollZeile(bisher: string, zeile: string, jetzt: Date): string {
+  const uhr = `${String(jetzt.getHours()).padStart(2, '0')}:${String(
+    jetzt.getMinutes()
+  ).padStart(2, '0')}`;
+  const neu = zeile.endsWith('um') ? `${zeile} ${uhr}` : `${uhr} ${zeile}`;
+  return [String(bisher ?? '').trim(), neu].filter(Boolean).join('\n');
+}
+
+/**
  * Die Bereiche, die ein Babysitter braucht – und nur die.
  *
  * Licht, damit er das Kinderzimmer dunkel machen kann. Familie, damit er
- * diese Seite sieht. Keine Türen, kein Alarm, keine Kameras: Was man
- * nicht freigibt, muss man später nicht bereuen.
+ * diese Seite sieht. Klingel, damit er beim Läuten sieht, wer da ist –
+ * sehen ist Sicherheit, öffnen bleibt Sache der Familie (Punkt 215).
+ * Keine Türen, kein Alarm, keine anderen Kameras: Was man nicht
+ * freigibt, muss man später nicht bereuen.
  */
-export const BABYSITTER_FEATURES = ['licht', 'familie'];
+export const BABYSITTER_FEATURES = ['licht', 'familie', 'klingel'];
 
 /**
  * Bis wann der Zugang gilt (rein, testbar).

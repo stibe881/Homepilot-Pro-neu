@@ -98,6 +98,10 @@ GUEST_FEATURES: dict[str, str] = {
     "haushalt": "Haushalt",
     "raeume": "Räume",
     "kameras": "Kameras",
+    # Nur die Türklingel, nicht die Kameras: Es klingelt, und die fremde
+    # Person im Haus soll sehen, wer da ist - öffnen bleibt Sache der
+    # Familie (Punkt 215).
+    "klingel": "Türklingel (nur sehen)",
 }
 
 # Bereich → Gerätearten. Türen brauchen zusätzlich die Integrations-Prüfung
@@ -241,6 +245,12 @@ class User:
         if self.features:
             for feature in self.features:
                 if kind in _FEATURE_KINDS.get(feature, frozenset()):
+                    return True
+            # Die Türklingel ist eine Kamera - aber nur diese eine. Ohne
+            # die Einschränkung wäre «Klingel» eine Freigabe für alle
+            # Kameras im Haus, und das ist etwas ganz anderes.
+            if kind == "camera" and "klingel" in self.features:
+                if integration == "ring" or entity_id.startswith("ring."):
                     return True
             if kind == "lock":
                 is_ring = integration == "ring" or entity_id.startswith("ring.")

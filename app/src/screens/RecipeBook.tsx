@@ -31,6 +31,14 @@ import {
 import { zeitenImText } from '../lib/kochzeit';
 import { scaledAmount } from '../lib/mengen';
 import { rezeptAlsText } from '../lib/rezepttext';
+import {
+  GRUNDVORRAT,
+  ausVorrat,
+  fehltText,
+  kategorieUmbenennen,
+  kategorien,
+  rezeptAlsSeite,
+} from '../lib/rezeptseite';
 import { zutatenImSchritt } from '../lib/schrittzutaten';
 import { kochVorschlaege, vorschlagsGrund } from '../lib/vorschlag';
 import { Colors, radius, useColors } from '../theme';
@@ -363,6 +371,10 @@ function RecipeForm({
   const [source, setSource] = useState(String(initial?.source ?? ''));
   const [notes, setNotes] = useState(String(initial?.notes ?? ''));
   const [image, setImage] = useState<string>(String(initial?.image_url ?? ''));
+  // Punkt 188: Der Link-Import deckt das Netz ab – nicht aber die
+  // handgeschriebene Karte im Holzkasten. Das «Original» steht neben dem
+  // Titelbild und bewahrt die Handschrift; abgetippt wird in Ruhe daneben.
+  const [original, setOriginal] = useState<string>(String(initial?.original_url ?? ''));
 
   // Rezept aus einem Link übernehmen (Punkt 136): Der Hub liest das
   // schema.org-Rezept aus dem Seitenkopf, das Formular füllt sich -
@@ -399,6 +411,7 @@ function RecipeForm({
       setPrep(recipe.prep_time ? String(recipe.prep_time) : '');
       setCook(recipe.cook_time ? String(recipe.cook_time) : '');
       setImage(String(recipe.image_url ?? ''));
+      setOriginal(String(recipe.original_url ?? ''));
       setIngredients(
         Array.isArray(recipe.ingredients) ? recipe.ingredients.join('\n') : ''
       );
@@ -437,33 +450,48 @@ function RecipeForm({
     return asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : asset.uri;
   };
 
-  // Galerie fürs Nachtragen, Kamera für den Moment, in dem das Gericht
-  // auf dem Tisch steht.
-  const pickImage = async (quelle: 'galerie' | 'kamera' = 'galerie') => {
+  /**
+   * Ein Bild holen und verkleinert zurückgeben.
+   *
+   * Ohne festes Seitenverhältnis: Eine handgeschriebene Rezeptkarte ist
+   * hochkant, ein Gericht auf dem Tisch quer (Punkt 188).
+   */
+  const hole = async (
+    quelle: 'galerie' | 'kamera' = 'galerie',
+    zuschnitt?: [number, number]
+  ): Promise<string | null> => {
     const optionen = {
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.6,
       base64: true,
       allowsEditing: true,
-      aspect: [16, 10] as [number, number],
+      ...(zuschnitt ? { aspect: zuschnitt } : {}),
     };
     const permission =
       quelle === 'kamera'
         ? await ImagePicker.requestCameraPermissionsAsync()
         : await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) return;
+    if (!permission.granted) return null;
     const result =
       quelle === 'kamera'
         ? await ImagePicker.launchCameraAsync(optionen).catch(() => null)
         : await ImagePicker.launchImageLibraryAsync(optionen);
-    if (!result || result.canceled || !result.assets?.length) return;
-    setImage(await verkleinert(result.assets[0]));
+    if (!result || result.canceled || !result.assets?.length) return null;
+    return verkleinert(result.assets[0]);
+  };
+
+  // Galerie fürs Nachtragen, Kamera für den Moment, in dem das Gericht
+  // auf dem Tisch steht.
+  const pickImage = async (quelle: 'galerie' | 'kamera' = 'galerie') => {
+    const foto = await hole(quelle, [16, 10]);
+    if (foto) setImage(foto);
   };
 
   const submit = () => {
     if (!title.trim()) return;
     const recipe: Rezept = { text: title.trim() };
     recipe.image_url = image || null;
+    recipe.original_url = original || null;
     recipe.description = description.trim();
     recipe.category = category.trim();
     recipe.tags = tags
@@ -577,6 +605,39 @@ function RecipeForm({
           </Pressable>
         ) : null}
       </View>
+
+      {/* Punkt 188: Grossmutters Karte abfotografieren – nicht als
+          Titelbild, sondern als «Original». */}
+      <View style={styles.formRow}>
+        <Pressable
+          onPress={async () => {
+            const foto = await hole('kamera');
+            if (foto) setOriginal(foto);
+          }}
+          accessibilityRole="button"
+          style={styles.photoAction}
+        >
+          <Ionicons name="document-text-outline" size={16} color={colors.accent} />
+          <Text style={styles.photoActionText}>
+            {original ? 'Original ersetzen' : 'Original abfotografieren'}
+          </Text>
+        </Pressable>
+        {original ? (
+          <Pressable
+            onPress={() => setOriginal('')}
+            accessibilityRole="button"
+            style={styles.photoAction}
+          >
+            <Ionicons name="trash-outline" size={16} color={colors.inkSoft} />
+            <Text style={[styles.photoActionText, { color: colors.inkSoft }]}>
+              Original entfernen
+            </Text>
+          </Pressable>
+        ) : null}
+      </View>
+      {original ? (
+        <Image source={{ uri: original }} style={styles.photoPreview} resizeMode="contain" />
+      ) : null}
 
       <TextInput
         style={styles.input}
@@ -991,34 +1052,48 @@ function CookMode({
                 ) : null}
               </View>
             );
+            // Punkt 189: Mit Teig an den Händen trifft man keinen Knopf
+            // am unteren Rand. Die rechte Bildschirmhälfte ist «weiter»,
+            // die linke «zurück»; die Knöpfe unten bleiben als sichtbarer
+            // Hinweis stehen.
+            const weiter = () => {
+              if (step + 1 < steps.length) {
+                setStep(step + 1);
+                setZutatenOffen(false);
+                setUhren([]);
+                setVorgelesen(false);
+                setBoxWahlOffen(false);
+                return;
+              }
+              onFertig?.();
+              onClose();
+            };
+            const zurueck = () => {
+              setStep((value) => value - 1);
+              setUhren([]);
+              setVorgelesen(false);
+              setBoxWahlOffen(false);
+            };
+            const halbseiten = (
+              <Pressable
+                onPress={(event) => {
+                  const breite = fenster.width || 1;
+                  if (event.nativeEvent.pageX > breite / 2) weiter();
+                  else zurueck();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Rechts weiter, links zurück"
+                style={{ flex: 1 }}
+              >
+                {koerper}
+              </Pressable>
+            );
             const knoepfe = (
               <View style={styles.cookButtons}>
-                <Pressable
-                  onPress={() => {
-                    setStep((value) => value - 1);
-                    setUhren([]);
-                    setVorgelesen(false);
-                    setBoxWahlOffen(false);
-                  }}
-                  style={[styles.ghostWide, { flex: 1 }]}
-                >
+                <Pressable onPress={zurueck} style={[styles.ghostWide, { flex: 1 }]}>
                   <Text style={styles.ghostWideText}>← Zurück</Text>
                 </Pressable>
-                <Pressable
-                  onPress={() => {
-                    if (step + 1 < steps.length) {
-                      setStep(step + 1);
-                      setZutatenOffen(false);
-                      setUhren([]);
-                      setVorgelesen(false);
-                      setBoxWahlOffen(false);
-                      return;
-                    }
-                    onFertig?.();
-                    onClose();
-                  }}
-                  style={[styles.primaryWide, { flex: 1.4 }]}
-                >
+                <Pressable onPress={weiter} style={[styles.primaryWide, { flex: 1.4 }]}>
                   <Text style={styles.primaryWideText}>
                     {step + 1 < steps.length ? 'Weiter →' : 'Fertig ✓'}
                   </Text>
@@ -1090,13 +1165,13 @@ function CookMode({
                       </View>
                     </ScrollView>
                     <View style={{ flex: 1 }}>
-                      {koerper}
+                      {halbseiten}
                       {knoepfe}
                     </View>
                   </View>
                 ) : (
                   <>
-                    {koerper}
+                    {halbseiten}
                     {ingredients.length > 0 ? (
                       <View>
                         <Pressable
@@ -1148,6 +1223,7 @@ function RecipeDetail({
   onDelete,
   onToggleFavorite,
   onCooked,
+  onNote,
   planMeal,
   onShopping,
   styles,
@@ -1164,6 +1240,8 @@ function RecipeDetail({
   settings?: HubSettings;
   /** Der Kochmodus wurde bis zum Ende durchlaufen. */
   onCooked?: () => void;
+  /** Eine datierte Zeile ins Kochtagebuch (Punkt 190). */
+  onNote?: (text: string) => void;
   planMeal: (day: string, text: string, recipeId: string, servings: number) => void;
   onShopping: (recipe: Rezept, faktor: number) => number;
   styles: Styles;
@@ -1171,6 +1249,24 @@ function RecipeDetail({
 }) {
   const baseServings = Number(recipe.servings) || 0;
   const [servings, setServings] = useState(baseServings || 4);
+  // Punkt 217: Das Rezept steht auf 4, gekocht wird immer für 6 – und
+  // bei jedem Öffnen stellt man wieder um. Je Rezept im Gerät gemerkt:
+  // Wer für sich anders kocht als der Rest, soll das dürfen.
+  useEffect(() => {
+    AsyncStorage.getItem(`homepilot.portionen.${recipe.id}`)
+      .then((wert) => {
+        const zahl = Number(wert);
+        if (Number.isFinite(zahl) && zahl > 0) setServings(zahl);
+      })
+      .catch(() => {});
+  }, [recipe.id]);
+  const merkePortionen = (zahl: number) => {
+    setServings(zahl);
+    AsyncStorage.setItem(`homepilot.portionen.${recipe.id}`, String(zahl)).catch(() => {});
+  };
+  // Punkt 190: Aus einem gekochten Rezept wird über Jahre ein besseres.
+  const [notizFrage, setNotizFrage] = useState(false);
+  const [notizText, setNotizText] = useState('');
   const [planOpen, setPlanOpen] = useState(false);
   const [planned, setPlanned] = useState<string | null>(null);
   const [cooking, setCooking] = useState(false);
@@ -1247,6 +1343,26 @@ function RecipeDetail({
                 accessibilityLabel="Rezept als Text teilen"
               >
                 <Ionicons name="share-outline" size={19} color="#FFFFFF" />
+              </Pressable>
+              {/* Punkt 191: Manchmal will man das Blatt neben den Herd
+                  legen, statt das iPad in die Küche zu tragen. */}
+              <Pressable
+                onPress={async () => {
+                  try {
+                    const Print = await import('expo-print');
+                    await Print.printAsync({
+                      html: rezeptAlsSeite(recipe, factor, servings),
+                    });
+                  } catch {
+                    // Kein Drucker, kein Modul (Web) – dann eben nicht.
+                  }
+                }}
+                style={styles.roundButton}
+                hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel="Rezept drucken"
+              >
+                <Ionicons name="print-outline" size={19} color="#FFFFFF" />
               </Pressable>
               <Pressable
                 onPress={onDuplicate}
@@ -1331,7 +1447,7 @@ function RecipeDetail({
             <Text style={styles.servingsLabel}>Portionen anpassen</Text>
             <View style={styles.servingsControls}>
               <Pressable
-                onPress={() => setServings((value) => Math.max(1, value - 1))}
+                onPress={() => merkePortionen(Math.max(1, servings - 1))}
                 style={styles.stepperButton}
                 hitSlop={6}
                 accessibilityRole="button"
@@ -1341,7 +1457,7 @@ function RecipeDetail({
               </Pressable>
               <Text style={styles.servingsValue}>{servings}</Text>
               <Pressable
-                onPress={() => setServings((value) => Math.min(99, value + 1))}
+                onPress={() => merkePortionen(Math.min(99, servings + 1))}
                 style={styles.stepperButton}
                 hitSlop={6}
                 accessibilityRole="button"
@@ -1394,6 +1510,19 @@ function RecipeDetail({
                 </View>
               ))}
             </View>
+          </>
+        ) : null}
+
+        {/* Punkt 188: Die Handschrift bleibt – zum Kochen ist es dann
+            egal, welcher Teil zuerst da war. */}
+        {recipe.original_url ? (
+          <>
+            <Text style={styles.sectionTitle}>Original</Text>
+            <Image
+              source={{ uri: String(recipe.original_url) }}
+              style={styles.originalBild}
+              resizeMode="contain"
+            />
           </>
         ) : null}
 
@@ -1506,13 +1635,89 @@ function RecipeDetail({
           factor={factor}
           settings={settings}
           onClose={() => setCooking(false)}
-          onFertig={onCooked}
+          onFertig={() => {
+            onCooked?.();
+            // Punkt 190: Aus einem gekochten Rezept wird über Jahre ein
+            // besseres - «zu salzig», «180° statt 200°». Das Notizfeld
+            // war eines für alle und wurde überschrieben.
+            if (onNote) setNotizFrage(true);
+          }}
           styles={styles}
           colors={colors}
         />
       ) : null}
+
+      <Modal
+        visible={notizFrage}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setNotizFrage(false)}
+      >
+        <View style={styles.notizHintergrund}>
+          <View style={styles.notizKarte}>
+            <Text style={styles.sectionTitle}>Wie war es?</Text>
+            <Text style={styles.description}>
+              Eine Zeile fürs nächste Mal – sie bleibt mit Datum stehen.
+            </Text>
+            <TextInput
+              style={styles.notizFeld}
+              value={notizText}
+              onChangeText={setNotizText}
+              placeholder="z.B. zu salzig, 180° statt 200°"
+              placeholderTextColor={colors.inkFaint}
+              multiline
+            />
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <Pressable
+                onPress={() => {
+                  setNotizFrage(false);
+                  setNotizText('');
+                }}
+                style={[styles.ghostWide, { flex: 1 }]}
+              >
+                <Text style={styles.ghostWideText}>Nichts notieren</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  const text = notizText.trim();
+                  if (text) onNote?.(text);
+                  setNotizFrage(false);
+                  setNotizText('');
+                }}
+                style={[styles.primaryWide, { flex: 1 }]}
+              >
+                <Text style={styles.primaryWideText}>Merken</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
+}
+
+/**
+ * Die Zutaten, die am häufigsten vorkommen – als Auswahl für die
+ * Vorratssuche (Punkt 192).
+ *
+ * Nicht alle: Eine Liste mit zweihundert Chips beantwortet keine Frage.
+ * Und ohne Grundvorrat: «Salz» anzutippen bringt niemanden weiter.
+ */
+function haeufigeZutaten(recipes: Rezept[], limit = 18): string[] {
+  const zaehler = new Map<string, number>();
+  for (const recipe of recipes) {
+    const zutaten: Zutat[] = Array.isArray(recipe?.ingredients) ? recipe.ingredients : [];
+    for (const zutat of zutaten) {
+      const name = String(zutat?.name ?? '').trim();
+      if (name.length < 3) continue;
+      if (GRUNDVORRAT.some((basis) => name.toLowerCase().includes(basis))) continue;
+      zaehler.set(name, (zaehler.get(name) ?? 0) + 1);
+    }
+  }
+  return [...zaehler.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit)
+    .map(([name]) => name);
 }
 
 // ── Hauptkomponente ─────────────────────────────────────────────────────────
@@ -1555,6 +1760,15 @@ export function RecipeBook({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [wurf, recipes.length]
   );
+
+  // Punkt 192: Der Vorschlag aus 139 fragt nach dem Kalender, nicht nach
+  // dem Kühlschrank. Hier die Umkehrung.
+  const [vorrat, setVorrat] = useState<string[]>([]);
+  const [vorratOffen, setVorratOffen] = useState(false);
+  // Punkt 216: Der Import brachte «dinner» mit, von Hand entstand
+  // Deutsches – die Filterleiste zeigt beide Welten.
+  const [umbenennen, setUmbenennen] = useState<string | null>(null);
+  const [neuerName, setNeuerName] = useState('');
 
   const categories = useMemo(
     () =>
@@ -1647,6 +1861,16 @@ export function RecipeBook({
             cooked_count: (Number(recipe.cooked_count) || 0) + 1,
           })
         }
+        onNote={(text) => {
+          // Datiert und untereinander – wie ein Kochtagebuch. Das alte
+          // Notizfeld bleibt, was es war: eine Liste von Zeilen.
+          const bisher = listOfTexts(recipe.notes);
+          const heuteKurz = new Date().toLocaleDateString('de-CH', {
+            day: '2-digit',
+            month: '2-digit',
+          });
+          onUpdate(recipe.id, { notes: [...bisher, `${heuteKurz}: ${text}`] });
+        }}
         onBack={() => setScreen({ kind: 'list' })}
         onEdit={() => setScreen({ kind: 'form', id: recipe.id })}
         onDuplicate={() => {
@@ -1708,6 +1932,19 @@ export function RecipeBook({
           </Text>
         </View>
         <Pressable
+          onPress={() => setVorratOffen((offen) => !offen)}
+          style={styles.roundButtonDim}
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel="Was koche ich aus dem, was da ist?"
+        >
+          <Ionicons
+            name="basket-outline"
+            size={20}
+            color={vorratOffen ? colors.accent : colors.ink}
+          />
+        </Pressable>
+        <Pressable
           onPress={() => setWurf((zahl) => (zahl > 0 ? 0 : zahl + 1))}
           style={styles.roundButtonDim}
           hitSlop={6}
@@ -1726,6 +1963,72 @@ export function RecipeBook({
           <Ionicons name="close" size={20} color={colors.ink} />
         </Pressable>
       </View>
+
+      {/* Punkt 192: Zwei, drei Zutaten antippen und sehen, was daraus
+          wird – samt der ehrlichen Angabe, was noch fehlt. */}
+      {vorratOffen ? (
+        <View style={styles.vorratKarte}>
+          <Text style={styles.vorschlagTitel}>Was ist da?</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View style={styles.filterRow}>
+              {haeufigeZutaten(recipes).map((name) => {
+                const aktiv = vorrat.includes(name);
+                return (
+                  <Pressable
+                    key={name}
+                    onPress={() =>
+                      setVorrat((bisher) =>
+                        aktiv ? bisher.filter((x) => x !== name) : [...bisher, name]
+                      )
+                    }
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: aktiv }}
+                    style={[styles.filterChip, aktiv && { backgroundColor: colors.accent }]}
+                  >
+                    <Text
+                      style={[styles.filterText, aktiv && { color: '#FFFFFF' }]}
+                    >
+                      {name}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </ScrollView>
+          {vorrat.length === 0 ? (
+            <Text style={styles.vorschlagGrund}>
+              Zutaten antippen – dann steht hier, was damit geht.
+            </Text>
+          ) : (
+            ausVorrat(recipes, vorrat)
+              .slice(0, 6)
+              .map(({ recipe, fehlt }) => (
+                <Pressable
+                  key={String(recipe.id)}
+                  onPress={() => setScreen({ kind: 'detail', id: String(recipe.id) })}
+                  accessibilityRole="button"
+                  style={styles.vorratZeile}
+                >
+                  <Text style={styles.vorschlagEmoji}>
+                    {categoryEmoji(String(recipe.category ?? ''))}
+                  </Text>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.vorschlagName} numberOfLines={1}>
+                      {String(recipe.text ?? '')}
+                    </Text>
+                    <Text style={styles.vorratFehlt}>{fehltText(fehlt)}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={colors.inkFaint} />
+                </Pressable>
+              ))
+          )}
+          {vorrat.length > 0 && ausVorrat(recipes, vorrat).length === 0 ? (
+            <Text style={styles.vorschlagGrund}>
+              Damit allein geht noch nichts – eine Zutat weniger auswählen?
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
 
       {wurf > 0 && vorschlaege.length > 0 ? (
         <View style={styles.vorschlagKarte}>
@@ -1762,6 +2065,50 @@ export function RecipeBook({
         </View>
       ) : null}
 
+      {/* Punkt 216: Der Import brachte «dinner» mit, von Hand entstand
+          Deutsches – die Chips aus Punkt 137 verhindern Neues, heilen
+          aber den Bestand nicht. */}
+      {umbenennen ? (
+        <View style={styles.vorratKarte}>
+          <Text style={styles.vorschlagTitel}>
+            «{umbenennen}» umbenennen ({
+              kategorien(recipes).find((k) => k.name === umbenennen)?.anzahl ?? 0
+            } Rezepte)
+          </Text>
+          <TextInput
+            style={styles.searchInput}
+            value={neuerName}
+            onChangeText={setNeuerName}
+            placeholder="Neuer Name, z.B. Znacht"
+            placeholderTextColor={colors.inkFaint}
+          />
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Pressable
+              onPress={() => {
+                setUmbenennen(null);
+                setNeuerName('');
+              }}
+              style={[styles.ghostWide, { flex: 1 }]}
+            >
+              <Text style={styles.ghostWideText}>Abbrechen</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                for (const geaendert of kategorieUmbenennen(recipes, umbenennen, neuerName)) {
+                  onUpdate(String(geaendert.id), { category: geaendert.category });
+                }
+                if (filter === `kat:${umbenennen}`) setFilter('alle');
+                setUmbenennen(null);
+                setNeuerName('');
+              }}
+              style={[styles.primaryWide, { flex: 1 }]}
+            >
+              <Text style={styles.primaryWideText}>Alle umschreiben</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+
       <View style={styles.searchBox}>
         <Ionicons name="search" size={16} color={colors.inkFaint} />
         <TextInput
@@ -1785,6 +2132,16 @@ export function RecipeBook({
             <Pressable
               key={entry.key}
               onPress={() => setFilter(active ? 'alle' : entry.key)}
+              // Langer Druck auf eine Kategorie räumt sie auf (Punkt 216).
+              onLongPress={
+                entry.key.startsWith('kat:')
+                  ? () => {
+                      const name = entry.key.slice(4);
+                      setUmbenennen(name);
+                      setNeuerName(name);
+                    }
+                  : undefined
+              }
               style={[styles.filterChip, active && { backgroundColor: colors.accent }]}
             >
               {entry.icon ? (
@@ -2249,6 +2606,43 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     ghostWideText: { color: colors.ink, fontSize: 15, fontWeight: '700' },
+    // Die Frage nach dem Kochen (Punkt 190) und die Vorratssuche (192).
+    notizHintergrund: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      justifyContent: 'center',
+      padding: 24,
+    },
+    notizKarte: {
+      backgroundColor: colors.panel,
+      borderRadius: radius.card,
+      padding: 20,
+      gap: 12,
+    },
+    notizFeld: {
+      backgroundColor: colors.surfaceSoft,
+      borderRadius: radius.control,
+      color: colors.ink,
+      fontSize: 15,
+      minHeight: 76,
+      padding: 12,
+      textAlignVertical: 'top',
+    },
+    vorratKarte: { gap: 8, paddingHorizontal: 16, paddingBottom: 8 },
+    vorratZeile: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingVertical: 6,
+    },
+    vorratFehlt: { color: colors.inkSoft, fontSize: 12 },
+    // Grossmutters Karte: hoch statt breit, und ganz sichtbar.
+    originalBild: {
+      width: '100%',
+      height: 360,
+      borderRadius: radius.card,
+      backgroundColor: colors.surfaceSoft,
+    },
     uhrReihe: {
       flexDirection: 'row',
       flexWrap: 'wrap',

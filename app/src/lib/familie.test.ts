@@ -8,8 +8,14 @@
  * speicherten, und zeigte deshalb eine Namensliste ohne Nummern.
  */
 import {
+  ABEND_FELDER,
   BABYSITTER_FEATURES,
+  abendLuecken,
+  babysitterKonto,
+  babysitterVorname,
   babysitterZugang,
+  istBabysitterKonto,
+  protokollZeile,
   fuerBabysitter,
   gabenVon,
   genommenMap,
@@ -202,9 +208,10 @@ describe('Wochenplan', () => {
 
 describe('Babysitter-Zugang', () => {
   it('gibt nur frei, was ein Babysitter braucht', () => {
-    // Keine Türen, kein Alarm, keine Kameras: Was man nicht freigibt,
-    // muss man später nicht bereuen.
-    expect(BABYSITTER_FEATURES).toEqual(['licht', 'familie']);
+    // Keine Türen, kein Alarm, keine anderen Kameras: Was man nicht
+    // freigibt, muss man später nicht bereuen. Die Klingel ist die
+    // Ausnahme - sehen, wer da ist, ohne öffnen zu können.
+    expect(BABYSITTER_FEATURES).toEqual(['licht', 'familie', 'klingel']);
   });
 
   it('lässt den Zugang am selben Abend enden', () => {
@@ -282,5 +289,35 @@ describe('Kontakte: geöffnet, gepflegt, Schnellwahl', () => {
     expect(zeilen[2]).toBe('Wir sind hier: Musterweg 3, 6144 Zell');
     // Ohne Adresse bleibt das Blatt, wie es war.
     expect(notfallText([{ text: 'Lina' }])).not.toContain('Wir sind hier');
+  });
+});
+
+describe('Babysitter: mehrere Zugänge und das Blatt', () => {
+  test('jede Person bekommt ihr eigenes Konto', () => {
+    expect(babysitterKonto('Nina')).toBe('Babysitter Nina');
+    expect(babysitterKonto('')).toBe('Babysitter');
+    expect(istBabysitterKonto({ name: 'Babysitter Nina' })).toBe(true);
+    expect(istBabysitterKonto({ name: 'Livia' })).toBe(false);
+    expect(babysitterVorname({ name: 'Babysitter Nina' })).toBe('Nina');
+  });
+
+  test('die Vorschau nennt die Lücken – die Adresse zuerst', () => {
+    const luecken = abendLuecken({}, []);
+    expect(luecken[0]).toContain('Hausadresse');
+    expect(luecken).toContain('Keine einzige Nummer hinterlegt.');
+  });
+
+  test('ein vollständiges Blatt hat keine Lücken', () => {
+    const abend = Object.fromEntries(ABEND_FELDER.map((f) => [f.key, 'x']));
+    const kontakte = [{ text: 'Mama', phone: '079 1', roles: ['notfall'] }];
+    expect(abendLuecken(abend, kontakte, 'Musterweg 3')).toEqual([]);
+  });
+
+  test('das Protokoll bekommt die Uhrzeit dazu', () => {
+    const jetzt = new Date('2026-08-22T20:15:00');
+    expect(protokollZeile('', 'eingeschlafen um', jetzt)).toBe('eingeschlafen um 20:15');
+    expect(protokollZeile('20:00 Znacht gegessen ✓', 'alles ruhig', jetzt)).toBe(
+      '20:00 Znacht gegessen ✓\n20:15 alles ruhig'
+    );
   });
 });
