@@ -16,6 +16,8 @@ import {
   geprueftVor,
   hakeGabe,
   isoTag,
+  kontaktAlter,
+  kontaktVeraltet,
   kurFertig,
   kurzDatum,
   medZeile,
@@ -25,8 +27,10 @@ import {
   notfallText,
   notfallUeberfaellig,
   nummernVon,
+  oeffnungsStatus,
   offeneGaben,
   plusWochen,
+  schnellwahl,
   rollenVon,
   tageErledigt,
   toggleRolle,
@@ -218,5 +222,65 @@ describe('Babysitter-Zugang', () => {
       expires: '2026-08-22',
       hours: { from: '19:00', to: '00:30' },
     });
+  });
+});
+
+describe('Kontakte: geöffnet, gepflegt, Schnellwahl', () => {
+  // Mittwoch, 26. August 2026, 10:00.
+  const MITTWOCH = new Date('2026-08-26T10:00:00');
+
+  test('sagt, wie lange noch offen ist', () => {
+    const status = oeffnungsStatus({ Mi: '08:00-12:00, 14:00-18:30' }, MITTWOCH);
+    expect(status).toEqual({ offen: true, text: 'jetzt geöffnet · bis 12:00' });
+  });
+
+  test('nennt die nächste Öffnung, wenn gerade zu ist', () => {
+    const status = oeffnungsStatus(
+      { Mi: '14:00-18:30' },
+      new Date('2026-08-26T10:00:00')
+    );
+    expect(status).toEqual({ offen: false, text: 'öffnet heute 14:00' });
+  });
+
+  test('springt über den geschlossenen Tag', () => {
+    const status = oeffnungsStatus({ Mo: '08:00-12:00' }, MITTWOCH);
+    expect(status).toEqual({ offen: false, text: 'öffnet Mo 08:00' });
+  });
+
+  test('ohne Zeiten lieber gar nichts sagen als etwas Falsches', () => {
+    expect(oeffnungsStatus(undefined, MITTWOCH)).toBeNull();
+    expect(oeffnungsStatus({ Mi: 'geschlossen' }, MITTWOCH)).toBeNull();
+  });
+
+  test('ein Anruf hält den Kontakt frisch', () => {
+    const heute = new Date('2026-08-22T00:00:00');
+    expect(kontaktAlter({ last_used: '2026-08-20' }, heute)).toBe(2);
+    expect(kontaktVeraltet({ last_used: '2026-08-20' }, heute)).toBe(false);
+    expect(kontaktVeraltet({ last_used: '2023-01-01' }, heute)).toBe(true);
+  });
+
+  test('Schnellwahl bevorzugt die Sterne', () => {
+    const contacts = [
+      { id: '1', text: 'Mama', phone: '079 1', favorite: true },
+      { id: '2', text: 'Praxis', phone: '041 2' },
+      { id: '3', text: 'ohne Nummer', favorite: true },
+    ];
+    expect(schnellwahl(contacts).map((c) => c.id)).toEqual(['1']);
+  });
+
+  test('ohne Sterne springen die zuletzt Angerufenen ein', () => {
+    const contacts = [
+      { id: '1', text: 'Mama', phone: '079 1', last_used: '2026-08-01' },
+      { id: '2', text: 'Praxis', phone: '041 2', last_used: '2026-08-20' },
+    ];
+    expect(schnellwahl(contacts).map((c) => c.id)).toEqual(['2', '1']);
+  });
+
+  test('die Hausadresse steht zuoberst auf dem Notfallblatt', () => {
+    const text = notfallText([{ text: 'Lina' }], 'Familie Gross', 'Musterweg 3, 6144 Zell');
+    const zeilen = text.split('\n');
+    expect(zeilen[2]).toBe('Wir sind hier: Musterweg 3, 6144 Zell');
+    // Ohne Adresse bleibt das Blatt, wie es war.
+    expect(notfallText([{ text: 'Lina' }])).not.toContain('Wir sind hier');
   });
 });

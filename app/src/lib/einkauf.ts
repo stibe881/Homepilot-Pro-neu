@@ -122,6 +122,11 @@ export type EinkaufZeile = Record<string, any>;
 export interface ShoppingDraft {
   text: string;
   category: string;
+  /** Aus welchem Rezept dieser Posten stammt – «aus Lasagne» (Punkt 208).
+   *  Im Laden fragt man sich sonst, wofür die 250 g Kapern waren. */
+  from?: string;
+  /** Kennung des Rezepts, damit das Antippen es öffnen kann. */
+  from_id?: string;
 }
 
 /** Wie eine Zutat auf der Liste heisst: «250 ml Ketchup» (rein).
@@ -234,7 +239,15 @@ export function ingredientsToShopping(
       // Liste stehendes «250 ml Ketchup» kein zweites «Ketchup» erzeugt.
       const text = ingredientLabel(ingredient, rezeptFaktor);
       gesehen.add(text.toLowerCase());
-      result.push({ text, category: shopCategory(name) });
+      // Die Herkunft bleibt am Posten hängen (Punkt 208): Im Laden
+      // entscheidet man damit auch, ob es die teuren Kapern sein müssen.
+      const herkunft = String(recipe?.text ?? '').trim();
+      result.push({
+        text,
+        category: shopCategory(name),
+        ...(herkunft ? { from: herkunft } : {}),
+        ...(recipe?.id ? { from_id: String(recipe.id) } : {}),
+      });
     }
   }
   return result;
@@ -334,4 +347,133 @@ export function artikelVorschlaege(
     (name) => name.toLowerCase().includes(suche) && !name.toLowerCase().startsWith(suche)
   );
   return [...vorn, ...drin].slice(0, limit);
+}
+
+/**
+ * Menge am Posten verstellen, ohne den Text zu bearbeiten (rein, testbar).
+ *
+ * «2 Milch» entstand bisher, indem man den Eintrag antippt, das Feld
+ * öffnet, eine Zahl davorschreibt. Für den häufigsten Fall – einen mehr,
+ * einen weniger – genügt ein Plus und ein Minus (Punkt 207).
+ *
+ * Unter zwei fällt die Zahl weg: «1× Milch» schreibt niemand.
+ */
+export function mengeAendern(text: string, delta: number): string {
+  const { menge, name } = mengeUndName(text);
+  const neu = Math.max(1, Math.min(99, menge + delta));
+  return mitMenge(name, neu);
+}
+
+/**
+ * Mehrere Posten aus einem Feld (rein, testbar).
+ *
+ * Nach dem Blick in den Kühlschrank hat man fünf Dinge im Kopf und tippt
+ * fünfmal Feld–Plus–Feld. «Milch, Butter, 2 Zwiebeln» soll drei Posten
+ * ergeben, jeder mit seinem Gang (Punkt 209). Das Diktieren übers
+ * Mikrofon funktioniert damit nebenbei auch – dort kommt ohnehin ein
+ * Satz mit Kommas heraus.
+ *
+ * Getrennt wird an Komma, Semikolon und Zeilenumbruch. Nicht an «und»:
+ * «Salz und Pfeffer Mühle» wäre sonst zwei Posten, und das ist es
+ * manchmal und manchmal nicht.
+ */
+export function zeilenAufteilen(eingabe: string): ShoppingDraft[] {
+  return String(eingabe ?? '')
+    .split(/[,;\n]+/)
+    .map((teil) => teil.trim())
+    .filter(Boolean)
+    .map((text) => ({ text, category: shopCategory(mengeUndName(text).name) }));
+}
+
+/**
+ * Die offene Liste als Text zum Teilen (rein, testbar).
+ *
+ * Wer jemanden bittet, unterwegs etwas mitzubringen, schickt heute ein
+ * Foto vom Bildschirm (Punkt 177). Nach Gang sortiert, damit der
+ * Empfänger nicht dreimal durch den Laden läuft.
+ */
+export function einkaufsText(
+  items: EinkaufZeile[],
+  shop?: Shop | null,
+  titel = 'Einkaufsliste'
+): string {
+  const offen = items.filter((item) => !item.done);
+  if (offen.length === 0) return `${titel}: nichts offen`;
+  const zeilen: string[] = [shop?.name ? `${titel} – ${shop.name}` : titel, ''];
+  for (const gruppe of groupForShop(offen, shop)) {
+    zeilen.push(`${gruppe.category}:`);
+    for (const item of gruppe.items) zeilen.push(`  • ${String(item.text ?? '')}`);
+    zeilen.push('');
+  }
+  return zeilen.join('\n').trim();
+}
+
+/**
+ * Nur die Posten eines Ladens (rein, testbar).
+ *
+ * Der Käse vom Hofladen und die Schrauben aus dem Baumarkt stehen sonst
+ * zwischen der Migros-Ware (Punkt 175). Ein Posten ohne Laden gehört
+ * überallhin: Was man überall bekommt, will man nicht dreimal
+ * eintragen.
+ */
+export function fuerLaden(items: EinkaufZeile[], shopId?: string | null): EinkaufZeile[] {
+  const gewaehlt = String(shopId ?? '').trim();
+  if (!gewaehlt || gewaehlt === ALLGEMEIN.id) return [...items];
+  return items.filter((item) => {
+    const eigener = String(item.shop ?? '').trim();
+    return !eigener || eigener === gewaehlt;
+  });
+}
+
+/**
+ * Wie viele offene Posten je Laden (rein, testbar).
+ *
+ * Für die Filterleiste: «Migros (12)», «Baumarkt (2)». Wer im Baumarkt
+ * steht, sieht dann zwei Zeilen statt vierzehn.
+ */
+export function ladenZaehler(
+  items: EinkaufZeile[],
+  shops: Shop[]
+): { shop: Shop; offen: number }[] {
+  const offen = items.filter((item) => !item.done);
+  return [ALLGEMEIN, ...shops].map((shop) => ({
+    shop,
+    offen: fuerLaden(offen, shop.id).length,
+  }));
+}
+
+/**
+ * Was beim Eintragen zu tun ist: erhöhen oder neu anlegen (rein, testbar).
+ *
+ * Zwei Menschen tragen unabhängig «Milch» ein, und im Laden steht sie
+ * zweimal auf der Liste (Punkt 174). Steht der Posten schon offen da,
+ * wird seine Menge erhöht statt eine zweite Zeile angelegt.
+ *
+ * Erledigtes zählt nicht als «steht schon drauf»: Wer die Milch heute
+ * gekauft hat und sie morgen wieder braucht, meint einen neuen Posten.
+ */
+export function eintragen(
+  liste: EinkaufZeile[],
+  text: string,
+  category?: string
+): { kind: 'neu'; draft: ShoppingDraft } | { kind: 'mehr'; id: string; text: string } {
+  const offen = liste.filter((item) => !item.done);
+  const vorhanden = findeArtikel(offen, text);
+  if (vorhanden && vorhanden.id) {
+    const dazu = mengeUndName(text).menge;
+    const jetzt = mengeUndName(String(vorhanden.text ?? '')).menge;
+    return {
+      kind: 'mehr',
+      id: String(vorhanden.id),
+      text: mitMenge(mengeUndName(String(vorhanden.text ?? '')).name, jetzt + dazu),
+    };
+  }
+  const sauber = String(text ?? '').trim();
+  return {
+    kind: 'neu',
+    draft: {
+      text: sauber,
+      category: category || shopCategory(mengeUndName(sauber).name),
+    },
+  };
 }

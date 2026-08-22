@@ -92,6 +92,103 @@ export function fuerBabysitter(contacts: Eintrag[]): Eintrag[] {
   return hatRollen ? gewaehlt : contacts ?? [];
 }
 
+/**
+ * Öffnungszeiten eines Kontakts – für «jetzt geöffnet» (Punkt 210).
+ *
+ * Bewusst ein einfaches Textfeld je Wochentag statt einer Anbindung an
+ * irgendein Verzeichnis: Was man einmal einträgt, stimmt für die fünf
+ * Nummern, die zählen – die Praxis, die Apotheke, der Coiffeur.
+ *
+ * Erlaubt ist «08:00-12:00, 14:00-18:30» oder «geschlossen».
+ */
+export const WOCHENTAGE = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'] as const;
+
+function fensterVon(text: string): [number, number][] {
+  const fenster: [number, number][] = [];
+  for (const teil of String(text ?? '').split(',')) {
+    const treffer = /(\d{1,2}):(\d{2})\s*[-–]\s*(\d{1,2}):(\d{2})/.exec(teil);
+    if (!treffer) continue;
+    const von = Number(treffer[1]) * 60 + Number(treffer[2]);
+    const bis = Number(treffer[3]) * 60 + Number(treffer[4]);
+    if (bis > von) fenster.push([von, bis]);
+  }
+  return fenster;
+}
+
+function alsUhrzeit(minuten: number): string {
+  const stunde = Math.floor(minuten / 60);
+  return `${String(stunde).padStart(2, '0')}:${String(minuten % 60).padStart(2, '0')}`;
+}
+
+/**
+ * «jetzt geöffnet · bis 18:30» oder «öffnet Mo 08:00» (rein, testbar).
+ *
+ * Bei der Praxis ruft man an – und landet mittwochs auf dem Band. Ohne
+ * hinterlegte Zeiten kommt `null` zurück und die App zeigt gar nichts:
+ * Eine falsche Auskunft wäre schlimmer als keine.
+ */
+export function oeffnungsStatus(
+  hours: Eintrag | undefined,
+  jetzt: Date
+): { offen: boolean; text: string } | null {
+  if (!hours || typeof hours !== 'object') return null;
+  const belegt = WOCHENTAGE.some((tag) => fensterVon(String(hours[tag] ?? '')).length > 0);
+  if (!belegt) return null;
+  const heuteIndex = (jetzt.getDay() + 6) % 7;
+  const minute = jetzt.getHours() * 60 + jetzt.getMinutes();
+  for (const [von, bis] of fensterVon(String(hours[WOCHENTAGE[heuteIndex]] ?? ''))) {
+    if (minute >= von && minute < bis) {
+      return { offen: true, text: `jetzt geöffnet · bis ${alsUhrzeit(bis)}` };
+    }
+  }
+  // Nichts offen: die nächste Öffnung suchen, heute zuerst.
+  for (let versatz = 0; versatz < 7; versatz += 1) {
+    const tag = WOCHENTAGE[(heuteIndex + versatz) % 7];
+    for (const [von] of fensterVon(String(hours[tag] ?? ''))) {
+      if (versatz === 0 && von <= minute) continue;
+      const wann = versatz === 0 ? `heute ${alsUhrzeit(von)}` : `${tag} ${alsUhrzeit(von)}`;
+      return { offen: false, text: `öffnet ${wann}` };
+    }
+  }
+  return { offen: false, text: 'geschlossen' };
+}
+
+/**
+ * Wie lange ist der letzte Anruf her? (rein, testbar)
+ *
+ * Punkt 182 fragt «stimmt die Nummer noch?» – die halbe Antwort kennt
+ * die App selbst (Punkt 211): Wer auf Anrufen tippt, hat den Kontakt
+ * benutzt. Was oft gebraucht wird, gilt als gepflegt.
+ */
+export function kontaktAlter(contact: Eintrag, heute: Date): number | null {
+  const roh = contact?.last_used ?? contact?.checked ?? contact?.created;
+  return geprueftVor(roh, heute);
+}
+
+/** Ist dieser Kontakt so lange unangetastet, dass man fragen sollte?
+ *  (rein, testbar) */
+export function kontaktVeraltet(contact: Eintrag, heute: Date, tage = 730): boolean {
+  const alter = kontaktAlter(contact, heute);
+  return alter !== null && alter >= tage;
+}
+
+/**
+ * Die Schnellwahl-Reihe: gesternte Kontakte mit Nummer (Punkt 212).
+ *
+ * Die Liste sortiert nach Rollen – angerufen werden immer dieselben
+ * drei. Ohne Sterne springt die Reihe für die zuletzt Angerufenen ein:
+ * eine leere Reihe wäre nur ein Streifen Platz.
+ */
+export function schnellwahl(contacts: Eintrag[], limit = 4): Eintrag[] {
+  const mitNummer = (contacts ?? []).filter((c) => nummernVon(c).length > 0);
+  const gesternt = mitNummer.filter((c) => c.favorite);
+  if (gesternt.length > 0) return gesternt.slice(0, limit);
+  return [...mitNummer]
+    .filter((c) => c.last_used)
+    .sort((a, b) => String(b.last_used).localeCompare(String(a.last_used)))
+    .slice(0, limit);
+}
+
 // ── Notfallblatt ────────────────────────────────────────────────────────
 
 /**
@@ -171,9 +268,15 @@ export function notfallUeberfaellig(checked: unknown, heute: Date): boolean {
   return tage === null || tage >= 365;
 }
 
-/** Das Notfallblatt als Text zum Teilen oder Ausdrucken (rein, testbar). */
-export function notfallText(eintraege: Eintrag[], haus?: string): string {
+/** Das Notfallblatt als Text zum Teilen oder Ausdrucken (rein, testbar).
+ *
+ *  `adresse` steht zuoberst und nicht irgendwo (Punkt 213): Wer 144
+ *  wählt, muss als Erstes sagen, WO er ist – und genau das weiss eine
+ *  fremde Person im Haus nicht auswendig. */
+export function notfallText(eintraege: Eintrag[], haus?: string, adresse?: string): string {
   const zeilen: string[] = [`NOTFALLBLATT${haus ? ` – ${haus}` : ''}`, ''];
+  const wo = String(adresse ?? '').trim();
+  if (wo) zeilen.push(`Wir sind hier: ${wo}`, '');
   for (const eintrag of eintraege ?? []) {
     zeilen.push(String(eintrag.text ?? '').trim() || 'Ohne Namen');
     for (const zeile of notfallZeilen(eintrag)) {

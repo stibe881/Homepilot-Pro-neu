@@ -7,14 +7,20 @@
  */
 import {
   ALLGEMEIN,
+  einkaufsText,
+  eintragen,
+  fuerLaden,
   groupForShop,
   ingredientLabel,
   ingredientsToShopping,
+  ladenZaehler,
+  mengeAendern,
   shopCategory,
   shopOrder,
   findeArtikel,
   mengeUndName,
   mitMenge,
+  zeilenAufteilen,
 } from './einkauf';
 
 describe('shopCategory', () => {
@@ -235,5 +241,76 @@ describe('ingredientsToShopping mit Portionen-Faktor', () => {
 
   it('ohne Faktor bleibt alles wie es war', () => {
     expect(ingredientsToShopping([rezept])[0].text).toBe('250 g Mehl');
+  });
+});
+
+describe('Menge, Läden und Teilen', () => {
+  test('mengeAendern zählt hoch und wieder runter', () => {
+    expect(mengeAendern('Milch', 1)).toBe('2× Milch');
+    expect(mengeAendern('2× Milch', 1)).toBe('3× Milch');
+    expect(mengeAendern('2× Milch', -1)).toBe('Milch');
+    // Unter eins geht es nicht – gelöscht wird mit dem Papierkorb.
+    expect(mengeAendern('Milch', -1)).toBe('Milch');
+  });
+
+  test('zeilenAufteilen macht aus einem Satz mehrere Posten', () => {
+    const posten = zeilenAufteilen('Milch, Butter, 2 Zwiebeln');
+    expect(posten.map((p) => p.text)).toEqual(['Milch', 'Butter', '2 Zwiebeln']);
+    expect(posten[0].category).toBe('Milchprodukte');
+    expect(posten[2].category).toBe('Früchte & Gemüse');
+  });
+
+  test('zeilenAufteilen lässt einen einzelnen Posten in Ruhe', () => {
+    expect(zeilenAufteilen('Salz und Pfeffer').map((p) => p.text)).toEqual([
+      'Salz und Pfeffer',
+    ]);
+  });
+
+  test('eintragen erhöht statt zu verdoppeln', () => {
+    const liste = [{ id: 'a', text: '2× Milch' }];
+    const ergebnis = eintragen(liste, 'Milch');
+    expect(ergebnis).toEqual({ kind: 'mehr', id: 'a', text: '3× Milch' });
+  });
+
+  test('eintragen legt neu an, wenn der alte Posten erledigt ist', () => {
+    const liste = [{ id: 'a', text: 'Milch', done: true }];
+    const ergebnis = eintragen(liste, 'Milch');
+    expect(ergebnis.kind).toBe('neu');
+  });
+
+  test('fuerLaden zeigt Allgemeines überall', () => {
+    const items = [
+      { id: '1', text: 'Milch' },
+      { id: '2', text: 'Schrauben', shop: 'baumarkt' },
+      { id: '3', text: 'Käse', shop: 'hofladen' },
+    ];
+    expect(fuerLaden(items, 'baumarkt').map((i) => i.id)).toEqual(['1', '2']);
+    expect(fuerLaden(items, 'allgemein').map((i) => i.id)).toEqual(['1', '2', '3']);
+  });
+
+  test('ladenZaehler zählt nur Offenes', () => {
+    const items = [
+      { id: '1', text: 'Milch' },
+      { id: '2', text: 'Schrauben', shop: 'baumarkt', done: true },
+    ];
+    const zahlen = ladenZaehler(items, [{ id: 'baumarkt', name: 'Baumarkt' }]);
+    expect(zahlen.find((z) => z.shop.id === 'baumarkt')?.offen).toBe(1);
+  });
+
+  test('einkaufsText sortiert nach Gang', () => {
+    const text = einkaufsText([
+      { text: 'Milch', category: 'Milchprodukte' },
+      { text: 'Äpfel', category: 'Früchte & Gemüse' },
+      { text: 'Brot', category: 'Brot & Backwaren', done: true },
+    ]);
+    expect(text.indexOf('Äpfel')).toBeLessThan(text.indexOf('Milch'));
+    expect(text).not.toContain('Brot');
+  });
+
+  test('die Zutaten bringen ihre Herkunft mit', () => {
+    const posten = ingredientsToShopping([
+      { id: 'r1', text: 'Lasagne', ingredients: [{ name: 'Kapern', amount: 250, unit: 'g' }] },
+    ]);
+    expect(posten[0]).toMatchObject({ text: '250 g Kapern', from: 'Lasagne', from_id: 'r1' });
   });
 });
