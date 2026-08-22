@@ -209,6 +209,13 @@ class GeofenceRequest(BaseModel):
     event: str
     # Ohne Zone gilt der Name des angemeldeten Benutzers.
     zone: str | None = None
+    # Welcher Ort betreten oder verlassen wurde («home», «schule»).
+    # Ohne Angabe «home» - so melden die alten Kurzbefehle weiter.
+    place: str | None = None
+    # Akkustand des Telefons in Prozent, wenn der Melder ihn kennt. Die
+    # häufigste Ursache für eine tote Ortung ist ein leeres Telefon, und
+    # das kündigt sich an.
+    battery: int | None = None
 
 
 class PassTarget(BaseModel):

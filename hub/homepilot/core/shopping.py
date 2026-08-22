@@ -133,3 +133,95 @@ def suggestions(known: list[Any], query: str, limit: int = 8) -> list[str]:
         if suche in name.lower() and not name.lower().startswith(suche)
     ]
     return [*vorn, *drin][:limit]
+
+
+# ── Was jede Woche fehlt (Punkt 176) ─────────────────────────────────────
+#
+# Die Standardartikel muss man von Hand pflegen - und tut es nie. Der Hub
+# weiss es besser: Er sieht seit Monaten, was wie oft auf der Liste
+# landete. Daraus wird ein Vorschlag, kein Eintrag: Wer die Milch selbst
+# holt, will sie nicht jede Woche wegwischen müssen.
+
+# So lange bleibt ein Eintrag im Gedächtnis. Ein halbes Jahr reicht für
+# einen Rhythmus und ist kurz genug, dass ausgelaufene Gewohnheiten
+# («Babybrei») von selbst verschwinden.
+LOG_DAYS = 180
+LOG_LIMIT = 1000
+# So oft muss ein Posten dagewesen sein, bevor daraus ein Rhythmus wird.
+# Zweimal ist Zufall, dreimal ist eine Gewohnheit.
+MIN_TIMES = 3
+# Erst ab diesem Anteil des üblichen Abstands wird vorgeschlagen. Etwas
+# früher als der Durchschnitt, weil man auch etwas früher einkauft.
+DUE_SHARE = 0.85
+
+
+def log_item(rows: list[dict[str, Any]], text: str, at: float) -> list[dict[str, Any]]:
+    """Einen eingetragenen Posten mitschreiben (rein, testbar).
+
+    Nur der Name und wann - kein Preis, keine Menge, keine Person: Für
+    den Rhythmus braucht es nicht mehr, und was nicht da ist, kann auch
+    nicht in eine Sicherung wandern.
+    """
+    name = str(text or "").strip()
+    if not name:
+        return list(rows or [])
+    neu = [{"name": name.lower(), "label": name, "at": float(at)}, *(rows or [])]
+    grenze = at - LOG_DAYS * 24 * 3600
+    frisch = [
+        row
+        for row in neu
+        if isinstance(row, dict) and float(row.get("at") or 0) >= grenze
+    ]
+    return frisch[:LOG_LIMIT]
+
+
+def rhythm(rows: list[dict[str, Any]], now: float) -> list[dict[str, Any]]:
+    """Was nach dem üblichen Abstand wieder fällig wäre (rein, testbar).
+
+    «Milch stand zuletzt vor 9 Tagen drauf, sonst alle 7» ist ein
+    brauchbarer Vorschlag beim Öffnen der leeren Liste. Gerechnet wird
+    aus den Abständen zwischen den Einträgen, nicht aus einem
+    eingestellten Wert - dann stimmt es auch für den Haushalt, der alle
+    zehn Tage gross einkauft.
+    """
+    nach_namen: dict[str, list[float]] = {}
+    beschriftung: dict[str, str] = {}
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "").strip().lower()
+        if not name:
+            continue
+        try:
+            wann = float(row.get("at") or 0)
+        except (TypeError, ValueError):
+            continue
+        nach_namen.setdefault(name, []).append(wann)
+        beschriftung.setdefault(name, str(row.get("label") or name))
+
+    faellig = []
+    for name, zeiten in nach_namen.items():
+        zeiten.sort(reverse=True)
+        if len(zeiten) < MIN_TIMES:
+            continue
+        abstaende = [
+            (zeiten[i] - zeiten[i + 1]) / 86400.0 for i in range(len(zeiten) - 1)
+        ]
+        abstaende = [tage for tage in abstaende if tage >= 0.5]
+        if not abstaende:
+            continue
+        schnitt = sum(abstaende) / len(abstaende)
+        her = (now - zeiten[0]) / 86400.0
+        if her < schnitt * DUE_SHARE:
+            continue
+        faellig.append(
+            {
+                "text": beschriftung[name],
+                "days_since": round(her),
+                "interval": round(schnitt),
+                "times": len(zeiten),
+            }
+        )
+    # Das am längsten Überfällige zuerst.
+    faellig.sort(key=lambda row: row["days_since"] - row["interval"], reverse=True)
+    return faellig

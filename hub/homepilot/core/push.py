@@ -44,6 +44,8 @@ CATEGORIES: dict[str, str] = {
     "calendar": "Termin steht an",
     "medication": "Medikament fällig",
     "birthday": "Geburtstag heute",
+    "presence": "Ortung: schwacher Akku, Funkstille",
+    "weekahead": "Wochenausblick am Sonntag",
     "test": "Push-Test",
 }
 

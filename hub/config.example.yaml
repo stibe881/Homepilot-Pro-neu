@@ -64,6 +64,11 @@ supabase:
 location:
   latitude: 47.1445
   longitude: 8.0675
+  # Die Hausadresse. Sie steht gross auf dem Babysitter- und dem
+  # Notfallblatt: Wer 144 wählt, muss als Erstes sagen, WO er ist - und
+  # das weiss eine fremde Person im Haus nicht auswendig.
+  # address: "Musterweg 3, 6144 Zell LU"
+  # address_note: "Eingang hinten, Klingel «Gross»"
 
 integrations:
   # Virtuelle Geräte zum Entwickeln und Testen – später entfernen.
@@ -226,9 +231,24 @@ integrations:
   # Kurzbefehle oder Tasker → POST /api/presence/geofence). Merkt den
   # Aufbruch Minuten früher als das WLAN – siehe docs/geofence.md.
   # - integration: geofence
+  #   # Orte mit Koordinaten - ohne diesen Abschnitt entstehen «home»
+  #   # (150 m) und «quartier» (3 km) aus location oben. Die weite Zone
+  #   # gibt den Vorlauf, um den es beim Geofence eigentlich geht.
+  #   places:
+  #     - id: home
+  #       name: Zuhause
+  #       latitude: 47.1445
+  #       longitude: 8.0675
+  #       radius: 150
+  #     - id: schule
+  #       name: Schule
+  #       latitude: 47.1502
+  #       longitude: 8.0641
+  #       radius: 200
   #   zones:
   #     - id: stefan
   #       name: Stefan
+  #       wifi: unifi.iphone_stefan   # optional: WLAN schlägt Geofence
   #     - id: livia
   #       name: Livia
 

@@ -89,6 +89,20 @@ EMPTY: dict[str, Any] = {
     # Zuletzt gesehene Hub-Adresse aus App-Anfragen: [{url}]. Damit
     # können Abläufe auch direkt nach einem Neustart durchsagen.
     "hub_base": [],
+    # Kommen und Gehen der letzten Woche: [{person, state, place, at}],
+    # jüngste zuerst. Beantwortet «seit wann weg» und «wann angekommen».
+    # Bewusst begrenzt (presence.trim_history): Alles darüber hinaus wäre
+    # ein Bewegungsprofil der Familie in einer Datei, die in die
+    # Sicherung wandert.
+    "presence_history": [],
+    # Wann welcher Posten auf der Einkaufsliste stand: [{name, label,
+    # at}]. Daraus entsteht der Rhythmus («Milch sonst alle 7 Tage»),
+    # den die App als Vorschlag zeigt. Ein halbes Jahr, dann verfällt es.
+    "shopping_log": [],
+    # Papierkorb der Familienlisten: [{collection, at, by, name, item}].
+    # Eigener Korb, nicht der von Szenen und Abläufen: Dort sucht
+    # niemand nach einem gelöschten Rezept.
+    "family_trash": [],
 }
 
 
@@ -111,6 +125,9 @@ SECRETS = frozenset(
         "alarm_pin",
         "hub_base",
         "emails",
+        # Wer wann wo war, gehört niemandem ausser dem Haus - erst recht
+        # nicht einer Datei, die in einer Mail landet.
+        "presence_history",
     }
 )
 
@@ -228,6 +245,42 @@ class DataStore:
 
     def _backup_dir(self) -> Path | None:
         return self.path.parent / "backups" if self.path else None
+
+    def snapshot(self) -> dict[str, Any]:
+        """Der ganze Datenbestand als Kopie – lesend, nicht änderbar.
+
+        Für alles, was mehrere Listen auf einmal braucht (das
+        Familienbuch etwa). Eine Kopie, damit ein Leser nicht
+        versehentlich am Speicher des Hubs schreibt.
+        """
+        return dict(self._data)
+
+    def family_book(self, stamp: str) -> Path | None:
+        """Die Familiendaten als lesbare Seite neben die Sicherungen legen.
+
+        Der Unterschied zur Sicherung ist nicht die Technik, sondern wer
+        sie öffnen kann: Eine Sicherung braucht einen HomePilot, diese
+        Seite braucht einen Browser. Genau dafür ist sie da - für den
+        Tag, an dem es den Hub nicht mehr gibt und trotzdem noch jemand
+        die Nummer der Kinderärztin sucht.
+
+        Einmal im Monat genügt: Kontakte und Rezepte ändern sich in
+        Wochen, nicht in Stunden.
+        """
+        from . import familienbuch
+
+        folder = self._backup_dir()
+        if folder is None:
+            return None
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            ziel = folder / f"familienbuch-{stamp}.html"
+            ziel.write_text(familienbuch.render(self._data, stamp), encoding="utf-8")
+            os.chmod(ziel, 0o600)
+            return ziel
+        except OSError as err:
+            log.warning("Familienbuch konnte nicht geschrieben werden: %s", err)
+            return None
 
     def backups(self) -> list[dict[str, Any]]:
         """Liste der vorhandenen Sicherungen, jüngste zuerst."""

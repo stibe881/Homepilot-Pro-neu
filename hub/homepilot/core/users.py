@@ -28,7 +28,7 @@ import fnmatch
 import re
 import secrets
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from .errors import ConfigError
@@ -139,6 +139,43 @@ def in_hours(hours: dict[str, str], now: datetime) -> bool:
     if start <= end:
         return start <= current <= end
     return current >= start or current <= end
+
+
+def access_end(
+    expires: str | None, hours: dict[str, str], now: datetime
+) -> datetime | None:
+    """Wann endet dieser Zugang? (rein, testbar)
+
+    Ein Zugang lief bisher still ab. Zwei Nachrichten machen daraus
+    etwas Verlässliches – «dein Zugang endet um 23:00» an den Gast und
+    «Zugang ist abgelaufen» an die Familie –, und beide brauchen genau
+    diesen einen Zeitpunkt.
+
+    Das Fenster schlägt das Datum, solange es früher endet: Ein Zugang
+    bis 23:00 endet um 23:00, nicht um Mitternacht. Ein Fenster über
+    Mitternacht («20:00 bis 01:00») endet am Folgetag – sonst wäre der
+    Zugang genau dann weg, wenn man ihn noch braucht.
+    """
+    tag = None
+    if expires:
+        try:
+            jahr, monat, tagnr = (int(teil) for teil in str(expires)[:10].split("-"))
+            tag = datetime(jahr, monat, tagnr, 23, 59, 59)
+        except (ValueError, TypeError):
+            tag = None
+    if not hours:
+        return tag
+    try:
+        stunde, minute = (int(teil) for teil in hours["to"].split(":"))
+    except (KeyError, ValueError):
+        return tag
+    ende = now.replace(hour=stunde, minute=minute, second=0, microsecond=0)
+    ueber_mitternacht = hours.get("from", "") > hours.get("to", "")
+    if ende <= now and ueber_mitternacht:
+        ende = ende.replace(day=ende.day) + timedelta(days=1)
+    if tag is not None and ende > tag:
+        return tag
+    return ende
 
 
 @dataclass

@@ -127,6 +127,42 @@ RULES: list[dict[str, Any]] = [
         ],
     },
     {
+        "key": "presence",
+        "title": "Ortung: schwacher Akku",
+        "detail": "Bevor die Ortung mangels Strom ausfällt. Ein leeres Telefon "
+        "ist die häufigste Ursache für ein falsches «niemand zuhause» – und es "
+        "kündigt sich an.",
+        "params": [
+            {
+                "key": "percent",
+                "label": "Warnen unter",
+                "unit": "% Akku",
+                "default": 15,
+                "min": 5,
+                "max": 50,
+                "step": 5,
+            }
+        ],
+    },
+    {
+        "key": "weekahead",
+        "title": "Wochenausblick am Sonntag",
+        "detail": "Sonntagabend, wenn man die Woche ohnehin im Kopf durchgeht: "
+        "Termine, fällige Ämtli und Geburtstage der kommenden sieben Tage in "
+        "einer Nachricht.",
+        "params": [
+            {
+                "key": "hour",
+                "label": "Verschicken um",
+                "unit": "Uhr",
+                "default": 19,
+                "min": 6,
+                "max": 22,
+                "step": 1,
+            }
+        ],
+    },
+    {
         "key": "disk",
         "title": "Speicherplatz wird knapp",
         "detail": "Höchstens einmal am Tag, solange es knapp bleibt. Nicht "

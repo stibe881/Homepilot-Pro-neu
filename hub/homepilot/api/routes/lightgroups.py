@@ -16,6 +16,7 @@ from fastapi import (
     Request,
 )
 
+from ...core import presence as presence_module
 from ...core.errors import UnknownEntityError
 from ...core.users import Capability
 from ...integrations import group as group_module
@@ -227,12 +228,86 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         # Adresse plus das Ereignis.
         zone = body.zone or user.name.lower()
         try:
-            state = await service.report(zone, body.event)
+            state = await service.report(
+                zone, body.event, place=body.place, battery=body.battery
+            )
         except KeyError:
             raise HTTPException(
                 status_code=404, detail=f"Unbekannte Zone: {zone}"
             ) from None
         except ValueError as err:
             raise HTTPException(status_code=400, detail=str(err)) from err
-        return {"ok": True, "zone": zone, "state": state}
+        return {"ok": True, "zone": zone, "state": state, "place": body.place or "home"}
+
+    @app.get("/api/presence/zones")
+    async def presence_zones(request: Request) -> dict[str, Any]:
+        """Die Orte, die jedes Telefon überwachen soll.
+
+        Bis hierher kannte jede Zone nur einen Namen - wo dieser Ort
+        liegt, wusste der Hub nicht, und darum musste jede Person ihren
+        Kurzbefehl selbst bauen. Mit Koordinaten hier holt sich jedes
+        Gerät dieselben Orte, und eine geänderte Adresse ändert man
+        einmal.
+        """
+        current_user(request)
+        service = hub.integrations.get("geofence")
+        if service is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Die geofence-Integration ist nicht eingerichtet",
+            )
+        return {
+            "places": list(getattr(service, "places", [])),
+            "zones": list(service.zone_ids()),
+        }
+
+    @app.get("/api/presence")
+    async def presence_overview(request: Request) -> dict[str, Any]:
+        """Wer ist da? – die meistgestellte Frage im Haushalt.
+
+        Zonenmeldung und WLAN zusammengeführt (Punkt 200), je Person eine
+        Zeile mit «seit wann». Ohne Karte und ohne Meterangaben: «Sandra
+        zuhause · Stefan unterwegs seit 14:20» beantwortet, was man
+        wissen will.
+        """
+        current_user(request)
+        service = hub.integrations.get("geofence")
+        if service is None:
+            return {"people": []}
+        verlauf = hub.data.get("presence_history")
+        leute = []
+        for zone_id in service.zone_ids():
+            entity_id = service.zone_entity(zone_id)
+            entity = hub.registry.get(entity_id) if entity_id else None
+            zusammen = service.merged(zone_id)
+            leute.append(
+                {
+                    "zone": zone_id,
+                    "name": entity.name if entity else zone_id,
+                    "state": zusammen.get("state"),
+                    "source": zusammen.get("source"),
+                    "place": zusammen.get("place"),
+                    "place_name": (entity.state.get("place_name") if entity else None),
+                    "battery": (entity.state.get("battery") if entity else None),
+                    "since": presence_module.since(verlauf, zone_id),
+                }
+            )
+        return {"people": leute}
+
+    @app.get("/api/presence/diagnose")
+    async def presence_diagnose(request: Request) -> dict[str, Any]:
+        """Warum steht da «weg»? Je Person eine Zeile.
+
+        Das Gegenstück zur Ablauf-Diagnose: wann die letzte Meldung kam,
+        über welchen Weg, und ob das nach Funkstille aussieht. Der halbe
+        Support-Fall «die Ortung spinnt» ist damit selbst zu beantworten.
+        """
+        current_user(request)
+        service = hub.integrations.get("geofence")
+        if service is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Die geofence-Integration ist nicht eingerichtet",
+            )
+        return {"people": service.diagnose()}
 

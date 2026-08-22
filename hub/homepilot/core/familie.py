@@ -11,7 +11,7 @@ der Wächter; wer die Daten pflegt, ist die App.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 # Die Tageszeiten einer Kur und die Stunde, ab der sie fällig sind.
@@ -157,8 +157,193 @@ def birthdays_on(contacts: list[dict[str, Any]], tag: date) -> list[dict[str, An
     return treffer
 
 
+def birthdays_in(
+    contacts: list[dict[str, Any]], tag: date, tage: int
+) -> list[tuple[int, dict[str, Any]]]:
+    """Wer in den nächsten Tagen Geburtstag hat (rein, testbar).
+
+    Der Gruss am Morgen ist nett; was fehlte, war der Anstoss, der etwas
+    auslöst. Drei Tage Vorlauf sind Zeit genug für ein Geschenk - und
+    kurz genug, dass man es bis dahin nicht wieder vergisst.
+
+    Zurück kommt (Tage bis dahin, Kontakt), aufsteigend sortiert.
+    """
+    treffer: list[tuple[int, dict[str, Any]]] = []
+    for versatz in range(0, max(0, tage) + 1):
+        ziel = tag + timedelta(days=versatz)
+        for contact in birthdays_on(contacts, ziel):
+            treffer.append((versatz, contact))
+    return treffer
+
+
 def _ist_schaltjahr(jahr: int) -> bool:
     return jahr % 4 == 0 and (jahr % 100 != 0 or jahr % 400 == 0)
+
+
+WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
+
+# Wie die App die Tage des Wochenplans nennt (bausteine.tsx WEEK_DAYS).
+PLAN_DAYS = [
+    "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag",
+]
+
+# So lange bleibt Erledigtes in einer Familienliste stehen, bevor es von
+# selbst in den Papierkorb wandert.
+DONE_DAYS = 7
+
+
+def cooked_from_plan(
+    meals: list[dict[str, Any]], recipes: list[dict[str, Any]], tag: date
+) -> list[dict[str, Any]]:
+    """Den Kochstempel aus dem Wochenplan ableiten (rein, testbar).
+
+    «Zuletzt gekocht» entstand bisher nur, wenn jemand den Kochmodus bis
+    zum Fertig-Haken durchlief – die Lasagne, die man auswendig kann,
+    zählte nie. Dabei weiss es der Plan: Stand ein Gericht am Dienstag
+    im Wochenplan und der Dienstag ist vorbei, war es dran.
+
+    Zurück kommt die geänderte Rezeptliste (oder dieselbe, wenn nichts
+    zu stempeln war). Ein Rezept, das an diesem Tag schon gestempelt
+    ist, bleibt unangetastet: Sonst zählte der Kochmodus doppelt.
+    """
+    name = PLAN_DAYS[tag.weekday()]
+    stempel = tag.isoformat()
+    eintrag = next(
+        (
+            meal
+            for meal in meals or []
+            if isinstance(meal, dict) and str(meal.get("day")) == name
+        ),
+        None,
+    )
+    if eintrag is None:
+        return list(recipes or [])
+    gericht = str(eintrag.get("text") or "").strip()
+    rezept_id = eintrag.get("recipe_id")
+    geaendert = []
+    treffer = False
+    for recipe in recipes or []:
+        passt = isinstance(recipe, dict) and (
+            (rezept_id and recipe.get("id") == rezept_id)
+            or (not rezept_id and gericht and str(recipe.get("text") or "") == gericht)
+        )
+        if passt and not treffer and str(recipe.get("last_cooked") or "") != stempel:
+            treffer = True
+            geaendert.append(
+                {
+                    **recipe,
+                    "last_cooked": stempel,
+                    "cooked_count": int(recipe.get("cooked_count") or 0) + 1,
+                }
+            )
+        else:
+            geaendert.append(recipe)
+    return geaendert if treffer else list(recipes or [])
+
+
+def stale_done(
+    rows: list[dict[str, Any]], heute: date, tage: int = DONE_DAYS
+) -> list[dict[str, Any]]:
+    """Was länger als `tage` erledigt ist (rein, testbar).
+
+    Abgehakte Aufgaben und erledigte Einkäufe bleiben stehen, bis jemand
+    aufräumt – und niemand räumt auf. Die Liste soll aber das bleiben,
+    was sie sein soll: kurz. Der Zeitpunkt kommt aus `done_at`; wo er
+    fehlt (alte Einträge), zählt `created`, sonst bleibt der Eintrag
+    stehen – lieber einer zu viel als einer zu früh weg.
+    """
+    alt = []
+    for row in rows or []:
+        if not isinstance(row, dict) or not row.get("done"):
+            continue
+        wann = str(row.get("done_at") or row.get("created") or "")[:10]
+        if not wann:
+            continue
+        try:
+            jahr, monat, tag = (int(teil) for teil in wann.split("-"))
+        except (ValueError, TypeError):
+            continue
+        try:
+            when = date(jahr, monat, tag)
+        except ValueError:
+            continue
+        if (heute - when).days >= tage:
+            alt.append(row)
+    return alt
+
+
+def _due_within(rows: list[dict[str, Any]], heute: date, tage: int) -> list[tuple[date, str]]:
+    """Offene Einträge mit Frist in den nächsten Tagen (rein)."""
+    treffer: list[tuple[date, str]] = []
+    for row in rows or []:
+        if not isinstance(row, dict) or row.get("done"):
+            continue
+        text = str(row.get("text") or "").strip()
+        if not text:
+            continue
+        frist = str(row.get("due") or "").strip()[:10]
+        if not frist:
+            continue
+        try:
+            jahr, monat, tag = (int(teil) for teil in frist.split("-"))
+            wann = date(jahr, monat, tag)
+        except (ValueError, TypeError):
+            continue
+        if heute <= wann <= heute + timedelta(days=tage):
+            wer = str(row.get("member") or "").strip()
+            treffer.append((wann, f"{text}{f' ({wer})' if wer else ''}"))
+    return sorted(treffer)
+
+
+def week_ahead(
+    events: list[dict[str, Any]],
+    tasks: list[dict[str, Any]],
+    chores: list[dict[str, Any]],
+    contacts: list[dict[str, Any]],
+    heute: date,
+    tage: int = 7,
+) -> str | None:
+    """Was in den nächsten Tagen ansteht, in einer Nachricht (rein, testbar).
+
+    Der Hub kennt die Termine, die fälligen Ämtli und die Geburtstage –
+    aber jeder sammelt sich das selbst zusammen. Am Sonntagabend geht
+    man die Woche ohnehin im Kopf durch; genau dann ist die Nachricht
+    willkommen und nicht Lärm.
+
+    Nichts los heisst nichts schicken: Eine wöchentliche Push mit
+    «diese Woche: nichts» schaltet man nach dem zweiten Mal ab.
+    """
+    zeilen: list[str] = []
+    bis = heute + timedelta(days=tage)
+
+    termine: list[tuple[date, str]] = []
+    for event in events or []:
+        if not isinstance(event, dict) or event.get("birthday"):
+            continue
+        start = str(event.get("start") or "")[:10]
+        try:
+            jahr, monat, tag = (int(teil) for teil in start.split("-"))
+            wann = date(jahr, monat, tag)
+        except (ValueError, TypeError):
+            continue
+        if heute <= wann <= bis:
+            termine.append((wann, str(event.get("summary") or "Termin")))
+    for wann, titel in sorted(termine)[:4]:
+        zeilen.append(f"{WEEKDAYS[wann.weekday()]}: {titel}")
+
+    for wann, text in (_due_within(tasks, heute, tage) + _due_within(chores, heute, tage))[:4]:
+        zeilen.append(f"{WEEKDAYS[wann.weekday()]}: {text}")
+
+    for versatz, contact in birthdays_in(contacts, heute, tage):
+        name = str(contact.get("text") or "").strip()
+        if not name:
+            continue
+        wann = heute + timedelta(days=versatz)
+        zeilen.append(f"{WEEKDAYS[wann.weekday()]}: {name} hat Geburtstag")
+
+    if not zeilen:
+        return None
+    return "\n".join(zeilen[:10])
 
 
 def emergency_stale(checked: Any, heute: date, monate: int = 12) -> bool:

@@ -1,4 +1,4 @@
-"""Papierkorb für gelöschte Szenen und Abläufe.
+"""Papierkorb für gelöschtes: Szenen, Abläufe, Familienlisten.
 
 Löschen ist der einzige Knopf in der App, der nichts zurücknehmen kann –
 und Abläufe sind mühsam gebaut. Dreissig Tage Aufbewahrung kosten ein
@@ -29,7 +29,15 @@ def put(rows: list[dict[str, Any]], kind: str, item: dict[str, Any], by: str) ->
             "kind": kind,
             "at": time.time(),
             "by": by,
-            "name": str(item.get("alias") or item.get("name") or item.get("id") or "?"),
+            # «text» wegen der Familienlisten: Dort heisst das Feld, das
+            # ein Mensch liest, so - eine Aufgabe hat keinen Alias.
+            "name": str(
+                item.get("alias")
+                or item.get("name")
+                or item.get("text")
+                or item.get("id")
+                or "?"
+            ),
             "item": item,
         },
     )

@@ -23,11 +23,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from . import energy, familie, maintenance, notifyrules, shopping
+from . import energy, familie, maintenance, notifyrules, presence, shopping, trash, users
 
 # Die reinen Regeln wohnen in watchrules.py; hier bleiben Takt und
 # Gedächtnis. Die Namen werden re-exportiert - Server und Tests
@@ -63,6 +63,13 @@ INTERVAL = 60.0
 ENERGY_INTERVAL = 600.0
 # Nicht öfter als einmal am Tag mahnen, solange es knapp bleibt.
 DISK_REMIND = 24 * 3600
+# So viele Tage im Voraus wird an einen Geburtstag erinnert. Drei sind
+# Zeit für ein Geschenk und kurz genug, es nicht wieder zu vergessen.
+BIRTHDAY_AHEAD = 3
+# Nach dem Ferienmodus wird höchstens alle zwei Tage gefragt.
+HOLIDAY_ASK_AGAIN = 48 * 3600
+# So lange vor dem Ablauf bekommt ein Gast Bescheid.
+ACCESS_WARN_SECONDS = 15 * 60
 
 
 class Watchdog:
@@ -99,7 +106,22 @@ class Watchdog:
         # Je Tag und Gabe einmal erinnern, nicht jede Minute.
         self._med_reminded: set[str] = set()
         self._birthday_day: str | None = None
+        self._birthday_ahead: set[str] = set()
         self._emergency_day: str | None = None
+        # Ortung: wem schon wegen des Akkus geschrieben wurde, wann
+        # zuletzt nach dem Ferienmodus gefragt wurde, und wann der
+        # Verlauf zuletzt gestutzt wurde.
+        self._battery_told: set[str] = set()
+        self._holiday_asked: float = 0.0
+        self._history_trimmed: float = 0.0
+        # Wochenausblick, Aufräumen und Kochstempel: je Tag einmal.
+        self._weekahead_day: str | None = None
+        self._cleanup_day: str | None = None
+        self._cooked_day: str | None = None
+        self._book_month: str | None = None
+        # Ablaufende Zugänge: wem schon Bescheid gegeben wurde.
+        self._access_warned: set[str] = set()
+        self._access_ended: set[str] = set()
         self._frost_day: str | None = None
         # Wann zuletzt vor knappem Speicherplatz gewarnt wurde.
         self._disk_warned: float = 0.0
@@ -197,6 +219,11 @@ class Watchdog:
         await self._check_medications()
         await self._check_birthdays()
         await self._check_emergency()
+        await self._check_presence()
+        await self._check_week_ahead()
+        await self._check_family_cleanup()
+        await self._check_meal_plan()
+        await self._check_access()
         down = down_integrations(entities)
 
         # Strikes hochzählen bzw. zurücksetzen.
@@ -366,13 +393,36 @@ class Watchdog:
             )
         ]
         namen = [name for name in namen if name]
-        if not namen:
-            return
-        await self._notify(
-            "Geburtstag heute",
-            ", ".join(namen) + (" hat" if len(namen) == 1 else " haben") + " heute Geburtstag.",
-            category="birthday",
-        )
+        if namen:
+            await self._notify(
+                "Geburtstag heute",
+                ", ".join(namen)
+                + (" hat" if len(namen) == 1 else " haben")
+                + " heute Geburtstag.",
+                category="birthday",
+            )
+        # Und der Vorlauf: Ein Gruss am Morgen ist nett, aber erst drei
+        # Tage vorher bleibt Zeit für ein Geschenk (Punkt 180).
+        for versatz, contact in familie.birthdays_in(
+            self.hub.data.get("family_contacts"), jetzt.date(), BIRTHDAY_AHEAD
+        ):
+            name = str(contact.get("text") or "").strip()
+            if not name or versatz == 0:
+                continue
+            marke = f"{heute}:{name}:{versatz}"
+            if marke in self._birthday_ahead:
+                continue
+            self._birthday_ahead.add(marke)
+            wann = "morgen" if versatz == 1 else f"in {versatz} Tagen"
+            await self._notify(
+                f"{name} hat {wann} Geburtstag",
+                "Noch Zeit für ein Geschenk.",
+                category="birthday",
+            )
+        # Marken von gestern wegwerfen, sonst wächst die Menge ewig.
+        self._birthday_ahead = {
+            marke for marke in self._birthday_ahead if marke.startswith(heute)
+        }
 
     async def _check_emergency(self) -> None:
         """Einmal im Jahr daran erinnern, das Notfallblatt anzusehen.
@@ -405,6 +455,194 @@ class Watchdog:
             "Allergien und Versicherung noch?",
             category="maintenance",
         )
+
+    async def _check_presence(self) -> None:
+        """Rund um die Ortung: schwacher Akku, Ferienmodus, alter Verlauf.
+
+        Drei kleine Dinge, die zusammengehören, weil sie dieselbe Quelle
+        haben – die Zonenmeldungen der Telefone.
+        """
+        service = self.hub.integrations.get("geofence")
+        if service is None:
+            return
+        jetzt = time.time()
+        zustaende = []
+        grenze = int(self.rules["presence"]["params"].get("percent", presence.BATTERY_LOW))
+        for zone_id in service.zone_ids():
+            entity_id = service.zone_entity(zone_id)
+            entity = self.hub.registry.get(entity_id) if entity_id else None
+            if entity is None:
+                continue
+            zustaende.append(dict(entity.state))
+            # Punkt 220: Ein leeres Telefon ist die häufigste Ursache für
+            # eine tote Ortung – und es kündigt sich an.
+            text = presence.battery_alert(entity.name, entity.state.get("battery"), grenze)
+            if text and zone_id not in self._battery_told:
+                self._battery_told.add(zone_id)
+                await self._notify("Telefon fast leer", text, category="presence")
+            elif not text:
+                self._battery_told.discard(zone_id)
+
+        # Punkt 221: Sind alle seit einem Tag weg und die Simulation ist
+        # aus, fragt eine einzelne Push nach. Eine Frage, keine Automatik.
+        sim = self.hub.integrations.get("presence_sim")
+        if sim is not None and presence.holiday_question(zustaende, self._sim_running(), jetzt):
+            if jetzt - self._holiday_asked > HOLIDAY_ASK_AGAIN:
+                self._holiday_asked = jetzt
+                await self._notify(
+                    "Ihr seid alle weg",
+                    "Soll der Ferienmodus (Anwesenheitssimulation) laufen?",
+                    category="presence",
+                )
+
+        # Punkt 203: Der Verlauf soll von selbst vergessen, nicht nur beim
+        # Schreiben – sonst bliebe er nach der letzten Meldung ewig stehen.
+        if jetzt - self._history_trimmed > 3600:
+            self._history_trimmed = jetzt
+            alt = self.hub.data.get("presence_history")
+            neu = presence.trim_history(alt, jetzt)
+            if len(neu) != len(alt):
+                self.hub.data.set("presence_history", neu)
+
+    def _sim_running(self) -> bool:
+        """Läuft die Anwesenheitssimulation gerade?
+
+        Sie hat keinen eigenen Zustand, sondern hängt an einem Schalter -
+        also wird genau der gelesen.
+        """
+        sim = self.hub.integrations.get("presence_sim")
+        schalter = getattr(sim, "_switch", None)
+        if not schalter:
+            return False
+        entity = self.hub.registry.get(str(schalter))
+        if entity is None:
+            return False
+        return str(entity.state.get("state")) == str(getattr(sim, "_active", "on"))
+
+    async def _check_week_ahead(self) -> None:
+        """Der Sonntagabend-Ausblick (Punkt 204).
+
+        Der Hub kennt die Termine der Woche, die fälligen Ämtli und die
+        anstehenden Geburtstage – aber jeder sammelt sich das selbst
+        zusammen. Am Sonntagabend geht man die Woche ohnehin im Kopf
+        durch; genau dann ist die Nachricht willkommen.
+        """
+        jetzt = datetime.now()
+        if jetzt.weekday() != 6:  # Sonntag
+            return
+        stunde = int(self.rules["weekahead"]["params"].get("hour", 19))
+        if jetzt.hour != stunde:
+            return
+        heute = jetzt.strftime("%Y-%m-%d")
+        if self._weekahead_day == heute:
+            return
+        self._weekahead_day = heute
+        events: list[Any] = []
+        for entity in self.hub.registry.all():
+            if entity.id.startswith("google_calendar."):
+                events.extend(entity.state.get("events") or [])
+        text = familie.week_ahead(
+            events,
+            self.hub.data.get("family_tasks"),
+            self.hub.data.get("family_chores"),
+            self.hub.data.get("family_contacts"),
+            jetzt.date(),
+        )
+        if not text:
+            return
+        await self._notify("Die kommende Woche", text, category="weekahead")
+
+    async def _check_family_cleanup(self) -> None:
+        """Erledigtes verschwindet von selbst (Punkt 170).
+
+        Abgehakte Aufgaben und erledigte Einkäufe bleiben stehen, bis
+        jemand aufräumt – und niemand räumt auf. Weg ist es damit nicht:
+        Es wandert in den Papierkorb der Familienlisten und lässt sich
+        dort noch dreissig Tage zurückholen.
+        """
+        jetzt = datetime.now()
+        if jetzt.hour != 4:
+            return
+        heute = jetzt.strftime("%Y-%m-%d")
+        if self._cleanup_day == heute:
+            return
+        self._cleanup_day = heute
+        korb = self.hub.data.get("family_trash")
+        for collection in ("tasks", "shopping", "countdowns"):
+            key = f"family_{collection}"
+            rows = self.hub.data.get(key)
+            alt = familie.stale_done(rows, jetzt.date())
+            if not alt:
+                continue
+            ids = {row.get("id") for row in alt}
+            for row in alt:
+                korb = trash.put(korb, collection, row, "Wächter")
+            self.hub.data.set(key, [row for row in rows if row.get("id") not in ids])
+            log.info("Familienliste '%s': %d Erledigte aufgeräumt", collection, len(alt))
+        self.hub.data.set("family_trash", trash.purge(korb))
+        # Und einmal im Monat das Familienbuch (Punkt 169): eine Seite,
+        # die auch ohne HomePilot noch lesbar ist.
+        monat = jetzt.strftime("%Y-%m")
+        if self._book_month != monat:
+            self._book_month = monat
+            ziel = self.hub.data.family_book(monat)
+            if ziel is not None:
+                log.info("Familienbuch abgelegt: %s", ziel)
+
+    async def _check_meal_plan(self) -> None:
+        """Der Wochenplan füttert «zuletzt gekocht» (Punkt 218).
+
+        Bisher entstand der Stempel nur, wer den Kochmodus bis zum
+        Fertig-Haken durchlief – die Lasagne, die man auswendig kann,
+        zählte nie, und die Vorschläge boten sie deshalb immer wieder an.
+        """
+        jetzt = datetime.now()
+        if jetzt.hour != 3:
+            return
+        heute = jetzt.strftime("%Y-%m-%d")
+        if self._cooked_day == heute:
+            return
+        self._cooked_day = heute
+        gestern = jetzt.date() - timedelta(days=1)
+        rezepte = self.hub.data.get("family_recipes")
+        neu = familie.cooked_from_plan(
+            self.hub.data.get("family_meals"), rezepte, gestern
+        )
+        if neu is not rezepte and neu != rezepte:
+            self.hub.data.set("family_recipes", neu)
+            log.info("Kochstempel aus dem Wochenplan für %s gesetzt", gestern)
+
+    async def _check_access(self) -> None:
+        """Ein ablaufender Zugang meldet sich (Punkt 185).
+
+        Der Zugang lief zur eingestellten Stunde ab – still. Zwei
+        Nachrichten machen daraus etwas Verlässliches: an den Gast kurz
+        vorher, an die Familie, wenn es so weit ist.
+        """
+        jetzt = datetime.now()
+        for user in self.hub.users.users:
+            if user.role != users.Role.GUEST or not user.enabled:
+                continue
+            ende = users.access_end(user.expires, user.hours, jetzt)
+            if ende is None:
+                continue
+            marke = f"{user.name}:{ende.isoformat(timespec='minutes')}"
+            rest = (ende - jetzt).total_seconds()
+            if 0 < rest <= ACCESS_WARN_SECONDS and marke not in self._access_warned:
+                self._access_warned.add(marke)
+                await self._notify(
+                    "Dein Zugang endet bald",
+                    f"Um {ende.strftime('%H:%M')} läuft der Zugang ab.",
+                    category="tasks",
+                    to=user.name,
+                )
+            if rest <= 0 and marke not in self._access_ended:
+                self._access_ended.add(marke)
+                await self._notify(
+                    f"Zugang von {user.name} ist abgelaufen",
+                    "Wer länger bleibt, braucht eine Verlängerung.",
+                    category="tasks",
+                )
 
     async def _check_disk(self) -> None:
         """Speicherplatz dort prüfen, wo der Hub wirklich schreibt."""
