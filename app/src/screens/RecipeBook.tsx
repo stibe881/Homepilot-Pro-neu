@@ -15,6 +15,8 @@ import {
   View,
 } from 'react-native';
 
+import { HubSettings } from '../api/types';
+import { minutenImText } from '../lib/kochzeit';
 import { Colors, radius, useColors } from '../theme';
 
 /**
@@ -32,6 +34,8 @@ const WEEK_DAYS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'S
 
 interface Props {
   recipes: any[];
+  /** Hub-Zugang – für die Küchenuhr im Kochmodus. Ohne fehlt der Knopf. */
+  settings?: HubSettings;
   currentUser?: { name: string } | null;
   onAdd: (recipe: Record<string, any>) => void;
   onUpdate: (id: string, patch: Record<string, any>) => void;
@@ -318,6 +322,12 @@ function RecipeForm({
   );
   const [steps, setSteps] = useState(stepTexts(initial ?? {}).join('\n'));
   const [tips, setTips] = useState(listOfTexts(initial?.tips).join('\n'));
+  // Herkunft und Notizen: der Unterschied zwischen einer Rezeptsammlung
+  // und einem Familienkochbuch. «Zu salzig», «bei 180° statt 200°» – ein
+  // dreimal gekochtes, zweimal korrigiertes Rezept ist mehr wert als
+  // eines aus dem Netz.
+  const [source, setSource] = useState(String(initial?.source ?? ''));
+  const [notes, setNotes] = useState(String(initial?.notes ?? ''));
   const [image, setImage] = useState<string>(String(initial?.image_url ?? ''));
 
   // Foto aus der Galerie: als data-URI (Base64) speichern, damit es über den
@@ -360,6 +370,8 @@ function RecipeForm({
     recipe.ingredients = parseIngredients(ingredients);
     recipe.instructions = parseSteps(steps);
     recipe.tips = parseSteps(tips).map((step) => step.text);
+    recipe.source = source.trim();
+    recipe.notes = notes.trim();
     onSave(recipe);
   };
 
@@ -479,6 +491,21 @@ function RecipeForm({
         placeholderTextColor={colors.inkFaint}
         multiline
       />
+      <TextInput
+        style={styles.input}
+        value={source}
+        onChangeText={setSource}
+        placeholder="Woher? (Buch, Seite, Link, «von Mama»)"
+        placeholderTextColor={colors.inkFaint}
+      />
+      <TextInput
+        style={[styles.input, { minHeight: 60 }]}
+        value={notes}
+        onChangeText={setNotes}
+        placeholder="Notizen nach dem Kochen («zu salzig», «180° statt 200°»)"
+        placeholderTextColor={colors.inkFaint}
+        multiline
+      />
       <Pressable onPress={submit} style={styles.primaryWide}>
         <Text style={styles.primaryWideText}>Speichern</Text>
       </Pressable>
@@ -495,13 +522,19 @@ const KOCH_TAG = 'homepilot-kochen';
 function CookMode({
   recipe,
   factor,
+  settings,
   onClose,
+  onFertig,
   styles,
   colors,
 }: {
   recipe: any;
   factor: number;
+  /** Für die Küchenuhr – ohne Hub-Zugang gibt es den Knopf nicht. */
+  settings?: HubSettings;
   onClose: () => void;
+  /** Der letzte Schritt ist geschafft – fürs «zuletzt gekocht». */
+  onFertig?: () => void;
   styles: Styles;
   colors: Colors;
 }) {
@@ -518,6 +551,33 @@ function CookMode({
   }, []);
   const steps = stepTexts(recipe);
   const ingredients: any[] = Array.isArray(recipe.ingredients) ? recipe.ingredients : [];
+  // «20 Minuten backen» → ein Knopf, der die Küchenuhr des Hubs stellt.
+  // Die Durchsage kommt dann auch im Wohnzimmer an.
+  const [uhrGestellt, setUhrGestellt] = useState<number | null>(null);
+  // «Wieviel Rahm war das nochmal?» – die Zutaten zum Aufklappen, ohne
+  // zwei Schritte zurückzugehen.
+  const [zutatenOffen, setZutatenOffen] = useState(false);
+  const schrittMinuten = step >= 0 ? minutenImText(steps[step] ?? '') : null;
+
+  const uhrStellen = async (minuten: number) => {
+    if (!settings) return;
+    try {
+      const response = await fetch(`${settings.url}/api/timers`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(settings.token ? { Authorization: `Bearer ${settings.token}` } : {}),
+        },
+        body: JSON.stringify({
+          minutes: minuten,
+          text: `${recipe.text} – Schritt ${step + 1}`,
+        }),
+      });
+      if (response.ok) setUhrGestellt(minuten);
+    } catch {
+      // Keine Uhr ist ärgerlich, aber kein Grund, das Kochen zu stören.
+    }
+  };
 
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
@@ -581,7 +641,54 @@ function CookMode({
                 <Text style={styles.stepBadgeText}>SCHRITT {step + 1}</Text>
               </View>
               <Text style={styles.stepText}>{steps[step]}</Text>
+              {settings && schrittMinuten ? (
+                <Pressable
+                  onPress={() => uhrStellen(schrittMinuten)}
+                  accessibilityRole="button"
+                  style={({ pressed }) => [styles.uhrKnopf, pressed && { opacity: 0.8 }]}
+                >
+                  <Ionicons
+                    name={uhrGestellt === schrittMinuten ? 'checkmark' : 'timer-outline'}
+                    size={18}
+                    color={colors.accent}
+                  />
+                  <Text style={styles.uhrKnopfText}>
+                    {uhrGestellt === schrittMinuten
+                      ? `Uhr läuft (${schrittMinuten} Min)`
+                      : `Uhr stellen: ${schrittMinuten} Min`}
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
+            {ingredients.length > 0 ? (
+              <View>
+                <Pressable
+                  onPress={() => setZutatenOffen((offen) => !offen)}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: zutatenOffen }}
+                  style={styles.zutatenToggle}
+                >
+                  <Ionicons
+                    name={zutatenOffen ? 'chevron-down' : 'chevron-up'}
+                    size={16}
+                    color={colors.inkSoft}
+                  />
+                  <Text style={styles.zutatenToggleText}>Zutaten</Text>
+                </Pressable>
+                {zutatenOffen ? (
+                  <ScrollView style={{ maxHeight: 180 }}>
+                    {ingredients.map((ingredient, index) => (
+                      <Text key={index} style={styles.zutatenZeile}>
+                        {[scaledAmount(ingredient?.amount, factor), ingredient?.unit]
+                          .filter(Boolean)
+                          .join(' ')}{' '}
+                        {String(ingredient?.name ?? '')}
+                      </Text>
+                    ))}
+                  </ScrollView>
+                ) : null}
+              </View>
+            ) : null}
             <View style={styles.cookButtons}>
               <Pressable
                 onPress={() => setStep((value) => value - 1)}
@@ -590,7 +697,16 @@ function CookMode({
                 <Text style={styles.ghostWideText}>← Zurück</Text>
               </Pressable>
               <Pressable
-                onPress={() => (step + 1 < steps.length ? setStep(step + 1) : onClose())}
+                onPress={() => {
+                  if (step + 1 < steps.length) {
+                    setStep(step + 1);
+                    setZutatenOffen(false);
+                    setUhrGestellt(null);
+                    return;
+                  }
+                  onFertig?.();
+                  onClose();
+                }}
                 style={[styles.primaryWide, { flex: 1.4 }]}
               >
                 <Text style={styles.primaryWideText}>
@@ -608,10 +724,12 @@ function CookMode({
 /** Detailansicht: grosses Bild, Fakten-Chips, Portionen, Zutaten, Schritte. */
 function RecipeDetail({
   recipe,
+  settings,
   onBack,
   onEdit,
   onDelete,
   onToggleFavorite,
+  onCooked,
   planMeal,
   onShopping,
   styles,
@@ -622,6 +740,9 @@ function RecipeDetail({
   onEdit: () => void;
   onDelete: () => void;
   onToggleFavorite: () => void;
+  settings?: HubSettings;
+  /** Der Kochmodus wurde bis zum Ende durchlaufen. */
+  onCooked?: () => void;
   planMeal: (day: string, text: string, recipeId: string) => void;
   onShopping: (recipe: any, faktor: number) => number;
   styles: Styles;
@@ -848,6 +969,22 @@ function RecipeDetail({
             <Text style={styles.sourceLink}>Quelle: {String(recipe.source_url)}</Text>
           </Pressable>
         ) : null}
+        {recipe.source ? (
+          /^https?:\/\//i.test(String(recipe.source)) ? (
+            <Pressable onPress={() => Linking.openURL(String(recipe.source)).catch(() => {})}>
+              <Text style={styles.sourceLink}>Quelle: {String(recipe.source)}</Text>
+            </Pressable>
+          ) : (
+            <Text style={[styles.sourceLink, { color: colors.inkSoft }]}>
+              Quelle: {String(recipe.source)}
+            </Text>
+          )
+        ) : null}
+        {recipe.last_cooked ? (
+          <Text style={[styles.sourceLink, { color: colors.inkSoft }]}>
+            Zuletzt gekocht: {String(recipe.last_cooked).split('-').reverse().join('.')}
+          </Text>
+        ) : null}
         {recipe.body && ingredients.length === 0 && steps.length === 0 ? (
           <Text style={styles.description}>{recipe.body}</Text>
         ) : null}
@@ -916,7 +1053,9 @@ function RecipeDetail({
         <CookMode
           recipe={recipe}
           factor={factor}
+          settings={settings}
           onClose={() => setCooking(false)}
+          onFertig={onCooked}
           styles={styles}
           colors={colors}
         />
@@ -931,6 +1070,7 @@ type Screen = { kind: 'list' } | { kind: 'detail'; id: string } | { kind: 'form'
 
 export function RecipeBook({
   recipes,
+  settings,
   currentUser,
   onAdd,
   onUpdate,
@@ -1014,6 +1154,12 @@ export function RecipeBook({
     return (
       <RecipeDetail
         recipe={recipe}
+        settings={settings}
+        onCooked={() =>
+          // Das Datum reicht – es beantwortet «wann gab es das zuletzt?»
+          // im Essensplaner und in der Detailansicht.
+          onUpdate(recipe.id, { last_cooked: new Date().toISOString().slice(0, 10) })
+        }
         onBack={() => setScreen({ kind: 'list' })}
         onEdit={() => setScreen({ kind: 'form', id: recipe.id })}
         onDelete={() => {
@@ -1483,4 +1629,26 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     ghostWideText: { color: colors.ink, fontSize: 15, fontWeight: '700' },
+    uhrKnopf: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      alignSelf: 'flex-start',
+      marginTop: 14,
+      paddingHorizontal: 14,
+      paddingVertical: 9,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      backgroundColor: colors.surface,
+    },
+    uhrKnopfText: { color: colors.accent, fontSize: 14, fontWeight: '700' },
+    zutatenToggle: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingVertical: 8,
+    },
+    zutatenToggleText: { color: colors.inkSoft, fontSize: 13, fontWeight: '700' },
+    zutatenZeile: { color: colors.inkSoft, fontSize: 14, lineHeight: 21 },
   });

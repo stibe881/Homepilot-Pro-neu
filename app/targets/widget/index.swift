@@ -1,5 +1,6 @@
 import SwiftUI
 import WidgetKit
+import AppIntents
 
 // Widget für Homescreen und Sperrbildschirm.
 //
@@ -38,6 +39,12 @@ struct Shortcut: Decodable {
     let title: String
     let symbol: String
     let url: URL
+    /// Ab iOS 17: Der Knopf schaltet direkt, statt die App zu öffnen.
+    /// Die App setzt das nur für Szenen und Lichter – und nur, wenn der
+    /// Hausstand (und damit das Token) in der App-Gruppe liegt.
+    let direct: Bool?
+    let actionPath: String?
+    let actionBody: String?
 }
 
 /// Womit jeder anfängt, solange die App nichts hinterlegt hat.
@@ -46,19 +53,28 @@ private let standardShortcuts: [Shortcut] = [
         key: "door",
         title: "Haustüre",
         symbol: "key.fill",
-        url: URL(string: "homepilot://door")!
+        url: URL(string: "homepilot://door")!,
+        direct: nil,
+        actionPath: nil,
+        actionBody: nil
     ),
     Shortcut(
         key: "alloff",
         title: "Alles aus",
         symbol: "power",
-        url: URL(string: "homepilot://alloff")!
+        url: URL(string: "homepilot://alloff")!,
+        direct: nil,
+        actionPath: nil,
+        actionBody: nil
     ),
     Shortcut(
         key: "alarm",
         title: "Alarm",
         symbol: "shield.fill",
-        url: URL(string: "homepilot://alarm")!
+        url: URL(string: "homepilot://alarm")!,
+        direct: nil,
+        actionPath: nil,
+        actionBody: nil
     ),
 ]
 
@@ -241,6 +257,74 @@ struct StatusZeile: View {
     }
 }
 
+/// Der Schaltbefehl hinter einem Direkt-Knopf.
+///
+/// Läuft im Widget-Prozess, ohne die App zu öffnen. Pfad und Body kommen
+/// aus der App-Gruppe – das Widget versteht weder Szenen noch Geräte, es
+/// ruft nur auf, was die App ihm hingelegt hat. Fehler verschluckt der
+/// Aufruf bewusst: Ein Widget hat keinen Platz für eine Fehlermeldung,
+/// und der nächste Blick auf den Hausstand zeigt, ob es geklappt hat.
+@available(iOS 17.0, *)
+struct SchaltIntent: AppIntent {
+    static var title: LocalizedStringResource = "HomePilot schalten"
+
+    @Parameter(title: "Pfad")
+    var pfad: String
+
+    @Parameter(title: "Body")
+    var body: String
+
+    init() {}
+
+    init(pfad: String, body: String) {
+        self.pfad = pfad
+        self.body = body
+    }
+
+    func perform() async throws -> some IntentResult {
+        let defaults = UserDefaults(suiteName: appGroup)
+        guard
+            let base = defaults?.string(forKey: "hubUrl"),
+            let token = defaults?.string(forKey: "hubToken"),
+            !pfad.isEmpty,
+            let url = URL(string: base + pfad)
+        else {
+            return .result()
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+        if !body.isEmpty {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = body.data(using: .utf8)
+        }
+        request.timeoutInterval = 8
+        _ = try? await URLSession.shared.data(for: request)
+        return .result()
+    }
+}
+
+/// Ein Knopf: schaltet direkt (iOS 17, wenn die App es erlaubt hat) oder
+/// öffnet die App an der richtigen Stelle – der Weg, der für Tür und
+/// Alarm immer bleibt.
+struct KnopfInhalt<Inhalt: View>: View {
+    let knopf: Shortcut
+    @ViewBuilder let inhalt: () -> Inhalt
+
+    var body: some View {
+        if #available(iOS 17.0, *), knopf.direct == true {
+            Button(intent: SchaltIntent(pfad: knopf.actionPath ?? "", body: knopf.actionBody ?? "")) {
+                inhalt()
+            }
+            .buttonStyle(.plain)
+        } else {
+            Link(destination: knopf.url) {
+                inhalt()
+            }
+        }
+    }
+}
+
 struct HomePilotWidgetView: View {
     @Environment(\.widgetFamily) var family
     var entry: Provider.Entry
@@ -280,7 +364,7 @@ struct HomePilotWidgetView: View {
                 Spacer(minLength: 0)
                 HStack(spacing: 14) {
                     ForEach(entry.shortcuts, id: \.url) { knopf in
-                        Link(destination: knopf.url) {
+                        KnopfInhalt(knopf: knopf) {
                             Image(systemName: knopf.symbol)
                         }
                     }
@@ -303,7 +387,7 @@ struct HomePilotWidgetView: View {
                 Divider()
                 HStack(spacing: 18) {
                     ForEach(entry.shortcuts, id: \.url) { knopf in
-                        Link(destination: knopf.url) {
+                        KnopfInhalt(knopf: knopf) {
                             VStack(spacing: 3) {
                                 Image(systemName: knopf.symbol)
                                 Text(knopf.title).font(.caption2)

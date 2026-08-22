@@ -2932,6 +2932,7 @@ export function FamilyScreen({
       <View style={[styles.stack, { flex: 1 }]}>
         <RecipeBook
           recipes={data.recipes ?? []}
+          settings={settings}
           currentUser={currentUser}
           onAdd={(recipe) => add('recipes', recipe)}
           onUpdate={(id, patch) => update('recipes', id, patch)}

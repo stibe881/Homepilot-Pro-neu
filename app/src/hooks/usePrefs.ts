@@ -40,6 +40,9 @@ export interface HousePrefs {
    *  «entity:light.kueche». Ohne Eintrag die drei, mit denen jeder
    *  anfängt. */
   widgetButtons?: string[];
+  /** Schlüssel der Knöpfe, die direkt schalten statt die App zu öffnen.
+   *  Nur für Szenen und Lichter erlaubt – nie für Tür oder Alarm. */
+  widgetDirect?: string[];
 }
 
 /** Was nur einen selbst angeht. */
@@ -162,6 +165,11 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     [setzeHaus]
   );
 
+  const setWidgetDirect = useCallback(
+    (keys: string[]) => setzeHaus({ ...hausJetzt.current, widgetDirect: keys }),
+    [setzeHaus]
+  );
+
   const setSeenChanges = useCallback(
     (commit: string) => setzeEigen({ ...eigenJetzt.current, seenChanges: commit }),
     [setzeEigen]
@@ -179,6 +187,7 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     setBioLock,
     setWidgetData,
     setWidgetButtons,
+    setWidgetDirect,
     setSeenChanges,
   };
 }

@@ -81,7 +81,7 @@ import { Widgets } from '../components/Widgets';
 import { Ablage, syncWidget } from '../lib/widget';
 import { favoritenVon, zuUebernehmen } from '../lib/favoriten';
 import { altesUebernehmen } from '../lib/hausprefs';
-import { resolveButtons, widgetCommand } from '../lib/widgetButtons';
+import { resolveButtons, widgetCommand, mitDirekt } from '../lib/widgetButtons';
 
 const ALL_ROOMS = 'Alle';
 /** Befehle, die ein gesperrtes Gerät nur nach Rückfrage annimmt. Lesende
@@ -485,6 +485,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setBioLock,
     setWidgetData,
     setWidgetButtons,
+    setWidgetDirect,
   } = usePrefs(settings, status === 'connected');
 
   // Einmalige Übernahme dessen, was vorher im Gerät und beim Benutzer
@@ -509,8 +510,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // nicht ein Widget zurücklässt, das ins Leere fragt, und eine
   // gelöschte Szene keinen Knopf, der nirgends hinführt.
   const widgetButtons = useMemo(
-    () => resolveButtons(prefs.widgetButtons, scenes, entities),
-    [prefs.widgetButtons, scenes, entities]
+    () =>
+      mitDirekt(
+        resolveButtons(prefs.widgetButtons, scenes, entities),
+        prefs.widgetDirect ?? [],
+        entities,
+        !!prefs.widgetData
+      ),
+    [prefs.widgetButtons, prefs.widgetDirect, prefs.widgetData, scenes, entities]
   );
   const [widgetAblage, setWidgetAblage] = useState<Ablage>('kein-widget');
   useEffect(() => {
@@ -1327,6 +1334,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           <Widgets
             buttons={prefs.widgetButtons}
             onButtons={setWidgetButtons}
+            direct={prefs.widgetDirect ?? []}
+            onDirect={setWidgetDirect}
             dataEnabled={!!prefs.widgetData}
             onDataEnabled={setWidgetData}
             ablage={widgetAblage}

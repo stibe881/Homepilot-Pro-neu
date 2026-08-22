@@ -18,6 +18,7 @@ import {
   MAX_BUTTONS,
   STANDARD,
   addableButtons,
+  darfDirekt,
   moveButton,
   resolveButtons,
 } from '../lib/widgetButtons';
@@ -38,6 +39,8 @@ import { Colors, radius, type, useColors } from '../theme';
 export function Widgets({
   buttons,
   onButtons,
+  direct = [],
+  onDirect,
   dataEnabled,
   onDataEnabled,
   ablage,
@@ -46,6 +49,10 @@ export function Widgets({
 }: {
   buttons?: string[];
   onButtons: (keys: string[]) => void;
+  /** Schlüssel der Knöpfe, die direkt schalten (iOS 17) statt die App zu
+   *  öffnen. Nur Szenen und Lichter – Tür und Alarm behalten den Umweg. */
+  direct?: string[];
+  onDirect?: (keys: string[]) => void;
   dataEnabled: boolean;
   onDataEnabled: (on: boolean) => void;
   ablage: Ablage;
@@ -133,6 +140,31 @@ export function Widgets({
                   }
                 />
               </Pressable>
+              {onDirect && dataEnabled && darfDirekt(knopf.key, entities) ? (
+                // Seit iOS 17 kann der Knopf selbst schalten. Je Knopf
+                // entschieden: Für ein Licht ist der Umweg über die App
+                // keine Sicherheit mehr, nur Reibung – für Tür und Alarm
+                // gibt es den Schalter gar nicht erst.
+                <Pressable
+                  onPress={() =>
+                    onDirect(
+                      direct.includes(knopf.key)
+                        ? direct.filter((key) => key !== knopf.key)
+                        : [...direct, knopf.key]
+                    )
+                  }
+                  hitSlop={8}
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: direct.includes(knopf.key) }}
+                  accessibilityLabel={`${knopf.title} direkt schalten`}
+                >
+                  <Ionicons
+                    name={direct.includes(knopf.key) ? 'flash' : 'flash-outline'}
+                    size={18}
+                    color={direct.includes(knopf.key) ? colors.warn : colors.inkFaint}
+                  />
+                </Pressable>
+              ) : null}
               <Pressable
                 onPress={() => setzen(drin.filter((key) => key !== knopf.key))}
                 hitSlop={8}
@@ -145,6 +177,12 @@ export function Widgets({
           ))
         )}
 
+        {onDirect && dataEnabled && gewaehlt.some((k) => darfDirekt(k.key, entities)) ? (
+          <Text style={styles.hint}>
+            ⚡ heisst: Der Knopf schaltet direkt vom Widget aus (ab iOS 17),
+            ohne die App zu öffnen. Tür und Alarm behalten den Umweg immer.
+          </Text>
+        ) : null}
         {gewaehlt.length >= MAX_BUTTONS ? (
           <Text style={styles.hint}>
             Voll – erst einen entfernen, dann kommt ein anderer hinein.

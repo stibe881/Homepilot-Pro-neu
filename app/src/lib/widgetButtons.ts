@@ -32,6 +32,11 @@ export interface WidgetButton {
   /** homepilot://… – dieselben Adressen, die auch ein NFC-Aufkleber
    *  benutzt. */
   url: string;
+  /** Schaltet der Knopf direkt (iOS 17), statt die App zu öffnen? */
+  direct?: boolean;
+  /** Was er dann aufruft – Pfad am Hub und JSON-Body. */
+  actionPath?: string;
+  actionBody?: string;
 }
 
 /** Mehr passt selbst auf die grosse Widget-Grösse nicht nebeneinander. */
@@ -234,4 +239,70 @@ export function moveButton(
   const next = [...keys];
   [next[index], next[ziel]] = [next[ziel], next[index]];
   return next;
+}
+
+
+/**
+ * Darf dieser Knopf direkt schalten? (rein, testbar)
+ *
+ * Seit iOS 17 kann ein Widget-Knopf selbst schalten, ohne die App zu
+ * öffnen. Für den Türöffner und den Alarm bleibt der Umweg Absicht –
+ * ein Schloss vom Sperrbildschirm ohne Rückfrage ist genau der Knopf,
+ * den man nicht will. Für eine Szene oder ein Licht ist der Umweg keine
+ * Sicherheit mehr, nur noch Reibung.
+ */
+export function darfDirekt(key: string, entities: Entity[]): boolean {
+  if (key.startsWith('scene:')) return true;
+  if (!key.startsWith('entity:')) return false;
+  const entity = entities.find((entry) => entry.id === key.slice('entity:'.length));
+  if (!entity) return false;
+  return entity.kind === 'light' || entity.kind === 'switch';
+}
+
+/**
+ * Die Direkt-Angaben an die aufgelösten Knöpfe hängen (rein, testbar).
+ *
+ * Nur wenn der Hausstand eingeschaltet ist: Direkt schalten braucht das
+ * Token in der App-Gruppe, und das liegt nur dort, wenn man sich für
+ * den Hausstand entschieden hat – dieselbe Abwägung, ein Schalter.
+ */
+export function mitDirekt(
+  buttons: WidgetButton[],
+  directKeys: string[],
+  entities: Entity[],
+  dataEnabled: boolean
+): WidgetButton[] {
+  const ohneDirekt = (knopf: WidgetButton): WidgetButton => {
+    const rest = { ...knopf };
+    delete rest.direct;
+    delete rest.actionPath;
+    delete rest.actionBody;
+    return rest;
+  };
+  if (!dataEnabled) {
+    return buttons.map(ohneDirekt);
+  }
+  return buttons.map((knopf) => {
+    if (!directKeys.includes(knopf.key) || !darfDirekt(knopf.key, entities)) {
+      return ohneDirekt(knopf);
+    }
+    if (knopf.key.startsWith('scene:')) {
+      const id = knopf.key.slice('scene:'.length);
+      return {
+        ...knopf,
+        direct: true,
+        actionPath: `/api/scenes/${encodeURIComponent(id)}/activate`,
+        actionBody: '',
+      };
+    }
+    const id = knopf.key.slice('entity:'.length);
+    const entity = entities.find((entry) => entry.id === id);
+    const command = entity?.commands.includes('toggle') ? 'toggle' : 'turn_on';
+    return {
+      ...knopf,
+      direct: true,
+      actionPath: `/api/entities/${encodeURIComponent(id)}/command`,
+      actionBody: JSON.stringify({ command }),
+    };
+  });
 }
