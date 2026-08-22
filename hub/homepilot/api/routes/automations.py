@@ -48,6 +48,12 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         require(request, Capability.EDIT_AUTOMATIONS)
         return {"conflicts": automation_module.find_conflicts(hub.automations.automations)}
 
+    @app.get("/api/automations/agenda")
+    async def automation_agenda(request: Request) -> dict[str, Any]:
+        """Was das Haus heute vorhat (Punkt 163) - das Tagesband der App."""
+        require(request, Capability.VIEW_AUTOMATIONS)
+        return {"agenda": hub.automations.tagesplan()}
+
     @app.get("/api/automations/{automation_id}/diagnose")
     async def automation_diagnose(automation_id: str, request: Request) -> dict[str, Any]:
         """Warum schweigt dieser Ablauf?

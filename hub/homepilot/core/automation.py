@@ -5,12 +5,15 @@ Trigger:
   - {type: state, entity_id, attribute, above? | below?}   # Schwelle gekreuzt
   - {type: availability, entity_id, to: false|true}  # meldet sich (nicht) mehr
   - {type: interval, seconds}
-  - {type: time, at: "HH:MM"}
-  - {type: sun, event: "sunrise"|"sunset", offset?: minuten}  # +/- Versatz
+  - {type: time, at: "HH:MM", jitter?: minuten}   # jitter: ± zufällig (155)
+  - {type: sun, event: "sunrise"|"sunset", offset?: minuten, jitter?: minuten}
+  - {type: calendar, contains?: "Wort", event?: "start"|"end",
+     minutes_before?: minuten, entity_id?}   # Termin beginnt/endet (153)
 
 Bedingungen:
   - {type: state, entity_id, attribute?: "state", equals? | above? | below?}
-  - {type: time, after?: "HH:MM", before?: "HH:MM", weekdays?: [0..6]}
+  - {type: time, after?: "HH:MM", before?: "HH:MM", weekdays?: [0..6],
+     except_holidays?: true}   # Luzerner Feiertage, siehe feiertage.py (154)
   - {type: sun, state: "up"|"down"}   # steht die Sonne über dem Horizont?
   - {type: group, match: "any"|"all", conditions: [...]}  # und/oder geschachtelt
 
@@ -20,6 +23,7 @@ Aktionen:
   - {type: scene, scene} / {type: hue_scene, scene}
   - {type: notify, title?, body?, to?, camera?}
   - {type: wait_until, ...Bedingung, timeout?: sekunden}
+  - {type: fade, entity_id, to: 0..100, minutes}   # weich dimmen (157)
   - {type: automation, automation_id}   # die Aktionen eines anderen mitausführen
 
 Läuft ein Ablauf noch (etwa in einem ``delay``) und wird erneut
@@ -328,6 +332,11 @@ def describe_action(action: dict[str, Any], name_of: Any = None) -> str:
         boxen = action.get("speakers") or []
         wo = f" auf {len(boxen)} Box(en)" if boxen else " auf allen Boxen"
         return f"Durchsage{wo}: «{action.get('text') or ''}»"
+    if atype == "fade":
+        return (
+            f"{named(action.get('entity_id'))}: über {action.get('minutes', 0)} Min "
+            f"auf {action.get('to', 0)} % dimmen"
+        )
     return f"unbekannte Aktion «{atype}»"
 
 
@@ -365,7 +374,7 @@ def timed_actions(actions: list[dict[str, Any]], name_of: Any = None) -> list[st
     wie sie war – ein «sofort» vor jeder Zeile wäre nur Lärm.
     """
     hat_wartezeit = any(
-        action.get("type") in ("delay", "wait_until") for action in actions
+        action.get("type") in ("delay", "wait_until", "fade") for action in actions
     )
     lines: list[str] = []
     offset = 0.0
@@ -378,6 +387,20 @@ def timed_actions(actions: list[dict[str, Any]], name_of: Any = None) -> list[st
             except (TypeError, ValueError):
                 pass
             lines.append(describe_action(action, name_of))
+            continue
+        if atype == "fade":
+            # Dimmen dauert - was danach kommt, kommt danach.
+            zeile = describe_action(action, name_of)
+            if offset > 0:
+                praefix = offset_label(offset)
+                if nur_spaetestens:
+                    praefix = f"spätestens {praefix}"
+                zeile = f"{praefix}: {zeile}"
+            lines.append(zeile)
+            try:
+                offset += float(action.get("minutes") or 0) * 60
+            except (TypeError, ValueError):
+                pass
             continue
         if atype == "wait_until":
             try:
@@ -616,6 +639,65 @@ def shifted_hhmm(hour: int, minute: int, minus_minutes: int) -> tuple[int, int]:
     return total // 60, total % 60
 
 
+def fade_plan(von: float, nach: float, minuten: float) -> tuple[list[int], float]:
+    """Die Helligkeitsstufen eines Dimm-Schritts (rein, testbar) - Punkt 157.
+
+    Ergebnis: die Stufen der Reihe nach und die Pause dazwischen. Alle
+    ~15 Sekunden eine Stufe, höchstens 60 - feiner sieht kein Auge, und
+    jede Stufe ist ein Funkbefehl. Gleiche aufeinanderfolgende Werte
+    fallen weg: Von 20 auf 21 % in zehn Minuten sind zwei Befehle, nicht
+    vierzig.
+    """
+    minuten = max(0.05, min(120.0, minuten))
+    dauer = minuten * 60
+    schritte = int(min(60, max(2, dauer / 15)))
+    werte: list[int] = []
+    for i in range(1, schritte + 1):
+        wert = round(von + (nach - von) * i / schritte)
+        if not werte or werte[-1] != wert:
+            werte.append(wert)
+    return werte, dauer / schritte
+
+
+def calendar_due(
+    events: list[dict[str, Any]],
+    contains: str,
+    kind: str,
+    minutes_before: float,
+    jetzt_ts: float,
+    gefeuert: set[str],
+) -> list[str]:
+    """Welche Kalender-Termine JETZT einen Ablauf auslösen (rein) - 153.
+
+    Gibt die Schlüssel der fälligen Termine zurück; wer schon in
+    ``gefeuert`` steht, feuert nicht noch einmal. Das Fenster ist fünf
+    Minuten breit: Der Kalender wird nur alle paar Minuten abgefragt,
+    und ein Termin soll deswegen nicht durchrutschen.
+    """
+    needle = contains.strip().lower()
+    faellig: list[str] = []
+    for event in events or []:
+        summary = str(event.get("summary") or "")
+        if needle and needle not in summary.lower():
+            continue
+        grenze = event.get("end" if kind == "end" else "start")
+        if not grenze:
+            continue
+        try:
+            zeitpunkt = datetime.fromisoformat(str(grenze).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if zeitpunkt.tzinfo is not None:
+            zeitpunkt = zeitpunkt.astimezone().replace(tzinfo=None)
+        feuer_ab = zeitpunkt.timestamp() - minutes_before * 60
+        schluessel = f"{summary}|{grenze}|{kind}"
+        if schluessel in gefeuert:
+            continue
+        if feuer_ab <= jetzt_ts < feuer_ab + 300:
+            faellig.append(schluessel)
+    return faellig
+
+
 def _as_list(value: Any) -> list[dict[str, Any]]:
     if value is None:
         return []
@@ -820,6 +902,9 @@ class AutomationEngine:
                             jitter_minutes(trigger),
                         )
                     )
+                    self._timer_tasks.append(task)
+                elif trigger.get("type") == "calendar":
+                    task = asyncio.create_task(self._calendar_loop(automation, trigger))
                     self._timer_tasks.append(task)
         if self.automations:
             log.info("%d Automationen geladen", len(self.automations))
@@ -1202,6 +1287,52 @@ class AutomationEngine:
             # Moment gleich das nächste (identische) Ziel berechnet wird.
             await asyncio.sleep(60)
 
+    def _calendar_events(self, entity_id: str) -> list[dict[str, Any]]:
+        """Die Terminliste - vom benannten Kalender oder dem ersten, der
+        einen führt."""
+        if entity_id:
+            entity = self.hub.registry.get(entity_id)
+            events = entity.state.get("events") if entity else None
+            return events if isinstance(events, list) else []
+        for entity in self.hub.registry.all():
+            events = entity.state.get("events")
+            if isinstance(events, list):
+                return events
+        return []
+
+    async def _calendar_loop(
+        self, automation: Automation, trigger: dict[str, Any]
+    ) -> None:
+        """Kalender-Auslöser (Punkt 153): «wenn ein Termin ‹…› beginnt».
+
+        Der Kalender wird ohnehin gepollt und liegt als Gerätezustand
+        bereit - hier wird nur minütlich nachgesehen, ob ein passender
+        Termin gerade seine Schwelle überschreitet. ``minutes_before``
+        macht daraus die Erinnerung am Vorabend (720 = 12 Stunden).
+        """
+        gefeuert: dict[str, float] = {}
+        try:
+            vorlauf = float(trigger.get("minutes_before") or 0)
+        except (TypeError, ValueError):
+            vorlauf = 0.0
+        while True:
+            await asyncio.sleep(60)
+            faellig = calendar_due(
+                self._calendar_events(str(trigger.get("entity_id") or "")),
+                str(trigger.get("contains") or ""),
+                str(trigger.get("event") or "start"),
+                vorlauf,
+                time.time(),
+                set(gefeuert),
+            )
+            for schluessel in faellig:
+                gefeuert[schluessel] = time.time()
+                self._schedule(automation)
+            # Das Gedächtnis soll nicht mit jedem Termin wachsen.
+            grenze = time.time() - 48 * 3600
+            for schluessel in [k for k, ts in gefeuert.items() if ts < grenze]:
+                del gefeuert[schluessel]
+
     def _schedule(self, automation: Automation) -> None:
         if self.paused:
             log.debug("Automation '%s' übersprungen (pausiert)", automation.alias)
@@ -1297,6 +1428,57 @@ class AutomationEngine:
                     kandidaten.append(nxt.timestamp())
         return min(kandidaten) if kandidaten else None
 
+    def tagesplan(self) -> list[dict[str, Any]]:
+        """Was das Haus heute vorhat (Punkt 163).
+
+        Alle Zeit- und Sonnen-Auslöser des heutigen Tages, auch die schon
+        vorbeigezogenen - das Band in der App zeigt Erledigtes mit Haken
+        und Kommendes mit Uhrzeit. Zustands-Auslöser haben keinen
+        Kalender und stehen deshalb nicht hier.
+        """
+        heute = datetime.now()
+        lat, lon = self._location()
+        eintraege: list[dict[str, Any]] = []
+        for automation in self.automations:
+            if not automation.enabled:
+                continue
+            for trigger in automation.triggers:
+                art = str(trigger.get("type", "state"))
+                if art == "time":
+                    try:
+                        hour, minute = _parse_hhmm(str(trigger.get("at")))
+                    except (TypeError, ValueError):
+                        continue
+                    zeitpunkt = heute.replace(
+                        hour=hour, minute=minute, second=0, microsecond=0
+                    )
+                elif art == "sun":
+                    ereignis = astro.sun_event(
+                        heute.date(),
+                        lat,
+                        lon,
+                        sunset=str(trigger.get("event", "sunset")) != "sunrise",
+                    )
+                    if ereignis is None:
+                        continue
+                    try:
+                        versatz = float(trigger.get("offset", 0) or 0)
+                    except (TypeError, ValueError):
+                        versatz = 0.0
+                    zeitpunkt = ereignis + timedelta(minutes=versatz)
+                else:
+                    continue
+                eintraege.append(
+                    {
+                        "automation_id": automation.id,
+                        "alias": automation.alias,
+                        "at": zeitpunkt.timestamp(),
+                        "art": art,
+                    }
+                )
+        eintraege.sort(key=lambda eintrag: eintrag["at"])
+        return eintraege
+
     async def probe_action(self, action: dict[str, Any]) -> None:
         """Eine einzelne Aktion ausführen, ohne den Ablauf (Punkt 164).
 
@@ -1338,6 +1520,16 @@ class AutomationEngine:
         error: str | None = None
         executed = False
         actions: list[dict[str, Any]] = []
+        # Die Schritt-Spur (Punkt 160): je Schritt, was er war, wann er
+        # dran war und was dabei herauskam. «Fehlgeschlagen» allein
+        # beantwortet die Frage «welcher Schritt hing?» nicht.
+        spur: list[dict[str, Any]] = []
+        start_ts = time.time()
+
+        def name_of(entity_id: str) -> str:
+            entity = self.hub.registry.get(entity_id)
+            return entity.name if entity else entity_id
+
         # Bei welcher Aktion der Lauf gerade steht. Nur für den Fall, dass
         # der Hub mitten hinein herunterfährt - dann wird ab hier später
         # weitergemacht.
@@ -1361,7 +1553,15 @@ class AutomationEngine:
                     # darin - sie sagt im Abbruchfall, wo der Lauf stand.
                     # Deshalb unten die Ausnahme von B007.
                     for position, action in enumerate(actions):  # noqa: B007
-                        await self._execute_action(automation, action)
+                        notiz = await self._execute_action(automation, action)
+                        if len(spur) < 40:
+                            eintrag: dict[str, Any] = {
+                                "label": describe_action(action, name_of),
+                                "after": round(time.time() - start_ts, 1),
+                            }
+                            if notiz:
+                                eintrag["note"] = notiz
+                            spur.append(eintrag)
         except asyncio.CancelledError:
             # Abgebrochen, weil derselbe Ablauf gerade neu beginnt
             # (mode: restart). Das ist kein Fehler und gehört auch nicht
@@ -1379,6 +1579,16 @@ class AutomationEngine:
             raise
         except Exception as err:
             error = str(err)
+            # Der gescheiterte Schritt gehört mit in die Spur - genau er
+            # ist die Antwort auf «welcher hing?».
+            if actions and len(spur) < 40:
+                spur.append(
+                    {
+                        "label": describe_action(actions[position], name_of),
+                        "after": round(time.time() - start_ts, 1),
+                        "error": str(err),
+                    }
+                )
             log.exception("Automation '%s' fehlgeschlagen", automation.alias)
         finally:
             self._running.discard(automation.id)
@@ -1402,6 +1612,7 @@ class AutomationEngine:
             executed=executed,
             error=error,
             skipped=[] if executed else failed,
+            steps=spur,
         )
         if executed:
             await self.hub.bus.publish(
@@ -1421,6 +1632,7 @@ class AutomationEngine:
         executed: bool,
         error: str | None,
         skipped: list[str],
+        steps: list[dict[str, Any]] | None = None,
     ) -> None:
         self.runs.insert(
             0,
@@ -1431,6 +1643,9 @@ class AutomationEngine:
                 "executed": executed,
                 "error": error,
                 "skipped": skipped,
+                # Die Schritt-Spur (Punkt 160). Leer bei übersprungenen
+                # Läufen - dort ist «skipped» die Auskunft.
+                "steps": steps or [],
             },
         )
         del self.runs[RUN_LIMIT:]
@@ -1560,7 +1775,11 @@ class AutomationEngine:
         log.warning("Unbekannter Bedingungstyp: %s", ctype)
         return False
 
-    async def _execute_action(self, automation: Automation, action: dict[str, Any]) -> None:
+    async def _execute_action(
+        self, automation: Automation, action: dict[str, Any]
+    ) -> str | None:
+        """Eine Aktion ausführen. Die Rückgabe ist eine kurze Notiz für
+        die Schritt-Spur des Laufs (Punkt 160) - oder None."""
         atype = action.get("type", "command")
         if atype == "command":
             await self.hub.integrations.dispatch_command(
@@ -1585,7 +1804,9 @@ class AutomationEngine:
                 if task is not None:
                     self._deadlines.pop(task, None)
         elif atype == "wait_until":
-            await self._wait_until(automation, action)
+            return await self._wait_until(automation, action)
+        elif atype == "fade":
+            await self._fade(automation, action)
         elif atype == "scene":
             await self.hub.scenes.activate(action["scene"])
         elif atype == "hue_scene":
@@ -1614,8 +1835,52 @@ class AutomationEngine:
             )
         else:
             log.warning("Unbekannter Aktionstyp in '%s': %s", automation.alias, atype)
+        return None
 
-    async def _wait_until(self, automation: Automation, action: dict[str, Any]) -> None:
+    async def _fade(self, automation: Automation, action: dict[str, Any]) -> None:
+        """Weiches Licht (Punkt 157): über n Minuten von jetzt zum Ziel.
+
+        Es gab «schalten» und «warten», aber kein «weich»: Licht, das
+        abends im Kinderzimmer ausglimmt statt zu knipsen - und das
+        Aufwachlicht eine halbe Stunde vor dem Wecker.
+        """
+        entity_id = str(action.get("entity_id") or "")
+        entity = self.hub.registry.get(entity_id)
+        if entity is None:
+            log.warning(
+                "Dimm-Schritt in '%s': Gerät «%s» gibt es nicht",
+                automation.alias,
+                entity_id,
+            )
+            return
+        try:
+            nach = max(0.0, min(100.0, float(action.get("to") or 0)))
+            minuten = float(action.get("minutes") or 1)
+        except (TypeError, ValueError):
+            return
+        von = entity.state.get("brightness")
+        if von is None:
+            von = 100.0 if entity.state.get("state") == "on" else 0.0
+        von = float(von)
+        if entity.state.get("state") != "on" and nach > 0:
+            # Aufwachlicht: erst ganz dunkel stellen, dann einschalten -
+            # umgekehrt blitzte die Lampe kurz mit der alten Helligkeit auf.
+            von = 0.0
+            await self.hub.integrations.dispatch_command(
+                entity_id, "set_brightness", {"brightness": 1}
+            )
+            await self.hub.integrations.dispatch_command(entity_id, "turn_on", {})
+        werte, pause = fade_plan(von, nach, minuten)
+        for wert in werte:
+            if wert > 0:
+                await self.hub.integrations.dispatch_command(
+                    entity_id, "set_brightness", {"brightness": wert}
+                )
+            await asyncio.sleep(pause)
+        if nach <= 0:
+            await self.hub.integrations.dispatch_command(entity_id, "turn_off", {})
+
+    async def _wait_until(self, automation: Automation, action: dict[str, Any]) -> str:
         """Warten, bis eine Bedingung zutrifft – statt auf gut Glück lange
         genug zu warten.
 
@@ -1628,17 +1893,20 @@ class AutomationEngine:
         auch jeden weiteren Lauf desselben Ablaufs.
         """
         timeout = float(action.get("timeout") or WAIT_TIMEOUT)
-        deadline = time.monotonic() + max(1.0, timeout)
+        start = time.monotonic()
+        deadline = start + max(1.0, timeout)
         while True:
             if self._check_condition({**action, "type": action.get("wait_type", "state")}):
-                return
+                # Für die Schritt-Spur (Punkt 160): DASS gewartet wurde,
+                # sagt der Schritt - hier steht, wie lange wirklich.
+                return f"erfüllt nach {round(time.monotonic() - start)} s"
             if time.monotonic() >= deadline:
                 log.info(
                     "Automation '%s': Wartezeit abgelaufen, %s",
                     automation.alias,
                     describe_condition(action, self._value_of(action)),
                 )
-                return
+                return f"Frist abgelaufen ({timeout:.0f} s)"
             await asyncio.sleep(WAIT_POLL)
 
     async def _run_other(self, automation: Automation, action: dict[str, Any]) -> None:

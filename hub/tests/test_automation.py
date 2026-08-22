@@ -700,6 +700,136 @@ def test_snooze_puts_an_automation_to_rest_and_wakes_it():
         )
 
 
+def test_fade_plan_ramps_without_chatter():
+    """Der Dimm-Schritt (Punkt 157): gleichmässige Stufen, aber keine
+    doppelten Funkbefehle für dieselbe Helligkeit."""
+    from homepilot.core.automation import fade_plan
+
+    werte, pause = fade_plan(0, 100, 5)
+    assert werte[-1] == 100
+    assert werte == sorted(werte)
+    assert len(werte) <= 60
+    assert pause * 20 == pytest.approx(300, rel=0.01)
+
+    runter, _ = fade_plan(80, 0, 10)
+    assert runter[-1] == 0
+    assert runter == sorted(runter, reverse=True)
+
+    # Von 20 auf 21 % in zehn Minuten: zwei Befehle, nicht vierzig.
+    fast_gleich, _ = fade_plan(20, 21, 10)
+    assert fast_gleich == [21] or fast_gleich == [20, 21]
+
+
+def test_calendar_due_fires_once_per_event_inside_the_window():
+    """Der Kalender-Auslöser (Punkt 153): feuert im Fenster, genau einmal,
+    und nur für passende Titel."""
+    from datetime import datetime
+
+    from homepilot.core.automation import calendar_due
+
+    events = [
+        {"summary": "Grünabfuhr", "start": "2026-08-24T07:00:00"},
+        {"summary": "Zahnarzt", "start": "2026-08-24T07:00:00"},
+    ]
+    punkt = datetime(2026, 8, 24, 7, 0).timestamp()
+
+    faellig = calendar_due(events, "abfuhr", "start", 0, punkt + 60, set())
+    assert faellig == ["Grünabfuhr|2026-08-24T07:00:00|start"]
+    # Schon gefeuert heisst still.
+    assert calendar_due(events, "abfuhr", "start", 0, punkt + 60, set(faellig)) == []
+    # Vor dem Fenster und lange danach: nichts.
+    assert calendar_due(events, "abfuhr", "start", 0, punkt - 60, set()) == []
+    assert calendar_due(events, "abfuhr", "start", 0, punkt + 600, set()) == []
+    # Vorlauf: 12 Stunden vorher ist der Vorabend dran.
+    vorabend = punkt - 12 * 3600
+    assert calendar_due(events, "abfuhr", "start", 720, vorabend + 60, set()) != []
+    # Leerer Suchbegriff heisst: jeder Termin zählt.
+    assert len(calendar_due(events, "", "start", 0, punkt + 60, set())) == 2
+
+
+def test_the_run_history_carries_a_step_trace():
+    """Punkt 160: Der Verlauf sagt nicht nur «gelaufen», sondern welcher
+    Schritt wann dran war - und im Fehlerfall, welcher hing."""
+
+    async def check():
+        hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+        await hub.start()
+        try:
+            from homepilot.core.automation import Automation
+
+            engine = hub.automations
+            automation = Automation(
+                id="spur",
+                alias="Spur",
+                triggers=[],
+                actions=[
+                    {"entity_id": "demo.light_livingroom", "command": "turn_on"},
+                    {"type": "delay", "seconds": 0.01},
+                    {"entity_id": "demo.light_livingroom", "command": "turn_off"},
+                ],
+            )
+            await engine._run(automation)
+            lauf = engine.runs[0]
+            assert lauf["executed"] is True
+            labels = [schritt["label"] for schritt in lauf["steps"]]
+            assert len(labels) == 3
+            assert "turn_on" in labels[0]
+            assert all("after" in schritt for schritt in lauf["steps"])
+
+            kaputt = Automation(
+                id="kaputt",
+                alias="Kaputt",
+                triggers=[],
+                actions=[{"entity_id": "gibts.nicht", "command": "turn_on"}],
+            )
+            await engine._run(kaputt)
+            fehler_lauf = engine.runs[0]
+            assert fehler_lauf["error"]
+            assert fehler_lauf["steps"][-1].get("error")
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())
+
+
+def test_the_agenda_lists_todays_time_triggers():
+    """Punkt 163: Das Tagesband kennt die Uhrzeiten von heute - auch die
+    schon vorbeigezogenen."""
+
+    async def check():
+        hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+        await hub.start()
+        try:
+            from homepilot.core.automation import Automation
+
+            engine = hub.automations
+            engine.automations = [
+                Automation(
+                    id="a",
+                    alias="Morgens",
+                    triggers=[{"type": "time", "at": "07:10"}],
+                ),
+                Automation(
+                    id="b",
+                    alias="Aus",
+                    enabled=False,
+                    triggers=[{"type": "time", "at": "09:00"}],
+                ),
+                Automation(id="c", alias="Melder", triggers=[{"type": "state"}]),
+            ]
+            plan = engine.tagesplan()
+            assert [eintrag["alias"] for eintrag in plan] == ["Morgens"]
+            import datetime as dt
+
+            wann = dt.datetime.fromtimestamp(plan[0]["at"])
+            assert (wann.hour, wann.minute) == (7, 10)
+            assert wann.date() == dt.date.today()
+        finally:
+            await hub.stop()
+
+    asyncio.run(check())
+
+
 # ── «Sonst»-Zweig ──────────────────────────────────────────────────────────
 
 

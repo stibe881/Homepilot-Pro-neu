@@ -67,6 +67,8 @@ export interface Run {
   executed: boolean;
   error?: string | null;
   skipped: string[];
+  /** Die Schritt-Spur (Punkt 160): was wann dran war, und was hing. */
+  steps?: { label: string; after: number; note?: string; error?: string }[];
 }
 
 /** Welche Zustände bei diesem Gerät als Auslöser oder Bedingung taugen
@@ -304,9 +306,10 @@ export type TriggerKind =
   | 'interval'
   | 'time'
   | 'sun'
+  | 'calendar'
   | 'geofence'
   | 'availability';
-export type StepKind = 'command' | 'scene' | 'hue_scene' | 'notify' | 'broadcast' | 'delay' | 'wait_until';
+export type StepKind = 'command' | 'scene' | 'hue_scene' | 'notify' | 'broadcast' | 'delay' | 'wait_until' | 'fade';
 export type ConditionKind = 'none' | 'sun' | 'time';
 
 /** Ein einzelner Auslöser – ein Ablauf kann mehrere haben («oder»). */
@@ -336,6 +339,11 @@ export interface TriggerDraft {
   /** ± Minuten Zufalls-Versatz für Zeit/Sonne (Punkt 155): Storen, die
    *  sekundengleich fahren, verraten die Zeitschaltuhr. Leer = pünktlich. */
   jitter: string;
+  /** Kalender-Auslöser (Punkt 153): Wort im Termin-Titel (leer = jeder),
+   *  Beginn oder Ende, und Minuten Vorlauf («am Vorabend» = 720). */
+  calendarContains: string;
+  calendarEvent: 'start' | 'end';
+  calendarBefore: string;
 }
 
 /**
@@ -381,6 +389,10 @@ export interface StepDraft {
   /** Durchsage: was gesagt wird, und auf welchen Boxen (leer = alle). */
   broadcastText: string;
   broadcastSpeakers: string[];
+  /** Dimmen über Zeit (Punkt 157): welches Licht, wohin, wie lange. */
+  fadeEntityId: string;
+  fadeTo: string;
+  fadeMinutes: string;
 }
 
 export const EMPTY_STEP: StepDraft = {
@@ -399,6 +411,9 @@ export const EMPTY_STEP: StepDraft = {
   waitTimeout: '300',
   broadcastText: '',
   broadcastSpeakers: [],
+  fadeEntityId: '',
+  fadeTo: '0',
+  fadeMinutes: '10',
 };
 
 /** Ein neuer Auslöser für dieses Gerät – mit einem Zustand, den es auch
@@ -426,6 +441,9 @@ export const EMPTY_TRIGGER: TriggerDraft = {
   forMinutes: '',
   availabilityTo: 'weg',
   jitter: '',
+  calendarContains: '',
+  calendarEvent: 'start',
+  calendarBefore: '',
 };
 
 /** «ist» vergleicht den Zustand, «über»/«unter» eine Zahl – für Helligkeit,
@@ -440,6 +458,16 @@ export interface StateCondition {
   attribute?: string;
 }
 
+/** Eine Und/Oder-Gruppe von Gerätebedingungen (Punkt 152).
+ *
+ *  Eine Schachtelungsebene, mit Absicht: «dunkel und (jemand da oder
+ *  Gast-Modus)» deckt praktisch alle Fälle - tiefere Gruppen bleiben der
+ *  config.yaml und wandern als extraConditions unangetastet mit. */
+export interface ConditionGroup {
+  match: 'all' | 'any';
+  conditions: StateCondition[];
+}
+
 export interface Draft {
   id?: string;
   alias: string;
@@ -452,6 +480,8 @@ export interface Draft {
   conditionBefore: string;
   /** Zusätzliche Bedingungen «nur wenn Gerät … ist / über / unter». */
   stateConditions: StateCondition[];
+  /** Und/Oder-Gruppen aus Gerätebedingungen (Punkt 152). */
+  groups: ConditionGroup[];
   /** Bedingungen, die der Editor (noch) nicht bauen kann – etwa
    *  geschachtelte und/oder-Gruppen aus der config.yaml. Sie werden
    *  unverändert mitgespeichert, statt beim Öffnen stumm zu verschwinden. */
@@ -486,6 +516,7 @@ export const EMPTY: Draft = {
   conditionAfter: '',
   conditionBefore: '',
   stateConditions: [],
+  groups: [],
   extraConditions: [],
   match: 'all',
   weekdays: [],
@@ -511,6 +542,15 @@ export function triggerToConfig(t: TriggerDraft): BausteinConfig {
   }
   if (t.kind === 'time') {
     return { type: 'time', at: t.at, ...(jitter > 0 ? { jitter } : {}) };
+  }
+  if (t.kind === 'calendar') {
+    const vorlauf = Math.max(0, Number(t.calendarBefore) || 0);
+    return {
+      type: 'calendar',
+      ...(t.calendarContains.trim() ? { contains: t.calendarContains.trim() } : {}),
+      event: t.calendarEvent,
+      ...(vorlauf > 0 ? { minutes_before: vorlauf } : {}),
+    };
   }
   if (t.kind === 'interval') {
     return { type: 'interval', seconds: Math.max(10, Number(t.intervalSeconds) || 600) };
@@ -558,6 +598,8 @@ export function triggerFromConfig(t: BausteinConfig): TriggerDraft {
     kind:
       t?.type === 'time'
         ? 'time'
+        : t?.type === 'calendar'
+          ? 'calendar'
         : t?.type === 'sun'
           ? 'sun'
           : t?.type === 'interval'
@@ -582,6 +624,9 @@ export function triggerFromConfig(t: BausteinConfig): TriggerDraft {
     forMinutes: t?.for ? String(Math.round(Number(t.for) / 60)) : '',
     availabilityTo: t?.type === 'availability' && t?.to === true ? 'wieder-da' : 'weg',
     jitter: t?.jitter ? String(t.jitter) : '',
+    calendarContains: String(t?.contains ?? ''),
+    calendarEvent: t?.event === 'end' ? 'end' : 'start',
+    calendarBefore: t?.minutes_before ? String(t.minutes_before) : '',
   };
 }
 
@@ -592,7 +637,10 @@ export function vacuumRooms(entity: Entity | undefined): { id: number; name: str
 }
 
 export function hatWartezeit(steps: { kind: string }[]): boolean {
-  return steps.some((step) => step.kind === 'delay' || step.kind === 'wait_until');
+  // Dimmen dauert - für «restart oder nicht» zählt es wie eine Wartezeit.
+  return steps.some(
+    (step) => step.kind === 'delay' || step.kind === 'wait_until' || step.kind === 'fade'
+  );
 }
 
 export const WEEKDAY_LABELS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
@@ -630,6 +678,23 @@ export function zeitpunktLabel(ts: number, jetzt: Date = new Date()): string {
   return `${WEEKDAY_LABELS[(dann.getDay() + 6) % 7]} ${uhr}`;
 }
 
+/** Das Symbol zur Auslöserart (Punkt 162) - der Zeilenanfang der Liste
+ *  sagt damit auf einen Blick, WORAUF ein Ablauf hört (rein, testbar). */
+export function triggerIcon(automation: Automation): string {
+  const trigger = automation.triggers?.[0] ?? {};
+  const art = String(trigger.type ?? 'state');
+  if (art === 'time') return 'time-outline';
+  if (art === 'sun') return 'sunny-outline';
+  if (art === 'interval') return 'repeat-outline';
+  if (art === 'calendar') return 'calendar-outline';
+  if (art === 'availability') return 'pulse-outline';
+  if ('above' in trigger || 'below' in trigger) return 'analytics-outline';
+  if (String(trigger.entity_id ?? '').startsWith('geofence.')) return 'location-outline';
+  if (trigger.attribute === 'ring') return 'notifications-outline';
+  if (trigger.attribute === 'motion') return 'walk-outline';
+  return 'flash-outline';
+}
+
 /** Lesbarer Text für eine Wartezeit (rein, testbar). */
 export function delayLabel(seconds: string): string {
   const value = Number(seconds) || 0;
@@ -664,22 +729,34 @@ export function buildConditions(draft: Draft): BausteinConfig[] {
     }
   }
   for (const entry of draft.stateConditions) {
-    if (!entry.entity_id) continue;
-    const base: BausteinConfig = { type: 'state', entity_id: entry.entity_id };
-    // Ohne Angabe vergleicht der Hub den Zustand selbst - dann gehört das
-    // Feld auch nicht in die gespeicherte Form.
-    if (entry.attribute) base.attribute = entry.attribute;
-    if (entry.op === 'above') {
-      conditions.push({ ...base, above: Number(entry.value) || 0 });
-    } else if (entry.op === 'below') {
-      conditions.push({ ...base, below: Number(entry.value) || 0 });
-    } else {
-      conditions.push({ ...base, equals: entry.value });
+    const built = stateConditionToConfig(entry);
+    if (built) conditions.push(built);
+  }
+  // Und/Oder-Gruppen (Punkt 152): eine Gruppe ohne brauchbare Bedingung
+  // wäre eine leere Klammer - die fällt weg.
+  for (const gruppe of draft.groups ?? []) {
+    const subs = gruppe.conditions
+      .map(stateConditionToConfig)
+      .filter((sub): sub is BausteinConfig => sub !== null);
+    if (subs.length > 0) {
+      conditions.push({ type: 'group', match: gruppe.match, conditions: subs });
     }
   }
-  // Was der Editor nicht kennt (Gruppen u.ä.), bleibt erhalten.
+  // Was der Editor nicht kennt (tiefere Gruppen u.ä.), bleibt erhalten.
   conditions.push(...(draft.extraConditions ?? []));
   return conditions;
+}
+
+/** Eine Gerätebedingung in die gespeicherte Form (rein, testbar). */
+export function stateConditionToConfig(entry: StateCondition): BausteinConfig | null {
+  if (!entry.entity_id) return null;
+  const base: BausteinConfig = { type: 'state', entity_id: entry.entity_id };
+  // Ohne Angabe vergleicht der Hub den Zustand selbst - dann gehört das
+  // Feld auch nicht in die gespeicherte Form.
+  if (entry.attribute) base.attribute = entry.attribute;
+  if (entry.op === 'above') return { ...base, above: Number(entry.value) || 0 };
+  if (entry.op === 'below') return { ...base, below: Number(entry.value) || 0 };
+  return { ...base, equals: entry.value };
 }
 
 /** Einen einzelnen Schritt in die gespeicherte Form (rein, testbar).
@@ -714,6 +791,17 @@ export function stepToActions(step: StepDraft): BausteinConfig[] {
         ...(step.broadcastSpeakers.length > 0
           ? { speakers: step.broadcastSpeakers }
           : {}),
+      },
+    ];
+  }
+  if (step.kind === 'fade') {
+    if (!step.fadeEntityId) return [];
+    return [
+      {
+        type: 'fade',
+        entity_id: step.fadeEntityId,
+        to: Math.max(0, Math.min(100, Number(step.fadeTo) || 0)),
+        minutes: Math.max(0.1, Math.min(120, Number(step.fadeMinutes) || 10)),
       },
     ];
   }
@@ -805,6 +893,14 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
         broadcastText: action.text ?? '',
         broadcastSpeakers: Array.isArray(action.speakers) ? action.speakers : [],
       });
+    } else if (type === 'fade') {
+      steps.push({
+        ...EMPTY_STEP,
+        kind: 'fade',
+        fadeEntityId: action.entity_id ?? '',
+        fadeTo: String(action.to ?? 0),
+        fadeMinutes: String(action.minutes ?? 10),
+      });
     } else if (type === 'delay') {
       steps.push({ ...EMPTY_STEP, kind: 'delay', seconds: String(action.seconds ?? 60) });
     } else if (type === 'wait_until') {
@@ -819,6 +915,28 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
     }
   }
   return steps;
+}
+
+/** Lässt sich diese Gruppe im Editor bearbeiten? Nur eine Ebene aus
+ *  reinen Gerätebedingungen - alles andere bleibt extraCondition. */
+function editierbareGruppe(entry: BausteinConfig): boolean {
+  return (
+    entry.type === 'group' &&
+    Array.isArray(entry.conditions) &&
+    entry.conditions.length > 0 &&
+    entry.conditions.every(
+      (sub: BausteinConfig) => (sub?.type ?? 'state') === 'state' && sub?.entity_id
+    )
+  );
+}
+
+function stateConditionFromConfig(entry: BausteinConfig): StateCondition {
+  return {
+    entity_id: entry.entity_id,
+    op: ('above' in entry ? 'above' : 'below' in entry ? 'below' : 'is') as Compare,
+    value: String(entry.above ?? entry.below ?? entry.equals ?? 'on'),
+    ...(entry.attribute ? { attribute: String(entry.attribute) } : {}),
+  };
 }
 
 export function toDraft(automation: Automation): Draft {
@@ -839,22 +957,24 @@ export function toDraft(automation: Automation): Draft {
     conditionBefore: condition.before ?? '',
     stateConditions: all
       .filter((entry) => (entry.type ?? 'state') === 'state' && entry.entity_id)
-      .map((entry) => ({
-        entity_id: entry.entity_id,
-        op: ('above' in entry ? 'above' : 'below' in entry ? 'below' : 'is') as Compare,
-        value: String(entry.above ?? entry.below ?? entry.equals ?? 'on'),
-        // Beim Speichern wird das Feld mitgeschrieben, beim Öffnen fiel es
-        // bisher weg: Wer einen Ablauf mit «Helligkeit unter 20» erneut
-        // speicherte, verglich danach den Zustand statt den Messwert.
-        ...(entry.attribute ? { attribute: String(entry.attribute) } : {}),
-      })),
-    // Alles, was der Editor nicht abbilden kann (Gruppen, zweite
+      // Beim Speichern wird das attribute-Feld mitgeschrieben, beim
+      // Öffnen fiel es bisher weg: Wer einen Ablauf mit «Helligkeit
+      // unter 20» erneut speicherte, verglich danach den Zustand.
+      .map(stateConditionFromConfig),
+    // Einfache Und/Oder-Gruppen kann der Editor jetzt selbst (Punkt 152).
+    groups: all.filter(editierbareGruppe).map((entry) => ({
+      match: entry.match === 'any' ? ('any' as const) : ('all' as const),
+      conditions: entry.conditions.map(stateConditionFromConfig),
+    })),
+    // Alles, was der Editor nicht abbilden kann (tiefere Gruppen, zweite
     // Zeitfenster), unverändert mittragen – sonst löscht «Öffnen und
     // Speichern» genau die Bedingung, die jemand in der config.yaml
     // gebaut hat.
     extraConditions: all.filter(
       (entry) =>
-        entry !== condition && !((entry.type ?? 'state') === 'state' && entry.entity_id)
+        entry !== condition &&
+        !((entry.type ?? 'state') === 'state' && entry.entity_id) &&
+        !editierbareGruppe(entry)
     ),
     match: automation.match === 'any' ? 'any' : 'all',
     weekdays: Array.isArray(condition.weekdays) ? condition.weekdays.map(Number) : [],

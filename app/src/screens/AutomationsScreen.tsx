@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Entity, HubSettings, Scene, User } from '../api/types';
 import { Card } from '../components/Card';
@@ -11,7 +11,7 @@ import { HubFehler, hubClient } from '../api/client';
 import { datumKurz } from '../lib/format';
 import { RueckwegBefehl, sceneActionsToDraft, szenenRueckweg } from '../lib/szenen';
 import { Editor, Fassung } from './automations/editor';
-import { Automation, Draft, DryRun, EMPTY, Run, StepDraft, TriggerHealth, buildConditions, describe, groupByCategory, lastRunText, newTrigger, runLine, search, stepToActions, stepsToActions, toDraft, triggerToConfig, usedCategories, zeitpunktLabel } from './automations/entwurf';
+import { Automation, Draft, DryRun, EMPTY, Run, StepDraft, TriggerHealth, buildConditions, describe, groupByCategory, lastRunText, newTrigger, runLine, search, stepToActions, stepsToActions, toDraft, triggerIcon, triggerToConfig, usedCategories, zeitpunktLabel } from './automations/entwurf';
 import { Groups, SearchBox } from './automations/felder';
 import { makeStyles } from './automations/stil';
 import { SCENE_ICONS, SceneDraft, SceneEditor } from './automations/szenen-editor';
@@ -22,6 +22,14 @@ interface Konflikt {
   entity_id: string;
   commands: string[];
   automations: { id: string; alias: string }[];
+}
+
+/** Ein Eintrag des Tagesbands aus /api/automations/agenda (Punkt 163). */
+interface AgendaEintrag {
+  automation_id: string;
+  alias: string;
+  at: number;
+  art: string;
 }
 
 /** Eine Zeile des Papierkorbs aus /api/trash. */
@@ -79,6 +87,8 @@ export function AutomationsScreen({
   const [diagnose, setDiagnose] = useState<Record<string, TriggerHealth[]>>({});
   // Mögliche Nachricht-Empfänger für den Editor (Punkt 158).
   const [empfaenger, setEmpfaenger] = useState<string[]>([]);
+  // Das Tagesband (Punkt 163): was das Haus heute vorhat.
+  const [agenda, setAgenda] = useState<AgendaEintrag[]>([]);
   const templates = useMemo(() => buildTemplates(entities, scenes), [entities, scenes]);
 
   const mayEdit = !!user?.capabilities?.includes('edit_automations');
@@ -123,6 +133,12 @@ export function AutomationsScreen({
         still: true,
       })
       .then((data) => setEmpfaenger(data?.names ?? []));
+    hub
+      .get<{ agenda?: AgendaEintrag[] } | null>('/api/automations/agenda', {
+        fallback: null,
+        still: true,
+      })
+      .then((data) => setAgenda(data?.agenda ?? []));
   }, [hub]);
 
   useEffect(load, [load]);
@@ -433,6 +449,43 @@ export function AutomationsScreen({
     <View style={styles.list}>
       <Text style={[styles.sectionTitle, { marginTop: 0 }]}>Abläufe</Text>
 
+      {agenda.length > 0 ? (
+        // Das Tagesband (Punkt 163): «was macht das Haus heute noch?» -
+        // Vergangenes mit Haken, Kommendes mit Uhrzeit, ohne jeden
+        // Ablauf einzeln zu öffnen.
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ flexGrow: 0 }}
+          contentContainerStyle={styles.agendaBand}
+        >
+          {agenda.map((eintrag, index) => {
+            const vorbei = eintrag.at * 1000 < Date.now();
+            return (
+              <View
+                key={`${eintrag.automation_id}-${index}`}
+                style={[styles.agendaChip, vorbei && { opacity: 0.55 }]}
+              >
+                <Ionicons
+                  name={vorbei ? 'checkmark-circle' : eintrag.art === 'sun' ? 'sunny-outline' : 'time-outline'}
+                  size={13}
+                  color={vorbei ? colors.on : colors.inkSoft}
+                />
+                <Text style={styles.agendaZeit}>
+                  {new Date(eintrag.at * 1000).toLocaleTimeString('de-CH', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </Text>
+                <Text style={styles.agendaName} numberOfLines={1}>
+                  {eintrag.alias}
+                </Text>
+              </View>
+            );
+          })}
+        </ScrollView>
+      ) : null}
+
       {conflicts.length > 0 ? (
         <Card style={styles.card}>
           <View style={styles.cardHead}>
@@ -526,15 +579,27 @@ export function AutomationsScreen({
               <Card key={automation.id} style={styles.card}>
                 <View style={styles.cardHead}>
                   <View style={{ flex: 1 }}>
-                    <Text
-                      style={[
-                        styles.title,
-                        automation.enabled === false && { color: colors.inkFaint },
-                      ]}
-                    >
-                      {automation.alias}
-                      {automation.enabled === false ? ' · aus' : ''}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      {/* Worauf hört er? Uhr, Sonne, Bewegung, Termin -
+                          das Symbol sagt es, ohne die Zeile zu lesen. */}
+                      <Ionicons
+                        name={triggerIcon(automation) as keyof typeof Ionicons.glyphMap}
+                        size={15}
+                        color={
+                          automation.enabled === false ? colors.inkFaint : colors.inkSoft
+                        }
+                      />
+                      <Text
+                        style={[
+                          styles.title,
+                          { flexShrink: 1 },
+                          automation.enabled === false && { color: colors.inkFaint },
+                        ]}
+                      >
+                        {automation.alias}
+                        {automation.enabled === false ? ' · aus' : ''}
+                      </Text>
+                    </View>
                     <Text style={styles.detail}>{describe(automation)}</Text>
                     {/* «heute 21:12» statt Kopfrechnen über Sonnenuntergang
                         plus Versatz (Punkt 161) - nur bei Zeit/Sonne, ein
@@ -594,9 +659,29 @@ export function AutomationsScreen({
                           .filter((run) => run.automation_id === automation.id)
                           .slice(0, 8)
                           .map((run, index) => (
-                            <Text key={index} style={styles.triggerNote}>
-                              {runLine(run)}
-                            </Text>
+                            <View key={index}>
+                              <Text style={styles.triggerNote}>{runLine(run)}</Text>
+                              {/* Die Schritt-Spur (Punkt 160): beim
+                                  neuesten Lauf und bei Fehlläufen - dort
+                                  steht, WELCHER Schritt hing. */}
+                              {(index === 0 || run.error) &&
+                                (run.steps ?? []).map((schritt, sIndex) => (
+                                  <Text
+                                    key={sIndex}
+                                    style={[
+                                      styles.runStep,
+                                      schritt.error ? { color: colors.danger } : null,
+                                    ]}
+                                  >
+                                    {schritt.after > 0.5
+                                      ? `+${Math.round(schritt.after)}s · `
+                                      : '· '}
+                                    {schritt.label}
+                                    {schritt.note ? ` – ${schritt.note}` : ''}
+                                    {schritt.error ? ` – ${schritt.error}` : ''}
+                                  </Text>
+                                ))}
+                            </View>
                           ))}
                         <Text style={styles.triggerNote}>
                           «Übersprungen» heisst: ausgelöst, aber eine Bedingung

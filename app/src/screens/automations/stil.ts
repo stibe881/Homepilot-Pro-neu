@@ -181,6 +181,27 @@ export const makeStyles = (colors: Colors) =>
       paddingVertical: 4,
     },
     holidayText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
+    // Das Tagesband (Punkt 163).
+    agendaBand: { gap: 8, paddingBottom: 10 },
+    agendaChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceStrong,
+      maxWidth: 220,
+    },
+    agendaZeit: {
+      color: colors.ink,
+      fontSize: 12,
+      fontWeight: '700',
+      fontVariant: ['tabular-nums'],
+    },
+    agendaName: { color: colors.inkSoft, fontSize: 12, flexShrink: 1 },
+    // Eine Zeile der Schritt-Spur im Lauf-Verlauf (Punkt 160).
+    runStep: { color: colors.inkFaint, fontSize: 12, paddingLeft: 14, lineHeight: 17 },
     weekday: {
       paddingVertical: 6,
       paddingHorizontal: 10,

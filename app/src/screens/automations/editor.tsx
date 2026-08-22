@@ -398,13 +398,174 @@ export function Editor({
             <Text style={styles.addRowText}>Gerätebedingung hinzufügen</Text>
           </Pressable>
 
+          {/* Und/Oder-Gruppen (Punkt 152): «dunkel und (jemand da ODER
+              Gast-Modus)» brauchte bisher die config.yaml. Eine
+              Schachtelungsebene deckt praktisch alle Fälle. */}
+          {draft.groups.map((gruppe, gIndex) => {
+            const setGruppe = (patch: Partial<typeof gruppe>) =>
+              set({
+                groups: draft.groups.map((other, position) =>
+                  position === gIndex ? { ...other, ...patch } : other
+                ),
+              });
+            return (
+              <View key={`gruppe-${gIndex}`} style={styles.triggerBox}>
+                <View style={styles.triggerHead}>
+                  <Text style={styles.triggerBadge}>Bedingungsgruppe</Text>
+                  <Pressable
+                    onPress={() =>
+                      set({
+                        groups: draft.groups.filter(
+                          (_other, position) => position !== gIndex
+                        ),
+                      })
+                    }
+                    accessibilityLabel="Gruppe entfernen"
+                    hitSlop={8}
+                  >
+                    <Ionicons name="trash-outline" size={18} color={colors.danger} />
+                  </Pressable>
+                </View>
+                <Choice
+                  options={[
+                    { key: 'any', label: 'eine davon genügt (oder)' },
+                    { key: 'all', label: 'alle zusammen (und)' },
+                  ]}
+                  value={gruppe.match}
+                  onSelect={(match) => setGruppe({ match: match as 'all' | 'any' })}
+                />
+                {gruppe.conditions.map((entry, index) => {
+                  const chosen = entities.find(
+                    (entity) => entity.id === entry.entity_id
+                  );
+                  const setEntry = (patch: Partial<typeof entry>) =>
+                    setGruppe({
+                      conditions: gruppe.conditions.map((other, position) =>
+                        position === index ? { ...other, ...patch } : other
+                      ),
+                    });
+                  return (
+                    <View key={index} style={styles.rowGap}>
+                      <View style={{ flex: 1, gap: 6 }}>
+                        <EntityPicker
+                          entities={entities}
+                          value={entry.entity_id}
+                          onSelect={(entity_id) =>
+                            setEntry({
+                              entity_id,
+                              value:
+                                entry.op === 'is'
+                                  ? fittingState(
+                                      entities.find((e) => e.id === entity_id),
+                                      entry.value
+                                    )
+                                  : entry.value,
+                            })
+                          }
+                        />
+                        <Choice
+                          options={[
+                            { key: 'is', label: 'ist' },
+                            { key: 'above', label: 'über' },
+                            { key: 'below', label: 'unter' },
+                          ]}
+                          value={entry.op}
+                          onSelect={(op) =>
+                            setEntry({
+                              op: op as Compare,
+                              value:
+                                op === 'is'
+                                  ? fittingState(chosen, entry.value)
+                                  : String(Number(entry.value) || 0),
+                              attribute: op === 'is' ? undefined : entry.attribute,
+                            })
+                          }
+                        />
+                        {entry.op === 'is' ? (
+                          <Choice
+                            options={conditionOptions(chosen)}
+                            value={entry.value}
+                            onSelect={(value) => setEntry({ value })}
+                          />
+                        ) : (
+                          <NumberField
+                            value={entry.value}
+                            onCommit={(value) => setEntry({ value })}
+                            placeholder="z.B. 30"
+                          />
+                        )}
+                      </View>
+                      <Pressable
+                        onPress={() =>
+                          setGruppe({
+                            conditions: gruppe.conditions.filter(
+                              (_other, position) => position !== index
+                            ),
+                          })
+                        }
+                        accessibilityLabel="Bedingung aus der Gruppe entfernen"
+                        hitSlop={8}
+                      >
+                        <Ionicons name="close" size={18} color={colors.inkSoft} />
+                      </Pressable>
+                    </View>
+                  );
+                })}
+                <Pressable
+                  onPress={() =>
+                    setGruppe({
+                      conditions: [
+                        ...gruppe.conditions,
+                        {
+                          entity_id: entities[0]?.id ?? '',
+                          op: 'is' as Compare,
+                          value: fittingState(entities[0], 'on'),
+                        },
+                      ],
+                    })
+                  }
+                  accessibilityRole="button"
+                  style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.75 }]}
+                >
+                  <Ionicons name="add" size={16} color={colors.accent} />
+                  <Text style={styles.addRowText}>Bedingung in der Gruppe</Text>
+                </Pressable>
+              </View>
+            );
+          })}
+
+          <Pressable
+            onPress={() =>
+              set({
+                groups: [
+                  ...draft.groups,
+                  {
+                    match: 'any',
+                    conditions: [
+                      {
+                        entity_id: entities[0]?.id ?? '',
+                        op: 'is' as Compare,
+                        value: fittingState(entities[0], 'on'),
+                      },
+                    ],
+                  },
+                ],
+              })
+            }
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.75 }]}
+          >
+            <Ionicons name="git-branch-outline" size={16} color={colors.accent} />
+            <Text style={styles.addRowText}>Und/Oder-Gruppe hinzufügen</Text>
+          </Pressable>
+
           {draft.extraConditions.length > 0 ? (
             <Text style={styles.triggerNote}>
               Dazu {draft.extraConditions.length === 1
                 ? 'eine Bedingungsgruppe'
                 : `${draft.extraConditions.length} Bedingungsgruppen`}{' '}
-              aus der Konfiguration – hier nicht änderbar, sie bleiben beim
-              Speichern erhalten.
+              aus der Konfiguration – zu tief geschachtelt für den Editor,
+              sie bleiben beim Speichern erhalten.
             </Text>
           ) : null}
 
@@ -707,6 +868,11 @@ export function TriggerRow({
           ...(entities.some((entity) => entity.id.startsWith('geofence.'))
             ? [{ key: 'geofence', label: 'Ort' }]
             : []),
+          // Dito für den Kalender (Punkt 153): ohne angebundenen Kalender
+          // gäbe es nichts zu hören.
+          ...(entities.some((entity) => Array.isArray(entity.state?.events))
+            ? [{ key: 'calendar', label: 'Termin' }]
+            : []),
         ]}
         value={trigger.kind}
         onSelect={(kind) => onChange({ kind: kind as TriggerKind })}
@@ -959,6 +1125,41 @@ export function TriggerRow({
             Bedingung davor – sonst passiert es rund um die Uhr.
           </Text>
         </>
+      ) : trigger.kind === 'calendar' ? (
+        <>
+          <TextInput
+            style={styles.input}
+            value={trigger.calendarContains}
+            onChangeText={(calendarContains) => onChange({ calendarContains })}
+            placeholder="Wort im Termin-Titel, z.B. Abfuhr (leer = jeder)"
+            placeholderTextColor={colors.inkFaint}
+          />
+          <Choice
+            options={[
+              { key: 'start', label: 'wenn er beginnt' },
+              { key: 'end', label: 'wenn er endet' },
+            ]}
+            value={trigger.calendarEvent}
+            onSelect={(calendarEvent) =>
+              onChange({ calendarEvent: calendarEvent as 'start' | 'end' })
+            }
+          />
+          <Choice
+            options={[
+              { key: '', label: 'pünktlich' },
+              { key: '60', label: '1 Std vorher' },
+              { key: '720', label: '12 Std vorher' },
+              { key: '1440', label: '1 Tag vorher' },
+            ]}
+            value={trigger.calendarBefore}
+            onSelect={(calendarBefore) => onChange({ calendarBefore })}
+          />
+          <Text style={styles.triggerNote}>
+            Hört auf den angebundenen Kalender: «Abfuhr» mit 12 Std Vorlauf
+            ist die Erinnerung am Vorabend, ein Termin «Ferien» kann den
+            Ferienmodus scharf schalten.
+          </Text>
+        </>
       ) : (
         <TextInput
           style={styles.input}
@@ -1131,6 +1332,11 @@ export function StepList({
               ...(entities.some((entity) => entity.commands.includes('play_url'))
                 ? [{ key: 'broadcast', label: 'Durchsage' }]
                 : []),
+              // Dimmen über Zeit (Punkt 157) - nur wenn eine Lampe die
+              // Helligkeit überhaupt kann.
+              ...(entities.some((entity) => entity.commands.includes('set_brightness'))
+                ? [{ key: 'fade', label: 'Dimmen' }]
+                : []),
               { key: 'delay', label: 'Warten' },
               { key: 'wait_until', label: 'Warten bis' },
             ]}
@@ -1243,6 +1449,42 @@ export function StepList({
                 Der Text wird auf den Cast-Boxen vorgelesen - ohne Auswahl
                 auf allen. Braucht Internet (Sprachausgabe) und dass die
                 App den Hub mindestens einmal erreicht hat.
+              </Text>
+            </>
+          ) : step.kind === 'fade' ? (
+            <>
+              <EntityPicker
+                entities={entities.filter((entity) =>
+                  entity.commands.includes('set_brightness')
+                )}
+                value={step.fadeEntityId}
+                placeholder="Lampe suchen …"
+                onSelect={(fadeEntityId) => setStep(index, { fadeEntityId })}
+              />
+              <Choice
+                options={[
+                  { key: '0', label: 'ausglimmen (0 %)' },
+                  { key: '30', label: 'auf 30 %' },
+                  { key: '60', label: 'auf 60 %' },
+                  { key: '100', label: 'auf 100 %' },
+                ]}
+                value={step.fadeTo}
+                onSelect={(fadeTo) => setStep(index, { fadeTo })}
+              />
+              <Choice
+                options={[
+                  { key: '5', label: 'über 5 Min' },
+                  { key: '10', label: 'über 10 Min' },
+                  { key: '20', label: 'über 20 Min' },
+                  { key: '30', label: 'über 30 Min' },
+                ]}
+                value={step.fadeMinutes}
+                onSelect={(fadeMinutes) => setStep(index, { fadeMinutes })}
+              />
+              <Text style={styles.triggerNote}>
+                {Number(step.fadeTo) > 0
+                  ? 'Aufwachlicht: Die Lampe geht dunkel an und wird gleichmässig heller - eine halbe Stunde vor dem Wecker gestartet, weckt sie sanfter als jeder Ton.'
+                  : 'Ausglimmen statt knipsen: Das Licht wird über die gewählte Zeit dunkler und geht am Ende aus - fürs Kinderzimmer am Abend.'}
               </Text>
             </>
           ) : step.kind === 'delay' ? (

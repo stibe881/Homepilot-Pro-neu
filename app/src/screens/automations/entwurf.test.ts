@@ -6,7 +6,9 @@ import {
   buildConditions,
   stepToActions,
   actionsToSteps,
+  toDraft,
   triggerFromConfig,
+  triggerIcon,
   triggerToConfig,
   zeitpunktLabel,
 } from './entwurf';
@@ -65,6 +67,134 @@ describe('Nachricht-Empfänger (Punkt 158)', () => {
     expect(zurueck.notifyTo).toBe('Stefan');
     // «all» wird beim Öffnen wieder zur leeren Auswahl.
     expect(actionsToSteps([{ ...action, to: 'all' }])[0].notifyTo).toBe('');
+  });
+});
+
+describe('Und/Oder-Gruppen (Punkt 152)', () => {
+  const basis = {
+    id: 'x',
+    alias: 'X',
+    triggers: [],
+    conditions: [],
+    actions: [],
+    editable: true,
+  };
+
+  it('baut eine Gruppe in die gespeicherte Form', () => {
+    const conditions = buildConditions({
+      ...EMPTY,
+      groups: [
+        {
+          match: 'any',
+          conditions: [
+            { entity_id: 'a.b', op: 'is', value: 'on' },
+            { entity_id: 'c.d', op: 'below', value: '20' },
+          ],
+        },
+      ],
+    });
+    expect(conditions).toEqual([
+      {
+        type: 'group',
+        match: 'any',
+        conditions: [
+          { type: 'state', entity_id: 'a.b', equals: 'on' },
+          { type: 'state', entity_id: 'c.d', below: 20 },
+        ],
+      },
+    ]);
+  });
+
+  it('öffnet eine flache Gruppe im Editor statt sie nur mitzutragen', () => {
+    const draft = toDraft({
+      ...basis,
+      conditions: [
+        {
+          type: 'group',
+          match: 'any',
+          conditions: [{ type: 'state', entity_id: 'a.b', equals: 'on' }],
+        },
+      ],
+    });
+    expect(draft.groups).toHaveLength(1);
+    expect(draft.groups[0].conditions[0].entity_id).toBe('a.b');
+    expect(draft.extraConditions).toEqual([]);
+  });
+
+  it('zu tief Geschachteltes bleibt unangetastet erhalten', () => {
+    const tief = {
+      type: 'group',
+      match: 'all',
+      conditions: [{ type: 'group', conditions: [] }],
+    };
+    const draft = toDraft({ ...basis, conditions: [tief] });
+    expect(draft.groups).toEqual([]);
+    expect(draft.extraConditions).toEqual([tief]);
+  });
+});
+
+describe('Dimm-Schritt (Punkt 157)', () => {
+  it('wandert in die gespeicherte Form und zurück', () => {
+    const [action] = stepToActions({
+      ...EMPTY_STEP,
+      kind: 'fade',
+      fadeEntityId: 'hue.stube',
+      fadeTo: '0',
+      fadeMinutes: '10',
+    });
+    expect(action).toEqual({ type: 'fade', entity_id: 'hue.stube', to: 0, minutes: 10 });
+    const [zurueck] = actionsToSteps([action]);
+    expect(zurueck.kind).toBe('fade');
+    expect(zurueck.fadeTo).toBe('0');
+    expect(zurueck.fadeMinutes).toBe('10');
+  });
+
+  it('ohne Lampe kein Schritt', () => {
+    expect(stepToActions({ ...EMPTY_STEP, kind: 'fade' })).toEqual([]);
+  });
+});
+
+describe('Kalender-Auslöser (Punkt 153)', () => {
+  it('wandert in die gespeicherte Form und zurück', () => {
+    const config = triggerToConfig({
+      ...EMPTY_TRIGGER,
+      kind: 'calendar',
+      calendarContains: 'Abfuhr',
+      calendarEvent: 'start',
+      calendarBefore: '720',
+    });
+    expect(config).toEqual({
+      type: 'calendar',
+      contains: 'Abfuhr',
+      event: 'start',
+      minutes_before: 720,
+    });
+    const zurueck = triggerFromConfig(config);
+    expect(zurueck.kind).toBe('calendar');
+    expect(zurueck.calendarContains).toBe('Abfuhr');
+    expect(zurueck.calendarBefore).toBe('720');
+  });
+});
+
+describe('triggerIcon (Punkt 162)', () => {
+  const mit = (trigger: Record<string, unknown>) => ({
+    id: 'x',
+    alias: 'X',
+    triggers: [trigger],
+    conditions: [],
+    actions: [],
+    editable: true,
+  });
+
+  it('kennt die Auslöserarten', () => {
+    expect(triggerIcon(mit({ type: 'time', at: '09:00' }))).toBe('time-outline');
+    expect(triggerIcon(mit({ type: 'sun' }))).toBe('sunny-outline');
+    expect(triggerIcon(mit({ type: 'calendar' }))).toBe('calendar-outline');
+    expect(triggerIcon(mit({ entity_id: 'x.y', attribute: 'ring' }))).toBe(
+      'notifications-outline'
+    );
+    expect(triggerIcon(mit({ entity_id: 'x.y', below: 20 }))).toBe('analytics-outline');
+    expect(triggerIcon(mit({ entity_id: 'x.y' }))).toBe('flash-outline');
   });
 });
 

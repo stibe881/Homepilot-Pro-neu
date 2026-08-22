@@ -168,6 +168,50 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
       },
     });
   }
+  if (presence && allLights.length > 0) {
+    // Der Klassiker, der noch fehlte (Punkt 156): Wenn niemand zuhause
+    // ist, abends ein Licht mit Zufalls-Versatz an und später wieder aus
+    // - ein bewohntes Haus, kein Uhrwerk. Das Wohnzimmer, wenn es sich
+    // finden lässt: Dort brennt abends glaubwürdig Licht.
+    const wohnzimmer =
+      allLights.find((entity) =>
+        /wohn|stube/i.test(`${entity.room ?? ''} ${entity.name}`)
+      ) ?? allLights[0];
+    templates.push({
+      label: 'Ferienmodus: Anwesenheit simulieren',
+      icon: 'airplane-outline',
+      draft: {
+        ...EMPTY,
+        alias: 'Ferienmodus: Licht simulieren',
+        category: 'Ferien',
+        triggers: [
+          {
+            ...EMPTY_TRIGGER,
+            kind: 'sun',
+            sunEvent: 'sunset',
+            sunOffset: '-10',
+            // Jeden Abend ein anderer Zeitpunkt - das ist der ganze Trick.
+            jitter: '30',
+          },
+        ],
+        stateConditions: [
+          { entity_id: presence.id, op: 'is' as Compare, value: 'off' },
+        ],
+        steps: [
+          {
+            ...EMPTY_STEP,
+            commandActions: [{ entity_id: wohnzimmer.id, command: 'turn_on' }],
+          },
+          // Zweieinhalb Stunden «Fernsehabend», dann Nachtruhe.
+          { ...EMPTY_STEP, kind: 'delay' as StepKind, seconds: '9000' },
+          {
+            ...EMPTY_STEP,
+            commandActions: [{ entity_id: wohnzimmer.id, command: 'turn_off' }],
+          },
+        ],
+      },
+    });
+  }
   if (doorbell) {
     templates.push({
       label: 'Push, wenn es klingelt',
