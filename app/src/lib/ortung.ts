@@ -118,6 +118,35 @@ export function anwesenheitsListe(
     .map(({ _rang, ...zeile }) => zeile);
 }
 
+/**
+ * Wenn die zwei Anzeigen einander widersprechen, sag es (rein, testbar).
+ *
+ * Oben im Streifen steht «jemand da» – das kommt aus dem WLAN und meint
+ * das ganze Haus. Die Liste darunter steht je Person und kommt aus der
+ * Ortung. Beide wissen nichts voneinander, solange in der config.yaml
+ * keine Zone ein `wifi:` trägt.
+ *
+ * Dann kann dastehen: oben «jemand da», unten niemand zuhause. Wer das
+ * liest, hält eines von beiden für kaputt. Also benennen, statt es
+ * auszusitzen – und dazusagen, was fehlt.
+ */
+export function werIstDaHinweis(people: Person[], hausAnwesend: boolean | null): string {
+  const echte = (people ?? []).filter((person) => person?.name);
+  const zuhause = echte.some((person) => String(person.state) === 'home');
+
+  if (hausAnwesend === true && !zuhause) {
+    const keinerEingerichtet =
+      echte.length === 0 || echte.every((person) => person.configured === false);
+    return keinerEingerichtet
+      ? 'Das WLAN sieht jemanden im Haus. Wer es ist, weiss der Hub nicht – für niemanden ist die Ortung eingerichtet.'
+      : 'Das WLAN sieht jemanden im Haus. Von den Leuten hier hat sich niemand gemeldet.';
+  }
+  if (hausAnwesend === false && zuhause) {
+    return 'Das WLAN sieht niemanden – die Ortung meldet trotzdem jemanden zuhause.';
+  }
+  return '';
+}
+
 /** Eine Zeile je Person für die Familienseite (rein, testbar). */
 export function anwesenheitsZeile(person: Person, jetzt: Date): string {
   const seit = seitText(person?.since, jetzt);

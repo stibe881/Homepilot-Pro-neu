@@ -27,7 +27,7 @@ import {
 } from '../lib/einkauf';
 import { uhr, wochentagDatum, wochentagUhr } from '../lib/format';
 import { klimaLabel, klimaSensor } from '../lib/klimachip';
-import { Person, anwesenheitsListe } from '../lib/ortung';
+import { Person, anwesenheitsListe, werIstDaHinweis } from '../lib/ortung';
 import { tapped } from '../lib/haptics';
 import { kann } from '../lib/plattform';
 import { MAX_SCHRIFT } from '../lib/schrift';
@@ -156,6 +156,9 @@ export function TopStrip({
   const temperature = klimaSensor(entities, 'temperature');
   const humidity = klimaSensor(entities, 'humidity');
   const people = entities.find((entity) => entity.id.endsWith('anyone_home'));
+  // Was der WLAN-Fühler übers ganze Haus sagt. `null`, wenn es ihn nicht
+  // gibt – dann gibt es auch keinen Widerspruch zu erklären.
+  const hausAnwesend = people ? people.state.state === 'on' : null;
 
   // Die Zwei-Sekunden-Übersicht: Was ist an, was läuft, was steht an?
   const litEntities = entities.filter(
@@ -324,6 +327,13 @@ export function TopStrip({
         <Pressable style={styles.backdrop} onPress={() => setDaOpen(false)}>
           <Pressable style={styles.sheet} onPress={() => {}}>
             <Text style={styles.heading}>Wer ist da</Text>
+            {/* Die Zeile oben kommt aus dem WLAN und meint das Haus, die
+                Liste hier je Person aus der Ortung. Widersprechen sie
+                einander, gehört das gesagt – sonst hält man eines von
+                beiden für kaputt. */}
+            {wer !== null && werIstDaHinweis(wer, hausAnwesend) ? (
+              <Text style={styles.daHinweis}>{werIstDaHinweis(wer, hausAnwesend)}</Text>
+            ) : null}
             {wer === null ? (
               <View style={styles.daLaedt}>
                 <ActivityIndicator color={colors.inkSoft} />
@@ -1030,6 +1040,7 @@ const makeStyles = (colors: Colors) =>
   },
   // Bis die Anwesenheit da ist – der Hub wird erst beim Öffnen gefragt.
   daLaedt: { paddingVertical: 24, alignItems: 'center' },
+  daHinweis: { color: colors.warn, fontSize: 13, lineHeight: 18 },
   einkaufMass: { color: colors.inkFaint, fontWeight: '400' },
   lightRow: {
     flexDirection: 'row',

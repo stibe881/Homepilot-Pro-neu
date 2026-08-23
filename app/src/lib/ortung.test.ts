@@ -10,6 +10,7 @@ import {
   pauseBis,
   pausiert,
   seitText,
+  werIstDaHinweis,
   zustandText,
 } from './ortung';
 
@@ -199,5 +200,46 @@ describe('anwesenheitsListe', () => {
   it('überspringt Einträge ohne Namen und verträgt eine leere Liste', () => {
     expect(anwesenheitsListe([{ state: 'home' }], UM(14, 0))).toEqual([]);
     expect(anwesenheitsListe([], UM(14, 0))).toEqual([]);
+  });
+});
+
+// ── Wenn Streifen und Fenster einander widersprechen ─────────────────────
+// Oben stand «jemand da», im Fenster darunter war niemand zuhause. Die
+// zwei kommen aus verschiedenen Quellen – das WLAN kennt das Haus, die
+// Ortung kennt die Leute.
+
+describe('werIstDaHinweis', () => {
+  const daheim = [{ name: 'Stefan', state: 'home', configured: true }];
+  const weg = [{ name: 'Stefan', state: 'away', configured: true }];
+  const ohneOrtung = [{ name: 'Stefan', state: 'unknown', configured: false }];
+
+  it('schweigt, wenn beide dasselbe sagen', () => {
+    expect(werIstDaHinweis(daheim, true)).toBe('');
+    expect(werIstDaHinweis(weg, false)).toBe('');
+  });
+
+  it('nennt die fehlende Einrichtung, wenn das WLAN jemanden sieht', () => {
+    // Genau der gemeldete Fall.
+    expect(werIstDaHinweis(ohneOrtung, true)).toContain('für niemanden ist die Ortung');
+  });
+
+  it('sagt bei eingerichteter Ortung, dass sich niemand gemeldet hat', () => {
+    expect(werIstDaHinweis(weg, true)).toContain('niemand gemeldet');
+    expect(werIstDaHinweis(weg, true)).not.toContain('eingerichtet');
+  });
+
+  it('nennt auch den umgekehrten Fall', () => {
+    expect(werIstDaHinweis(daheim, false)).toContain('sieht niemanden');
+  });
+
+  it('schweigt, solange das Haus nichts meldet', () => {
+    // Ohne WLAN-Fühler gibt es keinen Widerspruch zu erklären.
+    expect(werIstDaHinweis(ohneOrtung, null)).toBe('');
+    expect(werIstDaHinweis(daheim, null)).toBe('');
+  });
+
+  it('verträgt eine leere Liste', () => {
+    expect(werIstDaHinweis([], true)).toContain('für niemanden');
+    expect(werIstDaHinweis([], false)).toBe('');
   });
 });
