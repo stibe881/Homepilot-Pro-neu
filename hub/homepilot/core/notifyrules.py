@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from . import push
+
 # Beschreibung je Parameter: Grenzen halten Tippfehler fern (eine Erinnerung
 # nach 0 Stunden wäre Dauerfeuer, eine Frostwarnung bei 40 °C nie still).
 # {key, label, unit, default, min, max, step}
@@ -145,6 +147,33 @@ RULES: list[dict[str, Any]] = [
         ],
     },
     {
+        "key": "birthday",
+        "title": "Geburtstag",
+        "detail": "Am Morgen, wer heute Geburtstag hat – und ein paar Tage "
+        "vorher, solange noch Zeit für ein Geschenk ist. Die Daten stehen "
+        "bei den Kontakten der Familienseite.",
+        "params": [
+            {
+                "key": "hour",
+                "label": "Erinnern um",
+                "unit": "Uhr",
+                "default": 8,
+                "min": 5,
+                "max": 22,
+                "step": 1,
+            },
+            {
+                "key": "days",
+                "label": "Vorlauf",
+                "unit": "Tage",
+                "default": 3,
+                "min": 0,
+                "max": 14,
+                "step": 1,
+            },
+        ],
+    },
+    {
         "key": "weekahead",
         "title": "Wochenausblick am Sonntag",
         "detail": "Sonntagabend, wenn man die Woche ohnehin im Kopf durchgeht: "
@@ -260,6 +289,9 @@ def describe(stored: Any) -> list[dict[str, Any]]:
             "key": rule["key"],
             "title": rule["title"],
             "detail": rule["detail"],
+            # Dieselbe Einteilung wie im Profil - der Schlüssel einer Regel
+            # ist zugleich ihre Push-Kategorie (siehe Kopf dieser Datei).
+            "group": push.group_of(rule["key"]),
             "enabled": current[rule["key"]]["enabled"],
             "params": [
                 {**spec, "value": current[rule["key"]]["params"][spec["key"]]}
