@@ -93,6 +93,9 @@ class SceneRequest(BaseModel):
     # Übergangszeit in Sekunden: Helligkeiten werden angefahren statt
     # gesetzt – Lichtwecker, Einschlaflicht.
     transition: int = 0
+    # Bleibt die Szene aktiv (Knopf leuchtet, zweiter Druck nimmt zurück)?
+    # Aus für Handlungen wie «Alles aus», die keinen Zustand herstellen.
+    toggles: bool = True
 
 
 class PushPrefsRequest(BaseModel):
@@ -189,6 +192,25 @@ class AreaUnlockRequest(BaseModel):
     """Das Passwort vor den persönlichen Bereichen."""
 
     password: str = ""
+
+
+class TemplateRequest(BaseModel):
+    """Eine eigene Ablauf-Vorlage sichern.
+
+    `draft` ist der Entwurf, wie ihn der Editor der App führt - der Hub
+    reicht ihn unverändert durch und kennt seine Form nicht.
+    """
+
+    id: str | None = None
+    draft: dict[str, Any] = {}
+    icon: str = "flash-outline"
+
+
+class TemplateHideRequest(BaseModel):
+    """Eine eingebaute Vorlage ausblenden (oder wieder zeigen)."""
+
+    label: str
+    on: bool = True
 
 
 class ConflictAckRequest(BaseModel):

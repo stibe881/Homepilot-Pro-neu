@@ -99,6 +99,10 @@ EMPTY: dict[str, Any] = {
     # at}]. Daraus entsteht der Rhythmus («Milch sonst alle 7 Tage»),
     # den die App als Vorschlag zeigt. Ein halbes Jahr, dann verfällt es.
     "shopping_log": [],
+    # Eigene Ablauf-Vorlagen und ausgeblendete eingebaute: [{id, label,
+    # icon, draft, hidden}] - siehe vorlagen.py. Der Entwurf gehört der
+    # App; der Hub reicht ihn unverändert durch.
+    "automation_templates": [],
     # Quittierte Widersprüche: [{key, by, at}] - siehe konflikte.py. Eine
     # geprüfte Zeile («ja, der eine schaltet ein, der andere später aus»)
     # verschwindet damit aus der Liste, statt die eine Zeile zu

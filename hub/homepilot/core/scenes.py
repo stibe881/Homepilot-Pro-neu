@@ -10,15 +10,28 @@
 
 Bewusst simpel gehalten: Eine Szene stellt einen Zustand her, sie hat keine
 Bedingungen und keinen Zeitverlauf. Alles Weitere gehört in eine Automation.
+
+**Zurücknehmen.** Beim Auslösen merkt sich der Hub, wie es vorher aussah -
+aber nur bei den Geräten, an denen die Szene wirklich etwas verändert.
+Der zweite Druck stellt genau das wieder her. Ein Fernseher, der schon
+aus war, gehört nicht dazu: An ihm hat die Szene nichts getan, also darf
+das Zurücknehmen ihn auch nicht einschalten. Das Rechnen dazu steht in
+szenenrueckweg.py.
+
+Ob eine Szene «gilt», wird am tatsächlichen Gerätezustand gemessen und
+nicht daran, dass jemand einmal den Knopf gedrückt hat: Wer danach das
+Licht von Hand anschaltet, hat sie verlassen.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from . import szenenrueckweg
 from .errors import ConfigError, HomePilotError
 from .source import as_source, scene_source
 
@@ -46,6 +59,14 @@ class Scene:
     # Übergangszeit in Sekunden: Helligkeiten werden über diese Dauer
     # angefahren statt schlagartig gesetzt – Lichtwecker und Einschlaflicht.
     transition: int = 0
+    # Bleibt die Szene aktiv? Dann leuchtet ihr Knopf, solange sie gilt,
+    # und ein zweiter Druck nimmt sie zurück.
+    #
+    # Nicht jede Szene ist ein Zustand. «Alles aus» und «Gute Nacht» sind
+    # Handlungen: Man löst sie aus und geht. Ein Knopf, der danach
+    # leuchtet und beim nächsten Druck das halbe Haus wieder anschaltet,
+    # wäre dort das Gegenteil von hilfreich.
+    toggles: bool = True
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -59,6 +80,7 @@ class Scene:
             "on_start": self.on_start,
             "category": self.category,
             "transition": self.transition,
+            "toggles": self.toggles,
         }
 
 
@@ -132,6 +154,9 @@ def parse_scenes(configs: list[dict[str, Any]], editable: bool = False) -> list[
                 on_start=bool(config.get("on_start")),
                 category=str(config["category"]) if config.get("category") else None,
                 transition=max(0, min(MAX_TRANSITION, int(config.get("transition") or 0))),
+                # Vorgabe an: Der Umschalter ist das nützlichere Verhalten,
+                # und wer «Alles aus» baut, hakt es dort ab.
+                toggles=config.get("toggles", True) is not False,
             )
         )
     return scenes
@@ -158,6 +183,119 @@ class SceneManager:
     def get(self, scene_id: str) -> Scene | None:
         return next((scene for scene in self.scenes if scene.id == scene_id), None)
 
+    # ── Rückweg ────────────────────────────────────────────────────────────
+
+    #: Wo die Rückwege liegen. Auf der Platte, nicht im Speicher: Eine
+    #: Szene, die man abends auslöst, will man nach einem Update um
+    #: Mitternacht immer noch zurücknehmen können.
+    UNDO_KEY = "scene_undo"
+
+    def _geraete_stand(self, entity_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """Kind, Kommandos und Zustand der beteiligten Geräte."""
+        stand: dict[str, dict[str, Any]] = {}
+        for entity_id in entity_ids:
+            entity = self.hub.registry.get(entity_id)
+            if entity is None:
+                continue
+            stand[entity_id] = {
+                "kind": str(getattr(entity.kind, "value", entity.kind)),
+                "commands": list(entity.commands),
+                "state": dict(entity.state),
+            }
+        return stand
+
+    def _undo_lesen(self) -> list[dict[str, Any]]:
+        roh = self.hub.data.get(self.UNDO_KEY)
+        return [eintrag for eintrag in roh if isinstance(eintrag, dict)]
+
+    def _undo_setzen(self, scene_id: str, befehle: list[dict[str, Any]] | None) -> None:
+        andere = [
+            eintrag for eintrag in self._undo_lesen() if eintrag.get("scene") != scene_id
+        ]
+        if befehle:
+            andere.append(
+                {"scene": scene_id, "at": time.time(), "commands": befehle}
+            )
+        self.hub.data.set(self.UNDO_KEY, andere)
+
+    def undo_fuer(self, scene_id: str) -> list[dict[str, Any]]:
+        """Der gespeicherte Rückweg dieser Szene – leer, wenn es keinen gibt."""
+        for eintrag in self._undo_lesen():
+            if eintrag.get("scene") == scene_id:
+                roh = eintrag.get("commands")
+                return [b for b in roh if isinstance(b, dict)] if isinstance(roh, list) else []
+        return []
+
+    def ist_aktiv(self, scene: Scene) -> bool:
+        """Steht der Raum noch so, wie die Szene ihn hinterlassen hat?
+
+        Bewusst am tatsächlichen Zustand gemessen und nicht daran, dass
+        jemand einmal den Knopf gedrückt hat: Wer danach das Licht von
+        Hand wieder anschaltet, hat die Szene verlassen. Ein Knopf, der
+        dann noch leuchtet, wäre eine Lüge - und der zweite Druck darauf
+        eine Überraschung.
+        """
+        if not scene.toggles:
+            # Eine Handlung hat keinen Zustand: «Alles aus» leuchtet nie.
+            return False
+        stand = self._geraete_stand(
+            [str(a.get("entity_id") or "") for a in scene.actions]
+        )
+        return szenenrueckweg.szene_gilt_noch(scene.actions, stand)
+
+    async def toggle(self, scene_id: str) -> dict[str, Any]:
+        """Auslösen oder zurücknehmen – je nachdem, was gerade gilt."""
+        scene = self.get(scene_id)
+        if scene is None:
+            raise HomePilotError(f"Unbekannte Szene: {scene_id}")
+        if self.ist_aktiv(scene) and self.undo_fuer(scene_id):
+            return await self.revert(scene_id)
+        return await self.activate(scene_id)
+
+    async def revert(self, scene_id: str) -> dict[str, Any]:
+        """Die Szene zurücknehmen – nur, was sie geändert hat.
+
+        Der Rückweg wurde beim Auslösen berechnet, nicht jetzt: Nur
+        damals war noch bekannt, wie es vorher aussah.
+        """
+        scene = self.get(scene_id)
+        if scene is None:
+            raise HomePilotError(f"Unbekannte Szene: {scene_id}")
+        if not scene.toggles:
+            raise HomePilotError(
+                f"'{scene.name}' löst nur aus und lässt sich nicht zurücknehmen"
+            )
+        befehle = self.undo_fuer(scene_id)
+        if not befehle:
+            raise HomePilotError(
+                f"Für '{scene.name}' ist nichts zum Zurücknehmen gespeichert"
+            )
+        failed: list[dict[str, str]] = []
+        with as_source(scene_source(scene.id, f"{scene.name} zurück")):
+            for befehl in befehle:
+                try:
+                    await self.hub.integrations.dispatch_command(
+                        befehl["entity_id"],
+                        befehl["command"],
+                        befehl.get("data") or {},
+                    )
+                except Exception as err:
+                    log.warning(
+                        "Szene '%s' zurücknehmen: %s ging nicht (%s)",
+                        scene.name,
+                        befehl.get("entity_id"),
+                        err,
+                    )
+                    failed.append(
+                        {"entity_id": str(befehl.get("entity_id")), "error": str(err)}
+                    )
+                await asyncio.sleep(0)
+        self._undo_setzen(scene_id, None)
+        log.info(
+            "Szene '%s' zurückgenommen (%d Geräte)", scene.name, len(befehle) - len(failed)
+        )
+        return {"scene": scene.as_dict(), "failed": failed, "reverted": True}
+
     async def activate(self, scene_id: str) -> dict[str, Any]:
         """Führt alle Aktionen aus und meldet, was nicht geklappt hat.
 
@@ -167,6 +305,23 @@ class SceneManager:
         scene = self.get(scene_id)
         if scene is None:
             raise HomePilotError(f"Unbekannte Szene: {scene_id}")
+
+        # Vor dem Schalten festhalten, wie es aussah - danach ist es weg.
+        # Gespeichert wird nur, was die Szene wirklich verändert: Ein
+        # Fernseher, der schon aus war, gehört nicht in den Rückweg,
+        # sonst ginge er beim zweiten Druck an.
+        if scene.toggles:
+            vorher = self._geraete_stand(
+                [str(a.get("entity_id") or "") for a in scene.actions]
+            )
+            self._undo_setzen(
+                scene_id, szenenrueckweg.plane_rueckweg(scene.actions, vorher)
+            )
+        else:
+            # Kein Rückweg, und ein alter wird verworfen: Wer die Szene
+            # nachträglich auf «löst nur aus» stellt, soll nicht beim
+            # nächsten Druck einen Rückweg von gestern auslösen.
+            self._undo_setzen(scene_id, None)
 
         failed: list[dict[str, str]] = []
         with as_source(scene_source(scene.id, scene.name)):

@@ -19,11 +19,11 @@ import {
 } from '../lib/szenen';
 import { BabysitterStand, LEERER_BABYSITTER, istFreigegeben, modusSatz } from '../lib/babysitter';
 import { Editor, Fassung } from './automations/editor';
-import { Automation, Draft, DryRun, EMPTY, Run, StepDraft, TriggerHealth, buildConditions, describe, groupByCategory, lastRunText, newTrigger, runLine, search, stepToActions, stepsToActions, szenenSymbol, toDraft, triggerIcon, triggerToConfig, usedCategories, zeitpunktLabel } from './automations/entwurf';
+import { Automation, Draft, DryRun, EMPTY, Run, StepDraft, TriggerHealth, buildConditions, describe, groupByCategory, lastRunText, newTrigger, runLine, search, stepToActions, stepsToActions, symbolFuerNamen, szenenSymbol, toDraft, triggerIcon, triggerToConfig, usedCategories, zeitpunktLabel } from './automations/entwurf';
 import { Groups, SearchBox } from './automations/felder';
 import { makeStyles } from './automations/stil';
 import { SCENE_ICONS, SceneDraft, SceneEditor } from './automations/szenen-editor';
-import { buildTemplates } from './automations/vorlagen';
+import { EigeneVorlage, buildTemplates, mischeVorlagen } from './automations/vorlagen';
 
 /** Ein gegensätzlich geschaltetes Gerät aus /api/automations/conflicts. */
 interface Konflikt {
@@ -87,6 +87,12 @@ export function AutomationsScreen({
   // Abläufe, die dasselbe Gerät gegensätzlich schalten – kein Fehler,
   // aber die erste Frage, wenn nachts das Licht von selbst angeht.
   const [conflicts, setConflicts] = useState<Konflikt[]>([]);
+  // Eigene Vorlagen vom Hub und die ausgeblendeten eingebauten.
+  const [eigeneVorlagen, setEigeneVorlagen] = useState<EigeneVorlage[]>([]);
+  const [versteckteVorlagen, setVersteckteVorlagen] = useState<string[]>([]);
+  // Eingeklappt: Die Vorlagen sind ein Anfang für den seltenen Fall
+  // «neuer Ablauf», nicht die Liste, die man täglich liest.
+  const [vorlagenOffen, setVorlagenOffen] = useState(false);
   // Bereits abgehakte Widersprüche - eingeklappt hinter «3 quittiert».
   const [quittiert, setQuittiert] = useState<Konflikt[]>([]);
   const [zeigeQuittierte, setZeigeQuittierte] = useState(false);
@@ -110,6 +116,10 @@ export function AutomationsScreen({
   // Das Tagesband (Punkt 163): was das Haus heute vorhat.
   const [agenda, setAgenda] = useState<AgendaEintrag[]>([]);
   const templates = useMemo(() => buildTemplates(entities, scenes), [entities, scenes]);
+  const alleVorlagen = useMemo(
+    () => mischeVorlagen(templates, eigeneVorlagen, versteckteVorlagen),
+    [templates, eigeneVorlagen, versteckteVorlagen]
+  );
 
   const mayEdit = !!user?.capabilities?.includes('edit_automations');
   // Denselben Eingriff wie das Pausieren - Abläufe ruhen lassen -,
@@ -197,6 +207,15 @@ export function AutomationsScreen({
         setQuittiert(data?.acknowledged ?? []);
       });
     hub
+      .get<{ templates?: EigeneVorlage[]; hidden?: string[] } | null>(
+        '/api/automations/templates',
+        { fallback: null, still: true }
+      )
+      .then((data) => {
+        setEigeneVorlagen(data?.templates ?? []);
+        setVersteckteVorlagen(data?.hidden ?? []);
+      });
+    hub
       .get<{ trash?: PapierkorbZeile[] } | null>('/api/trash', { fallback: null, still: true })
       .then((data) => setTrash(data?.trash ?? []));
     hub
@@ -227,8 +246,76 @@ export function AutomationsScreen({
 
   useEffect(load, [load]);
 
+  /** Vorlagen: sichern, löschen, ein- und ausblenden. */
+  const vorlagenAntwort = (
+    antwort: { templates?: EigeneVorlage[]; hidden?: string[] } | null
+  ) => {
+    if (!antwort) {
+      onNote?.('Vorlage nicht gespeichert – Hub nicht erreichbar');
+      return false;
+    }
+    setEigeneVorlagen(antwort.templates ?? []);
+    setVersteckteVorlagen(antwort.hidden ?? []);
+    return true;
+  };
+
+  const vorlageSichern = async (entwurf: Draft) => {
+    const antwort = await hub.post<{
+      templates?: EigeneVorlage[];
+      hidden?: string[];
+    } | null>(
+      '/api/automations/templates',
+      {
+        // «neu» ist kein Ziel, sondern die Absicht - der Hub vergibt die
+        // Kennung.
+        id: entwurf.templateId === 'neu' ? null : entwurf.templateId,
+        draft: entwurf,
+        icon: symbolFuerNamen(entwurf.alias) ?? 'flash-outline',
+      },
+      { fallback: null }
+    );
+    if (!vorlagenAntwort(antwort)) return;
+    // Aus einer eingebauten wurde eine eigene: Die eingebaute
+    // verschwindet, sonst stehen zwei fast gleiche nebeneinander.
+    if (entwurf.templateHides) {
+      vorlagenAntwort(
+        await hub.post<{ templates?: EigeneVorlage[]; hidden?: string[] } | null>(
+          '/api/automations/templates/hidden',
+          { label: entwurf.templateHides, on: true },
+          { fallback: null }
+        )
+      );
+    }
+    onNote?.(`Vorlage «${entwurf.alias || 'Ohne Namen'}» gesichert`);
+    setDraft(null);
+  };
+
+  const vorlageLoeschen = async (id: string) => {
+    vorlagenAntwort(
+      await hub.del<{ templates?: EigeneVorlage[]; hidden?: string[] } | null>(
+        `/api/automations/templates/${encodeURIComponent(id)}`,
+        { fallback: null }
+      )
+    );
+  };
+
+  const vorlageAusblenden = async (label: string, on: boolean) => {
+    vorlagenAntwort(
+      await hub.post<{ templates?: EigeneVorlage[]; hidden?: string[] } | null>(
+        '/api/automations/templates/hidden',
+        { label, on },
+        { fallback: null }
+      )
+    );
+  };
+
   const save = async () => {
     if (!draft) return;
+    // Eine Vorlage schaltet nichts - sie wird gesichert, nicht angelegt.
+    if (draft.templateId) {
+      await vorlageSichern(draft);
+      return;
+    }
     const body = {
       alias: draft.alias || 'Ohne Namen',
       trigger: draft.triggers.map(triggerToConfig),
@@ -463,6 +550,7 @@ export function AutomationsScreen({
       room: sceneDraft.room || null,
       on_start: !!sceneDraft.onStart,
       transition: Math.max(0, Number(sceneDraft.transition) || 0),
+      toggles: sceneDraft.toggles !== false,
       category: sceneDraft.category?.trim() || null,
       actions: sceneDraft.actions
         .filter((action) => action.entity_id)
@@ -810,22 +898,137 @@ export function AutomationsScreen({
         </Pressable>
       ) : null}
 
-      {mayEdit && templates.length > 0 ? (
+      {/* Eingeklappt: Die Vorlagen sind der Anfang für den seltenen Fall
+          «neuer Ablauf» und standen trotzdem jedes Mal aufgeklappt über
+          der Liste, die man wirklich liest. Aufgeklappt stehen sie
+          untereinander - mit Stift und Kreuz, denn eine Liste, die nur
+          wächst, wird nicht nützlicher.
+
+          Eingebaute lassen sich nicht löschen (sie stehen im Code und
+          entstehen aus dem Gerätebestand), aber ausblenden. Wer eine
+          bearbeitet, bekommt eine eigene Kopie, und die eingebaute
+          verschwindet - sonst stünden zwei fast gleiche nebeneinander. */}
+      {mayEdit && (alleVorlagen.length > 0 || versteckteVorlagen.length > 0) ? (
         <View style={styles.templates}>
-          <Text style={styles.templatesLabel}>Vorlagen</Text>
-          <View style={styles.choices}>
-            {templates.map((template) => (
-              <Pressable
-                key={template.label}
-                onPress={() => setDraft({ ...template.draft })}
-                accessibilityRole="button"
-                style={({ pressed }) => [styles.template, pressed && { opacity: 0.75 }]}
-              >
-                <Ionicons name={template.icon} size={14} color={colors.inkSoft} />
-                <Text style={styles.templateText}>{template.label}</Text>
-              </Pressable>
-            ))}
-          </View>
+          <Pressable
+            onPress={() => setVorlagenOffen((offen) => !offen)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: vorlagenOffen }}
+            style={({ pressed }) => [styles.vorlagenKopf, pressed && { opacity: 0.7 }]}
+          >
+            <Ionicons
+              name={vorlagenOffen ? 'chevron-down' : 'chevron-forward'}
+              size={14}
+              color={colors.onGradientSoft}
+            />
+            <Text style={styles.templatesLabel}>Vorlagen</Text>
+            <Text style={styles.groupCount}>{alleVorlagen.length}</Text>
+          </Pressable>
+
+          {vorlagenOffen ? (
+            <>
+              {alleVorlagen.map((vorlage) => (
+                <View key={vorlage.key} style={styles.vorlagenZeile}>
+                  <Pressable
+                    onPress={() => setDraft({ ...EMPTY, ...vorlage.draft })}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Neuer Ablauf aus «${vorlage.label}»`}
+                    style={({ pressed }) => [
+                      styles.template,
+                      { flex: 1 },
+                      pressed && { opacity: 0.75 },
+                    ]}
+                  >
+                    <Ionicons
+                      name={vorlage.icon as keyof typeof Ionicons.glyphMap}
+                      size={14}
+                      color={colors.inkSoft}
+                    />
+                    <Text style={styles.templateText} numberOfLines={1}>
+                      {vorlage.label}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() =>
+                      setDraft({
+                        ...EMPTY,
+                        ...vorlage.draft,
+                        // Der Ablauf-Teil bekommt nie die Kennung einer
+                        // Vorlage - hier ist es umgekehrt gewollt.
+                        id: undefined,
+                        alias: vorlage.label,
+                        templateId: vorlage.eigen ? vorlage.id : 'neu',
+                        templateHides: vorlage.eigen ? undefined : vorlage.label,
+                      })
+                    }
+                    accessibilityRole="button"
+                    accessibilityLabel={`Vorlage «${vorlage.label}» bearbeiten`}
+                    hitSlop={8}
+                    style={({ pressed }) => [styles.iconButton, pressed && { opacity: 0.7 }]}
+                  >
+                    <Ionicons name="create-outline" size={18} color={colors.inkSoft} />
+                  </Pressable>
+                  <Pressable
+                    onPress={() =>
+                      vorlage.eigen
+                        ? vorlageLoeschen(vorlage.id)
+                        : vorlageAusblenden(vorlage.label, true)
+                    }
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      vorlage.eigen
+                        ? `Vorlage «${vorlage.label}» löschen`
+                        : `Vorlage «${vorlage.label}» ausblenden`
+                    }
+                    hitSlop={8}
+                    style={({ pressed }) => [styles.iconButton, pressed && { opacity: 0.7 }]}
+                  >
+                    <Ionicons
+                      name={vorlage.eigen ? 'trash-outline' : 'eye-off-outline'}
+                      size={18}
+                      color={colors.inkSoft}
+                    />
+                  </Pressable>
+                </View>
+              ))}
+
+              <View style={styles.choices}>
+                <Pressable
+                  onPress={() =>
+                    setDraft({ ...EMPTY, templateId: 'neu', triggers: [newTrigger(entities[0])] })
+                  }
+                  accessibilityRole="button"
+                  style={({ pressed }) => [styles.template, pressed && { opacity: 0.75 }]}
+                >
+                  <Ionicons name="add" size={14} color={colors.inkSoft} />
+                  <Text style={styles.templateText}>Neue Vorlage</Text>
+                </Pressable>
+                {versteckteVorlagen.map((label) => (
+                  <Pressable
+                    key={label}
+                    onPress={() => vorlageAusblenden(label, false)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`«${label}» wieder anzeigen`}
+                    style={({ pressed }) => [
+                      styles.template,
+                      { opacity: 0.6 },
+                      pressed && { opacity: 0.4 },
+                    ]}
+                  >
+                    <Ionicons name="eye-outline" size={14} color={colors.inkSoft} />
+                    <Text style={styles.templateText} numberOfLines={1}>
+                      {label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Text style={styles.triggerNote}>
+                Antippen öffnet einen vorbefüllten Entwurf. Eingebaute Vorlagen
+                entstehen aus den Geräten im Haus; ausgeblendete stehen hier
+                blass und kommen mit einem Tipp zurück.
+              </Text>
+            </>
+          ) : null}
         </View>
       ) : null}
 
@@ -1198,6 +1401,7 @@ export function AutomationsScreen({
               icon: SCENE_ICONS[0],
               onStart: false,
               transition: 0,
+              toggles: true,
               actions: [],
             })
           }
@@ -1270,6 +1474,9 @@ export function AutomationsScreen({
                           room: scene.room ?? undefined,
                           onStart: !!scene.on_start,
                           transition: Number(scene.transition) || 0,
+                          // Fehlt das Feld, gilt «bleibt aktiv» - so
+                          // verhalten sich die Szenen, die es schon gab.
+                          toggles: scene.toggles !== false,
                           category: scene.category ?? undefined,
                           actions: sceneActionsToDraft(scene.actions ?? []),
                         })

@@ -128,3 +128,98 @@ def test_transition_for_lets_one_lamp_be_instant():
     # Unsinn fällt auf die Szene zurück, statt die Rampe zu zerlegen.
     kaputt = {"entity_id": "x", "command": "set_brightness", "data": {"transition": "gleich"}}
     assert transition_for(szene, kaputt) == 1200
+
+
+async def test_der_zweite_druck_nimmt_die_szene_zurueck():
+    """Und zwar nur, was sie geändert hat.
+
+    Die Kaffeemaschine war schon aus - «Kino» hat an ihr nichts getan,
+    also darf der Rückweg sie nicht einschalten. Sonst liefe sie nach
+    dem Film, weil man einen Knopf gedrückt hat, der «rückgängig» heisst.
+    """
+    hub = await make_hub([KINO])
+    try:
+        await hub.integrations.dispatch_command(
+            "demo.light_livingroom", "set_brightness", {"brightness": 80}
+        )
+        await hub.integrations.dispatch_command("demo.switch_coffee", "turn_off")
+
+        await hub.scenes.activate("kino")
+        licht = hub.registry.get("demo.light_livingroom")
+        assert licht.state["brightness"] == 15
+        assert hub.scenes.ist_aktiv(hub.scenes.get("kino")) is True
+
+        await hub.scenes.toggle("kino")
+        licht = hub.registry.get("demo.light_livingroom")
+        assert licht.state["brightness"] == 80
+        # Die Kaffeemaschine ist nicht angegangen.
+        assert hub.registry.get("demo.switch_coffee").state["state"] == "off"
+        # Und der Rückweg ist verbraucht.
+        assert hub.scenes.undo_fuer("kino") == []
+    finally:
+        await hub.stop()
+
+
+async def test_von_hand_eingegriffen_heisst_szene_verlassen():
+    """Dann leuchtet der Knopf nicht mehr, und der nächste Druck löst aus."""
+    hub = await make_hub([KINO])
+    try:
+        await hub.scenes.activate("kino")
+        assert hub.scenes.ist_aktiv(hub.scenes.get("kino")) is True
+
+        await hub.integrations.dispatch_command("demo.light_livingroom", "turn_off")
+        assert hub.scenes.ist_aktiv(hub.scenes.get("kino")) is False
+
+        # Der zweite Druck löst deshalb aus statt zurückzunehmen.
+        await hub.scenes.toggle("kino")
+        assert hub.registry.get("demo.light_livingroom").state["brightness"] == 15
+    finally:
+        await hub.stop()
+
+
+async def test_zuruecknehmen_ohne_gespeicherten_weg_sagt_das():
+    hub = await make_hub([KINO])
+    try:
+        with pytest.raises(HomePilotError, match="zum Zurücknehmen"):
+            await hub.scenes.revert("kino")
+    finally:
+        await hub.stop()
+
+
+async def test_eine_handlung_bleibt_nicht_aktiv():
+    """«Alles aus» ist keine Szene, die gilt – sie ist etwas, das man tut.
+
+    Ein Knopf, der danach leuchtet und beim nächsten Druck das halbe
+    Haus wieder anschaltet, wäre dort das Gegenteil von hilfreich.
+    """
+    handlung = {**KINO, "id": "alles_aus", "name": "Alles aus", "toggles": False}
+    hub = await make_hub([handlung])
+    try:
+        await hub.integrations.dispatch_command("demo.switch_coffee", "turn_on")
+        await hub.scenes.activate("alles_aus")
+        assert hub.registry.get("demo.switch_coffee").state["state"] == "off"
+
+        # Kein Leuchten, kein Rückweg.
+        assert hub.scenes.ist_aktiv(hub.scenes.get("alles_aus")) is False
+        assert hub.scenes.undo_fuer("alles_aus") == []
+        with pytest.raises(HomePilotError, match="löst nur aus"):
+            await hub.scenes.revert("alles_aus")
+
+        # Und der zweite Druck löst schlicht noch einmal aus.
+        await hub.integrations.dispatch_command("demo.switch_coffee", "turn_on")
+        await hub.scenes.toggle("alles_aus")
+        assert hub.registry.get("demo.switch_coffee").state["state"] == "off"
+    finally:
+        await hub.stop()
+
+
+def test_toggles_ist_voreingestellt_an():
+    """Der Umschalter ist das nützlichere Verhalten – wer es nicht will,
+    hakt es beim Anlegen ab."""
+    from homepilot.core.scenes import parse_scenes
+
+    (szene,) = parse_scenes([{"id": "x", "actions": []}])
+    assert szene.toggles is True
+    (aus,) = parse_scenes([{"id": "x", "actions": [], "toggles": False}])
+    assert aus.toggles is False
+    assert szene.as_dict()["toggles"] is True

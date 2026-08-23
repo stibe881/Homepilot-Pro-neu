@@ -99,7 +99,13 @@ export function Editor({
       <ScrollView style={styles.editor} contentContainerStyle={styles.editorContent}>
         <View style={styles.cardHead}>
           <Text style={styles.editorTitle}>
-            {draft.id ? 'Ablauf bearbeiten' : 'Neuer Ablauf'}
+            {draft.templateId
+              ? draft.templateId === 'neu'
+                ? 'Neue Vorlage'
+                : 'Vorlage bearbeiten'
+              : draft.id
+                ? 'Ablauf bearbeiten'
+                : 'Neuer Ablauf'}
           </Text>
           <Pressable onPress={onCancel} accessibilityLabel="Abbrechen">
             <Ionicons name="close" size={26} color={colors.ink} />
@@ -107,8 +113,12 @@ export function Editor({
         </View>
 
         <Text style={styles.snapshotHint}>
-          Ein Ablauf ist ein Satz: „Wenn … passiert, dann … tun." Unten das
-          Wenn und das Dann ausfüllen, oben einen Namen geben.
+          {draft.templateId
+            ? // Eine Vorlage schaltet nichts - sie steht bereit. Das
+              // gehört hierhin, sonst wartet jemand auf ein Licht, das
+              // nie angeht.
+              'Eine Vorlage läuft nicht – sie steht unter «Abläufe» bereit und öffnet sich beim Antippen als vorbefüllter Entwurf. Erst was daraus gespeichert wird, schaltet.'
+            : 'Ein Ablauf ist ein Satz: „Wenn … passiert, dann … tun." Unten das Wenn und das Dann ausfüllen, oben einen Namen geben.'}
         </Text>
 
         {/* Und hier steht dieser Satz auch – mitlaufend, mit Gerätenamen.
@@ -709,7 +719,9 @@ export function Editor({
         </Field>
 
         <Pressable style={styles.save} onPress={onSave} accessibilityRole="button">
-          <Text style={styles.saveText}>Speichern</Text>
+          <Text style={styles.saveText}>
+            {draft.templateId ? 'Vorlage sichern' : 'Speichern'}
+          </Text>
         </Pressable>
         {onTest ? (
           <Pressable

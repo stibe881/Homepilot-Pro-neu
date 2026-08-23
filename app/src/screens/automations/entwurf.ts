@@ -663,6 +663,14 @@ export interface Draft {
   category: string;
   /** Ausgeschaltet: bleibt stehen, läuft aber nicht. */
   enabled: boolean;
+  /** Gesetzt, solange dieser Entwurf eine *Vorlage* ist und kein Ablauf:
+   *  «neu» für eine frische, sonst die Kennung der gespeicherten. Der
+   *  Editor sieht daran, dass beim Speichern eine Vorlage entsteht und
+   *  kein Ablauf, der ab sofort schaltet. */
+  templateId?: string;
+  /** Beim Bearbeiten einer eingebauten Vorlage: Sie wird beim Sichern
+   *  ausgeblendet, damit nicht zwei fast gleiche nebeneinander stehen. */
+  templateHides?: string;
 }
 
 export const EMPTY: Draft = {

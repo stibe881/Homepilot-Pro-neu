@@ -126,6 +126,10 @@ export const makeStyles = (colors: Colors) =>
     },
     pausenText: { color: colors.onGradientSoft, fontSize: 13, flexGrow: 1 },
     pausenKnoepfe: { flexDirection: 'row', gap: 8 },
+    // Vorlagen: eingeklappt eine Zeile, aufgeklappt eine je Vorlage mit
+    // Stift und Kreuz am rechten Rand.
+    vorlagenKopf: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    vorlagenZeile: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     // Widerspruch links, der Haken rechts - in einer Zeile, damit klar
     // ist, was der Haken abhakt.
     konfliktZeile: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
