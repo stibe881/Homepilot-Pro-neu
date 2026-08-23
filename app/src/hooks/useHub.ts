@@ -429,12 +429,19 @@ export function useHub(url: string | null, token: string | null) {
     send(undo.entityId, undo.command, undo.data);
   }, [undo, send]);
 
+  /**
+   * Eine Szene auslösen – oder zurücknehmen, wenn sie gerade gilt.
+   *
+   * Der Hub entscheidet, welches von beidem. Entschiede es die App,
+   * entschiede sie es anhand eines Standes, der Sekunden alt sein kann –
+   * und löste die Szene ein zweites Mal aus, statt sie zurückzunehmen.
+   */
   const activateScene = useCallback(
     async (sceneId: string) => {
       if (!url) return;
       triggered();
       try {
-        const response = await fetch(`${url}/api/scenes/${sceneId}/activate`, {
+        const response = await fetch(`${url}/api/scenes/${sceneId}/toggle`, {
           method: 'POST',
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
@@ -442,6 +449,22 @@ export function useHub(url: string | null, token: string | null) {
           throw new Error(`Hub antwortet mit ${response.status}`);
         }
         const result = await response.json();
+        // Sofort umschalten, damit der Knopf nicht eine Sekunde lang
+        // lügt - und kurz darauf beim Hub nachfragen, der es genau
+        // weiss. Ein Gerät, das nicht reagiert hat, korrigiert sich so
+        // von selbst.
+        setScenes((liste) =>
+          liste.map((scene) =>
+            scene.id === sceneId
+              ? {
+                  ...scene,
+                  active: !result.reverted,
+                  revertable: !result.reverted,
+                }
+              : scene
+          )
+        );
+        setTimeout(() => reloadScenes(), 1200);
         if (result.failed?.length) {
           failed();
           setError(
@@ -454,7 +477,7 @@ export function useHub(url: string | null, token: string | null) {
         setError(`Szene fehlgeschlagen: ${err instanceof Error ? err.message : err}`);
       }
     },
-    [url, token]
+    [url, token, reloadScenes]
   );
 
   // Raumzuordnung einer Kachel setzen (im Anpassen-Modus). Der Hub meldet

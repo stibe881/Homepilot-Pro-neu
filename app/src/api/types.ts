@@ -78,6 +78,13 @@ export interface Scene {
   category?: string | null;
   /** Übergangszeit in Sekunden – Helligkeiten werden angefahren. */
   transition?: number;
+  /** Steht der Raum gerade so, wie die Szene ihn hinterlässt? Der Hub
+   *  misst das am tatsächlichen Zustand, nicht daran, dass jemand
+   *  einmal gedrückt hat. */
+  active?: boolean;
+  /** Ist ein Rückweg gespeichert? Nur dann nimmt der zweite Druck
+   *  zurück, statt erneut auszulösen. */
+  revertable?: boolean;
 }
 
 export interface User {
