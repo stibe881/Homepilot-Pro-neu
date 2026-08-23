@@ -70,8 +70,8 @@ if TYPE_CHECKING:
     from .hub import Hub
 
 # Standard-Standort (Zell LU), falls in der Config keiner steht.
-DEFAULT_LAT = 47.1445
-DEFAULT_LON = 8.0675
+DEFAULT_LAT = 47.1381
+DEFAULT_LON = 7.9228
 
 log = logging.getLogger(__name__)
 

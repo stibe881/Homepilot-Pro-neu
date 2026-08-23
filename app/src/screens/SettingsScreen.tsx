@@ -276,8 +276,24 @@ export function SettingsScreen({
                 {ortung.stand.hinweis}
               </Text>
             ) : null}
+            {/* «Stefan · unterwegs», während Stefan in der Küche steht:
+                Die Zonenüberwachung meldet nur Übertritte, und wer die
+                Ortung zuhause einschaltet, kreuzt keine Grenze. Beim
+                Einschalten meldet die App darum von selbst - und hier
+                steht der Knopf für alle Fälle, in denen eine Meldung
+                unterwegs verloren ging. */}
+            {ortung.stand.gemeldet ? (
+              <Text style={styles.panelHint}>{ortung.stand.gemeldet}</Text>
+            ) : null}
             {ortung.stand.aktiv ? (
               <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                <Pressable
+                  onPress={() => ortung.jetztMelden()}
+                  accessibilityRole="button"
+                  style={styles.mode}
+                >
+                  <Text style={styles.modeText}>Jetzt melden</Text>
+                </Pressable>
                 {pausiert(ortung.stand.pausiertBis, new Date()) ? (
                   <Pressable
                     onPress={() => ortung.weiter()}

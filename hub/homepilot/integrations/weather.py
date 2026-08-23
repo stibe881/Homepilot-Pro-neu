@@ -2,8 +2,8 @@
 
 Konfiguration:
   - integration: weather
-    latitude: 47.1445        # Zell LU
-    longitude: 8.0675
+    latitude: 47.1381        # Zell LU
+    longitude: 7.9228
     name: Zell LU
     scan_interval: 1800
 
@@ -106,8 +106,8 @@ class WeatherIntegration(Integration):
     name = "weather"
 
     async def setup(self) -> None:
-        self._lat = float(self.config.get("latitude", 47.1445))
-        self._lon = float(self.config.get("longitude", 8.0675))
+        self._lat = float(self.config.get("latitude", 47.1381))
+        self._lon = float(self.config.get("longitude", 7.9228))
         self._interval = self.scan_interval()
         self._session = self.http_session(timeout=aiohttp.ClientTimeout(total=30))
 

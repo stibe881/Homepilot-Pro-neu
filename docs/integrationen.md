@@ -49,6 +49,7 @@ nichts.
 | **google_calendar** | Nächste Termine | OAuth, `google-token.json` |
 | **weather** | Wetterlage und Vorhersage (Open-Meteo) | nur Standort |
 | **meteoalarm** | Unwetterwarnungen (offizieller CAP-Feed) | nur Region |
+| **life360** | Standort für Telefone **ohne** HomePilot | Life360-Konto, Zuordnung Name → Zone |
 
 ## Ohne Gerät – sie rechnen
 
