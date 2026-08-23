@@ -1229,6 +1229,39 @@ export function TriggerRow({
  * Komponente wäre bei jedem Tastendruck eine neue und würde das
  * Eingabefeld beim Tippen jedes Mal neu aufbauen.
  */
+/** Die Knöpfe «+ Raum» und «+ Gerät» unter einem Feld.
+ *
+ * Zweimal dieselbe Zeile - einmal unter dem Titel, einmal unter dem Text
+ * -, damit beide Felder gleich bedienbar sind. Der Hub ersetzt die
+ * Platzhalter ohnehin in beiden; nur anklicken liess sich vorher bloss
+ * eines von beiden. */
+function PlatzhalterZeile({
+  feld,
+  onAnhaengen,
+  styles,
+}: {
+  /** Wie das Feld heisst - nur für die Vorlesehilfe. */
+  feld: string;
+  onAnhaengen: (halter: string) => void;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  return (
+    <View style={styles.choices}>
+      {PLATZHALTER.map((halter) => (
+        <Pressable
+          key={halter.key}
+          onPress={() => onAnhaengen(halter.key)}
+          accessibilityRole="button"
+          accessibilityLabel={`${halter.label} in den ${feld} einfügen`}
+          style={({ pressed }) => [styles.template, pressed && { opacity: 0.75 }]}
+        >
+          <Text style={styles.templateText}>{halter.label}</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
 export function StepList({
   steps,
   entities,
@@ -1432,6 +1465,20 @@ export function StepList({
                 placeholder="Titel"
                 placeholderTextColor={colors.inkFaint}
               />
+              {/* Platzhalter statt fünf fast gleicher Abläufe: «Jemand
+                  weint im Zimmer {raum}» gilt für alle Kinderzimmer, wenn
+                  alle Melder Auslöser desselben Ablaufs sind.
+                  Auch beim Titel: Der Hub setzt sie dort genauso ein, und
+                  «Bewegung im {raum}» ist genau die Zeile, die man auf
+                  dem Sperrbildschirm liest - der Text darunter oft gar
+                  nicht. Zum Antippen statt von Hand getippt. */}
+              <PlatzhalterZeile
+                feld="Titel"
+                onAnhaengen={(halter) =>
+                  setStep(index, { title: `${step.title}${halter}` })
+                }
+                styles={styles}
+              />
               <TextInput
                 style={styles.input}
                 value={step.body}
@@ -1439,31 +1486,17 @@ export function StepList({
                 placeholder="Text"
                 placeholderTextColor={colors.inkFaint}
               />
-              {/* Platzhalter statt fünf fast gleicher Abläufe: «Jemand
-                  weint im Zimmer {raum}» gilt für alle Kinderzimmer, wenn
-                  alle Melder Auslöser desselben Ablaufs sind. */}
-              <View style={styles.choices}>
-                {PLATZHALTER.map((halter) => (
-                  <Pressable
-                    key={halter.key}
-                    onPress={() =>
-                      setStep(index, { body: `${step.body}${halter.key}` })
-                    }
-                    accessibilityRole="button"
-                    accessibilityLabel={`${halter.label} in den Text einfügen`}
-                    style={({ pressed }) => [
-                      styles.template,
-                      pressed && { opacity: 0.75 },
-                    ]}
-                  >
-                    <Text style={styles.templateText}>{halter.label}</Text>
-                  </Pressable>
-                ))}
-              </View>
+              <PlatzhalterZeile
+                feld="Text"
+                onAnhaengen={(halter) =>
+                  setStep(index, { body: `${step.body}${halter}` })
+                }
+                styles={styles}
+              />
               <Text style={styles.triggerNote}>
                 {'{raum}'} und {'{gerät}'} setzt der Hub beim Auslösen ein –
-                so genügt ein Ablauf für alle Zimmer, statt je Melder einen
-                mit eigenem Text.
+                in Titel und Text. So genügt ein Ablauf für alle Zimmer,
+                statt je Melder einen mit eigenem Text.
               </Text>
               {empfaenger.length > 1 ? (
                 // Punkt 158: «Waschmaschine fertig» muss nicht das ganze
