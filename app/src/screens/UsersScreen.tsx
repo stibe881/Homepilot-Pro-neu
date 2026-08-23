@@ -81,6 +81,8 @@ interface HubUser {
   active?: boolean;
   /** Kinder-Ansicht: nur diese Räume, als grosse Knöpfe. */
   simple_rooms?: string[];
+  /** Gemeinschaftsgerät (Wandtablet, Küchendisplay) statt einer Person. */
+  shared?: boolean;
   /** Anmelde-Adresse – Voraussetzung für die Einladung. */
   email?: string | null;
 }
@@ -255,6 +257,8 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [newRole, setNewRole] = useState('bewohner');
+  // Wandtablet statt Person - siehe den Hinweis im Formular.
+  const [newShared, setNewShared] = useState(false);
   const [newFeatures, setNewFeatures] = useState<string[]>(['licht']);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   // Detailansicht: gewählter Benutzer + geladene Kopplungs-Daten.
@@ -326,6 +330,7 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
           name: newName.trim(),
           role: newRole,
           features: newRole === 'gast' ? newFeatures : [],
+          shared: newShared,
         }),
       });
       const body = await response.json().catch(() => null);
@@ -333,6 +338,7 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
         throw new Error(body?.detail ?? `Hub antwortet mit ${response.status}`);
       }
       setNewName('');
+      setNewShared(false);
       setCreating(false);
       load();
       // Direkt die Detailansicht mit dem QR-Code öffnen – so lässt sich das
@@ -438,6 +444,44 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
             ))}
           </View>
           <Text style={styles.roleHint}>{ROLE_HINTS[newRole]}</Text>
+          {/* Ein Zugang, den alle benutzen: das Wandtablet im Flur, das
+              Küchendisplay. Gleich beim Anlegen, nicht erst hinterher -
+              sonst brummt die erste Nachricht schon an der Wand. */}
+          {newRole !== 'gast' ? (
+            <>
+              <Text style={styles.formLabel}>Art des Zugangs</Text>
+              <View style={styles.roleRow}>
+                {[
+                  { key: false, label: 'Person' },
+                  { key: true, label: 'Gemeinschaftsgerät' },
+                ].map((art) => (
+                  <Pressable
+                    key={String(art.key)}
+                    onPress={() => setNewShared(art.key)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: newShared === art.key }}
+                    style={[styles.roleChip, newShared === art.key && styles.roleChipActive]}
+                  >
+                    <Text
+                      style={[
+                        styles.roleChipText,
+                        newShared === art.key && styles.roleChipTextActive,
+                      ]}
+                    >
+                      {art.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              {newShared ? (
+                <Text style={styles.roleHint}>
+                  Bekommt keine Push-Nachrichten (eine Nachricht an die Wand
+                  weckt niemanden) und steht in Abläufen nicht als Empfänger
+                  zur Auswahl. Die App begrüsst niemanden mit Namen.
+                </Text>
+              ) : null}
+            </>
+          ) : null}
           {newRole === 'gast' ? (
             <>
               <Text style={styles.formLabel}>Darf sehen und bedienen</Text>
@@ -719,6 +763,38 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
 
                   {detail.editable ? (
                     <>
+                      <Text style={styles.formLabel}>Gemeinschaftsgerät</Text>
+                      <Text style={styles.formHint}>
+                        Für das Wandtablet im Flur oder das Küchendisplay:
+                        ein Zugang, den alle benutzen, keine Person. Es
+                        bekommt keine Push-Nachrichten – eine Nachricht an
+                        die Wand weckt niemanden, sie brummt nachts im Flur –
+                        und steht in Abläufen nicht als Empfänger zur
+                        Auswahl. Ausdrücklich mit Namen angesprochen kommt
+                        eine Nachricht trotzdem an.
+                      </Text>
+                      <Pressable
+                        onPress={() =>
+                          patchUser(detail.name, { shared: !detail.shared })
+                        }
+                        accessibilityRole="switch"
+                        accessibilityState={{ checked: !!detail.shared }}
+                        style={[
+                          styles.roleChip,
+                          detail.shared && styles.roleChipActive,
+                          { alignSelf: 'flex-start' },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.roleChipText,
+                            detail.shared && styles.roleChipTextActive,
+                          ]}
+                        >
+                          {detail.shared ? 'Gemeinschaftsgerät' : 'Persönlicher Zugang'}
+                        </Text>
+                      </Pressable>
+
                       <Text style={styles.formLabel}>Kinder-Ansicht</Text>
                       <Text style={styles.formHint}>
                         Angetippte Räume erscheinen dieser Person als grosse

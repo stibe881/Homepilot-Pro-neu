@@ -94,6 +94,9 @@ export interface User {
   email?: string | null;
   /** Kinder-Ansicht: nur diese Räume, als grosse Knöpfe. */
   simple_rooms?: string[];
+  /** Gemeinschaftsgerät statt Person: das Wandtablet im Flur. Es bekommt
+   *  keine Push-Nachrichten und wird nicht mit Namen begrüsst. */
+  shared?: boolean;
 }
 
 export interface Source {

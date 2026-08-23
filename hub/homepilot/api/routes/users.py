@@ -68,6 +68,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                     expires=body.expires or None,
                     hours=users_module.parse_hours(body.hours),
                     simple_rooms=[str(r) for r in body.simple_rooms],
+                    shared=body.shared,
                     # In der App angelegt: wird gespeichert und ist dort
                     # auch wieder löschbar.
                     editable=True,
@@ -98,6 +99,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 expires=body.expires,
                 hours=body.hours,
                 simple_rooms=body.simple_rooms,
+                shared=body.shared,
             )
         except HomePilotError as err:
             raise HTTPException(status_code=409, detail=str(err)) from err
