@@ -14,7 +14,12 @@
  */
 
 import { Entity } from '../../api/types';
-import { PRIVATSPHAERE_AUS, PRIVATSPHAERE_EIN } from '../../lib/szenen';
+import {
+  PRIVATSPHAERE_AUS,
+  PRIVATSPHAERE_EIN,
+  STUMM_AUS,
+  STUMM_EIN,
+} from '../../lib/szenen';
 import { vacuumRooms } from './entwurf';
 
 /** Ein Gerät, das in eine Szene gehört (rein, testbar).
@@ -90,10 +95,27 @@ export function baseCommandOptions(entity: Entity): { key: string; label: string
     ];
   }
   if (entity.kind === 'media_player') {
-    return nimm([
+    // «An» und «aus» nur, wo es sie gibt: Ein Fernseher lässt sich
+    // schalten, eine Cast-Box hat keinen Netzschalter.
+    const options = nimm([
+      ['turn_on', 'ein'],
+      ['turn_off', 'aus'],
       ['play', 'Musik an'],
       ['pause', 'Musik aus'],
+      ['set_volume', 'Lautstärke'],
     ]);
+    if (kann('mute')) {
+      options.push({ key: STUMM_EIN, label: 'stumm' }, { key: STUMM_AUS, label: 'Ton an' });
+    }
+    // Playlist und App nur, wenn das Gerät welche meldet – eine leere
+    // Auswahl anzubieten ist schlimmer als keine.
+    if (kann('play_playlist') && playlistsVon(entity).length > 0) {
+      options.push({ key: 'play_playlist', label: 'Playlist' });
+    }
+    if (kann('launch_app') && appsVon(entity).length > 0) {
+      options.push({ key: 'launch_app', label: 'App' });
+    }
+    return options;
   }
   if (entity.kind === 'alarm') {
     // Dieselben Namen wie auf dem Alarm-Bildschirm – «scharf (Nacht)»
@@ -118,3 +140,28 @@ export function baseCommandOptions(entity: Entity): { key: string; label: string
   ]);
 }
 
+
+
+/** Die Playlists, die dieses Gerät meldet (rein, testbar).
+ *
+ * Spotify schickt sie als Namen mit; ein Gerät ohne Playlists bekommt
+ * keinen Chip dafür. */
+export function playlistsVon(entity: Entity): string[] {
+  const roh = entity.state?.playlists;
+  return Array.isArray(roh) ? roh.map((name) => String(name)).filter(Boolean) : [];
+}
+
+/** Die Apps, die dieses Gerät anbietet (rein, testbar).
+ *
+ * Der Fernseher meldet sie als {name, app} – der Name steht auf dem
+ * Knopf, die Paket-ID geht an den Hub. */
+export function appsVon(entity: Entity): { name: string; app: string }[] {
+  const roh = entity.state?.apps;
+  if (!Array.isArray(roh)) return [];
+  return roh
+    .map((eintrag) => ({
+      name: String((eintrag as { name?: unknown })?.name ?? ''),
+      app: String((eintrag as { app?: unknown })?.app ?? ''),
+    }))
+    .filter((eintrag) => eintrag.app);
+}

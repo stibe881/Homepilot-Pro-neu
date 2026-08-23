@@ -8,8 +8,10 @@ import { Entity } from '../api/types';
 import {
   PRIVATSPHAERE_AUS,
   PRIVATSPHAERE_EIN,
-  privatsphaereBefehl,
-  privatsphaereSchluessel,
+  STUMM_AUS,
+  STUMM_EIN,
+  richtungBefehl,
+  richtungSchluessel,
   sceneActionsToDraft,
   snapshotAction,
   snapshotCommand,
@@ -102,34 +104,34 @@ describe('sceneActionsToDraft', () => {
 
 describe('Privatsphäre der Kamera', () => {
   it('macht aus den zwei Chips einen Befehl mit Richtung', () => {
-    expect(privatsphaereBefehl(PRIVATSPHAERE_EIN)).toEqual({
+    expect(richtungBefehl(PRIVATSPHAERE_EIN)).toEqual({
       command: 'set_privacy',
       data: { enabled: true },
     });
-    expect(privatsphaereBefehl(PRIVATSPHAERE_AUS)).toEqual({
+    expect(richtungBefehl(PRIVATSPHAERE_AUS)).toEqual({
       command: 'set_privacy',
       data: { enabled: false },
     });
   });
 
   it('lässt jeden anderen Befehl in Ruhe', () => {
-    expect(privatsphaereBefehl('turn_on')).toBeNull();
-    expect(privatsphaereBefehl('set_privacy')).toBeNull();
+    expect(richtungBefehl('turn_on')).toBeNull();
+    expect(richtungBefehl('set_privacy')).toBeNull();
   });
 
   it('liest den gespeicherten Befehl wieder als Chip', () => {
-    expect(privatsphaereSchluessel('set_privacy', true)).toBe(PRIVATSPHAERE_EIN);
-    expect(privatsphaereSchluessel('set_privacy', false)).toBe(PRIVATSPHAERE_AUS);
+    expect(richtungSchluessel('set_privacy', { enabled: true })).toBe(PRIVATSPHAERE_EIN);
+    expect(richtungSchluessel('set_privacy', { enabled: false })).toBe(PRIVATSPHAERE_AUS);
   });
 
   it('nimmt ohne Angabe «ein» an, damit ein Chip leuchtet', () => {
     // Eine Szene ohne markierten Zielzustand sähe aus, als wäre die
     // Kamera versehentlich drin.
-    expect(privatsphaereSchluessel('set_privacy', undefined)).toBe(PRIVATSPHAERE_EIN);
+    expect(richtungSchluessel('set_privacy', undefined)).toBe(PRIVATSPHAERE_EIN);
   });
 
   it('fasst fremde Befehle nicht an', () => {
-    expect(privatsphaereSchluessel('turn_on', true)).toBeNull();
+    expect(richtungSchluessel('turn_on', { enabled: true })).toBeNull();
   });
 
   it('kommt beim Bearbeiten einer gespeicherten Szene richtig zurück', () => {
@@ -152,5 +154,45 @@ describe('Privatsphäre der Kamera', () => {
       }) as unknown as Parameters<typeof snapshotCommand>[0];
     expect(snapshotCommand(kamera('on'))).toBe(PRIVATSPHAERE_EIN);
     expect(snapshotCommand(kamera('off'))).toBe(PRIVATSPHAERE_AUS);
+  });
+});
+
+
+// ── Lautsprecher können mehr als an und aus ──────────────────────────────
+// Für eine Szene «Kino» fehlten Lautstärke und was gespielt wird. Beides
+// kann der Hub längst; die Auswahl bot es nur nicht an.
+
+describe('Stumm-Schalter', () => {
+  it('macht aus den zwei Chips einen Befehl mit Richtung', () => {
+    expect(richtungBefehl(STUMM_EIN)).toEqual({ command: 'mute', data: { muted: true } });
+    expect(richtungBefehl(STUMM_AUS)).toEqual({ command: 'mute', data: { muted: false } });
+  });
+
+  it('liest ihn wieder als Chip zurück', () => {
+    expect(richtungSchluessel('mute', { muted: false })).toBe(STUMM_AUS);
+    expect(richtungSchluessel('mute', { muted: true })).toBe(STUMM_EIN);
+    // Ohne Angabe «stumm»: Wer den Schalter in eine Szene nimmt, will
+    // fast immer stumm schalten.
+    expect(richtungSchluessel('mute', undefined)).toBe(STUMM_EIN);
+  });
+
+  it('verwechselt die beiden Schalter nicht', () => {
+    expect(richtungSchluessel('mute', { enabled: false })).toBe(STUMM_EIN);
+    expect(richtungSchluessel('set_privacy', { muted: false })).toBe(PRIVATSPHAERE_EIN);
+  });
+});
+
+describe('Lautstärke, Playlist und App beim Bearbeiten', () => {
+  it('holt die Werte aus den gespeicherten Daten zurück', () => {
+    const zurueck = sceneActionsToDraft([
+      { entity_id: 'cast.stube', command: 'set_volume', data: { volume: 25 } },
+      { entity_id: 'spotify.x', command: 'play_playlist', data: { name: 'Sonntagmorgen' } },
+      { entity_id: 'tv.stube', command: 'launch_app', data: { app: 'com.netflix.ninja' } },
+    ]);
+    expect(zurueck[0].volume).toBe(25);
+    // Beim Hub heisst das Feld 'name'; im Entwurf 'playlist', damit es
+    // nicht mit dem Namen der Szene verwechselt wird.
+    expect(zurueck[1].playlist).toBe('Sonntagmorgen');
+    expect(zurueck[2].app).toBe('com.netflix.ninja');
   });
 });

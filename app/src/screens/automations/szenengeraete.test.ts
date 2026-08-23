@@ -8,8 +8,8 @@
  * Gerätearten. Wer eine vergass – Kameras –, dessen Gerät verschwand.
  */
 import { Entity } from '../../api/types';
-import { PRIVATSPHAERE_AUS, PRIVATSPHAERE_EIN } from '../../lib/szenen';
-import { baseCommandOptions, isSceneDevice } from './szenengeraete';
+import { PRIVATSPHAERE_AUS, PRIVATSPHAERE_EIN, STUMM_AUS, STUMM_EIN } from '../../lib/szenen';
+import { appsVon, baseCommandOptions, isSceneDevice, playlistsVon } from './szenengeraete';
 
 const geraet = (kind: string, commands: string[], state = {}): Entity =>
   ({
@@ -99,5 +99,75 @@ describe('baseCommandOptions', () => {
 
   it('gibt für einen Fühler eine leere Liste statt eines wirkungslosen Ein/Aus', () => {
     expect(schluessel(geraet('sensor', []))).toEqual([]);
+  });
+});
+
+// ── Lautsprecher ─────────────────────────────────────────────────────────
+// «Musik an / Musik aus» war alles. Für eine Szene «Kino» fehlten
+// Lautstärke und was gespielt wird – beides kann der Hub längst.
+
+const box = (commands: string[], state: Record<string, unknown> = {}) =>
+  geraet('media_player', commands, state);
+
+describe('Lautsprecher in einer Szene', () => {
+  it('bietet Lautstärke und stumm an, wo das Gerät es kann', () => {
+    expect(schluessel(box(['play', 'pause', 'set_volume', 'mute']))).toEqual([
+      'play',
+      'pause',
+      'set_volume',
+      STUMM_EIN,
+      STUMM_AUS,
+    ]);
+  });
+
+  it('bietet «ein» und «aus» nur beim Fernseher an', () => {
+    // Eine Cast-Box hat keinen Netzschalter.
+    expect(schluessel(box(['play', 'pause']))).toEqual(['play', 'pause']);
+    expect(schluessel(box(['turn_on', 'turn_off', 'play', 'pause']))).toEqual([
+      'turn_on',
+      'turn_off',
+      'play',
+      'pause',
+    ]);
+  });
+
+  it('bietet die Playlist nur an, wenn das Gerät welche meldet', () => {
+    expect(schluessel(box(['play', 'play_playlist']))).toEqual(['play']);
+    expect(
+      schluessel(box(['play', 'play_playlist'], { playlists: ['Sonntagmorgen'] }))
+    ).toContain('play_playlist');
+  });
+
+  it('bietet die App nur an, wenn der Fernseher welche kennt', () => {
+    expect(schluessel(box(['play', 'launch_app']))).toEqual(['play']);
+    expect(
+      schluessel(
+        box(['play', 'launch_app'], { apps: [{ name: 'Netflix', app: 'com.netflix.ninja' }] })
+      )
+    ).toContain('launch_app');
+  });
+});
+
+describe('playlistsVon und appsVon', () => {
+  it('liest die Namen der Playlists', () => {
+    expect(playlistsVon(box([], { playlists: ['A', 'B'] }))).toEqual(['A', 'B']);
+  });
+
+  it('verträgt fehlende oder unsinnige Angaben', () => {
+    expect(playlistsVon(box([]))).toEqual([]);
+    expect(playlistsVon(box([], { playlists: 'keine Liste' }))).toEqual([]);
+    expect(appsVon(box([]))).toEqual([]);
+  });
+
+  it('wirft Apps ohne Paket-ID weg – auf ihnen liesse sich nichts starten', () => {
+    const apps = appsVon(
+      box([], {
+        apps: [
+          { name: 'Netflix', app: 'com.netflix.ninja' },
+          { name: 'Kaputt' },
+        ],
+      })
+    );
+    expect(apps).toEqual([{ name: 'Netflix', app: 'com.netflix.ninja' }]);
   });
 });

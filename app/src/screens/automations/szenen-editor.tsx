@@ -14,7 +14,13 @@ import { PALETTE } from '../../components/ColorRow';
 import { RueckwegBefehl, SceneActionDraft, snapshotAction } from '../../lib/szenen';
 import { Fassung, VersionsSection } from './editor';
 import { WEISSTOENE, vacuumRooms } from './entwurf';
-import { baseCommandOptions, commandOptions, isSceneDevice } from './szenengeraete';
+import {
+  appsVon,
+  baseCommandOptions,
+  commandOptions,
+  isSceneDevice,
+  playlistsVon,
+} from './szenengeraete';
 
 export { baseCommandOptions, commandOptions, isSceneDevice };
 import { CategoryField, Choice, Field, NachlaufWahl } from './felder';
@@ -283,6 +289,39 @@ export function SceneDevices({
                         }))}
                         values={(action!.rooms ?? []).map(String)}
                         onSelect={(key) => setRooms(entity.id, Number(key))}
+                      />
+                    ) : null}
+                    {action!.command === 'set_volume' ? (
+                      <Choice
+                        options={[
+                          { key: '10', label: '10 %' },
+                          { key: '20', label: '20 %' },
+                          { key: '30', label: '30 %' },
+                          { key: '50', label: '50 %' },
+                          { key: '70', label: '70 %' },
+                        ]}
+                        value={String(action!.volume ?? 30)}
+                        onSelect={(key) => setField(entity.id, { volume: Number(key) })}
+                      />
+                    ) : null}
+                    {action!.command === 'play_playlist' ? (
+                      <Choice
+                        options={playlistsVon(entity).map((name) => ({
+                          key: name,
+                          label: name,
+                        }))}
+                        value={action!.playlist ?? ''}
+                        onSelect={(key) => setField(entity.id, { playlist: key })}
+                      />
+                    ) : null}
+                    {action!.command === 'launch_app' ? (
+                      <Choice
+                        options={appsVon(entity).map((eintrag) => ({
+                          key: eintrag.app,
+                          label: eintrag.name,
+                        }))}
+                        value={action!.app ?? ''}
+                        onSelect={(key) => setField(entity.id, { app: key })}
                       />
                     ) : null}
                     {action!.command === 'set_position' ? (
