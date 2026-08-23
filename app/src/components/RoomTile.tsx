@@ -130,27 +130,43 @@ export function RoomTile({
               zwei Tipps entfernt: erst den Raum öffnen, dann die Szene.
               Für «Kino» im Wohnzimmer ist das ein Weg zu viel. */}
           {onScene
-            ? scenes.map((scene) => (
-                <Pressable
-                  key={scene.id}
-                  onPress={() => onScene(scene.id)}
-                  hitSlop={6}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Szene ${scene.name} in ${name}`}
-                  style={({ pressed }) => [styles.scene, pressed && { opacity: 0.6 }]}
-                >
-                  <Ionicons
-                    name={
-                      (scene.icon as keyof typeof Ionicons.glyphMap) || 'sparkles-outline'
+            ? scenes.map((scene) => {
+                const aktiv = !!scene.active;
+                return (
+                  <Pressable
+                    key={scene.id}
+                    onPress={() => onScene(scene.id)}
+                    hitSlop={6}
+                    accessibilityRole="switch"
+                    accessibilityState={{ checked: aktiv }}
+                    accessibilityLabel={
+                      aktiv
+                        ? `Szene ${scene.name} in ${name} zurücknehmen`
+                        : `Szene ${scene.name} in ${name}`
                     }
-                    size={13}
-                    color={colors.ink}
-                  />
-                  <Text style={styles.sceneText} numberOfLines={1}>
-                    {scene.name}
-                  </Text>
-                </Pressable>
-              ))
+                    style={({ pressed }) => [
+                      styles.scene,
+                      aktiv && styles.sceneOn,
+                      pressed && { opacity: 0.6 },
+                    ]}
+                  >
+                    <Ionicons
+                      name={
+                        (scene.icon as keyof typeof Ionicons.glyphMap) ||
+                        'sparkles-outline'
+                      }
+                      size={13}
+                      color={aktiv ? '#FFFFFF' : colors.ink}
+                    />
+                    <Text
+                      style={[styles.sceneText, aktiv && { color: '#FFFFFF' }]}
+                      numberOfLines={1}
+                    >
+                      {scene.name}
+                    </Text>
+                  </Pressable>
+                );
+              })
             : null}
         </View>
         {zeile ? <Text style={styles.zeile}>{zeile}</Text> : null}
@@ -256,6 +272,7 @@ const makeStyles = (colors: Colors) =>
       borderWidth: 1,
       borderColor: colors.surfaceBorder,
     },
+    sceneOn: { backgroundColor: colors.accent, borderColor: colors.accent },
     sceneText: { color: colors.ink, fontSize: 12, fontWeight: '600', flexShrink: 1 },
     name: { color: colors.ink, fontSize: 17, fontWeight: '700' },
     zeile: { color: colors.inkSoft, fontSize: 12 },

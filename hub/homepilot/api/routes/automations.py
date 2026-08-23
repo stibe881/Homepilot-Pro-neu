@@ -23,6 +23,7 @@ from ...core import editversions as editversions_module
 from ...core import konflikte as konflikte_module
 from ...core import trash as trash_module
 from ...core import vorlagen as vorlagen_module
+from ...core.errors import HomePilotError
 from ...core.users import Capability, Role
 from ..context import ApiContext
 from ..models import (
@@ -288,7 +289,17 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     @app.get("/api/scenes")
     async def list_scenes(request: Request) -> list[dict[str, Any]]:
         user = current_user(request)
-        scenes = [scene.as_dict() for scene in hub.scenes.scenes]
+        # «aktiv» und «zurücknehmbar» je Szene: Der Knopf soll zeigen,
+        # ob die Szene gerade gilt, und ob ein zweiter Druck sie
+        # zurücknimmt oder erneut auslöst.
+        scenes = [
+            scene.as_dict()
+            | {
+                "active": hub.scenes.ist_aktiv(scene),
+                "revertable": bool(hub.scenes.undo_fuer(scene.id)),
+            }
+            for scene in hub.scenes.scenes
+        ]
         if user.role != Role.GUEST:
             return scenes
         # Ein Gast sieht nur Szenen, die ausschliesslich freigegebene Geräte
@@ -315,6 +326,49 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 if entity is None or not user.may_see(entity.id, entity.kind, entity.integration):
                     raise HTTPException(status_code=403, detail="Szene nicht freigegeben")
         return await hub.scenes.activate(scene_id)
+
+    def _szene_erlaubt(scene: Any, user: Any) -> None:
+        """Ein Gast darf nur Szenen anfassen, deren Geräte ihm gehören."""
+        if user.role != Role.GUEST:
+            return
+        for entity_id in (action.get("entity_id") for action in scene.actions):
+            entity = hub.registry.get(entity_id or "")
+            if entity is None or not user.may_see(
+                entity.id, entity.kind, entity.integration
+            ):
+                raise HTTPException(status_code=403, detail="Szene nicht freigegeben")
+
+    @app.post("/api/scenes/{scene_id}/toggle")
+    async def toggle_scene(scene_id: str, request: Request) -> dict[str, Any]:
+        """Auslösen oder zurücknehmen – je nachdem, was gerade gilt.
+
+        Bewusst ein Endpunkt und nicht zwei: Entschiede die App, welcher
+        der richtige ist, entschiede sie es anhand eines Standes, der
+        Sekunden alt sein kann - und löste die Szene ein zweites Mal
+        aus, statt sie zurückzunehmen.
+        """
+        user = require(request, Capability.CONTROL)
+        scene = hub.scenes.get(scene_id)
+        if scene is None:
+            raise HTTPException(status_code=404, detail=f"Unbekannte Szene: {scene_id}")
+        _szene_erlaubt(scene, user)
+        try:
+            return await hub.scenes.toggle(scene_id)
+        except HomePilotError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
+    @app.post("/api/scenes/{scene_id}/revert")
+    async def revert_scene(scene_id: str, request: Request) -> dict[str, Any]:
+        """Nur zurücknehmen – für den Fall, dass man es ausdrücklich will."""
+        user = require(request, Capability.CONTROL)
+        scene = hub.scenes.get(scene_id)
+        if scene is None:
+            raise HTTPException(status_code=404, detail=f"Unbekannte Szene: {scene_id}")
+        _szene_erlaubt(scene, user)
+        try:
+            return await hub.scenes.revert(scene_id)
+        except HomePilotError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
 
     def stored_scenes() -> list[dict[str, Any]]:
         return hub.data.get("scenes")
