@@ -62,7 +62,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from . import astro, feiertage, snapshots
+from . import astro, feiertage, kamera, snapshots
 from . import light as licht
 from .source import as_source, automation_source
 
@@ -1897,7 +1897,7 @@ class AutomationEngine:
         elif atype == "automation":
             await self._run_other(automation, action)
         elif atype == "notify":
-            await self._notify(automation, action)
+            await self._notify(automation, action, ausloeser)
         elif atype == "broadcast":
             # Durchsage auf die Cast-Boxen: «Es hat geklingelt»,
             # «Waschmaschine ist fertig». Die Quelle bleibt der Ablauf -
@@ -2248,15 +2248,38 @@ class AutomationEngine:
         finally:
             self._depth.pop(ziel.id, None)
 
-    async def _notify(self, automation: Automation, action: dict[str, Any]) -> None:
+    async def _notify(
+        self,
+        automation: Automation,
+        action: dict[str, Any],
+        ausloeser: str | None = None,
+    ) -> None:
+        """Eine Push-Nachricht aus einem Ablauf.
+
+        Text und Kamera dürfen sich auf den Auslöser beziehen: «Jemand
+        weint im Zimmer {raum}» und «die Kamera, die ausgelöst hat» gelten
+        damit für alle Kinderzimmer auf einmal. Vorher brauchte jede
+        Kamera einen eigenen Ablauf mit eigenem Text - fünf Zimmer, fünf
+        fast gleiche Abläufe, und beim Ändern findet man den fünften nie.
+        """
+        quelle = self.hub.registry.get(ausloeser or "") if ausloeser else None
+        camera = str(action.get("camera") or "") or None
+        if camera == kamera.TRIGGER:
+            # «Die Kamera, die ausgelöst hat»: die Kamera selbst, sonst
+            # eine im selben Raum. Findet sich keine, geht die Nachricht
+            # ohne Bild raus statt gar nicht.
+            camera = (
+                kamera.camera_for(quelle, self.hub.registry.all())
+                if quelle is not None
+                else None
+            )
         tokens = self.hub.push.recipients(
             self.hub.users.users, str(action.get("to", "all")), "automation"
         )
-        camera = str(action.get("camera") or "") or None
         await self.hub.push.send(
             tokens,
-            title=str(action.get("title") or automation.alias),
-            body=str(action.get("body") or ""),
+            title=kamera.fill(action.get("title") or automation.alias, quelle),
+            body=kamera.fill(action.get("body") or "", quelle),
             data={
                 "automation_id": automation.id,
                 **({"camera": camera} if camera else {}),
