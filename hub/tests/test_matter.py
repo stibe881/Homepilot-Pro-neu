@@ -50,10 +50,31 @@ def test_endpoint_state_light_with_brightness():
 
 
 def test_endpoint_state_sensors():
-    assert endpoint_state({"2/1026/0": 2154}, 2, "sensor") == {"state": 21.5, "unit": "°C"}
-    assert endpoint_state({"2/1029/0": 4562}, 2, "sensor") == {"state": 46, "unit": "%"}
+    assert endpoint_state({"2/1026/0": 2154}, 2, "sensor") == {
+        "state": 21.5,
+        "unit": "°C",
+        "device_class": "temperature",
+    }
+    assert endpoint_state({"2/1029/0": 4562}, 2, "sensor") == {
+        "state": 46,
+        "unit": "%",
+        "device_class": "humidity",
+    }
     # 10000*log10(300 lx)+1 = 24772
     assert endpoint_state({"2/1024/0": 24772}, 2, "sensor")["state"] == 300
+
+
+def test_sensors_say_what_they_measure():
+    """Die Einheit allein genügt nicht.
+
+    Prozent misst auch ein Akku und Homematics Sendespeicher - die
+    Kopfzeile der App suchte sich bisher den erstbesten Prozentwert und
+    zeigte im schlechten Fall die Auslastung des Funkmoduls als
+    Luftfeuchtigkeit.
+    """
+    assert endpoint_state({"2/1029/0": 4562}, 2, "sensor")["device_class"] == "humidity"
+    assert endpoint_state({"2/1026/0": 2154}, 2, "sensor")["device_class"] == "temperature"
+    assert endpoint_state({"2/1024/0": 24772}, 2, "sensor")["device_class"] == "illuminance"
 
 
 def test_endpoint_state_binary_sensors():

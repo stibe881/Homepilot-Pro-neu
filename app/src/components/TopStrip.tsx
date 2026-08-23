@@ -25,6 +25,7 @@ import {
   mengeUndName,
 } from '../lib/einkauf';
 import { uhr, wochentagDatum, wochentagUhr } from '../lib/format';
+import { klimaLabel, klimaSensor } from '../lib/klimachip';
 import { tapped } from '../lib/haptics';
 import { kann } from '../lib/plattform';
 import { MAX_SCHRIFT } from '../lib/schrift';
@@ -138,12 +139,11 @@ export function TopStrip({
   useEscape(shopOpen, () => setShopOpen(false));
   useEscape(eventOpen, () => setEventOpen(false));
   useEscape(alertsOpen, () => setAlertsOpen(false));
-  const temperature = entities.find(
-    (entity) => entity.kind === 'sensor' && entity.state.unit === '°C'
-  );
-  const humidity = entities.find(
-    (entity) => entity.kind === 'sensor' && entity.state.unit === '%'
-  );
+  // Nicht «der erste mit der passenden Einheit»: Homematic legt je
+  // Funkschnittstelle einen Sensor «Sendespeicher» an, ebenfalls in
+  // Prozent - siehe lib/klimachip.
+  const temperature = klimaSensor(entities, 'temperature');
+  const humidity = klimaSensor(entities, 'humidity');
   const people = entities.find((entity) => entity.id.endsWith('anyone_home'));
 
   // Die Zwei-Sekunden-Übersicht: Was ist an, was läuft, was steht an?
@@ -185,10 +185,18 @@ export function TopStrip({
     <View style={styles.row}>
       <View style={styles.chips}>
         {temperature ? (
-          <Chip icon="thermometer-outline" text={`${round(temperature.state.state)} °C`} />
+          <Chip
+            icon="thermometer-outline"
+            text={`${round(temperature.state.state)} °C`}
+            label={klimaLabel(temperature, 'temperature')}
+          />
         ) : null}
         {humidity ? (
-          <Chip icon="water-outline" text={`${round(humidity.state.state)} %`} />
+          <Chip
+            icon="water-outline"
+            text={`${round(humidity.state.state)} %`}
+            label={klimaLabel(humidity, 'humidity')}
+          />
         ) : null}
         {people ? (
           <Chip
@@ -748,11 +756,15 @@ function Chip({
   icon,
   text,
   tone,
+  label,
   onPress,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   text: string;
   tone?: string;
+  /** Was vorgelesen wird. «46 %» allein sagt nicht, wovon - und genau
+   *  das ist die Frage, die ein Wert in der Kopfzeile aufwirft. */
+  label?: string;
   onPress?: () => void;
 }) {
   const colors = useColors();
@@ -769,11 +781,17 @@ function Chip({
       </Text>
     </>
   );
-  if (!onPress) return <View style={styles.chip}>{content}</View>;
+  if (!onPress)
+    return (
+      <View style={styles.chip} accessibilityLabel={label} accessible={!!label}>
+        {content}
+      </View>
+    );
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
+      accessibilityLabel={label}
       style={({ pressed }) => [styles.chip, pressed && { opacity: 0.7 }]}
     >
       {content}

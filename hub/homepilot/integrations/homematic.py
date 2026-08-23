@@ -258,7 +258,14 @@ class HomematicIntegration(Integration):
                     object_id,
                     EntityKind.SENSOR,
                     f"Sendespeicher {address}",
-                    state={"state": prozent, "unit": "%"},
+                    # Prozent, aber keine Luftfeuchtigkeit: Ohne diese
+                    # Angabe landete die Funkauslastung als Tropfen in
+                    # der Kopfzeile der App.
+                    state={
+                        "state": prozent,
+                        "unit": "%",
+                        "device_class": "duty_cycle",
+                    },
                 )
 
     async def _refresh_duty_cycle(self) -> None:
@@ -276,7 +283,11 @@ class HomematicIntegration(Integration):
                     continue
                 await self.hub.registry.update_state(
                     f"{self.name}.{object_id}",
-                    {"state": werte[address], "unit": "%"},
+                    {
+                        "state": werte[address],
+                        "unit": "%",
+                        "device_class": "duty_cycle",
+                    },
                     available=True,
                 )
 

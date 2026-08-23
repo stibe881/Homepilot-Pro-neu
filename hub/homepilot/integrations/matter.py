@@ -292,16 +292,31 @@ def endpoint_state(attributes: dict[str, Any], endpoint: int, kind: str) -> dict
         return state
 
     # Sensoren: erster vorhandener Messwert entscheidet.
+    # `device_class` sagt, *was* gemessen wird - die Einheit allein reicht
+    # nicht: Prozent misst auch ein Akku, und die Kopfzeile der App suchte
+    # sich bisher den erstbesten Prozentwert.
     temperature = _attr(attributes, endpoint, TEMPERATURE, 0)
     if temperature is not None:
-        return {"state": round(temperature / 100, 1), "unit": "°C"}
+        return {
+            "state": round(temperature / 100, 1),
+            "unit": "°C",
+            "device_class": "temperature",
+        }
     humidity = _attr(attributes, endpoint, HUMIDITY, 0)
     if humidity is not None:
-        return {"state": round(humidity / 100), "unit": "%"}
+        return {
+            "state": round(humidity / 100),
+            "unit": "%",
+            "device_class": "humidity",
+        }
     illuminance = _attr(attributes, endpoint, ILLUMINANCE, 0)
     if illuminance is not None:
         # Matter speichert 10000*log10(Lux)+1.
-        return {"state": round(10 ** ((illuminance - 1) / 10000)), "unit": "lx"}
+        return {
+            "state": round(10 ** ((illuminance - 1) / 10000)),
+            "unit": "lx",
+            "device_class": "illuminance",
+        }
     return {"state": None}
 
 
