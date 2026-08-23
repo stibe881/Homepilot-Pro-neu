@@ -7,7 +7,7 @@
  * macht. Wer eine Schwelle senken will, tut es hier – sichtbar, nicht
  * zufällig.
  */
-import { darkColors, lightColors, pinkColors } from '../theme';
+import { darkColors, lightColors, mitternachtColors, pinkColors, sandColors } from '../theme';
 import { contrast, parseColor, textContrast } from './kontrast';
 
 // Die mittlere Verlaufsfarbe ist das, was hinter den Glaskacheln liegt.
@@ -17,6 +17,8 @@ const paletten = [
   // Pink war bisher nicht geprüft - und genau dort wurde am Grund
   // geschraubt, weil er violett statt pink las.
   { name: 'pink', colors: pinkColors, hinter: pinkColors.gradient[1] },
+  { name: 'mitternacht', colors: mitternachtColors, hinter: mitternachtColors.gradient[1] },
+  { name: 'sand', colors: sandColors, hinter: sandColors.gradient[1] },
 ];
 
 describe.each(paletten)('Palette $name', ({ colors, hinter }) => {
