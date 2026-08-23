@@ -1939,3 +1939,36 @@ def test_time_in_window_geht_ueber_mitternacht():
 
     # Gar keine Angabe: immer.
     assert time_in_window(um(3), None, None)
+
+
+def test_parse_hhmm_nimmt_was_man_tippt():
+    """Die Felder im Editor sind freie Eingaben.
+
+    Bisher zerbrach alles ausser «22:00» - und zwar mitten im Lauf, nicht
+    beim Speichern. Der Ablauf lief dann nie und nannte keinen Grund.
+    """
+    from homepilot.core.automation import parse_hhmm
+
+    assert parse_hhmm("22:00") == (22, 0)
+    assert parse_hhmm(" 8:5 ") == (8, 5)
+    assert parse_hhmm("22.30") == (22, 30)
+    assert parse_hhmm("2230") == (22, 30)
+    assert parse_hhmm("22") == (22, 0)
+    assert parse_hhmm("7") == (7, 0)
+
+    # Was keine Uhrzeit ist, bleibt keine.
+    assert parse_hhmm("abends") is None
+    assert parse_hhmm("25:00") is None
+    assert parse_hhmm("22:75") is None
+    assert parse_hhmm("") is None
+    assert parse_hhmm(None) is None
+
+
+def test_ungueltige_uhrzeit_laesst_die_bedingung_scheitern():
+    """Nicht überspringen: Aus «nur nachts» würde sonst «immer»."""
+    from datetime import datetime
+
+    from homepilot.core.automation import time_in_window
+
+    assert not time_in_window(datetime(2026, 8, 23, 23), "abends", None)
+    assert not time_in_window(datetime(2026, 8, 23, 23), "22:00", "morgens")

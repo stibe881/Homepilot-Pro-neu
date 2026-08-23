@@ -11,7 +11,7 @@ import { Entity, Scene } from '../../api/types';
 import { Colors, useColors } from '../../theme';
 import { ablaufSatz } from '../../lib/ablaufsatz';
 import { datumUhr } from '../../lib/format';
-import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, hatWartezeit, measurableAttributes, melderMitLux, newTrigger, optionKey, stateOptions, stepsToActions, triggerToConfig, weekdayLabel, zeitfensterHinweis } from './entwurf';
+import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, hatWartezeit, measurableAttributes, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, weekdayLabel, zeitfensterHinweis } from './entwurf';
 import {
   CategoryField,
   Choice,
@@ -216,6 +216,10 @@ export function Editor({
                 style={[styles.input, { flex: 1 }]}
                 value={draft.conditionAfter}
                 onChangeText={(conditionAfter) => set({ conditionAfter })}
+                onEndEditing={(event) =>
+                  set({ conditionAfter: normalisiereZeit(event.nativeEvent.text) })
+                }
+                keyboardType="numbers-and-punctuation"
                 placeholder="ab 22:00"
                 placeholderTextColor={colors.inkFaint}
               />
@@ -223,6 +227,10 @@ export function Editor({
                 style={[styles.input, { flex: 1 }]}
                 value={draft.conditionBefore}
                 onChangeText={(conditionBefore) => set({ conditionBefore })}
+                onEndEditing={(event) =>
+                  set({ conditionBefore: normalisiereZeit(event.nativeEvent.text) })
+                }
+                keyboardType="numbers-and-punctuation"
                 placeholder="bis 06:00"
                 placeholderTextColor={colors.inkFaint}
               />

@@ -275,6 +275,30 @@ export function fittingState(entity: Entity | undefined, current: string): strin
   return options.some((option) => option.key === current) ? current : options[0].key;
 }
 
+/** Zieht eine getippte Uhrzeit gerade (rein, testbar).
+ *
+ *  Die Zeitfelder sind freie Eingaben, und getippt wird alles Mögliche:
+ *  «22», «22.00», «2200», «8:5». Der Hub versteht das inzwischen auch,
+ *  aber gespeichert werden soll trotzdem die saubere Form - sonst steht
+ *  beim nächsten Öffnen wieder «2200» da und man traut ihm nicht.
+ *
+ *  Was keine Uhrzeit ist, bleibt unverändert stehen: Es kommentarlos zu
+ *  löschen wäre die unfreundlichere Antwort auf einen Tippfehler. */
+export function normalisiereZeit(roh: string): string {
+  const text = String(roh ?? '').trim().replace(/\./g, ':').replace(/\s/g, '');
+  if (!text) return '';
+  let kern = text;
+  if (!kern.includes(':') && /^\d+$/.test(kern)) {
+    kern = kern.length > 2 ? `${kern.slice(0, -2)}:${kern.slice(-2)}` : `${kern}:00`;
+  }
+  const treffer = /^(\d{1,2}):(\d{1,2})$/.exec(kern);
+  if (!treffer) return roh;
+  const stunde = Number(treffer[1]);
+  const minute = Number(treffer[2]);
+  if (stunde > 23 || minute > 59) return roh;
+  return `${String(stunde).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
 /** Erklärt ein Zeitfenster, das über Mitternacht geht (rein, testbar).
  *
  *  «ab 22:00 bis 06:00» ist wörtlich genommen leer - keine Uhrzeit ist
@@ -283,14 +307,16 @@ export function fittingState(entity: Entity | undefined, current: string): strin
  *  der Eingabe nicht und baut zwei Abläufe. */
 export function zeitfensterHinweis(after: string, before: string): string | null {
   const minuten = (text: string): number | null => {
-    const treffer = /^(\d{1,2}):(\d{2})$/.exec(text.trim());
+    const treffer = /^(\d{1,2}):(\d{2})$/.exec(normalisiereZeit(text));
     if (!treffer) return null;
     return Number(treffer[1]) * 60 + Number(treffer[2]);
   };
   const von = minuten(after);
   const bis = minuten(before);
   if (von === null || bis === null || von <= bis) return null;
-  return `Geht über Mitternacht: gilt von ${after.trim()} bis ${before.trim()} am nächsten Morgen.`;
+  return `Geht über Mitternacht: gilt von ${normalisiereZeit(after)} bis ${normalisiereZeit(
+    before
+  )} am nächsten Morgen.`;
 }
 
 /** Was sich als Bedingung prüfen lässt: der Zustand selbst. */

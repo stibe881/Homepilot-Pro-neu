@@ -19,6 +19,7 @@ import {
   minutenWert,
   triggerIcon,
   triggerToConfig,
+  normalisiereZeit,
   zeitfensterHinweis,
   zeitpunktLabel,
 } from './entwurf';
@@ -497,5 +498,29 @@ describe('Zeitfenster über Mitternacht', () => {
     expect(zeitfensterHinweis('22:00', '')).toBeNull();
     expect(zeitfensterHinweis('', '')).toBeNull();
     expect(zeitfensterHinweis('abends', '06:00')).toBeNull();
+  });
+});
+
+describe('Uhrzeit von Hand eintippen', () => {
+  it('zieht gerade, was man tatsächlich tippt', () => {
+    expect(normalisiereZeit('22:00')).toBe('22:00');
+    expect(normalisiereZeit('22')).toBe('22:00');
+    expect(normalisiereZeit('2230')).toBe('22:30');
+    expect(normalisiereZeit('22.30')).toBe('22:30');
+    expect(normalisiereZeit(' 8:5 ')).toBe('08:05');
+    expect(normalisiereZeit('')).toBe('');
+  });
+
+  it('lässt einen Tippfehler stehen, statt ihn zu löschen', () => {
+    // Kommentarlos leeren wäre die unfreundlichere Antwort - dann sucht
+    // man, wo die Eingabe hin ist.
+    expect(normalisiereZeit('abends')).toBe('abends');
+    expect(normalisiereZeit('25:00')).toBe('25:00');
+    expect(normalisiereZeit('22:75')).toBe('22:75');
+  });
+
+  it('erkennt das Nachtfenster auch in Kurzschreibweise', () => {
+    expect(zeitfensterHinweis('22', '6')).toContain('über Mitternacht');
+    expect(zeitfensterHinweis('22', '6')).toContain('von 22:00 bis 06:00');
   });
 });

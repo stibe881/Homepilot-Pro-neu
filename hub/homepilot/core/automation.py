@@ -787,9 +787,40 @@ def parse_automations(
     return automations
 
 
+def parse_hhmm(value: Any) -> tuple[int, int] | None:
+    """Eine Uhrzeit einlesen, wie sie getippt wird (rein, testbar).
+
+    Die Felder im Editor sind freie Eingaben, und getippt wird alles
+    Mögliche: «22», «22.00», «2200», « 8:5 ». Bisher zerbrach jedes
+    davon ausser «22:00» - und zwar mitten im Lauf, nicht beim
+    Speichern. Der Ablauf lief dann einfach nie, ohne einen Grund zu
+    nennen.
+
+    Zurück kommt None, wenn wirklich keine Uhrzeit darin steckt. Was der
+    Aufrufer daraus macht, entscheidet er selbst: Der Auslöser bricht ab,
+    die Bedingung schlägt fehl. Beides ist besser als eine Automation,
+    die zur falschen Zeit läuft.
+    """
+    text = str(value or "").strip().replace(".", ":").replace(" ", "")
+    if not text:
+        return None
+    if ":" not in text and text.isdigit():
+        # «2200» und «800» - vierstellig sind die letzten zwei Minuten.
+        text = f"{text[:-2]}:{text[-2:]}" if len(text) > 2 else f"{text}:00"
+    teile = text.split(":", 1)
+    if len(teile) != 2 or not teile[0].isdigit() or not teile[1].isdigit():
+        return None
+    stunde, minute = int(teile[0]), int(teile[1])
+    if not (0 <= stunde <= 23 and 0 <= minute <= 59):
+        return None
+    return stunde, minute
+
+
 def _parse_hhmm(value: str) -> tuple[int, int]:
-    hours, minutes = str(value).split(":", 1)
-    return int(hours), int(minutes)
+    zeit = parse_hhmm(value)
+    if zeit is None:
+        raise ValueError(f"'{value}' ist keine Uhrzeit der Form HH:MM")
+    return zeit
 
 
 def time_in_window(now: Any, after: str | None, before: str | None) -> bool:
@@ -807,8 +838,14 @@ def time_in_window(now: Any, after: str | None, before: str | None) -> bool:
     if after is None and before is None:
         return True
     minuten = now.hour * 60 + now.minute
-    von = None if after is None else _parse_hhmm(after)
-    bis = None if before is None else _parse_hhmm(before)
+    von = None if after is None else parse_hhmm(after)
+    bis = None if before is None else parse_hhmm(before)
+    # Steht da etwas, das keine Uhrzeit ist, gilt die Bedingung als nicht
+    # erfüllt. Sie zu überspringen wäre der gefährlichere Fehler: Aus
+    # «nur nachts» würde «immer».
+    if (after and von is None) or (before and bis is None):
+        log.warning("Zeitbedingung mit ungültiger Uhrzeit: after=%r before=%r", after, before)
+        return False
     von_min = None if von is None else von[0] * 60 + von[1]
     bis_min = None if bis is None else bis[0] * 60 + bis[1]
     if von_min is not None and bis_min is not None:
