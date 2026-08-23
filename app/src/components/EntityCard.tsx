@@ -35,6 +35,10 @@ interface Props {
   /** Anpassen-Modus: Gerät sperren – schaltet nur nach Rückfrage. */
   locked?: boolean;
   onToggleLocked?: () => void;
+  /** Steht die Kachel schon unter der Überschrift ihres Zimmers, ist der
+   *  Raumname auf ihr eine Wiederholung. Dann tritt die Integration an
+   *  seine Stelle – die sagt wenigstens etwas Neues. */
+  imRaumblock?: boolean;
   /** Anpassen-Modus: Raum dieser Kachel setzen. */
   rooms?: string[];
   onSetRoom?: (room: string | null) => void;
@@ -82,6 +86,7 @@ export function EntityCard({
   onToggleHidden,
   locked,
   onToggleLocked,
+  imRaumblock,
   rooms,
   onSetRoom,
   onRename,
@@ -103,7 +108,8 @@ export function EntityCard({
   const [renameOpen, setRenameOpen] = useState(false);
   const [groupPickerOpen, setGroupPickerOpen] = useState(false);
   const isOn = entity.state.state === 'on';
-  const subtitle = entity.room || integrationLabel(entity.integration);
+  const subtitle =
+    (imRaumblock ? undefined : entity.room) || integrationLabel(entity.integration);
   // Offline-Geräte: «nicht erreichbar · zuletzt vor …», damit man sieht, ob
   // das Gerät gerade eben oder seit Tagen weg ist.
   const offlineText =
