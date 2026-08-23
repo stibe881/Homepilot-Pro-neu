@@ -55,6 +55,7 @@ import {
 } from '../lib/geraetefilter';
 import { verweisText, verweiseAuf } from '../lib/verweise';
 import { raeumeSortiert, raumMesswerte, raumKategorien, raumZeile } from '../lib/raum';
+import { FAVORITEN, raumGruppen } from '../lib/raumgruppen';
 import { schleier } from '../lib/nachtabsenkung';
 import { hubClient, onHubFehler } from '../api/client';
 import { Auffangnetz } from '../components/Auffangnetz';
@@ -96,10 +97,13 @@ const ALL_ROOMS = 'Alle';
  * Die Favoritengruppe teilt sich den Namen mit der Startseite: Wer sie
  * dort ordnet, hat sie hier genauso - es ist dieselbe Frage.
  */
-function groupScope(key: string): string {
-  if (key === '__fav') return 'favorites';
-  if (key === '__none') return 'room:__none';
-  return `room:${key}`;
+function groupScope(key: string, bereich = 'room'): string {
+  // Die Licht-Seite bekommt eigene Töpfe. Zieht dort jemand eine Lampe
+  // nach vorn, darf das die Raumansicht nicht umsortieren: In der stehen
+  // neben den Lampen noch Storen, Boxen und Fühler, und eine Liste, die
+  // nur Lampen kennt, schöbe alle übrigen ans Ende.
+  if (key === FAVORITEN) return bereich === 'room' ? 'favorites' : `${bereich}:${FAVORITEN}`;
+  return `${bereich}:${key}`;
 }
 
 /** Nach gespeicherter Reihenfolge sortieren, Unbekanntes alphabetisch
@@ -870,38 +874,45 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // gruppiert (Überschrift je Zimmer), damit man das ganze Haus auf einen
   // Blick durchscrollt und alles schnell erreicht. Favoriten stehen als
   // eigene Gruppe ganz oben – der schnelle Griff ins andere Zimmer.
-  const grouped = section === 'home' && room === ALL_ROOMS && rooms.length > 2 && editing;
+  // Die Licht-Seite zeigt immer das ganze Haus. Ohne Gliederung standen
+  // dort zwanzig Lampen alphabetisch untereinander – «Lina» zwischen
+  // «Küche» und «Vorratsraum». Gesucht wird aber nie ein Buchstabe,
+  // sondern immer ein Zimmer. Bei nur einem Zimmer wäre die eine
+  // Überschrift bloss eine Zeile mehr, deshalb erst ab zweien.
+  const lichtNachRaum =
+    section === 'light' && new Set(shown.map((entity) => entity.room ?? '')).size > 1;
+  const grouped =
+    (section === 'home' && room === ALL_ROOMS && rooms.length > 2 && editing) ||
+    lichtNachRaum;
+  // Wohin eine hier gezogene Reihenfolge gehört.
+  const gruppenBereich = lichtNachRaum ? 'light' : 'room';
   // Raum-Kacheln: die «Räume»-Übersicht zeigt je Raum eine Kachel mit den
   // Geräten darin; Antippen öffnet die volle Raumansicht.
   const roomTiles =
     section === 'home' && room === ALL_ROOMS && !editing && rooms.length > 0;
   const groups = useMemo(() => {
     if (!grouped) return [];
-    const order = rooms.filter((name) => name !== ALL_ROOMS);
-    const favs = shown.filter((entity) => favorites.includes(entity.id));
-    const result: { key: string; label: string; items: Entity[] }[] = [];
-    if (favs.length > 0) {
-      result.push({ key: '__fav', label: 'Favoriten', items: favs });
-    }
-    for (const name of order) {
-      const items = shown.filter(
-        (entity) => entity.room === name && !favorites.includes(entity.id)
-      );
-      if (items.length > 0) result.push({ key: name, label: name, items });
-    }
-    const noRoom = shown.filter(
-      (entity) => !entity.room && !favorites.includes(entity.id)
+    // Auf der Licht-Seite keine Favoritengruppe: Wer nach Zimmer sucht,
+    // will die Lampe dort finden, wo sie hängt – nicht in einem Topf
+    // darüber.
+    const gruppen = raumGruppen(
+      shown,
+      rooms.filter((name) => name !== ALL_ROOMS),
+      lichtNachRaum ? [] : favorites
     );
-    if (noRoom.length > 0) {
-      result.push({ key: '__none', label: 'Weitere', items: noRoom });
-    }
     // Jede Gruppe in ihrer eigenen Reihenfolge - sonst liesse sich zwar
     // ziehen, aber beim nächsten Öffnen stünde wieder alles alphabetisch.
-    return result.map((gruppe) => ({
+    // Auf der Licht-Seite gilt die früher gezogene flache Reihenfolge als
+    // Rückfall, damit sie beim Umstellen auf Zimmer nicht verlorengeht.
+    return gruppen.map((gruppe) => ({
       ...gruppe,
-      items: sortByOrder(gruppe.items, prefs.order?.[groupScope(gruppe.key)]),
+      items: sortByOrder(
+        gruppe.items,
+        prefs.order?.[groupScope(gruppe.key, gruppenBereich)] ??
+          (lichtNachRaum ? prefs.order?.light : undefined)
+      ),
     }));
-  }, [grouped, rooms, shown, favorites, prefs.order]);
+  }, [grouped, lichtNachRaum, gruppenBereich, rooms, shown, favorites, prefs.order]);
 
   // Ein einzelner Raum wird nach Kategorien gegliedert: Szenen des Raums
   // oben, dann Beleuchtung, Store, Medien, alles Übrige unter „Weitere“.
@@ -988,11 +999,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     );
   }
 
-  const renderCard = (entity: Entity) => (
+  const renderCard = (entity: Entity, imRaumblock = false) => (
     <EntityCard
       key={entity.id}
       entity={entity}
       width={cardWidth!}
+      imRaumblock={imRaumblock}
       // Gehört dieser Spot zu einer zusammengefassten Leuchte? Unter
       // Geräte ist er sonst nicht von einer einzelnen Lampe zu
       // unterscheiden, und man wundert sich, warum er im Raum fehlt.
@@ -1078,7 +1090,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
    * zusammen: Innerhalb eines Zimmers soll sich die Reihenfolge dieses
    * Zimmers ändern, nicht die aller Geräte.
    */
-  const zellen = (scope: string | null, items: Entity[]) => {
+  // imRaumblock reicht bis zur Kachel durch: Sie steht dann schon unter
+  // der Überschrift ihres Zimmers und muss den Raumnamen nicht wiederholen.
+  const zellen = (scope: string | null, items: Entity[], imRaumblock = false) => {
     const ids = items.map((entity) => entity.id);
     const onEnd = (id: string, dx: number, dy: number) => {
       setDrag(null);
@@ -1100,10 +1114,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           onEnd={onEnd}
           onLayout={(cellId, layout) => cellLayouts.set(cellId, layout)}
         >
-          {renderCard(entity)}
+          {renderCard(entity, imRaumblock)}
         </DragCell>
       ) : (
-        renderCard(entity)
+        renderCard(entity, imRaumblock)
       );
   };
   const renderCell = zellen(orderScope, rest);
@@ -1681,7 +1695,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             style={grouped || categorized ? styles.measure : styles.grid}
             onLayout={(event) => setGridWidth(event.nativeEvent.layout.width)}
           >
-            {!grouped && !categorized && !roomTiles && cardWidth ? running.map(renderCard) : null}
+            {!grouped && !categorized && !roomTiles && cardWidth ? running.map((entity) => renderCard(entity)) : null}
           </View>
 
           {/* «Räume»: eine Kachel je Raum mit den Geräten darin. */}
@@ -1816,7 +1830,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 <View key={group.key} style={styles.group}>
                   <Text style={styles.groupLabel}>{group.label}</Text>
                   <View style={styles.grid}>
-                    {cardWidth ? group.items.map(renderCard) : null}
+                    {cardWidth ? group.items.map((entity) => renderCard(entity)) : null}
                   </View>
                 </View>
               ))}
@@ -1840,7 +1854,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   <Text style={styles.groupLabel}>{group.label}</Text>
                   <View style={styles.grid}>
                     {cardWidth
-                      ? group.items.map(zellen(groupScope(group.key), group.items))
+                      ? group.items.map(
+                          zellen(
+                            groupScope(group.key, gruppenBereich),
+                            group.items,
+                            group.key !== FAVORITEN
+                          )
+                        )
                       : null}
                   </View>
                 </View>
