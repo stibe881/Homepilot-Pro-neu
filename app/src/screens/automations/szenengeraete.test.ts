@@ -9,7 +9,15 @@
  */
 import { Entity } from '../../api/types';
 import { PRIVATSPHAERE_AUS, PRIVATSPHAERE_EIN, STUMM_AUS, STUMM_EIN } from '../../lib/szenen';
-import { appsVon, baseCommandOptions, boxenVon, isSceneDevice, playlistsVon } from './szenengeraete';
+import {
+  appsVon,
+  baseCommandOptions,
+  boxenVon,
+  isSceneDevice,
+  mischenMoeglich,
+  playlistWahl,
+  playlistsVon,
+} from './szenengeraete';
 
 const geraet = (kind: string, commands: string[], state = {}): Entity =>
   ({
@@ -131,11 +139,31 @@ describe('Lautsprecher in einer Szene', () => {
     ]);
   });
 
-  it('bietet die Playlist nur an, wenn das Gerät welche meldet', () => {
+  it('macht aus der Playlist keinen zweiten Chip neben «Musik an»', () => {
+    // Zwei Chips waren zwei Antworten auf dieselbe Frage: Wer «Musik an»
+    // wählte, sah keine Playlist und suchte sie dort, wo sie nicht war.
+    // Sie hängt jetzt an «Musik an» – `playlistWahl` sagt, ob es sie gibt.
     expect(schluessel(box(['play', 'play_playlist']))).toEqual(['play']);
     expect(
       schluessel(box(['play', 'play_playlist'], { playlists: ['Sonntagmorgen'] }))
-    ).toContain('play_playlist');
+    ).toEqual(['play']);
+  });
+
+  it('bietet die Playlist-Wahl nur an, wenn das Gerät welche meldet', () => {
+    expect(playlistWahl(box(['play', 'play_playlist']))).toBe(false);
+    expect(
+      playlistWahl(box(['play', 'play_playlist'], { playlists: ['Sonntagmorgen'] }))
+    ).toBe(true);
+    // Eine Google-Home-Box kann keine Playlist starten – sie ist Ziel,
+    // nicht Quelle.
+    expect(playlistWahl(box(['play', 'pause'], { playlists: ['Sonntagmorgen'] }))).toBe(
+      false
+    );
+  });
+
+  it('fragt nach der Reihenfolge nur, wo sich mischen lässt', () => {
+    expect(mischenMoeglich(box(['play', 'play_playlist', 'shuffle']))).toBe(true);
+    expect(mischenMoeglich(box(['play', 'play_playlist']))).toBe(false);
   });
 
   it('bietet die App nur an, wenn der Fernseher welche kennt', () => {

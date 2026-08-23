@@ -12,6 +12,7 @@ import { datumKurz } from '../lib/format';
 import { istPushKategorie } from '../lib/pushablaeufe';
 import {
   RueckwegBefehl,
+  musikBefehl,
   richtungBefehl,
   sceneActionsToDraft,
   szenenRueckweg,
@@ -445,6 +446,7 @@ export function AutomationsScreen({
             playlist,
             app,
             device,
+            shuffle,
           }) => {
           // Kamera und Lautsprecher kennen je einen Befehl, dessen
           // Richtung in unsichtbaren Zusatzdaten steckt. In der Auswahl
@@ -456,17 +458,12 @@ export function AutomationsScreen({
           if (command === 'set_volume') {
             return [{ entity_id, command, data: { volume: volume ?? 30 } }];
           }
-          if (command === 'play_playlist') {
-            // Der Hub sucht die Playlist über ihren Namen. Ohne Ziel-Box
-            // spielt sie dort, wo zuletzt Musik lief; mit Box weckt der
-            // Hub sie notfalls über das Cast-Protokoll.
-            return [
-              {
-                entity_id,
-                command,
-                data: { name: playlist ?? '', ...(device ? { device } : {}) },
-              },
-            ];
+          // «Musik an» mit gewählter Playlist wird zu play_playlist: Der
+          // Hub sucht sie über ihren Namen, weckt die Ziel-Box notfalls
+          // über das Cast-Protokoll und stellt die Reihenfolge ein.
+          const musik = musikBefehl(command, { playlist, device, shuffle });
+          if (musik) {
+            return [{ entity_id, command: musik.command, data: musik.data }];
           }
           if (command === 'launch_app') {
             return [{ entity_id, command, data: { app: app ?? '' } }];

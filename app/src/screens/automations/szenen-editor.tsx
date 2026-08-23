@@ -20,6 +20,8 @@ import {
   boxenVon,
   commandOptions,
   isSceneDevice,
+  mischenMoeglich,
+  playlistWahl,
   playlistsVon,
 } from './szenengeraete';
 
@@ -305,29 +307,71 @@ export function SceneDevices({
                         onSelect={(key) => setField(entity.id, { volume: Number(key) })}
                       />
                     ) : null}
-                    {action!.command === 'play_playlist' ? (
+                    {/* Was «Musik an» spielen soll. Bis hierher hing die
+                        Playlist an einem eigenen Chip daneben – wer die
+                        Box in die Szene nahm und «Musik an» wählte, sah
+                        darunter nichts und suchte sie dort, wo sie nicht
+                        war. Ohne Wahl bleibt es beim Weiterspielen. */}
+                    {action!.command === 'play' && playlistWahl(entity) ? (
                       <>
                         <Choice
-                          options={playlistsVon(entity).map((name) => ({
-                            key: name,
-                            label: name,
-                          }))}
+                          options={[
+                            { key: '', label: 'weiterspielen' },
+                            ...playlistsVon(entity).map((name) => ({
+                              key: name,
+                              label: name,
+                            })),
+                          ]}
                           value={action!.playlist ?? ''}
                           onSelect={(key) => setField(entity.id, { playlist: key })}
                         />
-                        {/* Auf welcher Box. Ohne Angabe spielt sie dort,
-                            wo zuletzt Musik lief – in einer Szene ist das
-                            eine Wette. Schlafende Google-Home-Boxen stehen
-                            mit dabei; der Hub weckt sie. */}
-                        {boxenVon(entity).length > 0 ? (
-                          <Choice
-                            options={[
-                              { key: '', label: 'zuletzt benutzte Box' },
-                              ...boxenVon(entity).map((name) => ({ key: name, label: name })),
-                            ]}
-                            value={action!.device ?? ''}
-                            onSelect={(key) => setField(entity.id, { device: key })}
-                          />
+                        {action!.playlist ? (
+                          <>
+                            {/* Auf welcher Box. Ohne Angabe spielt sie
+                                dort, wo zuletzt Musik lief – in einer
+                                Szene ist das eine Wette. Schlafende
+                                Google-Home-Boxen stehen mit dabei; der
+                                Hub weckt sie. */}
+                            {boxenVon(entity).length > 0 ? (
+                              <Choice
+                                options={[
+                                  { key: '', label: 'zuletzt benutzte Box' },
+                                  ...boxenVon(entity).map((name) => ({
+                                    key: name,
+                                    label: name,
+                                  })),
+                                ]}
+                                value={action!.device ?? ''}
+                                onSelect={(key) => setField(entity.id, { device: key })}
+                              />
+                            ) : null}
+                            {/* «Party» soll nicht jeden Abend mit
+                                demselben Titel anfangen. Ohne Wahl bleibt
+                                die Einstellung des Kontos, wie sie ist –
+                                eine Szene soll sie nicht heimlich
+                                umstellen. */}
+                            {mischenMoeglich(entity) ? (
+                              <Choice
+                                options={[
+                                  { key: '', label: 'Reihenfolge lassen' },
+                                  { key: 'reihe', label: 'der Reihe nach' },
+                                  { key: 'zufall', label: 'zufällig' },
+                                ]}
+                                value={
+                                  action!.shuffle === undefined
+                                    ? ''
+                                    : action!.shuffle
+                                      ? 'zufall'
+                                      : 'reihe'
+                                }
+                                onSelect={(key) =>
+                                  setField(entity.id, {
+                                    shuffle: key === '' ? undefined : key === 'zufall',
+                                  })
+                                }
+                              />
+                            ) : null}
+                          </>
                         ) : null}
                       </>
                     ) : null}
