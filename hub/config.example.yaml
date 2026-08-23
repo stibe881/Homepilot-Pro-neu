@@ -252,6 +252,21 @@ integrations:
   #     - id: livia
   #       name: Livia
 
+  # Life360: Standort für Telefone, auf denen HomePilot nicht läuft -
+  # das Gerät der Grosseltern, ein Kindertelefon. Eine Quelle je Person:
+  # Wer die App hat, bleibt beim geofence oben. Life360 hat keine offene
+  # Schnittstelle und sperrt Fremdzugriffe zeitweise; der Hub geht dann
+  # in wachsende Pausen. Siehe docs/geofence.md.
+  # - integration: life360
+  #   username: "${LIFE360_USER}"
+  #   password: "${LIFE360_PASSWORD}"
+  #   # Konten mit bestätigter Telefonnummer brauchen statt Passwort den
+  #   # Cookie LIFE360_AUTH_TOKEN aus dem Browser:
+  #   # token: "${LIFE360_TOKEN}"
+  #   scan_interval: 60
+  #   members:              # Name bei Life360 → Zone im geofence oben
+  #     Oma: oma
+
   # UniFi: Anwesenheitserkennung anhand verbundener Geräte.
   # Liefert zusätzlich unifi.anyone_home und unifi.clients_total.
   # - integration: unifi

@@ -85,3 +85,40 @@ Koordinaten – er erfährt nur «da» oder «weg», und zwar genau dann, wenn
 das Telefon es meldet. Nach einem Neustart steht die Zone auf
 `unknown`, bis die erste Meldung kommt; ein Ablauf, der auf «kommt an»
 wartet, löst dadurch nicht versehentlich aus.
+
+## Wenn das Telefon HomePilot nicht bekommt
+
+Das Telefon der Grosseltern, ein Kindergerät, ein Diensthandy, auf dem
+nichts installiert werden darf: Dort meldet niemand. Benutzt die Familie
+ohnehin schon Life360, kann der Hub die Standorte von dort holen – siehe
+`life360` in [integrationen.md](integrationen.md).
+
+Drei Dinge, die man vorher wissen sollte:
+
+- **Eine Quelle je Person.** Wer die App hat, bleibt bei der eigenen
+  Ortung; wer bei `members` steht, meldet über Life360. Zwei Quellen auf
+  dieselbe Frage widersprechen sich früher oder später – daran ist die
+  WLAN-Anwesenheit gescheitert.
+- **Life360 hat keine offene Schnittstelle.** Sie war 2024 für Fremde
+  dicht; Home Assistant hat seine eingebaute Integration deshalb
+  entfernt. Sie kann jederzeit wieder dichtmachen. Der Hub geht bei
+  403/429 in wachsende Pausen bis zwanzig Minuten, statt gegen die
+  Sperre anzurennen.
+- **Konten mit bestätigter Telefonnummer** kommen mit E-Mail und
+  Passwort nicht mehr hinein. Dann meldet man sich im Browser bei
+  life360.com an und kopiert den Wert des Cookies `LIFE360_AUTH_TOKEN`
+  in die `secrets.env`.
+
+```yaml
+  - integration: life360
+    username: ${LIFE360_USER}
+    password: ${LIFE360_PASSWORD}
+    # token: ${LIFE360_TOKEN}      # statt Benutzername/Passwort
+    scan_interval: 60
+    members:                        # Name bei Life360 → Zone im Hub
+      Oma: oma
+```
+
+Die Zone (`- id: oma`) muss oben unter `geofence` stehen; sonst schreibt
+der Hub genau das ins Protokoll. Der Akkustand kommt mit und steht in der
+Anwesenheits-Diagnose («Warum steht da das?»).
