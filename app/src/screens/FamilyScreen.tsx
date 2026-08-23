@@ -1308,13 +1308,17 @@ export function FamilyScreen({
         const geplant = Number(meal.servings) || 0;
         return basis > 0 && geplant > 0 ? geplant / basis : 1;
       });
-      const neu = ingredientsToShopping(
+      // Die ganzen Posten hineingeben, nicht nur ihre Namen: Nur so
+      // lässt sich die Menge zu einem Eintrag dazuzählen, der schon
+      // draufliegt, statt ihn wortlos fallen zu lassen.
+      const { neu, mehr } = ingredientsToShopping(
         rezepteMitTag.map((paar) => paar.recipe) as FamilyItem[],
-        vorhanden(),
+        (data.shopping ?? []) as FamilyItem[],
         faktoren
       );
       neu.forEach((eintrag) => add('shopping', { ...eintrag, done: false }));
-      return neu.length;
+      mehr.forEach((eintrag) => update('shopping', eintrag.id, { amount: eintrag.amount }));
+      return neu.length + mehr.length;
     };
 
     /** Nur die Namen der Gerichte - für Geplantes ohne hinterlegtes Rezept. */
@@ -3426,15 +3430,18 @@ export function FamilyScreen({
             // Mit dem Portionen-Faktor: Wer «8 statt 4» eingestellt hat,
             // bekam vorher die Mengen für vier – und merkte es nicht im
             // Laden, sondern beim Kochen.
-            const neu = ingredientsToShopping(
+            const { neu, mehr } = ingredientsToShopping(
               [recipe],
-              (data.shopping ?? []).map((item: FamilyItem) => String(item.text ?? '')),
+              (data.shopping ?? []) as FamilyItem[],
               faktor
             );
-            neu.forEach((eintrag) =>
-              add('shopping', { ...eintrag, done: false })
+            neu.forEach((eintrag) => add('shopping', { ...eintrag, done: false }));
+            // Was schon draufliegt, bekommt die Menge dazugezählt: Zwei
+            // Rezepte mit Milch heissen 600 ml, nicht 400.
+            mehr.forEach((eintrag) =>
+              update('shopping', eintrag.id, { amount: eintrag.amount })
             );
-            return neu.length;
+            return neu.length + mehr.length;
           }}
           onClose={() => {
             // Wer aus dem Essensplaner kam, landet wieder dort - und der
