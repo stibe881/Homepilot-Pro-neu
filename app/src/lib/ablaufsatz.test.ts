@@ -121,3 +121,53 @@ describe('ablaufSatz', () => {
     ).toBe('');
   });
 });
+
+describe('Der Wert gehört in den Satz', () => {
+  const box = {
+    id: 'cast.bad',
+    kind: 'media_player',
+    name: 'Nest Badezimmer',
+    integration: 'google_cast',
+    state: {},
+    commands: ['play', 'pause', 'set_volume'],
+  } as unknown as Entity;
+
+  it('sagt, wie laut – nicht bloss «Lautstärke»', () => {
+    const satz = ablaufSatz(
+      {
+        triggers: [{ type: 'time', at: '09:30' }],
+        conditions: [],
+        actions: [
+          { type: 'command', entity_id: 'cast.bad', command: 'set_volume', data: { volume: 20 } },
+        ],
+        otherwise: [],
+        match: 'all',
+      },
+      [box],
+      []
+    );
+    expect(satz).toContain('Nest Badezimmer Lautstärke 20 %');
+  });
+
+  it('nennt die Playlist beim Namen', () => {
+    const satz = ablaufSatz(
+      {
+        triggers: [{ type: 'time', at: '07:00' }],
+        conditions: [],
+        actions: [
+          {
+            type: 'command',
+            entity_id: 'cast.bad',
+            command: 'play_playlist',
+            data: { name: 'Frühstück' },
+          },
+        ],
+        otherwise: [],
+        match: 'all',
+      },
+      [box],
+      []
+    );
+    expect(satz).toContain('Playlist «Frühstück»');
+  });
+});

@@ -6,6 +6,7 @@
 
 import { Entity } from '../../api/types';
 import { datumUhr, dauerText } from '../../lib/format';
+import { richtungBefehl, richtungSchluessel } from '../../lib/szenen';
 
 /**
  * Die gespeicherte Form eines Ablauf-Bausteins (Auslöser, Bedingung,
@@ -511,6 +512,15 @@ export interface StepDraft {
     adaptive?: boolean;
     /** Nachlauf in Sekunden – danach schaltet der Hub die Lampe aus. */
     offAfter?: number;
+    /** Ziel-Lautstärke in Prozent, wenn das Kommando 'set_volume' ist. */
+    volume?: number;
+    /** Name der Playlist, wenn das Kommando 'play_playlist' ist. */
+    playlist?: string;
+    /** Paket-ID der App, wenn das Kommando 'launch_app' ist. */
+    app?: string;
+    /** Auf welcher Box die Playlist spielen soll. Leer = die zuletzt
+     *  benutzte. */
+    device?: string;
   }[];
   sceneId: string;
   /** Name einer auf der Hue-Bridge gespeicherten Szene. */
@@ -1122,6 +1132,18 @@ export function stepToActions(step: StepDraft): BausteinConfig[] {
         if (action.offAfter) licht.off_after = action.offAfter;
         return licht;
       }
+      // Kamera und Lautsprecher kennen je einen Befehl, dessen Richtung
+      // in unsichtbaren Zusatzdaten steckt («stumm» ist mute mit
+      // muted: true). In der Auswahl sind es zwei Chips.
+      const richtung = richtungBefehl(action.command);
+      if (richtung) {
+        return {
+          type: 'command',
+          entity_id: action.entity_id,
+          command: richtung.command,
+          data: richtung.data,
+        };
+      }
       const built: BausteinConfig = {
         type: 'command',
         entity_id: action.entity_id,
@@ -1135,6 +1157,22 @@ export function stepToActions(step: StepDraft): BausteinConfig[] {
       }
       if (action.command === 'set_brightness') {
         built.data = { brightness: action.brightness ?? 50 };
+      }
+      // Ohne diese drei ging der eingestellte Wert beim Speichern
+      // verloren: Der Chip stand da, die Lautstärke kam nie beim Hub an.
+      if (action.command === 'set_volume') {
+        built.data = { volume: action.volume ?? 30 };
+      }
+      if (action.command === 'play_playlist') {
+        // Der Hub sucht die Playlist über ihren Namen; ohne Ziel-Box
+        // spielt sie dort, wo zuletzt Musik lief.
+        built.data = {
+          name: action.playlist ?? '',
+          ...(action.device ? { device: action.device } : {}),
+        };
+      }
+      if (action.command === 'launch_app') {
+        built.data = { app: action.app ?? '' };
       }
       return built;
     });
@@ -1160,10 +1198,22 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
     if (type === 'command') {
       const entry = {
         entity_id: action.entity_id,
-        command: action.command ?? 'turn_on',
+        // «stumm» und «Privatsphäre ein» stehen gespeichert als mute
+        // bzw. set_privacy mit einem Zusatzfeld - im Editor sind es
+        // eigene Chips, sonst leuchtete beim Öffnen der falsche.
+        command:
+          richtungSchluessel(action.command ?? '', action.data) ??
+          action.command ??
+          'turn_on',
         rooms: action.data?.rooms ?? [],
         position: action.data?.position,
         brightness: action.data?.brightness,
+        volume: action.data?.volume,
+        // Beim Hub heisst die Playlist 'name' - hier ein eigenes Feld,
+        // damit sie nicht mit dem Namen des Ablaufs verwechselt wird.
+        playlist: action.data?.name,
+        app: action.data?.app,
+        device: action.data?.device,
       };
       const last = steps[steps.length - 1];
       if (last && last.kind === 'command') {

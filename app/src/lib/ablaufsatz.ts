@@ -97,11 +97,30 @@ const BEFEHL: Record<string, string> = {
   dock: 'zur Station',
   play: 'Musik an',
   pause: 'Musik aus',
+  set_volume: 'Lautstärke',
+  mute: 'stumm',
+  play_playlist: 'Playlist',
+  launch_app: 'App',
+  play_url: 'Durchsage',
+  set_privacy: 'Privatsphäre',
+  unlatch: 'aufziehen',
+  open_door: 'öffnen',
   arm_night: 'scharf (Nacht)',
   arm_away: 'scharf (Ausser Haus)',
   arm_vacation: 'scharf (Urlaub)',
   disarm: 'unscharf',
 };
+
+/** Der eingestellte Wert hinter dem Befehl (rein, testbar). */
+function wertZusatz(action: Roh): string {
+  const data = (action.data ?? {}) as Record<string, unknown>;
+  if (typeof data.volume === 'number') return ` ${data.volume} %`;
+  if (typeof data.brightness === 'number') return ` ${data.brightness} %`;
+  if (typeof data.position === 'number') return ` ${data.position} %`;
+  if (typeof data.name === 'string' && data.name) return ` «${data.name}»`;
+  if (typeof data.muted === 'boolean') return data.muted ? '' : ' aus';
+  return '';
+}
 
 function aktionSatz(
   action: Roh,
@@ -125,7 +144,10 @@ function aktionSatz(
       return `warten bis ${name(entities, action.entity_id)} passt`;
     default: {
       const was = BEFEHL[String(action.command)] ?? action.command;
-      return `${name(entities, action.entity_id)} ${was}`;
+      // Der Wert gehört dazu: «Lautsprecher Lautstärke» sagt nicht, ob
+      // leise oder laut - und genau danach schaut man in der Liste.
+      const zusatz = wertZusatz(action);
+      return `${name(entities, action.entity_id)} ${was}${zusatz}`;
     }
   }
 }

@@ -24,6 +24,7 @@ import {
   zeitpunktLabel,
 } from './entwurf';
 import { Entity } from '../../api/types';
+import { STUMM_EIN } from '../../lib/szenen';
 
 describe('Zufalls-Versatz (Punkt 155)', () => {
   it('wandert in die gespeicherte Form und zurück', () => {
@@ -573,5 +574,82 @@ describe('Türen als Auslöser', () => {
       { key: 'on', label: 'an' },
       { key: 'off', label: 'aus' },
     ]);
+  });
+});
+
+describe('Lautsprecher in Abläufen', () => {
+  it('schreibt die eingestellte Lautstärke mit', () => {
+    // Der Chip «Lautstärke» stand da, der Wert ging beim Speichern
+    // verloren: stepToActions kannte set_volume nicht, und der Hub bekam
+    // ein Kommando ohne Zahl.
+    const actions = stepToActions({
+      ...EMPTY_STEP,
+      commandActions: [
+        { entity_id: 'cast.bad', command: 'set_volume', volume: 20 },
+      ],
+    });
+    expect(actions).toEqual([
+      { type: 'command', entity_id: 'cast.bad', command: 'set_volume', data: { volume: 20 } },
+    ]);
+  });
+
+  it('liest sie unverändert zurück', () => {
+    const gespeichert = stepToActions({
+      ...EMPTY_STEP,
+      commandActions: [{ entity_id: 'cast.bad', command: 'set_volume', volume: 20 }],
+    });
+    const [zurueck] = actionsToSteps(gespeichert);
+    expect(zurueck.commandActions[0].volume).toBe(20);
+    expect(stepToActions(zurueck)).toEqual(gespeichert);
+  });
+
+  it('nimmt Playlist samt Ziel-Box und App mit', () => {
+    expect(
+      stepToActions({
+        ...EMPTY_STEP,
+        commandActions: [
+          {
+            entity_id: 'spotify.player',
+            command: 'play_playlist',
+            playlist: 'Frühstück',
+            device: 'Küche',
+          },
+          { entity_id: 'tv.stube', command: 'launch_app', app: 'com.netflix' },
+        ],
+      })
+    ).toEqual([
+      {
+        type: 'command',
+        entity_id: 'spotify.player',
+        command: 'play_playlist',
+        data: { name: 'Frühstück', device: 'Küche' },
+      },
+      {
+        type: 'command',
+        entity_id: 'tv.stube',
+        command: 'launch_app',
+        data: { app: 'com.netflix' },
+      },
+    ]);
+  });
+
+  it('übersetzt «stumm» in mute mit Zusatzfeld – und zurück', () => {
+    const actions = stepToActions({
+      ...EMPTY_STEP,
+      commandActions: [{ entity_id: 'cast.bad', command: STUMM_EIN }],
+    });
+    expect(actions).toEqual([
+      { type: 'command', entity_id: 'cast.bad', command: 'mute', data: { muted: true } },
+    ]);
+    // Beim Öffnen muss wieder der Chip «stumm» leuchten, nicht «Ton an».
+    expect(actionsToSteps(actions)[0].commandActions[0].command).toBe(STUMM_EIN);
+  });
+
+  it('lässt eine Lautstärke ohne Zahl nicht ins Leere laufen', () => {
+    const [action] = stepToActions({
+      ...EMPTY_STEP,
+      commandActions: [{ entity_id: 'cast.bad', command: 'set_volume' }],
+    });
+    expect(action.data).toEqual({ volume: 30 });
   });
 });
