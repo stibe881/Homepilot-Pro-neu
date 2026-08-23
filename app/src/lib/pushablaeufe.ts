@@ -28,6 +28,32 @@ export interface PushAblauf {
   otherwise?: Baustein[];
   enabled?: boolean;
   editable?: boolean;
+  /** Selbst vergebene Kategorie – siehe `istPushKategorie`. */
+  category?: string | null;
+}
+
+/** Der Name, unter dem dieser Bereich in der App steht. */
+export const PUSH_KATEGORIE = 'Push';
+
+/** Heisst diese Kategorie «Push»? (rein, testbar)
+ *
+ * Wer seine Abläufe von Hand in eine Kategorie «Push» einsortiert hat,
+ * meint denselben Topf wie dieser Bereich. Stünden beide untereinander,
+ * läse man zweimal dieselbe Überschrift – genau das war zu sehen.
+ * Gross-/Kleinschreibung und Leerzeichen zählen nicht mit: «push» und
+ * «Push » sind derselbe Topf, alles andere wäre eine Falle. */
+export function istPushKategorie(category?: string | null): boolean {
+  return (category ?? '').trim().toLowerCase() === PUSH_KATEGORIE.toLowerCase();
+}
+
+/** Gehört dieser Ablauf in den Push-Bereich? (rein, testbar)
+ *
+ * Entweder weil er wirklich meldet – oder weil ihn jemand ausdrücklich
+ * dorthin einsortiert hat. Der zweite Fall darf nicht durchfallen: Sonst
+ * verschwände ein Ablauf ganz, wenn seine Kategorie aus der Liste
+ * genommen wird. */
+export function gehoertZuPush(automation: PushAblauf): boolean {
+  return sendetPush(automation) || istPushKategorie(automation.category);
 }
 
 /** Alle Nachricht-Schritte eines Ablaufs (rein, testbar).
@@ -48,9 +74,9 @@ export function sendetPush(automation: PushAblauf): boolean {
   return pushSchritte(automation).length > 0;
 }
 
-/** Die meldenden Abläufe, in der Reihenfolge des Hubs (rein, testbar). */
+/** Die Abläufe dieses Bereichs, in der Reihenfolge des Hubs (rein, testbar). */
 export function pushAblaeufe<T extends PushAblauf>(automations: T[] | null): T[] {
-  return (automations ?? []).filter(sendetPush);
+  return (automations ?? []).filter(gehoertZuPush);
 }
 
 /** Eine Zeile, die sich wie die Beschreibung einer eingebauten Regel liest
@@ -61,7 +87,14 @@ export function pushAblaeufe<T extends PushAblauf>(automations: T[] | null): T[]
  * bekommt keine leere Zeile, sondern den ehrlichen Hinweis. */
 export function pushBeschreibung(automation: PushAblauf): string {
   const schritte = pushSchritte(automation);
-  if (schritte.length === 0) return '';
+  if (schritte.length === 0) {
+    // Steht wegen seiner Kategorie hier, verschickt aber nichts. Das
+    // stillschweigend hinzunehmen wäre die schlechtere Auskunft: Wer
+    // einen Ablauf «Push» nennt, erwartet, dass er meldet.
+    return istPushKategorie(automation.category)
+      ? 'Verschickt keine Nachricht – steht wegen der Kategorie «Push» hier.'
+      : '';
+  }
   const erster = schritte[0];
   const text =
     String(erster.title ?? '').trim() || String(erster.body ?? '').trim();
