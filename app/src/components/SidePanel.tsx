@@ -5,9 +5,11 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Activity, CommandData, Entity, EntityState } from '../api/types';
 import { uhr, wochentag } from '../lib/format';
 import { istMusikbox, musikboxenImRaum, pickPlayer } from '../lib/geraeteart';
+import { hatWarteschlange } from '../lib/musikliste';
 import { Colors, radius, type, useColors } from '../theme';
 import { Bar } from './Bar';
 import { Card } from './Card';
+import { Musikliste } from './Musikliste';
 import { ShuffleRepeat, SpotifyPanel } from './EntityCard';
 
 function severityColor(colors: Colors, severity: string): string {
@@ -161,6 +163,8 @@ function MediaPanel({
   // volle Liste erst auf Antippen. Eine Box antippen heisst: Musik dorthin
   // (die frühere «Abspielen auf»-Zeile ist hier aufgegangen).
   const [pickerOpen, setPickerOpen] = useState(false);
+  // Was als Nächstes läuft – hinter Cover und Titel.
+  const [listeOffen, setListeOffen] = useState(false);
   const command = (name: string, data?: CommandData) =>
     onCommand(entity.id, name, data);
   const isSpotify = entity.commands.includes('play_playlist');
@@ -227,7 +231,15 @@ function MediaPanel({
           })}
         </View>
       ) : null}
-      <View style={styles.nowPlayingRow}>
+      {/* Cover und Titel öffnen, was als Nächstes kommt – aber nur, wenn
+          es etwas zu zeigen gibt. Eine Karte, die auf Antippen nichts tut,
+          ist schlimmer als eine, die gar nicht darauf reagiert. */}
+      <Pressable
+        onPress={hatWarteschlange(entity.state) ? () => setListeOffen(true) : undefined}
+        accessibilityRole={hatWarteschlange(entity.state) ? 'button' : undefined}
+        accessibilityLabel={hatWarteschlange(entity.state) ? 'Was als Nächstes läuft' : undefined}
+        style={({ pressed }) => [styles.nowPlayingRow, pressed && { opacity: 0.75 }]}
+      >
         {entity.state.image ? (
           <Image
             source={{ uri: String(entity.state.image) }}
@@ -245,7 +257,11 @@ function MediaPanel({
             </Text>
           ) : null}
         </View>
-      </View>
+        {hatWarteschlange(entity.state) ? (
+          <Ionicons name="list-outline" size={18} color={colors.inkFaint} />
+        ) : null}
+      </Pressable>
+      <Musikliste state={entity.state} offen={listeOffen} onClose={() => setListeOffen(false)} />
 
       <View style={styles.mediaButtons}>
         {entity.commands.includes('previous') ? (
