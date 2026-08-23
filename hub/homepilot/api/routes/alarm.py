@@ -102,6 +102,8 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 by=user.name,
                 pin=(body.pin if body else "") or None,
                 address=throttle_module.client_address(request),
+                # Am Wandtablet ist die PIN Pflicht - siehe check_pin().
+                require_pin=user.shared,
             )
         except HomePilotError as err:
             # Falsche oder fehlende PIN - lesbar zurück, kein Stacktrace.

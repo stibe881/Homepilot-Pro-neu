@@ -26,7 +26,7 @@ interface Props {
   /** Eingebettet in die Kachelfläche statt als ganzer Bildschirm. */
   embedded?: boolean;
   /** Angemeldeter Benutzer – zeigt Name und Rolle an. */
-  user?: { name: string; role: string } | null;
+  user?: { name: string; role: string; shared?: boolean } | null;
   /** Wer die eigene Ortung sieht – für die Zeile im Profil (Punkt 197). */
   familie?: string[];
 }
@@ -66,6 +66,18 @@ export function SettingsScreen({
           <Text style={styles.account}>
             Angemeldet als {user.name} · {user.role}
           </Text>
+          {/* Am Wandtablet gibt es kein Abmelden. Wer es antippt, sperrt
+              das ganze Haus aus sich selbst aus - die Anmeldedaten des
+              Geräts hat niemand in der Tasche, und bis jemand mit einem
+              Rechner kommt, geht im Flur gar nichts mehr. Die Sitzung
+              läuft dort auch nicht ab (core/sessions.py). */}
+          {user.shared ? (
+            <Text style={styles.sharedNote}>
+              Dieses Gerät gehört allen und bleibt angemeldet. Zum Abmelden
+              die Kennzeichnung «Gemeinschaftsgerät» unter Benutzer
+              aufheben.
+            </Text>
+          ) : (
           <View style={styles.logoutRow}>
             <Pressable
               onPress={async () => {
@@ -123,6 +135,7 @@ export function SettingsScreen({
               </Text>
             </Pressable>
           </View>
+          )}
         </>
       ) : null}
 
@@ -413,6 +426,7 @@ const makeStyles = (colors: Colors) =>
   },
   account: { color: colors.inkSoft, fontSize: 13, marginTop: -8 },
   logoutRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  sharedNote: { color: colors.inkSoft, fontSize: 12, lineHeight: 17, marginTop: 4 },
   logout: {
     flexDirection: 'row',
     alignItems: 'center',

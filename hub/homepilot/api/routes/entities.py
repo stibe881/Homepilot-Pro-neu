@@ -130,10 +130,17 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         hub.audit.record(
             user.name, entity, body.command, throttle_module.client_address(request)
         )
+        daten = body.data
+        if user.shared and entity.integration == "alarm":
+            # Am Wandtablet ist die PIN auch über die Kachel auf der
+            # Startseite Pflicht. Ohne das hier führte der Weg über den
+            # Alarm-Bildschirm durch die PIN, der kurze Weg daneben
+            # vorbei - und der kurze Weg ist der, den man nimmt.
+            daten = {**(body.data or {}), "require_pin": True}
         try:
             with as_source(user_source(user.name)):
                 entity = await hub.integrations.dispatch_command(
-                    entity_id, body.command, body.data
+                    entity_id, body.command, daten
                 )
         except UnknownEntityError as err:
             raise HTTPException(status_code=404, detail=str(err)) from err

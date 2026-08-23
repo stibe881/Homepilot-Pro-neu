@@ -118,7 +118,12 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 status_code=403, detail=f"Der Zugang von '{user.name}' ist gesperrt."
             )
         throttle.succeeded(address)
-        token = hub.sessions.create(user.name, body.label or "Unbenanntes Gerät")
+        # Das Wandtablet meldet sich einmal an und dann nie wieder: Es
+        # steht an der Wand, und niemand tippt dort nach drei Monaten
+        # wieder eine Adresse samt Passwort ein.
+        token = hub.sessions.create(
+            user.name, body.label or "Unbenanntes Gerät", keep=user.shared
+        )
         log.warning("%s hat sich mit Passwort angemeldet (%s)", user.name, address)
         return {"token": token, "user": user_payload(user)}
 

@@ -278,14 +278,27 @@ class AlarmIntegration(Integration):
         salt = secrets.token_hex(8)
         self.hub.data.set("alarm_pin", [{"salt": salt, "hash": hash_pin(pin, salt)}])
 
-    def check_pin(self, pin: str | None, address: str = "app") -> None:
+    def check_pin(
+        self, pin: str | None, address: str = "app", require_pin: bool = False
+    ) -> None:
         """Wirft einen lesbaren Fehler, wenn die PIN fehlt oder falsch ist.
 
         Mit Drossel: Fünf Fehlversuche, dann fünf Minuten Pause - eine
         vierstellige PIN ohne Drossel wäre in Minuten durchprobiert.
+
+        ``require_pin`` gilt für Geräte, die allen gehören - das Wandtablet
+        im Flur. Dort steht die App immer offen; ohne PIN entschärft die
+        Anlage, wer immer vorbeigeht. Ist keine gesetzt, wird nicht etwa
+        durchgewinkt, sondern abgelehnt: Ein Wandtablet ohne PIN ist
+        genau der Fall, den die PIN verhindern soll.
         """
         entry = self._pin_entry()
         if entry is None:
+            if require_pin:
+                raise HomePilotError(
+                    "An diesem Gerät braucht das Entschärfen eine PIN. Sie "
+                    "wird unter Alarm → PIN gesetzt."
+                )
             return
         wait = self._pin_throttle.blocked_for(address)
         if wait > 0:
@@ -300,9 +313,13 @@ class AlarmIntegration(Integration):
         self._pin_throttle.succeeded(address)
 
     async def disarm(
-        self, by: str = "", pin: str | None = None, address: str = "app"
+        self,
+        by: str = "",
+        pin: str | None = None,
+        address: str = "app",
+        require_pin: bool = False,
     ) -> dict[str, Any]:
-        self.check_pin(pin, address)
+        self.check_pin(pin, address, require_pin)
         self._cancel_timer()
         was = self._state
         self._state = DISARMED
@@ -686,14 +703,16 @@ class AlarmIntegration(Integration):
         # Die PIN kann als data.pin mitkommen (Karten, Szenen); fehlt sie
         # und ist eine gesetzt, erklärt der Fehler, was zu tun ist.
         pin = str(data.get("pin") or "") or None
+        # Setzt die API-Schicht für Gemeinschaftsgeräte - siehe check_pin().
+        require_pin = bool(data.get("require_pin"))
         if command in ("disarm", "turn_off"):
-            await self.disarm(pin=pin)
+            await self.disarm(pin=pin, require_pin=require_pin)
             return
         if command == "toggle":
             if self._state == DISARMED:
                 await self.arm("ausser_haus", force=force)
             else:
-                await self.disarm(pin=pin)
+                await self.disarm(pin=pin, require_pin=require_pin)
             return
         mode = {
             "arm_night": "nacht",

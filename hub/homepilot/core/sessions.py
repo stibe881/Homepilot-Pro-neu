@@ -35,13 +35,25 @@ def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def bleibt(row: dict[str, Any], moment: float) -> bool:
+    """Gilt diese Sitzung noch? (rein, testbar)
+
+    ``keep`` steht auf Sitzungen von Geräten, die allen gehören - dem
+    Wandtablet im Flur. Es hat keine Hosentasche, aus der es jemand
+    mitnehmen könnte, und niemand tippt dort eine E-Mail-Adresse samt
+    Passwort ein, bloss weil drei Monate um sind. Es soll nach einem
+    Stromausfall einfach wieder da sein.
+    """
+    if row.get("keep"):
+        return True
+    return moment - float(row.get("seen") or 0) < MAX_AGE
+
+
 def prune(rows: list[dict[str, Any]], now: float | None = None) -> list[dict[str, Any]]:
     """Abgelaufene entfernen und je Person auf ``PER_USER`` kürzen (rein)."""
     moment = time.time() if now is None else now
     fresh = [
-        row
-        for row in rows or []
-        if isinstance(row, dict) and moment - float(row.get("seen") or 0) < MAX_AGE
+        row for row in rows or [] if isinstance(row, dict) and bleibt(row, moment)
     ]
     fresh.sort(key=lambda row: float(row.get("seen") or 0), reverse=True)
     counted: dict[str, int] = {}
@@ -64,8 +76,12 @@ class SessionStore:
     def _save(self, rows: list[dict[str, Any]]) -> None:
         self._data.set("sessions", rows)
 
-    def create(self, user: str, label: str = "") -> str:
-        """Eine neue Sitzung – gibt das Token zurück, das nur jetzt sichtbar ist."""
+    def create(self, user: str, label: str = "", keep: bool = False) -> str:
+        """Eine neue Sitzung – gibt das Token zurück, das nur jetzt sichtbar ist.
+
+        ``keep`` für Gemeinschaftsgeräte: Die Sitzung läuft nie ab (siehe
+        ``bleibt``).
+        """
         token = secrets.token_urlsafe(32)
         now = time.time()
         rows = prune(self._rows())
@@ -77,6 +93,7 @@ class SessionStore:
                 "label": label,
                 "created": now,
                 "seen": now,
+                "keep": bool(keep),
             },
         )
         self._save(prune(rows))
@@ -96,7 +113,7 @@ class SessionStore:
         for row in rows:
             if not isinstance(row, dict) or row.get("hash") != wanted:
                 continue
-            if now - float(row.get("seen") or 0) >= MAX_AGE:
+            if not bleibt(row, now):
                 return None
             # Nur gelegentlich schreiben: Jede Anfrage würde die Datei
             # dutzendfach pro Minute neu schreiben.

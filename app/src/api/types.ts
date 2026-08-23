@@ -94,9 +94,14 @@ export interface User {
   email?: string | null;
   /** Kinder-Ansicht: nur diese Räume, als grosse Knöpfe. */
   simple_rooms?: string[];
-  /** Gemeinschaftsgerät statt Person: das Wandtablet im Flur. Es bekommt
-   *  keine Push-Nachrichten und wird nicht mit Namen begrüsst. */
+  /** Gemeinschaftsgerät statt Person: das Wandtablet im Flur. Nachrichten
+   *  bekommt es wie jeder andere - dort im Flur sind sie am richtigen
+   *  Ort -, aber es wird nicht mit Namen begrüsst, meldet sich nie ab,
+   *  braucht die Alarm-PIN und dunkelt nachts ab. */
   shared?: boolean;
+  /** Vor den persönlichen Bereichen liegt ein Passwort, das die
+   *  Verwaltung gesetzt hat. Nur die Tatsache, nie der Wert. */
+  area_locked?: boolean;
 }
 
 export interface Source {

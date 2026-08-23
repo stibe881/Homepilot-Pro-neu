@@ -16,17 +16,21 @@ from fastapi import (
     Request,
 )
 
+from ...core import bereich as bereich_module
+from ...core import throttle as throttle_module
 from ...core import users as users_module
 from ...core.errors import HomePilotError
 from ...core.users import GUEST_FEATURES, Capability, Role
 from ..context import ApiContext
-from ..models import UserRequest, UserUpdateRequest
+from ..models import AreaUnlockRequest, UserRequest, UserUpdateRequest
 
 log = logging.getLogger(__name__)
 
 def register(app: FastAPI, ctx: ApiContext) -> None:
     hub = ctx.hub
     require = ctx.require
+    current_user = ctx.current_user
+    throttle = ctx.throttle
 
     # ── Benutzerverwaltung ─────────────────────────────────────────────────
 
@@ -100,10 +104,48 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 hours=body.hours,
                 simple_rooms=body.simple_rooms,
                 shared=body.shared,
+                area_password=body.area_password,
             )
+        except ValueError as err:
+            # Zu kurzes Passwort - der Text steht in core/bereich.py.
+            raise HTTPException(status_code=400, detail=str(err)) from err
         except HomePilotError as err:
             raise HTTPException(status_code=409, detail=str(err)) from err
         return {"user": updated.as_dict()}
+
+    @app.post("/api/areas/unlock")
+    async def unlock_areas(body: AreaUnlockRequest, request: Request) -> dict[str, Any]:
+        """Das Passwort vor den persönlichen Bereichen prüfen.
+
+        Für das Wandtablet im Flur: Licht und Storen bedient jeder, der
+        vorbeigeht, die Einkaufsliste und der Kalender der Familie sollen
+        aber nicht offen im Flur stehen. Der Riegel wird in der
+        Benutzerverwaltung gesetzt (area_password).
+
+        Der Hub sagt hier nur Ja oder Nein - was danach sichtbar wird,
+        entscheidet die App. Das ist Absicht: Es ist ein Sichtschutz vor
+        Mitlesenden im eigenen Haus, keine zweite Anmeldung. Wer das Token
+        hat, ist ohnehin drin; die Rechte hängen weiter an der Rolle.
+
+        Mit derselben Bremse wie die Anmeldung - vier Zeichen wären sonst
+        an einem Nachmittag durchprobiert.
+        """
+        user = current_user(request)
+        address = throttle_module.client_address(request)
+        waiting = throttle.blocked_for(address)
+        if waiting > 0:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Zu viele Versuche - gesperrt für {round(waiting)} Sekunden.",
+            )
+        if not user.area_lock:
+            # Kein Riegel gesetzt: dann ist auch nichts zu öffnen.
+            return {"ok": True, "seconds": bereich_module.OPEN_SECONDS}
+        if not bereich_module.matches(user.area_lock, body.password or ""):
+            throttle.failed(address)
+            raise HTTPException(status_code=403, detail="Falsches Passwort.")
+        throttle.succeeded(address)
+        return {"ok": True, "seconds": bereich_module.OPEN_SECONDS}
 
     @app.post("/api/users/{name}/token")
     async def rotate_user_token(name: str, request: Request) -> dict[str, Any]:

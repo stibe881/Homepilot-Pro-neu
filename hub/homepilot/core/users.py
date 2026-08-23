@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
+from . import bereich
 from .errors import ConfigError
 
 _HHMM = re.compile(r"\d{2}:\d{2}")
@@ -214,10 +215,16 @@ class User:
     simple_rooms: list[str] = field(default_factory=list)
     # Kein einzelner Mensch, sondern ein Gerät, das allen gehört: das
     # Wandtablet im Flur, das Küchendisplay. Es meldet sich wie ein
-    # Benutzer an, hat aber keine Hosentasche - eine Push-Nachricht dorthin
-    # weckt niemanden, sie brummt nachts an der Wand. Und angesprochen
-    # werden möchte es auch nicht («Hallo Wandtablet»).
+    # Benutzer an, gehört aber keiner Person - angesprochen werden möchte
+    # es darum nicht («Hallo Wandtablet»), und es meldet sich nie ab.
+    # Nachrichten bekommt es sehr wohl: An der Wand im Flur ist die
+    # Meldung «Haustüre offen» genau am richtigen Ort.
     shared: bool = False
+    # Gesalzener Hashwert des Passworts vor den persönlichen Bereichen
+    # (siehe core/bereich.py). Leer = kein Riegel. Steht hier statt in
+    # einer eigenen Tabelle, weil es zum Benutzer gehört und mit ihm
+    # verschwindet.
+    area_lock: dict[str, str] = field(default_factory=dict)
     # Kein Mensch, sondern ein Zugang: das einzelne api.token aus der
     # Konfiguration, mit dem Skripte und das Wandpanel hereinkommen. Es
     # gehört in kein Verzeichnis von Personen - dort stünde es zwischen
@@ -283,6 +290,9 @@ class User:
             "email": self.email,
             "simple_rooms": list(self.simple_rooms),
             "shared": self.shared,
+            # Nur die Tatsache, nie der Wert: Die App muss wissen, ob sie
+            # fragen soll, nicht wonach.
+            "area_locked": bool(self.area_lock),
         }
         if include_token:
             data["token"] = self.token
@@ -410,6 +420,7 @@ class UserRegistry:
         hours: dict[str, str] | None = None,
         simple_rooms: list[str] | None = None,
         shared: bool | None = None,
+        area_password: str | None = None,
     ) -> User:
         """Gast sperren/entsperren oder Bereiche ändern – Token bleibt gleich."""
         user = self.by_name(name)
@@ -434,6 +445,15 @@ class UserRegistry:
             user.simple_rooms = [str(r) for r in simple_rooms]
         if shared is not None:
             user.shared = bool(shared)
+        if area_password is not None:
+            # Leerer Wert nimmt den Riegel weg - anders käme man nie wieder
+            # davon los, ohne den Benutzer neu anzulegen.
+            if area_password.strip():
+                user.area_lock = bereich.make_entry(
+                    bereich.check_length(area_password)
+                )
+            else:
+                user.area_lock = {}
         self._changed()
         return user
 
@@ -451,6 +471,7 @@ class UserRegistry:
                 "hours": dict(user.hours),
                 "simple_rooms": list(user.simple_rooms),
                 "shared": user.shared,
+                "area_lock": dict(user.area_lock),
             }
             for user in self._users
             if user.editable
@@ -503,6 +524,12 @@ def parse_users(raw: list[dict[str, Any]], legacy_token: str | None) -> UserRegi
                 hours=parse_hours(entry.get("hours")),
                 simple_rooms=[str(r) for r in simple_rooms],
                 shared=bool(entry.get("shared")),
+                area_lock={
+                    str(k): str(v)
+                    for k, v in (entry.get("area_lock") or {}).items()
+                }
+                if isinstance(entry.get("area_lock"), dict)
+                else {},
             )
         )
 

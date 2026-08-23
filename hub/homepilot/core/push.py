@@ -349,16 +349,10 @@ class PushService:
             if category and category in self.muted.get(device.user, set()):
                 continue
             if to == "all":
-                # Gemeinschaftsgeräte bleiben draussen: Das Wandtablet hat
-                # keine Hosentasche, in der eine Nachricht auffiele - es
-                # brummt nachts im Flur, und gelesen hat sie niemand. Wer
-                # es ausdrücklich meint, spricht es unten mit Namen an.
-                if user.role != Role.GUEST and not getattr(user, "shared", False):
+                if user.role != Role.GUEST:
                     tokens.append(device.token)
             elif to in Role.ALL:
-                # Auch «an alle Bewohner» meint die Menschen, nicht ihre
-                # Bildschirme.
-                if user.role == to and not getattr(user, "shared", False):
+                if user.role == to:
                     tokens.append(device.token)
             elif to == device.user:
                 tokens.append(device.token)

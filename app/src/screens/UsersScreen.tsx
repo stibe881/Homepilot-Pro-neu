@@ -83,6 +83,8 @@ interface HubUser {
   simple_rooms?: string[];
   /** Gemeinschaftsgerät (Wandtablet, Küchendisplay) statt einer Person. */
   shared?: boolean;
+  /** Vor den persönlichen Bereichen liegt ein Passwort. Nur ob, nie welches. */
+  area_locked?: boolean;
   /** Anmelde-Adresse – Voraussetzung für die Einladung. */
   email?: string | null;
 }
@@ -269,6 +271,9 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
   const [rotateNote, setRotateNote] = useState<string | null>(null);
   // Getippte Adressen, bis sie gespeichert sind.
   const [emailDraft, setEmailDraft] = useState<Record<string, string>>({});
+  // Dasselbe fürs Passwort vor den persönlichen Bereichen. Es kommt nie
+  // vom Hub zurück, also steht hier immer nur das frisch Getippte.
+  const [areaDraft, setAreaDraft] = useState<Record<string, string>>({});
 
   const load = useCallback(() => {
     setError(null);
@@ -475,9 +480,13 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
               </View>
               {newShared ? (
                 <Text style={styles.roleHint}>
-                  Bekommt keine Push-Nachrichten (eine Nachricht an die Wand
-                  weckt niemanden) und steht in Abläufen nicht als Empfänger
-                  zur Auswahl. Die App begrüsst niemanden mit Namen.
+                  Bedient das Haus wie ein Bewohner und bekommt auch die
+                  Nachrichten – an der Wand im Flur sind sie am richtigen
+                  Ort. Anders ist: Die App begrüsst niemanden mit Namen,
+                  das Gerät bleibt angemeldet, es dunkelt nachts ab, und
+                  zum Entschärfen der Alarmanlage braucht es die PIN.
+                  Persönliche Bereiche lassen sich mit einem Passwort
+                  abriegeln – das nach dem Anlegen unten beim Benutzer.
                 </Text>
               ) : null}
             </>
@@ -766,12 +775,13 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                       <Text style={styles.formLabel}>Gemeinschaftsgerät</Text>
                       <Text style={styles.formHint}>
                         Für das Wandtablet im Flur oder das Küchendisplay:
-                        ein Zugang, den alle benutzen, keine Person. Es
-                        bekommt keine Push-Nachrichten – eine Nachricht an
-                        die Wand weckt niemanden, sie brummt nachts im Flur –
-                        und steht in Abläufen nicht als Empfänger zur
-                        Auswahl. Ausdrücklich mit Namen angesprochen kommt
-                        eine Nachricht trotzdem an.
+                        ein Zugang, den alle benutzen, keine Person.
+                        Nachrichten bekommt es wie jeder andere. Anders
+                        ist: keine Begrüssung mit Namen, kein Abmelden und
+                        kein Sitzungsablauf, nachts wird der Bildschirm
+                        dunkler, und zum Entschärfen der Alarmanlage ist
+                        die PIN Pflicht – auch dann, wenn sonst keine
+                        verlangt wird.
                       </Text>
                       <Pressable
                         onPress={() =>
@@ -794,6 +804,67 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                           {detail.shared ? 'Gemeinschaftsgerät' : 'Persönlicher Zugang'}
                         </Text>
                       </Pressable>
+
+                      {/* Der Riegel vor den persönlichen Bereichen. Vor
+                          allem fürs Wandtablet gedacht - Licht und Storen
+                          bedient jeder, der vorbeigeht, die Einkaufsliste
+                          und der Kalender der Familie sollen aber nicht
+                          offen im Flur stehen. Für jeden Benutzer
+                          verfügbar, weil auch ein geteiltes iPad auf dem
+                          Küchentisch dieselbe Frage aufwirft. */}
+                      <Text style={styles.formLabel}>
+                        Passwort vor den persönlichen Bereichen
+                      </Text>
+                      <Text style={styles.formHint}>
+                        {detail.area_locked
+                          ? 'Gesetzt. Familie, Kalender und Nachrichten fragen danach; Licht, Storen und Alarm bleiben frei. Ein neues Passwort ersetzt das alte, leer speichern nimmt den Riegel weg.'
+                          : 'Kein Riegel: Alles steht offen, wer das Gerät bedient. Mindestens 4 Zeichen; auch eine Zahlenfolge ist erlaubt, am Wandtablet tippt man auf Glas.'}
+                      </Text>
+                      <TextInput
+                        style={styles.input}
+                        value={areaDraft[detail.name] ?? ''}
+                        onChangeText={(value) =>
+                          setAreaDraft((prev) => ({ ...prev, [detail.name]: value }))
+                        }
+                        placeholder={detail.area_locked ? 'Neues Passwort' : 'z. B. 2580'}
+                        placeholderTextColor={colors.inkFaint}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        secureTextEntry
+                      />
+                      <View style={styles.formButtons}>
+                        <Pressable
+                          onPress={async () => {
+                            const value = areaDraft[detail.name] ?? '';
+                            await patchUser(detail.name, { area_password: value });
+                            setAreaDraft((prev) => ({ ...prev, [detail.name]: '' }));
+                          }}
+                          accessibilityRole="button"
+                          style={({ pressed }) => [
+                            styles.rotateButton,
+                            pressed && { opacity: 0.7 },
+                          ]}
+                        >
+                          <Ionicons name="lock-closed-outline" size={15} color={colors.ink} />
+                          <Text style={styles.rotateText}>Passwort speichern</Text>
+                        </Pressable>
+                        {detail.area_locked ? (
+                          <Pressable
+                            onPress={async () => {
+                              await patchUser(detail.name, { area_password: '' });
+                              setAreaDraft((prev) => ({ ...prev, [detail.name]: '' }));
+                            }}
+                            accessibilityRole="button"
+                            style={({ pressed }) => [
+                              styles.rotateButton,
+                              pressed && { opacity: 0.7 },
+                            ]}
+                          >
+                            <Ionicons name="lock-open-outline" size={15} color={colors.ink} />
+                            <Text style={styles.rotateText}>Riegel entfernen</Text>
+                          </Pressable>
+                        ) : null}
+                      </View>
 
                       <Text style={styles.formLabel}>Kinder-Ansicht</Text>
                       <Text style={styles.formHint}>
