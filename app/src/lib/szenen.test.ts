@@ -10,6 +10,7 @@ import {
   PRIVATSPHAERE_EIN,
   STUMM_AUS,
   STUMM_EIN,
+  szenenFuerKachel,
   richtungBefehl,
   richtungSchluessel,
   sceneActionsToDraft,
@@ -217,5 +218,51 @@ describe('Ziel-Box einer Playlist', () => {
       { entity_id: 'spotify.x', command: 'play_playlist', data: { name: 'Kochen' } },
     ]);
     expect(zurueck[0].device).toBeUndefined();
+  });
+});
+
+describe('Szenen auf der Raumkachel', () => {
+  const geraet = (id: string, room: string): Entity =>
+    ({
+      id,
+      kind: 'light',
+      name: id,
+      integration: 'x',
+      state: {},
+      commands: [],
+      room,
+      available: true,
+    }) as Entity;
+  const szene = (id: string, room: string | null, ids: string[] = []) => ({
+    id,
+    name: id,
+    room,
+    entity_ids: ids,
+  });
+
+  const geraete = [geraet('hue.stube', 'Wohnzimmer'), geraet('hue.kueche', 'Küche')];
+
+  it('nimmt zuerst die Szenen, die dem Raum zugeteilt sind', () => {
+    // Eine Szene, die bloss ein Gerät im Raum schaltet, ist der
+    // schwächere Treffer - sie gehört nicht als Erste auf die Kachel.
+    const alle = [
+      szene('nebenbei', null, ['hue.stube']),
+      szene('kino', 'Wohnzimmer'),
+      szene('kueche', 'Küche', ['hue.kueche']),
+    ];
+    expect(
+      szenenFuerKachel(alle, geraete, 'Wohnzimmer').map((s) => s.id)
+    ).toEqual(['kino', 'nebenbei']);
+  });
+
+  it('zeigt höchstens zwei – eine Kachel ist keine Szenenliste', () => {
+    const alle = ['a', 'b', 'c', 'd'].map((id) => szene(id, 'Wohnzimmer'));
+    expect(szenenFuerKachel(alle, geraete, 'Wohnzimmer').length).toBe(2);
+    expect(szenenFuerKachel(alle, geraete, 'Wohnzimmer', 3).length).toBe(3);
+  });
+
+  it('kommt ohne passende Szene aus', () => {
+    expect(szenenFuerKachel([szene('x', 'Bad')], geraete, 'Wohnzimmer')).toEqual([]);
+    expect(szenenFuerKachel([], geraete, 'Wohnzimmer')).toEqual([]);
   });
 });

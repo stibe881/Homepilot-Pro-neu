@@ -2,8 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { Entity } from '../api/types';
-import { Colors, useColors } from '../theme';
+import { Entity, Scene } from '../api/types';
+import { Colors, radius, useColors } from '../theme';
 import { Card } from './Card';
 import { raumSymbol, raumZeile, wichtigeZuerst } from '../lib/raum';
 
@@ -89,6 +89,8 @@ export function RoomTile({
   favorites = [],
   onOpen,
   onCommand,
+  scenes = [],
+  onScene,
 }: {
   name: string;
   items: Entity[];
@@ -97,6 +99,10 @@ export function RoomTile({
   favorites?: string[];
   onOpen: () => void;
   onCommand: (entityId: string, command: string) => void;
+  /** Die Szenen dieses Raums – höchstens zwei, sonst ist die Kachel
+   *  keine Übersicht mehr. Vorausgewählt von szenenFuerKachel. */
+  scenes?: Scene[];
+  onScene?: (sceneId: string) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -120,6 +126,32 @@ export function RoomTile({
           <Text style={[styles.name, { flex: 1 }]} numberOfLines={1}>
             {name}
           </Text>
+          {/* Neben dem Titel war Platz, und die Szene des Zimmers lag
+              zwei Tipps entfernt: erst den Raum öffnen, dann die Szene.
+              Für «Kino» im Wohnzimmer ist das ein Weg zu viel. */}
+          {onScene
+            ? scenes.map((scene) => (
+                <Pressable
+                  key={scene.id}
+                  onPress={() => onScene(scene.id)}
+                  hitSlop={6}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Szene ${scene.name} in ${name}`}
+                  style={({ pressed }) => [styles.scene, pressed && { opacity: 0.6 }]}
+                >
+                  <Ionicons
+                    name={
+                      (scene.icon as keyof typeof Ionicons.glyphMap) || 'sparkles-outline'
+                    }
+                    size={13}
+                    color={colors.ink}
+                  />
+                  <Text style={styles.sceneText} numberOfLines={1}>
+                    {scene.name}
+                  </Text>
+                </Pressable>
+              ))
+            : null}
         </View>
         {zeile ? <Text style={styles.zeile}>{zeile}</Text> : null}
         <Text style={styles.count}>
@@ -210,6 +242,21 @@ const makeStyles = (colors: Colors) =>
     tile: { minHeight: 0, gap: 8 },
     head: { gap: 1 },
     titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    // Szenen-Knöpfe neben dem Raumnamen. Klein und mit Höchstbreite: Ein
+    // langer Szenenname darf den Raumnamen nicht wegdrücken.
+    scene: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      maxWidth: 120,
+      paddingHorizontal: 9,
+      paddingVertical: 5,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceStrong,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    sceneText: { color: colors.ink, fontSize: 12, fontWeight: '600', flexShrink: 1 },
     name: { color: colors.ink, fontSize: 17, fontWeight: '700' },
     zeile: { color: colors.inkSoft, fontSize: 12 },
     count: { color: colors.inkFaint, fontSize: 12 },

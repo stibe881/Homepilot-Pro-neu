@@ -54,7 +54,7 @@ import {
   tuerenFuerKlingel,
 } from '../lib/klingel';
 import { deviceKindLabel, musikboxenImRaum } from '../lib/geraeteart';
-import { szenenFuerRaum } from '../lib/szenen';
+import { szenenFuerKachel, szenenFuerRaum } from '../lib/szenen';
 import {
   GeraeteFilter,
   GeraeteSortierung,
@@ -1827,6 +1827,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                     }
                     onOpen={() => setRoom(tile.name)}
                     onCommand={(entityId, command) => guardedCommand(entityId, command)}
+                    scenes={szenenFuerKachel(scenes, entities, tile.name)}
+                    onScene={activateScene}
                   />
                 ))}
             </View>

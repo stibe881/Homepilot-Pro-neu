@@ -298,6 +298,28 @@ export function szenenRueckweg(
  * erscheint in jedem Raum, dessen Geräte sie anfasst. Das Feld bleibt
  * als Zuordnung von Hand bestehen.
  */
+/**
+ * Die Szenen, die auf die Raumkachel passen (rein, testbar).
+ *
+ * Auf der Übersicht steht neben dem Raumnamen Platz, der bisher leer
+ * blieb – und die Szene des Zimmers lag zwei Tipps entfernt: erst den
+ * Raum öffnen, dann die Szene. Für «Kino» im Wohnzimmer ist das ein Weg
+ * zu viel.
+ *
+ * Bewusst nur wenige: Eine Kachel, die sechs Szenenknöpfe trägt, ist
+ * keine Übersicht mehr. Wer alle braucht, öffnet den Raum – dort stehen
+ * sie vollständig. Vorrang haben Szenen, die diesem Raum ausdrücklich
+ * zugeteilt sind; erst danach die, die bloss ein Gerät darin schalten.
+ */
+export function szenenFuerKachel<
+  S extends { room?: string | null; entity_ids: string[] },
+>(scenes: S[], entities: Entity[], room: string, max = 2): S[] {
+  const passend = szenenFuerRaum(scenes, entities, room);
+  const eigene = passend.filter((scene) => scene.room === room);
+  const fremde = passend.filter((scene) => scene.room !== room);
+  return [...eigene, ...fremde].slice(0, Math.max(0, max));
+}
+
 export function szenenFuerRaum<S extends { room?: string | null; entity_ids: string[] }>(
   scenes: S[],
   entities: Entity[],
