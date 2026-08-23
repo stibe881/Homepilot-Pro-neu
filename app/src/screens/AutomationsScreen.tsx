@@ -12,10 +12,12 @@ import { datumKurz } from '../lib/format';
 import { istPushKategorie } from '../lib/pushablaeufe';
 import {
   RueckwegBefehl,
+  musikBefehl,
   richtungBefehl,
   sceneActionsToDraft,
   szenenRueckweg,
 } from '../lib/szenen';
+import { BabysitterStand, LEERER_BABYSITTER, istFreigegeben, modusSatz } from '../lib/babysitter';
 import { Editor, Fassung } from './automations/editor';
 import { Automation, Draft, DryRun, EMPTY, Run, StepDraft, TriggerHealth, buildConditions, describe, groupByCategory, lastRunText, newTrigger, runLine, search, stepToActions, stepsToActions, szenenSymbol, toDraft, triggerIcon, triggerToConfig, usedCategories, zeitpunktLabel } from './automations/entwurf';
 import { Groups, SearchBox } from './automations/felder';
@@ -67,6 +69,9 @@ export function AutomationsScreen({
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [automations, setAutomations] = useState<Automation[] | null>(null);
+  // Babysitter-Modus: Wer im Haus ist, weiss die Anwesenheit nicht immer.
+  // Solange er läuft, ruhen alle Abläufe ausser den angehakten.
+  const [babysitter, setBabysitter] = useState<BabysitterStand>(LEERER_BABYSITTER);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [sceneDraft, setSceneDraft] = useState<SceneDraft | null>(null);
@@ -98,16 +103,54 @@ export function AutomationsScreen({
   const templates = useMemo(() => buildTemplates(entities, scenes), [entities, scenes]);
 
   const mayEdit = !!user?.capabilities?.includes('edit_automations');
+  // Denselben Eingriff wie das Pausieren - Abläufe ruhen lassen -,
+  // nur gezielter. Deshalb dieselbe Berechtigung.
+  const mayPause = !!user?.capabilities?.includes('pause_automations');
   const hub = useMemo(
     () => hubClient(settings.url, settings.token),
     [settings.url, settings.token]
   );
 
+  /** Einen Ablauf für den Babysitter-Modus frei- oder zurückgeben. */
+  const babysitterFrei = async (id: string, allow: boolean) => {
+    try {
+      const antwort = await hub.put<{ babysitter?: BabysitterStand }>(
+        `/api/automations/${encodeURIComponent(id)}/babysitter`,
+        { allow },
+        { still: true }
+      );
+      setBabysitter(antwort?.babysitter ?? LEERER_BABYSITTER);
+    } catch (err) {
+      setError(err instanceof HubFehler ? err.message : String(err));
+    }
+  };
+
+  /** Den Modus als Ganzes ein- oder ausschalten. */
+  const babysitterModus = async (active: boolean) => {
+    try {
+      const antwort = await hub.post<{ babysitter?: BabysitterStand }>(
+        '/api/automations/babysitter',
+        { active },
+        { still: true }
+      );
+      setBabysitter(antwort?.babysitter ?? LEERER_BABYSITTER);
+      onNote?.(active ? 'Babysitter-Modus läuft' : 'Babysitter-Modus aus');
+    } catch (err) {
+      setError(err instanceof HubFehler ? err.message : String(err));
+    }
+  };
+
   const load = useCallback(() => {
     // Der Bildschirm hat seine eigene Fehleranzeige - deshalb «still».
     hub
-      .get<{ automations?: Automation[] }>('/api/automations', { still: true })
-      .then((data) => setAutomations(data.automations ?? []))
+      .get<{ automations?: Automation[]; babysitter?: BabysitterStand }>(
+        '/api/automations',
+        { still: true }
+      )
+      .then((data) => {
+        setAutomations(data.automations ?? []);
+        setBabysitter(data.babysitter ?? LEERER_BABYSITTER);
+      })
       .catch((err) => setError(err instanceof HubFehler ? err.message : String(err)));
 
     // Die Beikost (Konflikte, Papierkorb, Verlauf, Hue-Szenen) darf
@@ -403,6 +446,7 @@ export function AutomationsScreen({
             playlist,
             app,
             device,
+            shuffle,
           }) => {
           // Kamera und Lautsprecher kennen je einen Befehl, dessen
           // Richtung in unsichtbaren Zusatzdaten steckt. In der Auswahl
@@ -414,17 +458,12 @@ export function AutomationsScreen({
           if (command === 'set_volume') {
             return [{ entity_id, command, data: { volume: volume ?? 30 } }];
           }
-          if (command === 'play_playlist') {
-            // Der Hub sucht die Playlist über ihren Namen. Ohne Ziel-Box
-            // spielt sie dort, wo zuletzt Musik lief; mit Box weckt der
-            // Hub sie notfalls über das Cast-Protokoll.
-            return [
-              {
-                entity_id,
-                command,
-                data: { name: playlist ?? '', ...(device ? { device } : {}) },
-              },
-            ];
+          // «Musik an» mit gewählter Playlist wird zu play_playlist: Der
+          // Hub sucht sie über ihren Namen, weckt die Ziel-Box notfalls
+          // über das Cast-Protokoll und stellt die Reihenfolge ein.
+          const musik = musikBefehl(command, { playlist, device, shuffle });
+          if (musik) {
+            return [{ entity_id, command: musik.command, data: musik.data }];
           }
           if (command === 'launch_app') {
             return [{ entity_id, command, data: { app: app ?? '' } }];
@@ -633,6 +672,57 @@ export function AutomationsScreen({
               </Pressable>
             ))}
           </View>
+        </View>
+      ) : null}
+
+      {/* Der Babysitter sitzt im Wohnzimmer, und die Anwesenheit weiss
+          nichts davon: «alles aus, wenn niemand mehr zuhause ist» fährt
+          sonst die Storen herunter, während jemand darin sitzt. */}
+      {automations.length > 0 && mayPause ? (
+        <View
+          style={[
+            styles.templates,
+            babysitter.active ? { borderColor: colors.warn, borderWidth: 1 } : null,
+          ]}
+        >
+          <View style={styles.babysitterRow}>
+            <Ionicons
+              name={babysitter.active ? 'shield-checkmark' : 'shield-outline'}
+              size={20}
+              color={babysitter.active ? colors.warn : colors.inkSoft}
+            />
+            <Text style={[styles.templatesLabel, { flex: 1 }]}>Babysitter-Modus</Text>
+            <Pressable
+              onPress={() => babysitterModus(!babysitter.active)}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: babysitter.active }}
+              accessibilityLabel={
+                babysitter.active
+                  ? 'Babysitter-Modus ausschalten'
+                  : 'Babysitter-Modus einschalten'
+              }
+              style={({ pressed }) => [
+                styles.template,
+                babysitter.active && { backgroundColor: colors.warn },
+                pressed && { opacity: 0.75 },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.templateText,
+                  babysitter.active && { color: '#FFFFFF', fontWeight: '600' },
+                ]}
+              >
+                {babysitter.active ? 'läuft' : 'einschalten'}
+              </Text>
+            </Pressable>
+          </View>
+          <Text style={styles.note}>{modusSatz(babysitter, automations.length)}</Text>
+          <Text style={styles.note}>
+            Freigegeben wird je Ablauf – das Schild neben dem Stift. Melder für
+            Wasser und Rauch, die Alarmanlage selbst und die Meldungen des
+            Wächters laufen unabhängig davon weiter.
+          </Text>
         </View>
       ) : null}
 
@@ -856,7 +946,47 @@ export function AutomationsScreen({
                         <Ionicons name="create-outline" size={20} color={colors.inkSoft} />
                       </Pressable>
                     </>
-                  ) : (
+                  ) : null}
+                  {/* Läuft dieser Ablauf, wenn der Babysitter da ist?
+                      Bewusst auch bei Abläufen aus der config.yaml: Die
+                      Freigabe liegt neben den Abläufen, nicht in ihnen -
+                      sonst müsste man für einen Haken die Datei
+                      anfassen. */}
+                  {mayPause ? (
+                    <Pressable
+                      onPress={() =>
+                        babysitterFrei(
+                          automation.id,
+                          !istFreigegeben(babysitter, automation.id)
+                        )
+                      }
+                      accessibilityRole="checkbox"
+                      accessibilityState={{
+                        checked: istFreigegeben(babysitter, automation.id),
+                      }}
+                      accessibilityLabel={
+                        istFreigegeben(babysitter, automation.id)
+                          ? `${automation.alias} läuft im Babysitter-Modus – abwählen`
+                          : `${automation.alias} im Babysitter-Modus laufen lassen`
+                      }
+                      style={styles.iconButton}
+                    >
+                      <Ionicons
+                        name={
+                          istFreigegeben(babysitter, automation.id)
+                            ? 'shield-checkmark'
+                            : 'shield-outline'
+                        }
+                        size={20}
+                        color={
+                          istFreigegeben(babysitter, automation.id)
+                            ? colors.warn
+                            : colors.inkFaint
+                        }
+                      />
+                    </Pressable>
+                  ) : null}
+                  {!(automation.editable && mayEdit) ? (
                     <>
                       {/* Der fehlende Weg von der Datei zur Bedienbarkeit:
                           Das Original bleibt unangetastet, die Kopie liegt
@@ -879,7 +1009,7 @@ export function AutomationsScreen({
                       ) : null}
                       <Text style={styles.badge}>aus config.yaml</Text>
                     </>
-                  )}
+                  ) : null}
                 </View>
               </Card>
             )}

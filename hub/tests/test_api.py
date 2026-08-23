@@ -1056,3 +1056,54 @@ def test_an_automation_without_mode_stays_single():
         listing = client.get("/api/automations").json()["automations"]
         stored = next(entry for entry in listing if entry["id"] == automation_id)
         assert stored["mode"] == "single"
+
+
+def test_babysitter_modus_ueber_die_api():
+    """Ein- und ausschalten, freigeben – und die Zahlen dazu.
+
+    «3 laufen weiter, 17 ruhen» ist die Auskunft, die man braucht, bevor
+    man drückt. Danach ist sie wertlos: Dann sind die Storen schon unten.
+    """
+    with make_client() as client:
+        angelegt = client.post(
+            "/api/automations",
+            json={
+                "alias": "Licht bei Bewegung",
+                "trigger": [{"type": "time", "at": "03:00"}],
+                "action": [
+                    {
+                        "type": "command",
+                        "entity_id": "demo.light_livingroom",
+                        "command": "turn_on",
+                    }
+                ],
+            },
+        )
+        automation_id = angelegt.json()["automation"]["id"]
+
+        stand = client.get("/api/automations").json()["babysitter"]
+        assert stand["active"] is False
+        assert stand["paused"] >= 1
+
+        frei = client.put(
+            f"/api/automations/{automation_id}/babysitter", json={"allow": True}
+        )
+        assert frei.status_code == 200
+        assert automation_id in frei.json()["babysitter"]["allow"]
+        assert frei.json()["babysitter"]["running"] == 1
+
+        an = client.post("/api/automations/babysitter", json={"active": True})
+        assert an.json()["babysitter"]["active"] is True
+        assert an.json()["babysitter"]["since"] is not None
+
+        # Der Haken überlebt das Ausschalten: Wer den Modus am nächsten
+        # Abend wieder einschaltet, soll nicht neu anhaken müssen.
+        aus = client.post("/api/automations/babysitter", json={"active": False})
+        assert aus.json()["babysitter"]["active"] is False
+        assert automation_id in aus.json()["babysitter"]["allow"]
+
+        # Ein Ablauf, den es nicht gibt, lässt sich nicht freigeben.
+        assert (
+            client.put("/api/automations/gibtsnicht/babysitter", json={"allow": True}).status_code
+            == 404
+        )

@@ -54,7 +54,7 @@ import {
   tuerenFuerKlingel,
 } from '../lib/klingel';
 import { deviceKindLabel, musikboxenImRaum } from '../lib/geraeteart';
-import { szenenFuerRaum } from '../lib/szenen';
+import { szenenFuerKachel, szenenFuerRaum } from '../lib/szenen';
 import {
   GeraeteFilter,
   GeraeteSortierung,
@@ -68,6 +68,7 @@ import { FAVORITEN, raumGruppen } from '../lib/raumgruppen';
 import { verlangtPin } from '../lib/alarmpin';
 import { istGesperrt } from '../lib/bereichsriegel';
 import { schleier } from '../lib/nachtabsenkung';
+import { nachBewegung } from '../lib/kameraordnung';
 import { hubClient, onHubFehler } from '../api/client';
 import { Auffangnetz } from '../components/Auffangnetz';
 import { AutomationsScreen } from './AutomationsScreen';
@@ -516,6 +517,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setHidden,
     setLocked,
     setSeenChanges,
+    setKameraDynamisch,
     setBioLock,
     setWidgetData,
     setWidgetButtons,
@@ -911,7 +913,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         : shown.filter((entity) => !isActive(entity)).sort(byFavorite)
       : section === 'devices'
         ? sortiereGeraete([...found].sort(byOrder), deviceSort, deviceKindLabel)
-        : [...found].sort(byOrder);
+        : section === 'cameras' && eigenePrefs.kameraDynamisch && !editing
+          ? // Sobald etwas los ist, ist die feste Reihenfolge die
+            // falsche: Dann will man die Kamera sehen, an der sich etwas
+            // bewegt, und nicht sechs Kacheln absuchen. Beim Anpassen
+            // bleibt sie stehen - sonst zieht man eine Kachel, und sie
+            // springt beim nächsten Ereignis wieder weg.
+            nachBewegung([...found].sort(byOrder), now.getTime())
+          : [...found].sort(byOrder);
 
   // Bei vielen Räumen wird die Startseite im „Alle“-Modus nach Räumen
   // gruppiert (Überschrift je Zimmer), damit man das ganze Haus auf einen
@@ -1566,6 +1575,48 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 : `${rest.length} ${rest.length === 1 ? 'Gerät' : 'Geräte'} gefunden`}
             </Text>
           ) : null}
+          {/* Bei sechs Kameras ist die feste Reihenfolge die richtige,
+              solange nichts los ist - man greift nach der Kamera, von
+              der man weiss, wo sie steht. Sobald etwas los ist, ist sie
+              die falsche. Deshalb umschaltbar, und zwar je Person: Am
+              Wandpanel im Flur will man etwas anderes als auf dem
+              Telefon. */}
+          {section === 'cameras' && rest.length > 1 && !editing ? (
+            <Pressable
+              onPress={() => setKameraDynamisch(!eigenePrefs.kameraDynamisch)}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: !!eigenePrefs.kameraDynamisch }}
+              accessibilityLabel={
+                eigenePrefs.kameraDynamisch
+                  ? 'Kameras wieder in fester Reihenfolge zeigen'
+                  : 'Kameras nach Bewegung sortieren'
+              }
+              style={({ pressed }) => [styles.kameraSort, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons
+                name={eigenePrefs.kameraDynamisch ? 'walk' : 'list-outline'}
+                size={18}
+                color={eigenePrefs.kameraDynamisch ? colors.accent : colors.onGradientSoft}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.reorderText}>
+                  {eigenePrefs.kameraDynamisch
+                    ? 'Bewegung zuerst'
+                    : 'Feste Reihenfolge'}
+                </Text>
+                <Text style={styles.kameraSortHint}>
+                  {eigenePrefs.kameraDynamisch
+                    ? 'Was gerade meldet, steht oben – danach das eben Gewesene. Gilt nur für dich.'
+                    : 'Immer dieselbe Reihenfolge, egal was gerade passiert.'}
+                </Text>
+              </View>
+              <Ionicons
+                name={eigenePrefs.kameraDynamisch ? 'toggle' : 'toggle-outline'}
+                size={30}
+                color={eigenePrefs.kameraDynamisch ? colors.accent : colors.inkFaint}
+              />
+            </Pressable>
+          ) : null}
           {orderScope && !searching && rest.length > 1 ? (
             <Pressable
               onPress={() => setReorderOpen(true)}
@@ -1776,6 +1827,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                     }
                     onOpen={() => setRoom(tile.name)}
                     onCommand={(entityId, command) => guardedCommand(entityId, command)}
+                    scenes={szenenFuerKachel(scenes, entities, tile.name)}
+                    onScene={activateScene}
                   />
                 ))}
             </View>
@@ -3019,6 +3072,15 @@ const makeStyles = (colors: Colors) =>
     paddingVertical: 6,
   },
   reorderText: { color: colors.onGradient, fontSize: 13, fontWeight: '600' },
+  // Der Kamera-Schalter: Symbol, zwei Zeilen Text, Schieber - breit
+  // genug, dass die Erklärung darunter passt.
+  kameraSort: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 8,
+  },
+  kameraSortHint: { color: colors.onGradientSoft, fontSize: 12, lineHeight: 17 },
   reorderSheet: { flex: 1, backgroundColor: colors.panel, padding: 20, paddingTop: 60 },
   reorderHead: {
     flexDirection: 'row',

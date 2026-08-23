@@ -29,6 +29,11 @@ der Hub die Box übers Cast-Protokoll und meldet sie bei Spotify an –
 dieselbe Mechanik wie «Spotcast» in Home Assistant. Dafür braucht der
 refresh_token die Scopes streaming/user-read-email/user-read-private
 (im Anmelde-Helfer enthalten) und Spotify Premium.
+
+`play_playlist` nimmt drei Zusatzdaten: `name` (die Playlist), `device`
+(auf welcher Box) und `shuffle` (zufällig oder der Reihe nach). Fehlt
+`shuffle`, bleibt die Reihenfolge, wie sie ist – eine Szene soll die
+Einstellung des Kontos nicht heimlich umstellen.
 """
 
 from __future__ import annotations
@@ -129,6 +134,34 @@ def pick_device(
     return next(iter(device_ids.values()), None)
 
 
+def shuffle_wunsch(data: dict[str, Any]) -> bool | None:
+    """Steht in den Zusatzdaten ein Wunsch zur Reihenfolge? (rein, testbar)
+
+    Drei Antworten, nicht zwei: `None` heisst «nicht angerührt». Eine
+    Szene, die bloss eine Playlist startet, soll die Einstellung des
+    Hauses nicht heimlich umstellen – wer am Abend zuvor auf Zufall
+    gestellt hat, findet es sonst am Morgen anders vor, ohne zu wissen,
+    warum.
+
+    Wahrheitswerte kommen aus zwei Richtungen: von der App als echtes
+    `true`/`false`, aus einer von Hand geschriebenen config.yaml auch
+    einmal als «ja» oder «an».
+    """
+    if "shuffle" not in data:
+        return None
+    wert = data.get("shuffle")
+    if wert is None or wert == "":
+        return None
+    if isinstance(wert, bool):
+        return wert
+    text = str(wert).strip().lower()
+    if text in ("true", "1", "on", "an", "ja", "yes", "zufall", "zufaellig"):
+        return True
+    if text in ("false", "0", "off", "aus", "nein", "no", "reihe"):
+        return False
+    return None
+
+
 def album_image(images: list[dict[str, Any]]) -> str | None:
     """Die passende Cover-Grösse für eine Kachel (rein, testbar).
 
@@ -144,6 +177,43 @@ def album_image(images: list[dict[str, Any]]) -> str | None:
     else:
         chosen = max(with_url, key=lambda img: img.get("width") or 0)
     return str(chosen["url"])
+
+
+def kuenstler(item: dict[str, Any]) -> str | None:
+    """Die Künstler eines Titels als eine Zeile (rein, testbar)."""
+    namen = ", ".join(
+        artist.get("name", "") for artist in item.get("artists") or [] if artist.get("name")
+    )
+    return namen or None
+
+
+# So viele Titel der Warteschlange gehen an die App. Spotify liefert bis
+# zu zwanzig; wer wissen will, was als Nächstes kommt, schaut auf die
+# ersten paar - und eine lange Liste kostet bei jedem Zustands-Abruf.
+WARTESCHLANGE_MAX = 15
+
+
+def parse_queue(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Übersetzt /me/player/queue in die Liste dessen, was als Nächstes
+    kommt (rein, testbar).
+
+    Der gerade laufende Titel steht dort noch einmal davor; er gehört
+    nicht in die Liste, denn er läuft ja schon. Titel ohne Namen fallen
+    weg - eine leere Zeile ist keine Auskunft.
+    """
+    if not payload:
+        return []
+    titel = []
+    for item in payload.get("queue") or []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        titel.append({"track": name, "artist": kuenstler(item)})
+        if len(titel) >= WARTESCHLANGE_MAX:
+            break
+    return titel
 
 
 def parse_playback(payload: dict[str, Any] | None) -> dict[str, Any]:
@@ -162,16 +232,14 @@ def parse_playback(payload: dict[str, Any] | None) -> dict[str, Any]:
             "context_uri": None,
             "shuffle": False,
             "repeat": "off",
+            "queue": [],
         }
     item = payload.get("item") or {}
-    artists = ", ".join(
-        artist.get("name", "") for artist in item.get("artists") or [] if artist.get("name")
-    )
     device = payload.get("device") or {}
     result = {
         "state": "playing" if payload.get("is_playing") else "paused",
         "track": item.get("name"),
-        "artist": artists or None,
+        "artist": kuenstler(item),
         # Albumcover für die Player-Karte. Spotify liefert mehrere Grössen,
         # gross zuerst - die mittlere reicht für eine Kachel und spart Daten.
         "image": album_image((item.get("album") or {}).get("images") or []),
@@ -376,7 +444,27 @@ class SpotifyIntegration(Integration):
         )
         state["playlists"] = [p["name"] for p in self._playlists]
         state["playlist"] = playlist_name(state.get("context_uri"), self._playlists)
+        state["queue"] = await self._warteschlange(state.get("state"))
         await self.hub.registry.update_state(entity_id, state, available=True)
+
+    async def _warteschlange(self, zustand: Any) -> list[dict[str, Any]]:
+        """Was als Nächstes kommt – nur solange etwas läuft.
+
+        Ein dritter Abruf bei jedem Takt, und das rund um die Uhr, wäre
+        für eine Liste, die niemand ansieht, zu viel. Steht die Musik,
+        gibt es auch keine Warteschlange.
+
+        Scheitert der Abruf, bleibt die Liste leer statt den ganzen
+        Zustand mitzureissen: Manche Konten geben den Endpunkt nicht her,
+        und dann soll immer noch stehen, was gerade läuft.
+        """
+        if zustand not in ("playing", "paused"):
+            return []
+        try:
+            return parse_queue(await self._call("GET", "/me/player/queue"))
+        except Exception as err:
+            self.log.debug("Spotify-Warteschlange nicht abrufbar: %s", err)
+            return []
 
     async def _load_devices(self) -> dict[str, str]:
         """Die Connect-Geräte frisch holen. Ein Aufruf, wenige hundert
@@ -405,6 +493,16 @@ class SpotifyIntegration(Integration):
         if self._settle_task is not None and not self._settle_task.done():
             self._settle_task.cancel()
         self._settle_task = asyncio.create_task(self._settle())
+
+    async def _shuffle(self, on: bool, device_id: str | None = None) -> None:
+        """Die Reihenfolge umstellen, notfalls auf einer bestimmten Box.
+
+        Die Box mitzugeben ist der Unterschied zwischen «geht» und «404»:
+        Ohne `device_id` meint Spotify das gerade aktive Gerät – und wenn
+        eine Szene aus der Stille heraus startet, gibt es keins.
+        """
+        ziel = f"&device_id={device_id}" if device_id else ""
+        await self._call("PUT", f"/me/player/shuffle?state={'true' if on else 'false'}{ziel}")
 
     async def _announce(self, state: dict[str, Any]) -> None:
         """Melden, was gleich läuft – und die Wahrheit nachreichen.
@@ -544,13 +642,26 @@ class SpotifyIntegration(Integration):
                     "erscheinen, wenn in der Google-Home-App Spotify verknüpft "
                     "ist; sonst einmal die Spotify-App im selben Netz öffnen."
                 )
+            mischen = shuffle_wunsch(data)
+            if mischen is not None:
+                # Zweimal, und das mit Absicht. Vor dem Start gilt der
+                # Wunsch für die Playlist selbst – sonst beginnt «Party»
+                # jeden Abend mit demselben Titel. Schläft die Box aber
+                # noch, kennt Spotify sie nicht als aktiv und antwortet
+                # mit 404 (`_call` gibt dann None zurück, kein Fehler).
+                # Darum nach dem Start noch einmal: Dann ist sie wach,
+                # und wenigstens ab dem zweiten Titel stimmt es.
+                await self._shuffle(mischen, device_id)
             await self._call("PUT", f"/me/player/play?device_id={device_id}", json=body)
+            if mischen is not None:
+                await self._shuffle(mischen, device_id)
             await self._announce(
                 {
                     "state": "playing",
                     "context_uri": uri,
                     "playlist": playlist_name(uri, self._playlists) or name or None,
                     "device": self._device_name(device_id) or requested or None,
+                    **({"shuffle": mischen} if mischen is not None else {}),
                 }
             )
             return
@@ -559,7 +670,7 @@ class SpotifyIntegration(Integration):
             # Ohne Angabe umschalten – so genügt ein Tipp in der App.
             target = data.get("on")
             on = (not bool(entity.state.get("shuffle"))) if target is None else bool(target)
-            await self._call("PUT", f"/me/player/shuffle?state={'true' if on else 'false'}")
+            await self._shuffle(on)
             await self._announce({"shuffle": on})
             return
 

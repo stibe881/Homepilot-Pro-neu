@@ -261,6 +261,35 @@ Jede Erkennung führt zusätzlich einen Zeitstempel (`last_baby_cry`).
 Deshalb löst auch das zweite Schreien aus, wenn das Feld noch auf «on»
 steht – ohne den Stempel liesse die Änderungsprüfung es durchfallen.
 
+## Reihenfolge der Kacheln
+
+Auf der Seite **Kameras** steht über den Kacheln ein Schalter mit zwei
+Stellungen:
+
+- **Feste Reihenfolge** (Vorgabe) – immer dieselbe, egal was gerade
+  passiert. Richtig, solange nichts los ist: Man greift nach der Kamera,
+  von der man weiss, wo sie steht.
+- **Bewegung zuerst** – was gerade meldet, steht oben.
+
+Sortiert wird in drei Rängen: zuerst, was **jetzt** meldet (Bewegung,
+Klingeln, eine erkannte Person); dann, was **in den letzten fünf
+Minuten** gemeldet hat, das Jüngste zuerst; dann der Rest in der
+gewohnten Reihenfolge. Nicht erreichbare Kameras fallen ans Ende – ein
+schwarzes Rechteck oben ist die unbrauchbarste Kachel.
+
+Die fünf Minuten sind Absicht: lang genug, dass die Kamera nach dem Griff
+zum Telefon noch oben steht, kurz genug, dass die Reihenfolge nicht den
+ganzen Abend verdreht bleibt.
+
+Der Schalter gilt **je Person**, nicht fürs Haus – am Wandpanel im Flur
+will man etwas anderes als auf dem Telefon in der Hosentasche. Er liegt
+deshalb bei den persönlichen Einstellungen auf dem Hub und gilt auf allen
+Geräten desselben Benutzers.
+
+Im Anpassen-Modus bleibt die feste Reihenfolge stehen, auch wenn der
+Schalter an ist: Sonst zieht man eine Kachel, und sie springt beim
+nächsten Ereignis wieder weg.
+
 ## Gäste
 
 Kameras sind für Gäste standardmässig unsichtbar. Wer sie sehen soll,

@@ -114,6 +114,8 @@ export const makeStyles = (colors: Colors) =>
     },
     groupCount: { color: colors.onGradientSoft, fontSize: 12, fontWeight: '700' },
     templates: { gap: 8 },
+    // Der Babysitter-Schalter: Symbol, Titel, Knopf in einer Zeile.
+    babysitterRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     templateOn: { backgroundColor: colors.accent, borderColor: colors.accent },
     templatesLabel: {
       color: colors.onGradientSoft,

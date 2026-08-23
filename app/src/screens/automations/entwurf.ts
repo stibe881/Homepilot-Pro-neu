@@ -6,7 +6,7 @@
 
 import { Entity } from '../../api/types';
 import { datumUhr, dauerText } from '../../lib/format';
-import { richtungBefehl, richtungSchluessel } from '../../lib/szenen';
+import { musikBefehl, musikSchluessel, richtungBefehl, richtungSchluessel } from '../../lib/szenen';
 
 /**
  * Die gespeicherte Form eines Ablauf-Bausteins (Auslöser, Bedingung,
@@ -521,6 +521,9 @@ export interface StepDraft {
     /** Auf welcher Box die Playlist spielen soll. Leer = die zuletzt
      *  benutzte. */
     device?: string;
+    /** Playlist zufällig abspielen. undefined lässt die Einstellung des
+     *  Kontos, wie sie ist. */
+    shuffle?: boolean;
   }[];
   sceneId: string;
   /** Name einer auf der Hue-Bridge gespeicherten Szene. */
@@ -1198,6 +1201,21 @@ export function stepToActions(step: StepDraft): BausteinConfig[] {
           data: richtung.data,
         };
       }
+      // «Musik an» mit gewählter Playlist wird zu play_playlist – mit
+      // Ziel-Box und Reihenfolge als Zusatzdaten.
+      const musik = musikBefehl(action.command, {
+        playlist: action.playlist,
+        device: action.device,
+        shuffle: action.shuffle,
+      });
+      if (musik) {
+        return {
+          type: 'command',
+          entity_id: action.entity_id,
+          command: musik.command,
+          data: musik.data,
+        };
+      }
       const built: BausteinConfig = {
         type: 'command',
         entity_id: action.entity_id,
@@ -1216,14 +1234,6 @@ export function stepToActions(step: StepDraft): BausteinConfig[] {
       // verloren: Der Chip stand da, die Lautstärke kam nie beim Hub an.
       if (action.command === 'set_volume') {
         built.data = { volume: action.volume ?? 30 };
-      }
-      if (action.command === 'play_playlist') {
-        // Der Hub sucht die Playlist über ihren Namen; ohne Ziel-Box
-        // spielt sie dort, wo zuletzt Musik lief.
-        built.data = {
-          name: action.playlist ?? '',
-          ...(action.device ? { device: action.device } : {}),
-        };
       }
       if (action.command === 'launch_app') {
         built.data = { app: action.app ?? '' };
@@ -1250,12 +1260,16 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
   for (const action of actions ?? []) {
     const type = action.type ?? 'command';
     if (type === 'command') {
+      // Gespeichert steht play_playlist, im Editor leuchtet «Musik an»
+      // mit der Playlist als Beilage.
+      const musik = musikSchluessel(action.command ?? '', action.data);
       const entry = {
         entity_id: action.entity_id,
         // «stumm» und «Privatsphäre ein» stehen gespeichert als mute
         // bzw. set_privacy mit einem Zusatzfeld - im Editor sind es
         // eigene Chips, sonst leuchtete beim Öffnen der falsche.
         command:
+          musik?.command ??
           richtungSchluessel(action.command ?? '', action.data) ??
           action.command ??
           'turn_on',
@@ -1268,6 +1282,7 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
         playlist: action.data?.name,
         app: action.data?.app,
         device: action.data?.device,
+        shuffle: musik?.shuffle,
       };
       const last = steps[steps.length - 1];
       if (last && last.kind === 'command') {

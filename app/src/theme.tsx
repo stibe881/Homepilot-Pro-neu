@@ -80,6 +80,57 @@ export const darkColors: Colors = {
   warmCool: ['#E09A3E', '#F2EDE4', '#7FB2F0'],
 };
 
+/**
+ * Dunkel in Pink.
+ *
+ * Dieselben Rollen wie das dunkle Erscheinungsbild, nur in einer anderen
+ * Familie: Der Grund geht ins Rosé statt ins Blaugrau, und was
+ * hervorsticht, ist pink statt blau.
+ *
+ * Der Grund war lange Aubergine, und genau daran lag es, dass das
+ * Erscheinungsbild violett wirkte statt pink: Der Akzent stand bei einem
+ * Farbton von 334 Grad - klares Pink -, der Grund aber bei 313 bis 321,
+ * und das ist Violett. Die Fläche entscheidet, nicht der Knopf: Sie
+ * füllt den Bildschirm, er ist ein Punkt darauf. Jetzt liegen beide in
+ * derselben Familie, und die Sattheit des Grundes ist höher - ein
+ * gedämpftes Rosa in dieser Dunkelheit liest sich sonst kastanienbraun.
+ *
+ * Zwei Farben bleiben bewusst aus der Familie heraus: «an» ist weiter
+ * grün und «Gefahr» rot. Ein pinkes «an» neben einem pinken Knopf liesse
+ * sich im Vorbeigehen nicht unterscheiden – und beim Warnen darf es keine
+ * Verwechslung geben. Deshalb ist das Rot hier ein klares Rot und kein
+ * Lachston, der neben dem Pink verschwämme.
+ */
+export const pinkColors: Colors = {
+  gradient: ['#552036', '#3C1626', '#280E19'],
+
+  // Die Glasflächen mit einem Hauch Warm: reines Weiss wirkt auf dem
+  // Rosé-Grund kalt und wie ein Fremdkörper.
+  surface: 'rgba(255, 240, 248, 0.10)',
+  surfaceStrong: 'rgba(255, 240, 248, 0.18)',
+  surfaceSoft: 'rgba(255, 240, 248, 0.07)',
+  surfaceBorder: 'rgba(255, 240, 248, 0.15)',
+  panel: '#311923',
+
+  ink: '#F8EDF1',
+  inkSoft: '#C4A6B1',
+  inkFaint: '#90757F',
+
+  onGradient: '#FFFFFF',
+  onGradientSoft: 'rgba(255, 255, 255, 0.72)',
+
+  on: '#4CD9A4',
+  onSoft: 'rgba(76, 217, 164, 0.18)',
+  off: 'rgba(255, 240, 248, 0.16)',
+  accent: '#FF74B0',
+  warn: '#FFC061',
+  danger: '#FF5252',
+  dangerSoft: 'rgba(255, 82, 82, 0.18)',
+
+  track: 'rgba(255, 240, 248, 0.14)',
+  warmCool: ['#E09A3E', '#F2EDE4', '#7FB2F0'],
+};
+
 export const radius = { card: 26, control: 18, pill: 999 };
 export const space = { gap: 14, page: 22 };
 export const type = {
@@ -120,7 +171,7 @@ export const type = {
  */
 export const breakpoints = { rail: 700, sidePanel: 1000 };
 
-export type ThemeMode = 'system' | 'auto' | 'light' | 'dark';
+export type ThemeMode = 'system' | 'auto' | 'light' | 'dark' | 'pink';
 
 // Standardstandort (Zell LU) – wie beim Hub. Nur für die Sonnenstand-Automatik.
 const DEFAULT_LAT = 47.1381;
@@ -185,15 +236,18 @@ export function ThemeProvider({
   useTakt(() => setNow(new Date()), mode === 'auto' ? 60000 : null);
 
   const value = useMemo<ThemeValue>(() => {
+    // Pink ist ein dunkles Erscheinungsbild – alles, was sich nach
+    // `dark` richtet (Statusleiste, Bilder, Kontraste), soll es auch hier.
     const dark =
-      mode === 'dark'
+      mode === 'dark' || mode === 'pink'
         ? true
         : mode === 'light'
           ? false
           : mode === 'auto'
             ? darkBySun(now)
             : scheme === 'dark';
-    return { colors: dark ? darkColors : lightColors, dark, mode };
+    const colors = mode === 'pink' ? pinkColors : dark ? darkColors : lightColors;
+    return { colors, dark, mode };
   }, [mode, scheme, now]);
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

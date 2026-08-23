@@ -657,26 +657,17 @@ describe('Lautsprecher in Abläufen', () => {
     expect(stepToActions(zurueck)).toEqual(gespeichert);
   });
 
-  it('nimmt Playlist samt Ziel-Box und App mit', () => {
-    expect(
-      stepToActions({
-        ...EMPTY_STEP,
-        commandActions: [
-          {
-            entity_id: 'spotify.player',
-            command: 'play_playlist',
-            playlist: 'Frühstück',
-            device: 'Küche',
-          },
-          { entity_id: 'tv.stube', command: 'launch_app', app: 'com.netflix' },
-        ],
-      })
-    ).toEqual([
+  it('macht aus «Musik an» mit Playlist ein play_playlist – und zurück', () => {
+    // Im Editor wählt man den Lautsprecher, «Musik an» und darunter die
+    // Playlist. Beim Hub heisst das play_playlist mit dem Namen in den
+    // Zusatzdaten; beim nächsten Öffnen muss wieder «Musik an» leuchten,
+    // sonst steht die Zeile da wie versehentlich angelegt.
+    const gespeichert = [
       {
         type: 'command',
         entity_id: 'spotify.player',
         command: 'play_playlist',
-        data: { name: 'Frühstück', device: 'Küche' },
+        data: { name: 'Frühstück', device: 'Küche', shuffle: true },
       },
       {
         type: 'command',
@@ -684,7 +675,53 @@ describe('Lautsprecher in Abläufen', () => {
         command: 'launch_app',
         data: { app: 'com.netflix' },
       },
-    ]);
+    ];
+    expect(
+      stepToActions({
+        ...EMPTY_STEP,
+        commandActions: [
+          {
+            entity_id: 'spotify.player',
+            command: 'play',
+            playlist: 'Frühstück',
+            device: 'Küche',
+            shuffle: true,
+          },
+          { entity_id: 'tv.stube', command: 'launch_app', app: 'com.netflix' },
+        ],
+      })
+    ).toEqual(gespeichert);
+
+    const [zurueck] = actionsToSteps(gespeichert);
+    expect(zurueck.commandActions[0]).toMatchObject({
+      command: 'play',
+      playlist: 'Frühstück',
+      device: 'Küche',
+      shuffle: true,
+    });
+    expect(stepToActions(zurueck)).toEqual(gespeichert);
+  });
+
+  it('lässt «Musik an» ohne Playlist ein schlichtes play', () => {
+    // Wer nur «weiterspielen» will, soll nicht ungefragt eine Playlist
+    // gestartet bekommen.
+    expect(
+      stepToActions({
+        ...EMPTY_STEP,
+        commandActions: [{ entity_id: 'spotify.player', command: 'play' }],
+      })
+    ).toEqual([{ type: 'command', entity_id: 'spotify.player', command: 'play' }]);
+  });
+
+  it('rührt die Reihenfolge nicht an, wenn niemand sie gewählt hat', () => {
+    // Eine Szene «Kino» soll das Konto nicht heimlich auf Zufall stellen.
+    const [aktion] = stepToActions({
+      ...EMPTY_STEP,
+      commandActions: [
+        { entity_id: 'spotify.player', command: 'play', playlist: 'Kino' },
+      ],
+    });
+    expect(aktion.data).toEqual({ name: 'Kino' });
   });
 
   it('übersetzt «stumm» in mute mit Zusatzfeld – und zurück', () => {

@@ -17,6 +17,7 @@ import { KIND_ICONS, shortState } from '../components/RoomTile';
 import { appleMapsRoute, googleMapsRoute } from '../components/TopStrip';
 import { VacuumHome } from '../components/VacuumHome';
 import { wochentagUhr } from '../lib/format';
+import { haustuerZeile } from '../lib/klingel';
 import { KalenderZeile, geburtstagsListe, terminListe } from '../lib/kalenderliste';
 import { applianceLine } from '../lib/haushalt';
 import { Colors, radius, space, useColors } from '../theme';
@@ -297,9 +298,15 @@ export function OverviewScreen({
       <Text style={styles.groupLabel}>Zugang</Text>
       <View style={styles.tileRow}>
         <Tile styles={styles} colors={colors} width={tileWidth} icon="business-outline" title="Haustüre" demo={!frontDoor}>
-          <Text style={styles.tileState}>
-            {frontDoor ? 'Gegensprechanlage' : 'Ring Intercom'}
-          </Text>
+          {/* Hier stand fest «Gegensprechanlage» - ein Wort, das die
+              Überschrift «Haustüre» schon sagt, und zwar an der Stelle,
+              an der die Nachbarkachel «Abgeschlossen» zeigt. Jetzt steht
+              dort etwas oder nichts. */}
+          {haustuerZeile(frontDoor?.state, new Date()) ? (
+            <Text style={styles.tileState}>
+              {haustuerZeile(frontDoor?.state, new Date())}
+            </Text>
+          ) : null}
           <Action styles={styles}
             label={confirm === 'front' ? 'Wirklich öffnen?' : 'Öffnen'}
             accent={confirm === 'front'}

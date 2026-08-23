@@ -51,6 +51,10 @@ export interface UserPrefs {
   /** Bis zu welchem Stand die «Was ist neu»-Karte weggeklickt wurde –
    *  je Person, damit Livia sie trotzdem noch sieht. */
   seenChanges?: string;
+  /** Kameras nach Betrieb sortieren statt fest: was gerade meldet, steht
+   *  oben. Bewusst persönlich – am Wandpanel im Flur will man etwas
+   *  anderes als auf dem Telefon in der Hosentasche. */
+  kameraDynamisch?: boolean;
 }
 
 /**
@@ -170,6 +174,11 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     [setzeEigen]
   );
 
+  const setKameraDynamisch = useCallback(
+    (on: boolean) => setzeEigen({ ...eigenJetzt.current, kameraDynamisch: on }),
+    [setzeEigen]
+  );
+
   return {
     prefs: haus.werte,
     hausGeladen: haus.geladen,
@@ -184,5 +193,6 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     setWidgetButtons,
     setWidgetDirect,
     setSeenChanges,
+    setKameraDynamisch,
   };
 }

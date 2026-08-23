@@ -2,6 +2,7 @@ import { Entity } from '../api/types';
 import {
   AUTO_SCHLIESSEN_SEKUNDEN,
   befehlLabel,
+  haustuerZeile,
   neueFrist,
   oeffnungsBefehl,
   restSekunden,
@@ -79,5 +80,34 @@ describe('Rücklauf des Vollbilds', () => {
 
   it('wird nie negativ', () => {
     expect(restSekunden(0, 999_999)).toBe(0);
+  });
+});
+
+describe('Zustandszeile der Haustüren-Kachel', () => {
+  const heute = new Date(2026, 7, 23, 20, 0);
+
+  it('schweigt, wenn es nichts zu sagen gibt', () => {
+    // Vorher stand dort fest «Gegensprechanlage» - ein Wort, das die
+    // Überschrift «Haustüre» schon sagt.
+    expect(haustuerZeile({ state: 'online' }, heute)).toBeNull();
+    expect(haustuerZeile(undefined, heute)).toBeNull();
+  });
+
+  it('meldet, wenn die Anlage weg ist', () => {
+    expect(haustuerZeile({ state: 'offline' }, heute)).toBe('Nicht erreichbar');
+  });
+
+  it('sagt, wann es zuletzt geklingelt hat', () => {
+    const um = new Date(2026, 7, 23, 18, 42).toISOString();
+    expect(haustuerZeile({ state: 'online', last_ring: um }, heute)).toBe(
+      'Zuletzt geklingelt 18:42'
+    );
+  });
+
+  it('lässt ein Klingeln von gestern weg', () => {
+    // Es beantwortet keine Frage, die sich jemand auf der Startseite stellt.
+    const gestern = new Date(2026, 7, 22, 18, 42).toISOString();
+    expect(haustuerZeile({ state: 'online', last_ring: gestern }, heute)).toBeNull();
+    expect(haustuerZeile({ state: 'online', last_ring: 'kaputt' }, heute)).toBeNull();
   });
 });

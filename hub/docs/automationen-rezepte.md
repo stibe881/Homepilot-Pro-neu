@@ -256,9 +256,11 @@ rufen, liefen sonst endlos.
          body: Die Kamera am Eingang hat Bewegung erkannt.
    ```
 
-Statt `helpers.abwesend` lässt sich auch `unifi.anyone_home` verwenden
+Statt `helpers.abwesend` lässt sich auch `geofence.anyone_home` verwenden
 (dann `switch_active: "off"` bei presence_sim und `equals: "off"` in der
-Bedingung).
+Bedingung). Nicht `unifi.anyone_home`: Das antwortet auf «ist eines der
+verfolgten Geräte im WLAN», nicht auf «ist jemand zuhause» – und geht
+schon aus, wenn das Telefon im Garten den Funk verliert.
 
 4. Treppenhauslicht: Bewegung schaltet ein, jede weitere Bewegung
    verlängert – aus erst eine Weile nach der letzten. Das ist genau das

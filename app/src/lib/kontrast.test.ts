@@ -7,13 +7,16 @@
  * macht. Wer eine Schwelle senken will, tut es hier – sichtbar, nicht
  * zufällig.
  */
-import { darkColors, lightColors } from '../theme';
+import { darkColors, lightColors, pinkColors } from '../theme';
 import { contrast, parseColor, textContrast } from './kontrast';
 
 // Die mittlere Verlaufsfarbe ist das, was hinter den Glaskacheln liegt.
 const paletten = [
   { name: 'hell', colors: lightColors, hinter: lightColors.gradient[1] },
   { name: 'dunkel', colors: darkColors, hinter: darkColors.gradient[1] },
+  // Pink war bisher nicht geprüft - und genau dort wurde am Grund
+  // geschraubt, weil er violett statt pink las.
+  { name: 'pink', colors: pinkColors, hinter: pinkColors.gradient[1] },
 ];
 
 describe.each(paletten)('Palette $name', ({ colors, hinter }) => {
@@ -57,5 +60,47 @@ describe('kontrast-Werkzeuge', () => {
 
   it('weist unlesbare Farben zurück', () => {
     expect(() => parseColor('blau')).toThrow('Unlesbare Farbe');
+  });
+});
+
+
+describe('Das pinke Erscheinungsbild ist pink, nicht violett', () => {
+  /** Farbton in Grad – 0 rot, 120 grün, 240 blau. */
+  const ton = (farbe: string): number => {
+    const { r, g, b } = parseColor(farbe);
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    if (max === min) return 0;
+    const spanne = max - min;
+    const h =
+      max === r
+        ? ((g - b) / spanne) % 6
+        : max === g
+          ? (b - r) / spanne + 2
+          : (r - g) / spanne + 4;
+    return (h * 60 + 360) % 360;
+  };
+
+  it('hält den Grund in derselben Familie wie den Akzent', () => {
+    // Genau daran lag es: Der Akzent stand bei 334 Grad - klares Pink -,
+    // der Grund bei 313 bis 321, und das ist Violett. Die Fläche
+    // entscheidet, nicht der Knopf: Sie füllt den Bildschirm.
+    const akzent = ton(pinkColors.accent);
+    expect(akzent).toBeGreaterThan(325);
+    for (const stufe of pinkColors.gradient) {
+      expect(Math.abs(ton(stufe) - akzent)).toBeLessThan(15);
+    }
+    expect(Math.abs(ton(pinkColors.panel) - akzent)).toBeLessThan(15);
+  });
+
+  it('lässt den Grund nicht ins Kastanienbraune kippen', () => {
+    // Ein gedämpftes Rosa liest sich in dieser Dunkelheit braun. Die
+    // Sattheit muss also mithalten.
+    for (const stufe of pinkColors.gradient) {
+      const { r, g, b } = parseColor(stufe);
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      expect((max - min) / max).toBeGreaterThan(0.5);
+    }
   });
 });

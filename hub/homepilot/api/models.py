@@ -45,6 +45,18 @@ class PushRegistration(BaseModel):
     label: str = ""
 
 
+class BabysitterRequest(BaseModel):
+    """Den Babysitter-Modus ein- oder ausschalten."""
+
+    active: bool = False
+
+
+class BabysitterAllowRequest(BaseModel):
+    """Einen einzelnen Ablauf für den Modus freigeben."""
+
+    allow: bool = False
+
+
 class AutomationRequest(BaseModel):
     alias: str
     trigger: list[dict[str, Any]] = []

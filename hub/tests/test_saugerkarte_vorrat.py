@@ -41,6 +41,32 @@ def sauger(state: str = "docked"):
     return integration, entity, trait
 
 
+class Uhr:
+    """Eine gestellte Uhr, die von Anfang an gilt.
+
+    Vorher lief der erste Abruf noch mit der echten Betriebsdauer und erst
+    der zweite mit einer gestellten. Auf einem Rechner, der seit weniger
+    als drei Minuten läuft, lag die gestellte Zeit dann *vor* der echten:
+    Das Bild galt als frisch, und der Test fiel durch – hier selten,
+    auf einem frisch gestarteten Bauprozess verlässlich.
+    """
+
+    def __init__(self) -> None:
+        self.jetzt = 1000.0
+
+    def __call__(self) -> float:
+        return self.jetzt
+
+    def weiter(self, sekunden: float) -> None:
+        self.jetzt += sekunden
+
+
+def gestellte_uhr(monkeypatch) -> Uhr:
+    uhr = Uhr()
+    monkeypatch.setattr(modul, "monotonic", uhr)
+    return uhr
+
+
 def test_the_second_request_comes_from_the_store(monkeypatch):
     monkeypatch.setattr(modul, "map_calibration", lambda _: None)
     monkeypatch.setattr(modul, "robot_position", lambda _: None)
@@ -55,12 +81,12 @@ def test_the_second_request_comes_from_the_store(monkeypatch):
 def test_after_the_store_has_gone_stale_it_fetches_again(monkeypatch):
     monkeypatch.setattr(modul, "map_calibration", lambda _: None)
     monkeypatch.setattr(modul, "robot_position", lambda _: None)
+    uhr = gestellte_uhr(monkeypatch)
     integration, entity, trait = sauger()
     asyncio.run(integration.snapshot(entity))
 
     # Die Uhr vorstellen, statt zu warten.
-    uhr = [modul.KARTE_FRISCH_STEHEND + 1.0]
-    monkeypatch.setattr(modul, "monotonic", lambda: uhr[0])
+    uhr.weiter(modul.KARTE_FRISCH_STEHEND + 1.0)
     asyncio.run(integration.snapshot(entity))
     assert trait.holte == 2
 
@@ -70,11 +96,11 @@ def test_a_driving_vacuum_gets_a_fresher_picture(monkeypatch):
     der Punkt, und dieselbe Wartezeit wäre eine eingefrorene Karte."""
     monkeypatch.setattr(modul, "map_calibration", lambda _: None)
     monkeypatch.setattr(modul, "robot_position", lambda _: None)
+    uhr = gestellte_uhr(monkeypatch)
     integration, entity, trait = sauger(state="cleaning")
     asyncio.run(integration.snapshot(entity))
 
-    uhr = [modul.KARTE_FRISCH_FAHREND + 1.0]
-    monkeypatch.setattr(modul, "monotonic", lambda: uhr[0])
+    uhr.weiter(modul.KARTE_FRISCH_FAHREND + 1.0)
     asyncio.run(integration.snapshot(entity))
     assert trait.holte == 2
     assert modul.KARTE_FRISCH_FAHREND < modul.KARTE_FRISCH_STEHEND

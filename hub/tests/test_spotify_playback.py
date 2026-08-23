@@ -194,3 +194,90 @@ def test_the_device_list_is_refreshed_before_waking(spotify_hub):
     calls = asyncio.run(run())
     assert ("GET", "/me/player/devices") in calls
     assert ("PUT", "/me/player") in calls
+
+
+# ── Was als Nächstes kommt ───────────────────────────────────────────────
+# Die Musikkarte zeigt den laufenden Titel. «Und danach?» stand nirgends,
+# obwohl Spotify die Warteschlange längst liefert.
+
+
+def test_the_queue_becomes_a_list_of_titles():
+    from homepilot.integrations.spotify import parse_queue
+
+    titel = parse_queue(
+        {
+            "currently_playing": {"name": "Läuft gerade", "artists": [{"name": "A"}]},
+            "queue": [
+                {"name": "Danach", "artists": [{"name": "B"}, {"name": "C"}]},
+                {"name": "Und dann", "artists": []},
+            ],
+        }
+    )
+    assert titel == [
+        {"track": "Danach", "artist": "B, C"},
+        {"track": "Und dann", "artist": None},
+    ]
+
+
+def test_the_running_title_is_not_in_the_queue():
+    """Spotify nennt ihn dort noch einmal – er läuft aber schon."""
+    from homepilot.integrations.spotify import parse_queue
+
+    titel = parse_queue(
+        {"currently_playing": {"name": "Läuft gerade"}, "queue": [{"name": "Danach"}]}
+    )
+    assert [t["track"] for t in titel] == ["Danach"]
+
+
+def test_titles_without_a_name_fall_out():
+    from homepilot.integrations.spotify import parse_queue
+
+    titel = parse_queue({"queue": [{"name": ""}, {"artists": []}, {"name": "Echt"}]})
+    assert [t["track"] for t in titel] == ["Echt"]
+
+
+def test_a_very_long_queue_is_cut_off():
+    """Zwanzig Titel bei jedem Zustands-Abruf sind zu viel für eine
+    Liste, auf die man selten schaut."""
+    from homepilot.integrations.spotify import WARTESCHLANGE_MAX, parse_queue
+
+    viele = {"queue": [{"name": f"Titel {i}"} for i in range(40)]}
+    assert len(parse_queue(viele)) == WARTESCHLANGE_MAX
+
+
+def test_no_answer_means_no_queue():
+    from homepilot.integrations.spotify import parse_queue
+
+    assert parse_queue(None) == []
+    assert parse_queue({}) == []
+    assert parse_queue({"queue": None}) == []
+
+
+# ── «Zufällig oder der Reihe nach?» am Playlist-Start ────────────────────
+#
+# Eine Szene «Party» soll nicht jeden Abend mit demselben Titel anfangen.
+# Die Angabe reist als Zusatzdatum mit play_playlist mit – und darf, wenn
+# sie fehlt, nichts umstellen.
+
+
+def test_shuffle_wunsch_reads_the_three_answers():
+    from homepilot.integrations.spotify import shuffle_wunsch
+
+    assert shuffle_wunsch({"shuffle": True}) is True
+    assert shuffle_wunsch({"shuffle": False}) is False
+    # Ohne Angabe bleibt die Einstellung des Hauses, wie sie ist.
+    assert shuffle_wunsch({}) is None
+    assert shuffle_wunsch({"shuffle": None}) is None
+    assert shuffle_wunsch({"shuffle": ""}) is None
+
+
+def test_shuffle_wunsch_understands_a_handwritten_config():
+    from homepilot.integrations.spotify import shuffle_wunsch
+
+    # In der config.yaml schreibt niemand `true`, wenn «ja» gemeint ist.
+    assert shuffle_wunsch({"shuffle": "ja"}) is True
+    assert shuffle_wunsch({"shuffle": "an"}) is True
+    assert shuffle_wunsch({"shuffle": "aus"}) is False
+    assert shuffle_wunsch({"shuffle": "nein"}) is False
+    # Und was niemand deuten kann, stellt lieber nichts um.
+    assert shuffle_wunsch({"shuffle": "vielleicht"}) is None

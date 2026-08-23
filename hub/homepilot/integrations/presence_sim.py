@@ -1,13 +1,18 @@
 """Anwesenheitssimulation: schaltet abends zufällig Lichter, wenn niemand da ist.
 
-Ist der Auslöse-Schalter an (z.B. ein Helfer 'Abwesend' oder unifi.anyone_home
-auf 'off'), wird nach Einbruch der Dunkelheit in unregelmässigen Abständen ein
-zufälliges Licht ein- oder ausgeschaltet – das Haus wirkt bewohnt.
+Ist der Auslöse-Schalter an (z.B. ein Helfer 'Abwesend' oder
+geofence.anyone_home auf 'off'), wird nach Einbruch der Dunkelheit in
+unregelmässigen Abständen ein zufälliges Licht ein- oder ausgeschaltet – das
+Haus wirkt bewohnt.
+
+Nicht unifi.anyone_home: Das sagt «kein verfolgtes Gerät im Netz» und geht
+schon aus, wenn das Telefon im Garten den Funk verliert – dann spielt das
+Haus Bewohner, während jemand darin sitzt.
 
 Konfiguration:
   - integration: presence_sim
     switch: helpers.abwesend       # aktiv, wenn dieser Schalter 'on' ist …
-    switch_active: "on"            # … auf diesem Wert (bei unifi: 'off')
+    switch_active: "on"            # … auf diesem Wert (bei geofence: 'off')
     lights: [hue.wohnzimmer, hue.buero, hue.kueche]
     min_interval: 600              # kürzester Abstand (Sekunden)
     max_interval: 1800             # längster Abstand

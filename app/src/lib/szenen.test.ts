@@ -10,6 +10,9 @@ import {
   PRIVATSPHAERE_EIN,
   STUMM_AUS,
   STUMM_EIN,
+  musikBefehl,
+  musikSchluessel,
+  szenenFuerKachel,
   richtungBefehl,
   richtungSchluessel,
   sceneActionsToDraft,
@@ -217,5 +220,120 @@ describe('Ziel-Box einer Playlist', () => {
       { entity_id: 'spotify.x', command: 'play_playlist', data: { name: 'Kochen' } },
     ]);
     expect(zurueck[0].device).toBeUndefined();
+  });
+});
+
+describe('Szenen auf der Raumkachel', () => {
+  const geraet = (id: string, room: string): Entity =>
+    ({
+      id,
+      kind: 'light',
+      name: id,
+      integration: 'x',
+      state: {},
+      commands: [],
+      room,
+      available: true,
+    }) as Entity;
+  const szene = (id: string, room: string | null, ids: string[] = []) => ({
+    id,
+    name: id,
+    room,
+    entity_ids: ids,
+  });
+
+  const geraete = [geraet('hue.stube', 'Wohnzimmer'), geraet('hue.kueche', 'Küche')];
+
+  it('nimmt zuerst die Szenen, die dem Raum zugeteilt sind', () => {
+    // Eine Szene, die bloss ein Gerät im Raum schaltet, ist der
+    // schwächere Treffer - sie gehört nicht als Erste auf die Kachel.
+    const alle = [
+      szene('nebenbei', null, ['hue.stube']),
+      szene('kino', 'Wohnzimmer'),
+      szene('kueche', 'Küche', ['hue.kueche']),
+    ];
+    expect(
+      szenenFuerKachel(alle, geraete, 'Wohnzimmer').map((s) => s.id)
+    ).toEqual(['kino', 'nebenbei']);
+  });
+
+  it('zeigt höchstens zwei – eine Kachel ist keine Szenenliste', () => {
+    const alle = ['a', 'b', 'c', 'd'].map((id) => szene(id, 'Wohnzimmer'));
+    expect(szenenFuerKachel(alle, geraete, 'Wohnzimmer').length).toBe(2);
+    expect(szenenFuerKachel(alle, geraete, 'Wohnzimmer', 3).length).toBe(3);
+  });
+
+  it('kommt ohne passende Szene aus', () => {
+    expect(szenenFuerKachel([szene('x', 'Bad')], geraete, 'Wohnzimmer')).toEqual([]);
+    expect(szenenFuerKachel([], geraete, 'Wohnzimmer')).toEqual([]);
+  });
+});
+
+
+// ── «Musik an» und was dazugehört ────────────────────────────────────────
+// Der Fall: «Wenn man in einem Ablauf oder einer Szene einen Lautsprecher
+// wählt und bei dem Musik an, soll man auch die zu spielende Playlist
+// auswählen und ob es im Shuffle abspielen soll.» Bis dahin hing die
+// Playlist an einem eigenen Chip *neben* «Musik an» – wer «Musik an»
+// wählte, sah darunter nichts.
+
+describe('Musik an mit Playlist', () => {
+  it('macht aus «Musik an» plus Playlist ein play_playlist', () => {
+    expect(musikBefehl('play', { playlist: 'Party' })).toEqual({
+      command: 'play_playlist',
+      data: { name: 'Party' },
+    });
+  });
+
+  it('nimmt Ziel-Box und Reihenfolge mit', () => {
+    expect(
+      musikBefehl('play', { playlist: 'Party', device: 'Küche', shuffle: true })
+    ).toEqual({
+      command: 'play_playlist',
+      data: { name: 'Party', device: 'Küche', shuffle: true },
+    });
+    expect(musikBefehl('play', { playlist: 'Party', shuffle: false })).toEqual({
+      command: 'play_playlist',
+      data: { name: 'Party', shuffle: false },
+    });
+  });
+
+  it('lässt «Musik an» ohne Playlist in Ruhe', () => {
+    // «Weiterspielen, was lief» ist eine eigene Antwort, keine halbe.
+    expect(musikBefehl('play', {})).toBeNull();
+    expect(musikBefehl('play', { playlist: '   ' })).toBeNull();
+    expect(musikBefehl('pause', { playlist: 'Party' })).toBeNull();
+  });
+
+  it('rührt die Reihenfolge nicht an, solange niemand sie gewählt hat', () => {
+    // Sonst stellte eine Szene «Kino» das ganze Konto um, ohne es zu sagen.
+    const befehl = musikBefehl('play', { playlist: 'Kino' });
+    expect(befehl!.data).toEqual({ name: 'Kino' });
+    expect('shuffle' in befehl!.data).toBe(false);
+  });
+
+  it('liest ein gespeichertes play_playlist wieder als «Musik an»', () => {
+    expect(
+      musikSchluessel('play_playlist', { name: 'Party', device: 'Küche', shuffle: true })
+    ).toEqual({ command: 'play', playlist: 'Party', device: 'Küche', shuffle: true });
+    expect(musikSchluessel('play', { name: 'Party' })).toBeNull();
+  });
+
+  it('geht durch Speichern und Öffnen unverändert hindurch', () => {
+    const gespeichert = [
+      {
+        entity_id: 'spotify.player',
+        command: 'play_playlist',
+        data: { name: 'Party', device: 'Küche', shuffle: true },
+      },
+    ];
+    const [entwurf] = sceneActionsToDraft(gespeichert);
+    expect(entwurf.command).toBe('play');
+    expect(entwurf.playlist).toBe('Party');
+    expect(entwurf.shuffle).toBe(true);
+    expect(musikBefehl(entwurf.command, entwurf)).toEqual({
+      command: 'play_playlist',
+      data: gespeichert[0].data,
+    });
   });
 });

@@ -1,4 +1,4 @@
-"""UniFi Network Controller – Anwesenheitserkennung über verbundene Clients.
+"""UniFi Network Controller – welche Geräte gerade im WLAN sind.
 
 Konfiguration:
   - integration: unifi
@@ -14,7 +14,16 @@ Konfiguration:
         name: iPad
 
 Legt je verfolgtem Gerät einen binary_sensor an, dazu `unifi.anyone_home`
-(an, sobald irgendjemand da ist) und `unifi.clients_total`.
+(an, sobald eines der verfolgten Geräte im Netz ist) und
+`unifi.clients_total`.
+
+**Das ist keine Anwesenheit.** Hier steht «Gerät im Netz», nicht «Mensch
+zuhause»: Das iPad hängt auch dann im WLAN, wenn alle weg sind, und ein
+Telefon fällt heraus, sobald man im Garten sitzt. Wer da ist, weiss
+allein die Geofence-Integration – die Startseite und die
+Anwesenheitsliste lesen ausschliesslich `geofence.anyone_home`. Der
+Name `anyone_home` bleibt nur, damit bestehende Abläufe aus alten
+config.yaml weiterlaufen; angezeigt wird «Geräte im WLAN».
 
 Es gibt zwei Controller-Generationen: UniFi OS (UDM, UCG, Cloud Key Gen2)
 meldet sich unter /api/auth/login an und stellt der Netzwerk-API
@@ -111,11 +120,17 @@ class UnifiIntegration(Integration):
             self._tracked[mac] = entity.id
 
         if self._tracked:
+            # Hiess einmal «Jemand zuhause» und wurde von der Startseite
+            # auch so gelesen – daher stand oben «jemand da», während die
+            # Anwesenheitsliste niemanden führte. Das WLAN antwortet auf
+            # eine andere Frage; der Name sagt jetzt, auf welche.
+            # `device_class: connectivity` hält es aus allem heraus, was
+            # nach Präsenzmeldern sucht.
             await self.add_entity(
                 "anyone_home",
                 EntityKind.BINARY_SENSOR,
-                "Jemand zuhause",
-                state={"state": "off"},
+                "Geräte im WLAN",
+                state={"state": "off", "device_class": "connectivity"},
                 available=False,
             )
         await self.add_entity(
@@ -275,7 +290,10 @@ class UnifiIntegration(Integration):
         if self._tracked:
             await self.hub.registry.update_state(
                 self.entity_id("anyone_home"),
-                {"state": "on" if any(presence.values()) else "off"},
+                {
+                    "state": "on" if any(presence.values()) else "off",
+                    "device_class": "connectivity",
+                },
                 available=True,
             )
         await self.hub.registry.update_state(

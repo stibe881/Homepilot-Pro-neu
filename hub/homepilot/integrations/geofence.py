@@ -35,7 +35,6 @@ Konfiguration – Orte mit Koordinaten, Personen mit Namen:
     zones:
       - id: stefan
         name: Stefan
-        wifi: unifi.iphone_stefan  # optional, siehe unten
       - id: livia
         name: Livia
 
@@ -57,9 +56,13 @@ sind:
     zwölf Stunden nichts, wird aus «away» ein «unknown» – sonst schaltet
     «alles aus, wenn niemand da» irgendwann das Haus ab, während jemand
     darin sitzt.
-  - **WLAN schlägt Geofence, solange es frisch ist.** Wer `wifi:` setzt,
-    bekommt beide Quellen zusammengeführt; welche gerade gilt, steht als
-    `source` am Zustand.
+  - **Das WLAN entscheidet nichts.** Es gab einmal eine Option `wifi:`
+    je Zone, die eine UniFi-Anmeldung über die Ortsmeldung stellte. Sie
+    ist weg: «Gerät im Netz» ist nicht «Mensch zuhause» – das iPad liegt
+    auch im Netz, wenn alle weg sind, und das Telefon fällt heraus, wenn
+    man im Garten sitzt. Herausgekommen sind zwei Anzeigen, die sich
+    widersprachen. Steht `wifi:` noch in einer alten config.yaml, wird
+    es überlesen und einmal ins Protokoll geschrieben.
 """
 
 from __future__ import annotations
@@ -93,6 +96,11 @@ def parse_zones(raw: Any) -> list[dict[str, str]]:
 
     Ohne Kennung kein Eintrag: Die Kennung ist die Adresse, unter der das
     Telefon später meldet – geraten werden kann sie nicht.
+
+    Ein `wifi:` aus einer älteren config.yaml landet hier bewusst nicht
+    mehr im Ergebnis. Wer es entfernt haben will, findet den Hinweis im
+    Protokoll; ein Fehler ist es nicht, sonst startet der Hub nach einem
+    Update nicht mehr.
     """
     zones = []
     for entry in raw or []:
@@ -101,16 +109,7 @@ def parse_zones(raw: Any) -> list[dict[str, str]]:
         zone_id = str(entry.get("id") or "").strip()
         if not zone_id:
             continue
-        zones.append(
-            {
-                "id": zone_id,
-                "name": str(entry.get("name") or zone_id),
-                # Die WLAN-Quelle derselben Person, falls es eine gibt.
-                # Leer ist der Normalfall: Nicht jedes Telefon ist im
-                # UniFi hinterlegt.
-                "wifi": str(entry.get("wifi") or ""),
-            }
-        )
+        zones.append({"id": zone_id, "name": str(entry.get("name") or zone_id)})
     return zones
 
 
@@ -179,8 +178,21 @@ class GeofenceIntegration(Integration):
         self.places = eigene or default_places(getattr(self.hub.config, "location", None))
         # Kennung → Entitäts-ID, und je Person die Orte, in denen sie steckt.
         self._zones: dict[str, str] = {}
-        self._wifi: dict[str, str] = {}
         self._inside: dict[str, list[str]] = {}
+        # Einmal sagen, dass hier etwas nicht mehr gilt – still zu
+        # überlesen wäre schlimmer als ein Fehler: Man sucht sonst
+        # tagelang, warum das WLAN die Ortung nicht mehr überstimmt.
+        veraltet = [
+            str(entry.get("id"))
+            for entry in (self.config.get("zones") or [])
+            if isinstance(entry, dict) and entry.get("wifi")
+        ]
+        if veraltet:
+            self.log.warning(
+                "Geofence: 'wifi:' bei %s wird überlesen – die Anwesenheit "
+                "kommt nur noch vom Telefon, nicht mehr aus dem WLAN",
+                ", ".join(veraltet),
+            )
         for zone in zones:
             entity = await self.add_entity(
                 zone["id"],
@@ -197,8 +209,6 @@ class GeofenceIntegration(Integration):
                 available=True,
             )
             self._zones[zone["id"]] = entity.id
-            if zone["wifi"]:
-                self._wifi[zone["id"]] = zone["wifi"]
             self._inside[zone["id"]] = []
         # Die Sammelfrage, auf die «alles aus» hört. Ohne sie müsste ein
         # Ablauf je Person einen Auslöser tragen und zusätzlich prüfen,
@@ -317,20 +327,23 @@ class GeofenceIntegration(Integration):
         await self._update_anyone()
 
     def merged(self, zone_id: str) -> dict[str, Any]:
-        """Zonen- und WLAN-Meldung zusammengeführt (Punkt 200).
+        """Der Zustand einer Person, wie ihn die App liest (Punkt 200).
 
-        Wird von der Diagnose und der App gelesen; die Entität selbst
-        bleibt die reine Zonenmeldung, damit Abläufe nicht plötzlich auf
-        etwas anderes hören als bisher.
+        Hiess einmal so, weil hier Zonenmeldung und WLAN zusammenkamen.
+        Das WLAN ist weg (siehe Kopf der Datei), übrig bleibt die
+        Ortsmeldung – durch `settle` geschickt, damit aus zwölf Stunden
+        Funkstille kein «weg» wird, auf das «alles aus» hört.
+
+        Der Name bleibt: Die App und die Diagnose rufen ihn seit je so,
+        und eine Umbenennung ändert nichts an der Antwort.
         """
         entity_id = self._zones.get(zone_id)
         entity = self.hub.registry.get(entity_id) if entity_id else None
-        geo = dict(entity.state) if entity else {}
-        wifi_id = self._wifi.get(zone_id)
-        wifi_entity = self.hub.registry.get(wifi_id) if wifi_id else None
-        wifi = dict(wifi_entity.state) if wifi_entity else None
-        zusammen = presence.merge_presence(geo, wifi, time.time())
-        return presence.settle(zusammen, time.time())
+        if entity is None:
+            return {"state": presence.UNKNOWN, "source": "none", "place": None}
+        zustand = dict(entity.state)
+        zustand.setdefault("source", "geofence")
+        return presence.settle(zustand, time.time())
 
     def diagnose(self) -> list[dict[str, Any]]:
         """Je Person eine Zeile: warum steht da, was da steht (Punkt 219)."""

@@ -3,9 +3,11 @@ import React, { useMemo, useState } from 'react';
 import { Image, Pressable, Text, View } from 'react-native';
 
 import { CommandData, Entity, KalenderEintrag } from '../api/types';
+import { hatWarteschlange } from '../lib/musikliste';
 import { useColors } from '../theme';
 import { Bar } from './Bar';
 import { Card, CardFooter } from './Card';
+import { Musikliste } from './Musikliste';
 import { ColorRow } from './ColorRow';
 import { Sky } from './CoverVisual';
 import { TvApps } from './TvApps';
@@ -104,6 +106,8 @@ export function EntityCard({
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [remoteOpen, setRemoteOpen] = useState(false);
+  // Was als Nächstes läuft – hinter Cover und Titel der Musikkachel.
+  const [listeOffen, setListeOffen] = useState(false);
   const [roomPickerOpen, setRoomPickerOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [groupPickerOpen, setGroupPickerOpen] = useState(false);
@@ -199,7 +203,16 @@ export function EntityCard({
         const hasRemote = entity.commands.includes('dpad_up');
         return (
           <View style={styles.stack}>
-            <View style={styles.nowPlayingRow}>
+            {/* Cover und Titel öffnen, was als Nächstes kommt – wie in
+                der grossen Karte in der Seitenspalte. */}
+            <Pressable
+              onPress={hatWarteschlange(entity.state) ? () => setListeOffen(true) : undefined}
+              accessibilityRole={hatWarteschlange(entity.state) ? 'button' : undefined}
+              accessibilityLabel={
+                hatWarteschlange(entity.state) ? 'Was als Nächstes läuft' : undefined
+              }
+              style={({ pressed }) => [styles.nowPlayingRow, pressed && { opacity: 0.75 }]}
+            >
               {entity.state.image ? (
                 <Image
                   source={{ uri: String(entity.state.image) }}
@@ -218,7 +231,15 @@ export function EntityCard({
                   </Text>
                 ) : null}
               </View>
-            </View>
+              {hatWarteschlange(entity.state) ? (
+                <Ionicons name="list-outline" size={16} color={colors.inkFaint} />
+              ) : null}
+            </Pressable>
+            <Musikliste
+              state={entity.state}
+              offen={listeOffen}
+              onClose={() => setListeOffen(false)}
+            />
             {entity.commands.includes('next') ? (
               <View style={styles.mediaRow}>
                 <MediaButton icon="play-skip-back" label="Zurück"
