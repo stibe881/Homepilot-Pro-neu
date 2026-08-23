@@ -10,7 +10,12 @@ import { useColors } from '../theme';
 import { HubFehler, hubClient } from '../api/client';
 import { datumKurz } from '../lib/format';
 import { istPushKategorie } from '../lib/pushablaeufe';
-import { RueckwegBefehl, sceneActionsToDraft, szenenRueckweg } from '../lib/szenen';
+import {
+  RueckwegBefehl,
+  privatsphaereBefehl,
+  sceneActionsToDraft,
+  szenenRueckweg,
+} from '../lib/szenen';
 import { Editor, Fassung } from './automations/editor';
 import { Automation, Draft, DryRun, EMPTY, Run, StepDraft, TriggerHealth, buildConditions, describe, groupByCategory, lastRunText, newTrigger, runLine, search, stepToActions, stepsToActions, toDraft, triggerIcon, triggerToConfig, usedCategories, zeitpunktLabel } from './automations/entwurf';
 import { Groups, SearchBox } from './automations/felder';
@@ -386,6 +391,12 @@ export function AutomationsScreen({
         // flatMap, weil aus einem Eintrag zwei Aktionen werden können:
         // Helligkeit und Farbe sind zwei Befehle an dasselbe Licht.
         .flatMap(({ entity_id, command, rooms, position, brightness, color, transition }) => {
+          // Die Kamera kennt nur set_privacy; die Richtung steckt in
+          // den Daten. In der Auswahl sind es zwei Chips.
+          const privat = privatsphaereBefehl(command);
+          if (privat) {
+            return [{ entity_id, command: privat.command, data: privat.data }];
+          }
           if (command === 'clean_rooms') {
             return [{ entity_id, command, data: { rooms: rooms ?? [] } }];
           }

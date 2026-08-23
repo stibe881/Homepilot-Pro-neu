@@ -8,6 +8,36 @@ import { Entity } from '../api/types';
  * gedimmten 15 %, und beim Bearbeiten fiel die Storen-Position weg.
  */
 
+/**
+ * Der Privatsphäre-Schalter einer Kamera.
+ *
+ * Die Kamera kennt genau einen Befehl, `set_privacy`, und die Richtung
+ * steckt in seinen Daten (`enabled`). In der Auswahl sind es zwei Chips –
+ * «Privatsphäre ein» und «aus» –, denn ein Chip, der je nach unsichtbarem
+ * Zusatz das eine oder das andere tut, ist keiner. Diese beiden Schlüssel
+ * gibt es nur in der Oberfläche; gespeichert wird der echte Befehl.
+ */
+export const PRIVATSPHAERE_EIN = 'privacy_on';
+export const PRIVATSPHAERE_AUS = 'privacy_off';
+
+/** Oberflächen-Schlüssel → gespeicherter Befehl (rein, testbar). */
+export function privatsphaereBefehl(
+  command: string
+): { command: string; data: { enabled: boolean } } | null {
+  if (command === PRIVATSPHAERE_EIN) return { command: 'set_privacy', data: { enabled: true } };
+  if (command === PRIVATSPHAERE_AUS) return { command: 'set_privacy', data: { enabled: false } };
+  return null;
+}
+
+/** Gespeicherter Befehl → Oberflächen-Schlüssel (rein, testbar).
+ *
+ * Fehlt `enabled`, gilt «ein»: Wer den Privatsphäre-Modus in eine Szene
+ * nimmt, will ihn fast immer einschalten, und ein Chip muss leuchten. */
+export function privatsphaereSchluessel(command: string, enabled: unknown): string | null {
+  if (command !== 'set_privacy') return null;
+  return enabled === false ? PRIVATSPHAERE_AUS : PRIVATSPHAERE_EIN;
+}
+
 /** Eine Aktion, wie der Szenen-Editor sie hält. */
 export interface SceneActionDraft {
   entity_id: string;
@@ -78,6 +108,11 @@ export function snapshotCommand(entity: Entity): string {
     return state === 'closed' ? 'close' : 'open';
   }
   if (entity.kind === 'lock') return state === 'locked' ? 'lock' : 'unlock';
+  if (entity.kind === 'camera') {
+    // Nicht der Online-Zustand, sondern der Privatsphäre-Schalter: Das
+    // ist das Einzige, was sich an einer Kamera stellen lässt.
+    return entity.state.privacy === 'on' ? PRIVATSPHAERE_EIN : PRIVATSPHAERE_AUS;
+  }
   if (entity.kind === 'vacuum') return state === 'cleaning' ? 'start' : 'dock';
   // «Aus laufender Musik»: spielt gerade etwas, nimmt die Szene das Abspielen
   // auf – aktiviert man sie später, läuft die Musik weiter.
@@ -117,6 +152,7 @@ export function sceneActionsToDraft(
       brightness?: number;
       color?: string;
       transition?: number;
+      enabled?: boolean;
     };
   }[]
 ): SceneActionDraft[] {
@@ -131,9 +167,10 @@ export function sceneActionsToDraft(
         continue;
       }
     }
+    const privat = privatsphaereSchluessel(action.command, action.data?.enabled);
     result.push({
       entity_id: action.entity_id,
-      command: action.command,
+      command: privat ?? action.command,
       rooms: action.data?.rooms,
       position: action.data?.position,
       brightness: action.data?.brightness,
