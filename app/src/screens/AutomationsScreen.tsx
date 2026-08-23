@@ -17,7 +17,7 @@ import {
   szenenRueckweg,
 } from '../lib/szenen';
 import { Editor, Fassung } from './automations/editor';
-import { Automation, Draft, DryRun, EMPTY, Run, StepDraft, TriggerHealth, buildConditions, describe, groupByCategory, lastRunText, newTrigger, runLine, search, stepToActions, stepsToActions, toDraft, triggerIcon, triggerToConfig, usedCategories, zeitpunktLabel } from './automations/entwurf';
+import { Automation, Draft, DryRun, EMPTY, Run, StepDraft, TriggerHealth, buildConditions, describe, groupByCategory, lastRunText, newTrigger, runLine, search, stepToActions, stepsToActions, szenenSymbol, toDraft, triggerIcon, triggerToConfig, usedCategories, zeitpunktLabel } from './automations/entwurf';
 import { Groups, SearchBox } from './automations/felder';
 import { makeStyles } from './automations/stil';
 import { SCENE_ICONS, SceneDraft, SceneEditor } from './automations/szenen-editor';
@@ -952,7 +952,19 @@ export function AutomationsScreen({
             renderItem={(scene) => (
               <Card key={scene.id} style={styles.card}>
                 <View style={styles.cardHead}>
-                  <Ionicons name={scene.icon as keyof typeof Ionicons.glyphMap} size={20} color={colors.inkSoft} />
+                  {/* Wer beim Anlegen kein Symbol gewählt hat, bekam das
+                      allgemeine Funkeln - auch «Babysitter-Modus». Steht
+                      noch die Voreinstellung da und sagt der Name etwas,
+                      zeigen wir das. Gespeichert wird nichts: Ein selbst
+                      gewähltes Funkeln bleibt ein Funkeln, sobald es
+                      einmal angetippt wurde. */}
+                  <Ionicons
+                    name={
+                      szenenSymbol(scene) as keyof typeof Ionicons.glyphMap
+                    }
+                    size={20}
+                    color={colors.inkSoft}
+                  />
                   <View style={{ flex: 1 }}>
                     <Text style={styles.title}>{scene.name}</Text>
                     <Text style={styles.detail}>

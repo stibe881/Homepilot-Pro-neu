@@ -832,6 +832,58 @@ export function zeitpunktLabel(ts: number, jetzt: Date = new Date()): string {
   return `${WEEKDAY_LABELS[(dann.getDay() + 6) % 7]} ${uhr}`;
 }
 
+/**
+ * Symbole, die im Namen stehen (rein, testbar).
+ *
+ * Ein «Babysitter-Modus» hört auf nichts Besonderes - er wird von Hand
+ * ausgelöst, und die Auslöserart hatte dafür nur den allgemeinen Blitz.
+ * Ausgerechnet die Abläufe, die man am Namen kennt, sahen so alle gleich
+ * aus. Sagt der Auslöser nichts, darf der Name reden.
+ *
+ * Bewusst nur ganze Wörter und nur wenige: «Kinderzimmer» soll nicht
+ * zum Babysitter werden, und eine lange Liste rät irgendwann falsch.
+ * Dasselbe Symbol wie unter Familie → Babysitter - dieselbe Sache, also
+ * dasselbe Bild.
+ */
+export const NAMENS_SYMBOLE: { woerter: string[]; icon: string }[] = [
+  { woerter: ['babysitter', 'hüten', 'hueten'], icon: 'happy-outline' },
+  { woerter: ['gäste', 'gaeste', 'besuch', 'party', 'fest'], icon: 'people-outline' },
+  { woerter: ['kino', 'film'], icon: 'film-outline' },
+  { woerter: ['essen', 'znacht', 'abendessen', 'brunch'], icon: 'restaurant-outline' },
+  { woerter: ['putzen', 'saugen', 'aufräumen', 'aufraeumen'], icon: 'sparkles-outline' },
+  { woerter: ['ferien', 'urlaub'], icon: 'airplane-outline' },
+  { woerter: ['lernen', 'hausaufgaben'], icon: 'school-outline' },
+];
+
+/** Das Symbol, das im Namen steckt - oder null (rein, testbar). */
+export function symbolFuerNamen(name: string): string | null {
+  // Nur ganze Wörter: «Kinderzimmer dunkel» ist kein Babysitter-Modus.
+  const woerter = new Set(
+    String(name ?? '')
+      .toLowerCase()
+      .split(/[^a-zäöüáàéèíìóòúù]+/i)
+      .filter(Boolean)
+  );
+  for (const eintrag of NAMENS_SYMBOLE) {
+    if (eintrag.woerter.some((wort) => woerter.has(wort))) return eintrag.icon;
+  }
+  return null;
+}
+
+/** Das Symbol einer Szene in der Liste (rein, testbar).
+ *
+ * Der Hub setzt ohne eigene Angabe «sparkles-outline». Genau das steht
+ * dann auch vor «Babysitter-Modus». Sagt der Name etwas und wurde nie
+ * ein Symbol gewählt, gilt der Name - was gespeichert ist, bleibt
+ * unangetastet. */
+export const SZENEN_STANDARD = 'sparkles-outline';
+
+export function szenenSymbol(scene: { name: string; icon?: string }): string {
+  const gewaehlt = scene.icon || SZENEN_STANDARD;
+  if (gewaehlt !== SZENEN_STANDARD) return gewaehlt;
+  return symbolFuerNamen(scene.name) ?? SZENEN_STANDARD;
+}
+
 /** Das Symbol zur Auslöserart (Punkt 162) - der Zeilenanfang der Liste
  *  sagt damit auf einen Blick, WORAUF ein Ablauf hört (rein, testbar). */
 export function triggerIcon(automation: Automation): string {
@@ -846,7 +898,9 @@ export function triggerIcon(automation: Automation): string {
   if (String(trigger.entity_id ?? '').startsWith('geofence.')) return 'location-outline';
   if (trigger.attribute === 'ring') return 'notifications-outline';
   if (trigger.attribute === 'motion') return 'walk-outline';
-  return 'flash-outline';
+  // Erst jetzt der Name: Ein Auslöser, der etwas aussagt, sagt mehr über
+  // die Zeile aus als das Wort, das jemand hingeschrieben hat.
+  return symbolFuerNamen(automation.alias ?? '') ?? 'flash-outline';
 }
 
 /** Lesbarer Text für eine Wartezeit (rein, testbar). */

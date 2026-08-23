@@ -42,7 +42,12 @@ export interface SceneDraft {
   category?: string;
 }
 
-/** Eine Handvoll passender Symbole reicht – die App bleibt aufgeräumt. */
+/** Eine Handvoll passender Symbole reicht – die App bleibt aufgeräumt.
+ *
+ * Dazugekommen sind die Abende, an denen jemand anderes im Haus ist:
+ * «Babysitter-Modus» hatte unter sechs Symbolen keines, das passte, und
+ * blieb beim allgemeinen Funkeln stehen. Das Gesicht ist dasselbe wie
+ * unter Familie → Babysitter. */
 export const SCENE_ICONS = [
   'sparkles-outline',
   'sunny-outline',
@@ -50,6 +55,9 @@ export const SCENE_ICONS = [
   'film-outline',
   'wine-outline',
   'home-outline',
+  'happy-outline',
+  'people-outline',
+  'restaurant-outline',
 ];
 
 /** Geräte-Checkliste statt Zeilen mit Dropdown: antippen nimmt ein Gerät in
