@@ -205,6 +205,68 @@ rm -rf "$WORKDIR"
 git clone --depth 50 -b "$BRANCH" \
   "https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/${REPO}.git" "$WORKDIR"
 
+# ── Die anderen Zweige mit hineinnehmen ────────────────────────────────
+#
+# Der Knopf baut genau einen Zweig (BRANCH). Wer nebenher auf einem
+# zweiten arbeitet, drückt auf «Update» und findet seine Änderung nicht
+# im Haus - von aussen sieht das aus, als wäre sie nie gebaut worden.
+# Genau das ist passiert.
+#
+# Deshalb wandern hier alle anderen Zweige des Repos in den Bau. Nur
+# lokal: Nichts davon wird nach GitHub zurückgeschrieben, der Zweig auf
+# GitHub bleibt, wie er ist.
+#
+# Was dabei schiefgehen kann, geht einzeln schief: Ein Zweig, der sich
+# nicht ohne Konflikt hineinnehmen lässt, bleibt draussen und wird
+# gemeldet - der Rest wird trotzdem gebaut. Sonst stünde das Haus wegen
+# eines halbfertigen Versuchs ohne Update da.
+#
+# Abschalten: HOMEPILOT_MERGE_ALL=0 in /opt/homepilot/github-credentials.env.
+# Dann baut der Knopf wieder ausschliesslich BRANCH.
+MERGE_ALL="${HOMEPILOT_MERGE_ALL:-1}"
+ZUSAETZLICH=""
+AUSGELASSEN=""
+if [ "$MERGE_ALL" = "1" ]; then
+  # Zwei Dinge fehlen dem Klon von oben: Er ist flach (--depth 50), und
+  # `clone -b … --depth` holt *nur* diesen einen Zweig - die anderen
+  # kennt er gar nicht. Beides hier nachholen; ohne die Zeile mit der
+  # Refspec fände die Schleife unten nie etwas.
+  git -C "$WORKDIR" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+  if git -C "$WORKDIR" fetch --quiet --unshallow origin 2>/dev/null \
+     || git -C "$WORKDIR" fetch --quiet origin 2>/dev/null; then
+    for ZWEIG in $(git -C "$WORKDIR" for-each-ref --format='%(refname:short)' \
+                     refs/remotes/origin \
+                   | grep -v -e '^origin/HEAD$' -e "^origin/${BRANCH}\$"); do
+      KURZ="${ZWEIG#origin/}"
+      # Schon enthalten? Dann gibt es nichts zu tun und nichts zu melden.
+      if git -C "$WORKDIR" merge-base --is-ancestor "$ZWEIG" HEAD 2>/dev/null; then
+        continue
+      fi
+      # -c user.*: Ein Zusammenführen erzeugt einen Commit, und ohne
+      # Namen bricht git ab. Der Name sagt, woher der Commit stammt.
+      if git -C "$WORKDIR" \
+           -c user.name='HomePilot Update' \
+           -c user.email='update@homepilot.local' \
+           merge --no-edit --no-ff "$ZWEIG" >/dev/null 2>&1; then
+        ZUSAETZLICH="$ZUSAETZLICH $KURZ"
+      else
+        git -C "$WORKDIR" merge --abort >/dev/null 2>&1 || true
+        AUSGELASSEN="$AUSGELASSEN $KURZ"
+      fi
+    done
+  else
+    echo "⚠ Die übrigen Zweige liessen sich nicht holen - gebaut wird nur ${BRANCH}."
+  fi
+  if [ -n "$ZUSAETZLICH" ]; then
+    echo "→ Zusätzlich hineingenommen:$ZUSAETZLICH"
+  fi
+  if [ -n "$AUSGELASSEN" ]; then
+    echo "⚠ Nicht hineingenommen (Konflikt mit ${BRANCH}):$AUSGELASSEN"
+    echo "  Diese Zweige gehören auf GitHub zusammengeführt - von hier aus"
+    echo "  liesse sich das nur raten."
+  fi
+fi
+
 # Sich selbst auffrischen - gilt ab dem NÄCHSTEN Lauf. mv ersetzt die Datei
 # atomar über einen neuen Inode; die gerade laufende Instanz liest ungestört
 # aus der alten weiter. Damit entfällt das ewige Von-Hand-Kopieren nach
@@ -276,6 +338,11 @@ COMMIT="$(git -C "$WORKDIR" rev-parse --short HEAD)"
 # auf etwas anderes als erwartet, baut der Knopf beharrlich den falschen
 # Stand - und das sieht von aussen aus wie «die Änderung kam nicht an».
 echo "→ Gebaut wird ${BRANCH} @ ${COMMIT} ($(git -C "$WORKDIR" log -1 --format='%s'))"
+if [ -n "$ZUSAETZLICH" ]; then
+  # Der Stempel steht auf GitHub nirgends - er gehört zur örtlichen
+  # Zusammenführung. Ohne diese Zeile sucht man ihn dort vergeblich.
+  echo "  (samt$ZUSAETZLICH - der Stand entsteht erst hier beim Bauen)"
+fi
 
 # Läuft dieser Stand schon? Dann trotzdem bauen (ein Neubau schadet nie),
 # aber es dazusagen: Ein «Update» ohne neuen Commit sieht sonst nach

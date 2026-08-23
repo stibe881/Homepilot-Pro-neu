@@ -418,7 +418,12 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         """
         current_user(request)
         commit = os.environ.get("HOMEPILOT_COMMIT", "unbekannt")
-        path = Path(__file__).resolve().parent.parent / "changes.txt"
+        # parents[2] ist das Paket homepilot/ - dorthin legt
+        # deploy/rebuild-hub.sh die Datei. Hier stand einmal
+        # parent.parent (homepilot/api/), und weil eine fehlende Datei
+        # bewusst nur eine leere Liste ergibt, blieb «Was ist neu» im Haus
+        # jahrelang wortlos leer, statt sich zu beschweren.
+        path = Path(__file__).resolve().parents[2] / "changes.txt"
         try:
             lines = [
                 line.strip()
