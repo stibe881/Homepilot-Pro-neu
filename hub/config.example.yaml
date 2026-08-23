@@ -62,8 +62,8 @@ supabase:
 # Standort für Sonnenauf-/-untergangs-Trigger (Storen, adaptives Licht).
 # Ohne diesen Abschnitt wird Zell LU angenommen.
 location:
-  latitude: 47.1381
-  longitude: 7.9228
+  latitude: 47.13844
+  longitude: 7.92059
   # Die Hausadresse. Sie steht gross auf dem Babysitter- und dem
   # Notfallblatt: Wer 144 wählt, muss als Erstes sagen, WO er ist - und
   # das weiss eine fremde Person im Haus nicht auswendig.
@@ -128,8 +128,8 @@ integrations:
   # Wetterlage und 7-Tage-Vorhersage (Open-Meteo, kostenlos, kein Schlüssel).
   # Koordinaten des eigenen Orts eintragen (hier: Zell LU).
   - integration: weather
-    latitude: 47.1381
-    longitude: 7.9228
+    latitude: 47.13844
+    longitude: 7.92059
     name: Zell LU
 
   # Philips Hue Bridge (lokale CLIP-v2-API).
@@ -237,8 +237,8 @@ integrations:
   #   places:
   #     - id: home
   #       name: Zuhause
-  #       latitude: 47.1381
-  #       longitude: 7.9228
+  #       latitude: 47.13844
+  #       longitude: 7.92059
   #       radius: 150
   #     - id: schule
   #       name: Schule

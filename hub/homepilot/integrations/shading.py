@@ -222,8 +222,8 @@ class ShadingIntegration(Integration):
     def _location(self) -> tuple[float, float]:
         location = self.hub.config.location or {}
         return (
-            float(location.get("latitude", 47.1381)),
-            float(location.get("longitude", 7.9228)),
+            float(location.get("latitude", 47.13844)),
+            float(location.get("longitude", 7.92059)),
         )
 
     def _storm(self) -> bool:

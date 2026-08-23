@@ -22,8 +22,8 @@ from datetime import datetime
 from ..core import astro
 from ..core.integration import Integration
 
-DEFAULT_LAT = 47.1381
-DEFAULT_LON = 7.9228
+DEFAULT_LAT = 47.13844
+DEFAULT_LON = 7.92059
 
 
 def target_mirek(now: datetime, rise: datetime | None, set_: datetime | None,
