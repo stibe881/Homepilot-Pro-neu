@@ -51,6 +51,44 @@ CATEGORIES: dict[str, str] = {
 }
 
 
+# ── Unterkategorien ────────────────────────────────────────────────────────
+#
+# Zwanzig gleich aussehende Schalter beantworten die eigentliche Frage
+# nicht: «Was weckt mich nachts, was ist bloss Betrieb?» Deshalb gehören
+# die Kategorien in Gruppen - und zwar hier, nicht in der App: Dieselbe
+# Einteilung braucht die Liste im Profil (was will ich bekommen?) und die
+# unter «Abläufe → Push» (was schickt der Hub überhaupt?). Zwei Listen
+# liefen früher oder später auseinander.
+#
+# Reihenfolge ist Absicht: Was aufweckt, steht oben.
+GROUPS: list[tuple[str, tuple[str, ...]]] = [
+    ("Sicherheit", ("alarm", "alarm_arming", "camera_motion", "leak")),
+    ("Haus", ("open", "appliance", "frost", "timer", "maintenance")),
+    ("Familie", ("birthday", "calendar", "medication", "tasks", "shopping",
+                 "weekahead", "presence")),
+    ("Betrieb", ("outage", "device_down", "battery", "disk")),
+    ("Aus Abläufen", ("automation",)),
+]
+
+# Wohin eine Kategorie gehört, die in keiner Gruppe steht. Sie
+# verschwinden zu lassen wäre der schlechtere Handel: Eine neue Kategorie
+# wäre dann unsichtbar, statt bloss unsortiert.
+OTHER_GROUP = "Weiteres"
+
+
+def group_of(key: str) -> str:
+    """Zu welcher Unterkategorie gehört diese Art Nachricht? (rein, testbar)"""
+    for name, keys in GROUPS:
+        if key in keys:
+            return name
+    return OTHER_GROUP
+
+
+def group_order() -> list[str]:
+    """Die Gruppen in Anzeige-Reihenfolge, «Weiteres» zuletzt (rein)."""
+    return [name for name, _ in GROUPS] + [OTHER_GROUP]
+
+
 def parse_muted(raw: Any) -> dict[str, set[str]]:
     """Gespeicherte Abbestellungen einlesen (rein, testbar).
 

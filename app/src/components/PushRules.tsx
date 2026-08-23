@@ -7,6 +7,7 @@ import { Card } from './Card';
 import { Colors, type, useColors } from '../theme';
 import { HubFehler, hubClient } from '../api/client';
 import { pushAblaeufe, pushBeschreibung } from '../lib/pushablaeufe';
+import { nachGruppen } from '../lib/pushgruppen';
 import { Automation, triggerIcon } from '../screens/automations/entwurf';
 
 /**
@@ -48,6 +49,9 @@ interface Rule {
   detail: string;
   enabled: boolean;
   params: RuleParam[];
+  /** Unterkategorie, wie der Hub sie vergibt (core/push.py) – dieselbe
+   *  wie im Profil unter Benachrichtigungen. */
+  group?: string;
 }
 
 /** Einen Schritt weiter, aber in den Grenzen (rein, testbar). */
@@ -77,6 +81,9 @@ export function PushRules({
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [rules, setRules] = useState<Rule[] | null>(null);
+  // Reihenfolge der Unterkategorien – kommt vom Hub, damit «Sicherheit»
+  // oben steht und «Betrieb» unten.
+  const [groupOrder, setGroupOrder] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   // Zugeklappt wie die anderen Kategorien: erst die Übersicht.
   const [open, setOpen] = useState(false);
@@ -89,8 +96,11 @@ export function PushRules({
   const load = useCallback(() => {
     // Die Karte zeigt Fehler selbst an - deshalb «still».
     hub
-      .get<{ rules?: Rule[] }>('/api/notifyrules', { still: true })
-      .then((data) => setRules(data.rules ?? []))
+      .get<{ rules?: Rule[]; groups?: string[] }>('/api/notifyrules', { still: true })
+      .then((data) => {
+        setRules(data.rules ?? []);
+        setGroupOrder(data.groups ?? []);
+      })
       .catch((err) => setError(err instanceof HubFehler ? err.message : String(err)));
   }, [hub]);
 
@@ -103,7 +113,7 @@ export function PushRules({
       (prev ?? []).map((entry) => (entry.key === rule.key ? rule : entry))
     );
     try {
-      const data = await hub.put<{ rules?: Rule[] }>(
+      const data = await hub.put<{ rules?: Rule[]; groups?: string[] }>(
         `/api/notifyrules/${rule.key}`,
         {
           enabled: rule.enabled,
@@ -173,7 +183,14 @@ export function PushRules({
               Eingebaute Push-Regeln nicht abrufbar: {error}
             </Text>
           ) : null}
-          {eingebaut.map((rule) => (
+          {/* In Unterkategorien, wie sie der Hub vergibt - dieselben wie
+              im Profil unter Benachrichtigungen. Elf gleich aussehende
+              Karten beantworten sonst nicht, was hier eigentlich zur
+              Frage steht: Was weckt mich nachts, was ist bloss Betrieb? */}
+          {nachGruppen(eingebaut, groupOrder).map((gruppe) => (
+          <View key={gruppe.title} style={{ gap: 10 }}>
+          <Text style={styles.gruppe}>{gruppe.title}</Text>
+          {gruppe.items.map((rule) => (
             <Card key={rule.key} style={styles.card}>
               <View style={styles.cardHead}>
                 <View style={{ flex: 1 }}>
@@ -239,10 +256,15 @@ export function PushRules({
                 : null}
             </Card>
           ))}
+          </View>
+          ))}
 
           {/* Und darunter, in derselben Form: die selbst gebauten Abläufe,
               die eine Nachricht verschicken. Sie bleiben Abläufe - der
               Stift öffnet denselben Editor wie in der Liste oben. */}
+          {ablaeufe.length > 0 ? (
+            <Text style={styles.gruppe}>Eigene Abläufe</Text>
+          ) : null}
           {ablaeufe.map((automation) => {
             const an = automation.enabled !== false;
             return (
@@ -346,6 +368,14 @@ const makeStyles = (colors: Colors) =>
       letterSpacing: 0.6,
     },
     groupCount: { color: colors.onGradientSoft, fontSize: 12, fontWeight: '700' },
+    /** Zwischenüberschrift einer Unterkategorie. Kleiner als die
+     *  «PUSH»-Zeile darüber: Sie gliedert, sie ist nicht die Überschrift. */
+    gruppe: {
+      color: colors.onGradientSoft,
+      fontSize: 12,
+      fontWeight: '600',
+      marginTop: 4,
+    },
     card: { minHeight: 0, gap: 6 },
     cardHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },

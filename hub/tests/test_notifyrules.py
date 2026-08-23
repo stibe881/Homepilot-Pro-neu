@@ -173,3 +173,14 @@ def test_rules_over_the_api():
             ).status_code
             == 403
         )
+
+
+def test_jede_regel_hat_eine_unterkategorie():
+    """Die Einteilung kommt vom Hub – Profil und «Abläufe → Push» zeigen
+    dieselbe. Zwei Listen liefen früher oder später auseinander."""
+    from homepilot.core import push
+
+    for rule in notifyrules.describe(None):
+        assert rule["group"], rule["key"]
+        # Und zwar eine echte, keine Sammelgruppe.
+        assert rule["group"] != push.OTHER_GROUP, rule["key"]

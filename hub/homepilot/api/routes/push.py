@@ -71,8 +71,13 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         muted = sorted(hub.push.muted.get(user.name, set()))
         return {
             "categories": [
-                {"key": key, "label": label} for key, label in push.CATEGORIES.items()
+                # Die Gruppe kommt mit: Die App soll dieselbe Einteilung
+                # zeigen wie die Liste unter «Abläufe → Push», und die
+                # kennt nur der Hub.
+                {"key": key, "label": label, "group": push.group_of(key)}
+                for key, label in push.CATEGORIES.items()
             ],
+            "groups": push.group_order(),
             "muted": muted,
         }
 
@@ -108,7 +113,12 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     @app.get("/api/notifyrules")
     async def list_notify_rules(request: Request) -> dict[str, Any]:
         current_user(request)
-        return {"rules": notifyrules.describe(hub.data.get("notify_rules"))}
+        # Die Reihenfolge der Unterkategorien kommt mit: Dieselbe
+        # Einteilung zeigt die Liste im Profil.
+        return {
+            "rules": notifyrules.describe(hub.data.get("notify_rules")),
+            "groups": push.group_order(),
+        }
 
     @app.put("/api/notifyrules/{key}")
     async def set_notify_rule(
@@ -125,7 +135,10 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         # Sofort übernehmen, nicht erst in der nächsten Wächter-Runde:
         # Wer den Schalter umlegt, erwartet, dass er ab jetzt gilt.
         hub.watchdog.rules = notifyrules.effective(stored)
-        return {"rules": notifyrules.describe(stored)}
+        return {
+            "rules": notifyrules.describe(stored),
+            "groups": push.group_order(),
+        }
 
     # ── Push ───────────────────────────────────────────────────────────────
 
