@@ -85,6 +85,9 @@ export interface Scene {
   /** Ist ein Rückweg gespeichert? Nur dann nimmt der zweite Druck
    *  zurück, statt erneut auszulösen. */
   revertable?: boolean;
+  /** Bleibt die Szene aktiv? Aus für Handlungen wie «Alles aus», die
+   *  keinen Zustand herstellen. Fehlt das Feld, gilt «ja». */
+  toggles?: boolean;
 }
 
 export interface User {

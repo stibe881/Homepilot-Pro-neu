@@ -119,6 +119,23 @@ def test_diagnose_names_the_silence():
     assert "Kurzbefehl" in nie["hint"]
 
 
+def test_the_default_location_is_the_actual_house():
+    """Die Voreinstellung muss im Zonenradius des echten Hauses liegen.
+
+    Zweimal passiert: Erst lag sie 11 km neben Zell, dann – nach der
+    ersten Korrektur – immer noch 170 m daneben. Bei 150 m Radius heisst
+    das «unterwegs», während man in der Küche steht, und niemand sieht
+    der Zahl im Code an, dass sie das falsche Haus meint. Der Abstand
+    hier ist die Prüfung, die ein Blick auf die Koordinaten nicht ist.
+    """
+    from homepilot.integrations.life360 import abstand_meter
+
+    meter = abstand_meter(
+        geofence.DEFAULT_LAT, geofence.DEFAULT_LON, 47.1384361, 7.9205897
+    )
+    assert meter < geofence.DEFAULT_RADIUS / 2
+
+
 def test_default_places_come_from_the_house_location():
     orte = geofence.default_places({"latitude": 47.2, "longitude": 8.1})
     assert [ort["id"] for ort in orte] == ["home", "quartier"]

@@ -39,6 +39,11 @@ export interface SceneDraft {
   onStart?: boolean;
   /** Übergangszeit in Sekunden – Helligkeiten werden angefahren. */
   transition?: number;
+  /** Bleibt die Szene aktiv? Dann leuchtet ihr Knopf, solange sie gilt,
+   *  und ein zweiter Druck nimmt sie zurück. Aus für Handlungen wie
+   *  «Alles aus», die keinen Zustand herstellen. Fehlt der Wert, gilt
+   *  «ja» – so verhalten sich die Szenen, die es schon gab. */
+  toggles?: boolean;
   actions: SceneActionDraft[];
   /** Frei benannte Kategorie zum Gruppieren in der Liste. */
   category?: string;
@@ -683,6 +688,25 @@ export function SceneEditor({
             value={draft.onStart ? 'yes' : 'no'}
             onSelect={(value) => set({ onStart: value === 'yes' })}
           />
+        </Field>
+
+        {/* Nicht jede Szene ist ein Zustand. «Kino» ist einer - man
+            will sehen, dass er gilt, und ihn zurücknehmen können.
+            «Alles aus» ist eine Handlung: Man löst sie aus und geht. */}
+        <Field label="Nach dem Auslösen">
+          <Choice
+            options={[
+              { key: 'aktiv', label: 'Bleibt aktiv' },
+              { key: 'einmal', label: 'Löst nur aus' },
+            ]}
+            value={draft.toggles === false ? 'einmal' : 'aktiv'}
+            onSelect={(value) => set({ toggles: value === 'aktiv' })}
+          />
+          <Text style={styles.triggerNote}>
+            {draft.toggles === false
+              ? 'Der Knopf leuchtet nie, jeder Druck löst die Szene aus. Richtig für «Alles aus» oder «Gute Nacht».'
+              : 'Der Knopf leuchtet, solange der Raum so steht. Ein zweiter Druck stellt her, wie es vorher war – aber nur bei Geräten, die die Szene wirklich verändert hat. Ein Fernseher, der schon aus war, bleibt aus.'}
+          </Text>
         </Field>
 
         <Field label="Übergang">

@@ -62,8 +62,8 @@ supabase:
 # Standort für Sonnenauf-/-untergangs-Trigger (Storen, adaptives Licht).
 # Ohne diesen Abschnitt wird Zell LU angenommen.
 location:
-  latitude: 47.1381
-  longitude: 7.9228
+  latitude: 47.13844
+  longitude: 7.92059
   # Die Hausadresse. Sie steht gross auf dem Babysitter- und dem
   # Notfallblatt: Wer 144 wählt, muss als Erstes sagen, WO er ist - und
   # das weiss eine fremde Person im Haus nicht auswendig.
@@ -128,8 +128,8 @@ integrations:
   # Wetterlage und 7-Tage-Vorhersage (Open-Meteo, kostenlos, kein Schlüssel).
   # Koordinaten des eigenen Orts eintragen (hier: Zell LU).
   - integration: weather
-    latitude: 47.1381
-    longitude: 7.9228
+    latitude: 47.13844
+    longitude: 7.92059
     name: Zell LU
 
   # Philips Hue Bridge (lokale CLIP-v2-API).
@@ -237,8 +237,8 @@ integrations:
   #   places:
   #     - id: home
   #       name: Zuhause
-  #       latitude: 47.1381
-  #       longitude: 7.9228
+  #       latitude: 47.13844
+  #       longitude: 7.92059
   #       radius: 150
   #     - id: schule
   #       name: Schule
@@ -497,9 +497,18 @@ users:
 
 # Szenen: eine benannte Liste von Kommandos, mit einem Tippen auslösbar.
 scenes:
+  # `toggles: false` heisst: Die Szene löst nur aus. Ihr Knopf leuchtet
+  # nie, und ein zweiter Druck löst sie einfach noch einmal aus.
+  #
+  # Voreingestellt ist `true`: Dann leuchtet der Knopf, solange der Raum
+  # so steht, und der zweite Druck stellt her, wie es vorher war - aber
+  # nur bei Geräten, die die Szene wirklich verändert hat. «Alles aus»
+  # ist keine solche Szene, sondern eine Handlung: Man löst sie aus und
+  # geht.
   - id: alles_aus
     name: Alles aus
     icon: moon-outline
+    toggles: false
     actions:
       - { entity_id: demo.light_livingroom, command: turn_off }
       - { entity_id: demo.light_bedroom, command: turn_off }

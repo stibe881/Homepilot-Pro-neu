@@ -7,8 +7,8 @@ Der Standort für alle Sonnen-Trigger steht in der `config.yaml`:
 
 ```yaml
 location:
-  latitude: 47.1445    # Zell LU
-  longitude: 8.0675
+  latitude: 47.13844    # Zell LU
+  longitude: 7.92059
 ```
 
 ## Storen zum Sonnenuntergang schliessen

@@ -93,6 +93,9 @@ class SceneRequest(BaseModel):
     # Übergangszeit in Sekunden: Helligkeiten werden angefahren statt
     # gesetzt – Lichtwecker, Einschlaflicht.
     transition: int = 0
+    # Bleibt die Szene aktiv (Knopf leuchtet, zweiter Druck nimmt zurück)?
+    # Aus für Handlungen wie «Alles aus», die keinen Zustand herstellen.
+    toggles: bool = True
 
 
 class PushPrefsRequest(BaseModel):

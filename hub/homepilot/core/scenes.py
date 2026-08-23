@@ -59,6 +59,14 @@ class Scene:
     # Übergangszeit in Sekunden: Helligkeiten werden über diese Dauer
     # angefahren statt schlagartig gesetzt – Lichtwecker und Einschlaflicht.
     transition: int = 0
+    # Bleibt die Szene aktiv? Dann leuchtet ihr Knopf, solange sie gilt,
+    # und ein zweiter Druck nimmt sie zurück.
+    #
+    # Nicht jede Szene ist ein Zustand. «Alles aus» und «Gute Nacht» sind
+    # Handlungen: Man löst sie aus und geht. Ein Knopf, der danach
+    # leuchtet und beim nächsten Druck das halbe Haus wieder anschaltet,
+    # wäre dort das Gegenteil von hilfreich.
+    toggles: bool = True
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -72,6 +80,7 @@ class Scene:
             "on_start": self.on_start,
             "category": self.category,
             "transition": self.transition,
+            "toggles": self.toggles,
         }
 
 
@@ -145,6 +154,9 @@ def parse_scenes(configs: list[dict[str, Any]], editable: bool = False) -> list[
                 on_start=bool(config.get("on_start")),
                 category=str(config["category"]) if config.get("category") else None,
                 transition=max(0, min(MAX_TRANSITION, int(config.get("transition") or 0))),
+                # Vorgabe an: Der Umschalter ist das nützlichere Verhalten,
+                # und wer «Alles aus» baut, hakt es dort ab.
+                toggles=config.get("toggles", True) is not False,
             )
         )
     return scenes
@@ -223,6 +235,9 @@ class SceneManager:
         dann noch leuchtet, wäre eine Lüge - und der zweite Druck darauf
         eine Überraschung.
         """
+        if not scene.toggles:
+            # Eine Handlung hat keinen Zustand: «Alles aus» leuchtet nie.
+            return False
         stand = self._geraete_stand(
             [str(a.get("entity_id") or "") for a in scene.actions]
         )
@@ -246,6 +261,10 @@ class SceneManager:
         scene = self.get(scene_id)
         if scene is None:
             raise HomePilotError(f"Unbekannte Szene: {scene_id}")
+        if not scene.toggles:
+            raise HomePilotError(
+                f"'{scene.name}' löst nur aus und lässt sich nicht zurücknehmen"
+            )
         befehle = self.undo_fuer(scene_id)
         if not befehle:
             raise HomePilotError(
@@ -291,12 +310,18 @@ class SceneManager:
         # Gespeichert wird nur, was die Szene wirklich verändert: Ein
         # Fernseher, der schon aus war, gehört nicht in den Rückweg,
         # sonst ginge er beim zweiten Druck an.
-        vorher = self._geraete_stand(
-            [str(a.get("entity_id") or "") for a in scene.actions]
-        )
-        self._undo_setzen(
-            scene_id, szenenrueckweg.plane_rueckweg(scene.actions, vorher)
-        )
+        if scene.toggles:
+            vorher = self._geraete_stand(
+                [str(a.get("entity_id") or "") for a in scene.actions]
+            )
+            self._undo_setzen(
+                scene_id, szenenrueckweg.plane_rueckweg(scene.actions, vorher)
+            )
+        else:
+            # Kein Rückweg, und ein alter wird verworfen: Wer die Szene
+            # nachträglich auf «löst nur aus» stellt, soll nicht beim
+            # nächsten Druck einen Rückweg von gestern auslösen.
+            self._undo_setzen(scene_id, None)
 
         failed: list[dict[str, str]] = []
         with as_source(scene_source(scene.id, scene.name)):
