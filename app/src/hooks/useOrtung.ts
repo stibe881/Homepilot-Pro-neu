@@ -216,7 +216,7 @@ export function useOrtung(settings: HubSettings, zone: string, erlaubt: boolean)
           : 'Der Hub hat die Meldung nicht angenommen.';
       }
     }
-    return meldungsText(orte as Ortsangabe[], meldungen);
+    return meldungsText(orte as Ortsangabe[], meldungen, latitude, longitude);
   }, [settings.url, settings.token, zone, erlaubt, orteHolen]);
 
   /** Die Überwachung wirklich starten oder beenden. */

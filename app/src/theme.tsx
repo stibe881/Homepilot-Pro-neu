@@ -123,8 +123,8 @@ export const breakpoints = { rail: 700, sidePanel: 1000 };
 export type ThemeMode = 'system' | 'auto' | 'light' | 'dark';
 
 // Standardstandort (Zell LU) – wie beim Hub. Nur für die Sonnenstand-Automatik.
-const DEFAULT_LAT = 47.1445;
-const DEFAULT_LON = 8.0675;
+const DEFAULT_LAT = 47.1381;
+const DEFAULT_LON = 7.9228;
 
 /** Sonnenauf-/-untergang als lokale Stunden (Näherung, rein/testbar).
  *  Reicht fürs Umschalten des Erscheinungsbilds – auf die Minute genau

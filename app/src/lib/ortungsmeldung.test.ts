@@ -9,7 +9,9 @@ import {
   Ort,
   abstandMeter,
   drinIn,
+  entfernung,
   genauGenug,
+  naechsterOrt,
   meldungsText,
   ortsMeldungen,
 } from './ortungsmeldung';
@@ -91,5 +93,37 @@ describe('meldungsText', () => {
   it('sagt es, wenn man nirgends drinsteht', () => {
     const meldungen = ortsMeldungen([zuhause], HAUS.lat + 0.1, HAUS.lon);
     expect(meldungsText([zuhause], meldungen)).toBe('Gemeldet: unterwegs.');
+  });
+
+  it('nennt die Entfernung zum nächsten Ort', () => {
+    // Der stille Einrichtungsfehler: Fehlt der Standort in der
+    // config.yaml, liegt der Hauskreis irgendwo - und man ist dauerhaft
+    // «unterwegs», ohne dass etwas kaputt aussieht.
+    const weit = { lat: HAUS.lat, lon: HAUS.lon + 0.15 };
+    const meldungen = ortsMeldungen([zuhause], weit.lat, weit.lon);
+    expect(meldungsText([zuhause], meldungen, weit.lat, weit.lon)).toMatch(
+      /Der nächste Ort \(Zuhause\) liegt 11\.\d km entfernt\./
+    );
+  });
+});
+
+describe('entfernung', () => {
+  it('rundet Meter auf zehn', () => {
+    expect(entfernung(834)).toBe('830 m');
+  });
+
+  it('wird ab einem Kilometer zu Kilometern', () => {
+    expect(entfernung(11_240)).toBe('11.2 km');
+  });
+});
+
+describe('naechsterOrt', () => {
+  it('nimmt den nächstgelegenen', () => {
+    const weit: Ort = { ...zuhause, id: 'weit', name: 'Weit', latitude: HAUS.lat + 1 };
+    expect(naechsterOrt([weit, zuhause], HAUS.lat, HAUS.lon)?.ort.id).toBe('home');
+  });
+
+  it('verträgt eine fehlende Position', () => {
+    expect(naechsterOrt([zuhause], undefined, undefined)).toBeNull();
   });
 });

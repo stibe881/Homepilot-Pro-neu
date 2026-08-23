@@ -60,10 +60,10 @@ export const FELDER: { abschnitt: string; felder: Feld[] }[] = [
         pfad: ['location', 'latitude'],
         label: 'Breitengrad',
         art: 'zahl',
-        platzhalter: '47.1445',
+        platzhalter: '47.1381',
         hinweis: 'Für Sonnenauf- und -untergang in Abläufen.',
       },
-      { pfad: ['location', 'longitude'], label: 'Längengrad', art: 'zahl', platzhalter: '8.0675' },
+      { pfad: ['location', 'longitude'], label: 'Längengrad', art: 'zahl', platzhalter: '7.9228' },
       {
         pfad: ['location', 'address'],
         label: 'Hausadresse',

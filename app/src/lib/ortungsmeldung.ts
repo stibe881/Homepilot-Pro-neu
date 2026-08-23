@@ -26,6 +26,28 @@ export interface Ort {
   radius: number;
 }
 
+/** Der nächstgelegene Ort samt Abstand (rein, testbar). */
+export function naechsterOrt(
+  orte: Ort[],
+  lat?: number,
+  lon?: number
+): { ort: Ort; meter: number } | null {
+  if (!orte?.length || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  const sortiert = orte
+    .map((ort) => ({
+      ort,
+      meter: abstandMeter(lat as number, lon as number, ort.latitude, ort.longitude),
+    }))
+    .sort((a, b) => a.meter - b.meter);
+  return sortiert[0] ?? null;
+}
+
+/** «800 m» oder «11.2 km» (rein, testbar). */
+export function entfernung(meter: number): string {
+  if (meter < 1000) return `${Math.round(meter / 10) * 10} m`;
+  return `${(meter / 1000).toFixed(1)} km`;
+}
+
 /** Erdradius in Metern. */
 const R = 6_371_000;
 
@@ -89,13 +111,31 @@ export function ortsMeldungen(
   }));
 }
 
-/** Der Satz nach dem Melden (rein, testbar). */
+/**
+ * Der Satz nach dem Melden (rein, testbar).
+ *
+ * Steht man in keinem Ort, gehört die Entfernung zum nächsten dazu. Genau
+ * daran erkennt man den stillen Einrichtungsfehler: Fehlt `location:` in
+ * der config.yaml, liegt der Hauskreis auf der Voreinstellung - wer
+ * woanders wohnt, ist dann dauerhaft «unterwegs», ohne dass irgendwo
+ * etwas kaputt aussieht. «Der nächste Ort liegt 11.2 km entfernt» sagt
+ * es in einem Satz.
+ */
 export function meldungsText(
   orte: Ort[],
-  meldungen: { place: string; event: string }[]
+  meldungen: { place: string; event: string }[],
+  lat?: number,
+  lon?: number
 ): string {
   const drin = meldungen.filter((eintrag) => eintrag.event === 'enter');
-  if (drin.length === 0) return 'Gemeldet: unterwegs.';
+  if (drin.length === 0) {
+    const weg = naechsterOrt(orte, lat, lon);
+    return weg
+      ? `Gemeldet: unterwegs. Der nächste Ort (${weg.ort.name}) liegt ${entfernung(
+          weg.meter
+        )} entfernt.`
+      : 'Gemeldet: unterwegs.';
+  }
   // Der engste Ort ist der, der etwas aussagt: «Zuhause» schlägt
   // «Quartier», in dem man ebenfalls steht.
   const namen = drin

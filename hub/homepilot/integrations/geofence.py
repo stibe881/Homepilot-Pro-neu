@@ -21,8 +21,8 @@ Konfiguration – Orte mit Koordinaten, Personen mit Namen:
     places:                       # weglassen = aus config.location
       - id: home
         name: Zuhause
-        latitude: 47.1445
-        longitude: 8.0675
+        latitude: 47.1381
+        longitude: 7.9228
         radius: 150
       - id: quartier              # der Vorlauf für die Heizung
         name: Quartier
@@ -78,8 +78,8 @@ HOME = presence.HOME
 AWAY = presence.AWAY
 
 # Standort des Hauses, falls weder places noch config.location etwas sagen.
-DEFAULT_LAT = 47.1445
-DEFAULT_LON = 8.0675
+DEFAULT_LAT = 47.1381
+DEFAULT_LON = 7.9228
 # Der enge und der weite Ort, wenn niemand eigene Orte hinterlegt hat.
 DEFAULT_RADIUS = 150.0
 WIDE_RADIUS = 3000.0
