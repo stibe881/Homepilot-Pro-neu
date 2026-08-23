@@ -80,6 +80,49 @@ export const darkColors: Colors = {
   warmCool: ['#E09A3E', '#F2EDE4', '#7FB2F0'],
 };
 
+/**
+ * Dunkel in Pflaume und Pink.
+ *
+ * Dieselben Rollen wie das dunkle Erscheinungsbild, nur in einer anderen
+ * Familie: Der Grund geht ins Aubergine statt ins Blaugrau, und was
+ * hervorsticht, ist pink statt blau.
+ *
+ * Zwei Farben bleiben bewusst aus der Familie heraus: «an» ist weiter
+ * grün und «Gefahr» rot. Ein pinkes «an» neben einem pinken Knopf liesse
+ * sich im Vorbeigehen nicht unterscheiden – und beim Warnen darf es keine
+ * Verwechslung geben. Deshalb ist das Rot hier ein klares Rot und kein
+ * Lachston, der neben dem Pink verschwämme.
+ */
+export const pinkColors: Colors = {
+  gradient: ['#4A2542', '#331A2D', '#22111C'],
+
+  // Die Glasflächen mit einem Hauch Warm: reines Weiss wirkt auf dem
+  // Pflaumengrund kalt und wie ein Fremdkörper.
+  surface: 'rgba(255, 240, 248, 0.10)',
+  surfaceStrong: 'rgba(255, 240, 248, 0.18)',
+  surfaceSoft: 'rgba(255, 240, 248, 0.07)',
+  surfaceBorder: 'rgba(255, 240, 248, 0.15)',
+  panel: '#2B1B26',
+
+  ink: '#F8EDF4',
+  inkSoft: '#C3A7B7',
+  inkFaint: '#8F7684',
+
+  onGradient: '#FFFFFF',
+  onGradientSoft: 'rgba(255, 255, 255, 0.72)',
+
+  on: '#4CD9A4',
+  onSoft: 'rgba(76, 217, 164, 0.18)',
+  off: 'rgba(255, 240, 248, 0.16)',
+  accent: '#FF74B0',
+  warn: '#FFC061',
+  danger: '#FF5252',
+  dangerSoft: 'rgba(255, 82, 82, 0.18)',
+
+  track: 'rgba(255, 240, 248, 0.14)',
+  warmCool: ['#E09A3E', '#F2EDE4', '#7FB2F0'],
+};
+
 export const radius = { card: 26, control: 18, pill: 999 };
 export const space = { gap: 14, page: 22 };
 export const type = {
@@ -120,7 +163,7 @@ export const type = {
  */
 export const breakpoints = { rail: 700, sidePanel: 1000 };
 
-export type ThemeMode = 'system' | 'auto' | 'light' | 'dark';
+export type ThemeMode = 'system' | 'auto' | 'light' | 'dark' | 'pink';
 
 // Standardstandort (Zell LU) – wie beim Hub. Nur für die Sonnenstand-Automatik.
 const DEFAULT_LAT = 47.1445;
@@ -185,15 +228,18 @@ export function ThemeProvider({
   useTakt(() => setNow(new Date()), mode === 'auto' ? 60000 : null);
 
   const value = useMemo<ThemeValue>(() => {
+    // Pink ist ein dunkles Erscheinungsbild – alles, was sich nach
+    // `dark` richtet (Statusleiste, Bilder, Kontraste), soll es auch hier.
     const dark =
-      mode === 'dark'
+      mode === 'dark' || mode === 'pink'
         ? true
         : mode === 'light'
           ? false
           : mode === 'auto'
             ? darkBySun(now)
             : scheme === 'dark';
-    return { colors: dark ? darkColors : lightColors, dark, mode };
+    const colors = mode === 'pink' ? pinkColors : dark ? darkColors : lightColors;
+    return { colors, dark, mode };
   }, [mode, scheme, now]);
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

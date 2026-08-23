@@ -17,6 +17,7 @@ const MODES: { key: ThemeMode; label: string }[] = [
   { key: 'auto', label: 'Nach Sonnenstand' },
   { key: 'light', label: 'Hell' },
   { key: 'dark', label: 'Dunkel' },
+  { key: 'pink', label: 'Pink' },
 ];
 
 interface Props {
@@ -472,7 +473,12 @@ const makeStyles = (colors: Colors) =>
   },
   modeActive: { backgroundColor: colors.ink, borderColor: colors.ink },
   modeText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
-  modeTextActive: { color: colors.surfaceStrong },
+  // Der Grund des gewählten Knopfs ist `ink` – in hellem Erscheinungsbild
+  // dunkel, in dunklem hell. Die Schrift muss also mitwandern: `panel`
+  // ist genau die Gegenrichtung. Vorher stand hier `surfaceStrong`, ein
+  // durchscheinendes Weiss – auf dunklem Grund war die Beschriftung des
+  // gewählten Knopfs damit praktisch unsichtbar.
+  modeTextActive: { color: colors.panel },
   modeHint: { color: colors.inkFaint, fontSize: 12, lineHeight: 17, marginTop: 6 },
   cancel: { alignItems: 'center', paddingVertical: 6 },
   cancelText: { color: colors.inkSoft, fontSize: 15 },
