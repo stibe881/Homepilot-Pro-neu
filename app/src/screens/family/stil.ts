@@ -88,6 +88,9 @@ export const makeStyles = (colors: Colors) =>
     checkText: { color: colors.ink, fontSize: 15, fontWeight: '500' },
     checkTextDone: { textDecorationLine: 'line-through', color: colors.inkFaint },
     checkSub: { color: colors.inkSoft, fontSize: 12 },
+    // Die Menge («400 ml») neben dem Artikel: leiser, denn gesucht
+    // wird der Artikel.
+    checkMenge: { color: colors.inkFaint, fontWeight: '400' },
     deleteTap: { padding: 8 },
     // Einkaufs-Modus: Im Laden hält man das Telefon in einer Hand und in
     // der anderen den Wagen - die Trefferfläche muss ohne Hinsehen

@@ -7,20 +7,23 @@
  */
 import {
   ALLGEMEIN,
+  artikelName,
+  einkaufZeile,
   einkaufsText,
   eintragen,
+  findeArtikel,
   fuerLaden,
   groupForShop,
   ingredientLabel,
   ingredientsToShopping,
   ladenZaehler,
   mengeAendern,
-  shopCategory,
-  shopOrder,
-  findeArtikel,
   mengeUndName,
   mitMenge,
+  shopCategory,
+  shopOrder,
   zeilenAufteilen,
+  zutatGeteilt,
 } from './einkauf';
 
 describe('shopCategory', () => {
@@ -154,8 +157,8 @@ describe('ingredientsToShopping', () => {
       { ingredients: [{ name: 'Hackfleisch', amount: 500, unit: 'g' }] },
     ];
     const daraus = ingredientsToShopping(getrennt, [], [2, 1]);
-    expect(daraus.find((e) => e.text.includes('Rahm'))?.text).toContain('400');
-    expect(daraus.find((e) => e.text.includes('Hackfleisch'))?.text).toContain('500');
+    expect(daraus.find((e) => e.text === 'Rahm')?.amount).toBe('400 ml');
+    expect(daraus.find((e) => e.text === 'Hackfleisch')?.amount).toBe('500 g');
   });
 });
 
@@ -224,10 +227,13 @@ describe('ingredientsToShopping mit Portionen-Faktor', () => {
   };
 
   it('rechnet die Mengen auf die gewählten Portionen um', () => {
+    // Der Artikel steht in text, die Menge daneben – seit sie nicht mehr
+    // in den Namen geklebt wird.
     const liste = ingredientsToShopping([rezept], [], 2);
-    expect(liste[0].text).toBe('500 g Mehl');
+    expect(liste[0]).toMatchObject({ text: 'Mehl', amount: '500 g' });
     // Ohne Menge bleibt der Name der Name – «2× Salz» wäre Unsinn.
     expect(liste[1].text).toBe('Salz');
+    expect(liste[1].amount).toBeUndefined();
   });
 
   it('rundet auf eine Nachkommastelle – niemand wiegt 666,6667 g', () => {
@@ -236,11 +242,14 @@ describe('ingredientsToShopping mit Portionen-Faktor', () => {
       [],
       4 / 3
     );
-    expect(drittel[0].text).toBe('666,7 g Mehl');
+    expect(drittel[0]).toMatchObject({ text: 'Mehl', amount: '666,7 g' });
   });
 
   it('ohne Faktor bleibt alles wie es war', () => {
-    expect(ingredientsToShopping([rezept])[0].text).toBe('250 g Mehl');
+    expect(ingredientsToShopping([rezept])[0]).toMatchObject({
+      text: 'Mehl',
+      amount: '250 g',
+    });
   });
 });
 
@@ -311,6 +320,121 @@ describe('Menge, Läden und Teilen', () => {
     const posten = ingredientsToShopping([
       { id: 'r1', text: 'Lasagne', ingredients: [{ name: 'Kapern', amount: 250, unit: 'g' }] },
     ]);
-    expect(posten[0]).toMatchObject({ text: '250 g Kapern', from: 'Lasagne', from_id: 'r1' });
+    expect(posten[0]).toMatchObject({
+      text: 'Kapern',
+      amount: '250 g',
+      from: 'Lasagne',
+      from_id: 'r1',
+    });
+  });
+});
+
+// ── Menge und Artikel gehören getrennt ───────────────────────────────────
+// Aus dem Rezept kam «400 ml Milch» als ein Text auf die Liste. Damit
+// stand die Menge im Artikelnamen: Das Gedächtnis lernte «400 ml Milch»,
+// «schon drauf?» verglich Mengen mit, und die Stückzahl-Knöpfe fassten
+// eine Zahl an, die keine Stückzahl war.
+
+describe('zutatGeteilt', () => {
+  it('trennt Menge und Artikel', () => {
+    expect(zutatGeteilt({ name: 'Milch', amount: 400, unit: 'ml' })).toEqual({
+      name: 'Milch',
+      menge: '400 ml',
+    });
+  });
+
+  it('rechnet die Portionen mit', () => {
+    expect(zutatGeteilt({ name: 'Milch', amount: 400, unit: 'ml' }, 2).menge).toBe('800 ml');
+  });
+
+  it('lässt die Menge weg, wo das Rezept keine nennt', () => {
+    expect(zutatGeteilt({ name: 'Salz' })).toEqual({ name: 'Salz', menge: '' });
+  });
+
+  it('verträgt eine Menge ohne Einheit und eine Einheit ohne Menge', () => {
+    expect(zutatGeteilt({ name: 'Eier', amount: 3 }).menge).toBe('3');
+    expect(zutatGeteilt({ name: 'Öl', unit: 'Schuss' }).menge).toBe('Schuss');
+  });
+
+  it('bleibt beim Ausschreiben bei der alten Zeile', () => {
+    // Im Rezept selbst stehen Menge und Zutat weiterhin zusammen.
+    expect(ingredientLabel({ name: 'Ketchup', amount: 250, unit: 'ml' })).toBe(
+      '250 ml Ketchup'
+    );
+  });
+});
+
+describe('ingredientsToShopping mit getrennter Menge', () => {
+  const rezept = {
+    id: 'r1',
+    text: 'Pfannkuchen',
+    ingredients: [
+      { name: 'Milch', amount: 400, unit: 'ml' },
+      { name: 'Salz' },
+    ],
+  };
+
+  it('schreibt den Artikel in text und die Menge daneben', () => {
+    const [milch, salz] = ingredientsToShopping([rezept]);
+    expect(milch.text).toBe('Milch');
+    expect(milch.amount).toBe('400 ml');
+    // Ohne Menge bleibt das Feld weg statt leer dazustehen.
+    expect(salz.text).toBe('Salz');
+    expect(salz.amount).toBeUndefined();
+  });
+
+  it('rechnet den Portionen-Faktor in die Menge', () => {
+    expect(ingredientsToShopping([rezept], [], 2)[0].amount).toBe('800 ml');
+  });
+
+  it('erkennt einen alten Posten, in dem die Menge noch im Text steckt', () => {
+    // Eine Liste vom letzten Samstag soll kein zweites «Milch» bekommen.
+    expect(ingredientsToShopping([rezept], ['400 ml Milch'])).toHaveLength(1);
+    expect(ingredientsToShopping([rezept], ['Milch'])).toHaveLength(1);
+  });
+});
+
+describe('einkaufZeile', () => {
+  it('trennt Stückzahl, Artikel und Menge', () => {
+    expect(einkaufZeile({ text: '3× Milch', amount: '400 ml' })).toEqual({
+      anzahl: 3,
+      artikel: 'Milch',
+      menge: '400 ml',
+    });
+  });
+
+  it('lässt einen alten Posten aussehen wie bisher', () => {
+    // Da steckt die Menge noch im Text – nichts daran soll sich ändern.
+    expect(einkaufZeile({ text: '400 ml Milch' })).toEqual({
+      anzahl: 1,
+      artikel: '400 ml Milch',
+      menge: '',
+    });
+  });
+
+  it('verträgt einen Posten ganz ohne Angaben', () => {
+    expect(einkaufZeile({})).toEqual({ anzahl: 1, artikel: '', menge: '' });
+  });
+});
+
+describe('artikelName', () => {
+  it('streift die Menge ab, damit sich Posten vergleichen lassen', () => {
+    expect(artikelName('400 ml Milch')).toBe('Milch');
+    expect(artikelName('1,5 kg Mehl')).toBe('Mehl');
+    expect(artikelName('2 EL Öl')).toBe('Öl');
+  });
+
+  it('lässt ein Wort stehen, das keine Einheit ist', () => {
+    // «2 Bio Eier» meint zwei Bio-Eier, nicht «Eier» in der Einheit «Bio».
+    expect(artikelName('2 Bio Eier')).toBe('2 Bio Eier');
+  });
+
+  it('lässt einen Artikel ohne Zahl in Ruhe', () => {
+    expect(artikelName('Milch')).toBe('Milch');
+    expect(artikelName('')).toBe('');
+  });
+
+  it('macht aus einer Zeile ohne Rest keinen leeren Artikel', () => {
+    expect(artikelName('500 g')).toBe('500 g');
   });
 });

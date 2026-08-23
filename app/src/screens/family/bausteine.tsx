@@ -241,6 +241,11 @@ export function CheckRow({
             ]}
           >
             {item.text}
+            {typeof item.amount === 'string' && item.amount.trim() ? (
+              // Die Menge aus dem Rezept steht neben dem Artikel, nicht in
+              // ihm: Gesucht wird «Milch», gebraucht werden 400 ml.
+              <Text style={styles.checkMenge}>{`  ${item.amount.trim()}`}</Text>
+            ) : null}
           </Text>
           {sub ? (
             <Text

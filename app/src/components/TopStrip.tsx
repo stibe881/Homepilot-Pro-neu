@@ -23,7 +23,7 @@ import {
   Shop,
   artikelVorschlaege,
   groupForShop,
-  mengeUndName,
+  einkaufZeile,
 } from '../lib/einkauf';
 import { uhr, wochentagDatum, wochentagUhr } from '../lib/format';
 import { klimaLabel, klimaSensor } from '../lib/klimachip';
@@ -559,7 +559,8 @@ export function TopStrip({
                 <View key={gang.category}>
                   <Text style={styles.gangLabel}>{gang.category}</Text>
                   {gang.items.map((eintrag: EinkaufZeile) => {
-                    const { menge, name } = mengeUndName(String(eintrag.text ?? ''));
+                    const { anzahl, artikel: name, menge: mass } = einkaufZeile(eintrag);
+                    const menge = anzahl;
                     return (
                       <View key={eintrag.id} style={styles.lightRow}>
                         <Pressable
@@ -587,6 +588,11 @@ export function TopStrip({
                           />
                           <Text style={[styles.lightName, { flex: 1 }]} numberOfLines={1}>
                             {menge > 1 ? `${menge}× ${name}` : name}
+                            {mass ? (
+                              // Die Menge aus dem Rezept – daneben und
+                              // leiser, denn gesucht wird der Artikel.
+                              <Text style={styles.einkaufMass}>{`  ${mass}`}</Text>
+                            ) : null}
                           </Text>
                         </Pressable>
                         {/* Menge und Wegnehmen stehen rechts und sind bewusst
@@ -1024,6 +1030,7 @@ const makeStyles = (colors: Colors) =>
   },
   // Bis die Anwesenheit da ist – der Hub wird erst beim Öffnen gefragt.
   daLaedt: { paddingVertical: 24, alignItems: 'center' },
+  einkaufMass: { color: colors.inkFaint, fontWeight: '400' },
   lightRow: {
     flexDirection: 'row',
     alignItems: 'center',
