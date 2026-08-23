@@ -131,6 +131,94 @@ export const pinkColors: Colors = {
   warmCool: ['#E09A3E', '#F2EDE4', '#7FB2F0'],
 };
 
+/**
+ * Mitternacht: Dunkel in Indigo.
+ *
+ * Für alle, denen das Blaugrau zu nüchtern ist und das Pink zu laut. Der
+ * Grund liegt tief im Indigo (Farbton um 235 Grad), der Akzent ist ein
+ * helles Perlblau aus derselben Familie – die Lehre aus dem
+ * Pink-Erscheinungsbild: Die Fläche entscheidet, nicht der Knopf, und
+ * Grund und Akzent müssen in dieselbe Familie gehören, sonst kippt der
+ * Eindruck ins Unbestimmte.
+ *
+ * «An» bleibt grün, «Gefahr» bleibt rot – wie überall: Signale tragen
+ * keine Mode.
+ */
+export const mitternachtColors: Colors = {
+  gradient: ['#262848', '#1B1D38', '#121327'],
+
+  // Die Glasflächen mit einem Hauch Indigo statt reinem Weiss – so
+  // liegen sie im Grund, statt darauf zu schwimmen.
+  surface: 'rgba(226, 229, 255, 0.10)',
+  surfaceStrong: 'rgba(226, 229, 255, 0.18)',
+  surfaceSoft: 'rgba(226, 229, 255, 0.07)',
+  surfaceBorder: 'rgba(226, 229, 255, 0.15)',
+  panel: '#1F2138',
+
+  ink: '#EDEFFC',
+  inkSoft: '#A8ACD2',
+  inkFaint: '#7B7FA6',
+
+  onGradient: '#FFFFFF',
+  onGradientSoft: 'rgba(255, 255, 255, 0.70)',
+
+  on: '#3DDC84',
+  onSoft: 'rgba(61, 220, 132, 0.18)',
+  off: 'rgba(226, 229, 255, 0.16)',
+  accent: '#8F92FF',
+  warn: '#FFC061',
+  danger: '#FF7B7B',
+  dangerSoft: 'rgba(255, 123, 123, 0.18)',
+
+  track: 'rgba(226, 229, 255, 0.13)',
+  warmCool: ['#E09A3E', '#F2EDE4', '#7FB2F0'],
+};
+
+/**
+ * Sand: Hell in Warm.
+ *
+ * Das helle Erscheinungsbild ist kühl – Blaugrau, Glas, Morgenlicht.
+ * Sand ist dieselbe Form in warm: ein Grund wie Packpapier, Tinte statt
+ * Anthrazit, und als Akzent Terracotta statt Blau. Gedacht für Räume
+ * mit Holz und warmem Licht, wo das kühle Blau wie ein Fremdkörper
+ * wirkt.
+ *
+ * Die Signale bleiben auch hier bei Grün und Rot; nur das Warn-Orange
+ * ist eine Spur tiefer, damit es sich vom Terracotta des Akzents
+ * unterscheidet und nicht im warmen Grund verschwimmt.
+ */
+export const sandColors: Colors = {
+  gradient: ['#A98F6D', '#897254', '#69583F'],
+
+  // Warmweiss statt Reinweiss: Auf Packpapier wirkt ein kaltes Weiss
+  // wie aufgeklebt.
+  surface: 'rgba(255, 251, 242, 0.80)',
+  surfaceStrong: 'rgba(255, 252, 246, 0.95)',
+  surfaceSoft: 'rgba(255, 251, 242, 0.28)',
+  surfaceBorder: 'rgba(255, 255, 255, 0.6)',
+  panel: '#F3ECDF',
+
+  ink: '#33291C',
+  inkSoft: '#77695A',
+  inkFaint: '#A29580',
+
+  onGradient: '#FFFFFF',
+  onGradientSoft: 'rgba(255, 255, 255, 0.80)',
+
+  on: '#34C759',
+  onSoft: 'rgba(52, 199, 89, 0.16)',
+  off: 'rgba(51, 41, 28, 0.14)',
+  accent: '#A94E26',
+  warn: '#DF8A00',
+  // Eine Stufe tiefer als im kühlen Hell: Das Warmweiss der Flächen ist
+  // etwas heller, und das Standard-Rot fiel dort unter die Lesbarkeit.
+  danger: '#D63438',
+  dangerSoft: 'rgba(214, 52, 56, 0.16)',
+
+  track: 'rgba(51, 41, 28, 0.10)',
+  warmCool: ['#F5A524', '#FFFFFF', '#8CC5FF'],
+};
+
 export const radius = { card: 26, control: 18, pill: 999 };
 export const space = { gap: 14, page: 22 };
 export const type = {
@@ -171,7 +259,14 @@ export const type = {
  */
 export const breakpoints = { rail: 700, sidePanel: 1000 };
 
-export type ThemeMode = 'system' | 'auto' | 'light' | 'dark' | 'pink';
+export type ThemeMode =
+  | 'system'
+  | 'auto'
+  | 'light'
+  | 'dark'
+  | 'pink'
+  | 'mitternacht'
+  | 'sand';
 
 // Standardstandort (Zell LU) – wie beim Hub. Nur für die Sonnenstand-Automatik.
 const DEFAULT_LAT = 47.13844;
@@ -236,17 +331,27 @@ export function ThemeProvider({
   useTakt(() => setNow(new Date()), mode === 'auto' ? 60000 : null);
 
   const value = useMemo<ThemeValue>(() => {
-    // Pink ist ein dunkles Erscheinungsbild – alles, was sich nach
-    // `dark` richtet (Statusleiste, Bilder, Kontraste), soll es auch hier.
+    // Pink und Mitternacht sind dunkle Erscheinungsbilder, Sand ein
+    // helles – alles, was sich nach `dark` richtet (Statusleiste,
+    // Bilder, Kontraste), soll das auch wissen.
     const dark =
-      mode === 'dark' || mode === 'pink'
+      mode === 'dark' || mode === 'pink' || mode === 'mitternacht'
         ? true
-        : mode === 'light'
+        : mode === 'light' || mode === 'sand'
           ? false
           : mode === 'auto'
             ? darkBySun(now)
             : scheme === 'dark';
-    const colors = mode === 'pink' ? pinkColors : dark ? darkColors : lightColors;
+    const colors =
+      mode === 'pink'
+        ? pinkColors
+        : mode === 'mitternacht'
+          ? mitternachtColors
+          : mode === 'sand'
+            ? sandColors
+            : dark
+              ? darkColors
+              : lightColors;
     return { colors, dark, mode };
   }, [mode, scheme, now]);
 

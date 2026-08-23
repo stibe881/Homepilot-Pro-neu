@@ -18,6 +18,8 @@ const MODES: { key: ThemeMode; label: string }[] = [
   { key: 'light', label: 'Hell' },
   { key: 'dark', label: 'Dunkel' },
   { key: 'pink', label: 'Pink' },
+  { key: 'mitternacht', label: 'Mitternacht' },
+  { key: 'sand', label: 'Sand' },
 ];
 
 interface Props {

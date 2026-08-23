@@ -144,7 +144,7 @@ export interface HubSettings {
   /** Optionaler Name für die Begrüssung. */
   name?: string;
   /** Erscheinungsbild: system, auto (nach Uhrzeit), light oder dark. */
-  theme?: 'system' | 'auto' | 'light' | 'dark' | 'pink';
+  theme?: 'system' | 'auto' | 'light' | 'dark' | 'pink' | 'mitternacht' | 'sand';
   // Die vier folgenden Felder sind Altlast, kein Speicherort mehr.
   //
   // Sie lagen hier – also im Speicher genau dieses Telefons – und waren
