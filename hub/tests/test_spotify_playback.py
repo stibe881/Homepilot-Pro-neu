@@ -251,3 +251,33 @@ def test_no_answer_means_no_queue():
     assert parse_queue(None) == []
     assert parse_queue({}) == []
     assert parse_queue({"queue": None}) == []
+
+
+# ── «Zufällig oder der Reihe nach?» am Playlist-Start ────────────────────
+#
+# Eine Szene «Party» soll nicht jeden Abend mit demselben Titel anfangen.
+# Die Angabe reist als Zusatzdatum mit play_playlist mit – und darf, wenn
+# sie fehlt, nichts umstellen.
+
+
+def test_shuffle_wunsch_reads_the_three_answers():
+    from homepilot.integrations.spotify import shuffle_wunsch
+
+    assert shuffle_wunsch({"shuffle": True}) is True
+    assert shuffle_wunsch({"shuffle": False}) is False
+    # Ohne Angabe bleibt die Einstellung des Hauses, wie sie ist.
+    assert shuffle_wunsch({}) is None
+    assert shuffle_wunsch({"shuffle": None}) is None
+    assert shuffle_wunsch({"shuffle": ""}) is None
+
+
+def test_shuffle_wunsch_understands_a_handwritten_config():
+    from homepilot.integrations.spotify import shuffle_wunsch
+
+    # In der config.yaml schreibt niemand `true`, wenn «ja» gemeint ist.
+    assert shuffle_wunsch({"shuffle": "ja"}) is True
+    assert shuffle_wunsch({"shuffle": "an"}) is True
+    assert shuffle_wunsch({"shuffle": "aus"}) is False
+    assert shuffle_wunsch({"shuffle": "nein"}) is False
+    # Und was niemand deuten kann, stellt lieber nichts um.
+    assert shuffle_wunsch({"shuffle": "vielleicht"}) is None

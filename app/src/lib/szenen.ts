@@ -53,6 +53,68 @@ export function richtungSchluessel(
   return (gesetzt === false ? passend.find((e) => !e.wert) : passend.find((e) => e.wert))!.key;
 }
 
+/** Was zu einem «Musik an» dazugehören kann. */
+export interface MusikWunsch {
+  /** Name der Playlist. Leer heisst «weiterspielen, was lief». */
+  playlist?: string;
+  /** Auf welcher Box. Leer heisst «dort, wo zuletzt Musik lief». */
+  device?: string;
+  /** Zufällige Reihenfolge. undefined lässt die Einstellung, wie sie ist. */
+  shuffle?: boolean;
+}
+
+/**
+ * «Musik an» plus Playlist → der Befehl, den der Hub kennt (rein, testbar).
+ *
+ * «Playlist» war einmal ein eigener Chip neben «Musik an». Wer eine Box
+ * in eine Szene nahm und «Musik an» wählte, bekam darunter nichts zu
+ * sehen und suchte die Playlist dort, wo sie nicht war. Jetzt ist «Musik
+ * an» die eine Antwort und die Playlist ihre Beilage: ohne sie spielt
+ * weiter, was lief; mit ihr wird daraus `play_playlist`.
+ *
+ * `null` heisst «nichts Besonderes» – der Aufrufer nimmt dann den Befehl,
+ * wie er dasteht.
+ */
+export function musikBefehl(
+  command: string,
+  wunsch: MusikWunsch
+): { command: string; data: Record<string, string | boolean> } | null {
+  // `play_playlist` steht hier nur noch für Entwürfe, die von irgendwoher
+  // mit dem alten Schlüssel kommen. Sie stillschweigend ohne Playlist
+  // wegzuschicken wäre der schlimmere Fall.
+  if (command !== 'play' && command !== 'play_playlist') return null;
+  const playlist = String(wunsch.playlist ?? '').trim();
+  if (!playlist) return null;
+  const data: Record<string, string | boolean> = { name: playlist };
+  if (wunsch.device) data.device = wunsch.device;
+  // Nur mitschicken, wenn jemand sich entschieden hat: Sonst stellte eine
+  // Szene «Kino» die Reihenfolge des ganzen Kontos um, ohne es zu sagen.
+  if (typeof wunsch.shuffle === 'boolean') data.shuffle = wunsch.shuffle;
+  return { command: 'play_playlist', data };
+}
+
+/**
+ * Gespeichertes `play_playlist` zurück in «Musik an» plus Beilage
+ * (rein, testbar).
+ *
+ * Das Gegenstück zu `musikBefehl`. Beim Hub bleibt alles, wie es war –
+ * nur im Editor leuchtet jetzt «Musik an» statt eines Chips, den es
+ * nicht mehr gibt.
+ */
+export function musikSchluessel(
+  command: string,
+  data: Record<string, unknown> | undefined
+): (MusikWunsch & { command: string }) | null {
+  if (command !== 'play_playlist') return null;
+  const shuffle = data?.shuffle;
+  return {
+    command: 'play',
+    playlist: String(data?.name ?? ''),
+    device: data?.device ? String(data.device) : undefined,
+    shuffle: typeof shuffle === 'boolean' ? shuffle : undefined,
+  };
+}
+
 /** Eine Aktion, wie der Szenen-Editor sie hält. */
 export interface SceneActionDraft {
   entity_id: string;
@@ -88,6 +150,9 @@ export interface SceneActionDraft {
   /** Auf welcher Box die Playlist spielen soll. Leer heisst «dort, wo
    *  zuletzt Musik lief» – in einer Szene ist das eine Wette. */
   device?: string;
+  /** Playlist zufällig abspielen. undefined lässt die Einstellung des
+   *  Kontos, wie sie ist. */
+  shuffle?: boolean;
 }
 
 /**
@@ -182,6 +247,7 @@ export function sceneActionsToDraft(
       name?: string;
       app?: string;
       device?: string;
+      shuffle?: boolean;
     };
   }[]
 ): SceneActionDraft[] {
@@ -197,9 +263,12 @@ export function sceneActionsToDraft(
       }
     }
     const richtung = richtungSchluessel(action.command, action.data);
+    // Gespeichert steht play_playlist, im Editor leuchtet «Musik an» mit
+    // der Playlist als Beilage – sonst leuchtete beim Öffnen gar nichts.
+    const musik = musikSchluessel(action.command, action.data);
     result.push({
       entity_id: action.entity_id,
-      command: richtung ?? action.command,
+      command: musik?.command ?? richtung ?? action.command,
       rooms: action.data?.rooms,
       position: action.data?.position,
       brightness: action.data?.brightness,
@@ -209,6 +278,7 @@ export function sceneActionsToDraft(
       playlist: action.data?.name,
       app: action.data?.app,
       device: action.data?.device,
+      shuffle: musik?.shuffle,
       transition: action.data?.transition,
       color: action.command === 'set_color' ? String(action.data?.color ?? '') : undefined,
     });

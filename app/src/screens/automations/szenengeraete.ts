@@ -107,11 +107,12 @@ export function baseCommandOptions(entity: Entity): { key: string; label: string
     if (kann('mute')) {
       options.push({ key: STUMM_EIN, label: 'stumm' }, { key: STUMM_AUS, label: 'Ton an' });
     }
-    // Playlist und App nur, wenn das Gerät welche meldet – eine leere
-    // Auswahl anzubieten ist schlimmer als keine.
-    if (kann('play_playlist') && playlistsVon(entity).length > 0) {
-      options.push({ key: 'play_playlist', label: 'Playlist' });
-    }
+    // «Playlist» war einmal ein eigener Chip neben «Musik an». Wer eine
+    // Box in eine Szene nahm und «Musik an» wählte – was man dafür eben
+    // wählt –, bekam darunter nichts zu sehen und suchte die Playlist
+    // dort, wo sie nicht war. Sie hängt jetzt an «Musik an», siehe
+    // `playlistWahl`; ein zweiter Chip daneben wäre eine zweite Antwort
+    // auf dieselbe Frage.
     if (kann('launch_app') && appsVon(entity).length > 0) {
       options.push({ key: 'launch_app', label: 'App' });
     }
@@ -141,6 +142,23 @@ export function baseCommandOptions(entity: Entity): { key: string; label: string
 }
 
 
+
+/** Lässt sich zu «Musik an» eine Playlist wählen? (rein, testbar)
+ *
+ * Nur wo das Gerät sie starten kann *und* welche meldet: Eine leere
+ * Auswahl anzubieten ist schlimmer als keine. Google-Home-Boxen können
+ * es selbst nicht – sie stehen dafür bei Spotify als Ziel-Box. */
+export function playlistWahl(entity: Entity): boolean {
+  return entity.commands.includes('play_playlist') && playlistsVon(entity).length > 0;
+}
+
+/** Kann dieses Gerät die Reihenfolge mischen? (rein, testbar)
+ *
+ * «Party» soll nicht jeden Abend mit demselben Titel anfangen. Ohne den
+ * Befehl gibt es die Frage nicht – ein Chip dafür wäre eine Attrappe. */
+export function mischenMoeglich(entity: Entity): boolean {
+  return entity.commands.includes('shuffle');
+}
 
 /** Die Playlists, die dieses Gerät meldet (rein, testbar).
  *
