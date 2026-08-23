@@ -125,7 +125,13 @@ export const makeStyles = (colors: Colors) =>
       marginTop: -4,
     },
     pausenText: { color: colors.onGradientSoft, fontSize: 13, flexGrow: 1 },
-    pausenKnoepfe: { flexDirection: 'row', gap: 8 },
+    // Umbrechend, seit der Babysitter dazugekommen ist: Drei Knöpfe
+    // passen auf dem Telefon nicht in eine Zeile, und der dritte ragte
+    // sonst über den rechten Rand hinaus.
+    // flexShrink: In React Native schrumpfen Flex-Kinder von sich aus
+    // nicht - ohne das ragte der dritte Knopf über den rechten Rand
+    // hinaus, statt in die nächste Zeile zu rutschen.
+    pausenKnoepfe: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, flexShrink: 1 },
     // Vorlagen: eingeklappt eine Zeile, aufgeklappt eine je Vorlage mit
     // Stift und Kreuz am rechten Rand.
     vorlagenKopf: { flexDirection: 'row', alignItems: 'center', gap: 6 },
@@ -141,8 +147,6 @@ export const makeStyles = (colors: Colors) =>
     // mehr stehen ausser der Möglichkeit, es zurückzuholen.
     quittungBlock: { gap: 2, marginTop: -6, paddingHorizontal: 4 },
     quittungAllein: { gap: 2, marginTop: -4, paddingHorizontal: 4, opacity: 0.75 },
-    // Der Babysitter-Schalter: Symbol, Titel, Knopf in einer Zeile.
-    babysitterRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     templateOn: { backgroundColor: colors.accent, borderColor: colors.accent },
     templatesLabel: {
       color: colors.onGradientSoft,

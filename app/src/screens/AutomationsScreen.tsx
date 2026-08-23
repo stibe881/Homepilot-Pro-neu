@@ -17,7 +17,7 @@ import {
   sceneActionsToDraft,
   szenenRueckweg,
 } from '../lib/szenen';
-import { BabysitterStand, LEERER_BABYSITTER, istFreigegeben, modusSatz } from '../lib/babysitter';
+import { BabysitterStand, LEERER_BABYSITTER, istFreigegeben, modusSatz, seitText } from '../lib/babysitter';
 import { Editor, Fassung } from './automations/editor';
 import { Automation, Draft, DryRun, EMPTY, Run, StepDraft, TriggerHealth, buildConditions, describe, groupByCategory, lastRunText, newTrigger, runLine, search, stepToActions, stepsToActions, symbolFuerNamen, szenenSymbol, toDraft, triggerIcon, triggerToConfig, usedCategories, zeitpunktLabel } from './automations/entwurf';
 import { Groups, SearchBox } from './automations/felder';
@@ -708,9 +708,18 @@ export function AutomationsScreen({
           liest man sie nur, wenn etwas ruhen soll. */}
       {mayPause && automations.length > 0 ? (
         <View style={styles.pausenZeile}>
-          <Text style={[styles.pausenText, pausiertBis ? { color: colors.warn } : null]}>
+          <Text
+            style={[
+              styles.pausenText,
+              pausiertBis || babysitter.active ? { color: colors.warn } : null,
+            ]}
+          >
             {automations.length} Abläufe ·{' '}
-            {pausiertBis ? `pausiert bis ${uhr(new Date(pausiertBis))}` : 'aktiv'}
+            {babysitter.active
+              ? `Babysitter-Modus${seitText(babysitter.since)}`
+              : pausiertBis
+                ? `pausiert bis ${uhr(new Date(pausiertBis))}`
+                : 'aktiv'}
           </Text>
           {/* Die beiden Knöpfe als ein Stück: Auf dem Telefon rutscht
               sonst «Bis morgen» allein in die nächste Zeile. */}
@@ -741,8 +750,54 @@ export function AutomationsScreen({
                 </Pressable>
               </>
             )}
+            {/* Der Babysitter gehört hierher und nicht in einen eigenen
+                Kasten weiter unten: Es ist dieselbe Frage - «alles mal
+                ruhen lassen» -, nur gezielter. Pausieren gilt für eine
+                Stunde und für alle; der Babysitter gilt, bis jemand ihn
+                beendet, und lässt die freigegebenen laufen. */}
+            <Pressable
+              onPress={() => babysitterModus(!babysitter.active)}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: babysitter.active }}
+              accessibilityLabel={
+                babysitter.active
+                  ? 'Babysitter-Modus beenden'
+                  : 'Babysitter-Modus einschalten'
+              }
+              style={({ pressed }) => [
+                styles.template,
+                babysitter.active && { backgroundColor: colors.warn, borderColor: colors.warn },
+                pressed && { opacity: 0.75 },
+              ]}
+            >
+              <Ionicons
+                name={babysitter.active ? 'happy' : 'happy-outline'}
+                size={14}
+                color={babysitter.active ? '#FFFFFF' : colors.inkSoft}
+              />
+              <Text
+                style={[
+                  styles.templateText,
+                  babysitter.active && { color: '#FFFFFF' },
+                ]}
+              >
+                {babysitter.active ? 'Babysitter beenden' : 'Babysitter'}
+              </Text>
+            </Pressable>
           </View>
         </View>
+      ) : null}
+
+      {/* Was der Modus bedeutet, steht *vor* dem Drücken da - danach
+          wäre die Auskunft wertlos, dann sind die Storen schon unten.
+          Läuft er, bleibt der Satz stehen und sagt zusätzlich, wie man
+          einen Ablauf davon ausnimmt. */}
+      {mayPause && automations.length > 0 ? (
+        <Text style={[styles.triggerNote, babysitter.active && { color: colors.warn }]}>
+          {babysitter.active
+            ? `${modusSatz(babysitter, automations.length)} Freigegeben wird je Ablauf – das Schild neben dem Stift. Melder für Wasser und Rauch, die Alarmanlage selbst und die Meldungen des Wächters laufen unabhängig davon weiter.`
+            : modusSatz(babysitter, automations.length)}
+        </Text>
       ) : null}
 
       {agenda.length > 0 ? (
@@ -1028,62 +1083,6 @@ export function AutomationsScreen({
               </Text>
             </>
           ) : null}
-        </View>
-      ) : null}
-
-      {/* Der Babysitter sitzt im Wohnzimmer, und die Anwesenheit weiss
-          nichts davon: «alles aus, wenn niemand mehr zuhause ist» fährt
-          sonst die Storen herunter, während jemand darin sitzt. */}
-      {automations.length > 0 && mayPause ? (
-        <View
-          style={[
-            styles.templates,
-            babysitter.active ? { borderColor: colors.warn, borderWidth: 1 } : null,
-          ]}
-        >
-          <View style={styles.babysitterRow}>
-            {/* Kein Schild: Das steht in dieser App für die Alarmanlage,
-                und der Babysitter-Modus schaltet gerade nichts scharf.
-                Dasselbe Gesicht wie unter Familie → Babysitter und vor
-                einem Ablauf, der so heisst (lib/entwurf: symbolFuerNamen)
-                - dieselbe Sache, dasselbe Bild. */}
-            <Ionicons
-              name={babysitter.active ? 'happy' : 'happy-outline'}
-              size={20}
-              color={babysitter.active ? colors.warn : colors.inkSoft}
-            />
-            <Text style={[styles.templatesLabel, { flex: 1 }]}>Babysitter-Modus</Text>
-            <Pressable
-              onPress={() => babysitterModus(!babysitter.active)}
-              accessibilityRole="switch"
-              accessibilityState={{ checked: babysitter.active }}
-              accessibilityLabel={
-                babysitter.active
-                  ? 'Babysitter-Modus ausschalten'
-                  : 'Babysitter-Modus einschalten'
-              }
-              style={({ pressed }) => [
-                styles.template,
-                babysitter.active && { backgroundColor: colors.warn },
-                pressed && { opacity: 0.75 },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.templateText,
-                  babysitter.active && { color: '#FFFFFF', fontWeight: '600' },
-                ]}
-              >
-                {babysitter.active ? 'läuft' : 'einschalten'}
-              </Text>
-            </Pressable>
-          </View>
-          <Text style={styles.note}>{modusSatz(babysitter, automations.length)}</Text>
-          <Text style={styles.note}>
-            Freigegeben wird je Ablauf – das Schild neben dem Stift. Melder für
-            Wasser und Rauch, die Alarmanlage selbst und die Meldungen des
-            Wächters laufen unabhängig davon weiter.
-          </Text>
         </View>
       ) : null}
 
