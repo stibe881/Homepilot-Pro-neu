@@ -550,6 +550,7 @@ export function AutomationsScreen({
       room: sceneDraft.room || null,
       on_start: !!sceneDraft.onStart,
       transition: Math.max(0, Number(sceneDraft.transition) || 0),
+      toggles: sceneDraft.toggles !== false,
       category: sceneDraft.category?.trim() || null,
       actions: sceneDraft.actions
         .filter((action) => action.entity_id)
@@ -1400,6 +1401,7 @@ export function AutomationsScreen({
               icon: SCENE_ICONS[0],
               onStart: false,
               transition: 0,
+              toggles: true,
               actions: [],
             })
           }
@@ -1472,6 +1474,9 @@ export function AutomationsScreen({
                           room: scene.room ?? undefined,
                           onStart: !!scene.on_start,
                           transition: Number(scene.transition) || 0,
+                          // Fehlt das Feld, gilt «bleibt aktiv» - so
+                          // verhalten sich die Szenen, die es schon gab.
+                          toggles: scene.toggles !== false,
                           category: scene.category ?? undefined,
                           actions: sceneActionsToDraft(scene.actions ?? []),
                         })

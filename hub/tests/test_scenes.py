@@ -184,3 +184,42 @@ async def test_zuruecknehmen_ohne_gespeicherten_weg_sagt_das():
             await hub.scenes.revert("kino")
     finally:
         await hub.stop()
+
+
+async def test_eine_handlung_bleibt_nicht_aktiv():
+    """«Alles aus» ist keine Szene, die gilt – sie ist etwas, das man tut.
+
+    Ein Knopf, der danach leuchtet und beim nächsten Druck das halbe
+    Haus wieder anschaltet, wäre dort das Gegenteil von hilfreich.
+    """
+    handlung = {**KINO, "id": "alles_aus", "name": "Alles aus", "toggles": False}
+    hub = await make_hub([handlung])
+    try:
+        await hub.integrations.dispatch_command("demo.switch_coffee", "turn_on")
+        await hub.scenes.activate("alles_aus")
+        assert hub.registry.get("demo.switch_coffee").state["state"] == "off"
+
+        # Kein Leuchten, kein Rückweg.
+        assert hub.scenes.ist_aktiv(hub.scenes.get("alles_aus")) is False
+        assert hub.scenes.undo_fuer("alles_aus") == []
+        with pytest.raises(HomePilotError, match="löst nur aus"):
+            await hub.scenes.revert("alles_aus")
+
+        # Und der zweite Druck löst schlicht noch einmal aus.
+        await hub.integrations.dispatch_command("demo.switch_coffee", "turn_on")
+        await hub.scenes.toggle("alles_aus")
+        assert hub.registry.get("demo.switch_coffee").state["state"] == "off"
+    finally:
+        await hub.stop()
+
+
+def test_toggles_ist_voreingestellt_an():
+    """Der Umschalter ist das nützlichere Verhalten – wer es nicht will,
+    hakt es beim Anlegen ab."""
+    from homepilot.core.scenes import parse_scenes
+
+    (szene,) = parse_scenes([{"id": "x", "actions": []}])
+    assert szene.toggles is True
+    (aus,) = parse_scenes([{"id": "x", "actions": [], "toggles": False}])
+    assert aus.toggles is False
+    assert szene.as_dict()["toggles"] is True
