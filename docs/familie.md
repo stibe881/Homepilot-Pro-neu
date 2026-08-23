@@ -73,6 +73,41 @@ nächsten Tag.
 Das Token wird genau einmal angezeigt – beim Anlegen. Danach steht es
 nirgends mehr; wer es verliert, öffnet den Zugang neu.
 
+### Der Babysitter-Modus
+
+Etwas anderes als der Zugang, und der wichtigere Teil. Der Zugang lässt
+jemanden in die App; der Modus hält die Abläufe zurück, die annehmen, es
+sei niemand zuhause.
+
+Denn genau das nimmt der Hub an: Sind die Eltern weg, meldet die
+Anwesenheit «niemand zuhause» – und «alles aus, wenn niemand mehr zuhause
+ist» fährt die Storen herunter, löscht das Licht und schaltet die
+Alarmanlage scharf, während der Babysitter im Wohnzimmer sitzt und die
+Kinder schlafen.
+
+Solange der Modus läuft, ruhen **alle Abläufe ausser den ausdrücklich
+freigegebenen**. Freigegeben wird je Ablauf: unter **Abläufe** das Schild
+neben dem Stift antippen. Gefülltes Schild = läuft im Modus.
+
+Zwei Dinge, die dabei absichtlich so sind:
+
+- **Die Haken bleiben stehen**, wenn der Modus wieder aus ist. Wer ihn am
+  nächsten Abend einschaltet, muss nicht neu anhaken.
+- **Auch Abläufe aus der config.yaml lassen sich anhaken.** Die Liste
+  liegt neben den Abläufen, nicht in ihnen – sonst müsste man für einen
+  Haken die Datei anfassen.
+
+Nicht betroffen ist alles, was nicht über Abläufe geht: Wasser- und
+Rauchmelder, die Alarmanlage selbst und die Meldungen des Wächters laufen
+weiter. Sie sind kein Komfort, den man abschaltet.
+
+Einschalten geht an zwei Stellen – hier auf der Babysitter-Seite und oben
+auf der Seite **Abläufe**. Beide zeigen vorher, was der Modus bewirkt:
+«Beim Einschalten laufen 3 von 20 Abläufen weiter, 17 ruhen.» Danach
+wäre die Auskunft wertlos – dann sind die Storen schon unten. Läuft er,
+steht dort, seit wann; am nächsten Morgen ist das die Antwort auf die
+Frage, ob jemand vergessen hat auszuschalten.
+
 ## Wochenplan
 
 Eine Seite statt vier Modulen, und zwar zum Planen, nicht nur zum Lesen:

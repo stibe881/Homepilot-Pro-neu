@@ -8,6 +8,7 @@ Sachgebiet statt 3800 Zeilen am Stück. Die Routen selbst sind unverändert
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from fastapi import (
@@ -17,12 +18,15 @@ from fastapi import (
 )
 
 from ...core import automation as automation_module
+from ...core import babysitter as babysitter_module
 from ...core import editversions as editversions_module
 from ...core import trash as trash_module
 from ...core.users import Capability, Role
 from ..context import ApiContext
 from ..models import (
     AutomationRequest,
+    BabysitterAllowRequest,
+    BabysitterRequest,
     PauseRequest,
     ProbeStepRequest,
     RestoreVersionRequest,
@@ -326,6 +330,52 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 if hub.automations.paused_until
                 else None
             ),
+            "babysitter": babysitter_module.summary(
+                hub.data.get(babysitter_module.KEY),
+                [automation.id for automation in hub.automations.automations],
+            ),
+        }
+
+    @app.post("/api/automations/babysitter")
+    async def set_babysitter(body: BabysitterRequest, request: Request) -> dict[str, Any]:
+        """Den Babysitter-Modus ein- oder ausschalten.
+
+        Dieselbe Berechtigung wie das Pausieren: Es ist derselbe Eingriff -
+        Abläufe ruhen zu lassen -, nur gezielter.
+        """
+        require(request, Capability.PAUSE_AUTOMATIONS)
+        stand = babysitter_module.set_active(
+            hub.data.get(babysitter_module.KEY), body.active, now=time.time()
+        )
+        hub.data.set(babysitter_module.KEY, babysitter_module.store(stand))
+        log.info("Babysitter-Modus %s", "an" if body.active else "aus")
+        return {
+            "babysitter": babysitter_module.summary(
+                stand, [automation.id for automation in hub.automations.automations]
+            )
+        }
+
+    @app.put("/api/automations/{automation_id}/babysitter")
+    async def allow_babysitter(
+        automation_id: str, body: BabysitterAllowRequest, request: Request
+    ) -> dict[str, Any]:
+        """Einen Ablauf für den Modus frei- oder zurückgeben.
+
+        Bewusst unabhängig davon, wo der Ablauf herkommt: Auch einer aus
+        der config.yaml lässt sich anhaken, ohne die Datei anzufassen.
+        Die Liste liegt darum neben den Abläufen, nicht in ihnen.
+        """
+        require(request, Capability.PAUSE_AUTOMATIONS)
+        if not any(a.id == automation_id for a in hub.automations.automations):
+            raise HTTPException(status_code=404, detail="Unbekannter Ablauf")
+        stand = babysitter_module.toggle(
+            hub.data.get(babysitter_module.KEY), automation_id, body.allow
+        )
+        hub.data.set(babysitter_module.KEY, babysitter_module.store(stand))
+        return {
+            "babysitter": babysitter_module.summary(
+                stand, [automation.id for automation in hub.automations.automations]
+            )
         }
 
     @app.post("/api/automations/pause")

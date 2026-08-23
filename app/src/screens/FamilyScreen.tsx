@@ -6,6 +6,7 @@ import { Image, Linking, Modal, Pressable, ScrollView, Share, Text, TextInput, V
 
 import { HubFehler, hubClient } from '../api/client';
 import { Card } from '../components/Card';
+import { BabysitterStand, LEERER_BABYSITTER, modusSatz } from '../lib/babysitter';
 import { DraggableList } from '../components/DraggableList';
 import { Shops } from '../components/Shops';
 import { useColors } from '../theme';
@@ -575,6 +576,12 @@ export function FamilyScreen({
   const darfBenutzer =
     currentUser?.role === 'besitzer' || currentUser?.role === 'bewohner';
   const babysitterAktiv = !!babysitterUser?.enabled;
+  // Der Modus ist etwas anderes als der Zugang: Der Zugang lässt jemanden
+  // in die App, der Modus hält die Abläufe zurück, die «niemand zuhause»
+  // annehmen. Beides gehört auf dieselbe Seite, aber an eigene Schalter -
+  // man will den einen ohne den anderen haben können.
+  const [modus, setModus] = useState<BabysitterStand>(LEERER_BABYSITTER);
+  const [ablaufZahl, setAblaufZahl] = useState(0);
 
   const ladeBabysitter = useCallback(() => {
     if (!darfBenutzer) return;
@@ -593,9 +600,39 @@ export function FamilyScreen({
       });
   }, [hub, darfBenutzer]);
 
+  const ladeModus = useCallback(() => {
+    hub
+      .get<{ automations?: unknown[]; babysitter?: BabysitterStand } | null>(
+        '/api/automations',
+        { fallback: null, still: true }
+      )
+      .then((daten) => {
+        setModus(daten?.babysitter ?? LEERER_BABYSITTER);
+        setAblaufZahl(daten?.automations?.length ?? 0);
+      });
+  }, [hub]);
+
+  const schalteModus = async (active: boolean) => {
+    try {
+      const antwort = await hub.post<{ babysitter?: BabysitterStand }>(
+        '/api/automations/babysitter',
+        { active },
+        { still: true }
+      );
+      setModus(antwort?.babysitter ?? LEERER_BABYSITTER);
+    } catch (err) {
+      setError(
+        `Babysitter-Modus nicht umgestellt (${err instanceof Error ? err.message : err})`
+      );
+    }
+  };
+
   useEffect(() => {
-    if (view === 'babysitter') ladeBabysitter();
-  }, [view, ladeBabysitter]);
+    if (view === 'babysitter') {
+      ladeBabysitter();
+      ladeModus();
+    }
+  }, [view, ladeBabysitter, ladeModus]);
 
   const oeffneBabysitter = async (bis: string) => {
     const zugang = babysitterZugang(new Date(), bis);
@@ -1908,6 +1945,55 @@ export function FamilyScreen({
             und gibt nur Licht und Familie frei: keine Türen, kein Alarm,
             keine Kameras. Was man nicht freigibt, muss man später nicht
             bereuen. */}
+        {/* Der Grund, warum es diesen Modus gibt: Sind die Eltern weg,
+            meldet die Anwesenheit «niemand zuhause» - und «alles aus»
+            fährt die Storen herunter und schaltet scharf, während der
+            Babysitter im Wohnzimmer sitzt. */}
+        {darfBenutzer && ablaufZahl > 0 ? (
+          <Card
+            style={{
+              ...styles.listCard,
+              ...(modus.active ? { borderColor: colors.warn } : {}),
+            }}
+          >
+            <View style={styles.checkRow}>
+              <Ionicons
+                name={modus.active ? 'shield-checkmark' : 'shield-outline'}
+                size={20}
+                color={modus.active ? colors.warn : colors.inkSoft}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.checkText}>Babysitter-Modus</Text>
+                <Text style={styles.checkSub}>{modusSatz(modus, ablaufZahl)}</Text>
+              </View>
+              <Pressable
+                onPress={() => schalteModus(!modus.active)}
+                accessibilityRole="switch"
+                accessibilityState={{ checked: modus.active }}
+                accessibilityLabel={
+                  modus.active
+                    ? 'Babysitter-Modus ausschalten'
+                    : 'Babysitter-Modus einschalten'
+                }
+                style={({ pressed }) => [
+                  styles.chip,
+                  modus.active && styles.chipActive,
+                  pressed && { opacity: 0.8 },
+                ]}
+              >
+                <Text style={[styles.chipText, modus.active && styles.chipTextActive]}>
+                  {modus.active ? 'läuft' : 'einschalten'}
+                </Text>
+              </Pressable>
+            </View>
+            <Text style={styles.formHintSmall}>
+              Welche Abläufe trotzdem laufen, hakt man unter Abläufe an – das
+              Schild neben dem Stift. Wasser- und Rauchmelder, die Alarmanlage
+              selbst und die Meldungen des Wächters sind davon nicht betroffen.
+            </Text>
+          </Card>
+        ) : null}
+
         {darfBenutzer ? (
           <Card style={styles.listCard}>
             <View style={styles.checkRow}>

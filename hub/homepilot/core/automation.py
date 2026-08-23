@@ -62,7 +62,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from . import astro, feiertage, kamera, snapshots
+from . import astro, babysitter, feiertage, kamera, snapshots
 from . import light as licht
 from .source import as_source, automation_source
 
@@ -1487,6 +1487,19 @@ class AutomationEngine:
         hat, nicht die des anderen Zimmers."""
         if self.paused:
             log.debug("Automation '%s' übersprungen (pausiert)", automation.alias)
+            return
+        # Der Babysitter sitzt im Wohnzimmer, und die Anwesenheit weiss
+        # nichts davon. Solange sein Modus läuft, ruht alles, was nicht
+        # ausdrücklich freigegeben ist - allen voran «alles aus, wenn
+        # niemand mehr zuhause ist».
+        if babysitter.blocks(self.hub.data.get(babysitter.KEY), automation.id):
+            log.info("Automation '%s' übersprungen (Babysitter-Modus)", automation.alias)
+            self._note(
+                automation,
+                executed=False,
+                error=None,
+                skipped=["Babysitter-Modus"],
+            )
             return
         if automation.quiet_until and time.time() < automation.quiet_until:
             # Ruht noch. Anders als «ausgeschaltet» meldet er sich von

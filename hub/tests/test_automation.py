@@ -1972,3 +1972,45 @@ def test_ungueltige_uhrzeit_laesst_die_bedingung_scheitern():
 
     assert not time_in_window(datetime(2026, 8, 23, 23), "abends", None)
     assert not time_in_window(datetime(2026, 8, 23, 23), "22:00", "morgens")
+
+
+async def test_der_babysitter_modus_haelt_nicht_freigegebene_ablaeufe_zurueck():
+    """Der Fall, für den es den Modus gibt.
+
+    Die Eltern sind weg, die Anwesenheit meldet «niemand zuhause» - und
+    «alles aus» fährt die Storen herunter, während der Babysitter im
+    Wohnzimmer sitzt.
+    """
+    from homepilot.core import babysitter
+
+    hub = await run_hub([MOTION_AUTOMATION])
+    try:
+        hub.data.set(babysitter.KEY, babysitter.store({"active": True, "allow": []}))
+        await hub.integrations.dispatch_command("demo.light_livingroom", "turn_off")
+        await settle()
+        await hub.integrations.dispatch_command("demo.motion_hall", "turn_on")
+        await settle()
+
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "off"
+        # Und man sieht, warum - «geht nicht» ist keine Auskunft.
+        assert hub.automations.runs[0]["skipped"] == ["Babysitter-Modus"]
+    finally:
+        await hub.stop()
+
+
+async def test_ein_freigegebener_ablauf_laeuft_im_modus_weiter():
+    """Das Bewegungslicht im Flur soll gerade dann laufen."""
+    from homepilot.core import babysitter
+
+    hub = await run_hub([MOTION_AUTOMATION])
+    try:
+        hub.data.set(
+            babysitter.KEY, babysitter.store({"active": True, "allow": ["motion_light"]})
+        )
+        await hub.integrations.dispatch_command("demo.light_livingroom", "turn_off")
+        await settle()
+        await hub.integrations.dispatch_command("demo.motion_hall", "turn_on")
+        await settle()
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "on"
+    finally:
+        await hub.stop()
