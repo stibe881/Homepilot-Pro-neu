@@ -81,11 +81,19 @@ export const darkColors: Colors = {
 };
 
 /**
- * Dunkel in Pflaume und Pink.
+ * Dunkel in Pink.
  *
  * Dieselben Rollen wie das dunkle Erscheinungsbild, nur in einer anderen
- * Familie: Der Grund geht ins Aubergine statt ins Blaugrau, und was
+ * Familie: Der Grund geht ins Rosé statt ins Blaugrau, und was
  * hervorsticht, ist pink statt blau.
+ *
+ * Der Grund war lange Aubergine, und genau daran lag es, dass das
+ * Erscheinungsbild violett wirkte statt pink: Der Akzent stand bei einem
+ * Farbton von 334 Grad - klares Pink -, der Grund aber bei 313 bis 321,
+ * und das ist Violett. Die Fläche entscheidet, nicht der Knopf: Sie
+ * füllt den Bildschirm, er ist ein Punkt darauf. Jetzt liegen beide in
+ * derselben Familie, und die Sattheit des Grundes ist höher - ein
+ * gedämpftes Rosa in dieser Dunkelheit liest sich sonst kastanienbraun.
  *
  * Zwei Farben bleiben bewusst aus der Familie heraus: «an» ist weiter
  * grün und «Gefahr» rot. Ein pinkes «an» neben einem pinken Knopf liesse
@@ -94,19 +102,19 @@ export const darkColors: Colors = {
  * Lachston, der neben dem Pink verschwämme.
  */
 export const pinkColors: Colors = {
-  gradient: ['#4A2542', '#331A2D', '#22111C'],
+  gradient: ['#552036', '#3C1626', '#280E19'],
 
   // Die Glasflächen mit einem Hauch Warm: reines Weiss wirkt auf dem
-  // Pflaumengrund kalt und wie ein Fremdkörper.
+  // Rosé-Grund kalt und wie ein Fremdkörper.
   surface: 'rgba(255, 240, 248, 0.10)',
   surfaceStrong: 'rgba(255, 240, 248, 0.18)',
   surfaceSoft: 'rgba(255, 240, 248, 0.07)',
   surfaceBorder: 'rgba(255, 240, 248, 0.15)',
-  panel: '#2B1B26',
+  panel: '#311923',
 
-  ink: '#F8EDF4',
-  inkSoft: '#C3A7B7',
-  inkFaint: '#8F7684',
+  ink: '#F8EDF1',
+  inkSoft: '#C4A6B1',
+  inkFaint: '#90757F',
 
   onGradient: '#FFFFFF',
   onGradientSoft: 'rgba(255, 255, 255, 0.72)',
