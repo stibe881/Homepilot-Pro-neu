@@ -122,6 +122,10 @@ export type EinkaufZeile = Record<string, any>;
 export interface ShoppingDraft {
   text: string;
   category: string;
+  /** Die Menge als eigene Angabe – «400 ml», «2 EL». Bewusst neben dem
+   *  Artikel und nicht in ihm: Im Laden liest man «Milch» und daneben,
+   *  wie viel. Fehlt sie, steht auf der Zeile nur der Artikel. */
+  amount?: string;
   /** Aus welchem Rezept dieser Posten stammt – «aus Lasagne» (Punkt 208).
    *  Im Laden fragt man sich sonst, wofür die 250 g Kapern waren. */
   from?: string;
@@ -129,13 +133,55 @@ export interface ShoppingDraft {
   from_id?: string;
 }
 
-/** Wie eine Zutat auf der Liste heisst: «250 ml Ketchup» (rein).
+/** Masseinheiten, die vor einem Artikel stehen dürfen. Nur diese: Sonst
+ *  würde aus «7 Up» ein «Up», sobald jemand eine Zahl davor schreibt. */
+const EINHEITEN = new Set([
+  'ml', 'l', 'dl', 'cl', 'g', 'kg', 'el', 'tl', 'kl',
+  'prise', 'prisen', 'stück', 'stk', 'bund', 'dose', 'dosen',
+  'pack', 'packung', 'packungen', 'becher', 'scheibe', 'scheiben',
+  'zehe', 'zehen', 'tasse', 'tassen', 'blatt', 'zweig', 'zweige',
+]);
+
+/**
+ * Der blosse Artikel aus einer Zeile, ohne vorangestellte Menge
+ * (rein, testbar).
+ *
+ * Nur fürs Vergleichen: «steht 400 ml Milch schon drauf?» und «Milch»
+ * meinen denselben Posten. Angezeigt wird immer das, was gespeichert ist –
+ * hier wird nichts umgeschrieben.
+ */
+export function artikelName(text: string): string {
+  const roh = String(text ?? '').trim();
+  const treffer = /^(\d+(?:[.,]\d+)?)\s*([a-zäöüß]+)?\s+(.+)$/i.exec(roh);
+  if (!treffer) return roh;
+  const einheit = (treffer[2] ?? '').toLowerCase();
+  // Ein Wort, das keine Einheit ist, gehört zum Artikel («2 Liter Cola»
+  // ja, «2 Bio Eier» nein).
+  if (einheit && !EINHEITEN.has(einheit)) return roh;
+  const rest = treffer[3].trim();
+  // «500 g» ist eine Menge und kein Artikel – davon bliebe sonst «g».
+  if (!rest || EINHEITEN.has(rest.toLowerCase())) return roh;
+  return rest;
+}
+
+/**
+ * Menge und Artikel einer Zutat – getrennt (rein, testbar).
+ *
+ * Bisher wurde beides zu einer Zeile verklebt: «400 ml Milch». Damit
+ * stand die Menge im Artikelnamen, und das rächte sich an drei Stellen –
+ * das Gedächtnis für die Vervollständigung lernte «400 ml Milch» als
+ * Artikel, «steht das schon drauf?» verglich Mengen mit, und die
+ * Stückzahl-Knöpfe fassten eine Zahl an, die gar keine Stückzahl war.
  *
  * `faktor` rechnet die Menge auf die gewählte Portionenzahl um – auf eine
- * Nachkommastelle gerundet, weil «666,6667 g Mehl» niemandem hilft. */
-export function ingredientLabel(ingredient: EinkaufZeile, faktor = 1): string {
+ * Nachkommastelle gerundet, weil «666,6667 g Mehl» niemandem hilft.
+ */
+export function zutatGeteilt(
+  ingredient: EinkaufZeile,
+  faktor = 1
+): { name: string; menge: string } {
   const name = String(ingredient?.name ?? '').trim();
-  if (!name) return '';
+  if (!name) return { name: '', menge: '' };
   const roh = ingredient?.amount;
   const amount =
     typeof roh === 'number' && Number.isFinite(roh)
@@ -150,6 +196,16 @@ export function ingredientLabel(ingredient: EinkaufZeile, faktor = 1): string {
   ]
     .filter(Boolean)
     .join(' ');
+  return { name, menge };
+}
+
+/** Wie eine Zutat ausgeschrieben heisst: «250 ml Ketchup» (rein).
+ *
+ * Für das Rezept selbst, wo Menge und Zutat in einer Zeile stehen. Auf
+ * der Einkaufsliste stehen sie getrennt – siehe `zutatGeteilt`. */
+export function ingredientLabel(ingredient: EinkaufZeile, faktor = 1): string {
+  const { name, menge } = zutatGeteilt(ingredient, faktor);
+  if (!name) return '';
   return menge ? `${menge} ${name}` : name;
 }
 
@@ -178,6 +234,30 @@ export function mengeUndName(text: string): { menge: number; name: string } {
   // müsste – und ein leerer Name wäre gar keiner.
   if (!name || menge < 2 || menge > 99) return { menge: 1, name: roh };
   return { menge, name };
+}
+
+/**
+ * Was in einer Zeile der Einkaufsliste steht (rein, testbar).
+ *
+ * Drei Dinge, die nicht dasselbe sind und lange in einem Textfeld
+ * steckten:
+ *
+ * - die **Stückzahl** («3× Milch») – die verstellen die Plus/Minus-Knöpfe,
+ * - die **Menge** («400 ml») – die kommt aus dem Rezept und ist keine
+ *   Stückzahl; wer sie mit «+» erhöhte, bekam Unsinn,
+ * - der **Artikel** («Milch») – danach wird gesucht und verglichen.
+ *
+ * Ältere Posten haben die Menge noch im Text stehen; die kommen
+ * unverändert durch, damit eine Liste vom letzten Samstag gleich aussieht
+ * wie vorher.
+ */
+export function einkaufZeile(eintrag: EinkaufZeile): {
+  anzahl: number;
+  artikel: string;
+  menge: string;
+} {
+  const { menge: anzahl, name } = mengeUndName(String(eintrag?.text ?? ''));
+  return { anzahl, artikel: name, menge: String(eintrag?.amount ?? '').trim() };
 }
 
 /** Wie ein Eintrag mit Menge geschrieben wird: «3× Milch» (rein, testbar). */
@@ -220,9 +300,16 @@ export function ingredientsToShopping(
   // Wochenplan kennt für jeden Tag seine eigenen Portionen).
   faktor: number | number[] = 1
 ): ShoppingDraft[] {
-  const gesehen = new Set(
-    vorhanden.map((text) => String(text ?? '').trim().toLowerCase())
-  );
+  // Was schon auf der Liste steht – einmal wie geschrieben und einmal
+  // ohne Menge. Ein Posten «400 ml Milch» aus alter Zeit soll kein
+  // zweites «Milch» erzeugen.
+  const gesehen = new Set<string>();
+  for (const eintrag of vorhanden) {
+    const text = String(eintrag ?? '').trim().toLowerCase();
+    if (!text) continue;
+    gesehen.add(text);
+    gesehen.add(artikelName(text).toLowerCase());
+  }
   const result: ShoppingDraft[] = [];
   for (const [index, recipe] of recipes.entries()) {
     const rezeptFaktor = Array.isArray(faktor) ? (faktor[index] ?? 1) : faktor;
@@ -237,13 +324,19 @@ export function ingredientsToShopping(
       gesehen.add(key);
       // Auch der volle Text zählt als gesehen, damit ein bereits auf der
       // Liste stehendes «250 ml Ketchup» kein zweites «Ketchup» erzeugt.
-      const text = ingredientLabel(ingredient, rezeptFaktor);
-      gesehen.add(text.toLowerCase());
+      const { menge } = zutatGeteilt(ingredient, rezeptFaktor);
+      // Auch die ausgeschriebene Zeile zählt als gesehen: Ein schon
+      // vorhandenes «250 ml Ketchup» aus alter Zeit soll kein zweites
+      // «Ketchup» erzeugen.
+      gesehen.add(ingredientLabel(ingredient, rezeptFaktor).toLowerCase());
       // Die Herkunft bleibt am Posten hängen (Punkt 208): Im Laden
       // entscheidet man damit auch, ob es die teuren Kapern sein müssen.
       const herkunft = String(recipe?.text ?? '').trim();
       result.push({
-        text,
+        // Der Artikel ohne Menge – so findet ihn die Suche, das
+        // Gedächtnis und der nächste Wocheneinkauf wieder.
+        text: name,
+        ...(menge ? { amount: menge } : {}),
         category: shopCategory(name),
         ...(herkunft ? { from: herkunft } : {}),
         ...(recipe?.id ? { from_id: String(recipe.id) } : {}),
