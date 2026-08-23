@@ -20,6 +20,7 @@ from fastapi import (
 from ...core import automation as automation_module
 from ...core import babysitter as babysitter_module
 from ...core import editversions as editversions_module
+from ...core import konflikte as konflikte_module
 from ...core import trash as trash_module
 from ...core.users import Capability, Role
 from ..context import ApiContext
@@ -27,6 +28,7 @@ from ..models import (
     AutomationRequest,
     BabysitterAllowRequest,
     BabysitterRequest,
+    ConflictAckRequest,
     PauseRequest,
     ProbeStepRequest,
     RestoreVersionRequest,
@@ -48,9 +50,43 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
 
         Kein Fehler – manchmal ist genau das gewollt. Aber wenn nachts das
         Licht von selbst angeht, sucht man diese Liste.
+
+        Geprüfte Zeilen lassen sich quittieren; sie stehen dann nur noch
+        unter `acknowledged`. Sonst verdecken acht gewollte Widersprüche
+        den einen, der es nicht ist.
         """
         require(request, Capability.EDIT_AUTOMATIONS)
-        return {"conflicts": automation_module.find_conflicts(hub.automations.automations)}
+        alle = automation_module.find_conflicts(hub.automations.automations)
+        # Quittungen zu Widersprüchen, die es nicht mehr gibt, fliegen
+        # beim Nachsehen raus - ohne eigene Aufräumrunde.
+        uebrig = konflikte_module.aufraeumen(hub.data.get(konflikte_module.KEY), alle)
+        if uebrig is not None:
+            hub.data.set(konflikte_module.KEY, uebrig)
+        offen, erledigt = konflikte_module.teilen(
+            alle, hub.data.get(konflikte_module.KEY)
+        )
+        return {"conflicts": offen, "acknowledged": erledigt}
+
+    @app.post("/api/automations/conflicts/ack")
+    async def acknowledge_conflict(
+        body: ConflictAckRequest, request: Request
+    ) -> dict[str, Any]:
+        """Eine Zeile abhaken - oder die Quittung wieder zurücknehmen.
+
+        Die Quittung gilt fürs Haus, nicht für die Person: Wer prüft,
+        prüft für alle. Wer sie zurücknimmt, holt die Zeile für alle
+        zurück.
+        """
+        user = require(request, Capability.EDIT_AUTOMATIONS)
+        roh = hub.data.get(konflikte_module.KEY)
+        if body.on:
+            neu = konflikte_module.quittieren(roh, body.key, user.name, time.time())
+        else:
+            neu = konflikte_module.zuruecknehmen(roh, body.key)
+        hub.data.set(konflikte_module.KEY, neu)
+        alle = automation_module.find_conflicts(hub.automations.automations)
+        offen, erledigt = konflikte_module.teilen(alle, neu)
+        return {"ok": True, "conflicts": offen, "acknowledged": erledigt}
 
     @app.get("/api/automations/agenda")
     async def automation_agenda(request: Request) -> dict[str, Any]:

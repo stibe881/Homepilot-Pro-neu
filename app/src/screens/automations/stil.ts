@@ -126,6 +126,17 @@ export const makeStyles = (colors: Colors) =>
     },
     pausenText: { color: colors.onGradientSoft, fontSize: 13, flexGrow: 1 },
     pausenKnoepfe: { flexDirection: 'row', gap: 8 },
+    // Widerspruch links, der Haken rechts - in einer Zeile, damit klar
+    // ist, was der Haken abhakt.
+    konfliktZeile: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+    quittungKnopf: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2 },
+    quittungZeile: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 4 },
+    quittungText: { color: colors.inkSoft, fontSize: 12, fontWeight: '600' },
+    // Die quittierten Zeilen: unter der Karte, solange es noch offene
+    // gibt - und ohne Karte, wenn alles abgehakt ist. Dann soll da nichts
+    // mehr stehen ausser der Möglichkeit, es zurückzuholen.
+    quittungBlock: { gap: 2, marginTop: -6, paddingHorizontal: 4 },
+    quittungAllein: { gap: 2, marginTop: -4, paddingHorizontal: 4, opacity: 0.75 },
     // Der Babysitter-Schalter: Symbol, Titel, Knopf in einer Zeile.
     babysitterRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     templateOn: { backgroundColor: colors.accent, borderColor: colors.accent },

@@ -191,6 +191,13 @@ class AreaUnlockRequest(BaseModel):
     password: str = ""
 
 
+class ConflictAckRequest(BaseModel):
+    """Einen gegensätzlichen Ablauf abhaken - oder das rückgängig machen."""
+
+    key: str
+    on: bool = True
+
+
 class LoginRequest(BaseModel):
     """Anmeldung mit E-Mail und Passwort."""
 

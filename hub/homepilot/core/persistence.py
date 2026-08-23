@@ -99,6 +99,11 @@ EMPTY: dict[str, Any] = {
     # at}]. Daraus entsteht der Rhythmus («Milch sonst alle 7 Tage»),
     # den die App als Vorschlag zeigt. Ein halbes Jahr, dann verfällt es.
     "shopping_log": [],
+    # Quittierte Widersprüche: [{key, by, at}] - siehe konflikte.py. Eine
+    # geprüfte Zeile («ja, der eine schaltet ein, der andere später aus»)
+    # verschwindet damit aus der Liste, statt die eine Zeile zu
+    # verdecken, die wirklich falsch ist.
+    "conflict_acks": [],
     # Papierkorb der Familienlisten: [{collection, at, by, name, item}].
     # Eigener Korb, nicht der von Szenen und Abläufen: Dort sucht
     # niemand nach einem gelöschten Rezept.

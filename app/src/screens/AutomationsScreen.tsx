@@ -30,6 +30,10 @@ interface Konflikt {
   entity_id: string;
   commands: string[];
   automations: { id: string; alias: string }[];
+  /** Kennung der Zeile – damit lässt sie sich abhaken (core/konflikte.py). */
+  key?: string;
+  /** Nur bei den bereits quittierten: wer und wann. */
+  ack?: { by?: string; at?: number | null };
 }
 
 /** Ein Eintrag des Tagesbands aus /api/automations/agenda (Punkt 163). */
@@ -83,6 +87,9 @@ export function AutomationsScreen({
   // Abläufe, die dasselbe Gerät gegensätzlich schalten – kein Fehler,
   // aber die erste Frage, wenn nachts das Licht von selbst angeht.
   const [conflicts, setConflicts] = useState<Konflikt[]>([]);
+  // Bereits abgehakte Widersprüche - eingeklappt hinter «3 quittiert».
+  const [quittiert, setQuittiert] = useState<Konflikt[]>([]);
+  const [zeigeQuittierte, setZeigeQuittierte] = useState(false);
   const [trash, setTrash] = useState<PapierkorbZeile[]>([]);
   const [trashOpen, setTrashOpen] = useState(false);
   const [hueScenes, setHueScenes] = useState<string[]>([]);
@@ -128,6 +135,20 @@ export function AutomationsScreen({
   };
 
   /** Den Modus als Ganzes ein- oder ausschalten. */
+  const quittieren = async (key: string | undefined, on: boolean) => {
+    if (!key) return;
+    const antwort = await hub.post<{
+      conflicts?: Konflikt[];
+      acknowledged?: Konflikt[];
+    } | null>('/api/automations/conflicts/ack', { key, on }, { fallback: null });
+    if (!antwort) {
+      onNote?.('Quittieren fehlgeschlagen – Hub nicht erreichbar');
+      return;
+    }
+    setConflicts(antwort.conflicts ?? []);
+    setQuittiert(antwort.acknowledged ?? []);
+  };
+
   const pausieren = async (seconds: number) => {
     // Danach frisch laden: Steht die Pause nicht da, sieht man das
     // Scheitern am Zustand statt an einer Meldung, die man wegtippt.
@@ -167,11 +188,14 @@ export function AutomationsScreen({
     // Die Beikost (Konflikte, Papierkorb, Verlauf, Hue-Szenen) darf
     // fehlen, ohne dass die Seite meckert.
     hub
-      .get<{ conflicts?: Konflikt[] } | null>('/api/automations/conflicts', {
-        fallback: null,
-        still: true,
-      })
-      .then((data) => setConflicts(data?.conflicts ?? []));
+      .get<{ conflicts?: Konflikt[]; acknowledged?: Konflikt[] } | null>(
+        '/api/automations/conflicts',
+        { fallback: null, still: true }
+      )
+      .then((data) => {
+        setConflicts(data?.conflicts ?? []);
+        setQuittiert(data?.acknowledged ?? []);
+      });
     hub
       .get<{ trash?: PapierkorbZeile[] } | null>('/api/trash', { fallback: null, still: true })
       .then((data) => setTrash(data?.trash ?? []));
@@ -671,6 +695,9 @@ export function AutomationsScreen({
         </ScrollView>
       ) : null}
 
+      {/* Ist alles abgehakt, bleibt keine Karte stehen - nur die schmale
+          Zeile unten, über die man die Quittungen wieder zurücknehmen
+          kann. «Nicht mehr anzeigen» heisst nicht anzeigen. */}
       {conflicts.length > 0 ? (
         <Card style={styles.card}>
           <View style={styles.cardHead}>
@@ -681,19 +708,91 @@ export function AutomationsScreen({
                 : `${conflicts.length} Geräte werden gegensätzlich geschaltet`}
             </Text>
           </View>
+          {/* Abhaken statt wegschauen: Acht gewollte Widersprüche
+              verdeckten den einen, der es nicht ist. Die Quittung gilt
+              fürs Haus - wer prüft, prüft für alle -, und sie kommt
+              zurück, sobald jemand einen der beiden Abläufe umbaut. */}
           {conflicts.map((conflict, index) => (
-            <Text key={index} style={styles.detail}>
-              {entities.find((entity) => entity.id === conflict.entity_id)?.name ??
-                conflict.entity_id}
-              : «{conflict.automations[0].alias}» und «{conflict.automations[1].alias}»
-            </Text>
+            <View key={conflict.key ?? index} style={styles.konfliktZeile}>
+              <Text style={[styles.detail, { flex: 1 }]}>
+                {entities.find((entity) => entity.id === conflict.entity_id)?.name ??
+                  conflict.entity_id}
+                : «{conflict.automations[0].alias}» und «{conflict.automations[1].alias}»
+              </Text>
+              {mayEdit ? (
+                <Pressable
+                  onPress={() => quittieren(conflict.key, true)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`«${conflict.automations[0].alias}» und «${conflict.automations[1].alias}»: geprüft, nicht mehr anzeigen`}
+                  hitSlop={8}
+                  style={({ pressed }) => [
+                    styles.quittungKnopf,
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  <Ionicons name="checkmark" size={15} color={colors.inkSoft} />
+                  <Text style={styles.quittungText}>Geprüft</Text>
+                </Pressable>
+              ) : null}
+            </View>
           ))}
           <Text style={styles.triggerNote}>
             Kein Fehler – oft ist genau das gewollt (der eine schaltet ein, der
             andere später aus). Geht aber nachts das Licht von selbst an,
-            steht die Ursache hier.
+            steht die Ursache hier. «Geprüft» nimmt eine Zeile aus der Liste.
           </Text>
         </Card>
+      ) : null}
+
+      {quittiert.length > 0 ? (
+        <View style={conflicts.length > 0 ? styles.quittungBlock : styles.quittungAllein}>
+              <Pressable
+                onPress={() => setZeigeQuittierte((offen) => !offen)}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.quittungZeile, pressed && { opacity: 0.7 }]}
+              >
+                <Ionicons
+                  name={zeigeQuittierte ? 'chevron-down' : 'chevron-forward'}
+                  size={14}
+                  color={colors.inkSoft}
+                />
+                <Text style={styles.quittungText}>
+                  {quittiert.length === 1 ? '1 quittiert' : `${quittiert.length} quittiert`}
+                </Text>
+              </Pressable>
+              {zeigeQuittierte
+                ? quittiert.map((conflict, index) => (
+                    <View key={conflict.key ?? index} style={styles.konfliktZeile}>
+                      <Text style={[styles.detail, { flex: 1, opacity: 0.7 }]}>
+                        {entities.find((entity) => entity.id === conflict.entity_id)
+                          ?.name ?? conflict.entity_id}
+                        : «{conflict.automations[0].alias}» und «
+                        {conflict.automations[1].alias}»
+                        {conflict.ack?.by ? ` · ${conflict.ack.by}` : ''}
+                      </Text>
+                      {mayEdit ? (
+                        <Pressable
+                          onPress={() => quittieren(conflict.key, false)}
+                          accessibilityRole="button"
+                          accessibilityLabel="Quittung zurücknehmen"
+                          hitSlop={8}
+                          style={({ pressed }) => [
+                            styles.quittungKnopf,
+                            pressed && { opacity: 0.7 },
+                          ]}
+                        >
+                          <Ionicons
+                            name="arrow-undo-outline"
+                            size={15}
+                            color={colors.inkSoft}
+                          />
+                          <Text style={styles.quittungText}>Zurück</Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  ))
+                : null}
+        </View>
       ) : null}
       {mayEdit ? (
         <Pressable
