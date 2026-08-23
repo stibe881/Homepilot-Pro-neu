@@ -156,14 +156,48 @@ export function stateOptions(entity?: Entity): StateOption[] {
       to: 'on',
     });
   }
+  // Der Türsensor eines Schlosses (Nuki Pro, Matter) meldet «door», nicht
+  // «state» - dort steht auf-/zugeschlossen. Beides ist nicht dasselbe:
+  // Wer die Haustüre öffnet, ohne abzuschliessen, war hier bisher nicht
+  // auslösbar, und «aufgeschlossen» wäre die falsche Antwort auf «hat
+  // jemand die Türe geöffnet?».
+  if (entity && 'door' in entity.state) {
+    ereignisse.push({
+      key: 'door:open',
+      label: 'wird geöffnet',
+      attribute: 'door',
+      to: 'open',
+    });
+    ereignisse.push({
+      key: 'door:closed',
+      label: 'wird geschlossen',
+      attribute: 'door',
+      to: 'closed',
+    });
+  }
   return [
     ...ereignisse,
     ...plainStates(entity).map((zustand) => ({ ...zustand, to: zustand.key })),
   ];
 }
 
+/** Melder, deren «an» in Wahrheit «offen» heisst. */
+const OFFEN_KLASSEN = ['contact', 'door', 'window', 'garage', 'opening'];
+
 /** Die Zustände des Felds `state` selbst, je Geräteart. */
 export function plainStates(entity?: Entity): { key: string; label: string }[] {
+  // Ein Tür- oder Fensterkontakt meldet technisch «an»/«aus». Wer einen
+  // Ablauf für die Haustüre baut, sucht aber «geöffnet» - und wählt im
+  // Zweifel das Falsche, weil «an» bei einer Türe nach Licht klingt.
+  if (
+    entity?.kind === 'binary_sensor' &&
+    OFFEN_KLASSEN.includes(String(entity.state.device_class ?? ''))
+  ) {
+    return [
+      { key: 'on', label: 'geöffnet' },
+      { key: 'off', label: 'geschlossen' },
+    ];
+  }
   switch (entity?.kind) {
     case 'button':
       return [
@@ -816,6 +850,23 @@ export function melderMitLux(
       (entity): entity is Entity => !!entity && typeof entity.state.illumination === 'number'
     );
 }
+
+/** Der Wert, mit dem eine Nachricht «die Kamera, die ausgelöst hat»
+ *  meint – derselbe wie im Hub (core/kamera.py).
+ *
+ * Ein Wort statt einer Kennung: Genau das ist der Punkt, damit ein
+ * Ablauf für alle Kameras gilt statt für eine. */
+export const KAMERA_AUSLOESER = 'trigger';
+
+/** Was sich in einen Nachrichtentext einsetzen lässt.
+ *
+ * «Jemand weint im Zimmer {raum}» gilt damit für alle Kinderzimmer, wenn
+ * alle Melder Auslöser desselben Ablaufs sind - vorher brauchte jedes
+ * Zimmer einen eigenen Ablauf mit eigenem Text. */
+export const PLATZHALTER: { key: string; label: string }[] = [
+  { key: '{raum}', label: '+ Raum' },
+  { key: '{gerät}', label: '+ Gerät' },
+];
 
 /** Weisstöne, die zur Auswahl stehen: Mirek und was man dazu sagt.
  *

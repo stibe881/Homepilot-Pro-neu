@@ -10,6 +10,8 @@ import {
   triggerFromConfig,
   istLichtFein,
   lichtKurz,
+  plainStates,
+  stateOptions,
   nachlaufLabel,
   sekundenWert,
   melderMitLux,
@@ -415,5 +417,56 @@ describe('Gemeinsam umschalten', () => {
       'hue.gang',
     ]);
     expect(stepToActions(zurueck)).toEqual(gespeichert);
+  });
+});
+
+describe('Türen als Auslöser', () => {
+  const geraet = (over = {}) =>
+    ({
+      id: 'x.y',
+      kind: 'binary_sensor',
+      name: 'Haustüre',
+      integration: 'demo',
+      state: { state: 'off' },
+      commands: [],
+      available: true,
+      ...over,
+    }) as never;
+
+  it('bietet den Türsensor eines Schlosses an', () => {
+    // Nuki Pro und Matter melden «door» neben dem Schloss-Zustand: Wer
+    // die Türe öffnet, ohne abzuschliessen, war sonst nicht auslösbar.
+    const schloss = geraet({ kind: 'lock', state: { state: 'locked', door: 'closed' } });
+    const keys = stateOptions(schloss).map((option) => option.key);
+    expect(keys).toContain('door:open');
+    expect(keys).toContain('door:closed');
+    const auf = stateOptions(schloss).find((option) => option.key === 'door:open');
+    expect(auf).toMatchObject({ attribute: 'door', to: 'open', label: 'wird geöffnet' });
+  });
+
+  it('lässt ein Schloss ohne Türsensor in Ruhe', () => {
+    const keys = stateOptions(geraet({ kind: 'lock', state: { state: 'locked' } })).map(
+      (option) => option.key
+    );
+    expect(keys).toEqual(['unlocked', 'locked']);
+  });
+
+  it('nennt «an» bei einem Türkontakt «geöffnet»', () => {
+    // «an» klingt bei einer Türe nach Licht - und man wählt das Falsche.
+    expect(
+      plainStates(geraet({ state: { state: 'off', device_class: 'contact' } }))
+    ).toEqual([
+      { key: 'on', label: 'geöffnet' },
+      { key: 'off', label: 'geschlossen' },
+    ]);
+  });
+
+  it('lässt andere Melder bei an/aus', () => {
+    expect(
+      plainStates(geraet({ state: { state: 'off', device_class: 'motion' } }))
+    ).toEqual([
+      { key: 'on', label: 'an' },
+      { key: 'off', label: 'aus' },
+    ]);
   });
 });
