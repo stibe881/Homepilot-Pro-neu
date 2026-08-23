@@ -210,7 +210,10 @@ def test_push_categories_are_per_user():
         listed = client.get("/api/push/categories")
         assert listed.status_code == 200
         keys = {entry["key"] for entry in listed.json()["categories"]}
-        assert {"alarm", "battery", "appliance", "automation"} <= keys
+        assert {"alarm", "battery", "appliance"} <= keys
+        # «Nachricht aus einem Ablauf» gibt es nicht mehr als Sammelposten -
+        # jeder meldende Ablauf bringt seinen eigenen Schalter mit.
+        assert "automation" not in keys
         assert listed.json()["muted"] == []
 
         saved = client.put(

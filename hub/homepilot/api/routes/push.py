@@ -69,6 +69,18 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         """
         user = current_user(request)
         muted = sorted(hub.push.muted.get(user.name, set()))
+        # Jeder selbst gebaute Ablauf, der meldet, bringt seinen eigenen
+        # Schalter mit - einsortiert unter seiner Kategorie. Wer seine
+        # Push-Abläufe «Push» nennt, findet sie hier unter «Push». Früher
+        # lief alles unter der einen Zeile «Nachricht aus einem Ablauf»,
+        # und wer die Gefriertruhe abbestellte, schaltete «Jemand weint
+        # im Kinderzimmer» mit ab.
+        aus_ablaeufen = push.automation_categories(hub.automations.automations)
+        eigene_gruppen = [
+            gruppe
+            for gruppe in dict.fromkeys(zeile["group"] for zeile in aus_ablaeufen)
+            if gruppe not in push.group_order()
+        ]
         return {
             "categories": [
                 # Die Gruppe kommt mit: Die App soll dieselbe Einteilung
@@ -76,8 +88,12 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 # kennt nur der Hub.
                 {"key": key, "label": label, "group": push.group_of(key)}
                 for key, label in push.CATEGORIES.items()
-            ],
-            "groups": push.group_order(),
+            ]
+            + aus_ablaeufen,
+            # Die Kategorien der Abläufe hinten an: Sie stehen erst da,
+            # seit jemand sie vergeben hat, und sollen die eingebaute
+            # Ordnung nicht durcheinanderbringen.
+            "groups": push.group_order() + eigene_gruppen,
             "muted": muted,
         }
 
@@ -99,7 +115,10 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         }
         stored[user.name] = {
             "user": user.name,
-            "muted": [key for key in body.muted if key in push.CATEGORIES],
+            # Auch die Schlüssel aus Abläufen (automation:<id>) - ob es
+            # den Ablauf noch gibt, prüft hier bewusst niemand: Ein
+            # pausierter Ablauf soll seine Abbestellung behalten.
+            "muted": [key for key in body.muted if push.known(key)],
         }
         hub.data.set("push_prefs", list(stored.values()))
         hub.push.muted = push.parse_muted(hub.data.get("push_prefs"))
