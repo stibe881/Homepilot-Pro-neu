@@ -404,10 +404,12 @@ class Watchdog:
                 + " heute Geburtstag.",
                 category="birthday",
             )
-        # Und der Vorlauf: Ein Gruss am Morgen ist nett, aber erst drei
-        # Tage vorher bleibt Zeit für ein Geschenk (Punkt 180).
+        # Und der Vorlauf: Ein Gruss am Morgen ist nett, aber erst ein paar
+        # Tage vorher bleibt Zeit für ein Geschenk (Punkt 180). Auf 0
+        # gestellt entfällt er - dann kommt nur der Gruss am Tag selbst.
+        vorlauf = int(self.rules["birthday"]["params"].get("days", BIRTHDAY_AHEAD))
         for versatz, contact in familie.birthdays_in(
-            self.hub.data.get("family_contacts"), jetzt.date(), BIRTHDAY_AHEAD
+            self.hub.data.get("family_contacts"), jetzt.date(), vorlauf
         ):
             name = str(contact.get("text") or "").strip()
             if not name or versatz == 0:

@@ -11,7 +11,7 @@ import { Entity, Scene } from '../../api/types';
 import { Colors, useColors } from '../../theme';
 import { ablaufSatz } from '../../lib/ablaufsatz';
 import { datumUhr } from '../../lib/format';
-import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, hatWartezeit, measurableAttributes, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, weekdayLabel, zeitfensterHinweis } from './entwurf';
+import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, KAMERA_AUSLOESER, PLATZHALTER, hatWartezeit, measurableAttributes, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, weekdayLabel, zeitfensterHinweis } from './entwurf';
 import {
   CategoryField,
   Choice,
@@ -1439,6 +1439,32 @@ export function StepList({
                 placeholder="Text"
                 placeholderTextColor={colors.inkFaint}
               />
+              {/* Platzhalter statt fünf fast gleicher Abläufe: «Jemand
+                  weint im Zimmer {raum}» gilt für alle Kinderzimmer, wenn
+                  alle Melder Auslöser desselben Ablaufs sind. */}
+              <View style={styles.choices}>
+                {PLATZHALTER.map((halter) => (
+                  <Pressable
+                    key={halter.key}
+                    onPress={() =>
+                      setStep(index, { body: `${step.body}${halter.key}` })
+                    }
+                    accessibilityRole="button"
+                    accessibilityLabel={`${halter.label} in den Text einfügen`}
+                    style={({ pressed }) => [
+                      styles.template,
+                      pressed && { opacity: 0.75 },
+                    ]}
+                  >
+                    <Text style={styles.templateText}>{halter.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Text style={styles.triggerNote}>
+                {'{raum}'} und {'{gerät}'} setzt der Hub beim Auslösen ein –
+                so genügt ein Ablauf für alle Zimmer, statt je Melder einen
+                mit eigenem Text.
+              </Text>
               {empfaenger.length > 1 ? (
                 // Punkt 158: «Waschmaschine fertig» muss nicht das ganze
                 // Haus wecken - der Hub kannte das to-Feld längst, nur
@@ -1452,20 +1478,38 @@ export function StepList({
                   onSelect={(notifyTo) => setStep(index, { notifyTo })}
                 />
               ) : null}
-              <EntityPicker
-                entities={entities.filter((entity) => entity.kind === 'camera')}
-                noneLabel="Kein Bild"
-                placeholder="Kamera suchen …"
-                value={step.notifyCamera}
-                onSelect={(notifyCamera) => setStep(index, { notifyCamera })}
+              {/* «Die des Auslösers» steht vor der Geräteliste: Wer
+                  mehrere Kameras in einem Ablauf hat, meint fast immer
+                  die, die gerade etwas gesehen hat. */}
+              <Choice
+                options={[
+                  { key: '', label: 'Kamera wählen' },
+                  { key: KAMERA_AUSLOESER, label: 'die des Auslösers' },
+                ]}
+                value={step.notifyCamera === KAMERA_AUSLOESER ? KAMERA_AUSLOESER : ''}
+                onSelect={(key) =>
+                  setStep(index, {
+                    notifyCamera: key === KAMERA_AUSLOESER ? KAMERA_AUSLOESER : '',
+                  })
+                }
               />
+              {step.notifyCamera !== KAMERA_AUSLOESER ? (
+                <EntityPicker
+                  entities={entities.filter((entity) => entity.kind === 'camera')}
+                  noneLabel="Kein Bild"
+                  placeholder="Kamera suchen …"
+                  value={step.notifyCamera}
+                  onSelect={(notifyCamera) => setStep(index, { notifyCamera })}
+                />
+              ) : null}
               <Text style={styles.triggerNote}>
-                Mit einer Kamera zeigt die Nachricht gleich das Bild von
-                diesem Moment – praktisch, wenn es klingelt. Dafür muss in
-                der config.yaml des Hubs unter „push“ eine von aussen
-                erreichbare Adresse stehen, sonst kommt die Nachricht ohne
-                Bild an. Auf dem iPhone braucht es zusätzlich einen eigenen
-                App-Build (siehe docs/eigener-app-build.md).
+                {step.notifyCamera === KAMERA_AUSLOESER
+                  ? 'Das Bild kommt von der Kamera, die ausgelöst hat – ist der Auslöser keine Kamera, von einer im selben Raum. Findet sich keine, geht die Nachricht ohne Bild raus.'
+                  : 'Mit einer Kamera zeigt die Nachricht gleich das Bild von diesem Moment – praktisch, wenn es klingelt.'}{' '}
+                Dafür muss in der config.yaml des Hubs unter „push“ eine von
+                aussen erreichbare Adresse stehen, sonst kommt die Nachricht
+                ohne Bild an. Auf dem iPhone braucht es zusätzlich einen
+                eigenen App-Build (siehe docs/eigener-app-build.md).
               </Text>
             </>
           ) : step.kind === 'broadcast' ? (

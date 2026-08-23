@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { HubFehler, hubClient } from '../api/client';
 import { HubSettings } from '../api/types';
 import { Card } from './Card';
+import { nachGruppen } from '../lib/pushgruppen';
 import { Colors, type, useColors } from '../theme';
 
 /**
@@ -19,42 +20,31 @@ import { Colors, type, useColors } from '../theme';
 interface Category {
   key: string;
   label: string;
+  /** Unterkategorie, wie der Hub sie vergibt (core/push.py). */
+  group?: string;
 }
 
-/** Die Kategorien nach dem sortiert, worum es geht.
-
-    Eine Liste von dreizehn gleichen Zeilen beantwortet die eigentliche
-    Frage nicht: «Was weckt mich nachts, was ist bloss Betrieb?» Die
-    Reihenfolge innerhalb der Gruppen kommt vom Hub; hier steht nur, was
-    zusammengehört. Unbekannte Schlüssel landen unter «Weiteres», damit
-    eine neue Kategorie nie unsichtbar ist. */
-const GROUPS: { title: string; keys: string[] }[] = [
-  { title: 'Sicherheit', keys: ['alarm', 'alarm_arming', 'open', 'leak'] },
-  { title: 'Haushalt', keys: ['appliance', 'tasks', 'automation', 'frost'] },
-  { title: 'Betrieb', keys: ['outage', 'device_down', 'battery', 'disk'] },
-];
-
+/** Die Kategorien in ihre Unterkategorien, wie der Hub sie vergibt.
+ *
+ * «test» absichtlich nirgends: Der Test kommt immer an, ein Schalter
+ * dafür wäre eine Attrappe. Das Sortieren selbst steht in
+ * lib/pushgruppen.ts – dieselbe Einteilung braucht die Liste unter
+ * «Abläufe → Push». */
 export function groupCategories(
-  categories: Category[]
+  categories: Category[],
+  order: string[] = []
 ): { title: string; items: Category[] }[] {
-  const known = new Set(GROUPS.flatMap((group) => group.keys));
-  const sections = GROUPS.map((group) => ({
-    title: group.title,
-    items: categories.filter((category) => group.keys.includes(category.key)),
-  }));
-  // «test» absichtlich nirgends: Der Test kommt immer an, ein Schalter
-  // dafür wäre eine Attrappe.
-  const rest = categories.filter(
-    (category) => !known.has(category.key) && category.key !== 'test'
+  return nachGruppen(
+    categories.filter((category) => category.key !== 'test'),
+    order
   );
-  if (rest.length > 0) sections.push({ title: 'Weiteres', items: rest });
-  return sections.filter((section) => section.items.length > 0);
 }
 
 export function PushPrefs({ settings }: { settings: HubSettings }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [categories, setCategories] = useState<Category[] | null>(null);
+  const [groupOrder, setGroupOrder] = useState<string[]>([]);
   const [muted, setMuted] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   // Der Test gehört zu den Benachrichtigungen - wer hier einstellt, will
@@ -76,11 +66,14 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
   const load = useCallback(() => {
     // Die Karte zeigt Fehler selbst an - deshalb «still».
     hub
-      .get<{ categories?: { key: string; label: string; description?: string }[]; muted?: string[] }>('/api/push/categories', {
-        still: true,
-      })
+      .get<{
+        categories?: Category[];
+        groups?: string[];
+        muted?: string[];
+      }>('/api/push/categories', { still: true })
       .then((data) => {
         setCategories(data.categories ?? []);
+        setGroupOrder(data.groups ?? []);
         setMuted(data.muted ?? []);
       })
       .catch((err) => setError(err instanceof HubFehler ? err.message : String(err)));
@@ -180,7 +173,7 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
       ) : categories == null ? (
         <Text style={styles.hint}>Wird geladen …</Text>
       ) : (
-        groupCategories(categories).map((section) => (
+        groupCategories(categories, groupOrder).map((section) => (
           <View key={section.title} style={styles.section}>
             <Text style={styles.sectionTitle}>{section.title}</Text>
             {/* flexWrap: Auf dem Telefon eine Spalte, auf dem breiten

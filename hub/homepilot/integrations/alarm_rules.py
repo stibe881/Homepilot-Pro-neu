@@ -14,6 +14,10 @@ from typing import Any
 
 from ..core.entity import Entity, EntityKind
 
+# Eine Kamera zum Auslöser sucht auch der Ablauf-Kern - die
+# Antwort steht deshalb dort und wird hier nur weitergereicht.
+from ..core.kamera import camera_for, nearest_camera  # noqa: F401
+
 
 def hash_pin(pin: str, salt: str) -> str:
     """PIN gesalzen hashen (rein, testbar) - im Klartext liegt sie nie."""
@@ -214,22 +218,6 @@ def parse_sensors(raw: Any) -> dict[str, dict[str, Any]]:
     return result
 
 
-def nearest_camera(entities: list[Entity], room: str | None) -> str | None:
-    """Die Kamera im selben Raum wie der Auslöser (rein, testbar).
-
-    Bei einem Alarm ist die erste Frage «was ist da los?». Die Antwort
-    steht auf dem Kamerabild – aber nur, wenn die App weiss, welche der
-    Kameras gemeint ist. Ohne Raum lässt sich das nicht raten, dann lieber
-    keine als die falsche.
-    """
-    if not room:
-        return None
-    for entity in entities:
-        if entity.kind == EntityKind.CAMERA and entity.room == room:
-            return entity.id
-    return None
-
-
 def motion_started(old_state: Any, new_state: Any) -> bool:
     """Hat gerade eine Bewegung *begonnen*? (rein, testbar)
 
@@ -251,19 +239,6 @@ def camera_motion_due(
     """Ist eine neue Bewegungs-Nachricht dieser Kamera fällig? (rein, testbar)"""
     letzte = seen.get(camera)
     return letzte is None or now - letzte >= cooldown
-
-
-def camera_for(entity: Entity, entities: list[Entity]) -> str | None:
-    """Welche Kamera gehört zu diesem Auslöser? (rein, testbar)
-
-    Ist der Auslöser selbst eine Kamera, ist die Frage beantwortet – auch
-    dann, wenn ihr niemand einen Raum zugeordnet hat. Vorher suchte auch
-    eine auslösende Kamera erst nach «einer Kamera in ihrem Raum» und ging
-    ohne Raum leer aus: keine Bild, kein Sprung zur Kamera beim Antippen.
-    """
-    if entity.kind == EntityKind.CAMERA:
-        return entity.id
-    return nearest_camera(entities, entity.room)
 
 
 def guards(sensors: dict[str, dict[str, Any]], entity_id: str, mode: str) -> bool:
