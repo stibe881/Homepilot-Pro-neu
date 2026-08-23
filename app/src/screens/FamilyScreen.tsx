@@ -7,6 +7,7 @@ import { Image, Linking, Modal, Pressable, ScrollView, Share, Text, TextInput, V
 import { HubFehler, hubClient } from '../api/client';
 import { Card } from '../components/Card';
 import { BabysitterStand, LEERER_BABYSITTER, modusSatz } from '../lib/babysitter';
+import { gruppiereModule } from '../lib/familiemodule';
 import { DraggableList } from '../components/DraggableList';
 import { Shops } from '../components/Shops';
 import { useColors } from '../theme';
@@ -3861,33 +3862,46 @@ export function FamilyScreen({
         </Card>
       ) : null}
 
-      {/* Module */}
-      <View style={styles.tileRow}>
-        {sichtbareModule.map((module) => {
-          const aus = versteckteModule.includes(module.key);
-          return (
-            <Card
-              key={module.key}
-              style={{ ...styles.moduleTile, ...(aus ? { opacity: 0.4 } : {}) }}
-              onPress={() =>
-                ordnen ? toggleModul(module.key) : oeffneModul(module.key)
-              }
-            >
-              <Ionicons
-                name={ordnen ? (aus ? 'eye-off-outline' : 'eye-outline') : module.icon}
-                size={24}
-                color={colors.accent}
-              />
-              <Text style={styles.moduleLabel}>{module.label}</Text>
-              <Text style={styles.moduleSub} numberOfLines={1}>
-                {ordnen ? (aus ? 'ausgeblendet' : 'sichtbar') : module.sub}
-              </Text>
-              {/* Punkt 168: Ein Punkt sagt, wo etwas dazugekommen ist. */}
-              {!ordnen && neues[module.key] ? <View style={styles.neuPunkt} /> : null}
-            </Card>
-          );
-        })}
-      </View>
+      {/* Module, nach Gruppen. Siebzehn gleich aussehende Kacheln
+          untereinander sind keine Übersicht, sondern eine Liste, die man
+          jedes Mal von vorne liest - und «Notfallblatt» stand darin
+          neben «Belohnungen». Geschnitten ist nach *wann* man etwas
+          braucht, nicht danach, was inhaltlich verwandt ist. */}
+      {gruppiereModule(sichtbareModule).map((gruppe) => (
+        <View key={gruppe.key} style={styles.modulGruppe}>
+          <Text style={styles.groupLabel}>{gruppe.label}</Text>
+          <View style={styles.tileRow}>
+            {gruppe.module.map((module) => {
+              const aus = versteckteModule.includes(module.key);
+              return (
+                <Card
+                  key={module.key}
+                  style={{ ...styles.moduleTile, ...(aus ? { opacity: 0.4 } : {}) }}
+                  onPress={() =>
+                    ordnen ? toggleModul(module.key) : oeffneModul(module.key)
+                  }
+                >
+                  <Ionicons
+                    name={
+                      ordnen ? (aus ? 'eye-off-outline' : 'eye-outline') : module.icon
+                    }
+                    size={24}
+                    color={colors.accent}
+                  />
+                  <Text style={styles.moduleLabel}>{module.label}</Text>
+                  <Text style={styles.moduleSub} numberOfLines={1}>
+                    {ordnen ? (aus ? 'ausgeblendet' : 'sichtbar') : module.sub}
+                  </Text>
+                  {/* Punkt 168: Ein Punkt sagt, wo etwas dazugekommen ist. */}
+                  {!ordnen && neues[module.key] ? (
+                    <View style={styles.neuPunkt} />
+                  ) : null}
+                </Card>
+              );
+            })}
+          </View>
+        </View>
+      ))}
       {versteckt > 0 || ordnen ? (
         <Pressable
           onPress={() => setOrdnen(!ordnen)}
@@ -3992,7 +4006,9 @@ export function FamilyScreen({
           <Text style={styles.reorderHint}>
             Am Griff ☰ ziehen, um die Modul-Kacheln umzusortieren. Die
             Reihenfolge wird bei deinem Benutzer gespeichert und gilt auf
-            allen deinen Geräten.
+            allen deinen Geräten. Sie wirkt innerhalb der Gruppe: Ein
+            Modul wechselt durch Ziehen die Position, nicht die
+            Überschrift, unter der es steht.
           </Text>
           <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
             <DraggableList
