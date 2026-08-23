@@ -18,6 +18,15 @@ const automations = [
 ];
 const scenes = [{ id: 's1', name: 'Kino', entity_ids: ['hue.flur'] }] as Scene[];
 
+const taster = [
+  {
+    id: 'a3',
+    alias: 'Wandtaster Eingang',
+    triggers: [{ type: 'state', entity_id: 'hm.taster', to: 'short' }],
+    actions: [{ type: 'toggle_all', entity_ids: ['hue.eingang', 'hue.gang'] }],
+  },
+];
+
 describe('verweiseAuf', () => {
   it('findet das Gerät in Auslösern, Aktionen und dem Sonst-Zweig', () => {
     const { ablaeufe, szenen } = verweiseAuf('hue.flur', automations, scenes);
@@ -38,5 +47,18 @@ describe('verweisText', () => {
     expect(verweisText(2, 1)).toBe('in 2 Abläufen und 1 Szene');
     expect(verweisText(0, 2)).toBe('in 2 Szenen');
     expect(verweisText(0, 0)).toBe('');
+  });
+});
+
+describe('Geräte in einer Liste', () => {
+  it('findet die Lampe auch in «gemeinsam umschalten»', () => {
+    // Sonst fehlte sie in «in 2 Abläufen», und man sucht den Urheber
+    // wieder von Hand.
+    const { ablaeufe } = verweiseAuf('hue.gang', taster, []);
+    expect(ablaeufe.map((a) => a.id)).toEqual(['a3']);
+  });
+
+  it('nimmt keine fremde Lampe mit', () => {
+    expect(verweiseAuf('hue.kueche', taster, []).ablaeufe).toEqual([]);
   });
 });

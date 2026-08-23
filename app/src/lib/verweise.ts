@@ -27,7 +27,14 @@ function sammleEntityIds(wert: unknown, gefunden: Set<string>): void {
   if (wert !== null && typeof wert === 'object') {
     for (const [key, value] of Object.entries(wert)) {
       if (key === 'entity_id' && typeof value === 'string') gefunden.add(value);
-      else sammleEntityIds(value, gefunden);
+      // «Gemeinsam umschalten» nennt seine Geräte in einer Liste – ohne
+      // diesen Zweig fehlte die Lampe in «in 2 Abläufen», und man suchte
+      // den Urheber wieder von Hand.
+      else if (key === 'entity_ids' && Array.isArray(value)) {
+        for (const eintrag of value) {
+          if (typeof eintrag === 'string') gefunden.add(eintrag);
+        }
+      } else sammleEntityIds(value, gefunden);
     }
   }
 }

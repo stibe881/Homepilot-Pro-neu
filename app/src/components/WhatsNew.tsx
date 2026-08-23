@@ -1,10 +1,19 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  AppState,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
 import { hubClient } from '../api/client';
 import { HubSettings } from '../api/types';
 import { Card } from './Card';
+import { giltAlsNeuGeoeffnet } from '../lib/wiederkehr';
 import { Colors, radius, type, useColors } from '../theme';
 
 /**
@@ -20,6 +29,13 @@ import { Colors, radius, type, useColors } from '../theme';
  * Räumen übersieht man, und wer sie nicht wegklickt, hat sie für immer
  * dort stehen. Ein Fenster wird gelesen und ist danach weg – genau die
  * eine Aufmerksamkeit, die eine Änderungsliste verdient.
+ *
+ * Es kommt beim Öffnen der App, nicht beim Betreten einer bestimmten
+ * Seite: Vorher hing es an der Raumübersicht, und wer die App zuletzt
+ * unter «Licht» verlassen hatte, sah nach einem Update nichts. Auf dem
+ * Telefon wird eine App ausserdem fast nie beendet – «öffnen» heisst
+ * meistens zurückkommen aus dem Hintergrund. Beides zählt hier (siehe
+ * lib/wiederkehr.ts, warum der kurze Blick in eine andere App nicht).
  */
 
 export function WhatsNew({
@@ -37,7 +53,7 @@ export function WhatsNew({
   const [commit, setCommit] = useState<string | null>(null);
   const [changes, setChanges] = useState<string[]>([]);
 
-  useEffect(() => {
+  const laden = useCallback(() => {
     // Ohne Antwort bleibt die Karte einfach weg - sie ist eine Zugabe.
     hubClient(settings.url, settings.token)
       .get<{ commit?: unknown; changes?: unknown } | null>('/api/system/changes', {
@@ -51,10 +67,34 @@ export function WhatsNew({
       });
   }, [settings.url, settings.token]);
 
+  useEffect(laden, [laden]);
+
   // Von Hand geschlossen, ohne «Alles klar»: für diesen Besuch weg, beim
-  // nächsten Start wieder da. Wegklicken heisst gelesen - und das soll
+  // nächsten Öffnen wieder da. Wegklicken heisst gelesen - und das soll
   // eine bewusste Bewegung sein, kein versehentlicher Tipp daneben.
   const [zurueckgestellt, setZurueckgestellt] = useState(false);
+
+  // Zurück aus dem Hintergrund ist ein Öffnen. Neu nachgefragt wird dabei
+  // auch: Während die App weg war, kann der Hub aktualisiert worden sein
+  // - dann ist die Liste von vorhin nicht mehr die richtige.
+  const wegSeit = useRef<number | null>(null);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (naechster) => {
+      if (naechster !== 'active') {
+        // «inactive» kommt auf dem iPhone schon beim Herunterziehen der
+        // Mitteilungen und danach oft noch «background» - der erste
+        // Zeitpunkt ist der richtige.
+        wegSeit.current = wegSeit.current ?? Date.now();
+        return;
+      }
+      const weg = wegSeit.current;
+      wegSeit.current = null;
+      if (!giltAlsNeuGeoeffnet(weg, Date.now())) return;
+      setZurueckgestellt(false);
+      laden();
+    });
+    return () => sub.remove();
+  }, [laden]);
 
   const zeigen =
     !!commit &&

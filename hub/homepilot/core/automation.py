@@ -337,6 +337,9 @@ def describe_action(action: dict[str, Any], name_of: Any = None) -> str:
             else ""
         )
         return f"{named(action.get('entity_id'))}: Licht {wie}{dazu}"
+    if atype == "toggle_all":
+        namen = [named(entity_id) for entity_id in action.get("entity_ids") or []]
+        return f"{', '.join(namen) or '?'}: gemeinsam umschalten"
     if atype == "delay":
         return f"{action.get('seconds', 0)} Sekunden warten"
     if atype == "wait_until":
@@ -799,6 +802,13 @@ def _targets(actions: list[dict[str, Any]]) -> dict[str, set[str]]:
         # ein - für die Frage «wer macht nachts das Licht an?» zählt er.
         if action.get("type") == "light" and isinstance(entity_id, str):
             result.setdefault(entity_id, set()).add("turn_on")
+            continue
+        # «Gemeinsam umschalten» kann beides und ist damit zu nichts
+        # gegensätzlich - aber die Geräte gehören trotzdem erfasst.
+        if action.get("type") == "toggle_all":
+            for entry in action.get("entity_ids") or []:
+                if isinstance(entry, str):
+                    result.setdefault(entry, set()).add("toggle")
             continue
         if isinstance(entity_id, str) and isinstance(command, str):
             result.setdefault(entity_id, set()).add(command)
@@ -1868,6 +1878,8 @@ class AutomationEngine:
                     self._deadlines.pop(task, None)
         elif atype == "light":
             return await self._light(automation, action, ausloeser)
+        elif atype == "toggle_all":
+            return await self._toggle_all(automation, action)
         elif atype == "wait_until":
             return await self._wait_until(automation, action)
         elif atype == "fade":
@@ -2010,6 +2022,43 @@ class AutomationEngine:
             if isinstance(wert, (int, float)):
                 return float(wert)
         return None
+
+    async def _toggle_all(
+        self, automation: Automation, action: dict[str, Any]
+    ) -> str | None:
+        """Mehrere Geräte gemeinsam umschalten.
+
+        Ein Wandtaster, der Eingang und Gang schaltet, schickte bisher zwei
+        einzelne «umschalten» - aus «einer an, einer aus» wurde damit
+        zuverlässig das Gegenteil. Hier entscheidet der gemeinsame Zustand
+        (siehe core/light.py, common_target), und alle bekommen denselben
+        Befehl.
+        """
+        ids = [str(entry) for entry in action.get("entity_ids") or [] if entry]
+        if not ids:
+            log.warning("«Gemeinsam umschalten» in '%s' ohne Geräte", automation.alias)
+            return None
+        entities = [(entity_id, self.hub.registry.get(entity_id)) for entity_id in ids]
+        befehl = licht.common_target(
+            [
+                entity.state.get("state") if entity is not None else None
+                for _entity_id, entity in entities
+            ]
+        )
+        for entity_id, entity in entities:
+            if entity is None:
+                log.warning(
+                    "«Gemeinsam umschalten» in '%s': Gerät «%s» gibt es nicht",
+                    automation.alias,
+                    entity_id,
+                )
+                continue
+            # Wer den Befehl nicht kennt, wird übersprungen statt zum
+            # Fehler zu werden - der Rest der Gruppe schaltet trotzdem.
+            if befehl not in entity.commands:
+                continue
+            await self.hub.integrations.dispatch_command(entity_id, befehl, {})
+        return "alle an" if befehl == "turn_on" else "alle aus"
 
     def _plan_off(self, automation: Automation, entity_id: str, seconds: float) -> None:
         """Die Lampe nach der Nachlaufzeit wieder ausschalten.

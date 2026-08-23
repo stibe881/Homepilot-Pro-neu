@@ -1555,12 +1555,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           {/* Im „Alle“-Modus alle Szenen, im Raum nur dessen Szenen. */}
           {section === 'home' && room === ALL_ROOMS ? (
             <>
-              {/* Einmal nach jedem Update: was sich geändert hat. */}
-              <WhatsNew
-                settings={settings}
-                seen={eigenePrefs.seenChanges}
-                onSeen={setSeenChanges}
-              />
               {/* Keine Kürzel mehr über der Raumliste: Szenen stehen in
                   ihrem Raum. Die Übersicht soll die Räume zeigen, nicht
                   mit Knöpfen beginnen, die man einmal am Tag braucht –
@@ -2066,6 +2060,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           styles={styles}
         />
       ) : null}
+
+      {/* Einmal nach jedem Update: was sich geändert hat. Hier oben und
+          nicht in der Raumübersicht, damit es beim Öffnen der App kommt -
+          egal, auf welcher Seite man zuletzt war. */}
+      <WhatsNew
+        settings={settings}
+        seen={eigenePrefs.seenChanges}
+        onSeen={setSeenChanges}
+      />
 
       <GlobalSearch
         visible={searchOpen}
