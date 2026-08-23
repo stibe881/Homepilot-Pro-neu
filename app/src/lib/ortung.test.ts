@@ -101,3 +101,24 @@ describe('ortungsHinweis', () => {
     expect(ortungsHinweis(false, null, JETZT, [])).toContain('ist aus');
   });
 });
+
+// ── Ortung nie eingerichtet vs. Telefon schweigt ─────────────────────────
+// Die Liste steht für die Benutzer des Hubs. Wer keine Geofence-Zone hat,
+// kann sich gar nicht melden – das ist keine Störung, sondern eine offene
+// Aufgabe, und wer darauf wartet, wartet ewig.
+
+it('says plainly when a user has no zone at all', () => {
+  expect(zustandText({ state: 'unknown', configured: false })).toBe(
+    'Ortung nicht eingerichtet'
+  );
+});
+
+it('keeps the old wording when the zone exists but stays quiet', () => {
+  expect(zustandText({ state: 'unknown', configured: true })).toBe('meldet sich nicht');
+  // Ältere Hub-Fassungen schicken das Feld nicht mit.
+  expect(zustandText({ state: 'unknown' })).toBe('meldet sich nicht');
+});
+
+it('does not mention the setup once someone is actually home', () => {
+  expect(zustandText({ state: 'home', configured: false })).toBe('zuhause');
+});

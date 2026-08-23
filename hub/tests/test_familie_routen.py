@@ -138,10 +138,52 @@ def test_shopping_suggestions_need_a_rhythm():
         assert client.get("/api/shopping/due", headers=auth("t-owner")).json()["items"] == []
 
 
-def test_zones_and_diagnosis_need_the_integration():
+def test_zones_need_the_integration():
     with make_client() as client:
         assert client.get("/api/presence/zones", headers=auth("t-owner")).status_code == 503
-        assert client.get("/api/presence", headers=auth("t-owner")).json() == {"people": []}
+
+
+def test_without_the_integration_the_users_still_stand_there():
+    """Eine leere Anwesenheitsliste sähe aus wie «niemand da».
+
+    Die Liste steht für die Benutzer des Hubs. Fehlt die Ortung, ist die
+    Antwort «Stefan meldet sich nicht» – das nennt auch gleich, was zu
+    tun ist. Ein leerer Block sagte dagegen nichts."""
+    with make_client() as client:
+        leute = client.get("/api/presence", headers=auth("t-owner")).json()["people"]
+        assert [p["name"] for p in leute] == ["Stefan"]
+        assert leute[0]["state"] == "unknown"
+        # Und er sagt, dass es nicht an der Person liegt, sondern an der
+        # fehlenden Einrichtung.
+        assert leute[0]["configured"] is False
+
+
+def test_the_presence_list_shows_users_not_zones():
+    """Wer «wer ist da?» fragt, meint die Leute, die hier wohnen – nicht
+    die Einträge, die jemand einmal in die config.yaml geschrieben hat."""
+    integrations = [
+        {
+            "integration": "geofence",
+            "zones": [
+                {"id": "stefan", "name": "Stefan"},
+                # Diese Zone gehört zu keinem Benutzer.
+                {"id": "putzfrau", "name": "Putzfrau"},
+            ],
+        }
+    ]
+    with make_client(integrations=integrations) as client:
+        leute = client.get("/api/presence", headers=auth("t-owner")).json()["people"]
+        assert [p["name"] for p in leute] == ["Stefan"]
+        assert leute[0]["zone"] == "stefan"
+        assert leute[0]["configured"] is True
+
+
+def test_a_guest_is_never_in_the_presence_list():
+    """Für Gäste ist die Ortung aus – dann gehören sie auch nicht in die
+    Liste, die zeigt, wer wo ist."""
+    with make_client() as client:
+        leute = client.get("/api/presence", headers=auth("t-owner")).json()["people"]
+        assert "Gast" not in [p["name"] for p in leute]
 
 
 def test_the_hub_hands_out_its_places():
