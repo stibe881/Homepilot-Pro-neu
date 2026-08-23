@@ -686,8 +686,13 @@ export function AutomationsScreen({
           ]}
         >
           <View style={styles.babysitterRow}>
+            {/* Kein Schild: Das steht in dieser App für die Alarmanlage,
+                und der Babysitter-Modus schaltet gerade nichts scharf.
+                Dasselbe Gesicht wie unter Familie → Babysitter und vor
+                einem Ablauf, der so heisst (lib/entwurf: symbolFuerNamen)
+                - dieselbe Sache, dasselbe Bild. */}
             <Ionicons
-              name={babysitter.active ? 'shield-checkmark' : 'shield-outline'}
+              name={babysitter.active ? 'happy' : 'happy-outline'}
               size={20}
               color={babysitter.active ? colors.warn : colors.inkSoft}
             />
