@@ -28,6 +28,12 @@ import { useCallback, useEffect, useState } from 'react';
 import { Platform } from 'react-native';
 
 import { HubSettings } from '../api/types';
+import {
+  Ort as Ortsangabe,
+  genauGenug,
+  meldungsText,
+  ortsMeldungen,
+} from '../lib/ortungsmeldung';
 
 /** Name der Hintergrund-Aufgabe. Muss über App-Starts hinweg gleich bleiben. */
 export const ORTUNG_TASK = 'homepilot-geofence';
@@ -43,6 +49,8 @@ export interface OrtungStand {
   orte: number;
   /** Warum es gerade nicht läuft – für die Zeile im Profil. */
   hinweis: string;
+  /** Was die letzte Standortmeldung ergeben hat («Gemeldet: Zuhause.»). */
+  gemeldet: string;
 }
 
 export interface Ort {
@@ -53,7 +61,13 @@ export interface Ort {
   radius: number;
 }
 
-const AUS: OrtungStand = { aktiv: false, pausiertBis: 0, orte: 0, hinweis: '' };
+const AUS: OrtungStand = {
+  aktiv: false,
+  pausiertBis: 0,
+  orte: 0,
+  hinweis: '',
+  gemeldet: '',
+};
 
 /** Gibt es die nativen Module? Im Browser und in Expo Go nicht. */
 export function ortungMoeglich(): boolean {
@@ -125,6 +139,86 @@ export function useOrtung(settings: HubSettings, zone: string, erlaubt: boolean)
     );
   }, []);
 
+  /** Die Orte vom Hub - eine Adresse ändert man einmal, nicht je Telefon. */
+  const orteHolen = useCallback(async (): Promise<Ort[]> => {
+    let antwort: Response;
+    try {
+      antwort = await fetch(`${settings.url}/api/presence/zones`, {
+        headers: { Authorization: `Bearer ${settings.token}` },
+      });
+    } catch {
+      throw new Error('Der Hub ist gerade nicht erreichbar.');
+    }
+    if (!antwort.ok) throw new Error('Der Hub kennt keine Orte (geofence einrichten).');
+    const orte = ((await antwort.json()) as { places?: Ort[] }).places ?? [];
+    if (orte.length === 0) throw new Error('Der Hub kennt keine Orte mit Koordinaten.');
+    return orte;
+  }, [settings.url, settings.token]);
+
+  /**
+   * Einmal sagen, wo das Telefon gerade ist.
+   *
+   * Die Zonenüberwachung meldet nur Übertritte. Wer die Ortung im
+   * eigenen Wohnzimmer einschaltet, kreuzt keine Grenze - der Hub führte
+   * ihn weiter als «unterwegs», bis er einmal weggeht und wiederkommt.
+   * Darum beim Einschalten von selbst und daneben als Knopf.
+   *
+   * Gibt den Satz zurück, der danach in den Einstellungen steht.
+   */
+  const melden = useCallback(async (): Promise<string> => {
+    if (!ortungMoeglich()) return 'Auf diesem Gerät nicht verfügbar.';
+    if (!erlaubt) return 'Für Gäste ist die Ortung aus.';
+    let Location: typeof import('expo-location');
+    try {
+      Location = await import('expo-location');
+    } catch {
+      return 'Die Ortung fehlt in diesem Build.';
+    }
+    const vorne = await Location.requestForegroundPermissionsAsync();
+    if (!vorne.granted) return 'Ohne Standort-Erlaubnis geht es nicht.';
+    let orte: Ort[];
+    try {
+      orte = await orteHolen();
+    } catch (err) {
+      return String((err as Error).message);
+    }
+    let position;
+    try {
+      position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+    } catch {
+      return 'Der Standort war gerade nicht zu bekommen.';
+    }
+    const { latitude, longitude, accuracy } = position.coords;
+    if (!genauGenug(orte as Ortsangabe[], accuracy)) {
+      return 'Der Standort ist gerade zu ungenau - draussen oder am Fenster nochmal.';
+    }
+    const meldungen = ortsMeldungen(orte as Ortsangabe[], latitude, longitude);
+    for (const meldung of meldungen) {
+      // Nacheinander: Der Hub führt je Zone eine Liste der Orte, in denen
+      // sie steckt, und zwei gleichzeitige Meldungen überschrieben sich.
+      const antwort = await fetch(`${settings.url}/api/presence/geofence`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${settings.token}`,
+        },
+        body: JSON.stringify({
+          event: meldung.event,
+          place: meldung.place,
+          ...(zone ? { zone } : {}),
+        }),
+      }).catch(() => null);
+      if (!antwort || !antwort.ok) {
+        return antwort?.status === 404
+          ? `Der Hub kennt keine Zone «${zone}» - unter Abläufe → geofence anlegen.`
+          : 'Der Hub hat die Meldung nicht angenommen.';
+      }
+    }
+    return meldungsText(orte as Ortsangabe[], meldungen);
+  }, [settings.url, settings.token, zone, erlaubt, orteHolen]);
+
   /** Die Überwachung wirklich starten oder beenden. */
   const anwenden = useCallback(
     async (aktiv: boolean, pausiertBis: number): Promise<string> => {
@@ -151,15 +245,10 @@ export function useOrtung(settings: HubSettings, zone: string, erlaubt: boolean)
       }
       let orte: Ort[] = [];
       try {
-        const antwort = await fetch(`${settings.url}/api/presence/zones`, {
-          headers: { Authorization: `Bearer ${settings.token}` },
-        });
-        if (!antwort.ok) return 'Der Hub kennt keine Orte (geofence einrichten).';
-        orte = ((await antwort.json()) as { places?: Ort[] }).places ?? [];
-      } catch {
-        return 'Der Hub ist gerade nicht erreichbar.';
+        orte = await orteHolen();
+      } catch (err) {
+        return String((err as Error).message);
       }
-      if (orte.length === 0) return 'Der Hub kennt keine Orte mit Koordinaten.';
       await Location.startGeofencingAsync(
         ORTUNG_TASK,
         orte.map((ort) => ({
@@ -172,9 +261,17 @@ export function useOrtung(settings: HubSettings, zone: string, erlaubt: boolean)
         }))
       );
       setStand((vorher) => ({ ...vorher, orte: orte.length }));
+      // Und gleich sagen, wo wir jetzt sind: Sonst steht der Hub bis zum
+      // nächsten Übertritt auf dem alten Stand - beim Einschalten im
+      // eigenen Wohnzimmer also auf «unterwegs».
+      melden().then(
+        (satz) => setStand((vorher) => ({ ...vorher, gemeldet: satz })),
+        () => {}
+      );
       return '';
     },
-    [settings.url, settings.token, erlaubt]
+    // settings kommt über orteHolen/melden herein - hier stünde es doppelt.
+    [erlaubt, melden, orteHolen]
   );
 
   const schalten = useCallback(
@@ -207,5 +304,19 @@ export function useOrtung(settings: HubSettings, zone: string, erlaubt: boolean)
     setStand((vorher) => ({ ...vorher, pausiertBis: 0, hinweis }));
   }, [anwenden, speichern, stand.aktiv]);
 
-  return { stand, schalten, pausieren, weiter, moeglich: ortungMoeglich() };
+  /** Für den Knopf «Jetzt melden» in den Einstellungen. */
+  const jetztMelden = useCallback(async () => {
+    setStand((vorher) => ({ ...vorher, gemeldet: 'Einen Moment …' }));
+    const satz = await melden();
+    setStand((vorher) => ({ ...vorher, gemeldet: satz }));
+  }, [melden]);
+
+  return {
+    stand,
+    schalten,
+    pausieren,
+    weiter,
+    jetztMelden,
+    moeglich: ortungMoeglich(),
+  };
 }
