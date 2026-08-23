@@ -9,6 +9,8 @@ Takt wurde daraus genau so ein Loch.
 import asyncio
 import types
 
+import aiohttp
+
 from homepilot.integrations import vzug as modul
 
 
@@ -37,6 +39,10 @@ def geraet(antworten):
     integration._down = set()
     integration._fehlversuche = {}
     integration._countdown = {}
+    integration._beschaeftigt_seit = {}
+    integration._beschaeftigt_runden = {}
+    integration._ruhe_bis = {}
+    integration._interval = 60.0
     integration.log = types.SimpleNamespace(
         debug=lambda *a, **k: None,
         info=lambda *a, **k: None,
@@ -144,3 +150,79 @@ def test_the_second_try_waits_a_moment(monkeypatch):
     integration, _ = geraet([ConnectionError("weg"), GUT])
     lauf(integration)
     assert pausen == [modul.PAUSE_VOR_ZWEITEM_VERSUCH]
+
+
+# ── «503 – bedient gerade nicht» ─────────────────────────────────────────
+# Das Protokoll einer ganzen Nacht zeigte den festen Takt: rund vier
+# Minuten 503, rund zwei Minuten Antwort, ohne ein einziges laufendes
+# Programm. Das ist der Standby-Rhythmus des Geräts, kein Ausfall.
+
+
+def beschaeftigt():
+    return aiohttp.ClientResponseError(
+        request_info=None, history=(), status=modul.BESCHAEFTIGT, message="Service Unavailable"
+    )
+
+
+def test_a_busy_device_keeps_its_last_state(monkeypatch):
+    ohne_pause(monkeypatch)
+    integration, registry = geraet([beschaeftigt()])
+    lauf(integration)
+    # Kein update_state: Das Gerät ist da, es bedient nur gerade nicht.
+    assert registry.calls == []
+    assert "vzug.waschmaschine" not in integration._down
+
+
+def test_a_busy_device_is_not_asked_again_right_away(monkeypatch):
+    ohne_pause(monkeypatch)
+    integration, _ = geraet([beschaeftigt()])
+    lauf(integration)
+    assert integration._ruhe_bis["vzug.waschmaschine"] > 0
+
+
+def test_busy_is_not_retried_within_the_same_poll(monkeypatch):
+    """Diese Phase dauert Minuten. Drei Sekunden später noch einmal zu
+    fragen kostet nur eine zweite 503."""
+    pausen = []
+
+    async def gemerkt(sekunden):
+        pausen.append(sekunden)
+
+    monkeypatch.setattr(modul.asyncio, "sleep", gemerkt)
+    integration, _ = geraet([beschaeftigt(), GUT])
+    lauf(integration)
+    assert pausen == []
+
+
+def test_the_waiting_time_grows_but_has_a_ceiling():
+    # Erst der normale Takt, dann doppelt, dann vierfach – und nie mehr
+    # als die Obergrenze.
+    assert modul.wartezeit(1, 60) == 60
+    assert modul.wartezeit(2, 60) == 120
+    assert modul.wartezeit(3, 60) == 240
+    assert modul.wartezeit(9, 60) == modul.RUHE_HOECHSTENS
+    # Ohne Runde gilt der normale Takt, nie weniger.
+    assert modul.wartezeit(0, 60) == 60
+
+
+def test_after_a_very_long_busy_stretch_it_is_an_outage_after_all(monkeypatch):
+    ohne_pause(monkeypatch)
+    integration, registry = geraet([beschaeftigt(), beschaeftigt()])
+    uhr = [1000.0]
+    monkeypatch.setattr(modul, "monotonic", lambda: uhr[0])
+    lauf(integration)
+    assert registry.calls == []
+    # Eine gute Stunde später meldet es immer noch dasselbe.
+    uhr[0] += modul.BESCHAEFTIGT_HOECHSTENS + 60
+    integration._ruhe_bis.clear()
+    lauf(integration)
+    assert registry.letzte_verfuegbarkeit is False
+
+
+def test_one_good_answer_ends_the_busy_stretch(monkeypatch):
+    ohne_pause(monkeypatch)
+    integration, registry = geraet([beschaeftigt(), GUT])
+    lauf(integration, mal=2)
+    assert integration._beschaeftigt_seit == {}
+    assert integration._ruhe_bis == {}
+    assert registry.letzte_verfuegbarkeit is True

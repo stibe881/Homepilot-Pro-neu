@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import re
 import time
+from time import monotonic
 from typing import Any
 
 import aiohttp
@@ -148,12 +149,44 @@ def unfrozen_status(
 # Geschirrspüler die ganze Zeit am Netz hingen.
 AUSFAELLE_BIS_WEG = 3
 
+# «503 Service Unavailable» ist bei diesen Geräten kein Fehler, sondern
+# eine Auskunft: «bin da, bediene aber gerade nicht». Im Protokoll einer
+# ganzen Nacht steht das im festen Takt – rund vier Minuten 503, rund
+# zwei Minuten Antwort, und das ohne ein einziges laufendes Programm. Das
+# ist der Standby-Rhythmus des eingebauten Webservers.
+#
+# Wer das als Ausfall führt, schreibt jede Nacht hundert Zeilen über ein
+# Gerät, das ruhig in der Küche steht. Der letzte bekannte Zustand bleibt
+# also stehen, und das Gerät gilt weiter als erreichbar.
+BESCHAEFTIGT = 503
+
+# Irgendwann ist «gerade nicht» dann doch ein Ausfall. Eine halbe Stunde
+# deckt den beobachteten Takt um ein Vielfaches ab; was länger schweigt,
+# hat ein echtes Problem.
+BESCHAEFTIGT_HOECHSTENS = 30 * 60
+
+# Während das Gerät 503 meldet, immer seltener nachfragen: Es hilft
+# niemandem, einen schlafenden Webserver im Minutentakt zu wecken.
+RUHE_HOECHSTENS = 300.0
+
 # Zweiter Versuch im selben Durchgang. Der kleine Webserver im Gerät
 # nimmt nicht jede Verbindung an; nach ein paar Sekunden klappt es
 # meistens. Das ist billiger als eine Minute bis zum nächsten Takt zu
 # warten und dabei als «weg» dazustehen.
 VERSUCHE = 2
 PAUSE_VOR_ZWEITEM_VERSUCH = 3.0
+
+
+def wartezeit(runden: int, takt: float, hoechstens: float = RUHE_HOECHSTENS) -> float:
+    """Wie lange nach einem «gerade nicht» gewartet wird (rein, testbar).
+
+    Verdoppelt sich mit jeder Runde, bis zur Obergrenze. Nie kürzer als
+    der normale Takt – schneller nachzufragen als sonst wäre verkehrt
+    herum.
+    """
+    if runden <= 0:
+        return takt
+    return min(hoechstens, takt * (2 ** (runden - 1)))
 
 
 class VZugIntegration(Integration):
@@ -188,6 +221,11 @@ class VZugIntegration(Integration):
         self._down: set[str] = set()
         # Je Gerät: wie viele Abrufe hintereinander misslungen sind.
         self._fehlversuche: dict[str, int] = {}
+        # Seit wann ein Gerät «beschäftigt» meldet, wie oft in Folge, und
+        # bis wann es deshalb in Ruhe gelassen wird.
+        self._beschaeftigt_seit: dict[str, float] = {}
+        self._beschaeftigt_runden: dict[str, int] = {}
+        self._ruhe_bis: dict[str, float] = {}
         for device in devices:
             host = device.get("host")
             if not host:
@@ -215,6 +253,10 @@ class VZugIntegration(Integration):
 
     async def _refresh_all(self) -> None:
         for entity_id, (host, auth) in self._devices.items():
+            # Meldet das Gerät gerade «beschäftigt», wird es in Ruhe
+            # gelassen, bis die Wartezeit um ist.
+            if monotonic() < self._ruhe_bis.get(entity_id, 0.0):
+                continue
             await self._refresh(entity_id, host, auth)
 
     async def _holen(self, host: str, auth: aiohttp.BasicAuth | None) -> Any:
@@ -233,6 +275,7 @@ class VZugIntegration(Integration):
     ) -> None:
         payload: Any = None
         fehler: Exception | None = None
+        beschaeftigt = False
         for versuch in range(VERSUCHE):
             if versuch:
                 await asyncio.sleep(PAUSE_VOR_ZWEITEM_VERSUCH)
@@ -240,8 +283,19 @@ class VZugIntegration(Integration):
                 payload = await self._holen(host, auth)
                 fehler = None
                 break
+            except aiohttp.ClientResponseError as err:
+                fehler = err
+                if err.status == BESCHAEFTIGT:
+                    # Gleich noch einmal zu fragen hilft nicht: Diese
+                    # Phase dauert Minuten, nicht Sekunden.
+                    beschaeftigt = True
+                    break
             except Exception as err:
                 fehler = err
+
+        if beschaeftigt:
+            await self._melde_beschaeftigt(entity_id, host)
+            return
 
         if fehler is not None:
             offen = self._fehlversuche.get(entity_id, 0) + 1
@@ -270,6 +324,9 @@ class VZugIntegration(Integration):
             return
 
         self._fehlversuche[entity_id] = 0
+        self._beschaeftigt_seit.pop(entity_id, None)
+        self._beschaeftigt_runden.pop(entity_id, None)
+        self._ruhe_bis.pop(entity_id, None)
         if entity_id in self._down:
             self._down.discard(entity_id)
             self.log.info("V-ZUG %s wieder erreichbar", host)
@@ -277,6 +334,42 @@ class VZugIntegration(Integration):
             parse_device_status(payload), self._countdown, entity_id, time.time()
         )
         await self.hub.registry.update_state(entity_id, status, available=True)
+
+    async def _melde_beschaeftigt(self, entity_id: str, host: str) -> None:
+        """Das Gerät ist da, bedient aber gerade nicht.
+
+        Der letzte bekannte Zustand bleibt stehen und das Gerät gilt
+        weiter als erreichbar – alles andere hiesse, den Standby-Takt des
+        Geräts als Ausfall zu führen. Nur wenn es sehr lange dabei
+        bleibt, ist es doch einer.
+        """
+        jetzt = monotonic()
+        seit = self._beschaeftigt_seit.setdefault(entity_id, jetzt)
+        runden = self._beschaeftigt_runden.get(entity_id, 0) + 1
+        self._beschaeftigt_runden[entity_id] = runden
+        self._ruhe_bis[entity_id] = jetzt + wartezeit(runden, self._interval)
+
+        dauer = jetzt - seit
+        if dauer < BESCHAEFTIGT_HOECHSTENS:
+            self.log.debug(
+                "V-ZUG %s bedient gerade nicht (503, seit %.0f s) – nächster "
+                "Versuch in %.0f s",
+                host,
+                dauer,
+                self._ruhe_bis[entity_id] - jetzt,
+            )
+            return
+
+        if entity_id not in self._down:
+            self._down.add(entity_id)
+            self.log.warning(
+                "V-ZUG %s meldet seit %.0f Minuten «503 – bedient nicht». "
+                "Sonst dauert das Minuten, nicht Stunden: Gerät stromlos "
+                "machen oder im Netz nachsehen.",
+                host,
+                dauer / 60,
+            )
+        await self.hub.registry.update_state(entity_id, {}, available=False)
 
 
 INTEGRATION = VZugIntegration
