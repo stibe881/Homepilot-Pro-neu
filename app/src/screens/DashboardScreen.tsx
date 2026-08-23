@@ -45,6 +45,14 @@ import { usePushRegistration } from '../hooks/usePushRegistration';
 import { breakpoints, Colors, radius, space, type, useColors } from '../theme';
 import { EinkaufZeile, Shop, findeArtikel, mengeUndName, mitMenge, shopCategory } from '../lib/einkauf';
 import { uhr } from '../lib/format';
+import {
+  AUTO_SCHLIESSEN_SEKUNDEN,
+  befehlLabel,
+  neueFrist,
+  oeffnungsBefehl,
+  restSekunden,
+  tuerenFuerKlingel,
+} from '../lib/klingel';
 import { deviceKindLabel, musikboxenImRaum } from '../lib/geraeteart';
 import { szenenFuerRaum } from '../lib/szenen';
 import {
@@ -704,8 +712,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const ringKey = ringingCamera
     ? `${ringingCamera.id}:${ringingCamera.state.last_ring ?? ''}`
     : null;
-  const frontDoorLock = entities.find(
-    (entity) => entity.kind === 'lock' && entity.integration === 'ring'
+  // Wer klingelt, muss durch zwei Türen: unten die Haustüre, oben die
+  // Wohnungstüre. Bisher bot das Vollbild nur die erste an.
+  const klingelTueren = useMemo(
+    () => tuerenFuerKlingel(entities, ringingCamera),
+    [entities, ringingCamera]
   );
 
   const hasRail = width >= breakpoints.rail;
@@ -2027,7 +2038,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       {ringingCamera && ringKey && dismissedRing !== ringKey ? (
         <DoorbellOverlay
           camera={ringingCamera}
-          lock={frontDoorLock}
+          doors={klingelTueren}
           settings={settings}
           onCommand={(entityId, command) => guardedCommand(entityId, command)}
           onDismiss={() => setDismissedRing(ringKey)}
@@ -2343,7 +2354,7 @@ function CameraFullscreen({
 
 function DoorbellOverlay({
   camera,
-  lock,
+  doors,
   settings,
   onCommand,
   onDismiss,
@@ -2351,18 +2362,48 @@ function DoorbellOverlay({
   styles,
 }: {
   camera: Entity;
-  lock?: Entity;
+  doors: Entity[];
   settings: HubSettings;
   onCommand: (entityId: string, command: string) => void;
   onDismiss: () => void;
   colors: Colors;
   styles: ReturnType<typeof makeStyles>;
 }) {
-  const [confirm, setConfirm] = useState(false);
+  // Welche Türe gerade auf die Rückfrage wartet - eine zur Zeit.
+  const [confirm, setConfirm] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const [liveFailed, setLiveFailed] = useState<string | null>(null);
   // Alle 3 Sekunden ein frisches Bild, solange das Vollbild offen ist.
   useTakt(() => setTick((value) => value + 1), 3000);
+
+  // Rücklauf: Am Wandpanel bliebe sonst ein Bild der Strasse stehen, bis
+  // es jemand bemerkt. Jede Berührung setzt ihn zurück - während man
+  // hinschaut und überlegt, soll nichts zuklappen.
+  const [frist, setFrist] = useState(() => neueFrist(Date.now()));
+  const [rest, setRest] = useState(AUTO_SCHLIESSEN_SEKUNDEN);
+  const verlaengern = () => {
+    const neu = neueFrist(Date.now());
+    setFrist(neu);
+    setRest(restSekunden(neu, Date.now()));
+  };
+  useTakt(() => setRest(restSekunden(frist, Date.now())), 1000);
+  useEffect(() => {
+    if (rest <= 0) onDismiss();
+  }, [rest, onDismiss]);
+  // Ein neues Klingeln ist ein neuer Anlass, auch wenn das Bild noch steht.
+  useEffect(() => {
+    const neu = neueFrist(Date.now());
+    setFrist(neu);
+    setRest(restSekunden(neu, Date.now()));
+    setConfirm(null);
+  }, [camera.state.last_ring]);
+  // Die Rückfrage verfällt von selbst. Sonst stünde «Wirklich öffnen?»
+  // eine Minute lang da, und der nächste beiläufige Tipp macht auf.
+  useEffect(() => {
+    if (!confirm) return undefined;
+    const timer = setTimeout(() => setConfirm(null), 8000);
+    return () => clearTimeout(timer);
+  }, [confirm]);
   const base =
     settings.url && settings.token
       ? `${settings.url.replace(/\/+$/, '')}/api/entities/${encodeURIComponent(
@@ -2376,7 +2417,11 @@ function DoorbellOverlay({
 
   return (
     <Modal visible animationType="fade" onRequestClose={onDismiss}>
-      <View style={styles.doorbellRoot}>
+      <Pressable
+        style={styles.doorbellRoot}
+        onPress={verlaengern}
+        accessibilityLabel="Offen halten"
+      >
         <Text style={styles.doorbellTitle}>🔔 Es klingelt</Text>
         {live ? (
           <View style={styles.videoBox}>
@@ -2413,30 +2458,43 @@ function DoorbellOverlay({
             <Ionicons name="mic-outline" size={20} color="#FFFFFF" />
             <Text style={styles.doorbellOpenText}>Sprechen (Ring-App)</Text>
           </Pressable>
-          {lock ? (
-            <Pressable
-              onPress={() => {
-                if (confirm) {
-                  onCommand(lock.id, 'open_door');
-                  onDismiss();
-                } else {
-                  setConfirm(true);
-                  setTimeout(() => setConfirm(false), 4000);
-                }
-              }}
-              style={[styles.doorbellOpen, confirm && { backgroundColor: colors.danger }]}
-            >
-              <Ionicons name="key" size={22} color="#FFFFFF" />
-              <Text style={styles.doorbellOpenText}>
-                {confirm ? 'Wirklich öffnen?' : 'Haustüre öffnen'}
-              </Text>
-            </Pressable>
-          ) : null}
+          {/* Beide Türen nebeneinander: Wer im Treppenhaus wartet, soll
+              nicht darauf warten, dass jemand die App durchsucht. Die
+              Rückfrage bleibt je Türe - ein Fehlgriff öffnet sonst die
+              falsche. */}
+          {doors.map((door) => {
+            const offen = confirm === door.id;
+            const befehl = oeffnungsBefehl(door);
+            return (
+              <Pressable
+                key={door.id}
+                onPress={() => {
+                  verlaengern();
+                  if (offen && befehl) {
+                    onCommand(door.id, befehl);
+                    onDismiss();
+                  } else {
+                    setConfirm(door.id);
+                  }
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={offen ? `${door.name} wirklich öffnen` : befehlLabel(door)}
+                style={[styles.doorbellOpen, offen && { backgroundColor: colors.danger }]}
+              >
+                <Ionicons name="key" size={22} color="#FFFFFF" />
+                <Text style={styles.doorbellOpenText}>
+                  {offen ? 'Wirklich öffnen?' : befehlLabel(door)}
+                </Text>
+              </Pressable>
+            );
+          })}
           <Pressable onPress={onDismiss} style={styles.doorbellClose}>
-            <Text style={styles.doorbellCloseText}>Schliessen</Text>
+            <Text style={styles.doorbellCloseText}>
+              Schliessen{rest > 0 ? ` (${rest})` : ''}
+            </Text>
           </Pressable>
         </View>
-      </View>
+      </Pressable>
     </Modal>
   );
 }

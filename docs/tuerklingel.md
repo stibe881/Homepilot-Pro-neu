@@ -16,6 +16,31 @@ für sich still ausfallen – deshalb steht hier, wie man sieht, welche.
 3. **Der Ablauf löst aus** – Auslöser: Gerät «Haustüre», «klingelt» – und
    schickt die Nachricht.
 
+## Das Vollbild in der geöffneten App
+
+Ist die App gerade offen, kommt zusätzlich zur Push das Klingel-Vollbild:
+Kamerabild gross, darunter die Knöpfe.
+
+- **Beide Türen.** Angeboten wird jede Türe, die sich wirklich öffnen
+  lässt – die Haustüre unten und die Wohnungstüre oben. Zuerst steht die
+  Türe, die zur klingelnden Kamera gehört. Höchstens drei Knöpfe: Ein
+  Vollbild mit sieben ist unter Zeitdruck eine Suchaufgabe.
+- **Öffnen heisst öffnen.** Bei einem Nuki wird `unlatch` geschickt, nicht
+  `unlock` – letzteres macht bloss den Riegel auf, und der Besuch steht
+  weiter im Treppenhaus. Kann eine Türe nur entriegeln, steht das auch auf
+  dem Knopf.
+- **Rückfrage je Türe.** Der erste Tipp fragt «Wirklich öffnen?», der
+  zweite öffnet. Die Rückfrage verfällt nach acht Sekunden von selbst –
+  sonst macht der nächste beiläufige Tipp auf.
+- **Es schliesst sich von selbst**, nach einer Minute. Jede Berührung des
+  Bildes stellt die Zeit zurück; unten im Knopf läuft die Restzeit mit.
+  Am Wandpanel bliebe sonst ein Bild der Strasse stehen, bis es jemand
+  bemerkt. Gerechnet wird aus der Uhr, nicht aus gezählten Sekunden: Wer
+  eine halbe Stunde später zur App zurückkommt, findet sie geschlossen
+  vor.
+- **Sprechen** führt in die Ring-App. Die Gegensprech-Verbindung ist
+  WebRTC gegen Rings Server, und die gibt der Hersteller nicht heraus.
+
 ## Wenn keine Push kommt
 
 **Einstellungen → System → Integrationen.** Dort steht bei `ring` eine
