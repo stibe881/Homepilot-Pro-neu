@@ -17,6 +17,7 @@ import { KIND_ICONS, shortState } from '../components/RoomTile';
 import { appleMapsRoute, googleMapsRoute } from '../components/TopStrip';
 import { VacuumHome } from '../components/VacuumHome';
 import { wochentagUhr } from '../lib/format';
+import { KalenderZeile, geburtstagsListe, terminListe } from '../lib/kalenderliste';
 import { applianceLine } from '../lib/haushalt';
 import { Colors, radius, space, useColors } from '../theme';
 
@@ -273,6 +274,14 @@ export function OverviewScreen({
     };
   };
 
+  // Welche der beiden Listen offen ist. Die Kacheln zeigen je einen
+  // Eintrag; «was kommt diese Woche noch» und «wann hat Levin
+  // Geburtstag» standen nirgends, obwohl beides im selben Kalender liegt.
+  const [liste, setListe] = useState<'termine' | 'geburtstage' | null>(null);
+  const jetztFuerListe = new Date();
+  const alleTermine = terminListe(events, jetztFuerListe);
+  const alleGeburtstage = geburtstagsListe(events, jetztFuerListe);
+
   const termin = eventLine(nextEvent, 'Zahnarzt', 'Mo 14:30');
   const geburtstag = birthday
     ? { title: birthday.summary ?? '—', when: daysUntilText(birthday.start), demo: false }
@@ -431,7 +440,16 @@ export function OverviewScreen({
       {/* Termine & Musik */}
       <Text style={styles.groupLabel}>Heute</Text>
       <View style={styles.tileRow}>
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="calendar-outline" title="Nächster Termin" demo={termin.demo}>
+        <Tile
+          styles={styles}
+          colors={colors}
+          width={tileWidth}
+          icon="calendar-outline"
+          title="Nächster Termin"
+          demo={termin.demo}
+          onPress={alleTermine.length > 0 ? () => setListe('termine') : undefined}
+          mehrLabel={`Alle Termine, ${alleTermine.length}`}
+        >
           <Text style={styles.tileState} numberOfLines={1}>
             {termin.title}
           </Text>
@@ -476,7 +494,16 @@ export function OverviewScreen({
             </>
           ) : null}
         </Tile>
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="gift-outline" title="Nächster Geburtstag" demo={geburtstag.demo}>
+        <Tile
+          styles={styles}
+          colors={colors}
+          width={tileWidth}
+          icon="gift-outline"
+          title="Nächster Geburtstag"
+          demo={geburtstag.demo}
+          onPress={alleGeburtstage.length > 0 ? () => setListe('geburtstage') : undefined}
+          mehrLabel={`Alle Geburtstage, ${alleGeburtstage.length}`}
+        >
           <Text style={styles.tileState} numberOfLines={1}>
             {geburtstag.title}
           </Text>
@@ -497,6 +524,19 @@ export function OverviewScreen({
           </Tile>
         ) : null}
       </View>
+      <KalenderFenster
+        offen={liste !== null}
+        titel={liste === 'geburtstage' ? 'Alle Geburtstage' : 'Alle Termine'}
+        zeilen={liste === 'geburtstage' ? alleGeburtstage : alleTermine}
+        leer={
+          liste === 'geburtstage'
+            ? 'Im Kalender steht kein Geburtstag.'
+            : 'Im Kalender steht kein Termin.'
+        }
+        onClose={() => setListe(null)}
+        styles={styles}
+        colors={colors}
+      />
     </>
   );
 
@@ -736,6 +776,71 @@ function Badge({ label, styles }: { label: string; styles: OverviewStyles }) {
   );
 }
 
+/**
+ * Die volle Liste hinter einer Kachel.
+ *
+ * Auf der Startseite steht je ein Eintrag: der nächste Termin, der
+ * nächste Geburtstag. Wer wissen will, was diese Woche noch kommt oder
+ * wann Levin Geburtstag hat, fand das nirgends – obwohl beides im selben
+ * Kalender liegt. Ein Fenster statt einer eigenen Seite: Man will kurz
+ * nachsehen und wieder dort sein, wo man war.
+ */
+function KalenderFenster({
+  offen,
+  titel,
+  zeilen,
+  leer,
+  onClose,
+  styles,
+  colors,
+}: {
+  offen: boolean;
+  titel: string;
+  zeilen: KalenderZeile[];
+  leer: string;
+  onClose: () => void;
+  styles: OverviewStyles;
+  colors: Colors;
+}) {
+  return (
+    <Modal visible={offen} animationType="slide" onRequestClose={onClose} transparent>
+      <Pressable style={styles.fensterGrund} onPress={onClose}>
+        {/* Der Griff nach aussen schliesst; innen darf das Tippen nicht
+            durchschlagen, sonst geht das Fenster beim Lesen zu. */}
+        <Pressable style={styles.fensterBlatt} onPress={() => {}}>
+          <View style={styles.fensterKopf}>
+            <Text style={styles.fensterTitel}>{titel}</Text>
+            <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Schliessen">
+              <Ionicons name="close" size={24} color={colors.ink} />
+            </Pressable>
+          </View>
+          {zeilen.length === 0 ? (
+            <Text style={styles.fensterLeer}>{leer}</Text>
+          ) : (
+            <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
+              {zeilen.map((zeile) => (
+                <View key={zeile.key} style={styles.fensterZeile}>
+                  <Text style={styles.fensterName} numberOfLines={2}>
+                    {zeile.titel}
+                  </Text>
+                  <View style={styles.fensterUnten}>
+                    {zeile.wann ? <Text style={styles.fensterWann}>{zeile.wann}</Text> : null}
+                    {zeile.ort ? (
+                      <Text style={styles.fensterOrt} numberOfLines={1}>
+                        · {zeile.ort}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+          )}
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
 function Tile({
   icon,
   title,
@@ -745,6 +850,8 @@ function Tile({
   colors,
   width,
   tint,
+  onPress,
+  mehrLabel,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
@@ -755,18 +862,40 @@ function Tile({
   width: '31.5%' | '48%' | '100%';
   /** Hintergrund für Zustände, die man im Vorbeigehen sehen soll. */
   tint?: string;
+  /** Öffnet die volle Liste hinter der Kachel. Das kleine Zeichen oben
+   *  rechts sagt, dass es hier etwas zu sehen gibt – eine Kachel, die
+   *  ohne Hinweis auf Antippen reagiert, findet niemand. */
+  onPress?: () => void;
+  mehrLabel?: string;
 }) {
-  return (
-    <Card style={{ ...styles.tile, width }} tint={tint}>
+  // Der Inhalt einmal; die Breite trägt aussen, wer da ist – die Karte
+  // selbst oder der Druckpunkt um sie herum. Sonst stünde die Kachel im
+  // gedrückten Fall zu schmal.
+  const karte = (
+    <Card style={{ ...styles.tile, width: onPress ? '100%' : width }} tint={tint}>
       <View style={styles.tileHead}>
         <Ionicons name={icon} size={18} color={colors.inkSoft} />
         <Text style={styles.tileTitle} numberOfLines={1}>
           {title}
         </Text>
         {demo ? <Badge label="Demo" styles={styles} /> : null}
+        {onPress ? (
+          <Ionicons name="chevron-forward" size={15} color={colors.inkSoft} />
+        ) : null}
       </View>
       {children}
     </Card>
+  );
+  if (!onPress) return karte;
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={mehrLabel ?? title}
+      style={({ pressed }) => [{ width }, pressed && { opacity: 0.75 }]}
+    >
+      {karte}
+    </Pressable>
   );
 }
 
@@ -827,6 +956,45 @@ function Action({
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     favHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    // Das Fenster hinter «Nächster Termin» und «Nächster Geburtstag».
+    // Es deckt nicht die ganze Seite: Man will kurz nachsehen und sofort
+    // sehen, wohin man zurückkommt.
+    fensterGrund: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.55)',
+      justifyContent: 'flex-end',
+      alignItems: 'center',
+    },
+    fensterBlatt: {
+      backgroundColor: colors.panel,
+      borderTopLeftRadius: radius.card,
+      borderTopRightRadius: radius.card,
+      padding: 20,
+      paddingBottom: 32,
+      gap: 12,
+      maxHeight: '80%',
+      // Auf dem iPad zöge sich die Liste sonst über die volle Breite,
+      // und zwischen Datum und Titel läge eine handbreite Lücke.
+      width: '100%',
+      maxWidth: 560,
+    },
+    fensterKopf: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    fensterTitel: { color: colors.ink, fontSize: 18, fontWeight: '700' },
+    fensterLeer: { color: colors.inkSoft, fontSize: 14, paddingVertical: 12 },
+    fensterZeile: {
+      paddingVertical: 10,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.surfaceBorder,
+      gap: 3,
+    },
+    fensterName: { color: colors.ink, fontSize: 15, fontWeight: '600' },
+    fensterUnten: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    fensterWann: { color: colors.inkSoft, fontSize: 13 },
+    fensterOrt: { color: colors.inkSoft, fontSize: 13, flexShrink: 1 },
     reorderSheet: { flex: 1, backgroundColor: colors.panel, padding: 20, paddingTop: 60, gap: 10 },
     reorderHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     reorderTitle: { color: colors.ink, fontSize: 18, fontWeight: '700' },
