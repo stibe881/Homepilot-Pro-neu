@@ -85,6 +85,9 @@ export interface SceneActionDraft {
   playlist?: string;
   /** Paket-ID der App, wenn das Kommando 'launch_app' ist. */
   app?: string;
+  /** Auf welcher Box die Playlist spielen soll. Leer heisst «dort, wo
+   *  zuletzt Musik lief» – in einer Szene ist das eine Wette. */
+  device?: string;
 }
 
 /**
@@ -178,6 +181,7 @@ export function sceneActionsToDraft(
       volume?: number;
       name?: string;
       app?: string;
+      device?: string;
     };
   }[]
 ): SceneActionDraft[] {
@@ -204,6 +208,7 @@ export function sceneActionsToDraft(
       // Entwurf, damit sie nicht mit dem Namen der Szene verwechselt wird.
       playlist: action.data?.name,
       app: action.data?.app,
+      device: action.data?.device,
       transition: action.data?.transition,
       color: action.command === 'set_color' ? String(action.data?.color ?? '') : undefined,
     });

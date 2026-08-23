@@ -165,3 +165,16 @@ export function appsVon(entity: Entity): { name: string; app: string }[] {
     }))
     .filter((eintrag) => eintrag.app);
 }
+
+
+/** Die Boxen, auf denen dieses Gerät spielen kann (rein, testbar).
+ *
+ * Spotify meldet seine Connect-Geräte samt schlafender Cast-Boxen. Ohne
+ * Ziel spielt eine Playlist dort, wo zuletzt Musik lief – in einer Szene
+ * «Kino» ist das eine Wette. Google-Home-Boxen tauchen genau hier auf:
+ * Sie können selbst keine Playlist starten, wohl aber eine empfangen.
+ */
+export function boxenVon(entity: Entity): string[] {
+  const roh = entity.state?.devices;
+  return Array.isArray(roh) ? roh.map((name) => String(name)).filter(Boolean) : [];
+}

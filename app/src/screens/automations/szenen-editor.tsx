@@ -17,6 +17,7 @@ import { WEISSTOENE, vacuumRooms } from './entwurf';
 import {
   appsVon,
   baseCommandOptions,
+  boxenVon,
   commandOptions,
   isSceneDevice,
   playlistsVon,
@@ -305,14 +306,30 @@ export function SceneDevices({
                       />
                     ) : null}
                     {action!.command === 'play_playlist' ? (
-                      <Choice
-                        options={playlistsVon(entity).map((name) => ({
-                          key: name,
-                          label: name,
-                        }))}
-                        value={action!.playlist ?? ''}
-                        onSelect={(key) => setField(entity.id, { playlist: key })}
-                      />
+                      <>
+                        <Choice
+                          options={playlistsVon(entity).map((name) => ({
+                            key: name,
+                            label: name,
+                          }))}
+                          value={action!.playlist ?? ''}
+                          onSelect={(key) => setField(entity.id, { playlist: key })}
+                        />
+                        {/* Auf welcher Box. Ohne Angabe spielt sie dort,
+                            wo zuletzt Musik lief – in einer Szene ist das
+                            eine Wette. Schlafende Google-Home-Boxen stehen
+                            mit dabei; der Hub weckt sie. */}
+                        {boxenVon(entity).length > 0 ? (
+                          <Choice
+                            options={[
+                              { key: '', label: 'zuletzt benutzte Box' },
+                              ...boxenVon(entity).map((name) => ({ key: name, label: name })),
+                            ]}
+                            value={action!.device ?? ''}
+                            onSelect={(key) => setField(entity.id, { device: key })}
+                          />
+                        ) : null}
+                      </>
                     ) : null}
                     {action!.command === 'launch_app' ? (
                       <Choice

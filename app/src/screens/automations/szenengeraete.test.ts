@@ -9,7 +9,7 @@
  */
 import { Entity } from '../../api/types';
 import { PRIVATSPHAERE_AUS, PRIVATSPHAERE_EIN, STUMM_AUS, STUMM_EIN } from '../../lib/szenen';
-import { appsVon, baseCommandOptions, isSceneDevice, playlistsVon } from './szenengeraete';
+import { appsVon, baseCommandOptions, boxenVon, isSceneDevice, playlistsVon } from './szenengeraete';
 
 const geraet = (kind: string, commands: string[], state = {}): Entity =>
   ({
@@ -169,5 +169,21 @@ describe('playlistsVon und appsVon', () => {
       })
     );
     expect(apps).toEqual([{ name: 'Netflix', app: 'com.netflix.ninja' }]);
+  });
+});
+
+describe('boxenVon', () => {
+  it('liest die Boxen, auf denen gespielt werden kann', () => {
+    // Google-Home-Boxen tauchen genau hier auf: Sie starten selbst keine
+    // Playlist, empfangen aber eine.
+    expect(boxenVon(box([], { devices: ['Küche', 'Wohnzimmer'] }))).toEqual([
+      'Küche',
+      'Wohnzimmer',
+    ]);
+  });
+
+  it('verträgt fehlende Angaben', () => {
+    expect(boxenVon(box([]))).toEqual([]);
+    expect(boxenVon(box([], { devices: 'keine Liste' }))).toEqual([]);
   });
 });

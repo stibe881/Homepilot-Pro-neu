@@ -402,6 +402,7 @@ export function AutomationsScreen({
             volume,
             playlist,
             app,
+            device,
           }) => {
           // Kamera und Lautsprecher kennen je einen Befehl, dessen
           // Richtung in unsichtbaren Zusatzdaten steckt. In der Auswahl
@@ -414,8 +415,16 @@ export function AutomationsScreen({
             return [{ entity_id, command, data: { volume: volume ?? 30 } }];
           }
           if (command === 'play_playlist') {
-            // Der Hub sucht die Playlist über ihren Namen.
-            return [{ entity_id, command, data: { name: playlist ?? '' } }];
+            // Der Hub sucht die Playlist über ihren Namen. Ohne Ziel-Box
+            // spielt sie dort, wo zuletzt Musik lief; mit Box weckt der
+            // Hub sie notfalls über das Cast-Protokoll.
+            return [
+              {
+                entity_id,
+                command,
+                data: { name: playlist ?? '', ...(device ? { device } : {}) },
+              },
+            ];
           }
           if (command === 'launch_app') {
             return [{ entity_id, command, data: { app: app ?? '' } }];

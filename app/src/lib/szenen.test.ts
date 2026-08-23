@@ -196,3 +196,26 @@ describe('Lautstärke, Playlist und App beim Bearbeiten', () => {
     expect(zurueck[2].app).toBe('com.netflix.ninja');
   });
 });
+
+describe('Ziel-Box einer Playlist', () => {
+  it('kommt beim Bearbeiten wieder zurück', () => {
+    const zurueck = sceneActionsToDraft([
+      {
+        entity_id: 'spotify.x',
+        command: 'play_playlist',
+        data: { name: 'Kochen', device: 'Küche' },
+      },
+    ]);
+    expect(zurueck[0].playlist).toBe('Kochen');
+    expect(zurueck[0].device).toBe('Küche');
+  });
+
+  it('bleibt leer, wenn keine Box gewählt wurde', () => {
+    // Dann spielt sie dort, wo zuletzt Musik lief – das ist erlaubt,
+    // aber es soll nicht so aussehen, als stünde eine Box fest.
+    const zurueck = sceneActionsToDraft([
+      { entity_id: 'spotify.x', command: 'play_playlist', data: { name: 'Kochen' } },
+    ]);
+    expect(zurueck[0].device).toBeUndefined();
+  });
+});
