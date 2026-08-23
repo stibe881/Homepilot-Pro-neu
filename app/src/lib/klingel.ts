@@ -71,3 +71,35 @@ export function restSekunden(frist: number, jetzt: number): number {
 export function neueFrist(jetzt: number): number {
   return jetzt + AUTO_SCHLIESSEN_SEKUNDEN * 1000;
 }
+
+/**
+ * Die Zustandszeile der Haustüren-Kachel auf der Startseite (rein,
+ * testbar).
+ *
+ * Dort stand fest «Gegensprechanlage» – das Wort sagt nichts, was die
+ * Überschrift «Haustüre» nicht schon sagt, und es steht an der Stelle,
+ * an der die Nachbarkachel «Abgeschlossen» zeigt. Eine Zeile, die immer
+ * dasselbe sagt, ist keine Auskunft.
+ *
+ * Jetzt steht dort etwas oder nichts: «Nicht erreichbar», wenn die
+ * Anlage weg ist; sonst der Zeitpunkt des letzten Klingelns, solange er
+ * von heute ist. Nichts zu schreiben ist besser als Füllwort.
+ */
+export function haustuerZeile(
+  state: Record<string, unknown> | undefined,
+  jetzt: Date
+): string | null {
+  if (!state) return null;
+  if (String(state.state ?? '') === 'offline') return 'Nicht erreichbar';
+  const roh = state.last_ring;
+  if (typeof roh !== 'string' && typeof roh !== 'number') return null;
+  const datum = new Date(typeof roh === 'number' ? roh * 1000 : roh);
+  if (Number.isNaN(datum.getTime())) return null;
+  // Ein Klingeln von vorgestern beantwortet keine Frage, die sich jemand
+  // auf der Startseite stellt.
+  if (datum.toDateString() !== jetzt.toDateString()) return null;
+  const uhr = `${String(datum.getHours()).padStart(2, '0')}:${String(
+    datum.getMinutes()
+  ).padStart(2, '0')}`;
+  return `Zuletzt geklingelt ${uhr}`;
+}
