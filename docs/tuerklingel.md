@@ -43,6 +43,40 @@ Kamerabild gross, darunter die Knöpfe.
 
 ## Wenn keine Push kommt
 
+**Zuerst die Zeile unter `ring` in Einstellungen → System → Integrationen
+lesen.** Sie sagt neu auch den Fall, den man sonst nirgends sieht:
+
+> *Ereigniskanal gemeldet, aber die letzten Klingeln kamen über die
+> Abfrage – der Kanal ist taub.*
+
+Das ist der unangenehmste Ausgang: Die Anmeldung ging durch, der
+Push-Client meldet «läuft», und trotzdem kommt jedes Klingeln erst über
+die Abfrage – also bis zu zehn Sekunden zu spät. Vorher stand daneben
+«Klingeln kommt sofort an», und man suchte den Fehler überall ausser
+dort. Der Hub schreibt jetzt je Klingeln mit, auf welchem Weg es kam, und
+urteilt danach statt nach der Anmeldung.
+
+Zwei Dinge dazu:
+
+- **Der Kreispfeil daneben lädt die Integration neu**, er fragt nicht bloss
+  nach. In den Sekunden danach steht dort «Ereigniskanal startet gerade».
+  Das ist kein Fehler – vorher stand in diesem Moment «nicht verbunden»,
+  und es sah aus, als hätte das Neuladen ihn zerstört.
+- **Ist der Kanal taub**, hilft fast immer, die gespeicherte
+  Push-Anmeldung wegzuwerfen; der Hub macht das nach einem schnellen
+  Abriss selbst, aber nur einmal je Lauf. Ein Neustart des Hubs setzt das
+  zurück.
+
+Und die Diagnose von Hand urteilt neu ebenfalls erst nach acht Sekunden:
+
+```
+docker exec -it homepilot-hub python -m homepilot.integrations.ring \
+  -c /config/config.yaml --diagnose
+```
+
+Vorher rief sie «Ereigniskanal steht», sobald die Anmeldung durch war –
+und lief damit in dieselbe Falle wie der Hub.
+
 **Einstellungen → System → Integrationen.** Dort steht bei `ring` eine
 Zeile über den Ereigniskanal. Zwei Möglichkeiten:
 

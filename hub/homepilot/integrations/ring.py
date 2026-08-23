@@ -221,7 +221,38 @@ def push_diagnose(erreichbar: dict[str, bool], meldungen: list[str]) -> str:
     return "Grund unbekannt – alle Google-Adressen sind erreichbar"
 
 
-def health_detail(events_ok: bool, error: str | None, abgeschaltet: bool = False) -> str:
+#: So viele der letzten Klingeln zählen für das Urteil.
+QUELLEN_FENSTER = 4
+#: Kamen so viele davon über die Abfrage, ist der Kanal taub.
+TAUB_AB = 2
+
+
+def kanal_taub(quellen: list[str]) -> bool:
+    """Steht der Kanal nur auf dem Papier? (rein, testbar)
+
+    Das ist der Fall, der von aussen wie ein gesunder Kanal aussieht: Die
+    Anmeldung ging durch, der Push-Client sagt «läuft» - und trotzdem
+    kommt jedes Klingeln erst über die Abfrage, also zehn Sekunden zu
+    spät. Ein Kanal, über den nichts kommt, ist keiner.
+
+    Gemessen wird an den letzten Meldungen, nicht an einer einzelnen:
+    Dass eine Meldung einmal über die Abfrage hereinkommt, ist normal -
+    der Push kann in dem Moment gerade unterwegs sein.
+    """
+    letzte = [q for q in quellen if q][-QUELLEN_FENSTER:]
+    if len(letzte) < TAUB_AB:
+        return False
+    return sum(1 for q in letzte if q != "push") >= TAUB_AB
+
+
+def health_detail(
+    events_ok: bool,
+    error: str | None,
+    abgeschaltet: bool = False,
+    *,
+    anlauf: bool = False,
+    quellen: list[str] | None = None,
+) -> str:
     """Was im System-Bildschirm über den Ereigniskanal steht (rein, testbar)."""
     if abgeschaltet:
         # Bewusste Entscheidung, keine Störung - deshalb ohne Warnton.
@@ -229,7 +260,23 @@ def health_detail(events_ok: bool, error: str | None, abgeschaltet: bool = False
             f"Ereigniskanal abgeschaltet (events: false) – Klingeln wird "
             f"alle {DING_POLL_SECONDS} s abgefragt"
         )
+    if anlauf:
+        # Nach dem Neuladen: Der Kanal braucht ein paar Sekunden. «Nicht
+        # verbunden» wäre in diesem Moment wahr und trotzdem irreführend -
+        # es sieht aus, als hätte das Neuladen ihn kaputtgemacht.
+        return (
+            "Ereigniskanal startet gerade – in ein paar Sekunden steht fest, "
+            "ob er hält"
+        )
     if events_ok:
+        if kanal_taub(quellen or []):
+            # Der unangenehmste Fall: Alles sieht gut aus, und trotzdem
+            # kommt jedes Klingeln zu spät.
+            return (
+                "Ereigniskanal gemeldet, aber die letzten Klingeln kamen über "
+                f"die Abfrage – der Kanal ist taub. Push kommt dadurch bis zu "
+                f"{DING_POLL_SECONDS} s zu spät"
+            )
         return "Ereigniskanal verbunden – Klingeln kommt sofort an"
     # Der Grund als eigener Satz, nicht in Klammern: Er enthält oft
     # selbst welche, und «(RuntimeError: … (MCS))» liest niemand.
@@ -337,6 +384,14 @@ class RingIntegration(Integration):
     # Als Klassenvorgaben, damit health() auch dann antwortet, wenn das
     # Setup unterwegs steckengeblieben ist.
     _events_ok = False
+    # Auf welchem Weg die letzten Klingeln hereinkamen: «push» oder
+    # «abfrage». Ohne das ist «Ereigniskanal verbunden» eine Aussage über
+    # die Anmeldung, nicht darüber, ob je etwas durchkommt.
+    _quellen: list[str] = []
+    # Seit wann der Kanal gerade anläuft - für die Sekunden nach dem
+    # Neuladen, in denen «nicht verbunden» wahr und trotzdem irreführend
+    # wäre.
+    _anlauf_seit: float | None = None
     _last_event: float | None = None
     _listen_error: str | None = None
     _listener: Any = None
@@ -449,10 +504,24 @@ class RingIntegration(Integration):
                 "detail": health_detail(False, None, abgeschaltet=True),
                 "last_event": self._last_event,
             }
+        anlauf = (
+            self._anlauf_seit is not None
+            and time.time() - self._anlauf_seit < STARTUP_GRACE_SECONDS + 10
+        )
+        taub = self._events_ok and kanal_taub(self._quellen)
         return {
-            "ok": self._events_ok,
-            "detail": health_detail(self._events_ok, self._listen_error),
+            # Taub heisst nicht in Ordnung: Sonst steht der Haken neben
+            # einem Kanal, über den nichts kommt.
+            "ok": (self._events_ok and not taub) or anlauf,
+            "detail": health_detail(
+                self._events_ok,
+                self._listen_error,
+                anlauf=anlauf,
+                quellen=self._quellen,
+            ),
             "last_event": self._last_event,
+            # Für die Ferndiagnose: der Weg der letzten Meldungen.
+            "quellen": list(self._quellen[-QUELLEN_FENSTER:]),
         }
 
     async def teardown(self) -> None:
@@ -495,6 +564,7 @@ class RingIntegration(Integration):
 
         versuch = 0
         while True:
+            self._anlauf_seit = time.time()
             if await self._start_listener(on_event):
                 verbunden_seit = time.time()
                 # Anlaufzeit, bevor geurteilt wird: start() kehrt zurück,
@@ -504,6 +574,7 @@ class RingIntegration(Integration):
                 # sofort als tot, und der Hub registrierte sich im
                 # Sekundentakt neu bei Google, bis der es abwies.
                 await asyncio.sleep(STARTUP_GRACE_SECONDS)
+                self._anlauf_seit = None
                 while channel_alive(self._listener):
                     versuch = 0
                     await asyncio.sleep(15)
@@ -676,9 +747,9 @@ class RingIntegration(Integration):
                 self.log.debug("Ring-Meldungen nicht abrufbar: %s", err)
                 continue
             for event in frisch:
-                await self._handle_event(event)
+                await self._handle_event(event, quelle="abfrage")
 
-    async def _handle_event(self, event: Any) -> None:
+    async def _handle_event(self, event: Any, quelle: str = "push") -> None:
         try:
             entity_id = self._by_ring_id.get(int(event.doorbot_id))
         except (TypeError, ValueError):
@@ -697,6 +768,17 @@ class RingIntegration(Integration):
         except (TypeError, ValueError, AttributeError):
             pass
         self._last_event = time.time()
+        # Nur Klingeln zählt fürs Urteil: Bewegung meldet Ring ohnehin
+        # unregelmässig, und ein verpasster Bewegungs-Push ist kein
+        # Beinbruch. Beim Klingeln ist er einer.
+        if event.kind == "ding":
+            self._quellen = [*self._quellen, quelle][-QUELLEN_FENSTER * 2 :]
+            if quelle != "push":
+                self.log.info(
+                    "Ring: Klingeln kam über die Abfrage, nicht über den "
+                    "Ereigniskanal - dadurch bis zu %s s später",
+                    DING_POLL_SECONDS,
+                )
         await self.hub.registry.update_state(entity_id, fields, available=True)
 
         # 'Bewegung'/'Klingelt' nach Ablauf wieder löschen, damit die Kachel
@@ -887,7 +969,20 @@ async def _diagnose_main(config_path: str) -> int:
             listener = RingEventListener(ring, credentials=stored["listener"])
             gestartet = await listener.start()
             if gestartet:
-                print("  ✓ Ereigniskanal steht – Klingeln kommt sofort an.")
+                # Nicht sofort urteilen: start() kehrt zurück, sobald die
+                # Anmeldung durch ist. Der Push-Client darunter schaltet
+                # sich bei einer beschädigten Anmeldung eine Sekunde
+                # später selbst ab - und genau das ist der Fall, bei dem
+                # von aussen alles gut aussieht und es nie klingelt.
+                print("  … angemeldet, warte 8 s, ob der Kanal hält …")
+                await asyncio.sleep(8)
+                if channel_alive(listener):
+                    print("  ✓ Ereigniskanal steht – Klingeln kommt sofort an.")
+                else:
+                    fehler = (
+                        "Der Kanal brach gleich nach der Anmeldung wieder ab "
+                        "(beschädigte Push-Anmeldung)"
+                    )
                 await listener.stop()
             else:
                 fehler = "Anmeldung beim Push-Dienst abgelehnt"
