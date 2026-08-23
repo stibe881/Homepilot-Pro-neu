@@ -1,6 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Image,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
 import { CommandData, Entity } from '../api/types';
 import {
@@ -116,6 +124,11 @@ function CroppedMap({
 }) {
   const colors = useColors();
   const frame = React.useRef<View>(null);
+  // Bis das Bild da ist, schwebten die Zimmernamen auf leerem Grund - das
+  // sieht nach einer kaputten Karte aus, nicht nach einer ladenden. Der
+  // Hub muss die Karte beim Sauger holen und zeichnen; das dauert beim
+  // ersten Mal spürbar.
+  const [geladen, setGeladen] = useState(false);
   const cropWidth = crop[2] - crop[0];
   const cropHeight = crop[3] - crop[1];
   const source = mapSize && mapSize.height > 0 ? mapSize.width / mapSize.height : 4 / 3;
@@ -160,6 +173,10 @@ function CroppedMap({
       <Image
         source={{ uri }}
         resizeMode="stretch"
+        onLoad={() => setGeladen(true)}
+        // Auch ein Fehlschlag beendet das Warten: Lieber die Namen ohne
+        // Bild als ein Rad, das sich für immer dreht.
+        onError={() => setGeladen(true)}
         style={{
           position: 'absolute',
           left: `${(-crop[0] / cropWidth) * 100}%`,
@@ -169,9 +186,25 @@ function CroppedMap({
         }}
       />
       {children}
+      {geladen ? null : (
+        <View pointerEvents="none" style={ladeStil.mitte}>
+          <ActivityIndicator color={colors.inkSoft} />
+          <Text style={[ladeStil.text, { color: colors.inkSoft }]}>Karte wird geladen …</Text>
+        </View>
+      )}
     </Pressable>
   );
 }
+
+const ladeStil = StyleSheet.create({
+  mitte: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  text: { fontSize: 13 },
+});
 
 /** Punkt-Markierung des Saugers – auffälliger als das winzige Symbol, das
  *  der Karten-Renderer selbst zeichnet. */

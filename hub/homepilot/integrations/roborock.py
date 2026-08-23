@@ -24,9 +24,11 @@ from __future__ import annotations
 import asyncio
 import inspect
 from pathlib import Path
+from time import monotonic
 from typing import Any
 
 from ..core import kartenform, tokenstore
+from ..core.bildspeicher import Bildspeicher
 from ..core.entity import Entity, EntityKind
 from ..core.errors import ConfigError
 from ..core.integration import Integration
@@ -248,6 +250,15 @@ NICHT_ZIMMER: frozenset[tuple[int, int, int]] = frozenset(
         (255, 255, 255),  # Sauger
     }
 )
+
+# Wie lange ein einmal gezeichnetes Kartenbild wiederverwendet wird.
+# Der Kartenabruf ist der teuerste Aufruf der Bibliothek, und die App
+# fragt ihn bei jedem Erscheinen der Kachel neu an. Ein stehender Sauger
+# zeichnet nichts Neues - da darf dasselbe Bild eine Weile herhalten.
+# Fährt er, wandert der Punkt: Dann muss es schneller nachkommen, aber
+# immer noch nicht bei jedem Bildaufruf.
+KARTE_FRISCH_STEHEND = 180.0
+KARTE_FRISCH_FAHREND = 10.0
 
 # So fein wird ein Zimmer abgetastet. 56 Zellen je Seite treffen die
 # Form auf ein bis zwei Prozent genau und ergeben je Zimmer selten mehr
@@ -498,6 +509,13 @@ class RoborockIntegration(Integration):
         # entity_id → Umrechnung Bild-Anteile ↔ Karten-Millimeter, wird bei
         # jedem Karten-Abruf aufgefrischt (die Karte kann sich verschieben).
         self._calibration: dict[str, dict[str, float]] = {}
+        # Zuletzt gezeichnete Karte je Gerät, damit nicht jeder Bildaufruf
+        # der App eine Runde in die Wolke auslöst.
+        self._karten = Bildspeicher()
+        # Und eine Sperre je Gerät: Öffnen zwei Geräte die Startseite
+        # gleichzeitig, soll trotzdem nur einer holen - der zweite wartet
+        # kurz und bekommt dann dasselbe Bild aus dem Vorrat.
+        self._kartensperren: dict[str, asyncio.Lock] = {}
 
         # Anmeldung: Gespeichertes Token bevorzugen. Sonst mit Passwort, was
         # aber bei vielen Konten nicht mehr geht (E-Mail-Code, Fehler 2031) –
@@ -664,6 +682,14 @@ class RoborockIntegration(Integration):
                 position = robot_position(map_trait.map_data)
                 if position:
                     state["robot"] = position
+                # Die Karte ist gerade geholt und liegt im Speicher. Sie
+                # jetzt einmal zu zeichnen kostet nichts extra an
+                # Netzwerk und macht den ersten Blick der App auf die
+                # Kachel schnell - genau der war bisher der langsame.
+                try:
+                    self._karten.lege(entity_id, monotonic(), map_trait.image_content)
+                except Exception:
+                    pass
         except Exception as err:
             self.log.debug("Raum-Bereiche von %s nicht abrufbar: %s", device.name, err)
         await self.hub.registry.update_state(entity_id, state)
@@ -773,13 +799,44 @@ class RoborockIntegration(Integration):
             )
         else:
             await _maybe_await(sender.send(self._commands[command]))
+        # Der Vorrat ist jetzt überholt: Wer «Reinigen» drückt und die
+        # Karte danach unverändert sieht, hält den Befehl für verloren.
+        self._karten.vergiss(entity.id)
         await self._refresh_all()
 
     async def snapshot(self, entity: Entity) -> bytes | None:
-        """Die Karte des Saugers als fertig gerendertes PNG."""
+        """Die Karte des Saugers als fertig gerendertes PNG.
+
+        Aus dem Vorrat, solange der jung genug ist. Die App fragt dieses
+        Bild bei jedem Erscheinen der Kachel an - ohne Vorrat bedeutete
+        jedes Öffnen der Startseite eine Runde in die Wolke, und die
+        Fläche blieb sekundenlang leer für ein Bild, das sich nicht
+        geändert hatte.
+        """
         device = self._devices.get(entity.id)
         if device is None:
             return None
+
+        faehrt = entity.state.get("state") == "cleaning"
+        hoechstalter = KARTE_FRISCH_FAHREND if faehrt else KARTE_FRISCH_STEHEND
+        vorrat = self._karten.hole(entity.id, monotonic(), hoechstalter)
+        if vorrat is not None:
+            return vorrat
+
+        # Die Sperre erst jetzt: Ein Treffer im Vorrat soll niemanden
+        # aufhalten. Wer hier wartet, prüft danach noch einmal - der
+        # Vordermann hat inzwischen geholt.
+        sperre = self._kartensperren.setdefault(entity.id, asyncio.Lock())
+        async with sperre:
+            vorrat = self._karten.hole(entity.id, monotonic(), hoechstalter)
+            if vorrat is not None:
+                return vorrat
+            bild = await self._karte_zeichnen(entity, device)
+            self._karten.lege(entity.id, monotonic(), bild)
+            return bild
+
+    async def _karte_zeichnen(self, entity: Entity, device: Any) -> bytes | None:
+        """Karte holen und als PNG zurückgeben - der teure Weg."""
         try:
             map_trait = getattr(device.v1_properties, "map_content", None)
             if map_trait is None:
