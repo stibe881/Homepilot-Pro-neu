@@ -17,6 +17,7 @@ from fastapi import (
 )
 
 from ...core import presence as presence_module
+from ...core import users as users_module
 from ...core.errors import UnknownEntityError
 from ...core.users import Capability
 from ...integrations import group as group_module
@@ -271,25 +272,42 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         wissen will.
         """
         current_user(request)
-        service = hub.integrations.get("geofence")
-        if service is None:
-            return {"people": []}
         verlauf = hub.data.get("presence_history")
+        service = hub.integrations.get("geofence")
+
+        # Je Zone ihr Anzeigename – daran werden die Benutzer erkannt.
+        zonen: dict[str, str] = {}
+        if service is not None:
+            for zone_id in service.zone_ids():
+                entity_id = service.zone_entity(zone_id)
+                entity = hub.registry.get(entity_id) if entity_id else None
+                zonen[zone_id] = entity.name if entity else zone_id
+
+        # Eine Zeile je Benutzer, nicht je Zone: Wer «wer ist da?» fragt,
+        # meint die Leute, die hier wohnen – nicht die Einträge, die
+        # jemand einmal in die config.yaml geschrieben hat. Gäste bleiben
+        # draussen; für sie ist die Ortung ohnehin aus.
         leute = []
-        for zone_id in service.zone_ids():
-            entity_id = service.zone_entity(zone_id)
+        for user in hub.users.users:
+            if user.role == users_module.Role.GUEST or not user.enabled:
+                continue
+            zone_id = presence_module.zone_fuer(user.name, zonen)
+            zusammen = service.merged(zone_id) if (service and zone_id) else {}
+            entity_id = service.zone_entity(zone_id) if (service and zone_id) else None
             entity = hub.registry.get(entity_id) if entity_id else None
-            zusammen = service.merged(zone_id)
             leute.append(
                 {
                     "zone": zone_id,
-                    "name": entity.name if entity else zone_id,
-                    "state": zusammen.get("state"),
-                    "source": zusammen.get("source"),
+                    "name": user.name,
+                    "state": zusammen.get("state", presence_module.UNKNOWN),
+                    "source": zusammen.get("source", "none"),
                     "place": zusammen.get("place"),
                     "place_name": (entity.state.get("place_name") if entity else None),
                     "battery": (entity.state.get("battery") if entity else None),
-                    "since": presence_module.since(verlauf, zone_id),
+                    # Ohne Zone gibt es nichts einzurichten, worauf das
+                    # Telefon melden könnte. Das sagt die App dann auch.
+                    "configured": zone_id is not None,
+                    "since": presence_module.since(verlauf, zone_id) if zone_id else None,
                 }
             )
         return {"people": leute}

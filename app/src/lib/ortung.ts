@@ -20,12 +20,20 @@ export const PAUSEN = [
   { key: 'morgen', label: 'bis morgen', minuten: 0 },
 ] as const;
 
-/** «zuhause», «unterwegs», «Schule» – wie der Zustand heisst (rein). */
+/** «zuhause», «unterwegs», «Schule» – wie der Zustand heisst (rein).
+ *
+ * «meldet sich nicht» ist zweideutig: Es kann heissen, dass das Telefon
+ * schweigt – oder dass für diese Person nie eine Zone eingerichtet wurde.
+ * Der zweite Fall ist kein Ausfall, sondern eine offene Aufgabe, und er
+ * gehört benannt. Sonst wartet man auf eine Meldung, die nie kommen
+ * kann. */
 export function zustandText(person: Person): string {
   const state = String(person?.state ?? 'unknown');
   if (state === 'home') return 'zuhause';
   if (state === 'away') return 'unterwegs';
-  if (state === 'unknown') return 'meldet sich nicht';
+  if (state === 'unknown') {
+    return person?.configured === false ? 'Ortung nicht eingerichtet' : 'meldet sich nicht';
+  }
   return String(person?.place_name ?? state);
 }
 

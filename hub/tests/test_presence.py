@@ -143,3 +143,44 @@ def test_default_places_come_from_the_house_location():
 def test_zones_can_name_their_wifi_source():
     zones = geofence.parse_zones([{"id": "stefan", "wifi": "unifi.iphone_stefan"}])
     assert zones[0]["wifi"] == "unifi.iphone_stefan"
+
+
+# ── Welche Zone gehört zu welchem Benutzer ───────────────────────────────
+
+
+def test_a_user_finds_the_zone_with_the_same_name():
+    from homepilot.core.presence import zone_fuer
+
+    assert zone_fuer("Stefan", {"stefan": "Stefan", "livia": "Livia"}) == "stefan"
+
+
+def test_upper_and_lower_case_and_spaces_do_not_matter():
+    from homepilot.core.presence import zone_fuer
+
+    # «  stefan  » und «Stefan» sind dieselbe Person; alles andere wäre
+    # eine Falle beim Eintippen in der config.yaml.
+    assert zone_fuer("  stefan ", {"z1": "STEFAN"}) == "z1"
+
+
+def test_without_a_name_on_the_zone_the_id_counts():
+    from homepilot.core.presence import zone_fuer
+
+    # «- id: stefan» ohne 'name': soll trotzdem passen.
+    assert zone_fuer("Stefan", {"stefan": ""}) == "stefan"
+
+
+def test_the_name_beats_the_id():
+    from homepilot.core.presence import zone_fuer
+
+    # Sonst gewönne eine Zone, die zufällig so heisst wie eine fremde
+    # Kennung.
+    zonen = {"livia": "Stefan", "stefan": "Jemand anders"}
+    assert zone_fuer("Stefan", zonen) == "livia"
+
+
+def test_a_user_without_a_zone_gets_nothing():
+    from homepilot.core.presence import zone_fuer
+
+    assert zone_fuer("Sandra", {"stefan": "Stefan"}) is None
+    assert zone_fuer("", {"stefan": "Stefan"}) is None
+    assert zone_fuer("Stefan", {}) is None

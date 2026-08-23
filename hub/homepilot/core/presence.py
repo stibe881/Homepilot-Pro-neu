@@ -43,6 +43,35 @@ HISTORY_LIMIT = 500
 BATTERY_LOW = 15
 
 
+def zone_fuer(name: str, zonen: dict[str, str]) -> str | None:
+    """Welche Geofence-Zone gehört zu diesem Benutzer? (rein, testbar)
+
+    Die Anwesenheitsliste steht für die Benutzer des Hubs, nicht für die
+    Zonen der config.yaml: Wer «wer ist da?» fragt, meint die Leute, die
+    hier wohnen – nicht die Einträge, die jemand einmal angelegt hat.
+
+    Zusammengeführt wird über den Namen, denn eine Zone trägt den Namen
+    der Person («- id: stefan / name: Stefan»). Gross- und Kleinschreibung
+    und Leerzeichen zählen nicht mit; findet sich über den Namen nichts,
+    gilt die Kennung. So passt «Stefan» auf `id: stefan` auch dann, wenn
+    niemand einen Namen dazugeschrieben hat.
+
+    `zonen` bildet Kennung → Anzeigename ab. Ohne Treffer: None, und der
+    Benutzer steht mit «meldet sich nicht» in der Liste – ehrlicher als
+    ihn wegzulassen, denn genau dann fehlt die Einrichtung.
+    """
+    gesucht = " ".join(str(name or "").split()).casefold()
+    if not gesucht:
+        return None
+    for zone_id, zone_name in zonen.items():
+        if " ".join(str(zone_name or "").split()).casefold() == gesucht:
+            return zone_id
+    for zone_id in zonen:
+        if str(zone_id).strip().casefold() == gesucht:
+            return zone_id
+    return None
+
+
 def parse_places(raw: Any) -> list[dict[str, Any]]:
     """Orte mit Koordinaten einlesen (rein, testbar).
 
