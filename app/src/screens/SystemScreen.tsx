@@ -12,7 +12,7 @@ import { Card } from '../components/Card';
 import { Maintenance } from '../components/Maintenance';
 import { Fehlschlag, Laedt } from '../components/Zustand';
 import { ConfigCard } from './system/konfiguration';
-import { datumUhr, uhr } from '../lib/format';
+import { datumUhr } from '../lib/format';
 import { localTime, timeAgo } from '../lib/zeit';
 import { Colors, radius, space, type, useColors } from '../theme';
 
@@ -67,21 +67,12 @@ export function SystemScreen({
 
   useEffect(load, [load]);
 
-  const pause = async (seconds: number) => {
-    // Die Anzeige lädt gleich neu - steht die Pause dann nicht da, sieht
-    // man das Scheitern direkt am Zustand (und als Einblendung).
-    await hub.post('/api/automations/pause', { seconds }, { fallback: null });
-    load();
-  };
-
   if (error) {
     return <Fehlschlag text={`Systemzustand nicht abrufbar: ${error}`} onRetry={load} />;
   }
   if (!status) {
     return <Laedt was="Systemzustand" />;
   }
-
-  const paused = status.automations.paused_until;
 
   return (
     <View style={styles.list}>
@@ -230,27 +221,10 @@ export function SystemScreen({
         <AccessLog settings={settings} />
       ) : null}
 
-      {user?.capabilities?.includes('pause_automations') ? (
-        <Card style={styles.card}>
-          <Text style={styles.heading}>Automationen</Text>
-          <Text style={styles.rowDetail}>
-            {status.automations.count} Abläufe ·{' '}
-            {paused
-              ? `pausiert bis ${uhr(new Date(paused))}`
-              : 'aktiv'}
-          </Text>
-          <View style={styles.buttons}>
-            {paused ? (
-              <Button label="Wieder aktivieren" onPress={() => pause(0)} primary />
-            ) : (
-              <>
-                <Button label="1 Stunde pausieren" onPress={() => pause(3600)} />
-                <Button label="Bis morgen" onPress={() => pause(12 * 3600)} />
-              </>
-            )}
-          </View>
-        </Card>
-      ) : null}
+      {/* Die Karte «Automationen» stand hier zwischen Speicherplatz und
+          Benutzern - drei Ecken entfernt von der Seite, auf der die
+          Abläufe stehen. Wer sie ruhen lassen will, ist dort. Seit dem
+          Umzug steht sie als eine Zeile zuoberst unter «Abläufe». */}
 
       {users ? (
         <Card style={styles.card}>

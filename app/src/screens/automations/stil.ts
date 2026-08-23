@@ -114,6 +114,18 @@ export const makeStyles = (colors: Colors) =>
     },
     groupCount: { color: colors.onGradientSoft, fontSize: 12, fontWeight: '700' },
     templates: { gap: 8 },
+    // «Alles mal ruhen lassen», ganz oben und dezent: eine Zeile statt
+    // einer Karte. Sie bricht um, wenn das Telefon schmal ist - zwei
+    // Knöpfe und die Zahl passen dort nicht nebeneinander.
+    pausenZeile: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      gap: 8,
+      marginTop: -4,
+    },
+    pausenText: { color: colors.onGradientSoft, fontSize: 13, flexGrow: 1 },
+    pausenKnoepfe: { flexDirection: 'row', gap: 8 },
     // Der Babysitter-Schalter: Symbol, Titel, Knopf in einer Zeile.
     babysitterRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     templateOn: { backgroundColor: colors.accent, borderColor: colors.accent },

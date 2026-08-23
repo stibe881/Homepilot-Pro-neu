@@ -8,7 +8,7 @@ import { PushRules } from '../components/PushRules';
 import { Fehlschlag, Laedt } from '../components/Zustand';
 import { useColors } from '../theme';
 import { HubFehler, hubClient } from '../api/client';
-import { datumKurz } from '../lib/format';
+import { datumKurz, uhr } from '../lib/format';
 import { istPushKategorie } from '../lib/pushablaeufe';
 import {
   RueckwegBefehl,
@@ -72,6 +72,8 @@ export function AutomationsScreen({
   // Babysitter-Modus: Wer im Haus ist, weiss die Anwesenheit nicht immer.
   // Solange er läuft, ruhen alle Abläufe ausser den angehakten.
   const [babysitter, setBabysitter] = useState<BabysitterStand>(LEERER_BABYSITTER);
+  // Bis wann alle Abläufe ruhen (ISO-Zeit), null = sie laufen.
+  const [pausiertBis, setPausiertBis] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [sceneDraft, setSceneDraft] = useState<SceneDraft | null>(null);
@@ -126,6 +128,13 @@ export function AutomationsScreen({
   };
 
   /** Den Modus als Ganzes ein- oder ausschalten. */
+  const pausieren = async (seconds: number) => {
+    // Danach frisch laden: Steht die Pause nicht da, sieht man das
+    // Scheitern am Zustand statt an einer Meldung, die man wegtippt.
+    await hub.post('/api/automations/pause', { seconds }, { fallback: null, still: true });
+    load();
+  };
+
   const babysitterModus = async (active: boolean) => {
     try {
       const antwort = await hub.post<{ babysitter?: BabysitterStand }>(
@@ -143,13 +152,15 @@ export function AutomationsScreen({
   const load = useCallback(() => {
     // Der Bildschirm hat seine eigene Fehleranzeige - deshalb «still».
     hub
-      .get<{ automations?: Automation[]; babysitter?: BabysitterStand }>(
-        '/api/automations',
-        { still: true }
-      )
+      .get<{
+        automations?: Automation[];
+        babysitter?: BabysitterStand;
+        paused_until?: string | null;
+      }>('/api/automations', { still: true })
       .then((data) => {
         setAutomations(data.automations ?? []);
         setBabysitter(data.babysitter ?? LEERER_BABYSITTER);
+        setPausiertBis(data.paused_until ?? null);
       })
       .catch((err) => setError(err instanceof HubFehler ? err.message : String(err)));
 
@@ -578,6 +589,50 @@ export function AutomationsScreen({
   return (
     <View style={styles.list}>
       <Text style={[styles.sectionTitle, { marginTop: 0 }]}>Abläufe</Text>
+
+      {/* «Alles mal ruhen lassen» stand unter System, zwischen
+          Speicherplatz und Protokoll - drei Ecken entfernt von der Seite,
+          auf der die Abläufe stehen. Hier ist es eine Zeile: die Zahl,
+          der Zustand, zwei kleine Knöpfe. Keine Karte, denn im Alltag
+          liest man sie nur, wenn etwas ruhen soll. */}
+      {mayPause && automations.length > 0 ? (
+        <View style={styles.pausenZeile}>
+          <Text style={[styles.pausenText, pausiertBis ? { color: colors.warn } : null]}>
+            {automations.length} Abläufe ·{' '}
+            {pausiertBis ? `pausiert bis ${uhr(new Date(pausiertBis))}` : 'aktiv'}
+          </Text>
+          {/* Die beiden Knöpfe als ein Stück: Auf dem Telefon rutscht
+              sonst «Bis morgen» allein in die nächste Zeile. */}
+          <View style={styles.pausenKnoepfe}>
+            {pausiertBis ? (
+              <Pressable
+                onPress={() => pausieren(0)}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.template, pressed && { opacity: 0.75 }]}
+              >
+                <Text style={styles.templateText}>Wieder aktivieren</Text>
+              </Pressable>
+            ) : (
+              <>
+                <Pressable
+                  onPress={() => pausieren(3600)}
+                  accessibilityRole="button"
+                  style={({ pressed }) => [styles.template, pressed && { opacity: 0.75 }]}
+                >
+                  <Text style={styles.templateText}>1 Stunde pausieren</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => pausieren(12 * 3600)}
+                  accessibilityRole="button"
+                  style={({ pressed }) => [styles.template, pressed && { opacity: 0.75 }]}
+                >
+                  <Text style={styles.templateText}>Bis morgen</Text>
+                </Pressable>
+              </>
+            )}
+          </View>
+        </View>
+      ) : null}
 
       {agenda.length > 0 ? (
         // Das Tagesband (Punkt 163): «was macht das Haus heute noch?» -
