@@ -1343,6 +1343,8 @@ export function StepList({
           <Choice
             options={[
               { key: 'command', label: 'Gerät schalten' },
+              // Ein Wandtaster, zwei Räume, ein Zustand (siehe unten).
+              { key: 'toggle_all', label: 'Gemeinsam umschalten' },
               { key: 'scene', label: 'Szene' },
               ...(hueScenes.length > 0 ? [{ key: 'hue_scene', label: 'Hue-Szene' }] : []),
               { key: 'notify', label: 'Nachricht' },
@@ -1370,6 +1372,22 @@ export function StepList({
               allowToggle
               luxSensors={luxSensors}
             />
+          ) : step.kind === 'toggle_all' ? (
+            <>
+              <SceneDevices
+                entities={entities}
+                actions={step.commandActions}
+                onActions={(commandActions) => setStep(index, { commandActions })}
+                showSnapshot={false}
+                nurAuswahl
+              />
+              <Text style={styles.triggerNote}>
+                Alle zusammen an – und beim nächsten Druck alle zusammen aus.
+                Ist gerade eines an und eines aus, gehen erst einmal alle an:
+                Wer im Dunkeln drückt, will Licht. Einzelnes «umschalten»
+                ergäbe hier das Gegenteil, weil jede Lampe für sich kippt.
+              </Text>
+            </>
           ) : step.kind === 'scene' ? (
             <Picker
               items={scenes.map((scene) => ({ key: scene.id, label: scene.name }))}

@@ -69,3 +69,30 @@ def lux_sources(triggers: list[dict[str, Any]]) -> list[str]:
         if isinstance(entity_id, str) and entity_id and entity_id not in ids:
             ids.append(entity_id)
     return ids
+
+
+# Zustände, die als «an» zählen. Dieselbe Liste führt die group-Integration
+# für ihre eigene Frage («ist die Leuchte an?») – hier steht sie erneut,
+# weil der Kern nicht von einer Integration abhängen soll.
+ON_STATES = ("on", "true", "open", "playing")
+
+
+def common_target(states: list[Any]) -> str:
+    """Gemeinsam umschalten: «alle an» oder «alle aus»? (rein, testbar)
+
+    Der Fall dahinter: Ein Wandtaster schaltet das Licht im Eingang und im
+    Gang. Drei einzelne «umschalten» machen daraus zuverlässig das
+    Gegenteil – ist eines an und eines aus, sind danach beide vertauscht,
+    aber nie beide gleich. Wer zweimal drückt, ist wieder am Anfang.
+
+    Deshalb wird nach der Gruppe gefragt, nicht nach jeder Lampe: Ist
+    alles an, geht alles aus; sonst geht alles an. Der erste Druck bringt
+    damit immer Licht – und das ist der Druck, den jemand im Dunkeln tut.
+
+    Lampen, die gerade nicht erreichbar sind (``None``), zählen nicht mit:
+    Eine stumme Lampe soll die Entscheidung für die anderen nicht kippen.
+    """
+    bekannt = [str(state) for state in states if state is not None]
+    if bekannt and all(state in ON_STATES for state in bekannt):
+        return "turn_off"
+    return "turn_on"

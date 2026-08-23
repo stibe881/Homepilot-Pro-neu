@@ -382,3 +382,38 @@ describe('Nachlauf – wie lange bleibt das Licht an?', () => {
     expect(sekundenWert('0')).toBe('');
   });
 });
+
+describe('Gemeinsam umschalten', () => {
+  const step = {
+    ...EMPTY_STEP,
+    kind: 'toggle_all' as const,
+    commandActions: [
+      { entity_id: 'hue.eingang', command: 'toggle' },
+      { entity_id: 'hue.gang', command: 'toggle' },
+    ],
+  };
+
+  it('schreibt eine Aktion mit allen Geräten, nicht eine je Lampe', () => {
+    // Genau das war der Fehler: Zwei einzelne «umschalten» ergeben aus
+    // «einer an, einer aus» das Gegenteil, nie einen gemeinsamen Zustand.
+    const actions = stepToActions(step);
+    expect(actions).toEqual([
+      { type: 'toggle_all', entity_ids: ['hue.eingang', 'hue.gang'] },
+    ]);
+  });
+
+  it('lässt einen leeren Schritt weg', () => {
+    expect(stepToActions({ ...step, commandActions: [] })).toEqual([]);
+  });
+
+  it('liest den Schritt unverändert zurück', () => {
+    const gespeichert = stepToActions(step);
+    const [zurueck] = actionsToSteps(gespeichert);
+    expect(zurueck.kind).toBe('toggle_all');
+    expect(zurueck.commandActions.map((a) => a.entity_id)).toEqual([
+      'hue.eingang',
+      'hue.gang',
+    ]);
+    expect(stepToActions(zurueck)).toEqual(gespeichert);
+  });
+});

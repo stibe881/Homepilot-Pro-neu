@@ -309,7 +309,7 @@ export type TriggerKind =
   | 'calendar'
   | 'geofence'
   | 'availability';
-export type StepKind = 'command' | 'scene' | 'hue_scene' | 'notify' | 'broadcast' | 'delay' | 'wait_until' | 'fade';
+export type StepKind = 'command' | 'toggle_all' | 'scene' | 'hue_scene' | 'notify' | 'broadcast' | 'delay' | 'wait_until' | 'fade';
 export type ConditionKind = 'none' | 'sun' | 'time';
 
 /** Ein einzelner Auslöser – ein Ablauf kann mehrere haben («oder»). */
@@ -884,6 +884,15 @@ export function istLichtFein(action: {
  * angehakten Lampen sind drei Kommandos.
  */
 export function stepToActions(step: StepDraft): BausteinConfig[] {
+  if (step.kind === 'toggle_all') {
+    // Ein Wandtaster, zwei Räume, ein Zustand: Der Hub entscheidet beim
+    // Drücken anhand aller Geräte, ob alles an- oder ausgeht. Einzelne
+    // «umschalten» ergäben aus «einer an, einer aus» das Gegenteil.
+    const ids = step.commandActions
+      .map((action) => action.entity_id)
+      .filter((entity_id) => !!entity_id);
+    return ids.length > 0 ? [{ type: 'toggle_all', entity_ids: ids }] : [];
+  }
   if (step.kind === 'scene') {
     return step.sceneId ? [{ type: 'scene', scene: step.sceneId }] : [];
   }
@@ -1008,6 +1017,16 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
       } else {
         steps.push({ ...EMPTY_STEP, kind: 'command', commandActions: [entry] });
       }
+    } else if (type === 'toggle_all') {
+      steps.push({
+        ...EMPTY_STEP,
+        kind: 'toggle_all',
+        commandActions: (action.entity_ids ?? []).map((entity_id: string) => ({
+          entity_id,
+          command: 'toggle',
+          rooms: [],
+        })),
+      });
     } else if (type === 'light') {
       const adaptive = String(action.brightness ?? '') === 'adaptive';
       const entry = {
@@ -1185,7 +1204,9 @@ export function describe(automation: Automation): string {
               } → ${trigger.to ?? 'sich ändert'}`;
   const dann = !action
     ? 'ohne Aktion'
-    : action.type === 'light'
+    : action.type === 'toggle_all'
+      ? `${(action.entity_ids ?? []).length} Geräte gemeinsam umschalten`
+      : action.type === 'light'
       ? `${action.entity_id}: Licht ${lichtKurz(action)}`
       : action.type === 'scene'
         ? `Szene ${action.scene}`

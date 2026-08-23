@@ -75,6 +75,18 @@ def test_untouched_entries_stay_untouched():
     assert aktionen[1]["entity_id"] == "hue.andere"
 
 
+def test_a_lamp_in_a_common_toggle_is_swapped_too():
+    """«Gemeinsam umschalten» nennt seine Geräte in einer Liste - genau
+    dort bliebe sonst die alte Kennung stehen, und der Wandtaster
+    schaltete ab dann eine Lampe weniger."""
+    aktionen = [
+        {"type": "toggle_all", "entity_ids": ["hue.eingang", "hue.alt"]},
+        {"type": "command", "entity_id": "hue.alt", "command": "turn_on"},
+    ]
+    assert swap_in_actions(aktionen, "hue.alt", "hue.neu") == 2
+    assert aktionen[0]["entity_ids"] == ["hue.eingang", "hue.neu"]
+
+
 def test_a_lamp_keeps_its_place_in_a_combined_light():
     """In einer Deckenlampe mit fünf Spots ist die Reihenfolge die
     räumliche - die neue Lampe rutscht an die Stelle der alten, statt

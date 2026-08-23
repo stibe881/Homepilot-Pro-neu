@@ -32,6 +32,15 @@ def swap_in_actions(actions: list[dict[str, Any]], old: str, new: str) -> int:
         if action.get("entity_id") == old:
             action["entity_id"] = new
             count += 1
+        # «Gemeinsam umschalten» nennt seine Geräte in einer Liste. Ohne
+        # diesen Zweig bliebe genau dort die alte Kennung stehen - und das
+        # ist der Fehler, gegen den es diese Datei gibt.
+        liste = action.get("entity_ids")
+        if isinstance(liste, list):
+            for index, entry in enumerate(liste):
+                if entry == old:
+                    liste[index] = new
+                    count += 1
     return count
 
 

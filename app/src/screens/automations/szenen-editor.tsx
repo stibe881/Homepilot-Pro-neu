@@ -159,6 +159,7 @@ export function SceneDevices({
   allowToggle = false,
   sceneTransition = 0,
   luxSensors,
+  nurAuswahl = false,
 }: {
   entities: Entity[];
   actions: SceneDraft['actions'];
@@ -169,6 +170,10 @@ export function SceneDevices({
    *  nicht mit: Dort gibt es keinen Auslöser, an den man sich anpassen
    *  könnte. */
   luxSensors?: Entity[];
+  /** Nur ankreuzen, keine Befehle je Gerät: für «gemeinsam umschalten»,
+   *  wo alle denselben Befehl bekommen und der Hub ihn erst beim Drücken
+   *  bestimmt. */
+  nurAuswahl?: boolean;
   /** Übergangszeit der Szene – nur dann lohnt die Frage «diese Lampe
    *  sofort?». */
   sceneTransition?: number;
@@ -351,7 +356,7 @@ export function SceneDevices({
                     <Text style={styles.pickKind}>{deviceKindLabel(entity)}</Text>
                   </View>
                 </Pressable>
-                {included ? (
+                {included && !nurAuswahl ? (
                   <View style={{ gap: 6 }}>
                     <Choice
                       options={commandOptions(entity, allowToggle)}
