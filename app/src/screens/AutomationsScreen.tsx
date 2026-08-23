@@ -12,7 +12,7 @@ import { datumKurz } from '../lib/format';
 import { istPushKategorie } from '../lib/pushablaeufe';
 import {
   RueckwegBefehl,
-  privatsphaereBefehl,
+  richtungBefehl,
   sceneActionsToDraft,
   szenenRueckweg,
 } from '../lib/szenen';
@@ -390,12 +390,35 @@ export function AutomationsScreen({
         .filter((action) => action.entity_id)
         // flatMap, weil aus einem Eintrag zwei Aktionen werden können:
         // Helligkeit und Farbe sind zwei Befehle an dasselbe Licht.
-        .flatMap(({ entity_id, command, rooms, position, brightness, color, transition }) => {
-          // Die Kamera kennt nur set_privacy; die Richtung steckt in
-          // den Daten. In der Auswahl sind es zwei Chips.
-          const privat = privatsphaereBefehl(command);
-          if (privat) {
-            return [{ entity_id, command: privat.command, data: privat.data }];
+        .flatMap(
+          ({
+            entity_id,
+            command,
+            rooms,
+            position,
+            brightness,
+            color,
+            transition,
+            volume,
+            playlist,
+            app,
+          }) => {
+          // Kamera und Lautsprecher kennen je einen Befehl, dessen
+          // Richtung in unsichtbaren Zusatzdaten steckt. In der Auswahl
+          // sind es zwei Chips.
+          const richtung = richtungBefehl(command);
+          if (richtung) {
+            return [{ entity_id, command: richtung.command, data: richtung.data }];
+          }
+          if (command === 'set_volume') {
+            return [{ entity_id, command, data: { volume: volume ?? 30 } }];
+          }
+          if (command === 'play_playlist') {
+            // Der Hub sucht die Playlist über ihren Namen.
+            return [{ entity_id, command, data: { name: playlist ?? '' } }];
+          }
+          if (command === 'launch_app') {
+            return [{ entity_id, command, data: { app: app ?? '' } }];
           }
           if (command === 'clean_rooms') {
             return [{ entity_id, command, data: { rooms: rooms ?? [] } }];
@@ -417,7 +440,8 @@ export function AutomationsScreen({
             ];
           }
           return [{ entity_id, command }];
-        }),
+        }
+        ),
     };
     try {
       if (sceneDraft.id) {

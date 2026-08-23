@@ -9,33 +9,48 @@ import { Entity } from '../api/types';
  */
 
 /**
- * Der Privatsphäre-Schalter einer Kamera.
+ * Befehle, deren Richtung in unsichtbaren Zusatzdaten steckt.
  *
- * Die Kamera kennt genau einen Befehl, `set_privacy`, und die Richtung
- * steckt in seinen Daten (`enabled`). In der Auswahl sind es zwei Chips –
- * «Privatsphäre ein» und «aus» –, denn ein Chip, der je nach unsichtbarem
- * Zusatz das eine oder das andere tut, ist keiner. Diese beiden Schlüssel
- * gibt es nur in der Oberfläche; gespeichert wird der echte Befehl.
+ * Die Kamera kennt nur `set_privacy` und meint mit `enabled` das eine
+ * oder das andere; der Lautsprecher kennt nur `mute` und meint mit
+ * `muted` dasselbe Spiel. In der Auswahl braucht es dafür je zwei Chips –
+ * ein Chip, der je nach unsichtbarem Zusatz etwas anderes tut, ist
+ * keiner. Diese Schlüssel gibt es nur in der Oberfläche; gespeichert wird
+ * der echte Befehl.
  */
+const RICHTUNGEN = [
+  { key: 'privacy_on', command: 'set_privacy', feld: 'enabled', wert: true },
+  { key: 'privacy_off', command: 'set_privacy', feld: 'enabled', wert: false },
+  { key: 'mute_on', command: 'mute', feld: 'muted', wert: true },
+  { key: 'mute_off', command: 'mute', feld: 'muted', wert: false },
+] as const;
+
 export const PRIVATSPHAERE_EIN = 'privacy_on';
 export const PRIVATSPHAERE_AUS = 'privacy_off';
+export const STUMM_EIN = 'mute_on';
+export const STUMM_AUS = 'mute_off';
 
 /** Oberflächen-Schlüssel → gespeicherter Befehl (rein, testbar). */
-export function privatsphaereBefehl(
+export function richtungBefehl(
   command: string
-): { command: string; data: { enabled: boolean } } | null {
-  if (command === PRIVATSPHAERE_EIN) return { command: 'set_privacy', data: { enabled: true } };
-  if (command === PRIVATSPHAERE_AUS) return { command: 'set_privacy', data: { enabled: false } };
-  return null;
+): { command: string; data: Record<string, boolean> } | null {
+  const treffer = RICHTUNGEN.find((eintrag) => eintrag.key === command);
+  return treffer ? { command: treffer.command, data: { [treffer.feld]: treffer.wert } } : null;
 }
 
 /** Gespeicherter Befehl → Oberflächen-Schlüssel (rein, testbar).
  *
- * Fehlt `enabled`, gilt «ein»: Wer den Privatsphäre-Modus in eine Szene
- * nimmt, will ihn fast immer einschalten, und ein Chip muss leuchten. */
-export function privatsphaereSchluessel(command: string, enabled: unknown): string | null {
-  if (command !== 'set_privacy') return null;
-  return enabled === false ? PRIVATSPHAERE_AUS : PRIVATSPHAERE_EIN;
+ * Fehlt der Zusatz, gilt die «ein»-Richtung: Wer den Privatsphäre-Modus
+ * oder «stumm» in eine Szene nimmt, will fast immer einschalten – und ein
+ * Chip muss leuchten, sonst sieht die Zeile aus wie versehentlich drin. */
+export function richtungSchluessel(
+  command: string,
+  data: Record<string, unknown> | undefined
+): string | null {
+  const passend = RICHTUNGEN.filter((eintrag) => eintrag.command === command);
+  if (passend.length === 0) return null;
+  const gesetzt = data?.[passend[0].feld];
+  return (gesetzt === false ? passend.find((e) => !e.wert) : passend.find((e) => e.wert))!.key;
 }
 
 /** Eine Aktion, wie der Szenen-Editor sie hält. */
@@ -64,6 +79,12 @@ export interface SceneActionDraft {
   /** Nachlauf in Sekunden: So lange bleibt die Lampe an, dann schaltet der
    *  Hub sie von selbst aus. 0 oder fehlend heisst «an lassen». */
   offAfter?: number;
+  /** Ziel-Lautstärke in Prozent, wenn das Kommando 'set_volume' ist. */
+  volume?: number;
+  /** Name der Playlist, wenn das Kommando 'play_playlist' ist. */
+  playlist?: string;
+  /** Paket-ID der App, wenn das Kommando 'launch_app' ist. */
+  app?: string;
 }
 
 /**
@@ -153,6 +174,10 @@ export function sceneActionsToDraft(
       color?: string;
       transition?: number;
       enabled?: boolean;
+      muted?: boolean;
+      volume?: number;
+      name?: string;
+      app?: string;
     };
   }[]
 ): SceneActionDraft[] {
@@ -167,13 +192,18 @@ export function sceneActionsToDraft(
         continue;
       }
     }
-    const privat = privatsphaereSchluessel(action.command, action.data?.enabled);
+    const richtung = richtungSchluessel(action.command, action.data);
     result.push({
       entity_id: action.entity_id,
-      command: privat ?? action.command,
+      command: richtung ?? action.command,
       rooms: action.data?.rooms,
       position: action.data?.position,
       brightness: action.data?.brightness,
+      volume: action.data?.volume,
+      // Die Playlist steht beim Hub unter 'name' – ein eigenes Feld im
+      // Entwurf, damit sie nicht mit dem Namen der Szene verwechselt wird.
+      playlist: action.data?.name,
+      app: action.data?.app,
       transition: action.data?.transition,
       color: action.command === 'set_color' ? String(action.data?.color ?? '') : undefined,
     });
