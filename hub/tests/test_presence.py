@@ -49,26 +49,13 @@ def test_a_second_zone_becomes_its_own_state():
     assert presence.place_state(["schule"], orte) == ("schule", "schule")
 
 
-def test_fresh_wifi_beats_the_geofence():
-    jetzt = 1_000_000.0
-    zusammen = presence.merge_presence(
-        {"state": "away", "changed_at": jetzt - 60},
-        {"state": "on", "changed_at": jetzt - 30},
-        jetzt,
-    )
-    assert zusammen["state"] == "home"
-    assert zusammen["source"] == "wifi"
-
-
-def test_stale_wifi_does_not_beat_the_geofence():
-    jetzt = 1_000_000.0
-    zusammen = presence.merge_presence(
-        {"state": "away", "changed_at": jetzt - 60},
-        {"state": "on", "changed_at": jetzt - 4000},
-        jetzt,
-    )
-    assert zusammen["state"] == "away"
-    assert zusammen["source"] == "geofence"
+def test_the_wifi_is_no_longer_a_presence_source():
+    """Es gab einmal merge_presence, das eine WLAN-Anmeldung über die
+    Ortsmeldung stellte. «Gerät im Netz» ist nicht «Mensch zuhause» –
+    darum gibt es die Funktion nicht mehr, und der Test hält fest, dass
+    sie nicht zurückkommt."""
+    assert not hasattr(presence, "merge_presence")
+    assert not hasattr(presence, "WIFI_FRESH")
 
 
 def test_an_empty_battery_is_not_nobody_home():
@@ -140,9 +127,11 @@ def test_default_places_come_from_the_house_location():
     assert orte[1]["radius"] > orte[0]["radius"]
 
 
-def test_zones_can_name_their_wifi_source():
+def test_an_old_wifi_entry_is_read_over_instead_of_breaking_the_start():
+    """Wer `wifi:` in der config.yaml stehen hat, soll nach dem Update
+    keinen Startfehler bekommen – die Zeile gilt nur nicht mehr."""
     zones = geofence.parse_zones([{"id": "stefan", "wifi": "unifi.iphone_stefan"}])
-    assert zones[0]["wifi"] == "unifi.iphone_stefan"
+    assert zones == [{"id": "stefan", "name": "stefan"}]
 
 
 # ── Welche Zone gehört zu welchem Benutzer ───────────────────────────────

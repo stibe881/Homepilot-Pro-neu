@@ -70,15 +70,23 @@ export function seitText(since: unknown, jetzt: Date): string {
  * kurzen Aufenthalt steht deshalb die Dauer, und erst wenn sie unhandlich
  * wird (über einen Tag), tritt das Datum an ihre Stelle: «seit gestern,
  * 18:40» sagt mehr als «seit 19 h 12 min».
+ *
+ * `frisch` ist der Satz für die erste Minute. Voreingestellt ist «gerade
+ * angekommen» – bei jemandem, der unterwegs ist, wäre das falsch herum,
+ * darum reicht die Liste dort ihren eigenen Satz herein.
  */
-export function dauerDa(since: unknown, jetzt: Date): string {
+export function dauerDa(
+  since: unknown,
+  jetzt: Date,
+  frisch = 'gerade angekommen'
+): string {
   const sekunden = Number(since);
   if (!Number.isFinite(sekunden) || sekunden <= 0) return '';
   const wann = new Date(sekunden * 1000);
   const minuten = Math.round((jetzt.getTime() - wann.getTime()) / 60000);
   // Eine Meldung aus der Zukunft (Uhr verstellt) ist keine Dauer.
   if (minuten < 0) return '';
-  if (minuten < 1) return 'gerade angekommen';
+  if (minuten < 1) return frisch;
   const uhr = `${String(wann.getHours()).padStart(2, '0')}:${String(
     wann.getMinutes()
   ).padStart(2, '0')}`;
@@ -95,6 +103,12 @@ export function dauerDa(since: unknown, jetzt: Date): string {
  * Für das Fenster hinter «jemand da». Wer draufdrückt, will wissen, wer
  * im Haus ist; alles Übrige steht darunter, damit man auch sieht, wen die
  * Antwort nicht mitzählt.
+ *
+ * Nicht dabei: Benutzer ohne eingerichtete Ortung. Der Hub kennt neben
+ * den Bewohnern auch Zugänge wie «Hub-Token» oder «Tablet» – die standen
+ * hier als Leute mit «Ortung nicht eingerichtet» und liessen die Antwort
+ * auf «wer ist da?» wie eine Fehlermeldung aussehen. Verschwiegen werden
+ * sie trotzdem nicht, dafür gibt es `ohneOrtung` als eine Zeile darunter.
  */
 export function anwesenheitsListe(
   people: Person[],
@@ -105,12 +119,19 @@ export function anwesenheitsListe(
     return state === 'home' ? 0 : state === 'away' ? 2 : 3;
   };
   return (people ?? [])
-    .filter((person) => person?.name)
+    .filter((person) => person?.name && person?.configured !== false)
     .map((person, index) => ({
       key: String(person.zone ?? person.name ?? index),
       name: String(person.name),
       zustand: zustandText(person),
-      dauer: dauerDa(person?.since, jetzt),
+      // «gerade angekommen» hinter «unterwegs» las sich wie ein
+      // Widerspruch. `since` ist der Zeitpunkt des Wechsels – bei wem
+      // der Wechsel ein Weggehen war, heisst das eben andersherum.
+      dauer: dauerDa(
+        person?.since,
+        jetzt,
+        String(person?.state ?? '') === 'home' ? 'gerade angekommen' : 'gerade eben'
+      ),
       zuhause: String(person?.state ?? '') === 'home',
       _rang: rang(person),
     }))
@@ -119,30 +140,52 @@ export function anwesenheitsListe(
 }
 
 /**
- * Wenn die zwei Anzeigen einander widersprechen, sag es (rein, testbar).
+ * Die Namen, für die noch keine Ortung eingerichtet ist (rein, testbar).
  *
- * Oben im Streifen steht «jemand da» – das kommt aus dem WLAN und meint
- * das ganze Haus. Die Liste darunter steht je Person und kommt aus der
- * Ortung. Beide wissen nichts voneinander, solange in der config.yaml
- * keine Zone ein `wifi:` trägt.
+ * Der Hub führt jeden Zugang als Benutzer – auch «Hub-Token» und das
+ * Tablet an der Wand. Als eigene Zeilen im Fenster «Wer ist da» sahen
+ * sie aus wie vermisste Personen. Als eine Zeile darunter sind sie das,
+ * was sie sind: eine offene Aufgabe für die, die es betrifft.
+ */
+export function ohneOrtung(people: Person[]): string[] {
+  return (people ?? [])
+    .filter((person) => person?.name && person?.configured === false)
+    .map((person) => String(person.name).trim())
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Warum oben «jemand da» steht und unten niemand (rein, testbar).
  *
- * Dann kann dastehen: oben «jemand da», unten niemand zuhause. Wer das
- * liest, hält eines von beiden für kaputt. Also benennen, statt es
- * auszusitzen – und dazusagen, was fehlt.
+ * Beide Anzeigen kommen inzwischen aus derselben Quelle – der Ortung.
+ * Trotzdem können sie auseinanderlaufen, und zwar mit Absicht: Die
+ * Sammelfrage des Hubs zählt Nichtwissen als «da». Ein Telefon mit
+ * leerem Akku ist kein «niemand zuhause», sonst fährt das Haus herunter,
+ * während jemand darin sitzt.
+ *
+ * Also steht oben «jemand da», sobald auch nur eine Person unbekannt
+ * ist – und unten steht bei ihr «meldet sich nicht». Das gehört
+ * dazugesagt, sonst hält man eines von beiden für kaputt.
+ *
+ * `hausAnwesend` ist `null`, wenn es die Sammelfrage nicht gibt (kein
+ * Geofence eingerichtet) – dann gibt es auch nichts zu erklären.
  */
 export function werIstDaHinweis(people: Person[], hausAnwesend: boolean | null): string {
   const echte = (people ?? []).filter((person) => person?.name);
-  const zuhause = echte.some((person) => String(person.state) === 'home');
+  const geortet = echte.filter((person) => person?.configured !== false);
+  const zuhause = geortet.some((person) => String(person.state) === 'home');
 
   if (hausAnwesend === true && !zuhause) {
-    const keinerEingerichtet =
-      echte.length === 0 || echte.every((person) => person.configured === false);
-    return keinerEingerichtet
-      ? 'Das WLAN sieht jemanden im Haus. Wer es ist, weiss der Hub nicht – für niemanden ist die Ortung eingerichtet.'
-      : 'Das WLAN sieht jemanden im Haus. Von den Leuten hier hat sich niemand gemeldet.';
-  }
-  if (hausAnwesend === false && zuhause) {
-    return 'Das WLAN sieht niemanden – die Ortung meldet trotzdem jemanden zuhause.';
+    if (geortet.length === 0) {
+      return 'Für niemanden ist die Ortung eingerichtet – darum bleibt es beim vorsichtigen «jemand da».';
+    }
+    const stumm = geortet.filter((person) => String(person.state ?? 'unknown') === 'unknown');
+    if (stumm.length > 0) {
+      const namen = stumm.map((person) => String(person.name).split(' ')[0]).join(', ');
+      return `Niemand hat sich zuhause gemeldet. Solange der Hub von ${namen} nichts weiss, bleibt es beim vorsichtigen «jemand da».`;
+    }
+    return 'Niemand hat sich zuhause gemeldet – oben müsste «niemand da» stehen. Wenn das so bleibt, stimmt etwas mit der Ortung nicht.';
   }
   return '';
 }

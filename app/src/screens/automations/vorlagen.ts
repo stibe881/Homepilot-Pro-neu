@@ -19,7 +19,11 @@ export interface Template {
  *  anpassen und speichern bleibt beim Benutzer. */
 export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] {
   const templates: Template[] = [];
-  const presence = entities.find((entity) => entity.id.endsWith('anyone_home'));
+  // Nur der Geofence. `unifi.anyone_home` heisst «Geräte im WLAN» und
+  // beantwortet «ist eines der verfolgten Geräte im Netz» – eine Vorlage
+  // «alles aus, wenn niemand mehr da ist» darauf schaltet das Haus ab,
+  // sobald das Telefon im Garten den Funk verliert.
+  const presence = entities.find((entity) => entity.id === 'geofence.anyone_home');
   // Alles, was klingeln kann - die Gegensprechanlage an der Haustüre
   // ebenso wie eine Türklingel mit Kamera. Vorher wurde nach «last_ring»
   // gesucht: Das entsteht erst beim ersten Klingeln, und die Vorlage für
@@ -544,11 +548,9 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
     });
   }
 
-  // «Niemand mehr zuhause» in einem Ablauf statt in dreien. Die
-  // Sammel-Entität des Geofence hat Vorrang vor der WLAN-Anwesenheit:
-  // Sie merkt es beim Verlassen des Quartiers, nicht erst, wenn sich das
-  // letzte Telefon aus dem WLAN abmeldet.
-  const alleWeg = entities.find((entity) => entity.id === 'geofence.anyone_home') ?? presence;
+  // «Niemand mehr zuhause» in einem Ablauf statt in dreien – dieselbe
+  // Sammel-Entität des Geofence wie oben.
+  const alleWeg = presence;
   const sauger = entities.find((entity) => entity.commands.includes('dock'));
   if (alleWeg && (allLights.length > 0 || sauger || alarm)) {
     const schritte: StepDraft[] = [];

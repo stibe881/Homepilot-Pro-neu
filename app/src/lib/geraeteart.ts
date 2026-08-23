@@ -91,9 +91,11 @@ export function deviceKindLabel(entity: Entity): string {
 
     case 'binary_sensor':
       // Anwesenheit sieht wie ein Melder aus, ist aber keiner: Sie sagt,
-      // ob jemand zuhause ist, nicht ob sich etwas bewegt.
-      if (entity.integration === 'geofence') return 'Anwesenheit (Standort)';
-      if (entity.integration === 'unifi') return 'Anwesenheit (WLAN)';
+      // ob jemand zuhause ist, nicht ob sich etwas bewegt. Und nur der
+      // Geofence sagt das – UniFi weiss, welches Gerät im Netz hängt,
+      // was etwas anderes ist und darum auch anders heisst.
+      if (entity.integration === 'geofence') return 'Anwesenheit';
+      if (entity.integration === 'unifi') return 'Gerät im WLAN';
       return MELDER[deviceClass] ?? 'Melder';
 
     case 'sensor':
@@ -145,9 +147,10 @@ export function deviceKindIcon(entity: Entity): string {
       if (deviceClass === 'smoke') return 'flame-outline';
       if (deviceClass === 'moisture') return 'water-outline';
       if (deviceClass === 'contact') return 'log-in-outline';
-      if (entity.integration === 'geofence' || entity.integration === 'unifi') {
-        return 'people-outline';
-      }
+      if (entity.integration === 'geofence') return 'people-outline';
+      // Ein WLAN-Fühler bekommt das Netz-Sinnbild, keine Leute: Er zählt
+      // Geräte, nicht Menschen.
+      if (entity.integration === 'unifi') return 'wifi-outline';
       return 'ellipse-outline';
     case 'sensor':
       return 'speedometer-outline';

@@ -1377,7 +1377,7 @@ def test_geofence_zones_need_an_id():
     from homepilot.integrations.geofence import parse_zones
 
     zones = parse_zones([{"id": "stefan", "name": "Stefan"}, {"name": "ohne Kennung"}])
-    assert zones == [{"id": "stefan", "name": "Stefan", "wifi": ""}]
+    assert zones == [{"id": "stefan", "name": "Stefan"}]
 
 
 def test_protect_events_become_a_timeline():

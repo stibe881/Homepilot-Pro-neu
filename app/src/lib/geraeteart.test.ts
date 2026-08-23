@@ -72,12 +72,14 @@ describe('deviceKindLabel', () => {
     expect(deviceKindLabel(geraet({ kind: 'binary_sensor' }))).toBe('Melder');
   });
 
-  it('trennt Anwesenheit von Bewegung', () => {
-    // Sie sagt, ob jemand zuhause ist – nicht, ob sich etwas bewegt.
+  it('trennt Anwesenheit von Bewegung – und vom WLAN', () => {
+    // Anwesenheit sagt, ob jemand zuhause ist – nicht, ob sich etwas
+    // bewegt. Und ein Gerät im WLAN ist beides nicht: Das iPad hängt
+    // auch dann im Netz, wenn alle weg sind.
     expect(deviceKindLabel(geraet({ kind: 'binary_sensor', integration: 'geofence' })))
-      .toBe('Anwesenheit (Standort)');
+      .toBe('Anwesenheit');
     expect(deviceKindLabel(geraet({ kind: 'binary_sensor', integration: 'unifi' })))
-      .toBe('Anwesenheit (WLAN)');
+      .toBe('Gerät im WLAN');
   });
 
   it('erkennt den Messwert notfalls an der Einheit', () => {

@@ -1,12 +1,18 @@
 """Anwesenheit: aus Meldungen wird ein verlässlicher Zustand.
 
-Der Hub hat zwei Quellen für dieselbe Frage «ist jemand da?» – die
-WLAN-Anmeldung über UniFi und die Zonenmeldung vom Telefon. Sie sind
-unterschiedlich schnell und unterschiedlich verlässlich: Das Telefon
-bucht sich aus, wenn es im Garten liegt; die Zonenmeldung sagt «weg»,
-während das Gerät längst wieder im Netz ist. Wer beides ungeprüft
-nebeneinanderstellt, bekommt eine Alarmanlage, die scharf schaltet,
-während jemand im Haus sitzt.
+Es gibt genau **eine** Quelle für «ist jemand da?»: die Ortsmeldung vom
+Telefon (App-Geofence oder Kurzbefehl). Das WLAN zählt ausdrücklich
+nicht dazu – weder für den Aufenthaltsort einer Person noch für die
+Sammelfrage übers Haus.
+
+Warum nicht, obwohl es bequem wäre: Eine WLAN-Anmeldung beantwortet
+«ist dieses Gerät im Netz», nicht «ist dieser Mensch zuhause». Das
+iPad liegt auch dann im Netz, wenn alle weg sind; das Telefon fällt
+auch dann heraus, wenn man im Garten sitzt. Solange beides
+nebeneinanderstand, zeigte die Startseite «jemand da», während die
+Liste darunter niemanden führte – und man weiss nicht, welchem der
+beiden man glauben soll. Eine Quelle, die manchmal irrt, ist besser
+als zwei, die sich widersprechen.
 
 Hier steht nur das Rechnen – ohne Hub, ohne Netz, ohne Uhr ausser der,
 die hineingereicht wird. Wer meldet, ist die Geofence-Integration; wer
@@ -21,11 +27,6 @@ from typing import Any
 HOME = "home"
 AWAY = "away"
 UNKNOWN = "unknown"
-
-# So lange gilt eine WLAN-Anmeldung als frisch genug, um die
-# Zonenmeldung zu schlagen. Fünf Minuten: So lange braucht ein Telefon,
-# das im Haus wieder aufwacht, um sich einzubuchen.
-WIFI_FRESH = 300.0
 
 # Ab wann Funkstille kein «weg» mehr ist, sondern ein Nichtwissen.
 # Zwölf Stunden decken eine Nacht mit leerem Akku ab und sind kurz
@@ -133,50 +134,6 @@ def place_state(inside: list[str], places: list[dict[str, Any]]) -> tuple[str, s
     drin += [ort_id for ort_id in inside if ort_id not in reihenfolge]
     engster = drin[0]
     return (HOME if engster == HOME else engster), engster
-
-
-def merge_presence(
-    geo: dict[str, Any] | None,
-    wifi: dict[str, Any] | None,
-    now: float,
-    fresh: float = WIFI_FRESH,
-) -> dict[str, Any]:
-    """Die zwei Quellen zu einer Anwesenheit zusammenführen (rein, testbar).
-
-    Regel, bewusst einfach: **WLAN schlägt Geofence, solange es frisch
-    ist.** Ein Telefon, das gerade im Netz ist, ist im Haus – da hilft
-    keine Zonenmeldung dagegen. Ist die WLAN-Angabe älter als `fresh`
-    oder sagt sie «nicht verbunden», entscheidet die Zone.
-
-    Zurück kommt immer auch, woher der Wert stammt: Eine Anwesenheit,
-    der man nicht ansieht, warum sie so ist, ist im Streitfall wertlos.
-    """
-    geo_state = str((geo or {}).get("state") or UNKNOWN)
-    geo_at = float((geo or {}).get("changed_at") or 0)
-    wifi_state = str((wifi or {}).get("state") or "")
-    wifi_at = float((wifi or {}).get("changed_at") or 0)
-
-    wifi_frisch = bool(wifi) and (now - wifi_at) <= fresh
-    if wifi_frisch and wifi_state in ("on", HOME, "true"):
-        return {
-            "state": HOME,
-            "source": "wifi",
-            "changed_at": wifi_at,
-            "place": HOME,
-        }
-    if geo_state in (HOME, AWAY) or geo_state not in ("", UNKNOWN):
-        return {
-            "state": geo_state,
-            "source": "geofence",
-            "changed_at": geo_at,
-            "place": (geo or {}).get("place"),
-        }
-    if wifi_frisch:
-        # WLAN sagt «nicht verbunden» und sonst weiss es niemand: Das ist
-        # ein Hinweis auf «weg», aber kein Beweis - das Telefon kann im
-        # Flugmodus auf dem Küchentisch liegen.
-        return {"state": UNKNOWN, "source": "wifi", "changed_at": wifi_at, "place": None}
-    return {"state": UNKNOWN, "source": "none", "changed_at": 0.0, "place": None}
 
 
 def is_stale(changed_at: Any, now: float, hours: float = STALE_HOURS) -> bool:

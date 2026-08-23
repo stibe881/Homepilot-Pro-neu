@@ -71,3 +71,96 @@ async def test_anyone_home_meldet_nur_echte_wechsel() -> None:
         assert nachher.get("changed_at") == stempel
     finally:
         await hub.stop()
+
+
+# ── Das WLAN entscheidet nichts ──────────────────────────────────────────
+#
+# Auf der Startseite stand «jemand da», während das Fenster darunter
+# niemanden führte: Der Chip las den WLAN-Fühler, die Liste die Ortung.
+# Seither gibt es genau eine Quelle, und diese Tests halten sie fest.
+
+
+async def test_a_device_in_the_wifi_does_not_make_a_person_present() -> None:
+    """Früher schlug eine frische UniFi-Anmeldung die Ortsmeldung.
+
+    Genau daran zerbrach die Anzeige: Das iPad hängt auch dann im WLAN,
+    wenn alle weg sind. «Weg» muss «weg» bleiben.
+    """
+    import time
+
+    from homepilot.core.entity import Entity, EntityKind
+
+    hub, geo = await make_geofence()
+    try:
+        await hub.registry.add(
+            Entity(
+                id="unifi.iphone_stefan",
+                kind=EntityKind.BINARY_SENSOR,
+                name="iPhone Stefan",
+                integration="unifi",
+                state={"state": "on", "changed_at": time.time()},
+            )
+        )
+        await geo.report("stefan", "leave")
+        zusammen = geo.merged("stefan")
+        assert zusammen["state"] == "away"
+        assert zusammen["source"] == "geofence"
+    finally:
+        await hub.stop()
+
+
+async def test_an_old_wifi_option_does_not_stop_the_hub_from_starting() -> None:
+    """Wer `wifi:` noch in der config.yaml hat, soll starten können."""
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[], automations=[]))
+    await hub.start()
+    try:
+        integration = GeofenceIntegration(
+            hub,
+            {
+                "integration": "geofence",
+                "zones": [{"id": "stefan", "name": "Stefan", "wifi": "unifi.iphone"}],
+            },
+        )
+        await integration.setup()
+        await integration.report("stefan", "leave")
+        assert integration.merged("stefan")["state"] == "away"
+    finally:
+        await hub.stop()
+
+
+async def test_the_unifi_collection_sensor_no_longer_claims_to_be_presence() -> None:
+    """`unifi.anyone_home` heisst «Geräte im WLAN» und trägt
+    `device_class: connectivity` – damit sucht niemand mehr dort nach
+    Anwesenheit. Die Kennung bleibt, sonst brechen alte Abläufe."""
+    from homepilot.integrations.unifi import UnifiIntegration
+
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[], automations=[]))
+    await hub.start()
+    try:
+        unifi = UnifiIntegration(
+            hub,
+            {
+                "integration": "unifi",
+                "host": "10.0.0.1",
+                "username": "u",
+                "password": "p",
+                "track": [{"mac": "aa:bb:cc:dd:ee:ff", "name": "iPhone Stefan"}],
+            },
+        )
+        # Anmelden und Abfragen brauchen einen Controller, den es hier
+        # nicht gibt; die Entitäten legt setup() auch ohne ihn an.
+        async def kein_login() -> None:
+            return None
+
+        unifi._login = kein_login  # type: ignore[method-assign]
+        unifi.start_polling = lambda *a, **k: None  # type: ignore[method-assign]
+        await unifi.setup()
+
+        entity = hub.registry.get("unifi.anyone_home")
+        assert entity is not None
+        assert entity.name == "Geräte im WLAN"
+        assert entity.state["device_class"] == "connectivity"
+        # Und nichts daran nennt sich «zuhause».
+        assert "zuhause" not in entity.name.lower()
+    finally:
+        await hub.stop()

@@ -27,7 +27,7 @@ import {
 } from '../lib/einkauf';
 import { uhr, wochentagDatum, wochentagUhr } from '../lib/format';
 import { klimaLabel, klimaSensor } from '../lib/klimachip';
-import { Person, anwesenheitsListe, werIstDaHinweis } from '../lib/ortung';
+import { Person, anwesenheitsListe, ohneOrtung, werIstDaHinweis } from '../lib/ortung';
 import { tapped } from '../lib/haptics';
 import { kann } from '../lib/plattform';
 import { MAX_SCHRIFT } from '../lib/schrift';
@@ -155,9 +155,13 @@ export function TopStrip({
   // Prozent - siehe lib/klimachip.
   const temperature = klimaSensor(entities, 'temperature');
   const humidity = klimaSensor(entities, 'humidity');
-  const people = entities.find((entity) => entity.id.endsWith('anyone_home'));
-  // Was der WLAN-Fühler übers ganze Haus sagt. `null`, wenn es ihn nicht
-  // gibt – dann gibt es auch keinen Widerspruch zu erklären.
+  // Nur der Geofence, nie `unifi.anyone_home`: Das WLAN beantwortet «ist
+  // eines der verfolgten Geräte im Netz», nicht «ist jemand zuhause».
+  // Genau daran stimmte die Startseite nicht mehr mit dem Fenster
+  // darunter überein – oben «jemand da», unten niemand.
+  const people = entities.find((entity) => entity.id === 'geofence.anyone_home');
+  // Was die Sammelfrage übers ganze Haus sagt. `null`, wenn es sie nicht
+  // gibt – dann gibt es auch nichts zu erklären.
   const hausAnwesend = people ? people.state.state === 'on' : null;
 
   // Die Zwei-Sekunden-Übersicht: Was ist an, was läuft, was steht an?
@@ -327,9 +331,9 @@ export function TopStrip({
         <Pressable style={styles.backdrop} onPress={() => setDaOpen(false)}>
           <Pressable style={styles.sheet} onPress={() => {}}>
             <Text style={styles.heading}>Wer ist da</Text>
-            {/* Die Zeile oben kommt aus dem WLAN und meint das Haus, die
-                Liste hier je Person aus der Ortung. Widersprechen sie
-                einander, gehört das gesagt – sonst hält man eines von
+            {/* Oben zählt Nichtwissen als «da» – ein leerer Akku ist kein
+                «niemand zuhause». Steht darum oben «jemand da» und hier
+                niemand, gehört der Grund dazu; sonst hält man eines von
                 beiden für kaputt. */}
             {wer !== null && werIstDaHinweis(wer, hausAnwesend) ? (
               <Text style={styles.daHinweis}>{werIstDaHinweis(wer, hausAnwesend)}</Text>
@@ -362,6 +366,15 @@ export function TopStrip({
                 ))}
               </ScrollView>
             )}
+            {/* Der Hub führt auch Zugänge als Benutzer – «Hub-Token»,
+                das Wandtablet. Als eigene Zeilen sahen sie aus wie
+                vermisste Personen; hier stehen sie als das, was sie
+                sind: eine offene Einrichtung. */}
+            {wer !== null && ohneOrtung(wer).length > 0 ? (
+              <Text style={styles.lightRoom}>
+                Ohne Ortung: {ohneOrtung(wer).join(', ')}
+              </Text>
+            ) : null}
           </Pressable>
         </Pressable>
       </Modal>

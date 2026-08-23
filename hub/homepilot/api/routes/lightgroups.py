@@ -266,10 +266,12 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     async def presence_overview(request: Request) -> dict[str, Any]:
         """Wer ist da? – die meistgestellte Frage im Haushalt.
 
-        Zonenmeldung und WLAN zusammengeführt (Punkt 200), je Person eine
-        Zeile mit «seit wann». Ohne Karte und ohne Meterangaben: «Sandra
-        zuhause · Stefan unterwegs seit 14:20» beantwortet, was man
-        wissen will.
+        Je Person eine Zeile mit «seit wann», allein aus der Ortsmeldung
+        des Telefons (Punkt 200). Das WLAN kommt hier nicht vor – es
+        beantwortet «Gerät im Netz», nicht «Mensch zuhause», und solange
+        beides nebeneinanderstand, widersprachen sich Startseite und
+        Liste. Ohne Karte und ohne Meterangaben: «Sandra zuhause · Stefan
+        unterwegs seit 14:20» beantwortet, was man wissen will.
         """
         current_user(request)
         verlauf = hub.data.get("presence_history")

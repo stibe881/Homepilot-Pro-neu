@@ -6,6 +6,7 @@ import {
   anwesenheitsListe,
   anwesenheitsZeile,
   dauerDa,
+  ohneOrtung,
   ortungsHinweis,
   pauseBis,
   pausiert,
@@ -191,6 +192,16 @@ describe('anwesenheitsListe', () => {
     });
   });
 
+  it('schreibt hinter «unterwegs» kein «gerade angekommen»', () => {
+    // `since` ist der Zeitpunkt des Wechsels. Bei wem der Wechsel ein
+    // Weggehen war, las sich «unterwegs · gerade angekommen» wie ein
+    // Widerspruch.
+    const eben = [{ zone: 'a', name: 'Livia', state: 'away', since: sekunden(UM(14, 0)) }];
+    expect(anwesenheitsListe(eben, UM(14, 0))[0].dauer).toBe('gerade eben');
+    const heim = [{ zone: 'b', name: 'Stefan', state: 'home', since: sekunden(UM(14, 0)) }];
+    expect(anwesenheitsListe(heim, UM(14, 0))[0].dauer).toBe('gerade angekommen');
+  });
+
   it('lässt die Dauer weg, wo sich niemand gemeldet hat', () => {
     const levin = anwesenheitsListe(leute, UM(14, 0))[2];
     expect(levin.dauer).toBe('');
@@ -201,45 +212,88 @@ describe('anwesenheitsListe', () => {
     expect(anwesenheitsListe([{ state: 'home' }], UM(14, 0))).toEqual([]);
     expect(anwesenheitsListe([], UM(14, 0))).toEqual([]);
   });
+
+  it('lässt Zugänge ohne Ortung aus der Liste', () => {
+    // «Hub-Token» und das Wandtablet sind Benutzer des Hubs, aber keine
+    // Personen. Als Zeilen mit «Ortung nicht eingerichtet» sahen sie im
+    // Fenster aus wie vermisste Familienmitglieder.
+    const gemischt = [
+      ...leute,
+      { zone: null, name: 'Hub-Token', state: 'unknown', configured: false },
+      { zone: null, name: 'Tablet', state: 'unknown', configured: false },
+    ];
+    expect(anwesenheitsListe(gemischt, UM(14, 0)).map((z) => z.name)).toEqual([
+      'Stefan',
+      'Sandra',
+      'Levin',
+    ]);
+  });
+});
+
+describe('ohneOrtung', () => {
+  it('nennt die Zugänge, für die nichts eingerichtet ist', () => {
+    expect(
+      ohneOrtung([
+        { name: 'Stefan', state: 'home', configured: true },
+        { name: 'Tablet', state: 'unknown', configured: false },
+        { name: 'Hub-Token', state: 'unknown', configured: false },
+      ])
+    ).toEqual(['Hub-Token', 'Tablet']);
+  });
+
+  it('bleibt leer, wenn für alle etwas eingerichtet ist', () => {
+    expect(ohneOrtung([{ name: 'Stefan', state: 'away', configured: true }])).toEqual([]);
+    expect(ohneOrtung([])).toEqual([]);
+  });
 });
 
 // ── Wenn Streifen und Fenster einander widersprechen ─────────────────────
-// Oben stand «jemand da», im Fenster darunter war niemand zuhause. Die
-// zwei kommen aus verschiedenen Quellen – das WLAN kennt das Haus, die
-// Ortung kennt die Leute.
+// Oben stand «jemand da», im Fenster darunter war niemand zuhause. Damals
+// kamen die zwei aus verschiedenen Quellen – das WLAN kannte das Haus, die
+// Ortung die Leute. Das WLAN ist raus; auseinanderlaufen können sie
+// trotzdem, weil die Sammelfrage Nichtwissen vorsichtshalber als «da»
+// zählt. Dann gehört gesagt, warum.
 
 describe('werIstDaHinweis', () => {
   const daheim = [{ name: 'Stefan', state: 'home', configured: true }];
   const weg = [{ name: 'Stefan', state: 'away', configured: true }];
-  const ohneOrtung = [{ name: 'Stefan', state: 'unknown', configured: false }];
+  const stumm = [{ name: 'Stefan', state: 'unknown', configured: true }];
+  const nichtEingerichtet = [{ name: 'Hub-Token', state: 'unknown', configured: false }];
 
   it('schweigt, wenn beide dasselbe sagen', () => {
     expect(werIstDaHinweis(daheim, true)).toBe('');
     expect(werIstDaHinweis(weg, false)).toBe('');
   });
 
-  it('nennt die fehlende Einrichtung, wenn das WLAN jemanden sieht', () => {
-    // Genau der gemeldete Fall.
-    expect(werIstDaHinweis(ohneOrtung, true)).toContain('für niemanden ist die Ortung');
+  it('nennt die fehlende Einrichtung, wenn niemand geortet wird', () => {
+    // Genau der gemeldete Fall: nur Zugänge, keine Person mit Zone.
+    expect(werIstDaHinweis(nichtEingerichtet, true)).toContain(
+      'Für niemanden ist die Ortung eingerichtet'
+    );
   });
 
-  it('sagt bei eingerichteter Ortung, dass sich niemand gemeldet hat', () => {
-    expect(werIstDaHinweis(weg, true)).toContain('niemand gemeldet');
-    expect(werIstDaHinweis(weg, true)).not.toContain('eingerichtet');
+  it('nennt beim Namen, wessen Schweigen das «jemand da» hält', () => {
+    // Nichtwissen zählt als «da» – ein leerer Akku ist kein «niemand
+    // zuhause». Wer das nicht weiss, hält die Anzeige für kaputt.
+    const satz = werIstDaHinweis(stumm, true);
+    expect(satz).toContain('Stefan');
+    expect(satz).toContain('jemand da');
   });
 
-  it('nennt auch den umgekehrten Fall', () => {
-    expect(werIstDaHinweis(daheim, false)).toContain('sieht niemanden');
+  it('sagt es deutlich, wenn sich das nicht erklären lässt', () => {
+    // Alle ausdrücklich weg, oben trotzdem «jemand da»: Dann stimmt
+    // wirklich etwas nicht.
+    expect(werIstDaHinweis(weg, true)).toContain('stimmt etwas mit der Ortung nicht');
   });
 
-  it('schweigt, solange das Haus nichts meldet', () => {
-    // Ohne WLAN-Fühler gibt es keinen Widerspruch zu erklären.
-    expect(werIstDaHinweis(ohneOrtung, null)).toBe('');
+  it('schweigt, solange es die Sammelfrage nicht gibt', () => {
+    // Ohne Geofence gibt es oben keinen Chip und nichts zu erklären.
+    expect(werIstDaHinweis(nichtEingerichtet, null)).toBe('');
     expect(werIstDaHinweis(daheim, null)).toBe('');
   });
 
   it('verträgt eine leere Liste', () => {
-    expect(werIstDaHinweis([], true)).toContain('für niemanden');
+    expect(werIstDaHinweis([], true)).toContain('Für niemanden');
     expect(werIstDaHinweis([], false)).toBe('');
   });
 });

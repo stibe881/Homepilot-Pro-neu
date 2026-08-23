@@ -54,6 +54,23 @@ In der App unter **Abläufe** → neuer Ablauf → Auslöser **Ort** → Person
 und «kommt an» oder «geht weg» wählen. Der Rest ist ein Ablauf wie jeder
 andere.
 
+### Das WLAN zählt nicht mit
+
+Die Anwesenheit kommt **allein** vom Telefon. Es gab einmal eine Option
+`wifi:` je Zone, mit der eine UniFi-Anmeldung die Ortsmeldung überstimmte;
+die ist weg. Steht sie noch in der config.yaml, wird sie überlesen und der
+Hub schreibt es beim Start ins Protokoll.
+
+Der Grund ist im Betrieb aufgefallen: «Gerät im Netz» ist nicht «Mensch
+zuhause». Das iPad hängt auch dann im WLAN, wenn alle weg sind, und ein
+Telefon fällt heraus, sobald jemand im Garten sitzt. Auf der Startseite
+stand darum «jemand da», während die Liste darunter niemanden führte – und
+man weiss nicht, welcher der beiden Anzeigen man glauben soll.
+
+`unifi.anyone_home` gibt es weiter, heisst in der App aber «Geräte im WLAN»
+und beantwortet genau das. Für Anwesenheit ist `geofence.anyone_home`
+zuständig.
+
 ### Die Sammelfrage «ist noch jemand da?»
 
 Neben den Personen legt der Hub `geofence.anyone_home` an. Sie steht auf

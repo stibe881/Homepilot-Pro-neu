@@ -31,7 +31,7 @@ weiter – das ist der Grund, warum Licht, Storen und Schlösser hier stehen.
 | **vzug** | Geschirrspüler, Waschmaschine (Home-API) | IP je Gerät |
 | **google_cast** | Chromecasts und Cast-Boxen, Durchsagen | nur mDNS |
 | **androidtv** | Fernseher über das Google-TV-Remote-Protokoll | IP, Kopplung |
-| **unifi** | Anwesenheit über verbundene WLAN-Geräte | Controller, Zugangsdaten |
+| **unifi** | Welche Geräte im WLAN sind (keine Anwesenheit – die kommt vom Geofence) | Controller, Zugangsdaten |
 | **unifi_protect** | Kameras | Controller, Zugangsdaten |
 | **pitboss** | Pellet-Grill | Bluetooth, `pytboss` |
 
