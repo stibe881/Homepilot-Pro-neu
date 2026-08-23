@@ -142,6 +142,20 @@ def unfrozen_status(
     return result
 
 
+# Wie oft ein Abruf hintereinander scheitern darf, bevor das Gerät als
+# ausgefallen gilt. Vorher genügte ein einziger: Die Ausfallliste war
+# voll mit Löchern von einer bis vier Minuten, während Waschmaschine und
+# Geschirrspüler die ganze Zeit am Netz hingen.
+AUSFAELLE_BIS_WEG = 3
+
+# Zweiter Versuch im selben Durchgang. Der kleine Webserver im Gerät
+# nimmt nicht jede Verbindung an; nach ein paar Sekunden klappt es
+# meistens. Das ist billiger als eine Minute bis zum nächsten Takt zu
+# warten und dabei als «weg» dazustehen.
+VERSUCHE = 2
+PAUSE_VOR_ZWEITEM_VERSUCH = 3.0
+
+
 class VZugIntegration(Integration):
     name = "vzug"
 
@@ -150,7 +164,18 @@ class VZugIntegration(Integration):
         if not devices:
             raise ConfigError("vzug braucht mindestens ein Gerät unter 'devices'")
         self._interval = self.scan_interval()
-        self._session = self.http_session()
+        # Zwei Dinge, die dieser Gerätetyp braucht:
+        #
+        # force_close – V-ZUG-Geräte schliessen eine ruhende Verbindung
+        # nach kurzer Zeit von sich aus. aiohttp weiss davon nichts,
+        # greift beim nächsten Takt zum selben Socket und bekommt ein
+        # «Server disconnected». Das war ein Ausfall, der nie einer war.
+        #
+        # limit_per_host – der eingebaute Webserver beantwortet immer nur
+        # eine Anfrage. Zwei gleichzeitig, und eine davon fällt hin.
+        self._session = self.http_session(
+            connector=aiohttp.TCPConnector(force_close=True, limit_per_host=1),
+        )
 
         # entity_id → (host, auth)
         self._devices: dict[str, tuple[str, aiohttp.BasicAuth | None]] = {}
@@ -161,6 +186,8 @@ class VZugIntegration(Integration):
         # Standby und melden dann 503 – bei jedem Abruf eine Warnung zu
         # schreiben flutet das Log und begräbt alles Wichtige darunter.
         self._down: set[str] = set()
+        # Je Gerät: wie viele Abrufe hintereinander misslungen sind.
+        self._fehlversuche: dict[str, int] = {}
         for device in devices:
             host = device.get("host")
             if not host:
@@ -190,29 +217,59 @@ class VZugIntegration(Integration):
         for entity_id, (host, auth) in self._devices.items():
             await self._refresh(entity_id, host, auth)
 
+    async def _holen(self, host: str, auth: aiohttp.BasicAuth | None) -> Any:
+        """Einmal nach dem Zustand fragen. Wirft, wenn es nicht klappt."""
+        async with self._session.get(
+            f"http://{host}/ai",
+            params={"command": "getDeviceStatus"},
+            auth=auth,
+        ) as response:
+            response.raise_for_status()
+            # Die Geräte senden JSON teils als text/plain.
+            return await response.json(content_type=None)
+
     async def _refresh(
         self, entity_id: str, host: str, auth: aiohttp.BasicAuth | None
     ) -> None:
-        try:
-            async with self._session.get(
-                f"http://{host}/ai",
-                params={"command": "getDeviceStatus"},
-                auth=auth,
-            ) as response:
-                response.raise_for_status()
-                # Die Geräte senden JSON teils als text/plain.
-                payload = await response.json(content_type=None)
-        except Exception as err:
+        payload: Any = None
+        fehler: Exception | None = None
+        for versuch in range(VERSUCHE):
+            if versuch:
+                await asyncio.sleep(PAUSE_VOR_ZWEITEM_VERSUCH)
+            try:
+                payload = await self._holen(host, auth)
+                fehler = None
+                break
+            except Exception as err:
+                fehler = err
+
+        if fehler is not None:
+            offen = self._fehlversuche.get(entity_id, 0) + 1
+            self._fehlversuche[entity_id] = offen
+            # Ein verlorener Abruf ist kein Ausfall. Das Gerät behält
+            # seinen letzten Zustand, bis es wirklich mehrfach schweigt -
+            # sonst steht in der Liste ein Loch von einer Minute, weil ein
+            # Paket unterwegs verlorenging.
+            if offen < AUSFAELLE_BIS_WEG:
+                self.log.debug(
+                    "V-ZUG %s hat nicht geantwortet (%d/%d): %s",
+                    host,
+                    offen,
+                    AUSFAELLE_BIS_WEG,
+                    fehler,
+                )
+                return
             # Nur beim Übergang warnen, danach still bleiben: Ein Gerät im
             # Standby wäre sonst jede Minute eine Zeile.
             if entity_id not in self._down:
                 self._down.add(entity_id)
-                self.log.warning("V-ZUG %s nicht erreichbar: %s", host, err)
+                self.log.warning("V-ZUG %s nicht erreichbar: %s", host, fehler)
             else:
-                self.log.debug("V-ZUG %s weiterhin nicht erreichbar: %s", host, err)
+                self.log.debug("V-ZUG %s weiterhin nicht erreichbar: %s", host, fehler)
             await self.hub.registry.update_state(entity_id, {}, available=False)
             return
 
+        self._fehlversuche[entity_id] = 0
         if entity_id in self._down:
             self._down.discard(entity_id)
             self.log.info("V-ZUG %s wieder erreichbar", host)
