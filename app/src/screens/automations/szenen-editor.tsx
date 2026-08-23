@@ -14,6 +14,9 @@ import { PALETTE } from '../../components/ColorRow';
 import { RueckwegBefehl, SceneActionDraft, snapshotAction } from '../../lib/szenen';
 import { Fassung, VersionsSection } from './editor';
 import { WEISSTOENE, vacuumRooms } from './entwurf';
+import { baseCommandOptions, commandOptions, isSceneDevice } from './szenengeraete';
+
+export { baseCommandOptions, commandOptions, isSceneDevice };
 import { CategoryField, Choice, Field, NachlaufWahl } from './felder';
 import { makeStyles } from './stil';
 
@@ -41,100 +44,6 @@ export const SCENE_ICONS = [
   'wine-outline',
   'home-outline',
 ];
-
-/** Ein Gerät, das eine Szene schalten kann: Licht/Schalter, Storen, Schloss
- *  oder Sauger. Nur diese lassen sich sinnvoll in einen Zustand versetzen. */
-export function isSceneDevice(entity: Entity): boolean {
-  return (
-    entity.commands.includes('turn_on') ||
-    entity.kind === 'cover' ||
-    entity.kind === 'lock' ||
-    entity.kind === 'media_player' ||
-    // Die Alarmanlage kann arm_night/arm_away/arm_vacation/disarm – sie
-    // fiel hier nur durchs Sieb, weil sie kein turn_on hat. Damit ging
-    // «beim Weggehen scharf» ausgerechnet nicht in der App, obwohl der
-    // Gute-Nacht-Knopf es längst vormacht.
-    entity.kind === 'alarm' ||
-    entity.commands.includes('clean_rooms') ||
-    entity.commands.includes('start')
-  );
-}
-
-/** Die Schalt-Optionen eines Geräts als Chips (rein, testbar).
- *
- * ``allowToggle`` gilt nur für Abläufe: Ein Wandtaster soll das Licht
- * anmachen, wenn es aus ist, und ausmachen, wenn es an ist – dafür braucht
- * es «umschalten». In einer Szene wäre dasselbe sinnlos, denn eine Szene
- * beschreibt einen Zielzustand; was dabei herauskäme, hinge davon ab, wie
- * das Licht gerade steht.
- */
-export function commandOptions(
-  entity: Entity,
-  allowToggle = false
-): { key: string; label: string }[] {
-  const options = baseCommandOptions(entity);
-  // Nur anbieten, wo das Gerät es wirklich kann – Storen etwa können es nicht.
-  if (allowToggle && entity.commands.includes('toggle')) {
-    options.push({ key: 'toggle', label: 'umschalten' });
-  }
-  return options;
-}
-
-export function baseCommandOptions(entity: Entity): { key: string; label: string }[] {
-  if (entity.kind === 'cover') {
-    const options = [
-      { key: 'open', label: 'hoch' },
-      { key: 'close', label: 'runter' },
-    ];
-    // Halb runter für den Hitzeschutz – ganz zu wäre dunkel, ganz auf heiss.
-    if (entity.commands.includes('set_position')) {
-      options.push({ key: 'set_position', label: 'auf Position' });
-    }
-    return options;
-  }
-  if (entity.kind === 'lock') {
-    return [
-      { key: 'lock', label: 'abschliessen' },
-      { key: 'unlock', label: 'aufschliessen' },
-    ];
-  }
-  if (entity.kind === 'vacuum') {
-    const options = [
-      { key: 'start', label: 'saugen' },
-      { key: 'dock', label: 'zur Station' },
-    ];
-    if (vacuumRooms(entity).length > 0) {
-      options.push({ key: 'clean_rooms', label: 'Räume saugen' });
-    }
-    return options;
-  }
-  if (entity.kind === 'media_player') {
-    return [
-      { key: 'play', label: 'Musik an' },
-      { key: 'pause', label: 'Musik aus' },
-    ];
-  }
-  if (entity.kind === 'alarm') {
-    // Dieselben Namen wie auf dem Alarm-Bildschirm – «scharf (Nacht)»
-    // statt arm_night, damit niemand raten muss, was ein Modus tut.
-    return [
-      { key: 'arm_night', label: 'scharf (Nacht)' },
-      { key: 'arm_away', label: 'scharf (Ausser Haus)' },
-      { key: 'arm_vacation', label: 'scharf (Urlaub)' },
-      { key: 'disarm', label: 'unscharf' },
-    ];
-  }
-  const options = [
-    { key: 'turn_on', label: 'ein' },
-    { key: 'turn_off', label: 'aus' },
-  ];
-  // «ein mit Helligkeit» nur, wo das Gerät wirklich dimmen kann – ein
-  // Schalter mit Helligkeitsregler wäre ein Knopf, der nichts tut.
-  if (entity.commands.includes('set_brightness')) {
-    options.splice(1, 0, { key: 'set_brightness', label: 'ein, gedimmt' });
-  }
-  return options;
-}
 
 /** Geräte-Checkliste statt Zeilen mit Dropdown: antippen nimmt ein Gerät in
  *  die Szene auf, ein zweiter Chip legt den Zielzustand fest. «Aktuellen
@@ -275,10 +184,12 @@ export function SceneDevices({
   const snapshot = () =>
     onActions(
       devices
-        // Die Alarmanlage nur, wenn man sie ausdrücklich anwählt: Eine
-        // Szene «Kino», die per Schnappschuss heimlich «unscharf»
-        // eingesammelt hat, entschärft sonst abends die Anlage.
-        .filter((entity) => entity.kind !== 'alarm')
+        // Alarmanlage und Kameras nur, wenn man sie ausdrücklich anwählt:
+        // Eine Szene «Kino», die per Schnappschuss heimlich «unscharf»
+        // eingesammelt hat, entschärft sonst abends die Anlage – und eine,
+        // die «Privatsphäre aus» mitnimmt, schaltet die Kamera wieder
+        // scharf, ohne dass es jemand wollte.
+        .filter((entity) => entity.kind !== 'alarm' && entity.kind !== 'camera')
         .map(snapshotAction)
     );
 

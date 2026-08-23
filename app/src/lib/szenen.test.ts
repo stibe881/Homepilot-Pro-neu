@@ -5,7 +5,15 @@
  * der App nicht bauen, weil der Schnappschuss nur an/aus einsammelte.
  */
 import { Entity } from '../api/types';
-import { sceneActionsToDraft, snapshotAction, snapshotCommand } from './szenen';
+import {
+  PRIVATSPHAERE_AUS,
+  PRIVATSPHAERE_EIN,
+  privatsphaereBefehl,
+  privatsphaereSchluessel,
+  sceneActionsToDraft,
+  snapshotAction,
+  snapshotCommand,
+} from './szenen';
 
 const licht = (state: Entity['state'], commands: string[]): Entity =>
   ({
@@ -84,5 +92,65 @@ describe('sceneActionsToDraft', () => {
     // Ein Eintrag, nicht zwei – sonst stünde das Licht doppelt in der Liste.
     expect(draft).toHaveLength(1);
     expect(draft[0].color).toBe('#FF8800');
+  });
+});
+
+// ── Kameras in einer Szene ───────────────────────────────────────────────
+// Der Fall: «eine Szene, bei der die Kamera die Privatsphäre aktiviert und
+// Musik läuft». Kameras standen gar nicht in der Geräteliste – sie fielen
+// durch ein Sieb aus Gerätearten, das von Hand gepflegt wurde.
+
+describe('Privatsphäre der Kamera', () => {
+  it('macht aus den zwei Chips einen Befehl mit Richtung', () => {
+    expect(privatsphaereBefehl(PRIVATSPHAERE_EIN)).toEqual({
+      command: 'set_privacy',
+      data: { enabled: true },
+    });
+    expect(privatsphaereBefehl(PRIVATSPHAERE_AUS)).toEqual({
+      command: 'set_privacy',
+      data: { enabled: false },
+    });
+  });
+
+  it('lässt jeden anderen Befehl in Ruhe', () => {
+    expect(privatsphaereBefehl('turn_on')).toBeNull();
+    expect(privatsphaereBefehl('set_privacy')).toBeNull();
+  });
+
+  it('liest den gespeicherten Befehl wieder als Chip', () => {
+    expect(privatsphaereSchluessel('set_privacy', true)).toBe(PRIVATSPHAERE_EIN);
+    expect(privatsphaereSchluessel('set_privacy', false)).toBe(PRIVATSPHAERE_AUS);
+  });
+
+  it('nimmt ohne Angabe «ein» an, damit ein Chip leuchtet', () => {
+    // Eine Szene ohne markierten Zielzustand sähe aus, als wäre die
+    // Kamera versehentlich drin.
+    expect(privatsphaereSchluessel('set_privacy', undefined)).toBe(PRIVATSPHAERE_EIN);
+  });
+
+  it('fasst fremde Befehle nicht an', () => {
+    expect(privatsphaereSchluessel('turn_on', true)).toBeNull();
+  });
+
+  it('kommt beim Bearbeiten einer gespeicherten Szene richtig zurück', () => {
+    const zurueck = sceneActionsToDraft([
+      { entity_id: 'unifi.kueche', command: 'set_privacy', data: { enabled: true } },
+      { entity_id: 'cast.wohnzimmer', command: 'play' },
+    ]);
+    expect(zurueck.map((a) => a.command)).toEqual([PRIVATSPHAERE_EIN, 'play']);
+  });
+
+  it('hält den Ist-Zustand der Kamera fest', () => {
+    const kamera = (privacy: string) =>
+      ({
+        id: 'unifi.kueche',
+        name: 'Küche',
+        kind: 'camera',
+        integration: 'unifi_protect',
+        commands: ['set_privacy'],
+        state: { state: 'online', privacy },
+      }) as unknown as Parameters<typeof snapshotCommand>[0];
+    expect(snapshotCommand(kamera('on'))).toBe(PRIVATSPHAERE_EIN);
+    expect(snapshotCommand(kamera('off'))).toBe(PRIVATSPHAERE_AUS);
   });
 });
