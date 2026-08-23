@@ -214,6 +214,53 @@ automations:
 Klingelt eine Protect-Türklingel, zeigt die App wie bei Ring automatisch das
 Vollbild mit dem Kamerabild.
 
+## Erkennungen: Person, Paket, Baby-Schreien
+
+Bewegung ist die gröbste Auskunft, die eine Kamera geben kann – ein Ast im
+Wind löst sie aus. Protect erkennt mehr, und der Hub führt jede Erkennung
+als eigenes Feld:
+
+| Feld | Was es meldet |
+| --- | --- |
+| `detected_person` | eine Person |
+| `detected_vehicle` | ein Fahrzeug |
+| `detected_package` | ein abgelegtes Paket |
+| `detected_animal` | ein Tier |
+| `detected_baby_cry` | ein schreiendes Baby |
+| `detected_smoke_alarm` | einen piependen Rauchmelder |
+| `detected_co_alarm` | einen CO-Melder |
+| `detected_glass_break` | Glasbruch |
+| `detected_bark` | einen bellenden Hund |
+| `detected_car_alarm`, `detected_car_horn` | Autoalarm, Hupe |
+
+Angelegt werden nur die Felder, die diese Kamera wirklich kann – der Hub
+liest das aus den `featureFlags` des Geräts. Eine Kamera ohne Mikrofon
+bietet «Baby schreit» also gar nicht erst an, und umgekehrt steht das Feld
+von Anfang an bereit: Man kann den Ablauf bauen, bevor das Baby zum ersten
+Mal geschrien hat.
+
+Im Ablauf-Editor stehen sie beim Auslöser direkt zur Auswahl («hört ein
+Baby schreien»). In der config.yaml sieht es so aus:
+
+```yaml
+automations:
+  - id: baby_weint
+    alias: Baby weint
+    trigger:
+      - type: state
+        entity_id: unifi_protect.kinderzimmer
+        attribute: detected_baby_cry
+        to: "on"
+    action:
+      - type: notify
+        title: Lina weint
+        body: Die Kamera im Kinderzimmer hört ein Baby schreien.
+```
+
+Jede Erkennung führt zusätzlich einen Zeitstempel (`last_baby_cry`).
+Deshalb löst auch das zweite Schreien aus, wenn das Feld noch auf «on»
+steht – ohne den Stempel liesse die Änderungsprüfung es durchfallen.
+
 ## Gäste
 
 Kameras sind für Gäste standardmässig unsichtbar. Wer sie sehen soll,

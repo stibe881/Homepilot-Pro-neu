@@ -6,7 +6,7 @@
 import { Ionicons } from '@expo/vector-icons';
 
 import { Entity, Scene } from '../../api/types';
-import { Compare, ConditionKind, Draft, EMPTY, EMPTY_STEP, EMPTY_TRIGGER, StepKind, TriggerKind, vacuumRooms } from './entwurf';
+import { Compare, ConditionKind, Draft, EMPTY, EMPTY_STEP, EMPTY_TRIGGER, StepDraft, StepKind, TriggerKind, vacuumRooms } from './entwurf';
 
 export interface Template {
   label: string;
@@ -457,7 +457,9 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
 
   // Punkt 199: Der Fall, für den Familien so etwas überhaupt einrichten –
   // das Kind ist von der Schule heimgekommen. Oder eben noch nicht.
-  const zonen = entities.filter((entity) => entity.id.startsWith('geofence.'));
+  const zonen = entities.filter(
+    (entity) => entity.id.startsWith('geofence.') && entity.id !== 'geofence.anyone_home'
+  );
   for (const zone of zonen.slice(0, 3)) {
     const wer = zone.name;
     templates.push({
@@ -503,6 +505,131 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
             body: 'Um 17:30 immer noch unterwegs.',
           },
         ],
+      },
+    });
+  }
+
+  // «Wenn ich abends den Fernseher ausschalte» - der Ablauf, den man
+  // sich zuerst wünscht und der bisher am Editor scheiterte: Ein
+  // Fernseher ist ein media_player, und dort stand nur spielt/pausiert.
+  const tv = entities.find(
+    (entity) => entity.kind === 'media_player' && entity.commands.includes('turn_off')
+  );
+  if (tv && allLights.length > 0) {
+    // Das Licht dort, wo man danach hingeht - Essbereich, Küche, sonst
+    // irgendeines. Ändern kann man es im Editor.
+    const licht =
+      allLights.find((entity) => /ess|küche|kueche/i.test(`${entity.room ?? ''} ${entity.name}`)) ??
+      allLights.find((entity) => entity.room === tv.room) ??
+      allLights[0];
+    templates.push({
+      label: 'Licht an, wenn der Fernseher spätabends ausgeht',
+      icon: 'tv-outline',
+      draft: {
+        ...EMPTY,
+        alias: 'Licht an nach dem Fernsehen',
+        triggers: [{ ...EMPTY_TRIGGER, entityId: tv.id, toState: 'off' }],
+        // Über Mitternacht hinaus: Ein Film endet auch mal um halb eins,
+        // und «nach 22:00» allein hörte um Mitternacht auf.
+        conditionKind: 'time' as ConditionKind,
+        conditionAfter: '22:00',
+        conditionBefore: '03:00',
+        steps: [
+          {
+            ...EMPTY_STEP,
+            commandActions: [{ entity_id: licht.id, command: 'turn_on' }],
+          },
+        ],
+      },
+    });
+  }
+
+  // «Niemand mehr zuhause» in einem Ablauf statt in dreien. Die
+  // Sammel-Entität des Geofence hat Vorrang vor der WLAN-Anwesenheit:
+  // Sie merkt es beim Verlassen des Quartiers, nicht erst, wenn sich das
+  // letzte Telefon aus dem WLAN abmeldet.
+  const alleWeg = entities.find((entity) => entity.id === 'geofence.anyone_home') ?? presence;
+  const sauger = entities.find((entity) => entity.commands.includes('dock'));
+  if (alleWeg && (allLights.length > 0 || sauger || alarm)) {
+    const schritte: StepDraft[] = [];
+    if (offScene) {
+      schritte.push({ ...EMPTY_STEP, kind: 'scene' as StepKind, sceneId: offScene.id });
+    } else if (allLights.length > 0) {
+      schritte.push({
+        ...EMPTY_STEP,
+        commandActions: allLights.map((entity) => ({
+          entity_id: entity.id,
+          command: 'turn_off',
+        })),
+      });
+    }
+    if (sauger) {
+      schritte.push({
+        ...EMPTY_STEP,
+        commandActions: [{ entity_id: sauger.id, command: 'start' }],
+      });
+    }
+    if (alarm) {
+      // Zuletzt und mit Abstand: Erst wenn die Lichter aus sind und der
+      // Sauger läuft, wird scharf geschaltet - sonst meldet die eigene
+      // Anlage den eigenen Saugroboter.
+      schritte.push({ ...EMPTY_STEP, kind: 'delay' as StepKind, seconds: '60' });
+      schritte.push({
+        ...EMPTY_STEP,
+        commandActions: [{ entity_id: alarm.id, command: 'arm_away' }],
+      });
+    }
+    templates.push({
+      label: 'Wenn niemand mehr zuhause ist',
+      icon: 'walk-outline',
+      draft: {
+        ...EMPTY,
+        alias: 'Niemand mehr zuhause',
+        // Zehn Minuten Haltezeit: Der Gang zum Briefkasten ist kein Auszug.
+        triggers: [
+          { ...EMPTY_TRIGGER, entityId: alleWeg.id, toState: 'off', forMinutes: '10' },
+        ],
+        steps: schritte,
+      },
+    });
+  }
+
+  // Die Gegenrichtung: Wer heimkommt, soll nicht als Erstes den
+  // Saugroboter aus dem Weg räumen.
+  const wohnungstuere =
+    entities.find(
+      (entity) => entity.kind === 'lock' && /wohnung/i.test(entity.name)
+    ) ?? entities.find((entity) => entity.kind === 'lock');
+  if (zonen.length > 0 && (sauger || wohnungstuere)) {
+    const zone = zonen[0];
+    const schritte: StepDraft[] = [];
+    if (sauger) {
+      schritte.push({
+        ...EMPTY_STEP,
+        commandActions: [{ entity_id: sauger.id, command: 'dock' }],
+      });
+    }
+    if (wohnungstuere) {
+      schritte.push({
+        ...EMPTY_STEP,
+        commandActions: [{ entity_id: wohnungstuere.id, command: 'unlock' }],
+      });
+    }
+    templates.push({
+      label: 'Willkommen zuhause',
+      icon: 'home-outline',
+      draft: {
+        ...EMPTY,
+        alias: `${zone.name} kommt heim`,
+        triggers: [
+          {
+            ...EMPTY_TRIGGER,
+            kind: 'geofence' as TriggerKind,
+            entityId: zone.id,
+            toState: 'home',
+          },
+        ],
+        steps: schritte,
       },
     });
   }

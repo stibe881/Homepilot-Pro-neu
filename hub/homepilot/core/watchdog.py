@@ -380,7 +380,10 @@ class Watchdog:
         man bisher selbst daran denken - und genau das vergisst man.
         """
         jetzt = datetime.now()
-        if jetzt.hour != 8:
+        # Die Uhrzeit ist einstellbar (Abläufe → Push): Wer um acht noch
+        # schläft, liest den Gruss erst mittags - und gratuliert zu spät.
+        stunde = int(self.rules["birthday"]["params"].get("hour", 8))
+        if jetzt.hour != stunde:
             return
         heute = jetzt.strftime("%Y-%m-%d")
         if self._birthday_day == heute:

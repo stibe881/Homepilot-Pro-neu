@@ -54,6 +54,24 @@ In der App unter **Abläufe** → neuer Ablauf → Auslöser **Ort** → Person
 und «kommt an» oder «geht weg» wählen. Der Rest ist ein Ablauf wie jeder
 andere.
 
+### Die Sammelfrage «ist noch jemand da?»
+
+Neben den Personen legt der Hub `geofence.anyone_home` an. Sie steht auf
+«aus», sobald **alle** ausdrücklich weg sind, und auf «an», sobald eine
+Person zuhause ist. Wichtig dabei: Nichtwissen zählt als «an». Ein Telefon
+mit leerem Akku ist kein «niemand zuhause» – sonst fährt das Haus herunter,
+während jemand darin sitzt.
+
+Für «alles aus, wenn niemand mehr da ist» ist das der richtige Auslöser.
+Ihn je Person zu bauen und zusätzlich zu prüfen, dass die anderen drei auch
+weg sind, schreibt niemand von Hand richtig auf – und beim fünften
+Familienmitglied stimmt es nicht mehr.
+
+Fertig zum Anklicken gibt es das im Editor als Vorlage **«Wenn niemand mehr
+zuhause ist»**: Licht aus, Saugroboter starten, eine Minute später Alarm
+scharf. Die Minute ist Absicht – sonst meldet die eigene Anlage den eigenen
+Saugroboter.
+
 Zwei, die sich lohnen:
 
 - *Wenn Stefan weggeht und niemand mehr da ist*: alles aus, Storen zu,

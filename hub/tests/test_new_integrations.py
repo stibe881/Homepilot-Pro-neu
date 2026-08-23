@@ -1625,3 +1625,66 @@ def test_ring_log_capture_has_a_ceiling():
         for nummer in range(50):
             logger.warning("Zeile %s", nummer)
     assert len(mitschnitt.zeilen) == _LogMitschnitt.LIMIT
+
+
+def test_protect_erkennungen_werden_zu_zustandsfeldern():
+    """Person, Paket, Baby-Schreien – bisher nur Zeitleiste, nicht Ablauf.
+
+    Zum Nachschauen taugte die Zeitleiste; automatisieren liess sich
+    damit nichts, weil ein Ablauf nur auf einen Zustand hören kann.
+    """
+    from homepilot.integrations.unifi_protect import (
+        camera_state,
+        detect_key,
+        detection_changes,
+        supported_detections,
+    )
+
+    # Die API schreibt dieselbe Sache verschieden.
+    assert detect_key("alrmBabyCry") == ("baby_cry", "Baby schreit")
+    assert detect_key("smoke_cmonx") == ("co_alarm", "CO-Melder")
+    assert detect_key("person") == ("person", "Person")
+    assert detect_key("was auch immer") is None
+
+    kamera = {
+        "state": "CONNECTED",
+        "featureFlags": {
+            "smartDetectTypes": ["person", "vehicle"],
+            "smartDetectAudioTypes": ["alrmBabyCry"],
+        },
+    }
+    assert supported_detections(kamera) == [
+        ("person", "Person"),
+        ("vehicle", "Fahrzeug"),
+        ("baby_cry", "Baby schreit"),
+    ]
+
+    # Was die Kamera kann, steht von Anfang an im Zustand - sonst liesse
+    # sich der Ablauf erst bauen, nachdem das Baby geschrien hat.
+    zustand = camera_state(kamera)
+    assert zustand["detected_baby_cry"] == "off"
+    assert zustand["detected_person"] == "off"
+    assert "detected_package" not in zustand
+
+    beginn = detection_changes(["alrmBabyCry"], "2026-08-23T21:15:00", beendet=False)
+    assert beginn["detected_baby_cry"] == "on"
+    assert beginn["last_baby_cry"] == "2026-08-23T21:15:00"
+    assert beginn["detected"] == ["Baby schreit"]
+
+    ende = detection_changes(["alrmBabyCry"], "2026-08-23T21:16:00", beendet=True)
+    assert ende["detected_baby_cry"] == "off"
+    assert "last_baby_cry" not in ende
+
+
+def test_erkennungen_loesen_auch_beim_zweiten_mal_aus():
+    """Zweimal Person hintereinander trägt beide Male «on».
+
+    Ohne den Zeitstempel je Feld liesse die Änderungsprüfung den zweiten
+    Ablauf still durchfallen – derselbe Fehler wie einst bei der Klingel.
+    """
+    from homepilot.core.automation import event_marker
+
+    assert event_marker("detected_person") == "last_person"
+    assert event_marker("detected_baby_cry") == "last_baby_cry"
+    assert event_marker("ring") == "last_ring"
+    assert event_marker("brightness") is None

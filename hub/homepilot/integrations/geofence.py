@@ -43,6 +43,13 @@ Die Entitäten heissen dann geofence.stefan usw. Ihr Zustand ist «home»,
 «away» oder der Name eines Ortes («schule») – Abläufe können darauf
 hören wie auf jeden anderen Zustand.
 
+Dazu kommt `geofence.anyone_home`: die Sammelfrage «ist überhaupt noch
+jemand da?». Ohne sie müsste ein Ablauf «alles aus» je Person einen
+Auslöser tragen und zusätzlich prüfen, dass die anderen drei auch weg
+sind – das schreibt niemand von Hand richtig auf, und beim fünften
+Familienmitglied stimmt es nicht mehr. Sie steht auf «off», wenn alle
+ausdrücklich weg sind; Nichtwissen zählt als «on».
+
 Zwei Dinge, die man erst im Betrieb merkt und die darum hier eingebaut
 sind:
 
@@ -193,7 +200,44 @@ class GeofenceIntegration(Integration):
             if zone["wifi"]:
                 self._wifi[zone["id"]] = zone["wifi"]
             self._inside[zone["id"]] = []
+        # Die Sammelfrage, auf die «alles aus» hört. Ohne sie müsste ein
+        # Ablauf je Person einen Auslöser tragen und zusätzlich prüfen,
+        # dass die anderen drei auch weg sind - das schreibt niemand von
+        # Hand richtig auf, und beim fünften Familienmitglied stimmt es
+        # nicht mehr.
+        self._anyone = (
+            await self.add_entity(
+                "anyone_home",
+                EntityKind.BINARY_SENSOR,
+                "Jemand zuhause",
+                state={"state": "on", "device_class": "presence", "away": []},
+                available=True,
+            )
+        ).id
         self.start_polling(self._settle, interval=SETTLE_INTERVAL)
+
+    async def _update_anyone(self) -> None:
+        """Die Sammel-Entität aus den Einzelzuständen nachziehen."""
+        zustaende = []
+        weg = []
+        for zone_id, entity_id in self._zones.items():
+            entity = self.hub.registry.get(entity_id)
+            zustand = str((entity.state if entity else {}).get("state") or presence.UNKNOWN)
+            zustaende.append(zustand)
+            if zustand != HOME:
+                weg.append(entity.name if entity else zone_id)
+        neu = presence.anyone_home_state(zustaende)
+        alt_entity = self.hub.registry.get(self._anyone)
+        if alt_entity is not None and alt_entity.state.get("state") == neu:
+            # Nur echte Wechsel melden: Sonst löste jede Ortsmeldung
+            # einer bereits abwesenden Person «alles aus» erneut aus.
+            return
+        await self.hub.registry.update_state(
+            self._anyone,
+            {"state": neu, "device_class": "presence", "away": weg},
+            available=True,
+        )
+        self.log.info("Geofence: jemand zuhause = %s", neu)
 
     async def handle_command(self, entity: Entity, command: str, data: dict[str, Any]) -> None:
         raise ConfigError("Geofence-Zonen meldet das Telefon, sie lassen sich nicht schalten")
@@ -270,6 +314,7 @@ class GeofenceIntegration(Integration):
                 self.hub.data.get("presence_history"), zone_id, state, jetzt, place
             ),
         )
+        await self._update_anyone()
 
     def merged(self, zone_id: str) -> dict[str, Any]:
         """Zonen- und WLAN-Meldung zusammengeführt (Punkt 200).
@@ -331,6 +376,7 @@ class GeofenceIntegration(Integration):
                 available=True,
             )
             self._inside[zone_id] = []
+            await self._update_anyone()
 
 
 INTEGRATION = GeofenceIntegration

@@ -116,6 +116,21 @@ EVENT_MARKERS = {
 }
 
 
+def event_marker(attribute: str) -> str | None:
+    """Welches Zeitstempel-Feld zu diesem Zustandsfeld gehört (rein, testbar).
+
+    Kamera-Erkennungen kommen in Paaren: `detected_person` sagt, ob
+    gerade jemand zu sehen ist, `last_person`, wann zuletzt. Sie einzeln
+    aufzuzählen wäre eine Liste, die bei jeder neuen Erkennungsart
+    nachzuführen ist - und genau das vergisst man.
+    """
+    if attribute in EVENT_MARKERS:
+        return EVENT_MARKERS[attribute]
+    if attribute.startswith("detected_"):
+        return "last_" + attribute[len("detected_") :]
+    return None
+
+
 def _event_again(attribute: str, data: dict[str, Any]) -> bool:
     """Ein neues Ereignis trotz gleichen Zustands? (rein, testbar)
 
@@ -124,7 +139,7 @@ def _event_again(attribute: str, data: dict[str, Any]) -> bool:
     hängen blieb: Beim nächsten Läuten stünde dort wieder «on», und die
     Änderungsprüfung liesse den Ablauf still durchfallen.
     """
-    marker = EVENT_MARKERS.get(attribute)
+    marker = event_marker(attribute)
     if marker is None:
         return False
     new = data.get("new_state") or {}
@@ -775,6 +790,35 @@ def parse_automations(
 def _parse_hhmm(value: str) -> tuple[int, int]:
     hours, minutes = str(value).split(":", 1)
     return int(hours), int(minutes)
+
+
+def time_in_window(now: Any, after: str | None, before: str | None) -> bool:
+    """Liegt die Uhrzeit im Fenster? (rein, testbar)
+
+    Der Sonderfall ist der Abend: «nach 22:00 und vor 06:00» meint ein
+    Fenster über Mitternacht, und wörtlich genommen ist es leer - keine
+    Uhrzeit ist gleichzeitig später als 22 und früher als 6. Wer das so
+    einträgt, bekäme einen Ablauf, der nie läuft und dafür keinen Grund
+    nennt.
+
+    Deshalb: Ist `after` später als `before`, gilt das Fenster über
+    Mitternacht. Nur eine der beiden Angaben verhält sich wie bisher.
+    """
+    if after is None and before is None:
+        return True
+    minuten = now.hour * 60 + now.minute
+    von = None if after is None else _parse_hhmm(after)
+    bis = None if before is None else _parse_hhmm(before)
+    von_min = None if von is None else von[0] * 60 + von[1]
+    bis_min = None if bis is None else bis[0] * 60 + bis[1]
+    if von_min is not None and bis_min is not None:
+        if von_min <= bis_min:
+            return von_min <= minuten < bis_min
+        # Über Mitternacht: Abend oder früher Morgen genügt.
+        return minuten >= von_min or minuten < bis_min
+    if von_min is not None:
+        return minuten >= von_min
+    return minuten < (bis_min or 0)
 
 
 def opposing(first: str, second: str) -> bool:
@@ -1820,16 +1864,9 @@ class AutomationEngine:
                 datetime.now().date()
             ):
                 return False
-            now = datetime.now().time()
-            if "after" in condition:
-                hour, minute = _parse_hhmm(condition["after"])
-                if now < now.replace(hour=hour, minute=minute):
-                    return False
-            if "before" in condition:
-                hour, minute = _parse_hhmm(condition["before"])
-                if now >= now.replace(hour=hour, minute=minute):
-                    return False
-            return True
+            return time_in_window(
+                datetime.now(), condition.get("after"), condition.get("before")
+            )
         if ctype == "sun":
             # {type: sun, state: "up"|"down"} – steht die Sonne gerade über
             # dem Horizont? Für Hitzeschutz nur bei Tag u.ä.

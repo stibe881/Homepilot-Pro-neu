@@ -184,3 +184,20 @@ def test_a_user_without_a_zone_gets_nothing():
     assert zone_fuer("Sandra", {"stefan": "Stefan"}) is None
     assert zone_fuer("", {"stefan": "Stefan"}) is None
     assert zone_fuer("Stefan", {}) is None
+def test_anyone_home_state() -> None:
+    """Ein leerer Akku ist kein «niemand zuhause».
+
+    Die Vorsicht ist der ganze Punkt: Aus dieser Entität wird «alles
+    aus, Alarm scharf». Wer daraus bei Nichtwissen ein «weg» macht,
+    schaltet irgendwann das Haus ab, während jemand darin sitzt.
+    """
+    from homepilot.core.presence import anyone_home_state
+
+    assert anyone_home_state(["home", "away"]) == "on"
+    assert anyone_home_state(["away", "away"]) == "off"
+    # Ein anderer Ort ist auch weg - nur eben ein benannter.
+    assert anyone_home_state(["schule", "away"]) == "off"
+    assert anyone_home_state(["unknown", "away"]) == "on"
+    assert anyone_home_state(["", "away"]) == "on"
+    assert anyone_home_state([]) == "on"
+    assert anyone_home_state(None) == "on"

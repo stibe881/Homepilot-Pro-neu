@@ -327,3 +327,29 @@ def holiday_question(
         if not changed or (now - changed) < hours * 3600:
             return False
     return True
+
+
+def anyone_home_state(zustaende: Any) -> str:
+    """Ist noch jemand zuhause? (rein, testbar)
+
+    Aus den Einzelzuständen der Personen wird ein «on»/«off», auf das
+    ein Ablauf hören kann. Die Regel ist bewusst vorsichtig:
+
+    * Eine Person auf ``home`` genügt für «on».
+    * ``unknown`` zählt ebenfalls als «on». Ein leerer Akku ist kein
+      «niemand zuhause» - sonst fährt das Haus herunter, während jemand
+      darin sitzt. Lieber einmal zu viel Licht als das.
+    * Erst wenn *alle* ausdrücklich weg sind (``away`` oder an einem
+      anderen Ort), wird es «off».
+
+    Ohne Personen gibt es nichts zu entscheiden: dann «on», aus
+    demselben Grund.
+    """
+    liste = [str(zustand or UNKNOWN).strip().lower() for zustand in (zustaende or [])]
+    if not liste:
+        return "on"
+    if any(zustand in (HOME, "on", "true") for zustand in liste):
+        return "on"
+    if any(zustand in ("", UNKNOWN) for zustand in liste):
+        return "on"
+    return "off"

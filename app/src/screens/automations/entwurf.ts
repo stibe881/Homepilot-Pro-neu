@@ -141,6 +141,30 @@ export function optionKey(attribute: string | undefined, to: string): string {
   return attribute ? `${attribute}:${to}` : to;
 }
 
+/** Wie eine Kamera-Erkennung heisst, wenn man sie auswählt.
+ *
+ *  Der Hub führt je Erkennung ein Feld `detected_…`. Die Beschriftung
+ *  hier ist bewusst ein Satzteil («erkennt eine Person»), weil sie im
+ *  Editor hinter dem Gerätenamen steht. */
+export const ERKENNUNGEN: Record<string, string> = {
+  person: 'erkennt eine Person',
+  vehicle: 'erkennt ein Fahrzeug',
+  package: 'erkennt ein Paket',
+  animal: 'erkennt ein Tier',
+  license_plate: 'erkennt ein Kennzeichen',
+  face: 'erkennt ein Gesicht',
+  baby_cry: 'hört ein Baby schreien',
+  smoke_alarm: 'hört einen Rauchmelder',
+  co_alarm: 'hört einen CO-Melder',
+  siren: 'hört eine Sirene',
+  speaking: 'hört jemanden sprechen',
+  burglar: 'hört einen Einbruchalarm',
+  glass_break: 'hört Glas brechen',
+  bark: 'hört einen Hund bellen',
+  car_alarm: 'hört einen Autoalarm',
+  car_horn: 'hört eine Hupe',
+};
+
 export function stateOptions(entity?: Entity): StateOption[] {
   const ereignisse: StateOption[] = [];
   // Nur, was das Gerät auch meldet: Ein Auslöser für ein Feld, das nie
@@ -156,6 +180,20 @@ export function stateOptions(entity?: Entity): StateOption[] {
       to: 'on',
     });
   }
+  // Kameras können mehr als Bewegung: Person, Paket, Baby-Schreien. Der
+  // Hub führt je Erkennung ein eigenes Feld, und er legt nur die an, die
+  // diese Kamera wirklich kann - hier steht also nichts, was ins Leere
+  // liefe.
+  for (const feld of Object.keys(entity?.state ?? {})) {
+    if (!feld.startsWith('detected_')) continue;
+    const art = feld.slice('detected_'.length);
+    ereignisse.push({
+      key: `${feld}:on`,
+      label: ERKENNUNGEN[art] ?? `erkennt ${art}`,
+      attribute: feld,
+      to: 'on',
+    });
+  }
   return [
     ...ereignisse,
     ...plainStates(entity).map((zustand) => ({ ...zustand, to: zustand.key })),
@@ -164,6 +202,16 @@ export function stateOptions(entity?: Entity): StateOption[] {
 
 /** Die Zustände des Felds `state` selbst, je Geräteart. */
 export function plainStates(entity?: Entity): { key: string; label: string }[] {
+  // Anwesenheit zählt nicht in «an/aus», sondern in «zuhause/weg». Die
+  // Geofence-Entitäten erkennt man am Feld `place`; ohne diesen Zweig
+  // stand im Editor «an», und der Ablauf wartete auf einen Zustand, den
+  // es dort nie gibt.
+  if (entity && 'place' in entity.state) {
+    return [
+      { key: 'home', label: 'zuhause' },
+      { key: 'away', label: 'weg' },
+    ];
+  }
   switch (entity?.kind) {
     case 'button':
       return [
@@ -181,7 +229,18 @@ export function plainStates(entity?: Entity): { key: string; label: string }[] {
         { key: 'locked', label: 'abgeschlossen' },
       ];
     case 'media_player':
+      // Ein Fernseher kennt aus und an, eine Musikbox nicht: Der Cast
+      // ist immer eingeschaltet, er spielt bloss nichts. Woran man es
+      // erkennt, ist der Befehl - wer sich ausschalten lässt, hat auch
+      // einen Zustand «aus». Ohne diesen Zweig liess sich «wenn ich den
+      // Fernseher ausschalte» im Editor gar nicht auswählen.
       return [
+        ...(entity.commands.includes('turn_off')
+          ? [
+              { key: 'off', label: 'aus' },
+              { key: 'on', label: 'an' },
+            ]
+          : []),
         { key: 'playing', label: 'spielt' },
         { key: 'paused', label: 'pausiert' },
         { key: 'idle', label: 'still' },
@@ -214,6 +273,24 @@ export function plainStates(entity?: Entity): { key: string; label: string }[] {
 export function fittingState(entity: Entity | undefined, current: string): string {
   const options = conditionOptions(entity);
   return options.some((option) => option.key === current) ? current : options[0].key;
+}
+
+/** Erklärt ein Zeitfenster, das über Mitternacht geht (rein, testbar).
+ *
+ *  «ab 22:00 bis 06:00» ist wörtlich genommen leer - keine Uhrzeit ist
+ *  gleichzeitig später als 22 und früher als 6. Der Hub liest es als
+ *  Nachtfenster, und genau das gehört dazugeschrieben: Sonst traut man
+ *  der Eingabe nicht und baut zwei Abläufe. */
+export function zeitfensterHinweis(after: string, before: string): string | null {
+  const minuten = (text: string): number | null => {
+    const treffer = /^(\d{1,2}):(\d{2})$/.exec(text.trim());
+    if (!treffer) return null;
+    return Number(treffer[1]) * 60 + Number(treffer[2]);
+  };
+  const von = minuten(after);
+  const bis = minuten(before);
+  if (von === null || bis === null || von <= bis) return null;
+  return `Geht über Mitternacht: gilt von ${after.trim()} bis ${before.trim()} am nächsten Morgen.`;
 }
 
 /** Was sich als Bedingung prüfen lässt: der Zustand selbst. */

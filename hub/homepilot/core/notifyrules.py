@@ -145,6 +145,24 @@ RULES: list[dict[str, Any]] = [
         ],
     },
     {
+        "key": "birthday",
+        "title": "Geburtstag heute",
+        "detail": "Am Morgen, wer heute Geburtstag hat – aus den Kontakten in "
+        "Familie. Drei Tage vorher kommt zusätzlich der Vorlauf fürs Geschenk. "
+        "Die Uhrzeit ist die des Tages selbst.",
+        "params": [
+            {
+                "key": "hour",
+                "label": "Erinnern um",
+                "unit": "Uhr",
+                "default": 8,
+                "min": 5,
+                "max": 22,
+                "step": 1,
+            }
+        ],
+    },
+    {
         "key": "weekahead",
         "title": "Wochenausblick am Sonntag",
         "detail": "Sonntagabend, wenn man die Woche ohnehin im Kopf durchgeht: "

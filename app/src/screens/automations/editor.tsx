@@ -11,7 +11,7 @@ import { Entity, Scene } from '../../api/types';
 import { Colors, useColors } from '../../theme';
 import { ablaufSatz } from '../../lib/ablaufsatz';
 import { datumUhr } from '../../lib/format';
-import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, hatWartezeit, measurableAttributes, melderMitLux, newTrigger, optionKey, stateOptions, stepsToActions, triggerToConfig, weekdayLabel } from './entwurf';
+import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, hatWartezeit, measurableAttributes, melderMitLux, newTrigger, optionKey, stateOptions, stepsToActions, triggerToConfig, weekdayLabel, zeitfensterHinweis } from './entwurf';
 import {
   CategoryField,
   Choice,
@@ -227,6 +227,12 @@ export function Editor({
                 placeholderTextColor={colors.inkFaint}
               />
             </View>
+          ) : null}
+          {draft.conditionKind === 'time' &&
+          zeitfensterHinweis(draft.conditionAfter, draft.conditionBefore) ? (
+            <Text style={styles.snapshotHint}>
+              {zeitfensterHinweis(draft.conditionAfter, draft.conditionBefore)}
+            </Text>
           ) : null}
           {draft.conditionKind === 'time' ? (
             <>

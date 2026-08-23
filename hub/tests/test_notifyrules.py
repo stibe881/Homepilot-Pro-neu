@@ -173,3 +173,18 @@ def test_rules_over_the_api():
             ).status_code
             == 403
         )
+
+
+def test_geburtstag_ist_eine_regel_mit_uhrzeit() -> None:
+    """Fest auf acht Uhr war die falsche Vorgabe für alle.
+
+    Wer um acht noch schläft, liest den Gruss erst mittags - und
+    gratuliert einen halben Tag zu spät. Ausserdem fehlte der Schalter:
+    Die Kategorie gab es, die Regel dazu nicht.
+    """
+    from homepilot.core.notifyrules import RULES
+
+    regel = next(regel for regel in RULES if regel["key"] == "birthday")
+    stunde = next(param for param in regel["params"] if param["key"] == "hour")
+    assert stunde["default"] == 8
+    assert stunde["min"] <= 5 and stunde["max"] >= 22

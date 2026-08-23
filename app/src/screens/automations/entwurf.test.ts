@@ -4,6 +4,8 @@ import {
   EMPTY_STEP,
   EMPTY_TRIGGER,
   buildConditions,
+  plainStates,
+  stateOptions,
   stepToActions,
   actionsToSteps,
   toDraft,
@@ -17,8 +19,10 @@ import {
   minutenWert,
   triggerIcon,
   triggerToConfig,
+  zeitfensterHinweis,
   zeitpunktLabel,
 } from './entwurf';
+import { Entity } from '../../api/types';
 
 describe('Zufalls-Versatz (Punkt 155)', () => {
   it('wandert in die gespeicherte Form und zurück', () => {
@@ -415,5 +419,83 @@ describe('Gemeinsam umschalten', () => {
       'hue.gang',
     ]);
     expect(stepToActions(zurueck)).toEqual(gespeichert);
+  });
+});
+
+describe('Zustände, die es im Editor bisher nicht gab', () => {
+  const geraet = (over: Partial<Entity>): Entity =>
+    ({
+      id: 'x.y',
+      kind: 'light',
+      name: 'Gerät',
+      integration: 'x',
+      state: {},
+      commands: [],
+      ...over,
+    }) as Entity;
+
+  it('bietet beim Fernseher an und aus an', () => {
+    // Ohne das liess sich «wenn ich den Fernseher ausschalte» gar nicht
+    // auswählen - dort standen nur spielt, pausiert und still.
+    const tv = geraet({
+      kind: 'media_player',
+      commands: ['turn_on', 'turn_off', 'play', 'pause'],
+    });
+    expect(plainStates(tv).map((z) => z.key)).toEqual([
+      'off',
+      'on',
+      'playing',
+      'paused',
+      'idle',
+    ]);
+  });
+
+  it('bietet ihn bei einer Musikbox nicht an', () => {
+    // Ein Cast ist immer eingeschaltet, er spielt bloss nichts.
+    const box = geraet({ kind: 'media_player', commands: ['play', 'pause'] });
+    expect(plainStates(box).map((z) => z.key)).toEqual(['playing', 'paused', 'idle']);
+  });
+
+  it('zählt Anwesenheit in zuhause und weg', () => {
+    const person = geraet({
+      kind: 'binary_sensor',
+      state: { state: 'home', place: 'home', device_class: 'presence' },
+    });
+    expect(plainStates(person).map((z) => z.key)).toEqual(['home', 'away']);
+  });
+
+  it('bietet die Erkennungen einer Kamera als Auslöser an', () => {
+    const kamera = geraet({
+      kind: 'camera',
+      state: { state: 'online', motion: 'off', detected_person: 'off', detected_baby_cry: 'off' },
+    });
+    const schluessel = stateOptions(kamera).map((option) => option.key);
+    expect(schluessel).toContain('detected_baby_cry:on');
+    expect(schluessel).toContain('detected_person:on');
+    const baby = stateOptions(kamera).find((o) => o.key === 'detected_baby_cry:on');
+    expect(baby?.label).toBe('hört ein Baby schreien');
+    expect(baby?.attribute).toBe('detected_baby_cry');
+  });
+
+  it('erfindet keine Erkennung, die die Kamera nicht kann', () => {
+    // Der Hub legt nur die Felder an, die die Kamera meldet - hier steht
+    // also nichts, was ins Leere liefe.
+    const kamera = geraet({ kind: 'camera', state: { state: 'online', motion: 'off' } });
+    const schluessel = stateOptions(kamera).map((option) => option.key);
+    expect(schluessel).toEqual(['motion:on', 'on', 'off']);
+  });
+});
+
+describe('Zeitfenster über Mitternacht', () => {
+  it('erklärt, was ab 22:00 bis 06:00 bedeutet', () => {
+    expect(zeitfensterHinweis('22:00', '06:00')).toContain('über Mitternacht');
+    expect(zeitfensterHinweis('22:00', '06:00')).toContain('nächsten Morgen');
+  });
+
+  it('schweigt beim gewöhnlichen Fenster und bei Unsinn', () => {
+    expect(zeitfensterHinweis('08:00', '17:00')).toBeNull();
+    expect(zeitfensterHinweis('22:00', '')).toBeNull();
+    expect(zeitfensterHinweis('', '')).toBeNull();
+    expect(zeitfensterHinweis('abends', '06:00')).toBeNull();
   });
 });

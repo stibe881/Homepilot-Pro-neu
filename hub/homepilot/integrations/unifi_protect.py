@@ -189,6 +189,92 @@ EVENT_LABELS = {
 }
 
 
+# Ereignisarten, die eine Erkennung tragen - Bild wie Ton.
+DETECT_EVENTS = ("smartDetectZone", "smartDetectLine", "smartAudioDetect")
+
+# Was Protect erkennt, wie das Feld bei uns heisst und wie es in der App
+# steht. Die Schlüssel sind kleingeschrieben und ohne Unterstriche: Die
+# API schreibt mal «alrmBabyCry», mal «smoke_cmonx», und beides meint
+# dasselbe.
+DETECTIONS: dict[str, tuple[str, str]] = {
+    "person": ("person", "Person"),
+    "vehicle": ("vehicle", "Fahrzeug"),
+    "package": ("package", "Paket"),
+    "animal": ("animal", "Tier"),
+    "licenseplate": ("license_plate", "Kennzeichen"),
+    "face": ("face", "Gesicht"),
+    "alrmbabycry": ("baby_cry", "Baby schreit"),
+    "babycry": ("baby_cry", "Baby schreit"),
+    "alrmsmoke": ("smoke_alarm", "Rauchmelder"),
+    "smoke": ("smoke_alarm", "Rauchmelder"),
+    "alrmcmonx": ("co_alarm", "CO-Melder"),
+    "smokecmonx": ("co_alarm", "CO-Melder"),
+    "cmonx": ("co_alarm", "CO-Melder"),
+    "alrmsiren": ("siren", "Sirene"),
+    "alrmspeak": ("speaking", "Sprechen"),
+    "speaking": ("speaking", "Sprechen"),
+    "alrmburglar": ("burglar", "Einbruchalarm"),
+    "glassbreak": ("glass_break", "Glasbruch"),
+    "bark": ("bark", "Hund bellt"),
+    "caralarm": ("car_alarm", "Autoalarm"),
+    "carhorn": ("car_horn", "Hupe"),
+}
+
+
+def detect_key(roh: Any) -> tuple[str, str] | None:
+    """Eine Protect-Erkennung in Feldname und Beschriftung (rein, testbar)."""
+    text = str(roh or "").strip().lower().replace("_", "").replace("-", "")
+    return DETECTIONS.get(text)
+
+
+def supported_detections(camera: dict[str, Any]) -> list[tuple[str, str]]:
+    """Was diese Kamera überhaupt erkennen kann (rein, testbar).
+
+    Damit stehen die Felder von Anfang an im Zustand - sonst liesse sich
+    ein Ablauf «wenn das Baby schreit» erst bauen, nachdem das Baby zum
+    ersten Mal geschrien hat. Und umgekehrt bietet eine Kamera ohne
+    Mikrofon den Auslöser gar nicht erst an.
+    """
+    flags = camera.get("featureFlags") or {}
+    roh: list[Any] = []
+    for schluessel in ("smartDetectTypes", "smartDetectAudioTypes"):
+        wert = flags.get(schluessel)
+        if isinstance(wert, list):
+            roh.extend(wert)
+    gefunden: list[tuple[str, str]] = []
+    for eintrag in roh:
+        treffer = detect_key(eintrag)
+        if treffer and treffer not in gefunden:
+            gefunden.append(treffer)
+    return gefunden
+
+
+def detection_changes(
+    typen: Any, zeit: str | None, *, beendet: bool
+) -> dict[str, Any]:
+    """Aus einem Erkennungs-Ereignis die Zustandsänderungen (rein, testbar).
+
+    Der Zeitstempel je Feld ist kein Schmuck: Zweimal Person nacheinander
+    trägt beide Male «on», und ohne den Stempel liesse die
+    Änderungsprüfung den zweiten Ablauf still durchfallen.
+    """
+    changes: dict[str, Any] = {}
+    namen: list[str] = []
+    for eintrag in typen or []:
+        treffer = detect_key(eintrag)
+        if treffer is None:
+            continue
+        feld, label = treffer
+        changes[f"detected_{feld}"] = "off" if beendet else "on"
+        if not beendet:
+            changes[f"last_{feld}"] = zeit
+            namen.append(label)
+    if namen:
+        changes["detected"] = namen
+        changes["last_detected"] = zeit
+    return changes
+
+
 def parse_events(payload: Any, camera_id: str, limit: int = 40) -> list[dict[str, Any]]:
     """Protect-Ereignisse in eine Zeitleiste übersetzen (rein, testbar).
 
@@ -236,6 +322,9 @@ def camera_state(camera: dict[str, Any], quality: str = "medium") -> dict[str, A
         "stream": rtsp_alias(camera, quality) is not None,
         "privacy": "on" if has_privacy_zone(camera) else "off",
     }
+    # Was die Kamera kann, steht von Anfang an im Zustand - auf «off».
+    for feld, _label in supported_detections(camera):
+        state[f"detected_{feld}"] = "off"
     if camera.get("lastMotion"):
         state["last_motion"] = _iso(camera.get("lastMotion"))
     # Nur Türklingeln haben lastRing – dann gehört es auch angezeigt.
@@ -376,6 +465,9 @@ class UnifiProtectIntegration(Integration):
                 await asyncio.sleep(15)
 
     async def _handle_event(self, action: dict[str, Any], payload: dict[str, Any]) -> None:
+        if action.get("modelKey") == "event":
+            await self._handle_detection(payload)
+            return
         if action.get("action") != "update" or action.get("modelKey") != "camera":
             return
         entity_id = self._cameras.get(action.get("id", ""))
@@ -390,6 +482,26 @@ class UnifiProtectIntegration(Integration):
             changes["last_ring"] = _iso(payload["lastRing"])
         if "state" in payload:
             changes["state"] = "online" if payload["state"] == "CONNECTED" else "offline"
+        if changes:
+            await self.hub.registry.update_state(entity_id, changes, available=True)
+
+    async def _handle_detection(self, payload: dict[str, Any]) -> None:
+        """Eine Erkennung (Person, Paket, Baby-Schreien) übernehmen.
+
+        Bisher landeten diese Ereignisse nur in der Zeitleiste. Zum
+        Nachschauen taugte das; automatisieren liess sich damit nichts -
+        ein Ablauf kann nur auf einen Zustand hören.
+        """
+        if str(payload.get("type") or "") not in DETECT_EVENTS:
+            return
+        entity_id = self._cameras.get(str(payload.get("camera") or ""))
+        if entity_id is None:
+            return
+        beendet = payload.get("end") is not None
+        zeit = _iso(payload.get("end") if beendet else payload.get("start"))
+        changes = detection_changes(
+            payload.get("smartDetectTypes"), zeit, beendet=beendet
+        )
         if changes:
             await self.hub.registry.update_state(entity_id, changes, available=True)
 

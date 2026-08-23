@@ -1904,3 +1904,38 @@ async def test_cooldown_swallows_the_stutter():
         assert hub.registry.get("demo.light_livingroom").state["state"] == "on"
     finally:
         await hub.stop()
+
+
+def test_time_in_window_geht_ueber_mitternacht():
+    """«nach 22:00 und vor 06:00» ist ein Abend, kein leeres Fenster.
+
+    Wörtlich genommen ist keine Uhrzeit gleichzeitig später als 22 und
+    früher als 6 - der Ablauf liefe nie und sagte nicht, warum. Genau so
+    trägt man aber «wenn ich abends den Fernseher ausschalte» ein.
+    """
+    from datetime import datetime
+
+    from homepilot.core.automation import time_in_window
+
+    def um(stunde, minute=0):
+        return datetime(2026, 8, 23, stunde, minute)
+
+    # Über Mitternacht: Abend und früher Morgen gehören dazu.
+    assert time_in_window(um(22, 30), "22:00", "06:00")
+    assert time_in_window(um(1, 15), "22:00", "06:00")
+    assert not time_in_window(um(12), "22:00", "06:00")
+    assert not time_in_window(um(6), "22:00", "06:00")
+
+    # Das gewöhnliche Fenster bleibt, wie es war.
+    assert time_in_window(um(10), "08:00", "17:00")
+    assert not time_in_window(um(7, 59), "08:00", "17:00")
+    assert not time_in_window(um(17), "08:00", "17:00")
+
+    # Nur eine Angabe: offene Seite.
+    assert time_in_window(um(23), "22:00", None)
+    assert not time_in_window(um(21, 59), "22:00", None)
+    assert time_in_window(um(5), None, "06:00")
+    assert not time_in_window(um(6), None, "06:00")
+
+    # Gar keine Angabe: immer.
+    assert time_in_window(um(3), None, None)
