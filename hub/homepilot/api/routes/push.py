@@ -157,7 +157,9 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "names": [
                 user.name
                 for user in hub.users.users
-                if not user.system and user.role != Role.GUEST
+                # Gemeinschaftsgeräte stehen nicht zur Auswahl: «an das
+                # Wandtablet» ist keine Person, die man benachrichtigt.
+                if not user.system and not user.shared and user.role != Role.GUEST
             ],
             "roles": sorted(Role.ALL),
         }

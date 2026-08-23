@@ -212,6 +212,12 @@ class User:
     # andere. Gedacht für Levin und Lina - das eigene Zimmer ja, die
     # Alarmanlage und der Rest der Wohnung nicht.
     simple_rooms: list[str] = field(default_factory=list)
+    # Kein einzelner Mensch, sondern ein Gerät, das allen gehört: das
+    # Wandtablet im Flur, das Küchendisplay. Es meldet sich wie ein
+    # Benutzer an, hat aber keine Hosentasche - eine Push-Nachricht dorthin
+    # weckt niemanden, sie brummt nachts an der Wand. Und angesprochen
+    # werden möchte es auch nicht («Hallo Wandtablet»).
+    shared: bool = False
     # Kein Mensch, sondern ein Zugang: das einzelne api.token aus der
     # Konfiguration, mit dem Skripte und das Wandpanel hereinkommen. Es
     # gehört in kein Verzeichnis von Personen - dort stünde es zwischen
@@ -276,6 +282,7 @@ class User:
             "active": self.active(),
             "email": self.email,
             "simple_rooms": list(self.simple_rooms),
+            "shared": self.shared,
         }
         if include_token:
             data["token"] = self.token
@@ -402,6 +409,7 @@ class UserRegistry:
         expires: str | None = None,
         hours: dict[str, str] | None = None,
         simple_rooms: list[str] | None = None,
+        shared: bool | None = None,
     ) -> User:
         """Gast sperren/entsperren oder Bereiche ändern – Token bleibt gleich."""
         user = self.by_name(name)
@@ -424,6 +432,8 @@ class UserRegistry:
             user.hours = parse_hours(hours)
         if simple_rooms is not None:
             user.simple_rooms = [str(r) for r in simple_rooms]
+        if shared is not None:
+            user.shared = bool(shared)
         self._changed()
         return user
 
@@ -440,6 +450,7 @@ class UserRegistry:
                 "expires": user.expires,
                 "hours": dict(user.hours),
                 "simple_rooms": list(user.simple_rooms),
+                "shared": user.shared,
             }
             for user in self._users
             if user.editable
@@ -491,6 +502,7 @@ def parse_users(raw: list[dict[str, Any]], legacy_token: str | None) -> UserRegi
                 expires=str(entry["expires"]) if entry.get("expires") else None,
                 hours=parse_hours(entry.get("hours")),
                 simple_rooms=[str(r) for r in simple_rooms],
+                shared=bool(entry.get("shared")),
             )
         )
 

@@ -478,7 +478,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Wandpanel: Bildschirm bleibt an, und nach drei Minuten ohne Berührung
   // kehrt die Ansicht zur Startseite zurück – ein fest montiertes iPad soll
   // nicht in den Einstellungen stehenbleiben.
-  usePanelMode(!!settings.panel);
+  // Ein Gemeinschaftsgerät ist ein Wandpanel - dafür ist es da. Der
+  // Schalter in den Einstellungen bleibt für alle anderen Geräte.
+  usePanelMode(!!settings.panel || !!user?.shared);
   // Und nachts wird es dunkler. `now` tickt ohnehin jede halbe Minute
   // weiter; damit der Schleier nach einer Berührung nicht bis zum
   // nächsten Tick hell bleibt, hängt er auch an lastTouch.
@@ -2242,7 +2244,15 @@ function usePanelMode(active: boolean) {
   }, [active]);
 }
 
-function greetingName(settings: HubSettings, user: { name: string } | null): string {
+function greetingName(
+  settings: HubSettings,
+  user: { name: string; shared?: boolean } | null
+): string {
+  // «Hallo Wandtablet Flur» begrüsst niemanden - an einem
+  // Gemeinschaftsgerät steht kein einzelner Mensch. Ein selbst gesetzter
+  // Name in den Einstellungen gilt trotzdem: Wer «Küche» hinschreibt,
+  // meint es so.
+  if (user?.shared && !settings.name) return 'Willkommen zuhause,';
   const name = settings.name || user?.name;
   return name ? `Hallo ${name},` : 'Willkommen zuhause,';
 }

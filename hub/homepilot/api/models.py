@@ -153,6 +153,8 @@ class UserRequest(BaseModel):
     hours: dict[str, str] = {}
     # Kinder-Ansicht: nur diese Räume, als grosse Knöpfe.
     simple_rooms: list[str] = []
+    # Gemeinschaftsgerät (Wandtablet, Küchendisplay) statt einer Person.
+    shared: bool = False
 
 
 class UserUpdateRequest(BaseModel):
@@ -164,6 +166,8 @@ class UserUpdateRequest(BaseModel):
     hours: dict[str, str] | None = None
     # Kinder-Ansicht an/aus bzw. Räume ändern; leere Liste hebt sie auf.
     simple_rooms: list[str] | None = None
+    # Gemeinschaftsgerät statt Person – siehe core/users.py.
+    shared: bool | None = None
 
 
 class LoginRequest(BaseModel):
