@@ -1,5 +1,29 @@
 # Familie: die Module und wie sie zusammenhängen
 
+## Die Übersicht
+
+Siebzehn gleich aussehende Kacheln untereinander sind keine Übersicht,
+sondern eine Liste, die man jedes Mal von vorne liest – und «Notfallblatt»
+stand darin neben «Belohnungen». Die Kacheln stehen deshalb in vier
+Gruppen:
+
+| Gruppe | Was darin liegt |
+| --- | --- |
+| **Alltag** | Wochenplan, Kalender, Aufgaben, Ämtli, Einkaufsliste, Essensplaner, Routinen |
+| **Wenn etwas ist** | Notfallblatt, Medikamente, Kontakte, Babysitter |
+| **Miteinander** | Pinnwand, Belohnungen, Countdowns |
+| **Nachschlagen** | Rezeptbuch, Packlisten, Dokumentsafe |
+
+Geschnitten ist nach **wann** man etwas braucht, nicht danach, was
+inhaltlich verwandt ist. Die Kontakte stehen deshalb bei Notfall und
+Betreuung: Man sucht sie, wenn etwas ist – nicht, wenn man Nummern
+sortieren will.
+
+Die selbst gezogene Reihenfolge bleibt erhalten, wirkt aber innerhalb der
+Gruppe: Ziehen ändert die Position, nicht die Überschrift. Ausgeblendete
+Module verschwinden wie bisher; eine Gruppe, von der nichts übrig bleibt,
+zeigt auch keine Überschrift.
+
 Der Bereich «Familie» ist kein Anhängsel der Haussteuerung, sondern der
 Teil, den man täglich anfasst. Sechs Module tragen sich gegenseitig – wer
 eines pflegt, füllt damit die anderen. Das ist die Regel dahinter: **Jede

@@ -73,6 +73,9 @@ export const makeStyles = (colors: Colors) =>
 
     tileRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.gap },
     moduleTile: { minHeight: 0, width: '48%', flexGrow: 1, maxWidth: 260, gap: 6 },
+    // Etwas Luft zwischen den Gruppen: Ohne sie liest sich die
+    // Überschrift als Teil der Kacheln darüber.
+    modulGruppe: { gap: 8, marginTop: 6 },
     moduleLabel: { color: colors.ink, fontSize: 16, fontWeight: '700' },
     moduleSub: { color: colors.inkSoft, fontSize: 12 },
 
