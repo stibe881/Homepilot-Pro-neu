@@ -131,21 +131,21 @@ describe('ingredientsToShopping', () => {
 
   it('fasst denselben Posten aus zwei Rezepten zusammen', () => {
     // Wer für zwei Gerichte Zwiebeln braucht, will einmal daran denken.
-    const daraus = ingredientsToShopping(rezepte);
+    const daraus = ingredientsToShopping(rezepte).neu;
     expect(daraus.filter((e) => e.text.includes('Zwiebeln'))).toHaveLength(1);
   });
 
   it('setzt nichts auf die Liste, was schon drauf steht', () => {
-    expect(ingredientsToShopping(rezepte, ['zwiebeln'])).toHaveLength(1);
+    expect(ingredientsToShopping(rezepte, ['zwiebeln']).neu).toHaveLength(1);
   });
 
   it('gibt jedem Posten gleich seinen Gang mit', () => {
-    const rahm = ingredientsToShopping(rezepte).find((e) => e.text.includes('Rahm'));
+    const rahm = ingredientsToShopping(rezepte).neu.find((e) => e.text.includes('Rahm'));
     expect(rahm?.category).toBe('Milchprodukte');
   });
 
   it('überspringt namenlose Zutaten, statt leere Zeilen anzulegen', () => {
-    expect(ingredientsToShopping([{ ingredients: [{ amount: 3 }] }])).toEqual([]);
+    expect(ingredientsToShopping([{ ingredients: [{ amount: 3 }] }]).neu).toEqual([]);
   });
 
   it('rechnet je Rezept mit seinem eigenen Portionen-Faktor (Punkt 145)', () => {
@@ -156,7 +156,7 @@ describe('ingredientsToShopping', () => {
       { ingredients: [{ name: 'Rahm', amount: 200, unit: 'ml' }] },
       { ingredients: [{ name: 'Hackfleisch', amount: 500, unit: 'g' }] },
     ];
-    const daraus = ingredientsToShopping(getrennt, [], [2, 1]);
+    const daraus = ingredientsToShopping(getrennt, [], [2, 1]).neu;
     expect(daraus.find((e) => e.text === 'Rahm')?.amount).toBe('400 ml');
     expect(daraus.find((e) => e.text === 'Hackfleisch')?.amount).toBe('500 g');
   });
@@ -229,7 +229,7 @@ describe('ingredientsToShopping mit Portionen-Faktor', () => {
   it('rechnet die Mengen auf die gewählten Portionen um', () => {
     // Der Artikel steht in text, die Menge daneben – seit sie nicht mehr
     // in den Namen geklebt wird.
-    const liste = ingredientsToShopping([rezept], [], 2);
+    const liste = ingredientsToShopping([rezept], [], 2).neu;
     expect(liste[0]).toMatchObject({ text: 'Mehl', amount: '500 g' });
     // Ohne Menge bleibt der Name der Name – «2× Salz» wäre Unsinn.
     expect(liste[1].text).toBe('Salz');
@@ -241,12 +241,12 @@ describe('ingredientsToShopping mit Portionen-Faktor', () => {
       [{ ingredients: [{ name: 'Mehl', amount: 500, unit: 'g' }] }],
       [],
       4 / 3
-    );
+    ).neu;
     expect(drittel[0]).toMatchObject({ text: 'Mehl', amount: '666,7 g' });
   });
 
   it('ohne Faktor bleibt alles wie es war', () => {
-    expect(ingredientsToShopping([rezept])[0]).toMatchObject({
+    expect(ingredientsToShopping([rezept]).neu[0]).toMatchObject({
       text: 'Mehl',
       amount: '250 g',
     });
@@ -319,7 +319,7 @@ describe('Menge, Läden und Teilen', () => {
   test('die Zutaten bringen ihre Herkunft mit', () => {
     const posten = ingredientsToShopping([
       { id: 'r1', text: 'Lasagne', ingredients: [{ name: 'Kapern', amount: 250, unit: 'g' }] },
-    ]);
+    ]).neu;
     expect(posten[0]).toMatchObject({
       text: 'Kapern',
       amount: '250 g',
@@ -375,7 +375,7 @@ describe('ingredientsToShopping mit getrennter Menge', () => {
   };
 
   it('schreibt den Artikel in text und die Menge daneben', () => {
-    const [milch, salz] = ingredientsToShopping([rezept]);
+    const [milch, salz] = ingredientsToShopping([rezept]).neu;
     expect(milch.text).toBe('Milch');
     expect(milch.amount).toBe('400 ml');
     // Ohne Menge bleibt das Feld weg statt leer dazustehen.
@@ -384,13 +384,13 @@ describe('ingredientsToShopping mit getrennter Menge', () => {
   });
 
   it('rechnet den Portionen-Faktor in die Menge', () => {
-    expect(ingredientsToShopping([rezept], [], 2)[0].amount).toBe('800 ml');
+    expect(ingredientsToShopping([rezept], [], 2).neu[0].amount).toBe('800 ml');
   });
 
   it('erkennt einen alten Posten, in dem die Menge noch im Text steckt', () => {
     // Eine Liste vom letzten Samstag soll kein zweites «Milch» bekommen.
-    expect(ingredientsToShopping([rezept], ['400 ml Milch'])).toHaveLength(1);
-    expect(ingredientsToShopping([rezept], ['Milch'])).toHaveLength(1);
+    expect(ingredientsToShopping([rezept], ['400 ml Milch']).neu).toHaveLength(1);
+    expect(ingredientsToShopping([rezept], ['Milch']).neu).toHaveLength(1);
   });
 });
 
@@ -436,5 +436,64 @@ describe('artikelName', () => {
 
   it('macht aus einer Zeile ohne Rest keinen leeren Artikel', () => {
     expect(artikelName('500 g')).toBe('500 g');
+  });
+});
+
+// ── Mengen zusammenlegen ─────────────────────────────────────────────────
+// Bisher fiel ein Posten, der schon draufstand, wortlos weg. Im Laden
+// stand man mit 400 ml da, wo 600 gebraucht wurden – und merkte nichts,
+// weil nichts fehlte, was man sehen konnte.
+
+describe('ingredientsToShopping legt Mengen zusammen', () => {
+  const milch = (menge: number) => ({
+    text: 'Rezept',
+    ingredients: [{ name: 'Milch', amount: menge, unit: 'ml' }],
+  });
+
+  it('zählt zwei Rezepte desselben Durchgangs zusammen', () => {
+    const { neu } = ingredientsToShopping([milch(400), milch(200)]);
+    expect(neu).toHaveLength(1);
+    expect(neu[0]).toMatchObject({ text: 'Milch', amount: '600 ml' });
+  });
+
+  it('rechnet je Rezept mit seinem eigenen Portionen-Faktor', () => {
+    const { neu } = ingredientsToShopping([milch(400), milch(200)], [], [2, 1]);
+    expect(neu[0].amount).toBe('1 l');
+  });
+
+  it('zählt zu einem Posten dazu, der schon auf der Liste liegt', () => {
+    const liste = [{ id: 'p1', text: 'Milch', amount: '400 ml' }];
+    const { neu, mehr } = ingredientsToShopping([milch(200)], liste);
+    // Kein zweiter Posten – aber auch keiner, der stillschweigend verfällt.
+    expect(neu).toHaveLength(0);
+    expect(mehr).toEqual([{ id: 'p1', amount: '600 ml' }]);
+  });
+
+  it('erkennt dabei auch einen alten Posten mit Menge im Namen', () => {
+    const liste = [{ id: 'p1', text: '400 ml Milch' }];
+    const { neu, mehr } = ingredientsToShopping([milch(200)], liste);
+    expect(neu).toHaveLength(0);
+    expect(mehr).toEqual([{ id: 'p1', amount: '200 ml' }]);
+  });
+
+  it('zählt mehrere Rezepte auf denselben vorhandenen Posten', () => {
+    const liste = [{ id: 'p1', text: 'Milch', amount: '100 ml' }];
+    const { mehr } = ingredientsToShopping([milch(200), milch(300)], liste);
+    expect(mehr).toEqual([{ id: 'p1', amount: '600 ml' }]);
+  });
+
+  it('lässt einen Posten ohne Kennung in Ruhe, statt ins Leere zu schreiben', () => {
+    // Nur Namen übergeben (der alte Aufrufweg): Dann gibt es nichts zu
+    // aktualisieren, und doppelt anlegen wäre falsch.
+    const { neu, mehr } = ingredientsToShopping([milch(200)], ['Milch']);
+    expect(neu).toHaveLength(0);
+    expect(mehr).toEqual([]);
+  });
+
+  it('legt eine Zutat ohne Menge nicht doppelt an', () => {
+    const salz = { ingredients: [{ name: 'Salz' }] };
+    const { neu } = ingredientsToShopping([salz, salz]);
+    expect(neu).toHaveLength(1);
+    expect(neu[0].amount).toBeUndefined();
   });
 });

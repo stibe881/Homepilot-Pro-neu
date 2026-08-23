@@ -11,6 +11,8 @@
  */
 
 /** Die Gänge, in der Reihenfolge, in der man durch den Laden geht. */
+import { mengenAddieren } from './mengen';
+
 export const SHOP_CATEGORIES = [
   'Früchte & Gemüse',
   'Milchprodukte',
@@ -295,22 +297,35 @@ export function findeArtikel<T extends { text?: unknown }>(
  */
 export function ingredientsToShopping(
   recipes: EinkaufZeile[],
-  vorhanden: string[] = [],
+  // Was schon auf der Liste liegt. Texte genügen, wenn nur gefragt wird
+  // «was fehlt noch»; ganze Posten (mit id und amount) braucht es, damit
+  // sich Mengen zu einem vorhandenen Eintrag dazuzählen lassen.
+  vorhanden: (string | EinkaufZeile)[] = [],
   // Eine Zahl für alle Rezepte - oder je Rezept eine (Punkt 145: der
   // Wochenplan kennt für jeden Tag seine eigenen Portionen).
   faktor: number | number[] = 1
-): ShoppingDraft[] {
-  // Was schon auf der Liste steht – einmal wie geschrieben und einmal
-  // ohne Menge. Ein Posten «400 ml Milch» aus alter Zeit soll kein
-  // zweites «Milch» erzeugen.
-  const gesehen = new Set<string>();
+): { neu: ShoppingDraft[]; mehr: { id: string; amount: string }[] } {
+  // Je Artikel der Posten, der ihn schon abdeckt. Ohne Menge im Namen
+  // gesucht: «Milch» und ein altes «400 ml Milch» sind derselbe Artikel.
+  const schonDa = new Map<string, EinkaufZeile | null>();
+  const merke = (text: string, posten: EinkaufZeile | null) => {
+    const sauber = String(text ?? '').trim().toLowerCase();
+    if (!sauber) return;
+    if (!schonDa.has(sauber)) schonDa.set(sauber, posten);
+    const blank = artikelName(sauber).toLowerCase();
+    if (!schonDa.has(blank)) schonDa.set(blank, posten);
+  };
   for (const eintrag of vorhanden) {
-    const text = String(eintrag ?? '').trim().toLowerCase();
-    if (!text) continue;
-    gesehen.add(text);
-    gesehen.add(artikelName(text).toLowerCase());
+    if (typeof eintrag === 'string') merke(eintrag, null);
+    else merke(String(eintrag?.text ?? ''), eintrag);
   }
-  const result: ShoppingDraft[] = [];
+
+  const neu: ShoppingDraft[] = [];
+  // Je Artikel der Entwurf dieses Durchgangs – damit sich zwei Rezepte
+  // mit Milch zu einer Zeile zusammenlegen.
+  const entwuerfe = new Map<string, ShoppingDraft>();
+  const mehr = new Map<string, string>();
+
   for (const [index, recipe] of recipes.entries()) {
     const rezeptFaktor = Array.isArray(faktor) ? (faktor[index] ?? 1) : faktor;
     const ingredients: EinkaufZeile[] = Array.isArray(recipe?.ingredients)
@@ -320,19 +335,32 @@ export function ingredientsToShopping(
       const name = String(ingredient?.name ?? '').trim();
       if (!name) continue;
       const key = name.toLowerCase();
-      if (gesehen.has(key)) continue;
-      gesehen.add(key);
-      // Auch der volle Text zählt als gesehen, damit ein bereits auf der
-      // Liste stehendes «250 ml Ketchup» kein zweites «Ketchup» erzeugt.
       const { menge } = zutatGeteilt(ingredient, rezeptFaktor);
-      // Auch die ausgeschriebene Zeile zählt als gesehen: Ein schon
-      // vorhandenes «250 ml Ketchup» aus alter Zeit soll kein zweites
-      // «Ketchup» erzeugen.
-      gesehen.add(ingredientLabel(ingredient, rezeptFaktor).toLowerCase());
+
+      // Schon in diesem Durchgang dabei? Dann zur Menge dazuzählen.
+      const entwurf = entwuerfe.get(key);
+      if (entwurf) {
+        if (menge) entwurf.amount = mengenAddieren(entwurf.amount ?? '', menge);
+        continue;
+      }
+
+      // Schon auf der Liste? Zur vorhandenen Menge dazu, statt den
+      // Posten wortlos fallen zu lassen – genau das liess einen im Laden
+      // mit 400 ml dastehen, wo 600 gebraucht wurden.
+      if (schonDa.has(key)) {
+        const posten = schonDa.get(key);
+        if (posten && menge && posten.id) {
+          const id = String(posten.id);
+          const bisher = mehr.get(id) ?? String(posten.amount ?? '');
+          mehr.set(id, mengenAddieren(bisher, menge));
+        }
+        continue;
+      }
+
       // Die Herkunft bleibt am Posten hängen (Punkt 208): Im Laden
       // entscheidet man damit auch, ob es die teuren Kapern sein müssen.
       const herkunft = String(recipe?.text ?? '').trim();
-      result.push({
+      const draft: ShoppingDraft = {
         // Der Artikel ohne Menge – so findet ihn die Suche, das
         // Gedächtnis und der nächste Wocheneinkauf wieder.
         text: name,
@@ -340,10 +368,15 @@ export function ingredientsToShopping(
         category: shopCategory(name),
         ...(herkunft ? { from: herkunft } : {}),
         ...(recipe?.id ? { from_id: String(recipe.id) } : {}),
-      });
+      };
+      entwuerfe.set(key, draft);
+      neu.push(draft);
     }
   }
-  return result;
+  return {
+    neu,
+    mehr: [...mehr.entries()].map(([id, amount]) => ({ id, amount })),
+  };
 }
 
 /**
