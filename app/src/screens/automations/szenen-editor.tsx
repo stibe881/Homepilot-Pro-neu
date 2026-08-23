@@ -322,6 +322,13 @@ export function SceneDevices({
                         war. Ohne Wahl bleibt es beim Weiterspielen. */}
                     {action!.command === 'play' && playlistWahl(entity) ? (
                       <>
+                        {/* Zwischentitel, weil hier drei Fragen
+                            aufeinanderfolgen, die alle gleich aussehen:
+                            dreissig Playlists, dann zwölf Boxen, dann die
+                            Reihenfolge. Ohne Überschrift ist das eine
+                            einzige Chip-Wand, und «Küche» könnte ebenso
+                            gut eine Playlist sein. */}
+                        <Text style={styles.groupLabel}>Playlist</Text>
                         <Choice
                           options={[
                             { key: '', label: 'weiterspielen' },
@@ -341,17 +348,20 @@ export function SceneDevices({
                                 Google-Home-Boxen stehen mit dabei; der
                                 Hub weckt sie. */}
                             {boxenVon(entity).length > 0 ? (
-                              <Choice
-                                options={[
-                                  { key: '', label: 'zuletzt benutzte Box' },
-                                  ...boxenVon(entity).map((name) => ({
-                                    key: name,
-                                    label: name,
-                                  })),
-                                ]}
-                                value={action!.device ?? ''}
-                                onSelect={(key) => setField(entity.id, { device: key })}
-                              />
+                              <>
+                                <Text style={styles.groupLabel}>Auf welcher Box</Text>
+                                <Choice
+                                  options={[
+                                    { key: '', label: 'zuletzt benutzte Box' },
+                                    ...boxenVon(entity).map((name) => ({
+                                      key: name,
+                                      label: name,
+                                    })),
+                                  ]}
+                                  value={action!.device ?? ''}
+                                  onSelect={(key) => setField(entity.id, { device: key })}
+                                />
+                              </>
                             ) : null}
                             {/* «Party» soll nicht jeden Abend mit
                                 demselben Titel anfangen. Ohne Wahl bleibt
@@ -359,25 +369,28 @@ export function SceneDevices({
                                 eine Szene soll sie nicht heimlich
                                 umstellen. */}
                             {mischenMoeglich(entity) ? (
-                              <Choice
-                                options={[
-                                  { key: '', label: 'Reihenfolge lassen' },
-                                  { key: 'reihe', label: 'der Reihe nach' },
-                                  { key: 'zufall', label: 'zufällig' },
-                                ]}
-                                value={
-                                  action!.shuffle === undefined
-                                    ? ''
-                                    : action!.shuffle
-                                      ? 'zufall'
-                                      : 'reihe'
-                                }
-                                onSelect={(key) =>
-                                  setField(entity.id, {
-                                    shuffle: key === '' ? undefined : key === 'zufall',
-                                  })
-                                }
-                              />
+                              <>
+                                <Text style={styles.groupLabel}>Reihenfolge</Text>
+                                <Choice
+                                  options={[
+                                    { key: '', label: 'Reihenfolge lassen' },
+                                    { key: 'reihe', label: 'der Reihe nach' },
+                                    { key: 'zufall', label: 'zufällig' },
+                                  ]}
+                                  value={
+                                    action!.shuffle === undefined
+                                      ? ''
+                                      : action!.shuffle
+                                        ? 'zufall'
+                                        : 'reihe'
+                                  }
+                                  onSelect={(key) =>
+                                    setField(entity.id, {
+                                      shuffle: key === '' ? undefined : key === 'zufall',
+                                    })
+                                  }
+                                />
+                              </>
                             ) : null}
                           </>
                         ) : null}
