@@ -31,8 +31,8 @@ from ..core import astro
 from ..core.integration import Integration
 from ..core.source import as_source
 
-DEFAULT_LAT = 47.1445
-DEFAULT_LON = 8.0675
+DEFAULT_LAT = 47.1381
+DEFAULT_LON = 7.9228
 
 # Damit der Verlauf in der App «· Anwesenheitssimulation» zeigt statt gar
 # nichts: Ohne Quelle sähe der Schaltvorgang aus, als hätte jemand am

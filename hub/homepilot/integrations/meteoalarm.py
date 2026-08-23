@@ -10,8 +10,8 @@ Konfiguration:
   - integration: meteoalarm
     countries: [switzerland]
     # Standort für den Polygon-Vergleich. Weglassen = config.location.
-    # latitude: 47.1445
-    # longitude: 8.0675
+    # latitude: 47.1381
+    # longitude: 7.9228
     # Nur als Rückfallebene, wenn kein Standort bekannt ist oder eine
     # Warnung ohne Polygon kommt: Gebietsname muss einen Begriff enthalten.
     # areas: ["Entlebuch"]
@@ -175,10 +175,10 @@ class MeteoAlarmIntegration(Integration):
         location = getattr(self.hub.config, "location", None) or {}
         try:
             self._lat = float(
-                self.config.get("latitude", location.get("latitude", 47.1445))
+                self.config.get("latitude", location.get("latitude", 47.1381))
             )
             self._lon = float(
-                self.config.get("longitude", location.get("longitude", 8.0675))
+                self.config.get("longitude", location.get("longitude", 7.9228))
             )
         except (TypeError, ValueError):
             self._lat = self._lon = None  # type: ignore[assignment]

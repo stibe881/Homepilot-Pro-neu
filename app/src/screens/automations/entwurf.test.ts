@@ -17,6 +17,8 @@ import {
   melderMitLux,
   minutenLabel,
   minutenWert,
+  symbolFuerNamen,
+  szenenSymbol,
   triggerIcon,
   triggerToConfig,
   normalisiereZeit,
@@ -208,6 +210,58 @@ describe('triggerIcon (Punkt 162)', () => {
     );
     expect(triggerIcon(mit({ entity_id: 'x.y', below: 20 }))).toBe('analytics-outline');
     expect(triggerIcon(mit({ entity_id: 'x.y' }))).toBe('flash-outline');
+  });
+
+  it('lässt den Namen reden, wenn der Auslöser nichts sagt', () => {
+    // «Babysitter-Modus» wird von Hand ausgelöst - der Blitz sagte
+    // darüber nichts, der Name sehr wohl.
+    expect(triggerIcon({ ...mit({ entity_id: 'x.y' }), alias: 'Babysitter-Modus' })).toBe(
+      'happy-outline'
+    );
+  });
+
+  it('lässt den Auslöser vorgehen, wo er etwas weiss', () => {
+    expect(
+      triggerIcon({ ...mit({ type: 'time', at: '20:00' }), alias: 'Babysitter-Abend' })
+    ).toBe('time-outline');
+  });
+});
+
+describe('symbolFuerNamen', () => {
+  it('erkennt die Abende, an denen jemand anderes im Haus ist', () => {
+    expect(symbolFuerNamen('Babysitter-Modus')).toBe('happy-outline');
+    expect(symbolFuerNamen('Kinder hüten')).toBe('happy-outline');
+    expect(symbolFuerNamen('Besuch da')).toBe('people-outline');
+  });
+
+  it('rät nicht in zusammengesetzten Wörtern', () => {
+    // Sonst würde aus «Licht im Kinderzimmer» ein Babysitter-Abend.
+    expect(symbolFuerNamen('Licht im Kinderzimmer')).toBeNull();
+    expect(symbolFuerNamen('Filmriss')).toBeNull();
+  });
+
+  it('sagt bei einem gewöhnlichen Namen nichts', () => {
+    expect(symbolFuerNamen('Flurlicht')).toBeNull();
+    expect(symbolFuerNamen('')).toBeNull();
+  });
+});
+
+describe('szenenSymbol', () => {
+  it('nimmt den Namen, solange niemand ein Symbol gewählt hat', () => {
+    expect(szenenSymbol({ name: 'Babysitter-Modus' })).toBe('happy-outline');
+    expect(szenenSymbol({ name: 'Babysitter-Modus', icon: 'sparkles-outline' })).toBe(
+      'happy-outline'
+    );
+  });
+
+  it('lässt ein gewähltes Symbol stehen', () => {
+    expect(szenenSymbol({ name: 'Babysitter-Modus', icon: 'moon-outline' })).toBe(
+      'moon-outline'
+    );
+  });
+
+  it('bleibt beim Funkeln, wenn der Name nichts hergibt', () => {
+    expect(szenenSymbol({ name: 'Abends' })).toBe('sparkles-outline');
   });
 });
 
