@@ -176,6 +176,86 @@ def birthdays_in(
     return treffer
 
 
+# Wie ein Geburtstags-Kalender seine Einträge benennt. Google schreibt
+# «Livia hat Geburtstag» (oder englisch «Livia's birthday»), andere
+# hängen ein Alter an. Für die Nachricht wollen wir den Namen - «Livia
+# hat Geburtstag hat heute Geburtstag» liest niemand zweimal.
+_KALENDER_ZUSAETZE = (
+    " hat geburtstag",
+    "'s birthday",
+    "s birthday",
+    " birthday",
+    " geburtstag",
+)
+
+
+def birthday_name(summary: Any) -> str:
+    """Der Name hinter einem Kalendereintrag (rein, testbar).
+
+    Findet sich keiner der bekannten Zusätze, bleibt der Titel stehen:
+    Ein unbekanntes Format falsch zu kürzen wäre schlimmer, als einmal
+    «Livias 40.» vorzulesen.
+    """
+    text = " ".join(str(summary or "").split())
+    klein = text.lower()
+    for zusatz in _KALENDER_ZUSAETZE:
+        stelle = klein.find(zusatz)
+        if stelle > 0:
+            return text[:stelle].strip(" ,–-")
+    return text
+
+
+def _event_tag(event: dict[str, Any]) -> str:
+    """Der Tag eines Kalendereintrags als «JJJJ-MM-TT» (rein).
+
+    Ganztägige Einträge tragen ein blosses Datum, andere einen
+    Zeitstempel - die ersten zehn Zeichen sind in beiden Fällen der Tag.
+    """
+    return str(event.get("start") or "")[:10]
+
+
+def calendar_birthdays(
+    events: list[dict[str, Any]], tag: date, tage: int = 0
+) -> list[tuple[int, str]]:
+    """Geburtstage aus dem Geburtstags-Kalender (rein, testbar).
+
+    Die Kontakte in «Familie» sind nicht die einzige Quelle: Wer seine
+    Geburtstage im Telefon pflegt, sieht sie über den Geburtstags-
+    Kalender auf der Startseite - und wurde bisher trotzdem nicht daran
+    erinnert, weil der Wächter nur in die Kontakte sah.
+
+    Zurück kommt (Tage bis dahin, Name), aufsteigend sortiert.
+    """
+    treffer: list[tuple[int, str]] = []
+    for versatz in range(0, max(0, tage) + 1):
+        ziel = (tag + timedelta(days=versatz)).strftime("%Y-%m-%d")
+        for event in events or []:
+            if not isinstance(event, dict) or not event.get("birthday"):
+                continue
+            if _event_tag(event) != ziel:
+                continue
+            name = birthday_name(event.get("summary"))
+            if name:
+                treffer.append((versatz, name))
+    return treffer
+
+
+def namen_zusammen(*listen: list[str]) -> list[str]:
+    """Namen aus mehreren Quellen, ohne Doppel (rein, testbar).
+
+    Wer sowohl in den Kontakten als auch im Geburtstags-Kalender steht,
+    soll einmal gegrüsst werden. Verglichen wird ohne Rücksicht auf
+    Gross- und Kleinschreibung; die erste Schreibweise gewinnt.
+    """
+    gesehen: dict[str, str] = {}
+    for liste in listen:
+        for name in liste or []:
+            sauber = " ".join(str(name or "").split())
+            if sauber and sauber.casefold() not in gesehen:
+                gesehen[sauber.casefold()] = sauber
+    return list(gesehen.values())
+
+
 def _ist_schaltjahr(jahr: int) -> bool:
     return jahr % 4 == 0 and (jahr % 100 != 0 or jahr % 400 == 0)
 
@@ -334,10 +414,18 @@ def week_ahead(
     for wann, text in (_due_within(tasks, heute, tage) + _due_within(chores, heute, tage))[:4]:
         zeilen.append(f"{WEEKDAYS[wann.weekday()]}: {text}")
 
-    for versatz, contact in birthdays_in(contacts, heute, tage):
-        name = str(contact.get("text") or "").strip()
-        if not name:
+    # Beide Quellen, wie beim Gruss am Morgen: die Kontakte in «Familie»
+    # und der Geburtstags-Kalender aus dem Telefon. Wer in beiden steht,
+    # steht einmal in der Liste.
+    geburtstage: list[tuple[int, str]] = [
+        (versatz, str(contact.get("text") or "").strip())
+        for versatz, contact in birthdays_in(contacts, heute, tage)
+    ] + calendar_birthdays(events, heute, tage)
+    gesehen: set[str] = set()
+    for versatz, name in sorted(geburtstage, key=lambda zeile: zeile[0]):
+        if not name or name.casefold() in gesehen:
             continue
+        gesehen.add(name.casefold())
         wann = heute + timedelta(days=versatz)
         zeilen.append(f"{WEEKDAYS[wann.weekday()]}: {name} hat Geburtstag")
 

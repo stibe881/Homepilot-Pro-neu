@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from . import energy, familie, maintenance, notifyrules, presence, shopping, trash, users
+from .entity import EntityKind
 
 # Die reinen Regeln wohnen in watchrules.py; hier bleiben Takt und
 # Gedächtnis. Die Namen werden re-exportiert - Server und Tests
@@ -373,11 +374,29 @@ class Watchdog:
             marke for marke in self._med_reminded if f":{tag}:" in marke
         }
 
+    def _kalender_termine(self) -> list[dict[str, Any]]:
+        """Alle Kalendereinträge, die der Hub kennt.
+
+        Der Geburtstags-Kalender aus dem Telefon läuft über dieselbe
+        Integration wie die Termine; seine Einträge tragen `birthday`.
+        """
+        termine: list[dict[str, Any]] = []
+        for entity in self.hub.registry.all():
+            if entity.kind != EntityKind.CALENDAR:
+                continue
+            for event in entity.state.get("events") or []:
+                if isinstance(event, dict):
+                    termine.append(event)
+        return termine
+
     async def _check_birthdays(self) -> None:
         """Am Morgen daran erinnern, wer heute Geburtstag hat.
 
-        Die Daten liegen in den Kontakten; sich die Liste anzusehen musste
-        man bisher selbst daran denken - und genau das vergisst man.
+        Zwei Quellen, weil beide gepflegt werden: die Kontakte in
+        «Familie» und der Geburtstags-Kalender aus dem Telefon. Wer seine
+        Geburtstage dort führt, sah sie auf der Startseite und wurde
+        trotzdem nicht erinnert - der Wächter schaute nur in die
+        Kontakte. Wer in beiden steht, wird einmal gegrüsst.
         """
         jetzt = datetime.now()
         # Die Uhrzeit ist einstellbar (Abläufe → Push): Wer um acht noch
@@ -389,13 +408,19 @@ class Watchdog:
         if self._birthday_day == heute:
             return
         self._birthday_day = heute
-        namen = [
+        termine = self._kalender_termine()
+        aus_kontakten = [
             str(contact.get("text") or "").strip()
             for contact in familie.birthdays_on(
                 self.hub.data.get("family_contacts"), jetzt.date()
             )
         ]
-        namen = [name for name in namen if name]
+        aus_kalender = [
+            name
+            for versatz, name in familie.calendar_birthdays(termine, jetzt.date())
+            if versatz == 0
+        ]
+        namen = familie.namen_zusammen(aus_kontakten, aus_kalender)
         if namen:
             await self._notify(
                 "Geburtstag heute",
@@ -408,13 +433,18 @@ class Watchdog:
         # Tage vorher bleibt Zeit für ein Geschenk (Punkt 180). Auf 0
         # gestellt entfällt er - dann kommt nur der Gruss am Tag selbst.
         vorlauf = int(self.rules["birthday"]["params"].get("days", BIRTHDAY_AHEAD))
-        for versatz, contact in familie.birthdays_in(
-            self.hub.data.get("family_contacts"), jetzt.date(), vorlauf
-        ):
-            name = str(contact.get("text") or "").strip()
+        voraus = [
+            (versatz, str(contact.get("text") or "").strip())
+            for versatz, contact in familie.birthdays_in(
+                self.hub.data.get("family_contacts"), jetzt.date(), vorlauf
+            )
+        ] + familie.calendar_birthdays(termine, jetzt.date(), vorlauf)
+        for versatz, name in sorted(voraus, key=lambda zeile: zeile[0]):
             if not name or versatz == 0:
                 continue
-            marke = f"{heute}:{name}:{versatz}"
+            # Dieselbe Marke für beide Quellen: Wer in Kontakten *und*
+            # Kalender steht, wird einmal angekündigt.
+            marke = f"{heute}:{name.casefold()}:{versatz}"
             if marke in self._birthday_ahead:
                 continue
             self._birthday_ahead.add(marke)

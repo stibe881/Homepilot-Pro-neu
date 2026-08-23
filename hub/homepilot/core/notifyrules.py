@@ -150,8 +150,9 @@ RULES: list[dict[str, Any]] = [
         "key": "birthday",
         "title": "Geburtstag",
         "detail": "Am Morgen, wer heute Geburtstag hat – aus den Kontakten in "
-        "Familie. Der Vorlauf meldet es zusätzlich vorher, solange noch Zeit "
-        "für ein Geschenk ist; auf 0 gestellt entfällt er.",
+        "Familie und aus dem Geburtstags-Kalender. Wer in beiden steht, wird "
+        "einmal gegrüsst. Der Vorlauf meldet es zusätzlich vorher, solange "
+        "noch Zeit für ein Geschenk ist; auf 0 gestellt entfällt er.",
         "params": [
             {
                 "key": "hour",
