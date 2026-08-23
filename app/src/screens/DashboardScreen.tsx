@@ -55,6 +55,7 @@ import {
 } from '../lib/geraetefilter';
 import { verweisText, verweiseAuf } from '../lib/verweise';
 import { raeumeSortiert, raumMesswerte, raumKategorien, raumZeile } from '../lib/raum';
+import { Person } from '../lib/ortung';
 import { FAVORITEN, raumGruppen } from '../lib/raumgruppen';
 import { schleier } from '../lib/nachtabsenkung';
 import { hubClient, onHubFehler } from '../api/client';
@@ -1963,6 +1964,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 })}
             showClock={!!settings.panel}
             queued={queued}
+            // Erst beim Antippen holen: Ein Dauerabruf für ein Fenster,
+            // das selten jemand öffnet, wäre Verschwendung.
+            onLoadPresence={async () => {
+              const antwort = await hub.get<{ people?: Person[] } | null>('/api/presence', {
+                still: true,
+              });
+              return antwort?.people ?? [];
+            }}
           />
           </Auffangnetz>
 
