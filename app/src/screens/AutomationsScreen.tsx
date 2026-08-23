@@ -9,6 +9,7 @@ import { Fehlschlag, Laedt } from '../components/Zustand';
 import { useColors } from '../theme';
 import { HubFehler, hubClient } from '../api/client';
 import { datumKurz } from '../lib/format';
+import { istPushKategorie } from '../lib/pushablaeufe';
 import { RueckwegBefehl, sceneActionsToDraft, szenenRueckweg } from '../lib/szenen';
 import { Editor, Fassung } from './automations/editor';
 import { Automation, Draft, DryRun, EMPTY, Run, StepDraft, TriggerHealth, buildConditions, describe, groupByCategory, lastRunText, newTrigger, runLine, search, stepToActions, stepsToActions, toDraft, triggerIcon, triggerToConfig, usedCategories, zeitpunktLabel } from './automations/entwurf';
@@ -607,8 +608,20 @@ export function AutomationsScreen({
           ) : null}
           <Groups
             groups={groupByCategory(
+              // Eine selbst vergebene Kategorie «Push» stünde als zweite,
+              // gleichlautende Überschrift neben dem Push-Bereich weiter
+              // unten – dieselben Abläufe, zweimal. Sie stehen dort, der
+              // Bereich nimmt sie ausdrücklich auf.
               search(automations, autoQuery, (entry) =>
                 `${entry.alias} ${entry.category ?? ''}`
+              //
+              // Beim Suchen aber nicht: Wer «push» eintippt und «Nichts
+              // gefunden» liest, während der Bereich darunter genau diese
+              // Abläufe zeigt, hält die Suche für kaputt. Eine doppelte
+              // Überschrift ist dann das kleinere Übel – und man hat ja
+              // ausdrücklich danach gesucht.
+              ).filter(
+                (entry) => !!autoQuery.trim() || !istPushKategorie(entry.category)
               )
             )}
             open={openAuto}

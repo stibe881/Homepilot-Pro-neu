@@ -7,6 +7,8 @@
  */
 import {
   PushAblauf,
+  gehoertZuPush,
+  istPushKategorie,
   pushAblaeufe,
   pushBeschreibung,
   pushSchritte,
@@ -127,5 +129,75 @@ describe('pushBeschreibung', () => {
 
   it('gibt für einen Ablauf ohne Nachricht nichts zurück', () => {
     expect(pushBeschreibung(ablauf())).toBe('');
+  });
+});
+
+// ── Die selbst vergebene Kategorie «Push» ────────────────────────────────
+// Unter den Abläufen standen zwei gleichlautende Überschriften «PUSH»:
+// einmal die Kategorie, die jemand von Hand vergeben hatte, einmal der
+// eingebaute Bereich darunter. Dieselben Abläufe, zweimal.
+
+describe('istPushKategorie', () => {
+  it('erkennt die Kategorie, egal wie sie geschrieben ist', () => {
+    expect(istPushKategorie('Push')).toBe(true);
+    expect(istPushKategorie('push')).toBe(true);
+    expect(istPushKategorie('  PUSH  ')).toBe(true);
+  });
+
+  it('lässt andere Kategorien in Ruhe', () => {
+    // «Push-Kamera» ist ein eigener Topf und darf nicht verschwinden.
+    expect(istPushKategorie('Push-Kamera')).toBe(false);
+    expect(istPushKategorie('Wandtaster')).toBe(false);
+    expect(istPushKategorie('')).toBe(false);
+    expect(istPushKategorie(null)).toBe(false);
+    expect(istPushKategorie(undefined)).toBe(false);
+  });
+});
+
+describe('gehoertZuPush', () => {
+  it('nimmt auf, was meldet', () => {
+    expect(gehoertZuPush(ablauf({ actions: [{ type: 'notify', title: 'X' }] }))).toBe(true);
+  });
+
+  it('nimmt auch auf, was jemand ausdrücklich dorthin einsortiert hat', () => {
+    // Sonst verschwände der Ablauf ganz: aus der Liste genommen, im
+    // Bereich nicht angekommen.
+    expect(gehoertZuPush(ablauf({ category: 'Push' }))).toBe(true);
+  });
+
+  it('lässt alles andere draussen', () => {
+    expect(gehoertZuPush(ablauf({ category: 'Wandtaster' }))).toBe(false);
+  });
+});
+
+describe('pushAblaeufe mit Kategorie', () => {
+  it('sammelt beide Arten und zählt keinen doppelt', () => {
+    const meldend = ablauf({ id: 'a', actions: [{ type: 'notify', title: 'X' }] });
+    const einsortiert = ablauf({ id: 'b', category: 'push' });
+    const beides = ablauf({
+      id: 'c',
+      category: 'Push',
+      actions: [{ type: 'notify', title: 'Y' }],
+    });
+    const fremd = ablauf({ id: 'd', category: 'Wandtaster' });
+    expect(pushAblaeufe([meldend, einsortiert, beides, fremd]).map((a) => a.id)).toEqual([
+      'a',
+      'b',
+      'c',
+    ]);
+  });
+});
+
+describe('pushBeschreibung bei einer Kategorie ohne Nachricht', () => {
+  it('sagt, dass hier nichts verschickt wird', () => {
+    // Wer einen Ablauf «Push» nennt, erwartet, dass er meldet. Eine leere
+    // Zeile wäre die schlechtere Auskunft.
+    expect(pushBeschreibung(ablauf({ category: 'Push' }))).toBe(
+      'Verschickt keine Nachricht – steht wegen der Kategorie «Push» hier.'
+    );
+  });
+
+  it('bleibt bei allen anderen still', () => {
+    expect(pushBeschreibung(ablauf({ category: 'Wandtaster' }))).toBe('');
   });
 });
