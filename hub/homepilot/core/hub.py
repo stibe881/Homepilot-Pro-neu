@@ -320,6 +320,12 @@ class Hub:
                         # darauf verliess.
                         expires=str(entry["expires"]) if entry.get("expires") else None,
                         hours=users_module.parse_hours(entry.get("hours")),
+                        # Dasselbe für das Wandtablet: Ohne diese beiden
+                        # war es nach einem Neustart wieder eine Person -
+                        # mit Begrüssung, ohne PIN-Zwang und mit offenen
+                        # persönlichen Bereichen.
+                        shared=bool(entry.get("shared")),
+                        area_lock=dict(entry.get("area_lock") or {}),
                     )
                 )
             except Exception as err:

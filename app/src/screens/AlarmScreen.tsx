@@ -157,6 +157,7 @@ export function AlarmScreen({
   settings,
   onEntity,
   entities = [],
+  user,
 }: {
   settings: HubSettings;
   /** Einen Sensor in der Geräteliste zeigen – für die antippbaren Namen
@@ -164,6 +165,8 @@ export function AlarmScreen({
   onEntity?: (name: string) => void;
   /** Alle Geräte – für die Auswahl, was die Anlage selbst schalten soll. */
   entities?: Entity[];
+  /** Wer gerade bedient. Am Gemeinschaftsgerät ist die PIN Pflicht. */
+  user?: { shared?: boolean } | null;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -273,7 +276,20 @@ export function AlarmScreen({
     load();
   };
 
+  // Am Wandtablet im Flur ist die PIN Pflicht: Dort steht die App immer
+  // offen, und ohne PIN entschärfte die Anlage, wer immer vorbeigeht.
+  // Ist keine gesetzt, lehnt der Hub ab - dann muss es hier stehen,
+  // sonst tippt jemand ins Leere.
+  const pinFehlt = !!user?.shared && !data?.state.pin_required;
+
   const disarm = async (pin?: string) => {
+    if (pinFehlt) {
+      setPinError(
+        'An diesem Gerät braucht das Entschärfen eine PIN. Sie wird unten ' +
+          'unter «PIN» gesetzt.'
+      );
+      return;
+    }
     // Mit gesetzter PIN erst das Feld zeigen - der Hub würde ohne PIN
     // ohnehin ablehnen, aber die App soll fragen statt fehlschlagen.
     if (data?.state.pin_required && pin === undefined) {
@@ -688,6 +704,7 @@ export function AlarmScreen({
       <PinCard
         hub={settings}
         required={!!data.state.pin_required}
+        pflicht={pinFehlt}
         onChanged={load}
       />
 
@@ -1151,10 +1168,13 @@ function Toggle({
 function PinCard({
   hub,
   required,
+  pflicht = false,
   onChanged,
 }: {
   hub: HubSettings;
   required: boolean;
+  /** Dieses Gerät braucht eine PIN, es ist aber keine gesetzt. */
+  pflicht?: boolean;
   onChanged: () => void;
 }) {
   const colors = useColors();
@@ -1186,10 +1206,12 @@ function PinCard({
   return (
     <Card style={styles.card}>
       <Text style={styles.heading}>PIN fürs Entschärfen</Text>
-      <Text style={styles.rowDetail}>
+      <Text style={[styles.rowDetail, pflicht && styles.warn]}>
         {required
           ? 'Eine PIN ist gesetzt - Entschärfen geht nur noch mit ihr, auch aus Szenen und Abläufen.'
-          : 'Ohne PIN kann jeder mit entsperrtem Telefon die Anlage entschärfen. 4 bis 8 Ziffern.'}
+          : pflicht
+            ? 'Dieses Gerät gehört allen und hängt offen im Raum - hier geht Entschärfen nur mit PIN. Solange keine gesetzt ist, lässt sich die Anlage von hier aus nicht ausschalten. 4 bis 8 Ziffern.'
+            : 'Ohne PIN kann jeder mit entsperrtem Telefon die Anlage entschärfen. 4 bis 8 Ziffern.'}
       </Text>
       <View style={styles.pinRow}>
         <TextInput

@@ -65,11 +65,14 @@ import { verweisText, verweiseAuf } from '../lib/verweise';
 import { raeumeSortiert, raumMesswerte, raumKategorien, raumZeile } from '../lib/raum';
 import { Person } from '../lib/ortung';
 import { FAVORITEN, raumGruppen } from '../lib/raumgruppen';
+import { verlangtPin } from '../lib/alarmpin';
+import { istGesperrt } from '../lib/bereichsriegel';
 import { schleier } from '../lib/nachtabsenkung';
 import { nachBewegung } from '../lib/kameraordnung';
 import { hubClient, onHubFehler } from '../api/client';
 import { Auffangnetz } from '../components/Auffangnetz';
 import { AutomationsScreen } from './AutomationsScreen';
+import { BereichRiegel } from '../components/BereichRiegel';
 import { FamilyScreen } from './FamilyScreen';
 import { OverviewScreen } from './OverviewScreen';
 import { SettingsScreen } from './SettingsScreen';
@@ -228,6 +231,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const istBesitzer = (user?.capabilities ?? []).includes('manage_users');
 
   const [section, setSection] = useState<Section>('start');
+  // Bis wann die persönlichen Bereiche offen sind (0 = zu). Nur im
+  // Arbeitsspeicher: Nach einem Neustart der App wird wieder gefragt.
+  const [riegelBis, setRiegelBis] = useState(0);
   const [room, setRoom] = useState(ALL_ROOMS);
   const [now, setNow] = useState(() => new Date());
   const [gridWidth, setGridWidth] = useState(0);
@@ -264,6 +270,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [automations, setAutomations] = useState<SuchAblauf[]>([]);
   // Rückfrage vor dem Schalten eines gesperrten Geräts.
   const [confirm, setConfirm] = useState<{
+    entity: Entity;
+    command: string;
+    data?: CommandData;
+  } | null>(null);
+  // PIN-Feld vor dem Entschärfen über die Kachel (siehe lib/alarmpin.ts).
+  const [pinAsk, setPinAsk] = useState<{
     entity: Entity;
     command: string;
     data?: CommandData;
@@ -485,9 +497,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Und nachts wird es dunkler. `now` tickt ohnehin jede halbe Minute
   // weiter; damit der Schleier nach einer Berührung nicht bis zum
   // nächsten Tick hell bleibt, hängt er auch an lastTouch.
+  // Auch am Gemeinschaftsgerät: Es hängt an der Wand und leuchtet sonst
+  // die ganze Nacht in den Flur - der Grund, aus dem es den Schleier
+  // überhaupt gibt.
+  const panelArtig = !!settings.panel || !!user?.shared;
   const nachtSchleier = useMemo(
-    () => schleier(now, lastTouch, !!settings.panel),
-    [now, lastTouch, settings.panel]
+    () => schleier(now, lastTouch, panelArtig),
+    [now, lastTouch, panelArtig]
   );
   const push = usePushRegistration(settings, status === 'connected');
   // Wie das Haus aussieht: auf dem Hub, für alle gleich. Nur die
@@ -560,15 +576,20 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   }, []);
   useNotificationTap(onNotificationTap);
 
+  // Zurück zur Startseite, wenn drei Minuten niemand tippt. Am
+  // Gemeinschaftsgerät genauso wie am Wandpanel - und dabei fällt der
+  // Riegel wieder zu: Eine offene Einkaufsliste soll nicht im Flur
+  // stehen bleiben, bloss weil vorhin jemand das Passwort kannte.
   useTakt(
     () => {
       if (Date.now() - lastTouch > 180000) {
         setSection('start');
         setEditing(false);
         setRoom(ALL_ROOMS);
+        setRiegelBis(0);
       }
     },
-    settings.panel ? 30000 : null
+    panelArtig ? 30000 : null
   );
 
   // Der Stern steht beim Gerät auf dem Hub, nicht in den
@@ -621,9 +642,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         const erlaubt = await confirmBiometrie(command);
         if (!erlaubt) return;
       }
+      // Entschärfen mit PIN: Der Alarm-Bildschirm hat ein eigenes Feld,
+      // führt aber über «Einstellungen» und steht damit nur der
+      // Besitzerin offen. Über die Kachel kam bisher eine Absage vom Hub
+      // statt eines Feldes.
+      if (entity && verlangtPin(entity, command, !!user?.shared, data?.pin)) {
+        setPinAsk({ entity, command, data });
+        return;
+      }
       sendCommand(entityId, command, data);
     },
-    [entities, locked, sendCommand, prefs.bioLock]
+    [entities, locked, sendCommand, prefs.bioLock, user?.shared]
   );
 
   // Abkürzungen aus dem Widget und von NFC-Aufklebern: homepilot://door
@@ -1146,6 +1175,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const renderCell = zellen(orderScope, rest);
 
   const content = () => {
+    // Der Riegel vor Familie und Konto - siehe lib/bereichsriegel.ts. Er
+    // steht vor dem Verteiler, damit kein Bereich ihn vergessen kann.
+    // `now` tickt ohnehin; damit läuft die offene Zeit von selbst ab.
+    if (istGesperrt(section, user?.area_locked, riegelBis, now.getTime())) {
+      return (
+        <BereichRiegel
+          settings={settings}
+          titel={SECTION_LABEL[section]}
+          onOffen={setRiegelBis}
+        />
+      );
+    }
     if (section === 'start') {
       return (
         <View style={hasSidePanel ? styles.split : styles.stack}>
@@ -1328,6 +1369,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           <AlarmScreen
             settings={settings}
             entities={entities}
+            user={user}
             onEntity={(name) => {
               // Der Name aus der «noch offen»-Warnung führt in die
               // Geräteliste, vorgefiltert – statt tot dazustehen.
@@ -2134,6 +2176,19 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         />
       ) : null}
 
+      {pinAsk ? (
+        <AlarmPinAsk
+          entity={pinAsk.entity}
+          onCancel={() => setPinAsk(null)}
+          onConfirm={(pin) => {
+            sendCommand(pinAsk.entity.id, pinAsk.command, { ...pinAsk.data, pin });
+            setPinAsk(null);
+          }}
+          colors={colors}
+          styles={styles}
+        />
+      ) : null}
+
       {/* Einmal nach jedem Update: was sich geändert hat. Hier oben und
           nicht in der Raumübersicht, damit es beim Öffnen der App kommt -
           egal, auf welcher Seite man zuletzt war. */}
@@ -2269,6 +2324,69 @@ function LockConfirm({
             <Pressable onPress={onConfirm} style={styles.lockConfirm}>
               <Text style={styles.lockConfirmText}>Ja, {was}</Text>
             </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+/** PIN-Feld vor dem Entschärfen - siehe lib/alarmpin.ts, warum es das
+ *  neben dem Feld im Alarm-Bildschirm noch einmal gibt. */
+function AlarmPinAsk({
+  entity,
+  onCancel,
+  onConfirm,
+  colors,
+  styles,
+}: {
+  entity: Entity;
+  onCancel: () => void;
+  onConfirm: (pin: string) => void;
+  colors: Colors;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  const [pin, setPin] = useState('');
+  const gesetzt = !!entity.state.pin_required;
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onCancel}>
+      <View style={styles.lockBackdrop}>
+        <View style={styles.lockSheet}>
+          <Ionicons name="keypad-outline" size={26} color={colors.accent} />
+          <Text style={styles.lockTitle}>Anlage entschärfen</Text>
+          <Text style={styles.lockText}>
+            {gesetzt
+              ? 'Zum Ausschalten die PIN eingeben.'
+              : 'An diesem Gerät geht das nur mit PIN – es ist aber keine gesetzt. Wer die Alarmanlage verwaltet, kann sie dort setzen.'}
+          </Text>
+          {gesetzt ? (
+            <TextInput
+              style={styles.pinField}
+              value={pin}
+              onChangeText={(text) => setPin(text.replace(/[^0-9]/g, ''))}
+              onSubmitEditing={() => pin.length >= 4 && onConfirm(pin)}
+              placeholder="PIN"
+              placeholderTextColor={colors.inkFaint}
+              keyboardType="number-pad"
+              secureTextEntry
+              maxLength={8}
+              autoFocus
+              accessibilityLabel="PIN zum Entschärfen"
+            />
+          ) : null}
+          <View style={styles.lockActions}>
+            <Pressable onPress={onCancel} style={styles.lockCancel}>
+              <Text style={styles.lockCancelText}>Abbrechen</Text>
+            </Pressable>
+            {gesetzt ? (
+              <Pressable
+                onPress={() => onConfirm(pin)}
+                disabled={pin.length < 4}
+                style={[styles.lockConfirm, pin.length < 4 && { opacity: 0.6 }]}
+              >
+                <Text style={styles.lockConfirmText}>Entschärfen</Text>
+              </Pressable>
+            ) : null}
           </View>
         </View>
       </View>
@@ -2755,6 +2873,19 @@ const makeStyles = (colors: Colors) =>
     borderColor: colors.surfaceBorder,
   },
   lockCancelText: { color: colors.inkSoft, fontSize: 15, fontWeight: '700' },
+  pinField: {
+    alignSelf: 'stretch',
+    backgroundColor: colors.surfaceSoft,
+    borderRadius: radius.control,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    color: colors.ink,
+    fontSize: 18,
+    letterSpacing: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    textAlign: 'center',
+  },
   lockConfirm: {
     flex: 1,
     alignItems: 'center',
