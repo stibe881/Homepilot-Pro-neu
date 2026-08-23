@@ -38,7 +38,6 @@ CATEGORIES: dict[str, str] = {
     "frost": "Frost angekündigt",
     "appliance": "Haushaltgerät fertig",
     "tasks": "Fällige Aufgaben",
-    "automation": "Nachricht aus einem Ablauf",
     "timer": "Küchen-Timer",
     "maintenance": "Wartung fällig",
     "shopping": "Einkaufsliste im Laden",
@@ -67,8 +66,105 @@ GROUPS: list[tuple[str, tuple[str, ...]]] = [
     ("Familie", ("birthday", "calendar", "medication", "tasks", "shopping",
                  "weekahead", "presence")),
     ("Betrieb", ("outage", "device_down", "battery", "disk")),
-    ("Aus Abläufen", ("automation",)),
+    # Leer, und trotzdem hier: Unter dieser Überschrift stehen die
+    # Nachrichten aus selbst gebauten Abläufen. Sie haben keinen festen
+    # Schlüssel - jeder Ablauf, der meldet, bringt seinen eigenen mit
+    # (siehe AUTOMATION_PREFIX). Wer seinem Ablauf eine Kategorie gegeben
+    # hat, findet ihn unter deren Namen.
+    ("Aus Abläufen", ()),
 ]
+
+# So beginnt der Schlüssel einer Nachricht aus einem selbst gebauten
+# Ablauf. Früher liefen sie alle unter der einen Kategorie «Nachricht aus
+# einem Ablauf»: Wer die Gefriertruhe nicht mehr gemeldet haben wollte,
+# schaltete damit auch «Jemand weint im Kinderzimmer» ab. Jetzt bringt
+# jeder meldende Ablauf seinen eigenen Schalter mit - benannt wie er
+# selbst, einsortiert unter seiner Kategorie.
+AUTOMATION_PREFIX = "automation:"
+
+
+def automation_key(automation_id: str) -> str:
+    """Der Schlüssel zu einem Ablauf (rein, testbar).
+
+    An der Kennung, nicht am Namen: Ein umbenannter Ablauf soll nicht
+    stillschweigend wieder bei allen aufpoppen, die ihn abbestellt haben.
+    """
+    return f"{AUTOMATION_PREFIX}{automation_id}"
+
+
+def is_automation(key: str) -> bool:
+    """Gehört dieser Schlüssel zu einem Ablauf? (rein, testbar)"""
+    return str(key or "").startswith(AUTOMATION_PREFIX)
+
+
+def known(key: str) -> bool:
+    """Gibt es diese Kategorie? (rein, testbar)
+
+    Die eingebauten stehen in CATEGORIES; die aus Abläufen entstehen zur
+    Laufzeit und werden am Vorsatz erkannt. Ob es den Ablauf noch gibt,
+    prüft hier bewusst niemand: Ein Ablauf, der gerade nicht läuft, soll
+    seine Abbestellung behalten.
+    """
+    return key in CATEGORIES or is_automation(key)
+
+
+def sendet_push(automation: Any) -> bool:
+    """Schickt dieser Ablauf eine Nachricht? (rein, testbar)
+
+    Auch aus dem Sonst-Zweig: «hat nicht geklappt» ist genau die
+    Nachricht, die man bekommen will.
+    """
+    aktionen = list(getattr(automation, "actions", []) or []) + list(
+        getattr(automation, "otherwise", []) or []
+    )
+    return any(
+        isinstance(aktion, dict) and str(aktion.get("type")) == "notify"
+        for aktion in aktionen
+    )
+
+
+def automation_categories(automations: Any) -> list[dict[str, str]]:
+    """Je meldendem Ablauf eine Kategorie (rein, testbar).
+
+    Die Gruppe ist die Kategorie des Ablaufs - wer seine Push-Abläufe
+    «Push» nennt, findet sie im Profil unter «Push». Ohne Kategorie
+    stehen sie unter «Aus Abläufen».
+    """
+    zeilen = []
+    for automation in automations or []:
+        if not sendet_push(automation):
+            continue
+        kategorie = str(getattr(automation, "category", "") or "").strip()
+        zeilen.append(
+            {
+                "key": automation_key(str(getattr(automation, "id", ""))),
+                "label": str(getattr(automation, "alias", "") or "Ohne Namen"),
+                "group": kategorie or "Aus Abläufen",
+            }
+        )
+    return zeilen
+
+
+def migrate_muted(raw: Any, automation_keys: list[str]) -> list[dict[str, Any]] | None:
+    """Die alte Sammelkategorie in einzelne Schalter übersetzen (rein).
+
+    Wer «Nachricht aus einem Ablauf» abbestellt hatte, meinte alle - also
+    werden daraus die Schlüssel aller meldenden Abläufe. Sie stehen dann
+    im Profil einzeln da und lassen sich einzeln wieder einschalten;
+    stillschweigend wieder alles zu schicken wäre die schlechtere
+    Richtung. Gibt None zurück, wenn nichts zu tun ist.
+    """
+    zeilen = []
+    geaendert = False
+    for eintrag in raw or []:
+        if not isinstance(eintrag, dict):
+            continue
+        stumm = [str(key) for key in eintrag.get("muted") or []]
+        if "automation" in stumm:
+            geaendert = True
+            stumm = sorted({key for key in stumm if key != "automation"} | set(automation_keys))
+        zeilen.append({**eintrag, "muted": stumm})
+    return zeilen if geaendert else None
 
 # Wohin eine Kategorie gehört, die in keiner Gruppe steht. Sie
 # verschwinden zu lassen wäre der schlechtere Handel: Eine neue Kategorie
@@ -103,7 +199,7 @@ def parse_muted(raw: Any) -> dict[str, set[str]]:
         if not name:
             continue
         result[name] = {
-            str(key) for key in entry.get("muted") or [] if key in CATEGORIES
+            str(key) for key in entry.get("muted") or [] if known(str(key))
         }
     return result
 EXPO_RECEIPTS = "https://exp.host/--/api/v2/push/getReceipts"

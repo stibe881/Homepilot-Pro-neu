@@ -180,6 +180,24 @@ class Hub:
                 "Kein Token und keine Benutzer konfiguriert – die API ist offen. "
                 "Nur im eigenen Netz vertretbar."
             )
+        # Die alte Sammelkategorie «Nachricht aus einem Ablauf» gibt es
+        # nicht mehr; jeder meldende Ablauf hat seinen eigenen Schalter.
+        # Wer sie abbestellt hatte, meinte alle - also wird daraus die
+        # Liste der einzelnen. Sichtbar und einzeln wieder einschaltbar;
+        # stillschweigend wieder alles zu schicken wäre die schlechtere
+        # Richtung.
+        gewandelt = push_service.migrate_muted(
+            self.data.get("push_prefs"),
+            [
+                zeile["key"]
+                for zeile in push_service.automation_categories(
+                    self.automations.automations
+                )
+            ],
+        )
+        if gewandelt is not None:
+            self.data.set("push_prefs", gewandelt)
+            log.info("Push-Einstellungen: «Nachricht aus einem Ablauf» aufgeteilt")
         self.push.muted = push_service.parse_muted(self.data.get("push_prefs"))
         # Angemeldete Telefone zurückholen und künftige Änderungen sichern.
         # Ohne das wäre nach jedem Neustart niemand erreichbar, bis alle

@@ -7,6 +7,7 @@ Tests hier.
 
 from types import SimpleNamespace
 
+from homepilot.core import push as push_module
 from homepilot.core.push import (
     PushService,
     is_expo_token,
@@ -135,3 +136,76 @@ def test_muted_categories_do_not_reach_the_user():
     assert len(service.recipients(users, "all", "alarm")) == 2
     # Ohne Kategorie – etwa beim Push-Test – gilt keine Abbestellung.
     assert len(service.recipients(users, "all")) == 2
+
+
+# ── Je meldender Ablauf ein eigener Schalter ─────────────────────────────
+#
+# Vorher lief alles unter der einen Kategorie «Nachricht aus einem
+# Ablauf»: Wer die Gefriertruhe nicht mehr gemeldet haben wollte,
+# schaltete damit auch «Jemand weint im Kinderzimmer» ab.
+
+
+def _ablauf(id_, alias, category=None, meldet=True, sonst=False):
+    aktion = {"type": "notify", "title": alias}
+    return SimpleNamespace(
+        id=id_,
+        alias=alias,
+        category=category,
+        actions=[] if sonst else ([aktion] if meldet else [{"type": "command"}]),
+        otherwise=[aktion] if sonst else [],
+    )
+
+
+def test_der_schluessel_haengt_an_der_kennung():
+    # Am Namen wäre er zerbrechlich: Ein umbenannter Ablauf poppte sonst
+    # wieder bei allen auf, die ihn abbestellt haben.
+    assert push_module.automation_key("app_1") == "automation:app_1"
+    assert push_module.is_automation("automation:app_1")
+    assert not push_module.is_automation("battery")
+
+
+def test_nur_meldende_ablaeufe_bekommen_einen_schalter():
+    zeilen = push_module.automation_categories(
+        [
+            _ablauf("a", "Gefriertruhe zu warm", "Push"),
+            _ablauf("b", "Licht bei Bewegung", meldet=False),
+            _ablauf("c", "Ging nicht", sonst=True),
+        ]
+    )
+    assert [zeile["key"] for zeile in zeilen] == ["automation:a", "automation:c"]
+    # Die Kategorie des Ablaufs ist die Gruppe im Profil.
+    assert zeilen[0]["group"] == "Push"
+    # Ohne Kategorie: unter «Aus Abläufen».
+    assert zeilen[1]["group"] == "Aus Abläufen"
+
+
+def test_eine_abbestellung_gilt_nur_fuer_ihren_ablauf():
+    service = PushService()
+    service.register("ExponentPushToken[a]", "Stefan")
+    service.muted = {"Stefan": {"automation:a"}}
+    users = [SimpleNamespace(name="Stefan", role="besitzer")]
+    assert service.recipients(users, "all", "automation:a") == []
+    assert service.recipients(users, "all", "automation:b") == ["ExponentPushToken[a]"]
+
+
+def test_schluessel_aus_ablaeufen_ueberleben_das_speichern():
+    # parse_muted wirft Unbekanntes weg - die Schlüssel aus Abläufen
+    # stehen aber in keiner festen Liste und müssen trotzdem bleiben.
+    parsed = parse_muted([{"user": "Stefan", "muted": ["automation:app_7", "quatsch"]}])
+    assert parsed == {"Stefan": {"automation:app_7"}}
+
+
+def test_die_alte_sammelkategorie_wird_aufgeteilt():
+    rows = [
+        {"user": "Stefan", "muted": ["automation", "battery"]},
+        {"user": "Livia", "muted": ["alarm"]},
+    ]
+    gewandelt = push_module.migrate_muted(rows, ["automation:a", "automation:b"])
+    assert gewandelt is not None
+    stefan = next(zeile for zeile in gewandelt if zeile["user"] == "Stefan")
+    assert set(stefan["muted"]) == {"automation:a", "automation:b", "battery"}
+    # Wer sie nie abbestellt hatte, bleibt unberührt.
+    livia = next(zeile for zeile in gewandelt if zeile["user"] == "Livia")
+    assert livia["muted"] == ["alarm"]
+    # Und ein zweiter Lauf schreibt nicht noch einmal.
+    assert push_module.migrate_muted(gewandelt, ["automation:a"]) is None

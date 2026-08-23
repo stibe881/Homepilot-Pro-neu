@@ -64,6 +64,7 @@ from typing import TYPE_CHECKING, Any
 
 from . import astro, babysitter, feiertage, kamera, snapshots
 from . import light as licht
+from . import push as push_service
 from .source import as_source, automation_source
 
 if TYPE_CHECKING:
@@ -2361,7 +2362,12 @@ class AutomationEngine:
                 else None
             )
         tokens = self.hub.push.recipients(
-            self.hub.users.users, str(action.get("to", "all")), "automation"
+            self.hub.users.users,
+            str(action.get("to", "all")),
+            # Je Ablauf ein eigener Schalter im Profil: Wer die
+            # Gefriertruhe nicht mehr gemeldet haben will, schaltete
+            # früher «Jemand weint im Kinderzimmer» mit ab.
+            push_service.automation_key(automation.id),
         )
         await self.hub.push.send(
             tokens,
