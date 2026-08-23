@@ -229,6 +229,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // erkennbar an manage_users, die sonst niemand hat. Auch die Suche hält
   // sich daran, sonst führte sie an der Menüführung vorbei hinein.
   const istBesitzer = (user?.capabilities ?? []).includes('manage_users');
+  // Mitbewohner dürfen Abläufe ruhen lassen - der Hub erlaubt es seit je
+  // (pause_automations), nur führte kein Weg dorthin: Die Seite «Abläufe»
+  // stand allein der Besitzerin offen. Am Abend, an dem der Babysitter
+  // kommt, ist das genau die falsche Tür.
+  const darfPausieren = (user?.capabilities ?? []).includes('pause_automations');
 
   const [section, setSection] = useState<Section>('start');
   // Bis wann die persönlichen Bereiche offen sind (0 = zu). Nur im
@@ -1246,6 +1251,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       // Einrichtung dahinter - wer darf was, welche Abläufe laufen, was der
       // Hub gerade treibt - gehört nicht in jede Hand. Der Hub prüft die
       // Rechte ohnehin noch einmal selbst.
+      //
+      // Eine Ausnahme: «Abläufe». Ein Mitbewohner darf sie pausieren und
+      // den Babysitter-Modus schalten - das ist Bedienung, keine
+      // Einrichtung. Anlegen und Ändern bleibt ihm verwehrt, dafür sorgt
+      // edit_automations in der Seite selbst (und der Hub noch einmal).
       const items: {
         key: Section | 'search';
         icon: keyof typeof Ionicons.glyphMap;
@@ -1274,8 +1284,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           key: 'automations',
           icon: 'git-branch-outline',
           label: 'Abläufe',
-          detail: 'Automationen und Szenen',
-          show: istBesitzer,
+          detail: istBesitzer
+            ? 'Automationen und Szenen'
+            : 'Pausieren, Babysitter-Modus und was heute läuft',
+          show: istBesitzer || darfPausieren,
         },
         {
           key: 'alarm',
