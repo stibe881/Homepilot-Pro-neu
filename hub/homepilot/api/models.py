@@ -191,6 +191,25 @@ class AreaUnlockRequest(BaseModel):
     password: str = ""
 
 
+class TemplateRequest(BaseModel):
+    """Eine eigene Ablauf-Vorlage sichern.
+
+    `draft` ist der Entwurf, wie ihn der Editor der App führt - der Hub
+    reicht ihn unverändert durch und kennt seine Form nicht.
+    """
+
+    id: str | None = None
+    draft: dict[str, Any] = {}
+    icon: str = "flash-outline"
+
+
+class TemplateHideRequest(BaseModel):
+    """Eine eingebaute Vorlage ausblenden (oder wieder zeigen)."""
+
+    label: str
+    on: bool = True
+
+
 class ConflictAckRequest(BaseModel):
     """Einen gegensätzlichen Ablauf abhaken - oder das rückgängig machen."""
 

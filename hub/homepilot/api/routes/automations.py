@@ -22,6 +22,7 @@ from ...core import babysitter as babysitter_module
 from ...core import editversions as editversions_module
 from ...core import konflikte as konflikte_module
 from ...core import trash as trash_module
+from ...core import vorlagen as vorlagen_module
 from ...core.users import Capability, Role
 from ..context import ApiContext
 from ..models import (
@@ -34,6 +35,8 @@ from ..models import (
     RestoreVersionRequest,
     SceneRequest,
     SnoozeRequest,
+    TemplateHideRequest,
+    TemplateRequest,
 )
 
 log = logging.getLogger(__name__)
@@ -43,6 +46,64 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     current_user = ctx.current_user
     require = ctx.require
     _user_name = ctx.user_name
+
+    # ── Vorlagen ───────────────────────────────────────────────────────────
+
+    @app.get("/api/automations/templates")
+    async def list_templates(request: Request) -> dict[str, Any]:
+        """Eigene Vorlagen und die ausgeblendeten eingebauten.
+
+        Die eingebauten baut die App selbst aus dem Gerätebestand; der Hub
+        sagt nur, welche davon niemand mehr sehen will.
+        """
+        require(request, Capability.EDIT_AUTOMATIONS)
+        roh = hub.data.get(vorlagen_module.KEY)
+        return {
+            "templates": vorlagen_module.eigene(roh),
+            "hidden": vorlagen_module.versteckte(roh),
+        }
+
+    @app.post("/api/automations/templates")
+    async def save_template(body: TemplateRequest, request: Request) -> dict[str, Any]:
+        """Eine eigene Vorlage anlegen oder ändern."""
+        user = require(request, Capability.EDIT_AUTOMATIONS)
+        roh = hub.data.get(vorlagen_module.KEY)
+        neu, kennung = vorlagen_module.speichern(
+            roh, {**body.draft, "icon": body.icon}, body.id, user.name, time.time()
+        )
+        hub.data.set(vorlagen_module.KEY, neu)
+        return {
+            "ok": True,
+            "id": kennung,
+            "templates": vorlagen_module.eigene(neu),
+            "hidden": vorlagen_module.versteckte(neu),
+        }
+
+    @app.delete("/api/automations/templates/{template_id}")
+    async def delete_template(template_id: str, request: Request) -> dict[str, Any]:
+        """Eine eigene Vorlage löschen."""
+        require(request, Capability.EDIT_AUTOMATIONS)
+        neu = vorlagen_module.entfernen(hub.data.get(vorlagen_module.KEY), template_id)
+        hub.data.set(vorlagen_module.KEY, neu)
+        return {
+            "ok": True,
+            "templates": vorlagen_module.eigene(neu),
+            "hidden": vorlagen_module.versteckte(neu),
+        }
+
+    @app.post("/api/automations/templates/hidden")
+    async def hide_template(body: TemplateHideRequest, request: Request) -> dict[str, Any]:
+        """Eine eingebaute Vorlage ausblenden - oder wieder hervorholen."""
+        require(request, Capability.EDIT_AUTOMATIONS)
+        neu = vorlagen_module.ausblenden(
+            hub.data.get(vorlagen_module.KEY), body.label, body.on
+        )
+        hub.data.set(vorlagen_module.KEY, neu)
+        return {
+            "ok": True,
+            "templates": vorlagen_module.eigene(neu),
+            "hidden": vorlagen_module.versteckte(neu),
+        }
 
     @app.get("/api/automations/conflicts")
     async def automation_conflicts(request: Request) -> dict[str, Any]:

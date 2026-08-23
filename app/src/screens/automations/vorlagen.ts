@@ -14,6 +14,65 @@ export interface Template {
   draft: Draft;
 }
 
+/** Eine selbst gesicherte Vorlage, wie sie vom Hub kommt. */
+export interface EigeneVorlage {
+  id: string;
+  label: string;
+  icon: string;
+  draft: Partial<Draft>;
+}
+
+/** Eine Zeile der Vorlagenliste - eingebaut oder eigen. */
+export interface VorlagenZeile {
+  key: string;
+  id: string;
+  label: string;
+  icon: string;
+  draft: Partial<Draft>;
+  /** Selbst gesichert? Dann löschbar; sonst nur ausblendbar. */
+  eigen: boolean;
+}
+
+/**
+ * Eingebaute und eigene Vorlagen zu einer Liste (rein, testbar).
+ *
+ * Die eigenen zuerst: Wer sich eine gesichert hat, sucht sie und nicht
+ * den Vorschlag des Hubs. Ausgeblendete eingebaute fallen weg, und eine
+ * eigene mit derselben Beschriftung verdrängt die eingebaute - sonst
+ * stünden zwei fast gleiche nebeneinander, was genau der Grund ist,
+ * warum man eine bearbeitet hat.
+ */
+export function mischeVorlagen(
+  eingebaut: Template[],
+  eigene: EigeneVorlage[],
+  versteckt: string[]
+): VorlagenZeile[] {
+  const weg = new Set(
+    [...versteckt, ...eigene.map((vorlage) => vorlage.label)].map((label) =>
+      String(label ?? '').trim().toLowerCase()
+    )
+  );
+  const meine: VorlagenZeile[] = (eigene ?? []).map((vorlage) => ({
+    key: `eigen:${vorlage.id}`,
+    id: vorlage.id,
+    label: vorlage.label,
+    icon: vorlage.icon || 'flash-outline',
+    draft: vorlage.draft ?? {},
+    eigen: true,
+  }));
+  const gebaut: VorlagenZeile[] = (eingebaut ?? [])
+    .filter((vorlage) => !weg.has(vorlage.label.trim().toLowerCase()))
+    .map((vorlage) => ({
+      key: `eingebaut:${vorlage.label}`,
+      id: vorlage.label,
+      label: vorlage.label,
+      icon: vorlage.icon,
+      draft: vorlage.draft,
+      eigen: false,
+    }));
+  return [...meine, ...gebaut];
+}
+
 /** Fertige Anfänge für die häufigsten Automationen – nur die, deren Geräte
  *  es in diesem Haushalt wirklich gibt. Der Editor öffnet sich vorbefüllt,
  *  anpassen und speichern bleibt beim Benutzer. */
