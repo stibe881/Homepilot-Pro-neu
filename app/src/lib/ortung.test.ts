@@ -3,7 +3,9 @@
  */
 import {
   anwesenheitKurz,
+  anwesenheitsListe,
   anwesenheitsZeile,
+  dauerDa,
   ortungsHinweis,
   pauseBis,
   pausiert,
@@ -121,4 +123,81 @@ it('keeps the old wording when the zone exists but stays quiet', () => {
 
 it('does not mention the setup once someone is actually home', () => {
   expect(zustandText({ state: 'home', configured: false })).toBe('zuhause');
+});
+
+// ── Das Fenster hinter «jemand da» ───────────────────────────────────────
+// Gefragt wird beim Blick auf die Startseite fast immer «wie lange schon»,
+// nicht «seit wann».
+
+const UM = (h: number, m: number) => new Date(2026, 7, 23, h, m, 0);
+const sekunden = (d: Date) => Math.floor(d.getTime() / 1000);
+
+describe('dauerDa', () => {
+  it('nennt bei kurzer Anwesenheit die Dauer', () => {
+    expect(dauerDa(sekunden(UM(13, 37)), UM(14, 0))).toBe('seit 23 min');
+    expect(dauerDa(sekunden(UM(11, 45)), UM(14, 0))).toBe('seit 2 h 15 min');
+  });
+
+  it('sagt bei frischer Ankunft nicht «seit 0 min»', () => {
+    expect(dauerDa(sekunden(UM(14, 0)), UM(14, 0))).toBe('gerade angekommen');
+  });
+
+  it('wechselt nach einem Tag auf die Uhrzeit', () => {
+    // «seit 19 h 12 min» ist keine Auskunft mehr.
+    const gestern = new Date(2026, 7, 22, 18, 40, 0);
+    expect(dauerDa(sekunden(gestern), UM(14, 0))).toBe('seit gestern, 18:40');
+  });
+
+  it('nennt weiter zurück das Datum', () => {
+    const vorher = new Date(2026, 7, 19, 9, 5, 0);
+    expect(dauerDa(sekunden(vorher), UM(14, 0))).toBe('seit 19.8., 09:05');
+  });
+
+  it('bleibt leer, wenn nie etwas gemeldet wurde', () => {
+    expect(dauerDa(null, UM(14, 0))).toBe('');
+    expect(dauerDa(0, UM(14, 0))).toBe('');
+  });
+
+  it('macht aus einer Meldung aus der Zukunft keine Dauer', () => {
+    // Uhr verstellt: «seit -20 min» wäre schlimmer als nichts.
+    expect(dauerDa(sekunden(UM(14, 20)), UM(14, 0))).toBe('');
+  });
+});
+
+describe('anwesenheitsListe', () => {
+  const leute = [
+    { zone: 'a', name: 'Sandra', state: 'away', since: sekunden(UM(9, 0)) },
+    { zone: 'b', name: 'Stefan', state: 'home', since: sekunden(UM(11, 45)) },
+    { zone: 'c', name: 'Levin', state: 'unknown' },
+  ];
+
+  it('stellt die Anwesenden nach vorn', () => {
+    // Wer draufdrückt, will wissen, wer im Haus ist.
+    expect(anwesenheitsListe(leute, UM(14, 0)).map((z) => z.name)).toEqual([
+      'Stefan',
+      'Sandra',
+      'Levin',
+    ]);
+  });
+
+  it('schreibt zu jedem Zustand und Dauer', () => {
+    const [erster] = anwesenheitsListe(leute, UM(14, 0));
+    expect(erster).toMatchObject({
+      name: 'Stefan',
+      zustand: 'zuhause',
+      dauer: 'seit 2 h 15 min',
+      zuhause: true,
+    });
+  });
+
+  it('lässt die Dauer weg, wo sich niemand gemeldet hat', () => {
+    const levin = anwesenheitsListe(leute, UM(14, 0))[2];
+    expect(levin.dauer).toBe('');
+    expect(levin.zustand).toBe('meldet sich nicht');
+  });
+
+  it('überspringt Einträge ohne Namen und verträgt eine leere Liste', () => {
+    expect(anwesenheitsListe([{ state: 'home' }], UM(14, 0))).toEqual([]);
+    expect(anwesenheitsListe([], UM(14, 0))).toEqual([]);
+  });
 });

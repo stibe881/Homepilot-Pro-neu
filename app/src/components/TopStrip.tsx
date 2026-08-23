@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
+  ActivityIndicator,
   Animated,
   KeyboardAvoidingView,
   Linking,
@@ -25,6 +26,7 @@ import {
   mengeUndName,
 } from '../lib/einkauf';
 import { uhr, wochentagDatum, wochentagUhr } from '../lib/format';
+import { Person, anwesenheitsListe } from '../lib/ortung';
 import { tapped } from '../lib/haptics';
 import { kann } from '../lib/plattform';
 import { MAX_SCHRIFT } from '../lib/schrift';
@@ -84,6 +86,7 @@ export function TopStrip({
   onShoppingCount,
   showClock = false,
   queued = 0,
+  onLoadPresence,
 }: {
   entities: Entity[];
   status: ConnectionStatus;
@@ -113,10 +116,17 @@ export function TopStrip({
   showClock?: boolean;
   /** Wie viele Befehle darauf warten, dass der Hub wieder da ist. */
   queued?: number;
+  /** Wer gerade da ist – wird erst geholt, wenn jemand «jemand da»
+   *  antippt. Ein Dauerabruf für eine Zeile, die selten jemand öffnet,
+   *  wäre Verschwendung. Ohne diese Angabe bleibt der Chip reine
+   *  Anzeige. */
+  onLoadPresence?: () => Promise<Person[]>;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [lightsOpen, setLightsOpen] = useState(false);
+  const [daOpen, setDaOpen] = useState(false);
+  const [wer, setWer] = useState<Person[] | null>(null);
   const [eventOpen, setEventOpen] = useState(false);
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [openOpen, setOpenOpen] = useState(false);
@@ -134,6 +144,7 @@ export function TopStrip({
   // Im Browser schliesst Escape das offene Fenster. Am Telefon gibt es
   // dafür die Geste, am Rechner gab es bisher nichts.
   useEscape(lightsOpen, () => setLightsOpen(false));
+  useEscape(daOpen, () => setDaOpen(false));
   useEscape(openOpen, () => setOpenOpen(false));
   useEscape(shopOpen, () => setShopOpen(false));
   useEscape(eventOpen, () => setEventOpen(false));
@@ -194,6 +205,19 @@ export function TopStrip({
           <Chip
             icon="people-outline"
             text={people.state.state === 'on' ? 'jemand da' : 'niemand da'}
+            onPress={
+              onLoadPresence
+                ? () => {
+                    setDaOpen(true);
+                    // Bei jedem Öffnen frisch: Wer das Fenster zweimal
+                    // aufmacht, will nicht den Stand von vorhin sehen.
+                    setWer(null);
+                    onLoadPresence()
+                      .then(setWer)
+                      .catch(() => setWer([]));
+                  }
+                : undefined
+            }
           />
         ) : null}
         {lightsOn > 0 ? (
@@ -280,6 +304,49 @@ export function TopStrip({
           </Text>
         ) : null}
       </View>
+
+      {/* Wer ist da – hinter dem Chip «jemand da». Die Zeile sagt, dass
+          jemand im Haus ist; wer und seit wann, stand nirgends. */}
+      <Modal
+        visible={daOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDaOpen(false)}
+      >
+        <Pressable style={styles.backdrop} onPress={() => setDaOpen(false)}>
+          <Pressable style={styles.sheet} onPress={() => {}}>
+            <Text style={styles.heading}>Wer ist da</Text>
+            {wer === null ? (
+              <View style={styles.daLaedt}>
+                <ActivityIndicator color={colors.inkSoft} />
+              </View>
+            ) : anwesenheitsListe(wer, now).length === 0 ? (
+              <Text style={styles.lightRoom}>
+                Der Hub kennt niemanden, dessen Anwesenheit er verfolgt.
+              </Text>
+            ) : (
+              <ScrollView style={{ maxHeight: 360 }}>
+                {anwesenheitsListe(wer, now).map((zeile) => (
+                  <View key={zeile.key} style={styles.lightRow}>
+                    <Ionicons
+                      name={zeile.zuhause ? 'person' : 'person-outline'}
+                      size={18}
+                      color={zeile.zuhause ? colors.on : colors.inkFaint}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.lightName}>{zeile.name}</Text>
+                      <Text style={styles.lightRoom}>
+                        {zeile.zustand}
+                        {zeile.dauer ? ` · ${zeile.dauer}` : ''}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <Modal
         visible={lightsOpen}
@@ -937,6 +1004,8 @@ const makeStyles = (colors: Colors) =>
     marginTop: 10,
     marginBottom: 2,
   },
+  // Bis die Anwesenheit da ist – der Hub wird erst beim Öffnen gefragt.
+  daLaedt: { paddingVertical: 24, alignItems: 'center' },
   lightRow: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -11,6 +11,8 @@
  * dem Bildschirm stehen.
  */
 
+import { dauerText } from './format';
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Person = Record<string, any>;
 
@@ -58,6 +60,62 @@ export function seitText(since: unknown, jetzt: Date): string {
   }
   if (minuten < 48 * 60) return 'seit gestern';
   return `seit ${wann.getDate()}.${wann.getMonth() + 1}.`;
+}
+
+/**
+ * Wie lange jemand schon da ist (rein, testbar).
+ *
+ * «seit 14:20» beantwortet «seit wann», nicht «wie lange» – und gefragt
+ * wird beim Blick auf die Startseite fast immer das Zweite. Für einen
+ * kurzen Aufenthalt steht deshalb die Dauer, und erst wenn sie unhandlich
+ * wird (über einen Tag), tritt das Datum an ihre Stelle: «seit gestern,
+ * 18:40» sagt mehr als «seit 19 h 12 min».
+ */
+export function dauerDa(since: unknown, jetzt: Date): string {
+  const sekunden = Number(since);
+  if (!Number.isFinite(sekunden) || sekunden <= 0) return '';
+  const wann = new Date(sekunden * 1000);
+  const minuten = Math.round((jetzt.getTime() - wann.getTime()) / 60000);
+  // Eine Meldung aus der Zukunft (Uhr verstellt) ist keine Dauer.
+  if (minuten < 0) return '';
+  if (minuten < 1) return 'gerade angekommen';
+  const uhr = `${String(wann.getHours()).padStart(2, '0')}:${String(
+    wann.getMinutes()
+  ).padStart(2, '0')}`;
+  if (wann.toDateString() === jetzt.toDateString()) return `seit ${dauerText(minuten)}`;
+  const gestern = new Date(jetzt);
+  gestern.setDate(gestern.getDate() - 1);
+  if (wann.toDateString() === gestern.toDateString()) return `seit gestern, ${uhr}`;
+  return `seit ${wann.getDate()}.${wann.getMonth() + 1}., ${uhr}`;
+}
+
+/**
+ * Wer ist da – eine Zeile je Person, die Anwesenden zuerst (rein, testbar).
+ *
+ * Für das Fenster hinter «jemand da». Wer draufdrückt, will wissen, wer
+ * im Haus ist; alles Übrige steht darunter, damit man auch sieht, wen die
+ * Antwort nicht mitzählt.
+ */
+export function anwesenheitsListe(
+  people: Person[],
+  jetzt: Date
+): { key: string; name: string; zustand: string; dauer: string; zuhause: boolean }[] {
+  const rang = (person: Person) => {
+    const state = String(person?.state ?? 'unknown');
+    return state === 'home' ? 0 : state === 'away' ? 2 : 3;
+  };
+  return (people ?? [])
+    .filter((person) => person?.name)
+    .map((person, index) => ({
+      key: String(person.zone ?? person.name ?? index),
+      name: String(person.name),
+      zustand: zustandText(person),
+      dauer: dauerDa(person?.since, jetzt),
+      zuhause: String(person?.state ?? '') === 'home',
+      _rang: rang(person),
+    }))
+    .sort((a, b) => a._rang - b._rang || a.name.localeCompare(b.name))
+    .map(({ _rang, ...zeile }) => zeile);
 }
 
 /** Eine Zeile je Person für die Familienseite (rein, testbar). */
