@@ -3,8 +3,8 @@
 Konfiguration:
   - integration: unifi
     host: 192.168.1.1
-    username: "${UNIFI_USER}"
-    password: "${UNIFI_PASSWORD}"
+    username: "${UNIFI_NET_USER}"
+    password: "${UNIFI_NET_PASSWORD}"
     site: default
     scan_interval: 30
     track:

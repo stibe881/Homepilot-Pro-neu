@@ -153,7 +153,7 @@ class Integration(ABC):
     def start_polling(
         self,
         refresh: Callable[[], Coroutine],
-        interval: float | None = None,
+        interval: float | Callable[[], float] | None = None,
         sofort: bool = False,
     ) -> asyncio.Task:
         """Der Standard-Polltakt: schlafen, auffrischen, weiterleben.
@@ -167,14 +167,36 @@ class Integration(ABC):
         ``interval`` überschreibt scan_interval(); ``sofort`` frischt
         einmal vor dem ersten Schlafen auf (wer seine Entitäten erst über
         den ersten Abruf findet, braucht das).
+
+        ``interval`` darf auch eine Funktion sein, die vor jedem Schlafen
+        gefragt wird. Das braucht, wer den nächsten Blick vorhersehen
+        kann: Spotify weiss, wie lange der laufende Titel noch dauert,
+        und schaut genau dann wieder hin statt eine halbe Minute später.
+        Sich dafür eine eigene Schleife zu bauen wäre der Rückschritt,
+        den dieser Helfer gerade behoben hat.
         """
-        takt = float(interval) if interval is not None else self.scan_interval()
+        if callable(interval):
+            naechster = interval
+        else:
+            fest = float(interval) if interval is not None else self.scan_interval()
+            naechster = lambda: fest  # noqa: E731
 
         async def _loop() -> None:
             if sofort:
                 await self._poll_once(refresh)
             while True:
-                await asyncio.sleep(takt)
+                # Auch eine kaputte Rechnung darf den Takt nicht anhalten
+                # – und keine Schleife ohne Pause bauen. Null oder negativ
+                # heisst darum «nimm den normalen Takt», nicht «sofort
+                # wieder»; einen festen Mindestwert gibt es bewusst nicht,
+                # sonst wäre ein absichtlich kurzer Takt nicht mehr kurz.
+                try:
+                    pause = float(naechster())
+                except Exception:
+                    pause = self.scan_interval()
+                if pause <= 0:
+                    pause = self.scan_interval()
+                await asyncio.sleep(pause)
                 await self._poll_once(refresh)
 
         return self.start_task(_loop())

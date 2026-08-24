@@ -15,11 +15,25 @@ from homepilot.integrations import vzug as modul
 
 
 class FakeRegistry:
-    def __init__(self) -> None:
+    def __init__(self, gesehen: float | None = 1000.0) -> None:
         self.calls: list[tuple[str, dict, object]] = []
+        # Voreingestellt ein Gerät, das schon einmal geantwortet hat -
+        # das ist der Normalfall dieser Tests. ``gesehen=None`` ist das
+        # Gerät, das den Hub-Start verschlafen hat.
+        self.entity = types.SimpleNamespace(last_seen=gesehen)
+
+    def get(self, entity_id):
+        return self.entity
 
     async def update_state(self, entity_id, state, available=None):
         self.calls.append((entity_id, state, available))
+
+    @property
+    def letzter_grund(self):
+        for _, state, _ in reversed(self.calls):
+            if "problem" in state:
+                return state["problem"]
+        return None
 
     @property
     def letzte_verfuegbarkeit(self):
@@ -29,7 +43,7 @@ class FakeRegistry:
         return None
 
 
-def geraet(antworten):
+def geraet(antworten, gesehen: float | None = 1000.0):
     """Integration, gerade so weit gebaut, wie _refresh sie braucht.
 
     `antworten` ist eine Liste: ein Eintrag je Abrufversuch. Eine
@@ -48,7 +62,7 @@ def geraet(antworten):
         info=lambda *a, **k: None,
         warning=lambda *a, **k: None,
     )
-    registry = FakeRegistry()
+    registry = FakeRegistry(gesehen)
     integration.hub = types.SimpleNamespace(registry=registry)
 
     rest = list(antworten)
@@ -226,3 +240,62 @@ def test_one_good_answer_ends_the_busy_stretch(monkeypatch):
     assert integration._beschaeftigt_seit == {}
     assert integration._ruhe_bis == {}
     assert registry.letzte_verfuegbarkeit is True
+
+
+# ── Warum ein Gerät fehlt, gehört an die Kachel ──────────────────────────
+# Aus dem Betrieb: Geschirrspüler und Waschmaschine standen in der
+# Ausfallliste als «nie gesehen» – ohne ein Wort dazu. Der Grund stand im
+# Log des Hubs, also genau dort, wo niemand nachsieht, der gerade in der
+# Küche steht.
+
+
+def test_an_unreachable_device_says_why_on_the_tile(monkeypatch):
+    ohne_pause(monkeypatch)
+    integration, registry = geraet(
+        [ConnectionError("Connection refused")] * (2 * modul.AUSFAELLE_BIS_WEG)
+    )
+    lauf(integration, mal=modul.AUSFAELLE_BIS_WEG)
+    assert registry.letzte_verfuegbarkeit is False
+    grund = str(registry.letzter_grund)
+    assert "10.0.0.5" in grund
+    # Der häufigste Fall bei diesen Geräten – und der einzige, den der
+    # Besitzer selbst beheben kann.
+    assert "DHCP" in grund
+
+
+def test_a_device_that_wants_credentials_says_so(monkeypatch):
+    ohne_pause(monkeypatch)
+    nicht_erlaubt = aiohttp.ClientResponseError(
+        request_info=None, history=(), status=401, message="Unauthorized"
+    )
+    integration, registry = geraet([nicht_erlaubt] * (2 * modul.AUSFAELLE_BIS_WEG))
+    lauf(integration, mal=modul.AUSFAELLE_BIS_WEG)
+    grund = str(registry.letzter_grund)
+    assert "Anmeldung" in grund
+    assert "username" in grund
+    # Und nicht der DHCP-Satz: Die Adresse stimmt ja, das Gerät antwortet.
+    assert "DHCP" not in grund
+
+
+def test_a_good_answer_clears_the_reason(monkeypatch):
+    """Sonst klebte der Satz für immer an der Kachel – update_state
+    merged, ein weggelassenes Feld behält seinen alten Wert."""
+    ohne_pause(monkeypatch)
+    integration, registry = geraet(
+        [ConnectionError("weg")] * (2 * modul.AUSFAELLE_BIS_WEG) + [GUT]
+    )
+    lauf(integration, mal=modul.AUSFAELLE_BIS_WEG + 1)
+    assert registry.letzte_verfuegbarkeit is True
+    assert registry.letzter_grund is None
+
+
+def test_a_device_that_slept_through_the_hub_start_is_not_left_silent(monkeypatch):
+    """503 ist kein Ausfall – aber ein Gerät, das noch nie geantwortet
+    hat, stünde sonst eine halbe Stunde als «nie gesehen» ohne Grund."""
+    ohne_pause(monkeypatch)
+    integration, registry = geraet([beschaeftigt()], gesehen=None)
+    lauf(integration)
+    assert "503" in str(registry.letzter_grund)
+    # Die Erreichbarkeit bleibt unangetastet.
+    assert registry.letzte_verfuegbarkeit is None
+    assert "vzug.waschmaschine" not in integration._down
