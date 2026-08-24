@@ -50,3 +50,27 @@ export function passwortHinweis(passwort: string): string {
   }
   return '';
 }
+
+/**
+ * Wie lange die Einladung zum Babysitter-Zugang gilt (rein, testbar).
+ *
+ * So lange wie der Abend, plus eine halbe Stunde Vorlauf: Der Link soll
+ * vor dem Klingeln geöffnet werden können und mit dem Zugang enden. Ein
+ * Link, der einen Tag länger gilt als die Türe, ist ein zweiter
+ * Schlüssel – und genau davon wollten wir weg.
+ */
+export function babysitterFrist(jetzt: Date, bis: string): number {
+  // Auf das Muster prüfen, nicht auf Number(): `Number('')` ist 0 und
+  // nicht NaN – ein leeres Feld wurde damit zu «bis Mitternacht».
+  const treffer = /^(\d{1,2}):(\d{2})$/.exec(String(bis ?? '').trim());
+  if (!treffer) return 60;
+  const stunde = Number(treffer[1]);
+  const minute = Number(treffer[2]);
+  if (stunde > 23 || minute > 59) return 60;
+  const ende = new Date(jetzt);
+  ende.setHours(stunde, minute, 0, 0);
+  // Nach Mitternacht heisst «bis 00:30» der nächste Tag.
+  if (ende.getTime() <= jetzt.getTime()) ende.setDate(ende.getDate() + 1);
+  const minuten = Math.round((ende.getTime() - jetzt.getTime()) / 60000) + 30;
+  return Math.max(30, minuten);
+}
