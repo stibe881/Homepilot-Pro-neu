@@ -52,7 +52,7 @@ def test_dringendes_bricht_durch_den_fokus() -> None:
 def test_leise_kategorien_gibt_es_wirklich() -> None:
     """Ein Tippfehler in LEISE fiele sonst nie auf: Die Kategorie wäre
     einfach dringend, und das sieht man keiner Nachricht an."""
-    assert LEISE <= set(CATEGORIES)
+    assert set(CATEGORIES) >= LEISE
 
 
 def test_die_dringenden_sind_die_mehrheit() -> None:
