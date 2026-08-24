@@ -22,6 +22,7 @@ export const KIND_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   binary_sensor: 'radio-button-on-outline',
   button: 'ellipse-outline',
   media_player: 'musical-notes-outline',
+  timer: 'moon-outline',
   camera: 'videocam-outline',
   vacuum: 'sparkles-outline',
   appliance: 'cube-outline',
@@ -51,6 +52,8 @@ export function shortState(entity: Entity): string {
       return state === 'long' ? 'Lang' : state === 'short' ? 'Kurz' : 'Bereit';
     case 'media_player':
       return state === 'playing' ? 'Spielt' : 'Still';
+    case 'timer':
+      return state === 'on' ? 'Läuft' : 'Aus';
     case 'lock':
       return state === 'locked' ? 'Zu' : 'Offen';
     case 'vacuum':

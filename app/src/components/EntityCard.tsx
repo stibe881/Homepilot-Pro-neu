@@ -187,6 +187,12 @@ export function EntityCard({
       case 'switch':
         return <BigValue value={isOn ? 'An' : 'Aus'} on={isOn} note={powerNote()} />;
 
+      // Der Einschlaf-Timer des Fernsehers als eigene Kachel: dieselbe
+      // Bedienung wie in der Fernsehkachel, nur ohne den Fernseher drum
+      // herum. Der Hub spiegelt den Timer auf beide.
+      case 'timer':
+        return <TvSleep entity={entity} onCommand={onCommand} />;
+
       case 'binary_sensor': {
         // Tür-/Fensterkontakte sagen offen/geschlossen, Bewegungsmelder
         // aktiv/ruhig – „aktiv" an einer Tür würde niemand verstehen.

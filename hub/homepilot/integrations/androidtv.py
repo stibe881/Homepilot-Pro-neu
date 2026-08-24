@@ -200,6 +200,12 @@ class AndroidTvIntegration(Integration):
         self._remotes: dict[str, Any] = {}
         # Laufende Einschlaf-Timer je Gerät.
         self._sleep: dict[str, asyncio.Task] = {}
+        # Der Einschlaf-Timer als eigene Kachel: je Fernseher eine
+        # Timer-Entität, die denselben Timer zeigt und stellt. Bisher gab
+        # es ihn nur in der Fernsehkachel – wer ihn als Favorit griffbereit
+        # wollte, musste den ganzen Fernseher favorisieren.
+        self._timer_of: dict[str, str] = {}  # TV-Id → Timer-Id
+        self._tv_of: dict[str, str] = {}  # Timer-Id → TV-Id
 
         for device in devices:
             host = device.get("host")
@@ -234,6 +240,19 @@ class AndroidTvIntegration(Integration):
                 ],
                 available=False,
             )
+            timer = await self.add_entity(
+                f"{str(host).replace('.', '_')}_timer",
+                EntityKind.TIMER,
+                f"{device.get('name', f'Android TV {host}')} Timer",
+                state={
+                    "state": "off",
+                    "sleep_until": None,
+                    "sleep_minutes": SLEEP_MINUTES,
+                },
+                commands=["sleep_timer"],
+            )
+            self._timer_of[entity.id] = timer.id
+            self._tv_of[timer.id] = entity.id
             self.start_task(self._device_loop(entity.id, str(host), cert_dir))
 
     async def teardown(self) -> None:
@@ -303,6 +322,22 @@ class AndroidTvIntegration(Integration):
 
     # ── Einschlaf-Timer ────────────────────────────────────────────────────
 
+    async def _push_sleep(self, tv_id: str, bis: float | None) -> None:
+        """Den Timer-Stand auf beide Kacheln schreiben.
+
+        Der Fernseher und seine Timer-Entität zeigen denselben Timer –
+        egal, von welcher der beiden er gestellt wurde. Eine Kachel, die
+        weiterzählt, während die andere «aus» sagt, wäre schlimmer als
+        keine zweite Kachel.
+        """
+        await self.hub.registry.update_state(tv_id, {"sleep_until": bis})
+        timer_id = self._timer_of.get(tv_id)
+        if timer_id is not None:
+            await self.hub.registry.update_state(
+                timer_id,
+                {"sleep_until": bis, "state": "on" if bis is not None else "off"},
+            )
+
     async def _set_sleep(self, entity_id: str, minutes: Any) -> None:
         """Timer setzen, verlängern oder abbrechen.
 
@@ -321,11 +356,11 @@ class AndroidTvIntegration(Integration):
             ) from err
 
         if zahl <= 0:
-            await self.hub.registry.update_state(entity_id, {"sleep_until": None})
+            await self._push_sleep(entity_id, None)
             return
 
         bis = time.time() + zahl * 60
-        await self.hub.registry.update_state(entity_id, {"sleep_until": bis})
+        await self._push_sleep(entity_id, bis)
         self._sleep[entity_id] = self.start_task(self._sleep_loop(entity_id, zahl * 60))
 
     async def _sleep_loop(self, entity_id: str, seconds: float) -> None:
@@ -334,7 +369,7 @@ class AndroidTvIntegration(Integration):
         except asyncio.CancelledError:
             raise
         self._sleep.pop(entity_id, None)
-        await self.hub.registry.update_state(entity_id, {"sleep_until": None})
+        await self._push_sleep(entity_id, None)
         remote = self._remotes.get(entity_id)
         if remote is not None and remote.is_on:
             self.log.info("Einschlaf-Timer abgelaufen: %s geht aus", entity_id)
@@ -343,6 +378,17 @@ class AndroidTvIntegration(Integration):
     # ── Hub → Gerät ────────────────────────────────────────────────────────
 
     async def handle_command(self, entity: Entity, command: str, data: dict[str, Any]) -> None:
+        # Die Timer-Kachel kann genau eines: den Einschlaf-Timer ihres
+        # Fernsehers stellen. Der Timer selbst läuft unter der TV-Id –
+        # es gibt nur einen, egal von welcher Kachel gestellt.
+        tv_id = self._tv_of.get(entity.id)
+        if tv_id is not None:
+            if command != "sleep_timer":
+                raise ValueError("Die Timer-Kachel kennt nur sleep_timer")
+            if self._remotes.get(tv_id) is None:
+                raise ConnectionError("Android TV ist nicht verbunden")
+            await self._set_sleep(tv_id, data.get("minutes"))
+            return
         remote = self._remotes.get(entity.id)
         if remote is None:
             raise ConnectionError("Android TV ist nicht verbunden")
