@@ -10,6 +10,8 @@ from homepilot.integrations.pitboss import (
     grill_state,
     probe_temperatures,
     slug,
+    yaml_block,
+    zustandszeilen,
 )
 
 
@@ -70,3 +72,65 @@ def test_grill_state_shape():
     assert grill_state({"isFahrenheit": True})["unit"] == "°F"
     # Die erste Störung steht vorne, damit die Kachel sie zeigen kann.
     assert grill_state({"noPellets": True})["problem"] == "Pellets leer"
+
+
+# --- Der Einrichtungs-Helfer -------------------------------------------
+#
+# `python -m homepilot.integrations.pitboss` prüft die Verbindung, bevor
+# irgendetwas in die config.yaml wandert. Das Verbinden selbst braucht
+# einen Grill; was der Helfer daraus macht, nicht.
+
+def test_yaml_block_takes_the_local_way_when_there_is_a_host():
+    block = yaml_block("Grill", "PBV4PS2", host="10.10.1.60")
+    assert block.splitlines() == [
+        "  - integration: pitboss",
+        "    name: Grill",
+        "    model: PBV4PS2",
+        "    host: 10.10.1.60",
+        "    scan_interval: 30",
+    ]
+    # Ohne die Zeile gibt es den Fernstart gar nicht – das soll man dem
+    # Vorschlag ansehen und nicht erst in der Anleitung nachlesen.
+    assert "allow_remote_start" not in block
+
+
+def test_yaml_block_quotes_the_cloud_id():
+    """Die Kennung aus der App ist eine lange Ziffernfolge.
+
+    Ohne Anführungszeichen liest YAML sie als Zahl – und dann fehlen
+    führende Nullen.
+    """
+    block = yaml_block("Grill", "LG0800BL", grill_id="0123456789")
+    assert '    grill_id: "0123456789"' in block
+    assert "scan_interval" not in block
+
+
+def test_yaml_block_carries_the_remote_start_when_asked():
+    block = yaml_block("Grill", "PBV4PS2", host="10.10.1.60", allow_remote_start=True)
+    assert block.endswith("    allow_remote_start: true")
+
+
+def test_state_lines_show_what_matters_at_the_grill():
+    zeilen = zustandszeilen(
+        grill_state(
+            {
+                "moduleIsOn": True,
+                "grillTemp": 110,
+                "grillSetTemp": 120,
+                "p1Temp": 63,
+                "noPellets": True,
+            }
+        )
+    )
+    assert zeilen[0] == "Zustand:     läuft"
+    assert zeilen[1] == "Garraum:     110 °C  (Ziel 120 °C)"
+    assert zeilen[2] == "Fühler:      1: 63 °C"
+    assert zeilen[3] == "Störungen:   Pellets leer"
+
+
+def test_state_lines_say_when_no_probe_is_plugged():
+    """Ein leeres Gerüst und ein Grill ohne Fühler sehen sonst gleich aus."""
+    zeilen = zustandszeilen(grill_state({"moduleIsOn": False}))
+    assert zeilen[0] == "Zustand:     aus"
+    assert "Fühler:      keiner eingesteckt" in zeilen
+    assert "Störungen:   keine" in zeilen
