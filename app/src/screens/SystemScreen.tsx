@@ -13,6 +13,7 @@ import { Maintenance } from '../components/Maintenance';
 import { Fehlschlag, Laedt } from '../components/Zustand';
 import { ConfigCard } from './system/konfiguration';
 import { datumUhr } from '../lib/format';
+import { LetzterLauf, letzterLaufSatz } from '../lib/letzterlauf';
 import { localTime, timeAgo } from '../lib/zeit';
 import { Colors, radius, space, type, useColors } from '../theme';
 
@@ -510,6 +511,9 @@ interface UpdateStatus {
   /** Schiefgegangenes, das den Bau nicht stoppte – etwa ein
    *  fehlgeschlagener Web-Bau, bei dem die alte Fassung online bleibt. */
   warnings?: string[];
+  /** Der Ausgang des letzten Laufs, über Neustarts des Dienstes hinweg.
+   *  Fehlt bei älteren Update-Diensten – dann bleibt es wie bisher. */
+  last_run?: LetzterLauf | null;
 }
 
 const STAGE_LABEL: Record<string, string> = {
@@ -745,6 +749,15 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
           laufBegonnen.current = true;
           setProgress(data);
           setBusy(true); // startet die laufende Abfrage unten
+          return;
+        }
+        // Läuft nichts: Dann interessiert, wie der letzte Lauf ausging.
+        // Er ist der einzige Ort, an dem ein gescheitertes Update noch
+        // steht, wenn niemand zugeschaut hat.
+        const rueckblick = letzterLaufSatz(data.last_run, Date.now() / 1000);
+        if (rueckblick) {
+          setNoteError(rueckblick.fehler);
+          setNote(rueckblick.text);
         }
       } catch {
         // Kein Status erreichbar – dann eben kein Balken beim Einstieg.
