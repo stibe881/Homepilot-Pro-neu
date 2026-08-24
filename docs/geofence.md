@@ -54,6 +54,26 @@ In der App unter **Abläufe** → neuer Ablauf → Auslöser **Ort** → Person
 und «kommt an» oder «geht weg» wählen. Der Rest ist ein Ablauf wie jeder
 andere.
 
+### Was ein Neustart des Hubs bedeutet
+
+Nichts – jedenfalls nicht mehr. Das Telefon meldet nur **Übertritte**:
+Es weckt die App, wenn jemand eine Zonengrenze kreuzt. Wer zuhause
+sitzt, kreuzt keine, und darum wusste der Hub nach einem Neustart oder
+einem Update nicht mehr, wo die Leute sind – auf der Familienseite stand
+wieder «Hat sich noch nie gemeldet», bis die Person das nächste Mal
+wegging und wiederkam.
+
+Seither merkt sich der Hub den letzten Stand je Zone (`presence_last` in
+der `hub.data`) und nimmt ihn beim Start wieder auf, samt Ort, Quelle
+und Akkustand. Zwei Grenzen dabei, beide mit Absicht:
+
+- **Nichts Altes wird wiederbelebt.** Ist die gemerkte Meldung über
+  zwölf Stunden alt, gilt wieder «unbekannt». Ein Hub, der eine Woche
+  stand, soll nicht behaupten, jemand sei noch zuhause.
+- **Die App meldet beim Öffnen einmal von selbst** – das fängt genau den
+  Fall ab, den die zwölf Stunden offenlassen. Nicht während einer
+  Ortungspause: Pausieren ist Pausieren.
+
 ### Das WLAN zählt nicht mit
 
 Die Anwesenheit kommt **allein** vom Telefon. Es gab einmal eine Option

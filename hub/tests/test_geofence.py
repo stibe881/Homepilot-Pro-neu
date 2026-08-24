@@ -164,3 +164,106 @@ async def test_the_unifi_collection_sensor_no_longer_claims_to_be_presence() -> 
         assert "zuhause" not in entity.name.lower()
     finally:
         await hub.stop()
+
+
+# ── Ein Neustart macht niemanden verschollen ─────────────────────────────
+#
+# Der gemeldete Fall: «Das habe ich schon mehrmals gemacht. Dann
+# funktioniert es und plötzlich – vielleicht nach dem Update oder nach
+# dem Neustart vom Hub – steht wieder ‹Hat sich noch nie gemeldet›.»
+#
+# Der Grund: Das Telefon meldet nur Übertritte. Wer zuhause sitzt,
+# kreuzt keine Zonengrenze, und der Hub legte die Zone bei jedem Start
+# bei null an.
+
+
+async def _hub_mit_zonen(daten=None):
+    from homepilot.core.config import ApiConfig, HubConfig
+
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[], automations=[]))
+    await hub.start()
+    if daten is not None:
+        hub.data.set("presence_last", daten)
+    geo = GeofenceIntegration(
+        hub,
+        {"integration": "geofence", "zones": [{"id": "stefan", "name": "Stefan"}]},
+    )
+    await geo.setup()
+    return hub, geo
+
+
+async def test_nach_dem_neustart_ist_wer_zuhause_war_noch_zuhause() -> None:
+    hub, geo = await _hub_mit_zonen()
+    try:
+        await geo.report("stefan", "enter", place="home", battery=80)
+        gemerkt = hub.data.get("presence_last")
+        assert gemerkt and gemerkt[0]["state"] == "home"
+    finally:
+        await hub.stop()
+
+    # Neustart: derselbe gespeicherte Stand, frischer Hub.
+    hub, geo = await _hub_mit_zonen(gemerkt)
+    try:
+        entity = hub.registry.get("geofence.stefan")
+        assert entity.state["state"] == "home"
+        assert entity.state["source"] == "geofence"
+        assert entity.state["battery"] == 80
+        # Und die Diagnose behauptet nicht mehr, es sei nie etwas gekommen.
+        assert "noch nie gemeldet" not in geo.diagnose()[0]["hint"]
+        # Auch die Orte, in denen die Zone steckt, sind zurück.
+        assert geo._inside["stefan"] == ["home"]
+    finally:
+        await hub.stop()
+
+
+async def test_ein_alter_stand_wird_nicht_wiederbelebt() -> None:
+    """Ein Hub, der eine Woche stand, soll niemanden zuhause wähnen."""
+    import time as zeit
+
+    alt = [
+        {
+            "zone": "stefan",
+            "state": "home",
+            "place": "home",
+            "source": "geofence",
+            "changed_at": zeit.time() - 20 * 3600,
+        }
+    ]
+    hub, geo = await _hub_mit_zonen(alt)
+    try:
+        assert hub.registry.get("geofence.stefan").state["state"] == "unknown"
+        assert geo._inside["stefan"] == []
+    finally:
+        await hub.stop()
+
+
+async def test_ohne_gemerkten_stand_bleibt_es_beim_ehrlichen_unbekannt() -> None:
+    hub, geo = await _hub_mit_zonen()
+    try:
+        entity = hub.registry.get("geofence.stefan")
+        assert entity.state["state"] == "unknown"
+        assert entity.state["source"] == "none"
+        assert "noch nie gemeldet" in geo.diagnose()[0]["hint"]
+    finally:
+        await hub.stop()
+
+
+async def test_der_ort_von_life360_ueberlebt_den_neustart() -> None:
+    hub, geo = await _hub_mit_zonen()
+    try:
+        await geo.report(
+            "stefan", "enter", place="tanners_home",
+            source="life360", place_name="Tanners Home",
+        )
+        gemerkt = hub.data.get("presence_last")
+    finally:
+        await hub.stop()
+
+    hub, _ = await _hub_mit_zonen(gemerkt)
+    try:
+        zustand = hub.registry.get("geofence.stefan").state
+        assert zustand["state"] == "tanners_home"
+        assert zustand["place_name"] == "Tanners Home"
+        assert zustand["source"] == "life360"
+    finally:
+        await hub.stop()
