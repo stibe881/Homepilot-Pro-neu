@@ -156,12 +156,12 @@ export function OverviewScreen({
     entities.find((e) => e.kind === 'alarm') ??
     entities.find((e) => /alarm/i.test(e.name) && e.kind === 'switch');
   const covers = entities.filter((e) => e.kind === 'cover');
-  // In der Geräteliste als Favorit markiert – die stehen hier griffbereit.
-  // Beide Wege zählen: der Stern auf der Kachel (Geräte-Einstellungen) und
-  // die Markierung an der Entität selbst.
-  const favoriten = entities.filter(
-    (e) => favoriteIds.includes(e.id) || e.favorite
-  );
+  // Die persönlichen Favoriten des angemeldeten Benutzers. Bewusst nur
+  // die übergebene Liste: Der Stern an der Entität (`e.favorite`) ist der
+  // alte Haushalts-Stern – er steckt bereits als Startbestand in
+  // `favoriteIds`, solange jemand noch keine eigene Liste hat. Zählte er
+  // hier zusätzlich, liesse sich ein Gerät nie mehr entsternen.
+  const favoriten = entities.filter((e) => favoriteIds.includes(e.id));
   // Selbst gezogene Reihenfolge anwenden; neu hinzugekommene Favoriten
   // hängen sich hinten an, statt die gewachsene Ordnung durcheinander zu
   // bringen. Dieselbe Regel wie bei den Familien-Kacheln.
