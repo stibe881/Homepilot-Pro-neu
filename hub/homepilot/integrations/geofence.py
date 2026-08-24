@@ -403,13 +403,62 @@ class GeofenceIntegration(Integration):
         return neue
 
     def _orte_bauen(self) -> None:
-        """Die Ortsliste aus Konfiguration und gesetztem Hausstandort.
+        """Die Ortsliste aus Konfiguration, Hausstandort und App.
 
         Orte ohne eigene Koordinaten (z.B. nur `radius`) fallen beim
         Einlesen weg - dann gilt der Hausstandort. Das ist die häufigste
         Konfiguration und soll ohne Zutun stimmen.
+
+        Dazu kommen die Orte, die in der App entstanden sind - ein Laden
+        etwa, vor dem jemand stand und einen Knopf gedrückt hat.
         """
-        self.places = self._eigene_places or default_places(self.heimat())
+        self.places = presence.alle_orte(
+            self._eigene_places or default_places(self.heimat()),
+            self.hub.data.get(presence.PLACES_KEY),
+        )
+
+    async def ort_setzen(
+        self,
+        name: str,
+        latitude: float,
+        longitude: float,
+        radius: float = 150.0,
+        ort_id: str = "",
+    ) -> list[dict[str, Any]]:
+        """Einen Ort von der aktuellen Position übernehmen.
+
+        Derselbe Weg wie beim Hausstandort: Wer davorsteht, drückt einen
+        Knopf. Koordinaten abzutippen bringt niemand fehlerfrei zustande,
+        und ein Ort, der 300 m danebenliegt, meldet sich nie.
+        """
+        self.hub.data.set(
+            presence.PLACES_KEY,
+            presence.ort_setzen(
+                self.hub.data.get(presence.PLACES_KEY),
+                ort_id or name,
+                name,
+                latitude,
+                longitude,
+                radius,
+            ),
+        )
+        self._orte_bauen()
+        self.log.info("Ort '%s' gesetzt: %.5f, %.5f (%.0f m)", name, latitude, longitude, radius)
+        return self.places
+
+    async def ort_entfernen(self, ort_id: str) -> list[dict[str, Any]]:
+        """Einen in der App angelegten Ort löschen.
+
+        Was in der config.yaml steht, bleibt - dort hat es jemand von Hand
+        hingeschrieben, und ein Knopf in der App darf das nicht stillos
+        wegräumen.
+        """
+        self.hub.data.set(
+            presence.PLACES_KEY,
+            presence.ort_entfernen(self.hub.data.get(presence.PLACES_KEY), ort_id),
+        )
+        self._orte_bauen()
+        return self.places
 
     def heimat(self) -> dict[str, Any]:
         """Wo der Hub das Zuhause vermutet - und woher er das weiss.

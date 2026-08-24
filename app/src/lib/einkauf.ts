@@ -392,12 +392,17 @@ export interface Shop {
   name: string;
   /** Kategorien in Laufreihenfolge. Was fehlt, kommt hinten dazu. */
   categories?: string[];
-  /** Kennung der Geofence-Zone, falls dieser Laden eine hat – damit der
-   *  Hub weiss, dass man gerade dort steht. */
+  /** Kennung des Ortes, an dem dieser Laden liegt – damit der Hub weiss,
+   *  dass man gerade dort steht. Wird in der App gesetzt: davorstehen,
+   *  Knopf drücken. */
+  place?: string;
+  /** Der alte Weg: eine eigene Geofence-Zone je Laden, von aussen auf
+   *  «home» gesetzt (iOS-Kurzbefehl, Tasker). Gilt weiter, wer es so
+   *  eingerichtet hat, soll es behalten dürfen. */
   zone?: string;
 }
 
-/** Der Laden, der immer da ist: keine eigene Reihenfolge, keine Zone. */
+/** Der Laden, der immer da ist: keine eigene Reihenfolge, kein Ort. */
 export const ALLGEMEIN: Shop = { id: 'allgemein', name: 'Allgemein' };
 
 /**
