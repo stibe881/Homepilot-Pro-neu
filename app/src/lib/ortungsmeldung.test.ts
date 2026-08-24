@@ -14,6 +14,7 @@ import {
   naechsterOrt,
   meldungsText,
   ortsMeldungen,
+  unsichereOrte,
 } from './ortungsmeldung';
 
 const HAUS = { lat: 47.1445, lon: 8.0675 };
@@ -125,5 +126,63 @@ describe('naechsterOrt', () => {
 
   it('verträgt eine fehlende Position', () => {
     expect(naechsterOrt([zuhause], undefined, undefined)).toBeNull();
+  });
+});
+
+
+// ── «unterwegs», während man zuhause sitzt ───────────────────────────────
+//
+// Der gemeldete Fall. Ein Fix, der das Haus um 180 Meter verfehlt, aber
+// selbst 70 Meter Streuung hat, sagt nicht «draussen» – er sagt «weiss
+// nicht». Daraus wurde ein entschiedenes `leave`, und «weg» ist keine
+// harmlose Antwort: Daran hängen Alarmanlage und «alles aus».
+
+/** Ein Punkt, der `meter` nördlich vom Haus liegt. */
+const noerdlich = (meter: number) => HAUS.lat + meter / 111_320;
+
+describe('Ein knappes «nicht drin» bei ungenauer Messung', () => {
+  it('meldet kein leave, wenn die Streuung es nicht hergibt', () => {
+    // 180 m vom Haus, ±70 m: Die Hausgrenze liegt innerhalb der Streuung.
+    const meldungen = ortsMeldungen([zuhause], noerdlich(180), HAUS.lon, 70);
+    expect(meldungen).toEqual([]);
+  });
+
+  it('meldet leave, sobald die Messung es trägt', () => {
+    // 400 m entfernt, ±70 m: Das ist eindeutig draussen.
+    expect(ortsMeldungen([zuhause], noerdlich(400), HAUS.lon, 70)).toEqual([
+      { place: 'home', event: 'leave' },
+    ]);
+  });
+
+  it('bleibt beim Ankommen beim gemessenen Punkt', () => {
+    // Wer «drin» strenger fasste, käme nie zuhause an – und «drin» ist
+    // die vorsichtigere Richtung, es schaltet nichts scharf.
+    expect(ortsMeldungen([zuhause], noerdlich(100), HAUS.lon, 70)).toEqual([
+      { place: 'home', event: 'enter' },
+    ]);
+  });
+
+  it('verhält sich ohne Genauigkeitsangabe wie bisher', () => {
+    expect(ortsMeldungen([zuhause], noerdlich(180), HAUS.lon)).toEqual([
+      { place: 'home', event: 'leave' },
+    ]);
+  });
+
+  it('nennt die unsicheren Orte beim Namen', () => {
+    expect(unsichereOrte([zuhause, quartier], noerdlich(180), HAUS.lon, 70)).toEqual([
+      zuhause,
+    ]);
+    expect(unsichereOrte([zuhause], noerdlich(180), HAUS.lon, 0)).toEqual([]);
+  });
+
+  it('sagt im Satz, dass nichts gemeldet wurde – und warum', () => {
+    // Sonst drückt man den Knopf ein zweites Mal und wundert sich.
+    const lat = noerdlich(180);
+    const meldungen = ortsMeldungen([zuhause], lat, HAUS.lon, 70);
+    const unsicher = unsichereOrte([zuhause], lat, HAUS.lon, 70);
+    const satz = meldungsText([zuhause], meldungen, lat, HAUS.lon, unsicher);
+    expect(satz).toContain('Zu ungenau');
+    expect(satz).toContain('Zuhause');
+    expect(satz).toContain('Nichts gemeldet');
   });
 });

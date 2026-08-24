@@ -33,6 +33,7 @@ import {
   genauGenug,
   meldungsText,
   ortsMeldungen,
+  unsichereOrte,
 } from '../lib/ortungsmeldung';
 
 /** Name der Hintergrund-Aufgabe. Muss über App-Starts hinweg gleich bleiben. */
@@ -194,7 +195,10 @@ export function useOrtung(settings: HubSettings, zone: string, erlaubt: boolean)
     if (!genauGenug(orte as Ortsangabe[], accuracy)) {
       return 'Der Standort ist gerade zu ungenau - draussen oder am Fenster nochmal.';
     }
-    const meldungen = ortsMeldungen(orte as Ortsangabe[], latitude, longitude);
+    // Die Streuung entscheidet mit: Ein knappes «nicht drin» ist keine
+    // Abwesenheit, sondern ein Nichtwissen – und «weg» schaltet scharf.
+    const meldungen = ortsMeldungen(orte as Ortsangabe[], latitude, longitude, accuracy);
+    const unsicher = unsichereOrte(orte as Ortsangabe[], latitude, longitude, accuracy);
     for (const meldung of meldungen) {
       // Nacheinander: Der Hub führt je Zone eine Liste der Orte, in denen
       // sie steckt, und zwei gleichzeitige Meldungen überschrieben sich.
@@ -218,7 +222,7 @@ export function useOrtung(settings: HubSettings, zone: string, erlaubt: boolean)
           : 'Der Hub hat die Meldung nicht angenommen.';
       }
     }
-    return meldungsText(orte as Ortsangabe[], meldungen, latitude, longitude);
+    return meldungsText(orte as Ortsangabe[], meldungen, latitude, longitude, unsicher);
   }, [settings.url, settings.token, zone, erlaubt, orteHolen]);
 
   /** Die Überwachung wirklich starten oder beenden. */

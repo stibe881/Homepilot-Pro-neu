@@ -1807,11 +1807,12 @@ class _FakeCommand:
 
 
 async def _overkiz_mit_fake(client):
+    import asyncio as aio
+
     from homepilot.core.config import ApiConfig, HubConfig
     from homepilot.core.entity import Entity, EntityKind
     from homepilot.core.hub import Hub
     from homepilot.integrations.overkiz import OverkizIntegration
-    import asyncio as aio
 
     hub = Hub(HubConfig(api=ApiConfig(), integrations=[], automations=[]))
     await hub.start()

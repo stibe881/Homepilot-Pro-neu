@@ -128,11 +128,20 @@ def place_state(inside: list[str], places: list[dict[str, Any]]) -> tuple[str, s
         return AWAY, None
     reihenfolge = [ort["id"] for ort in places]
     drin = [ort_id for ort_id in reihenfolge if ort_id in inside]
-    # Orte, die in der Konfiguration fehlen, hinten anstellen statt
-    # verwerfen: Meldet ein altes Telefon einen unbekannten Namen, ist
-    # das eine Information, keine Störung.
-    drin += [ort_id for ort_id in inside if ort_id not in reihenfolge]
-    engster = drin[0]
+    # Orte, die der Hub nicht kennt – die gespeicherten Orte von Life360.
+    # Sie standen bisher hinten und verloren damit gegen *jede* eigene
+    # Zone. Das machte «Quartier» zum Sieger über «Tanners Home»: Die
+    # Vorlaufzone ist drei Kilometer weit und verschluckte damit jeden
+    # benannten Ort im Dorf. Ein Name, den jemand vergeben hat, sagt mehr
+    # als «irgendwo im Umkreis».
+    fremd = [ort_id for ort_id in inside if ort_id not in reihenfolge]
+    # Nur «zuhause» bleibt davor: Daran hängen Alarmanlage und Abläufe,
+    # und die sollen nicht an einem Namen aus einer fremden App hängen.
+    if drin and drin[0] == HOME:
+        geordnet = [HOME, *fremd, *drin[1:]]
+    else:
+        geordnet = [*fremd, *drin]
+    engster = geordnet[0]
     return (HOME if engster == HOME else engster), engster
 
 
