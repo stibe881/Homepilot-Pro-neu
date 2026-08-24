@@ -203,6 +203,18 @@ def grill_entries(config: dict[str, Any]) -> list[dict[str, Any]]:
     return fertig
 
 
+def hat_licht(spec: Any) -> bool:
+    """Hat dieser Grill eine Beleuchtung? (rein, testbar)
+
+    `spec` kommt von pytboss und ist erst nach `start()` da. Fehlt sie,
+    lautet die Antwort «nein»: Ein Lichtschalter, der ins Leere greift,
+    ist schlimmer als keiner - er steht in der App und in jeder Auswahl
+    für Abläufe, und beides liesse sich nicht mehr zurücknehmen, ohne
+    dass jemandem ein Ablauf kaputtgeht.
+    """
+    return bool(getattr(spec, "has_lights", False))
+
+
 class _Grill:
     """Ein Gerät samt Verbindung und Kachel.
 
@@ -245,8 +257,34 @@ class PitBossIntegration(Integration):
                 )
             except Exception as err:
                 raise ConfigError(
-                    f"pitboss: Modell '{eintrag['model']}' unbekannt ({err})"
+                    f"pitboss: Grill '{eintrag['name']}' liess sich nicht "
+                    f"anlegen ({err})"
                 ) from err
+
+            # start() zuerst, und zwar wegen der Reihenfolge darin: Es löst
+            # erst die Bauart des Grills auf (daher `spec`) und baut dann
+            # die Verbindung auf. Der Konstruktor kennt beides noch nicht -
+            # wer vorher `boss.spec` liest, bekommt einen AttributeError,
+            # und die Integration stand in der Diagnose mit «'PitBoss'
+            # object has no attribute 'spec'» statt mit einem Grill da.
+            try:
+                await boss.start()
+            except Exception as err:
+                if not hasattr(boss, "spec"):
+                    # Vor der Verbindung gescheitert, also am Modell: Das
+                    # ist ein Fehler in der config.yaml und wird auch als
+                    # solcher gemeldet.
+                    raise ConfigError(
+                        f"pitboss: Modell '{eintrag['model']}' unbekannt "
+                        f"({err}). Bekannte Modelle listet "
+                        "'python -m homepilot.integrations.pitboss --modelle'."
+                    ) from err
+                # Ein kalter Grill ist stromlos und damit nicht erreichbar –
+                # das ist der Normalfall zwischen zwei Grillabenden und darf
+                # den Hub-Start nicht stören. Die Bauart steht trotzdem fest.
+                self.log.warning(
+                    "Grill '%s' antwortet nicht: %s", eintrag["name"], err
+                )
 
             commands = ["turn_off", "set_temperature"]
             # Ohne diesen Schalter fehlt das Kommando ganz, statt nur
@@ -254,7 +292,7 @@ class PitBossIntegration(Integration):
             # auslösen.
             if eintrag["allow_remote_start"]:
                 commands.append("turn_on")
-            if getattr(boss.spec, "has_lights", False):
+            if hat_licht(getattr(boss, "spec", None)):
                 commands += ["light_on", "light_off"]
 
             entity = await self.add_entity(
@@ -267,13 +305,6 @@ class PitBossIntegration(Integration):
             )
             grill = _Grill(eintrag, boss, entity)
             self._grills[entity.id] = grill
-
-            try:
-                await boss.start()
-            except Exception as err:
-                # Ein kalter Grill ist stromlos und damit nicht erreichbar –
-                # das ist der Normalfall und darf den Hub-Start nicht stören.
-                self.log.warning("Grill '%s' antwortet nicht: %s", grill.name, err)
 
             if grill.pushes:
                 await boss.subscribe_state(self._push_handler(grill))
