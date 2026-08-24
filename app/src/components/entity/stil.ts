@@ -223,6 +223,16 @@ export const makeStyles = (colors: Colors) =>
     backgroundColor: colors.accent,
   },
   cleanRoomsText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+  sceneButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: radius.control,
+    backgroundColor: colors.accent,
+  },
+  sceneButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
   lockButton: {
     flexDirection: 'row',
     alignItems: 'center',

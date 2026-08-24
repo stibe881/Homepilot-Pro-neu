@@ -5,6 +5,27 @@ Gegenstück: was die Anlage heute kann, was sie vorher nicht konnte.
 
 Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
+## 2026-08-24
+
+**Philips Hue**
+
+- Die auf der Bridge gespeicherten Szenen stehen jetzt überall dort zur
+  Auswahl, wo ein Gerät steht: in einer **Szene** des Hubs, in einem
+  **Ablauf** und als Kachel im Raum. Vorher gab es sie nur als
+  Namensliste im Ablauf-Editor – in eine Szene liess sich eine
+  Hue-Szene gar nicht aufnehmen.
+- Jede Bridge-Szene ist eine eigene Entität (`hue.scene_<Kennung>`,
+  Art «Lichtszene») mit genau einem Befehl: aufrufen. Zurücknehmen kann
+  die Bridge eine Szene nicht, also gibt es dafür auch keinen Knopf.
+- Die Kachel zeigt, ob die Szene gerade gilt. Verstellt jemand eine der
+  Lampen von Hand, meldet die Bridge das, und die Kachel sagt wieder
+  «Bereit».
+- Gleichnamige Szenen bekommen alle ihren Raum dazu – «Entspannen
+  (Wohnzimmer)» und «Entspannen (Büro)», statt einmal «Entspannen» und
+  einmal mit Zusatz.
+- In der Hue-App angelegte oder gelöschte Szenen kommen und gehen ohne
+  Neustart des Hubs.
+
 ## 2026-08-21
 
 **Abläufe**

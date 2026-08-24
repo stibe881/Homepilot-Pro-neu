@@ -207,3 +207,45 @@ def test_anyone_home_state() -> None:
     assert anyone_home_state(["", "away"]) == "on"
     assert anyone_home_state([]) == "on"
     assert anyone_home_state(None) == "on"
+
+
+def test_der_hausstandort_kommt_von_dort_wo_man_steht() -> None:
+    """Der stille Einrichtungsfehler, den man sonst nie findet.
+
+    Steht der Hauskreis auf einer Vorgabe aus dem Quelltext oder auf
+    einem vertippten Wert, ist man dauerhaft «unterwegs», während man in
+    der Stube sitzt - und nichts sieht kaputt aus. Was jemand vor Ort
+    gesetzt hat, sticht deshalb die config.yaml: Es ist die jüngere und
+    die nachweislich gemessene Angabe.
+    """
+    from homepilot.core.presence import home_location, read_home, store_home
+
+    config = {"latitude": 47.1445, "longitude": 8.0675}
+    assert home_location(None, config)["source"] == "config"
+    assert home_location(None, config)["longitude"] == 8.0675
+
+    gesetzt = store_home(47.1381, 7.9228, 150, 1_700_000_000.0)
+    heimat = home_location(gesetzt, config)
+    assert heimat["source"] == "app"
+    assert heimat["latitude"] == 47.1381
+    assert heimat["at"] == 1_700_000_000.0
+
+    # Ohne alles: ehrlich nichts, statt einer Vorgabe aus dem Quelltext.
+    # Ein Haus, das der Hub am falschen Ort vermutet, ist schlimmer als
+    # eines, von dem er zugibt, es nicht zu kennen.
+    leer = home_location(None, None)
+    assert leer["source"] == "none" and leer["latitude"] is None
+
+    # Kaputtes wird nicht halb übernommen.
+    assert read_home({"latitude": "hier"}) is None
+    assert read_home(None) is None
+
+
+def test_der_radius_bleibt_in_vernuenftigen_grenzen() -> None:
+    """Ein Bauernhof braucht mehr als eine Wohnung im Block – aber ein
+    Hauskreis von zwanzig Kilometern ist kein Zuhause mehr."""
+    from homepilot.core.presence import read_home, store_home
+
+    assert read_home(store_home(47.0, 8.0, 5, 1.0))["radius"] == 25.0
+    assert read_home(store_home(47.0, 8.0, 20_000, 1.0))["radius"] == 2000.0
+    assert read_home(store_home(47.0, 8.0, 400, 1.0))["radius"] == 400.0

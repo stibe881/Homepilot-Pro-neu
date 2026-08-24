@@ -225,8 +225,19 @@ def diagnose(person: str, state: dict[str, Any], now: float) -> dict[str, Any]:
     alter = (now - changed) if changed else None
     quelle = str(state.get("source") or "unbekannt")
     stumm = is_stale(changed, now)
-    if not changed:
-        text = "Hat sich noch nie gemeldet – ist der Kurzbefehl eingerichtet?"
+    # «none» ist der Vermerk, den die Geofence-Integration einer frisch
+    # angelegten Zone mitgibt: hier kam noch nie etwas an. Ohne die
+    # zweite Bedingung stand in der Diagnose «Meldet sich regelmässig»
+    # neben «Quelle: none» - eine Zeile, die sich selbst widerspricht,
+    # und zwar bei genau der Person, bei der nichts ankam.
+    #
+    # Nur «none», nicht auch «unbekannt»: Fehlt der Vermerk ganz, ist
+    # das eine Meldung alter Bauart und keine ausgebliebene.
+    if not changed or quelle == "none":
+        text = (
+            "Hat sich noch nie gemeldet – Ortung in der App einschalten "
+            "und «Jetzt melden» drücken (oder den Kurzbefehl einrichten)."
+        )
     elif stumm:
         stunden = int(alter // 3600) if alter else 0
         text = f"Seit {stunden} Stunden Funkstille – Akku, Flugmodus oder Kurzbefehl weg?"
@@ -310,3 +321,84 @@ def anyone_home_state(zustaende: Any) -> str:
     if any(zustand in ("", UNKNOWN) for zustand in liste):
         return "on"
     return "off"
+
+
+#: Wo der von Hand gesetzte Hausstandort liegt.
+HOME_KEY = "home_place"
+
+
+def read_home(roh: Any) -> dict[str, Any] | None:
+    """Der selbst gesetzte Hausstandort – oder None (rein, testbar).
+
+    Der Hausstandort kam bisher aus der config.yaml, und wenn dort keiner
+    stand, aus einer Vorgabe im Quelltext. Beides ist eine Zahl, die
+    jemand einmal eingetippt hat - und wenn sie um elf Kilometer
+    danebenliegt, sagt das niemand. Man sieht nur, dass man laut Hub
+    «unterwegs» ist, während man in der Stube sitzt.
+
+    Deshalb lässt er sich aus der App setzen: Wer zuhause steht, drückt
+    einen Knopf, und der Hub weiss es. Was hier steht, sticht die
+    config.yaml - es ist die jüngere und die nachweislich vor Ort
+    gemessene Angabe.
+    """
+    if isinstance(roh, list):
+        roh = next((x for x in roh if isinstance(x, dict)), None)
+    if not isinstance(roh, dict):
+        return None
+    try:
+        lat = float(roh["latitude"])
+        lon = float(roh["longitude"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    try:
+        radius = float(roh.get("radius") or 150.0)
+    except (TypeError, ValueError):
+        radius = 150.0
+    return {
+        "latitude": lat,
+        "longitude": lon,
+        "radius": max(25.0, min(2000.0, radius)),
+        "at": roh.get("at"),
+    }
+
+
+def store_home(latitude: float, longitude: float, radius: float, now: float) -> list[dict[str, Any]]:
+    """Wie der Hausstandort in den Datenspeicher geht (rein, testbar)."""
+    return [
+        {
+            "latitude": float(latitude),
+            "longitude": float(longitude),
+            "radius": max(25.0, min(2000.0, float(radius))),
+            "at": now,
+        }
+    ]
+
+
+def home_location(gespeichert: Any, config_location: Any) -> dict[str, Any]:
+    """Welcher Standort als «Zuhause» gilt (rein, testbar).
+
+    Reihenfolge: was jemand vor Ort gesetzt hat, dann die config.yaml,
+    dann nichts. «Nichts» ist ehrlicher als eine Vorgabe aus dem
+    Quelltext: Ein Haus, das der Hub am falschen Ort vermutet, ist
+    schlimmer als eines, von dem er zugibt, es nicht zu kennen.
+    """
+    eigen = read_home(gespeichert)
+    if eigen:
+        return {
+            "latitude": eigen["latitude"],
+            "longitude": eigen["longitude"],
+            "radius": eigen["radius"],
+            "source": "app",
+            "at": eigen.get("at"),
+        }
+    loc = config_location if isinstance(config_location, dict) else {}
+    try:
+        return {
+            "latitude": float(loc["latitude"]),
+            "longitude": float(loc["longitude"]),
+            "radius": float(loc.get("radius") or 150.0),
+            "source": "config",
+            "at": None,
+        }
+    except (KeyError, TypeError, ValueError):
+        return {"latitude": None, "longitude": None, "radius": 150.0, "source": "none", "at": None}

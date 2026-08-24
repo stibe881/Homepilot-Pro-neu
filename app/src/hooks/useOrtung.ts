@@ -311,12 +311,70 @@ export function useOrtung(settings: HubSettings, zone: string, erlaubt: boolean)
     setStand((vorher) => ({ ...vorher, gemeldet: satz }));
   }, [melden]);
 
+  /**
+   * Den Hausstandort von hier übernehmen.
+   *
+   * Der stille Einrichtungsfehler, den man sonst nie findet: Steht der
+   * Hauskreis auf einer Vorgabe aus dem Quelltext oder auf einem
+   * vertippten Wert, ist man dauerhaft «unterwegs», während man in der
+   * Stube sitzt - und nichts sieht kaputt aus. Wer zuhause steht,
+   * drückt hier einen Knopf; vertippen ist ausgeschlossen.
+   */
+  const hierIstZuhause = useCallback(async (): Promise<string> => {
+    if (!ortungMoeglich()) return 'Auf diesem Gerät nicht verfügbar.';
+    let Location: typeof import('expo-location');
+    try {
+      Location = await import('expo-location');
+    } catch {
+      return 'Die Ortung fehlt in diesem Build.';
+    }
+    const vorne = await Location.requestForegroundPermissionsAsync();
+    if (!vorne.granted) return 'Ohne Standort-Erlaubnis geht es nicht.';
+    let position;
+    try {
+      position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+    } catch {
+      return 'Der Standort war gerade nicht zu bekommen.';
+    }
+    const { latitude, longitude, accuracy } = position.coords;
+    // Hier zählt Genauigkeit doppelt: Ein Hausstandort, der um 200 m
+    // danebenliegt, ist derselbe Fehler in Grün.
+    if (typeof accuracy === 'number' && accuracy > 100) {
+      return `Der Standort ist auf ${Math.round(accuracy)} m genau – das ist für ein Zuhause zu grob. Draussen oder am Fenster nochmal.`;
+    }
+    const antwort = await fetch(`${settings.url}/api/presence/home`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${settings.token}`,
+      },
+      body: JSON.stringify({ latitude, longitude }),
+    }).catch(() => null);
+    if (!antwort || !antwort.ok) {
+      return antwort?.status === 403
+        ? 'Dafür fehlt die Berechtigung – das darf nur, wer die Konfiguration ändern darf.'
+        : 'Der Hub hat den Standort nicht angenommen.';
+    }
+    // Gleich melden: Sonst steht «unterwegs» weiter da, obwohl der
+    // Kreis jetzt stimmt.
+    return await melden();
+  }, [melden, settings.url, settings.token]);
+
+  const zuhauseSetzen = useCallback(async () => {
+    setStand((vorher) => ({ ...vorher, gemeldet: 'Einen Moment …' }));
+    const satz = await hierIstZuhause();
+    setStand((vorher) => ({ ...vorher, gemeldet: satz }));
+  }, [hierIstZuhause]);
+
   return {
     stand,
     schalten,
     pausieren,
     weiter,
     jetztMelden,
+    zuhauseSetzen,
     moeglich: ortungMoeglich(),
   };
 }

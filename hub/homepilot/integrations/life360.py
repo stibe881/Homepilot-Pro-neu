@@ -31,12 +31,15 @@ Konfiguration – Zugangsdaten gehören in die secrets.env, nie in die
 config.yaml und schon gar nicht ins Repo:
 
   - integration: life360
-    username: ${LIFE360_USER}       # E-Mail des Life360-Kontos
-    password: ${LIFE360_PASSWORD}
-    # Konten mit bestätigter Telefonnummer kommen mit Passwort nicht
-    # mehr hinein. Dann im Browser bei life360.com anmelden und den Wert
-    # des Cookies LIFE360_AUTH_TOKEN hierher kopieren:
-    # token: ${LIFE360_TOKEN}
+    token: ${LIFE360_TOKEN}
+    # Der Token ist der Normalfall: Life360 kennt keine Passwörter mehr,
+    # die Anmeldung läuft über einen SMS-/Mail-Code. Also im Browser bei
+    # life360.com anmelden (Code eingeben), dann in den
+    # Entwicklerwerkzeugen unter Netzwerk bei einer api-Anfrage den Wert
+    # hinter «Authorization: Bearer» kopieren - das ist der Token.
+    # Nur noch für alte Konten, die ein Passwort haben:
+    # username: ${LIFE360_USER}
+    # password: ${LIFE360_PASSWORD}
     scan_interval: 60
     members:                        # Name bei Life360 → Zone im Hub
       Oma: oma
@@ -44,6 +47,11 @@ config.yaml und schon gar nicht ins Repo:
 
 Die Zonen selbst stehen bei der geofence-Integration; ohne sie kann
 diese hier nichts melden und sagt das beim Start.
+
+Gespeicherte Orte von Life360 kommen mit: Wer bei «Tanners Home» steht,
+steht auch in der App dort und nicht bloss «unterwegs». Die eigenen Orte
+des Hubs behalten Vorrang – wer im Hausradius steht, ist «zuhause», auch
+wenn der Ort drüben anders heisst.
 """
 
 from __future__ import annotations
@@ -137,7 +145,38 @@ def parse_position(mitglied: dict[str, Any]) -> dict[str, Any] | None:
         akku = int(float(ort.get("battery") or "nan"))
     except (TypeError, ValueError):
         akku = None
-    return {"latitude": lat, "longitude": lon, "timestamp": gemessen, "battery": akku}
+    return {
+        "latitude": lat,
+        "longitude": lon,
+        "timestamp": gemessen,
+        "battery": akku,
+        # Life360 hängt den Namen des gespeicherten Ortes an, sobald
+        # jemand darin steht («Tanners Home», «Schule»). Genau das will
+        # man in der App lesen statt eines nichtssagenden «unterwegs».
+        "place": " ".join(str(ort.get("name") or "").split()) or None,
+    }
+
+
+def ortsschluessel(name: str) -> str:
+    """Aus «Tanners Home» wird `tanners_home` (rein, testbar).
+
+    Die Kennung ist das, worauf ein Ablauf hört, und sie steht neben
+    `home` und `quartier` – also dieselbe Machart: klein, ohne
+    Leerzeichen, ohne Sonderzeichen. Der Name selbst reist getrennt mit
+    und ist das, was in der App steht.
+
+    Was nach dem Aussieben leer bleibt (ein Ort, der nur aus Emoji
+    besteht), gibt eine leere Kennung: Der Aufrufer lässt ihn dann weg,
+    statt einen Ort ohne Namen zu melden.
+    """
+    sauber = []
+    for zeichen in " ".join(str(name or "").split()).casefold():
+        if zeichen.isalnum():
+            sauber.append(zeichen)
+        elif zeichen in " -_/":
+            sauber.append("_")
+    schluessel = "_".join(part for part in "".join(sauber).split("_") if part)
+    return schluessel
 
 
 def abstand_meter(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -211,6 +250,11 @@ class Life360Integration(Integration):
         # Der Kreis wird einmal geholt und gemerkt: Genau diese Abfrage
         # ist am schärfsten begrenzt.
         self._circles: list[str] = []
+        # Je Zone der zuletzt gemeldete Life360-Ort. Ohne dieses
+        # Gedächtnis bliebe «Tanners Home» stehen, nachdem jemand
+        # weitergefahren ist: Der Geofence führt eine Liste der Orte, in
+        # denen eine Zone steckt, und räumt sie nur auf Meldung.
+        self._letzter_ort: dict[str, str] = {}
         self.start_task(self._poll_loop())
 
     # ── Die Schleife ───────────────────────────────────────────────────────
@@ -271,20 +315,89 @@ class Life360Integration(Integration):
                 zone,
             )
             return
-        for ort, ereignis in meldungen_fuer(
-            getattr(geofence, "places", []), position["latitude"], position["longitude"]
-        ):
-            try:
-                await geofence.report(
-                    zone, ereignis, place=ort, battery=position.get("battery")
-                )
-            except KeyError:
-                self.log.warning(
-                    "life360: Zone '%s' gibt es beim geofence nicht - unter "
-                    "'zones' anlegen.",
-                    zone,
-                )
+        eigene = getattr(geofence, "places", [])
+        meldungen = meldungen_fuer(
+            eigene, position["latitude"], position["longitude"]
+        )
+        # Die eigenen Orte des Hubs entscheiden zuerst. Steht jemand im
+        # Hausradius, heisst das «zuhause» – auch wenn Life360 den Ort
+        # anders nennt. Sonst hinge die Alarmanlage plötzlich an einem
+        # Namen aus einer fremden App.
+        drinnen = any(ereignis == "enter" for _, ereignis in meldungen)
+        fremder = self._fremder_ort(position, eigene) if not drinnen else None
+
+        # Reihenfolge: erst das Verlassen, dann das Ankommen. Andersherum
+        # gewänne ein Ort, den die Person längst verlassen hat - der
+        # Geofence nimmt den engsten aus seiner Liste.
+        alt = self._letzter_ort.get(zone)
+        if alt and alt != (fremder or {}).get("id"):
+            meldungen.append((alt, "leave"))
+        for ort, ereignis in sorted(meldungen, key=lambda m: m[1] != "leave"):
+            if not await self._sagen(geofence, zone, ereignis, ort, position):
                 return
+        if fremder:
+            if not await self._sagen(
+                geofence, zone, "enter", fremder["id"], position, fremder["name"]
+            ):
+                return
+            self._letzter_ort[zone] = fremder["id"]
+        else:
+            self._letzter_ort.pop(zone, None)
+
+    def _fremder_ort(
+        self, position: dict[str, Any], eigene: list[dict[str, Any]]
+    ) -> dict[str, str] | None:
+        """Der gespeicherte Ort von Life360, wenn er etwas Neues sagt.
+
+        Life360 nennt den Ort beim Namen («Tanners Home»), sobald jemand
+        darin steht. Das ist die Antwort, die man auf der Familienseite
+        lesen will – «unterwegs» ist dort die halbe Wahrheit.
+
+        Nichts, was der Hub selbst kennt: Die Kennung wurde eben gegen
+        die eigenen Orte geprüft und lag ausserhalb. Käme sie hier
+        trotzdem durch, widerspräche sie der Messung von einer Zeile
+        vorher.
+        """
+        name = str(position.get("place") or "").strip()
+        if not name:
+            return None
+        schluessel = ortsschluessel(name)
+        if not schluessel:
+            return None
+        if any(schluessel == str(ort.get("id")) for ort in eigene):
+            return None
+        return {"id": schluessel, "name": name}
+
+    async def _sagen(
+        self,
+        geofence: Any,
+        zone: str,
+        ereignis: str,
+        ort: str,
+        position: dict[str, Any],
+        name: str | None = None,
+    ) -> bool:
+        """Eine Meldung weitergeben. False heisst «Zone fehlt, aufhören»."""
+        try:
+            await geofence.report(
+                zone,
+                ereignis,
+                place=ort,
+                battery=position.get("battery"),
+                # Sonst stünde in der Diagnose «geofence», und man sähe
+                # der Zeile nicht an, ob Life360 überhaupt liefert – die
+                # eine Frage, die man dort stellt.
+                source="life360",
+                place_name=name,
+            )
+        except KeyError:
+            self.log.warning(
+                "life360: Zone '%s' gibt es beim geofence nicht - unter "
+                "'zones' anlegen.",
+                zone,
+            )
+            return False
+        return True
 
     # ── Die Schnittstelle ──────────────────────────────────────────────────
 

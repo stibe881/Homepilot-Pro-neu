@@ -95,6 +95,37 @@ Zwei, die sich lohnen:
   Alarm scharf.
 - *Wenn jemand ankommt und es dunkel ist*: Eingangslicht an.
 
+## «Ich bin zuhause, der Hub sagt unterwegs»
+
+Fast immer liegt der **Hauskreis am falschen Ort**. Er kam bisher aus dem
+`location:`-Block der config.yaml, und wenn dort keiner stand, aus einer
+Vorgabe im Quelltext. Beides ist eine Zahl, die jemand einmal eingetippt
+hat – liegt sie um ein paar Kilometer daneben, ist man dauerhaft
+«unterwegs», und **nichts sieht kaputt aus**.
+
+Erkennen lässt es sich am Satz nach dem Melden:
+
+> Gemeldet: unterwegs. Der nächste Ort (Zuhause) liegt 11.1 km entfernt.
+
+Elf Kilometer sind keine Ungenauigkeit, sondern ein falscher Kreis.
+
+**Die Behebung:** In der App unter **Einstellungen → Ortung** steht neben
+«Jetzt melden» der Knopf **«Hier ist zuhause»**. Einmal drücken, während
+man zuhause ist – der Hub übernimmt die gemessene Position als
+Hausstandort. Vertippen ist dabei ausgeschlossen, und der `location:`-Block
+in der config.yaml wird davon gestochen.
+
+Zwei Dinge dazu:
+
+- Der Knopf verlangt einen Standort, der **auf 100 Meter genau** ist. Ein
+  Hausstandort, der um 200 Meter danebenliegt, wäre derselbe Fehler in
+  Grün.
+- Er darf nur, wer die Konfiguration ändern darf – es ist eine Einstellung
+  fürs ganze Haus, nicht für eine Person.
+
+Der gesetzte Standort liegt in den Hub-Daten, nicht in der config.yaml:
+Ein Update überschreibt ihn nicht.
+
 ## Was der Hub dabei nicht tut
 
 Er fragt das Telefon nie nach seinem Standort und speichert keine
@@ -121,16 +152,30 @@ Drei Dinge, die man vorher wissen sollte:
   entfernt. Sie kann jederzeit wieder dichtmachen. Der Hub geht bei
   403/429 in wachsende Pausen bis zwanzig Minuten, statt gegen die
   Sperre anzurennen.
-- **Konten mit bestätigter Telefonnummer** kommen mit E-Mail und
-  Passwort nicht mehr hinein. Dann meldet man sich im Browser bei
-  life360.com an und kopiert den Wert des Cookies `LIFE360_AUTH_TOKEN`
-  in die `secrets.env`.
+- **Life360 kennt keine Passwörter mehr** – die Anmeldung läuft über
+  einen Code per SMS oder Mail. Darum ist der `token` der Normalfall:
+  im Browser bei life360.com anmelden (Code eingeben), die
+  Entwicklerwerkzeuge öffnen (F12) → Reiter **Netzwerk** → eine Anfrage
+  an `api-cloudfront.life360.com` anklicken → in den Anfrage-Headern den
+  Wert hinter `Authorization: Bearer` kopieren. Diese lange
+  Zeichenkette ist der Token; er bleibt gültig, bis man sich dort
+  abmeldet.
+
+**Die gespeicherten Orte kommen mit.** Steht jemand in einem Ort, den
+ihr bei Life360 angelegt habt, nennt die App ihn beim Namen: «Maja ·
+Tanners Home» statt «Maja · unterwegs». Dafür ist nichts einzurichten –
+Life360 schickt den Namen mit der Position.
+
+Die eigenen Orte des Hubs behalten dabei Vorrang: Wer im Hausradius
+steht, ist «zuhause», auch wenn der Ort bei Life360 anders heisst. Sonst
+hinge die Alarmanlage an einem Namen aus einer fremden App. Für Abläufe
+entsteht aus «Tanners Home» die Kennung `tanners_home` – so wie `home`
+und `quartier` –, und ein Ablauf kann darauf hören.
 
 ```yaml
   - integration: life360
-    username: ${LIFE360_USER}
-    password: ${LIFE360_PASSWORD}
-    # token: ${LIFE360_TOKEN}      # statt Benutzername/Passwort
+    token: ${LIFE360_TOKEN}
+    # username/password nur noch für alte Konten, die eines haben
     scan_interval: 60
     members:                        # Name bei Life360 → Zone im Hub
       Oma: oma

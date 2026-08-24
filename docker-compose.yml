@@ -68,6 +68,13 @@ services:
       - TUYA_KEY_PROJEKTOR=${TUYA_KEY_PROJEKTOR:-}
       - VZUG_USER=${VZUG_USER:-}
       - VZUG_PASSWORD=${VZUG_PASSWORD:-}
+      # Life360: Standorte für Telefone ohne HomePilot. Ohne diese
+      # Zeilen kommt «Umgebungsvariable ... ist nicht gesetzt», obwohl
+      # sie im Stack sichtbar ist - Portainer reicht nur durch, was hier
+      # steht.
+      - LIFE360_USER=${LIFE360_USER:-}
+      - LIFE360_PASSWORD=${LIFE360_PASSWORD:-}
+      - LIFE360_TOKEN=${LIFE360_TOKEN:-}
       # Die folgenden acht standen nur in der Portainer-Fassung – genau
       # die Drift, die deploy/compose_abgleich.py seither anmahnt.
       - HUE_SYNC_TOKEN=${HUE_SYNC_TOKEN:-}

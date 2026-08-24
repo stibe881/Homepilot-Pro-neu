@@ -127,6 +127,12 @@ def default_places(location: dict[str, Any] | None) -> list[dict[str, Any]]:
         lon = float(loc.get("longitude", DEFAULT_LON))
     except (TypeError, ValueError):
         lat, lon = DEFAULT_LAT, DEFAULT_LON
+    # Ein selbst gesetzter Standort bringt seinen eigenen Radius mit -
+    # ein Bauernhof braucht mehr als eine Wohnung im Block.
+    try:
+        eng = float(loc.get("radius") or DEFAULT_RADIUS)
+    except (TypeError, ValueError):
+        eng = DEFAULT_RADIUS
     return presence.parse_places(
         [
             {
@@ -134,7 +140,7 @@ def default_places(location: dict[str, Any] | None) -> list[dict[str, Any]]:
                 "name": "Zuhause",
                 "latitude": lat,
                 "longitude": lon,
-                "radius": DEFAULT_RADIUS,
+                "radius": eng,
             },
             {
                 "id": "quartier",
@@ -171,11 +177,8 @@ class GeofenceIntegration(Integration):
                 "geofence braucht mindestens eine Zone unter 'zones' "
                 "(je mit 'id', z.B. der Person)"
             )
-        eigene = presence.parse_places(self.config.get("places"))
-        # Orte ohne eigene Koordinaten (z.B. nur `radius`) fallen beim
-        # Einlesen weg - dann gilt der Hausstandort. Das ist die
-        # häufigste Konfiguration und soll ohne Zutun stimmen.
-        self.places = eigene or default_places(getattr(self.hub.config, "location", None))
+        self._eigene_places = presence.parse_places(self.config.get("places"))
+        self._orte_bauen()
         # Kennung → Entitäts-ID, und je Person die Orte, in denen sie steckt.
         self._zones: dict[str, str] = {}
         self._inside: dict[str, list[str]] = {}
@@ -249,6 +252,42 @@ class GeofenceIntegration(Integration):
         )
         self.log.info("Geofence: jemand zuhause = %s", neu)
 
+    def _orte_bauen(self) -> None:
+        """Die Ortsliste aus Konfiguration und gesetztem Hausstandort.
+
+        Orte ohne eigene Koordinaten (z.B. nur `radius`) fallen beim
+        Einlesen weg - dann gilt der Hausstandort. Das ist die häufigste
+        Konfiguration und soll ohne Zutun stimmen.
+        """
+        self.places = self._eigene_places or default_places(self.heimat())
+
+    def heimat(self) -> dict[str, Any]:
+        """Wo der Hub das Zuhause vermutet - und woher er das weiss.
+
+        Die Herkunft gehört dazu: «11 km entfernt» ist erst dann eine
+        Auskunft, wenn man sieht, wovon.
+        """
+        return presence.home_location(
+            self.hub.data.get(presence.HOME_KEY),
+            getattr(self.hub.config, "location", None),
+        )
+
+    async def set_heimat(self, latitude: float, longitude: float, radius: float = 150.0) -> dict[str, Any]:
+        """Den Hausstandort von der aktuellen Position übernehmen.
+
+        Der einzige Weg, bei dem sich niemand vertippen kann: Wer zuhause
+        steht, drückt einen Knopf.
+        """
+        self.hub.data.set(
+            presence.HOME_KEY,
+            presence.store_home(latitude, longitude, radius, time.time()),
+        )
+        self._orte_bauen()
+        self.log.info(
+            "Hausstandort gesetzt: %.5f, %.5f (Radius %.0f m)", latitude, longitude, radius
+        )
+        return self.heimat()
+
     async def handle_command(self, entity: Entity, command: str, data: dict[str, Any]) -> None:
         raise ConfigError("Geofence-Zonen meldet das Telefon, sie lassen sich nicht schalten")
 
@@ -264,11 +303,26 @@ class GeofenceIntegration(Integration):
         event: str,
         place: str | None = None,
         battery: Any = None,
+        source: str = "geofence",
+        place_name: str | None = None,
     ) -> str:
         """Einen gemeldeten Wechsel übernehmen. Gibt den neuen Zustand zurück.
 
         `place` ist die Kennung des Ortes; ohne Angabe gilt «home» – so
         funktionieren die alten Kurzbefehle unverändert weiter.
+
+        `place_name` ist der Klarname eines Ortes, den der Hub selbst
+        nicht kennt: Life360 meldet «Tanners Home», und ohne diesen Weg
+        stünde in der App die nackte Kennung `tanners_home`. Für die
+        eigenen Orte bleibt er leer – deren Namen stehen in der
+        config.yaml.
+
+        `source` sagt, wer gemeldet hat. Voreingestellt ist «geofence» –
+        das Telefon selbst, über App oder Kurzbefehl. Life360 meldet
+        durch dieselbe Türe und trägt sich als «life360» ein: In der
+        Diagnose stand sonst bei allen «geofence», und die Frage «kommt
+        das jetzt von Life360 oder nicht?» war genau die, die man dort
+        stellt.
         """
         entity_id = self._zones.get(zone_id)
         if entity_id is None:
@@ -284,7 +338,9 @@ class GeofenceIntegration(Integration):
             drin.append(ort)
         self._inside[zone_id] = drin
         state, engster = presence.place_state(drin, self.places)
-        await self._publish(zone_id, entity_id, state, engster, battery)
+        await self._publish(
+            zone_id, entity_id, state, engster, battery, source, place_name
+        )
         self.log.info("Geofence: %s ist jetzt %s (%s)", zone_id, state, ort)
         return state
 
@@ -295,9 +351,13 @@ class GeofenceIntegration(Integration):
         state: str,
         place: str | None,
         battery: Any = None,
+        source: str = "geofence",
+        place_name: str | None = None,
     ) -> None:
         jetzt = time.time()
-        name = next(
+        # Der mitgereichte Klarname zuerst: Ein Ort von Life360 steht
+        # nicht in `self.places`, und ohne ihn läse man die Kennung.
+        name = place_name or next(
             (ort["name"] for ort in self.places if ort["id"] == place), place
         )
         # Alle Felder ausdrücklich: Die Registry mischt Änderungen in den
@@ -309,7 +369,7 @@ class GeofenceIntegration(Integration):
             "changed_at": jetzt,
             "place": place,
             "place_name": name,
-            "source": "geofence",
+            "source": source or "geofence",
             "stale": False,
         }
         if battery is not None:

@@ -502,6 +502,29 @@ export function EntityCard({
         );
       }
 
+      case 'scene': {
+        // Eine Lichtszene hat nichts zum Ablesen und nichts zum Stellen –
+        // sie hat einen Knopf. Ob sie gerade gilt, weiss die Bridge: Sie
+        // meldet «inactive», sobald jemand eine der Lampen von Hand
+        // verstellt hat. Deshalb steht «gilt gerade» und nicht «zuletzt
+        // gedrückt» – Letzteres wäre nach einer Handbewegung eine Lüge.
+        const gilt = entity.state.state === 'active';
+        return (
+          <View style={styles.stack}>
+            <Pill label={gilt ? 'Gilt gerade' : 'Bereit'} tone={gilt ? colors.on : undefined} />
+            <Pressable
+              onPress={() => onCommand('activate')}
+              accessibilityRole="button"
+              accessibilityLabel={`Szene ${entity.name} aufrufen`}
+              style={({ pressed }) => [styles.sceneButton, pressed && { opacity: 0.7 }]}
+            >
+              <Ionicons name="color-palette-outline" size={16} color="#FFFFFF" />
+              <Text style={styles.sceneButtonText}>Aufrufen</Text>
+            </Pressable>
+          </View>
+        );
+      }
+
       case 'button': {
         // Ein Taster hat keinen Zustand zum Ablesen – er meldet einen
         // Druck. Anzuzeigen ist deshalb der letzte.

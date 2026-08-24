@@ -60,6 +60,8 @@ def test_position_kommt_als_text_und_wird_zu_zahlen():
         "longitude": 7.9228,
         "timestamp": 1787500000.0,
         "battery": 84,
+        # Ohne gespeicherten Ort schickt Life360 keinen Namen mit.
+        "place": None,
     }
 
 
@@ -114,17 +116,26 @@ class StubGeofence:
         self.places = [HAUS, QUARTIER]
         self.zonen = zonen
         self.gemeldet: list[tuple] = []
+        self.quellen: list[str] = []
+        self.namen: list[str | None] = []
 
-    async def report(self, zone, event, place=None, battery=None):
+    async def report(
+        self, zone, event, place=None, battery=None, source="geofence", place_name=None
+    ):
         if zone not in self.zonen:
             raise KeyError(zone)
         self.gemeldet.append((zone, event, place, battery))
+        self.quellen.append(source)
+        self.namen.append(place_name)
         return "home" if event == "enter" else "away"
 
 
 def _integration() -> Life360Integration:
     dienst = Life360Integration.__new__(Life360Integration)
     dienst._members = parse_members({"Oma": "oma"})
+    # Das Gedächtnis für den zuletzt gemeldeten Life360-Ort legt sonst
+    # setup() an, das hier bewusst nicht läuft.
+    dienst._letzter_ort = {}
     return dienst
 
 
@@ -265,3 +276,152 @@ async def test_nach_einer_guten_antwort_ist_die_pause_wieder_kurz():
     dienst._mitglieder = antwort
     assert await dienst._runde() == 60.0
     assert geofence.gemeldet[0] == ("oma", "enter", "home", 50)
+
+
+def test_life360_meldet_sich_als_life360_und_nicht_als_geofence():
+    """Sonst steht in der Diagnose bei allen «geofence».
+
+    Die Frage, die man dort stellt, ist «liefert Life360 überhaupt?» –
+    und die war nicht zu beantworten, weil die Meldung durch dieselbe
+    Türe kommt wie die des Telefons und die Herkunft unterwegs verlor.
+    """
+    import asyncio
+
+    dienst = _integration()
+    dienst.log = _Log()
+    geofence = StubGeofence()
+    asyncio.run(
+        dienst._melden(
+            geofence,
+            {
+                "firstName": "Oma",
+                "location": {
+                    "latitude": "47.13844",
+                    "longitude": "7.92059",
+                    "timestamp": str(time.time()),
+                    "battery": "72",
+                },
+            },
+            time.time(),
+        )
+    )
+    assert geofence.quellen
+    assert set(geofence.quellen) == {"life360"}
+
+
+# ── Die gespeicherten Orte von Life360 ───────────────────────────────────
+#
+# «Maja ist bei Tanners Home» ist die Antwort, die man auf der
+# Familienseite lesen will. «unterwegs» ist dort die halbe Wahrheit:
+# Life360 weiss den Namen, der Hub warf ihn bloss weg.
+
+
+def test_ortsschluessel_macht_aus_dem_namen_eine_kennung():
+    from homepilot.integrations.life360 import ortsschluessel
+
+    # Dieselbe Machart wie `home` und `quartier` – darauf hört ein Ablauf.
+    assert ortsschluessel("Tanners Home") == "tanners_home"
+    assert ortsschluessel("  Schule   Zell ") == "schule_zell"
+    assert ortsschluessel("Oma & Opa") == "oma_opa"
+    # Was nach dem Aussieben nichts übrig lässt, gibt keine Kennung –
+    # der Aufrufer lässt den Ort dann weg.
+    assert ortsschluessel("🏠") == ""
+    assert ortsschluessel("") == ""
+
+
+def test_der_name_des_ortes_kommt_aus_den_mitgliedsdaten():
+    position = parse_position(
+        {
+            "location": {
+                "latitude": "47.20",
+                "longitude": "8.10",
+                "timestamp": str(time.time()),
+                "name": "Tanners Home",
+            }
+        }
+    )
+    assert position["place"] == "Tanners Home"
+
+
+@pytest.mark.asyncio
+async def test_ein_gespeicherter_ort_wird_mit_klarnamen_gemeldet():
+    dienst = _integration()
+    dienst.log = _Log()
+    geofence = StubGeofence()
+    await dienst._melden(
+        geofence,
+        {
+            "firstName": "Oma",
+            # Weit weg von Haus und Quartier – dort greift kein eigener Ort.
+            "location": {
+                "latitude": "47.30",
+                "longitude": "8.40",
+                "timestamp": str(time.time()),
+                "name": "Tanners Home",
+            },
+        },
+        time.time(),
+    )
+    ankunft = [zeile for zeile in geofence.gemeldet if zeile[1] == "enter"]
+    assert ankunft == [("oma", "enter", "tanners_home", None)]
+    # Der Klarname reist mit, sonst stünde in der App die Kennung.
+    assert "Tanners Home" in geofence.namen
+
+
+@pytest.mark.asyncio
+async def test_das_eigene_zuhause_schlaegt_den_namen_von_life360():
+    """Sonst hinge die Alarmanlage an einem Namen aus einer fremden App.
+
+    Steht jemand im Hausradius, heisst das «zuhause» – auch wenn der Ort
+    bei Life360 «Tanners Home» heisst.
+    """
+    dienst = _integration()
+    dienst.log = _Log()
+    geofence = StubGeofence()
+    await dienst._melden(
+        geofence,
+        {
+            "firstName": "Oma",
+            # Mitten im Hausradius – die Vorgabe HAUS von oben.
+            "location": {
+                "latitude": str(HAUS["latitude"]),
+                "longitude": str(HAUS["longitude"]),
+                "timestamp": str(time.time()),
+                "name": "Tanners Home",
+            },
+        },
+        time.time(),
+    )
+    orte = [zeile[2] for zeile in geofence.gemeldet if zeile[1] == "enter"]
+    assert "home" in orte
+    assert "tanners_home" not in orte
+
+
+@pytest.mark.asyncio
+async def test_wer_weiterfaehrt_verlaesst_den_alten_ort_wieder():
+    """Ohne Abmeldung bliebe «Tanners Home» für immer stehen.
+
+    Der Geofence führt je Zone eine Liste der Orte, in denen sie steckt,
+    und räumt sie nur auf Meldung.
+    """
+    dienst = _integration()
+    dienst.log = _Log()
+    geofence = StubGeofence()
+    weit = {
+        "firstName": "Oma",
+        "location": {"latitude": "47.30", "longitude": "8.40",
+                     "timestamp": str(time.time()), "name": "Tanners Home"},
+    }
+    await dienst._melden(geofence, weit, time.time())
+    assert dienst._letzter_ort["oma"] == "tanners_home"
+
+    # Jetzt unterwegs, ohne gespeicherten Ort.
+    unterwegs = {
+        "firstName": "Oma",
+        "location": {"latitude": "47.31", "longitude": "8.41",
+                     "timestamp": str(time.time())},
+    }
+    geofence.gemeldet.clear()
+    await dienst._melden(geofence, unterwegs, time.time())
+    assert ("oma", "leave", "tanners_home", None) in geofence.gemeldet
+    assert "oma" not in dienst._letzter_ort

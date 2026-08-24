@@ -39,6 +39,17 @@ class EntityKind:
     # sehen sie bewusst nie – wer scharfschalten darf, ist eine Frage der
     # Rolle, nicht der Freigabe einzelner Bereiche.
     ALARM = "alarm"
+    # Eine auf einer Bridge gespeicherte Lichtszene (Philips Hue). Sie hat
+    # keinen Zustand, den man stellen könnte: Farben und Helligkeiten
+    # liegen auf der Bridge, und nur sie kann alles in einem Zug setzen.
+    # Der Hub ruft sie auf – ein Knopf, kein Regler.
+    #
+    # Als Entität und nicht als blosse Namensliste, weil das der einzige
+    # Weg ist, sie überall dorthin zu bringen, wo ein Gerät steht: in eine
+    # Szene des Hubs, in einen Ablauf, als Kachel in den Raum. Die Liste
+    # gab es schon – aber nur im Ablauf-Editor, und in einer Szene liess
+    # sich eine Hue-Szene deshalb gar nicht verwenden.
+    SCENE = "scene"
 
 
 @dataclass

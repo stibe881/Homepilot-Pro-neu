@@ -27,7 +27,7 @@ import {
 } from '../lib/einkauf';
 import { uhr, wochentagDatum, wochentagUhr } from '../lib/format';
 import { klimaLabel, klimaSensor } from '../lib/klimachip';
-import { Person, anwesenheitsListe, ohneOrtung, werIstDaHinweis } from '../lib/ortung';
+import { Person, anwesenheitsListe, werIstDaHinweis } from '../lib/ortung';
 import { tapped } from '../lib/haptics';
 import { kann } from '../lib/plattform';
 import { MAX_SCHRIFT } from '../lib/schrift';
@@ -367,14 +367,14 @@ export function TopStrip({
               </ScrollView>
             )}
             {/* Der Hub führt auch Zugänge als Benutzer – «Hub-Token»,
-                das Wandtablet. Als eigene Zeilen sahen sie aus wie
-                vermisste Personen; hier stehen sie als das, was sie
-                sind: eine offene Einrichtung. */}
-            {wer !== null && ohneOrtung(wer).length > 0 ? (
-              <Text style={styles.lightRoom}>
-                Ohne Ortung: {ohneOrtung(wer).join(', ')}
-              </Text>
-            ) : null}
+                das Wandtablet. Sie standen hier als «Ohne Ortung: …».
+                Das war einmal der Fortschritt gegenüber eigenen Zeilen,
+                die aussahen wie vermisste Personen - aber es beantwortet
+                die Frage «wer ist da» nicht: Ein Zugang ist keine
+                Person, die man vermisst oder erwartet. Wer wissen will,
+                welche Zugänge offen sind, findet sie unter
+                Einstellungen → Benutzerverwaltung, samt allem, was dort
+                sonst noch dazugehört. */}
           </Pressable>
         </Pressable>
       </Modal>

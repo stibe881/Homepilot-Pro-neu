@@ -118,6 +118,14 @@ export function baseCommandOptions(entity: Entity): { key: string; label: string
     }
     return options;
   }
+  if (entity.kind === 'scene') {
+    // Eine Lichtszene der Bridge kennt genau eine Handlung. «ein» und
+    // «aus» gibt es dort nicht: Die Bridge kann eine Szene setzen, aber
+    // nicht zurücknehmen – Farben und Helligkeiten liegen bei ihr, nicht
+    // hier. Ein Chip «aus» würde die Lampen löschen und hiesse damit
+    // etwas anderes, als draufsteht.
+    return nimm([['activate', 'aufrufen']]);
+  }
   if (entity.kind === 'alarm') {
     // Dieselben Namen wie auf dem Alarm-Bildschirm – «scharf (Nacht)»
     // statt arm_night, damit niemand raten muss, was ein Modus tut.
@@ -196,3 +204,24 @@ export function boxenVon(entity: Entity): string[] {
   const roh = entity.state?.devices;
   return Array.isArray(roh) ? roh.map((name) => String(name)).filter(Boolean) : [];
 }
+
+
+/** Was ein Schnappschuss von sich aus einsammeln darf (rein, testbar).
+ *
+ * «Aktuellen Zustand übernehmen» meint den Zustand – nicht die Handlung.
+ * Drei Arten fallen deshalb heraus, jede aus demselben Grund: Was sie
+ * ungefragt in die Szene einbrächten, hat niemand gewollt.
+ *
+ * - **Alarmanlage** – eine Szene «Kino», die heimlich «unscharf»
+ *   eingesammelt hat, entschärft abends die Anlage.
+ * - **Kamera** – «Privatsphäre aus» schaltet sie wieder scharf.
+ * - **Lichtszene** – sie hat keinen Zustand, nur einen Knopf. Nähme der
+ *   Schnappschuss sie mit, riefe jede so gebaute Szene die Hue-Szene
+ *   gleich mit auf, auch wenn die gerade gar nicht gilt.
+ *
+ * Von Hand anwählen lassen sich alle drei weiterhin.
+ */
+export function imSchnappschuss(entity: Entity): boolean {
+  return entity.kind !== 'alarm' && entity.kind !== 'camera' && entity.kind !== 'scene';
+}
+

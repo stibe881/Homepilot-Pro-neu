@@ -22,7 +22,7 @@ from ...core.errors import UnknownEntityError
 from ...core.users import Capability
 from ...integrations import group as group_module
 from ..context import ApiContext
-from ..models import GeofenceRequest, LightGroupRequest
+from ..models import GeofenceRequest, HomeRequest, LightGroupRequest
 
 log = logging.getLogger(__name__)
 
@@ -239,6 +239,43 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         except ValueError as err:
             raise HTTPException(status_code=400, detail=str(err)) from err
         return {"ok": True, "zone": zone, "state": state, "place": body.place or "home"}
+
+    @app.post("/api/presence/home")
+    async def set_home(body: HomeRequest, request: Request) -> dict[str, Any]:
+        """Den Hausstandort von der aktuellen Position übernehmen.
+
+        Bisher kam er aus der config.yaml, und wenn dort keiner stand,
+        aus einer Vorgabe im Quelltext. Beides ist eine Zahl, die jemand
+        einmal eingetippt hat - und wenn sie um elf Kilometer daneben
+        liegt, sagt das niemand: Man sieht nur, dass man laut Hub
+        «unterwegs» ist, während man in der Stube sitzt.
+
+        Wer zuhause steht, drückt hier einen Knopf. Vertippen ist
+        ausgeschlossen.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        service = hub.integrations.get("geofence")
+        if service is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Die geofence-Integration ist nicht eingerichtet",
+            )
+        heimat = await service.set_heimat(
+            body.latitude, body.longitude, body.radius or 150.0
+        )
+        return {"ok": True, "home": heimat}
+
+    @app.get("/api/presence/home")
+    async def get_home(request: Request) -> dict[str, Any]:
+        """Wo der Hub das Zuhause vermutet – und woher er das weiss."""
+        current_user(request)
+        service = hub.integrations.get("geofence")
+        if service is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Die geofence-Integration ist nicht eingerichtet",
+            )
+        return {"home": service.heimat()}
 
     @app.get("/api/presence/zones")
     async def presence_zones(request: Request) -> dict[str, Any]:

@@ -84,7 +84,11 @@ CAPABILITIES: dict[str, frozenset[str]] = {
 
 # Was ein Gast ohne ausdrückliche Freigabe sehen darf: Licht und Schalter.
 # Kameras, Anwesenheit und Sensoren bleiben aussen vor.
-GUEST_DEFAULT_KINDS = frozenset({"light", "switch"})
+# Lichtszenen gehören dazu: Sie stellen Lampen, und Lampen darf ein Gast
+# hier ohnehin schon schalten. Ohne sie wäre eine Szene des Hubs, die eine
+# Hue-Szene enthält, für ihn plötzlich gesperrt – während er dieselben
+# Lampen einzeln bedienen kann.
+GUEST_DEFAULT_KINDS = frozenset({"light", "switch", "scene"})
 
 # Freigebbare Bereiche für Gäste. Jeder Bereich wird auf Geräte übersetzt;
 # 'familie' schaltet die geteilten Familien-Listen frei, 'raeume' die
@@ -108,7 +112,7 @@ GUEST_FEATURES: dict[str, str] = {
 # Bereich → Gerätearten. Türen brauchen zusätzlich die Integrations-Prüfung
 # in may_see, weil beide Schlösser die Art 'lock' haben.
 _FEATURE_KINDS: dict[str, frozenset[str]] = {
-    "licht": frozenset({"light", "switch"}),
+    "licht": frozenset({"light", "switch", "scene"}),
     "storen": frozenset({"cover"}),
     "kalender": frozenset({"calendar"}),
     "haushalt": frozenset({"appliance"}),

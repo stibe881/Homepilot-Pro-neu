@@ -6,8 +6,8 @@ import {
   anwesenheitsListe,
   anwesenheitsZeile,
   dauerDa,
-  ohneOrtung,
   ortungsHinweis,
+  quellenText,
   pauseBis,
   pausiert,
   seitText,
@@ -230,30 +230,6 @@ describe('anwesenheitsListe', () => {
   });
 });
 
-describe('ohneOrtung', () => {
-  it('nennt die Zugänge, für die nichts eingerichtet ist', () => {
-    expect(
-      ohneOrtung([
-        { name: 'Stefan', state: 'home', configured: true },
-        { name: 'Tablet', state: 'unknown', configured: false },
-        { name: 'Hub-Token', state: 'unknown', configured: false },
-      ])
-    ).toEqual(['Hub-Token', 'Tablet']);
-  });
-
-  it('bleibt leer, wenn für alle etwas eingerichtet ist', () => {
-    expect(ohneOrtung([{ name: 'Stefan', state: 'away', configured: true }])).toEqual([]);
-    expect(ohneOrtung([])).toEqual([]);
-  });
-});
-
-// ── Wenn Streifen und Fenster einander widersprechen ─────────────────────
-// Oben stand «jemand da», im Fenster darunter war niemand zuhause. Damals
-// kamen die zwei aus verschiedenen Quellen – das WLAN kannte das Haus, die
-// Ortung die Leute. Das WLAN ist raus; auseinanderlaufen können sie
-// trotzdem, weil die Sammelfrage Nichtwissen vorsichtshalber als «da»
-// zählt. Dann gehört gesagt, warum.
-
 describe('werIstDaHinweis', () => {
   const daheim = [{ name: 'Stefan', state: 'home', configured: true }];
   const weg = [{ name: 'Stefan', state: 'away', configured: true }];
@@ -295,5 +271,58 @@ describe('werIstDaHinweis', () => {
   it('verträgt eine leere Liste', () => {
     expect(werIstDaHinweis([], true)).toContain('Für niemanden');
     expect(werIstDaHinweis([], false)).toBe('');
+  });
+});
+
+
+describe('quellenText', () => {
+  it('macht aus den Kürzeln des Hubs lesbare Antworten', () => {
+    // «Quelle: none» stand so auf dem Bildschirm – ein Wort aus dem
+    // Code, das eine Frage offenlässt statt sie zu beantworten.
+    expect(quellenText('none')).toBe('noch keine Meldung');
+    expect(quellenText('geofence')).toBe('Telefon');
+    expect(quellenText('life360')).toBe('Life360');
+  });
+
+  it('behandelt Fehlendes wie «noch nichts gekommen»', () => {
+    expect(quellenText(undefined)).toBe('noch keine Meldung');
+    expect(quellenText('')).toBe('noch keine Meldung');
+    expect(quellenText('unbekannt')).toBe('noch keine Meldung');
+  });
+
+  it('nennt eine neue Quelle beim Namen, statt sie zu verstecken', () => {
+    // Sonst verschwände die nächste Integration hinter einem «?».
+    expect(quellenText('tasker')).toBe('tasker');
+  });
+});
+
+
+describe('Gespeicherte Orte von Life360', () => {
+  it('nennt den Ort beim Namen statt «unterwegs»', () => {
+    // Life360 weiss, dass Maja bei «Tanners Home» steht. Vorher warf der
+    // Hub den Namen weg und die Liste sagte bloss «unterwegs».
+    expect(
+      zustandText({ state: 'tanners_home', place_name: 'Tanners Home' })
+    ).toBe('Tanners Home');
+  });
+
+  it('fällt auf die Kennung zurück, wenn kein Name mitkam', () => {
+    expect(zustandText({ state: 'tanners_home' })).toBe('tanners_home');
+  });
+
+  it('lässt «zuhause» und «unterwegs» unangetastet', () => {
+    // Der eigene Ort des Hauses schlägt den Namen aus der fremden App –
+    // sonst hinge die Alarmanlage daran.
+    expect(zustandText({ state: 'home', place_name: 'Tanners Home' })).toBe('zuhause');
+    expect(zustandText({ state: 'away' })).toBe('unterwegs');
+  });
+
+  it('trägt den Ort in die Zeile der Familienseite', () => {
+    expect(
+      anwesenheitsZeile(
+        { name: 'Maja', state: 'tanners_home', place_name: 'Tanners Home' },
+        JETZT
+      )
+    ).toBe('Maja Tanners Home');
   });
 });
