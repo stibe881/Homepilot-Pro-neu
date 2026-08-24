@@ -489,3 +489,92 @@ def home_location(gespeichert: Any, config_location: Any) -> dict[str, Any]:
         }
     except (KeyError, TypeError, ValueError):
         return {"latitude": None, "longitude": None, "radius": 150.0, "source": "none", "at": None}
+
+
+# ── Orte, die in der App entstehen ───────────────────────────────────────
+#
+# Orte gab es bisher nur in der config.yaml. Für das Zuhause geht das
+# gerade noch, für Läden nicht: Wer beim Coop steht und merkt, dass die
+# Erinnerung fehlt, wird nicht per SSH eine Datei bearbeiten. Deshalb
+# lassen sich Orte hier ablegen - gesetzt wird einer, indem man davor
+# steht und einen Knopf drückt, genau wie beim Zuhause.
+
+PLACES_KEY = "extra_places"
+
+#: Enger als 50 m taugt ein Geofence nicht (GPS-Streuung), weiter als
+#: 2 km ist kein Laden mehr, sondern ein Dorf.
+ORT_MIN_RADIUS = 50.0
+ORT_MAX_RADIUS = 2000.0
+
+
+def ort_kennung(name: str) -> str:
+    """Aus einem Ladennamen eine Kennung machen (rein, testbar).
+
+    «Coop Willisau» → `coop_willisau`. Die Kennung steht später im
+    Zustand der Person («Stefan ist bei coop_willisau»), deshalb ohne
+    Umlaute und Sonderzeichen.
+    """
+    umschrift = {"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss"}
+    text = "".join(umschrift.get(z, z) for z in str(name or "").strip().lower())
+    kennung = "".join(z if z.isalnum() else "_" for z in text)
+    while "__" in kennung:
+        kennung = kennung.replace("__", "_")
+    return kennung.strip("_")
+
+
+def ort_setzen(
+    gespeichert: Any,
+    ort_id: str,
+    name: str,
+    latitude: float,
+    longitude: float,
+    radius: float = 150.0,
+) -> list[dict[str, Any]]:
+    """Einen Ort anlegen oder verschieben (rein, testbar).
+
+    Gleiche Kennung heisst: derselbe Ort, neu vermessen. So kann man vor
+    dem Laden stehen und den Ort geraderücken, ohne ihn erst zu löschen.
+    """
+    kennung = ort_kennung(ort_id) or ort_kennung(name)
+    if not kennung:
+        raise ValueError("Ein Ort braucht einen Namen")
+    eintrag = {
+        "id": kennung,
+        "name": str(name or kennung),
+        "latitude": float(latitude),
+        "longitude": float(longitude),
+        "radius": max(ORT_MIN_RADIUS, min(ORT_MAX_RADIUS, float(radius))),
+    }
+    behalten = [
+        ort
+        for ort in parse_places(gespeichert)
+        if ort["id"] != kennung
+    ]
+    return [*behalten, eintrag]
+
+
+def ort_entfernen(gespeichert: Any, ort_id: str) -> list[dict[str, Any]]:
+    """Einen Ort löschen (rein, testbar)."""
+    kennung = ort_kennung(ort_id)
+    return [ort for ort in parse_places(gespeichert) if ort["id"] != kennung]
+
+
+def alle_orte(
+    aus_config: list[dict[str, Any]], gespeichert: Any
+) -> list[dict[str, Any]]:
+    """Config-Orte und in der App angelegte zu einer Liste (rein, testbar).
+
+    Die config.yaml sticht: Wer dort einen Ort von Hand gepflegt hat, will
+    ihn nicht von einem versehentlichen Knopfdruck überschrieben haben.
+    Jeder Eintrag sagt, woher er kommt - sonst bietet die App an, einen
+    Ort zu löschen, den sie gar nicht löschen kann.
+    """
+    zusammen = [{**ort, "source": "config"} for ort in aus_config]
+    bekannt = {ort["id"] for ort in zusammen}
+    for ort in parse_places(gespeichert):
+        if ort["id"] in bekannt:
+            continue
+        zusammen.append({**ort, "source": "app"})
+        bekannt.add(ort["id"])
+    zusammen.sort(key=lambda ort: ort["radius"])
+    return zusammen
