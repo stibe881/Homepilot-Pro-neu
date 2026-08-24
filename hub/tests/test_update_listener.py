@@ -220,3 +220,49 @@ def test_the_service_announces_that_it_remembers(monkeypatch):
     # ältere Dienste nicht liefern.
     modul = load_listener(monkeypatch, None, None)
     assert "last_run" in modul.FEATURES
+
+
+# ── Fremde Ausgabe ist keine Meldung des Bau-Skripts ─────────────────────
+#
+# Durch dieselbe Ausgabe laufen die Werkzeuge, die das Skript aufruft.
+# `eas build` schreibt «⚠️ Detected that your app uses Expo Go for
+# development, this is not recommended when building production apps» -
+# und dieser Satz über die App-Entwicklung stand danach in der App als
+# Hinweis zum letzten Update.
+
+EXPO_HINWEIS = (
+    "⚠️  Detected that your app uses Expo Go for development, this is not "
+    "recommended when building production apps."
+)
+
+
+def test_only_the_scripts_own_markers_count(monkeypatch, credentials):
+    listener = load_listener(monkeypatch, credentials, None)
+    assert listener.eigene_meldung("⚠ Web-Bau fehlgeschlagen", "⚠") is True
+    assert listener.eigene_meldung("✗ Abgebrochen", "✗") is True
+    # Das Emoji-Warnzeichen trägt ein unsichtbares Zusatzzeichen hinter
+    # dem Dreieck - daran erkennt man die fremde Meldung.
+    assert listener.eigene_meldung(EXPO_HINWEIS, "⚠") is False
+    # Und ein Warnzeichen mitten im Satz ist ohnehin keine Meldung.
+    assert listener.eigene_meldung("Build failed ✗ siehe oben", "✗") is False
+
+
+def test_the_expo_go_notice_is_not_a_warning_of_the_update(monkeypatch, credentials):
+    listener = load_listener(monkeypatch, credentials, None)
+    listener._status["state"] = "running"
+    listener._handle_line(EXPO_HINWEIS)
+
+    assert listener._status["warnings"] == []
+    # Sichtbar bleibt sie trotzdem: als laufende Zeile, damit man sieht,
+    # dass sich etwas tut.
+    assert listener._status["message"] == EXPO_HINWEIS
+
+
+def test_a_foreign_cross_does_not_fail_the_run(monkeypatch, credentials):
+    """Ein ✗ aus einem fremden Werkzeug hätte den Lauf als gescheitert
+    gemeldet - mitten in einem Bau, der noch läuft."""
+    listener = load_listener(monkeypatch, credentials, None)
+    listener._status["state"] = "running"
+    listener._handle_line("✗️ some tool being decorative")
+
+    assert listener._status["state"] == "running"
