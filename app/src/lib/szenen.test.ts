@@ -229,6 +229,16 @@ describe('Lautstärke, Playlist und App beim Bearbeiten', () => {
     expect(zurueck[1].playlist).toBe('Sonntagmorgen');
     expect(zurueck[2].app).toBe('com.netflix.ninja');
   });
+
+  it('holt auch die Zieltemperatur des Grills zurück', () => {
+    // Ohne das stünde beim nächsten Öffnen der Chip da und die Stufe
+    // darunter auf der Vorgabe – die Szene selbst hätte den richtigen
+    // Wert, der Editor zeigte einen anderen.
+    const [zurueck] = sceneActionsToDraft([
+      { entity_id: 'pitboss.smoker', command: 'set_temperature', data: { temperature: 110 } },
+    ]);
+    expect(zurueck.temperature).toBe(110);
+  });
 });
 
 describe('Ziel-Box einer Playlist', () => {

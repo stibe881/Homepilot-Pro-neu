@@ -25,6 +25,8 @@ import {
   playlistWahl,
   playlistsVon,
   sendersVon,
+  zieltemperaturStandard,
+  zieltemperaturen,
 } from './szenengeraete';
 
 export { baseCommandOptions, commandOptions, isSceneDevice };
@@ -302,6 +304,20 @@ export function SceneDevices({
                         }))}
                         values={(action!.rooms ?? []).map(String)}
                         onSelect={(key) => setRooms(entity.id, Number(key))}
+                      />
+                    ) : null}
+                    {/* Zieltemperatur des Grills. Feste Stufen, weil er
+                        ohnehin nur bestimmte Sollwerte annimmt und selbst
+                        auf den nächsten rundet. */}
+                    {action!.command === 'set_temperature' ? (
+                      <Choice
+                        options={zieltemperaturen(entity)}
+                        value={String(
+                          action!.temperature ?? zieltemperaturStandard(entity)
+                        )}
+                        onSelect={(key) =>
+                          setField(entity.id, { temperature: Number(key) })
+                        }
                       />
                     ) : null}
                     {action!.command === 'set_volume' ? (

@@ -556,6 +556,9 @@ export interface StepDraft {
     offAfter?: number;
     /** Ziel-Lautstärke in Prozent, wenn das Kommando 'set_volume' ist. */
     volume?: number;
+    /** Zieltemperatur, wenn das Kommando 'set_temperature' ist – beim
+     *  Grill in seiner eigenen Einheit (°C oder °F). */
+    temperature?: number;
     /** Name der Playlist, wenn das Kommando 'play_playlist' ist. */
     playlist?: string;
     /** Name des Senders, wenn das Kommando 'play_radio' ist. */
@@ -1295,6 +1298,9 @@ export function stepToActions(step: StepDraft): BausteinConfig[] {
       if (action.command === 'set_volume') {
         built.data = { volume: action.volume ?? 30 };
       }
+      if (action.command === 'set_temperature') {
+        built.data = { temperature: action.temperature ?? 120 };
+      }
       if (action.command === 'launch_app') {
         built.data = { app: action.app ?? '' };
       }
@@ -1337,6 +1343,7 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
         position: action.data?.position,
         brightness: action.data?.brightness,
         volume: action.data?.volume,
+        temperature: action.data?.temperature,
         // Beim Hub heisst die Playlist 'name' - hier ein eigenes Feld,
         // damit sie nicht mit dem Namen des Ablaufs verwechselt wird.
         playlist: action.data?.name,
