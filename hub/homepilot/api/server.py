@@ -60,6 +60,9 @@ from .routes import (
     dashboard as routes_dashboard,
 )
 from .routes import (
+    einladungen as routes_einladungen,
+)
+from .routes import (
     entities as routes_entities,
 )
 from .routes import (
@@ -241,6 +244,7 @@ def create_app(hub: Hub) -> FastAPI:
         routes_passes.register,
         routes_dashboard.register,
         routes_radio.register,
+        routes_einladungen.register,
     ):
         register(app, ctx)
 

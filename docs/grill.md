@@ -14,10 +14,16 @@ Steuerplatine und ob der Grill lokal antwortet. Der Helfer beantwortet
 beides, bevor etwas in die `config.yaml` wandert.
 
 ```bash
-cd hub
-python -m homepilot.integrations.pitboss --modelle PBV   # Modell suchen
-python -m homepilot.integrations.pitboss --model PBV4PS2 --host 10.10.1.60
+docker exec homepilot-hub python -m homepilot.integrations.pitboss --modelle PBV
+docker exec homepilot-hub python -m homepilot.integrations.pitboss --suchen 10.10.1
+docker exec homepilot-hub python -m homepilot.integrations.pitboss \
+    --model PBV4PS2 --host 10.10.1.60
 ```
+
+`--suchen` geht das eigene Netz durch und fragt jede Adresse nach ihrer
+Firmware. Die Steuerplatine läuft unter Mongoose OS und antwortet darauf –
+so findet man die Adresse, ohne sie im Router zu suchen. Shelly-Geräte
+antworten übrigens ebenfalls; deshalb steht der Firmware-Name dabei.
 
 Der zweite Aufruf verbindet sich einmal, holt den Zustand und zeigt ihn an:
 
@@ -47,10 +53,11 @@ funktioniert weiter, wenn deren Dienst mal steht.
 
 ```yaml
   - integration: pitboss
-    name: Grill
-    model: PBV4PS2
-    host: 10.10.1.60
     scan_interval: 30
+    grills:
+      - name: Grill
+        model: PBV4PS2
+        host: 10.10.1.60
 ```
 
 **Nicht jedes Gerät antwortet lokal.** Die ältere Steuerplatinen-Reihe hat
@@ -63,9 +70,10 @@ System-Ansicht «pitboss» als fehlgeschlagen; dann ist der Cloud-Weg dran.
 
 ```yaml
   - integration: pitboss
-    name: Grill
-    model: PBV4PS2
-    grill_id: "..."
+    grills:
+      - name: Grill
+        model: PBV4PS2
+        grill_id: "..."
 ```
 
 Über die Cloud meldet der Grill Änderungen von selbst; lokal fragt der Hub
@@ -74,6 +82,34 @@ alle `scan_interval` Sekunden nach. Beides reicht beim Grillen locker.
 **Bluetooth gibt es hier nicht.** Die Bibliothek könnte es, aber der Hub
 läuft im Schrank und nicht auf der Terrasse. Für Bluetooth müsste er in
 Reichweite stehen.
+
+## Zwei Grills, ein Eintrag
+
+Räucherschrank und Smoker stehen nebeneinander, und beide sollen in die
+App. Zwei getrennte `- integration: pitboss`-Einträge sähen richtig aus,
+wären es aber nicht: Der Hub führt Integrationen unter ihrem Namen, der
+zweite Eintrag verdrängt den ersten – und dann ginge «Smoker aus» an den
+Räucherschrank. Deshalb kennt **ein** Eintrag beliebig viele Geräte:
+
+```yaml
+  - integration: pitboss
+    scan_interval: 30
+    grills:
+      - name: Räucherschrank
+        model: PBV4PS2
+        host: 10.10.1.60
+      - name: Smoker
+        model: PB1150PS2
+        host: 10.10.1.61
+```
+
+Jeder Grill wird eine eigene Kachel, jeder darf seinen eigenen Weg gehen
+(einer lokal, einer über die Cloud), und `allow_remote_start` lässt sich
+je Gerät oder für alle setzen. Die Namen müssen sich unterscheiden – aus
+ihnen entsteht die Kennung, unter der der Grill in Szenen und Abläufen
+steht.
+
+Für einen einzigen Grill genügt weiterhin die kurze Form ohne `grills:`.
 
 ## Das Modell muss stehen
 
@@ -93,7 +129,7 @@ Automation, die jemand vor drei Monaten gebaut hat.
 Deshalb gibt es das Kommando nur mit:
 
 ```yaml
-    allow_remote_start: true
+        allow_remote_start: true
 ```
 
 Ohne diese Zeile hat die Entität den Befehl gar nicht – was es nicht gibt,
