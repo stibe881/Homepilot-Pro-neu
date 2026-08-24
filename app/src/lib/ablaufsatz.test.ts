@@ -171,3 +171,28 @@ describe('Der Wert gehört in den Satz', () => {
     expect(satz).toContain('Playlist «Frühstück»');
   });
 });
+
+describe('Radio im Ablauf-Satz', () => {
+  it('schreibt den Sender dazu – «Radio» allein sagt nicht, welcher', () => {
+    const satz = ablaufSatz(
+      {
+        triggers: [{ type: 'time', at: '07:00' }],
+        conditions: [],
+        actions: [
+          {
+            type: 'command',
+            entity_id: 'tunein.radio',
+            command: 'play_radio',
+            data: { station: 'SRF 3' },
+          },
+        ],
+        otherwise: [],
+        match: 'all',
+      },
+      [...entities, { id: 'tunein.radio', name: 'Radio' } as Entity],
+      scenes
+    );
+    expect(satz).toContain('Radio Sender «SRF 3»');
+  });
+});
+

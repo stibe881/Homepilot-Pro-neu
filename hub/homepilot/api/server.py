@@ -81,6 +81,9 @@ from .routes import (
     push as routes_push,
 )
 from .routes import (
+    radio as routes_radio,
+)
+from .routes import (
     system as routes_system,
 )
 from .routes import (
@@ -237,6 +240,7 @@ def create_app(hub: Hub) -> FastAPI:
         routes_lightgroups.register,
         routes_passes.register,
         routes_dashboard.register,
+        routes_radio.register,
     ):
         register(app, ctx)
 

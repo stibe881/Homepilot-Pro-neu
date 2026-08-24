@@ -24,6 +24,7 @@ import {
   mischenMoeglich,
   playlistWahl,
   playlistsVon,
+  sendersVon,
 } from './szenengeraete';
 
 export { baseCommandOptions, commandOptions, isSceneDevice };
@@ -393,6 +394,38 @@ export function SceneDevices({
                                 />
                               </>
                             ) : null}
+                          </>
+                        ) : null}
+                      </>
+                    ) : null}
+                    {/* Radio: erst der Sender, dann die Box. Ohne Box
+                        spielt er dort, wo zuletzt Radio lief – in einer
+                        Szene «Küche morgens» ist das eine Wette. */}
+                    {action!.command === 'play_radio' ? (
+                      <>
+                        <Text style={styles.groupLabel}>Sender</Text>
+                        <Choice
+                          options={sendersVon(entity).map((name) => ({
+                            key: name,
+                            label: name,
+                          }))}
+                          value={action!.station ?? ''}
+                          onSelect={(key) => setField(entity.id, { station: key })}
+                        />
+                        {boxenVon(entity).length > 0 ? (
+                          <>
+                            <Text style={styles.groupLabel}>Auf welcher Box</Text>
+                            <Choice
+                              options={[
+                                { key: '', label: 'zuletzt benutzte Box' },
+                                ...boxenVon(entity).map((name) => ({
+                                  key: name,
+                                  label: name,
+                                })),
+                              ]}
+                              value={action!.device ?? ''}
+                              onSelect={(key) => setField(entity.id, { device: key })}
+                            />
                           </>
                         ) : null}
                       </>

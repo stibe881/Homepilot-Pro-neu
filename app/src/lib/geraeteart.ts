@@ -221,22 +221,33 @@ export function musikboxenImRaum(
   return entities.filter((entity) => istMusikbox(entity) && entity.room === room);
 }
 
+/** Bringt dieser Player eine eigene Auswahl mit? (rein, testbar)
+ *
+ * Spotify seine Playlists, das Radio seine Sender. Beide spielen über
+ * eine Box, und beide melden dann dasselbe «playing» wie sie – aber nur
+ * auf ihrer Karte steht, *was* da läuft und wie man etwas anderes
+ * wählt. */
+export function hatEigeneAuswahl(entity: Entity): boolean {
+  return (
+    entity.commands.includes('play_playlist') || entity.commands.includes('play_radio')
+  );
+}
+
 /** Welcher Player gehört auf die Startseite? (rein, testbar)
  *
  * Spielt irgendwo Musik, ist es dieser; sonst Spotify mit Playlists und
  * Boxenwahl vor einer stillen Cast-Box. Spielen mehrere dasselbe (Spotify
- * über eine Cast-Box: beide melden «playing»), gewinnt Spotify - nur dort
- * gibt es Zufall, Wiederholen und den Sprung zurück. Mit der blossen Box
- * fehlten diese Knöpfe ausgerechnet dann, wenn Musik lief. */
+ * oder Radio über eine Cast-Box: beide melden «playing»), gewinnt der mit
+ * der eigenen Auswahl - nur dort gibt es Playlists, Sender, Zufall und
+ * den Sprung zurück. Mit der blossen Box fehlten diese Knöpfe
+ * ausgerechnet dann, wenn Musik lief. */
 export function pickPlayer(entities: Entity[]): Entity | undefined {
   const players = entities.filter(istMusikbox);
   return (
-    players.find(
-      (entity) =>
-        entity.state.state === 'playing' && entity.commands.includes('play_playlist')
-    ) ??
+    players.find((entity) => entity.state.state === 'playing' && hatEigeneAuswahl(entity)) ??
     players.find((entity) => entity.state.state === 'playing') ??
     players.find((entity) => entity.commands.includes('play_playlist')) ??
+    players.find(hatEigeneAuswahl) ??
     players[0]
   );
 }

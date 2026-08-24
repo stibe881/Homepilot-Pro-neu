@@ -344,6 +344,18 @@ integrations:
   #     - host: 192.168.1.35
   #       name: Wohnzimmer TV
 
+  # Internetradio über TuneIn. Erscheint als Player «Radio» neben Spotify;
+  # gespielt wird auf einer Box, die eine Tonadresse abspielen kann (Cast,
+  # Google Home). Sender lassen sich auch in der App suchen und merken –
+  # was hier steht, gewinnt bei gleichem Namen.
+  # - integration: tunein
+  #   name: Radio
+  #   speaker: Küche Lautsprecher   # Vorgabe-Box, sonst die zuletzt benutzte
+  #   stations:
+  #     - SRF 3                     # nur der Name: der Hub sucht ihn bei TuneIn
+  #     - {name: Radio Pilatus, id: s2482}
+  #     - {name: Hauskanal, url: "http://192.168.1.9:8000/stream"}
+
   # Google Calendar: die nächsten Termine als Kachel, Geburtstage fürs
   # Familienmodul. Einmalige Anmeldung:
   #   python -m homepilot.integrations.google_calendar -c config.yaml

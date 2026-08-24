@@ -558,6 +558,8 @@ export interface StepDraft {
     volume?: number;
     /** Name der Playlist, wenn das Kommando 'play_playlist' ist. */
     playlist?: string;
+    /** Name des Senders, wenn das Kommando 'play_radio' ist. */
+    station?: string;
     /** Paket-ID der App, wenn das Kommando 'launch_app' ist. */
     app?: string;
     /** Auf welcher Box die Playlist spielen soll. Leer = die zuletzt
@@ -1271,6 +1273,14 @@ export function stepToActions(step: StepDraft): BausteinConfig[] {
         entity_id: action.entity_id,
         command: action.command,
       };
+      // Radio: Sendername, und die Box nur, wenn eine gewählt wurde.
+      // Ohne sie spielt der Hub dort, wo zuletzt Radio lief.
+      if (action.command === 'play_radio') {
+        built.data = {
+          station: action.station ?? '',
+          ...(action.device ? { device: action.device } : {}),
+        };
+      }
       if (action.command === 'clean_rooms') {
         built.data = { rooms: action.rooms ?? [] };
       }
@@ -1330,6 +1340,7 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
         // Beim Hub heisst die Playlist 'name' - hier ein eigenes Feld,
         // damit sie nicht mit dem Namen des Ablaufs verwechselt wird.
         playlist: action.data?.name,
+        station: action.data?.station,
         app: action.data?.app,
         device: action.data?.device,
         shuffle: musik?.shuffle,

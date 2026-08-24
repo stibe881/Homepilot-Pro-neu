@@ -102,6 +102,7 @@ const BEFEHL: Record<string, string> = {
   play_playlist: 'Playlist',
   launch_app: 'App',
   play_url: 'Durchsage',
+  play_radio: 'Sender',
   set_privacy: 'Privatsphäre',
   unlatch: 'aufziehen',
   open_door: 'öffnen',
@@ -119,6 +120,9 @@ function wertZusatz(action: Roh): string {
   if (typeof data.brightness === 'number') return ` ${data.brightness} %`;
   if (typeof data.position === 'number') return ` ${data.position} %`;
   if (typeof data.name === 'string' && data.name) return ` «${data.name}»`;
+  // Der Sender gehört dazu: «Radio» allein sagt nicht, welcher – und
+  // genau danach schaut man in der Liste.
+  if (typeof data.station === 'string' && data.station) return ` «${data.station}»`;
   if (typeof data.muted === 'boolean') return data.muted ? '' : ' aus';
   return '';
 }
