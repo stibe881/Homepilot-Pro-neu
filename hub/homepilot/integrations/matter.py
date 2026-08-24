@@ -289,14 +289,35 @@ def lock_diagnose(
     return (
         f"Das Schloss meldet in seiner {quelle} kein UnboltDoor – für den Hub "
         "kann es den Riegel nicht getrennt bewegen, und «aufschliessen» ist "
-        "alles, was es gibt. Stimmt das nicht: 'unlatch: always' in den "
-        "matter-Block."
+        "alles, was es gibt. " + NUKI_TUERKONFIGURATION + " Notfalls "
+        "erzwingen: 'unlatch: always' in den matter-Block."
     )
 
 
 #: So lange nach einem «Auf + öffnen» auf die gezogene Falle gewartet
 #: wird. Nuki braucht dafür ein paar Sekunden.
 UNLATCH_FRIST = 12.0
+
+#: Der Grund, der bei Nuki fast immer dahintersteckt - und der von aussen
+#: wie ein Fehler des Hubs aussieht.
+#:
+#: Nuki bietet das Aufziehen über Matter nur an, wenn in der App steht,
+#: dass die Türe aussen KEINE Klinke hat. Die Überlegung dahinter: Wo
+#: aussen eine Klinke sitzt, kommt man nach dem Aufschliessen von selbst
+#: hinein - das Aufziehen wäre überflüssig und würde die Falle unnötig
+#: verschleissen. Wo aussen ein Knauf oder ein Stossgriff sitzt, geht es
+#: nur mit gezogener Falle, und erst dann meldet das Schloss die Fähigkeit
+#: über Matter. In der Nuki-App selbst funktioniert «Tür öffnen»
+#: unabhängig davon - deshalb sieht es so aus, als läge es am Hub.
+NUKI_TUERKONFIGURATION = (
+    "Bei Nuki hängt das an der Türkonfiguration in dessen App: "
+    "Smart Lock → Einstellungen → Türkonfiguration. Über Matter wird das "
+    "Aufziehen nur angeboten, wenn dort steht, dass die Türe aussen keine "
+    "Klinke hat (Knauf oder Stossgriff). Innen Klinke, aussen Knauf – "
+    "danach das Schloss vom Hub neu einlesen. In der Nuki-App selbst geht "
+    "«Tür öffnen» auch ohne diese Einstellung, deshalb sieht es aus, als "
+    "läge es am Hub."
+)
 
 
 def aufzieh_urteil(gesehen: list[str]) -> str | None:
@@ -320,10 +341,8 @@ def aufzieh_urteil(gesehen: list[str]) -> str | None:
         )
     return (
         "Das Schloss hat auf «Auf + öffnen» nur aufgeschlossen, die Falle "
-        "aber nicht gezogen. Der Befehl kommt an – es zieht nicht. In der "
-        "Nuki-App prüfen: Ist die Tür-Öffnen-Funktion eingerichtet und "
-        "kalibriert? Sie setzt ein Schloss voraus, dessen Falle sich über "
-        "den Zylinder ziehen lässt; nicht jede Türe kann das."
+        "aber nicht gezogen. Der Befehl kommt an – es zieht nicht. "
+        + NUKI_TUERKONFIGURATION
     )
 
 

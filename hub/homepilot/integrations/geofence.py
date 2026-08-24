@@ -417,6 +417,9 @@ class GeofenceIntegration(Integration):
             zeile["zone"] = zone_id
             zeile["combined"] = zusammen.get("state")
             zeile["combined_source"] = zusammen.get("source")
+            # Aus dem zusammengeführten Zustand, nicht aus der Entität:
+            # Wer verstummt ist, soll keinen Ort mehr tragen.
+            zeile["place_name"] = zusammen.get("place_name")
             zeile["since"] = presence.since(
                 self.hub.data.get("presence_history"), zone_id
             )

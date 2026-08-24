@@ -34,7 +34,12 @@ import {
   vorlaeufigeId,
 } from '../lib/familiecache';
 import { herkunftText, neuSeit, suche, trefferName } from '../lib/familiensuche';
-import { anwesenheitKurz, anwesenheitsZeile, quellenText } from '../lib/ortung';
+import {
+  anwesenheitKurz,
+  anwesenheitsZeile,
+  diagnoseZeile,
+  geortet,
+} from '../lib/ortung';
 import {
   ABEND_FELDER,
   BABYSITTER_FEATURES,
@@ -3744,10 +3749,16 @@ export function FamilyScreen({
       {/* Punkt 196: «Wer ist da?» ist die meistgestellte Frage im
           Haushalt – sie stand bisher als Gerätekachel zwischen Lampen und
           Storen. Ohne Karte, ohne Meterangaben. */}
-      {anwesend.length > 0 ? (
+      {/* Bleiben nach dem Aussieben nur Zugänge übrig, gibt es nichts
+          zu zeigen – eine leere Karte wäre schlimmer als keine. */}
+      {geortet(anwesend).length > 0 ? (
         <Card style={styles.listCard}>
           <Text style={styles.groupTitle}>{anwesenheitKurz(anwesend)}</Text>
-          {anwesend.map((person, index) => (
+          {/* Nur, wen der Hub orten kann. «Hub-Token» und das Wandtablet
+              sind Zugänge, keine Personen – sie standen hier als
+              vermisste Familienmitglieder und zählten oben als
+              «unbekannt» mit. */}
+          {geortet(anwesend).map((person, index) => (
             <Text key={String(person.zone ?? index)} style={styles.checkSub}>
               {anwesenheitsZeile(person, new Date())}
             </Text>
@@ -3770,17 +3781,18 @@ export function FamilyScreen({
             accessibilityRole="button"
             style={styles.clearButton}
           >
+            {/* Hiess «Warum steht da das?», als hier nur ein Hinweis
+                stand. Inzwischen steht je Person auch der Ort, die
+                Quelle und der Akkustand – das ist eine Prüfung, keine
+                Rückfrage. */}
             <Text style={styles.resetText}>
-              {ortungsDiagnose ? 'Diagnose schliessen' : 'Warum steht da das?'}
+              {ortungsDiagnose ? 'Ortung schliessen' : 'Ortung prüfen'}
             </Text>
           </Pressable>
           {(ortungsDiagnose ?? []).map((zeile, index) => (
             <View key={String(zeile.zone ?? index)} style={{ gap: 2 }}>
               <Text style={styles.checkText}>{String(zeile.person ?? '?')}</Text>
-              <Text style={styles.checkSub}>
-                {String(zeile.hint ?? '')} · Quelle: {quellenText(zeile.combined_source)}
-                {zeile.battery != null ? ` · Akku ${String(zeile.battery)} %` : ''}
-              </Text>
+              <Text style={styles.checkSub}>{diagnoseZeile(zeile)}</Text>
             </View>
           ))}
         </Card>
