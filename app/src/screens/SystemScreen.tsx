@@ -890,6 +890,18 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
             'Es wird nur der Hub gebaut. Abhilfe: auf dem Server einmal ' +
             '«sudo systemctl restart homepilot-update» ausführen.'
         );
+      } else if (body?.nur_ausrollen) {
+        // Die eingerichtete Adresse ist ein blosser Portainer-Webhook.
+        // Der erstellt den Container neu - aus demselben Abbild. Der
+        // Knopf tut also etwas und ändert doch nie den Stand.
+        setNoteError(true);
+        setNote(
+          [
+            'Angestossen - aber diese Adresse rollt nur aus, sie baut nicht neu.',
+            'Der Container wird neu erstellt, aus demselben Abbild: Der Stand unten bleibt derselbe.',
+            'Damit der Knopf wirklich baut, gehört unter update.webhook_url der Update-Dienst des Hosts (Adresse endet auf /update), nicht der Portainer-Webhook - siehe deploy/portainer.md.',
+          ].join('\n')
+        );
       } else {
         setNote(
           ios

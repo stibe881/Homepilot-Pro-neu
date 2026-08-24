@@ -444,6 +444,14 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             ) from err
         if wants_ios and is_listener and "ios" not in text.lower():
             return {"ok": True, "ios_ignored": True}
+        if not is_listener:
+            # Ein blosser Portainer-Webhook rollt den Stack neu aus - er
+            # baut nichts. Steht er unter 'update.webhook_url', tut der
+            # Knopf jedes Mal etwas und ändert doch nie den Stand: Der
+            # Container wird neu erstellt, aus demselben Abbild. Von
+            # aussen sieht das aus wie ein Update, das nicht ankommt, und
+            # genau so hat ein Haus tagelang auf altem Code gelaufen.
+            return {"ok": True, "nur_ausrollen": True}
         return {"ok": True}
 
     @app.get("/api/system/update/status")
