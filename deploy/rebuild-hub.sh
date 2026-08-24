@@ -139,6 +139,20 @@ docker_root() {
 
 platz_frei_kb() { df --output=avail -k / | tail -1 | tr -d ' '; }
 
+# Ausgabe fremder Werkzeuge kenntlich machen.
+#
+# Der Update-Dienst liest jede Zeile dieses Skripts mit und nimmt «⚠ …»
+# als Warnung des Laufs, «✗ …» als Abbruch. Durch dieselbe Ausgabe laufen
+# aber auch die Werkzeuge, die hier aufgerufen werden - und `eas build`
+# schreibt eigene Warnzeichen. «Detected that your app uses Expo Go for
+# development» stand danach in der App als Hinweis zum letzten Update,
+# obwohl der Satz mit dem Update nichts zu tun hat.
+#
+# Der senkrechte Strich nimmt jeder fremden Zeile diese Bedeutung, und
+# man sieht ihr an, dass sie von woanders kommt. `sed -u` gibt sie sofort
+# weiter statt blockweise - sonst stünde der Fortschritt minutenlang.
+fremde_ausgabe() { sed -u 's/^/| /'; }
+
 platz_notiz() {
   # $1 = "vorher" | "nachher"
   {
@@ -554,7 +568,8 @@ if [ "${HOMEPILOT_IOS_BUILD:-0}" = "1" ]; then
         -e EXPO_NO_CAPABILITY_SYNC=1 \
         "$DEPS_IMAGE" \
         npx eas-cli@latest build --platform ios --profile production \
-          --auto-submit --non-interactive --no-wait 2>&1 | tee "$IOS_LOG"
+          --auto-submit --non-interactive --no-wait 2>&1 |
+        fremde_ausgabe | tee "$IOS_LOG"
       [ "${PIPESTATUS[0]}" = "0" ]; then
       echo "✓ iOS-Build läuft auf den EAS-Servern - TestFlight meldet sich."
     else
