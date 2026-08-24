@@ -3,6 +3,7 @@ import React, { useMemo, useState } from 'react';
 import { Image, Pressable, Text, View } from 'react-native';
 
 import { CommandData, Entity, KalenderEintrag } from '../api/types';
+import { offlineSatz } from '../lib/funkstille';
 import { hatWarteschlange } from '../lib/musikliste';
 import { useColors } from '../theme';
 import { Bar } from './Bar';
@@ -114,10 +115,14 @@ export function EntityCard({
   const isOn = entity.state.state === 'on';
   const subtitle =
     (imRaumblock ? undefined : entity.room) || integrationLabel(entity.integration);
-  // Offline-Geräte: «nicht erreichbar · zuletzt vor …», damit man sieht, ob
-  // das Gerät gerade eben oder seit Tagen weg ist.
-  const offlineText =
-    'nicht erreichbar' + (entity.last_seen ? ` · zuletzt ${sinceLabel(entity.last_seen)}` : '');
+  // Offline-Geräte: mit «zuletzt vor …», damit man sieht, ob das Gerät
+  // gerade eben oder seit Tagen weg ist. Bei einer Store am Funk steht
+  // dort zusätzlich, dass Drücken trotzdem etwas bewirkt - siehe
+  // lib/funkstille.ts.
+  const offlineText = offlineSatz(
+    entity,
+    entity.last_seen ? sinceLabel(entity.last_seen) : null,
+  );
   const toggle = entity.commands.includes('toggle')
     ? () => onCommand('toggle')
     : undefined;

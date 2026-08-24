@@ -1,18 +1,25 @@
 """Pit-Boss-Pelletgrill (und Louisiana Grills) über ``pytboss``.
 
-Konfiguration – einer der beiden Wege:
+Konfiguration – ein Eintrag, darin je Grill ein Weg:
 
   - integration: pitboss
-    name: Grill
-    model: PBV4PS2            # steht auf dem Typenschild, siehe unten
-    host: 10.10.1.60          # lokal, ohne Umweg über die Hersteller-Cloud
     scan_interval: 30
+    grills:
+      - name: Räucherschrank
+        model: PBV4PS2        # steht auf dem Typenschild, siehe unten
+        host: 10.10.1.60      # lokal, ohne Umweg über die Hersteller-Cloud
+      - name: Smoker
+        model: PB1150PS2
+        grill_id: "abc123..."  # aus der Pit-Boss-App, geht über die Cloud
+        allow_remote_start: false
 
-  - integration: pitboss
-    name: Grill
-    model: PBV4PS2
-    grill_id: "abc123..."     # aus der Pit-Boss-App, geht über die Cloud
-    allow_remote_start: false
+Für einen einzigen Grill genügt die kurze Form ohne ``grills:`` – dann
+stehen ``name``, ``model`` und der Weg direkt im Eintrag.
+
+**Warum alle Grills in einen Eintrag gehören:** Der Hub führt Integrationen
+unter ihrem Namen. Zwei ``- integration: pitboss``-Einträge sähen richtig
+aus, der zweite verdrängte aber den ersten – und dann landete der Befehl
+für den Räucherschrank beim Smoker.
 
 **Warum lokal, wenn es geht:** Der Grill spricht dieselbe RPC-Schnittstelle
 auch direkt im Netz. Dann bleibt der Hersteller aussen vor, und der Grill
@@ -39,6 +46,7 @@ Ausschalten geht immer – das ist die sichere Richtung.
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 from ..core.entity import Entity, EntityKind
@@ -126,6 +134,91 @@ def grill_state(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def grill_entries(config: dict[str, Any]) -> list[dict[str, Any]]:
+    """Aus dem Eintrag die Liste der Grills machen (rein, testbar).
+
+    Ein Haushalt kann zwei haben - Räucherschrank und Smoker stehen
+    nebeneinander auf der Terrasse. Zwei getrennte ``- integration:
+    pitboss``-Einträge sähen richtig aus, wären es aber nicht: Der Hub
+    führt Integrationen unter ihrem Namen, der zweite Eintrag verdrängt
+    den ersten, und dann landeten die Befehle für den einen Grill beim
+    anderen. Deshalb kennt *ein* Eintrag beliebig viele Geräte.
+
+    Die kurze Form (model/host direkt im Eintrag) bleibt gültig - für
+    einen Grill soll niemand eine Liste tippen müssen.
+    """
+    roh = config.get("grills")
+    if roh is None:
+        eintraege = [config]
+    elif isinstance(roh, list) and roh:
+        eintraege = [eintrag for eintrag in roh if isinstance(eintrag, dict)]
+        if len(eintraege) != len(roh):
+            raise ConfigError("pitboss: jeder Eintrag unter 'grills' ist ein Gerät")
+    else:
+        raise ConfigError("pitboss: 'grills' ist eine Liste mit mindestens einem Gerät")
+
+    fertig: list[dict[str, Any]] = []
+    kennungen: set[str] = set()
+    for eintrag in eintraege:
+        name = str(eintrag.get("name") or "Grill").strip() or "Grill"
+        model = str(eintrag.get("model") or "").strip()
+        if not model:
+            raise ConfigError(
+                f"pitboss: '{name}' braucht 'model' (z.B. PBV4PS2) – die "
+                "Steuerplatine lässt sich nicht selbst erkennen, und ohne "
+                "sie weiss der Hub nicht, welche Befehle das Gerät versteht."
+            )
+        host = str(eintrag.get("host") or "").strip()
+        grill_id = str(eintrag.get("grill_id") or "").strip()
+        if bool(host) == bool(grill_id):
+            raise ConfigError(
+                f"pitboss: '{name}' braucht entweder 'host' (lokal) oder "
+                "'grill_id' (Cloud) – genau eines von beiden."
+            )
+        kennung = slug(name)
+        if kennung in kennungen:
+            # Zwei Kacheln mit derselben Kennung wären eine Kachel.
+            raise ConfigError(
+                f"pitboss: der Name '{name}' kommt zweimal vor – jeder Grill "
+                "braucht einen eigenen."
+            )
+        kennungen.add(kennung)
+        fertig.append(
+            {
+                "id": kennung,
+                "name": name,
+                "model": model,
+                "host": host,
+                "grill_id": grill_id,
+                "password": str(eintrag.get("password") or ""),
+                # Der Schalter darf je Gerät stehen; fehlt er dort, gilt,
+                # was der Eintrag insgesamt sagt.
+                "allow_remote_start": bool(
+                    eintrag.get(
+                        "allow_remote_start", config.get("allow_remote_start", False)
+                    )
+                ),
+            }
+        )
+    return fertig
+
+
+class _Grill:
+    """Ein Gerät samt Verbindung und Kachel.
+
+    Ohne diese Klammer landete bei zwei Grills der Befehl für den einen
+    beim anderen: Der Hub kennt beim Schalten nur die Entität.
+    """
+
+    def __init__(self, eintrag: dict[str, Any], boss: Any, entity: Entity) -> None:
+        self.name: str = eintrag["name"]
+        self.may_start: bool = eintrag["allow_remote_start"]
+        # Über die Cloud meldet sich der Grill von selbst, lokal nicht.
+        self.pushes: bool = not eintrag["host"]
+        self.boss = boss
+        self.entity = entity
+
+
 class PitBossIntegration(Integration):
     name = "pitboss"
 
@@ -137,110 +230,110 @@ class PitBossIntegration(Integration):
                 "pitboss braucht das Paket 'pytboss' (pip install pytboss)"
             ) from err
 
-        model = str(self.config.get("model") or "").strip()
-        if not model:
-            raise ConfigError(
-                "pitboss braucht 'model' (z.B. PBV4PS2) – die Steuerplatine "
-                "lässt sich nicht selbst erkennen, und ohne sie weiss der "
-                "Hub nicht, welche Befehle das Gerät versteht."
-            )
-        host = str(self.config.get("host") or "").strip()
-        grill_id = str(self.config.get("grill_id") or "").strip()
-        if bool(host) == bool(grill_id):
-            raise ConfigError(
-                "pitboss braucht entweder 'host' (lokal) oder 'grill_id' "
-                "(Cloud) – genau eines von beiden."
-            )
-        self._name = str(self.config.get("name") or "Grill")
         self._interval = self.scan_interval()
-        # Ohne diesen Schalter fehlt das Kommando ganz, statt nur versteckt
-        # zu sein: Was es nicht gibt, kann auch kein Ablauf auslösen.
-        self._may_start = bool(self.config.get("allow_remote_start", False))
-        # Über die Cloud meldet sich der Grill von selbst, lokal nicht.
-        self._pushes = not host
+        self._grills: dict[str, _Grill] = {}
 
-        connection = (
-            HttpConnection(host) if host else WebSocketConnection(grill_id)
-        )
-        try:
-            self._boss = PitBoss(
-                connection, model, password=str(self.config.get("password") or "")
+        for eintrag in grill_entries(self.config):
+            connection = (
+                HttpConnection(eintrag["host"])
+                if eintrag["host"]
+                else WebSocketConnection(eintrag["grill_id"])
             )
-        except Exception as err:
-            raise ConfigError(f"pitboss: Modell '{model}' unbekannt ({err})") from err
+            try:
+                boss = PitBoss(
+                    connection, eintrag["model"], password=eintrag["password"]
+                )
+            except Exception as err:
+                raise ConfigError(
+                    f"pitboss: Modell '{eintrag['model']}' unbekannt ({err})"
+                ) from err
 
-        commands = ["turn_off", "set_temperature"]
-        if self._may_start:
-            commands.append("turn_on")
-        if getattr(self._boss.spec, "has_lights", False):
-            commands += ["light_on", "light_off"]
+            commands = ["turn_off", "set_temperature"]
+            # Ohne diesen Schalter fehlt das Kommando ganz, statt nur
+            # versteckt zu sein: Was es nicht gibt, kann auch kein Ablauf
+            # auslösen.
+            if eintrag["allow_remote_start"]:
+                commands.append("turn_on")
+            if getattr(boss.spec, "has_lights", False):
+                commands += ["light_on", "light_off"]
 
-        self._entity = await self.add_entity(
-            slug(self._name),
-            EntityKind.APPLIANCE,
-            self._name,
-            state={"state": "unknown"},
-            commands=commands,
-            available=False,
-        )
+            entity = await self.add_entity(
+                eintrag["id"],
+                EntityKind.APPLIANCE,
+                eintrag["name"],
+                state={"state": "unknown"},
+                commands=commands,
+                available=False,
+            )
+            grill = _Grill(eintrag, boss, entity)
+            self._grills[entity.id] = grill
 
-        try:
-            await self._boss.start()
-        except Exception as err:
-            # Ein kalter Grill ist stromlos und damit nicht erreichbar –
-            # das ist der Normalfall und darf den Hub-Start nicht stören.
-            self.log.warning("Grill '%s' antwortet nicht: %s", self._name, err)
+            try:
+                await boss.start()
+            except Exception as err:
+                # Ein kalter Grill ist stromlos und damit nicht erreichbar –
+                # das ist der Normalfall und darf den Hub-Start nicht stören.
+                self.log.warning("Grill '%s' antwortet nicht: %s", grill.name, err)
 
-        if self._pushes:
-            await self._boss.subscribe_state(self._on_push)
-        self.start_task(self._poll_loop())
+            if grill.pushes:
+                await boss.subscribe_state(self._push_handler(grill))
+            self.start_task(self._poll_loop(grill))
 
-    async def _on_push(self, payload: Any) -> None:
+    def _push_handler(self, grill: _Grill) -> Any:
         """Meldung aus der Cloud – dieselbe Verarbeitung wie beim Abfragen."""
-        if isinstance(payload, dict):
-            await self._publish(payload)
 
-    async def _poll_loop(self) -> None:
+        async def _on_push(payload: Any) -> None:
+            if isinstance(payload, dict):
+                await self._publish(grill, payload)
+
+        return _on_push
+
+    async def _poll_loop(self, grill: _Grill) -> None:
         while True:
             try:
-                state = await self._boss.get_state()
+                state = await grill.boss.get_state()
             except Exception as err:
                 # Zwischen zwei Grillabenden ist das Gerät wochenlang aus.
                 # Das ist kein Fehler, nur «nicht da».
-                self.log.debug("Grill '%s' nicht erreichbar: %s", self._name, err)
+                self.log.debug("Grill '%s' nicht erreichbar: %s", grill.name, err)
                 await self.hub.registry.update_state(
-                    self._entity.id, {}, available=False
+                    grill.entity.id, {}, available=False
                 )
             else:
                 if isinstance(state, dict):
-                    await self._publish(state)
+                    await self._publish(grill, state)
             await asyncio.sleep(self._interval)
 
-    async def _publish(self, raw: dict[str, Any]) -> None:
+    async def _publish(self, grill: _Grill, raw: dict[str, Any]) -> None:
         shaped = grill_state(raw)
-        await self.hub.registry.update_state(self._entity.id, shaped, available=True)
+        await self.hub.registry.update_state(grill.entity.id, shaped, available=True)
 
     async def handle_command(
         self, entity: Entity, command: str, data: dict[str, Any]
     ) -> None:
+        grill = self._grills.get(entity.id)
+        if grill is None:
+            raise ConfigError(f"Zu '{entity.id}' gehört kein Grill mehr")
         try:
             if command == "turn_off":
-                await self._boss.turn_grill_off()
+                await grill.boss.turn_grill_off()
             elif command == "turn_on":
-                if not self._may_start:
+                if not grill.may_start:
                     raise ConfigError(
                         "Fernstart ist nicht freigegeben. In der config.yaml "
                         "beim pitboss-Eintrag 'allow_remote_start: true' setzen."
                     )
                 # Das gehört ins Protokoll, auch wenn nichts schiefgeht.
-                self.log.warning("Grill '%s' wird aus der Ferne angezündet", self._name)
-                await self._boss.turn_grill_on()
+                self.log.warning("Grill '%s' wird aus der Ferne angezündet", grill.name)
+                await grill.boss.turn_grill_on()
             elif command == "set_temperature":
-                await self._boss.set_grill_temperature(int(data.get("temperature", 0)))
+                await grill.boss.set_grill_temperature(
+                    int(data.get("temperature", 0))
+                )
             elif command == "light_on":
-                await self._boss.turn_light_on()
+                await grill.boss.turn_light_on()
             elif command == "light_off":
-                await self._boss.turn_light_off()
+                await grill.boss.turn_light_off()
             else:
                 raise ConfigError(f"Kommando '{command}' gibt es hier nicht")
         except (ConfigError, HomePilotError):
@@ -250,15 +343,16 @@ class PitBossIntegration(Integration):
         # Nicht auf die nächste Abfrage warten – wer schaltet, will sehen,
         # dass es angekommen ist.
         try:
-            await self._publish(await self._boss.get_state())
+            await self._publish(grill, await grill.boss.get_state())
         except Exception:
             pass
 
     async def teardown(self) -> None:
-        try:
-            await self._boss.stop()
-        except Exception:
-            pass
+        for grill in self._grills.values():
+            try:
+                await grill.boss.stop()
+            except Exception:
+                pass
 
 
 INTEGRATION = PitBossIntegration
@@ -277,6 +371,35 @@ INTEGRATION = PitBossIntegration
 # man sonst erst beim nächsten Hub-Start an einer Zeile im Protokoll.
 
 
+def grill_zeilen(
+    name: str,
+    model: str,
+    host: str = "",
+    grill_id: str = "",
+    allow_remote_start: bool = False,
+    einzug: str = "      ",
+) -> list[str]:
+    """Ein Gerät als YAML-Zeilen (rein, testbar).
+
+    Getrennt vom ganzen Abschnitt, weil der zweite Grill genau diese
+    Zeilen braucht - und sonst nichts.
+    """
+    zeilen = [
+        f"{einzug}- name: {name}",
+        f"{einzug}  model: {model}",
+    ]
+    if host:
+        zeilen.append(f"{einzug}  host: {host}")
+    else:
+        # Die Kennung aus der App ist eine lange Ziffernfolge. Ohne
+        # Anführungszeichen liest YAML sie als Zahl - und dann fehlen
+        # führende Nullen.
+        zeilen.append(f'{einzug}  grill_id: "{grill_id}"')
+    if allow_remote_start:
+        zeilen.append(f"{einzug}  allow_remote_start: true")
+    return zeilen
+
+
 def yaml_block(
     name: str,
     model: str,
@@ -288,19 +411,17 @@ def yaml_block(
 
     Zum Kopieren statt zum Abtippen: Wer die Werte gerade auf dem
     Bildschirm hat, soll sie nicht aus zwei Zeilen Prosa zusammensuchen.
+
+    Absichtlich immer in der Listenform, auch für einen einzigen Grill:
+    Wer später einen zweiten anschliesst, hängt ihn darunter an. Ein
+    zweiter ``- integration: pitboss``-Eintrag sähe richtig aus, würde den
+    ersten aber verdrängen.
     """
-    zeilen = [
-        "  - integration: pitboss",
-        f"    name: {name}",
-        f"    model: {model}",
-    ]
+    zeilen = ["  - integration: pitboss"]
     if host:
-        zeilen.append(f"    host: {host}")
         zeilen.append("    scan_interval: 30")
-    else:
-        zeilen.append(f'    grill_id: "{grill_id}"')
-    if allow_remote_start:
-        zeilen.append("    allow_remote_start: true")
+    zeilen.append("    grills:")
+    zeilen += grill_zeilen(name, model, host, grill_id, allow_remote_start)
     return "\n".join(zeilen)
 
 
@@ -326,6 +447,143 @@ def zustandszeilen(shaped: dict[str, Any]) -> list[str]:
     fehler = shaped.get("faults") or []
     zeilen.append(f"Störungen:   {', '.join(fehler) if fehler else 'keine'}")
     return zeilen
+
+
+# --- Den Grill im Netz finden ------------------------------------------
+#
+# Die Adresse steht auf keinem Typenschild, und im Router heisst das Gerät
+# je nach Platine «ESP_1A2B3C» oder gar nichts. Die Steuerplatine läuft
+# unter Mongoose OS und beantwortet auf Port 80 unter /rpc die Methode
+# Sys.GetInfo - damit lässt sich ein Netz absuchen, ohne vorher das Modell
+# zu kennen. Bewusst ohne aiohttp: eine Handvoll Zeilen HTTP von Hand
+# bleibt prüfbar, und die Antwort auszuwerten ist der Teil, der schiefgeht.
+
+RPC_PFAD = "/rpc"
+RPC_PORT = 80
+RPC_ABFRAGE = b'{"id":1,"method":"Sys.GetInfo"}'
+SUCHE_TIMEOUT = 1.5
+SUCHE_GLEICHZEITIG = 64
+SUCHE_MAX = 1024
+
+
+def netzadressen(text: str) -> list[str]:
+    """Welche Adressen abzusuchen sind (rein, testbar).
+
+    Erlaubt ist, was man beim Tippen erwartet: «10.10.1.0/24», die
+    Kurzform «10.10.1» und eine einzelne Adresse. Netz- und
+    Rundrufadresse fallen weg, damit die Suche nicht zweimal ins Leere
+    läuft.
+    """
+    import ipaddress
+
+    roh = text.strip()
+    if not roh:
+        raise ValueError("Kein Netz angegeben.")
+    if "/" not in roh and roh.count(".") == 2:
+        # «10.10.1» meint das ganze Netz dahinter.
+        roh = f"{roh}.0/24"
+    if "/" not in roh:
+        return [str(ipaddress.ip_address(roh))]
+    netz = ipaddress.ip_network(roh, strict=False)
+    if netz.num_addresses > SUCHE_MAX:
+        raise ValueError(
+            f"{netz} hat {netz.num_addresses} Adressen - das dauert zu lange. "
+            f"Höchstens {SUCHE_MAX} (also /22 und kleiner)."
+        )
+    return [str(adresse) for adresse in netz.hosts()]
+
+
+def rpc_antwort(roh: bytes) -> dict[str, Any] | None:
+    """Aus einer HTTP-Antwort den JSON-Rumpf holen (rein, testbar).
+
+    Alles andere als eine JSON-Antwort auf Sys.GetInfo ist kein Grill -
+    Drucker, Kameras und Steckdosen antworten auf Port 80 auch, nur eben
+    mit HTML oder einem Fehler.
+    """
+    trenner = roh.find(b"\r\n\r\n")
+    rumpf = roh[trenner + 4 :] if trenner >= 0 else roh
+    try:
+        daten = json.loads(rumpf.decode("utf-8", "replace"))
+    except (ValueError, UnicodeDecodeError):
+        return None
+    if not isinstance(daten, dict):
+        return None
+    ergebnis = daten.get("result", daten)
+    return ergebnis if isinstance(ergebnis, dict) else None
+
+
+def fundzeile(adresse: str, info: dict[str, Any]) -> str:
+    """Ein Fund in einer Zeile (rein, testbar).
+
+    Auch Shelly-Geräte laufen unter Mongoose OS und antworten auf
+    dieselbe Frage. Der Firmware-Name unterscheidet sie - deshalb steht
+    er dabei und wird nicht weggefiltert.
+    """
+    teile = [adresse.ljust(15)]
+    for feld, beschriftung in (("app", ""), ("fw_version", "fw "), ("mac", "")):
+        wert = info.get(feld)
+        if wert:
+            teile.append(f"{beschriftung}{wert}")
+    return "  ".join(teile)
+
+
+async def _frage_rpc(adresse: str, port: int = RPC_PORT) -> dict[str, Any] | None:
+    """Eine Adresse fragen. Antwortet dort kein RPC-Gerät: None."""
+    writer = None
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(adresse, port), SUCHE_TIMEOUT
+        )
+        anfrage = (
+            f"POST {RPC_PFAD} HTTP/1.1\r\n"
+            f"Host: {adresse}\r\n"
+            "Content-Type: application/json\r\n"
+            f"Content-Length: {len(RPC_ABFRAGE)}\r\n"
+            "Connection: close\r\n\r\n"
+        ).encode()
+        writer.write(anfrage + RPC_ABFRAGE)
+        await writer.drain()
+        roh = await asyncio.wait_for(reader.read(8192), SUCHE_TIMEOUT)
+    except (TimeoutError, OSError):
+        return None
+    finally:
+        if writer is not None:
+            writer.close()
+    return rpc_antwort(roh)
+
+
+async def _suche(text: str) -> int:
+    adressen = netzadressen(text)
+    print(f"→ {len(adressen)} Adressen absuchen …")
+    tor = asyncio.Semaphore(SUCHE_GLEICHZEITIG)
+
+    async def einzeln(adresse: str) -> tuple[str, dict[str, Any] | None]:
+        async with tor:
+            return adresse, await _frage_rpc(adresse)
+
+    funde = [
+        (adresse, info)
+        for adresse, info in await asyncio.gather(*(einzeln(a) for a in adressen))
+        if info is not None
+    ]
+    if not funde:
+        print(
+            "Nichts gefunden. Entweder ist der lokale Dienst am Grill aus "
+            "(ältere Platinen haben gar keinen), oder er hängt in einem "
+            "anderen Netz\nals der Hub. Dann bleibt --grill-id aus der "
+            "Pit-Boss-App."
+        )
+        return 1
+    print(f"✓ {len(funde)} Gerät(e) mit RPC-Schnittstelle:")
+    for adresse, info in funde:
+        print(f"  {fundzeile(adresse, info)}")
+    print(
+        "\nDavon ist der Grill das Gerät, dessen Firmware nicht nach etwas "
+        "anderem klingt (Shelly & Co. antworten hier ebenfalls).\n"
+        "Nächster Schritt: --model … --host <Adresse> - das prüft es "
+        "endgültig."
+    )
+    return 0
 
 
 async def _probiere(
@@ -371,6 +629,14 @@ def _modelle(suche: str = "") -> list[str]:
 
 
 async def _setup_main(args: Any) -> int:
+    if args.suchen:
+        # Die Suche spricht rohes HTTP und kommt ohne pytboss aus.
+        try:
+            return await _suche(args.suchen)
+        except ValueError as err:
+            print(f"✗ {err}")
+            return 1
+
     try:
         import pytboss  # noqa: F401
     except ModuleNotFoundError:
@@ -402,7 +668,7 @@ async def _setup_main(args: Any) -> int:
             "Gebraucht werden --model und genau eines von --host (lokal) oder "
             "--grill-id (Cloud).\n"
             "Welche Modelle es gibt: --modelle (oder --modelle PBV für die "
-            "Suche)."
+            "Suche).\nDie Adresse im eigenen Netz findet --suchen 10.10.1.0/24."
         )
         return 1
 
@@ -416,6 +682,14 @@ async def _setup_main(args: Any) -> int:
         print(f"  {zeile}")
     print("\nDas gehört in die config.yaml unter integrations:\n")
     print(yaml_block(args.name, model, host, grill_id, args.allow_remote_start))
+    print(
+        "\nSteht dort schon ein pitboss-Eintrag (zweiter Grill), dann nur "
+        "diese Zeilen\nunter dessen 'grills:' anhängen:\n"
+    )
+    for zeile in grill_zeilen(
+        args.name, model, host, grill_id, args.allow_remote_start
+    ):
+        print(zeile)
     print(
         "\nDanach Hub neu starten. Fernstart (turn_on) bleibt ohne "
         "allow_remote_start bewusst weg - er entfacht ein Feuer, neben dem "
@@ -440,6 +714,11 @@ if __name__ == "__main__":
         "--allow-remote-start",
         action="store_true",
         help="Fernstart in den Vorschlag aufnehmen",
+    )
+    parser.add_argument(
+        "--suchen",
+        metavar="NETZ",
+        help="Netz nach Grills absuchen, z.B. 10.10.1.0/24 oder 10.10.1",
     )
     parser.add_argument(
         "--modelle",

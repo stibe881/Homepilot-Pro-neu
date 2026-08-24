@@ -52,14 +52,23 @@ const NACH_EINHEIT: Record<string, string> = {
  * Bild, Apps und eine Fernbedienung. Wo es um Musik geht – der Player
  * auf der Startseite, eine Durchsage – hat er nichts verloren.
  *
- * Unterschieden wird an den Befehlen, nicht am Hersteller: Was ein
- * Steuerkreuz oder einen App-Start kennt, ist ein Fernseher – das gilt
- * auch für den nächsten, der nicht von Nvidia kommt. Ein Chromecast am
- * Fernseher bleibt dabei eine Box: Er kann nur Ton abspielen, und genau
- * dafür wird er hier gebraucht.
+ * Zwei Wege, ihn zu erkennen, und beide werden gebraucht:
+ *
+ * 1. **Das Gerät sagt es** (`has_screen`). Ein Cast-fähiger Fernseher
+ *    meldet sich bei Google als Videogerät, kennt aber weder Steuerkreuz
+ *    noch App-Start – für den Hub sah er aus wie eine Box. Genau daran
+ *    hing der Fehler: Er stand in der Boxenwahl der Startseite, und lief
+ *    abends ein Film, war er dort die gezeigte Karte.
+ * 2. **Die Befehle verraten es.** Was ein Steuerkreuz oder einen
+ *    App-Start kennt, ist ein Fernseher – auch der nächste, der von
+ *    seiner Integration kein `has_screen` mitbekommt.
+ *
+ * Ein Chromecast-Stick am Fernseher zählt als Fernseher: Er meldet sich
+ * als Videogerät, und den Ton macht ohnehin das Gerät, an dem er hängt.
  */
 export function isTelevision(entity: Entity): boolean {
   if (entity.kind !== 'media_player') return false;
+  if (entity.state?.has_screen === true) return true;
   // Wehrhaft gegen Einträge ohne Befehlsliste: Diese Prüfung läuft über
   // jedes Medien-Gerät, und ein einziger Ausrutscher darüber nähme den
   // ganzen Player von der Startseite – Playlists inbegriffen. Im Zweifel

@@ -468,15 +468,25 @@ integrations:
   #       # und manchmal einzeln schaltet, lieber false.
   #       hide_members: true
 
+  # Pelletgrill. Modell und Adresse findet der Helfer:
+  #   docker exec homepilot-hub python -m homepilot.integrations.pitboss --suchen 10.10.1
+  #   docker exec homepilot-hub python -m homepilot.integrations.pitboss \
+  #       --model PBV4PS2 --host 10.10.1.60
+  # Alle Grills gehören in EINEN Eintrag: Der Hub führt Integrationen unter
+  # ihrem Namen, ein zweiter pitboss-Eintrag verdrängte den ersten - und dann
+  # ginge «Smoker aus» an den Räucherschrank.
   # - integration: pitboss
-  #   name: Grill
-  #   model: PBV4PS2            # steht auf dem Typenschild
-  #   host: 10.10.1.60          # lokal – ohne Umweg über die Hersteller-Cloud
-  #   # grill_id: "..."         # Alternative: über die Cloud, Kennung aus der App
   #   scan_interval: 30
-  #   # Anzünden aus der Ferne ist absichtlich aus – es entfacht ein Feuer
-  #   # in einem Gerät, neben dem niemand stehen muss.
-  #   allow_remote_start: false
+  #   grills:
+  #     - name: Räucherschrank
+  #       model: PBV4PS2        # steht auf dem Typenschild
+  #       host: 10.10.1.60      # lokal – ohne Umweg über die Hersteller-Cloud
+  #     - name: Smoker
+  #       model: PB1150PS2
+  #       grill_id: "..."       # Alternative: über die Cloud, Kennung aus der App
+  #       # Anzünden aus der Ferne ist absichtlich aus – es entfacht ein Feuer
+  #       # in einem Gerät, neben dem niemand stehen muss.
+  #       allow_remote_start: false
 
   # Matter über matterjs-server (läuft als eigener Dienst, siehe
   # docker-compose.yml - er braucht host-Netz und IPv6). Geräte koppeln:

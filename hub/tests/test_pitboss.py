@@ -5,10 +5,22 @@ ohne Grill und ohne die Bibliothek. Genau das ist der Teil, der beim
 Grillen zählt: ob «Pellets leer» ankommt, bevor das Fleisch kalt wird.
 """
 
+import asyncio
+
+import pytest
+
+from homepilot.core.errors import ConfigError
 from homepilot.integrations.pitboss import (
+    RPC_ABFRAGE,
+    _frage_rpc,
     faults,
+    fundzeile,
+    grill_entries,
     grill_state,
+    grill_zeilen,
+    netzadressen,
     probe_temperatures,
+    rpc_antwort,
     slug,
     yaml_block,
     zustandszeilen,
@@ -84,14 +96,27 @@ def test_yaml_block_takes_the_local_way_when_there_is_a_host():
     block = yaml_block("Grill", "PBV4PS2", host="10.10.1.60")
     assert block.splitlines() == [
         "  - integration: pitboss",
-        "    name: Grill",
-        "    model: PBV4PS2",
-        "    host: 10.10.1.60",
         "    scan_interval: 30",
+        "    grills:",
+        "      - name: Grill",
+        "        model: PBV4PS2",
+        "        host: 10.10.1.60",
     ]
     # Ohne die Zeile gibt es den Fernstart gar nicht – das soll man dem
     # Vorschlag ansehen und nicht erst in der Anleitung nachlesen.
     assert "allow_remote_start" not in block
+
+
+def test_yaml_block_stays_a_list_even_for_a_single_grill():
+    """Sonst schreibt der zweite Grill den ersten tot.
+
+    Wer später einen anschliesst, hängt ihn unter 'grills:' an - und
+    genau dahin führt der Vorschlag von Anfang an.
+    """
+    assert "    grills:" in yaml_block("Grill", "PBV4PS2", host="10.10.1.60")
+    assert yaml_block("Grill", "PBV4PS2", host="10.10.1.60").count(
+        "- integration: pitboss"
+    ) == 1
 
 
 def test_yaml_block_quotes_the_cloud_id():
@@ -101,13 +126,23 @@ def test_yaml_block_quotes_the_cloud_id():
     führende Nullen.
     """
     block = yaml_block("Grill", "LG0800BL", grill_id="0123456789")
-    assert '    grill_id: "0123456789"' in block
+    assert '        grill_id: "0123456789"' in block
+    # Über die Cloud meldet der Grill von selbst – da gibt es nichts abzufragen.
     assert "scan_interval" not in block
 
 
 def test_yaml_block_carries_the_remote_start_when_asked():
     block = yaml_block("Grill", "PBV4PS2", host="10.10.1.60", allow_remote_start=True)
-    assert block.endswith("    allow_remote_start: true")
+    assert block.endswith("        allow_remote_start: true")
+
+
+def test_the_device_lines_stand_on_their_own():
+    """Für den zweiten Grill braucht es nur diese Zeilen."""
+    assert grill_zeilen("Smoker", "PB1150PS2", host="10.10.1.61") == [
+        "      - name: Smoker",
+        "        model: PB1150PS2",
+        "        host: 10.10.1.61",
+    ]
 
 
 def test_state_lines_show_what_matters_at_the_grill():
@@ -134,3 +169,245 @@ def test_state_lines_say_when_no_probe_is_plugged():
     assert zeilen[0] == "Zustand:     aus"
     assert "Fühler:      keiner eingesteckt" in zeilen
     assert "Störungen:   keine" in zeilen
+
+
+# --- Den Grill im Netz finden ------------------------------------------
+#
+# Die Adresse steht auf keinem Typenschild. Die Steuerplatine läuft unter
+# Mongoose OS und beantwortet Sys.GetInfo auf Port 80 – das genügt zum
+# Absuchen, noch bevor das Modell feststeht.
+
+def test_network_notation_is_forgiving():
+    assert netzadressen("10.10.1.0/30") == ["10.10.1.1", "10.10.1.2"]
+    # Die Kurzform meint das ganze Netz dahinter.
+    assert netzadressen("10.10.1")[0] == "10.10.1.1"
+    assert len(netzadressen("10.10.1")) == 254
+    # Eine einzelne Adresse bleibt eine einzelne Adresse.
+    assert netzadressen(" 10.10.1.60 ") == ["10.10.1.60"]
+
+
+def test_a_network_too_big_is_refused_not_attempted():
+    """Ein /8 abzusuchen dauert Stunden.
+
+    Wer sich vertippt, soll das sofort erfahren und nicht nach zehn
+    Minuten Stille abbrechen müssen.
+    """
+    with pytest.raises(ValueError, match="dauert zu lange"):
+        netzadressen("10.0.0.0/8")
+    with pytest.raises(ValueError):
+        netzadressen("")
+
+
+def test_only_json_answers_count_as_a_device():
+    """Drucker und Kameras antworten auf Port 80 ebenfalls – mit HTML."""
+    assert rpc_antwort(b"HTTP/1.1 200 OK\r\n\r\n<html>Drucker</html>") is None
+    assert rpc_antwort(b"HTTP/1.1 404 Not Found\r\n\r\n") is None
+    # Mongoose OS packt die Antwort in "result".
+    info = rpc_antwort(b'HTTP/1.1 200 OK\r\nX: y\r\n\r\n{"id":1,"result":{"app":"PitBoss"}}')
+    assert info == {"app": "PitBoss"}
+    # Ohne Hülle geht es auch – nicht jede Firmware hält sich daran.
+    assert rpc_antwort(b'{"app":"PitBoss"}') == {"app": "PitBoss"}
+
+
+def test_the_hit_line_keeps_the_firmware_name():
+    """Shelly-Geräte laufen ebenfalls unter Mongoose OS.
+
+    Wegzufiltern wäre geraten; den Namen zu zeigen lässt den Menschen
+    entscheiden.
+    """
+    zeile = fundzeile("10.10.1.60", {"app": "PitBoss", "mac": "AABBCC", "fw_version": "1.2"})
+    assert zeile.startswith("10.10.1.60")
+    assert "PitBoss" in zeile and "fw 1.2" in zeile and "AABBCC" in zeile
+    # Eine karge Antwort ist immer noch ein Fund.
+    assert fundzeile("10.10.1.61", {}).strip() == "10.10.1.61"
+
+
+@pytest.mark.asyncio
+async def test_the_probe_speaks_http_a_grill_would_understand():
+    """Der HTTP-Aufruf ist von Hand geschrieben – also einmal wirklich führen.
+
+    Ein vergessenes Content-Length hätte hier nie jemand gesehen: Der
+    Grill hätte einfach geschwiegen, und die Suche hätte «nichts
+    gefunden» gemeldet.
+    """
+    gesehen: dict[str, bytes] = {}
+
+    async def antworte(reader, writer):
+        gesehen["anfrage"] = await reader.read(512)
+        writer.write(b'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n'
+                     b'{"id":1,"result":{"app":"PitBoss","mac":"AABBCC"}}')
+        await writer.drain()
+        writer.close()
+
+    server = await asyncio.start_server(antworte, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    async with server:
+        info = await _frage_rpc("127.0.0.1", port)
+
+    assert info == {"app": "PitBoss", "mac": "AABBCC"}
+    anfrage = gesehen["anfrage"]
+    assert anfrage.startswith(b"POST /rpc HTTP/1.1\r\n")
+    assert b"Content-Length: %d\r\n" % len(RPC_ABFRAGE) in anfrage
+    assert anfrage.endswith(RPC_ABFRAGE)
+
+
+@pytest.mark.asyncio
+async def test_a_closed_port_is_simply_no_device():
+    """Beim Absuchen eines /24 antworten 250 Adressen gar nicht.
+
+    Jede davon dürfte keine Ausnahme werfen, sonst reisst der erste
+    leere Platz die ganze Suche ab.
+    """
+    server = await asyncio.start_server(lambda r, w: None, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    server.close()
+    await server.wait_closed()
+    assert await _frage_rpc("127.0.0.1", port) is None
+
+
+# --- Zwei Grills auf derselben Terrasse --------------------------------
+
+def test_a_single_grill_needs_no_list():
+    """Die kurze Form bleibt gültig – für ein Gerät soll niemand eine
+    Liste tippen müssen."""
+    (eintrag,) = grill_entries(
+        {"integration": "pitboss", "name": "Grill", "model": "PBV4PS2", "host": "10.10.1.60"}
+    )
+    assert eintrag["id"] == "grill"
+    assert eintrag["model"] == "PBV4PS2"
+    assert eintrag["grill_id"] == ""
+    assert eintrag["allow_remote_start"] is False
+
+
+def test_two_grills_live_in_one_entry():
+    """Zwei getrennte Einträge sähen richtig aus, wären es aber nicht.
+
+    Der Hub führt Integrationen unter ihrem Namen; der zweite Eintrag
+    verdrängt den ersten, und dann landet der Befehl für den
+    Räucherschrank beim Smoker.
+    """
+    eintraege = grill_entries(
+        {
+            "integration": "pitboss",
+            "grills": [
+                {"name": "Räucherschrank", "model": "PBV4PS2", "host": "10.10.1.60"},
+                {"name": "Smoker", "model": "PB1150PS2", "grill_id": "abc"},
+            ],
+        }
+    )
+    # Umlaute bleiben stehen – so machen es auch die Gruppen (group.py),
+    # und die Kennung steht später in Szenen und Abläufen.
+    assert [eintrag["id"] for eintrag in eintraege] == ["räucherschrank", "smoker"]
+    assert eintraege[1]["grill_id"] == "abc"
+
+
+def test_the_remote_start_can_be_set_for_all_or_for_one():
+    eintraege = grill_entries(
+        {
+            "allow_remote_start": True,
+            "grills": [
+                {"name": "A", "model": "PBV4PS2", "host": "1.2.3.4"},
+                {"name": "B", "model": "PBV4PS2", "host": "1.2.3.5", "allow_remote_start": False},
+            ],
+        }
+    )
+    assert [eintrag["allow_remote_start"] for eintrag in eintraege] == [True, False]
+
+
+def test_a_grill_without_a_way_is_refused_by_name():
+    """Bei zwei Geräten muss die Meldung sagen, welches gemeint ist."""
+    with pytest.raises(ConfigError, match="Smoker"):
+        grill_entries({"grills": [{"name": "Smoker", "model": "PB1150PS2"}]})
+    with pytest.raises(ConfigError, match="Smoker"):
+        grill_entries(
+            {"grills": [{"name": "Smoker", "model": "PB1150PS2", "host": "1.2.3.4", "grill_id": "x"}]}
+        )
+    with pytest.raises(ConfigError, match="model"):
+        grill_entries({"grills": [{"name": "Smoker", "host": "1.2.3.4"}]})
+
+
+def test_the_same_name_twice_would_be_one_tile():
+    with pytest.raises(ConfigError, match="zweimal"):
+        grill_entries(
+            {
+                "grills": [
+                    {"name": "Grill", "model": "PBV4PS2", "host": "1.2.3.4"},
+                    {"name": "Grill!", "model": "PBV4PS2", "host": "1.2.3.5"},
+                ]
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_each_grill_gets_its_own_commands(monkeypatch):
+    """Der Fehler, den zwei Einträge gemacht hätten, in einem Test.
+
+    Der Hub sucht die Integration beim Schalten über den Namen –
+    «pitboss». Läge die Verbindung an der Integration statt am Gerät,
+    ginge «Smoker aus» an den Räucherschrank.
+    """
+    import sys
+    import types
+
+    from homepilot.core.config import ApiConfig, HubConfig
+    from homepilot.core.hub import Hub
+    from homepilot.integrations.pitboss import PitBossIntegration
+
+    geschaltet: list[tuple[str, str]] = []
+
+    class FakeBoss:
+        def __init__(self, connection, model, password=""):
+            self.model = model
+            self.spec = types.SimpleNamespace(has_lights=False)
+
+        async def start(self):
+            pass
+
+        async def stop(self):
+            pass
+
+        async def get_state(self):
+            return {"moduleIsOn": False}
+
+        async def turn_grill_off(self):
+            geschaltet.append((self.model, "off"))
+
+    fake = types.ModuleType("pytboss")
+    fake.PitBoss = FakeBoss
+    fake.HttpConnection = lambda host: ("http", host)
+    fake.WebSocketConnection = lambda grill_id: ("ws", grill_id)
+    monkeypatch.setitem(sys.modules, "pytboss", fake)
+
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[], automations=[]))
+    await hub.start()
+    try:
+        integration = PitBossIntegration(
+            hub,
+            {
+                "integration": "pitboss",
+                "grills": [
+                    {"name": "Räucherschrank", "model": "PBV4PS2", "host": "10.10.1.60"},
+                    {"name": "Smoker", "model": "PB1150PS2", "host": "10.10.1.61"},
+                ],
+            },
+        )
+        await integration.setup()
+
+        entities = {entity.id: entity for entity in hub.registry.all()}
+        assert "pitboss.räucherschrank" in entities
+        assert "pitboss.smoker" in entities
+
+        await integration.handle_command(entities["pitboss.smoker"], "turn_off", {})
+        assert geschaltet == [("PB1150PS2", "off")]
+
+        await integration.handle_command(
+            entities["pitboss.räucherschrank"], "turn_off", {}
+        )
+        assert geschaltet[-1] == ("PBV4PS2", "off")
+
+        # Ohne den Schalter gibt es den Fernstart gar nicht – auch nicht
+        # für den zweiten Grill.
+        assert "turn_on" not in entities["pitboss.smoker"].commands
+    finally:
+        await integration.teardown()
+        await hub.stop()

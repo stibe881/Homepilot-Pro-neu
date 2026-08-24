@@ -33,7 +33,7 @@ weiter – das ist der Grund, warum Licht, Storen und Schlösser hier stehen.
 | **androidtv** | Fernseher über das Google-TV-Remote-Protokoll | IP, Kopplung |
 | **unifi** | Welche Geräte im WLAN sind (keine Anwesenheit – die kommt vom Geofence) | Controller, Zugangsdaten |
 | **unifi_protect** | Kameras | Controller, Zugangsdaten |
-| **pitboss** | Pellet-Grill | Bluetooth, `pytboss` |
+| **pitboss** | Pelletgrill (auch mehrere) | IP oder Cloud-Kennung, Modell |
 
 ## Über eine Cloud
 

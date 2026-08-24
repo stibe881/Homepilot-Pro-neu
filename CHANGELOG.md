@@ -7,6 +7,16 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 ## 2026-08-24
 
+**Startseite**
+
+- Der Musikplayer in der rechten Spalte zeigt keine Fernseher mehr –
+  weder in der Boxenwahl noch als Karte, wenn dort gerade ein Film
+  läuft. Ein Cast-fähiger Fernseher kennt weder Steuerkreuz noch
+  App-Start und sah für den Hub aus wie ein Lautsprecher; jetzt sagt das
+  Gerät selbst, dass ein Bild an ihm hängt. Aus demselben Grund
+  verschwindet er aus der «Abspielen auf»-Zeile von Spotify und aus der
+  Boxenliste des Radios.
+
 **Radio**
 
 - Neue Integration `tunein`: Internetradio auf den Boxen im Haus. Sie

@@ -392,12 +392,18 @@ class TuneInIntegration(Integration):
 
         Das Kommando entscheidet, nicht die Integration: Was `play_url`
         kann, kann Radio – heute ein Chromecast, morgen etwas anderes.
+
+        Fernseher bleiben draussen. Sie könnten den Ton zwar abspielen,
+        aber Radio auf dem Fernseher heisst: Gerät an, schwarzes Bild,
+        Musik. Das will niemand aus Versehen, und in einer Liste von
+        Boxen sucht es auch niemand.
         """
         return [
             (entity.id, entity.display_name or entity.name)
             for entity in self.hub.registry.all()
             if entity.kind == EntityKind.MEDIA_PLAYER
             and "play_url" in entity.commands
+            and not entity.state.get("has_screen")
             and entity.available
         ]
 
