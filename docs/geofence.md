@@ -152,16 +152,19 @@ Drei Dinge, die man vorher wissen sollte:
   entfernt. Sie kann jederzeit wieder dichtmachen. Der Hub geht bei
   403/429 in wachsende Pausen bis zwanzig Minuten, statt gegen die
   Sperre anzurennen.
-- **Konten mit bestätigter Telefonnummer** kommen mit E-Mail und
-  Passwort nicht mehr hinein. Dann meldet man sich im Browser bei
-  life360.com an und kopiert den Wert des Cookies `LIFE360_AUTH_TOKEN`
-  in die `secrets.env`.
+- **Life360 kennt keine Passwörter mehr** – die Anmeldung läuft über
+  einen Code per SMS oder Mail. Darum ist der `token` der Normalfall:
+  im Browser bei life360.com anmelden (Code eingeben), die
+  Entwicklerwerkzeuge öffnen (F12) → Reiter **Netzwerk** → eine Anfrage
+  an `api-cloudfront.life360.com` anklicken → in den Anfrage-Headern den
+  Wert hinter `Authorization: Bearer` kopieren. Diese lange
+  Zeichenkette ist der Token; er bleibt gültig, bis man sich dort
+  abmeldet.
 
 ```yaml
   - integration: life360
-    username: ${LIFE360_USER}
-    password: ${LIFE360_PASSWORD}
-    # token: ${LIFE360_TOKEN}      # statt Benutzername/Passwort
+    token: ${LIFE360_TOKEN}
+    # username/password nur noch für alte Konten, die eines haben
     scan_interval: 60
     members:                        # Name bei Life360 → Zone im Hub
       Oma: oma

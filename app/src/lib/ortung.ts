@@ -180,6 +180,25 @@ export function werIstDaHinweis(people: Person[], hausAnwesend: boolean | null):
   return '';
 }
 
+/**
+ * Woher die Meldung kam, auf Deutsch (rein, testbar).
+ *
+ * In der Diagnose stand «Quelle: none» – ein Kürzel aus dem Hub, das
+ * niemand lesen muss. Und «geofence» beantwortet die Frage nicht, die
+ * man dort stellt: Kommt das vom Telefon oder von Life360?
+ *
+ * Unbekanntes bleibt stehen, wie es ist: Eine neue Quelle soll hier
+ * nicht als «?» verschwinden, sondern beim Namen genannt werden, bis
+ * jemand eine Übersetzung nachträgt.
+ */
+export function quellenText(quelle: unknown): string {
+  const wert = String(quelle ?? '').trim();
+  if (!wert || wert === 'none' || wert === 'unbekannt') return 'noch keine Meldung';
+  if (wert === 'geofence') return 'Telefon';
+  if (wert === 'life360') return 'Life360';
+  return wert;
+}
+
 /** Eine Zeile je Person für die Familienseite (rein, testbar). */
 export function anwesenheitsZeile(person: Person, jetzt: Date): string {
   const seit = seitText(person?.since, jetzt);

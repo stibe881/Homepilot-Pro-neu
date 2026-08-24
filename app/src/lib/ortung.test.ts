@@ -7,6 +7,7 @@ import {
   anwesenheitsZeile,
   dauerDa,
   ortungsHinweis,
+  quellenText,
   pauseBis,
   pausiert,
   seitText,
@@ -270,5 +271,27 @@ describe('werIstDaHinweis', () => {
   it('verträgt eine leere Liste', () => {
     expect(werIstDaHinweis([], true)).toContain('Für niemanden');
     expect(werIstDaHinweis([], false)).toBe('');
+  });
+});
+
+
+describe('quellenText', () => {
+  it('macht aus den Kürzeln des Hubs lesbare Antworten', () => {
+    // «Quelle: none» stand so auf dem Bildschirm – ein Wort aus dem
+    // Code, das eine Frage offenlässt statt sie zu beantworten.
+    expect(quellenText('none')).toBe('noch keine Meldung');
+    expect(quellenText('geofence')).toBe('Telefon');
+    expect(quellenText('life360')).toBe('Life360');
+  });
+
+  it('behandelt Fehlendes wie «noch nichts gekommen»', () => {
+    expect(quellenText(undefined)).toBe('noch keine Meldung');
+    expect(quellenText('')).toBe('noch keine Meldung');
+    expect(quellenText('unbekannt')).toBe('noch keine Meldung');
+  });
+
+  it('nennt eine neue Quelle beim Namen, statt sie zu verstecken', () => {
+    // Sonst verschwände die nächste Integration hinter einem «?».
+    expect(quellenText('tasker')).toBe('tasker');
   });
 });

@@ -89,6 +89,13 @@ services:
       - NUKI_TOKEN=${NUKI_TOKEN:-}
       - VZUG_USER=${VZUG_USER:-}
       - VZUG_PASSWORD=${VZUG_PASSWORD:-}
+      # Life360: Standorte für Telefone ohne HomePilot. Ohne diese
+      # Zeilen kommt «Umgebungsvariable ... ist nicht gesetzt», obwohl
+      # sie im Stack sichtbar ist - Portainer reicht nur durch, was hier
+      # steht.
+      - LIFE360_USER=${LIFE360_USER:-}
+      - LIFE360_PASSWORD=${LIFE360_PASSWORD:-}
+      - LIFE360_TOKEN=${LIFE360_TOKEN:-}
       # Fehlte hier – der lokale Tuya-Schlüssel gehört in beide Fassungen.
       - TUYA_KEY_PROJEKTOR=${TUYA_KEY_PROJEKTOR:-}
       - TZ=Europe/Zurich

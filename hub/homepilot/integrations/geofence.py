@@ -303,11 +303,19 @@ class GeofenceIntegration(Integration):
         event: str,
         place: str | None = None,
         battery: Any = None,
+        source: str = "geofence",
     ) -> str:
         """Einen gemeldeten Wechsel übernehmen. Gibt den neuen Zustand zurück.
 
         `place` ist die Kennung des Ortes; ohne Angabe gilt «home» – so
         funktionieren die alten Kurzbefehle unverändert weiter.
+
+        `source` sagt, wer gemeldet hat. Voreingestellt ist «geofence» –
+        das Telefon selbst, über App oder Kurzbefehl. Life360 meldet
+        durch dieselbe Türe und trägt sich als «life360» ein: In der
+        Diagnose stand sonst bei allen «geofence», und die Frage «kommt
+        das jetzt von Life360 oder nicht?» war genau die, die man dort
+        stellt.
         """
         entity_id = self._zones.get(zone_id)
         if entity_id is None:
@@ -323,7 +331,7 @@ class GeofenceIntegration(Integration):
             drin.append(ort)
         self._inside[zone_id] = drin
         state, engster = presence.place_state(drin, self.places)
-        await self._publish(zone_id, entity_id, state, engster, battery)
+        await self._publish(zone_id, entity_id, state, engster, battery, source)
         self.log.info("Geofence: %s ist jetzt %s (%s)", zone_id, state, ort)
         return state
 
@@ -334,6 +342,7 @@ class GeofenceIntegration(Integration):
         state: str,
         place: str | None,
         battery: Any = None,
+        source: str = "geofence",
     ) -> None:
         jetzt = time.time()
         name = next(
@@ -348,7 +357,7 @@ class GeofenceIntegration(Integration):
             "changed_at": jetzt,
             "place": place,
             "place_name": name,
-            "source": "geofence",
+            "source": source or "geofence",
             "stale": False,
         }
         if battery is not None:
