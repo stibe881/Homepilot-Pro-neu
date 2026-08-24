@@ -7,6 +7,7 @@ import { Card } from '../components/Card';
 import { useOrtung } from '../hooks/useOrtung';
 import { defaultHubUrl } from '../lib/origin';
 import { PAUSEN, ortungsHinweis, pauseBis, pausiert } from '../lib/ortung';
+import { zonenkennung } from '../lib/zonenkennung';
 import { applySetup, QrScanner } from '../components/QrScanner';
 import { Colors, radius, ThemeMode, type, useColors } from '../theme';
 
@@ -48,7 +49,7 @@ export function SettingsScreen({
   // steht hier und lässt sich aussetzen.
   const ortung = useOrtung(
     { url: initial?.url ?? '', token: initial?.token ?? '' } as HubSettings,
-    (user?.name ?? '').split(' ')[0].toLowerCase(),
+    zonenkennung(user?.name),
     !!user && user.role !== 'gast'
   );
   const [url, setUrl] = useState(initial?.url ?? defaultHubUrl());

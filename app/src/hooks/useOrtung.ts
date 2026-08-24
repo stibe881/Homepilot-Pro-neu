@@ -212,7 +212,9 @@ export function useOrtung(settings: HubSettings, zone: string, erlaubt: boolean)
       }).catch(() => null);
       if (!antwort || !antwort.ok) {
         return antwort?.status === 404
-          ? `Der Hub kennt keine Zone «${zone}» - unter Abläufe → geofence anlegen.`
+          ? `Der Hub kennt keine Zone «${zone}». Neuere Fassungen legen sie ` +
+            `aus der Benutzerliste selbst an - läuft dort noch eine ältere, ` +
+            `gehört «${zone}» in der config.yaml unter geofence → zones.`
           : 'Der Hub hat die Meldung nicht angenommen.';
       }
     }

@@ -264,12 +264,15 @@ integrations:
   #       latitude: 47.1502
   #       longitude: 8.0641
   #       radius: 200
-  #   zones:
-  #     - id: stefan
-  #       name: Stefan
-  #       wifi: unifi.iphone_stefan   # optional: WLAN schlägt Geofence
-  #     - id: livia
-  #       name: Livia
+  #   # Die Personen kommen aus der Benutzerliste des Hubs: Wer in der App
+  #   # angelegt ist, bekommt seine Zone (geofence.<vorname>) von selbst -
+  #   # ohne Neustart und ohne Eintrag hier. Gäste, geteilte Geräte wie das
+  #   # Wandtablet und das Systemtoken bleiben draussen.
+  #   # 'zones:' braucht es nur noch für abweichende Namen oder für ein
+  #   # Telefon, das keinem Benutzer gehört. Was hier steht, sticht.
+  #   # zones:
+  #   #   - id: stefan
+  #   #     name: Stefan (Diensthandy)
 
   # Life360: Standort für Telefone, auf denen HomePilot nicht läuft -
   # das Gerät der Grosseltern, ein Kindertelefon. Eine Quelle je Person:

@@ -12,19 +12,31 @@ zuverlässiger und ohne Akku zu kosten.
 
 ## 1. Zonen im Hub anlegen
 
-In der `config.yaml`:
+Nichts zu tun: **Die Zonen entstehen aus der Benutzerliste.** Wer in der
+App als Benutzer angelegt ist, bekommt seine Zone von selbst – ohne
+Neustart und ohne Eintrag in der `config.yaml`. Aus «Bine» wird
+`geofence.bine`, aus «Stefan Gross» wird `geofence.stefan`: der Vorname,
+klein geschrieben, Umlaute ausgeschrieben (`Björn` → `bjoern`).
+
+Die Geräte zeigen `home`, `away` oder – bis zur ersten Meldung –
+`unknown`.
+
+Draussen bleiben Gäste (für die ist die Ortung in der App ohnehin aus),
+geteilte Geräte wie das Wandtablet und das Systemtoken. Wird ein Benutzer
+gelöscht, verschwindet seine Zone mit ihm – eine stehengebliebene Zone
+auf «zuhause» hiesse sonst, dass «niemand mehr zuhause» nie wieder
+eintritt.
+
+Der Abschnitt `zones:` gibt es weiterhin, für die zwei Fälle, in denen
+die Benutzerliste nicht reicht – ein abweichender Name, oder ein Telefon,
+das keinem Benutzer gehört. Was dort steht, sticht:
 
 ```yaml
   - integration: geofence
     zones:
       - id: stefan
-        name: Stefan
-      - id: livia
-        name: Livia
+        name: Stefan (Diensthandy)
 ```
-
-Daraus werden die Geräte `geofence.stefan` und `geofence.livia`. Sie
-zeigen `home`, `away` oder – bis zur ersten Meldung – `unknown`.
 
 ## 2. Auf dem iPhone: Kurzbefehle
 
