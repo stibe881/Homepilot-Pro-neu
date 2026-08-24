@@ -87,6 +87,26 @@ untere Taste auf :1, die obere auf :2, der Bewegungsmelder auf :3.
         name: Taster Flur unten
         kind: button
 
+Messfühler geben ihren Datenpunkt an. Die Einheit und die Bedeutung
+kommen von selbst dazu (``°C``/``temperature``, ``%``/``humidity``) -
+ohne beides fände die Klima-Zeile der App den Fühler nicht:
+
+      - address: "0006D8A9B12345:1"     # HmIP-STHO (Aussenfühler)
+        port: 2010
+        name: Temperatur aussen
+        kind: sensor
+        datapoint: ACTUAL_TEMPERATURE
+      - address: "0006D8A9B12345:1"     # derselbe Kanal, zweiter Wert
+        port: 2010
+        name: Luftfeuchtigkeit aussen
+        kind: sensor
+        datapoint: HUMIDITY
+
+Zwei Einträge auf derselben Adresse sind erlaubt: Der HmIP-STHO legt
+Temperatur und Feuchte auf denselben Kanal. Der zweite bekommt seinen
+Datenpunkt an die Kennung gehängt (``homematic.0006D8A9B12345_1_humidity``)
+- ohne das überschriebe er den ersten, lautlos.
+
 Geräte dürfen einzeln einen anderen ``port`` angeben – so laufen klassische
 Homematic- (2001) und Homematic-IP-Geräte (2010) gemischt über dieselbe
 Integration.
@@ -158,6 +178,7 @@ from .homematic_channels import (  # noqa: F401
     power_to_state,
     press_to_state,
     switch_channel,
+    unit_for,
     value_to_state,
 )
 
@@ -346,12 +367,36 @@ class HomematicIntegration(Integration):
         # offenen Fenster noch vor Wasser warnen. Was der Datenpunkt schon
         # verrät, wird geraten; angeben sticht raten.
         device_class = device.get("device_class") or guess_device_class(datapoint)
+        # Die Einheit gehört zum Datenpunkt und nicht in jede Zeile der
+        # config.yaml: Homematic liefert nackte Zahlen, und ohne «°C» ist
+        # ein Aussenfühler für die Klima-Zeile der App unsichtbar
+        # (lib/klimachip.ts). Angeben sticht raten.
+        unit = device.get("unit") or unit_for(datapoint)
+
+        # Ein Gerät, zwei Messwerte: Der HmIP-STHO legt Temperatur *und*
+        # Luftfeuchtigkeit auf denselben Kanal. Zwei Einträge mit
+        # derselben Adresse ergäben zweimal dieselbe Kennung - der zweite
+        # überschriebe den ersten, lautlos. Der Datenpunkt hängt sich
+        # deshalb an, sobald die Kennung schon vergeben ist.
+        object_id = address.replace(":", "_").replace("-", "_")
+        if self.entity_id(object_id) in self._devices:
+            object_id = f"{object_id}_{str(datapoint).lower()}"
+            self.log.info(
+                "homematic: %s ist zweimal konfiguriert - der zweite Wert "
+                "läuft als %s",
+                address,
+                self.entity_id(object_id),
+            )
 
         entity = await self.add_entity(
-            address.replace(":", "_").replace("-", "_"),
+            object_id,
             kind,
             device.get("name", address),
-            state={"state": "unknown", **({"device_class": device_class} if device_class else {})},
+            state={
+                "state": "unknown",
+                **({"device_class": device_class} if device_class else {}),
+                **({"unit": unit} if unit else {}),
+            },
             commands=commands,
             # Ein Taster lässt sich nicht abfragen – er meldet sich nur.
             # Ihn bis zum ersten Druck als «nicht erreichbar» zu zeigen,

@@ -178,6 +178,19 @@ integrations:
   #       name: Temperatur Bad
   #       kind: sensor
   #       datapoint: ACTUAL_TEMPERATURE
+  #     # Ein Gerät, zwei Messwerte (z.B. HmIP-STHO, Aussenfühler):
+  #     # zweimal dieselbe Adresse, zweimal ein anderer Datenpunkt.
+  #     # Einheit (°C, %) und Bedeutung kommen vom Datenpunkt.
+  #     - address: "0006D8A9B12345:1"
+  #       port: 2010
+  #       name: Temperatur aussen
+  #       kind: sensor
+  #       datapoint: ACTUAL_TEMPERATURE
+  #     - address: "0006D8A9B12345:1"
+  #       port: 2010
+  #       name: Luftfeuchtigkeit aussen
+  #       kind: sensor
+  #       datapoint: HUMIDITY
   #     # Fensterkontakt. 'device_class' sagt dem Hub, wofür der Melder
   #     # steht – daran hängen die Warnungen: contact (Fenster/Tür),
   #     # motion, smoke, moisture (Wassermelder). Bei den eindeutigen
