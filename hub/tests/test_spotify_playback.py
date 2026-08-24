@@ -208,14 +208,20 @@ def test_the_queue_becomes_a_list_of_titles():
         {
             "currently_playing": {"name": "Läuft gerade", "artists": [{"name": "A"}]},
             "queue": [
-                {"name": "Danach", "artists": [{"name": "B"}, {"name": "C"}]},
+                {
+                    "name": "Danach",
+                    "artists": [{"name": "B"}, {"name": "C"}],
+                    "uri": "spotify:track:2",
+                },
                 {"name": "Und dann", "artists": []},
             ],
         }
     )
     assert titel == [
-        {"track": "Danach", "artist": "B, C"},
-        {"track": "Und dann", "artist": None},
+        {"track": "Danach", "artist": "B, C", "uri": "spotify:track:2"},
+        # Ohne URI lässt sich die Zeile nicht anspringen - sie steht
+        # trotzdem da, denn lesen kann man sie.
+        {"track": "Und dann", "artist": None, "uri": None},
     ]
 
 
@@ -342,3 +348,63 @@ def test_ein_ueberfaelliger_titel_wird_gleich_nachgefragt():
     # Rechnerisch vorbei, aber die Antwort war von eben: gleich nochmal,
     # nicht sofort – sonst dreht die Schleife durch.
     assert naechster_blick({"state": "playing", "duration": 210, "progress": 215}, 30.0) == 2.0
+
+
+# ── Einen Titel aus der Warteschlange anspringen ─────────────────────────
+#
+# Die Liste «was als Nächstes kommt» liess sich nur lesen. Spotify kennt
+# keinen Sprung «an Position 5»; es gibt nur den Sprung an eine Stelle im
+# laufenden Kontext - und ersatzweise eine Titelliste.
+
+
+def test_der_kontext_ist_der_weg_wenn_es_einen_gibt():
+    from homepilot.integrations.spotify import play_body
+
+    body = play_body("spotify:track:5", "spotify:playlist:AAA", ["spotify:track:6"])
+    # Nur so geht es nach dem Titel weiter, wie es weiterging.
+    assert body == {
+        "context_uri": "spotify:playlist:AAA",
+        "offset": {"uri": "spotify:track:5"},
+    }
+
+
+def test_ohne_kontext_reisen_die_folgenden_titel_mit():
+    from homepilot.integrations.spotify import play_body
+
+    body = play_body("spotify:track:5", None, ["spotify:track:6", "spotify:track:7"])
+    # Von Hand zusammengestellte Titel spielen aus keiner Playlist - dann
+    # bleibt wenigstens die Reihenfolge, die man vor sich sieht.
+    assert body == {
+        "uris": ["spotify:track:5", "spotify:track:6", "spotify:track:7"]
+    }
+
+
+def test_folgende_titel_sind_die_nach_dem_gewaehlten():
+    from homepilot.integrations.spotify import folgende_uris
+
+    queue = [
+        {"track": "A", "uri": "spotify:track:a"},
+        {"track": "B", "uri": "spotify:track:b"},
+        {"track": "C", "uri": "spotify:track:c"},
+    ]
+    assert folgende_uris(queue, "spotify:track:b") == ["spotify:track:c"]
+    assert folgende_uris(queue, "spotify:track:c") == []
+    # Ein Titel, der gar nicht in der Schlange steht, hat auch keine Folge.
+    assert folgende_uris(queue, "spotify:track:x") == []
+    assert folgende_uris(None, "spotify:track:a") == []
+
+
+def test_derselbe_titel_zweimal_zaehlt_ab_dem_ersten():
+    from homepilot.integrations.spotify import folgende_uris
+
+    queue = [
+        {"uri": "spotify:track:a"},
+        {"uri": "spotify:track:b"},
+        {"uri": "spotify:track:a"},
+    ]
+    # Mehr weiss ein Tipp auf eine Zeile nicht - und der zweite Durchgang
+    # kommt so oder so noch.
+    assert folgende_uris(queue, "spotify:track:a") == [
+        "spotify:track:b",
+        "spotify:track:a",
+    ]
