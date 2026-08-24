@@ -332,9 +332,9 @@ class Watchdog:
         for shop in shopping.due_reminders(
             shops, zonen, len(offen), jetzt, self._shop_reminded
         ):
-            zone = str(shop.get("zone"))
-            stand = zonen.get(zone) or {}
-            self._shop_reminded[zone] = stand.get("changed_at")
+            marke = shopping.marke_fuer(shop)
+            stand, _ = shopping.wo_man_steht(shop, zonen)
+            self._shop_reminded[marke] = (stand or {}).get("changed_at")
             titel, text = shopping.describe(shop, offen)
             await self._notify(titel, text, category="shopping")
 

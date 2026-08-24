@@ -30,20 +30,28 @@ export function toggleCategory(current: string[], category: string): string[] {
 
 export function Shops({
   shops,
+  orte = [],
   onAdd,
   onUpdate,
   onRemove,
+  onOrtHier,
 }: {
   shops: Shop[];
+  /** Die Orte, die der Hub kennt – daraus wählt ein Laden seinen. */
+  orte?: { id: string; name: string }[];
   onAdd: (shop: { name: string; categories: string[]; zone: string }) => void;
   onUpdate: (id: string, changes: Partial<Shop>) => void;
   onRemove: (id: string) => void;
+  /** «Ich stehe jetzt hier»: legt den Ort an und hängt ihn an den Laden.
+   *  Gibt eine Fehlermeldung zurück, leer heisst geklappt. */
+  onOrtHier?: (shop: Shop) => Promise<string>;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [offen, setOffen] = useState(false);
   const [neu, setNeu] = useState('');
   const [bearbeitet, setBearbeitet] = useState<string | null>(null);
+  const [meldung, setMeldung] = useState<string | null>(null);
 
   return (
     <Card style={styles.card}>
@@ -162,21 +170,54 @@ export function Shops({
                     </Text>
 
                     <Text style={styles.label}>Ort (für die Erinnerung)</Text>
-                    <TextInput
-                      style={styles.input}
-                      defaultValue={shop.zone ?? ''}
-                      onEndEditing={(event) =>
-                        onUpdate(shop.id, { zone: event.nativeEvent.text.trim() })
-                      }
-                      placeholder="Kennung der Geofence-Zone, z.B. coop_willisau"
-                      placeholderTextColor={colors.inkFaint}
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                    />
+                    {/* Kein Koordinatenfeld: Wer davorsteht, drückt einen
+                        Knopf. Abgetippte Koordinaten liegen zu oft daneben,
+                        und ein Ort, der 300 m danebenliegt, meldet sich nie. */}
+                    <View style={styles.chips}>
+                      {orte.map((ort) => {
+                        const gewaehlt = shop.place === ort.id;
+                        return (
+                          <Pressable
+                            key={ort.id}
+                            onPress={() =>
+                              onUpdate(shop.id, { place: gewaehlt ? '' : ort.id })
+                            }
+                            accessibilityRole="button"
+                            style={[styles.chip, gewaehlt && styles.chipActive]}
+                          >
+                            <Text
+                              style={[styles.chipText, gewaehlt && styles.chipTextActive]}
+                            >
+                              {ort.name}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                    {onOrtHier ? (
+                      <Pressable
+                        onPress={async () => {
+                          setMeldung(null);
+                          const fehler = await onOrtHier(shop);
+                          setMeldung(fehler || `«${shop.name}» ist jetzt hier.`);
+                        }}
+                        accessibilityRole="button"
+                        style={({ pressed }) => [
+                          styles.ortKnopf,
+                          pressed && { opacity: 0.8 },
+                        ]}
+                      >
+                        <Ionicons name="location" size={16} color={colors.ink} />
+                        <Text style={styles.ortKnopfText}>
+                          Ich stehe jetzt bei «{shop.name}»
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                    {meldung ? <Text style={styles.hint}>{meldung}</Text> : null}
                     <Text style={styles.hint}>
-                      Steht hier eine Zone, meldet sich der Hub, wenn du länger
-                      als vier Minuten dort bist und noch etwas auf der Liste
-                      steht. Ohne Eintrag passiert nichts – der Laden
+                      Zeigt der Laden auf einen Ort, meldet sich der Hub, wenn du
+                      länger als vier Minuten dort bist und noch etwas auf der
+                      Liste steht. Ohne Ort passiert nichts – der Laden
                       funktioniert trotzdem.
                     </Text>
 
@@ -222,6 +263,19 @@ const makeStyles = (colors: Colors) =>
       borderWidth: 1,
       borderColor: colors.surfaceBorder,
     },
+    ortKnopf: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      alignSelf: 'flex-start',
+      marginTop: 8,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    ortKnopfText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
     addButton: {
       width: 36,
       height: 36,

@@ -355,11 +355,7 @@ class UnifiProtectIntegration(Integration):
         # damit das Ausschalten den alten Zustand wiederherstellt.
         self._privacy_restore: dict[str, dict[str, Any]] = {}
 
-        # Der Controller nutzt ein selbstsigniertes Zertifikat; die Anmeldung
-        # läuft über Cookies, deshalb bekommt die Session einen Cookie-Speicher.
-        self._session = self.http_session(
-            connector=aiohttp.TCPConnector(ssl=False),
-            cookie_jar=aiohttp.CookieJar(unsafe=True),
+        self._session = self.console_session(
             timeout=aiohttp.ClientTimeout(total=20),
         )
 

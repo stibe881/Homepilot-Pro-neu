@@ -98,9 +98,7 @@ class UnifiIntegration(Integration):
         self._prefix = ""  # wird beim Login gesetzt
         self._csrf: str | None = None
 
-        # Der Controller nutzt ein selbstsigniertes Zertifikat.
-        self._session = self.http_session(
-            connector=aiohttp.TCPConnector(ssl=False),
+        self._session = self.console_session(
             timeout=aiohttp.ClientTimeout(total=20),
         )
 

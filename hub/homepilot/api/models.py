@@ -108,6 +108,23 @@ class HomeRequest(BaseModel):
     radius: float | None = None
 
 
+class PlaceRequest(BaseModel):
+    """Ein Ort, den jemand in der App anlegt - meist ein Laden.
+
+    Die Koordinaten kommen von der aktuellen Position: Wer davorsteht,
+    drückt einen Knopf. Abgetippte Koordinaten liegen zu oft daneben, und
+    ein Ort, der 300 m danebenliegt, meldet sich nie.
+    """
+
+    name: str
+    latitude: float
+    longitude: float
+    radius: float | None = None
+    # Beim Verschieben eines bestehenden Ortes: seine Kennung. Ohne
+    # Angabe entsteht sie aus dem Namen.
+    id: str | None = None
+
+
 class PushPrefsRequest(BaseModel):
     """Abbestellte Nachrichtenarten eines Benutzers."""
 

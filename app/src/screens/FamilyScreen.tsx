@@ -10,6 +10,8 @@ import { BabysitterStand, LEERER_BABYSITTER, modusSatz } from '../lib/babysitter
 import { gruppiereModule } from '../lib/familiemodule';
 import { DraggableList } from '../components/DraggableList';
 import { Shops } from '../components/Shops';
+import { useOrte } from '../hooks/useOrte';
+import { ortKennung } from '../lib/orte';
 import { useColors } from '../theme';
 import { RecipeBook } from './RecipeBook';
 import { wochentagDatumKurz, wochentagUhr } from '../lib/format';
@@ -196,6 +198,10 @@ export function FamilyScreen({
     () => hubClient(settings.url, settings.token),
     [settings.url, settings.token]
   );
+
+  // Die Orte des Hubs - daraus wählt ein Laden seinen, und «ich stehe
+  // jetzt hier» legt einen neuen an.
+  const { orte, setzeHier } = useOrte(settings);
 
   // ── Ohne Netz lesbar bleiben (Punkte 165 und 172) ──────────────────────
   //
@@ -1330,9 +1336,19 @@ export function FamilyScreen({
         {imLaden ? null : (
           <Shops
             shops={shops}
+            orte={orte}
             onAdd={(shop) => add('shops', shop)}
             onUpdate={(id, changes) => update('shops', id, changes)}
             onRemove={(id) => remove('shops', id)}
+            onOrtHier={async (shop) => {
+              // Ein Griff statt zwei: Der Ort entsteht und hängt gleich
+              // am Laden. Wer davorsteht, will nicht danach noch eine
+              // Kennung aus einer Liste suchen.
+              const fehler = await setzeHier(shop.name, shop.place || undefined);
+              if (fehler) return fehler;
+              update('shops', shop.id, { place: ortKennung(shop.place || shop.name) });
+              return '';
+            }}
           />
         )}
       </View>
