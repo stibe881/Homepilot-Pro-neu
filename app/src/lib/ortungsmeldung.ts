@@ -77,21 +77,24 @@ export function drinIn(ort: Ort, lat: number, lon: number): boolean {
   return abstandMeter(lat, lon, ort.latitude, ort.longitude) <= ort.radius;
 }
 
-/**
- * Ist die Position gut genug, um daraus etwas zu melden? (rein, testbar)
- *
- * Ein Fix mit 400 Metern Streuung sagt über eine 150-Meter-Zone nichts.
- * Lieber gar nichts melden als «zuhause», weil das Telefon gerade nur
- * den Funkmast kennt: Ein falsches «zuhause» schaltet die Alarmanlage
- * unscharf, ein fehlendes kostet einen zweiten Tipp.
- */
-export function genauGenug(orte: Ort[], genauigkeit: number | null | undefined): boolean {
-  if (!orte.length) return false;
-  const streuung = Number(genauigkeit);
-  if (!Number.isFinite(streuung) || streuung <= 0) return true;
-  const engster = Math.min(...orte.map((ort) => ort.radius));
-  return streuung <= engster / 2;
-}
+// Hier stand `genauGenug`: «Ist die Messung feiner als der halbe Radius
+// des engsten Ortes?» Wenn nicht, meldete die App gar nichts.
+//
+// Die Regel war richtig, solange enter/leave hinausging – ein
+// entschiedenes «weg» aus einem groben Fix schaltet die Alarmanlage
+// scharf. Seit die Position selbst gemeldet wird, ist sie schädlich, und
+// zwar genau dort, wo es weh tut: Drinnen liefert das Telefon gern 60 bis
+// 100 Meter Streuung, und ein einziger in der App erfasster Laden mit 50
+// Metern Radius zieht die Schranke auf 25 Meter. Dann meldete die App im
+// eigenen Wohnzimmer nie – und man stand «unterwegs», während man
+// danebensass.
+//
+// Die Streuung reist stattdessen mit und wird beim Hub je Ort verrechnet
+// (`presence.orte_fuer_position`). Dort ist sie richtig aufgehoben: Ein
+// knappes «nicht drin» wird zum Nichtwissen und lässt stehen, was schon
+// bekannt war; ein «drin» gilt, denn es schaltet nichts scharf. Der
+// Unterschied ist «weiss ich für diesen Ort nicht» statt «sage lieber
+// gar nichts».
 
 /**
  * Was dem Hub zu melden ist (rein, testbar).

@@ -37,6 +37,16 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   Sicherheitsnetz nie greifen, das ein eingefrorenes «weg» nach zwölf
   Stunden auf «unbekannt» stellt – und daran hängt, dass «alles aus»
   nicht läuft, während jemand im Haus ist.
+- Nachtrag am selben Tag, zwei Fehler in der Reparatur selbst: Die App
+  hatte eine Sperre, die gar nichts meldete, wenn die Messung gröber war
+  als der halbe Radius des engsten Ortes. Drinnen sind 60 bis 100 Meter
+  normal, und ein einziger erfasster Laden mit 50 Metern zieht die
+  Schranke auf 25 – im eigenen Wohnzimmer meldete die App also nie. Die
+  Streuung reist jetzt mit und wird beim Hub je Ort verrechnet, wo alle
+  Orte bekannt sind. Und die laufende Aktualisierung meldete sich nur
+  an, wenn jemand den Schalter anfasste; wer ihn seit dem Update in Ruhe
+  liess, lief weiter bloss auf Grenzübertritten. Sie meldet sich jetzt
+  bei jedem App-Start an.
 - Der Erlaubnistext auf dem Telefon sagt jetzt, was wirklich passiert.
   Dort stand «kein laufender Standort», und das stimmt nicht mehr.
   **Dafür braucht es einen neuen Build, kein OTA.**

@@ -214,6 +214,80 @@ async def test_a_repeated_report_does_not_reset_since_when() -> None:
         await hub.stop()
 
 
+async def test_a_coarse_indoor_fix_still_arrives_at_home() -> None:
+    """Der Fall, an dem die erste Fassung des Umbaus scheiterte.
+
+    Drinnen misst das Telefon über WLAN und Funkzellen, nicht über GPS –
+    60 bis 100 Meter Streuung sind dort normal. Die App hatte eine
+    Sperre, die bei so etwas gar nichts meldete; sie stammte aus der Zeit
+    der enter/leave-Flanken, wo ein grober Fix ein falsches «weg» hätte
+    erzeugen können.
+
+    Beim Hub ist die Streuung dagegen richtig aufgehoben: Der Punkt liegt
+    mitten im Hausradius, also ist er drin – ganz gleich, wie grob die
+    Messung war. Unsicher wird es erst am Rand, und dort bleibt stehen,
+    was der Hub schon wusste.
+    """
+    hub, geo = await make_geofence()
+    try:
+        await geo.report_position("stefan", 47.05, 8.31, accuracy=20.0)
+        assert hub.registry.get("geofence.stefan").state["state"] == "away"
+
+        # Im Haus, aber nur auf 100 m genau - gröber als der halbe Radius.
+        await geo.report_position("stefan", 47.1381, 7.9228, accuracy=100.0)
+        assert hub.registry.get("geofence.stefan").state["state"] == "home"
+    finally:
+        await hub.stop()
+
+
+async def test_a_narrow_shop_does_not_block_the_house() -> None:
+    """Ein erfasster Laden mit 50 m Radius darf das Haus nicht sperren.
+
+    Die alte Sperre in der App rechnete über den *engsten* aller Orte.
+    Ein einziger Laden zog damit die Schranke für jede Meldung auf 25
+    Meter – auch für das Zuhause mit seinen 150.
+    """
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[], automations=[]))
+    await hub.start()
+    try:
+        geo = GeofenceIntegration(
+            hub,
+            {
+                "integration": "geofence",
+                "zones": [{"id": "stefan", "name": "Stefan"}],
+                "places": [
+                    *ORTE,
+                    {
+                        "id": "coop",
+                        "name": "Coop",
+                        "latitude": 47.1600,
+                        "longitude": 7.9500,
+                        "radius": 50.0,
+                    },
+                ],
+            },
+        )
+        await geo.setup()
+        await geo.report_position("stefan", 47.1381, 7.9228, accuracy=100.0)
+        assert hub.registry.get("geofence.stefan").state["state"] == "home"
+    finally:
+        await hub.stop()
+
+    """Ein ungenauer Fix darf niemanden aus dem Haus werfen."""
+    hub, geo = await make_geofence()
+    try:
+        await geo.report_position("stefan", 47.1381, 7.9228, accuracy=15.0)
+        assert hub.registry.get("geofence.stefan").state["state"] == "home"
+
+        # Knapp draussen, aber zu ungenau, um es zu entscheiden.
+        await geo.report_position(
+            "stefan", 47.1381 + 0.00162, 7.9228, accuracy=70.0
+        )
+        assert hub.registry.get("geofence.stefan").state["state"] == "home"
+    finally:
+        await hub.stop()
+
+
 async def test_a_fuzzy_fix_near_home_does_not_arm_the_alarm() -> None:
     """Ein ungenauer Fix darf niemanden aus dem Haus werfen."""
     hub, geo = await make_geofence()

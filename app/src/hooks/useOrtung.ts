@@ -30,7 +30,6 @@ import { AppState, Platform } from 'react-native';
 import { HubSettings } from '../api/types';
 import {
   Ort as Ortsangabe,
-  genauGenug,
   meldungsText,
   ortsMeldungen,
   unsichereOrte,
@@ -194,12 +193,6 @@ export function useOrtung(settings: HubSettings, zone: string, erlaubt: boolean)
     }
     const vorne = await Location.requestForegroundPermissionsAsync();
     if (!vorne.granted) return 'Ohne Standort-Erlaubnis geht es nicht.';
-    let orte: Ort[];
-    try {
-      orte = await orteHolen();
-    } catch (err) {
-      return String((err as Error).message);
-    }
     let position;
     try {
       position = await Location.getCurrentPositionAsync({
@@ -209,14 +202,24 @@ export function useOrtung(settings: HubSettings, zone: string, erlaubt: boolean)
       return 'Der Standort war gerade nicht zu bekommen.';
     }
     const { latitude, longitude, accuracy } = position.coords;
-    if (!genauGenug(orte as Ortsangabe[], accuracy)) {
-      return 'Der Standort ist gerade zu ungenau - draussen oder am Fenster nochmal.';
-    }
-    // Die Streuung entscheidet mit: Ein knappes «nicht drin» ist keine
-    // Abwesenheit, sondern ein Nichtwissen – und «weg» schaltet scharf.
-    // Gemeldet wird die Position, nicht die Flanke: Der Hub rechnet
-    // selbst, in welchen Orten sie steckt. Damit rückt eine einzige
-    // Meldung alles gerade, was von einer früheren fehlt.
+    // Hier stand eine Sperre: Ist die Messung ungenauer als der halbe
+    // Radius des *engsten* Ortes, wurde gar nichts gemeldet. Sie war
+    // richtig, solange die App enter/leave schickte – ein entschiedenes
+    // «weg» aus einem groben Fix schaltet die Alarmanlage scharf.
+    //
+    // Seit die Position selbst hinausgeht, ist sie falsch, und zwar
+    // genau dort, wo es weh tut: Drinnen liefert `Balanced` gern 60 bis
+    // 100 Meter, und es genügt ein einziger in der App erfasster Laden
+    // mit 50 Metern Radius, damit der engste Ort 25 Meter verlangt. Dann
+    // meldete die App im eigenen Wohnzimmer nie etwas – und man stand
+    // «unterwegs», während man danebensass.
+    //
+    // Die Streuung reist jetzt mit und wird beim Hub je Ort verrechnet
+    // (`presence.orte_fuer_position`): Ein knappes «nicht drin» wird dort
+    // zum Nichtwissen und lässt stehen, was der Hub schon wusste. Ein
+    // «drin» dagegen gilt – es schaltet nichts scharf. Damit wird die
+    // Entscheidung dort getroffen, wo alle Orte bekannt sind, statt hier
+    // pauschal für den engsten.
     const angekommen = await positionMelden(
       { url: settings.url, token: settings.token, zone },
       {
@@ -231,6 +234,17 @@ export function useOrtung(settings: HubSettings, zone: string, erlaubt: boolean)
         'Der Hub war nicht erreichbar – die Meldung ist vorgemerkt und geht ' +
         'hinaus, sobald er wieder da ist.'
       );
+    }
+    // Die Orte holt die App erst jetzt, und nur für den Satz: Er sagt,
+    // was der Hub gerade erfahren hat. Vorher standen sie ganz oben und
+    // konnten das Melden verhindern – ein Hub, der die Ortsliste nicht
+    // herausrückt, hätte damit die Ankunft mitgenommen. Die Meldung ist
+    // die Aufgabe, der Satz ist die Höflichkeit.
+    let orte: Ort[];
+    try {
+      orte = await orteHolen();
+    } catch {
+      return 'Gemeldet.';
     }
     // Die Sätze bleiben die alten: Sie beantworten «was hat der Hub jetzt
     // von mir erfahren», und daran ändert der neue Weg nichts.
@@ -372,12 +386,25 @@ export function useOrtung(settings: HubSettings, zone: string, erlaubt: boolean)
     beimStartGemeldet.current = true;
     ortungLesen().then((gespeichert) => {
       if (!gespeichert.aktiv || gespeichert.pausiertBis > Date.now()) return;
-      melden().then(
-        (satz) => setStand((vorher) => ({ ...vorher, gemeldet: satz })),
+      // Nicht bloss melden, sondern die Überwachung neu anmelden.
+      //
+      // `anwenden` lief bisher nur am Schalter. Solange es eine einzige
+      // Aufgabe gab, ging das gerade noch – das Betriebssystem führt die
+      // Zonen über App-Starts hinweg selbst weiter. Mit dem Update kam
+      // eine zweite dazu, und die konnte niemand kennen: Wer den
+      // Schalter seit der neuen Fassung nicht angefasst hat, lief
+      // weiterhin nur auf Grenzübertritten. Genau das, was repariert
+      // werden sollte.
+      //
+      // Anmelden ist gutmütig: Läuft die Aufgabe schon, ersetzt sie sich
+      // selbst. Und nach einer Erlaubnis wird nicht neu gefragt, solange
+      // sie erteilt ist – der Schalter stünde sonst nicht auf «an».
+      anwenden(true, 0).then(
+        (hinweis) => setStand((vorher) => ({ ...vorher, hinweis })),
         () => {}
       );
     });
-  }, [melden]);
+  }, [anwenden]);
 
   /**
    * Dasselbe, wenn die App aus dem Hintergrund zurückkommt.
