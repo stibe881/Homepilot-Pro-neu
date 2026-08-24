@@ -7,6 +7,21 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 ## 2026-08-24
 
+**Batteriewarnung**
+
+- «Batterie schwach» kommt nicht mehr immer wieder. Der Merker, was schon
+  gemeldet wurde, lag im Arbeitsspeicher und war nach jedem Neustart des
+  Hubs weg – bei einer Batterie, die wochenlang schwach ist, hiess das:
+  nach jedem Update dieselbe Meldung. Er liegt jetzt auf der Platte.
+- Er fällt auch nicht mehr weg, wenn ein Funksensor sich neu anmeldet und
+  einen Moment ohne Batterieangabe dasteht. Vergessen wird nur, wenn ein
+  Gerät ausdrücklich «Batterie in Ordnung» meldet.
+- Ein Tipp auf die Meldung führt direkt auf die Geräteseite mit
+  aufgeklappter Batterienliste.
+- Dort lässt sich jede Warnung quittieren: **bis morgen** stumm. Das ist
+  ein Aufschub, kein Ausschalten – ist die Batterie morgen früh noch
+  schwach, erinnert der Hub noch einmal.
+
 **Erscheinungsbild**
 
 - «Pink» heisst jetzt «Neonpink» und ist, was der Name sagt: schwarzer

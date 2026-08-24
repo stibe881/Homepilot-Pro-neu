@@ -237,6 +237,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const darfPausieren = (user?.capabilities ?? []).includes('pause_automations');
 
   const [section, setSection] = useState<Section>('start');
+  // Aufgeklappt kommt man nur über die Batteriewarnung hierher; sonst
+  // entscheidet die Karte selbst (siehe DeviceHealth).
+  const [batterienOffen, setBatterienOffen] = useState(false);
   // Bis wann die persönlichen Bereiche offen sind (0 = zu). Nur im
   // Arbeitsspeicher: Nach einem Neustart der App wird wieder gefragt.
   const [riegelBis, setRiegelBis] = useState(0);
@@ -573,9 +576,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
 
   // Antippen einer Alarm-Nachricht führt direkt zur Kamera des betroffenen
   // Raums. Wer nachts geweckt wird, soll nicht erst durch die Räume suchen.
+  // Dasselbe für die Batteriewarnung: Sie führt auf die Geräteseite mit
+  // aufgeklappten Batterien – dort steht der Knopf zum Quittieren, und
+  // ohne den Sprung sucht man ihn zwei Ebenen tief.
   const onNotificationTap = useCallback((tap: Tap) => {
     if (tap.camera) {
       setFullscreen(tap.camera);
+      return;
+    }
+    if (tap.type === 'battery') {
+      setSection('devices');
+      setBatterienOffen(true);
       return;
     }
     if (tap.type === 'alarm') setSection('alarm');
@@ -1584,7 +1595,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               {/* Batterien und Stumme im Detail – vorher unter System,
                   also auf dem Bildschirm für den Hub statt dem für die
                   Geräte. */}
-              <DeviceHealth entities={entities} />
+              <DeviceHealth
+                entities={entities}
+                offen={batterienOffen}
+                onOffen={setBatterienOffen}
+              />
             </>
           ) : null}
           {searching ? (
