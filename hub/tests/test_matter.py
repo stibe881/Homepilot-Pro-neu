@@ -729,7 +729,10 @@ def test_only_unlocked_points_at_the_lock_not_the_hub():
     satz = aufzieh_urteil(["unlocked"])
     assert satz is not None
     assert "nur aufgeschlossen" in satz
-    assert "Nuki-App" in satz
+    # Und zwar mit der Einstellung, an der es bei Nuki wirklich hängt -
+    # nicht mit einem allgemeinen «schau mal in der App nach».
+    assert "Türkonfiguration" in satz
+    assert "keine Klinke" in satz
 
 
 def test_no_reaction_at_all_asks_about_the_pin():
