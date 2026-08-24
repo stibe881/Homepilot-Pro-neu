@@ -92,11 +92,14 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 - Die UniFi-Anbindung liess sich anmelden und bekam danach auf jede
   Abfrage die HTML-Anmeldeseite zurück – mit Status 200, nicht mit 401.
   Im Log stand «unexpected mimetype: text/html», was nach einem kaputten
-  Endpunkt aussieht. Tatsächlich verwarf aiohttp das Anmelde-Cookie:
-  Von einer nackten IP-Adresse legt es Cookies nur mit `unsafe=True` ab,
-  und zwar stumm. In der Kamera-Anbindung stand die Zeile, in der
-  Netzwerk-Anbindung fehlte sie. Beide holen ihre Verbindung jetzt beim
-  selben Helfer.
+  Endpunkt aussieht. Das Anmelde-Cookie ging auf zwei Wegen verloren, und
+  beide mussten weg: Von einer nackten IP-Adresse legt aiohttp Cookies
+  nur mit `unsafe=True` ab (die Zeile stand in der Kamera-Anbindung und
+  fehlte in der Netzwerk-Anbindung) – und selbst dann verwirft Pythons
+  Cookie-Parser die ganze Zeile, weil UniFi OS sie mit `partitioned`
+  schickt und er dieses Attribut nicht kennt. Der Hub liest den Token
+  jetzt selbst aus der Kopfzeile. Beide UniFi-Anbindungen gehen
+  denselben Weg, geprüft an der echten Zeile einer Konsole.
 - Wer das Gäste-Netz ausschliesslich über das UniFi-Captive-Portal
   betreibt, kommt jetzt an den Gutschein-Spender heran, ohne vorher
   einen `guest_wifi`-Abschnitt einzutragen. Vorher zählte die Karte den

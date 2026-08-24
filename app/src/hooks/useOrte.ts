@@ -15,6 +15,16 @@ import { useCallback, useEffect, useState } from 'react';
 import { HubSettings } from '../api/types';
 import { Ort } from './useOrtung';
 
+/** Ein Vorschlag der Ortssuche – noch kein Ort, erst ein Angebot. */
+export interface Vorschlag {
+  name: string;
+  /** Die volle Adresse. Daran erkennt man den richtigen von drei
+   *  gleichnamigen Läden. */
+  address: string;
+  latitude: number;
+  longitude: number;
+}
+
 export interface OrtMitHerkunft extends Ort {
   /** 'config' = aus der config.yaml, nicht löschbar. 'app' = hier angelegt. */
   source?: 'config' | 'app';
@@ -99,6 +109,66 @@ export function useOrte(settings: HubSettings) {
     [settings.url, kopf]
   );
 
+  /**
+   * Orte zu einer Adresse oder einem Ladennamen vorschlagen.
+   *
+   * Der Hub fragt, nicht das Telefon: Er hat den Weg ins Internet
+   * ohnehin, und so braucht die App keine eigene Erlaubnis dafür.
+   */
+  const suche = useCallback(
+    async (text: string): Promise<{ treffer: Vorschlag[]; fehler: string }> => {
+      if (!text.trim()) return { treffer: [], fehler: '' };
+      try {
+        const antwort = await fetch(
+          `${settings.url}/api/presence/places/search?q=${encodeURIComponent(text)}`,
+          { headers: kopf() }
+        );
+        if (!antwort.ok) {
+          const body = await antwort.json().catch(() => null);
+          return { treffer: [], fehler: String(body?.detail ?? 'Die Suche ging schief.') };
+        }
+        const daten = (await antwort.json()) as { results?: Vorschlag[] };
+        const treffer = daten.results ?? [];
+        return {
+          treffer,
+          fehler: treffer.length ? '' : 'Dazu finde ich nichts. Genauer? Mit Ort und Strasse.',
+        };
+      } catch {
+        return { treffer: [], fehler: 'Der Hub ist gerade nicht erreichbar.' };
+      }
+    },
+    [settings.url, kopf]
+  );
+
+  /** Einen Vorschlag als Ort übernehmen. */
+  const uebernehmen = useCallback(
+    async (vorschlag: Vorschlag, name: string, ortId?: string, radius = 150) => {
+      try {
+        const antwort = await fetch(`${settings.url}/api/presence/places`, {
+          method: 'POST',
+          headers: kopf(),
+          body: JSON.stringify({
+            name,
+            id: ortId,
+            latitude: vorschlag.latitude,
+            longitude: vorschlag.longitude,
+            radius,
+          }),
+        });
+        if (!antwort.ok) {
+          const body = await antwort.json().catch(() => null);
+          return String(body?.detail ?? `Der Hub antwortet mit ${antwort.status}`);
+        }
+        const daten = (await antwort.json()) as { places?: OrtMitHerkunft[] };
+        setOrte(daten.places ?? []);
+        return '';
+      } catch {
+        return 'Der Hub ist gerade nicht erreichbar.';
+      }
+    },
+    [settings.url, kopf]
+  );
+
   const entferne = useCallback(
     async (ortId: string): Promise<string> => {
       try {
@@ -117,5 +187,5 @@ export function useOrte(settings: HubSettings) {
     [settings.url, kopf]
   );
 
-  return { orte, laeuft, laden, setzeHier, entferne };
+  return { orte, laeuft, laden, setzeHier, suche, uebernehmen, entferne };
 }
