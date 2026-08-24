@@ -43,6 +43,7 @@ import { Tap, useNotificationTap } from '../hooks/useNotificationTap';
 import { usePrefs } from '../hooks/usePrefs';
 import { usePushRegistration } from '../hooks/usePushRegistration';
 import { breakpoints, Colors, radius, space, type, useColors } from '../theme';
+import { KAMERA_MINDEST, kachelBreite, spalten } from '../lib/raster';
 import { EinkaufZeile, Shop, findeArtikel, mengeUndName, mitMenge, shopCategory } from '../lib/einkauf';
 import { uhr } from '../lib/format';
 import {
@@ -763,13 +764,19 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // bleibt: 1024 minus Navigationsleiste minus Spalte sind sonst keine
   // 600 Punkte für die Kacheln.
   const panelWidth = width >= 1100 ? PANEL_WIDTH : 300;
-  // Kameras brauchen Fläche – dort weniger Spalten als bei Schaltkacheln.
-  const columns =
-    section === 'cameras' ? (hasRail ? 2 : 1) : hasRail ? 3 : width >= 380 ? 2 : 1;
-  const cardWidth =
-    gridWidth > 0
-      ? Math.floor((gridWidth - space.gap * (columns - 1)) / columns)
-      : undefined;
+  // Aus der gemessenen Fläche, nicht aus der Fensterbreite: Bis hierher
+  // entschied «ab 380 Punkten zwei Spalten» am Fenster, gerechnet wurde
+  // aber mit `gridWidth`. Zwei Zahlen für dieselbe Frage – und die
+  // Schwelle lag genau zwischen den Geräten: iPhone Max zweispaltig,
+  // jedes kleinere einspaltig. Kameras brauchen mehr Fläche und
+  // bekommen darum weniger Spalten (siehe lib/raster).
+  const columns = spalten(
+    gridWidth,
+    section === 'cameras'
+      ? { mindest: KAMERA_MINDEST, hoechstens: 2 }
+      : { hoechstens: 3 }
+  );
+  const cardWidth = gridWidth > 0 ? kachelBreite(gridWidth, columns) : undefined;
 
   // Räume in der Reihenfolge aus der config.yaml (meistgenutzte zuerst),
   // nicht alphabetisch. Räume mit Geräten, die (noch) nicht in der Config
