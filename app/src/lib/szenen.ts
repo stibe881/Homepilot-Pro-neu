@@ -203,6 +203,10 @@ export function snapshotCommand(entity: Entity): string {
     return entity.state.privacy === 'on' ? PRIVATSPHAERE_EIN : PRIVATSPHAERE_AUS;
   }
   if (entity.kind === 'vacuum') return state === 'cleaning' ? 'start' : 'dock';
+  // Eine Lichtszene hat keinen Zustand, den man einfangen könnte – sie
+  // wird aufgerufen. Ohne diese Zeile fiele sie auf «turn_off» zurück und
+  // wäre in der Szene ein Befehl, den die Bridge gar nicht kennt.
+  if (entity.kind === 'scene') return 'activate';
   // «Aus laufender Musik»: spielt gerade etwas, nimmt die Szene das Abspielen
   // auf – aktiviert man sie später, läuft die Musik weiter.
   if (entity.kind === 'media_player') return state === 'playing' ? 'play' : 'pause';

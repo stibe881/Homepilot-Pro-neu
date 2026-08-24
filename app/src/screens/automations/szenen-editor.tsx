@@ -19,6 +19,7 @@ import {
   baseCommandOptions,
   boxenVon,
   commandOptions,
+  imSchnappschuss,
   isSceneDevice,
   mischenMoeglich,
   playlistWahl,
@@ -205,14 +206,9 @@ export function SceneDevices({
 
   const snapshot = () =>
     onActions(
-      devices
-        // Alarmanlage und Kameras nur, wenn man sie ausdrücklich anwählt:
-        // Eine Szene «Kino», die per Schnappschuss heimlich «unscharf»
-        // eingesammelt hat, entschärft sonst abends die Anlage – und eine,
-        // die «Privatsphäre aus» mitnimmt, schaltet die Kamera wieder
-        // scharf, ohne dass es jemand wollte.
-        .filter((entity) => entity.kind !== 'alarm' && entity.kind !== 'camera')
-        .map(snapshotAction)
+      // Warum nicht einfach alles: siehe `imSchnappschuss`. Die Regel
+      // steht dort, weil sie sich hier nicht prüfen liess.
+      devices.filter(imSchnappschuss).map(snapshotAction)
     );
 
   return (

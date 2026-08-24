@@ -117,6 +117,11 @@ export function deviceKindLabel(entity: Entity): string {
       return 'Taster';
     case 'alarm':
       return 'Alarmanlage';
+    // «Lichtszene» und nicht «Szene»: Die Szenen des Hubs stehen in der
+    // App an anderer Stelle, und zwei Dinge desselben Namens nebeneinander
+    // sind eines zu viel.
+    case 'scene':
+      return 'Lichtszene';
     case 'alert':
       return 'Warnung';
     case 'appliance':
@@ -166,6 +171,8 @@ export function deviceKindIcon(entity: Entity): string {
       return 'radio-button-on-outline';
     case 'alarm':
       return 'shield-outline';
+    case 'scene':
+      return 'color-palette-outline';
     case 'alert':
       return 'warning-outline';
     case 'appliance':

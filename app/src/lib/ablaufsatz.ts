@@ -109,6 +109,7 @@ const BEFEHL: Record<string, string> = {
   arm_away: 'scharf (Ausser Haus)',
   arm_vacation: 'scharf (Urlaub)',
   disarm: 'unscharf',
+  activate: 'aufrufen',
 };
 
 /** Der eingestellte Wert hinter dem Befehl (rein, testbar). */

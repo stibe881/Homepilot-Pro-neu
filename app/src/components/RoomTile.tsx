@@ -29,6 +29,7 @@ export const KIND_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   cover: 'reorder-four-outline',
   weather: 'partly-sunny-outline',
   alert: 'warning-outline',
+  scene: 'color-palette-outline',
 };
 
 /** Kurzer Zustand für die rechte Spalte – nur für nicht schaltbare Geräte. */
@@ -55,6 +56,11 @@ export function shortState(entity: Entity): string {
       return state === 'cleaning' ? 'Reinigt' : state === 'charging' ? 'Lädt' : 'Bereit';
     case 'appliance':
       return state === 'running' ? 'Läuft' : 'Bereit';
+    case 'scene':
+      // «Gilt», solange die Lampen so stehen, wie die Szene sie gesetzt
+      // hat. Die Bridge meldet es; wer eine Lampe von Hand verstellt,
+      // hat die Szene verlassen.
+      return state === 'active' ? 'Gilt' : 'Bereit';
     default:
       return String(state ?? '–');
   }
@@ -178,7 +184,11 @@ export function RoomTile({
 
       {shownItems.map((entity) => {
         const togglable = entity.commands.includes('toggle');
-        const on = entity.state.state === 'on';
+        // Eine geltende Lichtszene zählt hier als «an»: Ihr Symbol soll
+        // dieselbe Farbe haben wie das Licht, das sie eingeschaltet hat.
+        const on =
+          entity.state.state === 'on' ||
+          (entity.kind === 'scene' && entity.state.state === 'active');
         const moves = entity.kind === 'cover' ? coverMoves(entity) : null;
         return (
           <View key={entity.id} style={styles.row}>
@@ -203,6 +213,23 @@ export function RoomTile({
                 style={[styles.toggle, on && styles.toggleOn]}
               >
                 <Ionicons name="power" size={13} color={on ? '#FFFFFF' : colors.inkSoft} />
+              </Pressable>
+            ) : entity.kind === 'scene' ? (
+              // Eine Lichtszene hat nichts zum Umschalten – sie hat einen
+              // Knopf. Die Bridge kann eine Szene setzen, aber nicht
+              // zurücknehmen; ein Schalter wäre hier eine Behauptung.
+              <Pressable
+                onPress={() => onCommand(entity.id, 'activate')}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={`Szene ${entity.name} aufrufen`}
+                style={[styles.toggle, on && styles.toggleOn]}
+              >
+                <Ionicons
+                  name="color-palette"
+                  size={13}
+                  color={on ? '#FFFFFF' : colors.inkSoft}
+                />
               </Pressable>
             ) : moves ? (
               // Storen: Zustand plus die Pfeile, die gerade etwas bewirken.

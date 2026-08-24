@@ -204,7 +204,16 @@ class Integration(ABC):
         state: dict[str, Any] | None = None,
         commands: list[str] | None = None,
         available: bool = True,
+        room: str | None = None,
     ) -> Entity:
+        """``room`` ist ein Vorschlag, keine Ansage.
+
+        Die config.yaml sticht ihn (siehe ``registry.add``) – dort steht,
+        wie das Haus wirklich geschnitten ist. Er ist für Entitäten
+        gedacht, die niemand von Hand einträgt, weil es zu viele sind und
+        die Gegenseite den Raum ohnehin kennt: die Szenen einer
+        Hue-Bridge etwa, die dort schon einem Zimmer zugeordnet sind.
+        """
         entity = Entity(
             id=self.entity_id(object_id),
             kind=kind,
@@ -213,6 +222,7 @@ class Integration(ABC):
             state=state or {},
             commands=commands or [],
             available=available,
+            room=room,
         )
         await self.hub.registry.add(entity)
         return entity
