@@ -378,6 +378,9 @@ class UnifiProtectIntegration(Integration):
             if response.status >= 400:
                 raise ConnectionError(login_error(response.status))
             self._csrf = response.headers.get("X-CSRF-Token") or self._csrf
+            # Siehe unifi.py: aiohttp verwirft das Cookie wegen
+            # 'partitioned', also legen wir es selbst ab.
+            self.keep_cookies(self._session, response, self._base)
 
     async def _bootstrap(self) -> dict[str, Any]:
         headers = {"X-CSRF-Token": self._csrf} if self._csrf else {}
