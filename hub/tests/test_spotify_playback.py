@@ -208,14 +208,20 @@ def test_the_queue_becomes_a_list_of_titles():
         {
             "currently_playing": {"name": "Läuft gerade", "artists": [{"name": "A"}]},
             "queue": [
-                {"name": "Danach", "artists": [{"name": "B"}, {"name": "C"}]},
+                {
+                    "name": "Danach",
+                    "artists": [{"name": "B"}, {"name": "C"}],
+                    "uri": "spotify:track:2",
+                },
                 {"name": "Und dann", "artists": []},
             ],
         }
     )
     assert titel == [
-        {"track": "Danach", "artist": "B, C"},
-        {"track": "Und dann", "artist": None},
+        {"track": "Danach", "artist": "B, C", "uri": "spotify:track:2"},
+        # Ohne URI lässt sich die Zeile nicht anspringen - sie steht
+        # trotzdem da, denn lesen kann man sie.
+        {"track": "Und dann", "artist": None, "uri": None},
     ]
 
 
@@ -281,3 +287,124 @@ def test_shuffle_wunsch_understands_a_handwritten_config():
     assert shuffle_wunsch({"shuffle": "nein"}) is False
     # Und was niemand deuten kann, stellt lieber nichts um.
     assert shuffle_wunsch({"shuffle": "vielleicht"}) is None
+
+
+# ── Der Titelwechsel soll nicht auf den Takt warten ──────────────────────
+#
+# Der gemeldete Fall: «Wenn der Medienplayer das Lied wechselt, dauert es
+# ein paar Sekunden, bis das neue Cover und der neue Titel angezeigt
+# werden.» Der Hub fragte in festem Takt und erfuhr vom Wechsel erst beim
+# nächsten Mal. Spotify sagt aber, wie weit der Titel ist.
+
+
+def test_die_spielposition_kommt_mit():
+    from homepilot.integrations.spotify import parse_playback
+
+    state = parse_playback(
+        {
+            "is_playing": True,
+            "item": {"name": "Song", "duration_ms": 210_000},
+            "progress_ms": 65_400,
+        }
+    )
+    # In Sekunden – Spotify rechnet in Millisekunden.
+    assert state["duration"] == 210
+    assert state["progress"] == 65
+
+
+def test_der_naechste_blick_liegt_auf_dem_titelwechsel():
+    from homepilot.integrations.spotify import naechster_blick
+
+    laeuft = {"state": "playing", "duration": 210, "progress": 200}
+    # Zehn Sekunden Rest plus Puffer statt der vollen halben Minute.
+    assert naechster_blick(laeuft, 30.0) == 11.5
+
+
+def test_mitten_im_titel_bleibt_es_beim_normalen_takt():
+    from homepilot.integrations.spotify import naechster_blick
+
+    # Sonst würde der Hub die halbe Stunde über im Sekundentakt fragen.
+    assert naechster_blick({"state": "playing", "duration": 210, "progress": 10}, 30.0) == 30.0
+
+
+def test_was_steht_wechselt_nicht_von_selbst():
+    from homepilot.integrations.spotify import naechster_blick
+
+    for zustand in ("paused", "idle", ""):
+        assert naechster_blick({"state": zustand, "duration": 210, "progress": 200}, 30.0) == 30.0
+
+
+def test_ohne_laengenangabe_kein_kurzer_takt():
+    from homepilot.integrations.spotify import naechster_blick
+
+    # Ein Livestream hat keine Länge – daraus lässt sich nichts vorhersehen.
+    assert naechster_blick({"state": "playing", "duration": None}, 30.0) == 30.0
+    assert naechster_blick({"state": "playing", "duration": "acht"}, 30.0) == 30.0
+
+
+def test_ein_ueberfaelliger_titel_wird_gleich_nachgefragt():
+    from homepilot.integrations.spotify import naechster_blick
+
+    # Rechnerisch vorbei, aber die Antwort war von eben: gleich nochmal,
+    # nicht sofort – sonst dreht die Schleife durch.
+    assert naechster_blick({"state": "playing", "duration": 210, "progress": 215}, 30.0) == 2.0
+
+
+# ── Einen Titel aus der Warteschlange anspringen ─────────────────────────
+#
+# Die Liste «was als Nächstes kommt» liess sich nur lesen. Spotify kennt
+# keinen Sprung «an Position 5»; es gibt nur den Sprung an eine Stelle im
+# laufenden Kontext - und ersatzweise eine Titelliste.
+
+
+def test_der_kontext_ist_der_weg_wenn_es_einen_gibt():
+    from homepilot.integrations.spotify import play_body
+
+    body = play_body("spotify:track:5", "spotify:playlist:AAA", ["spotify:track:6"])
+    # Nur so geht es nach dem Titel weiter, wie es weiterging.
+    assert body == {
+        "context_uri": "spotify:playlist:AAA",
+        "offset": {"uri": "spotify:track:5"},
+    }
+
+
+def test_ohne_kontext_reisen_die_folgenden_titel_mit():
+    from homepilot.integrations.spotify import play_body
+
+    body = play_body("spotify:track:5", None, ["spotify:track:6", "spotify:track:7"])
+    # Von Hand zusammengestellte Titel spielen aus keiner Playlist - dann
+    # bleibt wenigstens die Reihenfolge, die man vor sich sieht.
+    assert body == {
+        "uris": ["spotify:track:5", "spotify:track:6", "spotify:track:7"]
+    }
+
+
+def test_folgende_titel_sind_die_nach_dem_gewaehlten():
+    from homepilot.integrations.spotify import folgende_uris
+
+    queue = [
+        {"track": "A", "uri": "spotify:track:a"},
+        {"track": "B", "uri": "spotify:track:b"},
+        {"track": "C", "uri": "spotify:track:c"},
+    ]
+    assert folgende_uris(queue, "spotify:track:b") == ["spotify:track:c"]
+    assert folgende_uris(queue, "spotify:track:c") == []
+    # Ein Titel, der gar nicht in der Schlange steht, hat auch keine Folge.
+    assert folgende_uris(queue, "spotify:track:x") == []
+    assert folgende_uris(None, "spotify:track:a") == []
+
+
+def test_derselbe_titel_zweimal_zaehlt_ab_dem_ersten():
+    from homepilot.integrations.spotify import folgende_uris
+
+    queue = [
+        {"uri": "spotify:track:a"},
+        {"uri": "spotify:track:b"},
+        {"uri": "spotify:track:a"},
+    ]
+    # Mehr weiss ein Tipp auf eine Zeile nicht - und der zweite Durchgang
+    # kommt so oder so noch.
+    assert folgende_uris(queue, "spotify:track:a") == [
+        "spotify:track:b",
+        "spotify:track:a",
+    ]

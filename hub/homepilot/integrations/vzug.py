@@ -177,6 +177,58 @@ VERSUCHE = 2
 PAUSE_VOR_ZWEITEM_VERSUCH = 3.0
 
 
+def standby_grund(host: str) -> str:
+    """Der Satz zum 503 – an zwei Stellen gebraucht, also einmal hier."""
+    return (
+        f"{host} ist am Netz, bedient aber gerade nicht (HTTP 503). Das "
+        "ist der Standby-Takt des eingebauten Webservers; hält es über "
+        "Stunden an, hilft nur, das Gerät einmal stromlos zu machen."
+    )
+
+
+def stoerungsgrund(host: str, fehler: BaseException) -> str:
+    """Aus einem misslungenen Abruf einen Satz machen, der weiterhilft.
+    (rein, testbar)
+
+    Der Anlass: In der Ausfallliste standen Geschirrspüler und
+    Waschmaschine als «nie gesehen» – ohne ein Wort dazu, warum. Der
+    Grund stand im Log des Hubs, also genau dort, wo niemand nachsieht,
+    der gerade in der Küche steht. Was hier herauskommt, hängt an der
+    Kachel.
+
+    Die Fälle sind wenige und unterscheiden sich in dem, was zu tun ist:
+    Eine neue DHCP-Adresse verlangt eine Änderung in der Konfiguration,
+    ein 401 verlangt Zugangsdaten, ein 503 verlangt Geduld. Alles in
+    einen «nicht erreichbar»-Topf zu werfen, verschweigt genau diesen
+    Unterschied.
+    """
+    if isinstance(fehler, aiohttp.ClientResponseError):
+        if fehler.status in (401, 403):
+            return (
+                f"{host} verlangt eine Anmeldung (HTTP {fehler.status}). "
+                "Im Gerät unter «Netzwerk» stehen Benutzername und "
+                "Passwort; sie gehören als username/password in die "
+                "Gerätezeile der Konfiguration."
+            )
+        if fehler.status == BESCHAEFTIGT:
+            return standby_grund(host)
+        return f"{host} antwortet mit HTTP {fehler.status} ({fehler.message})."
+    if isinstance(fehler, TimeoutError | asyncio.TimeoutError):
+        return (
+            f"{host} nimmt die Verbindung an, antwortet aber nicht "
+            "rechtzeitig. Meist steht dort inzwischen ein anderes Gerät – "
+            "die Adresse im Router prüfen."
+        )
+    if isinstance(fehler, aiohttp.ClientConnectorError | OSError):
+        return (
+            f"Unter {host} meldet sich nichts ({fehler}). V-ZUG-Geräte "
+            "bekommen ihre Adresse per DHCP und wechseln sie beim "
+            "Neustart des Routers – im Router nachsehen, host anpassen "
+            "und dem Gerät am besten eine feste Adresse geben."
+        )
+    return f"{host}: {fehler}"
+
+
 def wartezeit(runden: int, takt: float, hoechstens: float = RUHE_HOECHSTENS) -> float:
     """Wie lange nach einem «gerade nicht» gewartet wird (rein, testbar).
 
@@ -315,12 +367,18 @@ class VZugIntegration(Integration):
                 return
             # Nur beim Übergang warnen, danach still bleiben: Ein Gerät im
             # Standby wäre sonst jede Minute eine Zeile.
+            grund = stoerungsgrund(host, fehler)
             if entity_id not in self._down:
                 self._down.add(entity_id)
-                self.log.warning("V-ZUG %s nicht erreichbar: %s", host, fehler)
+                self.log.warning("V-ZUG %s nicht erreichbar: %s", host, grund)
             else:
                 self.log.debug("V-ZUG %s weiterhin nicht erreichbar: %s", host, fehler)
-            await self.hub.registry.update_state(entity_id, {}, available=False)
+            # Der Grund gehört an die Kachel, nicht nur ins Log: «nie
+            # gesehen» allein sagt, dass etwas fehlt, aber nicht, ob die
+            # Adresse veraltet ist oder das Gerät Zugangsdaten will.
+            await self.hub.registry.update_state(
+                entity_id, {"problem": grund}, available=False
+            )
             return
 
         self._fehlversuche[entity_id] = 0
@@ -333,7 +391,9 @@ class VZugIntegration(Integration):
         status = unfrozen_status(
             parse_device_status(payload), self._countdown, entity_id, time.time()
         )
-        await self.hub.registry.update_state(entity_id, status, available=True)
+        await self.hub.registry.update_state(
+            entity_id, {**status, "problem": None}, available=True
+        )
 
     async def _melde_beschaeftigt(self, entity_id: str, host: str) -> None:
         """Das Gerät ist da, bedient aber gerade nicht.
@@ -358,6 +418,16 @@ class VZugIntegration(Integration):
                 dauer,
                 self._ruhe_bis[entity_id] - jetzt,
             )
+            # Ein Gerät, das den Hub-Start verschlafen hat, stand hier bis
+            # zu einer halben Stunde als «nie gesehen» ohne ein Wort dazu.
+            # Die Erreichbarkeit bleibt bewusst unangetastet – 503 ist
+            # kein Ausfall –, aber der Satz gehört an die Kachel.
+            entity = self.hub.registry.get(entity_id)
+            if entity is not None and entity.last_seen is None:
+                await self.hub.registry.update_state(
+                    entity_id,
+                    {"problem": standby_grund(host)},
+                )
             return
 
         if entity_id not in self._down:
@@ -369,7 +439,17 @@ class VZugIntegration(Integration):
                 host,
                 dauer / 60,
             )
-        await self.hub.registry.update_state(entity_id, {}, available=False)
+        await self.hub.registry.update_state(
+            entity_id,
+            {
+                "problem": (
+                    f"{host} meldet seit {dauer / 60:.0f} Minuten «503 – "
+                    "bedient nicht». Sonst dauert das Minuten, nicht "
+                    "Stunden: Gerät einmal stromlos machen."
+                )
+            },
+            available=False,
+        )
 
 
 INTEGRATION = VZugIntegration

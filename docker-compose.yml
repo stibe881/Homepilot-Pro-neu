@@ -61,8 +61,15 @@ services:
       - OVERKIZ_TOKEN=${OVERKIZ_TOKEN:-}
       - MQTT_USER=${MQTT_USER:-}
       - MQTT_PASSWORD=${MQTT_PASSWORD:-}
+      # Zwei Paare für UniFi, und das ist kein Versehen: Protect und der
+      # Netzwerk-Controller wollen je einen eigenen lokalen Benutzer.
+      # Für Protect genügt «View Only», der Netzwerk-Zugang muss
+      # Hotspot-Gutscheine ausstellen dürfen - dasselbe Konto für beides
+      # hiesse, Protect mehr Rechte zu geben, als es braucht.
       - UNIFI_USER=${UNIFI_USER:-}
       - UNIFI_PASSWORD=${UNIFI_PASSWORD:-}
+      - UNIFI_NET_USER=${UNIFI_NET_USER:-}
+      - UNIFI_NET_PASSWORD=${UNIFI_NET_PASSWORD:-}
       - HUE_APP_KEY=${HUE_APP_KEY:-}
       - NUKI_TOKEN=${NUKI_TOKEN:-}
       - TUYA_KEY_PROJEKTOR=${TUYA_KEY_PROJEKTOR:-}

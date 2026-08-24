@@ -48,6 +48,20 @@ class DemoIntegration(Integration):
             commands=["turn_on", "turn_off", "toggle"],
         )
         await self.add_entity(
+            "smoke_hall",
+            EntityKind.BINARY_SENSOR,
+            "Rauchmelder Flur",
+            # Mit schwacher Batterie: Ohne ein solches Gerät liess sich die
+            # Batterienliste samt Quittieren nie ansehen.
+            state={"state": "off", "device_class": "smoke", "low_battery": True},
+        )
+        await self.add_entity(
+            "window_kitchen",
+            EntityKind.BINARY_SENSOR,
+            "Fenster Küche",
+            state={"state": "off", "device_class": "contact", "battery": 62},
+        )
+        await self.add_entity(
             "temp_livingroom",
             EntityKind.SENSOR,
             "Temperatur Wohnzimmer",
@@ -63,6 +77,26 @@ class DemoIntegration(Integration):
             state={"state": "idle", "volume": 35},
             commands=[
                 "play", "pause", "toggle", "set_volume", "mute", "play_url",
+            ],
+        )
+        # Eine Quelle mit eigener Auswahl, wie Spotify eine ist. Ohne sie
+        # liess sich weder das Playlist-Panel ansehen noch die Quellenwahl
+        # im Musikplayer – für beides braucht es ein Konto, das im
+        # Demo-Haus niemand hat.
+        await self.add_entity(
+            "music",
+            EntityKind.MEDIA_PLAYER,
+            "Musikdienst",
+            state={
+                "state": "idle",
+                "playlists": ["Morgen", "Küche", "Konzentration", "Party"],
+                "devices": ["Küche Lautsprecher"],
+                "device": None,
+                "volume": 30,
+            },
+            commands=[
+                "play", "pause", "toggle", "next", "previous", "play_on",
+                "set_volume", "mute", "play_playlist", "shuffle", "repeat",
             ],
         )
         # Ein Cast-Fernseher: dieselben Befehle wie die Box, aber ein Bild
@@ -123,6 +157,14 @@ class DemoIntegration(Integration):
             changes["state"] = "playing"
         elif command == "pause":
             changes["state"] = "paused"
+        elif command == "play_playlist":
+            changes["state"] = "playing"
+            changes["playlist"] = str(data.get("name") or "")
+            changes["track"] = str(data.get("name") or "")
+            if data.get("device"):
+                changes["device"] = str(data["device"])
+        elif command == "play_on":
+            changes["device"] = str(data.get("device") or "")
         elif command == "play_url":
             # Der Chromecast startet dafür den «Default Media Receiver» –
             # daran erkennt das Radio später, ob noch es selbst läuft.

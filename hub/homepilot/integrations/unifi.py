@@ -3,8 +3,8 @@
 Konfiguration:
   - integration: unifi
     host: 192.168.1.1
-    username: "${UNIFI_USER}"
-    password: "${UNIFI_PASSWORD}"
+    username: "${UNIFI_NET_USER}"
+    password: "${UNIFI_NET_PASSWORD}"
     site: default
     scan_interval: 30
     track:
@@ -98,9 +98,7 @@ class UnifiIntegration(Integration):
         self._prefix = ""  # wird beim Login gesetzt
         self._csrf: str | None = None
 
-        # Der Controller nutzt ein selbstsigniertes Zertifikat.
-        self._session = self.http_session(
-            connector=aiohttp.TCPConnector(ssl=False),
+        self._session = self.console_session(
             timeout=aiohttp.ClientTimeout(total=20),
         )
 
@@ -159,6 +157,9 @@ class UnifiIntegration(Integration):
                         continue
                     self._prefix = prefix
                     self._csrf = response.headers.get("X-CSRF-Token") or self._csrf
+                    # Das Anmelde-Cookie selbst ablegen - aiohttp verwirft
+                    # es, weil UniFi OS es mit 'partitioned' schickt.
+                    self.keep_cookies(self._session, response, self._base)
                     self.log.info(
                         "Am UniFi-Controller angemeldet (%s)",
                         "UniFi OS" if prefix else "Standalone",

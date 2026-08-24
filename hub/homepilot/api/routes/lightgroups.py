@@ -22,7 +22,7 @@ from ...core.errors import UnknownEntityError
 from ...core.users import Capability
 from ...integrations import group as group_module
 from ..context import ApiContext
-from ..models import GeofenceRequest, HomeRequest, LightGroupRequest
+from ..models import GeofenceRequest, HomeRequest, LightGroupRequest, PlaceRequest
 
 log = logging.getLogger(__name__)
 
@@ -276,6 +276,72 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 detail="Die geofence-Integration ist nicht eingerichtet",
             )
         return {"home": service.heimat()}
+
+    @app.post("/api/presence/places")
+    async def set_place(body: PlaceRequest, request: Request) -> dict[str, Any]:
+        """Einen Ort anlegen oder verschieben - meist ein Laden.
+
+        Damit die Einkaufs-Erinnerung ohne config.yaml auskommt: Wer vor
+        dem Coop steht, tippt auf «Ort ist hier», und der Laden weiss von
+        da an, wo er liegt. Dieselbe Kennung heisst «derselbe Ort, neu
+        vermessen» - so lässt er sich geraderücken, ohne ihn zu löschen.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        service = hub.integrations.get("geofence")
+        if service is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Die geofence-Integration ist nicht eingerichtet",
+            )
+        try:
+            orte = await service.ort_setzen(
+                body.name,
+                body.latitude,
+                body.longitude,
+                body.radius or 150.0,
+                body.id or "",
+            )
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+        return {"ok": True, "places": orte}
+
+    @app.get("/api/presence/places/search")
+    async def search_places(request: Request, q: str = "") -> dict[str, Any]:
+        """Orte zu einer Adresse vorschlagen - oder eingefügte Koordinaten.
+
+        Der Hub fragt, nicht das Telefon: Er hat den Weg ins Internet
+        ohnehin, und so braucht die App keine eigene Erlaubnis dafür.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        service = hub.integrations.get("geofence")
+        if service is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Die geofence-Integration ist nicht eingerichtet",
+            )
+        try:
+            return {"results": await service.ort_suchen(q)}
+        except Exception as err:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Die Ortssuche ist gerade nicht erreichbar: {err}",
+            ) from err
+
+    @app.delete("/api/presence/places/{place_id}")
+    async def delete_place(place_id: str, request: Request) -> dict[str, Any]:
+        """Einen in der App angelegten Ort löschen.
+
+        Was in der config.yaml steht, bleibt: Ein Knopf in der App darf
+        nicht wegräumen, was jemand dort von Hand gepflegt hat.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        service = hub.integrations.get("geofence")
+        if service is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Die geofence-Integration ist nicht eingerichtet",
+            )
+        return {"ok": True, "places": await service.ort_entfernen(place_id)}
 
     @app.get("/api/presence/zones")
     async def presence_zones(request: Request) -> dict[str, Any]:

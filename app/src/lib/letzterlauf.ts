@@ -33,6 +33,15 @@ export function vorWieLange(sekunden: number): string {
   return `vor ${Math.round(stunden / 24)} Tagen`;
 }
 
+/** Wie ernst die Meldung ist – und damit, in welcher Farbe sie steht.
+ *
+ * «Hinweis» ist nicht «Fehler»: Ein Lauf, der durchgelaufen ist, hat den
+ * Hub erneuert. In Rot las sich das wie ein gescheitertes Update, und man
+ * suchte nach einem Schaden, den es nicht gab. Dieselbe Abstufung wie bei
+ * den Integrationen: gestört ist rot, eingeschränkt ist gelb.
+ */
+export type LaufArt = 'fehler' | 'hinweis';
+
 /**
  * Der Satz zum letzten Lauf - oder null, wenn es nichts zu sagen gibt.
  *
@@ -42,30 +51,26 @@ export function vorWieLange(sekunden: number): string {
  */
 export function letzterLaufSatz(
   lauf: LetzterLauf | null | undefined,
-  jetztSekunden: number,
-): { text: string; fehler: boolean } | null {
+  jetztSekunden: number
+): { text: string; art: LaufArt } | null {
   if (!lauf || !lauf.state) return null;
   const warnungen = (lauf.warnings ?? []).filter(Boolean);
-  const wann = lauf.finished_at
-    ? vorWieLange(jetztSekunden - lauf.finished_at)
-    : null;
+  const wann = lauf.finished_at ? vorWieLange(jetztSekunden - lauf.finished_at) : null;
   const kopf = wann ? `Letztes Update ${wann}` : 'Letztes Update';
 
   if (lauf.state === 'error') {
     return {
-      fehler: true,
-      text: [
-        `${kopf}: fehlgeschlagen.`,
-        lauf.message,
-        lauf.detail,
-      ]
+      art: 'fehler',
+      text: [`${kopf}: fehlgeschlagen.`, lauf.message, lauf.detail]
         .filter(Boolean)
         .join('\n'),
     };
   }
   if (lauf.state === 'ok' && warnungen.length > 0) {
+    // Durchgelaufen heisst durchgelaufen: Der Hub ist neu, etwas am Rand
+    // blieb liegen. Das gehört vor die Augen, aber nicht in Rot.
     return {
-      fehler: true,
+      art: 'hinweis',
       text: [`${kopf}: durchgelaufen, aber mit Hinweisen:`, ...warnungen].join('\n'),
     };
   }
@@ -73,7 +78,7 @@ export function letzterLaufSatz(
     // Steht das noch nach einem Neustart des Dienstes da, ist der Lauf
     // nicht zu Ende gekommen - der Dienst wurde mittendrin abgeräumt.
     return {
-      fehler: true,
+      art: 'fehler',
       text: `${kopf}: nicht zu Ende gekommen. Der Bau wurde unterbrochen; bitte noch einmal auslösen.`,
     };
   }

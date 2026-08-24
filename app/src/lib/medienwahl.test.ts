@@ -6,7 +6,14 @@
  * ohne Bild – und bei stillem Haus kann er sogar die gezeigte Karte sein.
  */
 import type { Entity } from '../api/types';
-import { isTelevision, istMusikbox, musikboxenImRaum, pickPlayer } from './geraeteart';
+import {
+  hatEigeneAuswahl,
+  isTelevision,
+  istMusikbox,
+  musikboxenImRaum,
+  pickPlayer,
+  quellenSymbol,
+} from './geraeteart';
 
 function medien(teile: Partial<Entity>): Entity {
   return {
@@ -164,3 +171,26 @@ describe('musikboxenImRaum', () => {
     expect(musikboxenImRaum([wohnzimmer, kueche], null)).toEqual([]);
   });
 });
+
+describe('Quellen im Player', () => {
+  const spotify = medien({ id: 'spotify.me', commands: ['play', 'play_playlist'] });
+  const radio = medien({ id: 'tunein.radio', commands: ['play', 'play_radio'] });
+  const box = medien({ id: 'cast.kueche', commands: ['play', 'play_url'] });
+
+  it('trennt Quellen von Boxen', () => {
+    // Zwei verschiedene Fragen: *was* spielt und *wo* es spielt. Sie
+    // steckten in einer Liste, und die Quelle war deshalb weder benannt
+    // noch ohne Aufklappen zu sehen.
+    expect(hatEigeneAuswahl(spotify)).toBe(true);
+    expect(hatEigeneAuswahl(radio)).toBe(true);
+    expect(hatEigeneAuswahl(box)).toBe(false);
+  });
+
+  it('gibt jeder Quelle ihr Sinnbild', () => {
+    // Zwei Chips mit blossem Namen sähen aus wie zwei Boxen.
+    expect(quellenSymbol(radio)).toBe('radio');
+    expect(quellenSymbol(spotify)).toBe('musical-notes');
+    expect(quellenSymbol(box)).toBe('volume-medium-outline');
+  });
+});
+

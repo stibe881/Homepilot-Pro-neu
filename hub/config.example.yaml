@@ -291,12 +291,18 @@ integrations:
   #   members:              # Name bei Life360 → Zone im geofence oben
   #     Oma: oma
 
-  # UniFi: Anwesenheitserkennung anhand verbundener Geräte.
-  # Liefert zusätzlich unifi.anyone_home und unifi.clients_total.
+  # UniFi Network: Geräte im WLAN - und die Gutscheine fürs Gäste-Portal
+  # (Karte «Gäste-WLAN» unter Benutzer). Liefert zusätzlich
+  # unifi.anyone_home und unifi.clients_total.
+  #
+  # Eigenes Variablenpaar, nicht dasselbe wie bei unifi_protect: Der
+  # Netzwerk-Zugang muss Hotspot-Gutscheine ausstellen dürfen, Protect
+  # kommt mit «View Only» aus. Ein Konto für beides hiesse, dem
+  # Kamera-Zugang Schreibrechte im Netz zu geben.
   # - integration: unifi
   #   host: 192.168.1.1
-  #   username: "${UNIFI_USER}"
-  #   password: "${UNIFI_PASSWORD}"
+  #   username: "${UNIFI_NET_USER}"
+  #   password: "${UNIFI_NET_PASSWORD}"
   #   site: default
   #   scan_interval: 30
   #   track:
@@ -309,9 +315,8 @@ integrations:
   #   name: Weihnachtsbaum
   #   default_mode: movie
 
-  # UniFi Protect: Kameras mit Bewegungs- und Klingel-Ereignissen (lesend).
-  # Nutzt denselben Controller-Login wie 'unifi'.
-  # UniFi Protect: Kameras (eigener Menüpunkt «Kameras» in der App).
+  # UniFi Protect: Kameras mit Bewegungs- und Klingel-Ereignissen
+  # (lesend, eigener Menüpunkt «Kameras» in der App).
   # 'host' ist die UniFi-Konsole, nicht eine Kamera. Für den Hub einen
   # eigenen Local-Access-Benutzer mit «View Only» auf Protect anlegen und
   # ohne Zwei-Faktor lassen. Anleitung: docs/kameras.md

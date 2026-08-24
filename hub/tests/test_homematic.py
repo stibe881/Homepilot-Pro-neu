@@ -543,3 +543,139 @@ async def test_no_duty_cycle_sensor_without_a_value(hub):
         ]
     finally:
         await integration.teardown()
+
+
+# ── Ein Kanal, den es gibt, dessen Wert die CCU aber nicht einzeln hergibt ──
+# Aus dem Betrieb: Die beiden Rack-Fühler in der Waschküche standen als
+# «nie gesehen». Die CCU antwortete auf getValue(…, "HUMIDITY") mit
+# «Fault -5: Unknown Parameter» – und zählte HUMIDITY in der Beschreibung
+# desselben Kanals seelenruhig mit auf. Kein Widerspruch: getValue liest
+# den Wertespeicher der CCU, und der ist für einen Datenpunkt leer, bis
+# das Gerät zum ersten Mal gesendet hat. Bei einem batteriebetriebenen
+# HmIP-Fühler ist das nach jedem CCU-Neustart erst einmal so.
+
+
+class _CCUOhneEinzelwerte:
+    """CCU, die nur das ganze Wertepaket herausrückt."""
+
+    def __init__(self, paket: dict[str, object], address: str) -> None:
+        self.paket = paket
+        self.address = address
+        self.calls: list[tuple[str, tuple]] = []
+
+    async def call(self, method: str, *args, port: int = 0):
+        self.calls.append((method, args))
+        if method == "listDevices":
+            return [
+                {
+                    "ADDRESS": self.address,
+                    "TYPE": "HmIP-STHD",
+                    "PARENT": self.address.split(":")[0],
+                }
+            ]
+        if method == "getValue":
+            raise xmlrpc.client.Fault(
+                -5, f"Unknown Parameter value for value key: {args[1]}"
+            )
+        if method == "getParamset":
+            return dict(self.paket)
+        if method == "getParamsetDescription":
+            return {name: {} for name in self.paket}
+        return ""
+
+
+def _zaehle(ccu, method: str, datapoint: str | None = None) -> int:
+    """Aufrufe zählen – auf Wunsch nur die zu einem Datenpunkt.
+
+    Ohne die Einschränkung zählt der Wartungskanal (LOW_BAT) mit, den
+    _refresh_batteries in jeder Runde liest.
+    """
+    return len(
+        [
+            1
+            for name, args in ccu.calls
+            if name == method and (datapoint is None or datapoint in args)
+        ]
+    )
+
+
+async def test_a_value_the_ccu_only_gives_as_a_whole_paramset_still_arrives(hub):
+    ccu = _CCUOhneEinzelwerte(
+        {"HUMIDITY": 54.0, "ACTUAL_TEMPERATURE": 18.3}, "000ED709B2834F:1"
+    )
+    integration = await _setup(
+        hub,
+        ccu,
+        [
+            {
+                "address": "000ED709B2834F:1",
+                "port": 2010,
+                "datapoint": "HUMIDITY",
+                "name": "Luftfeuchtigkeit Rack",
+                "kind": "sensor",
+            }
+        ],
+    )
+    try:
+        sensor = hub.registry.get("homematic.000ED709B2834F_1")
+        assert sensor is not None
+        assert sensor.available is True
+        assert sensor.state["state"] == 54.0
+        # Und keine Fehlermeldung an der Kachel: Der Wert kam ja an.
+        assert not sensor.state.get("problem")
+    finally:
+        await integration.teardown()
+
+
+async def test_the_detour_is_only_taken_once_and_then_remembered(hub):
+    """Der Umweg kostet einen Aufruf. Ein Kanal, der ihn einmal brauchte,
+    braucht ihn immer – also nicht bei jedem Takt erneut anklopfen."""
+    ccu = _CCUOhneEinzelwerte({"HUMIDITY": 54.0}, "000ED709B2834F:1")
+    integration = await _setup(
+        hub,
+        ccu,
+        [
+            {
+                "address": "000ED709B2834F:1",
+                "port": 2010,
+                "datapoint": "HUMIDITY",
+                "name": "Luftfeuchtigkeit Rack",
+                "kind": "sensor",
+            }
+        ],
+    )
+    try:
+        vorher = _zaehle(ccu, "getValue", "HUMIDITY")
+        await integration._refresh_all()
+        assert _zaehle(ccu, "getValue", "HUMIDITY") == vorher
+        assert _zaehle(ccu, "getParamset") >= 2
+    finally:
+        await integration.teardown()
+
+
+async def test_a_datapoint_that_is_in_no_paramset_says_so_on_the_tile(hub):
+    """Kennt auch das Wertepaket den Namen nicht, ist es wirklich der
+    falsche – und dann gehört der Grund an die Kachel."""
+    ccu = _CCUOhneEinzelwerte({"ACTUAL_TEMPERATURE": 18.3}, "000ED709B2834F:1")
+    integration = await _setup(
+        hub,
+        ccu,
+        [
+            {
+                "address": "000ED709B2834F:1",
+                "port": 2010,
+                "datapoint": "HUMIDITY",
+                "name": "Luftfeuchtigkeit Rack",
+                "kind": "sensor",
+            }
+        ],
+    )
+    try:
+        sensor = hub.registry.get("homematic.000ED709B2834F_1")
+        assert sensor is not None
+        assert sensor.available is False
+        grund = str(sensor.state.get("problem"))
+        assert "HUMIDITY" in grund
+        assert "ACTUAL_TEMPERATURE" in grund  # was der Kanal stattdessen kennt
+    finally:
+        await integration.teardown()

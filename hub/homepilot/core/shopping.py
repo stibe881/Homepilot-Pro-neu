@@ -6,10 +6,15 @@ Nachricht beim Betreten wäre zu früh - man ist vielleicht nur
 vorbeigefahren -, eine beim Verlassen zu spät. Also nach ein paar
 Minuten: Wer so lange dort steht, kauft auch ein.
 
-Woher der Hub weiss, dass jemand im Laden ist: aus einer Geofence-Zone,
-die das Telefon meldet (siehe integrations/geofence.py). Der Laden trägt
-die Kennung dieser Zone bei sich. Ohne Zone keine Erinnerung - der Laden
-funktioniert trotzdem, er sortiert dann nur die Liste.
+Woher der Hub weiss, dass jemand im Laden ist: Der Laden zeigt auf einen
+Ort, und das Telefon meldet Orte ohnehin (siehe integrations/geofence.py)
+- der Zustand der Person IST dann dieser Ort. Angelegt wird er in der App:
+davorstehen, «ich stehe jetzt hier» drücken. Ohne Ort keine Erinnerung -
+der Laden funktioniert trotzdem, er sortiert dann nur die Liste.
+
+Der alte Weg bleibt gültig: eine eigene Geofence-Zone je Laden, die von
+aussen auf «home» gesetzt wird (iOS-Kurzbefehl, Tasker). Wer sich das
+gebaut hat, soll es behalten dürfen.
 """
 
 from __future__ import annotations
@@ -20,6 +25,10 @@ from typing import Any
 # einer Ampel davor nicht zu zählen, und kurz genug, um noch im Laden
 # anzukommen.
 STAY_SECONDS = 4 * 60
+
+#: Der Zustand einer eigenen Laden-Zone, wenn jemand drin ist. Eine Zone
+#: ohne eigenen Ort meldet «home» - siehe geofence.report().
+HOME_STATE = "home"
 
 
 def open_items(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -50,21 +59,64 @@ def due_reminders(
     for shop in shops:
         if not isinstance(shop, dict):
             continue
-        zone = str(shop.get("zone") or "").strip()
-        if not zone:
-            continue
-        stand = zones.get(zone)
-        if not stand or stand.get("state") != "home":
+        stand, marke = wo_man_steht(shop, zones)
+        if stand is None:
             continue
         seit = stand.get("changed_at")
         if not isinstance(seit, (int, float)):
             continue
         if now - seit < STAY_SECONDS:
             continue
-        if schon_erinnert.get(zone) == seit:
+        if schon_erinnert.get(marke) == seit:
             continue
         faellig.append(shop)
     return faellig
+
+
+def marke_fuer(shop: dict[str, Any]) -> str:
+    """Unter welchem Schlüssel gemerkt wird, dass schon erinnert wurde.
+
+    Der Ort, wenn es einen gibt, sonst die alte Zonenkennung - damit ein
+    Laden nach dem Umstellen nicht doppelt erinnert.
+    """
+    return str(shop.get("place") or shop.get("zone") or "").strip()
+
+
+def wo_man_steht(
+    shop: dict[str, Any], zones: dict[str, dict[str, Any]]
+) -> tuple[dict[str, Any] | None, str]:
+    """Steht gerade jemand in diesem Laden? (rein, testbar)
+
+    Zwei Wege, historisch gewachsen und beide gültig:
+
+      * `place` – die Kennung eines Ortes mit Koordinaten. Das Telefon
+        meldet ihn beim Betreten, und der Zustand der Person IST dann
+        dieser Ort. Das ist der Weg, den die App geht: Ort in der App
+        anlegen, Laden darauf zeigen lassen, fertig.
+      * `zone` – eine eigene Geofence-Zone je Laden, die von aussen auf
+        «home» gesetzt wird (iOS-Kurzbefehl, Tasker). So ging es früher,
+        und wer es so eingerichtet hat, soll es behalten dürfen.
+
+    Zurück kommt der Zustand desjenigen, der am längsten dort steht -
+    sonst käme die Erinnerung erneut, sobald der Zweite hereinkommt.
+    """
+    ort = str(shop.get("place") or "").strip()
+    if ort:
+        treffer = [
+            stand
+            for stand in zones.values()
+            if isinstance(stand, dict) and stand.get("state") == ort
+        ]
+        if not treffer:
+            return None, ort
+        return min(treffer, key=lambda s: s.get("changed_at") or 0), ort
+    zone = str(shop.get("zone") or "").strip()
+    if not zone:
+        return None, ""
+    stand = zones.get(zone)
+    if not stand or stand.get("state") != HOME_STATE:
+        return None, zone
+    return stand, zone
 
 
 def describe(shop: dict[str, Any], offen: list[dict[str, Any]]) -> tuple[str, str]:

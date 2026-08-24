@@ -8,6 +8,7 @@ Sachgebiet statt 3800 Zeilen am Stück. Die Routen selbst sind unverändert
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from fastapi import (
@@ -17,6 +18,7 @@ from fastapi import (
     Response,
 )
 
+from ...core import batterie
 from ...core import replace as replace_module
 from ...core import throttle as throttle_module
 from ...core.errors import HomePilotError, UnknownEntityError, UnsupportedCommandError
@@ -181,6 +183,65 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         # gar nicht mitgeschicktes group.
         await hub.set_entity_meta(entity_id, **body.model_dump(exclude_unset=True))
         return {"ok": True, "entity": hub.registry.get(entity_id).as_dict()}
+
+    # ── Batterien ──────────────────────────────────────────────────────
+
+    @app.get("/api/batteries")
+    async def battery_state(request: Request) -> dict[str, Any]:
+        """Was zu den Batteriewarnungen vermerkt ist.
+
+        Die App braucht es für zwei Zeilen in der Batterienliste: ob eine
+        Warnung schon raus ist und ob sie bis morgen quittiert wurde.
+        """
+        current_user(request)
+        jetzt = time.time()
+        return {
+            "batteries": [
+                {
+                    "entity_id": row.get("entity_id"),
+                    "notified_at": row.get("at") or None,
+                    "muted_until": row.get("until") or None,
+                    "muted": batterie.ist_stumm(
+                        [row], str(row.get("entity_id")), jetzt
+                    ),
+                }
+                for row in hub.data.get(batterie.STORE_KEY)
+                if isinstance(row, dict) and row.get("entity_id")
+            ]
+        }
+
+    @app.post("/api/batteries/{entity_id}/ack")
+    async def acknowledge_battery(entity_id: str, request: Request) -> dict[str, Any]:
+        """«Bis morgen stumm» – die Warnung ist zur Kenntnis genommen.
+
+        Kein Ausschalten, sondern ein Aufschub: Morgen früh erinnert der
+        Hub noch einmal. Wer die Batterie bis dahin gewechselt hat, hört
+        nichts mehr – wer sie liegen lässt, wird erinnert.
+        """
+        require(request, Capability.CONTROL)
+        if hub.registry.get(entity_id) is None:
+            raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
+        jetzt = time.time()
+        rows = batterie.quittiere(hub.data.get(batterie.STORE_KEY), entity_id, jetzt)
+        hub.data.set(batterie.STORE_KEY, rows)
+        return {
+            "ok": True,
+            "entity_id": entity_id,
+            "muted_until": batterie.stumm_bis(jetzt),
+        }
+
+    @app.delete("/api/batteries/{entity_id}/ack")
+    async def unacknowledge_battery(entity_id: str, request: Request) -> dict[str, Any]:
+        """Doch nicht stumm – für den Fehlgriff.
+
+        Nimmt die Zeile ganz weg statt nur das «bis morgen»: Damit ist die
+        Warnung wieder scharf wie vor der ersten Meldung, und das ist beim
+        versehentlichen Quittieren die erwartete Antwort.
+        """
+        require(request, Capability.CONTROL)
+        rows = batterie.vergiss(hub.data.get(batterie.STORE_KEY), [entity_id])
+        hub.data.set(batterie.STORE_KEY, rows)
+        return {"ok": True, "entity_id": entity_id}
 
     @app.get("/api/entities/{entity_id}/snapshot")
     async def entity_snapshot(entity_id: str, request: Request) -> Response:

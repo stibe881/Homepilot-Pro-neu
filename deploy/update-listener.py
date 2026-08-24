@@ -203,18 +203,36 @@ def _set_status(**fields) -> None:
         _status["updated_at"] = time.time()
 
 
+def eigene_meldung(line: str, zeichen: str) -> bool:
+    """Stammt diese Zeile vom Bau-Skript selbst? (rein, testbar)
+
+    Das Zeichen allein genügt nicht. Durch dieselbe Ausgabe laufen die
+    Werkzeuge, die das Skript aufruft, und die schreiben auch Warnzeichen:
+    `eas build` meldet «⚠️ Detected that your app uses Expo Go for
+    development» - ein Satz über die App-Entwicklung, der in der App als
+    Hinweis zum Update stand, wo er nichts zu suchen hat.
+
+    Unterscheiden lassen sie sich am Leerzeichen: rebuild-hub.sh schreibt
+    «⚠ Text», das Emoji-Warnzeichen fremder Werkzeuge trägt dagegen ein
+    unsichtbares Zusatzzeichen (U+FE0F) direkt hinter dem Dreieck. Genau
+    das blieb übrig, als die Meldung vom Warnzeichen befreit wurde - der
+    Hinweis in der App begann mit einem Rest, den niemand tippen kann.
+    """
+    return line.startswith(f"{zeichen} ")
+
+
 def _handle_line(line: str) -> None:
     """Eine Ausgabezeile des Bau-Skripts einordnen (nicht rein – schreibt
     in den geteilten Status, aber ohne Seiteneffekte sonst)."""
     global _warn_open
-    if line.startswith("✗"):
+    if eigene_meldung(line, "✗"):
         _warn_open = False
-        _set_status(state="error", message=line.lstrip("✗").strip(), detail=None)
+        _set_status(state="error", message=line[1:].strip(), detail=None)
         return
-    if line.startswith("⚠"):
+    if eigene_meldung(line, "⚠"):
         _warn_open = True
         with _status_lock:
-            _status["warnings"] = [*_status["warnings"], line.lstrip("⚠").strip()]
+            _status["warnings"] = [*_status["warnings"], line[1:].strip()]
             _status["updated_at"] = time.time()
         return
     if _warn_open and line.startswith("  ") and line.strip():
@@ -230,8 +248,10 @@ def _handle_line(line: str) -> None:
                 _status["updated_at"] = time.time()
         return
     _warn_open = False
-    if line.startswith("✓") and ("frischen Abbild" in line or "neuesten Stand" in line):
-        _set_status(state="ok", stage="done", message=line.lstrip("✓").strip())
+    if eigene_meldung(line, "✓") and (
+        "frischen Abbild" in line or "neuesten Stand" in line
+    ):
+        _set_status(state="ok", stage="done", message=line[1:].strip())
         return
     for marker, stage in _STAGE_MARKERS:
         if marker in line:

@@ -9,6 +9,49 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Startseite**
 
+- Die Favoritenkacheln stehen auf jedem iPhone nebeneinander statt zu
+  zweit oben und einer darunter. Sie waren als Einzige so breit wie ihr
+  Inhalt – drei Zimmernamen ergeben zusammen mehr, als ein iPhone
+  hergibt. Jetzt teilen sie sich die Reihe wie jedes andere Raster. Das
+  Symbol steht über dem Namen statt daneben; daneben frass es die
+  Breite, die «Wohnzimmer» braucht. Auf einem alten 320er bleiben es
+  zwei Spalten – drei wären dort Kürzel statt Namen.
+
+**Batteriewarnung**
+
+- «Batterie schwach» kommt nicht mehr immer wieder. Der Merker, was schon
+  gemeldet wurde, lag im Arbeitsspeicher und war nach jedem Neustart des
+  Hubs weg – bei einer Batterie, die wochenlang schwach ist, hiess das:
+  nach jedem Update dieselbe Meldung. Er liegt jetzt auf der Platte.
+- Er fällt auch nicht mehr weg, wenn ein Funksensor sich neu anmeldet und
+  einen Moment ohne Batterieangabe dasteht. Vergessen wird nur, wenn ein
+  Gerät ausdrücklich «Batterie in Ordnung» meldet.
+- Ein Tipp auf die Meldung führt direkt auf die Geräteseite mit
+  aufgeklappter Batterienliste.
+- Dort lässt sich jede Warnung quittieren: **bis morgen** stumm. Das ist
+  ein Aufschub, kein Ausschalten – ist die Batterie morgen früh noch
+  schwach, erinnert der Hub noch einmal.
+
+**Erscheinungsbild**
+
+- «Pink» heisst jetzt «Neonpink» und ist, was der Name sagt: schwarzer
+  Grund, neonpinker Akzent, eine feine pinke Kante um jede Kachel.
+  Zweimal lag es vorher daneben, und beide Male am selben Punkt – der
+  Grund hatte eine Farbe (erst Aubergine, dann Weinrot), und die liest
+  sich als Violett bzw. Kastanie. Das Pink kommt jetzt von dem, was auf
+  dem Schwarz liegt, nicht vom Schwarz selbst.
+- Die Beschriftung der gefüllten Knöpfe («Speichern & verbinden», die
+  Primärknöpfe unter System) war in allen dunklen Erscheinungsbildern
+  weiss auf Weiss und damit unsichtbar. Sie ist jetzt dunkel.
+
+**Startseite**
+
+- Im Musikplayer lassen sich Quelle und Box getrennt wählen: oben zwei
+  Chips für Spotify und Radio, daneben der Wähler für die Box. Vorher
+  steckte beides in einer Liste namens «Lautsprecher wählen», und die
+  Quelle war weder benannt noch ohne Aufklappen zu sehen. Die Box gilt
+  jetzt auch fürs Radio – vorher zog derselbe Wähler immer Spotify um.
+
 - Der Musikplayer in der rechten Spalte zeigt keine Fernseher mehr –
   weder in der Boxenwahl noch als Karte, wenn dort gerade ein Film
   läuft. Ein Cast-fähiger Fernseher kennt weder Steuerkreuz noch
@@ -31,6 +74,26 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 - Gespielt wird auf einem Lautsprecher, der eine Tonadresse abspielen
   kann (Chromecast, Google Home). Startet dort jemand Spotify, gibt das
   Radio die Box frei, statt weiter «läuft» zu behaupten.
+
+**Gäste-WLAN**
+
+- Die UniFi-Anbindung liess sich anmelden und bekam danach auf jede
+  Abfrage die HTML-Anmeldeseite zurück – mit Status 200, nicht mit 401.
+  Im Log stand «unexpected mimetype: text/html», was nach einem kaputten
+  Endpunkt aussieht. Das Anmelde-Cookie ging auf zwei Wegen verloren, und
+  beide mussten weg: Von einer nackten IP-Adresse legt aiohttp Cookies
+  nur mit `unsafe=True` ab (die Zeile stand in der Kamera-Anbindung und
+  fehlte in der Netzwerk-Anbindung) – und selbst dann verwirft Pythons
+  Cookie-Parser die ganze Zeile, weil UniFi OS sie mit `partitioned`
+  schickt und er dieses Attribut nicht kennt. Der Hub liest den Token
+  jetzt selbst aus der Kopfzeile. Beide UniFi-Anbindungen gehen
+  denselben Weg, geprüft an der echten Zeile einer Konsole.
+- Wer das Gäste-Netz ausschliesslich über das UniFi-Captive-Portal
+  betreibt, kommt jetzt an den Gutschein-Spender heran, ohne vorher
+  einen `guest_wifi`-Abschnitt einzutragen. Vorher zählte die Karte den
+  Vorrat: kein Gutschein hiess «nicht eingerichtet» – und die Knöpfe,
+  mit denen man den ersten anlegt, lagen hinter genau diesem Hinweis.
+  Jetzt genügt die UniFi-Anbindung.
 
 **Philips Hue**
 

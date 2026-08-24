@@ -119,3 +119,153 @@ def test_parse_device_status_idle():
 
 def test_parse_device_status_tolerates_missing_fields():
     assert parse_device_status({})["state"] == "idle"
+
+
+# ── Cookies von einer IP-Adresse ────────────────────────────────────────
+#
+# Der Fall, der einen Abend gekostet hat: Der UniFi-Controller nahm die
+# Anmeldung an, jede folgende Abfrage kam aber unangemeldet zurück - und
+# zwar mit Status 200 und der HTML-Anmeldeseite, nicht mit 401. Im Log
+# stand «unexpected mimetype: text/html», was nach einem kaputten
+# Endpunkt aussieht und nicht nach einem verworfenen Cookie.
+#
+# Ursache: aiohttp legt Cookies von einem Host ohne Namen - also von
+# einer nackten IP-Adresse, wie man eine Konsole im eigenen Netz eben
+# anspricht - nur mit `unsafe=True` ab. Sonst verwirft er sie stumm.
+
+
+async def test_console_session_behaelt_cookies_von_einer_ip():
+    from http.cookies import SimpleCookie
+
+    import aiohttp
+    from yarl import URL
+
+    from homepilot.core.integration import Integration
+
+    class Dummy(Integration):
+        name = "dummy"
+
+        async def setup(self) -> None:  # pragma: no cover - hier ungenutzt
+            pass
+
+    # So, wie eine UniFi-Konsole es schickt: fürs ganze Gerät gültig.
+    def token() -> SimpleCookie:
+        keks: SimpleCookie = SimpleCookie()
+        keks["TOKEN"] = "abc"
+        keks["TOKEN"]["path"] = "/"
+        return keks
+
+    anmeldung = URL("https://10.10.1.10/api/auth/login")
+    abfrage = URL("https://10.10.1.10/proxy/network/api/s/default/stat/sta")
+
+    integration = Dummy(hub=None, config={})  # type: ignore[arg-type]
+    session = integration.console_session()
+    try:
+        session.cookie_jar.update_cookies(token(), response_url=anmeldung)
+        behalten = session.cookie_jar.filter_cookies(abfrage)
+        assert behalten.get("TOKEN") is not None, (
+            "Ohne dieses Cookie antwortet der Controller mit der Anmeldeseite"
+        )
+    finally:
+        await session.close()
+
+    # Und die Gegenprobe: Genau das kann der Vorgabe-Speicher nicht.
+    schlicht = aiohttp.CookieJar()
+    schlicht.update_cookies(token(), response_url=anmeldung)
+    assert not schlicht.filter_cookies(abfrage)
+
+
+# ── «partitioned» wirft das ganze Cookie weg ────────────────────────────
+#
+# Der zweite Teil derselben Geschichte, und der eigentliche Grund: Selbst
+# mit einem Speicher, der Cookies von einer IP-Adresse annimmt, kam nichts
+# an. UniFi OS schickt sein Anmelde-Cookie mit dem Attribut 'partitioned'
+# (CHIPS), und Pythons SimpleCookie verwirft an einem unbekannten Attribut
+# die ganze Zeile - ohne Fehler, ohne Warnung.
+#
+# Die Zeile unten stammt Wort für Wort von einer UniFi-Konsole, nur der
+# Token ist gekürzt.
+
+ECHTE_ZEILE = (
+    "TOKEN=eyJhbGciOiJSUzI1NiJ9.abc.def; path=/; "
+    "expires=Mon, 24 Aug 2026 16:37:59 GMT; samesite=none; secure; "
+    "httponly; partitioned"
+)
+
+
+def test_simplecookie_scheitert_an_partitioned():
+    from http.cookies import SimpleCookie
+
+    # Kein Test unseres Codes, sondern die Festschreibung des Grundes:
+    # Fällt das eines Tages weg, darf man parse_set_cookie hinterfragen.
+    keks: SimpleCookie = SimpleCookie()
+    keks.load(ECHTE_ZEILE)
+    assert list(keks.keys()) == []
+
+
+def test_parse_set_cookie_holt_den_token_trotzdem():
+    from homepilot.core.integration import parse_set_cookie
+
+    assert parse_set_cookie([ECHTE_ZEILE]) == {"TOKEN": "eyJhbGciOiJSUzI1NiJ9.abc.def"}
+
+
+def test_parse_set_cookie_uebergeht_zeilen_ohne_paar():
+    from homepilot.core.integration import parse_set_cookie
+
+    assert parse_set_cookie(["", "  ", "kaputt; path=/", "A=1", "B=2; secure"]) == {
+        "A": "1",
+        "B": "2",
+    }
+
+
+def test_parse_set_cookie_behaelt_gleichheitszeichen_im_wert():
+    from homepilot.core.integration import parse_set_cookie
+
+    # Ein JWT endet gern auf Füllzeichen - der Wert darf nicht abbrechen.
+    assert parse_set_cookie(["T=ab==; path=/"]) == {"T": "ab=="}
+
+
+async def test_keep_cookies_legt_den_token_wirklich_ab():
+    from unittest.mock import Mock
+
+    from multidict import CIMultiDict
+    from yarl import URL
+
+    from homepilot.core.integration import Integration
+
+    class Dummy(Integration):
+        name = "dummy"
+
+        async def setup(self) -> None:  # pragma: no cover - hier ungenutzt
+            pass
+
+    integration = Dummy(hub=None, config={})  # type: ignore[arg-type]
+    session = integration.console_session()
+    try:
+        antwort = Mock()
+        antwort.headers = CIMultiDict([("Set-Cookie", ECHTE_ZEILE)])
+        integration.keep_cookies(session, antwort, "https://10.10.1.10")
+
+        # Und zwar so, dass er bei der Netzwerk-API auch mitgeht - dort
+        # lag der Fehler, nicht beim Anmelden.
+        mitgeschickt = session.cookie_jar.filter_cookies(
+            URL("https://10.10.1.10/proxy/network/api/s/default/stat/sta")
+        )
+        assert mitgeschickt.get("TOKEN") is not None
+    finally:
+        await session.close()
+
+
+async def test_unifi_und_protect_nehmen_denselben_weg():
+    # Die beiden hatten denselben Bedarf und nur eine von ihnen die
+    # Lösung. Ein gemeinsamer Helfer verhindert, dass das wiederkehrt.
+    import inspect
+
+    from homepilot.integrations import unifi, unifi_protect
+
+    for modul in (unifi, unifi_protect):
+        quelle = inspect.getsource(modul)
+        assert "self.console_session(" in quelle, modul.__name__
+        assert "cookie_jar" not in quelle, f"{modul.__name__} baut wieder selbst"
+        # Und beide legen das Anmelde-Cookie selbst ab.
+        assert "self.keep_cookies(" in quelle, modul.__name__

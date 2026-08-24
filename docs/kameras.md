@@ -53,9 +53,15 @@ Portainer → Stack → **Environment variables**:
 Ohne Anführungszeichen. Danach **Update the stack → Deploy** – Umgebungs-
 variablen werden nur beim Start des Containers gelesen.
 
-Dieselben Zugangsdaten nutzt auch die `unifi`-Integration (Anwesenheit über
-verbundene Geräte); ein Benutzer reicht für beide, dann braucht er
-zusätzlich Leserecht auf **Network**.
+Die `unifi`-Integration (Geräte im WLAN und die Gutscheine fürs
+Gäste-Portal) hat ein **eigenes** Paar: `UNIFI_NET_USER` und
+`UNIFI_NET_PASSWORD`. Getrennt, weil die beiden verschieden viel dürfen
+müssen – Protect kommt mit «View Only» aus, der Netzwerk-Zugang muss
+Hotspot-Gutscheine ausstellen können. Ein Konto für beides hiesse, dem
+Kamera-Zugang Schreibrechte im Netz zu geben.
+
+Wer trotzdem nur einen Benutzer will, trägt dessen Daten schlicht in
+beide Paare ein; er braucht dann zusätzlich Rechte auf **Network**.
 
 ## 3. Integration einschalten
 

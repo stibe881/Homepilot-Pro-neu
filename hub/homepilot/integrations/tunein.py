@@ -561,10 +561,18 @@ class TuneInIntegration(Integration):
 
         if command == "play_on":
             ziel = str(data.get("device") or "")
-            station = self._station
-            if station is None:
-                raise HomePilotError("Es läuft gerade kein Sender zum Umziehen")
-            await self._play(station, ziel or None)
+            if self._station is not None:
+                await self._play(self._station, ziel or None)
+                return
+            # Es läuft nichts. Statt eines Fehlers die Box vormerken: «Das
+            # Radio soll in der Küche spielen» ist eine sinnvolle Ansage,
+            # auch bevor ein Sender gewählt ist – und in der Kopfzeile der
+            # Musikkarte ist es genau die Reihenfolge, in der man tippt.
+            gemerkt = pick_speaker(ziel or None, self.speakers())
+            if gemerkt is None:
+                raise HomePilotError(f"Unbekannte Box '{ziel}'")
+            self._box = gemerkt
+            await self._refresh()
             return
 
         # Alles Übrige geht an die Box: Lautstärke und Pause kann sie
