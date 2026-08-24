@@ -15,12 +15,18 @@ from homepilot.integrations import vzug as modul
 
 
 class FakeRegistry:
-    def __init__(self, gesehen: float | None = 1000.0) -> None:
+    def __init__(
+        self, gesehen: float | None = 1000.0, zustand: str = "idle"
+    ) -> None:
         self.calls: list[tuple[str, dict, object]] = []
         # Voreingestellt ein Gerät, das schon einmal geantwortet hat -
         # das ist der Normalfall dieser Tests. ``gesehen=None`` ist das
-        # Gerät, das den Hub-Start verschlafen hat.
-        self.entity = types.SimpleNamespace(last_seen=gesehen)
+        # Gerät, das den Hub-Start verschlafen hat; sein Zustand ist dann
+        # der Platzhalter aus dem Setup.
+        self.entity = types.SimpleNamespace(
+            last_seen=gesehen,
+            state={"state": modul.UNBEKANNT if gesehen is None else zustand},
+        )
 
     def get(self, entity_id):
         return self.entity
@@ -42,8 +48,15 @@ class FakeRegistry:
                 return available
         return None
 
+    @property
+    def letzter_zustand(self):
+        for _, state, _ in reversed(self.calls):
+            if "state" in state:
+                return state["state"]
+        return None
 
-def geraet(antworten, gesehen: float | None = 1000.0):
+
+def geraet(antworten, gesehen: float | None = 1000.0, zustand: str = "idle"):
     """Integration, gerade so weit gebaut, wie _refresh sie braucht.
 
     `antworten` ist eine Liste: ein Eintrag je Abrufversuch. Eine
@@ -62,7 +75,7 @@ def geraet(antworten, gesehen: float | None = 1000.0):
         info=lambda *a, **k: None,
         warning=lambda *a, **k: None,
     )
-    registry = FakeRegistry(gesehen)
+    registry = FakeRegistry(gesehen, zustand)
     integration.hub = types.SimpleNamespace(registry=registry)
 
     rest = list(antworten)
@@ -299,3 +312,38 @@ def test_a_device_that_slept_through_the_hub_start_is_not_left_silent(monkeypatc
     # Die Erreichbarkeit bleibt unangetastet.
     assert registry.letzte_verfuegbarkeit is None
     assert "vzug.waschmaschine" not in integration._down
+
+
+def test_a_device_that_slept_through_the_hub_start_says_standby(monkeypatch):
+    """Der Fall aus der Küche.
+
+    Die Maschinen schlafen fast immer, der Hub wird beim Bauen neu
+    gestartet – und weil ein 503 nie einen Zustand schrieb, blieb der
+    Platzhalter aus dem Setup stehen. Unter «Waschmaschine» stand dann
+    stundenlang roh das englische «unknown».
+    """
+    ohne_pause(monkeypatch)
+    integration, registry = geraet([beschaeftigt()], gesehen=None)
+    lauf(integration)
+    assert registry.letzter_zustand == modul.STANDBY
+
+
+def test_standby_does_not_claim_a_program_is_finished(monkeypatch):
+    """Nicht «idle»: Daraus machte der Wächter einen Programmlauf und
+    irgendwann ein «ist noch voll» – über eine Maschine, die seit Tagen
+    leer dasteht."""
+    ohne_pause(monkeypatch)
+    integration, registry = geraet([beschaeftigt()], gesehen=None)
+    lauf(integration)
+    assert registry.letzter_zustand != "idle"
+
+
+def test_standby_does_not_overwrite_a_real_reading(monkeypatch):
+    """Eine Messung von vorhin ist mehr wert als der Schluss aus einem
+    503. Wer läuft, läuft weiter – auch wenn der Webserver gerade nicht
+    mag."""
+    ohne_pause(monkeypatch)
+    integration, registry = geraet([beschaeftigt()], gesehen=None, zustand="running")
+    registry.entity.state = {"state": "running"}
+    lauf(integration)
+    assert registry.letzter_zustand is None

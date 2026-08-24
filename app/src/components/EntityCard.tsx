@@ -4,6 +4,7 @@ import { Image, Pressable, Text, View } from 'react-native';
 
 import { CommandData, Entity, KalenderEintrag } from '../api/types';
 import { offlineSatz } from '../lib/funkstille';
+import { zustandsText } from '../lib/haushalt';
 import { hatWarteschlange } from '../lib/musikliste';
 import { useColors } from '../theme';
 import { Bar } from './Bar';
@@ -525,7 +526,7 @@ export function EntityCard({
         return (
           <View style={styles.stack}>
             <Pill
-              label={entity.state.state === 'running' ? 'Läuft' : 'Bereit'}
+              label={zustandsText(entity.state.state)}
               tone={entity.state.state === 'running' ? colors.accent : undefined}
             />
             {entity.state.program ? (

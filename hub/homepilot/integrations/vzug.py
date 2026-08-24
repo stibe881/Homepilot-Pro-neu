@@ -176,6 +176,17 @@ RUHE_HOECHSTENS = 300.0
 VERSUCHE = 2
 PAUSE_VOR_ZWEITEM_VERSUCH = 3.0
 
+# Der Wert, mit dem eine Kachel ins Leben tritt: «noch nie etwas gehört».
+# Ein Platzhalter, kein Messwert.
+UNBEKANNT = "unknown"
+
+# Und der Wert für das, was ein 503 tatsächlich sagt: Gerät am Netz,
+# Anzeige schläft. Bewusst nicht «idle»: «fertig» ist eine Aussage über
+# ein Programm, das gelaufen ist - der Wächter macht daraus einen
+# Programmlauf im Protokoll und irgendwann ein «ist noch voll». Aus
+# einem schlafenden Webserver lässt sich das nicht ablesen.
+STANDBY = "standby"
+
 
 def standby_grund(host: str) -> str:
     """Der Satz zum 503 – an zwei Stellen gebraucht, also einmal hier."""
@@ -290,7 +301,7 @@ class VZugIntegration(Integration):
                 str(host).replace(".", "_"),
                 EntityKind.APPLIANCE,
                 device.get("name", f"V-ZUG {host}"),
-                state={"state": "unknown"},
+                state={"state": UNBEKANNT},
                 available=False,
             )
             self._devices[entity.id] = (host, auth)
@@ -424,10 +435,21 @@ class VZugIntegration(Integration):
             # kein Ausfall –, aber der Satz gehört an die Kachel.
             entity = self.hub.registry.get(entity_id)
             if entity is not None and entity.last_seen is None:
-                await self.hub.registry.update_state(
-                    entity_id,
-                    {"problem": standby_grund(host)},
-                )
+                aenderungen: dict[str, Any] = {"problem": standby_grund(host)}
+                # Und der Zustand dazu. Das ist der Fall aus der Küche:
+                # Die Maschinen schlafen fast immer, der Hub wird beim
+                # Bauen neu gestartet - und weil ein 503 nie einen
+                # Zustand geschrieben hat, blieb der Platzhalter aus dem
+                # Setup stehen. Unter «Waschmaschine» stand dann roh das
+                # englische «unknown», stundenlang.
+                #
+                # Wir wissen aber etwas: Das Gerät antwortet, es bedient
+                # nur nicht. Das ist Standby, und mehr behauptet der Wert
+                # auch nicht. Nur der Platzhalter wird ersetzt - eine
+                # echte Messung von vorhin bleibt, wie sie war.
+                if str(entity.state.get("state") or "") in ("", UNBEKANNT):
+                    aenderungen["state"] = STANDBY
+                await self.hub.registry.update_state(entity_id, aenderungen)
             return
 
         if entity_id not in self._down:

@@ -7,6 +7,26 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 ## 2026-08-24
 
+**Haushaltsgeräte**
+
+- Waschmaschine und Geschirrspüler standen als «unknown» da, sobald sie
+  schliefen. V-ZUG-Geräte antworten im Standby mit einem 503 – der Hub
+  wertet das zu Recht nicht als Ausfall, schrieb dabei aber nie einen
+  Zustand. Weil die Maschinen fast immer schlafen und der Hub bei jedem
+  Bauen neu startet, blieb der Platzhalter aus dem Start oft stundenlang
+  stehen, und die Kachel gab ihn roh aus: das englische Wort unter
+  «Waschmaschine».
+- Jetzt steht dort **Standby**. Ausdrücklich nicht «Bereit»: Ob die
+  Maschine ausgeräumt ist, weiss im Standby niemand – und hätte der Hub
+  «fertig» geschrieben, hätte der Wächter daraus einen Programmlauf im
+  Protokoll gemacht und irgendwann ein «ist noch voll» über eine
+  Maschine geschickt, die seit Tagen leer dasteht. Eine echte Meldung
+  von vorhin bleibt unangetastet.
+- Übersichtskachel, Raumkachel und Gerätekarte sagen dasselbe Wort.
+  Bisher entschied jede für sich zwischen «Läuft» und sonst «Bereit» –
+  dasselbe Gerät stand damit an einer Stelle als «Standby» und an der
+  anderen als «Bereit».
+
 **Ortung**
 
 - Wer nach Hause kam, blieb «unterwegs». Die App meldete bisher nur

@@ -6,6 +6,7 @@ import { Entity, Scene } from '../api/types';
 import { Colors, radius, useColors } from '../theme';
 import { Card } from './Card';
 import { raumSymbol, raumZeile, wichtigeZuerst } from '../lib/raum';
+import { zustandsText } from '../lib/haushalt';
 
 /**
  * Raum-Kachel für die Seite «Räume»: der Raumname, darunter kompakt die
@@ -55,7 +56,9 @@ export function shortState(entity: Entity): string {
     case 'vacuum':
       return state === 'cleaning' ? 'Reinigt' : state === 'charging' ? 'Lädt' : 'Bereit';
     case 'appliance':
-      return state === 'running' ? 'Läuft' : 'Bereit';
+      // Nicht «sonst Bereit»: Ein Gerät im Standby oder ohne je gehörte
+      // Meldung ist nicht bereit, es schweigt nur.
+      return zustandsText(state);
     case 'scene':
       // «Gilt», solange die Lampen so stehen, wie die Szene sie gesetzt
       // hat. Die Bridge meldet es; wer eine Lampe von Hand verstellt,
