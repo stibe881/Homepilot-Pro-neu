@@ -19,6 +19,8 @@ import {
   mischenMoeglich,
   playlistWahl,
   playlistsVon,
+  radioWahl,
+  sendersVon,
 } from './szenengeraete';
 
 const geraet = (kind: string, commands: string[], state = {}): Entity =>
@@ -248,6 +250,33 @@ describe('imSchnappschuss', () => {
   it('lässt alles andere mit', () => {
     expect(imSchnappschuss(geraet('light', ['turn_on']))).toBe(true);
     expect(imSchnappschuss(geraet('cover', ['open']))).toBe(true);
+  });
+});
+
+describe('Radio in Szenen und Abläufen', () => {
+  const radio = (stations: string[]) =>
+    geraet('media_player', ['play', 'pause', 'play_radio'], { stations });
+
+  it('bietet «Radio» als eigenen Chip an', () => {
+    // Ein Sender ist keine Playlist, die weiterläuft – er wird
+    // eingeschaltet. Als Beilage zu «Musik an» wäre er am falschen Ort.
+    expect(schluessel(radio(['SRF 3']))).toContain('play_radio');
+  });
+
+  it('lässt den Chip weg, wo kein Sender eingerichtet ist', () => {
+    // Ein Chip, unter dem nichts steht, ist eine Attrappe.
+    expect(schluessel(radio([]))).not.toContain('play_radio');
+    expect(radioWahl(radio([]))).toBe(false);
+    expect(radioWahl(radio(['SRF 3']))).toBe(true);
+  });
+
+  it('liest die Senderliste vom Gerät', () => {
+    expect(sendersVon(radio(['SRF 3', 'Radio Pilatus']))).toEqual(['SRF 3', 'Radio Pilatus']);
+    expect(sendersVon(geraet('media_player', ['play']))).toEqual([]);
+  });
+
+  it('nimmt den Radio-Player in die Geräteliste einer Szene', () => {
+    expect(isSceneDevice(radio(['SRF 3']))).toBe(true);
   });
 });
 

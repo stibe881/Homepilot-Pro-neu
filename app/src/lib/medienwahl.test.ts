@@ -81,6 +81,31 @@ describe('pickPlayer', () => {
   it('kommt mit einem Haus ohne Medien zurecht', () => {
     expect(pickPlayer([])).toBeUndefined();
   });
+
+  it('bevorzugt das Radio vor der Box, auf der es läuft', () => {
+    // Radio spielt über eine Cast-Box – beide melden «playing». Nur auf
+    // der Radio-Karte steht, welcher Sender läuft und wie man wechselt.
+    const beide = [
+      medien({ id: 'cast.kueche', commands: ['play', 'play_url'], state: { state: 'playing' } }),
+      medien({
+        id: 'tunein.radio',
+        commands: ['play', 'play_radio'],
+        state: { state: 'playing' },
+      }),
+    ];
+    expect(pickPlayer(beide)?.id).toBe('tunein.radio');
+  });
+
+  it('nimmt bei Stille das Radio vor der blossen Box', () => {
+    const radio = medien({
+      id: 'tunein.radio',
+      commands: ['play', 'play_radio'],
+      state: { state: 'idle' },
+    });
+    expect(pickPlayer([box, radio])?.id).toBe('tunein.radio');
+    // Spotify bleibt trotzdem vorn: Es war die Karte, die man kennt.
+    expect(pickPlayer([box, radio, spotify])?.id).toBe('spotify.me');
+  });
 });
 
 describe('musikboxenImRaum', () => {

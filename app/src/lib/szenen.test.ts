@@ -96,6 +96,21 @@ describe('snapshotAction', () => {
 });
 
 describe('sceneActionsToDraft', () => {
+  it('holt den Sender zurück, damit er beim Bearbeiten nicht wegfällt', () => {
+    // Genau so ging vorher schon die Storen-Position verloren: Wer die
+    // Szene öffnete und wieder speicherte, hatte danach eine ohne.
+    const draft = sceneActionsToDraft([
+      {
+        entity_id: 'tunein.radio',
+        command: 'play_radio',
+        data: { station: 'SRF 3', device: 'Küche' },
+      },
+    ]);
+    expect(draft[0].command).toBe('play_radio');
+    expect(draft[0].station).toBe('SRF 3');
+    expect(draft[0].device).toBe('Küche');
+  });
+
   it('liest die Werte aus data zurück – die Position ging vorher verloren', () => {
     const draft = sceneActionsToDraft([
       { entity_id: 'overkiz.store', command: 'set_position', data: { position: 50 } },

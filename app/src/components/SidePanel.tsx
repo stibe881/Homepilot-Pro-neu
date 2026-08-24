@@ -10,7 +10,7 @@ import { Colors, radius, type, useColors } from '../theme';
 import { Bar } from './Bar';
 import { Card } from './Card';
 import { Musikliste } from './Musikliste';
-import { ShuffleRepeat, SpotifyPanel } from './EntityCard';
+import { RadioPanel, ShuffleRepeat, SpotifyPanel } from './EntityCard';
 
 function severityColor(colors: Colors, severity: string): string {
   return severity === 'Extreme' || severity === 'Severe' ? colors.danger : colors.warn;
@@ -321,6 +321,13 @@ function MediaPanel({
       {entity.commands.includes('play_playlist') ? (
         // Ohne Boxen-Zeile: Die Lautsprecherwahl sitzt oben in der Kopfzeile.
         <SpotifyPanel
+          entity={entity}
+          hideDevices
+          onCommand={(name, data) => command(name, data)}
+        />
+      ) : null}
+      {entity.commands.includes('play_radio') ? (
+        <RadioPanel
           entity={entity}
           hideDevices
           onCommand={(name, data) => command(name, data)}

@@ -116,6 +116,12 @@ export function baseCommandOptions(entity: Entity): { key: string; label: string
     if (kann('launch_app') && appsVon(entity).length > 0) {
       options.push({ key: 'launch_app', label: 'App' });
     }
+    // Radio steht als eigener Chip da und nicht als Beilage zu «Musik
+    // an»: Ein Sender ist keine Playlist, die weiterläuft – er wird
+    // eingeschaltet, und «weiterspielen» gibt es bei ihm nicht.
+    if (radioWahl(entity)) {
+      options.push({ key: 'play_radio', label: 'Sender' });
+    }
     return options;
   }
   if (entity.kind === 'scene') {
@@ -225,3 +231,23 @@ export function imSchnappschuss(entity: Entity): boolean {
   return entity.kind !== 'alarm' && entity.kind !== 'camera' && entity.kind !== 'scene';
 }
 
+
+/** Lässt sich an diesem Gerät ein Sender wählen? (rein, testbar)
+ *
+ * Nur wo es Radio kann *und* Sender meldet. Eine leere Auswahl
+ * anzubieten ist schlimmer als keine: Der Chip liesse sich antippen und
+ * darunter stünde nichts. */
+export function radioWahl(entity: Entity): boolean {
+  return entity.commands.includes('play_radio') && sendersVon(entity).length > 0;
+}
+
+/** Die Sender, die dieses Gerät meldet (rein, testbar).
+ *
+ * Der Hub schickt sie als Namen mit – dieselben, die auch in der
+ * Musikkarte stehen. Der Name geht später als `station` an `play_radio`;
+ * eine Kennung wäre in einer gespeicherten Szene das falsche: Sie sagt
+ * niemandem, welcher Sender gemeint ist. */
+export function sendersVon(entity: Entity): string[] {
+  const roh = entity.state?.stations;
+  return Array.isArray(roh) ? roh.map((name) => String(name)).filter(Boolean) : [];
+}

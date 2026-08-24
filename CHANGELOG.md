@@ -7,6 +7,21 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 ## 2026-08-24
 
+**Radio**
+
+- Neue Integration `tunein`: Internetradio auf den Boxen im Haus. Sie
+  erscheint als Player «Radio» in der Musikkarte – dort, wo bisher nur
+  Spotify stand.
+- Sender lassen sich in der App suchen und merken: Was TuneIn zur
+  Eingabe findet, steht unter der eigenen Liste; ein Tipp darauf spielt
+  den Sender *und* behält ihn. Feste Sender gehen weiterhin über die
+  config.yaml, auch mit eigener Adresse für den Icecast im Keller.
+- Radio geht auch in **Szenen und Abläufe**: Der Chip «Sender» wählt den
+  Sender und die Box – «Küche morgens: SRF 3 auf der Küchenbox».
+- Gespielt wird auf einem Lautsprecher, der eine Tonadresse abspielen
+  kann (Chromecast, Google Home). Startet dort jemand Spotify, gibt das
+  Radio die Box frei, statt weiter «läuft» zu behaupten.
+
 **Philips Hue**
 
 - Die auf der Bridge gespeicherten Szenen stehen jetzt überall dort zur
