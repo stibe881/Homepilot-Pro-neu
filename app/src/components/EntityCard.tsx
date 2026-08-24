@@ -677,6 +677,7 @@ export function EntityCard({
                 icon="pencil"
                 active={false}
                 label="Umbenennen"
+                caption="Name"
                 onPress={() => setRenameOpen(true)}
               />
             ) : null}
@@ -684,12 +685,14 @@ export function EntityCard({
               icon={favorite ? 'star' : 'star-outline'}
               active={!!favorite}
               label={favorite ? 'Favorit entfernen' : 'Als Favorit'}
+              caption="Favorit"
               onPress={onToggleFavorite}
             />
             <EditButton
               icon={hidden ? 'eye-off' : 'eye-outline'}
               active={!!hidden}
               label={hidden ? 'Wieder einblenden' : 'Ausblenden'}
+              caption={hidden ? 'Versteckt' : 'Ausblenden'}
               onPress={onToggleHidden}
             />
             {onToggleLocked ? (
@@ -697,6 +700,10 @@ export function EntityCard({
                 icon={locked ? 'lock-closed' : 'lock-open-outline'}
                 active={!!locked}
                 label={locked ? 'Sperre aufheben' : 'Sperren – schaltet nur nach Rückfrage'}
+                // «Rückfrage» statt «Sperren»: Das Wort sagt, was passiert.
+                // Gesperrt klingt nach «geht nicht mehr» – es geht weiter,
+                // nur mit einem Ja dazwischen.
+                caption="Rückfrage"
                 onPress={onToggleLocked}
               />
             ) : null}

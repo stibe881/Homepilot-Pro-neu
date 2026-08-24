@@ -254,6 +254,16 @@ export const makeStyles = (colors: Colors) =>
     borderWidth: 1,
     borderColor: colors.surfaceBorder,
   },
+  // Der ganze Knopf: Symbol oben, Wort darunter. Die Fläche zum Antippen
+  // ist die Spalte, nicht nur der Kreis – das Wort trifft man sonst und es
+  // passiert nichts.
+  editItem: { alignItems: 'center', gap: 3, maxWidth: 76 },
+  editCaption: {
+    color: colors.inkSoft,
+    fontSize: 10,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   editButton: {
     width: 32,
     height: 32,
