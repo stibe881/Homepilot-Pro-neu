@@ -67,6 +67,14 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Gäste-WLAN**
 
+- Die UniFi-Anbindung liess sich anmelden und bekam danach auf jede
+  Abfrage die HTML-Anmeldeseite zurück – mit Status 200, nicht mit 401.
+  Im Log stand «unexpected mimetype: text/html», was nach einem kaputten
+  Endpunkt aussieht. Tatsächlich verwarf aiohttp das Anmelde-Cookie:
+  Von einer nackten IP-Adresse legt es Cookies nur mit `unsafe=True` ab,
+  und zwar stumm. In der Kamera-Anbindung stand die Zeile, in der
+  Netzwerk-Anbindung fehlte sie. Beide holen ihre Verbindung jetzt beim
+  selben Helfer.
 - Wer das Gäste-Netz ausschliesslich über das UniFi-Captive-Portal
   betreibt, kommt jetzt an den Gutschein-Spender heran, ohne vorher
   einen `guest_wifi`-Abschnitt einzutragen. Vorher zählte die Karte den

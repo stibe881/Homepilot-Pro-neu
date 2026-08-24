@@ -119,3 +119,70 @@ def test_parse_device_status_idle():
 
 def test_parse_device_status_tolerates_missing_fields():
     assert parse_device_status({})["state"] == "idle"
+
+
+# ── Cookies von einer IP-Adresse ────────────────────────────────────────
+#
+# Der Fall, der einen Abend gekostet hat: Der UniFi-Controller nahm die
+# Anmeldung an, jede folgende Abfrage kam aber unangemeldet zurück - und
+# zwar mit Status 200 und der HTML-Anmeldeseite, nicht mit 401. Im Log
+# stand «unexpected mimetype: text/html», was nach einem kaputten
+# Endpunkt aussieht und nicht nach einem verworfenen Cookie.
+#
+# Ursache: aiohttp legt Cookies von einem Host ohne Namen - also von
+# einer nackten IP-Adresse, wie man eine Konsole im eigenen Netz eben
+# anspricht - nur mit `unsafe=True` ab. Sonst verwirft er sie stumm.
+
+
+async def test_console_session_behaelt_cookies_von_einer_ip():
+    from http.cookies import SimpleCookie
+
+    import aiohttp
+    from yarl import URL
+
+    from homepilot.core.integration import Integration
+
+    class Dummy(Integration):
+        name = "dummy"
+
+        async def setup(self) -> None:  # pragma: no cover - hier ungenutzt
+            pass
+
+    # So, wie eine UniFi-Konsole es schickt: fürs ganze Gerät gültig.
+    def token() -> SimpleCookie:
+        keks: SimpleCookie = SimpleCookie()
+        keks["TOKEN"] = "abc"
+        keks["TOKEN"]["path"] = "/"
+        return keks
+
+    anmeldung = URL("https://10.10.1.10/api/auth/login")
+    abfrage = URL("https://10.10.1.10/proxy/network/api/s/default/stat/sta")
+
+    integration = Dummy(hub=None, config={})  # type: ignore[arg-type]
+    session = integration.console_session()
+    try:
+        session.cookie_jar.update_cookies(token(), response_url=anmeldung)
+        behalten = session.cookie_jar.filter_cookies(abfrage)
+        assert behalten.get("TOKEN") is not None, (
+            "Ohne dieses Cookie antwortet der Controller mit der Anmeldeseite"
+        )
+    finally:
+        await session.close()
+
+    # Und die Gegenprobe: Genau das kann der Vorgabe-Speicher nicht.
+    schlicht = aiohttp.CookieJar()
+    schlicht.update_cookies(token(), response_url=anmeldung)
+    assert not schlicht.filter_cookies(abfrage)
+
+
+async def test_unifi_und_protect_nehmen_denselben_weg():
+    # Die beiden hatten denselben Bedarf und nur eine von ihnen die
+    # Lösung. Ein gemeinsamer Helfer verhindert, dass das wiederkehrt.
+    import inspect
+
+    from homepilot.integrations import unifi, unifi_protect
+
+    for modul in (unifi, unifi_protect):
+        quelle = inspect.getsource(modul)
+        assert "self.console_session(" in quelle, modul.__name__
+        assert "cookie_jar" not in quelle, f"{modul.__name__} baut wieder selbst"
