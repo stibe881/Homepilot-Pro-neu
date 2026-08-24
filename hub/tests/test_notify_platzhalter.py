@@ -70,7 +70,7 @@ async def test_ein_ablauf_meldet_fuer_mehrere_zimmer():
         await hub.registry.add(gerät("hm.kind2", "Melder Lina", "Linas Zimmer"))
         gesendet: list[dict] = []
 
-        async def merken(tokens, title, body, data=None, image=None):
+        async def merken(tokens, title, body, data=None, image=None, **_):
             gesendet.append({"title": title, "body": body, "data": data or {}})
             return 1
 
@@ -106,7 +106,7 @@ async def test_die_kamera_des_ausloesers_landet_in_der_nachricht():
         )
         gesendet: list[dict] = []
 
-        async def merken(tokens, title, body, data=None, image=None):
+        async def merken(tokens, title, body, data=None, image=None, **_):
             gesendet.append({"data": data or {}})
             return 1
 
@@ -133,7 +133,7 @@ async def test_ohne_passende_kamera_geht_die_nachricht_trotzdem_raus():
         await hub.registry.add(gerät("hm.keller", "Melder Keller", "Keller"))
         gesendet: list[dict] = []
 
-        async def merken(tokens, title, body, data=None, image=None):
+        async def merken(tokens, title, body, data=None, image=None, **_):
             gesendet.append({"data": data or {}})
             return 1
 

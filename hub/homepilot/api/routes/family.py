@@ -221,6 +221,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 "Aufgaben" if collection == "tasks" else "Ämtli",
                 f"{was} ist jetzt bei dir" + (f" - bis {frist}" if frist else "."),
                 data={"kind": "family", "collection": collection},
+                category="tasks",
             )
         except Exception as err:  # eine Nachricht ist kein Grund zu scheitern
             log.warning("Zuweisungs-Nachricht an %s fehlgeschlagen: %s", wer, err)
