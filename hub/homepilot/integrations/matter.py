@@ -439,7 +439,17 @@ def node_lines(node: dict[str, Any]) -> list[str]:
         name = endpoint_name(attributes, node_id, endpoint)
         kind = classify(typen)
         if kind is not None:
-            zeilen.append(f"Knoten {node_id} Endpunkt {endpoint}: {name} ({kind})")
+            zeile = f"Knoten {node_id} Endpunkt {endpoint}: {name} ({kind})"
+            if kind == EntityKind.LOCK:
+                # Beim Schloss ist das die Frage, die man beim Einrichten
+                # hat - und die man sonst erst im Hausflur beantwortet
+                # bekommt, wenn der Knopf fehlt.
+                zeile += (
+                    " – kann aufziehen"
+                    if has_unbolt(attributes, endpoint)
+                    else " – meldet kein Aufziehen (UnboltDoor)"
+                )
+            zeilen.append(zeile)
         elif endpoint != 0:
             # Endpunkt 0 ist die Verwaltung jedes Knotens und nie ein Gerät.
             liste = ", ".join(str(t) for t in typen)

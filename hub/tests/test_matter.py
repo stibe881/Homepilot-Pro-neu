@@ -138,7 +138,9 @@ def test_the_listing_names_what_it_cannot_use():
         },
     }
     zeilen = node_lines(node)
-    assert zeilen[0] == "Knoten 1 Endpunkt 1: Smart Lock Pro (lock)"
+    # Beim Schloss steht dahinter, ob es aufziehen kann - die Frage,
+    # die man beim Einrichten hat.
+    assert zeilen[0].startswith("Knoten 1 Endpunkt 1: Smart Lock Pro (lock)")
     assert "Gerätetyp 999 wird noch nicht unterstützt" in zeilen[1]
     assert not any("Endpunkt 0" in zeile for zeile in zeilen)
 
@@ -650,3 +652,30 @@ def test_die_featuremap_zaehlt_wenn_die_befehlsliste_fehlt():
     assert unbolt_quelle(nur_features, 1) == "featuremap"
     assert unbolt_quelle({"1/257/65529": []}, 1) == "befehlsliste"
     assert unbolt_quelle({}, 1) == "keine"
+
+
+def test_die_knotenliste_sagt_beim_schloss_was_es_kann():
+    """Die Frage, die man beim Einrichten hat.
+
+    Sonst beantwortet sie sich erst im Hausflur, wenn der Knopf fehlt.
+    """
+    from homepilot.integrations.matter import node_lines
+
+    knoten = [
+        {
+            "node_id": 1,
+            "attributes": {
+                "1/29/0": [{"0": 10, "1": 1}],
+                "0/40/3": "Smart Lock Pro",
+                # Genau der Fall aus dem Feld: FeatureMap 0, aber
+                # UnboltDoor (39) in der Befehlsliste.
+                "1/257/65529": [0, 1, 39],
+                "1/257/65532": 0,
+            },
+        }
+    ]
+    zeilen = node_lines(knoten[0])
+    assert any("kann aufziehen" in zeile for zeile in zeilen)
+
+    knoten[0]["attributes"]["1/257/65529"] = [0, 1]
+    assert any("meldet kein Aufziehen" in zeile for zeile in node_lines(knoten[0]))
