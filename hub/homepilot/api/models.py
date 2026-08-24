@@ -98,6 +98,16 @@ class SceneRequest(BaseModel):
     toggles: bool = True
 
 
+class HomeRequest(BaseModel):
+    """Der Hausstandort, von der aktuellen Position übernommen."""
+
+    latitude: float
+    longitude: float
+    # Wie weit «zuhause» reicht. Ein Bauernhof braucht mehr als eine
+    # Wohnung im Block.
+    radius: float | None = None
+
+
 class PushPrefsRequest(BaseModel):
     """Abbestellte Nachrichtenarten eines Benutzers."""
 

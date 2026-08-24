@@ -127,6 +127,12 @@ def default_places(location: dict[str, Any] | None) -> list[dict[str, Any]]:
         lon = float(loc.get("longitude", DEFAULT_LON))
     except (TypeError, ValueError):
         lat, lon = DEFAULT_LAT, DEFAULT_LON
+    # Ein selbst gesetzter Standort bringt seinen eigenen Radius mit -
+    # ein Bauernhof braucht mehr als eine Wohnung im Block.
+    try:
+        eng = float(loc.get("radius") or DEFAULT_RADIUS)
+    except (TypeError, ValueError):
+        eng = DEFAULT_RADIUS
     return presence.parse_places(
         [
             {
@@ -134,7 +140,7 @@ def default_places(location: dict[str, Any] | None) -> list[dict[str, Any]]:
                 "name": "Zuhause",
                 "latitude": lat,
                 "longitude": lon,
-                "radius": DEFAULT_RADIUS,
+                "radius": eng,
             },
             {
                 "id": "quartier",
@@ -171,11 +177,8 @@ class GeofenceIntegration(Integration):
                 "geofence braucht mindestens eine Zone unter 'zones' "
                 "(je mit 'id', z.B. der Person)"
             )
-        eigene = presence.parse_places(self.config.get("places"))
-        # Orte ohne eigene Koordinaten (z.B. nur `radius`) fallen beim
-        # Einlesen weg - dann gilt der Hausstandort. Das ist die
-        # häufigste Konfiguration und soll ohne Zutun stimmen.
-        self.places = eigene or default_places(getattr(self.hub.config, "location", None))
+        self._eigene_places = presence.parse_places(self.config.get("places"))
+        self._orte_bauen()
         # Kennung → Entitäts-ID, und je Person die Orte, in denen sie steckt.
         self._zones: dict[str, str] = {}
         self._inside: dict[str, list[str]] = {}
@@ -248,6 +251,42 @@ class GeofenceIntegration(Integration):
             available=True,
         )
         self.log.info("Geofence: jemand zuhause = %s", neu)
+
+    def _orte_bauen(self) -> None:
+        """Die Ortsliste aus Konfiguration und gesetztem Hausstandort.
+
+        Orte ohne eigene Koordinaten (z.B. nur `radius`) fallen beim
+        Einlesen weg - dann gilt der Hausstandort. Das ist die häufigste
+        Konfiguration und soll ohne Zutun stimmen.
+        """
+        self.places = self._eigene_places or default_places(self.heimat())
+
+    def heimat(self) -> dict[str, Any]:
+        """Wo der Hub das Zuhause vermutet - und woher er das weiss.
+
+        Die Herkunft gehört dazu: «11 km entfernt» ist erst dann eine
+        Auskunft, wenn man sieht, wovon.
+        """
+        return presence.home_location(
+            self.hub.data.get(presence.HOME_KEY),
+            getattr(self.hub.config, "location", None),
+        )
+
+    async def set_heimat(self, latitude: float, longitude: float, radius: float = 150.0) -> dict[str, Any]:
+        """Den Hausstandort von der aktuellen Position übernehmen.
+
+        Der einzige Weg, bei dem sich niemand vertippen kann: Wer zuhause
+        steht, drückt einen Knopf.
+        """
+        self.hub.data.set(
+            presence.HOME_KEY,
+            presence.store_home(latitude, longitude, radius, time.time()),
+        )
+        self._orte_bauen()
+        self.log.info(
+            "Hausstandort gesetzt: %.5f, %.5f (Radius %.0f m)", latitude, longitude, radius
+        )
+        return self.heimat()
 
     async def handle_command(self, entity: Entity, command: str, data: dict[str, Any]) -> None:
         raise ConfigError("Geofence-Zonen meldet das Telefon, sie lassen sich nicht schalten")

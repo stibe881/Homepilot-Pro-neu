@@ -95,6 +95,37 @@ Zwei, die sich lohnen:
   Alarm scharf.
 - *Wenn jemand ankommt und es dunkel ist*: Eingangslicht an.
 
+## «Ich bin zuhause, der Hub sagt unterwegs»
+
+Fast immer liegt der **Hauskreis am falschen Ort**. Er kam bisher aus dem
+`location:`-Block der config.yaml, und wenn dort keiner stand, aus einer
+Vorgabe im Quelltext. Beides ist eine Zahl, die jemand einmal eingetippt
+hat – liegt sie um ein paar Kilometer daneben, ist man dauerhaft
+«unterwegs», und **nichts sieht kaputt aus**.
+
+Erkennen lässt es sich am Satz nach dem Melden:
+
+> Gemeldet: unterwegs. Der nächste Ort (Zuhause) liegt 11.1 km entfernt.
+
+Elf Kilometer sind keine Ungenauigkeit, sondern ein falscher Kreis.
+
+**Die Behebung:** In der App unter **Einstellungen → Ortung** steht neben
+«Jetzt melden» der Knopf **«Hier ist zuhause»**. Einmal drücken, während
+man zuhause ist – der Hub übernimmt die gemessene Position als
+Hausstandort. Vertippen ist dabei ausgeschlossen, und der `location:`-Block
+in der config.yaml wird davon gestochen.
+
+Zwei Dinge dazu:
+
+- Der Knopf verlangt einen Standort, der **auf 100 Meter genau** ist. Ein
+  Hausstandort, der um 200 Meter danebenliegt, wäre derselbe Fehler in
+  Grün.
+- Er darf nur, wer die Konfiguration ändern darf – es ist eine Einstellung
+  fürs ganze Haus, nicht für eine Person.
+
+Der gesetzte Standort liegt in den Hub-Daten, nicht in der config.yaml:
+Ein Update überschreibt ihn nicht.
+
 ## Was der Hub dabei nicht tut
 
 Er fragt das Telefon nie nach seinem Standort und speichert keine
