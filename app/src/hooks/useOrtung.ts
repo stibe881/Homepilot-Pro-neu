@@ -24,7 +24,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 
 import { HubSettings } from '../api/types';
@@ -303,6 +303,29 @@ export function useOrtung(settings: HubSettings, zone: string, erlaubt: boolean)
     await speichern(stand.aktiv, 0);
     setStand((vorher) => ({ ...vorher, pausiertBis: 0, hinweis }));
   }, [anwenden, speichern, stand.aktiv]);
+
+  // Beim Öffnen der App einmal sagen, wo wir sind.
+  //
+  // Die Zonenüberwachung meldet nur Übertritte, und wer zuhause sitzt,
+  // kreuzt keine Grenze. Der Hub merkt sich den letzten Stand zwar über
+  // seinen Neustart hinweg - aber nur einen halben Tag lang, denn eine
+  // Woche alte Meldung wäre eine Behauptung. Danach führte er einen als
+  // verschollen, bis man das nächste Mal weggeht und wiederkommt.
+  //
+  // Höchstens einmal je App-Start, und nie während einer Pause:
+  // Pausieren ist Pausieren, auch beim Öffnen.
+  const beimStartGemeldet = useRef(false);
+  useEffect(() => {
+    if (beimStartGemeldet.current) return;
+    beimStartGemeldet.current = true;
+    ortungLesen().then((gespeichert) => {
+      if (!gespeichert.aktiv || gespeichert.pausiertBis > Date.now()) return;
+      melden().then(
+        (satz) => setStand((vorher) => ({ ...vorher, gemeldet: satz })),
+        () => {}
+      );
+    });
+  }, [melden]);
 
   /** Für den Knopf «Jetzt melden» in den Einstellungen. */
   const jetztMelden = useCallback(async () => {

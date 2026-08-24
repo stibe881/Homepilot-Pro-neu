@@ -196,23 +196,30 @@ class GeofenceIntegration(Integration):
                 "kommt nur noch vom Telefon, nicht mehr aus dem WLAN",
                 ", ".join(veraltet),
             )
+        # Ein Neustart ändert nichts daran, wo jemand ist – das Telefon
+        # meldet aber nur Übertritte. Ohne das Gedächtnis stand nach
+        # jedem Update wieder «Hat sich noch nie gemeldet», bis die
+        # Person das nächste Mal eine Zonengrenze kreuzte. Wer zuhause
+        # sitzt, tut das nicht.
+        gemerkt = self.hub.data.get("presence_last")
+        jetzt = time.time()
         for zone in zones:
+            stand = presence.wieder_aufnehmen(gemerkt, zone["id"], jetzt)
             entity = await self.add_entity(
                 zone["id"],
                 EntityKind.BINARY_SENSOR,
                 zone["name"],
-                # Unbekannt ist ehrlich: Bis das Telefon das erste Mal
-                # meldet, weiss der Hub es wirklich nicht.
-                state={
-                    "state": presence.UNKNOWN,
-                    "device_class": "presence",
-                    "source": "none",
-                    "place": None,
-                },
+                # Ohne gemerkten Stand: unbekannt. Das ist ehrlich – bis
+                # das Telefon das erste Mal meldet, weiss der Hub es
+                # wirklich nicht.
+                state=stand,
                 available=True,
             )
             self._zones[zone["id"]] = entity.id
-            self._inside[zone["id"]] = []
+            # Auch die Orte zurückholen, in denen die Zone steckt: Sonst
+            # rechnete die nächste Meldung gegen eine leere Liste und
+            # machte aus «zuhause und im Quartier» ein blosses «Quartier».
+            self._inside[zone["id"]] = [stand["place"]] if stand.get("place") else []
         # Die Sammelfrage, auf die «alles aus» hört. Ohne sie müsste ein
         # Ablauf je Person einen Auslöser tragen und zusätzlich prüfen,
         # dass die anderen drei auch weg sind - das schreibt niemand von
@@ -378,6 +385,24 @@ class GeofenceIntegration(Integration):
             except (TypeError, ValueError):
                 neu["battery"] = None
         await self.hub.registry.update_state(entity_id, neu, available=True)
+        # Das Gedächtnis über den Neustart hinweg. Getrennt vom Verlauf:
+        # Der ist ein Protokoll des Kommens und Gehens, das hier ist der
+        # letzte Stand, je Zone eine Zeile.
+        self.hub.data.set(
+            "presence_last",
+            presence.merke_stand(
+                self.hub.data.get("presence_last"),
+                zone_id,
+                {
+                    "state": state,
+                    "place": place,
+                    "place_name": name,
+                    "source": neu["source"],
+                    "changed_at": jetzt,
+                    "battery": neu.get("battery"),
+                },
+            ),
+        )
         self.hub.data.set(
             "presence_history",
             presence.remember(
