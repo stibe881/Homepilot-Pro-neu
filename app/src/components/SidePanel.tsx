@@ -78,10 +78,7 @@ export function SidePanel({
   // Die Box des offenen Raums – immer die des Raums, in dem man gerade
   // steht. Läuft sie ohnehin schon oben (weil sie die spielende des
   // Hauses ist), bleibt es bei der einen Karte statt zweimal derselben.
-  const raumBoxen = useMemo(
-    () => musikboxenImRaum(entities, room),
-    [entities, room]
-  );
+  const raumBoxen = useMemo(() => musikboxenImRaum(entities, room), [entities, room]);
   const [chosenRoomId, setChosenRoomId] = useState<string | null>(null);
   const raumPlayer =
     (chosenRoomId ? raumBoxen.find((entity) => entity.id === chosenRoomId) : undefined) ??
@@ -165,8 +162,7 @@ function MediaPanel({
   const [pickerOpen, setPickerOpen] = useState(false);
   // Was als Nächstes läuft – hinter Cover und Titel.
   const [listeOffen, setListeOffen] = useState(false);
-  const command = (name: string, data?: CommandData) =>
-    onCommand(entity.id, name, data);
+  const command = (name: string, data?: CommandData) => onCommand(entity.id, name, data);
   const isSpotify = entity.commands.includes('play_playlist');
   const pickerLabel =
     isSpotify && activeDevice ? `${entity.name} · ${activeDevice}` : entity.name;
@@ -237,7 +233,9 @@ function MediaPanel({
       <Pressable
         onPress={hatWarteschlange(entity.state) ? () => setListeOffen(true) : undefined}
         accessibilityRole={hatWarteschlange(entity.state) ? 'button' : undefined}
-        accessibilityLabel={hatWarteschlange(entity.state) ? 'Was als Nächstes läuft' : undefined}
+        accessibilityLabel={
+          hatWarteschlange(entity.state) ? 'Was als Nächstes läuft' : undefined
+        }
         style={({ pressed }) => [styles.nowPlayingRow, pressed && { opacity: 0.75 }]}
       >
         {entity.state.image ? (
@@ -261,7 +259,16 @@ function MediaPanel({
           <Ionicons name="list-outline" size={18} color={colors.inkFaint} />
         ) : null}
       </Pressable>
-      <Musikliste state={entity.state} offen={listeOffen} onClose={() => setListeOffen(false)} />
+      <Musikliste
+        state={entity.state}
+        offen={listeOffen}
+        onClose={() => setListeOffen(false)}
+        onPlay={
+          entity.commands.includes('play_queue')
+            ? (uri) => command('play_queue', { uri })
+            : undefined
+        }
+      />
 
       <View style={styles.mediaButtons}>
         {entity.commands.includes('previous') ? (
@@ -300,9 +307,7 @@ function MediaPanel({
         <View style={styles.volumeRow}>
           <Ionicons
             name={
-              entity.state.muted || entity.state.volume === 0
-                ? 'volume-mute'
-                : 'volume-low'
+              entity.state.muted || entity.state.volume === 0 ? 'volume-mute' : 'volume-low'
             }
             size={18}
             color={colors.inkSoft}
@@ -339,16 +344,20 @@ function MediaPanel({
 
 /** Protokoll «Zuletzt passiert» – eigenständige Karte, eingebunden unter
  *  Einstellungen. */
-export function ActivityCard({ activity, limit = 30 }: { activity: Activity[]; limit?: number }) {
+export function ActivityCard({
+  activity,
+  limit = 30,
+}: {
+  activity: Activity[];
+  limit?: number;
+}) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <Card style={styles.activityCard}>
       <Text style={styles.heading}>Zuletzt passiert</Text>
       {activity.length === 0 ? (
-        <Text style={styles.empty}>
-          Noch keine Änderung, seit die App verbunden ist.
-        </Text>
+        <Text style={styles.empty}>Noch keine Änderung, seit die App verbunden ist.</Text>
       ) : (
         <View style={styles.list}>
           {activity.slice(0, limit).map((item) => (
@@ -360,13 +369,9 @@ export function ActivityCard({ activity, limit = 30 }: { activity: Activity[]; l
               <Text style={styles.activitySummary}>
                 {item.summary}
                 {/* Beantwortet „warum ist das passiert?" */}
-                {item.source && item.sourceKind !== 'device'
-                  ? ` · ${item.source}`
-                  : ''}
+                {item.source && item.sourceKind !== 'device' ? ` · ${item.source}` : ''}
               </Text>
-              <Text style={styles.activityTime}>
-                {uhr(item.at)}
-              </Text>
+              <Text style={styles.activityTime}>{uhr(item.at)}</Text>
             </View>
           ))}
         </View>
@@ -386,7 +391,9 @@ function WeatherPanel({ entity }: { entity: Entity }) {
     <Card style={styles.alertCard}>
       <View style={styles.weatherNow}>
         <Ionicons
-          name={(entity.state.icon as keyof typeof Ionicons.glyphMap) ?? 'partly-sunny-outline'}
+          name={
+            (entity.state.icon as keyof typeof Ionicons.glyphMap) ?? 'partly-sunny-outline'
+          }
           size={40}
           color={colors.ink}
         />
@@ -407,7 +414,11 @@ function WeatherPanel({ entity }: { entity: Entity }) {
               <Text style={styles.dayName}>
                 {index === 0 ? 'Heute' : weekdayShort(day.date)}
               </Text>
-              <Ionicons name={(day.icon as keyof typeof Ionicons.glyphMap) ?? 'cloud-outline'} size={20} color={colors.inkSoft} />
+              <Ionicons
+                name={(day.icon as keyof typeof Ionicons.glyphMap) ?? 'cloud-outline'}
+                size={20}
+                color={colors.inkSoft}
+              />
               <Text style={styles.dayHigh}>{day.high != null ? `${day.high}°` : '–'}</Text>
               <Text style={styles.dayLow}>{day.low != null ? `${day.low}°` : ''}</Text>
               {day.rain != null && day.rain >= 20 ? (
@@ -480,147 +491,162 @@ function AlertPanel({ entity }: { entity: Entity }) {
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-  column: { gap: 14 },
-  mediaCard: { gap: 8, minHeight: 0 },
-  mediaHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  speakerPicker: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginLeft: 'auto',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-    backgroundColor: colors.surfaceSoft,
-    borderWidth: 1,
-    borderColor: colors.surfaceBorder,
-    maxWidth: '60%',
-  },
-  speakerPickerText: { fontSize: 12, color: colors.inkSoft, fontWeight: '600', flexShrink: 1 },
-  speakerRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  speakerChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: colors.surfaceSoft,
-    borderWidth: 1,
-    borderColor: colors.surfaceBorder,
-    maxWidth: '100%',
-  },
-  speakerChipActive: {
-    backgroundColor: colors.accent,
-    borderColor: colors.accent,
-  },
-  speakerChipText: { fontSize: 12, color: colors.inkSoft, flexShrink: 1 },
-  speakerChipTextActive: { color: '#FFFFFF' },
-  nowPlayingRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  coverArt: {
-    width: 56,
-    height: 56,
-    borderRadius: radius.control,
-    backgroundColor: colors.surfaceSoft,
-  },
-  nowPlayingText: { flex: 1, gap: 2 },
-  mediaTrack: { color: colors.ink, fontSize: 16, fontWeight: '600' },
-  mediaArtist: { color: colors.inkSoft, fontSize: 13 },
-  mediaButtons: { flexDirection: 'row', gap: 8, marginTop: 2 },
-  playButton: {
-    width: 40,
-    height: 34,
-    borderRadius: radius.control,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surfaceStrong,
-    borderWidth: 1,
-    borderColor: colors.surfaceBorder,
-  },
-  volumeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  alertCard: { gap: 12, minHeight: 0 },
-  activityCard: { gap: 12, minHeight: 0, flexShrink: 1 },
-  alertHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  heading: {
-    color: colors.ink,
-    fontSize: type.cardTitle,
-    fontWeight: '700',
-  },
-  alertSource: {
-    color: colors.inkFaint,
-    fontSize: 12,
-    marginTop: 1,
-  },
-  alertCount: {
-    fontSize: 28,
-    fontWeight: '700',
-  },
-  weatherNow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  weatherTemp: { color: colors.ink, fontSize: 30, fontWeight: '700', letterSpacing: -0.5 },
-  weekRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 2,
-  },
-  dayCol: { alignItems: 'center', gap: 3, flex: 1 },
-  dayName: { color: colors.inkSoft, fontSize: 11, fontWeight: '600' },
-  dayHigh: { color: colors.ink, fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'] },
-  dayLow: { color: colors.inkFaint, fontSize: 12, fontVariant: ['tabular-nums'] },
-  dayRain: { color: colors.accent, fontSize: 10, fontWeight: '600' },
-  list: { gap: 10 },
-  alertRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  severityBar: {
-    width: 3,
-    height: 30,
-    borderRadius: radius.pill,
-  },
-  alertEvent: {
-    color: colors.ink,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  alertArea: {
-    color: colors.inkSoft,
-    fontSize: 12,
-  },
-  activityRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  bullet: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.inkFaint,
-  },
-  activityName: {
-    color: colors.ink,
-    fontSize: 13,
-    fontWeight: '500',
-    flexShrink: 1,
-  },
-  activitySummary: {
-    color: colors.inkSoft,
-    fontSize: 13,
-    flex: 1,
-  },
-  activityTime: {
-    color: colors.inkFaint,
-    fontSize: 12,
-    fontVariant: ['tabular-nums'],
-  },
-  empty: {
-    color: colors.inkSoft,
-    fontSize: 13,
-    lineHeight: 19,
-  },
-});
+    column: { gap: 14 },
+    mediaCard: { gap: 8, minHeight: 0 },
+    mediaHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    speakerPicker: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      marginLeft: 'auto',
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: 999,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      maxWidth: '60%',
+    },
+    speakerPickerText: {
+      fontSize: 12,
+      color: colors.inkSoft,
+      fontWeight: '600',
+      flexShrink: 1,
+    },
+    speakerRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+    speakerChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 999,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      maxWidth: '100%',
+    },
+    speakerChipActive: {
+      backgroundColor: colors.accent,
+      borderColor: colors.accent,
+    },
+    speakerChipText: { fontSize: 12, color: colors.inkSoft, flexShrink: 1 },
+    speakerChipTextActive: { color: '#FFFFFF' },
+    nowPlayingRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    coverArt: {
+      width: 56,
+      height: 56,
+      borderRadius: radius.control,
+      backgroundColor: colors.surfaceSoft,
+    },
+    nowPlayingText: { flex: 1, gap: 2 },
+    mediaTrack: { color: colors.ink, fontSize: 16, fontWeight: '600' },
+    mediaArtist: { color: colors.inkSoft, fontSize: 13 },
+    mediaButtons: { flexDirection: 'row', gap: 8, marginTop: 2 },
+    playButton: {
+      width: 40,
+      height: 34,
+      borderRadius: radius.control,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.surfaceStrong,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    volumeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    alertCard: { gap: 12, minHeight: 0 },
+    activityCard: { gap: 12, minHeight: 0, flexShrink: 1 },
+    alertHead: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+    },
+    heading: {
+      color: colors.ink,
+      fontSize: type.cardTitle,
+      fontWeight: '700',
+    },
+    alertSource: {
+      color: colors.inkFaint,
+      fontSize: 12,
+      marginTop: 1,
+    },
+    alertCount: {
+      fontSize: 28,
+      fontWeight: '700',
+    },
+    weatherNow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+    weatherTemp: {
+      color: colors.ink,
+      fontSize: 30,
+      fontWeight: '700',
+      letterSpacing: -0.5,
+    },
+    weekRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      gap: 2,
+    },
+    dayCol: { alignItems: 'center', gap: 3, flex: 1 },
+    dayName: { color: colors.inkSoft, fontSize: 11, fontWeight: '600' },
+    dayHigh: {
+      color: colors.ink,
+      fontSize: 13,
+      fontWeight: '700',
+      fontVariant: ['tabular-nums'],
+    },
+    dayLow: { color: colors.inkFaint, fontSize: 12, fontVariant: ['tabular-nums'] },
+    dayRain: { color: colors.accent, fontSize: 10, fontWeight: '600' },
+    list: { gap: 10 },
+    alertRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    severityBar: {
+      width: 3,
+      height: 30,
+      borderRadius: radius.pill,
+    },
+    alertEvent: {
+      color: colors.ink,
+      fontSize: 14,
+      fontWeight: '500',
+    },
+    alertArea: {
+      color: colors.inkSoft,
+      fontSize: 12,
+    },
+    activityRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    bullet: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: colors.inkFaint,
+    },
+    activityName: {
+      color: colors.ink,
+      fontSize: 13,
+      fontWeight: '500',
+      flexShrink: 1,
+    },
+    activitySummary: {
+      color: colors.inkSoft,
+      fontSize: 13,
+      flex: 1,
+    },
+    activityTime: {
+      color: colors.inkFaint,
+      fontSize: 12,
+      fontVariant: ['tabular-nums'],
+    },
+    empty: {
+      color: colors.inkSoft,
+      fontSize: 13,
+      lineHeight: 19,
+    },
+  });
