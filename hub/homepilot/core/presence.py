@@ -163,7 +163,9 @@ def settle(state: dict[str, Any], now: float, hours: float = STALE_HOURS) -> dic
     """
     if not is_stale(state.get("changed_at"), now, hours):
         return dict(state)
-    return {**state, "state": UNKNOWN, "stale": True, "place": None}
+    # Auch der Name muss weg, nicht nur die Kennung: Sonst stünde
+    # «Tanners Home» neben einem Zustand, der «weiss ich nicht» heisst.
+    return {**state, "state": UNKNOWN, "stale": True, "place": None, "place_name": None}
 
 
 def remember(
@@ -247,6 +249,10 @@ def diagnose(person: str, state: dict[str, Any], now: float) -> dict[str, Any]:
         "person": person,
         "state": str(state.get("state") or UNKNOWN),
         "place": state.get("place"),
+        # Ohne den Klarnamen stünde in der Diagnose die Kennung
+        # `tanners_home` – oder gar nichts, und dann fehlt genau die
+        # Antwort, wegen der man hinschaut: Wo ist die Person gerade?
+        "place_name": state.get("place_name"),
         "source": quelle,
         "last_seen": changed or None,
         "age_seconds": round(alter) if alter is not None else None,
