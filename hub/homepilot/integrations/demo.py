@@ -65,6 +65,19 @@ class DemoIntegration(Integration):
                 "play", "pause", "toggle", "set_volume", "mute", "play_url",
             ],
         )
+        # Ein Cast-Fernseher: dieselben Befehle wie die Box, aber ein Bild
+        # daran. Ohne ihn war der Fehler unsichtbar, dass die Startseite
+        # ihn für eine Musikbox hielt – im Demo-Haus stand schlicht kein
+        # Fernseher.
+        await self.add_entity(
+            "tv_livingroom",
+            EntityKind.MEDIA_PLAYER,
+            "Wohnzimmer TV",
+            state={"state": "idle", "volume": 20, "has_screen": True},
+            commands=[
+                "play", "pause", "toggle", "set_volume", "mute", "play_url",
+            ],
+        )
         # Eine Lichtszene wie die einer Hue-Bridge: ein Knopf, kein Regler.
         # Ohne sie liesse sich die Szenen-Auswahl der App nicht ansehen,
         # ohne eine echte Bridge im Netz zu haben.

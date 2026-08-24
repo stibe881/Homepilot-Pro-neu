@@ -1928,3 +1928,31 @@ async def test_overkiz_a_taken_command_proves_the_blind_is_there(monkeypatch):
         assert ovk._abwesend[entity.id] == 0
     finally:
         await hub.stop()
+
+
+def test_a_cast_television_says_that_it_has_a_screen():
+    """Der Fernseher im Wohnzimmer kennt weder Steuerkreuz noch App-Start –
+    für den Hub sieht er aus wie eine Box. Er stand deshalb in der
+    Boxenwahl der Startseite, und lief ein Film, war er die gezeigte
+    Karte."""
+    from homepilot.integrations.google_cast import cast_media_state, ist_bildschirm
+
+    assert ist_bildschirm("cast") is True
+    assert ist_bildschirm("audio") is False
+    # Eine Lautsprechergruppe ist zum synchronen Abspielen von Ton da,
+    # nicht von Bild.
+    assert ist_bildschirm("group") is False
+    # Unbekannt heisst im Zweifel Lautsprecher: Lieber eine Box zu viel
+    # in der Auswahl als eine zu wenig.
+    assert ist_bildschirm(None) is False
+    assert ist_bildschirm("") is False
+
+    # Die Angabe landet im Zustand, damit die App sie lesen kann.
+    fernseher = cast_media_state("PLAYING", "Tatort", None, "Netflix", 0.4, has_screen=True)
+    assert fernseher["has_screen"] is True
+    box = cast_media_state("PLAYING", "Yesterday", None, "Spotify", 0.4, has_screen=False)
+    assert box["has_screen"] is False
+    # Ohne Angabe bleibt das Feld weg – ein Gerät, das nichts sagt, soll
+    # nicht als Lautsprecher behauptet werden.
+    assert "has_screen" not in cast_media_state("IDLE", None, None, None, None)
+

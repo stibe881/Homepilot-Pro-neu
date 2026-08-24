@@ -211,6 +211,12 @@ class AndroidTvIntegration(Integration):
                 device.get("name", f"Android TV {host}"),
                 state={
                     "state": "off",
+                    # Damit die App ihn nicht in die Boxenwahl des
+                    # Musikplayers nimmt. Bisher erkannte sie ihn an
+                    # Steuerkreuz und App-Start; das stimmt hier, ist
+                    # aber ein Umweg – ein Fernseher darf es einfach
+                    # sagen.
+                    "has_screen": True,
                     "apps": app_list(self.config, device),
                     # Zeitpunkt, zu dem der Fernseher von selbst ausgeht -
                     # als Zeitstempel und nicht als Restminuten, damit die

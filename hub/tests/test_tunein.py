@@ -322,6 +322,30 @@ async def test_an_unknown_station_says_which_ones_exist():
         await hub.stop()
 
 
+async def test_radio_does_not_offer_the_television_as_a_speaker():
+    """Radio auf dem Fernseher heisst: Gerät an, schwarzes Bild, Musik.
+    Das will niemand aus Versehen – und in einer Liste von Boxen sucht es
+    auch niemand."""
+    hub, radio, _ = await _hub_mit_box()
+    try:
+        await radio.setup()
+        await hub.registry.add(
+            Entity(
+                id="google_cast.stube_tv",
+                kind=EntityKind.MEDIA_PLAYER,
+                name="Wohnzimmer TV",
+                integration="google_cast",
+                # Er kennt weder Steuerkreuz noch App-Start – nur das
+                # Gerät selbst weiss, dass ein Bild daran hängt.
+                state={"state": "idle", "has_screen": True},
+                commands=["play", "pause", "set_volume", "play_url"],
+            )
+        )
+        assert [name for _, name in radio.speakers()] == ["Küche"]
+    finally:
+        await hub.stop()
+
+
 async def test_without_a_speaker_the_error_names_the_missing_piece():
     """«Geht nicht» ist keine Antwort, wenn eine Voraussetzung fehlt."""
     hub = Hub(HubConfig(api=ApiConfig(), integrations=[], automations=[]))
