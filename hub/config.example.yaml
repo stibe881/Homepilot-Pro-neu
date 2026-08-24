@@ -483,6 +483,11 @@ integrations:
   #   #   never  – nie anbieten (Kinder im Haus, Türe zur Strasse).
   #   # Was der Hub erkannt hat, steht unter System → Integrationen.
   #   # unlatch: auto
+  #   # Nach jedem «Auf + öffnen» schaut der Hub ein paar Sekunden zu, ob
+  #   # die Falle wirklich gezogen wurde. Hat das Schloss bloss
+  #   # aufgeschlossen, steht der Grund ebenfalls unter System →
+  #   # Integrationen - meistens liegt er dann in der Nuki-App
+  #   # (Tür-Öffnen nicht eingerichtet) und nicht am Hub.
 
   # V-ZUG-Geräte (lokale Home-API, nur lesend). Die Geräte müssen über
   # V-ZUG-Home im WLAN sein; im Router feste IPs vergeben. Die Namen

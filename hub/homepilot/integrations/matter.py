@@ -226,6 +226,36 @@ def lock_commands(
     return ["lock", "unlock"]
 
 
+#: Door Lock, OperatingMode (0x0021). Zwei der Werte schalten genau das
+#: ab, was der Hub tut - Befehle aus der Ferne.
+OPERATING_MODE_ATTR = 33
+BETRIEBSARTEN = {
+    0: "Normal",
+    1: "Ferien",
+    2: "Privat",
+    3: "Ohne Fernbedienung",
+    4: "Durchgang",
+}
+FERNBEDIENUNG_AUS = {2, 3}
+
+
+def betriebsart_hinweis(attributes: dict[str, Any], endpoint: int) -> str | None:
+    """Sperrt die Betriebsart Befehle aus der Ferne? (rein, testbar)
+
+    Ein Schloss im Privat-Modus nimmt vom Hub gar nichts mehr an, und
+    «Ohne Fernbedienung» ist genau das, was es sagt. Beides sieht von
+    aussen aus wie ein kaputter Knopf - deshalb steht es hier.
+    """
+    raw = _attr(attributes, endpoint, DOOR_LOCK, OPERATING_MODE_ATTR)
+    if not isinstance(raw, int) or raw not in FERNBEDIENUNG_AUS:
+        return None
+    return (
+        f"Achtung: Das Schloss steht auf Betriebsart «{BETRIEBSARTEN[raw]}» – "
+        "in dieser Stellung nimmt es aus der Ferne keine Befehle an. "
+        "In der Nuki-App umstellen."
+    )
+
+
 def lock_diagnose(
     attributes: dict[str, Any], endpoint: int, modus: str = "auto"
 ) -> str:
@@ -261,6 +291,39 @@ def lock_diagnose(
         "kann es den Riegel nicht getrennt bewegen, und «aufschliessen» ist "
         "alles, was es gibt. Stimmt das nicht: 'unlatch: always' in den "
         "matter-Block."
+    )
+
+
+#: So lange nach einem «Auf + öffnen» auf die gezogene Falle gewartet
+#: wird. Nuki braucht dafür ein paar Sekunden.
+UNLATCH_FRIST = 12.0
+
+
+def aufzieh_urteil(gesehen: list[str]) -> str | None:
+    """Hat das Schloss die Falle wirklich gezogen? (rein, testbar)
+
+    Der Fall, den man sonst nur an der Türe merkt: Das Schloss nimmt
+    UnlockDoor an, meldet Erfolg - und entriegelt bloss. Ob es die Falle
+    gezogen hat, sagt es über seinen Zustand: «unlatched» kommt dann kurz
+    vor, «unlocked» allein heisst, es hat nur aufgeschlossen.
+
+    None heisst «in Ordnung». Sonst ein Satz, der sagt, was zu prüfen
+    ist - und zwar dort, wo es liegt: nicht am Hub.
+    """
+    if "unlatched" in gesehen:
+        return None
+    if "unlocked" not in gesehen:
+        return (
+            "Das Schloss hat auf «Auf + öffnen» gar nicht reagiert – weder "
+            "aufgeschlossen noch aufgezogen. Verlangt es für Befehle aus der "
+            "Ferne einen Code? Dann gehört er als 'pin' in den matter-Block."
+        )
+    return (
+        "Das Schloss hat auf «Auf + öffnen» nur aufgeschlossen, die Falle "
+        "aber nicht gezogen. Der Befehl kommt an – es zieht nicht. In der "
+        "Nuki-App prüfen: Ist die Tür-Öffnen-Funktion eingerichtet und "
+        "kalibriert? Sie setzt ein Schloss voraus, dessen Falle sich über "
+        "den Zylinder ziehen lässt; nicht jede Türe kann das."
     )
 
 
@@ -467,6 +530,12 @@ def node_lines(node: dict[str, Any]) -> list[str]:
                     if has_unbolt(attributes, endpoint)
                     else " – meldet kein Aufziehen (UnboltDoor)"
                 )
+                art = _attr(attributes, endpoint, DOOR_LOCK, OPERATING_MODE_ATTR)
+                if isinstance(art, int) and art in FERNBEDIENUNG_AUS:
+                    zeile += (
+                        f" – Betriebsart «{BETRIEBSARTEN[art]}»: nimmt aus "
+                        "der Ferne keine Befehle an"
+                    )
             zeilen.append(zeile)
         elif endpoint != 0 and not all(t in INFRASTRUKTUR_TYPEN for t in typen):
             # Endpunkt 0 ist die Verwaltung jedes Knotens und nie ein Gerät.
@@ -509,6 +578,12 @@ class MatterIntegration(Integration):
         # node_id → Node-Dict des Dienstes; entity_id → (node_id, endpoint, kind)
         self._nodes: dict[int, dict[str, Any]] = {}
         self._entities: dict[str, tuple[int, int, str]] = {}
+        # entity_id → Zustände, die seit einem «Auf + öffnen» gemeldet
+        # wurden, und der Satz, der beim letzten Versuch dabei herauskam.
+        # Beides steht hier, weil sonst niemand mitbekommt, dass ein
+        # Schloss den Befehl brav annimmt und die Falle trotzdem lässt.
+        self._aufzieh: dict[str, list[str]] = {}
+        self._aufzieh_urteil: dict[str, str] = {}
         self.start_task(self._connect_loop())
 
     # ── Dienst → Hub ───────────────────────────────────────────────────────
@@ -650,7 +725,14 @@ class MatterIntegration(Integration):
             attributes = (self._nodes.get(node_id) or {}).get("attributes") or {}
             entity = self.hub.registry.get(entity_id)
             name = entity.name if entity else entity_id
-            zeilen.append(f"{name}: {lock_diagnose(attributes, endpoint, self._unlatch)}")
+            zeile = f"{name}: {lock_diagnose(attributes, endpoint, self._unlatch)}"
+            betriebsart = betriebsart_hinweis(attributes, endpoint)
+            if betriebsart:
+                zeile = f"{zeile} {betriebsart}"
+            urteil = self._aufzieh_urteil.get(entity_id)
+            if urteil:
+                zeile = f"{zeile} {urteil}"
+            zeilen.append(zeile)
         if not zeilen:
             return {"ok": True, "detail": "Verbunden."}
         return {"ok": True, "detail": " · ".join(zeilen)}
@@ -660,9 +742,15 @@ class MatterIntegration(Integration):
         entry = self._entities.get(entity_id)
         if entry is None:
             return
+        state = endpoint_state(node.get("attributes") or {}, endpoint, entry[2])
+        gesehen = self._aufzieh.get(entity_id)
+        if gesehen is not None:
+            wert = state.get("state")
+            if isinstance(wert, str) and wert not in gesehen:
+                gesehen.append(wert)
         await self.hub.registry.update_state(
             entity_id,
-            endpoint_state(node.get("attributes") or {}, endpoint, entry[2]),
+            state,
             available=bool(node.get("available", True)),
         )
 
@@ -806,6 +894,31 @@ class MatterIntegration(Integration):
             node_id=node_id, endpoint_id=endpoint, cluster_id=DOOR_LOCK,
             command_name=name, payload=payload,
         )
+        if command == "unlatch":
+            self.start_task(self._aufzieh_pruefen(self.entity_id(f"{node_id}_{endpoint}")))
+
+    async def _aufzieh_pruefen(self, entity_id: str) -> None:
+        """Nachsehen, ob das «Auf + öffnen» auch angekommen ist.
+
+        Der Dienst bestätigt den Befehl, sobald das Schloss ihn annimmt -
+        nicht, wenn die Falle draussen ist. Wer vor der Türe steht, merkt
+        den Unterschied sofort; der Hub merkt ihn nur, wenn er kurz
+        zuhört. Also: das Fenster öffnen, die gemeldeten Zustände
+        sammeln, danach urteilen.
+        """
+        self._aufzieh[entity_id] = []
+        try:
+            await asyncio.sleep(UNLATCH_FRIST)
+        except asyncio.CancelledError:
+            self._aufzieh.pop(entity_id, None)
+            raise
+        gesehen = self._aufzieh.pop(entity_id, [])
+        urteil = aufzieh_urteil(gesehen)
+        if urteil is None:
+            self._aufzieh_urteil.pop(entity_id, None)
+            return
+        self._aufzieh_urteil[entity_id] = urteil
+        self.log.warning("%s: %s", entity_id, urteil)
 
 
 INTEGRATION = MatterIntegration
