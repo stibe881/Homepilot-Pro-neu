@@ -157,6 +157,9 @@ class UnifiIntegration(Integration):
                         continue
                     self._prefix = prefix
                     self._csrf = response.headers.get("X-CSRF-Token") or self._csrf
+                    # Das Anmelde-Cookie selbst ablegen - aiohttp verwirft
+                    # es, weil UniFi OS es mit 'partitioned' schickt.
+                    self.keep_cookies(self._session, response, self._base)
                     self.log.info(
                         "Am UniFi-Controller angemeldet (%s)",
                         "UniFi OS" if prefix else "Standalone",

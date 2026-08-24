@@ -12,10 +12,12 @@ import asyncio
 import importlib
 import logging
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Iterable
+from http.cookies import SimpleCookie
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import aiohttp
+from yarl import URL
 
 from .entity import Entity
 from .errors import (
@@ -242,6 +244,29 @@ class Integration(ABC):
         kwargs.setdefault("cookie_jar", aiohttp.CookieJar(unsafe=True))
         return self.http_session(**kwargs)
 
+    @staticmethod
+    def keep_cookies(
+        session: aiohttp.ClientSession,
+        response: aiohttp.ClientResponse,
+        base: str,
+    ) -> None:
+        """Die Cookies einer Anmeldung selbst in den Speicher legen.
+
+        ``aiohttp`` tut das von sich aus - aber erst, nachdem es die
+        ``Set-Cookie``-Zeile durch ``SimpleCookie`` geschickt hat, und der
+        wirft an einem unbekannten Attribut alles weg (siehe
+        ``parse_set_cookie``). Deshalb hier noch einmal von Hand, mit
+        Pfad ``/``: Was für die Anmeldung gilt, gilt für das ganze Gerät.
+        """
+        kekse = parse_set_cookie(response.headers.getall("Set-Cookie", []))
+        if not kekse:
+            return
+        gereinigt: SimpleCookie = SimpleCookie()
+        for name, wert in kekse.items():
+            gereinigt[name] = wert
+            gereinigt[name]["path"] = "/"
+        session.cookie_jar.update_cookies(gereinigt, response_url=URL(base))
+
     def entity_id(self, object_id: str) -> str:
         return f"{self.name}.{object_id}"
 
@@ -317,6 +342,29 @@ def is_permanent(err: Exception) -> bool:
     Wiederanlauf da.
     """
     return isinstance(err, ConfigError)
+
+
+def parse_set_cookie(zeilen: Iterable[str]) -> dict[str, str]:
+    """Name → Wert aus rohen ``Set-Cookie``-Zeilen (rein, testbar).
+
+    Von Hand und nicht über ``SimpleCookie``, weil dessen Parser an einem
+    einzigen unbekannten Attribut die **ganze** Zeile verwirft - stumm.
+    Genau das passiert bei UniFi OS: Es schickt sein Anmelde-Cookie mit
+    ``partitioned`` (die CHIPS-Kennzeichnung), und ``Morsel._reserved``
+    kennt das bis Python 3.13 nicht. Ergebnis: kein Cookie, jede weitere
+    Abfrage unangemeldet - und der Controller antwortet darauf nicht mit
+    401, sondern mit 200 und der HTML-Anmeldeseite.
+
+    Hier interessieren ohnehin nur Name und Wert; über Pfad und
+    Lebensdauer entscheidet der Aufrufer, der das Gerät kennt.
+    """
+    kekse: dict[str, str] = {}
+    for zeile in zeilen:
+        paar = zeile.split(";", 1)[0].strip()
+        name, trenner, wert = paar.partition("=")
+        if trenner and name.strip():
+            kekse[name.strip()] = wert.strip()
+    return kekse
 
 
 def setup_error(name: str, err: Exception) -> str:
