@@ -62,7 +62,7 @@ import {
   sortiereGeraete,
 } from '../lib/geraetefilter';
 import { verweisText, verweiseAuf } from '../lib/verweise';
-import { raeumeSortiert, raumMesswerte, raumKategorien, raumZeile } from '../lib/raum';
+import { alphabetisch, raeumeSortiert, raumMesswerte, raumKategorien, raumZeile } from '../lib/raum';
 import { Person } from '../lib/ortung';
 import { FAVORITEN, raumGruppen } from '../lib/raumgruppen';
 import { verlangtPin } from '../lib/alarmpin';
@@ -1722,6 +1722,26 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                     man durch die Wohnung geht. Gilt für alle im Haus; ohne
                     eigene Reihenfolge zählt die aus der config.yaml.
                   </Text>
+                  {/* Wer siebzehn Räume von Hand sortiert hat und einen
+                      sucht, will einmal Ordnung nach dem Alphabet - statt
+                      siebzehnmal zu ziehen. Danach lässt sich weiter von
+                      Hand schieben; es ist ein Anfang, kein Modus. */}
+                  <Pressable
+                    onPress={() =>
+                      setOrder(
+                        'raeume',
+                        alphabetisch(rooms.filter((name) => name !== ALL_ROOMS))
+                      )
+                    }
+                    accessibilityRole="button"
+                    style={({ pressed }) => [
+                      styles.alphabetKnopf,
+                      pressed && { opacity: 0.75 },
+                    ]}
+                  >
+                    <Ionicons name="text-outline" size={15} color={colors.ink} />
+                    <Text style={styles.alphabetText}>Nach Alphabet</Text>
+                  </Pressable>
                   <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
                     <DraggableList
                       items={rooms
@@ -3094,6 +3114,20 @@ const makeStyles = (colors: Colors) =>
   },
   kameraSortHint: { color: colors.onGradientSoft, fontSize: 12, lineHeight: 17 },
   reorderSheet: { flex: 1, backgroundColor: colors.panel, padding: 20, paddingTop: 60 },
+  alphabetKnopf: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    marginBottom: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceStrong,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  alphabetText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
   reorderHead: {
     flexDirection: 'row',
     alignItems: 'center',
