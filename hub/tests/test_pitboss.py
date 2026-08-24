@@ -358,10 +358,11 @@ async def test_each_grill_gets_its_own_commands(monkeypatch):
     class FakeBoss:
         def __init__(self, connection, model, password=""):
             self.model = model
-            self.spec = types.SimpleNamespace(has_lights=False)
 
         async def start(self):
-            pass
+            # Wie in pytboss: Die Bauart entsteht erst hier, nicht im
+            # Konstruktor (siehe test_the_lights_appear_after_start).
+            self.spec = types.SimpleNamespace(has_lights=False)
 
         async def stop(self):
             pass
@@ -408,6 +409,135 @@ async def test_each_grill_gets_its_own_commands(monkeypatch):
         # Ohne den Schalter gibt es den Fernstart gar nicht – auch nicht
         # für den zweiten Grill.
         assert "turn_on" not in entities["pitboss.smoker"].commands
+    finally:
+        await integration.teardown()
+        await hub.stop()
+
+
+# ── Wann pytboss die Bauart des Grills kennt ─────────────────────────────
+#
+# `PitBoss.spec` entsteht in `start()`, nicht im Konstruktor: Erst dort
+# wird das Modell aufgelöst. Wer vorher danach greift, bekommt einen
+# AttributeError - und die Integration stand in der Diagnose mit
+# «'PitBoss' object has no attribute 'spec'» statt mit einem Grill da.
+
+
+def test_no_spec_means_no_light_switch():
+    import types
+
+    from homepilot.integrations.pitboss import hat_licht
+
+    assert hat_licht(types.SimpleNamespace(has_lights=True)) is True
+    assert hat_licht(types.SimpleNamespace(has_lights=False)) is False
+    # Ein Lichtschalter, der ins Leere greift, ist schlimmer als keiner.
+    assert hat_licht(None) is False
+    assert hat_licht(types.SimpleNamespace()) is False
+
+
+def _fake_pytboss(monkeypatch, start):
+    """Ein pytboss, dessen `start()` der Test bestimmt."""
+    import sys
+    import types
+
+    class FakeBoss:
+        def __init__(self, connection, model, password=""):
+            self.model = model
+
+        async def start(self):
+            await start(self)
+
+        async def stop(self):
+            pass
+
+        async def get_state(self):
+            return {"moduleIsOn": False}
+
+    fake = types.ModuleType("pytboss")
+    fake.PitBoss = FakeBoss
+    fake.HttpConnection = lambda host: ("http", host)
+    fake.WebSocketConnection = lambda grill_id: ("ws", grill_id)
+    monkeypatch.setitem(sys.modules, "pytboss", fake)
+
+
+async def _aufbau(start):
+    """Die Integration mit einem Grill hochfahren. Gibt (hub, integration)."""
+    from homepilot.core.config import ApiConfig, HubConfig
+    from homepilot.core.hub import Hub
+    from homepilot.integrations.pitboss import PitBossIntegration
+
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[], automations=[]))
+    await hub.start()
+    integration = PitBossIntegration(
+        hub,
+        {
+            "integration": "pitboss",
+            "name": "Grill",
+            "model": "PBV4PS2",
+            "host": "10.10.1.60",
+        },
+    )
+    return hub, integration
+
+
+@pytest.mark.asyncio
+async def test_the_lights_appear_after_start(monkeypatch):
+    import types
+
+    async def start(boss):
+        boss.spec = types.SimpleNamespace(has_lights=True)
+
+    _fake_pytboss(monkeypatch, start)
+    hub, integration = await _aufbau(start)
+    try:
+        await integration.setup()
+        grill = hub.registry.get("pitboss.grill")
+        assert "light_on" in grill.commands
+        assert "light_off" in grill.commands
+    finally:
+        await integration.teardown()
+        await hub.stop()
+
+
+@pytest.mark.asyncio
+async def test_a_cold_grill_still_gets_its_tile(monkeypatch):
+    """Zwischen zwei Grillabenden ist das Gerät stromlos.
+
+    Die Bauart steht trotzdem fest - pytboss löst sie auf, bevor es die
+    Verbindung aufbaut. Der Grill kommt also mit allem, was er kann, in
+    die App; nur eben als «nicht erreichbar».
+    """
+    import types
+
+    async def start(boss):
+        boss.spec = types.SimpleNamespace(has_lights=True)
+        raise OSError("Verbindung abgelehnt")
+
+    _fake_pytboss(monkeypatch, start)
+    hub, integration = await _aufbau(start)
+    try:
+        await integration.setup()
+        grill = hub.registry.get("pitboss.grill")
+        assert grill is not None
+        assert grill.available is False
+        assert "light_on" in grill.commands
+    finally:
+        await integration.teardown()
+        await hub.stop()
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_model_is_named_as_a_configuration_error(monkeypatch):
+    """Scheitert start(), bevor es eine Bauart gibt, liegt es am Modell."""
+
+    async def start(boss):
+        raise ValueError("Invalid grill: PBV4PS2")
+
+    _fake_pytboss(monkeypatch, start)
+    hub, integration = await _aufbau(start)
+    try:
+        with pytest.raises(ConfigError) as fehler:
+            await integration.setup()
+        assert "PBV4PS2" in str(fehler.value)
     finally:
         await integration.teardown()
         await hub.stop()
