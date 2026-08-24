@@ -679,3 +679,31 @@ def test_die_knotenliste_sagt_beim_schloss_was_es_kann():
 
     knoten[0]["attributes"]["1/257/65529"] = [0, 1]
     assert any("meldet kein Aufziehen" in zeile for zeile in node_lines(knoten[0]))
+
+
+def test_die_stromquelle_ist_keine_fehlende_unterstuetzung():
+    """«Gerätetyp 17 wird noch nicht unterstützt», fünfmal untereinander.
+
+    Typ 17 ist die Stromquelle - kein Gerät, sondern Innenleben des
+    Knotens. Es gibt nichts zu unterstützen, und die Zeile sah aus wie
+    eine Lücke, die keine ist. Der Batteriestand kommt ohnehin am
+    Kontakt selbst an.
+    """
+    from homepilot.integrations.matter import node_lines
+
+    knoten = {
+        "node_id": 2,
+        "attributes": {
+            "0/40/3": "Aqara Door and Window Sensor P2",
+            "1/29/0": [{"0": 21, "1": 1}],
+            "2/29/0": [{"0": 17, "1": 1}],
+        },
+    }
+    zeilen = node_lines(knoten)
+    assert any("(binary_sensor)" in zeile for zeile in zeilen)
+    assert not any("wird noch nicht unterstützt" in zeile for zeile in zeilen)
+
+    # Was wirklich fehlt, wird weiterhin genannt - sonst fehlte ein Gerät
+    # in der App, und die Liste schwiege dazu ebenfalls.
+    knoten["attributes"]["2/29/0"] = [{"0": 999, "1": 1}]
+    assert any("wird noch nicht unterstützt" in zeile for zeile in node_lines(knoten))
