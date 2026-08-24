@@ -313,6 +313,24 @@ def pick_speaker(
     return boxen[0][0] if boxen else None
 
 
+def waehlbare_boxen(
+    boxen: list[tuple[str, str, bool]]
+) -> list[tuple[str, str]]:
+    """Worauf Radio spielen darf, in der richtigen Reihenfolge (rein, testbar).
+
+    Fernseher stehen hintan: Radio auf dem Fernseher heisst Gerät an,
+    schwarzes Bild, Musik – das will niemand aus Versehen, und in einer
+    Liste von Boxen sucht es auch niemand.
+
+    Aber sie fallen nicht heraus. Ein Haus, dessen einziges Cast-Gerät am
+    Fernseher hängt, hatte sonst gar keine Box: Der Sender liess sich
+    antippen, und es passierte nichts. Lieber der Fernseher als Stille –
+    solange er nicht die erste Wahl ist, wenn es eine Box gibt.
+    """
+    ohne = [(kennung, name) for kennung, name, schirm in boxen if not schirm]
+    return ohne or [(kennung, name) for kennung, name, _ in boxen]
+
+
 def claim_haelt(box_state: dict[str, Any]) -> bool:
     """Läuft auf der Box noch unser Radio? (rein, testbar)
 
@@ -387,25 +405,27 @@ class TuneInIntegration(Integration):
         payload = await self._opml(f"{SEARCH_URL}?query={quote(query)}&render=json")
         return parse_search(payload)
 
-    def speakers(self) -> list[tuple[str, str]]:
-        """Die Boxen, auf denen sich Radio abspielen lässt.
+    def alle_boxen(self) -> list[tuple[str, str, bool]]:
+        """Alles, was eine Tonadresse abspielen kann – mit Bildschirm-Merkmal.
 
         Das Kommando entscheidet, nicht die Integration: Was `play_url`
         kann, kann Radio – heute ein Chromecast, morgen etwas anderes.
-
-        Fernseher bleiben draussen. Sie könnten den Ton zwar abspielen,
-        aber Radio auf dem Fernseher heisst: Gerät an, schwarzes Bild,
-        Musik. Das will niemand aus Versehen, und in einer Liste von
-        Boxen sucht es auch niemand.
         """
         return [
-            (entity.id, entity.display_name or entity.name)
+            (
+                entity.id,
+                entity.display_name or entity.name,
+                bool(entity.state.get("has_screen")),
+            )
             for entity in self.hub.registry.all()
             if entity.kind == EntityKind.MEDIA_PLAYER
             and "play_url" in entity.commands
-            and not entity.state.get("has_screen")
             and entity.available
         ]
+
+    def speakers(self) -> list[tuple[str, str]]:
+        """Die Boxen, die zur Wahl stehen (siehe `waehlbare_boxen`)."""
+        return waehlbare_boxen(self.alle_boxen())
 
     # ── Hub → Box ──────────────────────────────────────────────────────────
 
@@ -511,6 +531,16 @@ class TuneInIntegration(Integration):
             "stations": [station.name for station in self.stations()],
             "device": box.display_name or box.name if box is not None else None,
             "devices": [name for _, name in boxen],
+            # Was der Hub überhaupt gefunden hat – für den Fall, dass die
+            # Liste oben leer ist. «Nichts gefunden» und «nichts, das
+            # infrage kommt» sind zwei verschiedene Antworten, und die
+            # App soll die richtige geben können.
+            "media_players": sum(
+                1
+                for entity in self.hub.registry.all()
+                if entity.kind == EntityKind.MEDIA_PLAYER
+                and entity.integration != self.name
+            ),
         }
         if box is not None:
             if "volume" in box.state:

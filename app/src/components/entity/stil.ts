@@ -275,6 +275,9 @@ export const makeStyles = (colors: Colors) =>
     color: colors.inkSoft,
     fontSize: type.cardSub,
   },
+  // Wie hint, nur nicht zu übersehen: Er steht dort, wo sonst ein
+  // Bedienelement wäre, und erklärt, warum es fehlt.
+  warnHint: { color: colors.warn, fontSize: 12, lineHeight: 17 },
   detail: {
     color: colors.inkSoft,
     fontSize: 12,

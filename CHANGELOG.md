@@ -7,6 +7,18 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 ## 2026-08-24
 
+**Radio**
+
+- Ein Sender liess sich antippen, und es passierte nichts – wenn der Hub
+  keine Box kennt, die eine Tonadresse abspielen kann. Die Karte sah
+  dabei völlig normal aus: Der Satz, der es erklärt, stand in der
+  Boxenzeile, und die ist auf der Startseite ausgeblendet. Jetzt steht
+  er dort, wo man ihn braucht – auf der Karte und im Senderfenster – und
+  unterscheidet «gar keine Box gefunden» von «keine, die es kann».
+- Hängt das einzige Cast-Gerät am Fernseher, spielt das Radio jetzt
+  darauf, statt gar nicht. Fernseher bleiben zweite Wahl: Gibt es eine
+  richtige Box, steht der Fernseher weiterhin nicht in der Liste.
+
 **Startseite**
 
 - Die Favoritenkacheln stehen auf jedem iPhone nebeneinander statt zu
