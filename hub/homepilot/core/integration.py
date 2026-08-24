@@ -216,6 +216,32 @@ class Integration(ABC):
         self._sessions.append(session)
         return session
 
+    def console_session(self, **kwargs: Any) -> aiohttp.ClientSession:
+        """Session für eine Konsole im eigenen Netz, die man per IP anspricht.
+
+        Zwei Eigenheiten, die solche Geräte gemeinsam haben und die man
+        beide einzeln übersieht:
+
+        Sie tragen ein selbstsigniertes Zertifikat – dagegen hilft nur,
+        die Prüfung abzuschalten. Im eigenen Netz gegen ein Gerät, dessen
+        Adresse man selbst einträgt, ist das vertretbar.
+
+        Und die Anmeldung läuft über ein Cookie. aiohttp legt Cookies von
+        einer **IP-Adresse** aber nur ab, wenn der Speicher ``unsafe=True``
+        trägt – sonst verwirft er sie stillschweigend, und zwar wirklich
+        stumm: kein Fehler, kein Warnhinweis. Danach ist jeder Aufruf
+        unangemeldet. Ein UniFi-Controller antwortet darauf nicht etwa mit
+        401, sondern mit **200 und der HTML-Anmeldeseite** – der Hub
+        scheiterte dann an «unexpected mimetype: text/html» und niemand
+        kam darauf, dass es an einem verworfenen Cookie liegt.
+
+        Genau diese Zeile fehlte in `unifi` und stand in `unifi_protect`.
+        Deshalb steht sie jetzt an einer Stelle statt an zweien.
+        """
+        kwargs.setdefault("connector", aiohttp.TCPConnector(ssl=False))
+        kwargs.setdefault("cookie_jar", aiohttp.CookieJar(unsafe=True))
+        return self.http_session(**kwargs)
+
     def entity_id(self, object_id: str) -> str:
         return f"{self.name}.{object_id}"
 
