@@ -183,6 +183,10 @@ def test_playback_playing():
         # Fehlende Felder heissen «aus», nicht «unbekannt».
         "shuffle": False,
         "repeat": "off",
+        # Ohne Positionsangabe weiss der Hub nicht, wann der Titel endet –
+        # dann bleibt es beim normalen Takt.
+        "progress": None,
+        "duration": None,
     }
 
 
@@ -788,6 +792,30 @@ def test_ring_health_detail_names_the_reason():
     assert "Anmeldung beim Push-Dienst abgelehnt" in kaputt
     # Auch ohne bekannten Grund eine brauchbare Auskunft.
     assert "nicht verbunden" in health_detail(False, None)
+
+
+def test_ring_health_unterscheidet_startet_von_bricht_immer_wieder_ab():
+    """Der gemeldete Fall: «Ereigniskanal startet gerade» stand dauerhaft
+    da, während jedes Klingeln über die Abfrage kam – also Sekunden zu
+    spät.
+
+    Ein Kanal, der sich aufbaut und gleich wieder umfällt, setzte die
+    Anlauf-Uhr bei jedem Versuch zurück und sah darum für immer aus wie
+    einer, der gerade hochkommt. «Kommt nicht zustande» und «kommt
+    zustande und fällt um» sind aber zwei verschiedene Störungen mit zwei
+    verschiedenen Ursachen.
+    """
+    from homepilot.integrations.ring import health_detail
+
+    erster = health_detail(False, None, anlauf=True)
+    assert "startet gerade" in erster
+
+    immer_wieder = health_detail(False, "Verbindung abgerissen", abbrueche=4)
+    assert "bricht wieder ab" in immer_wieder
+    assert "4-mal" in immer_wieder
+    assert "Verbindung abgerissen" in immer_wieder
+    # Und einmal ist einmal, nicht «1-mal».
+    assert "einmal" in health_detail(False, None, abbrueche=1)
 
 
 def test_ring_health_detail_off_by_choice_is_no_warning():

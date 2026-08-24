@@ -281,3 +281,64 @@ def test_shuffle_wunsch_understands_a_handwritten_config():
     assert shuffle_wunsch({"shuffle": "nein"}) is False
     # Und was niemand deuten kann, stellt lieber nichts um.
     assert shuffle_wunsch({"shuffle": "vielleicht"}) is None
+
+
+# ── Der Titelwechsel soll nicht auf den Takt warten ──────────────────────
+#
+# Der gemeldete Fall: «Wenn der Medienplayer das Lied wechselt, dauert es
+# ein paar Sekunden, bis das neue Cover und der neue Titel angezeigt
+# werden.» Der Hub fragte in festem Takt und erfuhr vom Wechsel erst beim
+# nächsten Mal. Spotify sagt aber, wie weit der Titel ist.
+
+
+def test_die_spielposition_kommt_mit():
+    from homepilot.integrations.spotify import parse_playback
+
+    state = parse_playback(
+        {
+            "is_playing": True,
+            "item": {"name": "Song", "duration_ms": 210_000},
+            "progress_ms": 65_400,
+        }
+    )
+    # In Sekunden – Spotify rechnet in Millisekunden.
+    assert state["duration"] == 210
+    assert state["progress"] == 65
+
+
+def test_der_naechste_blick_liegt_auf_dem_titelwechsel():
+    from homepilot.integrations.spotify import naechster_blick
+
+    laeuft = {"state": "playing", "duration": 210, "progress": 200}
+    # Zehn Sekunden Rest plus Puffer statt der vollen halben Minute.
+    assert naechster_blick(laeuft, 30.0) == 11.5
+
+
+def test_mitten_im_titel_bleibt_es_beim_normalen_takt():
+    from homepilot.integrations.spotify import naechster_blick
+
+    # Sonst würde der Hub die halbe Stunde über im Sekundentakt fragen.
+    assert naechster_blick({"state": "playing", "duration": 210, "progress": 10}, 30.0) == 30.0
+
+
+def test_was_steht_wechselt_nicht_von_selbst():
+    from homepilot.integrations.spotify import naechster_blick
+
+    for zustand in ("paused", "idle", ""):
+        assert naechster_blick({"state": zustand, "duration": 210, "progress": 200}, 30.0) == 30.0
+
+
+def test_ohne_laengenangabe_kein_kurzer_takt():
+    from homepilot.integrations.spotify import naechster_blick
+
+    # Ein Livestream hat keine Länge – daraus lässt sich nichts vorhersehen.
+    assert naechster_blick({"state": "playing", "duration": None}, 30.0) == 30.0
+    assert naechster_blick({"state": "playing", "duration": "acht"}, 30.0) == 30.0
+
+
+def test_ein_ueberfaelliger_titel_wird_gleich_nachgefragt():
+    from homepilot.integrations.spotify import naechster_blick
+
+    # Rechnerisch vorbei, aber die Antwort war von eben: gleich nochmal,
+    # nicht sofort – sonst dreht die Schleife durch.
+    assert naechster_blick({"state": "playing", "duration": 210, "progress": 215}, 30.0) == 2.0

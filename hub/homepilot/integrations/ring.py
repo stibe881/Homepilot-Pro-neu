@@ -137,6 +137,15 @@ QUICK_DEATH_SECONDS = 60
 # der Push-Client darunter meldet sich erst danach als «läuft».
 STARTUP_GRACE_SECONDS = 30
 
+# Wie oft der Kanal hintereinander tot aussehen muss, bevor er als tot
+# gilt. Eine FCM-Verbindung baut sich von selbst neu auf – während dieser
+# Sekunden meldet der Empfänger «nicht gestartet», obwohl alles in
+# Ordnung ist. Beim ersten Blick zu urteilen hiess: den gesunden Kanal
+# abreissen, neu registrieren, wieder abreissen. Von aussen sah das aus
+# wie ein Kanal, der ewig startet – und die Klingel kam derweil über die
+# Abfrage, also Sekunden zu spät.
+TOT_BESTAETIGUNGEN = 3
+
 
 def channel_alive(listener: Any) -> bool:
     """Steht der Ereigniskanal wirklich noch? (rein, testbar)
@@ -252,6 +261,7 @@ def health_detail(
     *,
     anlauf: bool = False,
     quellen: list[str] | None = None,
+    abbrueche: int = 0,
 ) -> str:
     """Was im System-Bildschirm über den Ereigniskanal steht (rein, testbar)."""
     if abgeschaltet:
@@ -285,6 +295,15 @@ def health_detail(
         # Kein zweiter Punkt hinter einem Fragezeichen.
         schluss = "" if error.rstrip().endswith((".", "!", "?")) else "."
         grund = f"{error.rstrip()}{schluss} "
+    if abbrueche > 0:
+        # Der Unterschied, auf den es ankommt: «kommt nicht zustande» ist
+        # etwas anderes als «kommt zustande und fällt gleich wieder um».
+        # Das Zweite sah bisher aus wie ein ewiger Start.
+        wie_oft = "einmal" if abbrueche == 1 else f"{abbrueche}-mal"
+        return (
+            f"Ereigniskanal baut sich auf und bricht wieder ab ({wie_oft}). "
+            f"{grund}Klingeln kommt dadurch bis zu {DING_POLL_SECONDS} s zu spät"
+        )
     return (
         f"Ereigniskanal nicht verbunden. {grund}Klingeln wird ersatzweise "
         f"alle {DING_POLL_SECONDS} s abgefragt"
@@ -384,6 +403,10 @@ class RingIntegration(Integration):
     # Als Klassenvorgaben, damit health() auch dann antwortet, wenn das
     # Setup unterwegs steckengeblieben ist.
     _events_ok = False
+    # Wie oft der Kanal schon aufgebaut wurde und wieder abbrach. Mehr
+    # als einmal heisst: Er hält nicht – und dann darf die Anzeige nicht
+    # weiter «startet gerade» sagen.
+    _abbrueche = 0
     # Auf welchem Weg die letzten Klingeln hereinkamen: «push» oder
     # «abfrage». Ohne das ist «Ereigniskanal verbunden» eine Aussage über
     # die Anmeldung, nicht darüber, ob je etwas durchkommt.
@@ -504,8 +527,13 @@ class RingIntegration(Integration):
                 "detail": health_detail(False, None, abgeschaltet=True),
                 "last_event": self._last_event,
             }
+        # «Startet gerade» gilt nur für den ersten Anlauf. Danach setzt
+        # jeder neue Versuch die Uhr zurück, und ein Kanal, der im Kreis
+        # läuft, sähe für immer aus wie einer, der gerade hochkommt –
+        # genau daran war die Störung von aussen nicht zu sehen.
         anlauf = (
-            self._anlauf_seit is not None
+            self._abbrueche == 0
+            and self._anlauf_seit is not None
             and time.time() - self._anlauf_seit < STARTUP_GRACE_SECONDS + 10
         )
         taub = self._events_ok and kanal_taub(self._quellen)
@@ -518,6 +546,7 @@ class RingIntegration(Integration):
                 self._listen_error,
                 anlauf=anlauf,
                 quellen=self._quellen,
+                abbrueche=self._abbrueche,
             ),
             "last_event": self._last_event,
             # Für die Ferndiagnose: der Weg der letzten Meldungen.
@@ -575,10 +604,21 @@ class RingIntegration(Integration):
                 # Sekundentakt neu bei Google, bis der es abwies.
                 await asyncio.sleep(STARTUP_GRACE_SECONDS)
                 self._anlauf_seit = None
-                while channel_alive(self._listener):
-                    versuch = 0
+                tot = 0
+                while tot < TOT_BESTAETIGUNGEN:
+                    if channel_alive(self._listener):
+                        # Wieder da (oder nie weg): Zähler zurück.
+                        if tot:
+                            self.log.debug(
+                                "Ring-Ereigniskanal war kurz weg und ist wieder da"
+                            )
+                        tot = 0
+                        versuch = 0
+                    else:
+                        tot += 1
                     await asyncio.sleep(15)
                 self._events_ok = False
+                self._abbrueche += 1
                 stand = time.time() - verbunden_seit
                 await self._stop_listener()
                 if (

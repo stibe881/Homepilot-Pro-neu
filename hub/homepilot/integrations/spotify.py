@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import asyncio
 import json as jsonlib
+import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, quote, urlsplit
@@ -55,6 +56,10 @@ ACCOUNTS = "https://accounts.spotify.com/api/token"
 AUTHORIZE = "https://accounts.spotify.com/authorize"
 API = "https://api.spotify.com/v1"
 REDIRECT = "http://127.0.0.1:8888/callback"
+
+# Wie oft die Playlisten des Kontos neu geholt werden. Eine halbe Stunde:
+# Neue Listen tauchen so ohne Neustart auf, ohne dass es jemand merkt.
+PLAYLIST_TAKT = 1800.0
 SCOPES = (
     "user-read-playback-state user-modify-playback-state "
     "playlist-read-private playlist-read-collaborative"
@@ -233,6 +238,8 @@ def parse_playback(payload: dict[str, Any] | None) -> dict[str, Any]:
             "shuffle": False,
             "repeat": "off",
             "queue": [],
+            "progress": None,
+            "duration": None,
         }
     item = payload.get("item") or {}
     device = payload.get("device") or {}
@@ -251,10 +258,62 @@ def parse_playback(payload: dict[str, Any] | None) -> dict[str, Any]:
         # «off», «track» (ein Titel) oder «context» (Playlist/Album).
         "repeat": str(payload.get("repeat_state") or "off"),
     }
+    # Wie weit der Titel ist und wie lang er dauert, in Sekunden – Spotify
+    # rechnet in Millisekunden. Damit weiss der Hub, wann der nächste
+    # Titel beginnt (siehe `naechster_blick`).
+    def _sekunden(roh: Any) -> int | None:
+        try:
+            return int(roh) // 1000 if roh is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    result["progress"] = _sekunden(payload.get("progress_ms"))
+    result["duration"] = _sekunden(item.get("duration_ms"))
     volume = device.get("volume_percent")
     if volume is not None:
         result["volume"] = int(volume)
     return result
+
+
+def naechster_blick(
+    state: dict[str, Any],
+    takt: float,
+    mindestens: float = 2.0,
+    puffer: float = 1.5,
+) -> float:
+    """Wann lohnt der nächste Blick auf Spotify? (rein, testbar)
+
+    Der Fall: «Wenn der Medienplayer das Lied wechselt, dauert es ein
+    paar Sekunden, bis das neue Cover und der neue Titel angezeigt
+    werden.» Kein Wunder – der Hub fragte in festem Takt und erfuhr vom
+    Wechsel erst beim nächsten Mal.
+
+    Spotify sagt aber, wie weit der Titel ist und wie lang er dauert.
+    Damit lässt sich der Wechsel vorhersehen: einmal genau dann
+    nachfragen, wenn er passiert, statt den Takt für alle zu
+    beschleunigen. Im Leerlauf ändert sich nichts, beim Hören kostet es
+    eine Abfrage je Titel – etwa eine alle drei Minuten.
+
+    Der Puffer ist Absicht: Genau auf die Sekunde gefragt, läuft der alte
+    Titel manchmal noch. Anderthalb Sekunden später ist der neue da, und
+    das ist immer noch ein Vielfaches schneller als der halbe Takt.
+
+    Was pausiert oder still ist, bekommt den normalen Takt: Dort wechselt
+    nichts von selbst.
+    """
+    if str(state.get("state") or "") != "playing":
+        return takt
+    try:
+        dauer = float(state.get("duration") or 0)
+        stand = float(state.get("progress") or 0)
+    except (TypeError, ValueError):
+        return takt
+    if dauer <= 0:
+        return takt
+    rest = dauer - stand
+    if rest <= 0:
+        return mindestens
+    return max(mindestens, min(takt, rest + puffer))
 
 
 # Reihenfolge beim Durchtippen: aus → alles → ein Titel → aus. Das sind
@@ -320,7 +379,13 @@ class SpotifyIntegration(Integration):
             self._webplayer = WebPlayerAuth(self._sp_dc)
 
         self._interval = self.scan_interval()
-        self._rounds = 0
+        # Wie lange bis zum nächsten Blick. Wird nach jedem Abruf neu
+        # gesetzt: Beim Hören genau auf den Titelwechsel, sonst der
+        # normale Takt.
+        self._naechster = self._interval
+        # Wann die Playlisten zuletzt geholt wurden – nach der Uhr, nicht
+        # nach Runden (siehe _takt).
+        self._playlists_geholt = time.monotonic()
         self._session = self.http_session(timeout=aiohttp.ClientTimeout(total=15))
         self._access_token: str | None = None
         self._token_expires_at = 0.0
@@ -345,7 +410,7 @@ class SpotifyIntegration(Integration):
         self._settle_task: asyncio.Task | None = None
         await self._load_playlists()
         await self._refresh()
-        self.start_polling(self._takt, interval=self._interval)
+        self.start_polling(self._takt, interval=lambda: self._naechster)
 
     async def teardown(self) -> None:
         if self._settle_task is not None:
@@ -417,9 +482,15 @@ class SpotifyIntegration(Integration):
 
     async def _takt(self) -> None:
         await self._refresh()
-        self._rounds += 1
         # Neue Playlisten tauchen ohne Neustart auf (~halbstündlich).
-        if self._rounds % max(1, int(1800 / self._interval)) == 0:
+        #
+        # Nach der Uhr, nicht nach Runden: Seit der Takt beim Hören auf
+        # den Titelwechsel springt, sind Runden verschieden lang – bei
+        # drei Minuten je Titel kämen sie doppelt so schnell, und die
+        # Playlisten würden öfter geholt als gedacht.
+        jetzt = time.monotonic()
+        if jetzt - self._playlists_geholt >= PLAYLIST_TAKT:
+            self._playlists_geholt = jetzt
             await self._load_playlists()
 
     async def _refresh(self) -> None:
@@ -435,6 +506,11 @@ class SpotifyIntegration(Integration):
             devices = parse_devices(device_payload)
         except Exception as err:
             self.log.warning("Spotify nicht erreichbar: %s", err)
+            # Zurück zum normalen Takt: Stand der nächste Blick gerade auf
+            # zwei Sekunden (kurz vor einem Titelwechsel), liefe der Hub
+            # sonst im Sekundentakt gegen einen Dienst, der ohnehin nicht
+            # antwortet.
+            self._naechster = self._interval
             await self.hub.registry.update_state(entity_id, {}, available=False)
             return
         self._device_ids = {device["name"]: device["id"] for device in devices}
@@ -445,6 +521,9 @@ class SpotifyIntegration(Integration):
         state["playlists"] = [p["name"] for p in self._playlists]
         state["playlist"] = playlist_name(state.get("context_uri"), self._playlists)
         state["queue"] = await self._warteschlange(state.get("state"))
+        # Den nächsten Blick auf den Titelwechsel legen: Sonst steht das
+        # alte Cover noch, bis der feste Takt wieder herumkommt.
+        self._naechster = naechster_blick(state, self._interval)
         await self.hub.registry.update_state(entity_id, state, available=True)
 
     async def _warteschlange(self, zustand: Any) -> list[dict[str, Any]]:
