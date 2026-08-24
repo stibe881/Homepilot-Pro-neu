@@ -7,6 +7,16 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 ## 2026-08-24
 
+**Startseite**
+
+- Die Favoritenkacheln stehen auf jedem iPhone nebeneinander statt zu
+  zweit oben und einer darunter. Sie waren als Einzige so breit wie ihr
+  Inhalt – drei Zimmernamen ergeben zusammen mehr, als ein iPhone
+  hergibt. Jetzt teilen sie sich die Reihe wie jedes andere Raster. Das
+  Symbol steht über dem Namen statt daneben; daneben frass es die
+  Breite, die «Wohnzimmer» braucht. Auf einem alten 320er bleiben es
+  zwei Spalten – drei wären dort Kürzel statt Namen.
+
 **Batteriewarnung**
 
 - «Batterie schwach» kommt nicht mehr immer wieder. Der Merker, was schon
