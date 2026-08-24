@@ -768,15 +768,17 @@ def test_ring_retry_never_hammers_the_registration():
     Sekundentakt, bis Google mit PHONE_REGISTRATION_ERROR abwies.
     """
     from homepilot.integrations.ring import (
-        QUICK_DEATH_SECONDS,
+        KANAL_BLICK_SECONDS,
         RETRY_SECONDS,
         STARTUP_GRACE_SECONDS,
+        TOT_BESTAETIGUNGEN,
         retry_delay,
     )
 
-    # Die Anlaufzeit muss kürzer sein als die Frist, ab der ein Abriss als
-    # «sofort» gilt - sonst gälte jeder Kanal als beschädigt.
-    assert 0 < STARTUP_GRACE_SECONDS < QUICK_DEATH_SECONDS
+    # Ein frisch aufgebauter Kanal bekommt Anlaufzeit, und danach mehr als
+    # einen Blick - sonst gälte jede Selbstheilung von FCM als Ausfall.
+    assert STARTUP_GRACE_SECONDS > 0
+    assert TOT_BESTAETIGUNGEN * KANAL_BLICK_SECONDS >= STARTUP_GRACE_SECONDS
     # Und jeder weitere Anlauf wartet länger als der vorige.
     assert retry_delay(1) < retry_delay(2) <= retry_delay(99)
     assert retry_delay(99) == RETRY_SECONDS[-1]
