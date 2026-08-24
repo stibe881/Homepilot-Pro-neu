@@ -50,6 +50,15 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   kann (Chromecast, Google Home). Startet dort jemand Spotify, gibt das
   Radio die Box frei, statt weiter «läuft» zu behaupten.
 
+**Gäste-WLAN**
+
+- Wer das Gäste-Netz ausschliesslich über das UniFi-Captive-Portal
+  betreibt, kommt jetzt an den Gutschein-Spender heran, ohne vorher
+  einen `guest_wifi`-Abschnitt einzutragen. Vorher zählte die Karte den
+  Vorrat: kein Gutschein hiess «nicht eingerichtet» – und die Knöpfe,
+  mit denen man den ersten anlegt, lagen hinter genau diesem Hinweis.
+  Jetzt genügt die UniFi-Anbindung.
+
 **Philips Hue**
 
 - Die auf der Bridge gespeicherten Szenen stehen jetzt überall dort zur
