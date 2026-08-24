@@ -99,16 +99,56 @@ export function genauGenug(orte: Ort[], genauigkeit: number | null | undefined):
  * Je Ort eine Zeile: «drin» als enter, «nicht drin» als leave. Die
  * Reihenfolge ist die der Orte - der Hub rechnet daraus selbst den
  * engsten aus.
+ *
+ * **Ein knappes «nicht drin» wird verschwiegen.** Genau daran stand
+ * «Stefan · unterwegs», während Stefan zuhause war: Ein Fix, der das
+ * Haus um 180 Meter verfehlt, aber selbst 70 Meter Streuung hat, sagt
+ * nicht «draussen» – er sagt «weiss nicht». Bisher wurde daraus ein
+ * entschiedenes `leave`, und «weg» ist keine harmlose Antwort: Daran
+ * hängen Alarmanlage und «alles aus».
+ *
+ * Beim Ankommen bleibt es beim gemessenen Punkt. Ein «drin» ist die
+ * vorsichtigere Richtung – es schaltet nichts scharf –, und wer es
+ * strenger fasste, käme nie zuhause an.
  */
 export function ortsMeldungen(
   orte: Ort[],
   lat: number,
-  lon: number
+  lon: number,
+  genauigkeit?: number | null
 ): { place: string; event: 'enter' | 'leave' }[] {
-  return (orte ?? []).map((ort) => ({
-    place: ort.id,
-    event: drinIn(ort, lat, lon) ? ('enter' as const) : ('leave' as const),
-  }));
+  const streuung = Number(genauigkeit);
+  const unsicher = Number.isFinite(streuung) && streuung > 0 ? streuung : 0;
+  const meldungen: { place: string; event: 'enter' | 'leave' }[] = [];
+  for (const ort of orte ?? []) {
+    const meter = abstandMeter(lat, lon, ort.latitude, ort.longitude);
+    if (meter <= ort.radius) {
+      meldungen.push({ place: ort.id, event: 'enter' });
+    } else if (meter > ort.radius + unsicher) {
+      meldungen.push({ place: ort.id, event: 'leave' });
+    }
+    // Dazwischen: nichts melden. Der Hub behält, was er wusste.
+  }
+  return meldungen;
+}
+
+/** Orte, über die die Messung nichts aussagt (rein, testbar).
+ *
+ * Für den Satz nach dem Melden: Wer «Jetzt melden» drückt und nichts
+ * passiert, soll erfahren, warum – und nicht raten, ob der Knopf kaputt
+ * ist. */
+export function unsichereOrte(
+  orte: Ort[],
+  lat: number,
+  lon: number,
+  genauigkeit?: number | null
+): Ort[] {
+  const streuung = Number(genauigkeit);
+  if (!Number.isFinite(streuung) || streuung <= 0) return [];
+  return (orte ?? []).filter((ort) => {
+    const meter = abstandMeter(lat, lon, ort.latitude, ort.longitude);
+    return meter > ort.radius && meter <= ort.radius + streuung;
+  });
 }
 
 /**
@@ -125,11 +165,22 @@ export function meldungsText(
   orte: Ort[],
   meldungen: { place: string; event: string }[],
   lat?: number,
-  lon?: number
+  lon?: number,
+  unsicher: Ort[] = []
 ): string {
   const drin = meldungen.filter((eintrag) => eintrag.event === 'enter');
   if (drin.length === 0) {
     const weg = naechsterOrt(orte, lat, lon);
+    // Knapp daneben und zu ungenau, um es zu entscheiden: Dann wurde
+    // bewusst nichts gemeldet, und genau das gehört dagestanden. Sonst
+    // drückt man den Knopf ein zweites Mal und wundert sich.
+    if (unsicher.length > 0 && weg) {
+      return (
+        `Zu ungenau, um «${unsicher[0].name}» zu entscheiden – der Ort liegt ` +
+        `${entfernung(weg.meter)} entfernt. Nichts gemeldet; draussen oder ` +
+        'am Fenster nochmal.'
+      );
+    }
     return weg
       ? `Gemeldet: unterwegs. Der nächste Ort (${weg.ort.name}) liegt ${entfernung(
           weg.meter

@@ -425,3 +425,60 @@ async def test_wer_weiterfaehrt_verlaesst_den_alten_ort_wieder():
     await dienst._melden(geofence, unterwegs, time.time())
     assert ("oma", "leave", "tanners_home", None) in geofence.gemeldet
     assert "oma" not in dienst._letzter_ort
+
+
+# ── «Quartier» ist kein Aufenthaltsort ───────────────────────────────────
+#
+# Der gemeldete Fall: «Ausserdem stimmt hier ‹Quartier› auch nicht. Z.B.
+# Maja ist bei ‹Tanners Home›.» Die Vorlaufzone ist drei Kilometer weit
+# und verschluckte damit jeden benannten Ort im Dorf.
+
+
+@pytest.mark.asyncio
+async def test_ein_benannter_ort_schlaegt_die_weite_vorlaufzone():
+    dienst = _integration()
+    dienst.log = _Log()
+    geofence = StubGeofence()
+    # Zwei Kilometer vom Haus: im Quartier (3 km), aber nicht zuhause.
+    await dienst._melden(
+        geofence,
+        {
+            "firstName": "Oma",
+            "location": {
+                "latitude": str(HAUS["latitude"] + 0.018),
+                "longitude": str(HAUS["longitude"]),
+                "timestamp": str(time.time()),
+                "name": "Tanners Home",
+            },
+        },
+        time.time(),
+    )
+    ankunft = [zeile[2] for zeile in geofence.gemeldet if zeile[1] == "enter"]
+    # Beides wird gemeldet – der Vorlauf bleibt als Auslöser erhalten.
+    assert "quartier" in ankunft
+    assert "tanners_home" in ankunft
+
+
+def test_place_state_stellt_den_benannten_ort_vor_das_quartier():
+    from homepilot.core import presence
+
+    orte = presence.parse_places(
+        [
+            {"id": "home", "name": "Zuhause", "latitude": 47.1, "longitude": 8.0,
+             "radius": 150},
+            {"id": "quartier", "name": "Quartier", "latitude": 47.1, "longitude": 8.0,
+             "radius": 3000},
+        ]
+    )
+    # Im Quartier und bei einem benannten Ort: Der Name gewinnt.
+    assert presence.place_state(["quartier", "tanners_home"], orte) == (
+        "tanners_home",
+        "tanners_home",
+    )
+    # Zuhause bleibt zuhause – daran hängen Alarmanlage und Abläufe.
+    assert presence.place_state(["home", "quartier", "tanners_home"], orte) == (
+        "home",
+        "home",
+    )
+    # Und ohne fremden Namen bleibt alles wie bisher.
+    assert presence.place_state(["quartier"], orte) == ("quartier", "quartier")
