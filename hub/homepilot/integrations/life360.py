@@ -31,12 +31,15 @@ Konfiguration – Zugangsdaten gehören in die secrets.env, nie in die
 config.yaml und schon gar nicht ins Repo:
 
   - integration: life360
-    username: ${LIFE360_USER}       # E-Mail des Life360-Kontos
-    password: ${LIFE360_PASSWORD}
-    # Konten mit bestätigter Telefonnummer kommen mit Passwort nicht
-    # mehr hinein. Dann im Browser bei life360.com anmelden und den Wert
-    # des Cookies LIFE360_AUTH_TOKEN hierher kopieren:
-    # token: ${LIFE360_TOKEN}
+    token: ${LIFE360_TOKEN}
+    # Der Token ist der Normalfall: Life360 kennt keine Passwörter mehr,
+    # die Anmeldung läuft über einen SMS-/Mail-Code. Also im Browser bei
+    # life360.com anmelden (Code eingeben), dann in den
+    # Entwicklerwerkzeugen unter Netzwerk bei einer api-Anfrage den Wert
+    # hinter «Authorization: Bearer» kopieren - das ist der Token.
+    # Nur noch für alte Konten, die ein Passwort haben:
+    # username: ${LIFE360_USER}
+    # password: ${LIFE360_PASSWORD}
     scan_interval: 60
     members:                        # Name bei Life360 → Zone im Hub
       Oma: oma

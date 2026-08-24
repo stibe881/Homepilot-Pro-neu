@@ -258,11 +258,13 @@ integrations:
   # Schnittstelle und sperrt Fremdzugriffe zeitweise; der Hub geht dann
   # in wachsende Pausen. Siehe docs/geofence.md.
   # - integration: life360
-  #   username: "${LIFE360_USER}"
-  #   password: "${LIFE360_PASSWORD}"
-  #   # Konten mit bestätigter Telefonnummer brauchen statt Passwort den
-  #   # Cookie LIFE360_AUTH_TOKEN aus dem Browser:
-  #   # token: "${LIFE360_TOKEN}"
+  #   token: "${LIFE360_TOKEN}"
+  #   # Life360 kennt keine Passwörter mehr (Anmeldung per SMS-/Mail-Code).
+  #   # Den Token im Browser holen: life360.com -> anmelden -> F12 ->
+  #   # Netzwerk -> api-Anfrage -> Wert hinter «Authorization: Bearer».
+  #   # username/password nur noch für alte Konten:
+  #   # username: "${LIFE360_USER}"
+  #   # password: "${LIFE360_PASSWORD}"
   #   scan_interval: 60
   #   members:              # Name bei Life360 → Zone im geofence oben
   #     Oma: oma
