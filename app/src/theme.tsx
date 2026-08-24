@@ -81,53 +81,69 @@ export const darkColors: Colors = {
 };
 
 /**
- * Dunkel in Pink.
+ * Schwarz und Neonpink.
  *
- * Dieselben Rollen wie das dunkle Erscheinungsbild, nur in einer anderen
- * Familie: Der Grund geht ins Rosé statt ins Blaugrau, und was
- * hervorsticht, ist pink statt blau.
+ * Zweimal hat dieses Erscheinungsbild danebengelegen, und beide Male aus
+ * demselben Grund: **Die Fläche entscheidet, nicht der Knopf.** Sie füllt
+ * den Bildschirm, er ist ein Punkt darauf.
  *
- * Der Grund war lange Aubergine, und genau daran lag es, dass das
- * Erscheinungsbild violett wirkte statt pink: Der Akzent stand bei einem
- * Farbton von 334 Grad - klares Pink -, der Grund aber bei 313 bis 321,
- * und das ist Violett. Die Fläche entscheidet, nicht der Knopf: Sie
- * füllt den Bildschirm, er ist ein Punkt darauf. Jetzt liegen beide in
- * derselben Familie, und die Sattheit des Grundes ist höher - ein
- * gedämpftes Rosa in dieser Dunkelheit liest sich sonst kastanienbraun.
+ * - Zuerst war der Grund Aubergine (Farbton 313–321 Grad). Das ist
+ *   Violett, und das Erscheinungsbild las sich violett.
+ * - Dann war er ein sattes Weinrot (Farbton 337 Grad, aber dunkel und
+ *   bunt). Das ist Kastanie, und das Erscheinungsbild las sich braun.
+ *
+ * Jetzt ist der Grund schwarz. Nicht «sehr dunkles Rosa», sondern
+ * schwarz, mit einem Hauch Pink ganz oben, damit der Verlauf noch eine
+ * Richtung hat und die Glaskacheln etwas haben, wovor sie stehen. Das
+ * Pink kommt nicht mehr aus der Fläche, sondern aus dem, was darauf
+ * liegt: der Akzent leuchtet (Farbton 328 Grad, Sattheit 96 %), und die
+ * Kacheln bekommen eine feine pinke Kante. Neon heisst genau das – eine
+ * schmale, sehr helle Linie im Dunkeln, nicht eine grosse bunte Fläche.
  *
  * Zwei Farben bleiben bewusst aus der Familie heraus: «an» ist weiter
  * grün und «Gefahr» rot. Ein pinkes «an» neben einem pinken Knopf liesse
  * sich im Vorbeigehen nicht unterscheiden – und beim Warnen darf es keine
- * Verwechslung geben. Deshalb ist das Rot hier ein klares Rot und kein
- * Lachston, der neben dem Pink verschwämme.
+ * Verwechslung geben. Auf Schwarz dürfen beide heller sein als sonst.
+ *
+ * Die Zahlen dahinter hält `lib/kontrast.test.ts` fest: Auf Schwarz ist
+ * jeder Wert deutlich besser als in den übrigen Paletten, und das soll so
+ * bleiben, wenn hier jemand nachjustiert.
  */
 export const pinkColors: Colors = {
-  gradient: ['#552036', '#3C1626', '#280E19'],
+  // Schwarz mit einem Hauch Pink im ersten Schritt – bei einer einzigen
+  // durchgehend schwarzen Fläche verlöre der Verlauf seine Richtung, und
+  // die Kacheln hätten keinen Grund, vor dem sie stehen.
+  gradient: ['#1B0410', '#0C0207', '#000000'],
 
-  // Die Glasflächen mit einem Hauch Warm: reines Weiss wirkt auf dem
-  // Rosé-Grund kalt und wie ein Fremdkörper.
-  surface: 'rgba(255, 240, 248, 0.10)',
-  surfaceStrong: 'rgba(255, 240, 248, 0.18)',
-  surfaceSoft: 'rgba(255, 240, 248, 0.07)',
-  surfaceBorder: 'rgba(255, 240, 248, 0.15)',
-  panel: '#311923',
+  // Die Glasflächen mit einem Hauch Warm: reines Weiss wirkt neben dem
+  // Pink kalt und wie ein Fremdkörper. Etwas kräftiger als im dunklen
+  // Erscheinungsbild – auf Schwarz verschwindet eine 10-Prozent-Kachel.
+  surface: 'rgba(255, 235, 246, 0.11)',
+  surfaceStrong: 'rgba(255, 235, 246, 0.19)',
+  surfaceSoft: 'rgba(255, 235, 246, 0.07)',
+  // Hier sitzt das Neon: eine schmale pinke Kante um jede Kachel. Sie ist
+  // der eigentliche Träger des Erscheinungsbilds, nicht der Grund.
+  surfaceBorder: 'rgba(255, 45, 149, 0.32)',
+  panel: '#0A0307',
 
-  ink: '#F8EDF1',
-  inkSoft: '#C4A6B1',
-  inkFaint: '#90757F',
+  ink: '#FFF0F7',
+  inkSoft: '#C9A6BC',
+  inkFaint: '#8E7080',
 
   onGradient: '#FFFFFF',
   onGradientSoft: 'rgba(255, 255, 255, 0.72)',
 
-  on: '#4CD9A4',
-  onSoft: 'rgba(76, 217, 164, 0.18)',
-  off: 'rgba(255, 240, 248, 0.16)',
-  accent: '#FF74B0',
+  on: '#3BEFA6',
+  onSoft: 'rgba(59, 239, 166, 0.18)',
+  off: 'rgba(255, 235, 246, 0.16)',
+  // Neonpink: Farbton 328 Grad, Sattheit 96 Prozent, volle Helligkeit.
+  // Nicht 300 Grad – das wäre Magenta und damit wieder Violett.
+  accent: '#FF0A8C',
   warn: '#FFC061',
   danger: '#FF5252',
   dangerSoft: 'rgba(255, 82, 82, 0.18)',
 
-  track: 'rgba(255, 240, 248, 0.14)',
+  track: 'rgba(255, 235, 246, 0.14)',
   warmCool: ['#E09A3E', '#F2EDE4', '#7FB2F0'],
 };
 

@@ -18,7 +18,7 @@ const MODES: { key: ThemeMode; label: string }[] = [
   { key: 'auto', label: 'Nach Sonnenstand' },
   { key: 'light', label: 'Hell' },
   { key: 'dark', label: 'Dunkel' },
-  { key: 'pink', label: 'Pink' },
+  { key: 'pink', label: 'Neonpink' },
   { key: 'mitternacht', label: 'Mitternacht' },
   { key: 'sand', label: 'Sand' },
 ];
@@ -454,7 +454,12 @@ const makeStyles = (colors: Colors) =>
     marginTop: 4,
   },
   saveText: {
-    color: '#fff',
+  // Weiss auf «ink» ist in jedem dunklen Erscheinungsbild weiss auf
+  // Weiss: Dort ist ink die Schriftfarbe, also fast weiss, und als
+  // Knopffüllung braucht sie eine dunkle Beschriftung. `panel` ist in
+  // jeder Palette die deckende Gegenfarbe zu ink – hell im hellen
+  // Erscheinungsbild, dunkel in den dunklen.
+    color: colors.panel,
     fontWeight: '700',
     fontSize: 16,
   },
