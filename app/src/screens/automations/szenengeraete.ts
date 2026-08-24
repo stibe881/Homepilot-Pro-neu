@@ -151,8 +151,38 @@ export function baseCommandOptions(entity: Entity): { key: string; label: string
     // «ein mit Helligkeit» nur, wo das Gerät wirklich dimmen kann – ein
     // Schalter mit Helligkeitsregler wäre ein Knopf, der nichts tut.
     ['set_brightness', 'ein, gedimmt'],
+    // Die Zieltemperatur liess sich bisher nur auf der Kachel stellen.
+    // «Abends um 18:00 auf 110 °C vorheizen» war damit ein Ablauf, den
+    // man nur von Hand in die config.yaml schreiben konnte.
+    ['set_temperature', 'auf Temperatur'],
     ['turn_off', 'aus'],
   ]);
+}
+
+/** Die vorgeschlagenen Zieltemperaturen eines Geräts (rein, testbar).
+ *
+ *  Feste Stufen statt eines Zahlenfelds: Der Grill nimmt ohnehin nur
+ *  bestimmte Sollwerte an und rundet selbst auf den nächsten – grobe
+ *  Schritte genügen also, und ein Chip ist schneller getroffen als ein
+ *  Tastenfeld.
+ *
+ *  Die Stufen sind die, nach denen beim Grillen gefragt wird: Räuchern,
+ *  Niedertemperatur, Braten, Pizza. In °F, wo das Gerät in °F meldet –
+ *  110 °C auf einem Fahrenheit-Grill wäre kalt. */
+export function zieltemperaturen(entity: Entity): { key: string; label: string }[] {
+  const fahrenheit = String(entity.state.unit ?? '°C').includes('F');
+  const werte = fahrenheit ? [180, 225, 250, 300, 350, 400] : [80, 110, 120, 150, 180, 200];
+  const einheit = fahrenheit ? '°F' : '°C';
+  return werte.map((wert) => ({ key: String(wert), label: `${wert} ${einheit}` }));
+}
+
+/** Der Wert, der ohne eigene Wahl gilt (rein, testbar).
+ *
+ *  Die mittlere Stufe und nicht die erste: 80 °C wäre stilles Räuchern,
+ *  und wer den Chip antippt, ohne weiterzuwählen, will meist grillen. */
+export function zieltemperaturStandard(entity: Entity): number {
+  const stufen = zieltemperaturen(entity);
+  return Number(stufen[Math.floor(stufen.length / 2)].key);
 }
 
 

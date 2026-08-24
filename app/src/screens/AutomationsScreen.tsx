@@ -566,6 +566,7 @@ export function AutomationsScreen({
             color,
             transition,
             volume,
+            temperature,
             playlist,
             station,
             app,
@@ -581,6 +582,11 @@ export function AutomationsScreen({
           }
           if (command === 'set_volume') {
             return [{ entity_id, command, data: { volume: volume ?? 30 } }];
+          }
+          // Die Zieltemperatur des Grills – ohne diesen Zweig stünde in
+          // der Szene ein set_temperature ohne Zahl.
+          if (command === 'set_temperature') {
+            return [{ entity_id, command, data: { temperature: temperature ?? 120 } }];
           }
           // «Musik an» mit gewählter Playlist wird zu play_playlist: Der
           // Hub sucht sie über ihren Namen, weckt die Ziel-Box notfalls
