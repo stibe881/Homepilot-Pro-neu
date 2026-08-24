@@ -63,7 +63,7 @@ import {
   sortiereGeraete,
 } from '../lib/geraetefilter';
 import { verweisText, verweiseAuf } from '../lib/verweise';
-import { alphabetisch, raeumeSortiert, raumMesswerte, raumKategorien, raumZeile } from '../lib/raum';
+import { alphabetisch, istKueche, raeumeSortiert, raumKategorien, raumMesswerte, raumZeile } from '../lib/raum';
 import { Person } from '../lib/ortung';
 import { FAVORITEN, raumGruppen } from '../lib/raumgruppen';
 import { verlangtPin } from '../lib/alarmpin';
@@ -1875,7 +1875,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
 
           {/* Der Küchen-Timer gehört in die Küche - dort steht man, wenn
               die Nudeln aufgesetzt sind, und nicht in der Raumübersicht. */}
-          {section === 'home' && room !== ALL_ROOMS && /küche/i.test(room) ? (
+          {section === 'home' && room !== ALL_ROOMS && istKueche(room) ? (
             <KitchenTimer settings={settings} />
           ) : null}
           {/* Ein Raum: nach Kategorien (Szenen, Beleuchtung, Store, Medien). */}

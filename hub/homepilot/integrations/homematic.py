@@ -229,6 +229,9 @@ class HomematicIntegration(Integration):
         self._by_battery: dict[tuple[str, str], list[str]] = {}
         # Bereits gemeldete Lesefehler – jede Adresse warnt nur einmal.
         self._warned: set[tuple[str, str]] = set()
+        # Je Adresse und Datenpunkt der Grund, warum nichts ankommt –
+        # einmal zusammengestellt, dann an die Kachel gereicht.
+        self._gruende: dict[tuple[str, str], str] = {}
         # (Adresse, Datenpunkt) → entity_id, plus Stammdaten je Entität
         self._by_datapoint: dict[tuple[str, str], str] = {}
         # Messkanäle getrennt: sie liefern kein state, sondern nur 'power'.
@@ -551,18 +554,38 @@ class HomematicIntegration(Integration):
             # Haupt- und Messkanal unabhängig lesen: Bei Homematic IP hat der
             # Messkanal (z.B. HmIP-PSM Kanal 6) kein STATE – dann soll
             # wenigstens die Leistung ankommen statt gar nichts.
+            # Warum nichts ankommt – leer, solange alles stimmt.
+            problem: str | None = None
+            schluessel = (info["address"], info["datapoint"])
             try:
                 value = await self._call(
                     "getValue", info["address"], info["datapoint"], port=port
                 )
                 changes.update(value_to_state(value, info["datapoint"], info["dimmable"]))
-                self._warned.discard((info["address"], info["datapoint"]))
+                self._warned.discard(schluessel)
+                self._gruende.pop(schluessel, None)
             except Exception as err:
-                self._warn_once(
-                    (info["address"], info["datapoint"]),
-                    f"{info['address']} liefert kein {info['datapoint']} ({err}) – "
-                    + await self._was_der_kanal_kennt(info["address"], port),
-                )
+                # Den Grund nur beim ersten Mal zusammenstellen: Die
+                # Nachfrage bei der CCU, welche Namen der Kanal kennt,
+                # ist ein eigener Aufruf. Bei einem dauerhaft kaputten
+                # Datenpunkt liefe der sonst alle fünf Minuten mit, ohne
+                # dass jemand die Antwort noch einmal läse.
+                grund = self._gruende.get(schluessel)
+                if grund is None:
+                    grund = (
+                        f"{info['address']} liefert kein {info['datapoint']} "
+                        f"({err}) – "
+                        + await self._was_der_kanal_kennt(info["address"], port)
+                    )
+                    self._gruende[schluessel] = grund
+                self._warn_once(schluessel, grund)
+                # Und dasselbe an die Kachel: «nie gesehen» ohne Grund ist
+                # eine Sackgasse - man sieht, dass etwas fehlt, aber nicht
+                # was zu tun ist. Der Satz steht im Log; hier steht er
+                # dort, wo man das Gerät anschaut. Bewusst *neben*
+                # `changes`: Ob ein Gerät erreichbar ist, entscheidet
+                # sich an echten Werten, nicht an einer Fehlermeldung.
+                problem = grund
 
             if info["power_address"]:
                 try:
@@ -601,9 +624,13 @@ class HomematicIntegration(Integration):
                     break
 
             if changes:
-                await self.hub.registry.update_state(entity_id, changes, available=True)
+                await self.hub.registry.update_state(
+                    entity_id, {**changes, "problem": problem}, available=True
+                )
             else:
-                await self.hub.registry.update_state(entity_id, {}, available=False)
+                await self.hub.registry.update_state(
+                    entity_id, {"problem": problem}, available=False
+                )
 
         await self._refresh_batteries()
         await self._refresh_duty_cycle()
