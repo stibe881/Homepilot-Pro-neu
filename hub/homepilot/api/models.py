@@ -419,3 +419,14 @@ class MetaRequest(BaseModel):
     favorite: bool | None = None
     group: str | None = None
 
+
+
+class EinladungRequest(BaseModel):
+    """Einladung mit Link und Passwort statt Token im Chat.
+
+    Das Passwort reist auf einem anderen Weg als der Link – darum steht
+    es hier und wird nie gespeichert, nur sein Abdruck.
+    """
+
+    password: str = ""
+    minutes: int | None = None

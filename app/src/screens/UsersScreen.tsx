@@ -15,6 +15,7 @@ import QRCode from 'react-native-qrcode-svg';
 import { HubFehler, hubClient } from '../api/client';
 import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
+import { einladungFrist } from '../lib/einladung';
 import { DoorPass } from '../components/DoorPass';
 import { Fehlschlag, Laedt } from '../components/Zustand';
 import { Colors, radius, space, type, useColors } from '../theme';
@@ -266,6 +267,12 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
   // Detailansicht: gewählter Benutzer + geladene Kopplungs-Daten.
   const [detail, setDetail] = useState<HubUser | null>(null);
   const [pairing, setPairing] = useState<string | null>(null);
+  // Die Einladung zu dieser Person: Link samt Ablauf, oder nichts.
+  const [einladung, setEinladung] = useState<{ link: string; expires: number } | null>(
+    null
+  );
+  const [einladungPass, setEinladungPass] = useState('');
+  const [einladungNote, setEinladungNote] = useState<string | null>(null);
   // Zwei-Schritt-Rückfrage fürs Token-Wechseln – das ist nicht umkehrbar.
   const [rotateAsk, setRotateAsk] = useState<string | null>(null);
   const [rotateNote, setRotateNote] = useState<string | null>(null);
@@ -289,6 +296,23 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
   const openDetail = async (user: HubUser) => {
     setDetail(user);
     setPairing(null);
+    setEinladungPass('');
+    setEinladungNote(null);
+    // Eine offene Einladung gehört gezeigt, nicht verschwiegen: Sonst
+    // stellt man eine zweite aus und wundert sich, warum die erste tot
+    // ist.
+    setEinladung(null);
+    hub
+      .get<{ open: boolean; link?: string; expires?: number }>(
+        `/api/users/${encodeURIComponent(user.name)}/einladung`,
+        { still: true, fallback: { open: false } }
+      )
+      .then((offen) => {
+        if (offen?.open && offen.link) {
+          setEinladung({ link: offen.link, expires: Number(offen.expires) || 0 });
+        }
+      })
+      .catch(() => {});
     try {
       const body = await hub.get<{ payload: string }>(
         `/api/users/${encodeURIComponent(user.name)}/pairing`,
@@ -570,47 +594,117 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                         In der HomePilot-App der Person: «QR-Code vom Hub scannen» –
                         Verbindung und Token werden automatisch übernommen.
                       </Text>
-                      {pairing ? (
-                        <Pressable
-                          onPress={() => {
-                            // Wer nicht danebensteht, kann keinen QR-Code
-                            // scannen. Derselbe Inhalt als Text, zum
-                            // Verschicken - mit dem Ablaufdatum dabei,
-                            // damit der Empfänger weiss, woran er ist.
-                            const bis = detail.expires
-                              ? `\n\nDer Zugang läuft am ${detail.expires} ab.`
-                              : '';
-                            Share.share({
-                              message:
-                                `Zugang zu unserem HomePilot für ${detail.name}:\n\n` +
-                                `${pairing}\n\n` +
-                                'In der HomePilot-App unter «Verbinden» einfügen.' +
-                                bis,
-                              // Abgebrochenes Teilen ist eine
-                              // Entscheidung, kein Fehler.
-                            }).catch(() => {});
-                          }}
-                          accessibilityRole="button"
-                          style={({ pressed }) => [
-                            styles.shareButton,
-                            pressed && { opacity: 0.8 },
-                          ]}
-                        >
-                          <Ionicons
-                            name="share-outline"
-                            size={17}
-                            color={colors.ink}
-                          />
-                          <Text style={styles.shareButtonText}>
-                            Zugang als Nachricht senden
-                          </Text>
-                        </Pressable>
-                      ) : null}
-                      <Text style={styles.qrHint}>
-                        Der Text enthält das Token – er ist der Schlüssel zum
-                        Haus. Schick ihn einzeln und nicht in eine Gruppe, und
-                        setz oben ein Ablaufdatum, wenn der Zugang enden soll.
-                      </Text>
+                      {/* Wer nicht danebensteht, kann keinen QR-Code
+                          scannen. Früher ging dafür der Kopplungstext
+                          als Nachricht raus – und der *ist* der
+                          Schlüssel zum Haus. Ein Schlüssel, der einmal in
+                          einem Chat liegt, liegt dort für immer: in der
+                          Sicherung des Telefons, in der Wolke des
+                          Anbieters, in der Vorschau auf dem
+                          Sperrbildschirm. Jetzt reisen zwei Teile
+                          getrennt: ein Link, der allein nichts öffnet,
+                          und ein Passwort, das man durchgibt. */}
+                      <View style={styles.rotateBox}>
+                        <Text style={styles.formLabel}>Einladen per Link</Text>
+                        {einladung ? (
+                          <>
+                            <Text style={styles.qrHint}>
+                              Der Link gilt einmal und läuft{' '}
+                              {einladungFrist(einladung.expires, new Date())} ab.
+                              Das Passwort gibst du auf einem anderen Weg durch –
+                              am Telefon oder persönlich, nicht im selben Chat.
+                            </Text>
+                            <Text style={styles.linkText} selectable>
+                              {einladung.link}
+                            </Text>
+                            <Pressable
+                              onPress={() => {
+                                Share.share({
+                                  message:
+                                    `Zugang zu unserem HomePilot für ${detail.name}:\n\n` +
+                                    `${einladung.link}\n\n` +
+                                    'Das Passwort bekommst du von mir separat.',
+                                  // Abgebrochenes Teilen ist eine
+                                  // Entscheidung, kein Fehler.
+                                }).catch(() => {});
+                              }}
+                              accessibilityRole="button"
+                              style={({ pressed }) => [
+                                styles.shareButton,
+                                pressed && { opacity: 0.8 },
+                              ]}
+                            >
+                              <Ionicons name="share-outline" size={17} color={colors.ink} />
+                              <Text style={styles.shareButtonText}>Link senden</Text>
+                            </Pressable>
+                            <Pressable
+                              onPress={async () => {
+                                await hub
+                                  .del(`/api/users/${encodeURIComponent(detail.name)}/einladung`, {
+                                    still: true,
+                                  })
+                                  .catch(() => {});
+                                setEinladung(null);
+                                setEinladungNote('Einladung zurückgezogen.');
+                              }}
+                              accessibilityRole="button"
+                              style={({ pressed }) => [
+                                styles.rotateButton,
+                                pressed && { opacity: 0.7 },
+                              ]}
+                            >
+                              <Ionicons name="close-outline" size={15} color={colors.ink} />
+                              <Text style={styles.rotateText}>Einladung zurückziehen</Text>
+                            </Pressable>
+                          </>
+                        ) : (
+                          <>
+                            <Text style={styles.qrHint}>
+                              Leg ein Passwort fest. Der Link allein öffnet nichts –
+                              erst beide zusammen geben den Zugang frei.
+                            </Text>
+                            <TextInput
+                              value={einladungPass}
+                              onChangeText={setEinladungPass}
+                              placeholder="Passwort (mind. 6 Zeichen)"
+                              placeholderTextColor={colors.inkFaint}
+                              autoCapitalize="none"
+                              style={styles.input}
+                            />
+                            <Pressable
+                              onPress={async () => {
+                                setEinladungNote(null);
+                                try {
+                                  const antwort = await hub.post<{
+                                    link: string;
+                                    expires: number;
+                                  }>(
+                                    `/api/users/${encodeURIComponent(detail.name)}/einladung`,
+                                    { password: einladungPass }
+                                  );
+                                  setEinladung(antwort);
+                                  setEinladungPass('');
+                                } catch (err) {
+                                  setEinladungNote(
+                                    String(err instanceof Error ? err.message : err)
+                                  );
+                                }
+                              }}
+                              accessibilityRole="button"
+                              style={({ pressed }) => [
+                                styles.shareButton,
+                                pressed && { opacity: 0.8 },
+                              ]}
+                            >
+                              <Ionicons name="link-outline" size={17} color={colors.ink} />
+                              <Text style={styles.shareButtonText}>Einladung erstellen</Text>
+                            </Pressable>
+                          </>
+                        )}
+                        {einladungNote ? (
+                          <Text style={styles.qrHint}>{einladungNote}</Text>
+                        ) : null}
+                      </View>
                     </>
                   )}
 
@@ -1299,6 +1393,15 @@ const makeStyles = (colors: Colors) =>
     form: { minHeight: 0, gap: 8 },
     formLabel: { color: colors.inkSoft, fontSize: 12, fontWeight: '700' },
     formHint: { color: colors.inkFaint, fontSize: 12, lineHeight: 17 },
+    linkText: {
+      color: colors.accent,
+      fontSize: 13,
+      lineHeight: 19,
+      marginTop: 8,
+      // Ein Link bricht mitten im Wort um – sonst schiebt er die Karte
+      // seitlich hinaus.
+      flexShrink: 1,
+    },
     input: {
       backgroundColor: colors.surfaceSoft,
       borderRadius: radius.control,

@@ -11,6 +11,41 @@ In der E-Mail setzt sie ihr Passwort – fertig. Ohne diesen Weg gäbe es
 zwei Löcher: Jeder, der die Adresse des Hubs kennt, könnte sich ein Konto
 anlegen, und der Hub verschickte auf Zuruf E-Mails an Fremde.
 
+## Ohne E-Mail: Einladung per Link und Passwort
+
+Nicht jeder Haushalt hat Supabase eingerichtet, und nicht jeder Zugang
+braucht ein Konto. Für diese Fälle gibt es unter *Benutzer* → Person →
+**Einladen per Link** den zweiten Weg.
+
+Bis dahin verschickte man den Kopplungstext als Nachricht – und der Hinweis
+daneben sagte selbst, was das ist: der Schlüssel zum Haus. Ein Schlüssel,
+der einmal in einem Chat liegt, liegt dort für immer: in der Sicherung des
+Telefons, in der Wolke des Anbieters, in der Vorschau auf dem
+Sperrbildschirm.
+
+Jetzt reisen zwei Teile getrennt:
+
+- Ein **Link** mit einer kurzen, zufälligen Kennung. Er allein öffnet
+  nichts – er zeigt ein Feld für das Passwort.
+- Ein **Passwort**, das du festlegst und auf einem anderen Weg durchgibst:
+  am Telefon, persönlich, in einer anderen App. Nicht im selben Chat, sonst
+  war die Übung umsonst.
+
+Erst beides zusammen gibt den Zugang heraus. Drei Grenzen sind eingebaut:
+
+- **Das Passwort wird nie gespeichert**, nur ein Abdruck davon (PBKDF2 mit
+  Salz). Wer die `hub.data` liest, kann damit nichts anfangen – auch wir
+  nicht. Wer es vergisst, stellt eine neue Einladung aus.
+- **Fünf Versuche.** Eine kurze Kennung plus Passwort wäre ohne Deckel
+  ratbar. Danach ist die Einladung nicht gesperrt, sondern tot.
+- **Einen Tag gültig, einmal brauchbar.** Eine Einladung ist ein Türöffner,
+  kein Zweitschlüssel. Je Person gibt es höchstens eine offene – eine neue
+  löst die alte ab.
+
+Der QR-Code daneben bleibt für den Fall, dass die Person neben dir steht.
+Ihn kann nur abfotografieren, wer im selben Raum ist; das war nie das
+Problem.
+
 ## Wie es aufgebaut ist
 
 Die App spricht **nur mit dem Hub**. Der Hub wiederum spricht mit Supabase.
