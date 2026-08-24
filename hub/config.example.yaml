@@ -483,6 +483,10 @@ integrations:
   #   #   never  – nie anbieten (Kinder im Haus, Türe zur Strasse).
   #   # Was der Hub erkannt hat, steht unter System → Integrationen.
   #   # unlatch: auto
+  #   # Fehlt der Knopf bei einem Nuki: Das Aufziehen wird über Matter nur
+  #   # angeboten, wenn in der Nuki-App unter Türkonfiguration steht, dass
+  #   # die Türe aussen keine Klinke hat (Knauf oder Stossgriff). Innen
+  #   # Klinke, aussen Knauf - danach neu einlesen.
   #   # Nach jedem «Auf + öffnen» schaut der Hub ein paar Sekunden zu, ob
   #   # die Falle wirklich gezogen wurde. Hat das Schloss bloss
   #   # aufgeschlossen, steht der Grund ebenfalls unter System →
