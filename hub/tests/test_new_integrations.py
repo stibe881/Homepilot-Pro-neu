@@ -1315,14 +1315,88 @@ def test_hue_scenes_keep_their_names():
                 {"id": "ccc", "metadata": {"name": "Hell"}},
                 {"metadata": {"name": "Ohne Kennung"}},
             ]
-        }
+        },
+        {"wohnzimmer-1234": "Wohnzimmer", "buero-5678": "Büro"},
     )
-    assert parsed["Entspannen"] == "aaa"
-    # Der zweite gleichnamige bekommt einen Zusatz, statt den ersten zu
-    # überschreiben.
-    assert any(key.startswith("Entspannen (") for key in parsed)
-    assert parsed["Hell"] == "ccc"
+    nach_name = {scene.label: scene.id for scene in parsed}
+    # Beide gleichnamigen bekommen den Zusatz, nicht nur die zweite: Sonst
+    # stünde «Entspannen» neben «Entspannen (Büro)», und welches Zimmer
+    # das namenlose ist, stünde nirgends.
+    assert nach_name["Entspannen (Wohnzimmer)"] == "aaa"
+    assert nach_name["Entspannen (Büro)"] == "bbb"
+    # Ein eindeutiger Name bleibt, wie er ist.
+    assert nach_name["Hell"] == "ccc"
     assert len(parsed) == 3
+    # Der Raum hängt an der Szene – die Entität landet später darin.
+    assert parsed[0].room == "Wohnzimmer"
+    assert parsed[2].room is None
+
+
+def test_hue_scene_without_known_room_falls_back_to_its_id():
+    """Kennt die Bridge den Raum nicht, muss der Name trotzdem eindeutig
+    bleiben – sonst verschluckt das Wörterbuch eine der beiden Szenen."""
+    from homepilot.integrations.hue import parse_scenes
+
+    parsed = parse_scenes(
+        {
+            "data": [
+                {"id": "a", "metadata": {"name": "Kino"}, "group": {"rid": "abcdefgh-1"}},
+                {"id": "b", "metadata": {"name": "Kino"}, "group": {"rid": "ijklmnop-2"}},
+                # Zwei gleichnamige im selben Zimmer gibt es auch.
+                {"id": "c", "metadata": {"name": "Nacht"}, "group": {"rid": "raum"}},
+                {"id": "d", "metadata": {"name": "Nacht"}, "group": {"rid": "raum"}},
+            ]
+        },
+        {"raum": "Schlafzimmer"},
+    )
+    labels = [scene.label for scene in parsed]
+    assert labels == [
+        "Kino (abcdefgh)",
+        "Kino (ijklmnop)",
+        "Nacht (Schlafzimmer)",
+        "Nacht (Schlafzimmer) 2",
+    ]
+    assert len(set(labels)) == 4
+
+
+def test_hue_rooms_and_zones_share_one_lookup():
+    """Eine Szene kann an einem Zimmer oder an einer Zone hängen – für
+    ihren Namen ist der Unterschied ohne Belang."""
+    from homepilot.integrations.hue import parse_rooms
+
+    rooms = parse_rooms(
+        {"data": [{"id": "r1", "metadata": {"name": "Küche"}}]},
+        {"data": [{"id": "z1", "metadata": {"name": "Erdgeschoss"}}]},
+        None,
+    )
+    assert rooms == {"r1": "Küche", "z1": "Erdgeschoss"}
+
+
+def test_hue_scene_is_active_while_the_lamps_still_stand_that_way():
+    """Verstellt jemand eine Lampe von Hand, gilt die Szene nicht mehr –
+    ein Knopf, der dann noch leuchtet, wäre eine Lüge."""
+    from homepilot.integrations.hue import scene_state
+
+    assert scene_state({"status": {"active": "static"}}) == "active"
+    assert scene_state({"status": {"active": "dynamic_palette"}}) == "active"
+    assert scene_state({"status": {"active": "inactive"}}) == "idle"
+    # Ältere Firmware meldet gar keinen Status – dann lieber «bereit» als
+    # eine erfundene Behauptung.
+    assert scene_state({}) == "idle"
+
+
+def test_hue_room_is_only_taken_over_when_the_house_knows_it():
+    """Die Bridge kennt ihre eigenen Zimmernamen. Übernähme man sie
+    ungeprüft, stünden in der App Räume, die es im Haus nicht gibt."""
+    from homepilot.integrations.hue import matching_room
+
+    bekannt = ["Wohnzimmer", "Büro"]
+    assert matching_room("Wohnzimmer", bekannt) == "Wohnzimmer"
+    # Gross-/Kleinschreibung entscheidet nicht darüber, ob ein Zimmer
+    # dasselbe ist.
+    assert matching_room("wohnzimmer", bekannt) == "Wohnzimmer"
+    assert matching_room("Living room", bekannt) is None
+    assert matching_room(None, bekannt) is None
 
 
 def test_storm_warning_only_fires_for_real_wind_alerts():

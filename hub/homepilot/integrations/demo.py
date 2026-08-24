@@ -53,6 +53,16 @@ class DemoIntegration(Integration):
             "Temperatur Wohnzimmer",
             state={"state": 21.5, "unit": "°C"},
         )
+        # Eine Lichtszene wie die einer Hue-Bridge: ein Knopf, kein Regler.
+        # Ohne sie liesse sich die Szenen-Auswahl der App nicht ansehen,
+        # ohne eine echte Bridge im Netz zu haben.
+        await self.add_entity(
+            "scene_relax",
+            EntityKind.SCENE,
+            "Entspannen",
+            state={"state": "idle", "scene": "Entspannen"},
+            commands=["activate"],
+        )
         self.start_task(self._temperature_drift())
 
     async def _temperature_drift(self) -> None:
@@ -76,6 +86,10 @@ class DemoIntegration(Integration):
             changes["state"] = "off"
         elif command == "toggle":
             changes["state"] = "off" if entity.state.get("state") == "on" else "on"
+        elif command == "activate":
+            # Eine Szene gilt, bis jemand eines ihrer Lichter anfasst. Das
+            # nachzubilden wäre hier Aufwand ohne Ertrag – sie bleibt an.
+            changes["state"] = "active"
         elif command == "set_brightness":
             changes["brightness"] = max(0, min(100, int(data.get("brightness", 100))))
             changes["state"] = "on" if changes["brightness"] > 0 else "off"

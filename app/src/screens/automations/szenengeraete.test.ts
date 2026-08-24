@@ -13,6 +13,8 @@ import {
   appsVon,
   baseCommandOptions,
   boxenVon,
+  commandOptions,
+  imSchnappschuss,
   isSceneDevice,
   mischenMoeglich,
   playlistWahl,
@@ -50,6 +52,10 @@ describe('isSceneDevice', () => {
     expect(isSceneDevice(geraet('media_player', ['play', 'pause']))).toBe(true);
     expect(isSceneDevice(geraet('vacuum', ['start', 'dock']))).toBe(true);
     expect(isSceneDevice(geraet('alarm', ['arm_night', 'disarm']))).toBe(true);
+  });
+
+  it('nimmt eine Hue-Szene auf – sonst liesse sie sich in keine Szene legen', () => {
+    expect(isSceneDevice(geraet('scene', ['activate']))).toBe(true);
   });
 
   it('nimmt auch eine Geräteart auf, die hier niemand eingetragen hat', () => {
@@ -215,3 +221,33 @@ describe('boxenVon', () => {
     expect(boxenVon(box([], { devices: 'keine Liste' }))).toEqual([]);
   });
 });
+
+describe('Lichtszenen der Bridge', () => {
+  it('bieten genau eine Handlung an: aufrufen', () => {
+    const szene = geraet('scene', ['activate']);
+    expect(baseCommandOptions(szene)).toEqual([{ key: 'activate', label: 'aufrufen' }]);
+  });
+
+  it('bekommen kein «umschalten» – die Bridge kann eine Szene nicht zurücknehmen', () => {
+    expect(commandOptions(geraet('scene', ['activate']), true)).toEqual([
+      { key: 'activate', label: 'aufrufen' },
+    ]);
+  });
+});
+
+describe('imSchnappschuss', () => {
+  it('sammelt Alarmanlage, Kamera und Lichtszene nicht von selbst ein', () => {
+    // Jede aus demselben Grund: Was sie ungefragt in die Szene brächten,
+    // hat niemand gewollt – «unscharf», «Privatsphäre aus», und eine
+    // Hue-Szene, die gerade gar nicht gilt.
+    expect(imSchnappschuss(geraet('alarm', ['disarm']))).toBe(false);
+    expect(imSchnappschuss(geraet('camera', ['set_privacy']))).toBe(false);
+    expect(imSchnappschuss(geraet('scene', ['activate']))).toBe(false);
+  });
+
+  it('lässt alles andere mit', () => {
+    expect(imSchnappschuss(geraet('light', ['turn_on']))).toBe(true);
+    expect(imSchnappschuss(geraet('cover', ['open']))).toBe(true);
+  });
+});
+

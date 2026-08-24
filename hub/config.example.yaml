@@ -138,6 +138,12 @@ integrations:
   # - integration: hue
   #   host: 192.168.1.20
   #   app_key: "${HUE_APP_KEY}"
+  #   # Die auf der Bridge gespeicherten Szenen kommen als eigene Geräte
+  #   # mit (hue.scene_<Kennung>, Art «Lichtszene», ein Befehl: activate).
+  #   # Sie lassen sich damit in Szenen und Abläufe aufnehmen wie jede
+  #   # Lampe. Gehört eine Szene auf der Bridge zu einem Zimmer, das es
+  #   # unter 'rooms' auch hier gibt, landet sie gleich darin - eintragen
+  #   # muss man sie also nur, wenn die Namen auseinandergehen.
 
   # Sonoff & Co. über MQTT. Voraussetzung: Tasmota-Firmware auf dem Gerät.
   # - integration: mqtt

@@ -77,6 +77,22 @@ describe('snapshotAction', () => {
     expect(snapshotCommand(alarm({ state: 'scharf', mode: 'nacht' }))).toBe('arm_night');
     expect(snapshotCommand(alarm({ state: 'scharf', mode: 'urlaub' }))).toBe('arm_vacation');
   });
+
+  it('ruft eine Hue-Szene auf, statt sie auszuschalten', () => {
+    // Ohne eigenen Zweig fiele sie auf «turn_off» zurück – ein Befehl,
+    // den die Bridge für eine Szene gar nicht kennt.
+    const szene = {
+      id: 'hue.scene_aaa',
+      kind: 'scene',
+      name: 'Entspannen',
+      integration: 'hue',
+      state: { state: 'idle' },
+      commands: ['activate'],
+      available: true,
+    } as unknown as Entity;
+    expect(snapshotCommand(szene)).toBe('activate');
+    expect(snapshotAction(szene).command).toBe('activate');
+  });
 });
 
 describe('sceneActionsToDraft', () => {

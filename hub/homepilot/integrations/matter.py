@@ -66,6 +66,24 @@ DEVICE_TYPE_KINDS = {
     10: EntityKind.LOCK,            # Door Lock
 }
 
+# Gerätetypen, die gar keine Geräte sind, sondern Innenleben eines
+# Knotens: die Stromquelle, der Update-Empfänger, die Brücke.
+#
+# Sie standen in der Knotenliste als «wird noch nicht unterstützt» - und
+# das ist die falsche Auskunft: Es gibt nichts zu unterstützen. Ein
+# Türkontakt mit Batterie erzeugte so fünf Zeilen, die nach einer Lücke
+# aussahen und keine sind. Der Batteriestand kommt ohnehin am Kontakt
+# selbst an.
+INFRASTRUKTUR_TYPEN = frozenset(
+    {
+        17,  # Power Source
+        18,  # OTA Requestor
+        19,  # Bridged Node
+        20,  # OTA Provider
+        22,  # Root Node
+    }
+)
+
 # Kleinste Schema-Fassung des Dienstes, mit der diese Integration umgehen
 # kann. Darunter sahen Knoten und Attribute anders aus; darüber ist die
 # Schnittstelle bisher abwärtskompatibel geblieben - der Dienst nennt
@@ -450,7 +468,7 @@ def node_lines(node: dict[str, Any]) -> list[str]:
                     else " – meldet kein Aufziehen (UnboltDoor)"
                 )
             zeilen.append(zeile)
-        elif endpoint != 0:
+        elif endpoint != 0 and not all(t in INFRASTRUKTUR_TYPEN for t in typen):
             # Endpunkt 0 ist die Verwaltung jedes Knotens und nie ein Gerät.
             liste = ", ".join(str(t) for t in typen)
             zeilen.append(

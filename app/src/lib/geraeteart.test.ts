@@ -118,3 +118,13 @@ describe('deviceKindIcon', () => {
     }
   });
 });
+
+describe('Lichtszenen der Bridge', () => {
+  it('heissen «Lichtszene» und nicht «Szene»', () => {
+    // Die Szenen des Hubs stehen in der App an anderer Stelle. Zwei
+    // Dinge desselben Namens nebeneinander sind eines zu viel.
+    const szene = geraet({ kind: 'scene', integration: 'hue', commands: ['activate'] });
+    expect(deviceKindLabel(szene)).toBe('Lichtszene');
+    expect(deviceKindIcon(szene)).toBe('color-palette-outline');
+  });
+});
