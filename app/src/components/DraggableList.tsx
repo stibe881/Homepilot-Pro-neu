@@ -106,6 +106,13 @@ function DragRow({
       PanResponder.create({
         onStartShouldSetPanResponder: () => true,
         onMoveShouldSetPanResponder: () => true,
+        // Ohne diese beiden liess sich hier gar nicht ziehen: Die Liste
+        // steht in einem ScrollView, und der fordert die Geste beim
+        // ersten senkrechten Millimeter für sich an. Wird ihm nicht
+        // widersprochen, bricht er das Ziehen sofort ab – die Zeile
+        // zuckte kurz, dann scrollte nur noch die Liste.
+        onPanResponderTerminationRequest: () => false,
+        onShouldBlockNativeResponder: () => true,
         onPanResponderGrant: () => onStart(index),
         onPanResponderMove: (_event, gesture) => onMove(gesture.dy),
         onPanResponderRelease: (_event, gesture) => onEnd(index, gesture.dy),
