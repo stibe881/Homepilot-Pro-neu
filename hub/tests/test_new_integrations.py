@@ -967,6 +967,35 @@ def test_overkiz_cover_state_open_and_closed():
     assert cover_state({})["state"] == "unknown"
 
 
+def test_overkiz_a_single_silent_report_does_not_grey_out_a_blind():
+    """Der gemeldete Fall: In der TaHoma-App steht «nicht erreichbar»,
+    steuern lässt sich die Store trotzdem - und danach ist sie wieder da.
+
+    «Nicht erreichbar» heisst bei Overkiz «hat sich länger nicht
+    gemeldet», nicht «kann nichts empfangen». Bisher genügte eine
+    einzelne solche Meldung, und die Store blieb in der App bis zum
+    Neustart grau.
+    """
+    from homepilot.integrations.overkiz import ABWESEND_SCHWELLE, verfuegbarkeit
+
+    zaehler, erreichbar = verfuegbarkeit(0, False)
+    assert (zaehler, erreichbar) == (1, True)
+    zaehler, erreichbar = verfuegbarkeit(zaehler, False)
+    assert (zaehler, erreichbar) == (2, True)
+    # Erst ab der Schwelle wird ausgegraut - dann ist es kein Rauschen mehr.
+    zaehler, erreichbar = verfuegbarkeit(zaehler, False)
+    assert zaehler == ABWESEND_SCHWELLE
+    assert erreichbar is False
+
+
+def test_overkiz_one_word_from_the_blind_is_enough_to_be_back():
+    """Wer sich meldet, ist da - ohne Karenz, ohne Neustart."""
+    from homepilot.integrations.overkiz import verfuegbarkeit
+
+    assert verfuegbarkeit(7, True) == (0, True)
+    assert verfuegbarkeit(0, True) == (0, True)
+
+
 def test_calendar_marks_birthdays_and_sorts():
     from datetime import datetime
 
@@ -1762,3 +1791,139 @@ def test_erkennungen_loesen_auch_beim_zweiten_mal_aus():
     assert event_marker("detected_baby_cry") == "last_baby_cry"
     assert event_marker("ring") == "last_ring"
     assert event_marker("brightness") is None
+
+
+# ── Overkiz: Funk verträgt keine Gleichzeitigkeit ────────────────────────
+#
+# Der gemeldete Fall: «Manchmal werden nicht alle Storen angesteuert, nicht
+# immer dieselben.» Genau so sieht es aus, wenn sich Funktelegramme
+# überlagern - das Gateway meldet trotzdem Erfolg, es hat ja abgeschickt.
+
+
+class _FakeCommand:
+    def __init__(self, name, parameters=None):
+        self.name = name
+        self.parameters = parameters or []
+
+
+async def _overkiz_mit_fake(client):
+    from homepilot.core.config import ApiConfig, HubConfig
+    from homepilot.core.entity import Entity, EntityKind
+    from homepilot.core.hub import Hub
+    from homepilot.integrations.overkiz import OverkizIntegration
+    import asyncio as aio
+
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[], automations=[]))
+    await hub.start()
+    ovk = OverkizIntegration(hub, {"integration": "overkiz"})
+    ovk._client = client
+    ovk._Command = _FakeCommand
+    ovk._funk = aio.Lock()
+    ovk._zuletzt_gesendet = 0.0
+    ovk._moves = {}
+    ovk._travel = {}
+    ovk._devices = {}
+    ovk._abwesend = {}
+    ovk._url_by_entity = {}
+    ovk._cmd_by_entity = {}
+    entities = []
+    for nummer in (1, 2, 3):
+        url = f"io://1234-5678-9012/{nummer}"
+        entity = Entity(
+            id=f"overkiz.store_{nummer}",
+            kind=EntityKind.COVER,
+            name=f"Store {nummer}",
+            integration="overkiz",
+            state={"state": "open", "position": 100},
+            commands=["open", "close", "stop"],
+            available=True,
+        )
+        await hub.registry.add(entity)
+        ovk._devices[url] = entity.id
+        ovk._url_by_entity[entity.id] = url
+        ovk._cmd_by_entity[entity.id] = {"close": ["close"], "open": ["open"]}
+        ovk._abwesend[entity.id] = 0
+        entities.append(entity)
+    return hub, ovk, entities
+
+
+async def test_overkiz_sends_one_command_at_a_time(monkeypatch):
+    """Drei Storen gleichzeitig schliessen: Die Befehle gehen nacheinander
+    hinaus, mit Abstand - nicht alle drei im selben Augenblick."""
+    import asyncio as aio
+
+    from homepilot.integrations import overkiz
+
+    monkeypatch.setattr(overkiz, "BEFEHLSPAUSE", 0.05)
+
+    gleichzeitig = 0
+    hoechststand = 0
+    reihenfolge = []
+
+    class FakeClient:
+        async def execute_command(self, device_url, befehl):
+            nonlocal gleichzeitig, hoechststand
+            gleichzeitig += 1
+            hoechststand = max(hoechststand, gleichzeitig)
+            reihenfolge.append((device_url, befehl.name))
+            await aio.sleep(0.02)
+            gleichzeitig -= 1
+
+    hub, ovk, entities = await _overkiz_mit_fake(FakeClient())
+    try:
+        await aio.gather(
+            *(ovk.handle_command(entity, "close", {}) for entity in entities)
+        )
+        assert len(reihenfolge) == 3
+        # Der Punkt: nie zwei zur selben Zeit.
+        assert hoechststand == 1
+    finally:
+        await hub.stop()
+
+
+async def test_overkiz_tries_again_before_giving_up(monkeypatch):
+    """Von Hand macht man genau das: nochmal drücken, dann geht es."""
+    from homepilot.integrations import overkiz
+
+    monkeypatch.setattr(overkiz, "BEFEHLSPAUSE", 0.0)
+    monkeypatch.setattr(overkiz, "WIEDERHOLPAUSE", 0.0)
+
+    versuche = []
+
+    class FlakyClient:
+        async def execute_command(self, device_url, befehl):
+            versuche.append(befehl.name)
+            if len(versuche) < 2:
+                raise RuntimeError("UNSPECIFIED_ERROR")
+
+    hub, ovk, entities = await _overkiz_mit_fake(FlakyClient())
+    try:
+        await ovk.handle_command(entities[0], "close", {})
+        assert versuche == ["close", "close"]
+    finally:
+        await hub.stop()
+
+
+async def test_overkiz_a_taken_command_proves_the_blind_is_there(monkeypatch):
+    """Nimmt die Store den Befehl an, ist sie da - was das Gateway vorher
+    behauptet haben mag. Sonst bliebe sie grau, obwohl sie gerade fährt."""
+    from homepilot.integrations import overkiz
+
+    monkeypatch.setattr(overkiz, "BEFEHLSPAUSE", 0.0)
+
+    class FakeClient:
+        async def execute_command(self, device_url, befehl):
+            return None
+
+    hub, ovk, entities = await _overkiz_mit_fake(FakeClient())
+    try:
+        entity = entities[0]
+        await hub.registry.update_state(entity.id, {}, available=False)
+        ovk._abwesend[entity.id] = 5
+        assert hub.registry.get(entity.id).available is False
+
+        await ovk.handle_command(hub.registry.get(entity.id), "close", {})
+        assert hub.registry.get(entity.id).available is True
+        assert ovk._abwesend[entity.id] == 0
+    finally:
+        await hub.stop()
