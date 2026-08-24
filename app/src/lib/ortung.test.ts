@@ -295,3 +295,34 @@ describe('quellenText', () => {
     expect(quellenText('tasker')).toBe('tasker');
   });
 });
+
+
+describe('Gespeicherte Orte von Life360', () => {
+  it('nennt den Ort beim Namen statt «unterwegs»', () => {
+    // Life360 weiss, dass Maja bei «Tanners Home» steht. Vorher warf der
+    // Hub den Namen weg und die Liste sagte bloss «unterwegs».
+    expect(
+      zustandText({ state: 'tanners_home', place_name: 'Tanners Home' })
+    ).toBe('Tanners Home');
+  });
+
+  it('fällt auf die Kennung zurück, wenn kein Name mitkam', () => {
+    expect(zustandText({ state: 'tanners_home' })).toBe('tanners_home');
+  });
+
+  it('lässt «zuhause» und «unterwegs» unangetastet', () => {
+    // Der eigene Ort des Hauses schlägt den Namen aus der fremden App –
+    // sonst hinge die Alarmanlage daran.
+    expect(zustandText({ state: 'home', place_name: 'Tanners Home' })).toBe('zuhause');
+    expect(zustandText({ state: 'away' })).toBe('unterwegs');
+  });
+
+  it('trägt den Ort in die Zeile der Familienseite', () => {
+    expect(
+      anwesenheitsZeile(
+        { name: 'Maja', state: 'tanners_home', place_name: 'Tanners Home' },
+        JETZT
+      )
+    ).toBe('Maja Tanners Home');
+  });
+});

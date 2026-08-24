@@ -161,6 +161,17 @@ Drei Dinge, die man vorher wissen sollte:
   Zeichenkette ist der Token; er bleibt gültig, bis man sich dort
   abmeldet.
 
+**Die gespeicherten Orte kommen mit.** Steht jemand in einem Ort, den
+ihr bei Life360 angelegt habt, nennt die App ihn beim Namen: «Maja ·
+Tanners Home» statt «Maja · unterwegs». Dafür ist nichts einzurichten –
+Life360 schickt den Namen mit der Position.
+
+Die eigenen Orte des Hubs behalten dabei Vorrang: Wer im Hausradius
+steht, ist «zuhause», auch wenn der Ort bei Life360 anders heisst. Sonst
+hinge die Alarmanlage an einem Namen aus einer fremden App. Für Abläufe
+entsteht aus «Tanners Home» die Kennung `tanners_home` – so wie `home`
+und `quartier` –, und ein Ablauf kann darauf hören.
+
 ```yaml
   - integration: life360
     token: ${LIFE360_TOKEN}

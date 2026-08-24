@@ -304,11 +304,18 @@ class GeofenceIntegration(Integration):
         place: str | None = None,
         battery: Any = None,
         source: str = "geofence",
+        place_name: str | None = None,
     ) -> str:
         """Einen gemeldeten Wechsel übernehmen. Gibt den neuen Zustand zurück.
 
         `place` ist die Kennung des Ortes; ohne Angabe gilt «home» – so
         funktionieren die alten Kurzbefehle unverändert weiter.
+
+        `place_name` ist der Klarname eines Ortes, den der Hub selbst
+        nicht kennt: Life360 meldet «Tanners Home», und ohne diesen Weg
+        stünde in der App die nackte Kennung `tanners_home`. Für die
+        eigenen Orte bleibt er leer – deren Namen stehen in der
+        config.yaml.
 
         `source` sagt, wer gemeldet hat. Voreingestellt ist «geofence» –
         das Telefon selbst, über App oder Kurzbefehl. Life360 meldet
@@ -331,7 +338,9 @@ class GeofenceIntegration(Integration):
             drin.append(ort)
         self._inside[zone_id] = drin
         state, engster = presence.place_state(drin, self.places)
-        await self._publish(zone_id, entity_id, state, engster, battery, source)
+        await self._publish(
+            zone_id, entity_id, state, engster, battery, source, place_name
+        )
         self.log.info("Geofence: %s ist jetzt %s (%s)", zone_id, state, ort)
         return state
 
@@ -343,9 +352,12 @@ class GeofenceIntegration(Integration):
         place: str | None,
         battery: Any = None,
         source: str = "geofence",
+        place_name: str | None = None,
     ) -> None:
         jetzt = time.time()
-        name = next(
+        # Der mitgereichte Klarname zuerst: Ein Ort von Life360 steht
+        # nicht in `self.places`, und ohne ihn läse man die Kennung.
+        name = place_name or next(
             (ort["name"] for ort in self.places if ort["id"] == place), place
         )
         # Alle Felder ausdrücklich: Die Registry mischt Änderungen in den
