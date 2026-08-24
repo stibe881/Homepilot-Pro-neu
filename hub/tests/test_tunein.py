@@ -346,6 +346,38 @@ async def test_radio_does_not_offer_the_television_as_a_speaker():
         await hub.stop()
 
 
+async def test_choosing_a_box_before_a_station_is_remembered_not_refused():
+    """«Das Radio soll in der Küche spielen» ist eine sinnvolle Ansage,
+    auch bevor ein Sender gewählt ist – in der Kopfzeile der Musikkarte
+    ist es sogar die Reihenfolge, in der man tippt."""
+    hub, radio, box = await _hub_mit_box()
+
+    async def opml(url: str) -> dict[str, Any]:
+        return TUNE
+
+    async def playlist(url: str) -> str:
+        return "http://stream.srg-ssr.ch/srgssr/srf3/mp3/128\n"
+
+    try:
+        await radio.setup()
+        radio._opml = opml  # type: ignore[method-assign]
+        radio._playlist_text = playlist  # type: ignore[method-assign]
+
+        await hub.integrations.dispatch_command(
+            "tunein.radio", "play_on", {"device": "Küche"}
+        )
+        assert box.gespielt == []  # nichts gestartet, nur gemerkt
+        assert hub.registry.get("tunein.radio").state["device"] == "Küche"
+
+        # Der nächste Sender landet dann dort.
+        await hub.integrations.dispatch_command(
+            "tunein.radio", "play_radio", {"station": "SRF 3"}
+        )
+        assert len(box.gespielt) == 1
+    finally:
+        await hub.stop()
+
+
 async def test_without_a_speaker_the_error_names_the_missing_piece():
     """«Geht nicht» ist keine Antwort, wenn eine Voraussetzung fehlt."""
     hub = Hub(HubConfig(api=ApiConfig(), integrations=[], automations=[]))

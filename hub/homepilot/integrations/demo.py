@@ -65,6 +65,26 @@ class DemoIntegration(Integration):
                 "play", "pause", "toggle", "set_volume", "mute", "play_url",
             ],
         )
+        # Eine Quelle mit eigener Auswahl, wie Spotify eine ist. Ohne sie
+        # liess sich weder das Playlist-Panel ansehen noch die Quellenwahl
+        # im Musikplayer – für beides braucht es ein Konto, das im
+        # Demo-Haus niemand hat.
+        await self.add_entity(
+            "music",
+            EntityKind.MEDIA_PLAYER,
+            "Musikdienst",
+            state={
+                "state": "idle",
+                "playlists": ["Morgen", "Küche", "Konzentration", "Party"],
+                "devices": ["Küche Lautsprecher"],
+                "device": None,
+                "volume": 30,
+            },
+            commands=[
+                "play", "pause", "toggle", "next", "previous", "play_on",
+                "set_volume", "mute", "play_playlist", "shuffle", "repeat",
+            ],
+        )
         # Ein Cast-Fernseher: dieselben Befehle wie die Box, aber ein Bild
         # daran. Ohne ihn war der Fehler unsichtbar, dass die Startseite
         # ihn für eine Musikbox hielt – im Demo-Haus stand schlicht kein
@@ -123,6 +143,14 @@ class DemoIntegration(Integration):
             changes["state"] = "playing"
         elif command == "pause":
             changes["state"] = "paused"
+        elif command == "play_playlist":
+            changes["state"] = "playing"
+            changes["playlist"] = str(data.get("name") or "")
+            changes["track"] = str(data.get("name") or "")
+            if data.get("device"):
+                changes["device"] = str(data["device"])
+        elif command == "play_on":
+            changes["device"] = str(data.get("device") or "")
         elif command == "play_url":
             # Der Chromecast startet dafür den «Default Media Receiver» –
             # daran erkennt das Radio später, ob noch es selbst läuft.

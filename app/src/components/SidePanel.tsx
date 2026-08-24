@@ -4,7 +4,13 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Activity, CommandData, Entity, EntityState } from '../api/types';
 import { uhr, wochentag } from '../lib/format';
-import { istMusikbox, musikboxenImRaum, pickPlayer } from '../lib/geraeteart';
+import {
+  hatEigeneAuswahl,
+  istMusikbox,
+  musikboxenImRaum,
+  pickPlayer,
+  quellenSymbol,
+} from '../lib/geraeteart';
 import { hatWarteschlange } from '../lib/musikliste';
 import { Colors, radius, type, useColors } from '../theme';
 import { Bar } from './Bar';
@@ -56,22 +62,33 @@ export function SidePanel({
     (chosenId ? players.find((entity) => entity.id === chosenId) : undefined) ??
     pickPlayer(entities);
 
-  // Der Wähler übernimmt auch das Verschieben: Kennt Spotify die Box, zieht
-  // die Musik dorthin um (wie früher die «Abspielen auf»-Chips) und die
-  // Spotify-Karte bleibt stehen. Fremde Boxen wechseln nur die Ansicht.
-  const spotify = players.find((entity) => entity.commands.includes('play_playlist'));
-  const choose = (speaker: Entity) => {
-    const devices: string[] = Array.isArray(spotify?.state.devices)
-      ? spotify!.state.devices
+  // Der Wähler übernimmt auch das Verschieben: Kennt die gezeigte Quelle
+  // die Box, zieht die Musik dorthin um (wie früher die «Abspielen
+  // auf»-Chips) und die Karte der Quelle bleibt stehen. Fremde Boxen
+  // wechseln nur die Ansicht.
+  //
+  // Früher galt das nur für Spotify. Seit das Radio danebensteht, war
+  // dessen Boxenwahl auf der Startseite gar nicht erreichbar: Sein
+  // eigenes Panel blendet sie hier aus, weil sie oben in der Kopfzeile
+  // sitzt – nur zog die dann Spotify um statt das Radio.
+  const choose = (ziel: Entity) => {
+    const quelle = player && hatEigeneAuswahl(player) ? player : undefined;
+    const devices: string[] = Array.isArray(quelle?.state.devices)
+      ? (quelle!.state.devices as string[])
       : [];
-    if (spotify && speaker.id !== spotify.id && devices.includes(speaker.name)) {
-      onCommand?.(spotify.id, 'play_on', {
-        device: speaker.name,
-        play: spotify.state.state === 'playing',
+    if (
+      quelle &&
+      ziel.id !== quelle.id &&
+      quelle.commands.includes('play_on') &&
+      devices.includes(ziel.name)
+    ) {
+      onCommand?.(quelle.id, 'play_on', {
+        device: ziel.name,
+        play: quelle.state.state === 'playing',
       });
-      setChosenId(spotify.id);
+      setChosenId(quelle.id);
     } else {
-      setChosenId(speaker.id);
+      setChosenId(ziel.id);
     }
   };
 
@@ -108,7 +125,11 @@ export function SidePanel({
         <MediaPanel
           entity={player}
           players={players}
-          activeDevice={spotify?.state.device ?? null}
+          // Die Box der *gezeigten* Quelle, nicht immer die von Spotify:
+          // Sonst stünde auf der Radio-Karte, wo Spotify spielt.
+          activeDevice={
+            hatEigeneAuswahl(player) ? ((player.state.device as string) ?? null) : null
+          }
           onSelect={choose}
           onCommand={onCommand}
         />
@@ -167,16 +188,28 @@ function MediaPanel({
   const [listeOffen, setListeOffen] = useState(false);
   const command = (name: string, data?: CommandData) =>
     onCommand(entity.id, name, data);
-  const isSpotify = entity.commands.includes('play_playlist');
-  const pickerLabel =
-    isSpotify && activeDevice ? `${entity.name} · ${activeDevice}` : entity.name;
+  const istQuelle = hatEigeneAuswahl(entity);
+  // Der Wähler führt nur noch Boxen, also steht auch nur die Box darauf.
+  // Vorher stand dort der Name der Quelle – neben einem Chip, auf dem
+  // schon «Radio» steht, ist das dasselbe Wort zweimal.
+  const pickerLabel = istQuelle ? (activeDevice ?? 'Box wählen') : entity.name;
+
+  // Zwei verschiedene Fragen, die bisher in einer Liste steckten: *was*
+  // spielt (Spotify oder Radio) und *wo* es spielt (welche Box). Beides
+  // hiess «Lautsprecher wählen» und lag hinter demselben Pfeil – die
+  // Quelle war damit weder benannt noch zu sehen, ohne aufzuklappen.
+  const quellen = useMemo(() => players.filter(hatEigeneAuswahl), [players]);
+  const boxen = useMemo(
+    () => players.filter((player) => !hatEigeneAuswahl(player)),
+    [players]
+  );
 
   return (
     <Card style={styles.mediaCard}>
       <View style={styles.mediaHead}>
         <Ionicons name="musical-notes-outline" size={18} color={colors.inkSoft} />
         <Text style={styles.heading}>{titel}</Text>
-        {players.length > 1 ? (
+        {boxen.length > 0 ? (
           <Pressable
             onPress={() => setPickerOpen((v) => !v)}
             accessibilityRole="button"
@@ -195,12 +228,50 @@ function MediaPanel({
           </Pressable>
         ) : null}
       </View>
-      {pickerOpen && players.length > 1 ? (
+      {/* Die Quellen offen und nicht hinter einem Pfeil: Es sind zwei
+          oder drei, sie ändern sich nicht, und «wo ist das Radio» soll
+          man nicht suchen müssen. */}
+      {quellen.length > 1 ? (
         <View style={styles.speakerRow}>
-          {players.map((speaker) => {
+          {quellen.map((quelle) => {
+            const selected = quelle.id === entity.id;
+            return (
+              <Pressable
+                key={quelle.id}
+                onPress={() => onSelect(quelle)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected }}
+                accessibilityLabel={`${quelle.name} anzeigen`}
+                style={[styles.speakerChip, selected && styles.speakerChipActive]}
+              >
+                <Ionicons
+                  name={quellenSymbol(quelle) as keyof typeof Ionicons.glyphMap}
+                  size={13}
+                  color={
+                    selected
+                      ? '#FFFFFF'
+                      : quelle.state.state === 'playing'
+                        ? colors.accent
+                        : colors.inkSoft
+                  }
+                />
+                <Text
+                  style={[styles.speakerChipText, selected && styles.speakerChipTextActive]}
+                  numberOfLines={1}
+                >
+                  {quelle.name}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+      {pickerOpen && boxen.length > 0 ? (
+        <View style={styles.speakerRow}>
+          {boxen.map((speaker) => {
             const selected =
               speaker.id === entity.id ||
-              (isSpotify && activeDevice != null && speaker.name === activeDevice);
+              (istQuelle && activeDevice != null && speaker.name === activeDevice);
             return (
               <Pressable
                 key={speaker.id}
