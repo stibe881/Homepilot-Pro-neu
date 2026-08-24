@@ -35,27 +35,117 @@ export function befehlLabel(entity: Entity): string {
 }
 
 /**
- * Die Türen, die beim Klingeln zur Auswahl stehen (rein, testbar).
+ * Wer klingelt gerade? (rein, testbar)
  *
- * Zuerst die Türe der Klingel selbst – sie gehört zum Bild, das man
- * gerade ansieht. Danach die übrigen, denn die Wohnungstüre steht
- * nirgends als «zur Klingel gehörig» geschrieben.
- *
- * Höchstens drei: Ein Vollbild mit sieben Knöpfen ist keine Hilfe,
- * sondern eine Suchaufgabe unter Zeitdruck.
+ * Die Frage sah lange leichter aus, als sie ist. Gesucht wurde eine
+ * Kamera mit `ring: on` – und genau daran ging der Fall vorbei, der hier
+ * im Haus zählt: Die Haustüre ist eine Ring-Gegensprechanlage, und die
+ * legt der Hub als Türe an, nicht als Kamera (sie hat einen Türöffner,
+ * kein Bild). Es klingelte also, das Feld stand auf «on», und niemand
+ * sah hin. Was das Vollbild auslöst, ist das Klingeln selbst – die
+ * Geräteart hat damit nichts zu tun.
  */
-export function tuerenFuerKlingel(entities: Entity[], camera?: Entity): Entity[] {
+export function klingeltGerade(entities: Entity[]): Entity | undefined {
+  const klingelnde = entities.filter((entity) => entity.state?.ring === 'on');
+  // Klingelt beides – Türklingel mit Kamera und Anlage –, gewinnt die
+  // Kamera: Sie ist die, die etwas zu zeigen hat.
+  return klingelnde.find((entity) => entity.kind === 'camera') ?? klingelnde[0];
+}
+
+/**
+ * Welches Bild zum Klingeln gehört (rein, testbar).
+ *
+ * Eine Gegensprechanlage hat keines. Hängt aber eine Kamera an derselben
+ * Türe, zeigt man die – wer klingelt, will man sehen, und dass Bild und
+ * Klingel technisch zwei Geräte sind, ist nicht das Problem dessen, der
+ * gerade zur Türe geht.
+ */
+export function klingelBild(
+  entities: Entity[],
+  ausloeser?: Entity
+): Entity | undefined {
+  if (!ausloeser) return undefined;
+  if (ausloeser.kind === 'camera') return ausloeser;
+  return entities.find(
+    (entity) =>
+      entity.kind === 'camera' &&
+      ((!!entity.room && entity.room === ausloeser.room) ||
+        entity.integration === ausloeser.integration)
+  );
+}
+
+/** Ein Knopf im Klingel-Vollbild: eine Türe und ein Befehl. */
+export interface KlingelAktion {
+  /** Eindeutig über beide Felder – eine Türe kann zwei Knöpfe stellen. */
+  id: string;
+  entity: Entity;
+  befehl: string;
+  /** Was auf dem Knopf steht. */
+  label: string;
+  /** Macht dieser Befehl die Türe wirklich auf? */
+  oeffnet: boolean;
+}
+
+/** Wie ein Befehl auf Deutsch heisst und ob er die Türe aufmacht. */
+const BEFEHLE: Record<string, { wort: string; oeffnet: boolean }> = {
+  // Die Gegensprechanlage summt die Haustüre auf.
+  open_door: { wort: 'öffnen', oeffnet: true },
+  // Beim Nuki wird die Falle gezogen – die Türe geht wirklich auf.
+  unlatch: { wort: 'öffnen', oeffnet: true },
+  // Nur der Riegel. Die Türe bleibt zu, man muss sie drücken.
+  unlock: { wort: 'aufschliessen', oeffnet: false },
+};
+
+/** Höchstens so viele Knöpfe. Mehr ist unter Zeitdruck eine Suchaufgabe. */
+export const HOECHSTENS_AKTIONEN = 4;
+
+/**
+ * Was beim Klingeln zur Auswahl steht (rein, testbar).
+ *
+ * Zwei Änderungen gegenüber «eine Türe, ein Knopf»:
+ *
+ * Erstens kann eine Türe zwei Dinge. Ein Nuki schliesst auf (Riegel) und
+ * öffnet (Falle) – das sind zwei verschiedene Handgriffe, und bisher bot
+ * das Vollbild nur den zweiten an. Wer bloss aufschliessen wollte, weil
+ * der Besuch selbst drücken kann, fand den Knopf nicht.
+ *
+ * Zweitens steht die Türe der Klingel selbst vorn: Sie gehört zu dem,
+ * was man gerade ansieht. Die Wohnungstüre steht nirgends als «zur
+ * Klingel gehörig» geschrieben und kommt danach.
+ */
+export function klingelAktionen(
+  entities: Entity[],
+  ausloeser?: Entity
+): KlingelAktion[] {
   const tueren = entities.filter(
     (entity) => entity.kind === 'lock' && oeffnungsBefehl(entity) !== null
   );
   const eigene = (entity: Entity) =>
-    !!camera &&
-    (entity.integration === camera.integration ||
-      (!!entity.room && entity.room === camera.room));
-  return [...tueren.filter(eigene), ...tueren.filter((entity) => !eigene(entity))].slice(
-    0,
-    3
-  );
+    !!ausloeser &&
+    (entity.id === ausloeser.id ||
+      entity.integration === ausloeser.integration ||
+      (!!entity.room && entity.room === ausloeser.room));
+  const geordnet = [
+    ...tueren.filter(eigene),
+    ...tueren.filter((entity) => !eigene(entity)),
+  ];
+  const aktionen: KlingelAktion[] = [];
+  for (const entity of geordnet) {
+    // Erst aufschliessen, dann öffnen: die vorsichtigere Handlung zuerst.
+    // Ein Fehlgriff auf dem oberen Knopf lässt die Türe wenigstens zu.
+    for (const befehl of ['unlock', 'unlatch', 'open_door']) {
+      const wort = BEFEHLE[befehl];
+      if (!wort || !entity.commands.includes(befehl)) continue;
+      aktionen.push({
+        id: `${entity.id}:${befehl}`,
+        entity,
+        befehl,
+        label: `${entity.name} ${wort.wort}`,
+        oeffnet: wort.oeffnet,
+      });
+    }
+  }
+  return aktionen.slice(0, HOECHSTENS_AKTIONEN);
 }
 
 /** Wie viele Sekunden noch bleiben (rein, testbar).
