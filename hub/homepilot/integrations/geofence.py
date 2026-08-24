@@ -15,6 +15,13 @@ Endpunkt:
      URL abrufen» → POST auf /api/presence/geofence.
   3. Android: Tasker, Home Assistant Companion o.ä. auf dieselbe Adresse.
 
+Die Zonen entstehen aus der Benutzerliste des Hubs: Wer in der App als
+Benutzer angelegt ist, bekommt seine Zone (`geofence.<vorname>`) von
+selbst - ohne Neustart und ohne Eintrag in der config.yaml. Gäste, das
+Wandtablet und das Systemtoken bleiben draussen. `zones:` gibt es
+weiterhin, für abweichende Namen oder für ein Telefon, das keinem
+Benutzer gehört; dort Eingetragenes sticht.
+
 Konfiguration – Orte mit Koordinaten, Personen mit Namen:
 
   - integration: geofence
@@ -32,7 +39,7 @@ Konfiguration – Orte mit Koordinaten, Personen mit Namen:
         latitude: 47.1502
         longitude: 8.0641
         radius: 200
-    zones:
+    zones:                        # optional – sonst aus der Benutzerliste
       - id: stefan
         name: Stefan
       - id: livia
@@ -113,6 +120,84 @@ def parse_zones(raw: Any) -> list[dict[str, str]]:
     return zones
 
 
+#: Umlaute und Zubehör, damit aus «Björn» dieselbe Kennung wird wie in
+#: der App. Beide Seiten müssen zeichenweise dasselbe rechnen - sonst
+#: meldet das Telefon an eine Zone, die es nicht gibt.
+UMSCHRIFT = {
+    "ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss",
+    "à": "a", "á": "a", "â": "a", "ã": "a", "å": "a",
+    "è": "e", "é": "e", "ê": "e", "ë": "e",
+    "ì": "i", "í": "i", "î": "i", "ï": "i",
+    "ò": "o", "ó": "o", "ô": "o", "õ": "o", "ø": "o",
+    "ù": "u", "ú": "u", "û": "u",
+    "ç": "c", "ñ": "n",
+}
+
+#: Rollen, die keine eigene Zone bekommen. Für Gäste ist die Ortung in
+#: der App ohnehin aus - eine Zone, in die nie jemand meldet, stünde nur
+#: als ewiges «unbekannt» in der Übersicht.
+OHNE_ZONE_ROLLEN = ("gast",)
+
+
+def zonenkennung(name: str) -> str:
+    """Die Zonenkennung einer Person aus ihrem Namen (rein, testbar).
+
+    Der Vorname genügt: «Stefan Gross» meldet als `stefan`. So heissen
+    die Zonen seit je, und die App rechnet dieselbe Kennung aus - ändert
+    man das hier allein, meldet jedes Telefon ins Leere.
+    """
+    erstes = str(name or "").strip().split(" ")[0].lower()
+    umgeschrieben = "".join(UMSCHRIFT.get(zeichen, zeichen) for zeichen in erstes)
+    return "".join(z for z in umgeschrieben if z.isalnum() or z == "_")
+
+
+def zonen_aus_benutzern(benutzer: list[Any]) -> list[dict[str, str]]:
+    """Je Mensch eine Zone (rein, testbar).
+
+    Bis hierher musste jede Person zusätzlich von Hand in die config.yaml
+    unter `zones:` - anlegen in der App genügte nicht, und wer das nicht
+    wusste, bekam beim Melden «Der Hub kennt keine Zone». Zwei Listen
+    derselben Menschen an zwei Orten zu pflegen ist eine Aufgabe, die
+    niemand gewinnt.
+
+    Draussen bleiben: Gäste (für die ist die Ortung aus), das Wandtablet
+    und andere geteilte Geräte (kein Mensch, kein Weg) und das
+    Systemtoken.
+    """
+    zonen: list[dict[str, str]] = []
+    gesehen: set[str] = set()
+    for person in benutzer or []:
+        if getattr(person, "system", False) or getattr(person, "shared", False):
+            continue
+        if str(getattr(person, "role", "")).lower() in OHNE_ZONE_ROLLEN:
+            continue
+        name = str(getattr(person, "name", "") or "")
+        kennung = zonenkennung(name)
+        if not kennung or kennung in gesehen:
+            continue
+        gesehen.add(kennung)
+        zonen.append({"id": kennung, "name": name})
+    return zonen
+
+
+def zonen_zusammenfuehren(
+    aus_config: list[dict[str, str]], aus_benutzern: list[dict[str, str]]
+) -> list[dict[str, str]]:
+    """Beide Quellen zu einer Liste (rein, testbar).
+
+    Die config.yaml sticht: Wer dort einen Namen oder eine abweichende
+    Kennung hinterlegt hat, hat das mit Absicht getan. Alles andere
+    kommt aus der Benutzerliste und muss nirgends doppelt stehen.
+    """
+    zusammen = list(aus_config)
+    bekannt = {zone["id"] for zone in aus_config}
+    for zone in aus_benutzern:
+        if zone["id"] not in bekannt:
+            zusammen.append(zone)
+            bekannt.add(zone["id"])
+    return zusammen
+
+
 def default_places(location: dict[str, Any] | None) -> list[dict[str, Any]]:
     """Zuhause und Quartier aus dem Hausstandort (rein, testbar).
 
@@ -171,11 +256,15 @@ class GeofenceIntegration(Integration):
     name = "geofence"
 
     async def setup(self) -> None:
-        zones = parse_zones(self.config.get("zones"))
+        self._config_zonen = parse_zones(self.config.get("zones"))
+        # Welche Zonen aus der Benutzerliste stammen. Nur die dürfen
+        # wieder verschwinden - was in der config.yaml steht, bleibt.
+        self._aus_benutzern: set[str] = set()
+        zones = zonen_zusammenfuehren(self._config_zonen, self.benutzer_zonen())
         if not zones:
             raise ConfigError(
-                "geofence braucht mindestens eine Zone unter 'zones' "
-                "(je mit 'id', z.B. der Person)"
+                "geofence hat niemanden zum Orten: weder Zonen unter "
+                "'zones' noch Benutzer im Hub"
             )
         self._eigene_places = presence.parse_places(self.config.get("places"))
         self._orte_bauen()
@@ -220,6 +309,11 @@ class GeofenceIntegration(Integration):
             # rechnete die nächste Meldung gegen eine leere Liste und
             # machte aus «zuhause und im Quartier» ein blosses «Quartier».
             self._inside[zone["id"]] = [stand["place"]] if stand.get("place") else []
+        self._aus_benutzern = {
+            zone["id"]
+            for zone in zones
+            if zone["id"] not in {c["id"] for c in self._config_zonen}
+        }
         # Die Sammelfrage, auf die «alles aus» hört. Ohne sie müsste ein
         # Ablauf je Person einen Auslöser tragen und zusätzlich prüfen,
         # dass die anderen drei auch weg sind - das schreibt niemand von
@@ -258,6 +352,55 @@ class GeofenceIntegration(Integration):
             available=True,
         )
         self.log.info("Geofence: jemand zuhause = %s", neu)
+
+    def benutzer_zonen(self) -> list[dict[str, str]]:
+        """Die Zonen, die sich aus der Benutzerliste des Hubs ergeben."""
+        verzeichnis = getattr(self.hub, "users", None)
+        return zonen_aus_benutzern(getattr(verzeichnis, "users", []))
+
+    async def _zonen_abgleichen(self) -> list[str]:
+        """Neue Benutzer bekommen eine Zone, gelöschte verlieren sie.
+
+        Der Punkt der ganzen Übung: Wer in der App einen Mitbewohner
+        anlegt, soll ihn orten können, ohne zusätzlich die config.yaml
+        anzufassen. Läuft im Minutentakt mit und zusätzlich in dem
+        Moment, in dem ein Telefon an eine noch unbekannte Zone meldet -
+        dann ist sie da, bevor die Meldung abgewiesen wird.
+        """
+        soll = zonen_zusammenfuehren(self._config_zonen, self.benutzer_zonen())
+        soll_ids = {zone["id"] for zone in soll}
+        neue: list[str] = []
+        for zone in soll:
+            if zone["id"] in self._zones:
+                continue
+            stand = presence.wieder_aufnehmen(
+                self.hub.data.get("presence_last"), zone["id"], time.time()
+            )
+            entity = await self.add_entity(
+                zone["id"],
+                EntityKind.BINARY_SENSOR,
+                zone["name"],
+                state=stand,
+                available=True,
+            )
+            self._zones[zone["id"]] = entity.id
+            self._inside[zone["id"]] = [stand["place"]] if stand.get("place") else []
+            self._aus_benutzern.add(zone["id"])
+            neue.append(zone["id"])
+            self.log.info("Geofence: Zone %s angelegt (%s)", zone["id"], zone["name"])
+        # Gegangene Benutzer: Ihre Zone bliebe sonst für immer stehen -
+        # und stünde sie auf «zuhause», hörte «niemand mehr zuhause» nie
+        # wieder auf. Zonen aus der config.yaml bleiben unberührt.
+        for zone_id in [z for z in self._aus_benutzern if z not in soll_ids]:
+            entity_id = self._zones.pop(zone_id, None)
+            self._inside.pop(zone_id, None)
+            self._aus_benutzern.discard(zone_id)
+            if entity_id:
+                await self.hub.registry.remove(entity_id)
+            self.log.info("Geofence: Zone %s entfernt - der Benutzer ist weg", zone_id)
+        if neue or soll_ids != set(self._zones):
+            await self._update_anyone()
+        return neue
 
     def _orte_bauen(self) -> None:
         """Die Ortsliste aus Konfiguration und gesetztem Hausstandort.
@@ -332,6 +475,12 @@ class GeofenceIntegration(Integration):
         stellt.
         """
         entity_id = self._zones.get(zone_id)
+        if entity_id is None:
+            # Vielleicht ist die Person neu. Erst nachsehen, dann
+            # ablehnen - sonst muss man den Hub neu starten, nur weil man
+            # einen Mitbewohner angelegt hat.
+            await self._zonen_abgleichen()
+            entity_id = self._zones.get(zone_id)
         if entity_id is None:
             raise KeyError(zone_id)
         richtung = normalise_event(event)
@@ -457,8 +606,9 @@ class GeofenceIntegration(Integration):
         Läuft im Minutentakt: Wer sich zwölf Stunden nicht gemeldet hat,
         steht nicht mehr auf «weg», sondern auf «unbekannt».
         """
+        await self._zonen_abgleichen()
         jetzt = time.time()
-        for zone_id, entity_id in self._zones.items():
+        for zone_id, entity_id in list(self._zones.items()):
             entity = self.hub.registry.get(entity_id)
             if entity is None or entity.state.get("stale"):
                 continue
