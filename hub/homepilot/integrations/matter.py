@@ -930,14 +930,31 @@ INTEGRATION = MatterIntegration
 # aufnehmen (QR-Code-Inhalt "MT:..." oder der 11-stellige Zahlencode).
 
 
+def schloss_endpunkt(node: dict[str, Any]) -> int | None:
+    """Der erste Endpunkt dieses Knotens, der ein Schloss ist (rein, testbar).
+
+    Ein Nuki bringt neben dem Schloss noch Verwaltung und Stromquelle
+    mit; der Befehl gehört an genau einen davon.
+    """
+    for endpoint, kind in node_endpoints(node):
+        if kind == EntityKind.LOCK:
+            return endpoint
+    return None
+
+
 async def _cli_main(
-    config_path: str, pair_code: str | None, dump_node: int | None = None
+    config_path: str,
+    pair_code: str | None,
+    dump_node: int | None = None,
+    unlatch_node: int | None = None,
 ) -> int:
     from ..core.config import load_config
 
     config = load_config(config_path)
     blocks = [b for b in config.integrations if b.get("integration") == "matter"]
     url = (blocks[0].get("url") if blocks else None) or "ws://127.0.0.1:5580/ws"
+    pin = (blocks[0].get("pin") if blocks else None) or None
+    unlatch_modus = str((blocks[0].get("unlatch") if blocks else None) or "auto")
 
     # Dieses Werkzeug spricht den Matter-Dienst direkt an - der Hub daneben
     # tut das nur, wenn die Integration in der config.yaml steht. Ohne
@@ -983,6 +1000,57 @@ async def _cli_main(
                 return 0
 
             nodes = await command("get_nodes")
+            if unlatch_node is not None:
+                # Der Knopf in der App macht dasselbe - nur sieht man dort
+                # nicht, was danach passiert. Hier schon: Befehl raus,
+                # zuschauen, urteilen.
+                node = next(
+                    (n for n in nodes if int(n.get("node_id", -1)) == unlatch_node), None
+                )
+                if node is None:
+                    print(f"✗ Knoten {unlatch_node} ist nicht gekoppelt.")
+                    return 1
+                endpoint = schloss_endpunkt(node)
+                if endpoint is None:
+                    print(f"✗ Knoten {unlatch_node} hat kein Schloss.")
+                    return 1
+                attributes = node.get("attributes") or {}
+                print(f"  {lock_diagnose(attributes, endpoint, unlatch_modus)}")
+                hinweis = betriebsart_hinweis(attributes, endpoint)
+                if hinweis:
+                    print(f"  {hinweis}")
+                payload: dict[str, Any] = {"pinCode": pin} if pin else {}
+                print("→ Schicke UnlockDoor (Auf + öffnen) …")
+                try:
+                    await command(
+                        "device_command",
+                        node_id=unlatch_node, endpoint_id=endpoint,
+                        cluster_id=DOOR_LOCK, command_name="UnlockDoor",
+                        payload=payload,
+                    )
+                except Exception as err:
+                    print(f"✗ Das Schloss hat den Befehl abgewiesen: {err}")
+                    print("  Verlangt es einen Code? Dann 'pin' in den matter-Block.")
+                    return 1
+                print("✓ Befehl angenommen. Schaue zu, was das Schloss meldet …")
+                gesehen: list[str] = []
+                for _ in range(int(UNLATCH_FRIST)):
+                    await asyncio.sleep(1)
+                    frisch = await command("get_nodes")
+                    node = next(
+                        (n for n in frisch if int(n.get("node_id", -1)) == unlatch_node),
+                        None,
+                    )
+                    wert = lock_state(node.get("attributes") or {}, endpoint).get("state")
+                    if isinstance(wert, str) and wert not in gesehen:
+                        gesehen.append(wert)
+                        print(f"  … meldet: {wert}")
+                urteil = aufzieh_urteil(gesehen)
+                if urteil is None:
+                    print("✓ Die Falle wurde gezogen – die Türe ist offen.")
+                    return 0
+                print(f"✗ {urteil}")
+                return 1
             if dump_node is not None:
                 # Alles, was der Dienst über einen Knoten weiss. Für den
                 # Fall, dass ein Gerät nicht auftaucht oder weniger kann,
@@ -1022,5 +1090,13 @@ if __name__ == "__main__":
         metavar="KNOTEN",
         help="Alle Attribute eines Knotens ausgeben (Nummer aus der Liste)",
     )
+    parser.add_argument(
+        "--aufziehen",
+        type=int,
+        metavar="KNOTEN",
+        help="Auf + öffnen an ein Schloss schicken und zeigen, was daraus wird",
+    )
     args = parser.parse_args()
-    sys.exit(asyncio.run(_cli_main(args.config, args.pair, args.dump)))
+    sys.exit(
+        asyncio.run(_cli_main(args.config, args.pair, args.dump, args.aufziehen))
+    )

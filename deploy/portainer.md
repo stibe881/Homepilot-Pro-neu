@@ -276,6 +276,24 @@ Das dauert einige Minuten; der Knopf antwortet sofort, weil jede wartende
 Verbindung in einen Timeout liefe. Was passiert, steht in
 `journalctl -u homepilot-update -f`.
 
+Wie der letzte Lauf ausging, steht danach in
+`/opt/homepilot/update-status.json` – und die App zeigt es beim nächsten
+Öffnen des System-Screens an. Das braucht es, weil der Fortschrittsbalken
+nur lebt, solange dieser Bildschirm offen ist, und der Dienst sich nach
+einem Update selbst neu startet: Wer auf Update drückt und die App
+weglegt, sah sonst nie, dass der Lauf gescheitert war.
+
+Läuft der Hub danach immer noch auf dem alten Stand, sagt das den Stand
+im Container:
+
+```bash
+docker exec homepilot-hub printenv HOMEPILOT_COMMIT
+```
+
+Weicht er von dem ab, was das Skript gebaut hat, hat Portainer den
+Container nicht gewechselt – die drei üblichen Gründe nennt das Skript
+am Ende seiner Ausgabe.
+
 ### Warum «Stand unbekannt»?
 
 Zeigt der System-Screen keinen Commit, wurde das Abbild ohne die

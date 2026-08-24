@@ -324,6 +324,41 @@ def test_the_update_button_stays_off_without_an_address():
         assert "update.webhook_url" in response.json()["detail"]
 
 
+def test_a_plain_portainer_webhook_is_named_as_such():
+    """Ein Portainer-Webhook rollt aus, er baut nicht.
+
+    Steht er unter update.webhook_url, tut der Knopf jedes Mal etwas und
+    ändert doch nie den Stand: Der Container wird neu erstellt, aus
+    demselben Abbild. Von aussen sieht das aus wie ein Update, das nicht
+    ankommt - genau so lief ein Haus tagelang auf altem Code.
+    """
+    import http.server
+    import threading
+
+    class FakeWebhook(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            self.send_response(204)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def log_message(self, *_args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeWebhook)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    auth = {"Authorization": "Bearer geheim"}
+    try:
+        url = f"http://127.0.0.1:{server.server_address[1]}/api/stacks/webhooks/abc"
+        hub = Hub(make_config(token="geheim", update={"webhook_url": url}))
+        with TestClient(create_app(hub)) as client:
+            assert client.post("/api/system/update", headers=auth).json() == {
+                "ok": True,
+                "nur_ausrollen": True,
+            }
+    finally:
+        server.shutdown()
+
+
 def test_update_reports_when_the_listener_ignores_the_ios_switch():
     """Ein älterer update-listener kennt ?ios=1 nicht und baut still nur
     den Hub - TestFlight bliebe stumm, und niemand wüsste warum. Der Hub
