@@ -138,7 +138,9 @@ def test_the_listing_names_what_it_cannot_use():
         },
     }
     zeilen = node_lines(node)
-    assert zeilen[0] == "Knoten 1 Endpunkt 1: Smart Lock Pro (lock)"
+    # Beim Schloss steht dahinter, ob es aufziehen kann - die Frage,
+    # die man beim Einrichten hat.
+    assert zeilen[0].startswith("Knoten 1 Endpunkt 1: Smart Lock Pro (lock)")
     assert "Gerätetyp 999 wird noch nicht unterstützt" in zeilen[1]
     assert not any("Endpunkt 0" in zeile for zeile in zeilen)
 
@@ -595,3 +597,85 @@ async def test_a_pin_is_sent_when_configured(tmp_path):
         await hub.stop()
         await runner.cleanup()
 
+
+
+def test_aufziehen_laesst_sich_erzwingen_und_abschalten():
+    """Die Erkennung ist meistens richtig – aber nicht immer.
+
+    Manche Matter-Dienste liefern weder die Befehlsliste noch die
+    FeatureMap mit, und dann sieht selbst ein Nuki aus wie ein einfaches
+    Schloss: Der Knopf «Auf + öffnen» fehlt, und niemand erfährt, warum.
+    """
+    from homepilot.integrations.matter import kann_aufziehen, lock_commands
+
+    stumm: dict = {}
+    assert kann_aufziehen(stumm, 1) is False
+    assert kann_aufziehen(stumm, 1, "always") is True
+    assert lock_commands(stumm, 1, "always") == ["lock", "unlock", "unlatch"]
+
+    # Und umgekehrt: Wer es nicht will, schaltet es ab - Kinder im Haus,
+    # Türe zur Strasse.
+    kann_es = {"1/257/65529": [0x00, 0x01, 0x27]}
+    assert kann_aufziehen(kann_es, 1) is True
+    assert kann_aufziehen(kann_es, 1, "never") is False
+    assert lock_commands(kann_es, 1, "never") == ["lock", "unlock"]
+
+
+def test_die_diagnose_nennt_den_grund():
+    """«Tür öffnen geht nicht» kann dreierlei heissen.
+
+    Der Knopf fehlt, das Schloss weist ihn ab, oder die Falle wird gar
+    nicht angesteuert. Sicher weiss der Hub nur das Erste - und soll es
+    dann auch sagen, statt es jeden selbst herausfinden zu lassen.
+    """
+    from homepilot.integrations.matter import lock_diagnose
+
+    stumm = lock_diagnose({}, 1)
+    assert "weder die Befehlsliste noch die" in stumm
+    assert "unlatch: always" in stumm
+
+    ohne = lock_diagnose({"1/257/65529": [0x00, 0x01]}, 1)
+    assert "kein UnboltDoor" in ohne
+
+    kann = lock_diagnose({"1/257/65529": [0x00, 0x01, 0x27]}, 1)
+    assert "Aufziehen wird angeboten" in kann
+
+    assert "erzwungen" in lock_diagnose({}, 1, "always")
+    assert "abgeschaltet" in lock_diagnose({}, 1, "never")
+
+
+def test_die_featuremap_zaehlt_wenn_die_befehlsliste_fehlt():
+    from homepilot.integrations.matter import has_unbolt, unbolt_quelle
+
+    nur_features = {"1/257/65532": 1 << 12}
+    assert has_unbolt(nur_features, 1) is True
+    assert unbolt_quelle(nur_features, 1) == "featuremap"
+    assert unbolt_quelle({"1/257/65529": []}, 1) == "befehlsliste"
+    assert unbolt_quelle({}, 1) == "keine"
+
+
+def test_die_knotenliste_sagt_beim_schloss_was_es_kann():
+    """Die Frage, die man beim Einrichten hat.
+
+    Sonst beantwortet sie sich erst im Hausflur, wenn der Knopf fehlt.
+    """
+    from homepilot.integrations.matter import node_lines
+
+    knoten = [
+        {
+            "node_id": 1,
+            "attributes": {
+                "1/29/0": [{"0": 10, "1": 1}],
+                "0/40/3": "Smart Lock Pro",
+                # Genau der Fall aus dem Feld: FeatureMap 0, aber
+                # UnboltDoor (39) in der Befehlsliste.
+                "1/257/65529": [0, 1, 39],
+                "1/257/65532": 0,
+            },
+        }
+    ]
+    zeilen = node_lines(knoten[0])
+    assert any("kann aufziehen" in zeile for zeile in zeilen)
+
+    knoten[0]["attributes"]["1/257/65529"] = [0, 1]
+    assert any("meldet kein Aufziehen" in zeile for zeile in node_lines(knoten[0]))

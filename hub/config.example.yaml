@@ -455,6 +455,15 @@ integrations:
   #   # Nur nötig, wenn ein Türschloss für Befehle aus der Ferne einen
   #   # Code verlangt (Nuki-App → Einstellungen → Matter).
   #   # pin: "123456"
+  #   # Ob der Hub das Aufziehen anbietet («Auf + öffnen», Falle ziehen).
+  #   #   auto   – das Schloss fragen (Vorgabe). Meistens richtig, aber
+  #   #            manche Matter-Dienste liefern die nötigen Angaben gar
+  #   #            nicht mit; dann sieht selbst ein Nuki aus wie ein
+  #   #            einfaches Schloss und der Knopf fehlt.
+  #   #   always – anbieten, egal was das Schloss meldet.
+  #   #   never  – nie anbieten (Kinder im Haus, Türe zur Strasse).
+  #   # Was der Hub erkannt hat, steht unter System → Integrationen.
+  #   # unlatch: auto
 
   # V-ZUG-Geräte (lokale Home-API, nur lesend). Die Geräte müssen über
   # V-ZUG-Home im WLAN sein; im Router feste IPs vergeben. Die Namen
