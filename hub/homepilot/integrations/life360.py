@@ -63,6 +63,7 @@ from typing import Any
 
 import aiohttp
 
+from ..core import presence
 from ..core.errors import ConfigError
 from ..core.integration import Integration
 
@@ -200,17 +201,11 @@ def ortsschluessel(name: str) -> str:
     return schluessel
 
 
-def abstand_meter(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """Abstand zweier Punkte in Metern (rein, testbar)."""
-    r = 6_371_000.0
-    rad = math.pi / 180.0
-    d_lat = (lat2 - lat1) * rad
-    d_lon = (lon2 - lon1) * rad
-    a = (
-        math.sin(d_lat / 2) ** 2
-        + math.cos(lat1 * rad) * math.cos(lat2 * rad) * math.sin(d_lon / 2) ** 2
-    )
-    return 2 * r * math.asin(min(1.0, math.sqrt(a)))
+#: Der Abstand wird an zwei Stellen gebraucht - hier und für die
+#: Positionsmeldung des Telefons. Er steht deshalb in `core/presence.py`
+#: und wird hier nur weitergereicht: Zwei Rechnungen für denselben
+#: Abstand wären zwei Stellen, an denen sich ein Vorzeichen versteckt.
+abstand_meter = presence.abstand_meter
 
 
 def meldungen_fuer(

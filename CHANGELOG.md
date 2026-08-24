@@ -7,6 +7,40 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 ## 2026-08-24
 
+**Ortung**
+
+- Wer nach Hause kam, blieb «unterwegs». Die App meldete bisher nur
+  Grenzübertritte, und eine Meldung, die nicht ankommt, war für immer
+  weg. Beim Ankommen trifft sie genau das Loch zwischen Mobilfunk und
+  WLAN – der Hub steht im Heimnetz, das Telefon hängt beim Kreuzen der
+  Grenze noch am Funkmast. Danach stand man bis zum nächsten Weggehen
+  falsch da, und jeder Ablauf an der Ankunft lief nie.
+- Die App meldet jetzt **laufend, sobald sie sich bewegt hat** – nach
+  fünfzig Metern, nicht nach einer Uhr. Wer stillsteht, erzeugt nichts
+  und verbraucht nichts. Gemeldet wird die Position, nicht mehr «ich
+  habe eine Grenze gekreuzt»: Der Hub rechnet selbst, in welchen Orten
+  jemand steckt. Damit rückt jede einzelne Meldung gerade, was von einer
+  früheren fehlt.
+- Was nicht durchkommt, wird aufgehoben und beim nächsten Anlass
+  nachgereicht. Nachgereichtes kann nichts Neueres überschreiben – jede
+  Meldung trägt den Zeitpunkt ihrer Messung mit.
+- Die Zonenüberwachung bleibt daneben: Sie meldet den Übertritt scharf
+  und sofort und kostet fast nichts.
+- Holt man die App aus dem App-Switcher, meldet sie wieder. Bisher tat
+  sie das nur beim Starten – und aus dem Switcher startet nichts. Das
+  war der letzte Weg, auf dem sich ein verlorener Übertritt noch von
+  selbst hätte richten können, und er war zu.
+- Die Diagnose unter *System* sagt nicht mehr «Meldet sich regelmässig»
+  zu einer Position von vorgestern. «Wann hat sich etwas geändert» und
+  «wann kam zuletzt etwas an» waren dasselbe Feld; weil Life360 im
+  Minutentakt meldet, sah alles immer frisch aus. Damit konnte auch das
+  Sicherheitsnetz nie greifen, das ein eingefrorenes «weg» nach zwölf
+  Stunden auf «unbekannt» stellt – und daran hängt, dass «alles aus»
+  nicht läuft, während jemand im Haus ist.
+- Der Erlaubnistext auf dem Telefon sagt jetzt, was wirklich passiert.
+  Dort stand «kein laufender Standort», und das stimmt nicht mehr.
+  **Dafür braucht es einen neuen Build, kein OTA.**
+
 **Radio**
 
 - Ein Sender liess sich antippen, und es passierte nichts – wenn der Hub
