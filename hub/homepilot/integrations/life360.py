@@ -82,6 +82,11 @@ BASIC = (
 # erst nach Minuten - wer weiter im Sekundentakt klopft, verlängert sie.
 PAUSEN = (60.0, 120.0, 300.0, 600.0, 1200.0)
 
+# Ab wie vielen Fehlschlägen in Folge die Diagnose von einer Störung
+# spricht. Einer ist Alltag - die Wolke ist kurz weg, die nächste Abfrage
+# holt es nach. Zwei heissen: Es liegt nicht am Zufall.
+STOERUNG_AB = 2
+
 # Ab hier gilt eine Ortsmeldung als zu alt, um daraus etwas zu schliessen.
 # Life360 liefert den Zeitpunkt der letzten Messung mit; ein Telefon im
 # Flugmodus schickt sonst stundenlang denselben alten Punkt.
@@ -102,6 +107,22 @@ def parse_members(raw: Any) -> dict[str, str]:
         if klar and ziel:
             zuordnung[klar] = ziel
     return zuordnung
+
+
+def namen_je_zone(raw: Any) -> dict[str, str]:
+    """Zur Zone der Name, unter dem bei Life360 gesucht wird (rein, testbar).
+
+    Nur für die Diagnose. «oma» sagt nicht, wonach im Kreis gesucht wird,
+    und genau daran scheitert die Zuordnung: ein Nachname zu viel, eine
+    andere Schreibweise - die Person meldet nie, und niemand sieht warum.
+    """
+    namen: dict[str, str] = {}
+    for name, zone in (raw or {}).items():
+        klar = " ".join(str(name or "").split())
+        ziel = str(zone or "").strip()
+        if klar and ziel:
+            namen[ziel] = klar
+    return namen
 
 
 def zone_fuer_mitglied(mitglied: dict[str, Any], zuordnung: dict[str, str]) -> str | None:
@@ -226,11 +247,75 @@ def zu_alt(gemessen: float, jetzt: float, grenze: float = MAX_ALTER) -> bool:
     return jetzt - gemessen > grenze
 
 
+def health_detail(
+    personen: int,
+    gemeldet: int,
+    *,
+    unbekannt: list[str] | None = None,
+    still: list[str] | None = None,
+    fehler: int = 0,
+    grund: str | None = None,
+    geofence: bool = True,
+    abgefragt: bool = True,
+) -> str:
+    """Was im System-Bildschirm über Life360 steht (rein, testbar).
+
+    Diese Integration legt keine eigenen Entitäten an - die Personen
+    gehören dem Geofence, hierher kommen nur die Meldungen. In der
+    Diagnose stand deshalb «0 Geräte»: wahr, aber es sieht aus wie eine
+    Störung und beantwortet die eine Frage nicht, für die man dort
+    hinschaut - kommt von Life360 gerade etwas an?
+
+    Die Reihenfolge ist die der Ursachen. Ohne Geofence ist alles andere
+    gegenstandslos, und wenn die Wolke sperrt, sind die Zahlen von der
+    letzten geglückten Abfrage und sagen nichts über jetzt.
+    """
+    if not geofence:
+        return (
+            "Keine geofence-Integration - ohne Zonen gibt es nichts zu melden."
+        )
+    if fehler > 0:
+        warum = f" ({grund})" if grund else ""
+        return (
+            f"Letzte Abfrage fehlgeschlagen{warum} - nächster Versuch in "
+            f"{pause_nach(fehler):.0f} s. Bei 403/429 sperrt Life360 "
+            "Fremdzugriffe; häufiger fragen verlängert die Sperre."
+        )
+    if not abgefragt:
+        return "Erste Abfrage steht noch aus."
+    teile = [f"{gemeldet} von {personen} {'Person' if personen == 1 else 'Personen'} gemeldet"]
+    if unbekannt:
+        # Der häufigste Fehler überhaupt, und von aussen unsichtbar: Der
+        # Name in 'members' muss der bei Life360 sein, nicht der im Haus.
+        teile.append(
+            f"im Kreis nicht gefunden: {', '.join(sorted(unbekannt))} - "
+            "Schreibweise unter 'members' prüfen"
+        )
+    if still:
+        # Kein Fehler der Integration: ein leerer Akku, ein Flugmodus. Der
+        # Geofence führt die Person nach zwölf Stunden als «unbekannt».
+        teile.append(f"ohne frische Ortsmeldung: {', '.join(sorted(still))}")
+    return " · ".join(teile)
+
+
 class Life360Integration(Integration):
     name = "life360"
 
+    # Vorbelegt, weil health() auch dann eine Antwort schuldet, wenn
+    # setup() an einer fehlenden Zugangsangabe gescheitert ist - sonst
+    # wirft ausgerechnet die Diagnose, die den Fehlschlag erklären soll.
+    _members: dict[str, str] = {}
+    _namen: dict[str, str] = {}
+    _fehler = 0
+    _grund: str | None = None
+    _letzte_abfrage: float | None = None
+    _geofence_da = True
+    _gesehen: set[str] = set()
+    _gemeldet: set[str] = set()
+
     async def setup(self) -> None:
         self._members = parse_members(self.config.get("members"))
+        self._namen = namen_je_zone(self.config.get("members"))
         if not self._members:
             raise ConfigError(
                 "life360 braucht 'members' - eine Zuordnung «Name bei Life360: "
@@ -255,6 +340,13 @@ class Life360Integration(Integration):
         # weitergefahren ist: Der Geofence führt eine Liste der Orte, in
         # denen eine Zone steckt, und räumt sie nur auf Meldung.
         self._letzter_ort: dict[str, str] = {}
+        # Was die Diagnose später auszusagen hat. Ohne Zahlen von einer
+        # geglückten Abfrage wäre jede Aussage über die Zuordnung geraten.
+        self._grund = None
+        self._letzte_abfrage = None
+        self._geofence_da = True
+        self._gesehen = set()
+        self._gemeldet = set()
         self.start_task(self._poll_loop())
 
     # ── Die Schleife ───────────────────────────────────────────────────────
@@ -267,6 +359,7 @@ class Life360Integration(Integration):
     async def _runde(self) -> float:
         """Eine Abfrage. Gibt zurück, wie lange bis zur nächsten gewartet wird."""
         geofence = self.hub.integrations.get("geofence")
+        self._geofence_da = geofence is not None
         if geofence is None:
             # Kein Startfehler: Die Integration kann nachträglich
             # dazukommen, und ein Hub, der deswegen nicht hochfährt,
@@ -280,6 +373,7 @@ class Life360Integration(Integration):
             mitglieder = await self._mitglieder()
         except aiohttp.ClientResponseError as err:
             self._fehler += 1
+            self._grund = f"Life360 antwortet mit {err.status}"
             pause = pause_nach(self._fehler)
             self.log.warning(
                 "life360 antwortet mit %s - nächste Abfrage in %.0f s. "
@@ -291,30 +385,49 @@ class Life360Integration(Integration):
             return pause
         except Exception as err:
             self._fehler += 1
+            self._grund = f"nicht erreichbar: {err}"
             pause = pause_nach(self._fehler)
             self.log.warning("life360 nicht erreichbar (%s) - Pause %.0f s", err, pause)
             return pause
 
         self._fehler = 0
+        self._grund = None
         jetzt = time.time()
+        # Wer im Kreis steht, ist noch nicht, wer gemeldet hat: Ein
+        # Telefon im Flugmodus schickt seit Stunden denselben Punkt. Die
+        # Diagnose unterscheidet beides, weil die Abhilfe verschieden ist
+        # - Schreibweise korrigieren oder Akku laden.
+        gesehen: set[str] = set()
+        gemeldet: set[str] = set()
         for mitglied in mitglieder:
-            await self._melden(geofence, mitglied, jetzt)
+            zone = zone_fuer_mitglied(mitglied, self._members)
+            if zone is None:
+                continue
+            gesehen.add(zone)
+            if await self._melden(geofence, mitglied, jetzt):
+                gemeldet.add(zone)
+        self._gesehen = gesehen
+        self._gemeldet = gemeldet
+        self._letzte_abfrage = jetzt
         return self._interval
 
-    async def _melden(self, geofence: Any, mitglied: dict[str, Any], jetzt: float) -> None:
+    async def _melden(
+        self, geofence: Any, mitglied: dict[str, Any], jetzt: float
+    ) -> bool:
+        """Eine Person weitergeben. True heisst «es ging etwas hinaus»."""
         zone = zone_fuer_mitglied(mitglied, self._members)
         if zone is None:
-            return
+            return False
         position = parse_position(mitglied)
         if position is None:
-            return
+            return False
         if zu_alt(position["timestamp"], jetzt):
             self.log.info(
                 "life360: letzte Ortsmeldung für %s ist über eine Stunde alt - "
                 "nicht übernommen.",
                 zone,
             )
-            return
+            return False
         eigene = getattr(geofence, "places", [])
         meldungen = meldungen_fuer(
             eigene, position["latitude"], position["longitude"]
@@ -339,17 +452,21 @@ class Life360Integration(Integration):
         alt = self._letzter_ort.get(zone)
         if alt and alt != (fremder or {}).get("id"):
             meldungen.append((alt, "leave"))
+        gesagt = False
         for ort, ereignis in sorted(meldungen, key=lambda m: m[1] != "leave"):
             if not await self._sagen(geofence, zone, ereignis, ort, position):
-                return
+                return gesagt
+            gesagt = True
         if fremder:
             if not await self._sagen(
                 geofence, zone, "enter", fremder["id"], position, fremder["name"]
             ):
-                return
+                return gesagt
+            gesagt = True
             self._letzter_ort[zone] = fremder["id"]
         else:
             self._letzter_ort.pop(zone, None)
+        return gesagt
 
     def _fremder_ort(
         self, position: dict[str, Any], eigene: list[dict[str, Any]]
@@ -405,6 +522,45 @@ class Life360Integration(Integration):
             )
             return False
         return True
+
+    # ── Was die Diagnose zu sehen bekommt ──────────────────────────────────
+
+    def health(self) -> dict[str, Any]:
+        """Liefert Life360 gerade etwas? Die Gerätezahl sagt es nicht.
+
+        Sie steht auf null und bleibt es: Diese Integration führt keine
+        eigenen Entitäten, die Personen gehören dem Geofence. Ohne diese
+        Auskunft ist eine gesperrte Wolke von «es ist halt niemand
+        gegangen» nicht zu unterscheiden - und genau so hat es sich in
+        der App auch gelesen.
+        """
+        zonen = set(self._members.values())
+        # Erst nach einer geglückten Abfrage steht fest, wen der Kreis
+        # kennt. Vorher wäre jeder Name «nicht gefunden».
+        unbekannt = sorted(zonen - self._gesehen) if self._letzte_abfrage else []
+        still = sorted(self._gesehen - self._gemeldet)
+        return {
+            # Eine misslungene Abfrage ist Alltag; erst die zweite in
+            # Folge ist eine Störung. Wer nirgends im Kreis steht, meldet
+            # nie - das ist eine, auch wenn die Verbindung steht.
+            "ok": (
+                self._geofence_da
+                and self._fehler < STOERUNG_AB
+                and not unbekannt
+                and (self._letzte_abfrage is None or bool(self._gemeldet))
+            ),
+            "detail": health_detail(
+                len(zonen),
+                len(self._gemeldet),
+                unbekannt=[self._namen.get(zone, zone) for zone in unbekannt],
+                still=[self._namen.get(zone, zone) for zone in still],
+                fehler=self._fehler,
+                grund=self._grund,
+                geofence=self._geofence_da,
+                abgefragt=self._letzte_abfrage is not None,
+            ),
+            "last_event": self._letzte_abfrage,
+        }
 
     # ── Die Schnittstelle ──────────────────────────────────────────────────
 

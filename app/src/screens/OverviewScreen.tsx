@@ -16,7 +16,12 @@ import { DraggableList } from '../components/DraggableList';
 import { KIND_ICONS, shortState } from '../components/RoomTile';
 import { appleMapsRoute, googleMapsRoute } from '../components/TopStrip';
 import { VacuumHome } from '../components/VacuumHome';
-import { kachelBreite, spalten } from '../lib/raster';
+import {
+  FAVORIT_LUECKE,
+  FAVORIT_MINDEST,
+  kachelBreite,
+  spalten,
+} from '../lib/raster';
 import { wochentagUhr } from '../lib/format';
 import { haustuerZeile } from '../lib/klingel';
 import { KalenderZeile, geburtstagsListe, terminListe } from '../lib/kalenderliste';
@@ -240,6 +245,22 @@ export function OverviewScreen({
   const [rasterBreite, setRasterBreite] = useState(0);
   const tileSpalten = spalten(rasterBreite, { hoechstens: wide ? 3 : 2 });
   const tileWidth = rasterBreite > 0 ? kachelBreite(rasterBreite, tileSpalten) : ('100%' as const);
+  // Favoriten hatten als Einzige keine gerechnete Breite: Jede Kachel war
+  // so breit wie ihr Inhalt, und drei Zimmernamen ergaben zusammen mehr,
+  // als ein iPhone hergibt – die dritte rutschte in die zweite Zeile.
+  // Jetzt teilen sie sich die Reihe wie jedes andere Raster.
+  // Ohne Deckel auf die Anzahl der Favoriten: Eine halb gefüllte Reihe
+  // ist auf einem Tablet richtig – drei Schnellzugriffe über 1000 Punkte
+  // zu strecken wäre es nicht. Genauso hält es jedes andere Raster hier.
+  const favSpalten = spalten(rasterBreite, {
+    mindest: FAVORIT_MINDEST,
+    hoechstens: wide ? 6 : 3,
+    luecke: FAVORIT_LUECKE,
+  });
+  const favWidth =
+    rasterBreite > 0
+      ? kachelBreite(rasterBreite, favSpalten, FAVORIT_LUECKE)
+      : ('100%' as const);
   const morningFirst = now.getHours() >= 5 && now.getHours() < 11;
 
   // Bausteine stehen auf Modulebene (unten) – innerhalb der Komponente
@@ -689,6 +710,7 @@ export function OverviewScreen({
               <FavoriteChip
                 key={entity.id}
                 entity={entity}
+                breite={favWidth}
                 pending={!!pending[entity.id]}
                 onCommand={onCommand}
                 styles={styles}
@@ -727,12 +749,15 @@ type OverviewStyles = ReturnType<typeof makeStyles>;
  *  abbrechen. */
 function FavoriteChip({
   entity,
+  breite,
   pending,
   onCommand,
   styles,
   colors,
 }: {
   entity: Entity;
+  /** Gerechnete Spaltenbreite – vor der ersten Messung «100%». */
+  breite: number | '100%';
   pending: boolean;
   onCommand: (entityId: string, command: string, data?: CommandData) => void;
   styles: OverviewStyles;
@@ -762,27 +787,31 @@ function FavoriteChip({
       accessibilityLabel={entity.name}
       style={({ pressed }) => [
         styles.favChip,
+        { width: breite },
         active && styles.favChipActive,
         (pressed || pending) && { opacity: 0.6 },
       ]}
     >
+      {/* Symbol über dem Namen statt daneben: Nebeneinander frisst es
+          28 Punkte der Breite, und die fehlen genau dort, wo es eng
+          wird – bei drei Kacheln auf einem iPhone. Übereinander bekommt
+          der Name die ganze Kachelbreite, und «Wohnzimmer» steht
+          ungekürzt da. */}
       <Ionicons
         name={KIND_ICONS[entity.kind] ?? 'cube-outline'}
         size={18}
         color={active ? colors.accent : colors.inkSoft}
       />
-      <View style={{ flexShrink: 1 }}>
-        <Text style={styles.favName} numberOfLines={1}>
-          {entity.name}
-        </Text>
-        <Text style={[styles.favState, active && { color: colors.accent }]} numberOfLines={1}>
-          {entity.kind === 'light' || entity.kind === 'switch'
-            ? state === 'on'
-              ? 'An'
-              : 'Aus'
-            : shortState(entity)}
-        </Text>
-      </View>
+      <Text style={styles.favName} numberOfLines={1}>
+        {entity.name}
+      </Text>
+      <Text style={[styles.favState, active && { color: colors.accent }]} numberOfLines={1}>
+        {entity.kind === 'light' || entity.kind === 'switch'
+          ? state === 'on'
+            ? 'An'
+            : 'Aus'
+          : shortState(entity)}
+      </Text>
     </Pressable>
   );
 }
@@ -1051,22 +1080,24 @@ const makeStyles = (colors: Colors) =>
     terminOrt: { color: colors.accent, fontSize: 12, flexShrink: 1 },
     routeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
 
-    favRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    favRow: { flexDirection: 'row', flexWrap: 'wrap', gap: FAVORIT_LUECKE },
     favChip: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
-      paddingHorizontal: 14,
+      gap: 2,
+      // Enger als die übrigen Kacheln: Jeder Punkt Polsterung geht bei
+      // drei Spalten dreimal vom Namen ab.
+      paddingHorizontal: 10,
       paddingVertical: 10,
       borderRadius: radius.control,
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.surfaceBorder,
-      maxWidth: '100%',
     },
     favChipActive: { borderColor: colors.accent },
-    favName: { color: colors.ink, fontSize: 14, fontWeight: '600' },
-    favState: { color: colors.inkFaint, fontSize: 12 },
+    // 13 statt 14 Punkt, und das ist gemessen: Bei drei Spalten auf einem
+    // iPhone SE 3 bleiben 83 Punkte für den Namen. «Wohnzimmer» braucht
+    // bei 14 Punkt deren 88 und wurde zu «Wohnzimme…»; bei 13 sind es 82.
+    favName: { color: colors.ink, fontSize: 13, fontWeight: '600' },
+    favState: { color: colors.inkFaint, fontSize: 11 },
 
 
     badge: {

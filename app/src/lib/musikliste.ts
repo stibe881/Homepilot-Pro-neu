@@ -19,6 +19,12 @@ export interface WarteZeile {
   track: string;
   artist: string;
   laeuft: boolean;
+  /** Womit sich der Titel anspringen lässt – `null` heisst «nur lesen».
+   *
+   *  Podcast-Folgen bringen keine mit, und ältere Hub-Fassungen schickten
+   *  die Warteschlange ohne URIs. Die Zeile steht dann trotzdem da; sie
+   *  reagiert bloss nicht auf einen Tipp. */
+  uri: string | null;
 }
 
 /**
@@ -38,6 +44,9 @@ export function warteschlange(state: Zustand | undefined): WarteZeile[] {
       track,
       artist: String(state?.artist ?? '').trim(),
       laeuft: true,
+      // Der laufende Titel ist kein Ziel: Er läuft ja schon, und ein
+      // Tipp darauf würde ihn von vorn beginnen lassen.
+      uri: null,
     });
   }
   const roh = Array.isArray(state?.queue) ? state.queue : [];
@@ -52,6 +61,7 @@ export function warteschlange(state: Zustand | undefined): WarteZeile[] {
       track: name,
       artist: String(eintrag?.artist ?? '').trim(),
       laeuft: false,
+      uri: String(eintrag?.uri ?? '').trim() || null,
     });
   });
   return zeilen;

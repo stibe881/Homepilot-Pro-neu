@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from . import (
+    batterie,
     energy,
     familie,
     gemeldet,
@@ -93,7 +94,6 @@ class Watchdog:
         # Gerät → Fehlrunden in Folge, und was schon gemeldet wurde.
         self._device_strikes: dict[str, int] = {}
         self._reported_down: set[str] = set()
-        self._reported_battery: set[str] = set()
         # Haushaltgeräte: Zustand der letzten Runde, Zeitpunkt des
         # Programmendes und was schon erinnert wurde.
         self._last_state: dict[str, str] = {}
@@ -869,20 +869,47 @@ class Watchdog:
         self._reported_leak &= nass
 
     async def _check_batteries(self, entities: list[Any]) -> None:
-        """Schwache Batterien – einmal melden, nicht jede Minute."""
-        weak = {entity.id for entity in low_batteries(entities)}
+        """Schwache Batterien – einmal melden, nicht immer wieder.
+
+        Das Gedächtnis liegt in der `hub.data` und überlebt den Neustart;
+        vergessen wird nur, wenn ein Gerät ausdrücklich «Batterie in
+        Ordnung» meldet. Warum beides nötig ist, steht im Kopf von
+        `batterie.py` – dort hängt der Fall dran.
+        """
+        jetzt = time.time()
+        rows = self.hub.data.get(batterie.STORE_KEY)
+
+        # Erst vergessen, was gewechselt wurde: Sonst bliebe eine alte
+        # Zeile stehen und die nächste schwache Batterie desselben Geräts
+        # käme nie zur Sprache.
+        wieder_gut = [
+            entity.id
+            for entity in entities
+            if entity.state.get("low_battery") is False
+        ]
+        if wieder_gut and any(
+            batterie.zeile(rows, entity_id) for entity_id in wieder_gut
+        ):
+            rows = batterie.vergiss(rows, wieder_gut)
+            self.hub.data.set(batterie.STORE_KEY, rows)
+
         for entity in low_batteries(entities):
-            if entity.id in self._reported_battery:
+            if not batterie.soll_melden(rows, entity.id, jetzt):
                 continue
-            self._reported_battery.add(entity.id)
+            # Vormerken *bevor* die Meldung rausgeht: Scheitert der
+            # Versand, soll er nicht in der nächsten Minute erneut
+            # versucht werden (wie in `_einmal`).
+            rows = batterie.merke_meldung(rows, entity.id, jetzt)
+            self.hub.data.set(batterie.STORE_KEY, rows)
             await self._notify(
                 f"Batterie schwach: {entity.name}",
                 "Das Gerät meldet eine schwache Batterie. Danach ist es still, "
                 "ohne sich abzumelden.",
                 "battery",
+                # Damit ein Tipp auf die Nachricht direkt zu den Batterien
+                # führt, statt nur die App zu öffnen.
+                data={"type": "battery", "entity_id": entity.id},
             )
-        # Gewechselte Batterien wieder scharf stellen für die nächste Warnung.
-        self._reported_battery &= weak
 
     def _log_outage(self, name: str, ended: float | None) -> None:
         self.outages.insert(
@@ -922,9 +949,14 @@ class Watchdog:
         body: str,
         category: str = "outage",
         to: str | None = None,
+        data: dict[str, Any] | None = None,
     ) -> None:
         """`to` schickt an eine Person statt an alle - eine Gabe für Lina
-        geht die anderen nichts an."""
+        geht die anderen nichts an.
+
+        ``data`` reist mit der Nachricht ans Telefon und sagt der App, wo
+        sie beim Antippen hinspringen soll (siehe hooks/useNotificationTap
+        in der App)."""
         rule = self.rules.get(category)
         if rule is not None and not rule["enabled"]:
             # Abgeschaltet heisst: keine Push an niemanden. Geprüft wird
@@ -937,6 +969,6 @@ class Watchdog:
             tokens = self.hub.push.recipients(
                 self.hub.users.users, to or "all", category
             )
-            await self.hub.push.send(tokens, title=title, body=body)
+            await self.hub.push.send(tokens, title=title, body=body, data=data)
         except Exception:
             log.exception("Wächter-Push nicht zustellbar")

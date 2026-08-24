@@ -8,7 +8,7 @@ const LAEUFT = {
   artist: 'A',
   playlist: 'Sonntagmorgen',
   queue: [
-    { track: 'Zweiter', artist: 'B' },
+    { track: 'Zweiter', artist: 'B', uri: 'spotify:track:2' },
     { track: 'Dritter', artist: null },
   ],
 };
@@ -39,13 +39,32 @@ describe('warteschlange', () => {
   });
 
   it('überspringt Einträge ohne Titel', () => {
-    expect(warteschlange({ track: 'X', queue: [{ track: '' }, { track: 'Y' }] })).toHaveLength(2);
+    expect(
+      warteschlange({ track: 'X', queue: [{ track: '' }, { track: 'Y' }] })
+    ).toHaveLength(2);
   });
 
   it('verträgt einen leeren Zustand', () => {
     expect(warteschlange(undefined)).toEqual([]);
     expect(warteschlange({})).toEqual([]);
     expect(warteschlange({ queue: 'kaputt' })).toEqual([]);
+  });
+});
+
+describe('warteschlange: das Anspringen', () => {
+  it('reicht die URI durch, damit ein Tipp etwas auslösen kann', () => {
+    expect(warteschlange(LAEUFT)[1].uri).toBe('spotify:track:2');
+  });
+
+  it('lässt den laufenden Titel ohne Ziel', () => {
+    // Ein Tipp darauf liesse ihn von vorn beginnen - das will niemand.
+    expect(warteschlange(LAEUFT)[0].uri).toBeNull();
+  });
+
+  it('verträgt eine Warteschlange ohne URIs', () => {
+    // Podcast-Folgen bringen keine mit, ältere Hub-Fassungen schickten
+    // gar keine. Die Zeile bleibt lesbar, nur eben nicht antippbar.
+    expect(warteschlange(LAEUFT)[2].uri).toBeNull();
   });
 });
 

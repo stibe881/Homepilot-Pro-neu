@@ -48,6 +48,20 @@ class DemoIntegration(Integration):
             commands=["turn_on", "turn_off", "toggle"],
         )
         await self.add_entity(
+            "smoke_hall",
+            EntityKind.BINARY_SENSOR,
+            "Rauchmelder Flur",
+            # Mit schwacher Batterie: Ohne ein solches Gerät liess sich die
+            # Batterienliste samt Quittieren nie ansehen.
+            state={"state": "off", "device_class": "smoke", "low_battery": True},
+        )
+        await self.add_entity(
+            "window_kitchen",
+            EntityKind.BINARY_SENSOR,
+            "Fenster Küche",
+            state={"state": "off", "device_class": "contact", "battery": 62},
+        )
+        await self.add_entity(
             "temp_livingroom",
             EntityKind.SENSOR,
             "Temperatur Wohnzimmer",
