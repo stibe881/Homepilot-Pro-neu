@@ -13,6 +13,7 @@ import { Maintenance } from '../components/Maintenance';
 import { Fehlschlag, Laedt } from '../components/Zustand';
 import { ConfigCard } from './system/konfiguration';
 import { datumUhr } from '../lib/format';
+import { LetzterLauf, letzterLaufSatz } from '../lib/letzterlauf';
 import { localTime, timeAgo } from '../lib/zeit';
 import { Colors, radius, space, type, useColors } from '../theme';
 
@@ -510,6 +511,9 @@ interface UpdateStatus {
   /** Schiefgegangenes, das den Bau nicht stoppte – etwa ein
    *  fehlgeschlagener Web-Bau, bei dem die alte Fassung online bleibt. */
   warnings?: string[];
+  /** Der Ausgang des letzten Laufs, über Neustarts des Dienstes hinweg.
+   *  Fehlt bei älteren Update-Diensten – dann bleibt es wie bisher. */
+  last_run?: LetzterLauf | null;
 }
 
 const STAGE_LABEL: Record<string, string> = {
@@ -745,6 +749,15 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
           laufBegonnen.current = true;
           setProgress(data);
           setBusy(true); // startet die laufende Abfrage unten
+          return;
+        }
+        // Läuft nichts: Dann interessiert, wie der letzte Lauf ausging.
+        // Er ist der einzige Ort, an dem ein gescheitertes Update noch
+        // steht, wenn niemand zugeschaut hat.
+        const rueckblick = letzterLaufSatz(data.last_run, Date.now() / 1000);
+        if (rueckblick) {
+          setNoteError(rueckblick.fehler);
+          setNote(rueckblick.text);
         }
       } catch {
         // Kein Status erreichbar – dann eben kein Balken beim Einstieg.
@@ -876,6 +889,18 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
           'Angestossen - aber der Update-Dienst auf dem Server kennt den iOS-Schalter noch nicht. ' +
             'Es wird nur der Hub gebaut. Abhilfe: auf dem Server einmal ' +
             '«sudo systemctl restart homepilot-update» ausführen.'
+        );
+      } else if (body?.nur_ausrollen) {
+        // Die eingerichtete Adresse ist ein blosser Portainer-Webhook.
+        // Der erstellt den Container neu - aus demselben Abbild. Der
+        // Knopf tut also etwas und ändert doch nie den Stand.
+        setNoteError(true);
+        setNote(
+          [
+            'Angestossen - aber diese Adresse rollt nur aus, sie baut nicht neu.',
+            'Der Container wird neu erstellt, aus demselben Abbild: Der Stand unten bleibt derselbe.',
+            'Damit der Knopf wirklich baut, gehört unter update.webhook_url der Update-Dienst des Hosts (Adresse endet auf /update), nicht der Portainer-Webhook - siehe deploy/portainer.md.',
+          ].join('\n')
         );
       } else {
         setNote(

@@ -23,6 +23,7 @@ from homepilot.integrations.matter import (
     lock_state,
     node_endpoints,
     node_lines,
+    schloss_endpunkt,
 )
 
 # ── Reine Funktionen ─────────────────────────────────────────────────────
@@ -758,3 +759,26 @@ def test_privacy_and_no_remote_are_named():
     assert satz is not None and "Privat" in satz
     satz = betriebsart_hinweis({"1/257/33": 3}, 1)
     assert satz is not None and "Ohne Fernbedienung" in satz
+
+
+# ── An welchen Endpunkt gehört «Auf + öffnen»? ───────────────────────────
+
+
+def test_the_lock_endpoint_is_found_between_the_others():
+    # Ein Nuki bringt Verwaltung (Endpunkt 0) und Stromquelle mit. Der
+    # Befehl gehört an genau einen Endpunkt - den falschen zu treffen
+    # sähe von aussen aus wie ein Schloss, das nicht reagiert.
+    knoten = {
+        "node_id": 1,
+        "attributes": {
+            "0/29/0": [{"0": 22, "1": 1}],
+            "1/29/0": [{"0": 10, "1": 1}],
+            "2/29/0": [{"0": 17, "1": 1}],
+        },
+    }
+    assert schloss_endpunkt(knoten) == 1
+
+
+def test_a_node_without_a_lock_says_so():
+    knoten = {"node_id": 1, "attributes": {"1/29/0": [{"0": 257, "1": 1}]}}
+    assert schloss_endpunkt(knoten) is None

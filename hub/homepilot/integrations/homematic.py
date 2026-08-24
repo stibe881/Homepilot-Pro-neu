@@ -179,6 +179,7 @@ from .homematic_channels import (  # noqa: F401
     press_to_state,
     switch_channel,
     unit_for,
+    unknown_parameter,
     value_to_state,
 )
 
@@ -560,8 +561,7 @@ class HomematicIntegration(Integration):
                 self._warn_once(
                     (info["address"], info["datapoint"]),
                     f"{info['address']} liefert kein {info['datapoint']} ({err}) – "
-                    "bei HmIP liegt STATE meist auf dem Schaltkanal "
-                    "(SWITCH_VIRTUAL_RECEIVER, siehe Kanalliste oben)",
+                    + await self._was_der_kanal_kennt(info["address"], port),
                 )
 
             if info["power_address"]:
@@ -627,6 +627,34 @@ class HomematicIntegration(Integration):
                 continue
             for entity_id in entity_ids:
                 await self.hub.registry.update_state(entity_id, changes)
+
+    async def _was_der_kanal_kennt(self, address: str, port: int) -> str:
+        """Der zweite Satz der Warnung: Welche Datenpunkte hat der Kanal?
+
+        «liefert kein ACTUAL_TEMPERATURE» beantwortet die Frage nicht, die
+        man dann hat - nämlich wie der Wert bei *diesem* Gerät heisst. Die
+        CCU weiss es: getParamsetDescription zählt die Namen des Kanals
+        auf. Einmal nachfragen ist die Antwort, die man sonst im Netz
+        sucht.
+
+        Scheitert auch das, bleibt der alte Hinweis: Bei HmIP liegt der
+        gesuchte Wert oft auf einem anderen Kanal desselben Geräts.
+        """
+        namen: list[str] = []
+        try:
+            beschreibung = await self._call(
+                "getParamsetDescription", address, "VALUES", port=port
+            )
+            if isinstance(beschreibung, dict):
+                namen = sorted(str(name) for name in beschreibung)
+        except Exception as err:
+            self.log.debug("Kein Paramset für %s: %s", address, err)
+        if namen:
+            return f"dieser Kanal kennt: {', '.join(namen)}"
+        return (
+            "bei HmIP liegt der gesuchte Wert oft auf einem anderen Kanal "
+            "desselben Geräts (siehe Kanalliste oben)"
+        )
 
     def _warn_once(self, key: tuple[str, str], message: str) -> None:
         """Einmal warnen statt alle 5 Minuten – sonst übersieht man im
