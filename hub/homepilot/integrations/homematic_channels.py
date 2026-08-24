@@ -289,6 +289,17 @@ UNIT_BY_DATAPOINT: dict[str, str] = {
 }
 
 
+def unknown_parameter(err: Any) -> bool:
+    """Meint dieser Fehler «diesen Datenpunkt gibt es hier nicht»? (rein)
+
+    Die CCU antwortet auf jeden Unfug mit «Fault -5». Nur der Text
+    unterscheidet «Kanal kennt den Namen nicht» von «Wert gerade nicht
+    lesbar» - und nur im ersten Fall lohnt die Nachfrage, welche Namen
+    der Kanal denn hat.
+    """
+    return "unknown parameter" in str(err).lower()
+
+
 def unit_for(datapoint: str | None) -> str | None:
     """Welche Einheit gehört zu diesem Datenpunkt? (rein, testbar)
 
