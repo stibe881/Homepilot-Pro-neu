@@ -77,7 +77,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from ..core import presence
+from ..core import ortsuche, presence
 from ..core.entity import Entity, EntityKind
 from ..core.errors import ConfigError
 from ..core.integration import Integration
@@ -267,6 +267,9 @@ class GeofenceIntegration(Integration):
                 "'zones' noch Benutzer im Hub"
             )
         self._eigene_places = presence.parse_places(self.config.get("places"))
+        # Erst beim ersten Suchen angelegt: Wer nie einen Laden erfasst,
+        # soll dafür keine Verbindung offen haben.
+        self._suchsession = None
         self._orte_bauen()
         # Kennung → Entitäts-ID, und je Person die Orte, in denen sie steckt.
         self._zones: dict[str, str] = {}
@@ -445,6 +448,37 @@ class GeofenceIntegration(Integration):
         self._orte_bauen()
         self.log.info("Ort '%s' gesetzt: %.5f, %.5f (%.0f m)", name, latitude, longitude, radius)
         return self.places
+
+    async def ort_suchen(self, text: str) -> list[dict[str, Any]]:
+        """Orte zu einer Adresse oder einem Namen vorschlagen.
+
+        Damit man nicht bei jedem Laden vorbeifahren muss, um ihn zu
+        erfassen. Wer Koordinaten einfügt (Google Maps, langer Tipp auf
+        den Punkt), bekommt genau die zurück - dafür braucht es niemanden
+        zu fragen.
+        """
+        koordinaten = ortsuche.koordinaten_aus_text(text)
+        if koordinaten:
+            lat, lon = koordinaten
+            return [
+                {
+                    "name": f"{lat:.5f}, {lon:.5f}",
+                    "address": "aus eingefügten Koordinaten",
+                    "latitude": lat,
+                    "longitude": lon,
+                }
+            ]
+        if not str(text or "").strip():
+            return []
+        session = self._suchsession or self.http_session(
+            headers={"User-Agent": ortsuche.USER_AGENT}
+        )
+        self._suchsession = session
+        async with session.get(
+            ortsuche.NOMINATIM_URL, params=ortsuche.anfrage(text)
+        ) as antwort:
+            antwort.raise_for_status()
+            return ortsuche.treffer(await antwort.json(content_type=None))
 
     async def ort_entfernen(self, ort_id: str) -> list[dict[str, Any]]:
         """Einen in der App angelegten Ort löschen.

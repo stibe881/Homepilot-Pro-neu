@@ -201,7 +201,12 @@ export function FamilyScreen({
 
   // Die Orte des Hubs - daraus wählt ein Laden seinen, und «ich stehe
   // jetzt hier» legt einen neuen an.
-  const { orte, setzeHier } = useOrte(settings);
+  const {
+    orte,
+    setzeHier: ortHierSetzen,
+    suche: ortSuchen,
+    uebernehmen: ortUebernehmen,
+  } = useOrte(settings);
 
   // ── Ohne Netz lesbar bleiben (Punkte 165 und 172) ──────────────────────
   //
@@ -1340,11 +1345,22 @@ export function FamilyScreen({
             onAdd={(shop) => add('shops', shop)}
             onUpdate={(id, changes) => update('shops', id, changes)}
             onRemove={(id) => remove('shops', id)}
+            onSuche={ortSuchen}
+            onVorschlag={async (shop, vorschlag) => {
+              const fehler = await ortUebernehmen(
+                vorschlag,
+                shop.name,
+                shop.place || undefined
+              );
+              if (fehler) return fehler;
+              update('shops', shop.id, { place: ortKennung(shop.place || shop.name) });
+              return '';
+            }}
             onOrtHier={async (shop) => {
               // Ein Griff statt zwei: Der Ort entsteht und hängt gleich
               // am Laden. Wer davorsteht, will nicht danach noch eine
               // Kennung aus einer Liste suchen.
-              const fehler = await setzeHier(shop.name, shop.place || undefined);
+              const fehler = await ortHierSetzen(shop.name, shop.place || undefined);
               if (fehler) return fehler;
               update('shops', shop.id, { place: ortKennung(shop.place || shop.name) });
               return '';

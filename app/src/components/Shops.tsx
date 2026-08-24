@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Card } from './Card';
 import { SHOP_CATEGORIES, Shop, shopOrder } from '../lib/einkauf';
+import { Vorschlag as OrtVorschlag } from '../hooks/useOrte';
 import { Colors, radius, type, useColors } from '../theme';
 
 /**
@@ -35,6 +36,8 @@ export function Shops({
   onUpdate,
   onRemove,
   onOrtHier,
+  onSuche,
+  onVorschlag,
 }: {
   shops: Shop[];
   /** Die Orte, die der Hub kennt – daraus wählt ein Laden seinen. */
@@ -45,6 +48,10 @@ export function Shops({
   /** «Ich stehe jetzt hier»: legt den Ort an und hängt ihn an den Laden.
    *  Gibt eine Fehlermeldung zurück, leer heisst geklappt. */
   onOrtHier?: (shop: Shop) => Promise<string>;
+  /** Adresse, Ladenname oder eingefügte Koordinaten nachschlagen. */
+  onSuche?: (text: string) => Promise<{ treffer: OrtVorschlag[]; fehler: string }>;
+  /** Einen Vorschlag als Ort des Ladens übernehmen. */
+  onVorschlag?: (shop: Shop, vorschlag: OrtVorschlag) => Promise<string>;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -52,6 +59,24 @@ export function Shops({
   const [neu, setNeu] = useState('');
   const [bearbeitet, setBearbeitet] = useState<string | null>(null);
   const [meldung, setMeldung] = useState<string | null>(null);
+  const [suchtext, setSuchtext] = useState('');
+  const [vorschlaege, setVorschlaege] = useState<OrtVorschlag[]>([]);
+
+  async function suchen(shop: Shop) {
+    if (!onSuche) return;
+    setMeldung('Suche …');
+    const { treffer, fehler } = await onSuche(suchtext || shop.name);
+    setVorschlaege(treffer);
+    setMeldung(fehler || null);
+  }
+
+  async function uebernehmen(shop: Shop, vorschlag: OrtVorschlag) {
+    if (!onVorschlag) return;
+    const fehler = await onVorschlag(shop, vorschlag);
+    setVorschlaege([]);
+    setSuchtext('');
+    setMeldung(fehler || `«${shop.name}» liegt jetzt bei ${vorschlag.name}.`);
+  }
 
   return (
     <Card style={styles.card}>
@@ -194,6 +219,50 @@ export function Shops({
                         );
                       })}
                     </View>
+                    {onSuche ? (
+                      <View style={styles.addRow}>
+                        <TextInput
+                          style={styles.input}
+                          value={suchtext}
+                          onChangeText={setSuchtext}
+                          onSubmitEditing={() => suchen(shop)}
+                          placeholder="Adresse, Laden oder Koordinaten"
+                          placeholderTextColor={colors.inkFaint}
+                          returnKeyType="search"
+                        />
+                        <Pressable
+                          onPress={() => suchen(shop)}
+                          accessibilityRole="button"
+                          accessibilityLabel="Ort suchen"
+                          style={styles.addButton}
+                        >
+                          <Ionicons name="search" size={18} color={colors.ink} />
+                        </Pressable>
+                      </View>
+                    ) : null}
+                    {/* Die volle Adresse steht dabei: Daran erkennt man den
+                        richtigen von drei gleichnamigen Läden. */}
+                    {vorschlaege.map((vorschlag, index) => (
+                      <Pressable
+                        key={`${vorschlag.latitude}-${vorschlag.longitude}-${index}`}
+                        onPress={() => uebernehmen(shop, vorschlag)}
+                        accessibilityRole="button"
+                        style={({ pressed }) => [
+                          styles.vorschlag,
+                          pressed && { opacity: 0.8 },
+                        ]}
+                      >
+                        <Ionicons name="location-outline" size={16} color={colors.inkSoft} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.ortKnopfText} numberOfLines={1}>
+                            {vorschlag.name}
+                          </Text>
+                          <Text style={styles.hint} numberOfLines={2}>
+                            {vorschlag.address}
+                          </Text>
+                        </View>
+                      </Pressable>
+                    ))}
                     {onOrtHier ? (
                       <Pressable
                         onPress={async () => {
@@ -209,7 +278,7 @@ export function Shops({
                       >
                         <Ionicons name="location" size={16} color={colors.ink} />
                         <Text style={styles.ortKnopfText}>
-                          Ich stehe jetzt bei «{shop.name}»
+                          … oder: ich stehe jetzt bei «{shop.name}»
                         </Text>
                       </Pressable>
                     ) : null}
@@ -276,6 +345,17 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     ortKnopfText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
+    vorschlag: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      marginTop: 8,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
     addButton: {
       width: 36,
       height: 36,

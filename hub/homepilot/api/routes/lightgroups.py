@@ -305,6 +305,28 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             raise HTTPException(status_code=400, detail=str(err)) from err
         return {"ok": True, "places": orte}
 
+    @app.get("/api/presence/places/search")
+    async def search_places(request: Request, q: str = "") -> dict[str, Any]:
+        """Orte zu einer Adresse vorschlagen - oder eingefügte Koordinaten.
+
+        Der Hub fragt, nicht das Telefon: Er hat den Weg ins Internet
+        ohnehin, und so braucht die App keine eigene Erlaubnis dafür.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        service = hub.integrations.get("geofence")
+        if service is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Die geofence-Integration ist nicht eingerichtet",
+            )
+        try:
+            return {"results": await service.ort_suchen(q)}
+        except Exception as err:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Die Ortssuche ist gerade nicht erreichbar: {err}",
+            ) from err
+
     @app.delete("/api/presence/places/{place_id}")
     async def delete_place(place_id: str, request: Request) -> dict[str, Any]:
         """Einen in der App angelegten Ort löschen.
