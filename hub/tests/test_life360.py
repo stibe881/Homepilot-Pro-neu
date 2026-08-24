@@ -16,7 +16,9 @@ from homepilot.integrations.life360 import (
     PAUSEN,
     Life360Integration,
     abstand_meter,
+    health_detail,
     meldungen_fuer,
+    namen_je_zone,
     parse_members,
     parse_position,
     pause_nach,
@@ -482,3 +484,91 @@ def test_place_state_stellt_den_benannten_ort_vor_das_quartier():
     )
     # Und ohne fremden Namen bleibt alles wie bisher.
     assert presence.place_state(["quartier"], orte) == ("quartier", "quartier")
+
+
+# ── Was die Diagnose sagt ────────────────────────────────────────────────
+#
+# Die Integration legt keine eigenen Entitäten an - im System-Bildschirm
+# stand deshalb «0 Geräte», was wie eine Störung aussieht und die eine
+# Frage nicht beantwortet, für die man dort hinschaut.
+
+
+def test_der_name_zur_zone_bleibt_wie_er_in_der_konfiguration_steht():
+    namen = namen_je_zone({"Levin Gross": "levin", "Oma ": " oma ", "  ": "x"})
+    assert namen == {"levin": "Levin Gross", "oma": "Oma"}
+
+
+def test_ohne_geofence_ist_alles_andere_gegenstandslos():
+    satz = health_detail(2, 2, geofence=False)
+    assert "geofence" in satz
+    # Keine Zahlen: Sie wären wahr und trotzdem irreführend.
+    assert "2 von 2" not in satz
+
+
+def test_eine_sperre_steht_vor_den_zahlen():
+    satz = health_detail(1, 1, fehler=2, grund="Life360 antwortet mit 429")
+    assert "429" in satz
+    assert f"{PAUSEN[1]:.0f} s" in satz
+    assert "1 von 1" not in satz
+
+
+def test_der_normalfall_zaehlt_die_personen_nicht_die_geraete():
+    assert health_detail(2, 2) == "2 von 2 Personen gemeldet"
+    assert health_detail(1, 1) == "1 von 1 Person gemeldet"
+    assert health_detail(1, 0, abgefragt=False) == "Erste Abfrage steht noch aus."
+
+
+def test_wer_im_kreis_fehlt_und_wer_nur_schweigt_stehen_getrennt():
+    # Verschiedene Ursachen, verschiedene Abhilfe: Schreibweise
+    # korrigieren oder Akku laden.
+    satz = health_detail(3, 1, unbekannt=["Oma"], still=["Levin"])
+    assert "im Kreis nicht gefunden: Oma" in satz
+    assert "ohne frische Ortsmeldung: Levin" in satz
+
+
+def test_die_diagnose_antwortet_auch_wenn_setup_nie_lief():
+    # Scheitert setup() an einer fehlenden Zugangsangabe, fragt die
+    # Diagnose trotzdem - und darf dabei nicht werfen.
+    dienst = Life360Integration.__new__(Life360Integration)
+    zustand = dienst.health()
+    assert zustand["ok"] is True
+    assert zustand["last_event"] is None
+
+
+def test_die_diagnose_erkennt_den_namen_der_nirgends_steht():
+    dienst = _integration()
+    dienst._members = parse_members({"Oma": "oma", "Levin": "levin"})
+    dienst._namen = namen_je_zone({"Oma": "oma", "Levin": "levin"})
+    dienst._letzte_abfrage = time.time()
+    dienst._gesehen = {"oma"}
+    dienst._gemeldet = {"oma"}
+    zustand = dienst.health()
+    # Levin steht in der config.yaml und in keinem Kreis - das ist eine
+    # Störung, auch wenn die Verbindung tadellos steht.
+    assert zustand["ok"] is False
+    assert "Levin" in zustand["detail"]
+    assert "1 von 2 Personen gemeldet" in zustand["detail"]
+
+
+@pytest.mark.asyncio
+async def test_gemeldet_heisst_es_ging_wirklich_etwas_hinaus():
+    dienst = _integration()
+    dienst.log = _Log()
+    geofence = StubGeofence()
+    zuhause = {
+        "firstName": "Oma",
+        "location": {"latitude": "47.1381", "longitude": "7.9228",
+                     "timestamp": str(time.time()), "battery": "72"},
+    }
+    assert await dienst._melden(geofence, zuhause, time.time()) is True
+    # Eine Stunde alte Messung: Der Geofence hört nichts, also gilt sie
+    # auch in der Diagnose nicht als Meldung.
+    alt = {
+        "firstName": "Oma",
+        "location": {"latitude": "47.1381", "longitude": "7.9228",
+                     "timestamp": str(time.time() - MAX_ALTER - 10)},
+    }
+    assert await dienst._melden(geofence, alt, time.time()) is False
+    # Und wer gar nicht eingetragen ist, erst recht nicht.
+    fremd = {"firstName": "Wer-auch-immer", "location": zuhause["location"]}
+    assert await dienst._melden(geofence, fremd, time.time()) is False

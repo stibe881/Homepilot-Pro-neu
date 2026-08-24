@@ -1,6 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Platform, Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Platform,
+  Pressable,
+  Share,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import Constants from 'expo-constants';
 import * as Updates from 'expo-updates';
 
@@ -13,6 +21,7 @@ import { Maintenance } from '../components/Maintenance';
 import { Fehlschlag, Laedt } from '../components/Zustand';
 import { ConfigCard } from './system/konfiguration';
 import { datumUhr } from '../lib/format';
+import { integrationDetail } from '../lib/integrationszeile';
 import { LetzterLauf, letzterLaufSatz } from '../lib/letzterlauf';
 import { localTime, timeAgo } from '../lib/zeit';
 import { Colors, radius, space, type, useColors } from '../theme';
@@ -59,9 +68,7 @@ export function SystemScreen({
       .catch((err) => setError(err instanceof HubFehler ? err.message : String(err)));
 
     if (user?.capabilities?.includes('manage_users')) {
-      hub
-        .get<User[] | null>('/api/users', { fallback: null, still: true })
-        .then(setUsers);
+      hub.get<User[] | null>('/api/users', { fallback: null, still: true }).then(setUsers);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hub, user?.role]);
@@ -85,9 +92,7 @@ export function SystemScreen({
             label="nicht erreichbar"
             value={String(status.unavailable)}
             tone={status.unavailable > 0 ? colors.warn : colors.on}
-            onPress={
-              status.unavailable > 0 ? () => setShowOffline((on) => !on) : undefined
-            }
+            onPress={status.unavailable > 0 ? () => setShowOffline((on) => !on) : undefined}
             expanded={showOffline}
           />
           <Fact label="Laufzeit" value={uptime(status.uptime_seconds)} />
@@ -133,8 +138,8 @@ export function SystemScreen({
         {showOffline ? (
           offline(entities).length === 0 ? (
             <Text style={styles.hint}>
-              Der Hub zählt {status.unavailable}, die App kennt aber keine –
-              vermutlich Geräte, die für dich nicht freigegeben sind.
+              Der Hub zählt {status.unavailable}, die App kennt aber keine – vermutlich
+              Geräte, die für dich nicht freigegeben sind.
             </Text>
           ) : (
             <View style={styles.offlineList}>
@@ -154,9 +159,7 @@ export function SystemScreen({
                         heisst –, gehört er hierher und nicht nur ins
                         Log. */}
                     {entity.state?.problem ? (
-                      <Text style={styles.rowProblem}>
-                        {String(entity.state.problem)}
-                      </Text>
+                      <Text style={styles.rowProblem}>{String(entity.state.problem)}</Text>
                     ) : null}
                   </View>
                 </View>
@@ -208,9 +211,8 @@ export function SystemScreen({
           <Text style={styles.heading}>Speicherplatz wird knapp</Text>
           <Text style={styles.rowDetail}>
             {status.disk.percent} % belegt – noch {status.disk.free_gb} von{' '}
-            {status.disk.total_gb} GB frei. Läuft der Datenträger voll, lässt sich
-            nichts mehr speichern: keine Konfiguration, keine Lautsprecher, keine
-            Sicherung.
+            {status.disk.total_gb} GB frei. Läuft der Datenträger voll, lässt sich nichts
+            mehr speichern: keine Konfiguration, keine Lautsprecher, keine Sicherung.
           </Text>
           <Text style={styles.hint}>
             Meist sind es Docker-Reste. Auf dem Host aufräumen mit{'\n'}
@@ -224,9 +226,7 @@ export function SystemScreen({
         <ConfigCard settings={settings} />
       ) : null}
 
-      {user?.capabilities?.includes('edit_config') ? (
-        <LogCard settings={settings} />
-      ) : null}
+      {user?.capabilities?.includes('edit_config') ? <LogCard settings={settings} /> : null}
 
       {user?.capabilities?.includes('edit_config') ? (
         <AccessLog settings={settings} />
@@ -253,8 +253,8 @@ export function SystemScreen({
             </View>
           ))}
           <Text style={styles.hint}>
-            Neue Benutzer legst du in der config.yaml des Hubs an – dann bleiben
-            sie auch nach einem Neustart erhalten.
+            Neue Benutzer legst du in der config.yaml des Hubs an – dann bleiben sie auch
+            nach einem Neustart erhalten.
           </Text>
         </Card>
       ) : null}
@@ -296,10 +296,9 @@ function LogCard({ settings }: { settings: HubSettings }) {
     setNote(null);
     try {
       // Die Karte zeigt Fehler selbst an - deshalb «still».
-      const body = await hub.get<{ entries?: LogEntry[] }>(
-        '/api/system/log?limit=100',
-        { still: true }
-      );
+      const body = await hub.get<{ entries?: LogEntry[] }>('/api/system/log?limit=100', {
+        still: true,
+      });
       setEntries(Array.isArray(body.entries) ? body.entries : []);
     } catch (err) {
       setNote(String(err instanceof Error ? err.message : err));
@@ -344,9 +343,11 @@ function LogCard({ settings }: { settings: HubSettings }) {
               {entries.map((entry, index) => (
                 <View key={index} style={styles.logRow}>
                   <Ionicons
-                    name={entry.level === 'ERROR' || entry.level === 'CRITICAL'
-                      ? 'alert-circle'
-                      : 'warning-outline'}
+                    name={
+                      entry.level === 'ERROR' || entry.level === 'CRITICAL'
+                        ? 'alert-circle'
+                        : 'warning-outline'
+                    }
                     size={16}
                     color={
                       entry.level === 'ERROR' || entry.level === 'CRITICAL'
@@ -357,8 +358,7 @@ function LogCard({ settings }: { settings: HubSettings }) {
                   <View style={{ flex: 1 }}>
                     <Text style={styles.logMessage}>{entry.message}</Text>
                     <Text style={styles.rowDetail}>
-                      {datumUhr(entry.at * 1000)}{' '}
-                      · {entry.logger}
+                      {datumUhr(entry.at * 1000)} · {entry.logger}
                     </Text>
                   </View>
                 </View>
@@ -429,14 +429,14 @@ function ShortcutsCard({ settings }: { settings: HubSettings }) {
       {open ? (
         <>
           <Text style={styles.hint}>
-            Antippen teilt die fertigen Angaben. In der App «Kurzbefehle» eine
-            Aktion «Inhalte von URL abrufen» anlegen und einsetzen – der Name
-            des Kurzbefehls wird der Satz, den du Siri sagst.
+            Antippen teilt die fertigen Angaben. In der App «Kurzbefehle» eine Aktion
+            «Inhalte von URL abrufen» anlegen und einsetzen – der Name des Kurzbefehls wird
+            der Satz, den du Siri sagst.
           </Text>
           <Text style={styles.hint}>
-            Derselbe Kurzbefehl lässt sich auf einen NFC-Aufkleber legen:
-            einer am Eingang für «Alles aus», einer am Nachttisch für
-            «Schlafen». Schritt für Schritt in docs/nfc-und-widget.md.
+            Derselbe Kurzbefehl lässt sich auf einen NFC-Aufkleber legen: einer am Eingang
+            für «Alles aus», einer am Nachttisch für «Schlafen». Schritt für Schritt in
+            docs/nfc-und-widget.md.
           </Text>
           <TextInput
             style={styles.configInput}
@@ -457,7 +457,9 @@ function ShortcutsCard({ settings }: { settings: HubSettings }) {
                 style={({ pressed }) => [styles.row, pressed && { opacity: 0.7 }]}
               >
                 <Ionicons
-                  name={item.kind === 'scene' ? 'sparkles-outline' : 'hardware-chip-outline'}
+                  name={
+                    item.kind === 'scene' ? 'sparkles-outline' : 'hardware-chip-outline'
+                  }
                   size={18}
                   color={colors.accent}
                 />
@@ -471,14 +473,12 @@ function ShortcutsCard({ settings }: { settings: HubSettings }) {
               </Pressable>
             ))
           )}
-          {copied ? (
-            <Text style={styles.rowDetail}>«{copied}» geteilt.</Text>
-          ) : null}
+          {copied ? <Text style={styles.rowDetail}>«{copied}» geteilt.</Text> : null}
           <Text style={styles.hint}>
-            Achtung: Die Angaben enthalten dein Token. Wer sie hat, kann alles
-            schalten, was du darfst – also nicht in eine Gruppenchat schicken.
-            Für Siri lohnt sich ein eigener Benutzer mit eigenem Token, den man
-            einzeln zurückziehen kann (siehe docs/siri-und-widgets.md).
+            Achtung: Die Angaben enthalten dein Token. Wer sie hat, kann alles schalten, was
+            du darfst – also nicht in eine Gruppenchat schicken. Für Siri lohnt sich ein
+            eigener Benutzer mit eigenem Token, den man einzeln zurückziehen kann (siehe
+            docs/siri-und-widgets.md).
           </Text>
         </>
       ) : null}
@@ -608,8 +608,8 @@ function WasIstNeu({ settings }: { settings: HubSettings }) {
             <Text style={styles.hint}>Wird geholt …</Text>
           ) : changes.length === 0 ? (
             <Text style={styles.hint}>
-              Keine Liste vorhanden – sie entsteht beim Bau und fehlt, wenn der
-              Hub von Hand gestartet wurde.
+              Keine Liste vorhanden – sie entsteht beim Bau und fehlt, wenn der Hub von Hand
+              gestartet wurde.
             </Text>
           ) : (
             changes.map((zeile, index) => (
@@ -657,10 +657,10 @@ function AppVersionNote() {
       </Text>
       {nachgeladen ? (
         <Text style={[styles.hint, { color: colors.warn }]}>
-          Diese App führt nicht ihren eigenen Stand aus, sondern eine über
-          die Luft nachgeladene Fassung – die kann älter sein als das, was
-          TestFlight gerade gebracht hat. Fehlt eine Änderung, die im Build
-          drin sein müsste, ist das der wahrscheinliche Grund.
+          Diese App führt nicht ihren eigenen Stand aus, sondern eine über die Luft
+          nachgeladene Fassung – die kann älter sein als das, was TestFlight gerade gebracht
+          hat. Fehlt eine Änderung, die im Build drin sein müsste, ist das der
+          wahrscheinliche Grund.
         </Text>
       ) : null}
     </>
@@ -693,11 +693,10 @@ function WebVersionNote({ hubCommit }: { hubCommit: string }) {
   }
   return (
     <Text style={[styles.hint, { color: colors.warn }]}>
-      Die geladene Web-Fassung ist Stand {webCommit}, der Hub läuft mit{' '}
-      {hubCommit}. Die Seite einmal komplett neu laden – zeigt sie danach
-      immer noch den alten Stand, ist beim Update der Web-Bau
-      fehlgeschlagen (die Meldung dazu erscheint nach dem nächsten Update
-      hier beim Update-Knopf).
+      Die geladene Web-Fassung ist Stand {webCommit}, der Hub läuft mit {hubCommit}. Die
+      Seite einmal komplett neu laden – zeigt sie danach immer noch den alten Stand, ist
+      beim Update der Web-Bau fehlgeschlagen (die Meldung dazu erscheint nach dem nächsten
+      Update hier beim Update-Knopf).
     </Text>
   );
 }
@@ -751,7 +750,9 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
     let cancelled = false;
     (async () => {
       try {
-        const response = await fetch(`${settings.url}/api/system/update/status`, { headers });
+        const response = await fetch(`${settings.url}/api/system/update/status`, {
+          headers,
+        });
         if (cancelled || !response.ok) return;
         const data = (await response.json()) as UpdateStatus;
         if (cancelled) return;
@@ -789,7 +790,9 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
     const poll = async () => {
       polls += 1;
       try {
-        const response = await fetch(`${settings.url}/api/system/update/status`, { headers });
+        const response = await fetch(`${settings.url}/api/system/update/status`, {
+          headers,
+        });
         if (cancelled) return;
         if (!response.ok) {
           if (response.status === 404) setBusy(false); // älterer Hub ohne dieses Endpunkt
@@ -836,9 +839,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
               // aber etwas blieb auf dem alten Stand - das gehört vor
               // die Augen, nicht ins Journal auf dem Host.
               setNoteError(true);
-              setNote(
-                ['Fertig, aber mit Vorbehalt:', ...warned].join('\n')
-              );
+              setNote(['Fertig, aber mit Vorbehalt:', ...warned].join('\n'));
             } else {
               setNoteError(false);
               setNote('Fertig – der Hub läuft mit dem frischen Stand.');
@@ -852,7 +853,9 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
       if (!cancelled && polls >= MAX_POLLS) {
         setBusy(false);
         setNoteError(true);
-        setNote('Keine Rückmeldung mehr vom Update-Dienst – im Log auf dem Host nachsehen.');
+        setNote(
+          'Keine Rückmeldung mehr vom Update-Dienst – im Log auf dem Host nachsehen.'
+        );
       }
     };
     poll();
@@ -891,7 +894,8 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
         body: JSON.stringify({ ios }),
       });
       const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(body?.detail ?? `Hub antwortet mit ${response.status}`);
+      if (!response.ok)
+        throw new Error(body?.detail ?? `Hub antwortet mit ${response.status}`);
       iosIgnored.current = Boolean(body?.ios_ignored);
       if (iosIgnored.current) {
         setNoteError(true);
@@ -945,11 +949,10 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
         <View style={styles.updateAsk}>
           <Text style={styles.updateAskTitle}>Update wirklich starten?</Text>
           <Text style={styles.updateAskText}>
-            Der Host holt den neusten Stand, baut den Hub neu und startet ihn
-            – das dauert ein paar Minuten, die App ist dabei kurz getrennt.
-            «Hub + iOS-Build» reicht die App zusätzlich über EAS bei App
-            Store Connect ein; das braucht es nur, wenn sich an der App
-            selbst etwas geändert hat.
+            Der Host holt den neusten Stand, baut den Hub neu und startet ihn – das dauert
+            ein paar Minuten, die App ist dabei kurz getrennt. «Hub + iOS-Build» reicht die
+            App zusätzlich über EAS bei App Store Connect ein; das braucht es nur, wenn sich
+            an der App selbst etwas geändert hat.
           </Text>
           <View style={styles.updateAskRow}>
             <Pressable
@@ -998,10 +1001,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
         </Text>
       ) : null}
       {note ? (
-        <Text
-          style={[styles.noteText, noteError && { color: colors.danger }]}
-          selectable
-        >
+        <Text style={[styles.noteText, noteError && { color: colors.danger }]} selectable>
           {note}
         </Text>
       ) : null}
@@ -1060,8 +1060,7 @@ export function offline(entities: Entity[]): Entity[] {
   return entities
     .filter((entity) => !entity.available)
     .sort(
-      (a, b) =>
-        (a.room ?? '').localeCompare(b.room ?? '') || a.name.localeCompare(b.name)
+      (a, b) => (a.room ?? '').localeCompare(b.room ?? '') || a.name.localeCompare(b.name)
     );
 }
 
@@ -1158,54 +1157,56 @@ function IntegrationsCard({
         />
       </Pressable>
       {reloadNote ? <Text style={styles.hint}>{reloadNote}</Text> : null}
-      {shown.map((integration) => (
-        <View key={integration.name} style={styles.row}>
-          <Ionicons
-            name={
-              !integration.ok
-                ? 'alert-circle'
-                : integration.health?.ok === false
-                  ? 'warning'
-                  : 'checkmark-circle'
-            }
-            size={20}
-            color={
-              !integration.ok
-                ? colors.danger
-                : integration.health?.ok === false
-                  ? colors.warn
-                  : colors.on
-            }
-          />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.rowTitle}>{integration.name}</Text>
-            <Text style={styles.rowDetail} numberOfLines={2}>
-              {integration.ok
-                ? `${integration.entities} Geräte` +
-                  (integration.unavailable
-                    ? `, ${integration.unavailable} nicht erreichbar`
-                    : '')
-                : integration.error}
-            </Text>
-            {integration.health ? (
-              <Text style={styles.rowDetail}>{healthText(integration.health)}</Text>
-            ) : null}
-          </View>
-          <Pressable
-            onPress={() => reload(integration.name)}
-            disabled={busyName !== null}
-            accessibilityRole="button"
-            accessibilityLabel={`${integration.name} neu laden`}
-            hitSlop={8}
-          >
+      {shown.map((integration) => {
+        const detail = integrationDetail(integration);
+        return (
+          <View key={integration.name} style={styles.row}>
             <Ionicons
-              name={busyName === integration.name ? 'hourglass-outline' : 'refresh-outline'}
-              size={18}
-              color={busyName ? colors.inkFaint : colors.inkSoft}
+              name={
+                !integration.ok
+                  ? 'alert-circle'
+                  : integration.health?.ok === false
+                    ? 'warning'
+                    : 'checkmark-circle'
+              }
+              size={20}
+              color={
+                !integration.ok
+                  ? colors.danger
+                  : integration.health?.ok === false
+                    ? colors.warn
+                    : colors.on
+              }
             />
-          </Pressable>
-        </View>
-      ))}
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowTitle}>{integration.name}</Text>
+              {detail ? (
+                <Text style={styles.rowDetail} numberOfLines={2}>
+                  {detail}
+                </Text>
+              ) : null}
+              {integration.health ? (
+                <Text style={styles.rowDetail}>{healthText(integration.health)}</Text>
+              ) : null}
+            </View>
+            <Pressable
+              onPress={() => reload(integration.name)}
+              disabled={busyName !== null}
+              accessibilityRole="button"
+              accessibilityLabel={`${integration.name} neu laden`}
+              hitSlop={8}
+            >
+              <Ionicons
+                name={
+                  busyName === integration.name ? 'hourglass-outline' : 'refresh-outline'
+                }
+                size={18}
+                color={busyName ? colors.inkFaint : colors.inkSoft}
+              />
+            </Pressable>
+          </View>
+        );
+      })}
     </Card>
   );
 }
@@ -1273,10 +1274,9 @@ function PushTestCard({ settings, push }: { settings: HubSettings; push: PushSta
 
   const loadDevices = useCallback(() => {
     hub
-      .get<{ devices?: { token: string; user: string; label: string }[] } | null>(
-        '/api/push/devices',
-        { fallback: null, still: true }
-      )
+      .get<{
+        devices?: { token: string; user: string; label: string }[];
+      } | null>('/api/push/devices', { fallback: null, still: true })
       .then((data) => setDevices(data?.devices ?? null));
   }, [hub]);
 
@@ -1355,10 +1355,9 @@ function PushTestCard({ settings, push }: { settings: HubSettings; push: PushSta
             </View>
           ))}
           <Text style={styles.hint}>
-            Ein entferntes Gerät meldet sich beim nächsten Öffnen der App von
-            selbst wieder an. Entfernen lohnt sich für Altlasten – etwa Tokens
-            aus der Expo-Go-Zeit, die Apple mit «gehört zu einer anderen
-            App-Kennung» ablehnt.
+            Ein entferntes Gerät meldet sich beim nächsten Öffnen der App von selbst wieder
+            an. Entfernen lohnt sich für Altlasten – etwa Tokens aus der Expo-Go-Zeit, die
+            Apple mit «gehört zu einer anderen App-Kennung» ablehnt.
           </Text>
         </View>
       ) : null}
@@ -1420,9 +1419,7 @@ function BackupCard({ settings }: { settings: HubSettings }) {
   };
 
   const latest = backups && backups[0];
-  const when = latest
-    ? datumUhr(latest.created * 1000)
-    : null;
+  const when = latest ? datumUhr(latest.created * 1000) : null;
 
   const download = async (name: string) => {
     // Nur im Web: Dort kann der Browser die Datei speichern. Der Link
@@ -1530,7 +1527,8 @@ function BackupCard({ settings }: { settings: HubSettings }) {
         { method: 'POST', headers }
       );
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.detail ?? `Hub antwortet mit ${response.status}`);
+      if (!response.ok)
+        throw new Error(body.detail ?? `Hub antwortet mit ${response.status}`);
       setNote(body.hinweis ?? 'Zurückgespielt - der Hub startet neu.');
     } catch (err) {
       setNote(String(err instanceof Error ? err.message : err));
@@ -1577,8 +1575,8 @@ function BackupCard({ settings }: { settings: HubSettings }) {
           : 'Alles als Datei herunterladen geht in der Web-Fassung – das Telefon hat keinen Ort, an dem sie liegen bliebe.'}
       </Text>
       <Text style={styles.rowDetail}>
-        Das Hausblatt ist eine Seite für die Ferienvertretung: Räume, Szenen
-        und vor allem, was von selbst passiert.
+        Das Hausblatt ist eine Seite für die Ferienvertretung: Räume, Szenen und vor allem,
+        was von selbst passiert.
       </Text>
 
       {listOpen
@@ -1627,21 +1625,17 @@ function BackupCard({ settings }: { settings: HubSettings }) {
         </Text>
       ) : null}
       {offsite ? (
-        <Text
-          style={[styles.rowDetail, !offsite.ok && { color: colors.warn }]}
-          selectable
-        >
+        <Text style={[styles.rowDetail, !offsite.ok && { color: colors.warn }]} selectable>
           {offsite.ok
             ? `Off-Site-Kopie in Supabase: zuletzt ${datumUhr(offsite.at * 1000)}`
             : `Off-Site-Kopie fehlgeschlagen: ${offsite.error ?? 'unbekannt'}`}
         </Text>
       ) : null}
       <Text style={styles.hint}>
-        Benutzer, Abläufe, Szenen und Familien-Daten werden täglich automatisch
-        gesichert (die letzten 14). Zurückspielen sichert den aktuellen Stand
-        zuerst und startet den Hub neu. Fürs Herunterladen die Web-Fassung am
-        Computer öffnen - eine Kopie ausserhalb des Hubs schützt auch bei
-        einem Plattenschaden.
+        Benutzer, Abläufe, Szenen und Familien-Daten werden täglich automatisch gesichert
+        (die letzten 14). Zurückspielen sichert den aktuellen Stand zuerst und startet den
+        Hub neu. Fürs Herunterladen die Web-Fassung am Computer öffnen - eine Kopie
+        ausserhalb des Hubs schützt auch bei einem Plattenschaden.
       </Text>
     </Card>
   );
@@ -1663,8 +1657,8 @@ function VoiceHelpCard() {
     <Card style={styles.card}>
       <Text style={styles.heading}>Sprachbefehle</Text>
       <Text style={styles.rowDetail}>
-        Geräte, Szenen und Musik lassen sich über die verknüpften Google-Home-
-        Lautsprecher per Sprache steuern. Beispiele:
+        Geräte, Szenen und Musik lassen sich über die verknüpften Google-Home- Lautsprecher
+        per Sprache steuern. Beispiele:
       </Text>
       {examples.map((line) => (
         <View key={line} style={styles.voiceRow}>
@@ -1673,8 +1667,8 @@ function VoiceHelpCard() {
         </View>
       ))}
       <Text style={styles.hint}>
-        Namen frei wählbar: Benenne ein Gerät im Anpassen-Modus um, dann hört
-        Google auf denselben Namen. Szenen heissen wie im Abläufe-Editor.
+        Namen frei wählbar: Benenne ein Gerät im Anpassen-Modus um, dann hört Google auf
+        denselben Namen. Szenen heissen wie im Abläufe-Editor.
       </Text>
     </Card>
   );
@@ -1720,131 +1714,135 @@ function uptime(seconds: number): string {
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-  list: { gap: space.gap, marginTop: 4 },
-  card: { minHeight: 0, gap: 12 },
-  heading: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
-  facts: { flexDirection: 'row', flexWrap: 'wrap', gap: 22 },
-  fact: { gap: 2 },
-  factLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  offlineList: { gap: 8, marginTop: 4 },
-  factValue: { color: colors.ink, fontSize: 22, fontWeight: '700' },
-  factLabel: { color: colors.inkSoft, fontSize: 12 },
-  integrationHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  rowTitle: { color: colors.ink, fontSize: 15, fontWeight: '600' },
-  rowDetail: { color: colors.inkSoft, fontSize: 13 },
-  // Der Grund, warum nichts ankommt. In der Warnfarbe, weil er eine
-  // Aufgabe ist, und mit Zeilenabstand, weil er ein Satz ist.
-  rowProblem: { color: colors.warn, fontSize: 12, lineHeight: 17, marginTop: 2 },
-  hint: { color: colors.inkFaint, fontSize: 12, lineHeight: 18 },
-  buttons: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  button: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: radius.control,
-    backgroundColor: colors.surfaceStrong,
-    borderWidth: 1,
-    borderColor: colors.surfaceBorder,
-  },
-  buttonText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
-  voiceRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  voiceText: { color: colors.ink, fontSize: 14, flex: 1 },
-  configInput: {
-    backgroundColor: colors.surfaceSoft,
-    borderRadius: radius.control,
-    borderWidth: 1,
-    borderColor: colors.surfaceBorder,
-    color: colors.ink,
-    padding: 12,
-    minHeight: 320,
-    maxHeight: 480,
-    fontSize: 13,
-    lineHeight: 19,
-    fontFamily: 'Menlo',
-    textAlignVertical: 'top',
-  },
-  configMessage: { color: colors.inkSoft, fontSize: 13, lineHeight: 19 },
-  logHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  logList: { gap: 12 },
-  logRow: { flexDirection: 'row', gap: 10 },
-  logMessage: { color: colors.ink, fontSize: 13, lineHeight: 18 },
-  errorLine: { color: colors.danger, fontSize: 13, fontWeight: '600' },
-  versionRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
-  buildRow: { gap: 8, marginTop: 4 },
-  // Zwei Zeilen statt einer langen: Der Zeitstempel bricht sonst mitten
-  // im Datum um und liest sich wie ein Fehler.
-  buildText: { gap: 2 },
-  pushList: { gap: 10, marginTop: 4 },
-  pushRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  updateAsk: {
-    gap: 8,
-    padding: 12,
-    borderRadius: radius.control,
-    backgroundColor: colors.surfaceSoft,
-    borderWidth: 1,
-    borderColor: colors.surfaceBorder,
-  },
-  smallAction: {
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: colors.surfaceBorder,
-  },
-  smallActionText: { color: colors.inkSoft, fontSize: 12, fontWeight: '700' },
-  updateAskTitle: { color: colors.ink, fontSize: 14, fontWeight: '700' },
-  updateAskText: { color: colors.inkSoft, fontSize: 12, lineHeight: 18 },
-  updateAskRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  updateAskButton: {
-    paddingVertical: 9,
-    paddingHorizontal: 14,
-    borderRadius: radius.control,
-    borderWidth: 1,
-    borderColor: colors.surfaceBorder,
-  },
-  updateAskPrimary: { backgroundColor: colors.accent, borderColor: colors.accent },
-  updateAskButtonText: { color: colors.ink, fontSize: 13, fontWeight: '700' },
-  // Mehrzeilig und markierbar: Im Fehlerfall steht hier die Ursache samt
-  // Abhilfe – oft ein Befehl, den man kopieren will.
-  noteText: { color: colors.inkSoft, fontSize: 13, lineHeight: 19 },
-  updateButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: radius.control,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.surfaceBorder,
-  },
-  updateText: { color: colors.ink, fontSize: 13, fontWeight: '700' },
-  progressTrack: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.surfaceSoft,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 3,
-    backgroundColor: colors.accent,
-  },
-  warnBox: {
-    gap: 6,
-    padding: 12,
-    borderRadius: radius.control,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.surfaceBorder,
-  },
-  warnText: { color: colors.ink, fontSize: 13, lineHeight: 19, flex: 1 },
-  note: {
-    color: colors.onGradientSoft,
-    fontSize: 14,
-    lineHeight: 21,
-    marginTop: 20,
-    maxWidth: 460,
-  },
-});
+    list: { gap: space.gap, marginTop: 4 },
+    card: { minHeight: 0, gap: 12 },
+    heading: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
+    facts: { flexDirection: 'row', flexWrap: 'wrap', gap: 22 },
+    fact: { gap: 2 },
+    factLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    offlineList: { gap: 8, marginTop: 4 },
+    factValue: { color: colors.ink, fontSize: 22, fontWeight: '700' },
+    factLabel: { color: colors.inkSoft, fontSize: 12 },
+    integrationHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    rowTitle: { color: colors.ink, fontSize: 15, fontWeight: '600' },
+    rowDetail: { color: colors.inkSoft, fontSize: 13 },
+    // Der Grund, warum nichts ankommt. In der Warnfarbe, weil er eine
+    // Aufgabe ist, und mit Zeilenabstand, weil er ein Satz ist.
+    rowProblem: { color: colors.warn, fontSize: 12, lineHeight: 17, marginTop: 2 },
+    hint: { color: colors.inkFaint, fontSize: 12, lineHeight: 18 },
+    buttons: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+    button: {
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: radius.control,
+      backgroundColor: colors.surfaceStrong,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    buttonText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
+    voiceRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    voiceText: { color: colors.ink, fontSize: 14, flex: 1 },
+    configInput: {
+      backgroundColor: colors.surfaceSoft,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      color: colors.ink,
+      padding: 12,
+      minHeight: 320,
+      maxHeight: 480,
+      fontSize: 13,
+      lineHeight: 19,
+      fontFamily: 'Menlo',
+      textAlignVertical: 'top',
+    },
+    configMessage: { color: colors.inkSoft, fontSize: 13, lineHeight: 19 },
+    logHead: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    logList: { gap: 12 },
+    logRow: { flexDirection: 'row', gap: 10 },
+    logMessage: { color: colors.ink, fontSize: 13, lineHeight: 18 },
+    errorLine: { color: colors.danger, fontSize: 13, fontWeight: '600' },
+    versionRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
+    buildRow: { gap: 8, marginTop: 4 },
+    // Zwei Zeilen statt einer langen: Der Zeitstempel bricht sonst mitten
+    // im Datum um und liest sich wie ein Fehler.
+    buildText: { gap: 2 },
+    pushList: { gap: 10, marginTop: 4 },
+    pushRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    updateAsk: {
+      gap: 8,
+      padding: 12,
+      borderRadius: radius.control,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    smallAction: {
+      paddingVertical: 6,
+      paddingHorizontal: 10,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    smallActionText: { color: colors.inkSoft, fontSize: 12, fontWeight: '700' },
+    updateAskTitle: { color: colors.ink, fontSize: 14, fontWeight: '700' },
+    updateAskText: { color: colors.inkSoft, fontSize: 12, lineHeight: 18 },
+    updateAskRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    updateAskButton: {
+      paddingVertical: 9,
+      paddingHorizontal: 14,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    updateAskPrimary: { backgroundColor: colors.accent, borderColor: colors.accent },
+    updateAskButtonText: { color: colors.ink, fontSize: 13, fontWeight: '700' },
+    // Mehrzeilig und markierbar: Im Fehlerfall steht hier die Ursache samt
+    // Abhilfe – oft ein Befehl, den man kopieren will.
+    noteText: { color: colors.inkSoft, fontSize: 13, lineHeight: 19 },
+    updateButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      alignSelf: 'flex-start',
+      gap: 8,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: radius.control,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    updateText: { color: colors.ink, fontSize: 13, fontWeight: '700' },
+    progressTrack: {
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: colors.surfaceSoft,
+      overflow: 'hidden',
+    },
+    progressFill: {
+      height: '100%',
+      borderRadius: 3,
+      backgroundColor: colors.accent,
+    },
+    warnBox: {
+      gap: 6,
+      padding: 12,
+      borderRadius: radius.control,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    warnText: { color: colors.ink, fontSize: 13, lineHeight: 19, flex: 1 },
+    note: {
+      color: colors.onGradientSoft,
+      fontSize: 14,
+      lineHeight: 21,
+      marginTop: 20,
+      maxWidth: 460,
+    },
+  });
