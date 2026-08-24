@@ -34,7 +34,7 @@ import {
   vorlaeufigeId,
 } from '../lib/familiecache';
 import { herkunftText, neuSeit, suche, trefferName } from '../lib/familiensuche';
-import { anwesenheitKurz, anwesenheitsZeile } from '../lib/ortung';
+import { anwesenheitKurz, anwesenheitsZeile, quellenText } from '../lib/ortung';
 import {
   ABEND_FELDER,
   BABYSITTER_FEATURES,
@@ -3778,7 +3778,7 @@ export function FamilyScreen({
             <View key={String(zeile.zone ?? index)} style={{ gap: 2 }}>
               <Text style={styles.checkText}>{String(zeile.person ?? '?')}</Text>
               <Text style={styles.checkSub}>
-                {String(zeile.hint ?? '')} · Quelle: {String(zeile.combined_source ?? '?')}
+                {String(zeile.hint ?? '')} · Quelle: {quellenText(zeile.combined_source)}
                 {zeile.battery != null ? ` · Akku ${String(zeile.battery)} %` : ''}
               </Text>
             </View>

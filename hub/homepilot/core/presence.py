@@ -225,8 +225,19 @@ def diagnose(person: str, state: dict[str, Any], now: float) -> dict[str, Any]:
     alter = (now - changed) if changed else None
     quelle = str(state.get("source") or "unbekannt")
     stumm = is_stale(changed, now)
-    if not changed:
-        text = "Hat sich noch nie gemeldet – ist der Kurzbefehl eingerichtet?"
+    # «none» ist der Vermerk, den die Geofence-Integration einer frisch
+    # angelegten Zone mitgibt: hier kam noch nie etwas an. Ohne die
+    # zweite Bedingung stand in der Diagnose «Meldet sich regelmässig»
+    # neben «Quelle: none» - eine Zeile, die sich selbst widerspricht,
+    # und zwar bei genau der Person, bei der nichts ankam.
+    #
+    # Nur «none», nicht auch «unbekannt»: Fehlt der Vermerk ganz, ist
+    # das eine Meldung alter Bauart und keine ausgebliebene.
+    if not changed or quelle == "none":
+        text = (
+            "Hat sich noch nie gemeldet – Ortung in der App einschalten "
+            "und «Jetzt melden» drücken (oder den Kurzbefehl einrichten)."
+        )
     elif stumm:
         stunden = int(alter // 3600) if alter else 0
         text = f"Seit {stunden} Stunden Funkstille – Akku, Flugmodus oder Kurzbefehl weg?"

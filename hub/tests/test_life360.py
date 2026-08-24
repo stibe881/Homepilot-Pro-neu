@@ -114,11 +114,13 @@ class StubGeofence:
         self.places = [HAUS, QUARTIER]
         self.zonen = zonen
         self.gemeldet: list[tuple] = []
+        self.quellen: list[str] = []
 
-    async def report(self, zone, event, place=None, battery=None):
+    async def report(self, zone, event, place=None, battery=None, source="geofence"):
         if zone not in self.zonen:
             raise KeyError(zone)
         self.gemeldet.append((zone, event, place, battery))
+        self.quellen.append(source)
         return "home" if event == "enter" else "away"
 
 
@@ -265,3 +267,34 @@ async def test_nach_einer_guten_antwort_ist_die_pause_wieder_kurz():
     dienst._mitglieder = antwort
     assert await dienst._runde() == 60.0
     assert geofence.gemeldet[0] == ("oma", "enter", "home", 50)
+
+
+def test_life360_meldet_sich_als_life360_und_nicht_als_geofence():
+    """Sonst steht in der Diagnose bei allen «geofence».
+
+    Die Frage, die man dort stellt, ist «liefert Life360 überhaupt?» –
+    und die war nicht zu beantworten, weil die Meldung durch dieselbe
+    Türe kommt wie die des Telefons und die Herkunft unterwegs verlor.
+    """
+    import asyncio
+
+    dienst = _integration()
+    dienst.log = _Log()
+    geofence = StubGeofence()
+    asyncio.run(
+        dienst._melden(
+            geofence,
+            {
+                "firstName": "Oma",
+                "location": {
+                    "latitude": "47.13844",
+                    "longitude": "7.92059",
+                    "timestamp": str(time.time()),
+                    "battery": "72",
+                },
+            },
+            time.time(),
+        )
+    )
+    assert geofence.quellen
+    assert set(geofence.quellen) == {"life360"}

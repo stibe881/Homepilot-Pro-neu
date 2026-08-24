@@ -279,7 +279,14 @@ class Life360Integration(Integration):
         ):
             try:
                 await geofence.report(
-                    zone, ereignis, place=ort, battery=position.get("battery")
+                    zone,
+                    ereignis,
+                    place=ort,
+                    battery=position.get("battery"),
+                    # Sonst stünde in der Diagnose «geofence», und man
+                    # sähe der Zeile nicht an, ob Life360 überhaupt
+                    # liefert – die eine Frage, die man dort stellt.
+                    source="life360",
                 )
             except KeyError:
                 self.log.warning(
