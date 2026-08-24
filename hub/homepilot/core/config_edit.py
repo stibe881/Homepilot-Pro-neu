@@ -232,6 +232,11 @@ def duplicate_devices(integrations: list[dict]) -> list[str]:
 
     Bei Homematic zählt zusätzlich der Port: Dieselbe Adresse auf zwei
     Schnittstellen wäre zwar seltsam, aber nicht dasselbe Gerät.
+
+    Und der Datenpunkt: Ein Aussenfühler (HmIP-STHO) legt Temperatur und
+    Luftfeuchtigkeit auf denselben Kanal - zwei Einträge mit derselben
+    Adresse sind dort kein Versehen, sondern der einzige Weg. Erst
+    dieselbe Adresse *und* derselbe Datenpunkt sind eine kopierte Zeile.
     """
     problems: list[str] = []
     for block in integrations or []:
@@ -245,15 +250,18 @@ def duplicate_devices(integrations: list[dict]) -> list[str]:
             key = (
                 str(device.get("address") or device.get("host") or ""),
                 str(device.get("port") or ""),
+                str(device.get("datapoint") or ""),
             )
             if not key[0]:
                 continue
             seen[key] = seen.get(key, 0) + 1
-        for (address, port), count in sorted(seen.items()):
+        for (address, port, datapoint), count in sorted(seen.items()):
             if count > 1:
                 where = f" (Port {port})" if port else ""
+                wert = f", {datapoint}" if datapoint else ""
                 problems.append(
-                    f"{name}: {address}{where} steht {count}-mal in der Geräteliste"
+                    f"{name}: {address}{where}{wert} steht {count}-mal in der "
+                    "Geräteliste"
                 )
     return problems
 
