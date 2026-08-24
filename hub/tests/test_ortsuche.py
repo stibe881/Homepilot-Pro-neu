@@ -13,7 +13,6 @@ from homepilot.core.ortsuche import (
     treffer,
 )
 
-
 # ── Koordinaten, die jemand eingefügt hat ────────────────────────────────
 
 
