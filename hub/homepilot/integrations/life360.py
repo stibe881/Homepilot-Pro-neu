@@ -319,11 +319,18 @@ class Life360Integration(Integration):
         meldungen = meldungen_fuer(
             eigene, position["latitude"], position["longitude"]
         )
-        # Die eigenen Orte des Hubs entscheiden zuerst. Steht jemand im
-        # Hausradius, heisst das «zuhause» – auch wenn Life360 den Ort
-        # anders nennt. Sonst hinge die Alarmanlage plötzlich an einem
-        # Namen aus einer fremden App.
-        drinnen = any(ereignis == "enter" for _, ereignis in meldungen)
+        # Nur das eigene Zuhause entscheidet vor Life360: Steht jemand im
+        # Hausradius, heisst das «zuhause», auch wenn der Ort drüben
+        # anders heisst – sonst hinge die Alarmanlage an einem Namen aus
+        # einer fremden App.
+        #
+        # Die weiten Zonen dagegen nicht. «Quartier» ist drei Kilometer
+        # weit und ein Vorlauf, kein Aufenthaltsort; es verschluckte
+        # sonst jeden benannten Ort im Dorf, und in der App stand
+        # «Quartier», wo «Tanners Home» hingehört.
+        drinnen = any(
+            ereignis == "enter" and ort == "home" for ort, ereignis in meldungen
+        )
         fremder = self._fremder_ort(position, eigene) if not drinnen else None
 
         # Reihenfolge: erst das Verlassen, dann das Ankommen. Andersherum

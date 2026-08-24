@@ -171,3 +171,62 @@ async def test_die_warnung_nennt_die_datenpunkte_des_kanals(hub, caplog):
         )
     finally:
         await integration.teardown()
+
+
+# ── Warum kommt nichts an? ───────────────────────────────────────────────
+#
+# Der gemeldete Fall: «Luftfeuchtigkeit Rack» und «Temperatur Rack»
+# stehen auf «nie gesehen», alle anderen Homematic-Geräte laufen. Im Log
+# stand längst, woran es liegt – auf der Kachel aber nur, dass etwas
+# fehlt. Das ist eine Sackgasse: Man sieht das Problem und nicht den Weg.
+
+
+class _KaputterKanal:
+    """Eine CCU, die den Datenpunkt nicht kennt, aber sagt, was sie hat."""
+
+    def __init__(self, adresse="000ED709B2834F:1"):
+        self.adresse = adresse
+
+    async def call(self, method, *args, port: int = 0):
+        if method == "listDevices":
+            return [
+                {"ADDRESS": self.adresse, "TYPE": "HmIP-STHO",
+                 "PARENT": self.adresse.split(":")[0]}
+            ]
+        if method == "getValue":
+            raise RuntimeError("Fault -5: Unknown Parameter ACTUAL_TEMPERATURE")
+        if method == "getParamsetDescription":
+            return {"HUMIDITY": {}, "ACTUAL_TEMPERATURE_STATUS": {}}
+        return ""
+
+
+async def test_der_grund_steht_am_geraet_nicht_nur_im_log(hub):
+    """Auf der Kachel soll stehen, wie der Wert wirklich heisst."""
+    ccu = _KaputterKanal()
+    integration = HomematicIntegration(
+        hub,
+        {
+            "integration": "homematic",
+            "host": "127.0.0.1",
+            "devices": [
+                {
+                    "address": ccu.adresse,
+                    "name": "Temperatur Rack",
+                    "kind": "sensor",
+                    "datapoint": "ACTUAL_TEMPERATURE",
+                }
+            ],
+        },
+    )
+    integration._call = ccu.call  # type: ignore[method-assign]
+    await integration.setup()
+    await integration._refresh_all()
+
+    entity = next(
+        e for e in hub.registry.all() if e.integration == "homematic"
+    )
+    assert entity.available is False
+    grund = str(entity.state.get("problem") or "")
+    # Nicht nur «geht nicht», sondern die Namen, die der Kanal wirklich hat.
+    assert "ACTUAL_TEMPERATURE" in grund
+    assert "HUMIDITY" in grund

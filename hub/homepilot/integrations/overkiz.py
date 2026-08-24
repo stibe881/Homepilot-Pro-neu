@@ -23,6 +23,13 @@ in overkiz-token.json:
 Aussenraffstoren (ExteriorVenetianBlind) haben Position UND Lamellenwinkel;
 beides erscheint als cover-Entität mit den Kommandos open/close/stop,
 set_position und – wo vorhanden – set_tilt.
+
+Zum Funk: io-homecontrol und RTS quittieren nicht wie ein Netzwerk. Ein
+Befehl, der untergeht, ist kein Defekt, sondern der Normalfall – und
+«nicht erreichbar» heisst beim Gateway «hat sich länger nicht gemeldet»,
+nicht «hört nicht zu». Beides ist hier eingebaut: Befehle gehen einzeln
+mit Pause hinaus und werden bei Ablehnung wiederholt, und ausgegraut wird
+eine Store erst, wenn sie sich mehrfach hintereinander nicht meldet.
 """
 
 from __future__ import annotations
@@ -67,6 +74,55 @@ COMMAND_ALIASES: dict[str, list[str]] = {
     "set_position": ["setClosure"],
     "set_tilt": ["setOrientation"],
 }
+
+
+# ── Funk ist kein Draht ────────────────────────────────────────────────
+#
+# io-homecontrol und RTS sind Funkprotokolle ohne Quittung im Sinne eines
+# Netzwerks. Zwei Dinge folgen daraus, und beide haben Stefan Storen
+# gekostet, die stehen blieben:
+#
+#   1. Werden mehrere Storen gleichzeitig angesprochen, gehen Telegramme
+#      im Funk unter. Das Gateway meldet trotzdem Erfolg - es hat den
+#      Befehl ja abgeschickt. Deshalb geht hier immer nur ein Befehl aufs
+#      Mal hinaus, mit einer Pause dazwischen.
+#   2. «Nicht erreichbar» heisst bei Overkiz «hat sich länger nicht
+#      gemeldet», nicht «kann nichts empfangen». Ein Befehl an so ein
+#      Gerät kommt meistens trotzdem an - genau das erlebt man, wenn man
+#      es in der TaHoma-App einfach nochmal versucht und es geht.
+
+#: Mindestabstand zwischen zwei Befehlen an dasselbe Gateway.
+BEFEHLSPAUSE = 0.6
+
+#: So oft wird ein abgewiesener Befehl wiederholt, und wie lange dazwischen
+#: gewartet wird. Von Hand macht man genau das: nochmal drücken.
+WIEDERHOLUNGEN = 2
+WIEDERHOLPAUSE = 3.0
+
+#: Wie oft das Gateway ein Gerät hintereinander als abwesend melden muss,
+#: bevor der Hub es in der App ausgraut. Eine einzelne Meldung ist Funk-
+#: rauschen; bisher genügte sie, und die Store blieb bis zum Neustart
+#: grau - auch wenn sie längst wieder da war.
+ABWESEND_SCHWELLE = 3
+
+#: Takt, in dem die Geräteliste beim Gateway nachgefragt wird.
+ABFRAGE_INTERVALL = 300.0
+
+
+def verfuegbarkeit(
+    zaehler: int, meldet_sich: bool, schwelle: int = ABWESEND_SCHWELLE
+) -> tuple[int, bool]:
+    """Aus einer Meldung des Gateways einen Verfügbarkeits-Stand machen.
+
+    Rein und testbar. Zurück kommt der neue Zähler und ob das Gerät für
+    die App als erreichbar gilt. Eine gute Meldung setzt sofort zurück -
+    wer sich meldet, ist da; eine schlechte zählt hoch, und erst ab der
+    Schwelle wird ausgegraut.
+    """
+    if meldet_sich:
+        return 0, True
+    neu = zaehler + 1
+    return neu, neu < schwelle
 
 
 def cover_state(states: dict[str, Any]) -> dict[str, Any]:
@@ -184,6 +240,12 @@ class OverkizIntegration(Integration):
         self._travel: dict[str, float] = self._stored_travel()
         self._url_by_entity: dict[str, str] = {}
         self._cmd_by_entity: dict[str, dict[str, list[str]]] = {}
+        # Wie oft ein Gerät hintereinander als abwesend gemeldet wurde.
+        self._abwesend: dict[str, int] = {}
+        # Nur ein Befehl aufs Mal, mit Pause: Funktelegramme, die sich
+        # überlagern, gehen verloren - siehe Kopf dieser Datei.
+        self._funk = asyncio.Lock()
+        self._zuletzt_gesendet = 0.0
         for device in await self._client.get_devices():
             if not self._is_cover(device):
                 continue
@@ -219,16 +281,26 @@ class OverkizIntegration(Integration):
                 device.label or "Storen",
                 state=cover_state(states),
                 commands=commands,
-                available=bool(getattr(device, "available", True)),
+                # Beim Start zählt die Meldung des Gateways einmal - eine
+                # Store, die gerade nicht funkt, wird deshalb nicht sofort
+                # ausgegraut. Erst wenn sie sich mehrfach nicht meldet.
+                available=True,
             )
             self._devices[device.device_url] = entity.id
             self._url_by_entity[entity.id] = device.device_url
             self._cmd_by_entity[entity.id] = cmd_map
+            self._abwesend[entity.id] = (
+                0 if bool(getattr(device, "available", True)) else 1
+            )
 
         if not self._devices:
             self.log.warning("Overkiz verbunden, aber keine Storen/Rollläden gefunden")
 
         self.start_task(self._event_loop())
+        # Der Ereigniskanal meldet Änderungen, aber nicht, dass ein Gerät
+        # wieder da ist - deshalb zusätzlich ein langsamer Takt. Ohne ihn
+        # blieb eine einmal ausgegraute Store bis zum Neustart grau.
+        self.start_polling(self._geraete_auffrischen, interval=ABFRAGE_INTERVALL)
 
     @staticmethod
     def _is_cover(device: Any) -> bool:
@@ -286,6 +358,65 @@ class OverkizIntegration(Integration):
                 self.log.debug("Overkiz-Ereigniskanal unterbrochen (%s), neu in 15s", err)
                 await asyncio.sleep(15)
 
+    async def _geraete_auffrischen(self) -> None:
+        """Beim Gateway nachfragen, wer da ist - und wie es steht.
+
+        Der Ereigniskanal meldet Änderungen. Er meldet aber nicht, dass
+        ein Gerät wieder antwortet: Genau deshalb blieb eine einmal als
+        abwesend gemeldete Store in der App grau, bis jemand den Hub neu
+        startete - auch wenn sie in der TaHoma-App längst wieder normal
+        lief.
+        """
+        try:
+            geraete = await self._client.get_devices()
+        except Exception as err:
+            self.log.debug("Overkiz: Geräteliste nicht abrufbar (%s)", err)
+            return
+        for device in geraete:
+            entity_id = self._devices.get(getattr(device, "device_url", None))
+            if entity_id is None:
+                continue
+            zaehler, erreichbar = verfuegbarkeit(
+                self._abwesend.get(entity_id, 0),
+                bool(getattr(device, "available", True)),
+            )
+            self._abwesend[entity_id] = zaehler
+            entity = self.hub.registry.get(entity_id)
+            states = {state.name: state.value for state in device.states or []}
+            if entity is not None and entity.available != erreichbar:
+                self.log.info(
+                    "Overkiz: %s %s",
+                    entity.name,
+                    "meldet sich wieder" if erreichbar else "meldet sich nicht mehr",
+                )
+            await self.hub.registry.update_state(
+                entity_id, cover_state(states), available=erreichbar
+            )
+
+    def health(self) -> dict[str, Any]:
+        """Welche Storen sich gerade nicht melden.
+
+        «Manchmal fährt eine nicht mit» ist von aussen nicht davon zu
+        unterscheiden, dass der Befehl gar nicht ankam. Hier steht, was
+        das Gateway dazu sagt - und dass ein Befehl trotzdem hinausgeht.
+        """
+        still = []
+        for entity_id, zaehler in self._abwesend.items():
+            if zaehler < ABWESEND_SCHWELLE:
+                continue
+            entity = self.hub.registry.get(entity_id)
+            still.append(entity.name if entity else entity_id)
+        if not still:
+            return {"ok": True, "detail": f"{len(self._devices)} Storen, alle melden sich."}
+        return {
+            "ok": True,
+            "detail": (
+                f"Meldet sich nicht: {', '.join(sorted(still))}. Befehle gehen "
+                "trotzdem hinaus - bei Funk heisst «meldet sich nicht» nicht "
+                "«hört nicht zu»."
+            ),
+        }
+
     async def _handle_event(self, event: Any) -> None:
         device_url = getattr(event, "device_url", None)
         entity_id = self._devices.get(device_url) if device_url else None
@@ -299,6 +430,8 @@ class OverkizIntegration(Integration):
         # Nur melden, was das Event wirklich enthielt (kein Zustand erfunden).
         if "position" not in updates and CLOSURE not in states:
             updates.pop("position", None)
+        # Wer meldet, ist da - der Zähler beginnt von vorn.
+        self._abwesend[entity_id] = 0
         await self.hub.registry.update_state(entity_id, updates, available=True)
 
         # Laufzeit lernen: Meldet das Gateway die Zielposition einer von uns
@@ -361,20 +494,54 @@ class OverkizIntegration(Integration):
             params = []
 
         last_err: Exception | None = None
-        for name in variants:
-            self.log.info("Overkiz sendet '%s' an %s", name, device_url)
-            try:
-                await self._client.execute_command(device_url, Command(name, params))
+        for runde in range(WIEDERHOLUNGEN + 1):
+            if runde:
+                # Von Hand macht man genau das: nochmal drücken, und dann
+                # geht es. Funk ist kein Draht - ein verlorenes Telegramm
+                # ist kein Defekt, sondern der Normalfall.
+                self.log.info(
+                    "Overkiz: '%s' an %s kam nicht durch – Versuch %s von %s",
+                    command, device_url, runde + 1, WIEDERHOLUNGEN + 1,
+                )
+                await asyncio.sleep(WIEDERHOLPAUSE)
+            for name in variants:
+                try:
+                    await self._senden(device_url, Command(name, params))
+                except Exception as err:
+                    last_err = err
+                    self.log.warning(
+                        "Overkiz: '%s' abgewiesen (%s) – nächste Variante", name, err
+                    )
+                    continue
                 # Klappt eine spätere Variante, in Zukunft direkt diese nehmen.
                 if name != variants[0]:
                     self._cmd_by_entity[entity.id][command] = [name]
+                # Das Gerät hat den Befehl genommen - es ist also da,
+                # was das Gateway vorher auch behauptet haben mag.
+                self._abwesend[entity.id] = 0
+                if not entity.available:
+                    await self.hub.registry.update_state(entity.id, {}, available=True)
                 return
-            except Exception as err:
-                last_err = err
-                self.log.warning(
-                    "Overkiz: '%s' abgewiesen (%s) – nächste Variante", name, err
-                )
         raise ConfigError(f"Gateway lehnt '{command}' ab: {last_err}")
+
+    async def _senden(self, device_url: str, befehl: Any) -> None:
+        """Ein Befehl aufs Mal, mit Pause dazwischen.
+
+        Der Grund steht im Kopf dieser Datei: Werden mehrere Storen
+        gleichzeitig angesprochen - «alle zu», eine Szene, ein Ablauf -,
+        überlagern sich die Funktelegramme, und einzelne Storen bleiben
+        stehen. Nicht immer dieselben, denn es hängt am Zufall. Das
+        Gateway meldet trotzdem Erfolg: Abgeschickt hat es ja.
+        """
+        async with self._funk:
+            wartezeit = BEFEHLSPAUSE - (time.monotonic() - self._zuletzt_gesendet)
+            if wartezeit > 0:
+                await asyncio.sleep(wartezeit)
+            self.log.info("Overkiz sendet '%s' an %s", befehl.name, device_url)
+            try:
+                await self._client.execute_command(device_url, befehl)
+            finally:
+                self._zuletzt_gesendet = time.monotonic()
 
 
 INTEGRATION = OverkizIntegration

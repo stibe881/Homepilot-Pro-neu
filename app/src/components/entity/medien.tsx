@@ -8,7 +8,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
+import { hubClient } from '../../api/client';
 import { CommandData, Entity } from '../../api/types';
+import { useSettings } from '../../hooks/HubContext';
 import { useColors } from '../../theme';
 import { makeStyles } from './stil';
 
@@ -484,3 +486,342 @@ export function MediaButton({
   );
 }
 
+
+
+/**
+ * Radio auf der Musikkarte – dieselbe Stelle, an der Spotify sitzt.
+ *
+ * Der Hub führt das Radio als Player (`play_radio`), gespielt wird aber
+ * auf einer Box. Deshalb sieht diese Karte aus wie die von Spotify: oben
+ * die Boxen, darunter der Knopf zur Senderliste.
+ *
+ * Warum die Suche im Popup und nicht in der Einstellungsseite: Man sucht
+ * einen Sender in dem Moment, in dem man ihn hören will – abends, im
+ * Wohnzimmer, mit dem Telefon in der Hand. Ein Umweg über eine
+ * Konfigurationsdatei auf dem Hub wäre genau dann der falsche Weg.
+ */
+export function RadioPanel({
+  entity,
+  onCommand,
+  hideDevices = false,
+}: {
+  entity: Entity;
+  onCommand: (command: string, data?: CommandData) => void;
+  /** Boxen-Zeile weglassen – auf der Startseite übernimmt sie der
+   *  Lautsprecher-Wähler in der Kopfzeile der Musikkarte. */
+  hideDevices?: boolean;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const settings = useSettings();
+  const hub = useMemo(() => hubClient(settings.url, settings.token), [settings]);
+
+  const devices: string[] = Array.isArray(entity.state.devices) ? entity.state.devices : [];
+  const stations: string[] = Array.isArray(entity.state.stations)
+    ? entity.state.stations.map((name) => String(name))
+    : [];
+  const active: string | null = entity.state.device ?? null;
+  const playing = entity.state.state === 'playing';
+  const [chosen, setChosen] = useState<string | null>(null);
+  const [listOpen, setListOpen] = useState(false);
+
+  const target = (chosen && devices.includes(chosen) ? chosen : null) ?? active ?? devices[0] ?? null;
+  // Nur solange wirklich etwas läuft: Nach dem Anhalten wäre der Name eine
+  // Behauptung über die Gegenwart, die nicht mehr stimmt.
+  const current =
+    playing && typeof entity.state.station === 'string' ? entity.state.station : null;
+
+  const spielen = (station: string) => {
+    setListOpen(false);
+    onCommand('play_radio', target ? { station, device: target } : { station });
+  };
+
+  return (
+    <View style={styles.stack}>
+      {!hideDevices ? <Text style={styles.mediaLabel}>Abspielen auf</Text> : null}
+      {hideDevices ? null : devices.length > 0 ? (
+        <View style={styles.deviceRow}>
+          {devices.map((name) => {
+            const selected = name === target;
+            return (
+              <Pressable
+                key={name}
+                onPress={() => {
+                  setChosen(name);
+                  // Läuft schon etwas, zieht es mit um; sonst merkt sich
+                  // die Karte nur das Ziel für den nächsten Sender.
+                  if (name !== active && playing) onCommand('play_on', { device: name });
+                }}
+                accessibilityRole="radio"
+                accessibilityState={{ selected }}
+                accessibilityLabel={
+                  name === active ? `${name} – spielt hier` : `Radio auf ${name}`
+                }
+                style={[styles.deviceChip, selected && styles.deviceChipActive]}
+              >
+                <Ionicons
+                  name={name === active && playing ? 'volume-high' : 'volume-medium-outline'}
+                  size={12}
+                  color={selected ? '#FFFFFF' : colors.inkSoft}
+                />
+                <Text
+                  style={[styles.deviceChipText, selected && styles.deviceChipTextActive]}
+                  numberOfLines={1}
+                >
+                  {name}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : (
+        <Text style={styles.hint}>
+          Keine Box da, die eine Tonadresse abspielen kann. Radio braucht einen
+          Chromecast oder Google-Home-Lautsprecher.
+        </Text>
+      )}
+
+      <Pressable
+        onPress={() => setListOpen(true)}
+        accessibilityRole="button"
+        accessibilityLabel={current ? `Sender – zurzeit ${current}` : 'Sender'}
+        style={({ pressed }) => [styles.playlistButton, pressed && { opacity: 0.85 }]}
+      >
+        <Ionicons
+          name={current ? 'radio' : 'radio-outline'}
+          size={16}
+          color={current ? colors.accent : colors.ink}
+        />
+        <View style={{ flex: 1 }}>
+          {current ? <Text style={styles.playlistNow}>Läuft</Text> : null}
+          <Text style={styles.playlistButtonText} numberOfLines={1}>
+            {current ?? 'Sender'}
+          </Text>
+        </View>
+        <Text style={styles.spotifyCount}>{stations.length}</Text>
+      </Pressable>
+
+      <RadioSheet
+        visible={listOpen}
+        hub={hub}
+        stations={stations}
+        current={current}
+        onClose={() => setListOpen(false)}
+        onPlay={spielen}
+      />
+    </View>
+  );
+}
+
+/** Ein Sender, wie ihn TuneIn beschreibt. */
+export interface RadioStation {
+  name: string;
+  id?: string;
+  url?: string;
+  subtext?: string;
+  image?: string;
+}
+
+/**
+ * Die Senderliste im Popup – mit Suche bei TuneIn.
+ *
+ * Zwei Abschnitte, weil es zwei verschiedene Dinge sind: die Sender des
+ * Hauses und was TuneIn gerade zur Sucheingabe liefert. Ein Treffer aus
+ * der Suche wird beim Antippen gemerkt *und* gespielt: Wer einen Sender
+ * sucht, will ihn hören – und beim nächsten Mal wiederfinden. Ein
+ * getrennter «Merken»-Knopf wäre ein zweiter Schritt für denselben Wunsch.
+ */
+export function RadioSheet({
+  visible,
+  hub,
+  stations,
+  current,
+  onClose,
+  onPlay,
+}: {
+  visible: boolean;
+  hub: ReturnType<typeof hubClient>;
+  stations: string[];
+  current: string | null;
+  onClose: () => void;
+  onPlay: (station: string) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [query, setQuery] = useState('');
+  const [treffer, setTreffer] = useState<RadioStation[]>([]);
+  const [sucht, setSucht] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (visible) {
+      setQuery('');
+      setTreffer([]);
+      setNote(null);
+    }
+  }, [visible]);
+
+  // Erst tippen, dann suchen: Ein Aufruf je Tastendruck wäre eine
+  // Anfrage zu viel an einen fremden Dienst – und die halbfertige
+  // Eingabe findet ohnehin nichts.
+  useEffect(() => {
+    const begriff = query.trim();
+    if (begriff.length < 2) {
+      setTreffer([]);
+      return;
+    }
+    let abgebrochen = false;
+    setSucht(true);
+    const zeit = setTimeout(() => {
+      hub
+        .get<{ stations?: RadioStation[] } | null>(
+          `/api/radio/search?q=${encodeURIComponent(begriff)}`,
+          { fallback: null, still: true }
+        )
+        .then((data) => {
+          if (abgebrochen) return;
+          setTreffer(data?.stations ?? []);
+          setNote(data === null ? 'TuneIn antwortet gerade nicht.' : null);
+        })
+        .finally(() => {
+          if (!abgebrochen) setSucht(false);
+        });
+    }, 450);
+    return () => {
+      abgebrochen = true;
+      clearTimeout(zeit);
+    };
+  }, [query, hub]);
+
+  const merkenUndSpielen = async (station: RadioStation) => {
+    try {
+      await hub.post('/api/radio/stations', station, { still: true });
+    } catch (err) {
+      // Gemerkt hat es nicht geklappt – abspielen lässt sich der Sender
+      // dann auch nicht, denn der Hub kennt ihn nur über seine Liste.
+      setNote(String(err instanceof Error ? err.message : err));
+      return;
+    }
+    onPlay(station.name);
+  };
+
+  const vergessen = async (name: string) => {
+    try {
+      await hub.del(`/api/radio/stations/${encodeURIComponent(name)}`, { still: true });
+      setNote(`«${name}» entfernt`);
+    } catch (err) {
+      setNote(String(err instanceof Error ? err.message : err));
+    }
+  };
+
+  const eigene = stations.filter(
+    (name) => !query.trim() || name.toLowerCase().includes(query.trim().toLowerCase())
+  );
+  // Was schon in der Liste steht, muss die Suche nicht noch einmal anbieten.
+  const neue = treffer.filter(
+    (station) => !stations.some((name) => name.toLowerCase() === station.name.toLowerCase())
+  );
+
+  return (
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      <View style={styles.sheet}>
+        <View style={styles.sheetHead}>
+          <Text style={styles.sheetTitle}>Radio</Text>
+          <Pressable onPress={onClose} accessibilityLabel="Schliessen" hitSlop={8}>
+            <Ionicons name="close" size={26} color={colors.ink} />
+          </Pressable>
+        </View>
+
+        <View style={styles.spotifySearch}>
+          <Ionicons name="search" size={15} color={colors.inkFaint} />
+          <TextInput
+            style={styles.spotifySearchInput}
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Sender suchen – auch bei TuneIn …"
+            placeholderTextColor={colors.inkFaint}
+            autoCorrect={false}
+          />
+          {query ? (
+            <Pressable
+              onPress={() => setQuery('')}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Suche leeren"
+            >
+              <Ionicons name="close-circle" size={17} color={colors.inkFaint} />
+            </Pressable>
+          ) : null}
+        </View>
+
+        {note ? <Text style={styles.hint}>{note}</Text> : null}
+
+        <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+          {eigene.length === 0 && stations.length === 0 ? (
+            <Text style={styles.hint}>
+              Noch kein Sender eingerichtet. Tippe oben einen Namen ein – was
+              TuneIn dazu findet, erscheint darunter und bleibt danach in der
+              Liste.
+            </Text>
+          ) : null}
+          {eigene.map((name) => (
+            <View key={name} style={styles.playlistRow}>
+              <Pressable
+                onPress={() => onPlay(name)}
+                accessibilityRole="button"
+                accessibilityLabel={`${name} abspielen`}
+                style={styles.playlistTap}
+              >
+                <Ionicons
+                  name={name === current ? 'radio' : 'radio-outline'}
+                  size={18}
+                  color={name === current ? colors.accent : colors.inkSoft}
+                />
+                <Text style={styles.playlistName} numberOfLines={1}>
+                  {name}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => vergessen(name)}
+                accessibilityRole="button"
+                accessibilityLabel={`${name} aus der Liste entfernen`}
+                hitSlop={6}
+                style={styles.playlistIcon}
+              >
+                <Ionicons name="close" size={18} color={colors.inkFaint} />
+              </Pressable>
+            </View>
+          ))}
+
+          {sucht ? <Text style={styles.hint}>Suche bei TuneIn …</Text> : null}
+          {neue.length > 0 ? (
+            <Text style={styles.mediaLabel}>Bei TuneIn gefunden</Text>
+          ) : null}
+          {neue.map((station) => (
+            <Pressable
+              key={station.id || station.name}
+              onPress={() => merkenUndSpielen(station)}
+              accessibilityRole="button"
+              accessibilityLabel={`${station.name} merken und abspielen`}
+              style={styles.playlistRow}
+            >
+              <View style={styles.playlistTap}>
+                <Ionicons name="add-circle-outline" size={18} color={colors.accent} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.playlistName} numberOfLines={1}>
+                    {station.name}
+                  </Text>
+                  {station.subtext ? (
+                    <Text style={styles.hint} numberOfLines={1}>
+                      {station.subtext}
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+            </Pressable>
+          ))}
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}

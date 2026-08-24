@@ -6,7 +6,7 @@
  * ohne Bild – und bei stillem Haus kann er sogar die gezeigte Karte sein.
  */
 import type { Entity } from '../api/types';
-import { istMusikbox, musikboxenImRaum, pickPlayer } from './geraeteart';
+import { isTelevision, istMusikbox, musikboxenImRaum, pickPlayer } from './geraeteart';
 
 function medien(teile: Partial<Entity>): Entity {
   return {
@@ -25,6 +25,25 @@ describe('istMusikbox', () => {
   it('lässt den Fernseher draussen', () => {
     expect(istMusikbox(medien({ commands: ['play', 'launch_app'] }))).toBe(false);
     expect(istMusikbox(medien({ commands: ['play', 'dpad_up'] }))).toBe(false);
+  });
+
+  it('lässt auch den Cast-Fernseher draussen, der wie eine Box aussieht', () => {
+    // Er kennt weder Steuerkreuz noch App-Start – nur er selbst weiss,
+    // dass ein Bild an ihm hängt. Genau daran hing der Fehler: Er stand
+    // in der Boxenwahl der Startseite.
+    const castTv = medien({
+      id: 'google_cast.stube_tv',
+      commands: ['play', 'pause', 'set_volume', 'play_url'],
+      state: { has_screen: true },
+    });
+    expect(isTelevision(castTv)).toBe(true);
+    expect(istMusikbox(castTv)).toBe(false);
+  });
+
+  it('hält eine Box, die sich ausdrücklich als solche meldet', () => {
+    const box = medien({ commands: ['play', 'play_url'], state: { has_screen: false } });
+    expect(isTelevision(box)).toBe(false);
+    expect(istMusikbox(box)).toBe(true);
   });
 
   it('nimmt Box und Spotify', () => {
@@ -78,8 +97,46 @@ describe('pickPlayer', () => {
     expect(pickPlayer([tv])).toBeUndefined();
   });
 
+  it('nimmt den laufenden Fernseher nicht als Musikkarte', () => {
+    // «Auch nicht, wenn sie etwas abspielen»: Läuft abends ein Film,
+    // war der Fernseher bisher die Karte in der rechten Spalte – mit
+    // Play/Pause für den Film statt eines Players für Musik.
+    const castTv = medien({
+      id: 'google_cast.stube_tv',
+      commands: ['play', 'pause', 'set_volume', 'play_url'],
+      state: { state: 'playing', has_screen: true },
+    });
+    expect(pickPlayer([castTv])).toBeUndefined();
+    expect(pickPlayer([castTv, box])?.id).toBe('cast.kueche');
+  });
+
   it('kommt mit einem Haus ohne Medien zurecht', () => {
     expect(pickPlayer([])).toBeUndefined();
+  });
+
+  it('bevorzugt das Radio vor der Box, auf der es läuft', () => {
+    // Radio spielt über eine Cast-Box – beide melden «playing». Nur auf
+    // der Radio-Karte steht, welcher Sender läuft und wie man wechselt.
+    const beide = [
+      medien({ id: 'cast.kueche', commands: ['play', 'play_url'], state: { state: 'playing' } }),
+      medien({
+        id: 'tunein.radio',
+        commands: ['play', 'play_radio'],
+        state: { state: 'playing' },
+      }),
+    ];
+    expect(pickPlayer(beide)?.id).toBe('tunein.radio');
+  });
+
+  it('nimmt bei Stille das Radio vor der blossen Box', () => {
+    const radio = medien({
+      id: 'tunein.radio',
+      commands: ['play', 'play_radio'],
+      state: { state: 'idle' },
+    });
+    expect(pickPlayer([box, radio])?.id).toBe('tunein.radio');
+    // Spotify bleibt trotzdem vorn: Es war die Karte, die man kennt.
+    expect(pickPlayer([box, radio, spotify])?.id).toBe('spotify.me');
   });
 });
 

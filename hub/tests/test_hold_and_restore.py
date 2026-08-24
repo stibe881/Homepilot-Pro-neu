@@ -134,8 +134,11 @@ def test_a_spoken_sentence_survives_without_internet(tmp_path, monkeypatch):
 
             monkeypatch.setattr(hub.integrations, "dispatch_command", merken)
             result = await say.speak(hub, "Es hat geklingelt")
-            assert result["sent"] == ["Box Stube"]
-            assert gesagt and gesagt[0][1] == "play_url"
+            # Alle Boxen des Hauses, nicht nur die hier angelegte: Eine
+            # Durchsage geht überallhin, und die Demo bringt selbst eine
+            # Box mit.
+            assert "Box Stube" in result["sent"]
+            assert gesagt and all(eintrag[1] == "play_url" for eintrag in gesagt)
 
             # Ein unbekannter Satz scheitert ehrlich mit einem lesbaren
             # Grund (hier: gTTS fehlt bzw. hat kein Netz) - statt still

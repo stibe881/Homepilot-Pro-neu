@@ -174,3 +174,16 @@ export function raumMesswerte(items: Entity[]): Entity[] {
     .filter((entity) => entity.kind === 'sensor')
     .sort((a, b) => a.name.localeCompare(b.name));
 }
+
+/**
+ * Ist das die Küche? (rein, testbar)
+ *
+ * Klingt trivial, war es nicht: Die Prüfung lautete `/küche/i` – und
+ * «Waschküche» enthält «küche». Der Küchentimer stand darum in beiden
+ * Räumen. Deutsche Zusammensetzungen hängen das Grundwort hinten an,
+ * also zählt nur ein «Küche» am Wortanfang: «Küche», «Küche oben»,
+ * «Grosse Küche» ja – «Waschküche», «Teeküche», «Sommerküche» nein.
+ */
+export function istKueche(raum: unknown): boolean {
+  return /(^|\s)küchen?(\s|$)/i.test(String(raum ?? '').trim());
+}

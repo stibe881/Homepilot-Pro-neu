@@ -148,6 +148,16 @@ export function SystemScreen({
                       {' · '}
                       {lastSeen(entity.last_seen)}
                     </Text>
+                    {/* «nie gesehen» sagt, dass etwas fehlt, aber nicht
+                        was zu tun ist. Weiss der Hub den Grund – etwa,
+                        wie der Datenpunkt bei diesem Gerät wirklich
+                        heisst –, gehört er hierher und nicht nur ins
+                        Log. */}
+                    {entity.state?.problem ? (
+                      <Text style={styles.rowProblem}>
+                        {String(entity.state.problem)}
+                      </Text>
+                    ) : null}
                   </View>
                 </View>
               ))}
@@ -1723,6 +1733,9 @@ const makeStyles = (colors: Colors) =>
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   rowTitle: { color: colors.ink, fontSize: 15, fontWeight: '600' },
   rowDetail: { color: colors.inkSoft, fontSize: 13 },
+  // Der Grund, warum nichts ankommt. In der Warnfarbe, weil er eine
+  // Aufgabe ist, und mit Zeilenabstand, weil er ein Satz ist.
+  rowProblem: { color: colors.warn, fontSize: 12, lineHeight: 17, marginTop: 2 },
   hint: { color: colors.inkFaint, fontSize: 12, lineHeight: 18 },
   buttons: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   button: {

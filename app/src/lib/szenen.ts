@@ -145,6 +145,8 @@ export interface SceneActionDraft {
   volume?: number;
   /** Name der Playlist, wenn das Kommando 'play_playlist' ist. */
   playlist?: string;
+  /** Name des Senders, wenn das Kommando 'play_radio' ist. */
+  station?: string;
   /** Paket-ID der App, wenn das Kommando 'launch_app' ist. */
   app?: string;
   /** Auf welcher Box die Playlist spielen soll. Leer heisst «dort, wo
@@ -249,6 +251,7 @@ export function sceneActionsToDraft(
       muted?: boolean;
       volume?: number;
       name?: string;
+      station?: string;
       app?: string;
       device?: string;
       shuffle?: boolean;
@@ -280,6 +283,7 @@ export function sceneActionsToDraft(
       // Die Playlist steht beim Hub unter 'name' – ein eigenes Feld im
       // Entwurf, damit sie nicht mit dem Namen der Szene verwechselt wird.
       playlist: action.data?.name,
+      station: action.data?.station,
       app: action.data?.app,
       device: action.data?.device,
       shuffle: musik?.shuffle,

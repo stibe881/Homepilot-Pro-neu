@@ -63,6 +63,7 @@ SCAN_INTERVALS: dict[str, float] = {
     "ring": 300,
     "roborock": 60,
     "spotify": 30,
+    "tunein": 30,
     "twinkly": 30,
     "unifi": 30,
     "unifi_protect": 120,

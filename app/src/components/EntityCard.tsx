@@ -3,6 +3,7 @@ import React, { useMemo, useState } from 'react';
 import { Image, Pressable, Text, View } from 'react-native';
 
 import { CommandData, Entity, KalenderEintrag } from '../api/types';
+import { offlineSatz } from '../lib/funkstille';
 import { hatWarteschlange } from '../lib/musikliste';
 import { useColors } from '../theme';
 import { Bar } from './Bar';
@@ -15,7 +16,7 @@ import { TvSleep } from './TvSleep';
 import { TvRemote } from './TvRemote';
 import { EditButton, GroupPicker, RenameDialog, RoomPicker } from './entity/anpassen';
 import { CameraSnapshot, CoverBody, GrillBody, LockBody, VacuumBody } from './entity/koerper';
-import { MediaButton, ShuffleRepeat, SpotifyPanel } from './entity/medien';
+import { MediaButton, RadioPanel, ShuffleRepeat, SpotifyPanel } from './entity/medien';
 import { makeStyles } from './entity/stil';
 import { BigValue, Pill, clock, eventTime, format, integrationLabel, severityColor, sinceLabel } from './entity/teile';
 
@@ -114,10 +115,14 @@ export function EntityCard({
   const isOn = entity.state.state === 'on';
   const subtitle =
     (imRaumblock ? undefined : entity.room) || integrationLabel(entity.integration);
-  // Offline-Geräte: «nicht erreichbar · zuletzt vor …», damit man sieht, ob
-  // das Gerät gerade eben oder seit Tagen weg ist.
-  const offlineText =
-    'nicht erreichbar' + (entity.last_seen ? ` · zuletzt ${sinceLabel(entity.last_seen)}` : '');
+  // Offline-Geräte: mit «zuletzt vor …», damit man sieht, ob das Gerät
+  // gerade eben oder seit Tagen weg ist. Bei einer Store am Funk steht
+  // dort zusätzlich, dass Drücken trotzdem etwas bewirkt - siehe
+  // lib/funkstille.ts.
+  const offlineText = offlineSatz(
+    entity,
+    entity.last_seen ? sinceLabel(entity.last_seen) : null,
+  );
   const toggle = entity.commands.includes('toggle')
     ? () => onCommand('toggle')
     : undefined;
@@ -302,7 +307,14 @@ export function EntityCard({
             {entity.commands.includes('play_playlist') ? (
               <SpotifyPanel entity={entity} onCommand={onCommand} />
             ) : null}
+            {entity.commands.includes('play_radio') ? (
+              <RadioPanel entity={entity} onCommand={onCommand} />
+            ) : null}
+            {/* Die schlichte Boxenzeile nur, wo keines der beiden Panels
+                steht – die bringen ihre eigene mit, und zwei Reihen
+                derselben Boxen untereinander sind eine zu viel. */}
             {!entity.commands.includes('play_playlist') &&
+            !entity.commands.includes('play_radio') &&
             entity.commands.includes('play_on') &&
             Array.isArray(entity.state.devices) &&
             entity.state.devices.length > 0 ? (
@@ -716,4 +728,4 @@ export function EntityCard({
 /** Raumauswahl im Anpassen-Modus: „Kein Raum“ plus alle bekannten Räume. */
 
 // Weiterhin von hier beziehbar - SidePanel u.a. importieren sie so.
-export { ShuffleRepeat, SpotifyPanel } from './entity/medien';
+export { RadioPanel, ShuffleRepeat, SpotifyPanel } from './entity/medien';

@@ -69,6 +69,34 @@ def cast_object_id(host: str, port: int = DEFAULT_PORT) -> str:
     return base if port == DEFAULT_PORT else f"{base}_{port}"
 
 
+#: Modelle, die einen Bildschirm haben, obwohl Google sie als Tongerät
+#: führt. Bisher leer – die Ausnahme gibt es, seit es Fernseher mit
+#: eingebautem Cast gibt, und dann steht sie hier statt in einer
+#: if-Kaskade irgendwo im Code.
+BILDSCHIRM_MODELLE: frozenset[str] = frozenset()
+
+
+def ist_bildschirm(cast_type: str | None, model_name: str | None = None) -> bool:
+    """Hängt an diesem Cast-Gerät ein Bild? (rein, testbar)
+
+    Google unterscheidet «cast» (Video), «audio» (Lautsprecher) und
+    «group» (Lautsprechergruppe). Der Fernseher im Wohnzimmer meldet
+    «cast» – auch dann, wenn er weder Steuerkreuz noch App-Start kennt
+    und für den Hub aussieht wie eine Box.
+
+    Genau daran hing ein Fehler: Der Musikplayer der Startseite
+    unterscheidet Box und Fernseher an den Befehlen, und ein Cast-Gerät
+    hat nur die eines Lautsprechers. Der Fernseher stand deshalb in der
+    Boxenwahl, und lief dort ein Film, war er die gezeigte Karte.
+
+    Eine Gruppe zählt als Lautsprecher: Google baut sie zum synchronen
+    Abspielen von Ton, nicht von Bild.
+    """
+    if (model_name or "").strip() in BILDSCHIRM_MODELLE:
+        return True
+    return (cast_type or "").strip().lower() == "cast"
+
+
 def cast_media_state(
     player_state: str | None,
     title: str | None,
@@ -77,8 +105,14 @@ def cast_media_state(
     volume: float | None,
     muted: bool | None = None,
     image: str | None = None,
+    has_screen: bool | None = None,
 ) -> dict[str, Any]:
-    """Übersetzt Cast-Status in Entitäts-Attribute (rein, testbar)."""
+    """Übersetzt Cast-Status in Entitäts-Attribute (rein, testbar).
+
+    ``has_screen`` sagt der App, dass hier ein Fernseher steht und kein
+    Lautsprecher. Es kommt vom Gerät selbst (siehe `ist_bildschirm`) und
+    nicht aus seinem Namen: «Wohnzimmer» ist kein Beweis.
+    """
     if player_state == "PLAYING":
         state = "playing"
     elif player_state == "PAUSED":
@@ -97,6 +131,8 @@ def cast_media_state(
         result["volume"] = round(float(volume) * 100)
     if muted is not None:
         result["muted"] = bool(muted)
+    if has_screen is not None:
+        result["has_screen"] = bool(has_screen)
     return result
 
 
@@ -314,6 +350,9 @@ class GoogleCastIntegration(Integration):
                 getattr(status, "volume_level", None),
                 getattr(status, "volume_muted", None),
                 image=image,
+                has_screen=ist_bildschirm(
+                    getattr(cast, "cast_type", None), getattr(cast, "model_name", None)
+                ),
             ),
             available=True,
         )
@@ -321,11 +360,17 @@ class GoogleCastIntegration(Integration):
     # ── Spotify-Wecken (für die spotify-Integration) ───────────────────────
 
     def device_names(self) -> list[str]:
-        """Namen aller verbundenen Cast-Geräte – als schlafende Connect-Ziele."""
+        """Namen der verbundenen Cast-Boxen – als schlafende Connect-Ziele.
+
+        Ohne Fernseher: Die Liste füllt die «Abspielen auf»-Zeile von
+        Spotify, und dort ist ein Fernseher die falsche Antwort. Wer eine
+        Box sucht, um Musik hinzuschicken, will nicht das Gerät wecken,
+        das dann mit schwarzem Bild im Wohnzimmer steht.
+        """
         names = []
         for entity_id in self._casts:
             entity = self.hub.registry.get(entity_id)
-            if entity is not None:
+            if entity is not None and not entity.state.get("has_screen"):
                 names.append(entity.name)
         return names
 

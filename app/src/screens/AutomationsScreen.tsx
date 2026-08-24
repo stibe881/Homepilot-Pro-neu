@@ -567,6 +567,7 @@ export function AutomationsScreen({
             transition,
             volume,
             playlist,
+            station,
             app,
             device,
             shuffle,
@@ -587,6 +588,18 @@ export function AutomationsScreen({
           const musik = musikBefehl(command, { playlist, device, shuffle });
           if (musik) {
             return [{ entity_id, command: musik.command, data: musik.data }];
+          }
+          // Radio: der Sendername, und wenn gewählt die Box. Ohne Box
+          // spielt der Hub dort, wo zuletzt Radio lief – in einer Szene
+          // ist das eine Wette, deshalb steht die Wahl im Editor.
+          if (command === 'play_radio') {
+            return [
+              {
+                entity_id,
+                command,
+                data: { station: station ?? '', ...(device ? { device } : {}) },
+              },
+            ];
           }
           if (command === 'launch_app') {
             return [{ entity_id, command, data: { app: app ?? '' } }];

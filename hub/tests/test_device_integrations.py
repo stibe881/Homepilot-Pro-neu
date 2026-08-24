@@ -28,6 +28,7 @@ ALL_INTEGRATIONS = [
     "matter",
     "weather",
     "overkiz",
+    "tunein",
     "twinkly",
     "vzug",
 ]
