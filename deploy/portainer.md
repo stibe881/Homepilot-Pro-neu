@@ -68,7 +68,8 @@ Ring-Token). **Diesen Ordner ins Backup aufnehmen.**
    | `SUPABASE_ANON_KEY` | der anon-Key – für die Anmeldung mit E-Mail und Passwort |
 
    Dazu je nach aktivierten Integrationen: `MQTT_USER`, `MQTT_PASSWORD`,
-   `UNIFI_USER`, `UNIFI_PASSWORD`, `HUE_APP_KEY`, `HUE_SYNC_TOKEN`,
+   `UNIFI_USER`, `UNIFI_PASSWORD` (Protect), `UNIFI_NET_USER`,
+   `UNIFI_NET_PASSWORD` (Network), `HUE_APP_KEY`, `HUE_SYNC_TOKEN`,
    `SPOTIFY_*`, `GOOGLE_*`, `ROBOROCK_EMAIL`, `ROBOROCK_PASSWORD`,
    `NUKI_TOKEN`, `VZUG_USER`, `VZUG_PASSWORD`, `OVERKIZ_TOKEN`
    (die vollständige Liste steht in `docker-compose.portainer.yml`).
