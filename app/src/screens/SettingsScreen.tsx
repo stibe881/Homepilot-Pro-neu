@@ -296,6 +296,20 @@ export function SettingsScreen({
                 >
                   <Text style={styles.modeText}>Jetzt melden</Text>
                 </Pressable>
+                {/* Der stille Einrichtungsfehler: Steht der Hauskreis
+                    auf einer Vorgabe oder einem vertippten Wert, ist man
+                    dauerhaft «unterwegs», während man in der Stube
+                    sitzt - und nichts sieht kaputt aus. Ein Knopf ist
+                    hier die einzige Eingabe, bei der sich niemand
+                    vertippen kann. */}
+                <Pressable
+                  onPress={() => ortung.zuhauseSetzen()}
+                  accessibilityRole="button"
+                  accessibilityLabel="Diesen Standort als Zuhause übernehmen"
+                  style={styles.mode}
+                >
+                  <Text style={styles.modeText}>Hier ist zuhause</Text>
+                </Pressable>
                 {pausiert(ortung.stand.pausiertBis, new Date()) ? (
                   <Pressable
                     onPress={() => ortung.weiter()}

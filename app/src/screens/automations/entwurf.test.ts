@@ -22,6 +22,7 @@ import {
   triggerIcon,
   triggerToConfig,
   normalisiereZeit,
+  unbekannterZustand,
   zeitfensterHinweis,
   zeitpunktLabel,
 } from './entwurf';
@@ -742,5 +743,63 @@ describe('Lautsprecher in Abläufen', () => {
       commandActions: [{ entity_id: 'cast.bad', command: 'set_volume' }],
     });
     expect(action.data).toEqual({ volume: 30 });
+  });
+});
+
+describe('Türöffner sind keine Schlösser', () => {
+  const geraet = (over: Partial<Entity>): Entity =>
+    ({
+      id: 'ring.haustuere',
+      kind: 'lock',
+      name: 'Haustüre',
+      integration: 'ring',
+      state: { state: 'online' },
+      commands: [],
+      available: true,
+      ...over,
+    }) as Entity;
+
+  it('bietet bei der Gegensprechanlage «wird geöffnet» statt «aufgeschlossen»', () => {
+    // Sie hat keinen Riegel und meldet nie «unlocked». Wer das als
+    // Auslöser wählte, baute einen Ablauf, der nie läuft - und der
+    // keinen Grund dafür nennt.
+    const anlage = geraet({ commands: ['open_door'] });
+    expect(plainStates(anlage).map((z) => z.key)).toEqual([
+      'opened',
+      'online',
+      'offline',
+    ]);
+  });
+
+  it('lässt ein richtiges Schloss bei auf- und abgeschlossen', () => {
+    const nuki = geraet({ commands: ['lock', 'unlock', 'unlatch'] });
+    expect(plainStates(nuki).map((z) => z.key)).toEqual(['unlocked', 'locked']);
+  });
+});
+
+describe('Ein Auslöser, der auf Unmögliches wartet', () => {
+  const anlage = {
+    id: 'ring.haustuere',
+    kind: 'lock',
+    name: 'Haustüre',
+    integration: 'ring',
+    state: { state: 'online' },
+    commands: ['open_door'],
+    available: true,
+  } as Entity;
+
+  it('sagt es, statt stumm keinen Chip auszuwählen', () => {
+    // Ein Ablauf aus früherer Zeit horcht auf «aufgeschlossen» - die
+    // Gegensprechanlage meldet das nie. Er läuft dann nie und nennt
+    // keinen Grund.
+    const satz = unbekannterZustand(anlage, '', 'unlocked');
+    expect(satz).toContain('meldet nie «unlocked»');
+    expect(satz).toContain('wird geöffnet');
+  });
+
+  it('schweigt, wenn der Zustand passt', () => {
+    expect(unbekannterZustand(anlage, '', 'opened')).toBeNull();
+    expect(unbekannterZustand(undefined, '', 'opened')).toBeNull();
+    expect(unbekannterZustand(anlage, '', '')).toBeNull();
   });
 });

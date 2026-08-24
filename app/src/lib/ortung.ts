@@ -107,8 +107,13 @@ export function dauerDa(
  * Nicht dabei: Benutzer ohne eingerichtete Ortung. Der Hub kennt neben
  * den Bewohnern auch Zugänge wie «Hub-Token» oder «Tablet» – die standen
  * hier als Leute mit «Ortung nicht eingerichtet» und liessen die Antwort
- * auf «wer ist da?» wie eine Fehlermeldung aussehen. Verschwiegen werden
- * sie trotzdem nicht, dafür gibt es `ohneOrtung` als eine Zeile darunter.
+ * auf «wer ist da?» wie eine Fehlermeldung aussehen.
+ *
+ * Sie erscheinen auch nicht als Sammelzeile darunter: Ein Zugang ist
+ * keine Person, die man vermisst oder erwartet, und die Frage lautet
+ * «wer ist da». Wer wissen will, welche Zugänge offen sind, findet sie
+ * unter Einstellungen → Benutzerverwaltung – samt allem, was dort sonst
+ * noch dazugehört.
  */
 export function anwesenheitsListe(
   people: Person[],
@@ -139,21 +144,6 @@ export function anwesenheitsListe(
     .map(({ _rang, ...zeile }) => zeile);
 }
 
-/**
- * Die Namen, für die noch keine Ortung eingerichtet ist (rein, testbar).
- *
- * Der Hub führt jeden Zugang als Benutzer – auch «Hub-Token» und das
- * Tablet an der Wand. Als eigene Zeilen im Fenster «Wer ist da» sahen
- * sie aus wie vermisste Personen. Als eine Zeile darunter sind sie das,
- * was sie sind: eine offene Aufgabe für die, die es betrifft.
- */
-export function ohneOrtung(people: Person[]): string[] {
-  return (people ?? [])
-    .filter((person) => person?.name && person?.configured === false)
-    .map((person) => String(person.name).trim())
-    .filter(Boolean)
-    .sort((a, b) => a.localeCompare(b));
-}
 
 /**
  * Warum oben «jemand da» steht und unten niemand (rein, testbar).

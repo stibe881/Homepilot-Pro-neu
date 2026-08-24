@@ -11,7 +11,7 @@ import { Entity, Scene } from '../../api/types';
 import { Colors, useColors } from '../../theme';
 import { ablaufSatz } from '../../lib/ablaufsatz';
 import { datumUhr } from '../../lib/format';
-import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, KAMERA_AUSLOESER, PLATZHALTER, hatWartezeit, measurableAttributes, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, weekdayLabel, zeitfensterHinweis } from './entwurf';
+import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, KAMERA_AUSLOESER, PLATZHALTER, hatWartezeit, measurableAttributes, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, unbekannterZustand, weekdayLabel, zeitfensterHinweis } from './entwurf';
 import {
   CategoryField,
   Choice,
@@ -980,6 +980,15 @@ export function TriggerRow({
               });
             }}
           />
+          {/* Altlasten sichtbar machen: Ein Ablauf aus früherer Zeit
+              kann auf einen Zustand horchen, den es an diesem Gerät gar
+              nicht gibt - dann läuft er nie und nennt keinen Grund.
+              Ohne diesen Satz steht hier bloss kein Chip ausgewählt. */}
+          {unbekannterZustand(chosen, trigger.attribute, trigger.toState) ? (
+            <Text style={[styles.triggerNote, { color: colors.warn }]}>
+              {unbekannterZustand(chosen, trigger.attribute, trigger.toState)}
+            </Text>
+          ) : null}
           {chosen?.kind === 'button' ? (
             <Text style={styles.triggerNote}>
               Löst bei jedem Druck aus – auch wenn dieselbe Taste mehrmals

@@ -259,6 +259,19 @@ export function plainStates(entity?: Entity): { key: string; label: string }[] {
         { key: 'closed', label: 'geschlossen' },
       ];
     case 'lock':
+      // Nicht jedes «Schloss» hat einen Riegel. Eine Gegensprechanlage
+      // ist ein Türöffner: Sie kennt nur «wurde geöffnet» und meldet nie
+      // «aufgeschlossen». Wer das trotzdem als Auslöser wählte, baute
+      // einen Ablauf, der auf einen Zustand wartet, den es an diesem
+      // Gerät nicht gibt - und der deshalb nie läuft, ohne einen Grund
+      // zu nennen.
+      if (!entity.commands.includes('lock') && entity.commands.includes('open_door')) {
+        return [
+          { key: 'opened', label: 'wird geöffnet' },
+          { key: 'online', label: 'bereit' },
+          { key: 'offline', label: 'nicht erreichbar' },
+        ];
+      }
       return [
         { key: 'unlocked', label: 'aufgeschlossen' },
         { key: 'locked', label: 'abgeschlossen' },
@@ -352,6 +365,35 @@ export function zeitfensterHinweis(after: string, before: string): string | null
   return `Geht über Mitternacht: gilt von ${normalisiereZeit(after)} bis ${normalisiereZeit(
     before
   )} am nächsten Morgen.`;
+}
+
+/**
+ * Wartet dieser Auslöser auf etwas, das es am Gerät nicht gibt? (rein,
+ * testbar)
+ *
+ * Der Fall entsteht beim Gerätewechsel und bei Abläufen aus früheren
+ * Fassungen: Ein Ablauf horcht auf «aufgeschlossen», das Gerät ist aber
+ * eine Gegensprechanlage ohne Riegel und meldet nie etwas anderes als
+ * «bereit». Er läuft dann nie und nennt keinen Grund - stumm zu
+ * scheitern ist die unangenehmste Art zu scheitern.
+ *
+ * Zurück kommt der Satz, der im Editor darunter steht, oder null.
+ */
+export function unbekannterZustand(
+  entity: Entity | undefined,
+  attribute: string,
+  to: string
+): string | null {
+  if (!entity || !to) return null;
+  const optionen = stateOptions(entity);
+  if (optionen.length === 0) return null;
+  if (optionen.some((option) => option.key === optionKey(attribute || undefined, to))) {
+    return null;
+  }
+  return (
+    `«${entity.name}» meldet nie «${to}» – der Ablauf würde nie laufen. ` +
+    `Möglich sind: ${optionen.map((option) => option.label).join(', ')}.`
+  );
 }
 
 /** Was sich als Bedingung prüfen lässt: der Zustand selbst. */

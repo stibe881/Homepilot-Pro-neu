@@ -6,7 +6,6 @@ import {
   anwesenheitsListe,
   anwesenheitsZeile,
   dauerDa,
-  ohneOrtung,
   ortungsHinweis,
   pauseBis,
   pausiert,
@@ -229,30 +228,6 @@ describe('anwesenheitsListe', () => {
     ]);
   });
 });
-
-describe('ohneOrtung', () => {
-  it('nennt die Zugänge, für die nichts eingerichtet ist', () => {
-    expect(
-      ohneOrtung([
-        { name: 'Stefan', state: 'home', configured: true },
-        { name: 'Tablet', state: 'unknown', configured: false },
-        { name: 'Hub-Token', state: 'unknown', configured: false },
-      ])
-    ).toEqual(['Hub-Token', 'Tablet']);
-  });
-
-  it('bleibt leer, wenn für alle etwas eingerichtet ist', () => {
-    expect(ohneOrtung([{ name: 'Stefan', state: 'away', configured: true }])).toEqual([]);
-    expect(ohneOrtung([])).toEqual([]);
-  });
-});
-
-// ── Wenn Streifen und Fenster einander widersprechen ─────────────────────
-// Oben stand «jemand da», im Fenster darunter war niemand zuhause. Damals
-// kamen die zwei aus verschiedenen Quellen – das WLAN kannte das Haus, die
-// Ortung die Leute. Das WLAN ist raus; auseinanderlaufen können sie
-// trotzdem, weil die Sammelfrage Nichtwissen vorsichtshalber als «da»
-// zählt. Dann gehört gesagt, warum.
 
 describe('werIstDaHinweis', () => {
   const daheim = [{ name: 'Stefan', state: 'home', configured: true }];
