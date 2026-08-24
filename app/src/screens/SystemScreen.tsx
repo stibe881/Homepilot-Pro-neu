@@ -22,7 +22,7 @@ import { Fehlschlag, Laedt } from '../components/Zustand';
 import { ConfigCard } from './system/konfiguration';
 import { datumUhr } from '../lib/format';
 import { integrationDetail } from '../lib/integrationszeile';
-import { LetzterLauf, letzterLaufSatz } from '../lib/letzterlauf';
+import { LaufArt, LetzterLauf, letzterLaufSatz } from '../lib/letzterlauf';
 import { localTime, timeAgo } from '../lib/zeit';
 import { Colors, radius, space, type, useColors } from '../theme';
 
@@ -718,7 +718,10 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [note, setNote] = useState<string | null>(null);
-  const [noteError, setNoteError] = useState(false);
+  // Nicht bloss «rot oder nicht»: Ein Lauf, der durchgelaufen ist und
+  // dabei etwas anmerkt, ist kein gescheitertes Update. Rot las sich so,
+  // und man suchte nach einem Schaden, den es nicht gab.
+  const [noteArt, setNoteArt] = useState<LaufArt | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<UpdateStatus | null>(null);
   // Der Hub merkt an der Antwort des Update-Dienstes, ob der den
@@ -767,7 +770,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
         // steht, wenn niemand zugeschaut hat.
         const rueckblick = letzterLaufSatz(data.last_run, Date.now() / 1000);
         if (rueckblick) {
-          setNoteError(rueckblick.fehler);
+          setNoteArt(rueckblick.art);
           setNote(rueckblick.text);
         }
       } catch {
@@ -810,7 +813,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
         if (!data.available || data.state === 'ok' || data.state === 'error') {
           setBusy(false);
           if (data.state === 'error') {
-            setNoteError(true);
+            setNoteArt('fehler');
             // Die Ursache steht in den Zeilen nach der Fehlermeldung.
             // Sie hier wegzulassen hiesse: «ging schief», Punkt – und
             // die Suche beginnt per SSH auf dem Host von vorne.
@@ -826,7 +829,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
               // Update-Dienst auf dem Server ist noch eine Fassung, die
               // den Schalter nicht kennt. Ohne diesen Hinweis sähe alles
               // nach Erfolg aus, und TestFlight bliebe stumm.
-              setNoteError(true);
+              setNoteArt('fehler');
               setNote(
                 [
                   'Fertig - der Hub ist neu, aber der iOS-Build wurde nicht angestossen:',
@@ -837,11 +840,12 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
             } else if (warned.length > 0) {
               // «Fertig» wäre hier die halbe Wahrheit: Der Hub ist neu,
               // aber etwas blieb auf dem alten Stand - das gehört vor
-              // die Augen, nicht ins Journal auf dem Host.
-              setNoteError(true);
+              // die Augen, nicht ins Journal auf dem Host. In Rot stand
+              // es dort allerdings wie ein gescheitertes Update.
+              setNoteArt('hinweis');
               setNote(['Fertig, aber mit Vorbehalt:', ...warned].join('\n'));
             } else {
-              setNoteError(false);
+              setNoteArt(null);
               setNote('Fertig – der Hub läuft mit dem frischen Stand.');
             }
           }
@@ -852,7 +856,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
       }
       if (!cancelled && polls >= MAX_POLLS) {
         setBusy(false);
-        setNoteError(true);
+        setNoteArt('fehler');
         setNote(
           'Keine Rückmeldung mehr vom Update-Dienst – im Log auf dem Host nachsehen.'
         );
@@ -880,7 +884,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
     setAsking(false);
     setBusy(true);
     setNote(null);
-    setNoteError(false);
+    setNoteArt(null);
     setProgress(null);
     iosIgnored.current = false;
     laufBegonnen.current = false;
@@ -898,7 +902,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
         throw new Error(body?.detail ?? `Hub antwortet mit ${response.status}`);
       iosIgnored.current = Boolean(body?.ios_ignored);
       if (iosIgnored.current) {
-        setNoteError(true);
+        setNoteArt('fehler');
         setNote(
           'Angestossen - aber der Update-Dienst auf dem Server kennt den iOS-Schalter noch nicht. ' +
             'Es wird nur der Hub gebaut. Abhilfe: auf dem Server einmal ' +
@@ -908,7 +912,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
         // Die eingerichtete Adresse ist ein blosser Portainer-Webhook.
         // Der erstellt den Container neu - aus demselben Abbild. Der
         // Knopf tut also etwas und ändert doch nie den Stand.
-        setNoteError(true);
+        setNoteArt('fehler');
         setNote(
           [
             'Angestossen - aber diese Adresse rollt nur aus, sie baut nicht neu.',
@@ -925,7 +929,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
       }
     } catch (err) {
       setBusy(false);
-      setNoteError(true);
+      setNoteArt('fehler');
       setNote(String(err instanceof Error ? err.message : err));
     }
   };
@@ -1001,7 +1005,14 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
         </Text>
       ) : null}
       {note ? (
-        <Text style={[styles.noteText, noteError && { color: colors.danger }]} selectable>
+        <Text
+          style={[
+            styles.noteText,
+            noteArt === 'fehler' && { color: colors.danger },
+            noteArt === 'hinweis' && { color: colors.warn },
+          ]}
+          selectable
+        >
           {note}
         </Text>
       ) : null}
