@@ -163,7 +163,81 @@ def settle(state: dict[str, Any], now: float, hours: float = STALE_HOURS) -> dic
     """
     if not is_stale(state.get("changed_at"), now, hours):
         return dict(state)
-    return {**state, "state": UNKNOWN, "stale": True, "place": None}
+    # Auch der Name muss weg, nicht nur die Kennung: Sonst stünde
+    # «Tanners Home» neben einem Zustand, der «weiss ich nicht» heisst.
+    return {**state, "state": UNKNOWN, "stale": True, "place": None, "place_name": None}
+
+
+def merke_stand(
+    rows: list[dict[str, Any]], zone: str, stand: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Den letzten bekannten Zustand einer Zone festhalten (rein, testbar).
+
+    Warum es das braucht: Ein Neustart des Hubs ändert nichts daran, wo
+    jemand ist – das Telefon meldet aber nur Übertritte. Ohne dieses
+    Gedächtnis stand nach jedem Update und jedem Neustart wieder «Hat
+    sich noch nie gemeldet», bis die Person das nächste Mal eine
+    Zonengrenze kreuzte. Wer zuhause sitzt, tut das nicht, und das Haus
+    hielt ihn stundenlang für verschollen.
+
+    Je Zone eine Zeile, die neueste ersetzt die alte: Das hier ist ein
+    Gedächtnis, kein Verlauf – für das Kommen und Gehen gibt es
+    `remember`.
+    """
+    andere = [
+        row
+        for row in rows or []
+        if isinstance(row, dict) and row.get("zone") != zone
+    ]
+    return [{**stand, "zone": zone}, *andere]
+
+
+def wieder_aufnehmen(
+    rows: list[dict[str, Any]], zone: str, now: float, hours: float = STALE_HOURS
+) -> dict[str, Any]:
+    """Womit eine Zone nach dem Neustart beginnt (rein, testbar).
+
+    Zurück kommt der Zustand, mit dem die Entität angelegt wird. Drei
+    Fälle führen zum ehrlichen «unbekannt»: nie etwas gemerkt, damals
+    schon unbekannt, oder die Meldung ist inzwischen zu alt. Der letzte
+    ist der wichtigste – ein Hub, der eine Woche stand, soll nicht
+    behaupten, jemand sei noch zuhause.
+    """
+    leer = {
+        "state": UNKNOWN,
+        "device_class": "presence",
+        "source": "none",
+        "place": None,
+    }
+    gemerkt = next(
+        (
+            row
+            for row in rows or []
+            if isinstance(row, dict) and row.get("zone") == zone
+        ),
+        None,
+    )
+    if not gemerkt:
+        return leer
+    try:
+        changed = float(gemerkt.get("changed_at") or 0)
+    except (TypeError, ValueError):
+        return leer
+    zustand = str(gemerkt.get("state") or "")
+    if not changed or not zustand or zustand == UNKNOWN:
+        return leer
+    if is_stale(changed, now, hours):
+        return leer
+    return {
+        "state": zustand,
+        "device_class": "presence",
+        "source": str(gemerkt.get("source") or "none"),
+        "place": gemerkt.get("place"),
+        "place_name": gemerkt.get("place_name"),
+        "changed_at": changed,
+        "battery": gemerkt.get("battery"),
+        "stale": False,
+    }
 
 
 def remember(
@@ -247,6 +321,10 @@ def diagnose(person: str, state: dict[str, Any], now: float) -> dict[str, Any]:
         "person": person,
         "state": str(state.get("state") or UNKNOWN),
         "place": state.get("place"),
+        # Ohne den Klarnamen stünde in der Diagnose die Kennung
+        # `tanners_home` – oder gar nichts, und dann fehlt genau die
+        # Antwort, wegen der man hinschaut: Wo ist die Person gerade?
+        "place_name": state.get("place_name"),
         "source": quelle,
         "last_seen": changed or None,
         "age_seconds": round(alter) if alter is not None else None,

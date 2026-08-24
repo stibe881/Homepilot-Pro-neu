@@ -432,8 +432,12 @@ def test_the_datapoint_tells_what_kind_of_sensor_it_is():
     assert guess_device_class("MOTION") == "motion"
     assert guess_device_class("WATER_DETECTED") == "moisture"
     assert guess_device_class("SMOKE_DETECTOR_ALARM_STATUS") == "smoke"
+    # Messwerte tragen ihre Bedeutung ebenfalls: Ohne sie findet die
+    # Klima-Zeile der App den Aussenfühler nicht (lib/klimachip.ts).
+    assert guess_device_class("ACTUAL_TEMPERATURE") == "temperature"
+    assert guess_device_class("HUMIDITY") == "humidity"
     # Unklares bleibt offen: Eine falsche Angabe wäre schlimmer als keine.
-    assert guess_device_class("ACTUAL_TEMPERATURE") is None
+    assert guess_device_class("SOMETHING_ELSE") is None
     assert guess_device_class(None) is None
 
 

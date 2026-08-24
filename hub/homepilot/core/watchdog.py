@@ -27,7 +27,17 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from . import energy, familie, maintenance, notifyrules, presence, shopping, trash, users
+from . import (
+    energy,
+    familie,
+    gemeldet,
+    maintenance,
+    notifyrules,
+    presence,
+    shopping,
+    trash,
+    users,
+)
 from .entity import EntityKind
 
 # Die reinen Regeln wohnen in watchrules.py; hier bleiben Takt und
@@ -99,31 +109,19 @@ class Watchdog:
         self._energy_day: str | None = None
         self._energy_written: float = 0.0
         self._energy_last: float = 0.0
-        # Für welchen Tag zuletzt vor Frost gewarnt wurde.
-        self._maintenance_day: str | None = None
         # Je Ladenzone der Zeitpunkt des Betretens, für den schon erinnert
         # wurde. Beim nächsten Besuch ist der ein anderer.
         self._shop_reminded: dict[str, Any] = {}
-        # Je Tag und Gabe einmal erinnern, nicht jede Minute.
-        self._med_reminded: set[str] = set()
-        self._birthday_day: str | None = None
-        self._birthday_ahead: set[str] = set()
-        self._emergency_day: str | None = None
         # Ortung: wem schon wegen des Akkus geschrieben wurde, wann
         # zuletzt nach dem Ferienmodus gefragt wurde, und wann der
         # Verlauf zuletzt gestutzt wurde.
         self._battery_told: set[str] = set()
         self._holiday_asked: float = 0.0
         self._history_trimmed: float = 0.0
-        # Wochenausblick, Aufräumen und Kochstempel: je Tag einmal.
-        self._weekahead_day: str | None = None
-        self._cleanup_day: str | None = None
-        self._cooked_day: str | None = None
-        self._book_month: str | None = None
-        # Ablaufende Zugänge: wem schon Bescheid gegeben wurde.
-        self._access_warned: set[str] = set()
-        self._access_ended: set[str] = set()
-        self._frost_day: str | None = None
+        # Was «einmal am Tag» heisst - Geburtstag, Frost, Medikamente,
+        # Wochenausblick, ablaufende Zugänge - merkt sich `_einmal` in der
+        # hub.data und überlebt damit den Neustart. Hier stand das früher
+        # und war nach jedem Update vergessen.
         # Wann zuletzt vor knappem Speicherplatz gewarnt wurde.
         self._disk_warned: float = 0.0
         # Letzte gemessene Belegung - für den System-Screen.
@@ -278,9 +276,8 @@ class Watchdog:
         frost = frost_night(weather.state.get("days") or [], today, below)
         if frost is None:
             return
-        if self._frost_day == frost["date"]:
+        if not self._einmal(f"frost:{frost['date']}"):
             return
-        self._frost_day = frost["date"]
         await self._notify(
             "Frost angekündigt",
             f"Heute Nacht sinkt es auf {frost['low']} °C. "
@@ -300,15 +297,13 @@ class Watchdog:
         if jetzt.hour != 9:
             return
         heute = jetzt.strftime("%Y-%m-%d")
-        if self._maintenance_day == heute:
+        # Den Tag gleich vormerken – auch wenn nichts fällig ist: Sonst
+        # prüfte er die ganze Stunde lang jede Minute erneut.
+        if not self._einmal(f"maintenance:{heute}", jetzt.timestamp()):
             return
         faellig = maintenance.due_items(self.hub.data.get("maintenance"))
         if not faellig:
-            # Den Tag trotzdem merken: Sonst prüft er die ganze Stunde
-            # lang jede Minute erneut.
-            self._maintenance_day = heute
             return
-        self._maintenance_day = heute
         await self._notify(
             "Wartung steht an",
             "\n".join(maintenance.describe(row) for row in faellig[:5]),
@@ -358,21 +353,15 @@ class Watchdog:
         tag = jetzt.strftime("%Y-%m-%d")
         for med, offen in familie.due_medications(meds, tag, jetzt.hour):
             for slot in offen:
-                marke = f"{med.get('id')}:{tag}:{slot}"
-                if marke in self._med_reminded:
+                marke = f"med:{med.get('id')}:{tag}:{slot}"
+                if not self._einmal(marke, jetzt.timestamp()):
                     continue
-                self._med_reminded.add(marke)
                 await self._notify(
                     "Medikament fällig",
                     familie.describe(med, [slot]),
                     category="medication",
                     to=str(med.get("member") or "").strip() or None,
                 )
-        # Das Gedächtnis nicht wachsen lassen - was von gestern ist, ist
-        # vorbei.
-        self._med_reminded = {
-            marke for marke in self._med_reminded if f":{tag}:" in marke
-        }
 
     def _kalender_termine(self) -> list[dict[str, Any]]:
         """Alle Kalendereinträge, die der Hub kennt.
@@ -405,9 +394,8 @@ class Watchdog:
         if jetzt.hour != stunde:
             return
         heute = jetzt.strftime("%Y-%m-%d")
-        if self._birthday_day == heute:
+        if not self._einmal(f"birthday:{heute}", jetzt.timestamp()):
             return
-        self._birthday_day = heute
         termine = self._kalender_termine()
         aus_kontakten = [
             str(contact.get("text") or "").strip()
@@ -444,20 +432,15 @@ class Watchdog:
                 continue
             # Dieselbe Marke für beide Quellen: Wer in Kontakten *und*
             # Kalender steht, wird einmal angekündigt.
-            marke = f"{heute}:{name.casefold()}:{versatz}"
-            if marke in self._birthday_ahead:
+            marke = f"birthday-ahead:{heute}:{name.casefold()}:{versatz}"
+            if not self._einmal(marke, jetzt.timestamp()):
                 continue
-            self._birthday_ahead.add(marke)
             wann = "morgen" if versatz == 1 else f"in {versatz} Tagen"
             await self._notify(
                 f"{name} hat {wann} Geburtstag",
                 "Noch Zeit für ein Geschenk.",
                 category="birthday",
             )
-        # Marken von gestern wegwerfen, sonst wächst die Menge ewig.
-        self._birthday_ahead = {
-            marke for marke in self._birthday_ahead if marke.startswith(heute)
-        }
 
     async def _check_emergency(self) -> None:
         """Einmal im Jahr daran erinnern, das Notfallblatt anzusehen.
@@ -474,9 +457,8 @@ class Watchdog:
         if jetzt.hour != 9:
             return
         heute = jetzt.strftime("%Y-%m-%d")
-        if self._emergency_day == heute:
+        if not self._einmal(f"emergency:{heute}", jetzt.timestamp()):
             return
-        self._emergency_day = heute
         geprueft = None
         for eintrag in eintraege:
             if isinstance(eintrag, dict) and eintrag.get("checked"):
@@ -569,9 +551,8 @@ class Watchdog:
         if jetzt.hour != stunde:
             return
         heute = jetzt.strftime("%Y-%m-%d")
-        if self._weekahead_day == heute:
+        if not self._einmal(f"weekahead:{heute}"):
             return
-        self._weekahead_day = heute
         events: list[Any] = []
         for entity in self.hub.registry.all():
             if entity.id.startswith("google_calendar."):
@@ -599,9 +580,8 @@ class Watchdog:
         if jetzt.hour != 4:
             return
         heute = jetzt.strftime("%Y-%m-%d")
-        if self._cleanup_day == heute:
+        if not self._einmal(f"cleanup:{heute}"):
             return
-        self._cleanup_day = heute
         korb = self.hub.data.get("family_trash")
         for collection in ("tasks", "shopping", "countdowns"):
             key = f"family_{collection}"
@@ -618,8 +598,7 @@ class Watchdog:
         # Und einmal im Monat das Familienbuch (Punkt 169): eine Seite,
         # die auch ohne HomePilot noch lesbar ist.
         monat = jetzt.strftime("%Y-%m")
-        if self._book_month != monat:
-            self._book_month = monat
+        if self._einmal(f"book:{monat}", jetzt.timestamp()):
             ziel = self.hub.data.family_book(monat)
             if ziel is not None:
                 log.info("Familienbuch abgelegt: %s", ziel)
@@ -635,9 +614,8 @@ class Watchdog:
         if jetzt.hour != 3:
             return
         heute = jetzt.strftime("%Y-%m-%d")
-        if self._cooked_day == heute:
+        if not self._einmal(f"cooked:{heute}"):
             return
-        self._cooked_day = heute
         gestern = jetzt.date() - timedelta(days=1)
         rezepte = self.hub.data.get("family_recipes")
         neu = familie.cooked_from_plan(
@@ -663,16 +641,18 @@ class Watchdog:
                 continue
             marke = f"{user.name}:{ende.isoformat(timespec='minutes')}"
             rest = (ende - jetzt).total_seconds()
-            if 0 < rest <= ACCESS_WARN_SECONDS and marke not in self._access_warned:
-                self._access_warned.add(marke)
+            if 0 < rest <= ACCESS_WARN_SECONDS and self._einmal(
+                f"access-warn:{marke}", jetzt.timestamp()
+            ):
                 await self._notify(
                     "Dein Zugang endet bald",
                     f"Um {ende.strftime('%H:%M')} läuft der Zugang ab.",
                     category="tasks",
                     to=user.name,
                 )
-            if rest <= 0 and marke not in self._access_ended:
-                self._access_ended.add(marke)
+            if rest <= 0 and self._einmal(
+                f"access-end:{marke}", jetzt.timestamp()
+            ):
                 await self._notify(
                     f"Zugang von {user.name} ist abgelaufen",
                     "Wer länger bleibt, braucht eine Verlängerung.",
@@ -915,6 +895,26 @@ class Watchdog:
             if entry["integration"] == name and entry["ended"] is None:
                 entry["ended"] = time.time()
                 break
+
+    def _einmal(self, marke: str, jetzt: float | None = None) -> bool:
+        """Ist diese Meldung noch nicht raus? Dann vormerken und True.
+
+        Das Gedächtnis liegt in der `hub.data` und überlebt darum den
+        Neustart. Vorher stand es im Arbeitsspeicher, und wer während
+        der Meldestunde ein Update einspielte, bekam den Geburtstagsgruss
+        ein zweites Mal – dasselbe galt für Frost, Medikamente und jede
+        andere Meldung, die «einmal am Tag» heisst.
+
+        Vormerken *bevor* die Meldung rausgeht: Scheitert der Versand,
+        soll er nicht in der nächsten Minute erneut versucht werden.
+        """
+        rows = self.hub.data.get("notified")
+        if gemeldet.schon(rows, marke):
+            return False
+        self.hub.data.set(
+            "notified", gemeldet.merke(rows, marke, jetzt or time.time())
+        )
+        return True
 
     async def _notify(
         self,

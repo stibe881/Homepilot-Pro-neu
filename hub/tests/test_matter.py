@@ -11,7 +11,9 @@ from aiohttp import WSMsgType, web
 from homepilot.core.config import load_config
 from homepilot.core.hub import Hub
 from homepilot.integrations.matter import (
+    aufzieh_urteil,
     battery_percent,
+    betriebsart_hinweis,
     classify,
     endpoint_device_types,
     endpoint_name,
@@ -21,6 +23,7 @@ from homepilot.integrations.matter import (
     lock_state,
     node_endpoints,
     node_lines,
+    schloss_endpunkt,
 )
 
 # ── Reine Funktionen ─────────────────────────────────────────────────────
@@ -707,3 +710,78 @@ def test_die_stromquelle_ist_keine_fehlende_unterstuetzung():
     # in der App, und die Liste schwiege dazu ebenfalls.
     knoten["attributes"]["2/29/0"] = [{"0": 999, "1": 1}]
     assert any("wird noch nicht unterstützt" in zeile for zeile in node_lines(knoten))
+
+
+# ── Hat die Falle sich bewegt? ───────────────────────────────────────────
+
+
+def test_a_pulled_latch_needs_no_explanation():
+    # Das Schloss schliesst auf und zieht - genau das, was der Knopf
+    # verspricht. Dann hat der Hub nichts zu sagen.
+    assert aufzieh_urteil(["unlocked", "unlatched"]) is None
+    assert aufzieh_urteil(["unlatched"]) is None
+
+
+def test_only_unlocked_points_at_the_lock_not_the_hub():
+    # Stefans Fall: Der Befehl kommt an, der Riegel fährt zurück, die
+    # Türe bleibt zu. Das ist keine Sache des Hubs, und der Satz sagt
+    # auch, wo es stattdessen zu suchen ist.
+    satz = aufzieh_urteil(["unlocked"])
+    assert satz is not None
+    assert "nur aufgeschlossen" in satz
+    # Und zwar mit der Einstellung, an der es bei Nuki wirklich hängt -
+    # nicht mit einem allgemeinen «schau mal in der App nach».
+    assert "Türkonfiguration" in satz
+    assert "keine Klinke" in satz
+
+
+def test_no_reaction_at_all_asks_about_the_pin():
+    # Gar keine Meldung heisst meistens: Das Schloss hat den Befehl
+    # abgewiesen. Der häufigste Grund ist ein verlangter Code.
+    for gesehen in ([], ["locked"]):
+        satz = aufzieh_urteil(gesehen)
+        assert satz is not None
+        assert "'pin'" in satz
+
+
+# ── Betriebsart ──────────────────────────────────────────────────────────
+
+
+def test_normal_operating_mode_says_nothing():
+    # Kein Hinweis, wo keiner nötig ist - sonst steht in der Diagnose
+    # immer irgendetwas und niemand liest sie mehr.
+    for wert in (None, 0, 1, 4):
+        attributes = {} if wert is None else {"1/257/33": wert}
+        assert betriebsart_hinweis(attributes, 1) is None
+
+
+def test_privacy_and_no_remote_are_named():
+    # Genau diese zwei Stellungen sperren den Hub aus. Von aussen sieht
+    # das aus wie ein Knopf, der nichts tut.
+    satz = betriebsart_hinweis({"1/257/33": 2}, 1)
+    assert satz is not None and "Privat" in satz
+    satz = betriebsart_hinweis({"1/257/33": 3}, 1)
+    assert satz is not None and "Ohne Fernbedienung" in satz
+
+
+# ── An welchen Endpunkt gehört «Auf + öffnen»? ───────────────────────────
+
+
+def test_the_lock_endpoint_is_found_between_the_others():
+    # Ein Nuki bringt Verwaltung (Endpunkt 0) und Stromquelle mit. Der
+    # Befehl gehört an genau einen Endpunkt - den falschen zu treffen
+    # sähe von aussen aus wie ein Schloss, das nicht reagiert.
+    knoten = {
+        "node_id": 1,
+        "attributes": {
+            "0/29/0": [{"0": 22, "1": 1}],
+            "1/29/0": [{"0": 10, "1": 1}],
+            "2/29/0": [{"0": 17, "1": 1}],
+        },
+    }
+    assert schloss_endpunkt(knoten) == 1
+
+
+def test_a_node_without_a_lock_says_so():
+    knoten = {"node_id": 1, "attributes": {"1/29/0": [{"0": 257, "1": 1}]}}
+    assert schloss_endpunkt(knoten) is None

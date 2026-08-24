@@ -370,11 +370,19 @@ export function szenenRueckweg(
 /**
  * Die Szenen, die in diesem Raum etwas tun (rein, testbar).
  *
- * Bisher entschied allein das Feld `room` – ein einzelnes. «Feierabend»
- * betrifft Wohnzimmer, Küche und die Storen und erschien in höchstens
- * einem davon. Jetzt zählt zusätzlich, was die Szene *schaltet*: Sie
- * erscheint in jedem Raum, dessen Geräte sie anfasst. Das Feld bleibt
- * als Zuordnung von Hand bestehen.
+ * Zwei Fälle, und die Reihenfolge ist der ganze Punkt:
+ *
+ *  - **Mit `room`** gehört die Szene genau dorthin. Wer im Editor
+ *    «Wohnzimmer» wählt, meint das Wohnzimmer - und nicht jedes Zimmer,
+ *    in dem «Schlafen» nebenbei ein Licht löscht. Vorher stand
+ *    «Kino · Wohnzimmer» auf jeder Kachel des Hauses, weil die Szene
+ *    überall etwas anfasst.
+ *  - **Ohne `room`** entscheidet, was sie schaltet: «Feierabend» betrifft
+ *    Wohnzimmer, Küche und die Storen und soll in jedem dieser Räume
+ *    stehen, ohne dass sich jemand für einen entscheiden muss.
+ *
+ * Ausdrücklich sticht abgeleitet - sonst wäre die Wahl im Editor eine
+ * Attrappe.
  */
 /**
  * Die Szenen, die auf die Raumkachel passen (rein, testbar).
@@ -406,8 +414,9 @@ export function szenenFuerRaum<S extends { room?: string | null; entity_ids: str
   const imRaum = new Set(
     entities.filter((entity) => entity.room === room).map((entity) => entity.id)
   );
-  return scenes.filter(
-    (scene) =>
-      scene.room === room || scene.entity_ids.some((id) => imRaum.has(id))
+  return scenes.filter((scene) =>
+    scene.room
+      ? scene.room === room
+      : scene.entity_ids.some((id) => imRaum.has(id))
   );
 }

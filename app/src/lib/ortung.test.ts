@@ -6,6 +6,8 @@ import {
   anwesenheitsListe,
   anwesenheitsZeile,
   dauerDa,
+  diagnoseZeile,
+  geortet,
   ortungsHinweis,
   quellenText,
   pauseBis,
@@ -293,5 +295,107 @@ describe('quellenText', () => {
   it('nennt eine neue Quelle beim Namen, statt sie zu verstecken', () => {
     // Sonst verschwände die nächste Integration hinter einem «?».
     expect(quellenText('tasker')).toBe('tasker');
+  });
+});
+
+
+describe('Gespeicherte Orte von Life360', () => {
+  it('nennt den Ort beim Namen statt «unterwegs»', () => {
+    // Life360 weiss, dass Maja bei «Tanners Home» steht. Vorher warf der
+    // Hub den Namen weg und die Liste sagte bloss «unterwegs».
+    expect(
+      zustandText({ state: 'tanners_home', place_name: 'Tanners Home' })
+    ).toBe('Tanners Home');
+  });
+
+  it('fällt auf die Kennung zurück, wenn kein Name mitkam', () => {
+    expect(zustandText({ state: 'tanners_home' })).toBe('tanners_home');
+  });
+
+  it('lässt «zuhause» und «unterwegs» unangetastet', () => {
+    // Der eigene Ort des Hauses schlägt den Namen aus der fremden App –
+    // sonst hinge die Alarmanlage daran.
+    expect(zustandText({ state: 'home', place_name: 'Tanners Home' })).toBe('zuhause');
+    expect(zustandText({ state: 'away' })).toBe('unterwegs');
+  });
+
+  it('trägt den Ort in die Zeile der Familienseite', () => {
+    expect(
+      anwesenheitsZeile(
+        { name: 'Maja', state: 'tanners_home', place_name: 'Tanners Home' },
+        JETZT
+      )
+    ).toBe('Maja Tanners Home');
+  });
+});
+
+
+// ── Zugänge sind keine Personen ──────────────────────────────────────────
+// Auf der Familienseite stand «Niemand zuhause · 3 unbekannt», darunter
+// «Hub-Token Ortung nicht eingerichtet» und «Tablet Ortung nicht
+// eingerichtet». Zwei der drei «Unbekannten» waren Zugänge, die
+// nirgendwohin gehen.
+
+describe('geortet', () => {
+  const leute = [
+    { name: 'Stefan', state: 'unknown', configured: true },
+    { name: 'Maja', state: 'home', configured: true },
+    { name: 'Hub-Token', state: 'unknown', configured: false },
+    { name: 'Tablet', state: 'unknown', configured: false },
+  ];
+
+  it('lässt Zugänge ohne Ortung weg', () => {
+    expect(geortet(leute).map((p) => p.name)).toEqual(['Stefan', 'Maja']);
+  });
+
+  it('zählt sie auch in der Kopfzeile nicht mit', () => {
+    // Vorher: «Niemand zuhause · 3 unbekannt» – zwei davon waren Zugänge.
+    expect(anwesenheitKurz(leute)).toBe('Maja zuhause · 1 unbekannt');
+  });
+
+  it('verträgt Leeres', () => {
+    expect(geortet([])).toEqual([]);
+    expect(geortet([{ state: 'home' }])).toEqual([]);
+  });
+});
+
+describe('diagnoseZeile', () => {
+  it('stellt den Ort nach vorn – deswegen schaut man hin', () => {
+    expect(
+      diagnoseZeile({
+        combined: 'tanners_home',
+        place_name: 'Tanners Home',
+        hint: 'Meldet sich regelmässig.',
+        combined_source: 'life360',
+        battery: 89,
+      })
+    ).toBe('Tanners Home · Meldet sich regelmässig. · Quelle: Life360 · Akku 89 %');
+  });
+
+  it('schreibt «zuhause» und «unterwegs» aus', () => {
+    expect(
+      diagnoseZeile({ combined: 'home', hint: 'Meldet sich regelmässig.', combined_source: 'geofence' })
+    ).toBe('zuhause · Meldet sich regelmässig. · Quelle: Telefon');
+    expect(diagnoseZeile({ combined: 'away', combined_source: 'life360' })).toBe(
+      'unterwegs · Quelle: Life360'
+    );
+  });
+
+  it('lässt den Ort weg, wo es keinen gibt', () => {
+    // Sonst stünde «meldet sich nicht · Hat sich noch nie gemeldet …».
+    expect(
+      diagnoseZeile({
+        combined: 'unknown',
+        hint: 'Hat sich noch nie gemeldet.',
+        combined_source: 'none',
+      })
+    ).toBe('Hat sich noch nie gemeldet. · Quelle: noch keine Meldung');
+  });
+
+  it('lässt den Akku weg, wenn keiner gemeldet ist', () => {
+    expect(diagnoseZeile({ combined: 'home', combined_source: 'geofence', battery: null }))
+      .toBe('zuhause · Quelle: Telefon');
+    expect(diagnoseZeile({ combined: 'home', combined_source: 'geofence', battery: 0 }))
+      .toBe('zuhause · Quelle: Telefon · Akku 0 %');
   });
 });

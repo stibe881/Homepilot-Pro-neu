@@ -184,6 +184,19 @@ integrations:
   #       name: Temperatur Bad
   #       kind: sensor
   #       datapoint: ACTUAL_TEMPERATURE
+  #     # Ein Gerät, zwei Messwerte (z.B. HmIP-STHO, Aussenfühler):
+  #     # zweimal dieselbe Adresse, zweimal ein anderer Datenpunkt.
+  #     # Einheit (°C, %) und Bedeutung kommen vom Datenpunkt.
+  #     - address: "0006D8A9B12345:1"
+  #       port: 2010
+  #       name: Temperatur aussen
+  #       kind: sensor
+  #       datapoint: ACTUAL_TEMPERATURE
+  #     - address: "0006D8A9B12345:1"
+  #       port: 2010
+  #       name: Luftfeuchtigkeit aussen
+  #       kind: sensor
+  #       datapoint: HUMIDITY
   #     # Fensterkontakt. 'device_class' sagt dem Hub, wofür der Melder
   #     # steht – daran hängen die Warnungen: contact (Fenster/Tür),
   #     # motion, smoke, moisture (Wassermelder). Bei den eindeutigen
@@ -251,12 +264,15 @@ integrations:
   #       latitude: 47.1502
   #       longitude: 8.0641
   #       radius: 200
-  #   zones:
-  #     - id: stefan
-  #       name: Stefan
-  #       wifi: unifi.iphone_stefan   # optional: WLAN schlägt Geofence
-  #     - id: livia
-  #       name: Livia
+  #   # Die Personen kommen aus der Benutzerliste des Hubs: Wer in der App
+  #   # angelegt ist, bekommt seine Zone (geofence.<vorname>) von selbst -
+  #   # ohne Neustart und ohne Eintrag hier. Gäste, geteilte Geräte wie das
+  #   # Wandtablet und das Systemtoken bleiben draussen.
+  #   # 'zones:' braucht es nur noch für abweichende Namen oder für ein
+  #   # Telefon, das keinem Benutzer gehört. Was hier steht, sticht.
+  #   # zones:
+  #   #   - id: stefan
+  #   #     name: Stefan (Diensthandy)
 
   # Life360: Standort für Telefone, auf denen HomePilot nicht läuft -
   # das Gerät der Grosseltern, ein Kindertelefon. Eine Quelle je Person:
@@ -482,6 +498,15 @@ integrations:
   #   #   never  – nie anbieten (Kinder im Haus, Türe zur Strasse).
   #   # Was der Hub erkannt hat, steht unter System → Integrationen.
   #   # unlatch: auto
+  #   # Fehlt der Knopf bei einem Nuki: Das Aufziehen wird über Matter nur
+  #   # angeboten, wenn in der Nuki-App unter Türkonfiguration steht, dass
+  #   # die Türe aussen keine Klinke hat (Knauf oder Stossgriff). Innen
+  #   # Klinke, aussen Knauf - danach neu einlesen.
+  #   # Nach jedem «Auf + öffnen» schaut der Hub ein paar Sekunden zu, ob
+  #   # die Falle wirklich gezogen wurde. Hat das Schloss bloss
+  #   # aufgeschlossen, steht der Grund ebenfalls unter System →
+  #   # Integrationen - meistens liegt er dann in der Nuki-App
+  #   # (Tür-Öffnen nicht eingerichtet) und nicht am Hub.
 
   # V-ZUG-Geräte (lokale Home-API, nur lesend). Die Geräte müssen über
   # V-ZUG-Home im WLAN sein; im Router feste IPs vergeben. Die Namen

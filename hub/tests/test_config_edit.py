@@ -182,6 +182,50 @@ def test_duplicate_devices_are_found():
     assert problems == ["homematic: ABC:3 (Port 2010) steht 2-mal in der Geräteliste"]
 
 
+def test_zwei_messwerte_auf_einem_kanal_sind_kein_versehen():
+    """Der Aussenfühler HmIP-STHO legt Temperatur und Luftfeuchtigkeit auf
+    denselben Kanal - zwei Einträge mit derselben Adresse sind dort der
+    einzige Weg, nicht eine kopierte Zeile."""
+    assert (
+        duplicate_devices(
+            [
+                {
+                    "integration": "homematic",
+                    "devices": [
+                        {
+                            "address": "000ED709B2834F:1",
+                            "port": 2010,
+                            "datapoint": "ACTUAL_TEMPERATURE",
+                        },
+                        {
+                            "address": "000ED709B2834F:1",
+                            "port": 2010,
+                            "datapoint": "HUMIDITY",
+                        },
+                    ],
+                }
+            ]
+        )
+        == []
+    )
+    # Derselbe Datenpunkt zweimal bleibt ein Versehen - und die Meldung
+    # nennt ihn, sonst sucht man die falsche Zeile.
+    doppelt = duplicate_devices(
+        [
+            {
+                "integration": "homematic",
+                "devices": [
+                    {"address": "ABC:1", "port": 2010, "datapoint": "HUMIDITY"},
+                    {"address": "ABC:1", "port": 2010, "datapoint": "HUMIDITY"},
+                ],
+            }
+        ]
+    )
+    assert doppelt == [
+        "homematic: ABC:1 (Port 2010), HUMIDITY steht 2-mal in der Geräteliste"
+    ]
+
+
 def test_the_same_address_on_two_interfaces_is_no_duplicate():
     assert duplicate_devices(
         [

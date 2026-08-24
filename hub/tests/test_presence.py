@@ -249,3 +249,33 @@ def test_der_radius_bleibt_in_vernuenftigen_grenzen() -> None:
     assert read_home(store_home(47.0, 8.0, 5, 1.0))["radius"] == 25.0
     assert read_home(store_home(47.0, 8.0, 20_000, 1.0))["radius"] == 2000.0
     assert read_home(store_home(47.0, 8.0, 400, 1.0))["radius"] == 400.0
+
+
+# ── Das Gedächtnis über den Neustart hinweg ──────────────────────────────
+
+
+def test_merke_stand_haelt_je_zone_nur_die_neueste_zeile():
+    """Ein Gedächtnis, kein Verlauf – sonst wüchse die Datei endlos."""
+    rows = presence.merke_stand([], "stefan", {"state": "home", "changed_at": 1})
+    rows = presence.merke_stand(rows, "livia", {"state": "away", "changed_at": 2})
+    rows = presence.merke_stand(rows, "stefan", {"state": "away", "changed_at": 3})
+    assert len(rows) == 2
+    stefan = next(row for row in rows if row["zone"] == "stefan")
+    assert stefan["state"] == "away"
+    assert stefan["changed_at"] == 3
+
+
+def test_wieder_aufnehmen_verträgt_kaputte_zeilen():
+    jetzt = 1_000_000.0
+    # Nichts gemerkt, unbekannt gemerkt, Zeitstempel als Unsinn – alle
+    # drei führen zum ehrlichen «unbekannt» statt zu einer Behauptung.
+    for zeilen in (
+        [],
+        [{"zone": "stefan", "state": "unknown", "changed_at": jetzt}],
+        [{"zone": "stefan", "state": "home", "changed_at": "gestern"}],
+        [{"zone": "stefan", "state": "home"}],
+        ["kein Mapping"],
+    ):
+        stand = presence.wieder_aufnehmen(zeilen, "stefan", jetzt)
+        assert stand["state"] == presence.UNKNOWN
+        assert stand["source"] == "none"

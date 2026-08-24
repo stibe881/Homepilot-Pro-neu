@@ -298,6 +298,30 @@ describe('Szenen auf der Raumkachel', () => {
     expect(szenenFuerKachel([szene('x', 'Bad')], geraete, 'Wohnzimmer')).toEqual([]);
     expect(szenenFuerKachel([], geraete, 'Wohnzimmer')).toEqual([]);
   });
+
+  it('bleibt in ihrem Raum, auch wenn sie anderswo etwas schaltet', () => {
+    // Der gemeldete Fall: «Kino» und «Schlafen» sind dem Wohnzimmer
+    // zugeteilt, löschen aber nebenbei das Licht in Küche und Büro - und
+    // standen deshalb auf jeder Kachel des Hauses. Wer im Editor einen
+    // Raum wählt, meint diesen einen; sonst wäre die Wahl eine Attrappe.
+    const kino = szene('kino', 'Wohnzimmer', ['hue.stube', 'hue.kueche']);
+    expect(szenenFuerKachel([kino], geraete, 'Wohnzimmer').map((s) => s.id)).toEqual([
+      'kino',
+    ]);
+    expect(szenenFuerKachel([kino], geraete, 'Küche')).toEqual([]);
+  });
+
+  it('ohne Raum entscheidet weiterhin, was sie schaltet', () => {
+    // «Feierabend» betrifft mehrere Zimmer und soll in jedem stehen,
+    // ohne dass sich jemand für eines entscheiden muss.
+    const feierabend = szene('feierabend', null, ['hue.stube', 'hue.kueche']);
+    expect(szenenFuerKachel([feierabend], geraete, 'Wohnzimmer').map((s) => s.id)).toEqual(
+      ['feierabend']
+    );
+    expect(szenenFuerKachel([feierabend], geraete, 'Küche').map((s) => s.id)).toEqual([
+      'feierabend',
+    ]);
+  });
 });
 
 

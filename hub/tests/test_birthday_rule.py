@@ -123,3 +123,47 @@ def test_die_kontakte_liefern_den_tag():
 
     treffer = familie.birthdays_on(KONTAKTE, date(2026, 8, 21))
     assert [c["text"] for c in treffer] == ["Livia"]
+
+
+@pytest.mark.asyncio
+async def test_ein_neustart_bringt_den_gruss_nicht_ein_zweites_mal(monkeypatch):
+    """Der gemeldete Fall: «Die Geburtstagsbenachrichtigung ist zwei Mal
+    gekommen.»
+
+    Der Wächter merkte sich im Arbeitsspeicher, was heute schon raus
+    ist. Wer während der Meldestunde ein Update einspielt – und das
+    dauert Minuten, die Stunde aber sechzig –, bekam den Gruss erneut.
+    """
+    jetzt = datetime(2026, 8, 21, 8, 0)
+    hub, gesendet = await wach(monkeypatch, jetzt)
+    try:
+        await hub.watchdog._check_birthdays()
+        assert any("Geburtstag heute" in titel for titel, _ in gesendet)
+        # Das, was der Hub auf die Platte schreibt.
+        gemerkt = hub.data.get("notified")
+        assert gemerkt
+    finally:
+        await hub.stop()
+
+    # Neustart mitten in derselben Stunde, mit demselben Gedächtnis.
+    hub, gesendet = await wach(monkeypatch, datetime(2026, 8, 21, 8, 20))
+    try:
+        hub.data.set("notified", gemerkt)
+        # Der Wächter läuft nebenher auf seinem eigenen Takt; was er vor
+        # dieser Zeile geschickt hat, gehört nicht zur Frage.
+        gesendet.clear()
+        await hub.watchdog._check_birthdays()
+        assert gesendet == []
+    finally:
+        await hub.stop()
+
+    # Am nächsten Tag darf er wieder grüssen – Livia hat dann zwar nicht
+    # Geburtstag, aber der Vorlauf für Levin greift.
+    hub, gesendet = await wach(monkeypatch, datetime(2026, 8, 22, 8, 0))
+    try:
+        hub.data.set("notified", gemerkt)
+        gesendet.clear()
+        await hub.watchdog._check_birthdays()
+        assert gesendet != []
+    finally:
+        await hub.stop()

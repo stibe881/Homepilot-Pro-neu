@@ -67,7 +67,16 @@ WATCHDOG_SECONDS = 3600
 # der Dienst auf dem Server zu alt ist – statt eines nackten „404 Nicht
 # gefunden", das in die falsche Richtung zeigt. Neue Fähigkeiten kommen
 # hier dazu, damit die App sie ankündigen kann, bevor sie ins Leere läuft.
-FEATURES = ["status", "warnings", "ios"]
+FEATURES = ["status", "warnings", "ios", "last_run"]
+
+# Wohin der Ausgang des letzten Laufs geschrieben wird. Der Status oben
+# lebt im Arbeitsspeicher und ist nach jedem Neustart des Dienstes weg -
+# und der Dienst startet sich nach einem Update selbst neu. Wer danach in
+# die App schaut, sah bisher «nichts los» und hielt einen
+# fehlgeschlagenen Lauf für einen gelungenen.
+STATUS_FILE = os.environ.get(
+    "UPDATE_STATUS_FILE", "/opt/homepilot/update-status.json"
+)
 
 # Dieselbe Datei, aus der rebuild-hub.sh seine Zugangsdaten liest.
 CREDENTIALS_FILE = os.environ.get(
@@ -151,6 +160,41 @@ WARN_LINES = 8
 # Läuft gerade eine Warnung, deren eingerückte Folgezeilen noch zu ihr
 # gehören? Wird von der ersten nicht eingerückten Zeile beendet.
 _warn_open = False
+
+
+def letzter_lauf_lesen(pfad: str) -> dict | None:
+    """Den Ausgang des letzten Laufs von der Platte holen (rein, testbar).
+
+    Alles, was schiefgehen kann - Datei fehlt, halb geschrieben, von Hand
+    verbogen -, endet hier als None. Ein kaputtes Gedächtnis darf den
+    Dienst nicht am Starten hindern.
+    """
+    try:
+        with open(pfad, encoding="utf-8") as datei:
+            wert = json.load(datei)
+    except Exception:
+        return None
+    return wert if isinstance(wert, dict) else None
+
+
+def letzter_lauf_schreiben(pfad: str, stand: dict) -> bool:
+    """Den Ausgang festhalten. True, wenn es geklappt hat.
+
+    Erst daneben schreiben, dann umbenennen: Wer währenddessen liest,
+    bekommt entweder den alten oder den neuen Stand, nie einen halben.
+    """
+    try:
+        with open(f"{pfad}.neu", "w", encoding="utf-8") as datei:
+            json.dump(stand, datei)
+        os.replace(f"{pfad}.neu", pfad)
+        return True
+    except Exception:
+        log.warning("Der letzte Lauf liess sich nicht nach %s schreiben", pfad)
+        return False
+
+
+#: Der Ausgang des letzten Laufs - über Neustarts des Dienstes hinweg.
+_letzter_lauf: dict | None = letzter_lauf_lesen(STATUS_FILE)
 
 
 def _set_status(**fields) -> None:
@@ -294,6 +338,22 @@ def build(ios: bool = False) -> None:
                 _status["message"] = _status["message"] or f"Beendet mit Code {returncode}"
         _status["updated_at"] = time.time()
 
+    # Festhalten, bevor der Dienst sich gleich selbst neu startet - sonst
+    # ist dieser Lauf spurlos weg, und in der App steht wieder «nichts los».
+    global _letzter_lauf
+    with _status_lock:
+        _letzter_lauf = {
+            "state": _status["state"],
+            "stage": _status["stage"],
+            "message": _status["message"],
+            "detail": _status["detail"],
+            "warnings": list(_status["warnings"]),
+            "started_at": _status["started_at"],
+            "finished_at": time.time(),
+            "ios": ios,
+        }
+    letzter_lauf_schreiben(STATUS_FILE, _letzter_lauf)
+
     if timed_out or returncode != 0:
         log.error("Bau fehlgeschlagen (Code %s)", returncode)
     else:
@@ -371,6 +431,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 body = json.dumps(
                     {
                         **_status,
+                        "last_run": _letzter_lauf,
                         "features": FEATURES,
                         "expo_token": has_expo_token(),
                     }

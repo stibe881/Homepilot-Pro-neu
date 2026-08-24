@@ -12,19 +12,31 @@ zuverlässiger und ohne Akku zu kosten.
 
 ## 1. Zonen im Hub anlegen
 
-In der `config.yaml`:
+Nichts zu tun: **Die Zonen entstehen aus der Benutzerliste.** Wer in der
+App als Benutzer angelegt ist, bekommt seine Zone von selbst – ohne
+Neustart und ohne Eintrag in der `config.yaml`. Aus «Bine» wird
+`geofence.bine`, aus «Stefan Gross» wird `geofence.stefan`: der Vorname,
+klein geschrieben, Umlaute ausgeschrieben (`Björn` → `bjoern`).
+
+Die Geräte zeigen `home`, `away` oder – bis zur ersten Meldung –
+`unknown`.
+
+Draussen bleiben Gäste (für die ist die Ortung in der App ohnehin aus),
+geteilte Geräte wie das Wandtablet und das Systemtoken. Wird ein Benutzer
+gelöscht, verschwindet seine Zone mit ihm – eine stehengebliebene Zone
+auf «zuhause» hiesse sonst, dass «niemand mehr zuhause» nie wieder
+eintritt.
+
+Der Abschnitt `zones:` gibt es weiterhin, für die zwei Fälle, in denen
+die Benutzerliste nicht reicht – ein abweichender Name, oder ein Telefon,
+das keinem Benutzer gehört. Was dort steht, sticht:
 
 ```yaml
   - integration: geofence
     zones:
       - id: stefan
-        name: Stefan
-      - id: livia
-        name: Livia
+        name: Stefan (Diensthandy)
 ```
-
-Daraus werden die Geräte `geofence.stefan` und `geofence.livia`. Sie
-zeigen `home`, `away` oder – bis zur ersten Meldung – `unknown`.
 
 ## 2. Auf dem iPhone: Kurzbefehle
 
@@ -53,6 +65,26 @@ POST auf dieselbe Adresse, gleicher Text.
 In der App unter **Abläufe** → neuer Ablauf → Auslöser **Ort** → Person
 und «kommt an» oder «geht weg» wählen. Der Rest ist ein Ablauf wie jeder
 andere.
+
+### Was ein Neustart des Hubs bedeutet
+
+Nichts – jedenfalls nicht mehr. Das Telefon meldet nur **Übertritte**:
+Es weckt die App, wenn jemand eine Zonengrenze kreuzt. Wer zuhause
+sitzt, kreuzt keine, und darum wusste der Hub nach einem Neustart oder
+einem Update nicht mehr, wo die Leute sind – auf der Familienseite stand
+wieder «Hat sich noch nie gemeldet», bis die Person das nächste Mal
+wegging und wiederkam.
+
+Seither merkt sich der Hub den letzten Stand je Zone (`presence_last` in
+der `hub.data`) und nimmt ihn beim Start wieder auf, samt Ort, Quelle
+und Akkustand. Zwei Grenzen dabei, beide mit Absicht:
+
+- **Nichts Altes wird wiederbelebt.** Ist die gemerkte Meldung über
+  zwölf Stunden alt, gilt wieder «unbekannt». Ein Hub, der eine Woche
+  stand, soll nicht behaupten, jemand sei noch zuhause.
+- **Die App meldet beim Öffnen einmal von selbst** – das fängt genau den
+  Fall ab, den die zwölf Stunden offenlassen. Nicht während einer
+  Ortungspause: Pausieren ist Pausieren.
 
 ### Das WLAN zählt nicht mit
 
@@ -160,6 +192,17 @@ Drei Dinge, die man vorher wissen sollte:
   Wert hinter `Authorization: Bearer` kopieren. Diese lange
   Zeichenkette ist der Token; er bleibt gültig, bis man sich dort
   abmeldet.
+
+**Die gespeicherten Orte kommen mit.** Steht jemand in einem Ort, den
+ihr bei Life360 angelegt habt, nennt die App ihn beim Namen: «Maja ·
+Tanners Home» statt «Maja · unterwegs». Dafür ist nichts einzurichten –
+Life360 schickt den Namen mit der Position.
+
+Die eigenen Orte des Hubs behalten dabei Vorrang: Wer im Hausradius
+steht, ist «zuhause», auch wenn der Ort bei Life360 anders heisst. Sonst
+hinge die Alarmanlage an einem Namen aus einer fremden App. Für Abläufe
+entsteht aus «Tanners Home» die Kennung `tanners_home` – so wie `home`
+und `quartier` –, und ein Ablauf kann darauf hören.
 
 ```yaml
   - integration: life360

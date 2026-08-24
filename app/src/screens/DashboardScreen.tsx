@@ -43,6 +43,7 @@ import { Tap, useNotificationTap } from '../hooks/useNotificationTap';
 import { usePrefs } from '../hooks/usePrefs';
 import { usePushRegistration } from '../hooks/usePushRegistration';
 import { breakpoints, Colors, radius, space, type, useColors } from '../theme';
+import { KAMERA_MINDEST, kachelBreite, spalten } from '../lib/raster';
 import { EinkaufZeile, Shop, findeArtikel, mengeUndName, mitMenge, shopCategory } from '../lib/einkauf';
 import { uhr } from '../lib/format';
 import {
@@ -62,7 +63,7 @@ import {
   sortiereGeraete,
 } from '../lib/geraetefilter';
 import { verweisText, verweiseAuf } from '../lib/verweise';
-import { raeumeSortiert, raumMesswerte, raumKategorien, raumZeile } from '../lib/raum';
+import { alphabetisch, istKueche, raeumeSortiert, raumKategorien, raumMesswerte, raumZeile } from '../lib/raum';
 import { Person } from '../lib/ortung';
 import { FAVORITEN, raumGruppen } from '../lib/raumgruppen';
 import { verlangtPin } from '../lib/alarmpin';
@@ -763,13 +764,19 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // bleibt: 1024 minus Navigationsleiste minus Spalte sind sonst keine
   // 600 Punkte für die Kacheln.
   const panelWidth = width >= 1100 ? PANEL_WIDTH : 300;
-  // Kameras brauchen Fläche – dort weniger Spalten als bei Schaltkacheln.
-  const columns =
-    section === 'cameras' ? (hasRail ? 2 : 1) : hasRail ? 3 : width >= 380 ? 2 : 1;
-  const cardWidth =
-    gridWidth > 0
-      ? Math.floor((gridWidth - space.gap * (columns - 1)) / columns)
-      : undefined;
+  // Aus der gemessenen Fläche, nicht aus der Fensterbreite: Bis hierher
+  // entschied «ab 380 Punkten zwei Spalten» am Fenster, gerechnet wurde
+  // aber mit `gridWidth`. Zwei Zahlen für dieselbe Frage – und die
+  // Schwelle lag genau zwischen den Geräten: iPhone Max zweispaltig,
+  // jedes kleinere einspaltig. Kameras brauchen mehr Fläche und
+  // bekommen darum weniger Spalten (siehe lib/raster).
+  const columns = spalten(
+    gridWidth,
+    section === 'cameras'
+      ? { mindest: KAMERA_MINDEST, hoechstens: 2 }
+      : { hoechstens: 3 }
+  );
+  const cardWidth = gridWidth > 0 ? kachelBreite(gridWidth, columns) : undefined;
 
   // Räume in der Reihenfolge aus der config.yaml (meistgenutzte zuerst),
   // nicht alphabetisch. Räume mit Geräten, die (noch) nicht in der Config
@@ -1722,6 +1729,26 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                     man durch die Wohnung geht. Gilt für alle im Haus; ohne
                     eigene Reihenfolge zählt die aus der config.yaml.
                   </Text>
+                  {/* Wer siebzehn Räume von Hand sortiert hat und einen
+                      sucht, will einmal Ordnung nach dem Alphabet - statt
+                      siebzehnmal zu ziehen. Danach lässt sich weiter von
+                      Hand schieben; es ist ein Anfang, kein Modus. */}
+                  <Pressable
+                    onPress={() =>
+                      setOrder(
+                        'raeume',
+                        alphabetisch(rooms.filter((name) => name !== ALL_ROOMS))
+                      )
+                    }
+                    accessibilityRole="button"
+                    style={({ pressed }) => [
+                      styles.alphabetKnopf,
+                      pressed && { opacity: 0.75 },
+                    ]}
+                  >
+                    <Ionicons name="text-outline" size={15} color={colors.ink} />
+                    <Text style={styles.alphabetText}>Nach Alphabet</Text>
+                  </Pressable>
                   <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
                     <DraggableList
                       items={rooms
@@ -1848,7 +1875,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
 
           {/* Der Küchen-Timer gehört in die Küche - dort steht man, wenn
               die Nudeln aufgesetzt sind, und nicht in der Raumübersicht. */}
-          {section === 'home' && room !== ALL_ROOMS && /küche/i.test(room) ? (
+          {section === 'home' && room !== ALL_ROOMS && istKueche(room) ? (
             <KitchenTimer settings={settings} />
           ) : null}
           {/* Ein Raum: nach Kategorien (Szenen, Beleuchtung, Store, Medien). */}
@@ -3094,6 +3121,20 @@ const makeStyles = (colors: Colors) =>
   },
   kameraSortHint: { color: colors.onGradientSoft, fontSize: 12, lineHeight: 17 },
   reorderSheet: { flex: 1, backgroundColor: colors.panel, padding: 20, paddingTop: 60 },
+  alphabetKnopf: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    marginBottom: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceStrong,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  alphabetText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
   reorderHead: {
     flexDirection: 'row',
     alignItems: 'center',

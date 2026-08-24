@@ -13,6 +13,7 @@ import { Maintenance } from '../components/Maintenance';
 import { Fehlschlag, Laedt } from '../components/Zustand';
 import { ConfigCard } from './system/konfiguration';
 import { datumUhr } from '../lib/format';
+import { LetzterLauf, letzterLaufSatz } from '../lib/letzterlauf';
 import { localTime, timeAgo } from '../lib/zeit';
 import { Colors, radius, space, type, useColors } from '../theme';
 
@@ -147,6 +148,16 @@ export function SystemScreen({
                       {' · '}
                       {lastSeen(entity.last_seen)}
                     </Text>
+                    {/* «nie gesehen» sagt, dass etwas fehlt, aber nicht
+                        was zu tun ist. Weiss der Hub den Grund – etwa,
+                        wie der Datenpunkt bei diesem Gerät wirklich
+                        heisst –, gehört er hierher und nicht nur ins
+                        Log. */}
+                    {entity.state?.problem ? (
+                      <Text style={styles.rowProblem}>
+                        {String(entity.state.problem)}
+                      </Text>
+                    ) : null}
                   </View>
                 </View>
               ))}
@@ -510,6 +521,9 @@ interface UpdateStatus {
   /** Schiefgegangenes, das den Bau nicht stoppte – etwa ein
    *  fehlgeschlagener Web-Bau, bei dem die alte Fassung online bleibt. */
   warnings?: string[];
+  /** Der Ausgang des letzten Laufs, über Neustarts des Dienstes hinweg.
+   *  Fehlt bei älteren Update-Diensten – dann bleibt es wie bisher. */
+  last_run?: LetzterLauf | null;
 }
 
 const STAGE_LABEL: Record<string, string> = {
@@ -745,6 +759,15 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
           laufBegonnen.current = true;
           setProgress(data);
           setBusy(true); // startet die laufende Abfrage unten
+          return;
+        }
+        // Läuft nichts: Dann interessiert, wie der letzte Lauf ausging.
+        // Er ist der einzige Ort, an dem ein gescheitertes Update noch
+        // steht, wenn niemand zugeschaut hat.
+        const rueckblick = letzterLaufSatz(data.last_run, Date.now() / 1000);
+        if (rueckblick) {
+          setNoteError(rueckblick.fehler);
+          setNote(rueckblick.text);
         }
       } catch {
         // Kein Status erreichbar – dann eben kein Balken beim Einstieg.
@@ -876,6 +899,18 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
           'Angestossen - aber der Update-Dienst auf dem Server kennt den iOS-Schalter noch nicht. ' +
             'Es wird nur der Hub gebaut. Abhilfe: auf dem Server einmal ' +
             '«sudo systemctl restart homepilot-update» ausführen.'
+        );
+      } else if (body?.nur_ausrollen) {
+        // Die eingerichtete Adresse ist ein blosser Portainer-Webhook.
+        // Der erstellt den Container neu - aus demselben Abbild. Der
+        // Knopf tut also etwas und ändert doch nie den Stand.
+        setNoteError(true);
+        setNote(
+          [
+            'Angestossen - aber diese Adresse rollt nur aus, sie baut nicht neu.',
+            'Der Container wird neu erstellt, aus demselben Abbild: Der Stand unten bleibt derselbe.',
+            'Damit der Knopf wirklich baut, gehört unter update.webhook_url der Update-Dienst des Hosts (Adresse endet auf /update), nicht der Portainer-Webhook - siehe deploy/portainer.md.',
+          ].join('\n')
         );
       } else {
         setNote(
@@ -1698,6 +1733,9 @@ const makeStyles = (colors: Colors) =>
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   rowTitle: { color: colors.ink, fontSize: 15, fontWeight: '600' },
   rowDetail: { color: colors.inkSoft, fontSize: 13 },
+  // Der Grund, warum nichts ankommt. In der Warnfarbe, weil er eine
+  // Aufgabe ist, und mit Zeilenabstand, weil er ein Satz ist.
+  rowProblem: { color: colors.warn, fontSize: 12, lineHeight: 17, marginTop: 2 },
   hint: { color: colors.inkFaint, fontSize: 12, lineHeight: 18 },
   buttons: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   button: {

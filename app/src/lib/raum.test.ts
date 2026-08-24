@@ -1,6 +1,7 @@
 /** Was ein Raum über sich sagt, und welche Kacheln zuerst kommen. */
 import { Entity } from '../api/types';
 import {
+  alphabetisch,
   raeumeSortiert,
   raumKategorien,
   raumMesswerte,
@@ -107,5 +108,28 @@ describe('raumMesswerte', () => {
       geraet({ kind: 'light', name: 'Lampe' }),
     ]);
     expect(werte.map((e) => e.name)).toEqual(['Eins', 'Zwei']);
+  });
+});
+
+describe('alphabetisch', () => {
+  it('sortiert schweizerdeutsch – Umlaute stehen beim Grundbuchstaben', () => {
+    // Ohne Locale stünde «Gäste Bad» hinter «Küche», weil Ä und Ü nach Z
+    // einsortiert würden.
+    expect(alphabetisch(['Küche', 'Wohnzimmer', 'Gäste Bad', 'Bad'])).toEqual([
+      'Bad',
+      'Gäste Bad',
+      'Küche',
+      'Wohnzimmer',
+    ]);
+  });
+
+  it('lässt die übergebene Liste in Ruhe', () => {
+    const liste = ['B', 'A'];
+    alphabetisch(liste);
+    expect(liste).toEqual(['B', 'A']);
+  });
+
+  it('verträgt die leere Liste', () => {
+    expect(alphabetisch([])).toEqual([]);
   });
 });

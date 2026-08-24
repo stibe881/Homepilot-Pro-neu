@@ -87,6 +87,26 @@ untere Taste auf :1, die obere auf :2, der Bewegungsmelder auf :3.
         name: Taster Flur unten
         kind: button
 
+Messfühler geben ihren Datenpunkt an. Die Einheit und die Bedeutung
+kommen von selbst dazu (``°C``/``temperature``, ``%``/``humidity``) -
+ohne beides fände die Klima-Zeile der App den Fühler nicht:
+
+      - address: "0006D8A9B12345:1"     # HmIP-STHO (Aussenfühler)
+        port: 2010
+        name: Temperatur aussen
+        kind: sensor
+        datapoint: ACTUAL_TEMPERATURE
+      - address: "0006D8A9B12345:1"     # derselbe Kanal, zweiter Wert
+        port: 2010
+        name: Luftfeuchtigkeit aussen
+        kind: sensor
+        datapoint: HUMIDITY
+
+Zwei Einträge auf derselben Adresse sind erlaubt: Der HmIP-STHO legt
+Temperatur und Feuchte auf denselben Kanal. Der zweite bekommt seinen
+Datenpunkt an die Kennung gehängt (``homematic.0006D8A9B12345_1_humidity``)
+- ohne das überschriebe er den ersten, lautlos.
+
 Geräte dürfen einzeln einen anderen ``port`` angeben – so laufen klassische
 Homematic- (2001) und Homematic-IP-Geräte (2010) gemischt über dieselbe
 Integration.
@@ -158,6 +178,8 @@ from .homematic_channels import (  # noqa: F401
     power_to_state,
     press_to_state,
     switch_channel,
+    unit_for,
+    unknown_parameter,
     value_to_state,
 )
 
@@ -207,6 +229,9 @@ class HomematicIntegration(Integration):
         self._by_battery: dict[tuple[str, str], list[str]] = {}
         # Bereits gemeldete Lesefehler – jede Adresse warnt nur einmal.
         self._warned: set[tuple[str, str]] = set()
+        # Je Adresse und Datenpunkt der Grund, warum nichts ankommt –
+        # einmal zusammengestellt, dann an die Kachel gereicht.
+        self._gruende: dict[tuple[str, str], str] = {}
         # (Adresse, Datenpunkt) → entity_id, plus Stammdaten je Entität
         self._by_datapoint: dict[tuple[str, str], str] = {}
         # Messkanäle getrennt: sie liefern kein state, sondern nur 'power'.
@@ -346,12 +371,36 @@ class HomematicIntegration(Integration):
         # offenen Fenster noch vor Wasser warnen. Was der Datenpunkt schon
         # verrät, wird geraten; angeben sticht raten.
         device_class = device.get("device_class") or guess_device_class(datapoint)
+        # Die Einheit gehört zum Datenpunkt und nicht in jede Zeile der
+        # config.yaml: Homematic liefert nackte Zahlen, und ohne «°C» ist
+        # ein Aussenfühler für die Klima-Zeile der App unsichtbar
+        # (lib/klimachip.ts). Angeben sticht raten.
+        unit = device.get("unit") or unit_for(datapoint)
+
+        # Ein Gerät, zwei Messwerte: Der HmIP-STHO legt Temperatur *und*
+        # Luftfeuchtigkeit auf denselben Kanal. Zwei Einträge mit
+        # derselben Adresse ergäben zweimal dieselbe Kennung - der zweite
+        # überschriebe den ersten, lautlos. Der Datenpunkt hängt sich
+        # deshalb an, sobald die Kennung schon vergeben ist.
+        object_id = address.replace(":", "_").replace("-", "_")
+        if self.entity_id(object_id) in self._devices:
+            object_id = f"{object_id}_{str(datapoint).lower()}"
+            self.log.info(
+                "homematic: %s ist zweimal konfiguriert - der zweite Wert "
+                "läuft als %s",
+                address,
+                self.entity_id(object_id),
+            )
 
         entity = await self.add_entity(
-            address.replace(":", "_").replace("-", "_"),
+            object_id,
             kind,
             device.get("name", address),
-            state={"state": "unknown", **({"device_class": device_class} if device_class else {})},
+            state={
+                "state": "unknown",
+                **({"device_class": device_class} if device_class else {}),
+                **({"unit": unit} if unit else {}),
+            },
             commands=commands,
             # Ein Taster lässt sich nicht abfragen – er meldet sich nur.
             # Ihn bis zum ersten Druck als «nicht erreichbar» zu zeigen,
@@ -505,19 +554,38 @@ class HomematicIntegration(Integration):
             # Haupt- und Messkanal unabhängig lesen: Bei Homematic IP hat der
             # Messkanal (z.B. HmIP-PSM Kanal 6) kein STATE – dann soll
             # wenigstens die Leistung ankommen statt gar nichts.
+            # Warum nichts ankommt – leer, solange alles stimmt.
+            problem: str | None = None
+            schluessel = (info["address"], info["datapoint"])
             try:
                 value = await self._call(
                     "getValue", info["address"], info["datapoint"], port=port
                 )
                 changes.update(value_to_state(value, info["datapoint"], info["dimmable"]))
-                self._warned.discard((info["address"], info["datapoint"]))
+                self._warned.discard(schluessel)
+                self._gruende.pop(schluessel, None)
             except Exception as err:
-                self._warn_once(
-                    (info["address"], info["datapoint"]),
-                    f"{info['address']} liefert kein {info['datapoint']} ({err}) – "
-                    "bei HmIP liegt STATE meist auf dem Schaltkanal "
-                    "(SWITCH_VIRTUAL_RECEIVER, siehe Kanalliste oben)",
-                )
+                # Den Grund nur beim ersten Mal zusammenstellen: Die
+                # Nachfrage bei der CCU, welche Namen der Kanal kennt,
+                # ist ein eigener Aufruf. Bei einem dauerhaft kaputten
+                # Datenpunkt liefe der sonst alle fünf Minuten mit, ohne
+                # dass jemand die Antwort noch einmal läse.
+                grund = self._gruende.get(schluessel)
+                if grund is None:
+                    grund = (
+                        f"{info['address']} liefert kein {info['datapoint']} "
+                        f"({err}) – "
+                        + await self._was_der_kanal_kennt(info["address"], port)
+                    )
+                    self._gruende[schluessel] = grund
+                self._warn_once(schluessel, grund)
+                # Und dasselbe an die Kachel: «nie gesehen» ohne Grund ist
+                # eine Sackgasse - man sieht, dass etwas fehlt, aber nicht
+                # was zu tun ist. Der Satz steht im Log; hier steht er
+                # dort, wo man das Gerät anschaut. Bewusst *neben*
+                # `changes`: Ob ein Gerät erreichbar ist, entscheidet
+                # sich an echten Werten, nicht an einer Fehlermeldung.
+                problem = grund
 
             if info["power_address"]:
                 try:
@@ -556,9 +624,13 @@ class HomematicIntegration(Integration):
                     break
 
             if changes:
-                await self.hub.registry.update_state(entity_id, changes, available=True)
+                await self.hub.registry.update_state(
+                    entity_id, {**changes, "problem": problem}, available=True
+                )
             else:
-                await self.hub.registry.update_state(entity_id, {}, available=False)
+                await self.hub.registry.update_state(
+                    entity_id, {"problem": problem}, available=False
+                )
 
         await self._refresh_batteries()
         await self._refresh_duty_cycle()
@@ -582,6 +654,34 @@ class HomematicIntegration(Integration):
                 continue
             for entity_id in entity_ids:
                 await self.hub.registry.update_state(entity_id, changes)
+
+    async def _was_der_kanal_kennt(self, address: str, port: int) -> str:
+        """Der zweite Satz der Warnung: Welche Datenpunkte hat der Kanal?
+
+        «liefert kein ACTUAL_TEMPERATURE» beantwortet die Frage nicht, die
+        man dann hat - nämlich wie der Wert bei *diesem* Gerät heisst. Die
+        CCU weiss es: getParamsetDescription zählt die Namen des Kanals
+        auf. Einmal nachfragen ist die Antwort, die man sonst im Netz
+        sucht.
+
+        Scheitert auch das, bleibt der alte Hinweis: Bei HmIP liegt der
+        gesuchte Wert oft auf einem anderen Kanal desselben Geräts.
+        """
+        namen: list[str] = []
+        try:
+            beschreibung = await self._call(
+                "getParamsetDescription", address, "VALUES", port=port
+            )
+            if isinstance(beschreibung, dict):
+                namen = sorted(str(name) for name in beschreibung)
+        except Exception as err:
+            self.log.debug("Kein Paramset für %s: %s", address, err)
+        if namen:
+            return f"dieser Kanal kennt: {', '.join(namen)}"
+        return (
+            "bei HmIP liegt der gesuchte Wert oft auf einem anderen Kanal "
+            "desselben Geräts (siehe Kanalliste oben)"
+        )
 
     def _warn_once(self, key: tuple[str, str], message: str) -> None:
         """Einmal warnen statt alle 5 Minuten – sonst übersieht man im

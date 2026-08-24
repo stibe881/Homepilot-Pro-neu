@@ -257,7 +257,56 @@ DEVICE_CLASS_BY_DATAPOINT: dict[str, str] = {
     "MOISTURE_DETECTED": "moisture",
     "WATERLEVEL_DETECTED": "moisture",
     "ALARMSTATE": "moisture",
+    # Messwerte. Die App sucht ihre Klima-Zeile über device_class und
+    # Einheit (lib/klimachip.ts): Ohne beides ist ein Aussenfühler bloss
+    # eine Zahl in der Geräteliste - und der Tropfen oben zeigte im
+    # Zweifel den Sendespeicher der Funkschnittstelle, weil auch der in
+    # Prozent zählt.
+    "ACTUAL_TEMPERATURE": "temperature",
+    "TEMPERATURE": "temperature",
+    "SET_POINT_TEMPERATURE": "temperature",
+    "HUMIDITY": "humidity",
+    "ACTUAL_HUMIDITY": "humidity",
+    "ILLUMINATION": "illuminance",
+    "CURRENT_ILLUMINATION": "illuminance",
 }
+
+# Die Einheit zum Datenpunkt. Homematic liefert nackte Zahlen; welche
+# Einheit dazugehört, weiss nur, wer den Datenpunkt kennt.
+UNIT_BY_DATAPOINT: dict[str, str] = {
+    "ACTUAL_TEMPERATURE": "°C",
+    "TEMPERATURE": "°C",
+    "SET_POINT_TEMPERATURE": "°C",
+    "HUMIDITY": "%",
+    "ACTUAL_HUMIDITY": "%",
+    "ILLUMINATION": "lx",
+    "CURRENT_ILLUMINATION": "lx",
+    "AVERAGE_ILLUMINATION": "lx",
+    "RAIN_COUNTER": "mm",
+    "WIND_SPEED": "km/h",
+    "AIR_PRESSURE": "hPa",
+    "CONCENTRATION": "ppm",
+}
+
+
+def unknown_parameter(err: Any) -> bool:
+    """Meint dieser Fehler «diesen Datenpunkt gibt es hier nicht»? (rein)
+
+    Die CCU antwortet auf jeden Unfug mit «Fault -5». Nur der Text
+    unterscheidet «Kanal kennt den Namen nicht» von «Wert gerade nicht
+    lesbar» - und nur im ersten Fall lohnt die Nachfrage, welche Namen
+    der Kanal denn hat.
+    """
+    return "unknown parameter" in str(err).lower()
+
+
+def unit_for(datapoint: str | None) -> str | None:
+    """Welche Einheit gehört zu diesem Datenpunkt? (rein, testbar)
+
+    Nichts zu wissen ist besser als zu raten: Ein falsches «°C» an einem
+    Zählerstand macht aus einer Zahl eine falsche Aussage.
+    """
+    return UNIT_BY_DATAPOINT.get(str(datapoint or "").upper())
 
 
 def guess_device_class(datapoint: str | None) -> str | None:

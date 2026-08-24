@@ -7,6 +7,38 @@ ankommt. Zuordnen lässt er sich zum Raum «Grill» oder «Terrasse».
 Grundlage ist die Bibliothek [`pytboss`](https://github.com/dknowles2/pytboss).
 Sie hat keine Verbindung zum Hersteller.
 
+## Einrichten, ohne zu raten
+
+Zwei Dinge muss man wissen, und beide stehen nicht im Netz: das Modell der
+Steuerplatine und ob der Grill lokal antwortet. Der Helfer beantwortet
+beides, bevor etwas in die `config.yaml` wandert.
+
+```bash
+cd hub
+python -m homepilot.integrations.pitboss --modelle PBV   # Modell suchen
+python -m homepilot.integrations.pitboss --model PBV4PS2 --host 10.10.1.60
+```
+
+Der zweite Aufruf verbindet sich einmal, holt den Zustand und zeigt ihn an:
+
+```
+✓ Verbunden.
+  Zustand:     läuft
+  Garraum:     110 °C  (Ziel 120 °C)
+  Fühler:      1: 63 °C
+  Störungen:   keine
+```
+
+Darunter steht der fertige Abschnitt zum Kopieren. Stehen dort plausible
+Temperaturen, stimmt das Modell; kommt keine Antwort, ist der lokale Weg
+für dieses Gerät zu, und man versucht es mit `--grill-id` aus der
+Pit-Boss-App. `--name`, `--password` und `--allow-remote-start` gehen
+ebenfalls mit und landen im Vorschlag.
+
+Der Helfer schreibt nichts – er schlägt nur vor. Eingetragen wird von
+Hand (oder in der App unter *System → Konfiguration*), danach Hub neu
+starten.
+
 ## Zwei Wege zum Grill
 
 **Lokal (bevorzugt).** Der Grill spricht dieselbe Schnittstelle auch

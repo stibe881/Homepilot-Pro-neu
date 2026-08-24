@@ -167,3 +167,56 @@ def test_a_new_run_starts_without_the_previous_warning_open(monkeypatch, credent
     listener._handle_line("  eine eingerückte Zeile")
 
     assert listener._status["warnings"] == []
+
+
+# ── Das Gedächtnis für den letzten Lauf ──────────────────────────────────
+#
+# Der Dienst startet sich nach einem Update selbst neu, und damit war der
+# Ausgang des Laufs bisher weg. Wer danach in die App schaute, sah «nichts
+# los» - auch nach einem Lauf, der mitten im Ausrollen gescheitert war.
+
+
+def test_a_run_survives_a_restart_of_the_service(monkeypatch, tmp_path):
+    modul = load_listener(monkeypatch, None, None)
+    datei = tmp_path / "update-status.json"
+    stand = {
+        "state": "error",
+        "stage": "deploy_wait",
+        "message": "Portainer hat den Container nicht gewechselt",
+        "detail": "Re-pull image ist im Stack an.",
+        "warnings": [],
+        "started_at": 1.0,
+        "finished_at": 2.0,
+        "ios": False,
+    }
+    assert modul.letzter_lauf_schreiben(str(datei), stand) is True
+    assert modul.letzter_lauf_lesen(str(datei)) == stand
+
+
+def test_a_broken_memory_does_not_stop_the_service(monkeypatch, tmp_path):
+    # Halb geschriebene oder von Hand verbogene Datei: Der Dienst muss
+    # trotzdem starten, sonst nimmt ein kaputtes Nebenzimmer das ganze
+    # Haus mit.
+    modul = load_listener(monkeypatch, None, None)
+    kaputt = tmp_path / "update-status.json"
+    kaputt.write_text("{ das ist kein json", encoding="utf-8")
+    assert modul.letzter_lauf_lesen(str(kaputt)) is None
+    assert modul.letzter_lauf_lesen(str(tmp_path / "gibt-es-nicht.json")) is None
+    # Eine Liste ist gültiges JSON, aber kein Stand.
+    kaputt.write_text("[1, 2, 3]", encoding="utf-8")
+    assert modul.letzter_lauf_lesen(str(kaputt)) is None
+
+
+def test_an_unwritable_place_is_reported_not_raised(monkeypatch, tmp_path):
+    # Fehlt das Verzeichnis, ist das eine Meldung wert - aber kein Grund,
+    # den gerade beendeten Bau nachträglich scheitern zu lassen.
+    modul = load_listener(monkeypatch, None, None)
+    ziel = tmp_path / "gibt-es-nicht" / "update-status.json"
+    assert modul.letzter_lauf_schreiben(str(ziel), {"state": "ok"}) is False
+
+
+def test_the_service_announces_that_it_remembers(monkeypatch):
+    # Der Hub fragt die Fähigkeiten ab, bevor er etwas anzeigt, das
+    # ältere Dienste nicht liefern.
+    modul = load_listener(monkeypatch, None, None)
+    assert "last_run" in modul.FEATURES

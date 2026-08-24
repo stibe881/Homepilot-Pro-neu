@@ -262,3 +262,189 @@ class PitBossIntegration(Integration):
 
 
 INTEGRATION = PitBossIntegration
+
+
+# ── Einrichtungs-Helfer ────────────────────────────────────────────────────
+# Aufruf im Container:
+#   docker exec -it homepilot-hub python -m homepilot.integrations.pitboss --modelle
+#   docker exec -it homepilot-hub python -m homepilot.integrations.pitboss \
+#       --host 10.10.1.60 --model PBV4PS2
+#
+# Der Grund für diesen Helfer: Zwei Angaben stehen zwischen «Integration
+# gebaut» und «Grill in der App» - das Modell und der Weg (lokal oder
+# Cloud). Beide lassen sich nicht erraten, beide stehen in der App oder
+# auf dem Typenschild, und ob der Grill lokal überhaupt antwortet, merkt
+# man sonst erst beim nächsten Hub-Start an einer Zeile im Protokoll.
+
+
+def yaml_block(
+    name: str,
+    model: str,
+    host: str = "",
+    grill_id: str = "",
+    allow_remote_start: bool = False,
+) -> str:
+    """Der fertige Abschnitt für die config.yaml (rein, testbar).
+
+    Zum Kopieren statt zum Abtippen: Wer die Werte gerade auf dem
+    Bildschirm hat, soll sie nicht aus zwei Zeilen Prosa zusammensuchen.
+    """
+    zeilen = [
+        "  - integration: pitboss",
+        f"    name: {name}",
+        f"    model: {model}",
+    ]
+    if host:
+        zeilen.append(f"    host: {host}")
+        zeilen.append("    scan_interval: 30")
+    else:
+        zeilen.append(f'    grill_id: "{grill_id}"')
+    if allow_remote_start:
+        zeilen.append("    allow_remote_start: true")
+    return "\n".join(zeilen)
+
+
+def zustandszeilen(shaped: dict[str, Any]) -> list[str]:
+    """Was der Grill gerade meldet, in lesbaren Zeilen (rein, testbar).
+
+    Dieselben Werte, die später in der App stehen - wer den Helfer laufen
+    lässt, sieht damit sofort, ob die Verbindung wirklich taugt oder bloss
+    ein leeres Gerüst zurückkommt.
+    """
+    einheit = shaped.get("unit") or "°C"
+    zeilen = [
+        f"Zustand:     {'läuft' if shaped.get('state') == 'running' else 'aus'}",
+        f"Garraum:     {shaped.get('temperature')} {einheit}"
+        f"  (Ziel {shaped.get('target')} {einheit})",
+    ]
+    sonden = shaped.get("probes") or {}
+    if sonden:
+        werte = ", ".join(f"{nr}: {temp} {einheit}" for nr, temp in sorted(sonden.items()))
+        zeilen.append(f"Fühler:      {werte}")
+    else:
+        zeilen.append("Fühler:      keiner eingesteckt")
+    fehler = shaped.get("faults") or []
+    zeilen.append(f"Störungen:   {', '.join(fehler) if fehler else 'keine'}")
+    return zeilen
+
+
+async def _probiere(
+    model: str, host: str, grill_id: str, password: str
+) -> tuple[bool, dict[str, Any]]:
+    """Einmal verbinden und den Zustand holen. (True, Zustand) oder (False, {})."""
+    from pytboss import HttpConnection, PitBoss, WebSocketConnection
+
+    connection = HttpConnection(host) if host else WebSocketConnection(grill_id)
+    boss = PitBoss(connection, model, password=password)
+    try:
+        await boss.start()
+        roh = await boss.get_state()
+    except Exception as err:
+        print(f"✗ Keine Antwort: {err}")
+        if host:
+            print(
+                "  Ältere Steuerplatinen haben gar keinen HTTP-Dienst, und bei "
+                "den übrigen muss er eingeschaltet sein. Dann bleibt der Weg\n"
+                "  über die Cloud: --grill-id aus der Pit-Boss-App."
+            )
+        return False, {}
+    finally:
+        try:
+            await boss.stop()
+        except Exception:
+            pass
+    if not isinstance(roh, dict) or not roh:
+        print("✗ Verbunden, aber der Grill meldet keinen Zustand.")
+        return False, {}
+    return True, grill_state(roh)
+
+
+def _modelle(suche: str = "") -> list[str]:
+    """Die Modelle, die pytboss kennt - gefiltert."""
+    from pytboss.grills import get_grills
+
+    namen = sorted({grill.name for grill in get_grills()})
+    if not suche:
+        return namen
+    klein = suche.strip().lower()
+    return [name for name in namen if klein in name.lower()]
+
+
+async def _setup_main(args: Any) -> int:
+    try:
+        import pytboss  # noqa: F401
+    except ModuleNotFoundError:
+        # Der Grill ist ein Zusatz, kein Grundbestandteil - wer den Hub
+        # ohne ihn aufsetzt, hat die Bibliothek nicht. Ein Traceback wäre
+        # hier die unfreundlichste Art, das zu sagen.
+        print(
+            "pytboss fehlt. Im Hub-Verzeichnis:\n"
+            '  pip install -e ".[pitboss]"\n'
+            "Im Container ist sie bereits dabei."
+        )
+        return 1
+
+    if args.modelle is not None:
+        namen = _modelle(args.modelle)
+        if not namen:
+            print(f"Kein Modell enthält «{args.modelle}».")
+            return 1
+        print(f"{len(namen)} Modelle:")
+        for name in namen:
+            print(f"  {name}")
+        print("\nDie Kennung steht auf dem Typenschild und in der Pit-Boss-App.")
+        return 0
+
+    host, grill_id = (args.host or "").strip(), (args.grill_id or "").strip()
+    model = (args.model or "").strip()
+    if not model or bool(host) == bool(grill_id):
+        print(
+            "Gebraucht werden --model und genau eines von --host (lokal) oder "
+            "--grill-id (Cloud).\n"
+            "Welche Modelle es gibt: --modelle (oder --modelle PBV für die "
+            "Suche)."
+        )
+        return 1
+
+    wohin = f"lokal auf {host}" if host else "über die Cloud"
+    print(f"→ {model} {wohin} …")
+    ok, shaped = await _probiere(model, host, grill_id, args.password or "")
+    if not ok:
+        return 1
+    print("✓ Verbunden.")
+    for zeile in zustandszeilen(shaped):
+        print(f"  {zeile}")
+    print("\nDas gehört in die config.yaml unter integrations:\n")
+    print(yaml_block(args.name, model, host, grill_id, args.allow_remote_start))
+    print(
+        "\nDanach Hub neu starten. Fernstart (turn_on) bleibt ohne "
+        "allow_remote_start bewusst weg - er entfacht ein Feuer, neben dem "
+        "niemand stehen muss."
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(
+        description="Pit-Boss-Grill einrichten: Modell finden, Verbindung prüfen"
+    )
+    parser.add_argument("--model", help="z.B. PBV4PS2 – siehe --modelle")
+    parser.add_argument("--host", help="Adresse im eigenen Netz (bevorzugt)")
+    parser.add_argument("--grill-id", dest="grill_id", help="Kennung aus der App")
+    parser.add_argument("--password", default="", help="Grill-Passwort, falls gesetzt")
+    parser.add_argument("--name", default="Grill", help="Name in der App")
+    parser.add_argument(
+        "--allow-remote-start",
+        action="store_true",
+        help="Fernstart in den Vorschlag aufnehmen",
+    )
+    parser.add_argument(
+        "--modelle",
+        nargs="?",
+        const="",
+        help="Modelle auflisten (mit Suchbegriff einschränken)",
+    )
+    sys.exit(asyncio.run(_setup_main(parser.parse_args())))

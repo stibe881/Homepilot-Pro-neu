@@ -16,6 +16,7 @@ import { DraggableList } from '../components/DraggableList';
 import { KIND_ICONS, shortState } from '../components/RoomTile';
 import { appleMapsRoute, googleMapsRoute } from '../components/TopStrip';
 import { VacuumHome } from '../components/VacuumHome';
+import { kachelBreite, spalten } from '../lib/raster';
 import { wochentagUhr } from '../lib/format';
 import { haustuerZeile } from '../lib/klingel';
 import { KalenderZeile, geburtstagsListe, terminListe } from '../lib/kalenderliste';
@@ -232,7 +233,13 @@ export function OverviewScreen({
     }
   };
 
-  const tileWidth = wide ? ('31.5%' as const) : ('48%' as const);
+  // Gemessen statt geraten: Prozentbreiten kennen die Lücke nicht, die
+  // der Behälter zwischen die Kacheln legt. 2 × 48 % plus 14 Punkte
+  // passten erst ab 350 Punkten Innenbreite – auf allem unter einem
+  // iPhone Max brach die Reihe darum um. Siehe lib/raster.
+  const [rasterBreite, setRasterBreite] = useState(0);
+  const tileSpalten = spalten(rasterBreite, { hoechstens: wide ? 3 : 2 });
+  const tileWidth = rasterBreite > 0 ? kachelBreite(rasterBreite, tileSpalten) : ('100%' as const);
   const morningFirst = now.getHours() >= 5 && now.getHours() < 11;
 
   // Bausteine stehen auf Modulebene (unten) – innerhalb der Komponente
@@ -548,7 +555,12 @@ export function OverviewScreen({
   );
 
   return (
-    <View style={styles.stack}>
+    <View
+      style={styles.stack}
+      // Dieselbe Innenbreite wie jede Kachelreihe darunter – einmal
+      // gemessen genügt, sie teilen sich den Rand.
+      onLayout={(event) => setRasterBreite(event.nativeEvent.layout.width)}
+    >
       {/* Kopf: Uhr, Datum, Wetter, Warnung */}
       <View style={styles.headRow}>
         <Card style={styles.clockCard}>
@@ -866,7 +878,9 @@ function Tile({
   children: React.ReactNode;
   styles: OverviewStyles;
   colors: Colors;
-  width: '31.5%' | '48%' | '100%';
+  /** In Punkten, aus der gemessenen Fläche gerechnet. «100 %» gilt, bis
+   *  gemessen ist, und für Kacheln, die allein eine Reihe füllen. */
+  width: number | '100%';
   /** Hintergrund für Zustände, die man im Vorbeigehen sehen soll. */
   tint?: string;
   /** Öffnet die volle Liste hinter der Kachel. Das kleine Zeichen oben
