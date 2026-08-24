@@ -21,6 +21,8 @@ import {
   playlistsVon,
   radioWahl,
   sendersVon,
+  zieltemperaturStandard,
+  zieltemperaturen,
 } from './szenengeraete';
 
 const geraet = (kind: string, commands: string[], state = {}): Entity =>
@@ -280,3 +282,36 @@ describe('Radio in Szenen und Abläufen', () => {
   });
 });
 
+
+describe('Zieltemperatur', () => {
+  const grill = (unit = '°C') =>
+    geraet('appliance', ['turn_off', 'set_temperature'], { unit, state: 'running' });
+
+  it('bietet die Zieltemperatur an, wo das Gerät sie kann', () => {
+    // Der Anlass: Auf der Kachel liess sich das Ziel stellen, im Ablauf
+    // nicht – «abends um 18:00 auf 110 °C vorheizen» ging nur von Hand
+    // in der config.yaml.
+    expect(schluessel(grill())).toContain('set_temperature');
+  });
+
+  it('lässt sie weg, wo das Gerät sie nicht kann', () => {
+    // Ein Chip, den der Hub mit UnsupportedCommandError abweist, wäre
+    // ein Knopf, der nichts tut.
+    expect(schluessel(geraet('switch', ['turn_on', 'turn_off']))).not.toContain(
+      'set_temperature'
+    );
+  });
+
+  it('rechnet die Stufen in der Einheit des Geräts', () => {
+    // 110 °C auf einem Fahrenheit-Grill wäre kalt.
+    expect(zieltemperaturen(grill()).map((o) => o.label)).toContain('110 °C');
+    expect(zieltemperaturen(grill('°F')).map((o) => o.label)).toContain('225 °F');
+    expect(zieltemperaturen(grill('°F')).map((o) => o.label)).not.toContain('110 °F');
+  });
+
+  it('schlägt eine Grilltemperatur vor, keine zum Räuchern', () => {
+    // Wer den Chip antippt und nicht weiterwählt, will meist grillen.
+    expect(zieltemperaturStandard(grill())).toBe(150);
+    expect(zieltemperaturStandard(grill('°F'))).toBe(300);
+  });
+});

@@ -242,6 +242,17 @@ export function hatEigeneAuswahl(entity: Entity): boolean {
   );
 }
 
+/** Das Symbol einer Quelle (rein, testbar).
+ *
+ * Spotify und Radio stehen im Player nebeneinander zur Wahl. Zwei Chips
+ * mit blossem Namen sähen aus wie zwei Boxen – das Sinnbild sagt in
+ * einem Blick, dass hier etwas anderes gewählt wird als ein Zimmer. */
+export function quellenSymbol(entity: Entity): string {
+  if (entity.commands.includes('play_radio')) return 'radio';
+  if (entity.commands.includes('play_playlist')) return 'musical-notes';
+  return 'volume-medium-outline';
+}
+
 /** Welcher Player gehört auf die Startseite? (rein, testbar)
  *
  * Spielt irgendwo Musik, ist es dieser; sonst Spotify mit Playlists und

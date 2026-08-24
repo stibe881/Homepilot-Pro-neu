@@ -7,7 +7,25 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 ## 2026-08-24
 
+**Erscheinungsbild**
+
+- «Pink» heisst jetzt «Neonpink» und ist, was der Name sagt: schwarzer
+  Grund, neonpinker Akzent, eine feine pinke Kante um jede Kachel.
+  Zweimal lag es vorher daneben, und beide Male am selben Punkt – der
+  Grund hatte eine Farbe (erst Aubergine, dann Weinrot), und die liest
+  sich als Violett bzw. Kastanie. Das Pink kommt jetzt von dem, was auf
+  dem Schwarz liegt, nicht vom Schwarz selbst.
+- Die Beschriftung der gefüllten Knöpfe («Speichern & verbinden», die
+  Primärknöpfe unter System) war in allen dunklen Erscheinungsbildern
+  weiss auf Weiss und damit unsichtbar. Sie ist jetzt dunkel.
+
 **Startseite**
+
+- Im Musikplayer lassen sich Quelle und Box getrennt wählen: oben zwei
+  Chips für Spotify und Radio, daneben der Wähler für die Box. Vorher
+  steckte beides in einer Liste namens «Lautsprecher wählen», und die
+  Quelle war weder benannt noch ohne Aufklappen zu sehen. Die Box gilt
+  jetzt auch fürs Radio – vorher zog derselbe Wähler immer Spotify um.
 
 - Der Musikplayer in der rechten Spalte zeigt keine Fernseher mehr –
   weder in der Boxenwahl noch als Karte, wenn dort gerade ein Film

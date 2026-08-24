@@ -1701,7 +1701,10 @@ function Button({
         pressed && { opacity: 0.7 },
       ]}
     >
-      <Text style={[styles.buttonText, primary && { color: '#fff' }]}>{label}</Text>
+      {/* Nicht '#fff': In den dunklen Erscheinungsbildern ist die
+          Füllung (ink) fast weiss – siehe styles.saveText in
+          SettingsScreen. */}
+      <Text style={[styles.buttonText, primary && { color: colors.panel }]}>{label}</Text>
     </Pressable>
   );
 }

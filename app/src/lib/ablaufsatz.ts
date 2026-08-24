@@ -98,6 +98,8 @@ const BEFEHL: Record<string, string> = {
   play: 'Musik an',
   pause: 'Musik aus',
   set_volume: 'Lautstärke',
+  // Der Wert folgt: «Smoker auf 110 °C».
+  set_temperature: 'auf',
   mute: 'stumm',
   play_playlist: 'Playlist',
   launch_app: 'App',
@@ -114,11 +116,18 @@ const BEFEHL: Record<string, string> = {
 };
 
 /** Der eingestellte Wert hinter dem Befehl (rein, testbar). */
-function wertZusatz(action: Roh): string {
+function wertZusatz(action: Roh, entities: Entity[]): string {
   const data = (action.data ?? {}) as Record<string, unknown>;
   if (typeof data.volume === 'number') return ` ${data.volume} %`;
   if (typeof data.brightness === 'number') return ` ${data.brightness} %`;
   if (typeof data.position === 'number') return ` ${data.position} %`;
+  if (typeof data.temperature === 'number') {
+    // Die Einheit steht beim Gerät: Ein Fahrenheit-Grill meldet 225, und
+    // «225 °C» wäre eine ganz andere Aussage.
+    const einheit = entities.find((entity) => entity.id === action.entity_id)?.state
+      ?.unit;
+    return ` ${data.temperature} ${typeof einheit === 'string' ? einheit : '°C'}`;
+  }
   if (typeof data.name === 'string' && data.name) return ` «${data.name}»`;
   // Der Sender gehört dazu: «Radio» allein sagt nicht, welcher – und
   // genau danach schaut man in der Liste.
@@ -151,7 +160,7 @@ function aktionSatz(
       const was = BEFEHL[String(action.command)] ?? action.command;
       // Der Wert gehört dazu: «Lautsprecher Lautstärke» sagt nicht, ob
       // leise oder laut - und genau danach schaut man in der Liste.
-      const zusatz = wertZusatz(action);
+      const zusatz = wertZusatz(action, entities);
       return `${name(entities, action.entity_id)} ${was}${zusatz}`;
     }
   }

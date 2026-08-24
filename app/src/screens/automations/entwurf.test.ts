@@ -803,3 +803,45 @@ describe('Ein Auslöser, der auf Unmögliches wartet', () => {
     expect(unbekannterZustand(anlage, '', '')).toBeNull();
   });
 });
+
+describe('Grill in Abläufen', () => {
+  it('schreibt die Zieltemperatur mit', () => {
+    // Dieselbe Falle wie bei der Lautstärke: Der Chip steht da, und ohne
+    // diesen Zweig bekäme der Hub ein set_temperature ohne Zahl.
+    expect(
+      stepToActions({
+        ...EMPTY_STEP,
+        commandActions: [
+          { entity_id: 'pitboss.smoker', command: 'set_temperature', temperature: 110 },
+        ],
+      })
+    ).toEqual([
+      {
+        type: 'command',
+        entity_id: 'pitboss.smoker',
+        command: 'set_temperature',
+        data: { temperature: 110 },
+      },
+    ]);
+  });
+
+  it('liest sie unverändert zurück', () => {
+    const gespeichert = stepToActions({
+      ...EMPTY_STEP,
+      commandActions: [
+        { entity_id: 'pitboss.smoker', command: 'set_temperature', temperature: 110 },
+      ],
+    });
+    const [zurueck] = actionsToSteps(gespeichert);
+    expect(zurueck.commandActions[0].temperature).toBe(110);
+    expect(stepToActions(zurueck)).toEqual(gespeichert);
+  });
+
+  it('lässt eine Temperatur ohne Zahl nicht ins Leere laufen', () => {
+    const [action] = stepToActions({
+      ...EMPTY_STEP,
+      commandActions: [{ entity_id: 'pitboss.smoker', command: 'set_temperature' }],
+    });
+    expect(action.data).toEqual({ temperature: 120 });
+  });
+});
