@@ -100,6 +100,14 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   schickt und er dieses Attribut nicht kennt. Der Hub liest den Token
   jetzt selbst aus der Kopfzeile. Beide UniFi-Anbindungen gehen
   denselben Weg, geprüft an der echten Zeile einer Konsole.
+- «UniFi-Abfrage fehlgeschlagen: unexpected mimetype: text/html» heisst
+  jetzt, was es heisst. Eine UniFi-Konsole trägt mehrere Anwendungen,
+  jede unter `/proxy/<name>/`; fragt man nach einer, die auf **diesem**
+  Gerät nicht läuft, kommt kein 404, sondern die Weboberfläche mit
+  Status 200. Im Haus stand der Netzwerk-Controller auf dem Gateway,
+  während `host` auf die Protect-Konsole zeigte – die Suche danach
+  dauerte einen Abend. Der Hinweis nennt jetzt die gesuchte Anwendung
+  und die zwei möglichen Gründe.
 - Wer das Gäste-Netz ausschliesslich über das UniFi-Captive-Portal
   betreibt, kommt jetzt an den Gutschein-Spender heran, ohne vorher
   einen `guest_wifi`-Abschnitt einzutragen. Vorher zählte die Karte den

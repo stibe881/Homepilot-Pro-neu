@@ -32,7 +32,7 @@ import aiohttp
 
 from ..core.entity import Entity, EntityKind
 from ..core.errors import ConfigError
-from ..core.integration import Integration
+from ..core.integration import Integration, console_html_hint
 
 # Rahmenkopf: Typ (1=Aktion, 2=Daten), Format (1=JSON), gepackt, frei, Länge
 _HEADER = struct.Struct(">BBBBI")
@@ -391,6 +391,11 @@ class UnifiProtectIntegration(Integration):
                 await self._login()
                 return await self._bootstrap()
             response.raise_for_status()
+            # Siehe unifi.py: Eine Konsole ohne diese Anwendung antwortet
+            # mit der Weboberfläche und Status 200, nicht mit 404.
+            hinweis = console_html_hint(str(response.url), response.content_type)
+            if hinweis:
+                raise ConnectionError(hinweis)
             return await response.json()
 
     # ── Controller → Hub ───────────────────────────────────────────────────
