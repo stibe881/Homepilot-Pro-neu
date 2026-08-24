@@ -157,15 +157,93 @@ def has_unbolt(attributes: dict[str, Any], endpoint: int) -> bool:
         return False
 
 
-def lock_commands(attributes: dict[str, Any], endpoint: int) -> list[str]:
+#: Was `unlatch:` in der Konfiguration bedeuten darf.
+UNLATCH_MODES = ("auto", "always", "never")
+
+
+def unbolt_quelle(attributes: dict[str, Any], endpoint: int) -> str:
+    """Woher die Antwort auf «kann aufziehen?» kommt (rein, testbar).
+
+    Für die Diagnose. Ein fehlender Knopf ist von aussen nicht davon zu
+    unterscheiden, dass das Schloss es nicht kann - und beides führt zu
+    ganz verschiedenen nächsten Schritten.
+    """
+    befehle = _attr(attributes, endpoint, DOOR_LOCK, ACCEPTED_COMMANDS_ATTR)
+    if isinstance(befehle, list):
+        return "befehlsliste"
+    if _attr(attributes, endpoint, DOOR_LOCK, FEATURE_MAP_ATTR) is not None:
+        return "featuremap"
+    return "keine"
+
+
+def kann_aufziehen(
+    attributes: dict[str, Any], endpoint: int, modus: str = "auto"
+) -> bool:
+    """Bietet der Hub das Aufziehen an? (rein, testbar)
+
+    «auto» fragt das Gerät. Das ist der Regelfall und meistens richtig -
+    aber nicht immer: Manche Matter-Dienste liefern weder die
+    Befehlsliste noch die FeatureMap mit, und dann sieht selbst ein Nuki
+    aus wie ein einfaches Schloss. Wer weiss, dass sein Schloss es kann,
+    setzt `unlatch: always`; wer es nicht will - Kinder im Haus, Türe zur
+    Strasse -, setzt `never`.
+    """
+    if modus == "always":
+        return True
+    if modus == "never":
+        return False
+    return has_unbolt(attributes, endpoint)
+
+
+def lock_commands(
+    attributes: dict[str, Any], endpoint: int, modus: str = "auto"
+) -> list[str]:
     """Welche Knöpfe dieses Schloss verdient (rein, testbar).
 
     «unlatch» nur, wo es etwas anderes tut als «unlock» – sonst stünden
     zwei Knöpfe da, die dasselbe auslösen.
     """
-    if has_unbolt(attributes, endpoint):
+    if kann_aufziehen(attributes, endpoint, modus):
         return ["lock", "unlock", "unlatch"]
     return ["lock", "unlock"]
+
+
+def lock_diagnose(
+    attributes: dict[str, Any], endpoint: int, modus: str = "auto"
+) -> str:
+    """Ein Satz darüber, warum das Aufziehen angeboten wird – oder nicht.
+
+    Genau diese Auskunft fehlte: «Tür öffnen geht nicht» kann heissen,
+    dass der Knopf fehlt, dass das Schloss ihn ablehnt oder dass die
+    Falle gar nicht angesteuert wird. Der Hub weiss nur das Erste sicher
+    - und soll es dann auch sagen.
+    """
+    quelle = unbolt_quelle(attributes, endpoint)
+    if modus == "always":
+        return (
+            "Aufziehen ist in der config.yaml erzwungen (unlatch: always) – "
+            "der Hub schickt UnlockDoor, unabhängig davon, was das Schloss meldet."
+        )
+    if modus == "never":
+        return "Aufziehen ist in der config.yaml abgeschaltet (unlatch: never)."
+    if has_unbolt(attributes, endpoint):
+        return (
+            "Das Schloss meldet, dass es den Riegel getrennt von der Falle "
+            f"bewegen kann (erkannt über die {quelle}) – Aufziehen wird angeboten."
+        )
+    if quelle == "keine":
+        return (
+            "Der Matter-Dienst liefert weder die Befehlsliste noch die "
+            "FeatureMap des Schlosses – der Hub kann nicht erkennen, ob es "
+            "aufziehen kann, und bietet es sicherheitshalber nicht an. "
+            "Wer es besser weiss: 'unlatch: always' in den matter-Block."
+        )
+    return (
+        f"Das Schloss meldet in seiner {quelle} kein UnboltDoor – für den Hub "
+        "kann es den Riegel nicht getrennt bewegen, und «aufschliessen» ist "
+        "alles, was es gibt. Stimmt das nicht: 'unlatch: always' in den "
+        "matter-Block."
+    )
 
 
 def lock_state(attributes: dict[str, Any], endpoint: int) -> dict[str, Any]:
@@ -386,6 +464,16 @@ class MatterIntegration(Integration):
         # steht er in der Konfiguration und nicht im Code.
         pin = self.config.get("pin")
         self._pin = str(pin) if pin not in (None, "") else None
+        # Ob der Hub das Aufziehen anbietet. «auto» fragt das Schloss -
+        # das ist meistens richtig, aber manche Matter-Dienste liefern
+        # die nötigen Angaben gar nicht mit, und dann sieht selbst ein
+        # Nuki aus wie ein einfaches Schloss.
+        modus = str(self.config.get("unlatch") or "auto").strip().lower()
+        if modus not in UNLATCH_MODES:
+            raise ConfigError(
+                f"matter.unlatch muss eines von {', '.join(UNLATCH_MODES)} sein"
+            )
+        self._unlatch = modus
         self._session = self.http_session(timeout=aiohttp.ClientTimeout(total=None))
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._message_id = 0
@@ -503,7 +591,7 @@ class MatterIntegration(Integration):
             if entity_id not in self._entities:
                 self._entities[entity_id] = (node_id, endpoint, kind)
                 if kind == EntityKind.LOCK:
-                    commands = lock_commands(attributes, endpoint)
+                    commands = lock_commands(attributes, endpoint, self._unlatch)
                 elif kind in (EntityKind.LIGHT, EntityKind.SWITCH):
                     commands = ["turn_on", "turn_off", "toggle"]
                 else:
@@ -518,6 +606,26 @@ class MatterIntegration(Integration):
                 )
             else:
                 await self._push_endpoint(node, endpoint)
+
+    def health(self) -> dict[str, Any]:
+        """Was beim Schloss zu wissen ist, bevor man im Hausflur steht.
+
+        «Tür öffnen geht nicht» kann dreierlei heissen: Der Knopf fehlt,
+        das Schloss weist ihn ab, oder die Falle wird gar nicht
+        angesteuert. Sicher weiss der Hub nur das Erste - und sagt es
+        deshalb hier, statt es jeden selbst herausfinden zu lassen.
+        """
+        zeilen: list[str] = []
+        for entity_id, (node_id, endpoint, kind) in self._entities.items():
+            if kind != EntityKind.LOCK:
+                continue
+            attributes = (self._nodes.get(node_id) or {}).get("attributes") or {}
+            entity = self.hub.registry.get(entity_id)
+            name = entity.name if entity else entity_id
+            zeilen.append(f"{name}: {lock_diagnose(attributes, endpoint, self._unlatch)}")
+        if not zeilen:
+            return {"ok": True, "detail": "Verbunden."}
+        return {"ok": True, "detail": " · ".join(zeilen)}
 
     async def _push_endpoint(self, node: dict[str, Any], endpoint: int) -> None:
         entity_id = self.entity_id(f"{node['node_id']}_{endpoint}")
@@ -652,7 +760,7 @@ class MatterIntegration(Integration):
         Befehle sonst zurück; dafür gibt es `pin` in der Konfiguration.
         """
         attributes = (self._nodes.get(node_id) or {}).get("attributes") or {}
-        unbolt = has_unbolt(attributes, endpoint)
+        unbolt = kann_aufziehen(attributes, endpoint, self._unlatch)
         if command == "lock":
             name = "LockDoor"
         elif command == "unlatch":
