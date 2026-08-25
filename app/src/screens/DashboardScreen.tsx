@@ -1322,32 +1322,34 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         label: string;
         detail: string;
         show: boolean;
+        /** Zwischentitel, unter dem die Kachel steht. Leer = zuoberst. */
+        gruppe: string;
         /** Statt zu einem Bereich zu wechseln: etwas öffnen. */
         onPress?: () => void;
       }[] = [
+        // Die Reihenfolge ist Absicht: zuoberst das Werkzeug (Suche),
+        // dann das Haus, dann die Menschen, dann dieses Gerät - und
+        // zuunterst, was man nur anfasst, wenn etwas klemmt. Vorher
+        // standen die zwölf Kacheln ungruppiert da, und «Konto &
+        // Verbindung» war von «Benutzerverwaltung» durch das halbe Haus
+        // getrennt, obwohl beide von Zugängen handeln.
         {
           key: 'search',
           icon: 'search-outline',
           label: 'Suche',
           detail: 'Geräte, Räume, Szenen und Abläufe auf einmal',
           show: true,
+          gruppe: '',
           onPress: () => setSearchOpen(true),
         },
+
         {
-          key: 'users',
-          icon: 'people-circle-outline',
-          label: 'Benutzerverwaltung',
-          detail: 'Zugänge und Rollen: Besitzer, Mitbewohner, Gast',
+          key: 'devices',
+          icon: 'list-outline',
+          label: 'Geräte',
+          detail: 'Alle Geräte, auch ausgeblendete',
           show: istBesitzer,
-        },
-        {
-          key: 'personen',
-          icon: 'people-outline',
-          label: 'Familie und Freunde',
-          detail: 'Wer ist wo, und was soll über wen gemeldet werden',
-          // Auch für Mitbewohner: Wo die Familie gerade ist, geht alle
-          // an, die hier wohnen - anders als die Frage, wer Zugang hat.
-          show: true,
+          gruppe: 'Haus',
         },
         {
           key: 'automations',
@@ -1357,6 +1359,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             ? 'Automationen und Szenen'
             : 'Pausieren, Babysitter-Modus und was heute läuft',
           show: istBesitzer || darfPausieren,
+          gruppe: 'Haus',
         },
         {
           key: 'alarm',
@@ -1364,13 +1367,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           label: 'Alarmanlage',
           detail: 'Sensoren, Modi und Verlauf',
           show: istBesitzer,
-        },
-        {
-          key: 'devices',
-          icon: 'list-outline',
-          label: 'Geräte',
-          detail: 'Alle Geräte, auch ausgeblendete',
-          show: istBesitzer,
+          gruppe: 'Haus',
         },
         {
           key: 'speakers',
@@ -1378,6 +1375,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           label: 'Lautsprecher',
           detail: 'Boxen und Gruppen im Netz',
           show: istBesitzer,
+          gruppe: 'Haus',
         },
         {
           key: 'energy',
@@ -1385,20 +1383,35 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           label: 'Energie',
           detail: 'Verbrauch und Kosten je Gerät',
           show: istBesitzer,
+          gruppe: 'Haus',
+        },
+
+        {
+          key: 'personen',
+          icon: 'people-outline',
+          label: 'Familie und Freunde',
+          detail: 'Wer ist wo, und was soll über wen gemeldet werden',
+          // Auch für Mitbewohner: Wo die Familie gerade ist, geht alle
+          // an, die hier wohnen - anders als die Frage, wer Zugang hat.
+          show: true,
+          gruppe: 'Personen',
         },
         {
-          key: 'system',
-          icon: 'pulse-outline',
-          label: 'System',
-          detail: 'Integrationen, Sicherung, Konfiguration',
+          key: 'users',
+          icon: 'people-circle-outline',
+          label: 'Benutzerverwaltung',
+          detail: 'Zugänge und Rollen: Besitzer, Mitbewohner, Gast',
           show: istBesitzer,
+          gruppe: 'Personen',
         },
+
         {
-          key: 'activity',
-          icon: 'timer-outline',
-          label: 'Zuletzt passiert',
-          detail: 'Protokoll der letzten Änderungen',
-          show: istBesitzer,
+          key: 'account',
+          icon: 'person-outline',
+          label: 'Konto & Verbindung',
+          detail: 'Hub-Adresse, Token, Darstellung, Benachrichtigungen',
+          show: true,
+          gruppe: 'Dieses Gerät',
         },
         {
           key: 'widgets',
@@ -1410,36 +1423,60 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           // was darauf liegt - und die Anleitung zum Hinzufügen braucht
           // ohnehin jeder selbst.
           show: true,
+          gruppe: 'Dieses Gerät',
+        },
+
+        {
+          key: 'system',
+          icon: 'pulse-outline',
+          label: 'System',
+          detail: 'Integrationen, Sicherung, Konfiguration',
+          show: istBesitzer,
+          gruppe: 'Hub',
         },
         {
-          key: 'account',
-          icon: 'person-outline',
-          label: 'Konto & Verbindung',
-          detail: 'Hub-Adresse, Token, Darstellung, Benachrichtigungen',
-          show: true,
+          key: 'activity',
+          icon: 'timer-outline',
+          label: 'Zuletzt passiert',
+          detail: 'Protokoll der letzten Änderungen',
+          show: istBesitzer,
+          gruppe: 'Hub',
         },
       ];
+      const sichtbar = items.filter((item) => item.show);
+      // Die Gruppen in der Reihenfolge ihres ersten Auftretens - ein
+      // Zwischentitel erscheint nur, wenn darunter etwas steht. Für
+      // einen Mitbewohner bleibt von «Haus» womöglich nur «Abläufe»,
+      // und eine leere Überschrift wäre ein Versprechen ohne Inhalt.
+      const gruppen = [...new Set(sichtbar.map((item) => item.gruppe))];
       return (
         <View style={styles.settingsList}>
-          {items
-            .filter((item) => item.show)
-            .map((item) => (
-              <Pressable
-                key={item.key}
-                onPress={() =>
-                  item.onPress ? item.onPress() : setSection(item.key as Section)
-                }
-                accessibilityRole="button"
-                style={({ pressed }) => [styles.settingsItem, pressed && { opacity: 0.8 }]}
-              >
-                <Ionicons name={item.icon} size={22} color={colors.ink} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.settingsLabel}>{item.label}</Text>
-                  <Text style={styles.settingsDetail}>{item.detail}</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={colors.inkFaint} />
-              </Pressable>
-            ))}
+          {gruppen.map((gruppe) => (
+            <React.Fragment key={gruppe || 'oben'}>
+              {gruppe ? (
+                <Text style={styles.settingsGroup}>{gruppe}</Text>
+              ) : null}
+              {sichtbar
+                .filter((item) => item.gruppe === gruppe)
+                .map((item) => (
+                  <Pressable
+                    key={item.key}
+                    onPress={() =>
+                      item.onPress ? item.onPress() : setSection(item.key as Section)
+                    }
+                    accessibilityRole="button"
+                    style={({ pressed }) => [styles.settingsItem, pressed && { opacity: 0.8 }]}
+                  >
+                    <Ionicons name={item.icon} size={22} color={colors.ink} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.settingsLabel}>{item.label}</Text>
+                      <Text style={styles.settingsDetail}>{item.detail}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={colors.inkFaint} />
+                  </Pressable>
+                ))}
+            </React.Fragment>
+          ))}
         </View>
       );
     }
@@ -3086,6 +3123,16 @@ const makeStyles = (colors: Colors) =>
   },
   backText: { color: colors.onGradient, fontSize: 15, fontWeight: '600' },
   settingsList: { gap: 10 },
+  settingsGroup: {
+    color: colors.inkSoft,
+    fontSize: 13,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginTop: 10,
+    marginBottom: -2,
+    paddingHorizontal: 4,
+  },
   settingsItem: {
     flexDirection: 'row',
     alignItems: 'center',
