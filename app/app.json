@@ -3,7 +3,7 @@
     "name": "HomePilot",
     "slug": "homepilot",
     "owner": "stibe88",
-    "version": "0.8.8",
+    "version": "0.8.9",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
