@@ -83,15 +83,26 @@ async def test_the_same_ring_is_reported_once():
 
 
 async def test_the_next_visitor_rings_again():
+    """Nach der Sperrfrist ist die Nachricht wieder scharf.
+
+    Die Frist ist bewusst eine Minute - wer davorsteht und nochmals
+    drückt, weil niemand kommt, will dieselbe Sache. Hier wird sie
+    zurückgedreht, statt im Test eine Minute zu warten.
+    """
+    from homepilot.core.watchrules import KLINGEL_SPERRE
+
     hub, wache, gemeldet = await _hub_mit_klingel()
     try:
         await hub.registry.update_state("ring.haustuere", {"ring": "on"})
         await asyncio.sleep(0)
         await asyncio.sleep(0)
-        # Der Hub setzt das Feld nach Ablauf zurück - danach ist die
-        # Nachricht wieder scharf.
+        assert len(gemeldet) == 1
+
         await hub.registry.update_state("ring.haustuere", {"ring": "off"})
         await asyncio.sleep(0)
+        # Die Uhr zurückdrehen: ein Besucher später am Tag.
+        wache._klingel_gemeldet["ring.haustuere"] -= KLINGEL_SPERRE + 1
+
         await hub.registry.update_state("ring.haustuere", {"ring": "on"})
         await asyncio.sleep(0)
         await asyncio.sleep(0)
@@ -136,3 +147,53 @@ def test_the_rule_can_be_switched_off_like_the_others():
     # die man sofort reagiert.
     regel = next(r for r in notifyrules.describe(None) if r["key"] == "doorbell")
     assert regel["group"] == "Sicherheit"
+
+
+# ── Der Riegel an der letzten Stelle ────────────────────────────────────
+#
+# Gemessen: Ring liefert das Klingeln, der Hub hört es - und verschickt
+# vier Nachrichten. Ein Klingeln kommt auf mehreren Wegen an, und jeder
+# Weg kann den Zustand für sich auf «an» setzen; liegt dazwischen ein
+# «aus», zählt es als neues Klingeln. Was auch immer davor schiefgeht:
+# Hier geht je Türe und Minute eine Nachricht hinaus.
+
+from homepilot.core.watchrules import KLINGEL_SPERRE, klingel_gesperrt
+
+
+def test_a_second_message_within_the_minute_is_blocked():
+    jetzt = 1_700_000_000.0
+    assert klingel_gesperrt(jetzt, jetzt + 0.2) is True
+    assert klingel_gesperrt(jetzt, jetzt + 10) is True
+    assert klingel_gesperrt(jetzt, jetzt + KLINGEL_SPERRE - 0.1) is True
+
+
+def test_the_next_visitor_gets_through():
+    jetzt = 1_700_000_000.0
+    assert klingel_gesperrt(jetzt, jetzt + KLINGEL_SPERRE) is False
+    assert klingel_gesperrt(jetzt, jetzt + 300) is False
+
+
+def test_the_first_ring_is_never_blocked():
+    assert klingel_gesperrt(None, 1_700_000_000.0) is False
+
+
+def test_a_clock_that_jumped_does_not_block_forever():
+    jetzt = 1_700_000_000.0
+    assert klingel_gesperrt(jetzt + 600, jetzt) is False
+
+
+async def test_the_state_flapping_does_not_multiply_the_message():
+    """Der gemeldete Fall in einem Test: an, aus, an, aus, an - und
+    trotzdem eine Nachricht."""
+    hub, wache, gemeldet = await _hub_mit_klingel()
+    try:
+        for _ in range(4):
+            await hub.registry.update_state("ring.haustuere", {"ring": "on"})
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            await hub.registry.update_state("ring.haustuere", {"ring": "off"})
+            await asyncio.sleep(0)
+        assert len(gemeldet) == 1
+    finally:
+        await wache.stop()
+        await hub.stop()
