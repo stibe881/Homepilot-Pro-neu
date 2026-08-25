@@ -72,9 +72,13 @@ USER_AGENT = "HomePilot/1.0"
 # Ersatzweg: Ring führt eine Liste der gerade laufenden Meldungen – die
 # gleiche, aus der auch die Ring-App ihre Nachricht baut.
 #
-# Zehn Sekunden, solange der Push-Kanal fehlt: Für eine Türklingel ist das
-# die Grenze des Erträglichen, wer davorsteht wartet nicht länger.
-DING_POLL_SECONDS = 10
+# Fünf Sekunden, solange der Push-Kanal nichts liefert. Zehn waren es
+# vorher - «die Grenze des Erträglichen» stand als Begründung daneben,
+# und das ist sie auch. Nur ist sie bei einer Gegensprechanlage, für die
+# Ring gar nichts pusht, keine Notlösung mehr, sondern der Normalfall:
+# Dann zählt jede Sekunde, und ein Aufruf alle fünf Sekunden für ein
+# einzelnes Gerät ist nichts, was Ring in Verlegenheit bringt.
+DING_POLL_SECONDS = 5
 # Dreissig Sekunden, während er steht. Nicht aus Misstrauen gegen den
 # Push-Kanal an sich, sondern gegen das, was er im Fehlerfall meldet: Er
 # gilt als «gestartet», bis ihn jemand stoppt. Reisst die Verbindung
@@ -262,11 +266,17 @@ TAUB_AB = 2
 # paar Sekunden später» und «gar nicht».
 
 
-#: Takt, in dem der Verlauf der Gegensprechanlage abgefragt wird. Sie
-#: taucht in `dings/active` nicht auf - der Verlauf ist der einzige Weg,
-#: der ohne Ereigniskanal auskommt. Fünf Sekunden: Wer vor der Türe
-#: steht, wartet nicht gerne.
-INTERCOM_POLL_SECONDS = 5
+#: Takt, in dem der Verlauf der Gegensprechanlage abgefragt wird.
+#:
+#: Drei Sekunden. Das ist die Untergrenze dessen, was sich gegenüber
+#: Rings Diensten vertreten lässt, und zugleich das Schnellste, was
+#: dieser Weg hergibt: Der Hub bekommt vom Intercom kein Signal - das
+#: Gerät spricht mit Rings Wolke, nicht mit ihm. Er kann nur fragen.
+#:
+#: Wer es wirklich sofort will, führt das Klingelsignal als Kontakt in
+#: den Hub (siehe docs/klingel-sofort.md). Alles andere hier ist Fragen
+#: statt Wissen, und Fragen kostet Zeit.
+INTERCOM_POLL_SECONDS = 3
 
 #: Wie alt ein Eintrag im Verlauf höchstens sein darf, damit er noch als
 #: «es klingelt gerade» gilt. Alles Ältere ist Geschichte - beim Start
