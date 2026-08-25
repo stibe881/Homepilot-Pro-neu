@@ -121,6 +121,12 @@ export function SpotifyPanel({
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const devices: string[] = Array.isArray(entity.state.devices) ? entity.state.devices : [];
+  // Welche davon echte Google-Lautsprechergruppen sind. Ohne diese Marke
+  // sieht eine Gruppe aus wie eine Box, und wer sich wundert, warum nur
+  // eine spielt, hat keinen Anhaltspunkt.
+  const gruppen: string[] = Array.isArray(entity.state.device_groups)
+    ? entity.state.device_groups
+    : [];
   const playlists: string[] = Array.isArray(entity.state.playlists)
     ? entity.state.playlists
     : [];
@@ -200,7 +206,7 @@ export function SpotifyPanel({
                 <Text
                   style={[styles.deviceChipText, selected && styles.deviceChipTextActive]}
                   numberOfLines={1}>
-                  {name}
+                  {gruppen.includes(name) ? `${name} · Gruppe` : name}
                 </Text>
               </Pressable>
             );
@@ -520,6 +526,12 @@ export function RadioPanel({
   const hub = useMemo(() => hubClient(settings.url, settings.token), [settings]);
 
   const devices: string[] = Array.isArray(entity.state.devices) ? entity.state.devices : [];
+  // Welche davon echte Google-Lautsprechergruppen sind. Ohne diese Marke
+  // sieht eine Gruppe aus wie eine Box, und wer sich wundert, warum nur
+  // eine spielt, hat keinen Anhaltspunkt.
+  const gruppen: string[] = Array.isArray(entity.state.device_groups)
+    ? entity.state.device_groups
+    : [];
   // Wie viele Medien-Geräte der Hub überhaupt kennt. «Gar keins gefunden»
   // und «keins, das eine Tonadresse abspielen kann» sind zwei
   // verschiedene Antworten.
@@ -588,7 +600,7 @@ export function RadioPanel({
                   style={[styles.deviceChipText, selected && styles.deviceChipTextActive]}
                   numberOfLines={1}
                 >
-                  {name}
+                  {gruppen.includes(name) ? `${name} · Gruppe` : name}
                 </Text>
               </Pressable>
             );

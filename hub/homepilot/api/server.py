@@ -78,6 +78,9 @@ from .routes import (
     passes as routes_passes,
 )
 from .routes import (
+    personen as routes_personen,
+)
+from .routes import (
     prefs as routes_prefs,
 )
 from .routes import (
@@ -245,6 +248,7 @@ def create_app(hub: Hub) -> FastAPI:
         routes_dashboard.register,
         routes_radio.register,
         routes_einladungen.register,
+        routes_personen.register,
     ):
         register(app, ctx)
 

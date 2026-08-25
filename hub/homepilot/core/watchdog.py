@@ -34,6 +34,7 @@ from . import (
     gemeldet,
     maintenance,
     notifyrules,
+    personen,
     presence,
     shopping,
     trash,
@@ -116,6 +117,10 @@ class Watchdog:
         # zuletzt nach dem Ferienmodus gefragt wurde, und wann der
         # Verlauf zuletzt gestutzt wurde.
         self._battery_told: set[str] = set()
+        # Wem schon gemeldet wurde, dass sein Telefon schweigt. Wie beim
+        # Akku ein Merker je Zone, damit aus einer Funkstille nicht eine
+        # Nachricht je Minute wird.
+        self._silence_told: set[str] = set()
         self._holiday_asked: float = 0.0
         self._history_trimmed: float = 0.0
         # Was «einmal am Tag» heisst - Geburtstag, Frost, Medikamente,
@@ -134,9 +139,52 @@ class Watchdog:
         # Protokoll der letzten Ausfälle für die App (jüngste zuerst).
         self.outages: list[dict[str, Any]] = []
         self._task: asyncio.Task | None = None
+        # An welchen Geräten es gerade klingelt. Ring lässt das Feld eine
+        # Weile auf «on» stehen; ohne Gedächtnis käme bei jeder Meldung
+        # desselben Klingelns eine weitere Nachricht.
+        self._klingelt: set[str] = set()
 
     def start(self) -> None:
         self._task = asyncio.create_task(self._loop())
+        # Die Klingel läuft nicht im Minutentakt mit: Wer vor der Türe
+        # steht, wartet keine Minute. Sie hängt am Ereignis selbst.
+        self.hub.bus.subscribe("state_changed", self._on_state)
+
+    def _on_state(self, _event_type: str, data: dict[str, Any]) -> None:
+        """Bus-Listener: Klingelt es gerade irgendwo?
+
+        Bewusst hier und nicht in der Runde alle 60 Sekunden. Die übrigen
+        Regeln beantworten Fragen, die eine Minute Zeit haben - eine
+        schwache Batterie, ein offenes Fenster. Ein Klingeln hat sie
+        nicht: Bis die Runde das Feld sähe, steht der Besucher wieder auf
+        der Strasse.
+        """
+        entity_id = str(data.get("entity_id") or "")
+        if not entity_id:
+            return
+        alt = str((data.get("old_state") or {}).get("ring") or "")
+        neu = str((data.get("new_state") or {}).get("ring") or "")
+        if neu != "on":
+            # «off» oder verschwunden: Beim nächsten Klingeln darf wieder
+            # gemeldet werden.
+            self._klingelt.discard(entity_id)
+            return
+        if alt == "on" or entity_id in self._klingelt:
+            return
+        self._klingelt.add(entity_id)
+        entity = (data.get("entity") or {}) if isinstance(data.get("entity"), dict) else {}
+        name = str(entity.get("name") or entity_id)
+        # Als eigene Aufgabe: Der Bus ruft synchron, und eine Nachricht
+        # zu verschicken dauert - der Zustand soll darauf nicht warten.
+        asyncio.create_task(self._melde_klingeln(entity_id, name))
+
+    async def _melde_klingeln(self, entity_id: str, name: str) -> None:
+        await self._notify(
+            f"Es klingelt: {name}",
+            "Jemand steht vor der Türe.",
+            "doorbell",
+            data={"type": "doorbell", "entity_id": entity_id},
+        )
 
     async def stop(self) -> None:
         if self._task:
@@ -485,6 +533,9 @@ class Watchdog:
         jetzt = time.time()
         zustaende = []
         grenze = int(self.rules["presence"]["params"].get("percent", presence.BATTERY_LOW))
+        # Je Person die eigenen Schalter (Einstellungen → Familie und
+        # Freunde). Einmal geholt, nicht je Zone: Es ist dieselbe Liste.
+        schalter = self.hub.data.get(personen.LADE)
         for zone_id in service.zone_ids():
             entity_id = service.zone_entity(zone_id)
             entity = self.hub.registry.get(entity_id) if entity_id else None
@@ -496,9 +547,32 @@ class Watchdog:
             text = presence.battery_alert(entity.name, entity.state.get("battery"), grenze)
             if text and zone_id not in self._battery_told:
                 self._battery_told.add(zone_id)
-                await self._notify("Telefon fast leer", text, category="presence")
+                # Der Schalter wird erst hier geprüft, nicht schon oben:
+                # Der Vermerk soll auch dann stehen, wenn niemand die
+                # Meldung will - sonst käme sie geballt, sobald jemand
+                # sie wieder einschaltet.
+                if personen.an(schalter, zone_id, "battery"):
+                    await self._notify("Telefon fast leer", text, category="presence")
             elif not text:
                 self._battery_told.discard(zone_id)
+
+            # Funkstille: Bisher stand sie nur in der Diagnose, also
+            # dort, wo man erst nachsieht, wenn man schon misstrauisch
+            # ist. Wer gemeldet bekommt, dass ein Telefon seit zwölf
+            # Stunden schweigt, kann nachfragen, statt sich später zu
+            # wundern, warum «alles aus» lief.
+            still = presence.is_stale(presence.zuletzt_gehoert(entity.state), jetzt)
+            if still and zone_id not in self._silence_told:
+                self._silence_told.add(zone_id)
+                if personen.an(schalter, zone_id, "silence"):
+                    await self._notify(
+                        "Meldet sich nicht mehr",
+                        f"{entity.name}s Telefon hat sich seit Stunden nicht "
+                        "gemeldet – Akku, Flugmodus oder Ortung aus?",
+                        category="presence",
+                    )
+            elif not still:
+                self._silence_told.discard(zone_id)
 
         # Punkt 221: Sind alle seit einem Tag weg und die Simulation ist
         # aus, fragt eine einzelne Push nach. Eine Frage, keine Automatik.

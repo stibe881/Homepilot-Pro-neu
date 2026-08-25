@@ -29,9 +29,12 @@ def test_ein_kanal_ueber_den_nichts_kommt_ist_keiner():
     text = health_detail(True, None, quellen=["abfrage", "abfrage"])
     assert "taub" in text
     assert "Abfrage" in text
-    assert health_detail(True, None, quellen=["push", "push"]) == (
-        "Ereigniskanal verbunden – Klingeln kommt sofort an"
-    )
+    # Dahinter steht seit Neuem, wann zuletzt geklingelt hat: «es kommt
+    # keine Nachricht» ist erst dann beantwortbar, wenn man weiss, ob der
+    # Hub es überhaupt gehört hat.
+    gut = health_detail(True, None, quellen=["push", "push"])
+    assert gut.startswith("Ereigniskanal verbunden – Klingeln kommt sofort an.")
+    assert "noch niemand geklingelt" in gut
 
 
 def test_nach_dem_neuladen_sagt_der_hub_nicht_kaputt():
@@ -234,3 +237,128 @@ def test_ein_durchlauf_ohne_dauerverbindung_meldet_nicht_verbunden(monkeypatch):
     # Und der Grund benennt den gesperrten Weg, nicht bloss «Fehler».
     assert "mtalk.google.com:5228" in text
     assert integration.health()["ok"] is False
+
+
+# ── Die Gegensprechanlage hat jetzt auch ein Netz ────────────────────────
+#
+# Der gemeldete Fall: «Wenn jemand an der Haustüre klingelt, kommt gar
+# keine Push mehr.» Die Klingel ist ein Ring Intercom, und der hängt in
+# Rings API an einer eigenen Adressfamilie - in der Liste der aktiven
+# Meldungen taucht er nicht auf. Fiel der Ereigniskanal aus, kam von ihm
+# deshalb nicht etwa verspätet etwas, sondern gar nichts. Ausgerechnet
+# an der Türe, an der es zählt.
+
+from homepilot.integrations.ring import (
+    INTERCOM_FRIST,
+    INTERCOM_POLL_SECONDS,
+    verlauf_dings,
+    verlauf_hinweis,
+)
+
+JETZT = 1_700_000_000.0
+
+
+def test_a_fresh_ding_from_the_history_counts():
+    verlauf = [
+        {"id": 77, "kind": "ding", "created_at": "2023-11-14T22:13:00+00:00"},
+    ]
+    frisch, gesehen = verlauf_dings(verlauf, set(), JETZT)
+    assert [eintrag["id"] for eintrag in frisch] == [77]
+    assert 77 in gesehen
+
+
+def test_the_same_ding_is_reported_once():
+    """Sonst käme dasselbe Klingeln alle fünf Sekunden erneut."""
+    verlauf = [{"id": 77, "kind": "ding", "created_at": JETZT - 5}]
+    frisch, gesehen = verlauf_dings(verlauf, set(), JETZT)
+    assert len(frisch) == 1
+    nochmal, _ = verlauf_dings(verlauf, gesehen, JETZT)
+    assert nochmal == []
+
+
+def test_yesterdays_ding_stays_quiet():
+    """Beim Start des Hubs soll nicht das Klingeln von gestern eine
+    Nachricht auslösen - gemerkt wird es trotzdem."""
+    verlauf = [{"id": 77, "kind": "ding", "created_at": JETZT - INTERCOM_FRIST - 60}]
+    frisch, gesehen = verlauf_dings(verlauf, set(), JETZT)
+    assert frisch == []
+    assert 77 in gesehen
+
+
+def test_only_dings_not_every_entry():
+    verlauf = [
+        {"id": 1, "kind": "motion", "created_at": JETZT - 5},
+        {"id": 2, "kind": "on_demand", "created_at": JETZT - 5},
+        {"id": 3, "kind": "ding", "created_at": JETZT - 5},
+    ]
+    frisch, _ = verlauf_dings(verlauf, set(), JETZT)
+    assert [eintrag["id"] for eintrag in frisch] == [3]
+
+
+def test_the_history_survives_whatever_the_library_hands_over():
+    """Je nach Fassung kommen Objekte statt dicts, und der Zeitstempel
+    als Text, als Zahl oder gar nicht."""
+    from datetime import UTC, datetime
+
+    class Eintrag:
+        def __init__(self, id, kind, created_at):
+            self.id = id
+            self.kind = kind
+            self.created_at = created_at
+
+    verlauf = [
+        Eintrag(1, "ding", datetime.fromtimestamp(JETZT - 5, UTC)),
+        Eintrag(2, "ding", JETZT - 5),
+        Eintrag(3, "ding", "kein Datum"),
+        Eintrag(4, "ding", None),
+        "gar kein Eintrag",
+    ]
+    frisch, gesehen = verlauf_dings(verlauf, set(), JETZT)
+    assert [eintrag["id"] for eintrag in frisch] == [1, 2]
+    # Auch die unbrauchbaren sind gemerkt: Sonst würden sie bei jedem
+    # Durchgang erneut geprüft.
+    assert {1, 2, 3, 4} <= gesehen
+    assert verlauf_dings(None, set(), JETZT) == ([], set())
+
+
+def test_the_system_screen_says_the_intercom_is_covered():
+    satz = verlauf_hinweis(["Haustüre"])
+    assert "Haustüre" in satz
+    assert f"{INTERCOM_POLL_SECONDS} s" in satz
+    assert "ohne Ereigniskanal" in satz
+    # Ohne Gegensprechanlage kein Zusatz - der wäre nur Lärm.
+    assert verlauf_hinweis([]) == ""
+
+
+# ── Hat der Hub es überhaupt gehört? ────────────────────────────────────
+#
+# Der Satz, der die Kette in zwei Hälften teilt. «Es kommt keine
+# Nachricht» kann zweierlei heissen: Der Hub hat das Klingeln nie gehört,
+# oder er hat es gehört und niemand hat ihm gesagt, was er damit tun
+# soll. Von aussen sieht beides gleich aus - und man sucht wochenlang auf
+# der falschen Seite.
+
+from homepilot.integrations.ring import klingel_satz
+
+
+def test_the_last_ding_names_its_path():
+    jetzt = 1_700_000_000.0
+    assert "gerade eben" in klingel_satz(jetzt - 20, "push", jetzt)
+    assert "über den Ereigniskanal" in klingel_satz(jetzt - 20, "push", jetzt)
+    assert "über die Abfrage" in klingel_satz(jetzt - 300, "abfrage", jetzt)
+    assert "über den Verlauf" in klingel_satz(jetzt - 300, "verlauf", jetzt)
+
+
+def test_the_last_ding_says_how_long_ago():
+    jetzt = 1_700_000_000.0
+    assert "vor 5 Min." in klingel_satz(jetzt - 300, "push", jetzt)
+    assert "vor 3 Std." in klingel_satz(jetzt - 3 * 3600, "push", jetzt)
+    assert "vor 2 Tagen" in klingel_satz(jetzt - 2 * 86400, "push", jetzt)
+
+
+def test_nothing_heard_yet_says_so_plainly():
+    # Das ist die halbe Antwort: Klingelt jemand und hier steht danach
+    # weiterhin «noch niemand», liegt es vor dem Hub. Steht dort «gerade
+    # eben» und es kam trotzdem keine Nachricht, liegt es dahinter.
+    assert "noch niemand geklingelt" in klingel_satz(None, None, 1_700_000_000.0)
+    assert "unbekanntem Weg" in klingel_satz(1_699_999_999.0, "irgendwie", 1_700_000_000.0)

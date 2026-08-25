@@ -845,3 +845,46 @@ describe('Grill in Abläufen', () => {
     expect(action.data).toEqual({ temperature: 120 });
   });
 });
+
+
+// ── Die Sammelfrage «ist noch jemand da?» ────────────────────────────────
+//
+// Sie zählt technisch in an/aus, und genau so stand es im Editor. Wer
+// «wenn der Letzte geht» bauen wollte, musste raten, ob das nun «an» oder
+// «aus» ist - und die Hälfte rät falsch.
+
+describe('plainStates für die Anwesenheit', () => {
+  const sammel = {
+    id: 'geofence.anyone_home',
+    kind: 'binary_sensor',
+    name: 'Jemand zuhause',
+    integration: 'geofence',
+    state: { state: 'on', device_class: 'presence', away: ['Livia'] },
+    commands: [],
+    available: true,
+  } as unknown as Entity;
+
+  it('sagt, was an und aus bedeuten', () => {
+    expect(plainStates(sammel)).toEqual([
+      { key: 'on', label: 'jemand ist zuhause' },
+      { key: 'off', label: 'niemand ist zuhause' },
+    ]);
+  });
+
+  it('verwechselt sie nicht mit einer einzelnen Person', () => {
+    // Die Zone einer Person führt einen Ort, keine Abwesenden-Liste.
+    const person = {
+      id: 'geofence.stefan',
+      kind: 'binary_sensor',
+      name: 'Stefan',
+      integration: 'geofence',
+      state: { state: 'home', device_class: 'presence', place: 'home' },
+      commands: [],
+      available: true,
+    } as unknown as Entity;
+    expect(plainStates(person)).toEqual([
+      { key: 'home', label: 'zuhause' },
+      { key: 'away', label: 'weg' },
+    ]);
+  });
+});

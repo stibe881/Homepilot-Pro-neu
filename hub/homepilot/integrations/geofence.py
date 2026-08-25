@@ -77,7 +77,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from ..core import ortsuche, presence
+from ..core import ortsuche, personen, presence
 from ..core.entity import Entity, EntityKind
 from ..core.errors import ConfigError
 from ..core.integration import Integration
@@ -764,6 +764,8 @@ class GeofenceIntegration(Integration):
             except (TypeError, ValueError):
                 neu["battery"] = None
         await self.hub.registry.update_state(entity_id, neu, available=True)
+        if not gleich:
+            await self._sagen(zone_id, vorher, state)
         # Das Gedächtnis über den Neustart hinweg. Getrennt vom Verlauf:
         # Der ist ein Protokoll des Kommens und Gehens, das hier ist der
         # letzte Stand, je Zone eine Zeile.
@@ -790,6 +792,49 @@ class GeofenceIntegration(Integration):
             ),
         )
         await self._update_anyone()
+
+    async def _sagen(
+        self, zone_id: str, vorher: dict[str, Any], state: str
+    ) -> None:
+        """Kommen und Gehen melden – wenn jemand es hören will.
+
+        Bewusst nur an der Haustürschwelle und nicht an jedem Ort: «Maja
+        ist beim Bäcker angekommen» ist eine Nachricht, die man einmal
+        nett findet. Wer mehr will, baut sich einen Ablauf; der kann
+        Ort, Uhrzeit und Empfänger unterscheiden.
+
+        Bewusst auch nicht beim allerersten Mal: Nach einem Neustart des
+        Hubs hat eine Zone noch keinen Vorzustand, und dann wären die
+        ersten Meldungen aller Telefone eine Ankunftswelle für Leute,
+        die längst dasitzen.
+        """
+        alt = str(vorher.get("state") or "")
+        if not alt or alt == presence.UNKNOWN:
+            return
+        if state == presence.HOME and alt != presence.HOME:
+            key, titel, wort = "arrive", "Angekommen", "ist zuhause angekommen"
+        elif alt == presence.HOME and state != presence.HOME:
+            key, titel, wort = "leave", "Unterwegs", "ist aus dem Haus"
+        else:
+            return
+        if not personen.an(self.hub.data.get(personen.LADE), zone_id, key):
+            return
+        entity_id = self._zones.get(zone_id)
+        entity = self.hub.registry.get(entity_id) if entity_id else None
+        name = entity.name if entity else zone_id
+        try:
+            tokens = self.hub.push.recipients(
+                self.hub.users.users, category="presence"
+            )
+            if tokens:
+                await self.hub.push.send(
+                    tokens, titel, f"{name} {wort}.", category="presence"
+                )
+        except Exception as err:
+            # Eine misslungene Nachricht darf die Ortung nicht anhalten -
+            # der Zustand ist längst geschrieben, und der ist das
+            # Wichtige.
+            self.log.debug("Geofence: %s nicht gemeldet (%s)", zone_id, err)
 
     def merged(self, zone_id: str) -> dict[str, Any]:
         """Der Zustand einer Person, wie ihn die App liest (Punkt 200).

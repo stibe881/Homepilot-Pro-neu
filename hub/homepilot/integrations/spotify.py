@@ -573,6 +573,9 @@ class SpotifyIntegration(Integration):
         state["devices"] = merge_device_names(
             [device["name"] for device in devices], self._cast_names()
         )
+        # Welche davon echte Google-Gruppen sind. Die App setzt die
+        # Marke daneben; ohne sie sieht eine Gruppe aus wie eine Box.
+        state["device_groups"] = self._cast_groups()
         state["playlists"] = [p["name"] for p in self._playlists]
         state["playlist"] = playlist_name(state.get("context_uri"), self._playlists)
         state["queue"] = await self._warteschlange(state.get("state"))
@@ -656,6 +659,50 @@ class SpotifyIntegration(Integration):
             (name for name, value in self._device_ids.items() if value == device_id), None
         )
 
+    async def _cast_lautstaerke(self, entity: Entity, prozent: int) -> bool:
+        """Die Lautstärke über Cast setzen, wenn das Ziel eine Cast-Box ist.
+
+        Rückgabe: ob es dieser Weg war. False heisst «nicht zuständig» –
+        dann geht es wie bisher über Spotify (Telefon, Rechner, Sonos).
+        """
+        name = str(entity.state.get("device") or "")
+        cast = self.hub.integrations.get("google_cast")
+        if not name or cast is None or not hasattr(cast, "lautstaerke_setzen"):
+            return False
+        try:
+            return bool(await cast.lautstaerke_setzen(name, prozent))
+        except Exception as err:
+            self.log.debug("Lautstärke über Cast misslungen (%s): %s", name, err)
+            return False
+
+    async def _gruppen_lautstaerke_wiederherstellen(self, name: str) -> None:
+        """Nach dem Umziehen die Lautstärke des **Ziels** durchsetzen.
+
+        Spotify nimmt beim Umziehen die Lautstärke des bisherigen Geräts
+        mit. Das ist bei zwei Telefonen egal und bei einer Gruppe falsch:
+        Wer die Küchenbox auf 15 % laufen hatte und dann auf «Ganze
+        Wohnung» wechselt, bekam die ganze Wohnung auf 15 %, obwohl die
+        Gruppe auf 40 % stand. Was das Ziel selbst sagt, gilt.
+        """
+        cast = self.hub.integrations.get("google_cast")
+        if cast is None or not hasattr(cast, "lautstaerke_von"):
+            return
+        try:
+            eigene = cast.lautstaerke_von(name)
+            if eigene is not None:
+                await cast.lautstaerke_setzen(name, eigene)
+        except Exception as err:
+            self.log.debug("Lautstärke von %s nicht wiederhergestellt: %s", name, err)
+
+    def _cast_groups(self) -> list[str]:
+        cast = self.hub.integrations.get("google_cast")
+        if cast is None or not hasattr(cast, "group_names"):
+            return []
+        try:
+            return list(cast.group_names())
+        except Exception:
+            return []
+
     def _cast_names(self) -> list[str]:
         cast = self.hub.integrations.get("google_cast")
         if cast is None or not hasattr(cast, "device_names"):
@@ -734,7 +781,9 @@ class SpotifyIntegration(Integration):
             await self._call(
                 "PUT", "/me/player", json={"device_ids": [device_id], "play": keep_playing}
             )
-            await self._announce({"device": self._device_name(device_id) or name})
+            ziel = self._device_name(device_id) or name
+            await self._gruppen_lautstaerke_wiederherstellen(ziel)
+            await self._announce({"device": ziel})
             return
         if command == "play_playlist":
             name = str(data.get("name", ""))
@@ -747,29 +796,35 @@ class SpotifyIntegration(Integration):
             # Ziel: gewünschte Box → gerade aktive → erste sichtbare. Ohne
             # Ziel würde Spotify aus der Stille heraus mit 404 abwinken.
             requested = str(data.get("device", ""))
-            device_id = pick_device(
-                requested, entity.state.get("device"), self._device_ids
-            )
-            # Gewünschte Box schläft (kennt Spotify gerade nicht)? Dann über
-            # das Cast-Protokoll wecken und anmelden – wie Spotcast.
-            if requested and requested not in self._device_ids:
-                # Erst die frische Geräteliste – wecken nur, wenn sie die Box
-                # wirklich nicht kennt (siehe play_on).
-                if requested in await self._load_devices():
-                    device_id = self._device_ids[requested]
-                else:
-                    device_id = pick_device(
-                        requested, entity.state.get("device"), self._device_ids
-                    )
-            if requested and requested not in self._device_ids:
-                woken = await self._wake_and_find(requested)
-                if woken:
-                    device_id = woken
-                elif device_id is None:
+            if requested:
+                # Eine ausdrücklich genannte Box ist eine Ansage, keine
+                # Anregung. Hier stand ein Rückfall auf «gerade aktiv»
+                # oder «die erste sichtbare», und genau daran hing der
+                # Fehler mit den Lautsprechergruppen: Kannte Spotify die
+                # Gruppe im Moment des Starts nicht, spielte die Musik
+                # kommentarlos auf der Box weiter, die ohnehin schon lief
+                # - also gerade nicht auf denen, die in Google Home in
+                # der Gruppe stehen. Ein Fehler, den man sieht, ist
+                # besser als Musik im falschen Zimmer.
+                device_id = self._device_ids.get(requested)
+                if device_id is None:
+                    # Erst die frische Geräteliste – wecken nur, wenn sie
+                    # die Box wirklich nicht kennt (siehe play_on).
+                    device_id = (await self._load_devices()).get(requested)
+                if device_id is None:
+                    device_id = await self._wake_and_find(requested)
+                if device_id is None:
                     raise ValueError(
-                        f"'{requested}' liess sich nicht wecken – Details im "
+                        f"'{requested}' liess sich nicht erreichen – Musik "
+                        "läuft darum nirgends, statt im falschen Zimmer. "
+                        "Sichtbar sind: "
+                        f"{', '.join(self._device_ids) or 'keine'}. Details im "
                         "Hub-Log (docker logs homepilot-hub | grep -i spotify)"
                     )
+            else:
+                device_id = pick_device(
+                    requested, entity.state.get("device"), self._device_ids
+                )
             if device_id is None:
                 raise ValueError(
                     "Keine Spotify-Lautsprecher sichtbar. Google-Lautsprecher "
@@ -883,7 +938,12 @@ class SpotifyIntegration(Integration):
                 else:
                     target = getattr(self, "_volume_before_mute", 30)
             target = max(0, min(100, target))
-            await self._call("PUT", f"/me/player/volume?volume_percent={target}")
+            # Erst über Cast, dann über Spotify: Für Google-Boxen und
+            # erst recht für Gruppen antwortet Spotify auf
+            # `PUT /me/player/volume` mit «VOLUME_CONTROL_DISALLOWED».
+            # Der Regler bewegte sich, und niemand wurde lauter.
+            if not await self._cast_lautstaerke(entity, target):
+                await self._call("PUT", f"/me/player/volume?volume_percent={target}")
             await self._announce({"volume": target})
             return
 

@@ -426,3 +426,88 @@ async def test_a_departed_user_loses_the_zone_but_the_config_keeps_hers() -> Non
         assert hub.registry.get("geofence.gast") is not None
     finally:
         await hub.stop()
+
+
+# ── Kommen und Gehen melden ──────────────────────────────────────────────
+# Neu auf der Seite «Familie und Freunde»: Je Person lässt sich
+# einschalten, ob eine Ankunft oder ein Weggang gemeldet wird. Aus, weil
+# ein Haushalt zu viert daraus an einem Werktag ein Dutzend Nachrichten
+# machte.
+
+
+class _Push:
+    """Merkt sich, was verschickt worden wäre."""
+
+    def __init__(self) -> None:
+        self.gesendet: list[tuple[str, str]] = []
+
+    def recipients(self, users, to="all", category=None):
+        del users, to, category
+        return ["token"]
+
+    async def send(self, tokens, title, body, data=None, image=None, category=None):
+        del tokens, data, image, category
+        self.gesendet.append((title, body))
+
+
+async def test_arrival_is_silent_until_someone_asks_for_it() -> None:
+    from homepilot.core import personen
+
+    hub, geo = await make_geofence()
+    push = _Push()
+    hub.push = push
+    try:
+        # Erst einmal einen Vorzustand herstellen: Beim allerersten Mal
+        # meldet der Hub bewusst nichts, sonst wäre jeder Neustart eine
+        # Ankunftswelle für Leute, die längst dasitzen.
+        await geo.report("stefan", "leave")
+        assert push.gesendet == []
+
+        await geo.report("stefan", "enter")
+        assert push.gesendet == []
+
+        hub.data.set(personen.LADE, personen.setzen([], "stefan", "arrive", True))
+        await geo.report("stefan", "leave")
+        await geo.report("stefan", "enter")
+        assert [t for t, _ in push.gesendet] == ["Angekommen"]
+        assert "Stefan" in push.gesendet[0][1]
+    finally:
+        await hub.stop()
+
+
+async def test_leaving_is_its_own_switch() -> None:
+    """Wer die Ankunft will, will nicht zwingend auch den Weggang."""
+    from homepilot.core import personen
+
+    hub, geo = await make_geofence()
+    push = _Push()
+    hub.push = push
+    try:
+        hub.data.set(personen.LADE, personen.setzen([], "stefan", "leave", True))
+        await geo.report("stefan", "enter")
+        assert push.gesendet == []
+        await geo.report("stefan", "leave")
+        assert [t for t, _ in push.gesendet] == ["Unterwegs"]
+        # Und die Ankunft bleibt still, weil sie niemand bestellt hat.
+        await geo.report("stefan", "enter")
+        assert [t for t, _ in push.gesendet] == ["Unterwegs"]
+    finally:
+        await hub.stop()
+
+
+async def test_a_repeated_report_is_no_second_arrival() -> None:
+    """Sonst käme bei jeder Life360-Runde eine Nachricht."""
+    from homepilot.core import personen
+
+    hub, geo = await make_geofence()
+    push = _Push()
+    hub.push = push
+    try:
+        hub.data.set(personen.LADE, personen.setzen([], "stefan", "arrive", True))
+        await geo.report("stefan", "leave")
+        await geo.report("stefan", "enter")
+        await geo.report("stefan", "enter")
+        await geo.report("stefan", "enter")
+        assert len(push.gesendet) == 1
+    finally:
+        await hub.stop()

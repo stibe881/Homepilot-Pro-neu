@@ -1,4 +1,5 @@
 import { Entity } from '../api/types';
+import { istPerson } from './batterien';
 
 /**
  * Filter und Sortierung der Geräteliste.
@@ -27,6 +28,11 @@ export function passtFilter(
     case 'offline':
       return !entity.available;
     case 'batterie':
+      // Telefone nicht: Der Filter beantwortet «wo muss ich eine
+      // Batterie wechseln?», und ein Telefon wird geladen. Sonst steht
+      // es mit 14 Prozent zuoberst und verdeckt den Türkontakt, der
+      // wirklich dran wäre.
+      if (istPerson(entity)) return false;
       return (
         entity.state.low_battery === true ||
         (typeof entity.state.battery === 'number' &&
