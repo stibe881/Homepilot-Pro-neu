@@ -1572,6 +1572,117 @@ async def _login_main(config_path: str) -> int:
     return 0
 
 
+async def _horchen_main(config_path: str, sekunden: int) -> int:
+    """Zeigen, was Rings Wolke beim Klingeln überhaupt hergibt.
+
+    Aufruf:  docker exec homepilot-hub \
+                 python -m homepilot.integrations.ring -c /config/config.yaml \
+                 --klingeln 60
+
+    Der Unterschied zu --diagnose: Hier wird nichts angemeldet und
+    nichts weggenommen. Es wird nur gefragt - dieselben zwei Fragen, die
+    der Hub im Betrieb stellt, und die Antworten roh ausgegeben. Der
+    laufende Hub merkt davon nichts.
+
+    Damit ist entscheidbar, was «es kommt nichts an» heisst: Steht das
+    Klingeln in diesen Antworten, hört Ring es und der Hub verarbeitet es
+    falsch. Steht es nicht darin, weiss Rings Wolke selbst nichts davon -
+    dann liegt es am Konto oder am Gerät, und keine Zeile Code hilft.
+    """
+    from ..core.config import load_config
+
+    config = load_config(config_path)
+    blocks = [b for b in config.integrations if b.get("integration") == "ring"]
+    token_file = tokenstore.token_file(
+        config.data_file, blocks[0] if blocks else None, "ring"
+    )
+    stored = tokenstore.load(token_file)
+    if stored is None:
+        print(f"Kein Token in {token_file} – zuerst anmelden.")
+        return 1
+
+    from ring_doorbell import Auth, Ring
+
+    auth = Auth(USER_AGENT, token=stored.get("token"))
+    ring = Ring(auth)
+    try:
+        await ring.async_create_session()
+        await ring.async_update_devices()
+        geraete = ring.devices()
+        alle = (
+            list(geraete.doorbells)
+            + list(geraete.stickup_cams)
+            + list(getattr(geraete, "other", []) or [])
+        )
+        if not alle:
+            print("✗ Dieses Konto sieht kein einziges Ring-Gerät.")
+            print("  Beim geteilten Benutzer: Ist das Gerät wirklich freigegeben?")
+            return 1
+        print("Geräte, die dieses Konto sieht:")
+        for geraet in alle:
+            print(f"  · {geraet.name} (Kennung {geraet.id}, Art {geraet.kind})")
+
+        print(f"\nJetzt klingeln. Ich schaue {sekunden} s lang zu …")
+        gesehen: set[Any] = set()
+        etwas = False
+        for durchgang in range(max(1, sekunden // 3)):
+            await asyncio.sleep(3)
+            # 1. Die aktiven Meldungen - der Weg, den der Hub «Abfrage» nennt.
+            try:
+                await ring.async_update_dings()
+                for alarm in ring.active_alerts():
+                    schluessel = ("alarm", getattr(alarm, "id", None))
+                    if schluessel in gesehen:
+                        continue
+                    gesehen.add(schluessel)
+                    etwas = True
+                    print(
+                        f"  [Abfrage] {getattr(alarm, 'kind', '?')} von "
+                        f"{getattr(alarm, 'doorbot_id', '?')} "
+                        f"({getattr(alarm, 'device_name', '?')})"
+                    )
+            except Exception as err:
+                if durchgang == 0:
+                    print(f"  ⚠ Aktive Meldungen nicht abrufbar: {err}")
+            # 2. Der Verlauf - der Weg für die Gegensprechanlage.
+            for geraet in alle:
+                holen = getattr(geraet, "async_history", None)
+                if holen is None:
+                    continue
+                try:
+                    verlauf = await holen(limit=3)
+                except Exception as err:
+                    if durchgang == 0:
+                        print(f"  ⚠ Verlauf von {geraet.name} nicht abrufbar: {err}")
+                    continue
+                for eintrag in verlauf or []:
+                    schluessel = ("verlauf", _feld(eintrag, "id"))
+                    if schluessel in gesehen:
+                        continue
+                    gesehen.add(schluessel)
+                    if durchgang == 0:
+                        # Der erste Durchgang zeigt, was schon dastand -
+                        # das ist Geschichte, nicht das Klingeln von eben.
+                        continue
+                    etwas = True
+                    print(
+                        f"  [Verlauf] {_feld(eintrag, 'kind')} an {geraet.name} "
+                        f"um {_feld(eintrag, 'created_at')}"
+                    )
+        if etwas:
+            print("\n✓ Rings Wolke kennt das Klingeln. Der Hub muss es also")
+            print("  verarbeiten können - schick mir diese Ausgabe.")
+            return 0
+        print("\n✗ In diesen Sekunden kam bei Ring nichts an.")
+        print("  Weder in den aktiven Meldungen noch im Verlauf. Das heisst:")
+        print("  Rings Wolke weiss selbst nichts von diesem Klingeln - dann")
+        print("  liegt es am Konto (Freigabe, Benachrichtigungen) oder am")
+        print("  Gerät, und nicht am Hub.")
+        return 1
+    finally:
+        await auth.async_close()
+
+
 async def _diagnose_main(config_path: str) -> int:
     """Warum kommt der Ereigniskanal nicht zustande?
 
@@ -1711,7 +1822,18 @@ if __name__ == "__main__":
         action="store_true",
         help="Nicht anmelden, sondern prüfen, warum der Ereigniskanal fehlt",
     )
+    parser.add_argument(
+        "--klingeln",
+        type=int,
+        nargs="?",
+        const=60,
+        metavar="SEKUNDEN",
+        help="Zuschauen, was Rings Wolke beim Klingeln hergibt (stört den "
+        "laufenden Hub nicht)",
+    )
     args = parser.parse_args()
+    if args.klingeln:
+        sys.exit(asyncio.run(_horchen_main(args.config, args.klingeln)))
     if args.diagnose:
         sys.exit(asyncio.run(_diagnose_main(args.config)))
     sys.exit(asyncio.run(_login_main(args.config)))
