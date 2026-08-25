@@ -2970,7 +2970,7 @@ const makeStyles = (colors: Colors) =>
     gap: 10,
     padding: 20,
     borderRadius: radius.card,
-    backgroundColor: colors.gradient[1],
+    backgroundColor: colors.panel,
     borderWidth: 1,
     borderColor: colors.surfaceBorder,
     alignItems: 'center',

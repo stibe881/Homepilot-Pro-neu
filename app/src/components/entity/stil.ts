@@ -58,7 +58,7 @@ export const makeStyles = (colors: Colors) =>
     borderRadius: 24,
     padding: 18,
     gap: 6,
-    backgroundColor: colors.gradient[1],
+    backgroundColor: colors.panel,
     borderWidth: 1,
     borderColor: colors.surfaceBorder,
   },
