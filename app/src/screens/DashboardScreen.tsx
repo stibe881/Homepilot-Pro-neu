@@ -2950,7 +2950,9 @@ function GroupRow({
       <View style={styles.groupHead}>
         <Ionicons name="layers-outline" size={18} color={colors.inkSoft} />
         <Text style={styles.groupName}>{name}</Text>
-        <Text style={styles.groupCount}>{members.length} Geräte</Text>
+        <Text style={styles.groupCount}>
+          {members.length} {members.length === 1 ? 'Gerät' : 'Geräte'}
+        </Text>
       </View>
 
       {switches.length > 0 ? (
@@ -3325,7 +3327,11 @@ const makeStyles = (colors: Colors) =>
     },
     reorderTitle: { color: colors.ink, fontSize: 22, fontWeight: '700' },
     reorderHint: { color: colors.inkFaint, fontSize: 13, lineHeight: 18, marginBottom: 14 },
-    groupCard: { gap: 12 },
+    // Ohne die beiden Überschreibungen bleibt die Karte auf der
+    // Mindesthöhe einer Gerätekachel stehen und schiebt ihre Knöpfe mit
+    // `space-between` an den unteren Rand - bei einer Gruppe mit einem
+    // Namen und zwei Knöpfen war die halbe Karte leer.
+    groupCard: { gap: 12, minHeight: 0, justifyContent: 'flex-start' },
     groupHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     groupName: { color: colors.ink, fontSize: 16, fontWeight: '700', flex: 1 },
     groupCount: { color: colors.inkFaint, fontSize: 12 },
