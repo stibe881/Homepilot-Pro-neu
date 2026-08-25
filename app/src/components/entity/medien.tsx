@@ -52,9 +52,9 @@ export function ShuffleRepeat({
           <Ionicons
             name="shuffle"
             size={17}
-            color={shuffle ? '#FFFFFF' : colors.inkSoft}
+            color={shuffle ? colors.accent : colors.inkSoft}
           />
-          <Text style={[styles.modeButtonText, shuffle && { color: '#FFFFFF' }]}>
+          <Text style={[styles.modeButtonText, shuffle && { color: colors.accent }]}>
             Zufall
           </Text>
         </Pressable>
@@ -73,9 +73,9 @@ export function ShuffleRepeat({
           <Ionicons
             name="repeat"
             size={17}
-            color={repeatOn ? '#FFFFFF' : colors.inkSoft}
+            color={repeatOn ? colors.accent : colors.inkSoft}
           />
-          <Text style={[styles.modeButtonText, repeatOn && { color: '#FFFFFF' }]}>
+          <Text style={[styles.modeButtonText, repeatOn && { color: colors.accent }]}>
             {repeatLabel(repeat)}
           </Text>
         </Pressable>

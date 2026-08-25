@@ -264,8 +264,15 @@ function MediaPanel({
         </View>
       ) : null}
       {pickerOpen && boxen.length > 0 ? (
-        <View style={styles.speakerRow}>
-          {boxen.map((speaker) => {
+        // Eine ruhige Spalte statt Chips im Flattersatz: Bei einem
+        // Dutzend Boxen ergaben die Pillen vier ausgefranste Zeilen, in
+        // denen das Auge jeden Namen einzeln suchen musste. Eine Liste
+        // liest sich von oben nach unten, alphabetisch, die gewählte Box
+        // trägt ein Häkchen - und wo Musik läuft, sagt es das Symbol.
+        <View style={styles.speakerList}>
+          {[...boxen]
+            .sort((a, b) => a.name.localeCompare(b.name, 'de'))
+            .map((speaker, index) => {
             const selected =
               speaker.id === entity.id ||
               (istQuelle && activeDevice != null && speaker.name === activeDevice);
@@ -279,21 +286,30 @@ function MediaPanel({
                 accessibilityRole="radio"
                 accessibilityState={{ selected }}
                 accessibilityLabel={`Musik auf ${speaker.name}`}
-                style={[styles.speakerChip, selected && styles.speakerChipActive]}
+                style={({ pressed }) => [
+                  styles.speakerItem,
+                  index > 0 && styles.speakerItemTrenner,
+                  pressed && { opacity: 0.7 },
+                ]}
               >
-                {speaker.state.state === 'playing' ? (
-                  <Ionicons
-                    name="volume-high-outline"
-                    size={13}
-                    color={selected ? '#FFFFFF' : colors.accent}
-                  />
-                ) : null}
+                <Ionicons
+                  name={
+                    speaker.state.state === 'playing'
+                      ? 'volume-high-outline'
+                      : 'volume-mute-outline'
+                  }
+                  size={15}
+                  color={speaker.state.state === 'playing' ? colors.accent : colors.inkFaint}
+                />
                 <Text
-                  style={[styles.speakerChipText, selected && styles.speakerChipTextActive]}
+                  style={[styles.speakerItemText, selected && styles.speakerItemTextActive]}
                   numberOfLines={1}
                 >
                   {speaker.name}
                 </Text>
+                {selected ? (
+                  <Ionicons name="checkmark" size={16} color={colors.accent} />
+                ) : null}
               </Pressable>
             );
           })}
@@ -586,6 +602,25 @@ const makeStyles = (colors: Colors) =>
       flexShrink: 1,
     },
     speakerRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+    speakerList: {
+      backgroundColor: colors.surfaceSoft,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      paddingHorizontal: 12,
+    },
+    speakerItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 9,
+    },
+    speakerItemTrenner: {
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.surfaceBorder,
+    },
+    speakerItemText: { flex: 1, fontSize: 13, color: colors.ink },
+    speakerItemTextActive: { color: colors.accent, fontWeight: '700' },
     speakerChip: {
       flexDirection: 'row',
       alignItems: 'center',
