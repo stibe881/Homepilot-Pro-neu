@@ -100,6 +100,7 @@ import { SpeakersScreen } from './SpeakersScreen';
 import { SystemScreen } from './SystemScreen';
 import { EntityHistory } from '../components/EntityHistory';
 import { Broadcast } from '../components/Broadcast';
+import { Musikzentrale } from '../components/Musikzentrale';
 import { ClimateOverview } from '../components/ClimateOverview';
 import { KidsView } from '../components/KidsView';
 import { KitchenTimer } from '../components/KitchenTimer';
@@ -1520,6 +1521,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         <View style={styles.stack}>
           {back}
           <>
+            <Musikzentrale settings={settings} entities={entities} />
             <Broadcast settings={settings} entities={entities} />
             <SpeakersScreen settings={settings} />
           </>
