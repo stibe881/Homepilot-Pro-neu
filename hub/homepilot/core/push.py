@@ -95,6 +95,7 @@ CATEGORIES: dict[str, str] = {
     "battery": "Batterie schwach",
     "open": "Fenster/Tür steht offen",
     "leak": "Wasser gemeldet",
+    "doorbell": "Es klingelt an der Türe",
     "disk": "Speicherplatz wird knapp",
     "frost": "Frost angekündigt",
     "appliance": "Haushaltgerät fertig",
@@ -122,7 +123,10 @@ CATEGORIES: dict[str, str] = {
 #
 # Reihenfolge ist Absicht: Was aufweckt, steht oben.
 GROUPS: list[tuple[str, tuple[str, ...]]] = [
-    ("Sicherheit", ("alarm", "alarm_arming", "camera_motion", "leak")),
+    # Die Klingel steht ganz vorn: Sie ist die Nachricht, auf die man
+    # sofort reagiert - und die einzige, bei der ein paar Sekunden
+    # Verzögerung den Zweck zunichte machen.
+    ("Sicherheit", ("doorbell", "alarm", "alarm_arming", "camera_motion", "leak")),
     ("Haus", ("open", "appliance", "frost", "timer", "maintenance")),
     ("Familie", ("birthday", "calendar", "medication", "tasks", "shopping",
                  "weekahead", "presence")),
