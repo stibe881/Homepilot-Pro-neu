@@ -72,13 +72,17 @@ USER_AGENT = "HomePilot/1.0"
 # Ersatzweg: Ring führt eine Liste der gerade laufenden Meldungen – die
 # gleiche, aus der auch die Ring-App ihre Nachricht baut.
 #
-# Fünf Sekunden, solange der Push-Kanal nichts liefert. Zehn waren es
-# vorher - «die Grenze des Erträglichen» stand als Begründung daneben,
-# und das ist sie auch. Nur ist sie bei einer Gegensprechanlage, für die
-# Ring gar nichts pusht, keine Notlösung mehr, sondern der Normalfall:
-# Dann zählt jede Sekunde, und ein Aufruf alle fünf Sekunden für ein
-# einzelnes Gerät ist nichts, was Ring in Verlegenheit bringt.
-DING_POLL_SECONDS = 5
+# Drei Sekunden, solange der Push-Kanal nichts liefert.
+#
+# `dings/active` ist die Liste der *laufenden* Meldungen - dieselbe, aus
+# der die Ring-App ihre Nachricht baut. Sie steht in dem Moment da, in
+# dem geklingelt wird, und ist damit der schnellste Weg, den es ohne
+# Ereigniskanal gibt. Gemessen: Klingeln um 21:34:39, beim Hub um
+# 21:34:43.
+#
+# Wo Ring für ein Gerät gar nicht pusht, ist das kein Notbehelf mehr,
+# sondern der Normalweg - dann gehört das Zeitbudget hierher.
+DING_POLL_SECONDS = 3
 # Dreissig Sekunden, während er steht. Nicht aus Misstrauen gegen den
 # Push-Kanal an sich, sondern gegen das, was er im Fehlerfall meldet: Er
 # gilt als «gestartet», bis ihn jemand stoppt. Reisst die Verbindung
@@ -268,15 +272,20 @@ TAUB_AB = 2
 
 #: Takt, in dem der Verlauf der Gegensprechanlage abgefragt wird.
 #:
-#: Drei Sekunden. Das ist die Untergrenze dessen, was sich gegenüber
-#: Rings Diensten vertreten lässt, und zugleich das Schnellste, was
-#: dieser Weg hergibt: Der Hub bekommt vom Intercom kein Signal - das
-#: Gerät spricht mit Rings Wolke, nicht mit ihm. Er kann nur fragen.
+#: Zehn Sekunden, und das ist mit Absicht langsamer als die Abfrage der
+#: laufenden Meldungen. Der Verlauf ist ein Protokoll: Ring schreibt den
+#: Eintrag, wenn das Ereignis vorbei ist, nicht wenn es beginnt. Für ein
+#: Klingeln, das gerade stattfindet, ist er deshalb nie der schnellste
+#: Weg - er ist das Netz für den Fall, dass die andere Abfrage etwas
+#: nicht sieht.
+#:
+#: Beide auf drei Sekunden wäre die doppelte Last für dieselbe Auskunft.
+#: Das Zeitbudget gehört dorthin, wo es etwas bringt.
 #:
 #: Wer es wirklich sofort will, führt das Klingelsignal als Kontakt in
-#: den Hub (siehe docs/klingel-sofort.md). Alles andere hier ist Fragen
-#: statt Wissen, und Fragen kostet Zeit.
-INTERCOM_POLL_SECONDS = 3
+#: den Hub (siehe docs/klingel-sofort.md). Alles hier ist Fragen statt
+#: Wissen, und Fragen kostet Zeit.
+INTERCOM_POLL_SECONDS = 10
 
 #: Wie alt ein Eintrag im Verlauf höchstens sein darf, damit er noch als
 #: «es klingelt gerade» gilt. Alles Ältere ist Geschichte - beim Start

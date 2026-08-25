@@ -14,13 +14,22 @@ daneben. Er hat zwei Möglichkeiten, davon zu erfahren:
    Ring für sie nicht schickt, kann der Hub nicht empfangen.
 
 2. **Fragen.** Der Hub ruft Rings Wolke im Takt und schaut nach, ob
-   geklingelt hat. Das tut er alle drei Sekunden (Verlauf) und alle
-   fünf (aktive Meldungen). Schneller wäre möglich, aber unredlich
-   gegenüber einem fremden Dienst – und es bleibt Fragen statt Wissen.
+   geklingelt hat – auf zwei Arten, und die sind nicht gleich schnell:
 
-Zwischen einem Klingeln und der Nachricht liegen damit im schlechtesten
-Fall etwa drei Sekunden. Das ist nicht «sofort», und mit Software allein
-wird es das auch nicht.
+   - **Laufende Meldungen** (`dings/active`), alle **drei Sekunden**.
+     Das ist dieselbe Liste, aus der die Ring-App ihre Nachricht baut;
+     sie steht in dem Moment da, in dem geklingelt wird. Der schnellste
+     Weg ohne Ereigniskanal.
+   - **Der Verlauf**, alle **zehn Sekunden**. Ein Protokoll: Ring
+     schreibt den Eintrag, wenn das Ereignis vorbei ist, nicht wenn es
+     beginnt. Für ein Klingeln, das gerade stattfindet, ist er nie der
+     schnellste Weg – er ist das Netz für den Fall, dass die andere
+     Abfrage etwas nicht sieht.
+
+Zwischen einem Klingeln und der Nachricht liegen damit etwa drei bis
+vier Sekunden (gemessen: Klingeln 21:34:39, beim Hub 21:34:43), dazu die
+Zustellung über Expo und Apple. Das ist nicht «sofort», und mit Software
+allein wird es das auch nicht.
 
 ## Der häufigste Grund, warum der Kanal schweigt
 
