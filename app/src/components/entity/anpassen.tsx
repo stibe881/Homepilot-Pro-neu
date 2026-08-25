@@ -7,9 +7,62 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
+import { KachelAktion, KachelEintrag } from '../../lib/kachelmenue';
 import { useColors } from '../../theme';
 import { makeStyles } from './stil';
 
+
+/**
+ * Das Menü, das langes Drücken auf einer Kachel öffnet.
+ *
+ * Vorher zeigte langes Drücken sofort den Verlauf – und bei einer Kachel
+ * ohne Verlauf gar nichts. Umbenennen gab es nur im Anpassen-Modus, drei
+ * Schritte entfernt von der Kachel, die man in der Hand hält. Jetzt steht
+ * beides hier; welche Zeilen es sind, entscheidet lib/kachelmenue.ts.
+ */
+export function KachelMenue({
+  visible,
+  name,
+  eintraege,
+  onClose,
+  onWahl,
+}: {
+  visible: boolean;
+  name: string;
+  eintraege: KachelEintrag[];
+  onClose: () => void;
+  onWahl: (aktion: KachelAktion) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.roomBackdrop} onPress={onClose}>
+        <Pressable style={styles.roomSheet} onPress={() => {}}>
+          <Text style={styles.roomSheetTitle} numberOfLines={1}>
+            {name}
+          </Text>
+          {eintraege.map((eintrag) => (
+            <Pressable
+              key={eintrag.key}
+              onPress={() => onWahl(eintrag.key)}
+              accessibilityRole="button"
+              accessibilityLabel={`${eintrag.label} – ${name}`}
+              style={({ pressed }) => [styles.roomOption, pressed && styles.roomOptionActive]}
+            >
+              <Text style={styles.roomOptionText}>{eintrag.label}</Text>
+              <Ionicons
+                name={eintrag.icon as never}
+                size={18}
+                color={colors.inkSoft}
+              />
+            </Pressable>
+          ))}
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
 
 export function RoomPicker({
   visible,

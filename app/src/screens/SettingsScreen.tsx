@@ -180,13 +180,6 @@ export function SettingsScreen({
         placeholder="Token aus config.yaml"
         secure
       />
-      <Field
-        label="Dein Name (für die Begrüssung)"
-        value={name}
-        onChange={setName}
-        placeholder="optional"
-      />
-
       <View style={styles.field}>
         <Text style={styles.label}>Erscheinungsbild</Text>
         <View style={styles.modes}>
@@ -237,6 +230,19 @@ export function SettingsScreen({
           <View style={[styles.knob, panel && styles.knobOn]} />
         </View>
       </Pressable>
+
+      {/* Die Anrede gehört hierher und nicht zu den Zugangsdaten: Am
+          Wandpanel ist sie die Antwort auf eine Frage, die der Schalter
+          darüber gerade aufwirft. Vor dem iPad im Flur steht mal die
+          eine, mal der andere – «Hallo Stefan» begrüsst dort den
+          Falschen, auch wenn Stefans Zugang im Gerät steckt. Ohne Angabe
+          steht deshalb «Willkommen zuhause». */}
+      <Field
+        label={panel ? 'Anrede auf diesem Panel' : 'Dein Name (für die Begrüssung)'}
+        value={name}
+        onChange={setName}
+        placeholder={panel ? 'z.B. Küche – ohne Angabe: «Willkommen zuhause»' : 'optional'}
+      />
 
       {/* Punkt 197: Sobald die App selbst ortet, ändert sich die Frage –
           nicht «geht das technisch», sondern «weiss jeder, dass es

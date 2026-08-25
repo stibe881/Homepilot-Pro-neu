@@ -16,11 +16,14 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CommandData, Entity, HubSettings } from '../api/types';
+import { begruessung } from '../lib/begruessung';
+import { kachelAktionen } from '../lib/kachelmenue';
 import { Bar } from '../components/Bar';
 import { Card } from '../components/Card';
 import { DraggableList } from '../components/DraggableList';
 import { CellLayout, DragCell, reorderByDrop } from '../components/DragGrid';
 import { EntityCard } from '../components/EntityCard';
+import { KachelMenue, RenameDialog, RoomPicker } from '../components/entity/anpassen';
 import { skyFromIcon } from '../components/CoverVisual';
 import { HistoryChart } from '../components/HistoryChart';
 import { CameraLive } from '../components/CameraLive';
@@ -236,6 +239,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // stand allein der Besitzerin offen. Am Abend, an dem der Babysitter
   // kommt, ist das genau die falsche Tür.
   const darfPausieren = (user?.capabilities ?? []).includes('pause_automations');
+  // Umbenennen und Raum ändern die Angaben für alle im Haus – der Hub
+  // verlangt dafür edit_config. Ein Menüeintrag, der mit «keine
+  // Berechtigung» antwortet, wäre ein Knopf, der nichts tut.
+  const darfBearbeiten = (user?.capabilities ?? []).includes('edit_config');
 
   const [section, setSection] = useState<Section>('start');
   // Aufgeklappt kommt man nur über die Batteriewarnung hierher; sonst
@@ -271,6 +278,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [fullscreen, setFullscreen] = useState<string | null>(null);
   // Gerät, dessen Verlauf gerade offen ist (Geräte-Ansicht, Tipp auf die Kachel).
   const [historyFor, setHistoryFor] = useState<string | null>(null);
+  // Langes Drücken auf einer Kachel: erst das Menü, dann der gewählte
+  // Dialog. Drei Zustände statt einem, weil sich die Dialoge nacheinander
+  // öffnen - das Menü ist zu, während umbenannt wird.
+  const [menueFuer, setMenueFuer] = useState<string | null>(null);
+  const [umbenennenFuer, setUmbenennenFuer] = useState<string | null>(null);
+  const [raumFuer, setRaumFuer] = useState<string | null>(null);
   // Auf der Startseite markierte Countdowns aus dem Familie-Modul.
   const [startCountdowns, setStartCountdowns] = useState<
     { text: string; date: string; on_start?: boolean }[]
@@ -1176,12 +1189,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 : undefined
       }
       onLongPress={
-        // Überall dasselbe: langes Drücken zeigt den Verlauf dieses
-        // Geräts. Unter Geräte tut das schon ein Tipp - dort wäre ein
-        // zweiter Weg nur verwirrend.
-        !editing && section !== 'devices' && HISTORY_KINDS.has(entity.kind)
-          ? () => setHistoryFor(entity.id)
-          : undefined
+        // Überall dasselbe: langes Drücken öffnet das Menü der Kachel –
+        // umbenennen, Raum, Favorit, ausblenden, Verlauf. Vorher zeigte
+        // es sofort den Verlauf, und bei einer Kachel ohne Verlauf
+        // passierte gar nichts: «Die Kacheln bei Favoriten lassen sich
+        // mit einem langen Drücken nicht umbenennen.»
+        editing ? undefined : () => setMenueFuer(entity.id)
       }
       chart={
         expanded === entity.id && cardWidth ? (
@@ -2183,7 +2196,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               <Text
                 style={[styles.greetingLine, !hasRail && { fontSize: type.greetingSmall }]}
               >
-                {greetingName(settings, user)}
+                {begruessung(settings, user)}
               </Text>
               <Text
                 style={[
@@ -2249,6 +2262,56 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           onClose={() => setFullscreen(null)}
           colors={colors}
           styles={styles}
+        />
+      ) : null}
+
+      {menueFuer && entities.find((entity) => entity.id === menueFuer) ? (
+        <KachelMenue
+          visible
+          name={entities.find((entity) => entity.id === menueFuer)!.name}
+          eintraege={kachelAktionen({
+            favorit: favorites.includes(menueFuer),
+            versteckt: hidden.includes(menueFuer),
+            mitVerlauf: HISTORY_KINDS.has(
+              entities.find((entity) => entity.id === menueFuer)!.kind
+            ),
+            darfBearbeiten,
+          })}
+          onClose={() => setMenueFuer(null)}
+          onWahl={(aktion) => {
+            const id = menueFuer;
+            setMenueFuer(null);
+            if (aktion === 'rename') setUmbenennenFuer(id);
+            else if (aktion === 'room') setRaumFuer(id);
+            else if (aktion === 'favorite') setFavorites(toggleIn(favorites, id));
+            else if (aktion === 'hide') setHidden(toggleIn(hidden, id));
+            else if (aktion === 'history') setHistoryFor(id);
+          }}
+        />
+      ) : null}
+
+      {umbenennenFuer && entities.find((entity) => entity.id === umbenennenFuer) ? (
+        <RenameDialog
+          visible
+          current={entities.find((entity) => entity.id === umbenennenFuer)!.name}
+          onClose={() => setUmbenennenFuer(null)}
+          onSubmit={(name) => {
+            setEntityMeta(umbenennenFuer, { name });
+            setUmbenennenFuer(null);
+          }}
+        />
+      ) : null}
+
+      {raumFuer && entities.find((entity) => entity.id === raumFuer) ? (
+        <RoomPicker
+          visible
+          current={entities.find((entity) => entity.id === raumFuer)!.room ?? null}
+          rooms={roomOrder}
+          onClose={() => setRaumFuer(null)}
+          onSelect={(room) => {
+            setEntityRoom(raumFuer, room);
+            setRaumFuer(null);
+          }}
         />
       ) : null}
 
@@ -2509,19 +2572,6 @@ function usePanelMode(active: boolean) {
       deactivateKeepAwake(PANEL_TAG).catch(() => {});
     };
   }, [active]);
-}
-
-function greetingName(
-  settings: HubSettings,
-  user: { name: string; shared?: boolean } | null
-): string {
-  // «Hallo Wandtablet Flur» begrüsst niemanden - an einem
-  // Gemeinschaftsgerät steht kein einzelner Mensch. Ein selbst gesetzter
-  // Name in den Einstellungen gilt trotzdem: Wer «Küche» hinschreibt,
-  // meint es so.
-  if (user?.shared && !settings.name) return 'Willkommen zuhause,';
-  const name = settings.name || user?.name;
-  return name ? `Hallo ${name},` : 'Willkommen zuhause,';
 }
 
 function partOfDay(now: Date): string {
