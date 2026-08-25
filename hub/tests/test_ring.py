@@ -234,3 +234,94 @@ def test_ein_durchlauf_ohne_dauerverbindung_meldet_nicht_verbunden(monkeypatch):
     # Und der Grund benennt den gesperrten Weg, nicht bloss «Fehler».
     assert "mtalk.google.com:5228" in text
     assert integration.health()["ok"] is False
+
+
+# ── Die Gegensprechanlage hat jetzt auch ein Netz ────────────────────────
+#
+# Der gemeldete Fall: «Wenn jemand an der Haustüre klingelt, kommt gar
+# keine Push mehr.» Die Klingel ist ein Ring Intercom, und der hängt in
+# Rings API an einer eigenen Adressfamilie - in der Liste der aktiven
+# Meldungen taucht er nicht auf. Fiel der Ereigniskanal aus, kam von ihm
+# deshalb nicht etwa verspätet etwas, sondern gar nichts. Ausgerechnet
+# an der Türe, an der es zählt.
+
+from homepilot.integrations.ring import (
+    INTERCOM_FRIST,
+    INTERCOM_POLL_SECONDS,
+    verlauf_dings,
+    verlauf_hinweis,
+)
+
+JETZT = 1_700_000_000.0
+
+
+def test_a_fresh_ding_from_the_history_counts():
+    verlauf = [
+        {"id": 77, "kind": "ding", "created_at": "2023-11-14T22:13:00+00:00"},
+    ]
+    frisch, gesehen = verlauf_dings(verlauf, set(), JETZT)
+    assert [eintrag["id"] for eintrag in frisch] == [77]
+    assert 77 in gesehen
+
+
+def test_the_same_ding_is_reported_once():
+    """Sonst käme dasselbe Klingeln alle fünf Sekunden erneut."""
+    verlauf = [{"id": 77, "kind": "ding", "created_at": JETZT - 5}]
+    frisch, gesehen = verlauf_dings(verlauf, set(), JETZT)
+    assert len(frisch) == 1
+    nochmal, _ = verlauf_dings(verlauf, gesehen, JETZT)
+    assert nochmal == []
+
+
+def test_yesterdays_ding_stays_quiet():
+    """Beim Start des Hubs soll nicht das Klingeln von gestern eine
+    Nachricht auslösen - gemerkt wird es trotzdem."""
+    verlauf = [{"id": 77, "kind": "ding", "created_at": JETZT - INTERCOM_FRIST - 60}]
+    frisch, gesehen = verlauf_dings(verlauf, set(), JETZT)
+    assert frisch == []
+    assert 77 in gesehen
+
+
+def test_only_dings_not_every_entry():
+    verlauf = [
+        {"id": 1, "kind": "motion", "created_at": JETZT - 5},
+        {"id": 2, "kind": "on_demand", "created_at": JETZT - 5},
+        {"id": 3, "kind": "ding", "created_at": JETZT - 5},
+    ]
+    frisch, _ = verlauf_dings(verlauf, set(), JETZT)
+    assert [eintrag["id"] for eintrag in frisch] == [3]
+
+
+def test_the_history_survives_whatever_the_library_hands_over():
+    """Je nach Fassung kommen Objekte statt dicts, und der Zeitstempel
+    als Text, als Zahl oder gar nicht."""
+    from datetime import UTC, datetime
+
+    class Eintrag:
+        def __init__(self, id, kind, created_at):
+            self.id = id
+            self.kind = kind
+            self.created_at = created_at
+
+    verlauf = [
+        Eintrag(1, "ding", datetime.fromtimestamp(JETZT - 5, UTC)),
+        Eintrag(2, "ding", JETZT - 5),
+        Eintrag(3, "ding", "kein Datum"),
+        Eintrag(4, "ding", None),
+        "gar kein Eintrag",
+    ]
+    frisch, gesehen = verlauf_dings(verlauf, set(), JETZT)
+    assert [eintrag["id"] for eintrag in frisch] == [1, 2]
+    # Auch die unbrauchbaren sind gemerkt: Sonst würden sie bei jedem
+    # Durchgang erneut geprüft.
+    assert {1, 2, 3, 4} <= gesehen
+    assert verlauf_dings(None, set(), JETZT) == ([], set())
+
+
+def test_the_system_screen_says_the_intercom_is_covered():
+    satz = verlauf_hinweis(["Haustüre"])
+    assert "Haustüre" in satz
+    assert f"{INTERCOM_POLL_SECONDS} s" in satz
+    assert "ohne Ereigniskanal" in satz
+    # Ohne Gegensprechanlage kein Zusatz - der wäre nur Lärm.
+    assert verlauf_hinweis([]) == ""
