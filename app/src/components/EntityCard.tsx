@@ -336,7 +336,7 @@ export function EntityCard({
               ) : null}
             </Pressable>
             <Fortschritt entity={entity} onCommand={onCommand} />
-            <MedienExtras entity={entity} />
+            <MedienExtras entity={entity} onCommand={onCommand} />
             <Musikliste
               state={entity.state}
               offen={listeOffen}

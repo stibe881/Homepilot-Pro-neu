@@ -11,7 +11,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { hubClient } from '../../api/client';
-import { Entity } from '../../api/types';
+import { CommandData, Entity } from '../../api/types';
 import { useEntities, useSettings } from '../../hooks/HubContext';
 import { einzelBoxen } from '../../lib/hausmusik';
 import { warteschlange } from '../../lib/musikliste';
@@ -344,16 +344,81 @@ export function Umziehen({ entity }: { entity: Entity }) {
 }
 
 /**
+ * «Leise starten».
+ *
+ * Der Hub kann seit Kurzem einblenden - benutzt hat das bisher nur der
+ * Musikwecker. Von Hand kam niemand dran, obwohl der Fall derselbe ist:
+ * Eine Box, die um sieben Uhr mit 60 % losbrüllt, weckt falsch.
+ *
+ * Erst starten, dann von Null hochziehen. Umgekehrt wäre es ein
+ * Einblenden ins Nichts.
+ */
+export function LeiseStarten({
+  entity,
+  onCommand,
+}: {
+  entity: Entity;
+  onCommand: (command: string, data?: CommandData) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const settings = useSettings();
+  const hub = useMemo(() => hubClient(settings.url, settings.token), [settings]);
+
+  if (!entity.commands.includes('set_volume') || !entity.commands.includes('play')) {
+    return null;
+  }
+  // Nur, wo etwas zu starten ist. Läuft schon Musik, ist der Knopf eine
+  // Frage, die niemand gestellt hat.
+  if (['playing', 'buffering'].includes(String(entity.state.state))) return null;
+
+  const ziel =
+    typeof entity.state.volume === 'number' && entity.state.volume > 0
+      ? Number(entity.state.volume)
+      : 30;
+
+  const starten = async () => {
+    onCommand('play');
+    await hub
+      .post(
+        `/api/media/${encodeURIComponent(entity.id)}/fade`,
+        { volume: ziel, seconds: 8 },
+        { still: true },
+      )
+      .catch(() => undefined);
+  };
+
+  return (
+    <Pressable
+      onPress={starten}
+      accessibilityRole="button"
+      accessibilityLabel={`Leise starten, bis ${ziel} Prozent`}
+      style={({ pressed }) => [styles.gruppenChip, pressed && { opacity: 0.7 }]}
+    >
+      <Ionicons name="trending-up" size={13} color={colors.inkSoft} />
+      <Text style={styles.gruppenChipText}>Leise starten</Text>
+    </Pressable>
+  );
+}
+
+/**
  * Zufall und Wiederholung gab es schon; hier kommt das Spulen dazu, das
  * ohne Fortschritt keinen Sinn ergäbe – deshalb steht es dort und nicht
  * in dieser Reihe.
  */
-export function MedienExtras({ entity }: { entity: Entity }) {
+export function MedienExtras({
+  entity,
+  onCommand,
+}: {
+  entity: Entity;
+  onCommand: (command: string, data?: CommandData) => void;
+}) {
   const spielt = ['playing', 'buffering'].includes(String(entity.state.state));
   return (
     <>
       <GruppenBoxen entity={entity} />
       <Umziehen entity={entity} />
+      <LeiseStarten entity={entity} onCommand={onCommand} />
       <NaechsterTitel state={entity.state} />
       {spielt && entity.commands.includes('pause') ? <Schlummer entity={entity} /> : null}
     </>

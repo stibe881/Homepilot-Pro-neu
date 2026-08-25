@@ -12,15 +12,17 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { hubClient } from '../api/client';
 import { Entity, HubSettings } from '../api/types';
 import { hausSatz, laufendeMusik, zustandName } from '../lib/hausmusik';
+import { WeckerEntwurf, ersterEntwurf } from '../lib/weckerentwurf';
 import { tageSatz } from '../lib/weckertage';
 import { Colors, radius, type, useColors } from '../theme';
 
 import { Card } from './Card';
+import { WeckerFormular } from './WeckerFormular';
 
 interface Favorit {
   id: string;
@@ -73,7 +75,10 @@ export function Musikzentrale({
   const [duck, setDuck] = useState(true);
   const [wecker, setWecker] = useState<Wecker[]>([]);
   const [note, setNote] = useState<string | null>(null);
-  const [neuerWecker, setNeuerWecker] = useState<{ time: string; name: string } | null>(null);
+  const [neuerWecker, setNeuerWecker] = useState<WeckerEntwurf | null>(null);
+  // Welcher Favorit gerade eine Box zugewiesen bekommt.
+  const [ziel, setZiel] = useState<Favorit | null>(null);
+  const [pausiert, setPausiert] = useState(false);
 
   const laden = useCallback(async () => {
     const [f, v, e, w] = await Promise.all([
@@ -198,11 +203,8 @@ export function Musikzentrale({
 
   const weckerSpeichern = async () => {
     if (!neuerWecker) return;
-    // Die erste Box, die einen Sender abspielen kann - meistens gibt es
-    // genau eine, und dann ist eine Auswahl ein Schritt zu viel.
-    const spieler = entities.find((entity) => entity.commands.includes('play_radio'));
-    if (!spieler) {
-      setNote('Dafür bräuchte es Radio - im Haus ist nichts eingerichtet.');
+    if (!neuerWecker.player) {
+      setNote('Dafür bräuchte es Radio oder Spotify - im Haus ist nichts eingerichtet.');
       return;
     }
     try {
@@ -210,11 +212,12 @@ export function Musikzentrale({
         '/api/media/alarms',
         {
           time: neuerWecker.time.trim(),
-          player: spieler.id,
-          kind: 'station',
+          player: neuerWecker.player,
+          device: neuerWecker.device,
+          kind: neuerWecker.kind,
           name: neuerWecker.name.trim(),
-          days: [0, 1, 2, 3, 4],
-          volume: 30,
+          days: neuerWecker.days,
+          volume: neuerWecker.volume,
         },
         { still: true },
       );
@@ -226,12 +229,68 @@ export function Musikzentrale({
     }
   };
 
+  /**
+   * Überall Pause.
+   *
+   * Nicht «aus»: Eine Box, die pausiert, weiss noch, wo sie war. Wer
+   * gleich weiterhören will, drückt Play - wer nicht, hat Ruhe.
+   */
+  const ueberallPause = async () => {
+    setPausiert(true);
+    for (const zeile of laufend) {
+      await hub
+        .post(
+          `/api/entities/${encodeURIComponent(zeile.id)}/command`,
+          { command: 'pause' },
+          { still: true },
+        )
+        .catch(() => undefined);
+    }
+    setPausiert(false);
+  };
+
+  /** Einem Favoriten die Box zuweisen, auf der er laufen soll. */
+  const zielSetzen = async (favorit: Favorit, box: string) => {
+    try {
+      await hub.post(
+        '/api/media/favorites',
+        { ...favorit, device: favorit.device === box ? '' : box },
+        { still: true },
+      );
+      setZiel(null);
+      laden();
+    } catch (err) {
+      setNote(String(err instanceof Error ? err.message : err));
+    }
+  };
+
+  /** Die Boxen, die ein Favorit ansteuern kann. */
+  const boxenFuer = (favorit: Favorit): string[] => {
+    const spieler = entities.find((entity) => entity.id === favorit.player);
+    const liste = spieler?.state?.devices;
+    return Array.isArray(liste) ? liste.map(String) : [];
+  };
+
   return (
     <Card>
       <Text style={styles.titel}>Musik im Haus</Text>
 
       {/* ── Was läuft gerade ─────────────────────────────────────── */}
       <Text style={styles.satz}>{hausSatz(laufend)}</Text>
+      {laufend.length > 0 ? (
+        <Pressable
+          onPress={ueberallPause}
+          disabled={pausiert}
+          accessibilityRole="button"
+          accessibilityLabel="Überall Pause"
+          style={({ pressed }) => [styles.chip, pressed && { opacity: 0.7 }]}
+        >
+          <Ionicons name="pause" size={13} color={colors.inkSoft} />
+          <Text style={styles.chipText}>
+            {pausiert ? 'Einen Moment …' : 'Überall Pause'}
+          </Text>
+        </Pressable>
+      ) : null}
       {laufend.map((zeile) => (
         <View key={zeile.id} style={styles.zeile}>
           <Ionicons
@@ -283,11 +342,46 @@ export function Musikzentrale({
                 />
                 <Text style={styles.chipText} numberOfLines={1}>
                   {favorit.name}
+                  {favorit.device ? ` · ${favorit.device}` : ''}
                 </Text>
+                {boxenFuer(favorit).length > 0 ? (
+                  <Pressable
+                    onPress={() => setZiel(ziel?.id === favorit.id ? null : favorit)}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Box für ${favorit.name} wählen`}
+                  >
+                    <Ionicons name="chevron-down" size={13} color={colors.inkFaint} />
+                  </Pressable>
+                ) : null}
               </Pressable>
             ))}
           </View>
-          <Text style={styles.hinweis}>Lange drücken entfernt einen Favoriten.</Text>
+          {ziel ? (
+            <View style={styles.chips}>
+              <Text style={styles.hinweis}>«{ziel.name}» läuft auf:</Text>
+              {boxenFuer(ziel).map((box) => (
+                <Pressable
+                  key={box}
+                  onPress={() => zielSetzen(ziel, box)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: ziel.device === box }}
+                  style={({ pressed }) => [styles.chip, pressed && { opacity: 0.7 }]}
+                >
+                  <Ionicons
+                    name={ziel.device === box ? 'volume-high' : 'volume-medium-outline'}
+                    size={13}
+                    color={ziel.device === box ? colors.accent : colors.inkSoft}
+                  />
+                  <Text style={styles.chipText}>{box}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+          <Text style={styles.hinweis}>
+            Lange drücken entfernt einen Favoriten. Ohne Box läuft er dort, wo
+            zuletzt gespielt wurde.
+          </Text>
         </>
       ) : null}
 
@@ -360,41 +454,22 @@ export function Musikzentrale({
         </Pressable>
       ))}
       {neuerWecker ? (
-        <View style={styles.formular}>
-          <TextInput
-            style={styles.eingabe}
-            value={neuerWecker.time}
-            onChangeText={(wert) => setNeuerWecker({ ...neuerWecker, time: wert })}
-            placeholder="07:15"
-            placeholderTextColor={colors.inkFaint}
-            accessibilityLabel="Uhrzeit"
-          />
-          <TextInput
-            style={[styles.eingabe, { flex: 1 }]}
-            value={neuerWecker.name}
-            onChangeText={(wert) => setNeuerWecker({ ...neuerWecker, name: wert })}
-            placeholder="Sender, z. B. SRF 3"
-            placeholderTextColor={colors.inkFaint}
-            accessibilityLabel="Sender"
-          />
-          <Pressable
-            onPress={weckerSpeichern}
-            accessibilityRole="button"
-            accessibilityLabel="Wecker sichern"
-            style={({ pressed }) => [styles.chip, pressed && { opacity: 0.7 }]}
-          >
-            <Text style={styles.chipText}>Sichern</Text>
-          </Pressable>
-        </View>
+        <WeckerFormular
+          entities={entities}
+          entwurf={neuerWecker}
+          onChange={setNeuerWecker}
+          onSave={weckerSpeichern}
+          onCancel={() => setNeuerWecker(null)}
+        />
       ) : (
         <Pressable
-          onPress={() => setNeuerWecker({ time: '07:15', name: '' })}
+          onPress={() => setNeuerWecker(ersterEntwurf(entities))}
           accessibilityRole="button"
           accessibilityLabel="Musikwecker stellen"
           style={({ pressed }) => [styles.chip, pressed && { opacity: 0.7 }]}
         >
           <Ionicons name="add" size={14} color={colors.inkSoft} />
-          <Text style={styles.chipText}>Wecker stellen (Mo–Fr)</Text>
+          <Text style={styles.chipText}>Wecker stellen</Text>
         </Pressable>
       )}
       <Text style={styles.hinweis}>
