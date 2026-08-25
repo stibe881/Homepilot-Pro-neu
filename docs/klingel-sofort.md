@@ -22,6 +22,34 @@ Zwischen einem Klingeln und der Nachricht liegen damit im schlechtesten
 Fall etwa drei Sekunden. Das ist nicht «sofort», und mit Software allein
 wird es das auch nicht.
 
+## Der häufigste Grund, warum der Kanal schweigt
+
+**Ring merkt sich einen Empfänger je Konto.** Die Anmeldung für Push
+hängt an der Sitzung: Wer sich zuletzt angemeldet hat, bekommt die
+Klingeln – alle anderen bekommen nichts mehr, ohne dass irgendwo ein
+Fehler stünde.
+
+Läuft also neben dem Hub noch etwas anderes mit demselben Ring-Konto –
+eine Home-Assistant-Instanz, die noch steht; ein zweiter Hub; ein altes
+Telefon, auf dem die Ring-App noch angemeldet ist –, dann zeigt Rings
+Wegweiser dorthin. Der Hub meldet sich an, Ring bestätigt, und dann
+kommt nie etwas: genau das Bild, das der System-Bildschirm zeigt
+(«Ereigniskanal gemeldet» und «über den Kanal kam keine einzige
+Meldung»).
+
+**Abhilfe:** Das andere Programm abschalten oder dessen Ring-Anbindung
+entfernen. Danach den Hub neu starten – er meldet sich dann wieder vorne
+an.
+
+Ab dieser Fassung merkt der Hub das selbst: Steht der Kanal eine halbe
+Stunde, ohne dass je etwas kam, erneuert er seine Anmeldung. Das holt
+die Klingel zurück, solange das andere Programm sie nicht seinerseits
+wieder holt – zwei Programme mit demselben Konto bleiben ein Kampf, den
+niemand gewinnt.
+
+Ein eigenes Ring-Konto für den Hub (mit dem Gerät geteilt) löst das
+dauerhaft.
+
 ## Der Weg, der sofort ist
 
 Das Klingeln ist im Haus ein elektrisches Ereignis, lange bevor Ring

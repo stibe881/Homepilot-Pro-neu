@@ -496,3 +496,40 @@ def test_without_a_stamp_the_arrival_has_to_do():
         now = "vorhin"
 
     assert ding_zeit(Unsinn(), 1_700_000_000.0) == 1_700_000_000.0
+
+
+# ── Wer sich zuletzt anmeldet, bekommt die Klingel ──────────────────────
+#
+# Rings Anmeldung für Push hängt an der Sitzung des Kontos, und Ring
+# merkt sich EINEN Empfänger. Meldet sich ein zweites Programm mit
+# demselben Konto an - eine noch laufende Home-Assistant-Instanz etwa -,
+# zeigt Rings Wegweiser dorthin, und hier kommt nichts mehr an. Von
+# aussen: ein stehender Kanal, über den nie etwas kommt.
+
+from homepilot.integrations.ring import STILLE_FRIST, anmeldung_erneuern
+
+
+def test_a_channel_that_never_delivered_gets_a_fresh_subscription():
+    jetzt = 1_700_000_000.0
+    steht_seit = jetzt - STILLE_FRIST
+    assert anmeldung_erneuern(steht_seit, 0, jetzt) is True
+
+
+def test_a_channel_that_delivered_is_left_alone():
+    """Kam schon etwas, heisst eine stille halbe Stunde bloss, dass
+    niemand geklingelt hat."""
+    jetzt = 1_700_000_000.0
+    assert anmeldung_erneuern(jetzt - STILLE_FRIST, 3, jetzt) is False
+    assert anmeldung_erneuern(jetzt - 10 * STILLE_FRIST, 1, jetzt) is False
+
+
+def test_a_fresh_channel_gets_its_half_hour():
+    """Kürzer, und zwei Programme reissen sich die Anmeldung im
+    Minutentakt hin und her."""
+    jetzt = 1_700_000_000.0
+    assert anmeldung_erneuern(jetzt - 60, 0, jetzt) is False
+    assert anmeldung_erneuern(jetzt - STILLE_FRIST + 1, 0, jetzt) is False
+
+
+def test_a_channel_that_never_stood_is_not_the_case():
+    assert anmeldung_erneuern(None, 0, 1_700_000_000.0) is False

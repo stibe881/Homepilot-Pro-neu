@@ -495,6 +495,40 @@ def klingel_satz(wann: float | None, quelle: str | None, jetzt: float) -> str:
     return f" Zuletzt geklingelt {wie_lange}, {weg}."
 
 
+#: So lange darf ein stehender Kanal schweigen, bevor der Hub die
+#: Anmeldung erneuert.
+#:
+#: Der Grund ist Rings Bauart: Die Anmeldung für Push hängt an der
+#: Sitzung des Kontos, und Ring merkt sich **einen** Empfänger. Meldet
+#: sich ein zweites Programm mit demselben Konto an - eine noch laufende
+#: Home-Assistant-Instanz, die Ring-App auf einem alten Telefon -, zeigt
+#: Rings Wegweiser dorthin, und hier kommt nichts mehr an. Von aussen
+#: sieht das aus wie ein stehender Kanal, über den nichts kommt: genau
+#: das, was im System-Bildschirm stand.
+#:
+#: Dagegen hilft nur, sich wieder vorne anzustellen. Eine halbe Stunde
+#: Stille ist der Schwellwert - kürzer, und zwei Programme reissen sich
+#: die Anmeldung im Minutentakt hin und her.
+STILLE_FRIST = 1800.0
+
+
+def anmeldung_erneuern(
+    stand_seit: float | None,
+    push_gesamt: int,
+    jetzt: float,
+    frist: float = STILLE_FRIST,
+) -> bool:
+    """Soll der Hub sich neu bei Ring anmelden? (rein, testbar)
+
+    Ja, wenn der Kanal lange genug steht und über ihn trotzdem nie etwas
+    kam. Kam schon etwas, ist er in Ordnung und eine stille halbe Stunde
+    heisst bloss, dass niemand geklingelt hat.
+    """
+    if stand_seit is None or push_gesamt > 0:
+        return False
+    return jetzt - stand_seit >= frist
+
+
 def abfrage_takt(events_ok: bool, quellen: list[str], push_gesamt: int) -> float:
     """Wie oft die Ersatz-Abfrage laufen soll (rein, testbar).
 
@@ -1148,11 +1182,13 @@ class RingIntegration(Integration):
         der Empfänger «nicht gestartet», obwohl alles in Ordnung ist.
         """
         stand = False
+        steht_seit: float | None = None
         tot = 0
         while tot < TOT_BESTAETIGUNGEN:
             if channel_alive(self._listener):
                 if not stand:
                     stand = True
+                    steht_seit = time.time()
                     self._events_ok = True
                     self._listen_error = None
                     self._anlaeufe = 0
@@ -1164,6 +1200,23 @@ class RingIntegration(Integration):
                         "Ring-Ereigniskanal war kurz weg und ist wieder da"
                     )
                 tot = 0
+                # Ein Kanal, der steht und über den nie etwas kommt, ist
+                # meistens einer, dem ein anderes Programm die Anmeldung
+                # weggenommen hat - Ring merkt sich einen Empfänger je
+                # Konto. Sich wieder vorne anstellen ist das Einzige, was
+                # hilft, und das geschieht über einen frischen Anlauf.
+                if anmeldung_erneuern(
+                    steht_seit, getattr(self, "_push_gesamt", 0), time.time()
+                ):
+                    self.log.warning(
+                        "Ring-Ereigniskanal steht seit einer halben Stunde, "
+                        "ohne dass je etwas kam – die Anmeldung wird erneuert. "
+                        "Meldet sich ein zweites Programm mit demselben "
+                        "Ring-Konto an (eine laufende Home-Assistant-Instanz "
+                        "etwa), nimmt es sie wieder weg."
+                    )
+                    self._events_ok = False
+                    return True
             else:
                 tot += 1
             await asyncio.sleep(KANAL_BLICK_SECONDS)
