@@ -31,9 +31,13 @@ export interface GeraeteZeile {
 const RUHETEXT: Record<string, string> = {
   idle: 'Bereit',
   off: 'Bereit',
-  // Gerät am Netz, Anzeige schläft. Nicht «Bereit»: Ob die Maschine
-  // ausgeräumt ist, weiss im Standby niemand.
-  standby: 'Standby',
+  // Gerät am Netz, Anzeige schläft. Auch das ist «Bereit» – so gewünscht
+  // aus der Waschküche: «Standby» ist ein Wort aus dem Datenblatt an
+  // einer Stelle, an der man wissen will, ob man Wäsche hineintun kann.
+  // Dass die Maschine vielleicht noch voll ist, sagt ohnehin kein
+  // Zustandswert; dafür meldet der Hub das Programmende.
+  standby: 'Bereit',
+  ready: 'Bereit',
   unknown: 'Unbekannt',
   '': 'Unbekannt',
 };

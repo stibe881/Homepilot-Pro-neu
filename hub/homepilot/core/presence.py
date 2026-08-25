@@ -136,10 +136,17 @@ def place_state(inside: list[str], places: list[dict[str, Any]]) -> tuple[str, s
     # benannten Ort im Dorf. Ein Name, den jemand vergeben hat, sagt mehr
     # als «irgendwo im Umkreis».
     fremd = [ort_id for ort_id in inside if ort_id not in reihenfolge]
-    # Nur «zuhause» bleibt davor: Daran hängen Alarmanlage und Abläufe,
-    # und die sollen nicht an einem Namen aus einer fremden App hängen.
-    if drin and drin[0] == HOME:
-        geordnet = [HOME, *fremd, *drin[1:]]
+    # «Zuhause» sticht alles - nicht nur, wenn es zufällig der engste
+    # eigene Ort ist. Daran hängen Alarmanlage und Abläufe, und sie
+    # sollen nicht an einem Namen aus einer fremden App hängen.
+    #
+    # Der Unterschied wurde erst wichtig, als die Orte von Life360 zu
+    # gewöhnlichen Orten des Hubs wurden: Vorher standen sie ausserhalb
+    # der Reihenfolge, und die Prüfung «ist zuhause der engste eigene
+    # Ort?» genügte. Seither sortieren sie mit - und ein Ort mit 80 m
+    # Radius, der auf demselben Haus liegt, verdrängte «zuhause».
+    if HOME in inside:
+        geordnet = [HOME, *fremd, *[ort_id for ort_id in drin if ort_id != HOME]]
     else:
         geordnet = [*fremd, *drin]
     engster = geordnet[0]
@@ -707,6 +714,55 @@ def ort_entfernen(gespeichert: Any, ort_id: str) -> list[dict[str, Any]]:
     """Einen Ort löschen (rein, testbar)."""
     kennung = ort_kennung(ort_id)
     return [ort for ort in parse_places(gespeichert) if ort["id"] != kennung]
+
+
+def meldung_annehmen(
+    quelle: str, beansprucht: dict[str, str], zone: str
+) -> bool:
+    """Darf diese Quelle für diese Person melden? (rein, testbar)
+
+    Zwei Quellen auf dieselbe Frage widersprechen sich früher oder
+    später, und dann weiss niemand, welcher zu glauben ist. Genau daran
+    ist die WLAN-Anwesenheit gescheitert - und danach noch einmal an
+    einer Kombination, die niemand beabsichtigt hatte: Life360 meldete
+    «zuhause», während auf einem Telefon die Ortung der App weiterlief
+    und aus dem Hintergrund «weg» nachschob. Auf dem Schirm stand dann
+    «unterwegs», während die Person in der Küche stand.
+
+    Also führt der Geofence, wer eine Person beansprucht. Wer das nicht
+    ist, wird überhört - stumm bleibt es nicht, aber es ändert nichts.
+    Ein vergessener Schalter auf einem alten Telefon kann damit nichts
+    mehr kaputtmachen.
+
+    Ohne Anspruch gilt wie bisher: Wer meldet, meldet.
+    """
+    inhaber = beansprucht.get(zone)
+    return inhaber is None or inhaber == quelle
+
+
+def orte_ergaenzen(
+    vorhanden: list[dict[str, Any]], weitere: list[dict[str, Any]], quelle: str
+) -> list[dict[str, Any]]:
+    """Orte aus einer fremden Quelle anhängen (rein, testbar).
+
+    Für die gespeicherten Orte von Life360. Sie kommen zuletzt: Was in
+    der config.yaml steht oder was jemand in der App vor Ort angelegt
+    hat, ist die Absicht dieses Haushalts - ein gleichnamiger Eintrag
+    drüben darf sie nicht überschreiben.
+
+    Sortiert wird am Ende wieder nach Radius, weil `place_state` daran
+    ablesen soll, welcher Ort der engste ist. Ohne das gewönne die weite
+    Vorlaufzone gegen den benannten Ort, in dem jemand tatsächlich steht.
+    """
+    zusammen = list(vorhanden)
+    bekannt = {ort["id"] for ort in zusammen}
+    for ort in weitere:
+        if ort["id"] in bekannt:
+            continue
+        zusammen.append({**ort, "source": quelle})
+        bekannt.add(ort["id"])
+    zusammen.sort(key=lambda ort: ort["radius"])
+    return zusammen
 
 
 def alle_orte(

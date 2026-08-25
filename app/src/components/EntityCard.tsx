@@ -529,20 +529,28 @@ export function EntityCard({
         if (entity.integration === 'pitboss') {
           return <GrillBody entity={entity} onCommand={onCommand} />;
         }
-        return (
-          <View style={styles.stack}>
-            <Pill
-              label={zustandsText(entity.state.state)}
-              tone={entity.state.state === 'running' ? colors.accent : undefined}
-            />
-            {entity.state.program ? (
-              <Text style={styles.detail}>
-                {entity.state.program}
-                {entity.state.program_end ? ` · noch ${entity.state.program_end}` : ''}
-              </Text>
-            ) : null}
-          </View>
-        );
+        {
+          const laeuft = entity.state.state === 'running';
+          return (
+            <View style={styles.stack}>
+              <Pill
+                label={zustandsText(entity.state.state)}
+                tone={laeuft ? colors.accent : undefined}
+              />
+              {/* Programm und Restzeit gehören zu einer laufenden
+                  Maschine. Eine stillstehende meldet je nach Firmware
+                  weiter irgendetwas, und das stand dann unter «Bereit»
+                  wie ein Programm, das keines ist. Dieselbe Regel gilt
+                  auf der Startseite (lib/haushalt). */}
+              {laeuft && entity.state.program ? (
+                <Text style={styles.detail}>
+                  {entity.state.program}
+                  {entity.state.program_end ? ` · noch ${entity.state.program_end}` : ''}
+                </Text>
+              ) : null}
+            </View>
+          );
+        }
 
       case 'alert': {
         const count = entity.state.count ?? 0;

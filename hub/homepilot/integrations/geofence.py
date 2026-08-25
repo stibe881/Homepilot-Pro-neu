@@ -255,7 +255,17 @@ def normalise_event(value: Any) -> str | None:
 class GeofenceIntegration(Integration):
     name = "geofence"
 
+    # Orte, die eine andere Integration beisteuert (heute: Life360).
+    # Als Klassenattribut vorbelegt, damit _orte_bauen() auch beim
+    # allerersten Aufruf in setup() etwas vorfindet.
+    _fremde_orte: list[dict[str, Any]] = []
+    # Zone → Quelle, die sie führt. Solange hier etwas steht, wird jede
+    # andere Meldung für diese Person überhört.
+    _beansprucht: dict[str, str] = {}
+
     async def setup(self) -> None:
+        self._fremde_orte = []
+        self._beansprucht = {}
         self._config_zonen = parse_zones(self.config.get("zones"))
         # Welche Zonen aus der Benutzerliste stammen. Nur die dürfen
         # wieder verschwinden - was in der config.yaml steht, bleibt.
@@ -421,10 +431,45 @@ class GeofenceIntegration(Integration):
         Dazu kommen die Orte, die in der App entstanden sind - ein Laden
         etwa, vor dem jemand stand und einen Knopf gedrückt hat.
         """
-        self.places = presence.alle_orte(
-            self._eigene_places or default_places(self.heimat()),
-            self.hub.data.get(presence.PLACES_KEY),
+        self.places = presence.orte_ergaenzen(
+            presence.alle_orte(
+                self._eigene_places or default_places(self.heimat()),
+                self.hub.data.get(presence.PLACES_KEY),
+            ),
+            self._fremde_orte,
+            "life360",
         )
+
+    def orte_uebernehmen(self, orte: list[dict[str, Any]], quelle: str) -> None:
+        """Orte einer anderen Integration in die Ortsliste aufnehmen.
+
+        Life360 führt die Orte des Haushalts bereits - «Schule»,
+        «Grosseltern», der Arbeitsplatz. Sie hier hereinzuholen erspart,
+        dieselben Punkte ein zweites Mal von Hand zu erfassen, und macht
+        sie damit für Abläufe auswählbar.
+
+        Nicht gespeichert: Sie gehören der anderen Seite. Wer dort einen
+        Ort löscht, soll ihn hier nicht als Leiche wiederfinden - beim
+        nächsten Start sind sie ohnehin gleich wieder da.
+        """
+        if quelle != "life360":  # bislang gibt es nur diese eine
+            return
+        self._fremde_orte = list(orte)
+        self._orte_bauen()
+
+    def zonen_beanspruchen(self, zonen: list[str], quelle: str) -> None:
+        """Festlegen, wer diese Personen führt.
+
+        Life360 ruft das mit den Personen auf, die dort eingetragen sind.
+        Ab da zählt für sie nur noch, was von dort kommt - ein Telefon,
+        auf dem die Ortung der App noch läuft, kann nicht mehr
+        dazwischenreden. Wer nicht in der Liste steht, meldet wie bisher
+        selbst.
+        """
+        self._beansprucht = {
+            **{z: q for z, q in self._beansprucht.items() if q != quelle},
+            **dict.fromkeys(zonen, quelle),
+        }
 
     async def ort_setzen(
         self,
@@ -572,6 +617,18 @@ class GeofenceIntegration(Integration):
             entity_id = self._zones.get(zone_id)
         if entity_id is None:
             raise KeyError(zone_id)
+        if not presence.meldung_annehmen(source, self._beansprucht, zone_id):
+            # Kein Fehler: Der Absender tut nichts Falsches, er ist bloss
+            # nicht mehr zuständig. Ein Ausnahmefehler brächte einen
+            # Kurzbefehl zum Scheitern, den jemand vor Jahren gebaut hat.
+            self.log.debug(
+                "Geofence: Meldung von '%s' für %s überhört - %s führt diese "
+                "Person.",
+                source,
+                zone_id,
+                self._beansprucht.get(zone_id),
+            )
+            return self.merged(zone_id).get("state", presence.UNKNOWN)
         richtung = normalise_event(event)
         if richtung is None:
             raise ValueError(
