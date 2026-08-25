@@ -10,6 +10,7 @@
     "backgroundColor": "#0f1115",
     "ios": {
       "bundleIdentifier": "ch.stibe.homepilot",
+      "buildNumber": "1",
       "supportsTablet": true,
       "config": {
         "usesNonExemptEncryption": false
@@ -23,6 +24,7 @@
     },
     "android": {
       "package": "ch.stibe.homepilot",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#0f1115",
         "foregroundImage": "./assets/android-icon-foreground.png",
