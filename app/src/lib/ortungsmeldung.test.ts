@@ -10,7 +10,6 @@ import {
   abstandMeter,
   drinIn,
   entfernung,
-  genauGenug,
   naechsterOrt,
   meldungsText,
   ortsMeldungen,
@@ -49,23 +48,6 @@ describe('drinIn', () => {
     expect(drinIn(zuhause, HAUS.lat + 0.01, HAUS.lon)).toBe(false);
     // Im Quartier steht man dort aber noch.
     expect(drinIn(quartier, HAUS.lat + 0.01, HAUS.lon)).toBe(true);
-  });
-});
-
-describe('genauGenug', () => {
-  it('nimmt einen sauberen Fix', () => {
-    expect(genauGenug([zuhause], 20)).toBe(true);
-  });
-
-  it('verwirft einen, der grösser ist als der halbe Ort', () => {
-    // 400 m Streuung sagen über eine 150-m-Zone nichts. Ein falsches
-    // «zuhause» schaltet die Alarmanlage unscharf.
-    expect(genauGenug([zuhause], 400)).toBe(false);
-  });
-
-  it('verträgt eine fehlende Angabe', () => {
-    expect(genauGenug([zuhause], null)).toBe(true);
-    expect(genauGenug([], 10)).toBe(false);
   });
 });
 

@@ -78,7 +78,7 @@ async def test_disabled_rule_suppresses_the_push_but_not_the_bookkeeping():
     try:
         sent: list[str] = []
 
-        async def fake_send(tokens, title, body, data=None):
+        async def fake_send(tokens, title, body, data=None, **_):
             sent.append(title)
             return len(tokens)
 
@@ -102,7 +102,7 @@ async def test_a_changed_threshold_takes_effect():
     try:
         sent: list[str] = []
 
-        async def fake_send(tokens, title, body, data=None):
+        async def fake_send(tokens, title, body, data=None, **_):
             sent.append(title)
             return len(tokens)
 

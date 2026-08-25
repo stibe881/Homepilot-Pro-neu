@@ -969,6 +969,8 @@ class Watchdog:
             tokens = self.hub.push.recipients(
                 self.hub.users.users, to or "all", category
             )
-            await self.hub.push.send(tokens, title=title, body=body, data=data)
+            await self.hub.push.send(
+                tokens, title=title, body=body, data=data, category=category
+            )
         except Exception:
             log.exception("Wächter-Push nicht zustellbar")

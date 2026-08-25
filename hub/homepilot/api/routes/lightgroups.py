@@ -22,7 +22,13 @@ from ...core.errors import UnknownEntityError
 from ...core.users import Capability
 from ...integrations import group as group_module
 from ..context import ApiContext
-from ..models import GeofenceRequest, HomeRequest, LightGroupRequest, PlaceRequest
+from ..models import (
+    GeofenceRequest,
+    HomeRequest,
+    LightGroupRequest,
+    PlaceRequest,
+    PositionRequest,
+)
 
 log = logging.getLogger(__name__)
 
@@ -239,6 +245,47 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         except ValueError as err:
             raise HTTPException(status_code=400, detail=str(err)) from err
         return {"ok": True, "zone": zone, "state": state, "place": body.place or "home"}
+
+    @app.post("/api/presence/report")
+    async def report_position(body: PositionRequest, request: Request) -> dict[str, Any]:
+        """Das Telefon sagt, wo es ist – laufend, nicht nur an der Grenze.
+
+        Der Weg, über den die App seit Fassung 0.7 meldet. Sie schickt
+        die Position, sobald sich das Telefon bewegt hat; der Hub rechnet
+        daraus selbst, in welchen Orten die Person steckt.
+
+        Warum nicht weiter enter/leave: Eine Flanke, die nicht ankommt,
+        ist für immer weg. Beim Heimkommen trifft sie genau das Loch
+        zwischen Mobilfunk und WLAN – man stand danach bis zum nächsten
+        Weggehen auf «unterwegs», und Ankunfts-Abläufe liefen nie. Eine
+        Position beschreibt den ganzen Zustand und heilt das mit der
+        nächsten Meldung von selbst.
+
+        `/api/presence/geofence` bleibt: Die iOS-Kurzbefehle melden
+        darüber, und die kennen keine Koordinaten.
+        """
+        user = current_user(request)
+        service = hub.integrations.get("geofence")
+        if service is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Die geofence-Integration ist nicht eingerichtet",
+            )
+        zone = body.zone or user.name.lower()
+        try:
+            state = await service.report_position(
+                zone,
+                body.latitude,
+                body.longitude,
+                accuracy=body.accuracy or 0.0,
+                battery=body.battery,
+                at=body.at,
+            )
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"Unbekannte Zone: {zone}") from None
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+        return {"ok": True, "zone": zone, "state": state}
 
     @app.post("/api/presence/home")
     async def set_home(body: HomeRequest, request: Request) -> dict[str, Any]:

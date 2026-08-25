@@ -33,7 +33,7 @@ async def test_watchdog_meldet_ausfall_und_rueckkehr():
     try:
         sent: list[tuple[str, str]] = []
 
-        async def fake_send(tokens, title, body, data=None):
+        async def fake_send(tokens, title, body, data=None, **_):
             sent.append((title, body))
             return len(tokens)
 
@@ -110,7 +110,7 @@ async def test_a_weak_battery_is_reported_once():
     try:
         sent: list[tuple[str, str]] = []
 
-        async def fake_send(tokens, title, body, data=None):
+        async def fake_send(tokens, title, body, data=None, **_):
             sent.append((title, body))
             return len(tokens)
 
@@ -156,7 +156,7 @@ async def test_a_finished_machine_is_remembered_once():
     try:
         sent: list[str] = []
 
-        async def fake_send(tokens, title, body, data=None):
+        async def fake_send(tokens, title, body, data=None, **_):
             sent.append(title)
             return len(tokens)
 
@@ -361,7 +361,7 @@ async def test_an_open_window_is_reported_once_and_rearms_after_closing():
     try:
         sent: list[str] = []
 
-        async def fake_send(tokens, title, body, data=None, image=None):
+        async def fake_send(tokens, title, body, data=None, image=None, **_):
             sent.append(title)
             return len(tokens)
 
@@ -400,7 +400,7 @@ async def test_water_is_reported_immediately_no_matter_the_alarm_state():
     try:
         sent: list[str] = []
 
-        async def fake_send(tokens, title, body, data=None, image=None):
+        async def fake_send(tokens, title, body, data=None, image=None, **_):
             sent.append(title)
             return len(tokens)
 

@@ -194,7 +194,7 @@ def test_due_task_reminder_pushes_once_per_day(tmp_path):
 
     sent: list[dict] = []
 
-    async def fake_send(tokens, title, body, data=None):
+    async def fake_send(tokens, title, body, data=None, **_):
         sent.append({"title": title, "body": body})
         return len(tokens)
 

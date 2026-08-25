@@ -1158,6 +1158,48 @@ def test_vzug_standby_with_display_on_is_not_running():
     assert standby["minutes_left"] is None
 
 
+def test_vzug_standby_is_no_program_and_no_state_word():
+    """«Standby» ist kein Programm, sondern dessen Abwesenheit.
+
+    Aus dem Betrieb: An Waschmaschine, Geschirrspüler und Tumbler stand
+    «Standby» - ein Wort aus dem Datenblatt an einer Stelle, an der man
+    wissen will, ob man Wäsche hineintun kann. Es hängt aber mehr daran
+    als ein Wort: Ob etwas läuft, entscheidet sich an «gibt es ein
+    Programm?». Eine Maschine mit wacher Anzeige, die «Standby» meldet,
+    galt damit als laufend.
+    """
+    from homepilot.integrations.vzug import leerlauf, parse_device_status
+
+    for wort in ("Standby", "standby", "BEREIT", "ready", "idle", "---", " "):
+        assert leerlauf(wort) is True, wort
+    # Ein echtes Programm bleibt eines.
+    for wort in ("Eco", "Kochwäsche 60°", "Vorspülen"):
+        assert leerlauf(wort) is False, wort
+
+    ruhend = parse_device_status(
+        {
+            "Inactive": "false",
+            "Program": "Standby",
+            "Status": "Standby",
+            "ProgramEnd": {"End": "0h05"},
+        },
+        now_minutes=12 * 60,
+    )
+    assert ruhend["state"] == "idle"
+    assert ruhend["program"] is None
+    assert ruhend["status"] is None
+    assert ruhend["minutes_left"] is None
+
+    # Und eine wirklich laufende Maschine bleibt unangetastet.
+    laeuft = parse_device_status(
+        {"Inactive": "false", "Program": "Eco", "ProgramEnd": {"End": "0h30"}},
+        now_minutes=12 * 60,
+    )
+    assert laeuft["state"] == "running"
+    assert laeuft["program"] == "Eco"
+    assert laeuft["minutes_left"] == 30
+
+
 def test_vzug_a_frozen_countdown_is_unmasked():
     """Der Fall aus dem Betrieb: tagelang «noch 1 min», obwohl längst
     fertig. Eine laufende Maschine zählt runter - dieselbe Restzeit über

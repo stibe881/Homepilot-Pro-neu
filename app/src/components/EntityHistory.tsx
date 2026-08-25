@@ -33,6 +33,10 @@ const STATE_LABEL: Record<string, string> = {
   unlocked: 'Aufgeschlossen',
   running: 'Gestartet',
   idle: 'Fertig',
+  // V-ZUG-Geräte melden im Standby 503; der Hub schreibt das als
+  // Zustand, statt den Platzhalter «unknown» stehen zu lassen.
+  standby: 'Standby',
+  unknown: 'Unbekannt',
 };
 
 /** Wer war es – als lesbarer Satzteil (rein, testbar). */

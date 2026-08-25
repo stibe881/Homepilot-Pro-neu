@@ -86,6 +86,12 @@ from .alarm_rules import (  # noqa: F401
 
 log = logging.getLogger(__name__)
 
+# So lange darf ein Standbild die Alarm-Nachricht aufhalten – siehe die
+# gleichnamige Konstante in core/automation.py. Bewusst dieselbe kurze
+# Frist: Eine Kamera, die nicht antwortet, ist kein Grund, den Alarm
+# später zu melden.
+BILD_WARTEZEIT = 4.0
+
 
 class AlarmIntegration(Integration):
     name = "alarm"
@@ -626,7 +632,21 @@ class AlarmIntegration(Integration):
         try:
             entity = self.hub.registry.get(camera)
             integration = self.hub.integrations.get(entity.integration) if entity else None
-            image = await integration.snapshot(entity) if integration else None
+            image = (
+                await asyncio.wait_for(integration.snapshot(entity), BILD_WARTEZEIT)
+                if integration
+                else None
+            )
+        except TimeoutError:
+            # Beim Alarm noch deutlicher als sonst: Die Nachricht ist das
+            # Dringende, das Bild die Zugabe. Eine Kamera, die zu lange
+            # braucht, darf den Alarm nicht aufhalten.
+            log.info(
+                "Bild für die Alarm-Nachricht kam nicht in %ss – Nachricht "
+                "geht ohne raus",
+                BILD_WARTEZEIT,
+            )
+            return None
         except Exception as err:
             log.warning("Kein Bild für die Alarm-Nachricht: %s", err)
             return None
@@ -649,6 +669,7 @@ class AlarmIntegration(Integration):
             body=body,
             data={"type": "alarm", **(data or {})},
             image=image,
+            category=category,
         )
 
     # ── Verlauf ────────────────────────────────────────────────────────────

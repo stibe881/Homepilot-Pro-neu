@@ -284,6 +284,31 @@ class EmailRequest(BaseModel):
     email: str | None = None
 
 
+class PositionRequest(BaseModel):
+    """Wo ein Telefon gerade ist – der ganze Zustand, keine Flanke.
+
+    Die Bauart, auf die es ankommt: `GeofenceRequest` meldet «ich habe
+    eine Grenze gekreuzt», und eine verlorene Meldung ist für immer weg.
+    Hier kommt die Position, und der Hub rechnet selbst. Damit heilt die
+    nächste beliebige Meldung jeden vorigen Verlust.
+    """
+
+    latitude: float
+    longitude: float
+    # Streuung in Metern. Ein Fix mit 400 m Streuung sagt über eine
+    # 150-m-Zone nichts, und «weg» ist keine harmlose Antwort - daran
+    # hängen Alarmanlage und «alles aus». Ohne Angabe wird die Messung
+    # für bare Münze genommen, wie es die alten Melder erwarten.
+    accuracy: float = 0.0
+    # Ohne Zone gilt der Name des angemeldeten Benutzers.
+    zone: str | None = None
+    battery: int | None = None
+    # Zeitpunkt der Messung in Sekunden seit 1970, nicht des Empfangs.
+    # Das Telefon hebt auf, was es nicht loswurde; ohne diese Angabe legt
+    # sich eine nachgereichte Messung über eine neuere.
+    at: float | None = None
+
+
 class GeofenceRequest(BaseModel):
     """Ortswechsel eines Telefons: enter/leave (oder home/away)."""
 

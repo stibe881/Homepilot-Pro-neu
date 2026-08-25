@@ -1,4 +1,5 @@
 import { Entity, Scene } from '../api/types';
+import { ortsSatz } from './ortsausloeser';
 
 /**
  * Der Ablauf als Satz – während man ihn baut.
@@ -50,6 +51,11 @@ function triggerSatz(trigger: Roh, entities: Entity[]): string {
     case 'availability':
       return trigger.to === true ? `${wer} wiederkommt` : `${wer} verstummt${dauer}`;
     default: {
+      // Ortsauslöser lesen sich als Satz, nicht als Zustandswechsel:
+      // «Livia verlässt Schule» statt «geofence.livia → ändert sich».
+      if (String(trigger.entity_id ?? '').startsWith('geofence.')) {
+        return `${ortsSatz(wer, trigger)}${dauer}`;
+      }
       if (trigger.above !== undefined) return `${wer} über ${trigger.above}${dauer}`;
       if (trigger.below !== undefined) return `${wer} unter ${trigger.below}${dauer}`;
       const feld = trigger.attribute ? ` (${trigger.attribute})` : '';

@@ -184,15 +184,27 @@ export function GroupPicker({
   );
 }
 
+/**
+ * Ein Knopf der Anpassen-Leiste: Symbol mit Beschriftung darunter.
+ *
+ * Die Beschriftung stand lange nur im accessibilityLabel – sichtbar waren
+ * vier Symbole nebeneinander. Ein Schloss neben Stift, Stern und Auge liest
+ * sich wie «Türschloss» und nicht wie «fragt vor dem Schalten nach»; die
+ * Sperre wurde deshalb schlicht nicht gefunden. `caption` ist das kurze
+ * Wort für das Auge, `label` bleibt der ganze Satz für die Vorlesefunktion.
+ */
 export function EditButton({
   icon,
   active,
   label,
+  caption,
   onPress,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   active: boolean;
   label: string;
+  /** Kurzes Wort unter dem Symbol. Ohne Angabe bleibt der Knopf nackt. */
+  caption?: string;
   onPress?: () => void;
 }) {
   const colors = useColors();
@@ -202,9 +214,19 @@ export function EditButton({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
-      style={({ pressed }) => [styles.editButton, pressed && { opacity: 0.6 }]}
+      style={({ pressed }) => [styles.editItem, pressed && { opacity: 0.6 }]}
     >
-      <Ionicons name={icon} size={18} color={active ? colors.accent : colors.ink} />
+      <View style={styles.editButton}>
+        <Ionicons name={icon} size={18} color={active ? colors.accent : colors.ink} />
+      </View>
+      {caption ? (
+        <Text
+          style={[styles.editCaption, active && { color: colors.accent }]}
+          numberOfLines={1}
+        >
+          {caption}
+        </Text>
+      ) : null}
     </Pressable>
   );
 }

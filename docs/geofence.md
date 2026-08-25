@@ -129,7 +129,17 @@ Zwei, die sich lohnen:
 
 ## «Ich bin zuhause, der Hub sagt unterwegs»
 
-Fast immer liegt der **Hauskreis am falschen Ort**. Er kam bisher aus dem
+Dafür gibt es zwei Ursachen, und sie sehen gleich aus.
+
+**Die erste: Die Meldung kam nie an.** Die Ortung der App hängt daran,
+dass iOS sie beim Übertreten der Grenze im Hintergrund weckt – mal
+Minuten später, mal gar nicht. Sichtbar wird es daran, dass der Zustand
+richtig wird, sobald man die App öffnet. Wer den Haushalt ohnehin bei
+Life360 hat, stellt darauf um; siehe [Ortung über
+Life360](#ortung-über-life360--auch-für-den-ganzen-haushalt) weiter
+unten. Der Hub fragt dann im Takt ab, statt auf ein Wecken zu warten.
+
+**Die zweite:** der **Hauskreis liegt am falschen Ort**. Er kam bisher aus dem
 `location:`-Block der config.yaml, und wenn dort keiner stand, aus einer
 Vorgabe im Quelltext. Beides ist eine Zahl, die jemand einmal eingetippt
 hat – liegt sie um ein paar Kilometer daneben, ist man dauerhaft
@@ -140,6 +150,8 @@ Erkennen lässt es sich am Satz nach dem Melden:
 > Gemeldet: unterwegs. Der nächste Ort (Zuhause) liegt 11.1 km entfernt.
 
 Elf Kilometer sind keine Ungenauigkeit, sondern ein falscher Kreis.
+Steht dort dagegen «Der nächste Ort (Zuhause) liegt 30 m entfernt», ist
+der Kreis richtig und es war die erste Ursache.
 
 **Die Behebung:** In der App unter **Einstellungen → Ortung** steht neben
 «Jetzt melden» der Knopf **«Hier ist zuhause»**. Einmal drücken, während
@@ -166,19 +178,47 @@ das Telefon es meldet. Nach einem Neustart steht die Zone auf
 `unknown`, bis die erste Meldung kommt; ein Ablauf, der auf «kommt an»
 wartet, löst dadurch nicht versehentlich aus.
 
-## Wenn das Telefon HomePilot nicht bekommt
+## Ortung über Life360 – auch für den ganzen Haushalt
 
-Das Telefon der Grosseltern, ein Kindergerät, ein Diensthandy, auf dem
-nichts installiert werden darf: Dort meldet niemand. Benutzt die Familie
-ohnehin schon Life360, kann der Hub die Standorte von dort holen – siehe
-`life360` in [integrationen.md](integrationen.md).
+Ursprünglich war das der Ausweg für Telefone, auf denen HomePilot nicht
+läuft: das Gerät der Grosseltern, ein Kindergerät, ein Diensthandy.
+Benutzt der Haushalt ohnehin Life360, ist es aber **auch für die eigenen
+Telefone die verlässlichere Wahl**.
 
-Drei Dinge, die man vorher wissen sollte:
+Der Grund liegt nicht am Hub. Die Ortung der App hängt daran, dass iOS
+sie beim Übertreten einer Grenze im Hintergrund weckt, und das tut es
+nicht zuverlässig – mal Minuten später, mal gar nicht, bis man die App
+wieder öffnet. Wer heimkommt und weiter als «unterwegs» dasteht, hat
+genau das erlebt. Life360 hält dafür einen eigenen Dienst am Laufen; der
+Hub fragt ihn im Takt ab und ist damit nicht auf ein Wecken angewiesen.
 
-- **Eine Quelle je Person.** Wer die App hat, bleibt bei der eigenen
-  Ortung; wer bei `members` steht, meldet über Life360. Zwei Quellen auf
-  dieselbe Frage widersprechen sich früher oder später – daran ist die
-  WLAN-Anwesenheit gescheitert.
+**So stellt man um:**
+
+1. In der `config.yaml` unter `life360` → `members` **alle** eintragen,
+   auch sich selbst (`Name bei Life360: zone-im-hub`).
+2. Auf jedem Telefon in der App **Einstellungen → Ortung ausschalten.**
+3. Fertig – die Kurzbefehle darf man liegen lassen, sie werden ohnehin
+   überhört (siehe nächster Punkt).
+
+Drei Dinge, die man dabei wissen sollte:
+
+- **Eine Quelle je Person – mit einer Ausnahme fürs Ankommen.** Wer bei
+  `members` steht, wird von Life360 geführt; ein «weg» von anderswo wird
+  überhört. Vorher gewann, wer zuletzt sprach – und wenn auf einem
+  Telefon der Schalter noch stand, schob es aus dem Hintergrund ein
+  «weg» nach, während Life360 «zuhause» meldete. Auf dem Schirm stand
+  dann «unterwegs», während die Person in der Küche sass.
+
+  Ein **Ankommen** darf dagegen weiterhin jeder melden – Telefon-App wie
+  Kurzbefehl. Das Telefon meldet den Übertritt im Moment, in dem er
+  passiert; Life360 erfährt ihn erst bei der nächsten Abfrage. Wer
+  beides laufen lässt, bekommt das Beste aus beidem: das schnelle «bin
+  da» vom Telefon, und Life360 als Rückgrat, das binnen einer Minute
+  geraderückt, was das Telefon verschlafen hat. Ein verfrühtes «da»
+  richtet nichts an – schlimmstenfalls geht das Licht an.
+
+  Wer **nicht** bei `members` steht, meldet weiter selbst – beides
+  nebeneinander ist also kein Problem.
 - **Life360 hat keine offene Schnittstelle.** Sie war 2024 für Fremde
   dicht; Home Assistant hat seine eingebaute Integration deshalb
   entfernt. Sie kann jederzeit wieder dichtmachen. Der Hub geht bei
@@ -193,10 +233,25 @@ Drei Dinge, die man vorher wissen sollte:
   Zeichenkette ist der Token; er bleibt gültig, bis man sich dort
   abmeldet.
 
-**Die gespeicherten Orte kommen mit.** Steht jemand in einem Ort, den
-ihr bei Life360 angelegt habt, nennt die App ihn beim Namen: «Maja ·
-Tanners Home» statt «Maja · unterwegs». Dafür ist nichts einzurichten –
-Life360 schickt den Namen mit der Position.
+**Die gespeicherten Orte kommen mit** – Schule, Arbeit, Grosseltern.
+Der Hub holt die Orte eures Kreises einmal je Stunde ab und führt sie
+als eigene Orte weiter. Das hat zwei Folgen:
+
+- In der App steht der Name statt «unterwegs»: «Maja · Tanners Home».
+- **Die Orte stehen in Abläufen zur Auswahl.** Beim Auslöser *Ort*
+  wählt man Person, Richtung und Ort: «wenn Livia bei der Schule
+  ankommt», «wenn Sandra die Arbeit verlässt». Erfassen muss man dafür
+  nichts – was bei Life360 angelegt ist, ist hier da.
+
+Zwei Feinheiten:
+
+- **«Zuhause» sticht alles.** Wer im Hausradius steht, ist zuhause,
+  auch wenn drüben ein Ort auf demselben Haus liegt und enger gezogen
+  ist. Daran hängen Alarmanlage und Abläufe.
+- **Sehr enge Orte werden aufgeweitet** (auf mindestens 60 m). Life360
+  erlaubt Radien von wenigen Metern; so eng trifft keine Handy-Ortung
+  zuverlässig, und der Ort meldete sich nie – ohne dass jemand wüsste,
+  warum.
 
 Die eigenen Orte des Hubs behalten dabei Vorrang: Wer im Hausradius
 steht, ist «zuhause», auch wenn der Ort bei Life360 anders heisst. Sonst

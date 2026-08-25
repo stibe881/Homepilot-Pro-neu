@@ -50,6 +50,12 @@ class EntityKind:
     # gab es schon – aber nur im Ablauf-Editor, und in einer Szene liess
     # sich eine Hue-Szene deshalb gar nicht verwenden.
     SCENE = "scene"
+    # Ein Timer als eigene Kachel – etwa der Einschlaf-Timer des
+    # Fernsehers. Er steckt schon in der Fernsehkachel; als Entität kann
+    # er zusätzlich dort stehen, wo Kacheln eben stehen: unter Geräte,
+    # in den Favoriten, in einem Raum. Der Zustand gehört weiter dem
+    # Gerät, dem er dient – die Timer-Entität spiegelt ihn nur.
+    TIMER = "timer"
 
 
 @dataclass

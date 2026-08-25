@@ -279,3 +279,148 @@ def test_wieder_aufnehmen_verträgt_kaputte_zeilen():
         stand = presence.wieder_aufnehmen(zeilen, "stefan", jetzt)
         assert stand["state"] == presence.UNKNOWN
         assert stand["source"] == "none"
+
+
+# ── Orte, die von Life360 kommen ─────────────────────────────────────────
+
+
+def test_fremde_orte_kommen_hinter_die_eigenen():
+    from homepilot.core.presence import orte_ergaenzen
+
+    eigene = [{"id": "home", "name": "Zuhause", "radius": 150.0, "source": "config"}]
+    dazu = [{"id": "schule", "name": "Schule", "radius": 200.0}]
+    zusammen = orte_ergaenzen(eigene, dazu, "life360")
+    assert [ort["id"] for ort in zusammen] == ["home", "schule"]
+    # Woher ein Ort kommt, entscheidet, ob die App ihn löschen darf.
+    assert zusammen[1]["source"] == "life360"
+
+
+def test_ein_eigener_ort_wird_nicht_ueberschrieben():
+    from homepilot.core.presence import orte_ergaenzen
+
+    # Wer den Ort hier von Hand gepflegt hat, meinte genau diesen Radius.
+    eigene = [{"id": "schule", "name": "Schule", "radius": 200.0, "source": "config"}]
+    dazu = [{"id": "schule", "name": "Schule Zell", "radius": 900.0}]
+    zusammen = orte_ergaenzen(eigene, dazu, "life360")
+    assert zusammen == eigene
+
+
+def test_nach_radius_sortiert_damit_der_engste_gewinnt():
+    from homepilot.core.presence import orte_ergaenzen, place_state
+
+    eigene = [
+        {"id": "home", "name": "Zuhause", "radius": 150.0, "source": "config"},
+        {"id": "quartier", "name": "Quartier", "radius": 3000.0, "source": "config"},
+    ]
+    orte = orte_ergaenzen(eigene, [{"id": "schule", "name": "Schule", "radius": 200.0}], "life360")
+    assert [ort["id"] for ort in orte] == ["home", "schule", "quartier"]
+    # Der benannte Ort schlägt die weite Vorlaufzone - genau darum die
+    # Sortierung.
+    zustand, engster = place_state(["quartier", "schule"], orte)
+    assert engster == "schule" and zustand == "schule"
+
+
+def test_zuhause_schlaegt_auch_einen_engeren_fremden_ort():
+    from homepilot.core.presence import HOME, orte_ergaenzen, place_state
+
+    orte = orte_ergaenzen(
+        [{"id": "home", "name": "Zuhause", "radius": 150.0, "source": "config"}],
+        [{"id": "tanners_home", "name": "Tanners Home", "radius": 80.0}],
+        "life360",
+    )
+    # Daran hängen Alarmanlage und Abläufe; ein Name aus einer fremden
+    # App darf «zuhause» nicht verdrängen.
+    zustand, _ = place_state(["tanners_home", "home"], orte)
+    assert zustand == HOME
+
+
+# ── Eine Quelle je Person ────────────────────────────────────────────────
+#
+# Der gemeldete Fall: «Es wird angezeigt, dass ich unterwegs bin, obwohl
+# ich längst zuhause bin.» Life360 meldete «zuhause», und auf einem
+# Telefon lief die Ortung der App weiter und schob aus dem Hintergrund
+# ein «weg» nach. Wer zuletzt sprach, bekam recht.
+
+
+def test_wer_niemandem_gehoert_darf_melden():
+    from homepilot.core.presence import meldung_annehmen
+
+    assert meldung_annehmen("geofence", {}, "stefan") is True
+
+
+def test_die_fuehrende_quelle_darf_melden():
+    from homepilot.core.presence import meldung_annehmen
+
+    assert meldung_annehmen("life360", {"stefan": "life360"}, "stefan") is True
+
+
+def test_ein_fremdes_weg_wird_ueberhoert():
+    from homepilot.core.presence import AWAY, meldung_annehmen
+
+    # Genau der Giftfall: Das Telefon schiebt aus dem Hintergrund «weg»
+    # nach, Life360 führt die Person und sagt «zuhause».
+    assert meldung_annehmen("geofence", {"stefan": "life360"}, "stefan", AWAY) is False
+
+
+def test_ein_ankommen_darf_jeder_melden():
+    from homepilot.core.presence import HOME, meldung_annehmen
+
+    # Das Telefon meldet den Übertritt sofort, Life360 erst bei der
+    # nächsten Abfrage - wer heimkommt und auf das Licht wartet, zählt
+    # diese Minute mit. Ein verfrühtes «da» richtet nichts an.
+    assert meldung_annehmen("geofence", {"stefan": "life360"}, "stefan", HOME) is True
+
+
+def test_der_anspruch_gilt_nur_fuer_die_eigene_person():
+    from homepilot.core.presence import meldung_annehmen
+
+    # Wer nicht bei Life360 eingetragen ist, meldet weiter selbst - etwa
+    # ein Besuch mit Kurzbefehl.
+    assert meldung_annehmen("geofence", {"stefan": "life360"}, "livia") is True
+
+
+# ── Der Diagnose-Satz darf nicht beruhigen, wo nichts beruhigt ───────────
+#
+# «Meldet sich regelmässig» stand auch neben einer 83 Minuten alten
+# «weg»-Meldung, während die Person längst im Haus sass. Das Telefon
+# meldet nur beim Kommen und Gehen - bleibt die Ankunft aus (iOS weckt
+# die App nicht), sieht das genauso aus wie jemand, der wegblieb.
+
+
+def test_telefonquelle_nennt_alter_und_ausweg():
+    from homepilot.core.presence import diagnose
+
+    jetzt = 10_000.0
+    zeile = diagnose(
+        "Stefan",
+        {"state": "away", "source": "geofence", "last_seen": jetzt - 83 * 60},
+        jetzt,
+    )
+    assert "83 Min." in zeile["hint"]
+    assert "weg" in zeile["hint"]
+    assert "Jetzt melden" in zeile["hint"]
+    assert "regelmässig" not in zeile["hint"]
+
+
+def test_life360_darf_regelmaessig_sagen():
+    from homepilot.core.presence import diagnose
+
+    zeile = diagnose(
+        "Maja",
+        {"state": "home", "source": "life360", "last_seen": 9_940.0},
+        10_000.0,
+    )
+    assert zeile["hint"] == "Meldet sich regelmässig (über Life360)."
+
+
+def test_aeltere_meldungen_stehen_in_stunden():
+    from homepilot.core.presence import diagnose
+
+    jetzt = 100_000.0
+    zeile = diagnose(
+        "Bine",
+        {"state": "home", "source": "geofence", "last_seen": jetzt - 3 * 3600},
+        jetzt,
+    )
+    assert "vor 3 Std." in zeile["hint"]
+    assert "(da)" in zeile["hint"]

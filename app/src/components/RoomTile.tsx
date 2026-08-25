@@ -6,6 +6,8 @@ import { Entity, Scene } from '../api/types';
 import { Colors, radius, useColors } from '../theme';
 import { Card } from './Card';
 import { raumSymbol, raumZeile, wichtigeZuerst } from '../lib/raum';
+import { timerZeile } from '../lib/fernsehtimer';
+import { zustandsText } from '../lib/haushalt';
 
 /**
  * Raum-Kachel für die Seite «Räume»: der Raumname, darunter kompakt die
@@ -21,6 +23,7 @@ export const KIND_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   binary_sensor: 'radio-button-on-outline',
   button: 'ellipse-outline',
   media_player: 'musical-notes-outline',
+  timer: 'moon-outline',
   camera: 'videocam-outline',
   vacuum: 'sparkles-outline',
   appliance: 'cube-outline',
@@ -50,12 +53,18 @@ export function shortState(entity: Entity): string {
       return state === 'long' ? 'Lang' : state === 'short' ? 'Kurz' : 'Bereit';
     case 'media_player':
       return state === 'playing' ? 'Spielt' : 'Still';
+    case 'timer':
+      // «Läuft» beantwortet die Frage nicht, die man an einen Timer hat:
+      // wie lange noch. Siehe lib/fernsehtimer.
+      return timerZeile(entity, Date.now());
     case 'lock':
       return state === 'locked' ? 'Zu' : 'Offen';
     case 'vacuum':
       return state === 'cleaning' ? 'Reinigt' : state === 'charging' ? 'Lädt' : 'Bereit';
     case 'appliance':
-      return state === 'running' ? 'Läuft' : 'Bereit';
+      // Nicht «sonst Bereit»: Ein Gerät im Standby oder ohne je gehörte
+      // Meldung ist nicht bereit, es schweigt nur.
+      return zustandsText(state);
     case 'scene':
       // «Gilt», solange die Lampen so stehen, wie die Szene sie gesetzt
       // hat. Die Bridge meldet es; wer eine Lampe von Hand verstellt,

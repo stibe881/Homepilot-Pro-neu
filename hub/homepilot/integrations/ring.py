@@ -239,6 +239,42 @@ QUELLEN_FENSTER = 4
 TAUB_AB = 2
 
 
+# ── Wen die Ersatz-Abfrage überhaupt sieht ─────────────────────────────────
+#
+# `dings/active` ist der Endpunkt der Türklingeln und Kameras – in Rings
+# API heissen die zusammen «doorbots». Die Gegensprechanlage (Ring
+# Intercom) gehört nicht dazu: Sie hängt an einer eigenen Adressfamilie
+# (/commands/v1/devices/…), und ihr Klingeln taucht in dieser Liste nicht
+# auf. Die Meldungen dort tragen sogar die Feldnamen der Türklingeln
+# («doorbot_id», «doorbot_description»); es ist schlicht eine andere
+# Geräteklasse.
+#
+# Das ist der Unterschied, der bisher nirgends stand. Für eine Türklingel
+# ist der Ereigniskanal der schnelle Weg und die Abfrage das Netz
+# darunter – schlimmstenfalls kommt das Klingeln zehn Sekunden später.
+# Für eine Gegensprechanlage gibt es kein Netz: Fällt der Kanal aus,
+# kommt gar nichts. Der System-Bildschirm versprach trotzdem beiden
+# dasselbe «wird ersatzweise alle 10 s abgefragt» – eine Zusage, die für
+# das eine Gerät stimmt und für das andere nicht.
+
+
+def ersatz_hinweis(ohne_ersatz: list[str]) -> str:
+    """Satz über die Geräte, die die Abfrage nicht sieht (rein, testbar).
+
+    Leer, wenn alle Geräte abgedeckt sind – dann ist der bisherige Text
+    vollständig und ein Zusatz nur Lärm.
+    """
+    if not ohne_ersatz:
+        return ""
+    namen = ", ".join(sorted(ohne_ersatz))
+    ist = "ist" if len(ohne_ersatz) == 1 else "sind"
+    return (
+        f" Achtung: {namen} {ist} davon nicht erfasst – die Abfrage kennt "
+        "nur Türklingeln und Kameras. Dort kommt das Klingeln allein über "
+        "den Ereigniskanal, sonst gar nicht."
+    )
+
+
 def kanal_taub(quellen: list[str]) -> bool:
     """Steht der Kanal nur auf dem Papier? (rein, testbar)
 
@@ -266,13 +302,18 @@ def health_detail(
     quellen: list[str] | None = None,
     abbrueche: int = 0,
     anlaeufe: int = 0,
+    ohne_ersatz: list[str] | None = None,
 ) -> str:
     """Was im System-Bildschirm über den Ereigniskanal steht (rein, testbar)."""
+    # Wo unten «wird ersatzweise abgefragt» steht, gehört dieser Satz
+    # dazu - sonst verspricht die Anzeige ein Netz, das für dieses Gerät
+    # nicht gespannt ist.
+    ersatz = ersatz_hinweis(ohne_ersatz or [])
     if abgeschaltet:
         # Bewusste Entscheidung, keine Störung - deshalb ohne Warnton.
         return (
             f"Ereigniskanal abgeschaltet (events: false) – Klingeln wird "
-            f"alle {DING_POLL_SECONDS} s abgefragt"
+            f"alle {DING_POLL_SECONDS} s abgefragt.{ersatz}"
         )
     if anlauf:
         # Nach dem Neuladen: Der Kanal braucht ein paar Sekunden. «Nicht
@@ -289,7 +330,7 @@ def health_detail(
             return (
                 "Ereigniskanal gemeldet, aber die letzten Klingeln kamen über "
                 f"die Abfrage – der Kanal ist taub. Push kommt dadurch bis zu "
-                f"{DING_POLL_SECONDS} s zu spät"
+                f"{DING_POLL_SECONDS} s zu spät.{ersatz}"
             )
         return "Ereigniskanal verbunden – Klingeln kommt sofort an"
     # Der Grund als eigener Satz, nicht in Klammern: Er enthält oft
@@ -306,7 +347,8 @@ def health_detail(
         wie_oft = "einmal" if abbrueche == 1 else f"{abbrueche}-mal"
         return (
             f"Ereigniskanal baut sich auf und bricht wieder ab ({wie_oft}). "
-            f"{grund}Klingeln kommt dadurch bis zu {DING_POLL_SECONDS} s zu spät"
+            f"{grund}Klingeln kommt dadurch bis zu {DING_POLL_SECONDS} s zu "
+            f"spät.{ersatz}"
         )
     if anlaeufe > 1:
         # Der dritte Fall, und der ehrlichste: Es wird versucht, es
@@ -315,11 +357,11 @@ def health_detail(
         return (
             f"Ereigniskanal kommt nicht zustande ({anlaeufe} Anläufe). "
             f"{grund}Klingeln wird ersatzweise alle {DING_POLL_SECONDS} s "
-            "abgefragt"
+            f"abgefragt.{ersatz}"
         )
     return (
         f"Ereigniskanal nicht verbunden. {grund}Klingeln wird ersatzweise "
-        f"alle {DING_POLL_SECONDS} s abgefragt"
+        f"alle {DING_POLL_SECONDS} s abgefragt.{ersatz}"
     )
 
 
@@ -438,6 +480,10 @@ class RingIntegration(Integration):
     # haben. Der Zähler steht auf 0, sobald einer wirklich stand - und
     # er ist der Grund, warum «startet gerade» irgendwann aufhört.
     _anlaeufe = 0
+    # Geräte, die zwar klingeln, die die Ersatz-Abfrage aber nicht sieht -
+    # die Gegensprechanlage. Als Klassenvorgabe, damit health() auch dann
+    # antwortet, wenn setup() unterwegs steckengeblieben ist.
+    _ohne_ersatz: list[str] = []
     _last_event: float | None = None
     _listen_error: str | None = None
     _listener: Any = None
@@ -479,6 +525,9 @@ class RingIntegration(Integration):
 
         # Entity-ID → Ring-Geräteobjekt; Ring-Geräte-ID → Entity-ID
         self._devices: dict[str, Any] = {}
+        # Eigene Liste je Lauf, nicht die der Klasse: Sonst sammelt ein
+        # Neuladen dieselben Namen ein zweites Mal ein.
+        self._ohne_ersatz: list[str] = []
         self._by_ring_id: dict[int, str] = {}
         self._clear_tasks: dict[str, asyncio.Task] = {}
 
@@ -517,6 +566,11 @@ class RingIntegration(Integration):
             )
             self._devices[entity.id] = device
             self._by_ring_id[int(device.id)] = entity.id
+            # Sie klingelt, aber die Ersatz-Abfrage sieht sie nicht –
+            # siehe ersatz_hinweis(). Der Name statt der Kennung: Im
+            # System-Bildschirm steht sonst eine Zahl, die niemandem
+            # sagt, welches Gerät gemeint ist.
+            self._ohne_ersatz.append(entity.name)
 
         if not self._devices:
             self.log.warning("Ring-Konto verbunden, aber keine Geräte gefunden")
@@ -547,7 +601,9 @@ class RingIntegration(Integration):
         if self._events_abgeschaltet:
             return {
                 "ok": True,
-                "detail": health_detail(False, None, abgeschaltet=True),
+                "detail": health_detail(
+                    False, None, abgeschaltet=True, ohne_ersatz=self._ohne_ersatz
+                ),
                 "last_event": self._last_event,
             }
         # «Startet gerade» gilt nur für den allerersten Anlauf, und auch
@@ -573,6 +629,7 @@ class RingIntegration(Integration):
                 quellen=self._quellen,
                 abbrueche=self._abbrueche,
                 anlaeufe=self._anlaeufe,
+                ohne_ersatz=self._ohne_ersatz,
             ),
             "last_event": self._last_event,
             # Für die Ferndiagnose: der Weg der letzten Meldungen.
