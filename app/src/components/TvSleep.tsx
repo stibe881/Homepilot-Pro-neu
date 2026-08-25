@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { CommandData, Entity } from '../api/types';
 import { Colors, radius, useColors } from '../theme';
 import { useTakt } from '../hooks/useTakt';
+import { restMinuten, timerAuswahl } from '../lib/fernsehtimer';
 import { dauerText } from '../lib/format';
 
 /**
@@ -15,24 +16,6 @@ import { dauerText } from '../lib/format';
  * ein Zeitpunkt – die Kachel rechnet daraus die Restzeit und zählt
  * selbst herunter, statt dass der Hub im Minutentakt etwas schickt.
  */
-
-/** Vorgabe, falls der Hub noch keine Liste mitschickt (ältere Fassung). */
-const FALLBACK = [30, 60, 90, 120, 150];
-
-/**
- * Verbleibende Minuten aus dem Zeitpunkt des Hubs (rein, testbar).
- *
- * Aufgerundet: Solange etwas läuft, soll auch etwas dastehen – «0 min»
- * neben einem laufenden Timer liest sich wie ein Fehler. `null` heisst:
- * kein Timer.
- */
-export function restMinuten(sleepUntil: unknown, jetzt: number): number | null {
-  const bis = typeof sleepUntil === 'number' ? sleepUntil * 1000 : null;
-  if (bis === null) return null;
-  const rest = bis - jetzt;
-  if (rest <= 0) return null;
-  return Math.max(1, Math.ceil(rest / 60000));
-}
 
 export function TvSleep({
   entity,
@@ -46,9 +29,7 @@ export function TvSleep({
   const [offen, setOffen] = useState(false);
   const [jetzt, setJetzt] = useState(() => Date.now());
 
-  const auswahl: number[] = Array.isArray(entity.state.sleep_minutes)
-    ? entity.state.sleep_minutes.filter((m: unknown) => typeof m === 'number')
-    : FALLBACK;
+  const auswahl = timerAuswahl(entity);
   const rest = restMinuten(entity.state.sleep_until, jetzt);
 
   // Nur mitzählen, solange etwas läuft. Ein Zähler, der auch bei

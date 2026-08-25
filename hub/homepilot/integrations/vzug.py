@@ -56,6 +56,42 @@ def minutes_until(end_text: str, now_minutes: int) -> int | None:
     return int(treffer.group(1) or 0) * 60 + int(treffer.group(2) or 0)
 
 
+# Was diese Geräte melden, wenn nichts läuft. Der Wortlaut wechselt mit
+# Firmware und Spracheinstellung, die Bedeutung nicht.
+LEERLAUF = {
+    "",
+    "standby",
+    "stand-by",
+    "stand by",
+    "bereit",
+    "ready",
+    "idle",
+    "inactive",
+    "aus",
+    "off",
+    "none",
+    "-",
+    "--",
+    "---",
+}
+
+
+def leerlauf(text: Any) -> bool:
+    """Heisst dieser Programm- oder Statustext «es läuft nichts»? (rein,
+    testbar)
+
+    Der Anlass: An Waschmaschine, Geschirrspüler und Tumbler stand
+    «Standby». Das ist kein Programm, sondern das Gegenteil davon – die
+    Maschine wartet. Wer in die Waschküche geht, will «Bereit» lesen.
+
+    Es hängt aber mehr daran als ein Wort: Ob etwas läuft, entscheidet
+    sich unten an «gibt es ein Programm?». Ein Gerät, dessen Anzeige an
+    ist und das «Standby» meldet, galt damit als laufend – und stand mit
+    «Läuft» auf der Startseite, obwohl es dastand und nichts tat.
+    """
+    return str(text or "").strip().lower() in LEERLAUF
+
+
 def parse_device_status(
     payload: dict[str, Any], now_minutes: int | None = None
 ) -> dict[str, Any]:
@@ -70,8 +106,15 @@ def parse_device_status(
     end_text = (
         (program_end.get("End") or None) if isinstance(program_end, dict) else None
     )
+    # «Standby» ist kein Programm, sondern dessen Abwesenheit - hier
+    # verschwindet es, damit es weder als Programm an der Kachel steht
+    # noch weiter unten für «läuft» gezählt wird.
     program = payload.get("Program") or None
+    if leerlauf(program):
+        program = None
     status_text = payload.get("Status") or None
+    if leerlauf(status_text):
+        status_text = None
     # «Inactive: false» heisst nur: Die Anzeige ist an. Ohne Programm und
     # ohne Statustext läuft nichts - eine Maschine im Standby (Türe zu,
     # Display wach) stand sonst dauerhaft als «läuft» auf der Startseite.

@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Linking,
   Modal,
@@ -16,13 +16,21 @@ import { DraggableList } from '../components/DraggableList';
 import { KIND_ICONS, shortState } from '../components/RoomTile';
 import { appleMapsRoute, googleMapsRoute } from '../components/TopStrip';
 import { VacuumHome } from '../components/VacuumHome';
+import { useTakt } from '../hooks/useTakt';
 import {
   FAVORIT_LUECKE,
   FAVORIT_MINDEST,
   kachelBreite,
   spalten,
 } from '../lib/raster';
-import { wochentagUhr } from '../lib/format';
+import { dauerText, wochentagUhr } from '../lib/format';
+import {
+  chipZeile,
+  fensterZeile,
+  kannTimer,
+  restMinuten,
+  timerAuswahl,
+} from '../lib/fernsehtimer';
 import { haustuerZeile } from '../lib/klingel';
 import { KalenderZeile, geburtstagsListe, terminListe } from '../lib/kalenderliste';
 import { applianceLine } from '../lib/haushalt';
@@ -173,6 +181,16 @@ export function OverviewScreen({
     return ai !== bi ? ai - bi : favoriten.indexOf(a) - favoriten.indexOf(b);
   });
   const [favOrdnen, setFavOrdnen] = useState(false);
+  // Welcher Fernseher gerade sein Timer-Fenster offen hat. Der Chip auf
+  // der Startseite ist zu klein für fünf Knöpfe - und beim Einschalten
+  // will man ihn auch nicht versehentlich stellen.
+  const [timerTv, setTimerTv] = useState<Entity | null>(null);
+  // Der offene Eintrag frisch aus der Liste: Sonst zeigte das Fenster den
+  // Stand von dem Moment, in dem es aufging, und nach «1 h 30» stünde
+  // weiter «Kein Timer gestellt».
+  const timerEntity = timerTv
+    ? (entities.find((e) => e.id === timerTv.id) ?? timerTv)
+    : null;
 
   // Schnellaktionen: alle im Szenen-Editor für die Startseite markierten
   // Szenen. Solange keine markiert ist, springen «Kino» und «Schlafen»
@@ -713,11 +731,19 @@ export function OverviewScreen({
                 breite={favWidth}
                 pending={!!pending[entity.id]}
                 onCommand={onCommand}
+                onTimer={() => setTimerTv(entity)}
                 styles={styles}
                 colors={colors}
               />
             ))}
           </View>
+          <FernsehTimerFenster
+            entity={timerEntity}
+            onCommand={onCommand}
+            onClose={() => setTimerTv(null)}
+            styles={styles}
+            colors={colors}
+          />
         </>
       ) : null}
 
@@ -752,6 +778,7 @@ function FavoriteChip({
   breite,
   pending,
   onCommand,
+  onTimer,
   styles,
   colors,
 }: {
@@ -760,13 +787,33 @@ function FavoriteChip({
   breite: number | '100%';
   pending: boolean;
   onCommand: (entityId: string, command: string, data?: CommandData) => void;
+  /** Öffnet das Timer-Fenster – nur bei Geräten, die einen können. */
+  onTimer: () => void;
   styles: OverviewStyles;
   colors: Colors;
 }) {
   const state = String(entity.state.state ?? '');
   const active = state === 'on' || state === 'playing' || state === 'cleaning';
+  const timer = kannTimer(entity);
+  // Nur mitzählen, solange etwas läuft. Ein Zähler, der auch ohne Timer
+  // jede Viertelminute neu zeichnet, kostet Akku für nichts - und das
+  // mal so viele Chips, wie jemand Favoriten hat.
+  const [jetzt, setJetzt] = useState(() => Date.now());
+  const laeuft = timer && restMinuten(entity.state.sleep_until, jetzt) !== null;
+  useTakt(() => setJetzt(Date.now()), laeuft ? 15000 : null);
+  // Beim Stellen die Uhr nachziehen. Ohne das rechnete der frisch
+  // gestellte Timer gegen den Zeitpunkt, an dem die Seite geladen wurde -
+  // und aus «1 h 30 min» wurden «1 h 31 min», weil der Takt erst
+  // fünfzehn Sekunden später das erste Mal schlägt.
+  useEffect(() => setJetzt(Date.now()), [entity.state.sleep_until]);
+
   const tap = () => {
-    if (entity.commands.includes('toggle')) {
+    // Beim Fernseher ist der Timer der Griff, den man abends sucht - und
+    // ein Chip, der beim Antippen umschaltet, wäre dafür der falsche
+    // Ort. An- und Ausschalten steht weiterhin auf der Gerätekachel.
+    if (timer) {
+      onTimer();
+    } else if (entity.commands.includes('toggle')) {
       onCommand(entity.id, 'toggle');
     } else if (entity.commands.includes('turn_on')) {
       onCommand(entity.id, state === 'on' ? 'turn_off' : 'turn_on');
@@ -775,6 +822,7 @@ function FavoriteChip({
     }
   };
   const switchable =
+    timer ||
     entity.commands.includes('toggle') ||
     entity.commands.includes('turn_on') ||
     (entity.kind === 'cover' && entity.commands.includes('open'));
@@ -798,21 +846,126 @@ function FavoriteChip({
           der Name die ganze Kachelbreite, und «Wohnzimmer» steht
           ungekürzt da. */}
       <Ionicons
-        name={KIND_ICONS[entity.kind] ?? 'cube-outline'}
+        // Läuft ein Timer, ist der Mond das Sinnbild - die Note über
+        // «Aus in 1 h 30 min» erzählt vom falschen Gerät.
+        name={laeuft ? 'moon' : (KIND_ICONS[entity.kind] ?? 'cube-outline')}
         size={18}
-        color={active ? colors.accent : colors.inkSoft}
+        color={active || laeuft ? colors.accent : colors.inkSoft}
       />
       <Text style={styles.favName} numberOfLines={1}>
         {entity.name}
       </Text>
-      <Text style={[styles.favState, active && { color: colors.accent }]} numberOfLines={1}>
-        {entity.kind === 'light' || entity.kind === 'switch'
-          ? state === 'on'
-            ? 'An'
-            : 'Aus'
-          : shortState(entity)}
+      <Text
+        style={[styles.favState, (active || laeuft) && { color: colors.accent }]}
+        numberOfLines={1}
+      >
+        {timer
+          ? // Läuft ein Timer, ist die Restzeit die Auskunft, für die man
+            // überhaupt hinsieht - «An» weiss man selbst, man sitzt ja davor.
+            chipZeile(entity, jetzt)
+          : entity.kind === 'light' || entity.kind === 'switch'
+            ? state === 'on'
+              ? 'An'
+              : 'Aus'
+            : shortState(entity)}
       </Text>
     </Pressable>
+  );
+}
+
+/**
+ * Der Einschlaf-Timer hinter dem Favoriten-Chip.
+ *
+ * Auf der Fernsehkachel klappt eine Zeile mit denselben Zeiten auf. Der
+ * Chip auf der Startseite ist dafür zu schmal – dort wären es fünf
+ * Knöpfe auf hundert Punkten. Also ein Fenster, wie bei Termin und
+ * Geburtstag: kurz stellen und wieder dort sein, wo man war.
+ *
+ * Was schon läuft, steht oben – die Frage, mit der man das Fenster
+ * öffnet, ist meistens «wie lange noch?» und nicht «wie stelle ich».
+ */
+function FernsehTimerFenster({
+  entity,
+  onCommand,
+  onClose,
+  styles,
+  colors,
+}: {
+  /** `null` heisst: geschlossen. */
+  entity: Entity | null;
+  onCommand: (entityId: string, command: string, data?: CommandData) => void;
+  onClose: () => void;
+  styles: OverviewStyles;
+  colors: Colors;
+}) {
+  const [jetzt, setJetzt] = useState(() => Date.now());
+  const rest = entity ? restMinuten(entity.state.sleep_until, jetzt) : null;
+  // Nur mitzählen, solange das Fenster offen ist und etwas läuft.
+  useTakt(() => setJetzt(Date.now()), entity && rest !== null ? 15000 : null);
+  // Und beim Öffnen sowie beim Stellen die Uhr nachziehen – siehe
+  // FavoriteChip, dort stand sonst eine Minute zu viel.
+  const bis = entity?.state.sleep_until;
+  useEffect(() => setJetzt(Date.now()), [bis]);
+  if (!entity) return null;
+
+  const stellen = (minuten: number) => {
+    onCommand(entity.id, 'sleep_timer', { minutes: minuten });
+    onClose();
+  };
+
+  return (
+    <Modal visible animationType="slide" onRequestClose={onClose} transparent>
+      <Pressable style={styles.fensterGrund} onPress={onClose}>
+        {/* Innen darf das Tippen nicht durchschlagen, sonst geht das
+            Fenster beim Zielen auf einen Knopf zu. */}
+        <Pressable style={styles.fensterBlatt} onPress={() => {}}>
+          <View style={styles.fensterKopf}>
+            <Text style={styles.fensterTitel}>{entity.name}</Text>
+            <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Schliessen">
+              <Ionicons name="close" size={24} color={colors.ink} />
+            </Pressable>
+          </View>
+          <View style={styles.timerStand}>
+            <Ionicons
+              name={rest !== null ? 'moon' : 'moon-outline'}
+              size={18}
+              color={rest !== null ? colors.accent : colors.inkSoft}
+            />
+            <Text
+              style={[styles.timerStandText, rest !== null && { color: colors.accent }]}
+            >
+              {fensterZeile(entity, jetzt)}
+            </Text>
+          </View>
+          <View style={styles.timerWahl}>
+            {timerAuswahl(entity).map((minuten) => (
+              <Pressable
+                key={minuten}
+                onPress={() => stellen(minuten)}
+                accessibilityRole="button"
+                accessibilityLabel={`Fernseher in ${dauerText(minuten)} ausschalten`}
+                style={({ pressed }) => [styles.timerChip, pressed && { opacity: 0.7 }]}
+              >
+                <Text style={styles.timerChipText}>{dauerText(minuten)}</Text>
+              </Pressable>
+            ))}
+          </View>
+          {rest !== null ? (
+            <Pressable
+              onPress={() => stellen(0)}
+              accessibilityRole="button"
+              accessibilityLabel="Timer abbrechen"
+              style={({ pressed }) => [styles.timerAbbruch, pressed && { opacity: 0.7 }]}
+            >
+              <Ionicons name="close-circle-outline" size={18} color={colors.danger} />
+              <Text style={[styles.timerChipText, { color: colors.danger }]}>
+                Timer abbrechen
+              </Text>
+            </Pressable>
+          ) : null}
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 
@@ -1045,6 +1198,28 @@ const makeStyles = (colors: Colors) =>
     fensterUnten: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     fensterWann: { color: colors.inkSoft, fontSize: 13 },
     fensterOrt: { color: colors.inkSoft, fontSize: 13, flexShrink: 1 },
+    timerStand: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    timerStandText: { color: colors.inkSoft, fontSize: 15, flex: 1 },
+    timerWahl: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    timerChip: {
+      paddingVertical: 12,
+      paddingHorizontal: 18,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      backgroundColor: colors.surface,
+    },
+    timerChipText: { color: colors.ink, fontSize: 15, fontWeight: '600' },
+    timerAbbruch: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      paddingVertical: 12,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.danger,
+    },
     reorderSheet: { flex: 1, backgroundColor: colors.panel, padding: 20, paddingTop: 60, gap: 10 },
     reorderHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     reorderTitle: { color: colors.ink, fontSize: 18, fontWeight: '700' },

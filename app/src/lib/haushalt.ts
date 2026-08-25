@@ -14,6 +14,9 @@
 import { Entity } from '../api/types';
 import { dauerText } from './format';
 
+/** Zustandswerte, die alle dasselbe heissen: Die Maschine wartet. */
+const RUHT = new Set(['idle', 'off', 'standby', 'ready', 'unknown', '']);
+
 export interface GeraeteZeile {
   text: string;
   running: boolean;
@@ -27,7 +30,11 @@ export function applianceLine(
   if (!entity) return { text: demoText, running: /läuft|trocknen/i.test(demoText) };
   const value = String(entity.state.state ?? '');
   const running = value === 'running' || value === 'on';
-  const grund = running ? 'Läuft' : value === 'idle' || value === 'off' ? 'Bereit' : value;
+  // «Bereit» deckt alles ab, was heisst: Die Maschine wartet. Vorher
+  // stand hier der rohe Wert, und je nach Firmware las man dann
+  // «standby» oder – gleich nach dem Hub-Start – «unknown» an einer
+  // Maschine, die schlicht dasteht.
+  const grund = running ? 'Läuft' : RUHT.has(value.toLowerCase()) ? 'Bereit' : value;
   if (!running) return { text: grund, running };
   const program = entity.state.program ? ` · ${entity.state.program}` : '';
   const minutes =

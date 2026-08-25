@@ -46,3 +46,32 @@ describe('applianceLine', () => {
     expect(applianceLine(undefined, 'Bereit').running).toBe(false);
   });
 });
+
+describe('Stillstehende Maschinen heissen «Bereit»', () => {
+  const geraet2 = (state: string): Entity =>
+    ({
+      id: 'vzug.waschmaschine',
+      name: 'Waschmaschine',
+      kind: 'appliance',
+      integration: 'vzug',
+      available: true,
+      commands: [],
+      state: { state },
+    }) as unknown as Entity;
+
+  it('übersetzt, was der Hersteller sagt', () => {
+    // «Standby» stand so an Waschmaschine, Geschirrspüler und Tumbler -
+    // ein Wort aus dem Datenblatt an einer Stelle, an der man wissen
+    // will, ob man Wäsche hineintun kann.
+    for (const wert of ['idle', 'off', 'standby', 'Standby', 'ready', 'unknown']) {
+      expect(applianceLine(geraet2(wert), '').text).toBe('Bereit');
+      expect(applianceLine(geraet2(wert), '').running).toBe(false);
+    }
+  });
+
+  it('verschweigt eine Störung nicht', () => {
+    // Was nicht «wartet» heisst, bleibt stehen - «Bereit» über einem
+    // Fehler wäre die schlechtere Auskunft.
+    expect(applianceLine(geraet2('error'), '').text).toBe('error');
+  });
+});
