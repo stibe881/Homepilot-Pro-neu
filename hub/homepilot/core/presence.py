@@ -565,6 +565,25 @@ def holiday_question(
     return True
 
 
+def alle_zuhause(zustaende: Any) -> bool:
+    """Sind ausdrücklich *alle* zuhause? (rein, testbar)
+
+    Das Gegenstück zur vorsichtigen Sammelfrage: Dort zählt «unbekannt»
+    als «jemand da», damit das Haus nicht herunterfährt, während jemand
+    darin sitzt. Hier ist es umgekehrt - «alle sind zuhause» ist eine
+    Aussage über jeden Einzelnen, und über jemanden, von dem man nichts
+    weiss, sagt man sie nicht. Wer an einem benannten Ort steht
+    («schule»), ist erst recht nicht zuhause.
+
+    Ohne Personen gibt es kein «alle»: False, denn die Anzeige dafür
+    wäre eine Behauptung ohne Gegenstand.
+    """
+    liste = [str(zustand or UNKNOWN).strip().lower() for zustand in (zustaende or [])]
+    if not liste:
+        return False
+    return all(zustand in (HOME, "on", "true") for zustand in liste)
+
+
 def anyone_home_state(zustaende: Any) -> str:
     """Ist noch jemand zuhause? (rein, testbar)
 

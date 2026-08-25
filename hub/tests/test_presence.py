@@ -424,3 +424,37 @@ def test_aeltere_meldungen_stehen_in_stunden():
     )
     assert "vor 3 Std." in zeile["hint"]
     assert "(da)" in zeile["hint"]
+
+
+# ── «Alle sind zuhause» ──────────────────────────────────────────────────
+#
+# Die Sammelfrage «jemand da?» ist bewusst vorsichtig - unbekannt zählt
+# als da. Für das Schild oben in der App gilt die umgekehrte Vorsicht:
+# «alle sind zuhause» ist eine Aussage über jeden Einzelnen.
+
+
+def test_alle_zuhause_nur_wenn_wirklich_alle():
+    from homepilot.core.presence import alle_zuhause
+
+    assert alle_zuhause(["home", "home"]) is True
+    assert alle_zuhause(["home", "away"]) is False
+
+
+def test_unbekannt_ist_kein_alle():
+    from homepilot.core.presence import alle_zuhause
+
+    # Über jemanden, von dem man nichts weiss, behauptet man nichts.
+    assert alle_zuhause(["home", "unknown"]) is False
+
+
+def test_ein_benannter_ort_ist_nicht_zuhause():
+    from homepilot.core.presence import alle_zuhause
+
+    assert alle_zuhause(["home", "schule"]) is False
+
+
+def test_ohne_personen_gibt_es_kein_alle():
+    from homepilot.core.presence import alle_zuhause
+
+    assert alle_zuhause([]) is False
+    assert alle_zuhause(None) is False
