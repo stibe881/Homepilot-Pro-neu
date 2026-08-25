@@ -481,8 +481,32 @@ def diagnose(person: str, state: dict[str, Any], now: float) -> dict[str, Any]:
     elif stumm:
         stunden = int(alter // 3600) if alter else 0
         text = f"Seit {stunden} Stunden Funkstille – Akku, Flugmodus oder Kurzbefehl weg?"
+    elif quelle == "life360":
+        # Die einzige Quelle, die wirklich im Takt meldet - hier darf
+        # der Satz das auch behaupten.
+        text = "Meldet sich regelmässig (über Life360)."
     else:
-        text = "Meldet sich regelmässig."
+        # Telefon-Meldungen kommen NUR beim Übertreten einer Grenze. Hier
+        # stand «Meldet sich regelmässig» - und genau dieser Satz hat in
+        # die Irre geführt, als eine Ankunft verlorenging: Die letzte
+        # Meldung war 83 Minuten alt und sagte «weg», die Person sass
+        # längst im Haus, und die Diagnose klang nach «alles in Ordnung».
+        # iOS weckt die App beim Grenzübertritt nicht zuverlässig; eine
+        # ausgebliebene Meldung sieht von aussen aus wie eine Person, die
+        # einfach dortgeblieben ist.
+        minuten = int(alter // 60) if alter else 0
+        wann = (
+            f"vor {minuten} Min."
+            if minuten < 120
+            else f"vor {minuten // 60} Std."
+        )
+        text = (
+            f"Letzte Meldung {wann} ({'weg' if state.get('state') == AWAY else 'da'}). "
+            "Das Telefon meldet nur beim Kommen und Gehen - stimmt der "
+            "Zustand nicht, hat iOS die App nicht geweckt: App öffnen und "
+            "«Jetzt melden» drücken. Passiert es öfter, ist Life360 die "
+            "verlässlichere Quelle (docs/geofence.md)."
+        )
     return {
         "person": person,
         "state": str(state.get("state") or UNKNOWN),

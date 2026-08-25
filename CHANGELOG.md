@@ -173,6 +173,11 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   daran, dass iOS sie im Hintergrund weckt, und das tut sie nicht
   zuverlässig. Umstellen: alle eintragen, auf jedem Telefon
   Einstellungen → Ortung ausschalten. Steht in `docs/geofence.md`.
+- Die Ortungs-Diagnose sagt bei einer Telefon-Meldung nicht mehr
+  «Meldet sich regelmässig» – das Telefon meldet nur beim Kommen und
+  Gehen, und der Satz beruhigte genau dann, wenn eine Ankunft
+  verlorengegangen war. Jetzt steht dort, wie alt die letzte Meldung ist,
+  was sie sagte, und was zu tun ist.
 - «Zuhause» sticht jetzt jeden Ort, nicht nur den weiteren. Solange die
   Life360-Orte ausserhalb der Ortsliste standen, genügte die alte
   Prüfung; als eigene Orte hätte ein enger Ort auf demselben Haus
