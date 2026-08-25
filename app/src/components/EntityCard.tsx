@@ -4,6 +4,7 @@ import { Image, Pressable, Text, View } from 'react-native';
 
 import { CommandData, Entity, KalenderEintrag } from '../api/types';
 import { offlineSatz } from '../lib/funkstille';
+import { zustandsText } from '../lib/haushalt';
 import { hatWarteschlange } from '../lib/musikliste';
 import { useColors } from '../theme';
 import { Bar } from './Bar';
@@ -185,6 +186,12 @@ export function EntityCard({
 
       case 'switch':
         return <BigValue value={isOn ? 'An' : 'Aus'} on={isOn} note={powerNote()} />;
+
+      // Der Einschlaf-Timer des Fernsehers als eigene Kachel: dieselbe
+      // Bedienung wie in der Fernsehkachel, nur ohne den Fernseher drum
+      // herum. Der Hub spiegelt den Timer auf beide.
+      case 'timer':
+        return <TvSleep entity={entity} onCommand={onCommand} />;
 
       case 'binary_sensor': {
         // Tür-/Fensterkontakte sagen offen/geschlossen, Bewegungsmelder
@@ -526,12 +533,15 @@ export function EntityCard({
           const laeuft = entity.state.state === 'running';
           return (
             <View style={styles.stack}>
-              <Pill label={laeuft ? 'Läuft' : 'Bereit'} tone={laeuft ? colors.accent : undefined} />
+              <Pill
+                label={zustandsText(entity.state.state)}
+                tone={laeuft ? colors.accent : undefined}
+              />
               {/* Programm und Restzeit gehören zu einer laufenden
                   Maschine. Eine stillstehende meldet je nach Firmware
-                  weiter irgendetwas - «Standby» etwa -, und das stand
-                  dann unter «Bereit» wie ein Programm, das keines ist.
-                  Dieselbe Regel gilt auf der Startseite (lib/haushalt). */}
+                  weiter irgendetwas, und das stand dann unter «Bereit»
+                  wie ein Programm, das keines ist. Dieselbe Regel gilt
+                  auf der Startseite (lib/haushalt). */}
               {laeuft && entity.state.program ? (
                 <Text style={styles.detail}>
                   {entity.state.program}
@@ -682,6 +692,7 @@ export function EntityCard({
                 icon="pencil"
                 active={false}
                 label="Umbenennen"
+                caption="Name"
                 onPress={() => setRenameOpen(true)}
               />
             ) : null}
@@ -689,12 +700,14 @@ export function EntityCard({
               icon={favorite ? 'star' : 'star-outline'}
               active={!!favorite}
               label={favorite ? 'Favorit entfernen' : 'Als Favorit'}
+              caption="Favorit"
               onPress={onToggleFavorite}
             />
             <EditButton
               icon={hidden ? 'eye-off' : 'eye-outline'}
               active={!!hidden}
               label={hidden ? 'Wieder einblenden' : 'Ausblenden'}
+              caption={hidden ? 'Versteckt' : 'Ausblenden'}
               onPress={onToggleHidden}
             />
             {onToggleLocked ? (
@@ -702,6 +715,10 @@ export function EntityCard({
                 icon={locked ? 'lock-closed' : 'lock-open-outline'}
                 active={!!locked}
                 label={locked ? 'Sperre aufheben' : 'Sperren – schaltet nur nach Rückfrage'}
+                // «Rückfrage» statt «Sperren»: Das Wort sagt, was passiert.
+                // Gesperrt klingt nach «geht nicht mehr» – es geht weiter,
+                // nur mit einem Ja dazwischen.
+                caption="Rückfrage"
                 onPress={onToggleLocked}
               />
             ) : null}

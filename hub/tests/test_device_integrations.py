@@ -269,3 +269,45 @@ async def test_unifi_und_protect_nehmen_denselben_weg():
         assert "cookie_jar" not in quelle, f"{modul.__name__} baut wieder selbst"
         # Und beide legen das Anmelde-Cookie selbst ab.
         assert "self.keep_cookies(" in quelle, modul.__name__
+
+
+# ── «unexpected mimetype: text/html» sagt niemandem etwas ────────────────
+#
+# Der Satz, an dem eine Stunde Suche hing. Eine UniFi-Konsole trägt
+# mehrere Anwendungen, jede unter /proxy/<name>/. Fragt man nach einer,
+# die auf DIESEM Gerät nicht läuft, kommt kein 404, sondern die
+# Weboberfläche mit Status 200 - im Haus stand die Netzwerk-Anwendung
+# auf dem Gateway, während 'host' auf die Protect-Konsole zeigte.
+
+
+def test_html_antwort_nennt_die_gesuchte_anwendung():
+    from homepilot.core.integration import console_html_hint
+
+    hinweis = console_html_hint(
+        "https://10.10.1.10/proxy/network/api/s/default/stat/sta", "text/html"
+    )
+    assert hinweis is not None
+    # Der Name der Anwendung gehört hinein - er ist der halbe Weg zur Lösung.
+    assert "«network»" in hinweis
+    assert "host" in hinweis
+
+
+def test_html_antwort_auch_fuer_protect():
+    from homepilot.core.integration import console_html_hint
+
+    hinweis = console_html_hint("https://10.10.1.1/proxy/protect/api/bootstrap", "text/html")
+    assert hinweis is not None and "«protect»" in hinweis
+
+
+def test_ohne_proxy_pfad_bleibt_es_allgemein():
+    from homepilot.core.integration import console_html_hint
+
+    hinweis = console_html_hint("https://10.10.1.10/api/login", "text/html")
+    assert hinweis is not None and "«" not in hinweis
+
+
+def test_echte_daten_loesen_keinen_hinweis_aus():
+    from homepilot.core.integration import console_html_hint
+
+    for typ in ("application/json", "application/json; charset=utf-8", ""):
+        assert console_html_hint("https://10.10.1.1/proxy/network/api/self/sites", typ) is None

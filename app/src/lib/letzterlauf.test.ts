@@ -35,10 +35,10 @@ describe('letzterLaufSatz', () => {
         detail: 'Re-pull image ist im Stack an. Ausschalten.',
         finished_at: JETZT - 600,
       },
-      JETZT,
+      JETZT
     );
     expect(satz).not.toBeNull();
-    expect(satz!.fehler).toBe(true);
+    expect(satz!.art).toBe('fehler');
     expect(satz!.text).toContain('vor 10 Min.');
     expect(satz!.text).toContain('Portainer hat den Container nicht gewechselt');
     expect(satz!.text).toContain('Re-pull image');
@@ -47,10 +47,12 @@ describe('letzterLaufSatz', () => {
   it('verschweigt Warnungen eines gelungenen Laufs nicht', () => {
     const satz = letzterLaufSatz(
       { state: 'ok', warnings: ['Der Web-Bau schlug fehl.'], finished_at: JETZT - 120 },
-      JETZT,
+      JETZT
     );
     expect(satz).not.toBeNull();
-    expect(satz!.fehler).toBe(true);
+    // Aber als Hinweis, nicht als Fehler: Der Lauf ist durchgelaufen,
+    // der Hub ist neu. In Rot las sich das wie ein gescheitertes Update.
+    expect(satz!.art).toBe('hinweis');
     expect(satz!.text).toContain('Der Web-Bau schlug fehl.');
   });
 
@@ -58,7 +60,7 @@ describe('letzterLaufSatz', () => {
     // Der Dienst schreibt seinen Ausgang am Ende. Steht danach noch
     // «running» da, wurde er mittendrin abgeräumt.
     const satz = letzterLaufSatz({ state: 'running', finished_at: JETZT - 30 }, JETZT);
-    expect(satz!.fehler).toBe(true);
+    expect(satz!.art).toBe('fehler');
     expect(satz!.text).toContain('nicht zu Ende gekommen');
   });
 

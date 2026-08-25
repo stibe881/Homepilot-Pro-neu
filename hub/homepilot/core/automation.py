@@ -76,6 +76,21 @@ DEFAULT_LON = 7.92059
 
 log = logging.getLogger(__name__)
 
+# So lange darf ein Standbild eine Nachricht aufhalten.
+#
+# `snapshot()` holt kein fertiges Bild ab, sondern stösst eines an: Bei
+# Ring weckt das die Kamera, die Bibliothek fragt danach in Runden nach,
+# ob es schon da ist. Im guten Fall sind das ein paar Sekunden, im
+# schlechten wartet sie, bis der Aufruf von selbst aufgibt - und solange
+# stand die ganze Nachricht still. Es hatte geklingelt, der Hub hatte
+# alles beisammen, und das Telefon schwieg, weil noch ein Foto fehlte.
+#
+# Nach Ablauf geht sie ohne Bild raus. Für eine Türklingel ist das die
+# richtige Reihenfolge: Erst wissen, dass jemand da ist, dann sehen wer.
+# Ein Bild, das den Besucher um eine halbe Minute verpasst, ist ohnehin
+# keines mehr - und die Kachel in der App zeigt es dann trotzdem.
+BILD_WARTEZEIT = 4.0
+
 
 def crosses_threshold(
     old: Any, new: Any, above: Any = None, below: Any = None
@@ -2378,6 +2393,9 @@ class AutomationEngine:
                 **({"camera": camera} if camera else {}),
             },
             image=await self._snapshot_url(camera),
+            # Dieselbe Kategorie wie oben: Ein Ablauf, der meldet, meldet
+            # dringend - auch wenn er «Gefriertruhe» heisst.
+            category=push_service.automation_key(automation.id),
         )
 
     async def _snapshot_url(self, camera: str | None) -> str | None:
@@ -2397,7 +2415,21 @@ class AutomationEngine:
         try:
             entity = self.hub.registry.get(camera)
             integration = self.hub.integrations.get(entity.integration) if entity else None
-            image = await integration.snapshot(entity) if integration else None
+            image = (
+                await asyncio.wait_for(integration.snapshot(entity), BILD_WARTEZEIT)
+                if integration
+                else None
+            )
+        except TimeoutError:
+            # Der Fall, der die Klingel langsam machte: Die Nachricht war
+            # fertig und stand still, weil im Hub jemand auf ein Foto
+            # wartete. Sie geht jetzt ohne raus.
+            log.info(
+                "Bild für die Nachricht aus einem Ablauf kam nicht in %ss – "
+                "Nachricht geht ohne raus",
+                BILD_WARTEZEIT,
+            )
+            return None
         except Exception as err:
             log.warning("Kein Bild für die Nachricht aus einem Ablauf: %s", err)
             return None

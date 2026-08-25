@@ -528,6 +528,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setLocked,
     setSeenChanges,
     setKameraDynamisch,
+    setFavorites,
+    setFavoriteOrder,
     setBioLock,
     setWidgetData,
     setWidgetButtons,
@@ -610,10 +612,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     panelArtig ? 30000 : null
   );
 
-  // Der Stern steht beim Gerät auf dem Hub, nicht in den
-  // Geräte-Einstellungen: Sonst hält er nur so lange wie die
-  // Installation auf genau diesem Telefon.
-  const favorites = useMemo(() => favoritenVon(entities), [entities]);
+  // Die Favoriten sind persönlich: Was Stefan jeden Abend braucht, ist
+  // für Livia nur eine Kachel im Weg. Lange stand der Stern am Gerät auf
+  // dem Hub und galt damit für alle – diese Sterne bleiben der
+  // Startbestand für jeden, der noch keine eigene Liste hat. Der erste
+  // eigene Stern (setzen oder lösen) schreibt die Liste beim Benutzer
+  // fest; die alten Sterne am Gerät bleiben unangetastet stehen, damit
+  // die Übernahme bei den anderen genauso funktioniert.
+  const favorites = useMemo(
+    () => eigenePrefs.favorites ?? favoritenVon(entities),
+    [eigenePrefs.favorites, entities]
+  );
   const hidden = prefs.hidden ?? [];
   const locked = prefs.locked ?? [];
 
@@ -987,15 +996,28 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     // ziehen, aber beim nächsten Öffnen stünde wieder alles alphabetisch.
     // Auf der Licht-Seite gilt die früher gezogene flache Reihenfolge als
     // Rückfall, damit sie beim Umstellen auf Zimmer nicht verlorengeht.
+    // Die Favoritengruppe folgt der persönlichen Reihenfolge – dieselbe
+    // wie auf der Startseite, denn es ist dieselbe Frage.
     return gruppen.map((gruppe) => ({
       ...gruppe,
       items: sortByOrder(
         gruppe.items,
-        prefs.order?.[groupScope(gruppe.key, gruppenBereich)] ??
+        (groupScope(gruppe.key, gruppenBereich) === 'favorites'
+          ? (eigenePrefs.favoriteOrder ?? prefs.order?.favorites)
+          : prefs.order?.[groupScope(gruppe.key, gruppenBereich)]) ??
           (lichtNachRaum ? prefs.order?.light : undefined)
       ),
     }));
-  }, [grouped, lichtNachRaum, gruppenBereich, rooms, shown, favorites, prefs.order]);
+  }, [
+    grouped,
+    lichtNachRaum,
+    gruppenBereich,
+    rooms,
+    shown,
+    favorites,
+    prefs.order,
+    eigenePrefs.favoriteOrder,
+  ]);
 
   // Ein einzelner Raum wird nach Kategorien gegliedert: Szenen des Raums
   // oben, dann Beleuchtung, Store, Medien, alles Übrige unter „Weitere“.
@@ -1114,7 +1136,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       favorite={favorites.includes(entity.id)}
       hidden={hidden.includes(entity.id)}
       onToggleFavorite={() =>
-        setEntityMeta(entity.id, { favorite: !favorites.includes(entity.id) })
+        // toggleIn auf der wirksamen Liste: Beim allerersten Stern wird so
+        // der Startbestand (die alten Haushalts-Sterne) gleich mit
+        // festgeschrieben – setzen wie lösen funktioniert vom ersten
+        // Tipp an.
+        setFavorites(toggleIn(favorites, entity.id))
       }
       onToggleHidden={() => setHidden(toggleIn(hidden, entity.id))}
       locked={locked.includes(entity.id)}
@@ -1181,7 +1207,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       setDrag(null);
       if (!scope) return;
       const next = reorderByDrop(ids, cellLayouts, id, dx, dy);
-      if (next) setOrder(scope, next);
+      if (!next) return;
+      // Die Favoritengruppe ist persönlich – ihr Ziehen gehört zum
+      // Benutzer, alles andere weiter zum Haus.
+      if (scope === 'favorites') setFavoriteOrder(next);
+      else setOrder(scope, next);
     };
     return (entity: Entity) =>
       dragEnabled && scope && cardWidth ? (
@@ -1233,8 +1263,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               countdowns={startCountdowns}
               snapshotUri={snapshotUrl}
               favoriteIds={favorites}
-              favoriteOrder={prefs.order?.favorites}
-              onReorderFavorites={(ids) => setOrder('favorites', ids)}
+              // Persönliche Reihenfolge; die alte haushaltsweite bleibt
+              // als Startbestand, bis einmal selbst gezogen wurde –
+              // sonst spränge beim Umstieg alles durcheinander.
+              favoriteOrder={eigenePrefs.favoriteOrder ?? prefs.order?.favorites}
+              onReorderFavorites={setFavoriteOrder}
             />
           </View>
           <SidePanel

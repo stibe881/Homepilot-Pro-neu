@@ -316,6 +316,7 @@ class Hub:
             title="Aufgaben heute fällig",
             body=f"{len(due)} offen: {names}",
             data={"type": "task_due"},
+            category="tasks",
         )
 
     def _load_stored_users(self) -> None:

@@ -89,6 +89,7 @@ class KitchenTimers:
                 title="⏰ Küchen-Timer",
                 body=entry["text"],
                 data={"type": "timer"},
+                category="timer",
             )
         except Exception:
             log.exception("Timer-Push nicht zustellbar")

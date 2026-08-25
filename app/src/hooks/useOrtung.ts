@@ -25,19 +25,35 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 
 import { HubSettings } from '../api/types';
 import {
   Ort as Ortsangabe,
-  genauGenug,
   meldungsText,
   ortsMeldungen,
   unsichereOrte,
 } from '../lib/ortungsmeldung';
+import { positionMelden } from '../lib/ortungspuffer';
 
 /** Name der Hintergrund-Aufgabe. Muss über App-Starts hinweg gleich bleiben. */
 export const ORTUNG_TASK = 'homepilot-geofence';
+/**
+ * Die laufende Standortaktualisierung. Zweite Aufgabe, eigener Name:
+ * Sie darf sich getrennt starten und beenden lassen, und ein Name, der
+ * einmal vergeben ist, muss über App-Starts hinweg gleich bleiben.
+ */
+export const STANDORT_TASK = 'homepilot-standort';
+/**
+ * Nach wie vielen Metern Bewegung das Betriebssystem melden soll.
+ *
+ * Der Regler zwischen «weiss es sofort» und «Akku am Nachmittag leer».
+ * 50 m ist enger als der kleinste sinnvolle Geofence-Radius (50 m) und
+ * damit fein genug, dass eine Ankunft nicht erst in der Einfahrt auffällt
+ * – aber grob genug, dass Stillstand nichts kostet: Wer sitzt, bewegt
+ * sich nicht, und dann misst auch niemand.
+ */
+export const SCHRITT_METER = 50;
 /** Wo Schalter, Pause und die Zugangsdaten für die Aufgabe liegen. */
 export const ORTUNG_KEY = 'homepilot.ortung';
 
@@ -177,12 +193,6 @@ export function useOrtung(settings: HubSettings, zone: string, erlaubt: boolean)
     }
     const vorne = await Location.requestForegroundPermissionsAsync();
     if (!vorne.granted) return 'Ohne Standort-Erlaubnis geht es nicht.';
-    let orte: Ort[];
-    try {
-      orte = await orteHolen();
-    } catch (err) {
-      return String((err as Error).message);
-    }
     let position;
     try {
       position = await Location.getCurrentPositionAsync({
@@ -192,36 +202,54 @@ export function useOrtung(settings: HubSettings, zone: string, erlaubt: boolean)
       return 'Der Standort war gerade nicht zu bekommen.';
     }
     const { latitude, longitude, accuracy } = position.coords;
-    if (!genauGenug(orte as Ortsangabe[], accuracy)) {
-      return 'Der Standort ist gerade zu ungenau - draussen oder am Fenster nochmal.';
+    // Hier stand eine Sperre: Ist die Messung ungenauer als der halbe
+    // Radius des *engsten* Ortes, wurde gar nichts gemeldet. Sie war
+    // richtig, solange die App enter/leave schickte – ein entschiedenes
+    // «weg» aus einem groben Fix schaltet die Alarmanlage scharf.
+    //
+    // Seit die Position selbst hinausgeht, ist sie falsch, und zwar
+    // genau dort, wo es weh tut: Drinnen liefert `Balanced` gern 60 bis
+    // 100 Meter, und es genügt ein einziger in der App erfasster Laden
+    // mit 50 Metern Radius, damit der engste Ort 25 Meter verlangt. Dann
+    // meldete die App im eigenen Wohnzimmer nie etwas – und man stand
+    // «unterwegs», während man danebensass.
+    //
+    // Die Streuung reist jetzt mit und wird beim Hub je Ort verrechnet
+    // (`presence.orte_fuer_position`): Ein knappes «nicht drin» wird dort
+    // zum Nichtwissen und lässt stehen, was der Hub schon wusste. Ein
+    // «drin» dagegen gilt – es schaltet nichts scharf. Damit wird die
+    // Entscheidung dort getroffen, wo alle Orte bekannt sind, statt hier
+    // pauschal für den engsten.
+    const angekommen = await positionMelden(
+      { url: settings.url, token: settings.token, zone },
+      {
+        latitude,
+        longitude,
+        accuracy: Number(accuracy) || 0,
+        at: Math.round((position.timestamp || Date.now()) / 1000),
+      }
+    );
+    if (!angekommen) {
+      return (
+        'Der Hub war nicht erreichbar – die Meldung ist vorgemerkt und geht ' +
+        'hinaus, sobald er wieder da ist.'
+      );
     }
-    // Die Streuung entscheidet mit: Ein knappes «nicht drin» ist keine
-    // Abwesenheit, sondern ein Nichtwissen – und «weg» schaltet scharf.
+    // Die Orte holt die App erst jetzt, und nur für den Satz: Er sagt,
+    // was der Hub gerade erfahren hat. Vorher standen sie ganz oben und
+    // konnten das Melden verhindern – ein Hub, der die Ortsliste nicht
+    // herausrückt, hätte damit die Ankunft mitgenommen. Die Meldung ist
+    // die Aufgabe, der Satz ist die Höflichkeit.
+    let orte: Ort[];
+    try {
+      orte = await orteHolen();
+    } catch {
+      return 'Gemeldet.';
+    }
+    // Die Sätze bleiben die alten: Sie beantworten «was hat der Hub jetzt
+    // von mir erfahren», und daran ändert der neue Weg nichts.
     const meldungen = ortsMeldungen(orte as Ortsangabe[], latitude, longitude, accuracy);
     const unsicher = unsichereOrte(orte as Ortsangabe[], latitude, longitude, accuracy);
-    for (const meldung of meldungen) {
-      // Nacheinander: Der Hub führt je Zone eine Liste der Orte, in denen
-      // sie steckt, und zwei gleichzeitige Meldungen überschrieben sich.
-      const antwort = await fetch(`${settings.url}/api/presence/geofence`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${settings.token}`,
-        },
-        body: JSON.stringify({
-          event: meldung.event,
-          place: meldung.place,
-          ...(zone ? { zone } : {}),
-        }),
-      }).catch(() => null);
-      if (!antwort || !antwort.ok) {
-        return antwort?.status === 404
-          ? `Der Hub kennt keine Zone «${zone}». Neuere Fassungen legen sie ` +
-            `aus der Benutzerliste selbst an - läuft dort noch eine ältere, ` +
-            `gehört «${zone}» in der config.yaml unter geofence → zones.`
-          : 'Der Hub hat die Meldung nicht angenommen.';
-      }
-    }
     return meldungsText(orte as Ortsangabe[], meldungen, latitude, longitude, unsicher);
   }, [settings.url, settings.token, zone, erlaubt, orteHolen]);
 
@@ -241,6 +269,7 @@ export function useOrtung(settings: HubSettings, zone: string, erlaubt: boolean)
       const laeuft = aktiv && pausiertBis < Date.now();
       if (!laeuft) {
         await Location.stopGeofencingAsync(ORTUNG_TASK).catch(() => {});
+        await Location.stopLocationUpdatesAsync(STANDORT_TASK).catch(() => {});
         return '';
       }
       const vorne = await Location.requestForegroundPermissionsAsync();
@@ -266,6 +295,37 @@ export function useOrtung(settings: HubSettings, zone: string, erlaubt: boolean)
           notifyOnExit: true,
         }))
       );
+      // Und daneben die laufende Aktualisierung – das, was «live» heisst.
+      //
+      // Auf Bewegung, nicht auf Uhr: `distanceInterval` weckt die Aufgabe,
+      // sobald sich das Telefon um `SCHRITT_METER` bewegt hat. Wer
+      // stillsteht, erzeugt nichts und kostet nichts; wer heimfährt,
+      // meldet dicht genug, dass die Ankunft steht, bevor er in der
+      // Einfahrt ist.
+      //
+      // `Balanced` misst über WLAN und Funkzellen statt über GPS. Das ist
+      // der Unterschied zwischen einer Ortung, die man laufen lässt, und
+      // einer, die man nach einer Woche abschaltet.
+      //
+      // `deferredUpdatesInterval` erlaubt iOS, mehrere Punkte zu bündeln,
+      // statt für jeden einzeln aufzuwachen. Die Aufgabe nimmt ohnehin
+      // nur den jüngsten.
+      await Location.startLocationUpdatesAsync(STANDORT_TASK, {
+        accuracy: Location.Accuracy.Balanced,
+        distanceInterval: SCHRITT_METER,
+        deferredUpdatesInterval: 60000,
+        deferredUpdatesDistance: SCHRITT_METER,
+        // Der laufende blaue Balken wäre hier eine Warnung ohne Anlass:
+        // Die App meldet an den eigenen Hub, nicht an eine Wolke. Wer
+        // wissen will, dass es läuft, findet den Satz im Profil.
+        showsBackgroundLocationIndicator: false,
+        pausesUpdatesAutomatically: false,
+        activityType: Location.ActivityType.Other,
+        foregroundService: {
+          notificationTitle: 'HomePilot',
+          notificationBody: 'Meldet dem Hub zuhause, wenn du ankommst oder gehst.',
+        },
+      }).catch(() => {});
       setStand((vorher) => ({ ...vorher, orte: orte.length }));
       // Und gleich sagen, wo wir jetzt sind: Sonst steht der Hub bis zum
       // nächsten Übertritt auf dem alten Stand - beim Einschalten im
@@ -326,11 +386,54 @@ export function useOrtung(settings: HubSettings, zone: string, erlaubt: boolean)
     beimStartGemeldet.current = true;
     ortungLesen().then((gespeichert) => {
       if (!gespeichert.aktiv || gespeichert.pausiertBis > Date.now()) return;
-      melden().then(
-        (satz) => setStand((vorher) => ({ ...vorher, gemeldet: satz })),
+      // Nicht bloss melden, sondern die Überwachung neu anmelden.
+      //
+      // `anwenden` lief bisher nur am Schalter. Solange es eine einzige
+      // Aufgabe gab, ging das gerade noch – das Betriebssystem führt die
+      // Zonen über App-Starts hinweg selbst weiter. Mit dem Update kam
+      // eine zweite dazu, und die konnte niemand kennen: Wer den
+      // Schalter seit der neuen Fassung nicht angefasst hat, lief
+      // weiterhin nur auf Grenzübertritten. Genau das, was repariert
+      // werden sollte.
+      //
+      // Anmelden ist gutmütig: Läuft die Aufgabe schon, ersetzt sie sich
+      // selbst. Und nach einer Erlaubnis wird nicht neu gefragt, solange
+      // sie erteilt ist – der Schalter stünde sonst nicht auf «an».
+      anwenden(true, 0).then(
+        (hinweis) => setStand((vorher) => ({ ...vorher, hinweis })),
         () => {}
       );
     });
+  }, [anwenden]);
+
+  /**
+   * Dasselbe, wenn die App aus dem Hintergrund zurückkommt.
+   *
+   * Die Zeile darüber hiess «beim Öffnen der App», tat aber nur etwas
+   * beim *Mounten*. Wer die App aus dem App-Switcher holt, mountet nichts
+   * – und genau dann schaut man hin, weil oben «unterwegs» steht, obwohl
+   * man in der Küche ist. Das war der letzte Weg, auf dem sich ein
+   * verlorener Übertritt noch von selbst hätte richten können, und er
+   * war zu.
+   *
+   * Höchstens alle zwei Minuten: Ein Blick auf die App ist kein Anlass
+   * für eine neue GPS-Messung, wenn eben erst eine gemeldet wurde.
+   */
+  const zuletztGemeldet = useRef(0);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (naechster) => {
+      if (naechster !== 'active') return;
+      if (Date.now() - zuletztGemeldet.current < 120000) return;
+      zuletztGemeldet.current = Date.now();
+      ortungLesen().then((gespeichert) => {
+        if (!gespeichert.aktiv || gespeichert.pausiertBis > Date.now()) return;
+        melden().then(
+          (satz) => setStand((vorher) => ({ ...vorher, gemeldet: satz })),
+          () => {}
+        );
+      });
+    });
+    return () => sub.remove();
   }, [melden]);
 
   /** Für den Knopf «Jetzt melden» in den Einstellungen. */

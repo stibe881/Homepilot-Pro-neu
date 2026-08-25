@@ -14,12 +14,49 @@
 import { Entity } from '../api/types';
 import { dauerText } from './format';
 
-/** Zustandswerte, die alle dasselbe heissen: Die Maschine wartet. */
-const RUHT = new Set(['idle', 'off', 'standby', 'ready', 'unknown', '']);
-
 export interface GeraeteZeile {
   text: string;
   running: boolean;
+}
+
+/**
+ * Was auf der Kachel steht, solange nichts läuft.
+ *
+ * Ohne diese Liste stand unter «Waschmaschine» der rohe Wert aus dem
+ * Hub – und weil V-ZUG-Geräte im Standby mit 503 antworten und der Hub
+ * dann noch keine Messung hat, war das stundenlang das englische
+ * «unknown». Ein Zustand, der niemandem etwas sagt, ist so gut wie
+ * keiner.
+ */
+const RUHETEXT: Record<string, string> = {
+  idle: 'Bereit',
+  off: 'Bereit',
+  // Gerät am Netz, Anzeige schläft. Auch das ist «Bereit» – so gewünscht
+  // aus der Waschküche: «Standby» ist ein Wort aus dem Datenblatt an
+  // einer Stelle, an der man wissen will, ob man Wäsche hineintun kann.
+  // Dass die Maschine vielleicht noch voll ist, sagt ohnehin kein
+  // Zustandswert; dafür meldet der Hub das Programmende.
+  standby: 'Bereit',
+  ready: 'Bereit',
+  unknown: 'Unbekannt',
+  '': 'Unbekannt',
+};
+
+/**
+ * Der Zustand eines Haushaltgeräts in einem Wort (rein, testbar).
+ *
+ * An drei Stellen gebraucht – Übersichtskachel, Raumkachel, Gerätekarte.
+ * Sie sagten bisher jede für sich «Läuft» oder sonst «Bereit»; ein Gerät
+ * im Standby stand damit auf der einen Seite als «Standby» und auf der
+ * anderen als «Bereit».
+ */
+export function zustandsText(value: unknown): string {
+  const wert = String(value ?? '');
+  if (wert === 'running' || wert === 'on') return 'Läuft';
+  // Ein unerwarteter Wert steht weiter beim Namen da: «error» auf der
+  // Kachel ist hässlich, aber es ist die Wahrheit und man kann danach
+  // suchen. Nur was der Hub regelmässig schickt, wird übersetzt.
+  return RUHETEXT[wert] ?? wert;
 }
 
 /** Zustandstext einer Haushaltgerät-Kachel (rein, testbar). */
@@ -30,11 +67,7 @@ export function applianceLine(
   if (!entity) return { text: demoText, running: /läuft|trocknen/i.test(demoText) };
   const value = String(entity.state.state ?? '');
   const running = value === 'running' || value === 'on';
-  // «Bereit» deckt alles ab, was heisst: Die Maschine wartet. Vorher
-  // stand hier der rohe Wert, und je nach Firmware las man dann
-  // «standby» oder – gleich nach dem Hub-Start – «unknown» an einer
-  // Maschine, die schlicht dasteht.
-  const grund = running ? 'Läuft' : RUHT.has(value.toLowerCase()) ? 'Bereit' : value;
+  const grund = zustandsText(value);
   if (!running) return { text: grund, running };
   const program = entity.state.program ? ` · ${entity.state.program}` : '';
   const minutes =

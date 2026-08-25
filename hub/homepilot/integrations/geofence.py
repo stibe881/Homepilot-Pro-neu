@@ -274,6 +274,11 @@ class GeofenceIntegration(Integration):
         # Kennung → Entitäts-ID, und je Person die Orte, in denen sie steckt.
         self._zones: dict[str, str] = {}
         self._inside: dict[str, list[str]] = {}
+        # Zeitpunkt der jüngsten *Messung* je Zone. Das Telefon hebt
+        # Meldungen auf, die es nicht loswurde, und reicht sie später
+        # nach; ohne dieses Gedächtnis legte sich eine nachgereichte
+        # Messung von vorhin über eine neuere von eben.
+        self._gemessen: dict[str, float] = {}
         # Einmal sagen, dass hier etwas nicht mehr gilt – still zu
         # überlesen wäre schlimmer als ein Fehler: Man sucht sonst
         # tagelang, warum das WLAN die Ortung nicht mehr überstimmt.
@@ -397,6 +402,7 @@ class GeofenceIntegration(Integration):
         for zone_id in [z for z in self._aus_benutzern if z not in soll_ids]:
             entity_id = self._zones.pop(zone_id, None)
             self._inside.pop(zone_id, None)
+            self._gemessen.pop(zone_id, None)
             self._aus_benutzern.discard(zone_id)
             if entity_id:
                 await self.hub.registry.remove(entity_id)
@@ -576,11 +582,76 @@ class GeofenceIntegration(Integration):
         if richtung == HOME:
             drin.append(ort)
         self._inside[zone_id] = drin
+        # Auch eine Flanke ist eine Messung von jetzt. Ohne diesen Vermerk
+        # könnte eine nachgereichte Position von vorhin einen frischen
+        # Kurzbefehl überschreiben - «ich bin angekommen» verlöre gegen
+        # eine Messung aus dem Stau.
+        self._gemessen[zone_id] = time.time()
         state, engster = presence.place_state(drin, self.places)
         await self._publish(
             zone_id, entity_id, state, engster, battery, source, place_name
         )
         self.log.info("Geofence: %s ist jetzt %s (%s)", zone_id, state, ort)
+        return state
+
+    async def report_position(
+        self,
+        zone_id: str,
+        latitude: float,
+        longitude: float,
+        accuracy: float = 0.0,
+        battery: Any = None,
+        source: str = "geofence",
+        at: float | None = None,
+    ) -> str:
+        """Eine Position übernehmen. Gibt den neuen Zustand zurück.
+
+        Der Unterschied zu `report`: Hier kommt der **ganze** Zustand an,
+        nicht eine Flanke. Der Hub rechnet selbst, in welchen Orten der
+        Punkt steckt, und ersetzt damit die Liste der Zone.
+
+        Warum das die verlässlichere Bauart ist: Eine verlorene Flanke
+        blieb für immer verloren – wer beim Heimkommen keine Verbindung
+        hatte (Mobilfunk weg, WLAN noch nicht da: genau der Moment, in
+        dem man ankommt), stand bis zum nächsten Weggehen auf
+        «unterwegs». Eine Position heilt das mit der nächsten beliebigen
+        Meldung.
+
+        `at` ist der Zeitpunkt der *Messung*, nicht des Empfangs. Das
+        Telefon hebt Meldungen auf, die es nicht loswurde, und reicht sie
+        später nach; ohne diese Angabe legte sich eine nachgereichte
+        Messung über eine neuere.
+        """
+        entity_id = self._zones.get(zone_id)
+        if entity_id is None:
+            await self._zonen_abgleichen()
+            entity_id = self._zones.get(zone_id)
+        if entity_id is None:
+            raise KeyError(zone_id)
+
+        gemessen = float(at or time.time())
+        letzte = self._gemessen.get(zone_id, 0.0)
+        if letzte and gemessen < letzte:
+            # Eine nachgereichte Messung, die älter ist als das, was schon
+            # steht. Sie darf den Akkustand mitbringen, aber nicht den Ort
+            # zurückdrehen.
+            self.log.debug(
+                "Geofence: Meldung für %s ist %.0f s älter als der Stand - übergangen",
+                zone_id,
+                letzte - gemessen,
+            )
+            return str(self.merged(zone_id).get("state") or presence.UNKNOWN)
+        self._gemessen[zone_id] = gemessen
+
+        drin = presence.inside_aus_position(
+            self._inside.get(zone_id, []), self.places, latitude, longitude, accuracy
+        )
+        self._inside[zone_id] = drin
+        state, engster = presence.place_state(drin, self.places)
+        await self._publish(zone_id, entity_id, state, engster, battery, source)
+        self.log.info(
+            "Geofence: %s ist jetzt %s (Position, ±%.0f m)", zone_id, state, accuracy or 0
+        )
         return state
 
     async def _publish(
@@ -599,13 +670,32 @@ class GeofenceIntegration(Integration):
         name = place_name or next(
             (ort["name"] for ort in self.places if ort["id"] == place), place
         )
+        # `changed_at` bewegt sich nur bei einer echten Änderung,
+        # `last_seen` bei jeder Meldung. Solange beides dasselbe Feld war,
+        # sprang `changed_at` bei jeder Life360-Runde weiter - im
+        # Minutentakt, meist ohne dass sich etwas geändert hätte. Damit
+        # konnte `settle` nie greifen: Ein eingefrorenes «weg» blieb «weg»,
+        # und die Diagnose sagte «Meldet sich regelmässig» zu einer
+        # Position von vorgestern.
+        alt = self.hub.registry.get(entity_id)
+        vorher = dict(alt.state) if alt else {}
+        gleich = (
+            str(vorher.get("state") or "") == state
+            and vorher.get("place") == place
+            and not vorher.get("stale")
+        )
+        try:
+            seit = float(vorher.get("changed_at") or 0)
+        except (TypeError, ValueError):
+            seit = 0.0
         # Alle Felder ausdrücklich: Die Registry mischt Änderungen in den
         # alten Zustand: Was verschwinden können muss, gehört als None
         # hinein (siehe registry.update_state).
         neu: dict[str, Any] = {
             "state": state,
             "device_class": "presence",
-            "changed_at": jetzt,
+            "changed_at": seit if (gleich and seit) else jetzt,
+            "last_seen": jetzt,
             "place": place,
             "place_name": name,
             "source": source or "geofence",
@@ -630,7 +720,8 @@ class GeofenceIntegration(Integration):
                     "place": place,
                     "place_name": name,
                     "source": neu["source"],
-                    "changed_at": jetzt,
+                    "changed_at": neu["changed_at"],
+                    "last_seen": jetzt,
                     "battery": neu.get("battery"),
                 },
             ),
@@ -695,7 +786,7 @@ class GeofenceIntegration(Integration):
             entity = self.hub.registry.get(entity_id)
             if entity is None or entity.state.get("stale"):
                 continue
-            if not presence.is_stale(entity.state.get("changed_at"), jetzt):
+            if not presence.is_stale(presence.zuletzt_gehoert(entity.state), jetzt):
                 continue
             self.log.info("Geofence: %s meldet sich nicht mehr – Zustand unbekannt", zone_id)
             await self.hub.registry.update_state(

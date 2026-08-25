@@ -22,7 +22,7 @@ import { Fehlschlag, Laedt } from '../components/Zustand';
 import { ConfigCard } from './system/konfiguration';
 import { datumUhr } from '../lib/format';
 import { integrationDetail } from '../lib/integrationszeile';
-import { LetzterLauf, letzterLaufSatz } from '../lib/letzterlauf';
+import { LaufArt, LetzterLauf, letzterLaufSatz } from '../lib/letzterlauf';
 import { localTime, timeAgo } from '../lib/zeit';
 import { Colors, radius, space, type, useColors } from '../theme';
 
@@ -82,8 +82,21 @@ export function SystemScreen({
     return <Laedt was="Systemzustand" />;
   }
 
+  // Die Seite in vier Blöcken, in der Reihenfolge, in der man sie
+  // braucht: *was ist* (Zustand), *was zu tun ist* (Betrieb), *was den
+  // Hub ausmacht* (Einrichtung), *was nur dieses Telefon angeht*.
+  //
+  // Vorher standen die Karten so, wie sie entstanden sind: die
+  // Speicherplatz-Warnung vier Karten unter der Zahl, die sie erklärt;
+  // die Ausfälle zwei Karten unter den Integrationen, zu denen sie
+  // gehören; Protokoll, Sicherung und Benutzer durcheinander. Wer etwas
+  // suchte, scrollte.
+  const darfKonfig = !!user?.capabilities?.includes('edit_config');
+
   return (
     <View style={styles.list}>
+      <Text style={[styles.sectionTitle, { marginTop: 0 }]}>Zustand</Text>
+
       <Card style={styles.card}>
         <Text style={styles.heading}>Überblick</Text>
         <View style={styles.facts}>
@@ -169,9 +182,23 @@ export function SystemScreen({
         ) : null}
       </Card>
 
-      <Maintenance settings={settings} />
-      {/* Die Geräte-Gesundheit steht jetzt unter «Geräte» – dort sucht
-          man nach einem Gerät, hier nach dem Hub. */}
+      {/* Direkt unter die Zahl, die sie erklärt: «Speicher belegt» steht
+          im Überblick, die Warnung dazu gehört daneben. */}
+      {status.disk && status.disk.percent >= 85 ? (
+        <Card style={styles.card}>
+          <Text style={styles.heading}>Speicherplatz wird knapp</Text>
+          <Text style={styles.rowDetail}>
+            {status.disk.percent} % belegt – noch {status.disk.free_gb} von{' '}
+            {status.disk.total_gb} GB frei. Läuft der Datenträger voll, lässt sich nichts
+            mehr speichern: keine Konfiguration, keine Lautsprecher, keine Sicherung.
+          </Text>
+          <Text style={styles.hint}>
+            Meist sind es Docker-Reste. Auf dem Host aufräumen mit{'\n'}
+            docker image prune -a -f{'\n'}
+            docker builder prune -f
+          </Text>
+        </Card>
+      ) : null}
 
       <IntegrationsCard
         integrations={status.integrations}
@@ -179,6 +206,8 @@ export function SystemScreen({
         onReloaded={load}
       />
 
+      {/* Was gerade ausgefallen ist, gehört an die Integrationen und
+          nicht zwei Karten darunter. */}
       {(status.outages ?? []).length > 0 ? (
         <Card style={styles.card}>
           <Text style={styles.heading}>Ausfälle</Text>
@@ -206,30 +235,30 @@ export function SystemScreen({
         </Card>
       ) : null}
 
-      {status.disk && status.disk.percent >= 85 ? (
-        <Card style={styles.card}>
-          <Text style={styles.heading}>Speicherplatz wird knapp</Text>
-          <Text style={styles.rowDetail}>
-            {status.disk.percent} % belegt – noch {status.disk.free_gb} von{' '}
-            {status.disk.total_gb} GB frei. Läuft der Datenträger voll, lässt sich nichts
-            mehr speichern: keine Konfiguration, keine Lautsprecher, keine Sicherung.
-          </Text>
-          <Text style={styles.hint}>
-            Meist sind es Docker-Reste. Auf dem Host aufräumen mit{'\n'}
-            docker image prune -a -f{'\n'}
-            docker builder prune -f
-          </Text>
-        </Card>
+      <Text style={styles.sectionTitle}>Betrieb</Text>
+
+      <Maintenance settings={settings} />
+      {/* Die Geräte-Gesundheit steht unter «Geräte» – dort sucht man
+          nach einem Gerät, hier nach dem Hub. */}
+
+      {darfKonfig ? (
+        <BackupCard settings={settings} />
       ) : null}
 
-      {user?.capabilities?.includes('edit_config') ? (
-        <ConfigCard settings={settings} />
-      ) : null}
+      {darfKonfig ? <LogCard settings={settings} /> : null}
 
-      {user?.capabilities?.includes('edit_config') ? <LogCard settings={settings} /> : null}
-
-      {user?.capabilities?.includes('edit_config') ? (
+      {darfKonfig ? (
         <AccessLog settings={settings} />
+      ) : null}
+
+      {/* Konfiguration und Benutzer sind dasselbe Thema: Was den Hub
+          ausmacht, steht in der config.yaml – die Benutzer auch. */}
+      {darfKonfig || users ? (
+        <Text style={styles.sectionTitle}>Einrichtung</Text>
+      ) : null}
+
+      {darfKonfig ? (
+        <ConfigCard settings={settings} />
       ) : null}
 
       {/* Die Karte «Automationen» stand hier zwischen Speicherplatz und
@@ -259,13 +288,15 @@ export function SystemScreen({
         </Card>
       ) : null}
 
+      {/* Nichts davon betrifft den Hub: Der Push-Test geht an dieses
+          Telefon, die Kurzbefehle liegen auf ihm, und die Sprachbefehle
+          sind eine Anleitung. Deshalb ganz unten und unter eigenem
+          Titel – wer den Hub anschaut, ist vorher fertig. */}
+      <Text style={styles.sectionTitle}>Auf diesem Gerät</Text>
+
       <PushTestCard settings={settings} push={push} />
 
       <ShortcutsCard settings={settings} />
-
-      {user?.capabilities?.includes('edit_config') ? (
-        <BackupCard settings={settings} />
-      ) : null}
 
       <VoiceHelpCard />
     </View>
@@ -718,7 +749,10 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [note, setNote] = useState<string | null>(null);
-  const [noteError, setNoteError] = useState(false);
+  // Nicht bloss «rot oder nicht»: Ein Lauf, der durchgelaufen ist und
+  // dabei etwas anmerkt, ist kein gescheitertes Update. Rot las sich so,
+  // und man suchte nach einem Schaden, den es nicht gab.
+  const [noteArt, setNoteArt] = useState<LaufArt | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<UpdateStatus | null>(null);
   // Der Hub merkt an der Antwort des Update-Dienstes, ob der den
@@ -767,7 +801,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
         // steht, wenn niemand zugeschaut hat.
         const rueckblick = letzterLaufSatz(data.last_run, Date.now() / 1000);
         if (rueckblick) {
-          setNoteError(rueckblick.fehler);
+          setNoteArt(rueckblick.art);
           setNote(rueckblick.text);
         }
       } catch {
@@ -810,7 +844,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
         if (!data.available || data.state === 'ok' || data.state === 'error') {
           setBusy(false);
           if (data.state === 'error') {
-            setNoteError(true);
+            setNoteArt('fehler');
             // Die Ursache steht in den Zeilen nach der Fehlermeldung.
             // Sie hier wegzulassen hiesse: «ging schief», Punkt – und
             // die Suche beginnt per SSH auf dem Host von vorne.
@@ -826,7 +860,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
               // Update-Dienst auf dem Server ist noch eine Fassung, die
               // den Schalter nicht kennt. Ohne diesen Hinweis sähe alles
               // nach Erfolg aus, und TestFlight bliebe stumm.
-              setNoteError(true);
+              setNoteArt('fehler');
               setNote(
                 [
                   'Fertig - der Hub ist neu, aber der iOS-Build wurde nicht angestossen:',
@@ -837,11 +871,12 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
             } else if (warned.length > 0) {
               // «Fertig» wäre hier die halbe Wahrheit: Der Hub ist neu,
               // aber etwas blieb auf dem alten Stand - das gehört vor
-              // die Augen, nicht ins Journal auf dem Host.
-              setNoteError(true);
+              // die Augen, nicht ins Journal auf dem Host. In Rot stand
+              // es dort allerdings wie ein gescheitertes Update.
+              setNoteArt('hinweis');
               setNote(['Fertig, aber mit Vorbehalt:', ...warned].join('\n'));
             } else {
-              setNoteError(false);
+              setNoteArt(null);
               setNote('Fertig – der Hub läuft mit dem frischen Stand.');
             }
           }
@@ -852,7 +887,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
       }
       if (!cancelled && polls >= MAX_POLLS) {
         setBusy(false);
-        setNoteError(true);
+        setNoteArt('fehler');
         setNote(
           'Keine Rückmeldung mehr vom Update-Dienst – im Log auf dem Host nachsehen.'
         );
@@ -880,7 +915,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
     setAsking(false);
     setBusy(true);
     setNote(null);
-    setNoteError(false);
+    setNoteArt(null);
     setProgress(null);
     iosIgnored.current = false;
     laufBegonnen.current = false;
@@ -898,7 +933,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
         throw new Error(body?.detail ?? `Hub antwortet mit ${response.status}`);
       iosIgnored.current = Boolean(body?.ios_ignored);
       if (iosIgnored.current) {
-        setNoteError(true);
+        setNoteArt('fehler');
         setNote(
           'Angestossen - aber der Update-Dienst auf dem Server kennt den iOS-Schalter noch nicht. ' +
             'Es wird nur der Hub gebaut. Abhilfe: auf dem Server einmal ' +
@@ -908,7 +943,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
         // Die eingerichtete Adresse ist ein blosser Portainer-Webhook.
         // Der erstellt den Container neu - aus demselben Abbild. Der
         // Knopf tut also etwas und ändert doch nie den Stand.
-        setNoteError(true);
+        setNoteArt('fehler');
         setNote(
           [
             'Angestossen - aber diese Adresse rollt nur aus, sie baut nicht neu.',
@@ -925,7 +960,7 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
       }
     } catch (err) {
       setBusy(false);
-      setNoteError(true);
+      setNoteArt('fehler');
       setNote(String(err instanceof Error ? err.message : err));
     }
   };
@@ -1001,7 +1036,14 @@ function UpdateButton({ settings }: { settings: HubSettings }) {
         </Text>
       ) : null}
       {note ? (
-        <Text style={[styles.noteText, noteError && { color: colors.danger }]} selectable>
+        <Text
+          style={[
+            styles.noteText,
+            noteArt === 'fehler' && { color: colors.danger },
+            noteArt === 'hinweis' && { color: colors.warn },
+          ]}
+          selectable
+        >
           {note}
         </Text>
       ) : null}
@@ -1720,6 +1762,15 @@ const makeStyles = (colors: Colors) =>
     list: { gap: space.gap, marginTop: 4 },
     card: { minHeight: 0, gap: 12 },
     heading: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
+  // Titel über einer Gruppe von Karten – dieselbe Grösse wie auf der
+  // Seite «Abläufe» (screens/automations/stil.ts), damit die beiden
+  // Seiten nicht verschieden gebaut aussehen.
+  sectionTitle: {
+    color: colors.onGradient,
+    fontSize: 18,
+    fontWeight: '700',
+    marginTop: 14,
+  },
     facts: { flexDirection: 'row', flexWrap: 'wrap', gap: 22 },
     fact: { gap: 2 },
     factLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },

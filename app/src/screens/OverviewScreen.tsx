@@ -157,7 +157,6 @@ export function OverviewScreen({
     (e) => /tumbler|trockner/i.test(e.name) && typeof e.state.power === 'number'
   );
   const calendar = entities.find((e) => e.kind === 'calendar');
-  const weather = entities.find((e) => e.kind === 'weather');
   const alert = entities.find((e) => e.kind === 'alert' && e.state.state === 'alert');
   // Die echte Alarmanlage des Hubs; ein per Namen erkannter Schalter ist
   // nur der Notnagel für Aufbauten ohne sie.
@@ -165,12 +164,12 @@ export function OverviewScreen({
     entities.find((e) => e.kind === 'alarm') ??
     entities.find((e) => /alarm/i.test(e.name) && e.kind === 'switch');
   const covers = entities.filter((e) => e.kind === 'cover');
-  // In der Geräteliste als Favorit markiert – die stehen hier griffbereit.
-  // Beide Wege zählen: der Stern auf der Kachel (Geräte-Einstellungen) und
-  // die Markierung an der Entität selbst.
-  const favoriten = entities.filter(
-    (e) => favoriteIds.includes(e.id) || e.favorite
-  );
+  // Die persönlichen Favoriten des angemeldeten Benutzers. Bewusst nur
+  // die übergebene Liste: Der Stern an der Entität (`e.favorite`) ist der
+  // alte Haushalts-Stern – er steckt bereits als Startbestand in
+  // `favoriteIds`, solange jemand noch keine eigene Liste hat. Zählte er
+  // hier zusätzlich, liesse sich ein Gerät nie mehr entsternen.
+  const favoriten = entities.filter((e) => favoriteIds.includes(e.id));
   // Selbst gezogene Reihenfolge anwenden; neu hinzugekommene Favoriten
   // hängen sich hinten an, statt die gewachsene Ordnung durcheinander zu
   // bringen. Dieselbe Regel wie bei den Familien-Kacheln.
@@ -340,30 +339,11 @@ export function OverviewScreen({
   // ausgeben – vorher stand jeder doppelt im Code, einmal pro Tageszeit.
   const zugangBlock = (
     <>
-      {/* Zugang & Sicherheit */}
+      {/* Zugang & Sicherheit. Die Haustüre stand hier als erste Kachel –
+          sie ist in den Kopf neben die Uhr gezogen, wo vorher das Wetter
+          war. Übrig bleiben die zwei, die man seltener braucht. */}
       <Text style={styles.groupLabel}>Zugang</Text>
       <View style={styles.tileRow}>
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="business-outline" title="Haustüre" demo={!frontDoor}>
-          {/* Hier stand fest «Gegensprechanlage» - ein Wort, das die
-              Überschrift «Haustüre» schon sagt, und zwar an der Stelle,
-              an der die Nachbarkachel «Abgeschlossen» zeigt. Jetzt steht
-              dort etwas oder nichts. */}
-          {haustuerZeile(frontDoor?.state, new Date()) ? (
-            <Text style={styles.tileState}>
-              {haustuerZeile(frontDoor?.state, new Date())}
-            </Text>
-          ) : null}
-          <Action styles={styles}
-            label={confirm === 'front' ? 'Wirklich öffnen?' : 'Öffnen'}
-            accent={confirm === 'front'}
-            onPress={() =>
-              confirmThen('front', () =>
-                frontDoor ? onCommand(frontDoor.id, 'open_door') : undefined
-              )
-            }
-          />
-        </Tile>
-
         {/* Beide Kacheln färben sich, statt es nur danebenzuschreiben:
             Eine offene Wohnungstüre und eine scharfe Alarmanlage sind
             Zustände, die man im Vorbeigehen sehen soll - dieselbe Farbe
@@ -600,7 +580,7 @@ export function OverviewScreen({
       // gemessen genügt, sie teilen sich den Rand.
       onLayout={(event) => setRasterBreite(event.nativeEvent.layout.width)}
     >
-      {/* Kopf: Uhr, Datum, Wetter, Warnung */}
+      {/* Kopf: Uhr, Datum, Haustüre, Warnung */}
       <View style={styles.headRow}>
         <Card style={styles.clockCard}>
           <Text style={styles.clock}>
@@ -610,32 +590,31 @@ export function OverviewScreen({
             {WEEKDAYS[now.getDay()]}, {now.getDate()}. {MONTHS[now.getMonth()]}
           </Text>
         </Card>
-        <Card style={styles.weatherCard}>
-          {weather ? (
-            <>
-              <View style={styles.weatherNow}>
-                <Ionicons
-                  name={(weather.state.icon as keyof typeof Ionicons.glyphMap) ?? 'cloud-outline'}
-                  size={34}
-                  color={colors.ink}
-                />
-                <Text style={styles.weatherTemp}>
-                  {weather.state.temperature != null ? `${weather.state.temperature}°` : '–'}
-                </Text>
-              </View>
-              <Text style={styles.weatherText} numberOfLines={1}>
-                {String(weather.state.state ?? '')} · {weather.name}
-              </Text>
-            </>
-          ) : (
-            <>
-              <View style={styles.weatherNow}>
-                <Ionicons name="partly-sunny-outline" size={34} color={colors.ink} />
-                <Text style={styles.weatherTemp}>21°</Text>
-              </View>
-              <Text style={styles.weatherText}>Leicht bewölkt · Demo</Text>
-            </>
-          )}
+        {/* Hier stand das Wetter. Aber die Frage beim Blick aufs Panel ist
+            nicht «wie ist es draussen», sondern «hat jemand geklingelt» –
+            und die Haustüre wohnte dafür zu weit unten, hinter einmal
+            Rollen. Das Wetter hat seine Karte im Wetter-Gerät; die
+            Warnungen bleiben hier, die gehören nach oben. */}
+        <Card style={styles.doorCard}>
+          <View style={styles.doorHead}>
+            <Ionicons name="business-outline" size={20} color={colors.inkSoft} />
+            <Text style={styles.doorTitle}>Haustüre</Text>
+            {!frontDoor ? <Text style={styles.doorDemo}>Demo</Text> : null}
+          </View>
+          {haustuerZeile(frontDoor?.state, new Date()) ? (
+            <Text style={styles.doorState} numberOfLines={1}>
+              {haustuerZeile(frontDoor?.state, new Date())}
+            </Text>
+          ) : null}
+          <Action styles={styles}
+            label={confirm === 'front' ? 'Wirklich öffnen?' : 'Öffnen'}
+            accent={confirm === 'front'}
+            onPress={() =>
+              confirmThen('front', () =>
+                frontDoor ? onCommand(frontDoor.id, 'open_door') : undefined
+              )
+            }
+          />
           {alert ? (
             <View style={styles.alertRow}>
               <Ionicons name="warning" size={14} color={colors.danger} />
@@ -1229,10 +1208,17 @@ const makeStyles = (colors: Colors) =>
     clockCard: { flex: 1, minHeight: 0, justifyContent: 'center' },
     clock: { color: colors.ink, fontSize: 44, fontWeight: '700', letterSpacing: 1 },
     date: { color: colors.inkSoft, fontSize: 14, marginTop: 2 },
-    weatherCard: { flex: 1, minHeight: 0, justifyContent: 'center', gap: 4 },
-    weatherNow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-    weatherTemp: { color: colors.ink, fontSize: 34, fontWeight: '700' },
-    weatherText: { color: colors.inkSoft, fontSize: 13 },
+    // Die Haustüre neben der Uhr – gleiche Fläche, auf der vorher das
+    // Wetter stand.
+    doorCard: { flex: 1, minHeight: 0, justifyContent: 'center', gap: 6 },
+    doorHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    doorTitle: { color: colors.inkSoft, fontSize: 13, fontWeight: '600', flexShrink: 1 },
+    doorDemo: {
+      color: colors.inkFaint,
+      fontSize: 11,
+      marginLeft: 'auto',
+    },
+    doorState: { color: colors.ink, fontSize: 13 },
     alertRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
     alertText: { color: colors.danger, fontSize: 12, fontWeight: '600', flex: 1 },
 

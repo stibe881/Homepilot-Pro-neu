@@ -367,6 +367,40 @@ def parse_set_cookie(zeilen: Iterable[str]) -> dict[str, str]:
     return kekse
 
 
+def console_html_hint(url: str, content_type: str) -> str | None:
+    """Warum eine 200er-Antwort einer UniFi-Konsole keine Daten enthält.
+
+    (rein, testbar) - ``None``, wenn die Antwort in Ordnung aussieht.
+
+    Eine UniFi-Konsole trägt mehrere Anwendungen, jede unter
+    ``/proxy/<name>/``. Fragt man nach einer, die auf **diesem** Gerät
+    nicht läuft, kommt kein 404: Es kommt die Weboberfläche, mit Status
+    200. Genauso sieht eine abgelehnte Sitzung aus.
+
+    Ohne diesen Hinweis stand im Log nur «unexpected mimetype:
+    text/html». Das liest sich wie ein kaputter Endpunkt und schickt
+    einen auf die Suche nach einem Fehler im Hub - während in Wahrheit
+    bloss ``host`` auf die falsche Konsole zeigt. Eine Anlage kann eine
+    Protect-Konsole und ein Gateway mit dem Netzwerk-Controller haben;
+    beide beantworten die Anmeldung, aber nur eines kennt die Anwendung.
+    """
+    if "html" not in content_type.lower():
+        return None
+    anwendung = "die angefragte Anwendung"
+    teile = url.split("/proxy/", 1)
+    if len(teile) == 2:
+        name = teile[1].split("/", 1)[0]
+        if name:
+            anwendung = f"«{name}»"
+    return (
+        f"Der Controller hat die Anmeldeseite geschickt statt Daten. Auf "
+        f"diesem Gerät läuft {anwendung} vermutlich gar nicht - dann zeigt "
+        f"'host' auf die falsche Konsole (Protect und der Netzwerk-"
+        f"Controller sitzen oft auf verschiedenen Geräten). Sonst fehlt "
+        f"dem Benutzer der Zugriff auf diese Anwendung."
+    )
+
+
 def setup_error(name: str, err: Exception) -> str:
     """Warum der Start scheiterte, in einem Satz (rein, testbar).
 

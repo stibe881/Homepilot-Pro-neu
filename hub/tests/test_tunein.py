@@ -322,10 +322,24 @@ async def test_an_unknown_station_says_which_ones_exist():
         await hub.stop()
 
 
+def test_a_television_is_the_last_resort_not_the_first():
+    """Radio auf dem Fernseher will niemand aus Versehen. Aber ein Haus,
+    dessen einziges Cast-Gerät am Fernseher hängt, hatte sonst gar keine
+    Box: Der Sender liess sich antippen, und es passierte nichts."""
+    from homepilot.integrations.tunein import waehlbare_boxen
+
+    kueche = ("cast.kueche", "Küche", False)
+    tv = ("cast.stube", "Wohnzimmer TV", True)
+    # Gibt es eine echte Box, bleibt der Fernseher draussen.
+    assert waehlbare_boxen([kueche, tv]) == [("cast.kueche", "Küche")]
+    # Gibt es keine, ist der Fernseher besser als Stille.
+    assert waehlbare_boxen([tv]) == [("cast.stube", "Wohnzimmer TV")]
+    assert waehlbare_boxen([]) == []
+
+
 async def test_radio_does_not_offer_the_television_as_a_speaker():
-    """Radio auf dem Fernseher heisst: Gerät an, schwarzes Bild, Musik.
-    Das will niemand aus Versehen – und in einer Liste von Boxen sucht es
-    auch niemand."""
+    """Solange es eine echte Box gibt, steht der Fernseher nicht zur
+    Wahl."""
     hub, radio, _ = await _hub_mit_box()
     try:
         await radio.setup()

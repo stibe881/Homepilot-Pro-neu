@@ -11,8 +11,11 @@ import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-nativ
 import { hubClient } from '../../api/client';
 import { CommandData, Entity } from '../../api/types';
 import { useSettings } from '../../hooks/HubContext';
+import { keineBoxText } from '../../lib/radiobox';
 import { useColors } from '../../theme';
 import { makeStyles } from './stil';
+
+export { keineBoxText };
 
 
 export function ShuffleRepeat({
@@ -517,6 +520,11 @@ export function RadioPanel({
   const hub = useMemo(() => hubClient(settings.url, settings.token), [settings]);
 
   const devices: string[] = Array.isArray(entity.state.devices) ? entity.state.devices : [];
+  // Wie viele Medien-Geräte der Hub überhaupt kennt. «Gar keins gefunden»
+  // und «keins, das eine Tonadresse abspielen kann» sind zwei
+  // verschiedene Antworten.
+  const mediaPlayers =
+    typeof entity.state.media_players === 'number' ? entity.state.media_players : 0;
   const stations: string[] = Array.isArray(entity.state.stations)
     ? entity.state.stations.map((name) => String(name))
     : [];
@@ -538,8 +546,19 @@ export function RadioPanel({
 
   return (
     <View style={styles.stack}>
-      {!hideDevices ? <Text style={styles.mediaLabel}>Abspielen auf</Text> : null}
-      {hideDevices ? null : devices.length > 0 ? (
+      {/* Die Fehlanzeige steht immer da, auch auf der Startseite: Sie ist
+          keine Auswahl, sondern eine Antwort. Ohne sie sah die Karte
+          normal aus, der Sender liess sich antippen – und es passierte
+          nichts, weil der Ton nirgends hin konnte. */}
+      {devices.length === 0 ? (
+        <Text style={styles.hint}>
+          {keineBoxText(mediaPlayers)}
+        </Text>
+      ) : null}
+      {!hideDevices && devices.length > 0 ? (
+        <Text style={styles.mediaLabel}>Abspielen auf</Text>
+      ) : null}
+      {hideDevices || devices.length === 0 ? null : (
         <View style={styles.deviceRow}>
           {devices.map((name) => {
             const selected = name === target;
@@ -574,11 +593,6 @@ export function RadioPanel({
             );
           })}
         </View>
-      ) : (
-        <Text style={styles.hint}>
-          Keine Box da, die eine Tonadresse abspielen kann. Radio braucht einen
-          Chromecast oder Google-Home-Lautsprecher.
-        </Text>
       )}
 
       <Pressable
@@ -606,6 +620,7 @@ export function RadioPanel({
         hub={hub}
         stations={stations}
         current={current}
+        hinweis={devices.length === 0 ? keineBoxText(mediaPlayers) : null}
         onClose={() => setListOpen(false)}
         onPlay={spielen}
       />
@@ -636,6 +651,7 @@ export function RadioSheet({
   hub,
   stations,
   current,
+  hinweis,
   onClose,
   onPlay,
 }: {
@@ -643,6 +659,8 @@ export function RadioSheet({
   hub: ReturnType<typeof hubClient>;
   stations: string[];
   current: string | null;
+  /** Warum ein Tipp hier gerade nichts bewirkt – oder null. */
+  hinweis?: string | null;
   onClose: () => void;
   onPlay: (station: string) => void;
 }) {
@@ -754,6 +772,9 @@ export function RadioSheet({
           ) : null}
         </View>
 
+        {/* Ganz oben, nicht unten: Wer hier einen Sender antippt und
+            nichts hört, soll den Grund gelesen haben, bevor er tippt. */}
+        {hinweis ? <Text style={styles.warnHint}>{hinweis}</Text> : null}
         {note ? <Text style={styles.hint}>{note}</Text> : null}
 
         <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>

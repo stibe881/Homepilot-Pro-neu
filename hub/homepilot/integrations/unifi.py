@@ -40,7 +40,7 @@ import aiohttp
 
 from ..core.entity import EntityKind
 from ..core.errors import ConfigError
-from ..core.integration import Integration
+from ..core.integration import Integration, console_html_hint
 
 
 def normalise_mac(mac: str) -> str:
@@ -169,6 +169,13 @@ class UnifiIntegration(Integration):
                 raise ConnectionError(f"UniFi-Controller nicht erreichbar: {err}") from err
         raise ConnectionError("UniFi-Anmeldung fehlgeschlagen – Zugangsdaten prüfen")
 
+    @staticmethod
+    def _pruefe_antwort(response: aiohttp.ClientResponse) -> None:
+        """Die Anmeldeseite als solche erkennen, bevor JSON daran scheitert."""
+        hinweis = console_html_hint(str(response.url), response.content_type)
+        if hinweis:
+            raise ConnectionError(hinweis)
+
     async def _fetch_clients(self) -> list[dict[str, Any]]:
         url = f"{self._base}{self._prefix}/api/s/{self._site}/stat/sta"
         headers = {"X-CSRF-Token": self._csrf} if self._csrf else {}
@@ -179,9 +186,11 @@ class UnifiIntegration(Integration):
                 await self._login()
                 async with self._session.get(url, headers=headers) as retry:
                     retry.raise_for_status()
+                    self._pruefe_antwort(retry)
                     payload = await retry.json()
             else:
                 response.raise_for_status()
+                self._pruefe_antwort(response)
                 payload = await response.json()
         return payload.get("data", [])
 
@@ -205,9 +214,11 @@ class UnifiIntegration(Integration):
                     method, url, json=json, params=params, headers=headers
                 ) as retry:
                     retry.raise_for_status()
+                    self._pruefe_antwort(retry)
                     payload = await retry.json(content_type=None)
             else:
                 response.raise_for_status()
+                self._pruefe_antwort(response)
                 payload = await response.json(content_type=None)
         return payload.get("data", []) if isinstance(payload, dict) else []
 

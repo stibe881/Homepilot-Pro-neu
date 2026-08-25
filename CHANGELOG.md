@@ -7,6 +7,82 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 ## 2026-08-24
 
+**Haushaltsgeräte**
+
+- Waschmaschine und Geschirrspüler standen als «unknown» da, sobald sie
+  schliefen. V-ZUG-Geräte antworten im Standby mit einem 503 – der Hub
+  wertet das zu Recht nicht als Ausfall, schrieb dabei aber nie einen
+  Zustand. Weil die Maschinen fast immer schlafen und der Hub bei jedem
+  Bauen neu startet, blieb der Platzhalter aus dem Start oft stundenlang
+  stehen, und die Kachel gab ihn roh aus: das englische Wort unter
+  «Waschmaschine».
+- Jetzt steht dort **Standby**. Ausdrücklich nicht «Bereit»: Ob die
+  Maschine ausgeräumt ist, weiss im Standby niemand – und hätte der Hub
+  «fertig» geschrieben, hätte der Wächter daraus einen Programmlauf im
+  Protokoll gemacht und irgendwann ein «ist noch voll» über eine
+  Maschine geschickt, die seit Tagen leer dasteht. Eine echte Meldung
+  von vorhin bleibt unangetastet.
+- Übersichtskachel, Raumkachel und Gerätekarte sagen dasselbe Wort.
+  Bisher entschied jede für sich zwischen «Läuft» und sonst «Bereit» –
+  dasselbe Gerät stand damit an einer Stelle als «Standby» und an der
+  anderen als «Bereit».
+
+**Ortung**
+
+- Wer nach Hause kam, blieb «unterwegs». Die App meldete bisher nur
+  Grenzübertritte, und eine Meldung, die nicht ankommt, war für immer
+  weg. Beim Ankommen trifft sie genau das Loch zwischen Mobilfunk und
+  WLAN – der Hub steht im Heimnetz, das Telefon hängt beim Kreuzen der
+  Grenze noch am Funkmast. Danach stand man bis zum nächsten Weggehen
+  falsch da, und jeder Ablauf an der Ankunft lief nie.
+- Die App meldet jetzt **laufend, sobald sie sich bewegt hat** – nach
+  fünfzig Metern, nicht nach einer Uhr. Wer stillsteht, erzeugt nichts
+  und verbraucht nichts. Gemeldet wird die Position, nicht mehr «ich
+  habe eine Grenze gekreuzt»: Der Hub rechnet selbst, in welchen Orten
+  jemand steckt. Damit rückt jede einzelne Meldung gerade, was von einer
+  früheren fehlt.
+- Was nicht durchkommt, wird aufgehoben und beim nächsten Anlass
+  nachgereicht. Nachgereichtes kann nichts Neueres überschreiben – jede
+  Meldung trägt den Zeitpunkt ihrer Messung mit.
+- Die Zonenüberwachung bleibt daneben: Sie meldet den Übertritt scharf
+  und sofort und kostet fast nichts.
+- Holt man die App aus dem App-Switcher, meldet sie wieder. Bisher tat
+  sie das nur beim Starten – und aus dem Switcher startet nichts. Das
+  war der letzte Weg, auf dem sich ein verlorener Übertritt noch von
+  selbst hätte richten können, und er war zu.
+- Die Diagnose unter *System* sagt nicht mehr «Meldet sich regelmässig»
+  zu einer Position von vorgestern. «Wann hat sich etwas geändert» und
+  «wann kam zuletzt etwas an» waren dasselbe Feld; weil Life360 im
+  Minutentakt meldet, sah alles immer frisch aus. Damit konnte auch das
+  Sicherheitsnetz nie greifen, das ein eingefrorenes «weg» nach zwölf
+  Stunden auf «unbekannt» stellt – und daran hängt, dass «alles aus»
+  nicht läuft, während jemand im Haus ist.
+- Nachtrag am selben Tag, zwei Fehler in der Reparatur selbst: Die App
+  hatte eine Sperre, die gar nichts meldete, wenn die Messung gröber war
+  als der halbe Radius des engsten Ortes. Drinnen sind 60 bis 100 Meter
+  normal, und ein einziger erfasster Laden mit 50 Metern zieht die
+  Schranke auf 25 – im eigenen Wohnzimmer meldete die App also nie. Die
+  Streuung reist jetzt mit und wird beim Hub je Ort verrechnet, wo alle
+  Orte bekannt sind. Und die laufende Aktualisierung meldete sich nur
+  an, wenn jemand den Schalter anfasste; wer ihn seit dem Update in Ruhe
+  liess, lief weiter bloss auf Grenzübertritten. Sie meldet sich jetzt
+  bei jedem App-Start an.
+- Der Erlaubnistext auf dem Telefon sagt jetzt, was wirklich passiert.
+  Dort stand «kein laufender Standort», und das stimmt nicht mehr.
+  **Dafür braucht es einen neuen Build, kein OTA.**
+
+**Radio**
+
+- Ein Sender liess sich antippen, und es passierte nichts – wenn der Hub
+  keine Box kennt, die eine Tonadresse abspielen kann. Die Karte sah
+  dabei völlig normal aus: Der Satz, der es erklärt, stand in der
+  Boxenzeile, und die ist auf der Startseite ausgeblendet. Jetzt steht
+  er dort, wo man ihn braucht – auf der Karte und im Senderfenster – und
+  unterscheidet «gar keine Box gefunden» von «keine, die es kann».
+- Hängt das einzige Cast-Gerät am Fernseher, spielt das Radio jetzt
+  darauf, statt gar nicht. Fernseher bleiben zweite Wahl: Gibt es eine
+  richtige Box, steht der Fernseher weiterhin nicht in der Liste.
+
 **Startseite**
 
 - Die Favoritenkacheln stehen auf jedem iPhone nebeneinander statt zu
@@ -88,6 +164,14 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   schickt und er dieses Attribut nicht kennt. Der Hub liest den Token
   jetzt selbst aus der Kopfzeile. Beide UniFi-Anbindungen gehen
   denselben Weg, geprüft an der echten Zeile einer Konsole.
+- «UniFi-Abfrage fehlgeschlagen: unexpected mimetype: text/html» heisst
+  jetzt, was es heisst. Eine UniFi-Konsole trägt mehrere Anwendungen,
+  jede unter `/proxy/<name>/`; fragt man nach einer, die auf **diesem**
+  Gerät nicht läuft, kommt kein 404, sondern die Weboberfläche mit
+  Status 200. Im Haus stand der Netzwerk-Controller auf dem Gateway,
+  während `host` auf die Protect-Konsole zeigte – die Suche danach
+  dauerte einen Abend. Der Hinweis nennt jetzt die gesuchte Anwendung
+  und die zwei möglichen Gründe.
 - Wer das Gäste-Netz ausschliesslich über das UniFi-Captive-Portal
   betreibt, kommt jetzt an den Gutschein-Spender heran, ohne vorher
   einen `guest_wifi`-Abschnitt einzutragen. Vorher zählte die Karte den
