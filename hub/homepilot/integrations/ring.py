@@ -389,27 +389,49 @@ def verlauf_hinweis(mit_verlauf: list[str]) -> str:
     )
 
 
-#: In diesem Fenster gilt ein zweites Klingeln als dasselbe.
+#: Wie weit zwei Meldungen desselben Klingelns zeitlich auseinander
+#: liegen dürfen.
 #:
-#: Der Grund ist die Kennung: Jeder Weg vergibt seine eigene. Der
-#: Push-Kanal liefert die Kennung der Meldung, die Abfrage dieselbe - der
-#: Verlauf dagegen die Kennung des Verlaufseintrags, und die ist eine
-#: andere Zahl für dasselbe Klingeln. Wer nach Kennung entprellt, hält
-#: dieselbe Klingel für drei verschiedene und meldet sie dreimal.
+#: Verglichen wird der Zeitpunkt, zu dem *geklingelt* wurde - nicht der,
+#: zu dem die Meldung beim Hub eintraf. Das ist der Unterschied, der
+#: zählt: Jeder Weg vergibt seine eigene Kennung (der Verlauf die des
+#: Verlaufseintrags, die Abfrage die der Meldung), und jeder Weg kommt
+#: zu einer anderen Zeit an - der Verlauf nach fünf Sekunden, die
+#: Abfrage nach dreissig. Wer nach der Ankunft entprellt, bräuchte ein
+#: Fenster, das breit genug ist, um einen zweiten Besucher zu
+#: verschlucken.
 #:
-#: Deshalb hier nach der Zeit statt nach der Kennung. Fünfundzwanzig
-#: Sekunden: Wer zweimal kurz hintereinander drückt, meint einmal; wer
-#: nach einer halben Minute nochmals klingelt, will etwas.
-KLINGEL_ENTPRELLUNG = 25.0
+#: Der Klingel-Zeitpunkt dagegen ist bei allen Wegen derselbe, auf ein
+#: paar Sekunden genau. Deshalb genügt hier ein enges Fenster - und wer
+#: zehn Sekunden später nochmals drückt, wird gehört.
+KLINGEL_ENTPRELLUNG = 5.0
+
+
+def ding_zeit(event: Any, jetzt: float) -> float:
+    """Wann geklingelt wurde (rein, testbar).
+
+    Ring legt der Meldung ihren eigenen Zeitstempel bei. Fehlt er, bleibt
+    nur der Moment des Eintreffens - dann ist die Entprellung ungenauer,
+    aber immer noch besser als keine.
+    """
+    roh = getattr(event, "now", None)
+    try:
+        wert = float(roh)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return jetzt
+    return wert if wert > 0 else jetzt
 
 
 def ist_wiederholung(
-    letzte: float | None, jetzt: float, frist: float = KLINGEL_ENTPRELLUNG
+    letzte: float | None, wann: float, frist: float = KLINGEL_ENTPRELLUNG
 ) -> bool:
-    """Ist das dasselbe Klingeln wie eben? (rein, testbar)"""
+    """Ist das dasselbe Klingeln wie das letzte? (rein, testbar)
+
+    Beide Zeiten sind Klingel-Zeitpunkte, nicht Ankunftszeiten.
+    """
     if letzte is None:
         return False
-    return 0 <= jetzt - letzte < frist
+    return abs(wann - letzte) < frist
 
 
 #: Wie die Wege heissen, über die ein Klingeln hereinkommen kann.
@@ -461,6 +483,27 @@ def klingel_satz(wann: float | None, quelle: str | None, jetzt: float) -> str:
         wie_lange = f"vor {round(sekunden / 86400)} Tagen"
     weg = QUELLEN_NAMEN.get(str(quelle or ""), "auf unbekanntem Weg")
     return f" Zuletzt geklingelt {wie_lange}, {weg}."
+
+
+def abfrage_takt(events_ok: bool, quellen: list[str], push_gesamt: int) -> float:
+    """Wie oft die Ersatz-Abfrage laufen soll (rein, testbar).
+
+    Hier lag der Fehler, den man an der Uhr merkt: Der Takt hing daran,
+    ob der Ereigniskanal *gestartet* ist - und das ist er, sobald die
+    Anmeldung durch war, auch wenn danach nie etwas hereinkommt. Der Hub
+    schaltete also auf den langsamen Takt zurück und wartete bis zu
+    dreissig Sekunden, während die einzige Quelle, die wirklich lieferte,
+    die Abfrage war. Im Schnitt fünfzehn Sekunden bis zur Nachricht -
+    genau das, was zu messen war.
+
+    Massgeblich ist deshalb nicht, ob der Kanal steht, sondern ob über
+    ihn etwas kommt.
+    """
+    if not events_ok:
+        return DING_POLL_SECONDS
+    if push_gesamt <= 0 or kanal_taub(quellen):
+        return DING_POLL_SECONDS
+    return DING_POLL_BACKUP_SECONDS
 
 
 def kanal_taub(quellen: list[str]) -> bool:
@@ -750,6 +793,8 @@ class RingIntegration(Integration):
         # keinem bekannten Gerät gehörte.
         self._push_gesamt = 0
         self._push_fremd = 0
+        # Ob der fehlgeschlagene Verlauf schon einmal laut gemeldet wurde.
+        self._verlauf_gemeldet = False
         self._by_ring_id: dict[int, str] = {}
         self._clear_tasks: dict[str, asyncio.Task] = {}
 
@@ -845,8 +890,25 @@ class RingIntegration(Integration):
                 except asyncio.CancelledError:
                     raise
                 except Exception as err:
-                    self.log.debug("Ring: Verlauf nicht abrufbar (%s)", err)
+                    # Einmal laut, danach leise. Auf debug war das der
+                    # blinde Fleck: Der Verlauf ist für die
+                    # Gegensprechanlage der einzige schnelle Weg - klappt
+                    # er nicht, bleibt nur die Abfrage, und niemand
+                    # erfuhr davon.
+                    melden = (
+                        self.log.warning
+                        if not self._verlauf_gemeldet
+                        else self.log.debug
+                    )
+                    self._verlauf_gemeldet = True
+                    melden(
+                        "Ring: Verlauf von %s nicht abrufbar (%s) - das "
+                        "Klingeln kommt dann nur über die Abfrage",
+                        entity_id,
+                        err,
+                    )
                     continue
+                self._verlauf_gemeldet = False
                 frisch, self._verlauf_gesehen = verlauf_dings(
                     verlauf,
                     self._verlauf_gesehen,
@@ -1253,7 +1315,7 @@ class RingIntegration(Integration):
         """
         while True:
             await asyncio.sleep(
-                DING_POLL_BACKUP_SECONDS if self._events_ok else DING_POLL_SECONDS
+                abfrage_takt(self._events_ok, self._quellen, self._push_gesamt)
             )
             if not self._devices:
                 continue
@@ -1319,7 +1381,11 @@ class RingIntegration(Integration):
         # unregelmässig, und ein verpasster Bewegungs-Push ist kein
         # Beinbruch. Beim Klingeln ist er einer.
         if event.kind == "ding":
-            jetzt = time.time()
+            # Der Zeitpunkt des Klingelns, nicht der des Eintreffens:
+            # Über die Abfrage kommt dieselbe Klingel eine halbe Minute
+            # später an als über den Verlauf, trägt aber denselben
+            # Stempel.
+            jetzt = ding_zeit(event, time.time())
             if ist_wiederholung(self._klingel_zeiten.get(entity_id), jetzt):
                 # Dasselbe Klingeln auf einem zweiten Weg. Der Zustand
                 # steht schon richtig; weiterzumachen hiesse, dem Haus

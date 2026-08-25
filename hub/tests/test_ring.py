@@ -377,7 +377,10 @@ from homepilot.integrations.ring import KLINGEL_ENTPRELLUNG, ist_wiederholung
 
 def test_the_same_ring_on_another_path_is_still_the_same_ring():
     jetzt = 1_700_000_000.0
-    # Push zuerst, zwei Sekunden später der Verlauf mit anderer Kennung.
+    # Verglichen werden Klingel-Zeitpunkte, nicht Ankunftszeiten: Über
+    # die Abfrage kommt dieselbe Klingel eine halbe Minute später an als
+    # über den Verlauf - und trägt denselben Stempel, auf ein paar
+    # Sekunden genau.
     assert ist_wiederholung(jetzt, jetzt + 2.0) is True
     assert ist_wiederholung(jetzt, jetzt + KLINGEL_ENTPRELLUNG - 0.1) is True
 
@@ -437,3 +440,59 @@ def test_the_numbers_reach_the_system_screen_when_the_channel_is_deaf():
     )
     assert "taub" in text
     assert "keine einzige Meldung" in text
+
+
+# ── Der Takt der Ersatz-Abfrage ─────────────────────────────────────────
+#
+# Hier lag der Fehler, den man an der Uhr merkt: Der Takt hing daran, ob
+# der Ereigniskanal *gestartet* ist - und das ist er, sobald die
+# Anmeldung durch war, auch wenn danach nie etwas hereinkommt. Der Hub
+# wartete also bis zu dreissig Sekunden, während die einzige Quelle, die
+# lieferte, die Abfrage war.
+
+from homepilot.integrations.ring import (
+    DING_POLL_BACKUP_SECONDS,
+    DING_POLL_SECONDS,
+    abfrage_takt,
+    ding_zeit,
+)
+
+
+def test_a_channel_that_never_delivered_gets_the_fast_poll():
+    """Gemeldet, aber stumm: Genau der Fall im System-Bildschirm."""
+    assert abfrage_takt(True, [], push_gesamt=0) == DING_POLL_SECONDS
+
+
+def test_a_deaf_channel_gets_the_fast_poll_too():
+    quellen = ["abfrage", "abfrage", "abfrage", "abfrage"]
+    assert abfrage_takt(True, quellen, push_gesamt=5) == DING_POLL_SECONDS
+
+
+def test_a_channel_that_is_not_up_gets_the_fast_poll():
+    assert abfrage_takt(False, [], push_gesamt=0) == DING_POLL_SECONDS
+
+
+def test_a_working_channel_may_take_it_slow():
+    """Nur dann ist die Abfrage wirklich bloss das Netz darunter."""
+    quellen = ["push", "push", "push", "push"]
+    assert abfrage_takt(True, quellen, push_gesamt=12) == DING_POLL_BACKUP_SECONDS
+
+
+def test_the_ring_time_comes_from_the_event_itself():
+    class Meldung:
+        now = 1_699_999_990.0
+
+    assert ding_zeit(Meldung(), 1_700_000_000.0) == 1_699_999_990.0
+
+
+def test_without_a_stamp_the_arrival_has_to_do():
+    class Ohne:
+        now = None
+
+    assert ding_zeit(Ohne(), 1_700_000_000.0) == 1_700_000_000.0
+    assert ding_zeit(object(), 1_700_000_000.0) == 1_700_000_000.0
+
+    class Unsinn:
+        now = "vorhin"
+
+    assert ding_zeit(Unsinn(), 1_700_000_000.0) == 1_700_000_000.0
