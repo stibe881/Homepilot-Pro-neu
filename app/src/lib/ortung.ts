@@ -199,16 +199,6 @@ export function quellenText(quelle: unknown): string {
   return wert;
 }
 
-/** Eine Zeile je Person für die Familienseite (rein, testbar). */
-export function anwesenheitsZeile(person: Person, jetzt: Date): string {
-  const seit = seitText(person?.since, jetzt);
-  return [String(person?.name ?? '').trim(), zustandText(person), seit]
-    .filter(Boolean)
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 /**
  * Nur die Leute, die der Hub überhaupt orten kann (rein, testbar).
  *
@@ -223,52 +213,6 @@ export function geortet(people: Person[]): Person[] {
   return (people ?? []).filter(
     (person) => person?.name && person?.configured !== false
   );
-}
-
-/**
- * Wo jemand steckt – für eine Zeile der Ortungs-Prüfung (rein, testbar).
- *
- * Leer bei «unbekannt»: Dort sagt der Hinweis daneben schon, woran es
- * liegt, und ein «meldet sich nicht · meldet sich nicht» wäre doppelt.
- */
-export function diagnoseOrt(zeile: Person): string {
-  const state = String(zeile?.combined ?? zeile?.state ?? 'unknown');
-  if (state === 'unknown') return '';
-  return zustandText({ state, place_name: zeile?.place_name });
-}
-
-/**
- * Die ganze Unterzeile der Ortungs-Prüfung (rein, testbar).
- *
- * Der Ort zuerst: Das ist die Frage, wegen der man hinschaut. Danach
- * erst, ob die Meldungen regelmässig kommen, woher sie stammen und wie
- * es um den Akku steht – das beantwortet «warum steht da das».
- */
-export function diagnoseZeile(zeile: Person): string {
-  const teile = [diagnoseOrt(zeile), String(zeile?.hint ?? '').trim()].filter(Boolean);
-  teile.push(`Quelle: ${quellenText(zeile?.combined_source)}`);
-  const akku = zeile?.battery;
-  if (akku !== null && akku !== undefined && akku !== '') {
-    teile.push(`Akku ${String(akku)} %`);
-  }
-  return teile.join(' · ');
-}
-
-/**
- * Die Übersicht in einem Satz (rein, testbar).
- *
- * Für die Kopfzeile: «Alle zuhause» ist eine Antwort, «3 Einträge» nicht.
- */
-export function anwesenheitKurz(people: Person[]): string {
-  const echte = geortet(people);
-  if (echte.length === 0) return '';
-  const zuhause = echte.filter((p) => String(p.state) === 'home');
-  const unbekannt = echte.filter((p) => String(p.state) === 'unknown');
-  if (zuhause.length === echte.length) return 'Alle zuhause';
-  if (zuhause.length === 0 && unbekannt.length === 0) return 'Niemand zuhause';
-  const namen = zuhause.map((p) => String(p.name).split(' ')[0]);
-  const kopf = namen.length > 0 ? `${namen.join(', ')} zuhause` : 'Niemand zuhause';
-  return unbekannt.length > 0 ? `${kopf} · ${unbekannt.length} unbekannt` : kopf;
 }
 
 /**

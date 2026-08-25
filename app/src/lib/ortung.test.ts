@@ -2,11 +2,8 @@
  * «Wer ist da?» und die Frage, ob man dem Orten zusehen kann.
  */
 import {
-  anwesenheitKurz,
   anwesenheitsListe,
-  anwesenheitsZeile,
   dauerDa,
-  diagnoseZeile,
   geortet,
   ortungsHinweis,
   quellenText,
@@ -42,33 +39,6 @@ describe('seitText', () => {
 
   test('ohne Zeitpunkt keine Behauptung', () => {
     expect(seitText(null, JETZT)).toBe('');
-  });
-});
-
-test('anwesenheitsZeile liest sich wie ein Satz', () => {
-  expect(
-    anwesenheitsZeile({ name: 'Stefan', state: 'away', since: vorMinuten(100) }, JETZT)
-  ).toBe('Stefan unterwegs seit 14:20');
-});
-
-describe('anwesenheitKurz', () => {
-  test('alle da ist eine Antwort', () => {
-    expect(anwesenheitKurz([{ name: 'A', state: 'home' }, { name: 'B', state: 'home' }])).toBe(
-      'Alle zuhause'
-    );
-  });
-
-  test('niemand da ebenso', () => {
-    expect(anwesenheitKurz([{ name: 'A', state: 'away' }])).toBe('Niemand zuhause');
-  });
-
-  test('Unbekanntes wird nicht als «weg» verkauft', () => {
-    expect(
-      anwesenheitKurz([
-        { name: 'Sandra', state: 'home' },
-        { name: 'Livia', state: 'unknown' },
-      ])
-    ).toBe('Sandra zuhause · 1 unbekannt');
   });
 });
 
@@ -319,14 +289,6 @@ describe('Gespeicherte Orte von Life360', () => {
     expect(zustandText({ state: 'away' })).toBe('unterwegs');
   });
 
-  it('trägt den Ort in die Zeile der Familienseite', () => {
-    expect(
-      anwesenheitsZeile(
-        { name: 'Maja', state: 'tanners_home', place_name: 'Tanners Home' },
-        JETZT
-      )
-    ).toBe('Maja Tanners Home');
-  });
 });
 
 
@@ -348,54 +310,9 @@ describe('geortet', () => {
     expect(geortet(leute).map((p) => p.name)).toEqual(['Stefan', 'Maja']);
   });
 
-  it('zählt sie auch in der Kopfzeile nicht mit', () => {
-    // Vorher: «Niemand zuhause · 3 unbekannt» – zwei davon waren Zugänge.
-    expect(anwesenheitKurz(leute)).toBe('Maja zuhause · 1 unbekannt');
-  });
 
   it('verträgt Leeres', () => {
     expect(geortet([])).toEqual([]);
     expect(geortet([{ state: 'home' }])).toEqual([]);
-  });
-});
-
-describe('diagnoseZeile', () => {
-  it('stellt den Ort nach vorn – deswegen schaut man hin', () => {
-    expect(
-      diagnoseZeile({
-        combined: 'tanners_home',
-        place_name: 'Tanners Home',
-        hint: 'Meldet sich regelmässig.',
-        combined_source: 'life360',
-        battery: 89,
-      })
-    ).toBe('Tanners Home · Meldet sich regelmässig. · Quelle: Life360 · Akku 89 %');
-  });
-
-  it('schreibt «zuhause» und «unterwegs» aus', () => {
-    expect(
-      diagnoseZeile({ combined: 'home', hint: 'Meldet sich regelmässig.', combined_source: 'geofence' })
-    ).toBe('zuhause · Meldet sich regelmässig. · Quelle: Telefon');
-    expect(diagnoseZeile({ combined: 'away', combined_source: 'life360' })).toBe(
-      'unterwegs · Quelle: Life360'
-    );
-  });
-
-  it('lässt den Ort weg, wo es keinen gibt', () => {
-    // Sonst stünde «meldet sich nicht · Hat sich noch nie gemeldet …».
-    expect(
-      diagnoseZeile({
-        combined: 'unknown',
-        hint: 'Hat sich noch nie gemeldet.',
-        combined_source: 'none',
-      })
-    ).toBe('Hat sich noch nie gemeldet. · Quelle: noch keine Meldung');
-  });
-
-  it('lässt den Akku weg, wenn keiner gemeldet ist', () => {
-    expect(diagnoseZeile({ combined: 'home', combined_source: 'geofence', battery: null }))
-      .toBe('zuhause · Quelle: Telefon');
-    expect(diagnoseZeile({ combined: 'home', combined_source: 'geofence', battery: 0 }))
-      .toBe('zuhause · Quelle: Telefon · Akku 0 %');
   });
 });

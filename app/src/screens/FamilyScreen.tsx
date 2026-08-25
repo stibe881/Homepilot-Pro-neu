@@ -38,11 +38,14 @@ import {
 import { babysitterFrist, passwortHinweis } from '../lib/einladung';
 import { herkunftText, neuSeit, suche, trefferName } from '../lib/familiensuche';
 import {
-  anwesenheitKurz,
-  anwesenheitsZeile,
-  diagnoseZeile,
-  geortet,
-} from '../lib/ortung';
+  akku,
+  kopfzeile,
+  lage,
+  ortText,
+  reihenfolge,
+  unterZeile,
+} from '../lib/anwesenheitskarte';
+import { Person } from '../lib/personen';
 import {
   ABEND_FELDER,
   BABYSITTER_FEATURES,
@@ -185,10 +188,11 @@ export function FamilyScreen({
     null
   );
   // Wer gerade wo ist (Punkt 196) und warum es dort so steht (Punkt 219).
-  const [anwesend, setAnwesend] = useState<Record<string, unknown>[]>([]);
-  const [ortungsDiagnose, setOrtungsDiagnose] = useState<Record<string, unknown>[] | null>(
-    null
-  );
+  const [anwesend, setAnwesend] = useState<Person[]>([]);
+  // Welche Zeile der Anwesenheitskarte gerade ihren langen Satz zeigt.
+  // Er wird selten gebraucht und drängte sich sonst vor das, was man
+  // immer sucht.
+  const [warum, setWarum] = useState<string | null>(null);
   // «Was koche ich heute?» im Planer (Punkt 139): Die Saat hält die
   // Vorschläge stehen, bis jemand würfelt - sonst mischte jedes
   // Live-Update vom Hub die Liste um.
@@ -462,8 +466,13 @@ export function FamilyScreen({
   }, [hub]);
 
   useEffect(() => {
+    // /api/personen statt /api/presence: Der eine zählt die Hub-Benutzer,
+    // der andere die Ortungszonen. Solange die Karte beides mischte,
+    // stand oben «Alle zuhause» über einer Liste, in der vier Leute
+    // woanders waren - die Überschrift rechnete über zwei Personen, die
+    // Liste zeigte sieben.
     hub
-      .get<{ people: Record<string, unknown>[] } | null>('/api/presence', {
+      .get<{ people: Person[] } | null>('/api/personen', {
         fallback: null,
         still: true,
       })
@@ -586,13 +595,19 @@ export function FamilyScreen({
       : wochentagUhr(new Date(event.start));
 
   const presenceOf = (name: string): 'home' | 'away' | null => {
+    // Aus derselben Liste wie die Karte darüber. Vorher suchte das hier
+    // einen binary_sensor und verglich seinen Zustand mit «on» - eine
+    // Ortungszone steht aber auf «home», «away» oder dem Namen eines
+    // Ortes, nie auf «on». Damit stand unter jedem Kopf «Unterwegs»,
+    // auch unter dem von jemandem, der zwei Zentimeter darüber als
+    // «zuhause» geführt wurde.
     const first = name.split(' ')[0].toLowerCase();
-    const tracker = entities.find(
-      (entity) =>
-        entity.kind === 'binary_sensor' && entity.name.toLowerCase().includes(first)
+    const person = anwesend.find(
+      (eintrag) => String(eintrag.name ?? '').split(' ')[0].toLowerCase() === first
     );
-    if (!tracker) return null;
-    return tracker.state.state === 'on' ? 'home' : 'away';
+    if (!person || !person.zone) return null;
+    const wie = lage(person);
+    return wie === 'unklar' ? null : wie === 'da' ? 'home' : 'away';
   };
 
   // ── Babysitter-Zugang ──────────────────────────────────────────────────
@@ -3846,54 +3861,83 @@ export function FamilyScreen({
       </Card>
 
       {/* Punkt 196: «Wer ist da?» ist die meistgestellte Frage im
-          Haushalt – sie stand bisher als Gerätekachel zwischen Lampen und
-          Storen. Ohne Karte, ohne Meterangaben. */}
-      {/* Bleiben nach dem Aussieben nur Zugänge übrig, gibt es nichts
-          zu zeigen – eine leere Karte wäre schlimmer als keine. */}
-      {geortet(anwesend).length > 0 ? (
+          Haushalt. Sie stand hier als Textwand: je Person eine Zeile
+          oben, dieselbe Person unten noch einmal mit der ganzen
+          Diagnose als Absatz. Jetzt eine Zeile je Mensch – Punkt, Name,
+          Ort, darunter seit wann und woher. Der lange Satz steckt
+          hinter einem Tipp; er beantwortet «warum steht da das» und
+          wird selten gebraucht. */}
+      {reihenfolge(anwesend).length > 0 ? (
         <Card style={styles.listCard}>
-          <Text style={styles.groupTitle}>{anwesenheitKurz(anwesend)}</Text>
-          {/* Nur, wen der Hub orten kann. «Hub-Token» und das Wandtablet
-              sind Zugänge, keine Personen – sie standen hier als
-              vermisste Familienmitglieder und zählten oben als
-              «unbekannt» mit. */}
-          {geortet(anwesend).map((person, index) => (
-            <Text key={String(person.zone ?? index)} style={styles.checkSub}>
-              {anwesenheitsZeile(person, new Date())}
+          <View style={styles.daKopf}>
+            <Ionicons name="home-outline" size={18} color={colors.inkSoft} />
+            <Text style={styles.daTitel}>
+              {kopfzeile(anwesend)}
             </Text>
-          ))}
-          {/* Punkt 219: «Warum steht da weg?» – das Gegenstück zur
-              Ablauf-Diagnose. Der halbe Support-Fall beantwortet sich
-              damit selbst. */}
-          <Pressable
-            onPress={async () => {
-              if (ortungsDiagnose) {
-                setOrtungsDiagnose(null);
-                return;
-              }
-              const antwort = await hub.get<{ people: Record<string, unknown>[] } | null>(
-                '/api/presence/diagnose',
-                { fallback: null, still: true }
-              );
-              setOrtungsDiagnose(antwort?.people ?? []);
-            }}
-            accessibilityRole="button"
-            style={styles.clearButton}
-          >
-            {/* Hiess «Warum steht da das?», als hier nur ein Hinweis
-                stand. Inzwischen steht je Person auch der Ort, die
-                Quelle und der Akkustand – das ist eine Prüfung, keine
-                Rückfrage. */}
-            <Text style={styles.resetText}>
-              {ortungsDiagnose ? 'Ortung schliessen' : 'Ortung prüfen'}
-            </Text>
-          </Pressable>
-          {(ortungsDiagnose ?? []).map((zeile, index) => (
-            <View key={String(zeile.zone ?? index)} style={{ gap: 2 }}>
-              <Text style={styles.checkText}>{String(zeile.person ?? '?')}</Text>
-              <Text style={styles.checkSub}>{diagnoseZeile(zeile)}</Text>
-            </View>
-          ))}
+          </View>
+
+          {reihenfolge(anwesend).map((person) => {
+            const wie = lage(person);
+            const strom = akku(person);
+            const offen = warum === person.zone;
+            const hinweis = String(person.hint ?? '').trim();
+            return (
+              <Pressable
+                key={String(person.zone)}
+                onPress={() => setWarum(offen ? null : String(person.zone))}
+                disabled={!hinweis}
+                accessibilityRole={hinweis ? 'button' : undefined}
+                accessibilityState={hinweis ? { expanded: offen } : undefined}
+                accessibilityLabel={`${person.name}, ${ortText(person)}`}
+                style={({ pressed }) => [styles.daZeile, pressed && { opacity: 0.7 }]}
+              >
+                <View
+                  style={[
+                    styles.daPunkt,
+                    {
+                      backgroundColor:
+                        wie === 'da'
+                          ? colors.on
+                          : wie === 'unklar'
+                            ? colors.warn
+                            : colors.inkFaint,
+                    },
+                  ]}
+                />
+                <View style={{ flex: 1 }}>
+                  <View style={styles.daOben}>
+                    <Text style={styles.daName} numberOfLines={1}>
+                      {person.name}
+                    </Text>
+                    <Text
+                      style={[styles.daOrt, wie === 'da' && { color: colors.on }]}
+                      numberOfLines={1}
+                    >
+                      {ortText(person)}
+                    </Text>
+                  </View>
+                  <View style={styles.daUnten}>
+                    <Text style={styles.daDetail} numberOfLines={1}>
+                      {unterZeile(person, new Date())}
+                    </Text>
+                    {strom ? (
+                      <Text
+                        style={[
+                          styles.daAkku,
+                          strom.knapp && { color: colors.warn },
+                        ]}
+                      >
+                        {strom.prozent} %
+                      </Text>
+                    ) : null}
+                  </View>
+                  {offen && hinweis ? (
+                    <Text style={styles.daWarum}>{hinweis}</Text>
+                  ) : null}
+                </View>
+              </Pressable>
+            );
+          })}
         </Card>
       ) : null}
 

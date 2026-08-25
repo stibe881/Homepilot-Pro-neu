@@ -26,6 +26,8 @@ export interface Person {
   source?: string | null;
   /** Die Schalter, vollständig – auch was nie eingestellt wurde. */
   meldungen?: Record<string, boolean>;
+  /** Warum die Ortung so aussieht, wie sie aussieht – der lange Satz. */
+  hint?: string | null;
 }
 
 /**
