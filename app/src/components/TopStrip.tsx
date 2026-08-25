@@ -31,6 +31,7 @@ import { Person, anwesenheitsListe, werIstDaHinweis } from '../lib/ortung';
 import { tapped } from '../lib/haptics';
 import { kann } from '../lib/plattform';
 import { MAX_SCHRIFT } from '../lib/schrift';
+import { gezaehlteLichter } from '../lib/zaehlung';
 import { ConnectionStatus } from '../hooks/useHub';
 import { useEscape } from '../hooks/useEscape';
 import { Colors, radius, type, useColors } from '../theme';
@@ -77,6 +78,7 @@ export function TopStrip({
   status,
   now,
   hidden = [],
+  ungezaehlt = [],
   onCommand,
   shopping,
   shops,
@@ -95,6 +97,8 @@ export function TopStrip({
   /** Ausgeblendete Geräte – wer eine Lampe aus den Alltagsansichten
    *  verbannt hat, will sie auch hier nicht mitgezählt sehen. */
   hidden?: string[];
+  /** Geräte, die hier nicht mitzählen – siehe lib/zaehlung.ts. */
+  ungezaehlt?: string[];
   /** Für «Licht aus» direkt aus dem Popup – ohne sie bleibt die Zeile
    *  reine Anzeige. */
   onCommand?: (entityId: string, command: string, data?: CommandData) => void;
@@ -165,15 +169,10 @@ export function TopStrip({
   const hausAnwesend = people ? people.state.state === 'on' : null;
 
   // Die Zwei-Sekunden-Übersicht: Was ist an, was läuft, was steht an?
-  const litEntities = entities.filter(
-    (entity) =>
-      (entity.kind === 'light' || entity.kind === 'switch') &&
-      entity.state.state === 'on' &&
-      !hidden.includes(entity.id) &&
-      // Sonst zählte eine Deckenlampe mit fünf Spots sechsmal: einmal als
-      // Leuchte und fünfmal einzeln.
-      !entity.combined_into
-  );
+  // Wer mitzählt und wer nicht, steht in lib/zaehlung.ts - dort ist es
+  // prüfbar, und die Kachel fragt dieselbe Datei, wenn sie das Menü
+  // zusammenstellt.
+  const litEntities = gezaehlteLichter(entities, hidden, ungezaehlt);
   const lightsOn = litEntities.length;
   const vacuum = entities.find(
     (entity) => entity.kind === 'vacuum' && entity.state.state === 'cleaning'

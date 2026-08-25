@@ -562,6 +562,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setOrder,
     setHidden,
     setLocked,
+    setUngezaehlt,
     setSeenChanges,
     setKameraDynamisch,
     setFavorites,
@@ -669,6 +670,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   );
   const hidden = prefs.hidden ?? [];
   const locked = prefs.locked ?? [];
+  // Zählt in der «3 an» oben nicht mit – bleibt aber auf der Startseite
+  // stehen. Zwei verschiedene Listen, siehe lib/zaehlung.ts.
+  const ungezaehlt = prefs.ungezaehlt ?? [];
 
   // Einmalige Übernahme der alten, gerätelokalen Favoriten. Danach wird
   // die lokale Liste geleert, damit dieselben Sterne nicht bei jedem
@@ -1189,6 +1193,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       onToggleHidden={() => setHidden(toggleIn(hidden, entity.id))}
       locked={locked.includes(entity.id)}
       onToggleLocked={() => setLocked(toggleIn(locked, entity.id))}
+      ungezaehlt={ungezaehlt.includes(entity.id)}
+      onToggleUngezaehlt={() => setUngezaehlt(toggleIn(ungezaehlt, entity.id))}
       rooms={editing ? roomOrder : undefined}
       onSetRoom={editing ? (room) => setEntityRoom(entity.id, room) : undefined}
       onRename={
@@ -2205,6 +2211,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 status={status}
                 now={now}
                 hidden={hidden}
+                ungezaehlt={ungezaehlt}
                 onCommand={guardedCommand}
                 {...(hiddenSections.includes('family')
                   ? {}

@@ -31,6 +31,10 @@ export interface HousePrefs {
   hidden?: string[];
   /** Gesperrte Geräte: schalten nur nach ausdrücklicher Rückfrage. */
   locked?: string[];
+  /** Geräte, die in der «3 an» der Kopfzeile nicht mitzählen – der
+   *  Kühlschrank, die Umwälzpumpe, ein Grow-Licht. Sie bleiben auf der
+   *  Startseite: Ausblenden wäre die andere Liste (siehe lib/zaehlung). */
+  ungezaehlt?: string[];
   /** Vor heiklen Aktionen – Türe öffnen, Alarm entschärfen – erst Face ID
    *  bzw. Fingerabdruck verlangen. */
   bioLock?: boolean;
@@ -163,6 +167,11 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     [setzeHaus]
   );
 
+  const setUngezaehlt = useCallback(
+    (ids: string[]) => setzeHaus({ ...hausJetzt.current, ungezaehlt: ids }),
+    [setzeHaus]
+  );
+
   const setBioLock = useCallback(
     (on: boolean) => setzeHaus({ ...hausJetzt.current, bioLock: on }),
     [setzeHaus]
@@ -217,6 +226,7 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     setOrder,
     setHidden,
     setLocked,
+    setUngezaehlt,
     setBioLock,
     setDoorConfirm,
     setWidgetData,

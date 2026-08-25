@@ -6,6 +6,7 @@ import { CommandData, Entity, KalenderEintrag } from '../api/types';
 import { offlineSatz } from '../lib/funkstille';
 import { zustandsText } from '../lib/haushalt';
 import { KachelEintrag, kachelAktionen } from '../lib/kachelmenue';
+import { zaehlbar } from '../lib/zaehlung';
 import { hatWarteschlange } from '../lib/musikliste';
 import { useColors } from '../theme';
 import { Bar } from './Bar';
@@ -61,6 +62,10 @@ interface Props {
   /** Anpassen-Modus: Gerät sperren – schaltet nur nach Rückfrage. */
   locked?: boolean;
   onToggleLocked?: () => void;
+  /** Zählt dieses Gerät in der «3 an» der Kopfzeile nicht mit? Umlegen
+   *  geht über den langen Druck (siehe lib/zaehlung.ts). */
+  ungezaehlt?: boolean;
+  onToggleUngezaehlt?: () => void;
   /** Steht die Kachel schon unter der Überschrift ihres Zimmers, ist der
    *  Raumname auf ihr eine Wiederholung. Dann tritt die Integration an
    *  seine Stelle – die sagt wenigstens etwas Neues. */
@@ -121,6 +126,8 @@ export function EntityCard({
   onToggleHidden,
   locked,
   onToggleLocked,
+  ungezaehlt,
+  onToggleUngezaehlt,
   imRaumblock,
   rooms,
   onSetRoom,
@@ -153,10 +160,17 @@ export function EntityCard({
   // Name, Raum und Gruppe stehen ohnehin offen auf der Kachel.
   const aktionen = editing
     ? []
-    : kachelAktionen({ umbenennen: Boolean(onRename), verlauf: Boolean(onLongPress) });
+    : kachelAktionen({
+        umbenennen: Boolean(onRename),
+        // Nur Licht und Schalter: Etwas anderes zählt die Kopfzeile nicht.
+        zaehlung: Boolean(onToggleUngezaehlt) && zaehlbar(entity),
+        ungezaehlt: Boolean(ungezaehlt),
+        verlauf: Boolean(onLongPress),
+      });
   const fuehreAus = (eintrag: KachelEintrag) => {
     setMenueOffen(false);
     if (eintrag.id === 'umbenennen') setRenameOpen(true);
+    if (eintrag.id === 'zaehlung') onToggleUngezaehlt?.();
     if (eintrag.id === 'verlauf') onLongPress?.();
   };
   // Ein Eintrag braucht keine Auswahl - eine Liste mit einer Zeile wäre
