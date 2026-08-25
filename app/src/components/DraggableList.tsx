@@ -1,11 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { PanResponder, StyleSheet, Text, View } from 'react-native';
 
+import { ROW, verschoben, zielIndex } from '../lib/ziehen';
 import { Colors, radius, useColors } from '../theme';
 
-/** Höhe einer Zeile – Grundlage fürs Umrechnen der Ziehdistanz in Positionen. */
-const ROW = 56;
+/** Nur für den Browser: Ohne diese beiden Angaben gewinnt die
+ *  Wisch-Geste der Seite. React Native kennt die Eigenschaften nicht,
+ *  deshalb als loses Objekt – auf Geräten werden sie ignoriert.
+ *  Dieselbe Notiz steht in DragGrid.tsx; dort war sie schon nötig. */
+const WEB_GRIP = { touchAction: 'none', userSelect: 'none' } as const;
 
 interface Item {
   id: string;
@@ -44,14 +48,8 @@ export function DraggableList({
   };
   const move = (delta: number) => setDy(delta);
   const end = (index: number, delta: number) => {
-    const target = Math.max(
-      0,
-      Math.min(order.length - 1, index + Math.round(delta / ROW))
-    );
-    if (target !== index) {
-      const next = [...order];
-      const [moved] = next.splice(index, 1);
-      next.splice(target, 0, moved);
+    const next = verschoben(order, index, zielIndex(index, delta, order.length));
+    if (next) {
       setOrder(next);
       onReorder(next.map((entry) => entry.id));
     }
@@ -100,18 +98,42 @@ function DragRow({
   styles: ReturnType<typeof makeStyles>;
   colors: Colors;
 }) {
-  // Der PanResponder hängt nur am Griff, damit die Liste sonst scrollbar bleibt.
+  /**
+   * Der PanResponder wird **einmal** gebaut und nie wieder – daran hing
+   * der ganze Fehler.
+   *
+   * Vorher hingen die Rückrufe in den Abhängigkeiten des useMemo. Sie
+   * entstehen bei jedem Zeichnen neu, und gezeichnet wird bei jeder
+   * Fingerbewegung (der Versatz steckt im Zustand). Es gab also je
+   * Bewegung einen neuen PanResponder – und ein PanResponder merkt sich
+   * den Startpunkt der Geste in seinem eigenen Innern. Der neue kannte
+   * ihn nicht, also fing `gesture.dy` jedes Mal von vorn an: Wer eine
+   * Zeile 200 Punkte weit zog, bekam als Weg die letzten zwölf gemeldet.
+   * Die Zeile rührte sich kaum, und beim Loslassen war das Ziel dieselbe
+   * Stelle.
+   *
+   * Die Rückrufe kommen deshalb über eine Referenz herein: immer die
+   * aktuellen, ohne den Responder anzufassen. Dasselbe gilt für den
+   * Index – er ändert sich, wenn die Liste umsortiert wird.
+   */
+  const aktuell = useRef({ index, onStart, onMove, onEnd });
+  aktuell.current = { index, onStart, onMove, onEnd };
   const pan = useMemo(
     () =>
       PanResponder.create({
         onStartShouldSetPanResponder: () => true,
         onMoveShouldSetPanResponder: () => true,
-        onPanResponderGrant: () => onStart(index),
-        onPanResponderMove: (_event, gesture) => onMove(gesture.dy),
-        onPanResponderRelease: (_event, gesture) => onEnd(index, gesture.dy),
-        onPanResponderTerminate: (_event, gesture) => onEnd(index, gesture.dy),
+        // Die Liste darf uns die Geste nicht wieder wegnehmen, sobald
+        // sie merkt, dass es senkrecht weitergeht.
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderGrant: () => aktuell.current.onStart(aktuell.current.index),
+        onPanResponderMove: (_event, gesture) => aktuell.current.onMove(gesture.dy),
+        onPanResponderRelease: (_event, gesture) =>
+          aktuell.current.onEnd(aktuell.current.index, gesture.dy),
+        onPanResponderTerminate: (_event, gesture) =>
+          aktuell.current.onEnd(aktuell.current.index, gesture.dy),
       }),
-    [index, onStart, onMove, onEnd]
+    []
   );
   return (
     <View
@@ -121,7 +143,11 @@ function DragRow({
         { transform: [{ translateY: dy }], zIndex: active ? 20 : 0 },
       ]}
     >
-      <View style={styles.handle} {...pan.panHandlers}>
+      {/* Der Griff trägt seinen Stil unmittelbar: WEB_GRIP enthält zwei
+          Eigenschaften, die React Native nicht kennt, und die lassen
+          sich nur in einem solchen Literal unterbringen (genau wie in
+          DragGrid). */}
+      <View style={{ padding: 8, ...WEB_GRIP }} {...pan.panHandlers}>
         <Ionicons name="reorder-three" size={24} color={colors.inkSoft} />
       </View>
       <Text style={styles.name} numberOfLines={1}>
@@ -154,6 +180,5 @@ const makeStyles = (colors: Colors) =>
       shadowOffset: { width: 0, height: 4 },
       elevation: 6,
     },
-    handle: { padding: 8 },
     name: { flex: 1, color: colors.ink, fontSize: 15, fontWeight: '600' },
   });
