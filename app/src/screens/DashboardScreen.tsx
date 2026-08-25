@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CommandData, Entity, HubSettings } from '../api/types';
 import { begruessung } from '../lib/begruessung';
+import { Bereich, siehtBereich } from '../lib/einstellungsmenue';
 import { Bar } from '../components/Bar';
 import { Card } from '../components/Card';
 import { DraggableList } from '../components/DraggableList';
@@ -246,11 +247,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // erkennbar an manage_users, die sonst niemand hat. Auch die Suche hält
   // sich daran, sonst führte sie an der Menüführung vorbei hinein.
   const istBesitzer = (user?.capabilities ?? []).includes('manage_users');
-  // Mitbewohner dürfen Abläufe ruhen lassen - der Hub erlaubt es seit je
-  // (pause_automations), nur führte kein Weg dorthin: Die Seite «Abläufe»
-  // stand allein der Besitzerin offen. Am Abend, an dem der Babysitter
-  // kommt, ist das genau die falsche Tür.
-  const darfPausieren = (user?.capabilities ?? []).includes('pause_automations');
+  // Wer welchen Bereich hinter den Einstellungen sieht, entscheidet
+  // lib/einstellungsmenue.ts - dort steht die Regel einmal und ist
+  // prüfbar, statt elfmal als `show: istBesitzer` untereinander.
+  //
+  // Zwei Bereiche gehören auch Mitbewohnern: Abläufe (ruhen lassen darf
+  // der Hub sie seit je - pause_automations), und die Geräteliste. Sie
+  // verändert nichts, sie gibt Auskunft: was im Haus steht, wie die
+  // Batterien stehen, wann etwas zuletzt gesehen wurde.
+  const sieht = useCallback(
+    (bereich: Bereich) => siehtBereich(user?.capabilities ?? [], bereich),
+    [user?.capabilities]
+  );
   // Ein Gerätename gilt fürs ganze Haus: Der Hub merkt ihn sich in der
   // homepilot-data.json, und danach heisst die Lampe für alle so. Genau
   // deshalb verlangt die Route `edit_config`, und genau danach fragt auch
@@ -1375,7 +1383,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           icon: 'people-circle-outline',
           label: 'Benutzerverwaltung',
           detail: 'Zugänge und Rollen: Besitzer, Mitbewohner, Gast',
-          show: istBesitzer,
+          show: sieht('users'),
         },
         {
           key: 'automations',
@@ -1384,49 +1392,51 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           detail: istBesitzer
             ? 'Automationen und Szenen'
             : 'Pausieren, Babysitter-Modus und was heute läuft',
-          show: istBesitzer || darfPausieren,
+          show: sieht('automations'),
         },
         {
           key: 'alarm',
           icon: 'shield-checkmark-outline',
           label: 'Alarmanlage',
           detail: 'Sensoren, Modi und Verlauf',
-          show: istBesitzer,
+          show: sieht('alarm'),
         },
         {
           key: 'devices',
           icon: 'list-outline',
           label: 'Geräte',
-          detail: 'Alle Geräte, auch ausgeblendete',
-          show: istBesitzer,
+          detail: istBesitzer
+            ? 'Alle Geräte, auch ausgeblendete'
+            : 'Alle Geräte mit Batterie und Verlauf',
+          show: sieht('devices'),
         },
         {
           key: 'speakers',
           icon: 'volume-high-outline',
           label: 'Lautsprecher',
           detail: 'Boxen und Gruppen im Netz',
-          show: istBesitzer,
+          show: sieht('speakers'),
         },
         {
           key: 'energy',
           icon: 'flash-outline',
           label: 'Energie',
           detail: 'Verbrauch und Kosten je Gerät',
-          show: istBesitzer,
+          show: sieht('energy'),
         },
         {
           key: 'system',
           icon: 'pulse-outline',
           label: 'System',
           detail: 'Integrationen, Sicherung, Konfiguration',
-          show: istBesitzer,
+          show: sieht('system'),
         },
         {
           key: 'activity',
           icon: 'timer-outline',
           label: 'Zuletzt passiert',
           detail: 'Protokoll der letzten Änderungen',
-          show: istBesitzer,
+          show: sieht('activity'),
         },
         {
           key: 'widgets',
@@ -1916,7 +1926,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             />
           ) : null}
 
-          {section === 'devices' && !editing && !searching ? (
+          {/* Leuchten zusammenfassen prägt die Ansicht für alle im Haus
+              und ist damit Einrichtung, nicht Bedienung: Die Karte
+              bleibt bei der Besitzerin. Ohne diese Bedingung stand sie
+              auch vor Mitbewohnern - mit Knöpfen, die der Hub mit
+              «keine Berechtigung» abweist. */}
+          {section === 'devices' && istBesitzer && !editing && !searching ? (
             <LightGroups
               settings={settings}
               headers={{ Authorization: `Bearer ${settings.token}` }}
