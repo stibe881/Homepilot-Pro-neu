@@ -230,7 +230,15 @@ export function SpotifyPanel({
           Antwort auf «was höre ich hier eigentlich». Sonst führt er schlicht
           zur Auswahl. */}
       <Pressable
-        onPress={() => setListOpen(true)}
+        onPress={() => {
+          setListOpen(true);
+          // Beim Aufklappen einmal frisch nachfragen. Der Hub holt die
+          // Liste sonst nur halbstündlich - eine gerade angelegte
+          // Playlist fehlte bis dahin, und niemand wusste, warum.
+          if (entity.commands.includes('refresh_playlists')) {
+            onCommand('refresh_playlists');
+          }
+        }}
         accessibilityRole="button"
         accessibilityLabel={
           current ? `Playlists – zurzeit ${current}` : 'Playlists'

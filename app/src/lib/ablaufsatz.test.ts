@@ -5,7 +5,7 @@
  * hat, liest es hier – deshalb prüft der Test genau diese Wörter.
  */
 import { Entity, Scene } from '../api/types';
-import { ablaufSatz } from './ablaufsatz';
+import { ablaufSatz, kuerze } from './ablaufsatz';
 
 const entities = [
   { id: 'hm.bewegung', name: 'Bewegung Flur' },
@@ -274,5 +274,44 @@ describe('Die Sammelanwesenheit im Satz', () => {
       []
     );
     expect(satz).toContain('Wenn jemand zuhause ist');
+  });
+});
+
+describe('Ein Ablauf mit vielen Geräten', () => {
+  const licht = (id: string, name: string) =>
+    ({ id, name, kind: 'light', integration: 'demo', state: {}, commands: [] }) as
+      unknown as Entity;
+  const viele = ['a', 'b', 'c', 'd', 'e'];
+  const roh = {
+    triggers: [{ type: 'time', at: '22:00' }],
+    conditions: [],
+    actions: viele.map((k) => ({
+      type: 'command',
+      entity_id: `light.${k}`,
+      command: 'turn_off',
+    })),
+    otherwise: [],
+    match: 'all' as const,
+  };
+  const geraete = viele.map((k) => licht(`light.${k}`, `Licht ${k.toUpperCase()}`));
+
+  it('zählt, statt alle aufzuzählen', () => {
+    // «Alle weg» schaltet im Haus sechzig Geräte. Einzeln aufgezählt
+    // füllt das den halben Bildschirm und sagt trotzdem nicht mehr.
+    const satz = ablaufSatz(roh, geraete, []);
+    expect(satz).toContain('Licht A aus, Licht B aus, Licht C aus und 2 weitere');
+    expect(satz).not.toContain('Licht D');
+  });
+
+  it('nennt auf Wunsch doch alle', () => {
+    const satz = ablaufSatz(roh, geraete, [], true);
+    expect(satz).toContain('Licht E aus');
+    expect(satz).not.toContain('weitere');
+  });
+
+  it('lässt kurze Abläufe in Ruhe', () => {
+    // Drei Geräte sind noch eine Aufzählung, keine Liste.
+    expect(kuerze(['a', 'b', 'c'])).toBe('a, b, c');
+    expect(kuerze(['a', 'b', 'c', 'd'])).toBe('a, b, c und 1 weitere');
   });
 });

@@ -162,6 +162,10 @@ export function EntityCard({
     ? []
     : kachelAktionen({
         umbenennen: Boolean(onRename),
+        // Dieselbe Berechtigung wie beim Umbenennen: Die Sperre gilt fürs
+        // ganze Haus, und der Hub führt sie in den Haus-Einstellungen.
+        sperren: Boolean(onRename && onToggleLocked),
+        gesperrt: Boolean(locked),
         // Nur Licht und Schalter: Etwas anderes zählt die Kopfzeile nicht.
         zaehlung: Boolean(onToggleUngezaehlt) && zaehlbar(entity),
         ungezaehlt: Boolean(ungezaehlt),
@@ -170,6 +174,7 @@ export function EntityCard({
   const fuehreAus = (eintrag: KachelEintrag) => {
     setMenueOffen(false);
     if (eintrag.id === 'umbenennen') setRenameOpen(true);
+    if (eintrag.id === 'sperren') onToggleLocked?.();
     if (eintrag.id === 'zaehlung') onToggleUngezaehlt?.();
     if (eintrag.id === 'verlauf') onLongPress?.();
   };

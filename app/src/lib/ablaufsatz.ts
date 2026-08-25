@@ -197,11 +197,33 @@ function aktionSatz(
   }
 }
 
-/** Der ganze Satz (rein, testbar). Leerer Entwurf → leerer Satz. */
+/** Wie viele Aktionen im kurzen Satz stehen, bevor gezählt wird.
+ *
+ *  Ein Ablauf «alle weg» schaltet gern sechzig Geräte. Sie einzeln
+ *  aufzuzählen füllt den halben Bildschirm und beantwortet die Frage
+ *  trotzdem nicht: Was der Ablauf *tut*, sieht man an den ersten
+ *  dreien - dass es viele sind, an der Zahl dahinter. */
+export const KURZ_AKTIONEN = 3;
+
+/** Aus vielen Satzteilen einer machen (rein, testbar).
+ *
+ *  Getrennt von `ablaufSatz`, weil es die Entscheidung ist und nicht
+ *  die Darstellung: Ab wann wird gezählt statt aufgezählt. */
+export function kuerze(teile: string[], hoechstens = KURZ_AKTIONEN): string {
+  if (teile.length <= hoechstens) return teile.join(', ');
+  const weitere = teile.length - hoechstens;
+  return `${teile.slice(0, hoechstens).join(', ')} und ${weitere} weitere`;
+}
+
+/** Der ganze Satz (rein, testbar). Leerer Entwurf → leerer Satz.
+ *
+ *  `alle` nennt jede Aktion einzeln - für den Blick, der genau das
+ *  wissen will. Ohne die Angabe steht die kurze Fassung. */
 export function ablaufSatz(
   benannt: Benannt,
   entities: Entity[],
-  scenes: Scene[]
+  scenes: Scene[],
+  alle = false
 ): string {
   const wenn = benannt.triggers
     .map((trigger) => triggerSatz(trigger, entities))
@@ -211,7 +233,9 @@ export function ablaufSatz(
     .filter(Boolean);
   if (wenn.length === 0 || dann.length === 0) return '';
 
-  let satz = `Wenn ${wenn.join(' oder ')}, dann ${dann.join(', ')}`;
+  let satz = `Wenn ${wenn.join(' oder ')}, dann ${
+    alle ? dann.join(', ') : kuerze(dann)
+  }`;
   const nur = benannt.conditions.map((c) => bedingungSatz(c, entities)).filter(Boolean);
   if (nur.length > 0) {
     satz += ` – nur wenn ${nur.join(benannt.match === 'any' ? ' oder ' : ' und ')}`;

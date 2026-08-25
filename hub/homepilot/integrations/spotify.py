@@ -500,6 +500,11 @@ class SpotifyIntegration(Integration):
                 "shuffle", "repeat", "play_queue",
                 # Springen im Titel - dieselbe Bedienung wie bei Cast.
                 "seek",
+                # Die Playlisten frisch holen. Die App schickt das, wenn
+                # jemand die Auswahl aufklappt: Sonst dauerte es bis zu
+                # einer halben Stunde, bis eine neu angelegte Playlist
+                # hier auftaucht (siehe _takt).
+                "refresh_playlists",
             ],
             available=False,
         )
@@ -801,6 +806,13 @@ class SpotifyIntegration(Integration):
     # ── Hub → Spotify ──────────────────────────────────────────────────────
 
     async def handle_command(self, entity: Entity, command: str, data: dict[str, Any]) -> None:
+        if command == "refresh_playlists":
+            # Zwei Anfragen an Spotify, und nur, wenn jemand hinschaut -
+            # billiger als der halbstündliche Takt, der dieselbe Liste
+            # auch dann holt, wenn niemand sie öffnet.
+            await self._load_playlists()
+            await self._refresh()
+            return
         if command == "play_on":
             name = str(data.get("device", ""))
             device_id = self._device_ids.get(name)

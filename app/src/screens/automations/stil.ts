@@ -48,6 +48,9 @@ export const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     satzText: { color: colors.ink, fontSize: 13, lineHeight: 19, flex: 1 },
+    // «Alle zeigen» unter dem gekürzten Satz - klein, aber sichtbar:
+    // Ohne den Hinweis wüsste niemand, dass da noch etwas ist.
+    satzMehr: { color: colors.accent, fontSize: 12, fontWeight: '600', marginTop: 4 },
     groupLabel: {
       color: colors.inkSoft,
       fontSize: 13,

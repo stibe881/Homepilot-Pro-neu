@@ -57,3 +57,18 @@ describe('Oben nicht mitzählen', () => {
     expect(kachelAktionen({ zaehlung: true }).map((e) => e.id)).toEqual(['zaehlung']);
   });
 });
+
+describe('Sperren', () => {
+  it('steht gleich hinter dem Umbenennen', () => {
+    expect(
+      kachelAktionen({ umbenennen: true, sperren: true, verlauf: true }).map((e) => e.id)
+    ).toEqual(['umbenennen', 'sperren', 'verlauf']);
+  });
+
+  it('sagt, was der Griff bewirkt', () => {
+    expect(kachelAktionen({ sperren: true })[0].label).toBe('Sperren');
+    expect(kachelAktionen({ sperren: true, gesperrt: true })[0].label).toBe(
+      'Sperre aufheben'
+    );
+  });
+});

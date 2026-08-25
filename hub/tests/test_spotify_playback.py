@@ -428,3 +428,28 @@ def test_derselbe_titel_zweimal_zaehlt_ab_dem_ersten():
         "spotify:track:b",
         "spotify:track:a",
     ]
+
+
+async def test_refreshing_the_playlists_asks_spotify_once():
+    """«Wie lange dauert es, bis eine neue Playlist erscheint?»
+
+    Bis zu einer halben Stunde: Die Liste wird nur alle 1800 Sekunden
+    geholt (siehe `_takt`). Wer die Auswahl aufklappt, schickt jetzt ein
+    Kommando - zwei Anfragen genau dann, wenn jemand hinschaut.
+    """
+    from homepilot.integrations.spotify import SpotifyIntegration
+
+    integration = SpotifyIntegration.__new__(SpotifyIntegration)
+    geholt: list[str] = []
+
+    async def load_playlists() -> None:
+        geholt.append("playlists")
+
+    async def refresh() -> None:
+        geholt.append("zustand")
+
+    integration._load_playlists = load_playlists  # type: ignore[method-assign]
+    integration._refresh = refresh  # type: ignore[method-assign]
+
+    await integration.handle_command(None, "refresh_playlists", {})  # type: ignore[arg-type]
+    assert geholt == ["playlists", "zustand"]

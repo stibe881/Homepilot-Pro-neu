@@ -72,6 +72,8 @@ export function Editor({
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [tested, setTested] = useState(false);
+  // Der Satz oben: kurz, mit «Alle zeigen» - siehe lib/ablaufsatz.ts.
+  const [satzGanz, setSatzGanz] = useState(false);
   const [preview, setPreview] = useState<DryRun | null>(null);
   if (!draft) return null;
 
@@ -130,22 +132,42 @@ export function Editor({
             Wer «und» meinte und «oder» gebaut hat, liest es sofort, statt
             es erst am Abend im dunklen Flur zu merken. */}
         {(() => {
-          const satz = ablaufSatz(
-            {
-              triggers: draft.triggers.map(triggerToConfig),
-              conditions: buildConditions(draft),
-              actions: stepsToActions(draft.steps),
-              otherwise: stepsToActions(draft.elseSteps),
-              match: draft.match,
-            },
-            entities,
-            scenes
-          );
+          const roh = {
+            triggers: draft.triggers.map(triggerToConfig),
+            conditions: buildConditions(draft),
+            actions: stepsToActions(draft.steps),
+            otherwise: stepsToActions(draft.elseSteps),
+            match: draft.match,
+          };
+          const satz = ablaufSatz(roh, entities, scenes, satzGanz);
+          // Ein «alle weg» schaltet sechzig Geräte - einzeln aufgezählt
+          // füllt das den halben Bildschirm. Kurz genügt zum Lesen; wer
+          // die ganze Liste sehen will, tippt drauf.
+          const lang = ablaufSatz(roh, entities, scenes, true);
+          const gekuerzt = lang !== ablaufSatz(roh, entities, scenes, false);
           return satz ? (
-            <View style={styles.satzBox}>
+            <Pressable
+              onPress={gekuerzt ? () => setSatzGanz((an) => !an) : undefined}
+              accessibilityRole={gekuerzt ? 'button' : undefined}
+              accessibilityLabel={
+                gekuerzt
+                  ? satzGanz
+                    ? 'Kurzfassung zeigen'
+                    : 'Alle Geräte zeigen'
+                  : undefined
+              }
+              style={styles.satzBox}
+            >
               <Ionicons name="chatbox-ellipses-outline" size={15} color={colors.accent} />
-              <Text style={styles.satzText}>{satz}</Text>
-            </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.satzText}>{satz}</Text>
+                {gekuerzt ? (
+                  <Text style={styles.satzMehr}>
+                    {satzGanz ? 'Weniger zeigen' : 'Alle zeigen'}
+                  </Text>
+                ) : null}
+              </View>
+            </Pressable>
           ) : null;
         })()}
 

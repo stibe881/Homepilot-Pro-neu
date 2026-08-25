@@ -21,7 +21,7 @@
  * Knopf sieht, der ihm gleich ein «nicht erlaubt» einträgt.
  */
 
-export type KachelAktion = 'umbenennen' | 'zaehlung' | 'verlauf';
+export type KachelAktion = 'umbenennen' | 'sperren' | 'zaehlung' | 'verlauf';
 
 export interface KachelEintrag {
   id: KachelAktion;
@@ -32,11 +32,18 @@ export interface KachelEintrag {
 
 const EINTRAEGE: Record<KachelAktion, KachelEintrag> = {
   umbenennen: { id: 'umbenennen', label: 'Umbenennen', icon: 'pencil' },
+  sperren: { id: 'sperren', label: 'Sperren', icon: 'lock-closed-outline' },
   zaehlung: { id: 'zaehlung', label: 'Oben nicht mitzählen', icon: 'eye-off-outline' },
   verlauf: { id: 'verlauf', label: 'Verlauf ansehen', icon: 'time-outline' },
 };
 
 /** Beschriftung, die sagt, was der Griff bewirkt – nicht, was gerade gilt. */
+const ENTSPERREN: KachelEintrag = {
+  id: 'sperren',
+  label: 'Sperre aufheben',
+  icon: 'lock-open-outline',
+};
+
 const ZAEHLT_WIEDER: KachelEintrag = {
   id: 'zaehlung',
   label: 'Oben wieder mitzählen',
@@ -53,6 +60,10 @@ const ZAEHLT_WIEDER: KachelEintrag = {
  */
 export function kachelAktionen(moeglich: {
   umbenennen?: boolean;
+  /** Sperren: schaltet nur noch nach ausdrücklicher Rückfrage. */
+  sperren?: boolean;
+  /** Ist das Gerät schon gesperrt? */
+  gesperrt?: boolean;
   /** Licht oder Schalter: Nur die zählt die Kopfzeile überhaupt. */
   zaehlung?: boolean;
   /** Ist das Gerät schon aus der Zählung genommen? */
@@ -61,6 +72,12 @@ export function kachelAktionen(moeglich: {
 }): KachelEintrag[] {
   const eintraege: KachelEintrag[] = [];
   if (moeglich.umbenennen) eintraege.push(EINTRAEGE.umbenennen);
+  // Die Sperre gab es nur im Anpassen-Modus. Gebraucht wird sie in dem
+  // Moment, in dem man fast die Waschmaschine erwischt hätte - also
+  // hier, an der Kachel.
+  if (moeglich.sperren) {
+    eintraege.push(moeglich.gesperrt ? ENTSPERREN : EINTRAEGE.sperren);
+  }
   // «Oben nicht mitzählen» steht bei der Kachel und nicht in einer
   // Einstellungsliste: Man merkt es in dem Moment, in dem man die «3 an»
   // liest und weiss, dass eines davon der Kühlschrank ist.
