@@ -403,6 +403,34 @@ fi
 #
 # node:20-bookworm-slim statt alpine: Metro/Expo bringen gelegentlich
 # Pakete mit, die eine echte glibc statt musl erwarten.
+# ── Die Build-Nummer für Apple ─────────────────────────────────────────
+#
+# Apple nimmt jede Build-Nummer genau einmal an. EAS' `autoIncrement`
+# zählt sie in der app.json hoch - und schreibt sie damit in eine Datei,
+# die hier aus einem frischen Klon stammt und nach dem Lauf weggeworfen
+# wird. Die Erhöhung überlebte den Lauf nicht: Jeder Build war wieder
+# Nummer 2, und Apple wies ihn ab, weil es die 2 schon hatte.
+#
+# Die Anzahl Commits ist die Nummer, die es braucht: monoton steigend,
+# ohne dass sich jemand etwas merken muss, und aus dem Repo ablesbar
+# statt in ihm gespeichert.
+#
+# Bewusst mit sed statt mit node: Auf dem Host muss kein Node liegen -
+# dafür gibt es das Abbild unten. Gesetzt wird aber, bevor das Abbild
+# gebaut wird, denn es nimmt die app.json mit hinein.
+BUILD_NUMMER="$(git -C "$WORKDIR" rev-list --count HEAD 2>/dev/null || echo 0)"
+if [ "$BUILD_NUMMER" -gt 0 ] 2>/dev/null; then
+  sed -i -E \
+    -e "s/(\"buildNumber\"[[:space:]]*:[[:space:]]*\")[0-9]+(\")/\1${BUILD_NUMMER}\2/" \
+    -e "s/(\"versionCode\"[[:space:]]*:[[:space:]]*)[0-9]+/\1${BUILD_NUMMER}/" \
+    "$WORKDIR/app/app.json"
+  echo "→ Build-Nummer für Apple: ${BUILD_NUMMER}"
+else
+  echo "⚠ Build-Nummer nicht zu ermitteln - Apple weist einen bereits"
+  echo "  hochgeladenen Stand ab. Von Hand im Ordner app/:"
+  echo "    node scripts/set-build-number.mjs <zahl>"
+fi
+
 DEPS_IMAGE="homepilot-appdeps"
 WEB_IMAGE="homepilot-webdist"
 DEPS_GEBAUT=0
