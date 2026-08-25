@@ -472,3 +472,15 @@ class EinladungRequest(BaseModel):
 
     password: str = ""
     minutes: int | None = None
+
+
+class MeldungRequest(BaseModel):
+    """Ein Schalter auf der Seite «Familie und Freunde».
+
+    Einer je Anfrage, nicht die ganze Karte: Zwei offene Telefone würden
+    sich sonst gegenseitig überschreiben, und wer gerade den Akku
+    abgestellt hat, bekäme ihn vom Tablet nebenan zurück.
+    """
+
+    key: str
+    enabled: bool

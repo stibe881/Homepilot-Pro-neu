@@ -21,6 +21,7 @@ export type Section =
   | 'alarm'
   | 'speakers'
   | 'users'
+  | 'personen'
   | 'activity'
   | 'widgets'
   | 'account';
@@ -46,6 +47,7 @@ export const SECTION_LABEL: Record<Section, string> = {
   alarm: 'Alarmanlage',
   speakers: 'Boxen',
   users: 'Benutzer',
+  personen: 'Familie und Freunde',
   activity: 'Zuletzt passiert',
   widgets: 'Widgets',
   account: 'Konto',

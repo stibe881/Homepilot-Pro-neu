@@ -91,6 +91,7 @@ import { WhatsNew } from '../components/WhatsNew';
 import { LightGroups } from '../components/LightGroups';
 import { DeviceTools } from '../components/DeviceTools';
 import { SceneSuggestion } from '../components/SceneSuggestion';
+import { PersonenScreen } from './PersonenScreen';
 import { UsersScreen } from './UsersScreen';
 import { confirm as confirmBiometrie, needsCheck } from '../lib/biometrie';
 import { BioLock } from '../components/BioLock';
@@ -1340,6 +1341,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           show: istBesitzer,
         },
         {
+          key: 'personen',
+          icon: 'people-outline',
+          label: 'Familie und Freunde',
+          detail: 'Wer ist wo, und was soll über wen gemeldet werden',
+          // Auch für Mitbewohner: Wo die Familie gerade ist, geht alle
+          // an, die hier wohnen - anders als die Frage, wer Zugang hat.
+          show: true,
+        },
+        {
           key: 'automations',
           icon: 'git-branch-outline',
           label: 'Abläufe',
@@ -1483,6 +1493,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         <View style={styles.stack}>
           {back}
           <UsersScreen settings={settings} currentUser={user} entities={entities} />
+        </View>
+      );
+    }
+    if (section === 'personen') {
+      return (
+        <View style={styles.stack}>
+          {back}
+          <PersonenScreen settings={settings} />
         </View>
       );
     }

@@ -34,6 +34,7 @@ from . import (
     gemeldet,
     maintenance,
     notifyrules,
+    personen,
     presence,
     shopping,
     trash,
@@ -116,6 +117,10 @@ class Watchdog:
         # zuletzt nach dem Ferienmodus gefragt wurde, und wann der
         # Verlauf zuletzt gestutzt wurde.
         self._battery_told: set[str] = set()
+        # Wem schon gemeldet wurde, dass sein Telefon schweigt. Wie beim
+        # Akku ein Merker je Zone, damit aus einer Funkstille nicht eine
+        # Nachricht je Minute wird.
+        self._silence_told: set[str] = set()
         self._holiday_asked: float = 0.0
         self._history_trimmed: float = 0.0
         # Was «einmal am Tag» heisst - Geburtstag, Frost, Medikamente,
@@ -485,6 +490,9 @@ class Watchdog:
         jetzt = time.time()
         zustaende = []
         grenze = int(self.rules["presence"]["params"].get("percent", presence.BATTERY_LOW))
+        # Je Person die eigenen Schalter (Einstellungen → Familie und
+        # Freunde). Einmal geholt, nicht je Zone: Es ist dieselbe Liste.
+        schalter = self.hub.data.get(personen.LADE)
         for zone_id in service.zone_ids():
             entity_id = service.zone_entity(zone_id)
             entity = self.hub.registry.get(entity_id) if entity_id else None
@@ -496,9 +504,32 @@ class Watchdog:
             text = presence.battery_alert(entity.name, entity.state.get("battery"), grenze)
             if text and zone_id not in self._battery_told:
                 self._battery_told.add(zone_id)
-                await self._notify("Telefon fast leer", text, category="presence")
+                # Der Schalter wird erst hier geprüft, nicht schon oben:
+                # Der Vermerk soll auch dann stehen, wenn niemand die
+                # Meldung will - sonst käme sie geballt, sobald jemand
+                # sie wieder einschaltet.
+                if personen.an(schalter, zone_id, "battery"):
+                    await self._notify("Telefon fast leer", text, category="presence")
             elif not text:
                 self._battery_told.discard(zone_id)
+
+            # Funkstille: Bisher stand sie nur in der Diagnose, also
+            # dort, wo man erst nachsieht, wenn man schon misstrauisch
+            # ist. Wer gemeldet bekommt, dass ein Telefon seit zwölf
+            # Stunden schweigt, kann nachfragen, statt sich später zu
+            # wundern, warum «alles aus» lief.
+            still = presence.is_stale(presence.zuletzt_gehoert(entity.state), jetzt)
+            if still and zone_id not in self._silence_told:
+                self._silence_told.add(zone_id)
+                if personen.an(schalter, zone_id, "silence"):
+                    await self._notify(
+                        "Meldet sich nicht mehr",
+                        f"{entity.name}s Telefon hat sich seit Stunden nicht "
+                        "gemeldet – Akku, Flugmodus oder Ortung aus?",
+                        category="presence",
+                    )
+            elif not still:
+                self._silence_told.discard(zone_id)
 
         # Punkt 221: Sind alle seit einem Tag weg und die Simulation ist
         # aus, fragt eine einzelne Push nach. Eine Frage, keine Automatik.
