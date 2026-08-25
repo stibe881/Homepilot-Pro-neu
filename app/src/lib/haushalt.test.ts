@@ -34,10 +34,14 @@ describe('applianceLine', () => {
     expect(zeile.text).toBe('Bereit');
   });
 
-  it('sagt Standby, wenn das Gerät nur den Webserver schlafen lässt', () => {
+  it('sagt auch im Standby «Bereit»', () => {
+    // So gewünscht aus der Waschküche: «Standby» ist ein Wort aus dem
+    // Datenblatt an einer Stelle, an der man wissen will, ob man Wäsche
+    // hineintun kann. Ob die Maschine noch voll ist, sagt ohnehin kein
+    // Zustandswert - dafür meldet der Hub das Programmende.
     const zeile = applianceLine(geraet({ state: 'standby' }), '');
     expect(zeile.running).toBe(false);
-    expect(zeile.text).toBe('Standby');
+    expect(zeile.text).toBe('Bereit');
   });
 
   it('schreibt kein englisches «unknown» auf die Kachel', () => {
@@ -59,5 +63,36 @@ describe('applianceLine', () => {
       running: true,
     });
     expect(applianceLine(undefined, 'Bereit').running).toBe(false);
+  });
+});
+
+describe('Stillstehende Maschinen heissen «Bereit»', () => {
+  const geraet2 = (state: string): Entity =>
+    ({
+      id: 'vzug.waschmaschine',
+      name: 'Waschmaschine',
+      kind: 'appliance',
+      integration: 'vzug',
+      available: true,
+      commands: [],
+      state: { state },
+    }) as unknown as Entity;
+
+  it('übersetzt, was der Hersteller sagt', () => {
+    // «Standby» stand so an Waschmaschine, Geschirrspüler und Tumbler -
+    // ein Wort aus dem Datenblatt an einer Stelle, an der man wissen
+    // will, ob man Wäsche hineintun kann.
+    for (const wert of ['idle', 'off', 'standby', 'ready']) {
+      expect(applianceLine(geraet2(wert), '').text).toBe('Bereit');
+      expect(applianceLine(geraet2(wert), '').running).toBe(false);
+    }
+    // «unknown» ist etwas anderes: Da hat der Hub noch nichts gehört.
+    expect(applianceLine(geraet2('unknown'), '').text).toBe('Unbekannt');
+  });
+
+  it('verschweigt eine Störung nicht', () => {
+    // Was nicht «wartet» heisst, bleibt stehen - «Bereit» über einem
+    // Fehler wäre die schlechtere Auskunft.
+    expect(applianceLine(geraet2('error'), '').text).toBe('error');
   });
 });
