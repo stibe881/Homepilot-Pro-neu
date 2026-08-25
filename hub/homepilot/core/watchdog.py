@@ -54,6 +54,7 @@ from .watchrules import (  # noqa: F401
     disk_usage,
     down_integrations,
     frost_night,
+    klingel_gesperrt,
     leaks,
     low_batteries,
     open_contacts,
@@ -143,6 +144,10 @@ class Watchdog:
         # Weile auf «on» stehen; ohne Gedächtnis käme bei jeder Meldung
         # desselben Klingelns eine weitere Nachricht.
         self._klingelt: set[str] = set()
+        # Je Türe der Zeitpunkt der letzten Klingel-Nachricht - die
+        # Sperrfrist, die verhindert, dass aus einem Besucher mehrere
+        # Nachrichten werden.
+        self._klingel_gemeldet: dict[str, float] = {}
 
     def start(self) -> None:
         self._task = asyncio.create_task(self._loop())
@@ -166,11 +171,21 @@ class Watchdog:
         neu = str((data.get("new_state") or {}).get("ring") or "")
         if neu != "on":
             # «off» oder verschwunden: Beim nächsten Klingeln darf wieder
-            # gemeldet werden.
+            # gemeldet werden - sofern die Sperrfrist um ist.
             self._klingelt.discard(entity_id)
             return
         if alt == "on" or entity_id in self._klingelt:
             return
+        # Der Riegel an der letzten Stelle. Ein Klingeln kommt beim Hub auf
+        # mehreren Wegen an, und jeder Weg kann den Zustand für sich auf
+        # «an» setzen - dazwischen liegt manchmal ein «aus», und dann
+        # zählt es als neues Klingeln. Was auch immer davor schiefgeht:
+        # Hier geht je Türe und Minute eine Nachricht hinaus.
+        jetzt = time.time()
+        if klingel_gesperrt(self._klingel_gemeldet.get(entity_id), jetzt):
+            log.debug("Klingeln an %s bereits gemeldet - keine zweite Nachricht", entity_id)
+            return
+        self._klingel_gemeldet[entity_id] = jetzt
         self._klingelt.add(entity_id)
         entity = (data.get("entity") or {}) if isinstance(data.get("entity"), dict) else {}
         name = str(entity.get("name") or entity_id)
@@ -179,6 +194,12 @@ class Watchdog:
         asyncio.create_task(self._melde_klingeln(entity_id, name))
 
     async def _melde_klingeln(self, entity_id: str, name: str) -> None:
+        # Zuerst auf den Bus: Wer beim Klingeln etwas tun will - die
+        # Musik dämpfen, eine Ansage machen -, soll nicht warten, bis
+        # die Push draussen ist.
+        await self.hub.bus.publish(
+            "doorbell", {"entity_id": entity_id, "name": name}
+        )
         await self._notify(
             f"Es klingelt: {name}",
             "Jemand steht vor der Türe.",

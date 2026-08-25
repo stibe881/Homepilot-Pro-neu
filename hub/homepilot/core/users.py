@@ -54,6 +54,12 @@ class Capability:
     VIEW_SYSTEM = "view_system"
     MANAGE_USERS = "manage_users"
     EDIT_CONFIG = "edit_config"
+    # Geräte anpassen: Name, Raum, Gruppe. Getrennt von EDIT_CONFIG,
+    # weil es in der homepilot-data.json landet und nicht in der
+    # config.yaml - und weil es Mitbewohnern zusteht: Wer hier wohnt und
+    # ein Gerät schalten darf, darf auch sagen, wie es heisst und wo es
+    # steht. Die Konfiguration des Hubs bleibt bei der Besitzerin.
+    EDIT_DEVICES = "edit_devices"
 
 
 CAPABILITIES: dict[str, frozenset[str]] = {
@@ -67,6 +73,7 @@ CAPABILITIES: dict[str, frozenset[str]] = {
             Capability.VIEW_SYSTEM,
             Capability.MANAGE_USERS,
             Capability.EDIT_CONFIG,
+            Capability.EDIT_DEVICES,
         }
     ),
     Role.RESIDENT: frozenset(
@@ -76,6 +83,7 @@ CAPABILITIES: dict[str, frozenset[str]] = {
             Capability.VIEW_AUTOMATIONS,
             Capability.PAUSE_AUTOMATIONS,
             Capability.VIEW_SYSTEM,
+            Capability.EDIT_DEVICES,
         }
     ),
     # Gäste dürfen bedienen, aber nichts über das Haus erfahren.

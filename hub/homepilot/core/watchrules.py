@@ -180,6 +180,32 @@ def leaks(entities: list[Any]) -> list[Any]:
     ]
 
 
+#: So lange nach einer Klingel-Nachricht wird keine zweite verschickt.
+#:
+#: Ein Klingeln kommt beim Hub auf mehreren Wegen an - Ereigniskanal,
+#: Abfrage, Verlauf -, und jeder Weg kann den Zustand für sich auf «an»
+#: setzen. Liegt dazwischen ein «aus», zählt es als neues Klingeln, und
+#: der Besucher bekommt vier Nachrichten statt einer.
+#:
+#: Eine Minute: Wer davorsteht und nochmals drückt, weil niemand kommt,
+#: löst keine zweite Nachricht aus - er will ja dieselbe Sache. Ein
+#: zweiter Besucher eine Minute später schon.
+KLINGEL_SPERRE = 60.0
+
+
+def klingel_gesperrt(
+    zuletzt: float | None, jetzt: float, frist: float = KLINGEL_SPERRE
+) -> bool:
+    """Wurde für diese Türe eben schon gemeldet? (rein, testbar)
+
+    Der Riegel an der letzten Stelle: Was auch immer davor schiefgeht -
+    hier geht je Türe und Minute eine Nachricht hinaus.
+    """
+    if zuletzt is None:
+        return False
+    return 0 <= jetzt - zuletzt < frist
+
+
 def klingelnde(entities: list[Any]) -> list[Any]:
     """Geräte, an denen es gerade klingelt (rein, testbar).
 

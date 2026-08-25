@@ -62,7 +62,9 @@ def test_parse_playback_reads_shuffle_and_repeat():
         }
     )
     assert state["shuffle"] is True
-    assert state["repeat"] == "context"
+    # Spotify sagt «context», die App und der Cast-Player sagen «all» -
+    # der Hub übersetzt, damit eine Kachel überall gleich spricht.
+    assert state["repeat"] == "all"
 
 
 def test_parse_playback_defaults_shuffle_and_repeat():
@@ -74,15 +76,34 @@ def test_parse_playback_defaults_shuffle_and_repeat():
 
 
 def test_next_repeat_cycles_through_the_modes():
-    # aus → alles → ein Titel → aus
-    assert next_repeat("off") == "context"
-    assert next_repeat("context") == "track"
+    # aus → alles → ein Titel → aus, in den Namen der App
+    assert next_repeat("off") == "all"
+    assert next_repeat("all") == "one"
+    assert next_repeat("one") == "off"
+
+
+def test_next_repeat_understands_spotifys_own_words():
+    # Ein Ablauf, der noch «context» schickt, darf nicht steckenbleiben.
+    assert next_repeat("context") == "one"
     assert next_repeat("track") == "off"
+
+
+def test_repeat_api_translates_both_ways():
+    from homepilot.integrations.spotify import repeat_api, repeat_name
+
+    assert repeat_api("all") == "context"
+    assert repeat_api("one") == "track"
+    assert repeat_api("off") == "off"
+    # Spotifys eigene Wörter bleiben gültig.
+    assert repeat_api("context") == "context"
+    assert repeat_api("quatsch") is None
+    assert repeat_name("context") == "all"
+    assert repeat_name(None) == "off"
 
 
 def test_next_repeat_recovers_from_nonsense():
     # Ein unbekannter Wert darf nicht in einer Sackgasse enden.
-    assert next_repeat("quatsch") in REPEAT_MODES
+    assert next_repeat("quatsch") in ("off", "all", "one")
 
 
 # ── Befehle sollen nicht auf Spotifys Rückmeldung warten ───────────────────

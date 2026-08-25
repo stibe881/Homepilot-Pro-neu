@@ -184,13 +184,16 @@ def test_entity_meta_rename_favorite_group():
         assert entity["name"] == "Stehlampe"
 
 
-def test_only_the_owner_renames_and_the_name_holds_for_everyone():
-    """Ein Gerätename ist keine persönliche Einstellung.
+def test_residents_rename_too_but_guests_do_not():
+    """Ein Gerätename gilt fürs ganze Haus - und genau darum für alle,
+    die darin wohnen.
 
-    Er liegt in der homepilot-data.json und gilt danach im ganzen Haus -
-    genau deshalb darf ihn nur die Besitzerin setzen. Ein Bewohner, der es
-    versucht, bekommt ein sauberes 403; die Kachel in der App fragt
-    dieselbe Fähigkeit ab und zeigt ihm den Knopf gar nicht erst.
+    Lange durfte nur die Besitzerin umbenennen; im Alltag hiess das, dass
+    die falsch beschriftete Kachel wochenlang falsch blieb, weil nur eine
+    Person sie richten konnte. Jetzt trägt EDIT_DEVICES die Grenze: Wer
+    hier wohnt, darf Name, Raum und Gruppe setzen. Ein Gast weiterhin
+    nicht - er bekommt ein sauberes 403, und die App zeigt ihm den Knopf
+    gar nicht erst.
     """
     hub = Hub(
         make_config(
@@ -198,21 +201,33 @@ def test_only_the_owner_renames_and_the_name_holds_for_everyone():
             users=[
                 {"name": "Stefan", "role": "besitzer", "token": "t-stefan"},
                 {"name": "Livia", "role": "bewohner", "token": "t-livia"},
+                {"name": "Nina", "role": "gast", "token": "t-nina"},
             ],
         )
     )
     with TestClient(create_app(hub)) as client:
         stefan = {"Authorization": "Bearer t-stefan"}
         livia = {"Authorization": "Bearer t-livia"}
+        nina = {"Authorization": "Bearer t-nina"}
         pfad = "/api/entities/demo.light_livingroom/meta"
 
-        assert client.put(pfad, json={"name": "Leselampe"}, headers=livia).status_code == 403
+        assert client.put(pfad, json={"name": "Egal"}, headers=nina).status_code == 403
 
-        assert client.put(pfad, json={"name": "Leselampe"}, headers=stefan).status_code == 200
-        # Und für Livia heisst das Gerät ab sofort auch so - es ist
-        # derselbe Name, nicht ihre eigene Sicht darauf.
-        entities = {e["id"]: e for e in client.get("/api/entities", headers=livia).json()}
+        assert client.put(pfad, json={"name": "Leselampe"}, headers=livia).status_code == 200
+        # Und für Stefan heisst das Gerät ab sofort auch so - es ist
+        # derselbe Name, nicht Livias eigene Sicht darauf.
+        entities = {e["id"]: e for e in client.get("/api/entities", headers=stefan).json()}
         assert entities["demo.light_livingroom"]["name"] == "Leselampe"
+
+        # Der Raum geht denselben Weg - «Anpassen» braucht beides.
+        assert (
+            client.put(
+                "/api/entities/demo.light_livingroom/room",
+                json={"room": "Stube"},
+                headers=livia,
+            ).status_code
+            == 200
+        )
 
 
 def test_entity_meta_unknown_entity_is_404():

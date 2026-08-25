@@ -384,6 +384,12 @@ def titel_und_interpret(roh: str | None) -> tuple[str | None, str | None]:
     text = (roh or "").strip()
     if not text:
         return None, None
+    # Eine Adresse ist kein Titel. Solange der Strom noch keine
+    # ICY-Angabe geschickt hat, reicht der Chromecast durch, was er
+    # abspielt - und auf der Kachel stand dann
+    # «https://…/srf3_96.mp3?ua=Chromecast» statt des Sendernamens.
+    if text.lower().startswith(("http://", "https://")):
+        return None, None
     for trenner in (" - ", " – ", " — "):
         interpret, _, titel = text.partition(trenner)
         if interpret.strip() and titel.strip():

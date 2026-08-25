@@ -52,9 +52,9 @@ export function ShuffleRepeat({
           <Ionicons
             name="shuffle"
             size={17}
-            color={shuffle ? '#FFFFFF' : colors.inkSoft}
+            color={shuffle ? colors.accent : colors.inkSoft}
           />
-          <Text style={[styles.modeButtonText, shuffle && { color: '#FFFFFF' }]}>
+          <Text style={[styles.modeButtonText, shuffle && { color: colors.accent }]}>
             Zufall
           </Text>
         </Pressable>
@@ -73,9 +73,9 @@ export function ShuffleRepeat({
           <Ionicons
             name="repeat"
             size={17}
-            color={repeatOn ? '#FFFFFF' : colors.inkSoft}
+            color={repeatOn ? colors.accent : colors.inkSoft}
           />
-          <Text style={[styles.modeButtonText, repeatOn && { color: '#FFFFFF' }]}>
+          <Text style={[styles.modeButtonText, repeatOn && { color: colors.accent }]}>
             {repeatLabel(repeat)}
           </Text>
         </Pressable>
@@ -84,10 +84,17 @@ export function ShuffleRepeat({
   );
 }
 
-/** Wie der Wiederholmodus heisst (rein, testbar). */
+/**
+ * Wie der Wiederholmodus heisst (rein, testbar).
+ *
+ * Zwei Wortschätze, weil der Hub früher Spotifys eigene Wörter
+ * durchreichte («context», «track») und heute überall dieselben drei
+ * benutzt. Ein Gerät, das noch die alten meldet, soll nicht plötzlich
+ * «Wiederholen» statt «Alles» anzeigen.
+ */
 export function repeatLabel(repeat: string): string {
-  if (repeat === 'context') return 'Alles';
-  if (repeat === 'track') return 'Ein Titel';
+  if (repeat === 'all' || repeat === 'context') return 'Alles';
+  if (repeat === 'one' || repeat === 'track') return 'Ein Titel';
   return 'Wiederholen';
 }
 

@@ -218,7 +218,16 @@ export function TopStrip({
         {people ? (
           <Chip
             icon="people-outline"
-            text={people.state.state === 'on' ? 'jemand da' : 'niemand da'}
+            // «alle sind zuhause» sagt der Hub nur, wenn er es von jedem
+            // Einzelnen weiss - ein verstummtes Telefon macht daraus
+            // wieder das vorsichtige «jemand da».
+            text={
+              people.state.state === 'on'
+                ? people.state.all
+                  ? 'alle sind zuhause'
+                  : 'jemand da'
+                : 'niemand da'
+            }
             onPress={
               onLoadPresence
                 ? () => {

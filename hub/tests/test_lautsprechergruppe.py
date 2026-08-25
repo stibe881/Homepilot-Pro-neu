@@ -217,3 +217,137 @@ async def test_without_a_wish_the_active_speaker_still_wins():
     entity = types.SimpleNamespace(state={"device": "Küche"})
     await fake.handle_command(entity, "play_playlist", {"name": "Party"})
     assert fake.gestartet == [("id-kueche", "spotify:playlist:party")]
+
+
+# ── Radio auf eine Box, die Spotify noch festhält ────────────────────────
+# Der Fall aus dem Wohnzimmer: Spotify lief, wurde auf Pause gestellt,
+# dann sollte Radio kommen - und es kam nichts. Eine pausierte
+# Spotify-Sitzung hält den Empfänger der Box besetzt.
+
+
+def test_only_a_foreign_app_needs_clearing():
+    from homepilot.integrations.google_cast import (
+        LEERLAUF_APPS,
+        STANDARD_EMPFAENGER,
+        fremde_app,
+    )
+
+    # Spotify, YouTube Music, Radio-Apps: die halten die Box fest.
+    assert fremde_app("CC32E753") is True
+    assert fremde_app("cc32e753") is True
+    # Der Standardempfänger ist der, über den der Hub selbst abspielt -
+    # ihn zu beenden hiesse, sich selbst den Boden wegzuziehen.
+    assert fremde_app(STANDARD_EMPFAENGER) is False
+    assert fremde_app(STANDARD_EMPFAENGER.lower()) is False
+    # Eine leere Box und der Bildschirmschoner brauchen nichts. Ein
+    # quit_app darauf kostet eine Sekunde für nichts.
+    assert fremde_app(None) is False
+    assert fremde_app("") is False
+    assert fremde_app("   ") is False
+    for leerlauf in LEERLAUF_APPS:
+        assert fremde_app(leerlauf) is False
+
+
+def test_a_stream_url_is_not_a_track_title():
+    """Solange der Strom keine ICY-Angabe geschickt hat, reicht der
+    Chromecast durch, was er abspielt - und auf der Kachel stand die
+    nackte Adresse statt des Sendernamens."""
+    from homepilot.integrations.tunein import titel_und_interpret
+
+    assert titel_und_interpret("https://stream.srg.ch/srf3_96.mp3?ua=Chromecast") == (
+        None,
+        None,
+    )
+    assert titel_und_interpret("http://127.0.0.1:8190/srf3.mp3") == (None, None)
+    # Ein echter Titel bleibt einer - auch einer mit Bindestrich.
+    assert titel_und_interpret("Ed Sheeran - Shivers") == ("Shivers", "Ed Sheeran")
+    assert titel_und_interpret("Nachrichten") == ("Nachrichten", None)
+# ── Medienplayer: Fortschritt, Spulen, Zufall/Wiederholung ────────────────
+#
+# Punkte 1, 2, 3 und 19 der Medienplayer-Runde. Vorher wusste die Kachel
+# nur «es läuft etwas» - nicht wie weit, nicht wie lang, und Zufall und
+# Wiederholung gab es nur bei Spotify.
+
+
+def test_fortschritt_kommt_in_sekunden_an():
+    from homepilot.integrations.google_cast import cast_media_state
+
+    state = cast_media_state(
+        "PLAYING", "Titel", None, "Spotify", 0.4,
+        position=63.4321, duration=210.0, position_at=1700.0,
+    )
+    assert state["position"] == 63.4
+    assert state["duration"] == 210.0
+    # Der Zeitstempel: Ohne ihn stünde der Balken zwischen zwei Meldungen
+    # still, statt weiterzulaufen.
+    assert state["position_at"] == 1700.0
+
+
+def test_ohne_laenge_kein_leeres_feld():
+    from homepilot.integrations.google_cast import cast_media_state
+
+    # Radio hat kein Ende, und manche Apps schicken einen leeren String.
+    state = cast_media_state("PLAYING", "SRF 3", None, "Radio", 0.4, duration="")
+    assert "duration" not in state
+    assert "position" not in state
+
+
+def test_unsinnige_zeiten_werden_verworfen():
+    from homepilot.integrations.google_cast import _sekunden
+
+    assert _sekunden(-5) is None
+    assert _sekunden(float("inf")) is None
+    assert _sekunden(float("nan")) is None
+    assert _sekunden(True) is None
+    assert _sekunden("12.5") == 12.5
+
+
+def test_wiederholung_spricht_dieselbe_sprache_wie_spotify():
+    from homepilot.integrations.google_cast import repeat_name
+
+    assert repeat_name("REPEAT_OFF") == "off"
+    assert repeat_name("REPEAT_ALL") == "all"
+    assert repeat_name("REPEAT_SINGLE") == "one"
+    # Cast mischt Zufall in den Modus - für die Kachel bleibt es «alles».
+    assert repeat_name("REPEAT_ALL_AND_SHUFFLE") == "all"
+    assert repeat_name(None) is None
+    # Unbekanntes lieber gar nicht behaupten.
+    assert repeat_name("QUATSCH") is None
+
+
+def test_zustaende_sind_ehrlich():
+    from homepilot.integrations.google_cast import cast_state_name
+
+    assert cast_state_name("PLAYING", "Spotify") == "playing"
+    assert cast_state_name("PAUSED", "Spotify") == "paused"
+    # Puffern ist nicht Pause - sonst zeigt die App den falschen Knopf.
+    assert cast_state_name("BUFFERING", "Spotify") == "buffering"
+    # Es liegt etwas an, es läuft nur gerade nicht.
+    assert cast_state_name("IDLE", "Spotify") == "idle"
+    # Nichts an, nur der Bildschirmschoner: Ruhe.
+    assert cast_state_name("IDLE", "Backdrop") == "standby"
+    assert cast_state_name(None, None) == "standby"
+
+
+def test_queue_update_nachricht():
+    from homepilot.integrations.google_cast import queue_update_nachricht
+
+    assert queue_update_nachricht(7, shuffle=True) == {
+        "type": "QUEUE_UPDATE",
+        "mediaSessionId": 7,
+        "shuffle": True,
+    }
+    assert queue_update_nachricht(7, repeat="one")["repeatMode"] == "REPEAT_SINGLE"
+    # Ohne laufende Sitzung keine Kennung - der Empfänger nimmt es
+    # trotzdem an, wenn nur eine Wiedergabe läuft.
+    assert "mediaSessionId" not in queue_update_nachricht(None, shuffle=False)
+
+
+def test_queue_update_lehnt_unbekannte_wiederholung_ab():
+    import pytest
+
+    from homepilot.core.errors import ConfigError
+    from homepilot.integrations.google_cast import queue_update_nachricht
+
+    with pytest.raises(ConfigError, match="off"):
+        queue_update_nachricht(1, repeat="rueckwaerts")

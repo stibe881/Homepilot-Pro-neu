@@ -359,14 +359,21 @@ class GeofenceIntegration(Integration):
             if zustand != HOME:
                 weg.append(entity.name if entity else zone_id)
         neu = presence.anyone_home_state(zustaende)
+        # Fürs Schild oben in der App: «jemand da» ist wahr, aber wenig -
+        # sind wirklich alle daheim, darf es das auch sagen.
+        alle = presence.alle_zuhause(zustaende)
         alt_entity = self.hub.registry.get(self._anyone)
-        if alt_entity is not None and alt_entity.state.get("state") == neu:
+        if (
+            alt_entity is not None
+            and alt_entity.state.get("state") == neu
+            and bool(alt_entity.state.get("all")) == alle
+        ):
             # Nur echte Wechsel melden: Sonst löste jede Ortsmeldung
             # einer bereits abwesenden Person «alles aus» erneut aus.
             return
         await self.hub.registry.update_state(
             self._anyone,
-            {"state": neu, "device_class": "presence", "away": weg},
+            {"state": neu, "device_class": "presence", "away": weg, "all": alle},
             available=True,
         )
         self.log.info("Geofence: jemand zuhause = %s", neu)

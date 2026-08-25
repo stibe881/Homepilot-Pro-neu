@@ -12,6 +12,7 @@ import {
 
 import { CommandData, Entity, KalenderEintrag, Scene } from '../api/types';
 import { Card } from '../components/Card';
+import { RenameDialog } from '../components/entity/anpassen';
 import { DraggableList } from '../components/DraggableList';
 import { KIND_ICONS, shortState } from '../components/RoomTile';
 import { appleMapsRoute, googleMapsRoute } from '../components/TopStrip';
@@ -57,6 +58,9 @@ interface Props {
    *  in der Geräteliste in die Geräte-Einstellungen schreibt und nicht in
    *  die Entität – wer nur `entity.favorite` liest, sieht nie etwas. */
   favoriteIds?: string[];
+  /** Gerät umbenennen - hängt am langen Druck auf einen Favoriten.
+   *  Fehlt sie (Gast, alter Hub), bleibt der lange Druck einfach stumm. */
+  onRenameEntity?: (entityId: string, name: string) => void;
   /** Selbst gezogene Reihenfolge der Favoriten (Gerätekennungen). */
   favoriteOrder?: string[];
   onReorderFavorites?: (ids: string[]) => void;
@@ -138,6 +142,7 @@ export function OverviewScreen({
   favoriteIds = [],
   favoriteOrder,
   onReorderFavorites,
+  onRenameEntity,
   doorConfirm,
 }: Props) {
   const colors = useColors();
@@ -202,6 +207,8 @@ export function OverviewScreen({
   // der Startseite ist zu klein für fünf Knöpfe - und beim Einschalten
   // will man ihn auch nicht versehentlich stellen.
   const [timerTv, setTimerTv] = useState<Entity | null>(null);
+  // Welcher Favorit gerade umbenannt wird - null heisst keiner.
+  const [umbenennen, setUmbenennen] = useState<Entity | null>(null);
   // Der offene Eintrag frisch aus der Liste: Sonst zeigte das Fenster den
   // Stand von dem Moment, in dem es aufging, und nach «1 h 30» stünde
   // weiter «Kein Timer gestellt».
@@ -783,11 +790,25 @@ export function OverviewScreen({
                 pending={!!pending[entity.id]}
                 onCommand={onCommand}
                 onTimer={() => setTimerTv(entity)}
+                onRename={onRenameEntity ? () => setUmbenennen(entity) : undefined}
                 styles={styles}
                 colors={colors}
               />
             ))}
           </View>
+          {/* Der Dialog steht einmal hier statt in jedem Chip - es kann
+              ohnehin nur einer offen sein. */}
+          {umbenennen ? (
+            <RenameDialog
+              visible
+              current={umbenennen.name}
+              onClose={() => setUmbenennen(null)}
+              onSubmit={(name) => {
+                setUmbenennen(null);
+                if (name) onRenameEntity?.(umbenennen.id, name);
+              }}
+            />
+          ) : null}
           <FernsehTimerFenster
             entity={timerEntity}
             onCommand={onCommand}
@@ -830,6 +851,7 @@ function FavoriteChip({
   pending,
   onCommand,
   onTimer,
+  onRename,
   styles,
   colors,
 }: {
@@ -840,6 +862,8 @@ function FavoriteChip({
   onCommand: (entityId: string, command: string, data?: CommandData) => void;
   /** Öffnet das Timer-Fenster – nur bei Geräten, die einen können. */
   onTimer: () => void;
+  /** Öffnet den Umbenennen-Dialog. Ohne Recht dazu: kein langer Druck. */
+  onRename?: () => void;
   styles: OverviewStyles;
   colors: Colors;
 }) {
@@ -881,8 +905,14 @@ function FavoriteChip({
   return (
     <Pressable
       onPress={switchable ? tap : undefined}
-      disabled={!switchable}
-      accessibilityRole={switchable ? 'button' : undefined}
+      // Umbenennen am Ort des Ärgernisses: Wer den falschen Namen liest,
+      // liest ihn hier - nicht unter Geräte → Anpassen, drei Schritte
+      // weiter. disabled fällt deshalb weg, sobald es ein onRename gibt:
+      // Ein deaktiviertes Pressable schluckt auch den langen Druck.
+      onLongPress={onRename}
+      delayLongPress={350}
+      disabled={!switchable && !onRename}
+      accessibilityRole={switchable || onRename ? 'button' : undefined}
       accessibilityLabel={entity.name}
       style={({ pressed }) => [
         styles.favChip,

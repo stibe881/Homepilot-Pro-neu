@@ -89,6 +89,24 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   dasselbe Gerät stand damit an einer Stelle als «Standby» und an der
   anderen als «Bereit».
 
+**Startseite und Musik**
+
+- Steht oben statt «jemand da» jetzt **«alle sind zuhause»**, wenn der
+  Hub es von jedem Einzelnen weiss. Ein verstummtes Telefon macht daraus
+  wieder das vorsichtige «jemand da» - über jemanden, von dem man nichts
+  weiss, behauptet man kein «alle».
+- Ein **langer Druck auf eine Favoriten-Kachel** öffnet das Umbenennen -
+  bisher ging das dort gar nicht, auch nicht als Besitzer: Die Favoriten
+  sind eigene Chips, und die kannten keinen langen Druck.
+- **Umbenennen, Raum und Gruppe stehen jetzt auch Mitbewohnern zu**
+  (neue Fähigkeit `edit_devices`), ebenso der «Anpassen»-Knopf unter
+  Geräte. Ein Name, den alle täglich lesen, darf von allen stammen, die
+  hier wohnen - Gäste weiterhin nicht.
+- Die Boxen-Liste im Musikplayer ist eine ruhige Spalte statt Chips im
+  Flattersatz: alphabetisch, die gewählte Box mit Häkchen, wo Musik
+  läuft, sagt es das Symbol. «Zufall» und «Wiederholen» sind dezenter -
+  aktiv heisst Akzent-Kante und -Schrift statt satter Füllung.
+
 **Einstellungen**
 
 - Die Kacheln sind gruppiert statt in einer langen Mischliste: zuoberst

@@ -130,7 +130,10 @@ export const makeStyles = (colors: Colors) =>
     borderWidth: 1,
     borderColor: colors.surfaceBorder,
   },
-  modeButtonOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+  // Eingeschaltet heisst Kante und Schrift in Akzentfarbe, nicht volle
+  // Füllung: Zufall und Wiederholen sind Nebenschalter - satt gefüllt
+  // riefen sie lauter als die Wiedergabeknöpfe darüber.
+  modeButtonOn: { borderColor: colors.accent },
   modeButtonText: { color: colors.inkSoft, fontSize: 12, fontWeight: '700' },
   playlistButton: {
     flexDirection: 'row',

@@ -533,3 +533,48 @@ def test_a_fresh_channel_gets_its_half_hour():
 
 def test_a_channel_that_never_stood_is_not_the_case():
     assert anmeldung_erneuern(None, 0, 1_700_000_000.0) is False
+
+
+# ── Die Geräte-Kennung, an der alles hing ───────────────────────────────
+#
+# `ring_doorbell` leitet sie von der MAC-Adresse ab, wenn man ihr keine
+# gibt. Auf einem Rechner ist das gut - die MAC bleibt. In einem
+# Docker-Container nicht: Jeder neu erstellte Container bekommt eine neue,
+# und dieser Hub wird bei JEDEM Update neu erstellt.
+#
+# Ring bindet die Push-Anmeldung an diese Kennung. Nach jedem Update
+# meldete sich also ein Gerät an, das Ring noch nie gesehen hatte, während
+# die Klingeln weiter ans Gerät von vorher gingen: 204 bestätigt, Kanal
+# steht, und es kommt nie etwas. Und es erklärt, warum es in Home
+# Assistant lief - eine feste Installation behält ihre MAC.
+
+from homepilot.integrations.ring import hardware_id
+
+
+def test_a_stored_id_is_kept():
+    kennung, frisch = hardware_id({"token": {}, "hardware_id": "abc-123"})
+    assert kennung == "abc-123"
+    assert frisch is False
+
+
+def test_without_one_a_fresh_id_is_drawn():
+    kennung, frisch = hardware_id({"token": {}})
+    assert frisch is True
+    assert len(kennung) == 36  # eine UUID, nicht die MAC
+    # Und sie ist nicht bei jedem Aufruf dieselbe - sie wird ja gespeichert.
+    zweite, _ = hardware_id({"token": {}})
+    assert zweite != kennung
+
+
+def test_nothing_stored_at_all_still_works():
+    kennung, frisch = hardware_id(None)
+    assert frisch is True
+    assert kennung
+
+
+def test_an_empty_entry_counts_as_missing():
+    """Eine leere Zeichenkette ist keine Kennung - sonst meldete sich der
+    Hub unter dem leeren Namen an."""
+    for leer in ("", "   ", None):
+        _, frisch = hardware_id({"hardware_id": leer})
+        assert frisch is True
