@@ -31,7 +31,9 @@ import {
   LockBody,
   VacuumBody,
 } from './entity/koerper';
+import { Fortschritt } from './entity/Fortschritt';
 import { MediaButton, RadioPanel, ShuffleRepeat, SpotifyPanel } from './entity/medien';
+import { MedienExtras } from './entity/medienextras';
 import { makeStyles } from './entity/stil';
 import {
   BigValue,
@@ -280,8 +282,21 @@ export function EntityCard({
       case 'media_player': {
         const playing = entity.state.state === 'playing';
         const hasRemote = entity.commands.includes('dpad_up');
+        const cover = entity.state.image ? String(entity.state.image) : null;
         return (
           <View style={styles.stack}>
+            {/* Das Cover als Grund der Kachel - blass, damit der Text
+                lesbar bleibt. Eine Musikkachel, die aussieht wie das
+                Album, findet man mit einem Blick; eine, die aussieht wie
+                jede andere, muss man lesen. */}
+            {cover && playing ? (
+              <Image
+                source={{ uri: cover }}
+                style={styles.coverGrund}
+                blurRadius={18}
+                accessibilityIgnoresInvertColors
+              />
+            ) : null}
             {/* Cover und Titel öffnen, was als Nächstes kommt – wie in
                 der grossen Karte in der Seitenspalte. */}
             <Pressable
@@ -316,6 +331,8 @@ export function EntityCard({
                 <Ionicons name="list-outline" size={16} color={colors.inkFaint} />
               ) : null}
             </Pressable>
+            <Fortschritt entity={entity} onCommand={onCommand} />
+            <MedienExtras entity={entity} />
             <Musikliste
               state={entity.state}
               offen={listeOffen}
