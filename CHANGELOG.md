@@ -91,6 +91,27 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Startseite und Musik**
 
+- **Die gewählte Box gilt jetzt auch beim Abspielen.** Oben «Büro»
+  wählen und eine Playlist starten liess die Musik auf der zuletzt
+  aktiven Box weiterspielen - der Umzug bleibt bei stillem Spotify
+  nicht haften, und der Startbefehl nannte kein Gerät. Die Wahl reist
+  jetzt bis zum Start mit und wird dort ausdrücklich genannt; der Hub
+  weckt die Box notfalls und bricht lieber ab, als im falschen Zimmer
+  zu spielen. Gilt für Spotify und Radio.
+- **Radiosender zeigen ihr Logo wieder.** Ein Sender, der schon eine
+  TuneIn-Kennung trug (früh gespeichert, bevor Bilder mitkamen), wurde
+  beim Abspielen nie mehr aufgelöst - sein Logo kam deshalb nie nach.
+  Der Hub holt es jetzt beim ersten Abspielen nach, höchstens eine
+  Anfrage je Sender, und nur bei übereinstimmender Kennung: Der eigene
+  Icecast im Keller bekommt kein fremdes Logo angeheftet.
+- **Der Update-Knopf versorgt jetzt auch die Telefone.** Bisher tauschte
+  er nur die Web-Fassung; die iPhones bekamen neuen Code erst mit dem
+  nächsten TestFlight-Build - und blieben sonst stumm auf Wochen altem
+  Stand, bei gleicher Versionsnummer. Jeder Lauf veröffentlicht jetzt
+  eine OTA-Fassung über EAS (sofern EXPO_TOKEN hinterlegt ist).
+  Erreicht werden Builds mit derselben runtimeVersion; ältere brauchen
+  einmal TestFlight, danach greift OTA wieder.
+
 - Steht oben statt «jemand da» jetzt **«alle sind zuhause»**, wenn der
   Hub es von jedem Einzelnen weiss. Ein verstummtes Telefon macht daraus
   wieder das vorsichtige «jemand da» - über jemanden, von dem man nichts
