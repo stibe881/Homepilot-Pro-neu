@@ -23,6 +23,7 @@ import {
   Picker,
 } from './felder';
 import { makeStyles } from './stil';
+import { mitschalter, mitschalterSatz } from '../../lib/verweise';
 import { SceneDevices } from './szenen-editor';
 
 export function Editor({
@@ -30,6 +31,7 @@ export function Editor({
   entities,
   orte,
   scenes,
+  andereAblaeufe = [],
   categories,
   hueScenes,
   empfaenger,
@@ -49,6 +51,9 @@ export function Editor({
    *  Ohne sie kennt der Ortsauslöser nur «Zuhause». */
   orte?: { id: string; name?: string }[];
   scenes: Scene[];
+  /** Die übrigen Abläufe – für den Hinweis «das schaltet auch …».
+   *  Leer ist erlaubt: Dann steht der Hinweis eben nicht. */
+  andereAblaeufe?: { id: string; alias: string }[];
   /** Schon vergebene Kategorien – als Vorschläge im Feld. */
   categories: string[];
   /** Szenen der Hue-Bridge; leer, wenn keine Bridge verbunden ist. */
@@ -665,6 +670,8 @@ export function Editor({
             steps={draft.steps}
             entities={entities}
             scenes={scenes}
+            andereAblaeufe={andereAblaeufe}
+            eigeneId={draft.id}
             hueScenes={hueScenes}
             empfaenger={empfaenger}
             luxSensors={luxSensors}
@@ -735,6 +742,8 @@ export function Editor({
               steps={draft.elseSteps}
               entities={entities}
               scenes={scenes}
+              andereAblaeufe={andereAblaeufe}
+              eigeneId={draft.id}
               hueScenes={hueScenes}
               empfaenger={empfaenger}
               luxSensors={luxSensors}
@@ -1333,6 +1342,8 @@ export function StepList({
   steps,
   entities,
   scenes,
+  andereAblaeufe = [],
+  eigeneId,
   hueScenes,
   empfaenger = [],
   luxSensors = [],
@@ -1344,6 +1355,10 @@ export function StepList({
   steps: StepDraft[];
   entities: Entity[];
   scenes: Scene[];
+  /** Die übrigen Abläufe – für den Hinweis «das schaltet auch …». */
+  andereAblaeufe?: { id: string; alias: string }[];
+  /** Der eigene Ablauf: Ohne ihn meldete er sich selbst als Mitschalter. */
+  eigeneId?: string;
   hueScenes: string[];
   /** Die Melder dieses Ablaufs, die Helligkeit messen – daraus wird die
    *  Wahl «an Helligkeit angepasst» bei den Lampen. Leer heisst: kein
@@ -1478,14 +1493,29 @@ export function StepList({
           />
 
           {step.kind === 'command' ? (
-            <SceneDevices
-              entities={entities}
-              actions={step.commandActions}
-              onActions={(commandActions) => setStep(index, { commandActions })}
-              showSnapshot={false}
-              allowToggle
-              luxSensors={luxSensors}
-            />
+            <>
+              <SceneDevices
+                entities={entities}
+                actions={step.commandActions}
+                onActions={(commandActions) => setStep(index, { commandActions })}
+                showSnapshot={false}
+                allowToggle
+                luxSensors={luxSensors}
+              />
+              {/* Der Hub meldet Widersprüche erst hinterher, als Liste
+                  unter «Abläufe». Da steht der neue Ablauf längst und
+                  schaltet nachts gegen einen anderen an. Hier steht der
+                  Hinweis, während man ihn baut - und zwar der milde. */}
+              {(() => {
+                const namen = mitschalter(
+                  step.commandActions.map((aktion) => aktion.entity_id),
+                  andereAblaeufe,
+                  eigeneId
+                ).map((ablauf) => ablauf.alias);
+                const satz = mitschalterSatz(namen);
+                return satz ? <Text style={styles.triggerNote}>{satz}</Text> : null;
+              })()}
+            </>
           ) : step.kind === 'toggle_all' ? (
             <>
               <SceneDevices

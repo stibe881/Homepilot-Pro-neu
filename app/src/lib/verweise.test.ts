@@ -1,6 +1,6 @@
 /** Wo kommt ein Gerät überall vor – Abläufe und Szenen. */
 import { Scene } from '../api/types';
-import { verweisText, verweiseAuf } from './verweise';
+import { mitschalter, mitschalterSatz, verweisText, verweiseAuf } from './verweise';
 
 const automations = [
   {
@@ -60,5 +60,69 @@ describe('Geräte in einer Liste', () => {
 
   it('nimmt keine fremde Lampe mit', () => {
     expect(verweiseAuf('hue.kueche', taster, []).ablaeufe).toEqual([]);
+  });
+});
+
+describe('mitschalter', () => {
+  const ablauf = (id: string, alias: string, entityId: string) =>
+    ({
+      id,
+      alias,
+      triggers: [],
+      conditions: [],
+      actions: [{ type: 'command', entity_id: entityId, command: 'turn_on' }],
+      otherwise: [],
+    }) as unknown as Parameters<typeof mitschalter>[1][number];
+
+  const alle = [
+    ablauf('a1', 'Bewegung Flur', 'light.flur'),
+    ablauf('a2', 'Alle weg', 'light.flur'),
+    ablauf('a3', 'Kaffee', 'switch.kaffee'),
+  ];
+
+  it('findet, wer dieselben Geräte anfasst', () => {
+    // Der Hub meldet Widersprüche erst hinterher, als Liste. Da steht
+    // der neue Ablauf längst und schaltet nachts gegen einen anderen an.
+    expect(mitschalter(['light.flur'], alle).map((a) => a.alias)).toEqual([
+      'Bewegung Flur',
+      'Alle weg',
+    ]);
+  });
+
+  it('meldet den eigenen Ablauf nicht', () => {
+    // Ohne das meldete sich jeder gespeicherte Ablauf selbst.
+    expect(mitschalter(['light.flur'], alle, 'a1').map((a) => a.alias)).toEqual([
+      'Alle weg',
+    ]);
+  });
+
+  it('zählt nur, wer wirklich schaltet', () => {
+    // Ein Ablauf, der die Lampe bloss abfragt, schaltet sie nicht -
+    // «schaltet auch» wäre über ihn eine falsche Aussage.
+    const nurAusloeser = {
+      id: 'a4',
+      alias: 'Nur Auslöser',
+      triggers: [{ type: 'state', entity_id: 'light.flur', to: 'on' }],
+      conditions: [{ type: 'state', entity_id: 'light.flur', equals: 'on' }],
+      actions: [{ type: 'notify' }],
+      otherwise: [],
+    } as unknown as Parameters<typeof mitschalter>[1][number];
+    expect(mitschalter(['light.flur'], [nurAusloeser])).toEqual([]);
+  });
+
+  it('schweigt ohne Gerät und ohne Treffer', () => {
+    expect(mitschalter([], alle)).toEqual([]);
+    expect(mitschalter(['light.keller'], alle)).toEqual([]);
+  });
+});
+
+describe('mitschalterSatz', () => {
+  it('nennt die Namen und zählt den Rest', () => {
+    expect(mitschalterSatz(['Bewegung Flur'])).toContain('«Bewegung Flur»');
+    expect(mitschalterSatz(['a', 'b', 'c', 'd'])).toContain('«a», «b», «c» und 1 weitere');
+  });
+
+  it('schweigt, wenn niemand mitschaltet', () => {
+    expect(mitschalterSatz([])).toBe('');
   });
 });

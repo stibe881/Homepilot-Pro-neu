@@ -1572,6 +1572,7 @@ export function AutomationsScreen({
         entities={entities}
         orte={orte}
         scenes={scenes}
+        andereAblaeufe={automations}
         categories={usedCategories(automations)}
         hueScenes={hueScenes}
         empfaenger={empfaenger}
