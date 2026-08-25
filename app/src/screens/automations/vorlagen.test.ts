@@ -6,7 +6,8 @@
  * bearbeitet, will danach seine sehen und nicht beide.
  */
 import { EMPTY } from './entwurf';
-import { EigeneVorlage, Template, mischeVorlagen } from './vorlagen';
+import { EigeneVorlage, Template, buildTemplates, mischeVorlagen } from './vorlagen';
+import { Entity } from '../../api/types';
 
 const eingebaut = (label: string): Template => ({
   label,
@@ -61,5 +62,62 @@ describe('mischeVorlagen', () => {
 
   it('verträgt leere Listen', () => {
     expect(mischeVorlagen([], [], [])).toEqual([]);
+  });
+});
+
+
+// ── Der Erste kommt, der Letzte geht ─────────────────────────────────────
+//
+// Zwei Abläufe, nach denen jeder Haushalt fragt. Es gab sie nur
+// zusammen mit einer Aktion - Alarm scharf, alles aus. Wer etwas
+// anderes vorhatte, musste den Auslöser selbst finden und dabei raten,
+// ob «jemand zuhause» nun «an» oder «aus» heisst.
+
+const SAMMEL = {
+  id: 'geofence.anyone_home',
+  kind: 'binary_sensor',
+  name: 'Jemand zuhause',
+  integration: 'geofence',
+  state: { state: 'on', device_class: 'presence', away: [] },
+  commands: [],
+  available: true,
+} as unknown as Entity;
+
+describe('Anwesenheits-Vorlagen', () => {
+  it('bietet beide Anfänge an, auch ohne Alarm und ohne Licht', () => {
+    const vorlagen = buildTemplates([SAMMEL], []);
+    const labels = vorlagen.map((vorlage) => vorlage.label);
+    expect(labels).toContain('Der Erste kommt heim');
+    expect(labels).toContain('Der Letzte geht');
+  });
+
+  it('trifft beim Heimkommen den richtigen Zustand', () => {
+    const vorlage = buildTemplates([SAMMEL], []).find(
+      (eintrag) => eintrag.label === 'Der Erste kommt heim'
+    );
+    expect(vorlage?.draft.triggers).toEqual([
+      expect.objectContaining({ entityId: 'geofence.anyone_home', toState: 'on' }),
+    ]);
+    // Ein leerer Schritt, mehr nicht: Der Auslöser ist das Schwierige,
+    // die Aktion weiss nur der Haushalt selbst. Der Editor öffnet sich
+    // also mit fertigem Auslöser und einer leeren Zeile zum Ausfüllen.
+    expect(vorlage?.draft.steps).toHaveLength(1);
+    expect(vorlage?.draft.steps?.[0].commandActions ?? []).toHaveLength(0);
+    expect(vorlage?.draft.steps?.[0].sceneId ?? '').toBe('');
+  });
+
+  it('lässt dem Letzten zehn Minuten Zeit', () => {
+    // Der Gang zum Briefkasten ist kein Auszug, und ein Telefon, das
+    // kurz den Funk verliert, auch nicht.
+    const vorlage = buildTemplates([SAMMEL], []).find(
+      (eintrag) => eintrag.label === 'Der Letzte geht'
+    );
+    expect(vorlage?.draft.triggers).toEqual([
+      expect.objectContaining({ toState: 'off', forMinutes: '10' }),
+    ]);
+  });
+
+  it('bietet sie nicht an, wo es keine Anwesenheit gibt', () => {
+    expect(buildTemplates([], [])).toEqual([]);
   });
 });
