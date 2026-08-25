@@ -84,7 +84,7 @@ import {
 import { Person } from '../lib/ortung';
 import { FAVORITEN, raumGruppen } from '../lib/raumgruppen';
 import { verlangtPin } from '../lib/alarmpin';
-import { istGesperrt } from '../lib/bereichsriegel';
+import { OffenesModul, istGesperrt, offeneModule } from '../lib/bereichsriegel';
 import { schleier } from '../lib/nachtabsenkung';
 import { nachBewegung } from '../lib/kameraordnung';
 import { hubClient, onHubFehler } from '../api/client';
@@ -100,6 +100,7 @@ import { SpeakersScreen } from './SpeakersScreen';
 import { SystemScreen } from './SystemScreen';
 import { EntityHistory } from '../components/EntityHistory';
 import { Broadcast } from '../components/Broadcast';
+import { Musikzentrale } from '../components/Musikzentrale';
 import { ClimateOverview } from '../components/ClimateOverview';
 import { KidsView } from '../components/KidsView';
 import { KitchenTimer } from '../components/KitchenTimer';
@@ -107,6 +108,7 @@ import { WhatsNew } from '../components/WhatsNew';
 import { LightGroups } from '../components/LightGroups';
 import { DeviceTools } from '../components/DeviceTools';
 import { SceneSuggestion } from '../components/SceneSuggestion';
+import { PersonenScreen } from './PersonenScreen';
 import { UsersScreen } from './UsersScreen';
 import { confirm as confirmBiometrie, needsCheck } from '../lib/biometrie';
 import { mayOpenDirectly } from '../lib/tuerbestaetigung';
@@ -278,6 +280,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Bis wann die persönlichen Bereiche offen sind (0 = zu). Nur im
   // Arbeitsspeicher: Nach einem Neustart der App wird wieder gefragt.
   const [riegelBis, setRiegelBis] = useState(0);
+  // Welches Modul die Abkürzung am Wandpanel aufmachen soll.
+  const [riegelModul, setRiegelModul] = useState<OffenesModul | null>(null);
   const [room, setRoom] = useState(ALL_ROOMS);
   const [now, setNow] = useState(() => new Date());
   const [gridWidth, setGridWidth] = useState(0);
@@ -657,6 +661,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         setEditing(false);
         setRoom(ALL_ROOMS);
         setRiegelBis(0);
+        setRiegelModul(null);
       }
     },
     panelArtig ? 30000 : null
@@ -1295,12 +1300,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     // Der Riegel vor Familie und Konto - siehe lib/bereichsriegel.ts. Er
     // steht vor dem Verteiler, damit kein Bereich ihn vergessen kann.
     // `now` tickt ohnehin; damit läuft die offene Zeit von selbst ab.
-    if (istGesperrt(section, user?.area_locked, riegelBis, now.getTime())) {
+    const gesperrt = istGesperrt(section, user?.area_locked, riegelBis, now.getTime());
+    // Die Abkürzungen zählen wie ein aufgeschlossener Riegel - solange
+    // sie führen, ist der Bereich offen, aber nur für dieses eine Modul.
+    if (gesperrt && riegelModul === null) {
       return (
         <BereichRiegel
           settings={settings}
           titel={SECTION_LABEL[section]}
           onOffen={setRiegelBis}
+          offen={offeneModule(section, settings.panel, gesperrt)}
+          onOeffneModul={setRiegelModul}
         />
       );
     }
@@ -1349,6 +1359,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           moduleOrder={prefs.order?.family}
           onReorderModules={(keys) => setOrder('family', keys)}
           changedAt={familyChangedAt}
+          startModul={riegelModul}
         />
       );
     }
@@ -1400,6 +1411,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           label: 'Benutzerverwaltung',
           detail: 'Zugänge und Rollen: Besitzer, Mitbewohner, Gast',
           show: sieht('users'),
+        },
+        {
+          key: 'personen',
+          icon: 'people-outline',
+          label: 'Familie und Freunde',
+          detail: 'Wer ist wo, und was soll über wen gemeldet werden',
+          // Auch für Mitbewohner: Wo die Familie gerade ist, geht alle
+          // an, die hier wohnen - anders als die Frage, wer Zugang hat.
+          show: true,
         },
         {
           key: 'automations',
@@ -1520,6 +1540,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         <View style={styles.stack}>
           {back}
           <>
+            <Musikzentrale settings={settings} entities={entities} />
             <Broadcast settings={settings} entities={entities} />
             <SpeakersScreen settings={settings} />
           </>
@@ -1539,6 +1560,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         <View style={styles.stack}>
           {back}
           <ActivityCard activity={activity} />
+        </View>
+      );
+    }
+    if (section === 'personen') {
+      return (
+        <View style={styles.stack}>
+          {back}
+          <PersonenScreen settings={settings} />
         </View>
       );
     }
@@ -1810,15 +1839,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   «Alles aus» steht deshalb unten, nach den Räumen, und
                   der Widget-Knopf öffnet seine Rückfrage direkt. */}
               <ClimateOverview settings={settings} entities={entities} />
-              <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
-                <AllOff
-                  entities={entities}
-                  locked={locked}
-                  onCommand={guardedCommand}
-                  openSignal={allOffSignal}
-                  compact
-                />
-              </View>
+              {/* Ohne Knopf: Auf der Startseite stand «Alles aus» im
+                  Weg - dort will man Licht und Storen, nicht das Haus
+                  abschalten. Für einen Raum bleibt er (Räume →
+                  Filterzeile), und wer ihn sich aufs Widget gelegt hat,
+                  drückt ihn dort: Dessen Rückfrage geht hier auf. */}
+              <AllOff
+                entities={entities}
+                locked={locked}
+                onCommand={guardedCommand}
+                openSignal={allOffSignal}
+                ohneKnopf
+              />
             </>
           ) : null}
           {section === 'home' && editing && rooms.length > 0 ? (
@@ -2918,7 +2950,9 @@ function GroupRow({
       <View style={styles.groupHead}>
         <Ionicons name="layers-outline" size={18} color={colors.inkSoft} />
         <Text style={styles.groupName}>{name}</Text>
-        <Text style={styles.groupCount}>{members.length} Geräte</Text>
+        <Text style={styles.groupCount}>
+          {members.length} {members.length === 1 ? 'Gerät' : 'Geräte'}
+        </Text>
       </View>
 
       {switches.length > 0 ? (
@@ -3293,7 +3327,11 @@ const makeStyles = (colors: Colors) =>
     },
     reorderTitle: { color: colors.ink, fontSize: 22, fontWeight: '700' },
     reorderHint: { color: colors.inkFaint, fontSize: 13, lineHeight: 18, marginBottom: 14 },
-    groupCard: { gap: 12 },
+    // Ohne die beiden Überschreibungen bleibt die Karte auf der
+    // Mindesthöhe einer Gerätekachel stehen und schiebt ihre Knöpfe mit
+    // `space-between` an den unteren Rand - bei einer Gruppe mit einem
+    // Namen und zwei Knöpfen war die halbe Karte leer.
+    groupCard: { gap: 12, minHeight: 0, justifyContent: 'flex-start' },
     groupHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     groupName: { color: colors.ink, fontSize: 16, fontWeight: '700', flex: 1 },
     groupCount: { color: colors.inkFaint, fontSize: 12 },

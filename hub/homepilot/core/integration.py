@@ -612,6 +612,10 @@ class IntegrationManager:
         # - aus der App, aus einem Ablauf, aus einer Szene.
         ton = getattr(self.hub, "ton", None)
         if ton is not None:
-            nutzdaten = ton.wunsch_deckeln(command, nutzdaten)
+            gedeckelt, nutzdaten = ton.wunsch_deckeln(entity, command, nutzdaten)
+            # Der Deckel darf aus «Lauter» ein «Setze auf 30» machen -
+            # aber nur, wenn das Gerät das auch kann.
+            if gedeckelt in entity.commands:
+                command = gedeckelt
         await integration.handle_command(entity, command, nutzdaten)
         return entity

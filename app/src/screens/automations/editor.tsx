@@ -34,6 +34,7 @@ export function Editor({
   andereAblaeufe = [],
   categories,
   hueScenes,
+  favoriten,
   empfaenger,
   onProbeStep,
   onChange,
@@ -58,6 +59,7 @@ export function Editor({
   categories: string[];
   /** Szenen der Hue-Bridge; leer, wenn keine Bridge verbunden ist. */
   hueScenes: string[];
+  favoriten: string[];
   /** Mögliche Nachricht-Empfänger (Punkt 158); leer = keine Auswahl. */
   empfaenger?: string[];
   /** Einen einzelnen Schritt sofort ausführen (Punkt 164). */
@@ -673,6 +675,7 @@ export function Editor({
             andereAblaeufe={andereAblaeufe}
             eigeneId={draft.id}
             hueScenes={hueScenes}
+            favoriten={favoriten}
             empfaenger={empfaenger}
             luxSensors={luxSensors}
             onProbeStep={onProbeStep}
@@ -745,6 +748,7 @@ export function Editor({
               andereAblaeufe={andereAblaeufe}
               eigeneId={draft.id}
               hueScenes={hueScenes}
+              favoriten={favoriten}
               empfaenger={empfaenger}
               luxSensors={luxSensors}
               onProbeStep={onProbeStep}
@@ -1345,6 +1349,7 @@ export function StepList({
   andereAblaeufe = [],
   eigeneId,
   hueScenes,
+  favoriten,
   empfaenger = [],
   luxSensors = [],
   onProbeStep,
@@ -1360,6 +1365,7 @@ export function StepList({
   /** Der eigene Ablauf: Ohne ihn meldete er sich selbst als Mitschalter. */
   eigeneId?: string;
   hueScenes: string[];
+  favoriten: string[];
   /** Die Melder dieses Ablaufs, die Helligkeit messen – daraus wird die
    *  Wahl «an Helligkeit angepasst» bei den Lampen. Leer heisst: kein
    *  Auslöser misst Lux, und die Wahl bleibt weg. */
@@ -1484,6 +1490,11 @@ export function StepList({
               // Helligkeit überhaupt kann.
               ...(entities.some((entity) => entity.commands.includes('set_brightness'))
                 ? [{ key: 'fade', label: 'Dimmen' }]
+                : []),
+              // Musik-Schritte: Favorit, Schlummer, überall Pause,
+              // Nachtruhe. Nur, wo es überhaupt eine Box gibt.
+              ...(entities.some((entity) => entity.kind === 'media_player')
+                ? [{ key: 'music', label: 'Musik' }]
                 : []),
               { key: 'delay', label: 'Warten' },
               { key: 'wait_until', label: 'Warten bis' },
@@ -1710,6 +1721,108 @@ export function StepList({
                   ? 'Aufwachlicht: Die Lampe geht dunkel an und wird gleichmässig heller - eine halbe Stunde vor dem Wecker gestartet, weckt sie sanfter als jeder Ton.'
                   : 'Ausglimmen statt knipsen: Das Licht wird über die gewählte Zeit dunkler und geht am Ende aus - fürs Kinderzimmer am Abend.'}
               </Text>
+            </>
+          ) : step.kind === 'music' ? (
+            <>
+              <Choice
+                options={[
+                  { key: 'pause_all', label: 'Überall Pause' },
+                  { key: 'favorite', label: 'Favorit spielen' },
+                  { key: 'sleep', label: 'Schlummer' },
+                  { key: 'fade', label: 'Leise starten' },
+                  { key: 'night', label: 'Nachtruhe' },
+                ]}
+                value={step.musikTat}
+                onSelect={(musikTat) =>
+                  setStep(index, { musikTat: musikTat as StepDraft['musikTat'] })
+                }
+              />
+              {step.musikTat === 'favorite' ? (
+                <>
+                  <Picker
+                    items={favoriten.map((name) => ({ key: name, label: name }))}
+                    placeholder="Favorit suchen …"
+                    value={step.musikFavorit}
+                    onSelect={(musikFavorit) => setStep(index, { musikFavorit })}
+                  />
+                  <Text style={styles.triggerNote}>
+                    Favoriten legst du unter Lautsprecher an – dort steht auch,
+                    auf welcher Box ein Favorit läuft.
+                  </Text>
+                </>
+              ) : step.musikTat === 'night' ? (
+                <>
+                  <Choice
+                    options={[
+                      { key: 'an', label: 'Nachtruhe ein' },
+                      { key: 'aus', label: 'Nachtruhe aus' },
+                    ]}
+                    value={step.musikAn ? 'an' : 'aus'}
+                    onSelect={(wert) => setStep(index, { musikAn: wert === 'an' })}
+                  />
+                  <Text style={styles.triggerNote}>
+                    Der Deckel gilt zwischen den Uhrzeiten, die unter
+                    Lautsprecher stehen. Hier wird er nur ein- und
+                    ausgeschaltet.
+                  </Text>
+                </>
+              ) : step.musikTat === 'pause_all' ? (
+                <Text style={styles.triggerNote}>
+                  Pause auf jeder Box, auf der etwas läuft – nicht «aus». Eine
+                  Box, die pausiert, weiss noch, wo sie war.
+                </Text>
+              ) : (
+                <>
+                  <EntityPicker
+                    entities={entities.filter(
+                      (entity) =>
+                        entity.kind === 'media_player' &&
+                        entity.commands.includes('set_volume')
+                    )}
+                    value={step.musikEntityId}
+                    placeholder="Box suchen …"
+                    onSelect={(musikEntityId) => setStep(index, { musikEntityId })}
+                  />
+                  {step.musikTat === 'sleep' ? (
+                    <>
+                      <Choice
+                        options={[
+                          { key: '15', label: 'nach 15 Min' },
+                          { key: '30', label: 'nach 30 Min' },
+                          { key: '60', label: 'nach 60 Min' },
+                          { key: '90', label: 'nach 90 Min' },
+                        ]}
+                        value={step.musikMinuten}
+                        onSelect={(musikMinuten) => setStep(index, { musikMinuten })}
+                      />
+                      <Text style={styles.triggerNote}>
+                        Die letzten dreissig Sekunden blendet der Hub aus – Musik,
+                        die mitten im Takt abbricht, weckt eher, als dass sie
+                        einschlafen lässt.
+                      </Text>
+                    </>
+                  ) : (
+                    <>
+                      <Choice
+                        options={[
+                          { key: '20', label: 'bis 20 %' },
+                          { key: '30', label: 'bis 30 %' },
+                          { key: '45', label: 'bis 45 %' },
+                          { key: '60', label: 'bis 60 %' },
+                        ]}
+                        value={step.musikLautstaerke}
+                        onSelect={(musikLautstaerke) =>
+                          setStep(index, { musikLautstaerke })
+                        }
+                      />
+                      <Text style={styles.triggerNote}>
+                        Erst starten, dann von Null hochziehen – eine Box, die
+                        um sieben Uhr mit 60 % losbrüllt, weckt falsch.
+                      </Text>
+                    </>
+                  )}
+                </>
+              )}
             </>
           ) : step.kind === 'delay' ? (
             <>

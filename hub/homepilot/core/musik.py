@@ -40,6 +40,15 @@ log = logging.getLogger(__name__)
 FAVORITEN_KEY = "musik_favoriten"
 VERLAUF_KEY = "musik_verlauf"
 WECKER_KEY = "musik_wecker"
+#: Laufende Schlummer-Timer. Sie lagen bisher nur im Speicher - nach
+#: einem Neustart lief die Musik weiter, bis jemand sie abstellte.
+SCHLUMMER_KEY = "musik_schlummer"
+
+#: So lange nach dem eigentlichen Ende wird ein Timer noch nachgeholt.
+#: Zwei Stunden: Wer um elf einschläft und der Hub startet um halb zwölf
+#: neu, will die Musik trotzdem aus. Wer den Hub einen Tag lang aus hatte,
+#: nicht - dann hat die Box ohnehin längst aufgehört.
+SCHLUMMER_NACHFRIST = 7200.0
 
 #: So viele Titel bleiben im Verlauf. Zwanzig sind ein Abend.
 VERLAUF_LIMIT = 20
@@ -196,6 +205,7 @@ class Musikbuch:
     def start(self) -> None:
         self.hub.bus.subscribe("state_changed", self._on_state)
         self._takt = asyncio.create_task(self._wecker_takt())
+        asyncio.create_task(self._schlummer_nachholen())
 
     async def stop(self) -> None:
         if self._takt is not None:
@@ -203,6 +213,8 @@ class Musikbuch:
             self._takt = None
         for eintrag in list(self._schlummer.values()):
             eintrag["task"].cancel()
+        # Der Eintrag auf der Platte bleibt: Genau er ist es, der den
+        # Timer nach dem Neustart wieder stellt.
         self._schlummer.clear()
 
     def _on_state(self, _event_type: str, data: dict[str, Any]) -> None:
@@ -291,6 +303,46 @@ class Musikbuch:
 
     # ── Schlummer ──────────────────────────────────────────────────────
 
+    def _schlummer_sichern(self) -> None:
+        self.hub.data.set(
+            SCHLUMMER_KEY,
+            [
+                {"entity_id": entity_id, "ends_at": eintrag["ends_at"]}
+                for entity_id, eintrag in self._schlummer.items()
+            ],
+        )
+
+    async def _schlummer_nachholen(self) -> None:
+        """Nach einem Neustart: Timer wieder stellen, was noch läuft.
+
+        Was schon abgelaufen ist, wird nachgeholt - aber nur innerhalb
+        der Nachfrist. Musik, die zwölf Stunden später von selbst
+        aufhört, ist kein Dienst, sondern ein Spuk.
+        """
+        jetzt = time.time()
+        for zeile in self.hub.data.get(SCHLUMMER_KEY):
+            if not isinstance(zeile, dict):
+                continue
+            entity_id = str(zeile.get("entity_id") or "")
+            try:
+                endet = float(zeile.get("ends_at") or 0)
+            except (TypeError, ValueError):
+                continue
+            if not entity_id or self.hub.registry.get(entity_id) is None:
+                continue
+            rest = endet - jetzt
+            if rest > 0:
+                self.schlummer(entity_id, rest / 60)
+                log.info("Schlummer-Timer für %s wieder gestellt", entity_id)
+            elif rest > -SCHLUMMER_NACHFRIST:
+                log.info("Schlummer-Timer für %s war fällig - wird nachgeholt", entity_id)
+                try:
+                    await self.hub.ton.ausblenden(entity_id)
+                except Exception as err:
+                    log.debug("Nachgeholter Schlummer für %s: %s", entity_id, err)
+        # Was übrig blieb, ist erledigt oder zu alt.
+        self._schlummer_sichern()
+
     def schlummer_stand(self) -> list[dict[str, Any]]:
         return [
             {"entity_id": entity_id, "ends_at": eintrag["ends_at"]}
@@ -306,6 +358,7 @@ class Musikbuch:
         eintrag: dict[str, Any] = {"ends_at": time.time() + minutes * 60}
         eintrag["task"] = asyncio.create_task(self._schlummer_lauf(entity_id, minutes))
         self._schlummer[entity_id] = eintrag
+        self._schlummer_sichern()
         return {"entity_id": entity_id, "ends_at": eintrag["ends_at"]}
 
     def schlummer_abbrechen(self, entity_id: str) -> bool:
@@ -313,6 +366,7 @@ class Musikbuch:
         if eintrag is None:
             return False
         eintrag["task"].cancel()
+        self._schlummer_sichern()
         return True
 
     async def _schlummer_lauf(self, entity_id: str, minutes: float) -> None:
@@ -328,6 +382,7 @@ class Musikbuch:
             log.warning("Schlummer-Timer für %s: %s", entity_id, err)
         finally:
             self._schlummer.pop(entity_id, None)
+            self._schlummer_sichern()
 
     # ── Wecker ─────────────────────────────────────────────────────────
 

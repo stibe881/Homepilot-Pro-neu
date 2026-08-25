@@ -422,6 +422,59 @@ export function shopOrder(shop?: Shop | null): string[] {
 }
 
 /**
+ * Die Gänge eines Ladens in Laufreihenfolge, mit ihrer Nummer (rein,
+ * testbar).
+ *
+ * Der Grund: Die Knöpfe standen in der festen Listenreihenfolge da, die
+ * Nummern kamen aber aus der Reihenfolge des Antippens. Auf dem
+ * Bildschirm las sich das dann «1. Früchte, 3. Milch / 2. Brot, 4.
+ * Fleisch / 7. Getränke, 5. Tiefkühl» – man musste die Nummern suchen,
+ * statt sie zu lesen. Stehen die Knöpfe in der Reihenfolge, die sie
+ * beschreiben, erübrigt sich das Suchen.
+ *
+ * `platz` ist `null`, wo noch nichts gewählt wurde. Diese Gänge hängen
+ * hinten an – ohne Nummer, denn ihre Reihenfolge ist keine Wahl, sondern
+ * ein Rest.
+ */
+export function gangReihenfolge(
+  shop?: Shop | null
+): { name: string; platz: number | null }[] {
+  const eigene = (shop?.categories ?? []).filter((name) =>
+    SHOP_CATEGORIES.includes(name)
+  );
+  return shopOrder(shop).map((name) => {
+    const platz = eigene.indexOf(name);
+    return { name, platz: platz >= 0 ? platz + 1 : null };
+  });
+}
+
+/** So viele Orte stehen da, bevor «alle zeigen» kommt. */
+export const ORTE_KURZ = 6;
+
+/**
+ * Die Orte zur Auswahl, in einer Reihenfolge, die man lesen kann (rein,
+ * testbar).
+ *
+ * Neunzehn Knöpfe in Anlegereihenfolge sind keine Liste, sondern ein
+ * Haufen. Der gewählte steht vorn – er ist die Antwort auf die Frage,
+ * die man beim Hinsehen hat –, der Rest alphabetisch. Und zugeklappt
+ * nur die ersten paar: Wer den gesuchten Ort nicht sieht, tippt ihn
+ * ohnehin schneller ins Suchfeld darunter.
+ */
+export function orteFuerLaden(
+  orte: { id: string; name: string }[],
+  gewaehlt: string | undefined,
+  alle: boolean
+): { id: string; name: string }[] {
+  const sortiert = [...(orte ?? [])].sort((a, b) => {
+    if (gewaehlt && a.id === gewaehlt) return -1;
+    if (gewaehlt && b.id === gewaehlt) return 1;
+    return a.name.localeCompare(b.name, 'de');
+  });
+  return alle ? sortiert : sortiert.slice(0, ORTE_KURZ);
+}
+
+/**
  * Einkaufs-Einträge nach den Gängen eines Ladens gruppieren (rein,
  * testbar).
  *

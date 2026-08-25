@@ -482,6 +482,43 @@ export const makeStyles = (colors: Colors) =>
       backgroundColor: colors.panel,
     },
     // Blätterleiste des Wochenplans.
+    // ── Die Karte «Wer ist wo» ───────────────────────────────────────
+    // Eine Zeile je Mensch statt eines Absatzes: links ein farbiger
+    // Punkt, rechts der Ort. Der Punkt trägt die Antwort, bevor man
+    // liest - grün da, grau unterwegs, orange meldet sich nicht.
+    daKopf: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    daTitel: { color: colors.ink, fontSize: 17, fontWeight: '700', flex: 1 },
+    daZeile: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 10,
+      paddingVertical: 8,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.surfaceBorder,
+    },
+    daPunkt: { width: 9, height: 9, borderRadius: 5, marginTop: 6 },
+    daOben: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
+    daName: { color: colors.ink, fontSize: 15, fontWeight: '600', flexShrink: 1 },
+    daOrt: {
+      color: colors.inkSoft,
+      fontSize: 14,
+      flex: 1,
+      textAlign: 'right',
+    },
+    daUnten: {
+      flexDirection: 'row',
+      alignItems: 'baseline',
+      gap: 8,
+      marginTop: 1,
+    },
+    daDetail: { color: colors.inkFaint, fontSize: 12, flex: 1 },
+    daAkku: { color: colors.inkFaint, fontSize: 12, fontVariant: ['tabular-nums'] },
+    daWarum: {
+      color: colors.inkSoft,
+      fontSize: 12,
+      lineHeight: 18,
+      marginTop: 6,
+    },
     weekNav: {
       flexDirection: 'row',
       alignItems: 'center',

@@ -11,6 +11,7 @@ import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-nativ
 import { hubClient } from '../../api/client';
 import { CommandData, Entity } from '../../api/types';
 import { useSettings } from '../../hooks/HubContext';
+import { zielBox } from '../../lib/boxwahl';
 import { keineBoxText, senderzeile } from '../../lib/radiobox';
 import { useColors } from '../../theme';
 import { makeStyles } from './stil';
@@ -118,12 +119,16 @@ export function SpotifyPanel({
   entity,
   onCommand,
   hideDevices = false,
+  wunschBox = null,
 }: {
   entity: Entity;
   onCommand: (command: string, data?: CommandData) => void;
   /** Boxen-Zeile weglassen – auf der Startseite übernimmt sie der
    *  Lautsprecher-Wähler in der Kopfzeile der Musikkarte. */
   hideDevices?: boolean;
+  /** Die dort gewählte Box. Ohne sie startete eine Playlist auf der
+   *  zuletzt aktiven Box statt auf der gewählten (siehe lib/boxwahl). */
+  wunschBox?: string | null;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -170,7 +175,7 @@ export function SpotifyPanel({
   };
 
   // Ziel: zuletzt angetippt → gerade aktiv → erste Box.
-  const target = (chosen && devices.includes(chosen) ? chosen : null) ?? active ?? devices[0] ?? null;
+  const target = zielBox(chosen, wunschBox, active, devices);
   const visible = sortPlaylists(playlists, order).filter(
     (name) => !hiddenList.includes(name)
   );
@@ -528,12 +533,15 @@ export function RadioPanel({
   entity,
   onCommand,
   hideDevices = false,
+  wunschBox = null,
 }: {
   entity: Entity;
   onCommand: (command: string, data?: CommandData) => void;
   /** Boxen-Zeile weglassen – auf der Startseite übernimmt sie der
    *  Lautsprecher-Wähler in der Kopfzeile der Musikkarte. */
   hideDevices?: boolean;
+  /** Die dort gewählte Box - siehe SpotifyPanel und lib/boxwahl. */
+  wunschBox?: string | null;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -560,7 +568,7 @@ export function RadioPanel({
   const [chosen, setChosen] = useState<string | null>(null);
   const [listOpen, setListOpen] = useState(false);
 
-  const target = (chosen && devices.includes(chosen) ? chosen : null) ?? active ?? devices[0] ?? null;
+  const target = zielBox(chosen, wunschBox, active, devices);
   // Nur solange wirklich etwas läuft: Nach dem Anhalten wäre der Name eine
   // Behauptung über die Gegenwart, die nicht mehr stimmt.
   // Nur solange wirklich etwas läuft, und mit «lädt» für die Sekunden

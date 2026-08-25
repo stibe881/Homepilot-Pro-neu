@@ -1,11 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { hubClient } from '../api/client';
 import { HubSettings } from '../api/types';
 import { Card } from './Card';
-import { offenBis } from '../lib/bereichsriegel';
+import { OffenesModul, offenBis } from '../lib/bereichsriegel';
 import { Colors, radius, type, useColors } from '../theme';
 
 /**
@@ -17,16 +17,32 @@ import { Colors, radius, type, useColors } from '../theme';
  *
  * Warum es das gibt, steht in lib/bereichsriegel.ts.
  */
+/** Was auf den Abkürzungen steht – dieselben Wörter wie auf den Kacheln. */
+const OFFEN_LABEL: Record<
+  OffenesModul,
+  { label: string; icon: keyof typeof Ionicons.glyphMap }
+> = {
+  contacts: { label: 'Kontakte', icon: 'call-outline' },
+  emergency: { label: 'Notfallblatt', icon: 'medkit-outline' },
+  babysitter: { label: 'Babysitter', icon: 'happy-outline' },
+};
+
 export function BereichRiegel({
   settings,
   titel,
   onOffen,
+  offen = [],
+  onOeffneModul,
 }: {
   settings: HubSettings;
   /** Wie der Bereich heisst, den jemand öffnen wollte. */
   titel: string;
   /** Zeitpunkt, bis zu dem jetzt offen ist. */
   onOffen: (bis: number) => void;
+  /** Module, die auch ohne Passwort erreichbar sind (siehe
+   *  lib/bereichsriegel.ts). */
+  offen?: readonly OffenesModul[];
+  onOeffneModul?: (key: OffenesModul) => void;
 }) {
   const colors = useColors();
   const styles = React.useMemo(() => makeStyles(colors), [colors]);
@@ -91,6 +107,35 @@ export function BereichRiegel({
       >
         <Text style={styles.knopfText}>{laeuft ? 'Einen Moment …' : 'Öffnen'}</Text>
       </Pressable>
+
+      {/* Der Riegel schützt, was privat ist. Diese drei sind das
+          Gegenteil: Sie sind für die da, die *nicht* zur Familie
+          gehören - der Babysitter, der Besuch, der Rettungsdienst. Ein
+          Code davor ist kein Sichtschutz, sondern eine verschlossene
+          Tür vor dem Feuerlöscher. */}
+      {offen.length > 0 && onOeffneModul ? (
+        <>
+          <Text style={styles.ohneText}>Ohne Passwort erreichbar</Text>
+          <View style={styles.ohneReihe}>
+            {offen.map((key) => (
+              <Pressable
+                key={key}
+                onPress={() => onOeffneModul(key)}
+                accessibilityRole="button"
+                accessibilityLabel={`${OFFEN_LABEL[key].label} öffnen`}
+                style={({ pressed }) => [styles.ohneKnopf, pressed && { opacity: 0.7 }]}
+              >
+                <Ionicons
+                  name={OFFEN_LABEL[key].icon}
+                  size={18}
+                  color={colors.inkSoft}
+                />
+                <Text style={styles.ohneKnopfText}>{OFFEN_LABEL[key].label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </>
+      ) : null}
     </Card>
   );
 }
@@ -118,6 +163,24 @@ const makeStyles = (colors: Colors) =>
       textAlign: 'center',
     },
     fehler: { color: colors.danger, fontSize: 13 },
+    ohneText: { color: colors.inkFaint, fontSize: 12, marginTop: 6 },
+    ohneReihe: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'center',
+      gap: 8,
+    },
+    ohneKnopf: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingVertical: 10,
+      paddingHorizontal: 14,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    ohneKnopfText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
     knopf: {
       backgroundColor: colors.accent,
       borderRadius: radius.control,

@@ -19,6 +19,46 @@ export const makeStyles = (colors: Colors) =>
     borderRadius: radius.control,
     backgroundColor: colors.surfaceSoft,
   },
+  // Der Fortschritt: schmal, wenn er nur anzeigt, und griffig, wenn man
+  // ihn anfassen darf - ein Balken, der aussieht wie ein Regler, aber
+  // keiner ist, ist ein Versprechen, das die Kachel nicht hält.
+  fortschrittBox: { gap: 2 },
+  fortschrittZeile: { flexDirection: 'row', justifyContent: 'space-between' },
+  fortschrittZeit: { color: colors.inkFaint, fontSize: 11, fontVariant: ['tabular-nums'] },
+  // Die Gruppen-Marke: Eine Kachel, die in Wahrheit vier Boxen ist,
+  // sagt das - sonst wundert man sich, warum es überall spielt.
+  gruppenChip: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceSoft,
+  },
+  gruppenChipText: { color: colors.inkSoft, fontSize: 11, fontWeight: '600' },
+  boxZeile: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
+  boxName: { color: colors.ink, fontSize: 14, width: 110 },
+  naechsterRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  naechsterText: { color: colors.inkFaint, fontSize: 11, flex: 1 },
+  schlummerChip: {
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  schlummerChipText: { color: colors.inkSoft, fontSize: 11, fontWeight: '700' },
+  schlummerAktiv: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  schlummerAktivText: { color: colors.accent, fontSize: 11, fontWeight: '600' },
+  coverGrund: {
+    ...StyleSheet.absoluteFillObject,
+    // Blass genug, dass jeder Text darüber lesbar bleibt - das ist die
+    // Grenze, an der ein Bild Schmuck bleibt statt Störung zu werden.
+    opacity: 0.16,
+    borderRadius: radius.card,
+  },
   editBox: { gap: 8 },
   editChips: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
   editButtons: {

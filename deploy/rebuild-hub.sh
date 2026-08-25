@@ -364,7 +364,43 @@ fi
 # nach Version gar nicht erst neu aus.
 RUNNING_COMMIT=$(docker exec "$CONTAINER" printenv HOMEPILOT_COMMIT 2>/dev/null || echo "")
 if [ -n "$RUNNING_COMMIT" ] && [ "$RUNNING_COMMIT" = "$COMMIT" ]; then
-  if [ "${HOMEPILOT_IOS_BUILD:-0}" = "1" ]; then
+  # ── OTA-Fassung für die Telefone ────────────────────────────────────────
+#
+# Der Knopf tauschte bisher nur die Web-Fassung; die Telefone bekamen
+# neuen Code erst mit dem nächsten TestFlight-Build. Das fiel erst auf,
+# als ein Knopf «bei mir da, bei ihr nicht» war - beide Telefone hingen
+# auf demselben alten Stand, und die gleiche Versionsnummer täuschte
+# Aktualität vor: Sie ist die des Builds, nicht der nachgeladenen
+# Fassung.
+#
+# Deshalb veröffentlicht jeder Lauf jetzt auch über EAS Update - sofern
+# ein EXPO_TOKEN in der Zugangsdatei liegt. Erreicht werden nur Builds
+# mit derselben runtimeVersion (= App-Version): Wer einen älteren Build
+# installiert hat, braucht einmal TestFlight, danach greift OTA wieder.
+# Ein Fehlschlag hier lässt den Rest des Updates unberührt.
+EXPO_TOKEN="${EXPO_TOKEN:-}"; EXPO_TOKEN="${EXPO_TOKEN%$'\r'}"
+if [ -z "$EXPO_TOKEN" ]; then
+  echo "→ Keine OTA-Fassung: EXPO_TOKEN fehlt in $CREDENTIALS_FILE."
+  echo "  Die Telefone bleiben auf ihrem Stand, bis ein iOS-Build kommt."
+else
+  echo "→ Veröffentliche die OTA-Fassung für die Telefone (EAS Update) …"
+  if app_abbild && docker run --rm -e EXPO_TOKEN="$EXPO_TOKEN" \
+      -e EAS_NO_VCS=1 \
+      "$DEPS_IMAGE" \
+      npx eas-cli@latest update --branch production \
+        --message "Stand $COMMIT" --non-interactive 2>&1 |
+      fremde_ausgabe
+    [ "${PIPESTATUS[0]}" = "0" ]; then
+    echo "✓ OTA-Fassung veröffentlicht (Stand $COMMIT). Die Telefone holen"
+    echo "  sie beim nächsten Öffnen der App - angewendet wird sie beim"
+    echo "  übernächsten Start."
+  else
+    echo "⚠ OTA-Veröffentlichung fehlgeschlagen - Web-Fassung und Hub sind"
+    echo "  davon unberührt. Details: expo.dev/accounts/stibe88."
+  fi
+fi
+
+if [ "${HOMEPILOT_IOS_BUILD:-0}" = "1" ]; then
     echo "→ Der Hub läuft bereits mit Stand $COMMIT - dieser Lauf gilt vor"
     echo "  allem dem iOS-Build."
   else

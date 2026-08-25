@@ -8,6 +8,7 @@ Liste ist und nicht drei, steht im Kopf von core/personen.py.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -44,6 +45,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         service = hub.integrations.get("geofence")
         if service is None:
             return []
+        jetzt = time.time()
         verlauf = hub.data.get("presence_history")
         prefs = hub.data.get(personen_module.LADE)
         zeilen: list[dict[str, Any]] = []
@@ -65,6 +67,15 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                     "source": zusammen.get("source", "none"),
                     "battery": (entity.state.get("battery") if entity else None),
                     "since": presence_module.since(verlauf, zone_id),
+                    # Warum die Ortung gerade so aussieht. Ein langer
+                    # Satz, den man selten braucht - in der App steckt
+                    # er hinter einem Tipp. Aber er gehört hierher und
+                    # nicht in eine zweite Anfrage: Wer die Liste hat,
+                    # soll die Rückfrage nicht noch einmal stellen
+                    # müssen.
+                    "hint": presence_module.diagnose(
+                        name, dict(entity.state) if entity else {}, jetzt
+                    )["hint"],
                     "meldungen": personen_module.fuer(prefs, zone_id),
                 }
             )

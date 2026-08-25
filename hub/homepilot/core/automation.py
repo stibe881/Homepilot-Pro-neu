@@ -21,6 +21,7 @@ Aktionen:
   - {type: command, entity_id, command, data?}
   - {type: delay, seconds}
   - {type: scene, scene} / {type: hue_scene, scene}
+  - {type: music, do: favorite|sleep|pause_all|night|fade, …} – siehe docs/musik.md
   - {type: notify, title?, body?, to?, camera?}
   - {type: wait_until, ...Bedingung, timeout?: sekunden}
   - {type: fade, entity_id, to: 0..100, minutes}   # weich dimmen (157)
@@ -394,7 +395,43 @@ def describe_action(action: dict[str, Any], name_of: Any = None) -> str:
             f"{named(action.get('entity_id'))}: über {action.get('minutes', 0)} Min "
             f"auf {action.get('to', 0)} % dimmen"
         )
+    if atype == "music":
+        return musik_satz(action, named)
     return f"unbekannte Aktion «{atype}»"
+
+
+#: Was ein Musik-Schritt tun kann. Der Schlüssel steht in `do`.
+MUSIK_TATEN = ("favorite", "sleep", "pause_all", "night", "fade")
+
+
+def musik_satz(action: dict[str, Any], named: Any) -> str:
+    """Ein Musik-Schritt in einem Satz (rein, testbar).
+
+    Der Trockenlauf soll lesbar sein, bevor der Ablauf zum ersten Mal
+    läuft - «Musik-Aktion» wäre keine Auskunft.
+    """
+    tat = str(action.get("do") or "").strip().lower()
+    if tat == "favorite":
+        wo = action.get("device")
+        return (
+            f"Favorit «{action.get('favorite') or '?'}» abspielen"
+            + (f" auf {wo}" if wo else "")
+        )
+    if tat == "sleep":
+        return (
+            f"{named(action.get('entity_id'))}: nach "
+            f"{action.get('minutes', 30)} Min ausblenden"
+        )
+    if tat == "pause_all":
+        return "überall Pause"
+    if tat == "night":
+        return "Nachtruhe " + ("ein" if action.get("on", True) else "aus")
+    if tat == "fade":
+        return (
+            f"{named(action.get('entity_id'))}: leise starten bis "
+            f"{action.get('volume', 30)} %"
+        )
+    return f"unbekannter Musik-Schritt «{tat or 'nichts'}»"
 
 
 def _seconds(value: Any) -> float:
@@ -2013,9 +2050,88 @@ class AutomationEngine:
                 speakers=[str(s) for s in action.get("speakers") or []] or None,
                 volume=action.get("volume"),
             )
+        elif atype == "music":
+            return await self._musik(automation, action)
         else:
             log.warning("Unbekannter Aktionstyp in '%s': %s", automation.alias, atype)
         return None
+
+    async def _musik(self, automation: Automation, action: dict[str, Any]) -> str | None:
+        """Musik-Schritte: Favorit, Schlummer, überall Pause, Nachtruhe.
+
+        Alles davon gab es schon - als Knopf in der App, nicht als
+        Schritt in einem Ablauf. «Wenn alle weg sind: Musik aus» ging
+        deshalb nur über den nackten Pause-Befehl je Box, und wer eine
+        Box vergass, merkte es erst beim Heimkommen.
+        """
+        tat = str(action.get("do") or "").strip().lower()
+        musik = getattr(self.hub, "musik", None)
+        ton = getattr(self.hub, "ton", None)
+        if musik is None or ton is None:  # pragma: no cover - nur Teststummel
+            return "Musik-Dienst nicht bereit"
+
+        if tat == "favorite":
+            gesucht = str(action.get("favorite") or "").strip()
+            eintrag = next(
+                (
+                    zeile
+                    for zeile in musik.favoriten()
+                    if gesucht in (zeile.get("id"), zeile.get("name"))
+                ),
+                None,
+            )
+            if eintrag is None:
+                # Kein Abbruch: Ein umbenannter Favorit soll den ganzen
+                # Ablauf nicht anhalten - aber im Protokoll stehen.
+                return f"Favorit «{gesucht}» gibt es nicht mehr"
+            await musik.abspielen(eintrag, str(action.get("device") or eintrag.get("device") or ""))
+            return None
+
+        if tat == "sleep":
+            musik.schlummer(str(action.get("entity_id") or ""), float(action.get("minutes", 30)))
+            return None
+
+        if tat == "pause_all":
+            gestoppt = await self._alle_pausieren()
+            return None if gestoppt else "es lief nichts"
+
+        if tat == "night":
+            ton.nachtruhe_setzen({"on": bool(action.get("on", True))})
+            return None
+
+        if tat == "fade":
+            entity_id = str(action.get("entity_id") or "")
+            if "play" in (self.hub.registry.get(entity_id).commands if self.hub.registry.get(entity_id) else ()):
+                await self.hub.integrations.dispatch_command(entity_id, "play", {})
+            await ton.einblenden(
+                entity_id,
+                int(action.get("volume", 30)),
+                float(action.get("seconds", 8)),
+            )
+            return None
+
+        log.warning("Unbekannter Musik-Schritt in '%s': %s", automation.alias, tat)
+        return f"unbekannter Musik-Schritt «{tat or 'nichts'}»"
+
+    async def _alle_pausieren(self) -> list[str]:
+        """Überall Pause - nicht «aus»: Eine pausierte Box weiss noch, wo
+        sie war."""
+        from .entity import EntityKind
+
+        gestoppt: list[str] = []
+        for entity in self.hub.registry.all():
+            if entity.kind != EntityKind.MEDIA_PLAYER or not entity.available:
+                continue
+            if "pause" not in entity.commands:
+                continue
+            if str(entity.state.get("state")) not in ("playing", "buffering"):
+                continue
+            try:
+                await self.hub.integrations.dispatch_command(entity.id, "pause", {})
+                gestoppt.append(entity.name)
+            except Exception as err:
+                log.debug("Pause auf %s ging nicht: %s", entity.id, err)
+        return gestoppt
 
     async def _light(
         self,

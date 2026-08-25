@@ -46,6 +46,39 @@ export function istGesperrt(
   return jetzt >= offenBis;
 }
 
+/**
+ * Was am Wandpanel auch ohne Code offensteht.
+ *
+ * Der Riegel schützt, was privat ist – die Einkaufsliste, den Kalender,
+ * die Nachrichten der Familie. Diese drei sind das Gegenteil: Sie sind
+ * für die da, die *nicht* zur Familie gehören. Der Babysitter braucht
+ * das Notfallblatt, und im Notfall braucht es jeder, der gerade im Flur
+ * steht. Ein Code davor ist kein Sichtschutz, sondern eine verschlossene
+ * Tür vor dem Feuerlöscher.
+ *
+ * Nur am Panel: Auf einem Telefon hat der Riegel diesen Zweck nicht –
+ * das Gerät steckt in einer Tasche und nicht im Flur.
+ */
+export const OFFEN_AM_PANEL = ['contacts', 'emergency', 'babysitter'] as const;
+
+export type OffenesModul = (typeof OFFEN_AM_PANEL)[number];
+
+/**
+ * Welche Module vor dem Riegel erreichbar bleiben (rein, testbar).
+ *
+ * Leer, wo der Riegel gar nicht steht: Dann führt der gewöhnliche Weg
+ * ohnehin überall hin, und eine zweite Liste derselben Kacheln wäre
+ * doppelt.
+ */
+export function offeneModule(
+  section: Section,
+  panel: boolean | undefined,
+  gesperrt: boolean
+): readonly OffenesModul[] {
+  if (!panel || !gesperrt || section !== 'family') return [];
+  return OFFEN_AM_PANEL;
+}
+
 /** Bis wann es nach einem erfolgreichen Versuch offen bleibt (rein). */
 export function offenBis(jetzt: number, sekunden?: number): number {
   const dauer = sekunden && sekunden > 0 ? sekunden * 1000 : OFFEN_MS;

@@ -410,12 +410,18 @@ class GoogleCastIntegration(Integration):
         # entity_id → Port. Bei einer Gruppe ist er die halbe Auskunft:
         # Sie teilt sich die Adresse mit einer ihrer Boxen.
         self._ports: dict[str, int] = {}
+        # Und die andere Hälfte: die Adresse. Für die Mitgliederabfrage
+        # einer Gruppe braucht es beide.
+        self._hosts: dict[str, str] = {}
 
         for device in devices:
             host = device.get("host")
             if not host:
                 raise ConfigError("google_cast: jedes Gerät braucht einen 'host'")
             port = int(device.get("port", DEFAULT_PORT))
+            self._hosts[
+                f"{self.name}.{cast_object_id(str(host), port)}"
+            ] = str(host)
             entity = await self.add_entity(
                 cast_object_id(str(host), port),
                 EntityKind.MEDIA_PLAYER,
@@ -621,13 +627,58 @@ class GoogleCastIntegration(Integration):
 
         return await asyncio.to_thread(browse)
 
+    def kennung_zu_box(self, uuid: str) -> tuple[str | None, str | None]:
+        """Zu einer Cast-Kennung die Entität und ihren Namen (oder None).
+
+        Google nennt Gruppenmitglieder nur mit ihrer UUID. Wer sie
+        eingetragen hat, kennt sie aber unter einem Namen - und den soll
+        die App zeigen, nicht «a1b2c3d4-…».
+        """
+        gesucht = str(uuid).strip().lower()
+        for entity_id, cast in self._casts.items():
+            if str(getattr(cast, "uuid", "")).strip().lower() != gesucht:
+                continue
+            entity = self.hub.registry.get(entity_id)
+            return entity_id, (entity.name if entity is not None else None)
+        return None, None
+
+    async def gruppen_mitglieder(self, entity_id: str) -> list[dict[str, Any]]:
+        """Die Boxen dieser Gruppe - mit Namen, wo der Hub sie kennt.
+
+        Vorher zeigte die App alle Einzelboxen des Hauses und nannte sie
+        «die Gruppe». Das war geraten; hier steht, was der Chromecast
+        selbst sagt.
+        """
+        host = self._hosts.get(entity_id)
+        if host is None:
+            return []
+        port = self._ports.get(entity_id, DEFAULT_PORT)
+        zeilen: list[dict[str, Any]] = []
+        for kennung in await self._mitglieder_kennungen(host, port):
+            box_id, name = self.kennung_zu_box(kennung)
+            zeilen.append({"uuid": kennung, "entity_id": box_id, "name": name})
+        return zeilen
+
     async def group_members(self, host: str, port: int = DEFAULT_PORT) -> list[str]:
         """Welche Boxen stecken in dieser Gruppe? Leer, wenn keine Gruppe.
 
         Der Port gehört dazu: Eine Gruppe teilt sich die Adresse mit der
         Box, die sie beherbergt, und ist nur über ihren eigenen Port zu
         erreichen.
+
+        Zurück kommen Namen, wo der Hub die Box kennt - eine Liste von
+        UUIDs beantwortet die Frage «welche Boxen?» nicht.
         """
+        namen: list[str] = []
+        for kennung in await self._mitglieder_kennungen(host, port):
+            _, name = self.kennung_zu_box(kennung)
+            namen.append(name or kennung)
+        return namen
+
+    async def _mitglieder_kennungen(
+        self, host: str, port: int = DEFAULT_PORT
+    ) -> list[str]:
+        """Die rohen Cast-Kennungen der Gruppenmitglieder."""
         import pychromecast
         from pychromecast.controllers.multizone import MultizoneController
 

@@ -515,7 +515,10 @@ export type TriggerKind =
   | 'calendar'
   | 'geofence'
   | 'availability';
-export type StepKind = 'command' | 'toggle_all' | 'scene' | 'hue_scene' | 'notify' | 'broadcast' | 'delay' | 'wait_until' | 'fade';
+export type StepKind = 'command' | 'toggle_all' | 'scene' | 'hue_scene' | 'notify' | 'broadcast' | 'delay' | 'wait_until' | 'fade' | 'music';
+
+/** Was ein Musik-Schritt tun kann. */
+export type MusikTat = 'favorite' | 'sleep' | 'pause_all' | 'night' | 'fade';
 export type ConditionKind = 'none' | 'sun' | 'time';
 
 /** Ein einzelner Auslöser – ein Ablauf kann mehrere haben («oder»). */
@@ -627,6 +630,16 @@ export interface StepDraft {
   fadeEntityId: string;
   fadeTo: string;
   fadeMinutes: string;
+  /** Musik-Schritt: was getan wird und womit. Alles davon gab es schon
+   *  als Knopf in der App - «Wenn alle weg sind: Musik aus» ging aber
+   *  nur über den nackten Pause-Befehl je Box, und wer eine vergass,
+   *  merkte es erst beim Heimkommen. */
+  musikTat: MusikTat;
+  musikFavorit: string;
+  musikEntityId: string;
+  musikMinuten: string;
+  musikLautstaerke: string;
+  musikAn: boolean;
 }
 
 export const EMPTY_STEP: StepDraft = {
@@ -648,6 +661,12 @@ export const EMPTY_STEP: StepDraft = {
   fadeEntityId: '',
   fadeTo: '0',
   fadeMinutes: '10',
+  musikTat: 'pause_all',
+  musikFavorit: '',
+  musikEntityId: '',
+  musikMinuten: '30',
+  musikLautstaerke: '30',
+  musikAn: true,
 };
 
 /** Ein neuer Auslöser für dieses Gerät – mit einem Zustand, den es auch
@@ -1203,6 +1222,44 @@ export function istLichtFein(action: {
   return !!(action.adaptive || action.color || action.colorTemp || action.offAfter);
 }
 
+/**
+ * Ein Musik-Schritt in die gespeicherte Form (rein, testbar).
+ *
+ * Jede Tat braucht andere Felder; ein Schritt, dem das nötige fehlt,
+ * ergibt gar keine Aktion. Ein halber Schritt, der beim Ablaufen
+ * stillschweigend nichts tut, wäre schlimmer als einer, der im Editor
+ * unfertig aussieht.
+ */
+export function musikSchrittZuAktion(step: StepDraft): BausteinConfig[] {
+  const tat = step.musikTat;
+  if (tat === 'pause_all') return [{ type: 'music', do: 'pause_all' }];
+  if (tat === 'night') return [{ type: 'music', do: 'night', on: step.musikAn }];
+  if (tat === 'favorite') {
+    return step.musikFavorit
+      ? [{ type: 'music', do: 'favorite', favorite: step.musikFavorit }]
+      : [];
+  }
+  if (!step.musikEntityId) return [];
+  if (tat === 'sleep') {
+    return [
+      {
+        type: 'music',
+        do: 'sleep',
+        entity_id: step.musikEntityId,
+        minutes: Number(step.musikMinuten) || 30,
+      },
+    ];
+  }
+  return [
+    {
+      type: 'music',
+      do: 'fade',
+      entity_id: step.musikEntityId,
+      volume: Number(step.musikLautstaerke) || 30,
+    },
+  ];
+}
+
 /** Einen einzelnen Schritt in die gespeicherte Form (rein, testbar).
  *
  * Ein Schritt kann mehrere Aktionen ergeben: «Gerät schalten» mit drei
@@ -1223,6 +1280,9 @@ export function stepToActions(step: StepDraft): BausteinConfig[] {
   }
   if (step.kind === 'hue_scene') {
     return step.hueScene ? [{ type: 'hue_scene', scene: step.hueScene }] : [];
+  }
+  if (step.kind === 'music') {
+    return musikSchrittZuAktion(step);
   }
   if (step.kind === 'notify') {
     return [
@@ -1442,6 +1502,17 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
       steps.push({ ...EMPTY_STEP, kind: 'scene', sceneId: action.scene ?? '' });
     } else if (type === 'hue_scene') {
       steps.push({ ...EMPTY_STEP, kind: 'hue_scene', hueScene: action.scene ?? '' });
+    } else if (type === 'music') {
+      steps.push({
+        ...EMPTY_STEP,
+        kind: 'music',
+        musikTat: (action.do as MusikTat) ?? 'pause_all',
+        musikFavorit: action.favorite ? String(action.favorite) : '',
+        musikEntityId: action.entity_id ? String(action.entity_id) : '',
+        musikMinuten: action.minutes ? String(action.minutes) : '30',
+        musikLautstaerke: action.volume ? String(action.volume) : '30',
+        musikAn: action.on !== false,
+      });
     } else if (type === 'notify') {
       steps.push({
         ...EMPTY_STEP,

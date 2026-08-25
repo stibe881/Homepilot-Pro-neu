@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Activity, CommandData, Entity, EntityState } from '../api/types';
@@ -58,6 +58,11 @@ export function SidePanel({
   // (siehe pickPlayer): So sieht man immer nur eine Karte, aber jede Box
   // lässt sich ansehen und bedienen, nicht nur die gerade spielende.
   const [chosenId, setChosenId] = useState<string | null>(null);
+  // Die zuletzt im Wähler bestimmte Box - reist bis zum Startbefehl mit.
+  // Ohne dieses Gedächtnis startete eine Playlist auf der zuletzt
+  // aktiven Box statt auf der gewählten: Der Umzug per play_on bleibt
+  // bei stillem Spotify nicht haften (siehe lib/boxwahl).
+  const [wunschBox, setWunschBox] = useState<string | null>(null);
   const player =
     (chosenId ? players.find((entity) => entity.id === chosenId) : undefined) ??
     pickPlayer(entities);
@@ -87,10 +92,19 @@ export function SidePanel({
         play: quelle.state.state === 'playing',
       });
       setChosenId(quelle.id);
+      setWunschBox(ziel.name);
     } else {
       setChosenId(ziel.id);
     }
   };
+
+  // Sobald die gewünschte Box die aktive ist, hat der Wunsch seinen
+  // Dienst getan. Ihn weiter festzuhalten hiesse: Wer die Musik später
+  // in der Spotify-App woandershin zieht und hier eine Playlist drückt,
+  // bekäme sie zurück ins Büro geholt.
+  useEffect(() => {
+    if (wunschBox && player?.state.device === wunschBox) setWunschBox(null);
+  }, [wunschBox, player?.state.device]);
 
   // Die Box des offenen Raums – immer die des Raums, in dem man gerade
   // steht. Läuft sie ohnehin schon oben (weil sie die spielende des
@@ -129,6 +143,7 @@ export function SidePanel({
           }
           onSelect={choose}
           onCommand={onCommand}
+          wunschBox={wunschBox}
         />
       ) : null}
       {/* Und darunter der Raum, in dem man steht. Eine Box hier
@@ -161,6 +176,7 @@ function MediaPanel({
   titel = 'Musik',
   onSelect,
   onCommand,
+  wunschBox = null,
 }: {
   entity: Entity;
   /** Alle Medien-Geräte, nicht nur das gerade gezeigte – für die
@@ -173,6 +189,8 @@ function MediaPanel({
   titel?: string;
   onSelect: (speaker: Entity) => void;
   onCommand: (entityId: string, command: string, data?: CommandData) => void;
+  /** Im Wähler bestimmte Box - fürs Starten von Playlist und Sender. */
+  wunschBox?: string | null;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -416,6 +434,7 @@ function MediaPanel({
         <SpotifyPanel
           entity={entity}
           hideDevices
+          wunschBox={wunschBox}
           onCommand={(name, data) => command(name, data)}
         />
       ) : null}
@@ -423,6 +442,7 @@ function MediaPanel({
         <RadioPanel
           entity={entity}
           hideDevices
+          wunschBox={wunschBox}
           onCommand={(name, data) => command(name, data)}
         />
       ) : null}
