@@ -142,6 +142,7 @@ nicht `test_mode_2`.
 | etwas dauerhaft speichern willst | `hub.data` (`core/persistence.py`) – **nie** Geheimnisse ins Repo |
 | an der Startseite arbeitest | `app/src/screens/DashboardScreen.tsx`, `components/TopStrip.tsx`, `SidePanel.tsx` |
 | eine Gerätekachel änderst | `app/src/components/EntityCard.tsx` |
+| an der Musik arbeitest | `hub/homepilot/core/ton.py` + `core/musik.py` + `app/src/components/Musikzentrale.tsx` – Übersicht in `docs/musik.md` |
 
 ## Was nie ins Repository gehört
 
