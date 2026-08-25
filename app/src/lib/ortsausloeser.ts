@@ -14,6 +14,34 @@
 /** Kennung des Zuhauses – der einzige Ort, den es überall gibt. */
 export const ZUHAUSE = 'home';
 
+/** Die Sammelfrage «ist überhaupt noch jemand da?» (geofence.anyone_home). */
+export const SAMMEL_ANWESENHEIT = 'geofence.anyone_home';
+
+/**
+ * Meldet diese Entität einen Ort? (rein, testbar)
+ *
+ * Alle Geofence-Entitäten ausser einer: Die Sammelanwesenheit ist keine
+ * Person und war nie an einem Ort. Sie stand trotzdem in der Auswahl
+ * unter «Ort», und was dabei herauskam, las sich als «Wenn Jemand
+ * zuhause kommt bei Off an» – ein Satz, den niemand so gemeint haben
+ * kann. Gespeichert war er richtig; nur Auswahl und Satz behaupteten
+ * etwas anderes.
+ */
+export function istOrtsmelder(entityId: unknown): boolean {
+  const id = String(entityId ?? '');
+  return id.startsWith('geofence.') && id !== SAMMEL_ANWESENHEIT;
+}
+
+/**
+ * Die Sammelanwesenheit als Satzteil (rein, testbar).
+ *
+ * Sie zählt technisch in an/aus. «Jemand zuhause → off» stimmt zwar,
+ * beantwortet aber nicht die Frage, die man beim Lesen stellt.
+ */
+export function anwesenheitSatz(to: unknown): string {
+  return String(to ?? '') === 'off' ? 'niemand mehr zuhause ist' : 'jemand zuhause ist';
+}
+
 export type Richtung = 'an' | 'weg';
 
 export interface Ortswahl {

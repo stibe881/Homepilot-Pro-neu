@@ -9,6 +9,7 @@ import {
   stepToActions,
   actionsToSteps,
   toDraft,
+  describe as zeileFuer,
   triggerFromConfig,
   istLichtFein,
   lichtKurz,
@@ -886,5 +887,85 @@ describe('plainStates für die Anwesenheit', () => {
       { key: 'home', label: 'zuhause' },
       { key: 'away', label: 'weg' },
     ]);
+  });
+});
+
+describe('Die Sammelanwesenheit im Editor', () => {
+  it('kommt als Zustandswechsel zurück, nicht als Ort', () => {
+    // Der gemeldete Ablauf «Niemand mehr zuhause»: gespeichert richtig,
+    // im Editor aber unter «Ort» mit «kommt an / geht weg» und einer
+    // Liste von Orten - eine Frage, die es hier gar nicht gibt.
+    const zurueck = triggerFromConfig({
+      type: 'state',
+      entity_id: 'geofence.anyone_home',
+      to: 'off',
+      for: 600,
+    });
+    expect(zurueck.kind).toBe('state');
+    expect(zurueck.toState).toBe('off');
+    expect(zurueck.forMinutes).toBe('10');
+  });
+
+  it('lässt echte Ortsmelder unverändert', () => {
+    const zurueck = triggerFromConfig({
+      type: 'state',
+      entity_id: 'geofence.livia',
+      to: 'schule_zell',
+    });
+    expect(zurueck.kind).toBe('geofence');
+    expect(zurueck.ortId).toBe('schule_zell');
+  });
+
+  it('gibt ihr ein eigenes Sinnbild', () => {
+    // Sie fragt nach Menschen, nicht nach einem Ort.
+    const mit = (trigger: Record<string, unknown>) =>
+      triggerIcon({ triggers: [trigger] } as unknown as Parameters<typeof triggerIcon>[0]);
+    expect(mit({ entity_id: 'geofence.anyone_home', to: 'off' })).toBe('people-outline');
+    expect(mit({ entity_id: 'geofence.livia', to: 'home' })).toBe('location-outline');
+  });
+});
+
+describe('Die Listenzeile spricht Deutsch', () => {
+  const jemand = {
+    id: 'geofence.anyone_home',
+    name: 'Jemand zuhause',
+    kind: 'binary_sensor',
+    integration: 'geofence',
+    state: { state: 'on', away: [] },
+    commands: [],
+  } as unknown as Entity;
+
+  it('sagt bei der Sammelanwesenheit, was gemeint ist', () => {
+    // Vorher stand hier die nackte Kennung: «wenn geofence.anyone_home
+    // → off» - keine Auskunft, sondern eine Aufgabe.
+    const zeile = zeileFuer(
+      {
+        id: 'x',
+        alias: 'Niemand mehr zuhause',
+        triggers: [{ type: 'state', entity_id: 'geofence.anyone_home', to: 'off' }],
+        actions: [{ type: 'command', entity_id: 'light.buero', command: 'turn_off' }],
+      } as unknown as Parameters<typeof zeileFuer>[0],
+      [jemand, { id: 'light.buero', name: 'Büro' } as unknown as Entity]
+    );
+    expect(zeile).toContain('wenn niemand mehr zuhause ist');
+    expect(zeile).not.toContain('geofence.anyone_home');
+    // Und auf der anderen Seite des Pfeils dasselbe: «light.buero
+    // turn_off» liest niemand als «Büro aus».
+    expect(zeile).toContain('Büro aus');
+    expect(zeile).not.toContain('turn_off');
+  });
+
+  it('nennt bei einem Ortsmelder Person und Ort', () => {
+    const livia = { ...jemand, id: 'geofence.livia', name: 'Livia' } as unknown as Entity;
+    const zeile = zeileFuer(
+      {
+        id: 'x',
+        alias: 'Livia in der Schule',
+        triggers: [{ type: 'state', entity_id: 'geofence.livia', to: 'schule_zell' }],
+        actions: [{ type: 'notify' }],
+      } as unknown as Parameters<typeof zeileFuer>[0],
+      [livia]
+    );
+    expect(zeile).toContain('wenn Livia kommt bei Schule Zell an');
   });
 });

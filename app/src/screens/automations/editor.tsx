@@ -11,7 +11,7 @@ import { Entity, Scene } from '../../api/types';
 import { Colors, useColors } from '../../theme';
 import { ablaufSatz } from '../../lib/ablaufsatz';
 import { datumUhr } from '../../lib/format';
-import { ZUHAUSE, ortsauswahl } from '../../lib/ortsausloeser';
+import { ZUHAUSE, istOrtsmelder, ortsauswahl } from '../../lib/ortsausloeser';
 import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, KAMERA_AUSLOESER, PLATZHALTER, hatWartezeit, measurableAttributes, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, unbekannterZustand, weekdayLabel, zeitfensterHinweis } from './entwurf';
 import {
   CategoryField,
@@ -918,7 +918,7 @@ export function TriggerRow({
           { key: 'availability', label: 'Meldet sich nicht' },
           // Nur anbieten, wenn es auch Zonen gibt – ein leerer Auslöser
           // wäre ein Versprechen, das der Hub nicht halten kann.
-          ...(entities.some((entity) => entity.id.startsWith('geofence.'))
+          ...(entities.some((entity) => istOrtsmelder(entity.id))
             ? [{ key: 'geofence', label: 'Ort' }]
             : []),
           // Dito für den Kalender (Punkt 153): ohne angebundenen Kalender
@@ -1071,7 +1071,11 @@ export function TriggerRow({
       ) : trigger.kind === 'geofence' ? (
         <>
           <EntityPicker
-            entities={entities.filter((entity) => entity.id.startsWith('geofence.'))}
+            // Ohne die Sammelanwesenheit: Sie ist keine Person und war
+            // nie an einem Ort. «Jemand zuhause kommt bei Off an» war der
+            // Satz, der dabei herauskam. Sie steht unter «Gerät wechselt»
+            // mit «jemand/niemand ist zuhause» – dort gehört sie hin.
+            entities={entities.filter((entity) => istOrtsmelder(entity.id))}
             value={trigger.entityId}
             onSelect={(entityId) => onChange({ entityId })}
           />

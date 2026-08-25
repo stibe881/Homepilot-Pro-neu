@@ -232,3 +232,47 @@ describe('Radio im Ablauf-Satz', () => {
   });
 });
 
+
+describe('Die Sammelanwesenheit im Satz', () => {
+  const jemand = {
+    id: 'geofence.anyone_home',
+    kind: 'binary_sensor',
+    name: 'Jemand zuhause',
+    integration: 'geofence',
+    state: { state: 'on', away: [] },
+    commands: [],
+  } as unknown as Entity;
+
+  it('liest den Ablauf «Niemand mehr zuhause», wie er gemeint ist', () => {
+    // Vorher stand hier: «Wenn Jemand zuhause kommt bei Off an seit 10
+    // Min» - der Ablauf tat das Richtige, der Satz sagte Unsinn.
+    const satz = ablaufSatz(
+      {
+        triggers: [{ type: 'state', entity_id: 'geofence.anyone_home', to: 'off', for: 600 }],
+        conditions: [],
+        actions: [{ type: 'command', entity_id: 'light.buero', command: 'turn_off' }],
+        otherwise: [],
+        match: 'all',
+      },
+      [jemand],
+      []
+    );
+    expect(satz).toContain('Wenn niemand mehr zuhause ist seit 10 Min');
+    expect(satz).not.toContain('kommt bei');
+  });
+
+  it('und in der anderen Richtung ebenso', () => {
+    const satz = ablaufSatz(
+      {
+        triggers: [{ type: 'state', entity_id: 'geofence.anyone_home', to: 'on' }],
+        conditions: [],
+        actions: [{ type: 'command', entity_id: 'light.buero', command: 'turn_on' }],
+        otherwise: [],
+        match: 'all',
+      },
+      [jemand],
+      []
+    );
+    expect(satz).toContain('Wenn jemand zuhause ist');
+  });
+});

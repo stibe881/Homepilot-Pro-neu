@@ -6,7 +6,16 @@
 
 import { Entity } from '../../api/types';
 import { datumUhr, dauerText } from '../../lib/format';
-import { ZUHAUSE, ausTrigger, zuTrigger } from '../../lib/ortsausloeser';
+import { befehlWort, nameVon } from '../../lib/ablaufsatz';
+import {
+  SAMMEL_ANWESENHEIT,
+  ZUHAUSE,
+  anwesenheitSatz,
+  ausTrigger,
+  istOrtsmelder,
+  ortsSatz,
+  zuTrigger,
+} from '../../lib/ortsausloeser';
 import { musikBefehl, musikSchluessel, richtungBefehl, richtungSchluessel } from '../../lib/szenen';
 
 /**
@@ -835,7 +844,7 @@ export function triggerFromConfig(t: BausteinConfig): TriggerDraft {
   // (`from: schule`). Beides muss wieder als «Ort + Richtung» dastehen,
   // sonst zeigt der Editor bei einem gespeicherten Ablauf etwas anderes,
   // als der Hub ausführt.
-  const istOrt = String(t?.entity_id ?? '').startsWith('geofence.');
+  const istOrt = istOrtsmelder(t?.entity_id);
   const ortswahl = istOrt ? ausTrigger(t ?? {}) : null;
   return {
     ...EMPTY_TRIGGER,
@@ -986,7 +995,9 @@ export function triggerIcon(automation: Automation): string {
   if (art === 'calendar') return 'calendar-outline';
   if (art === 'availability') return 'pulse-outline';
   if ('above' in trigger || 'below' in trigger) return 'analytics-outline';
-  if (String(trigger.entity_id ?? '').startsWith('geofence.')) return 'location-outline';
+  // Die Sammelanwesenheit fragt nach Menschen, nicht nach einem Ort.
+  if (String(trigger.entity_id ?? '') === SAMMEL_ANWESENHEIT) return 'people-outline';
+  if (istOrtsmelder(trigger.entity_id)) return 'location-outline';
   if (trigger.attribute === 'ring') return 'notifications-outline';
   if (trigger.attribute === 'motion') return 'walk-outline';
   // Erst jetzt der Name: Ein Auslöser, der etwas aussagt, sagt mehr über
@@ -1558,8 +1569,12 @@ export function lichtKurz(action: BausteinConfig): string {
   return action.off_after ? `${wie}, ${nachlaufLabel(action.off_after)}` : wie;
 }
 
-export function describe(automation: Automation): string {
+export function describe(automation: Automation, entities: Entity[] = []): string {
   const trigger = automation.triggers[0];
+  // Der Name statt der Kennung: «geofence.anyone_home → off» ist keine
+  // Auskunft, sondern eine Aufgabe. Und wo es einen ganzen Satz dafür
+  // gibt - Ort und Anwesenheit -, steht der Satz.
+  const wer = nameVon(entities, trigger?.entity_id);
   const action = automation.actions.find((entry) => entry.type !== 'delay');
   const wenn = !trigger
     ? 'ohne Auslöser'
@@ -1572,23 +1587,29 @@ export function describe(automation: Automation): string {
         : trigger.type === 'interval'
           ? `alle ${trigger.seconds} s`
           : trigger.type === 'availability'
-            ? `wenn ${trigger.entity_id} ${trigger.to === true ? 'wiederkommt' : 'verstummt'}`
-            : `wenn ${trigger.entity_id}${
-                trigger.attribute ? `.${trigger.attribute}` : ''
-              } → ${trigger.to ?? 'sich ändert'}`;
+            ? `wenn ${wer} ${trigger.to === true ? 'wiederkommt' : 'verstummt'}`
+            : istOrtsmelder(trigger.entity_id)
+              ? `wenn ${ortsSatz(wer, trigger)}`
+              : String(trigger.entity_id ?? '') === SAMMEL_ANWESENHEIT
+                ? `wenn ${anwesenheitSatz(trigger.to)}`
+                : `wenn ${wer}${
+                    trigger.attribute ? `.${trigger.attribute}` : ''
+                  } → ${trigger.to ?? 'sich ändert'}`;
   const dann = !action
     ? 'ohne Aktion'
     : action.type === 'toggle_all'
       ? `${(action.entity_ids ?? []).length} Geräte gemeinsam umschalten`
       : action.type === 'light'
-      ? `${action.entity_id}: Licht ${lichtKurz(action)}`
+      ? `${nameVon(entities, action.entity_id)}: Licht ${lichtKurz(action)}`
       : action.type === 'scene'
         ? `Szene ${action.scene}`
         : action.type === 'notify'
           ? 'Nachricht senden'
           : action.command === 'clean_rooms'
-            ? `${action.entity_id}: ${action.data?.rooms?.length ?? 0} Räume saugen`
-            : `${action.entity_id} ${action.command}`;
+            ? `${nameVon(entities, action.entity_id)}: ${
+                action.data?.rooms?.length ?? 0
+              } Räume saugen`
+            : `${nameVon(entities, action.entity_id)} ${befehlWort(action.command)}`;
   const mehr = automation.triggers.length > 1 ? ` (+${automation.triggers.length - 1})` : '';
   // Wie viele Schritte noch folgen – seit ein Ablauf mehrere Arten mischen
   // kann, sagt die erste Aktion allein zu wenig.
