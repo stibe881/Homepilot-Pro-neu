@@ -1839,15 +1839,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   «Alles aus» steht deshalb unten, nach den Räumen, und
                   der Widget-Knopf öffnet seine Rückfrage direkt. */}
               <ClimateOverview settings={settings} entities={entities} />
-              <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
-                <AllOff
-                  entities={entities}
-                  locked={locked}
-                  onCommand={guardedCommand}
-                  openSignal={allOffSignal}
-                  compact
-                />
-              </View>
+              {/* Ohne Knopf: Auf der Startseite stand «Alles aus» im
+                  Weg - dort will man Licht und Storen, nicht das Haus
+                  abschalten. Für einen Raum bleibt er (Räume →
+                  Filterzeile), und wer ihn sich aufs Widget gelegt hat,
+                  drückt ihn dort: Dessen Rückfrage geht hier auf. */}
+              <AllOff
+                entities={entities}
+                locked={locked}
+                onCommand={guardedCommand}
+                openSignal={allOffSignal}
+                ohneKnopf
+              />
             </>
           ) : null}
           {section === 'home' && editing && rooms.length > 0 ? (

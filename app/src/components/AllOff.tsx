@@ -45,6 +45,7 @@ export function AllOff({
   onCommand,
   openSignal = 0,
   compact = false,
+  ohneKnopf = false,
 }: {
   entities: Entity[];
   /** Gesperrte Geräte – die tauchen hier gar nicht auf. */
@@ -58,6 +59,14 @@ export function AllOff({
   /** Als kleiner Chip statt als voller Knopf – für die Zeile neben den
    *  Raum-Reitern. */
   compact?: boolean;
+  /** Ohne eigenen Knopf: nur das Fenster, wenn `openSignal` es ruft.
+   *
+   *  Auf der Startseite stand der Knopf im Weg – dort will man Licht und
+   *  Storen, nicht das Haus abschalten. Weg ist er trotzdem nicht: Wer
+   *  ihn sich aufs Widget gelegt hat, drückt ihn dort, und die Rückfrage
+   *  muss dann irgendwo aufgehen. Genau dafür bleibt diese Komponente
+   *  stehen, nur ohne Anzeige. */
+  ohneKnopf?: boolean;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -88,19 +97,21 @@ export function AllOff({
 
   return (
     <>
-      <Pressable
-        onPress={start}
-        accessibilityRole="button"
-        style={({ pressed }) => [
-          compact ? styles.chip : styles.button,
-          pressed && { opacity: 0.8 },
-        ]}
-      >
-        <Ionicons name="power-outline" size={compact ? 15 : 18} color={colors.ink} />
-        <Text style={compact ? styles.chipText : styles.buttonText}>
-          Alles aus ({on.length})
-        </Text>
-      </Pressable>
+      {ohneKnopf ? null : (
+        <Pressable
+          onPress={start}
+          accessibilityRole="button"
+          style={({ pressed }) => [
+            compact ? styles.chip : styles.button,
+            pressed && { opacity: 0.8 },
+          ]}
+        >
+          <Ionicons name="power-outline" size={compact ? 15 : 18} color={colors.ink} />
+          <Text style={compact ? styles.chipText : styles.buttonText}>
+            Alles aus ({on.length})
+          </Text>
+        </Pressable>
+      )}
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <View style={styles.backdrop}>
