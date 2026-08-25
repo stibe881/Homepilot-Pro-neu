@@ -58,6 +58,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -504,6 +505,37 @@ def klingel_satz(wann: float | None, quelle: str | None, jetzt: float) -> str:
     return f" Zuletzt geklingelt {wie_lange}, {weg}."
 
 
+def hardware_id(gespeichert: dict[str, Any] | None) -> tuple[str, bool]:
+    """Die Geräte-Kennung, unter der sich der Hub bei Ring meldet.
+
+    (rein, testbar) Zurück kommt die Kennung und ob sie neu ist.
+
+    Hier lag der Fehler, der alles erklärt. `ring_doorbell` leitet diese
+    Kennung von der **MAC-Adresse** ab, wenn man ihr keine gibt:
+
+        uuid5(NAMESPACE, str(uuid.getnode()) + user_agent)
+
+    Auf einem Rechner ist das eine gute Idee - die MAC bleibt. In einem
+    Docker-Container nicht: Jeder neu erstellte Container bekommt eine
+    neue MAC, und dieser Hub wird bei **jedem Update** neu erstellt.
+
+    Ring bindet die Push-Anmeldung an diese Kennung. Nach jedem Update
+    meldete sich also ein Gerät an, das Ring noch nie gesehen hatte,
+    während die Klingeln weiter an das Gerät von vorher gingen. Die
+    Anmeldung wird mit 204 bestätigt, der Kanal steht - und es kommt nie
+    etwas. Genau das Bild aus dem System-Bildschirm, und es passt auch
+    dazu, dass es in Home Assistant funktionierte: Eine feste
+    Installation behält ihre MAC.
+
+    Die Kennung gehört deshalb neben das Token, nicht an die Hardware.
+    Einmal gewürfelt, dann bleibt sie.
+    """
+    vorhanden = str((gespeichert or {}).get("hardware_id") or "").strip()
+    if vorhanden:
+        return vorhanden, False
+    return str(uuid.uuid4()), True
+
+
 #: So lange darf ein stehender Kanal schweigen, bevor der Hub die
 #: Anmeldung erneuert.
 #:
@@ -816,10 +848,21 @@ class RingIntegration(Integration):
 
         from ring_doorbell import Auth, Ring
 
+        # Die Geräte-Kennung fest, nicht aus der MAC: Der Container
+        # bekommt bei jedem Update eine neue, und Ring hängt die
+        # Push-Anmeldung daran (siehe hardware_id()).
+        kennung, frisch = hardware_id(self._stored)
+        if frisch:
+            self._save("hardware_id", kennung)
+            self.log.info(
+                "Ring: feste Geräte-Kennung angelegt – die Push-Anmeldung "
+                "übersteht damit ein Update des Containers"
+            )
         self._auth = Auth(
             USER_AGENT,
             token=self._stored.get("token"),
             token_updater=lambda token: self._save("token", token),
+            hardware_id=kennung,
             http_client_session=self.http_session(),
         )
         self._ring = Ring(self._auth)
@@ -1566,7 +1609,11 @@ async def _login_main(config_path: str) -> int:
     username = input("Ring-E-Mail: ").strip()
     password = getpass.getpass("Ring-Passwort: ")
 
-    auth = Auth(USER_AGENT)
+    # Die Kennung schon hier festlegen und mitspeichern: Das Token wird
+    # für ein bestimmtes Gerät ausgestellt, und der Hub muss sich später
+    # als dasselbe melden.
+    kennung, _ = hardware_id(tokenstore.load(token_file))
+    auth = Auth(USER_AGENT, hardware_id=kennung)
     try:
         try:
             token = await auth.async_fetch_token(username, password)
@@ -1579,7 +1626,7 @@ async def _login_main(config_path: str) -> int:
     finally:
         await auth.async_close()
 
-    tokenstore.save(token_file, {"token": token})
+    tokenstore.save(token_file, {"token": token, "hardware_id": kennung})
     print(f"✓ Angemeldet. Token liegt in {token_file} – jetzt den Hub starten.")
     return 0
 
@@ -1615,7 +1662,11 @@ async def _horchen_main(config_path: str, sekunden: int) -> int:
 
     from ring_doorbell import Auth, Ring
 
-    auth = Auth(USER_AGENT, token=stored.get("token"))
+    auth = Auth(
+        USER_AGENT,
+        token=stored.get("token"),
+        hardware_id=hardware_id(stored)[0],
+    )
     ring = Ring(auth)
     try:
         await ring.async_create_session()
@@ -1792,7 +1843,11 @@ async def _diagnose_main(config_path: str) -> int:
         try:
             from ring_doorbell import Auth, Ring, RingEventListener
 
-            auth = Auth(USER_AGENT, token=stored.get("token"))
+            auth = Auth(
+                USER_AGENT,
+                token=stored.get("token"),
+                hardware_id=hardware_id(stored)[0],
+            )
             ring = Ring(auth)
             await ring.async_create_session()
             await ring.async_update_devices()
