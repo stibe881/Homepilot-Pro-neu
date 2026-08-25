@@ -7,6 +7,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 
@@ -27,6 +28,18 @@ import {
   restMinuten,
   timerAuswahl,
 } from '../lib/fernsehtimer';
+import {
+  Box,
+  bestaetigung,
+  boxen as boxenVon,
+  gueltigesZiel,
+  merken,
+  sprecherFuer,
+  vorschlaege,
+  zielText,
+  zieleFuer,
+} from '../lib/durchsage';
+import { DurchsagePrefs } from '../hooks/usePrefs';
 import { haustuerZeile } from '../lib/klingel';
 import { KalenderZeile, geburtstagsListe, terminListe } from '../lib/kalenderliste';
 import { applianceLine } from '../lib/haushalt';
@@ -67,6 +80,15 @@ interface Props {
   /** Fragt die Türe vor dem Öffnen nach? Haushaltsweit eingestellt; fehlt
    *  der Wert, wird gefragt (siehe lib/tuerbestaetigung.ts). */
   doorConfirm?: boolean;
+  /** Eine Durchsage abschicken. Fehlt sie, gibt es die Kachel nicht -
+   *  ohne Recht zu schalten wäre sie eine Attrappe. */
+  onDurchsage?: (
+    text: string,
+    speakers: string[]
+  ) => Promise<{ sent?: string[]; errors?: string[] }>;
+  /** Zuletzt gewählte Box und selbst getippte Sätze - siehe usePrefs. */
+  durchsage?: DurchsagePrefs;
+  onDurchsagePrefs?: (prefs: DurchsagePrefs) => void;
 }
 
 const WEEKDAYS = [
@@ -144,6 +166,9 @@ export function OverviewScreen({
   onReorderFavorites,
   onRenameEntity,
   doorConfirm,
+  onDurchsage,
+  durchsage,
+  onDurchsagePrefs,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -203,6 +228,13 @@ export function OverviewScreen({
     return ai !== bi ? ai - bi : favoriten.indexOf(a) - favoriten.indexOf(b);
   });
   const [favOrdnen, setFavOrdnen] = useState(false);
+  // Die Durchsage-Kachel: Sie hängt nicht an einem Gerät, sondern an der
+  // Frage, ob es überhaupt eine Box gibt, die eine Tondatei abspielt.
+  const durchsageBoxen = useMemo(() => boxenVon(entities), [entities]);
+  const [durchsageOffen, setDurchsageOffen] = useState(false);
+  // Ohne Box gibt es nichts anzusagen, ohne Recht nichts zu schalten -
+  // in beiden Fällen wäre die Kachel eine Attrappe.
+  const durchsageMoeglich = !!onDurchsage && durchsageBoxen.length > 0;
   // Welcher Fernseher gerade sein Timer-Fenster offen hat. Der Chip auf
   // der Startseite ist zu klein für fünf Knöpfe - und beim Einschalten
   // will man ihn auch nicht versehentlich stellen.
@@ -737,8 +769,10 @@ export function OverviewScreen({
       ) : null}
 
       {/* Favoriten aus der Geräteliste – zwischen Schnellaktionen und
-          Zugang, damit die eigenen Griffbereit-Geräte oben stehen. */}
-      {favorites.length > 0 ? (
+          Zugang, damit die eigenen Griffbereit-Geräte oben stehen. Die
+          Durchsage hängt hinten dran und hält den Block auch dann
+          offen, wenn noch niemand einen Stern vergeben hat. */}
+      {favorites.length > 0 || durchsageMoeglich ? (
         <>
           <View style={styles.favHead}>
             <Text style={[styles.groupLabel, { flex: 1 }]}>Favoriten</Text>
@@ -795,6 +829,29 @@ export function OverviewScreen({
                 colors={colors}
               />
             ))}
+            {/* Hinten und nicht vorn: Die Favoriten sind persönlich
+                gewählt, die Durchsage steht immer da. Vorn schöbe sie
+                jeden Abend das weg, wofür jemand den Stern gesetzt hat. */}
+            {durchsageMoeglich ? (
+              <Pressable
+                onPress={() => setDurchsageOffen(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Durchsage"
+                style={({ pressed }) => [
+                  styles.favChip,
+                  { width: favWidth },
+                  pressed && { opacity: 0.6 },
+                ]}
+              >
+                <Ionicons name="megaphone-outline" size={18} color={colors.inkSoft} />
+                <Text style={styles.favName} numberOfLines={1}>
+                  Durchsage
+                </Text>
+                <Text style={styles.favState} numberOfLines={1}>
+                  {zielText(gueltigesZiel(durchsage?.ziel, durchsageBoxen), durchsageBoxen)}
+                </Text>
+              </Pressable>
+            ) : null}
           </View>
           {/* Der Dialog steht einmal hier statt in jedem Chip - es kann
               ohnehin nur einer offen sein. */}
@@ -816,6 +873,17 @@ export function OverviewScreen({
             styles={styles}
             colors={colors}
           />
+          {durchsageOffen && onDurchsage ? (
+            <DurchsageFenster
+              boxen={durchsageBoxen}
+              prefs={durchsage}
+              onPrefs={onDurchsagePrefs}
+              onSenden={onDurchsage}
+              onClose={() => setDurchsageOffen(false)}
+              styles={styles}
+              colors={colors}
+            />
+          ) : null}
         </>
       ) : null}
 
@@ -951,6 +1019,200 @@ function FavoriteChip({
             : shortState(entity)}
       </Text>
     </Pressable>
+  );
+}
+
+/**
+ * Das Durchsage-Fenster hinter der Kachel.
+ *
+ * Vorher stand die Durchsage als breite Karte unter Einstellungen →
+ * Lautsprecher: ein leeres Textfeld und darunter fünfzehn
+ * Lautsprechernamen als Chips. Wer «Essen ist fertig» rufen wollte,
+ * ging drei Ecken weit, tippte den Satz und suchte die Box aus einer
+ * Wand von Namen - jedes Mal denselben Satz, jedes Mal dieselbe Box.
+ *
+ * Hier ist beides vorbereitet: Das Ziel steht oben und merkt sich, was
+ * zuletzt gewählt war; darunter stehen fertige Sätze, und ein Tippen
+ * darauf sendet. Zwei Tipper. Das Textfeld bleibt für den Satz, den
+ * niemand vorhersehen konnte - und was dort getippt wurde, steht beim
+ * nächsten Mal oben bei den Vorschlägen.
+ */
+function DurchsageFenster({
+  boxen,
+  prefs,
+  onPrefs,
+  onSenden,
+  onClose,
+  styles,
+  colors,
+}: {
+  boxen: Box[];
+  prefs?: DurchsagePrefs;
+  onPrefs?: (prefs: DurchsagePrefs) => void;
+  onSenden: (
+    text: string,
+    speakers: string[]
+  ) => Promise<{ sent?: string[]; errors?: string[] }>;
+  onClose: () => void;
+  styles: OverviewStyles;
+  colors: Colors;
+}) {
+  // Das gemerkte Ziel gilt nur, solange es die Box noch gibt - sonst
+  // ginge die Durchsage ins Leere, ohne dass jemand sähe, warum.
+  const [ziel, setZiel] = useState(() => gueltigesZiel(prefs?.ziel, boxen));
+  const [zielOffen, setZielOffen] = useState(false);
+  const [frei, setFrei] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const texte = useMemo(() => vorschlaege(prefs?.texte), [prefs?.texte]);
+
+  const waehle = (naechstes: string) => {
+    setZiel(naechstes);
+    setZielOffen(false);
+    onPrefs?.({ ...prefs, ziel: naechstes });
+  };
+
+  const sende = async (text: string) => {
+    const sauber = text.trim();
+    if (!sauber || busy) return;
+    setBusy(true);
+    setNote(null);
+    try {
+      const antwort = await onSenden(sauber, sprecherFuer(ziel));
+      setNote(bestaetigung(antwort ?? {}));
+      setFrei('');
+      // Nur Selbstgetipptes merken - `merken` gibt für die
+      // mitgelieferten Sätze null zurück.
+      const gemerkt = merken(prefs?.texte, sauber);
+      if (gemerkt) onPrefs?.({ ...prefs, ziel, texte: gemerkt });
+    } catch (err) {
+      setNote(String(err instanceof Error ? err.message : err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal visible animationType="slide" onRequestClose={onClose} transparent>
+      <Pressable style={styles.fensterGrund} onPress={onClose}>
+        <Pressable style={styles.fensterBlatt} onPress={() => {}}>
+          <View style={styles.fensterKopf}>
+            <Text style={styles.fensterTitel}>Durchsage</Text>
+            <Pressable
+              onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel="Schliessen"
+            >
+              <Ionicons name="close" size={24} color={colors.ink} />
+            </Pressable>
+          </View>
+
+          {/* Erst wohin, dann was. Andersherum hätte man den Satz schon
+              abgeschickt, bevor die Frage nach der Box überhaupt kam. */}
+          <Pressable
+            onPress={() => setZielOffen((auf) => !auf)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: zielOffen }}
+            accessibilityLabel={`Ziel: ${zielText(ziel, boxen)}`}
+            style={({ pressed }) => [styles.durchsageZiel, pressed && { opacity: 0.7 }]}
+          >
+            <Ionicons name="volume-medium-outline" size={18} color={colors.inkSoft} />
+            <Text style={styles.durchsageZielText} numberOfLines={1}>
+              {zielText(ziel, boxen)}
+            </Text>
+            <Ionicons
+              name={zielOffen ? 'chevron-up' : 'chevron-down'}
+              size={18}
+              color={colors.inkSoft}
+            />
+          </Pressable>
+          {/* Beim Wählen nur die Liste: Sonst stünden Boxenliste, sechs
+              Sätze und das Textfeld übereinander, und auf einem Telefon
+              fiele das Feld unten aus dem Blatt - ohne dass sich das
+              Blatt scrollen liesse, weil in ihm schon die Boxenliste
+              scrollt. Ein Schritt nach dem anderen ist ohnehin
+              verständlicher: erst wohin, dann was. */}
+          {zielOffen ? (
+            <ScrollView style={styles.durchsageListe} keyboardShouldPersistTaps="handled">
+              {zieleFuer(boxen).map((box) => (
+                <Pressable
+                  key={box.id}
+                  onPress={() => waehle(box.id)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: box.id === ziel }}
+                  style={({ pressed }) => [
+                    styles.durchsageZeile,
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.durchsageZeileText,
+                      box.id === ziel && { color: colors.accent, fontWeight: '700' },
+                    ]}
+                  >
+                    {box.name}
+                  </Text>
+                  {box.id === ziel ? (
+                    <Ionicons name="checkmark" size={18} color={colors.accent} />
+                  ) : null}
+                </Pressable>
+              ))}
+            </ScrollView>
+          ) : (
+            <>
+          {/* Ein Tippen auf den Satz sendet ihn - das ist der ganze Sinn
+              der Kachel. Ein zweiter Knopf «Senden» daneben machte aus
+              zwei Tippern drei. */}
+          <View style={styles.durchsageTexte}>
+            {texte.map((text) => (
+              <Pressable
+                key={text}
+                onPress={() => sende(text)}
+                disabled={busy}
+                accessibilityRole="button"
+                accessibilityLabel={`${text} auf ${zielText(ziel, boxen)}`}
+                style={({ pressed }) => [
+                  styles.durchsageText,
+                  (pressed || busy) && { opacity: 0.6 },
+                ]}
+              >
+                <Text style={styles.durchsageTextLabel}>{text}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <View style={styles.durchsageEigen}>
+            <TextInput
+              style={styles.durchsageFeld}
+              value={frei}
+              onChangeText={setFrei}
+              placeholder="Eigener Text …"
+              placeholderTextColor={colors.inkFaint}
+              maxLength={200}
+              onSubmitEditing={() => sende(frei)}
+              returnKeyType="send"
+            />
+            <Pressable
+              onPress={() => sende(frei)}
+              disabled={busy || !frei.trim()}
+              accessibilityRole="button"
+              accessibilityLabel="Eigenen Text durchsagen"
+              style={({ pressed }) => [
+                styles.durchsageSenden,
+                (pressed || busy || !frei.trim()) && { opacity: 0.5 },
+              ]}
+            >
+              <Ionicons name="megaphone-outline" size={18} color="#FFFFFF" />
+            </Pressable>
+          </View>
+
+          {note ? <Text style={styles.durchsageNote}>{note}</Text> : null}
+            </>
+          )}
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 
@@ -1292,6 +1554,73 @@ const makeStyles = (colors: Colors) =>
     fensterUnten: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     fensterWann: { color: colors.inkSoft, fontSize: 13 },
     fensterOrt: { color: colors.inkSoft, fontSize: 13, flexShrink: 1 },
+    /** Der Auswahlknopf für die Box - ein Dropdown, keine Chipwand. */
+    durchsageZiel: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      backgroundColor: colors.surface,
+    },
+    durchsageZielText: { color: colors.ink, fontSize: 16, fontWeight: '600', flex: 1 },
+    // Fünfzehn Boxen wären eine Seite für sich; hier scrollt die Liste in
+    // sich, damit die Sätze darunter sichtbar bleiben.
+    durchsageListe: {
+      maxHeight: 380,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      backgroundColor: colors.surfaceSoft,
+    },
+    durchsageZeile: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 11,
+      paddingHorizontal: 14,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.surfaceBorder,
+    },
+    durchsageZeileText: { color: colors.ink, fontSize: 15, flex: 1 },
+    durchsageTexte: { gap: 8 },
+    // Volle Breite statt Chips nebeneinander: Die Sätze sind
+    // unterschiedlich lang, und eine Reihe aus Bruchstücken liest sich
+    // schlechter als eine Liste - zumal jede Zeile ein Knopf ist, den
+    // man im Vorbeigehen treffen soll.
+    durchsageText: {
+      paddingVertical: 13,
+      paddingHorizontal: 16,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      backgroundColor: colors.surface,
+    },
+    durchsageTextLabel: { color: colors.ink, fontSize: 15, fontWeight: '600' },
+    durchsageEigen: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    durchsageFeld: {
+      flex: 1,
+      backgroundColor: colors.surfaceSoft,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      color: colors.ink,
+      paddingHorizontal: 14,
+      paddingVertical: 11,
+      fontSize: 15,
+    },
+    durchsageSenden: {
+      width: 44,
+      height: 44,
+      borderRadius: radius.control,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.accent,
+    },
+    durchsageNote: { color: colors.inkSoft, fontSize: 13, lineHeight: 18 },
     timerStand: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     timerStandText: { color: colors.inkSoft, fontSize: 15, flex: 1 },
     timerWahl: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
