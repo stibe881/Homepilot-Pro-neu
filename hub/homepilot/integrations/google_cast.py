@@ -76,6 +76,22 @@ def cast_object_id(host: str, port: int = DEFAULT_PORT) -> str:
 BILDSCHIRM_MODELLE: frozenset[str] = frozenset()
 
 
+def ist_gruppe(cast_type: str | None, port: int = DEFAULT_PORT) -> bool:
+    """Ist das eine Lautsprechergruppe? (rein, testbar)
+
+    Zwei Wege, weil beide Auskünfte unvollständig sind. Das Gerät selbst
+    meldet «group», sobald es verbunden ist – vorher weiss man es nicht.
+    Der Port genügt aber schon davor: Eine Gruppe läuft auf der Adresse
+    einer ihrer Boxen und ist nur über ihren **eigenen** Port zu
+    erreichen. Genau darum ist die Portangabe in der config.yaml keine
+    Kleinigkeit – steht dort 8009, spricht der Hub die Einzelbox an, die
+    die Gruppe beherbergt, und es spielt genau eine statt aller.
+    """
+    if (cast_type or "").strip().lower() == "group":
+        return True
+    return int(port or DEFAULT_PORT) != DEFAULT_PORT
+
+
 def ist_bildschirm(cast_type: str | None, model_name: str | None = None) -> bool:
     """Hängt an diesem Cast-Gerät ein Bild? (rein, testbar)
 
@@ -106,6 +122,7 @@ def cast_media_state(
     muted: bool | None = None,
     image: str | None = None,
     has_screen: bool | None = None,
+    is_group: bool | None = None,
 ) -> dict[str, Any]:
     """Übersetzt Cast-Status in Entitäts-Attribute (rein, testbar).
 
@@ -133,6 +150,8 @@ def cast_media_state(
         result["muted"] = bool(muted)
     if has_screen is not None:
         result["has_screen"] = bool(has_screen)
+    if is_group is not None:
+        result["is_group"] = bool(is_group)
     return result
 
 
@@ -224,6 +243,9 @@ class GoogleCastIntegration(Integration):
         self._loop = asyncio.get_running_loop()
         # entity_id → Chromecast-Objekt der Bibliothek
         self._casts: dict[str, Any] = {}
+        # entity_id → Port. Bei einer Gruppe ist er die halbe Auskunft:
+        # Sie teilt sich die Adresse mit einer ihrer Boxen.
+        self._ports: dict[str, int] = {}
 
         for device in devices:
             host = device.get("host")
@@ -272,8 +294,9 @@ class GoogleCastIntegration(Integration):
                 await asyncio.to_thread(cast.wait, 15)
                 failures = 0
                 self._casts[entity_id] = cast
+                self._ports[entity_id] = port
                 self._attach_listeners(entity_id, cast)
-                await self._push_state(entity_id, cast)
+                await self._push_state(entity_id, cast, port)
                 self.log.info("Mit Cast-Gerät %s verbunden", host)
                 # Verbunden bleiben, solange die Bibliothek den Kontakt hält.
                 while cast.socket_client.is_alive():
@@ -316,12 +339,18 @@ class GoogleCastIntegration(Integration):
 
             def new_cast_status(self, _status: Any) -> None:
                 asyncio.run_coroutine_threadsafe(
-                    integration._push_state(entity_id, cast), integration._loop
+                    integration._push_state(
+                        entity_id, cast, integration._ports.get(entity_id, DEFAULT_PORT)
+                    ),
+                    integration._loop,
                 )
 
             def new_media_status(self, _status: Any) -> None:
                 asyncio.run_coroutine_threadsafe(
-                    integration._push_state(entity_id, cast), integration._loop
+                    integration._push_state(
+                        entity_id, cast, integration._ports.get(entity_id, DEFAULT_PORT)
+                    ),
+                    integration._loop,
                 )
 
             def load_media_failed(self, _item: Any, _error_code: Any) -> None:
@@ -331,7 +360,9 @@ class GoogleCastIntegration(Integration):
         cast.register_status_listener(listener)
         cast.media_controller.register_status_listener(listener)
 
-    async def _push_state(self, entity_id: str, cast: Any) -> None:
+    async def _push_state(
+        self, entity_id: str, cast: Any, port: int = DEFAULT_PORT
+    ) -> None:
         media = getattr(cast.media_controller, "status", None)
         status = getattr(cast, "status", None)
         # pychromecast liefert Cover als Liste von MediaImage(url, …).
@@ -353,6 +384,7 @@ class GoogleCastIntegration(Integration):
                 has_screen=ist_bildschirm(
                     getattr(cast, "cast_type", None), getattr(cast, "model_name", None)
                 ),
+                is_group=ist_gruppe(getattr(cast, "cast_type", None), port),
             ),
             available=True,
         )
@@ -443,6 +475,61 @@ class GoogleCastIntegration(Integration):
             self.log.debug("Gruppenmitglieder von %s nicht lesbar: %s", host, err)
             return []
 
+    def cast_fuer_namen(self, name: str) -> Any | None:
+        """Das Cast-Objekt zu einem Anzeigenamen – oder None.
+
+        Über den Namen, weil das die einzige Kennung ist, die Spotify und
+        der Hub gemeinsam haben: In der Boxenwahl steht «Küche + Bad»,
+        nicht eine Entitäts-ID.
+        """
+        for entity_id, cast in self._casts.items():
+            entity = self.hub.registry.get(entity_id)
+            if entity is not None and entity.name == name:
+                return cast
+        return None
+
+    def group_names(self) -> list[str]:
+        """Namen der echten Lautsprechergruppen.
+
+        Für die Boxenwahl der App: Ohne diese Auskunft sieht eine Gruppe
+        aus wie eine Box, und wer sich wundert, warum nur eine spielt,
+        hat keinen Anhaltspunkt. Steht «Ganze Wohnung» ohne Marke da,
+        führt der Hub sie als Einzelbox – dann fehlt in der config.yaml
+        der eigene Port der Gruppe.
+        """
+        namen = []
+        for entity_id in self._casts:
+            entity = self.hub.registry.get(entity_id)
+            if entity is not None and entity.state.get("is_group"):
+                namen.append(entity.name)
+        return namen
+
+    async def lautstaerke_setzen(self, name: str, prozent: float) -> bool:
+        """Die Lautstärke über das Cast-Protokoll setzen; False, wenn die
+        Box hier unbekannt ist.
+
+        Warum es diesen Weg braucht: Spotify beantwortet
+        `PUT /me/player/volume` für Google-Boxen und erst recht für
+        Gruppen mit «VOLUME_CONTROL_DISALLOWED». Der Regler in der App
+        bewegte sich, und niemand wurde lauter. Cast kann es – und bei
+        einer Gruppe setzt Google die Mitglieder gleich mit.
+        """
+        cast = self.cast_fuer_namen(name)
+        if cast is None:
+            return False
+        stufe = max(0.0, min(1.0, float(prozent) / 100))
+        await asyncio.to_thread(cast.set_volume, stufe)
+        return True
+
+    def lautstaerke_von(self, name: str) -> int | None:
+        """Wie laut diese Box gerade steht – der Stand des Geräts selbst."""
+        for entity_id in self._casts:
+            entity = self.hub.registry.get(entity_id)
+            if entity is not None and entity.name == name:
+                wert = entity.state.get("volume")
+                return int(wert) if isinstance(wert, (int, float)) else None
+        return None
+
     async def spotify_wake(self, name: str, access_token: str) -> bool:
         """Startet die Spotify-App auf der Box und meldet sie bei Spotify an.
 
@@ -451,12 +538,7 @@ class GoogleCastIntegration(Integration):
         zurück, wenn die Box unbekannt ist oder die Anmeldung scheitert
         (Grund steht im Log).
         """
-        cast = None
-        for entity_id, candidate in self._casts.items():
-            entity = self.hub.registry.get(entity_id)
-            if entity is not None and entity.name == name:
-                cast = candidate
-                break
+        cast = self.cast_fuer_namen(name)
         if cast is None:
             return False
 
