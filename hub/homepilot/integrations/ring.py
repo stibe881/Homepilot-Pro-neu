@@ -843,6 +843,9 @@ class RingIntegration(Integration):
         self._clear_tasks: dict[str, asyncio.Task] = {}
 
         devices = self._ring.devices()
+        # `doorbells` enthält die eigenen und die geteilten
+        # (authorized_doorbots) - bei einem Konto, dem die Klingel bloss
+        # freigegeben wurde, stehen sie ausschliesslich dort.
         klingeln = {int(device.id) for device in devices.doorbells}
         for device in list(devices.doorbells) + list(devices.stickup_cams):
             entity = await self.add_entity(
@@ -1609,18 +1612,34 @@ async def _horchen_main(config_path: str, sekunden: int) -> int:
         await ring.async_create_session()
         await ring.async_update_devices()
         geraete = ring.devices()
-        alle = (
-            list(geraete.doorbells)
-            + list(geraete.stickup_cams)
-            + list(getattr(geraete, "other", []) or [])
-        )
-        if not alle:
-            print("✗ Dieses Konto sieht kein einziges Ring-Gerät.")
-            print("  Beim geteilten Benutzer: Ist das Gerät wirklich freigegeben?")
-            return 1
-        print("Geräte, die dieses Konto sieht:")
+        # Roh, bevor irgendetwas gefiltert wird: Ring legt Geräte in
+        # Körbe, und welcher Korb es ist, hängt daran, ob das Konto der
+        # Besitzer ist oder ein geteilter Benutzer. Ein leerer Korb, den
+        # der Hub liest, und ein voller, den er nicht liest, sehen von
+        # aussen gleich aus - nämlich nach «kein Gerät».
+        print("Was Ring für dieses Konto zurückgibt:")
+        roh = getattr(ring, "devices_data", None) or {}
+        for korb, inhalt in roh.items():
+            print(f"  {korb}: {len(inhalt or {})}")
+            for kennung, angaben in (inhalt or {}).items():
+                if isinstance(angaben, dict):
+                    print(
+                        f"    · {angaben.get('description') or angaben.get('name')} "
+                        f"(Kennung {kennung}, Art {angaben.get('kind')})"
+                    )
+        if not roh:
+            print("  (nichts – dieses Konto sieht gar keine Geräte)")
+
+        alle = list(geraete.all_devices)
+        print("\nWas die Bibliothek daraus macht:")
         for geraet in alle:
             print(f"  · {geraet.name} (Kennung {geraet.id}, Art {geraet.kind})")
+        if not alle:
+            print("  (nichts)")
+            print("\n✗ Dieses Konto sieht kein einziges Ring-Gerät.")
+            print("  Beim geteilten Benutzer: Einladung wirklich angenommen?")
+            print("  Und wurde der Hub auch mit diesem Konto angemeldet?")
+            return 1
 
         print(f"\nJetzt klingeln. Ich schaue {sekunden} s lang zu …")
         gesehen: set[Any] = set()
