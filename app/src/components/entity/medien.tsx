@@ -84,10 +84,17 @@ export function ShuffleRepeat({
   );
 }
 
-/** Wie der Wiederholmodus heisst (rein, testbar). */
+/**
+ * Wie der Wiederholmodus heisst (rein, testbar).
+ *
+ * Zwei Wortschätze, weil der Hub früher Spotifys eigene Wörter
+ * durchreichte («context», «track») und heute überall dieselben drei
+ * benutzt. Ein Gerät, das noch die alten meldet, soll nicht plötzlich
+ * «Wiederholen» statt «Alles» anzeigen.
+ */
 export function repeatLabel(repeat: string): string {
-  if (repeat === 'context') return 'Alles';
-  if (repeat === 'track') return 'Ein Titel';
+  if (repeat === 'all' || repeat === 'context') return 'Alles';
+  if (repeat === 'one' || repeat === 'track') return 'Ein Titel';
   return 'Wiederholen';
 }
 

@@ -284,7 +284,9 @@ def parse_playback(payload: dict[str, Any] | None) -> dict[str, Any]:
     """
     if not payload:
         return {
-            "state": "idle",
+            # Nichts läuft irgendwo - das ist kein «gleich geht es
+            # weiter», sondern Ruhe. Dieselbe Unterscheidung wie bei Cast.
+            "state": "standby",
             "track": None,
             "artist": None,
             "image": None,
@@ -310,8 +312,12 @@ def parse_playback(payload: dict[str, Any] | None) -> dict[str, Any]:
         # den Namen kennt erst, wer die Playlists des Kontos hat.
         "context_uri": (payload.get("context") or {}).get("uri"),
         "shuffle": bool(payload.get("shuffle_state")),
-        # «off», «track» (ein Titel) oder «context» (Playlist/Album).
-        "repeat": str(payload.get("repeat_state") or "off"),
+        # Spotify sagt «off», «track» oder «context»; die App und der
+        # Cast-Player sprechen off/one/all. Übersetzt wird hier, damit
+        # eine Kachel nicht je nach Quelle andere Wörter zeigt.
+        "repeat": repeat_name(payload.get("repeat_state")),
+        # Spotify kann in jedem Titel springen - Cast nicht immer.
+        "can_seek": True,
     }
     # Wie weit der Titel ist und wie lang er dauert, in Sekunden – Spotify
     # rechnet in Millisekunden. Damit weiss der Hub, wann der nächste
@@ -323,7 +329,14 @@ def parse_playback(payload: dict[str, Any] | None) -> dict[str, Any]:
             return None
 
     result["progress"] = _sekunden(payload.get("progress_ms"))
+    # Derselbe Wert unter dem Namen, den auch Cast benutzt. «progress»
+    # bleibt, weil Abläufe und Szenen darauf zeigen können.
+    result["position"] = result["progress"]
     result["duration"] = _sekunden(item.get("duration_ms"))
+    if result["position"] is not None:
+        # Wann gemessen wurde - sonst stünde der Balken zwischen zwei
+        # Abfragen still, statt weiterzulaufen.
+        result["position_at"] = round(time.time(), 1)
     volume = device.get("volume_percent")
     if volume is not None:
         result["volume"] = int(volume)
@@ -375,13 +388,44 @@ def naechster_blick(
 # genau die Werte, die Spotify für /me/player/repeat annimmt.
 REPEAT_MODES = ("off", "context", "track")
 
+#: Spotifys Wörter ↔ die drei Namen, die App und Cast benutzen.
+REPEAT_NAMEN = {"off": "off", "context": "all", "track": "one"}
+REPEAT_API = {"off": "off", "all": "context", "one": "track"}
+
+
+def repeat_name(wert: Any) -> str:
+    """Spotifys Wiederholmodus auf off/all/one bringen (rein, testbar).
+
+    Unbekanntes gilt als «aus»: Ein Knopf, der nichts anzeigt, ist
+    ehrlicher als einer, der eine Vermutung anzeigt.
+    """
+    return REPEAT_NAMEN.get(str(wert or "off").strip().lower(), "off")
+
+
+def repeat_api(wert: Any) -> str | None:
+    """Rückweg: off/all/one → das Wort für /me/player/repeat.
+
+    Nimmt auch Spotifys eigene Wörter an - so bricht ein Ablauf nicht,
+    der noch «context» schickt.
+    """
+    name = str(wert or "").strip().lower()
+    if name in REPEAT_MODES:
+        return name
+    return REPEAT_API.get(name)
+
 
 def next_repeat(current: str) -> str:
-    """Der nächste Wiederholmodus beim Antippen (rein, testbar)."""
+    """Der nächste Wiederholmodus beim Antippen (rein, testbar).
+
+    Läuft in den Namen der App - aus/alles/ein Titel -, nicht in denen
+    von Spotify.
+    """
+    reihe = ("off", "all", "one")
+    jetzt = repeat_name(current) if current in REPEAT_MODES else str(current or "off")
     try:
-        return REPEAT_MODES[(REPEAT_MODES.index(current) + 1) % len(REPEAT_MODES)]
+        return reihe[(reihe.index(jetzt) + 1) % len(reihe)]
     except ValueError:
-        return REPEAT_MODES[1]
+        return reihe[1]
 
 
 def playlist_name(
@@ -454,6 +498,8 @@ class SpotifyIntegration(Integration):
                 "play", "pause", "toggle", "next", "previous", "play_on",
                 "set_volume", "volume_up", "volume_down", "mute", "play_playlist",
                 "shuffle", "repeat", "play_queue",
+                # Springen im Titel - dieselbe Bedienung wie bei Cast.
+                "seek",
             ],
             available=False,
         )
@@ -913,11 +959,31 @@ class SpotifyIntegration(Integration):
             return
 
         if command == "repeat":
-            mode = str(data.get("mode") or next_repeat(str(entity.state.get("repeat") or "off")))
-            if mode not in REPEAT_MODES:
-                raise ValueError(f"Unbekannter Wiederholmodus '{mode}'")
+            gewuenscht = str(
+                data.get("mode")
+                or data.get("repeat")
+                or next_repeat(str(entity.state.get("repeat") or "off"))
+            )
+            mode = repeat_api(gewuenscht)
+            if mode is None:
+                raise ValueError(f"Unbekannter Wiederholmodus '{gewuenscht}'")
             await self._call("PUT", f"/me/player/repeat?state={mode}")
-            await self._announce({"repeat": mode})
+            await self._announce({"repeat": repeat_name(mode)})
+            return
+
+        if command == "seek":
+            # Springen im laufenden Titel. Spotify rechnet in
+            # Millisekunden und lehnt Werte hinter dem Ende ab.
+            try:
+                ziel = float(data.get("position"))
+            except (TypeError, ValueError):
+                raise ValueError("seek braucht eine 'position' in Sekunden") from None
+            laenge = entity.state.get("duration")
+            if laenge:
+                ziel = min(ziel, max(0.0, float(laenge) - 1))
+            ziel = max(0.0, ziel)
+            await self._call("PUT", f"/me/player/seek?position_ms={int(ziel * 1000)}")
+            await self._announce({"position": round(ziel, 1), "position_at": round(time.time(), 1)})
             return
 
         if command == "toggle":
