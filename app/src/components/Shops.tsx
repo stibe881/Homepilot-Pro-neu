@@ -3,7 +3,13 @@ import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Card } from './Card';
-import { SHOP_CATEGORIES, Shop, shopOrder } from '../lib/einkauf';
+import {
+  ORTE_KURZ,
+  SHOP_CATEGORIES,
+  Shop,
+  gangReihenfolge,
+  orteFuerLaden,
+} from '../lib/einkauf';
 import { Vorschlag as OrtVorschlag } from '../hooks/useOrte';
 import { Colors, radius, type, useColors } from '../theme';
 
@@ -61,6 +67,8 @@ export function Shops({
   const [meldung, setMeldung] = useState<string | null>(null);
   const [suchtext, setSuchtext] = useState('');
   const [vorschlaege, setVorschlaege] = useState<OrtVorschlag[]>([]);
+  // Neunzehn Ortsknöpfe sind kein Angebot, sondern eine Wand.
+  const [alleOrte, setAlleOrte] = useState(false);
 
   async function suchen(shop: Shop) {
     if (!onSuche) return;
@@ -161,45 +169,62 @@ export function Shops({
 
                 {aufgeklappt ? (
                   <>
-                    <Text style={styles.hint}>
-                      Die Gänge der Reihe nach antippen, so wie du durch den
-                      Laden gehst. Was du nicht antippst, hängt hinten an.
-                    </Text>
-                    <View style={styles.chips}>
-                      {SHOP_CATEGORIES.map((category) => {
-                        const platz = eigene.indexOf(category);
-                        const gewaehlt = platz >= 0;
-                        return (
-                          <Pressable
-                            key={category}
-                            onPress={() =>
-                              onUpdate(shop.id, {
-                                categories: toggleCategory(eigene, category),
-                              })
-                            }
-                            accessibilityRole="button"
-                            style={[styles.chip, gewaehlt && styles.chipActive]}
-                          >
-                            <Text
-                              style={[styles.chipText, gewaehlt && styles.chipTextActive]}
-                            >
-                              {gewaehlt ? `${platz + 1}. ` : ''}
-                              {category}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
+                    <View style={styles.gangKopf}>
+                      <Text style={[styles.hint, { flex: 1 }]}>
+                        Die Gänge der Reihe nach antippen, so wie du durch den
+                        Laden gehst. Was du nicht antippst, hängt hinten an.
+                      </Text>
+                      {eigene.length > 0 ? (
+                        <Pressable
+                          onPress={() => onUpdate(shop.id, { categories: [] })}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Reihenfolge von ${shop.name} zurücksetzen`}
+                          style={({ pressed }) => [pressed && { opacity: 0.6 }]}
+                        >
+                          <Text style={styles.zuruecksetzen}>Zurücksetzen</Text>
+                        </Pressable>
+                      ) : null}
                     </View>
-                    <Text style={styles.hint}>
-                      Ergibt: {shopOrder(shop).join(' → ')}
-                    </Text>
+                    {/* In ihrer eigenen Reihenfolge, nicht in der der
+                        festen Liste: Vorher standen die Knöpfe als «1.
+                        Früchte, 3. Milch / 2. Brot, 4. Fleisch» da, und
+                        man musste die Nummern suchen, statt sie zu
+                        lesen. Damit erübrigt sich auch die Zeile
+                        «Ergibt: … → … → …», die dasselbe noch einmal
+                        sagte. */}
+                    <View style={styles.chips}>
+                      {gangReihenfolge(shop).map(({ name, platz }) => (
+                        <Pressable
+                          key={name}
+                          onPress={() =>
+                            onUpdate(shop.id, {
+                              categories: toggleCategory(eigene, name),
+                            })
+                          }
+                          accessibilityRole="button"
+                          accessibilityLabel={
+                            platz
+                              ? `${name}, Platz ${platz} – antippen entfernt ihn`
+                              : `${name} als Nächstes einordnen`
+                          }
+                          style={[styles.chip, platz ? styles.chipActive : null]}
+                        >
+                          {platz ? <Text style={styles.chipNummer}>{platz}</Text> : null}
+                          <Text
+                            style={[styles.chipText, platz ? styles.chipTextActive : null]}
+                          >
+                            {name}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
 
                     <Text style={styles.label}>Ort (für die Erinnerung)</Text>
                     {/* Kein Koordinatenfeld: Wer davorsteht, drückt einen
                         Knopf. Abgetippte Koordinaten liegen zu oft daneben,
                         und ein Ort, der 300 m danebenliegt, meldet sich nie. */}
                     <View style={styles.chips}>
-                      {orte.map((ort) => {
+                      {orteFuerLaden(orte, shop.place, alleOrte).map((ort) => {
                         const gewaehlt = shop.place === ort.id;
                         return (
                           <Pressable
@@ -218,6 +243,21 @@ export function Shops({
                           </Pressable>
                         );
                       })}
+                      {orte.length > ORTE_KURZ ? (
+                        <Pressable
+                          onPress={() => setAlleOrte((war) => !war)}
+                          accessibilityRole="button"
+                          style={({ pressed }) => [
+                            styles.chip,
+                            styles.chipMehr,
+                            pressed && { opacity: 0.7 },
+                          ]}
+                        >
+                          <Text style={styles.chipText}>
+                            {alleOrte ? 'weniger' : `alle ${orte.length} zeigen`}
+                          </Text>
+                        </Pressable>
+                      ) : null}
                     </View>
                     {onSuche ? (
                       <View style={styles.addRow}>
@@ -375,6 +415,9 @@ const makeStyles = (colors: Colors) =>
     shopName: { color: colors.ink, fontSize: 14, fontWeight: '600', flex: 1 },
     chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
     chip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
       paddingVertical: 6,
       paddingHorizontal: 10,
       borderRadius: radius.pill,
@@ -384,6 +427,21 @@ const makeStyles = (colors: Colors) =>
     chipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
     chipText: { color: colors.ink, fontSize: 12 },
     chipTextActive: { color: '#FFFFFF', fontWeight: '600' },
+    // Die Nummer als eigenes Zeichen, nicht als «1. » im Text: So steht
+    // sie bei jedem Gang an derselben Stelle, statt mit der Länge des
+    // Namens zu wandern.
+    chipNummer: {
+      color: '#FFFFFF',
+      fontSize: 11,
+      fontWeight: '700',
+      minWidth: 14,
+      textAlign: 'center',
+      opacity: 0.85,
+      fontVariant: ['tabular-nums'],
+    },
+    chipMehr: { borderStyle: 'dashed' },
+    gangKopf: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+    zuruecksetzen: { color: colors.inkSoft, fontSize: 12, paddingTop: 1 },
     remove: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingTop: 4 },
     removeText: { color: colors.danger, fontSize: 13 },
   });
