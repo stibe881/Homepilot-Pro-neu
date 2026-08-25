@@ -367,3 +367,50 @@ def test_der_anspruch_gilt_nur_fuer_die_eigene_person():
     # Wer nicht bei Life360 eingetragen ist, meldet weiter selbst - etwa
     # ein Besuch mit Kurzbefehl.
     assert meldung_annehmen("geofence", {"stefan": "life360"}, "livia") is True
+
+
+# ── Der Diagnose-Satz darf nicht beruhigen, wo nichts beruhigt ───────────
+#
+# «Meldet sich regelmässig» stand auch neben einer 83 Minuten alten
+# «weg»-Meldung, während die Person längst im Haus sass. Das Telefon
+# meldet nur beim Kommen und Gehen - bleibt die Ankunft aus (iOS weckt
+# die App nicht), sieht das genauso aus wie jemand, der wegblieb.
+
+
+def test_telefonquelle_nennt_alter_und_ausweg():
+    from homepilot.core.presence import diagnose
+
+    jetzt = 10_000.0
+    zeile = diagnose(
+        "Stefan",
+        {"state": "away", "source": "geofence", "last_seen": jetzt - 83 * 60},
+        jetzt,
+    )
+    assert "83 Min." in zeile["hint"]
+    assert "weg" in zeile["hint"]
+    assert "Jetzt melden" in zeile["hint"]
+    assert "regelmässig" not in zeile["hint"]
+
+
+def test_life360_darf_regelmaessig_sagen():
+    from homepilot.core.presence import diagnose
+
+    zeile = diagnose(
+        "Maja",
+        {"state": "home", "source": "life360", "last_seen": 9_940.0},
+        10_000.0,
+    )
+    assert zeile["hint"] == "Meldet sich regelmässig (über Life360)."
+
+
+def test_aeltere_meldungen_stehen_in_stunden():
+    from homepilot.core.presence import diagnose
+
+    jetzt = 100_000.0
+    zeile = diagnose(
+        "Bine",
+        {"state": "home", "source": "geofence", "last_seen": jetzt - 3 * 3600},
+        jetzt,
+    )
+    assert "vor 3 Std." in zeile["hint"]
+    assert "(da)" in zeile["hint"]

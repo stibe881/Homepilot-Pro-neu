@@ -5,6 +5,20 @@ Gegenstück: was die Anlage heute kann, was sie vorher nicht konnte.
 
 Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
+## 2026-08-25
+
+**Ziehen und Ordnen**
+
+- Räume ordnen, Favoriten ordnen und das Ziehen der Kacheln selbst
+  funktionieren wieder. Alle drei hingen am selben Fehler: Der
+  Ziehgriff wurde bei jeder Fingerbewegung neu aufgebaut und verlor
+  dabei den Startpunkt der Geste. Gemeldet wurde deshalb nie der ganze
+  Weg, sondern die letzten paar Punkte – wer eine Zeile zweihundert
+  Punkte weit zog, verschob sie um zwölf, und beim Loslassen war das
+  Ziel dieselbe Stelle.
+- Im Browser gewinnt jetzt auch in der Liste der Griff und nicht die
+  Wisch-Geste der Seite; für das Kachelraster galt das schon.
+
 ## 2026-08-24
 
 **Haushaltsgeräte**
@@ -173,6 +187,11 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   daran, dass iOS sie im Hintergrund weckt, und das tut sie nicht
   zuverlässig. Umstellen: alle eintragen, auf jedem Telefon
   Einstellungen → Ortung ausschalten. Steht in `docs/geofence.md`.
+- Die Ortungs-Diagnose sagt bei einer Telefon-Meldung nicht mehr
+  «Meldet sich regelmässig» – das Telefon meldet nur beim Kommen und
+  Gehen, und der Satz beruhigte genau dann, wenn eine Ankunft
+  verlorengegangen war. Jetzt steht dort, wie alt die letzte Meldung ist,
+  was sie sagte, und was zu tun ist.
 - «Zuhause» sticht jetzt jeden Ort, nicht nur den weiteren. Solange die
   Life360-Orte ausserhalb der Ortsliste standen, genügte die alte
   Prüfung; als eigene Orte hätte ein enger Ort auf demselben Haus
