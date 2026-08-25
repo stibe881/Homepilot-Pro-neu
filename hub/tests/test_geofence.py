@@ -511,3 +511,29 @@ async def test_a_repeated_report_is_no_second_arrival() -> None:
         assert len(push.gesendet) == 1
     finally:
         await hub.stop()
+
+
+def test_the_distance_home_answers_when_will_he_be_here():
+    """«Wann ist er da?» beantwortet eine Zone nicht.
+
+    Sie kennt drinnen und draussen - zwischen «weg» und «zuhause»
+    liegen zwei Kilometer genauso wie zweihundert.
+    """
+    from homepilot.core import presence
+
+    orte = [
+        {"id": "home", "name": "Zuhause", "latitude": 47.1384, "longitude": 7.9206},
+        {"id": "arbeit", "name": "Arbeit", "latitude": 47.2, "longitude": 8.0},
+    ]
+    # Derselbe Punkt: null Meter.
+    assert presence.entfernung_zuhause(orte, 47.1384, 7.9206) < 1
+    # Ein Kilometer nördlich sind rund tausend Meter.
+    weit = presence.entfernung_zuhause(orte, 47.1474, 7.9206)
+    assert 950 < weit < 1050
+
+    # Ohne Zuhause gibt es keine Entfernung - eine erfundene wäre
+    # schlimmer als keine.
+    assert presence.entfernung_zuhause([{"id": "arbeit"}], 47.0, 8.0) is None
+    assert presence.entfernung_zuhause([], 47.0, 8.0) is None
+    # Ein Ort ohne Koordinaten ebenso wenig.
+    assert presence.entfernung_zuhause([{"id": "home"}], 47.0, 8.0) is None

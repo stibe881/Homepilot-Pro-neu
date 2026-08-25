@@ -663,6 +663,11 @@ class Life360Integration(Integration):
                 # eine Frage, die man dort stellt.
                 source="life360",
                 place_name=name,
+                # Die Koordinaten fahren mit: Daraus rechnet der Geofence
+                # die Entfernung von zuhause - «noch 4 km» statt bloss
+                # «unterwegs».
+                latitude=position.get("latitude"),
+                longitude=position.get("longitude"),
             )
         except KeyError:
             self.log.warning(

@@ -100,6 +100,11 @@ export const MEASURE_LABELS: Record<string, string> = {
   tilt: 'Lamellen (%)',
   count: 'Anzahl',
   home: 'Anwesend',
+  // Die Entfernung von zuhause, in Metern. Damit wird «wenn Stefan
+  // näher als 2 km ist, Storen hoch» ein gewöhnlicher Schwellenwert -
+  // ohne eigene Auslöser-Art. Der Geofence liefert sie, sobald eine
+  // Position bekannt ist (siehe integrations/geofence.py).
+  distance: 'Entfernung von zuhause (m)',
   probe_1: 'Grill-Sonde 1 (°C)',
   probe_2: 'Grill-Sonde 2 (°C)',
   probe_3: 'Grill-Sonde 3 (°C)',

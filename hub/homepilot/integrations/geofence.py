@@ -596,6 +596,8 @@ class GeofenceIntegration(Integration):
         battery: Any = None,
         source: str = "geofence",
         place_name: str | None = None,
+        latitude: float | None = None,
+        longitude: float | None = None,
     ) -> str:
         """Einen gemeldeten Wechsel übernehmen. Gibt den neuen Zustand zurück.
 
@@ -652,8 +654,22 @@ class GeofenceIntegration(Integration):
         # eine Messung aus dem Stau.
         self._gemessen[zone_id] = time.time()
         state, engster = presence.place_state(drin, self.places)
+        # Life360 meldet eine Flanke, kennt aber die Koordinaten. Ohne
+        # sie bliebe die Entfernung leer, und «wann ist er da?» stünde
+        # ausgerechnet dort ohne Antwort, wo die Ortung am besten läuft.
         await self._publish(
-            zone_id, entity_id, state, engster, battery, source, place_name
+            zone_id,
+            entity_id,
+            state,
+            engster,
+            battery,
+            source,
+            place_name,
+            entfernung=(
+                presence.entfernung_zuhause(self.places, latitude, longitude)
+                if latitude is not None and longitude is not None
+                else None
+            ),
         )
         self.log.info("Geofence: %s ist jetzt %s (%s)", zone_id, state, ort)
         return state
@@ -712,7 +728,15 @@ class GeofenceIntegration(Integration):
         )
         self._inside[zone_id] = drin
         state, engster = presence.place_state(drin, self.places)
-        await self._publish(zone_id, entity_id, state, engster, battery, source)
+        await self._publish(
+            zone_id,
+            entity_id,
+            state,
+            engster,
+            battery,
+            source,
+            entfernung=presence.entfernung_zuhause(self.places, latitude, longitude),
+        )
         self.log.info(
             "Geofence: %s ist jetzt %s (Position, ±%.0f m)", zone_id, state, accuracy or 0
         )
@@ -727,6 +751,7 @@ class GeofenceIntegration(Integration):
         battery: Any = None,
         source: str = "geofence",
         place_name: str | None = None,
+        entfernung: float | None = None,
     ) -> None:
         jetzt = time.time()
         # Der mitgereichte Klarname zuerst: Ein Ort von Life360 steht
@@ -764,6 +789,13 @@ class GeofenceIntegration(Integration):
             "place_name": name,
             "source": source or "geofence",
             "stale": False,
+            # Wie weit von zuhause, in Metern - für «wann ist er da?».
+            # Eine Zone beantwortet das nicht: Zwischen «weg» und
+            # «zuhause» liegen zwei Kilometer genauso wie zweihundert.
+            # Ausdrücklich auch als None: Eine Flankenmeldung ohne
+            # Koordinaten darf keine alte Entfernung stehen lassen
+            # (siehe registry.update_state).
+            "distance": round(entfernung) if entfernung is not None else None,
         }
         if battery is not None:
             try:

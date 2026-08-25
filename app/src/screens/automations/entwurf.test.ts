@@ -10,6 +10,7 @@ import {
   actionsToSteps,
   toDraft,
   describe as zeileFuer,
+  measurableAttributes,
   triggerFromConfig,
   istLichtFein,
   lichtKurz,
@@ -967,5 +968,36 @@ describe('Die Listenzeile spricht Deutsch', () => {
       [livia]
     );
     expect(zeile).toContain('wenn Livia kommt bei Schule Zell an');
+  });
+});
+
+describe('Ankunft als Auslöser', () => {
+  it('bietet die Entfernung als Messwert an', () => {
+    // «Wenn Stefan näher als 2 km ist, Storen hoch» - ein gewöhnlicher
+    // Schwellenwert, keine eigene Auslöser-Art.
+    const stefan = {
+      id: 'geofence.stefan',
+      name: 'Stefan',
+      kind: 'binary_sensor',
+      integration: 'geofence',
+      state: { state: 'away', place: null, distance: 4200 },
+      commands: [],
+    } as unknown as Entity;
+    expect(measurableAttributes(stefan).map((m) => m.key)).toContain('distance');
+    expect(measurableAttributes(stefan).find((m) => m.key === 'distance')?.label).toBe(
+      'Entfernung von zuhause (m)'
+    );
+  });
+
+  it('bietet sie nicht an, wo keine Position vorliegt', () => {
+    const ohne = {
+      id: 'geofence.oma',
+      name: 'Oma',
+      kind: 'binary_sensor',
+      integration: 'geofence',
+      state: { state: 'away', distance: null },
+      commands: [],
+    } as unknown as Entity;
+    expect(measurableAttributes(ohne).map((m) => m.key)).not.toContain('distance');
   });
 });

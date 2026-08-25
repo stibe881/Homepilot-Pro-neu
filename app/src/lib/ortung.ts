@@ -40,6 +40,33 @@ export function zustandText(person: Person): string {
 }
 
 /**
+ * Wie weit weg – und ungefähr wie lange noch (rein, testbar).
+ *
+ * «Unterwegs» beantwortet die Frage beim Kochen nicht: Zwischen «weg»
+ * und «zuhause» liegen zwei Kilometer genauso wie zweihundert. Der Hub
+ * liefert die Entfernung von zuhause mit (`distance`, in Metern), sobald
+ * eine Position bekannt ist.
+ *
+ * Die Zeit ist ausdrücklich eine Schätzung, gerechnet mit 40 km/h – dem,
+ * was auf Landstrassen mit Ortsdurchfahrten übrig bleibt. Sie steht
+ * deshalb mit «~» da und erst ab einem Kilometer: Wer schon im Quartier
+ * ist, kommt an, bevor die Rechnung stimmt.
+ */
+export function entfernungText(meter: unknown): string {
+  // Kein Number(null): Das ergäbe 0 und damit «gleich da» für jemanden,
+  // von dem gar keine Position vorliegt.
+  if (typeof meter !== 'number') return '';
+  const m = meter;
+  if (!Number.isFinite(m) || m < 0) return '';
+  if (m < 300) return 'gleich da';
+  if (m < 1000) return 'ganz in der Nähe';
+  const km = m / 1000;
+  const minuten = Math.max(1, Math.round(m / 667));
+  const zahl = km < 10 ? km.toFixed(1).replace('.', ',') : String(Math.round(km));
+  return `noch ${zahl} km · ~${minuten} Min`;
+}
+
+/**
  * «seit 14:20» oder «seit gestern» (rein, testbar).
  *
  * Ohne Meterangaben und ohne Karte: «Sandra zuhause · Stefan unterwegs
@@ -118,7 +145,15 @@ export function dauerDa(
 export function anwesenheitsListe(
   people: Person[],
   jetzt: Date
-): { key: string; name: string; zustand: string; dauer: string; zuhause: boolean }[] {
+): {
+  key: string;
+  name: string;
+  zustand: string;
+  dauer: string;
+  zuhause: boolean;
+  /** «noch 4,2 km · ~6 Min» – leer, wenn niemand rechnen kann. */
+  weg: string;
+}[] {
   const rang = (person: Person) => {
     const state = String(person?.state ?? 'unknown');
     return state === 'home' ? 0 : state === 'away' ? 2 : 3;
@@ -138,6 +173,10 @@ export function anwesenheitsListe(
         String(person?.state ?? '') === 'home' ? 'gerade angekommen' : 'gerade eben'
       ),
       zuhause: String(person?.state ?? '') === 'home',
+      // Nur unterwegs: Zuhause ist die Entfernung null und die Zeile
+      // eine Selbstverständlichkeit.
+      weg:
+        String(person?.state ?? '') === 'home' ? '' : entfernungText(person?.distance),
       _rang: rang(person),
     }))
     .sort((a, b) => a._rang - b._rang || a.name.localeCompare(b.name))

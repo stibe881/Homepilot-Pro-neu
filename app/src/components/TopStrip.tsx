@@ -375,6 +375,12 @@ export function TopStrip({
                         {zeile.zustand}
                         {zeile.dauer ? ` · ${zeile.dauer}` : ''}
                       </Text>
+                      {/* «Wann ist er da?» - «unterwegs» beantwortet das
+                          nicht. Steht nur, wenn eine Position bekannt
+                          ist (siehe lib/ortung.ts). */}
+                      {zeile.weg ? (
+                        <Text style={styles.lightRoom}>{zeile.weg}</Text>
+                      ) : null}
                     </View>
                   </View>
                 ))}

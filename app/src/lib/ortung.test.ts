@@ -7,11 +7,12 @@ import {
   anwesenheitsZeile,
   dauerDa,
   diagnoseZeile,
+  entfernungText,
   geortet,
   ortungsHinweis,
-  quellenText,
   pauseBis,
   pausiert,
+  quellenText,
   seitText,
   werIstDaHinweis,
   zustandText,
@@ -397,5 +398,28 @@ describe('diagnoseZeile', () => {
       .toBe('zuhause · Quelle: Telefon');
     expect(diagnoseZeile({ combined: 'home', combined_source: 'geofence', battery: 0 }))
       .toBe('zuhause · Quelle: Telefon · Akku 0 %');
+  });
+});
+
+describe('entfernungText', () => {
+  it('sagt beim Kochen, was man wissen will', () => {
+    // «Unterwegs» beantwortet die Frage nicht: Zwischen «weg» und
+    // «zuhause» liegen zwei Kilometer genauso wie zweihundert.
+    expect(entfernungText(4200)).toBe('noch 4,2 km · ~6 Min');
+    expect(entfernungText(25000)).toBe('noch 25 km · ~37 Min');
+  });
+
+  it('rechnet nicht, wo Rechnen albern wäre', () => {
+    // Wer schon im Quartier ist, kommt an, bevor die Rechnung stimmt.
+    expect(entfernungText(120)).toBe('gleich da');
+    expect(entfernungText(700)).toBe('ganz in der Nähe');
+  });
+
+  it('schweigt ohne Position', () => {
+    // Ohne Koordinaten liefert der Hub nichts - eine erfundene
+    // Entfernung wäre schlimmer als keine.
+    expect(entfernungText(undefined)).toBe('');
+    expect(entfernungText(null)).toBe('');
+    expect(entfernungText('weit')).toBe('');
   });
 });

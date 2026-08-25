@@ -839,3 +839,26 @@ def alle_orte(
         bekannt.add(ort["id"])
     zusammen.sort(key=lambda ort: ort["radius"])
     return zusammen
+
+
+def entfernung_zuhause(
+    places: list[dict[str, Any]], lat: float, lon: float
+) -> float | None:
+    """Wie weit dieser Punkt vom Zuhause weg ist, in Metern (rein, testbar).
+
+    Für die Frage, die man beim Kochen stellt: «Wann ist er da?» Eine
+    Zone beantwortet sie nicht – sie kennt nur drinnen und draussen, und
+    zwischen «weg» und «zuhause» liegen zwei Kilometer genauso wie
+    zweihundert.
+
+    `None`, wenn kein Zuhause eingerichtet ist: Ohne Bezugspunkt gibt es
+    keine Entfernung, und eine erfundene wäre schlimmer als keine.
+    """
+    for ort in places or []:
+        if str(ort.get("id")) != HOME:
+            continue
+        try:
+            return abstand_meter(lat, lon, float(ort["latitude"]), float(ort["longitude"]))
+        except (KeyError, TypeError, ValueError):
+            return None
+    return None
