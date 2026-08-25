@@ -29,3 +29,31 @@ describe('kachelAktionen', () => {
     }
   });
 });
+
+describe('Oben nicht mitzählen', () => {
+  it('steht bei Licht und Schalter zwischen Umbenennen und Verlauf', () => {
+    expect(
+      kachelAktionen({ umbenennen: true, zaehlung: true, verlauf: true }).map((e) => e.id)
+    ).toEqual(['umbenennen', 'zaehlung', 'verlauf']);
+  });
+
+  it('sagt, was der Griff bewirkt – nicht, was gerade gilt', () => {
+    const [aus] = kachelAktionen({ zaehlung: true });
+    expect(aus.label).toBe('Oben nicht mitzählen');
+    const [wieder] = kachelAktionen({ zaehlung: true, ungezaehlt: true });
+    expect(wieder.label).toBe('Oben wieder mitzählen');
+    expect(wieder.id).toBe('zaehlung');
+  });
+
+  it('fehlt, wo die Kopfzeile ohnehin nichts zählt', () => {
+    // Eine Kamera taucht in der «3 an» nie auf – ein Eintrag dafür wäre
+    // ein Knopf ohne Wirkung.
+    expect(kachelAktionen({ verlauf: true }).map((e) => e.id)).toEqual(['verlauf']);
+  });
+
+  it('genügt allein für den langen Druck', () => {
+    // Wer nicht umbenennen darf und ein Gerät ohne Verlauf hält, bekommt
+    // trotzdem diese eine Handlung - und zwar sofort, ohne Liste.
+    expect(kachelAktionen({ zaehlung: true }).map((e) => e.id)).toEqual(['zaehlung']);
+  });
+});

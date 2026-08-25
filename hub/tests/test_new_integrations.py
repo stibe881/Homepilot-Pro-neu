@@ -183,9 +183,12 @@ def test_playback_playing():
         # Fehlende Felder heissen «aus», nicht «unbekannt».
         "shuffle": False,
         "repeat": "off",
+        # Spotify kann in jedem Titel springen.
+        "can_seek": True,
         # Ohne Positionsangabe weiss der Hub nicht, wann der Titel endet –
         # dann bleibt es beim normalen Takt.
         "progress": None,
+        "position": None,
         "duration": None,
     }
 
@@ -217,7 +220,9 @@ def test_playback_multiple_artists():
 
 def test_playback_nothing_running():
     # 204 vom /me/player: nirgends läuft etwas – normal, keine Störung.
-    assert parse_playback(None)["state"] == "idle"
+    # «standby» statt «idle»: Es wartet nichts auf den nächsten Titel,
+    # es liegt schlicht nichts an (Punkt 19, ehrliche Zustände).
+    assert parse_playback(None)["state"] == "standby"
 
 
 def test_devices_lists_connect_targets():
@@ -483,7 +488,9 @@ def test_cast_backdrop_counts_as_idle_app():
     from homepilot.integrations.google_cast import cast_media_state
 
     state = cast_media_state("IDLE", None, None, "Backdrop", None)
-    assert state["state"] == "idle"
+    # Der Bildschirmschoner läuft: Das Gerät ist wach, aber leer. Das ist
+    # etwas anderes als eine Box, die auf den nächsten Titel wartet.
+    assert state["state"] == "standby"
     assert state["app"] is None
 
 
