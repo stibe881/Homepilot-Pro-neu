@@ -4,6 +4,7 @@ import { Image, Pressable, Text, View } from 'react-native';
 
 import { CommandData, Entity, KalenderEintrag } from '../api/types';
 import { offlineSatz } from '../lib/funkstille';
+import { KachelEintrag, kachelAktionen } from '../lib/kachelmenue';
 import { hatWarteschlange } from '../lib/musikliste';
 import { useColors } from '../theme';
 import { Bar } from './Bar';
@@ -14,7 +15,13 @@ import { Sky } from './CoverVisual';
 import { TvApps } from './TvApps';
 import { TvSleep } from './TvSleep';
 import { TvRemote } from './TvRemote';
-import { EditButton, GroupPicker, RenameDialog, RoomPicker } from './entity/anpassen';
+import {
+  EditButton,
+  GroupPicker,
+  KachelMenue,
+  RenameDialog,
+  RoomPicker,
+} from './entity/anpassen';
 import {
   CameraSnapshot,
   CoverBody,
@@ -60,7 +67,13 @@ interface Props {
   /** Anpassen-Modus: Raum dieser Kachel setzen. */
   rooms?: string[];
   onSetRoom?: (room: string | null) => void;
-  /** Anpassen-Modus: Gerät umbenennen. */
+  /** Gerät umbenennen – im Anpassen-Modus über den Stift, sonst über
+   *  einen langen Druck auf die Kachel.
+   *
+   *  Gesetzt nur, wo es auch erlaubt ist: Der Name gilt fürs ganze Haus,
+   *  der Hub verlangt dafür `edit_config`. Wer die Fähigkeit nicht hat,
+   *  bekommt hier nichts – besser als ein Knopf, der ein «nicht erlaubt»
+   *  einträgt. */
   onRename?: (name: string) => void;
   /** Anpassen-Modus: Gerät einer Gruppe zuordnen (oder lösen). */
   groups?: string[];
@@ -126,8 +139,31 @@ export function EntityCard({
   const [listeOffen, setListeOffen] = useState(false);
   const [roomPickerOpen, setRoomPickerOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
+  const [menueOffen, setMenueOffen] = useState(false);
   const [groupPickerOpen, setGroupPickerOpen] = useState(false);
   const isOn = entity.state.state === 'on';
+
+  // Was ein langer Druck anbietet. Im Anpassen-Modus nichts: Dort hält
+  // dieselbe Geste die Kachel zum Verschieben fest, und die Knöpfe für
+  // Name, Raum und Gruppe stehen ohnehin offen auf der Kachel.
+  const aktionen = editing
+    ? []
+    : kachelAktionen({ umbenennen: Boolean(onRename), verlauf: Boolean(onLongPress) });
+  const fuehreAus = (eintrag: KachelEintrag) => {
+    setMenueOffen(false);
+    if (eintrag.id === 'umbenennen') setRenameOpen(true);
+    if (eintrag.id === 'verlauf') onLongPress?.();
+  };
+  // Ein Eintrag braucht keine Auswahl - eine Liste mit einer Zeile wäre
+  // ein Klick mehr für nichts. Für alle, die nicht umbenennen dürfen,
+  // bleibt der lange Druck damit genau das, was er war.
+  const langerDruck =
+    aktionen.length === 0
+      ? undefined
+      : aktionen.length === 1
+        ? () => fuehreAus(aktionen[0])
+        : () => setMenueOffen(true);
+
   const subtitle =
     (imRaumblock ? undefined : entity.room) || integrationLabel(entity.integration);
   // Offline-Geräte: mit «zuletzt vor …», damit man sieht, ob das Gerät
@@ -625,7 +661,7 @@ export function EntityCard({
       }
       dimmed={!entity.available || (hidden && !editing)}
       onPress={onPress}
-      onLongPress={onLongPress}
+      onLongPress={langerDruck}
     >
       {editing ? (
         // Chips und Knöpfe stehen in zwei umbrechenden Zeilen: auf einer
@@ -713,6 +749,15 @@ export function EntityCard({
             setRoomPickerOpen(false);
             onSetRoom(room);
           }}
+        />
+      ) : null}
+      {aktionen.length > 1 ? (
+        <KachelMenue
+          visible={menueOffen}
+          titel={entity.name}
+          eintraege={aktionen}
+          onClose={() => setMenueOffen(false)}
+          onSelect={fuehreAus}
         />
       ) : null}
       {onRename ? (

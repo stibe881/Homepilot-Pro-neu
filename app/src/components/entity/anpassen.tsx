@@ -7,9 +7,9 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
+import { KachelEintrag } from '../../lib/kachelmenue';
 import { useColors } from '../../theme';
 import { makeStyles } from './stil';
-
 
 export function RoomPicker({
   visible,
@@ -54,6 +54,60 @@ export function RoomPicker({
               );
             })}
           </ScrollView>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+/**
+ * Die kleine Auswahl nach einem langen Druck auf eine Kachel.
+ *
+ * Sie erscheint nur, wenn es wirklich etwas zu wählen gibt: Bleibt ein
+ * Eintrag übrig, führt die Kachel ihn sofort aus. Eine Auswahl mit einer
+ * einzigen Zeile wäre ein Klick mehr für nichts.
+ */
+export function KachelMenue({
+  visible,
+  titel,
+  eintraege,
+  onClose,
+  onSelect,
+}: {
+  visible: boolean;
+  titel: string;
+  eintraege: KachelEintrag[];
+  onClose: () => void;
+  onSelect: (eintrag: KachelEintrag) => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.roomBackdrop} onPress={onClose}>
+        <Pressable style={styles.roomSheet} onPress={() => {}}>
+          <Text style={styles.roomSheetTitle} numberOfLines={1}>
+            {titel}
+          </Text>
+          {eintraege.map((eintrag) => (
+            <Pressable
+              key={eintrag.id}
+              onPress={() => onSelect(eintrag)}
+              accessibilityRole="button"
+              accessibilityLabel={eintrag.label}
+              style={({ pressed }) => [
+                styles.roomOption,
+                pressed && styles.roomOptionActive,
+              ]}
+            >
+              <Text style={styles.roomOptionText}>{eintrag.label}</Text>
+              <Ionicons
+                name={eintrag.icon as keyof typeof Ionicons.glyphMap}
+                size={19}
+                color={colors.inkFaint}
+              />
+            </Pressable>
+          ))}
         </Pressable>
       </Pressable>
     </Modal>
