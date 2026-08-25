@@ -6,6 +6,7 @@
 
 import { Entity } from '../../api/types';
 import { datumUhr, dauerText } from '../../lib/format';
+import { ZUHAUSE, ausTrigger, zuTrigger } from '../../lib/ortsausloeser';
 import { musikBefehl, musikSchluessel, richtungBefehl, richtungSchluessel } from '../../lib/szenen';
 
 /**
@@ -516,6 +517,10 @@ export interface TriggerDraft {
   forMinutes: string;
   /** Erreichbarkeits-Auslöser: verstummt das Gerät oder kommt es wieder? */
   availabilityTo: 'weg' | 'wieder-da';
+  /** Ortsauslöser: an welchem Ort. `home` fürs Zuhause, sonst die
+   *  Kennung eines Ortes des Hubs oder aus Life360. Ob ankommen oder
+   *  weggehen, sagt weiterhin `toState`. */
+  ortId: string;
   /** ± Minuten Zufalls-Versatz für Zeit/Sonne (Punkt 155): Storen, die
    *  sekundengleich fahren, verraten die Zeitschaltuhr. Leer = pünktlich. */
   jitter: string;
@@ -644,6 +649,7 @@ export const EMPTY_TRIGGER: TriggerDraft = {
   intervalSeconds: '600',
   forMinutes: '',
   availabilityTo: 'weg',
+  ortId: ZUHAUSE,
   jitter: '',
   calendarContains: '',
   calendarEvent: 'start',
@@ -788,10 +794,18 @@ export function triggerToConfig(t: TriggerDraft): BausteinConfig {
     return trigger;
   }
   if (t.kind === 'geofence') {
-    // Ein Geofence ist im Hub ein gewöhnlicher Zustand (home/away) – der
-    // eigene Auslöser-Typ ist reine Bedienhilfe, damit niemand wissen
-    // muss, dass «Stefan kommt heim» ein Zustandswechsel ist.
-    const trigger: BausteinConfig = { type: 'state', entity_id: t.entityId, to: t.toState };
+    // Ein Geofence ist im Hub ein gewöhnlicher Zustand – der eigene
+    // Auslöser-Typ ist reine Bedienhilfe, damit niemand wissen muss,
+    // dass «Stefan kommt heim» ein Zustandswechsel ist.
+    //
+    // Der Zustand einer Zone ist der Name des engsten Ortes, in dem die
+    // Person steckt. «Ankommen bei der Schule» ist also derselbe
+    // Mechanismus wie «heimkommen», nur mit anderem Wort.
+    const trigger: BausteinConfig = {
+      type: 'state',
+      entity_id: t.entityId,
+      ...zuTrigger({ ort: t.ortId || ZUHAUSE, richtung: t.toState === 'away' ? 'weg' : 'an' }),
+    };
     if (hold > 0) trigger.for = hold;
     return trigger;
   }
@@ -805,6 +819,13 @@ export function triggerToConfig(t: TriggerDraft): BausteinConfig {
 /** Umgekehrt: gespeicherter Trigger → Entwurf (rein, testbar). */
 export function triggerFromConfig(t: BausteinConfig): TriggerDraft {
   const threshold = t?.above !== undefined || t?.below !== undefined;
+  // Ein Ortsauslöser trägt seinen Ort im Zielzustand (`to: schule`) oder,
+  // beim Verlassen eines benannten Ortes, im Ausgangszustand
+  // (`from: schule`). Beides muss wieder als «Ort + Richtung» dastehen,
+  // sonst zeigt der Editor bei einem gespeicherten Ablauf etwas anderes,
+  // als der Hub ausführt.
+  const istOrt = String(t?.entity_id ?? '').startsWith('geofence.');
+  const ortswahl = istOrt ? ausTrigger(t ?? {}) : null;
   return {
     ...EMPTY_TRIGGER,
     kind:
@@ -820,11 +841,12 @@ export function triggerFromConfig(t: BausteinConfig): TriggerDraft {
               ? 'availability'
               : threshold
                 ? 'threshold'
-                : String(t?.entity_id ?? '').startsWith('geofence.')
+                : istOrt
                   ? 'geofence'
                   : 'state',
     entityId: t?.entity_id ?? '',
-    toState: t?.to ?? 'on',
+    toState: ortswahl ? (ortswahl.richtung === 'weg' ? 'away' : 'home') : (t?.to ?? 'on'),
+    ortId: ortswahl ? ortswahl.ort : EMPTY_TRIGGER.ortId,
     fromState: t?.from ?? '',
     attribute: t?.attribute ?? '',
     at: t?.at ?? EMPTY_TRIGGER.at,
