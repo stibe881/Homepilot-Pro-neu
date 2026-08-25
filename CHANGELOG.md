@@ -5,6 +5,20 @@ Gegenstück: was die Anlage heute kann, was sie vorher nicht konnte.
 
 Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
+## 2026-08-25
+
+**Ziehen und Ordnen**
+
+- Räume ordnen, Favoriten ordnen und das Ziehen der Kacheln selbst
+  funktionieren wieder. Alle drei hingen am selben Fehler: Der
+  Ziehgriff wurde bei jeder Fingerbewegung neu aufgebaut und verlor
+  dabei den Startpunkt der Geste. Gemeldet wurde deshalb nie der ganze
+  Weg, sondern die letzten paar Punkte – wer eine Zeile zweihundert
+  Punkte weit zog, verschob sie um zwölf, und beim Loslassen war das
+  Ziel dieselbe Stelle.
+- Im Browser gewinnt jetzt auch in der Liste der Griff und nicht die
+  Wisch-Geste der Seite; für das Kachelraster galt das schon.
+
 ## 2026-08-24
 
 **Haushaltsgeräte**
