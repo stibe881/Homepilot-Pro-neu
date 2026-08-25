@@ -220,6 +220,87 @@ export function Schlummer({ entity }: { entity: Entity }) {
 }
 
 /**
+ * «Woanders weiterhören».
+ *
+ * Für Boxen ohne eigene Zielwahl. Wer Spotify oder Radio steuert, hat
+ * die Boxenzeile schon; eine Cast-Box hat sie nicht, obwohl die
+ * Wiedergabe umziehen kann - umziehen tut sie nämlich nicht die Box,
+ * sondern der Player, der auf sie spielt. Den sucht der Hub.
+ */
+export function Umziehen({ entity }: { entity: Entity }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const alle = useEntities();
+  const settings = useSettings();
+  const hub = useMemo(() => hubClient(settings.url, settings.token), [settings]);
+  const [offen, setOffen] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const ziele = useMemo(() => einzelBoxen(alle, entity.id), [alle, entity.id]);
+
+  // Wer eine eigene Boxenzeile hat, braucht diesen Knopf nicht - zwei
+  // Wege zum selben Ziel untereinander sind einer zu viel.
+  if (entity.commands.includes('play_on')) return null;
+  if (!['playing', 'buffering'].includes(String(entity.state.state))) return null;
+  if (ziele.length === 0) return null;
+
+  const umziehen = async (ziel: string) => {
+    try {
+      await hub.post(
+        `/api/media/${encodeURIComponent(entity.id)}/move`,
+        { to: ziel },
+        { still: true },
+      );
+      setOffen(false);
+      setNote(null);
+    } catch (err) {
+      setNote(String(err instanceof Error ? err.message : err));
+    }
+  };
+
+  return (
+    <>
+      <Pressable
+        onPress={() => setOffen(true)}
+        accessibilityRole="button"
+        accessibilityLabel="Woanders weiterhören"
+        style={({ pressed }) => [styles.gruppenChip, pressed && { opacity: 0.7 }]}
+      >
+        <Ionicons name="swap-horizontal" size={13} color={colors.inkSoft} />
+        <Text style={styles.gruppenChipText}>Woanders weiterhören</Text>
+      </Pressable>
+
+      <Modal visible={offen} animationType="slide" onRequestClose={() => setOffen(false)}>
+        <View style={styles.sheet}>
+          <View style={styles.sheetHead}>
+            <Text style={styles.sheetTitle}>Woanders weiterhören</Text>
+            <Pressable onPress={() => setOffen(false)} accessibilityLabel="Schliessen" hitSlop={8}>
+              <Ionicons name="close" size={26} color={colors.ink} />
+            </Pressable>
+          </View>
+          {note ? <Text style={styles.warnHint}>{note}</Text> : null}
+          <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+            {ziele.map((ziel) => (
+              <Pressable
+                key={ziel.id}
+                onPress={() => umziehen(ziel.name)}
+                accessibilityRole="button"
+                accessibilityLabel={`Auf ${ziel.name} weiterhören`}
+                style={({ pressed }) => [styles.boxZeile, pressed && { opacity: 0.7 }]}
+              >
+                <Ionicons name="volume-medium-outline" size={16} color={colors.inkSoft} />
+                <Text style={styles.boxName} numberOfLines={1}>
+                  {ziel.name}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      </Modal>
+    </>
+  );
+}
+
+/**
  * Zufall und Wiederholung gab es schon; hier kommt das Spulen dazu, das
  * ohne Fortschritt keinen Sinn ergäbe – deshalb steht es dort und nicht
  * in dieser Reihe.
@@ -229,6 +310,7 @@ export function MedienExtras({ entity }: { entity: Entity }) {
   return (
     <>
       <GruppenBoxen entity={entity} />
+      <Umziehen entity={entity} />
       <NaechsterTitel state={entity.state} />
       {spielt && entity.commands.includes('pause') ? <Schlummer entity={entity} /> : null}
     </>

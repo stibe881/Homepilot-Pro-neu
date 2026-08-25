@@ -6,8 +6,9 @@ import { CommandData, Entity, KalenderEintrag } from '../api/types';
 import { offlineSatz } from '../lib/funkstille';
 import { zustandsText } from '../lib/haushalt';
 import { KachelEintrag, kachelAktionen } from '../lib/kachelmenue';
-import { zaehlbar } from '../lib/zaehlung';
+import { zustandName } from '../lib/hausmusik';
 import { hatWarteschlange } from '../lib/musikliste';
+import { zaehlbar } from '../lib/zaehlung';
 import { useColors } from '../theme';
 import { Bar } from './Bar';
 import { Card, CardFooter } from './Card';
@@ -318,7 +319,10 @@ export function EntityCard({
               ) : null}
               <View style={{ flex: 1 }}>
                 <Text style={styles.value} numberOfLines={2}>
-                  {entity.state.track ?? 'Nichts läuft'}
+                  {/* Ohne Titel den Zustand nennen: «Pausiert» und
+                      «Nichts an» sind zwei verschiedene Auskünfte, und
+                      «Nichts läuft» war für beide dieselbe. */}
+                  {entity.state.track ?? zustandName(String(entity.state.state ?? ''))}
                 </Text>
                 {entity.state.artist ? (
                   <Text style={styles.hint} numberOfLines={1}>
