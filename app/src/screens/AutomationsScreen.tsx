@@ -22,6 +22,8 @@ import { BabysitterStand, LEERER_BABYSITTER, istFreigegeben, modusSatz, seitText
 import { Editor, Fassung } from './automations/editor';
 import { Automation, Draft, DryRun, EMPTY, Run, StepDraft, TriggerHealth, buildConditions, describe, groupByCategory, lastRunText, newTrigger, runLine, search, stepToActions, stepsToActions, symbolFuerNamen, szenenSymbol, toDraft, triggerIcon, triggerToConfig, usedCategories, zeitpunktLabel } from './automations/entwurf';
 import { Groups, SearchBox } from './automations/felder';
+import { laeuft, tippLabel, unterzeile } from '../lib/szenenzeile';
+import { bandReihenfolge, bandZeile } from '../lib/tagesband';
 import { makeStyles } from './automations/stil';
 import { SCENE_ICONS, SceneDraft, SceneEditor } from './automations/szenen-editor';
 import { EigeneVorlage, buildTemplates, mischeVorlagen } from './automations/vorlagen';
@@ -683,6 +685,39 @@ export function AutomationsScreen({
     return rueckweg;
   };
 
+  /**
+   * Eine Szene aus der Liste heraus schalten.
+   *
+   * Die Liste war eine Sackgasse: Name, Anzahl, Stift. Wer «Kino»
+   * einschalten wollte, stand vor der Szene und musste dafür auf die
+   * Startseite zurück. Ein Tippen tut jetzt das Naheliegende.
+   *
+   * Über `/toggle` und nicht über `/activate`: Der Hub entscheidet, ob
+   * das Tippen die Szene stellt oder zurücknimmt. Entschiede es die
+   * App, entschiede sie es anhand eines Standes, der Sekunden alt sein
+   * kann - und löste ein zweites Mal aus, statt zurückzunehmen.
+   */
+  const schalteSzene = async (scene: Scene) => {
+    try {
+      // Ohne `fallback`: Der soll hier gerade nicht greifen. Er machte
+      // aus einem Fehlschlag ein stilles `null` - und die Meldung
+      // darunter sagte «gestellt», obwohl nichts geschaltet hat.
+      const antwort = await hub.post<{ reverted?: boolean } | null>(
+        `/api/scenes/${encodeURIComponent(scene.id)}/toggle`,
+        undefined,
+        { still: true }
+      );
+      onNote?.(
+        antwort?.reverted
+          ? `«${scene.name}» zurückgenommen`
+          : `«${scene.name}» gestellt`
+      );
+      onScenesChanged?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const revertScene = async (befehle: RueckwegBefehl[]) => {
     let daneben = 0;
     for (const befehl of befehle) {
@@ -732,6 +767,12 @@ export function AutomationsScreen({
     }
     load();
   };
+
+  // Nicht gemerkt: `bandReihenfolge` hängt an der Uhrzeit, und ein
+  // useMemo über der Agenda allein hielte 07:00 auch um Mitternacht
+  // noch für «kommt heute noch». Die Liste ist kurz, das Sortieren
+  // kostet nichts.
+  const band = bandReihenfolge(agenda, Date.now());
 
   return (
     <View style={styles.list}>
@@ -836,27 +877,36 @@ export function AutomationsScreen({
         </Text>
       ) : null}
 
-      {agenda.length > 0 ? (
+      {band.length > 0 ? (
         // Das Tagesband (Punkt 163): «was macht das Haus heute noch?» -
-        // Vergangenes mit Haken, Kommendes mit Uhrzeit, ohne jeden
-        // Ablauf einzeln zu öffnen.
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={{ flexGrow: 0 }}
-          contentContainerStyle={styles.agendaBand}
-        >
-          {agenda.map((eintrag, index) => {
-            const vorbei = eintrag.at * 1000 < Date.now();
-            return (
+        // Kommendes mit Uhrzeit zuerst, Gelaufenes mit Haken dahinter,
+        // ohne jeden Ablauf einzeln zu öffnen.
+        <>
+          {/* Die Zeile darüber sagt in Worten, was rechts noch liegt.
+              Ohne sie sah das Band am rechten Rand abgeschnitten aus
+              statt scrollbar - man wischte gar nicht erst. */}
+          <Text style={styles.bandZeile}>{bandZeile(band)}</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={{ flexGrow: 0 }}
+            contentContainerStyle={styles.agendaBand}
+          >
+            {band.map((eintrag, index) => (
               <View
                 key={`${eintrag.automation_id}-${index}`}
-                style={[styles.agendaChip, vorbei && { opacity: 0.55 }]}
+                style={[styles.agendaChip, eintrag.vorbei && { opacity: 0.55 }]}
               >
                 <Ionicons
-                  name={vorbei ? 'checkmark-circle' : eintrag.art === 'sun' ? 'sunny-outline' : 'time-outline'}
+                  name={
+                    eintrag.vorbei
+                      ? 'checkmark-circle'
+                      : eintrag.art === 'sun'
+                        ? 'sunny-outline'
+                        : 'time-outline'
+                  }
                   size={13}
-                  color={vorbei ? colors.on : colors.inkSoft}
+                  color={eintrag.vorbei ? colors.on : colors.inkSoft}
                 />
                 <Text style={styles.agendaZeit}>
                   {new Date(eintrag.at * 1000).toLocaleTimeString('de-CH', {
@@ -868,9 +918,9 @@ export function AutomationsScreen({
                   {eintrag.alias}
                 </Text>
               </View>
-            );
-          })}
-        </ScrollView>
+            ))}
+          </ScrollView>
+        </>
       ) : null}
 
       {/* Ist alles abgehakt, bleibt keine Karte stehen - nur die schmale
@@ -1479,25 +1529,48 @@ export function AutomationsScreen({
             renderItem={(scene) => (
               <Card key={scene.id} style={styles.card}>
                 <View style={styles.cardHead}>
-                  {/* Wer beim Anlegen kein Symbol gewählt hat, bekam das
-                      allgemeine Funkeln - auch «Babysitter-Modus». Steht
-                      noch die Voreinstellung da und sagt der Name etwas,
-                      zeigen wir das. Gespeichert wird nichts: Ein selbst
-                      gewähltes Funkeln bleibt ein Funkeln, sobald es
-                      einmal angetippt wurde. */}
-                  <Ionicons
-                    name={
-                      szenenSymbol(scene) as keyof typeof Ionicons.glyphMap
-                    }
-                    size={20}
-                    color={colors.inkSoft}
-                  />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.title}>{scene.name}</Text>
-                    <Text style={styles.detail}>
-                      {(scene.actions?.length ?? scene.entity_ids.length)} Aktion(en)
-                    </Text>
-                  </View>
+                  {/* Die ganze Zeile schaltet - nicht nur ein kleiner
+                      Knopf am Rand. Das Symbol färbt sich mit: Eine
+                      Szene, die gerade steht, sieht man dann von weitem,
+                      ohne eine Zeile zu lesen. */}
+                  <Pressable
+                    onPress={() => schalteSzene(scene)}
+                    accessibilityRole="button"
+                    accessibilityLabel={tippLabel(scene)}
+                    style={({ pressed }) => [
+                      styles.szenenZeile,
+                      pressed && { opacity: 0.6 },
+                    ]}
+                  >
+                    {/* Wer beim Anlegen kein Symbol gewählt hat, bekam das
+                        allgemeine Funkeln - auch «Babysitter-Modus». Steht
+                        noch die Voreinstellung da und sagt der Name etwas,
+                        zeigen wir das. Gespeichert wird nichts: Ein selbst
+                        gewähltes Funkeln bleibt ein Funkeln, sobald es
+                        einmal angetippt wurde. */}
+                    <View
+                      style={[
+                        styles.szenenSymbol,
+                        laeuft(scene) && {
+                          backgroundColor: colors.accent,
+                          borderColor: colors.accent,
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name={szenenSymbol(scene) as keyof typeof Ionicons.glyphMap}
+                        size={20}
+                        color={laeuft(scene) ? '#FFFFFF' : colors.inkSoft}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.title}>{scene.name}</Text>
+                      <Text style={styles.detail}>
+                        {unterzeile(scene)}
+                        {laeuft(scene) ? ' · steht' : ''}
+                      </Text>
+                    </View>
+                  </Pressable>
                   {scene.editable && mayEdit ? (
                     <Pressable
                       onPress={() =>

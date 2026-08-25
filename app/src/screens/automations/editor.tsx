@@ -5,7 +5,7 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Pressable, Text, TextInput, View } from 'react-native';
 
 import { Entity, Scene } from '../../api/types';
 import { Colors, useColors } from '../../theme';
@@ -16,6 +16,7 @@ import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StepDraft, StepKind,
 import {
   CategoryField,
   Choice,
+  EditorRahmen,
   EntityPicker,
   Field,
   MinutenWahl,
@@ -101,24 +102,16 @@ export function Editor({
   // Attrappe.
   const luxSensors = melderMitLux(draft, entities);
 
-  return (
-    <Modal visible animationType="slide" onRequestClose={onCancel}>
-      <ScrollView style={styles.editor} contentContainerStyle={styles.editorContent}>
-        <View style={styles.cardHead}>
-          <Text style={styles.editorTitle}>
-            {draft.templateId
-              ? draft.templateId === 'neu'
-                ? 'Neue Vorlage'
-                : 'Vorlage bearbeiten'
-              : draft.id
-                ? 'Ablauf bearbeiten'
-                : 'Neuer Ablauf'}
-          </Text>
-          <Pressable onPress={onCancel} accessibilityLabel="Abbrechen">
-            <Ionicons name="close" size={26} color={colors.ink} />
-          </Pressable>
-        </View>
+  const titel = draft.templateId
+    ? draft.templateId === 'neu'
+      ? 'Neue Vorlage'
+      : 'Vorlage bearbeiten'
+    : draft.id
+      ? 'Ablauf bearbeiten'
+      : 'Neuer Ablauf';
 
+  return (
+    <EditorRahmen titel={titel} onCancel={onCancel} onSave={onSave}>
         <Text style={styles.snapshotHint}>
           {draft.templateId
             ? // Eine Vorlage schaltet nichts - sie steht bereit. Das
@@ -797,8 +790,7 @@ export function Editor({
             <Text style={styles.deleteText}>Ablauf löschen</Text>
           </Pressable>
         ) : null}
-      </ScrollView>
-    </Modal>
+    </EditorRahmen>
   );
 }
 
