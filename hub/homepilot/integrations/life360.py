@@ -14,12 +14,18 @@ Gerät ausgeschaltet (Einstellungen → Ortung).
 
 **Eine Quelle je Person, und der Hub setzt es durch.** Wer hier
 eingetragen ist, wird von hier geführt: Der Geofence überhört für diese
-Person jede andere Meldung (``zonen_beanspruchen``). Vorher gewann, wer
+Person jedes fremde «weg» (``zonen_beanspruchen``). Vorher gewann, wer
 zuletzt sprach - Life360 meldete «zuhause», ein vergessener Schalter auf
 einem alten Telefon schob «weg» nach, und auf dem Schirm stand
 «unterwegs», während die Person in der Küche sass. Zwei Quellen auf
 dieselbe Frage widersprechen sich früher oder später; daran ist schon
 die WLAN-Anwesenheit gescheitert.
+
+Ein **Ankommen** darf dagegen jeder melden: Das Telefon sieht den
+Übertritt sofort, diese Integration erst bei der nächsten Abfrage. Die
+App-Ortung darf also eingeschaltet bleiben - sie beschleunigt das
+Heimkommen, und was sie verschläft, rückt die nächste Runde hier gerade
+(``presence.meldung_annehmen``).
 
 **Life360 hat keine offene Schnittstelle.** Was hier benutzt wird, ist
 die App-Schnittstelle. Sie war 2024 für Fremde dicht (Home Assistant hat

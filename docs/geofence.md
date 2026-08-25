@@ -202,12 +202,21 @@ Hub fragt ihn im Takt ab und ist damit nicht auf ein Wecken angewiesen.
 
 Drei Dinge, die man dabei wissen sollte:
 
-- **Eine Quelle je Person, und der Hub setzt es durch.** Wer bei
-  `members` steht, wird von Life360 geführt; jede andere Meldung für
-  diese Person wird überhört. Vorher gewann, wer zuletzt sprach – und
-  wenn auf einem Telefon der Schalter noch stand, schob es aus dem
-  Hintergrund ein «weg» nach, während Life360 «zuhause» meldete. Auf dem
-  Schirm stand dann «unterwegs», während die Person in der Küche sass.
+- **Eine Quelle je Person – mit einer Ausnahme fürs Ankommen.** Wer bei
+  `members` steht, wird von Life360 geführt; ein «weg» von anderswo wird
+  überhört. Vorher gewann, wer zuletzt sprach – und wenn auf einem
+  Telefon der Schalter noch stand, schob es aus dem Hintergrund ein
+  «weg» nach, während Life360 «zuhause» meldete. Auf dem Schirm stand
+  dann «unterwegs», während die Person in der Küche sass.
+
+  Ein **Ankommen** darf dagegen weiterhin jeder melden – Telefon-App wie
+  Kurzbefehl. Das Telefon meldet den Übertritt im Moment, in dem er
+  passiert; Life360 erfährt ihn erst bei der nächsten Abfrage. Wer
+  beides laufen lässt, bekommt das Beste aus beidem: das schnelle «bin
+  da» vom Telefon, und Life360 als Rückgrat, das binnen einer Minute
+  geraderückt, was das Telefon verschlafen hat. Ein verfrühtes «da»
+  richtet nichts an – schlimmstenfalls geht das Licht an.
+
   Wer **nicht** bei `members` steht, meldet weiter selbst – beides
   nebeneinander ist also kein Problem.
 - **Life360 hat keine offene Schnittstelle.** Sie war 2024 für Fremde

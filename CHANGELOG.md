@@ -187,6 +187,13 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   daran, dass iOS sie im Hintergrund weckt, und das tut sie nicht
   zuverlässig. Umstellen: alle eintragen, auf jedem Telefon
   Einstellungen → Ortung ausschalten. Steht in `docs/geofence.md`.
+- Ein **Ankommen darf jeder melden**, auch wenn Life360 die Person
+  führt: Das Telefon sieht den Übertritt sofort, Life360 erst bei der
+  nächsten Abfrage – wer heimkommt und auf das Licht wartet, zählt die
+  Minute mit. Überhört wird nur noch ein fremdes «weg», denn das war
+  die giftige Hälfte. App-Ortung und Life360 zusammen ergeben so das
+  schnellste Ankommen und ein Rückgrat, das Verschlafenes binnen einer
+  Minute geraderückt.
 - Die Ortungs-Diagnose sagt bei einer Telefon-Meldung nicht mehr
   «Meldet sich regelmässig» – das Telefon meldet nur beim Kommen und
   Gehen, und der Satz beruhigte genau dann, wenn eine Ankunft
