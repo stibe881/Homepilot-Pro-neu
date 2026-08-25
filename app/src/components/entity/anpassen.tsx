@@ -70,12 +70,16 @@ export function RoomPicker({
 export function KachelMenue({
   visible,
   titel,
+  ursache,
   eintraege,
   onClose,
   onSelect,
 }: {
   visible: boolean;
   titel: string;
+  /** «seit 20 Min · Ablauf «Bewegung Flur»» – die Antwort auf «warum ist
+   *  das an?», dort, wo man das Gerät gerade in der Hand hat. */
+  ursache?: string | null;
   eintraege: KachelEintrag[];
   onClose: () => void;
   onSelect: (eintrag: KachelEintrag) => void;
@@ -89,6 +93,7 @@ export function KachelMenue({
           <Text style={styles.roomSheetTitle} numberOfLines={1}>
             {titel}
           </Text>
+          {ursache ? <Text style={styles.menueUrsache}>{ursache}</Text> : null}
           {eintraege.map((eintrag) => (
             <Pressable
               key={eintrag.id}

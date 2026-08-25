@@ -60,6 +60,10 @@ export interface Entity {
   group?: string | null;
   /** Epoch-Sekunden, wann das Gerät zuletzt erreichbar war. */
   last_seen?: number | null;
+  /** Wann sich der Zustand zuletzt wirklich geändert hat (Epoch-Sekunden)
+   *  und wodurch – für «warum ist das an?» ohne eigenen Abruf. */
+  last_change?: number | null;
+  last_source?: { kind?: string | null; label?: string | null } | null;
 }
 
 export interface Scene {

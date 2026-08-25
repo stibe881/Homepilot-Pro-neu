@@ -110,6 +110,18 @@ class Entity:
     # Zeitpunkt (Epoch-Sekunden), zu dem das Gerät zuletzt erreichbar war –
     # für «zuletzt gesehen vor …» bei offline-Geräten.
     last_seen: float | None = None
+    # Wann sich der Zustand zuletzt wirklich geändert hat, und wodurch.
+    #
+    # «Warum ist das Licht um drei Uhr angegangen?» stand bisher nur im
+    # Protokoll – einen Abruf je Gerät entfernt. Hier reist die Antwort
+    # mit dem Zustand mit: dieselbe Leitung, keine zusätzliche Anfrage.
+    # Gezählt wird wie im Protokoll (eventlog.worth_recording): ein
+    # echter Wechsel, keine Helligkeitszappelei am brennenden Licht.
+    last_change: float | None = None
+    #: {"kind": "automation", "label": "Bewegung Flur"}. Was nicht über
+    #: den Hub kam, meldet sich als {"kind": "device"} – Wandschalter,
+    #: Hersteller-App, Zeitschaltung im Gerät selbst (siehe core/source).
+    last_source: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -125,4 +137,6 @@ class Entity:
             "group": self.group,
             "combined_into": self.combined_into,
             "last_seen": self.last_seen,
+            "last_change": self.last_change,
+            "last_source": dict(self.last_source) if self.last_source else None,
         }

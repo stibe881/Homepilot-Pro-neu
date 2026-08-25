@@ -6,6 +6,7 @@ import { CommandData, Entity, KalenderEintrag } from '../api/types';
 import { offlineSatz } from '../lib/funkstille';
 import { zustandsText } from '../lib/haushalt';
 import { KachelEintrag, kachelAktionen } from '../lib/kachelmenue';
+import { ursacheSatz } from '../lib/ursache';
 import { zaehlbar } from '../lib/zaehlung';
 import { hatWarteschlange } from '../lib/musikliste';
 import { useColors } from '../theme';
@@ -807,6 +808,9 @@ export function EntityCard({
         <KachelMenue
           visible={menueOffen}
           titel={entity.name}
+          // «Warum ist das an?» - die Frage, die man nachts im Flur
+          // stellt, beantwortet hier eine Zeile (siehe lib/ursache.ts).
+          ursache={ursacheSatz(entity, Date.now())}
           eintraege={aktionen}
           onClose={() => setMenueOffen(false)}
           onSelect={fuehreAus}

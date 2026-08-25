@@ -109,3 +109,45 @@ async def test_last_seen_stays_put_while_the_device_is_gone():
     # seit Wochen toten Gerät «gerade eben».
     await registry.update_state("demo.light", {}, available=False)
     assert registry.get("demo.light").last_seen == weg
+
+
+async def test_the_entity_remembers_why_it_changed():
+    """«Warum ist das Licht um drei Uhr angegangen?»
+
+    Die Antwort stand nur im Protokoll, einen eigenen Abruf je Gerät
+    entfernt. Jetzt reist sie am Zustand mit - über dieselbe Leitung,
+    die den Zustand ohnehin bringt.
+    """
+    from homepilot.core.source import as_source
+
+    hub_registry = EntityRegistry(EventBus())
+    await hub_registry.add(
+        Entity(
+            id="demo.licht",
+            kind=EntityKind.LIGHT,
+            name="Licht",
+            integration="demo",
+            state={"state": "off"},
+        )
+    )
+
+    with as_source({"kind": "automation", "label": "Bewegung Flur"}):
+        await hub_registry.update_state("demo.licht", {"state": "on"})
+    licht = hub_registry.get("demo.licht")
+    assert licht.last_source == {"kind": "automation", "label": "Bewegung Flur"}
+    assert licht.last_change is not None
+    gemerkt = licht.last_change
+
+    # Eine neue Helligkeit am schon brennenden Licht ist kein Wechsel -
+    # sonst stünde dort gleich «gerade eben», obwohl niemand geschaltet hat.
+    await hub_registry.update_state("demo.licht", {"brightness": 40})
+    assert hub_registry.get("demo.licht").last_change == gemerkt
+    assert hub_registry.get("demo.licht").last_source["label"] == "Bewegung Flur"
+
+    # Und was nicht über den Hub kam, meldet sich als Gerät - der
+    # Wandschalter, die Hersteller-App, eine Zeitschaltung im Gerät.
+    await hub_registry.update_state("demo.licht", {"state": "off"})
+    assert hub_registry.get("demo.licht").last_source == {
+        "kind": "device",
+        "label": "Gerät",
+    }

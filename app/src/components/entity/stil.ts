@@ -63,6 +63,9 @@ export const makeStyles = (colors: Colors) =>
     borderColor: colors.surfaceBorder,
   },
   roomSheetTitle: { fontSize: 17, fontWeight: '700', color: colors.ink, marginBottom: 6 },
+  // Unter dem Namen: seit wann und wodurch. Klein und ruhig - es ist
+  // eine Auskunft, kein Knopf.
+  menueUrsache: { fontSize: 13, color: colors.inkSoft, marginTop: -4, marginBottom: 4 },
   roomOption: {
     flexDirection: 'row',
     alignItems: 'center',
