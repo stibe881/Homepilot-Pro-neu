@@ -454,7 +454,7 @@ class Tonmeister:
         while time.monotonic() < ende:
             await asyncio.sleep(0.5)
             if all(
-                str((self.hub.registry.get(eid).state.get("state") if self.hub.registry.get(eid) else ""))
+                str(self.hub.registry.get(eid).state.get("state") if self.hub.registry.get(eid) else "")
                 not in ("playing", "buffering")
                 for eid in gemerkt
             ):

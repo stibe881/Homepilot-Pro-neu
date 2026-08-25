@@ -75,10 +75,10 @@ from .routes import (
     lightgroups as routes_lightgroups,
 )
 from .routes import (
-    passes as routes_passes,
+    medien as routes_medien,
 )
 from .routes import (
-    medien as routes_medien,
+    passes as routes_passes,
 )
 from .routes import (
     personen as routes_personen,

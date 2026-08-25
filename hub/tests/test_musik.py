@@ -16,7 +16,6 @@ from homepilot.core import musik
 from homepilot.core.entity import EntityKind
 from homepilot.core.errors import HomePilotError
 
-
 # ── Rechnen ──────────────────────────────────────────────────────────────
 
 

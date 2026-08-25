@@ -5,7 +5,6 @@ Playlists des Kontos kennt, kann daraus einen Namen machen.
 """
 
 from homepilot.integrations.spotify import (
-    REPEAT_MODES,
     next_repeat,
     parse_playback,
     playlist_name,

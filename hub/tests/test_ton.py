@@ -15,7 +15,6 @@ from homepilot.core import ton
 from homepilot.core.entity import EntityKind
 from homepilot.core.errors import HomePilotError
 
-
 # ── Rechnen ──────────────────────────────────────────────────────────────
 
 
