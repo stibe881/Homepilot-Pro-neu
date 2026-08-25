@@ -29,6 +29,15 @@ Param = dict[str, Any]
 # Abbestellungen weiterhin.
 RULES: list[dict[str, Any]] = [
     {
+        "key": "doorbell",
+        "title": "Es klingelt",
+        "detail": "Sofort, sobald jemand an einer Türklingel oder "
+        "Gegensprechanlage klingelt. Dafür braucht es keinen eigenen "
+        "Ablauf mehr – die wichtigste Nachricht im Haus soll nicht an "
+        "einer Verdrahtung hängen, die man versehentlich falsch setzt.",
+        "params": [],
+    },
+    {
         "key": "leak",
         "title": "Wasser gemeldet",
         "detail": "Sofort, sobald ein Wassermelder Wasser meldet – unabhängig "

@@ -62,86 +62,263 @@ export function SettingsScreen({
   // Gerät hinaus, auf dem man gerade tippt.
   const [logoutAll, setLogoutAll] = useState<'idle' | 'ask'>('idle');
 
-  const form = (
+  // Vier Karten statt einer: Was zusammengehört, steht beieinander.
+  // Die Reihenfolge folgt dem Gebrauch - wer verbunden ist, kommt wegen
+  // Profil, Erscheinungsbild oder Ortung hierher; die Zugangsdaten
+  // braucht er nur beim Einrichten. Also stehen sie dann zuoberst und
+  // sonst zuunterst.
+  const nameFeld = (
+    <Field
+      label="Dein Name (für die Begrüssung)"
+      value={name}
+      onChange={setName}
+      placeholder="optional"
+    />
+  );
+
+  const profil = user ? (
     <Card style={styles.card}>
-      <Text style={styles.title}>Hub verbinden</Text>
-      {user ? (
-        <>
-          <Text style={styles.account}>
-            Angemeldet als {user.name} · {user.role}
-          </Text>
-          {/* Am Wandtablet gibt es kein Abmelden. Wer es antippt, sperrt
-              das ganze Haus aus sich selbst aus - die Anmeldedaten des
-              Geräts hat niemand in der Tasche, und bis jemand mit einem
-              Rechner kommt, geht im Flur gar nichts mehr. Die Sitzung
-              läuft dort auch nicht ab (core/sessions.py). */}
-          {user.shared ? (
-            <Text style={styles.sharedNote}>
-              Dieses Gerät gehört allen und bleibt angemeldet. Zum Abmelden
-              die Kennzeichnung «Gemeinschaftsgerät» unter Benutzer
-              aufheben.
-            </Text>
-          ) : (
-          <View style={styles.logoutRow}>
-            <Pressable
-              onPress={async () => {
-                // Abmelden beendet nur diese Sitzung; ein fest vergebenes
-                // Token bliebe gültig – dann bleibt die App eben verbunden.
-                await fetch(`${url.replace(/\/$/, '')}/api/auth/logout`, {
-                  method: 'POST',
-                  headers: { Authorization: `Bearer ${token}` },
-                  // Best effort: Lokal wird die Sitzung gleich vergessen -
-                  // erreicht der Abruf den Hub nicht, läuft sie dort ab.
-                }).catch(() => {});
-                onSave({ url, token: '', name, theme, panel });
-              }}
-              accessibilityRole="button"
-              style={({ pressed }) => [styles.logout, pressed && { opacity: 0.7 }]}
+      <Text style={styles.title}>Profil</Text>
+      <Text style={styles.account}>
+        Angemeldet als {user.name} · {user.role}
+      </Text>
+      {nameFeld}
+      {/* Am Wandtablet gibt es kein Abmelden. Wer es antippt, sperrt
+          das ganze Haus aus sich selbst aus - die Anmeldedaten des
+          Geräts hat niemand in der Tasche, und bis jemand mit einem
+          Rechner kommt, geht im Flur gar nichts mehr. Die Sitzung
+          läuft dort auch nicht ab (core/sessions.py). */}
+      {user.shared ? (
+        <Text style={styles.sharedNote}>
+          Dieses Gerät gehört allen und bleibt angemeldet. Zum Abmelden
+          die Kennzeichnung «Gemeinschaftsgerät» unter Benutzer
+          aufheben.
+        </Text>
+      ) : (
+        <View style={styles.logoutRow}>
+          <Pressable
+            onPress={async () => {
+              // Abmelden beendet nur diese Sitzung; ein fest vergebenes
+              // Token bliebe gültig – dann bleibt die App eben verbunden.
+              await fetch(`${url.replace(/\/$/, '')}/api/auth/logout`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` },
+                // Best effort: Lokal wird die Sitzung gleich vergessen -
+                // erreicht der Abruf den Hub nicht, läuft sie dort ab.
+              }).catch(() => {});
+              onSave({ url, token: '', name, theme, panel });
+            }}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.logout, pressed && { opacity: 0.7 }]}
+          >
+            <Ionicons name="log-out-outline" size={15} color={colors.ink} />
+            <Text style={styles.logoutText}>Abmelden</Text>
+          </Pressable>
+          <Pressable
+            onPress={async () => {
+              if (logoutAll !== 'ask') {
+                setLogoutAll('ask');
+                setTimeout(() => setLogoutAll('idle'), 4000);
+                return;
+              }
+              setLogoutAll('idle');
+              await fetch(`${url.replace(/\/$/, '')}/api/auth/sessions`, {
+                method: 'DELETE',
+                headers: { Authorization: `Bearer ${token}` },
+                // Best effort wie beim Abmelden: Was der Hub nicht
+                // erfährt, läuft dort von selbst ab.
+              }).catch(() => {});
+              onSave({ url, token: '', name, theme, panel });
+            }}
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.logout,
+              logoutAll === 'ask' && { borderColor: colors.danger },
+              pressed && { opacity: 0.7 },
+            ]}
+          >
+            <Ionicons
+              name="phone-portrait-outline"
+              size={15}
+              color={logoutAll === 'ask' ? colors.danger : colors.ink}
+            />
+            <Text
+              style={[
+                styles.logoutText,
+                logoutAll === 'ask' && { color: colors.danger },
+              ]}
             >
-              <Ionicons name="log-out-outline" size={15} color={colors.ink} />
-              <Text style={styles.logoutText}>Abmelden</Text>
-            </Pressable>
+              {logoutAll === 'ask' ? 'Wirklich überall?' : 'Überall abmelden'}
+            </Text>
+          </Pressable>
+        </View>
+      )}
+    </Card>
+  ) : null;
+
+  const aussehen = (
+    <Card style={styles.card}>
+      <Text style={styles.title}>Erscheinungsbild</Text>
+      <View style={styles.field}>
+        <View style={styles.modes}>
+          {MODES.map((option) => (
             <Pressable
-              onPress={async () => {
-                if (logoutAll !== 'ask') {
-                  setLogoutAll('ask');
-                  setTimeout(() => setLogoutAll('idle'), 4000);
-                  return;
-                }
-                setLogoutAll('idle');
-                await fetch(`${url.replace(/\/$/, '')}/api/auth/sessions`, {
-                  method: 'DELETE',
-                  headers: { Authorization: `Bearer ${token}` },
-                  // Best effort wie beim Abmelden: Was der Hub nicht
-                  // erfährt, läuft dort von selbst ab.
-                }).catch(() => {});
-                onSave({ url, token: '', name, theme, panel });
-              }}
-              accessibilityRole="button"
+              key={option.key}
+              onPress={() => setTheme(option.key)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: theme === option.key }}
               style={({ pressed }) => [
-                styles.logout,
-                logoutAll === 'ask' && { borderColor: colors.danger },
+                styles.mode,
+                theme === option.key && styles.modeActive,
                 pressed && { opacity: 0.7 },
               ]}
             >
-              <Ionicons
-                name="phone-portrait-outline"
-                size={15}
-                color={logoutAll === 'ask' ? colors.danger : colors.ink}
-              />
               <Text
                 style={[
-                  styles.logoutText,
-                  logoutAll === 'ask' && { color: colors.danger },
+                  styles.modeText,
+                  theme === option.key && styles.modeTextActive,
                 ]}
               >
-                {logoutAll === 'ask' ? 'Wirklich überall?' : 'Überall abmelden'}
+                {option.label}
               </Text>
             </Pressable>
-          </View>
-          )}
-        </>
-      ) : null}
+          ))}
+        </View>
+        <Text style={styles.modeHint}>
+          «Nach Sonnenstand» wird bei Sonnenuntergang dunkel und bei
+          Sonnenaufgang wieder hell, «System» folgt der Geräteeinstellung.
+          Gespeichert wird unten mit «Speichern & verbinden».
+        </Text>
+      </View>
+
+      {/* Beim Erscheinungsbild und nicht bei der Verbindung: Der Modus
+          ändert, wie die App aussieht und sich verhält - nicht, womit
+          sie spricht. */}
+      <Pressable
+        onPress={() => setPanel((value) => !value)}
+        accessibilityRole="switch"
+        accessibilityState={{ checked: panel }}
+        style={({ pressed }) => [styles.panelRow, pressed && { opacity: 0.7 }]}
+      >
+        <View style={{ flex: 1 }}>
+          <Text style={styles.label}>Wandpanel-Modus</Text>
+          <Text style={styles.panelHint}>
+            Bildschirm bleibt an, Ansicht kehrt nach drei Minuten zur Startseite
+            zurück, und nach Sonnenuntergang wird es dunkler – für ein fest
+            montiertes iPad. Eine Berührung macht es sofort wieder hell.
+          </Text>
+        </View>
+        <View style={[styles.switch, panel && styles.switchOn]}>
+          <View style={[styles.knob, panel && styles.knobOn]} />
+        </View>
+      </Pressable>
+    </Card>
+  );
+
+  // Punkt 197: Sobald die App selbst ortet, ändert sich die Frage –
+  // nicht «geht das technisch», sondern «weiss jeder, dass es läuft».
+  // Ein Familiensystem, dem man beim Orten nicht zusehen kann, wird
+  // abgeschaltet, zu Recht.
+  const ortungKarte = ortung.moeglich ? (
+    <Card style={styles.card}>
+      <View style={styles.panelRow}>
+        <View style={{ flex: 1, gap: 6 }}>
+          <Pressable
+            onPress={() => ortung.schalten(!ortung.stand.aktiv)}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: ortung.stand.aktiv }}
+            style={({ pressed }) => [
+              { flexDirection: 'row', alignItems: 'center', gap: 12 },
+              pressed && { opacity: 0.7 },
+            ]}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={styles.title}>Ortung</Text>
+              <Text style={styles.panelHint}>
+                {ortungsHinweis(
+                  ortung.stand.aktiv,
+                  ortung.stand.pausiertBis,
+                  new Date(),
+                  familie
+                )}
+              </Text>
+            </View>
+            <View style={[styles.switch, ortung.stand.aktiv && styles.switchOn]}>
+              <View style={[styles.knob, ortung.stand.aktiv && styles.knobOn]} />
+            </View>
+          </Pressable>
+          <Text style={styles.panelHint}>
+            Überwacht wird nur die Grenze der Orte, die im Hub stehen –
+            kein laufender Standort, sonst wäre der Akku am Nachmittag
+            leer. Wirkt sofort, ohne Speichern.
+          </Text>
+          {ortung.stand.hinweis ? (
+            <Text style={[styles.panelHint, { color: colors.warn }]}>
+              {ortung.stand.hinweis}
+            </Text>
+          ) : null}
+          {/* «Stefan · unterwegs», während Stefan in der Küche steht:
+              Die Zonenüberwachung meldet nur Übertritte, und wer die
+              Ortung zuhause einschaltet, kreuzt keine Grenze. Beim
+              Einschalten meldet die App darum von selbst - und hier
+              steht der Knopf für alle Fälle, in denen eine Meldung
+              unterwegs verloren ging. */}
+          {ortung.stand.gemeldet ? (
+            <Text style={styles.panelHint}>{ortung.stand.gemeldet}</Text>
+          ) : null}
+          {ortung.stand.aktiv ? (
+            <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+              <Pressable
+                onPress={() => ortung.jetztMelden()}
+                accessibilityRole="button"
+                style={styles.mode}
+              >
+                <Text style={styles.modeText}>Jetzt melden</Text>
+              </Pressable>
+              {/* Der stille Einrichtungsfehler: Steht der Hauskreis
+                  auf einer Vorgabe oder einem vertippten Wert, ist man
+                  dauerhaft «unterwegs», während man in der Stube
+                  sitzt - und nichts sieht kaputt aus. Ein Knopf ist
+                  hier die einzige Eingabe, bei der sich niemand
+                  vertippen kann. */}
+              <Pressable
+                onPress={() => ortung.zuhauseSetzen()}
+                accessibilityRole="button"
+                accessibilityLabel="Diesen Standort als Zuhause übernehmen"
+                style={styles.mode}
+              >
+                <Text style={styles.modeText}>Hier ist zuhause</Text>
+              </Pressable>
+              {pausiert(ortung.stand.pausiertBis, new Date()) ? (
+                <Pressable
+                  onPress={() => ortung.weiter()}
+                  accessibilityRole="button"
+                  style={styles.mode}
+                >
+                  <Text style={styles.modeText}>Weiterlaufen lassen</Text>
+                </Pressable>
+              ) : (
+                PAUSEN.map((pause) => (
+                  <Pressable
+                    key={pause.key}
+                    onPress={() => ortung.pausieren(pauseBis(pause.key, new Date()))}
+                    accessibilityRole="button"
+                    style={styles.mode}
+                  >
+                    <Text style={styles.modeText}>Pause: {pause.label}</Text>
+                  </Pressable>
+                ))
+              )}
+            </View>
+          ) : null}
+        </View>
+      </View>
+    </Card>
+  ) : null;
+
+  const verbindung = (
+    <Card style={styles.card}>
+      <Text style={styles.title}>{user ? 'Hub-Verbindung' : 'Hub verbinden'}</Text>
 
       <Pressable
         onPress={() => setScanning(true)}
@@ -180,162 +357,9 @@ export function SettingsScreen({
         placeholder="Token aus config.yaml"
         secure
       />
-      <Field
-        label="Dein Name (für die Begrüssung)"
-        value={name}
-        onChange={setName}
-        placeholder="optional"
-      />
-
-      <View style={styles.field}>
-        <Text style={styles.label}>Erscheinungsbild</Text>
-        <View style={styles.modes}>
-          {MODES.map((option) => (
-            <Pressable
-              key={option.key}
-              onPress={() => setTheme(option.key)}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: theme === option.key }}
-              style={({ pressed }) => [
-                styles.mode,
-                theme === option.key && styles.modeActive,
-                pressed && { opacity: 0.7 },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.modeText,
-                  theme === option.key && styles.modeTextActive,
-                ]}
-              >
-                {option.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-        <Text style={styles.modeHint}>
-          «Nach Sonnenstand» wird bei Sonnenuntergang dunkel und bei
-          Sonnenaufgang wieder hell, «System» folgt der Geräteeinstellung.
-        </Text>
-      </View>
-
-      <Pressable
-        onPress={() => setPanel((value) => !value)}
-        accessibilityRole="switch"
-        accessibilityState={{ checked: panel }}
-        style={({ pressed }) => [styles.panelRow, pressed && { opacity: 0.7 }]}
-      >
-        <View style={{ flex: 1 }}>
-          <Text style={styles.label}>Wandpanel-Modus</Text>
-          <Text style={styles.panelHint}>
-            Bildschirm bleibt an, Ansicht kehrt nach drei Minuten zur Startseite
-            zurück, und nach Sonnenuntergang wird es dunkler – für ein fest
-            montiertes iPad. Eine Berührung macht es sofort wieder hell.
-          </Text>
-        </View>
-        <View style={[styles.switch, panel && styles.switchOn]}>
-          <View style={[styles.knob, panel && styles.knobOn]} />
-        </View>
-      </Pressable>
-
-      {/* Punkt 197: Sobald die App selbst ortet, ändert sich die Frage –
-          nicht «geht das technisch», sondern «weiss jeder, dass es
-          läuft». Ein Familiensystem, dem man beim Orten nicht zusehen
-          kann, wird abgeschaltet, zu Recht. */}
-      {ortung.moeglich ? (
-        <View style={styles.panelRow}>
-          <View style={{ flex: 1, gap: 6 }}>
-            <Pressable
-              onPress={() => ortung.schalten(!ortung.stand.aktiv)}
-              accessibilityRole="switch"
-              accessibilityState={{ checked: ortung.stand.aktiv }}
-              style={({ pressed }) => [
-                { flexDirection: 'row', alignItems: 'center', gap: 12 },
-                pressed && { opacity: 0.7 },
-              ]}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={styles.label}>Ortung</Text>
-                <Text style={styles.panelHint}>
-                  {ortungsHinweis(
-                    ortung.stand.aktiv,
-                    ortung.stand.pausiertBis,
-                    new Date(),
-                    familie
-                  )}
-                </Text>
-              </View>
-              <View style={[styles.switch, ortung.stand.aktiv && styles.switchOn]}>
-                <View style={[styles.knob, ortung.stand.aktiv && styles.knobOn]} />
-              </View>
-            </Pressable>
-            <Text style={styles.panelHint}>
-              Überwacht wird nur die Grenze der Orte, die im Hub stehen –
-              kein laufender Standort, sonst wäre der Akku am Nachmittag
-              leer.
-            </Text>
-            {ortung.stand.hinweis ? (
-              <Text style={[styles.panelHint, { color: colors.warn }]}>
-                {ortung.stand.hinweis}
-              </Text>
-            ) : null}
-            {/* «Stefan · unterwegs», während Stefan in der Küche steht:
-                Die Zonenüberwachung meldet nur Übertritte, und wer die
-                Ortung zuhause einschaltet, kreuzt keine Grenze. Beim
-                Einschalten meldet die App darum von selbst - und hier
-                steht der Knopf für alle Fälle, in denen eine Meldung
-                unterwegs verloren ging. */}
-            {ortung.stand.gemeldet ? (
-              <Text style={styles.panelHint}>{ortung.stand.gemeldet}</Text>
-            ) : null}
-            {ortung.stand.aktiv ? (
-              <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-                <Pressable
-                  onPress={() => ortung.jetztMelden()}
-                  accessibilityRole="button"
-                  style={styles.mode}
-                >
-                  <Text style={styles.modeText}>Jetzt melden</Text>
-                </Pressable>
-                {/* Der stille Einrichtungsfehler: Steht der Hauskreis
-                    auf einer Vorgabe oder einem vertippten Wert, ist man
-                    dauerhaft «unterwegs», während man in der Stube
-                    sitzt - und nichts sieht kaputt aus. Ein Knopf ist
-                    hier die einzige Eingabe, bei der sich niemand
-                    vertippen kann. */}
-                <Pressable
-                  onPress={() => ortung.zuhauseSetzen()}
-                  accessibilityRole="button"
-                  accessibilityLabel="Diesen Standort als Zuhause übernehmen"
-                  style={styles.mode}
-                >
-                  <Text style={styles.modeText}>Hier ist zuhause</Text>
-                </Pressable>
-                {pausiert(ortung.stand.pausiertBis, new Date()) ? (
-                  <Pressable
-                    onPress={() => ortung.weiter()}
-                    accessibilityRole="button"
-                    style={styles.mode}
-                  >
-                    <Text style={styles.modeText}>Weiterlaufen lassen</Text>
-                  </Pressable>
-                ) : (
-                  PAUSEN.map((pause) => (
-                    <Pressable
-                      key={pause.key}
-                      onPress={() => ortung.pausieren(pauseBis(pause.key, new Date()))}
-                      accessibilityRole="button"
-                      style={styles.mode}
-                    >
-                      <Text style={styles.modeText}>Pause: {pause.label}</Text>
-                    </Pressable>
-                  ))
-                )}
-              </View>
-            ) : null}
-          </View>
-        </View>
-      ) : null}
+      {/* Beim Einrichten gibt es noch keine Profil-Karte - der Name
+          wohnt dann hier, damit die Begrüssung vom ersten Tag stimmt. */}
+      {user ? null : nameFeld}
 
       <Pressable
         style={({ pressed }) => [styles.save, pressed && { opacity: 0.8 }]}
@@ -368,10 +392,26 @@ export function SettingsScreen({
     </Card>
   );
 
+  // Verbunden: Profil, Aussehen, Ortung - und die Zugangsdaten am Ende.
+  // Beim Einrichten: erst die Verbindung, das Aussehen darf warten.
+  const karten = user ? (
+    <>
+      {profil}
+      {aussehen}
+      {ortungKarte}
+      {verbindung}
+    </>
+  ) : (
+    <>
+      {verbindung}
+      {aussehen}
+    </>
+  );
+
   if (embedded) {
-    return <View style={styles.embedded}>{form}</View>;
+    return <View style={[styles.embedded, styles.stack]}>{karten}</View>;
   }
-  return <View style={styles.screen}>{form}</View>;
+  return <View style={[styles.screen, styles.stack]}>{karten}</View>;
 }
 
 function Field({
@@ -417,6 +457,9 @@ const makeStyles = (colors: Colors) =>
     padding: 22,
   },
   embedded: { marginTop: 4 },
+  // Der Abstand zwischen den Karten - gleich dem Innenabstand einer
+  // Karte, damit die Seite als eine Spalte liest.
+  stack: { gap: 14 },
   card: {
     width: '100%',
     maxWidth: 460,

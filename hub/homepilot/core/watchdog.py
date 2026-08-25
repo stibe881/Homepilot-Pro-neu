@@ -139,9 +139,52 @@ class Watchdog:
         # Protokoll der letzten Ausfälle für die App (jüngste zuerst).
         self.outages: list[dict[str, Any]] = []
         self._task: asyncio.Task | None = None
+        # An welchen Geräten es gerade klingelt. Ring lässt das Feld eine
+        # Weile auf «on» stehen; ohne Gedächtnis käme bei jeder Meldung
+        # desselben Klingelns eine weitere Nachricht.
+        self._klingelt: set[str] = set()
 
     def start(self) -> None:
         self._task = asyncio.create_task(self._loop())
+        # Die Klingel läuft nicht im Minutentakt mit: Wer vor der Türe
+        # steht, wartet keine Minute. Sie hängt am Ereignis selbst.
+        self.hub.bus.subscribe("state_changed", self._on_state)
+
+    def _on_state(self, _event_type: str, data: dict[str, Any]) -> None:
+        """Bus-Listener: Klingelt es gerade irgendwo?
+
+        Bewusst hier und nicht in der Runde alle 60 Sekunden. Die übrigen
+        Regeln beantworten Fragen, die eine Minute Zeit haben - eine
+        schwache Batterie, ein offenes Fenster. Ein Klingeln hat sie
+        nicht: Bis die Runde das Feld sähe, steht der Besucher wieder auf
+        der Strasse.
+        """
+        entity_id = str(data.get("entity_id") or "")
+        if not entity_id:
+            return
+        alt = str((data.get("old_state") or {}).get("ring") or "")
+        neu = str((data.get("new_state") or {}).get("ring") or "")
+        if neu != "on":
+            # «off» oder verschwunden: Beim nächsten Klingeln darf wieder
+            # gemeldet werden.
+            self._klingelt.discard(entity_id)
+            return
+        if alt == "on" or entity_id in self._klingelt:
+            return
+        self._klingelt.add(entity_id)
+        entity = (data.get("entity") or {}) if isinstance(data.get("entity"), dict) else {}
+        name = str(entity.get("name") or entity_id)
+        # Als eigene Aufgabe: Der Bus ruft synchron, und eine Nachricht
+        # zu verschicken dauert - der Zustand soll darauf nicht warten.
+        asyncio.create_task(self._melde_klingeln(entity_id, name))
+
+    async def _melde_klingeln(self, entity_id: str, name: str) -> None:
+        await self._notify(
+            f"Es klingelt: {name}",
+            "Jemand steht vor der Türe.",
+            "doorbell",
+            data={"type": "doorbell", "entity_id": entity_id},
+        )
 
     async def stop(self) -> None:
         if self._task:

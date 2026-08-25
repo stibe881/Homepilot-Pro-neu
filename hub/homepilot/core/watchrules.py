@@ -180,6 +180,21 @@ def leaks(entities: list[Any]) -> list[Any]:
     ]
 
 
+def klingelnde(entities: list[Any]) -> list[Any]:
+    """Geräte, an denen es gerade klingelt (rein, testbar).
+
+    Das Feld `ring` führt jedes Gerät, das klingeln kann - die Türklingel
+    mit Kamera ebenso wie die Gegensprechanlage. Wer keines hat, taucht
+    hier nie auf; ein Gerät, das nur gerade nicht klingelt, steht auf
+    «off» und ebenfalls nicht.
+    """
+    return [
+        entity
+        for entity in entities
+        if str(entity.state.get("ring") or "") == "on"
+    ]
+
+
 def low_batteries(entities: list[Any]) -> list[Any]:
     """Geräte, die eine schwache Batterie melden (rein, testbar)."""
     return [entity for entity in entities if entity.state.get("low_battery") is True]
