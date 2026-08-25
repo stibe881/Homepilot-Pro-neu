@@ -58,6 +58,24 @@ export function chipZeile(entity: Entity, jetzt: number): string {
 }
 
 /**
+ * Was in einer Raum- oder Listenzeile über einen Timer steht (rein,
+ * testbar).
+ *
+ * Vorher stand dort «Läuft». Das beantwortet die Frage nicht, die man an
+ * einen Timer hat – beim Einschlaf-Timer des Fernsehers will man wissen,
+ * wie lange noch. Die Zahl steht im Zustand, sie wurde bloss nicht
+ * gelesen.
+ *
+ * Ohne bekanntes Ende bleibt es bei «Läuft»: Ein Timer, der läuft, aber
+ * kein Ende meldet, ist immer noch mehr als «Aus».
+ */
+export function timerZeile(entity: Entity, jetzt: number): string {
+  const rest = restMinuten(entity.state.sleep_until, jetzt);
+  if (rest !== null) return dauerText(rest);
+  return String(entity.state.state ?? '') === 'on' ? 'Läuft' : 'Aus';
+}
+
+/**
  * Die Zeile über den Knöpfen im Timer-Fenster (rein, testbar).
  *
  * Sie beantwortet die Frage, mit der man das Fenster öffnet: Läuft schon

@@ -6,6 +6,7 @@ import {
   kannTimer,
   restMinuten,
   timerAuswahl,
+  timerZeile,
 } from './fernsehtimer';
 
 const JETZT = 1_700_000_000_000;
@@ -61,6 +62,33 @@ describe('Einschlaf-Timer des Fernsehers', () => {
     // Ohne Timer wieder die schlichte Auskunft.
     expect(chipZeile(tv(), JETZT)).toBe('An');
     expect(chipZeile(tv({ state: 'off' }), JETZT)).toBe('Aus');
+  });
+
+  it('schreibt die Restzeit auch in die Raumzeile', () => {
+    // Der Timer ist eine eigene Entität neben dem Fernseher. In der
+    // Raumkachel stand darüber «Läuft» - richtig und nutzlos, denn was
+    // man wissen will, ist: wie lange noch.
+    const timerGeraet = (over: Record<string, unknown>): Entity =>
+      ({
+        id: 'androidtv.schlafzimmer_timer',
+        name: 'Fernseher Schlafzimmer Timer',
+        kind: 'timer',
+        integration: 'androidtv',
+        available: true,
+        commands: ['sleep_timer'],
+        state: over,
+      }) as unknown as Entity;
+
+    expect(timerZeile(timerGeraet({ state: 'on', sleep_until: JETZT / 1000 + 9 * 60 }), JETZT)).toBe(
+      '9 min'
+    );
+    // Ohne bekanntes Ende bleibt «Läuft» - immer noch mehr als «Aus».
+    expect(timerZeile(timerGeraet({ state: 'on' }), JETZT)).toBe('Läuft');
+    expect(timerZeile(timerGeraet({ state: 'off' }), JETZT)).toBe('Aus');
+    // Ein abgelaufener Zeitpunkt ist kein Timer mehr.
+    expect(
+      timerZeile(timerGeraet({ state: 'off', sleep_until: JETZT / 1000 - 60 }), JETZT)
+    ).toBe('Aus');
   });
 
   it('sagt im Fenster, ob schon einer läuft', () => {

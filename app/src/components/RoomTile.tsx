@@ -6,6 +6,7 @@ import { Entity, Scene } from '../api/types';
 import { Colors, radius, useColors } from '../theme';
 import { Card } from './Card';
 import { raumSymbol, raumZeile, wichtigeZuerst } from '../lib/raum';
+import { timerZeile } from '../lib/fernsehtimer';
 import { zustandsText } from '../lib/haushalt';
 
 /**
@@ -53,7 +54,9 @@ export function shortState(entity: Entity): string {
     case 'media_player':
       return state === 'playing' ? 'Spielt' : 'Still';
     case 'timer':
-      return state === 'on' ? 'Läuft' : 'Aus';
+      // «Läuft» beantwortet die Frage nicht, die man an einen Timer hat:
+      // wie lange noch. Siehe lib/fernsehtimer.
+      return timerZeile(entity, Date.now());
     case 'lock':
       return state === 'locked' ? 'Zu' : 'Offen';
     case 'vacuum':
