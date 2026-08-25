@@ -279,3 +279,91 @@ def test_wieder_aufnehmen_verträgt_kaputte_zeilen():
         stand = presence.wieder_aufnehmen(zeilen, "stefan", jetzt)
         assert stand["state"] == presence.UNKNOWN
         assert stand["source"] == "none"
+
+
+# ── Orte, die von Life360 kommen ─────────────────────────────────────────
+
+
+def test_fremde_orte_kommen_hinter_die_eigenen():
+    from homepilot.core.presence import orte_ergaenzen
+
+    eigene = [{"id": "home", "name": "Zuhause", "radius": 150.0, "source": "config"}]
+    dazu = [{"id": "schule", "name": "Schule", "radius": 200.0}]
+    zusammen = orte_ergaenzen(eigene, dazu, "life360")
+    assert [ort["id"] for ort in zusammen] == ["home", "schule"]
+    # Woher ein Ort kommt, entscheidet, ob die App ihn löschen darf.
+    assert zusammen[1]["source"] == "life360"
+
+
+def test_ein_eigener_ort_wird_nicht_ueberschrieben():
+    from homepilot.core.presence import orte_ergaenzen
+
+    # Wer den Ort hier von Hand gepflegt hat, meinte genau diesen Radius.
+    eigene = [{"id": "schule", "name": "Schule", "radius": 200.0, "source": "config"}]
+    dazu = [{"id": "schule", "name": "Schule Zell", "radius": 900.0}]
+    zusammen = orte_ergaenzen(eigene, dazu, "life360")
+    assert zusammen == eigene
+
+
+def test_nach_radius_sortiert_damit_der_engste_gewinnt():
+    from homepilot.core.presence import orte_ergaenzen, place_state
+
+    eigene = [
+        {"id": "home", "name": "Zuhause", "radius": 150.0, "source": "config"},
+        {"id": "quartier", "name": "Quartier", "radius": 3000.0, "source": "config"},
+    ]
+    orte = orte_ergaenzen(eigene, [{"id": "schule", "name": "Schule", "radius": 200.0}], "life360")
+    assert [ort["id"] for ort in orte] == ["home", "schule", "quartier"]
+    # Der benannte Ort schlägt die weite Vorlaufzone - genau darum die
+    # Sortierung.
+    zustand, engster = place_state(["quartier", "schule"], orte)
+    assert engster == "schule" and zustand == "schule"
+
+
+def test_zuhause_schlaegt_auch_einen_engeren_fremden_ort():
+    from homepilot.core.presence import HOME, orte_ergaenzen, place_state
+
+    orte = orte_ergaenzen(
+        [{"id": "home", "name": "Zuhause", "radius": 150.0, "source": "config"}],
+        [{"id": "tanners_home", "name": "Tanners Home", "radius": 80.0}],
+        "life360",
+    )
+    # Daran hängen Alarmanlage und Abläufe; ein Name aus einer fremden
+    # App darf «zuhause» nicht verdrängen.
+    zustand, _ = place_state(["tanners_home", "home"], orte)
+    assert zustand == HOME
+
+
+# ── Eine Quelle je Person ────────────────────────────────────────────────
+#
+# Der gemeldete Fall: «Es wird angezeigt, dass ich unterwegs bin, obwohl
+# ich längst zuhause bin.» Life360 meldete «zuhause», und auf einem
+# Telefon lief die Ortung der App weiter und schob aus dem Hintergrund
+# ein «weg» nach. Wer zuletzt sprach, bekam recht.
+
+
+def test_wer_niemandem_gehoert_darf_melden():
+    from homepilot.core.presence import meldung_annehmen
+
+    assert meldung_annehmen("geofence", {}, "stefan") is True
+
+
+def test_die_fuehrende_quelle_darf_melden():
+    from homepilot.core.presence import meldung_annehmen
+
+    assert meldung_annehmen("life360", {"stefan": "life360"}, "stefan") is True
+
+
+def test_eine_zweite_quelle_wird_ueberhoert():
+    from homepilot.core.presence import meldung_annehmen
+
+    # Genau der Fall: Das Telefon meldet noch, Life360 führt die Person.
+    assert meldung_annehmen("geofence", {"stefan": "life360"}, "stefan") is False
+
+
+def test_der_anspruch_gilt_nur_fuer_die_eigene_person():
+    from homepilot.core.presence import meldung_annehmen
+
+    # Wer nicht bei Life360 eingetragen ist, meldet weiter selbst - etwa
+    # ein Besuch mit Kurzbefehl.
+    assert meldung_annehmen("geofence", {"stefan": "life360"}, "livia") is True

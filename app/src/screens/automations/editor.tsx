@@ -11,6 +11,7 @@ import { Entity, Scene } from '../../api/types';
 import { Colors, useColors } from '../../theme';
 import { ablaufSatz } from '../../lib/ablaufsatz';
 import { datumUhr } from '../../lib/format';
+import { ZUHAUSE, ortsauswahl } from '../../lib/ortsausloeser';
 import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, KAMERA_AUSLOESER, PLATZHALTER, hatWartezeit, measurableAttributes, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, unbekannterZustand, weekdayLabel, zeitfensterHinweis } from './entwurf';
 import {
   CategoryField,
@@ -27,6 +28,7 @@ import { SceneDevices } from './szenen-editor';
 export function Editor({
   draft,
   entities,
+  orte,
   scenes,
   categories,
   hueScenes,
@@ -43,6 +45,9 @@ export function Editor({
 }: {
   draft: Draft | null;
   entities: Entity[];
+  /** Die Orte des Hubs – eigene und die aus Life360 übernommenen.
+   *  Ohne sie kennt der Ortsauslöser nur «Zuhause». */
+  orte?: { id: string; name?: string }[];
   scenes: Scene[];
   /** Schon vergebene Kategorien – als Vorschläge im Feld. */
   categories: string[];
@@ -183,6 +188,7 @@ export function Editor({
               key={index}
               trigger={trigger}
               entities={entities}
+              orte={orte}
               index={index}
               removable={draft.triggers.length > 1}
               onChange={(patch) => setTrigger(index, patch)}
@@ -867,6 +873,7 @@ export function VersionsSection({
 export function TriggerRow({
   trigger,
   entities,
+  orte,
   index,
   removable,
   onChange,
@@ -874,6 +881,7 @@ export function TriggerRow({
 }: {
   trigger: TriggerDraft;
   entities: Entity[];
+  orte?: { id: string; name?: string }[];
   index: number;
   removable: boolean;
   onChange: (patch: Partial<TriggerDraft>) => void;
@@ -882,6 +890,9 @@ export function TriggerRow({
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const chosen = entities.find((entity) => entity.id === trigger.entityId);
+  // Ein einziger Eintrag hiesse «nur Zuhause» - dann ist die Zeile eine
+  // Auswahl ohne Wahl und bleibt besser weg.
+  const ortsWahl = useMemo(() => ortsauswahl(orte ?? []), [orte]);
   return (
     <View style={styles.triggerBox}>
       {removable ? (
@@ -1072,10 +1083,19 @@ export function TriggerRow({
             value={trigger.toState === 'away' ? 'away' : 'home'}
             onSelect={(toState) => onChange({ toState })}
           />
+          {ortsWahl.length > 1 ? (
+            <Choice
+              options={ortsWahl}
+              value={trigger.ortId || ZUHAUSE}
+              onSelect={(ortId) => onChange({ ortId })}
+            />
+          ) : null}
           <Text style={styles.triggerNote}>
-            Das Telefon meldet den Wechsel selbst – auf dem iPhone über die
-            Kurzbefehle-App («Wenn ich ankomme» → Inhalte von URL abrufen).
-            Steht in docs/geofence.md.
+            {trigger.ortId && trigger.ortId !== ZUHAUSE
+              ? 'Die Orte kommen aus dem Hub und aus Life360 – dort angelegte ' +
+                'Orte erscheinen hier von selbst.'
+              : 'Wer meldet, steht unter System → Integrationen. Läuft Life360, ' +
+                'kommt die Meldung von dort; sonst vom Telefon selbst.'}
           </Text>
           <MinutenWahl
             options={[
