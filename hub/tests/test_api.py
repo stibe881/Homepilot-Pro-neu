@@ -184,6 +184,37 @@ def test_entity_meta_rename_favorite_group():
         assert entity["name"] == "Stehlampe"
 
 
+def test_only_the_owner_renames_and_the_name_holds_for_everyone():
+    """Ein Gerätename ist keine persönliche Einstellung.
+
+    Er liegt in der homepilot-data.json und gilt danach im ganzen Haus -
+    genau deshalb darf ihn nur die Besitzerin setzen. Ein Bewohner, der es
+    versucht, bekommt ein sauberes 403; die Kachel in der App fragt
+    dieselbe Fähigkeit ab und zeigt ihm den Knopf gar nicht erst.
+    """
+    hub = Hub(
+        make_config(
+            token="geheim",
+            users=[
+                {"name": "Stefan", "role": "besitzer", "token": "t-stefan"},
+                {"name": "Livia", "role": "bewohner", "token": "t-livia"},
+            ],
+        )
+    )
+    with TestClient(create_app(hub)) as client:
+        stefan = {"Authorization": "Bearer t-stefan"}
+        livia = {"Authorization": "Bearer t-livia"}
+        pfad = "/api/entities/demo.light_livingroom/meta"
+
+        assert client.put(pfad, json={"name": "Leselampe"}, headers=livia).status_code == 403
+
+        assert client.put(pfad, json={"name": "Leselampe"}, headers=stefan).status_code == 200
+        # Und für Livia heisst das Gerät ab sofort auch so - es ist
+        # derselbe Name, nicht ihre eigene Sicht darauf.
+        entities = {e["id"]: e for e in client.get("/api/entities", headers=livia).json()}
+        assert entities["demo.light_livingroom"]["name"] == "Leselampe"
+
+
 def test_entity_meta_unknown_entity_is_404():
     with make_client() as client:
         assert (

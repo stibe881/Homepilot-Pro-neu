@@ -1,54 +1,31 @@
-/**
- * Was langes Drücken anbietet.
- *
- * Der Fall: «Die Kacheln auf der Startseite bei Favoriten lassen sich mit
- * einem langen Drücken nicht umbenennen.»
- */
 import { kachelAktionen } from './kachelmenue';
 
-const schluessel = (opts: Parameters<typeof kachelAktionen>[0]) =>
-  kachelAktionen(opts).map((eintrag) => eintrag.key);
-
-const standard = {
-  favorit: false,
-  versteckt: false,
-  mitVerlauf: true,
-  darfBearbeiten: true,
-};
-
 describe('kachelAktionen', () => {
-  it('stellt das Umbenennen nach vorn', () => {
-    // Danach greift die Hand, wenn sie eine Kachel lange hält.
-    expect(schluessel(standard)[0]).toBe('rename');
+  it('stellt das Umbenennen voran', () => {
+    // Es ist der Grund, aus dem es dieses Menü gibt; der Verlauf hat
+    // unter «Geräte» ohnehin seinen eigenen Weg.
+    expect(kachelAktionen({ umbenennen: true, verlauf: true }).map((e) => e.id)).toEqual([
+      'umbenennen',
+      'verlauf',
+    ]);
   });
 
-  it('behält den Verlauf, nur eine Zeile tiefer', () => {
-    // Vorher zeigte langes Drücken ihn sofort. Ihn ganz zu streichen wäre
-    // ein Verlust für einen Gewinn woanders.
-    expect(schluessel(standard)).toContain('history');
-    expect(schluessel({ ...standard, mitVerlauf: false })).not.toContain('history');
+  it('bleibt bei einem Eintrag, wenn nur eines möglich ist', () => {
+    // Wer nicht umbenennen darf, kommt mit dem langen Druck weiterhin
+    // direkt zum Verlauf - für ihn ändert sich gar nichts.
+    expect(kachelAktionen({ verlauf: true }).map((e) => e.id)).toEqual(['verlauf']);
+    expect(kachelAktionen({ umbenennen: true }).map((e) => e.id)).toEqual(['umbenennen']);
   });
 
-  it('lässt Umbenennen und Raum weg, wo es niemand darf', () => {
-    // Der Hub verlangt für beides eine Berechtigung. Ein Eintrag, der mit
-    // «keine Berechtigung» antwortet, wäre ein Knopf, der nichts tut.
-    const ohne = schluessel({ ...standard, darfBearbeiten: false });
-    expect(ohne).not.toContain('rename');
-    expect(ohne).not.toContain('room');
-    // Favorit und Ausblenden gehören dem Benutzer selbst – die bleiben.
-    expect(ohne).toEqual(['favorite', 'hide', 'history']);
+  it('bietet nichts an, wo es nichts anzubieten gibt', () => {
+    expect(kachelAktionen({})).toEqual([]);
+    expect(kachelAktionen({ umbenennen: false, verlauf: false })).toEqual([]);
   });
 
-  it('sagt, was der Griff bewirkt – nicht, was gerade gilt', () => {
-    // «Favorit» auf einer Kachel, die schon einer ist, wäre eine Aussage
-    // über den Zustand und keine über den Knopf.
-    const [favorit] = kachelAktionen({ ...standard, favorit: true }).filter(
-      (eintrag) => eintrag.key === 'favorite'
-    );
-    expect(favorit.label).toBe('Kein Favorit');
-    const [zeigen] = kachelAktionen({ ...standard, versteckt: true }).filter(
-      (eintrag) => eintrag.key === 'hide'
-    );
-    expect(zeigen.label).toBe('Wieder zeigen');
+  it('gibt jedem Eintrag ein Sinnbild und eine Beschriftung', () => {
+    for (const eintrag of kachelAktionen({ umbenennen: true, verlauf: true })) {
+      expect(eintrag.label.length).toBeGreaterThan(0);
+      expect(eintrag.icon.length).toBeGreaterThan(0);
+    }
   });
 });

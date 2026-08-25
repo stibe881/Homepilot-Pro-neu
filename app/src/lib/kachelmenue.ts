@@ -1,63 +1,49 @@
 /**
- * Was langes Drücken auf einer Kachel anbietet.
+ * Was ein langer Druck auf eine Kachel anbietet.
  *
- * Der Anlass: «Die Kacheln auf der Startseite bei Favoriten lassen sich
- * mit einem langen Drücken nicht umbenennen.» Umbenennen gab es nur im
- * Anpassen-Modus – drei Schritte entfernt von der Kachel, die man in der
- * Hand hat. Langes Drücken zeigte stattdessen den Verlauf, und bei einer
- * Kachel ohne Verlauf gar nichts.
+ * Der lange Druck zeigte bisher den Verlauf des Geräts. Umbenennen gab es
+ * nur im Anpassen-Modus – drei Schritte für eine Kleinigkeit, die man
+ * meistens genau dann tun will, wenn einem der Name vor Augen steht.
  *
- * Herausgelöst aus dem Bildschirm, weil die Liste eine Entscheidung ist
- * und keine Darstellung: Was jemand darf und was zu diesem Gerät passt,
- * lässt sich prüfen – die Kachel selbst zieht die Symbolschriften von
- * Expo mit und ist für Jest deshalb nicht greifbar.
+ * Beides auf derselben Geste heisst: eine kleine Auswahl. Aber nur, wenn
+ * es wirklich etwas zu wählen gibt – bleibt nur ein Eintrag übrig,
+ * passiert er sofort. Für alle, die nicht umbenennen dürfen, ändert sich
+ * damit gar nichts: Der lange Druck zeigt weiter direkt den Verlauf.
+ *
+ * Umbenennen gilt fürs ganze Haus (der Hub merkt sich den Namen) und
+ * darum nur für die Besitzerin: Der Hub verlangt für die Route
+ * `edit_config`, und diese Auswahl fragt dasselbe, damit niemand einen
+ * Knopf sieht, der ihm gleich ein «nicht erlaubt» einträgt.
  */
 
-export type KachelAktion = 'rename' | 'room' | 'favorite' | 'hide' | 'history';
+export type KachelAktion = 'umbenennen' | 'verlauf';
 
 export interface KachelEintrag {
-  key: KachelAktion;
+  id: KachelAktion;
   label: string;
-  /** Name eines Ionicons. */
+  /** Ionicons-Name; die Kachel setzt ihn ein, die Liste kennt ihn nur. */
   icon: string;
 }
 
-export function kachelAktionen({
-  favorit,
-  versteckt,
-  mitVerlauf,
-  darfBearbeiten,
-}: {
-  favorit: boolean;
-  versteckt: boolean;
-  /** Führt der Hub für dieses Gerät einen Verlauf? */
-  mitVerlauf: boolean;
-  /** Umbenennen und Raum ändern die Angaben für alle im Haus – das
-   *  dürfen nicht alle. Ein Eintrag, der mit «keine Berechtigung»
-   *  antwortet, wäre ein Knopf, der nichts tut. */
-  darfBearbeiten: boolean;
+const EINTRAEGE: Record<KachelAktion, KachelEintrag> = {
+  umbenennen: { id: 'umbenennen', label: 'Umbenennen', icon: 'pencil' },
+  verlauf: { id: 'verlauf', label: 'Verlauf ansehen', icon: 'time-outline' },
+};
+
+/**
+ * Die Einträge des Kachelmenüs, in der Reihenfolge, in der sie stehen
+ * (rein, testbar).
+ *
+ * «Umbenennen» steht oben: Es ist der Grund, aus dem es dieses Menü
+ * überhaupt gibt. Der Verlauf hat unter «Geräte» ohnehin seinen eigenen
+ * Weg über einen einfachen Tipp.
+ */
+export function kachelAktionen(moeglich: {
+  umbenennen?: boolean;
+  verlauf?: boolean;
 }): KachelEintrag[] {
-  const eintraege: KachelEintrag[] = [];
-  // Umbenennen zuerst: Es ist das, wonach die Hand greift, wenn sie eine
-  // Kachel lange hält.
-  if (darfBearbeiten) {
-    eintraege.push({ key: 'rename', label: 'Umbenennen', icon: 'pencil' });
-    eintraege.push({ key: 'room', label: 'Raum wählen', icon: 'home-outline' });
-  }
-  eintraege.push({
-    key: 'favorite',
-    label: favorit ? 'Kein Favorit' : 'Favorit',
-    icon: favorit ? 'star' : 'star-outline',
-  });
-  eintraege.push({
-    key: 'hide',
-    label: versteckt ? 'Wieder zeigen' : 'Ausblenden',
-    icon: versteckt ? 'eye-outline' : 'eye-off-outline',
-  });
-  // Der Verlauf stand hier vorher allein – er bleibt, nur eine Zeile
-  // tiefer. Bei einem Gerät ohne Verlauf wäre die Zeile eine Attrappe.
-  if (mitVerlauf) {
-    eintraege.push({ key: 'history', label: 'Verlauf', icon: 'stats-chart-outline' });
-  }
-  return eintraege;
+  const gewaehlt: KachelAktion[] = [];
+  if (moeglich.umbenennen) gewaehlt.push('umbenennen');
+  if (moeglich.verlauf) gewaehlt.push('verlauf');
+  return gewaehlt.map((id) => EINTRAEGE[id]);
 }
