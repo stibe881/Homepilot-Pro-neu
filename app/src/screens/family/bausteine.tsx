@@ -45,6 +45,10 @@ export interface Props {
   /** Zeitstempel der letzten Familien-Änderung (family_changed über den
    *  WebSocket) – ändert er sich, lädt der Bildschirm neu. */
   changedAt?: number;
+  /** Gleich in diesem Modul aufmachen statt in der Übersicht. Für die
+   *  Abkürzungen am Wandpanel: Wer dort «Notfallblatt» drückt, will das
+   *  Notfallblatt und nicht die Kachelwand davor. */
+  startModul?: string | null;
 }
 
 export type ModuleKey =

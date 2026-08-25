@@ -10,6 +10,7 @@ import {
   istGesperrt,
   istPersoenlich,
   offenBis,
+  offeneModule,
 } from './bereichsriegel';
 
 const JETZT = 1_700_000_000_000;
@@ -59,5 +60,33 @@ describe('offenBis', () => {
   it('hat eine eigene, wenn der Hub keine nennt', () => {
     expect(offenBis(JETZT)).toBe(JETZT + OFFEN_MS);
     expect(offenBis(JETZT, 0)).toBe(JETZT + OFFEN_MS);
+  });
+});
+
+describe('Was am Wandpanel ohne Code offensteht', () => {
+  it('sind Kontakte, Notfallblatt und Babysitter', () => {
+    // Der Babysitter braucht das Notfallblatt, und im Notfall braucht es
+    // jeder, der gerade im Flur steht. Ein Code davor ist kein
+    // Sichtschutz, sondern eine verschlossene Tür vor dem Feuerlöscher.
+    expect(offeneModule('family', true, true)).toEqual([
+      'contacts',
+      'emergency',
+      'babysitter',
+    ]);
+  });
+
+  it('gilt nur am Panel', () => {
+    // Auf einem Telefon hat der Riegel diesen Zweck nicht - das Gerät
+    // steckt in einer Tasche und nicht im Flur.
+    expect(offeneModule('family', false, true)).toEqual([]);
+    expect(offeneModule('family', undefined, true)).toEqual([]);
+  });
+
+  it('gilt nur, wo der Riegel wirklich steht', () => {
+    // Sonst stünde dieselbe Kachel zweimal da: einmal als Abkürzung und
+    // einmal auf der Seite dahinter.
+    expect(offeneModule('family', true, false)).toEqual([]);
+    // Und im Konto gibt es nichts, was der Besuch im Flur brauchte.
+    expect(offeneModule('account', true, true)).toEqual([]);
   });
 });

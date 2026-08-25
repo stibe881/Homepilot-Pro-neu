@@ -84,7 +84,7 @@ import {
 import { Person } from '../lib/ortung';
 import { FAVORITEN, raumGruppen } from '../lib/raumgruppen';
 import { verlangtPin } from '../lib/alarmpin';
-import { istGesperrt } from '../lib/bereichsriegel';
+import { OffenesModul, istGesperrt, offeneModule } from '../lib/bereichsriegel';
 import { schleier } from '../lib/nachtabsenkung';
 import { nachBewegung } from '../lib/kameraordnung';
 import { hubClient, onHubFehler } from '../api/client';
@@ -107,6 +107,7 @@ import { WhatsNew } from '../components/WhatsNew';
 import { LightGroups } from '../components/LightGroups';
 import { DeviceTools } from '../components/DeviceTools';
 import { SceneSuggestion } from '../components/SceneSuggestion';
+import { PersonenScreen } from './PersonenScreen';
 import { UsersScreen } from './UsersScreen';
 import { confirm as confirmBiometrie, needsCheck } from '../lib/biometrie';
 import { mayOpenDirectly } from '../lib/tuerbestaetigung';
@@ -278,6 +279,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Bis wann die persönlichen Bereiche offen sind (0 = zu). Nur im
   // Arbeitsspeicher: Nach einem Neustart der App wird wieder gefragt.
   const [riegelBis, setRiegelBis] = useState(0);
+  // Welches Modul die Abkürzung am Wandpanel aufmachen soll.
+  const [riegelModul, setRiegelModul] = useState<OffenesModul | null>(null);
   const [room, setRoom] = useState(ALL_ROOMS);
   const [now, setNow] = useState(() => new Date());
   const [gridWidth, setGridWidth] = useState(0);
@@ -657,6 +660,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         setEditing(false);
         setRoom(ALL_ROOMS);
         setRiegelBis(0);
+        setRiegelModul(null);
       }
     },
     panelArtig ? 30000 : null
@@ -1295,12 +1299,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     // Der Riegel vor Familie und Konto - siehe lib/bereichsriegel.ts. Er
     // steht vor dem Verteiler, damit kein Bereich ihn vergessen kann.
     // `now` tickt ohnehin; damit läuft die offene Zeit von selbst ab.
-    if (istGesperrt(section, user?.area_locked, riegelBis, now.getTime())) {
+    const gesperrt = istGesperrt(section, user?.area_locked, riegelBis, now.getTime());
+    // Die Abkürzungen zählen wie ein aufgeschlossener Riegel - solange
+    // sie führen, ist der Bereich offen, aber nur für dieses eine Modul.
+    if (gesperrt && riegelModul === null) {
       return (
         <BereichRiegel
           settings={settings}
           titel={SECTION_LABEL[section]}
           onOffen={setRiegelBis}
+          offen={offeneModule(section, settings.panel, gesperrt)}
+          onOeffneModul={setRiegelModul}
         />
       );
     }
@@ -1349,6 +1358,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           moduleOrder={prefs.order?.family}
           onReorderModules={(keys) => setOrder('family', keys)}
           changedAt={familyChangedAt}
+          startModul={riegelModul}
         />
       );
     }
@@ -1400,6 +1410,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           label: 'Benutzerverwaltung',
           detail: 'Zugänge und Rollen: Besitzer, Mitbewohner, Gast',
           show: sieht('users'),
+        },
+        {
+          key: 'personen',
+          icon: 'people-outline',
+          label: 'Familie und Freunde',
+          detail: 'Wer ist wo, und was soll über wen gemeldet werden',
+          // Auch für Mitbewohner: Wo die Familie gerade ist, geht alle
+          // an, die hier wohnen - anders als die Frage, wer Zugang hat.
+          show: true,
         },
         {
           key: 'automations',
@@ -1539,6 +1558,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         <View style={styles.stack}>
           {back}
           <ActivityCard activity={activity} />
+        </View>
+      );
+    }
+    if (section === 'personen') {
+      return (
+        <View style={styles.stack}>
+          {back}
+          <PersonenScreen settings={settings} />
         </View>
       );
     }

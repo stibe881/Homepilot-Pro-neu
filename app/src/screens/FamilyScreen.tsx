@@ -120,13 +120,19 @@ export function FamilyScreen({
   moduleOrder,
   onReorderModules,
   changedAt,
+  startModul,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   // Der Stand, wie der Hub ihn kennt …
   const [serverData, setServerData] = useState<FamilyData>({});
   const [members, setMembers] = useState<Member[]>([]);
-  const [view, setView] = useState<ModuleKey | null>(null);
+  // Der Startwunsch gilt genau einmal, beim ersten Zeichnen. Danach
+  // gehört `view` dem Bildschirm: Würde der Wunsch weiterwirken, führte
+  // jedes «zurück» sofort wieder in dasselbe Modul.
+  const [view, setView] = useState<ModuleKey | null>(
+    (startModul as ModuleKey | null) ?? null
+  );
   const [reorderOpen, setReorderOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [calMode, setCalMode] = useState<'list' | 'month'>('list');
