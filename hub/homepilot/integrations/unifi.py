@@ -3,8 +3,8 @@
 Konfiguration:
   - integration: unifi
     host: 192.168.1.1
-    username: "${UNIFI_USER}"
-    password: "${UNIFI_PASSWORD}"
+    username: "${UNIFI_NET_USER}"
+    password: "${UNIFI_NET_PASSWORD}"
     site: default
     scan_interval: 30
     track:
@@ -40,7 +40,7 @@ import aiohttp
 
 from ..core.entity import EntityKind
 from ..core.errors import ConfigError
-from ..core.integration import Integration
+from ..core.integration import Integration, console_html_hint
 
 
 def normalise_mac(mac: str) -> str:
@@ -98,9 +98,7 @@ class UnifiIntegration(Integration):
         self._prefix = ""  # wird beim Login gesetzt
         self._csrf: str | None = None
 
-        # Der Controller nutzt ein selbstsigniertes Zertifikat.
-        self._session = self.http_session(
-            connector=aiohttp.TCPConnector(ssl=False),
+        self._session = self.console_session(
             timeout=aiohttp.ClientTimeout(total=20),
         )
 
@@ -159,6 +157,9 @@ class UnifiIntegration(Integration):
                         continue
                     self._prefix = prefix
                     self._csrf = response.headers.get("X-CSRF-Token") or self._csrf
+                    # Das Anmelde-Cookie selbst ablegen - aiohttp verwirft
+                    # es, weil UniFi OS es mit 'partitioned' schickt.
+                    self.keep_cookies(self._session, response, self._base)
                     self.log.info(
                         "Am UniFi-Controller angemeldet (%s)",
                         "UniFi OS" if prefix else "Standalone",
@@ -167,6 +168,13 @@ class UnifiIntegration(Integration):
             except aiohttp.ClientError as err:
                 raise ConnectionError(f"UniFi-Controller nicht erreichbar: {err}") from err
         raise ConnectionError("UniFi-Anmeldung fehlgeschlagen – Zugangsdaten prüfen")
+
+    @staticmethod
+    def _pruefe_antwort(response: aiohttp.ClientResponse) -> None:
+        """Die Anmeldeseite als solche erkennen, bevor JSON daran scheitert."""
+        hinweis = console_html_hint(str(response.url), response.content_type)
+        if hinweis:
+            raise ConnectionError(hinweis)
 
     async def _fetch_clients(self) -> list[dict[str, Any]]:
         url = f"{self._base}{self._prefix}/api/s/{self._site}/stat/sta"
@@ -178,9 +186,11 @@ class UnifiIntegration(Integration):
                 await self._login()
                 async with self._session.get(url, headers=headers) as retry:
                     retry.raise_for_status()
+                    self._pruefe_antwort(retry)
                     payload = await retry.json()
             else:
                 response.raise_for_status()
+                self._pruefe_antwort(response)
                 payload = await response.json()
         return payload.get("data", [])
 
@@ -204,9 +214,11 @@ class UnifiIntegration(Integration):
                     method, url, json=json, params=params, headers=headers
                 ) as retry:
                     retry.raise_for_status()
+                    self._pruefe_antwort(retry)
                     payload = await retry.json(content_type=None)
             else:
                 response.raise_for_status()
+                self._pruefe_antwort(response)
                 payload = await response.json(content_type=None)
         return payload.get("data", []) if isinstance(payload, dict) else []
 

@@ -11,6 +11,11 @@ import { Platform } from 'react-native';
  * betroffenen Raums, bei einer Bewegungsmeldung die Kamera selbst, die sie
  * gesehen hat. Hier wird sie ausgepackt.
  *
+ * Dieselbe Mechanik trägt inzwischen mehr als Kameras: Eine
+ * Batteriewarnung legt `type: 'battery'` und das betroffene Gerät bei,
+ * und die App springt damit auf die Geräteseite mit aufgeklappter
+ * Batterienliste – dort steht der Knopf zum Quittieren.
+ *
  * Das Standbild in der Nachricht selbst hängt am Hub: Es braucht eine von
  * aussen erreichbare Adresse ohne Anmeldung (`push.public_url`, siehe
  * hub/core/snapshots.py). Ohne sie kommt die Nachricht ohne Bild – der

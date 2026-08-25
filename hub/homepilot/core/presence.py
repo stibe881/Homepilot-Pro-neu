@@ -21,6 +21,7 @@ daraus Nachrichten macht, ist der Wächter.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 # Zustände, die eine Person haben kann.
@@ -135,14 +136,157 @@ def place_state(inside: list[str], places: list[dict[str, Any]]) -> tuple[str, s
     # benannten Ort im Dorf. Ein Name, den jemand vergeben hat, sagt mehr
     # als «irgendwo im Umkreis».
     fremd = [ort_id for ort_id in inside if ort_id not in reihenfolge]
-    # Nur «zuhause» bleibt davor: Daran hängen Alarmanlage und Abläufe,
-    # und die sollen nicht an einem Namen aus einer fremden App hängen.
-    if drin and drin[0] == HOME:
-        geordnet = [HOME, *fremd, *drin[1:]]
+    # «Zuhause» sticht alles - nicht nur, wenn es zufällig der engste
+    # eigene Ort ist. Daran hängen Alarmanlage und Abläufe, und sie
+    # sollen nicht an einem Namen aus einer fremden App hängen.
+    #
+    # Der Unterschied wurde erst wichtig, als die Orte von Life360 zu
+    # gewöhnlichen Orten des Hubs wurden: Vorher standen sie ausserhalb
+    # der Reihenfolge, und die Prüfung «ist zuhause der engste eigene
+    # Ort?» genügte. Seither sortieren sie mit - und ein Ort mit 80 m
+    # Radius, der auf demselben Haus liegt, verdrängte «zuhause».
+    if HOME in inside:
+        geordnet = [HOME, *fremd, *[ort_id for ort_id in drin if ort_id != HOME]]
     else:
         geordnet = [*fremd, *drin]
     engster = geordnet[0]
     return (HOME if engster == HOME else engster), engster
+
+
+def abstand_meter(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Abstand zweier Punkte in Metern (rein, testbar).
+
+    Haversine statt flacher Näherung: Auf den Kilometern, um die es hier
+    geht, wäre beides gleich – aber die Näherung fällt jenseits des 180.
+    Längengrads auseinander, und das zu wissen und trotzdem falsch zu
+    rechnen, lohnt die zehn Zeilen nicht.
+
+    Stand bis Fassung 0.7 in `integrations/life360.py`. Sie gehört
+    hierher, seit auch die Ortsmeldung des Telefons mit Koordinaten
+    kommt: Zwei Rechnungen für denselben Abstand wären zwei Stellen, an
+    denen sich ein Vorzeichen verstecken kann.
+    """
+    r = 6_371_000.0
+    rad = math.pi / 180.0
+    d_lat = (lat2 - lat1) * rad
+    d_lon = (lon2 - lon1) * rad
+    a = (
+        math.sin(d_lat / 2) ** 2
+        + math.cos(lat1 * rad) * math.cos(lat2 * rad) * math.sin(d_lon / 2) ** 2
+    )
+    return 2 * r * math.asin(min(1.0, math.sqrt(a)))
+
+
+def orte_fuer_position(
+    places: list[dict[str, Any]],
+    latitude: float,
+    longitude: float,
+    accuracy: float = 0.0,
+) -> tuple[list[str], list[str]]:
+    """Welche Orte umschliessen diesen Punkt – und welche sind unklar?
+
+    (rein, testbar)
+
+    Zurück kommen zwei Listen: die Orte, in denen der Punkt sicher
+    steckt, und die, über die er nichts aussagt.
+
+    Die zweite ist der Grund, warum es diese Funktion gibt. Ein Fix, der
+    das Haus um 180 Meter verfehlt, aber selbst 70 Meter Streuung hat,
+    sagt nicht «draussen» – er sagt «weiss nicht». Bisher wurde daraus
+    ein entschiedenes «weg», und «weg» ist keine harmlose Antwort: Daran
+    hängen Alarmanlage und «alles aus».
+
+    Beim Ankommen bleibt es beim gemessenen Punkt. Ein «drin» schaltet
+    nichts scharf, und wer es ebenso streng fasste, käme nie an.
+    """
+    streuung = 0.0
+    try:
+        wert = float(accuracy)
+        if wert > 0:
+            streuung = wert
+    except (TypeError, ValueError):
+        streuung = 0.0
+    drin: list[str] = []
+    unklar: list[str] = []
+    for ort in places or []:
+        try:
+            meter = abstand_meter(
+                float(latitude),
+                float(longitude),
+                float(ort["latitude"]),
+                float(ort["longitude"]),
+            )
+            radius = float(ort.get("radius") or 0)
+        except (KeyError, TypeError, ValueError):
+            continue
+        ort_id = str(ort.get("id") or "")
+        if not ort_id:
+            continue
+        if meter <= radius:
+            drin.append(ort_id)
+        elif meter <= radius + streuung:
+            unklar.append(ort_id)
+    return drin, unklar
+
+
+def inside_aus_position(
+    vorher: list[str],
+    places: list[dict[str, Any]],
+    latitude: float,
+    longitude: float,
+    accuracy: float = 0.0,
+) -> list[str]:
+    """Die neue Ortsliste einer Person aus einer Positionsmeldung.
+
+    (rein, testbar)
+
+    Der Unterschied zur Flankenmeldung, und der ganze Grund für den
+    Umbau: Eine Position beschreibt den **ganzen** Zustand. Was hier
+    herauskommt, ersetzt die alte Liste vollständig – eine verlorene
+    Meldung von vorhin heilt damit von selbst, sobald die nächste kommt.
+    Bei enter/leave blieb ein verpasstes «enter» liegen, bis die Person
+    das nächste Mal dieselbe Grenze kreuzte.
+
+    Zwei Dinge überleben die Ersetzung:
+
+    * **Unklare Orte** behalten, was der Hub vorher wusste. Sonst würde
+      aus einem ungenauen Fix ein «weg».
+    * **Fremde Orte** – die von Life360 benannten wie «Tanners Home» –
+      stehen nicht in `places`, also kann diese Messung nichts über sie
+      sagen. Sie wegzuwerfen hiesse, die eine Quelle mit der anderen zu
+      löschen; Life360 meldet ihr Ende selbst.
+    """
+    drin, unklar = orte_fuer_position(places, latitude, longitude, accuracy)
+    bekannt = {str(ort.get("id") or "") for ort in places or []}
+    behalten = [
+        ort_id
+        for ort_id in vorher or []
+        if ort_id not in drin and (ort_id in unklar or ort_id not in bekannt)
+    ]
+    return [*drin, *behalten]
+
+
+def zuletzt_gehoert(state: dict[str, Any]) -> float:
+    """Wann kam die letzte Meldung? (rein, testbar)
+
+    Nicht dasselbe wie `changed_at`, und die Verwechslung war ein Fehler
+    mit Folgen: Life360 meldet jede Minute, meist ohne Änderung. Solange
+    beides dasselbe Feld war, sprang `changed_at` bei jeder Abfrage
+    weiter. Damit konnte `settle` nie greifen – ein eingefrorenes «weg»
+    blieb für immer «weg» –, und in der Diagnose stand «Meldet sich
+    regelmässig» neben einer Position von vorgestern.
+
+    Fehlt `last_seen`, gilt `changed_at`: Zustände, die vor dem Umbau
+    gespeichert wurden, kennen das Feld nicht.
+    """
+    for schluessel in ("last_seen", "changed_at"):
+        try:
+            wert = float(state.get(schluessel) or 0)
+        except (TypeError, ValueError):
+            continue
+        if wert > 0:
+            return wert
+    return 0.0
 
 
 def is_stale(changed_at: Any, now: float, hours: float = STALE_HOURS) -> bool:
@@ -169,8 +313,12 @@ def settle(state: dict[str, Any], now: float, hours: float = STALE_HOURS) -> dic
     aus, wenn niemand da» irgendwann das Haus ab, während jemand darin
     sitzt. Wer sich zwölf Stunden nicht gemeldet hat, gilt darum als
     unbekannt – und Abläufe, die auf Abwesenheit hören, laufen nicht.
+
+    Gemessen wird an der letzten *Meldung*, nicht an der letzten
+    *Änderung*: Wer seit drei Tagen zuhause sitzt und sich dabei jede
+    Minute meldet, ist nicht verstummt.
     """
-    if not is_stale(state.get("changed_at"), now, hours):
+    if not is_stale(zuletzt_gehoert(state), now, hours):
         return dict(state)
     # Auch der Name muss weg, nicht nur die Kennung: Sonst stünde
     # «Tanners Home» neben einem Zustand, der «weiss ich nicht» heisst.
@@ -235,7 +383,11 @@ def wieder_aufnehmen(
     zustand = str(gemerkt.get("state") or "")
     if not changed or not zustand or zustand == UNKNOWN:
         return leer
-    if is_stale(changed, now, hours):
+    # Gemessen an der letzten Meldung, nicht an der letzten Änderung: Wer
+    # eine Woche zuhause war und sich dabei durchgehend gemeldet hat, ist
+    # nach dem Neustart nicht verschollen.
+    gehoert = zuletzt_gehoert(gemerkt) or changed
+    if is_stale(gehoert, now, hours):
         return leer
     return {
         "state": zustand,
@@ -244,6 +396,7 @@ def wieder_aufnehmen(
         "place": gemerkt.get("place"),
         "place_name": gemerkt.get("place_name"),
         "changed_at": changed,
+        "last_seen": gehoert,
         "battery": gemerkt.get("battery"),
         "stale": False,
     }
@@ -304,7 +457,11 @@ def diagnose(person: str, state: dict[str, Any], now: float) -> dict[str, Any]:
     Ortung spinnt» beantwortet sich damit selbst: Wann kam die letzte
     Meldung, über welchen Weg, und sieht das nach Funkstille aus?
     """
-    changed = float(state.get("changed_at") or 0)
+    # «Wann kam zuletzt etwas an» ist die Frage, wegen der man hier
+    # hinschaut - nicht «wann hat sich etwas geändert». Wer seit gestern
+    # zuhause ist, hat sich seither nicht geändert und trotzdem hundertmal
+    # gemeldet.
+    changed = zuletzt_gehoert(state)
     alter = (now - changed) if changed else None
     quelle = str(state.get("source") or "unbekannt")
     stumm = is_stale(changed, now)
@@ -324,8 +481,32 @@ def diagnose(person: str, state: dict[str, Any], now: float) -> dict[str, Any]:
     elif stumm:
         stunden = int(alter // 3600) if alter else 0
         text = f"Seit {stunden} Stunden Funkstille – Akku, Flugmodus oder Kurzbefehl weg?"
+    elif quelle == "life360":
+        # Die einzige Quelle, die wirklich im Takt meldet - hier darf
+        # der Satz das auch behaupten.
+        text = "Meldet sich regelmässig (über Life360)."
     else:
-        text = "Meldet sich regelmässig."
+        # Telefon-Meldungen kommen NUR beim Übertreten einer Grenze. Hier
+        # stand «Meldet sich regelmässig» - und genau dieser Satz hat in
+        # die Irre geführt, als eine Ankunft verlorenging: Die letzte
+        # Meldung war 83 Minuten alt und sagte «weg», die Person sass
+        # längst im Haus, und die Diagnose klang nach «alles in Ordnung».
+        # iOS weckt die App beim Grenzübertritt nicht zuverlässig; eine
+        # ausgebliebene Meldung sieht von aussen aus wie eine Person, die
+        # einfach dortgeblieben ist.
+        minuten = int(alter // 60) if alter else 0
+        wann = (
+            f"vor {minuten} Min."
+            if minuten < 120
+            else f"vor {minuten // 60} Std."
+        )
+        text = (
+            f"Letzte Meldung {wann} ({'weg' if state.get('state') == AWAY else 'da'}). "
+            "Das Telefon meldet nur beim Kommen und Gehen - stimmt der "
+            "Zustand nicht, hat iOS die App nicht geweckt: App öffnen und "
+            "«Jetzt melden» drücken. Passiert es öfter, ist Life360 die "
+            "verlässlichere Quelle (docs/geofence.md)."
+        )
     return {
         "person": person,
         "state": str(state.get("state") or UNKNOWN),
@@ -489,3 +670,153 @@ def home_location(gespeichert: Any, config_location: Any) -> dict[str, Any]:
         }
     except (KeyError, TypeError, ValueError):
         return {"latitude": None, "longitude": None, "radius": 150.0, "source": "none", "at": None}
+
+
+# ── Orte, die in der App entstehen ───────────────────────────────────────
+#
+# Orte gab es bisher nur in der config.yaml. Für das Zuhause geht das
+# gerade noch, für Läden nicht: Wer beim Coop steht und merkt, dass die
+# Erinnerung fehlt, wird nicht per SSH eine Datei bearbeiten. Deshalb
+# lassen sich Orte hier ablegen - gesetzt wird einer, indem man davor
+# steht und einen Knopf drückt, genau wie beim Zuhause.
+
+PLACES_KEY = "extra_places"
+
+#: Enger als 50 m taugt ein Geofence nicht (GPS-Streuung), weiter als
+#: 2 km ist kein Laden mehr, sondern ein Dorf.
+ORT_MIN_RADIUS = 50.0
+ORT_MAX_RADIUS = 2000.0
+
+
+def ort_kennung(name: str) -> str:
+    """Aus einem Ladennamen eine Kennung machen (rein, testbar).
+
+    «Coop Willisau» → `coop_willisau`. Die Kennung steht später im
+    Zustand der Person («Stefan ist bei coop_willisau»), deshalb ohne
+    Umlaute und Sonderzeichen.
+    """
+    umschrift = {"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss"}
+    text = "".join(umschrift.get(z, z) for z in str(name or "").strip().lower())
+    kennung = "".join(z if z.isalnum() else "_" for z in text)
+    while "__" in kennung:
+        kennung = kennung.replace("__", "_")
+    return kennung.strip("_")
+
+
+def ort_setzen(
+    gespeichert: Any,
+    ort_id: str,
+    name: str,
+    latitude: float,
+    longitude: float,
+    radius: float = 150.0,
+) -> list[dict[str, Any]]:
+    """Einen Ort anlegen oder verschieben (rein, testbar).
+
+    Gleiche Kennung heisst: derselbe Ort, neu vermessen. So kann man vor
+    dem Laden stehen und den Ort geraderücken, ohne ihn erst zu löschen.
+    """
+    kennung = ort_kennung(ort_id) or ort_kennung(name)
+    if not kennung:
+        raise ValueError("Ein Ort braucht einen Namen")
+    eintrag = {
+        "id": kennung,
+        "name": str(name or kennung),
+        "latitude": float(latitude),
+        "longitude": float(longitude),
+        "radius": max(ORT_MIN_RADIUS, min(ORT_MAX_RADIUS, float(radius))),
+    }
+    behalten = [
+        ort
+        for ort in parse_places(gespeichert)
+        if ort["id"] != kennung
+    ]
+    return [*behalten, eintrag]
+
+
+def ort_entfernen(gespeichert: Any, ort_id: str) -> list[dict[str, Any]]:
+    """Einen Ort löschen (rein, testbar)."""
+    kennung = ort_kennung(ort_id)
+    return [ort for ort in parse_places(gespeichert) if ort["id"] != kennung]
+
+
+def meldung_annehmen(
+    quelle: str, beansprucht: dict[str, str], zone: str, richtung: str = AWAY
+) -> bool:
+    """Darf diese Quelle das für diese Person melden? (rein, testbar)
+
+    Zwei Quellen auf dieselbe Frage widersprechen sich früher oder
+    später, und dann weiss niemand, welcher zu glauben ist. Genau daran
+    ist die WLAN-Anwesenheit gescheitert - und danach noch einmal an
+    einer Kombination, die niemand beabsichtigt hatte: Life360 meldete
+    «zuhause», während auf einem Telefon die Ortung der App weiterlief
+    und aus dem Hintergrund «weg» nachschob. Auf dem Schirm stand dann
+    «unterwegs», während die Person in der Küche stand.
+
+    Also führt der Geofence, wer eine Person beansprucht - aber mit
+    einer Ausnahme, und die ist der ganze Witz: **Ein Ankommen darf
+    jeder melden.** Das Telefon meldet den Übertritt im Moment, in dem
+    er passiert; Life360 erfährt ihn erst bei der nächsten Abfrage,
+    bis zu einer Minute später. Wer heimkommt und auf das Licht wartet,
+    zählt diese Minute mit. Ein verfrühtes oder doppeltes «da» richtet
+    dabei nichts an - schlimmstenfalls geht das Licht an, und die
+    nächste Life360-Runde rückt den Ort ohnehin gerade.
+
+    Das «weg» dagegen bleibt allein beim Führenden. Es war die giftige
+    Hälfte: Ein nachgeschobenes «weg» aus dem Hintergrund schaltete das
+    Haus ab, während jemand darin sass. Diese Asymmetrie ist kein
+    Kompromiss, sondern die Einsicht, dass die beiden Fehler ungleich
+    teuer sind.
+
+    Ohne Anspruch gilt wie bisher: Wer meldet, meldet.
+    """
+    inhaber = beansprucht.get(zone)
+    if inhaber is None or inhaber == quelle:
+        return True
+    return richtung == HOME
+
+
+def orte_ergaenzen(
+    vorhanden: list[dict[str, Any]], weitere: list[dict[str, Any]], quelle: str
+) -> list[dict[str, Any]]:
+    """Orte aus einer fremden Quelle anhängen (rein, testbar).
+
+    Für die gespeicherten Orte von Life360. Sie kommen zuletzt: Was in
+    der config.yaml steht oder was jemand in der App vor Ort angelegt
+    hat, ist die Absicht dieses Haushalts - ein gleichnamiger Eintrag
+    drüben darf sie nicht überschreiben.
+
+    Sortiert wird am Ende wieder nach Radius, weil `place_state` daran
+    ablesen soll, welcher Ort der engste ist. Ohne das gewönne die weite
+    Vorlaufzone gegen den benannten Ort, in dem jemand tatsächlich steht.
+    """
+    zusammen = list(vorhanden)
+    bekannt = {ort["id"] for ort in zusammen}
+    for ort in weitere:
+        if ort["id"] in bekannt:
+            continue
+        zusammen.append({**ort, "source": quelle})
+        bekannt.add(ort["id"])
+    zusammen.sort(key=lambda ort: ort["radius"])
+    return zusammen
+
+
+def alle_orte(
+    aus_config: list[dict[str, Any]], gespeichert: Any
+) -> list[dict[str, Any]]:
+    """Config-Orte und in der App angelegte zu einer Liste (rein, testbar).
+
+    Die config.yaml sticht: Wer dort einen Ort von Hand gepflegt hat, will
+    ihn nicht von einem versehentlichen Knopfdruck überschrieben haben.
+    Jeder Eintrag sagt, woher er kommt - sonst bietet die App an, einen
+    Ort zu löschen, den sie gar nicht löschen kann.
+    """
+    zusammen = [{**ort, "source": "config"} for ort in aus_config]
+    bekannt = {ort["id"] for ort in zusammen}
+    for ort in parse_places(gespeichert):
+        if ort["id"] in bekannt:
+            continue
+        zusammen.append({**ort, "source": "app"})
+        bekannt.add(ort["id"])
+    zusammen.sort(key=lambda ort: ort["radius"])
+    return zusammen

@@ -143,6 +143,9 @@ export interface SceneActionDraft {
   offAfter?: number;
   /** Ziel-Lautstärke in Prozent, wenn das Kommando 'set_volume' ist. */
   volume?: number;
+  /** Zieltemperatur, wenn das Kommando 'set_temperature' ist – beim Grill
+   *  in seiner eigenen Einheit (°C oder °F). */
+  temperature?: number;
   /** Name der Playlist, wenn das Kommando 'play_playlist' ist. */
   playlist?: string;
   /** Name des Senders, wenn das Kommando 'play_radio' ist. */
@@ -250,6 +253,7 @@ export function sceneActionsToDraft(
       enabled?: boolean;
       muted?: boolean;
       volume?: number;
+      temperature?: number;
       name?: string;
       station?: string;
       app?: string;
@@ -280,6 +284,7 @@ export function sceneActionsToDraft(
       position: action.data?.position,
       brightness: action.data?.brightness,
       volume: action.data?.volume,
+      temperature: action.data?.temperature,
       // Die Playlist steht beim Hub unter 'name' – ein eigenes Feld im
       // Entwurf, damit sie nicht mit dem Namen der Szene verwechselt wird.
       playlist: action.data?.name,

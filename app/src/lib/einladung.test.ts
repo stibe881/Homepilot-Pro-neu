@@ -1,7 +1,7 @@
 /**
  * Was die App über eine Einladung sagt.
  */
-import { einladungFrist, passwortHinweis } from './einladung';
+import { babysitterFrist, einladungFrist, passwortHinweis } from './einladung';
 
 const JETZT = new Date('2026-08-24T12:00:00');
 const inMinuten = (m: number) => (JETZT.getTime() + m * 60000) / 1000;
@@ -36,5 +36,24 @@ describe('passwortHinweis', () => {
 
   it('stolpert nicht über Leerzeichen am Rand', () => {
     expect(passwortHinweis(' sommer2026 ')).toContain('Leerzeichen');
+  });
+});
+
+describe('babysitterFrist', () => {
+  const abend = new Date('2026-08-24T18:00:00');
+
+  it('reicht bis zum Ende des Abends plus Vorlauf', () => {
+    // 18:00 bis 21:00 sind drei Stunden, plus eine halbe.
+    expect(babysitterFrist(abend, '21:00')).toBe(210);
+  });
+
+  it('versteht «bis 00:30» als den nächsten Tag', () => {
+    // Sonst wäre die Einladung abgelaufen, bevor sie ausgestellt ist.
+    expect(babysitterFrist(abend, '00:30')).toBe(6 * 60 + 30 + 30);
+  });
+
+  it('verträgt Unsinn', () => {
+    expect(babysitterFrist(abend, '')).toBe(60);
+    expect(babysitterFrist(abend, 'später')).toBe(60);
   });
 });

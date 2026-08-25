@@ -572,3 +572,100 @@ async def test_gemeldet_heisst_es_ging_wirklich_etwas_hinaus():
     # Und wer gar nicht eingetragen ist, erst recht nicht.
     fremd = {"firstName": "Wer-auch-immer", "location": zuhause["location"]}
     assert await dienst._melden(geofence, fremd, time.time()) is False
+
+
+# ── Die gespeicherten Orte von Life360 ───────────────────────────────────
+#
+# Bisher kannte der Hub einen fremden Ort erst, wenn jemand darin stand -
+# Life360 schreibt den Namen dann in die Positionsmeldung. Für die
+# Anzeige genügte das, für einen Ablauf nicht: «wenn Livia bei der Schule
+# ankommt» braucht die Orte, bevor jemand dort ist.
+
+
+def test_orte_werden_zu_gewoehnlichen_orten_des_hubs():
+    from homepilot.integrations.life360 import parse_orte
+
+    orte = parse_orte(
+        {
+            "places": [
+                {
+                    "id": "abc",
+                    "name": "Schule Zell",
+                    "latitude": "47.1502",
+                    "longitude": "8.0641",
+                    "radius": "200",
+                }
+            ]
+        }
+    )
+    assert orte == [
+        {
+            "id": "schule_zell",
+            "name": "Schule Zell",
+            "latitude": 47.1502,
+            "longitude": 8.0641,
+            "radius": 200.0,
+        }
+    ]
+
+
+def test_die_kennung_kommt_vom_namen_nicht_von_life360():
+    from homepilot.integrations.life360 import parse_orte
+
+    # Damit ein Ablauf «schule_zell» trägt und nicht «abc» - und damit
+    # Orte, die früher über die Positionsmeldung hereinkamen, dieselbe
+    # Kennung behalten.
+    (ort,) = parse_orte(
+        {"places": [{"id": "abc", "name": "Schule Zell", "latitude": "1", "longitude": "2"}]}
+    )
+    assert ort["id"] == "schule_zell"
+
+
+def test_zu_enge_orte_werden_aufgeweitet():
+    from homepilot.integrations.life360 import MIN_RADIUS, parse_orte
+
+    # Ein Radius von 15 m trifft keine Handy-Ortung zuverlässig; der Ort
+    # meldete sich sonst nie und niemand wüsste warum.
+    (ort,) = parse_orte(
+        {"places": [{"name": "Briefkasten", "latitude": "1", "longitude": "2", "radius": "15"}]}
+    )
+    assert ort["radius"] == MIN_RADIUS
+
+
+def test_orte_ohne_koordinate_oder_namen_fallen_weg():
+    from homepilot.integrations.life360 import parse_orte
+
+    orte = parse_orte(
+        {
+            "places": [
+                {"name": "Ohne Punkt", "radius": "100"},
+                {"name": "", "latitude": "1", "longitude": "2"},
+                {"name": "🎈", "latitude": "1", "longitude": "2"},
+                {"name": "Krumm", "latitude": "keine Zahl", "longitude": "2"},
+                {"name": "Gut", "latitude": "1", "longitude": "2", "radius": "100"},
+            ]
+        }
+    )
+    assert [ort["id"] for ort in orte] == ["gut"]
+
+
+def test_derselbe_name_zweimal_kommt_einmal():
+    from homepilot.integrations.life360 import parse_orte
+
+    orte = parse_orte(
+        {
+            "places": [
+                {"name": "Schule", "latitude": "1", "longitude": "2", "radius": "100"},
+                {"name": "schule", "latitude": "9", "longitude": "9", "radius": "100"},
+            ]
+        }
+    )
+    assert len(orte) == 1
+
+
+def test_leere_antwort_ist_kein_fehler():
+    from homepilot.integrations.life360 import parse_orte
+
+    assert parse_orte({}) == []
+    assert parse_orte({"places": None}) == []
+    assert parse_orte(None) == []

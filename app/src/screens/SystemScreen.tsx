@@ -82,8 +82,21 @@ export function SystemScreen({
     return <Laedt was="Systemzustand" />;
   }
 
+  // Die Seite in vier Blöcken, in der Reihenfolge, in der man sie
+  // braucht: *was ist* (Zustand), *was zu tun ist* (Betrieb), *was den
+  // Hub ausmacht* (Einrichtung), *was nur dieses Telefon angeht*.
+  //
+  // Vorher standen die Karten so, wie sie entstanden sind: die
+  // Speicherplatz-Warnung vier Karten unter der Zahl, die sie erklärt;
+  // die Ausfälle zwei Karten unter den Integrationen, zu denen sie
+  // gehören; Protokoll, Sicherung und Benutzer durcheinander. Wer etwas
+  // suchte, scrollte.
+  const darfKonfig = !!user?.capabilities?.includes('edit_config');
+
   return (
     <View style={styles.list}>
+      <Text style={[styles.sectionTitle, { marginTop: 0 }]}>Zustand</Text>
+
       <Card style={styles.card}>
         <Text style={styles.heading}>Überblick</Text>
         <View style={styles.facts}>
@@ -169,9 +182,23 @@ export function SystemScreen({
         ) : null}
       </Card>
 
-      <Maintenance settings={settings} />
-      {/* Die Geräte-Gesundheit steht jetzt unter «Geräte» – dort sucht
-          man nach einem Gerät, hier nach dem Hub. */}
+      {/* Direkt unter die Zahl, die sie erklärt: «Speicher belegt» steht
+          im Überblick, die Warnung dazu gehört daneben. */}
+      {status.disk && status.disk.percent >= 85 ? (
+        <Card style={styles.card}>
+          <Text style={styles.heading}>Speicherplatz wird knapp</Text>
+          <Text style={styles.rowDetail}>
+            {status.disk.percent} % belegt – noch {status.disk.free_gb} von{' '}
+            {status.disk.total_gb} GB frei. Läuft der Datenträger voll, lässt sich nichts
+            mehr speichern: keine Konfiguration, keine Lautsprecher, keine Sicherung.
+          </Text>
+          <Text style={styles.hint}>
+            Meist sind es Docker-Reste. Auf dem Host aufräumen mit{'\n'}
+            docker image prune -a -f{'\n'}
+            docker builder prune -f
+          </Text>
+        </Card>
+      ) : null}
 
       <IntegrationsCard
         integrations={status.integrations}
@@ -179,6 +206,8 @@ export function SystemScreen({
         onReloaded={load}
       />
 
+      {/* Was gerade ausgefallen ist, gehört an die Integrationen und
+          nicht zwei Karten darunter. */}
       {(status.outages ?? []).length > 0 ? (
         <Card style={styles.card}>
           <Text style={styles.heading}>Ausfälle</Text>
@@ -206,30 +235,30 @@ export function SystemScreen({
         </Card>
       ) : null}
 
-      {status.disk && status.disk.percent >= 85 ? (
-        <Card style={styles.card}>
-          <Text style={styles.heading}>Speicherplatz wird knapp</Text>
-          <Text style={styles.rowDetail}>
-            {status.disk.percent} % belegt – noch {status.disk.free_gb} von{' '}
-            {status.disk.total_gb} GB frei. Läuft der Datenträger voll, lässt sich nichts
-            mehr speichern: keine Konfiguration, keine Lautsprecher, keine Sicherung.
-          </Text>
-          <Text style={styles.hint}>
-            Meist sind es Docker-Reste. Auf dem Host aufräumen mit{'\n'}
-            docker image prune -a -f{'\n'}
-            docker builder prune -f
-          </Text>
-        </Card>
+      <Text style={styles.sectionTitle}>Betrieb</Text>
+
+      <Maintenance settings={settings} />
+      {/* Die Geräte-Gesundheit steht unter «Geräte» – dort sucht man
+          nach einem Gerät, hier nach dem Hub. */}
+
+      {darfKonfig ? (
+        <BackupCard settings={settings} />
       ) : null}
 
-      {user?.capabilities?.includes('edit_config') ? (
-        <ConfigCard settings={settings} />
-      ) : null}
+      {darfKonfig ? <LogCard settings={settings} /> : null}
 
-      {user?.capabilities?.includes('edit_config') ? <LogCard settings={settings} /> : null}
-
-      {user?.capabilities?.includes('edit_config') ? (
+      {darfKonfig ? (
         <AccessLog settings={settings} />
+      ) : null}
+
+      {/* Konfiguration und Benutzer sind dasselbe Thema: Was den Hub
+          ausmacht, steht in der config.yaml – die Benutzer auch. */}
+      {darfKonfig || users ? (
+        <Text style={styles.sectionTitle}>Einrichtung</Text>
+      ) : null}
+
+      {darfKonfig ? (
+        <ConfigCard settings={settings} />
       ) : null}
 
       {/* Die Karte «Automationen» stand hier zwischen Speicherplatz und
@@ -259,13 +288,15 @@ export function SystemScreen({
         </Card>
       ) : null}
 
+      {/* Nichts davon betrifft den Hub: Der Push-Test geht an dieses
+          Telefon, die Kurzbefehle liegen auf ihm, und die Sprachbefehle
+          sind eine Anleitung. Deshalb ganz unten und unter eigenem
+          Titel – wer den Hub anschaut, ist vorher fertig. */}
+      <Text style={styles.sectionTitle}>Auf diesem Gerät</Text>
+
       <PushTestCard settings={settings} push={push} />
 
       <ShortcutsCard settings={settings} />
-
-      {user?.capabilities?.includes('edit_config') ? (
-        <BackupCard settings={settings} />
-      ) : null}
 
       <VoiceHelpCard />
     </View>
@@ -1706,7 +1737,10 @@ function Button({
         pressed && { opacity: 0.7 },
       ]}
     >
-      <Text style={[styles.buttonText, primary && { color: '#fff' }]}>{label}</Text>
+      {/* Nicht '#fff': In den dunklen Erscheinungsbildern ist die
+          Füllung (ink) fast weiss – siehe styles.saveText in
+          SettingsScreen. */}
+      <Text style={[styles.buttonText, primary && { color: colors.panel }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -1728,6 +1762,15 @@ const makeStyles = (colors: Colors) =>
     list: { gap: space.gap, marginTop: 4 },
     card: { minHeight: 0, gap: 12 },
     heading: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
+  // Titel über einer Gruppe von Karten – dieselbe Grösse wie auf der
+  // Seite «Abläufe» (screens/automations/stil.ts), damit die beiden
+  // Seiten nicht verschieden gebaut aussehen.
+  sectionTitle: {
+    color: colors.onGradient,
+    fontSize: 18,
+    fontWeight: '700',
+    marginTop: 14,
+  },
     facts: { flexDirection: 'row', flexWrap: 'wrap', gap: 22 },
     fact: { gap: 2 },
     factLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },

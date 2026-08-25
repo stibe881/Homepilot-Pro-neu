@@ -353,6 +353,7 @@ class GoogleCalendarIntegration(Integration):
                     f"{event.get('summary')} um {wann}"
                     + (f" – {ort}" if ort else ""),
                     data={"kind": "calendar"},
+                    category="calendar",
                 )
         except Exception as err:  # eine Nachricht ist kein Grund zu scheitern
             self.log.warning("Termin-Erinnerung fehlgeschlagen: %s", err)

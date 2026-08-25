@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { PanResponder, View } from 'react-native';
 
 import { radius, useColors } from '../theme';
@@ -98,20 +98,35 @@ export function DragCell({
   children: React.ReactNode;
 }) {
   const colors = useColors();
-  // Der Responder hängt nur am Griff – die Kachel selbst bleibt bedienbar
-  // und die Seite scrollbar.
+  /**
+   * Der Responder hängt nur am Griff – die Kachel selbst bleibt bedienbar
+   * und die Seite scrollbar. Und er wird **einmal** gebaut.
+   *
+   * Vorher stand `onEnd` in den Abhängigkeiten. Dieser Rückruf entsteht
+   * bei jedem Zeichnen neu (er schliesst die Kachelliste ein), also gab
+   * es bei jeder Fingerbewegung einen neuen PanResponder. Der kennt den
+   * Startpunkt der Geste nicht, den sein Vorgänger sich gemerkt hat –
+   * und damit fing der gemessene Weg jedes Mal von vorn an. Die Kachel
+   * rührte sich kaum, und beim Loslassen landete sie dort, wo sie
+   * herkam. Derselbe Fehler steckte in DraggableList.
+   */
+  const aktuell = useRef({ id, onStart, onMove, onEnd });
+  aktuell.current = { id, onStart, onMove, onEnd };
   const pan = useMemo(
     () =>
       PanResponder.create({
         onStartShouldSetPanResponder: () => true,
         onMoveShouldSetPanResponder: () => true,
         onPanResponderTerminationRequest: () => false,
-        onPanResponderGrant: () => onStart(id),
-        onPanResponderMove: (_event, gesture) => onMove(gesture.dx, gesture.dy),
-        onPanResponderRelease: (_event, gesture) => onEnd(id, gesture.dx, gesture.dy),
-        onPanResponderTerminate: (_event, gesture) => onEnd(id, gesture.dx, gesture.dy),
+        onPanResponderGrant: () => aktuell.current.onStart(aktuell.current.id),
+        onPanResponderMove: (_event, gesture) =>
+          aktuell.current.onMove(gesture.dx, gesture.dy),
+        onPanResponderRelease: (_event, gesture) =>
+          aktuell.current.onEnd(aktuell.current.id, gesture.dx, gesture.dy),
+        onPanResponderTerminate: (_event, gesture) =>
+          aktuell.current.onEnd(aktuell.current.id, gesture.dx, gesture.dy),
       }),
-    [id, onStart, onMove, onEnd]
+    []
   );
 
   return (

@@ -10,6 +10,8 @@ import { BabysitterStand, LEERER_BABYSITTER, modusSatz } from '../lib/babysitter
 import { gruppiereModule } from '../lib/familiemodule';
 import { DraggableList } from '../components/DraggableList';
 import { Shops } from '../components/Shops';
+import { useOrte } from '../hooks/useOrte';
+import { ortKennung } from '../lib/orte';
 import { useColors } from '../theme';
 import { RecipeBook } from './RecipeBook';
 import { wochentagDatumKurz, wochentagUhr } from '../lib/format';
@@ -33,6 +35,7 @@ import {
   standText,
   vorlaeufigeId,
 } from '../lib/familiecache';
+import { babysitterFrist, passwortHinweis } from '../lib/einladung';
 import { herkunftText, neuSeit, suche, trefferName } from '../lib/familiensuche';
 import {
   anwesenheitKurz,
@@ -142,7 +145,15 @@ export function FamilyScreen({
   const [terminOffen, setTerminOffen] = useState<FamilyItem | null>(null);
   // Babysitter-Zugang: der Gastbenutzer und sein frisches Token.
   const [babysitterUser, setBabysitterUser] = useState<FamilyItem | null>(null);
-  const [babysitterToken, setBabysitterToken] = useState<string | null>(null);
+  // Das Passwort für den Abend und der Link, der daraus entsteht. Das
+  // Token stand hier einmal im Klartext – von dort war es einen Tipp
+  // weit in einen Chat.
+  const [babysitterPass, setBabysitterPass] = useState('');
+  const [babysitterLink, setBabysitterLink] = useState<string | null>(null);
+  // Der Hinweis gehört in die Karte, nicht in die Fehlerzeile weit
+  // oben: Wer auf «bis 21:00» tippt und nichts passieren sieht, hält
+  // den Knopf für kaputt.
+  const [babysitterNote, setBabysitterNote] = useState<string | null>(null);
   // Punkt 187: Mehrere Babysitter, jeder mit eigenem Zugang.
   const [babysitterKonten, setBabysitterKonten] = useState<FamilyItem[]>([]);
   const [babysitterName, setBabysitterName] = useState('');
@@ -187,6 +198,15 @@ export function FamilyScreen({
     () => hubClient(settings.url, settings.token),
     [settings.url, settings.token]
   );
+
+  // Die Orte des Hubs - daraus wählt ein Laden seinen, und «ich stehe
+  // jetzt hier» legt einen neuen an.
+  const {
+    orte,
+    setzeHier: ortHierSetzen,
+    suche: ortSuchen,
+    uebernehmen: ortUebernehmen,
+  } = useOrte(settings);
 
   // ── Ohne Netz lesbar bleiben (Punkte 165 und 172) ──────────────────────
   //
@@ -641,6 +661,14 @@ export function FamilyScreen({
   }, [view, ladeBabysitter, ladeModus]);
 
   const oeffneBabysitter = async (bis: string) => {
+    // Erst das Passwort, dann die Türe: Ohne wäre der Link allein der
+    // Schlüssel, und genau das wollten wir nicht mehr.
+    const mangel = passwortHinweis(babysitterPass);
+    if (mangel) {
+      setBabysitterNote(`Zuerst ein Passwort setzen – ${mangel}`);
+      return;
+    }
+    setBabysitterNote(null);
     const zugang = babysitterZugang(new Date(), bis);
     const konto = babysitterKonto(babysitterName);
     const vorhanden = babysitterKonten.find((user) => user.name === konto);
@@ -662,10 +690,24 @@ export function FamilyScreen({
           },
           { still: true }
         );
-        // Das Token gibt es genau einmal – beim Anlegen. Danach steht es
-        // nirgends mehr, und das ist so gewollt.
-        setBabysitterToken(antwort?.token ?? antwort?.user?.token ?? null);
+        // Das Token wird nicht mehr angezeigt: Es stand hier im
+        // Klartext und wanderte von dort in einen Chat. Statt seiner
+        // gibt es unten einen Link mit Passwort.
+        void antwort;
       }
+      // Der Zugang steht – jetzt der Weg hinein. Der Link allein öffnet
+      // nichts; das Passwort gibt man der Babysitterin am Telefon oder
+      // an der Türe durch.
+      const einladung = await hub.post<{ link: string; expires: number }>(
+        `/api/users/${encodeURIComponent(konto)}/einladung`,
+        {
+          password: babysitterPass,
+          minutes: babysitterFrist(new Date(), bis),
+        },
+        { still: true }
+      );
+      setBabysitterLink(einladung?.link ?? null);
+      setBabysitterPass('');
       ladeBabysitter();
     } catch (err) {
       setError(
@@ -707,7 +749,7 @@ export function FamilyScreen({
         { enabled: false },
         { still: true }
       );
-      setBabysitterToken(null);
+      setBabysitterLink(null);
       ladeBabysitter();
     } catch (err) {
       setError(
@@ -1299,9 +1341,30 @@ export function FamilyScreen({
         {imLaden ? null : (
           <Shops
             shops={shops}
+            orte={orte}
             onAdd={(shop) => add('shops', shop)}
             onUpdate={(id, changes) => update('shops', id, changes)}
             onRemove={(id) => remove('shops', id)}
+            onSuche={ortSuchen}
+            onVorschlag={async (shop, vorschlag) => {
+              const fehler = await ortUebernehmen(
+                vorschlag,
+                shop.name,
+                shop.place || undefined
+              );
+              if (fehler) return fehler;
+              update('shops', shop.id, { place: ortKennung(shop.place || shop.name) });
+              return '';
+            }}
+            onOrtHier={async (shop) => {
+              // Ein Griff statt zwei: Der Ort entsteht und hängt gleich
+              // am Laden. Wer davorsteht, will nicht danach noch eine
+              // Kennung aus einer Liste suchen.
+              const fehler = await ortHierSetzen(shop.name, shop.place || undefined);
+              if (fehler) return fehler;
+              update('shops', shop.id, { place: ortKennung(shop.place || shop.name) });
+              return '';
+            }}
           />
         )}
       </View>
@@ -2039,11 +2102,47 @@ export function FamilyScreen({
                 </Pressable>
               ))}
             </View>
-            {babysitterToken ? (
-              <Text style={styles.checkSub} selectable>
-                Anmeldung: Benutzer «{babysitterKonto(babysitterName)}», Token{' '}
-                {babysitterToken}
+            {/* Das Passwort gehört vor die Uhrzeit: Wer erst auf «bis
+                21:00» tippt und dann eine Fehlermeldung liest, hat den
+                Knopf zweimal gedrückt. */}
+            <TextInput
+              style={styles.input}
+              value={babysitterPass}
+              onChangeText={setBabysitterPass}
+              placeholder="Passwort für den Zugang (mind. 6 Zeichen)"
+              placeholderTextColor={colors.inkFaint}
+              autoCapitalize="none"
+            />
+            {babysitterNote ? (
+              <Text style={[styles.checkSub, { color: colors.warn }]}>
+                {babysitterNote}
               </Text>
+            ) : null}
+            {babysitterLink ? (
+              <>
+                <Text style={styles.checkSub} selectable>
+                  {babysitterLink}
+                </Text>
+                <Pressable
+                  onPress={() => {
+                    Share.share({
+                      message:
+                        `Zugang für heute Abend:\n\n${babysitterLink}\n\n` +
+                        'Das Passwort sage ich dir separat.',
+                      // Abgebrochenes Teilen ist eine Entscheidung.
+                    }).catch(() => {});
+                  }}
+                  accessibilityRole="button"
+                  style={styles.chip}
+                >
+                  <Text style={styles.chipText}>Link senden</Text>
+                </Pressable>
+                <Text style={styles.checkSub}>
+                  Der Link allein öffnet nichts. Das Passwort auf einem anderen
+                  Weg durchgeben – am Telefon oder an der Türe, nicht im selben
+                  Chat.
+                </Text>
+              </>
             ) : null}
             {/* Die bestehenden Zugänge – offen wie geschlossen. */}
             {babysitterKonten.map((konto: FamilyItem) => (

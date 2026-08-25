@@ -1,11 +1,23 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { hubClient } from '../api/client';
 import { Entity } from '../api/types';
+import { useSettings } from '../hooks/HubContext';
 import { Card } from './Card';
+import {
+  BATTERY_SOON,
+  BatterieVermerk,
+  HealthRow,
+  batteryRows,
+  stummBis,
+} from '../lib/batterien';
 import { epochAgo } from '../lib/zeit';
-import { Colors, type, useColors } from '../theme';
+import { Colors, radius, type, useColors } from '../theme';
+
+export type { BatterieVermerk, HealthRow };
+export { batteryRows, stummBis };
 
 /**
  * Geräte-Gesundheit: alle Batteriegeräte auf einen Blick.
@@ -16,41 +28,71 @@ import { Colors, type, useColors } from '../theme';
  * Dringlichkeit: leere zuerst, volle zuletzt.
  */
 
-// Ab hier gilt eine Batterie als «demnächst dran» und wird gelb.
-const BATTERY_SOON = 25;
-
-export interface HealthRow {
-  entity: Entity;
-  /** Prozent, wenn das Gerät einen Stand meldet – manche melden nur
-   *  «schwach ja/nein». */
-  percent: number | null;
-  low: boolean;
-}
-
-/** Batteriegeräte, dringendste zuerst (rein, testbar).
- *
- * «Schwach»-Melder ohne Prozentwert stehen ganz oben: Sie sagen nur noch
- * «bald leer», und danach sind sie still. */
-export function batteryRows(entities: Entity[]): HealthRow[] {
-  const rows: HealthRow[] = [];
-  for (const entity of entities) {
-    const raw = entity.state?.battery;
-    const percent = typeof raw === 'number' && raw >= 0 && raw <= 100 ? raw : null;
-    const low = entity.state?.low_battery === true;
-    if (percent === null && !low) continue;
-    rows.push({ entity, percent, low });
-  }
-  return rows.sort((a, b) => {
-    const rank = (row: HealthRow) =>
-      row.low ? -1 : row.percent === null ? 999 : row.percent;
-    return rank(a) - rank(b) || a.entity.name.localeCompare(b.entity.name);
-  });
-}
-
-export function DeviceHealth({ entities }: { entities: Entity[] }) {
+export function DeviceHealth({
+  entities,
+  offen,
+  onOffen,
+}: {
+  entities: Entity[];
+  /** Von aussen aufgeklappt – so kommt die Batteriewarnung aus der
+   *  Push-Nachricht direkt hierher. Ohne die Angabe entscheidet die
+   *  Karte selbst. */
+  offen?: boolean;
+  onOffen?: (offen: boolean) => void;
+}) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const [open, setOpen] = useState(false);
+  const settings = useSettings();
+  const hub = useMemo(() => hubClient(settings.url, settings.token), [settings]);
+  const [eigenOffen, setEigenOffen] = useState(false);
+  const open = offen ?? eigenOffen;
+  const setOpen = useCallback(
+    (wert: boolean) => {
+      setEigenOffen(wert);
+      onOffen?.(wert);
+    },
+    [onOffen]
+  );
+
+  const [vermerke, setVermerke] = useState<BatterieVermerk[]>([]);
+  const [jetzt, setJetzt] = useState(() => Date.now());
+  const laden = useCallback(() => {
+    hub
+      .get<{ batteries?: BatterieVermerk[] } | null>('/api/batteries', {
+        fallback: null,
+        still: true,
+      })
+      .then((data) => {
+        if (data) setVermerke(data.batteries ?? []);
+        setJetzt(Date.now());
+      });
+  }, [hub]);
+  // Nur wenn die Liste offen ist: Zugeklappt braucht niemand die
+  // Vermerke, und die Karte steht auf einer Seite, die man oft öffnet.
+  useEffect(() => {
+    if (open) laden();
+  }, [open, laden]);
+
+  const quittieren = async (entityId: string, stumm: boolean) => {
+    try {
+      if (stumm) {
+        await hub.del(`/api/batteries/${encodeURIComponent(entityId)}/ack`, {
+          still: true,
+        });
+      } else {
+        await hub.post(
+          `/api/batteries/${encodeURIComponent(entityId)}/ack`,
+          undefined,
+          { still: true }
+        );
+      }
+    } finally {
+      // Auch nach einem Fehlschlag nachladen: Dann steht da, was der Hub
+      // wirklich weiss, statt was die App gerade hoffte.
+      laden();
+    }
+  };
+
   const rows = batteryRows(entities);
   if (rows.length === 0) return null;
 
@@ -68,7 +110,7 @@ export function DeviceHealth({ entities }: { entities: Entity[] }) {
   return (
     <Card style={styles.card}>
       <Pressable
-        onPress={() => setOpen((value) => !value)}
+        onPress={() => setOpen(!open)}
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
         style={styles.head}
@@ -92,26 +134,66 @@ export function DeviceHealth({ entities }: { entities: Entity[] }) {
 
       {open ? (
         <>
-          {rows.map((row) => (
-            <View key={row.entity.id} style={styles.row}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.name}>{row.entity.name}</Text>
-                <Text style={styles.detail}>
-                  {row.entity.room ?? 'Ohne Raum'}
-                  {epochAgo(row.entity.last_seen)
-                    ? ` · zuletzt gesehen ${epochAgo(row.entity.last_seen)}`
-                    : ''}
+          {rows.map((row) => {
+            const stumm = stummBis(vermerke, row.entity.id, jetzt) !== null;
+            // Quittieren gibt es nur, wo es auch eine Warnung gibt. Bei
+            // einer vollen Batterie wäre der Knopf eine Attrappe.
+            const warnt =
+              row.low || (row.percent !== null && row.percent <= BATTERY_SOON);
+            return (
+              <View key={row.entity.id} style={styles.row}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.name}>{row.entity.name}</Text>
+                  <Text style={styles.detail}>
+                    {row.entity.room ?? 'Ohne Raum'}
+                    {epochAgo(row.entity.last_seen)
+                      ? ` · zuletzt gesehen ${epochAgo(row.entity.last_seen)}`
+                      : ''}
+                  </Text>
+                </View>
+                {warnt ? (
+                  <Pressable
+                    onPress={() => quittieren(row.entity.id, stumm)}
+                    accessibilityRole="button"
+                    accessibilityState={{ checked: stumm }}
+                    accessibilityLabel={
+                      stumm
+                        ? `${row.entity.name}: doch wieder melden`
+                        : `${row.entity.name}: bis morgen stumm`
+                    }
+                    style={({ pressed }) => [
+                      styles.quittieren,
+                      stumm && styles.quittiertAktiv,
+                      pressed && { opacity: 0.7 },
+                    ]}
+                  >
+                    <Ionicons
+                      name={stumm ? 'notifications-off' : 'notifications-off-outline'}
+                      size={13}
+                      color={stumm ? '#FFFFFF' : colors.inkSoft}
+                    />
+                    <Text
+                      style={[styles.quittierenText, stumm && { color: '#FFFFFF' }]}
+                    >
+                      {stumm ? 'bis morgen still' : 'bis morgen'}
+                    </Text>
+                  </Pressable>
+                ) : null}
+                <Text style={[styles.value, { color: tone(row) }]}>
+                  {row.percent !== null ? `${row.percent} %` : 'schwach'}
                 </Text>
               </View>
-              <Text style={[styles.value, { color: tone(row) }]}>
-                {row.percent !== null ? `${row.percent} %` : 'schwach'}
-              </Text>
-            </View>
-          ))}
+            );
+          })}
           <Text style={styles.hint}>
             Dringendste zuerst. «Schwach» ohne Prozentzahl heisst: Das Gerät
             meldet nur noch, dass es bald leer ist – danach ist es still,
             ohne sich abzumelden.
+          </Text>
+          <Text style={styles.hint}>
+            «Bis morgen» nimmt die Push-Meldung zur Kenntnis und schaltet sie
+            bis morgen früh stumm. Es ist ein Aufschub, kein Ausschalten:
+            Ist die Batterie dann noch schwach, erinnert der Hub noch einmal.
           </Text>
         </>
       ) : null}
@@ -126,6 +208,19 @@ const makeStyles = (colors: Colors) =>
     heading: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
     count: { color: colors.inkFaint, fontSize: 12 },
     row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    quittieren: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      paddingHorizontal: 9,
+      paddingVertical: 5,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    quittiertAktiv: { backgroundColor: colors.accent, borderColor: colors.accent },
+    quittierenText: { fontSize: 11, fontWeight: '700', color: colors.inkSoft },
     name: { color: colors.ink, fontSize: 14, fontWeight: '600' },
     detail: { color: colors.inkFaint, fontSize: 12, marginTop: 1 },
     value: { fontSize: 14, fontWeight: '700' },

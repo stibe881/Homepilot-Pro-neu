@@ -22,7 +22,13 @@ from ...core.errors import UnknownEntityError
 from ...core.users import Capability
 from ...integrations import group as group_module
 from ..context import ApiContext
-from ..models import GeofenceRequest, HomeRequest, LightGroupRequest
+from ..models import (
+    GeofenceRequest,
+    HomeRequest,
+    LightGroupRequest,
+    PlaceRequest,
+    PositionRequest,
+)
 
 log = logging.getLogger(__name__)
 
@@ -240,6 +246,47 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             raise HTTPException(status_code=400, detail=str(err)) from err
         return {"ok": True, "zone": zone, "state": state, "place": body.place or "home"}
 
+    @app.post("/api/presence/report")
+    async def report_position(body: PositionRequest, request: Request) -> dict[str, Any]:
+        """Das Telefon sagt, wo es ist – laufend, nicht nur an der Grenze.
+
+        Der Weg, über den die App seit Fassung 0.7 meldet. Sie schickt
+        die Position, sobald sich das Telefon bewegt hat; der Hub rechnet
+        daraus selbst, in welchen Orten die Person steckt.
+
+        Warum nicht weiter enter/leave: Eine Flanke, die nicht ankommt,
+        ist für immer weg. Beim Heimkommen trifft sie genau das Loch
+        zwischen Mobilfunk und WLAN – man stand danach bis zum nächsten
+        Weggehen auf «unterwegs», und Ankunfts-Abläufe liefen nie. Eine
+        Position beschreibt den ganzen Zustand und heilt das mit der
+        nächsten Meldung von selbst.
+
+        `/api/presence/geofence` bleibt: Die iOS-Kurzbefehle melden
+        darüber, und die kennen keine Koordinaten.
+        """
+        user = current_user(request)
+        service = hub.integrations.get("geofence")
+        if service is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Die geofence-Integration ist nicht eingerichtet",
+            )
+        zone = body.zone or user.name.lower()
+        try:
+            state = await service.report_position(
+                zone,
+                body.latitude,
+                body.longitude,
+                accuracy=body.accuracy or 0.0,
+                battery=body.battery,
+                at=body.at,
+            )
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"Unbekannte Zone: {zone}") from None
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+        return {"ok": True, "zone": zone, "state": state}
+
     @app.post("/api/presence/home")
     async def set_home(body: HomeRequest, request: Request) -> dict[str, Any]:
         """Den Hausstandort von der aktuellen Position übernehmen.
@@ -276,6 +323,72 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 detail="Die geofence-Integration ist nicht eingerichtet",
             )
         return {"home": service.heimat()}
+
+    @app.post("/api/presence/places")
+    async def set_place(body: PlaceRequest, request: Request) -> dict[str, Any]:
+        """Einen Ort anlegen oder verschieben - meist ein Laden.
+
+        Damit die Einkaufs-Erinnerung ohne config.yaml auskommt: Wer vor
+        dem Coop steht, tippt auf «Ort ist hier», und der Laden weiss von
+        da an, wo er liegt. Dieselbe Kennung heisst «derselbe Ort, neu
+        vermessen» - so lässt er sich geraderücken, ohne ihn zu löschen.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        service = hub.integrations.get("geofence")
+        if service is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Die geofence-Integration ist nicht eingerichtet",
+            )
+        try:
+            orte = await service.ort_setzen(
+                body.name,
+                body.latitude,
+                body.longitude,
+                body.radius or 150.0,
+                body.id or "",
+            )
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+        return {"ok": True, "places": orte}
+
+    @app.get("/api/presence/places/search")
+    async def search_places(request: Request, q: str = "") -> dict[str, Any]:
+        """Orte zu einer Adresse vorschlagen - oder eingefügte Koordinaten.
+
+        Der Hub fragt, nicht das Telefon: Er hat den Weg ins Internet
+        ohnehin, und so braucht die App keine eigene Erlaubnis dafür.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        service = hub.integrations.get("geofence")
+        if service is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Die geofence-Integration ist nicht eingerichtet",
+            )
+        try:
+            return {"results": await service.ort_suchen(q)}
+        except Exception as err:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Die Ortssuche ist gerade nicht erreichbar: {err}",
+            ) from err
+
+    @app.delete("/api/presence/places/{place_id}")
+    async def delete_place(place_id: str, request: Request) -> dict[str, Any]:
+        """Einen in der App angelegten Ort löschen.
+
+        Was in der config.yaml steht, bleibt: Ein Knopf in der App darf
+        nicht wegräumen, was jemand dort von Hand gepflegt hat.
+        """
+        require(request, Capability.EDIT_CONFIG)
+        service = hub.integrations.get("geofence")
+        if service is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Die geofence-Integration ist nicht eingerichtet",
+            )
+        return {"ok": True, "places": await service.ort_entfernen(place_id)}
 
     @app.get("/api/presence/zones")
     async def presence_zones(request: Request) -> dict[str, Any]:

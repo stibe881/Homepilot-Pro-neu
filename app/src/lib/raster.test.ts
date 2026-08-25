@@ -4,7 +4,14 @@
  * Die Zahlen sind keine Erfindung: Es sind die Innenbreiten, die in
  * dieser Wohnung vorkommen – Fensterbreite minus 2 × 22 Punkte Rand.
  */
-import { KACHEL_MINDEST, KAMERA_MINDEST, kachelBreite, spalten } from './raster';
+import {
+  FAVORIT_LUECKE,
+  FAVORIT_MINDEST,
+  KACHEL_MINDEST,
+  KAMERA_MINDEST,
+  kachelBreite,
+  spalten,
+} from './raster';
 import { space } from '../theme';
 
 // Gerät → Innenbreite des Kachelbereichs (hochkant).
@@ -79,3 +86,42 @@ describe('Die Kacheln passen wirklich nebeneinander', () => {
     }
   });
 });
+
+describe('Favoritenkacheln stehen zu dritt nebeneinander', () => {
+  // Der Fall: Auf kleineren iPhones rutschte die dritte Kachel in die
+  // zweite Zeile. Sie war so breit wie ihr Inhalt, und drei Zimmernamen
+  // ergeben zusammen mehr, als ein iPhone hergibt.
+  const favSpalten = (breite: number) =>
+    spalten(breite, { mindest: FAVORIT_MINDEST, hoechstens: 3, luecke: FAVORIT_LUECKE });
+
+  it('gibt jedem iPhone ab 375 Punkten drei Spalten', () => {
+    expect(favSpalten(GERAETE['iPhone SE / 13 mini (375)'])).toBe(3);
+    expect(favSpalten(GERAETE['iPhone 15 (390)'])).toBe(3);
+    expect(favSpalten(GERAETE['iPhone 15 Pro Max (430)'])).toBe(3);
+  });
+
+  it('lässt dem alten 320er zwei – drei wären Kürzel statt Namen', () => {
+    expect(favSpalten(GERAETE['iPhone SE (320)'])).toBe(2);
+  });
+
+  it('rechnet die Breite so, dass sie wirklich nebeneinander passen', () => {
+    for (const breite of Object.values(GERAETE)) {
+      const anzahl = favSpalten(breite);
+      const kachel = kachelBreite(breite, anzahl, FAVORIT_LUECKE);
+      const gebraucht = kachel * anzahl + FAVORIT_LUECKE * (anzahl - 1);
+      expect(gebraucht).toBeLessThanOrEqual(breite);
+    }
+  });
+
+  it('lässt dem Namen auf dem kleinsten Dreier-Gerät genug Platz', () => {
+    // Gemessen im Browser: «Wohnzimmer» braucht bei 13 Punkt Schrift 82
+    // Punkte. Die Kachel hat 2 × 10 Punkte Polsterung und 2 Punkte Rand.
+    const kachel = kachelBreite(
+      GERAETE['iPhone SE / 13 mini (375)'],
+      3,
+      FAVORIT_LUECKE
+    );
+    expect(kachel - 22).toBeGreaterThanOrEqual(82);
+  });
+});
+

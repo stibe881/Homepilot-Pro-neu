@@ -10,6 +10,7 @@ import { useColors } from '../theme';
 import { HubFehler, hubClient } from '../api/client';
 import { datumKurz, uhr } from '../lib/format';
 import { istPushKategorie } from '../lib/pushablaeufe';
+import { useOrte } from '../hooks/useOrte';
 import {
   RueckwegBefehl,
   musikBefehl,
@@ -72,6 +73,10 @@ export function AutomationsScreen({
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  // Für den Ortsauslöser: Zuhause, die eigenen Orte und die aus Life360
+  // übernommenen. Ohne Hub bleibt die Liste leer, dann kennt der
+  // Auslöser nur «Zuhause» - wie bisher.
+  const { orte } = useOrte(settings);
   const [automations, setAutomations] = useState<Automation[] | null>(null);
   // Babysitter-Modus: Wer im Haus ist, weiss die Anwesenheit nicht immer.
   // Solange er läuft, ruhen alle Abläufe ausser den angehakten.
@@ -566,6 +571,7 @@ export function AutomationsScreen({
             color,
             transition,
             volume,
+            temperature,
             playlist,
             station,
             app,
@@ -581,6 +587,11 @@ export function AutomationsScreen({
           }
           if (command === 'set_volume') {
             return [{ entity_id, command, data: { volume: volume ?? 30 } }];
+          }
+          // Die Zieltemperatur des Grills – ohne diesen Zweig stünde in
+          // der Szene ein set_temperature ohne Zahl.
+          if (command === 'set_temperature') {
+            return [{ entity_id, command, data: { temperature: temperature ?? 120 } }];
           }
           // «Musik an» mit gewählter Playlist wird zu play_playlist: Der
           // Hub sucht sie über ihren Namen, weckt die Ziel-Box notfalls
@@ -1559,6 +1570,7 @@ export function AutomationsScreen({
       <Editor
         draft={draft}
         entities={entities}
+        orte={orte}
         scenes={scenes}
         categories={usedCategories(automations)}
         hueScenes={hueScenes}

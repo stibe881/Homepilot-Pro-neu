@@ -12,6 +12,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { HubSettings } from './src/api/types';
 import { Auffangnetz } from './src/components/Auffangnetz';
 import { DashboardScreen } from './src/screens/DashboardScreen';
+import { kanaeleAnlegen } from './src/lib/kanaele';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { ThemeProvider, useTheme } from './src/theme';
@@ -36,6 +37,19 @@ Notifications.setNotificationHandler({
     shouldSetBadge: false,
   }),
 });
+
+/**
+ * Die Android-Kanäle anlegen.
+ *
+ * Aus demselben Grund auf Modulebene wie der Handler darüber: Der Kanal
+ * muss stehen, bevor die erste Nachricht eintrifft. Kommt sie früher,
+ * legt Android sie in den Sammelkanal, und dort bleibt sie auch – ein
+ * später angelegter Kanal holt sie nicht mehr heraus.
+ *
+ * Ohne `await` und mit stillem Fehlschlag: Das Anlegen ist eine
+ * Nebensache beim Start und darf die App nicht aufhalten.
+ */
+void kanaeleAnlegen().catch(() => {});
 
 /**
  * Die Hintergrund-Aufgabe der Ortung registrieren (Punkt 194).

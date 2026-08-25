@@ -516,13 +516,13 @@ export function TopStrip({
             {onShoppingAdd ? (
               <>
                 <View style={styles.addRow}>
-                  <Ionicons name="add" size={17} color={colors.inkFaint} />
+                  <Ionicons name="add" size={17} color={colors.inkSoft} />
                   <TextInput
                     style={styles.addInput}
                     value={neuerArtikel}
                     onChangeText={setNeuerArtikel}
                     placeholder="Was fehlt?"
-                    placeholderTextColor={colors.inkFaint}
+                    placeholderTextColor={colors.inkSoft}
                     autoCorrect={false}
                     returnKeyType="done"
                     onSubmitEditing={() => {
@@ -573,7 +573,7 @@ export function TopStrip({
 
             <ScrollView style={{ maxHeight: 360 }} keyboardShouldPersistTaps="handled">
               {gaenge.length === 0 ? (
-                <Text style={styles.lightRoom}>
+                <Text style={styles.sheetHint}>
                   Die Liste ist leer
                   {onShoppingAdd ? ' – oben eintragen, was fehlt.' : '.'}
                 </Text>
@@ -607,7 +607,7 @@ export function TopStrip({
                           <Ionicons
                             name={onShoppingDone ? 'ellipse-outline' : 'cart-outline'}
                             size={20}
-                            color={colors.inkFaint}
+                            color={colors.inkSoft}
                           />
                           <Text style={[styles.lightName, { flex: 1 }]} numberOfLines={1}>
                             {menge > 1 ? `${menge}× ${name}` : name}
@@ -629,7 +629,7 @@ export function TopStrip({
                               accessibilityLabel={`${name}: eines weniger`}
                               hitSlop={10}
                             >
-                              <Ionicons name="remove" size={17} color={colors.inkFaint} />
+                              <Ionicons name="remove" size={17} color={colors.inkSoft} />
                             </Pressable>
                             <Pressable
                               onPress={() => onShoppingCount(String(eintrag.id), menge + 1)}
@@ -637,7 +637,7 @@ export function TopStrip({
                               accessibilityLabel={`${name}: eines mehr`}
                               hitSlop={10}
                             >
-                              <Ionicons name="add" size={17} color={colors.inkFaint} />
+                              <Ionicons name="add" size={17} color={colors.inkSoft} />
                             </Pressable>
                           </>
                         ) : null}
@@ -648,7 +648,7 @@ export function TopStrip({
                             accessibilityLabel={`${name} von der Liste nehmen`}
                             hitSlop={10}
                           >
-                            <Ionicons name="close" size={17} color={colors.inkFaint} />
+                            <Ionicons name="close" size={17} color={colors.inkSoft} />
                           </Pressable>
                         ) : null}
                       </View>
@@ -659,7 +659,7 @@ export function TopStrip({
             </ScrollView>
 
             {onShoppingDone && einkauf.length > 0 ? (
-              <Text style={styles.lightRoom}>
+              <Text style={styles.sheetHint}>
                 Antippen hakt ab. Mit − und + die Stückzahl, mit × einen
                 Vertipper wieder loswerden.
               </Text>
@@ -1007,7 +1007,11 @@ const makeStyles = (colors: Colors) =>
     gap: 10,
     padding: 18,
     borderRadius: radius.card,
-    backgroundColor: colors.gradient[1],
+    // Der deckende Blatt-Grund, nicht die mittlere Farbe des Verlaufs.
+    // Auf dem Verlauf lagen die Schriftfarben auf einem Ton, für den sie
+    // nie gemacht waren: «MILCHPRODUKTE» und der Hinweis darunter waren
+    // kaum zu lesen, und je nach Thema verschob sich das noch.
+    backgroundColor: colors.panel,
     borderWidth: 1,
     borderColor: colors.surfaceBorder,
   },
@@ -1100,5 +1104,11 @@ const makeStyles = (colors: Colors) =>
     borderWidth: 1,
     borderColor: colors.surfaceBorder,
   },
-  closeText: { color: colors.inkSoft, fontSize: 15, fontWeight: '700' },
+  // Der einzige Weg aus dem Blatt heraus - der darf nicht der blasseste
+  // Text darauf sein.
+  closeText: { color: colors.ink, fontSize: 15, fontWeight: '700' },
+  // Hinweise im Blatt: leiser als der Inhalt, aber noch zu lesen.
+  // «lightRoom» (inkFaint, 12) ist für eine Zeile unter einem Gerätenamen
+  // gedacht, nicht für einen Satz, den jemand im Laden liest.
+  sheetHint: { color: colors.inkSoft, fontSize: 13, lineHeight: 18 },
 });

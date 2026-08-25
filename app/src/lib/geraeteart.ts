@@ -143,6 +143,10 @@ export function deviceKindLabel(entity: Entity): string {
     case 'media_player':
       return isTelevision(entity) ? 'Fernseher' : 'Lautsprecher';
 
+    // Der Einschlaf-Timer des Fernsehers als eigene Kachel.
+    case 'timer':
+      return 'Timer';
+
     default:
       return 'Gerät';
   }
@@ -192,6 +196,8 @@ export function deviceKindIcon(entity: Entity): string {
       return 'calendar-outline';
     case 'media_player':
       return isTelevision(entity) ? 'tv-outline' : 'musical-notes-outline';
+    case 'timer':
+      return 'moon-outline';
     default:
       return 'ellipse-outline';
   }
@@ -240,6 +246,17 @@ export function hatEigeneAuswahl(entity: Entity): boolean {
   return (
     entity.commands.includes('play_playlist') || entity.commands.includes('play_radio')
   );
+}
+
+/** Das Symbol einer Quelle (rein, testbar).
+ *
+ * Spotify und Radio stehen im Player nebeneinander zur Wahl. Zwei Chips
+ * mit blossem Namen sähen aus wie zwei Boxen – das Sinnbild sagt in
+ * einem Blick, dass hier etwas anderes gewählt wird als ein Zimmer. */
+export function quellenSymbol(entity: Entity): string {
+  if (entity.commands.includes('play_radio')) return 'radio';
+  if (entity.commands.includes('play_playlist')) return 'musical-notes';
+  return 'volume-medium-outline';
 }
 
 /** Welcher Player gehört auf die Startseite? (rein, testbar)

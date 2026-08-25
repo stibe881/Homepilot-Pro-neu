@@ -131,7 +131,7 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     screen: {
       flex: 1,
-      backgroundColor: colors.gradient[1],
+      backgroundColor: colors.panel,
       padding: 22,
       gap: 18,
       paddingTop: 60,
@@ -169,5 +169,8 @@ const makeStyles = (colors: Colors) =>
       paddingHorizontal: 18,
       paddingVertical: 12,
     },
-    buttonText: { color: colors.surfaceStrong, fontWeight: '700', fontSize: 15 },
+    // Nicht surfaceStrong: Das ist durchscheinendes Weiss und liegt hier
+    // auf ink – in den dunklen Erscheinungsbildern also fast weiss auf
+    // weiss. `panel` ist die deckende Gegenfarbe zu ink.
+    buttonText: { color: colors.panel, fontWeight: '700', fontSize: 15 },
   });

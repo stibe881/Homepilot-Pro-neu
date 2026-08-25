@@ -149,6 +149,42 @@ describe('Der Wert gehört in den Satz', () => {
     expect(satz).toContain('Nest Badezimmer Lautstärke 20 %');
   });
 
+  it('nennt die Zieltemperatur in der Einheit des Grills', () => {
+    const grill = (unit: string) =>
+      ({
+        id: 'pitboss.smoker',
+        kind: 'appliance',
+        name: 'Smoker',
+        integration: 'pitboss',
+        state: { unit },
+        commands: ['turn_off', 'set_temperature'],
+      }) as unknown as Entity;
+    const satz = (unit: string) =>
+      ablaufSatz(
+        {
+          triggers: [{ type: 'time', at: '18:00' }],
+          conditions: [],
+          actions: [
+            {
+              type: 'command',
+              entity_id: 'pitboss.smoker',
+              command: 'set_temperature',
+              data: { temperature: 110 },
+            },
+          ],
+          otherwise: [],
+          match: 'all',
+        },
+        [grill(unit)],
+        []
+      );
+    expect(satz('°C')).toContain('Smoker auf 110 °C');
+    // Ein Fahrenheit-Grill meldet 225 – «225 °C» wäre eine ganz andere
+    // Aussage, deshalb kommt die Einheit vom Gerät und nicht aus einer
+    // Annahme.
+    expect(satz('°F')).toContain('Smoker auf 110 °F');
+  });
+
   it('nennt die Playlist beim Namen', () => {
     const satz = ablaufSatz(
       {

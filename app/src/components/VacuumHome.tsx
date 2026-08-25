@@ -944,7 +944,7 @@ const makeStyles = (colors: Colors) =>
       gap: 12,
       padding: 18,
       borderRadius: radius.card,
-      backgroundColor: colors.gradient[1],
+      backgroundColor: colors.panel,
       borderWidth: 1,
       borderColor: colors.surfaceBorder,
     },

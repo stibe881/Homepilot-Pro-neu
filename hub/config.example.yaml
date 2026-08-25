@@ -274,11 +274,27 @@ integrations:
   #   #   - id: stefan
   #   #     name: Stefan (Diensthandy)
 
-  # Life360: Standort für Telefone, auf denen HomePilot nicht läuft -
-  # das Gerät der Grosseltern, ein Kindertelefon. Eine Quelle je Person:
-  # Wer die App hat, bleibt beim geofence oben. Life360 hat keine offene
-  # Schnittstelle und sperrt Fremdzugriffe zeitweise; der Hub geht dann
-  # in wachsende Pausen. Siehe docs/geofence.md.
+  # Life360: der Standort aus der Familien-App.
+  #
+  # Benutzt der ganze Haushalt ohnehin Life360, gehören hier ALLE herein -
+  # auch die Telefone, auf denen HomePilot läuft. Die Ortung der App
+  # hängt daran, dass iOS sie im Hintergrund weckt, und das tut es nicht
+  # zuverlässig; wer heimkommt und weiter als «unterwegs» dasteht, hat
+  # genau das erlebt. Dann auf jedem Telefon Einstellungen → Ortung
+  # ausschalten.
+  #
+  # Eine Quelle je Person, und der Hub setzt es durch: Wer hier steht,
+  # wird von hier geführt, jede andere Meldung für diese Person wird
+  # überhört. Wer NICHT hier steht, meldet weiter selbst (App oder
+  # Kurzbefehl) - beides nebeneinander ist also kein Problem.
+  #
+  # Die gespeicherten Orte von Life360 (Schule, Arbeit, Grosseltern)
+  # kommen mit und stehen in Abläufen zur Auswahl - ohne dass man sie
+  # hier ein zweites Mal erfassen müsste.
+  #
+  # Life360 hat keine offene Schnittstelle und sperrt Fremdzugriffe
+  # zeitweise; der Hub geht dann in wachsende Pausen. Siehe
+  # docs/geofence.md.
   # - integration: life360
   #   token: "${LIFE360_TOKEN}"
   #   # Life360 kennt keine Passwörter mehr (Anmeldung per SMS-/Mail-Code).
@@ -289,14 +305,23 @@ integrations:
   #   # password: "${LIFE360_PASSWORD}"
   #   scan_interval: 60
   #   members:              # Name bei Life360 → Zone im geofence oben
+  #     Stefan: stefan
+  #     Sandra: sandra
+  #     Levin: levin
   #     Oma: oma
 
-  # UniFi: Anwesenheitserkennung anhand verbundener Geräte.
-  # Liefert zusätzlich unifi.anyone_home und unifi.clients_total.
+  # UniFi Network: Geräte im WLAN - und die Gutscheine fürs Gäste-Portal
+  # (Karte «Gäste-WLAN» unter Benutzer). Liefert zusätzlich
+  # unifi.anyone_home und unifi.clients_total.
+  #
+  # Eigenes Variablenpaar, nicht dasselbe wie bei unifi_protect: Der
+  # Netzwerk-Zugang muss Hotspot-Gutscheine ausstellen dürfen, Protect
+  # kommt mit «View Only» aus. Ein Konto für beides hiesse, dem
+  # Kamera-Zugang Schreibrechte im Netz zu geben.
   # - integration: unifi
   #   host: 192.168.1.1
-  #   username: "${UNIFI_USER}"
-  #   password: "${UNIFI_PASSWORD}"
+  #   username: "${UNIFI_NET_USER}"
+  #   password: "${UNIFI_NET_PASSWORD}"
   #   site: default
   #   scan_interval: 30
   #   track:
@@ -309,9 +334,8 @@ integrations:
   #   name: Weihnachtsbaum
   #   default_mode: movie
 
-  # UniFi Protect: Kameras mit Bewegungs- und Klingel-Ereignissen (lesend).
-  # Nutzt denselben Controller-Login wie 'unifi'.
-  # UniFi Protect: Kameras (eigener Menüpunkt «Kameras» in der App).
+  # UniFi Protect: Kameras mit Bewegungs- und Klingel-Ereignissen
+  # (lesend, eigener Menüpunkt «Kameras» in der App).
   # 'host' ist die UniFi-Konsole, nicht eine Kamera. Für den Hub einen
   # eigenen Local-Access-Benutzer mit «View Only» auf Protect anlegen und
   # ohne Zwei-Faktor lassen. Anleitung: docs/kameras.md
