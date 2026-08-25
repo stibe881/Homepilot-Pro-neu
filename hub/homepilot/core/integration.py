@@ -12,10 +12,12 @@ import asyncio
 import importlib
 import logging
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Iterable
+from http.cookies import SimpleCookie
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import aiohttp
+from yarl import URL
 
 from .entity import Entity
 from .errors import (
@@ -153,7 +155,7 @@ class Integration(ABC):
     def start_polling(
         self,
         refresh: Callable[[], Coroutine],
-        interval: float | None = None,
+        interval: float | Callable[[], float] | None = None,
         sofort: bool = False,
     ) -> asyncio.Task:
         """Der Standard-Polltakt: schlafen, auffrischen, weiterleben.
@@ -167,14 +169,36 @@ class Integration(ABC):
         ``interval`` überschreibt scan_interval(); ``sofort`` frischt
         einmal vor dem ersten Schlafen auf (wer seine Entitäten erst über
         den ersten Abruf findet, braucht das).
+
+        ``interval`` darf auch eine Funktion sein, die vor jedem Schlafen
+        gefragt wird. Das braucht, wer den nächsten Blick vorhersehen
+        kann: Spotify weiss, wie lange der laufende Titel noch dauert,
+        und schaut genau dann wieder hin statt eine halbe Minute später.
+        Sich dafür eine eigene Schleife zu bauen wäre der Rückschritt,
+        den dieser Helfer gerade behoben hat.
         """
-        takt = float(interval) if interval is not None else self.scan_interval()
+        if callable(interval):
+            naechster = interval
+        else:
+            fest = float(interval) if interval is not None else self.scan_interval()
+            naechster = lambda: fest  # noqa: E731
 
         async def _loop() -> None:
             if sofort:
                 await self._poll_once(refresh)
             while True:
-                await asyncio.sleep(takt)
+                # Auch eine kaputte Rechnung darf den Takt nicht anhalten
+                # – und keine Schleife ohne Pause bauen. Null oder negativ
+                # heisst darum «nimm den normalen Takt», nicht «sofort
+                # wieder»; einen festen Mindestwert gibt es bewusst nicht,
+                # sonst wäre ein absichtlich kurzer Takt nicht mehr kurz.
+                try:
+                    pause = float(naechster())
+                except Exception:
+                    pause = self.scan_interval()
+                if pause <= 0:
+                    pause = self.scan_interval()
+                await asyncio.sleep(pause)
                 await self._poll_once(refresh)
 
         return self.start_task(_loop())
@@ -193,6 +217,55 @@ class Integration(ABC):
         session = aiohttp.ClientSession(**kwargs)
         self._sessions.append(session)
         return session
+
+    def console_session(self, **kwargs: Any) -> aiohttp.ClientSession:
+        """Session für eine Konsole im eigenen Netz, die man per IP anspricht.
+
+        Zwei Eigenheiten, die solche Geräte gemeinsam haben und die man
+        beide einzeln übersieht:
+
+        Sie tragen ein selbstsigniertes Zertifikat – dagegen hilft nur,
+        die Prüfung abzuschalten. Im eigenen Netz gegen ein Gerät, dessen
+        Adresse man selbst einträgt, ist das vertretbar.
+
+        Und die Anmeldung läuft über ein Cookie. aiohttp legt Cookies von
+        einer **IP-Adresse** aber nur ab, wenn der Speicher ``unsafe=True``
+        trägt – sonst verwirft er sie stillschweigend, und zwar wirklich
+        stumm: kein Fehler, kein Warnhinweis. Danach ist jeder Aufruf
+        unangemeldet. Ein UniFi-Controller antwortet darauf nicht etwa mit
+        401, sondern mit **200 und der HTML-Anmeldeseite** – der Hub
+        scheiterte dann an «unexpected mimetype: text/html» und niemand
+        kam darauf, dass es an einem verworfenen Cookie liegt.
+
+        Genau diese Zeile fehlte in `unifi` und stand in `unifi_protect`.
+        Deshalb steht sie jetzt an einer Stelle statt an zweien.
+        """
+        kwargs.setdefault("connector", aiohttp.TCPConnector(ssl=False))
+        kwargs.setdefault("cookie_jar", aiohttp.CookieJar(unsafe=True))
+        return self.http_session(**kwargs)
+
+    @staticmethod
+    def keep_cookies(
+        session: aiohttp.ClientSession,
+        response: aiohttp.ClientResponse,
+        base: str,
+    ) -> None:
+        """Die Cookies einer Anmeldung selbst in den Speicher legen.
+
+        ``aiohttp`` tut das von sich aus - aber erst, nachdem es die
+        ``Set-Cookie``-Zeile durch ``SimpleCookie`` geschickt hat, und der
+        wirft an einem unbekannten Attribut alles weg (siehe
+        ``parse_set_cookie``). Deshalb hier noch einmal von Hand, mit
+        Pfad ``/``: Was für die Anmeldung gilt, gilt für das ganze Gerät.
+        """
+        kekse = parse_set_cookie(response.headers.getall("Set-Cookie", []))
+        if not kekse:
+            return
+        gereinigt: SimpleCookie = SimpleCookie()
+        for name, wert in kekse.items():
+            gereinigt[name] = wert
+            gereinigt[name]["path"] = "/"
+        session.cookie_jar.update_cookies(gereinigt, response_url=URL(base))
 
     def entity_id(self, object_id: str) -> str:
         return f"{self.name}.{object_id}"
@@ -269,6 +342,63 @@ def is_permanent(err: Exception) -> bool:
     Wiederanlauf da.
     """
     return isinstance(err, ConfigError)
+
+
+def parse_set_cookie(zeilen: Iterable[str]) -> dict[str, str]:
+    """Name → Wert aus rohen ``Set-Cookie``-Zeilen (rein, testbar).
+
+    Von Hand und nicht über ``SimpleCookie``, weil dessen Parser an einem
+    einzigen unbekannten Attribut die **ganze** Zeile verwirft - stumm.
+    Genau das passiert bei UniFi OS: Es schickt sein Anmelde-Cookie mit
+    ``partitioned`` (die CHIPS-Kennzeichnung), und ``Morsel._reserved``
+    kennt das bis Python 3.13 nicht. Ergebnis: kein Cookie, jede weitere
+    Abfrage unangemeldet - und der Controller antwortet darauf nicht mit
+    401, sondern mit 200 und der HTML-Anmeldeseite.
+
+    Hier interessieren ohnehin nur Name und Wert; über Pfad und
+    Lebensdauer entscheidet der Aufrufer, der das Gerät kennt.
+    """
+    kekse: dict[str, str] = {}
+    for zeile in zeilen:
+        paar = zeile.split(";", 1)[0].strip()
+        name, trenner, wert = paar.partition("=")
+        if trenner and name.strip():
+            kekse[name.strip()] = wert.strip()
+    return kekse
+
+
+def console_html_hint(url: str, content_type: str) -> str | None:
+    """Warum eine 200er-Antwort einer UniFi-Konsole keine Daten enthält.
+
+    (rein, testbar) - ``None``, wenn die Antwort in Ordnung aussieht.
+
+    Eine UniFi-Konsole trägt mehrere Anwendungen, jede unter
+    ``/proxy/<name>/``. Fragt man nach einer, die auf **diesem** Gerät
+    nicht läuft, kommt kein 404: Es kommt die Weboberfläche, mit Status
+    200. Genauso sieht eine abgelehnte Sitzung aus.
+
+    Ohne diesen Hinweis stand im Log nur «unexpected mimetype:
+    text/html». Das liest sich wie ein kaputter Endpunkt und schickt
+    einen auf die Suche nach einem Fehler im Hub - während in Wahrheit
+    bloss ``host`` auf die falsche Konsole zeigt. Eine Anlage kann eine
+    Protect-Konsole und ein Gateway mit dem Netzwerk-Controller haben;
+    beide beantworten die Anmeldung, aber nur eines kennt die Anwendung.
+    """
+    if "html" not in content_type.lower():
+        return None
+    anwendung = "die angefragte Anwendung"
+    teile = url.split("/proxy/", 1)
+    if len(teile) == 2:
+        name = teile[1].split("/", 1)[0]
+        if name:
+            anwendung = f"«{name}»"
+    return (
+        f"Der Controller hat die Anmeldeseite geschickt statt Daten. Auf "
+        f"diesem Gerät läuft {anwendung} vermutlich gar nicht - dann zeigt "
+        f"'host' auf die falsche Konsole (Protect und der Netzwerk-"
+        f"Controller sitzen oft auf verschiedenen Geräten). Sonst fehlt "
+        f"dem Benutzer der Zugriff auf diese Anwendung."
+    )
 
 
 def setup_error(name: str, err: Exception) -> str:

@@ -64,7 +64,7 @@ def test_timers_run_and_announce():
 
         sent: list[str] = []
 
-        async def fake_send(tokens, title, body, data=None, image=None):
+        async def fake_send(tokens, title, body, data=None, image=None, **_):
             sent.append(body)
             return len(tokens)
 

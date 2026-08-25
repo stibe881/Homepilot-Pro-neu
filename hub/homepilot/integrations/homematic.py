@@ -164,6 +164,7 @@ from .homematic_channels import (  # noqa: F401
     PRESS_DATAPOINTS,
     SLOW_CALLBACK,
     SWITCHING_TYPES,
+    UnknownParameter,
     battery_to_state,
     command_error,
     command_to_value,
@@ -232,6 +233,9 @@ class HomematicIntegration(Integration):
         # Je Adresse und Datenpunkt der Grund, warum nichts ankommt –
         # einmal zusammengestellt, dann an die Kachel gereicht.
         self._gruende: dict[tuple[str, str], str] = {}
+        # Datenpunkte, die einzeln nicht herausrücken und darum über das
+        # ganze Wertepaket gelesen werden (siehe _wert).
+        self._ueber_paramset: set[tuple[str, str]] = set()
         # (Adresse, Datenpunkt) → entity_id, plus Stammdaten je Entität
         self._by_datapoint: dict[tuple[str, str], str] = {}
         # Messkanäle getrennt: sie liefern kein state, sondern nur 'power'.
@@ -558,8 +562,8 @@ class HomematicIntegration(Integration):
             problem: str | None = None
             schluessel = (info["address"], info["datapoint"])
             try:
-                value = await self._call(
-                    "getValue", info["address"], info["datapoint"], port=port
+                value = await self._wert(
+                    info["address"], info["datapoint"], port, schluessel
                 )
                 changes.update(value_to_state(value, info["datapoint"], info["dimmable"]))
                 self._warned.discard(schluessel)
@@ -654,6 +658,48 @@ class HomematicIntegration(Integration):
                 continue
             for entity_id in entity_ids:
                 await self.hub.registry.update_state(entity_id, changes)
+
+    async def _wert(
+        self, address: str, datapoint: str, port: int, schluessel: tuple[str, str]
+    ) -> Any:
+        """Einen Datenpunkt lesen – notfalls über das ganze Wertepaket.
+
+        Der Fall, an dem die Rack-Fühler hingen: Die CCU antwortete auf
+        `getValue(…, "HUMIDITY")` mit «Fault -5: Unknown Parameter», und
+        die Beschreibung desselben Kanals zählte HUMIDITY seelenruhig
+        mit auf. Kein Widerspruch, sondern zwei verschiedene Fragen:
+        `getValue` liefert aus dem Wertespeicher der CCU, und der ist für
+        einen Datenpunkt leer, bis das Gerät zum ersten Mal gesendet hat
+        – bei einem batteriebetriebenen HmIP-Fühler nach jedem CCU-Neustart
+        also erst einmal für alle.
+
+        `getParamset(…, "VALUES")` liest dasselbe Paket am Stück und gibt
+        zurück, was da ist. Genau diesen Weg gehen andere Anbindungen
+        auch. Er kostet einen Aufruf mehr – darum nur, wenn der erste
+        Weg an genau diesem Fehler scheitert, und danach gemerkt: Ein
+        Kanal, der es einmal so brauchte, braucht es immer so.
+        """
+        if schluessel not in self._ueber_paramset:
+            try:
+                return await self._call("getValue", address, datapoint, port=port)
+            except Exception as err:
+                if not unknown_parameter(err):
+                    raise
+                self._ueber_paramset.add(schluessel)
+                self.log.info(
+                    "%s gibt %s nicht einzeln her – ab jetzt über das "
+                    "Wertepaket (getParamset)",
+                    address,
+                    datapoint,
+                )
+        paket = await self._call("getParamset", address, "VALUES", port=port)
+        if isinstance(paket, dict) and datapoint in paket:
+            return paket[datapoint]
+        # Auch das Paket kennt ihn nicht: Dann ist es wirklich der
+        # falsche Name, und der Aufrufer soll seine Warnung bauen.
+        raise UnknownParameter(
+            f"weder einzeln noch im Wertepaket lesbar: {datapoint}"
+        )
 
     async def _was_der_kanal_kennt(self, address: str, port: int) -> str:
         """Der zweite Satz der Warnung: Welche Datenpunkte hat der Kanal?

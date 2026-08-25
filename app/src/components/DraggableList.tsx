@@ -123,9 +123,17 @@ function DragRow({
       PanResponder.create({
         onStartShouldSetPanResponder: () => true,
         onMoveShouldSetPanResponder: () => true,
-        // Die Liste darf uns die Geste nicht wieder wegnehmen, sobald
-        // sie merkt, dass es senkrecht weitergeht.
+        // Ohne diese beiden liess sich hier gar nicht ziehen: Die Liste
+        // steht in einem ScrollView, und der fordert die Geste beim
+        // ersten senkrechten Millimeter für sich an. Wird ihm nicht
+        // widersprochen, bricht er das Ziehen sofort ab – die Zeile
+        // zuckte kurz, dann scrollte nur noch die Liste.
+        //
+        // Sie allein genügten allerdings nicht: Die Geste kam an, wurde
+        // aber falsch gemessen (siehe oben, der Startpunkt). Beides
+        // gehört zusammen, sonst zuckt die Zeile weiterhin nur.
         onPanResponderTerminationRequest: () => false,
+        onShouldBlockNativeResponder: () => true,
         onPanResponderGrant: () => aktuell.current.onStart(aktuell.current.index),
         onPanResponderMove: (_event, gesture) => aktuell.current.onMove(gesture.dy),
         onPanResponderRelease: (_event, gesture) =>

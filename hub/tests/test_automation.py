@@ -413,7 +413,7 @@ def test_a_notification_can_carry_the_picture_of_the_doorbell_camera():
 
             sent: list[dict] = []
 
-            async def fake_send(tokens, title, body, data=None, image=None):
+            async def fake_send(tokens, title, body, data=None, image=None, **_):
                 sent.append({"title": title, "data": data, "image": image})
                 return len(tokens)
 
@@ -460,7 +460,7 @@ def test_a_notification_without_a_camera_stays_as_it_was():
         try:
             sent: list[dict] = []
 
-            async def fake_send(tokens, title, body, data=None, image=None):
+            async def fake_send(tokens, title, body, data=None, image=None, **_):
                 sent.append({"data": data, "image": image})
                 return len(tokens)
 

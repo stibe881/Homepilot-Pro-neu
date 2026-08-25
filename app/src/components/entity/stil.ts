@@ -254,6 +254,16 @@ export const makeStyles = (colors: Colors) =>
     borderWidth: 1,
     borderColor: colors.surfaceBorder,
   },
+  // Der ganze Knopf: Symbol oben, Wort darunter. Die Fläche zum Antippen
+  // ist die Spalte, nicht nur der Kreis – das Wort trifft man sonst und es
+  // passiert nichts.
+  editItem: { alignItems: 'center', gap: 3, maxWidth: 76 },
+  editCaption: {
+    color: colors.inkSoft,
+    fontSize: 10,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   editButton: {
     width: 32,
     height: 32,
@@ -275,6 +285,9 @@ export const makeStyles = (colors: Colors) =>
     color: colors.inkSoft,
     fontSize: type.cardSub,
   },
+  // Wie hint, nur nicht zu übersehen: Er steht dort, wo sonst ein
+  // Bedienelement wäre, und erklärt, warum es fehlt.
+  warnHint: { color: colors.warn, fontSize: 12, lineHeight: 17 },
   detail: {
     color: colors.inkSoft,
     fontSize: 12,

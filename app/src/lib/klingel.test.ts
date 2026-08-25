@@ -1,12 +1,15 @@
 import { Entity } from '../api/types';
 import {
   AUTO_SCHLIESSEN_SEKUNDEN,
+  HOECHSTENS_AKTIONEN,
   befehlLabel,
   haustuerZeile,
+  klingelAktionen,
+  klingelBild,
+  klingeltGerade,
   neueFrist,
   oeffnungsBefehl,
   restSekunden,
-  tuerenFuerKlingel,
 } from './klingel';
 
 const geraet = (over: Partial<Entity> & { id: string }): Entity =>
@@ -44,27 +47,94 @@ describe('Türen beim Klingeln', () => {
 
   it('bietet Haustüre und Wohnungstüre an, die der Klingel zuerst', () => {
     const kamera = geraet({ id: 'ring.klingel', kind: 'camera', integration: 'ring' });
-    const tueren = tuerenFuerKlingel(
+    const wege = klingelAktionen(
       [
-        geraet({ id: 'nuki.wohnung', name: 'Wohnungstüre', commands: ['unlatch', 'lock'] }),
-        geraet({ id: 'ring.haustuere', name: 'Haustüre', integration: 'ring', commands: ['open_door'] }),
+        geraet({
+          id: 'nuki.wohnung',
+          name: 'Wohnungstüre',
+          integration: 'nuki',
+          commands: ['unlatch', 'unlock', 'lock'],
+        }),
+        geraet({
+          id: 'ring.haustuere',
+          name: 'Haustüre',
+          integration: 'ring',
+          commands: ['open_door'],
+        }),
         geraet({ id: 'x.schrank', name: 'Schrank', commands: ['lock'] }),
         kamera,
       ],
       kamera
     );
-    expect(tueren.map((t) => t.id)).toEqual(['ring.haustuere', 'nuki.wohnung']);
+    // Genau die drei Handgriffe, um die es beim Klingeln geht - und die
+    // Türe der Klingel selbst zuerst.
+    expect(wege.map((w) => w.label)).toEqual([
+      'Haustüre öffnen',
+      'Wohnungstüre aufschliessen',
+      'Wohnungstüre öffnen',
+    ]);
+    expect(wege.map((w) => w.befehl)).toEqual(['open_door', 'unlock', 'unlatch']);
+    // Aufschliessen ist nicht öffnen - der Knopf muss das auseinanderhalten.
+    expect(wege.map((w) => w.oeffnet)).toEqual([true, false, true]);
   });
 
-  it('zeigt höchstens drei – ein Vollbild ist keine Suchaufgabe', () => {
+  it('zeigt höchstens vier – ein Vollbild ist keine Suchaufgabe', () => {
     const viele = ['a', 'b', 'c', 'd'].map((id) =>
-      geraet({ id, commands: ['unlatch'] })
+      geraet({ id, commands: ['unlatch', 'unlock'] })
     );
-    expect(tuerenFuerKlingel(viele).length).toBe(3);
+    expect(klingelAktionen(viele).length).toBe(HOECHSTENS_AKTIONEN);
   });
 
   it('kommt ohne Türen aus', () => {
-    expect(tuerenFuerKlingel([])).toEqual([]);
+    expect(klingelAktionen([])).toEqual([]);
+  });
+});
+
+describe('Wer klingelt', () => {
+  it('findet auch die Gegensprechanlage, nicht nur eine Kamera', () => {
+    // Der Fehler, wegen dem das Vollbild nie kam: Die Haustüre ist eine
+    // Ring-Gegensprechanlage. Der Hub legt sie als Türe an - sie hat
+    // einen Türöffner, aber kein Bild. Gesucht wurde eine Kamera.
+    const anlage = geraet({
+      id: 'ring.haustuere',
+      name: 'Haustüre',
+      integration: 'ring',
+      commands: ['open_door'],
+      state: { ring: 'on' },
+    });
+    expect(klingeltGerade([geraet({ id: 'nuki.wohnung' }), anlage])?.id).toBe(
+      'ring.haustuere'
+    );
+  });
+
+  it('nimmt die Kamera, wenn beides klingelt', () => {
+    const anlage = geraet({ id: 'ring.haustuere', state: { ring: 'on' } });
+    const kamera = geraet({
+      id: 'ring.klingel',
+      kind: 'camera',
+      state: { ring: 'on' },
+    });
+    expect(klingeltGerade([anlage, kamera])?.id).toBe('ring.klingel');
+  });
+
+  it('schweigt, wenn niemand klingelt', () => {
+    expect(klingeltGerade([geraet({ id: 'a', state: { ring: 'off' } })])).toBeUndefined();
+    expect(klingeltGerade([])).toBeUndefined();
+  });
+
+  it('zeigt das Bild der Kamera an derselben Türe', () => {
+    const anlage = geraet({
+      id: 'ring.haustuere',
+      room: 'Eingang',
+      integration: 'ring',
+      state: { ring: 'on' },
+    });
+    const kamera = geraet({ id: 'x.eingang', kind: 'camera', room: 'Eingang' });
+    expect(klingelBild([anlage, kamera], anlage)?.id).toBe('x.eingang');
+    // Eine Anlage ohne Kamera bleibt ohne Bild - besser kein Bild als ein
+    // Abruf, der ins Leere geht.
+    expect(klingelBild([anlage], anlage)).toBeUndefined();
+    expect(klingelBild([], undefined)).toBeUndefined();
   });
 });
 

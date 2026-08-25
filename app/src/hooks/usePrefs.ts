@@ -55,6 +55,14 @@ export interface UserPrefs {
    *  oben. Bewusst persönlich – am Wandpanel im Flur will man etwas
    *  anderes als auf dem Telefon in der Hosentasche. */
   kameraDynamisch?: boolean;
+  /** Die eigenen Favoriten. Lange stand der Stern am Gerät selbst und
+   *  galt damit für alle – aber griffbereit ist eine persönliche Frage:
+   *  Was Stefan jeden Abend braucht, ist für Livia nur eine Kachel im
+   *  Weg. Fehlt die Liste noch (undefined), gelten die alten Sterne am
+   *  Gerät als Startbestand; der erste eigene Stern schreibt sie fest. */
+  favorites?: string[];
+  /** Die selbst gezogene Reihenfolge der eigenen Favoriten. */
+  favoriteOrder?: string[];
 }
 
 /**
@@ -179,6 +187,16 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     [setzeEigen]
   );
 
+  const setFavorites = useCallback(
+    (ids: string[]) => setzeEigen({ ...eigenJetzt.current, favorites: ids }),
+    [setzeEigen]
+  );
+
+  const setFavoriteOrder = useCallback(
+    (ids: string[]) => setzeEigen({ ...eigenJetzt.current, favoriteOrder: ids }),
+    [setzeEigen]
+  );
+
   return {
     prefs: haus.werte,
     hausGeladen: haus.geladen,
@@ -194,5 +212,7 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     setWidgetDirect,
     setSeenChanges,
     setKameraDynamisch,
+    setFavorites,
+    setFavoriteOrder,
   };
 }

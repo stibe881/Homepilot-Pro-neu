@@ -34,6 +34,19 @@ export const KACHEL_MINDEST = 150;
  *  nichts, was man erkennen würde. */
 export const KAMERA_MINDEST = 260;
 
+/** Eine Favoritenkachel ist kleiner als eine Schaltkachel: ein Symbol,
+ *  ein Name, ein Wort Zustand – mehr steht nicht darauf.
+ *
+ *  96 Punkte sind kein Gefühl, sondern gemessen: Bei einem iPhone SE 3
+ *  (331 Punkte innen) ergeben sie drei Spalten à 105, und darin steht
+ *  «Wohnzimmer» ungekürzt. Ein 320er (276 innen) bekommt zwei, und das
+ *  ist dort auch richtig – drei wären dann Kürzel statt Namen. */
+export const FAVORIT_MINDEST = 96;
+
+/** Die Lücke zwischen den Favoritenkacheln – enger als das Kachelraster,
+ *  weil die Kacheln selbst kleiner sind. */
+export const FAVORIT_LUECKE = 8;
+
 export interface RasterMass {
   /** Schmalste Breite, die eine Kachel noch verdient. */
   mindest?: number;

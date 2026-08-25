@@ -4,6 +4,7 @@ import { Image, Pressable, Text, View } from 'react-native';
 
 import { CommandData, Entity, KalenderEintrag } from '../api/types';
 import { offlineSatz } from '../lib/funkstille';
+import { zustandsText } from '../lib/haushalt';
 import { hatWarteschlange } from '../lib/musikliste';
 import { useColors } from '../theme';
 import { Bar } from './Bar';
@@ -15,10 +16,25 @@ import { TvApps } from './TvApps';
 import { TvSleep } from './TvSleep';
 import { TvRemote } from './TvRemote';
 import { EditButton, GroupPicker, RenameDialog, RoomPicker } from './entity/anpassen';
-import { CameraSnapshot, CoverBody, GrillBody, LockBody, VacuumBody } from './entity/koerper';
+import {
+  CameraSnapshot,
+  CoverBody,
+  GrillBody,
+  LockBody,
+  VacuumBody,
+} from './entity/koerper';
 import { MediaButton, RadioPanel, ShuffleRepeat, SpotifyPanel } from './entity/medien';
 import { makeStyles } from './entity/stil';
-import { BigValue, Pill, clock, eventTime, format, integrationLabel, severityColor, sinceLabel } from './entity/teile';
+import {
+  BigValue,
+  Pill,
+  clock,
+  eventTime,
+  format,
+  integrationLabel,
+  severityColor,
+  sinceLabel,
+} from './entity/teile';
 
 interface Props {
   entity: Entity;
@@ -121,11 +137,9 @@ export function EntityCard({
   // lib/funkstille.ts.
   const offlineText = offlineSatz(
     entity,
-    entity.last_seen ? sinceLabel(entity.last_seen) : null,
+    entity.last_seen ? sinceLabel(entity.last_seen) : null
   );
-  const toggle = entity.commands.includes('toggle')
-    ? () => onCommand('toggle')
-    : undefined;
+  const toggle = entity.commands.includes('toggle') ? () => onCommand('toggle') : undefined;
 
   /** Leistung und, wenn ein Preis hinterlegt ist, die Tageskosten. */
   const powerNote = (): string | undefined => {
@@ -152,7 +166,7 @@ export function EntityCard({
         return entity.commands.includes('set_brightness') ? (
           <View style={styles.stack}>
             <Bar
-              value={isOn ? entity.state.brightness ?? 100 : 0}
+              value={isOn ? (entity.state.brightness ?? 100) : 0}
               onChange={(value) => onCommand('set_brightness', { brightness: value })}
             />
             <Text style={styles.hint}>
@@ -172,6 +186,12 @@ export function EntityCard({
 
       case 'switch':
         return <BigValue value={isOn ? 'An' : 'Aus'} on={isOn} note={powerNote()} />;
+
+      // Der Einschlaf-Timer des Fernsehers als eigene Kachel: dieselbe
+      // Bedienung wie in der Fernsehkachel, nur ohne den Fernseher drum
+      // herum. Der Hub spiegelt den Timer auf beide.
+      case 'timer':
+        return <TvSleep entity={entity} onCommand={onCommand} />;
 
       case 'binary_sensor': {
         // Tür-/Fensterkontakte sagen offen/geschlossen, Bewegungsmelder
@@ -211,7 +231,9 @@ export function EntityCard({
             {/* Cover und Titel öffnen, was als Nächstes kommt – wie in
                 der grossen Karte in der Seitenspalte. */}
             <Pressable
-              onPress={hatWarteschlange(entity.state) ? () => setListeOffen(true) : undefined}
+              onPress={
+                hatWarteschlange(entity.state) ? () => setListeOffen(true) : undefined
+              }
               accessibilityRole={hatWarteschlange(entity.state) ? 'button' : undefined}
               accessibilityLabel={
                 hatWarteschlange(entity.state) ? 'Was als Nächstes läuft' : undefined
@@ -244,19 +266,35 @@ export function EntityCard({
               state={entity.state}
               offen={listeOffen}
               onClose={() => setListeOffen(false)}
+              onPlay={
+                entity.commands.includes('play_queue')
+                  ? (uri) => onCommand('play_queue', { uri })
+                  : undefined
+              }
             />
             {entity.commands.includes('next') ? (
               <View style={styles.mediaRow}>
-                <MediaButton icon="play-skip-back" label="Zurück"
-                  onPress={() => onCommand('previous')} />
-                <MediaButton icon={playing ? 'pause' : 'play'}
+                <MediaButton
+                  icon="play-skip-back"
+                  label="Zurück"
+                  onPress={() => onCommand('previous')}
+                />
+                <MediaButton
+                  icon={playing ? 'pause' : 'play'}
                   label={playing ? 'Pause' : 'Abspielen'}
-                  onPress={() => onCommand(playing ? 'pause' : 'play')} />
-                <MediaButton icon="play-skip-forward" label="Weiter"
-                  onPress={() => onCommand('next')} />
+                  onPress={() => onCommand(playing ? 'pause' : 'play')}
+                />
+                <MediaButton
+                  icon="play-skip-forward"
+                  label="Weiter"
+                  onPress={() => onCommand('next')}
+                />
                 {hasRemote ? (
-                  <MediaButton icon="game-controller-outline" label="Fernbedienung"
-                    onPress={() => setRemoteOpen(true)} />
+                  <MediaButton
+                    icon="game-controller-outline"
+                    label="Fernbedienung"
+                    onPress={() => setRemoteOpen(true)}
+                  />
                 ) : null}
               </View>
             ) : null}
@@ -283,7 +321,8 @@ export function EntityCard({
                 <Pressable
                   onPress={() => onCommand('mute')}
                   hitSlop={8}
-                  accessibilityLabel="Stumm schalten">
+                  accessibilityLabel="Stumm schalten"
+                >
                   <Ionicons
                     name={
                       entity.state.muted || entity.state.volume === 0
@@ -297,7 +336,9 @@ export function EntityCard({
                 <View style={styles.volumeBar}>
                   <Bar
                     height={28}
-                    value={typeof entity.state.volume === 'number' ? entity.state.volume : 0}
+                    value={
+                      typeof entity.state.volume === 'number' ? entity.state.volume : 0
+                    }
                     onChange={(value) => onCommand('set_volume', { volume: value })}
                   />
                 </View>
@@ -324,16 +365,23 @@ export function EntityCard({
                   return (
                     <Pressable
                       key={name}
-                      onPress={() => (active ? undefined : onCommand('play_on', { device: name }))}
-                      style={[styles.deviceChip, active && styles.deviceChipActive]}>
+                      onPress={() =>
+                        active ? undefined : onCommand('play_on', { device: name })
+                      }
+                      style={[styles.deviceChip, active && styles.deviceChipActive]}
+                    >
                       <Ionicons
                         name={active ? 'volume-high' : 'volume-medium-outline'}
                         size={12}
                         color={active ? '#FFFFFF' : colors.inkSoft}
                       />
                       <Text
-                        style={[styles.deviceChipText, active && styles.deviceChipTextActive]}
-                        numberOfLines={1}>
+                        style={[
+                          styles.deviceChipText,
+                          active && styles.deviceChipTextActive,
+                        ]}
+                        numberOfLines={1}
+                      >
                         {name}
                       </Text>
                     </Pressable>
@@ -413,9 +461,7 @@ export function EntityCard({
                   size={15}
                   color={privacyOn ? '#FFFFFF' : colors.inkSoft}
                 />
-                <Text
-                  style={[styles.privacyText, privacyOn && { color: '#FFFFFF' }]}
-                >
+                <Text style={[styles.privacyText, privacyOn && { color: '#FFFFFF' }]}>
                   {privacyOn ? 'Privatsphäre beenden' : 'Privatsphäre'}
                 </Text>
               </Pressable>
@@ -426,7 +472,11 @@ export function EntityCard({
 
       case 'vacuum': {
         const cleaning = entity.state.state === 'cleaning';
-        const rooms: { id: number; name: string; box?: number[] }[] = Array.isArray(entity.state.rooms) ? entity.state.rooms : [];
+        const rooms: { id: number; name: string; box?: number[] }[] = Array.isArray(
+          entity.state.rooms
+        )
+          ? entity.state.rooms
+          : [];
         const canCleanRooms = entity.commands.includes('clean_rooms') && rooms.length > 0;
         // Räume mit Kartenkoordinaten → direkt auf der Karte antippbar.
         const mappable = canCleanRooms && rooms.some((room) => Array.isArray(room.box));
@@ -482,7 +532,7 @@ export function EntityCard({
         return (
           <View style={styles.stack}>
             <Pill
-              label={entity.state.state === 'running' ? 'Läuft' : 'Bereit'}
+              label={zustandsText(entity.state.state)}
               tone={entity.state.state === 'running' ? colors.accent : undefined}
             />
             {entity.state.program ? (
@@ -523,7 +573,10 @@ export function EntityCard({
         const gilt = entity.state.state === 'active';
         return (
           <View style={styles.stack}>
-            <Pill label={gilt ? 'Gilt gerade' : 'Bereit'} tone={gilt ? colors.on : undefined} />
+            <Pill
+              label={gilt ? 'Gilt gerade' : 'Bereit'}
+              tone={gilt ? colors.on : undefined}
+            />
             <Pressable
               onPress={() => onCommand('activate')}
               accessibilityRole="button"
@@ -631,6 +684,7 @@ export function EntityCard({
                 icon="pencil"
                 active={false}
                 label="Umbenennen"
+                caption="Name"
                 onPress={() => setRenameOpen(true)}
               />
             ) : null}
@@ -638,23 +692,25 @@ export function EntityCard({
               icon={favorite ? 'star' : 'star-outline'}
               active={!!favorite}
               label={favorite ? 'Favorit entfernen' : 'Als Favorit'}
+              caption="Favorit"
               onPress={onToggleFavorite}
             />
             <EditButton
               icon={hidden ? 'eye-off' : 'eye-outline'}
               active={!!hidden}
               label={hidden ? 'Wieder einblenden' : 'Ausblenden'}
+              caption={hidden ? 'Versteckt' : 'Ausblenden'}
               onPress={onToggleHidden}
             />
             {onToggleLocked ? (
               <EditButton
                 icon={locked ? 'lock-closed' : 'lock-open-outline'}
                 active={!!locked}
-                label={
-                  locked
-                    ? 'Sperre aufheben'
-                    : 'Sperren – schaltet nur nach Rückfrage'
-                }
+                label={locked ? 'Sperre aufheben' : 'Sperren – schaltet nur nach Rückfrage'}
+                // «Rückfrage» statt «Sperren»: Das Wort sagt, was passiert.
+                // Gesperrt klingt nach «geht nicht mehr» – es geht weiter,
+                // nur mit einem Ja dazwischen.
+                caption="Rückfrage"
                 onPress={onToggleLocked}
               />
             ) : null}

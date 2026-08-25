@@ -289,6 +289,16 @@ UNIT_BY_DATAPOINT: dict[str, str] = {
 }
 
 
+class UnknownParameter(RuntimeError):
+    """Ein Datenpunkt, den auch das ganze Wertepaket nicht hergibt.
+
+    Braucht es, weil der zweite Leseweg (`getParamset`) keinen Fehler
+    wirft, sondern schlicht ein Paket ohne den gesuchten Namen liefert.
+    Ohne eigene Ausnahme müsste der Aufrufer zwei Fälle unterscheiden -
+    so bleibt für ihn beides derselbe: Der Wert kam nicht.
+    """
+
+
 def unknown_parameter(err: Any) -> bool:
     """Meint dieser Fehler «diesen Datenpunkt gibt es hier nicht»? (rein)
 

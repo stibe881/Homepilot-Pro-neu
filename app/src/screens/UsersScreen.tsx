@@ -16,6 +16,7 @@ import { HubFehler, hubClient } from '../api/client';
 import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
 import { einladungFrist } from '../lib/einladung';
+import { gaesteansicht } from '../lib/gaestewlan';
 import { DoorPass } from '../components/DoorPass';
 import { Fehlschlag, Laedt } from '../components/Zustand';
 import { Colors, radius, space, type, useColors } from '../theme';
@@ -1186,7 +1187,7 @@ function GuestWifiCard({
   // was fehlt - für alle anderen bleibt die Karte weg. Sich stumm
   // auszublenden war die schlechtere Hälfte davon: Man sucht dann eine
   // Karte, die es gibt, und findet keinen Hinweis, woran es liegt.
-  if (!wifi && (vouchers == null || vouchers.length === 0)) {
+  if (gaesteansicht(wifi != null, vouchers) === 'einrichten') {
     if (!canConfigure) return null;
     return (
       <Card style={styles.card}>
@@ -1195,14 +1196,18 @@ function GuestWifiCard({
           <Text style={[styles.cardTitle, { flex: 1 }]}>Gäste-WLAN</Text>
         </View>
         <Text style={styles.formHint}>
-          Noch nicht eingerichtet. In der config.yaml des Hubs fehlt der
-          Abschnitt «guest_wifi» - mit ihm zeigt diese Karte einen QR-Code
-          zum Anmelden. Läuft das Gäste-Netz über ein Captive Portal,
-          genügt der Netzname; das Netz selbst ist ja offen.
+          Noch nicht eingerichtet. Es gibt zwei Wege, und jeder genügt für
+          sich. Der eine ist der Abschnitt «guest_wifi» in der config.yaml
+          des Hubs - mit ihm zeigt diese Karte einen QR-Code zum Anmelden.
+          Läuft das Gäste-Netz über ein Captive Portal, genügt dort der
+          Netzname; das Netz selbst ist ja offen.
         </Text>
         <Text style={styles.formHint}>
-          Für Gutscheine kommt die UniFi-Integration dazu: Der Hub stellt
-          sie dann selbst aus, und niemand muss dafür in den Controller.
+          Der andere ist die UniFi-Integration: Dann stellt der Hub die
+          Portal-Gutscheine selbst aus, und niemand muss dafür in den
+          Controller. Dafür braucht es kein «guest_wifi» - sobald die
+          Anbindung steht, erscheint hier der Spender, auch bevor der
+          erste Gutschein angelegt ist.
         </Text>
       </Card>
     );

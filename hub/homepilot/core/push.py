@@ -21,6 +21,67 @@ log = logging.getLogger(__name__)
 
 EXPO_ENDPOINT = "https://exp.host/--/api/v2/push/send"
 
+# ── Dringlichkeit ──────────────────────────────────────────────────────────
+#
+# Ohne Angabe verschickt Expo jede Nachricht mit normaler Dringlichkeit.
+# Was danach mit ihr geschieht, steht in keiner Zeile hier und war deshalb
+# lange nicht zu sehen: Android hält normale Nachrichten zurück, solange
+# das Telefon in Doze liegt, und stellt sie gesammelt beim nächsten
+# Aufwachen zu - je nach Standby-Eimer Minuten später. Apple beschreibt
+# seine Stufe 5 selbst als «zu einem Zeitpunkt, der Strom spart».
+#
+# Für eine schwache Batterie ist das genau richtig. Für eine Türklingel
+# ist es die ganze Störung: Es klingelt, der Hub meldet «angenommen», und
+# das Telefon sagt Bescheid, wenn es ihm gerade passt. Von aussen sieht
+# das aus wie ein langsamer Hub - dabei liegt die Nachricht längst beim
+# Betriebssystem und wartet dort.
+#
+# Deshalb ist die Voreinstellung hier umgekehrt: dringend, ausser es
+# steht ausdrücklich anders. Wer eine Nachricht einrichtet, will von ihr
+# hören; die Ausnahmen sind aufzählbar und stehen unten.
+
+#: Android-Kanal für alles, was sofort kommen muss.
+KANAL_DRINGEND = "dringend"
+#: Android-Kanal für das, was warten darf.
+KANAL_LEISE = "leise"
+
+# Was warten darf. Bewusst kurz und namentlich: Jede Kategorie hier ist
+# eine Entscheidung, dass ihre Nachricht auch eine Viertelstunde später
+# noch denselben Wert hat. Alles andere - Alarm, Wasser, Klingeln, Timer,
+# Medikament und jeder selbst gebaute Ablauf - gilt als dringend.
+LEISE: frozenset[str] = frozenset(
+    {
+        "battery",
+        "disk",
+        "outage",
+        "device_down",
+        "maintenance",
+        "shopping",
+        "birthday",
+        "weekahead",
+    }
+)
+
+
+def dringlichkeit(category: str | None) -> dict[str, Any]:
+    """Die Zustellfelder für eine Kategorie (rein, testbar).
+
+    ``priority`` entscheidet, ob Android die Nachricht durch Doze
+    durchlässt und ob Apple sie sofort ausliefert. ``channelId`` sagt
+    Android, mit welcher Wichtigkeit sie anzuzeigen ist - ohne Kanal
+    landet alles im Sammelkanal mit mittlerer Wichtigkeit, also ohne
+    Einblendung. ``interruptionLevel`` ist die iOS-Seite davon: Ohne sie
+    nützt die hohe Priorität nichts, sobald ein Fokus aktiv ist - die
+    Nachricht ist dann sofort da und wird bloss nicht gezeigt.
+    """
+    if category is not None and category in LEISE:
+        return {"priority": "normal", "channelId": KANAL_LEISE}
+    return {
+        "priority": "high",
+        "channelId": KANAL_DRINGEND,
+        "interruptionLevel": "timeSensitive",
+    }
+
 # Die Arten von Nachrichten, die der Hub verschickt. Jede hat einen festen
 # Schlüssel, damit sich einzelne davon je Benutzer abstellen lassen – wer
 # nachts nicht wegen einer schwachen Batterie geweckt werden will, soll
@@ -461,11 +522,17 @@ class PushService:
         body: str,
         data: dict[str, Any] | None = None,
         image: str | None = None,
+        category: str | None = None,
     ) -> PushResult:
         """Verschickt die Nachricht und sagt, was der Dienst dazu meint.
 
         Wichtig: ``accepted`` heisst «von Expo angenommen», nicht «beim
         Empfänger angekommen». Für die Zustellung gibt es ``delivered``.
+
+        ``category`` ist dieselbe wie bei ``recipients`` und entscheidet
+        hier über die Dringlichkeit - siehe ``dringlichkeit``. Fehlt sie,
+        geht die Nachricht dringend raus: Das ist die Voreinstellung, bei
+        der niemand etwas verpasst.
 
         ``image`` ist eine Adresse, die das *Telefon* selbst aufruft, während
         es die Nachricht anzeigt – ohne Anmeldung, denn die App läuft zu dem
@@ -475,6 +542,7 @@ class PushService:
         if not tokens:
             return PushResult()
         valid = [token for token in tokens if is_expo_token(token)]
+        stufe = dringlichkeit(category)
         messages = [
             {
                 "to": token,
@@ -482,6 +550,7 @@ class PushService:
                 "body": body,
                 "sound": "default",
                 "data": data or {},
+                **stufe,
                 **({"richContent": {"image": image}} if image else {}),
             }
             for token in valid

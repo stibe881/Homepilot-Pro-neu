@@ -32,7 +32,7 @@ import aiohttp
 
 from ..core.entity import Entity, EntityKind
 from ..core.errors import ConfigError
-from ..core.integration import Integration
+from ..core.integration import Integration, console_html_hint
 
 # Rahmenkopf: Typ (1=Aktion, 2=Daten), Format (1=JSON), gepackt, frei, Länge
 _HEADER = struct.Struct(">BBBBI")
@@ -355,11 +355,7 @@ class UnifiProtectIntegration(Integration):
         # damit das Ausschalten den alten Zustand wiederherstellt.
         self._privacy_restore: dict[str, dict[str, Any]] = {}
 
-        # Der Controller nutzt ein selbstsigniertes Zertifikat; die Anmeldung
-        # läuft über Cookies, deshalb bekommt die Session einen Cookie-Speicher.
-        self._session = self.http_session(
-            connector=aiohttp.TCPConnector(ssl=False),
-            cookie_jar=aiohttp.CookieJar(unsafe=True),
+        self._session = self.console_session(
             timeout=aiohttp.ClientTimeout(total=20),
         )
 
@@ -382,6 +378,9 @@ class UnifiProtectIntegration(Integration):
             if response.status >= 400:
                 raise ConnectionError(login_error(response.status))
             self._csrf = response.headers.get("X-CSRF-Token") or self._csrf
+            # Siehe unifi.py: aiohttp verwirft das Cookie wegen
+            # 'partitioned', also legen wir es selbst ab.
+            self.keep_cookies(self._session, response, self._base)
 
     async def _bootstrap(self) -> dict[str, Any]:
         headers = {"X-CSRF-Token": self._csrf} if self._csrf else {}
@@ -392,6 +391,11 @@ class UnifiProtectIntegration(Integration):
                 await self._login()
                 return await self._bootstrap()
             response.raise_for_status()
+            # Siehe unifi.py: Eine Konsole ohne diese Anwendung antwortet
+            # mit der Weboberfläche und Status 200, nicht mit 404.
+            hinweis = console_html_hint(str(response.url), response.content_type)
+            if hinweis:
+                raise ConnectionError(hinweis)
             return await response.json()
 
     # ── Controller → Hub ───────────────────────────────────────────────────

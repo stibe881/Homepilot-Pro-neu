@@ -126,16 +126,22 @@ def new_alerts(
     return frisch, behalten
 
 
-# Ein Kanal, der sich beim Verbinden gleich wieder verabschiedet, hat fast
-# immer eine kaputt gespeicherte Push-Anmeldung. Wer länger als das durch-
-# hält, hatte ein anderes Problem - und dessen Anmeldung wegzuwerfen wäre
-# nur eine unnötige Neuregistrierung bei Ring.
-QUICK_DEATH_SECONDS = 60
-
 # Wie lange ein frisch aufgebauter Kanal Zeit bekommt, bevor über ihn
 # geurteilt wird. start() kehrt zurück, sobald die Anmeldung durch ist;
 # der Push-Client darunter meldet sich erst danach als «läuft».
 STARTUP_GRACE_SECONDS = 30
+
+# Wie oft der Kanal hintereinander tot aussehen muss, bevor er als tot
+# gilt. Eine FCM-Verbindung baut sich von selbst neu auf – während dieser
+# Sekunden meldet der Empfänger «nicht gestartet», obwohl alles in
+# Ordnung ist. Beim ersten Blick zu urteilen hiess: den gesunden Kanal
+# abreissen, neu registrieren, wieder abreissen. Von aussen sah das aus
+# wie ein Kanal, der ewig startet – und die Klingel kam derweil über die
+# Abfrage, also Sekunden zu spät.
+TOT_BESTAETIGUNGEN = 3
+
+# Abstand zwischen zwei Blicken auf den stehenden Kanal.
+KANAL_BLICK_SECONDS = 15
 
 
 def channel_alive(listener: Any) -> bool:
@@ -177,6 +183,12 @@ PUSH_ENDPOINTS: list[tuple[str, int, str]] = [
 # So lange darf ein Erreichbarkeitstest dauern. Kurz: Es geht nicht um
 # eine Messung, sondern um «kommt überhaupt etwas durch».
 REACH_TIMEOUT = 4.0
+
+# Wessen Log beim Anlauf mitgeschrieben wird. Beide, weil der
+# entscheidende Satz mal hier und mal dort steht: Googles Absage kommt
+# aus firebase_messaging, Rings Absage («Unable to checkin to listen
+# service, response was 401 …») aus ring_doorbell.
+PUSH_LOGGER = ("firebase_messaging", "ring_doorbell")
 
 
 def push_diagnose(erreichbar: dict[str, bool], meldungen: list[str]) -> str:
@@ -227,6 +239,42 @@ QUELLEN_FENSTER = 4
 TAUB_AB = 2
 
 
+# ── Wen die Ersatz-Abfrage überhaupt sieht ─────────────────────────────────
+#
+# `dings/active` ist der Endpunkt der Türklingeln und Kameras – in Rings
+# API heissen die zusammen «doorbots». Die Gegensprechanlage (Ring
+# Intercom) gehört nicht dazu: Sie hängt an einer eigenen Adressfamilie
+# (/commands/v1/devices/…), und ihr Klingeln taucht in dieser Liste nicht
+# auf. Die Meldungen dort tragen sogar die Feldnamen der Türklingeln
+# («doorbot_id», «doorbot_description»); es ist schlicht eine andere
+# Geräteklasse.
+#
+# Das ist der Unterschied, der bisher nirgends stand. Für eine Türklingel
+# ist der Ereigniskanal der schnelle Weg und die Abfrage das Netz
+# darunter – schlimmstenfalls kommt das Klingeln zehn Sekunden später.
+# Für eine Gegensprechanlage gibt es kein Netz: Fällt der Kanal aus,
+# kommt gar nichts. Der System-Bildschirm versprach trotzdem beiden
+# dasselbe «wird ersatzweise alle 10 s abgefragt» – eine Zusage, die für
+# das eine Gerät stimmt und für das andere nicht.
+
+
+def ersatz_hinweis(ohne_ersatz: list[str]) -> str:
+    """Satz über die Geräte, die die Abfrage nicht sieht (rein, testbar).
+
+    Leer, wenn alle Geräte abgedeckt sind – dann ist der bisherige Text
+    vollständig und ein Zusatz nur Lärm.
+    """
+    if not ohne_ersatz:
+        return ""
+    namen = ", ".join(sorted(ohne_ersatz))
+    ist = "ist" if len(ohne_ersatz) == 1 else "sind"
+    return (
+        f" Achtung: {namen} {ist} davon nicht erfasst – die Abfrage kennt "
+        "nur Türklingeln und Kameras. Dort kommt das Klingeln allein über "
+        "den Ereigniskanal, sonst gar nicht."
+    )
+
+
 def kanal_taub(quellen: list[str]) -> bool:
     """Steht der Kanal nur auf dem Papier? (rein, testbar)
 
@@ -252,13 +300,20 @@ def health_detail(
     *,
     anlauf: bool = False,
     quellen: list[str] | None = None,
+    abbrueche: int = 0,
+    anlaeufe: int = 0,
+    ohne_ersatz: list[str] | None = None,
 ) -> str:
     """Was im System-Bildschirm über den Ereigniskanal steht (rein, testbar)."""
+    # Wo unten «wird ersatzweise abgefragt» steht, gehört dieser Satz
+    # dazu - sonst verspricht die Anzeige ein Netz, das für dieses Gerät
+    # nicht gespannt ist.
+    ersatz = ersatz_hinweis(ohne_ersatz or [])
     if abgeschaltet:
         # Bewusste Entscheidung, keine Störung - deshalb ohne Warnton.
         return (
             f"Ereigniskanal abgeschaltet (events: false) – Klingeln wird "
-            f"alle {DING_POLL_SECONDS} s abgefragt"
+            f"alle {DING_POLL_SECONDS} s abgefragt.{ersatz}"
         )
     if anlauf:
         # Nach dem Neuladen: Der Kanal braucht ein paar Sekunden. «Nicht
@@ -275,7 +330,7 @@ def health_detail(
             return (
                 "Ereigniskanal gemeldet, aber die letzten Klingeln kamen über "
                 f"die Abfrage – der Kanal ist taub. Push kommt dadurch bis zu "
-                f"{DING_POLL_SECONDS} s zu spät"
+                f"{DING_POLL_SECONDS} s zu spät.{ersatz}"
             )
         return "Ereigniskanal verbunden – Klingeln kommt sofort an"
     # Der Grund als eigener Satz, nicht in Klammern: Er enthält oft
@@ -285,9 +340,28 @@ def health_detail(
         # Kein zweiter Punkt hinter einem Fragezeichen.
         schluss = "" if error.rstrip().endswith((".", "!", "?")) else "."
         grund = f"{error.rstrip()}{schluss} "
+    if abbrueche > 0:
+        # Der Unterschied, auf den es ankommt: «kommt nicht zustande» ist
+        # etwas anderes als «kommt zustande und fällt gleich wieder um».
+        # Das Zweite sah bisher aus wie ein ewiger Start.
+        wie_oft = "einmal" if abbrueche == 1 else f"{abbrueche}-mal"
+        return (
+            f"Ereigniskanal baut sich auf und bricht wieder ab ({wie_oft}). "
+            f"{grund}Klingeln kommt dadurch bis zu {DING_POLL_SECONDS} s zu "
+            f"spät.{ersatz}"
+        )
+    if anlaeufe > 1:
+        # Der dritte Fall, und der ehrlichste: Es wird versucht, es
+        # klappt nicht, und zwar wiederholt. «Startet gerade» stand hier
+        # früher – solange, bis niemand mehr hinsah.
+        return (
+            f"Ereigniskanal kommt nicht zustande ({anlaeufe} Anläufe). "
+            f"{grund}Klingeln wird ersatzweise alle {DING_POLL_SECONDS} s "
+            f"abgefragt.{ersatz}"
+        )
     return (
         f"Ereigniskanal nicht verbunden. {grund}Klingeln wird ersatzweise "
-        f"alle {DING_POLL_SECONDS} s abgefragt"
+        f"alle {DING_POLL_SECONDS} s abgefragt.{ersatz}"
     )
 
 
@@ -346,8 +420,13 @@ class _LogMitschnitt:
 
     LIMIT = 8
 
-    def __init__(self, logger_name: str) -> None:
-        self._name = logger_name
+    def __init__(self, *logger_names: str) -> None:
+        # Mehrere Logger, weil der entscheidende Satz mal hier und mal
+        # dort steht: «GCM register … PHONE_REGISTRATION_ERROR» kommt aus
+        # firebase_messaging, «Unable to checkin to listen service,
+        # response was 401 …» aus ring_doorbell selbst. Wer nur einen
+        # davon mitschreibt, verliert genau die Hälfte der Fälle.
+        self._names = list(logger_names)
         self.zeilen: list[str] = []
         self._handler: Any = None
 
@@ -366,15 +445,16 @@ class _LogMitschnitt:
                     pass
 
         self._handler = _Handler(level=logging.WARNING)
-        logger = logging.getLogger(self._name)
-        logger.addHandler(self._handler)
+        for name in self._names:
+            logging.getLogger(name).addHandler(self._handler)
         return self
 
     def __exit__(self, *_ausnahme: Any) -> None:
         import logging
 
         if self._handler is not None:
-            logging.getLogger(self._name).removeHandler(self._handler)
+            for name in self._names:
+                logging.getLogger(name).removeHandler(self._handler)
             self._handler = None
 
 
@@ -384,14 +464,26 @@ class RingIntegration(Integration):
     # Als Klassenvorgaben, damit health() auch dann antwortet, wenn das
     # Setup unterwegs steckengeblieben ist.
     _events_ok = False
+    # Wie oft der Kanal schon aufgebaut wurde und wieder abbrach. Mehr
+    # als einmal heisst: Er hält nicht – und dann darf die Anzeige nicht
+    # weiter «startet gerade» sagen.
+    _abbrueche = 0
     # Auf welchem Weg die letzten Klingeln hereinkamen: «push» oder
     # «abfrage». Ohne das ist «Ereigniskanal verbunden» eine Aussage über
     # die Anmeldung, nicht darüber, ob je etwas durchkommt.
     _quellen: list[str] = []
     # Seit wann der Kanal gerade anläuft - für die Sekunden nach dem
     # Neuladen, in denen «nicht verbunden» wahr und trotzdem irreführend
-    # wäre.
+    # wäre. Nur der allererste Anlauf setzt ihn.
     _anlauf_seit: float | None = None
+    # Wie viele Anläufe hintereinander zu keinem tragenden Kanal geführt
+    # haben. Der Zähler steht auf 0, sobald einer wirklich stand - und
+    # er ist der Grund, warum «startet gerade» irgendwann aufhört.
+    _anlaeufe = 0
+    # Geräte, die zwar klingeln, die die Ersatz-Abfrage aber nicht sieht -
+    # die Gegensprechanlage. Als Klassenvorgabe, damit health() auch dann
+    # antwortet, wenn setup() unterwegs steckengeblieben ist.
+    _ohne_ersatz: list[str] = []
     _last_event: float | None = None
     _listen_error: str | None = None
     _listener: Any = None
@@ -433,6 +525,9 @@ class RingIntegration(Integration):
 
         # Entity-ID → Ring-Geräteobjekt; Ring-Geräte-ID → Entity-ID
         self._devices: dict[str, Any] = {}
+        # Eigene Liste je Lauf, nicht die der Klasse: Sonst sammelt ein
+        # Neuladen dieselben Namen ein zweites Mal ein.
+        self._ohne_ersatz: list[str] = []
         self._by_ring_id: dict[int, str] = {}
         self._clear_tasks: dict[str, asyncio.Task] = {}
 
@@ -471,6 +566,11 @@ class RingIntegration(Integration):
             )
             self._devices[entity.id] = device
             self._by_ring_id[int(device.id)] = entity.id
+            # Sie klingelt, aber die Ersatz-Abfrage sieht sie nicht –
+            # siehe ersatz_hinweis(). Der Name statt der Kennung: Im
+            # System-Bildschirm steht sonst eine Zahl, die niemandem
+            # sagt, welches Gerät gemeint ist.
+            self._ohne_ersatz.append(entity.name)
 
         if not self._devices:
             self.log.warning("Ring-Konto verbunden, aber keine Geräte gefunden")
@@ -501,11 +601,20 @@ class RingIntegration(Integration):
         if self._events_abgeschaltet:
             return {
                 "ok": True,
-                "detail": health_detail(False, None, abgeschaltet=True),
+                "detail": health_detail(
+                    False, None, abgeschaltet=True, ohne_ersatz=self._ohne_ersatz
+                ),
                 "last_event": self._last_event,
             }
+        # «Startet gerade» gilt nur für den allerersten Anlauf, und auch
+        # da nur, solange er wirklich läuft. Vorher setzte ihn jeder
+        # neue Versuch zurück, und ein Kanal, der im Kreis lief, sah für
+        # immer aus wie einer, der gerade hochkommt – genau daran war
+        # die Störung von aussen nicht zu sehen.
         anlauf = (
-            self._anlauf_seit is not None
+            self._anlaeufe == 0
+            and self._abbrueche == 0
+            and self._anlauf_seit is not None
             and time.time() - self._anlauf_seit < STARTUP_GRACE_SECONDS + 10
         )
         taub = self._events_ok and kanal_taub(self._quellen)
@@ -518,6 +627,9 @@ class RingIntegration(Integration):
                 self._listen_error,
                 anlauf=anlauf,
                 quellen=self._quellen,
+                abbrueche=self._abbrueche,
+                anlaeufe=self._anlaeufe,
+                ohne_ersatz=self._ohne_ersatz,
             ),
             "last_event": self._last_event,
             # Für die Ferndiagnose: der Weg der letzten Meldungen.
@@ -556,6 +668,17 @@ class RingIntegration(Integration):
         Klingel für immer stumm, und im Log stand eine Zeile, die man
         Wochen später sucht. Jetzt versucht es der Hub weiter und merkt
         auch, wenn der Kanal später abreisst.
+
+        Drei Ausgänge, und der Unterschied zwischen ihnen ist die ganze
+        Auskunft, die im System-Bildschirm steht:
+
+        * Der Anlauf misslingt – Ring oder Google weisen ab.
+        * Der Anlauf gelingt, aber die Dauerverbindung kommt nie
+          zustande. Das ist der Fall, der von aussen wie ein ewiger
+          Start aussah: `start()` meldet Erfolg, sobald die Anmeldung
+          durch ist, und darunter wartet der Push-Client vergeblich auf
+          mtalk.google.com:5228.
+        * Der Kanal steht wirklich und bricht später ab.
         """
         loop = asyncio.get_running_loop()
 
@@ -564,89 +687,182 @@ class RingIntegration(Integration):
 
         versuch = 0
         while True:
-            self._anlauf_seit = time.time()
-            if await self._start_listener(on_event):
-                verbunden_seit = time.time()
-                # Anlaufzeit, bevor geurteilt wird: start() kehrt zurück,
-                # sobald die Anmeldung durch ist - der Push-Client darunter
-                # meldet sich erst ein paar Sekunden später als «läuft».
-                # Ohne diese Pause galt jeder frisch aufgebaute Kanal
-                # sofort als tot, und der Hub registrierte sich im
-                # Sekundentakt neu bei Google, bis der es abwies.
-                await asyncio.sleep(STARTUP_GRACE_SECONDS)
-                self._anlauf_seit = None
-                while channel_alive(self._listener):
-                    versuch = 0
-                    await asyncio.sleep(15)
-                self._events_ok = False
-                stand = time.time() - verbunden_seit
-                await self._stop_listener()
-                if (
-                    stand < QUICK_DEATH_SECONDS
-                    and self._stored.get("listener")
-                    and not self._neu_registriert
-                ):
-                    # Sofort wieder weg: Das ist die Handschrift einer
-                    # beschädigten Push-Anmeldung («Incorrect padding» aus
-                    # firebase_messaging). Sie wegzuwerfen ist der einzige
-                    # Weg - mit ihr geht es beim nächsten Mal genauso aus.
-                    #
-                    # Aber genau einmal: Stirbt auch die frische Anmeldung
-                    # sofort, liegt es nicht an ihr, und jede weitere
-                    # Registrierung wäre nur eine Anfrage mehr an einen
-                    # Dienst, der ohnehin gerade abweist.
-                    self._neu_registriert = True
-                    self._listen_error = "Push-Anmeldung beschädigt"
-                    self.log.warning(
-                        "Ring-Ereigniskanal brach nach %.0f s wieder ab – die "
-                        "gespeicherte Push-Anmeldung wird verworfen und neu "
-                        "registriert",
-                        stand,
-                    )
-                    self._stored.pop("listener", None)
-                    self._save("listener", None)
+            # «Startet gerade» darf nur der allererste Anlauf sagen.
+            # Vorher setzte ihn jede Runde neu - und ein Kanal, der im
+            # Kreis lief, sah für immer aus wie einer, der gerade
+            # hochkommt. Genau das stand wochenlang im Bildschirm.
+            erster = self._anlaeufe == 0 and self._abbrueche == 0
+            self._anlauf_seit = time.time() if erster else None
+            # Der Mitschnitt läuft über den ganzen Anlauf, nicht nur über
+            # das Anmelden: Der Satz, der den zweiten Fall erklärt, fällt
+            # erst in den Sekunden danach.
+            mitschnitt = _LogMitschnitt(*PUSH_LOGGER)
+            with mitschnitt:
+                gestartet = await self._start_listener(on_event, mitschnitt)
+                if gestartet:
+                    # Anlaufzeit, bevor geurteilt wird: start() kehrt
+                    # zurück, sobald die Anmeldung durch ist - der
+                    # Push-Client darunter meldet sich erst ein paar
+                    # Sekunden später als «läuft». Ohne diese Pause galt
+                    # jeder frisch aufgebaute Kanal sofort als tot, und
+                    # der Hub registrierte sich im Sekundentakt neu bei
+                    # Google, bis der es abwies.
+                    await asyncio.sleep(STARTUP_GRACE_SECONDS)
+                    self._anlauf_seit = None
+                    stand = await self._kanal_begleiten()
+                    await self._stop_listener()
+                    if stand:
+                        self._abbrueche += 1
+                        self._listen_error = "Verbindung abgerissen"
+                        self.log.warning(
+                            "Ring-Ereigniskanal abgerissen – neuer Anlauf"
+                        )
+                        # Er hielt ja eine Weile: Der nächste Anlauf darf
+                        # wieder mit der kurzen Pause beginnen.
+                        versuch = 0
+                    else:
+                        self._anlaeufe += 1
+                        self._listen_error = await self._warum_stumm(mitschnitt)
+                        self._vielleicht_neu_registrieren()
+                        melden = (
+                            self.log.warning
+                            if self._anlaeufe == 1
+                            else self.log.debug
+                        )
+                        melden(
+                            "Ring-Ereigniskanal angemeldet, aber ohne "
+                            "Dauerverbindung (%s) – Klingeln kommt "
+                            "ersatzweise über die Abfrage alle %ss",
+                            self._listen_error,
+                            DING_POLL_SECONDS,
+                        )
                 else:
-                    self._listen_error = "Verbindung abgerissen"
-                    self.log.warning("Ring-Ereigniskanal abgerissen – neuer Anlauf")
-                # Auch nach einem Abriss warten: Ein Wiederanlauf ohne
-                # Pause ist kein Wiederanlauf, sondern eine Schleife.
+                    self._anlauf_seit = None
+                    self._anlaeufe += 1
+                    # Einmal laut, danach leise: Eine Störung, die eine
+                    # Stunde dauert, soll das Log nicht füllen. Sichtbar
+                    # bleibt sie über health() im System-Bildschirm.
+                    melden = (
+                        self.log.warning
+                        if self._anlaeufe == 1
+                        else self.log.debug
+                    )
+                    melden(
+                        "Ring-Ereigniskanal nicht verfügbar (%s) – Klingeln "
+                        "kommt ersatzweise über die Abfrage alle %ss",
+                        self._listen_error or "Grund unbekannt",
+                        DING_POLL_SECONDS,
+                    )
                 versuch += 1
-                await asyncio.sleep(retry_delay(versuch))
-                continue
-            versuch += 1
-            wartezeit = retry_delay(versuch)
-            # Einmal laut, danach leise: Eine Störung, die eine Stunde
-            # dauert, soll das Log nicht füllen. Sichtbar bleibt sie über
-            # health() im System-Bildschirm.
-            melden = self.log.warning if versuch == 1 else self.log.debug
-            melden(
-                "Ring-Ereigniskanal nicht verfügbar (%s) – Klingeln kommt "
-                "ersatzweise über die Abfrage alle %ss, nächster Anlauf in %ss",
-                self._listen_error or "Grund unbekannt",
-                DING_POLL_SECONDS,
-                int(wartezeit),
-            )
-            await asyncio.sleep(wartezeit)
+            # Ausserhalb des Mitschnitts warten: Er ist ein Horchposten
+            # für den Anlauf, kein zweites Log - und seine acht Zeilen
+            # sollen die des Anlaufs sein, nicht die der Wartezeit.
+            await asyncio.sleep(retry_delay(versuch))
 
-    async def _start_listener(self, on_event: Any) -> bool:
-        """Ein Anlauf, notfalls mit frischer Credential; True bei Erfolg."""
-        # Was die Push-Bibliothek unterwegs meldet, mitschreiben: Der
-        # eigentliche Grund («GCM register … PHONE_REGISTRATION_ERROR»)
-        # steht in ihrem Log, nicht in der Ausnahme, die bei uns ankommt.
-        mitschnitt = _LogMitschnitt("firebase_messaging")
-        with mitschnitt:
-            # Erster Versuch mit der gespeicherten Credential. Ist sie
-            # beschädigt (z.B. 'Incorrect padding' aus firebase_messaging
-            # beim Dekodieren eines alten Eintrags), verwerfen und einmal
-            # frisch registrieren.
-            erfolg = await self._try_listen(on_event, self._stored.get("listener"))
-            if not erfolg and self._stored.get("listener") is not None:
-                self.log.warning(
-                    "Ring-Push-Credential unbrauchbar – wird verworfen und neu registriert"
-                )
-                self._stored.pop("listener", None)
-                self._save("listener", None)
-                erfolg = await self._try_listen(on_event, None)
+    async def _kanal_begleiten(self) -> bool:
+        """Den aufgebauten Kanal beobachten, bis er nicht mehr trägt.
+
+        Rückgabe: ob er überhaupt je wirklich stand. Das ist der
+        Unterschied, der vorher fehlte - `start()` meldet Erfolg, sobald
+        die Anmeldung durch ist, und «angemeldet» ist noch lange nicht
+        «eingeloggt». Erst wenn der Push-Client darunter `is_started()`
+        sagt, hat er seine Dauerverbindung zu Google und kann etwas
+        ausliefern. Bis dahin ist «Ereigniskanal verbunden» eine Aussage
+        über ein Formular, nicht über eine Türklingel.
+
+        Drei tote Blicke hintereinander, nicht einer: Eine FCM-
+        Verbindung baut sich von selbst neu auf, und währenddessen sagt
+        der Empfänger «nicht gestartet», obwohl alles in Ordnung ist.
+        """
+        stand = False
+        tot = 0
+        while tot < TOT_BESTAETIGUNGEN:
+            if channel_alive(self._listener):
+                if not stand:
+                    stand = True
+                    self._events_ok = True
+                    self._listen_error = None
+                    self._anlaeufe = 0
+                    self.log.info(
+                        "Ring-Ereigniskanal steht – Klingeln kommt sofort an"
+                    )
+                elif tot:
+                    self.log.debug(
+                        "Ring-Ereigniskanal war kurz weg und ist wieder da"
+                    )
+                tot = 0
+            else:
+                tot += 1
+            await asyncio.sleep(KANAL_BLICK_SECONDS)
+        self._events_ok = False
+        return stand
+
+    async def _warum_stumm(self, mitschnitt: _LogMitschnitt) -> str:
+        """Angemeldet, aber keine Dauerverbindung – woran liegt es?
+
+        Der wahrscheinlichste Grund ist ein gesperrter Weg: Die
+        Anmeldung läuft über HTTPS und kommt durch jede Firewall, die
+        Dauerverbindung dagegen über mtalk.google.com:5228, und genau
+        dieser Port steht in vielen Heimnetzen auf der Sperrliste, ohne
+        dass irgendwo «Türklingel» steht.
+        """
+        erreichbar = await self._reachable()
+        if any(wert is False for wert in erreichbar.values()):
+            return push_diagnose(erreichbar, mitschnitt.zeilen)
+        for zeile in reversed(mitschnitt.zeilen):
+            sauber = zeile.strip()
+            if sauber:
+                return sauber
+        return (
+            "die Anmeldung ging durch, die Dauerverbindung zu "
+            "mtalk.google.com:5228 kam nicht zustande"
+        )
+
+    def _vielleicht_neu_registrieren(self) -> None:
+        """Eine gespeicherte Push-Anmeldung, die nie trägt, wegwerfen.
+
+        Das ist die Handschrift einer beschädigten Anmeldung
+        («Incorrect padding» aus firebase_messaging): Das Anmelden
+        gelingt, die Verbindung kommt nie zustande, und mit derselben
+        Anmeldung geht es beim nächsten Mal genauso aus.
+
+        Aber genau einmal je Lauf: Trägt auch die frische Anmeldung
+        nicht, liegt es nicht an ihr, und jede weitere Registrierung
+        wäre nur eine Anfrage mehr an einen Dienst, der ohnehin gerade
+        abweist.
+        """
+        if self._neu_registriert or not self._stored.get("listener"):
+            return
+        self._neu_registriert = True
+        self.log.warning(
+            "Ring-Push-Anmeldung trägt nicht – sie wird verworfen und beim "
+            "nächsten Anlauf neu registriert"
+        )
+        self._stored.pop("listener", None)
+        self._save("listener", None)
+
+    async def _start_listener(
+        self, on_event: Any, mitschnitt: _LogMitschnitt
+    ) -> bool:
+        """Ein Anlauf, notfalls mit frischer Credential; True bei Erfolg.
+
+        Der Mitschnitt kommt von aussen und läuft weiter, wenn diese
+        Methode zurückkehrt: Was die Bibliotheken zu sagen haben, sagen
+        sie zum Teil erst in den Sekunden danach.
+        """
+        # Erster Versuch mit der gespeicherten Credential. Ist sie
+        # beschädigt (z.B. 'Incorrect padding' aus firebase_messaging
+        # beim Dekodieren eines alten Eintrags), verwerfen und einmal
+        # frisch registrieren.
+        erfolg = await self._try_listen(on_event, self._stored.get("listener"))
+        if not erfolg and self._stored.get("listener") is not None:
+            self.log.warning(
+                "Ring-Push-Credential unbrauchbar – wird verworfen und neu registriert"
+            )
+            self._neu_registriert = True
+            self._stored.pop("listener", None)
+            self._save("listener", None)
+            erfolg = await self._try_listen(on_event, None)
         if erfolg or not self._listen_error:
             return erfolg
         # Erst jetzt nachsehen, ob der Weg überhaupt offen ist – und
@@ -707,9 +923,13 @@ class RingIntegration(Integration):
                 return False
             listener.add_notification_callback(on_event)
             self._listener = listener
-            self._events_ok = True
-            self._listen_error = None
-            self.log.info("Ring-Ereigniskanal verbunden")
+            # Bewusst noch kein `_events_ok`: start() meldet Erfolg,
+            # sobald die Anmeldung durch ist. Ob darunter je eine
+            # Dauerverbindung zustande kommt, entscheidet sich erst in
+            # den nächsten Sekunden – und genau das prüft
+            # _kanal_begleiten. Vorher stand hier «Klingeln kommt sofort
+            # an», während es über die Abfrage zehn Sekunden zu spät kam.
+            self.log.info("Ring-Push-Anmeldung durch – Kanal baut sich auf")
             return True
         except asyncio.CancelledError:
             raise
@@ -954,7 +1174,7 @@ async def _diagnose_main(config_path: str) -> int:
         "  (Der laufende Hub teilt sich diese Anmeldung – er baut seinen "
         "Kanal danach neu auf.)"
     )
-    mitschnitt = _LogMitschnitt("firebase_messaging")
+    mitschnitt = _LogMitschnitt(*PUSH_LOGGER)
     fehler: str | None = None
     with mitschnitt:
         try:
@@ -980,8 +1200,11 @@ async def _diagnose_main(config_path: str) -> int:
                     print("  ✓ Ereigniskanal steht – Klingeln kommt sofort an.")
                 else:
                     fehler = (
-                        "Der Kanal brach gleich nach der Anmeldung wieder ab "
-                        "(beschädigte Push-Anmeldung)"
+                        "Angemeldet, aber ohne Dauerverbindung: Der "
+                        "Push-Client kam nicht bis zum Einloggen bei "
+                        "mtalk.google.com:5228. Entweder ist dieser Port "
+                        "im Netz gesperrt (siehe oben) oder die "
+                        "gespeicherte Push-Anmeldung ist beschädigt"
                     )
                 await listener.stop()
             else:

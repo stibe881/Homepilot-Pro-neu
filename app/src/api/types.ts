@@ -148,11 +148,12 @@ export interface HubSettings {
   // Die vier folgenden Felder sind Altlast, kein Speicherort mehr.
   //
   // Sie lagen hier – also im Speicher genau dieses Telefons – und waren
-  // nach einer Neuinstallation weg. Der Stern steht jetzt beim Gerät auf
-  // dem Hub (`Entity.favorite`), der Rest in den haushaltsweiten
-  // Einstellungen (`/api/houseprefs`, siehe hooks/usePrefs.ts). Was hier
-  // noch steht, wird einmalig übernommen (lib/favoriten.ts,
-  // lib/hausprefs.ts) und danach nicht mehr gelesen.
+  // nach einer Neuinstallation weg. Die Favoriten sind heute persönlich
+  // (`/api/prefs`, siehe hooks/usePrefs.ts); der Stern am Gerät
+  // (`Entity.favorite`) ist nur noch der Startbestand für Benutzer ohne
+  // eigene Liste. Der Rest steht in den haushaltsweiten Einstellungen
+  // (`/api/houseprefs`). Was hier noch steht, wird einmalig übernommen
+  // (lib/favoriten.ts, lib/hausprefs.ts) und danach nicht mehr gelesen.
 
   /** Veraltet – siehe oben. Nur noch für die Übernahme. */
   favorites?: string[];

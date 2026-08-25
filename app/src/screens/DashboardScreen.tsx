@@ -48,11 +48,12 @@ import { EinkaufZeile, Shop, findeArtikel, mengeUndName, mitMenge, shopCategory 
 import { uhr } from '../lib/format';
 import {
   AUTO_SCHLIESSEN_SEKUNDEN,
-  befehlLabel,
+  KlingelAktion,
+  klingelAktionen,
+  klingelBild,
+  klingeltGerade,
   neueFrist,
-  oeffnungsBefehl,
   restSekunden,
-  tuerenFuerKlingel,
 } from '../lib/klingel';
 import { deviceKindLabel, musikboxenImRaum } from '../lib/geraeteart';
 import { szenenFuerKachel, szenenFuerRaum } from '../lib/szenen';
@@ -237,6 +238,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const darfPausieren = (user?.capabilities ?? []).includes('pause_automations');
 
   const [section, setSection] = useState<Section>('start');
+  // Aufgeklappt kommt man nur über die Batteriewarnung hierher; sonst
+  // entscheidet die Karte selbst (siehe DeviceHealth).
+  const [batterienOffen, setBatterienOffen] = useState(false);
   // Bis wann die persönlichen Bereiche offen sind (0 = zu). Nur im
   // Arbeitsspeicher: Nach einem Neustart der App wird wieder gefragt.
   const [riegelBis, setRiegelBis] = useState(0);
@@ -524,6 +528,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setLocked,
     setSeenChanges,
     setKameraDynamisch,
+    setFavorites,
+    setFavoriteOrder,
     setBioLock,
     setWidgetData,
     setWidgetButtons,
@@ -573,9 +579,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
 
   // Antippen einer Alarm-Nachricht führt direkt zur Kamera des betroffenen
   // Raums. Wer nachts geweckt wird, soll nicht erst durch die Räume suchen.
+  // Dasselbe für die Batteriewarnung: Sie führt auf die Geräteseite mit
+  // aufgeklappten Batterien – dort steht der Knopf zum Quittieren, und
+  // ohne den Sprung sucht man ihn zwei Ebenen tief.
   const onNotificationTap = useCallback((tap: Tap) => {
     if (tap.camera) {
       setFullscreen(tap.camera);
+      return;
+    }
+    if (tap.type === 'battery') {
+      setSection('devices');
+      setBatterienOffen(true);
       return;
     }
     if (tap.type === 'alarm') setSection('alarm');
@@ -598,10 +612,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     panelArtig ? 30000 : null
   );
 
-  // Der Stern steht beim Gerät auf dem Hub, nicht in den
-  // Geräte-Einstellungen: Sonst hält er nur so lange wie die
-  // Installation auf genau diesem Telefon.
-  const favorites = useMemo(() => favoritenVon(entities), [entities]);
+  // Die Favoriten sind persönlich: Was Stefan jeden Abend braucht, ist
+  // für Livia nur eine Kachel im Weg. Lange stand der Stern am Gerät auf
+  // dem Hub und galt damit für alle – diese Sterne bleiben der
+  // Startbestand für jeden, der noch keine eigene Liste hat. Der erste
+  // eigene Stern (setzen oder lösen) schreibt die Liste beim Benutzer
+  // fest; die alten Sterne am Gerät bleiben unangetastet stehen, damit
+  // die Übernahme bei den anderen genauso funktioniert.
+  const favorites = useMemo(
+    () => eigenePrefs.favorites ?? favoritenVon(entities),
+    [eigenePrefs.favorites, entities]
+  );
   const hidden = prefs.hidden ?? [];
   const locked = prefs.locked ?? [];
 
@@ -745,17 +766,24 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     return result;
   }, [user, entities]);
 
-  const ringingCamera = entities.find(
-    (entity) => entity.kind === 'camera' && entity.state.ring === 'on'
-  );
-  const ringKey = ringingCamera
-    ? `${ringingCamera.id}:${ringingCamera.state.last_ring ?? ''}`
+  // Nicht «eine Kamera, die klingelt», sondern «was gerade klingelt».
+  // Die Haustüre ist hier eine Ring-Gegensprechanlage, und die legt der
+  // Hub als Türe an – die alte Suche nach kind === 'camera' ging genau
+  // an ihr vorbei, und das Vollbild kam nie.
+  const klingelt = klingeltGerade(entities);
+  const ringKey = klingelt
+    ? `${klingelt.id}:${klingelt.state.last_ring ?? ''}`
     : null;
+  const klingelKamera = useMemo(
+    () => klingelBild(entities, klingelt),
+    [entities, klingelt]
+  );
   // Wer klingelt, muss durch zwei Türen: unten die Haustüre, oben die
-  // Wohnungstüre. Bisher bot das Vollbild nur die erste an.
-  const klingelTueren = useMemo(
-    () => tuerenFuerKlingel(entities, ringingCamera),
-    [entities, ringingCamera]
+  // Wohnungstüre – und die obere kann zweierlei, aufschliessen und
+  // öffnen. Alle drei Handgriffe gehören auf diesen einen Bildschirm.
+  const klingelWege = useMemo(
+    () => klingelAktionen(entities, klingelt),
+    [entities, klingelt]
   );
 
   const hasRail = width >= breakpoints.rail;
@@ -968,15 +996,28 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     // ziehen, aber beim nächsten Öffnen stünde wieder alles alphabetisch.
     // Auf der Licht-Seite gilt die früher gezogene flache Reihenfolge als
     // Rückfall, damit sie beim Umstellen auf Zimmer nicht verlorengeht.
+    // Die Favoritengruppe folgt der persönlichen Reihenfolge – dieselbe
+    // wie auf der Startseite, denn es ist dieselbe Frage.
     return gruppen.map((gruppe) => ({
       ...gruppe,
       items: sortByOrder(
         gruppe.items,
-        prefs.order?.[groupScope(gruppe.key, gruppenBereich)] ??
+        (groupScope(gruppe.key, gruppenBereich) === 'favorites'
+          ? (eigenePrefs.favoriteOrder ?? prefs.order?.favorites)
+          : prefs.order?.[groupScope(gruppe.key, gruppenBereich)]) ??
           (lichtNachRaum ? prefs.order?.light : undefined)
       ),
     }));
-  }, [grouped, lichtNachRaum, gruppenBereich, rooms, shown, favorites, prefs.order]);
+  }, [
+    grouped,
+    lichtNachRaum,
+    gruppenBereich,
+    rooms,
+    shown,
+    favorites,
+    prefs.order,
+    eigenePrefs.favoriteOrder,
+  ]);
 
   // Ein einzelner Raum wird nach Kategorien gegliedert: Szenen des Raums
   // oben, dann Beleuchtung, Store, Medien, alles Übrige unter „Weitere“.
@@ -1095,7 +1136,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       favorite={favorites.includes(entity.id)}
       hidden={hidden.includes(entity.id)}
       onToggleFavorite={() =>
-        setEntityMeta(entity.id, { favorite: !favorites.includes(entity.id) })
+        // toggleIn auf der wirksamen Liste: Beim allerersten Stern wird so
+        // der Startbestand (die alten Haushalts-Sterne) gleich mit
+        // festgeschrieben – setzen wie lösen funktioniert vom ersten
+        // Tipp an.
+        setFavorites(toggleIn(favorites, entity.id))
       }
       onToggleHidden={() => setHidden(toggleIn(hidden, entity.id))}
       locked={locked.includes(entity.id)}
@@ -1162,7 +1207,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       setDrag(null);
       if (!scope) return;
       const next = reorderByDrop(ids, cellLayouts, id, dx, dy);
-      if (next) setOrder(scope, next);
+      if (!next) return;
+      // Die Favoritengruppe ist persönlich – ihr Ziehen gehört zum
+      // Benutzer, alles andere weiter zum Haus.
+      if (scope === 'favorites') setFavoriteOrder(next);
+      else setOrder(scope, next);
     };
     return (entity: Entity) =>
       dragEnabled && scope && cardWidth ? (
@@ -1214,8 +1263,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               countdowns={startCountdowns}
               snapshotUri={snapshotUrl}
               favoriteIds={favorites}
-              favoriteOrder={prefs.order?.favorites}
-              onReorderFavorites={(ids) => setOrder('favorites', ids)}
+              // Persönliche Reihenfolge; die alte haushaltsweite bleibt
+              // als Startbestand, bis einmal selbst gezogen wurde –
+              // sonst spränge beim Umstieg alles durcheinander.
+              favoriteOrder={eigenePrefs.favoriteOrder ?? prefs.order?.favorites}
+              onReorderFavorites={setFavoriteOrder}
             />
           </View>
           <SidePanel
@@ -1584,7 +1636,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               {/* Batterien und Stumme im Detail – vorher unter System,
                   also auf dem Bildschirm für den Hub statt dem für die
                   Geräte. */}
-              <DeviceHealth entities={entities} />
+              <DeviceHealth
+                entities={entities}
+                offen={batterienOffen}
+                onOffen={setBatterienOffen}
+              />
             </>
           ) : null}
           {searching ? (
@@ -2171,10 +2227,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         />
       ) : null}
 
-      {ringingCamera && ringKey && dismissedRing !== ringKey ? (
+      {klingelt && ringKey && dismissedRing !== ringKey ? (
         <DoorbellOverlay
-          camera={ringingCamera}
-          doors={klingelTueren}
+          ausloeser={klingelt}
+          camera={klingelKamera}
+          aktionen={klingelWege}
           settings={settings}
           onCommand={(entityId, command) => guardedCommand(entityId, command)}
           onDismiss={() => setDismissedRing(ringKey)}
@@ -2573,16 +2630,20 @@ function CameraFullscreen({
 }
 
 function DoorbellOverlay({
+  ausloeser,
   camera,
-  doors,
+  aktionen,
   settings,
   onCommand,
   onDismiss,
   colors,
   styles,
 }: {
-  camera: Entity;
-  doors: Entity[];
+  /** Was geklingelt hat – Türklingel, Kamera oder Gegensprechanlage. */
+  ausloeser: Entity;
+  /** Das Bild dazu, sofern es eines gibt. Eine Anlage hat keines. */
+  camera?: Entity;
+  aktionen: KlingelAktion[];
   settings: HubSettings;
   onCommand: (entityId: string, command: string) => void;
   onDismiss: () => void;
@@ -2616,7 +2677,7 @@ function DoorbellOverlay({
     setFrist(neu);
     setRest(restSekunden(neu, Date.now()));
     setConfirm(null);
-  }, [camera.state.last_ring]);
+  }, [ausloeser.state.last_ring]);
   // Die Rückfrage verfällt von selbst. Sonst stünde «Wirklich öffnen?»
   // eine Minute lang da, und der nächste beiläufige Tipp macht auf.
   useEffect(() => {
@@ -2625,7 +2686,7 @@ function DoorbellOverlay({
     return () => clearTimeout(timer);
   }, [confirm]);
   const base =
-    settings.url && settings.token
+    camera && settings.url && settings.token
       ? `${settings.url.replace(/\/+$/, '')}/api/entities/${encodeURIComponent(
           camera.id
         )}`
@@ -2633,7 +2694,7 @@ function DoorbellOverlay({
   const token = encodeURIComponent(settings.token ?? '');
   const uri = base ? `${base}/snapshot?token=${token}&t=${tick}` : null;
   // Wer klingelt, will man in Bewegung sehen – wenn die Kamera es hergibt.
-  const live = base && camera.state.stream === true && !liveFailed;
+  const live = base && camera?.state.stream === true && !liveFailed;
 
   return (
     <Modal visible animationType="fade" onRequestClose={onDismiss}>
@@ -2642,7 +2703,10 @@ function DoorbellOverlay({
         onPress={verlaengern}
         accessibilityLabel="Offen halten"
       >
-        <Text style={styles.doorbellTitle}>🔔 Es klingelt</Text>
+        {/* Welche Klingel es war, gehört dazu: Bei zwei Türen ist «Es
+            klingelt» die halbe Auskunft, und man drückt den falschen
+            Knopf. */}
+        <Text style={styles.doorbellTitle}>🔔 Es klingelt · {ausloeser.name}</Text>
         {live ? (
           <View style={styles.videoBox}>
             <CameraLive
@@ -2655,8 +2719,12 @@ function DoorbellOverlay({
         ) : uri ? (
           <Image source={{ uri }} style={styles.doorbellImage} resizeMode="cover" />
         ) : (
-          <View style={[styles.doorbellImage, { alignItems: 'center', justifyContent: 'center' }]}>
-            <Ionicons name="videocam-off-outline" size={40} color="#FFFFFF" />
+          // Kein Bild, also auch kein halber Bildschirm dafür: Eine
+          // Gegensprechanlage hat keine Kamera, und die schwarze Fläche
+          // schob die Knöpfe nach unten, um die es hier eigentlich geht.
+          <View style={styles.doorbellOhneBild}>
+            <Ionicons name="videocam-off-outline" size={26} color="#8A94A6" />
+            <Text style={styles.doorbellCloseText}>Kein Kamerabild an dieser Türe</Text>
           </View>
         )}
         <View style={styles.doorbellButtons}>
@@ -2682,28 +2750,38 @@ function DoorbellOverlay({
               nicht darauf warten, dass jemand die App durchsucht. Die
               Rückfrage bleibt je Türe - ein Fehlgriff öffnet sonst die
               falsche. */}
-          {doors.map((door) => {
-            const offen = confirm === door.id;
-            const befehl = oeffnungsBefehl(door);
+          {aktionen.map((aktion) => {
+            const gefragt = confirm === aktion.id;
+            // «Wirklich?» statt «Wirklich öffnen?»: Der Knopf sagt
+            // darüber schon, worum es geht, und aufschliessen ist nicht
+            // öffnen - die Rückfrage darf das nicht durcheinanderbringen.
+            const rueckfrage = `Wirklich? ${aktion.label}`;
             return (
               <Pressable
-                key={door.id}
+                key={aktion.id}
                 onPress={() => {
                   verlaengern();
-                  if (offen && befehl) {
-                    onCommand(door.id, befehl);
+                  if (gefragt) {
+                    onCommand(aktion.entity.id, aktion.befehl);
                     onDismiss();
                   } else {
-                    setConfirm(door.id);
+                    setConfirm(aktion.id);
                   }
                 }}
                 accessibilityRole="button"
-                accessibilityLabel={offen ? `${door.name} wirklich öffnen` : befehlLabel(door)}
-                style={[styles.doorbellOpen, offen && { backgroundColor: colors.danger }]}
+                accessibilityLabel={gefragt ? rueckfrage : aktion.label}
+                style={[
+                  styles.doorbellOpen,
+                  gefragt && { backgroundColor: colors.danger },
+                ]}
               >
-                <Ionicons name="key" size={22} color="#FFFFFF" />
+                <Ionicons
+                  name={aktion.oeffnet ? 'log-in-outline' : 'key'}
+                  size={22}
+                  color="#FFFFFF"
+                />
                 <Text style={styles.doorbellOpenText}>
-                  {offen ? 'Wirklich öffnen?' : befehlLabel(door)}
+                  {gefragt ? rueckfrage : aktion.label}
                 </Text>
               </Pressable>
             );
@@ -3013,6 +3091,16 @@ const makeStyles = (colors: Colors) =>
   doorbellTitle: { color: '#FFFFFF', fontSize: 28, fontWeight: '700', textAlign: 'center' },
   doorbellImage: {
     flex: 1,
+    borderRadius: radius.card,
+    backgroundColor: '#1C2430',
+    width: '100%',
+  },
+  doorbellOhneBild: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 26,
     borderRadius: radius.card,
     backgroundColor: '#1C2430',
     width: '100%',

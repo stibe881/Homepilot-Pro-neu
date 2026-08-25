@@ -161,10 +161,20 @@ Zwei Dinge, die dabei überraschen:
 
 - Das Skript **frischt sich selbst auf** – Änderungen daran greifen erst
   beim übernächsten Lauf.
-- Die App-Version in `app/app.json` steht auf `0.1.0` und bestimmt die
+- Die App-Version in `app/app.json` steht auf `0.7.0` und bestimmt die
   `runtimeVersion`. Solange sie sich nicht ändert, passt jede je
   veröffentlichte OTA-Fassung auf jeden neuen Build. **Bei einer
   Auslieferung die Version hochzählen.**
+- Damit das auch ankommt, steht in `app/eas.json` `appVersionSource` auf
+  `local`. Vorher stand dort `remote`: Dann führt EAS die Version auf
+  seinem Server und ignoriert die `app.json` – die dortige `0.7.0` ging
+  ins Leere, gebaut wurde weiter `0.1.0`. TestFlight bot das nie an, weil
+  eine kleinere Version kein Update ist, und meldete auch nichts: Der
+  Build lag einfach unbeachtet da. `local` heisst: Es gilt, was im Repo
+  steht.
+- `autoIncrement` zählt die `buildNumber` in der `app.json` hoch. Mit
+  `local` schreibt EAS das in die Datei – nach einem Build steht dort
+  eine neue Nummer, **die mit eingecheckt werden will**.
 
 Unter *System* zeigt die App, welchen Stand sie ausführt und ob er
 mitgeliefert oder nachgeladen ist.
