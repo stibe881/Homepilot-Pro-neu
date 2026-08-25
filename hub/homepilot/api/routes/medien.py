@@ -42,10 +42,45 @@ class EinblendRequest(BaseModel):
     seconds: float = 6.0
 
 
+class FavoritRequest(BaseModel):
+    """Ein Favorit: ein Name, eine Art und wo er laufen soll."""
+
+    kind: str
+    name: str
+    id: str = ""
+    player: str = ""
+    device: str = ""
+    image: str = ""
+
+
+class SchlummerRequest(BaseModel):
+    minutes: float = 30.0
+
+
+class WeckerRequest(BaseModel):
+    time: str
+    player: str
+    id: str = ""
+    on: bool = True
+    days: list[int] | None = None
+    device: str = ""
+    volume: int = 35
+    fade: float = 20.0
+    kind: str = "station"
+    name: str = ""
+    label: str = ""
+
+
 def register(app: FastAPI, ctx: ApiContext) -> None:
     hub = ctx.hub
     current_user = ctx.current_user
     require = ctx.require
+
+    def musik() -> Any:
+        buch = getattr(hub, "musik", None)
+        if buch is None:  # pragma: no cover - nur in Teststummeln
+            raise HTTPException(status_code=503, detail="Der Hub startet noch")
+        return buch
 
     def ton() -> Any:
         meister = getattr(hub, "ton", None)
@@ -107,3 +142,88 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             raise HTTPException(status_code=404, detail="Diese Box kennt der Hub nicht")
         await ton().einblenden(entity_id, body.volume, body.seconds)
         return {"ok": True, "volume": body.volume, "seconds": body.seconds}
+
+    # ── Favoriten ──────────────────────────────────────────────────────
+
+    @app.get("/api/media/favorites")
+    async def favorites(request: Request) -> dict[str, Any]:
+        current_user(request)
+        return {"favorites": musik().favoriten()}
+
+    @app.post("/api/media/favorites")
+    async def add_favorite(body: FavoritRequest, request: Request) -> dict[str, Any]:
+        require(request, Capability.CONTROL)
+        try:
+            return musik().favorit_setzen(body.model_dump())
+        except HomePilotError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
+    @app.delete("/api/media/favorites/{favorite_id}")
+    async def remove_favorite(favorite_id: str, request: Request) -> dict[str, Any]:
+        require(request, Capability.CONTROL)
+        if not musik().favorit_entfernen(favorite_id):
+            raise HTTPException(status_code=404, detail="Diesen Favoriten gibt es nicht")
+        return {"ok": True}
+
+    @app.post("/api/media/favorites/{favorite_id}/play")
+    async def play_favorite(
+        favorite_id: str, request: Request, device: str = ""
+    ) -> dict[str, Any]:
+        require(request, Capability.CONTROL)
+        try:
+            return await musik().favorit_abspielen(favorite_id, device)
+        except HomePilotError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
+    # ── Was lief zuletzt ───────────────────────────────────────────────
+
+    @app.get("/api/media/history")
+    async def history(request: Request) -> dict[str, Any]:
+        """«Wie hiess das Lied vorhin?» - die Frage, die die Kachel
+        allein nicht beantworten kann."""
+        current_user(request)
+        return {"history": musik().verlauf()}
+
+    # ── Schlummer ──────────────────────────────────────────────────────
+
+    @app.get("/api/media/sleep")
+    async def sleep_timers(request: Request) -> dict[str, Any]:
+        current_user(request)
+        return {"timers": musik().schlummer_stand()}
+
+    @app.post("/api/media/{entity_id}/sleep")
+    async def start_sleep(
+        entity_id: str, body: SchlummerRequest, request: Request
+    ) -> dict[str, Any]:
+        require(request, Capability.CONTROL)
+        try:
+            return musik().schlummer(entity_id, body.minutes)
+        except HomePilotError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
+    @app.delete("/api/media/{entity_id}/sleep")
+    async def stop_sleep(entity_id: str, request: Request) -> dict[str, Any]:
+        require(request, Capability.CONTROL)
+        return {"ok": musik().schlummer_abbrechen(entity_id)}
+
+    # ── Musikwecker ────────────────────────────────────────────────────
+
+    @app.get("/api/media/alarms")
+    async def alarms(request: Request) -> dict[str, Any]:
+        current_user(request)
+        return {"alarms": musik().wecker()}
+
+    @app.put("/api/media/alarms")
+    async def set_alarm(body: WeckerRequest, request: Request) -> dict[str, Any]:
+        require(request, Capability.CONTROL)
+        try:
+            return musik().wecker_setzen(body.model_dump())
+        except HomePilotError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
+
+    @app.delete("/api/media/alarms/{alarm_id}")
+    async def remove_alarm(alarm_id: str, request: Request) -> dict[str, Any]:
+        require(request, Capability.CONTROL)
+        if not musik().wecker_entfernen(alarm_id):
+            raise HTTPException(status_code=404, detail="Diesen Wecker gibt es nicht")
+        return {"ok": True}

@@ -282,6 +282,40 @@ class Tonmeister:
         aufgabe = asyncio.create_task(lauf())
         self._blenden[entity_id] = aufgabe
 
+    async def ausblenden(self, entity_id: str, dauer: float = EINBLEND_DAUER) -> None:
+        """Leiser werden und dann pausieren - für den Schlummer-Timer.
+
+        Am Ende steht die alte Lautstärke wieder da, ohne dass etwas
+        spielt. Sonst wäre die Box beim nächsten Einschalten stumm, und
+        man suchte den Fehler bei der Musik.
+        """
+        entity = self.hub.registry.get(entity_id)
+        if entity is None:
+            raise HomePilotError("Diese Box kennt der Hub nicht.")
+        davor = entity.state.get("volume")
+        stufen = list(reversed(rampe(0, int(davor)))) if davor is not None else []
+        pause = max(0.05, float(dauer) / max(1, len(stufen) or 1))
+        for wert in stufen:
+            try:
+                await self.hub.integrations.dispatch_command(
+                    entity_id, "set_volume", {"volume": wert}
+                )
+            except Exception as err:
+                log.debug("Ausblenden auf %s: %s", entity_id, err)
+                break
+            await asyncio.sleep(pause)
+        try:
+            await self.hub.integrations.dispatch_command(entity_id, "pause", {})
+        except Exception as err:
+            log.info("Schlummer: %s liess sich nicht pausieren: %s", entity_id, err)
+        if davor is not None:
+            try:
+                await self.hub.integrations.dispatch_command(
+                    entity_id, "set_volume", {"volume": int(davor)}
+                )
+            except Exception as err:  # pragma: no cover - nur Kosmetik
+                log.debug("Lautstärke nach dem Schlummern: %s", err)
+
     # ── Dämpfen ────────────────────────────────────────────────────────
 
     def _spielende(self) -> list[Any]:
