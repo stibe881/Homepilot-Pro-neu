@@ -35,8 +35,42 @@ export function GruppenBoxen({ entity }: { entity: Entity }) {
   const alle = useEntities();
   const settings = useSettings();
   const [offen, setOffen] = useState(false);
+  // null = noch nicht gefragt, [] = gefragt und nichts bekommen.
+  const [mitglieder, setMitglieder] = useState<string[] | null>(null);
   const hub = useMemo(() => hubClient(settings.url, settings.token), [settings]);
-  const boxen = useMemo(() => einzelBoxen(alle, entity.id), [alle, entity.id]);
+  const alleBoxen = useMemo(() => einzelBoxen(alle, entity.id), [alle, entity.id]);
+
+  // Den Chromecast selbst fragen, statt zu raten - aber erst, wenn
+  // jemand das Blatt öffnet: Die Abfrage baut eine eigene Verbindung zur
+  // Gruppe auf und dauert ein paar Sekunden.
+  useEffect(() => {
+    if (!offen || mitglieder !== null) return;
+    let abgebrochen = false;
+    hub
+      .get<{ members?: { entity_id: string | null }[] } | null>(
+        `/api/media/${encodeURIComponent(entity.id)}/members`,
+        { fallback: null, still: true },
+      )
+      .then((daten) => {
+        if (abgebrochen) return;
+        setMitglieder(
+          (daten?.members ?? [])
+            .map((zeile) => zeile.entity_id)
+            .filter((wert): wert is string => !!wert),
+        );
+      });
+    return () => {
+      abgebrochen = true;
+    };
+  }, [offen, mitglieder, hub, entity.id]);
+
+  // Was der Chromecast gemeldet hat - und solange nichts kam, alle
+  // Einzelboxen. Geraten wird dann immer noch, aber es steht dabei.
+  const geraten = mitglieder === null || mitglieder.length === 0;
+  const boxen = geraten
+    ? alleBoxen
+    : alleBoxen.filter((box) => mitglieder.includes(box.id));
+
   // Erst nach allen Hooks aussteigen - die Reihenfolge der Hooks muss
   // in jedem Durchlauf dieselbe sein.
   if (entity.state.is_group !== true) return null;
@@ -44,14 +78,14 @@ export function GruppenBoxen({ entity }: { entity: Entity }) {
   return (
     <>
       <Pressable
-        onPress={() => (boxen.length > 0 ? setOffen(true) : undefined)}
+        onPress={() => (alleBoxen.length > 0 ? setOffen(true) : undefined)}
         accessibilityRole="button"
         accessibilityLabel="Lautstärke je Box"
         style={({ pressed }) => [styles.gruppenChip, pressed && { opacity: 0.7 }]}
       >
         <Ionicons name="layers-outline" size={13} color={colors.inkSoft} />
         <Text style={styles.gruppenChipText}>
-          Gruppe{boxen.length > 0 ? ` · ${boxen.length} Boxen einzeln` : ''}
+          Gruppe{alleBoxen.length > 0 ? ' · Boxen einzeln stellen' : ''}
         </Text>
       </Pressable>
 
@@ -67,6 +101,15 @@ export function GruppenBoxen({ entity }: { entity: Entity }) {
             «{entity.name}» spielt auf mehreren Boxen gleich laut. Hier stellst
             du jede einzeln – die Gruppe läuft weiter.
           </Text>
+          {mitglieder === null ? (
+            <Text style={styles.hint}>Der Hub fragt die Gruppe …</Text>
+          ) : geraten ? (
+            <Text style={styles.warnHint}>
+              Die Gruppe hat nicht geantwortet – deshalb stehen hier alle Boxen
+              des Hauses, nicht nur ihre. Welche dazugehören, weiss in dem Fall
+              nur die Google-Home-App.
+            </Text>
+          ) : null}
           <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
             {boxen.map((box) => (
               <View key={box.id} style={styles.boxZeile}>

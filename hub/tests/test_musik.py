@@ -260,3 +260,56 @@ async def test_musikwecker_blendet_ein(hub):
     # erschreckt.
     assert lautstaerken[0] == 0
     assert lautstaerken[-1] == 30
+
+
+# ── Nachbesserung: der Schlummer-Timer über einen Neustart ───────────────
+
+
+async def test_schlummer_wird_nach_dem_neustart_wieder_gestellt(hub):
+    await _radio_bauen(hub)
+    hub.musik.schlummer("testradio.box", 30)
+    gespeichert = hub.data.get("musik_schlummer")
+    assert gespeichert and gespeichert[0]["entity_id"] == "testradio.box"
+
+    # Der Neustart: ein frisches Musikbuch auf derselben Datendatei.
+    from homepilot.core.musik import Musikbuch
+
+    neu = Musikbuch(hub)
+    hub.musik = neu
+    await neu._schlummer_nachholen()
+    assert [zeile["entity_id"] for zeile in neu.schlummer_stand()] == ["testradio.box"]
+    await neu.stop()
+
+
+async def test_ein_faelliger_schlummer_wird_nachgeholt(hub):
+    protokoll = await _radio_bauen(hub)
+    hub.data.set(
+        "musik_schlummer",
+        [{"entity_id": "testradio.box", "ends_at": time.time() - 60}],
+    )
+    from homepilot.core.musik import Musikbuch
+
+    neu = Musikbuch(hub)
+    hub.musik = neu
+    await neu._schlummer_nachholen()
+    # Die Musik sollte aus sein - der Wunsch galt vor einer Minute.
+    assert ("testradio.box", "pause", {}) in protokoll.befehle
+    await neu.stop()
+
+
+async def test_ein_uralter_schlummer_wird_vergessen(hub):
+    """Musik, die zwölf Stunden später von selbst aufhört, ist kein
+    Dienst, sondern ein Spuk."""
+    protokoll = await _radio_bauen(hub)
+    hub.data.set(
+        "musik_schlummer",
+        [{"entity_id": "testradio.box", "ends_at": time.time() - 86400}],
+    )
+    from homepilot.core.musik import Musikbuch
+
+    neu = Musikbuch(hub)
+    hub.musik = neu
+    await neu._schlummer_nachholen()
+    assert all(befehl != "pause" for _, befehl, _ in protokoll.befehle)
+    assert hub.data.get("musik_schlummer") == []
+    await neu.stop()

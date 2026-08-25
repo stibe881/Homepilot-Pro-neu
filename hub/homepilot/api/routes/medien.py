@@ -131,6 +131,24 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         except HomePilotError as err:
             raise HTTPException(status_code=400, detail=str(err)) from err
 
+    @app.get("/api/media/{entity_id}/members")
+    async def group_members(entity_id: str, request: Request) -> dict[str, Any]:
+        """Die Boxen, aus denen diese Gruppe besteht.
+
+        Der Chromecast wird gefragt, statt zu raten. Antwortet er nicht -
+        das kommt vor, die Abfrage baut eine eigene Verbindung auf -,
+        kommt eine leere Liste; die App zeigt dann alle Einzelboxen und
+        sagt dazu, dass sie raten musste.
+        """
+        current_user(request)
+        entity = hub.registry.get(entity_id)
+        if entity is None:
+            raise HTTPException(status_code=404, detail="Diese Box kennt der Hub nicht")
+        cast = hub.integrations.get(entity.integration)
+        if cast is None or not hasattr(cast, "gruppen_mitglieder"):
+            return {"members": [], "reason": "Diese Box führt keine Gruppe."}
+        return {"members": await cast.gruppen_mitglieder(entity_id)}
+
     @app.post("/api/media/{entity_id}/fade")
     async def fade_in(
         entity_id: str, body: EinblendRequest, request: Request

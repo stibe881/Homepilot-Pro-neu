@@ -40,6 +40,11 @@ log = logging.getLogger(__name__)
 #: Wo die Nachtruhe in der Datendatei steht.
 NACHTRUHE_KEY = "ton_nachtruhe"
 
+#: Wo eine laufende Dämpfung liegt. Ohne diesen Eintrag bliebe eine Box
+#: leise, wenn der Hub genau zwischen «leiser» und «wieder lauter» neu
+#: startet - und niemand wüsste, warum.
+DUCK_STAND_KEY = "ton_daempfung_laeuft"
+
 #: Und wo der Schalter fürs Dämpfen beim Klingeln steht. Er ist an:
 #: Musik, die das Klingeln übertönt, ist genau der Fall, für den es
 #: das Dämpfen gibt.
@@ -232,25 +237,48 @@ class Tonmeister:
         stunde = time.localtime(jetzt) if jetzt is not None else time.localtime()
         return deckel_jetzt(self.nachtruhe(), stunde.tm_hour * 60 + stunde.tm_min)
 
-    def wunsch_deckeln(self, command: str, data: dict[str, Any]) -> dict[str, Any]:
+    def wunsch_deckeln(
+        self, entity: Any, command: str, data: dict[str, Any]
+    ) -> tuple[str, dict[str, Any]]:
         """Einen Befehl vor dem Absenden auf den Deckel bringen.
 
-        Greift nur, wo eine Zahl mitkommt. «Lauter» ohne Zahl bleibt
-        unberührt: Die Integration kennt den aktuellen Wert, der Hub
-        hier nicht sicher - und ein Deckel, der ein Lauter in ein Leiser
-        verwandelt, wäre schlimmer als keiner.
+        Zwei Fälle. Kommt eine Zahl mit, wird sie begrenzt - das ist der
+        einfache. Der andere ist «Lauter» ohne Zahl: Hier stand einmal,
+        der Hub kenne den aktuellen Wert nicht. Er kennt ihn - er steht
+        im Zustand der Box. Also wird aus einem Lauter, das über den
+        Deckel führen würde, ein Setzen auf den Deckel. Ein Knopf, der
+        nichts mehr tut, ist ehrlicher als einer, der die Nachtruhe
+        umgeht.
+
+        Zurück kommen Befehl und Daten, denn der erste kann sich ändern.
         """
-        if command not in LAUT_BEFEHLE or "volume" not in data:
-            return data
         grenze = self.deckel()
-        if grenze is None:
-            return data
-        gewuenscht = data.get("volume")
-        gedrosselt = gedeckelt(gewuenscht, grenze)
-        if gedrosselt is None or gedrosselt == gewuenscht:
-            return data
-        log.info("Nachtruhe: Lautstärke %s auf %s gedeckelt", gewuenscht, gedrosselt)
-        return {**data, "volume": gedrosselt}
+        if grenze is None or command not in LAUT_BEFEHLE:
+            return command, data
+
+        if "volume" in data:
+            gewuenscht = data.get("volume")
+            gedrosselt = gedeckelt(gewuenscht, grenze)
+            if gedrosselt is None or gedrosselt == gewuenscht:
+                return command, data
+            log.info("Nachtruhe: Lautstärke %s auf %s gedeckelt", gewuenscht, gedrosselt)
+            return command, {**data, "volume": gedrosselt}
+
+        if command != "volume_up":
+            return command, data
+        jetzt = entity.state.get("volume") if entity is not None else None
+        if jetzt is None or "set_volume" not in getattr(entity, "commands", ()):
+            # Ohne bekannte Lautstärke oder ohne Setzbefehl bleibt es beim
+            # Lauter: Raten wäre schlimmer als die Lücke.
+            return command, data
+        try:
+            stand = int(jetzt)
+        except (TypeError, ValueError):
+            return command, data
+        if stand < grenze:
+            return command, data
+        log.info("Nachtruhe: «Lauter» auf %s begrenzt", grenze)
+        return "set_volume", {**data, "volume": grenze}
 
     # ── Einblenden ─────────────────────────────────────────────────────
 
@@ -344,6 +372,7 @@ class Tonmeister:
             if ziel is None:
                 continue
             self._davor[entity.id] = int(entity.state["volume"])
+            self._stand_sichern()
             try:
                 await self.hub.integrations.dispatch_command(
                     entity.id, "set_volume", {"volume": ziel}
@@ -363,9 +392,37 @@ class Tonmeister:
             raise
         await self.lauter_stellen()
 
+    def _stand_sichern(self) -> None:
+        """Die laufende Dämpfung auf die Platte schreiben."""
+        self.hub.data.set(
+            DUCK_STAND_KEY,
+            [{"entity_id": eid, "volume": wert} for eid, wert in self._davor.items()],
+        )
+
+    async def _daempfung_nachholen(self) -> None:
+        """Nach einem Neustart: Stand einer unterbrochenen Dämpfung.
+
+        Der Hub kann zwischen «leiser» und «wieder lauter» neu starten -
+        ein Update reicht dafür. Ohne das hier bliebe die Box leise, und
+        die Ursache stünde nirgends.
+        """
+        offen = [
+            zeile
+            for zeile in self.hub.data.get(DUCK_STAND_KEY)
+            if isinstance(zeile, dict) and zeile.get("entity_id")
+        ]
+        if not offen:
+            return
+        log.info("Dämpfung vom letzten Lauf gefunden - Lautstärke wird zurückgestellt")
+        self._davor = {
+            str(zeile["entity_id"]): int(zeile.get("volume") or 0) for zeile in offen
+        }
+        await self.lauter_stellen()
+
     async def lauter_stellen(self) -> None:
         """Die gemerkten Lautstärken wiederherstellen."""
         davor, self._davor = self._davor, {}
+        self._stand_sichern()
         for entity_id, wert in davor.items():
             try:
                 await self.hub.integrations.dispatch_command(
@@ -482,6 +539,8 @@ class Tonmeister:
     def start(self) -> None:
         """Auf das Klingeln horchen, um die Musik kurz zu dämpfen."""
         self.hub.bus.subscribe("doorbell", self._on_klingeln)
+        # Erst, wenn die Geräte da sind - deshalb als eigene Aufgabe.
+        asyncio.create_task(self._daempfung_nachholen())
 
     def daempfen_an(self) -> bool:
         """Soll beim Klingeln gedämpft werden? Vorgabe: ja."""

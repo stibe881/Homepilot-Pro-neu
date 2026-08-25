@@ -137,7 +137,7 @@ async def _box_bauen(hub, name="Küche", zustand=None):
                 EntityKind.MEDIA_PLAYER,
                 name,
                 state=zustand or {"state": "playing", "volume": 60},
-                commands=["play", "pause", "set_volume", "play_url"],
+                commands=["play", "pause", "set_volume", "volume_up", "play_url"],
             )
 
         async def handle_command(self, entity, command, data):
@@ -292,3 +292,55 @@ async def test_durchsage_stellt_lautstaerke_und_musik_wieder_her(hub):
     await hub.ton.durchsage_zurueck(gemerkt, frist=2.0)
     assert protokoll.lautstaerken[-1] == 60
     assert ("play", {}) in protokoll.befehle
+
+
+# ── Nachbesserungen: der Deckel und das Gedächtnis ───────────────────────
+
+
+async def test_lauter_wird_am_deckel_zum_setzen(hub, monkeypatch):
+    """Hier stand einmal, der Hub kenne die aktuelle Lautstärke nicht.
+
+    Er kennt sie - sie steht im Zustand der Box. Ein «Lauter», das über
+    den Deckel führen würde, wird deshalb zu einem Setzen auf den Deckel.
+    """
+    protokoll, box_id = await _box_bauen(hub, zustand={"state": "playing", "volume": 55})
+    monkeypatch.setattr(hub.ton, "deckel", lambda jetzt=None: 30)
+
+    await hub.integrations.dispatch_command(box_id, "volume_up", {})
+    assert protokoll.befehle == [("set_volume", {"volume": 30})]
+
+
+async def test_lauter_unter_dem_deckel_bleibt_lauter(hub, monkeypatch):
+    protokoll, box_id = await _box_bauen(hub, zustand={"state": "playing", "volume": 20})
+    monkeypatch.setattr(hub.ton, "deckel", lambda jetzt=None: 30)
+
+    await hub.integrations.dispatch_command(box_id, "volume_up", {})
+    assert protokoll.befehle == [("volume_up", {})]
+
+
+async def test_ohne_bekannte_lautstaerke_wird_nicht_geraten(hub, monkeypatch):
+    protokoll, box_id = await _box_bauen(hub, zustand={"state": "playing"})
+    monkeypatch.setattr(hub.ton, "deckel", lambda jetzt=None: 30)
+
+    await hub.integrations.dispatch_command(box_id, "volume_up", {})
+    assert protokoll.befehle == [("volume_up", {})]
+
+
+async def test_daempfung_ueberlebt_einen_neustart(hub):
+    """Der Hub kann zwischen «leiser» und «wieder lauter» neu starten -
+    ein Update reicht dafür. Ohne Gedächtnis bliebe die Box leise."""
+    protokoll, box_id = await _box_bauen(hub)
+    await hub.ton.daempfen(dauer=600.0)
+    assert protokoll.lautstaerken == [15]
+
+    # Der Neustart: ein frischer Tonmeister auf derselben Datendatei.
+    from homepilot.core.ton import Tonmeister
+
+    neu = Tonmeister(hub)
+    hub.ton = neu
+    await neu._daempfung_nachholen()
+    assert protokoll.lautstaerken[-1] == 60
+
+    # Und danach ist der Eintrag weg - sonst würde jeder weitere Start
+    # die Lautstärke erneut «zurückstellen».
+    assert hub.data.get("ton_daempfung_laeuft") == []
