@@ -27,3 +27,24 @@ export function keineBoxText(mediaPlayers: number): string {
     'Spotify-Connect-Boxen kennt der Hub nur über Spotify.'
   );
 }
+
+/** Was in der Senderzeile steht (rein, testbar).
+ *
+ * Zwei Angaben, die auseinanderzuhalten sind: *welcher* Sender läuft und
+ * ob schon etwas zu hören ist. Zwischen dem Antippen und dem ersten Ton
+ * liegen bei einem Radiostrom Sekunden – die Box lädt. Ohne dieses Wort
+ * stand der Sender da, es kam nichts, und niemand wusste, ob daraus noch
+ * etwas wird.
+ *
+ * Der Name nur, solange wirklich etwas läuft: Nach dem Anhalten wäre er
+ * eine Behauptung über die Gegenwart, die nicht mehr stimmt.
+ */
+export function senderzeile(state: Record<string, unknown>): {
+  sender: string | null;
+  laedt: boolean;
+} {
+  const laeuft = state.state === 'playing';
+  const sender =
+    laeuft && typeof state.station === 'string' && state.station ? state.station : null;
+  return { sender, laedt: sender !== null && state.buffering === true };
+}

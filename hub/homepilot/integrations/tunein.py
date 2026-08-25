@@ -32,6 +32,7 @@ hinspielt. Der Musikplayer der App kennt diese Form schon.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote
@@ -331,19 +332,63 @@ def waehlbare_boxen(
     return ohne or [(kennung, name) for kennung, name, _ in boxen]
 
 
-def claim_haelt(box_state: dict[str, Any]) -> bool:
+#: Wie lange eine einmal aufgelöste Sendeadresse wiederverwendet wird.
+#: Eine Stunde: Sender wechseln ihre Adressen, aber nicht im Minutentakt.
+ADRESSE_HAELT = 3600.0
+
+#: Wie lange ein frisch eingeschalteter Sender als «läuft» gilt, auch
+#: wenn die Box noch nichts meldet.
+#:
+#: Ein Radiostrom braucht bis zum ersten Ton mehrere Sekunden: Die Box
+#: lädt, und in dieser Zeit meldet sie BUFFERING – was der Hub als «idle»
+#: führt. Ohne diese Frist verschwanden Sender und Bild genau dann, wenn
+#: die Musik anfing, und kamen nie wieder: Der Anspruch war gelöscht,
+#: und was danach kam, sah für den Hub aus wie fremde Musik.
+ANSPRUCH_SEKUNDEN = 120.0
+
+
+def claim_haelt(box_state: dict[str, Any], alter: float = 0.0) -> bool:
     """Läuft auf der Box noch unser Radio? (rein, testbar)
 
-    Zwei Dinge beenden den Anspruch: Die Box spielt nichts mehr, oder
-    jemand hat etwas anderes gestartet. Das Zweite steht in der App-Angabe
-    der Box – eine blosse Tonadresse läuft im «Default Media Receiver».
-    Sobald dort «Spotify» oder «YouTube» steht, ist das Radio Geschichte,
-    und ein Player, der weiter «läuft» behauptet, wäre eine Lüge.
+    Der Anspruch endet, wenn jemand etwas anderes startet – das steht in
+    der App-Angabe der Box: Eine blosse Tonadresse läuft im «Default
+    Media Receiver»; sobald dort «Spotify» oder «YouTube» steht, ist das
+    Radio Geschichte, und ein Player, der weiter «läuft» behauptet, wäre
+    eine Lüge.
+
+    Stille allein beendet ihn nicht sofort: ``alter`` ist die Zeit seit
+    dem Einschalten, und solange sie unter `ANSPRUCH_SEKUNDEN` liegt,
+    zählt eine Box ohne Meldung als «lädt noch».
     """
-    if str(box_state.get("state") or "") != "playing":
-        return False
     app = str(box_state.get("app") or "")
-    return not app or DEFAULT_RECEIVER.casefold() in app.casefold()
+    if app and DEFAULT_RECEIVER.casefold() not in app.casefold():
+        return False
+    # Pause ist unsere Pause – wer anhält, hat den Sender nicht verlassen.
+    if str(box_state.get("state") or "") in ("playing", "paused", "buffering"):
+        return True
+    return alter < ANSPRUCH_SEKUNDEN
+
+
+def titel_und_interpret(roh: str | None) -> tuple[str | None, str | None]:
+    """Aus «Ed Sheeran - Shivers» wird («Shivers», «Ed Sheeran») – rein, testbar.
+
+    Radioströme tragen ihre Angaben in einem einzigen ICY-Feld, fast
+    immer als «Interpret - Titel». Ungetrennt stünde die ganze Zeile als
+    Titel da, und das Feld für den Interpreten bliebe leer – auf einer
+    Kachel, die genau zwei Zeilen dafür hat.
+
+    Ohne erkennbaren Trenner bleibt die Zeile, wie sie ist: Manche Sender
+    schicken nur «Nachrichten», und daraus einen Interpreten zu erfinden
+    wäre schlimmer als eine Zeile weniger.
+    """
+    text = (roh or "").strip()
+    if not text:
+        return None, None
+    for trenner in (" - ", " – ", " — "):
+        interpret, _, titel = text.partition(trenner)
+        if interpret.strip() and titel.strip():
+            return titel.strip(), interpret.strip()
+    return text, None
 
 
 class TuneInIntegration(Integration):
@@ -362,6 +407,11 @@ class TuneInIntegration(Integration):
         # Wo gerade gespielt wird und was.
         self._box: str | None = None
         self._station: Station | None = None
+        #: Wann eingeschaltet wurde – siehe ANSPRUCH_SEKUNDEN.
+        self._seit = 0.0
+        #: Aufgelöste Sendeadressen, damit derselbe Sender beim zweiten
+        #: Mal ohne zwei Anfragen an TuneIn losgeht.
+        self._adressen: dict[str, tuple[float, str, str]] = {}
 
         await self.add_entity(
             "radio",
@@ -468,6 +518,15 @@ class TuneInIntegration(Integration):
         if station.url:
             return station.url, content_type_for("", station.url)
 
+        # Derselbe Sender ein zweites Mal: Zwei Anfragen an TuneIn und
+        # das Herunterladen der Wiedergabeliste bringen dieselbe Adresse
+        # zurück, kosten aber jedes Mal Sekunden - und Sekunden sind
+        # genau das, was beim Umschalten stört. Nicht länger als
+        # ADRESSE_HAELT: Sender wechseln ihre Adressen gelegentlich.
+        gemerkt = self._adressen.get(station.id)
+        if gemerkt and time.time() - gemerkt[0] < ADRESSE_HAELT:
+            return gemerkt[1], gemerkt[2]
+
         payload = await self._opml(f"{TUNE_URL}?id={quote(station.id)}&render=json")
         streams = parse_tune(payload)
         if not streams:
@@ -482,7 +541,9 @@ class TuneInIntegration(Integration):
                     if not aufgeloest:
                         continue
                     url = aufgeloest
-                return url, content_type_for(stream.media_type, url)
+                art = content_type_for(stream.media_type, url)
+                self._adressen[station.id] = (time.time(), url, art)
+                return url, art
             except Exception as err:  # noqa: BLE001 – der nächste Strom darf es versuchen
                 letzter_fehler = err
                 self.log.debug("TuneIn: %s ging nicht (%s)", stream.url, err)
@@ -505,6 +566,8 @@ class TuneInIntegration(Integration):
         )
         self._box = ziel
         self._station = self._gefunden.get(station.name.casefold(), station)
+        # Ab hier läuft die Frist, in der die ladende Box als «läuft» gilt.
+        self._seit = time.time()
         await self._refresh()
 
     # ── Box → Hub ──────────────────────────────────────────────────────────
@@ -518,15 +581,41 @@ class TuneInIntegration(Integration):
         """
         boxen = self.speakers()
         box = self.hub.registry.get(self._box) if self._box else None
-        laeuft = box is not None and claim_haelt(box.state)
+        laeuft = box is not None and claim_haelt(box.state, time.time() - self._seit)
         if not laeuft:
             self._station = None
 
+        # Was gerade gespielt wird, weiss die Box: Der Strom trägt seine
+        # Angaben als ICY-Text mit, und der Chromecast reicht ihn als
+        # Titel durch. Der Sender ist die Herkunft, nicht der Titel –
+        # deshalb steht er in einem eigenen Feld und nicht in «track».
+        titel, interpret = (
+            titel_und_interpret(str(box.state.get("track") or "")) if box else (None, None)
+        )
+        if box is not None and not interpret and box.state.get("artist"):
+            interpret = str(box.state["artist"])
+        if not laeuft:
+            titel, interpret = None, None
+
+        # Zwischen «eingeschaltet» und «erster Ton» liegen Sekunden. Sie
+        # unkommentiert zu lassen war der zweite Teil der Klage: Der
+        # Sender stand da, es kam nichts, und niemand wusste, ob es noch
+        # etwas wird. Jetzt sagt es die Kachel.
+        laedt = laeuft and str(box.state.get("state") or "") not in ("playing", "paused")
+
         zustand: dict[str, Any] = {
             "state": "playing" if laeuft else "idle",
-            "track": self._station.name if self._station else None,
-            "artist": (self._station.subtext or "Radio") if self._station else None,
-            "image": self._station.image or None if self._station else None,
+            "buffering": laedt,
+            # Ohne Angaben aus dem Strom steht der Sender selbst da – eine
+            # Kachel ohne Zeile sähe aus wie «nichts läuft».
+            "track": titel or (self._station.name if self._station else None),
+            "artist": interpret
+            or ((self._station.subtext or "Radio") if self._station else None),
+            # Das Bild des Titels, wenn der Strom eines mitschickt, sonst
+            # das Senderlogo von TuneIn. Ein Radiostrom hat meistens
+            # keines - dann ist das Logo das einzige Bild, das es gibt.
+            "image": (str(box.state.get("image")) if box and box.state.get("image") else None)
+            or (self._station.image or None if self._station else None),
             "station": self._station.name if self._station else None,
             "stations": [station.name for station in self.stations()],
             "device": box.display_name or box.name if box is not None else None,
