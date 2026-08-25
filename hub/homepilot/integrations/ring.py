@@ -928,7 +928,7 @@ class RingIntegration(Integration):
         # über das letzte Klingeln aus.
         erster = True
         while True:
-            for _entity_id, device in self._intercoms:
+            for entity_id, device in self._intercoms:
                 try:
                     verlauf = await self._verlauf_holen(device)
                 except asyncio.CancelledError:

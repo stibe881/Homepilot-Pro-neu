@@ -61,6 +61,9 @@ module.exports = tseslint.config(
         process: 'readonly',
         console: 'readonly',
         __dirname: 'readonly',
+        // Node kennt URL seit Jahren global – ohne diese Zeile hielt
+        // ESLint `new URL(...)` in einem Skript für einen Tippfehler.
+        URL: 'readonly',
       },
     },
     rules: { '@typescript-eslint/no-require-imports': 'off' },
