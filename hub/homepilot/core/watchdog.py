@@ -194,6 +194,12 @@ class Watchdog:
         asyncio.create_task(self._melde_klingeln(entity_id, name))
 
     async def _melde_klingeln(self, entity_id: str, name: str) -> None:
+        # Zuerst auf den Bus: Wer beim Klingeln etwas tun will - die
+        # Musik dämpfen, eine Ansage machen -, soll nicht warten, bis
+        # die Push draussen ist.
+        await self.hub.bus.publish(
+            "doorbell", {"entity_id": entity_id, "name": name}
+        )
         await self._notify(
             f"Es klingelt: {name}",
             "Jemand steht vor der Türe.",

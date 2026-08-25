@@ -168,6 +168,12 @@ async def speak(
     if not targets:
         raise HomePilotError("Kein Lautsprecher erreichbar, der Durchsagen kann.")
 
+    # Was auf den Boxen lief, bevor die Ansage kommt - danach soll es
+    # wieder so sein. Vorher blieb die Box auf der Lautstärke der
+    # Durchsage stehen und die Musik aus.
+    ton = getattr(hub, "ton", None)
+    davor = ton.zustand_merken([entity.id for entity in targets]) if ton else {}
+
     sent: list[str] = []
     errors: list[str] = []
     for entity in targets:
@@ -182,4 +188,8 @@ async def speak(
             sent.append(entity.name)
         except Exception as err:
             errors.append(f"{entity.name}: {err}")
+    if ton is not None and sent:
+        # Als eigene Aufgabe: Die Durchsage ist unterwegs, und die
+        # Antwort an die App soll nicht warten, bis sie durch ist.
+        asyncio.create_task(ton.durchsage_zurueck(davor))
     return {"sent": sent, "errors": errors}

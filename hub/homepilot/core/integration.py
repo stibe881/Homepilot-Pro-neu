@@ -606,5 +606,12 @@ class IntegrationManager:
         integration = self._integrations.get(entity.integration)
         if integration is None:
             raise HomePilotError(f"Integration '{entity.integration}' ist nicht geladen")
-        await integration.handle_command(entity, command, data or {})
+        nutzdaten = data or {}
+        # Die Nachtruhe greift hier und nicht in jeder Integration
+        # einzeln: Es ist die eine Stelle, an der jeder Befehl vorbeikommt
+        # - aus der App, aus einem Ablauf, aus einer Szene.
+        ton = getattr(self.hub, "ton", None)
+        if ton is not None:
+            nutzdaten = ton.wunsch_deckeln(command, nutzdaten)
+        await integration.handle_command(entity, command, nutzdaten)
         return entity
