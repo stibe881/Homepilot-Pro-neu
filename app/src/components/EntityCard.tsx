@@ -79,6 +79,9 @@ interface Props {
   /** Anpassen-Modus: Gerät einer Gruppe zuordnen (oder lösen). */
   groups?: string[];
   onSetGroup?: (group: string | null) => void;
+  /** Fragt die Türe vor dem Öffnen nach? Haushaltsweite Einstellung;
+   *  fehlt sie, wird gefragt (siehe lib/tuerbestaetigung.ts). */
+  doorConfirm?: boolean;
   /** Sensorkacheln lassen sich antippen und zeigen dann ihren Verlauf. */
   onPress?: () => void;
   /** Langes Drücken: Vorschau mit Verlauf – überall, nicht nur unter
@@ -124,6 +127,7 @@ export function EntityCard({
   onRename,
   groups,
   onSetGroup,
+  doorConfirm,
   onPress,
   onLongPress,
   chart,
@@ -530,7 +534,14 @@ export function EntityCard({
       }
 
       case 'lock':
-        return <LockBody entity={entity} onCommand={onCommand} pending={pending} />;
+        return (
+          <LockBody
+            entity={entity}
+            onCommand={onCommand}
+            pending={pending}
+            doorConfirm={doorConfirm}
+          />
+        );
 
       case 'cover':
         return <CoverBody entity={entity} sky={sky} onCommand={onCommand} />;

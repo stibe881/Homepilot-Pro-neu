@@ -17,12 +17,7 @@ import { KIND_ICONS, shortState } from '../components/RoomTile';
 import { appleMapsRoute, googleMapsRoute } from '../components/TopStrip';
 import { VacuumHome } from '../components/VacuumHome';
 import { useTakt } from '../hooks/useTakt';
-import {
-  FAVORIT_LUECKE,
-  FAVORIT_MINDEST,
-  kachelBreite,
-  spalten,
-} from '../lib/raster';
+import { FAVORIT_LUECKE, FAVORIT_MINDEST, kachelBreite, spalten } from '../lib/raster';
 import { dauerText, wochentagUhr } from '../lib/format';
 import {
   chipZeile,
@@ -34,6 +29,7 @@ import {
 import { haustuerZeile } from '../lib/klingel';
 import { KalenderZeile, geburtstagsListe, terminListe } from '../lib/kalenderliste';
 import { applianceLine } from '../lib/haushalt';
+import { mayOpenDirectly } from '../lib/tuerbestaetigung';
 import { Colors, radius, space, useColors } from '../theme';
 
 /**
@@ -64,12 +60,33 @@ interface Props {
   /** Selbst gezogene Reihenfolge der Favoriten (Gerätekennungen). */
   favoriteOrder?: string[];
   onReorderFavorites?: (ids: string[]) => void;
+  /** Fragt die Türe vor dem Öffnen nach? Haushaltsweit eingestellt; fehlt
+   *  der Wert, wird gefragt (siehe lib/tuerbestaetigung.ts). */
+  doorConfirm?: boolean;
 }
 
-const WEEKDAYS = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
+const WEEKDAYS = [
+  'Sonntag',
+  'Montag',
+  'Dienstag',
+  'Mittwoch',
+  'Donnerstag',
+  'Freitag',
+  'Samstag',
+];
 const MONTHS = [
-  'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
-  'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember',
+  'Januar',
+  'Februar',
+  'März',
+  'April',
+  'Mai',
+  'Juni',
+  'Juli',
+  'August',
+  'September',
+  'Oktober',
+  'November',
+  'Dezember',
 ];
 
 function two(value: number): string {
@@ -121,6 +138,7 @@ export function OverviewScreen({
   favoriteIds = [],
   favoriteOrder,
   onReorderFavorites,
+  doorConfirm,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -244,8 +262,17 @@ export function OverviewScreen({
           ? 'Unscharf'
           : `Scharf · ${alarm.state.mode_label ?? ''}`;
 
-  /** Zwei-Schritt-Bestätigung: erster Tipp fragt, zweiter führt aus. */
-  const confirmThen = (key: string, action: () => void) => {
+  /** Zwei-Schritt-Bestätigung: erster Tipp fragt, zweiter führt aus.
+   *
+   *  `command` sagt, worum es geht: Nur das Öffnen der Türe lässt sich
+   *  haushaltsweit abschalten (siehe lib/tuerbestaetigung.ts) - alles
+   *  andere fragt weiter. */
+  const confirmThen = (key: string, command: string, action: () => void) => {
+    if (mayOpenDirectly(command, doorConfirm)) {
+      setConfirm(null);
+      action();
+      return;
+    }
     if (confirm === key) {
       setConfirm(null);
       action();
@@ -261,7 +288,8 @@ export function OverviewScreen({
   // iPhone Max brach die Reihe darum um. Siehe lib/raster.
   const [rasterBreite, setRasterBreite] = useState(0);
   const tileSpalten = spalten(rasterBreite, { hoechstens: wide ? 3 : 2 });
-  const tileWidth = rasterBreite > 0 ? kachelBreite(rasterBreite, tileSpalten) : ('100%' as const);
+  const tileWidth =
+    rasterBreite > 0 ? kachelBreite(rasterBreite, tileSpalten) : ('100%' as const);
   // Favoriten hatten als Einzige keine gerechnete Breite: Jede Kachel war
   // so breit wie ihr Inhalt, und drei Zimmernamen ergaben zusammen mehr,
   // als ein iPhone hergibt – die dritte rutschte in die zweite Zeile.
@@ -300,18 +328,22 @@ export function OverviewScreen({
       : 'Fertig';
 
   // Kalender: nächster Termin und – als eigener Platz – nächster Geburtstag.
-  const events: KalenderEintrag[] = Array.isArray(calendar?.state.events) ? calendar!.state.events : [];
+  const events: KalenderEintrag[] = Array.isArray(calendar?.state.events)
+    ? calendar!.state.events
+    : [];
   const isBirthday = (event: KalenderEintrag) =>
     event.birthday || /geburtstag|birthday/i.test(event.summary ?? '');
   const birthday = events.find(isBirthday);
   const nextEvent = events.find((event) => !isBirthday(event));
 
-  const eventLine = (event: KalenderEintrag | undefined, demoText: string, demoWhen: string) => {
+  const eventLine = (
+    event: KalenderEintrag | undefined,
+    demoText: string,
+    demoWhen: string
+  ) => {
     if (!calendar) return { title: demoText, when: demoWhen, demo: true };
     if (!event) return { title: 'Nichts geplant', when: '', demo: false };
-    const when = event.all_day
-      ? 'ganztägig'
-      : wochentagUhr(new Date(event.start));
+    const when = event.all_day ? 'ganztägig' : wochentagUhr(new Date(event.start));
     return {
       title: event.summary ?? '—',
       when,
@@ -373,7 +405,8 @@ export function OverviewScreen({
           {/* Untereinander statt nebeneinander – zwei Textknöpfe passen in
               der schmalen Kachel nicht in eine Zeile. */}
           <View style={styles.actionCol}>
-            <Action styles={styles}
+            <Action
+              styles={styles}
               label={
                 (flatDoor ? String(flatDoor.state.state) === 'locked' : demoFlatLocked)
                   ? 'Aufschliessen'
@@ -388,11 +421,12 @@ export function OverviewScreen({
                   : setDemoFlatLocked((v) => !v)
               }
             />
-            <Action styles={styles}
+            <Action
+              styles={styles}
               label={confirm === 'flat' ? 'Sicher?' : 'Auf + öffnen'}
               accent={confirm === 'flat'}
               onPress={() =>
-                confirmThen('flat', () =>
+                confirmThen('flat', 'unlatch', () =>
                   flatDoor ? onCommand(flatDoor.id, 'unlatch') : setDemoFlatLocked(false)
                 )
               }
@@ -418,7 +452,8 @@ export function OverviewScreen({
           >
             {alarmText}
           </Text>
-          <Action styles={styles}
+          <Action
+            styles={styles}
             label={alarmArmed ? 'Unscharf schalten' : 'Scharf schalten'}
             onPress={() =>
               alarm ? onCommand(alarm.id, 'toggle') : setDemoAlarmArmed((v) => !v)
@@ -434,7 +469,14 @@ export function OverviewScreen({
       {/* Haushalt */}
       <Text style={styles.groupLabel}>Haushalt</Text>
       <View style={styles.tileRow}>
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="sunny-outline" title="Tumbler" demo={!tumbler}>
+        <Tile
+          styles={styles}
+          colors={colors}
+          width={tileWidth}
+          icon="sunny-outline"
+          title="Tumbler"
+          demo={!tumbler}
+        >
           <Text style={[styles.tileState, tumblerRunning && { color: colors.accent }]}>
             {tumblerText}
           </Text>
@@ -442,12 +484,26 @@ export function OverviewScreen({
             <Text style={styles.tileSub}>{Math.round(tumblerWatts)} W</Text>
           ) : null}
         </Tile>
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="water-outline" title="Waschmaschine" demo={!washer}>
+        <Tile
+          styles={styles}
+          colors={colors}
+          width={tileWidth}
+          icon="water-outline"
+          title="Waschmaschine"
+          demo={!washer}
+        >
           <Text style={[styles.tileState, wash.running && { color: colors.accent }]}>
             {wash.text}
           </Text>
         </Tile>
-        <Tile styles={styles} colors={colors} width={tileWidth} icon="restaurant-outline" title="Geschirrspüler" demo={!dishwasher}>
+        <Tile
+          styles={styles}
+          colors={colors}
+          width={tileWidth}
+          icon="restaurant-outline"
+          title="Geschirrspüler"
+          demo={!dishwasher}
+        >
           <Text style={[styles.tileState, dish.running && { color: colors.accent }]}>
             {dish.text}
           </Text>
@@ -455,7 +511,13 @@ export function OverviewScreen({
       </View>
       {vacuum ? (
         <View style={styles.tileRow}>
-          <Tile styles={styles} colors={colors} width="100%" icon="hardware-chip-outline" title={vacuum.name}>
+          <Tile
+            styles={styles}
+            colors={colors}
+            width="100%"
+            icon="hardware-chip-outline"
+            title={vacuum.name}
+          >
             <VacuumHome
               entity={vacuum}
               uri={snapshotUri?.(vacuum)}
@@ -543,7 +605,13 @@ export function OverviewScreen({
           {geburtstag.when ? <Text style={styles.tileSub}>{geburtstag.when}</Text> : null}
         </Tile>
         {countdown ? (
-          <Tile styles={styles} colors={colors} width={tileWidth} icon="hourglass-outline" title={countdown.text}>
+          <Tile
+            styles={styles}
+            colors={colors}
+            width={tileWidth}
+            icon="hourglass-outline"
+            title={countdown.text}
+          >
             <Text style={styles.tileState} numberOfLines={1}>
               {countdown.days != null
                 ? countdown.days > 0
@@ -606,11 +674,12 @@ export function OverviewScreen({
               {haustuerZeile(frontDoor?.state, new Date())}
             </Text>
           ) : null}
-          <Action styles={styles}
+          <Action
+            styles={styles}
             label={confirm === 'front' ? 'Wirklich öffnen?' : 'Öffnen'}
             accent={confirm === 'front'}
             onPress={() =>
-              confirmThen('front', () =>
+              confirmThen('front', 'open_door', () =>
                 frontDoor ? onCommand(frontDoor.id, 'open_door') : undefined
               )
             }
@@ -629,7 +698,8 @@ export function OverviewScreen({
       {/* Schnellaktionen */}
       <View style={styles.quickRow}>
         {startScenes.map((scene) => (
-          <Action styles={styles}
+          <Action
+            styles={styles}
             key={scene.id}
             label={scene.name}
             icon={sceneIcon(scene)}
@@ -637,13 +707,15 @@ export function OverviewScreen({
             onPress={() => onActivateScene(scene.id)}
           />
         ))}
-        <Action styles={styles}
+        <Action
+          styles={styles}
           label="Storen hoch"
           icon="arrow-up-outline"
           onPress={() => covers.forEach((c) => onCommand(c.id, 'open'))}
           disabled={covers.length === 0}
         />
-        <Action styles={styles}
+        <Action
+          styles={styles}
           label="Storen runter"
           icon="arrow-down-outline"
           onPress={() => covers.forEach((c) => onCommand(c.id, 'close'))}
@@ -652,8 +724,8 @@ export function OverviewScreen({
       </View>
       {startScenes.length === 0 ? (
         <Text style={styles.hintLine}>
-          Szenen wie «Kino» oder «Schlafen» unter Abläufe anlegen und dort
-          «Als Schnellaktion anzeigen» wählen – dann erscheinen sie hier.
+          Szenen wie «Kino» oder «Schlafen» unter Abläufe anlegen und dort «Als
+          Schnellaktion anzeigen» wählen – dann erscheinen sie hier.
         </Text>
       ) : null}
 
@@ -688,8 +760,8 @@ export function OverviewScreen({
                 </Pressable>
               </View>
               <Text style={styles.reorderHint}>
-                Am Griff ☰ ziehen. Die Reihenfolge wird bei deinem Benutzer
-                gespeichert und gilt auf allen deinen Geräten.
+                Am Griff ☰ ziehen. Die Reihenfolge wird bei deinem Benutzer gespeichert und
+                gilt auf allen deinen Geräten.
               </Text>
               <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
                 <DraggableList
@@ -900,7 +972,11 @@ function FernsehTimerFenster({
         <Pressable style={styles.fensterBlatt} onPress={() => {}}>
           <View style={styles.fensterKopf}>
             <Text style={styles.fensterTitel}>{entity.name}</Text>
-            <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Schliessen">
+            <Pressable
+              onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel="Schliessen"
+            >
               <Ionicons name="close" size={24} color={colors.ink} />
             </Pressable>
           </View>
@@ -990,7 +1066,11 @@ function KalenderFenster({
         <Pressable style={styles.fensterBlatt} onPress={() => {}}>
           <View style={styles.fensterKopf}>
             <Text style={styles.fensterTitel}>{titel}</Text>
-            <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Schliessen">
+            <Pressable
+              onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel="Schliessen"
+            >
               <Ionicons name="close" size={24} color={colors.ink} />
             </Pressable>
           </View>
@@ -1004,7 +1084,9 @@ function KalenderFenster({
                     {zeile.titel}
                   </Text>
                   <View style={styles.fensterUnten}>
-                    {zeile.wann ? <Text style={styles.fensterWann}>{zeile.wann}</Text> : null}
+                    {zeile.wann ? (
+                      <Text style={styles.fensterWann}>{zeile.wann}</Text>
+                    ) : null}
                     {zeile.ort ? (
                       <Text style={styles.fensterOrt} numberOfLines={1}>
                         · {zeile.ort}
@@ -1128,7 +1210,10 @@ function Action({
           style={accent ? undefined : styles.actionIcon}
         />
       ) : null}
-      <Text style={[styles.actionText, accent && styles.actionTextAccent]} numberOfLines={1}>
+      <Text
+        style={[styles.actionText, accent && styles.actionTextAccent]}
+        numberOfLines={1}
+      >
         {label}
       </Text>
     </Pressable>
@@ -1199,8 +1284,18 @@ const makeStyles = (colors: Colors) =>
       borderWidth: 1,
       borderColor: colors.danger,
     },
-    reorderSheet: { flex: 1, backgroundColor: colors.panel, padding: 20, paddingTop: 60, gap: 10 },
-    reorderHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    reorderSheet: {
+      flex: 1,
+      backgroundColor: colors.panel,
+      padding: 20,
+      paddingTop: 60,
+      gap: 10,
+    },
+    reorderHead: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
     reorderTitle: { color: colors.ink, fontSize: 18, fontWeight: '700' },
     reorderHint: { color: colors.inkSoft, fontSize: 13, lineHeight: 19 },
     stack: { gap: space.gap },
@@ -1259,7 +1354,6 @@ const makeStyles = (colors: Colors) =>
     // bei 14 Punkt deren 88 und wurde zu «Wohnzimme…»; bei 13 sind es 82.
     favName: { color: colors.ink, fontSize: 13, fontWeight: '600' },
     favState: { color: colors.inkFaint, fontSize: 11 },
-
 
     badge: {
       backgroundColor: colors.track,

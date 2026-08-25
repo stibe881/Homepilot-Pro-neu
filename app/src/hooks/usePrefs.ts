@@ -34,6 +34,9 @@ export interface HousePrefs {
   /** Vor heiklen Aktionen – Türe öffnen, Alarm entschärfen – erst Face ID
    *  bzw. Fingerabdruck verlangen. */
   bioLock?: boolean;
+  /** Fragt die Türe vor dem Öffnen nach («Wirklich öffnen?»)? Fehlt der
+   *  Wert, gilt ja – das bisherige Verhalten. Siehe lib/tuerbestaetigung. */
+  doorConfirm?: boolean;
   /** Das Homescreen-Widget mit Daten aus dem Haus versorgen. Aus heisst:
    *  Es zeigt nur die Knöpfe, und in der App-Gruppe liegt kein Token. */
   widgetData?: boolean;
@@ -101,7 +104,6 @@ function useStore<T extends object>(
     return () => {
       cancelled = true;
     };
-     
   }, [connected, settings.url, settings.token, pfad]);
 
   const setzen = useCallback(
@@ -111,12 +113,16 @@ function useStore<T extends object>(
       if (!settings.url || !settings.token) return;
       // Nicht gespeichert heisst: gilt nur auf diesem Gerät, bis die
       // Verbindung zurück ist – kein Grund, die Bedienung zu stören.
-      hubClient(settings.url, settings.token).put(pfad, { prefs: next }, {
-        fallback: null,
-        still: true,
-      });
+      hubClient(settings.url, settings.token).put(
+        pfad,
+        { prefs: next },
+        {
+          fallback: null,
+          still: true,
+        }
+      );
     },
-     
+
     [settings.url, settings.token, pfad]
   );
 
@@ -159,6 +165,11 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
 
   const setBioLock = useCallback(
     (on: boolean) => setzeHaus({ ...hausJetzt.current, bioLock: on }),
+    [setzeHaus]
+  );
+
+  const setDoorConfirm = useCallback(
+    (on: boolean) => setzeHaus({ ...hausJetzt.current, doorConfirm: on }),
     [setzeHaus]
   );
 
@@ -207,6 +218,7 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     setHidden,
     setLocked,
     setBioLock,
+    setDoorConfirm,
     setWidgetData,
     setWidgetButtons,
     setWidgetDirect,
