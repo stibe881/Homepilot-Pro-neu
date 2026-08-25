@@ -15,10 +15,12 @@ describe('Babysitter-Modus', () => {
     expect(istFreigegeben(stand, 'licht_flur')).toBe(true);
   });
 
-  it('sagt vor dem Einschalten, was dann ruht', () => {
+  it('sagt vor dem Einschalten, was dann ruht – und wovon es handelt', () => {
     // Danach ist die Auskunft wertlos - dann sind die Storen schon unten.
+    // Der Vorspann muss mit: Der Satz steht unter den Pausier-Knöpfen
+    // und läse sich sonst wie eine Auskunft übers Pausieren.
     expect(modusSatz({ active: false, allow: ['a', 'b'] }, 20)).toBe(
-      'Beim Einschalten laufen 2 von 20 Abläufen weiter, 18 ruhen.'
+      'Babysitter-Modus: beim Einschalten laufen 2 von 20 Abläufen weiter, 18 ruhen.'
     );
     expect(modusSatz(LEERER_BABYSITTER, 20)).toContain('würden alle 20 Abläufe ruhen');
   });

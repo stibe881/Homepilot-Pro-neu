@@ -359,15 +359,17 @@ const makeStyles = (colors: Colors) =>
       paddingTop: 6,
       paddingBottom: 2,
     },
+    // Dieselbe Zeile wie die Kategorien darüber - sie steht in derselben
+    // Liste. Stünde hier weiter «PUSH» in Grossbuchstaben zwischen
+    // «Lautsprecher» und «Wandtaster», sähe es nach einer anderen Ebene
+    // aus, obwohl es dieselbe ist.
     groupTitle: {
       flex: 1,
-      color: colors.onGradientSoft,
-      fontSize: 12,
+      color: colors.onGradient,
+      fontSize: 15,
       fontWeight: '700',
-      textTransform: 'uppercase',
-      letterSpacing: 0.6,
     },
-    groupCount: { color: colors.onGradientSoft, fontSize: 12, fontWeight: '700' },
+    groupCount: { color: colors.onGradientSoft, fontSize: 13, fontWeight: '700' },
     /** Zwischenüberschrift einer Unterkategorie. Kleiner als die
      *  «PUSH»-Zeile darüber: Sie gliedert, sie ist nicht die Überschrift. */
     gruppe: {

@@ -5,7 +5,8 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Entity } from '../../api/types';
 import { useColors } from '../../theme';
@@ -312,6 +313,87 @@ export function Groups<T extends { id: string }>({
         );
       })}
     </>
+  );
+}
+
+/**
+ * Der Rahmen beider Editoren: Vollbild, feste Kopfleiste, Scrollbereich.
+ *
+ * Beide Editoren – Ablauf und Szene – hatten denselben Aufbau selbst
+ * gebaut und darum auch denselben Fehler: die Kopfzeile als erste Zeile
+ * im Scrollbereich, hinter einem festen `paddingTop: 60`. Auf einem
+ * Telefon mit hoher Statusleiste stand der Titel unter der Uhr, und
+ * unten im Formular war weder «Abbrechen» noch «Speichern» erreichbar,
+ * ohne mehrere Bildschirme weit zurückzuscrollen.
+ *
+ * Abbrechen links, Speichern rechts – die Anordnung, die jedes andere
+ * Formular auf dem Gerät auch hat. Dasselbe Wort wie der grosse Knopf
+ * am Ende des Formulars: Zwei Knöpfe, die dasselbe tun, dürfen nicht
+ * verschieden heissen.
+ */
+export function EditorRahmen({
+  titel,
+  onCancel,
+  onSave,
+  children,
+}: {
+  titel: string;
+  onCancel: () => void;
+  /** Fehlt sie, bleibt die rechte Seite leer – der Titel bleibt mittig. */
+  onSave?: () => void;
+  children: React.ReactNode;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const insets = useSafeAreaInsets();
+
+  return (
+    <Modal visible animationType="slide" onRequestClose={onCancel}>
+      {/* Der Abstand kommt vom Gerät, nicht aus einer geratenen Zahl.
+          Im Browser meldet es 0 - dort genügen die 10 Punkte der
+          Leiste selbst, darum das Maximum mit einem kleinen Wert. */}
+      <View style={[styles.editor, { paddingTop: Math.max(insets.top, 10) }]}>
+        <View style={styles.editorBar}>
+          <Pressable
+            onPress={onCancel}
+            accessibilityRole="button"
+            accessibilityLabel="Abbrechen"
+            style={({ pressed }) => [styles.editorBarKnopf, pressed && { opacity: 0.6 }]}
+          >
+            <Text style={styles.editorBarText}>Abbrechen</Text>
+          </Pressable>
+          <Text style={styles.editorBarTitle} numberOfLines={1}>
+            {titel}
+          </Text>
+          {onSave ? (
+            <Pressable
+              onPress={onSave}
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.editorBarKnopf,
+                { alignItems: 'flex-end' },
+                pressed && { opacity: 0.6 },
+              ]}
+            >
+              <Text style={styles.editorBarText}>Speichern</Text>
+            </Pressable>
+          ) : (
+            // Ein leerer Platzhalter derselben Breite: Sonst rutscht der
+            // Titel aus der Mitte, sobald rechts nichts steht.
+            <View style={styles.editorBarKnopf} />
+          )}
+        </View>
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={[
+            styles.editorContent,
+            { paddingBottom: insets.bottom + 40 },
+          ]}
+        >
+          {children}
+        </ScrollView>
+      </View>
+    </Modal>
   );
 }
 

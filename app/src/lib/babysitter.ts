@@ -50,10 +50,14 @@ export function modusSatz(stand: BabysitterStand, gesamt: number): string {
   if (stand.active) {
     return `Läuft${seitText(stand.since)} – ${frei} von ${gesamt} Abläufen sind freigegeben, ${ruhend} ruhen.`;
   }
+  // Mit Vorspann, solange der Modus aus ist: Der Satz steht unter der
+  // Zeile mit «1 Stunde pausieren» und «Bis morgen» und las sich darum
+  // wie eine Auskunft übers Pausieren. Er handelt aber vom Babysitter -
+  // und was er beschreibt, ist noch gar nicht passiert.
   if (frei === 0) {
-    return `Noch nichts freigegeben: Beim Einschalten würden alle ${gesamt} Abläufe ruhen.`;
+    return `Babysitter-Modus: noch nichts freigegeben – beim Einschalten würden alle ${gesamt} Abläufe ruhen.`;
   }
-  return `Beim Einschalten laufen ${frei} von ${gesamt} Abläufen weiter, ${ruhend} ruhen.`;
+  return `Babysitter-Modus: beim Einschalten laufen ${frei} von ${gesamt} Abläufen weiter, ${ruhend} ruhen.`;
 }
 
 /** «seit 19:40» – am nächsten Morgen die Frage, ob jemand vergessen hat
