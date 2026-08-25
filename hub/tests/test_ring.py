@@ -29,9 +29,12 @@ def test_ein_kanal_ueber_den_nichts_kommt_ist_keiner():
     text = health_detail(True, None, quellen=["abfrage", "abfrage"])
     assert "taub" in text
     assert "Abfrage" in text
-    assert health_detail(True, None, quellen=["push", "push"]) == (
-        "Ereigniskanal verbunden – Klingeln kommt sofort an"
-    )
+    # Dahinter steht seit Neuem, wann zuletzt geklingelt hat: «es kommt
+    # keine Nachricht» ist erst dann beantwortbar, wenn man weiss, ob der
+    # Hub es überhaupt gehört hat.
+    gut = health_detail(True, None, quellen=["push", "push"])
+    assert gut.startswith("Ereigniskanal verbunden – Klingeln kommt sofort an.")
+    assert "noch niemand geklingelt" in gut
 
 
 def test_nach_dem_neuladen_sagt_der_hub_nicht_kaputt():
@@ -325,3 +328,37 @@ def test_the_system_screen_says_the_intercom_is_covered():
     assert "ohne Ereigniskanal" in satz
     # Ohne Gegensprechanlage kein Zusatz - der wäre nur Lärm.
     assert verlauf_hinweis([]) == ""
+
+
+# ── Hat der Hub es überhaupt gehört? ────────────────────────────────────
+#
+# Der Satz, der die Kette in zwei Hälften teilt. «Es kommt keine
+# Nachricht» kann zweierlei heissen: Der Hub hat das Klingeln nie gehört,
+# oder er hat es gehört und niemand hat ihm gesagt, was er damit tun
+# soll. Von aussen sieht beides gleich aus - und man sucht wochenlang auf
+# der falschen Seite.
+
+from homepilot.integrations.ring import klingel_satz
+
+
+def test_the_last_ding_names_its_path():
+    jetzt = 1_700_000_000.0
+    assert "gerade eben" in klingel_satz(jetzt - 20, "push", jetzt)
+    assert "über den Ereigniskanal" in klingel_satz(jetzt - 20, "push", jetzt)
+    assert "über die Abfrage" in klingel_satz(jetzt - 300, "abfrage", jetzt)
+    assert "über den Verlauf" in klingel_satz(jetzt - 300, "verlauf", jetzt)
+
+
+def test_the_last_ding_says_how_long_ago():
+    jetzt = 1_700_000_000.0
+    assert "vor 5 Min." in klingel_satz(jetzt - 300, "push", jetzt)
+    assert "vor 3 Std." in klingel_satz(jetzt - 3 * 3600, "push", jetzt)
+    assert "vor 2 Tagen" in klingel_satz(jetzt - 2 * 86400, "push", jetzt)
+
+
+def test_nothing_heard_yet_says_so_plainly():
+    # Das ist die halbe Antwort: Klingelt jemand und hier steht danach
+    # weiterhin «noch niemand», liegt es vor dem Hub. Steht dort «gerade
+    # eben» und es kam trotzdem keine Nachricht, liegt es dahinter.
+    assert "noch niemand geklingelt" in klingel_satz(None, None, 1_700_000_000.0)
+    assert "unbekanntem Weg" in klingel_satz(1_699_999_999.0, "irgendwie", 1_700_000_000.0)

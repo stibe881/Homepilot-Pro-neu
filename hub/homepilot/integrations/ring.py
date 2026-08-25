@@ -389,6 +389,38 @@ def verlauf_hinweis(mit_verlauf: list[str]) -> str:
     )
 
 
+#: Wie die Wege heissen, über die ein Klingeln hereinkommen kann.
+QUELLEN_NAMEN = {
+    "push": "über den Ereigniskanal",
+    "abfrage": "über die Abfrage",
+    "verlauf": "über den Verlauf",
+}
+
+
+def klingel_satz(wann: float | None, quelle: str | None, jetzt: float) -> str:
+    """Wann zuletzt geklingelt hat - und auf welchem Weg (rein, testbar).
+
+    Der Satz, der die Kette in zwei Hälften teilt. «Es kommt keine
+    Nachricht» kann zweierlei heissen: Der Hub hat das Klingeln nie
+    gehört, oder er hat es gehört und niemand hat ihm gesagt, was er
+    damit tun soll. Von aussen sieht beides gleich aus, und man sucht
+    wochenlang auf der falschen Seite.
+    """
+    if not wann:
+        return " Seit dem Start hat noch niemand geklingelt."
+    sekunden = max(0.0, jetzt - wann)
+    if sekunden < 90:
+        wie_lange = "gerade eben"
+    elif sekunden < 3600:
+        wie_lange = f"vor {round(sekunden / 60)} Min."
+    elif sekunden < 86400:
+        wie_lange = f"vor {round(sekunden / 3600)} Std."
+    else:
+        wie_lange = f"vor {round(sekunden / 86400)} Tagen"
+    weg = QUELLEN_NAMEN.get(str(quelle or ""), "auf unbekanntem Weg")
+    return f" Zuletzt geklingelt {wie_lange}, {weg}."
+
+
 def kanal_taub(quellen: list[str]) -> bool:
     """Steht der Kanal nur auf dem Papier? (rein, testbar)
 
@@ -418,12 +450,26 @@ def health_detail(
     anlaeufe: int = 0,
     ohne_ersatz: list[str] | None = None,
     mit_verlauf: list[str] | None = None,
+    letztes_klingeln: tuple[float, str] | None = None,
+    jetzt: float | None = None,
 ) -> str:
     """Was im System-Bildschirm über den Ereigniskanal steht (rein, testbar)."""
     # Wo unten «wird ersatzweise abgefragt» steht, gehören diese Sätze
     # dazu - sonst verspricht die Anzeige ein Netz, das für dieses Gerät
     # nicht gespannt ist, oder verschweigt eines, das es gibt.
-    ersatz = ersatz_hinweis(ohne_ersatz or []) + verlauf_hinweis(mit_verlauf or [])
+    # Wann zuletzt geklingelt hat, steht in jedem Ausgang: Die Frage «hat
+    # der Hub es überhaupt gehört?» stellt sich gerade dann, wenn oben
+    # «verbunden» steht.
+    klingeln = klingel_satz(
+        (letztes_klingeln or (None, None))[0],
+        (letztes_klingeln or (None, None))[1],
+        jetzt if jetzt is not None else time.time(),
+    )
+    # Die Hinweise zum Ersatzweg dagegen nur dort, wo es auf ihn ankommt:
+    # Solange der Kanal steht, ist er belanglos und wäre nur Lärm.
+    ersatz = (
+        ersatz_hinweis(ohne_ersatz or []) + verlauf_hinweis(mit_verlauf or []) + klingeln
+    )
     if abgeschaltet:
         # Bewusste Entscheidung, keine Störung - deshalb ohne Warnton.
         return (
@@ -447,7 +493,7 @@ def health_detail(
                 f"die Abfrage – der Kanal ist taub. Push kommt dadurch bis zu "
                 f"{DING_POLL_SECONDS} s zu spät.{ersatz}"
             )
-        return "Ereigniskanal verbunden – Klingeln kommt sofort an"
+        return f"Ereigniskanal verbunden – Klingeln kommt sofort an.{klingeln}"
     # Der Grund als eigener Satz, nicht in Klammern: Er enthält oft
     # selbst welche, und «(RuntimeError: … (MCS))» liest niemand.
     grund = ""
@@ -649,6 +695,8 @@ class RingIntegration(Integration):
         # Welche Verlaufseinträge schon gesehen wurden - sonst käme
         # dasselbe Klingeln alle fünf Sekunden erneut.
         self._verlauf_gesehen: set[Any] = set()
+        # Wann zuletzt geklingelt hat und auf welchem Weg es hereinkam.
+        self._letztes_klingeln: tuple[float, str] | None = None
         self._by_ring_id: dict[int, str] = {}
         self._clear_tasks: dict[str, asyncio.Task] = {}
 
@@ -798,6 +846,7 @@ class RingIntegration(Integration):
                     abgeschaltet=True,
                     ohne_ersatz=self._ohne_ersatz,
                     mit_verlauf=self._verlauf_namen(),
+                    letztes_klingeln=self._letztes_klingeln,
                 ),
                 "last_event": self._last_event,
             }
@@ -826,6 +875,7 @@ class RingIntegration(Integration):
                 anlaeufe=self._anlaeufe,
                 ohne_ersatz=self._ohne_ersatz,
                 mit_verlauf=self._verlauf_namen(),
+                letztes_klingeln=getattr(self, "_letztes_klingeln", None),
             ),
             "last_event": self._last_event,
             # Für die Ferndiagnose: der Weg der letzten Meldungen.
@@ -1189,6 +1239,11 @@ class RingIntegration(Integration):
         # Beinbruch. Beim Klingeln ist er einer.
         if event.kind == "ding":
             self._quellen = [*self._quellen, quelle][-QUELLEN_FENSTER * 2 :]
+            # Für den System-Bildschirm: Hat der Hub überhaupt gehört,
+            # dass es geklingelt hat? Ohne diese Auskunft ist «es kommt
+            # keine Nachricht» nicht davon zu unterscheiden, dass sie
+            # niemand verschickt.
+            self._letztes_klingeln = (time.time(), quelle)
             if quelle != "push":
                 self.log.info(
                     "Ring: Klingeln kam über die Abfrage, nicht über den "
