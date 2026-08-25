@@ -236,6 +236,17 @@ export function plainStates(entity?: Entity): { key: string; label: string }[] {
       { key: 'away', label: 'weg' },
     ];
   }
+  // Die Sammelfrage «ist überhaupt noch jemand da?» (geofence.anyone_home).
+  // Sie zählt technisch in an/aus, und genau so stand es im Editor: «an».
+  // Wer «wenn der Letzte geht» bauen wollte, musste raten, ob das nun
+  // «an» oder «aus» ist - und die Hälfte rät falsch. Erkennbar ist sie an
+  // der Liste der Abwesenden, die sie mitführt.
+  if (entity && 'away' in entity.state) {
+    return [
+      { key: 'on', label: 'jemand ist zuhause' },
+      { key: 'off', label: 'niemand ist zuhause' },
+    ];
+  }
   // Ein Tür- oder Fensterkontakt meldet technisch «an»/«aus». Wer einen
   // Ablauf für die Haustüre baut, sucht aber «geöffnet» - und wählt im
   // Zweifel das Falsche, weil «an» bei einer Türe nach Licht klingt.

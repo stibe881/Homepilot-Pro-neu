@@ -13,6 +13,7 @@ from homepilot.core.config import ApiConfig, HubConfig
 from homepilot.core.entity import Entity, EntityKind
 from homepilot.core.hub import Hub
 from homepilot.integrations.tunein import (
+    ANSPRUCH_SEKUNDEN,
     Station,
     Stream,
     TuneInIntegration,
@@ -25,6 +26,7 @@ from homepilot.integrations.tunein import (
     parse_stations,
     parse_tune,
     pick_speaker,
+    titel_und_interpret,
 )
 
 # Gekürzte echte Antwort auf Search.ashx?query=SRF 3
@@ -232,10 +234,52 @@ def test_radio_stops_claiming_the_box_when_something_else_starts():
     # Ohne App-Angabe: im Zweifel läuft es noch.
     assert claim_haelt({"state": "playing"}) is True
     assert claim_haelt({"state": "playing", "app": "Spotify"}) is False
-    assert claim_haelt({"state": "idle", "app": "Default Media Receiver"}) is False
+    # Fremde App schlägt jede Frist: Wer Spotify startet, hat entschieden.
+    assert claim_haelt({"state": "playing", "app": "YouTube"}, alter=1) is False
+
+
+def test_a_station_that_is_still_loading_does_not_lose_its_claim():
+    """Der Fall, der die Kachel leer räumte.
+
+    Ein Radiostrom braucht bis zum ersten Ton mehrere Sekunden. In dieser
+    Zeit meldet die Box BUFFERING, was der Hub als «idle» führt – und der
+    Sender verschwand genau dann, wenn die Musik anfing. Danach kam er
+    nie wieder: Der Anspruch war gelöscht.
+    """
+    laedt = {"state": "idle", "app": "Default Media Receiver"}
+    assert claim_haelt(laedt, alter=5) is True
+    # Meldet die Box das Laden selbst, braucht es die Frist gar nicht.
+    assert claim_haelt({"state": "buffering"}, alter=999) is True
+    # Pause ist unsere Pause – wer anhält, hat den Sender nicht verlassen.
+    assert claim_haelt({"state": "paused"}, alter=999) is True
+    # Bleibt es dauerhaft still, ist es vorbei.
+    assert claim_haelt(laedt, alter=ANSPRUCH_SEKUNDEN + 1) is False
+
+
+def test_the_stream_text_becomes_title_and_artist():
+    """Radioströme tragen alles in einem Feld: «Interpret - Titel».
+
+    Ungetrennt stünde die ganze Zeile als Titel da, und die Zeile für den
+    Interpreten bliebe leer.
+    """
+    assert titel_und_interpret("Ed Sheeran - Shivers") == ("Shivers", "Ed Sheeran")
+    # Gedankenstrich statt Bindestrich – dieselbe Absicht.
+    assert titel_und_interpret("Adele – Hello") == ("Hello", "Adele")
+    # Ohne Trenner bleibt die Zeile, wie sie ist: Einen Interpreten zu
+    # erfinden wäre schlimmer als eine Zeile weniger.
+    assert titel_und_interpret("Nachrichten") == ("Nachrichten", None)
+    assert titel_und_interpret("  ") == (None, None)
+    assert titel_und_interpret(None) == (None, None)
+    # Ein Titel mit Bindestrich im Namen: Der erste Trenner zählt.
+    assert titel_und_interpret("AC/DC - T.N.T. - live") == ("T.N.T. - live", "AC/DC")
 
 
 # ── Der ganze Weg, mit Hub und einer Box, aber ohne Netz ─────────────────
+
+
+async def _fertig(wert):
+    """Ein fertiges Ergebnis als Coroutine – für Lambdas als Ersatz."""
+    return wert
 
 
 class FakeBox:
@@ -497,3 +541,131 @@ def test_remembered_stations_survive_and_can_be_removed():
             "SRF 3"
         ]
 
+
+
+async def test_the_station_survives_the_seconds_before_the_first_sound():
+    """Der gemeldete Fehler, ganz durchgespielt.
+
+    «Wenn ich einen Sender anklicke, wird das Cover und der Sender
+    angezeigt, es dauert aber lange, bis die Musik kommt. Sobald die
+    Musik kommt, verschwindet das Cover und der Sender wieder.»
+
+    Genau so war es: Die ladende Box meldet «idle», der Hub löschte den
+    Anspruch – und was danach an Musik kam, sah für ihn aus wie fremde.
+    """
+    hub, radio, _ = await _hub_mit_box()
+    try:
+        await radio.setup()
+
+        async def opml(url: str) -> dict[str, Any]:
+            return TUNE
+
+        async def playlist(url: str) -> str:
+            return "http://stream.srg-ssr.ch/srgssr/srf3/mp3/128\n"
+
+        radio._opml = opml  # type: ignore[method-assign]
+        radio._playlist_text = playlist  # type: ignore[method-assign]
+
+        await hub.integrations.dispatch_command(
+            "tunein.radio", "play_radio", {"station": "SRF 3"}
+        )
+        player = hub.registry.get("tunein.radio")
+        assert player is not None
+        assert player.state["station"] == "SRF 3"
+
+        # Die Box lädt: kein Ton, keine Angaben – aber unsere App.
+        await hub.registry.update_state(
+            "google_cast.kueche", {"state": "idle", "app": "Default Media Receiver"}
+        )
+        await radio.refresh_now()
+        zustand = hub.registry.get("tunein.radio").state
+        assert zustand["station"] == "SRF 3"
+        # Und die Kachel sagt, warum noch nichts zu hören ist.
+        assert zustand["buffering"] is True
+
+        # Und jetzt kommt der Ton, mit dem Text aus dem Strom.
+        await hub.registry.update_state(
+            "google_cast.kueche",
+            {
+                "state": "playing",
+                "app": "Default Media Receiver",
+                "track": "Ed Sheeran - Shivers",
+            },
+        )
+        await radio.refresh_now()
+        zustand = hub.registry.get("tunein.radio").state
+        assert zustand["state"] == "playing"
+        assert zustand["station"] == "SRF 3"
+        assert zustand["track"] == "Shivers"
+        assert zustand["artist"] == "Ed Sheeran"
+        assert zustand["buffering"] is False
+
+        # Jemand startet Spotify: Jetzt ist es vorbei, sofort.
+        await hub.registry.update_state(
+            "google_cast.kueche", {"state": "playing", "app": "Spotify"}
+        )
+        await radio.refresh_now()
+        zustand = hub.registry.get("tunein.radio").state
+        assert zustand["state"] == "idle"
+        assert zustand["station"] is None
+        assert zustand["track"] is None
+    finally:
+        await hub.stop()
+
+
+async def test_a_station_without_stream_text_shows_its_own_name():
+    """Eine Kachel ohne Zeile sähe aus wie «nichts läuft»."""
+    hub, radio, _ = await _hub_mit_box()
+    try:
+        await radio.setup()
+        radio._opml = lambda url: _fertig(TUNE)  # type: ignore[method-assign]
+        radio._playlist_text = lambda url: _fertig(  # type: ignore[method-assign]
+            "http://stream.srg-ssr.ch/srgssr/srf3/mp3/128\n"
+        )
+        await hub.integrations.dispatch_command(
+            "tunein.radio", "play_radio", {"station": "SRF 3"}
+        )
+        await hub.registry.update_state(
+            "google_cast.kueche", {"state": "playing", "app": "Default Media Receiver"}
+        )
+        await radio.refresh_now()
+        zustand = hub.registry.get("tunein.radio").state
+        assert zustand["track"] == "SRF 3"
+        assert zustand["artist"] == "Radio"
+    finally:
+        await hub.stop()
+
+
+async def test_the_same_station_twice_does_not_ask_tunein_twice():
+    """Sekunden beim Umschalten sind genau das, was stört.
+
+    Die zweite Runde bringt dieselbe Adresse – für zwei Anfragen ans Netz
+    und eine heruntergeladene Wiedergabeliste gibt es keinen Grund.
+    """
+    hub, radio, box = await _hub_mit_box()
+    try:
+        await radio.setup()
+        aufrufe: list[str] = []
+
+        async def opml(url: str) -> dict[str, Any]:
+            aufrufe.append(url)
+            return TUNE
+
+        async def playlist(url: str) -> str:
+            aufrufe.append(url)
+            return "http://stream.srg-ssr.ch/srgssr/srf3/mp3/128\n"
+
+        radio._opml = opml  # type: ignore[method-assign]
+        radio._playlist_text = playlist  # type: ignore[method-assign]
+
+        for _ in range(3):
+            await hub.integrations.dispatch_command(
+                "tunein.radio", "play_radio", {"station": "SRF 3"}
+            )
+        assert len(aufrufe) == 2, aufrufe
+        assert len(box.gespielt) == 3
+        assert {eintrag["url"] for eintrag in box.gespielt} == {
+            "http://stream.srg-ssr.ch/srgssr/srf3/mp3/128"
+        }
+    finally:
+        await hub.stop()

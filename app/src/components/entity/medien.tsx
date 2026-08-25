@@ -11,7 +11,7 @@ import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-nativ
 import { hubClient } from '../../api/client';
 import { CommandData, Entity } from '../../api/types';
 import { useSettings } from '../../hooks/HubContext';
-import { keineBoxText } from '../../lib/radiobox';
+import { keineBoxText, senderzeile } from '../../lib/radiobox';
 import { useColors } from '../../theme';
 import { makeStyles } from './stil';
 
@@ -536,8 +536,9 @@ export function RadioPanel({
   const target = (chosen && devices.includes(chosen) ? chosen : null) ?? active ?? devices[0] ?? null;
   // Nur solange wirklich etwas läuft: Nach dem Anhalten wäre der Name eine
   // Behauptung über die Gegenwart, die nicht mehr stimmt.
-  const current =
-    playing && typeof entity.state.station === 'string' ? entity.state.station : null;
+  // Nur solange wirklich etwas läuft, und mit «lädt» für die Sekunden
+  // davor – siehe lib/radiobox.ts.
+  const { sender: current, laedt } = senderzeile(entity.state);
 
   const spielen = (station: string) => {
     setListOpen(false);
@@ -598,7 +599,11 @@ export function RadioPanel({
       <Pressable
         onPress={() => setListOpen(true)}
         accessibilityRole="button"
-        accessibilityLabel={current ? `Sender – zurzeit ${current}` : 'Sender'}
+        accessibilityLabel={
+          current
+            ? `Sender – ${laedt ? 'lädt' : 'zurzeit'} ${current}`
+            : 'Sender'
+        }
         style={({ pressed }) => [styles.playlistButton, pressed && { opacity: 0.85 }]}
       >
         <Ionicons
@@ -607,7 +612,9 @@ export function RadioPanel({
           color={current ? colors.accent : colors.ink}
         />
         <View style={{ flex: 1 }}>
-          {current ? <Text style={styles.playlistNow}>Läuft</Text> : null}
+          {current ? (
+            <Text style={styles.playlistNow}>{laedt ? 'Lädt …' : 'Läuft'}</Text>
+          ) : null}
           <Text style={styles.playlistButtonText} numberOfLines={1}>
             {current ?? 'Sender'}
           </Text>

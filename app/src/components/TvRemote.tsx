@@ -105,7 +105,7 @@ const makeStyles = (colors: Colors) =>
       gap: 14,
       // Opaker Grund: das Modal schwebt frei, Glas-Transparenz hätte hier
       // nichts, wodurch sie durchscheinen könnte.
-      backgroundColor: colors.gradient[1],
+      backgroundColor: colors.panel,
       borderWidth: 1,
       borderColor: colors.surfaceBorder,
     },

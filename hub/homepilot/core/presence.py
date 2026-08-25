@@ -741,9 +741,9 @@ def ort_entfernen(gespeichert: Any, ort_id: str) -> list[dict[str, Any]]:
 
 
 def meldung_annehmen(
-    quelle: str, beansprucht: dict[str, str], zone: str
+    quelle: str, beansprucht: dict[str, str], zone: str, richtung: str = AWAY
 ) -> bool:
-    """Darf diese Quelle für diese Person melden? (rein, testbar)
+    """Darf diese Quelle das für diese Person melden? (rein, testbar)
 
     Zwei Quellen auf dieselbe Frage widersprechen sich früher oder
     später, und dann weiss niemand, welcher zu glauben ist. Genau daran
@@ -753,15 +753,27 @@ def meldung_annehmen(
     und aus dem Hintergrund «weg» nachschob. Auf dem Schirm stand dann
     «unterwegs», während die Person in der Küche stand.
 
-    Also führt der Geofence, wer eine Person beansprucht. Wer das nicht
-    ist, wird überhört - stumm bleibt es nicht, aber es ändert nichts.
-    Ein vergessener Schalter auf einem alten Telefon kann damit nichts
-    mehr kaputtmachen.
+    Also führt der Geofence, wer eine Person beansprucht - aber mit
+    einer Ausnahme, und die ist der ganze Witz: **Ein Ankommen darf
+    jeder melden.** Das Telefon meldet den Übertritt im Moment, in dem
+    er passiert; Life360 erfährt ihn erst bei der nächsten Abfrage,
+    bis zu einer Minute später. Wer heimkommt und auf das Licht wartet,
+    zählt diese Minute mit. Ein verfrühtes oder doppeltes «da» richtet
+    dabei nichts an - schlimmstenfalls geht das Licht an, und die
+    nächste Life360-Runde rückt den Ort ohnehin gerade.
+
+    Das «weg» dagegen bleibt allein beim Führenden. Es war die giftige
+    Hälfte: Ein nachgeschobenes «weg» aus dem Hintergrund schaltete das
+    Haus ab, während jemand darin sass. Diese Asymmetrie ist kein
+    Kompromiss, sondern die Einsicht, dass die beiden Fehler ungleich
+    teuer sind.
 
     Ohne Anspruch gilt wie bisher: Wer meldet, meldet.
     """
     inhaber = beansprucht.get(zone)
-    return inhaber is None or inhaber == quelle
+    if inhaber is None or inhaber == quelle:
+        return True
+    return richtung == HOME
 
 
 def orte_ergaenzen(

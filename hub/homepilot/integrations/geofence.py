@@ -617,23 +617,23 @@ class GeofenceIntegration(Integration):
             entity_id = self._zones.get(zone_id)
         if entity_id is None:
             raise KeyError(zone_id)
-        if not presence.meldung_annehmen(source, self._beansprucht, zone_id):
-            # Kein Fehler: Der Absender tut nichts Falsches, er ist bloss
-            # nicht mehr zuständig. Ein Ausnahmefehler brächte einen
-            # Kurzbefehl zum Scheitern, den jemand vor Jahren gebaut hat.
-            self.log.debug(
-                "Geofence: Meldung von '%s' für %s überhört - %s führt diese "
-                "Person.",
-                source,
-                zone_id,
-                self._beansprucht.get(zone_id),
-            )
-            return self.merged(zone_id).get("state", presence.UNKNOWN)
         richtung = normalise_event(event)
         if richtung is None:
             raise ValueError(
                 f"Unbekanntes Ereignis '{event}' – erlaubt sind enter/leave"
             )
+        if not presence.meldung_annehmen(source, self._beansprucht, zone_id, richtung):
+            # Kein Fehler: Der Absender tut nichts Falsches, er ist bloss
+            # nicht mehr zuständig. Ein Ausnahmefehler brächte einen
+            # Kurzbefehl zum Scheitern, den jemand vor Jahren gebaut hat.
+            self.log.debug(
+                "Geofence: «weg» von '%s' für %s überhört - %s führt diese "
+                "Person. (Ankommen dürfte jeder melden.)",
+                source,
+                zone_id,
+                self._beansprucht.get(zone_id),
+            )
+            return self.merged(zone_id).get("state", presence.UNKNOWN)
         ort = str(place or HOME).strip().lower()
         drin = [x for x in self._inside.get(zone_id, []) if x != ort]
         if richtung == HOME:

@@ -354,11 +354,21 @@ def test_die_fuehrende_quelle_darf_melden():
     assert meldung_annehmen("life360", {"stefan": "life360"}, "stefan") is True
 
 
-def test_eine_zweite_quelle_wird_ueberhoert():
-    from homepilot.core.presence import meldung_annehmen
+def test_ein_fremdes_weg_wird_ueberhoert():
+    from homepilot.core.presence import AWAY, meldung_annehmen
 
-    # Genau der Fall: Das Telefon meldet noch, Life360 führt die Person.
-    assert meldung_annehmen("geofence", {"stefan": "life360"}, "stefan") is False
+    # Genau der Giftfall: Das Telefon schiebt aus dem Hintergrund «weg»
+    # nach, Life360 führt die Person und sagt «zuhause».
+    assert meldung_annehmen("geofence", {"stefan": "life360"}, "stefan", AWAY) is False
+
+
+def test_ein_ankommen_darf_jeder_melden():
+    from homepilot.core.presence import HOME, meldung_annehmen
+
+    # Das Telefon meldet den Übertritt sofort, Life360 erst bei der
+    # nächsten Abfrage - wer heimkommt und auf das Licht wartet, zählt
+    # diese Minute mit. Ein verfrühtes «da» richtet nichts an.
+    assert meldung_annehmen("geofence", {"stefan": "life360"}, "stefan", HOME) is True
 
 
 def test_der_anspruch_gilt_nur_fuer_die_eigene_person():

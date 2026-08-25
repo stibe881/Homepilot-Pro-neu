@@ -189,6 +189,43 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
     });
   }
 
+  if (presence) {
+    // Die zwei Anfänge, nach denen am häufigsten gefragt wird - und die
+    // bisher fehlten, weil jede Anwesenheits-Vorlage schon eine Aktion
+    // mitbrachte: Alarm scharf, alles aus. Wer etwas anderes vorhat,
+    // musste den Auslöser selbst finden und dabei raten, ob «jemand
+    // zuhause» nun «an» oder «aus» heisst.
+    //
+    // Ohne Schritte: Der Auslöser ist das Schwierige, die Aktion weiss
+    // nur der Haushalt selbst.
+    templates.push({
+      label: 'Der Erste kommt heim',
+      icon: 'enter-outline',
+      draft: {
+        ...EMPTY,
+        alias: 'Wenn der Erste heimkommt',
+        // «on» heisst hier: Vorher war niemand da. Kommt der Zweite
+        // dazu, ändert sich nichts - der Ablauf läuft also genau einmal
+        // je Heimkehr, nicht je Person.
+        triggers: [{ ...EMPTY_TRIGGER, entityId: presence.id, toState: 'on' }],
+      },
+    });
+    templates.push({
+      label: 'Der Letzte geht',
+      icon: 'exit-outline',
+      draft: {
+        ...EMPTY,
+        alias: 'Wenn der Letzte geht',
+        // Zehn Minuten Haltezeit: Der Gang zum Briefkasten ist kein
+        // Auszug, und ein Telefon, das kurz den Funk verliert, auch
+        // nicht.
+        triggers: [
+          { ...EMPTY_TRIGGER, entityId: presence.id, toState: 'off', forMinutes: '10' },
+        ],
+      },
+    });
+  }
+
   if (presence && (offScene || allLights.length > 0)) {
     templates.push({
       label: 'Alles aus, wenn niemand da',
