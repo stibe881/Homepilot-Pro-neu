@@ -161,7 +161,7 @@ Zwei Dinge, die dabei überraschen:
 
 - Das Skript **frischt sich selbst auf** – Änderungen daran greifen erst
   beim übernächsten Lauf.
-- Die App-Version in `app/app.json` steht auf `0.7.0` und bestimmt die
+- Die App-Version in `app/app.json` (derzeit `0.8.2`) bestimmt die
   `runtimeVersion`. Solange sie sich nicht ändert, passt jede je
   veröffentlichte OTA-Fassung auf jeden neuen Build. **Bei einer
   Auslieferung die Version hochzählen.**
@@ -172,9 +172,20 @@ Zwei Dinge, die dabei überraschen:
   eine kleinere Version kein Update ist, und meldete auch nichts: Der
   Build lag einfach unbeachtet da. `local` heisst: Es gilt, was im Repo
   steht.
-- `autoIncrement` zählt die `buildNumber` in der `app.json` hoch. Mit
-  `local` schreibt EAS das in die Datei – nach einem Build steht dort
-  eine neue Nummer, **die mit eingecheckt werden will**.
+- `autoIncrement` ist **aus**, und das mit Absicht. Es zählte die
+  `buildNumber` in der `app.json` hoch – also in einer Datei, die hier
+  aus einem frischen Klon stammt und nach dem Lauf weggeworfen wird. Die
+  Erhöhung überlebte den Lauf nie: Jeder Build war wieder Nummer 2, und
+  Apple wies ihn ab («The bundle version must be higher than the
+  previously uploaded version: 2»).
+- Stattdessen setzt `rebuild-hub.sh` die Nummer selbst, aus der **Anzahl
+  Commits** (`git rev-list --count HEAD`) – monoton steigend, ohne dass
+  sich jemand etwas merken muss, und aus dem Repo ablesbar statt in ihm
+  gespeichert. Von Hand geht dasselbe mit
+  `node scripts/set-build-number.mjs [zahl]` im Ordner `app/`;
+  `npm run release:ios` ruft es von sich aus auf.
+- Die `buildNumber` in der `app.json` ist damit nur noch ein Startwert.
+  Sie mit einzuchecken ist nicht mehr nötig.
 
 Unter *System* zeigt die App, welchen Stand sie ausführt und ob er
 mitgeliefert oder nachgeladen ist.
