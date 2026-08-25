@@ -1,16 +1,25 @@
-"""Life360: Standorte aus der Familien-App, für Telefone ohne HomePilot.
+"""Life360: Standorte aus der Familien-App - für einzelne oder für alle.
 
-Der eigene Weg bleibt der bessere: Die App meldet den Übertritt einer
-Zonengrenze selbst, in dem Moment, in dem er passiert – ohne fremde
-Wolke, ohne Konto, ohne Sperre nach zu vielen Abfragen (siehe
-`geofence`). Diese Integration ist für die Telefone, auf denen HomePilot
-nicht läuft und nie laufen wird: das Telefon der Grosseltern, ein
-Kindergerät, auf dem die Familie ohnehin schon Life360 benutzt.
+Zwei Wege führen zum selben Ziel, und beide haben ihren Preis. Die App
+meldet den Übertritt einer Zonengrenze selbst, im Moment, in dem er
+passiert - ohne fremde Wolke, ohne Konto, ohne Sperre. Dafür hängt sie
+daran, dass iOS die App im Hintergrund weckt, und das tut es nicht
+zuverlässig: Wer heimkommt und minutenlang weiter als «unterwegs»
+dasteht, hat genau das erlebt.
 
-**Eine Quelle je Person.** Wer hier eingetragen ist, meldet über
-Life360; wer die App hat, über die App. Zwei Quellen auf dieselbe Frage
-widersprechen sich früher oder später, und dann weiss niemand, welcher
-zu glauben ist – genau daran ist die WLAN-Anwesenheit gescheitert.
+Benutzt der ganze Haushalt ohnehin Life360, ist es deshalb die bessere
+Wahl - **auch für die Telefone, auf denen HomePilot läuft.** Dann
+stehen alle unter `members`, und die Ortung der App gehört auf jedem
+Gerät ausgeschaltet (Einstellungen → Ortung).
+
+**Eine Quelle je Person, und der Hub setzt es durch.** Wer hier
+eingetragen ist, wird von hier geführt: Der Geofence überhört für diese
+Person jede andere Meldung (``zonen_beanspruchen``). Vorher gewann, wer
+zuletzt sprach - Life360 meldete «zuhause», ein vergessener Schalter auf
+einem alten Telefon schob «weg» nach, und auf dem Schirm stand
+«unterwegs», während die Person in der Küche sass. Zwei Quellen auf
+dieselbe Frage widersprechen sich früher oder später; daran ist schon
+die WLAN-Anwesenheit gescheitert.
 
 **Life360 hat keine offene Schnittstelle.** Was hier benutzt wird, ist
 die App-Schnittstelle. Sie war 2024 für Fremde dicht (Home Assistant hat
@@ -48,10 +57,17 @@ config.yaml und schon gar nicht ins Repo:
 Die Zonen selbst stehen bei der geofence-Integration; ohne sie kann
 diese hier nichts melden und sagt das beim Start.
 
-Gespeicherte Orte von Life360 kommen mit: Wer bei «Tanners Home» steht,
-steht auch in der App dort und nicht bloss «unterwegs». Die eigenen Orte
-des Hubs behalten Vorrang – wer im Hausradius steht, ist «zuhause», auch
-wenn der Ort drüben anders heisst.
+**Die gespeicherten Orte von Life360 kommen mit** - Schule, Arbeit,
+Grosseltern. Der Hub holt sie einmal je Stunde beim Kreis ab und führt
+sie als eigene Orte weiter: Von da an rechnet er den Übertritt selbst,
+aus Koordinaten und Radius, und die Orte stehen in Abläufen zur
+Auswahl («wenn Livia bei der Schule ankommt»). Früher kannte er einen
+solchen Ort erst, wenn jemand darin stand - für die Anzeige genügte
+das, für einen Ablauf nicht.
+
+Die eigenen Orte des Hubs behalten Vorrang, und «zuhause» sticht alles:
+Wer im Hausradius steht, ist zuhause, auch wenn der Ort drüben anders
+heisst. Daran hängen Alarmanlage und Abläufe.
 """
 
 from __future__ import annotations
@@ -69,6 +85,15 @@ from ..core.integration import Integration
 BASE = "https://api-cloudfront.life360.com/v3"
 TOKEN_URL = f"{BASE}/oauth2/token"
 CIRCLES_URL = f"{BASE}/circles"
+
+# Kleinster Radius, mit dem ein Ort überhaupt zuverlässig auslöst. Life360
+# erlaubt engere; eine Handy-Ortung ist auf freiem Feld selten besser als
+# 30 m, und im Dorf zwischen Häusern schlechter.
+MIN_RADIUS = 60.0
+
+# Orte ändern sich selten - ein Abruf je Stunde genügt, und jede
+# zusätzliche Abfrage zählt gegen dieselbe Sperre wie die Positionen.
+ORTE_INTERVALL = 3600.0
 
 # Der Wert steht seit Jahren in jeder App-Fassung und ist kein Geheimnis;
 # ohne ihn beantwortet der Anmelde-Endpunkt gar nichts.
@@ -200,6 +225,59 @@ def ortsschluessel(name: str) -> str:
     return schluessel
 
 
+def parse_orte(raw: Any) -> list[dict[str, Any]]:
+    """Die gespeicherten Orte eines Life360-Kreises (rein, testbar).
+
+    Bisher kannte der Hub einen fremden Ort erst, wenn jemand darin
+    stand: Life360 schreibt den Namen dann in die Positionsmeldung. Das
+    genügt für die Anzeige und für nichts sonst - ein Ablauf «wenn Livia
+    bei der Schule ankommt» braucht die Orte **vorher**, sonst gibt es
+    nichts zum Auswählen.
+
+    Also holt der Hub sie beim Kreis ab und übergibt sie dem Geofence als
+    ganz gewöhnliche Orte. Von da an rechnet er den Übertritt selbst,
+    aus Koordinaten und Radius - unabhängig davon, ob Life360 den Namen
+    gerade mitschickt.
+
+    Die Kennung entsteht aus dem Namen, nicht aus der Life360-Kennung:
+    Ein Ablauf trägt sie sichtbar («schule»), und Orte, die früher über
+    die Positionsmeldung hereinkamen, tragen bereits dieselbe.
+
+    Life360 liefert Zahlen als Zeichenketten; Orte ohne brauchbare
+    Koordinate oder ohne Namen fallen weg, statt später stumm nie
+    auszulösen.
+    """
+    orte: list[dict[str, Any]] = []
+    gesehen: set[str] = set()
+    for eintrag in (raw or {}).get("places") or []:
+        name = " ".join(str(eintrag.get("name") or "").split())
+        schluessel = ortsschluessel(name)
+        if not schluessel or schluessel in gesehen:
+            continue
+        try:
+            lat = float(eintrag["latitude"])
+            lon = float(eintrag["longitude"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        try:
+            radius = float(eintrag.get("radius") or 0)
+        except (TypeError, ValueError):
+            radius = 0.0
+        # Life360 lässt Radien bis hinunter zu wenigen Metern zu. So eng
+        # trifft keine Ortung zuverlässig, und der Ort meldete sich nie.
+        orte.append(
+            {
+                "id": schluessel,
+                "name": name,
+                "latitude": lat,
+                "longitude": lon,
+                "radius": max(radius, MIN_RADIUS),
+            }
+        )
+        gesehen.add(schluessel)
+    return orte
+
+
 def abstand_meter(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Abstand zweier Punkte in Metern (rein, testbar)."""
     r = 6_371_000.0
@@ -312,6 +390,8 @@ class Life360Integration(Integration):
     _geofence_da = True
     _gesehen: set[str] = set()
     _gemeldet: set[str] = set()
+    _orte: list[dict[str, Any]] = []
+    _orte_geholt: float | None = None
 
     async def setup(self) -> None:
         self._members = parse_members(self.config.get("members"))
@@ -340,6 +420,9 @@ class Life360Integration(Integration):
         # weitergefahren ist: Der Geofence führt eine Liste der Orte, in
         # denen eine Zone steckt, und räumt sie nur auf Meldung.
         self._letzter_ort: dict[str, str] = {}
+        # Die gespeicherten Orte des Kreises, samt Zeitpunkt des Abrufs.
+        self._orte: list[dict[str, Any]] = []
+        self._orte_geholt: float | None = None
         # Was die Diagnose später auszusagen hat. Ohne Zahlen von einer
         # geglückten Abfrage wäre jede Aussage über die Zuordnung geraten.
         self._grund = None
@@ -393,6 +476,18 @@ class Life360Integration(Integration):
         self._fehler = 0
         self._grund = None
         jetzt = time.time()
+        # Vor den Positionen, nicht danach: Ein Ort, den der Geofence noch
+        # nicht kennt, führte in derselben Runde zu einer Meldung auf eine
+        # Kennung, die es nirgends gibt.
+        await self._orte_abgleichen(geofence, jetzt)
+        # Wer hier eingetragen ist, wird von hier geführt - und nur von
+        # hier. Sonst schiebt die Ortung der App auf einem Telefon, auf
+        # dem der Schalter noch steht, aus dem Hintergrund ein «weg»
+        # nach, und auf dem Schirm steht «unterwegs», während die Person
+        # in der Küche sitzt.
+        beanspruchen = getattr(geofence, "zonen_beanspruchen", None)
+        if beanspruchen is not None:
+            beanspruchen(sorted(set(self._members.values())), "life360")
         # Wer im Kreis steht, ist noch nicht, wer gemeldet hat: Ein
         # Telefon im Flugmodus schickt seit Stunden denselben Punkt. Die
         # Diagnose unterscheidet beides, weil die Abhilfe verschieden ist
@@ -410,6 +505,60 @@ class Life360Integration(Integration):
         self._gemeldet = gemeldet
         self._letzte_abfrage = jetzt
         return self._interval
+
+    async def _orte_abgleichen(self, geofence: Any, jetzt: float) -> None:
+        """Die Orte des Kreises holen und dem Geofence übergeben.
+
+        Fehlschläge sind hier ausdrücklich harmlos: Ohne die Orte meldet
+        der Hub weiterhin «zuhause» und «unterwegs», nur die benannten
+        Orte fehlen. Das ist kein Grund, die Positionen mitfallen zu
+        lassen - und schon gar keiner, die Pause hochzuzählen und damit
+        auch die Anwesenheit zu verzögern.
+        """
+        if self._orte_geholt is not None and jetzt - self._orte_geholt < ORTE_INTERVALL:
+            return
+        try:
+            orte = await self._orte_holen()
+        except Exception as err:
+            self.log.warning(
+                "life360: gespeicherte Orte nicht abrufbar (%s) - Anwesenheit "
+                "läuft weiter, benannte Orte fehlen vorerst.",
+                err,
+            )
+            # Erst beim nächsten Anlauf wieder versuchen, nicht in jeder
+            # Runde: Die Ortsabfrage zählt gegen dieselbe Sperre.
+            self._orte_geholt = jetzt
+            return
+        self._orte_geholt = jetzt
+        if orte == self._orte:
+            return
+        self._orte = orte
+        uebernehmen = getattr(geofence, "orte_uebernehmen", None)
+        if uebernehmen is None:
+            return
+        uebernehmen(orte, "life360")
+        self.log.info(
+            "life360: %d gespeicherte Orte übernommen (%s)",
+            len(orte),
+            ", ".join(ort["name"] for ort in orte) or "keine",
+        )
+
+    async def _orte_holen(self) -> list[dict[str, Any]]:
+        kopf = await self._kopf()
+        orte: list[dict[str, Any]] = []
+        bekannt: set[str] = set()
+        for kreis in self._circles:
+            async with self._session.get(
+                f"{CIRCLES_URL}/{kreis}/places", headers=kopf
+            ) as antwort:
+                antwort.raise_for_status()
+                daten = await antwort.json()
+            for ort in parse_orte(daten):
+                if ort["id"] in bekannt:
+                    continue
+                orte.append(ort)
+                bekannt.add(ort["id"])
+        return orte
 
     async def _melden(
         self, geofence: Any, mitglied: dict[str, Any], jetzt: float

@@ -87,6 +87,36 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   kann (Chromecast, Google Home). Startet dort jemand Spotify, gibt das
   Radio die Box frei, statt weiter «läuft» zu behaupten.
 
+**Ortung**
+
+- **Die gespeicherten Orte von Life360 sind jetzt Orte des Hubs.** Der
+  Hub holt sie einmal je Stunde beim Kreis ab und rechnet den Übertritt
+  danach selbst, aus Koordinaten und Radius. Damit stehen sie in
+  Abläufen zur Auswahl: Der Auslöser *Ort* fragt jetzt nach Person,
+  Richtung **und** Ort – «wenn Livia bei der Schule ankommt», «wenn
+  Sandra die Arbeit verlässt». Vorher kannte der Hub einen solchen Ort
+  erst, wenn jemand darin stand; für die Anzeige genügte das, für einen
+  Ablauf nicht.
+- **Eine Quelle je Person, und der Hub setzt es durch.** Wer bei Life360
+  unter `members` steht, wird von dort geführt – jede andere Meldung für
+  diese Person wird überhört. Vorher gewann, wer zuletzt sprach: Life360
+  meldete «zuhause», ein vergessener Ortungs-Schalter auf einem Telefon
+  schob «weg» nach, und auf dem Schirm stand «unterwegs», während die
+  Person in der Küche sass. Das war die Ursache hinter «ich bin längst
+  zuhause, und die App sagt unterwegs».
+- Benutzt der ganze Haushalt Life360, gehören damit **alle** unter
+  `members` – auch die Telefone mit HomePilot. Die Ortung der App hängt
+  daran, dass iOS sie im Hintergrund weckt, und das tut sie nicht
+  zuverlässig. Umstellen: alle eintragen, auf jedem Telefon
+  Einstellungen → Ortung ausschalten. Steht in `docs/geofence.md`.
+- «Zuhause» sticht jetzt jeden Ort, nicht nur den weiteren. Solange die
+  Life360-Orte ausserhalb der Ortsliste standen, genügte die alte
+  Prüfung; als eigene Orte hätte ein enger Ort auf demselben Haus
+  «zuhause» verdrängt – und daran hängen Alarmanlage und Abläufe.
+- Sehr enge Life360-Orte werden auf 60 m aufgeweitet. Enger trifft keine
+  Handy-Ortung zuverlässig; der Ort meldete sich sonst nie, ohne dass
+  jemand wüsste, warum.
+
 **Gäste-WLAN**
 
 - Die UniFi-Anbindung liess sich anmelden und bekam danach auf jede
