@@ -184,6 +184,52 @@ def test_entity_meta_rename_favorite_group():
         assert entity["name"] == "Stehlampe"
 
 
+def test_residents_rename_too_but_guests_do_not():
+    """Ein Gerätename gilt fürs ganze Haus - und genau darum für alle,
+    die darin wohnen.
+
+    Lange durfte nur die Besitzerin umbenennen; im Alltag hiess das, dass
+    die falsch beschriftete Kachel wochenlang falsch blieb, weil nur eine
+    Person sie richten konnte. Jetzt trägt EDIT_DEVICES die Grenze: Wer
+    hier wohnt, darf Name, Raum und Gruppe setzen. Ein Gast weiterhin
+    nicht - er bekommt ein sauberes 403, und die App zeigt ihm den Knopf
+    gar nicht erst.
+    """
+    hub = Hub(
+        make_config(
+            token="geheim",
+            users=[
+                {"name": "Stefan", "role": "besitzer", "token": "t-stefan"},
+                {"name": "Livia", "role": "bewohner", "token": "t-livia"},
+                {"name": "Nina", "role": "gast", "token": "t-nina"},
+            ],
+        )
+    )
+    with TestClient(create_app(hub)) as client:
+        stefan = {"Authorization": "Bearer t-stefan"}
+        livia = {"Authorization": "Bearer t-livia"}
+        nina = {"Authorization": "Bearer t-nina"}
+        pfad = "/api/entities/demo.light_livingroom/meta"
+
+        assert client.put(pfad, json={"name": "Egal"}, headers=nina).status_code == 403
+
+        assert client.put(pfad, json={"name": "Leselampe"}, headers=livia).status_code == 200
+        # Und für Stefan heisst das Gerät ab sofort auch so - es ist
+        # derselbe Name, nicht Livias eigene Sicht darauf.
+        entities = {e["id"]: e for e in client.get("/api/entities", headers=stefan).json()}
+        assert entities["demo.light_livingroom"]["name"] == "Leselampe"
+
+        # Der Raum geht denselben Weg - «Anpassen» braucht beides.
+        assert (
+            client.put(
+                "/api/entities/demo.light_livingroom/room",
+                json={"room": "Stube"},
+                headers=livia,
+            ).status_code
+            == 200
+        )
+
+
 def test_entity_meta_unknown_entity_is_404():
     with make_client() as client:
         assert (

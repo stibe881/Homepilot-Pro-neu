@@ -7,6 +7,54 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 ## 2026-08-25
 
+**Haustüre**
+
+- Die Rückfrage vor dem Öffnen («Wirklich öffnen?») lässt sich abstellen.
+  Sie war fest eingebaut – richtig gegen den Ellbogen am Wandpanel, aber
+  mit zwei Händen voll Einkauf ein Tipp zu viel, und der erste verfällt
+  nach vier Sekunden. Der Schalter steht unter *Einstellungen → Konto &
+  Verbindung* und gilt fürs ganze Haus: Eine Türe, die am Panel nachfragt
+  und auf dem Telefon nicht, wäre keine Regel, sondern ein Ratespiel.
+  Ändern darf ihn nur die Besitzerin.
+- Abgestellt wird nur das **Öffnen**, an allen Stellen zugleich: Kachel,
+  Übersichtskachel und der Bildschirm, der beim Klingeln aufgeht.
+  Aufschliessen behält seine Rückfrage, ebenso ein einzeln gesperrtes
+  Gerät und die Face-ID-Hürde. Der Türknopf im Widget fragt weiterhin
+  immer – ein Knopf auf dem Sperrbildschirm soll nicht mehr dürfen als
+  die App.
+
+**Kacheln umbenennen**
+
+- Ein langer Druck auf eine Kachel benennt sie um. Vorher führte der Weg
+  über den Anpassen-Modus: Knopf oben, Stift auf der Kachel, tippen,
+  speichern, Modus verlassen. Wo auf derselben Geste schon der Verlauf
+  liegt, fragt eine kleine Auswahl; sonst geht es direkt.
+- Der Name gilt für alle im Haus, und darum darf ihn nur die Besitzerin
+  setzen. Bisher zeigte der Anpassen-Modus den Stift jedem – ein
+  Mitbewohner tippte einen Namen ein und bekam ein «nicht erlaubt».
+
+**Musik**
+
+- Ein Tipp auf einen Titel in «was als Nächstes kommt» spielt ihn. Vorher
+  liess sich die Liste nur lesen, und wer den dritten Titel wollte,
+  tippte zweimal auf «Weiter» – beim vierten wusste man nicht mehr, wie
+  oft. Die Playlist läuft danach normal weiter.
+
+**Diagnose und Update**
+
+- Life360 sagt in der Integrationsliste, wie viele Personen gemeldet
+  haben und wer im Kreis gar nicht gefunden wurde. Vorher stand dort «0
+  Geräte» – wahr, weil die Personen dem Geofence gehören, und trotzdem
+  die falsche Auskunft.
+- Der Pit-Boss-Grill kam gar nicht mehr an: Die Integration las die
+  Bauart des Grills, bevor `pytboss` sie kennt, und stand mit einer
+  Fehlermeldung statt mit einem Grill da.
+- «Durchgelaufen, aber mit Hinweisen» steht nach einem Update nicht mehr
+  in Rot – der Lauf ist ja durchgelaufen. Und der Hinweis von `eas build`
+  über Expo Go steht gar nicht mehr dort: Er handelt von der
+  App-Entwicklung, nicht vom Update.
+
+
 **Ziehen und Ordnen**
 
 - Räume ordnen, Favoriten ordnen und das Ziehen der Kacheln selbst
@@ -40,6 +88,24 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   Bisher entschied jede für sich zwischen «Läuft» und sonst «Bereit» –
   dasselbe Gerät stand damit an einer Stelle als «Standby» und an der
   anderen als «Bereit».
+
+**Startseite und Musik**
+
+- Steht oben statt «jemand da» jetzt **«alle sind zuhause»**, wenn der
+  Hub es von jedem Einzelnen weiss. Ein verstummtes Telefon macht daraus
+  wieder das vorsichtige «jemand da» - über jemanden, von dem man nichts
+  weiss, behauptet man kein «alle».
+- Ein **langer Druck auf eine Favoriten-Kachel** öffnet das Umbenennen -
+  bisher ging das dort gar nicht, auch nicht als Besitzer: Die Favoriten
+  sind eigene Chips, und die kannten keinen langen Druck.
+- **Umbenennen, Raum und Gruppe stehen jetzt auch Mitbewohnern zu**
+  (neue Fähigkeit `edit_devices`), ebenso der «Anpassen»-Knopf unter
+  Geräte. Ein Name, den alle täglich lesen, darf von allen stammen, die
+  hier wohnen - Gäste weiterhin nicht.
+- Die Boxen-Liste im Musikplayer ist eine ruhige Spalte statt Chips im
+  Flattersatz: alphabetisch, die gewählte Box mit Häkchen, wo Musik
+  läuft, sagt es das Symbol. «Zufall» und «Wiederholen» sind dezenter -
+  aktiv heisst Akzent-Kante und -Schrift statt satter Füllung.
 
 **Einstellungen**
 

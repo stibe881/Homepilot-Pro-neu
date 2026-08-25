@@ -1178,7 +1178,7 @@ export function AutomationsScreen({
                         {automation.enabled === false ? ' · aus' : ''}
                       </Text>
                     </View>
-                    <Text style={styles.detail}>{describe(automation)}</Text>
+                    <Text style={styles.detail}>{describe(automation, entities)}</Text>
                     {/* «heute 21:12» statt Kopfrechnen über Sonnenuntergang
                         plus Versatz (Punkt 161) - nur bei Zeit/Sonne, ein
                         Bewegungsmelder hat keinen Kalender. */}

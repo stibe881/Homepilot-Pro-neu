@@ -1,4 +1,13 @@
-import { ZUHAUSE, ausTrigger, ortsSatz, ortsWort, ortsauswahl, zuTrigger } from './ortsausloeser';
+import {
+  ZUHAUSE,
+  anwesenheitSatz,
+  ausTrigger,
+  istOrtsmelder,
+  ortsSatz,
+  ortsWort,
+  ortsauswahl,
+  zuTrigger,
+} from './ortsausloeser';
 
 test('zuhause ankommen bleibt to:home', () => {
   expect(zuTrigger({ ort: ZUHAUSE, richtung: 'an' })).toEqual({ to: 'home' });
@@ -72,4 +81,22 @@ test('der Ablauf-Satz nennt Person und Ort', () => {
 test('aus einer Kennung wird wieder ein Wort', () => {
   expect(ortsWort('tanners_home')).toBe('Tanners Home');
   expect(ortsWort('')).toBe('');
+});
+
+test('die Sammelanwesenheit ist keine Person an einem Ort', () => {
+  // Der gemeldete Fall: Sie stand in der Auswahl unter «Ort», und der
+  // Satz las sich «Wenn Jemand zuhause kommt bei Off an seit 10 Min».
+  // Gespeichert war der Ablauf richtig - nur Auswahl und Satz
+  // behaupteten etwas anderes.
+  expect(istOrtsmelder('geofence.stefan')).toBe(true);
+  expect(istOrtsmelder('geofence.anyone_home')).toBe(false);
+  expect(istOrtsmelder('light.kueche')).toBe(false);
+  expect(istOrtsmelder(undefined)).toBe(false);
+});
+
+test('die Sammelanwesenheit sagt, was sie meint', () => {
+  // «Jemand zuhause → off» stimmt zwar, beantwortet aber nicht die
+  // Frage, die man beim Lesen stellt.
+  expect(anwesenheitSatz('off')).toBe('niemand mehr zuhause ist');
+  expect(anwesenheitSatz('on')).toBe('jemand zuhause ist');
 });

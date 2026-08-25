@@ -9,6 +9,7 @@ import { Image, Pressable, Text, View } from 'react-native';
 
 import { CommandData, Entity } from '../../api/types';
 import { useTakt } from '../../hooks/useTakt';
+import { mayOpenDirectly } from '../../lib/tuerbestaetigung';
 import { radius, useColors } from '../../theme';
 import { Bar } from '../Bar';
 import { CoverVisual, Sky } from '../CoverVisual';
@@ -16,15 +17,18 @@ import { MediaButton } from './medien';
 import { makeStyles } from './stil';
 import { Pill, clock } from './teile';
 
-
 export function LockBody({
   entity,
   onCommand,
   pending,
+  doorConfirm,
 }: {
   entity: Entity;
   onCommand: (command: string, data?: CommandData) => void;
   pending?: boolean;
+  /** Fragt die Türe vor dem Öffnen nach? Fehlt der Wert: ja, wie bisher
+   *  (siehe lib/tuerbestaetigung.ts). */
+  doorConfirm?: boolean;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -36,27 +40,48 @@ export function LockBody({
   }, [armed]);
   const opened = entity.state.state === 'opened';
 
+  /** Erst fragen, dann öffnen – oder gleich öffnen, wenn das so
+   *  eingestellt ist. Der zweite Tipp verfällt nach vier Sekunden. */
+  const oeffne = (command: string) => {
+    if (mayOpenDirectly(command, doorConfirm)) {
+      setArmed(false);
+      onCommand(command);
+      return;
+    }
+    if (armed) {
+      setArmed(false);
+      onCommand(command);
+    } else {
+      setArmed(true);
+    }
+  };
+
   // Nuki-Schloss: auf-/abschliessen plus «Auf + öffnen» (Falle ziehen).
   if (entity.commands.includes('unlock')) {
     const value = String(entity.state.state ?? '');
     const locked = value === 'locked';
     const moving = ['locking', 'unlocking', 'unlatching'].includes(value);
     const label =
-      value === 'locked' ? 'Abgeschlossen'
-      : value === 'unlocked' ? 'Aufgeschlossen'
-      : value === 'unlatched' ? 'Offen'
-      : value === 'locking' ? 'Schliesst ab …'
-      : value === 'unlocking' ? 'Schliesst auf …'
-      : value === 'unlatching' ? 'Öffnet …'
-      : value === 'motor_blocked' ? 'Motor blockiert'
-      : '–';
+      value === 'locked'
+        ? 'Abgeschlossen'
+        : value === 'unlocked'
+          ? 'Aufgeschlossen'
+          : value === 'unlatched'
+            ? 'Offen'
+            : value === 'locking'
+              ? 'Schliesst ab …'
+              : value === 'unlocking'
+                ? 'Schliesst auf …'
+                : value === 'unlatching'
+                  ? 'Öffnet …'
+                  : value === 'motor_blocked'
+                    ? 'Motor blockiert'
+                    : '–';
     return (
       <View style={styles.stack}>
         <Pill
           label={label}
-          tone={
-            value === 'motor_blocked' ? colors.danger : locked ? undefined : colors.on
-          }
+          tone={value === 'motor_blocked' ? colors.danger : locked ? undefined : colors.on}
         />
         {entity.state.battery != null ? (
           <Text style={styles.hint}>
@@ -80,21 +105,19 @@ export function LockBody({
         {entity.commands.includes('unlatch') ? (
           <Pressable
             disabled={pending || moving}
-            onPress={() => {
-              if (armed) {
-                setArmed(false);
-                onCommand('unlatch');
-              } else {
-                setArmed(true);
-              }
-            }}
+            onPress={() => oeffne('unlatch')}
             accessibilityRole="button"
             style={({ pressed }) => [
               styles.lockButton,
               armed && styles.lockButtonArmed,
               (pressed || pending || moving) && { opacity: 0.7 },
-            ]}>
-            <Ionicons name={armed ? 'lock-open' : 'key-outline'} size={16} color="#FFFFFF" />
+            ]}
+          >
+            <Ionicons
+              name={armed ? 'lock-open' : 'key-outline'}
+              size={16}
+              color="#FFFFFF"
+            />
             <Text style={styles.lockButtonText}>
               {armed ? 'Wirklich öffnen?' : 'Auf + öffnen'}
             </Text>
@@ -118,26 +141,26 @@ export function LockBody({
         <Text style={styles.hint}>{entity.state.battery} % Akku</Text>
       ) : null}
       {entity.state.last_ring ? (
-        <Text style={styles.detail}>Zuletzt geklingelt {clock(entity.state.last_ring)}</Text>
+        <Text style={styles.detail}>
+          Zuletzt geklingelt {clock(entity.state.last_ring)}
+        </Text>
       ) : null}
       <Pressable
         disabled={pending || opened}
-        onPress={() => {
-          if (armed) {
-            setArmed(false);
-            onCommand('open_door');
-          } else {
-            setArmed(true);
-          }
-        }}
+        onPress={() => oeffne('open_door')}
         accessibilityRole="button"
         accessibilityLabel={armed ? 'Wirklich öffnen' : 'Tür öffnen'}
         style={({ pressed }) => [
           styles.lockButton,
           armed && styles.lockButtonArmed,
           (pressed || pending || opened) && { opacity: 0.7 },
-        ]}>
-        <Ionicons name={armed ? 'lock-open' : 'lock-closed-outline'} size={16} color="#FFFFFF" />
+        ]}
+      >
+        <Ionicons
+          name={armed ? 'lock-open' : 'lock-closed-outline'}
+          size={16}
+          color="#FFFFFF"
+        />
         <Text style={styles.lockButtonText}>
           {opened ? 'Geöffnet' : armed ? 'Wirklich öffnen?' : 'Tür öffnen'}
         </Text>
@@ -386,7 +409,11 @@ export function CoverBody({
 
   return (
     <View style={styles.stack}>
-      <CoverVisual open={display} tilt={typeof tilt === 'number' ? tilt : undefined} sky={sky} />
+      <CoverVisual
+        open={display}
+        tilt={typeof tilt === 'number' ? tilt : undefined}
+        sky={sky}
+      />
       <Pill
         label={
           moving
@@ -480,7 +507,9 @@ export function VacuumBody({
       ) : null}
 
       <Pill
-        label={vacuumLabel(entity.state.state == null ? undefined : String(entity.state.state))}
+        label={vacuumLabel(
+          entity.state.state == null ? undefined : String(entity.state.state)
+        )}
         tone={cleaning ? colors.accent : entity.state.error ? colors.danger : undefined}
       />
       <Text style={styles.hint}>
@@ -489,11 +518,19 @@ export function VacuumBody({
         {entity.state.error ? ` · ${entity.state.error}` : ''}
       </Text>
       <View style={styles.mediaRow}>
-        <MediaButton icon="play" label="Reinigung starten" onPress={() => onCommand('start')} />
+        <MediaButton
+          icon="play"
+          label="Reinigung starten"
+          onPress={() => onCommand('start')}
+        />
         <MediaButton icon="pause" label="Pausieren" onPress={() => onCommand('pause')} />
         <MediaButton icon="home" label="Zur Station" onPress={() => onCommand('dock')} />
         {entity.commands.includes('locate') ? (
-          <MediaButton icon="search" label="Sauger finden" onPress={() => onCommand('locate')} />
+          <MediaButton
+            icon="search"
+            label="Sauger finden"
+            onPress={() => onCommand('locate')}
+          />
         ) : null}
       </View>
 
@@ -509,10 +546,12 @@ export function VacuumBody({
                 onPress={() => onCommand('set_fan_speed', { level })}
                 accessibilityRole="radio"
                 accessibilityState={{ selected: active }}
-                style={[styles.deviceChip, active && styles.deviceChipActive]}>
+                style={[styles.deviceChip, active && styles.deviceChipActive]}
+              >
                 <Text
                   style={[styles.deviceChipText, active && styles.deviceChipTextActive]}
-                  numberOfLines={1}>
+                  numberOfLines={1}
+                >
                   {FAN_SPEED_LABELS[level] ?? level}
                 </Text>
               </Pressable>
@@ -533,7 +572,8 @@ export function VacuumBody({
                 onPress={() => toggle(room.id)}
                 accessibilityRole="checkbox"
                 accessibilityState={{ checked: active }}
-                style={[styles.deviceChip, active && styles.deviceChipActive]}>
+                style={[styles.deviceChip, active && styles.deviceChipActive]}
+              >
                 <Ionicons
                   name={active ? 'checkmark-circle' : 'ellipse-outline'}
                   size={12}
@@ -541,7 +581,8 @@ export function VacuumBody({
                 />
                 <Text
                   style={[styles.deviceChipText, active && styles.deviceChipTextActive]}
-                  numberOfLines={1}>
+                  numberOfLines={1}
+                >
                   {room.name}
                 </Text>
               </Pressable>
@@ -554,7 +595,8 @@ export function VacuumBody({
         <Pressable
           onPress={clean}
           accessibilityRole="button"
-          style={({ pressed }) => [styles.cleanRoomsButton, pressed && { opacity: 0.75 }]}>
+          style={({ pressed }) => [styles.cleanRoomsButton, pressed && { opacity: 0.75 }]}
+        >
           <Ionicons name="play" size={14} color="#FFFFFF" />
           <Text style={styles.cleanRoomsText}>
             {selected.length === 1 ? '1 Raum saugen' : `${selected.length} Räume saugen`}
@@ -605,7 +647,8 @@ export function VacuumMap({
                 backgroundColor: active ? colors.accent : colors.surfaceSoft,
                 borderWidth: 1,
                 borderColor: active ? colors.accent : colors.surfaceBorder,
-              }}>
+              }}
+            >
               <Text style={{ fontSize: 12, color: active ? '#FFFFFF' : colors.inkSoft }}>
                 {room.name}
               </Text>
@@ -617,7 +660,15 @@ export function VacuumMap({
   }
 
   return (
-    <View style={{ width: '100%', aspectRatio: 4 / 3, borderRadius: radius.control, overflow: 'hidden', backgroundColor: colors.surfaceSoft }}>
+    <View
+      style={{
+        width: '100%',
+        aspectRatio: 4 / 3,
+        borderRadius: radius.control,
+        overflow: 'hidden',
+        backgroundColor: colors.surfaceSoft,
+      }}
+    >
       <Image
         source={{ uri: `${uri}${separator}t=${tick}-${encodeURIComponent(refreshKey)}` }}
         onError={() => setFailed(true)}
@@ -647,7 +698,8 @@ export function VacuumMap({
               borderColor: '#FFFFFF',
               borderRadius: 6,
               backgroundColor: active ? 'rgba(47,107,246,0.45)' : 'transparent',
-            }}>
+            }}
+          >
             <Text
               numberOfLines={1}
               style={{
@@ -656,7 +708,8 @@ export function VacuumMap({
                 color: '#FFFFFF',
                 textShadowColor: 'rgba(0,0,0,0.55)',
                 textShadowRadius: 3,
-              }}>
+              }}
+            >
               {room.name}
             </Text>
           </Pressable>

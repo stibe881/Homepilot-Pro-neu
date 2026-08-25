@@ -362,3 +362,219 @@ def test_nothing_heard_yet_says_so_plainly():
     # eben» und es kam trotzdem keine Nachricht, liegt es dahinter.
     assert "noch niemand geklingelt" in klingel_satz(None, None, 1_700_000_000.0)
     assert "unbekanntem Weg" in klingel_satz(1_699_999_999.0, "irgendwie", 1_700_000_000.0)
+
+
+# ── Dasselbe Klingeln auf drei Wegen ist einmal ─────────────────────────
+#
+# Der gemeldete Fall: «Wenn sie kommt, kommt sie 3 oder 4 mal.» Das ist
+# die Zahl der Wege, auf denen ein Klingeln hereinkommen kann - Push-
+# Kanal, Abfrage, Verlauf. Entprellt wurde nach der Kennung der Meldung,
+# und die vergibt jeder Weg selbst: Der Verlauf nennt die Kennung des
+# Verlaufseintrags, und die ist eine andere Zahl für dasselbe Klingeln.
+
+from homepilot.integrations.ring import KLINGEL_ENTPRELLUNG, ist_wiederholung
+
+
+def test_the_same_ring_on_another_path_is_still_the_same_ring():
+    jetzt = 1_700_000_000.0
+    # Verglichen werden Klingel-Zeitpunkte, nicht Ankunftszeiten: Über
+    # die Abfrage kommt dieselbe Klingel eine halbe Minute später an als
+    # über den Verlauf - und trägt denselben Stempel, auf ein paar
+    # Sekunden genau.
+    assert ist_wiederholung(jetzt, jetzt + 2.0) is True
+    assert ist_wiederholung(jetzt, jetzt + KLINGEL_ENTPRELLUNG - 0.1) is True
+
+
+def test_the_next_visitor_is_not_debounced_away():
+    """Wer nach einer halben Minute nochmals klingelt, will etwas."""
+    jetzt = 1_700_000_000.0
+    assert ist_wiederholung(jetzt, jetzt + KLINGEL_ENTPRELLUNG) is False
+    assert ist_wiederholung(jetzt, jetzt + 120.0) is False
+
+
+def test_the_first_ring_always_counts():
+    assert ist_wiederholung(None, 1_700_000_000.0) is False
+
+
+def test_a_clock_that_jumped_backwards_does_not_swallow_a_ring():
+    """Ein Zeitstempel aus der Zukunft (Uhr gestellt, Meldung mit eigener
+    Zeit) darf nicht dazu führen, dass für immer entprellt wird."""
+    jetzt = 1_700_000_000.0
+    assert ist_wiederholung(jetzt + 600, jetzt) is False
+
+
+# ── Stiller Kanal oder weggeworfene Meldung? ─────────────────────────────
+#
+# Beides sieht von aussen gleich aus - «es kommt nichts» -, und beides
+# führt zu ganz verschiedenen nächsten Schritten. Im einen Fall liegt es
+# bei Ring, im anderen beim Hub, weil er die Meldung keinem Gerät
+# zuordnen kann und lautlos verwirft.
+
+from homepilot.integrations.ring import health_detail, kanal_zahlen_satz
+
+
+def test_a_channel_that_delivered_nothing_says_so():
+    assert "keine einzige Meldung" in kanal_zahlen_satz(0, 0)
+
+
+def test_deliveries_that_belong_to_no_known_device_are_named():
+    satz = kanal_zahlen_satz(7, 7)
+    assert "7 Meldungen" in satz
+    assert "nicht kennt" in satz
+    assert "Protokoll" in satz
+
+
+def test_a_working_channel_just_counts():
+    satz = kanal_zahlen_satz(3, 0)
+    assert "3 Meldungen" in satz
+    assert "nicht kennt" not in satz
+
+
+def test_the_numbers_reach_the_system_screen_when_the_channel_is_deaf():
+    text = health_detail(
+        True,
+        None,
+        quellen=["abfrage", "abfrage"],
+        push_gesamt=0,
+        push_fremd=0,
+    )
+    assert "taub" in text
+    assert "keine einzige Meldung" in text
+
+
+# ── Der Takt der Ersatz-Abfrage ─────────────────────────────────────────
+#
+# Hier lag der Fehler, den man an der Uhr merkt: Der Takt hing daran, ob
+# der Ereigniskanal *gestartet* ist - und das ist er, sobald die
+# Anmeldung durch war, auch wenn danach nie etwas hereinkommt. Der Hub
+# wartete also bis zu dreissig Sekunden, während die einzige Quelle, die
+# lieferte, die Abfrage war.
+
+from homepilot.integrations.ring import (
+    DING_POLL_BACKUP_SECONDS,
+    DING_POLL_SECONDS,
+    abfrage_takt,
+    ding_zeit,
+)
+
+
+def test_a_channel_that_never_delivered_gets_the_fast_poll():
+    """Gemeldet, aber stumm: Genau der Fall im System-Bildschirm."""
+    assert abfrage_takt(True, [], push_gesamt=0) == DING_POLL_SECONDS
+
+
+def test_a_deaf_channel_gets_the_fast_poll_too():
+    quellen = ["abfrage", "abfrage", "abfrage", "abfrage"]
+    assert abfrage_takt(True, quellen, push_gesamt=5) == DING_POLL_SECONDS
+
+
+def test_a_channel_that_is_not_up_gets_the_fast_poll():
+    assert abfrage_takt(False, [], push_gesamt=0) == DING_POLL_SECONDS
+
+
+def test_a_working_channel_may_take_it_slow():
+    """Nur dann ist die Abfrage wirklich bloss das Netz darunter."""
+    quellen = ["push", "push", "push", "push"]
+    assert abfrage_takt(True, quellen, push_gesamt=12) == DING_POLL_BACKUP_SECONDS
+
+
+def test_the_ring_time_comes_from_the_event_itself():
+    class Meldung:
+        now = 1_699_999_990.0
+
+    assert ding_zeit(Meldung(), 1_700_000_000.0) == 1_699_999_990.0
+
+
+def test_without_a_stamp_the_arrival_has_to_do():
+    class Ohne:
+        now = None
+
+    assert ding_zeit(Ohne(), 1_700_000_000.0) == 1_700_000_000.0
+    assert ding_zeit(object(), 1_700_000_000.0) == 1_700_000_000.0
+
+    class Unsinn:
+        now = "vorhin"
+
+    assert ding_zeit(Unsinn(), 1_700_000_000.0) == 1_700_000_000.0
+
+
+# ── Wer sich zuletzt anmeldet, bekommt die Klingel ──────────────────────
+#
+# Rings Anmeldung für Push hängt an der Sitzung des Kontos, und Ring
+# merkt sich EINEN Empfänger. Meldet sich ein zweites Programm mit
+# demselben Konto an - eine noch laufende Home-Assistant-Instanz etwa -,
+# zeigt Rings Wegweiser dorthin, und hier kommt nichts mehr an. Von
+# aussen: ein stehender Kanal, über den nie etwas kommt.
+
+from homepilot.integrations.ring import STILLE_FRIST, anmeldung_erneuern
+
+
+def test_a_channel_that_never_delivered_gets_a_fresh_subscription():
+    jetzt = 1_700_000_000.0
+    steht_seit = jetzt - STILLE_FRIST
+    assert anmeldung_erneuern(steht_seit, 0, jetzt) is True
+
+
+def test_a_channel_that_delivered_is_left_alone():
+    """Kam schon etwas, heisst eine stille halbe Stunde bloss, dass
+    niemand geklingelt hat."""
+    jetzt = 1_700_000_000.0
+    assert anmeldung_erneuern(jetzt - STILLE_FRIST, 3, jetzt) is False
+    assert anmeldung_erneuern(jetzt - 10 * STILLE_FRIST, 1, jetzt) is False
+
+
+def test_a_fresh_channel_gets_its_half_hour():
+    """Kürzer, und zwei Programme reissen sich die Anmeldung im
+    Minutentakt hin und her."""
+    jetzt = 1_700_000_000.0
+    assert anmeldung_erneuern(jetzt - 60, 0, jetzt) is False
+    assert anmeldung_erneuern(jetzt - STILLE_FRIST + 1, 0, jetzt) is False
+
+
+def test_a_channel_that_never_stood_is_not_the_case():
+    assert anmeldung_erneuern(None, 0, 1_700_000_000.0) is False
+
+
+# ── Die Geräte-Kennung, an der alles hing ───────────────────────────────
+#
+# `ring_doorbell` leitet sie von der MAC-Adresse ab, wenn man ihr keine
+# gibt. Auf einem Rechner ist das gut - die MAC bleibt. In einem
+# Docker-Container nicht: Jeder neu erstellte Container bekommt eine neue,
+# und dieser Hub wird bei JEDEM Update neu erstellt.
+#
+# Ring bindet die Push-Anmeldung an diese Kennung. Nach jedem Update
+# meldete sich also ein Gerät an, das Ring noch nie gesehen hatte, während
+# die Klingeln weiter ans Gerät von vorher gingen: 204 bestätigt, Kanal
+# steht, und es kommt nie etwas. Und es erklärt, warum es in Home
+# Assistant lief - eine feste Installation behält ihre MAC.
+
+from homepilot.integrations.ring import hardware_id
+
+
+def test_a_stored_id_is_kept():
+    kennung, frisch = hardware_id({"token": {}, "hardware_id": "abc-123"})
+    assert kennung == "abc-123"
+    assert frisch is False
+
+
+def test_without_one_a_fresh_id_is_drawn():
+    kennung, frisch = hardware_id({"token": {}})
+    assert frisch is True
+    assert len(kennung) == 36  # eine UUID, nicht die MAC
+    # Und sie ist nicht bei jedem Aufruf dieselbe - sie wird ja gespeichert.
+    zweite, _ = hardware_id({"token": {}})
+    assert zweite != kennung
+
+
+def test_nothing_stored_at_all_still_works():
+    kennung, frisch = hardware_id(None)
+    assert frisch is True
+    assert kennung
+
+
+def test_an_empty_entry_counts_as_missing():
+    """Eine leere Zeichenkette ist keine Kennung - sonst meldete sich der
+    Hub unter dem leeren Namen an."""
+    for leer in ("", "   ", None):
+        _, frisch = hardware_id({"hardware_id": leer})
+        assert frisch is True

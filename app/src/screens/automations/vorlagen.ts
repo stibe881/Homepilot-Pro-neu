@@ -6,6 +6,7 @@
 import { Ionicons } from '@expo/vector-icons';
 
 import { Entity, Scene } from '../../api/types';
+import { istOrtsmelder } from '../../lib/ortsausloeser';
 import { Compare, ConditionKind, Draft, EMPTY, EMPTY_STEP, EMPTY_TRIGGER, StepDraft, StepKind, TriggerKind, vacuumRooms } from './entwurf';
 
 export interface Template {
@@ -558,7 +559,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
   // Punkt 199: Der Fall, für den Familien so etwas überhaupt einrichten –
   // das Kind ist von der Schule heimgekommen. Oder eben noch nicht.
   const zonen = entities.filter(
-    (entity) => entity.id.startsWith('geofence.') && entity.id !== 'geofence.anyone_home'
+    (entity) => istOrtsmelder(entity.id)
   );
   for (const zone of zonen.slice(0, 3)) {
     const wer = zone.name;

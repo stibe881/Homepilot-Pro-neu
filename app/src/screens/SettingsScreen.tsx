@@ -67,12 +67,19 @@ export function SettingsScreen({
   // Profil, Erscheinungsbild oder Ortung hierher; die Zugangsdaten
   // braucht er nur beim Einrichten. Also stehen sie dann zuoberst und
   // sonst zuunterst.
+  // Die Anrede steht beim Wandpanel-Schalter und nicht im Profil: Dort
+  // ist sie die Antwort auf eine Frage, die der Schalter gerade
+  // aufwirft. Vor dem iPad im Flur steht mal die eine, mal der andere –
+  // «Hallo Stefan» begrüsst dort den Falschen, auch wenn Stefans Zugang
+  // im Gerät steckt. Ohne Angabe steht deshalb «Willkommen zuhause».
   const nameFeld = (
     <Field
-      label="Dein Name (für die Begrüssung)"
+      label={panel ? 'Anrede auf diesem Panel' : 'Dein Name (für die Begrüssung)'}
       value={name}
       onChange={setName}
-      placeholder="optional"
+      placeholder={
+        panel ? 'z.B. Küche – ohne Angabe: «Willkommen zuhause»' : 'optional'
+      }
     />
   );
 
@@ -82,7 +89,6 @@ export function SettingsScreen({
       <Text style={styles.account}>
         Angemeldet als {user.name} · {user.role}
       </Text>
-      {nameFeld}
       {/* Am Wandtablet gibt es kein Abmelden. Wer es antippt, sperrt
           das ganze Haus aus sich selbst aus - die Anmeldedaten des
           Geräts hat niemand in der Tasche, und bis jemand mit einem
@@ -212,6 +218,8 @@ export function SettingsScreen({
           <View style={[styles.knob, panel && styles.knobOn]} />
         </View>
       </Pressable>
+
+      {nameFeld}
     </Card>
   );
 
@@ -357,9 +365,6 @@ export function SettingsScreen({
         placeholder="Token aus config.yaml"
         secure
       />
-      {/* Beim Einrichten gibt es noch keine Profil-Karte - der Name
-          wohnt dann hier, damit die Begrüssung vom ersten Tag stimmt. */}
-      {user ? null : nameFeld}
 
       <Pressable
         style={({ pressed }) => [styles.save, pressed && { opacity: 0.8 }]}
