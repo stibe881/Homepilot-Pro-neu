@@ -76,6 +76,27 @@ def cast_object_id(host: str, port: int = DEFAULT_PORT) -> str:
 BILDSCHIRM_MODELLE: frozenset[str] = frozenset()
 
 
+#: Der Standardempfänger von Google – der, den `play_media` selbst
+#: startet. Läuft er schon, gibt es nichts zu räumen.
+STANDARD_EMPFAENGER = "CC1AD845"
+#: Was auf einer Box läuft, die nichts tut: der Bildschirmschoner.
+LEERLAUF_APPS = frozenset({"E8C28D3C", "84912283"})
+
+
+def fremde_app(app_id: str | None) -> bool:
+    """Hält gerade eine andere App die Box besetzt? (rein, testbar)
+
+    «Andere» heisst: weder nichts noch der Standardempfänger, über den
+    der Hub selbst abspielt, noch der Bildschirmschoner. Genau dann - und
+    nur dann - lohnt es, vor dem Abspielen aufzuräumen: Ein `quit_app`
+    auf eine leere Box kostet eine Sekunde für nichts.
+    """
+    kennung = (app_id or "").strip().upper()
+    if not kennung:
+        return False
+    return kennung != STANDARD_EMPFAENGER and kennung not in LEERLAUF_APPS
+
+
 def ist_gruppe(cast_type: str | None, port: int = DEFAULT_PORT) -> bool:
     """Ist das eine Lautsprechergruppe? (rein, testbar)
 
@@ -663,6 +684,21 @@ class GoogleCastIntegration(Integration):
             def start() -> None:
                 if volume is not None:
                     cast.set_volume(max(0.0, min(1.0, float(volume) / 100)))
+                # Erst räumen, dann spielen. Der Fall aus dem Wohnzimmer:
+                # Spotify lief, wurde auf Pause gestellt, dann sollte
+                # Radio kommen - und es kam nichts. Eine pausierte
+                # Spotify-Sitzung hält den Empfänger der Box besetzt; ein
+                # `play_media` daneben startet den Standardempfänger, und
+                # welcher von beiden gewinnt, entscheidet die Box. Wer
+                # vorher aufräumt, hat die Frage nicht.
+                if fremde_app(getattr(cast, "app_id", None)):
+                    try:
+                        cast.quit_app()
+                        # Der Box einen Moment lassen, sonst trifft das
+                        # `play_media` auf einen Empfänger im Abbau.
+                        time.sleep(1.0)
+                    except Exception as err:
+                        self.log.debug("App auf %s nicht beendet: %s", entity.name, err)
                 controller.play_media(url, content_type)
                 # Warten, bis der Player übernommen hat - sonst ginge eine
                 # gleich folgende zweite Durchsage verloren.

@@ -217,3 +217,48 @@ async def test_without_a_wish_the_active_speaker_still_wins():
     entity = types.SimpleNamespace(state={"device": "Küche"})
     await fake.handle_command(entity, "play_playlist", {"name": "Party"})
     assert fake.gestartet == [("id-kueche", "spotify:playlist:party")]
+
+
+# ── Radio auf eine Box, die Spotify noch festhält ────────────────────────
+# Der Fall aus dem Wohnzimmer: Spotify lief, wurde auf Pause gestellt,
+# dann sollte Radio kommen - und es kam nichts. Eine pausierte
+# Spotify-Sitzung hält den Empfänger der Box besetzt.
+
+
+def test_only_a_foreign_app_needs_clearing():
+    from homepilot.integrations.google_cast import (
+        LEERLAUF_APPS,
+        STANDARD_EMPFAENGER,
+        fremde_app,
+    )
+
+    # Spotify, YouTube Music, Radio-Apps: die halten die Box fest.
+    assert fremde_app("CC32E753") is True
+    assert fremde_app("cc32e753") is True
+    # Der Standardempfänger ist der, über den der Hub selbst abspielt -
+    # ihn zu beenden hiesse, sich selbst den Boden wegzuziehen.
+    assert fremde_app(STANDARD_EMPFAENGER) is False
+    assert fremde_app(STANDARD_EMPFAENGER.lower()) is False
+    # Eine leere Box und der Bildschirmschoner brauchen nichts. Ein
+    # quit_app darauf kostet eine Sekunde für nichts.
+    assert fremde_app(None) is False
+    assert fremde_app("") is False
+    assert fremde_app("   ") is False
+    for leerlauf in LEERLAUF_APPS:
+        assert fremde_app(leerlauf) is False
+
+
+def test_a_stream_url_is_not_a_track_title():
+    """Solange der Strom keine ICY-Angabe geschickt hat, reicht der
+    Chromecast durch, was er abspielt - und auf der Kachel stand die
+    nackte Adresse statt des Sendernamens."""
+    from homepilot.integrations.tunein import titel_und_interpret
+
+    assert titel_und_interpret("https://stream.srg.ch/srf3_96.mp3?ua=Chromecast") == (
+        None,
+        None,
+    )
+    assert titel_und_interpret("http://127.0.0.1:8190/srf3.mp3") == (None, None)
+    # Ein echter Titel bleibt einer - auch einer mit Bindestrich.
+    assert titel_und_interpret("Ed Sheeran - Shivers") == ("Shivers", "Ed Sheeran")
+    assert titel_und_interpret("Nachrichten") == ("Nachrichten", None)
