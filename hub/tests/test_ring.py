@@ -398,3 +398,42 @@ def test_a_clock_that_jumped_backwards_does_not_swallow_a_ring():
     Zeit) darf nicht dazu führen, dass für immer entprellt wird."""
     jetzt = 1_700_000_000.0
     assert ist_wiederholung(jetzt + 600, jetzt) is False
+
+
+# ── Stiller Kanal oder weggeworfene Meldung? ─────────────────────────────
+#
+# Beides sieht von aussen gleich aus - «es kommt nichts» -, und beides
+# führt zu ganz verschiedenen nächsten Schritten. Im einen Fall liegt es
+# bei Ring, im anderen beim Hub, weil er die Meldung keinem Gerät
+# zuordnen kann und lautlos verwirft.
+
+from homepilot.integrations.ring import health_detail, kanal_zahlen_satz
+
+
+def test_a_channel_that_delivered_nothing_says_so():
+    assert "keine einzige Meldung" in kanal_zahlen_satz(0, 0)
+
+
+def test_deliveries_that_belong_to_no_known_device_are_named():
+    satz = kanal_zahlen_satz(7, 7)
+    assert "7 Meldungen" in satz
+    assert "nicht kennt" in satz
+    assert "Protokoll" in satz
+
+
+def test_a_working_channel_just_counts():
+    satz = kanal_zahlen_satz(3, 0)
+    assert "3 Meldungen" in satz
+    assert "nicht kennt" not in satz
+
+
+def test_the_numbers_reach_the_system_screen_when_the_channel_is_deaf():
+    text = health_detail(
+        True,
+        None,
+        quellen=["abfrage", "abfrage"],
+        push_gesamt=0,
+        push_fremd=0,
+    )
+    assert "taub" in text
+    assert "keine einzige Meldung" in text

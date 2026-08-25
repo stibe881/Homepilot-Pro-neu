@@ -420,6 +420,25 @@ QUELLEN_NAMEN = {
 }
 
 
+def kanal_zahlen_satz(gesamt: int, fremd: int) -> str:
+    """Was über den Kanal hereinkam - in Zahlen (rein, testbar).
+
+    Ein Kanal, über den nichts kommt, und ein Kanal, dessen Meldungen
+    der Hub wegwirft, sehen von aussen gleich aus. Der Unterschied ist
+    aber der ganze nächste Schritt: Im einen Fall liegt es bei Ring, im
+    anderen beim Hub.
+    """
+    if gesamt <= 0:
+        return " Über den Kanal kam seit dem Start keine einzige Meldung."
+    satz = f" Über den Kanal kamen seit dem Start {gesamt} Meldungen"
+    if fremd:
+        return (
+            satz + f", davon {fremd} für ein Gerät, das der Hub nicht kennt "
+            "(steht im Protokoll)."
+        )
+    return satz + "."
+
+
 def klingel_satz(wann: float | None, quelle: str | None, jetzt: float) -> str:
     """Wann zuletzt geklingelt hat - und auf welchem Weg (rein, testbar).
 
@@ -475,6 +494,8 @@ def health_detail(
     mit_verlauf: list[str] | None = None,
     letztes_klingeln: tuple[float, str] | None = None,
     jetzt: float | None = None,
+    push_gesamt: int = 0,
+    push_fremd: int = 0,
 ) -> str:
     """Was im System-Bildschirm über den Ereigniskanal steht (rein, testbar)."""
     # Wo unten «wird ersatzweise abgefragt» steht, gehören diese Sätze
@@ -514,7 +535,9 @@ def health_detail(
             return (
                 "Ereigniskanal gemeldet, aber die letzten Klingeln kamen über "
                 f"die Abfrage – der Kanal ist taub. Push kommt dadurch bis zu "
-                f"{DING_POLL_SECONDS} s zu spät.{ersatz}"
+                f"{DING_POLL_SECONDS} s zu spät."
+                + kanal_zahlen_satz(push_gesamt, push_fremd)
+                + ersatz
             )
         return f"Ereigniskanal verbunden – Klingeln kommt sofort an.{klingeln}"
     # Der Grund als eigener Satz, nicht in Klammern: Er enthält oft
@@ -723,6 +746,10 @@ class RingIntegration(Integration):
         # Je Gerät der Zeitpunkt des letzten Klingelns - die Entprellung
         # über alle Wege hinweg (siehe ist_wiederholung).
         self._klingel_zeiten: dict[str, float] = {}
+        # Wie viel über den Kanal hereinkam - und wie viel davon zu
+        # keinem bekannten Gerät gehörte.
+        self._push_gesamt = 0
+        self._push_fremd = 0
         self._by_ring_id: dict[int, str] = {}
         self._clear_tasks: dict[str, asyncio.Task] = {}
 
@@ -902,6 +929,8 @@ class RingIntegration(Integration):
                 ohne_ersatz=self._ohne_ersatz,
                 mit_verlauf=self._verlauf_namen(),
                 letztes_klingeln=getattr(self, "_letztes_klingeln", None),
+                push_gesamt=getattr(self, "_push_gesamt", 0),
+                push_fremd=getattr(self, "_push_fremd", 0),
             ),
             "last_event": self._last_event,
             # Für die Ferndiagnose: der Weg der letzten Meldungen.
@@ -1242,11 +1271,37 @@ class RingIntegration(Integration):
                 await self._handle_event(event, quelle="abfrage")
 
     async def _handle_event(self, event: Any, quelle: str = "push") -> None:
+        if quelle == "push":
+            # Zählen, bevor irgendetwas den Weg abbrechen kann. Ein
+            # stiller Kanal und ein Kanal, dessen Meldungen der Hub
+            # wegwirft, sehen von aussen gleich aus - und führen zu ganz
+            # verschiedenen nächsten Schritten.
+            self._push_gesamt += 1
         try:
-            entity_id = self._by_ring_id.get(int(event.doorbot_id))
+            ring_id = int(event.doorbot_id)
         except (TypeError, ValueError):
+            if quelle == "push":
+                self._push_fremd += 1
+                self.log.warning(
+                    "Ring: Meldung über den Kanal ohne brauchbare Geräte-Kennung "
+                    "(%s) - übergangen",
+                    getattr(event, "kind", "?"),
+                )
             return
+        entity_id = self._by_ring_id.get(ring_id)
         if entity_id is None:
+            if quelle == "push":
+                self._push_fremd += 1
+                # Genau hier verschwand bisher lautlos, was der Kanal
+                # lieferte: Ein Gerät, das der Hub nicht kennt, war
+                # nicht von «es kam nichts» zu unterscheiden.
+                self.log.warning(
+                    "Ring: Meldung über den Kanal für Gerät %s (%s) - der Hub "
+                    "kennt dieses Gerät nicht, bekannt sind %s",
+                    ring_id,
+                    getattr(event, "kind", "?"),
+                    sorted(self._by_ring_id) or "keine",
+                )
             return
         fields = event_fields(event.kind, event.now or time.time())
         if not fields:
