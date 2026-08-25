@@ -264,7 +264,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // deshalb verlangt die Route `edit_config`, und genau danach fragt auch
   // die App - wer sie nicht hat, soll den Knopf gar nicht erst sehen,
   // statt beim Speichern ein «nicht erlaubt» einzufangen.
-  const darfUmbenennen = (user?.capabilities ?? []).includes('edit_config');
+  // 'edit_config' als Rückfalltor: Läuft die App gegen einen Hub von
+  // vor dieser Fähigkeit, kennt der nur die alte - der Besitzerin soll
+  // der Knopf deshalb nicht verschwinden, bis der Hub nachgezogen ist.
+  const darfAnpassen =
+    (user?.capabilities ?? []).includes('edit_devices') ||
+    (user?.capabilities ?? []).includes('edit_config');
 
   const [section, setSection] = useState<Section>('start');
   // Aufgeklappt kommt man nur über die Batteriewarnung hierher; sonst
@@ -1194,7 +1199,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       onRename={
         // Nicht mehr nur im Anpassen-Modus: Ausserhalb hängt daran der
         // lange Druck auf die Kachel.
-        darfUmbenennen ? (name) => setEntityMeta(entity.id, { name }) : undefined
+        darfAnpassen ? (name) => setEntityMeta(entity.id, { name }) : undefined
       }
       doorConfirm={prefs.doorConfirm}
       groups={editing ? groupNames : undefined}
@@ -1313,6 +1318,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               // sonst spränge beim Umstieg alles durcheinander.
               favoriteOrder={eigenePrefs.favoriteOrder ?? prefs.order?.favorites}
               onReorderFavorites={setFavoriteOrder}
+              onRenameEntity={
+                darfAnpassen
+                  ? (entityId, name) => setEntityMeta(entityId, { name })
+                  : undefined
+              }
               doorConfirm={prefs.doorConfirm}
             />
           </View>
@@ -1880,9 +1890,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             </Pressable>
           ) : null}
           {/* Kacheln anpassen heisst: verschieben, ausblenden, sperren,
-              Gruppen vergeben. Das prägt die Ansicht für alle im Haus und
-              gehört deshalb zur Einrichtung, nicht zum Bedienen. */}
-          {istBesitzer &&
+              Gruppen vergeben. Es prägt die Ansicht für alle im Haus -
+              aber genau darum steht es auch Mitbewohnern zu: Wer hier
+              wohnt, richtet mit ein. Der Hub verlangt für Name, Raum und
+              Gruppe dieselbe Fähigkeit (edit_devices); nur Gäste bleiben
+              beim Bedienen. */}
+          {darfAnpassen &&
           (section === 'home' ||
             section === 'devices' ||
             section === 'light' ||
