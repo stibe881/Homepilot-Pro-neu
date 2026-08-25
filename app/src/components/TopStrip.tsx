@@ -31,7 +31,7 @@ import { Person, anwesenheitsListe, werIstDaHinweis } from '../lib/ortung';
 import { tapped } from '../lib/haptics';
 import { kann } from '../lib/plattform';
 import { MAX_SCHRIFT } from '../lib/schrift';
-import { gezaehlteLichter } from '../lib/zaehlung';
+import { gezaehlteLichter, lichterAus } from '../lib/zaehlung';
 import { ConnectionStatus } from '../hooks/useHub';
 import { useEscape } from '../hooks/useEscape';
 import { Colors, radius, type, useColors } from '../theme';
@@ -79,6 +79,7 @@ export function TopStrip({
   now,
   hidden = [],
   ungezaehlt = [],
+  locked = [],
   onCommand,
   shopping,
   shops,
@@ -99,6 +100,9 @@ export function TopStrip({
   hidden?: string[];
   /** Geräte, die hier nicht mitzählen – siehe lib/zaehlung.ts. */
   ungezaehlt?: string[];
+  /** Gesperrte Geräte: Die schaltet «Alle aus» nicht mit – sie behalten
+   *  ihren eigenen Knopf, der nachfragt. */
+  locked?: string[];
   /** Für «Licht aus» direkt aus dem Popup – ohne sie bleibt die Zeile
    *  reine Anzeige. */
   onCommand?: (entityId: string, command: string, data?: CommandData) => void;
@@ -173,6 +177,8 @@ export function TopStrip({
   // prüfbar, und die Kachel fragt dieselbe Datei, wenn sie das Menü
   // zusammenstellt.
   const litEntities = gezaehlteLichter(entities, hidden, ungezaehlt);
+  // Was ein «Alle aus» wirklich träfe – ohne die gesperrten.
+  const ausschaltbar = lichterAus(litEntities, locked);
   const lightsOn = litEntities.length;
   const vacuum = entities.find(
     (entity) => entity.kind === 'vacuum' && entity.state.state === 'cleaning'
@@ -395,9 +401,32 @@ export function TopStrip({
       >
         <Pressable style={styles.backdrop} onPress={() => setLightsOpen(false)}>
           <Pressable style={styles.sheet} onPress={() => {}}>
-            <Text style={styles.heading}>
-              {litEntities.length === 1 ? '1 Licht an' : `${litEntities.length} Lichter an`}
-            </Text>
+            {/* «Alle aus» oben rechts, neben der Zahl: Wer diese Liste
+                öffnet, hat meistens schon entschieden - er will wissen,
+                was noch brennt, und es dann loswerden. Erst ab zwei
+                Lichtern; bei einem steht sein eigener Knopf daneben, und
+                zwei Knöpfe für dieselbe Handlung sind einer zu viel. */}
+            <View style={styles.sheetHead}>
+              <Text style={[styles.heading, { flex: 1 }]}>
+                {litEntities.length === 1
+                  ? '1 Licht an'
+                  : `${litEntities.length} Lichter an`}
+              </Text>
+              {onCommand && ausschaltbar.length > 1 ? (
+                <Pressable
+                  onPress={() => {
+                    ausschaltbar.forEach((entity) => onCommand(entity.id, 'turn_off'));
+                    setLightsOpen(false);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Alle ${ausschaltbar.length} Lichter ausschalten`}
+                  style={({ pressed }) => [styles.alleAus, pressed && { opacity: 0.7 }]}
+                >
+                  <Ionicons name="power-outline" size={15} color={colors.ink} />
+                  <Text style={styles.alleAusText}>Alle aus</Text>
+                </Pressable>
+              ) : null}
+            </View>
             <ScrollView style={{ maxHeight: 360 }}>
               {litEntities.map((entity) => (
                 <View key={entity.id} style={styles.lightRow}>
@@ -1087,6 +1116,20 @@ const makeStyles = (colors: Colors) =>
     borderColor: colors.surfaceBorder,
   },
   offButtonText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
+  // Kopfzeile des Licht-Fensters: Zahl links, «Alle aus» rechts.
+  sheetHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  alleAus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radius.control,
+    backgroundColor: colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  alleAusText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
   eventWhen: { color: colors.inkSoft, fontSize: 15, fontWeight: '500' },
   eventLocationRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   eventLocation: { color: colors.inkSoft, fontSize: 14, flexShrink: 1 },

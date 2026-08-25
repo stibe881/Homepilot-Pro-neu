@@ -49,3 +49,21 @@ export function gezaehlteLichter(
 export function zaehlbar(entity: { kind?: string }): boolean {
   return entity.kind === 'light' || entity.kind === 'switch';
 }
+
+/**
+ * Welche der gezählten Lichter ein «Alle aus» wirklich ausschaltet
+ * (rein, testbar).
+ *
+ * Gesperrte bleiben aussen vor – dieselbe Regel wie beim grossen «Alles
+ * aus» (components/AllOff.tsx): Eine Sperre ist eine Rückfrage, und eine
+ * Rückfrage für fünf Geräte auf einmal gibt es nicht. Sie stehen in der
+ * Liste weiterhin mit ihrem eigenen Knopf, der fragt.
+ *
+ * Und nur, was `turn_off` überhaupt kann: Ein Schalter ohne dieses
+ * Kommando liesse sich hier nur scheinbar ausschalten.
+ */
+export function lichterAus(gezaehlt: Entity[], locked: string[]): Entity[] {
+  return gezaehlt.filter(
+    (entity) => !locked.includes(entity.id) && entity.commands.includes('turn_off')
+  );
+}

@@ -6,7 +6,7 @@
  * – gemeint war die «3 an» in der Kopfzeile.
  */
 import { Entity } from '../api/types';
-import { gezaehlteLichter, zaehlbar, zaehltMit } from './zaehlung';
+import { gezaehlteLichter, lichterAus, zaehlbar, zaehltMit } from './zaehlung';
 
 const geraet = (id: string, kind: string, state = 'on', extra = {}): Entity =>
   ({ id, name: id, kind, integration: 'demo', state: { state }, commands: [], ...extra }) as
@@ -68,5 +68,37 @@ describe('zaehlbar', () => {
     expect(zaehlbar({ kind: 'switch' })).toBe(true);
     expect(zaehlbar({ kind: 'camera' })).toBe(false);
     expect(zaehlbar({})).toBe(false);
+  });
+});
+
+describe('lichterAus', () => {
+  const licht = (id: string, extra = {}) =>
+    ({
+      id,
+      name: id,
+      kind: 'light',
+      integration: 'demo',
+      state: { state: 'on' },
+      commands: ['turn_on', 'turn_off'],
+      ...extra,
+    }) as unknown as Entity;
+
+  it('nimmt alles, was sich ausschalten lässt', () => {
+    expect(lichterAus([licht('light.a'), licht('light.b')], []).map((e) => e.id)).toEqual([
+      'light.a',
+      'light.b',
+    ]);
+  });
+
+  it('lässt Gesperrte stehen', () => {
+    // Eine Sperre ist eine Rückfrage, und eine Rückfrage für fünf Geräte
+    // auf einmal gibt es nicht. Sie behalten ihren eigenen Knopf.
+    expect(lichterAus([licht('light.a'), licht('light.b')], ['light.b']).map((e) => e.id))
+      .toEqual(['light.a']);
+  });
+
+  it('lässt weg, was gar nicht ausschalten kann', () => {
+    const ohne = licht('light.c', { commands: ['turn_on'] });
+    expect(lichterAus([ohne], [])).toEqual([]);
   });
 });

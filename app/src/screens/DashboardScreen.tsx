@@ -2225,6 +2225,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 now={now}
                 hidden={hidden}
                 ungezaehlt={ungezaehlt}
+                locked={locked}
                 onCommand={guardedCommand}
                 {...(hiddenSections.includes('family')
                   ? {}
