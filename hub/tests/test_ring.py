@@ -362,3 +362,39 @@ def test_nothing_heard_yet_says_so_plainly():
     # eben» und es kam trotzdem keine Nachricht, liegt es dahinter.
     assert "noch niemand geklingelt" in klingel_satz(None, None, 1_700_000_000.0)
     assert "unbekanntem Weg" in klingel_satz(1_699_999_999.0, "irgendwie", 1_700_000_000.0)
+
+
+# ── Dasselbe Klingeln auf drei Wegen ist einmal ─────────────────────────
+#
+# Der gemeldete Fall: «Wenn sie kommt, kommt sie 3 oder 4 mal.» Das ist
+# die Zahl der Wege, auf denen ein Klingeln hereinkommen kann - Push-
+# Kanal, Abfrage, Verlauf. Entprellt wurde nach der Kennung der Meldung,
+# und die vergibt jeder Weg selbst: Der Verlauf nennt die Kennung des
+# Verlaufseintrags, und die ist eine andere Zahl für dasselbe Klingeln.
+
+from homepilot.integrations.ring import KLINGEL_ENTPRELLUNG, ist_wiederholung
+
+
+def test_the_same_ring_on_another_path_is_still_the_same_ring():
+    jetzt = 1_700_000_000.0
+    # Push zuerst, zwei Sekunden später der Verlauf mit anderer Kennung.
+    assert ist_wiederholung(jetzt, jetzt + 2.0) is True
+    assert ist_wiederholung(jetzt, jetzt + KLINGEL_ENTPRELLUNG - 0.1) is True
+
+
+def test_the_next_visitor_is_not_debounced_away():
+    """Wer nach einer halben Minute nochmals klingelt, will etwas."""
+    jetzt = 1_700_000_000.0
+    assert ist_wiederholung(jetzt, jetzt + KLINGEL_ENTPRELLUNG) is False
+    assert ist_wiederholung(jetzt, jetzt + 120.0) is False
+
+
+def test_the_first_ring_always_counts():
+    assert ist_wiederholung(None, 1_700_000_000.0) is False
+
+
+def test_a_clock_that_jumped_backwards_does_not_swallow_a_ring():
+    """Ein Zeitstempel aus der Zukunft (Uhr gestellt, Meldung mit eigener
+    Zeit) darf nicht dazu führen, dass für immer entprellt wird."""
+    jetzt = 1_700_000_000.0
+    assert ist_wiederholung(jetzt + 600, jetzt) is False

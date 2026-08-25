@@ -389,6 +389,29 @@ def verlauf_hinweis(mit_verlauf: list[str]) -> str:
     )
 
 
+#: In diesem Fenster gilt ein zweites Klingeln als dasselbe.
+#:
+#: Der Grund ist die Kennung: Jeder Weg vergibt seine eigene. Der
+#: Push-Kanal liefert die Kennung der Meldung, die Abfrage dieselbe - der
+#: Verlauf dagegen die Kennung des Verlaufseintrags, und die ist eine
+#: andere Zahl für dasselbe Klingeln. Wer nach Kennung entprellt, hält
+#: dieselbe Klingel für drei verschiedene und meldet sie dreimal.
+#:
+#: Deshalb hier nach der Zeit statt nach der Kennung. Fünfundzwanzig
+#: Sekunden: Wer zweimal kurz hintereinander drückt, meint einmal; wer
+#: nach einer halben Minute nochmals klingelt, will etwas.
+KLINGEL_ENTPRELLUNG = 25.0
+
+
+def ist_wiederholung(
+    letzte: float | None, jetzt: float, frist: float = KLINGEL_ENTPRELLUNG
+) -> bool:
+    """Ist das dasselbe Klingeln wie eben? (rein, testbar)"""
+    if letzte is None:
+        return False
+    return 0 <= jetzt - letzte < frist
+
+
 #: Wie die Wege heissen, über die ein Klingeln hereinkommen kann.
 QUELLEN_NAMEN = {
     "push": "über den Ereigniskanal",
@@ -697,6 +720,9 @@ class RingIntegration(Integration):
         self._verlauf_gesehen: set[Any] = set()
         # Wann zuletzt geklingelt hat und auf welchem Weg es hereinkam.
         self._letztes_klingeln: tuple[float, str] | None = None
+        # Je Gerät der Zeitpunkt des letzten Klingelns - die Entprellung
+        # über alle Wege hinweg (siehe ist_wiederholung).
+        self._klingel_zeiten: dict[str, float] = {}
         self._by_ring_id: dict[int, str] = {}
         self._clear_tasks: dict[str, asyncio.Task] = {}
 
@@ -1238,6 +1264,18 @@ class RingIntegration(Integration):
         # unregelmässig, und ein verpasster Bewegungs-Push ist kein
         # Beinbruch. Beim Klingeln ist er einer.
         if event.kind == "ding":
+            jetzt = time.time()
+            if ist_wiederholung(self._klingel_zeiten.get(entity_id), jetzt):
+                # Dasselbe Klingeln auf einem zweiten Weg. Der Zustand
+                # steht schon richtig; weiterzumachen hiesse, dem Haus
+                # ein zweites Mal zu sagen, dass es klingelt.
+                self.log.debug(
+                    "Ring: Klingeln an %s kam ein zweites Mal (%s) - übergangen",
+                    entity_id,
+                    quelle,
+                )
+                return
+            self._klingel_zeiten[entity_id] = jetzt
             self._quellen = [*self._quellen, quelle][-QUELLEN_FENSTER * 2 :]
             # Für den System-Bildschirm: Hat der Hub überhaupt gehört,
             # dass es geklingelt hat? Ohne diese Auskunft ist «es kommt
