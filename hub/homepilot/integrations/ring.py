@@ -786,7 +786,7 @@ class RingIntegration(Integration):
         # über das letzte Klingeln aus.
         erster = True
         while True:
-            for entity_id, device in self._intercoms:
+            for _entity_id, device in self._intercoms:
                 try:
                     verlauf = await self._verlauf_holen(device)
                 except asyncio.CancelledError:
@@ -818,7 +818,7 @@ class RingIntegration(Integration):
         holen = getattr(device, "async_history", None)
         if holen is not None:
             return await holen(limit=5)
-        return getattr(device, "history")(limit=5)
+        return device.history(limit=5)
 
     def _verlauf_namen(self) -> list[str]:
         """Die Geräte, für die der Verlauf einspringt - mit Klarnamen."""

@@ -41,6 +41,21 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   dasselbe Gerät stand damit an einer Stelle als «Standby» und an der
   anderen als «Bereit».
 
+**Einstellungen**
+
+- Die Kacheln sind gruppiert statt in einer langen Mischliste: zuoberst
+  die Suche, dann **Haus** (Geräte, Abläufe, Alarmanlage, Lautsprecher,
+  Energie), **Personen** (Familie und Freunde, Benutzerverwaltung),
+  **Dieses Gerät** (Konto & Verbindung, Widgets) und zuunterst **Hub**
+  (System, Zuletzt passiert). Vorher trennte das halbe Haus die
+  Benutzerverwaltung von «Konto & Verbindung», obwohl beide von
+  Zugängen handeln.
+- «Konto & Verbindung» ist in vier Karten geteilt: Profil (Name,
+  Abmelden), Erscheinungsbild (samt Wandpanel-Modus), Ortung und die
+  Hub-Verbindung. Wer verbunden ist, findet die Zugangsdaten zuunterst –
+  beim Einrichten stehen sie zuoberst, denn dann sind sie das Einzige,
+  was zählt.
+
 **Ortung**
 
 - Wer nach Hause kam, blieb «unterwegs». Die App meldete bisher nur
