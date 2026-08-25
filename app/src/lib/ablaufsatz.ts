@@ -167,6 +167,24 @@ function wertZusatz(action: Roh, entities: Entity[]): string {
   return '';
 }
 
+/** Ein Musik-Schritt in wenigen Worten (rein, testbar). */
+export function musikSatz(action: Roh, entities: Entity[]): string {
+  switch (String(action.do ?? '')) {
+    case 'pause_all':
+      return 'überall Pause';
+    case 'night':
+      return action.on === false ? 'Nachtruhe aus' : 'Nachtruhe ein';
+    case 'favorite':
+      return `Favorit «${action.favorite ?? '?'}»`;
+    case 'sleep':
+      return `${nameVon(entities, action.entity_id)} nach ${action.minutes ?? 30} Min aus`;
+    case 'fade':
+      return `${nameVon(entities, action.entity_id)} leise starten`;
+    default:
+      return 'Musik';
+  }
+}
+
 function aktionSatz(
   action: Roh,
   entities: Entity[],
@@ -187,6 +205,8 @@ function aktionSatz(
     }
     case 'wait_until':
       return `warten bis ${nameVon(entities, action.entity_id)} passt`;
+    case 'music':
+      return musikSatz(action, entities);
     default: {
       const was = BEFEHL[String(action.command)] ?? action.command;
       // Der Wert gehört dazu: «Lautsprecher Lautstärke» sagt nicht, ob

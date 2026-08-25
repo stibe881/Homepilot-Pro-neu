@@ -313,3 +313,101 @@ async def test_ein_uralter_schlummer_wird_vergessen(hub):
     assert all(befehl != "pause" for _, befehl, _ in protokoll.befehle)
     assert hub.data.get("musik_schlummer") == []
     await neu.stop()
+
+
+# ── Musik als Schritt in einem Ablauf ────────────────────────────────────
+#
+# Alles davon gab es schon - als Knopf in der App, nicht als Schritt in
+# einem Ablauf. «Wenn alle weg sind: Musik aus» ging deshalb nur über den
+# nackten Pause-Befehl je Box, und wer eine Box vergass, merkte es erst
+# beim Heimkommen.
+
+
+def test_musik_satz_ist_lesbar():
+    from homepilot.core.automation import musik_satz
+
+    def named(entity_id):
+        return "Küche" if entity_id == "cast.kueche" else str(entity_id)
+
+    assert musik_satz({"do": "pause_all"}, named) == "überall Pause"
+    assert musik_satz({"do": "night"}, named) == "Nachtruhe ein"
+    assert musik_satz({"do": "night", "on": False}, named) == "Nachtruhe aus"
+    assert musik_satz({"do": "favorite", "favorite": "SRF 3"}, named) == (
+        "Favorit «SRF 3» abspielen"
+    )
+    assert musik_satz(
+        {"do": "favorite", "favorite": "SRF 3", "device": "Bad"}, named
+    ) == "Favorit «SRF 3» abspielen auf Bad"
+    assert musik_satz(
+        {"do": "sleep", "entity_id": "cast.kueche", "minutes": 45}, named
+    ) == "Küche: nach 45 Min ausblenden"
+    assert musik_satz({"do": "fade", "entity_id": "cast.kueche"}, named) == (
+        "Küche: leise starten bis 30 %"
+    )
+    # Ein Tippfehler soll im Trockenlauf auffallen, nicht erst nachts.
+    assert "unbekannt" in musik_satz({"do": "quatsch"}, named)
+
+
+async def _ablauf_laufen_lassen(hub, aktion):
+    """Einen einzelnen Schritt durch die Ablauf-Maschinerie schicken."""
+    from homepilot.core.automation import Automation
+
+    automation = Automation(
+        id="test", alias="Test", triggers=[], conditions=[], actions=[aktion], enabled=True
+    )
+    return await hub.automations._execute_action(automation, aktion, None)
+
+
+async def test_ablauf_pausiert_ueberall(hub):
+    protokoll = await _radio_bauen(hub)
+    await hub.registry.update_state("testradio.box", {"state": "playing", "volume": 40})
+
+    await _ablauf_laufen_lassen(hub, {"type": "music", "do": "pause_all"})
+    assert ("testradio.box", "pause", {}) in protokoll.befehle
+
+
+async def test_ablauf_meldet_wenn_nichts_lief(hub):
+    """Kein Fehler, aber eine Notiz: «hat nichts getan» und «konnte
+    nichts tun» sind im Protokoll zwei verschiedene Zeilen."""
+    await _radio_bauen(hub)
+    await hub.registry.update_state("testradio.box", {"state": "paused"})
+    notiz = await _ablauf_laufen_lassen(hub, {"type": "music", "do": "pause_all"})
+    assert notiz == "es lief nichts"
+
+
+async def test_ablauf_spielt_einen_favoriten(hub):
+    protokoll = await _radio_bauen(hub)
+    hub.musik.favorit_setzen(
+        {"kind": "station", "name": "SRF 3", "player": "testradio.radio"}
+    )
+    await _ablauf_laufen_lassen(
+        hub, {"type": "music", "do": "favorite", "favorite": "SRF 3"}
+    )
+    assert ("testradio.radio", "play_radio", {"station": "SRF 3"}) in protokoll.befehle
+
+
+async def test_ein_geloeschter_favorit_haelt_den_ablauf_nicht_an(hub):
+    await _radio_bauen(hub)
+    notiz = await _ablauf_laufen_lassen(
+        hub, {"type": "music", "do": "favorite", "favorite": "Gibt es nicht"}
+    )
+    assert notiz is not None and "gibt es nicht mehr" in notiz
+
+
+async def test_ablauf_schaltet_die_nachtruhe(hub):
+    assert hub.ton.nachtruhe()["on"] is False
+    await _ablauf_laufen_lassen(hub, {"type": "music", "do": "night", "on": True})
+    assert hub.ton.nachtruhe()["on"] is True
+    await _ablauf_laufen_lassen(hub, {"type": "music", "do": "night", "on": False})
+    assert hub.ton.nachtruhe()["on"] is False
+
+
+async def test_ablauf_stellt_einen_schlummer_timer(hub):
+    await _radio_bauen(hub)
+    await _ablauf_laufen_lassen(
+        hub,
+        {"type": "music", "do": "sleep", "entity_id": "testradio.box", "minutes": 45},
+    )
+    assert [zeile["entity_id"] for zeile in hub.musik.schlummer_stand()] == [
+        "testradio.box"
+    ]

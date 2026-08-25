@@ -104,6 +104,9 @@ export function AutomationsScreen({
   const [trash, setTrash] = useState<PapierkorbZeile[]>([]);
   const [trashOpen, setTrashOpen] = useState(false);
   const [hueScenes, setHueScenes] = useState<string[]>([]);
+  // Die Musik-Favoriten des Hauses - ein Ablauf soll sie beim Namen
+  // nennen können, statt eine Kennung zu verlangen.
+  const [favoriten, setFavoriten] = useState<string[]>([]);
   const [sceneQuery, setSceneQuery] = useState('');
   // Aufgeklappte Kategorien, getrennt je Abschnitt. Standard ist
   // zugeklappt: Wer Kategorien vergibt, will zuerst die Übersicht sehen
@@ -235,6 +238,14 @@ export function AutomationsScreen({
         still: true,
       })
       .then((data) => setHueScenes(data?.scenes ?? []));
+    hub
+      .get<{ favorites?: { name?: string }[] } | null>('/api/media/favorites', {
+        fallback: null,
+        still: true,
+      })
+      .then((data) =>
+        setFavoriten((data?.favorites ?? []).map((zeile) => String(zeile.name ?? ''))),
+      );
     hub
       .get<{ names?: string[] } | null>('/api/push/targets', {
         fallback: null,
@@ -1574,6 +1585,7 @@ export function AutomationsScreen({
         scenes={scenes}
         categories={usedCategories(automations)}
         hueScenes={hueScenes}
+        favoriten={favoriten}
         empfaenger={empfaenger}
         onProbeStep={mayEdit ? probeStep : undefined}
         onChange={setDraft}

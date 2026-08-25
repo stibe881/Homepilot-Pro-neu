@@ -52,6 +52,29 @@ kann:
   Stelle, an der auch die Push entsteht, also nach der Sperrfrist.
   Zweimal klingeln heisst nicht zweimal leiser.
 
+## In einem Ablauf
+
+Der Schritt heisst **Musik** und kann fünf Dinge:
+
+| `do` | Was passiert | Braucht |
+| --- | --- | --- |
+| `pause_all` | Pause auf jeder Box, auf der etwas läuft | – |
+| `favorite` | Einen Favoriten abspielen | `favorite` (Name), optional `device` |
+| `sleep` | Schlummer-Timer stellen | `entity_id`, `minutes` |
+| `fade` | Leise starten und hochziehen | `entity_id`, `volume` |
+| `night` | Nachtruhe ein- oder ausschalten | `on` |
+
+```yaml
+- alias: Alle weg – Ruhe im Haus
+  trigger: {platform: state, entity_id: person.alle, to: away}
+  action:
+    - {type: music, do: pause_all}
+```
+
+Ein Favorit, den es nicht mehr gibt, hält den Ablauf nicht an – er
+hinterlässt eine Zeile im Protokoll. Ein umbenannter Sender soll nicht
+dazu führen, dass danach das Licht nicht mehr ausgeht.
+
 ## Wo es im Code steht
 
 | Was | Wo |
@@ -63,3 +86,4 @@ kann:
 | Was läuft im Haus | `app/src/lib/hausmusik.ts` |
 | Die Karte | `app/src/components/Musikzentrale.tsx` |
 | Die Kachel-Zugaben | `app/src/components/entity/medienextras.tsx` |
+| Der Musik-Schritt im Ablauf | `hub/homepilot/core/automation.py` (`_musik`) + `app/src/screens/automations/` |
