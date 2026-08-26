@@ -9,7 +9,7 @@ import { defaultHubUrl } from '../lib/origin';
 import { PAUSEN, ortungsHinweis, pauseBis, pausiert } from '../lib/ortung';
 import { zonenkennung } from '../lib/zonenkennung';
 import { SYMBOLE, Symbolwahl, gueltig } from '../lib/appsymbol';
-import { kannWechseln } from '../lib/symbolwechsel';
+import { kannWechseln, symbolWechseln } from '../lib/symbolwechsel';
 import { applySetup, QrScanner } from '../components/QrScanner';
 import { Colors, radius, ThemeMode, type, useColors } from '../theme';
 
@@ -59,10 +59,11 @@ export function SettingsScreen({
   const [name, setName] = useState(initial?.name ?? '');
   const [theme, setTheme] = useState<ThemeMode>(initial?.theme ?? 'system');
   const [appSymbol, setAppSymbol] = useState<Symbolwahl>(gueltig(initial?.appSymbol));
-  // Ob dieses Gerät überhaupt wechseln kann. Auf einem Telefon mit einer
-  // App-Fassung von vor dem Zweitsymbol kann es das nicht - dann soll
-  // hier kein Schalter stehen, der nichts tut.
-  const [symbolGeht, setSymbolGeht] = useState(false);
+  // Kann dieses Gerät das Symbol jetzt schon wechseln? `null` heisst:
+  // noch nicht gefragt. Das entscheidet nicht, ob die Wahl dasteht -
+  // sie stand vorher nur dann da, wenn es ging, und war damit genau in
+  // dem Fall unsichtbar, in dem eine Erklärung nötig gewesen wäre.
+  const [symbolGeht, setSymbolGeht] = useState<boolean | null>(null);
   useEffect(() => {
     let weg = false;
     kannWechseln().then((ja) => {
@@ -72,6 +73,23 @@ export function SettingsScreen({
       weg = true;
     };
   }, []);
+
+  /**
+   * Das App-Symbol wechseln – sofort und für sich.
+   *
+   * Es hing vorher am Knopf «Speichern & verbinden», und der steht eine
+   * Karte weiter unten und heisst nach Hub-Adresse. Wer ein Symbol
+   * wählte und die Seite verliess, hatte nichts gewählt.
+   *
+   * Gespeichert wird auf dem Stand, der im Gerät steht, und nicht auf
+   * dem des Formulars: Wer gerade an der Hub-Adresse tippt, soll sie
+   * nicht durch ein Antippen des Symbols halbfertig festschreiben.
+   */
+  const symbolWaehlen = (wahl: Symbolwahl) => {
+    setAppSymbol(wahl);
+    if (initial) onSave({ ...initial, appSymbol: wahl });
+    symbolWechseln(wahl).then((ging) => setSymbolGeht(ging));
+  };
   const [panel, setPanel] = useState(!!initial?.panel);
   const [scanning, setScanning] = useState(false);
   // Zwei-Schritt-Rückfrage für «überall abmelden» – das wirft auch das
@@ -217,47 +235,55 @@ export function SettingsScreen({
           Es ist dasselbe wie die Farbwahl darüber, nur ausserhalb der
           App. Am Gerät gespeichert und nicht an der Person - wer sich am
           Wandpanel anmeldet, färbt damit nicht das Telefon um. */}
-      {symbolGeht ? (
-        <View style={styles.field}>
-          <Text style={styles.label}>App-Symbol</Text>
-          <View style={styles.symbole}>
-            {SYMBOLE.map((option) => {
-              const an = option.wahl === appSymbol;
-              return (
-                <Pressable
-                  key={option.label}
-                  onPress={() => setAppSymbol(option.wahl)}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: an }}
-                  accessibilityLabel={`App-Symbol ${option.label}`}
-                  style={({ pressed }) => [
-                    styles.symbolWahl,
-                    an && styles.symbolWahlAktiv,
-                    pressed && { opacity: 0.7 },
-                  ]}
-                >
-                  {/* Eine Vorschau, keine Bilddatei: Das Symbol liegt in
-                      sechs Grössen als PNG vor, und eines davon hier
-                      einzubinden hiesse, es beim nächsten Umfärben an
-                      zwei Stellen zu ändern. */}
-                  <View style={[styles.symbolBild, { backgroundColor: option.unten }]}>
-                    <View style={[styles.symbolOben, { backgroundColor: option.oben }]} />
-                    <Ionicons name="home" size={22} color="#FFFFFF" />
-                  </View>
-                  <Text style={[styles.modeText, an && styles.modeTextActive]}>
-                    {option.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-          <Text style={styles.modeHint}>
-            {Platform.OS === 'web'
-              ? 'Färbt das Bild im Browser-Tab. Auf dem Telefon färbt es das Symbol auf dem Startbildschirm.'
-              : 'Färbt das Symbol auf dem Startbildschirm. Das Wechseln übernimmt iOS – es meldet den Wechsel einmal kurz.'}
-          </Text>
+      {/* Immer sichtbar, auch wo es (noch) nicht geht: Der Hinweis
+          darunter sagt dann, warum - versteckt wäre es genau dort
+          unauffindbar, wo jemand danach sucht. */}
+      <View style={styles.field}>
+        <Text style={styles.label}>App-Symbol</Text>
+        <View style={styles.symbole}>
+          {SYMBOLE.map((option) => {
+            const an = option.wahl === appSymbol;
+            return (
+              <Pressable
+                key={option.label}
+                onPress={() => symbolWaehlen(option.wahl)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: an }}
+                accessibilityLabel={`App-Symbol ${option.label}`}
+                style={({ pressed }) => [
+                  styles.symbolWahl,
+                  an && styles.symbolWahlAktiv,
+                  pressed && { opacity: 0.7 },
+                ]}
+              >
+                {/* Eine Vorschau, keine Bilddatei: Das Symbol liegt in
+                    sechs Grössen als PNG vor, und eines davon hier
+                    einzubinden hiesse, es beim nächsten Umfärben an
+                    zwei Stellen zu ändern. */}
+                <View style={[styles.symbolBild, { backgroundColor: option.unten }]}>
+                  <View style={[styles.symbolOben, { backgroundColor: option.oben }]} />
+                  <Ionicons name="home" size={22} color="#FFFFFF" />
+                </View>
+                <Text style={[styles.modeText, an && styles.modeTextActive]}>
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
-      ) : null}
+        <Text style={styles.modeHint}>
+          {symbolGeht === false
+            ? // Der Fall, den man erklären muss: Ein App-Symbol steckt
+              // im Programmpaket und lässt sich nicht nachladen. Über
+              // eine OTA-Fassung kommt es also nicht mit. Die Wahl ist
+              // trotzdem gespeichert und greift, sobald ein frischer
+              // Build da ist.
+              'Gespeichert. Auf diesem Gerät wechselt das Symbol aber erst mit einem neu gebauten App-Paket – ein Symbol steckt im Paket und lässt sich nicht nachladen. Im Browser wirkt es sofort.'
+            : Platform.OS === 'web'
+              ? 'Wirkt sofort: Färbt das Bild im Browser-Tab. Auf dem Telefon färbt es das Symbol auf dem Startbildschirm.'
+              : 'Wirkt sofort. Das Wechseln übernimmt iOS – es meldet es einmal kurz. Gespeichert ist es schon.'}
+        </Text>
+      </View>
 
       {/* Beim Erscheinungsbild und nicht bei der Verbindung: Der Modus
           ändert, wie die App aussieht und sich verhält - nicht, womit
