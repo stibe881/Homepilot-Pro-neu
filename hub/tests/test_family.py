@@ -230,3 +230,35 @@ def test_a_change_reaches_open_apps_over_the_websocket():
             )
             gast.send_json({"type": "ping"})
             assert gast.receive_json()["type"] == "pong"
+
+
+def test_children_can_be_listed_without_giving_them_an_account():
+    """Wer im Ämtli-Plan steht, braucht keinen Anmeldenamen.
+
+    Die Namen für Aufgaben, Ämtli und Punkte kamen aus /api/users. Ein
+    fünfjähriges Kind bekommt aber kein Konto mit Token - es soll trotzdem
+    in der Reihe stehen. Dafür gibt es die Liste «members».
+    """
+    with make_client() as client:
+        kind = client.post(
+            "/api/family/members",
+            json={"text": "Livia", "role": "kind"},
+            headers=auth("t-owner"),
+        )
+        assert kind.status_code == 200
+        assert kind.json()["text"] == "Livia"
+
+        # Sie steht in der Gesamtübersicht und lässt sich einem Ämtli
+        # zuteilen - genau wie jemand mit Zugang.
+        data = client.get("/api/family", headers=auth("t-resident")).json()
+        assert [row["text"] for row in data["members"]] == ["Livia"]
+        amtli = client.post(
+            "/api/family/chores",
+            json={"text": "Abfall", "member": "Livia"},
+            headers=auth("t-owner"),
+        )
+        assert amtli.json()["member"] == "Livia"
+
+        # Und sie lässt sich wieder entfernen, wenn sie auszieht.
+        client.delete(f"/api/family/members/{kind.json()['id']}", headers=auth("t-owner"))
+        assert client.get("/api/family/members", headers=auth("t-owner")).json() == []

@@ -46,6 +46,11 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "rewards", "rewards_catalog", "packlists", "countdowns",
             "recipes", "documents", "staples", "chores", "medications",
             "emergency", "polls", "shops", "babysitter",
+            # «members»: wer zum Haushalt gehört, ohne einen Zugang zu
+            # haben. Aufgaben, Ämtli und Punkte hingen an /api/users -
+            # wer ein Kind eintragen wollte, musste ihm einen Anmeldenamen
+            # samt Token geben. Siehe app/src/lib/mitglieder.ts.
+            "members",
         }
     )
 

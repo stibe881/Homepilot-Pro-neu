@@ -35,7 +35,9 @@ export const MODULGRUPPEN: Modulgruppe[] = [
   {
     key: 'miteinander',
     label: 'Miteinander',
-    module: ['pins', 'rewards', 'countdowns'],
+    // «Wer dazugehört» steht bei den Belohnungen: Man merkt dort, dass
+    // ein Name fehlt - beim Punktestand, der das Kind nicht kennt.
+    module: ['pins', 'rewards', 'members', 'countdowns'],
   },
   {
     key: 'nachschlagen',

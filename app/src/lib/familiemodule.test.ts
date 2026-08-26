@@ -36,6 +36,12 @@ describe('Familien-Module in Gruppen', () => {
     expect(gruppiereModule([modul('gibtsnicht' as ModuleKey)])).toHaveLength(1);
   });
 
+  it('stellt «Wer dazugehört» neben die Belohnungen', () => {
+    // Dass ein Name fehlt, merkt man am Punktestand, der das Kind nicht
+    // kennt - nicht in einer Einstellungsliste.
+    expect(gruppeVon('members')).toBe('miteinander');
+  });
+
   it('stellt die Kontakte zu Notfall und Betreuung', () => {
     // Man sucht sie, wenn etwas ist - nicht, wenn man Nummern sortieren will.
     expect(gruppeVon('contacts')).toBe('notfall');

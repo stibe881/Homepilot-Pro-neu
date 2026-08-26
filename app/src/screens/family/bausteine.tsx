@@ -13,6 +13,7 @@ import { Card } from '../../components/Card';
 import { Colors } from '../../theme';
 import { BERATUNGSNUMMERN, GABEN, NOTFALLNUMMERN, ROLLEN, WOCHENTAGE, rollenVon, toggleRolle, waehlbar } from '../../lib/familie';
 import { monatJahr, uhr } from '../../lib/format';
+import { Mitglied } from '../../lib/mitglieder';
 import { tapped } from '../../lib/haptics';
 
 /**
@@ -30,10 +31,11 @@ import { makeStyles } from './stil';
 
 export type Styles = ReturnType<typeof makeStyles>;
 
-export interface Member {
-  name: string;
-  role: string;
-}
+/** Wer zur Familie gehört – mit oder ohne eigenen Zugang.
+ *
+ *  Die Reihe entsteht in lib/mitglieder.ts aus zwei Quellen; die Bausteine
+ *  hier brauchen davon nur Name und Rolle. */
+export type Member = Mitglied;
 
 export interface Props {
   settings: HubSettings;
@@ -68,7 +70,8 @@ export type ModuleKey =
   | 'woche'
   | 'emergency'
   | 'medications'
-  | 'babysitter';
+  | 'babysitter'
+  | 'members';
 
 export const WEEK_DAYS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
 
@@ -609,6 +612,84 @@ export function PollAddRow({
           <Ionicons name="add" size={22} color="#FFFFFF" />
         </Pressable>
       </View>
+    </View>
+  );
+}
+
+/**
+ * Jemanden zur Familie hinzufügen, der keinen Zugang zur App hat.
+ *
+ * Ein Name und die Frage, ob Kind oder erwachsen - mehr nicht. Wer mehr
+ * über einen Menschen festhalten will (Nummer, Geburtstag, Arzt), tut
+ * das unter Kontakte; hier geht es nur darum, dass der Name in den
+ * Listen auswählbar wird.
+ *
+ * Der Hinweis steht unter dem Feld und nicht in der Fehlerzeile ganz
+ * oben: Wer «Livia» ein zweites Mal einträgt, soll es dort lesen, wo er
+ * gerade tippt.
+ */
+export function MemberAddRow({
+  onAdd,
+  pruefe,
+  styles,
+  colors,
+}: {
+  onAdd: (name: string, role: string) => void;
+  /** Gibt den Grund zurück, warum dieser Name nicht geht - oder null. */
+  pruefe: (name: string) => string | null;
+  styles: Styles;
+  colors: Colors;
+}) {
+  const [name, setName] = useState('');
+  const [role, setRole] = useState('kind');
+  const [hinweis, setHinweis] = useState<string | null>(null);
+
+  const submit = () => {
+    const mangel = pruefe(name);
+    setHinweis(mangel);
+    if (mangel) return;
+    onAdd(name.trim(), role);
+    setName('');
+    setRole('kind');
+  };
+
+  return (
+    <View style={{ gap: 8 }}>
+      <View style={styles.addRow}>
+        <TextInput
+          style={[styles.input, { flex: 1 }]}
+          value={name}
+          onChangeText={(wert) => {
+            setName(wert);
+            if (hinweis) setHinweis(null);
+          }}
+          placeholder="Name, z.B. Livia"
+          placeholderTextColor={colors.inkFaint}
+          onSubmitEditing={submit}
+        />
+        <Pressable onPress={submit} style={styles.addButton} accessibilityLabel="Hinzufügen">
+          <Ionicons name="add" size={22} color="#FFFFFF" />
+        </Pressable>
+      </View>
+      <View style={styles.chipRow}>
+        {[
+          { key: 'kind', label: 'Kind' },
+          { key: 'erwachsen', label: 'Erwachsen' },
+        ].map((wahl) => (
+          <Pressable
+            key={wahl.key}
+            onPress={() => setRole(wahl.key)}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: role === wahl.key }}
+            style={[styles.chip, role === wahl.key && styles.chipActive]}
+          >
+            <Text style={[styles.chipText, role === wahl.key && styles.chipTextActive]}>
+              {wahl.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+      {hinweis ? <Text style={styles.formHintSmall}>{hinweis}</Text> : null}
     </View>
   );
 }

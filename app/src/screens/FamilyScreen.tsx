@@ -45,6 +45,7 @@ import {
   reihenfolge,
   unterZeile,
 } from '../lib/anwesenheitskarte';
+import { mitglieder, pruefeName, rolleWort } from '../lib/mitglieder';
 import { Person } from '../lib/personen';
 import {
   ABEND_FELDER,
@@ -86,7 +87,7 @@ import {
 import { tapped } from '../lib/haptics';
 import { kochVorschlaege, vorschlagsGrund, wuerfel } from '../lib/vorschlag';
 import { ROLE_LABELS } from './UsersScreen';
-import { AddRow, BackHead, CheckRow, ChoreAddRow, ContactForm, ContactPhoto, CountdownForm, EventForm, FamilyData, FamilyItem, GroupedChecklist, MealRow, MedicationAddRow, Member, ModuleKey, MonthCalendar, Notrufliste, PollAddRow, Props, REPEAT_OPTIONS, SHOP_CATEGORIES, ShoppingAddRow, TaskAddRow, TwoFieldForm, WEEK_DAYS, birthdayLabel, daysUntilBirthday, dueInfo, isoInDays, nextDue, parseSwissDate, pickPhoto, rotateMember } from './family/bausteine';
+import { AddRow, BackHead, CheckRow, ChoreAddRow, ContactForm, ContactPhoto, CountdownForm, EventForm, FamilyData, FamilyItem, GroupedChecklist, MealRow, MedicationAddRow, Member, MemberAddRow, ModuleKey, MonthCalendar, Notrufliste, PollAddRow, Props, REPEAT_OPTIONS, SHOP_CATEGORIES, ShoppingAddRow, TaskAddRow, TwoFieldForm, WEEK_DAYS, birthdayLabel, daysUntilBirthday, dueInfo, isoInDays, nextDue, parseSwissDate, pickPhoto, rotateMember } from './family/bausteine';
 import { makeStyles } from './family/stil';
 
 /**
@@ -126,7 +127,9 @@ export function FamilyScreen({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   // Der Stand, wie der Hub ihn kennt …
   const [serverData, setServerData] = useState<FamilyData>({});
-  const [members, setMembers] = useState<Member[]>([]);
+  // Die Zugänge zum Hub. Sie sind nur die eine Hälfte der Familie - wer
+  // dazugehört, steht in `data.members` (siehe lib/mitglieder.ts).
+  const [konten, setKonten] = useState<Member[]>([]);
   // Der Startwunsch gilt genau einmal, beim ersten Zeichnen. Danach
   // gehört `view` dem Bildschirm: Würde der Wunsch weiterwirken, führte
   // jedes «zurück» sofort wieder in dasselbe Modul.
@@ -285,6 +288,15 @@ export function FamilyScreen({
   // ein zweites Mal.
   const data = useMemo(() => anwenden(serverData, offen), [serverData, offen]);
 
+  // Wer in Aufgaben, Ämtli und Belohnungen auswählbar ist: die Zugänge
+  // plus alle, die eingetragen sind, ohne die App zu bedienen. Ein
+  // fünfjähriges Kind bekommt kein Konto mit Token, soll aber im
+  // Ämtli-Plan stehen.
+  const members = useMemo(
+    () => mitglieder(konten, data.members),
+    [konten, data.members]
+  );
+
   // Was wartet, wird gespeichert: Die App darf zwischendurch beendet
   // werden, ohne dass ein Häkchen verlorengeht.
   useEffect(() => {
@@ -388,7 +400,7 @@ export function FamilyScreen({
     hub
       .get<Member[] | null>('/api/users', { fallback: null, still: true })
       .then((rows) =>
-        setMembers(
+        setKonten(
           rows ?? (currentUser ? [{ name: currentUser.name, role: currentUser.role }] : [])
         )
       );
@@ -588,6 +600,10 @@ export function FamilyScreen({
   const meds: FamilyItem[] = data.medications ?? [];
   const offeneMeds = meds.filter((med: FamilyItem) => !med.done).length;
   const medSub = offeneMeds > 0 ? `${offeneMeds} laufend` : 'Nichts einzunehmen';
+  // Wie viele in der Reihe stehen, ohne die App zu bedienen - Kinder,
+  // Grosseltern. Auf der Kachel ist das die Auskunft, die man sucht:
+  // «steht Livia schon drin?»
+  const kinderZahl = members.filter((m) => m.ohneZugang).length;
   const choreSub =
     chores.length === 0
       ? 'Reihe festlegen'
@@ -1637,7 +1653,10 @@ export function FamilyScreen({
           .map((poll: FamilyItem) => {
             const votes: Record<string, string> = poll.votes ?? {};
             const optionen: string[] = Array.isArray(poll.options) ? poll.options : [];
-            const fehlen = members
+            // Nur die Zugänge: Abstimmen kann, wer die App bedient.
+            // Ein Kind ohne Konto stünde sonst für immer unter «fehlt
+            // noch», ohne je tippen zu können.
+            const fehlen = konten
               .map((m) => m.name)
               .filter((name) => !votes[name]);
             return (
@@ -3038,7 +3057,8 @@ export function FamilyScreen({
         <Text style={styles.groupLabel}>Punktestand</Text>
         {totals.length === 0 ? (
           <Text style={styles.hint}>
-            Noch keine Familienmitglieder – unter Einstellungen → Benutzer anlegen.
+            Noch niemand da – unter «Wer dazugehört» eintragen. Für Punkte braucht
+            es keinen Zugang zur App.
           </Text>
         ) : null}
         {totals.map((member) => (
@@ -3551,6 +3571,99 @@ export function FamilyScreen({
     );
   }
 
+  if (view === 'members') {
+    // Punkte und offene Einträge stehen bei der Person: Ob ein Name noch
+    // gebraucht wird, entscheidet man nicht am Namen, sondern daran, was
+    // an ihm hängt.
+    const punkteVon = (name: string) =>
+      (data.rewards ?? [])
+        .filter((eintrag: FamilyItem) => eintrag.member === name)
+        .reduce((summe: number, eintrag: FamilyItem) => summe + Number(eintrag.points ?? 0), 0);
+    const offeneVon = (name: string) =>
+      [...(data.tasks ?? []), ...(data.chores ?? [])].filter(
+        (eintrag: FamilyItem) => eintrag.member === name && !eintrag.done
+      ).length;
+
+    return (
+      <View style={styles.stack}>
+        <BackHead title="Wer dazugehört" onBack={goBack} styles={styles} colors={colors} />
+        <Text style={styles.hint}>
+          Wer hier steht, lässt sich Aufgaben und Ämtli zuteilen und sammelt Punkte –
+          auch ohne eigenen Zugang zur App. Zugänge zum Hub legt der Besitzer unter
+          Einstellungen → Benutzer an; sie stehen hier von selbst.
+        </Text>
+
+        {members.map((member) => {
+          const offen = offeneVon(member.name);
+          const punkte = punkteVon(member.name);
+          const zeile = [
+            member.ohneZugang
+              ? rolleWort(member)
+              : `${ROLE_LABELS[member.role] ?? member.role} · Zugang zur App`,
+            offen > 0 ? `${offen} offen` : '',
+            punkte !== 0 ? `${punkte} Punkte` : '',
+          ].filter(Boolean);
+          return (
+            <Card key={member.name} style={styles.rewardCard}>
+              <View style={styles.avatarSmall}>
+                <Text style={styles.avatarSmallText}>
+                  {member.name.slice(0, 1).toUpperCase()}
+                </Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.checkText}>{member.name}</Text>
+                <Text style={styles.checkSub}>{zeile.join(' · ')}</Text>
+              </View>
+              {/* Nur die selbst Eingetragenen lassen sich hier ändern: Ein
+                  Zugang gehört der Benutzerverwaltung, und ein Kreuz, das
+                  jemandem die Anmeldung nimmt, hat auf dieser Seite nichts
+                  zu suchen. */}
+              {member.ohneZugang && member.id ? (
+                <>
+                  <Pressable
+                    onPress={() =>
+                      update('members', member.id as string, {
+                        role: member.role === 'kind' ? 'erwachsen' : 'kind',
+                      })
+                    }
+                    style={styles.deleteTap}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      member.role === 'kind'
+                        ? `${member.name} ist erwachsen`
+                        : `${member.name} ist ein Kind`
+                    }
+                  >
+                    <Ionicons
+                      name={member.role === 'kind' ? 'happy-outline' : 'person-outline'}
+                      size={18}
+                      color={colors.inkFaint}
+                    />
+                  </Pressable>
+                  <Pressable
+                    onPress={() => remove('members', member.id as string)}
+                    style={styles.deleteTap}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${member.name} entfernen`}
+                  >
+                    <Ionicons name="close" size={18} color={colors.inkFaint} />
+                  </Pressable>
+                </>
+              ) : null}
+            </Card>
+          );
+        })}
+
+        <MemberAddRow
+          onAdd={(name, role) => add('members', { text: name, role })}
+          pruefe={(name) => pruefeName(name, members)}
+          styles={styles}
+          colors={colors}
+        />
+      </View>
+    );
+  }
+
   if (view === 'countdowns') {
     const countdowns: FamilyItem[] = data.countdowns ?? [];
     return (
@@ -3729,6 +3842,15 @@ export function FamilyScreen({
     { key: 'pins', icon: 'chatbox-outline', label: 'Pinnwand', sub: `${pinCount} ${pinCount === 1 ? 'Eintrag' : 'Einträge'}` },
     { key: 'chores', icon: 'repeat-outline', label: 'Ämtli', sub: choreSub },
     { key: 'rewards', icon: 'trophy-outline', label: 'Belohnungen', sub: 'Punkte sammeln' },
+    {
+      key: 'members',
+      icon: 'people-outline',
+      label: 'Wer dazugehört',
+      sub:
+        kinderZahl > 0
+          ? `${members.length} Personen · ${kinderZahl} ohne Zugang`
+          : `${members.length} ${members.length === 1 ? 'Person' : 'Personen'}`,
+    },
     { key: 'contacts', icon: 'call-outline', label: 'Kontakte', sub: 'Wichtige Nummern' },
     {
       key: 'emergency',
@@ -3971,7 +4093,10 @@ export function FamilyScreen({
                   ? 'Zuhause'
                   : presence === 'away'
                     ? 'Unterwegs'
-                    : ROLE_LABELS[member.role] ?? member.role}
+                    : // Ohne Ortung steht die Rolle da. Für Kinder ohne
+                      // Zugang gibt es keine Hub-Rolle - dort hiesse es
+                      // sonst schlicht «kind».
+                      rolleWort(member) || ROLE_LABELS[member.role] || member.role}
               </Text>
             </View>
           );
