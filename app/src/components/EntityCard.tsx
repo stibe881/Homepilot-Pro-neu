@@ -810,6 +810,31 @@ export function EntityCard({
                 onPress={onToggleLocked}
               />
             ) : null}
+            {/* «Zählt oben mit?» gehört hierher und nicht nur an den
+                langen Druck: Wer eine Kachel anpasst, geht die Fragen der
+                Reihe nach durch - Raum, Name, Favorit, sichtbar - und
+                diese ist eine davon. Im Anpassen-Modus ist der lange
+                Druck ausserdem vergeben: Er hält die Kachel zum
+                Verschieben fest. */}
+            {onToggleUngezaehlt && zaehlbar(entity) ? (
+              <EditButton
+                // Kein zweites Auge in dieser Reihe: Das Auge daneben
+                // heisst «Ausblenden», und beides nebeneinander liest sich
+                // wie dieselbe Sache. Der durchgestrichene Kreis sagt
+                // «aus der Zählung genommen», die Glühbirne «zählt mit».
+                icon={ungezaehlt ? 'remove-circle-outline' : 'bulb-outline'}
+                active={!!ungezaehlt}
+                label={
+                  ungezaehlt
+                    ? 'Oben wieder mitzählen'
+                    : 'Oben nicht mitzählen – bleibt aber sichtbar'
+                }
+                // Gemeint ist die «3 an» in der Kopfzeile. «Zählt» allein
+                // wäre zweideutig; «oben» sagt, wo.
+                caption={ungezaehlt ? 'Zählt nicht' : 'Zählt oben'}
+                onPress={onToggleUngezaehlt}
+              />
+            ) : null}
           </View>
         </View>
       ) : null}
