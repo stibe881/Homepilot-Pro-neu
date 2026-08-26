@@ -1,0 +1,30 @@
+<!--
+  Die Quelle aller Symbol-Dateien. Wer etwas ändern will, ändert es hier
+  und erzeugt die PNG neu (siehe assets/README-symbol.md).
+
+  Warum das hier liegt: Das vorige icon.png trug seine
+  Konstruktionslinien mit - gestrichelte Achsen, zwei Hilfskreise, den
+  Mittelpunkt. Sie waren ins PNG eingebrannt und liessen sich nicht mehr
+  herausnehmen, weil niemand mehr wusste, woraus es entstanden war.
+
+  Die Zahlen sind so gewählt, dass der äusserste Punkt samt halber
+  Strichbreite innerhalb des eingeschriebenen Kreises bleibt: Sonst
+  verlöre die runde Maske des Browser-Tabs die Fussenden des Hauses.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="grund" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#4A85FF"/>
+      <stop offset="1" stop-color="#1B45C8"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#grund)"/>
+  <!-- Das Haus aus einem Zug: Wand, Dach, Wand. -->
+  <path d="M 262 754 L 262 556 L 512 328 L 762 556 L 762 754"
+        fill="none" stroke="#FFFFFF" stroke-width="124"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Und in der Türe brennt Licht. Bewusst ein voller Körper und kein
+       Schein: Ein weicher Verlauf wird bei 16 Punkten zu einem Fleck,
+       diese Form bleibt ein warmer Punkt. -->
+  <rect x="440" y="566" width="144" height="188" rx="72" fill="#FFC24B"/>
+</svg>
