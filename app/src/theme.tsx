@@ -25,9 +25,16 @@ export const lightColors = {
   // Flächen darf hier nichts durchscheinen, sonst kippt der Kontrast.
   panel: '#EDF0F5',
 
+  // Die drei Tinten für Flächen (Karten, Felder, Chips).
+  //
+  // Gemessen auf einer Karte über dem Verlauf: `inkSoft` kam auf 3.8:1,
+  // `inkFaint` auf 2.0:1 - Letzteres reicht für nichts, und in `inkFaint`
+  // standen ganze Absätze. Jetzt trägt `inkSoft` 4.5:1 (die Schwelle für
+  // Fliesstext) und `inkFaint` 3.6:1: leise, aber lesbar. Wer noch leiser
+  // will, nimmt eine kleinere Schrift, keine blassere Farbe.
   ink: '#232833',
-  inkSoft: '#69727F',
-  inkFaint: '#98A0AC',
+  inkSoft: '#5D6572',
+  inkFaint: '#6D747F',
 
   onGradient: '#FFFFFF',
   onGradientSoft: 'rgba(255, 255, 255, 0.78)',
@@ -61,7 +68,7 @@ export const darkColors: Colors = {
 
   ink: '#EDF1F7',
   inkSoft: '#A2ACBB',
-  inkFaint: '#727C8B',
+  inkFaint: '#8D96A3',
 
   onGradient: '#FFFFFF',
   onGradientSoft: 'rgba(255, 255, 255, 0.68)',
@@ -173,7 +180,7 @@ export const mitternachtColors: Colors = {
 
   ink: '#EDEFFC',
   inkSoft: '#A8ACD2',
-  inkFaint: '#7B7FA6',
+  inkFaint: '#8387AC',
 
   onGradient: '#FFFFFF',
   onGradientSoft: 'rgba(255, 255, 255, 0.70)',
@@ -215,8 +222,8 @@ export const sandColors: Colors = {
   panel: '#F3ECDF',
 
   ink: '#33291C',
-  inkSoft: '#77695A',
-  inkFaint: '#A29580',
+  inkSoft: '#6F6153',
+  inkFaint: '#7D715F',
 
   onGradient: '#FFFFFF',
   onGradientSoft: 'rgba(255, 255, 255, 0.80)',

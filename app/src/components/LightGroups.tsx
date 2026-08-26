@@ -247,7 +247,9 @@ export function LightGroups({
   return (
     <Card style={styles.card}>
       <Text style={styles.heading}>Lampen zusammenfassen</Text>
-      <Text style={styles.hint}>
+      {/* Ein sechszeiliger Absatz ist Fliesstext, keine Fussnote - er
+          gehört nicht in die leiseste Tinte. */}
+      <Text style={styles.note}>
         Eine Deckenlampe mit mehreren Spots soll ein Licht sein, nicht fünf.
         Zusammengefasste Lampen verschwinden aus den Räumen und aus der
         Zählung oben; hier unter Geräte bleiben sie einzeln bedienbar.
