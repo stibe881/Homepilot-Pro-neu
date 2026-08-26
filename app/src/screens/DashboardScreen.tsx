@@ -1316,7 +1316,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         renderCard(entity, imRaumblock)
       );
   };
-  const renderCell = zellen(orderScope, rest);
+  // Auch hier `imRaumblock`, sobald ein Zimmer offen ist: Über diesen
+  // Weg läuft das Zimmer im Anpassen-Modus und bei eigener Reihenfolge -
+  // dort stand der Raumname sonst weiter unter jeder Kachel.
+  const renderCell = zellen(
+    orderScope,
+    rest,
+    section === 'home' && room !== ALL_ROOMS
+  );
 
   const content = () => {
     // Der Riegel vor Familie und Konto - siehe lib/bereichsriegel.ts. Er
@@ -1825,16 +1832,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               />
             </Pressable>
           ) : null}
-          {orderScope && !searching && rest.length > 1 ? (
-            <Pressable
-              onPress={() => setReorderOpen(true)}
-              accessibilityRole="button"
-              style={({ pressed }) => [styles.reorderButton, pressed && { opacity: 0.8 }]}
-            >
-              <Ionicons name="swap-vertical" size={16} color={colors.onGradient} />
-              <Text style={styles.reorderText}>Reihenfolge ändern</Text>
-            </Pressable>
-          ) : null}
           <Modal
             visible={reorderOpen}
             animationType="slide"
@@ -1964,6 +1961,19 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               <Text style={styles.backText}>Räume</Text>
             </Pressable>
           ) : null}
+          {/* Der Raumname als Überschrift.
+              Im Zimmer stand er nirgends: oben «‹ Räume», darunter
+              «Anpassen», dann «Beleuchtung» - und der einzige Hinweis
+              auf das Zimmer war das kleingedruckte «Büro» unter jeder
+              Kachel, das jetzt zu Recht weg ist. Wer über einen Umweg
+              hierherkam, wusste nicht mehr, wo er steht.
+              Auch im Anpassen-Modus: Gerade dort darf man sich nicht im
+              Zimmer irren. */}
+          {section === 'home' && room !== ALL_ROOMS ? (
+            <Text style={styles.raumTitel} numberOfLines={1}>
+              {room}
+            </Text>
+          ) : null}
           {/* Kacheln anpassen heisst: verschieben, ausblenden, sperren,
               Gruppen vergeben. Es prägt die Ansicht für alle im Haus -
               aber genau darum steht es auch Mitbewohnern zu: Wer hier
@@ -1982,6 +1992,21 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               style={styles.editToggle}
             >
               <Text style={styles.editToggleText}>{editing ? 'Fertig' : 'Anpassen'}</Text>
+            </Pressable>
+          ) : null}
+
+          {/* Hinter «Anpassen» statt davor. Es stand bisher noch vor dem
+              Zurück-Link, also ganz oben - über der Zeile, mit der man
+              die Seite überhaupt verlässt. Erst wohin man ist, dann was
+              man hier tun kann. */}
+          {orderScope && !searching && rest.length > 1 ? (
+            <Pressable
+              onPress={() => setReorderOpen(true)}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.reorderButton, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons name="swap-vertical" size={16} color={colors.onGradient} />
+              <Text style={styles.reorderText}>Reihenfolge ändern</Text>
             </Pressable>
           ) : null}
 
@@ -2168,7 +2193,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 <View key={group.key} style={styles.group}>
                   <Text style={styles.groupLabel}>{group.label}</Text>
                   <View style={styles.grid}>
-                    {cardWidth ? group.items.map((entity) => renderCard(entity)) : null}
+                    {/* `imRaumblock`: Man steht in einem Zimmer, jede
+                        Kachel darin gehört dazu. Ohne das stand unter
+                        jedem der sechs Bürolichter noch einmal «Büro» -
+                        sechsmal dieselbe Auskunft, und die einzige Stelle
+                        im Bild, die den Raum überhaupt nannte. */}
+                    {cardWidth
+                      ? group.items.map((entity) => renderCard(entity, true))
+                      : null}
                   </View>
                 </View>
               ))}
@@ -3329,6 +3361,14 @@ const makeStyles = (colors: Colors) =>
     // genug: durchscheinend gegen fast deckend.
     filterChipText: { color: colors.ink, fontSize: 12, fontWeight: '600' },
     filterChipTextOn: { color: colors.ink, fontWeight: '700' },
+    /** Der Raumname über den Kacheln – so gross wie eine Seitenüberschrift,
+     *  denn genau das ist er. */
+    raumTitel: {
+      color: colors.onGradient,
+      fontSize: 24,
+      fontWeight: '700',
+      marginTop: 2,
+    },
     raumKopf: { gap: 8 },
     raumKopfText: { color: colors.onGradient, fontSize: 15, fontWeight: '600' },
     reorderButton: {
