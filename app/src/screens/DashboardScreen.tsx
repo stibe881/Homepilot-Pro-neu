@@ -54,7 +54,8 @@ import {
   mitMenge,
   shopCategory,
 } from '../lib/einkauf';
-import { uhr } from '../lib/format';
+import { datumUhr, uhr } from '../lib/format';
+import { Erinnerung, anzuzeigende, naechsteAt } from '../lib/erinnerungen';
 import {
   AUTO_SCHLIESSEN_SEKUNDEN,
   KlingelAktion,
@@ -365,6 +366,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // der Kopfzeile lebt davon. Kommt aus dem Hub, nicht vom Gerät: Was
   // Livia einträgt, soll Stefan vorgeschlagen bekommen.
   const [bekannt, setBekannt] = useState<string[]>([]);
+  // Die Erinnerungen des Haushalts - fürs Vollbild zur eingestellten
+  // Zeit. Geladen auf denselben Wegen wie die Einkaufsliste: sofortige
+  // Meldung über den WebSocket, Viertelstunde als Rückfalltakt.
+  const [erinnerungen, setErinnerungen] = useState<Erinnerung[]>([]);
   const ladeEinkauf = useCallback(() => {
     if (!settings.url || !settings.token) return;
     // «still»: Das hier läuft jede Minute. Eine Einblendung je Minute wäre
@@ -382,6 +387,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     hub
       .get<string[]>('/api/shopping/known', { fallback: [], still: true })
       .then((rows) => setBekannt(Array.isArray(rows) ? rows.map(String) : []));
+    hub
+      .get<Erinnerung[]>('/api/family/reminders', {
+        fallback: [] as Erinnerung[],
+        still: true,
+      })
+      .then((rows) => setErinnerungen(Array.isArray(rows) ? rows : []));
   }, [hub, settings.url, settings.token]);
   useEffect(ladeEinkauf, [ladeEinkauf]);
   // Nur noch als Rückfalltakt: Änderungen kommen über den WebSocket
@@ -399,6 +410,39 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   useEffect(() => {
     if (section === 'start') ladeEinkauf();
   }, [section, ladeEinkauf]);
+
+  // Ob eine Erinnerung fällig ist, entscheidet die Uhr dieses Geräts -
+  // der Halbminutentakt läuft nur, solange überhaupt eine offen ist.
+  // So erscheint das Vollbild auch auf dem Wandpanel pünktlich, ohne
+  // dass der Hub einen Wecker bräuchte.
+  const [jetztErinnerung, setJetztErinnerung] = useState(() => Date.now());
+  useTakt(
+    () => setJetztErinnerung(Date.now()),
+    naechsteAt(erinnerungen) !== null ? 30000 : null
+  );
+  const faelligeErinnerungen = useMemo(
+    () => anzuzeigende(erinnerungen, jetztErinnerung),
+    [erinnerungen, jetztErinnerung]
+  );
+  const bestaetigeErinnerung = useCallback(
+    (id: string) => {
+      // Sofort aus dem Bild, dann zum Hub: Wer bestätigt, will das
+      // Vollbild los sein - nicht auf die Antwort warten. Scheitert der
+      // Abruf, holt der Rückfalltakt die Erinnerung zurück, und man
+      // sieht, dass sie noch offen ist.
+      setErinnerungen((liste) =>
+        liste.map((eintrag) =>
+          eintrag.id === id ? { ...eintrag, done: true } : eintrag
+        )
+      );
+      hub
+        .put(`/api/family/reminders/${encodeURIComponent(id)}`, { done: true }, {
+          fallback: null,
+        })
+        .catch(() => {});
+    },
+    [hub]
+  );
 
   /** Einen Eintrag im Laden abhaken - er verschwindet sofort aus der
    *  Kopfzeile, statt bis zum nächsten Abruf stehen zu bleiben. */
@@ -2407,6 +2451,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           />
         ) : null}
 
+        {faelligeErinnerungen.length > 0 ? (
+          <ErinnerungOverlay
+            erinnerungen={faelligeErinnerungen}
+            onBestaetigen={bestaetigeErinnerung}
+            styles={styles}
+          />
+        ) : null}
+
         {klingelt && ringKey && dismissedRing !== ringKey ? (
           <DoorbellOverlay
             ausloeser={klingelt}
@@ -2779,6 +2831,56 @@ function CameraFullscreen({
             <Text style={styles.doorbellCloseText}>Schliessen</Text>
           </Pressable>
         </View>
+      </View>
+    </Modal>
+  );
+}
+
+/**
+ * Die fällige Erinnerung, gross und unübersehbar.
+ *
+ * Kein Kreuz und kein Wegwischen: Sie verschwindet nur über
+ * «Erledigt» - das ist ihr ganzer Sinn. Wer sie nur wegdrücken könnte,
+ * hätte einen hübschen Wecker ohne Gedächtnis. Bestätigt wird beim Hub,
+ * und damit auf allen Bildschirmen zugleich.
+ */
+function ErinnerungOverlay({
+  erinnerungen,
+  onBestaetigen,
+  styles,
+}: {
+  erinnerungen: Erinnerung[];
+  onBestaetigen: (id: string) => void;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  return (
+    <Modal visible animationType="fade" onRequestClose={() => {}}>
+      <View style={styles.doorbellRoot}>
+        <Text style={styles.doorbellTitle}>⏰ Erinnerung</Text>
+        <ScrollView contentContainerStyle={styles.erinnerungListe}>
+          {erinnerungen.map((erinnerung) => (
+            <View key={erinnerung.id} style={styles.erinnerungKarte}>
+              <Text style={styles.erinnerungText}>
+                {String(erinnerung.text ?? '')}
+              </Text>
+              <Text style={styles.erinnerungZeit}>
+                {datumUhr(Number(erinnerung.at))}
+              </Text>
+              <Pressable
+                onPress={() => onBestaetigen(erinnerung.id)}
+                accessibilityRole="button"
+                accessibilityLabel={`Erinnerung «${String(erinnerung.text ?? '')}» erledigt`}
+                style={({ pressed }) => [
+                  styles.erinnerungKnopf,
+                  pressed && { opacity: 0.8 },
+                ]}
+              >
+                <Ionicons name="checkmark" size={22} color="#FFFFFF" />
+                <Text style={styles.erinnerungKnopfText}>Erledigt</Text>
+              </Pressable>
+            </View>
+          ))}
+        </ScrollView>
       </View>
     </Modal>
   );
@@ -3246,6 +3348,35 @@ const makeStyles = (colors: Colors) =>
       fontWeight: '700',
       textAlign: 'center',
     },
+    // Das Erinnerungs-Vollbild teilt den Grund mit der Klingel - beides
+    // sind die zwei Momente, in denen die App von sich aus laut wird.
+    erinnerungListe: { gap: 16, paddingVertical: 12, justifyContent: 'center', flexGrow: 1 },
+    erinnerungKarte: {
+      backgroundColor: '#1B2230',
+      borderRadius: radius.card,
+      padding: 26,
+      gap: 10,
+      alignItems: 'center',
+    },
+    erinnerungText: {
+      color: '#FFFFFF',
+      fontSize: 34,
+      fontWeight: '700',
+      textAlign: 'center',
+      lineHeight: 42,
+    },
+    erinnerungZeit: { color: '#8A94A6', fontSize: 17 },
+    erinnerungKnopf: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      backgroundColor: colors.on,
+      borderRadius: radius.control,
+      paddingVertical: 14,
+      paddingHorizontal: 34,
+      marginTop: 8,
+    },
+    erinnerungKnopfText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
     doorbellImage: {
       flex: 1,
       borderRadius: radius.card,

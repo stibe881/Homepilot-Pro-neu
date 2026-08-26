@@ -89,6 +89,32 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   dasselbe Gerät stand damit an einer Stelle als «Standby» und an der
   anderen als «Bereit».
 
+**Familie**
+
+- **Neue Kachel «Erinnerungen»** (unter Alltag): ein Text, ein Datum,
+  eine Uhrzeit - zur eingestellten Zeit erscheint die Erinnerung
+  **gross auf jedem offenen Bildschirm** und bleibt stehen, bis jemand
+  auf «Erledigt» drückt. Kein Wegwischen: Sie verschwindet nur über die
+  Bestätigung, und die gilt für alle Bildschirme zugleich - auch fürs
+  Wandpanel. Eine Erinnerung verfällt nicht von selbst; wer das Display
+  erst abends sieht, findet die von mittags noch vor.
+- Datum und Uhrzeit sind **Wähler statt Tippfelder**: ein Monatsraster
+  (heute umrandet, Blättern über Pfeile) und zwei Spalten für Stunde
+  und Minute. «26.08.2026» fehlerfrei einzutippen bringt am Wandpanel
+  niemand zustande - und ein Vertipper hiess: die Erinnerung kommt nie.
+  Vorgabe ist die nächste volle Stunde heute.
+- **Eine Erinnerung kann auch als Push kommen.** Zwei Schalter im
+  Formular: *Gross am Bildschirm anzeigen* (die Vorgabe - verschwindet
+  überall, sobald die erste Person bestätigt) und *Push-Nachricht
+  senden*. Beim zweiten wählt man aus, **an wen** - Mehrfachauswahl über
+  die Haushaltsmitglieder, ohne Empfänger geht der Knopf nicht. Den
+  Versand übernimmt der Hub zur eingestellten Zeit, die App muss dafür
+  nicht offen sein; jede Erinnerung wird genau einmal verschickt, auch
+  über einen Neustart hinweg. Eine reine Push-Erinnerung (Bildschirm
+  aus) gilt nach dem Versand als erledigt - es gäbe keinen Bildschirm,
+  auf dem sie jemand bestätigen könnte. In der Liste steht dabei, wer
+  den Push bekommt.
+
 **Startseite und Musik**
 
 - **Die Durchsage-Sätze lassen sich pflegen.** Der Stift im

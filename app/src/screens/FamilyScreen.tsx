@@ -14,7 +14,8 @@ import { useOrte } from '../hooks/useOrte';
 import { ortKennung } from '../lib/orte';
 import { useColors } from '../theme';
 import { RecipeBook } from './RecipeBook';
-import { wochentagDatumKurz, wochentagUhr } from '../lib/format';
+import { datumUhr, wochentagDatumKurz, wochentagUhr } from '../lib/format';
+import { Erinnerung, offene } from '../lib/erinnerungen';
 import {
   Shop,
   einkaufsText,
@@ -89,7 +90,7 @@ import {
 import { tapped } from '../lib/haptics';
 import { kochVorschlaege, vorschlagsGrund, wuerfel } from '../lib/vorschlag';
 import { ROLE_LABELS } from './UsersScreen';
-import { AddRow, BackHead, CheckRow, ChoreAddRow, ContactForm, ContactPhoto, CountdownForm, EventForm, FamilyData, FamilyItem, GroupedChecklist, MealRow, MedicationAddRow, Member, MemberAddRow, ModuleKey, MonthCalendar, Notrufliste, PollAddRow, Props, REPEAT_OPTIONS, SHOP_CATEGORIES, ShoppingAddRow, TaskAddRow, TwoFieldForm, WEEK_DAYS, birthdayLabel, daysUntilBirthday, dueInfo, isoInDays, nextDue, parseSwissDate, pickPhoto, rotateMember } from './family/bausteine';
+import { AddRow, BackHead, CheckRow, ChoreAddRow, ContactForm, ContactPhoto, CountdownForm, ErinnerungForm, EventForm, FamilyData, FamilyItem, GroupedChecklist, MealRow, MedicationAddRow, Member, MemberAddRow, ModuleKey, MonthCalendar, Notrufliste, PollAddRow, Props, REPEAT_OPTIONS, SHOP_CATEGORIES, ShoppingAddRow, TaskAddRow, TwoFieldForm, WEEK_DAYS, birthdayLabel, daysUntilBirthday, dueInfo, isoInDays, nextDue, parseSwissDate, pickPhoto, rotateMember } from './family/bausteine';
 import { makeStyles } from './family/stil';
 
 /**
@@ -218,6 +219,21 @@ export function FamilyScreen({
     () => hubClient(settings.url, settings.token),
     [settings.url, settings.token]
   );
+
+  // Wer eine Push-Erinnerung bekommen kann - die Namen aus der
+  // Benutzerverwaltung des Hubs, nicht die Mitgliederliste dieser Seite:
+  // Push landet nur auf angemeldeten Telefonen, und die hängen an
+  // Hub-Benutzern. Gäste bekommen hier 403; dann bleibt die Liste leer
+  // und das Formular sagt es dazu.
+  const [pushZiele, setPushZiele] = useState<string[]>([]);
+  useEffect(() => {
+    hub
+      .get<{ names?: string[] }>('/api/push/targets', { still: true })
+      .then((payload) => {
+        setPushZiele((payload.names ?? []).filter((name) => typeof name === 'string'));
+      })
+      .catch(() => setPushZiele([]));
+  }, [hub]);
 
   // Die Orte des Hubs - daraus wählt ein Laden seinen, und «ich stehe
   // jetzt hier» legt einen neuen an.
@@ -3671,6 +3687,79 @@ export function FamilyScreen({
     );
   }
 
+  if (view === 'reminders') {
+    const erinnerungen = offene(data.reminders as Erinnerung[] | undefined);
+    const jetzt = Date.now();
+    return (
+      <View style={styles.stack}>
+        <BackHead title="Erinnerungen" onBack={goBack} styles={styles} colors={colors} />
+        <Text style={styles.hint}>
+          Zur eingestellten Zeit erscheint die Erinnerung gross auf jedem
+          offenen Bildschirm - und bleibt, bis jemand sie bestätigt. Auf
+          Wunsch schickt der Hub sie stattdessen oder zusätzlich als
+          Push-Nachricht an ausgewählte Haushaltsmitglieder.
+        </Text>
+        {erinnerungen.map((erinnerung) => {
+          const at = Number(erinnerung.at);
+          const faellig = at <= jetzt;
+          // Woran erkennt man in der Liste, was diese Erinnerung tut?
+          // Bildschirm ist die Regel und bleibt unerwähnt; Push und
+          // «nur Push» stehen dabei, samt Empfängern.
+          const mitPush = erinnerung.push === true;
+          const pushAn = Array.isArray(erinnerung.push_an)
+            ? erinnerung.push_an.filter((name): name is string => typeof name === 'string')
+            : [];
+          const zusatz = mitPush
+            ? ` · Push an ${pushAn.length > 0 ? pushAn.join(', ') : 'alle'}${
+                erinnerung.anzeigen === false ? ' (ohne Bildschirm)' : ''
+              }`
+            : '';
+          return (
+            <Card key={erinnerung.id} style={styles.rewardCard}>
+              <Ionicons
+                name={faellig ? 'alarm' : 'alarm-outline'}
+                size={22}
+                color={faellig ? colors.warn : colors.inkSoft}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.checkText}>{String(erinnerung.text ?? '')}</Text>
+                <Text style={[styles.checkSub, faellig && { color: colors.warn }]}>
+                  {faellig
+                    ? `Fällig seit ${datumUhr(at)} - wartet auf Bestätigung`
+                    : datumUhr(at) + zusatz}
+                </Text>
+              </View>
+              {faellig ? (
+                <Pressable
+                  onPress={() => update('reminders', erinnerung.id, { done: true })}
+                  style={styles.deleteTap}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Erinnerung «${String(erinnerung.text ?? '')}» bestätigen`}
+                >
+                  <Ionicons name="checkmark-circle-outline" size={22} color={colors.on} />
+                </Pressable>
+              ) : null}
+              <Pressable
+                onPress={() => remove('reminders', erinnerung.id)}
+                style={styles.deleteTap}
+                accessibilityRole="button"
+                accessibilityLabel={`Erinnerung «${String(erinnerung.text ?? '')}» löschen`}
+              >
+                <Ionicons name="close" size={18} color={colors.inkFaint} />
+              </Pressable>
+            </Card>
+          );
+        })}
+        <ErinnerungForm
+          onAdd={(eintrag) => add('reminders', eintrag)}
+          mitglieder={pushZiele}
+          styles={styles}
+          colors={colors}
+        />
+      </View>
+    );
+  }
+
   if (view === 'countdowns') {
     const countdowns: FamilyItem[] = data.countdowns ?? [];
     return (
@@ -3880,6 +3969,7 @@ export function FamilyScreen({
     { key: 'routines', icon: 'time-outline', label: 'Routinen', sub: 'Tagesabläufe' },
     { key: 'packlists', icon: 'briefcase-outline', label: 'Packlisten', sub: 'Ferien & Ausflüge' },
     { key: 'countdowns', icon: 'hourglass-outline', label: 'Countdowns', sub: 'Tage zählen' },
+    { key: 'reminders', icon: 'alarm-outline', label: 'Erinnerungen', sub: 'Gross auf dem Schirm oder als Push' },
     { key: 'recipes', icon: 'book-outline', label: 'Rezeptbuch', sub: 'Familienrezepte' },
     { key: 'documents', icon: 'folder-open-outline', label: 'Dokumentsafe', sub: 'Wichtige Angaben' },
   ];

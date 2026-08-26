@@ -44,6 +44,11 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         {
             "tasks", "shopping", "pins", "meals", "contacts", "routines",
             "rewards", "rewards_catalog", "packlists", "countdowns",
+            # «reminders»: Erinnerungen mit Datum und Uhrzeit. Fällig
+            # rechnet jedes Gerät selbst aus seiner Uhr - der Hub ist nur
+            # die geteilte Ablage, und family_changed sagt allen offenen
+            # Apps sofort Bescheid, wenn jemand bestätigt.
+            "reminders",
             "recipes", "documents", "staples", "chores", "medications",
             "emergency", "polls", "shops", "babysitter",
             # «members»: wer zum Haushalt gehört, ohne einen Zugang zu
