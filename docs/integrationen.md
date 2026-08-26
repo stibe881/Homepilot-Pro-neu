@@ -25,6 +25,20 @@ weiter – das ist der Grund, warum Licht, Storen und Schlösser hier stehen.
 | **matter** | Matter-Geräte über den Controller-Dienst | Matter-Fabrik in `hub/matter/` |
 | **mqtt** | Sonoff und andere Tasmota-Geräte | Broker, Benutzer/Passwort |
 | **overkiz** | Somfy TaHoma – Storen, Rollläden, Markisen | Gateway, Zugangsdaten |
+
+Zeigt eine Store einen Zustand, der nicht stimmt, sagt dieser Aufruf, was
+das Gateway wirklich meldet – roh, samt der Rechnung, die der Hub daraus
+macht:
+
+```bash
+docker exec homepilot-hub python -m homepilot.integrations.overkiz \
+    -c /config/config.yaml --geraete
+```
+
+Der Fall, für den es gebaut wurde: Eine **Markise** fährt aus statt zu.
+Overkiz meldet dafür `core:DeploymentState` (0 eingefahren … 100
+draussen) statt `core:ClosureState`. Über die Closure-Rechnung gelesen
+stand eine ausgefahrene Markise als «Geschlossen» da.
 | **nuki** | Smart Lock: auf, zu, aufziehen | Bridge-Token |
 | **tuya** | Lampen, Steckdosen, Projektoren – lokal | Geräte-ID und lokaler Schlüssel |
 | **twinkly** | Lichterketten | IP |

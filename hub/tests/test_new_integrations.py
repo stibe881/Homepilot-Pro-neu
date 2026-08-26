@@ -979,6 +979,35 @@ def test_overkiz_cover_state_position_and_tilt():
     assert state["state"] == "partial"
 
 
+def test_overkiz_an_awning_counts_the_other_way():
+    """Der gemeldete Fall: «Die Store Terrasse ist geöffnet, wird aber als
+    geschlossen angezeigt.»
+
+    Eine Markise fährt *aus* statt *zu*. Overkiz meldet dafür den
+    Ausfahrgrad und nicht die Geschlossenheit - über die
+    Closure-Rechnung gelesen stand eine ganz ausgefahrene Markise als
+    «Position 0» da, also «Geschlossen».
+    """
+    from homepilot.integrations.overkiz import cover_state
+
+    # Ganz draussen heisst offen.
+    zustand = cover_state({"core:DeploymentState": 100})
+    assert zustand["position"] == 100
+    assert zustand["state"] == "open"
+    # Eingefahren heisst geschlossen.
+    assert cover_state({"core:DeploymentState": 0})["state"] == "closed"
+    # Halb draussen ist halb offen - nicht halb zu.
+    assert cover_state({"core:DeploymentState": 30})["position"] == 30
+
+    # Meldet ein Gerät beides, gilt der Ausfahrgrad: Nur Markisen haben
+    # ihn überhaupt, und dann ist er die richtige Angabe.
+    beides = cover_state({"core:DeploymentState": 100, "core:ClosureState": 100})
+    assert beides["position"] == 100
+
+    # Eine Store ohne Ausfahrgrad rechnet unverändert wie bisher.
+    assert cover_state({"core:ClosureState": 100})["state"] == "closed"
+
+
 def test_overkiz_learned_travel():
     from homepilot.integrations.overkiz import learned_travel
 
