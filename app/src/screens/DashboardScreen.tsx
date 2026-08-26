@@ -1199,6 +1199,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           : null
       }
       pending={pending[entity.id]}
+      // Die letzte Absage des Hubs. Sie geht nur in die Fernbedienung –
+      // die ist ein Modal und deckt das Band am unteren Rand zu, in dem
+      // sie sonst steht.
+      fehler={error}
+      onFehlerWeg={dismissError}
       // Nur unter «Geräte»: Wo kommt das Gerät überall vor? Antippen
       // führt zu den Abläufen.
       usedIn={

@@ -180,9 +180,56 @@ PAIR_HINT = (
     "python -m homepilot.integrations.androidtv -c config.yaml"
 )
 
+# Was der Benutzer liest, wenn eine Taste ins Leere geht. Der Grund gehört
+# dazu: «Der Befehl ist fehlgeschlagen» beantwortet keine einzige Frage,
+# und die englische Meldung der Bibliothek («Called send_key_command after
+# disconnect») erst recht nicht.
+NICHT_ERREICHBAR = (
+    "Fernseher nicht erreichbar – ist er am Strom und im selben Netz?"
+)
+NICHT_GEKOPPELT = (
+    "Fernseher nicht gekoppelt – die Kopplung muss einmal am Gerät "
+    "bestätigt werden (siehe Hub-Protokoll)."
+)
+
+
+def absage(gekoppelt: bool) -> str:
+    """Warum eine Taste nicht ankam (rein, testbar).
+
+    Zwei Fälle, zwei ganz verschiedene nächste Schritte: Ein nicht
+    gekoppelter Fernseher braucht einen Menschen davor, ein nicht
+    erreichbarer nur Strom und Netz. Sie zu vermengen hiesse, jemanden
+    zum falschen Gerät zu schicken.
+    """
+    return NICHT_ERREICHBAR if gekoppelt else NICHT_GEKOPPELT
+
 
 class AndroidTvIntegration(Integration):
     name = "androidtv"
+
+    def __init__(self, hub: Any, config: dict[str, Any]) -> None:
+        """Die Zustandstabellen entstehen hier und nicht in ``setup``.
+
+        Ein Befehl kann eintreffen, bevor ``setup`` durch ist oder
+        nachdem es fehlschlug – die Entitäten stehen dann längst in der
+        Registry, und der Hub versucht das Setup erst in fünf Minuten
+        wieder. Lagen die Tabellen im ``setup``, wurde aus der klaren
+        Absage «Fernseher nicht erreichbar» ein ``AttributeError``.
+        """
+        super().__init__(hub, config)
+        self._remotes: dict[str, Any] = {}
+        # Ob die Kopplung je zustande kam. Entscheidet nur darüber, welche
+        # Absage der Benutzer liest – die beiden Fälle haben verschiedene
+        # nächste Schritte (siehe ``absage``).
+        self._gekoppelt: dict[str, bool] = {}
+        # Laufende Einschlaf-Timer je Gerät.
+        self._sleep: dict[str, asyncio.Task] = {}
+        # Der Einschlaf-Timer als eigene Kachel: je Fernseher eine
+        # Timer-Entität, die denselben Timer zeigt und stellt. Bisher gab
+        # es ihn nur in der Fernsehkachel – wer ihn als Favorit griffbereit
+        # wollte, musste den ganzen Fernseher favorisieren.
+        self._timer_of: dict[str, str] = {}  # TV-Id → Timer-Id
+        self._tv_of: dict[str, str] = {}  # Timer-Id → TV-Id
 
     async def setup(self) -> None:
         devices = self.config.get("devices") or []
@@ -197,15 +244,6 @@ class AndroidTvIntegration(Integration):
             ) from err
 
         cert_dir = self.config.get("cert_dir") or str(Path(self.hub.config.data_file).parent)
-        self._remotes: dict[str, Any] = {}
-        # Laufende Einschlaf-Timer je Gerät.
-        self._sleep: dict[str, asyncio.Task] = {}
-        # Der Einschlaf-Timer als eigene Kachel: je Fernseher eine
-        # Timer-Entität, die denselben Timer zeigt und stellt. Bisher gab
-        # es ihn nur in der Fernsehkachel – wer ihn als Favorit griffbereit
-        # wollte, musste den ganzen Fernseher favorisieren.
-        self._timer_of: dict[str, str] = {}  # TV-Id → Timer-Id
-        self._tv_of: dict[str, str] = {}  # Timer-Id → TV-Id
 
         for device in devices:
             host = device.get("host")
@@ -266,6 +304,7 @@ class AndroidTvIntegration(Integration):
             except Exception:
                 pass
         self._remotes.clear()
+        self._gekoppelt.clear()
 
     # ── Gerät → Hub ────────────────────────────────────────────────────────
 
@@ -274,7 +313,6 @@ class AndroidTvIntegration(Integration):
 
         certfile, keyfile = cert_paths(cert_dir, host)
         remote = AndroidTVRemote("homepilot", certfile, keyfile, host)
-        self._remotes[entity_id] = remote
         await remote.async_generate_cert_if_missing()
 
         while True:
@@ -285,6 +323,7 @@ class AndroidTvIntegration(Integration):
                 # Pairing braucht einen Menschen vor dem Fernseher –
                 # Dauer-Wiederholung wäre sinnlos.
                 self.log.warning("Android TV %s %s", host, PAIR_HINT)
+                self._gekoppelt[entity_id] = False
                 await self.hub.registry.update_state(entity_id, {"state": "off"}, available=False)
                 return
             except asyncio.CancelledError:
@@ -292,6 +331,14 @@ class AndroidTvIntegration(Integration):
             except Exception as err:
                 self.log.debug("Android TV %s nicht erreichbar (%s), neuer Versuch in 30s", host, err)
                 await asyncio.sleep(30)
+
+        # Erst jetzt eintragen. Vorher stand die Fernbedienung schon in
+        # `_remotes`, während sie noch gar nicht verbunden war – die Prüfung
+        # in `handle_command` lief damit ins Leere, und jeder Tastendruck
+        # endete in der englischen Meldung der Bibliothek statt in einem
+        # Satz, der sagt, was zu tun ist.
+        self._remotes[entity_id] = remote
+        self._gekoppelt[entity_id] = True
 
         def push(*_args: Any) -> None:
             asyncio.get_running_loop().create_task(self._push_state(entity_id, remote))
@@ -373,7 +420,13 @@ class AndroidTvIntegration(Integration):
         remote = self._remotes.get(entity_id)
         if remote is not None and remote.is_on:
             self.log.info("Einschlaf-Timer abgelaufen: %s geht aus", entity_id)
-            remote.send_key_command("KEYCODE_POWER")
+            try:
+                self._taste(entity_id, remote, "KEYCODE_POWER")
+            except ConnectionError as err:
+                # Niemand steht davor, den man fragen könnte – der Timer ist
+                # ohnehin schon abgeräumt. Also nur notieren.
+                self.log.warning("Einschlaf-Timer konnte %s nicht ausschalten: %s",
+                                 entity_id, err)
 
     # ── Hub → Gerät ────────────────────────────────────────────────────────
 
@@ -386,29 +439,59 @@ class AndroidTvIntegration(Integration):
             if command != "sleep_timer":
                 raise ValueError("Die Timer-Kachel kennt nur sleep_timer")
             if self._remotes.get(tv_id) is None:
-                raise ConnectionError("Android TV ist nicht verbunden")
+                raise ConnectionError(absage(self._gekoppelt.get(tv_id, True)))
             await self._set_sleep(tv_id, data.get("minutes"))
             return
         remote = self._remotes.get(entity.id)
         if remote is None:
-            raise ConnectionError("Android TV ist nicht verbunden")
+            raise ConnectionError(absage(self._gekoppelt.get(entity.id, True)))
         if command == "toggle":
             command = "turn_off" if entity.state.get("state") == "on" else "turn_on"
         if command in ("turn_on", "turn_off"):
             # Es gibt nur eine Power-Taste; nichts tun, wenn der Zustand schon stimmt.
             if (command == "turn_on") != bool(remote.is_on):
-                remote.send_key_command("KEYCODE_POWER")
+                self._taste(entity.id, remote, "KEYCODE_POWER")
             return
         if command == "launch_app":
             app = data.get("app")
             if not app:
                 raise ValueError("launch_app braucht data.app (Paket-ID oder Link)")
-            remote.send_launch_app_command(str(app))
+            self._senden(entity.id, lambda: remote.send_launch_app_command(str(app)))
             return
         if command == "sleep_timer":
             await self._set_sleep(entity.id, data.get("minutes"))
             return
-        remote.send_key_command(KEYMAP[command])
+        self._taste(entity.id, remote, KEYMAP[command])
+
+    def _taste(self, entity_id: str, remote: Any, key: str) -> None:
+        self._senden(entity_id, lambda: remote.send_key_command(key))
+
+    def _senden(self, entity_id: str, tun: Any) -> None:
+        """Etwas an den Fernseher schicken – und Fehlschläge übersetzen.
+
+        ``send_key_command`` ist nicht blockierend: Es legt die Taste in
+        den Puffer und kommt sofort zurück. Ist die Verbindung inzwischen
+        weg – der Fernseher wurde vom Netz genommen, das WLAN hakt, die
+        Wiederverbindung läuft gerade –, wirft es ``ConnectionClosed``.
+        Ungefiltert stand das dann als «Called send_key_command after
+        disconnect» in der App: richtig, aber unbrauchbar.
+        """
+        try:
+            tun()
+        except Exception as err:
+            # Am Namen und nicht am Typ: `androidtvremote2` wird bewusst
+            # erst in `_device_loop` importiert, damit der Hub auch ohne
+            # die Bibliothek startet (und die Tests ohne sie laufen). Ein
+            # `except ConnectionClosed` hier oben bräuchte sie zur
+            # Ladezeit des Moduls.
+            if type(err).__name__ != "ConnectionClosed":
+                raise
+            # Die Verbindung ist weg; `keep_reconnecting` versucht es von
+            # sich aus weiter. Hier zählt nur, dass die Taste nicht ankam.
+            self.log.info("Taste an %s ging ins Leere: %s", entity_id, err)
+            raise ConnectionError(
+                absage(self._gekoppelt.get(entity_id, True))
+            ) from err
 
 
 INTEGRATION = AndroidTvIntegration
