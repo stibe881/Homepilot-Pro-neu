@@ -4,7 +4,7 @@
  * Herausgelöst aus FamilyScreen.tsx (Punkt 21 der Werkbank).
  */
 import { Ionicons } from '@expo/vector-icons';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Image, Linking, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 
@@ -27,7 +27,7 @@ import { tapped } from '../../lib/haptics';
 export type FamilyItem = Record<string, any>;
 
 export type FamilyData = Record<string, FamilyItem[]>;
-import { zeitpunkt } from '../../lib/erinnerungen';
+import { monatsSprung, monatsraster } from '../../lib/erinnerungen';
 import { makeStyles } from './stil';
 
 export type Styles = ReturnType<typeof makeStyles>;
@@ -1632,10 +1632,157 @@ export function TwoFieldForm({
 /** Countdown erfassen: Anlass, Datum und ob er auf die Startseite soll. */
 /** Formular für eine Erinnerung: Text, Datum, Uhrzeit.
  *
- *  Drei Felder statt eines Wählers - dieselbe Machart wie beim
- *  Countdown darüber. Der Knopf bleibt stumm, solange die Zeit nicht
- *  lesbar ist; ein stiller Eintrag, der nie feuert, wäre schlimmer als
- *  ein Knopf, der nicht drückt. */
+ *  Datum und Zeit als Wähler statt Tippfelder - «26.08.2026» fehlerfrei
+ *  einzutippen bringt am Wandpanel niemand zustande, und ein Vertipper
+ *  hiess: die Erinnerung kommt nie oder am falschen Tag. Der eigene
+ *  Wähler statt des nativen, weil er überall gleich aussieht und
+ *  funktioniert - auch im Browser und auf dem Panel, wo es keinen
+ *  nativen gibt. */
+const MONATE = [
+  'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
+  'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember',
+];
+const WOCHENTAG_KURZ = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+
+function DatumsRaster({
+  jahr,
+  monat,
+  tag,
+  onTag,
+  onBlaettern,
+  styles,
+  colors,
+}: {
+  jahr: number;
+  monat: number;
+  tag: number | null;
+  onTag: (tag: number) => void;
+  onBlaettern: (schritt: number) => void;
+  styles: Styles;
+  colors: Colors;
+}) {
+  const heute = new Date();
+  const istHeute = (t: number) =>
+    t === heute.getDate() && monat === heute.getMonth() + 1 && jahr === heute.getFullYear();
+  return (
+    <View style={styles.rasterBox}>
+      <View style={styles.rasterKopf}>
+        <Pressable
+          onPress={() => onBlaettern(-1)}
+          accessibilityRole="button"
+          accessibilityLabel="Voriger Monat"
+          style={styles.rasterPfeil}
+        >
+          <Ionicons name="chevron-back" size={18} color={colors.inkSoft} />
+        </Pressable>
+        <Text style={styles.rasterMonat}>
+          {MONATE[monat - 1]} {jahr}
+        </Text>
+        <Pressable
+          onPress={() => onBlaettern(1)}
+          accessibilityRole="button"
+          accessibilityLabel="Nächster Monat"
+          style={styles.rasterPfeil}
+        >
+          <Ionicons name="chevron-forward" size={18} color={colors.inkSoft} />
+        </Pressable>
+      </View>
+      <View style={styles.rasterZeile}>
+        {WOCHENTAG_KURZ.map((name) => (
+          <Text key={name} style={styles.rasterWochentag}>
+            {name}
+          </Text>
+        ))}
+      </View>
+      {monatsraster(jahr, monat).map((woche, index) => (
+        <View key={index} style={styles.rasterZeile}>
+          {woche.map((zelle, spalte) =>
+            zelle === null ? (
+              <View key={`leer-${spalte}`} style={styles.rasterZelle} />
+            ) : (
+              <Pressable
+                key={zelle}
+                onPress={() => onTag(zelle)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: zelle === tag }}
+                accessibilityLabel={`${zelle}. ${MONATE[monat - 1]} ${jahr}`}
+                style={[
+                  styles.rasterZelle,
+                  istHeute(zelle) && styles.rasterHeute,
+                  zelle === tag && styles.rasterZelleAktiv,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.rasterZelleText,
+                    zelle === tag && styles.rasterZelleTextAktiv,
+                  ]}
+                >
+                  {zelle}
+                </Text>
+              </Pressable>
+            )
+          )}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/** Eine Scroll-Spalte des Zeitwählers (Stunden oder Minuten). */
+function ZeitSpalte({
+  werte,
+  wert,
+  onWert,
+  label,
+  styles,
+}: {
+  werte: number[];
+  wert: number;
+  onWert: (wert: number) => void;
+  label: string;
+  styles: Styles;
+}) {
+  const ref = useRef<ScrollView>(null);
+  // Beim Öffnen zur Auswahl springen - eine Spalte, die bei 00 beginnt,
+  // während 18 gewählt ist, sähe aus wie nicht gewählt.
+  useEffect(() => {
+    const index = werte.indexOf(wert);
+    if (index > 1) {
+      ref.current?.scrollTo({ y: index * 36 - 60, animated: false });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return (
+    <ScrollView
+      ref={ref}
+      style={styles.zeitSpalte}
+      accessibilityLabel={label}
+      nestedScrollEnabled
+    >
+      {werte.map((eintrag) => (
+        <Pressable
+          key={eintrag}
+          onPress={() => onWert(eintrag)}
+          accessibilityRole="button"
+          accessibilityState={{ selected: eintrag === wert }}
+          accessibilityLabel={`${label} ${eintrag}`}
+          style={[styles.zeitEintrag, eintrag === wert && styles.zeitEintragAktiv]}
+        >
+          <Text
+            style={[
+              styles.zeitEintragText,
+              eintrag === wert && styles.zeitEintragTextAktiv,
+            ]}
+          >
+            {String(eintrag).padStart(2, '0')}
+          </Text>
+        </Pressable>
+      ))}
+    </ScrollView>
+  );
+}
+
 export function ErinnerungForm({
   onAdd,
   styles,
@@ -1646,10 +1793,26 @@ export function ErinnerungForm({
   colors: Colors;
 }) {
   const [text, setText] = useState('');
-  const [datum, setDatum] = useState('');
-  const [zeit, setZeit] = useState('');
-  const at = zeitpunkt(datum, zeit);
-  const bereit = !!text.trim() && at !== null;
+  // Vorgabe: heute, zur nächsten vollen Stunde - der häufigste Fall ist
+  // «nachher», nicht «nächste Woche».
+  const [wann, setWann] = useState(() => {
+    const gleich = new Date(Date.now() + 3_600_000);
+    return {
+      jahr: gleich.getFullYear(),
+      monat: gleich.getMonth() + 1,
+      tag: gleich.getDate(),
+      stunde: gleich.getHours(),
+      minute: 0,
+    };
+  });
+  // Welcher Wähler offen ist - immer nur einer, sonst wird die Karte
+  // länger als der Schirm.
+  const [offenerWaehler, setOffenerWaehler] = useState<'datum' | 'zeit' | null>(null);
+  const bereit = !!text.trim();
+
+  const datumText = `${WOCHENTAG_KURZ[(new Date(wann.jahr, wann.monat - 1, wann.tag).getDay() + 6) % 7]}, ${String(wann.tag).padStart(2, '0')}.${String(wann.monat).padStart(2, '0')}.${wann.jahr}`;
+  const zeitText = `${String(wann.stunde).padStart(2, '0')}:${String(wann.minute).padStart(2, '0')}`;
+
   return (
     <Card style={styles.formCard}>
       <TextInput
@@ -1659,34 +1822,77 @@ export function ErinnerungForm({
         placeholder="Woran erinnern? (z.B. Ofen ausschalten)"
         placeholderTextColor={colors.inkSoft}
       />
-      <TextInput
-        style={styles.input}
-        value={datum}
-        onChangeText={setDatum}
-        placeholder="Datum (TT.MM.JJJJ)"
-        placeholderTextColor={colors.inkSoft}
-        keyboardType="numbers-and-punctuation"
-      />
-      <TextInput
-        style={styles.input}
-        value={zeit}
-        onChangeText={setZeit}
-        placeholder="Uhrzeit (HH:MM)"
-        placeholderTextColor={colors.inkSoft}
-        keyboardType="numbers-and-punctuation"
-      />
-      {datum.trim() && zeit.trim() && at === null ? (
-        <Text style={{ color: colors.warn, fontSize: 12 }}>
-          Das ist kein Datum mit Uhrzeit - z.B. 26.08.2026 und 18:30.
-        </Text>
+      <View style={styles.wahlZeile}>
+        <Pressable
+          onPress={() => setOffenerWaehler((offen) => (offen === 'datum' ? null : 'datum'))}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: offenerWaehler === 'datum' }}
+          accessibilityLabel={`Datum: ${datumText}`}
+          style={[styles.wahlFeld, offenerWaehler === 'datum' && styles.wahlFeldAktiv]}
+        >
+          <Ionicons name="calendar-outline" size={17} color={colors.inkSoft} />
+          <Text style={styles.wahlFeldText}>{datumText}</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => setOffenerWaehler((offen) => (offen === 'zeit' ? null : 'zeit'))}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: offenerWaehler === 'zeit' }}
+          accessibilityLabel={`Uhrzeit: ${zeitText}`}
+          style={[styles.wahlFeld, offenerWaehler === 'zeit' && styles.wahlFeldAktiv]}
+        >
+          <Ionicons name="time-outline" size={17} color={colors.inkSoft} />
+          <Text style={styles.wahlFeldText}>{zeitText}</Text>
+        </Pressable>
+      </View>
+      {offenerWaehler === 'datum' ? (
+        <DatumsRaster
+          jahr={wann.jahr}
+          monat={wann.monat}
+          tag={wann.tag}
+          onTag={(tag) => {
+            setWann((alt) => ({ ...alt, tag }));
+            setOffenerWaehler(null);
+          }}
+          onBlaettern={(schritt) =>
+            setWann((alt) => {
+              const neu = monatsSprung(alt.jahr, alt.monat, schritt);
+              // Der 31. in einem Monat mit 30 Tagen: auf den letzten
+              // gültigen Tag zurückziehen statt still überzulaufen.
+              const tage = new Date(neu.jahr, neu.monat, 0).getDate();
+              return { ...alt, ...neu, tag: Math.min(alt.tag, tage) };
+            })
+          }
+          styles={styles}
+          colors={colors}
+        />
+      ) : null}
+      {offenerWaehler === 'zeit' ? (
+        <View style={styles.zeitSpalten}>
+          <ZeitSpalte
+            werte={Array.from({ length: 24 }, (_, i) => i)}
+            wert={wann.stunde}
+            onWert={(stunde) => setWann((alt) => ({ ...alt, stunde }))}
+            label="Stunde"
+            styles={styles}
+          />
+          <ZeitSpalte
+            werte={Array.from({ length: 60 }, (_, i) => i)}
+            wert={wann.minute}
+            onWert={(minute) => setWann((alt) => ({ ...alt, minute }))}
+            label="Minute"
+            styles={styles}
+          />
+        </View>
       ) : null}
       <Pressable
         onPress={() => {
           if (!bereit) return;
-          onAdd(text.trim(), at!);
+          onAdd(
+            text.trim(),
+            new Date(wann.jahr, wann.monat - 1, wann.tag, wann.stunde, wann.minute).getTime()
+          );
           setText('');
-          setDatum('');
-          setZeit('');
+          setOffenerWaehler(null);
         }}
         accessibilityRole="button"
         accessibilityState={{ disabled: !bereit }}

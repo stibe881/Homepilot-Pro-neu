@@ -80,3 +80,34 @@ export function naechsteAt(liste: Erinnerung[] | undefined): number | null {
   const erste = offene(liste)[0];
   return erste ? wann(erste) : null;
 }
+
+/** Die Wochen eines Monats als Raster (rein, testbar).
+ *
+ *  Für den Datums-Wähler: Jede Woche eine Zeile Montag-Sonntag, leere
+ *  Plätze vor dem Ersten und nach dem Letzten als null. Montag zuerst -
+ *  so hängen die Kalender in diesem Haushalt.
+ */
+export function monatsraster(jahr: number, monat: number): (number | null)[][] {
+  const erster = new Date(jahr, monat - 1, 1);
+  const tage = new Date(jahr, monat, 0).getDate();
+  // getDay(): 0 = Sonntag. Auf Montag = 0 gedreht.
+  const versatz = (erster.getDay() + 6) % 7;
+  const zellen: (number | null)[] = [
+    ...Array.from({ length: versatz }, () => null),
+    ...Array.from({ length: tage }, (_, i) => i + 1),
+  ];
+  while (zellen.length % 7 !== 0) zellen.push(null);
+  const wochen: (number | null)[][] = [];
+  for (let i = 0; i < zellen.length; i += 7) wochen.push(zellen.slice(i, i + 7));
+  return wochen;
+}
+
+/** Monat blättern: 13 wird Januar des Folgejahres (rein, testbar). */
+export function monatsSprung(
+  jahr: number,
+  monat: number,
+  schritt: number
+): { jahr: number; monat: number } {
+  const roh = new Date(jahr, monat - 1 + schritt, 1);
+  return { jahr: roh.getFullYear(), monat: roh.getMonth() + 1 };
+}

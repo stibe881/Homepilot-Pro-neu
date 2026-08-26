@@ -98,6 +98,11 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   Bestätigung, und die gilt für alle Bildschirme zugleich - auch fürs
   Wandpanel. Eine Erinnerung verfällt nicht von selbst; wer das Display
   erst abends sieht, findet die von mittags noch vor.
+- Datum und Uhrzeit sind **Wähler statt Tippfelder**: ein Monatsraster
+  (heute umrandet, Blättern über Pfeile) und zwei Spalten für Stunde
+  und Minute. «26.08.2026» fehlerfrei einzutippen bringt am Wandpanel
+  niemand zustande - und ein Vertipper hiess: die Erinnerung kommt nie.
+  Vorgabe ist die nächste volle Stunde heute.
 
 **Startseite und Musik**
 

@@ -1,4 +1,4 @@
-import { faellige, naechsteAt, offene, zeitpunkt } from './erinnerungen';
+import { faellige, monatsSprung, monatsraster, naechsteAt, offene, zeitpunkt } from './erinnerungen';
 
 describe('zeitpunkt', () => {
   it('liest Schweizer Datum und Uhrzeit', () => {
@@ -55,5 +55,26 @@ describe('faellige und offene', () => {
     expect(naechsteAt(liste)).toBe(500);
     expect(naechsteAt([])).toBeNull();
     expect(naechsteAt(undefined)).toBeNull();
+  });
+});
+
+describe('monatsraster', () => {
+  it('beginnt beim Montag und füllt Ränder mit null', () => {
+    // August 2026: der 1. ist ein Samstag → fünf leere Plätze davor.
+    const raster = monatsraster(2026, 8);
+    expect(raster[0]).toEqual([null, null, null, null, null, 1, 2]);
+    // Der 31. ist ein Montag → sechs leere danach.
+    expect(raster[raster.length - 1]).toEqual([31, null, null, null, null, null, null]);
+    expect(raster.every((woche) => woche.length === 7)).toBe(true);
+  });
+
+  it('kennt den Schaltfebruar', () => {
+    const tage = monatsraster(2028, 2).flat().filter((t) => t !== null);
+    expect(tage).toHaveLength(29);
+  });
+
+  it('blättert über den Jahresrand', () => {
+    expect(monatsSprung(2026, 12, 1)).toEqual({ jahr: 2027, monat: 1 });
+    expect(monatsSprung(2026, 1, -1)).toEqual({ jahr: 2025, monat: 12 });
   });
 });
