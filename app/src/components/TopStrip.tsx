@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 
 import { CommandData, Entity, KalenderEintrag } from '../api/types';
-import { hasOpenDoor, openContacts } from './OpenDoors';
+import { hasOpenDoor, openContacts, wohnungstuerOffen } from './OpenDoors';
 import {
   EinkaufZeile,
   ALLGEMEIN,
@@ -194,6 +194,11 @@ export function TopStrip({
   // Ein gekipptes Fenster ist eine Notiz, eine offene Wohnungstüre etwas,
   // das man jetzt wissen will - deshalb blinkt nur die Türe.
   const tuerOffen = hasOpenDoor(entities);
+  // Und unter den Türen noch einmal eine Stufe: Eine offene Balkontüre
+  // ist ärgerlich, eine offene Wohnungstüre ist etwas anderes. Sie
+  // bekommt darum das Rot - ohne sie bleibt es beim Orange, mit dem der
+  // Streifen alles Übrige meldet.
+  const wohnungOffen = wohnungstuerOffen(entities);
   const einkauf = shopping ?? [];
   const laeden = [ALLGEMEIN, ...(shops ?? [])];
   const laden = laeden.find((entry) => entry.id === shopId) ?? ALLGEMEIN;
@@ -260,8 +265,20 @@ export function TopStrip({
           <Blinkend an={tuerOffen}>
             <Chip
               icon="alert-circle-outline"
-              tone={colors.warn}
-              text={offen.length === 1 ? '1 offen' : `${offen.length} offen`}
+              tone={wohnungOffen ? colors.danger : colors.warn}
+              // Bei der Wohnungstüre sagt der Streifen auch, welche
+              // gemeint ist: Rot allein liesse einen die Zahl antippen,
+              // um zu erfahren, ob es die eine ist, wegen der man
+              // aufsteht.
+              text={
+                wohnungOffen
+                  ? offen.length === 1
+                    ? 'Wohnungstüre offen'
+                    : `Wohnungstüre offen · ${offen.length}`
+                  : offen.length === 1
+                    ? '1 offen'
+                    : `${offen.length} offen`
+              }
               onPress={() => setOpenOpen(true)}
             />
           </Blinkend>
