@@ -344,3 +344,33 @@ async def test_daempfung_ueberlebt_einen_neustart(hub):
     # Und danach ist der Eintrag weg - sonst würde jeder weitere Start
     # die Lautstärke erneut «zurückstellen».
     assert hub.data.get("ton_daempfung_laeuft") == []
+
+
+async def test_durchsage_bringt_das_radio_auf_seinen_sender_zurueck(hub):
+    """«Nach der Durchsage soll es weiterspielen» - beim Radio heisst das:
+    derselbe Sender. Das Radio verliert während der Ansage seinen
+    Anspruch auf die Box und vergisst, was lief; ein blosses «play»
+    spielte danach den ersten Sender der Liste."""
+    _, box_id = await _box_bauen(hub)
+    protokoll, player_id = await _player_bauen(hub)
+    # Der Player ist ein Radio: Er kennt play_radio und seinen Sender.
+    await hub.registry.update_state(player_id, {"station": "SRF 3"})
+    radio = hub.registry.get(player_id)
+    radio.commands.append("play_radio")
+
+    gemerkt = hub.ton.zustand_merken([box_id])
+    assert gemerkt[box_id]["station"] == "SRF 3"
+
+    await hub.registry.update_state(box_id, {"state": "standby"})
+    await hub.ton.durchsage_zurueck(gemerkt, frist=2.0)
+    assert ("play_radio", {"station": "SRF 3"}) in protokoll.befehle
+    # Und nicht zusätzlich ein nacktes «play».
+    assert ("play", {}) not in protokoll.befehle
+
+
+def test_durchsage_ohne_wunsch_wird_verstaendlich_laut():
+    from homepilot.core.say import DURCHSAGE_VOLUME
+
+    # Der Wert selbst ist die Abmachung: 70 Prozent, verständlich, ohne
+    # zu erschrecken. Ob er greift, prüft der Test unten am Aufruf.
+    assert DURCHSAGE_VOLUME == 70

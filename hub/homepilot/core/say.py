@@ -37,6 +37,9 @@ log = logging.getLogger(__name__)
 
 MAX_TEXT = 200
 
+# Lautstärke einer Durchsage, wenn niemand eine nennt - in Prozent.
+DURCHSAGE_VOLUME = 70
+
 # So viele gesprochene Sätze bleiben im Vorrat. Ein MP3 sind ~20-50 KB;
 # die Standardsätze eines Haushalts sind eine Handvoll.
 CACHE_LIMIT = 40
@@ -115,6 +118,13 @@ async def speak(
     source: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Eine Durchsage machen. Wirft HomePilotError mit lesbarem Grund."""
+    # Ohne Wunsch aus App oder Ablauf: eine feste, verständliche
+    # Lautstärke. Vorher spielte die Ansage so laut, wie die Box gerade
+    # stand - nach leiser Abendmusik war «Essen ist fertig» ein Flüstern,
+    # nach einer Party ein Schreck. Gesetzt wird sie von der Box direkt
+    # vor dem Abspielen; zurück auf vorher stellt durchsage_zurueck.
+    if volume is None:
+        volume = DURCHSAGE_VOLUME
     cleaned = (text or "").strip()
     if not cleaned:
         raise HomePilotError("Ohne Text keine Durchsage.")
