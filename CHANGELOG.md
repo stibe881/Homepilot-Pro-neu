@@ -89,6 +89,16 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   dasselbe Gerät stand damit an einer Stelle als «Standby» und an der
   anderen als «Bereit».
 
+**Familie**
+
+- **Neue Kachel «Erinnerungen»** (unter Alltag): ein Text, ein Datum,
+  eine Uhrzeit - zur eingestellten Zeit erscheint die Erinnerung
+  **gross auf jedem offenen Bildschirm** und bleibt stehen, bis jemand
+  auf «Erledigt» drückt. Kein Wegwischen: Sie verschwindet nur über die
+  Bestätigung, und die gilt für alle Bildschirme zugleich - auch fürs
+  Wandpanel. Eine Erinnerung verfällt nicht von selbst; wer das Display
+  erst abends sieht, findet die von mittags noch vor.
+
 **Startseite und Musik**
 
 - **Die Durchsage-Sätze lassen sich pflegen.** Der Stift im

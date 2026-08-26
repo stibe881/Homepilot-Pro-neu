@@ -27,6 +27,7 @@ import { tapped } from '../../lib/haptics';
 export type FamilyItem = Record<string, any>;
 
 export type FamilyData = Record<string, FamilyItem[]>;
+import { zeitpunkt } from '../../lib/erinnerungen';
 import { makeStyles } from './stil';
 
 export type Styles = ReturnType<typeof makeStyles>;
@@ -64,6 +65,7 @@ export type ModuleKey =
   | 'routines'
   | 'packlists'
   | 'countdowns'
+  | 'reminders'
   | 'recipes'
   | 'documents'
   | 'chores'
@@ -1628,6 +1630,74 @@ export function TwoFieldForm({
 }
 
 /** Countdown erfassen: Anlass, Datum und ob er auf die Startseite soll. */
+/** Formular für eine Erinnerung: Text, Datum, Uhrzeit.
+ *
+ *  Drei Felder statt eines Wählers - dieselbe Machart wie beim
+ *  Countdown darüber. Der Knopf bleibt stumm, solange die Zeit nicht
+ *  lesbar ist; ein stiller Eintrag, der nie feuert, wäre schlimmer als
+ *  ein Knopf, der nicht drückt. */
+export function ErinnerungForm({
+  onAdd,
+  styles,
+  colors,
+}: {
+  onAdd: (text: string, at: number) => void;
+  styles: Styles;
+  colors: Colors;
+}) {
+  const [text, setText] = useState('');
+  const [datum, setDatum] = useState('');
+  const [zeit, setZeit] = useState('');
+  const at = zeitpunkt(datum, zeit);
+  const bereit = !!text.trim() && at !== null;
+  return (
+    <Card style={styles.formCard}>
+      <TextInput
+        style={styles.input}
+        value={text}
+        onChangeText={setText}
+        placeholder="Woran erinnern? (z.B. Ofen ausschalten)"
+        placeholderTextColor={colors.inkSoft}
+      />
+      <TextInput
+        style={styles.input}
+        value={datum}
+        onChangeText={setDatum}
+        placeholder="Datum (TT.MM.JJJJ)"
+        placeholderTextColor={colors.inkSoft}
+        keyboardType="numbers-and-punctuation"
+      />
+      <TextInput
+        style={styles.input}
+        value={zeit}
+        onChangeText={setZeit}
+        placeholder="Uhrzeit (HH:MM)"
+        placeholderTextColor={colors.inkSoft}
+        keyboardType="numbers-and-punctuation"
+      />
+      {datum.trim() && zeit.trim() && at === null ? (
+        <Text style={{ color: colors.warn, fontSize: 12 }}>
+          Das ist kein Datum mit Uhrzeit - z.B. 26.08.2026 und 18:30.
+        </Text>
+      ) : null}
+      <Pressable
+        onPress={() => {
+          if (!bereit) return;
+          onAdd(text.trim(), at!);
+          setText('');
+          setDatum('');
+          setZeit('');
+        }}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: !bereit }}
+        style={[styles.addWide, !bereit && { opacity: 0.5 }]}
+      >
+        <Text style={styles.addWideText}>Erinnerung anlegen</Text>
+      </Pressable>
+    </Card>
+  );
+}
+
 export function CountdownForm({
   onAdd,
   styles,

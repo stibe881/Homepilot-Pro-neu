@@ -1,0 +1,82 @@
+/**
+ * Erinnerungen: zu einer Zeit gross auf dem Schirm, bis jemand bestätigt.
+ *
+ * Der Hub ist nur die geteilte Ablage (Familien-Sammlung «reminders») -
+ * ob eine Erinnerung fällig ist, rechnet jedes Gerät selbst aus seiner
+ * Uhr. So braucht es keinen Wecker im Hub, und das Wandpanel zeigt das
+ * Vollbild auch dann pünktlich, wenn die Verbindung gerade stockte.
+ * Bestätigen schreibt `done` in die Ablage; der Hub meldet die Änderung
+ * allen offenen Apps, und das Vollbild verschwindet überall.
+ */
+
+export interface Erinnerung {
+  id: string;
+  text?: unknown;
+  /** Zielzeitpunkt in Millisekunden seit 1970. */
+  at?: unknown;
+  /** Bestätigt - taucht nirgends mehr auf. */
+  done?: unknown;
+}
+
+/** «TT.MM.JJJJ» + «HH:MM» → Zeitpunkt in ms (rein, testbar).
+ *
+ *  `null`, wenn eine der Angaben keine ist - auch für den 31.02.: Ein
+ *  Datum, das der Kalender nicht kennt, würde JavaScript stumm in den
+ *  März verschieben, und die Erinnerung käme einen Monat zu früh oder
+ *  gar nicht. */
+export function zeitpunkt(datum: string, zeit: string): number | null {
+  const d = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(String(datum ?? '').trim());
+  const z = /^(\d{1,2})[:.](\d{2})$/.exec(String(zeit ?? '').trim());
+  if (!d || !z) return null;
+  const tag = Number(d[1]);
+  const monat = Number(d[2]);
+  const jahr = Number(d[3]);
+  const stunde = Number(z[1]);
+  const minute = Number(z[2]);
+  if (stunde > 23 || minute > 59) return null;
+  const wann = new Date(jahr, monat - 1, tag, stunde, minute);
+  if (
+    wann.getFullYear() !== jahr ||
+    wann.getMonth() !== monat - 1 ||
+    wann.getDate() !== tag
+  ) {
+    return null;
+  }
+  return wann.getTime();
+}
+
+/** Der Zeitpunkt eines Eintrags als Zahl - oder null für Unlesbares. */
+function wann(eintrag: Erinnerung): number | null {
+  const at = Number(eintrag.at);
+  return Number.isFinite(at) && at > 0 ? at : null;
+}
+
+/** Alle offenen, nach Zeit sortiert (rein, testbar). */
+export function offene(liste: Erinnerung[] | undefined): Erinnerung[] {
+  return (liste ?? [])
+    .filter((eintrag) => !eintrag.done && wann(eintrag) !== null)
+    .sort((a, b) => (wann(a) ?? 0) - (wann(b) ?? 0));
+}
+
+/** Was jetzt gross auf den Schirm gehört (rein, testbar).
+ *
+ *  Fällig heisst: Zeitpunkt erreicht und noch nicht bestätigt. Es gibt
+ *  keine Verfallszeit - wer das Display erst abends sieht, soll die
+ *  Erinnerung von mittags noch vorfinden. Genau dafür ist das
+ *  Bestätigen da. */
+export function faellige(
+  liste: Erinnerung[] | undefined,
+  jetztMs: number
+): Erinnerung[] {
+  return offene(liste).filter((eintrag) => (wann(eintrag) ?? Infinity) <= jetztMs);
+}
+
+/** Wann das nächste Vollbild ansteht - für den Prüf-Takt (rein, testbar).
+ *
+ *  `null` heisst: nichts offen, kein Takt nötig. Der Takt selbst bleibt
+ *  grob (die App prüft ohnehin regelmässig); diese Zahl sagt nur, ob
+ *  sich das Ticken überhaupt lohnt. */
+export function naechsteAt(liste: Erinnerung[] | undefined): number | null {
+  const erste = offene(liste)[0];
+  return erste ? wann(erste) : null;
+}
