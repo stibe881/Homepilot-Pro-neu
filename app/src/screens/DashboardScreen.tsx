@@ -99,7 +99,6 @@ import { EnergyScreen } from './EnergyScreen';
 import { SpeakersScreen } from './SpeakersScreen';
 import { SystemScreen } from './SystemScreen';
 import { EntityHistory } from '../components/EntityHistory';
-import { Broadcast } from '../components/Broadcast';
 import { Musikzentrale } from '../components/Musikzentrale';
 import { ClimateOverview } from '../components/ClimateOverview';
 import { KidsView } from '../components/KidsView';
@@ -269,6 +268,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // 'edit_config' als Rückfalltor: Läuft die App gegen einen Hub von
   // vor dieser Fähigkeit, kennt der nur die alte - der Besitzerin soll
   // der Knopf deshalb nicht verschwinden, bis der Hub nachgezogen ist.
+  // Die Durchsage schaltet Lautsprecher - dieselbe Fähigkeit wie jedes
+  // andere Schalten. Ein Gast sieht die Kachel gar nicht erst, statt
+  // beim Antippen ein «nicht erlaubt» einzufangen.
+  const darfSchalten = (user?.capabilities ?? []).includes('control');
+
   const darfAnpassen =
     (user?.capabilities ?? []).includes('edit_devices') ||
     (user?.capabilities ?? []).includes('edit_config');
@@ -576,6 +580,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setKameraDynamisch,
     setFavorites,
     setFavoriteOrder,
+    setDurchsage,
     setBioLock,
     setDoorConfirm,
     setWidgetData,
@@ -738,6 +743,23 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       sendCommand(entityId, command, data);
     },
     [entities, locked, sendCommand, prefs.bioLock, user?.shared]
+  );
+
+  /**
+   * Eine Durchsage von der Startseite aus – hinter der Favoritenkachel.
+   *
+   * Hier und nicht in der Übersicht: Die weiss vom Hub nichts, sie
+   * bekommt Befehle als Funktionen gereicht. Wer nicht schalten darf,
+   * bekommt gar keine Funktion und damit auch keine Kachel.
+   */
+  const sendeDurchsage = useCallback(
+    async (text: string, speakers: string[]) =>
+      hub.post<{ sent?: string[]; errors?: string[] }>(
+        '/api/broadcast',
+        { text, speakers },
+        { still: true }
+      ),
+    [hub]
   );
 
   // Abkürzungen aus dem Widget und von NFC-Aufklebern: homepilot://door
@@ -1334,6 +1356,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               // sonst spränge beim Umstieg alles durcheinander.
               favoriteOrder={eigenePrefs.favoriteOrder ?? prefs.order?.favorites}
               onReorderFavorites={setFavoriteOrder}
+              onDurchsage={darfSchalten ? sendeDurchsage : undefined}
+              durchsage={eigenePrefs.durchsage}
+              onDurchsagePrefs={setDurchsage}
               onRenameEntity={
                 darfAnpassen
                   ? (entityId, name) => setEntityMeta(entityId, { name })
@@ -1541,7 +1566,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           {back}
           <>
             <Musikzentrale settings={settings} entities={entities} />
-            <Broadcast settings={settings} entities={entities} />
+            {/* Die Durchsage stand hier als breite Karte: ein leeres
+                Textfeld und darunter fünfzehn Boxennamen als Chips.
+                Drei Ecken von dort entfernt, wo man sie braucht. Sie
+                sitzt jetzt als Kachel bei den Favoriten auf der
+                Startseite - siehe DurchsageFenster in
+                OverviewScreen.tsx. */}
             <SpeakersScreen settings={settings} />
           </>
         </View>

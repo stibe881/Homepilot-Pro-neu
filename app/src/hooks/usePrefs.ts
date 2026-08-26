@@ -70,6 +70,18 @@ export interface UserPrefs {
   favorites?: string[];
   /** Die selbst gezogene Reihenfolge der eigenen Favoriten. */
   favoriteOrder?: string[];
+  /** Die Durchsage-Kachel auf der Startseite: zuletzt gewählte Box und
+   *  die selbst getippten Sätze. Persönlich, weil beides es ist - wer
+   *  vom Büro aus ruft, meint eine andere Box als wer in der Küche
+   *  steht, und «Der Znüni steht bereit» sagt nicht jeder. */
+  durchsage?: DurchsagePrefs;
+}
+
+export interface DurchsagePrefs {
+  /** Kennung der Box; fehlt sie oder ist sie «alle», gehen alle. */
+  ziel?: string;
+  /** Selbst getippte Sätze, zuletzt benutzte zuerst. */
+  texte?: string[];
 }
 
 /**
@@ -217,6 +229,12 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     [setzeEigen]
   );
 
+  const setDurchsage = useCallback(
+    (durchsage: DurchsagePrefs) =>
+      setzeEigen({ ...eigenJetzt.current, durchsage }),
+    [setzeEigen]
+  );
+
   return {
     prefs: haus.werte,
     hausGeladen: haus.geladen,
@@ -236,5 +254,6 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     setKameraDynamisch,
     setFavorites,
     setFavoriteOrder,
+    setDurchsage,
   };
 }
