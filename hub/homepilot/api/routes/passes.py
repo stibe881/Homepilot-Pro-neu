@@ -70,10 +70,10 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             if item.command not in entity.commands:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"'{entity.name}' kennt den Befehl '{item.command}' nicht",
+                    detail=f"'{entity.label}' kennt den Befehl '{item.command}' nicht",
                 )
             targets.append((item.entity_id, item.command))
-            names.append(entity.name)
+            names.append(entity.label)
         try:
             starts = moment(body.starts)
             until = moment(body.ends) or None
@@ -154,16 +154,16 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 continue
             hub.audit.record(f"Einmal-Link von {entry.created_by}", entity, command, address)
             log.warning(
-                "Einmal-Link eingelöst: %s → %s (von %s)", entity.name, command, address
+                "Einmal-Link eingelöst: %s → %s (von %s)", entity.label, command, address
             )
             try:
                 with as_source(user_source(f"Einmal-Link ({entry.created_by})")):
                     await hub.integrations.dispatch_command(entity_id, command, {})
             except HomePilotError as err:
-                log.error("Einmal-Link: %s liess sich nicht öffnen: %s", entity.name, err)
-                failed.append(f"{entity.name} ({err})")
+                log.error("Einmal-Link: %s liess sich nicht öffnen: %s", entity.label, err)
+                failed.append(f"{entity.label} ({err})")
             else:
-                opened.append(entity.name)
+                opened.append(entity.label)
 
         if not opened:
             return Response(

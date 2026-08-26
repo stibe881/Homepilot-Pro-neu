@@ -432,7 +432,7 @@ class UnifiProtectIntegration(Integration):
                 self.log.info(
                     "%s: kein Live-Bild – RTSP ist in Protect für diese Kamera "
                     "nicht eingeschaltet (Kamera → Einstellungen → Erweitert → RTSP)",
-                    entity.name,
+                    entity.label,
                 )
         else:
             await self.hub.registry.update_state(
@@ -591,7 +591,7 @@ class UnifiProtectIntegration(Integration):
                     return []
                 payload = await response.json()
         except Exception as err:
-            self.log.debug("Ereignisse von %s nicht abrufbar: %s", entity.name, err)
+            self.log.debug("Ereignisse von %s nicht abrufbar: %s", entity.label, err)
             return []
         return parse_events(payload, camera_id, limit)
 

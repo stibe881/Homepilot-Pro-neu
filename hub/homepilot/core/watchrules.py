@@ -163,7 +163,7 @@ def open_contacts(entities: list[Any]) -> list[Any]:
             continue
         klasse = str(entity.state.get("device_class") or "")
         is_contact = (
-            klasse in OPEN_CLASSES if klasse else bool(OPENING_NAME.search(entity.name))
+            klasse in OPEN_CLASSES if klasse else bool(OPENING_NAME.search(entity.label))
         )
         if is_contact and str(entity.state.get("state")) == "on":
             result.append(entity)

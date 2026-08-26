@@ -313,7 +313,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 items.append(
                     {
                         "kind": "device",
-                        "name": f"{entity.name} {COMMAND_WORDS.get(command, command)}",
+                        "name": f"{entity.label} {COMMAND_WORDS.get(command, command)}",
                         "url": f"{base}/api/entities/{entity.id}/command",
                         "method": "POST",
                         "headers": {

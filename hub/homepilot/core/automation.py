@@ -1745,7 +1745,7 @@ class AutomationEngine:
 
         def name_of(entity_id: str) -> str:
             entity = self.hub.registry.get(entity_id)
-            return entity.name if entity else entity_id
+            return entity.label if entity else entity_id
 
         # Bei welcher Aktion der Lauf gerade steht. Nur für den Fall, dass
         # der Hub mitten hinein herunterfährt - dann wird ab hier später
@@ -1912,7 +1912,7 @@ class AutomationEngine:
 
         def name_of(entity_id: str) -> str:
             entity = self.hub.registry.get(entity_id)
-            return entity.name if entity else entity_id
+            return entity.label if entity else entity_id
 
         return {
             "conditions_hold": held,
@@ -2128,7 +2128,7 @@ class AutomationEngine:
                 continue
             try:
                 await self.hub.integrations.dispatch_command(entity.id, "pause", {})
-                gestoppt.append(entity.name)
+                gestoppt.append(entity.label)
             except Exception as err:
                 log.debug("Pause auf %s ging nicht: %s", entity.id, err)
         return gestoppt

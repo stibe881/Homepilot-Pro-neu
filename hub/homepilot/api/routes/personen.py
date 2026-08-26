@@ -37,7 +37,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         for zone_id in service.zone_ids():
             entity_id = service.zone_entity(zone_id)
             entity = hub.registry.get(entity_id) if entity_id else None
-            namen[zone_id] = entity.name if entity else zone_id
+            namen[zone_id] = entity.label if entity else zone_id
         return namen
 
     def zonen_zeilen() -> list[dict[str, Any]]:

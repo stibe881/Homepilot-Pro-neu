@@ -185,9 +185,9 @@ async def speak(
                 await hub.integrations.dispatch_command(
                     entity.id, "play_url", {"url": url, "volume": volume}
                 )
-            sent.append(entity.name)
+            sent.append(entity.label)
         except Exception as err:
-            errors.append(f"{entity.name}: {err}")
+            errors.append(f"{entity.label}: {err}")
     if ton is not None and sent:
         # Als eigene Aufgabe: Die Durchsage ist unterwegs, und die
         # Antwort an die App soll nicht warten, bis sie durch ist.

@@ -98,7 +98,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             ):
                 try:
                     await hub.integrations.dispatch_command(entity.id, "turn_off")
-                    turned_off.append(entity.name)
+                    turned_off.append(entity.label)
                 except Exception:
                     log.debug("Gute Nacht: %s nicht schaltbar", entity.id, exc_info=True)
 
@@ -121,13 +121,13 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         return {
             "lights_off": turned_off,
             "kept_on": [
-                entity.name
+                entity.label
                 for entity in entities
                 if entity.id in set(settings["night_lights"])
                 and str(entity.state.get("state")) == "on"
             ],
-            "open": [e.name for e in goodnight_module.open_windows(entities)],
-            "unlocked": [e.name for e in goodnight_module.unlocked_locks(entities)],
+            "open": [e.label for e in goodnight_module.open_windows(entities)],
+            "unlocked": [e.label for e in goodnight_module.unlocked_locks(entities)],
             "alarm": alarm_result,
             "alarm_error": alarm_error,
         }

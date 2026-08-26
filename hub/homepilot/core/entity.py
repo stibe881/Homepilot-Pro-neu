@@ -123,11 +123,26 @@ class Entity:
     #: Hersteller-App, Zeitschaltung im Gerät selbst (siehe core/source).
     last_source: dict[str, Any] | None = None
 
+    @property
+    def label(self) -> str:
+        """Wie das Gerät heisst, wenn ein Mensch es liest (rein).
+
+        `name` ist, was die Integration liefert - beim Matter-Kontakt am
+        Küchenfenster heisst das «Aqara Door and Window Sensor P2». Das
+        steht auf der Verpackung und beantwortet keine Frage: In der
+        Mitteilung «… steht offen» will man wissen, *welches* Fenster.
+
+        Die App zeigt seit je den selbst vergebenen Namen (`as_dict`
+        unten). Alles, was der Hub in Worte fasst - Mitteilungen,
+        Ansagen, Ablauf-Sätze -, gehört an dieselbe Quelle.
+        """
+        return self.display_name or self.name
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "kind": self.kind,
-            "name": self.display_name or self.name,
+            "name": self.label,
             "integration": self.integration,
             "state": dict(self.state),
             "commands": list(self.commands),

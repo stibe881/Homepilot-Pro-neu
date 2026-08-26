@@ -377,7 +377,7 @@ class Tonmeister:
                 await self.hub.integrations.dispatch_command(
                     entity.id, "set_volume", {"volume": ziel}
                 )
-                betroffen.append(entity.name)
+                betroffen.append(entity.label)
             except Exception as err:
                 self._davor.pop(entity.id, None)
                 log.debug("Dämpfen von %s ging nicht: %s", entity.id, err)
@@ -463,7 +463,7 @@ class Tonmeister:
         traeger = self._umzugsfaehig(entity)
         if traeger is None:
             raise HomePilotError(
-                f"«{entity.name}» spielt direkt von einem Gerät im Haus - das "
+                f"«{entity.label}» spielt direkt von einem Gerät im Haus - das "
                 "kann der Hub nicht umziehen. Verschieben geht, was der Hub "
                 "selbst gestartet hat (Spotify oder Radio)."
             )

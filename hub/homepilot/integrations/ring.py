@@ -940,7 +940,7 @@ class RingIntegration(Integration):
             if hasattr(device, "async_history") or hasattr(device, "history"):
                 self._intercoms.append((entity.id, device))
             else:
-                self._ohne_ersatz.append(entity.name)
+                self._ohne_ersatz.append(entity.label)
 
         if not self._devices:
             self.log.warning("Ring-Konto verbunden, aber keine Geräte gefunden")
@@ -1042,7 +1042,7 @@ class RingIntegration(Integration):
         # Dann gibt es keine Geräte, und das ist die richtige Antwort.
         for entity_id, _ in getattr(self, "_intercoms", []):
             entity = self.hub.registry.get(entity_id)
-            namen.append(entity.name if entity else entity_id)
+            namen.append(entity.label if entity else entity_id)
         return namen
 
     def health(self) -> dict[str, Any]:
@@ -1553,7 +1553,7 @@ class RingIntegration(Integration):
         ok = await device.async_open_door()
         if not ok:
             raise ConnectionError("Ring hat das Öffnen abgelehnt")
-        self.log.info("Tür geöffnet über %s", entity.name)
+        self.log.info("Tür geöffnet über %s", entity.label)
         # Kurze Rückmeldung auf der Kachel, dann zurück zum Ruhezustand.
         await self.hub.registry.update_state(
             entity.id,

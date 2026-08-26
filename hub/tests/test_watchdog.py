@@ -47,6 +47,7 @@ async def test_watchdog_meldet_ausfall_und_rueckkehr():
             {
                 "id": "hue.lampe",
                 "name": "Lampe",
+                "label": "Lampe",
                 "kind": "light",
                 "integration": "hue",
                 "available": False,
@@ -83,6 +84,7 @@ def test_only_alarm_sensors_are_watched_one_by_one():
             {
                 "id": entity_id,
                 "name": entity_id,
+                "label": entity_id,
                 "integration": "homematic",
                 "available": available,
                 "state": state,
@@ -98,7 +100,9 @@ def test_only_alarm_sensors_are_watched_one_by_one():
 def test_low_batteries_are_found():
     def entity(entity_id: str, low: bool | None):
         state = {} if low is None else {"low_battery": low}
-        return type("E", (), {"id": entity_id, "name": entity_id, "state": state})()
+        return type(
+            "E", (), {"id": entity_id, "name": entity_id, "label": entity_id, "state": state}
+        )()
 
     entities = [entity("a", True), entity("b", False), entity("c", None)]
     assert [item.id for item in low_batteries(entities)] == ["a"]
@@ -123,6 +127,7 @@ async def test_a_weak_battery_is_reported_once():
             {
                 "id": "hm.rauchmelder",
                 "name": "Rauchmelder Flur",
+                "label": "Rauchmelder Flur",
                 "kind": "binary_sensor",
                 "integration": "homematic",
                 "available": True,
@@ -169,6 +174,7 @@ async def test_a_finished_machine_is_remembered_once():
             {
                 "id": "vzug.waschmaschine",
                 "name": "Waschmaschine",
+                "label": "Waschmaschine",
                 "kind": "appliance",
                 "integration": "vzug",
                 "available": True,
@@ -232,6 +238,7 @@ async def test_a_cycle_without_a_beginning_is_not_guessed():
             {
                 "id": "vzug.wama",
                 "name": "Waschmaschine",
+                "label": "Waschmaschine",
                 "kind": "appliance",
                 "integration": "vzug",
                 "available": True,
@@ -263,6 +270,7 @@ async def test_the_day_is_closed_with_the_last_value_before_midnight():
             {
                 "id": "hm.psm",
                 "name": "Steckdose",
+                "label": "Steckdose",
                 "kind": "sensor",
                 "integration": "homematic",
                 "available": True,
@@ -303,6 +311,7 @@ async def test_without_a_meter_nothing_is_written():
             {
                 "id": "hue.lampe",
                 "name": "Lampe",
+                "label": "Lampe",
                 "kind": "light",
                 "integration": "hue",
                 "available": True,
@@ -326,6 +335,7 @@ def melder(entity_id: str, device_class: str, state: str = "on"):
         {
             "id": entity_id,
             "name": entity_id,
+            "label": entity_id,
             "kind": "binary_sensor",
             "integration": "homematic",
             "available": True,
@@ -438,6 +448,7 @@ def test_open_contacts_counts_the_door_sensor_in_a_lock():
         {
             "id": "nuki.haustuer",
             "name": "Haustüre",
+            "label": "Haustüre",
             "kind": "lock",
             "integration": "nuki",
             "available": True,
@@ -452,11 +463,18 @@ def test_open_contacts_counts_the_door_sensor_in_a_lock():
 
 
 def test_open_contacts_falls_back_to_the_name():
-    """Ohne device_class entscheidet der Name – wie in der App."""
+    """Ohne device_class entscheidet der Name – und zwar der selbst
+    vergebene.
+
+    Der Matter-Kontakt heisst ab Werk «Aqara Door and Window Sensor P2».
+    Was ihn als Fenster erkennbar macht, ist der Name, den jemand ihm in
+    der App gegeben hat.
+    """
     from homepilot.core.watchdog import open_contacts
 
     fenster = melder("matter.kueche", "")
-    fenster.name = "Fenster Küche"
+    fenster.name = "Aqara Door and Window Sensor P2"
+    fenster.label = "Fenster Küche"
     assert [entity.id for entity in open_contacts([fenster])] == ["matter.kueche"]
 
 
@@ -526,3 +544,48 @@ def test_heartbeat_respects_its_own_pace(monkeypatch):
         assert len(aufrufe) == 1
 
     asyncio.run(check())
+
+
+async def test_the_open_window_push_names_the_window_not_the_sensor_model():
+    """«Aqara Door and Window Sensor P2 steht offen» sagt nicht, welches.
+
+    Der Matter-Kontakt bringt den Namen von der Verpackung mit. Wer ihn in
+    der App «Fenster Küche» genannt hat, will genau das lesen - nachts, in
+    einer Mitteilung, die man in zwei Sekunden versteht oder gar nicht.
+    """
+    from homepilot.core.entity import Entity
+
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        sent: list[tuple[str, str]] = []
+
+        async def fake_send(tokens, title, body, data=None, **_):
+            sent.append((title, body))
+            return len(tokens)
+
+        hub.push.send = fake_send  # type: ignore[assignment]
+        hub.push.register("ExponentPushToken[x]", "Stefan")
+
+        fenster = Entity(
+            id="matter.kontakt",
+            kind="binary_sensor",
+            name="Aqara Door and Window Sensor P2",
+            integration="matter",
+            state={"state": "on", "device_class": "contact"},
+        )
+        fenster.display_name = "Fenster Küche"
+        hub.registry.all = lambda: [fenster]  # type: ignore[assignment]
+
+        await hub.watchdog.check()
+        # Drei Stunden zurückdrehen - die Regel erinnert nach zwei.
+        hub.watchdog._open_since["matter.kontakt"] -= 3 * 3600
+        await hub.watchdog.check()
+
+        titel = [title for title, _ in sent if "steht offen" in title]
+        assert titel == ["Fenster Küche steht offen"]
+        # Und «Seit 1 Stunden» stand da, seit es die Meldung gibt.
+        text = next(body for title, body in sent if "steht offen" in title)
+        assert text.startswith("Seit 3 Stunden")
+    finally:
+        await hub.stop()

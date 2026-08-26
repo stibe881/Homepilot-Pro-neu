@@ -565,7 +565,7 @@ class Watchdog:
             zustaende.append(dict(entity.state))
             # Punkt 220: Ein leeres Telefon ist die häufigste Ursache für
             # eine tote Ortung – und es kündigt sich an.
-            text = presence.battery_alert(entity.name, entity.state.get("battery"), grenze)
+            text = presence.battery_alert(entity.label, entity.state.get("battery"), grenze)
             if text and zone_id not in self._battery_told:
                 self._battery_told.add(zone_id)
                 # Der Schalter wird erst hier geprüft, nicht schon oben:
@@ -588,7 +588,7 @@ class Watchdog:
                 if personen.an(schalter, zone_id, "silence"):
                     await self._notify(
                         "Meldet sich nicht mehr",
-                        f"{entity.name}s Telefon hat sich seit Stunden nicht "
+                        f"{entity.label}s Telefon hat sich seit Stunden nicht "
                         "gemeldet – Akku, Flugmodus oder Ortung aus?",
                         category="presence",
                     )
@@ -786,7 +786,7 @@ class Watchdog:
                 if entity.id in self._reported_down:
                     self._reported_down.discard(entity.id)
                     await self._notify(
-                        f"{entity.name} wieder da",
+                        f"{entity.label} wieder da",
                         "Der Sensor meldet sich wieder.",
                         "device_down",
                     )
@@ -797,7 +797,7 @@ class Watchdog:
             if strikes >= grace and entity.id not in self._reported_down:
                 self._reported_down.add(entity.id)
                 await self._notify(
-                    f"{entity.name} antwortet nicht",
+                    f"{entity.label} antwortet nicht",
                     f"Seit {strikes} Minuten "
                     "keine Meldung – die Alarmanlage hat dort einen blinden Fleck.",
                     "device_down",
@@ -838,7 +838,7 @@ class Watchdog:
                 self._reminded.add(entity.id)
                 hours = round((now - since) / 3600)
                 await self._notify(
-                    f"{entity.name} ist noch voll",
+                    f"{entity.label} ist noch voll",
                     f"Seit {hours} Stunden fertig und seither nicht wieder "
                     "gelaufen.",
                     "appliance",
@@ -862,7 +862,7 @@ class Watchdog:
             0,
             {
                 "entity_id": entity.id,
-                "name": entity.name,
+                "name": entity.label,
                 "started": started,
                 "finished": finished,
                 "seconds": round(finished - started),
@@ -932,9 +932,10 @@ class Watchdog:
                 self._reported_open.add(entity.id)
                 hours = round((now - since) / 3600)
                 await self._notify(
-                    f"{entity.name} steht offen",
-                    f"Seit {hours} Stunden – im Winter geht so die Heizung "
-                    "zum Fenster hinaus.",
+                    f"{entity.label} steht offen",
+                    # «Seit 1 Stunden» stand da, seit es die Meldung gibt.
+                    f"Seit {hours} {'Stunde' if hours == 1 else 'Stunden'} – im "
+                    "Winter geht so die Heizung zum Fenster hinaus.",
                     "open",
                 )
         # Geschlossene wieder scharf stellen für die nächste Öffnung.
@@ -956,7 +957,7 @@ class Watchdog:
                 continue
             self._reported_leak.add(entity.id)
             await self._notify(
-                f"Wasser: {entity.name}",
+                f"Wasser: {entity.label}",
                 "Der Melder meldet Wasser. Zuerst den Haupthahn, dann den "
                 "Strom in diesem Bereich.",
                 "leak",
@@ -997,7 +998,7 @@ class Watchdog:
             rows = batterie.merke_meldung(rows, entity.id, jetzt)
             self.hub.data.set(batterie.STORE_KEY, rows)
             await self._notify(
-                f"Batterie schwach: {entity.name}",
+                f"Batterie schwach: {entity.label}",
                 "Das Gerät meldet eine schwache Batterie. Danach ist es still, "
                 "ohne sich abzumelden.",
                 "battery",

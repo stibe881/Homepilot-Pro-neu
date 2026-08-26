@@ -214,9 +214,9 @@ class AlarmIntegration(Integration):
         battery: list[str] = []
         for entity in self.guarding(mode):
             if not entity.available:
-                offline.append(entity.name)
+                offline.append(entity.label)
             elif entity.state.get("low_battery") is True:
-                battery.append(entity.name)
+                battery.append(entity.label)
         return {"offline": offline, "battery": battery}
 
     # ── Bedienung ──────────────────────────────────────────────────────────
@@ -234,7 +234,7 @@ class AlarmIntegration(Integration):
             return {
                 "ok": False,
                 "reason": "offen" if open_now else "blind",
-                "open": [entity.name for entity in open_now],
+                "open": [entity.label for entity in open_now],
                 **blind,
             }
 
@@ -385,7 +385,7 @@ class AlarmIntegration(Integration):
                 self._after(delay, lambda: self._trigger(entity))
             )
             await self._publish()
-            self._note("entry", f"{entity.name} geöffnet – Eingangsverzögerung läuft", "")
+            self._note("entry", f"{entity.label} geöffnet – Eingangsverzögerung läuft", "")
             # Die Verzögerung lief bisher stumm ab. Ein kurzes Zeichen sagt
             # dem Berechtigten «schalt mich ab» – und dem Unberechtigten,
             # dass die Uhr läuft. Beides ist besser als Stille.
@@ -393,7 +393,7 @@ class AlarmIntegration(Integration):
             if self._settings.get("notify_entry"):
                 await self._notify(
                     "Eingangsverzögerung läuft",
-                    f"{entity.name} geöffnet – noch {round(delay)} Sekunden zum "
+                    f"{entity.label} geöffnet – noch {round(delay)} Sekunden zum "
                     "Unscharfschalten.",
                     "alarm_arming",
                 )
@@ -428,10 +428,10 @@ class AlarmIntegration(Integration):
         if not camera_motion_due(self._motion_seen, entity.id, jetzt):
             return
         self._motion_seen[entity.id] = jetzt
-        self._note("motion", f"Bewegung vor {entity.name}", "")
+        self._note("motion", f"Bewegung vor {entity.label}", "")
         await self._notify(
             "Bewegung vor der Kamera",
-            f"{entity.name} sieht Bewegung – die Anlage ist scharf.",
+            f"{entity.label} sieht Bewegung – die Anlage ist scharf.",
             category="camera_motion",
             data={
                 "type": "camera_motion",
@@ -449,12 +449,12 @@ class AlarmIntegration(Integration):
         self._next = None
         self._last = {
             "entity_id": entity.id,
-            "name": entity.name,
+            "name": entity.label,
             "at": time.time(),
             "mode": mode,
         }
         await self._publish()
-        self._note("triggered", f"Alarm ausgelöst: {entity.name}", "")
+        self._note("triggered", f"Alarm ausgelöst: {entity.label}", "")
 
         if self._settings.get("notify_trigger"):
             # Die Kamera im selben Raum kommt zweimal mit: als Kennung,
@@ -465,7 +465,7 @@ class AlarmIntegration(Integration):
             camera = camera_for(entity, self.hub.registry.all())
             await self._notify(
                 "🚨 Alarm ausgelöst",
-                f"{entity.name} – Modus {MODE_LABELS.get(mode or '', '?')}",
+                f"{entity.label} – Modus {MODE_LABELS.get(mode or '', '?')}",
                 data={"entity_id": entity.id, "camera": camera},
                 image=await self._snapshot_url(camera),
             )
@@ -519,7 +519,7 @@ class AlarmIntegration(Integration):
         self._until = None
         self._next = None
         await self._publish()
-        still_open = [entity.name for entity in self.open_sensors(mode)]
+        still_open = [entity.label for entity in self.open_sensors(mode)]
         text = f"Wieder scharf geschaltet ({MODE_LABELS[mode]})"
         if still_open:
             text += " – noch offen: " + ", ".join(still_open)

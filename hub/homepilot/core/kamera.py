@@ -57,7 +57,7 @@ def fill(text: Any, entity: Entity | None) -> str:
     satz = str(text or "")
     if "{" not in satz:
         return satz
-    name = entity.name if entity is not None else ""
+    name = entity.label if entity is not None else ""
     raum = (entity.room if entity is not None else "") or ""
     for schluessel, wert in (
         ("{gerät}", name),

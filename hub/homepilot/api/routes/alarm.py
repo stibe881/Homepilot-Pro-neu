@@ -60,7 +60,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "candidates": [
                 {
                     "entity_id": entity.id,
-                    "name": entity.name,
+                    "name": entity.label,
                     "room": entity.room,
                     "kind": entity.kind,
                     "device_class": entity.state.get("device_class"),

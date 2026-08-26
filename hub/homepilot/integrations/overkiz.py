@@ -412,7 +412,7 @@ class OverkizIntegration(Integration):
             if entity is not None and entity.available != erreichbar:
                 self.log.info(
                     "Overkiz: %s %s",
-                    entity.name,
+                    entity.label,
                     "meldet sich wieder" if erreichbar else "meldet sich nicht mehr",
                 )
             await self.hub.registry.update_state(
@@ -431,7 +431,7 @@ class OverkizIntegration(Integration):
             if zaehler < ABWESEND_SCHWELLE:
                 continue
             entity = self.hub.registry.get(entity_id)
-            still.append(entity.name if entity else entity_id)
+            still.append(entity.label if entity else entity_id)
         if not still:
             return {"ok": True, "detail": f"{len(self._devices)} Storen, alle melden sich."}
         return {

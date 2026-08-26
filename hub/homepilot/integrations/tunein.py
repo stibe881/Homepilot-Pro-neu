@@ -494,7 +494,7 @@ class TuneInIntegration(Integration):
         return [
             (
                 entity.id,
-                entity.display_name or entity.name,
+                entity.label,
                 bool(entity.state.get("has_screen")),
             )
             for entity in self.hub.registry.all()

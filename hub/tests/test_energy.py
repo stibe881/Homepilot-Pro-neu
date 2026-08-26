@@ -131,7 +131,9 @@ def test_year_ago_is_zero_without_data():
 class _Meter:
     def __init__(self, entity_id, name, kwh=None, watts=None, room=None):
         self.id = entity_id
-        self.name = name
+        # `label` ist, was ein Mensch liest - bei einer echten Entität der
+        # selbst vergebene Name, sonst der der Integration.
+        self.name = self.label = name
         self.room = room
         self.state = {}
         if kwh is not None:

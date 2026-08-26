@@ -639,7 +639,7 @@ class GoogleCastIntegration(Integration):
             if str(getattr(cast, "uuid", "")).strip().lower() != gesucht:
                 continue
             entity = self.hub.registry.get(entity_id)
-            return entity_id, (entity.name if entity is not None else None)
+            return entity_id, (entity.label if entity is not None else None)
         return None, None
 
     async def gruppen_mitglieder(self, entity_id: str) -> list[dict[str, Any]]:
@@ -932,7 +932,7 @@ class GoogleCastIntegration(Integration):
                         # `play_media` auf einen Empfänger im Abbau.
                         time.sleep(1.0)
                     except Exception as err:
-                        self.log.debug("App auf %s nicht beendet: %s", entity.name, err)
+                        self.log.debug("App auf %s nicht beendet: %s", entity.label, err)
                 controller.play_media(url, content_type)
                 # Warten, bis der Player übernommen hat - sonst ginge eine
                 # gleich folgende zweite Durchsage verloren.

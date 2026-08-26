@@ -70,7 +70,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
 
         alarm = next((e for e in entities if e.kind == "alarm"), None)
         return {
-            "doors_open": [entity.name for entity in offen],
+            "doors_open": [entity.label for entity in offen],
             "lights_on": len(lichter),
             "next_event": termin,
             "alarm": str(alarm.state.get("state")) if alarm is not None else None,
@@ -90,7 +90,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         if muster is None:
             return {"suggestion": None}
         namen = {
-            entity.id: entity.name
+            entity.id: entity.label
             for entity in hub.registry.all()
             if entity.id in muster["entity_ids"]
         }

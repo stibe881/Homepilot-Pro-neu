@@ -357,7 +357,7 @@ class GeofenceIntegration(Integration):
             zustand = str((entity.state if entity else {}).get("state") or presence.UNKNOWN)
             zustaende.append(zustand)
             if zustand != HOME:
-                weg.append(entity.name if entity else zone_id)
+                weg.append(entity.label if entity else zone_id)
         neu = presence.anyone_home_state(zustaende)
         # Fürs Schild oben in der App: «jemand da» ist wahr, aber wenig -
         # sind wirklich alle daheim, darf es das auch sagen.
@@ -860,7 +860,7 @@ class GeofenceIntegration(Integration):
             return
         entity_id = self._zones.get(zone_id)
         entity = self.hub.registry.get(entity_id) if entity_id else None
-        name = entity.name if entity else zone_id
+        name = entity.label if entity else zone_id
         try:
             tokens = self.hub.push.recipients(
                 self.hub.users.users, category="presence"
@@ -902,7 +902,7 @@ class GeofenceIntegration(Integration):
             entity = self.hub.registry.get(entity_id)
             state = dict(entity.state) if entity else {}
             zusammen = self.merged(zone_id)
-            zeile = presence.diagnose(entity.name if entity else zone_id, state, jetzt)
+            zeile = presence.diagnose(entity.label if entity else zone_id, state, jetzt)
             zeile["zone"] = zone_id
             zeile["combined"] = zusammen.get("state")
             zeile["combined_source"] = zusammen.get("source")
