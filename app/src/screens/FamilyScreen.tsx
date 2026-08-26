@@ -44,6 +44,8 @@ import {
   ortText,
   reihenfolge,
   unterZeile,
+  warnZeile,
+  zusammenfassung,
 } from '../lib/anwesenheitskarte';
 import { Person } from '../lib/personen';
 import {
@@ -199,6 +201,11 @@ export function FamilyScreen({
   // Er wird selten gebraucht und drängte sich sonst vor das, was man
   // immer sucht.
   const [warum, setWarum] = useState<string | null>(null);
+  // Die Anwesenheitskarte fängt zugeklappt an. Bewusst ohne Gedächtnis:
+  // Die Überschrift beantwortet die Frage in den meisten Fällen, und
+  // wer einmal nachgesehen hat, will beim nächsten Öffnen der Seite
+  // nicht wieder sieben Zeilen vorfinden.
+  const [daOffen, setDaOffen] = useState(false);
   // «Was koche ich heute?» im Planer (Punkt 139): Die Saat hält die
   // Vorschläge stehen, bis jemand würfelt - sonst mischte jedes
   // Live-Update vom Hub die Liste um.
@@ -3875,14 +3882,43 @@ export function FamilyScreen({
           wird selten gebraucht. */}
       {reihenfolge(anwesend).length > 0 ? (
         <Card style={styles.listCard}>
-          <View style={styles.daKopf}>
+          {/* Zugeklappt eine Zeile: Sieben Personen untereinander sind
+              zwei Drittel der Familienseite für eine Frage, die die
+              Überschrift meistens schon beantwortet. Wer mehr wissen
+              will - wer genau wo, seit wann, mit wie viel Akku -,
+              tippt darauf. */}
+          <Pressable
+            onPress={() => setDaOffen((auf) => !auf)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: daOffen }}
+            accessibilityLabel={`${kopfzeile(anwesend)}, ${zusammenfassung(anwesend)} zuhause`}
+            style={({ pressed }) => [styles.daKopf, pressed && { opacity: 0.7 }]}
+          >
             <Ionicons name="home-outline" size={18} color={colors.inkSoft} />
             <Text style={styles.daTitel}>
               {kopfzeile(anwesend)}
             </Text>
-          </View>
+            {!daOffen ? (
+              <Text style={styles.daZahl}>{zusammenfassung(anwesend)}</Text>
+            ) : null}
+            <Ionicons
+              name={daOffen ? 'chevron-up' : 'chevron-down'}
+              size={18}
+              color={colors.inkSoft}
+            />
+          </Pressable>
 
-          {reihenfolge(anwesend).map((person) => {
+          {/* Das eine, was das Zuklappen nicht verschlucken darf: Ein
+              leerer Akku ist die häufigste Ursache dafür, dass eine
+              Ortung stehenbleibt - und dann stimmt die Überschrift
+              nicht mehr. */}
+          {!daOffen && warnZeile(anwesend) ? (
+            <Text style={[styles.daDetail, { color: colors.warn }]}>
+              {warnZeile(anwesend)}
+            </Text>
+          ) : null}
+
+          {daOffen ? reihenfolge(anwesend).map((person) => {
             const wie = lage(person);
             const strom = akku(person);
             const offen = warum === person.zone;
@@ -3943,7 +3979,7 @@ export function FamilyScreen({
                 </View>
               </Pressable>
             );
-          })}
+          }) : null}
         </Card>
       ) : null}
 

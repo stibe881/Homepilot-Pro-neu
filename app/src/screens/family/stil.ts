@@ -488,6 +488,14 @@ export const makeStyles = (colors: Colors) =>
     // liest - grün da, grau unterwegs, orange meldet sich nicht.
     daKopf: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     daTitel: { color: colors.ink, fontSize: 17, fontWeight: '700', flex: 1 },
+    /** «1 von 7» in der zugeklappten Karte – wer das liest, weiss, ob
+     *  sich das Aufklappen lohnt. */
+    daZahl: {
+      color: colors.inkFaint,
+      fontSize: 13,
+      fontWeight: '600',
+      fontVariant: ['tabular-nums'],
+    },
     daZeile: {
       flexDirection: 'row',
       alignItems: 'flex-start',

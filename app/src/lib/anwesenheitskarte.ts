@@ -147,3 +147,51 @@ export function reihenfolge(leute: Person[]): Person[] {
     )
     .map((eintrag) => eintrag.person);
 }
+
+/**
+ * Die Zahl rechts in der zugeklappten Karte (rein, testbar).
+ *
+ * Die Karte stand mit sieben Zeilen offen da – gut zwei Drittel der
+ * Familienseite für eine Frage, die meistens mit einem Wort beantwortet
+ * ist. Zugeklappt bleibt die Überschrift («Bine zuhause») und daneben
+ * das Verhältnis: Wer «3 von 7» liest, weiss, ob sich das Aufklappen
+ * lohnt.
+ */
+export function zusammenfassung(leute: Person[]): string {
+  const geortet = (leute ?? []).filter((person) => person?.zone);
+  if (geortet.length === 0) return '';
+  const da = geortet.filter((person) => lage(person) === 'da').length;
+  return `${da} von ${geortet.length}`;
+}
+
+/**
+ * Wessen Telefon knapp wird (rein, testbar).
+ *
+ * Das eine, was das Zuklappen nicht verschlucken darf: Ein leerer Akku
+ * ist die häufigste Ursache dafür, dass eine Ortung stehenbleibt – und
+ * wer die Karte zu hat, sähe es sonst erst, wenn jemand seit gestern
+ * «zuhause» ist, obwohl er im Büro sitzt.
+ */
+export function knappeAkkus(leute: Person[]): Person[] {
+  return (leute ?? []).filter((person) => {
+    if (!person?.zone) return false;
+    const strom = akku(person);
+    return !!strom && strom.knapp;
+  });
+}
+
+/**
+ * Der Warnsatz unter der zugeklappten Überschrift (rein, testbar).
+ *
+ * Leer, wenn nichts zu melden ist – dann bleibt die Karte eine Zeile
+ * hoch.
+ */
+export function warnZeile(leute: Person[]): string {
+  const knapp = knappeAkkus(leute);
+  if (knapp.length === 0) return '';
+  if (knapp.length === 1) {
+    const strom = akku(knapp[0]);
+    return `${String(knapp[0].name).split(' ')[0]}: Telefon bei ${strom?.prozent} %`;
+  }
+  return `${knapp.length} Telefone fast leer`;
+}
