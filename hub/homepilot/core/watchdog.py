@@ -385,6 +385,11 @@ class Watchdog:
         Nur für Läden, denen jemand eine Geofence-Zone gegeben hat, und
         erst nach ein paar Minuten Aufenthalt: Eine Nachricht beim
         Vorbeifahren wäre eine, die man abschaltet.
+
+        Und nur an den, der dort steht. Die Nachricht heisst «Du bist im
+        Märt» und ging trotzdem an alle: Wer im Büro sass, während jemand
+        anders einkaufte, bekam sie auch - und wusste weder, dass sie
+        nicht ihm galt, noch wem.
         """
         shops = self.hub.data.get("family_shops")
         if not shops:
@@ -392,20 +397,50 @@ class Watchdog:
         offen = shopping.open_items(self.hub.data.get("family_shopping"))
         if not offen:
             return
-        zonen = {
-            entity.id.split(".", 1)[1]: entity.state
-            for entity in entities
-            if entity.id.startswith("geofence.")
-        }
+        zonen = {}
+        namen = {}
+        for entity in entities:
+            if not entity.id.startswith("geofence."):
+                continue
+            zone_id = entity.id.split(".", 1)[1]
+            zonen[zone_id] = entity.state
+            namen[zone_id] = entity.name
         jetzt = time.time()
         for shop in shopping.due_reminders(
             shops, zonen, len(offen), jetzt, self._shop_reminded
         ):
             marke = shopping.marke_fuer(shop)
-            stand, _ = shopping.wo_man_steht(shop, zonen)
+            zone_id, stand, _ = shopping.wer_steht_dort(shop, zonen)
             self._shop_reminded[marke] = (stand or {}).get("changed_at")
+            empfaenger = self._benutzer_zur_zone(zone_id, namen)
+            if empfaenger is None:
+                # Ortung ohne Zugang zur App - etwa ein Kind in Life360.
+                # An «alle» zu schicken wäre der alte Fehler; hier gibt
+                # es schlicht niemanden, den die Nachricht angeht.
+                log.info(
+                    "Einkaufserinnerung für %s ohne Benutzer zur Zone %s",
+                    shop.get("name"),
+                    zone_id,
+                )
+                continue
             titel, text = shopping.describe(shop, offen)
-            await self._notify(titel, text, category="shopping")
+            await self._notify(titel, text, category="shopping", to=empfaenger)
+
+    def _benutzer_zur_zone(
+        self, zone_id: str | None, namen: dict[str, str]
+    ) -> str | None:
+        """Wem gehört diese Ortungszone? (Name des Benutzers oder None)
+
+        Über dieselbe Paarung wie die Anwesenheitsliste - `zone_fuer`
+        bildet Benutzer auf Zone ab, hier wird sie rückwärts gelesen.
+        Eine zweite Regel dafür wäre eine, die auseinanderläuft.
+        """
+        if not zone_id:
+            return None
+        for user in self.hub.users.users:
+            if presence.zone_fuer(user.name, namen) == zone_id:
+                return user.name
+        return None
 
     async def _check_medications(self) -> None:
         """An die fällige Gabe erinnern – an die zuständige Person.
