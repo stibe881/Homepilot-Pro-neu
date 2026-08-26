@@ -103,6 +103,17 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   und Minute. «26.08.2026» fehlerfrei einzutippen bringt am Wandpanel
   niemand zustande - und ein Vertipper hiess: die Erinnerung kommt nie.
   Vorgabe ist die nächste volle Stunde heute.
+- **Eine Erinnerung kann auch als Push kommen.** Zwei Schalter im
+  Formular: *Gross am Bildschirm anzeigen* (die Vorgabe - verschwindet
+  überall, sobald die erste Person bestätigt) und *Push-Nachricht
+  senden*. Beim zweiten wählt man aus, **an wen** - Mehrfachauswahl über
+  die Haushaltsmitglieder, ohne Empfänger geht der Knopf nicht. Den
+  Versand übernimmt der Hub zur eingestellten Zeit, die App muss dafür
+  nicht offen sein; jede Erinnerung wird genau einmal verschickt, auch
+  über einen Neustart hinweg. Eine reine Push-Erinnerung (Bildschirm
+  aus) gilt nach dem Versand als erledigt - es gäbe keinen Bildschirm,
+  auf dem sie jemand bestätigen könnte. In der Liste steht dabei, wer
+  den Push bekommt.
 
 **Startseite und Musik**
 

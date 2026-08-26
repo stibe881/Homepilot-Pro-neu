@@ -16,6 +16,18 @@ export interface Erinnerung {
   at?: unknown;
   /** Bestätigt - taucht nirgends mehr auf. */
   done?: unknown;
+  /** Gross auf den Bildschirmen zeigen. Fehlt das Feld, gilt ja -
+   *  Einträge von vor den Schaltern kannten nur diesen Weg. */
+  anzeigen?: unknown;
+  /** Zur Zeit eine Push-Nachricht schicken - verschickt der Hub. */
+  push?: unknown;
+  /** An wen der Push geht; leer heisst alle im Haushalt. */
+  push_an?: unknown;
+}
+
+/** Gehört dieser Eintrag auf die Bildschirme? (rein, testbar) */
+export function zeigtAn(eintrag: Erinnerung): boolean {
+  return eintrag.anzeigen !== false;
 }
 
 /** «TT.MM.JJJJ» + «HH:MM» → Zeitpunkt in ms (rein, testbar).
@@ -69,6 +81,17 @@ export function faellige(
   jetztMs: number
 ): Erinnerung[] {
   return offene(liste).filter((eintrag) => (wann(eintrag) ?? Infinity) <= jetztMs);
+}
+
+/** Fällig UND fürs Vollbild bestimmt (rein, testbar).
+ *
+ *  Ein Eintrag, der nur pusht, gehört nicht auf den Schirm - den
+ *  erledigt der Hub nach dem Versand von selbst. */
+export function anzuzeigende(
+  liste: Erinnerung[] | undefined,
+  jetztMs: number
+): Erinnerung[] {
+  return faellige(liste, jetztMs).filter(zeigtAn);
 }
 
 /** Wann das nächste Vollbild ansteht - für den Prüf-Takt (rein, testbar).

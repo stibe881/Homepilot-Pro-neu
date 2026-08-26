@@ -55,7 +55,7 @@ import {
   shopCategory,
 } from '../lib/einkauf';
 import { datumUhr, uhr } from '../lib/format';
-import { Erinnerung, faellige, naechsteAt } from '../lib/erinnerungen';
+import { Erinnerung, anzuzeigende, naechsteAt } from '../lib/erinnerungen';
 import {
   AUTO_SCHLIESSEN_SEKUNDEN,
   KlingelAktion,
@@ -421,7 +421,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     naechsteAt(erinnerungen) !== null ? 30000 : null
   );
   const faelligeErinnerungen = useMemo(
-    () => faellige(erinnerungen, jetztErinnerung),
+    () => anzuzeigende(erinnerungen, jetztErinnerung),
     [erinnerungen, jetztErinnerung]
   );
   const bestaetigeErinnerung = useCallback(

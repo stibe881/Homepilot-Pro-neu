@@ -220,6 +220,21 @@ export function FamilyScreen({
     [settings.url, settings.token]
   );
 
+  // Wer eine Push-Erinnerung bekommen kann - die Namen aus der
+  // Benutzerverwaltung des Hubs, nicht die Mitgliederliste dieser Seite:
+  // Push landet nur auf angemeldeten Telefonen, und die hängen an
+  // Hub-Benutzern. Gäste bekommen hier 403; dann bleibt die Liste leer
+  // und das Formular sagt es dazu.
+  const [pushZiele, setPushZiele] = useState<string[]>([]);
+  useEffect(() => {
+    hub
+      .get<{ names?: string[] }>('/api/push/targets', { still: true })
+      .then((payload) => {
+        setPushZiele((payload.names ?? []).filter((name) => typeof name === 'string'));
+      })
+      .catch(() => setPushZiele([]));
+  }, [hub]);
+
   // Die Orte des Hubs - daraus wählt ein Laden seinen, und «ich stehe
   // jetzt hier» legt einen neuen an.
   const {
@@ -3680,11 +3695,25 @@ export function FamilyScreen({
         <BackHead title="Erinnerungen" onBack={goBack} styles={styles} colors={colors} />
         <Text style={styles.hint}>
           Zur eingestellten Zeit erscheint die Erinnerung gross auf jedem
-          offenen Bildschirm - und bleibt, bis jemand sie bestätigt.
+          offenen Bildschirm - und bleibt, bis jemand sie bestätigt. Auf
+          Wunsch schickt der Hub sie stattdessen oder zusätzlich als
+          Push-Nachricht an ausgewählte Haushaltsmitglieder.
         </Text>
         {erinnerungen.map((erinnerung) => {
           const at = Number(erinnerung.at);
           const faellig = at <= jetzt;
+          // Woran erkennt man in der Liste, was diese Erinnerung tut?
+          // Bildschirm ist die Regel und bleibt unerwähnt; Push und
+          // «nur Push» stehen dabei, samt Empfängern.
+          const mitPush = erinnerung.push === true;
+          const pushAn = Array.isArray(erinnerung.push_an)
+            ? erinnerung.push_an.filter((name): name is string => typeof name === 'string')
+            : [];
+          const zusatz = mitPush
+            ? ` · Push an ${pushAn.length > 0 ? pushAn.join(', ') : 'alle'}${
+                erinnerung.anzeigen === false ? ' (ohne Bildschirm)' : ''
+              }`
+            : '';
           return (
             <Card key={erinnerung.id} style={styles.rewardCard}>
               <Ionicons
@@ -3695,7 +3724,9 @@ export function FamilyScreen({
               <View style={{ flex: 1 }}>
                 <Text style={styles.checkText}>{String(erinnerung.text ?? '')}</Text>
                 <Text style={[styles.checkSub, faellig && { color: colors.warn }]}>
-                  {faellig ? `Fällig seit ${datumUhr(at)} - wartet auf Bestätigung` : datumUhr(at)}
+                  {faellig
+                    ? `Fällig seit ${datumUhr(at)} - wartet auf Bestätigung`
+                    : datumUhr(at) + zusatz}
                 </Text>
               </View>
               {faellig ? (
@@ -3720,7 +3751,8 @@ export function FamilyScreen({
           );
         })}
         <ErinnerungForm
-          onAdd={(text, at) => add('reminders', { text, at })}
+          onAdd={(eintrag) => add('reminders', eintrag)}
+          mitglieder={pushZiele}
           styles={styles}
           colors={colors}
         />
@@ -3937,7 +3969,7 @@ export function FamilyScreen({
     { key: 'routines', icon: 'time-outline', label: 'Routinen', sub: 'Tagesabläufe' },
     { key: 'packlists', icon: 'briefcase-outline', label: 'Packlisten', sub: 'Ferien & Ausflüge' },
     { key: 'countdowns', icon: 'hourglass-outline', label: 'Countdowns', sub: 'Tage zählen' },
-    { key: 'reminders', icon: 'alarm-outline', label: 'Erinnerungen', sub: 'Zur Zeit gross auf dem Schirm' },
+    { key: 'reminders', icon: 'alarm-outline', label: 'Erinnerungen', sub: 'Gross auf dem Schirm oder als Push' },
     { key: 'recipes', icon: 'book-outline', label: 'Rezeptbuch', sub: 'Familienrezepte' },
     { key: 'documents', icon: 'folder-open-outline', label: 'Dokumentsafe', sub: 'Wichtige Angaben' },
   ];

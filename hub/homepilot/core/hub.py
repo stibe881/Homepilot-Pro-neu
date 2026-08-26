@@ -40,7 +40,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import __version__
-from . import config_edit, metrics, persistence
+from . import config_edit, erinnerungen, metrics, persistence
 from . import push as push_service
 from . import users as users_module
 from .audit import AuditLog
@@ -184,6 +184,10 @@ class Hub:
         # einem Schwall nur den ersten sofort (siehe persistence.FLUSH_DELAY);
         # dieser Takt bringt den Rest zeitnah auf die Platte.
         self._flush_task = asyncio.create_task(self._flush_loop())
+        # Erinnerungen mit Push: Die Bildschirme rechnen ihre Fälligkeit
+        # selbst, aber ein Push muss auch kommen, wenn keine App offen
+        # ist - dafür schaut dieser Takt auf die Liste.
+        self._erinnerungs_task = asyncio.create_task(erinnerungen.push_loop(self))
 
         if self.users.open_access:
             log.warning(
@@ -575,7 +579,7 @@ class Hub:
         ring_pfad = self._log_ring_path()
         if ring_pfad:
             self.log_buffer.save(ring_pfad)
-        for name in ("_backup_task", "_flush_task"):
+        for name in ("_backup_task", "_flush_task", "_erinnerungs_task"):
             task = getattr(self, name, None)
             if task is not None:
                 task.cancel()

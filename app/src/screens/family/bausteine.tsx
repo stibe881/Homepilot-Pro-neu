@@ -1783,16 +1783,56 @@ function ZeitSpalte({
   );
 }
 
+/** Ein Schiebeschalter im Stil des Systems - RN bringt zwar einen Switch
+ * mit, aber der sieht auf dem Web nach Browser aus und nicht nach App. */
+function Schalter({
+  an,
+  onWechsel,
+  label,
+  styles,
+}: {
+  an: boolean;
+  onWechsel: () => void;
+  label: string;
+  styles: Styles;
+}) {
+  return (
+    <Pressable
+      onPress={onWechsel}
+      accessibilityRole="switch"
+      accessibilityState={{ checked: an }}
+      accessibilityLabel={label}
+      style={[styles.schalter, an && styles.schalterAn]}
+    >
+      <View style={[styles.schalterKnopf, an && styles.schalterKnopfAn]} />
+    </Pressable>
+  );
+}
+
 export function ErinnerungForm({
   onAdd,
+  mitglieder,
   styles,
   colors,
 }: {
-  onAdd: (text: string, at: number) => void;
+  onAdd: (eintrag: {
+    text: string;
+    at: number;
+    anzeigen: boolean;
+    push: boolean;
+    push_an: string[];
+  }) => void;
+  mitglieder: string[];
   styles: Styles;
   colors: Colors;
 }) {
   const [text, setText] = useState('');
+  // Die beiden Wege, auf denen eine Erinnerung ankommt. Bildschirm ist
+  // die Vorgabe (so war die Kachel angekündigt); Push muss man wollen,
+  // denn es klingelt auf fremden Telefonen.
+  const [anzeigen, setAnzeigen] = useState(true);
+  const [push, setPush] = useState(false);
+  const [gewaehlte, setGewaehlte] = useState<string[]>([]);
   // Vorgabe: heute, zur nächsten vollen Stunde - der häufigste Fall ist
   // «nachher», nicht «nächste Woche».
   const [wann, setWann] = useState(() => {
@@ -1808,7 +1848,10 @@ export function ErinnerungForm({
   // Welcher Wähler offen ist - immer nur einer, sonst wird die Karte
   // länger als der Schirm.
   const [offenerWaehler, setOffenerWaehler] = useState<'datum' | 'zeit' | null>(null);
-  const bereit = !!text.trim();
+  // Ohne Weg keine Erinnerung: Beide Schalter aus hiesse «lege an, aber
+  // sag es niemandem». Und Push ohne Empfänger liefe genauso ins Leere.
+  const bereit =
+    !!text.trim() && (anzeigen || push) && (!push || gewaehlte.length > 0);
 
   const datumText = `${WOCHENTAG_KURZ[(new Date(wann.jahr, wann.monat - 1, wann.tag).getDay() + 6) % 7]}, ${String(wann.tag).padStart(2, '0')}.${String(wann.monat).padStart(2, '0')}.${wann.jahr}`;
   const zeitText = `${String(wann.stunde).padStart(2, '0')}:${String(wann.minute).padStart(2, '0')}`;
@@ -1884,15 +1927,97 @@ export function ErinnerungForm({
           />
         </View>
       ) : null}
+      <View style={styles.schalterZeile}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.schalterText}>Gross am Bildschirm anzeigen</Text>
+          <Text style={styles.schalterHinweis}>
+            Erscheint zur Zeit auf jedem offenen Bildschirm - und verschwindet
+            überall, sobald die erste Person bestätigt.
+          </Text>
+        </View>
+        <Schalter
+          an={anzeigen}
+          onWechsel={() => setAnzeigen((wert) => !wert)}
+          label="Gross am Bildschirm anzeigen"
+          styles={styles}
+        />
+      </View>
+      <View style={styles.schalterZeile}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.schalterText}>Push-Nachricht senden</Text>
+          {push ? (
+            <Text style={styles.schalterHinweis}>
+              {mitglieder.length > 0
+                ? 'An wen? Mehrere sind möglich.'
+                : 'Keine Haushaltsmitglieder gefunden - stimmt die Verbindung zum Hub?'}
+            </Text>
+          ) : null}
+        </View>
+        <Schalter
+          an={push}
+          onWechsel={() =>
+            setPush((wert) => {
+              // Beim Ausschalten die Auswahl mitnehmen: Wer den Schalter
+              // wieder einschaltet, soll nicht bei den alten Häkchen von
+              // vorhin landen, ohne es zu merken.
+              if (wert) setGewaehlte([]);
+              return !wert;
+            })
+          }
+          label="Push-Nachricht senden"
+          styles={styles}
+        />
+      </View>
+      {push && mitglieder.length > 0 ? (
+        <View style={styles.mitgliedZeile}>
+          {mitglieder.map((name) => {
+            const an = gewaehlte.includes(name);
+            return (
+              <Pressable
+                key={name}
+                onPress={() =>
+                  setGewaehlte((liste) =>
+                    an ? liste.filter((eintrag) => eintrag !== name) : [...liste, name]
+                  )
+                }
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: an }}
+                accessibilityLabel={`Push an ${name}`}
+                style={[styles.mitgliedChip, an && styles.mitgliedChipAn]}
+              >
+                <Ionicons
+                  name={an ? 'checkmark-circle' : 'ellipse-outline'}
+                  size={16}
+                  color={an ? colors.accent : colors.inkFaint}
+                />
+                <Text style={[styles.mitgliedChipText, an && styles.mitgliedChipTextAn]}>
+                  {name}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
       <Pressable
         onPress={() => {
           if (!bereit) return;
-          onAdd(
-            text.trim(),
-            new Date(wann.jahr, wann.monat - 1, wann.tag, wann.stunde, wann.minute).getTime()
-          );
+          onAdd({
+            text: text.trim(),
+            at: new Date(
+              wann.jahr,
+              wann.monat - 1,
+              wann.tag,
+              wann.stunde,
+              wann.minute
+            ).getTime(),
+            anzeigen,
+            push,
+            push_an: push ? gewaehlte : [],
+          });
           setText('');
           setOffenerWaehler(null);
+          setPush(false);
+          setGewaehlte([]);
         }}
         accessibilityRole="button"
         accessibilityState={{ disabled: !bereit }}

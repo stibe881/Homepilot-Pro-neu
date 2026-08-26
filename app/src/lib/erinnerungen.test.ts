@@ -1,4 +1,4 @@
-import { faellige, monatsSprung, monatsraster, naechsteAt, offene, zeitpunkt } from './erinnerungen';
+import { anzuzeigende, faellige, monatsSprung, monatsraster, naechsteAt, offene, zeitpunkt } from './erinnerungen';
 
 describe('zeitpunkt', () => {
   it('liest Schweizer Datum und Uhrzeit', () => {
@@ -76,5 +76,16 @@ describe('monatsraster', () => {
   it('blättert über den Jahresrand', () => {
     expect(monatsSprung(2026, 12, 1)).toEqual({ jahr: 2027, monat: 1 });
     expect(monatsSprung(2026, 1, -1)).toEqual({ jahr: 2025, monat: 12 });
+  });
+});
+
+describe('anzuzeigende', () => {
+  it('nur-Push-Eintraege bleiben dem Vollbild fern', () => {
+    const liste = [
+      { id: 'a', at: 100, anzeigen: false, push: true },
+      { id: 'b', at: 100 },
+      { id: 'c', at: 100, anzeigen: true },
+    ];
+    expect(anzuzeigende(liste, 200).map((e) => e.id)).toEqual(['b', 'c']);
   });
 });
