@@ -17,7 +17,10 @@ import { faelltAuf, standZeile } from '../lib/kachelstand';
 import { Musikliste } from './Musikliste';
 import { ColorRow } from './ColorRow';
 import { Sky } from './CoverVisual';
+import { isTelevision } from '../lib/geraeteart';
+import { tvKopf, tvTeile } from '../lib/fernsehkachel';
 import { TvApps } from './TvApps';
+import { TvVolume } from './TvVolume';
 import { TvSleep } from './TvSleep';
 import { TvRemote } from './TvRemote';
 import {
@@ -302,7 +305,13 @@ export function EntityCard({
 
       case 'media_player': {
         const playing = entity.state.state === 'playing';
-        const hasRemote = entity.commands.includes('dpad_up');
+        const fernseher = isTelevision(entity);
+        // Beim Fernseher entscheidet der gemeldete Zustand, was überhaupt
+        // dasteht - siehe lib/fernsehkachel.ts. Für eine Musikbox bleibt
+        // alles, wie es war.
+        const teile = tvTeile(entity);
+        const kopf = fernseher ? tvKopf(entity) : null;
+        const hasRemote = fernseher ? teile.fernbedienung : entity.commands.includes('dpad_up');
         const cover = entity.state.image ? String(entity.state.image) : null;
         return (
           <View style={styles.stack}>
@@ -342,9 +351,17 @@ export function EntityCard({
                   {/* Ohne Titel den Zustand nennen: «Pausiert» und
                       «Nichts an» sind zwei verschiedene Auskünfte, und
                       «Nichts läuft» war für beide dieselbe. */}
-                  {entity.state.track ?? zustandName(String(entity.state.state ?? ''))}
+                  {kopf
+                    ? kopf.text
+                    : (entity.state.track ??
+                      zustandName(String(entity.state.state ?? '')))}
                 </Text>
-                {entity.state.artist ? (
+                {kopf?.unter ? (
+                  <Text style={styles.hint} numberOfLines={1}>
+                    {kopf.unter}
+                  </Text>
+                ) : null}
+                {!kopf && entity.state.artist ? (
                   <Text style={styles.hint} numberOfLines={1}>
                     {entity.state.artist}
                     {entity.state.device ? ` · ${entity.state.device}` : ''}
@@ -367,7 +384,8 @@ export function EntityCard({
                   : undefined
               }
             />
-            {entity.commands.includes('next') ? (
+            {fernseher ? teile.lautstaerke && <TvVolume entity={entity} onCommand={onCommand} /> : null}
+            {(fernseher ? teile.transport : entity.commands.includes('next')) ? (
               <View style={styles.mediaRow}>
                 <MediaButton
                   icon="play-skip-back"
@@ -376,7 +394,11 @@ export function EntityCard({
                 />
                 <MediaButton
                   icon={playing ? 'pause' : 'play'}
-                  label={playing ? 'Pause' : 'Abspielen'}
+                  // Der Fernseher meldet nie, ob gerade etwas läuft - die
+                  // Taste schickt in beiden Fällen dasselbe an ihn
+                  // (KEYCODE_MEDIA_PLAY_PAUSE). Also heisst sie auch so,
+                  // statt «Abspielen» zu behaupten.
+                  label={fernseher ? 'Wiedergabe/Pause' : playing ? 'Pause' : 'Abspielen'}
                   onPress={() => onCommand(playing ? 'pause' : 'play')}
                 />
                 <MediaButton
@@ -400,7 +422,7 @@ export function EntityCard({
             {entity.commands.includes('launch_app') ? (
               <TvApps entity={entity} onCommand={onCommand} />
             ) : null}
-            {entity.commands.includes('sleep_timer') ? (
+            {(fernseher ? teile.timer : entity.commands.includes('sleep_timer')) ? (
               <TvSleep entity={entity} onCommand={onCommand} />
             ) : null}
             {hasRemote ? (

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import time
 from typing import Any
 
 from ..core.entity import Entity, EntityKind
@@ -107,9 +108,31 @@ class DemoIntegration(Integration):
             "tv_livingroom",
             EntityKind.MEDIA_PLAYER,
             "Wohnzimmer TV",
-            state={"state": "idle", "volume": 20, "has_screen": True},
+            # Wie ein Android TV: Er meldet die laufende App (und nur die),
+            # kennt Apps, Steuerkreuz und Einschlaf-Timer, und die
+            # Lautstärke lässt sich nur schrittweise ändern. Vorher stand
+            # hier eine Box mit Bildschirm - an ihr liess sich die
+            # Fernsehkachel nicht ansehen, ohne einen echten Fernseher im
+            # Netz zu haben.
+            state={
+                "state": "on",
+                "app": "Plex",
+                "track": "Plex",
+                "volume": 20,
+                "has_screen": True,
+                "apps": [
+                    {"name": "Plex", "app": "com.plexapp.android"},
+                    {"name": "Zattoo", "app": "com.zattoo.player"},
+                    {"name": "YouTube", "app": "com.google.android.youtube.tv"},
+                    {"name": "Netflix", "app": "com.netflix.ninja"},
+                ],
+            },
             commands=[
-                "play", "pause", "toggle", "set_volume", "mute", "play_url",
+                "play", "pause", "next", "previous", "toggle",
+                "turn_on", "turn_off", "mute", "volume_up", "volume_down",
+                "launch_app", "sleep_timer", "play_url",
+                "dpad_up", "dpad_down", "dpad_left", "dpad_right", "ok",
+                "home", "back",
             ],
         )
         # Eine Lichtszene wie die einer Hue-Bridge: ein Knopf, kein Regler.
@@ -147,7 +170,19 @@ class DemoIntegration(Integration):
             # Eine Box kippt zwischen «spielt» und «pausiert», eine Lampe
             # zwischen an und aus. Derselbe Knopf, zwei Vokabeln – die
             # App liest sie beide aus `state`.
-            if entity.kind == EntityKind.MEDIA_PLAYER:
+            if entity.kind == EntityKind.MEDIA_PLAYER and entity.state.get("has_screen"):
+                # Am Fernseher ist der Knopf unten auf der Kachel der
+                # Netzschalter, nicht Pause - wie beim echten Android TV.
+                aus = entity.state.get("state") != "off"
+                changes["state"] = "off" if aus else "on"
+                # Ein dunkler Fernseher meldet keine App mehr. Ausdrücklich
+                # None: Der Zustand wird verschmolzen, ein weggelassenes
+                # Feld behielte seinen alten Wert (core/registry.py).
+                changes["app"] = None if aus else "Plex"
+                changes["track"] = changes["app"]
+                if aus:
+                    changes["sleep_until"] = None
+            elif entity.kind == EntityKind.MEDIA_PLAYER:
                 changes["state"] = (
                     "paused" if entity.state.get("state") == "playing" else "playing"
                 )
@@ -173,6 +208,28 @@ class DemoIntegration(Integration):
             changes["track"] = str(data.get("url") or "")
         elif command == "set_volume":
             changes["volume"] = max(0, min(100, int(data.get("volume", 0))))
+        elif command in ("volume_up", "volume_down"):
+            # Der Fernseher nimmt keinen Zielwert entgegen, nur Schritte -
+            # daran hängt, dass die Kachel Knöpfe statt eines Schiebers
+            # zeigt (app/src/lib/fernsehkachel.ts).
+            schritt = 5 if command == "volume_up" else -5
+            stand = int(entity.state.get("volume") or 0)
+            changes["volume"] = max(0, min(100, stand + schritt))
+            changes["muted"] = False
+        elif command == "mute":
+            changes["muted"] = not entity.state.get("muted")
+        elif command == "launch_app":
+            paket = str(data.get("app") or "")
+            apps = entity.state.get("apps") or []
+            name = next(
+                (str(a.get("name")) for a in apps if str(a.get("app")) == paket), paket
+            )
+            # Ein Android TV meldet die laufende App als App *und* als
+            # Titel - genau die Doppelung, um die es auf der Kachel geht.
+            changes.update({"state": "on", "app": name, "track": name})
+        elif command == "sleep_timer":
+            minuten = int(data.get("minutes") or 0)
+            changes["sleep_until"] = time.time() + minuten * 60 if minuten > 0 else None
         elif command == "activate":
             # Eine Szene gilt, bis jemand eines ihrer Lichter anfasst. Das
             # nachzubilden wäre hier Aufwand ohne Ertrag – sie bleibt an.
