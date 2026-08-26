@@ -253,8 +253,12 @@ export function SceneDevices({
           </Pressable>
         ) : null}
       </View>
+      {/* «1 Gerät(e)» stand da, weil niemand die Mehrzahl bilden wollte.
+          Diese Zeile liest man beim Anlegen jedes Ablaufs. */}
       {actions.length > 0 ? (
-        <Text style={styles.snapshotHint}>{actions.length} Gerät(e) ausgewählt</Text>
+        <Text style={styles.snapshotHint}>
+          {actions.length === 1 ? '1 Gerät ausgewählt' : `${actions.length} Geräte ausgewählt`}
+        </Text>
       ) : null}
 
       {groups.length === 0 ? (
