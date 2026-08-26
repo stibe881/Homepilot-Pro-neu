@@ -13,6 +13,7 @@ import { zaehlbar } from '../lib/zaehlung';
 import { useColors } from '../theme';
 import { Bar } from './Bar';
 import { Card, CardFooter } from './Card';
+import { faelltAuf, standZeile } from '../lib/kachelstand';
 import { Musikliste } from './Musikliste';
 import { ColorRow } from './ColorRow';
 import { Sky } from './CoverVisual';
@@ -20,7 +21,7 @@ import { TvApps } from './TvApps';
 import { TvSleep } from './TvSleep';
 import { TvRemote } from './TvRemote';
 import {
-  EditButton,
+  AnpassenBlatt,
   GroupPicker,
   KachelMenue,
   RenameDialog,
@@ -154,6 +155,7 @@ export function EntityCard({
   // Was als Nächstes läuft – hinter Cover und Titel der Musikkachel.
   const [listeOffen, setListeOffen] = useState(false);
   const [roomPickerOpen, setRoomPickerOpen] = useState(false);
+  const [blattOffen, setBlattOffen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [menueOffen, setMenueOffen] = useState(false);
   const [groupPickerOpen, setGroupPickerOpen] = useState(false);
@@ -191,6 +193,18 @@ export function EntityCard({
       : aktionen.length === 1
         ? () => fuehreAus(aktionen[0])
         : () => setMenueOffen(true);
+
+  // Was auf der Kachel steht und was das Blatt anbietet, kommt aus
+  // derselben Quelle - sonst sagt die Zeile «Favorit» und im Blatt ist
+  // der Stern leer.
+  const stand = {
+    room: entity.room,
+    group: entity.group,
+    favorite,
+    hidden,
+    locked,
+    ungezaehlt,
+  };
 
   const subtitle =
     (imRaumblock ? undefined : entity.room) || integrationLabel(entity.integration);
@@ -731,9 +745,16 @@ export function EntityCard({
       onLongPress={langerDruck}
     >
       {editing ? (
-        // Chips und Knöpfe stehen in zwei umbrechenden Zeilen: auf einer
-        // halbbreiten Telefonkachel passt sonst nicht alles nebeneinander
-        // und die hinteren Symbole ragen aus der Kachel heraus.
+        // Eine Zeile statt einer Knopfwand.
+        // Vorher standen hier zwei Chips und bis zu fünf beschriftete
+        // Symbole. Auf einer halbbreiten Telefonkachel brauchen vier
+        // davon rund 320 Punkte und bekommen 180 – sie brachen um, die
+        // Chips ebenso, und der Griff zum Verschieben lag über dem
+        // Raum-Chip. Der Inhalt der Kachel rutschte so weit nach unten,
+        // dass zwei Stück einen Bildschirm füllten.
+        //
+        // Jetzt sagt eine Zeile, was eingestellt ist, und ein Tipp
+        // öffnet das Blatt, in dem alles Platz hat.
         <View style={styles.editBox}>
           {partOf ? (
             <View style={styles.partOfRow}>
@@ -743,100 +764,127 @@ export function EntityCard({
               </Text>
             </View>
           ) : null}
-
-          {(onSetRoom && rooms) || (onSetGroup && groups) ? (
-            <View style={styles.editChips}>
-              {onSetRoom && rooms ? (
-                <Pressable
-                  onPress={() => setRoomPickerOpen(true)}
-                  accessibilityRole="button"
-                  accessibilityLabel="Raum wählen"
-                  style={({ pressed }) => [styles.roomChip, pressed && { opacity: 0.6 }]}
-                >
-                  <Ionicons name="home-outline" size={13} color={colors.ink} />
-                  <Text style={styles.roomChipText} numberOfLines={1}>
-                    {entity.room ?? 'Kein Raum'}
-                  </Text>
-                </Pressable>
-              ) : null}
-              {onSetGroup && groups ? (
-                <Pressable
-                  onPress={() => setGroupPickerOpen(true)}
-                  accessibilityRole="button"
-                  accessibilityLabel="Gruppe wählen"
-                  style={({ pressed }) => [styles.roomChip, pressed && { opacity: 0.6 }]}
-                >
-                  <Ionicons name="layers-outline" size={13} color={colors.ink} />
-                  <Text style={styles.roomChipText} numberOfLines={1}>
-                    {entity.group ?? 'Keine Gruppe'}
-                  </Text>
-                </Pressable>
-              ) : null}
-            </View>
-          ) : null}
-          <View style={styles.editButtons}>
-            {onRename ? (
-              <EditButton
-                icon="pencil"
-                active={false}
-                label="Umbenennen"
-                caption="Name"
-                onPress={() => setRenameOpen(true)}
-              />
-            ) : null}
-            <EditButton
-              icon={favorite ? 'star' : 'star-outline'}
-              active={!!favorite}
-              label={favorite ? 'Favorit entfernen' : 'Als Favorit'}
-              caption="Favorit"
-              onPress={onToggleFavorite}
-            />
-            <EditButton
-              icon={hidden ? 'eye-off' : 'eye-outline'}
-              active={!!hidden}
-              label={hidden ? 'Wieder einblenden' : 'Ausblenden'}
-              caption={hidden ? 'Versteckt' : 'Ausblenden'}
-              onPress={onToggleHidden}
-            />
-            {onToggleLocked ? (
-              <EditButton
-                icon={locked ? 'lock-closed' : 'lock-open-outline'}
-                active={!!locked}
-                label={locked ? 'Sperre aufheben' : 'Sperren – schaltet nur nach Rückfrage'}
-                // «Rückfrage» statt «Sperren»: Das Wort sagt, was passiert.
-                // Gesperrt klingt nach «geht nicht mehr» – es geht weiter,
-                // nur mit einem Ja dazwischen.
-                caption="Rückfrage"
-                onPress={onToggleLocked}
-              />
-            ) : null}
-            {/* «Zählt oben mit?» gehört hierher und nicht nur an den
-                langen Druck: Wer eine Kachel anpasst, geht die Fragen der
-                Reihe nach durch - Raum, Name, Favorit, sichtbar - und
-                diese ist eine davon. Im Anpassen-Modus ist der lange
-                Druck ausserdem vergeben: Er hält die Kachel zum
-                Verschieben fest. */}
-            {onToggleUngezaehlt && zaehlbar(entity) ? (
-              <EditButton
-                // Kein zweites Auge in dieser Reihe: Das Auge daneben
-                // heisst «Ausblenden», und beides nebeneinander liest sich
-                // wie dieselbe Sache. Der durchgestrichene Kreis sagt
-                // «aus der Zählung genommen», die Glühbirne «zählt mit».
-                icon={ungezaehlt ? 'remove-circle-outline' : 'bulb-outline'}
-                active={!!ungezaehlt}
-                label={
-                  ungezaehlt
-                    ? 'Oben wieder mitzählen'
-                    : 'Oben nicht mitzählen – bleibt aber sichtbar'
-                }
-                // Gemeint ist die «3 an» in der Kopfzeile. «Zählt» allein
-                // wäre zweideutig; «oben» sagt, wo.
-                caption={ungezaehlt ? 'Zählt nicht' : 'Zählt oben'}
-                onPress={onToggleUngezaehlt}
-              />
-            ) : null}
-          </View>
+          <Pressable
+            onPress={() => setBlattOffen(true)}
+            accessibilityRole="button"
+            accessibilityLabel={`${entity.name} anpassen – ${standZeile(stand)}`}
+            style={({ pressed }) => [styles.editZeile, pressed && { opacity: 0.6 }]}
+          >
+            <Text
+              style={[styles.editStand, faelltAuf(stand) && { color: colors.accent }]}
+              numberOfLines={2}
+            >
+              {standZeile(stand)}
+            </Text>
+            <Ionicons name="chevron-forward" size={13} color={colors.inkSoft} />
+          </Pressable>
         </View>
+      ) : null}
+      {editing ? (
+        <AnpassenBlatt
+          visible={blattOffen}
+          titel={entity.name}
+          onClose={() => setBlattOffen(false)}
+          zeilen={[
+            ...(onRename
+              ? [
+                  {
+                    key: 'name',
+                    icon: 'pencil' as const,
+                    label: 'Umbenennen',
+                    onPress: () => {
+                      setBlattOffen(false);
+                      setRenameOpen(true);
+                    },
+                  },
+                ]
+              : []),
+            ...(onSetRoom && rooms
+              ? [
+                  {
+                    key: 'raum',
+                    icon: 'home-outline' as const,
+                    label: 'Raum',
+                    wert: entity.room ?? 'Kein Raum',
+                    onPress: () => {
+                      setBlattOffen(false);
+                      setRoomPickerOpen(true);
+                    },
+                  },
+                ]
+              : []),
+            ...(onSetGroup && groups
+              ? [
+                  {
+                    key: 'gruppe',
+                    icon: 'layers-outline' as const,
+                    label: 'Gruppe',
+                    wert: entity.group ?? 'Keine Gruppe',
+                    onPress: () => {
+                      setBlattOffen(false);
+                      setGroupPickerOpen(true);
+                    },
+                  },
+                ]
+              : []),
+            {
+              key: 'favorit',
+              icon: (favorite
+                ? 'star'
+                : 'star-outline') as keyof typeof Ionicons.glyphMap,
+              label: 'Favorit',
+              wert: favorite ? 'ja' : 'nein',
+              aktiv: !!favorite,
+              // Das Blatt bleibt offen: Wer eine Kachel anpasst, legt
+              // meist mehrere Schalter um. Nach jedem Tipp zu schliessen
+              // hiesse, es viermal zu öffnen.
+              onPress: () => onToggleFavorite?.(),
+            },
+            {
+              key: 'sichtbar',
+              icon: (hidden
+                ? 'eye-off'
+                : 'eye-outline') as keyof typeof Ionicons.glyphMap,
+              label: 'Ausblenden',
+              wert: hidden ? 'versteckt' : 'sichtbar',
+              aktiv: !!hidden,
+              onPress: () => onToggleHidden?.(),
+            },
+            ...(onToggleLocked
+              ? [
+                  {
+                    key: 'rueckfrage',
+                    icon: (locked
+                      ? 'lock-closed'
+                      : 'lock-open-outline') as keyof typeof Ionicons.glyphMap,
+                    // «Rückfrage» statt «Sperren»: Das Wort sagt, was
+                    // passiert. Gesperrt klingt nach «geht nicht mehr» -
+                    // es geht weiter, nur mit einem Ja dazwischen.
+                    label: 'Rückfrage vor dem Schalten',
+                    wert: locked ? 'ja' : 'nein',
+                    aktiv: !!locked,
+                    onPress: () => onToggleLocked(),
+                  },
+                ]
+              : []),
+            ...(onToggleUngezaehlt && zaehlbar(entity)
+              ? [
+                  {
+                    key: 'zaehlung',
+                    icon: (ungezaehlt
+                      ? 'remove-circle-outline'
+                      : 'bulb-outline') as keyof typeof Ionicons.glyphMap,
+                    // Gemeint ist die «3 an» in der Kopfzeile. «Zählt»
+                    // allein wäre zweideutig; «oben» sagt, wo.
+                    label: 'Zählt oben mit',
+                    wert: ungezaehlt ? 'nein' : 'ja',
+                    aktiv: !!ungezaehlt,
+                    onPress: () => onToggleUngezaehlt(),
+                  },
+                ]
+              : []),
+          ]}
+        />
       ) : null}
       {onSetRoom && rooms ? (
         <RoomPicker
