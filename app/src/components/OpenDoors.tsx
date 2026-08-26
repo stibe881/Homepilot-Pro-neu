@@ -7,7 +7,7 @@ import { isWindow, openContacts } from '../lib/offen';
 
 // Weiterhin von hier importierbar – die halbe App holt sie an dieser
 // Adresse. Wohnen tun sie in lib/offen.ts, wo sie ohne React prüfbar sind.
-export { hasOpenDoor, isWindow, openContacts } from '../lib/offen';
+export { hasOpenDoor, isWindow, openContacts, wohnungstuer, wohnungstuerOffen } from '../lib/offen';
 import { Colors, radius, useColors } from '../theme';
 
 /**

@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { hubClient } from '../api/client';
 import { Entity, HubSettings } from '../api/types';
 import { Card } from './Card';
+import { gruppenZeile } from '../lib/lampengruppe';
 import { Colors, radius, type, useColors } from '../theme';
 
 /**
@@ -116,8 +117,6 @@ export function LightGroups({
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.url, settings.token, groupIds]);
-
-  const nameOf = (id: string) => entities.find((item) => item.id === id)?.name ?? id;
 
   /** Die Entität zu einer Leuchte heisst «group.<kennung>».
    *
@@ -247,7 +246,9 @@ export function LightGroups({
   return (
     <Card style={styles.card}>
       <Text style={styles.heading}>Lampen zusammenfassen</Text>
-      <Text style={styles.hint}>
+      {/* Ein sechszeiliger Absatz ist Fliesstext, keine Fussnote - er
+          gehört nicht in die leiseste Tinte. */}
+      <Text style={styles.note}>
         Eine Deckenlampe mit mehreren Spots soll ein Licht sein, nicht fünf.
         Zusammengefasste Lampen verschwinden aus den Räumen und aus der
         Zählung oben; hier unter Geräte bleiben sie einzeln bedienbar.
@@ -260,16 +261,44 @@ export function LightGroups({
         const entityId = entityIdOf(group);
         const currentRoom = entities.find((item) => item.id === entityId)?.room ?? null;
         return (
-          <View key={group.id} style={{ gap: 8 }}>
-            <View style={styles.row}>
+          <View key={group.id} style={styles.gruppe}>
+            {/* Zwei Zeilen statt einer überladenen.
+                Vorher standen Name, alle Mitgliedsnamen, der Raum-Chip
+                und zwei Symbole nebeneinander: Die Namen brachen auf
+                zwei Zeilen um und wurden trotzdem abgeschnitten («Levin
+                Spot 1 · Levin Spot 2 · Levin Spot 3 · Levin…»), und der
+                Chip schwebte irgendwo auf halber Höhe daneben.
+
+                Die Namen sind weg. Sie sagen nichts, was der
+                Gruppenname nicht sagt - wer wissen will, welche Spots
+                drin sind, tippt auf den Stift, dort stehen sie zum
+                Ankreuzen. Übrig bleibt die Zahl, und die beantwortet
+                die Frage, die man an eine Gruppe hat. */}
+            <View style={styles.gruppeKopf}>
               <Ionicons name="bulb-outline" size={18} color={colors.accent} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.rowTitle}>{group.name}</Text>
-                <Text style={styles.rowDetail} numberOfLines={2}>
-                  {group.members.map(nameOf).join(' · ')}
-                  {group.hide_members === false ? ' · einzeln sichtbar' : ''}
-                </Text>
-              </View>
+              <Text style={[styles.rowTitle, { flex: 1 }]} numberOfLines={1}>
+                {group.name}
+              </Text>
+              <Pressable
+                onPress={() => startEdit(group)}
+                accessibilityRole="button"
+                accessibilityLabel={`${group.name} bearbeiten`}
+                hitSlop={10}
+              >
+                <Ionicons name="create-outline" size={20} color={colors.inkSoft} />
+              </Pressable>
+              <Pressable
+                onPress={() => dissolve(group)}
+                accessibilityRole="button"
+                accessibilityLabel={`${group.name} auflösen`}
+                hitSlop={10}
+              >
+                <Ionicons name="unlink-outline" size={20} color={colors.inkSoft} />
+              </Pressable>
+            </View>
+            {/* Eingerückt unter dem Namen: Raum und Anzahl gehören zur
+                Gruppe darüber, nicht zur nächsten. */}
+            <View style={styles.gruppeFuss}>
               {rooms.length > 0 ? (
                 <Pressable
                   onPress={() =>
@@ -285,22 +314,9 @@ export function LightGroups({
                   </Text>
                 </Pressable>
               ) : null}
-              <Pressable
-                onPress={() => startEdit(group)}
-                accessibilityRole="button"
-                accessibilityLabel={`${group.name} bearbeiten`}
-                hitSlop={8}
-              >
-                <Ionicons name="create-outline" size={18} color={colors.inkSoft} />
-              </Pressable>
-              <Pressable
-                onPress={() => dissolve(group)}
-                accessibilityRole="button"
-                accessibilityLabel={`${group.name} auflösen`}
-                hitSlop={8}
-              >
-                <Ionicons name="unlink-outline" size={18} color={colors.inkSoft} />
-              </Pressable>
+              <Text style={styles.rowDetail} numberOfLines={1}>
+                {gruppenZeile(group)}
+              </Text>
             </View>
             {roomPickFor === group.id ? (
               <View style={styles.chipRow}>
@@ -466,6 +482,23 @@ const makeStyles = (colors: Colors) =>
     hint: { color: colors.inkFaint, fontSize: 12, lineHeight: 18 },
     note: { color: colors.inkSoft, fontSize: 12, lineHeight: 18 },
     row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    /** Eine Gruppe: Kopfzeile mit Name und Knöpfen, darunter eingerückt
+     *  Raum und Anzahl. Eine Trennlinie darüber, damit fünf Gruppen
+     *  nicht als ein Block verschwimmen. */
+    gruppe: {
+      gap: 6,
+      paddingTop: 10,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.surfaceBorder,
+    },
+    gruppeKopf: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    gruppeFuss: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      // Bündig unter dem Namen: Symbolbreite plus Abstand der Kopfzeile.
+      paddingLeft: 28,
+    },
     rowTitle: { color: colors.ink, fontSize: 14, fontWeight: '600' },
     rowDetail: { color: colors.inkSoft, fontSize: 12, lineHeight: 17 },
     roomChip: {

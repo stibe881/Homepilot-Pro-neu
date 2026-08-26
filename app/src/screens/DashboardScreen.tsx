@@ -1316,7 +1316,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         renderCard(entity, imRaumblock)
       );
   };
-  const renderCell = zellen(orderScope, rest);
+  // Auch hier `imRaumblock`, sobald ein Zimmer offen ist: Über diesen
+  // Weg läuft das Zimmer im Anpassen-Modus und bei eigener Reihenfolge -
+  // dort stand der Raumname sonst weiter unter jeder Kachel.
+  const renderCell = zellen(
+    orderScope,
+    rest,
+    section === 'home' && room !== ALL_ROOMS
+  );
 
   const content = () => {
     // Der Riegel vor Familie und Konto - siehe lib/bereichsriegel.ts. Er
@@ -1732,35 +1739,42 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                     </Pressable>
                   );
                 })}
-                <View style={{ flex: 1 }} />
-                <Pressable
-                  onPress={() =>
-                    setDeviceSort(
-                      deviceSort === 'selbst'
-                        ? 'raum'
-                        : deviceSort === 'raum'
-                          ? 'art'
-                          : deviceSort === 'art'
-                            ? 'gesehen'
-                            : 'selbst'
-                    )
-                  }
-                  accessibilityRole="button"
-                  accessibilityLabel="Sortierung wechseln"
-                  style={styles.filterChip}
-                >
-                  <Ionicons name="swap-vertical" size={12} color={colors.onGradientSoft} />
-                  <Text style={styles.filterChipText}>
-                    {deviceSort === 'selbst'
-                      ? 'eigene Reihenfolge'
-                      : deviceSort === 'raum'
-                        ? 'nach Raum'
-                        : deviceSort === 'art'
-                          ? 'nach Art'
-                          : 'lange nicht gesehen'}
-                  </Text>
-                </Pressable>
               </View>
+              {/* Die Sortierung in eigener Zeile. Sie stand bisher in
+                  derselben Reihe, nach hinten geschoben von einem
+                  `flex: 1`-Abstandhalter - und die Reihe bricht um: Bei
+                  vier Filtern lagen «Ausgeblendet · 7» und «eigene
+                  Reihenfolge» in der zweiten Zeile an den beiden Enden,
+                  mit einer Handbreit Leere dazwischen. Das sah nach
+                  Fehler aus. Rechts und für sich ist sie ausserdem
+                  ehrlicher: Sie filtert nichts, sie ordnet. */}
+              <Pressable
+                onPress={() =>
+                  setDeviceSort(
+                    deviceSort === 'selbst'
+                      ? 'raum'
+                      : deviceSort === 'raum'
+                        ? 'art'
+                        : deviceSort === 'art'
+                          ? 'gesehen'
+                          : 'selbst'
+                  )
+                }
+                accessibilityRole="button"
+                accessibilityLabel="Sortierung wechseln"
+                style={[styles.filterChip, { alignSelf: 'flex-end' }]}
+              >
+                <Ionicons name="swap-vertical" size={12} color={colors.ink} />
+                <Text style={styles.filterChipText}>
+                  {deviceSort === 'selbst'
+                    ? 'eigene Reihenfolge'
+                    : deviceSort === 'raum'
+                      ? 'nach Raum'
+                      : deviceSort === 'art'
+                        ? 'nach Art'
+                        : 'lange nicht gesehen'}
+                </Text>
+              </Pressable>
               {/* Batterien und Stumme im Detail – vorher unter System,
                   also auf dem Bildschirm für den Hub statt dem für die
                   Geräte. */}
@@ -1816,16 +1830,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 size={30}
                 color={eigenePrefs.kameraDynamisch ? colors.accent : colors.inkFaint}
               />
-            </Pressable>
-          ) : null}
-          {orderScope && !searching && rest.length > 1 ? (
-            <Pressable
-              onPress={() => setReorderOpen(true)}
-              accessibilityRole="button"
-              style={({ pressed }) => [styles.reorderButton, pressed && { opacity: 0.8 }]}
-            >
-              <Ionicons name="swap-vertical" size={16} color={colors.onGradient} />
-              <Text style={styles.reorderText}>Reihenfolge ändern</Text>
             </Pressable>
           ) : null}
           <Modal
@@ -1957,6 +1961,19 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               <Text style={styles.backText}>Räume</Text>
             </Pressable>
           ) : null}
+          {/* Der Raumname als Überschrift.
+              Im Zimmer stand er nirgends: oben «‹ Räume», darunter
+              «Anpassen», dann «Beleuchtung» - und der einzige Hinweis
+              auf das Zimmer war das kleingedruckte «Büro» unter jeder
+              Kachel, das jetzt zu Recht weg ist. Wer über einen Umweg
+              hierherkam, wusste nicht mehr, wo er steht.
+              Auch im Anpassen-Modus: Gerade dort darf man sich nicht im
+              Zimmer irren. */}
+          {section === 'home' && room !== ALL_ROOMS ? (
+            <Text style={styles.raumTitel} numberOfLines={1}>
+              {room}
+            </Text>
+          ) : null}
           {/* Kacheln anpassen heisst: verschieben, ausblenden, sperren,
               Gruppen vergeben. Es prägt die Ansicht für alle im Haus -
               aber genau darum steht es auch Mitbewohnern zu: Wer hier
@@ -1975,6 +1992,21 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               style={styles.editToggle}
             >
               <Text style={styles.editToggleText}>{editing ? 'Fertig' : 'Anpassen'}</Text>
+            </Pressable>
+          ) : null}
+
+          {/* Hinter «Anpassen» statt davor. Es stand bisher noch vor dem
+              Zurück-Link, also ganz oben - über der Zeile, mit der man
+              die Seite überhaupt verlässt. Erst wohin man ist, dann was
+              man hier tun kann. */}
+          {orderScope && !searching && rest.length > 1 ? (
+            <Pressable
+              onPress={() => setReorderOpen(true)}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.reorderButton, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons name="swap-vertical" size={16} color={colors.onGradient} />
+              <Text style={styles.reorderText}>Reihenfolge ändern</Text>
             </Pressable>
           ) : null}
 
@@ -2133,7 +2165,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                       accessibilityRole="button"
                       style={styles.filterChip}
                     >
-                      <Ionicons name="arrow-up" size={13} color={colors.onGradientSoft} />
+                      <Ionicons name="arrow-up" size={13} color={colors.ink} />
                       <Text style={styles.filterChipText}>Storen hoch</Text>
                     </Pressable>
                     <Pressable
@@ -2145,7 +2177,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                       accessibilityRole="button"
                       style={styles.filterChip}
                     >
-                      <Ionicons name="arrow-down" size={13} color={colors.onGradientSoft} />
+                      <Ionicons name="arrow-down" size={13} color={colors.ink} />
                       <Text style={styles.filterChipText}>Storen runter</Text>
                     </Pressable>
                   </>
@@ -2161,7 +2193,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 <View key={group.key} style={styles.group}>
                   <Text style={styles.groupLabel}>{group.label}</Text>
                   <View style={styles.grid}>
-                    {cardWidth ? group.items.map((entity) => renderCard(entity)) : null}
+                    {/* `imRaumblock`: Man steht in einem Zimmer, jede
+                        Kachel darin gehört dazu. Ohne das stand unter
+                        jedem der sechs Bürolichter noch einmal «Büro» -
+                        sechsmal dieselbe Auskunft, und die einzige Stelle
+                        im Bild, die den Raum überhaupt nannte. */}
+                    {cardWidth
+                      ? group.items.map((entity) => renderCard(entity, true))
+                      : null}
                   </View>
                 </View>
               ))}
@@ -3313,8 +3352,23 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     filterChipOn: { backgroundColor: colors.surfaceStrong },
-    filterChipText: { color: colors.onGradientSoft, fontSize: 12, fontWeight: '600' },
-    filterChipTextOn: { color: colors.ink },
+    // Dunkle Tinte auch im ausgeschalteten Zustand. Der Chip hat in
+    // beiden Themen einen hellen, durchscheinenden Grund; `onGradientSoft`
+    // darauf misst sich zu 1.86:1 - «Ohne Raum · 91» stand als heller
+    // Schatten da, während der eingeschaltete Chip daneben scharf war.
+    // Mit `ink` sind es 6.4:1 hell und 9.9:1 dunkel. Ein und aus
+    // unterscheidet weiterhin der Grund, und der tut es deutlich
+    // genug: durchscheinend gegen fast deckend.
+    filterChipText: { color: colors.ink, fontSize: 12, fontWeight: '600' },
+    filterChipTextOn: { color: colors.ink, fontWeight: '700' },
+    /** Der Raumname über den Kacheln – so gross wie eine Seitenüberschrift,
+     *  denn genau das ist er. */
+    raumTitel: {
+      color: colors.onGradient,
+      fontSize: 24,
+      fontWeight: '700',
+      marginTop: 2,
+    },
     raumKopf: { gap: 8 },
     raumKopfText: { color: colors.onGradient, fontSize: 15, fontWeight: '600' },
     reorderButton: {

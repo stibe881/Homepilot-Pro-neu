@@ -170,7 +170,7 @@ export const makeStyles = (colors: Colors) =>
       alignItems: 'center',
     },
     addWideText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
-    formCard: { gap: 8 },
+    formCard: { minHeight: 0, gap: 8 },
     toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
     toggleLabel: { color: colors.ink, fontSize: 15 },
     clearButton: { alignItems: 'center', paddingVertical: 8 },
@@ -283,7 +283,12 @@ export const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     chipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
-    chipText: { color: colors.onGradientSoft, fontSize: 13, fontWeight: '600' },
+    // Dunkle Tinte, nicht weisse: Der Chip hat in beiden Themen einen
+    // hellen, durchscheinenden Grund (`surfaceSoft`). Weiss darauf misst
+    // sich zu 2.4:1, `onGradientSoft` gar zu 1.9:1 – «Hauptkalender»
+    // stand als heller Schatten da. Mit `ink` sind es 6.2:1 hell und
+    // 9.9:1 dunkel.
+    chipText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
     chipTextActive: { color: '#FFFFFF' },
     groupHead: {
       flexDirection: 'row',
@@ -300,12 +305,17 @@ export const makeStyles = (colors: Colors) =>
       justifyContent: 'space-between',
       paddingHorizontal: 4,
     },
+    /** Das Monatsgitter liegt auf einer Karte – siehe MonthCalendar. */
+    calCard: { minHeight: 0, gap: 10 },
     calTitle: { color: colors.ink, fontSize: 17, fontWeight: '700' },
     calGrid: { flexDirection: 'row', flexWrap: 'wrap' },
     calWeekday: {
       width: `${100 / 7}%`,
       textAlign: 'center',
-      color: colors.inkFaint,
+      // Eine Stufe kräftiger als `inkFaint`: Auf der Karte kommt das
+      // Blasse auf 2.1:1 – als Spaltenkopf über sieben Zahlenreihen zu
+      // wenig, um die Spalte überhaupt zuzuordnen.
+      color: colors.inkSoft,
       fontSize: 12,
       fontWeight: '700',
       paddingBottom: 4,
@@ -319,7 +329,10 @@ export const makeStyles = (colors: Colors) =>
     },
     calCellToday: { borderWidth: 1, borderColor: colors.accent },
     calCellSelected: { backgroundColor: colors.surfaceStrong },
-    calDay: { color: colors.inkSoft, fontSize: 15 },
+    // Die Tageszahl ist der Inhalt des Gitters, nicht seine Beschriftung
+    // – sie gehört in die kräftigste Tinte. Als `inkSoft` war sie auch
+    // auf der Karte nur 3.9:1.
+    calDay: { color: colors.ink, fontSize: 15 },
     calDot: {
       width: 5,
       height: 5,

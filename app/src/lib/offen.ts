@@ -59,3 +59,54 @@ export function hasOpenDoor(entities: Entity[]): boolean {
     (entity) => entity.kind === 'lock' || !isWindow(entity.name)
   );
 }
+
+/**
+ * Die Wohnungstüre unter allen Geräten (rein, testbar).
+ *
+ * Dieselbe Regel, nach der die Startseite ihre Kachel «Wohnungstüre»
+ * wählt – bewusst hier und nicht ein zweites Mal dort: Zwei Antworten
+ * auf «welche ist die Wohnungstüre» wären derselbe Fehler wie die zwei
+ * Zählungen oben in dieser Datei.
+ *
+ * Der Name hat Vorrang: Wer ein Schloss «Wohnungstüre» nennt, meint
+ * dieses. Sonst das erste echte Schloss – «echt» heisst, es kann
+ * abschliessen; ein blosser Türöffner wie die Gegensprechanlage kann
+ * das nicht und ist die Haustüre unten.
+ */
+export function wohnungstuer(
+  entities: Entity[],
+  /** Die Haustüre; sie scheidet aus. Fehlt sie, wird die Klingel gesucht. */
+  haustuerId?: string
+): Entity | null {
+  const haus =
+    haustuerId ??
+    entities.find((entity) => entity.kind === 'lock' && entity.integration === 'ring')
+      ?.id;
+  const kandidaten = entities.filter(
+    (entity) => entity.kind === 'lock' && entity.id !== haus
+  );
+  return (
+    kandidaten.find((entity) => /wohnung|wohnungstür/i.test(entity.name)) ??
+    kandidaten.find((entity) => entity.commands.includes('lock')) ??
+    null
+  );
+}
+
+/**
+ * Steht die Wohnungstüre offen? (rein, testbar)
+ *
+ * Eine offene Balkontüre ist ärgerlich, eine offene Wohnungstüre ist
+ * etwas anderes – deshalb bekommt nur sie das Rot in der Kopfzeile.
+ *
+ * Zwei Wege dorthin, weil es zwei Bauarten gibt: ein Schloss mit
+ * Türsensor (dann meldet es `door: open`) oder ein eigener
+ * Kontaktsensor an derselben Türe. Wer nur den zweiten hat, hätte sonst
+ * nie ein Rot gesehen.
+ */
+export function wohnungstuerOffen(entities: Entity[]): boolean {
+  const tuer = wohnungstuer(entities);
+  return openContacts(entities).some(
+    (entity) =>
+      (tuer !== null && entity.id === tuer.id) || /wohnung/i.test(entity.name)
+  );
+}

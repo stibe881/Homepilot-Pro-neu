@@ -103,6 +103,54 @@ export const makeStyles = (colors: Colors) =>
     borderColor: colors.surfaceBorder,
   },
   roomSheetTitle: { fontSize: 17, fontWeight: '700', color: colors.ink, marginBottom: 6 },
+  /** Das Anpassen-Blatt: Kopf mit Name und Schliessen, darunter eine
+   *  Zeile je Einstellung – über die ganze Breite, denn dafür ist es da. */
+  /** Die Anpassen-Zeile auf der Kachel: was eingestellt ist, und ein
+   *  Symbol, das sagt, dass sich das ändern lässt. */
+  editZeile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    // Eng gerechnet: Auf einer halbbreiten Telefonkachel bleiben nach
+    // Kachelrand, Griff und Pfeil rund siebzig Punkte für den Text.
+    // «Kein Raum» braucht sechzig - mit den ursprünglichen acht Punkten
+    // Abstand und einem 17er Symbol brach es auf zwei Zeilen um.
+    gap: 4,
+    paddingVertical: 8,
+    paddingRight: 8,
+    // Links Platz für den Griff: Der sitzt absolut acht Punkte vom
+    // Kachelrand und ist 32 breit, liegt also über allem, was oben links
+    // beginnt. Vorher war das der Raum-Chip - das Symbol lag mitten im
+    // Wort «Kein Raum». Statt die Zeile nach unten zu schieben, fängt
+    // ihr Text rechts vom Griff an; der sitzt dann sauber in ihr drin.
+    paddingLeft: 36,
+    borderRadius: radius.control,
+    backgroundColor: colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  editStand: { fontSize: 12, color: colors.inkSoft, fontWeight: '600', flex: 1 },
+  blattKopf: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 8,
+  },
+  blattZeile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 13,
+    paddingHorizontal: 4,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.surfaceBorder,
+  },
+  blattLabel: { fontSize: 15, color: colors.ink, fontWeight: '600', flexShrink: 1 },
+  blattWert: {
+    fontSize: 14,
+    color: colors.inkSoft,
+    flex: 1,
+    textAlign: 'right',
+  },
   // Unter dem Namen: seit wann und wodurch. Klein und ruhig - es ist
   // eine Auskunft, kein Knopf.
   menueUrsache: { fontSize: 13, color: colors.inkSoft, marginTop: -4, marginBottom: 4 },
