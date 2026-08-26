@@ -8,6 +8,9 @@ import {
   reihenfolge,
   unterZeile,
   uhrzeit,
+  knappeAkkus,
+  warnZeile,
+  zusammenfassung,
 } from './anwesenheitskarte';
 
 const JETZT = new Date(2026, 7, 25, 22, 30);
@@ -115,5 +118,54 @@ describe('Die Karte «Wer ist wo»', () => {
       p({ name: 'Wandtablet', zone: null }),
     ];
     expect(reihenfolge(leute).map((x) => x.name)).toEqual(['Stefan', 'Pia', 'Maja']);
+  });
+});
+
+describe('zugeklappte Karte', () => {
+  const mensch = (patch: Partial<Person> = {}): Person =>
+    ({ name: 'Bine', zone: 'bine', where: 'zuhause', ...patch }) as Person;
+
+  it('zählt, wie viele von den Georteten da sind', () => {
+    expect(
+      zusammenfassung([
+        mensch(),
+        mensch({ name: 'Stefan', zone: 'stefan', where: 'bei Arbeit Stibe' }),
+        mensch({ name: 'Maja', zone: 'maja', where: 'bei Tanners home' }),
+      ])
+    ).toBe('1 von 3');
+  });
+
+  it('zählt nur, wen der Hub überhaupt ortet', () => {
+    expect(
+      zusammenfassung([mensch(), mensch({ name: 'Gast', zone: undefined })])
+    ).toBe('1 von 1');
+  });
+
+  it('bleibt leer, wo niemand geortet wird', () => {
+    expect(zusammenfassung([])).toBe('');
+  });
+
+  it('nennt das eine knappe Telefon beim Namen', () => {
+    const leute = [mensch({ battery: 12 }), mensch({ name: 'Stefan', zone: 's', battery: 90 })];
+    expect(warnZeile(leute)).toBe('Bine: Telefon bei 12 %');
+    expect(knappeAkkus(leute)).toHaveLength(1);
+  });
+
+  it('zählt, sobald es mehrere sind', () => {
+    const leute = [
+      mensch({ battery: 12 }),
+      mensch({ name: 'Stefan', zone: 's', battery: 8 }),
+    ];
+    expect(warnZeile(leute)).toBe('2 Telefone fast leer');
+  });
+
+  it('schweigt, wenn alle Telefone genug haben', () => {
+    expect(warnZeile([mensch({ battery: 90 })])).toBe('');
+  });
+
+  it('nimmt nur den Vornamen', () => {
+    expect(warnZeile([mensch({ name: 'Marianna Tanner', battery: 5 })])).toBe(
+      'Marianna: Telefon bei 5 %'
+    );
   });
 });

@@ -27,7 +27,14 @@ import {
   unbekannterZustand,
   zeitfensterHinweis,
   zeitpunktLabel,
+  wasFehlt,
+  istSpeicherbar,
+  angabenStand,
+  bedingungStand,
+  namensVorschlag,
+  sonstStand,
 } from './entwurf';
+import { Draft, StepDraft } from './entwurf';
 import { Entity } from '../../api/types';
 import { STUMM_EIN } from '../../lib/szenen';
 
@@ -999,5 +1006,189 @@ describe('Ankunft als Auslöser', () => {
       commands: [],
     } as unknown as Entity;
     expect(measurableAttributes(ohne).map((m) => m.key)).not.toContain('distance');
+  });
+});
+
+describe('wasFehlt', () => {
+  const entwurf = (patch: Partial<Draft> = {}): Draft => ({
+    ...EMPTY,
+    triggers: [{ ...EMPTY_TRIGGER }],
+    steps: [{ ...EMPTY_STEP }],
+    ...patch,
+  });
+
+  const schalten = (entityId: string): StepDraft => ({
+    ...EMPTY_STEP,
+    kind: 'command',
+    commandActions: [{ entity_id: entityId, command: 'turn_on' }],
+  });
+
+  it('bemängelt einen Auslöser ohne Gerät', () => {
+    expect(wasFehlt(entwurf({ steps: [schalten('licht')] }))).toEqual([
+      'Wenn: ein Gerät wählen',
+    ]);
+  });
+
+  it('bemängelt einen Schritt, aus dem nichts wird', () => {
+    // Der Schritt steht im Formular, hat aber kein Gerät angekreuzt -
+    // gespeichert würde daraus ein Ablauf, der nichts tut.
+    const raus = wasFehlt(
+      entwurf({ triggers: [{ ...EMPTY_TRIGGER, entityId: 'melder' }] })
+    );
+    expect(raus).toEqual(['Dann: einen Schritt, der etwas tut']);
+  });
+
+  it('ist zufrieden, sobald Auslöser und Schritt stehen', () => {
+    const gut = entwurf({
+      triggers: [{ ...EMPTY_TRIGGER, entityId: 'melder' }],
+      steps: [schalten('licht')],
+    });
+    expect(wasFehlt(gut)).toEqual([]);
+    expect(istSpeicherbar(gut)).toBe(true);
+  });
+
+  it('verlangt keinen Namen', () => {
+    // Ein namenloser Ablauf schaltet trotzdem richtig; der Hub trägt
+    // «Ohne Namen» ein.
+    const ohne = entwurf({
+      alias: '',
+      triggers: [{ ...EMPTY_TRIGGER, entityId: 'melder' }],
+      steps: [schalten('licht')],
+    });
+    expect(istSpeicherbar(ohne)).toBe(true);
+  });
+
+  it('verlangt bei Uhrzeit-Auslösern kein Gerät', () => {
+    const uhr = entwurf({
+      triggers: [{ ...EMPTY_TRIGGER, kind: 'time', at: '07:00' }],
+      steps: [schalten('licht')],
+    });
+    expect(wasFehlt(uhr)).toEqual([]);
+  });
+
+  it('bemängelt eine fehlende Uhrzeit', () => {
+    const uhr = entwurf({
+      triggers: [{ ...EMPTY_TRIGGER, kind: 'time', at: '  ' }],
+      steps: [schalten('licht')],
+    });
+    expect(wasFehlt(uhr)).toEqual(['Wenn: eine Uhrzeit eintragen']);
+  });
+
+  it('verlangt beim Sonnenstand weder Gerät noch Uhrzeit', () => {
+    const sonne = entwurf({
+      triggers: [{ ...EMPTY_TRIGGER, kind: 'sun' }],
+      steps: [schalten('licht')],
+    });
+    expect(wasFehlt(sonne)).toEqual([]);
+  });
+
+  it('nummeriert, sobald es mehrere Auslöser gibt', () => {
+    const zwei = entwurf({
+      triggers: [{ ...EMPTY_TRIGGER, entityId: 'melder' }, { ...EMPTY_TRIGGER }],
+      steps: [schalten('licht')],
+    });
+    expect(wasFehlt(zwei)).toEqual(['Auslöser 2: ein Gerät wählen']);
+  });
+});
+
+describe('Klappen-Stände', () => {
+  const entwurf = (patch: Partial<Draft> = {}): Draft => ({ ...EMPTY, ...patch });
+
+  it('lässt die Bedingung leer, wo keine steht', () => {
+    expect(bedingungStand(entwurf())).toBe('');
+  });
+
+  it('nennt Tag und Nacht beim Namen', () => {
+    expect(bedingungStand(entwurf({ conditionKind: 'sun', conditionSun: 'down' }))).toBe(
+      'nur wenn dunkel'
+    );
+  });
+
+  it('zählt Gerätebedingungen und Gruppen', () => {
+    const stand = bedingungStand(
+      entwurf({
+        conditionKind: 'time',
+        stateConditions: [
+          { entity_id: 'a', op: 'is' as const, value: 'on' },
+          { entity_id: 'b', op: 'is' as const, value: 'off' },
+        ],
+        weekdays: [1, 2],
+      })
+    );
+    expect(stand).toBe('Zeitfenster · 2 Geräte · Wochentage');
+  });
+
+  it('schweigt zum Normalfall «läuft»', () => {
+    expect(angabenStand(entwurf())).toBe('');
+    expect(angabenStand(entwurf({ enabled: false }))).toBe('aus');
+    expect(angabenStand(entwurf({ category: 'Beleuchtung' }))).toBe('Beleuchtung');
+    expect(angabenStand(entwurf({ category: 'Licht', enabled: false }))).toBe(
+      'Licht · aus'
+    );
+  });
+
+  it('behandelt eine leere Kategorie wie keine', () => {
+    expect(angabenStand(entwurf({ category: '   ' }))).toBe('');
+  });
+
+  it('zählt die Schritte im Sonst-Zweig', () => {
+    expect(sonstStand(entwurf())).toBe('');
+    expect(sonstStand(entwurf({ elseSteps: [{ ...EMPTY_STEP }] }))).toBe('1 Schritt');
+    expect(
+      sonstStand(entwurf({ elseSteps: [{ ...EMPTY_STEP }, { ...EMPTY_STEP }] }))
+    ).toBe('2 Schritte');
+  });
+});
+
+describe('namensVorschlag', () => {
+  const geraete = [
+    { id: 'melder', name: 'Bewegung Flur', kind: 'binary_sensor', commands: [], state: {} },
+    { id: 'licht', name: 'Licht Wohnzimmer', kind: 'light', commands: [], state: {} },
+  ] as unknown as Entity[];
+
+  const entwurf = (patch: Partial<Draft> = {}): Draft => ({
+    ...EMPTY,
+    triggers: [{ ...EMPTY_TRIGGER, entityId: 'melder' }],
+    steps: [
+      {
+        ...EMPTY_STEP,
+        kind: 'command',
+        commandActions: [{ entity_id: 'licht', command: 'turn_on' }],
+      },
+    ],
+    ...patch,
+  });
+
+  it('setzt zusammen, was der Ablauf tut', () => {
+    expect(namensVorschlag(entwurf(), geraete)).toBe('Licht Wohnzimmer bei Bewegung Flur');
+  });
+
+  it('nennt die Uhrzeit', () => {
+    const uhr = entwurf({ triggers: [{ ...EMPTY_TRIGGER, kind: 'time', at: '07:00' }] });
+    expect(namensVorschlag(uhr, geraete)).toBe('Licht Wohnzimmer um 07:00');
+  });
+
+  it('nennt den Sonnenstand', () => {
+    const sonne = entwurf({
+      triggers: [{ ...EMPTY_TRIGGER, kind: 'sun', sunEvent: 'sunset' }],
+    });
+    expect(namensVorschlag(sonne, geraete)).toBe('Licht Wohnzimmer bei Sonnenuntergang');
+  });
+
+  it('bleibt leer, solange ein Ende fehlt', () => {
+    // Lieber «Ohne Namen» als ein halber Satz.
+    expect(namensVorschlag(entwurf({ triggers: [{ ...EMPTY_TRIGGER }] }), geraete)).toBe('');
+    expect(namensVorschlag(entwurf({ steps: [{ ...EMPTY_STEP }] }), geraete)).toBe('');
+  });
+
+  it('bleibt leer, wenn das Gerät nicht mehr da ist', () => {
+    expect(namensVorschlag(entwurf(), [])).toBe('');
+  });
+
+  it('benennt eine Durchsage beim Wort', () => {
+    const sagen = entwurf({
+      steps: [{ ...EMPTY_STEP, kind: 'broadcast', broadcastText: 'Essen ist fertig!' }],
+    });
+    expect(namensVorschlag(sagen, geraete)).toBe('Durchsage bei Bewegung Flur');
   });
 });

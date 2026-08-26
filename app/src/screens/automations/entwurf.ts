@@ -1700,3 +1700,165 @@ export function describe(automation: Automation, entities: Entity[] = []): strin
   return `${wenn}${mehr} → ${dann}${rest}${wartet}${sonst}`;
 }
 
+
+// ── Ist der Entwurf fertig? ──────────────────────────────────────────────
+//
+// Bisher liess sich jeder Entwurf speichern. Wer «Neuer Ablauf» tippte
+// und irgendwo hängenblieb, bekam auf «Speichern» ein «Ohne Namen»
+// angelegt, das nichts tat - und merkte es erst, wenn es abends nicht
+// schaltete. Der Editor wusste die ganze Zeit, was fehlt; er sagte es
+// nur nicht.
+
+/** Auslöser, die ein Gerät brauchen – die anderen hängen an der Uhr. */
+const AUSLOESER_MIT_GERAET: readonly TriggerKind[] = [
+  'state',
+  'threshold',
+  'availability',
+  'geofence',
+];
+
+/**
+ * Was am Entwurf noch fehlt (rein, testbar).
+ *
+ * Eine Liste von Sätzen, nicht ein Wahrheitswert: «Speichern geht
+ * nicht» hilft niemandem, «Auslöser 1: kein Gerät gewählt» schon. Die
+ * Reihenfolge ist die des Formulars, damit man von oben nach unten
+ * abarbeiten kann.
+ */
+export function wasFehlt(draft: Draft): string[] {
+  const fehlt: string[] = [];
+
+  // Jede Zeile nennt erst den Abschnitt, dann was dort zu tun ist -
+  // sonst liest man «kein Gerät gewählt» und weiss nicht, in welchem
+  // der beiden Abschnitte eines fehlt.
+  draft.triggers.forEach((trigger, index) => {
+    const wo = draft.triggers.length > 1 ? `Auslöser ${index + 1}` : 'Wenn';
+    if (AUSLOESER_MIT_GERAET.includes(trigger.kind) && !trigger.entityId) {
+      fehlt.push(`${wo}: ein Gerät wählen`);
+    }
+    if (trigger.kind === 'time' && !String(trigger.at ?? '').trim()) {
+      fehlt.push(`${wo}: eine Uhrzeit eintragen`);
+    }
+  });
+
+  // Nicht die Schritte zählen, sondern was aus ihnen wird: Ein Schritt
+  // «Gerät schalten» ohne angekreuztes Gerät sieht im Formular aus wie
+  // einer und ergibt beim Speichern nichts.
+  if (stepsToActions(draft.steps).length === 0) {
+    fehlt.push('Dann: einen Schritt, der etwas tut');
+  }
+
+  return fehlt;
+}
+
+/**
+ * Lässt sich der Entwurf speichern? (rein, testbar)
+ *
+ * Der Name gehört ausdrücklich *nicht* dazu. Ein namenloser Ablauf
+ * schaltet trotzdem richtig, und einen Entwurf am fehlenden Namen
+ * scheitern zu lassen, wäre Schikane - der Hub trägt «Ohne Namen» ein
+ * und man benennt ihn später um.
+ */
+export function istSpeicherbar(draft: Draft): boolean {
+  return wasFehlt(draft).length === 0;
+}
+
+/**
+ * Was in der zugeklappten Bedingung steht (rein, testbar).
+ *
+ * Leer heisst «nichts eingestellt» – und die Klappe bleibt zu. Ein
+ * Ablauf ohne Bedingung ist der Normalfall; die halbe Seite Formular
+ * dafür offenzuhalten kostet jeden, der bloss ein Licht schalten will,
+ * zwei Bildschirme Scrollen.
+ */
+export function bedingungStand(draft: Draft): string {
+  const teile: string[] = [];
+  if (draft.conditionKind === 'sun') {
+    teile.push(draft.conditionSun === 'up' ? 'nur wenn hell' : 'nur wenn dunkel');
+  } else if (draft.conditionKind === 'time') {
+    teile.push('Zeitfenster');
+  }
+  const geraete = draft.stateConditions.length;
+  if (geraete > 0) {
+    teile.push(geraete === 1 ? '1 Gerät' : `${geraete} Geräte`);
+  }
+  if (draft.groups.length > 0) {
+    teile.push(
+      draft.groups.length === 1 ? '1 Gruppe' : `${draft.groups.length} Gruppen`
+    );
+  }
+  if (draft.weekdays.length > 0) teile.push('Wochentage');
+  if (draft.exceptHolidays) teile.push('ohne Feiertage');
+  if (draft.extraConditions.length > 0) teile.push('aus der Konfiguration');
+  return teile.join(' · ');
+}
+
+/** Was in der zugeklappten «Kategorie und Zustand» steht (rein, testbar). */
+export function angabenStand(draft: Draft): string {
+  const teile: string[] = [];
+  const kategorie = draft.category.trim();
+  if (kategorie) teile.push(kategorie);
+  // «läuft» ist der Normalfall und steht deshalb nicht da - nur das
+  // Abweichende verdient eine Zeile im zugeklappten Kopf.
+  if (!draft.enabled) teile.push('aus');
+  return teile.join(' · ');
+}
+
+/** Was im zugeklappten «sonst» steht (rein, testbar). */
+export function sonstStand(draft: Draft): string {
+  const anzahl = draft.elseSteps.length;
+  if (anzahl === 0) return '';
+  return anzahl === 1 ? '1 Schritt' : `${anzahl} Schritte`;
+}
+
+/**
+ * Ein Namensvorschlag aus dem, was der Ablauf tut (rein, testbar).
+ *
+ * Wer den Namen leer liess, fand in der Liste «Ohne Namen» – und bei
+ * zweien davon weiss niemand mehr, welcher welcher ist. Der Vorschlag
+ * steht als Platzhalter im Feld und wird beim Speichern genommen, wenn
+ * nichts eingetippt wurde: «Licht Wohnzimmer bei Bewegung Flur» sagt
+ * mehr als jeder Zähler.
+ *
+ * Leer, solange der Entwurf keine zwei Enden hat – dann bleibt es beim
+ * «Ohne Namen», und das ist ehrlich.
+ */
+export function namensVorschlag(draft: Draft, entities: Entity[]): string {
+  const name = (id: string) =>
+    entities.find((entity) => entity.id === id)?.name ?? '';
+
+  const trigger = draft.triggers[0];
+  if (!trigger) return '';
+  let wenn = '';
+  if (trigger.kind === 'time') {
+    wenn = String(trigger.at ?? '').trim() ? `um ${trigger.at}` : '';
+  } else if (trigger.kind === 'sun') {
+    wenn = trigger.sunEvent === 'sunrise' ? 'bei Sonnenaufgang' : 'bei Sonnenuntergang';
+  } else if (trigger.kind === 'interval') {
+    wenn = 'regelmässig';
+  } else if (trigger.kind === 'calendar') {
+    wenn = 'bei einem Termin';
+  } else {
+    const geraet = name(trigger.entityId);
+    wenn = geraet ? `bei ${geraet}` : '';
+  }
+  if (!wenn) return '';
+
+  const schritt = draft.steps[0];
+  if (!schritt) return '';
+  let dann = '';
+  if (schritt.kind === 'command') {
+    dann = name(schritt.commandActions[0]?.entity_id ?? '');
+  } else if (schritt.kind === 'broadcast') {
+    dann = 'Durchsage';
+  } else if (schritt.kind === 'notify') {
+    dann = 'Nachricht';
+  } else if (schritt.kind === 'scene' || schritt.kind === 'hue_scene') {
+    // Der Szenenname steht nicht in den Entitäten - hier genügt das
+    // Wort, den Rest liest man im Ablauf selbst.
+    dann = 'Szene';
+  }
+  if (!dann) return '';
+
+  return `${dann} ${wenn}`;
+}

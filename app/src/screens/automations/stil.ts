@@ -345,6 +345,19 @@ export const makeStyles = (colors: Colors) =>
     },
     editorBarText: { color: colors.accent, fontSize: 16, fontWeight: '700' },
     field: { gap: 8 },
+    /** Was noch fehlt – gedeckt, nicht blau: `satzMehr` ist die Farbe
+     *  von «Alle zeigen», und drei blaue Zeilen in einem orangen Kasten
+     *  sehen nach drei Links aus, die keine sind. */
+    fehltZeile: { color: colors.inkSoft, fontSize: 13, lineHeight: 19, marginTop: 2 },
+    klappeKopf: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    /** Was in der zugeklappten Klappe eingestellt ist – rechtsbündig,
+     *  damit die Beschriftungen links eine Spalte bilden. */
+    klappeStand: {
+      color: colors.inkFaint,
+      fontSize: 13,
+      flex: 1,
+      textAlign: 'right',
+    },
     label: { color: colors.inkSoft, fontSize: type.cardSub, fontWeight: '700' },
     input: {
       backgroundColor: colors.surfaceSoft,

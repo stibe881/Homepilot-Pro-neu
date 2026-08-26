@@ -335,12 +335,17 @@ export function EditorRahmen({
   titel,
   onCancel,
   onSave,
+  saveGesperrt = false,
   children,
 }: {
   titel: string;
   onCancel: () => void;
   /** Fehlt sie, bleibt die rechte Seite leer – der Titel bleibt mittig. */
   onSave?: () => void;
+  /** Grau statt weg: Ein Knopf, der verschwindet, sobald ein Feld leer
+   *  ist, sieht nach Fehler aus. Grau sieht nach «noch nicht» aus - und
+   *  im Formular steht, was fehlt. */
+  saveGesperrt?: boolean;
   children: React.ReactNode;
 }) {
   const colors = useColors();
@@ -368,11 +373,14 @@ export function EditorRahmen({
           {onSave ? (
             <Pressable
               onPress={onSave}
+              disabled={saveGesperrt}
               accessibilityRole="button"
+              accessibilityState={{ disabled: saveGesperrt }}
               style={({ pressed }) => [
                 styles.editorBarKnopf,
                 { alignItems: 'flex-end' },
-                pressed && { opacity: 0.6 },
+                saveGesperrt && { opacity: 0.4 },
+                pressed && !saveGesperrt && { opacity: 0.6 },
               ]}
             >
               <Text style={styles.editorBarText}>Speichern</Text>
@@ -404,6 +412,62 @@ export function Field({ label, children }: { label: string; children: React.Reac
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
       {children}
+    </View>
+  );
+}
+
+/**
+ * Ein Abschnitt, der zugeklappt anfängt.
+ *
+ * Der Editor zeigte beim Anlegen alles auf einmal: Name, Kategorie,
+ * Aktiv, Auslöser, Bedingung, Und/Oder-Gruppen, Schritte, Wartesperre,
+ * Sonst-Zweig. Für den häufigen Fall - «wenn der Melder anschlägt, mach
+ * das Licht an» - ist gut die Hälfte davon Beiwerk, das man beim
+ * Scrollen erst einmal wegblättern muss.
+ *
+ * Zugeklappt heisst nicht versteckt: Der Kopf sagt, was drinsteht, und
+ * wo schon etwas eingestellt ist, steht das daneben - und der Abschnitt
+ * geht von selbst auf. Sonst öffnete man beim Bearbeiten eines
+ * bestehenden Ablaufs blind alle Klappen, um zu sehen, was drin ist.
+ */
+export function Klappe({
+  label,
+  /** Was eingestellt ist - steht im Kopf und entscheidet, ob offen. */
+  stand,
+  children,
+}: {
+  label: string;
+  stand?: string;
+  children: React.ReactNode;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [offen, setOffen] = useState(!!stand);
+
+  return (
+    <View style={styles.field}>
+      <Pressable
+        onPress={() => setOffen((auf) => !auf)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: offen }}
+        accessibilityLabel={stand ? `${label}: ${stand}` : label}
+        style={({ pressed }) => [styles.klappeKopf, pressed && { opacity: 0.7 }]}
+      >
+        <Text style={styles.label}>{label}</Text>
+        {stand && !offen ? (
+          <Text style={styles.klappeStand} numberOfLines={1}>
+            {stand}
+          </Text>
+        ) : (
+          <View style={{ flex: 1 }} />
+        )}
+        <Ionicons
+          name={offen ? 'chevron-up' : 'chevron-down'}
+          size={18}
+          color={colors.inkSoft}
+        />
+      </Pressable>
+      {offen ? children : null}
     </View>
   );
 }

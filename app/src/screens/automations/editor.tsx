@@ -12,11 +12,12 @@ import { Colors, useColors } from '../../theme';
 import { ablaufSatz } from '../../lib/ablaufsatz';
 import { datumUhr } from '../../lib/format';
 import { ZUHAUSE, istOrtsmelder, ortsauswahl } from '../../lib/ortsausloeser';
-import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, KAMERA_AUSLOESER, PLATZHALTER, hatWartezeit, measurableAttributes, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, unbekannterZustand, weekdayLabel, zeitfensterHinweis } from './entwurf';
+import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, KAMERA_AUSLOESER, PLATZHALTER, hatWartezeit, measurableAttributes, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, unbekannterZustand, namensVorschlag, angabenStand, bedingungStand, sonstStand, wasFehlt, weekdayLabel, zeitfensterHinweis } from './entwurf';
 import {
   CategoryField,
   Choice,
   EditorRahmen,
+  Klappe,
   EntityPicker,
   Field,
   MinutenWahl,
@@ -109,6 +110,14 @@ export function Editor({
   // Attrappe.
   const luxSensors = melderMitLux(draft, entities);
 
+  // Was am Entwurf noch fehlt - dieselbe Liste speist den Hinweis oben
+  // und den Zustand der Speichern-Knöpfe. Eine Vorlage darf lückenhaft
+  // bleiben: Sie schaltet nichts, sie steht bereit, und gerade das
+  // Offengelassene füllt man beim Anlegen aus ihr aus.
+  const fehlt = draft.templateId ? [] : wasFehlt(draft);
+  const speicherbar = fehlt.length === 0;
+  const vorschlag = namensVorschlag(draft, entities);
+
   const titel = draft.templateId
     ? draft.templateId === 'neu'
       ? 'Neue Vorlage'
@@ -118,7 +127,12 @@ export function Editor({
       : 'Neuer Ablauf';
 
   return (
-    <EditorRahmen titel={titel} onCancel={onCancel} onSave={onSave}>
+    <EditorRahmen
+      titel={titel}
+      onCancel={onCancel}
+      onSave={onSave}
+      saveGesperrt={!speicherbar}
+    >
         <Text style={styles.snapshotHint}>
           {draft.templateId
             ? // Eine Vorlage schaltet nichts - sie steht bereit. Das
@@ -145,6 +159,27 @@ export function Editor({
           // die ganze Liste sehen will, tippt drauf.
           const lang = ablaufSatz(roh, entities, scenes, true);
           const gekuerzt = lang !== ablaufSatz(roh, entities, scenes, false);
+          // Fehlt noch etwas, steht das *statt* des Satzes da. Vorher
+          // verschwand die Box einfach, solange der Entwurf unvollständig
+          // war - also genau dann, wenn eine Auskunft am meisten wert
+          // gewesen wäre.
+          if (fehlt.length > 0) {
+            return (
+              <View style={[styles.satzBox, { borderColor: colors.warn }]}>
+                <Ionicons name="alert-circle-outline" size={15} color={colors.warn} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.satzText, { color: colors.warn }]}>
+                    Es fehlt noch:
+                  </Text>
+                  {fehlt.map((was, index) => (
+                    <Text key={index} style={styles.fehltZeile}>
+                      • {was}
+                    </Text>
+                  ))}
+                </View>
+              </View>
+            );
+          }
           return satz ? (
             <Pressable
               onPress={gekuerzt ? () => setSatzGanz((an) => !an) : undefined}
@@ -172,22 +207,30 @@ export function Editor({
         })()}
 
         <Field label="Name">
+          {/* Der Platzhalter ist der Vorschlag, den auch das Speichern
+              nimmt: Wer nichts eintippt, sieht vorher, wie der Ablauf
+              in der Liste heissen wird - statt hinterher «Ohne Namen»,
+              zweimal untereinander. */}
           <TextInput
             style={styles.input}
             value={draft.alias}
             onChangeText={(alias) => set({ alias })}
-            placeholder="z.B. Licht bei Bewegung"
+            placeholder={vorschlag || 'z.B. Licht bei Bewegung'}
             placeholderTextColor={colors.inkFaint}
           />
         </Field>
 
-        <CategoryField
-          value={draft.category}
-          known={categories}
-          onChange={(category) => set({ category })}
-        />
-
-        <Field label="Aktiv">
+        {/* Beides ist Beiwerk: Ein neuer Ablauf läuft, und eine
+            Kategorie vergibt man, wenn die Liste lang geworden ist -
+            nicht beim Anlegen. Zusammen in einer Klappe, die sich von
+            selbst öffnet, sobald etwas drinsteht. */}
+        <Klappe label="Kategorie und Zustand" stand={angabenStand(draft)}>
+          <CategoryField
+            value={draft.category}
+            known={categories}
+            onChange={(category) => set({ category })}
+          />
+          <Text style={styles.label}>Aktiv</Text>
           <Choice
             options={[
               { key: 'on', label: 'läuft' },
@@ -202,7 +245,7 @@ export function Editor({
               löschen, wenn man ihn im Winter wieder braucht.
             </Text>
           ) : null}
-        </Field>
+        </Klappe>
 
         <Field label={draft.triggers.length > 1 ? 'Wenn eines passiert' : 'Wenn … passiert'}>
           {draft.triggers.map((trigger, index) => (
@@ -227,7 +270,11 @@ export function Editor({
           </Pressable>
         </Field>
 
-        <Field label="Nur wenn (Bedingung)">
+        {/* Die grösste Klappe: Zustandsbedingungen, Und/Oder-Gruppen,
+            Wochentage, Feiertage. Für «wenn der Melder anschlägt, mach
+            das Licht an» braucht man nichts davon - offen sind es zwei
+            Bildschirme, an denen man vorbeiscrollt. */}
+        <Klappe label="Nur wenn (Bedingung)" stand={bedingungStand(draft)}>
           <Choice
             options={[
               { key: 'none', label: 'immer' },
@@ -658,7 +705,7 @@ export function Editor({
             können gar nicht gleichzeitig eintreten. Ein «und» gehört hierher:
             «wenn der Taster gedrückt wird – aber nur, wenn es dunkel ist».
           </Text>
-        </Field>
+        </Klappe>
 
         <Field label="… dann das tun">
           <StepList
@@ -715,7 +762,7 @@ export function Editor({
           ) : null}
         </Field>
 
-        <Field label="… sonst">
+        <Klappe label="… sonst" stand={sonstStand(draft)}>
           {draft.elseSteps.length === 0 ? (
             <>
               <Pressable
@@ -750,9 +797,19 @@ export function Editor({
               onChange={(elseSteps) => set({ elseSteps })}
             />
           )}
-        </Field>
+        </Klappe>
 
-        <Pressable style={styles.save} onPress={onSave} accessibilityRole="button">
+        {/* Grau, solange der Ablauf nichts täte. Nicht als Schikane:
+            Oben steht als Liste, was fehlt, und die Knöpfe zeigen
+            dasselbe noch einmal - man soll gar nicht erst dagegen
+            tippen und sich fragen, warum nichts passiert. */}
+        <Pressable
+          style={[styles.save, !speicherbar && { opacity: 0.45 }]}
+          onPress={onSave}
+          disabled={!speicherbar}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: !speicherbar }}
+        >
           <Text style={styles.saveText}>
             {draft.templateId ? 'Vorlage sichern' : 'Speichern'}
           </Text>

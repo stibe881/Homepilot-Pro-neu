@@ -20,7 +20,7 @@ import {
 } from '../lib/szenen';
 import { BabysitterStand, LEERER_BABYSITTER, istFreigegeben, modusSatz, seitText } from '../lib/babysitter';
 import { Editor, Fassung } from './automations/editor';
-import { Automation, Draft, DryRun, EMPTY, Run, StepDraft, TriggerHealth, buildConditions, describe, groupByCategory, lastRunText, newTrigger, runLine, search, stepToActions, stepsToActions, symbolFuerNamen, szenenSymbol, toDraft, triggerIcon, triggerToConfig, usedCategories, zeitpunktLabel } from './automations/entwurf';
+import { Automation, Draft, DryRun, EMPTY, Run, StepDraft, TriggerHealth, buildConditions, describe, groupByCategory, lastRunText, namensVorschlag, newTrigger, runLine, search, stepToActions, stepsToActions, symbolFuerNamen, szenenSymbol, toDraft, triggerIcon, triggerToConfig, usedCategories, zeitpunktLabel } from './automations/entwurf';
 import { Groups, SearchBox } from './automations/felder';
 import { laeuft, tippLabel, unterzeile } from '../lib/szenenzeile';
 import { bandReihenfolge, bandZeile } from '../lib/tagesband';
@@ -335,7 +335,9 @@ export function AutomationsScreen({
       return;
     }
     const body = {
-      alias: draft.alias || 'Ohne Namen',
+      // Derselbe Vorschlag, der im Namensfeld als Platzhalter steht -
+      // sonst versprächen Feld und Liste Verschiedenes.
+      alias: draft.alias.trim() || namensVorschlag(draft, entities) || 'Ohne Namen',
       trigger: draft.triggers.map(triggerToConfig),
       condition: buildConditions(draft),
       action: stepsToActions(draft.steps),
@@ -1024,12 +1026,11 @@ export function AutomationsScreen({
       ) : null}
       {mayEdit ? (
         <Pressable
-          onPress={() =>
-            setDraft({
-              ...EMPTY,
-              triggers: [newTrigger(entities[0])],
-            })
-          }
+          // Ohne Gerät. Vorher stand hier `newTrigger(entities[0])` - der
+          // frische Entwurf behauptete damit «Gewählt: Alarmanlage», ohne
+          // dass jemand sie gewählt hätte. Wer das übersah, legte einen
+          // Ablauf auf dem erstbesten Gerät der Liste an.
+          onPress={() => setDraft({ ...EMPTY })}
           accessibilityRole="button"
           style={({ pressed }) => [styles.newButton, pressed && { opacity: 0.75 }]}
         >
