@@ -2362,22 +2362,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
 
             <View style={styles.greetingRow}>
               <View style={styles.greeting}>
+                {/* Eine Zeile, nicht zwei: «Hallo Stefan,» mit «Guten
+                    Abend.» darunter begrüsste zweimal - so spricht
+                    niemand. Beides steht jetzt in einem Satz
+                    (lib/begruessung.ts). */}
                 <Text
                   style={[
                     styles.greetingLine,
                     !hasRail && { fontSize: type.greetingSmall },
                   ]}
                 >
-                  {begruessung(settings, user)}
-                </Text>
-                <Text
-                  style={[
-                    styles.greetingLine,
-                    styles.greetingSecond,
-                    !hasRail && { fontSize: type.greetingSmall },
-                  ]}
-                >
-                  {partOfDay(now)}
+                  {begruessung(settings, user, now)}
                 </Text>
               </View>
               <View style={styles.greetingNotes}>
@@ -2694,13 +2689,6 @@ function usePanelMode(active: boolean) {
       deactivateKeepAwake(PANEL_TAG).catch(() => {});
     };
   }, [active]);
-}
-
-function partOfDay(now: Date): string {
-  const hour = now.getHours();
-  if (hour < 11) return 'Guten Morgen.';
-  if (hour < 18) return 'Schönen Tag.';
-  return 'Guten Abend.';
 }
 
 /**
@@ -3209,7 +3197,6 @@ const makeStyles = (colors: Colors) =>
       fontWeight: '300',
       letterSpacing: 0.2,
     },
-    greetingSecond: { color: colors.onGradientSoft },
     split: {
       flexDirection: 'row',
       gap: space.gap * 1.4,
