@@ -91,6 +91,15 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Startseite und Musik**
 
+- **Die Durchsage-Sätze lassen sich pflegen.** Der Stift im
+  Durchsage-Fenster öffnet das Bearbeiten: eigene Sätze anlegen,
+  umformulieren, löschen (bis zwölf). Die mitgelieferten bleiben aussen
+  vor - gelöscht wären sie beim nächsten Update kommentarlos wieder da.
+- Selbst Getipptes merkt sich die App nur noch **als genau einen Satz**,
+  den letzten - und der lässt sich im Bearbeiten wieder anfassen.
+  Vorher sammelten sich vier automatisch gemerkte an, die niemand
+  wieder loswurde: nicht bearbeitbar, nicht löschbar, nur verdrängbar.
+
 - **Durchsagen spielen auf 70 %**, wenn niemand eine Lautstärke nennt -
   vorher kam die Ansage so laut, wie die Box gerade stand: nach leiser
   Abendmusik ein Flüstern, nach einer Party ein Schreck. Die Box stellt

@@ -80,8 +80,11 @@ export interface UserPrefs {
 export interface DurchsagePrefs {
   /** Kennung der Box; fehlt sie oder ist sie «alle», gehen alle. */
   ziel?: string;
-  /** Selbst getippte Sätze, zuletzt benutzte zuerst. */
+  /** Die gepflegte eigene Liste - hinzufügen, bearbeiten, löschen im
+   *  Durchsage-Fenster. */
   texte?: string[];
+  /** Der zuletzt getippte Satz - merkt sich von selbst, genau einer. */
+  letzter?: string;
 }
 
 /**
