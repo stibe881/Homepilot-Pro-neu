@@ -33,7 +33,11 @@ import {
   bestaetigung,
   boxen as boxenVon,
   gueltigesZiel,
+  eigeneSaetze,
   merken,
+  satzAendern,
+  satzHinzufuegen,
+  satzLoeschen,
   sprecherFuer,
   vorschlaege,
   zielText,
@@ -1064,7 +1068,50 @@ function DurchsageFenster({
   const [frei, setFrei] = useState('');
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
-  const texte = useMemo(() => vorschlaege(prefs?.texte), [prefs?.texte]);
+  // Der Stift oben: Statt zu senden werden die eigenen Sätze gepflegt -
+  // hinzufügen, umformulieren, löschen. Die mitgelieferten bleiben
+  // aussen vor: Sie gehören der App, und gelöscht wären sie beim
+  // nächsten Update kommentarlos wieder da.
+  const [verwalten, setVerwalten] = useState(false);
+  // Welcher Satz gerade im Feld zum Umformulieren liegt.
+  const [bearbeite, setBearbeite] = useState<string | null>(null);
+  const texte = useMemo(() => vorschlaege(prefs ?? {}), [prefs]);
+  const eigene = useMemo(() => eigeneSaetze(prefs ?? {}), [prefs]);
+
+  const speichern = () => {
+    const sauber = frei.trim();
+    if (!sauber) return;
+    if (bearbeite) {
+      // Auch der automatisch gemerkte letzte Satz lässt sich so
+      // umformulieren - er wandert dabei in die gepflegte Liste, denn
+      // wer ihn anfasst, will ihn behalten.
+      if (prefs?.letzter && bearbeite === prefs.letzter) {
+        onPrefs?.({
+          ...prefs,
+          letzter: undefined,
+          texte: satzHinzufuegen(prefs?.texte, sauber),
+        });
+      } else {
+        onPrefs?.({ ...prefs, texte: satzAendern(prefs?.texte, bearbeite, sauber) });
+      }
+    } else {
+      onPrefs?.({ ...prefs, texte: satzHinzufuegen(prefs?.texte, sauber) });
+    }
+    setFrei('');
+    setBearbeite(null);
+  };
+
+  const loeschen = (satz: string) => {
+    onPrefs?.({
+      ...prefs,
+      letzter: prefs?.letzter === satz ? undefined : prefs?.letzter,
+      texte: satzLoeschen(prefs?.texte, satz),
+    });
+    if (bearbeite === satz) {
+      setBearbeite(null);
+      setFrei('');
+    }
+  };
 
   const waehle = (naechstes: string) => {
     setZiel(naechstes);
@@ -1081,10 +1128,11 @@ function DurchsageFenster({
       const antwort = await onSenden(sauber, sprecherFuer(ziel));
       setNote(bestaetigung(antwort ?? {}));
       setFrei('');
-      // Nur Selbstgetipptes merken - `merken` gibt für die
-      // mitgelieferten Sätze null zurück.
-      const gemerkt = merken(prefs?.texte, sauber);
-      if (gemerkt) onPrefs?.({ ...prefs, ziel, texte: gemerkt });
+      // Nur Selbstgetipptes, und nur den letzten - `merken` gibt für
+      // Bekanntes null zurück. So bleibt genau ein automatisch
+      // gemerkter Satz, den man wieder bearbeiten oder löschen kann.
+      const gemerkt = merken(prefs ?? {}, sauber);
+      if (gemerkt) onPrefs?.({ ...prefs, ziel, letzter: gemerkt });
     } catch (err) {
       setNote(String(err instanceof Error ? err.message : err));
     } finally {
@@ -1098,6 +1146,24 @@ function DurchsageFenster({
         <Pressable style={styles.fensterBlatt} onPress={() => {}}>
           <View style={styles.fensterKopf}>
             <Text style={styles.fensterTitel}>Durchsage</Text>
+            <Pressable
+              onPress={() => {
+                setVerwalten((an) => !an);
+                setBearbeite(null);
+                setFrei('');
+              }}
+              accessibilityRole="button"
+              accessibilityState={{ selected: verwalten }}
+              accessibilityLabel={verwalten ? 'Sätze fertig bearbeiten' : 'Sätze bearbeiten'}
+              hitSlop={8}
+              style={{ marginRight: 14 }}
+            >
+              <Ionicons
+                name={verwalten ? 'checkmark' : 'pencil-outline'}
+                size={21}
+                color={verwalten ? colors.accent : colors.inkSoft}
+              />
+            </Pressable>
             <Pressable
               onPress={onClose}
               accessibilityRole="button"
@@ -1165,19 +1231,52 @@ function DurchsageFenster({
               der Kachel. Ein zweiter Knopf «Senden» daneben machte aus
               zwei Tippern drei. */}
           <View style={styles.durchsageTexte}>
-            {texte.map((text) => (
+            {verwalten && eigene.length === 0 ? (
+              <Text style={styles.durchsageNote}>
+                Noch keine eigenen Sätze - unten einen eintippen und mit
+                dem Haken sichern. Die mitgelieferten Sätze bleiben immer
+                da.
+              </Text>
+            ) : null}
+            {(verwalten ? eigene : texte).map((text) => (
               <Pressable
                 key={text}
-                onPress={() => sende(text)}
-                disabled={busy}
-                accessibilityRole="button"
-                accessibilityLabel={`${text} auf ${zielText(ziel, boxen)}`}
+                onPress={verwalten ? undefined : () => sende(text)}
+                disabled={busy || verwalten}
+                accessibilityRole={verwalten ? undefined : 'button'}
+                accessibilityLabel={
+                  verwalten ? text : `${text} auf ${zielText(ziel, boxen)}`
+                }
                 style={({ pressed }) => [
                   styles.durchsageText,
-                  (pressed || busy) && { opacity: 0.6 },
+                  bearbeite === text && { borderColor: colors.accent },
+                  (pressed || busy) && !verwalten && { opacity: 0.6 },
                 ]}
               >
-                <Text style={styles.durchsageTextLabel}>{text}</Text>
+                <Text style={[styles.durchsageTextLabel, { flex: 1 }]}>{text}</Text>
+                {verwalten ? (
+                  <>
+                    <Pressable
+                      onPress={() => {
+                        setBearbeite(text);
+                        setFrei(text);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${text} bearbeiten`}
+                      hitSlop={8}
+                    >
+                      <Ionicons name="pencil-outline" size={16} color={colors.inkSoft} />
+                    </Pressable>
+                    <Pressable
+                      onPress={() => loeschen(text)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${text} löschen`}
+                      hitSlop={8}
+                    >
+                      <Ionicons name="trash-outline" size={16} color={colors.inkSoft} />
+                    </Pressable>
+                  </>
+                ) : null}
               </Pressable>
             ))}
           </View>
@@ -1187,23 +1286,39 @@ function DurchsageFenster({
               style={styles.durchsageFeld}
               value={frei}
               onChangeText={setFrei}
-              placeholder="Eigener Text …"
+              placeholder={
+                verwalten
+                  ? bearbeite
+                    ? 'Satz umformulieren …'
+                    : 'Neuer Satz …'
+                  : 'Eigener Text …'
+              }
               placeholderTextColor={colors.inkFaint}
               maxLength={200}
-              onSubmitEditing={() => sende(frei)}
-              returnKeyType="send"
+              onSubmitEditing={() => (verwalten ? speichern() : sende(frei))}
+              returnKeyType={verwalten ? 'done' : 'send'}
             />
             <Pressable
-              onPress={() => sende(frei)}
+              onPress={() => (verwalten ? speichern() : sende(frei))}
               disabled={busy || !frei.trim()}
               accessibilityRole="button"
-              accessibilityLabel="Eigenen Text durchsagen"
+              accessibilityLabel={
+                verwalten
+                  ? bearbeite
+                    ? 'Satz speichern'
+                    : 'Satz hinzufügen'
+                  : 'Eigenen Text durchsagen'
+              }
               style={({ pressed }) => [
                 styles.durchsageSenden,
                 (pressed || busy || !frei.trim()) && { opacity: 0.5 },
               ]}
             >
-              <Ionicons name="megaphone-outline" size={18} color="#FFFFFF" />
+              <Ionicons
+                name={verwalten ? (bearbeite ? 'checkmark' : 'add') : 'megaphone-outline'}
+                size={18}
+                color="#FFFFFF"
+              />
             </Pressable>
           </View>
 
@@ -1592,6 +1707,9 @@ const makeStyles = (colors: Colors) =>
     // schlechter als eine Liste - zumal jede Zeile ein Knopf ist, den
     // man im Vorbeigehen treffen soll.
     durchsageText: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
       paddingVertical: 13,
       paddingHorizontal: 16,
       borderRadius: radius.control,

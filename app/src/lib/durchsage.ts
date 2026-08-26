@@ -33,35 +33,57 @@ export const STANDARDTEXTE = [
   'Gute Nacht!',
 ] as const;
 
-/** So viele Sätze stehen höchstens im Fenster – darunter wird es eine Liste. */
+/** So viele mitgelieferte Sätze füllen das Fenster höchstens auf. */
 export const HOECHSTENS_TEXTE = 8;
 
-/** So viele selbst getippte Sätze merkt sich die App. */
-export const HOECHSTENS_GEMERKT = 4;
+/** So viele Sätze darf die eigene Liste führen - mehr scrollt nur. */
+export const HOECHSTENS_EIGENE = 12;
 
 /** Ein Satz für den Vergleich: ohne Rand, ohne Gross- und Kleinschreibung. */
 function schluessel(text: string): string {
   return text.trim().toLowerCase();
 }
 
-/**
- * Die Sätze im Fenster (rein, testbar).
+/** Was jemandem selbst gehört: erst der zuletzt getippte, dann die
+ *  gepflegte Liste (rein, testbar).
  *
- * Selbst getippte zuerst: Wer einmal «Der Znüni steht bereit» gesagt
- * hat, sagt es wieder, und dann soll es nicht hinter sechs
- * mitgelieferten Sätzen stehen. Doppelte fallen weg - «Essen ist
- * fertig!» soll nicht zweimal dastehen, nur weil es einmal von Hand
- * getippt wurde.
- */
-export function vorschlaege(gemerkte: string[] | undefined): string[] {
+ *  Zwei Ablagen mit Absicht: `texte` pflegt man von Hand (hinzufügen,
+ *  bearbeiten, löschen), `letzter` füllt sich beim Senden von selbst -
+ *  aber nur mit dem **letzten** getippten Satz. Vorher sammelten sich
+ *  vier automatisch gemerkte an, die niemand wieder loswurde: nicht
+ *  bearbeitbar, nicht löschbar, nur verdrängbar. */
+export function eigeneSaetze(prefs: {
+  letzter?: string;
+  texte?: string[];
+}): string[] {
   const raus: string[] = [];
   const gesehen = new Set<string>();
-  for (const text of [...(gemerkte ?? []), ...STANDARDTEXTE]) {
+  for (const text of [prefs.letzter ?? '', ...(prefs.texte ?? [])]) {
     const sauber = String(text ?? '').trim();
     if (!sauber || gesehen.has(schluessel(sauber))) continue;
     gesehen.add(schluessel(sauber));
     raus.push(sauber);
-    if (raus.length >= HOECHSTENS_TEXTE) break;
+  }
+  return raus;
+}
+
+/**
+ * Die Sätze im Fenster (rein, testbar).
+ *
+ * Die eigenen zuerst und vollständig: Wer sie pflegt, will sie alle
+ * sehen. Die mitgelieferten füllen dahinter auf, bis das Fenster voll
+ * ist. Doppelte fallen weg - «Essen ist fertig!» soll nicht zweimal
+ * dastehen, nur weil es einmal von Hand getippt wurde.
+ */
+export function vorschlaege(prefs: { letzter?: string; texte?: string[] }): string[] {
+  const eigene = eigeneSaetze(prefs);
+  const raus = [...eigene];
+  const gesehen = new Set(eigene.map(schluessel));
+  for (const text of STANDARDTEXTE) {
+    if (raus.length >= Math.max(HOECHSTENS_TEXTE, eigene.length)) break;
+    if (gesehen.has(schluessel(text))) continue;
+    gesehen.add(schluessel(text));
+    raus.push(text);
   }
   return raus;
 }
@@ -69,22 +91,57 @@ export function vorschlaege(gemerkte: string[] | undefined): string[] {
 /**
  * Was nach einer selbst getippten Durchsage gemerkt wird (rein, testbar).
  *
- * Nur das Selbstgetippte: Die mitgelieferten Sätze stehen ohnehin da,
- * und sie in die Merkliste zu schreiben verdrängte genau das, wofür
- * sie da ist. `null` heisst: nichts zu ändern.
+ * Nur der Satz selbst, und nur wenn er neu ist: Die mitgelieferten
+ * stehen ohnehin da, die eigene Liste führt ihn schon. `null` heisst:
+ * nichts zu merken.
  */
 export function merken(
-  gemerkte: string[] | undefined,
+  prefs: { letzter?: string; texte?: string[] },
   text: string
-): string[] | null {
+): string | null {
   const sauber = String(text ?? '').trim();
   if (!sauber) return null;
   const key = schluessel(sauber);
   if (STANDARDTEXTE.some((eintrag) => schluessel(eintrag) === key)) return null;
-  // Ein schon gemerkter Satz wandert nach vorn, statt ein zweites Mal
-  // in der Liste zu stehen.
-  const bisher = (gemerkte ?? []).filter((eintrag) => schluessel(eintrag) !== key);
-  return [sauber, ...bisher].slice(0, HOECHSTENS_GEMERKT);
+  if ((prefs.texte ?? []).some((eintrag) => schluessel(eintrag) === key)) return null;
+  return sauber;
+}
+
+/** Einen Satz in die gepflegte Liste aufnehmen (rein, testbar).
+ *
+ *  Hinten an: Die Liste ist die Reihenfolge, die jemand angelegt hat -
+ *  ein Neuzugang drängelt sich nicht vor. Doppelte und Leeres ändern
+ *  nichts. */
+export function satzHinzufuegen(texte: string[] | undefined, neu: string): string[] {
+  const sauber = String(neu ?? '').trim();
+  const bisher = texte ?? [];
+  if (!sauber) return bisher;
+  const key = schluessel(sauber);
+  if (bisher.some((eintrag) => schluessel(eintrag) === key)) return bisher;
+  return [...bisher, sauber].slice(0, HOECHSTENS_EIGENE);
+}
+
+/** Einen Satz der Liste umformulieren (rein, testbar).
+ *
+ *  An Ort und Stelle, nicht löschen-und-anhängen: Der Satz behält
+ *  seinen Platz. Ein leerer neuer Text ist ein Löschen - dafür gibt es
+ *  den Papierkorb, hier ändert er nichts. */
+export function satzAendern(
+  texte: string[] | undefined,
+  alt: string,
+  neu: string
+): string[] {
+  const sauber = String(neu ?? '').trim();
+  const bisher = texte ?? [];
+  if (!sauber) return bisher;
+  return bisher.map((eintrag) =>
+    schluessel(eintrag) === schluessel(alt) ? sauber : eintrag
+  );
+}
+
+/** Einen Satz aus der Liste nehmen (rein, testbar). */
+export function satzLoeschen(texte: string[] | undefined, alt: string): string[] {
+  return (texte ?? []).filter((eintrag) => schluessel(eintrag) !== schluessel(alt));
 }
 
 /**

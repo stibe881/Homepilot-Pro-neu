@@ -1,12 +1,16 @@
 import {
-  HOECHSTENS_GEMERKT,
+  HOECHSTENS_EIGENE,
   HOECHSTENS_TEXTE,
   STANDARDTEXTE,
   ZIEL_ALLE,
   bestaetigung,
   boxen,
+  eigeneSaetze,
   gueltigesZiel,
   merken,
+  satzAendern,
+  satzHinzufuegen,
+  satzLoeschen,
   sprecherFuer,
   vorschlaege,
   zielText,
@@ -21,59 +25,94 @@ const geraet = (
 ) => ({ id, name, commands, available });
 
 describe('vorschlaege', () => {
-  it('liefert ohne Gemerktes die mitgelieferten Sätze', () => {
-    expect(vorschlaege(undefined)).toEqual([...STANDARDTEXTE]);
+  it('liefert ohne Eigenes die mitgelieferten Sätze', () => {
+    expect(vorschlaege({})).toEqual([...STANDARDTEXTE]);
   });
 
-  it('stellt Selbstgetipptes voran', () => {
-    expect(vorschlaege(['Der Znüni steht bereit'])[0]).toBe('Der Znüni steht bereit');
+  it('stellt Eigenes voran: erst der letzte, dann die Liste', () => {
+    const liste = vorschlaege({ letzter: 'Znüni!', texte: ['Bad ist frei'] });
+    expect(liste.slice(0, 2)).toEqual(['Znüni!', 'Bad ist frei']);
   });
 
   it('zeigt einen Satz nicht zweimal, auch nicht anders geschrieben', () => {
-    const liste = vorschlaege(['essen ist FERTIG!']);
+    const liste = vorschlaege({ letzter: 'essen ist FERTIG!' });
     const treffer = liste.filter((t) => t.toLowerCase() === 'essen ist fertig!');
     expect(treffer).toHaveLength(1);
     expect(liste[0]).toBe('essen ist FERTIG!');
   });
 
-  it('überschreitet die Höchstzahl nicht', () => {
+  it('zeigt die eigenen immer alle - die mitgelieferten weichen', () => {
+    // Wer zwölf eigene Sätze pflegt, will sie alle sehen; gedeckelt
+    // wird das Auffüllen, nicht die eigene Liste.
     const viele = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'];
-    expect(vorschlaege(viele)).toHaveLength(HOECHSTENS_TEXTE);
+    const liste = vorschlaege({ texte: viele });
+    expect(liste.slice(0, viele.length)).toEqual(viele);
+    expect(liste).toHaveLength(Math.max(HOECHSTENS_TEXTE, viele.length));
   });
 
   it('wirft leere Einträge weg', () => {
-    expect(vorschlaege(['   ', ''])).toEqual([...STANDARDTEXTE]);
+    expect(vorschlaege({ letzter: '   ', texte: [''] })).toEqual([...STANDARDTEXTE]);
+  });
+});
+
+describe('eigeneSaetze', () => {
+  it('führt den letzten getippten vor der gepflegten Liste', () => {
+    expect(eigeneSaetze({ letzter: 'B', texte: ['A'] })).toEqual(['B', 'A']);
+  });
+
+  it('doppelt nicht, wenn der letzte schon in der Liste steht', () => {
+    expect(eigeneSaetze({ letzter: 'a', texte: ['A'] })).toEqual(['a']);
   });
 });
 
 describe('merken', () => {
-  it('merkt sich einen selbst getippten Satz', () => {
-    expect(merken([], 'Paket ist da')).toEqual(['Paket ist da']);
+  it('merkt sich den zuletzt getippten Satz - genau einen', () => {
+    // Vorher sammelten sich vier automatisch gemerkte an, die niemand
+    // wieder loswurde: nicht bearbeitbar, nicht löschbar.
+    expect(merken({}, 'Paket ist da')).toBe('Paket ist da');
   });
 
   it('merkt sich keinen mitgelieferten Satz', () => {
-    // Sonst verdrängten die sechs Standardsätze genau das, wofür die
-    // Merkliste da ist.
-    expect(merken(['Paket ist da'], 'Essen ist fertig!')).toBeNull();
+    expect(merken({}, 'Essen ist fertig!')).toBeNull();
+  });
+
+  it('merkt sich keinen, der schon in der eigenen Liste steht', () => {
+    expect(merken({ texte: ['Paket ist da'] }, 'paket ist DA')).toBeNull();
   });
 
   it('merkt sich nichts Leeres', () => {
-    expect(merken([], '   ')).toBeNull();
-  });
-
-  it('holt einen schon gemerkten Satz nach vorn, statt ihn zu doppeln', () => {
-    expect(merken(['A', 'B', 'C'], 'C')).toEqual(['C', 'A', 'B']);
-  });
-
-  it('behält nur die letzten paar', () => {
-    const voll = ['A', 'B', 'C', 'D', 'E'];
-    const raus = merken(voll, 'Neu');
-    expect(raus).toHaveLength(HOECHSTENS_GEMERKT);
-    expect(raus?.[0]).toBe('Neu');
+    expect(merken({}, '   ')).toBeNull();
   });
 
   it('schneidet Ränder ab', () => {
-    expect(merken([], '  Paket ist da  ')).toEqual(['Paket ist da']);
+    expect(merken({}, '  Paket ist da  ')).toBe('Paket ist da');
+  });
+});
+
+describe('eigene Liste pflegen', () => {
+  it('hinzufügen hängt hinten an, ohne zu doppeln', () => {
+    expect(satzHinzufuegen(['A'], 'B')).toEqual(['A', 'B']);
+    expect(satzHinzufuegen(['A'], 'a')).toEqual(['A']);
+    expect(satzHinzufuegen(undefined, '  Neu  ')).toEqual(['Neu']);
+    expect(satzHinzufuegen(['A'], '  ')).toEqual(['A']);
+  });
+
+  it('die Liste hat einen Deckel', () => {
+    const voll = Array.from({ length: HOECHSTENS_EIGENE }, (_, i) => `Satz ${i}`);
+    expect(satzHinzufuegen(voll, 'Einer zu viel')).toHaveLength(HOECHSTENS_EIGENE);
+  });
+
+  it('bearbeiten ersetzt an Ort und Stelle', () => {
+    expect(satzAendern(['A', 'B', 'C'], 'B', 'Neu')).toEqual(['A', 'Neu', 'C']);
+  });
+
+  it('bearbeiten mit Leerem ändert nichts - löschen ist der Papierkorb', () => {
+    expect(satzAendern(['A', 'B'], 'B', '  ')).toEqual(['A', 'B']);
+  });
+
+  it('löschen entfernt genau den Satz, egal wie geschrieben', () => {
+    expect(satzLoeschen(['A', 'B'], 'b')).toEqual(['A']);
+    expect(satzLoeschen(undefined, 'x')).toEqual([]);
   });
 });
 

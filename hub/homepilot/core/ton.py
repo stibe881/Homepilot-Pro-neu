@@ -491,6 +491,15 @@ class Tonmeister:
                 "volume": entity.state.get("volume"),
                 "state": str(entity.state.get("state") or ""),
                 "player": traeger.id if traeger is not None and traeger.id != entity_id else None,
+                # Der Sender gehört mit ins Gedächtnis: Das Radio verliert
+                # während der Durchsage seinen Anspruch auf die Box und
+                # vergisst dabei, was lief. Ein blosses «play» danach
+                # spielte den ERSTEN Sender der Liste, nicht den, der an
+                # war.
+                "station": (
+                    (traeger.state.get("station") if traeger is not None else None)
+                    or entity.state.get("station")
+                ),
             }
         return gemerkt
 
@@ -529,7 +538,17 @@ class Tonmeister:
                     # Zurückstellen der Lautstärke.
                     weiter = davor.get("player") or entity_id
                     ziel = self.hub.registry.get(str(weiter))
-                    if ziel is not None and "play" in ziel.commands:
+                    if ziel is None:
+                        continue
+                    sender = davor.get("station")
+                    if sender and "play_radio" in ziel.commands:
+                        # Mit dem gemerkten Sender, nicht mit «play»: Das
+                        # Radio hat ihn über der Durchsage vergessen (siehe
+                        # zustand_merken).
+                        await self.hub.integrations.dispatch_command(
+                            str(weiter), "play_radio", {"station": str(sender)}
+                        )
+                    elif "play" in ziel.commands:
                         await self.hub.integrations.dispatch_command(str(weiter), "play", {})
             except Exception as err:
                 log.debug("Nach der Durchsage: %s liess sich nicht zurückstellen: %s", entity_id, err)
