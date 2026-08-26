@@ -114,6 +114,16 @@ export const FELDER: { abschnitt: string; felder: Feld[] }[] = [
         platzhalter: 'https://haus.example.ch',
         hinweis: 'Nur damit kann eine Alarm-Nachricht das Kamerabild mitbringen.',
       },
+      {
+        pfad: ['push', 'person_fenster'],
+        label: 'Auf Person warten (Sekunden)',
+        art: 'zahl',
+        platzhalter: '10',
+        hinweis:
+          'Bei Kameras mit Personenerkennung: So lange wartet der Hub auf ein ' +
+          'Bild, auf dem wirklich jemand steht. Die Nachricht selbst kommt ' +
+          'sofort. 0 schaltet es ab.',
+      },
     ],
   },
   {

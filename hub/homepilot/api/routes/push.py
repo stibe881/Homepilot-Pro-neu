@@ -49,7 +49,13 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         lässt ``push.public_url`` in der config.yaml weg; dann entsteht
         gar keine solche Adresse.
         """
-        image = hub.snapshots.get(token)
+        # ``warten`` statt ``get``: Bei einer Kamera mit Personenerkennung
+        # ist die Adresse schon vergeben, das Bild aber noch unterwegs -
+        # der Hub wartet gerade darauf, dass wirklich jemand im Bild
+        # steht. Diese Anfrage hält so lange still, statt einen leeren
+        # Kasten zu liefern. Liegt das Bild bereits da, kostet es nichts.
+        # Warum das der richtige Handel ist: core/personenbild.py.
+        image = await hub.snapshots.warten(token)
         if image is None:
             # Abgelaufen und nie existiert sehen von aussen gleich aus –
             # sonst liesse sich am Unterschied ablesen, ob geraten wurde.

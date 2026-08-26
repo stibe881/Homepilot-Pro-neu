@@ -9,11 +9,27 @@ interface Props {
   name: string;
   onClose: () => void;
   onCommand: (command: string) => void;
+  /** Was der Hub zur letzten Taste sagte – oder ``null``.
+   *
+   *  Muss hier hinein und nicht ins Band unten am Bildschirm: Die
+   *  Fernbedienung ist ein Modal und liegt darüber. Die Absage stand
+   *  also da, verdeckt von genau der Fläche, auf der man gerade tippt –
+   *  gemessen mit `elementFromPoint`, nicht geraten. Wer drückte, sah
+   *  nichts passieren und erfuhr auch nicht, warum. */
+  fehler?: string | null;
+  onFehlerWeg?: () => void;
 }
 
 /** Vollwertige Fernbedienung für Android-TV-Kacheln: Steuerkreuz,
  *  Lautstärke, Medientasten. Öffnet sich als Modal über dem Dashboard. */
-export function TvRemote({ visible, name, onClose, onCommand }: Props) {
+export function TvRemote({
+  visible,
+  name,
+  onClose,
+  onCommand,
+  fehler,
+  onFehlerWeg,
+}: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
@@ -30,7 +46,12 @@ export function TvRemote({ visible, name, onClose, onCommand }: Props) {
   }) => (
     <Pressable
       accessibilityLabel={label}
-      onPress={() => onCommand(command)}
+      onPress={() => {
+        // Die alte Absage gehört zur alten Taste. Bliebe sie stehen,
+        // liesse sich nicht mehr erkennen, ob die neue ankam.
+        if (fehler) onFehlerWeg?.();
+        onCommand(command);
+      }}
       style={({ pressed }) => [styles.key, big && styles.keyBig, pressed && styles.keyPressed]}>
       <Ionicons name={icon} size={big ? 26 : 20} color={colors.ink} />
     </Pressable>
@@ -82,6 +103,13 @@ export function TvRemote({ visible, name, onClose, onCommand }: Props) {
             <Key icon="play" command="play" label="Play/Pause" />
             <Key icon="play-skip-forward" command="next" label="Weiter" />
           </View>
+
+          {fehler ? (
+            <View style={styles.absage}>
+              <Ionicons name="alert-circle" size={16} color={colors.danger} />
+              <Text style={styles.absageText}>{fehler}</Text>
+            </View>
+          ) : null}
         </Pressable>
       </Pressable>
     </Modal>
@@ -126,5 +154,12 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     keyBig: { width: 68, height: 68, borderRadius: 34 },
+    absage: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 8,
+      paddingTop: 4,
+    },
+    absageText: { flex: 1, fontSize: 13, lineHeight: 18, color: colors.inkSoft },
     keyPressed: { backgroundColor: colors.surfaceStrong },
   });
