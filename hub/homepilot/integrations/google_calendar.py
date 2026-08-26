@@ -169,6 +169,44 @@ def _event_bounds(event: dict[str, Any]) -> tuple[str | None, str | None, bool]:
     )
 
 
+def ohne_doppelte(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Denselben Termin nur einmal (rein, testbar).
+
+    Wer den Geburtstags-Kalender von Google *und* einen eigenen mit
+    denselben Geburtstagen eingetragen hat, sah jeden zweimal - «Sändu
+    hat Geburtstag / heute» direkt untereinander. Aus der Liste geht
+    nicht hervor, dass das zwei Kalender sind; es sieht schlicht kaputt
+    aus.
+
+    Gleich heisst: derselbe Titel zur selben Anfangszeit. Nicht nur
+    dieselbe Kennung - die vergibt jeder Kalender für sich, und genau
+    deshalb fielen die Doppelten bisher nicht auf.
+
+    Zwei Termine mit gleichem Titel am selben Tag zu *verschiedenen*
+    Zeiten bleiben zwei: «Zahnarzt» um neun und um vierzehn Uhr ist kein
+    Versehen, sondern ein langer Tag.
+
+    Das Geburtstags-Merkmal überlebt: Steht derselbe Eintrag einmal im
+    Geburtstags-Kalender und einmal im normalen, ist es ein Geburtstag.
+    Sonst rutschte er unter die Termine, je nachdem, welcher Kalender
+    zuerst geantwortet hat.
+    """
+    gesehen: dict[tuple[str, str], dict[str, Any]] = {}
+    reihenfolge: list[tuple[str, str]] = []
+    for event in events:
+        schluessel = (
+            str(event.get("summary") or "").strip().casefold(),
+            str(event.get("start") or ""),
+        )
+        if schluessel in gesehen:
+            if event.get("birthday"):
+                gesehen[schluessel]["birthday"] = True
+            continue
+        gesehen[schluessel] = event
+        reihenfolge.append(schluessel)
+    return [gesehen[schluessel] for schluessel in reihenfolge]
+
+
 def parse_events(items: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
     """Übersetzt die (bereits zusammengeführte) Ereignisliste in Attribute.
 
@@ -204,6 +242,9 @@ def parse_events(items: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
             }
         )
     upcoming.sort(key=lambda event: event.get("start") or "")
+    # Erst sortieren, dann entdoppeln: So bleibt von zwei gleichen immer
+    # derselbe stehen, egal welcher Kalender zuerst geantwortet hat.
+    upcoming = ohne_doppelte(upcoming)
 
     first = next((event for event in upcoming if not event["birthday"]), None)
     return {

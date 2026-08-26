@@ -2035,3 +2035,63 @@ def test_a_cast_television_says_that_it_has_a_screen():
     # nicht als Lautsprecher behauptet werden.
     assert "has_screen" not in cast_media_state("IDLE", None, None, None, None)
 
+
+def test_the_same_birthday_from_two_calendars_shows_up_once():
+    """Der gemeldete Fehler: «Die Geburtstage werden doppelt angezeigt.»
+
+    Wer den Geburtstags-Kalender von Google *und* einen eigenen mit
+    denselben Geburtstagen eingetragen hat, sah jeden zweimal - «Sändu
+    hat Geburtstag / heute» direkt untereinander. Aus der Liste geht
+    nicht hervor, dass das zwei Kalender sind; es sieht kaputt aus.
+    """
+    from homepilot.integrations.google_calendar import ohne_doppelte
+
+    zeilen = [
+        {"id": "a1", "calendar": "#contacts", "summary": "Sändu hat Geburtstag",
+         "start": "2026-08-25", "birthday": True},
+        {"id": "b7", "calendar": "familie", "summary": "Sändu hat Geburtstag",
+         "start": "2026-08-25", "birthday": False},
+        {"id": "c3", "calendar": "familie", "summary": "Susi hat Geburtstag",
+         "start": "2026-08-28", "birthday": False},
+    ]
+    uebrig = ohne_doppelte(zeilen)
+    assert [z["summary"] for z in uebrig] == [
+        "Sändu hat Geburtstag",
+        "Susi hat Geburtstag",
+    ]
+    # Das Merkmal überlebt: Sonst rutschte der Eintrag unter die Termine,
+    # je nachdem, welcher Kalender zuerst geantwortet hat.
+    assert uebrig[0]["birthday"] is True
+
+
+def test_two_appointments_with_the_same_name_stay_two():
+    """«Zahnarzt» um neun und um vierzehn Uhr ist kein Versehen."""
+    from homepilot.integrations.google_calendar import ohne_doppelte
+
+    zeilen = [
+        {"summary": "Zahnarzt", "start": "2026-08-25T09:00:00+02:00"},
+        {"summary": "Zahnarzt", "start": "2026-08-25T14:00:00+02:00"},
+    ]
+    assert len(ohne_doppelte(zeilen)) == 2
+
+
+def test_the_whole_way_through_parse_events():
+    """Und derselbe Fall durch die ganze Verarbeitung."""
+    from datetime import UTC, datetime
+
+    from homepilot.integrations.google_calendar import parse_events
+
+    jetzt = datetime(2026, 8, 25, 8, 0, tzinfo=UTC)
+    items = [
+        {"id": "a1", "_calendar": "#contacts", "_birthday": True,
+         "summary": "Sändu hat Geburtstag",
+         "start": {"date": "2026-08-25"}, "end": {"date": "2026-08-26"}},
+        {"id": "b7", "_calendar": "familie",
+         "summary": "Sändu hat Geburtstag",
+         "start": {"date": "2026-08-25"}, "end": {"date": "2026-08-26"}},
+    ]
+    zustand = parse_events(items, jetzt)
+    assert len(zustand["events"]) == 1
+    assert zustand["events"][0]["birthday"] is True
+    # Ein Geburtstag ist kein Termin - der nächste Termin bleibt leer.
+    assert zustand["state"] == "frei"
