@@ -176,7 +176,7 @@ export function AddRow({
         value={text}
         onChangeText={setText}
         placeholder={placeholder}
-        placeholderTextColor={colors.inkFaint}
+        placeholderTextColor={colors.inkSoft}
         multiline={multiline}
         blurOnSubmit={!multiline}
         onSubmitEditing={multiline ? undefined : submit}
@@ -347,7 +347,7 @@ export function GroupedChecklist({
           value={newGroup}
           onChangeText={setNewGroup}
           placeholder={`Neue ${groupNoun} anlegen …`}
-          placeholderTextColor={colors.inkFaint}
+          placeholderTextColor={colors.inkSoft}
           onSubmitEditing={() => {
             if (newGroup.trim()) {
               setActiveGroup(newGroup.trim());
@@ -422,13 +422,18 @@ export function EventForm({
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
   return (
-    <View style={styles.formCard}>
+    // Auch das Formular auf eine Karte: Die Felder haben einen
+    // durchscheinenden Grund, und darunter lag bisher der Verlauf. Der
+    // Platzhalter «Titel (z.B. Zahnarzt)» kam damit auf 1.10:1 – er war
+    // nicht blass, er war weg. `inkSoft` statt `inkFaint` bringt ihn im
+    // Feld auf der Karte auf 4.1:1.
+    <Card style={styles.formCard}>
       <TextInput
         style={styles.input}
         value={summary}
         onChangeText={setSummary}
         placeholder="Titel (z.B. Zahnarzt)"
-        placeholderTextColor={colors.inkFaint}
+        placeholderTextColor={colors.inkSoft}
       />
       <View style={{ flexDirection: 'row', gap: 8 }}>
         <TextInput
@@ -436,7 +441,7 @@ export function EventForm({
           value={date}
           onChangeText={setDate}
           placeholder="Datum (TT.MM.JJJJ)"
-          placeholderTextColor={colors.inkFaint}
+          placeholderTextColor={colors.inkSoft}
           keyboardType="numbers-and-punctuation"
         />
         <TextInput
@@ -444,7 +449,7 @@ export function EventForm({
           value={time}
           onChangeText={setTime}
           placeholder="Zeit (leer = ganztägig)"
-          placeholderTextColor={colors.inkFaint}
+          placeholderTextColor={colors.inkSoft}
           keyboardType="numbers-and-punctuation"
         />
       </View>
@@ -460,7 +465,7 @@ export function EventForm({
       >
         <Text style={styles.addWideText}>Termin anlegen</Text>
       </Pressable>
-    </View>
+    </Card>
   );
 }
 
@@ -593,7 +598,7 @@ export function PollAddRow({
         value={frage}
         onChangeText={setFrage}
         placeholder="Frage, z.B. Was gibt's am Sonntag?"
-        placeholderTextColor={colors.inkFaint}
+        placeholderTextColor={colors.inkSoft}
       />
       <View style={styles.addRow}>
         <TextInput
@@ -601,7 +606,7 @@ export function PollAddRow({
           value={optionen}
           onChangeText={setOptionen}
           placeholder="Antworten, mit Komma getrennt"
-          placeholderTextColor={colors.inkFaint}
+          placeholderTextColor={colors.inkSoft}
           onSubmitEditing={submit}
         />
         <Pressable
@@ -664,7 +669,7 @@ export function MemberAddRow({
             if (hinweis) setHinweis(null);
           }}
           placeholder="Name, z.B. Livia"
-          placeholderTextColor={colors.inkFaint}
+          placeholderTextColor={colors.inkSoft}
           onSubmitEditing={submit}
         />
         <Pressable onPress={submit} style={styles.addButton} accessibilityLabel="Hinzufügen">
@@ -746,7 +751,7 @@ export function MedicationAddRow({
           value={text}
           onChangeText={setText}
           placeholder="Was, z.B. Amoxicillin"
-          placeholderTextColor={colors.inkFaint}
+          placeholderTextColor={colors.inkSoft}
           onSubmitEditing={submit}
         />
         <Pressable onPress={submit} style={styles.addButton} accessibilityLabel="Hinzufügen">
@@ -762,14 +767,14 @@ export function MedicationAddRow({
         value={dose}
         onChangeText={setDose}
         placeholder="Dosis, z.B. 5 ml (freiwillig)"
-        placeholderTextColor={colors.inkFaint}
+        placeholderTextColor={colors.inkSoft}
       />
       <TextInput
         style={styles.input}
         value={reason}
         onChangeText={setReason}
         placeholder="Wofür, z.B. Mittelohrentzündung (freiwillig)"
-        placeholderTextColor={colors.inkFaint}
+        placeholderTextColor={colors.inkSoft}
       />
 
       <Text style={styles.formHintSmall}>Wann?</Text>
@@ -858,7 +863,7 @@ export function ChoreAddRow({
           value={text}
           onChangeText={setText}
           placeholder="Neues Ämtli, z.B. Bad putzen …"
-          placeholderTextColor={colors.inkFaint}
+          placeholderTextColor={colors.inkSoft}
           onSubmitEditing={submit}
         />
         <Pressable
@@ -975,7 +980,7 @@ export function TaskAddRow({
           value={text}
           onChangeText={setText}
           placeholder="Neue Aufgabe …"
-          placeholderTextColor={colors.inkFaint}
+          placeholderTextColor={colors.inkSoft}
           onSubmitEditing={submit}
         />
         <Pressable onPress={submit} style={styles.addButton} accessibilityLabel="Hinzufügen">
@@ -1077,7 +1082,7 @@ export function ShoppingAddRow({
           value={text}
           onChangeText={setText}
           placeholder="Was fehlt? (mehrere mit Komma) …"
-          placeholderTextColor={colors.inkFaint}
+          placeholderTextColor={colors.inkSoft}
           onSubmitEditing={submit}
         />
         <Pressable onPress={submit} style={styles.addButton} accessibilityLabel="Hinzufügen">
@@ -1217,7 +1222,7 @@ export function ContactForm({
   const aendern = !!vorhanden;
 
   return (
-    <View style={styles.formCard}>
+    <Card style={styles.formCard}>
       <View style={styles.contactFormRow}>
         <Pressable
           onPress={async () => setPhoto((await pickPhoto()) ?? photo)}
@@ -1237,14 +1242,14 @@ export function ContactForm({
             value={name}
             onChangeText={setName}
             placeholder="Name (z.B. Mami)"
-            placeholderTextColor={colors.inkFaint}
+            placeholderTextColor={colors.inkSoft}
           />
           <TextInput
             style={styles.input}
             value={phone}
             onChangeText={setPhone}
             placeholder="Telefonnummer"
-            placeholderTextColor={colors.inkFaint}
+            placeholderTextColor={colors.inkSoft}
             keyboardType="phone-pad"
           />
           <TextInput
@@ -1252,7 +1257,7 @@ export function ContactForm({
             value={phone2}
             onChangeText={setPhone2}
             placeholder="Zweite Nummer (Arbeit, Partner – freiwillig)"
-            placeholderTextColor={colors.inkFaint}
+            placeholderTextColor={colors.inkSoft}
             keyboardType="phone-pad"
           />
           <TextInput
@@ -1260,7 +1265,7 @@ export function ContactForm({
             value={birthday}
             onChangeText={setBirthday}
             placeholder="Geburtstag (TT.MM. – freiwillig)"
-            placeholderTextColor={colors.inkFaint}
+            placeholderTextColor={colors.inkSoft}
           />
         </View>
       </View>
@@ -1325,7 +1330,7 @@ export function ContactForm({
             value={email}
             onChangeText={setEmail}
             placeholder="E-Mail"
-            placeholderTextColor={colors.inkFaint}
+            placeholderTextColor={colors.inkSoft}
             keyboardType="email-address"
             autoCapitalize="none"
           />
@@ -1334,14 +1339,14 @@ export function ContactForm({
             value={address}
             onChangeText={setAddress}
             placeholder="Adresse (für die Route)"
-            placeholderTextColor={colors.inkFaint}
+            placeholderTextColor={colors.inkSoft}
           />
           <TextInput
             style={styles.input}
             value={note}
             onChangeText={setNote}
             placeholder="Notiz (z.B. klingelt es zweimal)"
-            placeholderTextColor={colors.inkFaint}
+            placeholderTextColor={colors.inkSoft}
           />
           <Text style={styles.formHintSmall}>
             Öffnungszeiten – leer lassen, wo geschlossen ist.
@@ -1354,7 +1359,7 @@ export function ContactForm({
                 value={hours[tag] ?? ''}
                 onChangeText={(wert) => setHours({ ...hours, [tag]: wert })}
                 placeholder="08:00-12:00, 14:00-18:30"
-                placeholderTextColor={colors.inkFaint}
+                placeholderTextColor={colors.inkSoft}
               />
             </View>
           ))}
@@ -1422,7 +1427,7 @@ export function ContactForm({
           </Text>
         </Pressable>
       </View>
-    </View>
+    </Card>
   );
 }
 
@@ -1553,7 +1558,7 @@ export function MealRow({
           onChangeText={setDraft}
           autoFocus
           placeholder="Was gibt's?"
-          placeholderTextColor={colors.inkFaint}
+          placeholderTextColor={colors.inkSoft}
           onBlur={finish}
           onSubmitEditing={finish}
         />
@@ -1591,20 +1596,20 @@ export function TwoFieldForm({
   const [first, setFirst] = useState('');
   const [second, setSecond] = useState('');
   return (
-    <View style={styles.formCard}>
+    <Card style={styles.formCard}>
       <TextInput
         style={styles.input}
         value={first}
         onChangeText={setFirst}
         placeholder={labels[0]}
-        placeholderTextColor={colors.inkFaint}
+        placeholderTextColor={colors.inkSoft}
       />
       <TextInput
         style={[styles.input, multilineSecond && { minHeight: 70 }]}
         value={second}
         onChangeText={setSecond}
         placeholder={labels[1]}
-        placeholderTextColor={colors.inkFaint}
+        placeholderTextColor={colors.inkSoft}
         multiline={multilineSecond}
       />
       <Pressable
@@ -1618,7 +1623,7 @@ export function TwoFieldForm({
       >
         <Text style={styles.addWideText}>Hinzufügen</Text>
       </Pressable>
-    </View>
+    </Card>
   );
 }
 
@@ -1636,20 +1641,20 @@ export function CountdownForm({
   const [date, setDate] = useState('');
   const [onStart, setOnStart] = useState(false);
   return (
-    <View style={styles.formCard}>
+    <Card style={styles.formCard}>
       <TextInput
         style={styles.input}
         value={text}
         onChangeText={setText}
         placeholder="Anlass (z.B. Ferien)"
-        placeholderTextColor={colors.inkFaint}
+        placeholderTextColor={colors.inkSoft}
       />
       <TextInput
         style={styles.input}
         value={date}
         onChangeText={setDate}
         placeholder="Datum (TT.MM.JJJJ)"
-        placeholderTextColor={colors.inkFaint}
+        placeholderTextColor={colors.inkSoft}
       />
       <Pressable
         onPress={() => setOnStart((value) => !value)}
@@ -1676,7 +1681,7 @@ export function CountdownForm({
       >
         <Text style={styles.addWideText}>Hinzufügen</Text>
       </Pressable>
-    </View>
+    </Card>
   );
 }
 
@@ -1747,6 +1752,15 @@ export function MonthCalendar({
 
   return (
     <View style={{ gap: 10 }}>
+      {/* Auf einer Karte, nicht nackt auf dem Verlauf.
+          Der helle Verlauf ist mitteltönig (#8B9AB0 … #556579), und die
+          Zahlen standen darauf in `inkSoft` – gemessen 1.39:1, die
+          Wochentage in `inkFaint` 1.33:1. Beides ist praktisch
+          unsichtbar; lesbar war der Monat nur, weil sein Titel `ink`
+          trägt. Die Listenansicht daneben lag von Anfang an in einer
+          Karte und hatte das Problem nie. Auf der Karte sind es 11.7:1
+          und 3.9:1. */}
+      <Card style={styles.calCard}>
       <View style={styles.calHead}>
         <Pressable
           onPress={() => setMonth(new Date(year, mon - 1, 1))}
@@ -1803,6 +1817,7 @@ export function MonthCalendar({
           );
         })}
       </View>
+      </Card>
 
       {selected ? (
         <Card style={styles.listCard}>
