@@ -14,6 +14,8 @@ import { Auffangnetz } from './src/components/Auffangnetz';
 import { DashboardScreen } from './src/screens/DashboardScreen';
 import { kanaeleAnlegen } from './src/lib/kanaele';
 import { LoginScreen } from './src/screens/LoginScreen';
+import { gueltig } from './src/lib/appsymbol';
+import { symbolWechseln } from './src/lib/symbolwechsel';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { ThemeProvider, useTheme } from './src/theme';
 
@@ -90,6 +92,18 @@ export default function App() {
     setSettings(next);
     AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => {});
   };
+
+  // Das App-Symbol nachziehen, sobald die Einstellungen stehen.
+  //
+  // Auch beim blossen Start und nicht nur beim Wechseln: Im Web wird der
+  // Favicon bei jedem Laden neu aus dem HTML gesetzt, also auch das
+  // blaue - wer Pink gewählt hat, sähe sonst bis zum nächsten Wechsel
+  // wieder das alte Haus im Tab.
+  const symbol = settings?.appSymbol;
+  useEffect(() => {
+    if (settings === undefined || settings === null) return;
+    symbolWechseln(gueltig(symbol));
+  }, [settings, symbol]);
 
   return (
     <SafeAreaProvider>

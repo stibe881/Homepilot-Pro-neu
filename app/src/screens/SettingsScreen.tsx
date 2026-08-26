@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { HubSettings } from '../api/types';
 import { Card } from '../components/Card';
@@ -8,6 +8,8 @@ import { useOrtung } from '../hooks/useOrtung';
 import { defaultHubUrl } from '../lib/origin';
 import { PAUSEN, ortungsHinweis, pauseBis, pausiert } from '../lib/ortung';
 import { zonenkennung } from '../lib/zonenkennung';
+import { SYMBOLE, Symbolwahl, gueltig } from '../lib/appsymbol';
+import { kannWechseln } from '../lib/symbolwechsel';
 import { applySetup, QrScanner } from '../components/QrScanner';
 import { Colors, radius, ThemeMode, type, useColors } from '../theme';
 
@@ -56,6 +58,20 @@ export function SettingsScreen({
   const [token, setToken] = useState(initial?.token ?? '');
   const [name, setName] = useState(initial?.name ?? '');
   const [theme, setTheme] = useState<ThemeMode>(initial?.theme ?? 'system');
+  const [appSymbol, setAppSymbol] = useState<Symbolwahl>(gueltig(initial?.appSymbol));
+  // Ob dieses Gerät überhaupt wechseln kann. Auf einem Telefon mit einer
+  // App-Fassung von vor dem Zweitsymbol kann es das nicht - dann soll
+  // hier kein Schalter stehen, der nichts tut.
+  const [symbolGeht, setSymbolGeht] = useState(false);
+  useEffect(() => {
+    let weg = false;
+    kannWechseln().then((ja) => {
+      if (!weg) setSymbolGeht(ja);
+    });
+    return () => {
+      weg = true;
+    };
+  }, []);
   const [panel, setPanel] = useState(!!initial?.panel);
   const [scanning, setScanning] = useState(false);
   // Zwei-Schritt-Rückfrage für «überall abmelden» – das wirft auch das
@@ -112,7 +128,7 @@ export function SettingsScreen({
                 // Best effort: Lokal wird die Sitzung gleich vergessen -
                 // erreicht der Abruf den Hub nicht, läuft sie dort ab.
               }).catch(() => {});
-              onSave({ url, token: '', name, theme, panel });
+              onSave({ url, token: '', name, theme, panel, appSymbol });
             }}
             accessibilityRole="button"
             style={({ pressed }) => [styles.logout, pressed && { opacity: 0.7 }]}
@@ -134,7 +150,7 @@ export function SettingsScreen({
                 // Best effort wie beim Abmelden: Was der Hub nicht
                 // erfährt, läuft dort von selbst ab.
               }).catch(() => {});
-              onSave({ url, token: '', name, theme, panel });
+              onSave({ url, token: '', name, theme, panel, appSymbol });
             }}
             accessibilityRole="button"
             style={({ pressed }) => [
@@ -196,6 +212,52 @@ export function SettingsScreen({
           Gespeichert wird unten mit «Speichern & verbinden».
         </Text>
       </View>
+
+      {/* Das App-Symbol. Es gehört hierher und nicht zur Verbindung:
+          Es ist dasselbe wie die Farbwahl darüber, nur ausserhalb der
+          App. Am Gerät gespeichert und nicht an der Person - wer sich am
+          Wandpanel anmeldet, färbt damit nicht das Telefon um. */}
+      {symbolGeht ? (
+        <View style={styles.field}>
+          <Text style={styles.label}>App-Symbol</Text>
+          <View style={styles.symbole}>
+            {SYMBOLE.map((option) => {
+              const an = option.wahl === appSymbol;
+              return (
+                <Pressable
+                  key={option.label}
+                  onPress={() => setAppSymbol(option.wahl)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: an }}
+                  accessibilityLabel={`App-Symbol ${option.label}`}
+                  style={({ pressed }) => [
+                    styles.symbolWahl,
+                    an && styles.symbolWahlAktiv,
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  {/* Eine Vorschau, keine Bilddatei: Das Symbol liegt in
+                      sechs Grössen als PNG vor, und eines davon hier
+                      einzubinden hiesse, es beim nächsten Umfärben an
+                      zwei Stellen zu ändern. */}
+                  <View style={[styles.symbolBild, { backgroundColor: option.unten }]}>
+                    <View style={[styles.symbolOben, { backgroundColor: option.oben }]} />
+                    <Ionicons name="home" size={22} color="#FFFFFF" />
+                  </View>
+                  <Text style={[styles.modeText, an && styles.modeTextActive]}>
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={styles.modeHint}>
+            {Platform.OS === 'web'
+              ? 'Färbt das Bild im Browser-Tab. Auf dem Telefon färbt es das Symbol auf dem Startbildschirm.'
+              : 'Färbt das Symbol auf dem Startbildschirm. Das Wechseln übernimmt iOS – es meldet den Wechsel einmal kurz.'}
+          </Text>
+        </View>
+      ) : null}
 
       {/* Beim Erscheinungsbild und nicht bei der Verbindung: Der Modus
           ändert, wie die App aussieht und sich verhält - nicht, womit
@@ -347,7 +409,7 @@ export function SettingsScreen({
           setUrl(next.url);
           setToken(next.token);
           if (next.name) setName(next.name);
-          onSave({ ...next, theme, panel });
+          onSave({ ...next, theme, panel, appSymbol });
         }}
       />
 
@@ -375,6 +437,7 @@ export function SettingsScreen({
             name: name.trim(),
             theme,
             panel,
+            appSymbol,
             // Was sonst noch im Gerät steht, bleibt erhalten: Wer die
             // Adresse ändert, will nicht seine ausgeblendeten Geräte
             // verlieren - und schon gar nicht die Sperren, die bisher
@@ -562,6 +625,37 @@ const makeStyles = (colors: Colors) =>
     backgroundColor: colors.surfaceStrong,
   },
   knobOn: { alignSelf: 'flex-end' },
+  // Die Wahl des App-Symbols: eine Vorschau je Farbweg, gross genug,
+  // dass man das Haus darin erkennt.
+  symbole: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  symbolWahl: {
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: radius.control,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    backgroundColor: colors.surfaceSoft,
+  },
+  symbolWahlAktiv: { borderColor: colors.accent, borderWidth: 2 },
+  symbolBild: {
+    width: 46,
+    height: 46,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  // Der hellere Verlauf oben – dieselbe Richtung wie im echten Symbol.
+  symbolOben: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '55%',
+    opacity: 0.85,
+  },
   modes: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   mode: {
     paddingHorizontal: 14,
