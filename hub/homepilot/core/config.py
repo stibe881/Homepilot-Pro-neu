@@ -89,6 +89,11 @@ class HubConfig:
     # aussen erreichbare Adresse des Hubs. Nur damit kann eine Alarm-Meldung
     # das Kamerabild mitbringen; das Telefon holt es beim Anzeigen selbst,
     # also ohne Token. Ohne diesen Eintrag geht die Nachricht ohne Bild raus.
+    #
+    # Dazu {person_fenster: 10} – so viele Sekunden wartet der Hub bei einer
+    # Kamera mit Personenerkennung darauf, dass wirklich jemand im Bild
+    # steht, bevor er das Bild nachreicht. Die Nachricht selbst wartet nie.
+    # 0 schaltet das ab. Warum es das gibt: core/personenbild.py.
     push: dict[str, Any] = field(default_factory=dict)
     # Update aus der App: {webhook_url: "https://…"} – die Adresse, die
     # angestossen wird. Ohne Eintrag bleibt der Knopf aus.

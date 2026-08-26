@@ -63,7 +63,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from . import astro, babysitter, feiertage, kamera, snapshots
+from . import astro, babysitter, feiertage, kamera, personenbild
 from . import light as licht
 from . import push as push_service
 from .source import as_source, automation_source
@@ -2520,35 +2520,12 @@ class AutomationEngine:
         Aufgenommen wird jetzt und nicht beim Anschauen: Der Besucher ist
         längst weg, bis jemand das Telefon aus der Tasche zieht.
 
-        Jeder Fehlschlag endet still in ``None``. Ein Ablauf darf nicht
-        daran scheitern, dass eine Kamera gerade schweigt – die Nachricht
-        geht dann eben ohne Bild raus. Ohne ``push.public_url`` in der
-        Konfiguration entsteht gar keine Adresse; siehe core/snapshots.py.
+        «Jetzt» heisst dabei nicht mehr «im Moment des Auslösers»: Kann
+        die Kamera Personen erkennen, wartet der Hub im Hintergrund
+        darauf, dass sie eine meldet, und nimmt das Bild von *dem*
+        Moment. Die Nachricht selbst wartet nie – warum das geht, steht
+        in ``core/personenbild.py``.
         """
-        public_url = (self.hub.config.push or {}).get("public_url")
-        if not camera or not public_url:
-            return None
-        try:
-            entity = self.hub.registry.get(camera)
-            integration = self.hub.integrations.get(entity.integration) if entity else None
-            image = (
-                await asyncio.wait_for(integration.snapshot(entity), BILD_WARTEZEIT)
-                if integration
-                else None
-            )
-        except TimeoutError:
-            # Der Fall, der die Klingel langsam machte: Die Nachricht war
-            # fertig und stand still, weil im Hub jemand auf ein Foto
-            # wartete. Sie geht jetzt ohne raus.
-            log.info(
-                "Bild für die Nachricht aus einem Ablauf kam nicht in %ss – "
-                "Nachricht geht ohne raus",
-                BILD_WARTEZEIT,
-            )
-            return None
-        except Exception as err:
-            log.warning("Kein Bild für die Nachricht aus einem Ablauf: %s", err)
-            return None
-        if not image:
-            return None
-        return snapshots.image_url(public_url, self.hub.snapshots.put(image))
+        return await personenbild.bild_adresse(
+            self.hub, camera, BILD_WARTEZEIT, "die Nachricht aus einem Ablauf"
+        )

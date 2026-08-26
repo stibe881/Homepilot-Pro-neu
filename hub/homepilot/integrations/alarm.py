@@ -46,7 +46,7 @@ import secrets
 import time
 from typing import Any
 
-from ..core import snapshots, streams
+from ..core import personenbild, snapshots, streams
 from ..core.entity import Entity, EntityKind
 from ..core.errors import HomePilotError
 from ..core.integration import Integration
@@ -623,36 +623,18 @@ class AlarmIntegration(Integration):
         Moment zeigen, in dem der Alarm losging, nicht den Moment, in dem
         jemand das Telefon aus der Tasche zieht.
 
-        Jeder Fehlschlag endet hier still in ``None`` – ein Alarm darf nicht
+        Bei einer Kamera mit Personenerkennung ist «der Moment, in dem der
+        Alarm losging» allerdings zu früh: Wer den Melder im Flur auslöst,
+        ist noch ein paar Schritte von der Kamera entfernt. Das Bild wird
+        dann nachgereicht, sobald jemand wirklich im Bild steht – die
+        Nachricht geht trotzdem sofort raus. Siehe ``core/personenbild.py``.
+
+        Jeder Fehlschlag endet still ohne Bild – ein Alarm darf nicht
         daran scheitern, dass eine Kamera gerade nicht antwortet.
         """
-        public_url = (self.hub.config.push or {}).get("public_url")
-        if not camera or not public_url:
-            return None
-        try:
-            entity = self.hub.registry.get(camera)
-            integration = self.hub.integrations.get(entity.integration) if entity else None
-            image = (
-                await asyncio.wait_for(integration.snapshot(entity), BILD_WARTEZEIT)
-                if integration
-                else None
-            )
-        except TimeoutError:
-            # Beim Alarm noch deutlicher als sonst: Die Nachricht ist das
-            # Dringende, das Bild die Zugabe. Eine Kamera, die zu lange
-            # braucht, darf den Alarm nicht aufhalten.
-            log.info(
-                "Bild für die Alarm-Nachricht kam nicht in %ss – Nachricht "
-                "geht ohne raus",
-                BILD_WARTEZEIT,
-            )
-            return None
-        except Exception as err:
-            log.warning("Kein Bild für die Alarm-Nachricht: %s", err)
-            return None
-        if not image:
-            return None
-        return snapshots.image_url(public_url, self.hub.snapshots.put(image))
+        return await personenbild.bild_adresse(
+            self.hub, camera, BILD_WARTEZEIT, "die Alarm-Nachricht"
+        )
 
     async def _notify(
         self,
