@@ -383,6 +383,16 @@ export const makeStyles = (colors: Colors) =>
       alignItems: 'center',
       justifyContent: 'center',
     },
+    /** Die Stimmung einer Szene in der Liste: kleine Punkte, keine
+     *  Wahlknöpfe - deshalb eine Nummer kleiner als farbPunkt. */
+    stimmungsPunkte: { flexDirection: 'row', gap: 4, marginTop: 4 },
+    stimmungsPunkt: {
+      width: 9,
+      height: 9,
+      borderRadius: 5,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: 'rgba(0,0,0,0.25)',
+    },
     /** «Farbe unverändert»: der Punkt ohne Farbe, mit Kreuz. */
     farbLeer: { backgroundColor: colors.surfaceSoft },
     choice: {

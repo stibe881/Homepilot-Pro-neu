@@ -24,6 +24,7 @@ import { Editor, Fassung } from './automations/editor';
 import { Automation, Draft, DryRun, EMPTY, Run, StepDraft, TriggerHealth, buildConditions, describe, groupByCategory, lastRunText, namensVorschlag, newTrigger, runLine, search, stepToActions, stepsToActions, symbolFuerNamen, szenenSymbol, toDraft, triggerIcon, triggerToConfig, usedCategories, wirkungText, zeitpunktLabel } from './automations/entwurf';
 import { Groups, SearchBox } from './automations/felder';
 import { laeuft, tippLabel, unterzeile } from '../lib/szenenzeile';
+import { szenenFarben } from '../lib/szenenfarben';
 import { bandReihenfolge, bandZeile } from '../lib/tagesband';
 import { makeStyles } from './automations/stil';
 import { SCENE_ICONS, SceneDraft, SceneEditor } from './automations/szenen-editor';
@@ -1599,6 +1600,18 @@ export function AutomationsScreen({
                         {unterzeile(scene)}
                         {laeuft(scene) ? ' · steht' : ''}
                       </Text>
+                      {/* Die gewählten Farben als Punkte - dieselbe
+                          Auskunft wie auf dem Schnellknopf. */}
+                      {szenenFarben(scene.actions).length > 0 ? (
+                        <View style={styles.stimmungsPunkte}>
+                          {szenenFarben(scene.actions).map((farbe) => (
+                            <View
+                              key={farbe}
+                              style={[styles.stimmungsPunkt, { backgroundColor: farbe }]}
+                            />
+                          ))}
+                        </View>
+                      ) : null}
                     </View>
                   </Pressable>
                   {scene.editable && mayEdit ? (
