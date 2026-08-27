@@ -156,6 +156,35 @@ RULES: list[dict[str, Any]] = [
         ],
     },
     {
+        "key": "morning",
+        "title": "Morgen-Zusammenfassung",
+        "detail": "Eine Nachricht am Morgen statt sieben einzelner: was noch "
+        "offen steht, welche Batterie schwach ist, welches Gerät sich nicht "
+        "meldet, was in der Nacht war und welcher Ablauf seit Tagen nicht "
+        "lief. Sie kommt nur, wenn etwas dasteht - eine Zusammenfassung, die "
+        "«alles in Ordnung» meldet, bestellt man ab.",
+        "params": [
+            {
+                "key": "hour",
+                "label": "Schicken um",
+                "unit": "Uhr",
+                "default": 7,
+                "min": 4,
+                "max": 12,
+                "step": 1,
+            },
+            {
+                "key": "quiet_days",
+                "label": "Stille Abläufe melden ab",
+                "unit": "Tagen",
+                "default": 7,
+                "min": 0,
+                "max": 60,
+                "step": 1,
+            },
+        ],
+    },
+    {
         "key": "birthday",
         "title": "Geburtstag",
         "detail": "Am Morgen, wer heute Geburtstag hat – aus den Kontakten in "
