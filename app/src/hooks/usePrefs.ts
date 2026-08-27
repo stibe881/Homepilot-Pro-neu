@@ -74,6 +74,10 @@ export interface UserPrefs {
    *  es Gewohnheit ist: Wer um sechs aufsteht, meint mit «Morgen» etwas
    *  anderes als wer um neun anfängt. */
   tageszeit?: boolean;
+  /** Räume nach Nutzung sortieren: der meistbediente zuoberst. Persönlich
+   *  wie die Tageszeit - und gezählt wird je Gerät (lib/raumnutzung),
+   *  denn am Wandpanel bedient man anderes als auf dem Telefon. */
+  raumNutzung?: boolean;
   /** Live-Aktivitäten auf dem Sperrbildschirm. Fehlt der Wert, gilt
    *  an - abgeschaltet wird je Person, wie die Benachrichtigungen. Den
    *  Schalter liest auch der Hub (core/liveaktivitaet.py). */
@@ -257,6 +261,11 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     [setzeEigen]
   );
 
+  const setRaumNutzung = useCallback(
+    (on: boolean) => setzeEigen({ ...eigenJetzt.current, raumNutzung: on }),
+    [setzeEigen]
+  );
+
   const setLiveTuer = useCallback(
     (on: boolean) => setzeEigen({ ...eigenJetzt.current, liveTuer: on }),
     [setzeEigen]
@@ -302,6 +311,7 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     setSeenChanges,
     setKameraDynamisch,
     setTageszeit,
+    setRaumNutzung,
     setLiveTuer,
     setLiveAus,
     setFavorites,

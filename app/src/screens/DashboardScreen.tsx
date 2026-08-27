@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -74,6 +75,7 @@ import { deviceKindLabel, musikboxenImRaum } from '../lib/geraeteart';
 import { rueckangebot } from '../lib/rueckgriff';
 import { Gaestestand, gaesteSatz } from '../lib/gaeste';
 import { leerbild } from '../lib/leerzustand';
+import { Nutzung, merken as merkeRaum, reihenfolge as nutzungsReihenfolge } from '../lib/raumnutzung';
 import { sorgen, sorgenSatz } from '../lib/sorgen';
 import { szenenFuerKachel, szenenFuerRaum } from '../lib/szenen';
 import {
@@ -664,6 +666,25 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       });
   }, [griffUndo, hub]);
 
+  // Wie oft welcher Raum auf diesem Gerät bedient wurde - nur fürs
+  // Sortieren, wenn der Schalter dazu an ist (lib/raumnutzung.ts).
+  const [raumZaehler, setRaumZaehler] = useState<Nutzung>({});
+  useEffect(() => {
+    AsyncStorage.getItem('homepilot.raumnutzung')
+      .then((roh) => {
+        if (roh) setRaumZaehler(JSON.parse(roh));
+      })
+      .catch(() => {});
+  }, []);
+  const zaehleRaum = useCallback((raum: string | null | undefined) => {
+    if (!raum) return;
+    setRaumZaehler((zaehler) => {
+      const neu = merkeRaum(zaehler, raum, Date.now());
+      AsyncStorage.setItem('homepilot.raumnutzung', JSON.stringify(neu)).catch(() => {});
+      return neu;
+    });
+  }, []);
+
   // Läuft gerade ein Gästemodus? Beim Öffnen der Einstellungen fragen,
   // nicht dauernd: Die Zeile im Menü ist der einzige Ort, an dem die
   // Antwort gebraucht wird - und dort steht sie eine Sekunde später.
@@ -809,6 +830,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setSeenChanges,
     setKameraDynamisch,
     setTageszeit,
+    setRaumNutzung,
     setLiveTuer,
     setLiveAus,
     setFavorites,
@@ -1012,9 +1034,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         setPinAsk({ entity, command, data });
         return;
       }
+      // Erst zählen, dann schalten: Die Zählung speist die Sortierung
+      // «meistbenutzter Raum zuoberst» (lib/raumnutzung.ts).
+      zaehleRaum(entity?.room);
       sendCommand(entityId, command, data);
     },
-    [entities, locked, sendCommand, prefs.bioLock, user?.shared]
+    [entities, locked, sendCommand, prefs.bioLock, user?.shared, zaehleRaum]
   );
 
   /**
@@ -1171,8 +1196,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       .filter((name) => !roomOrder.includes(name))
       .sort((a, b) => a.localeCompare(b));
     const named = raeumeSortiert([...ordered, ...extra], prefs.order?.raeume);
-    return named.length > 0 ? [ALL_ROOMS, ...named] : [];
-  }, [entities, roomOrder, prefs.order?.raeume]);
+    // Wer es eingeschaltet hat, bekommt den meistbedienten Raum
+    // zuoberst - «Alle» bleibt davor, es ist kein Raum.
+    const sortiert = eigenePrefs.raumNutzung
+      ? nutzungsReihenfolge(named, raumZaehler, now.getTime())
+      : named;
+    return sortiert.length > 0 ? [ALL_ROOMS, ...sortiert] : [];
+  }, [entities, roomOrder, prefs.order?.raeume, eigenePrefs.raumNutzung, raumZaehler, now]);
 
   // Alle vergebenen Gruppennamen – für die Auswahl im Anpassen-Modus.
   const groupNames = useMemo(
@@ -1616,6 +1646,156 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     section === 'home' && room !== ALL_ROOMS
   );
 
+  const einstellungsPunkte: {
+    key: Section | 'search' | 'sorgen' | 'gaeste';
+    icon: keyof typeof Ionicons.glyphMap;
+    label: string;
+    detail: string;
+    show: boolean;
+    /** Statt zu einem Bereich zu wechseln: etwas öffnen. */
+    onPress?: () => void;
+  }[] = [
+    {
+      key: 'search',
+      icon: 'search-outline',
+      label: 'Suche',
+      detail: 'Geräte, Räume, Szenen und Abläufe auf einmal',
+      show: true,
+      onPress: () => setSearchOpen(true),
+    },
+    {
+      key: 'users',
+      icon: 'people-circle-outline',
+      label: 'Benutzerverwaltung',
+      detail: 'Zugänge und Rollen: Besitzer, Mitbewohner, Gast',
+      show: sieht('users'),
+    },
+    {
+      key: 'personen',
+      icon: 'people-outline',
+      label: 'Familie und Freunde',
+      detail: 'Wer ist wo, und was soll über wen gemeldet werden',
+      // Auch für Mitbewohner: Wo die Familie gerade ist, geht alle
+      // an, die hier wohnen - anders als die Frage, wer Zugang hat.
+      show: true,
+    },
+    {
+      key: 'automations',
+      icon: 'git-branch-outline',
+      label: 'Abläufe',
+      detail: istBesitzer
+        ? 'Automationen und Szenen'
+        : 'Pausieren, Babysitter-Modus und was heute läuft',
+      show: sieht('automations'),
+    },
+    {
+      key: 'alarm',
+      icon: 'shield-checkmark-outline',
+      label: 'Alarmanlage',
+      detail: 'Sensoren, Modi und Verlauf',
+      show: sieht('alarm'),
+    },
+    {
+      key: 'devices',
+      icon: 'list-outline',
+      label: 'Geräte',
+      detail: istBesitzer
+        ? 'Alle Geräte, auch ausgeblendete'
+        : 'Alle Geräte mit Batterie und Verlauf',
+      show: sieht('devices'),
+    },
+    {
+      key: 'gaeste',
+      icon: 'people-outline',
+      label: gaesteStand?.active ? 'Besuch da' : 'Besuch kommt',
+      detail: gaesteSatz(gaesteStand, Date.now()),
+      // Auch für Mitbewohner: Wer Gäste empfängt, soll ihnen das
+      // WLAN geben können, ohne die Besitzerin zu fragen.
+      show: true,
+      onPress: () => setGaesteOffen(true),
+    },
+    {
+      key: 'sorgen',
+      icon: 'medkit-outline',
+      label: 'Nicht in Ordnung',
+      // Gezählt wird hier nur, was die Geräteliste allein weiss:
+      // wer nicht antwortet und wer verstummt ist. Schwache
+      // Batterien und Wartungen stehen im Blatt selbst - ob eine
+      // Warnung quittiert ist, weiss nur der Hub, und eine Zahl,
+      // die eine andere Liste ankündigt als die, die aufgeht, wäre
+      // schlimmer als keine.
+      detail: stummeGeraete.length
+        ? sorgenSatz(stummeGeraete)
+        : 'Batterien, Funkstille und Wartung auf einem Blatt',
+      show: sieht('devices'),
+      onPress: () => setSorgenOffen(true),
+    },
+    {
+      key: 'speakers',
+      icon: 'volume-high-outline',
+      label: 'Lautsprecher',
+      detail: 'Boxen und Gruppen im Netz',
+      show: sieht('speakers'),
+    },
+    {
+      key: 'energy',
+      icon: 'flash-outline',
+      label: 'Energie',
+      detail: 'Verbrauch und Kosten je Gerät',
+      show: sieht('energy'),
+    },
+    {
+      key: 'system',
+      icon: 'pulse-outline',
+      label: 'System',
+      detail: 'Integrationen, Sicherung, Konfiguration',
+      show: sieht('system'),
+    },
+    {
+      key: 'activity',
+      icon: 'timer-outline',
+      label: 'Was war los',
+      detail: 'Der Rückblick über alle Geräte – Tage zurück',
+      show: sieht('activity'),
+    },
+    {
+      key: 'widgets',
+      icon: 'apps-outline',
+      label: 'Widgets',
+      detail: 'Knöpfe auf Homescreen und Sperrbildschirm',
+      // Für alle sichtbar, obwohl es die Ansicht des Hauses ändert:
+      // Wer ein Widget auf seinem Telefon hat, muss nachsehen können,
+      // was darauf liegt - und die Anleitung zum Hinzufügen braucht
+      // ohnehin jeder selbst.
+      show: true,
+    },
+    {
+      key: 'account',
+      icon: 'person-outline',
+      label: 'Konto',
+      detail: 'Profil, Darstellung, App-Symbol, Benachrichtigungen',
+      show: true,
+    },
+    {
+      key: 'connection',
+      icon: 'link-outline',
+      label: 'Verbindungen',
+      detail: 'Hub-Adresse und Token dieses Geräts',
+      show: true,
+    },
+  ];
+
+  // Auf dem iPad bleiben die Einstellungen zweispaltig: Menü links,
+  // Inhalt rechts. Der Wechsel Vollbild → Vollbild verlor auf grossen
+  // Bildschirmen die Orientierung - man sah nie, wo man ist und was es
+  // daneben noch gäbe. Die Startseite und die Geräteliste bleiben
+  // aussen vor: Sie haben ihre eigene rechte Spalte.
+  const einstellungsSeiten: Section[] = [
+    'users', 'personen', 'automations', 'alarm', 'speakers',
+    'energy', 'system', 'activity', 'widgets', 'account',
+  ];
+  const zweispaltig = width >= 1000 && einstellungsSeiten.includes(section);
+
   const content = () => {
     // Der Riegel vor Familie und Konto - siehe lib/bereichsriegel.ts. Er
     // steht vor dem Verteiler, damit kein Bereich ihn vergessen kann.
@@ -1696,7 +1876,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     }
 
     // Zurück-Zeile für alles, was über „Einstellungen“ erreicht wird.
-    const back = (
+    // Zweispaltig braucht sie niemand: Das Menü steht daneben.
+    const back = zweispaltig ? null : (
       <Pressable
         onPress={() => setSection('settings')}
         accessibilityRole="button"
@@ -1719,147 +1900,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       // den Babysitter-Modus schalten - das ist Bedienung, keine
       // Einrichtung. Anlegen und Ändern bleibt ihm verwehrt, dafür sorgt
       // edit_automations in der Seite selbst (und der Hub noch einmal).
-      const items: {
-        key: Section | 'search' | 'sorgen' | 'gaeste';
-        icon: keyof typeof Ionicons.glyphMap;
-        label: string;
-        detail: string;
-        show: boolean;
-        /** Statt zu einem Bereich zu wechseln: etwas öffnen. */
-        onPress?: () => void;
-      }[] = [
-        {
-          key: 'search',
-          icon: 'search-outline',
-          label: 'Suche',
-          detail: 'Geräte, Räume, Szenen und Abläufe auf einmal',
-          show: true,
-          onPress: () => setSearchOpen(true),
-        },
-        {
-          key: 'users',
-          icon: 'people-circle-outline',
-          label: 'Benutzerverwaltung',
-          detail: 'Zugänge und Rollen: Besitzer, Mitbewohner, Gast',
-          show: sieht('users'),
-        },
-        {
-          key: 'personen',
-          icon: 'people-outline',
-          label: 'Familie und Freunde',
-          detail: 'Wer ist wo, und was soll über wen gemeldet werden',
-          // Auch für Mitbewohner: Wo die Familie gerade ist, geht alle
-          // an, die hier wohnen - anders als die Frage, wer Zugang hat.
-          show: true,
-        },
-        {
-          key: 'automations',
-          icon: 'git-branch-outline',
-          label: 'Abläufe',
-          detail: istBesitzer
-            ? 'Automationen und Szenen'
-            : 'Pausieren, Babysitter-Modus und was heute läuft',
-          show: sieht('automations'),
-        },
-        {
-          key: 'alarm',
-          icon: 'shield-checkmark-outline',
-          label: 'Alarmanlage',
-          detail: 'Sensoren, Modi und Verlauf',
-          show: sieht('alarm'),
-        },
-        {
-          key: 'devices',
-          icon: 'list-outline',
-          label: 'Geräte',
-          detail: istBesitzer
-            ? 'Alle Geräte, auch ausgeblendete'
-            : 'Alle Geräte mit Batterie und Verlauf',
-          show: sieht('devices'),
-        },
-        {
-          key: 'gaeste',
-          icon: 'people-outline',
-          label: gaesteStand?.active ? 'Besuch da' : 'Besuch kommt',
-          detail: gaesteSatz(gaesteStand, Date.now()),
-          // Auch für Mitbewohner: Wer Gäste empfängt, soll ihnen das
-          // WLAN geben können, ohne die Besitzerin zu fragen.
-          show: true,
-          onPress: () => setGaesteOffen(true),
-        },
-        {
-          key: 'sorgen',
-          icon: 'medkit-outline',
-          label: 'Nicht in Ordnung',
-          // Gezählt wird hier nur, was die Geräteliste allein weiss:
-          // wer nicht antwortet und wer verstummt ist. Schwache
-          // Batterien und Wartungen stehen im Blatt selbst - ob eine
-          // Warnung quittiert ist, weiss nur der Hub, und eine Zahl,
-          // die eine andere Liste ankündigt als die, die aufgeht, wäre
-          // schlimmer als keine.
-          detail: stummeGeraete.length
-            ? sorgenSatz(stummeGeraete)
-            : 'Batterien, Funkstille und Wartung auf einem Blatt',
-          show: sieht('devices'),
-          onPress: () => setSorgenOffen(true),
-        },
-        {
-          key: 'speakers',
-          icon: 'volume-high-outline',
-          label: 'Lautsprecher',
-          detail: 'Boxen und Gruppen im Netz',
-          show: sieht('speakers'),
-        },
-        {
-          key: 'energy',
-          icon: 'flash-outline',
-          label: 'Energie',
-          detail: 'Verbrauch und Kosten je Gerät',
-          show: sieht('energy'),
-        },
-        {
-          key: 'system',
-          icon: 'pulse-outline',
-          label: 'System',
-          detail: 'Integrationen, Sicherung, Konfiguration',
-          show: sieht('system'),
-        },
-        {
-          key: 'activity',
-          icon: 'timer-outline',
-          label: 'Was war los',
-          detail: 'Der Rückblick über alle Geräte – Tage zurück',
-          show: sieht('activity'),
-        },
-        {
-          key: 'widgets',
-          icon: 'apps-outline',
-          label: 'Widgets',
-          detail: 'Knöpfe auf Homescreen und Sperrbildschirm',
-          // Für alle sichtbar, obwohl es die Ansicht des Hauses ändert:
-          // Wer ein Widget auf seinem Telefon hat, muss nachsehen können,
-          // was darauf liegt - und die Anleitung zum Hinzufügen braucht
-          // ohnehin jeder selbst.
-          show: true,
-        },
-        {
-          key: 'account',
-          icon: 'person-outline',
-          label: 'Konto',
-          detail: 'Profil, Darstellung, App-Symbol, Benachrichtigungen',
-          show: true,
-        },
-        {
-          key: 'connection',
-          icon: 'link-outline',
-          label: 'Verbindungen',
-          detail: 'Hub-Adresse und Token dieses Geräts',
-          show: true,
-        },
-      ];
+
       return (
         <View style={styles.settingsList}>
-          {items
+          {einstellungsPunkte
             .filter((item) => item.show)
             .map((item) => (
               <Pressable
@@ -2260,6 +2304,46 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 name={eigenePrefs.tageszeit ? 'toggle' : 'toggle-outline'}
                 size={30}
                 color={eigenePrefs.tageszeit ? colors.accent : colors.inkFaint}
+              />
+            </Pressable>
+          ) : null}
+          {/* Und der Schalter für die Raum-Reihenfolge - dort, wo die
+              Räume stehen. Dieselbe Regel wie bei der Tageszeit: aus,
+              bis jemand ihn einschaltet, und je Gerät gezählt - am
+              Wandpanel bedient man anderes als auf dem Telefon. */}
+          {section === 'home' && room === ALL_ROOMS && !editing && rooms.length > 3 ? (
+            <Pressable
+              onPress={() => setRaumNutzung(!eigenePrefs.raumNutzung)}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: !!eigenePrefs.raumNutzung }}
+              accessibilityLabel={
+                eigenePrefs.raumNutzung
+                  ? 'Räume wieder in fester Reihenfolge zeigen'
+                  : 'Meistbenutzte Räume zuerst zeigen'
+              }
+              style={({ pressed }) => [styles.kameraSort, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons
+                name={eigenePrefs.raumNutzung ? 'trending-up' : 'list-outline'}
+                size={18}
+                color={eigenePrefs.raumNutzung ? colors.accent : colors.onGradientSoft}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.reorderText}>
+                  {eigenePrefs.raumNutzung
+                    ? 'Meistbenutzte Räume zuerst'
+                    : 'Feste Raum-Reihenfolge'}
+                </Text>
+                <Text style={styles.kameraSortHint}>
+                  {eigenePrefs.raumNutzung
+                    ? 'Was du auf diesem Gerät oft bedienst, steht oben. Ältere Bedienungen verblassen.'
+                    : 'Die Reihenfolge aus der Einrichtung – egal, was du oft anfasst.'}
+                </Text>
+              </View>
+              <Ionicons
+                name={eigenePrefs.raumNutzung ? 'toggle' : 'toggle-outline'}
+                size={30}
+                color={eigenePrefs.raumNutzung ? colors.accent : colors.inkFaint}
               />
             </Pressable>
           ) : null}
@@ -2836,7 +2920,52 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               reagiert. Der Schlüssel wechselt mit dem Bereich, damit ein
               gefangener Fehler beim Weiterblättern nicht kleben bleibt. */}
             <Auffangnetz key={section} bereich={SECTION_LABEL[section] ?? 'Dieser Bereich'}>
-              {content()}
+              {zweispaltig ? (
+                <View style={styles.settingsSplit}>
+                  <View style={styles.settingsRail}>
+                    {einstellungsPunkte
+                      .filter((item) => item.show)
+                      .map((item) => {
+                        const aktiv = item.key === section;
+                        return (
+                          <Pressable
+                            key={item.key}
+                            onPress={() =>
+                              item.onPress
+                                ? item.onPress()
+                                : setSection(item.key as Section)
+                            }
+                            accessibilityRole="tab"
+                            accessibilityState={{ selected: aktiv }}
+                            style={({ pressed }) => [
+                              styles.settingsRailItem,
+                              aktiv && styles.settingsRailActive,
+                              pressed && { opacity: 0.8 },
+                            ]}
+                          >
+                            <Ionicons
+                              name={item.icon}
+                              size={18}
+                              color={aktiv ? colors.ink : colors.inkSoft}
+                            />
+                            <Text
+                              style={[
+                                styles.settingsRailText,
+                                aktiv && { color: colors.ink, fontWeight: '700' },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {item.label}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                  </View>
+                  <View style={{ flex: 1, minWidth: 0 }}>{content()}</View>
+                </View>
+              ) : (
+                content()
+              )}
             </Auffangnetz>
           </ScrollView>
         </View>
@@ -4042,6 +4171,19 @@ const makeStyles = (colors: Colors) =>
       textTransform: 'uppercase',
       marginTop: space.gap * 1.5,
     },
+    // Einstellungen auf dem iPad: schmales Menü links, Inhalt rechts.
+    settingsSplit: { flexDirection: 'row', gap: 18, alignItems: 'flex-start' },
+    settingsRail: { width: 230, gap: 2 },
+    settingsRailItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingVertical: 10,
+      paddingHorizontal: 12,
+      borderRadius: radius.control,
+    },
+    settingsRailActive: { backgroundColor: colors.surface },
+    settingsRailText: { color: colors.inkSoft, fontSize: 14, fontWeight: '600', flex: 1 },
     empty: {
       color: colors.onGradientSoft,
       fontSize: 14,
