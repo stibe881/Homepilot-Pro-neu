@@ -8,7 +8,7 @@ import { zustandsText } from '../lib/haushalt';
 import { KachelEintrag, kachelAktionen } from '../lib/kachelmenue';
 import { zustandName } from '../lib/hausmusik';
 import { hatWarteschlange } from '../lib/musikliste';
-import { ursacheSatz } from '../lib/ursache';
+import { ketteSatz, ursacheSatz } from '../lib/ursache';
 import { zaehlbar } from '../lib/zaehlung';
 import { useColors } from '../theme';
 import { Bar } from './Bar';
@@ -936,6 +936,10 @@ export function EntityCard({
           // «Warum ist das an?» - die Frage, die man nachts im Flur
           // stellt, beantwortet hier eine Zeile (siehe lib/ursache.ts).
           ursache={ursacheSatz(entity, Date.now())}
+          // Und die Kette dahinter, wo der Hub sie kennt: Melder →
+          // Ablauf → Gerät. «Ablauf «Licht bei Bewegung»» allein zog
+          // sonst die nächste Frage nach sich - welche Bewegung?
+          kette={ketteSatz(entity, entity.name)}
           eintraege={aktionen}
           onClose={() => setMenueOffen(false)}
           onSelect={fuehreAus}

@@ -4,7 +4,7 @@
  * Die Frage stellt man nachts im Flur. Die Antwort stand im Verlauf,
  * einen Abruf und zwei Griffe entfernt.
  */
-import { quellenWort, seitWann, ursacheSatz } from './ursache';
+import { Quelle, ketteSatz, quellenWort, seitWann, ursacheSatz } from './ursache';
 
 const JETZT = 1_700_000_000_000; // Millisekunden, wie Date.now()
 const vorSekunden = (s: number) => JETZT / 1000 - s;
@@ -60,5 +60,29 @@ describe('ursacheSatz', () => {
     expect(ursacheSatz({ last_change: vorSekunden(-30) }, JETZT)).toBe(
       'gerade eben · am Gerät / von aussen'
     );
+  });
+});
+
+describe('Die Kette am Gerät', () => {
+  const licht = (quelle: Quelle | null) => ({
+    name: 'Licht Wohnzimmer',
+    last_source: quelle,
+  });
+
+  test('Auslöser, Ablauf und Gerät stehen in der Reihenfolge, in der es passiert ist', () => {
+    expect(
+      ketteSatz(
+        licht({ kind: 'automation', label: 'Licht bei Bewegung', trigger: 'Bewegung Flur' })
+      )
+    ).toBe('Bewegung Flur → Licht bei Bewegung → Licht Wohnzimmer');
+  });
+
+  test('ohne bekannten Auslöser wird nichts geraten', () => {
+    expect(ketteSatz(licht({ kind: 'automation', label: 'Licht bei Bewegung' }))).toBeNull();
+  });
+
+  test('was von Hand geschaltet wurde, hat keine Kette', () => {
+    expect(ketteSatz(licht({ kind: 'user', label: 'Stefan' }))).toBeNull();
+    expect(ketteSatz(licht(null))).toBeNull();
   });
 });

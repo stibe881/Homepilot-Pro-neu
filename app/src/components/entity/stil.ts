@@ -154,6 +154,9 @@ export const makeStyles = (colors: Colors) =>
   // Unter dem Namen: seit wann und wodurch. Klein und ruhig - es ist
   // eine Auskunft, kein Knopf.
   menueUrsache: { fontSize: 13, color: colors.inkSoft, marginTop: -4, marginBottom: 4 },
+  // Die Kette darunter, eine Spur leiser: Sie erklärt die Zeile
+  // darüber und drängt sich nicht vor sie.
+  menueKette: { fontSize: 12, color: colors.inkFaint, marginTop: -2, marginBottom: 6 },
   roomOption: {
     flexDirection: 'row',
     alignItems: 'center',

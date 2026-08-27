@@ -14,6 +14,10 @@
 export interface Quelle {
   kind?: string | null;
   label?: string | null;
+  /** Was den Ablauf angestossen hat – «Bewegung Flur», «um 20:00».
+   *  Fehlt, wo es sich nicht ehrlich sagen lässt (hub/core/automation.py:
+   *  trigger_wort). */
+  trigger?: string | null;
 }
 
 /** Wer war es – als lesbarer Satzteil (rein, testbar).
@@ -57,4 +61,26 @@ export function ursacheSatz(
   if (!entity.last_change) return null;
   const alter = Math.max(0, jetzt / 1000 - entity.last_change);
   return `${seitWann(alter)} · ${quellenWort(entity.last_source)}`;
+}
+
+/**
+ * Die ganze Kette: Auslöser → Ablauf → Gerät (rein, testbar).
+ *
+ * Die kurze Antwort «Ablauf «Licht bei Bewegung»» zog jedes Mal die
+ * nächste Frage nach sich: welche Bewegung, Flur oder Keller? Beide
+ * hängen am selben Ablauf. Steht die Kette da, ist die Frage beim
+ * ersten Lesen beantwortet.
+ *
+ * Null, wo der Hub den Auslöser nicht kennt - bei einem Ablauf mit zwei
+ * Auslösern etwa. Dann bleibt es bei der kurzen Antwort; eine geratene
+ * Kette wäre schlimmer als keine.
+ */
+export function ketteSatz(
+  entity: { name?: string; last_source?: Quelle | null },
+  name?: string
+): string | null {
+  const quelle = entity.last_source;
+  if (quelle?.kind !== 'automation' || !quelle.trigger) return null;
+  const geraet = name ?? entity.name ?? 'Gerät';
+  return `${quelle.trigger} → ${quelle.label ?? 'Ablauf'} → ${geraet}`;
 }

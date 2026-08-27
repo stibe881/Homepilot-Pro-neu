@@ -12,6 +12,7 @@ import {
   quellenSymbol,
 } from '../lib/geraeteart';
 import { hatWarteschlange } from '../lib/musikliste';
+import { Regenstand, regenSatz } from '../lib/regen';
 import { Colors, radius, type, useColors } from '../theme';
 import { Bar } from './Bar';
 import { Card } from './Card';
@@ -515,6 +516,14 @@ function WeatherPanel({ entity }: { entity: Entity }) {
         </View>
       </View>
 
+      {/* Die Frage am Fenster: Muss die Wäsche jetzt herein? Die
+          Wochenzeile darunter beantwortet sie nicht (lib/regen.ts). */}
+      {regenSatz(entity.state.rain as Regenstand | undefined) ? (
+        <Text style={styles.regen}>
+          {regenSatz(entity.state.rain as Regenstand | undefined)}
+        </Text>
+      ) : null}
+
       {days.length > 0 ? (
         <View style={styles.weekRow}>
           {days.map((day, index) => (
@@ -723,6 +732,9 @@ const makeStyles = (colors: Colors) =>
       fontVariant: ['tabular-nums'],
     },
     dayLow: { color: colors.inkFaint, fontSize: 12, fontVariant: ['tabular-nums'] },
+    // Eine Zeile, kein Kasten: Die Vorwarnung gehört zum Wetter und
+    // nicht daneben.
+    regen: { color: colors.warn, fontSize: 13, fontWeight: '600', marginTop: 2 },
     dayRain: { color: colors.accent, fontSize: 10, fontWeight: '600' },
     list: { gap: 10 },
     alertRow: {
