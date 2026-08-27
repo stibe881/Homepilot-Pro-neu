@@ -369,6 +369,29 @@ export function useHub(url: string | null, token: string | null) {
     [clearPending]
   );
 
+  /**
+   * Den eigenen Benutzer neu holen.
+   *
+   * Der Hub schickt ihn nur einmal, mit dem ersten Schnappschuss. Wer
+   * sich umbenennt, sah deshalb im Profil weiter den alten Namen - genau
+   * dort, wo er gerade den neuen eingetippt hatte. Der Hub war längst
+   * umbenannt; nur die App wusste es nicht.
+   */
+  const benutzerNeuLaden = useCallback(async () => {
+    if (!url) return;
+    try {
+      const antwort = await fetch(`${url.replace(/\/+$/, '')}/api/me`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!antwort.ok) return;
+      setUser((await antwort.json()) as User);
+    } catch {
+      // Ein misslungener Abruf lässt den alten Stand stehen. Schlimmer
+      // wäre, den Benutzer auf null zu setzen: Dann sperrt sich die App
+      // wegen einer Kleinigkeit selbst aus.
+    }
+  }, [url, token]);
+
   const sendCommand = useCallback(
     (entityId: string, command: string, data?: CommandData) => {
       const entity = entitiesRef.current[entityId];
@@ -552,6 +575,7 @@ export function useHub(url: string | null, token: string | null) {
     roomOrder,
     status,
     user,
+    benutzerNeuLaden,
     error,
     pending,
     // Wie viele Befehle darauf warten, dass der Hub wieder da ist.

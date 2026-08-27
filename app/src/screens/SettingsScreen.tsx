@@ -33,6 +33,12 @@ interface Props {
   embedded?: boolean;
   /** Welche Hälfte gezeigt wird. Ohne Angabe: alles (Einrichtung). */
   nur?: 'konto' | 'verbindung';
+  /** Nach einer gelungenen Umbenennung: den Benutzer neu holen.
+   *
+   *  Der Hub schickt ihn nur mit dem ersten Schnappschuss. Ohne das
+   *  stand im Profil weiter der alte Name - direkt über dem Feld, in
+   *  das man gerade den neuen getippt hatte. */
+  onRenamed?: () => void;
   /** Angemeldeter Benutzer – zeigt Name und Rolle an. */
   user?: { name: string; role: string; shared?: boolean } | null;
   /** Wer die eigene Ortung sieht – für die Zeile im Profil (Punkt 197). */
@@ -45,6 +51,7 @@ export function SettingsScreen({
   onCancel,
   embedded,
   nur,
+  onRenamed,
   user,
   familie = [],
 }: Props) {
@@ -141,6 +148,10 @@ export function SettingsScreen({
   // Ob umbenannt werden muss, entscheidet das Speichern; hier steht,
   // was dabei schiefging (Name vergeben, Benutzer aus der config.yaml).
   const [nameFehler, setNameFehler] = useState<string | null>(null);
+  // Und was gelang. Ohne das passierte beim Speichern sichtbar nichts:
+  // Der Hub war umbenannt, die Zeile darüber sagte den alten Namen, und
+  // aus beidem zusammen las man «hat nicht funktioniert».
+  const [nameNote, setNameNote] = useState<string | null>(null);
   const darfUmbenennen = !!user && !panel && !user.shared && user.role !== 'gast';
 
   /** Speichern - und wenn der Name neu ist, zuerst den Hub-Benutzer
@@ -149,7 +160,9 @@ export function SettingsScreen({
    *  wäre genau die Verwirrung, die dieses Feld beseitigen soll. */
   const speichern = async () => {
     const gewuenscht = name.trim();
-    if (darfUmbenennen && gewuenscht && user && gewuenscht !== user.name) {
+    setNameNote(null);
+    const umbenannt = !!(darfUmbenennen && gewuenscht && user && gewuenscht !== user.name);
+    if (umbenannt) {
       try {
         const antwort = await fetch(`${url.trim().replace(/\/+$/, '')}/api/users/self`, {
           method: 'PUT',
@@ -171,6 +184,10 @@ export function SettingsScreen({
         setNameFehler('Der Hub ist gerade nicht erreichbar - Name unverändert.');
         return;
       }
+      // Der Hub führt jetzt den neuen Namen. Die App weiss das erst,
+      // wenn sie ihn neu holt - der Hub schickt ihn nur einmal.
+      onRenamed?.();
+      setNameNote(`Heisst jetzt ${gewuenscht}.`);
     }
     setNameFehler(null);
     onSave({
@@ -211,6 +228,7 @@ export function SettingsScreen({
           >
             <Text style={styles.nameButtonText}>Namen speichern</Text>
           </Pressable>
+          {nameNote ? <Text style={styles.nameNote}>{nameNote}</Text> : null}
           <Text style={styles.sharedNote}>
             Das ist dein Benutzername - er gilt überall: in der
             Benutzerverwaltung, in der Anwesenheit und als Push-Empfänger.
@@ -658,6 +676,7 @@ const makeStyles = (colors: Colors) =>
     backgroundColor: colors.surfaceSoft,
   },
   nameButtonText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
+  nameNote: { color: colors.on, fontSize: 13, lineHeight: 18 },
   // Der Abstand zwischen den Karten - gleich dem Innenabstand einer
   // Karte, damit die Seite als eine Spalte liest.
   stack: { gap: 14 },

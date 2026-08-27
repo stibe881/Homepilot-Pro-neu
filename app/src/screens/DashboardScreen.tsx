@@ -239,6 +239,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     roomOrder,
     status,
     user,
+    benutzerNeuLaden,
     error,
     cachedAt,
     familyChangedAt,
@@ -1961,6 +1962,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             user={user}
             embedded
             nur="konto"
+            onRenamed={benutzerNeuLaden}
           />
           <BioLock enabled={!!prefs.bioLock} onChange={setBioLock} />
           {/* Nur für die Besitzerin: Die Hürde vor der Haustüre gilt fürs
