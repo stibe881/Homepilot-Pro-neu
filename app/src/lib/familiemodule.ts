@@ -24,7 +24,7 @@ export const MODULGRUPPEN: Modulgruppe[] = [
     key: 'alltag',
     label: 'Alltag',
     // Was man in der Woche mehrmals anfasst.
-    module: ['woche', 'kalender', 'tasks', 'chores', 'shopping', 'meals', 'routines'],
+    module: ['woche', 'kalender', 'reminders', 'tasks', 'chores', 'shopping', 'meals', 'routines'],
   },
   {
     key: 'notfall',

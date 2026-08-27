@@ -54,7 +54,8 @@ import {
   mitMenge,
   shopCategory,
 } from '../lib/einkauf';
-import { uhr } from '../lib/format';
+import { datumUhr, uhr } from '../lib/format';
+import { Erinnerung, anzuzeigende, naechsteAt, quittiertVon } from '../lib/erinnerungen';
 import {
   AUTO_SCHLIESSEN_SEKUNDEN,
   KlingelAktion,
@@ -84,7 +85,7 @@ import {
 import { Person } from '../lib/ortung';
 import { FAVORITEN, raumGruppen } from '../lib/raumgruppen';
 import { verlangtPin } from '../lib/alarmpin';
-import { OffenesModul, istGesperrt, offeneModule } from '../lib/bereichsriegel';
+import { OffenesModul, istGesperrt, istPersoenlich, offeneModule } from '../lib/bereichsriegel';
 import { schleier } from '../lib/nachtabsenkung';
 import { nachBewegung } from '../lib/kameraordnung';
 import { hubClient, onHubFehler } from '../api/client';
@@ -167,6 +168,9 @@ const SWITCHING = new Set([
 const NO_ROOM = 'Weitere';
 // Gerätearten mit eigenem Verlauf (Tipp auf die Kachel unter Geräte).
 // Sensoren öffnen stattdessen ihre Messwert-Kurve, Kameras das Livebild.
+// Wofür der Hub überhaupt ein Protokoll führt (hub: core/eventlog.py).
+// Messwerte stehen bewusst nicht dabei: Sie ändern sich im Minutentakt
+// und beantworten die Warum-Frage nie - für sie gibt es die Kurve.
 const HISTORY_KINDS = new Set([
   'light',
   'switch',
@@ -177,6 +181,7 @@ const HISTORY_KINDS = new Set([
   'appliance',
   'media_player',
   'binary_sensor',
+  'alarm',
 ]);
 const PANEL_WIDTH = 340;
 
@@ -320,6 +325,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [searchOpen, setSearchOpen] = useState(false);
   // Abläufe – nur für die Suche; die Liste selbst lebt im Ablauf-Screen.
   const [automations, setAutomations] = useState<SuchAblauf[]>([]);
+  // Läuft der Babysitter-Modus? Nur dann hält der Riegel vor Familie und
+  // Konto überhaupt zu (lib/bereichsriegel.ts). Bewusst gemerkt und nicht
+  // bei jedem Fehlschlag zurückgesetzt: Ein Aussetzer im Netz soll die
+  // Einkaufsliste nicht ausgerechnet an dem Abend aufsperren.
+  const [babysitter, setBabysitter] = useState(false);
+  // Steht hier gerade überhaupt ein Riegel zur Debatte? Nur dann lohnt
+  // es, den Babysitter-Modus frisch zu holen.
+  const riegelFrage = Boolean(settings.panel) && istPersoenlich(section);
   // Rückfrage vor dem Schalten eines gesperrten Geräts.
   const [confirm, setConfirm] = useState<{
     entity: Entity;
@@ -365,6 +378,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // der Kopfzeile lebt davon. Kommt aus dem Hub, nicht vom Gerät: Was
   // Livia einträgt, soll Stefan vorgeschlagen bekommen.
   const [bekannt, setBekannt] = useState<string[]>([]);
+  // Die Erinnerungen des Haushalts - fürs Vollbild zur eingestellten
+  // Zeit. Geladen auf denselben Wegen wie die Einkaufsliste: sofortige
+  // Meldung über den WebSocket, Viertelstunde als Rückfalltakt.
+  const [erinnerungen, setErinnerungen] = useState<Erinnerung[]>([]);
   const ladeEinkauf = useCallback(() => {
     if (!settings.url || !settings.token) return;
     // «still»: Das hier läuft jede Minute. Eine Einblendung je Minute wäre
@@ -382,6 +399,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     hub
       .get<string[]>('/api/shopping/known', { fallback: [], still: true })
       .then((rows) => setBekannt(Array.isArray(rows) ? rows.map(String) : []));
+    hub
+      .get<Erinnerung[]>('/api/family/reminders', {
+        fallback: [] as Erinnerung[],
+        still: true,
+      })
+      .then((rows) => setErinnerungen(Array.isArray(rows) ? rows : []));
   }, [hub, settings.url, settings.token]);
   useEffect(ladeEinkauf, [ladeEinkauf]);
   // Nur noch als Rückfalltakt: Änderungen kommen über den WebSocket
@@ -399,6 +422,69 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   useEffect(() => {
     if (section === 'start') ladeEinkauf();
   }, [section, ladeEinkauf]);
+
+  // Ob eine Erinnerung fällig ist, entscheidet die Uhr dieses Geräts -
+  // der Halbminutentakt läuft nur, solange überhaupt eine offen ist.
+  // So erscheint das Vollbild auch auf dem Wandpanel pünktlich, ohne
+  // dass der Hub einen Wecker bräuchte.
+  const [jetztErinnerung, setJetztErinnerung] = useState(() => Date.now());
+  useTakt(
+    () => setJetztErinnerung(Date.now()),
+    naechsteAt(erinnerungen) !== null ? 30000 : null
+  );
+  // «Erledigt» (nur für mich) auf diesem Gerät - zusätzlich zur Liste
+  // beim Hub, damit das Vollbild auch dann sofort und dauerhaft weg ist,
+  // wenn der Name des Benutzers gerade (noch) nicht bekannt ist.
+  const [selbstQuittiert, setSelbstQuittiert] = useState<string[]>([]);
+  const faelligeErinnerungen = useMemo(
+    () =>
+      anzuzeigende(erinnerungen, jetztErinnerung, user?.name).filter(
+        (eintrag) => !selbstQuittiert.includes(eintrag.id)
+      ),
+    [erinnerungen, jetztErinnerung, user?.name, selbstQuittiert]
+  );
+  const bestaetigeErinnerung = useCallback(
+    (id: string) => {
+      // Sofort aus dem Bild, dann zum Hub: Wer bestätigt, will das
+      // Vollbild los sein - nicht auf die Antwort warten. Scheitert der
+      // Abruf, holt der Rückfalltakt die Erinnerung zurück, und man
+      // sieht, dass sie noch offen ist.
+      setErinnerungen((liste) =>
+        liste.map((eintrag) =>
+          eintrag.id === id ? { ...eintrag, done: true } : eintrag
+        )
+      );
+      hub
+        .put(`/api/family/reminders/${encodeURIComponent(id)}`, { done: true }, {
+          fallback: null,
+        })
+        .catch(() => {});
+    },
+    [hub]
+  );
+  const quittiereErinnerung = useCallback(
+    (id: string) => {
+      // «Erledigt» ohne «für alle»: nur bei mir weg, die anderen sehen
+      // die Erinnerung weiter, bis jemand für alle bestätigt. Der Name
+      // wandert in die geteilte Ablage - so bleibt es auch nach einem
+      // Neustart der App bei «schon gesehen», und die eigenen anderen
+      // Geräte ziehen mit.
+      setSelbstQuittiert((ids) => (ids.includes(id) ? ids : [...ids, id]));
+      const name = user?.name;
+      if (!name) return;
+      const eintrag = erinnerungen.find((zeile) => zeile.id === id);
+      const bisher = eintrag ? quittiertVon(eintrag) : [];
+      if (bisher.includes(name)) return;
+      hub
+        .put(
+          `/api/family/reminders/${encodeURIComponent(id)}`,
+          { quittiert: [...bisher, name] },
+          { fallback: null }
+        )
+        .catch(() => {});
+    },
+    [hub, user?.name, erinnerungen]
+  );
 
   /** Einen Eintrag im Laden abhaken - er verschwindet sofort aus der
    *  Kopfzeile, statt bis zum nächsten Abruf stehen zu bleiben. */
@@ -518,12 +604,23 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     [hub, settings.url, ladeEinkauf, setzeMenge]
   );
 
-  // Die Ablaufnamen einmal holen, damit die Suche sie kennt.
+  // Die Ablaufnamen holen, damit die Suche sie kennt – und den
+  // Babysitter-Modus gleich mit.
+  //
+  // Und noch einmal, sobald am Panel ein persönlicher Bereich aufgeht:
+  // Der Riegel davor hängt am Babysitter-Modus, und der wird vom Telefon
+  // aus umgelegt, während das Panel im Flur längst offen dasteht. Der
+  // Moment, in dem dort jemand «Familie» drückt, ist genau der, in dem
+  // die Auskunft frisch sein muss. Nicht bei jedem Bereichswechsel: Am
+  // Telefon steht der Riegel nie, und die Ablaufliste ist keine kleine
+  // Antwort.
   useEffect(() => {
     if (!settings.url || !settings.token || status !== 'connected') return;
     let alive = true;
     hub
-      .get<{ automations?: SuchAblauf[] } | SuchAblauf[]>('/api/automations', {
+      .get<
+        { automations?: SuchAblauf[]; babysitter?: { active?: boolean } } | SuchAblauf[]
+      >('/api/automations', {
         fallback: [],
         still: true,
       })
@@ -532,14 +629,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         // alte Array-Check liess die Liste immer leer, und die Suche
         // fand nie einen Ablauf, ohne dass es jemandem auffiel.
         const liste = Array.isArray(rows) ? rows : rows?.automations;
-        if (alive) setAutomations(Array.isArray(liste) ? liste : []);
+        if (!alive) return;
+        setAutomations(Array.isArray(liste) ? liste : []);
+        // Derselbe Abruf trägt den Babysitter-Modus mit. Eine eigene
+        // Anfrage dafür wäre eine mehr für dieselbe Antwort.
+        if (!Array.isArray(rows)) setBabysitter(!!rows?.babysitter?.active);
       })
       // Ohne Antwort keine Vorschläge - die Startseite trägt das.
       .catch(() => {});
     return () => {
       alive = false;
     };
-  }, [settings.url, settings.token, status]);
+  }, [settings.url, settings.token, status, riegelFrage]);
 
   // Beim Verlassen der Geräteliste die Suche zurücksetzen – wer später
   // zurückkommt, will die volle Liste sehen, nicht den alten Suchbegriff.
@@ -574,6 +675,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     eigenePrefs,
     setOrder,
     setHidden,
+    setFamilyHidden,
     setLocked,
     setUngezaehlt,
     setSeenChanges,
@@ -1265,9 +1367,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       }
       onLongPress={
         // Überall dasselbe: langes Drücken zeigt den Verlauf dieses
-        // Geräts. Unter Geräte tut das schon ein Tipp - dort wäre ein
-        // zweiter Weg nur verwirrend.
-        !editing && section !== 'devices' && HISTORY_KINDS.has(entity.kind)
+        // Geräts. Hier stand einmal eine Ausnahme für «Geräte», weil
+        // dort schon ein Tipp den Verlauf öffnet - ein zweiter Weg sei
+        // verwirrend. In Wahrheit war es das Gegenteil: Wer die Geste
+        // überall gelernt hat, drückt auch dort lange, und dann passierte
+        // nichts. Zwei Wege zum selben Ziel verwirren niemanden; ein Weg,
+        // der an einer Stelle fehlt, schon.
+        !editing && HISTORY_KINDS.has(entity.kind)
           ? () => setHistoryFor(entity.id)
           : undefined
       }
@@ -1334,7 +1440,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     // Der Riegel vor Familie und Konto - siehe lib/bereichsriegel.ts. Er
     // steht vor dem Verteiler, damit kein Bereich ihn vergessen kann.
     // `now` tickt ohnehin; damit läuft die offene Zeit von selbst ab.
-    const gesperrt = istGesperrt(section, user?.area_locked, riegelBis, now.getTime());
+    const gesperrt = istGesperrt(section, {
+      areaLocked: user?.area_locked,
+      panel: settings.panel,
+      babysitter,
+      offenBis: riegelBis,
+      jetzt: now.getTime(),
+    });
     // Die Abkürzungen zählen wie ein aufgeschlossener Riegel - solange
     // sie führen, ist der Bereich offen, aber nur für dieses eine Modul.
     if (gesperrt && riegelModul === null) {
@@ -1395,6 +1507,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           currentUser={user}
           moduleOrder={prefs.order?.family}
           onReorderModules={(keys) => setOrder('family', keys)}
+          hiddenModules={prefs.familyHidden}
+          onHiddenModules={setFamilyHidden}
           changedAt={familyChangedAt}
           startModul={riegelModul}
         />
@@ -2362,22 +2476,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
 
             <View style={styles.greetingRow}>
               <View style={styles.greeting}>
+                {/* Eine Zeile, nicht zwei: «Hallo Stefan,» mit «Guten
+                    Abend.» darunter begrüsste zweimal - so spricht
+                    niemand. Beides steht jetzt in einem Satz
+                    (lib/begruessung.ts). */}
                 <Text
                   style={[
                     styles.greetingLine,
                     !hasRail && { fontSize: type.greetingSmall },
                   ]}
                 >
-                  {begruessung(settings, user)}
-                </Text>
-                <Text
-                  style={[
-                    styles.greetingLine,
-                    styles.greetingSecond,
-                    !hasRail && { fontSize: type.greetingSmall },
-                  ]}
-                >
-                  {partOfDay(now)}
+                  {begruessung(settings, user, now)}
                 </Text>
               </View>
               <View style={styles.greetingNotes}>
@@ -2409,6 +2518,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             bottomInset={insets.bottom}
             capabilities={user?.capabilities ?? []}
             hidden={hiddenSections}
+          />
+        ) : null}
+
+        {faelligeErinnerungen.length > 0 ? (
+          <ErinnerungOverlay
+            erinnerungen={faelligeErinnerungen}
+            onBestaetigen={bestaetigeErinnerung}
+            onQuittieren={quittiereErinnerung}
+            styles={styles}
           />
         ) : null}
 
@@ -2696,13 +2814,6 @@ function usePanelMode(active: boolean) {
   }, [active]);
 }
 
-function partOfDay(now: Date): string {
-  const hour = now.getHours();
-  if (hour < 11) return 'Guten Morgen.';
-  if (hour < 18) return 'Schönen Tag.';
-  return 'Guten Abend.';
-}
-
 /**
  * Vollbild, wenn es an der Haustüre klingelt: Kamerabild gross, ein Knopf
  * zum Öffnen (mit Zwei-Schritt-Bestätigung), einer zum Schliessen. Gedacht
@@ -2791,6 +2902,77 @@ function CameraFullscreen({
             <Text style={styles.doorbellCloseText}>Schliessen</Text>
           </Pressable>
         </View>
+      </View>
+    </Modal>
+  );
+}
+
+/**
+ * Die fällige Erinnerung, gross und unübersehbar.
+ *
+ * Kein Kreuz und kein Wegwischen: Sie verschwindet nur über
+ * «Erledigt» - das ist ihr ganzer Sinn. Wer sie nur wegdrücken könnte,
+ * hätte einen hübschen Wecker ohne Gedächtnis. Bestätigt wird beim Hub,
+ * und damit auf allen Bildschirmen zugleich.
+ */
+function ErinnerungOverlay({
+  erinnerungen,
+  onBestaetigen,
+  onQuittieren,
+  styles,
+}: {
+  erinnerungen: Erinnerung[];
+  /** «Für alle erledigt» - räumt die Erinnerung überall ab. */
+  onBestaetigen: (id: string) => void;
+  /** «Erledigt» - nur bei mir weg, die anderen sehen sie weiter. */
+  onQuittieren: (id: string) => void;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  return (
+    <Modal visible animationType="fade" onRequestClose={() => {}}>
+      <View style={styles.doorbellRoot}>
+        <Text style={styles.doorbellTitle}>⏰ Erinnerung</Text>
+        <ScrollView contentContainerStyle={styles.erinnerungListe}>
+          {erinnerungen.map((erinnerung) => (
+            <View key={erinnerung.id} style={styles.erinnerungKarte}>
+              <Text style={styles.erinnerungText}>
+                {String(erinnerung.text ?? '')}
+              </Text>
+              <Text style={styles.erinnerungZeit}>
+                {datumUhr(Number(erinnerung.at))}
+              </Text>
+              <View style={styles.erinnerungKnoepfe}>
+                <Pressable
+                  onPress={() => onQuittieren(erinnerung.id)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Erinnerung «${String(erinnerung.text ?? '')}» nur bei mir erledigt`}
+                  style={({ pressed }) => [
+                    styles.erinnerungKnopfLeise,
+                    pressed && { opacity: 0.8 },
+                  ]}
+                >
+                  <Text style={styles.erinnerungKnopfLeiseText}>Erledigt</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => onBestaetigen(erinnerung.id)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Erinnerung «${String(erinnerung.text ?? '')}» für alle erledigt`}
+                  style={({ pressed }) => [
+                    styles.erinnerungKnopf,
+                    pressed && { opacity: 0.8 },
+                  ]}
+                >
+                  <Ionicons name="checkmark" size={22} color="#FFFFFF" />
+                  <Text style={styles.erinnerungKnopfText}>Für alle erledigt</Text>
+                </Pressable>
+              </View>
+              <Text style={styles.erinnerungHinweis}>
+                «Erledigt» blendet sie nur hier aus - bei den anderen bleibt sie
+                stehen.
+              </Text>
+            </View>
+          ))}
+        </ScrollView>
       </View>
     </Modal>
   );
@@ -3209,7 +3391,6 @@ const makeStyles = (colors: Colors) =>
       fontWeight: '300',
       letterSpacing: 0.2,
     },
-    greetingSecond: { color: colors.onGradientSoft },
     split: {
       flexDirection: 'row',
       gap: space.gap * 1.4,
@@ -3259,6 +3440,54 @@ const makeStyles = (colors: Colors) =>
       fontWeight: '700',
       textAlign: 'center',
     },
+    // Das Erinnerungs-Vollbild teilt den Grund mit der Klingel - beides
+    // sind die zwei Momente, in denen die App von sich aus laut wird.
+    erinnerungListe: { gap: 16, paddingVertical: 12, justifyContent: 'center', flexGrow: 1 },
+    erinnerungKarte: {
+      backgroundColor: '#1B2230',
+      borderRadius: radius.card,
+      padding: 26,
+      gap: 10,
+      alignItems: 'center',
+    },
+    erinnerungText: {
+      color: '#FFFFFF',
+      fontSize: 34,
+      fontWeight: '700',
+      textAlign: 'center',
+      lineHeight: 42,
+    },
+    erinnerungZeit: { color: '#8A94A6', fontSize: 17 },
+    erinnerungKnoepfe: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'center',
+      gap: 12,
+      marginTop: 8,
+    },
+    erinnerungKnopf: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      backgroundColor: colors.on,
+      borderRadius: radius.control,
+      paddingVertical: 14,
+      paddingHorizontal: 34,
+    },
+    erinnerungKnopfText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
+    // Der leise Bruder von erinnerungKnopf: nur Rahmen statt Fläche -
+    // «für alle» soll der Knopf sein, zu dem die Hand zuerst will.
+    erinnerungKnopfLeise: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: '#3A4358',
+      borderRadius: radius.control,
+      paddingVertical: 14,
+      paddingHorizontal: 34,
+    },
+    erinnerungKnopfLeiseText: { color: '#C6CDDB', fontSize: 18, fontWeight: '600' },
+    erinnerungHinweis: { color: '#8A94A6', fontSize: 13, textAlign: 'center' },
     doorbellImage: {
       flex: 1,
       borderRadius: radius.card,

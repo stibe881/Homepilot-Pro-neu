@@ -67,6 +67,13 @@
             }
           }
         ]
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/android-icon-monochrome.png",
+          "color": "#2F6BF6"
+        }
       ]
     ],
     "scheme": "homepilot",

@@ -40,7 +40,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import __version__
-from . import config_edit, metrics, persistence
+from . import config_edit, erinnerungen, metrics, persistence
 from . import push as push_service
 from . import users as users_module
 from .audit import AuditLog
@@ -92,7 +92,10 @@ class Hub:
         self.audit = AuditLog(self)
         # Ereignisprotokoll je Gerät (jeder Zustandswechsel samt Quelle,
         # auch von Abläufen und der Simulation) - siehe eventlog.py.
-        self.eventlog = EventLog()
+        # Es liegt neben der Datendatei und überlebt damit den Neustart:
+        # Ohne das war der Verlauf nach jedem Update leer - also genau
+        # dann, wenn man ihn braucht, weil sich etwas geändert hat.
+        self.eventlog = EventLog(self._eventlog_path())
         self.bus.subscribe("state_changed", self.eventlog.record)
         # Einmal-Links für die Türe – nur im Speicher, siehe guestpass.py.
         self.passes = PassStore()
@@ -184,6 +187,10 @@ class Hub:
         # einem Schwall nur den ersten sofort (siehe persistence.FLUSH_DELAY);
         # dieser Takt bringt den Rest zeitnah auf die Platte.
         self._flush_task = asyncio.create_task(self._flush_loop())
+        # Erinnerungen mit Push: Die Bildschirme rechnen ihre Fälligkeit
+        # selbst, aber ein Push muss auch kommen, wenn keine App offen
+        # ist - dafür schaut dieser Takt auf die Liste.
+        self._erinnerungs_task = asyncio.create_task(erinnerungen.push_loop(self))
 
         if self.users.open_access:
             log.warning(
@@ -238,6 +245,9 @@ class Hub:
             while True:
                 await asyncio.sleep(persistence.FLUSH_DELAY)
                 self.data.flush()
+                # Derselbe Takt, andere Drosselung: Der Verlauf sichert
+                # sich höchstens alle paar Minuten (siehe eventlog.py).
+                self.eventlog.save()
         except asyncio.CancelledError:
             raise
 
@@ -561,6 +571,17 @@ class Hub:
             "down": sorted(self.watchdog.down_since),
         }
 
+    def _eventlog_path(self) -> str | None:
+        """Wo der Geräte-Verlauf liegt: neben der Datendatei.
+
+        Eine eigene Datei und nicht die Datendatei selbst: Zweitausend
+        Einträge sind ein paar hundert Kilobyte, und die Datendatei wird
+        bei jeder Kleinigkeit neu geschrieben.
+        """
+        if not self.config.data_file:
+            return None
+        return str(Path(self.config.data_file).parent / "geraete-verlauf.json")
+
     def _log_ring_path(self) -> str | None:
         """Wo der Log-Ring den Neustart überdauert: neben der Datendatei.
         Ohne Datendatei (Tests, Demo im Speicher) auch keine Übergabe."""
@@ -575,7 +596,7 @@ class Hub:
         ring_pfad = self._log_ring_path()
         if ring_pfad:
             self.log_buffer.save(ring_pfad)
-        for name in ("_backup_task", "_flush_task"):
+        for name in ("_backup_task", "_flush_task", "_erinnerungs_task"):
             task = getattr(self, name, None)
             if task is not None:
                 task.cancel()
@@ -592,6 +613,9 @@ class Hub:
         if self.store:
             await self.store.stop()
             self.store = None
+        # Und der Verlauf: Hier ohne Drosselung, denn ein zweiter
+        # Versuch kommt nicht.
+        self.eventlog.save(force=True)
         # Was der DataStore noch gesammelt hat, muss vor dem Ende auf die
         # Platte - der Takt dafür ist oben schon beendet.
         self.data.flush()

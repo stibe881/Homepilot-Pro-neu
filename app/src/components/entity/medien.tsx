@@ -14,6 +14,7 @@ import { useSettings } from '../../hooks/HubContext';
 import { zielBox } from '../../lib/boxwahl';
 import { keineBoxText, senderzeile } from '../../lib/radiobox';
 import { useColors } from '../../theme';
+import { useKachelDruck } from './kacheldruck';
 import { makeStyles } from './stil';
 
 export { keineBoxText };
@@ -503,9 +504,14 @@ export function MediaButton({
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  // Der lange Druck der Kachel - siehe kacheldruck.tsx. Ohne ihn
+  // verschluckt jeder Knopf die Geste, und auf einer Kachel voller
+  // Knöpfe (Schloss, Sauger, Musik) käme man nie an den Verlauf.
+  const langerDruck = useKachelDruck();
   return (
     <Pressable
       onPress={onPress}
+      onLongPress={langerDruck}
       accessibilityRole="button"
       accessibilityLabel={label}
       style={({ pressed }) => [styles.mediaButton, pressed && { opacity: 0.6 }]}

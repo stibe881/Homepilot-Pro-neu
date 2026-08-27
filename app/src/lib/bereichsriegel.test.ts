@@ -29,26 +29,55 @@ describe('istPersoenlich', () => {
   });
 });
 
+/** Der Abend, für den es den Riegel gibt: Panel im Flur, Babysitter da. */
+const BABYSITTERABEND = {
+  areaLocked: true,
+  panel: true,
+  babysitter: true,
+  offenBis: 0,
+  jetzt: JETZT,
+};
+
 describe('istGesperrt', () => {
   it('fragt ohne gesetztes Passwort nie', () => {
-    expect(istGesperrt('family', false, 0, JETZT)).toBe(false);
-    expect(istGesperrt('family', undefined, 0, JETZT)).toBe(false);
+    expect(istGesperrt('family', { ...BABYSITTERABEND, areaLocked: false })).toBe(false);
+    expect(istGesperrt('family', { ...BABYSITTERABEND, areaLocked: undefined })).toBe(
+      false
+    );
   });
 
   it('fragt beim ersten Öffnen', () => {
-    expect(istGesperrt('family', true, 0, JETZT)).toBe(true);
+    expect(istGesperrt('family', BABYSITTERABEND)).toBe(true);
   });
 
   it('fragt nicht noch einmal, solange es offen ist', () => {
-    expect(istGesperrt('family', true, JETZT + 1000, JETZT)).toBe(false);
+    expect(istGesperrt('family', { ...BABYSITTERABEND, offenBis: JETZT + 1000 })).toBe(
+      false
+    );
   });
 
   it('fragt wieder, sobald die Zeit um ist', () => {
-    expect(istGesperrt('family', true, JETZT, JETZT)).toBe(true);
+    expect(istGesperrt('family', { ...BABYSITTERABEND, offenBis: JETZT })).toBe(true);
   });
 
   it('lässt das Licht auch mit Riegel in Ruhe', () => {
-    expect(istGesperrt('light', true, 0, JETZT)).toBe(false);
+    expect(istGesperrt('light', BABYSITTERABEND)).toBe(false);
+  });
+
+  it('fragt am Telefon nie', () => {
+    // Es steckt in einer Tasche, nicht im Flur - was darauf steht, sieht
+    // ohnehin nur der, dem es gehört.
+    expect(istGesperrt('family', { ...BABYSITTERABEND, panel: false })).toBe(false);
+    expect(istGesperrt('family', { ...BABYSITTERABEND, panel: undefined })).toBe(false);
+  });
+
+  it('fragt ohne Babysitter-Modus nicht', () => {
+    // Mittags ist die Familie unter sich. Zwanzig Ziffern am Tag für
+    // einen Fall, den es an den meisten Tagen gar nicht gibt.
+    expect(istGesperrt('family', { ...BABYSITTERABEND, babysitter: false })).toBe(false);
+    expect(istGesperrt('family', { ...BABYSITTERABEND, babysitter: undefined })).toBe(
+      false
+    );
   });
 });
 

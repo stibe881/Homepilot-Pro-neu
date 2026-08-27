@@ -900,20 +900,20 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                         </Text>
                       </Pressable>
 
-                      {/* Der Riegel vor den persönlichen Bereichen. Vor
-                          allem fürs Wandtablet gedacht - Licht und Storen
-                          bedient jeder, der vorbeigeht, die Einkaufsliste
-                          und der Kalender der Familie sollen aber nicht
-                          offen im Flur stehen. Für jeden Benutzer
-                          verfügbar, weil auch ein geteiltes iPad auf dem
-                          Küchentisch dieselbe Frage aufwirft. */}
+                      {/* Der Riegel vor den persönlichen Bereichen. Fürs
+                          Wandtablet gedacht - Licht und Storen bedient
+                          jeder, der vorbeigeht, die Einkaufsliste und der
+                          Kalender der Familie sollen aber nicht offen im
+                          Flur stehen. Er hält nur am Panel zu und nur im
+                          Babysitter-Modus; warum, steht in
+                          lib/bereichsriegel.ts. */}
                       <Text style={styles.formLabel}>
                         Passwort vor den persönlichen Bereichen
                       </Text>
                       <Text style={styles.formHint}>
                         {detail.area_locked
-                          ? 'Gesetzt. Familie, Kalender und Nachrichten fragen danach; Licht, Storen und Alarm bleiben frei. Ein neues Passwort ersetzt das alte, leer speichern nimmt den Riegel weg.'
-                          : 'Kein Riegel: Alles steht offen, wer das Gerät bedient. Mindestens 4 Zeichen; auch eine Zahlenfolge ist erlaubt, am Wandtablet tippt man auf Glas.'}
+                          ? 'Gesetzt. Gefragt wird nur am Wandpanel und nur, solange der Babysitter-Modus läuft: Familie, Kalender und Nachrichten sind dann verriegelt, Licht, Storen und Alarm bleiben frei. Ein neues Passwort ersetzt das alte, leer speichern nimmt den Riegel weg.'
+                          : 'Kein Riegel: Am Wandpanel steht auch im Babysitter-Modus alles offen. Mindestens 4 Zeichen; auch eine Zahlenfolge ist erlaubt, am Wandtablet tippt man auf Glas.'}
                       </Text>
                       <TextInput
                         style={styles.input}

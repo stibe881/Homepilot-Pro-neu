@@ -14,7 +14,8 @@ import { useOrte } from '../hooks/useOrte';
 import { ortKennung } from '../lib/orte';
 import { useColors } from '../theme';
 import { RecipeBook } from './RecipeBook';
-import { wochentagDatumKurz, wochentagUhr } from '../lib/format';
+import { datumUhr, wochentagDatumKurz, wochentagUhr } from '../lib/format';
+import { Erinnerung, offene } from '../lib/erinnerungen';
 import {
   Shop,
   einkaufsText,
@@ -89,7 +90,7 @@ import {
 import { tapped } from '../lib/haptics';
 import { kochVorschlaege, vorschlagsGrund, wuerfel } from '../lib/vorschlag';
 import { ROLE_LABELS } from './UsersScreen';
-import { AddRow, BackHead, CheckRow, ChoreAddRow, ContactForm, ContactPhoto, CountdownForm, EventForm, FamilyData, FamilyItem, GroupedChecklist, MealRow, MedicationAddRow, Member, MemberAddRow, ModuleKey, MonthCalendar, Notrufliste, PollAddRow, Props, REPEAT_OPTIONS, SHOP_CATEGORIES, ShoppingAddRow, TaskAddRow, TwoFieldForm, WEEK_DAYS, birthdayLabel, daysUntilBirthday, dueInfo, isoInDays, nextDue, parseSwissDate, pickPhoto, rotateMember } from './family/bausteine';
+import { AddRow, BackHead, CheckRow, ChoreAddRow, ContactForm, ContactPhoto, CountdownForm, ErinnerungForm, EventForm, FamilyData, FamilyItem, GroupedChecklist, MealRow, MedicationAddRow, Member, MemberAddRow, ModuleKey, MonthCalendar, Notrufliste, PollAddRow, Props, REPEAT_OPTIONS, SHOP_CATEGORIES, ShoppingAddRow, TaskAddRow, TwoFieldForm, WEEK_DAYS, birthdayLabel, daysUntilBirthday, dueInfo, isoInDays, nextDue, parseSwissDate, pickPhoto, rotateMember } from './family/bausteine';
 import { makeStyles } from './family/stil';
 
 /**
@@ -111,7 +112,9 @@ const CACHE_KEY = 'homepilot.family.cache';
 const QUEUE_KEY = 'homepilot.family.queue';
 /** Wann jedes Modul zuletzt angesehen wurde – je Person im Gerät. */
 const SEEN_KEY = 'homepilot.family.seen';
-/** Welche Kacheln ausgeblendet sind – je Gerät, wie die Reihenfolge. */
+/** Der alte Ort der ausgeblendeten Kacheln: im Speicher der App. Er
+ *  wird beim ersten Start noch einmal gelesen und dann geleert - was
+ *  hier stand, gehört jetzt zum Hub. */
 const HIDDEN_KEY = 'homepilot.family.hidden';
 /** Kennung fürs Wachhalten im Einkaufs-Modus. */
 const EINKAUF_TAG = 'homepilot-einkauf';
@@ -122,6 +125,8 @@ export function FamilyScreen({
   currentUser,
   moduleOrder,
   onReorderModules,
+  hiddenModules,
+  onHiddenModules,
   changedAt,
   startModul,
 }: Props) {
@@ -176,9 +181,11 @@ export function FamilyScreen({
   // Punkt 167: Was gelöscht wurde – dreissig Tage lang.
   const [korb, setKorb] = useState<FamilyItem[]>([]);
   const [korbOffen, setKorbOffen] = useState(false);
-  // Punkt 205: Ausgeblendete Kacheln – je Person im Gerät, wie die
-  // Reihenfolge. Was ausgeblendet ist, ist nicht weg, nur nicht im Weg.
-  const [versteckteModule, setVersteckteModule] = useState<string[]>([]);
+  // Punkt 205: Ausgeblendete Kacheln. Sie lagen im Speicher der App und
+  // waren damit nach jedem neuen Build weg - und auf dem Wandpanel nie
+  // da. Jetzt liegen sie beim Hub, wie die Reihenfolge daneben. Was
+  // ausgeblendet ist, ist nicht weg, nur nicht im Weg.
+  const versteckteModule = useMemo(() => hiddenModules ?? [], [hiddenModules]);
   const [ordnen, setOrdnen] = useState(false);
   // Vom Essensplaner direkt ins Rezept springen (Punkt 146).
   const [rezeptStart, setRezeptStart] = useState<string | null>(null);
@@ -218,6 +225,21 @@ export function FamilyScreen({
     () => hubClient(settings.url, settings.token),
     [settings.url, settings.token]
   );
+
+  // Wer eine Push-Erinnerung bekommen kann - die Namen aus der
+  // Benutzerverwaltung des Hubs, nicht die Mitgliederliste dieser Seite:
+  // Push landet nur auf angemeldeten Telefonen, und die hängen an
+  // Hub-Benutzern. Gäste bekommen hier 403; dann bleibt die Liste leer
+  // und das Formular sagt es dazu.
+  const [pushZiele, setPushZiele] = useState<string[]>([]);
+  useEffect(() => {
+    hub
+      .get<{ names?: string[] }>('/api/push/targets', { still: true })
+      .then((payload) => {
+        setPushZiele((payload.names ?? []).filter((name) => typeof name === 'string'));
+      })
+      .catch(() => setPushZiele([]));
+  }, [hub]);
 
   // Die Orte des Hubs - daraus wählt ein Laden seinen, und «ich stehe
   // jetzt hier» legt einen neuen an.
@@ -513,11 +535,19 @@ export function FamilyScreen({
       .catch(() => {});
   }, []);
 
+  // Einmalige Übernahme: Was auf diesem Gerät schon ausgeblendet war,
+  // wandert zum Hub - und der lokale Eintrag verschwindet, damit die
+  // Übernahme nicht bei jedem Start eine schon gelöste Frage neu stellt.
   useEffect(() => {
+    if (!onHiddenModules || hiddenModules !== undefined) return;
     AsyncStorage.getItem(HIDDEN_KEY)
-      .then((raw) => setVersteckteModule(raw ? JSON.parse(raw) : []))
+      .then((raw) => {
+        const alt: string[] = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(alt) && alt.length > 0) onHiddenModules(alt);
+        return AsyncStorage.removeItem(HIDDEN_KEY);
+      })
       .catch(() => {});
-  }, []);
+  }, [onHiddenModules, hiddenModules]);
 
   // Punkt 173: Im Laden hält man das Telefon in einer Hand und in der
   // anderen den Wagen – ein Bildschirm, der alle 30 Sekunden zugeht, ist
@@ -542,15 +572,17 @@ export function FamilyScreen({
   useEffect(ladeKorb, [ladeKorb, changedAt]);
 
   /** Eine Kachel aus- oder wieder einblenden (Punkt 205). */
-  const toggleModul = useCallback((key: string) => {
-    setVersteckteModule((vorher) => {
-      const neu = vorher.includes(key)
-        ? vorher.filter((eintrag) => eintrag !== key)
-        : [...vorher, key];
-      AsyncStorage.setItem(HIDDEN_KEY, JSON.stringify(neu)).catch(() => {});
-      return neu;
-    });
-  }, []);
+  const toggleModul = useCallback(
+    (key: string) => {
+      const vorher = hiddenModules ?? [];
+      onHiddenModules?.(
+        vorher.includes(key)
+          ? vorher.filter((eintrag) => eintrag !== key)
+          : [...vorher, key]
+      );
+    },
+    [hiddenModules, onHiddenModules]
+  );
 
   /** Ein Modul als gesehen markieren (Punkt 168). */
   const merkeGesehen = useCallback((modul: string) => {
@@ -3671,6 +3703,79 @@ export function FamilyScreen({
     );
   }
 
+  if (view === 'reminders') {
+    const erinnerungen = offene(data.reminders as Erinnerung[] | undefined);
+    const jetzt = Date.now();
+    return (
+      <View style={styles.stack}>
+        <BackHead title="Erinnerungen" onBack={goBack} styles={styles} colors={colors} />
+        <Text style={styles.hint}>
+          Zur eingestellten Zeit erscheint die Erinnerung gross auf jedem
+          offenen Bildschirm - und bleibt, bis jemand sie bestätigt. Auf
+          Wunsch schickt der Hub sie stattdessen oder zusätzlich als
+          Push-Nachricht an ausgewählte Haushaltsmitglieder.
+        </Text>
+        {erinnerungen.map((erinnerung) => {
+          const at = Number(erinnerung.at);
+          const faellig = at <= jetzt;
+          // Woran erkennt man in der Liste, was diese Erinnerung tut?
+          // Bildschirm ist die Regel und bleibt unerwähnt; Push und
+          // «nur Push» stehen dabei, samt Empfängern.
+          const mitPush = erinnerung.push === true;
+          const pushAn = Array.isArray(erinnerung.push_an)
+            ? erinnerung.push_an.filter((name): name is string => typeof name === 'string')
+            : [];
+          const zusatz = mitPush
+            ? ` · Push an ${pushAn.length > 0 ? pushAn.join(', ') : 'alle'}${
+                erinnerung.anzeigen === false ? ' (ohne Bildschirm)' : ''
+              }`
+            : '';
+          return (
+            <Card key={erinnerung.id} style={styles.rewardCard}>
+              <Ionicons
+                name={faellig ? 'alarm' : 'alarm-outline'}
+                size={22}
+                color={faellig ? colors.warn : colors.inkSoft}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.checkText}>{String(erinnerung.text ?? '')}</Text>
+                <Text style={[styles.checkSub, faellig && { color: colors.warn }]}>
+                  {faellig
+                    ? `Fällig seit ${datumUhr(at)} - wartet auf Bestätigung`
+                    : datumUhr(at) + zusatz}
+                </Text>
+              </View>
+              {faellig ? (
+                <Pressable
+                  onPress={() => update('reminders', erinnerung.id, { done: true })}
+                  style={styles.deleteTap}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Erinnerung «${String(erinnerung.text ?? '')}» bestätigen`}
+                >
+                  <Ionicons name="checkmark-circle-outline" size={22} color={colors.on} />
+                </Pressable>
+              ) : null}
+              <Pressable
+                onPress={() => remove('reminders', erinnerung.id)}
+                style={styles.deleteTap}
+                accessibilityRole="button"
+                accessibilityLabel={`Erinnerung «${String(erinnerung.text ?? '')}» löschen`}
+              >
+                <Ionicons name="close" size={18} color={colors.inkFaint} />
+              </Pressable>
+            </Card>
+          );
+        })}
+        <ErinnerungForm
+          onAdd={(eintrag) => add('reminders', eintrag)}
+          mitglieder={pushZiele}
+          styles={styles}
+          colors={colors}
+        />
+      </View>
+    );
+  }
+
   if (view === 'countdowns') {
     const countdowns: FamilyItem[] = data.countdowns ?? [];
     return (
@@ -3880,6 +3985,7 @@ export function FamilyScreen({
     { key: 'routines', icon: 'time-outline', label: 'Routinen', sub: 'Tagesabläufe' },
     { key: 'packlists', icon: 'briefcase-outline', label: 'Packlisten', sub: 'Ferien & Ausflüge' },
     { key: 'countdowns', icon: 'hourglass-outline', label: 'Countdowns', sub: 'Tage zählen' },
+    { key: 'reminders', icon: 'alarm-outline', label: 'Erinnerungen', sub: 'Gross auf dem Schirm oder als Push' },
     { key: 'recipes', icon: 'book-outline', label: 'Rezeptbuch', sub: 'Familienrezepte' },
     { key: 'documents', icon: 'folder-open-outline', label: 'Dokumentsafe', sub: 'Wichtige Angaben' },
   ];

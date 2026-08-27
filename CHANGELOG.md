@@ -5,6 +5,28 @@ Gegenstück: was die Anlage heute kann, was sie vorher nicht konnte.
 
 Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
+## 2026-08-27
+
+**Anwesenheit**
+
+- **«Jemand/niemand zuhause» zählt nur noch den Haushalt.** Der
+  Life360-Kreis ortet auch Menschen, die hier nicht wohnen - deren
+  Zuhause ist ein anderes. Bisher zählten ihre Zonen mit, und «niemand
+  ist zuhause» wäre erst wahr geworden, wenn auch die Oma ihr eigenes
+  Haus verlässt: Der Saug-Ablauf mit genau diesem Auslöser feuerte
+  deshalb nie. Jetzt zählen die Zonen, hinter denen ein Benutzer des
+  Hubs steht; wer eine weitere Zone mitzählen will, nennt sie in der
+  config.yaml unter `geofence → haushalt: [kennung]`. Findet sich gar
+  kein Haushalt, zählen zur Sicherheit wie bisher alle.
+- **Wer nicht ausdrücklich zuhause ist, zählt als weg** - auch
+  «unbekannt». Vorher hielt ein einziges stummes Telefon die Frage auf
+  «jemand da», und der Ablauf wartete einen ganzen Tag umsonst. Die
+  eine Ausnahme bleibt: Weiss der Hub von niemandem etwas (frisch
+  gestartet, noch keine Meldung), bleibt es bei «jemand da» - sonst
+  liefe nach jeder Auslieferung «alles aus», während die Familie am
+  Tisch sitzt. Das Gleiche gilt fürs Schild «alle sind zuhause»: Es
+  urteilt jetzt über den Haushalt, nicht über den ganzen Kreis.
+
 ## 2026-08-25
 
 **Haustüre**
@@ -88,6 +110,41 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   Bisher entschied jede für sich zwischen «Läuft» und sonst «Bereit» –
   dasselbe Gerät stand damit an einer Stelle als «Standby» und an der
   anderen als «Bereit».
+
+**Familie**
+
+- **Neue Kachel «Erinnerungen»** (unter Alltag): ein Text, ein Datum,
+  eine Uhrzeit - zur eingestellten Zeit erscheint die Erinnerung
+  **gross auf jedem offenen Bildschirm** und bleibt stehen, bis jemand
+  auf «Erledigt» drückt. Kein Wegwischen: Sie verschwindet nur über die
+  Bestätigung, und die gilt für alle Bildschirme zugleich - auch fürs
+  Wandpanel. Eine Erinnerung verfällt nicht von selbst; wer das Display
+  erst abends sieht, findet die von mittags noch vor.
+- Datum und Uhrzeit sind **Wähler statt Tippfelder**: ein Monatsraster
+  (heute umrandet, Blättern über Pfeile) und zwei Spalten für Stunde
+  und Minute. «26.08.2026» fehlerfrei einzutippen bringt am Wandpanel
+  niemand zustande - und ein Vertipper hiess: die Erinnerung kommt nie.
+  Vorgabe ist die nächste volle Stunde heute.
+- **Eine Erinnerung kann auch als Push kommen.** Zwei Schalter im
+  Formular: *Gross am Bildschirm anzeigen* (die Vorgabe - verschwindet
+  überall, sobald die erste Person bestätigt) und *Push-Nachricht
+  senden*. Beim zweiten wählt man aus, **an wen** - Mehrfachauswahl über
+  die Haushaltsmitglieder, ohne Empfänger geht der Knopf nicht. Den
+  Versand übernimmt der Hub zur eingestellten Zeit, die App muss dafür
+  nicht offen sein; jede Erinnerung wird genau einmal verschickt, auch
+  über einen Neustart hinweg. Eine reine Push-Erinnerung (Bildschirm
+  aus) gilt nach dem Versand als erledigt - es gäbe keinen Bildschirm,
+  auf dem sie jemand bestätigen könnte. In der Liste steht dabei, wer
+  den Push bekommt.
+- **Das Vollbild hat jetzt zwei Knöpfe: «Erledigt» und «Für alle
+  erledigt».** «Für alle erledigt» räumt die Erinnerung überall ab -
+  das war bisher der einzige Weg. «Erledigt» blendet sie nur beim
+  Drückenden aus: Wer die Wäsche gesehen hat und weiss, dass er gleich
+  geht, muss sie den anderen nicht wegnehmen - bei denen bleibt sie
+  stehen, bis jemand für alle bestätigt. Das «schon gesehen» liegt beim
+  Hub, überlebt also einen Neustart der App und gilt auf allen eigenen
+  Geräten; ein kleiner Hinweis unter den Knöpfen erklärt den
+  Unterschied direkt dort, wo man ihn braucht.
 
 **Startseite und Musik**
 

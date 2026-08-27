@@ -4,7 +4,7 @@
  * Herausgelöst aus FamilyScreen.tsx (Punkt 21 der Werkbank).
  */
 import { Ionicons } from '@expo/vector-icons';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Image, Linking, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 
@@ -27,6 +27,7 @@ import { tapped } from '../../lib/haptics';
 export type FamilyItem = Record<string, any>;
 
 export type FamilyData = Record<string, FamilyItem[]>;
+import { monatsSprung, monatsraster } from '../../lib/erinnerungen';
 import { makeStyles } from './stil';
 
 export type Styles = ReturnType<typeof makeStyles>;
@@ -44,6 +45,11 @@ export interface Props {
   /** Selbst gezogene Reihenfolge der Modul-Kacheln (je Benutzer, vom Hub). */
   moduleOrder?: string[];
   onReorderModules?: (keys: string[]) => void;
+  /** Ausgeblendete Kacheln – wie die Reihenfolge vom Hub, nicht aus dem
+   *  Speicher der App: Sonst hält es genau so lange wie die Installation
+   *  auf diesem einen Telefon. */
+  hiddenModules?: string[];
+  onHiddenModules?: (keys: string[]) => void;
   /** Zeitstempel der letzten Familien-Änderung (family_changed über den
    *  WebSocket) – ändert er sich, lädt der Bildschirm neu. */
   changedAt?: number;
@@ -64,6 +70,7 @@ export type ModuleKey =
   | 'routines'
   | 'packlists'
   | 'countdowns'
+  | 'reminders'
   | 'recipes'
   | 'documents'
   | 'chores'
@@ -1628,6 +1635,405 @@ export function TwoFieldForm({
 }
 
 /** Countdown erfassen: Anlass, Datum und ob er auf die Startseite soll. */
+/** Formular für eine Erinnerung: Text, Datum, Uhrzeit.
+ *
+ *  Datum und Zeit als Wähler statt Tippfelder - «26.08.2026» fehlerfrei
+ *  einzutippen bringt am Wandpanel niemand zustande, und ein Vertipper
+ *  hiess: die Erinnerung kommt nie oder am falschen Tag. Der eigene
+ *  Wähler statt des nativen, weil er überall gleich aussieht und
+ *  funktioniert - auch im Browser und auf dem Panel, wo es keinen
+ *  nativen gibt. */
+const MONATE = [
+  'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
+  'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember',
+];
+const WOCHENTAG_KURZ = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+
+function DatumsRaster({
+  jahr,
+  monat,
+  tag,
+  onTag,
+  onBlaettern,
+  styles,
+  colors,
+}: {
+  jahr: number;
+  monat: number;
+  tag: number | null;
+  onTag: (tag: number) => void;
+  onBlaettern: (schritt: number) => void;
+  styles: Styles;
+  colors: Colors;
+}) {
+  const heute = new Date();
+  const istHeute = (t: number) =>
+    t === heute.getDate() && monat === heute.getMonth() + 1 && jahr === heute.getFullYear();
+  return (
+    <View style={styles.rasterBox}>
+      <View style={styles.rasterKopf}>
+        <Pressable
+          onPress={() => onBlaettern(-1)}
+          accessibilityRole="button"
+          accessibilityLabel="Voriger Monat"
+          style={styles.rasterPfeil}
+        >
+          <Ionicons name="chevron-back" size={18} color={colors.inkSoft} />
+        </Pressable>
+        <Text style={styles.rasterMonat}>
+          {MONATE[monat - 1]} {jahr}
+        </Text>
+        <Pressable
+          onPress={() => onBlaettern(1)}
+          accessibilityRole="button"
+          accessibilityLabel="Nächster Monat"
+          style={styles.rasterPfeil}
+        >
+          <Ionicons name="chevron-forward" size={18} color={colors.inkSoft} />
+        </Pressable>
+      </View>
+      <View style={styles.rasterZeile}>
+        {WOCHENTAG_KURZ.map((name) => (
+          <Text key={name} style={styles.rasterWochentag}>
+            {name}
+          </Text>
+        ))}
+      </View>
+      {monatsraster(jahr, monat).map((woche, index) => (
+        <View key={index} style={styles.rasterZeile}>
+          {woche.map((zelle, spalte) =>
+            zelle === null ? (
+              <View key={`leer-${spalte}`} style={styles.rasterZelle} />
+            ) : (
+              <Pressable
+                key={zelle}
+                onPress={() => onTag(zelle)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: zelle === tag }}
+                accessibilityLabel={`${zelle}. ${MONATE[monat - 1]} ${jahr}`}
+                style={[
+                  styles.rasterZelle,
+                  istHeute(zelle) && styles.rasterHeute,
+                  zelle === tag && styles.rasterZelleAktiv,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.rasterZelleText,
+                    zelle === tag && styles.rasterZelleTextAktiv,
+                  ]}
+                >
+                  {zelle}
+                </Text>
+              </Pressable>
+            )
+          )}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/** Eine Scroll-Spalte des Zeitwählers (Stunden oder Minuten). */
+function ZeitSpalte({
+  werte,
+  wert,
+  onWert,
+  label,
+  styles,
+}: {
+  werte: number[];
+  wert: number;
+  onWert: (wert: number) => void;
+  label: string;
+  styles: Styles;
+}) {
+  const ref = useRef<ScrollView>(null);
+  // Beim Öffnen zur Auswahl springen - eine Spalte, die bei 00 beginnt,
+  // während 18 gewählt ist, sähe aus wie nicht gewählt.
+  useEffect(() => {
+    const index = werte.indexOf(wert);
+    if (index > 1) {
+      ref.current?.scrollTo({ y: index * 36 - 60, animated: false });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return (
+    <ScrollView
+      ref={ref}
+      style={styles.zeitSpalte}
+      accessibilityLabel={label}
+      nestedScrollEnabled
+    >
+      {werte.map((eintrag) => (
+        <Pressable
+          key={eintrag}
+          onPress={() => onWert(eintrag)}
+          accessibilityRole="button"
+          accessibilityState={{ selected: eintrag === wert }}
+          accessibilityLabel={`${label} ${eintrag}`}
+          style={[styles.zeitEintrag, eintrag === wert && styles.zeitEintragAktiv]}
+        >
+          <Text
+            style={[
+              styles.zeitEintragText,
+              eintrag === wert && styles.zeitEintragTextAktiv,
+            ]}
+          >
+            {String(eintrag).padStart(2, '0')}
+          </Text>
+        </Pressable>
+      ))}
+    </ScrollView>
+  );
+}
+
+/** Ein Schiebeschalter im Stil des Systems - RN bringt zwar einen Switch
+ * mit, aber der sieht auf dem Web nach Browser aus und nicht nach App. */
+function Schalter({
+  an,
+  onWechsel,
+  label,
+  styles,
+}: {
+  an: boolean;
+  onWechsel: () => void;
+  label: string;
+  styles: Styles;
+}) {
+  return (
+    <Pressable
+      onPress={onWechsel}
+      accessibilityRole="switch"
+      accessibilityState={{ checked: an }}
+      accessibilityLabel={label}
+      style={[styles.schalter, an && styles.schalterAn]}
+    >
+      <View style={[styles.schalterKnopf, an && styles.schalterKnopfAn]} />
+    </Pressable>
+  );
+}
+
+export function ErinnerungForm({
+  onAdd,
+  mitglieder,
+  styles,
+  colors,
+}: {
+  onAdd: (eintrag: {
+    text: string;
+    at: number;
+    anzeigen: boolean;
+    push: boolean;
+    push_an: string[];
+  }) => void;
+  mitglieder: string[];
+  styles: Styles;
+  colors: Colors;
+}) {
+  const [text, setText] = useState('');
+  // Die beiden Wege, auf denen eine Erinnerung ankommt. Bildschirm ist
+  // die Vorgabe (so war die Kachel angekündigt); Push muss man wollen,
+  // denn es klingelt auf fremden Telefonen.
+  const [anzeigen, setAnzeigen] = useState(true);
+  const [push, setPush] = useState(false);
+  const [gewaehlte, setGewaehlte] = useState<string[]>([]);
+  // Vorgabe: heute, zur nächsten vollen Stunde - der häufigste Fall ist
+  // «nachher», nicht «nächste Woche».
+  const [wann, setWann] = useState(() => {
+    const gleich = new Date(Date.now() + 3_600_000);
+    return {
+      jahr: gleich.getFullYear(),
+      monat: gleich.getMonth() + 1,
+      tag: gleich.getDate(),
+      stunde: gleich.getHours(),
+      minute: 0,
+    };
+  });
+  // Welcher Wähler offen ist - immer nur einer, sonst wird die Karte
+  // länger als der Schirm.
+  const [offenerWaehler, setOffenerWaehler] = useState<'datum' | 'zeit' | null>(null);
+  // Ohne Weg keine Erinnerung: Beide Schalter aus hiesse «lege an, aber
+  // sag es niemandem». Und Push ohne Empfänger liefe genauso ins Leere.
+  const bereit =
+    !!text.trim() && (anzeigen || push) && (!push || gewaehlte.length > 0);
+
+  const datumText = `${WOCHENTAG_KURZ[(new Date(wann.jahr, wann.monat - 1, wann.tag).getDay() + 6) % 7]}, ${String(wann.tag).padStart(2, '0')}.${String(wann.monat).padStart(2, '0')}.${wann.jahr}`;
+  const zeitText = `${String(wann.stunde).padStart(2, '0')}:${String(wann.minute).padStart(2, '0')}`;
+
+  return (
+    <Card style={styles.formCard}>
+      <TextInput
+        style={styles.input}
+        value={text}
+        onChangeText={setText}
+        placeholder="Woran erinnern? (z.B. Ofen ausschalten)"
+        placeholderTextColor={colors.inkSoft}
+      />
+      <View style={styles.wahlZeile}>
+        <Pressable
+          onPress={() => setOffenerWaehler((offen) => (offen === 'datum' ? null : 'datum'))}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: offenerWaehler === 'datum' }}
+          accessibilityLabel={`Datum: ${datumText}`}
+          style={[styles.wahlFeld, offenerWaehler === 'datum' && styles.wahlFeldAktiv]}
+        >
+          <Ionicons name="calendar-outline" size={17} color={colors.inkSoft} />
+          <Text style={styles.wahlFeldText}>{datumText}</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => setOffenerWaehler((offen) => (offen === 'zeit' ? null : 'zeit'))}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: offenerWaehler === 'zeit' }}
+          accessibilityLabel={`Uhrzeit: ${zeitText}`}
+          style={[styles.wahlFeld, offenerWaehler === 'zeit' && styles.wahlFeldAktiv]}
+        >
+          <Ionicons name="time-outline" size={17} color={colors.inkSoft} />
+          <Text style={styles.wahlFeldText}>{zeitText}</Text>
+        </Pressable>
+      </View>
+      {offenerWaehler === 'datum' ? (
+        <DatumsRaster
+          jahr={wann.jahr}
+          monat={wann.monat}
+          tag={wann.tag}
+          onTag={(tag) => {
+            setWann((alt) => ({ ...alt, tag }));
+            setOffenerWaehler(null);
+          }}
+          onBlaettern={(schritt) =>
+            setWann((alt) => {
+              const neu = monatsSprung(alt.jahr, alt.monat, schritt);
+              // Der 31. in einem Monat mit 30 Tagen: auf den letzten
+              // gültigen Tag zurückziehen statt still überzulaufen.
+              const tage = new Date(neu.jahr, neu.monat, 0).getDate();
+              return { ...alt, ...neu, tag: Math.min(alt.tag, tage) };
+            })
+          }
+          styles={styles}
+          colors={colors}
+        />
+      ) : null}
+      {offenerWaehler === 'zeit' ? (
+        <View style={styles.zeitSpalten}>
+          <ZeitSpalte
+            werte={Array.from({ length: 24 }, (_, i) => i)}
+            wert={wann.stunde}
+            onWert={(stunde) => setWann((alt) => ({ ...alt, stunde }))}
+            label="Stunde"
+            styles={styles}
+          />
+          <ZeitSpalte
+            werte={Array.from({ length: 60 }, (_, i) => i)}
+            wert={wann.minute}
+            onWert={(minute) => setWann((alt) => ({ ...alt, minute }))}
+            label="Minute"
+            styles={styles}
+          />
+        </View>
+      ) : null}
+      <View style={styles.schalterZeile}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.schalterText}>Gross am Bildschirm anzeigen</Text>
+          <Text style={styles.schalterHinweis}>
+            Erscheint zur Zeit auf jedem offenen Bildschirm - und verschwindet
+            überall, sobald die erste Person bestätigt.
+          </Text>
+        </View>
+        <Schalter
+          an={anzeigen}
+          onWechsel={() => setAnzeigen((wert) => !wert)}
+          label="Gross am Bildschirm anzeigen"
+          styles={styles}
+        />
+      </View>
+      <View style={styles.schalterZeile}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.schalterText}>Push-Nachricht senden</Text>
+          {push ? (
+            <Text style={styles.schalterHinweis}>
+              {mitglieder.length > 0
+                ? 'An wen? Mehrere sind möglich.'
+                : 'Keine Haushaltsmitglieder gefunden - stimmt die Verbindung zum Hub?'}
+            </Text>
+          ) : null}
+        </View>
+        <Schalter
+          an={push}
+          onWechsel={() =>
+            setPush((wert) => {
+              // Beim Ausschalten die Auswahl mitnehmen: Wer den Schalter
+              // wieder einschaltet, soll nicht bei den alten Häkchen von
+              // vorhin landen, ohne es zu merken.
+              if (wert) setGewaehlte([]);
+              return !wert;
+            })
+          }
+          label="Push-Nachricht senden"
+          styles={styles}
+        />
+      </View>
+      {push && mitglieder.length > 0 ? (
+        <View style={styles.mitgliedZeile}>
+          {mitglieder.map((name) => {
+            const an = gewaehlte.includes(name);
+            return (
+              <Pressable
+                key={name}
+                onPress={() =>
+                  setGewaehlte((liste) =>
+                    an ? liste.filter((eintrag) => eintrag !== name) : [...liste, name]
+                  )
+                }
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: an }}
+                accessibilityLabel={`Push an ${name}`}
+                style={[styles.mitgliedChip, an && styles.mitgliedChipAn]}
+              >
+                <Ionicons
+                  name={an ? 'checkmark-circle' : 'ellipse-outline'}
+                  size={16}
+                  color={an ? colors.accent : colors.inkFaint}
+                />
+                <Text style={[styles.mitgliedChipText, an && styles.mitgliedChipTextAn]}>
+                  {name}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+      <Pressable
+        onPress={() => {
+          if (!bereit) return;
+          onAdd({
+            text: text.trim(),
+            at: new Date(
+              wann.jahr,
+              wann.monat - 1,
+              wann.tag,
+              wann.stunde,
+              wann.minute
+            ).getTime(),
+            anzeigen,
+            push,
+            push_an: push ? gewaehlte : [],
+          });
+          setText('');
+          setOffenerWaehler(null);
+          setPush(false);
+          setGewaehlte([]);
+        }}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: !bereit }}
+        style={[styles.addWide, !bereit && { opacity: 0.5 }]}
+      >
+        <Text style={styles.addWideText}>Erinnerung anlegen</Text>
+      </Pressable>
+    </Card>
+  );
+}
+
 export function CountdownForm({
   onAdd,
   styles,

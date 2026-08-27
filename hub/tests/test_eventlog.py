@@ -91,3 +91,163 @@ def test_span_reaches_the_api():
         body = client.get("/api/entities/demo.light_livingroom/log").json()
         assert body["log"]["count"] >= 1
         assert body["log"]["limit"] == 2000
+
+
+# ── Der Verlauf überlebt den Neustart ────────────────────────────────────
+#
+# Hier stand einmal, das Protokoll sei bewusst flüchtig. Das war der
+# falsche Handel: Nach jedem Update war der Verlauf leer - also genau
+# dann, wenn man ihn braucht, weil sich etwas geändert hat.
+
+
+def _schalten(log, entity_id="light.kueche", state="on"):
+    log.record(
+        "state_changed",
+        {
+            "entity_id": entity_id,
+            "entity": {"kind": "light", "name": "Küche"},
+            "old_state": {"state": "off" if state == "on" else "on"},
+            "new_state": {"state": state},
+            "source": {"kind": "user", "label": "Stefan"},
+        },
+    )
+
+
+def test_verlauf_wird_gesichert_und_geladen(tmp_path):
+    pfad = tmp_path / "geraete-verlauf.json"
+    log = EventLog(pfad)
+    _schalten(log, state="on")
+    _schalten(log, state="off")
+    log.save(force=True)
+    assert pfad.is_file()
+
+    # Der Neustart.
+    zweiter = EventLog(pfad)
+    zeilen = zweiter.for_entity("light.kueche")
+    assert [zeile["state"] for zeile in zeilen] == ["off", "on"]
+    # Und die Quelle steht noch dabei - sonst wäre «warum ging das an?»
+    # nach dem Neustart wieder unbeantwortbar.
+    assert zeilen[0]["source"]["label"] == "Stefan"
+
+
+def test_der_anfang_bleibt_der_erste_start(tmp_path):
+    """Sonst behauptete die App nach jedem Neustart, alles Ältere sei nie
+    passiert - «nichts aufgezeichnet» statt «nichts passiert»."""
+    pfad = tmp_path / "verlauf.json"
+    erster = EventLog(pfad)
+    _schalten(erster)
+    erster.save(force=True)
+
+    zweiter = EventLog(pfad)
+    assert zweiter.started == erster.started
+
+
+def test_gesichert_wird_gedrosselt(tmp_path):
+    pfad = tmp_path / "verlauf.json"
+    log = EventLog(pfad)
+    _schalten(log)
+    log.save(force=True)
+    erste_groesse = pfad.stat().st_size
+
+    # Gleich danach noch ein Ereignis - ohne force wird nicht geschrieben.
+    _schalten(log, state="off")
+    log.save()
+    assert pfad.stat().st_size == erste_groesse
+    # Mit force schon.
+    log.save(force=True)
+    assert pfad.stat().st_size != erste_groesse
+
+
+def test_ohne_aenderung_wird_nicht_geschrieben(tmp_path):
+    pfad = tmp_path / "verlauf.json"
+    log = EventLog(pfad)
+    log.save(force=True)
+    # Nichts passiert, nichts zu sichern - kein leeres Dateigerippe.
+    assert not pfad.exists()
+
+
+def test_ein_kaputter_stand_haelt_den_hub_nicht_auf(tmp_path):
+    pfad = tmp_path / "verlauf.json"
+    pfad.write_text("{kein json", encoding="utf-8")
+    log = EventLog(pfad)
+    assert log.all() == []
+    # Und er lässt sich danach normal weiterbenutzen.
+    _schalten(log)
+    log.save(force=True)
+    assert EventLog(pfad).all()
+
+
+def test_ohne_pfad_bleibt_alles_wie_frueher():
+    log = EventLog()
+    _schalten(log)
+    log.save(force=True)
+    assert len(log.all()) == 1
+
+
+# ── Was den Eintrag erklärt ──────────────────────────────────────────────
+
+
+def test_eine_fahrende_store_kommt_ins_protokoll():
+    """«Halb runter» ist ein Handgriff wie jeder andere - nur meldet das
+    Gerät ihn nicht als Zustandswechsel."""
+    assert (
+        worth_recording(
+            "cover", {"state": "open", "position": 100}, {"state": "open", "position": 40}
+        )
+        is True
+    )
+
+
+def test_eine_zwischenstellung_nicht():
+    # Die Overkiz-Abfrage sieht während einer Fahrt ein halbes Dutzend
+    # davon - jede wäre eine Zeile für nichts.
+    assert (
+        worth_recording(
+            "cover", {"state": "open", "position": 100}, {"state": "open", "position": 90}
+        )
+        is False
+    )
+    # Und ohne Positionsangabe bleibt es beim Zustandsvergleich.
+    assert (
+        worth_recording("cover", {"state": "open"}, {"state": "open", "position": 40})
+        is False
+    )
+
+
+def test_die_positionsausnahme_gilt_nur_fuer_storen():
+    # Eine Lampe, die heller wird, bleibt Attribut-Zappelei.
+    assert (
+        worth_recording(
+            "light", {"state": "on", "position": 100}, {"state": "on", "position": 0}
+        )
+        is False
+    )
+
+
+def test_detail_erklaert_den_eintrag():
+    from homepilot.core.eventlog import detail_text
+
+    assert detail_text("cover", {"state": "open", "position": 40}) == "auf 40 %"
+    assert detail_text("media_player", {"state": "playing", "track": "Shivers"}) == "Shivers"
+    assert detail_text("climate", {"state": "heat", "target_temperature": 21.5}) == "Ziel 21.5 °C"
+    assert detail_text("light", {"state": "on", "brightness": 60}) == "60 %"
+    # Eine ausgeschaltete Lampe hat keine Helligkeit, die etwas erklärt.
+    assert detail_text("light", {"state": "off", "brightness": 60}) is None
+    # Und Unsinn ergibt kein Detail statt einer Ausnahme.
+    assert detail_text("cover", {"position": "weit offen"}) is None
+    assert detail_text("switch", {"state": "on"}) is None
+
+
+def test_detail_landet_im_eintrag():
+    log = EventLog()
+    log.record(
+        "state_changed",
+        {
+            "entity_id": "cover.wohnzimmer",
+            "entity": {"kind": "cover"},
+            "old_state": {"state": "closed", "position": 0},
+            "new_state": {"state": "open", "position": 40},
+            "source": {},
+        },
+    )
+    assert log.for_entity("cover.wohnzimmer")[0]["detail"] == "auf 40 %"

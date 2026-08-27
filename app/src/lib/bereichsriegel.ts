@@ -11,6 +11,19 @@
  * öffnet, tippt es einmal ein; danach bleibt es eine Weile offen, sonst
  * tippt man es zwanzigmal am Tag.
  *
+ * **Wann er überhaupt zuhält**, ist die eigentliche Frage – und die
+ * Antwort war zu weit gefasst. Der Riegel stand jedes Mal da, also auch
+ * mittags, wenn die Familie unter sich ist. Zwanzig Ziffern am Tag für
+ * einen Fall, den es an den meisten Tagen gar nicht gibt.
+ *
+ * Zwei Bedingungen, und beide müssen zutreffen:
+ *
+ * - **Am Wandpanel.** Ein Telefon steckt in einer Tasche; was darauf
+ *   steht, sieht ohnehin nur der, dem es gehört.
+ * - **Im Babysitter-Modus.** Er ist der Zeitpunkt, an dem jemand im Haus
+ *   ist, der nicht dazugehört. Genau dann – und nur dann – soll die
+ *   Einkaufsliste im Flur nicht offen dastehen.
+ *
  * Bewusst ein Sichtschutz, keine zweite Anmeldung: Was jemand *darf*,
  * hängt weiter an der Rolle, und der Hub prüft das ohnehin. Hier geht es
  * darum, was im Vorbeigehen auf dem Bildschirm steht.
@@ -28,22 +41,35 @@ export function istPersoenlich(section: Section): boolean {
   return PERSOENLICH.includes(section);
 }
 
+/** Wie es gerade um das Gerät und das Haus steht. */
+export interface Lage {
+  /** Ist für diesen Zugang überhaupt ein Passwort gesetzt? */
+  areaLocked?: boolean;
+  /** Hängt dieses Gerät als Wandpanel? */
+  panel?: boolean;
+  /** Läuft der Babysitter-Modus? */
+  babysitter?: boolean;
+  /** Bis wann zuletzt aufgeschlossen wurde – 0, wenn noch nie. */
+  offenBis: number;
+  /** Von aussen, damit «gerade abgelaufen» prüfbar bleibt. */
+  jetzt: number;
+}
+
 /**
  * Muss jetzt nach dem Passwort gefragt werden? (rein, testbar)
  *
- * `offenBis` ist der Zeitpunkt, bis zu dem zuletzt aufgeschlossen wurde –
- * 0, wenn noch nie. `jetzt` kommt von aussen, damit der Fall «gerade
- * abgelaufen» prüfbar bleibt.
+ * Alle vier Bedingungen müssen zutreffen: ein gesetztes Passwort, ein
+ * persönlicher Bereich, ein Wandpanel und ein laufender
+ * Babysitter-Modus. Fehlt eine, steht der Bereich offen.
  */
-export function istGesperrt(
-  section: Section,
-  areaLocked: boolean | undefined,
-  offenBis: number,
-  jetzt: number
-): boolean {
-  if (!areaLocked) return false;
+export function istGesperrt(section: Section, lage: Lage): boolean {
+  if (!lage.areaLocked) return false;
   if (!istPersoenlich(section)) return false;
-  return jetzt >= offenBis;
+  // Am Telefon nie: Es steckt in einer Tasche, nicht im Flur.
+  if (!lage.panel) return false;
+  // Und nur, solange jemand im Haus ist, der nicht dazugehört.
+  if (!lage.babysitter) return false;
+  return lage.jetzt >= lage.offenBis;
 }
 
 /**

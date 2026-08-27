@@ -172,12 +172,16 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         """Wer als Empfänger einer Ablauf-Nachricht in Frage kommt (158).
 
         Nur Namen und Rollen, keine Tokens: Der Ablauf-Editor braucht
-        eine Auswahl, keine Benutzerverwaltung - deshalb genügt hier
-        EDIT_AUTOMATIONS statt MANAGE_USERS.
+        eine Auswahl, keine Benutzerverwaltung. Seit die Erinnerungen
+        ihre Push-Empfänger wählen lassen, brauchen die Liste auch
+        Mitbewohner - wer hier wohnt, kennt die Namen ohnehin (sie
+        stehen in der Anwesenheitsliste). Nur Gäste bleiben draussen.
         """
-        require(request, Capability.EDIT_AUTOMATIONS)
+        user = current_user(request)
         from ...core.users import Role
 
+        if user.role == Role.GUEST:
+            raise HTTPException(status_code=403, detail="Für Gäste nicht sichtbar")
         return {
             "names": [
                 user.name

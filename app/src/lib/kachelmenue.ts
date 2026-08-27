@@ -1,9 +1,10 @@
 /**
  * Was ein langer Druck auf eine Kachel anbietet.
  *
- * Der lange Druck zeigte bisher den Verlauf des Geräts. Umbenennen gab es
- * nur im Anpassen-Modus – drei Schritte für eine Kleinigkeit, die man
- * meistens genau dann tun will, wenn einem der Name vor Augen steht.
+ * Der lange Druck zeigt den Verlauf des Geräts: wann es an- und ausging,
+ * öffnete und schloss – und wer es war. Umbenennen gab es nur im
+ * Anpassen-Modus – drei Schritte für eine Kleinigkeit, die man meistens
+ * genau dann tun will, wenn einem der Name vor Augen steht.
  *
  * Beides auf derselben Geste heisst: eine kleine Auswahl. Aber nur, wenn
  * es wirklich etwas zu wählen gibt – bleibt nur ein Eintrag übrig,
@@ -54,9 +55,12 @@ const ZAEHLT_WIEDER: KachelEintrag = {
  * Die Einträge des Kachelmenüs, in der Reihenfolge, in der sie stehen
  * (rein, testbar).
  *
- * «Umbenennen» steht oben: Es ist der Grund, aus dem es dieses Menü
- * überhaupt gibt. Der Verlauf hat unter «Geräte» ohnehin seinen eigenen
- * Weg über einen einfachen Tipp.
+ * Der Verlauf steht oben. Hier stand einmal «Umbenennen» - mit der
+ * Begründung, es sei der Grund, aus dem es dieses Menü gibt. Das war die
+ * Sicht dessen, der das Menü gebaut hat, nicht die dessen, der es
+ * benutzt: Umbenannt wird ein Gerät einmal, nachgesehen «wann ging das
+ * an?» immer wieder. Und die Geste, mit der man beides erreicht, ist
+ * dieselbe - also gewinnt die häufigere Frage.
  */
 export function kachelAktionen(moeglich: {
   umbenennen?: boolean;
@@ -71,6 +75,7 @@ export function kachelAktionen(moeglich: {
   verlauf?: boolean;
 }): KachelEintrag[] {
   const eintraege: KachelEintrag[] = [];
+  if (moeglich.verlauf) eintraege.push(EINTRAEGE.verlauf);
   if (moeglich.umbenennen) eintraege.push(EINTRAEGE.umbenennen);
   // Die Sperre gab es nur im Anpassen-Modus. Gebraucht wird sie in dem
   // Moment, in dem man fast die Waschmaschine erwischt hätte - also
@@ -84,6 +89,5 @@ export function kachelAktionen(moeglich: {
   if (moeglich.zaehlung) {
     eintraege.push(moeglich.ungezaehlt ? ZAEHLT_WIEDER : EINTRAEGE.zaehlung);
   }
-  if (moeglich.verlauf) eintraege.push(EINTRAEGE.verlauf);
   return eintraege;
 }
