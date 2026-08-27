@@ -55,7 +55,7 @@ import {
   shopCategory,
 } from '../lib/einkauf';
 import { datumUhr, uhr } from '../lib/format';
-import { Erinnerung, anzuzeigende, naechsteAt, quittiertVon } from '../lib/erinnerungen';
+import { Erinnerung, anzuzeigende, bestaetigung, naechsteAt, quittiertVon } from '../lib/erinnerungen';
 import {
   AUTO_SCHLIESSEN_SEKUNDEN,
   KlingelAktion,
@@ -436,6 +436,22 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // beim Hub, damit das Vollbild auch dann sofort und dauerhaft weg ist,
   // wenn der Name des Benutzers gerade (noch) nicht bekannt ist.
   const [selbstQuittiert, setSelbstQuittiert] = useState<string[]>([]);
+  // Der Rückhalt gilt der jetzigen Ausgabe, nicht der Erinnerung an
+  // sich: Eine wiederkehrende behält ihre id, wenn sie auf den
+  // nächsten Termin weitergestellt wird - bliebe die id hier stehen,
+  // wäre die nächste Ausgabe auf diesem Gerät für immer stumm.
+  useEffect(() => {
+    setSelbstQuittiert((ids) =>
+      ids.filter((id) => {
+        const eintrag = erinnerungen.find((zeile) => zeile.id === id);
+        if (!eintrag || eintrag.done) return false;
+        const at = Number(eintrag.at);
+        // Noch fällig: Rückhalt behalten - vielleicht hat der Hub das
+        // Quittieren (noch) nicht gespeichert.
+        return !(Number.isFinite(at) && at > Date.now());
+      })
+    );
+  }, [erinnerungen]);
   const faelligeErinnerungen = useMemo(
     () =>
       anzuzeigende(erinnerungen, jetztErinnerung, user?.name).filter(
@@ -448,19 +464,20 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       // Sofort aus dem Bild, dann zum Hub: Wer bestätigt, will das
       // Vollbild los sein - nicht auf die Antwort warten. Scheitert der
       // Abruf, holt der Rückfalltakt die Erinnerung zurück, und man
-      // sieht, dass sie noch offen ist.
+      // sieht, dass sie noch offen ist. Wiederkehrende werden dabei
+      // nicht erledigt, sondern auf den nächsten Termin weitergestellt.
+      const eintrag = erinnerungen.find((zeile) => zeile.id === id);
+      const patch = eintrag ? bestaetigung(eintrag, Date.now()) : { done: true };
       setErinnerungen((liste) =>
-        liste.map((eintrag) =>
-          eintrag.id === id ? { ...eintrag, done: true } : eintrag
-        )
+        liste.map((zeile) => (zeile.id === id ? { ...zeile, ...patch } : zeile))
       );
       hub
-        .put(`/api/family/reminders/${encodeURIComponent(id)}`, { done: true }, {
+        .put(`/api/family/reminders/${encodeURIComponent(id)}`, patch, {
           fallback: null,
         })
         .catch(() => {});
     },
-    [hub]
+    [hub, erinnerungen]
   );
   const quittiereErinnerung = useCallback(
     (id: string) => {

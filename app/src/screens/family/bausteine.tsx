@@ -27,7 +27,7 @@ import { tapped } from '../../lib/haptics';
 export type FamilyItem = Record<string, any>;
 
 export type FamilyData = Record<string, FamilyItem[]>;
-import { monatsSprung, monatsraster } from '../../lib/erinnerungen';
+import { WIEDERHOLUNGEN, monatsSprung, monatsraster } from '../../lib/erinnerungen';
 import { makeStyles } from './stil';
 
 export type Styles = ReturnType<typeof makeStyles>;
@@ -1826,6 +1826,7 @@ export function ErinnerungForm({
     anzeigen: boolean;
     push: boolean;
     push_an: string[];
+    repeat?: string;
   }) => void;
   mitglieder: string[];
   styles: Styles;
@@ -1838,6 +1839,9 @@ export function ErinnerungForm({
   const [anzeigen, setAnzeigen] = useState(true);
   const [push, setPush] = useState(false);
   const [gewaehlte, setGewaehlte] = useState<string[]>([]);
+  // Einmalig ist die Vorgabe - wie bei den Aufgaben. Wiederkehrend
+  // heisst: Bestätigen erledigt nicht, sondern stellt weiter.
+  const [wiederholung, setWiederholung] = useState('none');
   // Vorgabe: heute, zur nächsten vollen Stunde - der häufigste Fall ist
   // «nachher», nicht «nächste Woche».
   const [wann, setWann] = useState(() => {
@@ -1932,6 +1936,27 @@ export function ErinnerungForm({
           />
         </View>
       ) : null}
+      {/* Dieselben Chips wie bei den Aufgaben - wer dort «wöchentlich»
+          kennt, findet sich hier ohne Erklärung zurecht. */}
+      <View style={styles.mitgliedZeile}>
+        {WIEDERHOLUNGEN.map((option) => {
+          const an = wiederholung === option.key;
+          return (
+            <Pressable
+              key={option.key}
+              onPress={() => setWiederholung(option.key)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: an }}
+              accessibilityLabel={`Wiederholung: ${option.label}`}
+              style={[styles.mitgliedChip, an && styles.mitgliedChipAn]}
+            >
+              <Text style={[styles.mitgliedChipText, an && styles.mitgliedChipTextAn]}>
+                {option.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
       <View style={styles.schalterZeile}>
         <View style={{ flex: 1 }}>
           <Text style={styles.schalterText}>Gross am Bildschirm anzeigen</Text>
@@ -2018,11 +2043,15 @@ export function ErinnerungForm({
             anzeigen,
             push,
             push_an: push ? gewaehlte : [],
+            // «none» bleibt weg: Ein Feld, das nichts sagt, muss nicht
+            // in der Ablage stehen.
+            ...(wiederholung !== 'none' ? { repeat: wiederholung } : {}),
           });
           setText('');
           setOffenerWaehler(null);
           setPush(false);
           setGewaehlte([]);
+          setWiederholung('none');
         }}
         accessibilityRole="button"
         accessibilityState={{ disabled: !bereit }}

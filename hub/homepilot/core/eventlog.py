@@ -81,6 +81,12 @@ def worth_recording(kind: str, old: dict[str, Any], new: dict[str, Any]) -> bool
         return False
     if str(old.get("state")) != str(new.get("state")):
         return True
+    if kind == "lock":
+        # Der Riegel sagt nichts darüber, ob die Türe offen *steht*. Wer
+        # sie aufmacht, ohne am Schloss zu drehen, änderte bisher nichts,
+        # was das Protokoll gesehen hätte - und «seit wann offen?» war
+        # damit nicht zu beantworten.
+        return str(old.get("door") or "") != str(new.get("door") or "")
     if kind != "cover":
         return False
     return _positions_sprung(old.get("position"), new.get("position"))
@@ -125,6 +131,18 @@ def detail_text(kind: str, state: dict[str, Any]) -> str | None:
             except (TypeError, ValueError):
                 return None
     return None
+
+
+def ist_offen(kind: str, eintrag: dict[str, Any]) -> bool:
+    """Sagt dieser Protokolleintrag «offen»? (rein, testbar)
+
+    Ein Schloss hat zwei Auskünfte: den Riegel (``state``) und den
+    Türsensor (``door``). Gemeint ist hier der Sensor - abgeschlossen und
+    offen ist bei einer Haustüre mit Falle kein Widerspruch.
+    """
+    if kind == "lock":
+        return str(eintrag.get("door") or "") == "open"
+    return str(eintrag.get("state") or "") == "on"
 
 
 class EventLog:
@@ -217,14 +235,18 @@ class EventLog:
         detail = detail_text(kind, new)
         if detail:
             eintrag["detail"] = detail
+        # Getrennt vom Zustand, weil es etwas anderes ist: Ein Schloss
+        # kann abgeschlossen sein, während die Türe offen steht.
+        if kind == "lock" and new.get("door") is not None:
+            eintrag["door"] = str(new.get("door"))
         self._events.append(eintrag)
 
     def all(self) -> list[dict[str, Any]]:
         """Alle gemerkten Ereignisse, älteste zuerst.
 
         Für die Musterkennung (core/suggest.py). Der Ring hält rund 2000
-        Ereignisse und überlebt keinen Neustart - was hier steht, ist die
-        jüngere Vergangenheit, nicht das Archiv.
+        Ereignisse - was hier steht, ist die jüngere Vergangenheit, nicht
+        das Archiv.
         """
         return list(self._events)
 
@@ -234,6 +256,28 @@ class EventLog:
             event for event in self._events if event["entity_id"] == entity_id
         ]
         return list(reversed(found))[:limit]
+
+    def offen_seit(self, entity_id: str, kind: str) -> float | None:
+        """Seit wann steht dieser Kontakt ununterbrochen offen?
+
+        None heisst «weiss ich nicht» - dann steht im Protokoll nichts
+        über dieses Gerät, und der Wächter bleibt bei seiner eigenen
+        Zählung. Geraten wird hier nicht: Eine Zeit, die der Hub sich
+        ausdenkt, steht am Ende als «seit drei Stunden» im Telefon.
+
+        Gelesen wird von der jüngsten Meldung rückwärts, solange sie
+        «offen» sagt. Die älteste davon ist der Moment des Öffnens - und
+        eine Meldung «zu» dazwischen beendet die Suche, denn dann war die
+        Türe in der Zwischenzeit zu.
+        """
+        seit: float | None = None
+        for eintrag in self.for_entity(entity_id, limit=200):
+            if not ist_offen(kind, eintrag):
+                break
+            wert = eintrag.get("at")
+            if isinstance(wert, (int, float)):
+                seit = float(wert)
+        return seit
 
     def span(self) -> dict[str, Any]:
         """Wie weit das Protokoll zurückreicht - und warum nicht weiter.

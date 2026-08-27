@@ -67,3 +67,67 @@ def test_benutzer_umbenennen_zieht_empfaenger_und_quittierungen_mit():
     assert neu[2] == "kaputt"
     # Die Eingabe bleibt unangetastet - der Aufrufer speichert das Ergebnis.
     assert rows[0]["push_an"] == ["Stefan", "Bine"]
+
+
+def test_naechste_faelligkeit_ueberspringt_verpasstes_und_kennt_den_kalender():
+    """Das Spiegelbild der App-Funktion - beide Seiten müssen denselben
+    Termin ausrechnen, sonst stellt der Hub anders weiter als die App."""
+    from datetime import datetime
+
+    from homepilot.core.erinnerungen import naechste_faelligkeit
+
+    def um(j, m, t, h=7):
+        return datetime(j, m, t, h).timestamp() * 1000
+
+    # Dienstag 7:00, erst am Freitagmittag bestätigt: Samstag 7:00 -
+    # nicht drei nachgeholte auf einmal.
+    assert naechste_faelligkeit(um(2026, 8, 25), "daily", um(2026, 8, 28, 12)) == um(
+        2026, 8, 29
+    )
+    # Der 31. rutscht im Februar auf den 28. und kehrt danach zurück.
+    assert naechste_faelligkeit(um(2026, 1, 31), "monthly", um(2026, 1, 31)) == um(
+        2026, 2, 28
+    )
+    assert naechste_faelligkeit(um(2026, 1, 31), "monthly", um(2026, 2, 28, 8)) == um(
+        2026, 3, 31
+    )
+    assert naechste_faelligkeit(um(2028, 2, 29), "yearly", um(2028, 2, 29)) == um(
+        2029, 2, 28
+    )
+    # Unbekannte Wiederholung oder kaputter Zeitpunkt: kein Termin.
+    assert naechste_faelligkeit(um(2026, 8, 25), "none", 0) is None
+    assert naechste_faelligkeit("quatsch", "daily", 0) is None
+
+
+def test_eine_wiederkehrende_nur_push_erinnerung_stellt_sich_selbst_weiter():
+    """Ohne Bildschirm bestätigt niemand - nach dem Versand stellt der
+    Hub selbst weiter, frisch, damit der nächste Push wieder rausgeht."""
+    from datetime import datetime
+
+    from homepilot.core.erinnerungen import nach_versand
+
+    jetzt = datetime(2026, 8, 27, 8).timestamp() * 1000
+    rows = [
+        {
+            "id": "a",
+            "at": datetime(2026, 8, 27, 7).timestamp() * 1000,
+            "anzeigen": False,
+            "push": True,
+            "repeat": "daily",
+            "quittiert": ["Stefan"],
+        },
+        # Mit Bildschirm: nur pushed - weitergestellt wird beim Bestätigen.
+        {
+            "id": "b",
+            "at": 1000.0,
+            "anzeigen": True,
+            "push": True,
+            "repeat": "daily",
+        },
+    ]
+    neu = nach_versand(rows, {"a", "b"}, jetzt_ms=jetzt)
+    assert neu[0]["at"] == datetime(2026, 8, 28, 7).timestamp() * 1000
+    assert neu[0]["pushed"] is False
+    assert neu[0]["quittiert"] == []
+    assert "done" not in neu[0]
+    assert neu[1] == {**rows[1], "pushed": True}
