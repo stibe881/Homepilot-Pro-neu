@@ -413,3 +413,28 @@ def test_a_dead_session_does_not_block_the_login(monkeypatch):
             json={"email": "stefan@example.ch", "password": "richtig"},
         )
         assert ok.status_code == 200
+
+
+def test_an_orphaned_address_is_written_into_the_log(monkeypatch, caplog):
+    """Eine Adresse, die auf einen Namen zeigt, den es nicht mehr gibt.
+
+    Der Fall aus dem Betrieb: In der config.yaml aus «Stefan» ein «stibe»
+    gemacht - die Adressen liegen aber getrennt und nach Namen ab. Beim
+    Anmelden kam danach nur «Diese Adresse ist im Haus nicht freigegeben»,
+    und dass das eine verwaiste Zeile in der Datendatei war, stand
+    nirgends.
+    """
+    import logging
+
+    hub, _ = make_auth_hub(monkeypatch)
+    hub.data.set("emails", [{"name": "Stefan", "email": "stefan@example.ch"}])
+    hub.users.by_name("Stefan").name = "stibe"
+    with caplog.at_level(logging.WARNING):
+        hub._load_stored_users()
+
+    meldung = " ".join(record.getMessage() for record in caplog.records)
+    assert "stefan@example.ch" in meldung
+    assert "Stefan" in meldung
+    # Und die Anmeldung geht wieder, sobald die Adresse am neuen Namen hängt.
+    hub.users.set_email("stibe", "stefan@example.ch")
+    assert hub.users.by_email("stefan@example.ch").name == "stibe"
