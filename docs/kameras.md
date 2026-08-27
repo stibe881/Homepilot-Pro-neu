@@ -301,3 +301,31 @@ nächsten Ereignis wieder weg.
 Kameras sind für Gäste standardmässig unsichtbar. Wer sie sehen soll,
 bekommt unter **Einstellungen → Benutzerverwaltung** den Bereich **Kameras**
 freigeschaltet.
+
+
+## Wenn ein Ablauf auf eine Erkennung nicht anspringt
+
+«Wenn das Baby schreit» und «wenn eine Person zu sehen ist» hängen an
+Feldern, die Protect liefert. Springt der Ablauf nicht an, gibt es drei
+Möglichkeiten, und von aussen sehen sie gleich aus:
+
+1. **Die Kamera erkennt nichts.** Ton-Erkennungen muss man in Protect je
+   Kamera einschalten (Kamera → Smart Detections → Audio). Ohne das
+   meldet sie gar nichts, und kein Ablauf kann darauf hören.
+2. **Protect nennt es anders, als der Hub es kennt.** Ubiquiti benennt
+   die Arten gelegentlich um.
+3. **Der Hub bekommt es nicht mit.**
+
+Welche der drei es ist, sagt dieser Aufruf – er liest nur und stört den
+laufenden Hub nicht:
+
+```bash
+docker exec homepilot-hub \
+  python -m homepilot.integrations.unifi_protect \
+    -c /config/config.yaml --erkennungen 60
+```
+
+Er zeigt, was jede Kamera laut Protect erkennen kann, ob der Hub die
+Namen kennt, und welche Erkennungen in der letzten Stunde tatsächlich
+aufgezeichnet wurden. Steht dort nichts, war Fall 1 oder 2 – dann hilft
+keine Zeile Code, sondern die Einstellung in Protect.
