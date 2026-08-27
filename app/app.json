@@ -3,7 +3,7 @@
     "name": "HomePilot",
     "slug": "homepilot",
     "owner": "stibe88",
-    "version": "1.2.3",
+    "version": "1.2.4",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -67,6 +67,13 @@
             }
           }
         ]
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/android-icon-monochrome.png",
+          "color": "#2F6BF6"
+        }
       ]
     ],
     "scheme": "homepilot",
