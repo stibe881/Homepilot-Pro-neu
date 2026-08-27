@@ -22,13 +22,27 @@ import {
   moveButton,
   resolveButtons,
 } from '../lib/widgetButtons';
+import {
+  MAX_KARTEN,
+  WidgetKarte,
+  addableKarten,
+  karteArt,
+  kartenSatz,
+  resolveKarten,
+} from '../lib/widgetKarten';
 import { Colors, radius, type, useColors } from '../theme';
 
 /**
  * Einstellungen → Widgets.
  *
- * Zwei Dinge, die vorher an zwei Orten lagen oder gar nicht gingen: Was
- * auf den Knöpfen steht, und ob das Widget den Hausstand zeigen darf.
+ * Drei Dinge, die vorher an drei Orten lagen oder gar nicht gingen: Was
+ * auf den Knöpfen steht, welche eigenen Karten es gibt, und ob das
+ * Widget den Hausstand zeigen darf.
+ *
+ * Die **Karten** sind das, was man landläufig ein Widget nennt: eine
+ * Kachel für ein Gerät oder eine Szene, mit Zustand und einem Knopf.
+ * Hier stellt man sie zusammen; welche davon ein bestimmtes Widget auf
+ * dem Homescreen zeigt, wählt man dort beim Anlegen aus.
  *
  * Was hier bewusst fehlt, ist ein Knopf «Widget hinzufügen». Nicht aus
  * Nachlässigkeit: iOS lässt keine App ein Widget auf den Homescreen
@@ -41,6 +55,8 @@ export function Widgets({
   onButtons,
   direct = [],
   onDirect,
+  karten,
+  onKarten,
   dataEnabled,
   onDataEnabled,
   ablage,
@@ -49,6 +65,9 @@ export function Widgets({
 }: {
   buttons?: string[];
   onButtons: (keys: string[]) => void;
+  /** Die eigenen Karten – dieselbe Schlüsselsprache wie die Knöpfe. */
+  karten?: string[];
+  onKarten?: (keys: string[]) => void;
   /** Schlüssel der Knöpfe, die direkt schalten (iOS 17) statt die App zu
    *  öffnen. Nur Szenen und Lichter – Tür und Alarm behalten den Umweg. */
   direct?: string[];
@@ -63,6 +82,8 @@ export function Widgets({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [adding, setAdding] = useState(false);
   const [query, setQuery] = useState('');
+  const [kartenAuf, setKartenAuf] = useState(false);
+  const [kartenSuche, setKartenSuche] = useState('');
 
   const keys = buttons ?? STANDARD;
   const gewaehlt = useMemo(
@@ -84,6 +105,27 @@ export function Widgets({
     : angebot;
 
   const setzen = (next: string[]) => onButtons(next.slice(0, MAX_BUTTONS));
+
+  // Die eigenen Karten. `dataEnabled` steht hier nur, damit die Liste
+  // dieselben Karten zeigt wie das Widget - geschaltet wird in der
+  // Vorschau nichts.
+  const kartenListe = useMemo(
+    () => resolveKarten(karten, scenes, entities, !!dataEnabled),
+    [karten, scenes, entities, dataEnabled]
+  );
+  const kartenDrin = kartenListe.map((karte) => karte.key);
+  const kartenAngebot = useMemo(
+    () => addableKarten(kartenDrin, scenes, entities),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [kartenDrin.join(' '), scenes, entities]
+  );
+  const kartenGefiltert = kartenSuche.trim()
+    ? kartenAngebot.filter((karte) =>
+        karte.title.toLowerCase().includes(kartenSuche.trim().toLowerCase())
+      )
+    : kartenAngebot;
+  const kartenSetzen = (next: string[]) =>
+    onKarten?.(next.slice(0, MAX_KARTEN));
 
   const verschieben = (index: number, richtung: -1 | 1) =>
     setzen(moveButton(drin, index, richtung));
@@ -267,6 +309,144 @@ export function Widgets({
         ) : null}
       </Card>
 
+      {/* Die eigenen Karten. Erst nach den Knöpfen, weil die Knopfleiste
+          das ist, was jeder schon hat - die Karten kommen dazu. */}
+      {onKarten ? (
+        <Card style={styles.card}>
+          <Text style={styles.heading}>Eigene Widgets</Text>
+          <Text style={styles.hint}>{kartenSatz(kartenListe.length)}</Text>
+
+          {kartenListe.map((karte, index) => (
+            <View key={karte.key} style={styles.row}>
+              <Ionicons
+                name={karte.kind === 'scene' ? 'sparkles-outline' : 'cube-outline'}
+                size={18}
+                color={colors.inkSoft}
+              />
+              <Text style={styles.rowTitle} numberOfLines={1}>
+                {karte.title}
+              </Text>
+              <Text style={styles.pickKind}>{karteArt(karte)}</Text>
+              <Pressable
+                onPress={() => kartenSetzen(moveButton(kartenDrin, index, -1))}
+                disabled={index === 0}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Nach oben"
+              >
+                <Ionicons
+                  name="chevron-up"
+                  size={20}
+                  color={index === 0 ? colors.inkFaint : colors.ink}
+                />
+              </Pressable>
+              <Pressable
+                onPress={() => kartenSetzen(moveButton(kartenDrin, index, 1))}
+                disabled={index === kartenListe.length - 1}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Nach unten"
+              >
+                <Ionicons
+                  name="chevron-down"
+                  size={20}
+                  color={
+                    index === kartenListe.length - 1 ? colors.inkFaint : colors.ink
+                  }
+                />
+              </Pressable>
+              <Pressable
+                onPress={() =>
+                  kartenSetzen(kartenDrin.filter((key) => key !== karte.key))
+                }
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={`${karte.title} entfernen`}
+              >
+                <Ionicons name="close-circle" size={20} color={colors.inkFaint} />
+              </Pressable>
+            </View>
+          ))}
+
+          {!dataEnabled && kartenListe.length > 0 ? (
+            <Text style={styles.hint}>
+              Ohne «Hausstand im Widget» weiter unten zeigt eine Karte nur
+              den Namen: Zustand und Schaltknopf brauchen die Zugangsdaten
+              im Widget selbst.
+            </Text>
+          ) : null}
+
+          {kartenListe.length >= MAX_KARTEN ? (
+            <Text style={styles.hint}>
+              Voll – erst eine entfernen, dann kommt eine andere hinein.
+            </Text>
+          ) : (
+            <Pressable
+              onPress={() => {
+                setKartenAuf((offen) => !offen);
+                setKartenSuche('');
+              }}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.addButton, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons
+                name={kartenAuf ? 'chevron-up' : 'add'}
+                size={16}
+                color={colors.ink}
+              />
+              <Text style={styles.addText}>
+                {kartenAuf ? 'Schliessen' : 'Widget hinzufügen'}
+              </Text>
+            </Pressable>
+          )}
+
+          {kartenAuf && kartenListe.length < MAX_KARTEN ? (
+            <>
+              <TextInput
+                style={styles.search}
+                value={kartenSuche}
+                onChangeText={setKartenSuche}
+                placeholder="Gerät oder Szene suchen …"
+                placeholderTextColor={colors.inkFaint}
+                autoCorrect={false}
+                autoCapitalize="none"
+              />
+              <ScrollView style={styles.picker} keyboardShouldPersistTaps="handled">
+                {kartenGefiltert.length === 0 ? (
+                  <Text style={styles.hint}>Nichts gefunden.</Text>
+                ) : (
+                  kartenGefiltert.map((karte: WidgetKarte) => (
+                    <Pressable
+                      key={karte.key}
+                      onPress={() => {
+                        kartenSetzen([...kartenDrin, karte.key]);
+                        setKartenAuf(false);
+                        setKartenSuche('');
+                      }}
+                      accessibilityRole="button"
+                      style={({ pressed }) => [
+                        styles.pickRow,
+                        pressed && { opacity: 0.8 },
+                      ]}
+                    >
+                      <Ionicons
+                        name="add-circle-outline"
+                        size={18}
+                        color={colors.accent}
+                      />
+                      <Text style={styles.rowTitle} numberOfLines={1}>
+                        {karte.title}
+                      </Text>
+                      <Text style={styles.pickKind}>{karteArt(karte)}</Text>
+                    </Pressable>
+                  ))
+                )}
+              </ScrollView>
+            </>
+          ) : null}
+        </Card>
+      ) : null}
+
       <WidgetSetting enabled={dataEnabled} onChange={onDataEnabled} />
 
       <Card style={styles.card}>
@@ -277,6 +457,12 @@ export function Widgets({
               Auf dem Homescreen lange drücken, bis die Symbole wackeln, dann
               oben links auf «+», «HomePilot» suchen, Grösse wählen und
               hinzufügen.
+            </Text>
+            <Text style={styles.hint}>
+              «HomePilot» ist die Knopfleiste, «HomePilot Karte» eines der
+              eigenen Widgets von oben. Welche Karte es zeigt, wählt man
+              danach: Widget lange drücken → «Widget bearbeiten». So liegen
+              mehrere davon nebeneinander, jedes mit seinem eigenen Gerät.
             </Text>
             <Text style={styles.hint}>
               Für den Sperrbildschirm: Sperrbildschirm lange drücken →

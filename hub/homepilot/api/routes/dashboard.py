@@ -22,6 +22,7 @@ from ...core import (
     maintenance,
     suggest,
     watchdog,
+    widgetkarten,
 )
 from ...core.users import Capability
 from ..context import ApiContext
@@ -52,16 +53,22 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     require = ctx.require
 
     @app.get("/api/glance")
-    async def glance(request: Request) -> dict[str, Any]:
+    async def glance(request: Request, ids: str = "") -> dict[str, Any]:
         """Der Blick aufs Haus in drei Zeilen - fürs Widget.
 
         Bewusst eine eigene, winzige Antwort statt der ganzen
         Geräteliste: Das Widget fragt alle Viertelstunde an und läuft auf
         einem Telefon, das gerade nichts anderes tut. Was es nicht
         braucht, soll es nicht übertragen.
+
+        ``ids`` ist die Ausnahme davon, und aus demselben Grund: Wer sich
+        ein Widget für das Küchenlicht hinlegt, braucht dessen Namen und
+        Zustand - aber eben nur dessen. Die Kennungen stehen in der
+        Adresse, damit das Widget mit einer einzigen Anfrage auskommt.
         """
         current_user(request)
         entities = hub.registry.all()
+        gefragt = widgetkarten.gefragte_ids(ids)
 
         # Dieselbe Zählung wie in der App (open_contacts): Kontakte samt
         # Türsensor im Schloss. Vorher zählte das Widget nur Schlösser –
@@ -87,13 +94,18 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 }
 
         alarm = next((e for e in entities if e.kind == "alarm"), None)
-        return {
+        antwort = {
             "doors_open": [entity.label for entity in offen],
             "lights_on": len(lichter),
             "next_event": termin,
             "alarm": str(alarm.state.get("state")) if alarm is not None else None,
             "at": datetime.now().isoformat(timespec="seconds"),
         }
+        # Nur wenn gefragt: Die alte Knopfleiste soll keine Zeile mehr
+        # übertragen als bisher.
+        if gefragt:
+            antwort["entities"] = widgetkarten.zeilen(entities, gefragt)
+        return antwort
 
     @app.get("/api/suggestions/scene")
     async def scene_suggestion(request: Request) -> dict[str, Any]:
