@@ -92,6 +92,7 @@ def parse_forecast(
     highs = daily.get("temperature_2m_max") or []
     lows = daily.get("temperature_2m_min") or []
     rain = daily.get("precipitation_probability_max") or []
+    uv = daily.get("uv_index_max") or []
     for index, day in enumerate(times):
         day_text, day_icon = describe_code(codes[index] if index < len(codes) else None)
         days_out.append(
@@ -103,6 +104,7 @@ def parse_forecast(
                 "high": _round(highs[index] if index < len(highs) else None),
                 "low": _round(lows[index] if index < len(lows) else None),
                 "rain": rain[index] if index < len(rain) else None,
+                "uv": _round(uv[index] if index < len(uv) else None),
             }
         )
     return {
@@ -110,6 +112,9 @@ def parse_forecast(
         "icon": icon,
         "temperature": _round(current.get("temperature_2m")),
         "days": days_out,
+        # Der Tageshöchstwert heute, griffbereit: Die Karte und der
+        # Morgen-Hinweis fragen genau danach, nicht nach der Woche.
+        "uv_today": days_out[0]["uv"] if days_out else None,
         # Die Vorwarnung fährt am selben Zustand mit: Die App zeigt sie
         # auf der Wetterkarte, der Wächter meldet sie, wenn dabei ein
         # Fenster offen steht - beide lesen dieselbe Entität.
@@ -169,7 +174,7 @@ class WeatherIntegration(Integration):
             # eine erfundene Zahl (core/regen.py).
             "minutely_15": "precipitation",
             "daily": "weather_code,temperature_2m_max,temperature_2m_min,"
-            "precipitation_probability_max",
+            "precipitation_probability_max,uv_index_max",
             "timezone": "Europe/Zurich",
             "forecast_days": 7,
         }

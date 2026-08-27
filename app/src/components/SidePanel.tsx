@@ -13,6 +13,7 @@ import {
 } from '../lib/geraeteart';
 import { hatWarteschlange } from '../lib/musikliste';
 import { Regenstand, balkenHoehen, regenSatz } from '../lib/regen';
+import { uvWort } from '../lib/uv';
 import { Colors, radius, type, useColors } from '../theme';
 import { Bar } from './Bar';
 import { Card } from './Card';
@@ -524,6 +525,21 @@ function WeatherPanel({ entity }: { entity: Entity }) {
         </Text>
       ) : null}
       <RegenBalken stand={entity.state.rain as Regenstand | undefined} />
+      {/* Der UV-Index, sobald er etwas sagt: ab «mässig» als Zeile, ab
+          «hoch» in Warnfarbe. Unter 3 steht nichts - eine Zahl, die
+          immer da ist, liest bald niemand mehr (hub/core/uvwarnung.py
+          brummt aus demselben Grund erst ab «hoch»). */}
+      {uvWort(entity.state.uv_today) ? (
+        <Text
+          style={[
+            styles.uv,
+            Number(entity.state.uv_today) >= 6 && { color: colors.warn },
+          ]}
+        >
+          UV heute {uvWort(entity.state.uv_today)} ({String(entity.state.uv_today)})
+          {Number(entity.state.uv_today) >= 6 ? ' · eincremen' : ''}
+        </Text>
+      ) : null}
 
       {days.length > 0 ? (
         <View style={styles.weekRow}>
@@ -792,6 +808,7 @@ const makeStyles = (colors: Colors) =>
     },
     regenAchse: { flexDirection: 'row', justifyContent: 'space-between' },
     regenAchsenText: { color: colors.inkFaint, fontSize: 10 },
+    uv: { color: colors.inkSoft, fontSize: 12, fontWeight: '600', marginTop: 4 },
     dayRain: { color: colors.accent, fontSize: 10, fontWeight: '600' },
     list: { gap: 10 },
     alertRow: {

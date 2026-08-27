@@ -44,6 +44,7 @@ from . import (
     spaeter,
     trash,
     users,
+    uvwarnung,
 )
 from .entity import EntityKind
 
@@ -584,6 +585,18 @@ class Watchdog:
                 ),
                 nacht=len(nacht),
                 stille_ablaeufe=still,
+                # Der UV-Hinweis nur an Tagen, an denen er etwas sagt -
+                # «UV 2, alles gut» bestellte man ab (core/uvwarnung.py).
+                uv=uvwarnung.hinweis(
+                    next(
+                        (
+                            entity.state.get("uv_today")
+                            for entity in entities
+                            if getattr(entity, "kind", "") == "weather"
+                        ),
+                        None,
+                    )
+                ),
             )
         )
         if gebaut is None:

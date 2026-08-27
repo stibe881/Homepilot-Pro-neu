@@ -931,6 +931,8 @@ def test_weather_parse_forecast():
         "high": 33,
         "low": 18,
         "rain": 10,
+        # Ohne UV in der Antwort bleibt das Feld leer - erfunden wird nichts.
+        "uv": None,
     }
     assert state["days"][1]["text"] == "Regenschauer"
 
