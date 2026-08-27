@@ -251,3 +251,74 @@ def test_detail_landet_im_eintrag():
         },
     )
     assert log.for_entity("cover.wohnzimmer")[0]["detail"] == "auf 40 %"
+
+
+# ── Seit wann steht die Türe offen? ──────────────────────────────────────
+#
+# Der Wächter zählte selbst - und begann in der Runde, in der er den
+# Kontakt zum ersten Mal offen sah. Ging eine Türe zwischen zwei Runden
+# auf, zu und wieder auf, lief die Uhr von der ersten Öffnung weiter, und
+# die «seit einer Stunde offen»-Nachricht kam lange vor der Stunde.
+
+
+def _kontakt(log, state, at=None):
+    log.record(
+        "state_changed",
+        {
+            "entity_id": "matter.kontakt",
+            "entity": {"kind": "binary_sensor"},
+            "old_state": {"state": "off" if state == "on" else "on"},
+            "new_state": {"state": state, "device_class": "contact"},
+            "source": {},
+        },
+    )
+    if at is not None:
+        log.all()[-1]["at"] = at
+
+
+def test_offen_seit_nimmt_die_juengste_oeffnung():
+    log = EventLog()
+    _kontakt(log, "on", at=1000)
+    _kontakt(log, "off", at=2000)
+    _kontakt(log, "on", at=3000)
+    # Zwischendurch war zu - gezählt wird ab der zweiten Öffnung.
+    assert log.offen_seit("matter.kontakt", "binary_sensor") == 3000
+
+
+def test_offen_seit_ohne_protokoll():
+    """None heisst «weiss ich nicht» - der Wächter bleibt dann bei seiner
+    eigenen Zählung, statt eine Zeit zu erfinden."""
+    log = EventLog()
+    assert log.offen_seit("gibt.es.nicht", "binary_sensor") is None
+    _kontakt(log, "off", at=1000)
+    assert log.offen_seit("matter.kontakt", "binary_sensor") is None
+
+
+def test_die_tuere_eines_schlosses_zaehlt_getrennt_vom_riegel():
+    """Abgeschlossen und offen ist bei einer Haustüre mit Falle kein
+    Widerspruch - der Riegel sagt nichts darüber, ob sie offen steht."""
+    from homepilot.core.eventlog import ist_offen
+
+    assert ist_offen("lock", {"state": "locked", "door": "open"}) is True
+    assert ist_offen("lock", {"state": "unlocked", "door": "closed"}) is False
+    # Bei einem Kontakt zählt weiterhin der Zustand selbst.
+    assert ist_offen("binary_sensor", {"state": "on"}) is True
+
+
+def test_ein_tuersensor_kommt_ins_protokoll():
+    log = EventLog()
+    log.record(
+        "state_changed",
+        {
+            "entity_id": "nuki.haustuere",
+            "entity": {"kind": "lock"},
+            # Der Riegel bleibt, wo er ist - nur die Türe geht auf.
+            "old_state": {"state": "unlocked", "door": "closed"},
+            "new_state": {"state": "unlocked", "door": "open"},
+            "source": {},
+        },
+    )
+    eintraege = log.for_entity("nuki.haustuere")
+    assert len(eintraege) == 1
+    assert eintraege[0]["door"] == "open"
+    assert log.offen_seit("nuki.haustuere", "lock") == eintraege[0]["at"]

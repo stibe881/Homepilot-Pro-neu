@@ -584,8 +584,113 @@ async def test_the_open_window_push_names_the_window_not_the_sensor_model():
 
         titel = [title for title, _ in sent if "steht offen" in title]
         assert titel == ["Fenster Küche steht offen"]
-        # Und «Seit 1 Stunden» stand da, seit es die Meldung gibt.
+        # Die Uhrzeit steht vorne: Wer weiss, wann er aufgemacht hat,
+        # erkennt daran sofort einen hängenden Sensor. Eine gerundete
+        # Dauer allein liesse ihn nur rätseln.
         text = next(body for title, body in sent if "steht offen" in title)
-        assert text.startswith("Seit 3 Stunden")
+        assert text.startswith("Offen seit ")
+        assert "3 Std." in text
     finally:
         await hub.stop()
+
+
+async def test_die_offen_meldung_zaehlt_ab_der_letzten_oeffnung():
+    """Der Fall, der die Nachricht zu früh brachte.
+
+    Der Wächter zählte selbst, und seine Uhr begann in der Runde, in der
+    er den Kontakt zum ersten Mal offen sah. Ging eine Türe zwischen zwei
+    Runden auf, zu und wieder auf, lief sie von der ersten Öffnung weiter
+    - und «seit einer Stunde offen» kam nach fünf Minuten.
+    """
+    import time as zeit
+
+    from homepilot.core.entity import Entity
+
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        sent: list[tuple[str, str]] = []
+
+        async def fake_send(tokens, title, body, data=None, **_):
+            sent.append((title, body))
+            return len(tokens)
+
+        hub.push.send = fake_send  # type: ignore[assignment]
+        hub.push.register("ExponentPushToken[x]", "Stefan")
+
+        tuere = Entity(
+            id="matter.tuere",
+            kind="binary_sensor",
+            name="Haustüre",
+            integration="matter",
+            state={"state": "on", "device_class": "contact"},
+        )
+        hub.registry.all = lambda: [tuere]  # type: ignore[assignment]
+
+        jetzt = zeit.time()
+        # Vor drei Stunden aufgemacht, vor zwei zugemacht, vor fünf
+        # Minuten wieder aufgemacht.
+        hub.eventlog._events.extend(
+            [
+                {"entity_id": "matter.tuere", "state": "on", "at": jetzt - 3 * 3600, "source": {}},
+                {"entity_id": "matter.tuere", "state": "off", "at": jetzt - 2 * 3600, "source": {}},
+                {"entity_id": "matter.tuere", "state": "on", "at": jetzt - 300, "source": {}},
+            ]
+        )
+
+        await hub.watchdog.check()
+        assert [title for title, _ in sent if "steht offen" in title] == []
+    finally:
+        await hub.stop()
+
+
+async def test_die_offen_meldung_kommt_wenn_es_wirklich_so_lange_ist():
+    import time as zeit
+
+    from homepilot.core.entity import Entity
+
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        sent: list[tuple[str, str]] = []
+
+        async def fake_send(tokens, title, body, data=None, **_):
+            sent.append((title, body))
+            return len(tokens)
+
+        hub.push.send = fake_send  # type: ignore[assignment]
+        hub.push.register("ExponentPushToken[x]", "Stefan")
+
+        tuere = Entity(
+            id="matter.tuere",
+            kind="binary_sensor",
+            name="Haustüre",
+            integration="matter",
+            state={"state": "on", "device_class": "contact"},
+        )
+        hub.registry.all = lambda: [tuere]  # type: ignore[assignment]
+
+        jetzt = zeit.time()
+        hub.eventlog._events.append(
+            {"entity_id": "matter.tuere", "state": "on", "at": jetzt - 3 * 3600, "source": {}}
+        )
+
+        await hub.watchdog.check()
+        text = next(body for title, body in sent if "steht offen" in title)
+        assert text.startswith("Offen seit ")
+    finally:
+        await hub.stop()
+
+
+def test_offen_satz_nennt_die_uhrzeit():
+    import time as zeit
+
+    from homepilot.core.watchrules import offen_satz
+
+    jetzt = zeit.mktime((2026, 8, 27, 15, 5, 0, 0, 0, -1))
+    seit = jetzt - 3660  # eine Stunde und eine Minute
+    satz = offen_satz(seit, jetzt)
+    assert satz.startswith("Offen seit 14:04")
+    assert "1 Std. 1 Min." in satz
+    # Unter einer Stunde in Minuten - «0 Stunden» wäre keine Auskunft.
+    assert offen_satz(jetzt - 900, jetzt).endswith("15 Minuten")
