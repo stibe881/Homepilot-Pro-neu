@@ -152,7 +152,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Einen Menschen im Datenbestand umbenennen (Hub vorher anhalten)"
     )
-    parser.add_argument("-d", "--data", required=True, help="Pfad zur homepilot-data.json")
+    # Zwei Wege zur Datei, weil man den einen kennt und den anderen nicht:
+    # Der Pfad zur config.yaml steht in jedem Startbefehl des Hubs, der zur
+    # Datendatei nirgends - sie liegt daneben, wenn nichts anderes
+    # eingetragen ist.
+    parser.add_argument(
+        "-c", "--config", help="Pfad zur config.yaml (die Datendatei steht darin)"
+    )
+    parser.add_argument("-d", "--data", help="Pfad zur homepilot-data.json")
     parser.add_argument("--von", required=True, help="Bisheriger Name, z.B. Stefan")
     parser.add_argument("--nach", required=True, help="Neuer Name, z.B. Stibe")
     parser.add_argument(
@@ -162,7 +169,17 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    pfad = Path(args.data)
+    if not (args.config or args.data):
+        parser.error("Entweder --config oder --data angeben.")
+    if args.data:
+        pfad = Path(args.data)
+    else:
+        from .config import load_config
+
+        pfad = Path(load_config(args.config).data_file or "")
+    if not pfad.is_file():
+        print(f"✗ Keine Datendatei unter {pfad}")
+        sys.exit(1)
     bestand = json.loads(pfad.read_text("utf-8"))
     neuer, bericht = umziehen(
         bestand,
