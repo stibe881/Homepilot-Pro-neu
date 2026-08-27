@@ -58,15 +58,73 @@ KINDS = frozenset(
 )
 
 
+# Ab wie vielen Prozentpunkten eine Store-Fahrt ins Protokoll gehört,
+# auch wenn sie «offen» bleibt. Ohne Schwelle stünde jede Zwischenstellung
+# einer fahrenden Store darin - die Overkiz-Abfrage sieht während einer
+# Fahrt ein halbes Dutzend davon. Fünfundzwanzig Punkte sind ein
+# Handgriff, keine Zwischenstellung.
+POSITIONS_SCHWELLE = 25
+
+
 def worth_recording(kind: str, old: dict[str, Any], new: dict[str, Any]) -> bool:
     """Gehört dieser Wechsel ins Protokoll? (rein, testbar)
 
-    Nur echte Zustandswechsel («on» → «off»), keine Attribut-Zappelei wie
+    Echte Zustandswechsel («on» → «off»), keine Attribut-Zappelei wie
     eine neue Helligkeit beim ohnehin brennenden Licht.
+
+    Eine Ausnahme gibt es: eine Store, die offen bleibt und trotzdem
+    fährt. «Halb runter» ist ein Handgriff wie jeder andere, nur meldet
+    das Gerät ihn nicht als Zustandswechsel - und ohne diese Ausnahme
+    stünde er nirgends.
     """
     if kind not in KINDS:
         return False
-    return str(old.get("state")) != str(new.get("state"))
+    if str(old.get("state")) != str(new.get("state")):
+        return True
+    if kind != "cover":
+        return False
+    return _positions_sprung(old.get("position"), new.get("position"))
+
+
+def _positions_sprung(alt: Any, neu: Any) -> bool:
+    """Ist die Store weit genug gefahren? (rein, testbar)"""
+    try:
+        vorher, nachher = float(alt), float(neu)
+    except (TypeError, ValueError):
+        return False
+    return abs(nachher - vorher) >= POSITIONS_SCHWELLE
+
+
+def detail_text(kind: str, state: dict[str, Any]) -> str | None:
+    """Was den Eintrag erklärt, in wenigen Worten (rein, testbar).
+
+    «Geöffnet» allein sagt bei einer Store nicht, wie weit; «Spielt»
+    nicht, was. Der Zustand steht in der Liste ohnehin - hier kommt das
+    dazu, was ihn im Rückblick unterscheidbar macht.
+    """
+    if kind == "cover" and state.get("position") is not None:
+        try:
+            return f"auf {int(round(float(state['position'])))} %"
+        except (TypeError, ValueError):
+            return None
+    if kind == "media_player":
+        titel = str(state.get("track") or "").strip()
+        return titel or None
+    if kind == "climate":
+        ziel = state.get("target_temperature", state.get("target"))
+        if ziel is not None:
+            try:
+                return f"Ziel {float(ziel):.1f} °C"
+            except (TypeError, ValueError):
+                return None
+    if kind == "light" and state.get("state") == "on":
+        hell = state.get("brightness")
+        if hell is not None:
+            try:
+                return f"{int(round(float(hell)))} %"
+            except (TypeError, ValueError):
+                return None
+    return None
 
 
 class EventLog:
@@ -147,17 +205,19 @@ class EventLog:
             return
         source = data.get("source") or {}
         self._schmutzig = True
-        self._events.append(
-            {
-                "entity_id": str(data.get("entity_id") or ""),
-                "state": new.get("state"),
-                "at": time.time(),
-                "source": {
-                    "kind": source.get("kind"),
-                    "label": source.get("label"),
-                },
-            }
-        )
+        eintrag: dict[str, Any] = {
+            "entity_id": str(data.get("entity_id") or ""),
+            "state": new.get("state"),
+            "at": time.time(),
+            "source": {
+                "kind": source.get("kind"),
+                "label": source.get("label"),
+            },
+        }
+        detail = detail_text(kind, new)
+        if detail:
+            eintrag["detail"] = detail
+        self._events.append(eintrag)
 
     def all(self) -> list[dict[str, Any]]:
         """Alle gemerkten Ereignisse, älteste zuerst.

@@ -14,7 +14,7 @@ export interface LogSpan {
  * (rein, testbar)
  *
  * Ohne ihn ist eine kurze Liste nicht zu deuten – «zwei Einträge» heisst
- * entweder «hier passiert wenig» oder «der Hub lief erst zehn Minuten».
+ * entweder «hier passiert wenig» oder «der Hub läuft erst zehn Minuten».
  * Ist der Ringpuffer voll, ist der Anfang nicht mehr der Start des Hubs,
  * sondern die Kante des Puffers; älteres ist dann endgültig weg, und das
  * soll dastehen statt stillschweigend zu fehlen.
@@ -25,5 +25,5 @@ export function reichweiteText(span: LogSpan | null, jetzt = Date.now()): string
   if (!seit) return '';
   return span.full
     ? `Das Protokoll reicht ${seit} zurück – ältere Einträge sind aus dem Speicher gefallen.`
-    : `Das Protokoll läuft seit dem Start des Hubs ${seit} und beginnt nach jedem Neustart leer.`;
+    : `Das Protokoll läuft seit dem ersten Start ${seit} und übersteht Neustarts und Updates.`;
 }

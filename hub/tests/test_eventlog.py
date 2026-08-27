@@ -182,3 +182,72 @@ def test_ohne_pfad_bleibt_alles_wie_frueher():
     _schalten(log)
     log.save(force=True)
     assert len(log.all()) == 1
+
+
+# ── Was den Eintrag erklärt ──────────────────────────────────────────────
+
+
+def test_eine_fahrende_store_kommt_ins_protokoll():
+    """«Halb runter» ist ein Handgriff wie jeder andere - nur meldet das
+    Gerät ihn nicht als Zustandswechsel."""
+    assert (
+        worth_recording(
+            "cover", {"state": "open", "position": 100}, {"state": "open", "position": 40}
+        )
+        is True
+    )
+
+
+def test_eine_zwischenstellung_nicht():
+    # Die Overkiz-Abfrage sieht während einer Fahrt ein halbes Dutzend
+    # davon - jede wäre eine Zeile für nichts.
+    assert (
+        worth_recording(
+            "cover", {"state": "open", "position": 100}, {"state": "open", "position": 90}
+        )
+        is False
+    )
+    # Und ohne Positionsangabe bleibt es beim Zustandsvergleich.
+    assert (
+        worth_recording("cover", {"state": "open"}, {"state": "open", "position": 40})
+        is False
+    )
+
+
+def test_die_positionsausnahme_gilt_nur_fuer_storen():
+    # Eine Lampe, die heller wird, bleibt Attribut-Zappelei.
+    assert (
+        worth_recording(
+            "light", {"state": "on", "position": 100}, {"state": "on", "position": 0}
+        )
+        is False
+    )
+
+
+def test_detail_erklaert_den_eintrag():
+    from homepilot.core.eventlog import detail_text
+
+    assert detail_text("cover", {"state": "open", "position": 40}) == "auf 40 %"
+    assert detail_text("media_player", {"state": "playing", "track": "Shivers"}) == "Shivers"
+    assert detail_text("climate", {"state": "heat", "target_temperature": 21.5}) == "Ziel 21.5 °C"
+    assert detail_text("light", {"state": "on", "brightness": 60}) == "60 %"
+    # Eine ausgeschaltete Lampe hat keine Helligkeit, die etwas erklärt.
+    assert detail_text("light", {"state": "off", "brightness": 60}) is None
+    # Und Unsinn ergibt kein Detail statt einer Ausnahme.
+    assert detail_text("cover", {"position": "weit offen"}) is None
+    assert detail_text("switch", {"state": "on"}) is None
+
+
+def test_detail_landet_im_eintrag():
+    log = EventLog()
+    log.record(
+        "state_changed",
+        {
+            "entity_id": "cover.wohnzimmer",
+            "entity": {"kind": "cover"},
+            "old_state": {"state": "closed", "position": 0},
+            "new_state": {"state": "open", "position": 40},
+            "source": {},
+        },
+    )
+    assert log.for_entity("cover.wohnzimmer")[0]["detail"] == "auf 40 %"
