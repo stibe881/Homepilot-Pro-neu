@@ -25,6 +25,7 @@ weiter – das ist der Grund, warum Licht, Storen und Schlösser hier stehen.
 | **matter** | Matter-Geräte über den Controller-Dienst | Matter-Fabrik in `hub/matter/` |
 | **mqtt** | Sonoff und andere Tasmota-Geräte | Broker, Benutzer/Passwort |
 | **zigbee2mqtt** | Zigbee-Geräte über den eigenen Stick – Aqara, IKEA, Tuya-Zigbee | Broker, Benutzer/Passwort |
+| **bletags** | Bluetooth-Anhänger am Schlüssel oder im Rucksack – in welchem Zimmer? | Broker, ESP32 mit ESPresense ([Anleitung](bluetooth-anhaenger.md)) |
 | **overkiz** | Somfy TaHoma – Storen, Rollläden, Markisen | Gateway, Zugangsdaten |
 
 Zeigt eine Store einen Zustand, der nicht stimmt, sagt dieser Aufruf, was
