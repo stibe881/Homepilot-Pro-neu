@@ -1,12 +1,12 @@
 import { kachelAktionen } from './kachelmenue';
 
 describe('kachelAktionen', () => {
-  it('stellt das Umbenennen voran', () => {
-    // Es ist der Grund, aus dem es dieses Menü gibt; der Verlauf hat
-    // unter «Geräte» ohnehin seinen eigenen Weg.
+  it('stellt den Verlauf voran', () => {
+    // Umbenannt wird ein Gerät einmal, nachgesehen «wann ging das an?»
+    // immer wieder - und die Geste dafür ist dieselbe.
     expect(kachelAktionen({ umbenennen: true, verlauf: true }).map((e) => e.id)).toEqual([
-      'umbenennen',
       'verlauf',
+      'umbenennen',
     ]);
   });
 
@@ -31,10 +31,11 @@ describe('kachelAktionen', () => {
 });
 
 describe('Oben nicht mitzählen', () => {
-  it('steht bei Licht und Schalter zwischen Umbenennen und Verlauf', () => {
+  it('steht bei Licht und Schalter zuunterst', () => {
+    // Die seltenste der drei Fragen steht am weitesten weg vom Finger.
     expect(
       kachelAktionen({ umbenennen: true, zaehlung: true, verlauf: true }).map((e) => e.id)
-    ).toEqual(['umbenennen', 'zaehlung', 'verlauf']);
+    ).toEqual(['verlauf', 'umbenennen', 'zaehlung']);
   });
 
   it('sagt, was der Griff bewirkt – nicht, was gerade gilt', () => {
