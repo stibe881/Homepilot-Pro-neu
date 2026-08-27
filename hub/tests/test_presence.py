@@ -191,11 +191,12 @@ def test_a_user_without_a_zone_gets_nothing():
     assert zone_fuer("", {"stefan": "Stefan"}) is None
     assert zone_fuer("Stefan", {}) is None
 def test_anyone_home_state() -> None:
-    """Ein leerer Akku ist kein «niemand zuhause».
+    """Wer nicht ausdrücklich zuhause ist, zählt als weg.
 
-    Die Vorsicht ist der ganze Punkt: Aus dieser Entität wird «alles
-    aus, Alarm scharf». Wer daraus bei Nichtwissen ein «weg» macht,
-    schaltet irgendwann das Haus ab, während jemand darin sitzt.
+    So gewollt: «unbekannt» hielt die Sammelfrage früher auf «jemand
+    da», und ein einziges stummes Telefon genügte, damit «niemand ist
+    zuhause» nie feuerte - der Saug-Ablauf wartete einen ganzen Tag
+    umsonst.
     """
     from homepilot.core.presence import anyone_home_state
 
@@ -203,10 +204,21 @@ def test_anyone_home_state() -> None:
     assert anyone_home_state(["away", "away"]) == "off"
     # Ein anderer Ort ist auch weg - nur eben ein benannter.
     assert anyone_home_state(["schule", "away"]) == "off"
-    assert anyone_home_state(["unknown", "away"]) == "on"
-    assert anyone_home_state(["", "away"]) == "on"
+    # Ein stummes Telefon neben einem gemeldeten «weg»: weg.
+    assert anyone_home_state(["unknown", "away"]) == "off"
+    assert anyone_home_state(["", "away"]) == "off"
     assert anyone_home_state([]) == "on"
     assert anyone_home_state(None) == "on"
+
+
+def test_anyone_home_bleibt_vorsichtig_wenn_der_hub_gar_nichts_weiss() -> None:
+    """Frisch gestartet weiss der Hub von niemandem etwas - das ist kein
+    «alle sind weg». Sonst liefe nach jeder Auslieferung «alles aus»,
+    während die Familie am Tisch sitzt."""
+    from homepilot.core.presence import anyone_home_state
+
+    assert anyone_home_state(["unknown", "unknown"]) == "on"
+    assert anyone_home_state(["", "unknown"]) == "on"
 
 
 def test_der_hausstandort_kommt_von_dort_wo_man_steht() -> None:

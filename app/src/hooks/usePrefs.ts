@@ -29,6 +29,11 @@ export interface HousePrefs {
   order?: Record<string, string[]>;
   /** Geräte, die auf der Startseite nicht erscheinen. */
   hidden?: string[];
+  /** Familien-Kacheln, die nicht erscheinen. Sie lagen bis zuletzt im
+   *  Speicher der App - und waren damit nach jedem neuen Build weg und
+   *  auf dem Wandpanel nie da. Genau der Fall, für den es diese Ablage
+   *  gibt. */
+  familyHidden?: string[];
   /** Gesperrte Geräte: schalten nur nach ausdrücklicher Rückfrage. */
   locked?: string[];
   /** Geräte, die in der «3 an» der Kopfzeile nicht mitzählen – der
@@ -177,6 +182,11 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     [setzeHaus]
   );
 
+  const setFamilyHidden = useCallback(
+    (keys: string[]) => setzeHaus({ ...hausJetzt.current, familyHidden: keys }),
+    [setzeHaus]
+  );
+
   const setLocked = useCallback(
     (ids: string[]) => setzeHaus({ ...hausJetzt.current, locked: ids }),
     [setzeHaus]
@@ -246,6 +256,7 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     eigenePrefs: eigen.werte,
     setOrder,
     setHidden,
+    setFamilyHidden,
     setLocked,
     setUngezaehlt,
     setBioLock,

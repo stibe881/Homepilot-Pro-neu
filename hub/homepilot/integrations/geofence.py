@@ -53,16 +53,30 @@ Dazu kommt `geofence.anyone_home`: die Sammelfrage «ist überhaupt noch
 jemand da?». Ohne sie müsste ein Ablauf «alles aus» je Person einen
 Auslöser tragen und zusätzlich prüfen, dass die anderen drei auch weg
 sind – das schreibt niemand von Hand richtig auf, und beim fünften
-Familienmitglied stimmt es nicht mehr. Sie steht auf «off», wenn alle
-ausdrücklich weg sind; Nichtwissen zählt als «on».
+Familienmitglied stimmt es nicht mehr. Sie steht auf «off», sobald
+niemand mehr ausdrücklich «home» meldet - jeder andere Zustand zählt
+als weg, auch «unbekannt» (Ausnahme in core/presence.py:
+anyone_home_state).
+
+Die Sammelfrage zählt **nur den Haushalt**: Zonen, hinter denen ein
+Benutzer des Hubs steht. Es gibt auch Zonen für Menschen, die hier
+nicht wohnen - der Life360-Kreis ortet Grosseltern und Freunde, und
+deren Zonen sind fürs Anschauen und für Abläufe («kommt an bei …»)
+gedacht. Zählten sie mit, wäre «niemand ist zuhause» erst wahr, wenn
+auch die Oma ihr eigenes Haus verlässt - der Saug-Ablauf feuerte nie.
+Wer eine Zone ohne Benutzer trotzdem mitzählen will, listet sie in der
+config.yaml unter `haushalt: [kennung, …]`.
 
 Zwei Dinge, die man erst im Betrieb merkt und die darum hier eingebaut
 sind:
 
-  - **Ein leerer Akku ist kein «niemand zuhause».** Meldet ein Telefon
-    zwölf Stunden nichts, wird aus «away» ein «unknown» – sonst schaltet
-    «alles aus, wenn niemand da» irgendwann das Haus ab, während jemand
-    darin sitzt.
+  - **Ein stummes Telefon hält das Haus nicht wach.** Meldet ein
+    Telefon zwölf Stunden nichts, wird aus «away» ein «unknown» - und
+    das zählt für die Sammelfrage als weg, nicht als da. Früher war es
+    andersherum, und ein einziger leerer Akku genügte, damit «niemand
+    ist zuhause» nie feuerte. Nur wenn der Hub von *niemandem* etwas
+    weiss (frisch gestartet, noch keine Meldung), bleibt er vorsichtig
+    bei «jemand da».
   - **Das WLAN entscheidet nichts.** Es gab einmal eine Option `wifi:`
     je Zone, die eine UniFi-Anmeldung über die Ortsmeldung stellte. Sie
     ist weg: «Gerät im Netz» ist nicht «Mensch zuhause» – das iPad liegt
@@ -198,6 +212,32 @@ def zonen_zusammenfuehren(
     return zusammen
 
 
+def sammel_zonen(
+    alle: list[str],
+    benutzer_zonen: list[dict[str, str]],
+    haushalt: Any = None,
+) -> list[str]:
+    """Welche Zonen für «jemand/niemand zuhause» zählen (rein, testbar).
+
+    Der Haushalt sind die Zonen, hinter denen ein Benutzer des Hubs
+    steht, plus alles, was die config.yaml unter `haushalt:` nennt.
+    Zonen fremder Personen (der Life360-Kreis ortet auch Grosseltern
+    und Freunde) bleiben draussen - sonst wäre «niemand ist zuhause»
+    erst wahr, wenn auch die Oma ihr eigenes Haus verlässt.
+
+    Findet sich gar kein Haushalt (keine passende Zone), zählen alle:
+    Eine Sammelfrage, die still auf niemanden mehr hört, ist schlimmer
+    als die alte, zu breite.
+    """
+    erlaubt = {zone["id"] for zone in benutzer_zonen or []}
+    for eintrag in haushalt or []:
+        kennung = str(eintrag or "").strip()
+        if kennung:
+            erlaubt.add(kennung)
+    gefiltert = [zone_id for zone_id in alle if zone_id in erlaubt]
+    return gefiltert if gefiltert else list(alle)
+
+
 def default_places(location: dict[str, Any] | None) -> list[dict[str, Any]]:
     """Zuhause und Quartier aus dem Hausstandort (rein, testbar).
 
@@ -267,6 +307,14 @@ class GeofenceIntegration(Integration):
         self._fremde_orte = []
         self._beansprucht = {}
         self._config_zonen = parse_zones(self.config.get("zones"))
+        # Zonen ohne Benutzer, die trotzdem zum Haushalt zählen sollen -
+        # etwa die Life360-Kennung einer Person, deren Telefon nicht
+        # selbst meldet. Für die Sammelfrage «jemand/niemand zuhause».
+        self._haushalt = [
+            str(eintrag or "").strip()
+            for eintrag in (self.config.get("haushalt") or [])
+            if str(eintrag or "").strip()
+        ]
         # Welche Zonen aus der Benutzerliste stammen. Nur die dürfen
         # wieder verschwinden - was in der config.yaml steht, bleibt.
         self._aus_benutzern: set[str] = set()
@@ -349,11 +397,17 @@ class GeofenceIntegration(Integration):
         self.start_polling(self._settle, interval=SETTLE_INTERVAL)
 
     async def _update_anyone(self) -> None:
-        """Die Sammel-Entität aus den Einzelzuständen nachziehen."""
+        """Die Sammel-Entität aus den Einzelzuständen nachziehen.
+
+        Nur über den Haushalt: Der Kreis ortet auch Menschen, die hier
+        nicht wohnen, und deren Zuhause ist ein anderes (sammel_zonen).
+        """
         zustaende = []
         weg = []
-        for zone_id, entity_id in self._zones.items():
-            entity = self.hub.registry.get(entity_id)
+        for zone_id in sammel_zonen(
+            list(self._zones), self.benutzer_zonen(), self._haushalt
+        ):
+            entity = self.hub.registry.get(self._zones[zone_id])
             zustand = str((entity.state if entity else {}).get("state") or presence.UNKNOWN)
             zustaende.append(zustand)
             if zustand != HOME:

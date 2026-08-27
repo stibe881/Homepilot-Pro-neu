@@ -112,7 +112,9 @@ const CACHE_KEY = 'homepilot.family.cache';
 const QUEUE_KEY = 'homepilot.family.queue';
 /** Wann jedes Modul zuletzt angesehen wurde – je Person im Gerät. */
 const SEEN_KEY = 'homepilot.family.seen';
-/** Welche Kacheln ausgeblendet sind – je Gerät, wie die Reihenfolge. */
+/** Der alte Ort der ausgeblendeten Kacheln: im Speicher der App. Er
+ *  wird beim ersten Start noch einmal gelesen und dann geleert - was
+ *  hier stand, gehört jetzt zum Hub. */
 const HIDDEN_KEY = 'homepilot.family.hidden';
 /** Kennung fürs Wachhalten im Einkaufs-Modus. */
 const EINKAUF_TAG = 'homepilot-einkauf';
@@ -123,6 +125,8 @@ export function FamilyScreen({
   currentUser,
   moduleOrder,
   onReorderModules,
+  hiddenModules,
+  onHiddenModules,
   changedAt,
   startModul,
 }: Props) {
@@ -177,9 +181,11 @@ export function FamilyScreen({
   // Punkt 167: Was gelöscht wurde – dreissig Tage lang.
   const [korb, setKorb] = useState<FamilyItem[]>([]);
   const [korbOffen, setKorbOffen] = useState(false);
-  // Punkt 205: Ausgeblendete Kacheln – je Person im Gerät, wie die
-  // Reihenfolge. Was ausgeblendet ist, ist nicht weg, nur nicht im Weg.
-  const [versteckteModule, setVersteckteModule] = useState<string[]>([]);
+  // Punkt 205: Ausgeblendete Kacheln. Sie lagen im Speicher der App und
+  // waren damit nach jedem neuen Build weg - und auf dem Wandpanel nie
+  // da. Jetzt liegen sie beim Hub, wie die Reihenfolge daneben. Was
+  // ausgeblendet ist, ist nicht weg, nur nicht im Weg.
+  const versteckteModule = useMemo(() => hiddenModules ?? [], [hiddenModules]);
   const [ordnen, setOrdnen] = useState(false);
   // Vom Essensplaner direkt ins Rezept springen (Punkt 146).
   const [rezeptStart, setRezeptStart] = useState<string | null>(null);
@@ -529,11 +535,19 @@ export function FamilyScreen({
       .catch(() => {});
   }, []);
 
+  // Einmalige Übernahme: Was auf diesem Gerät schon ausgeblendet war,
+  // wandert zum Hub - und der lokale Eintrag verschwindet, damit die
+  // Übernahme nicht bei jedem Start eine schon gelöste Frage neu stellt.
   useEffect(() => {
+    if (!onHiddenModules || hiddenModules !== undefined) return;
     AsyncStorage.getItem(HIDDEN_KEY)
-      .then((raw) => setVersteckteModule(raw ? JSON.parse(raw) : []))
+      .then((raw) => {
+        const alt: string[] = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(alt) && alt.length > 0) onHiddenModules(alt);
+        return AsyncStorage.removeItem(HIDDEN_KEY);
+      })
       .catch(() => {});
-  }, []);
+  }, [onHiddenModules, hiddenModules]);
 
   // Punkt 173: Im Laden hält man das Telefon in einer Hand und in der
   // anderen den Wagen – ein Bildschirm, der alle 30 Sekunden zugeht, ist
@@ -558,15 +572,17 @@ export function FamilyScreen({
   useEffect(ladeKorb, [ladeKorb, changedAt]);
 
   /** Eine Kachel aus- oder wieder einblenden (Punkt 205). */
-  const toggleModul = useCallback((key: string) => {
-    setVersteckteModule((vorher) => {
-      const neu = vorher.includes(key)
-        ? vorher.filter((eintrag) => eintrag !== key)
-        : [...vorher, key];
-      AsyncStorage.setItem(HIDDEN_KEY, JSON.stringify(neu)).catch(() => {});
-      return neu;
-    });
-  }, []);
+  const toggleModul = useCallback(
+    (key: string) => {
+      const vorher = hiddenModules ?? [];
+      onHiddenModules?.(
+        vorher.includes(key)
+          ? vorher.filter((eintrag) => eintrag !== key)
+          : [...vorher, key]
+      );
+    },
+    [hiddenModules, onHiddenModules]
+  );
 
   /** Ein Modul als gesehen markieren (Punkt 168). */
   const merkeGesehen = useCallback((modul: string) => {

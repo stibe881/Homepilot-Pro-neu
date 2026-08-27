@@ -5,6 +5,28 @@ Gegenstück: was die Anlage heute kann, was sie vorher nicht konnte.
 
 Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
+## 2026-08-27
+
+**Anwesenheit**
+
+- **«Jemand/niemand zuhause» zählt nur noch den Haushalt.** Der
+  Life360-Kreis ortet auch Menschen, die hier nicht wohnen - deren
+  Zuhause ist ein anderes. Bisher zählten ihre Zonen mit, und «niemand
+  ist zuhause» wäre erst wahr geworden, wenn auch die Oma ihr eigenes
+  Haus verlässt: Der Saug-Ablauf mit genau diesem Auslöser feuerte
+  deshalb nie. Jetzt zählen die Zonen, hinter denen ein Benutzer des
+  Hubs steht; wer eine weitere Zone mitzählen will, nennt sie in der
+  config.yaml unter `geofence → haushalt: [kennung]`. Findet sich gar
+  kein Haushalt, zählen zur Sicherheit wie bisher alle.
+- **Wer nicht ausdrücklich zuhause ist, zählt als weg** - auch
+  «unbekannt». Vorher hielt ein einziges stummes Telefon die Frage auf
+  «jemand da», und der Ablauf wartete einen ganzen Tag umsonst. Die
+  eine Ausnahme bleibt: Weiss der Hub von niemandem etwas (frisch
+  gestartet, noch keine Meldung), bleibt es bei «jemand da» - sonst
+  liefe nach jeder Auslieferung «alles aus», während die Familie am
+  Tisch sitzt. Das Gleiche gilt fürs Schild «alle sind zuhause»: Es
+  urteilt jetzt über den Haushalt, nicht über den ganzen Kreis.
+
 ## 2026-08-25
 
 **Haustüre**

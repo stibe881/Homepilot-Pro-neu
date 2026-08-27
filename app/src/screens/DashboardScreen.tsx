@@ -168,6 +168,9 @@ const SWITCHING = new Set([
 const NO_ROOM = 'Weitere';
 // Gerätearten mit eigenem Verlauf (Tipp auf die Kachel unter Geräte).
 // Sensoren öffnen stattdessen ihre Messwert-Kurve, Kameras das Livebild.
+// Wofür der Hub überhaupt ein Protokoll führt (hub: core/eventlog.py).
+// Messwerte stehen bewusst nicht dabei: Sie ändern sich im Minutentakt
+// und beantworten die Warum-Frage nie - für sie gibt es die Kurve.
 const HISTORY_KINDS = new Set([
   'light',
   'switch',
@@ -178,6 +181,7 @@ const HISTORY_KINDS = new Set([
   'appliance',
   'media_player',
   'binary_sensor',
+  'alarm',
 ]);
 const PANEL_WIDTH = 340;
 
@@ -671,6 +675,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     eigenePrefs,
     setOrder,
     setHidden,
+    setFamilyHidden,
     setLocked,
     setUngezaehlt,
     setSeenChanges,
@@ -1362,9 +1367,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       }
       onLongPress={
         // Überall dasselbe: langes Drücken zeigt den Verlauf dieses
-        // Geräts. Unter Geräte tut das schon ein Tipp - dort wäre ein
-        // zweiter Weg nur verwirrend.
-        !editing && section !== 'devices' && HISTORY_KINDS.has(entity.kind)
+        // Geräts. Hier stand einmal eine Ausnahme für «Geräte», weil
+        // dort schon ein Tipp den Verlauf öffnet - ein zweiter Weg sei
+        // verwirrend. In Wahrheit war es das Gegenteil: Wer die Geste
+        // überall gelernt hat, drückt auch dort lange, und dann passierte
+        // nichts. Zwei Wege zum selben Ziel verwirren niemanden; ein Weg,
+        // der an einer Stelle fehlt, schon.
+        !editing && HISTORY_KINDS.has(entity.kind)
           ? () => setHistoryFor(entity.id)
           : undefined
       }
@@ -1498,6 +1507,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           currentUser={user}
           moduleOrder={prefs.order?.family}
           onReorderModules={(keys) => setOrder('family', keys)}
+          hiddenModules={prefs.familyHidden}
+          onHiddenModules={setFamilyHidden}
           changedAt={familyChangedAt}
           startModul={riegelModul}
         />

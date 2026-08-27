@@ -588,14 +588,19 @@ def anyone_home_state(zustaende: Any) -> str:
     """Ist noch jemand zuhause? (rein, testbar)
 
     Aus den Einzelzuständen der Personen wird ein «on»/«off», auf das
-    ein Ablauf hören kann. Die Regel ist bewusst vorsichtig:
+    ein Ablauf hören kann:
 
     * Eine Person auf ``home`` genügt für «on».
-    * ``unknown`` zählt ebenfalls als «on». Ein leerer Akku ist kein
-      «niemand zuhause» - sonst fährt das Haus herunter, während jemand
-      darin sitzt. Lieber einmal zu viel Licht als das.
-    * Erst wenn *alle* ausdrücklich weg sind (``away`` oder an einem
-      anderen Ort), wird es «off».
+    * Alles andere - ``away``, ein benannter Ort («schule») **und auch
+      ``unknown``** - zählt als weg. Das war einmal anders: «unbekannt»
+      hielt die Frage auf «jemand da», und ein einziges stummes Telefon
+      genügte, damit «niemand ist zuhause» nie feuerte - der Saug-Ablauf
+      wartete einen ganzen Tag umsonst. Wer nicht ausdrücklich zuhause
+      ist, ist es eben nicht.
+    * Die eine Ausnahme: Weiss der Hub von **niemandem** etwas (alle
+      unbekannt, etwa direkt nach einem Neustart, bevor das erste
+      Telefon meldet), bleibt es «on». Sonst liefe nach jeder
+      Auslieferung «alles aus», während die Familie am Tisch sitzt.
 
     Ohne Personen gibt es nichts zu entscheiden: dann «on», aus
     demselben Grund.
@@ -605,7 +610,7 @@ def anyone_home_state(zustaende: Any) -> str:
         return "on"
     if any(zustand in (HOME, "on", "true") for zustand in liste):
         return "on"
-    if any(zustand in ("", UNKNOWN) for zustand in liste):
+    if all(zustand in ("", UNKNOWN) for zustand in liste):
         return "on"
     return "off"
 

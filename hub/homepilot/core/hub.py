@@ -92,7 +92,10 @@ class Hub:
         self.audit = AuditLog(self)
         # Ereignisprotokoll je Gerät (jeder Zustandswechsel samt Quelle,
         # auch von Abläufen und der Simulation) - siehe eventlog.py.
-        self.eventlog = EventLog()
+        # Es liegt neben der Datendatei und überlebt damit den Neustart:
+        # Ohne das war der Verlauf nach jedem Update leer - also genau
+        # dann, wenn man ihn braucht, weil sich etwas geändert hat.
+        self.eventlog = EventLog(self._eventlog_path())
         self.bus.subscribe("state_changed", self.eventlog.record)
         # Einmal-Links für die Türe – nur im Speicher, siehe guestpass.py.
         self.passes = PassStore()
@@ -242,6 +245,9 @@ class Hub:
             while True:
                 await asyncio.sleep(persistence.FLUSH_DELAY)
                 self.data.flush()
+                # Derselbe Takt, andere Drosselung: Der Verlauf sichert
+                # sich höchstens alle paar Minuten (siehe eventlog.py).
+                self.eventlog.save()
         except asyncio.CancelledError:
             raise
 
@@ -565,6 +571,17 @@ class Hub:
             "down": sorted(self.watchdog.down_since),
         }
 
+    def _eventlog_path(self) -> str | None:
+        """Wo der Geräte-Verlauf liegt: neben der Datendatei.
+
+        Eine eigene Datei und nicht die Datendatei selbst: Zweitausend
+        Einträge sind ein paar hundert Kilobyte, und die Datendatei wird
+        bei jeder Kleinigkeit neu geschrieben.
+        """
+        if not self.config.data_file:
+            return None
+        return str(Path(self.config.data_file).parent / "geraete-verlauf.json")
+
     def _log_ring_path(self) -> str | None:
         """Wo der Log-Ring den Neustart überdauert: neben der Datendatei.
         Ohne Datendatei (Tests, Demo im Speicher) auch keine Übergabe."""
@@ -596,6 +613,9 @@ class Hub:
         if self.store:
             await self.store.stop()
             self.store = None
+        # Und der Verlauf: Hier ohne Drosselung, denn ein zweiter
+        # Versuch kommt nicht.
+        self.eventlog.save(force=True)
         # Was der DataStore noch gesammelt hat, muss vor dem Ende auf die
         # Platte - der Takt dafür ist oben schon beendet.
         self.data.flush()

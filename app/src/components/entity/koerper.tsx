@@ -13,6 +13,7 @@ import { mayOpenDirectly } from '../../lib/tuerbestaetigung';
 import { radius, useColors } from '../../theme';
 import { Bar } from '../Bar';
 import { CoverVisual, Sky } from '../CoverVisual';
+import { useKachelDruck } from './kacheldruck';
 import { MediaButton } from './medien';
 import { makeStyles } from './stil';
 import { Pill, clock } from './teile';
@@ -33,6 +34,10 @@ export function LockBody({
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [armed, setArmed] = useState(false);
+  // Der lange Druck der Kachel. Die Türknöpfe füllen sie fast ganz aus,
+  // und ein Druck auf einen Knopf erreicht die Kachel darunter nie -
+  // React Native gibt die Geste an das innerste Element, das sie annimmt.
+  const langerDruck = useKachelDruck();
   useEffect(() => {
     if (!armed) return;
     const timer = setTimeout(() => setArmed(false), 4000);
@@ -106,6 +111,7 @@ export function LockBody({
           <Pressable
             disabled={pending || moving}
             onPress={() => oeffne('unlatch')}
+            onLongPress={langerDruck}
             accessibilityRole="button"
             style={({ pressed }) => [
               styles.lockButton,
@@ -148,6 +154,7 @@ export function LockBody({
       <Pressable
         disabled={pending || opened}
         onPress={() => oeffne('open_door')}
+        onLongPress={langerDruck}
         accessibilityRole="button"
         accessibilityLabel={armed ? 'Wirklich öffnen' : 'Tür öffnen'}
         style={({ pressed }) => [
@@ -482,6 +489,8 @@ export function VacuumBody({
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  // Der lange Druck der Kachel - siehe kacheldruck.tsx.
+  const saugerDruck = useKachelDruck();
   const [selected, setSelected] = useState<number[]>([]);
   const toggle = (id: number) =>
     setSelected((current) =>
@@ -594,6 +603,7 @@ export function VacuumBody({
       {selected.length > 0 ? (
         <Pressable
           onPress={clean}
+          onLongPress={saugerDruck}
           accessibilityRole="button"
           style={({ pressed }) => [styles.cleanRoomsButton, pressed && { opacity: 0.75 }]}
         >

@@ -16,7 +16,9 @@ describe('reichweiteText', () => {
       { started: VOR_DREI_STUNDEN, oldest: VOR_DREI_STUNDEN, count: 4, limit: 2000, full: false },
       JETZT
     );
-    expect(text).toContain('Start des Hubs');
+    expect(text).toContain('ersten Start');
+    // Er ist nicht mehr flüchtig - das darf dastehen.
+    expect(text).toContain('übersteht Neustarts');
     expect(text).not.toContain('gefallen');
   });
 
