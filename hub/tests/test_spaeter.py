@@ -65,7 +65,7 @@ def test_die_schlange_bleibt_gedeckelt():
     assert len(rows) == spaeter.HOECHSTENS
 
 
-def test_der_knopf_reicht_die_meldung_an_den_hub_und_sie_kommt_wieder():
+async def test_der_knopf_reicht_die_meldung_an_den_hub_und_sie_kommt_wieder():
     hub = Hub(
         make_config(
             users=[{"name": "Stefan", "role": "besitzer", "token": "t-owner"}],
@@ -98,8 +98,6 @@ def test_der_knopf_reicht_die_meldung_an_den_hub_und_sie_kommt_wieder():
             spaeter.SCHLANGE,
             [{**rows[0], "at": time.time() - 1}],
         )
-        import asyncio
-
-        asyncio.get_event_loop().run_until_complete(hub.watchdog._check_spaeter())
+        await hub.watchdog._check_spaeter()
         assert gesendet == [("Fenster offen", "seit 2 Std")]
         assert hub.data.get(spaeter.SCHLANGE) == []
