@@ -9,6 +9,13 @@
  *
  * Solange der Modus läuft, ruhen alle Abläufe ausser den ausdrücklich
  * angehakten.
+ *
+ * **Frist und Empfangslicht** kamen aus dem früheren Gästemodus. Der
+ * stand daneben, für «Besuch kommt», und tat fast dasselbe – nur
+ * gröber: Er pausierte *alle* Abläufe, auch die hier freigegebenen.
+ * Zwei Modi für einen Fall waren zwei Stellen zum Nachsehen und eine
+ * zum Vergessen. Was der andere wirklich konnte, steht jetzt hier:
+ * eine Frist (der Modus endet von selbst) und Licht zum Empfang.
  */
 
 /** Was der Hub über den Modus mitschickt. */
@@ -21,6 +28,13 @@ export interface BabysitterStand {
   /** Wie viele Abläufe laufen bzw. ruhen würden. */
   running?: number;
   paused?: number;
+  /** Unix-Sekunden – wann er von selbst endet. `null`: keine Frist,
+   *  er läuft dann, bis jemand ausschaltet. */
+  until?: number | null;
+  minutes_left?: number;
+  /** Die zuletzt gewählten Empfangslichter (nur in der Abfrage). */
+  lights?: string[];
+  default_hours?: number;
 }
 
 export const LEERER_BABYSITTER: BabysitterStand = { active: false, allow: [] };
@@ -70,4 +84,36 @@ export function seitText(since?: number | null): string {
     datum.getMinutes()
   ).padStart(2, '0')}`;
   return ` seit ${uhr}`;
+}
+
+
+/**
+ * «2 Std 10 Min», «40 Min» (rein, testbar).
+ *
+ * Aus der Frist gerechnet und nicht aus ``minutes_left``: Die Zahl aus
+ * dem Hub ist von dem Augenblick, in dem sie geholt wurde. Ein Blatt,
+ * das eine Viertelstunde offen liegt, zeigte sonst eine Restzeit, die
+ * es nicht mehr gibt.
+ */
+export function restText(stand: BabysitterStand | null, jetzt: number): string {
+  if (!stand?.active || !stand.until) return '';
+  const minuten = Math.max(0, Math.ceil((stand.until * 1000 - jetzt) / 60_000));
+  if (minuten <= 0) return 'gleich zu Ende';
+  if (minuten < 60) return `${minuten} Min`;
+  const stunden = Math.floor(minuten / 60);
+  const rest = minuten % 60;
+  return rest === 0 ? `${stunden} Std` : `${stunden} Std ${rest} Min`;
+}
+
+/**
+ * Die Zeile im Menü (rein, testbar).
+ *
+ * Drei Fälle, weil es drei gibt: aus, mit Frist, ohne Frist. Ein Modus
+ * ohne Frist läuft, bis jemand ausschaltet – das gehört dann dort zu
+ * stehen und nicht eine Restzeit, die es nicht gibt.
+ */
+export function modusZeile(stand: BabysitterStand | null, jetzt: number): string {
+  if (!stand?.active) return 'Licht und Ruhe für die Abläufe – wahlweise mit Frist';
+  const rest = restText(stand, jetzt);
+  return rest ? `Läuft noch ${rest}` : `Läuft${seitText(stand.since)} – ohne Frist`;
 }

@@ -1,4 +1,12 @@
-import { LEERER_BABYSITTER, istFreigegeben, modusSatz, ruht, seitText } from './babysitter';
+import {
+  LEERER_BABYSITTER,
+  istFreigegeben,
+  modusSatz,
+  modusZeile,
+  restText,
+  ruht,
+  seitText,
+} from './babysitter';
 
 describe('Babysitter-Modus', () => {
   it('hält zurück, was nicht freigegeben ist', () => {
@@ -36,5 +44,79 @@ describe('Babysitter-Modus', () => {
     expect(seitText(undefined)).toBe('');
     expect(seitText(null)).toBe('');
     expect(modusSatz({ active: true, allow: [] }, 5)).toContain('Läuft –');
+  });
+});
+
+// ── Frist und Menüzeile (früher der Gästemodus) ───────────────────────
+
+describe('Wie lange noch', () => {
+  const jetzt = 1_700_000_000_000;
+
+  /**
+   * Aus der Frist gerechnet und nicht aus `minutes_left`: Die Zahl aus
+   * dem Hub ist von dem Augenblick, in dem sie geholt wurde. Ein Blatt,
+   * das eine Viertelstunde offen liegt, zeigte sonst eine Restzeit, die
+   * es nicht mehr gibt.
+   */
+  it('rechnet aus der Frist, nicht aus der mitgeschickten Zahl', () => {
+    const stand = {
+      active: true,
+      allow: [],
+      until: jetzt / 1000 + 90 * 60,
+      minutes_left: 240,
+    };
+    expect(restText(stand, jetzt)).toBe('1 Std 30 Min');
+  });
+
+  it('unter einer Stunde nur Minuten', () => {
+    expect(restText({ active: true, allow: [], until: jetzt / 1000 + 40 * 60 }, jetzt)).toBe(
+      '40 Min'
+    );
+  });
+
+  it('volle Stunden ohne Minutenrest', () => {
+    expect(restText({ active: true, allow: [], until: jetzt / 1000 + 7200 }, jetzt)).toBe(
+      '2 Std'
+    );
+  });
+
+  it('abgelaufen heisst «gleich zu Ende», nicht eine negative Zahl', () => {
+    expect(restText({ active: true, allow: [], until: jetzt / 1000 - 60 }, jetzt)).toBe(
+      'gleich zu Ende'
+    );
+  });
+
+  it('ohne Frist gibt es keine Restzeit', () => {
+    expect(restText({ active: true, allow: [], until: null }, jetzt)).toBe('');
+    expect(restText({ active: false, allow: [] }, jetzt)).toBe('');
+    expect(restText(null, jetzt)).toBe('');
+  });
+});
+
+describe('Die Zeile im Menü', () => {
+  const jetzt = 1_700_000_000_000;
+
+  it('lädt ein, solange der Modus aus ist', () => {
+    expect(modusZeile(null, jetzt)).toMatch(/Frist/);
+    expect(modusZeile({ active: false, allow: [] }, jetzt)).toMatch(/Abläufe/);
+  });
+
+  it('zeigt die Restzeit, wenn eine Frist läuft', () => {
+    expect(
+      modusZeile({ active: true, allow: [], until: jetzt / 1000 + 3600 }, jetzt)
+    ).toBe('Läuft noch 1 Std');
+  });
+
+  /**
+   * Der Babysitter-Abend hat keine Frist. Dort eine Restzeit zu zeigen,
+   * die es nicht gibt, wäre schlimmer als gar keine Angabe.
+   */
+  it('sagt es, wenn er ohne Frist läuft', () => {
+    const zeile = modusZeile(
+      { active: true, allow: [], until: null, since: 1_700_000_000 },
+      jetzt
+    );
+    expect(zeile).toMatch(/ohne Frist/);
+    expect(zeile).not.toMatch(/noch/);
   });
 });

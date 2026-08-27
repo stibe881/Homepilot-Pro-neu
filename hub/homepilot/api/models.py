@@ -71,9 +71,17 @@ class PushSnoozeRequest(BaseModel):
 
 
 class BabysitterRequest(BaseModel):
-    """Den Babysitter-Modus ein- oder ausschalten."""
+    """Den Babysitter-Modus ein- oder ausschalten.
+
+    ``hours`` und ``lights`` kommen aus dem früheren Gästemodus und sind
+    beide freiwillig: Ohne Frist läuft der Modus, bis jemand ausschaltet
+    (der Babysitter-Abend), mit Frist endet er von selbst (der Besuch,
+    an den danach niemand mehr denkt).
+    """
 
     active: bool = False
+    hours: float | None = None
+    lights: list[str] = []
 
 
 class BabysitterAllowRequest(BaseModel):
@@ -168,13 +176,6 @@ class GoodNightRequest(BaseModel):
 
     night_lights: list[str] = []
     arm_alarm: bool = False
-
-
-class GuestModeRequest(BaseModel):
-    """Gästemodus starten: wie lange, und welches Licht dazu."""
-
-    hours: float = 4
-    lights: list[str] = []
 
 
 class UndoRecordRequest(BaseModel):

@@ -15,7 +15,13 @@ def test_read_ist_nachsichtig() -> None:
     Ein Ablauf, der wegen eines Tippfehlers in einer Datei nicht mehr
     läuft, wäre die schlechtere Antwort.
     """
-    assert babysitter.read(None) == {"active": False, "allow": [], "since": None}
+    assert babysitter.read(None) == {
+        "active": False,
+        "allow": [],
+        "since": None,
+        "until": None,
+        "undo": None,
+    }
     assert babysitter.read("kaputt")["active"] is False
     assert babysitter.read({"active": True, "allow": "keine Liste"})["allow"] == []
     # Doppelte und leere Kennungen fliegen raus.
@@ -24,8 +30,8 @@ def test_read_ist_nachsichtig() -> None:
 
 def test_blocks_haelt_nur_zurueck_was_nicht_freigegeben_ist() -> None:
     stand = {"active": True, "allow": ["licht_bewegung"]}
-    assert babysitter.blocks(stand, "alles_aus") is True
-    assert babysitter.blocks(stand, "licht_bewegung") is False
+    assert babysitter.blocks(stand, "alles_aus", 1_700_000_000.0) is True
+    assert babysitter.blocks(stand, "licht_bewegung", 1_700_000_000.0) is False
 
 
 def test_ohne_modus_haelt_nichts_zurueck() -> None:
@@ -35,7 +41,7 @@ def test_ohne_modus_haelt_nichts_zurueck() -> None:
     anhaken müssen.
     """
     stand = {"active": False, "allow": ["licht_bewegung"]}
-    assert babysitter.blocks(stand, "alles_aus") is False
+    assert babysitter.blocks(stand, "alles_aus", 1_700_000_000.0) is False
     assert babysitter.is_allowed(stand, "licht_bewegung") is True
 
 
@@ -64,7 +70,7 @@ def test_set_active_merkt_sich_seit_wann() -> None:
 def test_summary_sagt_wie_viele_dann_ruhen() -> None:
     """«17 Abläufe ruhen dann» ist die Auskunft, die man vor dem Drücken braucht."""
     stand = {"active": True, "allow": ["a", "weg"]}
-    zusammen = babysitter.summary(stand, ["a", "b", "c"])
+    zusammen = babysitter.summary(stand, ["a", "b", "c"], 1_700_000_000.0)
     assert zusammen["running"] == 1
     assert zusammen["paused"] == 2
     assert zusammen["active"] is True
@@ -82,3 +88,71 @@ def test_der_zustand_ueberlebt_den_datenspeicher() -> None:
     stand = babysitter.set_active({"allow": ["a"]}, True, now=1.0)
     zurueck = babysitter.read(babysitter.store(stand))
     assert zurueck == stand
+
+
+# ── Frist und Empfangslicht (früher der Gästemodus) ────────────────────
+#
+# Sie standen in einem zweiten Modus daneben, der fast dasselbe tat -
+# nur pausierte er *alle* Abläufe, auch die hier freigegebenen, und
+# zwar still. Ein Modus statt zwei; was der andere wirklich konnte,
+# steht jetzt hier.
+
+
+def test_ohne_frist_laeuft_er_bis_jemand_ausschaltet() -> None:
+    """Der Babysitter-Abend: Man denkt ans Ausschalten."""
+    stand = babysitter.starten(None, 1_700_000_000.0)
+    assert stand["until"] is None
+    # Auch einen Tag später gilt er noch.
+    assert babysitter.laeuft(stand, 1_700_000_000.0 + 86_400) is True
+    assert babysitter.restminuten(stand, 1_700_000_000.0) == 0
+
+
+def test_mit_frist_endet_er_von_selbst() -> None:
+    """Der Besuch: Danach denkt garantiert niemand mehr daran."""
+    jetzt = 1_700_000_000.0
+    stand = babysitter.starten(None, jetzt, stunden=4)
+    assert stand["until"] == jetzt + 4 * 3600
+    assert babysitter.laeuft(stand, jetzt + 3600) is True
+    assert babysitter.restminuten(stand, jetzt + 3600) == 180
+    # Nach Ablauf gilt er als aus, auch wenn ihn noch niemand aufräumte.
+    assert babysitter.laeuft(stand, jetzt + 5 * 3600) is False
+    assert babysitter.blocks(stand, "alles_aus", jetzt + 5 * 3600) is False
+
+
+def test_die_frist_sticht_den_schalter() -> None:
+    """Sonst hinge das Haus an einer Aufräumrunde, die nicht lief."""
+    jetzt = 1_700_000_000.0
+    abgelaufen = {"active": True, "allow": [], "until": jetzt - 1}
+    assert babysitter.read(abgelaufen)["active"] is True
+    assert babysitter.laeuft(abgelaufen, jetzt) is False
+    assert babysitter.summary(abgelaufen, ["a"], jetzt)["active"] is False
+
+
+def test_unsinnige_dauern_werden_eingefangen() -> None:
+    assert babysitter.stunden_pruefen(None) == babysitter.STUNDEN_VORGABE
+    assert babysitter.stunden_pruefen("vier") == babysitter.STUNDEN_VORGABE
+    assert babysitter.stunden_pruefen(0) == babysitter.STUNDEN_VORGABE
+    assert babysitter.stunden_pruefen(-3) == babysitter.STUNDEN_VORGABE
+    assert babysitter.stunden_pruefen(999) == babysitter.MAX_STUNDEN
+    assert babysitter.stunden_pruefen(2) == 2.0
+
+
+def test_die_freigaben_ueberleben_frist_und_licht() -> None:
+    """Sie gehören zum Haus, nicht zum Abend."""
+    stand = babysitter.toggle(None, "licht_bewegung", True)
+    an = babysitter.starten(stand, 1.0, stunden=2, undo="abc123")
+    assert an["allow"] == ["licht_bewegung"]
+    assert an["undo"] == "abc123"
+    aus = babysitter.beenden(an)
+    assert aus["allow"] == ["licht_bewegung"]
+    assert aus["until"] is None and aus["undo"] is None and aus["active"] is False
+
+
+def test_ein_freigegebener_ablauf_laeuft_auch_beim_besuch() -> None:
+    """Genau das konnte der Gästemodus nicht - er pausierte alles."""
+    jetzt = 1_700_000_000.0
+    stand = babysitter.starten(
+        babysitter.toggle(None, "flurlicht", True), jetzt, stunden=4
+    )
+    assert babysitter.blocks(stand, "flurlicht", jetzt + 60) is False
+    assert babysitter.blocks(stand, "alles_aus", jetzt + 60) is True

@@ -118,3 +118,38 @@ def entfernen(rows: Any, kennung: str) -> list[dict[str, Any]]:
         for row in rows or []
         if isinstance(row, dict) and str(row.get("id")) != str(kennung)
     ]
+
+
+def ablegen(hub: Any, titel: str, entity_ids: list[str], command: str, wer: str) -> dict[str, Any] | None:
+    """Den Rückweg zu einem Griff festhalten – **vor** dem Schalten.
+
+    Danach ist es zu spät: Der Zustand von vorher ist dann weg, und wie
+    hell das Licht war, weiss niemand mehr.
+
+    Stand als Hilfsfunktion in api/routes/haus.py und wurde dort von
+    «alles aus» und vom Gästemodus gebraucht. Seit der Babysitter-Modus
+    das Empfangslicht übernommen hat, braucht ihn eine dritte Route in
+    einer anderen Datei - also gehört er hierher, wo das Rechnen dazu
+    ohnehin steht.
+    """
+    import secrets
+    import time
+
+    from . import szenenrueckweg
+
+    befehle = szenenrueckweg.plane_rueckweg(
+        [{"entity_id": entity_id, "command": command} for entity_id in entity_ids],
+        geraetestand(hub.registry.all()),
+    )
+    if not befehle:
+        return None
+    kennung = secrets.token_hex(8)
+    hub.data.set(
+        SCHLANGE,
+        aufnehmen(
+            hub.data.get(SCHLANGE),
+            {"id": kennung, "title": titel, "by": wer, "commands": befehle},
+            time.time(),
+        ),
+    )
+    return {"id": kennung, "count": len(befehle)}
