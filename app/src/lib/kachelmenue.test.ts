@@ -61,9 +61,11 @@ describe('Oben nicht mitzählen', () => {
 
 describe('Sperren', () => {
   it('steht gleich hinter dem Umbenennen', () => {
+    // Vorne steht der Verlauf: Umbenannt und gesperrt wird ein Gerät
+    // einmal, nachgesehen «wann ging das an?» immer wieder.
     expect(
       kachelAktionen({ umbenennen: true, sperren: true, verlauf: true }).map((e) => e.id)
-    ).toEqual(['umbenennen', 'sperren', 'verlauf']);
+    ).toEqual(['verlauf', 'umbenennen', 'sperren']);
   });
 
   it('sagt, was der Griff bewirkt', () => {
