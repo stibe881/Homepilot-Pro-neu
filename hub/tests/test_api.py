@@ -602,12 +602,16 @@ def test_user_prefs_are_stored_per_user():
         assert client.get("/api/prefs", headers=stefan).json() == {"prefs": {}}
 
         payload = {"prefs": {"order": {"light": ["a", "b"]}}}
-        assert client.put("/api/prefs", json=payload, headers=stefan).json() == {"ok": True}
+        antwort = client.put("/api/prefs", json=payload, headers=stefan)
+        # Die Antwort trägt den neuen Stand mit: Wer nur einen Schlüssel
+        # schickt, sieht sonst nicht, was daraus geworden ist.
+        assert antwort.json() == {"ok": True, **payload}
         assert client.get("/api/prefs", headers=stefan).json() == payload
         # Livia sieht Stefans Reihenfolge nicht.
         assert client.get("/api/prefs", headers=livia).json() == {"prefs": {}}
 
-        # Überschreiben ersetzt den ganzen Stand des Benutzers.
+        # Ein genannter Schlüssel wird ersetzt (siehe test_einstellungen.py
+        # für das Zusammenführen).
         second = {"prefs": {"order": {"light": ["b", "a"]}}}
         client.put("/api/prefs", json=second, headers=stefan)
         assert client.get("/api/prefs", headers=stefan).json() == second

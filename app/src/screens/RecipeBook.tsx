@@ -4,7 +4,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Speech from 'expo-speech';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Image,
   Linking,
@@ -29,6 +29,7 @@ import {
   zielName,
 } from '../lib/vorlesen';
 import { zeitenImText } from '../lib/kochzeit';
+import { persoenlichLesen, persoenlichSetzen } from '../lib/persoenlich';
 import { scaledAmount } from '../lib/mengen';
 import { rezeptAlsText } from '../lib/rezepttext';
 import {
@@ -843,11 +844,31 @@ function CookMode({
   const [boxen, setBoxen] = useState<Box[]>([]);
   const [boxWahlOffen, setBoxWahlOffen] = useState(false);
   const [vorgelesen, setVorgelesen] = useState(false);
+  // Beim Hub und nicht im Gerät: Wer einmal eingestellt hat, dass in der
+  // Küche vorgelesen wird, soll das nach dem nächsten Build nicht wieder
+  // tun müssen. Was auf diesem Gerät noch lag, wandert einmalig mit.
   useEffect(() => {
-    AsyncStorage.getItem('homepilot.vorleseziel')
-      .then((wert) => setBox(wert || ZIEL_HIER))
+    if (!settings?.token) return;
+    let weg = false;
+    persoenlichLesen(settings)
+      .then(async (werte) => {
+        if (weg) return;
+        const gemerkt = werte.vorleseziel;
+        if (typeof gemerkt === 'string' && gemerkt) {
+          setBox(gemerkt);
+          return;
+        }
+        const alt = await AsyncStorage.getItem('homepilot.vorleseziel');
+        if (weg || !alt) return;
+        setBox(alt);
+        persoenlichSetzen(settings, 'vorleseziel', alt);
+        await AsyncStorage.removeItem('homepilot.vorleseziel');
+      })
       .catch(() => {});
-  }, []);
+    return () => {
+      weg = true;
+    };
+  }, [settings]);
 
   // Nichts soll weiterreden, wenn das Kochfenster zugeht.
   useEffect(
@@ -925,7 +946,7 @@ function CookMode({
   const boxWaehlen = (id: string) => {
     setBox(id);
     setBoxWahlOffen(false);
-    AsyncStorage.setItem('homepilot.vorleseziel', id).catch(() => {});
+    if (settings?.token) persoenlichSetzen(settings, 'vorleseziel', id);
   };
 
   return (
@@ -1261,19 +1282,44 @@ function RecipeDetail({
   const baseServings = Number(recipe.servings) || 0;
   const [servings, setServings] = useState(baseServings || 4);
   // Punkt 217: Das Rezept steht auf 4, gekocht wird immer für 6 – und
-  // bei jedem Öffnen stellt man wieder um. Je Rezept im Gerät gemerkt:
-  // Wer für sich anders kocht als der Rest, soll das dürfen.
+  // bei jedem Öffnen stellt man wieder um. Je Rezept gemerkt, und je
+  // Person: Wer für sich anders kocht als der Rest, soll das dürfen.
+  //
+  // Beim Hub, nicht im Gerät: Sonst hält die Erinnerung genau so lange
+  // wie die Installation, und das Umstellen beginnt nach jedem Build von
+  // vorn. Was noch im Gerät lag, wandert beim ersten Öffnen mit.
+  const portionen = useRef<Record<string, number>>({});
   useEffect(() => {
-    AsyncStorage.getItem(`homepilot.portionen.${recipe.id}`)
-      .then((wert) => {
-        const zahl = Number(wert);
-        if (Number.isFinite(zahl) && zahl > 0) setServings(zahl);
+    if (!settings?.token) return;
+    let weg = false;
+    const altKey = `homepilot.portionen.${recipe.id}`;
+    persoenlichLesen(settings)
+      .then(async (werte) => {
+        if (weg) return;
+        const buch = (werte.portionen ?? {}) as Record<string, number>;
+        portionen.current = buch;
+        const gemerkt = Number(buch[recipe.id]);
+        if (Number.isFinite(gemerkt) && gemerkt > 0) {
+          setServings(gemerkt);
+          return;
+        }
+        const alt = Number(await AsyncStorage.getItem(altKey));
+        if (weg || !Number.isFinite(alt) || alt <= 0) return;
+        setServings(alt);
+        portionen.current = { ...portionen.current, [recipe.id]: alt };
+        persoenlichSetzen(settings, 'portionen', portionen.current);
+        await AsyncStorage.removeItem(altKey);
       })
       .catch(() => {});
-  }, [recipe.id]);
+    return () => {
+      weg = true;
+    };
+  }, [recipe.id, settings]);
   const merkePortionen = (zahl: number) => {
     setServings(zahl);
-    AsyncStorage.setItem(`homepilot.portionen.${recipe.id}`, String(zahl)).catch(() => {});
+    if (!settings?.token) return;
+    portionen.current = { ...portionen.current, [recipe.id]: zahl };
+    persoenlichSetzen(settings, 'portionen', portionen.current);
   };
   // Punkt 190: Aus einem gekochten Rezept wird über Jahre ein besseres.
   const [notizFrage, setNotizFrage] = useState(false);

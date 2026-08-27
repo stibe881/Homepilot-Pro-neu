@@ -140,6 +140,7 @@ nicht `test_mode_2`.
 | an Abläufen arbeitest | `hub/homepilot/core/automation.py` + `app/src/screens/AutomationsScreen.tsx` |
 | eine Route brauchst | `hub/homepilot/api/server.py` |
 | etwas dauerhaft speichern willst | `hub.data` (`core/persistence.py`) – **nie** Geheimnisse ins Repo |
+| eine Einstellung der Oberfläche anlegst | `app/src/hooks/usePrefs.ts` (ganze Bildschirme) oder `app/src/lib/persoenlich.ts` (einzelne Schlüssel tief in einer Kachel) – **nie** in den Speicher der App: Übersicht in `docs/einstellungen.md` |
 | an der Startseite arbeitest | `app/src/screens/DashboardScreen.tsx`, `components/TopStrip.tsx`, `SidePanel.tsx` |
 | eine Gerätekachel änderst | `app/src/components/EntityCard.tsx` |
 | Zigbee-Geräte anbindest | `hub/homepilot/integrations/zigbee2mqtt.py` – Übersicht in `docs/zigbee.md` |
