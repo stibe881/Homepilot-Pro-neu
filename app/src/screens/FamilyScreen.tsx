@@ -15,7 +15,7 @@ import { ortKennung } from '../lib/orte';
 import { useColors } from '../theme';
 import { RecipeBook } from './RecipeBook';
 import { datumUhr, wochentagDatumKurz, wochentagUhr } from '../lib/format';
-import { Erinnerung, offene } from '../lib/erinnerungen';
+import { Erinnerung, bestaetigung, offene, wiederholungVon, wiederholungsLabel } from '../lib/erinnerungen';
 import {
   Shop,
   einkaufsText,
@@ -3725,11 +3725,14 @@ export function FamilyScreen({
           const pushAn = Array.isArray(erinnerung.push_an)
             ? erinnerung.push_an.filter((name): name is string => typeof name === 'string')
             : [];
-          const zusatz = mitPush
-            ? ` · Push an ${pushAn.length > 0 ? pushAn.join(', ') : 'alle'}${
-                erinnerung.anzeigen === false ? ' (ohne Bildschirm)' : ''
-              }`
-            : '';
+          const wiederholt = wiederholungVon(erinnerung);
+          const zusatz =
+            (wiederholt ? ` · ${wiederholungsLabel(wiederholt)}` : '') +
+            (mitPush
+              ? ` · Push an ${pushAn.length > 0 ? pushAn.join(', ') : 'alle'}${
+                  erinnerung.anzeigen === false ? ' (ohne Bildschirm)' : ''
+                }`
+              : '');
           return (
             <Card key={erinnerung.id} style={styles.rewardCard}>
               <Ionicons
@@ -3747,7 +3750,11 @@ export function FamilyScreen({
               </View>
               {faellig ? (
                 <Pressable
-                  onPress={() => update('reminders', erinnerung.id, { done: true })}
+                  // Wiederkehrende erledigt das Häkchen nicht - es stellt
+                  // sie auf den nächsten Termin weiter (bestaetigung()).
+                  onPress={() =>
+                    update('reminders', erinnerung.id, bestaetigung(erinnerung, Date.now()))
+                  }
                   style={styles.deleteTap}
                   accessibilityRole="button"
                   accessibilityLabel={`Erinnerung «${String(erinnerung.text ?? '')}» bestätigen`}
