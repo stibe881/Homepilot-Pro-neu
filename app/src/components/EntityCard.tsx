@@ -38,6 +38,7 @@ import {
   VacuumBody,
 } from './entity/koerper';
 import { Fortschritt } from './entity/Fortschritt';
+import { KachelDruck } from './entity/kacheldruck';
 import { MediaButton, RadioPanel, ShuffleRepeat, SpotifyPanel } from './entity/medien';
 import { MedienExtras } from './entity/medienextras';
 import { makeStyles } from './entity/stil';
@@ -967,7 +968,14 @@ export function EntityCard({
           alten Stand – die Schieber und Pfeile darin zeigen also etwas,
           das gleich nicht mehr stimmt. Blass gestellt sagt das jeder
           Kachelart auf einmal, ohne dass jede es einzeln wissen muss. */}
-      <View style={[styles.body, pending && { opacity: 0.55 }]}>{body()}</View>
+      {/* Der lange Druck steht den Knöpfen darin zur Verfügung: Auf
+          einer Kachel voller Bedienelemente - Schloss, Sauger, Musik -
+          erreicht die Geste die Kachel darunter sonst nie, weil React
+          Native sie an das innerste Element gibt, das sie annimmt.
+          Siehe entity/kacheldruck.tsx. */}
+      <KachelDruck wert={langerDruck}>
+        <View style={[styles.body, pending && { opacity: 0.55 }]}>{body()}</View>
+      </KachelDruck>
       {chart}
       <CardFooter
         title={entity.name}
@@ -975,6 +983,7 @@ export function EntityCard({
         on={isOn}
         onToggle={toggle}
         pending={pending}
+        onLongPress={langerDruck}
       />
       {usedIn ? (
         <Pressable

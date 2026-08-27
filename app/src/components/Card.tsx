@@ -64,6 +64,7 @@ export function CardFooter({
   onToggle,
   light,
   pending,
+  onLongPress,
 }: {
   title: string;
   subtitle?: string | null;
@@ -71,6 +72,10 @@ export function CardFooter({
   onToggle?: () => void;
   light?: boolean;
   pending?: boolean;
+  /** Was ein langer Druck auf den Namen tut. Der Name ist das einzige
+   *  Stück Kachel, das nie unter einem Knopf liegt - bei einem Schloss
+   *  oder einem Sauger ist die Fläche darüber vollständig belegt. */
+  onLongPress?: () => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -78,6 +83,7 @@ export function CardFooter({
     <View style={styles.footer}>
       <Text
         numberOfLines={2}
+        onLongPress={onLongPress}
         style={[styles.title, light && { color: colors.onGradient }]}
       >
         {title}
