@@ -259,6 +259,44 @@ export function darfDirekt(key: string, entities: Entity[]): boolean {
   return entity.kind === 'light' || entity.kind === 'switch';
 }
 
+/** Warum ein Knopf (nicht) direkt schalten kann. */
+export type DirektGrund = 'geht' | 'kein-hausstand' | 'nicht-erlaubt';
+
+/**
+ * Kann dieser Knopf direkt schalten – und wenn nein, warum nicht?
+ * (rein, testbar)
+ *
+ * Der Schalter dafür war vorher unsichtbar, sobald der Hausstand aus
+ * war: kein Blitz, kein Hinweis, nichts. Genau dort fehlte die
+ * Erklärung. Der gemeldete Fall: «Mit den Widgets steuert man nichts,
+ * es öffnet sich nur die App» – und in der App stand nirgends, warum.
+ */
+export function direktMoeglich(
+  key: string,
+  entities: Entity[],
+  dataEnabled: boolean
+): DirektGrund {
+  if (!darfDirekt(key, entities)) return 'nicht-erlaubt';
+  // Direkt schalten braucht das Token in der App-Gruppe, und das liegt
+  // nur dort, wenn der Hausstand eingeschaltet ist.
+  if (!dataEnabled) return 'kein-hausstand';
+  return 'geht';
+}
+
+/**
+ * Welche Knöpfe direkt schalten, solange niemand etwas gewählt hat
+ * (rein, testbar).
+ *
+ * Vorher war die Vorgabe «keiner»: Jedes frisch angelegte Widget öffnete
+ * bloss die App, und der Schalter dafür war ein Blitzsymbol zwischen
+ * vier anderen Symbolen. Wer ein Licht aufs Widget legt, will es
+ * schalten – für Tür und Alarm bleibt der Umweg ohnehin, dafür sorgt
+ * `darfDirekt`.
+ */
+export function standardDirekt(keys: string[], entities: Entity[]): string[] {
+  return keys.filter((key) => darfDirekt(key, entities));
+}
+
 /**
  * Die Direkt-Angaben an die aufgelösten Knöpfe hängen (rein, testbar).
  *
