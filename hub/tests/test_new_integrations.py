@@ -2124,3 +2124,119 @@ def test_the_whole_way_through_parse_events():
     assert zustand["events"][0]["birthday"] is True
     # Ein Geburtstag ist kein Termin - der nächste Termin bleibt leer.
     assert zustand["state"] == "frei"
+
+
+# ── Erkennungen: der Weg ohne Ereignisstrom ──────────────────────────────
+
+
+class _Protect:
+    """Ein Stück Protect-Integration ohne Netz - nur das Gedächtnis."""
+
+    def __init__(self, hub, entity_id):
+        from homepilot.integrations.unifi_protect import UnifiProtectIntegration
+
+        self.integration = UnifiProtectIntegration(hub, {})
+        self.integration._cameras = {"cam-1": entity_id}
+        self.integration._erkennung_ende = {}
+        self.integration._gesehene_ereignisse = set()
+        self.integration._laufende = {}
+
+
+async def _kamera_bauen(hub):
+    from homepilot.core.entity import EntityKind
+    from homepilot.core.integration import Integration
+
+    class TestKameras(Integration):
+        name = "testkameras"
+
+        async def setup(self) -> None:
+            await self.add_entity(
+                "balkon",
+                EntityKind.CAMERA,
+                "Balkon",
+                state={"state": "online", "detected_baby_cry": "off"},
+                commands=[],
+            )
+
+        async def handle_command(self, entity, command, data):
+            return None
+
+    integration = TestKameras(hub, {})
+    hub.integrations._integrations["testkameras"] = integration
+    await integration.setup()
+    return "testkameras.balkon"
+
+
+async def test_das_ende_einer_erkennung_wird_zugeordnet(hub):
+    """Der Ereignisstrom meldet das Ende in einer Nachricht, die nur noch
+    «end» enthält - ohne Art und ohne Kamera.
+
+    Ohne Gedächtnis liess sich sie niemandem zuordnen, und
+    `detected_baby_cry` blieb nach der ersten Erkennung für immer «on».
+    """
+    entity_id = await _kamera_bauen(hub)
+    protect = _Protect(hub, entity_id).integration
+
+    await protect._handle_detection(
+        {
+            "id": "ev-1",
+            "type": "smartAudioDetect",
+            "camera": "cam-1",
+            "start": 1700000000000,
+            "smartDetectTypes": ["alrmBabyCry"],
+        }
+    )
+    assert hub.registry.get(entity_id).state["detected_baby_cry"] == "on"
+
+    # Die Fortsetzung: nur noch das Ende, sonst nichts.
+    await protect._handle_detection({"id": "ev-1", "end": 1700000060000})
+    assert hub.registry.get(entity_id).state["detected_baby_cry"] == "off"
+
+
+async def test_eine_fremde_fortsetzung_aendert_nichts(hub):
+    entity_id = await _kamera_bauen(hub)
+    protect = _Protect(hub, entity_id).integration
+    await protect._handle_detection({"id": "unbekannt", "end": 1700000060000})
+    assert hub.registry.get(entity_id).state["detected_baby_cry"] == "off"
+
+
+async def test_der_poll_loescht_eine_laufende_erkennung_nicht(hub):
+    """`camera_state` ist ein vollständiger Stand und setzt jedes
+    detected_-Feld auf «off». Käme er über eine laufende Erkennung, wäre
+    sie nach Sekunden wieder weg - die Kachel zeigte «nichts», während
+    das Baby noch schreit."""
+    entity_id = await _kamera_bauen(hub)
+    protect = _Protect(hub, entity_id).integration
+    protect._quality = "medium"
+    protect._aliases = {}
+
+    await protect._handle_detection(
+        {
+            "id": "ev-2",
+            "type": "smartAudioDetect",
+            "camera": "cam-1",
+            "start": 1700000000000,
+            "smartDetectTypes": ["alrmBabyCry"],
+        }
+    )
+    await protect._apply_camera(
+        {
+            "id": "cam-1",
+            "name": "Balkon",
+            "state": "CONNECTED",
+            "featureFlags": {"smartDetectAudioTypes": ["alrmBabyCry"]},
+        }
+    )
+    assert hub.registry.get(entity_id).state["detected_baby_cry"] == "on"
+
+    # Nach dem Ende darf die Abfrage wieder «off» schreiben.
+    await protect._handle_detection({"id": "ev-2", "end": 1700000060000})
+    await protect._apply_camera(
+        {
+            "id": "cam-1",
+            "name": "Balkon",
+            "state": "CONNECTED",
+            "featureFlags": {"smartDetectAudioTypes": ["alrmBabyCry"]},
+        }
+    )
+    assert hub.registry.get(entity_id).state["detected_baby_cry"] == "off"
