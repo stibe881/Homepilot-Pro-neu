@@ -28,10 +28,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from . import (
+    babysitter,
     batterie,
     energy,
     familie,
-    gaeste,
     gemeldet,
     maintenance,
     morgen,
@@ -300,7 +300,7 @@ class Watchdog:
         await self._check_meal_plan()
         await self._check_access()
         await self._check_spaeter()
-        await self._check_gaeste()
+        await self._check_babysitter()
         down = down_integrations(entities)
 
         # Strikes hochzählen bzw. zurücksetzen.
@@ -1206,25 +1206,28 @@ class Watchdog:
         )
         return True
 
-    async def _check_gaeste(self) -> None:
-        """Den Gästemodus beenden, wenn seine Frist um ist.
+    async def _check_babysitter(self) -> None:
+        """Den Babysitter-Modus beenden, wenn seine Frist um ist.
 
-        Der ganze Sinn des Modus ist, dass ihn niemand ausschalten muss:
-        An dem Abend, an dem er läuft, denkt garantiert keiner daran.
-        Also endet er hier - Abläufe wieder frei, Licht wie vorher.
+        Nur wenn eine gesetzt wurde: Ohne Frist läuft er, bis jemand
+        ausschaltet - das ist der Babysitter-Abend, an dem man ans
+        Ausschalten denkt. Mit Frist ist es der Besuch, an den danach
+        garantiert niemand mehr denkt. Also endet er hier: Abläufe
+        wieder frei, Licht wie vorher.
 
         Gemeldet wird es auch, und zwar an alle: Dass die Abläufe wieder
         greifen, ist die Auskunft, ohne die man am nächsten Morgen
         rätselt, warum die Storen wieder von selbst fahren.
         """
-        stand = self.hub.data.get(gaeste.KEY)
-        if not gaeste.read(stand)["active"]:
+        stand = self.hub.data.get(babysitter.KEY)
+        gelesen = babysitter.read(stand)
+        if not gelesen["active"] or gelesen["until"] is None:
             return
-        if gaeste.laeuft(stand, time.time()):
+        if babysitter.laeuft(stand, time.time()):
             return
-        await gaeste.beenden_ausfuehren(self.hub, "Frist abgelaufen")
+        await babysitter.beenden_ausfuehren(self.hub, "Frist abgelaufen")
         await self._notify(
-            "Gästemodus beendet",
+            "Babysitter-Modus beendet",
             "Die Abläufe laufen wieder, das Licht steht wie vorher.",
             category="maintenance",
         )

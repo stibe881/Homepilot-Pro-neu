@@ -5,24 +5,32 @@ import QRCode from 'react-native-qrcode-svg';
 
 import { hubClient } from '../api/client';
 import { Entity, HubSettings } from '../api/types';
-import { Gaestestand, restText } from '../lib/gaeste';
+import { BabysitterStand, restText } from '../lib/babysitter';
 import { Colors, radius, type, useColors } from '../theme';
 
 /**
- * «Besuch kommt» als ein Griff.
+ * «Es ist jemand da» als ein Griff – Besuch oder Babysitter.
  *
  * Sonst tut man jedes Mal dasselbe an vier Orten: WLAN weitergeben, im
  * Eingang Licht machen, die Abläufe anhalten – und am Ende alles wieder
- * zurück. Den letzten Schritt vergisst man, deshalb hat der Modus eine
- * Frist und endet von selbst (hub/core/gaeste.py).
+ * zurück. Den letzten Schritt vergisst man, deshalb kann der Modus eine
+ * Frist tragen und endet dann von selbst.
  *
- * Was er nicht anfasst: die Alarmanlage. Ein Gästeknopf, der sie
- * entschärft, wäre kein Komfort mehr, sondern ein Loch.
+ * **Dieses Blatt fuhr früher einen eigenen Modus** («Gästemodus»), der
+ * neben dem Babysitter-Modus stand und fast dasselbe tat – nur gröber:
+ * Er pausierte *alle* Abläufe, auch die im Babysitter ausdrücklich
+ * freigegebenen, und zwar still. Es ist jetzt derselbe Modus, nur ein
+ * zweiter Weg dorthin: schnell von hier, im Einzelnen unter Abläufe.
+ *
+ * Was er nicht anfasst: die Alarmanlage. Ein Knopf, der sie entschärft,
+ * wäre kein Komfort mehr, sondern ein Loch.
  */
 
-const STUNDEN = [2, 4, 6, 8];
+/** `null` heisst «ohne Frist» – dann läuft er, bis jemand ausschaltet.
+ *  Das ist der Babysitter-Abend, an dem man ans Ausschalten denkt. */
+const DAUERN: (number | null)[] = [null, 2, 4, 6, 8];
 
-export function Gaestemodus({
+export function BesuchBlatt({
   settings,
   entities,
   offen,
@@ -39,19 +47,22 @@ export function Gaestemodus({
     () => hubClient(settings.url, settings.token),
     [settings.url, settings.token]
   );
-  const [stand, setStand] = useState<Gaestestand | null>(null);
+  const [stand, setStand] = useState<BabysitterStand | null>(null);
   const [lichter, setLichter] = useState<string[]>([]);
-  const [stunden, setStunden] = useState(4);
+  const [stunden, setStunden] = useState<number | null>(4);
   const [wlan, setWlan] = useState<{ ssid: string; payload: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [jetzt, setJetzt] = useState(() => Date.now());
 
   const laden = useCallback(() => {
     hub
-      .get<Gaestestand | null>('/api/guestmode', { fallback: null, still: true })
+      .get<{ babysitter?: BabysitterStand; lights?: string[] } | null>(
+        '/api/automations/babysitter',
+        { fallback: null, still: true }
+      )
       .then((data) => {
-        if (!data) return;
-        setStand(data);
+        if (!data?.babysitter) return;
+        setStand(data.babysitter);
         setLichter(data.lights ?? []);
         setJetzt(Date.now());
       });
@@ -76,12 +87,12 @@ export function Gaestemodus({
   const starten = async () => {
     setBusy(true);
     try {
-      const antwort = await hub.post<Gaestestand | null>(
-        '/api/guestmode',
-        { hours: stunden, lights: lichter },
+      const antwort = await hub.post<{ babysitter?: BabysitterStand } | null>(
+        '/api/automations/babysitter',
+        { active: true, hours: stunden, lights: lichter },
         { fallback: null }
       );
-      if (antwort) setStand(antwort);
+      if (antwort?.babysitter) setStand(antwort.babysitter);
       setJetzt(Date.now());
     } finally {
       setBusy(false);
@@ -91,10 +102,12 @@ export function Gaestemodus({
   const beenden = async () => {
     setBusy(true);
     try {
-      const antwort = await hub.del<Gaestestand | null>('/api/guestmode', {
-        fallback: null,
-      });
-      if (antwort) setStand(antwort);
+      const antwort = await hub.post<{ babysitter?: BabysitterStand } | null>(
+        '/api/automations/babysitter',
+        { active: false },
+        { fallback: null }
+      );
+      if (antwort?.babysitter) setStand(antwort.babysitter);
     } finally {
       setBusy(false);
     }
@@ -106,21 +119,24 @@ export function Gaestemodus({
     <Modal visible={offen} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
-          <Text style={styles.heading}>{laeuft ? 'Besuch da' : 'Besuch kommt'}</Text>
+          <Text style={styles.heading}>
+            {laeuft ? 'Jemand ist da' : 'Besuch oder Babysitter'}
+          </Text>
 
           <ScrollView style={{ maxHeight: 460 }}>
             {laeuft ? (
               <Text style={styles.laeuft}>
-                Läuft noch {restText(stand, jetzt)}
-                {stand?.by ? ` · gestartet von ${stand.by}` : ''}
+                {restText(stand, jetzt)
+                  ? `Läuft noch ${restText(stand, jetzt)}`
+                  : 'Läuft ohne Frist – bis jemand ausschaltet'}
               </Text>
             ) : (
               <>
                 <Text style={styles.label}>Wie lange</Text>
                 <View style={styles.chips}>
-                  {STUNDEN.map((wert) => (
+                  {DAUERN.map((wert) => (
                     <Pressable
-                      key={wert}
+                      key={String(wert)}
                       onPress={() => setStunden(wert)}
                       accessibilityRole="radio"
                       accessibilityState={{ selected: stunden === wert }}
@@ -132,7 +148,7 @@ export function Gaestemodus({
                           stunden === wert && styles.chipTextActive,
                         ]}
                       >
-                        {wert} Std
+                        {wert === null ? 'ohne Frist' : `${wert} Std`}
                       </Text>
                     </Pressable>
                   ))}
@@ -166,8 +182,10 @@ export function Gaestemodus({
                 <Text style={styles.hint}>
                   Solange der Modus läuft, ruhen die Abläufe – damit nicht
                   mitten im Abend die Storen fahren, weil kein Telefon mehr
-                  zuhause gemeldet ist. Danach steht alles wieder wie vorher.
-                  Die Alarmanlage bleibt unberührt.
+                  zuhause gemeldet ist. Welche trotzdem laufen sollen, hakst
+                  du unter Abläufe an; die Auswahl bleibt stehen. Danach
+                  steht alles wieder wie vorher, die Alarmanlage bleibt
+                  unberührt.
                 </Text>
               </>
             )}
@@ -201,7 +219,7 @@ export function Gaestemodus({
                 color="#FFFFFF"
               />
               <Text style={styles.confirmText}>
-                {laeuft ? 'Beenden' : 'Gästemodus starten'}
+                {laeuft ? 'Beenden' : 'Starten'}
               </Text>
             </Pressable>
           </View>

@@ -1612,7 +1612,9 @@ class AutomationEngine:
         # nichts davon. Solange sein Modus läuft, ruht alles, was nicht
         # ausdrücklich freigegeben ist - allen voran «alles aus, wenn
         # niemand mehr zuhause ist».
-        if babysitter.blocks(self.hub.data.get(babysitter.KEY), automation.id):
+        if babysitter.blocks(
+            self.hub.data.get(babysitter.KEY), automation.id, time.time()
+        ):
             log.info("Automation '%s' übersprungen (Babysitter-Modus)", automation.alias)
             self._note(
                 automation,

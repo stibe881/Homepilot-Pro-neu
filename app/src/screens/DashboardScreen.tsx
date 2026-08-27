@@ -31,7 +31,8 @@ import { OpenDoors } from '../components/OpenDoors';
 import { RunningAppliances } from '../components/RunningAppliances';
 import { SECTION_LABEL, Rail, Section } from '../components/Rail';
 import { AllOff } from '../components/AllOff';
-import { Gaestemodus } from '../components/Gaestemodus';
+import { BesuchBlatt } from '../components/BesuchBlatt';
+import { BabysitterStand, modusZeile } from '../lib/babysitter';
 import { SorgenBlatt } from '../components/SorgenBlatt';
 import { DeviceHealth } from '../components/DeviceHealth';
 import { RoomTabs } from '../components/RoomTabs';
@@ -71,7 +72,7 @@ import {
 } from '../lib/klingel';
 import { deviceKindLabel, musikboxenImRaum } from '../lib/geraeteart';
 import { rueckangebot } from '../lib/rueckgriff';
-import { Gaestestand, gaesteSatz } from '../lib/gaeste';
+
 import { sorgen, sorgenSatz } from '../lib/sorgen';
 import { szenenFuerKachel, szenenFuerRaum } from '../lib/szenen';
 import {
@@ -310,9 +311,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [batterienOffen, setBatterienOffen] = useState(false);
   // Das Blatt «was ist gerade nicht in Ordnung» - offen oder zu.
   const [sorgenOffen, setSorgenOffen] = useState(false);
-  // Der Gästemodus: offen/zu, und was der Hub dazu sagt.
-  const [gaesteOffen, setGaesteOffen] = useState(false);
-  const [gaesteStand, setGaesteStand] = useState<Gaestestand | null>(null);
+  // Das Blatt «Besuch oder Babysitter»: offen/zu, und was der Hub sagt.
+  const [besuchOffen, setBesuchOffen] = useState(false);
+  const [besuchStand, setBesuchStand] = useState<BabysitterStand | null>(null);
   // Bis wann die persönlichen Bereiche offen sind (0 = zu). Nur im
   // Arbeitsspeicher: Nach einem Neustart der App wird wieder gefragt.
   const [riegelBis, setRiegelBis] = useState(0);
@@ -662,14 +663,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       });
   }, [griffUndo, hub]);
 
-  // Läuft gerade ein Gästemodus? Beim Öffnen der Einstellungen fragen,
+  // Ist gerade jemand da? Beim Öffnen der Einstellungen fragen,
   // nicht dauernd: Die Zeile im Menü ist der einzige Ort, an dem die
   // Antwort gebraucht wird - und dort steht sie eine Sekunde später.
   useEffect(() => {
     if (section !== 'settings') return;
     hub
-      .get<Gaestestand | null>('/api/guestmode', { fallback: null, still: true })
-      .then(setGaesteStand);
+      .get<{ babysitter?: BabysitterStand } | null>('/api/automations/babysitter', {
+        fallback: null,
+        still: true,
+      })
+      .then((data) => setBesuchStand(data?.babysitter ?? null));
   }, [section, hub]);
 
   // Geräte, die nicht antworten oder verstummt sind – für die Zeile im
@@ -1718,7 +1722,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       // Einrichtung. Anlegen und Ändern bleibt ihm verwehrt, dafür sorgt
       // edit_automations in der Seite selbst (und der Hub noch einmal).
       const items: {
-        key: Section | 'search' | 'sorgen' | 'gaeste';
+        key: Section | 'search' | 'sorgen' | 'besuch';
         icon: keyof typeof Ionicons.glyphMap;
         label: string;
         detail: string;
@@ -1776,14 +1780,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           show: sieht('devices'),
         },
         {
-          key: 'gaeste',
+          key: 'besuch',
           icon: 'people-outline',
-          label: gaesteStand?.active ? 'Besuch da' : 'Besuch kommt',
-          detail: gaesteSatz(gaesteStand, Date.now()),
+          label: besuchStand?.active ? 'Jemand ist da' : 'Besuch oder Babysitter',
+          detail: modusZeile(besuchStand, Date.now()),
           // Auch für Mitbewohner: Wer Gäste empfängt, soll ihnen das
           // WLAN geben können, ohne die Besitzerin zu fragen.
           show: true,
-          onPress: () => setGaesteOffen(true),
+          onPress: () => setBesuchOffen(true),
         },
         {
           key: 'sorgen',
@@ -2973,20 +2977,20 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           onDismiss={error ? dismissError : () => setAbrufFehler(null)}
           bottomInset={insets.bottom}
         />
-        <Gaestemodus
+        <BesuchBlatt
           settings={settings}
           entities={entities}
-          offen={gaesteOffen}
+          offen={besuchOffen}
           onClose={() => {
-            setGaesteOffen(false);
+            setBesuchOffen(false);
             // Den Stand nachziehen: Die Zeile im Menü soll sagen, was
             // im Blatt gerade entschieden wurde.
             hub
-              .get<Gaestestand | null>('/api/guestmode', {
+              .get<{ babysitter?: BabysitterStand } | null>('/api/automations/babysitter', {
                 fallback: null,
                 still: true,
               })
-              .then(setGaesteStand);
+              .then((data) => setBesuchStand(data?.babysitter ?? null));
           }}
         />
 
