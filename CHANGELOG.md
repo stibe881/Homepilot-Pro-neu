@@ -9,6 +9,23 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **iPhone**
 
+- **Sechs weitere Live-Karten auf dem Sperrbildschirm** - alle auf
+  einem gemeinsamen Fundament (eine generische Karte, deren Inhalt der
+  Hub bestimmt; eine neue Kartenart ist damit reiner Hub-Code):
+  **Küchen-Timer** mit laufendem Countdown, **Waschmaschine und
+  Geschirrspüler** mit Programm und Restzeit (am Ende bleibt kurz
+  «Fertig - ausräumen» stehen), der **Grill** mit Ist- gegen
+  Zieltemperatur samt Fortschrittsbalken, der **Saugroboter** mit
+  Fläche und Akku, **fällige Erinnerungen** (verschwinden je Person,
+  sobald sie bestätigt hat - dieselben Regeln wie das Vollbild) und
+  die **Alarmanlage**: Countdown während der Scharfschalt-Verzögerung,
+  Rot bei ausgelöstem Alarm. «Scharf» selbst bekommt bewusst keine
+  Karte - eine Nacht ist länger als die zwölf Stunden, die iOS einer
+  Live-Aktivität gibt. Countdowns zählen auf dem Telefon selbst,
+  Updates (etwa die Grill-Temperatur) sind auf eine je 45 Sekunden
+  gedrosselt - Apple deckelt das Budget ohnehin. Der Schalter im
+  Profil heisst jetzt «Live-Aktivitäten» und gilt für alle Karten.
+
 - **Wer das Haus verlässt, bekommt die Haustüre auf den
   Sperrbildschirm** - als Live-Aktivität: eine kleine Karte «Unterwegs -
   Haustüre im Schnellzugriff», die beim Weggehen erscheint und beim

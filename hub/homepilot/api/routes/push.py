@@ -21,6 +21,7 @@ from fastapi import (
 
 from ...core import (
     liveaktivitaet,
+    livekarten,
     notifyrules,
     push,
     snapshots,
@@ -311,15 +312,26 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         user = current_user(request)
         if user.role == Role.GUEST:
             raise HTTPException(status_code=403, detail="Nicht für Gäste")
-        hub.data.set(
-            liveaktivitaet.DATA_KEY,
-            liveaktivitaet.registrieren(
-                hub.data.get(liveaktivitaet.DATA_KEY),
-                user.name,
-                body.token,
-                body.label,
-            ),
-        )
+        if body.typ == "haus":
+            hub.data.set(
+                livekarten.START_KEY,
+                livekarten.registrieren(
+                    hub.data.get(livekarten.START_KEY),
+                    user.name,
+                    body.token,
+                    body.label,
+                ),
+            )
+        else:
+            hub.data.set(
+                liveaktivitaet.DATA_KEY,
+                liveaktivitaet.registrieren(
+                    hub.data.get(liveaktivitaet.DATA_KEY),
+                    user.name,
+                    body.token,
+                    body.label,
+                ),
+            )
         return {"ok": True}
 
     @app.post("/api/liveactivity/unregister")
@@ -331,6 +343,10 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             liveaktivitaet.DATA_KEY,
             liveaktivitaet.abmelden(hub.data.get(liveaktivitaet.DATA_KEY), body.token),
         )
+        hub.data.set(
+            livekarten.START_KEY,
+            livekarten.abmelden(hub.data.get(livekarten.START_KEY), body.token),
+        )
         return {"ok": True}
 
     @app.post("/api/liveactivity/activity")
@@ -339,11 +355,21 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     ) -> dict[str, Any]:
         """Das Token der gerade laufenden Aktivität - fürs spätere Beenden."""
         user = current_user(request)
-        hub.data.set(
-            liveaktivitaet.DATA_KEY,
-            liveaktivitaet.aktivitaet_merken(
-                hub.data.get(liveaktivitaet.DATA_KEY), user.name, body.token
-            ),
-        )
+        if body.art:
+            # Eine generische Karte (Timer, Gerät, Grill, …): Das Token
+            # gehört zur laufenden Zeile in live_cards.
+            hub.data.set(
+                livekarten.KARTEN_KEY,
+                livekarten.token_merken(
+                    hub.data.get(livekarten.KARTEN_KEY), user.name, body.art, body.token
+                ),
+            )
+        else:
+            hub.data.set(
+                liveaktivitaet.DATA_KEY,
+                liveaktivitaet.aktivitaet_merken(
+                    hub.data.get(liveaktivitaet.DATA_KEY), user.name, body.token
+                ),
+            )
         return {"ok": True}
 

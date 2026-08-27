@@ -474,12 +474,116 @@ struct TuerAktivitaet: Widget {
     }
 }
 
+// ── Die generische Karte ──────────────────────────────────────────────────
+//
+// Eine Form für alles, was der Hub auf den Sperrbildschirm legt:
+// Küchen-Timer, Waschmaschine, Grill, Sauger, Erinnerung, Alarmanlage.
+// Inhalt und Lebensdauer bestimmt der Hub (core/livekarten.py) - hier
+// steht nur, wie Titel, Text, Countdown und Fortschritt gezeichnet
+// werden. Eine neue Kartenart braucht deshalb kein neues Swift.
+
+/// Wortgleich in der App (modules/live-aktivitaet).
+struct HausAktivitaetAttributes: ActivityAttributes {
+    public struct ContentState: Codable, Hashable {
+        var titel: String
+        var text: String
+        var symbol: String
+        var farbe: String?
+        var endet: Double?
+        var fortschritt: Double?
+        var url: String?
+    }
+
+    var art: String
+}
+
+@available(iOS 16.2, *)
+private func kartenFarbe(_ name: String?) -> Color {
+    switch name {
+    case "rot": return .red
+    case "orange": return .orange
+    default: return .accentColor
+    }
+}
+
+@available(iOS 16.2, *)
+struct HausKarteInhalt: View {
+    let state: HausAktivitaetAttributes.ContentState
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: state.symbol)
+                .font(.title2)
+                .foregroundStyle(kartenFarbe(state.farbe))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(state.titel).font(.headline)
+                if !state.text.isEmpty {
+                    Text(state.text)
+                        .font(.caption)
+                        .foregroundStyle(state.farbe == "rot" ? .red : .secondary)
+                }
+                if let fortschritt = state.fortschritt {
+                    ProgressView(value: fortschritt)
+                        .tint(kartenFarbe(state.farbe))
+                }
+            }
+            Spacer()
+            if let endet = state.endet {
+                // Zählt von selbst herunter - dafür braucht es keinen
+                // einzigen weiteren Push.
+                Text(
+                    timerInterval: Date()...Date(timeIntervalSince1970: endet),
+                    countsDown: true
+                )
+                .font(.title2.monospacedDigit())
+                .multilineTextAlignment(.trailing)
+                .frame(maxWidth: 90)
+            }
+        }
+        .padding(14)
+    }
+}
+
+@available(iOS 16.2, *)
+struct HausKarte: Widget {
+    var body: some WidgetConfiguration {
+        ActivityConfiguration(for: HausAktivitaetAttributes.self) { context in
+            HausKarteInhalt(state: context.state)
+                .widgetURL(URL(string: context.state.url ?? "homepilot://"))
+                .activityBackgroundTint(Color.black.opacity(0.6))
+        } dynamicIsland: { context in
+            DynamicIsland {
+                DynamicIslandExpandedRegion(.center) {
+                    HausKarteInhalt(state: context.state)
+                }
+            } compactLeading: {
+                Image(systemName: context.state.symbol)
+                    .foregroundStyle(kartenFarbe(context.state.farbe))
+            } compactTrailing: {
+                if let endet = context.state.endet {
+                    Text(
+                        timerInterval: Date()...Date(timeIntervalSince1970: endet),
+                        countsDown: true
+                    )
+                    .monospacedDigit()
+                    .frame(maxWidth: 60)
+                }
+            } minimal: {
+                Image(systemName: context.state.symbol)
+                    .foregroundStyle(kartenFarbe(context.state.farbe))
+            }
+            .widgetURL(URL(string: context.state.url ?? "homepilot://"))
+        }
+    }
+}
+
 @main
 struct HomePilotBundle: WidgetBundle {
     var body: some Widget {
         HomePilotWidget()
         if #available(iOS 16.2, *) {
             TuerAktivitaet()
+            HausKarte()
         }
     }
 }
