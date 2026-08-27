@@ -48,3 +48,22 @@ def test_nach_dem_versand_ist_nur_push_erledigt():
     assert je_id["b"]["done"] is True
     assert je_id["c"].get("done") is None or "done" not in je_id["c"]
     assert "pushed" not in je_id["d"]
+
+
+def test_benutzer_umbenennen_zieht_empfaenger_und_quittierungen_mit():
+    """Ein Push an den alten Namen erreicht niemanden, und eine schon
+    weggedrückte Erinnerung erschiene wieder - beides zieht mit um."""
+    from homepilot.core.erinnerungen import benutzer_umbenennen
+
+    rows = [
+        {"id": "a", "push_an": ["Stefan", "Bine"], "quittiert": ["Stefan"]},
+        {"id": "b", "push_an": ["Bine"]},
+        "kaputt",
+    ]
+    neu = benutzer_umbenennen(rows, "Stefan", "Stefano")
+    assert neu[0]["push_an"] == ["Stefano", "Bine"]
+    assert neu[0]["quittiert"] == ["Stefano"]
+    assert neu[1]["push_an"] == ["Bine"]
+    assert neu[2] == "kaputt"
+    # Die Eingabe bleibt unangetastet - der Aufrufer speichert das Ergebnis.
+    assert rows[0]["push_an"] == ["Stefan", "Bine"]

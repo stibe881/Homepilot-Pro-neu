@@ -22,7 +22,7 @@ from ...core import users as users_module
 from ...core.errors import HomePilotError
 from ...core.users import GUEST_FEATURES, Capability, Role
 from ..context import ApiContext
-from ..models import AreaUnlockRequest, UserRequest, UserUpdateRequest
+from ..models import AreaUnlockRequest, SelfNameRequest, UserRequest, UserUpdateRequest
 
 log = logging.getLogger(__name__)
 
@@ -86,6 +86,54 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "user": hub.users.by_name(body.name).as_dict(include_token=True),
             "hinweis": "Token jetzt notieren – er wird nur dieses eine Mal gezeigt.",
         }
+
+    @app.put("/api/users/self")
+    async def rename_self(body: SelfNameRequest, request: Request) -> dict[str, Any]:
+        """Den eigenen Namen ändern - im Profil, und damit überall.
+
+        Das Feld im Profil hiess «Dein Name (für die Begrüssung)» und
+        lebte nur im Gerät: Die Benutzerverwaltung zeigte weiter den
+        alten Namen, und niemand wusste, welcher nun gilt. Jetzt ist es
+        derselbe Name - wer sich hier umbenennt, heisst auch in der
+        Benutzerverwaltung, in der Anwesenheit und als Push-Empfänger so.
+
+        Kein MANAGE_USERS nötig: Es geht nur um den eigenen Namen, und
+        der gehört einem selbst. Gäste bleiben draussen - ihre Namen
+        vergibt, wer sie eingeladen hat, sonst steht plötzlich ein
+        zweiter «Stefan» in der Liste, den niemand angelegt hat.
+        """
+        user = current_user(request)
+        if user.role == Role.GUEST:
+            raise HTTPException(
+                status_code=403, detail="Gäste können sich nicht umbenennen"
+            )
+        alt = user.name
+        try:
+            umbenannt = hub.users.rename(alt, body.name)
+        except HomePilotError as err:
+            raise HTTPException(status_code=409, detail=str(err)) from err
+        if umbenannt.name == alt:
+            return {"user": umbenannt.as_dict()}
+        # Alles nachziehen, was nach Namen abgelegt ist - sonst gehen
+        # Push-Nachrichten an einen Namen, den es nicht mehr gibt.
+        hub.push.umbenennen(alt, umbenannt.name)
+        prefs = [
+            {**entry, "user": umbenannt.name}
+            if isinstance(entry, dict) and entry.get("user") == alt
+            else entry
+            for entry in hub.data.get("push_prefs")
+        ]
+        hub.data.set("push_prefs", prefs)
+        from ...core import erinnerungen
+
+        hub.data.set(
+            "family_reminders",
+            erinnerungen.benutzer_umbenennen(
+                hub.data.get("family_reminders"), alt, umbenannt.name
+            ),
+        )
+        log.info("Benutzer '%s' heisst jetzt '%s'", alt, umbenannt.name)
+        return {"user": umbenannt.as_dict()}
 
     @app.put("/api/users/{name}")
     async def update_user(

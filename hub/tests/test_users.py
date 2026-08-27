@@ -247,3 +247,49 @@ def test_half_a_window_is_no_window():
     assert parse_hours({"from": "07:00", "to": "quatsch"}) == {}
     assert parse_hours({"from": "07:00", "to": "20:00"}) == {"from": "07:00", "to": "20:00"}
     assert parse_hours(None) == {}
+
+
+def test_rename_haelt_token_und_rechte_und_weist_doppelte_ab():
+    """Der Profilname ist der Benutzername - umbenennen heisst: derselbe
+    Mensch, neuer Name, alles andere bleibt."""
+    from homepilot.core.errors import HomePilotError
+    from homepilot.core.users import UserRegistry
+
+    registry = UserRegistry(
+        [
+            User(name="Stefan", role=Role.OWNER, token="t1", editable=True),
+            User(name="Bine", role=Role.RESIDENT, token="t2", editable=True),
+        ]
+    )
+    umbenannt = registry.rename("Stefan", "Stefano")
+    assert umbenannt.name == "Stefano"
+    assert umbenannt.token == "t1"
+    assert umbenannt.role == Role.OWNER
+    assert registry.by_name("Stefan") is None
+
+    # Ein schon vergebener Name würde zwei Menschen ununterscheidbar machen.
+    try:
+        registry.rename("Stefano", "Bine")
+        raise AssertionError("doppelter Name wurde angenommen")
+    except HomePilotError:
+        pass
+    # Leer ist kein Name.
+    try:
+        registry.rename("Stefano", "   ")
+        raise AssertionError("leerer Name wurde angenommen")
+    except HomePilotError:
+        pass
+
+
+def test_rename_verweigert_benutzer_aus_der_config():
+    """Was in der config.yaml steht, dreht der nächste Neustart zurück -
+    die Fehlermeldung ist ehrlicher als eine Änderung auf Zeit."""
+    from homepilot.core.errors import HomePilotError
+    from homepilot.core.users import UserRegistry
+
+    registry = UserRegistry([User(name="Stefan", role=Role.OWNER, token="t")])
+    try:
+        registry.rename("Stefan", "Stefano")
+        raise AssertionError("config-Benutzer wurde umbenannt")
+    except HomePilotError as err:
+        assert "config.yaml" in str(err)

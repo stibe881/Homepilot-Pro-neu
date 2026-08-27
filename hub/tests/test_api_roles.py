@@ -233,3 +233,45 @@ def test_snapshot_carries_capabilities():
         with client.websocket_connect("/ws?token=t-guest") as websocket:
             snapshot = websocket.receive_json()
             assert snapshot["user"]["capabilities"] == ["control"]
+
+
+def test_wer_sich_umbenennt_heisst_auch_in_der_verwaltung_so():
+    """Der Profilname ist der Benutzername - eine Änderung im eigenen
+    Profil steht sofort in der Benutzerverwaltung. Benutzer aus der
+    config.yaml bekommen stattdessen den Hinweis auf die Datei, und
+    Gäste benennt, wer sie eingeladen hat."""
+    with make_client() as client:
+        angelegt = client.post(
+            "/api/users",
+            headers=auth("t-owner"),
+            json={"name": "Bine", "role": "bewohner"},
+        )
+        token = angelegt.json()["user"]["token"]
+
+        umbenannt = client.put(
+            "/api/users/self", headers=auth(token), json={"name": "Sabine"}
+        )
+        assert umbenannt.status_code == 200
+        assert umbenannt.json()["user"]["name"] == "Sabine"
+        # Dasselbe Token, derselbe Mensch - nur der Name ist neu.
+        me = client.get("/api/me", headers=auth(token)).json()
+        assert me["name"] == "Sabine"
+        namen = [
+            u["name"] for u in client.get("/api/users", headers=auth("t-owner")).json()
+        ]
+        assert "Sabine" in namen and "Bine" not in namen
+
+        # Aus der config.yaml: Die Datei ist die Wahrheit.
+        antwort = client.put(
+            "/api/users/self", headers=auth("t-resident"), json={"name": "Neu"}
+        )
+        assert antwort.status_code == 409
+        assert "config.yaml" in antwort.json()["detail"]
+
+        # Gäste bleiben draussen.
+        assert (
+            client.put(
+                "/api/users/self", headers=auth("t-guest"), json={"name": "X"}
+            ).status_code
+            == 403
+        )
