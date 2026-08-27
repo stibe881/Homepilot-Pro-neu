@@ -430,47 +430,10 @@ export function Field({ label, children }: { label: string; children: React.Reac
  * geht von selbst auf. Sonst öffnete man beim Bearbeiten eines
  * bestehenden Ablaufs blind alle Klappen, um zu sehen, was drin ist.
  */
-export function Klappe({
-  label,
-  /** Was eingestellt ist - steht im Kopf und entscheidet, ob offen. */
-  stand,
-  children,
-}: {
-  label: string;
-  stand?: string;
-  children: React.ReactNode;
-}) {
-  const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  const [offen, setOffen] = useState(!!stand);
-
-  return (
-    <View style={styles.field}>
-      <Pressable
-        onPress={() => setOffen((auf) => !auf)}
-        accessibilityRole="button"
-        accessibilityState={{ expanded: offen }}
-        accessibilityLabel={stand ? `${label}: ${stand}` : label}
-        style={({ pressed }) => [styles.klappeKopf, pressed && { opacity: 0.7 }]}
-      >
-        <Text style={styles.label}>{label}</Text>
-        {stand && !offen ? (
-          <Text style={styles.klappeStand} numberOfLines={1}>
-            {stand}
-          </Text>
-        ) : (
-          <View style={{ flex: 1 }} />
-        )}
-        <Ionicons
-          name={offen ? 'chevron-up' : 'chevron-down'}
-          size={18}
-          color={colors.inkSoft}
-        />
-      </Pressable>
-      {offen ? children : null}
-    </View>
-  );
-}
+// `Klappe` wohnt jetzt in components/: Die Benutzerverwaltung braucht
+// sie auch, und ein Bildschirm, der aus dem Ordner eines anderen
+// importiert, ist eine Abhängigkeit, die niemand erwartet.
+export { Klappe } from '../../components/Klappe';
 
 export function Choice({
   options,
