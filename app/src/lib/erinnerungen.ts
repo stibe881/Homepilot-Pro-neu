@@ -27,6 +27,78 @@ export interface Erinnerung {
    *  «Für alle erledigt»). Bei diesen Benutzern bleibt das Vollbild weg,
    *  bei allen anderen steht es weiter - erst `done` räumt überall ab. */
   quittiert?: unknown;
+  /** Wiederholung («daily», «weekly», «monthly», «yearly») - dieselben
+   *  Schlüssel wie bei den Aufgaben. Fehlt das Feld: einmalig. Beim
+   *  Bestätigen wird nicht erledigt, sondern auf den nächsten Termin
+   *  weitergestellt. */
+  repeat?: unknown;
+  /** Vom Hub gesetzt: Der Push zu diesem Termin ist verschickt. Beim
+   *  Weiterstellen wird es zurückgenommen, damit der nächste rausgeht. */
+  pushed?: unknown;
+}
+
+/** Die Wiederholungen, die eine Erinnerung kennt - Schlüssel wie bei
+ *  den Aufgaben (REPEAT_OPTIONS), plus jährlich: den Heizungs-Service
+ *  gibt es, den täglichen Jahresputz nicht. */
+export const WIEDERHOLUNGEN = [
+  { key: 'none', label: 'einmalig' },
+  { key: 'daily', label: 'täglich' },
+  { key: 'weekly', label: 'wöchentlich' },
+  { key: 'monthly', label: 'monatlich' },
+  { key: 'yearly', label: 'jährlich' },
+] as const;
+
+export type Wiederholung = 'daily' | 'weekly' | 'monthly' | 'yearly';
+
+/** Die Wiederholung eines Eintrags - oder null für einmalig (rein, testbar). */
+export function wiederholungVon(eintrag: Erinnerung): Wiederholung | null {
+  const roh = String(eintrag.repeat ?? '');
+  return roh === 'daily' || roh === 'weekly' || roh === 'monthly' || roh === 'yearly'
+    ? roh
+    : null;
+}
+
+/** Das deutsche Wort zur Wiederholung - für Listen und Badges. */
+export function wiederholungsLabel(wiederholung: Wiederholung): string {
+  return (
+    WIEDERHOLUNGEN.find((option) => option.key === wiederholung)?.label ?? wiederholung
+  );
+}
+
+/** Der nächste Termin nach «jetzt» (rein, testbar).
+ *
+ *  Gerechnet wird im Kalender, nicht in Millisekunden: 7 Uhr bleibt
+ *  7 Uhr, auch über die Zeitumstellung hinweg. Monat und Jahr zählen
+ *  vom **ursprünglichen** Termin aus - eine Erinnerung vom 31. rutscht
+ *  im kurzen Monat auf dessen letzten Tag, kehrt danach aber auf den
+ *  31. zurück, statt für immer beim 28. zu bleiben. `null`, wenn kein
+ *  Termin gefunden wird (kaputter Zeitpunkt).
+ */
+export function naechsteFaelligkeit(
+  atMs: number,
+  wiederholung: Wiederholung,
+  jetztMs: number
+): number | null {
+  if (!Number.isFinite(atMs) || atMs <= 0) return null;
+  const start = new Date(atMs);
+  for (let schritt = 1; schritt <= 5000; schritt++) {
+    const wann = new Date(start);
+    if (wiederholung === 'daily') {
+      wann.setDate(start.getDate() + schritt);
+    } else if (wiederholung === 'weekly') {
+      wann.setDate(start.getDate() + 7 * schritt);
+    } else {
+      // Erst auf den Monatsersten, dann den Monat stellen, dann den
+      // Tag begrenzen - sonst schöbe der 31. den Monat still weiter.
+      wann.setDate(1);
+      wann.setMonth(start.getMonth() + (wiederholung === 'monthly' ? schritt : 0));
+      if (wiederholung === 'yearly') wann.setFullYear(start.getFullYear() + schritt);
+      const tage = new Date(wann.getFullYear(), wann.getMonth() + 1, 0).getDate();
+      wann.setDate(Math.min(start.getDate(), tage));
+    }
+    if (wann.getTime() > jetztMs) return wann.getTime();
+  }
+  return null;
 }
 
 /** Wer diese Erinnerung für sich weggedrückt hat (rein, testbar). */
@@ -39,6 +111,25 @@ export function quittiertVon(eintrag: Erinnerung): string[] {
 /** Gehört dieser Eintrag auf die Bildschirme? (rein, testbar) */
 export function zeigtAn(eintrag: Erinnerung): boolean {
   return eintrag.anzeigen !== false;
+}
+
+/** Was «Für alle erledigt» in die Ablage schreibt (rein, testbar).
+ *
+ *  Einmalige Erinnerungen werden erledigt. Wiederkehrende werden auf
+ *  den nächsten Termin weitergestellt - und dabei frisch: Niemand hat
+ *  die neue schon weggedrückt, kein Push ist für sie verschickt.
+ *  Findet sich kein nächster Termin (kaputter Zeitpunkt), wird auch
+ *  eine wiederkehrende erledigt - für immer offen stehen darf nichts. */
+export function bestaetigung(
+  eintrag: Erinnerung,
+  jetztMs: number
+): Record<string, unknown> {
+  const wiederholung = wiederholungVon(eintrag);
+  if (wiederholung) {
+    const next = naechsteFaelligkeit(Number(eintrag.at), wiederholung, jetztMs);
+    if (next !== null) return { at: next, quittiert: [], pushed: false };
+  }
+  return { done: true };
 }
 
 /** «TT.MM.JJJJ» + «HH:MM» → Zeitpunkt in ms (rein, testbar).

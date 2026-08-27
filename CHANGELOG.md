@@ -7,6 +7,21 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 ## 2026-08-27
 
+**Familie**
+
+- **Erinnerungen können sich wiederholen** - täglich, wöchentlich,
+  monatlich oder jährlich, gewählt über dieselben Chips wie bei den
+  Aufgaben. Eine wiederkehrende Erinnerung wird beim Bestätigen nicht
+  erledigt, sondern auf den nächsten Termin weitergestellt - frisch:
+  Niemand hat die neue schon weggedrückt, der nächste Push geht wieder
+  raus. Eine reine Push-Erinnerung stellt der Hub nach dem Versand
+  selbst weiter. Verpasste Termine werden übersprungen, nicht
+  nachgeholt: Wer die Dienstags-Erinnerung erst am Freitag bestätigt,
+  bekommt die vom nächsten Dienstag - nicht drei auf einmal. Und der
+  Kalender stimmt: Die Erinnerung vom 31. rutscht im kurzen Monat auf
+  dessen letzten Tag und kehrt danach auf den 31. zurück; 7 Uhr bleibt
+  7 Uhr, auch über die Zeitumstellung.
+
 **Profil**
 
 - **Der Name im Profil ist jetzt der Benutzername.** Das Feld hiess

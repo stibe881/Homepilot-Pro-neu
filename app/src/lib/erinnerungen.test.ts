@@ -1,4 +1,4 @@
-import { anzuzeigende, faellige, monatsSprung, monatsraster, naechsteAt, offene, zeitpunkt } from './erinnerungen';
+import { anzuzeigende, bestaetigung, faellige, monatsSprung, monatsraster, naechsteAt, naechsteFaelligkeit, offene, wiederholungVon, zeitpunkt } from './erinnerungen';
 
 describe('zeitpunkt', () => {
   it('liest Schweizer Datum und Uhrzeit', () => {
@@ -104,5 +104,71 @@ describe('anzuzeigende', () => {
   it('quittiert verkraftet Unlesbares', () => {
     const liste = [{ id: 'a', at: 100, quittiert: 'Stefan' }];
     expect(anzuzeigende(liste, 200, 'Stefan').map((e) => e.id)).toEqual(['a']);
+  });
+});
+
+describe('naechsteFaelligkeit', () => {
+  const um = (j: number, m: number, t: number, h = 7, min = 0) =>
+    new Date(j, m - 1, t, h, min).getTime();
+
+  it('springt über verpasste Termine hinweg', () => {
+    // Dienstag 7:00, bestätigt erst am Freitag: der nächste Termin ist
+    // Samstag 7:00 - nicht drei nachgeholte auf einmal.
+    const start = um(2026, 8, 25);
+    expect(naechsteFaelligkeit(start, 'daily', um(2026, 8, 28, 12))).toBe(
+      um(2026, 8, 29)
+    );
+    expect(naechsteFaelligkeit(start, 'weekly', um(2026, 8, 28, 12))).toBe(
+      um(2026, 9, 1)
+    );
+  });
+
+  it('der 31. rutscht im kurzen Monat und kehrt danach zurück', () => {
+    const start = um(2026, 1, 31);
+    expect(naechsteFaelligkeit(start, 'monthly', start)).toBe(um(2026, 2, 28));
+    // Vom Februar aus weitergestellt: wieder der 31., nicht für immer der 28.
+    expect(naechsteFaelligkeit(start, 'monthly', um(2026, 2, 28, 8))).toBe(
+      um(2026, 3, 31)
+    );
+  });
+
+  it('jährlich kennt den 29. Februar', () => {
+    const start = um(2028, 2, 29);
+    expect(naechsteFaelligkeit(start, 'yearly', start)).toBe(um(2029, 2, 28));
+  });
+
+  it('7 Uhr bleibt 7 Uhr - auch über die Zeitumstellung', () => {
+    // Ende Oktober 2026 endet die Sommerzeit. In Millisekunden gerechnet
+    // stünde die Erinnerung danach um 6 Uhr da.
+    const start = um(2026, 10, 24, 7);
+    const danach = naechsteFaelligkeit(start, 'weekly', start);
+    expect(new Date(danach!).getHours()).toBe(7);
+  });
+
+  it('wiederholungVon liest nur Bekanntes', () => {
+    expect(wiederholungVon({ id: 'a', repeat: 'weekly' })).toBe('weekly');
+    expect(wiederholungVon({ id: 'a', repeat: 'none' })).toBeNull();
+    expect(wiederholungVon({ id: 'a' })).toBeNull();
+    expect(wiederholungVon({ id: 'a', repeat: 42 })).toBeNull();
+  });
+
+  it('ein kaputter Zeitpunkt ergibt keinen Termin', () => {
+    expect(naechsteFaelligkeit(Number.NaN, 'daily', 0)).toBeNull();
+  });
+
+  it('bestaetigung: einmalig erledigt, wiederkehrend stellt frisch weiter', () => {
+    expect(bestaetigung({ id: 'a', at: um(2026, 8, 25) }, um(2026, 8, 25, 8))).toEqual({
+      done: true,
+    });
+    const weiter = bestaetigung(
+      { id: 'b', at: um(2026, 8, 25), repeat: 'daily', quittiert: ['Stefan'], pushed: true },
+      um(2026, 8, 25, 8)
+    );
+    // Frisch: die neue Ausgabe hat niemand weggedrückt, kein Push ist raus.
+    expect(weiter).toEqual({ at: um(2026, 8, 26), quittiert: [], pushed: false });
+    // Kaputter Zeitpunkt: lieber erledigen als für immer offen stehen.
+    expect(bestaetigung({ id: 'c', at: 'quatsch', repeat: 'daily' }, 0)).toEqual({
+      done: true,
+    });
   });
 });
