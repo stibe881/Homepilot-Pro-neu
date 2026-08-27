@@ -120,6 +120,25 @@ RULES: list[dict[str, Any]] = [
         ],
     },
     {
+        "key": "rain",
+        "title": "Regen kommt, Fenster offen",
+        "detail": "Wenn in der Vorschau Regen ansteht und dabei ein Fenster "
+        "oder eine Tür offen steht. Nur dann - eine Regenmeldung ohne "
+        "offenes Fenster wäre eine, die man abschaltet. Die Quelle kennt "
+        "Viertelstunden, die Vorwarnzeit wird darauf gerundet.",
+        "params": [
+            {
+                "key": "minutes",
+                "label": "Vorwarnzeit",
+                "unit": "Minuten",
+                "default": 30,
+                "min": 15,
+                "max": 120,
+                "step": 15,
+            }
+        ],
+    },
+    {
         "key": "frost",
         "title": "Frost angekündigt",
         "detail": "Abends, wenn die Nacht kälter wird als die Schwelle – für "

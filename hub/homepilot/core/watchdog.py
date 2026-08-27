@@ -38,6 +38,7 @@ from . import (
     notifyrules,
     personen,
     presence,
+    regen,
     shopping,
     spaeter,
     trash,
@@ -286,6 +287,7 @@ class Watchdog:
         self._record_energy(entities)
         await self._check_disk()
         await self._check_frost(entities)
+        await self._check_regen(entities)
         await self._check_maintenance()
         await self._check_shopping(entities)
         await self._check_medications()
@@ -359,6 +361,46 @@ class Watchdog:
             f"Heute Nacht sinkt es auf {frost['low']} °C. "
             "Empfindliche Pflanzen vom Balkon holen.",
             category="frost",
+        )
+
+    async def _check_regen(self, entities: list[Any]) -> None:
+        """Regen kommt – und ein Fenster steht offen.
+
+        Nur diese Verbindung wird gemeldet. «Es regnet gleich» allein
+        wäre eine Meldung, die man nach drei Tagen abschaltet; mit dem
+        offenen Fenster ist sie ein Handgriff, den man sonst zu spät
+        macht.
+
+        Einmal je Vorwarnung: Solange dasselbe Fenster offen bleibt und
+        derselbe Regen kommt, kommt nichts Neues. Erst wenn es
+        aufgehört hat und der nächste Schauer anzieht, meldet es wieder
+        (der Schlüssel enthält die Viertelstunde des Regenbeginns).
+        """
+        wetter = next((e for e in entities if getattr(e, "kind", "") == "weather"), None)
+        if wetter is None:
+            return
+        stand = wetter.state.get("rain")
+        if not isinstance(stand, dict) or stand.get("now"):
+            # Es regnet schon: Dann ist die Vorwarnung vorbei, und wer
+            # jetzt noch ein offenes Fenster hat, merkt es selbst.
+            return
+        minuten = stand.get("minutes")
+        grenze = float(self.rules["rain"]["params"].get("minutes", 30))
+        if minuten is None or minuten > grenze:
+            return
+        offen = open_contacts(entities)
+        if not offen:
+            return
+        # Der Zeitpunkt, an dem es losgeht - auf die Viertelstunde genau,
+        # wie ihn die Quelle kennt.
+        beginn = int((time.time() + minuten * 60) // 900)
+        if not self._einmal(f"rain:{beginn}"):
+            return
+        namen = ", ".join(e.label for e in offen[:5])
+        await self._notify(
+            regen.satz(stand) or "Regen kommt",
+            f"Noch offen: {namen}.",
+            category="rain",
         )
 
     async def _check_maintenance(self) -> None:

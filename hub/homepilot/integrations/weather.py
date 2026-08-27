@@ -1,4 +1,4 @@
-"""Wetterlage und Mehrtagesvorhersage über Open-Meteo.
+"""Wetterlage, Mehrtagesvorhersage und Regen-Vorwarnung über Open-Meteo.
 
 Konfiguration:
   - integration: weather
@@ -10,15 +10,22 @@ Konfiguration:
 Open-Meteo ist kostenlos und braucht keinen Schlüssel. Geliefert werden
 der aktuelle Wert und die nächsten sieben Tage – die App zeigt heute plus
 die Woche.
+
+Dazu die Viertelstundenwerte der nächsten Stunden: Daraus wird die
+einzige Zahl gerechnet, die man am Fenster braucht - in wie vielen
+Minuten es anfängt (core/regen.py). «60 % heute» beantwortet die Frage
+«muss ich die Wäsche jetzt hereinholen?» nicht.
 """
 
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 from typing import Any
 
 import aiohttp
 
+from ..core import regen
 from ..core.entity import EntityKind
 from ..core.integration import Integration
 
@@ -66,10 +73,18 @@ def describe_code(code: Any) -> tuple[str, str]:
         return ("—", "cloud-outline")
 
 
-def parse_forecast(payload: dict[str, Any]) -> dict[str, Any]:
+def parse_forecast(
+    payload: dict[str, Any], jetzt: datetime | None = None
+) -> dict[str, Any]:
     """Übersetzt die Open-Meteo-Antwort in Entitäts-Attribute (rein, testbar)."""
     current = payload.get("current") or {}
     text, icon = describe_code(current.get("weather_code"))
+    # Die Uhr der Antwort, nicht die des Hubs: Open-Meteo liefert seine
+    # Zeiten in der angefragten Zone (Europe/Zurich), und ein Hub, der
+    # in einem Container auf UTC läuft, läge damit zwei Stunden daneben -
+    # jeder Schauer sähe aus, als käme er in zwei Stunden.
+    if jetzt is None:
+        jetzt = _zeitpunkt(current.get("time")) or datetime.now()
     daily = payload.get("daily") or {}
     days_out = []
     times = daily.get("time") or []
@@ -95,7 +110,19 @@ def parse_forecast(payload: dict[str, Any]) -> dict[str, Any]:
         "icon": icon,
         "temperature": _round(current.get("temperature_2m")),
         "days": days_out,
+        # Die Vorwarnung fährt am selben Zustand mit: Die App zeigt sie
+        # auf der Wetterkarte, der Wächter meldet sie, wenn dabei ein
+        # Fenster offen steht - beide lesen dieselbe Entität.
+        "rain": regen.analyse(payload.get("minutely_15"), jetzt),
     }
+
+
+def _zeitpunkt(wert: Any) -> datetime | None:
+    """«2026-08-27T22:15» → datetime; alles andere → None (rein)."""
+    try:
+        return datetime.fromisoformat(str(wert))
+    except (TypeError, ValueError):
+        return None
 
 
 def _round(value: Any) -> Any:
@@ -132,6 +159,10 @@ class WeatherIntegration(Integration):
             "latitude": self._lat,
             "longitude": self._lon,
             "current": "temperature_2m,weather_code",
+            # Viertelstundenwerte für die Vorwarnung; feiner gibt es
+            # bei Open-Meteo nicht, und feiner tun als die Quelle wäre
+            # eine erfundene Zahl (core/regen.py).
+            "minutely_15": "precipitation",
             "daily": "weather_code,temperature_2m_max,temperature_2m_min,"
             "precipitation_probability_max",
             "timezone": "Europe/Zurich",
