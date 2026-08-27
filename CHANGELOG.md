@@ -7,6 +7,28 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 ## 2026-08-27
 
+**iPhone**
+
+- **Wer das Haus verlässt, bekommt die Haustüre auf den
+  Sperrbildschirm** - als Live-Aktivität: eine kleine Karte «Unterwegs -
+  Haustüre im Schnellzugriff», die beim Weggehen erscheint und beim
+  Heimkommen von selbst verschwindet. Ein Tipp auf «Öffnen» führt in
+  die App direkt zur Türe, mit der gewohnten Rückfrage - ein Knopf auf
+  dem Sperrbildschirm darf nicht mehr als die App, dieselbe
+  Entscheidung wie beim Türknopf im Widget.
+- Gestartet wird die Karte vom **Hub**, nicht von der App: Im Moment
+  des Weggehens läuft die App nicht im Vordergrund, und nur dort dürfte
+  sie eine Live-Aktivität selbst aufstellen. Also schickt der Hub einen
+  direkten Apple-Push («push-to-start», ab iOS 17.2) - dafür braucht er
+  einmalig einen APNs-Schlüssel aus dem Entwicklerkonto (Anleitung in
+  deploy/portainer.md, Block `apns:` in der config.yaml). Ohne den
+  Block bleibt alles aus.
+- Dazu gehört ein neuer nativer Baustein in der App (ActivityKit).
+  Er wird erst mit dem nächsten TestFlight-Build wirksam; bis dahin
+  ändert sich auf den Telefonen nichts, und alle bisherigen Updates
+  kommen weiter an - die runtimeVersion bleibt deshalb absichtlich
+  stehen, die App prüft den Baustein zur Laufzeit.
+
 **Abläufe**
 
 - **Die Auslöser-Diagnose unterscheidet «kaputt» von «hatte nichts zu

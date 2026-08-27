@@ -103,6 +103,14 @@ class HubConfig:
     # schlägt der Dienst (z.B. healthchecks.io) Alarm. Der Wächter selbst
     # kann den Ausfall des Hubs nicht melden – er fällt mit aus.
     heartbeat: dict[str, Any] = field(default_factory=dict)
+    # Direkter Draht zu Apple (APNs) - nur für Live-Aktivitäten nötig,
+    # denn die kann kein Dienst dazwischen anstossen, nur Apple selbst:
+    # {key_file: "apns-key.p8", key_id: "ABC123", team_id: "DEF456",
+    #  bundle_id: "ch.stibe.homepilot"}. Der Schlüssel kommt aus dem
+    # Apple-Entwicklerkonto (Keys → APNs) und liegt neben der config.yaml.
+    # Ohne den Block bleibt das Ganze einfach aus. Details:
+    # core/liveaktivitaet.py.
+    apns: dict[str, Any] = field(default_factory=dict)
     # Ordner mit der gebauten Web-Fassung der App. Ist er da, liefert der
     # Hub sie unter «/» aus – dann genügt eine Adresse für App und
     # Schnittstelle. Leer = der Hub bleibt reine Schnittstelle.
@@ -324,6 +332,7 @@ def load_config(path: str | Path) -> HubConfig:
         push=push_config,
         update=update_config,
         heartbeat=heartbeat_config,
+        apns=raw.get("apns") or {},
         web_root=str(web_root) if web_root else None,
         source_path=str(path),
         duplicate_keys=duplicates,

@@ -20,6 +20,9 @@
           "group.me.stibe.homepilot"
         ],
         "com.apple.developer.usernotifications.time-sensitive": true
+      },
+      "infoPlist": {
+        "NSSupportsLiveActivities": true
       }
     },
     "android": {
