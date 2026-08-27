@@ -1,5 +1,7 @@
 """Ereignisprotokoll je Gerät: Schaltvorgänge samt Quelle, Sensoren nicht."""
 
+import time
+
 from fastapi.testclient import TestClient
 
 from homepilot.api import create_app
@@ -322,3 +324,45 @@ def test_ein_tuersensor_kommt_ins_protokoll():
     assert len(eintraege) == 1
     assert eintraege[0]["door"] == "open"
     assert log.offen_seit("nuki.haustuere", "lock") == eintraege[0]["at"]
+
+
+# ── Der Rückblick fürs ganze Haus ────────────────────────────────────────
+
+
+def test_rueckblick_nimmt_nur_das_fenster():
+    """«Was war heute Nacht los?» ist eine andere Frage als «warum ging
+    das an?» - und war nur zu beantworten, indem man jede Kachel einzeln
+    aufmachte."""
+    log = EventLog()
+    jetzt = time.time()
+    log._events.extend(
+        [
+            {"entity_id": "a", "state": "on", "at": jetzt - 100000},
+            {"entity_id": "b", "state": "on", "at": jetzt - 3600},
+            {"entity_id": "c", "state": "off", "at": jetzt - 60},
+        ]
+    )
+    zeilen = log.rueckblick(stunden=24)
+    # Jüngste zuerst, und das Uralte fällt weg.
+    assert [z["entity_id"] for z in zeilen] == ["c", "b"]
+
+
+def test_rueckblick_haelt_sich_an_die_grenze():
+    log = EventLog()
+    jetzt = time.time()
+    for nummer in range(20):
+        log._events.append({"entity_id": f"g{nummer}", "state": "on", "at": jetzt - nummer})
+    assert len(log.rueckblick(limit=5)) == 5
+
+
+def test_rueckblick_zeigt_nur_was_jemand_sehen_darf():
+    log = EventLog()
+    jetzt = time.time()
+    log._events.extend(
+        [
+            {"entity_id": "sichtbar", "state": "on", "at": jetzt - 10},
+            {"entity_id": "geheim", "state": "on", "at": jetzt - 20},
+        ]
+    )
+    zeilen = log.rueckblick(sichtbar=lambda kennung: kennung != "geheim")
+    assert [z["entity_id"] for z in zeilen] == ["sichtbar"]

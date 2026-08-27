@@ -279,6 +279,32 @@ class EventLog:
                 seit = float(wert)
         return seit
 
+    def rueckblick(
+        self, stunden: int = 24, limit: int = 300, sichtbar: Any = None
+    ) -> list[dict[str, Any]]:
+        """Was im Haus los war - jüngste zuerst.
+
+        Der Verlauf je Gerät beantwortet «warum ging *das* an?». Diese
+        Frage ist eine andere: «Was war heute los?» Sie liess sich nur
+        beantworten, indem man jede Kachel einzeln aufmachte - und wer
+        das täte, hätte die Antwort nach zwanzig Kacheln vergessen.
+
+        ``sichtbar`` ist ein Filter: Wer ein Gerät nicht sehen darf, soll
+        es auch im Rückblick nicht finden.
+        """
+        grenze = time.time() - max(1, stunden) * 3600
+        raus: list[dict[str, Any]] = []
+        for eintrag in reversed(self._events):
+            wann = eintrag.get("at")
+            if not isinstance(wann, (int, float)) or wann < grenze:
+                break
+            if sichtbar is not None and not sichtbar(str(eintrag.get("entity_id") or "")):
+                continue
+            raus.append(eintrag)
+            if len(raus) >= limit:
+                break
+        return raus
+
     def span(self) -> dict[str, Any]:
         """Wie weit das Protokoll zurückreicht - und warum nicht weiter.
 

@@ -31,6 +31,7 @@ import { OpenDoors } from '../components/OpenDoors';
 import { RunningAppliances } from '../components/RunningAppliances';
 import { SECTION_LABEL, Rail, Section } from '../components/Rail';
 import { AllOff } from '../components/AllOff';
+import { Gaestemodus } from '../components/Gaestemodus';
 import { SorgenBlatt } from '../components/SorgenBlatt';
 import { DeviceHealth } from '../components/DeviceHealth';
 import { RoomTabs } from '../components/RoomTabs';
@@ -70,6 +71,7 @@ import {
 } from '../lib/klingel';
 import { deviceKindLabel, musikboxenImRaum } from '../lib/geraeteart';
 import { rueckangebot } from '../lib/rueckgriff';
+import { Gaestestand, gaesteSatz } from '../lib/gaeste';
 import { sorgen, sorgenSatz } from '../lib/sorgen';
 import { szenenFuerKachel, szenenFuerRaum } from '../lib/szenen';
 import {
@@ -92,7 +94,16 @@ import { FAVORITEN, raumGruppen } from '../lib/raumgruppen';
 import { verlangtPin } from '../lib/alarmpin';
 import { OffenesModul, istGesperrt, istPersoenlich, offeneModule } from '../lib/bereichsriegel';
 import { schleier } from '../lib/nachtabsenkung';
+import { Einrichtungshilfe } from '../components/Einrichtungshilfe';
+import { Kamerawand } from '../components/Kamerawand';
+import { HausRueckblick } from './HausRueckblick';
 import { nachBewegung } from '../lib/kameraordnung';
+import {
+  hinweis as tageszeitHinweis,
+  jetzigerAbschnitt,
+  lohntSich,
+  nachTageszeit,
+} from '../lib/tageszeit';
 import { hubClient, onHubFehler } from '../api/client';
 import { Auffangnetz } from '../components/Auffangnetz';
 import { AutomationsScreen } from './AutomationsScreen';
@@ -298,6 +309,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [batterienOffen, setBatterienOffen] = useState(false);
   // Das Blatt «was ist gerade nicht in Ordnung» - offen oder zu.
   const [sorgenOffen, setSorgenOffen] = useState(false);
+  // Der Gästemodus: offen/zu, und was der Hub dazu sagt.
+  const [gaesteOffen, setGaesteOffen] = useState(false);
+  const [gaesteStand, setGaesteStand] = useState<Gaestestand | null>(null);
   // Bis wann die persönlichen Bereiche offen sind (0 = zu). Nur im
   // Arbeitsspeicher: Nach einem Neustart der App wird wieder gefragt.
   const [riegelBis, setRiegelBis] = useState(0);
@@ -328,6 +342,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [dismissedRing, setDismissedRing] = useState<string | null>(null);
   // Angetippte Kamera im Vollbild (Entitäts-ID, damit Live-Updates ankommen).
   const [fullscreen, setFullscreen] = useState<string | null>(null);
+  // Alle Kameras nebeneinander - fürs Tablet im Flur die einzige
+  // sinnvolle Ansicht (siehe components/Kamerawand.tsx).
+  const [wandOffen, setWandOffen] = useState(false);
   // Gerät, dessen Verlauf gerade offen ist (Geräte-Ansicht, Tipp auf die Kachel).
   const [historyFor, setHistoryFor] = useState<string | null>(null);
   // Auf der Startseite markierte Countdowns aus dem Familie-Modul.
@@ -644,6 +661,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       });
   }, [griffUndo, hub]);
 
+  // Läuft gerade ein Gästemodus? Beim Öffnen der Einstellungen fragen,
+  // nicht dauernd: Die Zeile im Menü ist der einzige Ort, an dem die
+  // Antwort gebraucht wird - und dort steht sie eine Sekunde später.
+  useEffect(() => {
+    if (section !== 'settings') return;
+    hub
+      .get<Gaestestand | null>('/api/guestmode', { fallback: null, still: true })
+      .then(setGaesteStand);
+  }, [section, hub]);
+
   // Geräte, die nicht antworten oder verstummt sind – für die Zeile im
   // Menü. Batterien und Wartungen bleiben aussen vor: Ob eine Warnung
   // quittiert ist, weiss nur der Hub, und das Blatt fragt ihn selbst.
@@ -778,7 +805,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setUngezaehlt,
     setSeenChanges,
     setKameraDynamisch,
+    setTageszeit,
     setLiveTuer,
+    setLiveAus,
     setFavorites,
     setFavoriteOrder,
     setDurchsage,
@@ -1266,11 +1295,21 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     orderScope != null && (orderIds.length > 0 || (editing && !searching));
   const running =
     section === 'home' && !customOrdered ? shown.filter(isActive).sort(byFavorite) : [];
+  // Nach Tageszeit sortieren - aber nur, wenn jemand das eingeschaltet
+  // hat, und nur, wo es etwas zu sortieren gibt. Beim Anpassen und beim
+  // Suchen bleibt die Reihenfolge, wie sie ist: Sonst zieht man eine
+  // Kachel, und sie springt zur nächsten vollen Stunde weg.
+  const tageszeitAn =
+    !!eigenePrefs.tageszeit && !editing && !searching && lohntSich(shown);
+  const abschnitt = tageszeitAn ? jetzigerAbschnitt(now.getTime()) : null;
+  const nachZeit = <T extends { kind: string }>(liste: T[]): T[] =>
+    abschnitt ? nachTageszeit(liste, abschnitt) : liste;
+
   const rest =
     section === 'home'
       ? customOrdered
-        ? [...shown].sort(byOrder)
-        : shown.filter((entity) => !isActive(entity)).sort(byFavorite)
+        ? nachZeit([...shown].sort(byOrder))
+        : nachZeit(shown.filter((entity) => !isActive(entity)).sort(byFavorite))
       : section === 'devices'
         ? sortiereGeraete([...found].sort(byOrder), deviceSort, deviceKindLabel)
         : section === 'cameras' && eigenePrefs.kameraDynamisch && !editing
@@ -1678,7 +1717,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       // Einrichtung. Anlegen und Ändern bleibt ihm verwehrt, dafür sorgt
       // edit_automations in der Seite selbst (und der Hub noch einmal).
       const items: {
-        key: Section | 'search' | 'sorgen';
+        key: Section | 'search' | 'sorgen' | 'gaeste';
         icon: keyof typeof Ionicons.glyphMap;
         label: string;
         detail: string;
@@ -1736,6 +1775,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           show: sieht('devices'),
         },
         {
+          key: 'gaeste',
+          icon: 'people-outline',
+          label: gaesteStand?.active ? 'Besuch da' : 'Besuch kommt',
+          detail: gaesteSatz(gaesteStand, Date.now()),
+          // Auch für Mitbewohner: Wer Gäste empfängt, soll ihnen das
+          // WLAN geben können, ohne die Besitzerin zu fragen.
+          show: true,
+          onPress: () => setGaesteOffen(true),
+        },
+        {
           key: 'sorgen',
           icon: 'medkit-outline',
           label: 'Nicht in Ordnung',
@@ -1775,8 +1824,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         {
           key: 'activity',
           icon: 'timer-outline',
-          label: 'Zuletzt passiert',
-          detail: 'Protokoll der letzten Änderungen',
+          label: 'Was war los',
+          detail: 'Der Rückblick über alle Geräte – Tage zurück',
           show: sieht('activity'),
         },
         {
@@ -1876,6 +1925,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       return (
         <View style={styles.stack}>
           {back}
+          {/* Zuerst der Rückblick über alle Geräte: Er hat ein
+              Gedächtnis, das den Neustart übersteht. Die flüchtige
+              Liste darunter zeigt, was seit dem Öffnen der App
+              geschah - sie ist schneller, aber sie fängt bei jedem
+              Start wieder von vorne an. */}
+          <HausRueckblick settings={settings} />
           <ActivityCard activity={activity} />
         </View>
       );
@@ -1920,6 +1975,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               settings={settings}
               enabled={eigenePrefs.liveTuer !== false}
               onChange={setLiveTuer}
+              aus={eigenePrefs.liveAus ?? []}
+              onAus={setLiveAus}
             />
           ) : null}
           <PushPrefs settings={settings} />
@@ -2111,6 +2168,24 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               Telefon. */}
           {section === 'cameras' && rest.length > 1 && !editing ? (
             <Pressable
+              onPress={() => setWandOffen(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Alle Kameras nebeneinander zeigen"
+              style={({ pressed }) => [styles.kameraSort, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons name="grid-outline" size={18} color={colors.onGradientSoft} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.reorderText}>Alle nebeneinander</Text>
+                <Text style={styles.kameraSortHint}>
+                  Standbilder, die sich von selbst auffrischen – antippen zeigt
+                  eine gross und live.
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={22} color={colors.inkFaint} />
+            </Pressable>
+          ) : null}
+          {section === 'cameras' && rest.length > 1 && !editing ? (
+            <Pressable
               onPress={() => setKameraDynamisch(!eigenePrefs.kameraDynamisch)}
               accessibilityRole="switch"
               accessibilityState={{ checked: !!eigenePrefs.kameraDynamisch }}
@@ -2140,6 +2215,47 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 name={eigenePrefs.kameraDynamisch ? 'toggle' : 'toggle-outline'}
                 size={30}
                 color={eigenePrefs.kameraDynamisch ? colors.accent : colors.inkFaint}
+              />
+            </Pressable>
+          ) : null}
+          {/* Der Schalter für die Tageszeit steht dort, wo sie wirkt -
+              auf der Startseite. Aus, bis jemand ihn einschaltet: Eine
+              Wohnung, die sich von selbst umsortiert, ohne dass man es
+              bestellt hat, ist keine eingerichtete Wohnung, sondern eine,
+              in der man morgens sucht. Und je Person, weil es Gewohnheit
+              ist: Wer um sechs aufsteht, meint mit «Morgen» etwas
+              anderes als wer um neun anfängt. */}
+          {section === 'home' && !editing && !searching && lohntSich(shown) ? (
+            <Pressable
+              onPress={() => setTageszeit(!eigenePrefs.tageszeit)}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: !!eigenePrefs.tageszeit }}
+              accessibilityLabel={
+                eigenePrefs.tageszeit
+                  ? 'Kacheln wieder in fester Reihenfolge zeigen'
+                  : 'Kacheln nach Tageszeit sortieren'
+              }
+              style={({ pressed }) => [styles.kameraSort, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons
+                name={eigenePrefs.tageszeit ? 'sunny' : 'list-outline'}
+                size={18}
+                color={eigenePrefs.tageszeit ? colors.accent : colors.onGradientSoft}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.reorderText}>
+                  {abschnitt ? tageszeitHinweis(abschnitt) : 'Feste Reihenfolge'}
+                </Text>
+                <Text style={styles.kameraSortHint}>
+                  {eigenePrefs.tageszeit
+                    ? 'Morgens Storen, abends Licht – die Reihenfolge wandert mit dem Tag. Gilt nur für dich.'
+                    : 'Immer dieselbe Reihenfolge, egal wie spät es ist.'}
+                </Text>
+              </View>
+              <Ionicons
+                name={eigenePrefs.tageszeit ? 'toggle' : 'toggle-outline'}
+                size={30}
+                color={eigenePrefs.tageszeit ? colors.accent : colors.inkFaint}
               />
             </Pressable>
           ) : null}
@@ -2327,6 +2443,20 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               entities={entities}
               groups={groupNames}
               onCommand={guardedCommand}
+            />
+          ) : null}
+
+          {/* Was der Hub selbst gefunden hat, steht danach als Kachel da:
+              mit dem Namen aus der Verpackung und ohne Raum. Hier stehen
+              genau diese Geräte zusammen, statt dass man sie einzeln in
+              der Liste suchen muss. Ist nichts offen, zeigt die Karte
+              sich gar nicht erst. */}
+          {section === 'devices' && darfAnpassen ? (
+            <Einrichtungshilfe
+              entities={entities}
+              raeume={rooms.filter((name) => name !== ALL_ROOMS)}
+              onRaum={(entityId, raum) => setEntityRoom(entityId, raum)}
+              onName={(entityId, name) => setEntityMeta(entityId, { name })}
             />
           ) : null}
 
@@ -2738,6 +2868,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           />
         ) : null}
 
+        {wandOffen ? (
+          <Kamerawand
+            kameras={rest}
+            bildUrl={snapshotUrl}
+            onOeffnen={(kamera) => {
+              setWandOffen(false);
+              setFullscreen(kamera.id);
+            }}
+            onClose={() => setWandOffen(false)}
+          />
+        ) : null}
+
         {fullscreenCamera ? (
           <CameraFullscreen
             camera={fullscreenCamera}
@@ -2829,6 +2971,23 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           onDismiss={error ? dismissError : () => setAbrufFehler(null)}
           bottomInset={insets.bottom}
         />
+        <Gaestemodus
+          settings={settings}
+          entities={entities}
+          offen={gaesteOffen}
+          onClose={() => {
+            setGaesteOffen(false);
+            // Den Stand nachziehen: Die Zeile im Menü soll sagen, was
+            // im Blatt gerade entschieden wurde.
+            hub
+              .get<Gaestestand | null>('/api/guestmode', {
+                fallback: null,
+                still: true,
+              })
+              .then(setGaesteStand);
+          }}
+        />
+
         <SorgenBlatt
           settings={settings}
           entities={entities}

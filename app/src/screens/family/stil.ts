@@ -12,6 +12,22 @@ export const makeStyles = (colors: Colors) =>
     stack: { gap: space.gap },
     title: { color: colors.onGradient, fontSize: 18, fontWeight: '700' },
     titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    // Das Rückgängig-Band. Es steht oben und nicht unten: Dort schaut
+    // man nach dem Tippen ohnehin hin, und unten sitzt auf dem Telefon
+    // die Tastatur.
+    rueckband: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.accent,
+      backgroundColor: colors.surfaceSoft,
+    },
+    rueckbandText: { color: colors.ink, fontSize: 13, flex: 1 },
+    rueckbandKnopf: { color: colors.accent, fontSize: 13, fontWeight: '700' },
     reorderButton: {
       padding: 8,
       borderRadius: radius.control,

@@ -14,15 +14,32 @@ import { Colors, type, useColors } from '../theme';
  * auch der Hub (core/liveaktivitaet.py): Abschalten beendet eine gerade
  * liegende Karte sofort, nicht erst beim nächsten Heimkommen.
  */
+/** Die Kartenarten, die der Hub kennt (core/livekarten.py und die
+ *  Haustür-Karte). Die Schlüssel sind die Vorsilben der Karten-IDs. */
+const KARTEN: { key: string; label: string }[] = [
+  { key: 'tuer', label: 'Haustüre, wenn du unterwegs bist' },
+  { key: 'timer', label: 'Küchen-Timer' },
+  { key: 'geraet', label: 'Waschmaschine & Geschirrspüler' },
+  { key: 'grill', label: 'Grill' },
+  { key: 'sauger', label: 'Saugroboter' },
+  { key: 'erinnerung', label: 'Fällige Erinnerungen' },
+  { key: 'alarm', label: 'Alarmanlage' },
+];
+
 export function LiveTuerSchalter({
   settings,
   enabled,
   onChange,
+  aus,
+  onAus,
 }: {
   settings: HubSettings;
   /** Fehlt der Wert in den Einstellungen, gilt an. */
   enabled: boolean;
   onChange: (on: boolean) => void;
+  /** Abbestellte Kartenarten - die Feinregelung darunter. */
+  aus: string[];
+  onAus: (keys: string[]) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -62,7 +79,7 @@ export function LiveTuerSchalter({
           <Text style={styles.title}>Live-Aktivitäten auf dem Sperrbildschirm</Text>
           <Text style={styles.hint}>
             {enabled
-              ? 'Karten, solange etwas läuft: Haustüre wenn du unterwegs bist, Küchen-Timer, Waschmaschine, Grill, Sauger, fällige Erinnerungen und die Alarmanlage.'
+              ? 'Karten auf dem Sperrbildschirm, solange etwas läuft - darunter wählst du, welche.'
               : 'Aus: Es erscheinen keine Karten auf dem Sperrbildschirm.'}
           </Text>
         </View>
@@ -72,6 +89,38 @@ export function LiveTuerSchalter({
           color={enabled ? colors.accent : colors.inkFaint}
         />
       </Pressable>
+      {enabled ? (
+        <View style={styles.liste}>
+          {KARTEN.map((karte) => {
+            const an = !aus.includes(karte.key);
+            return (
+              <Pressable
+                key={karte.key}
+                onPress={() =>
+                  onAus(
+                    an
+                      ? [...aus, karte.key]
+                      : aus.filter((key) => key !== karte.key)
+                  )
+                }
+                accessibilityRole="switch"
+                accessibilityState={{ checked: an }}
+                accessibilityLabel={`Karte: ${karte.label}`}
+                style={({ pressed }) => [styles.zeile, pressed && { opacity: 0.7 }]}
+              >
+                <Text style={[styles.zeileText, !an && { color: colors.inkFaint }]}>
+                  {karte.label}
+                </Text>
+                <Ionicons
+                  name={an ? 'toggle' : 'toggle-outline'}
+                  size={26}
+                  color={an ? colors.accent : colors.inkFaint}
+                />
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
       {eingerichtet === false ? (
         <Text style={styles.warn}>
           Der Hub ist dafür noch nicht eingerichtet - es fehlt der
@@ -92,6 +141,15 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     card: { gap: 10, minHeight: 0 },
     row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    liste: { gap: 2, marginLeft: 34 },
+    zeile: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 12,
+      paddingVertical: 3,
+    },
+    zeileText: { color: colors.inkSoft, fontSize: 13, flexShrink: 1 },
     title: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
     hint: { color: colors.inkFaint, fontSize: 12, lineHeight: 17 },
     warn: { color: colors.warn, fontSize: 12, lineHeight: 17 },

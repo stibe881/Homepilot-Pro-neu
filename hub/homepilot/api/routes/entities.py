@@ -296,6 +296,39 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "log": hub.eventlog.span(),
         }
 
+    @app.get("/api/log")
+    async def house_log(
+        request: Request, hours: int = 24, limit: int = 300
+    ) -> dict[str, Any]:
+        """Was im Haus los war - der Rückblick über alle Geräte.
+
+        Der Verlauf je Gerät beantwortet «warum ging *das* an?». Diese
+        Frage ist eine andere: «Was war heute Nacht los?» Sie liess sich
+        nur beantworten, indem man jede Kachel einzeln aufmachte.
+        """
+        user = current_user(request)
+
+        def darf(entity_id: str) -> bool:
+            entity = hub.registry.get(entity_id)
+            if entity is None:
+                # Ein Gerät, das es nicht mehr gibt: Der Eintrag bleibt
+                # lesbar, denn er trägt seinen Namen selbst.
+                return True
+            return user.may_see(entity.id, entity.kind, entity.integration)
+
+        ereignisse = hub.eventlog.rueckblick(hours, limit, darf)
+        namen = {}
+        for eintrag in ereignisse:
+            kennung = str(eintrag.get("entity_id") or "")
+            if kennung not in namen:
+                entity = hub.registry.get(kennung)
+                namen[kennung] = {
+                    "name": entity.label if entity is not None else kennung,
+                    "kind": str(entity.kind) if entity is not None else "",
+                    "room": (entity.room if entity is not None else None),
+                }
+        return {"events": ereignisse, "devices": namen, "log": hub.eventlog.span()}
+
     async def camera_for(entity_id: str, request: Request):
         """Kamera-Entität samt Integration – oder ein sauberes 404."""
         user = current_user(request)
