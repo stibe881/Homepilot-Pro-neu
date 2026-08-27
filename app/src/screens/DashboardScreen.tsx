@@ -666,6 +666,30 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       });
   }, [griffUndo, hub]);
 
+  // Die Funkenlinien der Sensoren: ein Abruf für alle, alle fünf
+  // Minuten - die Reihen ändern sich nicht schneller (Drosselung im
+  // Hub, core/kurzverlauf.py).
+  const [trends, setTrends] = useState<Record<string, [number, number][]>>({});
+  useEffect(() => {
+    if (status !== 'connected') return;
+    let beendet = false;
+    const laden = () =>
+      hub
+        .get<{ trends?: Record<string, [number, number][]> } | null>('/api/trends', {
+          fallback: null,
+          still: true,
+        })
+        .then((data) => {
+          if (!beendet && data?.trends) setTrends(data.trends);
+        });
+    laden();
+    const takt = setInterval(laden, 5 * 60 * 1000);
+    return () => {
+      beendet = true;
+      clearInterval(takt);
+    };
+  }, [status, hub]);
+
   // Wie oft welcher Raum auf diesem Gerät bedient wurde - nur fürs
   // Sortieren, wenn der Schalter dazu an ist (lib/raumnutzung.ts).
   const [raumZaehler, setRaumZaehler] = useState<Nutzung>({});
@@ -1500,6 +1524,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     <EntityCard
       key={entity.id}
       entity={entity}
+      trend={trends[entity.id]}
       width={cardWidth!}
       imRaumblock={imRaumblock}
       // Gehört dieser Spot zu einer zusammengefassten Leuchte? Unter

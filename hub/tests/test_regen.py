@@ -71,7 +71,14 @@ def test_die_wetterentitaet_traegt_die_vorwarnung_mit():
         "minutely_15": viertelstunden(0.0, 0.0, 2.0),
     }
     stand = parse_forecast(payload, JETZT)
-    assert stand["rain"] == {"now": False, "minutes": 30, "mm": 2.0}
+    assert stand["rain"] == {
+        "now": False,
+        "minutes": 30,
+        "mm": 2.0,
+        # Und die Reihe für die kleine Grafik: der laufende Eimer plus
+        # die kommenden.
+        "bars": [0.0, 0.0, 2.0],
+    }
 
 
 async def test_gemeldet_wird_auch_wenn_alle_fenster_zu_sind():
@@ -160,4 +167,23 @@ def test_die_uhr_der_antwort_zaehlt_nicht_die_des_hubs():
         ),
     }
     # Ohne ausdrückliches «jetzt»: Die Zeit steht in der Antwort selbst.
-    assert parse_forecast(payload)["rain"] == {"now": False, "minutes": 30, "mm": 1.5}
+    stand = parse_forecast(payload)["rain"]
+    assert {k: stand[k] for k in ("now", "minutes", "mm")} == {
+        "now": False,
+        "minutes": 30,
+        "mm": 1.5,
+    }
+
+
+def test_die_balkenreihe_beginnt_beim_laufenden_eimer():
+    from homepilot.core.regen import balken
+
+    reihe = balken(
+        viertelstunden(0.4, 0.0, 1.2, 0.0), JETZT + timedelta(minutes=10)
+    )
+    # Der erste Eimer läuft gerade - er zählt mit, sonst fehlte der
+    # Regen, in dem man steht.
+    assert reihe == [0.4, 0.0, 1.2, 0.0]
+    assert balken(None, JETZT) == []
+    # Mehr als acht gibt es nicht - zwei Stunden sind die Vorschau.
+    assert len(balken(viertelstunden(*([0.1] * 20)), JETZT)) == 8

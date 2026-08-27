@@ -113,7 +113,12 @@ def parse_forecast(
         # Die Vorwarnung fährt am selben Zustand mit: Die App zeigt sie
         # auf der Wetterkarte, der Wächter meldet sie, wenn dabei ein
         # Fenster offen steht - beide lesen dieselbe Entität.
-        "rain": regen.analyse(payload.get("minutely_15"), jetzt),
+        "rain": {
+            **regen.analyse(payload.get("minutely_15"), jetzt),
+            # Die Reihe hinter dem Satz: acht Viertelstunden für die
+            # kleine Grafik auf der Wetterkarte.
+            "bars": regen.balken(payload.get("minutely_15"), jetzt),
+        },
     }
 
 

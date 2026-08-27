@@ -20,7 +20,7 @@ Wetter-Integration; wer meldet, ist der Wächter.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 #: Ab wie viel Niederschlag je Viertelstunde von Regen die Rede ist.
@@ -92,6 +92,32 @@ def analyse(minutely: Any, jetzt: datetime) -> dict[str, Any]:
         if mm >= SCHWELLE_MM:
             return {"now": False, "minutes": max(0, minuten), "mm": round(mm, 1)}
     return {"now": False, "minutes": None, "mm": 0.0}
+
+
+def balken(minutely: Any, jetzt: datetime, anzahl: int = 8) -> list[float]:
+    """Die nächsten Viertelstunden als Zahlenreihe (rein, testbar).
+
+    Für die kleine Grafik auf der Wetterkarte: acht Balken sind zwei
+    Stunden - dieselbe Spanne wie die Vorschau der Meldung. Mehr wäre
+    keine Vorwarnung mehr, sondern eine Wetterkarte, und die gibt es
+    eine Zeile tiefer schon.
+
+    Fehlende Werte werden nicht erfunden: Liefert die Quelle weniger,
+    ist die Reihe kürzer, und die App zeichnet entsprechend weniger.
+    """
+    zeiten = list((minutely or {}).get("time") or [])
+    werte = list((minutely or {}).get("precipitation") or [])
+    reihe: list[float] = []
+    for index, zeit in enumerate(zeiten):
+        wann = _zeit(zeit)
+        if wann is None or wann <= jetzt - timedelta(minutes=15):
+            # Der laufende Viertelstunden-Eimer zählt mit - in ihm
+            # stehen wir gerade.
+            continue
+        reihe.append(round(_mm(werte[index] if index < len(werte) else 0), 1))
+        if len(reihe) >= anzahl:
+            break
+    return reihe
 
 
 def satz(stand: Any) -> str | None:
