@@ -140,7 +140,7 @@ export function Widgets({
                   }
                 />
               </Pressable>
-              {onDirect && dataEnabled && darfDirekt(knopf.key, entities) ? (
+              {onDirect && darfDirekt(knopf.key, entities) ? (
                 // Seit iOS 17 kann der Knopf selbst schalten. Je Knopf
                 // entschieden: Für ein Licht ist der Umweg über die App
                 // keine Sicherheit mehr, nur Reibung – für Tür und Alarm
@@ -153,15 +153,25 @@ export function Widgets({
                         : [...direct, knopf.key]
                     )
                   }
+                  disabled={!dataEnabled}
                   hitSlop={8}
                   accessibilityRole="switch"
                   accessibilityState={{ checked: direct.includes(knopf.key) }}
                   accessibilityLabel={`${knopf.title} direkt schalten`}
                 >
+                  {/* Auch ohne Hausstand sichtbar, nur blass. Vorher
+                      verschwand der Blitz dort ganz - und damit der
+                      einzige Hinweis darauf, dass es das überhaupt gibt. */}
                   <Ionicons
-                    name={direct.includes(knopf.key) ? 'flash' : 'flash-outline'}
+                    name={direct.includes(knopf.key) && dataEnabled ? 'flash' : 'flash-outline'}
                     size={18}
-                    color={direct.includes(knopf.key) ? colors.warn : colors.inkFaint}
+                    color={
+                      !dataEnabled
+                        ? colors.inkFaint
+                        : direct.includes(knopf.key)
+                          ? colors.warn
+                          : colors.inkFaint
+                    }
                   />
                 </Pressable>
               ) : null}
@@ -177,10 +187,11 @@ export function Widgets({
           ))
         )}
 
-        {onDirect && dataEnabled && gewaehlt.some((k) => darfDirekt(k.key, entities)) ? (
+        {onDirect && gewaehlt.some((k) => darfDirekt(k.key, entities)) ? (
           <Text style={styles.hint}>
-            ⚡ heisst: Der Knopf schaltet direkt vom Widget aus (ab iOS 17),
-            ohne die App zu öffnen. Tür und Alarm behalten den Umweg immer.
+            {dataEnabled
+              ? '⚡ heisst: Der Knopf schaltet direkt vom Widget aus (ab iOS 17), ohne die App zu öffnen. Tür und Alarm behalten den Umweg immer.'
+              : 'Direkt schalten geht erst mit «Hausstand im Widget» weiter unten: Der Knopf braucht dafür die Zugangsdaten im Widget selbst. Ohne das öffnet jeder Tipp nur die App an der richtigen Stelle – das ist der Grund, wenn ein Widget nichts zu schalten scheint.'}
           </Text>
         ) : null}
         {gewaehlt.length >= MAX_BUTTONS ? (

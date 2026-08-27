@@ -24,7 +24,11 @@ export type Section =
   | 'personen'
   | 'activity'
   | 'widgets'
-  | 'account';
+  | 'account'
+  // «Konto & Verbindung» war beides zugleich: Wer sein Erscheinungsbild
+  // ändern wollte, scrollte an Adresse und Token vorbei. Zwei Fragen,
+  // zwei Punkte.
+  | 'connection';
 
 /**
  * Wie ein Bereich heisst, wenn man ihn benennen muss – in Meldungen und
@@ -51,6 +55,7 @@ export const SECTION_LABEL: Record<Section, string> = {
   activity: 'Zuletzt passiert',
   widgets: 'Widgets',
   account: 'Konto',
+  connection: 'Verbindungen',
 };
 
 /** `needs` nennt die Berechtigung, ohne die der Punkt gar nicht erscheint. */
