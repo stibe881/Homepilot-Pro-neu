@@ -59,11 +59,11 @@ export function LiveTuerSchalter({
           color={enabled ? colors.accent : colors.inkSoft}
         />
         <View style={{ flex: 1 }}>
-          <Text style={styles.title}>Haustüre als Live-Aktivität</Text>
+          <Text style={styles.title}>Live-Aktivitäten auf dem Sperrbildschirm</Text>
           <Text style={styles.hint}>
             {enabled
-              ? 'Bist du unterwegs, liegt die Haustüre als Karte auf deinem Sperrbildschirm - beim Heimkommen verschwindet sie.'
-              : 'Aus: Es erscheint keine Karte auf dem Sperrbildschirm.'}
+              ? 'Karten, solange etwas läuft: Haustüre wenn du unterwegs bist, Küchen-Timer, Waschmaschine, Grill, Sauger, fällige Erinnerungen und die Alarmanlage.'
+              : 'Aus: Es erscheinen keine Karten auf dem Sperrbildschirm.'}
           </Text>
         </View>
         <Ionicons
