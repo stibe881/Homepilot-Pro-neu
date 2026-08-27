@@ -1,4 +1,5 @@
 import { Entity } from '../api/types';
+import { seitWann } from './ursache';
 
 /**
  * Was «offen» heisst – die eine Fassung für alle, die es zählen.
@@ -109,4 +110,38 @@ export function wohnungstuerOffen(entities: Entity[]): boolean {
     (entity) =>
       (tuer !== null && entity.id === tuer.id) || /wohnung/i.test(entity.name)
   );
+}
+
+/**
+ * Wie lange steht das schon offen? (rein, testbar)
+ *
+ * Die Frage, die man dem Hinweis stellt: «Terrasse offen» beantwortet
+ * sie halb. Seit zehn Minuten offen heisst, jemand ist gerade draussen;
+ * seit drei Stunden heisst, es hat es niemand gemerkt.
+ *
+ * Der Zeitpunkt kommt vom Hub am Zustand mit (`last_change`). Fehlt er –
+ * nach einem Neustart ist das Gedächtnis leer –, kommt `null` zurück:
+ * «gerade eben» wäre dann eine Behauptung über etwas, das der Hub gar
+ * nicht miterlebt hat.
+ */
+export function offenSeit(
+  entity: { last_change?: number | null },
+  jetzt: number
+): string | null {
+  if (!entity.last_change) return null;
+  return seitWann(Math.max(0, jetzt / 1000 - entity.last_change));
+}
+
+/**
+ * Die offenen Türen und Fenster, am längsten offene zuerst (rein, testbar).
+ *
+ * Die Reihenfolge ist die Auskunft: Was seit drei Stunden offen steht,
+ * ist der Grund, warum man hinsieht. Was der Hub nicht datieren kann,
+ * steht hinten – nicht vorne, wo es die Liste anführen würde, ohne etwas
+ * zu sagen.
+ */
+export function offenSortiert(entities: Entity[], jetzt: number): Entity[] {
+  const alter = (entity: Entity) =>
+    entity.last_change ? jetzt / 1000 - entity.last_change : -1;
+  return [...openContacts(entities)].sort((a, b) => alter(b) - alter(a));
 }

@@ -559,7 +559,11 @@ export function OverviewScreen({
             styles={styles}
             colors={colors}
             width="100%"
-            icon="hardware-chip-outline"
+            // Nicht «hardware-chip»: Der Baustein-Chip ist das Sinnbild
+            // für «irgendein Gerät» (RoomTile), und vor «Olga» sah er aus
+            // wie ein Platzhalter, den jemand vergessen hat. Der Sauger
+            // hat dasselbe Sinnbild wie überall sonst.
+            icon={KIND_ICONS[vacuum.kind] ?? 'sparkles-outline'}
             title={vacuum.name}
           >
             <VacuumHome

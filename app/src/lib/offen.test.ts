@@ -1,6 +1,12 @@
 /** Was «offen» heisst – und welche Türe die Wohnungstüre ist. */
 import { Entity } from '../api/types';
-import { hasOpenDoor, wohnungstuer, wohnungstuerOffen } from './offen';
+import {
+  hasOpenDoor,
+  offenSeit,
+  offenSortiert,
+  wohnungstuer,
+  wohnungstuerOffen,
+} from './offen';
 
 describe('Wohnungstüre', () => {
   const schloss = (
@@ -85,5 +91,46 @@ describe('Wohnungstüre', () => {
   it('schweigt, wenn alles zu ist', () => {
     const liste = [schloss('b', 'Wohnungstüre', {}, { door: 'closed' })];
     expect(wohnungstuerOffen(liste)).toBe(false);
+  });
+});
+
+describe('Wie lange steht es offen', () => {
+  const JETZT = 1_700_000_000_000;
+  const vorSekunden = (s: number) => JETZT / 1000 - s;
+
+  it('sagt die Dauer, wie man sie sagen würde', () => {
+    expect(offenSeit({ last_change: vorSekunden(20 * 60) }, JETZT)).toBe('seit 20 Min');
+    expect(offenSeit({ last_change: vorSekunden(3 * 3600) }, JETZT)).toBe('seit 3 Std');
+    expect(offenSeit({ last_change: vorSekunden(30) }, JETZT)).toBe('gerade eben');
+  });
+
+  it('schweigt, solange der Hub nichts gesehen hat', () => {
+    // Nach einem Neustart ist das Gedächtnis leer. «gerade eben» wäre
+    // dann eine Behauptung über etwas, das er nicht miterlebt hat.
+    expect(offenSeit({}, JETZT)).toBeNull();
+    expect(offenSeit({ last_change: null }, JETZT)).toBeNull();
+  });
+
+  it('stellt das am längsten Offene voran', () => {
+    // Was seit drei Stunden offen steht, ist der Grund, warum man hinsieht.
+    const kontakt = (id: string, seit: number | null) =>
+      ({
+        id,
+        name: id,
+        kind: 'binary_sensor',
+        available: true,
+        commands: [],
+        state: { state: 'on', device_class: 'contact' },
+        last_change: seit,
+      }) as unknown as Entity;
+    const sortiert = offenSortiert(
+      [
+        kontakt('kurz', vorSekunden(60)),
+        kontakt('ohne', null),
+        kontakt('lang', vorSekunden(3 * 3600)),
+      ],
+      JETZT
+    );
+    expect(sortiert.map((e) => e.id)).toEqual(['lang', 'kurz', 'ohne']);
   });
 });
