@@ -5,6 +5,8 @@ Logik, die entscheidet, wer wann eine Push-Nachricht bekommt und was
 danach in der Liste steht.
 """
 
+import time
+
 from homepilot.core.erinnerungen import empfaenger, nach_versand, zu_pushen
 
 
@@ -131,3 +133,52 @@ def test_eine_wiederkehrende_nur_push_erinnerung_stellt_sich_selbst_weiter():
     assert neu[0]["quittiert"] == []
     assert "done" not in neu[0]
     assert neu[1] == {**rows[1], "pushed": True}
+
+
+async def test_zwei_gleichzeitig_faellige_geben_zwei_getrennte_pushes():
+    """Zwei Erinnerungen zur selben Minute sind zwei Nachrichten - keine
+    Sammelmeldung «2 Erinnerungen»: Jede trägt ihren eigenen Satz, und
+    auf dem Sperrbildschirm sollen beide einzeln stehen (und einzeln
+    weggewischt werden können)."""
+    from homepilot.core import erinnerungen as modul
+    from homepilot.core.hub import Hub
+
+    from .conftest import make_config
+
+    hub = Hub(
+        make_config(
+            users=[{"name": "Stefan", "role": "besitzer", "token": "t"}],
+            integrations=[{"integration": "demo"}],
+        )
+    )
+    await hub.start()
+    try:
+        hub.push.register("ExponentPushToken[x]", "Stefan")
+        jetzt_ms = time.time() * 1000
+        hub.data.set(
+            "family_reminders",
+            [
+                {"id": "a", "text": "Zahnarzt anrufen", "at": jetzt_ms - 1000, "push": True},
+                {"id": "b", "text": "Pflanzen giessen", "at": jetzt_ms - 500, "push": True},
+            ],
+        )
+        gesendet: list[tuple[str, str]] = []
+
+        async def fake_send(tokens, title, body, data=None, **_):
+            gesendet.append((title, body))
+
+            class R:
+                accepted = len(tokens)
+                errors: list[str] = []
+                ticket_ids: list[str] = []
+
+            return R()
+
+        hub.push.send = fake_send  # type: ignore[assignment]
+        await modul._runde(hub)
+        assert [body for _, body in gesendet] == [
+            "Zahnarzt anrufen",
+            "Pflanzen giessen",
+        ]
+    finally:
+        await hub.stop()

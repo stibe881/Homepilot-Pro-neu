@@ -203,6 +203,15 @@ export function anzuzeigende(
     );
 }
 
+/** Die Überschrift des Vollbilds (rein, testbar).
+ *
+ *  Bei mehreren steht die Zahl in der Überschrift: Wer von der zweiten
+ *  Push-Nachricht kommt, soll auf einen Blick sehen, dass hier zwei
+ *  Karten warten - nicht nur die oberste lesen und wegdrücken. */
+export function vollbildTitel(anzahl: number): string {
+  return anzahl > 1 ? `⏰ ${anzahl} Erinnerungen` : '⏰ Erinnerung';
+}
+
 /** Wann das nächste Vollbild ansteht - für den Prüf-Takt (rein, testbar).
  *
  *  `null` heisst: nichts offen, kein Takt nötig. Der Takt selbst bleibt
