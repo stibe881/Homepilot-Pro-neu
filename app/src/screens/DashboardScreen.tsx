@@ -32,6 +32,7 @@ import { RunningAppliances } from '../components/RunningAppliances';
 import { SECTION_LABEL, Rail, Section } from '../components/Rail';
 import { AllOff } from '../components/AllOff';
 import { Gaestemodus } from '../components/Gaestemodus';
+import { Leerzustand } from '../components/Leerzustand';
 import { SorgenBlatt } from '../components/SorgenBlatt';
 import { DeviceHealth } from '../components/DeviceHealth';
 import { RoomTabs } from '../components/RoomTabs';
@@ -72,6 +73,7 @@ import {
 import { deviceKindLabel, musikboxenImRaum } from '../lib/geraeteart';
 import { rueckangebot } from '../lib/rueckgriff';
 import { Gaestestand, gaesteSatz } from '../lib/gaeste';
+import { leerbild } from '../lib/leerzustand';
 import { sorgen, sorgenSatz } from '../lib/sorgen';
 import { szenenFuerKachel, szenenFuerRaum } from '../lib/szenen';
 import {
@@ -2707,13 +2709,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           ) : null}
 
           {inRoom.length === 0 ? (
-            <Text style={styles.empty}>
-              {status === 'connected'
-                ? room === ALL_ROOMS
-                  ? 'Noch keine Geräte – Integrationen in der config.yaml des Hubs aktivieren.'
-                  : `Für ${room} ist noch nichts zugeordnet.`
-                : 'Warte auf Verbindung zum Hub …'}
-            </Text>
+            <Leerzustand
+              bild={leerbild(
+                section,
+                section === 'home' && room !== ALL_ROOMS && room !== NO_ROOM
+                  ? room
+                  : null,
+                status === 'connected'
+              )}
+              onAktion={() => setSection('devices')}
+            />
           ) : null}
         </View>
 
