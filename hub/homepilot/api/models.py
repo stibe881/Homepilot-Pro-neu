@@ -45,6 +45,15 @@ class PushRegistration(BaseModel):
     label: str = ""
 
 
+class PushSnoozeRequest(BaseModel):
+    """Eine Meldung noch einmal, später – der Knopf in der Mitteilung."""
+
+    title: str
+    body: str = ""
+    category: str | None = None
+    minutes: int = 30
+
+
 class BabysitterRequest(BaseModel):
     """Den Babysitter-Modus ein- oder ausschalten."""
 

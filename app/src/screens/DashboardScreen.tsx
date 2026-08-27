@@ -41,7 +41,7 @@ import { ActivityCard, SidePanel } from '../components/SidePanel';
 import { Bestaetigung, Toast, UndoToast } from '../components/Toast';
 import { TopStrip } from '../components/TopStrip';
 import { useHub } from '../hooks/useHub';
-import { Tap, useNotificationTap } from '../hooks/useNotificationTap';
+import { Knopfdruck, Tap, useNotificationTap } from '../hooks/useNotificationTap';
 import { usePrefs } from '../hooks/usePrefs';
 import { usePushRegistration } from '../hooks/usePushRegistration';
 import { breakpoints, Colors, radius, space, type, useColors } from '../theme';
@@ -772,7 +772,35 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     }
     if (tap.type === 'alarm') setSection('alarm');
   }, []);
-  useNotificationTap(onNotificationTap);
+  // «Später» und «Erledigt» aus der Mitteilung heraus. Beides läuft ohne
+  // die App zu öffnen; sie erfährt davon, sobald sie das nächste Mal
+  // läuft, und reicht es an den Hub weiter (lib/mitteilungsknoepfe.ts).
+  const onKnopf = useCallback(
+    (druck: Knopfdruck) => {
+      if (druck.handlung === 'spaeter') {
+        hub
+          .post('/api/push/snooze', {
+            title: druck.title,
+            body: druck.body,
+            category: druck.category,
+            minutes: 30,
+          }, { still: true })
+          .then(() => setNote('Erinnerung in 30 Minuten'))
+          .catch(() => {});
+        return;
+      }
+      // «Erledigt» gibt es bisher für die Batteriewarnung: Sie quittiert
+      // das Gerät, damit sie nicht jede Woche wiederkommt.
+      if (druck.entityId) {
+        hub
+          .post(`/api/batteries/${encodeURIComponent(druck.entityId)}/ack`, {}, { still: true })
+          .then(() => setNote('Quittiert'))
+          .catch(() => {});
+      }
+    },
+    [hub, setNote]
+  );
+  useNotificationTap(onNotificationTap, onKnopf);
 
   // Zurück zur Startseite, wenn drei Minuten niemand tippt. Am
   // Gemeinschaftsgerät genauso wie am Wandpanel - und dabei fällt der

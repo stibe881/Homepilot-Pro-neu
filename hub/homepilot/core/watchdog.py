@@ -37,6 +37,7 @@ from . import (
     personen,
     presence,
     shopping,
+    spaeter,
     trash,
     users,
 )
@@ -293,6 +294,7 @@ class Watchdog:
         await self._check_family_cleanup()
         await self._check_meal_plan()
         await self._check_access()
+        await self._check_spaeter()
         down = down_integrations(entities)
 
         # Strikes hochzählen bzw. zurücksetzen.
@@ -1098,6 +1100,29 @@ class Watchdog:
             "notified", gemeldet.merke(rows, marke, jetzt or time.time())
         )
         return True
+
+    async def _check_spaeter(self) -> None:
+        """Weggeschobene Meldungen, deren Zeit um ist (core/spaeter.py).
+
+        Wer auf «Später» tippt, will genau diesen Satz wiedersehen -
+        deshalb wird er unverändert noch einmal geschickt und nicht neu
+        gebildet. Ob die Regel dazu inzwischen abgeschaltet wurde, prüft
+        `_notify` wie bei jeder anderen Meldung auch.
+        """
+        rows = self.hub.data.get(spaeter.SCHLANGE)
+        if not rows:
+            return
+        dran, rest = spaeter.faellig(rows, time.time())
+        if not dran:
+            return
+        self.hub.data.set(spaeter.SCHLANGE, rest)
+        for eintrag in dran:
+            await self._notify(
+                str(eintrag.get("title") or ""),
+                str(eintrag.get("body") or ""),
+                category=str(eintrag.get("category") or "outage"),
+                to=(str(eintrag.get("to")) if eintrag.get("to") else None),
+            )
 
     async def _notify(
         self,

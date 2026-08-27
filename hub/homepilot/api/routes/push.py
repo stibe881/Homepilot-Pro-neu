@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 from fastapi import (
@@ -22,10 +23,16 @@ from ...core import (
     notifyrules,
     push,
     snapshots,
+    spaeter,
 )
 from ...core.users import Capability
 from ..context import ApiContext
-from ..models import NotifyRuleRequest, PushPrefsRequest, PushRegistration
+from ..models import (
+    NotifyRuleRequest,
+    PushPrefsRequest,
+    PushRegistration,
+    PushSnoozeRequest,
+)
 
 log = logging.getLogger(__name__)
 
@@ -208,6 +215,35 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         """
         require(request, Capability.EDIT_CONFIG)
         return {"devices": [device.as_dict() for device in hub.push.devices]}
+
+    @app.post("/api/push/snooze")
+    async def snooze_push(body: PushSnoozeRequest, request: Request) -> dict[str, Any]:
+        """«Später erinnern» aus der Mitteilung heraus.
+
+        Der Knopf sitzt auf dem Sperrbildschirm; die App reicht ihn hierher
+        weiter, sobald sie davon erfährt. Zurückgelegt wird die Meldung
+        selbst - wer «in 30 Minuten» wählt, will genau diesen Satz wieder
+        lesen und keine Zusammenfassung dessen, was inzwischen gilt.
+
+        Nur an die Person, die geschoben hat: Dass Stefan die Meldung
+        wegschiebt, geht die anderen Telefone nichts an.
+        """
+        user = current_user(request)
+        hub.data.set(
+            spaeter.SCHLANGE,
+            spaeter.einreihen(
+                hub.data.get(spaeter.SCHLANGE),
+                {
+                    "title": body.title,
+                    "body": body.body,
+                    "category": body.category,
+                    "to": user.name,
+                },
+                time.time(),
+                body.minutes,
+            ),
+        )
+        return {"ok": True, "minutes": spaeter.minuten_pruefen(body.minutes)}
 
     @app.post("/api/push/unregister")
     async def unregister_push(body: PushRegistration, request: Request) -> dict[str, Any]:

@@ -2,6 +2,8 @@ import * as Notifications from 'expo-notifications';
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
 
+import { knopfHandlung } from '../lib/mitteilungsknoepfe';
+
 /**
  * Was passieren soll, wenn jemand auf eine Push-Nachricht tippt.
  *
@@ -29,6 +31,36 @@ export interface Tap {
   type?: string;
 }
 
+/** Ein Griff aus der Mitteilung heraus – samt dem, was drinstand. */
+export interface Knopfdruck {
+  handlung: 'spaeter' | 'erledigt';
+  title: string;
+  body: string;
+  category?: string;
+  entityId?: string;
+}
+
+/** Was jemand in der Mitteilung gedrückt hat (rein, testbar).
+ *
+ *  `null` heisst: kein Knopf, sondern das gewöhnliche Antippen - dafür
+ *  ist `tapFromResponse` zuständig. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function knopfAusResponse(response: any): Knopfdruck | null {
+  const handlung = knopfHandlung(response?.actionIdentifier);
+  if (!handlung) return null;
+  const inhalt = response?.notification?.request?.content;
+  const titel = typeof inhalt?.title === 'string' ? inhalt.title : '';
+  if (!titel) return null;
+  const daten = inhalt?.data && typeof inhalt.data === 'object' ? inhalt.data : {};
+  return {
+    handlung,
+    title: titel,
+    body: typeof inhalt?.body === 'string' ? inhalt.body : '',
+    category: typeof daten.category === 'string' ? daten.category : undefined,
+    entityId: typeof daten.entity_id === 'string' ? daten.entity_id : undefined,
+  };
+}
+
 /** Die Nutzdaten einer Nachricht auslesen (rein, testbar). */
 // Die Antwort kommt aus expo-notifications, das hier bewusst nicht
 // importiert wird (lazy, siehe unten) - deshalb offen getippt.
@@ -43,7 +75,11 @@ export function tapFromResponse(response: any): Tap | null {
   return { camera, entityId, type };
 }
 
-export function useNotificationTap(onTap: (tap: Tap) => void) {
+export function useNotificationTap(
+  onTap: (tap: Tap) => void,
+  /** Ein Knopf aus der Mitteilung – «Später» oder «Erledigt». */
+  onKnopf?: (druck: Knopfdruck) => void
+) {
   useEffect(() => {
     if (Platform.OS === 'web') return;
     let cancelled = false;
@@ -53,6 +89,11 @@ export function useNotificationTap(onTap: (tap: Tap) => void) {
     Notifications.getLastNotificationResponseAsync()
       .then((response) => {
         if (cancelled) return;
+        const druck = knopfAusResponse(response);
+        if (druck) {
+          onKnopf?.(druck);
+          return;
+        }
         const tap = tapFromResponse(response);
         if (tap) onTap(tap);
       })
@@ -61,6 +102,13 @@ export function useNotificationTap(onTap: (tap: Tap) => void) {
 
     const subscription = Notifications.addNotificationResponseReceivedListener(
       (response) => {
+        // Zuerst die Knöpfe: Wer «Später» drückt, will nicht auch noch
+        // die App auf der Kameraseite offen finden.
+        const druck = knopfAusResponse(response);
+        if (druck) {
+          onKnopf?.(druck);
+          return;
+        }
         const tap = tapFromResponse(response);
         if (tap) onTap(tap);
       }
@@ -70,5 +118,5 @@ export function useNotificationTap(onTap: (tap: Tap) => void) {
       cancelled = true;
       subscription.remove();
     };
-  }, [onTap]);
+  }, [onTap, onKnopf]);
 }
