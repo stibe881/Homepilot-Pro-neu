@@ -5,6 +5,13 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { hubClient } from '../api/client';
 import { HubSettings } from '../api/types';
 import { Card } from './Card';
+import {
+  Wartungszeile as Item,
+  datumKurz,
+  faelligText,
+  frueherSatz,
+  quittungSatz,
+} from '../lib/wartung';
 import { Colors, radius, type, useColors } from '../theme';
 
 /**
@@ -20,30 +27,12 @@ import { Colors, radius, type, useColors } from '../theme';
  * Verschleiss zählt, wann es getan wurde.
  */
 
-interface Item {
-  id: string;
-  text: string;
-  interval_days: number;
-  due: string;
-  last_done?: string | null;
-  days_left?: number;
-}
-
 const INTERVALLE = [
   { label: '1 Monat', days: 30 },
   { label: '3 Monate', days: 90 },
   { label: '6 Monate', days: 180 },
   { label: '1 Jahr', days: 365 },
 ];
-
-/** Wie dringend es ist – in Worten (rein, testbar). */
-export function faelligText(item: Item): string {
-  const tage = item.days_left;
-  if (typeof tage !== 'number') return `fällig am ${item.due}`;
-  if (tage < 0) return `seit ${Math.abs(tage)} Tagen fällig`;
-  if (tage === 0) return 'heute fällig';
-  return `in ${tage} Tagen`;
-}
 
 export function Maintenance({ settings }: { settings: HubSettings }) {
   const colors = useColors();
@@ -132,6 +121,12 @@ export function Maintenance({ settings }: { settings: HubSettings }) {
             >
               {faelligText(item)}
             </Text>
+            {/* Die Quittung auch bei den fälligen: «Zuletzt vor zwei
+                Wochen von Bine» heisst oft, dass die Meldung schon
+                erledigt ist und nur die Frist noch steht. */}
+            {quittungSatz(item) ? (
+              <Text style={styles.rowDetail}>{quittungSatz(item)}</Text>
+            ) : null}
           </View>
           <Pressable
             onPress={() => schicken(`/api/maintenance/${item.id}/done`, 'POST')}
@@ -151,9 +146,18 @@ export function Maintenance({ settings }: { settings: HubSettings }) {
           <View style={{ flex: 1 }}>
             <Text style={styles.rowTitle}>{item.text}</Text>
             <Text style={styles.rowDetail}>
-              nächste am {item.due} · alle {item.interval_days} Tage
-              {item.last_done ? ` · zuletzt ${item.last_done}` : ''}
+              nächste am {datumKurz(item.due)} · alle {item.interval_days} Tage
             </Text>
+            {quittungSatz(item) ? (
+              <Text style={styles.rowDetail}>{quittungSatz(item)}</Text>
+            ) : null}
+            {/* Der Abstand zwischen den Quittungen sagt etwas, was der
+                Plan nicht sagt: Ein Filter, der zweimal im Jahr dran
+                war, obwohl er ein halbes Jahr halten soll, redet über
+                das Wasser und nicht über den Filter. */}
+            {frueherSatz(item) ? (
+              <Text style={styles.rowFaint}>{frueherSatz(item)}</Text>
+            ) : null}
           </View>
           <Pressable
             onPress={() => schicken(`/api/maintenance/${item.id}`, 'DELETE')}
@@ -231,6 +235,7 @@ const makeStyles = (colors: Colors) =>
     badge: { color: colors.warn, fontSize: 12, fontWeight: '700' },
     row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     rowTitle: { color: colors.ink, fontSize: 14, fontWeight: '600' },
+    rowFaint: { color: colors.inkFaint, fontSize: 11 },
     rowDetail: { color: colors.inkSoft, fontSize: 12, lineHeight: 17 },
     doneButton: {
       flexDirection: 'row',

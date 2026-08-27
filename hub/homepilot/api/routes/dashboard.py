@@ -28,6 +28,24 @@ from ..context import ApiContext
 
 log = logging.getLogger(__name__)
 
+
+class MaintenanceRequest(BaseModel):
+    """Eine Wartung: was, wie oft, ab wann.
+
+    Auf Modulhöhe und nicht in register(): Mit ``from __future__ import
+    annotations`` steht in der Signatur nur der *Name* des Modells, und
+    FastAPI schlägt ihn im Namensraum des Moduls nach. Eine Klasse
+    innerhalb der Funktion findet es dort nicht - es hielt den Rumpf
+    dann für einen Abfrageparameter und wies jedes Anlegen mit «Field
+    required: query.body» ab. «Wartung eintragen» in der App tat also
+    seit der Aufteilung von server.py gar nichts.
+    """
+
+    text: str
+    interval_days: int = 90
+    due: str | None = None
+
+
 def register(app: FastAPI, ctx: ApiContext) -> None:
     hub = ctx.hub
     current_user = ctx.current_user
@@ -109,13 +127,6 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             }
         }
 
-    class MaintenanceRequest(BaseModel):
-        """Eine Wartung: was, wie oft, ab wann."""
-
-        text: str
-        interval_days: int = 90
-        due: str | None = None
-
     @app.get("/api/maintenance")
     async def list_maintenance(request: Request) -> dict[str, Any]:
         current_user(request)
@@ -153,14 +164,15 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         """Quittieren: die nächste Frist zählt ab heute."""
         user = require(request, Capability.EDIT_CONFIG)
         rows = hub.data.get("maintenance")
-        for row in rows:
+        for index, row in enumerate(rows):
             if row.get("id") == item_id:
-                heute = datetime.now().date().isoformat()
-                row["last_done"] = heute
-                row["due"] = maintenance.next_after(heute, row.get("interval_days"))
+                # Mit Namen: «erledigt» ohne ihn ist in einem Haushalt mit
+                # drei Leuten eine Behauptung (core/maintenance.py).
+                neu_row = maintenance.quittieren(row, user.name, datetime.now().date())
+                rows[index] = neu_row
                 hub.data.set("maintenance", rows)
                 log.info("%s hat '%s' quittiert", user.name, row.get("text"))
-                return row
+                return neu_row
         raise HTTPException(status_code=404, detail="Wartung nicht gefunden")
 
     @app.delete("/api/maintenance/{item_id}")
