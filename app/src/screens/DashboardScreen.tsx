@@ -43,6 +43,7 @@ import { TopStrip } from '../components/TopStrip';
 import { useHub } from '../hooks/useHub';
 import { Knopfdruck, Tap, useNotificationTap } from '../hooks/useNotificationTap';
 import { usePrefs } from '../hooks/usePrefs';
+import { useLiveAktivitaet } from '../hooks/useLiveAktivitaet';
 import { usePushRegistration } from '../hooks/usePushRegistration';
 import { breakpoints, Colors, radius, space, type, useColors } from '../theme';
 import { KAMERA_MINDEST, kachelBreite, spalten } from '../lib/raster';
@@ -683,6 +684,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     [now, lastTouch, panelArtig]
   );
   const push = usePushRegistration(settings, status === 'connected');
+  // Die Haustür-Karte für unterwegs - tut nur auf einem iPhone mit dem
+  // passenden Build etwas (hooks/useLiveAktivitaet.ts).
+  useLiveAktivitaet(settings, status === 'connected');
   // Wie das Haus aussieht: auf dem Hub, für alle gleich. Nur die
   // Lesemarke der «Was ist neu»-Karte bleibt persönlich.
   const {
