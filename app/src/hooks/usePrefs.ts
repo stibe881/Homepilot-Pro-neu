@@ -63,6 +63,11 @@ export interface HousePrefs {
   /** Schlüssel der Knöpfe, die direkt schalten statt die App zu öffnen.
    *  Nur für Szenen und Lichter erlaubt – nie für Tür oder Alarm. */
   widgetDirect?: string[];
+  /** Die selbst zusammengestellten Widgets: je eines für ein Gerät oder
+   *  eine Szene, in derselben Schlüsselsprache wie die Knöpfe. Sie
+   *  stehen für alle im Haus, wie die Knöpfe auch – wer eines anlegt,
+   *  legt es auf jedem Telefon zur Auswahl. */
+  widgetKarten?: string[];
 }
 
 /** Was nur einen selbst angeht. */
@@ -268,6 +273,11 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     [setzeHaus]
   );
 
+  const setWidgetKarten = useCallback(
+    (keys: string[]) => setzeHaus({ widgetKarten: keys }),
+    [setzeHaus]
+  );
+
   const setSeenChanges = useCallback(
     (commit: string) => setzeEigen({ seenChanges: commit }),
     [setzeEigen]
@@ -330,6 +340,7 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     setWidgetData,
     setWidgetButtons,
     setWidgetDirect,
+    setWidgetKarten,
     setSeenChanges,
     setKameraDynamisch,
     setTageszeit,

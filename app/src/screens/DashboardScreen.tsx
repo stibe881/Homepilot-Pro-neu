@@ -141,6 +141,7 @@ import { BioLock } from '../components/BioLock';
 import { TuerRueckfrage } from '../components/TuerRueckfrage';
 import { Widgets } from '../components/Widgets';
 import { Ablage, syncWidget } from '../lib/widget';
+import { resolveKarten } from '../lib/widgetKarten';
 import { favoritenVon, zuUebernehmen } from '../lib/favoriten';
 import { altesUebernehmen } from '../lib/hausprefs';
 import {
@@ -873,6 +874,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setWidgetData,
     setWidgetButtons,
     setWidgetDirect,
+    setWidgetKarten,
   } = usePrefs(settings, status === 'connected');
 
   // Die Haustür-Karte für unterwegs - tut nur auf einem iPhone mit dem
@@ -917,6 +919,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       ),
     [prefs.widgetButtons, prefs.widgetDirect, prefs.widgetData, scenes, entities]
   );
+  // Die selbst zusammengestellten Karten - je eine für ein Gerät oder
+  // eine Szene. Dieselbe Ablage, derselbe Takt wie die Knöpfe.
+  const widgetKarten = useMemo(
+    () => resolveKarten(prefs.widgetKarten, scenes, entities, !!prefs.widgetData),
+    [prefs.widgetKarten, prefs.widgetData, scenes, entities]
+  );
   const [widgetAblage, setWidgetAblage] = useState<Ablage>('kein-widget');
   useEffect(() => {
     // Erst, wenn etwas da ist: Vor der ersten Antwort des Hubs sind
@@ -924,12 +932,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     // fiele aus der Knopfliste heraus - das Widget stünde kurz mit
     // weniger Knöpfen da, als jemand eingestellt hat.
     if (entities.length === 0 && scenes.length === 0) return;
-    setWidgetAblage(syncWidget(settings, !!prefs.widgetData, widgetButtons));
+    setWidgetAblage(
+      syncWidget(settings, !!prefs.widgetData, widgetButtons, widgetKarten)
+    );
   }, [
     settings.url,
     settings.token,
     prefs.widgetData,
     widgetButtons,
+    widgetKarten,
     entities.length,
     scenes.length,
   ]);
@@ -2138,6 +2149,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               prefs.widgetDirect ?? standardDirekt(prefs.widgetButtons ?? [], entities)
             }
             onDirect={setWidgetDirect}
+            karten={prefs.widgetKarten}
+            onKarten={setWidgetKarten}
             dataEnabled={!!prefs.widgetData}
             onDataEnabled={setWidgetData}
             ablage={widgetAblage}

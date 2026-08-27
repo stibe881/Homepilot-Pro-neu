@@ -577,6 +577,305 @@ struct HausKarte: Widget {
     }
 }
 
+// ── Eigene Widgets: je eines für ein Gerät oder eine Szene ────────────────
+//
+// Das Widget oben ist eine Knopfleiste: vier Abkürzungen und ein Blick
+// aufs Haus. Was es nicht kann, ist «zeig mir das Küchenlicht» - und
+// genau dafür legt man sich ein Widget hin.
+//
+// Die Karten stellt man in der App zusammen (Einstellungen → Widgets);
+// hier landen sie als Liste in der App-Gruppe. Welche davon ein
+// bestimmtes Widget zeigt, wählt man auf dem Homescreen aus: langer
+// Druck → «Widget bearbeiten». So liegen mehrere nebeneinander, jedes
+// mit seinem eigenen Gerät - was mit einem festen Widget nicht ginge.
+
+struct Karte: Decodable {
+    /// 'entity:…' oder 'scene:…' - zugleich die Kennung in der Auswahl.
+    let key: String
+    /// Die Kennung dahinter, mit der der Hub nach dem Zustand gefragt wird.
+    let id: String
+    /// 'entity' oder 'scene'.
+    let kind: String
+    let title: String
+    let symbol: String
+    let url: URL
+    /// Was der Knopf aufruft. Fehlt, wenn der Hausstand aus ist - ohne
+    /// Token kann das Widget nichts schalten und zeigt nur an.
+    let actionPath: String?
+    let actionBody: String?
+}
+
+func ladeKarten() -> [Karte] {
+    guard
+        let roh = UserDefaults(suiteName: appGroup)?.string(forKey: "karten"),
+        let daten = roh.data(using: .utf8),
+        let gelesen = try? JSONDecoder().decode([Karte].self, from: daten)
+    else {
+        return []
+    }
+    return gelesen
+}
+
+/// Wie es um das Gerät auf der Karte steht.
+///
+/// Dieselbe Dreiteilung wie beim Hausstand, aus demselben Grund: «aus»
+/// ist eine Entscheidung in der App, «nicht erreicht» eine Störung. Ein
+/// Widget, das beides als Fehler zeigt, schickt einen zum Sicherungskasten,
+/// obwohl nur ein Schalter aus ist.
+enum Kartenstand {
+    case aus
+    case nichtErreicht
+    case da(text: String, an: Bool, erreichbar: Bool)
+}
+
+func ladeKartenstand(_ karte: Karte) async -> Kartenstand {
+    // Eine Szene hat keinen Zustand - sie ist ein Knopf. Gar nicht erst
+    // zu fragen ist ehrlicher, als eine leere Antwort zu deuten.
+    if karte.kind != "entity" { return .aus }
+    let defaults = UserDefaults(suiteName: appGroup)
+    guard
+        let base = defaults?.string(forKey: "hubUrl"),
+        let token = defaults?.string(forKey: "hubToken"),
+        let kennung = karte.id.addingPercentEncoding(
+            withAllowedCharacters: .urlQueryAllowed
+        ),
+        let url = URL(string: base + "/api/glance?ids=" + kennung)
+    else {
+        return .aus
+    }
+    var request = URLRequest(url: url)
+    request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+    request.timeoutInterval = 8
+    do {
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard
+            let http = response as? HTTPURLResponse, http.statusCode == 200,
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let zeilen = json["entities"] as? [[String: Any]],
+            let zeile = zeilen.first
+        else {
+            return .nichtErreicht
+        }
+        return .da(
+            text: (zeile["text"] as? String) ?? "–",
+            an: (zeile["on"] as? Bool) ?? false,
+            erreichbar: (zeile["available"] as? Bool) ?? true
+        )
+    } catch {
+        return .nichtErreicht
+    }
+}
+
+/// Eine Karte, wie sie in der Auswahl von iOS erscheint.
+@available(iOS 17.0, *)
+struct KartenWahl: AppEntity {
+    let id: String
+    let titel: String
+    let art: String
+
+    static var typeDisplayRepresentation: TypeDisplayRepresentation = "Karte"
+
+    var displayRepresentation: DisplayRepresentation {
+        DisplayRepresentation(
+            title: LocalizedStringResource(stringLiteral: titel),
+            subtitle: LocalizedStringResource(stringLiteral: art)
+        )
+    }
+
+    static var defaultQuery = KartenQuery()
+}
+
+/// Woher die Auswahl kommt: aus der Liste, die die App hinterlegt hat.
+@available(iOS 17.0, *)
+struct KartenQuery: EntityQuery {
+    func entities(for identifiers: [String]) async throws -> [KartenWahl] {
+        alle().filter { identifiers.contains($0.id) }
+    }
+
+    func suggestedEntities() async throws -> [KartenWahl] {
+        alle()
+    }
+
+    private func alle() -> [KartenWahl] {
+        ladeKarten().map { karte in
+            KartenWahl(
+                id: karte.key,
+                titel: karte.title,
+                art: karte.kind == "scene" ? "Szene" : "Gerät"
+            )
+        }
+    }
+}
+
+@available(iOS 17.0, *)
+struct KarteIntent: WidgetConfigurationIntent {
+    static var title: LocalizedStringResource = "HomePilot-Karte"
+    static var description = IntentDescription(
+        "Welches Gerät oder welche Szene dieses Widget zeigt."
+    )
+
+    @Parameter(title: "Karte")
+    var karte: KartenWahl?
+
+    init() {}
+}
+
+@available(iOS 17.0, *)
+struct KarteEntry: TimelineEntry {
+    let date: Date
+    let karte: Karte?
+    let stand: Kartenstand
+}
+
+@available(iOS 17.0, *)
+struct KarteProvider: AppIntentTimelineProvider {
+    func placeholder(in context: Context) -> KarteEntry {
+        KarteEntry(date: Date(), karte: ladeKarten().first, stand: .aus)
+    }
+
+    func snapshot(for configuration: KarteIntent, in context: Context) async -> KarteEntry {
+        await eintrag(fuer: configuration)
+    }
+
+    func timeline(for configuration: KarteIntent, in context: Context) async -> Timeline<KarteEntry> {
+        let eintrag = await eintrag(fuer: configuration)
+        // Wie beim grossen Widget: Häufiger lässt iOS ohnehin nicht zu.
+        let naechste = Calendar.current.date(byAdding: .minute, value: 15, to: Date())!
+        return Timeline(entries: [eintrag], policy: .after(naechste))
+    }
+
+    /// Die gewählte Karte - oder die erste, solange keine gewählt ist.
+    ///
+    /// Ein frisch angelegtes Widget zeigt damit sofort etwas, statt bis
+    /// zum ersten «Widget bearbeiten» leer zu bleiben.
+    private func eintrag(fuer configuration: KarteIntent) async -> KarteEntry {
+        let karten = ladeKarten()
+        let gewaehlt = configuration.karte.flatMap { wahl in
+            karten.first(where: { $0.key == wahl.id })
+        }
+        guard let karte = gewaehlt ?? karten.first else {
+            return KarteEntry(date: Date(), karte: nil, stand: .aus)
+        }
+        return KarteEntry(date: Date(), karte: karte, stand: await ladeKartenstand(karte))
+    }
+}
+
+@available(iOS 17.0, *)
+struct KarteInhalt: View {
+    @Environment(\.widgetFamily) var family
+    let entry: KarteEntry
+
+    private var zustandstext: String? {
+        switch entry.stand {
+        case .aus: return nil
+        case .nichtErreicht: return "nicht erreichbar"
+        case .da(let text, _, let erreichbar): return erreichbar ? text : "nicht erreichbar"
+        }
+    }
+
+    private var leuchtet: Bool {
+        if case .da(_, let an, let erreichbar) = entry.stand { return an && erreichbar }
+        return false
+    }
+
+    var body: some View {
+        if let karte = entry.karte {
+            inhalt(karte)
+        } else {
+            // Nicht «Fehler», sondern der Hinweis, was fehlt: In der App
+            // ist noch keine Karte zusammengestellt.
+            VStack(alignment: .leading, spacing: 4) {
+                Image(systemName: "square.dashed").font(.title3)
+                Text("Noch keine Karte")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("In der App unter Einstellungen → Widgets")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(2)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func inhalt(_ karte: Karte) -> some View {
+        if family == .accessoryRectangular {
+            VStack(alignment: .leading, spacing: 2) {
+                Label(karte.title, systemImage: karte.symbol)
+                    .font(.headline)
+                    .lineLimit(1)
+                if let text = zustandstext {
+                    Text(text).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Image(systemName: karte.symbol)
+                        .font(.title2)
+                        .foregroundStyle(leuchtet ? .yellow : .secondary)
+                    Spacer()
+                }
+                Text(karte.title).font(.headline).lineLimit(2)
+                if let text = zustandstext {
+                    Text(text).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                knopf(karte)
+            }
+            .padding(4)
+        }
+    }
+
+    /// Schalten, wo die App es erlaubt hat - sonst der Weg in die App.
+    ///
+    /// Dieselbe Abwägung wie bei den Knöpfen oben: Ohne Hausstand liegt
+    /// kein Token im Widget, und ohne Token kann es nichts aufrufen.
+    @ViewBuilder
+    private func knopf(_ karte: Karte) -> some View {
+        if let pfad = karte.actionPath, !pfad.isEmpty {
+            Button(intent: SchaltIntent(pfad: pfad, body: karte.actionBody ?? "")) {
+                Label(
+                    karte.kind == "scene" ? "Starten" : (leuchtet ? "Ausschalten" : "Einschalten"),
+                    systemImage: karte.kind == "scene" ? "play.fill" : "power"
+                )
+                .font(.caption)
+                .lineLimit(1)
+            }
+            .buttonStyle(.bordered)
+        } else {
+            Link(destination: karte.url) {
+                Label("Öffnen", systemImage: "arrow.up.right")
+                    .font(.caption)
+                    .lineLimit(1)
+            }
+        }
+    }
+}
+
+@available(iOS 17.0, *)
+struct KarteWidget: Widget {
+    let kind: String = "HomePilotKarte"
+
+    var body: some WidgetConfiguration {
+        AppIntentConfiguration(
+            kind: kind,
+            intent: KarteIntent.self,
+            provider: KarteProvider()
+        ) { entry in
+            KarteInhalt(entry: entry)
+                .containerBackground(.fill.tertiary, for: .widget)
+        }
+        .configurationDisplayName("HomePilot Karte")
+        .description("Ein Gerät oder eine Szene – mit Zustand und einem Knopf.")
+        .supportedFamilies([
+            .systemSmall,
+            .systemMedium,
+            .accessoryRectangular,
+        ])
+    }
+}
+
 @main
 struct HomePilotBundle: WidgetBundle {
     var body: some Widget {
@@ -584,6 +883,12 @@ struct HomePilotBundle: WidgetBundle {
         if #available(iOS 16.2, *) {
             TuerAktivitaet()
             HausKarte()
+        }
+        // Die eigenen Karten. Erst ab iOS 17: Erst dort lässt sich ein
+        // Widget je Exemplar einstellen - und ohne das wären alle Karten
+        // dieselbe.
+        if #available(iOS 17.0, *) {
+            KarteWidget()
         }
     }
 }
