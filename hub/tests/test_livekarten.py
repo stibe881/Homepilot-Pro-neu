@@ -155,3 +155,38 @@ def test_registrieren_ersetzt_dasselbe_telefon():
     rows = registrieren([], "Stibe", "tok-1", "iPhone")
     rows = registrieren(rows, "Stibe", "tok-1", "iPhone")
     assert len(rows) == 1
+
+
+def test_einzelne_kartenarten_lassen_sich_abbestellen():
+    """Feinregelung wie bei den Benachrichtigungen: Wer «grill» in seiner
+    liveAus-Liste hat, bekommt keine Grill-Karte mehr - eine laufende
+    endet in derselben Runde. Die anderen Karten bleiben unberührt."""
+    from homepilot.core.liveaktivitaet import abbestellte
+
+    prefs = [
+        {"user": "Stibe", "prefs": {"liveAus": ["grill", "timer"]}},
+        {"user": "Bine", "prefs": {"liveAus": []}},
+        {"user": "Tablet", "prefs": {}},
+    ]
+    assert abbestellte(prefs) == {"Stibe": {"grill", "timer"}, "Bine": set()}
+
+    wunsch = [
+        {"art": "grill:g", "user": None, "state": {"text": "180°"}},
+        {"art": "sauger:s", "user": None, "state": {"text": "saugt"}},
+    ]
+    ab = abbestellte(prefs)
+    rows, starten, *_ = abgleich([], wunsch, ["Stibe", "Bine"], 1000.0, abbestellt=ab)
+    # Stibe bekommt nur den Sauger, Bine beides.
+    assert {(s["user"], s["art"]) for s in starten} == {
+        ("Stibe", "sauger:s"),
+        ("Bine", "grill:g"),
+        ("Bine", "sauger:s"),
+    }
+
+    # Bestellt Bine den Grill später ab, endet ihre laufende Karte.
+    rows = token_merken(rows, "Bine", "grill:g", "act-1")
+    ab = abbestellte([{"user": "Bine", "prefs": {"liveAus": ["grill"]}}])
+    rows, starten, _, beenden = abgleich(
+        rows, wunsch, ["Stibe", "Bine"], 2000.0, abbestellt=ab
+    )
+    assert [b["tokens"] for b in beenden if b["tokens"]] == [["act-1"]]

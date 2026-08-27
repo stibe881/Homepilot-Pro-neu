@@ -174,6 +174,29 @@ def wechsel(
     return neue, starten, beenden
 
 
+def abbestellte(prefs_rows: Any) -> dict[str, set[str]]:
+    """Wer welche Kartenarten abbestellt hat (rein, testbar).
+
+    Feinregelung unter dem grossen Schalter, nach dem Modell der
+    Benachrichtigungen: In den persönlichen Einstellungen liegt eine
+    Liste `liveAus` mit Kartenarten («timer», «grill», «tuer», …), die
+    diese Person nicht will. Bewusst als «abbestellen» statt
+    «bestellen» - eine neue Kartenart kommt damit erst einmal an,
+    statt unbemerkt zu fehlen.
+    """
+    ergebnis: dict[str, set[str]] = {}
+    for row in prefs_rows or []:
+        if not isinstance(row, dict):
+            continue
+        prefs = row.get("prefs")
+        if not isinstance(prefs, dict) or not isinstance(prefs.get("liveAus"), list):
+            continue
+        name = str(row.get("user") or "")
+        if name:
+            ergebnis[name] = {str(art) for art in prefs["liveAus"]}
+    return ergebnis
+
+
 def abgeschaltet(prefs_rows: Any) -> set[str]:
     """Wer die Live-Aktivität in seinem Profil abgeschaltet hat (rein, testbar).
 
@@ -379,12 +402,15 @@ async def _runde(hub: Any, versand: ApnsVersand) -> None:
         return
     benutzer = {str(row.get("user") or "") for row in rows if isinstance(row, dict)}
     weg = _weg_stand(hub, benutzer)
-    # Wer den Schalter im Profil ausgestellt hat, gilt hier als zuhause:
-    # Es startet nichts Neues, und eine gerade laufende Karte wird im
-    # selben Zug beendet - der Schalter wirkt sofort, nicht erst beim
-    # nächsten Heimkommen.
-    for name in abgeschaltet(hub.data.get("user_prefs")):
-        if name in benutzer:
+    # Wer den Schalter im Profil ausgestellt hat - ganz oder nur für die
+    # Haustür-Karte -, gilt hier als zuhause: Es startet nichts Neues,
+    # und eine gerade laufende Karte wird im selben Zug beendet. Der
+    # Schalter wirkt sofort, nicht erst beim nächsten Heimkommen.
+    prefs_rows = hub.data.get("user_prefs")
+    aus = abgeschaltet(prefs_rows)
+    einzeln = abbestellte(prefs_rows)
+    for name in benutzer:
+        if name in aus or "tuer" in einzeln.get(name, set()):
             weg[name] = False
     neue, starten, beenden = wechsel(rows, weg)
     if not starten and not beenden:

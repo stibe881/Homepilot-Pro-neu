@@ -67,11 +67,22 @@ export interface UserPrefs {
    *  oben. Bewusst persönlich – am Wandpanel im Flur will man etwas
    *  anderes als auf dem Telefon in der Hosentasche. */
   kameraDynamisch?: boolean;
-  /** Die Haustür-Karte auf dem Sperrbildschirm, wenn man unterwegs ist
-   *  (Live-Aktivität). Fehlt der Wert, gilt an - abgeschaltet wird sie
-   *  je Person, wie die Benachrichtigungen. Den Schalter liest auch der
-   *  Hub (core/liveaktivitaet.py). */
+  /** Kacheln nach Tageszeit sortieren: morgens Storen, abends Licht.
+   *  Aus, bis jemand sie einschaltet – eine Wohnung, die sich von selbst
+   *  umsortiert, ohne dass man es bestellt hat, ist keine eingerichtete
+   *  Wohnung, sondern eine, in der man morgens sucht. Persönlich, weil
+   *  es Gewohnheit ist: Wer um sechs aufsteht, meint mit «Morgen» etwas
+   *  anderes als wer um neun anfängt. */
+  tageszeit?: boolean;
+  /** Live-Aktivitäten auf dem Sperrbildschirm. Fehlt der Wert, gilt
+   *  an - abgeschaltet wird je Person, wie die Benachrichtigungen. Den
+   *  Schalter liest auch der Hub (core/liveaktivitaet.py). */
   liveTuer?: boolean;
+  /** Abbestellte Kartenarten («timer», «grill», «tuer», …) - die
+   *  Feinregelung unter dem grossen Schalter. Bewusst als Abbestellen:
+   *  Eine neue Kartenart kommt erst einmal an, statt unbemerkt zu
+   *  fehlen. Auch das setzt der Hub durch (core/livekarten.py). */
+  liveAus?: string[];
   /** Die eigenen Favoriten. Lange stand der Stern am Gerät selbst und
    *  galt damit für alle – aber griffbereit ist eine persönliche Frage:
    *  Was Stefan jeden Abend braucht, ist für Livia nur eine Kachel im
@@ -241,8 +252,18 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     [setzeEigen]
   );
 
+  const setTageszeit = useCallback(
+    (on: boolean) => setzeEigen({ ...eigenJetzt.current, tageszeit: on }),
+    [setzeEigen]
+  );
+
   const setLiveTuer = useCallback(
     (on: boolean) => setzeEigen({ ...eigenJetzt.current, liveTuer: on }),
+    [setzeEigen]
+  );
+
+  const setLiveAus = useCallback(
+    (keys: string[]) => setzeEigen({ ...eigenJetzt.current, liveAus: keys }),
     [setzeEigen]
   );
 
@@ -280,7 +301,9 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     setWidgetDirect,
     setSeenChanges,
     setKameraDynamisch,
+    setTageszeit,
     setLiveTuer,
+    setLiveAus,
     setFavorites,
     setFavoriteOrder,
     setDurchsage,
