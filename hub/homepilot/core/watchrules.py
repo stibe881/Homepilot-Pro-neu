@@ -10,8 +10,8 @@ sich jede Regel prüfen, ohne einen Hub zu starten.
 from __future__ import annotations
 
 import re
-import time
 import shutil
+import time
 from typing import Any
 
 # Melder, bei denen «offen» Heizkosten bedeutet. Ein Bewegungsmelder, der
