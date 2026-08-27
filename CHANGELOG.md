@@ -9,6 +9,15 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Familie**
 
+- **Erinnerungen lassen sich bearbeiten.** Der Stift auf der Zeile
+  füllt das Formular unten mit dem Eintrag - Text, Datum, Uhrzeit,
+  Wiederholung, die beiden Schalter und die Push-Empfänger stehen
+  darin und lassen sich ändern; «Änderungen speichern» schreibt in
+  denselben Eintrag zurück, «Abbrechen» verwirft. Vorher blieb nur
+  Löschen und neu Anlegen. Eine bearbeitete Erinnerung gilt als frisch
+  aufgesetzt: Ein schon verschickter Push und die «schon
+  gesehen»-Vermerke gehörten zum alten Termin - wer die Zeit
+  verschiebt, will wieder gemeldet werden.
 - **Erinnerungen können sich wiederholen** - täglich, wöchentlich,
   monatlich oder jährlich, gewählt über dieselben Chips wie bei den
   Aufgaben. Eine wiederkehrende Erinnerung wird beim Bestätigen nicht

@@ -27,7 +27,7 @@ import { tapped } from '../../lib/haptics';
 export type FamilyItem = Record<string, any>;
 
 export type FamilyData = Record<string, FamilyItem[]>;
-import { WIEDERHOLUNGEN, monatsSprung, monatsraster } from '../../lib/erinnerungen';
+import { Erinnerung, WIEDERHOLUNGEN, monatsSprung, monatsraster, wiederholungVon } from '../../lib/erinnerungen';
 import { makeStyles } from './stil';
 
 export type Styles = ReturnType<typeof makeStyles>;
@@ -1816,6 +1816,8 @@ function Schalter({
 
 export function ErinnerungForm({
   onAdd,
+  onCancel,
+  vorgabe,
   mitglieder,
   styles,
   colors,
@@ -1826,32 +1828,49 @@ export function ErinnerungForm({
     anzeigen: boolean;
     push: boolean;
     push_an: string[];
-    repeat?: string;
+    /** null räumt eine bestehende Wiederholung ab (Bearbeiten). */
+    repeat?: string | null;
   }) => void;
+  /** Nur beim Bearbeiten: zurück ohne zu speichern. */
+  onCancel?: () => void;
+  /** Zum Bearbeiten: der bestehende Eintrag füllt das Formular vor.
+   *  Der Aufrufer wechselt den `key` mit, damit das Formular je
+   *  Eintrag frisch aufsetzt - die Felder sind bewusst einfache
+   *  Startwerte, kein Abgleich im Laufenden. */
+  vorgabe?: Erinnerung;
   mitglieder: string[];
   styles: Styles;
   colors: Colors;
 }) {
-  const [text, setText] = useState('');
+  const [text, setText] = useState(vorgabe ? String(vorgabe.text ?? '') : '');
   // Die beiden Wege, auf denen eine Erinnerung ankommt. Bildschirm ist
   // die Vorgabe (so war die Kachel angekündigt); Push muss man wollen,
   // denn es klingelt auf fremden Telefonen.
-  const [anzeigen, setAnzeigen] = useState(true);
-  const [push, setPush] = useState(false);
-  const [gewaehlte, setGewaehlte] = useState<string[]>([]);
+  const [anzeigen, setAnzeigen] = useState(vorgabe ? vorgabe.anzeigen !== false : true);
+  const [push, setPush] = useState(vorgabe?.push === true);
+  const [gewaehlte, setGewaehlte] = useState<string[]>(
+    vorgabe && Array.isArray(vorgabe.push_an) ? vorgabe.push_an.map(String) : []
+  );
   // Einmalig ist die Vorgabe - wie bei den Aufgaben. Wiederkehrend
   // heisst: Bestätigen erledigt nicht, sondern stellt weiter.
-  const [wiederholung, setWiederholung] = useState('none');
+  const [wiederholung, setWiederholung] = useState(
+    vorgabe ? (wiederholungVon(vorgabe) ?? 'none') : 'none'
+  );
   // Vorgabe: heute, zur nächsten vollen Stunde - der häufigste Fall ist
-  // «nachher», nicht «nächste Woche».
+  // «nachher», nicht «nächste Woche». Beim Bearbeiten: der eingetragene
+  // Zeitpunkt.
   const [wann, setWann] = useState(() => {
-    const gleich = new Date(Date.now() + 3_600_000);
+    const at = Number(vorgabe?.at);
+    const gleich =
+      vorgabe && Number.isFinite(at) && at > 0
+        ? new Date(at)
+        : new Date(Date.now() + 3_600_000);
     return {
       jahr: gleich.getFullYear(),
       monat: gleich.getMonth() + 1,
       tag: gleich.getDate(),
       stunde: gleich.getHours(),
-      minute: 0,
+      minute: vorgabe ? gleich.getMinutes() : 0,
     };
   });
   // Welcher Wähler offen ist - immer nur einer, sonst wird die Karte
@@ -2028,37 +2047,56 @@ export function ErinnerungForm({
           })}
         </View>
       ) : null}
-      <Pressable
-        onPress={() => {
-          if (!bereit) return;
-          onAdd({
-            text: text.trim(),
-            at: new Date(
-              wann.jahr,
-              wann.monat - 1,
-              wann.tag,
-              wann.stunde,
-              wann.minute
-            ).getTime(),
-            anzeigen,
-            push,
-            push_an: push ? gewaehlte : [],
-            // «none» bleibt weg: Ein Feld, das nichts sagt, muss nicht
-            // in der Ablage stehen.
-            ...(wiederholung !== 'none' ? { repeat: wiederholung } : {}),
-          });
-          setText('');
-          setOffenerWaehler(null);
-          setPush(false);
-          setGewaehlte([]);
-          setWiederholung('none');
-        }}
-        accessibilityRole="button"
-        accessibilityState={{ disabled: !bereit }}
-        style={[styles.addWide, !bereit && { opacity: 0.5 }]}
-      >
-        <Text style={styles.addWideText}>Erinnerung anlegen</Text>
-      </Pressable>
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        {vorgabe && onCancel ? (
+          <Pressable
+            onPress={onCancel}
+            accessibilityRole="button"
+            style={[styles.addWide, { flex: 1, backgroundColor: 'transparent' }]}
+          >
+            <Text style={[styles.addWideText, { color: colors.inkSoft }]}>Abbrechen</Text>
+          </Pressable>
+        ) : null}
+        <Pressable
+          onPress={() => {
+            if (!bereit) return;
+            onAdd({
+              text: text.trim(),
+              at: new Date(
+                wann.jahr,
+                wann.monat - 1,
+                wann.tag,
+                wann.stunde,
+                wann.minute
+              ).getTime(),
+              anzeigen,
+              push,
+              push_an: push ? gewaehlte : [],
+              // Beim Anlegen bleibt «none» weg: Ein Feld, das nichts
+              // sagt, muss nicht in der Ablage stehen. Beim Bearbeiten
+              // muss es mit - der Hub mischt Änderungen in den Eintrag,
+              // und ohne das Feld bliebe die alte Wiederholung stehen.
+              ...(wiederholung !== 'none'
+                ? { repeat: wiederholung }
+                : vorgabe
+                  ? { repeat: null }
+                  : {}),
+            });
+            setText('');
+            setOffenerWaehler(null);
+            setPush(false);
+            setGewaehlte([]);
+            setWiederholung('none');
+          }}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: !bereit }}
+          style={[styles.addWide, { flex: 1 }, !bereit && { opacity: 0.5 }]}
+        >
+          <Text style={styles.addWideText}>
+            {vorgabe ? 'Änderungen speichern' : 'Erinnerung anlegen'}
+          </Text>
+        </Pressable>
+      </View>
     </Card>
   );
 }
