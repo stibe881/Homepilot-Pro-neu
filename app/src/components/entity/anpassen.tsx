@@ -157,6 +157,7 @@ export function KachelMenue({
   visible,
   titel,
   ursache,
+  kette,
   eintraege,
   onClose,
   onSelect,
@@ -166,6 +167,10 @@ export function KachelMenue({
   /** «seit 20 Min · Ablauf «Bewegung Flur»» – die Antwort auf «warum ist
    *  das an?», dort, wo man das Gerät gerade in der Hand hat. */
   ursache?: string | null;
+  /** «Bewegung Flur → Licht bei Bewegung → Licht Wohnzimmer» – die
+   *  Kette dahinter, wo der Hub sie kennt. Die kurze Antwort zog sonst
+   *  jedes Mal die nächste Frage nach sich: welche Bewegung? */
+  kette?: string | null;
   eintraege: KachelEintrag[];
   onClose: () => void;
   onSelect: (eintrag: KachelEintrag) => void;
@@ -180,6 +185,7 @@ export function KachelMenue({
             {titel}
           </Text>
           {ursache ? <Text style={styles.menueUrsache}>{ursache}</Text> : null}
+          {kette ? <Text style={styles.menueKette}>{kette}</Text> : null}
           {eintraege.map((eintrag) => (
             <Pressable
               key={eintrag.id}

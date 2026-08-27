@@ -595,6 +595,31 @@ def describe_condition(condition: dict[str, Any], value: Any) -> str:
 MODES = ("single", "restart", "queued")
 
 
+def trigger_wort(
+    triggers: list[dict[str, Any]], ausloeser_label: str | None
+) -> str | None:
+    """Was diesen Lauf angestossen hat, in einem Wort (rein, testbar).
+
+    Am liebsten das Gerät, dessen Meldung kam - «Bewegung Flur» ist die
+    Antwort, nach der man sucht. Ohne Gerät bleibt die Uhrzeit, sofern
+    der Ablauf nur einen einzigen Auslöser hat: Bei zweien wüsste
+    niemand, welcher es war, und ein geratener Auslöser ist schlimmer
+    als keiner. Dann steht am Gerät weiterhin nur der Ablauf.
+    """
+    if ausloeser_label:
+        return ausloeser_label
+    if len(triggers) != 1:
+        return None
+    einzig = triggers[0]
+    typ = str(einzig.get("type") or "")
+    if typ == "time" and einzig.get("at"):
+        return f"um {einzig['at']}"
+    if typ == "sun":
+        wann = str(einzig.get("event") or einzig.get("state") or "")
+        return "Sonnenaufgang" if wann in ("sunrise", "up") else "Sonnenuntergang"
+    return None
+
+
 def parse_mode(value: Any) -> str:
     """Welcher Modus gemeint ist (rein, testbar).
 
@@ -1827,8 +1852,19 @@ class AutomationEngine:
                     automation.alias,
                     "" if held else " (sonst-Zweig)",
                 )
-                # Alles, was jetzt folgt, wird der Automation zugeschrieben.
-                with as_source(automation_source(automation.id, automation.alias)):
+                # Alles, was jetzt folgt, wird der Automation zugeschrieben -
+                # samt Auslöser, damit am Gerät die ganze Kette steht:
+                # Melder → Ablauf → Gerät (core/source.py).
+                with as_source(
+                    automation_source(
+                        automation.id,
+                        automation.alias,
+                        trigger_wort(
+                            automation.triggers,
+                            name_of(ausloeser) if ausloeser else None,
+                        ),
+                    )
+                ):
                     # Die Zählung wird nach der Schleife gebraucht, nicht
                     # darin - sie sagt im Abbruchfall, wo der Lauf stand.
                     # Deshalb unten die Ausnahme von B007.
