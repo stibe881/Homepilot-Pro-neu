@@ -45,6 +45,17 @@ class PushRegistration(BaseModel):
     label: str = ""
 
 
+class LiveActivityTokenRequest(BaseModel):
+    """Ein ActivityKit-Token vom iPhone - zum Starten oder Beenden.
+
+    Für den Start das «push-to-start»-Token des Geräts, fürs Beenden das
+    Token der laufenden Aktivität (core/liveaktivitaet.py).
+    """
+
+    token: str
+    label: str = ""
+
+
 class PushSnoozeRequest(BaseModel):
     """Eine Meldung noch einmal, später – der Knopf in der Mitteilung."""
 

@@ -36,6 +36,7 @@ import { RoomTabs } from '../components/RoomTabs';
 import { RoomTile } from '../components/RoomTile';
 import { SceneRow } from '../components/SceneRow';
 import { GlobalSearch } from '../components/GlobalSearch';
+import { LiveTuerSchalter } from '../components/LiveTuerSchalter';
 import { PushPrefs } from '../components/PushPrefs';
 import { ActivityCard, SidePanel } from '../components/SidePanel';
 import { Bestaetigung, Toast, UndoToast } from '../components/Toast';
@@ -43,6 +44,7 @@ import { TopStrip } from '../components/TopStrip';
 import { useHub } from '../hooks/useHub';
 import { Knopfdruck, Tap, useNotificationTap } from '../hooks/useNotificationTap';
 import { usePrefs } from '../hooks/usePrefs';
+import { useLiveAktivitaet } from '../hooks/useLiveAktivitaet';
 import { usePushRegistration } from '../hooks/usePushRegistration';
 import { breakpoints, Colors, radius, space, type, useColors } from '../theme';
 import { KAMERA_MINDEST, kachelBreite, spalten } from '../lib/raster';
@@ -756,6 +758,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setUngezaehlt,
     setSeenChanges,
     setKameraDynamisch,
+    setLiveTuer,
     setFavorites,
     setFavoriteOrder,
     setDurchsage,
@@ -765,6 +768,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setWidgetButtons,
     setWidgetDirect,
   } = usePrefs(settings, status === 'connected');
+
+  // Die Haustür-Karte für unterwegs - tut nur auf einem iPhone mit dem
+  // passenden Build etwas (hooks/useLiveAktivitaet.ts). Hängt am
+  // Profil-Schalter: aus heisst, dieses Gerät meldet gar keine Tokens an.
+  useLiveAktivitaet(
+    settings,
+    status === 'connected' && eigenePrefs.liveTuer !== false
+  );
 
   // Einmalige Übernahme dessen, was vorher im Gerät und beim Benutzer
   // lag. Erst nach der ersten Antwort des Hubs - sonst sähe die
@@ -1849,6 +1860,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               ganze Haus, ihr Abräumen ist keine Ansichtssache. */}
           {istBesitzer ? (
             <TuerRueckfrage enabled={prefs.doorConfirm} onChange={setDoorConfirm} />
+          ) : null}
+          {/* Nur für Menschen mit eigenem iPhone - am Wandpanel und für
+              Gäste hätte die Karte keinen Ort. */}
+          {!user?.shared && user?.role !== 'gast' ? (
+            <LiveTuerSchalter
+              settings={settings}
+              enabled={eigenePrefs.liveTuer !== false}
+              onChange={setLiveTuer}
+            />
           ) : null}
           <PushPrefs settings={settings} />
         </View>

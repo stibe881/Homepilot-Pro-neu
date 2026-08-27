@@ -67,6 +67,11 @@ export interface UserPrefs {
    *  oben. Bewusst persönlich – am Wandpanel im Flur will man etwas
    *  anderes als auf dem Telefon in der Hosentasche. */
   kameraDynamisch?: boolean;
+  /** Die Haustür-Karte auf dem Sperrbildschirm, wenn man unterwegs ist
+   *  (Live-Aktivität). Fehlt der Wert, gilt an - abgeschaltet wird sie
+   *  je Person, wie die Benachrichtigungen. Den Schalter liest auch der
+   *  Hub (core/liveaktivitaet.py). */
+  liveTuer?: boolean;
   /** Die eigenen Favoriten. Lange stand der Stern am Gerät selbst und
    *  galt damit für alle – aber griffbereit ist eine persönliche Frage:
    *  Was Stefan jeden Abend braucht, ist für Livia nur eine Kachel im
@@ -236,6 +241,11 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     [setzeEigen]
   );
 
+  const setLiveTuer = useCallback(
+    (on: boolean) => setzeEigen({ ...eigenJetzt.current, liveTuer: on }),
+    [setzeEigen]
+  );
+
   const setFavorites = useCallback(
     (ids: string[]) => setzeEigen({ ...eigenJetzt.current, favorites: ids }),
     [setzeEigen]
@@ -270,6 +280,7 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     setWidgetDirect,
     setSeenChanges,
     setKameraDynamisch,
+    setLiveTuer,
     setFavorites,
     setFavoriteOrder,
     setDurchsage,

@@ -1,3 +1,4 @@
+import ActivityKit
 import SwiftUI
 import WidgetKit
 import AppIntents
@@ -401,7 +402,88 @@ struct HomePilotWidgetView: View {
     }
 }
 
+// ── Haustür-Live-Aktivität ─────────────────────────────────────────────────
+//
+// Die Karte, die auf dem Sperrbildschirm liegt, solange man unterwegs
+// ist. Gestartet und beendet wird sie vom Hub über einen APNs-Push
+// (core/liveaktivitaet.py) - die App ist im Moment des Weggehens ja
+// gerade nicht offen. Der Tipp auf die Karte führt in die App zur Türe,
+// mit der gewohnten Rückfrage: Ein Knopf auf dem Sperrbildschirm darf
+// nicht mehr als die App - dieselbe Entscheidung wie beim Türknopf im
+// Widget oben.
+
+/// Wortgleich in der App (modules/live-aktivitaet) - beide Programme
+/// müssen den Typ kennen, und der Start-Push trägt seinen Namen.
+struct TuerAktivitaetAttributes: ActivityAttributes {
+    public struct ContentState: Codable, Hashable {
+        var text: String
+    }
+
+    var tuer: String
+}
+
+@available(iOS 16.2, *)
+struct TuerAktivitaet: Widget {
+    var body: some WidgetConfiguration {
+        ActivityConfiguration(for: TuerAktivitaetAttributes.self) { context in
+            // Sperrbildschirm und Banner.
+            HStack(spacing: 12) {
+                Image(systemName: "key.fill")
+                    .font(.title2)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Unterwegs")
+                        .font(.headline)
+                    Text("\(context.attributes.tuer) im Schnellzugriff")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Link(destination: URL(string: "homepilot://door")!) {
+                    Text("Öffnen")
+                        .font(.headline)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 10)
+                        .background(.tint, in: Capsule())
+                        .foregroundStyle(.white)
+                }
+            }
+            .padding(14)
+            .activityBackgroundTint(Color.black.opacity(0.6))
+        } dynamicIsland: { context in
+            DynamicIsland {
+                DynamicIslandExpandedRegion(.leading) {
+                    Image(systemName: "key.fill").font(.title2)
+                }
+                DynamicIslandExpandedRegion(.center) {
+                    Text(context.attributes.tuer).font(.headline)
+                }
+                DynamicIslandExpandedRegion(.trailing) {
+                    Link(destination: URL(string: "homepilot://door")!) {
+                        Text("Öffnen").font(.headline)
+                    }
+                }
+            } compactLeading: {
+                Image(systemName: "key.fill")
+            } compactTrailing: {
+                EmptyView()
+            } minimal: {
+                Image(systemName: "key.fill")
+            }
+            .widgetURL(URL(string: "homepilot://door"))
+        }
+    }
+}
+
 @main
+struct HomePilotBundle: WidgetBundle {
+    var body: some Widget {
+        HomePilotWidget()
+        if #available(iOS 16.2, *) {
+            TuerAktivitaet()
+        }
+    }
+}
+
 struct HomePilotWidget: Widget {
     let kind: String = "HomePilotWidget"
 
