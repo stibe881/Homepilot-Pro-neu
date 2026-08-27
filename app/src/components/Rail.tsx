@@ -25,6 +25,9 @@ export type Section =
   | 'activity'
   | 'widgets'
   | 'account'
+  // Die Einrichtung des Hauses hinter einer eigenen Tür: Sie öffnet man
+  // selten und nie beiläufig (lib/einstellungsmenue.ts).
+  | 'admin'
   // «Konto & Verbindung» war beides zugleich: Wer sein Erscheinungsbild
   // ändern wollte, scrollte an Adresse und Token vorbei. Zwei Fragen,
   // zwei Punkte.
@@ -56,6 +59,7 @@ export const SECTION_LABEL: Record<Section, string> = {
   widgets: 'Widgets',
   account: 'Konto',
   connection: 'Verbindungen',
+  admin: 'Administrator',
 };
 
 /** `needs` nennt die Berechtigung, ohne die der Punkt gar nicht erscheint. */

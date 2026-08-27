@@ -5,7 +5,13 @@
  * sehen.» Die Liste gibt Auskunft über das Haus – wer darin wohnt, darf
  * sie haben; ein Gast nicht.
  */
-import { Bereich, siehtBereich } from './einstellungsmenue';
+import {
+  ADMIN_PUNKTE,
+  Bereich,
+  adminZeile,
+  gruppeVon,
+  siehtBereich,
+} from './einstellungsmenue';
 
 const BESITZERIN = [
   'control',
@@ -87,5 +93,52 @@ describe('siehtBereich', () => {
       'widgets',
       'account',
     ]);
+  });
+});
+
+describe('Was unter Administrator liegt', () => {
+  /**
+   * Die Frage hinter der Auswahl: Ändert oder erklärt der Punkt, wie
+   * das Haus eingerichtet ist – oder bedient er es?
+   */
+  it('nimmt die Einrichtung', () => {
+    for (const key of ['users', 'personen', 'devices', 'sorgen', 'system', 'activity']) {
+      expect(gruppeVon(key)).toBe('admin');
+    }
+  });
+
+  it('lässt die Bedienung, wo sie ist', () => {
+    for (const key of [
+      'search',
+      'automations',
+      'alarm',
+      'besuch',
+      'speakers',
+      'energy',
+      'widgets',
+      'account',
+      'connection',
+    ]) {
+      expect(gruppeVon(key)).toBe('haus');
+    }
+  });
+
+  it('kennt genau sechs Punkte – nicht mehr aus Versehen', () => {
+    expect(ADMIN_PUNKTE).toHaveLength(6);
+  });
+
+  it('unbekannte Punkte landen im Haus, nicht hinter der Tür', () => {
+    // Lieber einmal zu sichtbar als lautlos verschwunden: Ein neuer
+    // Punkt, den jemand hinzufügt, soll auffallen und nicht fehlen.
+    expect(gruppeVon('etwas-neues')).toBe('haus');
+  });
+
+  /**
+   * Ein Mitbewohner sieht weniger als die Besitzerin. Eine Zeile, die
+   * mehr verspricht als die Seite hält, schickt ihn ins Leere.
+   */
+  it('die Zeile darunter richtet sich nach dem, was offensteht', () => {
+    expect(adminZeile(6)).toMatch(/Benutzer/);
+    expect(adminZeile(0)).toMatch(/Nichts/);
   });
 });
