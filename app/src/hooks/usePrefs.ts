@@ -284,7 +284,7 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
   );
 
   const setRaumNutzung = useCallback(
-    (on: boolean) => setzeEigen({ ...eigenJetzt.current, raumNutzung: on }),
+    (on: boolean) => setzeEigen({ raumNutzung: on }),
     [setzeEigen]
   );
 
