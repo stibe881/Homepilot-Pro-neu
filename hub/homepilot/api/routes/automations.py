@@ -476,6 +476,11 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 # Kopfrechnen über Sonnenuntergang plus Versatz.
                 automation.as_dict()
                 | {"next_run": hub.automations.next_run(automation)}
+                # Und der letzte Lauf: Die Liste zeigte bisher nur, wann
+                # er das nächste Mal dran ist. «Lief er überhaupt schon?»
+                # kostete einen zweiten Aufruf je Ablauf - also fragte
+                # niemand, und ein stummer Ablauf blieb unbemerkt.
+                | {"last_run": automation_module.letzter_lauf(hub.automations.runs, automation.id)}
                 for automation in hub.automations.automations
             ],
             "paused_until": (

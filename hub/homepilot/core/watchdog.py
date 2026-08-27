@@ -33,6 +33,7 @@ from . import (
     familie,
     gemeldet,
     maintenance,
+    morgen,
     notifyrules,
     personen,
     presence,
@@ -288,6 +289,7 @@ class Watchdog:
         await self._check_shopping(entities)
         await self._check_medications()
         await self._check_birthdays()
+        await self._check_morgen(entities)
         await self._check_emergency()
         await self._check_presence()
         await self._check_week_ahead()
@@ -484,6 +486,59 @@ class Watchdog:
                 if isinstance(event, dict):
                     termine.append(event)
         return termine
+
+    async def _check_morgen(self, entities: list[Any]) -> None:
+        """Eine Nachricht am Morgen statt sieben einzelner.
+
+        Nachts ist Einzelmelden richtig - ein Wassermelder wartet nicht
+        bis sieben. Am Morgen ist es das Gegenteil: Sechs Mitteilungen
+        über schwache Batterien, ein offenes Fenster und einen Ablauf,
+        der nicht lief, wischt man weg, ohne sie zu lesen. Zusammen
+        gelesen ergeben dieselben sechs ein Bild.
+
+        Sie kommt nur, wenn etwas dasteht. Eine Zusammenfassung, die
+        «alles in Ordnung» meldet, bestellt man nach einer Woche ab - und
+        dann fehlt sie an dem Morgen, an dem sie etwas zu sagen hätte.
+        """
+        params = self.rules["morning"]["params"]
+        if not morgen.faellig(int(params.get("hour", 7))):
+            return
+        jetzt = time.time()
+        heute = datetime.now().strftime("%Y-%m-%d")
+        if not self._einmal(f"morning:{heute}", jetzt):
+            return
+
+        von, bis = morgen.nacht_fenster(jetzt)
+        arten = {entity.id: str(entity.kind) for entity in entities}
+        nacht = morgen.in_der_nacht(self.hub.eventlog.all(), arten, von, bis)
+        tage = int(params.get("quiet_days", 7))
+        still = (
+            morgen.stille_ablaeufe(
+                [ablauf.as_dict() for ablauf in self.hub.automations.automations],
+                self.hub.automations.runs,
+                jetzt,
+                tage,
+            )
+            if tage > 0
+            else []
+        )
+        gebaut = morgen.satz(
+            morgen.zeilen(
+                offen=[entity.label for entity in open_contacts(entities)],
+                schwach=[entity.label for entity in low_batteries(entities)],
+                stumm=sorted(
+                    self.hub.registry.get(entity_id).label
+                    for entity_id in self._reported_down
+                    if self.hub.registry.get(entity_id) is not None
+                ),
+                nacht=len(nacht),
+                stille_ablaeufe=still,
+            )
+        )
+        if gebaut is None:
+            return
+        titel, text = gebaut
+        await self._notify(titel, text, category="morning")
 
     async def _check_birthdays(self) -> None:
         """Am Morgen daran erinnern, wer heute Geburtstag hat.

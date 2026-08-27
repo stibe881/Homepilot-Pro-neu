@@ -406,6 +406,23 @@ def describe_action(action: dict[str, Any], name_of: Any = None) -> str:
     return f"unbekannte Aktion «{atype}»"
 
 
+def letzter_lauf(
+    runs: list[dict[str, Any]], automation_id: str
+) -> dict[str, Any] | None:
+    """Der jüngste Lauf dieses Ablaufs - oder None (rein, testbar).
+
+    Die Liste steht jüngste zuerst; gesucht wird der erste Treffer. None
+    heisst «seit dem Anlegen nie ausgelöst» - und das ist eine eigene
+    Auskunft, nicht dasselbe wie «lief und tat nichts». Wer einen Ablauf
+    baut, der stumm bleibt, will genau diesen Unterschied wissen: Kam
+    der Auslöser nicht, oder stand eine Bedingung im Weg?
+    """
+    for run in runs:
+        if run.get("automation_id") == automation_id:
+            return run
+    return None
+
+
 #: Was ein Musik-Schritt tun kann. Der Schlüssel steht in `do`.
 MUSIK_TATEN = ("favorite", "sleep", "pause_all", "night", "fade")
 
@@ -1744,15 +1761,36 @@ class AutomationEngine:
         Bedingungen gerade nicht passen (man will beim Testen das Ergebnis
         sehen, nicht die Bedingung prüfen). Gibt False zurück, wenn es den
         Ablauf nicht gibt.
+
+        Der Lauf steht danach im Verlauf und ist als Probe gekennzeichnet.
+        Vorher hinterliess er keine Spur: Eine halbe Stunde später war
+        nicht mehr zu unterscheiden, ob das Licht wegen eines Tests
+        anging oder von selbst - und genau danach sucht man, wenn etwas
+        nicht stimmt. Welche Bedingungen dabei übergangen wurden, steht
+        mit dabei; ein Test, der lief, obwohl der Ablauf im Alltag
+        gestoppt worden wäre, ist nur die halbe Auskunft.
         """
         automation = next(
             (a for a in self.automations if a.id == automation_id), None
         )
         if automation is None:
             return False
+        _erfuellt, offen = self._conditions_hold(automation)
+        fehler: str | None = None
         with as_source(automation_source(automation.id, automation.alias)):
             for action in automation.actions:
-                await self._execute_action(automation, action)
+                try:
+                    await self._execute_action(automation, action)
+                except Exception as err:
+                    fehler = str(err)
+                    break
+        self._note(
+            automation,
+            executed=fehler is None,
+            error=fehler,
+            skipped=offen,
+            test=True,
+        )
         return True
 
     # ── Ausführung ─────────────────────────────────────────────────────────
@@ -1925,6 +1963,7 @@ class AutomationEngine:
         error: str | None,
         skipped: list[str],
         steps: list[dict[str, Any]] | None = None,
+        test: bool = False,
     ) -> dict[str, Any]:
         """Den Lauf ins Protokoll – und den Eintrag zurückgeben.
 
@@ -1939,6 +1978,10 @@ class AutomationEngine:
             "executed": executed,
             "error": error,
             "skipped": skipped,
+            # Von Hand angestossen? Dann sagt der Verlauf das auch. Ein
+            # Testlauf sieht sonst aus wie ein echter, und die Frage
+            # «warum ging das Licht an?» führt in die Irre.
+            "test": test,
             # Die Schritt-Spur (Punkt 160). Leer bei übersprungenen
             # Läufen - dort ist «skipped» die Auskunft.
             "steps": steps or [],
