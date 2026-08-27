@@ -7,6 +7,20 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 ## 2026-08-27
 
+**Abläufe**
+
+- **Die Auslöser-Diagnose unterscheidet «kaputt» von «hatte nichts zu
+  melden».** Bei «wenn niemand mehr zuhause ist» stand als orange
+  Warnung: «geofence.anyone_home hat sich noch nie gemeldet - stimmt
+  die Kennung, ist das Gerät erreichbar?» Dabei war alles in Ordnung:
+  Die Sammel-Entität meldet nur echte Wechsel, und solange seit dem
+  Hub-Start niemand ging oder kam, herrscht zu Recht Stille. Jetzt
+  sagt die Diagnose in diesem Fall ruhig: «ist da und steht auf ‹on› -
+  seit dem Hub-Start gab es nur noch keinen Wechsel. Der Auslöser
+  feuert beim nächsten.» Die Warnung bleibt für den Fall, für den sie
+  gedacht war: eine Kennung, die ins Leere zeigt, oder ein Gerät, das
+  nicht erreichbar ist.
+
 **Familie**
 
 - **Erinnerungen lassen sich bearbeiten.** Der Stift auf der Zeile
