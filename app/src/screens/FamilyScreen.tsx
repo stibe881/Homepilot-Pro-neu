@@ -91,6 +91,7 @@ import {
 import { tapped } from '../lib/haptics';
 import { kochVorschlaege, vorschlagsGrund, wuerfel } from '../lib/vorschlag';
 import { ROLE_LABELS } from './UsersScreen';
+import { naechsteStraehne, straehnenSatz } from '../lib/straehne';
 import { AddRow, BackHead, CheckRow, ChoreAddRow, ContactForm, ContactPhoto, CountdownForm, ErinnerungForm, EventForm, FamilyData, FamilyItem, GroupedChecklist, MealRow, MedicationAddRow, Member, MemberAddRow, ModuleKey, MonthCalendar, Notrufliste, PollAddRow, Props, REPEAT_OPTIONS, SHOP_CATEGORIES, ShoppingAddRow, TaskAddRow, TwoFieldForm, WEEK_DAYS, birthdayLabel, daysUntilBirthday, dueInfo, isoInDays, nextDue, parseSwissDate, pickPhoto, rotateMember } from './family/bausteine';
 import { makeStyles } from './family/stil';
 
@@ -1853,11 +1854,15 @@ export function FamilyScreen({
           reason: `Ämtli: ${chore.text}`,
         });
       }
+      // Die Strähne rechnet lib/straehne.ts: Sie verlängert sich, wenn
+      // keine Runde ausgelassen wurde, und reisst sonst - das ist der
+      // Teil, der motiviert.
       update('chores', chore.id, {
         member: naechster,
         due: nextDue(chore.due, chore.repeat || 'weekly'),
         last_done: isoInDays(0),
         last_by: chore.member ?? null,
+        ...naechsteStraehne(chore, isoInDays(0)),
       });
     };
 
@@ -1916,6 +1921,12 @@ export function FamilyScreen({
                     <Text style={styles.checkSub}>
                       zuletzt: {chore.last_by}
                       {chore.last_done ? ` am ${chore.last_done}` : ''}
+                    </Text>
+                  ) : null}
+                  {straehnenSatz(chore) ? (
+                    <Text style={styles.straehne}>
+                      <Ionicons name="flame" size={12} color={colors.warn} />{' '}
+                      {straehnenSatz(chore)}
                     </Text>
                   ) : null}
                 </View>

@@ -107,6 +107,8 @@ export const makeStyles = (colors: Colors) =>
     checkText: { color: colors.ink, fontSize: 15, fontWeight: '500' },
     checkTextDone: { textDecorationLine: 'line-through', color: colors.inkFaint },
     checkSub: { color: colors.inkSoft, fontSize: 12 },
+    // Die Strähne eines Ämtli - warm, aber leise: eine Beilage, kein Alarm.
+    straehne: { color: colors.warn, fontSize: 12, fontWeight: '600', marginTop: 2 },
     // Die Menge («400 ml») neben dem Artikel: leiser, denn gesucht
     // wird der Artikel.
     checkMenge: { color: colors.inkFaint, fontWeight: '400' },
