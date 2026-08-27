@@ -184,7 +184,7 @@ CATEGORIES: dict[str, str] = {
     "doorbell": "Es klingelt an der Türe",
     "disk": "Speicherplatz wird knapp",
     "frost": "Frost angekündigt",
-    "rain": "Regen kommt, Fenster offen",
+    "rain": "Regen kommt",
     "appliance": "Haushaltgerät fertig",
     "tasks": "Fällige Aufgaben",
     "timer": "Küchen-Timer",

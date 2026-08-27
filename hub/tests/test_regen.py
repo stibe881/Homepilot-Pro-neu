@@ -74,9 +74,10 @@ def test_die_wetterentitaet_traegt_die_vorwarnung_mit():
     assert stand["rain"] == {"now": False, "minutes": 30, "mm": 2.0}
 
 
-async def test_gemeldet_wird_nur_wenn_dabei_ein_fenster_offen_steht():
-    """«Es regnet gleich» allein wäre eine Meldung, die man nach drei
-    Tagen abschaltet."""
+async def test_gemeldet_wird_auch_wenn_alle_fenster_zu_sind():
+    """Draussen liegt mehr, als der Hub sieht: Wäsche, Kissen, das Velo.
+    Ein offenes Fenster ist nur der Teil davon, den er benennen kann -
+    und wenn welche offen sind, stehen sie in der Meldung."""
     from homepilot.core.entity import Entity
     from homepilot.core.hub import Hub
 
@@ -101,20 +102,48 @@ async def test_gemeldet_wird_nur_wenn_dabei_ein_fenster_offen_steht():
 
         hub.watchdog._notify = fake_notify  # type: ignore[assignment]
 
-        # Alles zu: keine Meldung.
-        await hub.watchdog._check_regen(hub.registry.all())
-        assert gesendet == []
-
-        # Fenster auf: jetzt schon.
-        await hub.registry.update_state("demo.window_kitchen", {"state": "on"})
+        # Alles zu - und die Meldung kommt trotzdem.
         await hub.watchdog._check_regen(hub.registry.all())
         assert len(gesendet) == 1
         assert gesendet[0][0] == "Regen in etwa 30 Minuten."
-        assert "Küchenfenster" in gesendet[0][1] or "fenster" in gesendet[0][1].lower()
+        assert gesendet[0][1] == "Alle Fenster sind zu. Liegt draussen noch etwas?"
 
         # Und nicht noch einmal für denselben Schauer.
         await hub.watchdog._check_regen(hub.registry.all())
         assert len(gesendet) == 1
+    finally:
+        await hub.stop()
+
+
+async def test_offene_fenster_stehen_in_der_meldung():
+    from homepilot.core.entity import Entity
+    from homepilot.core.hub import Hub
+
+    from .conftest import make_config
+
+    hub = Hub(make_config(integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        await hub.registry.add(
+            Entity(
+                id="test.wetter",
+                kind="weather",
+                name="Wetter",
+                integration="test",
+                state={"state": "Bedeckt", "rain": {"now": False, "minutes": 15, "mm": 2.0}},
+            )
+        )
+        gesendet: list[tuple[str, str]] = []
+
+        async def fake_notify(title, body, **kwargs):
+            gesendet.append((title, body))
+
+        hub.watchdog._notify = fake_notify  # type: ignore[assignment]
+        await hub.registry.update_state("demo.window_kitchen", {"state": "on"})
+        await hub.watchdog._check_regen(hub.registry.all())
+        assert len(gesendet) == 1
+        assert gesendet[0][1].startswith("Noch offen: ")
+        assert "fenster" in gesendet[0][1].lower()
     finally:
         await hub.stop()
 

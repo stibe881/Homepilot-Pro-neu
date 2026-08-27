@@ -364,42 +364,48 @@ class Watchdog:
         )
 
     async def _check_regen(self, entities: list[Any]) -> None:
-        """Regen kommt – und ein Fenster steht offen.
+        """Regen kommt – rechtzeitig, damit man noch etwas tun kann.
 
-        Nur diese Verbindung wird gemeldet. «Es regnet gleich» allein
-        wäre eine Meldung, die man nach drei Tagen abschaltet; mit dem
-        offenen Fenster ist sie ein Handgriff, den man sonst zu spät
-        macht.
+        Gemeldet wird auch bei geschlossenen Fenstern: Draussen liegt
+        mehr als das, was der Hub sieht - Wäsche, Kissen, das Velo, der
+        Sonnenschirm. Ein Fenster ist nur der Teil davon, von dem er
+        weiss; stehen welche offen, kommen sie in die Meldung.
 
-        Einmal je Vorwarnung: Solange dasselbe Fenster offen bleibt und
-        derselbe Regen kommt, kommt nichts Neues. Erst wenn es
-        aufgehört hat und der nächste Schauer anzieht, meldet es wieder
-        (der Schlüssel enthält die Viertelstunde des Regenbeginns).
+        Einmal je Vorwarnung: Solange derselbe Schauer ansteht, kommt
+        nichts Neues. Erst wenn er vorbei ist und der nächste anzieht,
+        meldet es wieder (der Schlüssel enthält die Viertelstunde des
+        Regenbeginns).
         """
         wetter = next((e for e in entities if getattr(e, "kind", "") == "weather"), None)
         if wetter is None:
             return
         stand = wetter.state.get("rain")
         if not isinstance(stand, dict) or stand.get("now"):
-            # Es regnet schon: Dann ist die Vorwarnung vorbei, und wer
-            # jetzt noch ein offenes Fenster hat, merkt es selbst.
+            # Es regnet schon: Dann ist die Vorwarnung vorbei, und eine
+            # Meldung darüber, was man vor zehn Minuten hätte tun
+            # sollen, hilft niemandem.
             return
         minuten = stand.get("minutes")
         grenze = float(self.rules["rain"]["params"].get("minutes", 30))
         if minuten is None or minuten > grenze:
-            return
-        offen = open_contacts(entities)
-        if not offen:
             return
         # Der Zeitpunkt, an dem es losgeht - auf die Viertelstunde genau,
         # wie ihn die Quelle kennt.
         beginn = int((time.time() + minuten * 60) // 900)
         if not self._einmal(f"rain:{beginn}"):
             return
-        namen = ", ".join(e.label for e in offen[:5])
+        offen = open_contacts(entities)
+        if offen:
+            # Was der Hub weiss, steht zuerst: Ein offenes Fenster ist
+            # der eine Handgriff, den er benennen kann.
+            text = "Noch offen: " + ", ".join(e.label for e in offen[:5]) + "."
+        else:
+            # Und sonst der Hinweis auf das, was er nicht sieht. Ohne
+            # ihn wäre die Meldung eine blosse Wetteransage.
+            text = "Alle Fenster sind zu. Liegt draussen noch etwas?"
         await self._notify(
             regen.satz(stand) or "Regen kommt",
-            f"Noch offen: {namen}.",
+            text,
             category="rain",
         )
 
