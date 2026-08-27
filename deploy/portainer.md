@@ -314,7 +314,11 @@ jedem Update, ob der Container wirklich der neue ist.
 Verlässt man das Haus, legt der Hub eine kleine Karte auf den
 Sperrbildschirm («Unterwegs – Haustüre im Schnellzugriff»); ein Tipp
 darauf führt in die App direkt zur Türe. Beim Heimkommen verschwindet
-sie von selbst.
+sie von selbst. Über denselben Draht kommen weitere Karten, solange
+etwas läuft: Küchen-Timer (mit Countdown), Waschmaschine und
+Geschirrspüler (mit Restzeit, am Ende kurz «Fertig»), der Grill
+(Ist- gegen Zieltemperatur), der Saugroboter, fällige Erinnerungen
+und die Alarmanlage (Countdown beim Scharfschalten, Rot bei Alarm).
 
 Starten kann so eine Karte nur Apple selbst («push-to-start», ab
 iOS 17.2) – deshalb braucht der Hub dafür einen eigenen Schlüssel aus
