@@ -105,6 +105,9 @@ class AlarmIntegration(Integration):
         self._pin_throttle = Throttle(limit=5, window=300.0, block=300.0)
         # Zeitpunkt, an dem die laufende Verzögerung abläuft.
         self._until: float | None = None
+        # Wie lang die laufende Frist insgesamt ist - für den Ring in
+        # der App (seconds_total im Zustand).
+        self._gesamt: float | None = None
         # Was am Ende dieser Verzögerung passiert – die App beschriftet den
         # Countdown damit, sonst stünde bei jeder Wartezeit dasselbe da.
         self._next: str | None = None
@@ -163,6 +166,12 @@ class AlarmIntegration(Integration):
             # zeigt daraus den Countdown.
             "seconds_left": (
                 max(0, round(self._until - time.time())) if self._until else None
+            ),
+            # Und wie lang die Frist insgesamt war - daraus zeichnet die
+            # App den Ring: Ein Countdown ohne Gesamtlänge ist nur eine
+            # Zahl, die kleiner wird.
+            "seconds_total": (
+                round(self._gesamt) if self._until and self._gesamt else None
             ),
             "next_action": self._next,
             "last_trigger": self._last,
@@ -244,6 +253,7 @@ class AlarmIntegration(Integration):
         if delay > 0:
             self._state = ARMING
             self._until = time.time() + delay
+            self._gesamt = delay
             self._next = "arm"
             self._timer = asyncio.create_task(self._after(delay, self._finish_arming))
         else:
@@ -380,6 +390,7 @@ class AlarmIntegration(Integration):
             self._cancel_timer()
             self._state = ENTRY
             self._until = time.time() + delay
+            self._gesamt = delay
             self._next = "trigger"
             self._timer = asyncio.create_task(
                 self._after(delay, lambda: self._trigger(entity))
@@ -500,6 +511,7 @@ class AlarmIntegration(Integration):
             return
         seconds = float(plan.get("after") or DEFAULT_AFTER["after"])
         self._until = time.time() + seconds
+        self._gesamt = seconds
         self._next = "rearm"
         self._timer = asyncio.create_task(self._after(seconds, self._rearm))
         await self._publish()
