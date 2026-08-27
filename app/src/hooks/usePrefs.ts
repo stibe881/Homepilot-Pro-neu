@@ -85,10 +85,14 @@ export interface UserPrefs {
 export interface DurchsagePrefs {
   /** Kennung der Box; fehlt sie oder ist sie «alle», gehen alle. */
   ziel?: string;
-  /** Die gepflegte eigene Liste - hinzufügen, bearbeiten, löschen im
-   *  Durchsage-Fenster. */
+  /** Die Sätze des Fensters - eine Liste, in der alles gleich behandelt
+   *  wird: hinzufügen, bearbeiten, löschen. `undefined` heisst «noch nie
+   *  angefasst», dann gilt der mitgelieferte Startbestand; eine leere
+   *  Liste heisst «bewusst leer» und bleibt leer. */
   texte?: string[];
-  /** Der zuletzt getippte Satz - merkt sich von selbst, genau einer. */
+  /** Aus älteren Fassungen: der zuletzt getippte Satz, der sich von
+   *  selbst merkte und den man nicht löschen konnte. Er wird beim ersten
+   *  Handgriff in `texte` gefaltet und danach nicht mehr geschrieben. */
   letzter?: string;
 }
 
