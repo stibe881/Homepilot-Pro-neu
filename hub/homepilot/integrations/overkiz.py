@@ -171,6 +171,9 @@ def cover_state(states: dict[str, Any]) -> dict[str, Any]:
             pass
     if "state" not in result and open_closed is not None:
         result["state"] = "open" if str(open_closed).lower() == "open" else "closed"
+    # Was das Gerät selbst meldet, sticht jede Annahme - und räumt sie weg.
+    if result:
+        result["angenommen"] = None
     orientation = states.get(ORIENTATION)
     if orientation is not None:
         try:
@@ -180,8 +183,46 @@ def cover_state(states: dict[str, Any]) -> dict[str, Any]:
             result["tilt"] = max(0, min(100, 100 - int(orientation)))
         except (TypeError, ValueError):
             pass
-    result.setdefault("state", "unknown")
+    # Bewusst *kein* `state: unknown` als Rückfall.
+    #
+    # Eine RTS-Store funkt nur in eine Richtung: Das Gateway schickt
+    # Befehle, die Store meldet nie etwas zurück. Für sie kommt hier bei
+    # jedem Poll ein leeres Ergebnis - und stünde darin «unknown», würde
+    # es die Annahme aus dem letzten Befehl bei jedem Poll wieder
+    # zunichtemachen (`update_state` merged, siehe core/registry.py).
+    # Nichts zu sagen heisst: nichts ändern.
     return result
+
+
+def annahme(command: str, data: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Wo die Store nach diesem Befehl steht - vermutlich (rein, testbar).
+
+    Für Storen, die nie zurückmelden. Somfy RTS funkt nur in eine
+    Richtung: Das Gateway schickt, das Gerät schweigt. Der Hub wusste
+    deshalb nie etwas, und die App machte aus «weiss nicht» ein
+    «Offen» - eine Store, die seit gestern unten ist, stand als offen
+    da.
+
+    Der letzte Befehl ist die beste Auskunft, die es gibt. Sie ist nicht
+    sicher (jemand kann die Store von Hand oder mit der Originalfernbe-
+    dienung bewegt haben), und genau deshalb reist `angenommen` mit:
+    Die App schreibt es dazu, statt Gewissheit vorzutäuschen.
+
+    Für `stop` gibt es keine Annahme - irgendwo dazwischen ist keine Zahl.
+    """
+    if command == "open":
+        offen = 100
+    elif command == "close":
+        offen = 0
+    elif command == "set_position":
+        offen = max(0, min(100, int((data or {}).get("position", 0))))
+    else:
+        return {}
+    return {
+        "position": offen,
+        "state": "open" if offen >= 99 else "closed" if offen <= 1 else "partial",
+        "angenommen": True,
+    }
 
 
 # Grenzen für die gelernte Laufzeit: Schneller als 5 s fährt kein Storen
@@ -305,7 +346,10 @@ class OverkizIntegration(Integration):
                 device.device_url.replace("/", "_").replace(":", "_"),
                 EntityKind.COVER,
                 device.label or "Storen",
-                state=cover_state(states),
+                # «unknown» nur hier, beim Anlegen: Bis zur ersten
+                # Meldung oder zum ersten Befehl weiss der Hub es
+                # wirklich nicht - und das gehört gesagt, nicht geraten.
+                state={"state": "unknown", **cover_state(states)},
                 commands=commands,
                 # Beim Start zählt die Meldung des Gateways einmal - eine
                 # Store, die gerade nicht funkt, wird deshalb nicht sofort
@@ -550,8 +594,15 @@ class OverkizIntegration(Integration):
                 # Das Gerät hat den Befehl genommen - es ist also da,
                 # was das Gateway vorher auch behauptet haben mag.
                 self._abwesend[entity.id] = 0
-                if not entity.available:
-                    await self.hub.registry.update_state(entity.id, {}, available=True)
+                # Wo die Store jetzt steht, sofern sie es nicht selbst
+                # sagt. Meldet sie sich, sticht ihre Meldung das hier
+                # beim nächsten Ereignis und räumt `angenommen` weg
+                # (siehe `cover_state`). Wer nie meldet, hat damit
+                # wenigstens die Auskunft aus dem letzten Befehl.
+                vermutet = annahme(command, data)
+                await self.hub.registry.update_state(
+                    entity.id, vermutet, available=True
+                )
                 return
         raise ConfigError(f"Gateway lehnt '{command}' ab: {last_err}")
 

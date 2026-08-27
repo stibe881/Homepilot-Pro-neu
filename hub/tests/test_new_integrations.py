@@ -1029,8 +1029,16 @@ def test_overkiz_cover_state_open_and_closed():
     assert cover_state({"core:ClosureState": 100})["state"] == "closed"
     # Nur OpenClosed ohne Position.
     assert cover_state({"core:OpenClosedState": "closed"})["state"] == "closed"
-    # Nichts Verwertbares → unknown, kein Absturz.
-    assert cover_state({})["state"] == "unknown"
+    # Nichts Verwertbares → *nichts* sagen, kein Absturz.
+    #
+    # Früher stand hier «unknown». Das war eine Aussage, und sie war
+    # schädlich: Eine RTS-Store meldet nie zurück, also kam bei jedem
+    # Poll ein «unknown» - und überschrieb die Annahme aus dem letzten
+    # Befehl, weil `update_state` merged. Die Store stand damit dauerhaft
+    # auf «weiss nicht», und die App machte daraus «Offen».
+    assert cover_state({}) == {}
+    # Was das Gerät selbst meldet, räumt eine frühere Annahme weg.
+    assert cover_state({"core:ClosureState": 100})["angenommen"] is None
 
 
 def test_overkiz_a_single_silent_report_does_not_grey_out_a_blind():
