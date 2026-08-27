@@ -12,7 +12,7 @@ import {
   quellenSymbol,
 } from '../lib/geraeteart';
 import { hatWarteschlange } from '../lib/musikliste';
-import { Regenstand, regenSatz } from '../lib/regen';
+import { Regenstand, balkenHoehen, regenSatz } from '../lib/regen';
 import { Colors, radius, type, useColors } from '../theme';
 import { Bar } from './Bar';
 import { Card } from './Card';
@@ -523,6 +523,7 @@ function WeatherPanel({ entity }: { entity: Entity }) {
           {regenSatz(entity.state.rain as Regenstand | undefined)}
         </Text>
       ) : null}
+      <RegenBalken stand={entity.state.rain as Regenstand | undefined} />
 
       {days.length > 0 ? (
         <View style={styles.weekRow}>
@@ -546,6 +547,46 @@ function WeatherPanel({ entity }: { entity: Entity }) {
         </View>
       ) : null}
     </Card>
+  );
+}
+
+/**
+ * Die nächsten zwei Stunden Regen als acht kleine Balken.
+ *
+ * Der Satz darüber sagt «in etwa 45 Minuten»; die Balken sagen, ob das
+ * ein Schauer ist oder der Anfang eines nassen Nachmittags. Ein Balken
+ * je Viertelstunde - die Auflösung der Quelle, nichts Feineres.
+ *
+ * Ganz ohne Regen erscheint nichts: Acht leere Balken wären Tinte für
+ * die Auskunft «kein Regen», und die gibt die Karte schon dadurch,
+ * dass hier nichts steht.
+ */
+function RegenBalken({ stand }: { stand: Regenstand | undefined }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const hoehen = balkenHoehen(stand?.bars, 22);
+  if (hoehen.length === 0) return null;
+  return (
+    <View style={styles.regenReihe} accessibilityLabel="Regen der nächsten zwei Stunden">
+      <View style={styles.regenBalken}>
+        {hoehen.map((hoehe, index) => (
+          <View
+            key={index}
+            style={[
+              styles.regenBalkenSaeule,
+              // Trocken bleibt als flacher Sockel sichtbar - so liest
+              // sich die Lücke zwischen zwei Schauern als Lücke.
+              { height: Math.max(2, hoehe) },
+              hoehe === 0 && { backgroundColor: colors.track },
+            ]}
+          />
+        ))}
+      </View>
+      <View style={styles.regenAchse}>
+        <Text style={styles.regenAchsenText}>jetzt</Text>
+        <Text style={styles.regenAchsenText}>+2 Std</Text>
+      </View>
+    </View>
   );
 }
 
@@ -735,6 +776,22 @@ const makeStyles = (colors: Colors) =>
     // Eine Zeile, kein Kasten: Die Vorwarnung gehört zum Wetter und
     // nicht daneben.
     regen: { color: colors.warn, fontSize: 13, fontWeight: '600', marginTop: 2 },
+    regenReihe: { marginTop: 6, gap: 2 },
+    regenBalken: {
+      flexDirection: 'row',
+      alignItems: 'flex-end',
+      gap: 3,
+      height: 22,
+    },
+    regenBalkenSaeule: {
+      flex: 1,
+      maxWidth: 22,
+      borderTopLeftRadius: 3,
+      borderTopRightRadius: 3,
+      backgroundColor: colors.accent,
+    },
+    regenAchse: { flexDirection: 'row', justifyContent: 'space-between' },
+    regenAchsenText: { color: colors.inkFaint, fontSize: 10 },
     dayRain: { color: colors.accent, fontSize: 10, fontWeight: '600' },
     list: { gap: 10 },
     alertRow: {

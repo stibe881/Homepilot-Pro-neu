@@ -18,7 +18,7 @@ from fastapi import (
     Response,
 )
 
-from ...core import batterie
+from ...core import batterie, kurzverlauf
 from ...core import replace as replace_module
 from ...core import throttle as throttle_module
 from ...core.errors import HomePilotError, UnknownEntityError, UnsupportedCommandError
@@ -421,6 +421,19 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         except StreamError as err:
             log.warning("Live-Bild %s (%s): %s", entity_id, name, err)
             raise HTTPException(status_code=404, detail=str(err)) from err
+
+    @app.get("/api/trends")
+    async def trends(request: Request) -> dict[str, Any]:
+        """Die Funkenlinien aller Sensoren in einem Abruf.
+
+        Ein Abruf für alle statt einer je Kachel: Auf einer Seite mit
+        zehn Fühlern wären das sonst zehn Anfragen im Minutentakt. Die
+        Reihen leben nur im Speicher (core/kurzverlauf.py) - nach einem
+        Neustart sind sie leer und füllen sich wieder; die App zeigt
+        dann schlicht noch keine Linie.
+        """
+        current_user(request)
+        return {"trends": hub.kurzverlauf.alle(), "span": kurzverlauf.SPANNE}
 
     @app.get("/api/entities/{entity_id}/history")
     async def entity_history(

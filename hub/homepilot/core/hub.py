@@ -50,6 +50,7 @@ from .eventlog import EventLog
 from .events import EventBus
 from .guestpass import PassStore
 from .integration import IntegrationManager
+from .kurzverlauf import Kurzverlauf
 from .logbuffer import install as install_log_buffer
 from .musik import Musikbuch
 from .persistence import DataStore
@@ -97,6 +98,10 @@ class Hub:
         # dann, wenn man ihn braucht, weil sich etwas geändert hat.
         self.eventlog = EventLog(self._eventlog_path())
         self.bus.subscribe("state_changed", self.eventlog.record)
+        # Die letzten Stunden je Messwert, nur im Speicher - für die
+        # Funkenlinie auf der Sensor-Kachel (core/kurzverlauf.py).
+        self.kurzverlauf = Kurzverlauf()
+        self.bus.subscribe("state_changed", self.kurzverlauf.record)
         # Einmal-Links für die Türe – nur im Speicher, siehe guestpass.py.
         self.passes = PassStore()
         # Küchen-Timer (siehe timers.py) - nur im Speicher.

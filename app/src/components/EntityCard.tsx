@@ -2,7 +2,10 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
 import { Image, Pressable, Text, View } from 'react-native';
 
+import Svg, { Polyline } from 'react-native-svg';
+
 import { CommandData, Entity, KalenderEintrag } from '../api/types';
+import { Reihe, linienPunkte } from '../lib/funkenlinie';
 import { offlineSatz } from '../lib/funkstille';
 import { zustandsText } from '../lib/haushalt';
 import { KachelEintrag, kachelAktionen } from '../lib/kachelmenue';
@@ -53,8 +56,34 @@ import {
   sinceLabel,
 } from './entity/teile';
 
+/** Die kleine Linie unter dem Messwert – Richtung, keine Achsen. */
+function Funkenlinie({ reihe, breite }: { reihe: Reihe | undefined; breite: number }) {
+  const colors = useColors();
+  const punkte = linienPunkte(reihe, Math.max(40, breite), 18);
+  if (!punkte) return null;
+  return (
+    <Svg
+      width={Math.max(40, breite)}
+      height={18}
+      style={{ marginTop: 4 }}
+      accessibilityLabel="Verlauf der letzten Stunden"
+    >
+      <Polyline
+        points={punkte}
+        fill="none"
+        stroke={colors.accent}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
 interface Props {
   entity: Entity;
+  /** Die letzten Stunden des Messwerts – [Unix-Sekunden, Wert]. */
+  trend?: Reihe;
   width: number;
   onCommand: (command: string, data?: CommandData) => void;
   /** Kommando unterwegs – die Kachel zeigt das, statt still zu wirken. */
@@ -127,6 +156,7 @@ interface Props {
 /** Warnstufen brauchen je nach Palette andere Farben. */
 export function EntityCard({
   entity,
+  trend,
   width,
   onCommand,
   pending,
@@ -303,11 +333,18 @@ export function EntityCard({
 
       case 'sensor':
         return (
-          <BigValue
-            value={`${format(entity.state.state)}${
-              entity.state.unit ? ' ' + entity.state.unit : ''
-            }`}
-          />
+          <View>
+            <BigValue
+              value={`${format(entity.state.state)}${
+                entity.state.unit ? ' ' + entity.state.unit : ''
+              }`}
+            />
+            {/* Die letzten Stunden als Linie: Die Zahl sagt «21.5», die
+                Linie sagt, wohin es geht (lib/funkenlinie.ts). Ohne
+                Reihe fehlt sie einfach - nach einem Neustart des Hubs
+                füllt sie sich wieder. */}
+            <Funkenlinie reihe={trend} breite={width - 36} />
+          </View>
         );
 
       case 'media_player': {
