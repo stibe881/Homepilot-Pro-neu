@@ -96,7 +96,16 @@ def test_apns_jwt_traegt_kennung_und_gueltige_signatur():
 
     # Wie pydevccu: Das Extra 'apns' ist optional - ohne die Bibliothek
     # wird übersprungen statt rot.
-    pytest.importorskip("cryptography.hazmat.primitives.asymmetric.ec")
+    #
+    # Nicht importorskip: Eine halb eingerichtete cryptography (die
+    # Rust-Anbindung ohne _cffi_backend) wirft beim Import keine
+    # ImportError, sondern eine PanicException aus pyo3 - die erbt von
+    # BaseException, und importorskip lässt sie durch. Ein fehlendes
+    # Extra ist aber in beiden Fällen dasselbe: kein Grund für Rot.
+    try:
+        import cryptography.hazmat.primitives.asymmetric.ec  # noqa: F401
+    except BaseException as err:  # pragma: no cover - hängt an der Umgebung
+        pytest.skip(f"cryptography nicht benutzbar: {err}")
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import ec
     from cryptography.hazmat.primitives.asymmetric.utils import (
