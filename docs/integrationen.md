@@ -42,6 +42,7 @@ Overkiz meldet dafür `core:DeploymentState` (0 eingefahren … 100
 draussen) statt `core:ClosureState`. Über die Closure-Rechnung gelesen
 stand eine ausgefahrene Markise als «Geschlossen» da.
 | **nuki** | Smart Lock: auf, zu, aufziehen | Bridge-Token |
+| **plex** | Plex-Server: was gerade läuft – Karte und Auslöser («Film startet → Licht») | IP, X-Plex-Token |
 | **tuya** | Lampen, Steckdosen, Projektoren – lokal | Geräte-ID und lokaler Schlüssel |
 | **twinkly** | Lichterketten | IP |
 | **vzug** | Geschirrspüler, Waschmaschine (Home-API) | IP je Gerät |
