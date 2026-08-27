@@ -13,13 +13,20 @@ import { hubClient } from '../api/client';
  * der ausdrückliche Wunsch: Eine Wohnung, die bei jedem anders aussieht,
  * ist keine eingerichtete Wohnung.
  *
- * **Persönlich** (`/api/prefs`): was nur einen selbst angeht. Übrig
- * geblieben ist die Lesemarke der «Was ist neu»-Karte – und die gehört
- * dorthin: Sie ist keine Einstellung, sondern ein «gelesen». Wäre sie
- * haushaltsweit, nähme der Erste sie allen anderen weg.
+ * **Persönlich** (`/api/prefs`): was nur einen selbst angeht. Die eigenen
+ * Favoriten, die Durchsage-Sätze, der gewählte Anblick, die Lesemarke der
+ * «Was ist neu»-Karte. Haushaltsweit nähme der Erste sie allen anderen
+ * weg.
  *
  * Beides liegt auf dem Hub, nicht im Speicher der App: Sonst hält es
  * genau so lange wie die Installation auf diesem einen Telefon.
+ *
+ * Nicht alles Persönliche läuft über diesen Haken. Was tief in einer
+ * Kachel sitzt - die Playlist-Reihenfolge, die Vorlese-Box im Kochbuch,
+ * der Anblick im Profil - setzt einzelne Schlüssel über
+ * `lib/persoenlich.ts`. Beide Wege vertragen sich, weil der Hub
+ * zusammenführt statt zu ersetzen (core/einstellungen.py) und hier
+ * ebenfalls nur das Geänderte geschickt wird.
  */
 
 /** Wie das Haus für alle aussieht. */
@@ -95,6 +102,14 @@ export interface UserPrefs {
   favorites?: string[];
   /** Die selbst gezogene Reihenfolge der eigenen Favoriten. */
   favoriteOrder?: string[];
+  /** Weitere persönliche Schlüssel liegen in derselben Ablage, werden
+   *  aber nicht von hier aus gesetzt (siehe lib/persoenlich.ts):
+   *  `theme` (der gewählte Anblick), `playlisten` (Reihenfolge und
+   *  Ausgeblendetes je Musikkarte), `vorleseziel` (welche Box das Rezept
+   *  vorliest) und `portionen` (für wie viele je Rezept gekocht wird).
+   *  Sie stehen hier nicht als Feld, weil dieser Haken sie weder liest
+   *  noch schreibt - aber sie stehen hier, damit niemand sie sucht. */
+
   /** Die Durchsage-Kachel auf der Startseite: zuletzt gewählte Box und
    *  die selbst getippten Sätze. Persönlich, weil beides es ist - wer
    *  vom Büro aus ruft, meint eine andere Box als wer in der Küche
@@ -121,12 +136,19 @@ export interface DurchsagePrefs {
  *
  * Der Setzer setzt immer auf der neuesten Fassung auf – ohne die Ref
  * überschriebe ein schneller zweiter Zug den ersten mit veralteten Daten.
+ *
+ * Geschickt wird nur, was sich ändert, nicht der ganze Bestand: Der Hub
+ * führt zusammen (core/einstellungen.py). Das ist kein Sparen an
+ * Bytes - es gibt auch anderswo Stellen, die eine einzelne Einstellung
+ * setzen (lib/persoenlich.ts: der Anblick im Profil, die Vorlese-Box im
+ * Kochbuch). Wer den ganzen Bestand schickte, überschriebe deren Werte
+ * mit dem Stand vom Laden dieses Bildschirms.
  */
 function useStore<T extends object>(
   settings: HubSettings,
   connected: boolean,
   pfad: string
-): { werte: T; geladen: boolean; setzen: (next: T) => void } {
+): { werte: T; geladen: boolean; setzen: (patch: Partial<T>) => void } {
   const [werte, setWerte] = useState<T>({} as T);
   const [geladen, setGeladen] = useState(false);
   const latest = useRef<T>({} as T);
@@ -155,7 +177,8 @@ function useStore<T extends object>(
   }, [connected, settings.url, settings.token, pfad]);
 
   const setzen = useCallback(
-    (next: T) => {
+    (patch: Partial<T>) => {
+      const next = { ...latest.current, ...patch };
       setWerte(next);
       latest.current = next;
       if (!settings.url || !settings.token) return;
@@ -163,7 +186,7 @@ function useStore<T extends object>(
       // Verbindung zurück ist – kein Grund, die Bedienung zu stören.
       hubClient(settings.url, settings.token).put(
         pfad,
-        { prefs: next },
+        { prefs: patch },
         {
           fallback: null,
           still: true,
@@ -180,13 +203,13 @@ function useStore<T extends object>(
 export function usePrefs(settings: HubSettings, connected: boolean) {
   const haus = useStore<HousePrefs>(settings, connected, '/api/houseprefs');
   const eigen = useStore<UserPrefs>(settings, connected, '/api/prefs');
-  // Über die Ref, damit die Setzer stabil bleiben: Hingen sie am Wert,
-  // bekäme jedes Ziehen einer Kachel eine neue Funktion und alles, was
-  // davon abhängt, zeichnete neu.
+  // Nur noch die Reihenfolgen brauchen den bisherigen Stand: Sie liegen
+  // als ein Objekt je Ansicht beieinander, und wer eine davon setzt, muss
+  // die anderen mitschicken. Über die Ref, damit der Setzer stabil
+  // bleibt - hinge er am Wert, bekäme jedes Ziehen einer Kachel eine neue
+  // Funktion und alles, was davon abhängt, zeichnete neu.
   const hausJetzt = useRef<HousePrefs>({});
   hausJetzt.current = haus.werte;
-  const eigenJetzt = useRef<UserPrefs>({});
-  eigenJetzt.current = eigen.werte;
 
   const setzeHaus = haus.setzen;
   const setzeEigen = eigen.setzen;
@@ -194,7 +217,6 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
   const setOrder = useCallback(
     (scope: string, ids: string[]) => {
       setzeHaus({
-        ...hausJetzt.current,
         order: { ...(hausJetzt.current.order ?? {}), [scope]: ids },
       });
     },
@@ -202,62 +224,62 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
   );
 
   const setHidden = useCallback(
-    (ids: string[]) => setzeHaus({ ...hausJetzt.current, hidden: ids }),
+    (ids: string[]) => setzeHaus({ hidden: ids }),
     [setzeHaus]
   );
 
   const setFamilyHidden = useCallback(
-    (keys: string[]) => setzeHaus({ ...hausJetzt.current, familyHidden: keys }),
+    (keys: string[]) => setzeHaus({ familyHidden: keys }),
     [setzeHaus]
   );
 
   const setLocked = useCallback(
-    (ids: string[]) => setzeHaus({ ...hausJetzt.current, locked: ids }),
+    (ids: string[]) => setzeHaus({ locked: ids }),
     [setzeHaus]
   );
 
   const setUngezaehlt = useCallback(
-    (ids: string[]) => setzeHaus({ ...hausJetzt.current, ungezaehlt: ids }),
+    (ids: string[]) => setzeHaus({ ungezaehlt: ids }),
     [setzeHaus]
   );
 
   const setBioLock = useCallback(
-    (on: boolean) => setzeHaus({ ...hausJetzt.current, bioLock: on }),
+    (on: boolean) => setzeHaus({ bioLock: on }),
     [setzeHaus]
   );
 
   const setDoorConfirm = useCallback(
-    (on: boolean) => setzeHaus({ ...hausJetzt.current, doorConfirm: on }),
+    (on: boolean) => setzeHaus({ doorConfirm: on }),
     [setzeHaus]
   );
 
   const setWidgetData = useCallback(
-    (on: boolean) => setzeHaus({ ...hausJetzt.current, widgetData: on }),
+    (on: boolean) => setzeHaus({ widgetData: on }),
     [setzeHaus]
   );
 
   const setWidgetButtons = useCallback(
-    (keys: string[]) => setzeHaus({ ...hausJetzt.current, widgetButtons: keys }),
+    (keys: string[]) => setzeHaus({ widgetButtons: keys }),
     [setzeHaus]
   );
 
   const setWidgetDirect = useCallback(
-    (keys: string[]) => setzeHaus({ ...hausJetzt.current, widgetDirect: keys }),
+    (keys: string[]) => setzeHaus({ widgetDirect: keys }),
     [setzeHaus]
   );
 
   const setSeenChanges = useCallback(
-    (commit: string) => setzeEigen({ ...eigenJetzt.current, seenChanges: commit }),
+    (commit: string) => setzeEigen({ seenChanges: commit }),
     [setzeEigen]
   );
 
   const setKameraDynamisch = useCallback(
-    (on: boolean) => setzeEigen({ ...eigenJetzt.current, kameraDynamisch: on }),
+    (on: boolean) => setzeEigen({ kameraDynamisch: on }),
     [setzeEigen]
   );
 
   const setTageszeit = useCallback(
-    (on: boolean) => setzeEigen({ ...eigenJetzt.current, tageszeit: on }),
+    (on: boolean) => setzeEigen({ tageszeit: on }),
     [setzeEigen]
   );
 
@@ -267,35 +289,35 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
   );
 
   const setLiveTuer = useCallback(
-    (on: boolean) => setzeEigen({ ...eigenJetzt.current, liveTuer: on }),
+    (on: boolean) => setzeEigen({ liveTuer: on }),
     [setzeEigen]
   );
 
   const setLiveAus = useCallback(
-    (keys: string[]) => setzeEigen({ ...eigenJetzt.current, liveAus: keys }),
+    (keys: string[]) => setzeEigen({ liveAus: keys }),
     [setzeEigen]
   );
 
   const setFavorites = useCallback(
-    (ids: string[]) => setzeEigen({ ...eigenJetzt.current, favorites: ids }),
+    (ids: string[]) => setzeEigen({ favorites: ids }),
     [setzeEigen]
   );
 
   const setFavoriteOrder = useCallback(
-    (ids: string[]) => setzeEigen({ ...eigenJetzt.current, favoriteOrder: ids }),
+    (ids: string[]) => setzeEigen({ favoriteOrder: ids }),
     [setzeEigen]
   );
 
   const setDurchsage = useCallback(
     (durchsage: DurchsagePrefs) =>
-      setzeEigen({ ...eigenJetzt.current, durchsage }),
+      setzeEigen({ durchsage }),
     [setzeEigen]
   );
 
   return {
     prefs: haus.werte,
     hausGeladen: haus.geladen,
-    /** Alles auf einmal setzen – für die Übernahme alter Einstellungen. */
+    /** Mehrere auf einmal setzen – für die Übernahme alter Einstellungen. */
     setHausPrefs: setzeHaus,
     eigenePrefs: eigen.werte,
     setOrder,

@@ -16,6 +16,7 @@ import { kanaeleAnlegen } from './src/lib/kanaele';
 import { knoepfeAnmelden } from './src/lib/mitteilungsknoepfe';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { gueltig } from './src/lib/appsymbol';
+import { persoenlichSetzen, persoenlichWert } from './src/lib/persoenlich';
 import { symbolWechseln } from './src/lib/symbolwechsel';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { ThemeProvider, useTheme } from './src/theme';
@@ -101,7 +102,43 @@ export default function App() {
   const save = (next: HubSettings) => {
     setSettings(next);
     AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => {});
+    // Der gewählte Anblick zusätzlich beim Hub: Hier im Gerät hält er
+    // genau so lange wie die Installation, und wer nach einem neuen Build
+    // wieder im hellen Blau sitzt, stellt ihn zum dritten Mal ein.
+    //
+    // «system» auf einem Gerät, auf dem noch nie einer stand, ist keine
+    // Wahl, sondern die Vorgabe des Formulars - und würde beim ersten
+    // Speichern im Profil den Anblick vom anderen Telefon löschen.
+    const gewaehlt = next.theme && !(settings?.theme === undefined && next.theme === 'system');
+    if (gewaehlt && next.theme !== settings?.theme) {
+      persoenlichSetzen(next, 'theme', next.theme);
+    }
   };
+
+  /**
+   * Den zuletzt gewählten Anblick zurückholen - einmal, nach der ersten
+   * Anmeldung auf diesem Gerät.
+   *
+   * Nur wenn hier keiner steht: Wer gerade eben umgestellt hat, soll
+   * nicht eine Sekunde später wieder das sehen, was auf dem anderen
+   * Telefon gilt.
+   */
+  const themaGeholt = React.useRef(false);
+  useEffect(() => {
+    if (themaGeholt.current || !settings?.token || settings.theme) return;
+    themaGeholt.current = true;
+    persoenlichWert<HubSettings['theme'] | null>(settings, 'theme', null)
+      .then((thema) => {
+        if (!thema) return;
+        setSettings((vorher) => {
+          if (!vorher || vorher.theme) return vorher;
+          const next = { ...vorher, theme: thema };
+          AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => {});
+          return next;
+        });
+      })
+      .catch(() => {});
+  }, [settings]);
 
   // Das App-Symbol nachziehen, sobald die Einstellungen stehen.
   //
