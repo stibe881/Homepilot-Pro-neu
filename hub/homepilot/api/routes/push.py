@@ -24,6 +24,7 @@ from ...core import (
     livekarten,
     notifyrules,
     push,
+    pushverlauf,
     snapshots,
     spaeter,
 )
@@ -218,6 +219,20 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         """
         require(request, Capability.EDIT_CONFIG)
         return {"devices": [device.as_dict() for device in hub.push.devices]}
+
+    @app.get("/api/push/log")
+    async def push_log(request: Request) -> dict[str, Any]:
+        """Die letzten Meldungen zum Nachlesen.
+
+        Nur die eigenen: Was an alle ging und was an mich - dass Lina
+        ans Medikament erinnert wurde, geht die anderen nichts an
+        (core/pushverlauf.py).
+        """
+        user = current_user(request)
+        return {
+            "log": pushverlauf.fuer(hub.data.get(pushverlauf.STORE_KEY), user.name),
+            "days": pushverlauf.TAGE,
+        }
 
     @app.post("/api/push/snooze")
     async def snooze_push(body: PushSnoozeRequest, request: Request) -> dict[str, Any]:

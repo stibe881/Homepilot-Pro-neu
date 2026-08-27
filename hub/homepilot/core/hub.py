@@ -40,7 +40,15 @@ from pathlib import Path
 from typing import Any
 
 from .. import __version__
-from . import config_edit, erinnerungen, liveaktivitaet, livekarten, metrics, persistence
+from . import (
+    config_edit,
+    erinnerungen,
+    liveaktivitaet,
+    livekarten,
+    metrics,
+    persistence,
+    pushverlauf,
+)
 from . import push as push_service
 from . import users as users_module
 from .audit import AuditLog
@@ -234,6 +242,14 @@ class Hub:
         # Update will man Nachrichten am wenigsten missen.
         self.push.restore(self.data.get("push_devices"))
         self.push.on_change = lambda rows: self.data.set("push_devices", rows)
+        # Jede verschickte Meldung auf den Nachlese-Zettel - eine
+        # weggewischte Mitteilung ist sonst unauffindbar (pushverlauf.py).
+        self.push.on_sent = lambda eintrag: self.data.set(
+            pushverlauf.STORE_KEY,
+            pushverlauf.anhaengen(
+                self.data.get(pushverlauf.STORE_KEY), eintrag, time.time()
+            ),
+        )
         for problem in self._config_problems():
             log.warning("Konfiguration: %s", problem)
         log.info(
