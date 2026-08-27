@@ -60,6 +60,7 @@ LEISE: frozenset[str] = frozenset(
         "shopping",
         "birthday",
         "weekahead",
+        "morning",
     }
 )
 
@@ -191,6 +192,7 @@ CATEGORIES: dict[str, str] = {
     "calendar": "Termin steht an",
     "medication": "Medikament fällig",
     "birthday": "Geburtstag heute",
+    "morning": "Morgen-Zusammenfassung",
     "presence": "Ortung: schwacher Akku, Funkstille",
     "weekahead": "Wochenausblick am Sonntag",
     "test": "Push-Test",
@@ -215,7 +217,7 @@ GROUPS: list[tuple[str, tuple[str, ...]]] = [
     ("Haus", ("open", "appliance", "frost", "timer", "maintenance")),
     ("Familie", ("birthday", "calendar", "medication", "tasks", "shopping",
                  "weekahead", "presence")),
-    ("Betrieb", ("outage", "device_down", "battery", "disk")),
+    ("Betrieb", ("outage", "device_down", "battery", "disk", "morning")),
     # Leer, und trotzdem hier: Unter dieser Überschrift stehen die
     # Nachrichten aus selbst gebauten Abläufen. Sie haben keinen festen
     # Schlüssel - jeder Ablauf, der meldet, bringt seinen eigenen mit
