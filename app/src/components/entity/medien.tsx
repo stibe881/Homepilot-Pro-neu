@@ -5,13 +5,15 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
 import { hubClient } from '../../api/client';
 import { CommandData, Entity } from '../../api/types';
 import { useSettings } from '../../hooks/HubContext';
 import { zielBox } from '../../lib/boxwahl';
+import { persoenlichLesen, persoenlichSetzen } from '../../lib/persoenlich';
+import { Playlistbuch, wahlFuer, wahlSetzen } from '../../lib/playlisten';
 import { keineBoxText, senderzeile } from '../../lib/radiobox';
 import { useColors } from '../../theme';
 import { useKachelDruck } from './kacheldruck';
@@ -147,32 +149,61 @@ export function SpotifyPanel({
   const playing = entity.state.state === 'playing';
   const [chosen, setChosen] = useState<string | null>(null);
   const [listOpen, setListOpen] = useState(false);
-  // Eigene Reihenfolge und ausgeblendete Playlists. Reine Ansichtssache,
-  // deshalb auf dem Gerät statt im Hub – jeder darf seine eigene haben.
+  // Eigene Reihenfolge und ausgeblendete Playlists. Persönlich, aber
+  // beim Hub: Reine Ansichtssache heisst nicht «darf verschwinden» - wer
+  // seine acht Playlists einmal sortiert hat, findet sie sonst nach dem
+  // nächsten Build wieder so vor, wie Spotify sie ausliefert.
+  const settings = useSettings();
   const [order, setOrder] = useState<string[]>([]);
   const [hiddenList, setHiddenList] = useState<string[]>([]);
-  const prefsKey = `homepilot.playlists.${entity.id}`;
+  const buch = useRef<Playlistbuch>({});
+  const altKey = `homepilot.playlists.${entity.id}`;
 
   useEffect(() => {
-    AsyncStorage.getItem(prefsKey)
-      .then((raw) => {
-        if (!raw) return;
-        const saved = JSON.parse(raw);
-        setOrder(Array.isArray(saved.order) ? saved.order : []);
-        setHiddenList(Array.isArray(saved.hidden) ? saved.hidden : []);
+    let weg = false;
+    persoenlichLesen(settings)
+      .then(async (werte) => {
+        if (weg) return;
+        const gelesen = (werte.playlisten ?? {}) as Playlistbuch;
+        buch.current = gelesen;
+        const wahl = wahlFuer(gelesen, entity.id);
+        if (wahl.order.length > 0 || wahl.hidden.length > 0) {
+          setOrder(wahl.order);
+          setHiddenList(wahl.hidden);
+          return;
+        }
+        // Einmalige Übernahme dessen, was auf diesem Gerät lag - und
+        // danach weg damit, damit die schon gelöste Frage nicht bei
+        // jedem Start neu gestellt wird.
+        const roh = await AsyncStorage.getItem(altKey);
+        if (weg || !roh) return;
+        const gespeichert = JSON.parse(roh);
+        const uebernommen = {
+          order: Array.isArray(gespeichert.order) ? gespeichert.order : [],
+          hidden: Array.isArray(gespeichert.hidden) ? gespeichert.hidden : [],
+        };
+        setOrder(uebernommen.order);
+        setHiddenList(uebernommen.hidden);
+        buch.current = wahlSetzen(buch.current, entity.id, uebernommen);
+        persoenlichSetzen(settings, 'playlisten', buch.current);
+        await AsyncStorage.removeItem(altKey);
       })
       .catch(() => {});
-  }, [prefsKey]);
+    return () => {
+      weg = true;
+    };
+  }, [settings, entity.id, altKey]);
 
   const savePrefs = (nextOrder: string[], nextHidden: string[]) => {
     setOrder(nextOrder);
     setHiddenList(nextHidden);
-    AsyncStorage.setItem(
-      prefsKey,
-      JSON.stringify({ order: nextOrder, hidden: nextHidden })
-      // Nicht speicherbar heisst nur: beim nächsten Start wieder die
-      // Standard-Reihenfolge.
-    ).catch(() => {});
+    buch.current = wahlSetzen(buch.current, entity.id, {
+      order: nextOrder,
+      hidden: nextHidden,
+    });
+    // Nicht gespeichert heisst nur: beim nächsten Start wieder die
+    // Standard-Reihenfolge.
+    persoenlichSetzen(settings, 'playlisten', buch.current);
   };
 
   // Ziel: zuletzt angetippt → gerade aktiv → erste Box.

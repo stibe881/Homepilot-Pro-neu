@@ -17,6 +17,7 @@ from fastapi import (
     Request,
 )
 
+from ...core.einstellungen import verschmelzen
 from ...core.users import Capability
 from ..context import ApiContext
 from ..models import HOUSE_PREFS_BYTES, PREFS_BYTES, PrefsRequest
@@ -44,20 +45,37 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
 
     @app.put("/api/prefs")
     async def put_prefs(body: PrefsRequest, request: Request) -> dict[str, Any]:
+        """Die genannten Einstellungen ändern - der Rest bleibt stehen.
+
+        Nicht mehr «was hier steht, ist ab jetzt der Bestand»: Der Anblick
+        wird im Profil gesetzt, die Playlist-Reihenfolge an der Musikkarte,
+        die Vorlese-Box im Kochbuch. Keine dieser Stellen kennt die
+        Einstellungen der anderen, und wer den ganzen Bestand mitschicken
+        müsste, löschte bei jedem Zug alles, was er nicht kennt (siehe
+        core/einstellungen.py).
+        """
         user = current_user(request)
-        if len(json.dumps(body.prefs, ensure_ascii=False)) > PREFS_BYTES:
+        entries = []
+        bestand: dict[str, Any] = {}
+        for entry in hub.data.get("user_prefs"):
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("user") == user.name:
+                gespeichert = entry.get("prefs")
+                bestand = gespeichert if isinstance(gespeichert, dict) else {}
+            else:
+                entries.append(entry)
+        zusammen = verschmelzen(bestand, body.prefs)
+        # Gemessen wird, was liegen bleibt, nicht was ankommt: Ein kleiner
+        # Zug auf einen schon zu grossen Bestand soll nicht durchrutschen.
+        if len(json.dumps(zusammen, ensure_ascii=False)) > PREFS_BYTES:
             raise HTTPException(
                 status_code=413,
                 detail="Die persönlichen Einstellungen sind zu gross geworden.",
             )
-        entries = [
-            entry
-            for entry in hub.data.get("user_prefs")
-            if isinstance(entry, dict) and entry.get("user") != user.name
-        ]
-        entries.append({"user": user.name, "prefs": body.prefs})
+        entries.append({"user": user.name, "prefs": zusammen})
         hub.data.set("user_prefs", entries)
-        return {"ok": True}
+        return {"ok": True, "prefs": zusammen}
 
     # ── Haushaltsweite Oberflächen-Einstellungen ───────────────────────────
     # Was ausgeblendet ist, was gesperrt, in welcher Reihenfolge die Kacheln
@@ -89,11 +107,20 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         zeigt «Anpassen» trotzdem nur der Besitzerrolle.
         """
         require(request, Capability.CONTROL)
-        if len(json.dumps(body.prefs, ensure_ascii=False)) > HOUSE_PREFS_BYTES:
+        bestand: dict[str, Any] = {}
+        for entry in hub.data.get("house_prefs"):
+            if isinstance(entry, dict) and isinstance(entry.get("prefs"), dict):
+                bestand = entry["prefs"]
+                break
+        # Auch hier nur die genannten Schlüssel - aus demselben Grund wie
+        # bei den persönlichen: Die Widget-Knöpfe werden woanders gesetzt
+        # als die Kachel-Reihenfolge.
+        zusammen = verschmelzen(bestand, body.prefs)
+        if len(json.dumps(zusammen, ensure_ascii=False)) > HOUSE_PREFS_BYTES:
             raise HTTPException(
                 status_code=413,
                 detail="Die Einstellungen des Hauses sind zu gross geworden.",
             )
-        hub.data.set("house_prefs", [{"prefs": body.prefs}])
-        return {"ok": True}
+        hub.data.set("house_prefs", [{"prefs": zusammen}])
+        return {"ok": True, "prefs": zusammen}
 
