@@ -621,6 +621,7 @@ def describe_trigger_health(
     gefeuert: float | None,
     gemeldet: float | None,
     jetzt: float,
+    erreichbar: bool | None = None,
 ) -> dict[str, Any]:
     """Warum ein Auslöser schweigt, in einem Satz (rein, testbar).
 
@@ -659,11 +660,25 @@ def describe_trigger_health(
     entity_id = str(trigger.get("entity_id") or "")
     ziel = trigger.get("to")
     if gemeldet is None:
-        hinweis = (
-            f"«{entity_id}» hat sich noch nie gemeldet, seit der Hub läuft. "
-            "Stimmt die Kennung, und ist das Gerät erreichbar?"
-        )
-        ok = False
+        if erreichbar:
+            # Die Entität gibt es, sie ist erreichbar - sie hatte nur
+            # noch nichts zu melden. Das ist bei manchen der Normalfall:
+            # «Jemand zuhause» meldet nur echte Wechsel, und solange seit
+            # dem Hub-Start niemand ging oder kam, herrscht zu Recht
+            # Stille. Daraus «Gerät kaputt?» zu machen, schickte die
+            # Leute auf eine Fehlersuche ohne Fehler.
+            hinweis = (
+                f"«{entity_id}» ist da und steht auf «{wert}» - seit dem "
+                "Hub-Start gab es nur noch keinen Wechsel. Der Auslöser "
+                "feuert beim nächsten."
+            )
+            ok = True
+        else:
+            hinweis = (
+                f"«{entity_id}» hat sich noch nie gemeldet, seit der Hub läuft. "
+                "Stimmt die Kennung, und ist das Gerät erreichbar?"
+            )
+            ok = False
     elif gefeuert is None:
         hinweis = (
             f"«{entity_id}» meldet sich, aber nie mit dem gesuchten Wert. "
@@ -1430,6 +1445,10 @@ class AutomationEngine:
                     self._gefeuert.get((automation.id, index)),
                     self._gemeldet.get((automation.id, index)),
                     jetzt,
+                    # Ob die Entität existiert und erreichbar ist,
+                    # unterscheidet «kaputt» von «hatte nur nichts zu
+                    # melden» - siehe describe_trigger_health.
+                    erreichbar=entity is not None and entity.available,
                 )
             )
         return {
