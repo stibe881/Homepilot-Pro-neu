@@ -31,6 +31,7 @@ import { OpenDoors } from '../components/OpenDoors';
 import { RunningAppliances } from '../components/RunningAppliances';
 import { SECTION_LABEL, Rail, Section } from '../components/Rail';
 import { AllOff } from '../components/AllOff';
+import { Gaestemodus } from '../components/Gaestemodus';
 import { SorgenBlatt } from '../components/SorgenBlatt';
 import { DeviceHealth } from '../components/DeviceHealth';
 import { RoomTabs } from '../components/RoomTabs';
@@ -70,6 +71,7 @@ import {
 } from '../lib/klingel';
 import { deviceKindLabel, musikboxenImRaum } from '../lib/geraeteart';
 import { rueckangebot } from '../lib/rueckgriff';
+import { Gaestestand, gaesteSatz } from '../lib/gaeste';
 import { sorgen, sorgenSatz } from '../lib/sorgen';
 import { szenenFuerKachel, szenenFuerRaum } from '../lib/szenen';
 import {
@@ -293,6 +295,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [batterienOffen, setBatterienOffen] = useState(false);
   // Das Blatt «was ist gerade nicht in Ordnung» - offen oder zu.
   const [sorgenOffen, setSorgenOffen] = useState(false);
+  // Der Gästemodus: offen/zu, und was der Hub dazu sagt.
+  const [gaesteOffen, setGaesteOffen] = useState(false);
+  const [gaesteStand, setGaesteStand] = useState<Gaestestand | null>(null);
   // Bis wann die persönlichen Bereiche offen sind (0 = zu). Nur im
   // Arbeitsspeicher: Nach einem Neustart der App wird wieder gefragt.
   const [riegelBis, setRiegelBis] = useState(0);
@@ -638,6 +643,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         if (zahl > 0) setNote(`${zahl} Gerät${zahl === 1 ? '' : 'e'} zurückgeschaltet`);
       });
   }, [griffUndo, hub]);
+
+  // Läuft gerade ein Gästemodus? Beim Öffnen der Einstellungen fragen,
+  // nicht dauernd: Die Zeile im Menü ist der einzige Ort, an dem die
+  // Antwort gebraucht wird - und dort steht sie eine Sekunde später.
+  useEffect(() => {
+    if (section !== 'settings') return;
+    hub
+      .get<Gaestestand | null>('/api/guestmode', { fallback: null, still: true })
+      .then(setGaesteStand);
+  }, [section, hub]);
 
   // Geräte, die nicht antworten oder verstummt sind – für die Zeile im
   // Menü. Batterien und Wartungen bleiben aussen vor: Ob eine Warnung
@@ -1670,7 +1685,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       // Einrichtung. Anlegen und Ändern bleibt ihm verwehrt, dafür sorgt
       // edit_automations in der Seite selbst (und der Hub noch einmal).
       const items: {
-        key: Section | 'search' | 'sorgen';
+        key: Section | 'search' | 'sorgen' | 'gaeste';
         icon: keyof typeof Ionicons.glyphMap;
         label: string;
         detail: string;
@@ -1726,6 +1741,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             ? 'Alle Geräte, auch ausgeblendete'
             : 'Alle Geräte mit Batterie und Verlauf',
           show: sieht('devices'),
+        },
+        {
+          key: 'gaeste',
+          icon: 'people-outline',
+          label: gaesteStand?.active ? 'Besuch da' : 'Besuch kommt',
+          detail: gaesteSatz(gaesteStand, Date.now()),
+          // Auch für Mitbewohner: Wer Gäste empfängt, soll ihnen das
+          // WLAN geben können, ohne die Besitzerin zu fragen.
+          show: true,
+          onPress: () => setGaesteOffen(true),
         },
         {
           key: 'sorgen',
@@ -2792,6 +2817,23 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           onDismiss={error ? dismissError : () => setAbrufFehler(null)}
           bottomInset={insets.bottom}
         />
+        <Gaestemodus
+          settings={settings}
+          entities={entities}
+          offen={gaesteOffen}
+          onClose={() => {
+            setGaesteOffen(false);
+            // Den Stand nachziehen: Die Zeile im Menü soll sagen, was
+            // im Blatt gerade entschieden wurde.
+            hub
+              .get<Gaestestand | null>('/api/guestmode', {
+                fallback: null,
+                still: true,
+              })
+              .then(setGaesteStand);
+          }}
+        />
+
         <SorgenBlatt
           settings={settings}
           entities={entities}

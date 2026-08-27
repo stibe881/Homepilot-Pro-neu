@@ -21,12 +21,13 @@ from fastapi import (
 )
 
 from ... import qr as qr_module
-from ...core import goodnight as goodnight_module
 from ...core import (
+    gaeste,
     rueckgriff,
     say,
     szenenrueckweg,
 )
+from ...core import goodnight as goodnight_module
 from ...core.config_edit import add_cast_device
 from ...core.errors import HomePilotError
 from ...core.source import as_source, user_source
@@ -36,6 +37,7 @@ from ..context import ApiContext
 from ..models import (
     BroadcastRequest,
     GoodNightRequest,
+    GuestModeRequest,
     SpeakerRequest,
     TimerRequest,
     UndoRecordRequest,
@@ -135,6 +137,82 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                     log.debug("Rückweg: %s nicht schaltbar", entity_id, exc_info=True)
                     fehler.append(namen.get(entity_id, entity_id))
         return {"ok": not fehler, "restored": zurueck, "failed": fehler}
+
+    # ── Gästemodus ─────────────────────────────────────────────────────────
+
+    def gaeste_lichter() -> list[str]:
+        """Die zuletzt gewählten Empfangslichter.
+
+        Sie überleben das Ende des Modus - beim nächsten Besuch soll
+        dieselbe Auswahl schon angehakt sein.
+        """
+        for entry in hub.data.get("guest_lights"):
+            if isinstance(entry, dict):
+                return [str(x) for x in entry.get("lights") or []]
+        return []
+
+    @app.get("/api/guestmode")
+    async def get_guestmode(request: Request) -> dict[str, Any]:
+        require(request, Capability.CONTROL)
+        return {
+            **gaeste.summary(hub.data.get(gaeste.KEY), time.time()),
+            "lights": gaeste_lichter(),
+            "default_hours": gaeste.STUNDEN_VORGABE,
+        }
+
+    @app.post("/api/guestmode")
+    async def start_guestmode(
+        body: GuestModeRequest, request: Request
+    ) -> dict[str, Any]:
+        """Besuch kommt: Abläufe ruhen, im Eingang wird Licht gemacht.
+
+        Beides zusammen und mit einer Frist, weil beides einzeln
+        vergessen wird - und das Aufheben am Ende erst recht. Was der
+        Modus einschaltet, merkt er sich als Rückweg: Am Ende steht das
+        Licht wieder so, wie es vorher stand, und nicht «alles an».
+
+        Die Alarmanlage bleibt unberührt. Ein Modus, der sie entschärft,
+        wäre kein Komfort mehr, sondern ein Loch - und wer sie für den
+        Abend anders will, sagt es ihr selbst.
+        """
+        user = require(request, Capability.CONTROL)
+        jetzt = time.time()
+        stunden = gaeste.stunden_pruefen(body.hours)
+        bekannt = {entity.id: entity for entity in hub.registry.all()}
+        lichter = [x for x in body.lights if x in bekannt]
+        hub.data.set("guest_lights", [{"lights": lichter}])
+
+        # Erst den Rückweg, dann schalten (core/rueckgriff.py).
+        rueckweg = rueckweg_ablegen("Gästemodus", lichter, "turn_on", user.name)
+        an: list[str] = []
+        with as_source(user_source(user.name)):
+            for entity_id in lichter:
+                try:
+                    await hub.integrations.dispatch_command(entity_id, "turn_on")
+                    an.append(bekannt[entity_id].label)
+                except Exception:
+                    log.debug("Gästemodus: %s nicht schaltbar", entity_id, exc_info=True)
+
+        hub.automations.pause(stunden * 3600)
+        hub.data.set(
+            gaeste.KEY,
+            gaeste.store(
+                gaeste.starten(
+                    stunden, user.name, jetzt, (rueckweg or {}).get("id")
+                )
+            ),
+        )
+        log.info("%s hat den Gästemodus für %s Stunden gestartet", user.name, stunden)
+        return {
+            **gaeste.summary(hub.data.get(gaeste.KEY), jetzt),
+            "lights_on": an,
+            "paused": len(hub.automations.automations),
+        }
+
+    @app.delete("/api/guestmode")
+    async def stop_guestmode(request: Request) -> dict[str, Any]:
+        require(request, Capability.CONTROL)
+        return await gaeste.beenden_ausfuehren(hub, "von Hand")
 
     # ── Gute Nacht ─────────────────────────────────────────────────────────
 

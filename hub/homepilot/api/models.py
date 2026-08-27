@@ -170,6 +170,13 @@ class GoodNightRequest(BaseModel):
     arm_alarm: bool = False
 
 
+class GuestModeRequest(BaseModel):
+    """Gästemodus starten: wie lange, und welches Licht dazu."""
+
+    hours: float = 4
+    lights: list[str] = []
+
+
 class UndoRecordRequest(BaseModel):
     """Den Rückweg zu einem grossen Griff hinterlegen – vor dem Schalten."""
 
