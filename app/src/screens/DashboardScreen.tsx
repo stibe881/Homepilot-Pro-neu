@@ -92,6 +92,7 @@ import { FAVORITEN, raumGruppen } from '../lib/raumgruppen';
 import { verlangtPin } from '../lib/alarmpin';
 import { OffenesModul, istGesperrt, istPersoenlich, offeneModule } from '../lib/bereichsriegel';
 import { schleier } from '../lib/nachtabsenkung';
+import { Einrichtungshilfe } from '../components/Einrichtungshilfe';
 import { Kamerawand } from '../components/Kamerawand';
 import { HausRueckblick } from './HausRueckblick';
 import { nachBewegung } from '../lib/kameraordnung';
@@ -2380,6 +2381,20 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               entities={entities}
               groups={groupNames}
               onCommand={guardedCommand}
+            />
+          ) : null}
+
+          {/* Was der Hub selbst gefunden hat, steht danach als Kachel da:
+              mit dem Namen aus der Verpackung und ohne Raum. Hier stehen
+              genau diese Geräte zusammen, statt dass man sie einzeln in
+              der Liste suchen muss. Ist nichts offen, zeigt die Karte
+              sich gar nicht erst. */}
+          {section === 'devices' && darfAnpassen ? (
+            <Einrichtungshilfe
+              entities={entities}
+              raeume={rooms.filter((name) => name !== ALL_ROOMS)}
+              onRaum={(entityId, raum) => setEntityRoom(entityId, raum)}
+              onName={(entityId, name) => setEntityMeta(entityId, { name })}
             />
           ) : null}
 
