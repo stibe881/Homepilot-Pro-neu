@@ -31,9 +31,10 @@ bekommt die URL, den Header trägt die App bei.
 
 ## Widget auf Homescreen und Sperrbildschirm
 
-Ab dem nächsten eigenen Build (`eas build`) bringt HomePilot ein Widget
-mit bis zu vier Knöpfen. Voreingestellt sind **Haustüre**, **Alles aus**
-und **Alarm**.
+Ab dem nächsten eigenen Build (`eas build`) bringt HomePilot zwei Arten
+von Widgets mit: **HomePilot** – eine Leiste mit bis zu vier Knöpfen
+(voreingestellt **Haustüre**, **Alles aus** und **Alarm**) – und
+**HomePilot Karte**, eines je Gerät oder Szene.
 
 **Einrichten.** Auf dem Homescreen lange drücken → *+* → «HomePilot» →
 Grösse wählen. Für den Sperrbildschirm: Sperrbildschirm lange drücken →
@@ -49,6 +50,19 @@ angelegt werden.
 Den eigentlichen Knopf «Widget hinzufügen» kann keine App anbieten – iOS
 behält das Auflegen auf den Homescreen bei sich. Deshalb steht in der App
 die Anleitung statt eines Knopfes, der nichts täte.
+
+**Eigene Widgets.** Neben der Knopfleiste gibt es «HomePilot Karte»: ein
+Widget für *ein* Gerät oder *eine* Szene, gross, mit Zustand und einem
+Knopf. Zusammengestellt werden die Karten in der App unter *Einstellungen
+→ Widgets* («Eigene Widgets») – ein Licht, ein Fühler, ein Schloss, eine
+Szene. Auf dem Homescreen legt man dann so viele «HomePilot Karte»-Widgets
+ab, wie man braucht, und wählt je Widget aus, welche Karte es zeigt:
+langer Druck → *Widget bearbeiten* → *Karte*.
+
+Braucht iOS 17 oder neuer: Erst dort lässt sich ein Widget je Exemplar
+einstellen. Und es braucht «Hausstand im Widget» (siehe unten) – ohne die
+Zugangsdaten im Widget kann eine Karte weder den Zustand zeigen noch
+schalten, sie führt dann nur in die App.
 
 **Was passiert beim Antippen.** Das Widget schaltet nichts direkt, es
 öffnet die App an der richtigen Stelle: Bei «Haustüre» steht die

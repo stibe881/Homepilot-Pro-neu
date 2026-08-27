@@ -27,8 +27,8 @@ Wandpanel wie auf dem Telefon, bei Stefan wie bei Livia:
 
 Kachel-Reihenfolge je Ansicht · ausgeblendete Geräte · ausgeblendete
 Familien-Kacheln · gesperrte Geräte · in der Kopfzeile ungezählte Geräte ·
-Face-ID-Hürde · Rückfrage vor dem Türöffnen · Widget-Knöpfe und ob das
-Widget Daten bekommt.
+Face-ID-Hürde · Rückfrage vor dem Türöffnen · Widget-Knöpfe, die eigenen
+Widget-Karten und ob das Widget Daten bekommt.
 
 ## Auf dem Hub, je Person (`/api/prefs`)
 

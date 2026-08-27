@@ -18,7 +18,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CommandData, Entity, HubSettings } from '../api/types';
 import { begruessung } from '../lib/begruessung';
-import { Bereich, siehtBereich } from '../lib/einstellungsmenue';
+import {
+  Bereich,
+  adminZeile,
+  gruppeVon,
+  siehtBereich,
+} from '../lib/einstellungsmenue';
 import { Bar } from '../components/Bar';
 import { Card } from '../components/Card';
 import { DraggableList } from '../components/DraggableList';
@@ -136,6 +141,7 @@ import { BioLock } from '../components/BioLock';
 import { TuerRueckfrage } from '../components/TuerRueckfrage';
 import { Widgets } from '../components/Widgets';
 import { Ablage, syncWidget } from '../lib/widget';
+import { resolveKarten } from '../lib/widgetKarten';
 import { favoritenVon, zuUebernehmen } from '../lib/favoriten';
 import { altesUebernehmen } from '../lib/hausprefs';
 import {
@@ -868,6 +874,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setWidgetData,
     setWidgetButtons,
     setWidgetDirect,
+    setWidgetKarten,
   } = usePrefs(settings, status === 'connected');
 
   // Die Haustür-Karte für unterwegs - tut nur auf einem iPhone mit dem
@@ -912,6 +919,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       ),
     [prefs.widgetButtons, prefs.widgetDirect, prefs.widgetData, scenes, entities]
   );
+  // Die selbst zusammengestellten Karten - je eine für ein Gerät oder
+  // eine Szene. Dieselbe Ablage, derselbe Takt wie die Knöpfe.
+  const widgetKarten = useMemo(
+    () => resolveKarten(prefs.widgetKarten, scenes, entities, !!prefs.widgetData),
+    [prefs.widgetKarten, prefs.widgetData, scenes, entities]
+  );
   const [widgetAblage, setWidgetAblage] = useState<Ablage>('kein-widget');
   useEffect(() => {
     // Erst, wenn etwas da ist: Vor der ersten Antwort des Hubs sind
@@ -919,12 +932,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     // fiele aus der Knopfliste heraus - das Widget stünde kurz mit
     // weniger Knöpfen da, als jemand eingestellt hat.
     if (entities.length === 0 && scenes.length === 0) return;
-    setWidgetAblage(syncWidget(settings, !!prefs.widgetData, widgetButtons));
+    setWidgetAblage(
+      syncWidget(settings, !!prefs.widgetData, widgetButtons, widgetKarten)
+    );
   }, [
     settings.url,
     settings.token,
     prefs.widgetData,
     widgetButtons,
+    widgetKarten,
     entities.length,
     scenes.length,
   ]);
@@ -1813,6 +1829,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     },
   ];
 
+  // Die Punkte, geteilt nach dem, was sie tun: bedienen oder einrichten
+  // (lib/einstellungsmenue.ts). Gerechnet und nicht von Hand danebenge-
+  // schrieben - sonst driften Liste und Zuordnung auseinander, sobald
+  // jemand einen Punkt hinzufügt.
+  const sichtbarePunkte = einstellungsPunkte.filter((item) => item.show);
+  const hausPunkte = sichtbarePunkte.filter((item) => gruppeVon(item.key) === 'haus');
+  const adminPunkte = sichtbarePunkte.filter((item) => gruppeVon(item.key) === 'admin');
+
   // Auf dem iPad bleiben die Einstellungen zweispaltig: Menü links,
   // Inhalt rechts. Der Wechsel Vollbild → Vollbild verlor auf grossen
   // Bildschirmen die Orientierung - man sah nie, wo man ist und was es
@@ -1820,7 +1844,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // aussen vor: Sie haben ihre eigene rechte Spalte.
   const einstellungsSeiten: Section[] = [
     'users', 'personen', 'automations', 'alarm', 'speakers',
-    'energy', 'system', 'activity', 'widgets', 'account',
+    'energy', 'system', 'activity', 'widgets', 'account', 'connection',
   ];
   const zweispaltig = width >= 1000 && einstellungsSeiten.includes(section);
 
@@ -1918,11 +1942,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     );
 
     if (section === 'settings') {
-      // Alles ausser «Konto & Verbindung» ist Sache der Besitzerin bzw.
-      // des Besitzers. Bewohner bedienen das Haus über die Startseite; die
-      // Einrichtung dahinter - wer darf was, welche Abläufe laufen, was der
-      // Hub gerade treibt - gehört nicht in jede Hand. Der Hub prüft die
-      // Rechte ohnehin noch einmal selbst.
+      // Vorne steht, was man bedient; hinter «Administrator», was das
+      // Haus einrichtet (lib/einstellungsmenue.ts). Wer was überhaupt
+      // sieht, entscheidet `show` je Punkt - der Hub prüft die Rechte
+      // ohnehin noch einmal selbst.
       //
       // Eine Ausnahme: «Abläufe». Ein Mitbewohner darf sie pausieren und
       // den Babysitter-Modus schalten - das ist Bedienung, keine
@@ -1930,25 +1953,68 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       // edit_automations in der Seite selbst (und der Hub noch einmal).
       return (
         <View style={styles.settingsList}>
-          {einstellungsPunkte
-            .filter((item) => item.show)
-            .map((item) => (
-              <Pressable
-                key={item.key}
-                onPress={() =>
-                  item.onPress ? item.onPress() : setSection(item.key as Section)
-                }
-                accessibilityRole="button"
-                style={({ pressed }) => [styles.settingsItem, pressed && { opacity: 0.8 }]}
-              >
-                <Ionicons name={item.icon} size={22} color={colors.ink} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.settingsLabel}>{item.label}</Text>
-                  <Text style={styles.settingsDetail}>{item.detail}</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={colors.inkFaint} />
-              </Pressable>
-            ))}
+          {hausPunkte.map((item) => (
+            <Pressable
+              key={item.key}
+              onPress={() =>
+                item.onPress ? item.onPress() : setSection(item.key as Section)
+              }
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.settingsItem, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons name={item.icon} size={22} color={colors.ink} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.settingsLabel}>{item.label}</Text>
+                <Text style={styles.settingsDetail}>{item.detail}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.inkFaint} />
+            </Pressable>
+          ))}
+
+          {/* Die Einrichtung des Hauses hinter einer eigenen Tür. Sie
+              stand mitten zwischen den täglichen Wegen und verlängerte
+              sie - geöffnet wird sie selten und nie beiläufig. */}
+          {adminPunkte.length > 0 ? (
+            <Pressable
+              onPress={() => setSection('admin')}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.settingsItem, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons name="construct-outline" size={22} color={colors.ink} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.settingsLabel}>Administrator</Text>
+                <Text style={styles.settingsDetail}>
+                  {adminZeile(adminPunkte.length)}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.inkFaint} />
+            </Pressable>
+          ) : null}
+        </View>
+      );
+    }
+
+    if (section === 'admin') {
+      return (
+        <View style={styles.settingsList}>
+          {back}
+          {adminPunkte.map((item) => (
+            <Pressable
+              key={item.key}
+              onPress={() =>
+                item.onPress ? item.onPress() : setSection(item.key as Section)
+              }
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.settingsItem, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons name={item.icon} size={22} color={colors.ink} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.settingsLabel}>{item.label}</Text>
+                <Text style={styles.settingsDetail}>{item.detail}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.inkFaint} />
+            </Pressable>
+          ))}
         </View>
       );
     }
@@ -2083,6 +2149,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               prefs.widgetDirect ?? standardDirekt(prefs.widgetButtons ?? [], entities)
             }
             onDirect={setWidgetDirect}
+            karten={prefs.widgetKarten}
+            onKarten={setWidgetKarten}
             dataEnabled={!!prefs.widgetData}
             onDataEnabled={setWidgetData}
             ablage={widgetAblage}
@@ -2950,13 +3018,24 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               {zweispaltig ? (
                 <View style={styles.settingsSplit}>
                   <View style={styles.settingsRail}>
-                    {einstellungsPunkte
-                      .filter((item) => item.show)
-                      .map((item) => {
-                        const aktiv = item.key === section;
-                        return (
+                    {/* Auf dem iPad steht alles untereinander, Haus und
+                        Einrichtung durch eine Überschrift getrennt. Hier
+                        einen Zwischenschritt einzubauen wäre ein Tipp
+                        für nichts: Die Spalte ist breit genug für beides,
+                        und der Sinn der Trennung war, die täglichen Wege
+                        auf dem Telefon kurz zu halten. */}
+                    {[...hausPunkte, ...adminPunkte].map((item, index) => {
+                      const aktiv = item.key === section;
+                      // Die Überschrift steht vor dem ersten Punkt der
+                      // Einrichtung - dort, wo das Haus aufhört.
+                      const trennt =
+                        adminPunkte.length > 0 && index === hausPunkte.length;
+                      return (
+                        <React.Fragment key={item.key}>
+                          {trennt ? (
+                            <Text style={styles.settingsRailGruppe}>Administrator</Text>
+                          ) : null}
                           <Pressable
-                            key={item.key}
                             onPress={() =>
                               item.onPress
                                 ? item.onPress()
@@ -2985,8 +3064,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                               {item.label}
                             </Text>
                           </Pressable>
-                        );
-                      })}
+                        </React.Fragment>
+                      );
+                    })}
                   </View>
                   <View style={{ flex: 1, minWidth: 0 }}>{content()}</View>
                 </View>
@@ -4211,6 +4291,18 @@ const makeStyles = (colors: Colors) =>
     },
     settingsRailActive: { backgroundColor: colors.surface },
     settingsRailText: { color: colors.inkSoft, fontSize: 14, fontWeight: '600', flex: 1 },
+    /** Die Überschrift über der Einrichtung in der iPad-Spalte. Klein und
+     *  gedeckt: Sie trennt, sie ist kein Knopf. */
+    settingsRailGruppe: {
+      color: colors.inkFaint,
+      fontSize: 12,
+      fontWeight: '700',
+      letterSpacing: 0.4,
+      textTransform: 'uppercase',
+      paddingHorizontal: 12,
+      paddingTop: 14,
+      paddingBottom: 4,
+    },
     empty: {
       color: colors.onGradientSoft,
       fontSize: 14,
