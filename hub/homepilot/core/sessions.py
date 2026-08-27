@@ -76,11 +76,20 @@ class SessionStore:
     def _save(self, rows: list[dict[str, Any]]) -> None:
         self._data.set("sessions", rows)
 
-    def create(self, user: str, label: str = "", keep: bool = False) -> str:
+    def create(
+        self, user: str, label: str = "", keep: bool = False, email: str = ""
+    ) -> str:
         """Eine neue Sitzung – gibt das Token zurück, das nur jetzt sichtbar ist.
 
         ``keep`` für Gemeinschaftsgeräte: Die Sitzung läuft nie ab (siehe
         ``bleibt``).
+
+        ``email`` ist der zweite Weg zurück zum Benutzer. Der Name allein
+        war zu wenig: Wer sich in der config.yaml umbenennt – «Stefan» zu
+        «stibe» –, dessen Sitzungen zeigten danach auf einen Benutzer, den
+        es nicht mehr gibt. Jede Anfrage bekam «Ungültiges Token», auf
+        allen Geräten gleichzeitig, und der Besitzer stand vor seinem
+        eigenen Haus. Die Adresse ändert sich bei einer Umbenennung nicht.
         """
         token = secrets.token_urlsafe(32)
         now = time.time()
@@ -90,6 +99,7 @@ class SessionStore:
             {
                 "hash": hash_token(token),
                 "user": user,
+                "email": (email or "").strip().lower(),
                 "label": label,
                 "created": now,
                 "seen": now,
@@ -99,8 +109,12 @@ class SessionStore:
         self._save(prune(rows))
         return token
 
-    def user_for(self, token: str) -> str | None:
-        """Zu welchem Benutzer gehört dieses Token? (None = keine Sitzung)
+    def identity(self, token: str) -> tuple[str, str] | None:
+        """Name und E-Mail zu diesem Token – oder None (keine Sitzung).
+
+        Zwei Angaben statt einer, damit der Aufrufer beides versuchen kann.
+        Alte Sitzungen tragen keine Adresse; dort bleibt es beim Namen, und
+        alles ist wie vorher.
 
         Nebenbei wird der Zeitstempel nachgeführt – eine Sitzung, die
         benutzt wird, läuft nicht ab.
@@ -120,8 +134,30 @@ class SessionStore:
             if now - float(row.get("seen") or 0) > 3600:
                 row["seen"] = now
                 self._save(rows)
-            return str(row.get("user") or "") or None
+            return str(row.get("user") or ""), str(row.get("email") or "")
         return None
+
+    def user_for(self, token: str) -> str | None:
+        """Zu welchem Benutzer gehört dieses Token? (None = keine Sitzung)"""
+        kennung = self.identity(token)
+        return (kennung[0] or None) if kennung else None
+
+    def rename(self, alt: str, neu: str) -> int:
+        """Die Sitzungen einer Person auf einen neuen Namen umschreiben.
+
+        Für den Fall, dass jemand mit Adresse *und* altem Namen wieder
+        auftaucht: Dann steht die Sitzung wieder auf den Füssen, statt bei
+        jeder Anfrage über den Umweg zu gehen.
+        """
+        rows = self._rows()
+        getroffen = 0
+        for row in rows:
+            if isinstance(row, dict) and row.get("user") == alt:
+                row["user"] = neu
+                getroffen += 1
+        if getroffen:
+            self._save(rows)
+        return getroffen
 
     def revoke(self, token: str) -> bool:
         wanted = hash_token(token)
