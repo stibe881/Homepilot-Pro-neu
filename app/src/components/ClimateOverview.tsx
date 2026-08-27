@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { hubClient } from '../api/client';
 import { Entity, HubSettings } from '../api/types';
+import { FEUCHTE_MAX, FEUCHTE_MIN, bandPosition, klimaUrteil } from '../lib/komfort';
 import { Card } from './Card';
 import { Colors, type, useColors } from '../theme';
 
@@ -145,9 +146,14 @@ export function ClimateOverview({
             // Vorgelesen ergäbe die Zeile «45 Prozent, 21,3 Grad» – die
             // Bedeutung der Zahlen steckt allein in ihrer Position. Deshalb
             // trägt die Zeile den ganzen Satz, und die Teile darin nichts.
+            // Das eine Wort, wenn etwas nicht stimmt: «zu trocken» im
+            // Winter, «Schimmelgefahr» am Anschlag - im grünen Bereich
+            // schweigt die Zeile (lib/komfort.ts).
+            const urteil = klimaUrteil(Number(row.temp.state.state), row.humidity);
             const gesprochen =
               `${row.room}: ${Number(row.temp.state.state).toFixed(1)} Grad` +
               (row.humidity != null ? `, ${Math.round(row.humidity)} Prozent Feuchte` : '') +
+              (urteil ? `, ${urteil.wort}` : '') +
               (span ? `, heute ${span.min.toFixed(1)} bis ${span.max.toFixed(1)} Grad` : '');
             return (
               <View
@@ -157,12 +163,49 @@ export function ClimateOverview({
                 accessibilityLabel={gesprochen}
               >
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.name}>{row.room}</Text>
+                  <Text style={styles.name}>
+                    {row.room}
+                    {urteil ? (
+                      <Text
+                        style={[
+                          styles.urteil,
+                          { color: urteil.ton === 'danger' ? colors.danger : colors.warn },
+                        ]}
+                      >
+                        {'  '}
+                        {urteil.wort}
+                      </Text>
+                    ) : null}
+                  </Text>
                   <Text style={styles.detail}>
                     {span
                       ? `heute ${span.min.toFixed(1)}–${span.max.toFixed(1)} °C`
                       : row.temp.name}
                   </Text>
+                  {/* Das Zielband: 40-60 % sind grün, der Punkt ist der
+                      Raum. So sieht man ohne Zahlenvergleich, wie weit
+                      «35 %» vom Ziel weg ist. */}
+                  {row.humidity != null ? (
+                    <View style={styles.band}>
+                      <View
+                        style={[
+                          styles.bandZiel,
+                          {
+                            left: `${bandPosition(FEUCHTE_MIN) * 100}%`,
+                            width: `${(bandPosition(FEUCHTE_MAX) - bandPosition(FEUCHTE_MIN)) * 100}%`,
+                          },
+                        ]}
+                      />
+                      <View
+                        style={[
+                          styles.bandPunkt,
+                          { left: `${bandPosition(row.humidity) * 100}%` },
+                          urteil?.ton === 'danger' && { backgroundColor: colors.danger },
+                          urteil?.ton === 'warn' && { backgroundColor: colors.warn },
+                        ]}
+                      />
+                    </View>
+                  ) : null}
                 </View>
                 {row.humidity != null ? (
                   <Text style={styles.humidity}>{Math.round(row.humidity)} %</Text>
@@ -195,4 +238,30 @@ const makeStyles = (colors: Colors) =>
     humidity: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
     value: { color: colors.ink, fontSize: 16, fontWeight: '700', minWidth: 62, textAlign: 'right' },
     hint: { color: colors.inkFaint, fontSize: 12, lineHeight: 17 },
+    urteil: { fontSize: 12, fontWeight: '700' },
+    // Das Feuchte-Zielband: schmal und leise - eine Beilage zur Zeile,
+    // kein eigenes Diagramm.
+    band: {
+      marginTop: 5,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: colors.track,
+      maxWidth: 180,
+    },
+    bandZiel: {
+      position: 'absolute',
+      top: 0,
+      bottom: 0,
+      borderRadius: 2,
+      backgroundColor: colors.onSoft,
+    },
+    bandPunkt: {
+      position: 'absolute',
+      top: -2,
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      marginLeft: -4,
+      backgroundColor: colors.on,
+    },
   });
