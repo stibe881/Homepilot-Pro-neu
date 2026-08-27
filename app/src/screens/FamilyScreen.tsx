@@ -220,6 +220,16 @@ export function FamilyScreen({
   // Vorschläge stehen, bis jemand würfelt - sonst mischte jedes
   // Live-Update vom Hub die Liste um.
   const [essWurf, setEssWurf] = useState(1);
+  // Welche Erinnerung gerade im Formular zum Bearbeiten steht - der
+  // ganze Eintrag, nicht nur die id: Das Formular setzt daraus seine
+  // Startwerte, und die sollen der Stand vom Moment des Stift-Tippens
+  // sein, nicht was ein Live-Update dazwischenschiebt.
+  const [erinnerungBearbeiten, setErinnerungBearbeiten] = useState<Erinnerung | null>(null);
+  // Beim Verlassen der Kachel aufräumen: Wer morgen wiederkommt, soll
+  // ein leeres Formular vorfinden, nicht den halben Stand von gestern.
+  useEffect(() => {
+    if (view !== 'reminders') setErinnerungBearbeiten(null);
+  }, [view]);
 
   const hub = useMemo(
     () => hubClient(settings.url, settings.token),
@@ -3763,6 +3773,22 @@ export function FamilyScreen({
                 </Pressable>
               ) : null}
               <Pressable
+                onPress={() => setErinnerungBearbeiten(erinnerung)}
+                style={styles.deleteTap}
+                accessibilityRole="button"
+                accessibilityLabel={`Erinnerung «${String(erinnerung.text ?? '')}» bearbeiten`}
+              >
+                <Ionicons
+                  name="pencil"
+                  size={18}
+                  color={
+                    erinnerungBearbeiten?.id === erinnerung.id
+                      ? colors.accent
+                      : colors.inkFaint
+                  }
+                />
+              </Pressable>
+              <Pressable
                 onPress={() => remove('reminders', erinnerung.id)}
                 style={styles.deleteTap}
                 accessibilityRole="button"
@@ -3773,8 +3799,31 @@ export function FamilyScreen({
             </Card>
           );
         })}
+        {/* Der key wechselt mit dem Eintrag: Das Formular setzt seine
+            Startwerte nur beim Aufbau - so springt es beim Stift-Tipp
+            sauber auf den gewählten Eintrag um. */}
         <ErinnerungForm
-          onAdd={(eintrag) => add('reminders', eintrag)}
+          key={erinnerungBearbeiten?.id ?? 'neu'}
+          vorgabe={erinnerungBearbeiten ?? undefined}
+          onCancel={
+            erinnerungBearbeiten ? () => setErinnerungBearbeiten(null) : undefined
+          }
+          onAdd={(eintrag) => {
+            if (erinnerungBearbeiten) {
+              // Bearbeitet heisst neu aufgesetzt: Ein schon verschickter
+              // Push und die «schon gesehen»-Liste gehörten zum alten
+              // Termin - wer die Zeit verschiebt, will wieder gemeldet
+              // werden.
+              update('reminders', erinnerungBearbeiten.id, {
+                ...eintrag,
+                quittiert: [],
+                pushed: false,
+              });
+              setErinnerungBearbeiten(null);
+            } else {
+              add('reminders', eintrag);
+            }
+          }}
           mitglieder={pushZiele}
           styles={styles}
           colors={colors}
