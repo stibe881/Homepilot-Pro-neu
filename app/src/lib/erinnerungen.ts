@@ -23,6 +23,17 @@ export interface Erinnerung {
   push?: unknown;
   /** An wen der Push geht; leer heisst alle im Haushalt. */
   push_an?: unknown;
+  /** Wer die Erinnerung nur für sich weggedrückt hat («Erledigt» statt
+   *  «Für alle erledigt»). Bei diesen Benutzern bleibt das Vollbild weg,
+   *  bei allen anderen steht es weiter - erst `done` räumt überall ab. */
+  quittiert?: unknown;
+}
+
+/** Wer diese Erinnerung für sich weggedrückt hat (rein, testbar). */
+export function quittiertVon(eintrag: Erinnerung): string[] {
+  const namen = eintrag.quittiert;
+  if (!Array.isArray(namen)) return [];
+  return namen.map((name) => String(name)).filter((name) => name.trim() !== '');
 }
 
 /** Gehört dieser Eintrag auf die Bildschirme? (rein, testbar) */
@@ -86,12 +97,19 @@ export function faellige(
 /** Fällig UND fürs Vollbild bestimmt (rein, testbar).
  *
  *  Ein Eintrag, der nur pusht, gehört nicht auf den Schirm - den
- *  erledigt der Hub nach dem Versand von selbst. */
+ *  erledigt der Hub nach dem Versand von selbst. Und wer die Erinnerung
+ *  schon für sich weggedrückt hat (`benutzer` steht in `quittiert`),
+ *  bekommt sie nicht noch einmal - die anderen sehr wohl. */
 export function anzuzeigende(
   liste: Erinnerung[] | undefined,
-  jetztMs: number
+  jetztMs: number,
+  benutzer?: string | null
 ): Erinnerung[] {
-  return faellige(liste, jetztMs).filter(zeigtAn);
+  return faellige(liste, jetztMs)
+    .filter(zeigtAn)
+    .filter(
+      (eintrag) => !benutzer || !quittiertVon(eintrag).includes(benutzer)
+    );
 }
 
 /** Wann das nächste Vollbild ansteht - für den Prüf-Takt (rein, testbar).
