@@ -55,7 +55,7 @@ import {
   shopCategory,
 } from '../lib/einkauf';
 import { datumUhr, uhr } from '../lib/format';
-import { Erinnerung, anzuzeigende, naechsteAt } from '../lib/erinnerungen';
+import { Erinnerung, anzuzeigende, naechsteAt, quittiertVon } from '../lib/erinnerungen';
 import {
   AUTO_SCHLIESSEN_SEKUNDEN,
   KlingelAktion,
@@ -420,9 +420,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     () => setJetztErinnerung(Date.now()),
     naechsteAt(erinnerungen) !== null ? 30000 : null
   );
+  // «Erledigt» (nur für mich) auf diesem Gerät - zusätzlich zur Liste
+  // beim Hub, damit das Vollbild auch dann sofort und dauerhaft weg ist,
+  // wenn der Name des Benutzers gerade (noch) nicht bekannt ist.
+  const [selbstQuittiert, setSelbstQuittiert] = useState<string[]>([]);
   const faelligeErinnerungen = useMemo(
-    () => anzuzeigende(erinnerungen, jetztErinnerung),
-    [erinnerungen, jetztErinnerung]
+    () =>
+      anzuzeigende(erinnerungen, jetztErinnerung, user?.name).filter(
+        (eintrag) => !selbstQuittiert.includes(eintrag.id)
+      ),
+    [erinnerungen, jetztErinnerung, user?.name, selbstQuittiert]
   );
   const bestaetigeErinnerung = useCallback(
     (id: string) => {
@@ -442,6 +449,29 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         .catch(() => {});
     },
     [hub]
+  );
+  const quittiereErinnerung = useCallback(
+    (id: string) => {
+      // «Erledigt» ohne «für alle»: nur bei mir weg, die anderen sehen
+      // die Erinnerung weiter, bis jemand für alle bestätigt. Der Name
+      // wandert in die geteilte Ablage - so bleibt es auch nach einem
+      // Neustart der App bei «schon gesehen», und die eigenen anderen
+      // Geräte ziehen mit.
+      setSelbstQuittiert((ids) => (ids.includes(id) ? ids : [...ids, id]));
+      const name = user?.name;
+      if (!name) return;
+      const eintrag = erinnerungen.find((zeile) => zeile.id === id);
+      const bisher = eintrag ? quittiertVon(eintrag) : [];
+      if (bisher.includes(name)) return;
+      hub
+        .put(
+          `/api/family/reminders/${encodeURIComponent(id)}`,
+          { quittiert: [...bisher, name] },
+          { fallback: null }
+        )
+        .catch(() => {});
+    },
+    [hub, user?.name, erinnerungen]
   );
 
   /** Einen Eintrag im Laden abhaken - er verschwindet sofort aus der
@@ -2455,6 +2485,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           <ErinnerungOverlay
             erinnerungen={faelligeErinnerungen}
             onBestaetigen={bestaetigeErinnerung}
+            onQuittieren={quittiereErinnerung}
             styles={styles}
           />
         ) : null}
@@ -2847,10 +2878,14 @@ function CameraFullscreen({
 function ErinnerungOverlay({
   erinnerungen,
   onBestaetigen,
+  onQuittieren,
   styles,
 }: {
   erinnerungen: Erinnerung[];
+  /** «Für alle erledigt» - räumt die Erinnerung überall ab. */
   onBestaetigen: (id: string) => void;
+  /** «Erledigt» - nur bei mir weg, die anderen sehen sie weiter. */
+  onQuittieren: (id: string) => void;
   styles: ReturnType<typeof makeStyles>;
 }) {
   return (
@@ -2866,18 +2901,35 @@ function ErinnerungOverlay({
               <Text style={styles.erinnerungZeit}>
                 {datumUhr(Number(erinnerung.at))}
               </Text>
-              <Pressable
-                onPress={() => onBestaetigen(erinnerung.id)}
-                accessibilityRole="button"
-                accessibilityLabel={`Erinnerung «${String(erinnerung.text ?? '')}» erledigt`}
-                style={({ pressed }) => [
-                  styles.erinnerungKnopf,
-                  pressed && { opacity: 0.8 },
-                ]}
-              >
-                <Ionicons name="checkmark" size={22} color="#FFFFFF" />
-                <Text style={styles.erinnerungKnopfText}>Erledigt</Text>
-              </Pressable>
+              <View style={styles.erinnerungKnoepfe}>
+                <Pressable
+                  onPress={() => onQuittieren(erinnerung.id)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Erinnerung «${String(erinnerung.text ?? '')}» nur bei mir erledigt`}
+                  style={({ pressed }) => [
+                    styles.erinnerungKnopfLeise,
+                    pressed && { opacity: 0.8 },
+                  ]}
+                >
+                  <Text style={styles.erinnerungKnopfLeiseText}>Erledigt</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => onBestaetigen(erinnerung.id)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Erinnerung «${String(erinnerung.text ?? '')}» für alle erledigt`}
+                  style={({ pressed }) => [
+                    styles.erinnerungKnopf,
+                    pressed && { opacity: 0.8 },
+                  ]}
+                >
+                  <Ionicons name="checkmark" size={22} color="#FFFFFF" />
+                  <Text style={styles.erinnerungKnopfText}>Für alle erledigt</Text>
+                </Pressable>
+              </View>
+              <Text style={styles.erinnerungHinweis}>
+                «Erledigt» blendet sie nur hier aus - bei den anderen bleibt sie
+                stehen.
+              </Text>
             </View>
           ))}
         </ScrollView>
@@ -3366,6 +3418,13 @@ const makeStyles = (colors: Colors) =>
       lineHeight: 42,
     },
     erinnerungZeit: { color: '#8A94A6', fontSize: 17 },
+    erinnerungKnoepfe: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'center',
+      gap: 12,
+      marginTop: 8,
+    },
     erinnerungKnopf: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -3374,9 +3433,21 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radius.control,
       paddingVertical: 14,
       paddingHorizontal: 34,
-      marginTop: 8,
     },
     erinnerungKnopfText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
+    // Der leise Bruder von erinnerungKnopf: nur Rahmen statt Fläche -
+    // «für alle» soll der Knopf sein, zu dem die Hand zuerst will.
+    erinnerungKnopfLeise: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: '#3A4358',
+      borderRadius: radius.control,
+      paddingVertical: 14,
+      paddingHorizontal: 34,
+    },
+    erinnerungKnopfLeiseText: { color: '#C6CDDB', fontSize: 18, fontWeight: '600' },
+    erinnerungHinweis: { color: '#8A94A6', fontSize: 13, textAlign: 'center' },
     doorbellImage: {
       flex: 1,
       borderRadius: radius.card,

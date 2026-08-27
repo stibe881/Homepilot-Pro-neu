@@ -88,4 +88,21 @@ describe('anzuzeigende', () => {
     ];
     expect(anzuzeigende(liste, 200).map((e) => e.id)).toEqual(['b', 'c']);
   });
+
+  it('wer für sich quittiert hat, sieht sie nicht mehr - die anderen schon', () => {
+    // Der Fall: Stefan drückt «Erledigt» (nur für sich). Auf seinem
+    // Telefon verschwindet das Vollbild, am Wandpanel und bei Bine
+    // bleibt es stehen, bis jemand «Für alle erledigt» drückt.
+    const liste = [{ id: 'a', at: 100, quittiert: ['Stefan'] }];
+    expect(anzuzeigende(liste, 200, 'Stefan')).toEqual([]);
+    expect(anzuzeigende(liste, 200, 'Bine').map((e) => e.id)).toEqual(['a']);
+    // Ohne bekannten Benutzer (Anmeldung noch unterwegs) lieber zeigen
+    // als verschlucken.
+    expect(anzuzeigende(liste, 200).map((e) => e.id)).toEqual(['a']);
+  });
+
+  it('quittiert verkraftet Unlesbares', () => {
+    const liste = [{ id: 'a', at: 100, quittiert: 'Stefan' }];
+    expect(anzuzeigende(liste, 200, 'Stefan').map((e) => e.id)).toEqual(['a']);
+  });
 });

@@ -114,6 +114,15 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   aus) gilt nach dem Versand als erledigt - es gäbe keinen Bildschirm,
   auf dem sie jemand bestätigen könnte. In der Liste steht dabei, wer
   den Push bekommt.
+- **Das Vollbild hat jetzt zwei Knöpfe: «Erledigt» und «Für alle
+  erledigt».** «Für alle erledigt» räumt die Erinnerung überall ab -
+  das war bisher der einzige Weg. «Erledigt» blendet sie nur beim
+  Drückenden aus: Wer die Wäsche gesehen hat und weiss, dass er gleich
+  geht, muss sie den anderen nicht wegnehmen - bei denen bleibt sie
+  stehen, bis jemand für alle bestätigt. Das «schon gesehen» liegt beim
+  Hub, überlebt also einen Neustart der App und gilt auf allen eigenen
+  Geräten; ein kleiner Hinweis unter den Knöpfen erklärt den
+  Unterschied direkt dort, wo man ihn braucht.
 
 **Startseite und Musik**
 
