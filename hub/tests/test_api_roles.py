@@ -347,3 +347,115 @@ def test_wer_sich_umbenennt_heisst_auch_in_der_verwaltung_so():
             ).status_code
             == 403
         )
+
+
+def test_der_besitzer_verteilt_rollen():
+    """«Der Besitzer soll Benutzern Rollen bearbeiten können.»
+
+    Bisher stand die Rolle beim Anlegen fest: Wer einen Mitbewohner
+    versehentlich als Gast angelegt hatte, musste ihn löschen und neu
+    einladen - samt neuem Token auf jedem Gerät.
+    """
+    hub = Hub(
+        HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}], users=USERS)
+    )
+    with TestClient(create_app(hub)) as client:
+        angelegt = client.post(
+            "/api/users", headers=auth("t-owner"), json={"name": "Livia", "role": "gast"}
+        )
+        token = angelegt.json()["user"]["token"]
+        # Als Gast sieht sie die Abläufe nicht.
+        assert client.get("/api/automations", headers=auth(token)).status_code == 403
+
+        hoch = client.put(
+            "/api/users/Livia", headers=auth("t-owner"), json={"role": "bewohner"}
+        )
+        assert hoch.status_code == 200
+        assert hoch.json()["user"]["role"] == "bewohner"
+        # Dasselbe Token, neue Rechte - kein Neuanlegen, kein neuer QR-Code.
+        assert client.get("/api/automations", headers=auth(token)).status_code == 200
+        assert "pause_automations" in client.get("/api/me", headers=auth(token)).json()[
+            "capabilities"
+        ]
+
+        # Und wieder zurück.
+        runter = client.put(
+            "/api/users/Livia", headers=auth("t-owner"), json={"role": "gast"}
+        )
+        assert runter.json()["user"]["role"] == "gast"
+        assert client.get("/api/automations", headers=auth(token)).status_code == 403
+
+
+def test_rollen_verteilt_nur_der_besitzer():
+    hub = Hub(
+        HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}], users=USERS)
+    )
+    with TestClient(create_app(hub)) as client:
+        client.post(
+            "/api/users", headers=auth("t-owner"), json={"name": "Livia", "role": "gast"}
+        )
+        # Die Mitbewohnerin darf das nicht - sonst machte sich jeder zum
+        # Besitzer, der einen Namen kennt.
+        antwort = client.put(
+            "/api/users/Livia", headers=auth("t-resident"), json={"role": "besitzer"}
+        )
+        assert antwort.status_code == 403
+
+
+def test_die_eigene_rolle_bleibt_wo_sie_ist():
+    """Sonst steht man vor der eigenen Benutzerverwaltung und kommt nicht
+    mehr hinein."""
+    hub = Hub(
+        HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}], users=USERS)
+    )
+    with TestClient(create_app(hub)) as client:
+        angelegt = client.post(
+            "/api/users",
+            headers=auth("t-owner"),
+            json={"name": "Zweiter", "role": "besitzer"},
+        )
+        token = angelegt.json()["user"]["token"]
+        antwort = client.put(
+            "/api/users/Zweiter", headers=auth(token), json={"role": "bewohner"}
+        )
+        assert antwort.status_code == 400
+        assert "selbst" in antwort.json()["detail"]
+
+
+def test_der_letzte_besitzer_bleibt_besitzer():
+    """Ein Haus ohne Besitzer verwaltet niemand mehr - zurück käme man nur
+    über die config.yaml auf dem Rechner im Keller."""
+    hub = Hub(
+        HubConfig(
+            api=ApiConfig(),
+            integrations=[{"integration": "demo"}],
+            # Nur ein Besitzer, und der ist aus der App - also änderbar.
+            users=[],
+        )
+    )
+    from homepilot.core.users import User as HubUser
+
+    hub.users.add(
+        HubUser(name="Stibe", role="besitzer", token="t-stibe", editable=True)
+    )
+    with TestClient(create_app(hub)) as client:
+        besitzer = auth("t-stibe")
+        client.post(
+            "/api/users", headers=besitzer, json={"name": "Livia", "role": "bewohner"}
+        )
+        # Livia stuft den einzigen Besitzer zurück? Nein.
+        antwort = client.put(
+            "/api/users/Stibe", headers=besitzer, json={"role": "bewohner"}
+        )
+        assert antwort.status_code in (400, 409)
+
+        # Mit einem zweiten Besitzer geht es - und zwar von diesem aus.
+        client.put("/api/users/Livia", headers=besitzer, json={"role": "besitzer"})
+        livia = auth(hub.users.by_name("Livia").token)
+        assert (
+            client.put(
+                "/api/users/Stibe", headers=livia, json={"role": "bewohner"}
+            ).status_code
+            == 200
+        )
+        assert hub.users.by_name("Stibe").role == "bewohner"

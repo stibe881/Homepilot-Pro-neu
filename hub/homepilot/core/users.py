@@ -474,8 +474,9 @@ class UserRegistry:
         simple_rooms: list[str] | None = None,
         shared: bool | None = None,
         area_password: str | None = None,
+        role: str | None = None,
     ) -> User:
-        """Gast sperren/entsperren oder Bereiche ändern – Token bleibt gleich."""
+        """Gast sperren/entsperren, Rolle oder Bereiche ändern – Token bleibt."""
         user = self.by_name(name)
         if user is None:
             raise ConfigError(f"Unbekannter Benutzer: {name}")
@@ -483,6 +484,19 @@ class UserRegistry:
             raise ConfigError(
                 f"'{name}' steht in der config.yaml und muss dort geändert werden"
             )
+        if role is not None and role != user.role:
+            if role not in Role.ALL:
+                raise ConfigError(f"Unbekannte Rolle: {role}")
+            # Der letzte Besitzer bleibt Besitzer. Sonst gäbe es niemanden
+            # mehr, der Benutzer verwaltet oder die Konfiguration ändert -
+            # und zurück käme man nur noch über die config.yaml auf dem
+            # Rechner im Keller. Dieselbe Schranke wie beim Löschen.
+            if user.role == Role.OWNER and self._owner_count() <= 1:
+                raise ConfigError(
+                    "Der letzte Besitzer kann seine Rolle nicht abgeben - "
+                    "erst jemand anderen zum Besitzer machen."
+                )
+            user.role = role
         if enabled is not None:
             user.enabled = bool(enabled)
         if features is not None:

@@ -17,6 +17,7 @@ import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
 import { einladungFrist } from '../lib/einladung';
 import { gaesteansicht } from '../lib/gaestewlan';
+import { besitzerZahl, darfRolleAendern } from '../lib/rollenwahl';
 import { DoorPass } from '../components/DoorPass';
 import { Fehlschlag, Laedt } from '../components/Zustand';
 import { Colors, radius, space, type, useColors } from '../theme';
@@ -576,6 +577,63 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                     {ROLE_LABELS[detail.role] ?? detail.role}
                     {!detail.editable ? ' · aus config.yaml' : ''}
                   </Text>
+
+                  {/* Die Rolle ändern, ohne den Zugang neu auszustellen.
+                      Vorher stand sie beim Anlegen fest: Wer einen
+                      Mitbewohner versehentlich als Gast eingeladen hatte,
+                      musste ihn löschen und neu einladen - mit neuem
+                      Token auf jedem seiner Geräte. Die Schranken dazu
+                      stehen in lib/rollenwahl.ts und noch einmal im Hub. */}
+                  {(() => {
+                    const urteil = darfRolleAendern(
+                      detail,
+                      currentUser?.name,
+                      besitzerZahl(users ?? [])
+                    );
+                    return (
+                      <View style={styles.rotateBox}>
+                        <Text style={styles.formLabel}>Rolle</Text>
+                        <View style={styles.roleRow}>
+                          {Object.keys(ROLE_LABELS).map((role) => {
+                            const aktiv = detail.role === role;
+                            return (
+                              <Pressable
+                                key={role}
+                                onPress={
+                                  urteil.erlaubt && !aktiv
+                                    ? () => patchUser(detail.name, { role })
+                                    : undefined
+                                }
+                                accessibilityRole="radio"
+                                accessibilityState={{
+                                  selected: aktiv,
+                                  disabled: !urteil.erlaubt,
+                                }}
+                                accessibilityLabel={`${detail.name}: ${ROLE_LABELS[role]}`}
+                                style={[
+                                  styles.roleChip,
+                                  aktiv && styles.roleChipActive,
+                                  !urteil.erlaubt && !aktiv && { opacity: 0.4 },
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.roleChipText,
+                                    aktiv && styles.roleChipTextActive,
+                                  ]}
+                                >
+                                  {ROLE_LABELS[role]}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                        <Text style={styles.roleHint}>
+                          {urteil.grund ?? ROLE_HINTS[detail.role]}
+                        </Text>
+                      </View>
+                    );
+                  })()}
 
                   {detail.enabled === false ? (
                     <Text style={styles.disabledNote}>

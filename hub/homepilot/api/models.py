@@ -219,6 +219,9 @@ class UserUpdateRequest(BaseModel):
     # Passwort vor den persönlichen Bereichen; leerer Text nimmt es weg.
     # Nur setzbar, nie lesbar – zurück kommt bloss 'area_locked'.
     area_password: str | None = None
+    # Rolle: besitzer, bewohner oder gast. Nur der Besitzer darf das, und
+    # der letzte Besitzer kommt aus seiner Rolle nicht heraus.
+    role: str | None = None
 
 
 class AreaUnlockRequest(BaseModel):

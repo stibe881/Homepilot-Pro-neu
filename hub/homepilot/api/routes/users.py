@@ -168,10 +168,27 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     async def update_user(
         name: str, body: UserUpdateRequest, request: Request
     ) -> dict[str, Any]:
-        """Gast sperren/entsperren oder Bereiche ändern – das Token bleibt."""
+        """Rolle, Sperre oder Bereiche eines Benutzers ändern – das Token bleibt.
+
+        Die Rolle gehört hierher und nicht an den Benutzer selbst: Wer
+        seine eigene Rolle setzen dürfte, machte sich zum Besitzer. Nur
+        wer Benutzer verwalten darf, verteilt Rollen.
+        """
         user = require(request, Capability.MANAGE_USERS)
         if user.name == name and body.enabled is False:
             raise HTTPException(status_code=400, detail="Sich selbst kann man nicht sperren")
+        if user.name == name and body.role is not None and body.role != user.role:
+            # Man kann sich selbst zurückstufen, aber nicht aus Versehen:
+            # Der Weg dahin geht über jemand anderen, der zuerst Besitzer
+            # wird. Sonst steht man vor der eigenen Benutzerverwaltung und
+            # kommt nicht mehr hinein.
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Die eigene Rolle lässt sich hier nicht ändern - sonst "
+                    "sperrt man sich versehentlich selbst aus."
+                ),
+            )
         try:
             updated = hub.users.update(
                 name,
@@ -182,6 +199,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 simple_rooms=body.simple_rooms,
                 shared=body.shared,
                 area_password=body.area_password,
+                role=body.role,
             )
         except ValueError as err:
             # Zu kurzes Passwort - der Text steht in core/bereich.py.
