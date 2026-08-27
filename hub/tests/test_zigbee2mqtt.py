@@ -12,7 +12,6 @@ import pytest
 from homepilot.core.errors import ConfigError
 from homepilot.integrations import zigbee2mqtt as z
 
-
 # ── Kennungen ────────────────────────────────────────────────────────────
 
 
