@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 from . import (
     babysitter,
     batterie,
+    batterieprognose,
     energy,
     familie,
     gemeldet,
@@ -1141,6 +1142,22 @@ class Watchdog:
         """
         jetzt = time.time()
         rows = self.hub.data.get(batterie.STORE_KEY)
+
+        # Nebenher den Wochenstand jeder Batterie vermerken - daraus
+        # rechnet die App «reicht noch ~3 Monate» (batterieprognose.py).
+        # Ein Wert je Gerät und Woche; nur schreiben, wenn sich wirklich
+        # etwas ändert, sonst schriebe jede Wächter-Runde die Datei.
+        heute = datetime.now().date()
+        verlauf = self.hub.data.get(batterieprognose.STORE_KEY)
+        neu_verlauf = verlauf
+        for entity in entities:
+            stand = entity.state.get("battery")
+            if isinstance(stand, (int, float)) and 0 <= stand <= 100:
+                neu_verlauf = batterieprognose.aufnehmen(
+                    neu_verlauf, entity.id, float(stand), heute
+                )
+        if neu_verlauf != verlauf:
+            self.hub.data.set(batterieprognose.STORE_KEY, neu_verlauf)
 
         # Erst vergessen, was gewechselt wurde: Sonst bliebe eine alte
         # Zeile stehen und die nächste schwache Batterie desselben Geräts
