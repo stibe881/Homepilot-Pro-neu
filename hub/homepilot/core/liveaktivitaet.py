@@ -174,6 +174,26 @@ def wechsel(
     return neue, starten, beenden
 
 
+def abgeschaltet(prefs_rows: Any) -> set[str]:
+    """Wer die Live-Aktivität in seinem Profil abgeschaltet hat (rein, testbar).
+
+    Der Schalter liegt in den persönlichen Einstellungen der App
+    (user_prefs, Schlüssel `liveTuer`) - je Person, wie die
+    Benachrichtigungen. Fehlt der Schlüssel, gilt an: Wer die Funktion
+    eingerichtet hat, will sie, und Abschalten ist die Ausnahme.
+    """
+    aus = set()
+    for row in prefs_rows or []:
+        if not isinstance(row, dict):
+            continue
+        prefs = row.get("prefs")
+        if isinstance(prefs, dict) and prefs.get("liveTuer") is False:
+            name = str(row.get("user") or "")
+            if name:
+                aus.add(name)
+    return aus
+
+
 # ── Push-Inhalte (rein, testbar) ──────────────────────────────────────────
 
 
@@ -358,7 +378,15 @@ async def _runde(hub: Any, versand: ApnsVersand) -> None:
     if not rows:
         return
     benutzer = {str(row.get("user") or "") for row in rows if isinstance(row, dict)}
-    neue, starten, beenden = wechsel(rows, _weg_stand(hub, benutzer))
+    weg = _weg_stand(hub, benutzer)
+    # Wer den Schalter im Profil ausgestellt hat, gilt hier als zuhause:
+    # Es startet nichts Neues, und eine gerade laufende Karte wird im
+    # selben Zug beendet - der Schalter wirkt sofort, nicht erst beim
+    # nächsten Heimkommen.
+    for name in abgeschaltet(hub.data.get("user_prefs")):
+        if name in benutzer:
+            weg[name] = False
+    neue, starten, beenden = wechsel(rows, weg)
     if not starten and not beenden:
         return
     jetzt = time.time()

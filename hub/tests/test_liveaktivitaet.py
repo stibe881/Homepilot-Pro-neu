@@ -125,3 +125,30 @@ def test_apns_jwt_traegt_kennung_und_gueltige_signatur():
     key.public_key().verify(
         der, f"{kopf_roh}.{inhalt_roh}".encode(), ec.ECDSA(hashes.SHA256())
     )
+
+
+def test_der_profil_schalter_stoppt_und_beendet():
+    """Wer die Live-Aktivität im Profil abschaltet, gilt für die Karte
+    als zuhause: nichts Neues startet, und die laufende endet sofort -
+    nicht erst beim nächsten Heimkommen."""
+    from homepilot.core.liveaktivitaet import abgeschaltet
+
+    prefs = [
+        {"user": "Stibe", "prefs": {"liveTuer": False}},
+        {"user": "Bine", "prefs": {"liveTuer": True}},
+        {"user": "Tablet", "prefs": {}},
+        "kaputt",
+    ]
+    assert abgeschaltet(prefs) == {"Stibe"}
+    assert abgeschaltet([]) == set()
+
+    # Und in der Runde: weg, aber abgeschaltet -> die Karte endet.
+    rows = registrieren([], "Stibe", "token-a")
+    rows, starten, _ = wechsel(rows, {"Stibe": True})
+    rows = aktivitaet_merken(rows, "Stibe", "activity-1")
+    weg = {"Stibe": True}
+    for name in abgeschaltet(prefs):
+        weg[name] = False
+    rows, starten, beenden = wechsel(rows, weg)
+    assert starten == []
+    assert [r["activity_token"] for r in beenden] == ["activity-1"]

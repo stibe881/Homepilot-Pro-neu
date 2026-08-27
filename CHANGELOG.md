@@ -23,6 +23,12 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   einmalig einen APNs-Schlüssel aus dem Entwicklerkonto (Anleitung in
   deploy/portainer.md, Block `apns:` in der config.yaml). Ohne den
   Block bleibt alles aus.
+- **Ein Schalter im Profil** (Einstellungen → Konto, neben den
+  Benachrichtigungen): «Haustüre als Live-Aktivität» lässt sich je
+  Person ein- und ausschalten - auf allen eigenen iPhones zugleich, und
+  der Hub hält sich sofort daran: Abschalten beendet auch eine gerade
+  liegende Karte, nicht erst beim nächsten Heimkommen. Ist der Hub noch
+  nicht eingerichtet, sagt es die Karte dazu, statt still nichts zu tun.
 - Dazu gehört ein neuer nativer Baustein in der App (ActivityKit).
   Er wird erst mit dem nächsten TestFlight-Build wirksam; bis dahin
   ändert sich auf den Telefonen nichts, und alle bisherigen Updates
