@@ -98,6 +98,10 @@ class HubConfig:
     # Update aus der App: {webhook_url: "https://…"} – die Adresse, die
     # angestossen wird. Ohne Eintrag bleibt der Knopf aus.
     update: dict[str, Any] = field(default_factory=dict)
+    # Sprachausgabe der Durchsagen: {engine: piper, voice: "/config/de_DE-….onnx"}.
+    # Ohne Block spricht gTTS (braucht Internet). Piper spricht lokal -
+    # bessere Stimme, kein Netz; Details in core/say.py.
+    speech: dict[str, Any] = field(default_factory=dict)
     # Totmannschalter: {url: "https://hc-ping.com/…", minutes?: 5}. Der
     # Wächter meldet dorthin regelmässig «lebe noch»; bleibt das aus,
     # schlägt der Dienst (z.B. healthchecks.io) Alarm. Der Wächter selbst
@@ -286,6 +290,10 @@ def load_config(path: str | Path) -> HubConfig:
     if not isinstance(update_config, dict):
         raise ConfigError("'update' muss ein Mapping sein (webhook_url)")
 
+    speech_config = raw.get("speech") or {}
+    if not isinstance(speech_config, dict):
+        raise ConfigError("'speech' muss ein Mapping sein (engine, voice)")
+
     heartbeat_config = raw.get("heartbeat") or {}
     if not isinstance(heartbeat_config, dict):
         raise ConfigError("'heartbeat' muss ein Mapping sein (url, minutes)")
@@ -331,6 +339,7 @@ def load_config(path: str | Path) -> HubConfig:
         guest_wifi=guest_wifi,
         push=push_config,
         update=update_config,
+        speech=speech_config,
         heartbeat=heartbeat_config,
         apns=raw.get("apns") or {},
         web_root=str(web_root) if web_root else None,

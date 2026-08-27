@@ -251,7 +251,9 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             raise HTTPException(status_code=404, detail="Keine Durchsage")
         return Response(
             content=audio,
-            media_type="audio/mpeg",
+            # Piper liefert WAV, gTTS MP3 - die Boxen wollen den ehrlichen
+            # Typ, sonst raten sie (RIFF ist der WAV-Kopf).
+            media_type="audio/wav" if audio[:4] == b"RIFF" else "audio/mpeg",
             headers={"Cache-Control": "no-store"},
         )
 

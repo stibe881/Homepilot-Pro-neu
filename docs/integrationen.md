@@ -66,6 +66,11 @@ nichts.
 | **weather** | Wetterlage und Vorhersage (Open-Meteo) | nur Standort |
 | **meteoalarm** | Unwetterwarnungen (offizieller CAP-Feed) | nur Region |
 | **schulferien** | Schulferien und Feiertage LU als Sensor – «Wecker nur an Schultagen» | nur Kanton (openholidaysapi.org) |
+
+Durchsagen sprechen wahlweise **lokal mit Piper** statt über gTTS – bessere
+Stimme, kein Internet nötig: `speech: {engine: piper, voice: /config/….onnx}`
+in der config.yaml; das Stimmmodell gibt es frei bei rhasspy/piper. Fehlt
+Piper, fällt die Durchsage auf gTTS zurück, statt zu schweigen.
 | **life360** | Standort für Telefone **ohne** HomePilot | Life360-Konto, Zuordnung Name → Zone |
 
 ## Ohne Gerät – sie rechnen
