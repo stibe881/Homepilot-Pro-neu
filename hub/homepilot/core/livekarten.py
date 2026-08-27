@@ -335,6 +335,7 @@ def abgleich(
     benutzer: list[str],
     jetzt_s: float,
     update_abstand: float = UPDATE_ABSTAND,
+    abbestellt: dict[str, set[str]] | None = None,
 ) -> tuple[
     list[dict[str, Any]],
     list[dict[str, Any]],
@@ -355,9 +356,15 @@ def abgleich(
     for karte in gewuenscht:
         empfaenger = [karte["user"]] if karte.get("user") else benutzer
         ohne = set(karte.get("ohne") or [])
+        # «grill:pitboss.grill» gehört zur Kartenart «grill» - genau die
+        # steht in der Abbestell-Liste der Person.
+        gattung = str(karte["art"]).split(":", 1)[0]
         for name in empfaenger:
-            if name not in ohne:
-                soll[(name, karte["art"])] = karte
+            if name in ohne:
+                continue
+            if gattung in (abbestellt or {}).get(name, set()):
+                continue
+            soll[(name, karte["art"])] = karte
 
     alte = {
         (str(row.get("user")), str(row.get("art"))): row
@@ -497,7 +504,8 @@ async def _runde(hub: Any, versand: liveaktivitaet.ApnsVersand) -> None:
     if not start_rows:
         return
     jetzt = time.time()
-    gesperrt = liveaktivitaet.abgeschaltet(hub.data.get("user_prefs"))
+    prefs_rows = hub.data.get("user_prefs")
+    gesperrt = liveaktivitaet.abgeschaltet(prefs_rows)
     benutzer = sorted(
         {
             str(row.get("user") or "")
@@ -506,7 +514,11 @@ async def _runde(hub: Any, versand: liveaktivitaet.ApnsVersand) -> None:
         }
     )
     neue, starten, aktualisieren, beenden = abgleich(
-        hub.data.get(KARTEN_KEY), _gewuenscht(hub, jetzt), benutzer, jetzt
+        hub.data.get(KARTEN_KEY),
+        _gewuenscht(hub, jetzt),
+        benutzer,
+        jetzt,
+        abbestellt=liveaktivitaet.abbestellte(prefs_rows),
     )
     for auftrag in starten:
         tokens = [

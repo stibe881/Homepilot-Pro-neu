@@ -786,6 +786,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setKameraDynamisch,
     setTageszeit,
     setLiveTuer,
+    setLiveAus,
     setFavorites,
     setFavoriteOrder,
     setDurchsage,
@@ -1927,6 +1928,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               settings={settings}
               enabled={eigenePrefs.liveTuer !== false}
               onChange={setLiveTuer}
+              aus={eigenePrefs.liveAus ?? []}
+              onAus={setLiveAus}
             />
           ) : null}
           <PushPrefs settings={settings} />

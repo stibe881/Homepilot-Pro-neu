@@ -74,11 +74,15 @@ export interface UserPrefs {
    *  es Gewohnheit ist: Wer um sechs aufsteht, meint mit «Morgen» etwas
    *  anderes als wer um neun anfängt. */
   tageszeit?: boolean;
-  /** Die Haustür-Karte auf dem Sperrbildschirm, wenn man unterwegs ist
-   *  (Live-Aktivität). Fehlt der Wert, gilt an - abgeschaltet wird sie
-   *  je Person, wie die Benachrichtigungen. Den Schalter liest auch der
-   *  Hub (core/liveaktivitaet.py). */
+  /** Live-Aktivitäten auf dem Sperrbildschirm. Fehlt der Wert, gilt
+   *  an - abgeschaltet wird je Person, wie die Benachrichtigungen. Den
+   *  Schalter liest auch der Hub (core/liveaktivitaet.py). */
   liveTuer?: boolean;
+  /** Abbestellte Kartenarten («timer», «grill», «tuer», …) - die
+   *  Feinregelung unter dem grossen Schalter. Bewusst als Abbestellen:
+   *  Eine neue Kartenart kommt erst einmal an, statt unbemerkt zu
+   *  fehlen. Auch das setzt der Hub durch (core/livekarten.py). */
+  liveAus?: string[];
   /** Die eigenen Favoriten. Lange stand der Stern am Gerät selbst und
    *  galt damit für alle – aber griffbereit ist eine persönliche Frage:
    *  Was Stefan jeden Abend braucht, ist für Livia nur eine Kachel im
@@ -258,6 +262,11 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     [setzeEigen]
   );
 
+  const setLiveAus = useCallback(
+    (keys: string[]) => setzeEigen({ ...eigenJetzt.current, liveAus: keys }),
+    [setzeEigen]
+  );
+
   const setFavorites = useCallback(
     (ids: string[]) => setzeEigen({ ...eigenJetzt.current, favorites: ids }),
     [setzeEigen]
@@ -294,6 +303,7 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     setKameraDynamisch,
     setTageszeit,
     setLiveTuer,
+    setLiveAus,
     setFavorites,
     setFavoriteOrder,
     setDurchsage,

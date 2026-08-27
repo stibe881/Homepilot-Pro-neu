@@ -25,6 +25,13 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   Updates (etwa die Grill-Temperatur) sind auf eine je 45 Sekunden
   gedrosselt - Apple deckelt das Budget ohnehin. Der Schalter im
   Profil heisst jetzt «Live-Aktivitäten» und gilt für alle Karten.
+- **Jede Kartenart lässt sich einzeln abwählen.** Unter dem grossen
+  Schalter stehen die sieben Karten mit eigenen Schaltern - nach dem
+  Modell der Benachrichtigungen: abbestellen statt bestellen, damit
+  eine künftige neue Kartenart erst einmal ankommt, statt unbemerkt zu
+  fehlen. Gilt je Person auf allen ihren iPhones; der Hub setzt es
+  durch, und eine gerade liegende Karte der abbestellten Art endet in
+  derselben Runde.
 
 - **Wer das Haus verlässt, bekommt die Haustüre auf den
   Sperrbildschirm** - als Live-Aktivität: eine kleine Karte «Unterwegs -
