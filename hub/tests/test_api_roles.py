@@ -235,6 +235,41 @@ def test_snapshot_carries_capabilities():
             assert snapshot["user"]["capabilities"] == ["control"]
 
 
+def test_wer_sich_umbenennt_bleibt_angemeldet():
+    """Der Fall aus dem Betrieb: «Ich habe meinen Namen von Stefan in
+    stibe geändert – seitdem habe ich keinen Zugriff mehr.»
+
+    Die Sitzung merkt sich, zu wem ein Token gehört, und das war der Name.
+    Nach dem Umbenennen zeigte sie auf einen Benutzer, den es nicht mehr
+    gab: «Ungültiges Token» auf allen Geräten gleichzeitig - auch auf dem,
+    an dem gerade jemand den neuen Namen eingetippt hatte.
+    """
+    hub = Hub(
+        HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}], users=USERS)
+    )
+    with TestClient(create_app(hub)) as client:
+        angelegt = client.post(
+            "/api/users",
+            headers=auth("t-owner"),
+            json={"name": "Bine", "role": "bewohner"},
+        )
+        assert angelegt.status_code == 200
+        # Eine Sitzung wie nach der Anmeldung mit E-Mail und Passwort.
+        sitzung = auth(hub.sessions.create("Bine", "iPhone", email="bine@example.ch"))
+        assert client.get("/api/me", headers=sitzung).json()["name"] == "Bine"
+
+        umbenannt = client.put(
+            "/api/users/self", headers=sitzung, json={"name": "Sabine"}
+        )
+        assert umbenannt.status_code == 200
+
+        # Dieselbe Sitzung, neuer Name - kein Abmelden dazwischen.
+        weiter = client.get("/api/me", headers=sitzung)
+        assert weiter.status_code == 200
+        assert weiter.json()["name"] == "Sabine"
+        assert hub.sessions.user_for(sitzung["Authorization"].split()[1]) == "Sabine"
+
+
 def test_wer_sich_umbenennt_heisst_auch_in_der_verwaltung_so():
     """Der Profilname ist der Benutzername - eine Änderung im eigenen
     Profil steht sofort in der Benutzerverwaltung. Benutzer aus der

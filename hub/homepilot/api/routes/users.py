@@ -116,6 +116,13 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             return {"user": umbenannt.as_dict()}
         # Alles nachziehen, was nach Namen abgelegt ist - sonst gehen
         # Push-Nachrichten an einen Namen, den es nicht mehr gibt.
+        #
+        # Die Sitzungen zuerst: An ihnen hing der Zugang. Sie merken sich,
+        # zu wem ein Token gehört, und das war der Name. Nach einer
+        # Umbenennung zeigte jede Sitzung ins Leere - «Ungültiges Token»
+        # auf allen Geräten gleichzeitig, auch auf dem, an dem gerade
+        # jemand den neuen Namen eingetippt hatte.
+        hub.sessions.rename(alt, umbenannt.name)
         hub.push.umbenennen(alt, umbenannt.name)
         prefs = [
             {**entry, "user": umbenannt.name}
