@@ -24,6 +24,7 @@ weiter – das ist der Grund, warum Licht, Storen und Schlösser hier stehen.
 | **hue_sync** | Hue Play HDMI Sync Box | IP, Token (Knopf 3 s halten) |
 | **matter** | Matter-Geräte über den Controller-Dienst | Matter-Fabrik in `hub/matter/` |
 | **mqtt** | Sonoff und andere Tasmota-Geräte | Broker, Benutzer/Passwort |
+| **zigbee2mqtt** | Zigbee-Geräte über den eigenen Stick – Aqara, IKEA, Tuya-Zigbee | Broker, Benutzer/Passwort |
 | **overkiz** | Somfy TaHoma – Storen, Rollläden, Markisen | Gateway, Zugangsdaten |
 
 Zeigt eine Store einen Zustand, der nicht stimmt, sagt dieser Aufruf, was

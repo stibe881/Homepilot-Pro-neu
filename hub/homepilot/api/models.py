@@ -54,6 +54,11 @@ class LiveActivityTokenRequest(BaseModel):
 
     token: str
     label: str = ""
+    # 'tuer' = Haustür-Karte, 'haus' = die generische Karte (Timer,
+    # Geräte, Grill, …) - Apple stellt die Start-Tokens je Strukturtyp aus.
+    typ: str = "tuer"
+    # Beim Aktivitäts-Token: zu welcher Karte es gehört (livekarten.py).
+    art: str = ""
 
 
 class PushSnoozeRequest(BaseModel):

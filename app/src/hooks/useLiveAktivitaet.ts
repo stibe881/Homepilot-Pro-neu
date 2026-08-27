@@ -42,7 +42,7 @@ export function useLiveAktivitaet(settings: HubSettings, connected: boolean): vo
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const abos: any[] = [];
 
-    const melden = (pfad: string, token: string) => {
+    const melden = (pfad: string, daten: Record<string, string>) => {
       // Still: Ein fehlgeschlagenes Anmelden ist kein Anlass für eine
       // Einblendung - beim nächsten App-Start kommt der nächste Versuch.
       fetch(`${settings.url.replace(/\/+$/, '')}${pfad}`, {
@@ -51,7 +51,7 @@ export function useLiveAktivitaet(settings: HubSettings, connected: boolean): vo
           Authorization: `Bearer ${settings.token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ token, label: geraeteName() }),
+        body: JSON.stringify({ label: geraeteName(), ...daten }),
       }).catch(() => {});
     };
 
@@ -59,14 +59,22 @@ export function useLiveAktivitaet(settings: HubSettings, connected: boolean): vo
       .verfuegbar()
       .then((ja: boolean) => {
         if (!ja || weg) return;
+        // `typ` unterscheidet die beiden Kartenarten (Haustüre und die
+        // generische Karte) - Apple stellt die Start-Tokens je
+        // Strukturtyp aus. Bei den generischen kommt zum Aktivitäts-
+        // Token die `art` mit, damit der Hub die richtige Karte trifft.
         abos.push(
-          modul.addListener('onStartToken', ({ token }: { token: string }) =>
-            melden('/api/liveactivity/register', token)
+          modul.addListener(
+            'onStartToken',
+            ({ token, typ }: { token: string; typ?: string }) =>
+              melden('/api/liveactivity/register', { token, typ: typ ?? 'tuer' })
           )
         );
         abos.push(
-          modul.addListener('onActivityToken', ({ token }: { token: string }) =>
-            melden('/api/liveactivity/activity', token)
+          modul.addListener(
+            'onActivityToken',
+            ({ token, art }: { token: string; typ?: string; art?: string }) =>
+              melden('/api/liveactivity/activity', { token, art: art ?? '' })
           )
         );
         modul.beobachten();

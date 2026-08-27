@@ -23,25 +23,45 @@ public class LiveAktivitaetModule: Module {
       return ActivityAuthorizationInfo().areActivitiesEnabled
     }
 
-    // Beide Token-Quellen beobachten, solange die App lebt:
+    // Beide Token-Quellen beobachten, solange die App lebt - und das
+    // für beide Kartentypen (Apple stellt die Start-Tokens je
+    // Strukturtyp aus):
     //
-    // - Das push-to-start-Token des Geräts. Damit *startet* der Hub die
-    //   Karte. Apple stellt es aus und wechselt es gelegentlich - darum
-    //   ein Strom statt einer einmaligen Abfrage.
-    // - Je gestarteter Aktivität deren Update-Token. Damit *beendet*
-    //   der Hub die Karte beim Heimkommen.
+    // - Das push-to-start-Token des Geräts. Damit *startet* der Hub
+    //   eine Karte. Apple wechselt es gelegentlich - darum ein Strom
+    //   statt einer einmaligen Abfrage.
+    // - Je gestarteter Aktivität deren Update-Token. Damit aktualisiert
+    //   und beendet der Hub die Karte. Bei den generischen Karten kommt
+    //   die `art` mit, damit der Hub weiss, zu welcher sie gehört.
     Function("beobachten") {
       guard #available(iOS 17.2, *) else { return }
       Task {
         for await daten in Activity<TuerAktivitaetAttributes>.pushToStartTokenUpdates {
-          self.sendEvent("onStartToken", ["token": hex(daten)])
+          self.sendEvent("onStartToken", ["token": hex(daten), "typ": "tuer"])
         }
       }
       Task {
         for await aktivitaet in Activity<TuerAktivitaetAttributes>.activityUpdates {
           Task {
             for await daten in aktivitaet.pushTokenUpdates {
-              self.sendEvent("onActivityToken", ["token": hex(daten)])
+              self.sendEvent("onActivityToken", ["token": hex(daten), "typ": "tuer"])
+            }
+          }
+        }
+      }
+      Task {
+        for await daten in Activity<HausAktivitaetAttributes>.pushToStartTokenUpdates {
+          self.sendEvent("onStartToken", ["token": hex(daten), "typ": "haus"])
+        }
+      }
+      Task {
+        for await aktivitaet in Activity<HausAktivitaetAttributes>.activityUpdates {
+          Task {
+            for await daten in aktivitaet.pushTokenUpdates {
+              self.sendEvent(
+                "onActivityToken",
+                ["token": hex(daten), "typ": "haus", "art": aktivitaet.attributes.art]
+              )
             }
           }
         }
