@@ -9,6 +9,7 @@ import { Fehlschlag, Laedt } from '../components/Zustand';
 import { useColors } from '../theme';
 import { HubFehler, hubClient } from '../api/client';
 import { datumKurz, uhr } from '../lib/format';
+import { laufzeile } from '../lib/laufzeile';
 import { istPushKategorie } from '../lib/pushablaeufe';
 import { useOrte } from '../hooks/useOrte';
 import {
@@ -1249,6 +1250,25 @@ export function AutomationsScreen({
                         Nächste Ausführung: {zeitpunktLabel(automation.next_run)}
                       </Text>
                     ) : null}
+                    {/* Wann er zuletzt lief - und ob überhaupt. Das
+                        kostete bisher einen zweiten Aufruf je Ablauf, also
+                        fragte niemand, und ein stummer Ablauf blieb
+                        unbemerkt (siehe lib/laufzeile.ts). */}
+                    {(() => {
+                      const zeile = laufzeile(automation.last_run);
+                      return (
+                        <Text
+                          style={[
+                            styles.detail,
+                            zeile.ton === 'warn' && { color: colors.warn },
+                            zeile.ton === 'still' && { color: colors.inkFaint },
+                          ]}
+                          numberOfLines={2}
+                        >
+                          {zeile.text}
+                        </Text>
+                      );
+                    })()}
                     {automation.quiet_until &&
                     automation.quiet_until * 1000 > Date.now() ? (
                       <Text style={[styles.detail, { color: colors.warn }]}>

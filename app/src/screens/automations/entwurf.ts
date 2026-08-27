@@ -6,6 +6,7 @@
 
 import { Entity } from '../../api/types';
 import { datumUhr, dauerText } from '../../lib/format';
+import type { LaufEintrag } from '../../lib/laufzeile';
 import { befehlWort, nameVon } from '../../lib/ablaufsatz';
 import {
   SAMMEL_ANWESENHEIT,
@@ -50,6 +51,10 @@ export interface Automation {
   quiet_until?: number | null;
   /** Nächster geplanter Lauf (Unix-Sekunden), nur Zeit/Sonne - Punkt 161. */
   next_run?: number | null;
+  /** Der letzte Lauf. Fehlt er, wurde der Ablauf nie ausgelöst - und
+   *  das ist eine eigene Auskunft, nicht dasselbe wie «lief und tat
+   *  nichts». Siehe lib/laufzeile.ts. */
+  last_run?: LaufEintrag | null;
 }
 
 /** Je Auslöser: kam er überhaupt an? Antwort von /diagnose. */
