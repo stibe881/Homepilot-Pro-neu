@@ -375,8 +375,15 @@ if [ -n "$RUNNING_COMMIT" ] && [ "$RUNNING_COMMIT" = "$COMMIT" ]; then
 #
 # Deshalb veröffentlicht jeder Lauf jetzt auch über EAS Update - sofern
 # ein EXPO_TOKEN in der Zugangsdatei liegt. Erreicht werden nur Builds
-# mit derselben runtimeVersion (= App-Version): Wer einen älteren Build
-# installiert hat, braucht einmal TestFlight, danach greift OTA wieder.
+# mit derselben runtimeVersion: Wer einen älteren Build installiert hat,
+# braucht einmal TestFlight, danach greift OTA wieder.
+#
+# Die runtimeVersion hing dabei lange an der App-Version - und weil die
+# bei jeder Auslieferung hochgezählt gehört, kappte jede Auslieferung
+# genau diesen Kanal. Der Hub war neu, die Telefone nicht, und die
+# hochgezählte Nummer täuschte Aktualität vor. Sie steht deshalb jetzt
+# fest in app/app.json und ändert sich nur, wenn sich nativ etwas
+# ändert (siehe CLAUDE.md, «Ausliefern»).
 # Ein Fehlschlag hier lässt den Rest des Updates unberührt.
 EXPO_TOKEN="${EXPO_TOKEN:-}"; EXPO_TOKEN="${EXPO_TOKEN%$'\r'}"
 if [ -z "$EXPO_TOKEN" ]; then
@@ -616,9 +623,13 @@ if [ "${HOMEPILOT_IOS_BUILD:-0}" = "1" ]; then
     # Build mit unveränderter Version nimmt auch alle alten OTA-Fassungen
     # an (Punkt 12 der Werkbank-Liste; Aufräumen: deploy/ota-aufraeumen.sh).
     APP_VERSION=$(python3 -c "import json; print(json.load(open('$WORKDIR/app/app.json'))['expo']['version'])" 2>/dev/null || echo "?")
+    RUNTIME_VERSION=$(python3 -c "import json; print(json.load(open('$WORKDIR/app/app.json'))['expo'].get('runtimeVersion', '?'))" 2>/dev/null || echo "?")
     echo "→ Stosse den iOS-Build an (EAS baut, Apple bekommt ihn direkt) …"
     echo "  App-Version $APP_VERSION – bei einer Auslieferung mit Änderungen"
     echo "  gehört sie hochgezählt (app/app.json, siehe CLAUDE.md)."
+    echo "  Laufzeit $RUNTIME_VERSION – nur diese entscheidet, welche"
+    echo "  OTA-Fassungen auf diesen Build passen. Sie ändert sich nur bei"
+    echo "  nativen Änderungen."
     # EXPO_NO_CAPABILITY_SYNC=1: EAS möchte die Fähigkeiten der Bundle-ID
     # im Apple-Portal selbst nachziehen. Für App-Gruppen schickt es dabei
     # eine Anfrage, die Apple zurückweist («Unexpected or invalid value at

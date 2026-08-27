@@ -162,10 +162,26 @@ Zwei Dinge, die dabei überraschen:
 
 - Das Skript **frischt sich selbst auf** – Änderungen daran greifen erst
   beim übernächsten Lauf.
-- Die App-Version in `app/app.json` (derzeit `0.8.2`) bestimmt die
-  `runtimeVersion`. Solange sie sich nicht ändert, passt jede je
-  veröffentlichte OTA-Fassung auf jeden neuen Build. **Bei einer
-  Auslieferung die Version hochzählen.**
+- **`version` und `runtimeVersion` sind entkoppelt – und das ist der
+  wichtigste Punkt hier.** Früher stand in `app/app.json`
+  `runtimeVersion: {policy: appVersion}`: Die Laufzeit war die
+  App-Version. Zusammen mit der Regel «bei jeder Auslieferung die
+  Version hochzählen» hiess das, dass **jede** Auslieferung den
+  OTA-Kanal kappte – eine nachgeladene Fassung erreicht nur Builds mit
+  *derselben* `runtimeVersion`. Die Telefone blieben also nach jeder
+  Lieferung stehen, bis jemand einen TestFlight-Build installierte, und
+  die hochgezählte Versionsnummer täuschte dabei Aktualität vor. So
+  gingen mehrere Lieferungen am Haus vorbei, ohne dass es auffiel: Der
+  Hub war neu, die App nicht.
+- Deshalb steht dort jetzt eine feste `runtimeVersion` (`"2"`). Sie
+  gehört zur **nativen** Hülle, nicht zur Auslieferung:
+  - **`version` bei jeder Auslieferung hochzählen** – wie bisher. Sie
+    ist die Nummer, die im App Store und in TestFlight steht, und sie
+    beeinflusst OTA nicht mehr.
+  - **`runtimeVersion` nur hochzählen, wenn sich nativ etwas ändert** –
+    ein neues Expo-Modul, eine neue Berechtigung, ein neues
+    Zweitsymbol. Und dann gehört ein TestFlight-Build dazu, sonst
+    erreicht die neue OTA-Fassung niemanden.
 - Damit das auch ankommt, steht in `app/eas.json` `appVersionSource` auf
   `local`. Vorher stand dort `remote`: Dann führt EAS die Version auf
   seinem Server und ignoriert die `app.json` – die dortige `0.7.0` ging

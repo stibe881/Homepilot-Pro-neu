@@ -7,6 +7,20 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 ## 2026-08-27
 
+**Profil**
+
+- **Der Name im Profil ist jetzt der Benutzername.** Das Feld hiess
+  «Dein Name (für die Begrüssung)» und lebte nur im Gerät - die
+  Benutzerverwaltung zeigte weiter den alten Namen, und niemand
+  wusste, welcher gilt. Jetzt benennt «Speichern & verbinden» den
+  Hub-Benutzer um: Der neue Name steht sofort in der
+  Benutzerverwaltung, in der Anwesenheit und bei den Push-Empfängern;
+  Geräte-Anmeldungen, Abbestellungen und offene Erinnerungen ziehen
+  mit um. Token und Rechte bleiben unverändert. Wer in der config.yaml
+  steht, bekommt den Hinweis, den Namen dort zu ändern; Gäste benennt
+  weiterhin, wer sie eingeladen hat. Am Wandpanel bleibt das Feld die
+  Anrede des Panels («Küche») und fasst keinen Benutzer an.
+
 **Anwesenheit**
 
 - **«Jemand/niemand zuhause» zählt nur noch den Haushalt.** Der

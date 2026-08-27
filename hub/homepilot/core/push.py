@@ -529,6 +529,23 @@ class PushService:
         self._changed()
         return device
 
+    def umbenennen(self, alt: str, neu: str) -> int:
+        """Geräte-Anmeldungen auf einen neuen Benutzernamen umschreiben.
+
+        Beim Umbenennen eines Benutzers: Die Telefone sind nach Namen
+        angemeldet, und ohne das hier gingen Push-Nachrichten an den
+        alten Namen - also an niemanden - bis sich jede App das nächste
+        Mal von selbst neu anmeldet.
+        """
+        betroffen = [d for d in self._devices.values() if d.user == alt]
+        for device in betroffen:
+            device.user = neu
+        if betroffen:
+            self._changed()
+        if alt in self.muted:
+            self.muted[neu] = self.muted.pop(alt)
+        return len(betroffen)
+
     def unregister(self, token: str) -> bool:
         gone = self._devices.pop(token, None) is not None
         if gone:

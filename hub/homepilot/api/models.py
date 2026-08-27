@@ -199,6 +199,12 @@ class UserRequest(BaseModel):
     shared: bool = False
 
 
+class SelfNameRequest(BaseModel):
+    # Der neue Name des angemeldeten Benutzers - Profil und
+    # Benutzerverwaltung zeigen denselben.
+    name: str
+
+
 class UserUpdateRequest(BaseModel):
     enabled: bool | None = None
     features: list[str] | None = None

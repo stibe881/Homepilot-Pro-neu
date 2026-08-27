@@ -76,6 +76,27 @@ def nach_versand(rows: Any, ids: set[str]) -> list[dict[str, Any]]:
     return neue
 
 
+def benutzer_umbenennen(rows: Any, alt: str, neu: str) -> list[Any]:
+    """Einen Benutzernamen in offenen Erinnerungen nachziehen (rein, testbar).
+
+    In ``push_an`` (wer den Push bekommt) und ``quittiert`` (wer schon
+    für sich bestätigt hat) stehen Namen. Bleibt dort der alte, geht
+    der Push an niemanden, und die Erinnerung erscheint wieder, obwohl
+    man sie weggedrückt hat.
+    """
+    neue = []
+    for row in rows or []:
+        if isinstance(row, dict):
+            geaendert = dict(row)
+            for feld in ("push_an", "quittiert"):
+                namen = geaendert.get(feld)
+                if isinstance(namen, list) and alt in namen:
+                    geaendert[feld] = [neu if name == alt else name for name in namen]
+            row = geaendert
+        neue.append(row)
+    return neue
+
+
 async def push_loop(hub: Any) -> None:
     """Alle TAKT_SEKUNDEN: fällige Pushes verschicken und festhalten."""
     while True:

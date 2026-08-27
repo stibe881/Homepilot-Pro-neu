@@ -402,6 +402,47 @@ class UserRegistry:
             )
         return user
 
+    def rename(self, old: str, new: str) -> User:
+        """Einen Benutzer umbenennen - Token und Rechte bleiben.
+
+        Der Name im Profil ist derselbe wie in der Benutzerverwaltung;
+        zwei Namen für denselben Menschen («Begrüssung» hier, Benutzer
+        dort) haben nur Verwirrung gestiftet. Wer aus der config.yaml
+        stammt, wird dort umbenannt - die Datei ist die Wahrheit, und
+        eine App-Änderung, die der nächste Neustart zurückdreht, wäre
+        schlimmer als die Fehlermeldung.
+        """
+        gewuenscht = str(new or "").strip()
+        if not gewuenscht:
+            raise ConfigError("Der Name darf nicht leer sein")
+        user = self.by_name(old)
+        if user is None:
+            raise ConfigError(f"Unbekannter Benutzer: {old}")
+        if gewuenscht == user.name:
+            return user
+        if not user.editable:
+            raise ConfigError(
+                f"'{old}' steht in der config.yaml - dort den Namen ändern "
+                "und den Hub neu starten"
+            )
+        other = self.by_name(gewuenscht)
+        if other is not None:
+            raise ConfigError(f"Benutzer '{gewuenscht}' existiert bereits")
+        user.name = gewuenscht
+        self._changed()
+        # Die Anmelde-Adressen liegen getrennt und sind nach Namen
+        # abgelegt - ohne das hier zeigte die Adresse auf einen Namen,
+        # den es nicht mehr gibt, und die Anmeldung liefe ins Leere.
+        if user.email and self.on_email_change:
+            self.on_email_change(
+                [
+                    {"name": entry.name, "email": entry.email}
+                    for entry in self._users
+                    if entry.email
+                ]
+            )
+        return user
+
     def rotate_token(self, name: str) -> str:
         """Ein frisches Token ausstellen und das alte sofort ungültig machen.
 
