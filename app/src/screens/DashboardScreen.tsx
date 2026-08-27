@@ -31,6 +31,7 @@ import { OpenDoors } from '../components/OpenDoors';
 import { RunningAppliances } from '../components/RunningAppliances';
 import { SECTION_LABEL, Rail, Section } from '../components/Rail';
 import { AllOff } from '../components/AllOff';
+import { SorgenBlatt } from '../components/SorgenBlatt';
 import { DeviceHealth } from '../components/DeviceHealth';
 import { RoomTabs } from '../components/RoomTabs';
 import { RoomTile } from '../components/RoomTile';
@@ -69,6 +70,7 @@ import {
 } from '../lib/klingel';
 import { deviceKindLabel, musikboxenImRaum } from '../lib/geraeteart';
 import { rueckangebot } from '../lib/rueckgriff';
+import { sorgen, sorgenSatz } from '../lib/sorgen';
 import { szenenFuerKachel, szenenFuerRaum } from '../lib/szenen';
 import {
   GeraeteFilter,
@@ -289,6 +291,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Aufgeklappt kommt man nur über die Batteriewarnung hierher; sonst
   // entscheidet die Karte selbst (siehe DeviceHealth).
   const [batterienOffen, setBatterienOffen] = useState(false);
+  // Das Blatt «was ist gerade nicht in Ordnung» - offen oder zu.
+  const [sorgenOffen, setSorgenOffen] = useState(false);
   // Bis wann die persönlichen Bereiche offen sind (0 = zu). Nur im
   // Arbeitsspeicher: Nach einem Neustart der App wird wieder gefragt.
   const [riegelBis, setRiegelBis] = useState(0);
@@ -634,6 +638,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         if (zahl > 0) setNote(`${zahl} Gerät${zahl === 1 ? '' : 'e'} zurückgeschaltet`);
       });
   }, [griffUndo, hub]);
+
+  // Geräte, die nicht antworten oder verstummt sind – für die Zeile im
+  // Menü. Batterien und Wartungen bleiben aussen vor: Ob eine Warnung
+  // quittiert ist, weiss nur der Hub, und das Blatt fragt ihn selbst.
+  const stummeGeraete = useMemo(
+    () =>
+      sorgen({ entities, jetzt: Date.now() }).filter(
+        (sorge) => sorge.art === 'offline' || sorge.art === 'still'
+      ),
+    [entities]
+  );
 
   // Was die Einblendung unten anbietet: Abhaken, Griff oder die letzte
   // Schaltung – in dieser Reihenfolge, aus einem Grund (lib/rueckgriff.ts).
@@ -1655,7 +1670,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       // Einrichtung. Anlegen und Ändern bleibt ihm verwehrt, dafür sorgt
       // edit_automations in der Seite selbst (und der Hub noch einmal).
       const items: {
-        key: Section | 'search';
+        key: Section | 'search' | 'sorgen';
         icon: keyof typeof Ionicons.glyphMap;
         label: string;
         detail: string;
@@ -1711,6 +1726,22 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             ? 'Alle Geräte, auch ausgeblendete'
             : 'Alle Geräte mit Batterie und Verlauf',
           show: sieht('devices'),
+        },
+        {
+          key: 'sorgen',
+          icon: 'medkit-outline',
+          label: 'Nicht in Ordnung',
+          // Gezählt wird hier nur, was die Geräteliste allein weiss:
+          // wer nicht antwortet und wer verstummt ist. Schwache
+          // Batterien und Wartungen stehen im Blatt selbst - ob eine
+          // Warnung quittiert ist, weiss nur der Hub, und eine Zahl,
+          // die eine andere Liste ankündigt als die, die aufgeht, wäre
+          // schlimmer als keine.
+          detail: stummeGeraete.length
+            ? sorgenSatz(stummeGeraete)
+            : 'Batterien, Funkstille und Wartung auf einem Blatt',
+          show: sieht('devices'),
+          onPress: () => setSorgenOffen(true),
         },
         {
           key: 'speakers',
@@ -2761,6 +2792,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           onDismiss={error ? dismissError : () => setAbrufFehler(null)}
           bottomInset={insets.bottom}
         />
+        <SorgenBlatt
+          settings={settings}
+          entities={entities}
+          offen={sorgenOffen}
+          onClose={() => setSorgenOffen(false)}
+        />
+
         {/* Welches der drei möglichen «Zurück» gemeint ist, entscheidet
           lib/rueckgriff.ts – dort steht auch, warum in dieser Reihenfolge. */}
         <UndoToast
