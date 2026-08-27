@@ -140,10 +140,16 @@ export function DoorPass({
   return (
     <Card style={styles.card}>
       <Text style={styles.heading}>Einmal-Türöffnung</Text>
+      {/* «Der Empfänger drückt auf einen Knopf» ist keine Kleinigkeit,
+          sondern der Kern: Der Link öffnete früher schon beim Abrufen.
+          Wer ihn verschickte, löste ihn damit selbst ein - jeder
+          Messenger baut seine Vorschau, indem er die Adresse abruft.
+          Warum das jetzt anders ist, steht in hub/core/guestpass.py. */}
       <Text style={styles.hint}>
         Ein Link, der genau einmal öffnet und danach verfällt – für den
-        Paketboten, ohne Gastzugang. Nach einem Neustart des Hubs gilt
-        keiner mehr.
+        Paketboten, ohne Gastzugang. Der Empfänger drückt darauf einen
+        Knopf; das Verschicken allein öffnet nichts. Nach einem Neustart
+        des Hubs gilt keiner mehr.
       </Text>
 
       {doors.length > 1 ? (

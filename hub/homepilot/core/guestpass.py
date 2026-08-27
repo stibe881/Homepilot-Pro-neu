@@ -97,6 +97,60 @@ class Pass:
         return row
 
 
+def tuerennamen(entry: Pass, namen: dict[str, str]) -> list[str]:
+    """Die Türen des Links, in ihrer Reihenfolge (rein, testbar).
+
+    ``namen`` bildet Entitäts-Id auf Beschriftung ab. Was der Hub nicht
+    mehr kennt, fällt weg statt als Kennung dazustehen: Vor der Türe
+    hilft «nuki.haustuer» niemandem.
+    """
+    return [namen[eid] for eid, _ in entry.targets if eid in namen]
+
+
+def seite(titel: str, satz: str, knopf: str | None = None) -> str:
+    """Die Seite, die der Bote zu sehen bekommt (rein, testbar).
+
+    **Warum es diese Seite überhaupt gibt**, ist der eigentliche Punkt:
+    Der Link öffnete früher schon beim Abrufen, also per GET. Das klang
+    bequem («der Bote tippt die Adresse an») und war der Fehler. Wer
+    einen Link verschickt, dessen Vorschau bauen Messenger, Mailserver
+    und Virenscanner, indem sie ihn abrufen - mit einem ganz normalen
+    GET. Die Türen gingen damit auf, sobald der Link geteilt wurde, und
+    beim Empfänger stand nur noch «Dieser Link gilt nicht mehr».
+
+    Deshalb: GET zeigt bloss diese Seite, geöffnet wird per POST. Kein
+    Javascript, nur ein Formular - was hier klappen muss, klappt auch
+    im ältesten Browser eines fremden Telefons.
+    """
+    knopfteil = (
+        '<form method="post" action="">'
+        f'<button type="submit">{knopf}</button>'
+        "</form>"
+        if knopf
+        else ""
+    )
+    return (
+        "<!doctype html><html lang=de><meta charset=utf-8>"
+        '<meta name=viewport content="width=device-width,initial-scale=1">'
+        f"<title>{titel}</title>"
+        "<style>"
+        "*{box-sizing:border-box}"
+        "body{margin:0;min-height:100vh;display:flex;align-items:center;"
+        "justify-content:center;padding:24px;font:17px/1.5 -apple-system,"
+        "BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;"
+        "background:#12141a;color:#eef1f6}"
+        ".k{width:100%;max-width:26rem;text-align:center}"
+        "h1{font-size:1.5rem;margin:0 0 .6em}"
+        "p{color:#aab2c0;margin:0 0 1.6em}"
+        "button{width:100%;padding:20px;font-size:1.15rem;font-weight:600;"
+        "color:#fff;background:#5b6cff;border:0;border-radius:16px;"
+        "cursor:pointer}"
+        "button:active{opacity:.85}"
+        "</style>"
+        f"<div class=k><h1>{titel}</h1><p>{satz}</p>{knopfteil}</div>"
+    )
+
+
 class PassStore:
     def __init__(self) -> None:
         self._passes: dict[str, Pass] = {}
