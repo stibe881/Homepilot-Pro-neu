@@ -470,3 +470,45 @@ def test_ohne_personen_gibt_es_kein_alle():
 
     assert alle_zuhause([]) is False
     assert alle_zuhause(None) is False
+
+
+def test_zone_umziehen_nimmt_alles_mit():
+    """Wer sich umbenennt, soll nicht als zwei Menschen dastehen.
+
+    Der Fall aus dem Betrieb: «Stefan» und «Stibe» standen beide in der
+    Anwesenheitsliste – derselbe Mensch, einmal mit dem alten Stand vom
+    Vorabend, einmal mit dem aktuellen aus Life360.
+    """
+    from homepilot.core.presence import zone_umziehen
+
+    prefs = [
+        {"zone": "livia", "meldungen": {"arrive": True}},
+        {"zone": "stefan", "meldungen": {"leave": True}},
+    ]
+    umgezogen = zone_umziehen(prefs, "stefan", "stibe")
+    assert umgezogen == [
+        {"zone": "livia", "meldungen": {"arrive": True}},
+        {"zone": "stibe", "meldungen": {"leave": True}},
+    ]
+
+
+def test_zone_umziehen_laesst_dem_neuen_stand_den_vortritt():
+    """Hat die neue Zone schon etwas gemeldet, gilt das - nicht der alte
+    Stand von gestern. Die Listen stehen neueste zuerst, und für den
+    Verlauf zählt ohnehin nur der erste Eintrag je Person."""
+    from homepilot.core.presence import zone_umziehen
+
+    verlauf = [
+        {"person": "stibe", "state": "home", "at": 200.0},
+        {"person": "stefan", "state": "away", "at": 100.0},
+    ]
+    assert zone_umziehen(verlauf, "stefan", "stibe", "person") == [
+        {"person": "stibe", "state": "home", "at": 200.0},
+    ]
+
+
+def test_zone_umziehen_kommt_mit_leeren_und_krummen_listen_zurecht():
+    from homepilot.core.presence import zone_umziehen
+
+    assert zone_umziehen(None, "a", "b") == []
+    assert zone_umziehen(["quatsch", 7], "a", "b") == []

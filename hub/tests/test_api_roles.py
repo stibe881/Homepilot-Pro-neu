@@ -270,6 +270,43 @@ def test_wer_sich_umbenennt_bleibt_angemeldet():
         assert hub.sessions.user_for(sitzung["Authorization"].split()[1]) == "Sabine"
 
 
+def test_die_ortungszone_zieht_beim_umbenennen_mit():
+    """«Stefan» und «Stibe» standen als zwei Menschen in der Anwesenheit.
+
+    Die Zone heisst nach dem Vornamen und entsteht aus der Benutzerliste.
+    Nach einer Umbenennung gab es also eine neue - und die alte behielt,
+    was eingestellt war: welche Meldungen rausgehen, der letzte
+    Aufenthalt, seit wann er gilt.
+    """
+    from homepilot.core import personen
+
+    hub = Hub(
+        HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}], users=USERS)
+    )
+    with TestClient(create_app(hub)) as client:
+        angelegt = client.post(
+            "/api/users",
+            headers=auth("t-owner"),
+            json={"name": "Bine", "role": "bewohner"},
+        )
+        token = angelegt.json()["user"]["token"]
+        hub.data.set(
+            personen.LADE, [{"zone": "bine", "meldungen": {"arrive": True}}]
+        )
+        hub.data.set("presence_last", [{"zone": "bine", "state": "home"}])
+        hub.data.set(
+            "presence_history", [{"person": "bine", "state": "home", "at": 100.0}]
+        )
+
+        client.put("/api/users/self", headers=auth(token), json={"name": "Sabine"})
+
+        assert personen.fuer(hub.data.get(personen.LADE), "sabine")["arrive"] is True
+        assert [row["zone"] for row in hub.data.get("presence_last")] == ["sabine"]
+        assert [row["person"] for row in hub.data.get("presence_history")] == ["sabine"]
+        # Und unter dem alten Vornamen steht nichts mehr.
+        assert personen.fuer(hub.data.get(personen.LADE), "bine")["arrive"] is False
+
+
 def test_wer_sich_umbenennt_heisst_auch_in_der_verwaltung_so():
     """Der Profilname ist der Benutzername - eine Änderung im eigenen
     Profil steht sofort in der Benutzerverwaltung. Benutzer aus der

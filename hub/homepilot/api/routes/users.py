@@ -17,10 +17,12 @@ from fastapi import (
 )
 
 from ...core import bereich as bereich_module
+from ...core import personen, presence
 from ...core import throttle as throttle_module
 from ...core import users as users_module
 from ...core.errors import HomePilotError
 from ...core.users import GUEST_FEATURES, Capability, Role
+from ...integrations import geofence
 from ..context import ApiContext
 from ..models import AreaUnlockRequest, SelfNameRequest, UserRequest, UserUpdateRequest
 
@@ -139,6 +141,26 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 hub.data.get("family_reminders"), alt, umbenannt.name
             ),
         )
+        # Die Ortungszone heisst nach dem Vornamen und entsteht aus der
+        # Benutzerliste (integrations/geofence.py). Nach einer Umbenennung
+        # gibt es also eine neue - und die alte behielt, was eingestellt
+        # war: Meldungen, letzter Aufenthalt, seit wann. In der Übersicht
+        # standen danach zwei Zeilen für denselben Menschen, eine davon
+        # für immer auf ihrem alten Stand.
+        alte_zone = geofence.zonenkennung(alt)
+        neue_zone = geofence.zonenkennung(umbenannt.name)
+        if alte_zone and neue_zone and alte_zone != neue_zone:
+            for schluessel, feld in (
+                (personen.LADE, "zone"),
+                ("presence_last", "zone"),
+                ("presence_history", "person"),
+            ):
+                hub.data.set(
+                    schluessel,
+                    presence.zone_umziehen(
+                        hub.data.get(schluessel), alte_zone, neue_zone, feld
+                    ),
+                )
         log.info("Benutzer '%s' heisst jetzt '%s'", alt, umbenannt.name)
         return {"user": umbenannt.as_dict()}
 
