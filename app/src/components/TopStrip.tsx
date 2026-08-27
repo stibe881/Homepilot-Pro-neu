@@ -17,6 +17,7 @@ import {
 
 import { CommandData, Entity, KalenderEintrag } from '../api/types';
 import { hasOpenDoor, openContacts, wohnungstuerOffen } from './OpenDoors';
+import { OffenListe } from './OffenListe';
 import {
   EinkaufZeile,
   ALLGEMEIN,
@@ -492,17 +493,11 @@ export function TopStrip({
               {offen.length === 1 ? 'Ein Fenster/eine Tür offen' : `${offen.length} offen`}
             </Text>
             <ScrollView style={{ maxHeight: 360 }}>
-              {offen.map((entity) => (
-                <View key={entity.id} style={styles.lightRow}>
-                  <Ionicons name="alert-circle-outline" size={18} color={colors.warn} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.lightName}>{entity.name}</Text>
-                    {entity.room ? (
-                      <Text style={styles.lightRoom}>{entity.room}</Text>
-                    ) : null}
-                  </View>
-                </View>
-              ))}
+              {/* Mit «seit wann»: «Terrasse offen» beantwortet die Frage
+                  halb - seit zehn Minuten heisst, jemand ist gerade
+                  draussen, seit drei Stunden heisst, es hat es niemand
+                  gemerkt. */}
+              <OffenListe entities={entities} jetzt={Date.now()} />
             </ScrollView>
             <Pressable onPress={() => setOpenOpen(false)} style={styles.close}>
               <Text style={styles.closeText}>Schliessen</Text>

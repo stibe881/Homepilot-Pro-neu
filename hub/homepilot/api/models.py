@@ -45,6 +45,26 @@ class PushRegistration(BaseModel):
     label: str = ""
 
 
+class LiveActivityTokenRequest(BaseModel):
+    """Ein ActivityKit-Token vom iPhone - zum Starten oder Beenden.
+
+    Für den Start das «push-to-start»-Token des Geräts, fürs Beenden das
+    Token der laufenden Aktivität (core/liveaktivitaet.py).
+    """
+
+    token: str
+    label: str = ""
+
+
+class PushSnoozeRequest(BaseModel):
+    """Eine Meldung noch einmal, später – der Knopf in der Mitteilung."""
+
+    title: str
+    body: str = ""
+    category: str | None = None
+    minutes: int = 30
+
+
 class BabysitterRequest(BaseModel):
     """Den Babysitter-Modus ein- oder ausschalten."""
 
@@ -145,6 +165,14 @@ class GoodNightRequest(BaseModel):
     arm_alarm: bool = False
 
 
+class UndoRecordRequest(BaseModel):
+    """Den Rückweg zu einem grossen Griff hinterlegen – vor dem Schalten."""
+
+    title: str = "Griff"
+    entity_ids: list[str] = []
+    command: str = "turn_off"
+
+
 class VoucherRequest(BaseModel):
     """Ein WLAN-Gutschein fürs Captive Portal."""
 
@@ -199,6 +227,12 @@ class UserRequest(BaseModel):
     shared: bool = False
 
 
+class SelfNameRequest(BaseModel):
+    # Der neue Name des angemeldeten Benutzers - Profil und
+    # Benutzerverwaltung zeigen denselben.
+    name: str
+
+
 class UserUpdateRequest(BaseModel):
     enabled: bool | None = None
     features: list[str] | None = None
@@ -213,6 +247,9 @@ class UserUpdateRequest(BaseModel):
     # Passwort vor den persönlichen Bereichen; leerer Text nimmt es weg.
     # Nur setzbar, nie lesbar – zurück kommt bloss 'area_locked'.
     area_password: str | None = None
+    # Rolle: besitzer, bewohner oder gast. Nur der Besitzer darf das, und
+    # der letzte Besitzer kommt aus seiner Rolle nicht heraus.
+    role: str | None = None
 
 
 class AreaUnlockRequest(BaseModel):

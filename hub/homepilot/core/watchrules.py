@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 import shutil
+import time
 from typing import Any
 
 # Melder, bei denen «offen» Heizkosten bedeutet. Ein Bewegungsmelder, der
@@ -168,6 +169,23 @@ def open_contacts(entities: list[Any]) -> list[Any]:
         if is_contact and str(entity.state.get("state")) == "on":
             result.append(entity)
     return result
+
+
+def offen_satz(seit: float, jetzt: float) -> str:
+    """«Offen seit 14:05 – eine Stunde» (rein, testbar).
+
+    Die Uhrzeit steht vorne, weil sie nachprüfbar ist: Wer weiss, dass er
+    um 14:20 aufgemacht hat, erkennt an «seit 14:05» sofort einen
+    hängenden Sensor. Eine gerundete Dauer allein liesse ihn nur rätseln.
+    """
+    uhr = time.strftime("%H:%M", time.localtime(seit))
+    minuten = max(0, int((jetzt - seit) // 60))
+    if minuten < 60:
+        return f"Offen seit {uhr} – {minuten} Minuten"
+    stunden = minuten // 60
+    rest = minuten % 60
+    dauer = f"{stunden} Std." + (f" {rest} Min." if rest else "")
+    return f"Offen seit {uhr} – {dauer}"
 
 
 def leaks(entities: list[Any]) -> list[Any]:

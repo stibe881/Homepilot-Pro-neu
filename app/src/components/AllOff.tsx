@@ -46,6 +46,7 @@ export function AllOff({
   openSignal = 0,
   compact = false,
   ohneKnopf = false,
+  onRecordUndo,
 }: {
   entities: Entity[];
   /** Gesperrte Geräte – die tauchen hier gar nicht auf. */
@@ -67,6 +68,12 @@ export function AllOff({
    *  muss dann irgendwo aufgehen. Genau dafür bleibt diese Komponente
    *  stehen, nur ohne Anzeige. */
   ohneKnopf?: boolean;
+  /** Vor dem Schalten den Weg zurück beim Hub hinterlegen.
+   *
+   *  Erst danach gehen die Befehle raus: Der Hub rechnet den Rückweg aus
+   *  dem Stand *vor* dem Griff, und der ist eine Sekunde später weg –
+   *  dann wüsste niemand mehr, wie hell das Licht war. */
+  onRecordUndo?: (titel: string, entityIds: string[]) => Promise<void> | void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -86,11 +93,25 @@ export function AllOff({
     setOpen(true);
   };
 
-  const run = () => {
-    on
-      .filter((entity) => !skip.includes(entity.id))
-      .forEach((entity) => onCommand(entity.id, 'turn_off'));
+  const run = async () => {
+    const dran = on.filter((entity) => !skip.includes(entity.id));
     setOpen(false);
+    // Warten, bevor geschaltet wird: Wäre der Rückweg erst unterwegs,
+    // während die Lichter schon ausgehen, nähme er einen Stand auf, den
+    // es nicht mehr gibt. Scheitert er, wird trotzdem geschaltet – ein
+    // Griff, der wegen seines Rückwegs nicht stattfindet, wäre die
+    // schlechtere Antwort.
+    if (onRecordUndo) {
+      try {
+        await onRecordUndo(
+          'Alles aus',
+          dran.map((entity) => entity.id)
+        );
+      } catch {
+        // Der Client blendet den Grund selbst ein.
+      }
+    }
+    dran.forEach((entity) => onCommand(entity.id, 'turn_off'));
   };
 
   if (on.length === 0) return null;
@@ -158,7 +179,7 @@ export function AllOff({
               <Pressable onPress={() => setOpen(false)} style={styles.cancel}>
                 <Text style={styles.cancelText}>Abbrechen</Text>
               </Pressable>
-              <Pressable onPress={run} style={styles.confirm}>
+              <Pressable onPress={() => void run()} style={styles.confirm}>
                 <Text style={styles.confirmText}>
                   {on.length - skip.length} ausschalten
                 </Text>

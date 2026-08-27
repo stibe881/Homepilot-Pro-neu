@@ -82,21 +82,46 @@ def test_the_address_comes_from_the_proxy_header():
 
 
 def test_the_api_answers_429_after_too_many_wrong_tokens():
+    """Zehn *verschiedene* Tokens sind ein Rateversuch."""
     hub = Hub(make_config(token="geheim"))
     with TestClient(create_app(hub)) as client:
-        for _ in range(10):
+        for nummer in range(10):
             response = client.get(
-                "/api/entities", headers={"Authorization": "Bearer falsch"}
+                "/api/entities", headers={"Authorization": f"Bearer falsch{nummer}"}
             )
         assert response.status_code == 401
 
         # Der nächste Versuch läuft in die Sperre – auch der mit dem
         # richtigen Token, denn die Adresse ist jetzt draussen.
         response = client.get(
-            "/api/entities", headers={"Authorization": "Bearer falsch"}
+            "/api/entities", headers={"Authorization": "Bearer geheim"}
         )
         assert response.status_code == 429
         assert "Retry-After" in response.headers
+
+
+def test_the_same_dead_token_over_and_over_locks_nobody_out():
+    """Eine App, die von ihrer abgelaufenen Sitzung nichts weiss, rät nicht.
+
+    Der Fall aus dem Betrieb: Nach einer Umbenennung passte die Sitzung
+    nicht mehr. Die App fragte im Takt weiter, nach zehn Anfragen war die
+    Adresse gesperrt - und die Sperre gilt auch für die Anmeldemaske. Der
+    Besitzer sah nach dem ersten Anmeldeversuch «Zu viele Fehlversuche»
+    und kam nicht mehr in sein eigenes Haus.
+    """
+    hub = Hub(make_config(token="geheim"))
+    with TestClient(create_app(hub)) as client:
+        for _ in range(50):
+            response = client.get(
+                "/api/entities", headers={"Authorization": "Bearer tot"}
+            )
+            assert response.status_code == 401
+
+        # Und der Weg zurück steht weiterhin offen.
+        response = client.get(
+            "/api/entities", headers={"Authorization": "Bearer geheim"}
+        )
+        assert response.status_code == 200
 
 
 def test_a_valid_token_is_never_throttled():

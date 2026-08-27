@@ -308,3 +308,48 @@ sudo chmod +x /opt/homepilot/rebuild-hub.sh
 
 Danach einmal bauen – ab dann steht der Stand dort, und man sieht nach
 jedem Update, ob der Container wirklich der neue ist.
+
+## Haustür-Live-Aktivität (iPhone-Sperrbildschirm)
+
+Verlässt man das Haus, legt der Hub eine kleine Karte auf den
+Sperrbildschirm («Unterwegs – Haustüre im Schnellzugriff»); ein Tipp
+darauf führt in die App direkt zur Türe. Beim Heimkommen verschwindet
+sie von selbst.
+
+Starten kann so eine Karte nur Apple selbst («push-to-start», ab
+iOS 17.2) – deshalb braucht der Hub dafür einen eigenen Schlüssel aus
+dem Apple-Entwicklerkonto, zusätzlich zum normalen Push über Expo:
+
+1. Unter <https://developer.apple.com/account/resources/authkeys/list>
+   einen Schlüssel anlegen, **Apple Push Notifications service (APNs)**
+   ankreuzen, die `.p8`-Datei herunterladen (gibt es nur einmal!) und
+   die **Key ID** notieren. Die **Team ID** steht oben rechts im
+   Entwicklerkonto.
+
+2. Die Datei auf den Host legen:
+
+   ```bash
+   sudo cp AuthKey_ABC123.p8 /opt/homepilot/apns-key.p8
+   sudo chmod 600 /opt/homepilot/apns-key.p8
+   ```
+
+3. In der `config.yaml` den Block ergänzen (auf oberster Ebene, wie
+   `push:`):
+
+   ```yaml
+   apns:
+     key_file: /config/apns-key.p8
+     key_id: ABC123
+     team_id: DEF456
+     bundle_id: ch.stibe.homepilot
+   ```
+
+4. `docker restart homepilot-hub`. Ohne den Block (oder wenn etwas
+   fehlt) bleibt die Funktion einfach aus – der Hub sagt es beim Start
+   mit einer Zeile im Protokoll.
+
+Auf dem iPhone braucht es einen Build, der die Live-Aktivität enthält
+(TestFlight), iOS 17.2 oder neuer, und in den iOS-Einstellungen der App
+müssen Live-Aktivitäten erlaubt sein. Die App meldet die nötigen
+Apple-Tokens dann von selbst beim Hub an – zu sehen unter
+`/api/liveactivity`.

@@ -13,6 +13,7 @@ import { HubSettings } from './src/api/types';
 import { Auffangnetz } from './src/components/Auffangnetz';
 import { DashboardScreen } from './src/screens/DashboardScreen';
 import { kanaeleAnlegen } from './src/lib/kanaele';
+import { knoepfeAnmelden } from './src/lib/mitteilungsknoepfe';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { gueltig } from './src/lib/appsymbol';
 import { symbolWechseln } from './src/lib/symbolwechsel';
@@ -52,6 +53,15 @@ Notifications.setNotificationHandler({
  * Nebensache beim Start und darf die App nicht aufhalten.
  */
 void kanaeleAnlegen().catch(() => {});
+
+/**
+ * Die Knöpfe unter der Mitteilung anmelden («Später», «Erledigt»).
+ *
+ * Aus demselben Grund hier oben: Eine Nachricht, die vor der Anmeldung
+ * eintrifft, zeigt schlicht keine Knöpfe - ohne Fehlermeldung, und man
+ * sucht den Grund an der falschen Stelle.
+ */
+void knoepfeAnmelden().catch(() => {});
 
 /**
  * Die Hintergrund-Aufgabe der Ortung registrieren (Punkt 194).

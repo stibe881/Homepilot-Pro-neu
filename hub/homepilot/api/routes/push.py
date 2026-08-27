@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 from fastapi import (
@@ -19,13 +20,21 @@ from fastapi import (
 )
 
 from ...core import (
+    liveaktivitaet,
     notifyrules,
     push,
     snapshots,
+    spaeter,
 )
-from ...core.users import Capability
+from ...core.users import Capability, Role
 from ..context import ApiContext
-from ..models import NotifyRuleRequest, PushPrefsRequest, PushRegistration
+from ..models import (
+    LiveActivityTokenRequest,
+    NotifyRuleRequest,
+    PushPrefsRequest,
+    PushRegistration,
+    PushSnoozeRequest,
+)
 
 log = logging.getLogger(__name__)
 
@@ -209,6 +218,35 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         require(request, Capability.EDIT_CONFIG)
         return {"devices": [device.as_dict() for device in hub.push.devices]}
 
+    @app.post("/api/push/snooze")
+    async def snooze_push(body: PushSnoozeRequest, request: Request) -> dict[str, Any]:
+        """«Später erinnern» aus der Mitteilung heraus.
+
+        Der Knopf sitzt auf dem Sperrbildschirm; die App reicht ihn hierher
+        weiter, sobald sie davon erfährt. Zurückgelegt wird die Meldung
+        selbst - wer «in 30 Minuten» wählt, will genau diesen Satz wieder
+        lesen und keine Zusammenfassung dessen, was inzwischen gilt.
+
+        Nur an die Person, die geschoben hat: Dass Stefan die Meldung
+        wegschiebt, geht die anderen Telefone nichts an.
+        """
+        user = current_user(request)
+        hub.data.set(
+            spaeter.SCHLANGE,
+            spaeter.einreihen(
+                hub.data.get(spaeter.SCHLANGE),
+                {
+                    "title": body.title,
+                    "body": body.body,
+                    "category": body.category,
+                    "to": user.name,
+                },
+                time.time(),
+                body.minutes,
+            ),
+        )
+        return {"ok": True, "minutes": spaeter.minuten_pruefen(body.minutes)}
+
     @app.post("/api/push/unregister")
     async def unregister_push(body: PushRegistration, request: Request) -> dict[str, Any]:
         current_user(request)
@@ -245,4 +283,67 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "devices": len(tokens),
             "errors": problems,
         }
+
+    # ── Haustür-Live-Aktivität (core/liveaktivitaet.py) ────────────────────
+    #
+    # Das iPhone meldet hier seine ActivityKit-Tokens an; wann eine Karte
+    # startet oder endet, entscheidet der Takt im Hub. Kein Gast-Zugang:
+    # Die Karte führt zur Haustüre.
+
+    @app.get("/api/liveactivity")
+    async def liveactivity_status(request: Request) -> dict[str, Any]:
+        """Für die App: Ist der Hub dafür eingerichtet, und bin ich dabei?"""
+        user = current_user(request)
+        rows = hub.data.get(liveaktivitaet.DATA_KEY)
+        return {
+            "configured": liveaktivitaet.parse_apns(hub.config.apns) is not None,
+            "registered": sum(
+                1
+                for row in rows
+                if isinstance(row, dict) and row.get("user") == user.name
+            ),
+        }
+
+    @app.post("/api/liveactivity/register")
+    async def liveactivity_register(
+        body: LiveActivityTokenRequest, request: Request
+    ) -> dict[str, Any]:
+        user = current_user(request)
+        if user.role == Role.GUEST:
+            raise HTTPException(status_code=403, detail="Nicht für Gäste")
+        hub.data.set(
+            liveaktivitaet.DATA_KEY,
+            liveaktivitaet.registrieren(
+                hub.data.get(liveaktivitaet.DATA_KEY),
+                user.name,
+                body.token,
+                body.label,
+            ),
+        )
+        return {"ok": True}
+
+    @app.post("/api/liveactivity/unregister")
+    async def liveactivity_unregister(
+        body: LiveActivityTokenRequest, request: Request
+    ) -> dict[str, Any]:
+        current_user(request)
+        hub.data.set(
+            liveaktivitaet.DATA_KEY,
+            liveaktivitaet.abmelden(hub.data.get(liveaktivitaet.DATA_KEY), body.token),
+        )
+        return {"ok": True}
+
+    @app.post("/api/liveactivity/activity")
+    async def liveactivity_activity(
+        body: LiveActivityTokenRequest, request: Request
+    ) -> dict[str, Any]:
+        """Das Token der gerade laufenden Aktivität - fürs spätere Beenden."""
+        user = current_user(request)
+        hub.data.set(
+            liveaktivitaet.DATA_KEY,
+            liveaktivitaet.aktivitaet_merken(
+                hub.data.get(liveaktivitaet.DATA_KEY), user.name, body.token
+            ),
+        )
+        return {"ok": True}
 

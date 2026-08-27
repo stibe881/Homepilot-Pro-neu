@@ -37,6 +37,7 @@ from . import (
     personen,
     presence,
     shopping,
+    spaeter,
     trash,
     users,
 )
@@ -57,6 +58,7 @@ from .watchrules import (  # noqa: F401
     klingel_gesperrt,
     leaks,
     low_batteries,
+    offen_satz,
     open_contacts,
     watched_entities,
 )
@@ -292,6 +294,7 @@ class Watchdog:
         await self._check_family_cleanup()
         await self._check_meal_plan()
         await self._check_access()
+        await self._check_spaeter()
         down = down_integrations(entities)
 
         # Strikes hochzählen bzw. zurücksetzen.
@@ -949,6 +952,28 @@ class Watchdog:
                 energy.record_hour(self.hub.data.get("energy_hours"), day, hour, kwh),
             )
 
+    def _offen_seit(self, entity: Any, jetzt: float) -> float:
+        """Seit wann steht dieser Kontakt offen?
+
+        Erst das Protokoll fragen: Es weiss, wann die Türe aufgegangen
+        ist, und es überlebt einen Neustart. Nur wenn dort nichts steht -
+        ein Gerät, das schon offen war, bevor der Hub das erste Mal lief -
+        bleibt die eigene Zählung.
+
+        Hier stand vorher nur die eigene Zählung, und die begann in der
+        Runde, in der der Wächter den Kontakt zum ersten Mal offen sah.
+        Ging eine Türe zwischen zwei Runden auf, zu und wieder auf, lief
+        die Uhr von der ersten Öffnung weiter - die Nachricht kam dann
+        lange vor der Stunde.
+        """
+        aus_protokoll = self.hub.eventlog.offen_seit(entity.id, str(entity.kind))
+        if aus_protokoll is not None:
+            # Und die eigene Zählung nachziehen, damit beide dasselbe
+            # sagen, solange die Türe offen bleibt.
+            self._open_since[entity.id] = aus_protokoll
+            return aus_protokoll
+        return self._open_since.setdefault(entity.id, jetzt)
+
     async def _check_open(self, entities: list[Any]) -> None:
         """Fenster, das seit Stunden offen steht.
 
@@ -960,17 +985,19 @@ class Watchdog:
         offen = {entity.id for entity in open_contacts(entities)}
         reminder = self.rules["open"]["params"]["hours"] * 3600
         for entity in open_contacts(entities):
-            since = self._open_since.setdefault(entity.id, now)
+            since = self._offen_seit(entity, now)
             if entity.id in self._reported_open:
                 continue
             if now - since >= reminder:
                 self._reported_open.add(entity.id)
-                hours = round((now - since) / 3600)
                 await self._notify(
                     f"{entity.label} steht offen",
-                    # «Seit 1 Stunden» stand da, seit es die Meldung gibt.
-                    f"Seit {hours} {'Stunde' if hours == 1 else 'Stunden'} – im "
-                    "Winter geht so die Heizung zum Fenster hinaus.",
+                    # Die Uhrzeit statt einer gerundeten Dauer: «Seit 1
+                    # Stunde» ist nicht nachprüfbar, «seit 14:05» schon -
+                    # und wer weiss, dass er um 14:20 aufgemacht hat,
+                    # erkennt daran sofort einen hängenden Sensor.
+                    f"{offen_satz(since, now)} – im Winter geht so die "
+                    "Heizung zum Fenster hinaus.",
                     "open",
                 )
         # Geschlossene wieder scharf stellen für die nächste Öffnung.
@@ -1073,6 +1100,29 @@ class Watchdog:
             "notified", gemeldet.merke(rows, marke, jetzt or time.time())
         )
         return True
+
+    async def _check_spaeter(self) -> None:
+        """Weggeschobene Meldungen, deren Zeit um ist (core/spaeter.py).
+
+        Wer auf «Später» tippt, will genau diesen Satz wiedersehen -
+        deshalb wird er unverändert noch einmal geschickt und nicht neu
+        gebildet. Ob die Regel dazu inzwischen abgeschaltet wurde, prüft
+        `_notify` wie bei jeder anderen Meldung auch.
+        """
+        rows = self.hub.data.get(spaeter.SCHLANGE)
+        if not rows:
+            return
+        dran, rest = spaeter.faellig(rows, time.time())
+        if not dran:
+            return
+        self.hub.data.set(spaeter.SCHLANGE, rest)
+        for eintrag in dran:
+            await self._notify(
+                str(eintrag.get("title") or ""),
+                str(eintrag.get("body") or ""),
+                category=str(eintrag.get("category") or "outage"),
+                to=(str(eintrag.get("to")) if eintrag.get("to") else None),
+            )
 
     async def _notify(
         self,

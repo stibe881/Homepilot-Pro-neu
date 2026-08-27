@@ -36,13 +36,15 @@ import { RoomTabs } from '../components/RoomTabs';
 import { RoomTile } from '../components/RoomTile';
 import { SceneRow } from '../components/SceneRow';
 import { GlobalSearch } from '../components/GlobalSearch';
+import { LiveTuerSchalter } from '../components/LiveTuerSchalter';
 import { PushPrefs } from '../components/PushPrefs';
 import { ActivityCard, SidePanel } from '../components/SidePanel';
 import { Bestaetigung, Toast, UndoToast } from '../components/Toast';
 import { TopStrip } from '../components/TopStrip';
 import { useHub } from '../hooks/useHub';
-import { Tap, useNotificationTap } from '../hooks/useNotificationTap';
+import { Knopfdruck, Tap, useNotificationTap } from '../hooks/useNotificationTap';
 import { usePrefs } from '../hooks/usePrefs';
+import { useLiveAktivitaet } from '../hooks/useLiveAktivitaet';
 import { usePushRegistration } from '../hooks/usePushRegistration';
 import { breakpoints, Colors, radius, space, type, useColors } from '../theme';
 import { KAMERA_MINDEST, kachelBreite, spalten } from '../lib/raster';
@@ -55,7 +57,7 @@ import {
   shopCategory,
 } from '../lib/einkauf';
 import { datumUhr, uhr } from '../lib/format';
-import { Erinnerung, anzuzeigende, naechsteAt, quittiertVon } from '../lib/erinnerungen';
+import { Erinnerung, anzuzeigende, bestaetigung, naechsteAt, quittiertVon } from '../lib/erinnerungen';
 import {
   AUTO_SCHLIESSEN_SEKUNDEN,
   KlingelAktion,
@@ -66,6 +68,7 @@ import {
   restSekunden,
 } from '../lib/klingel';
 import { deviceKindLabel, musikboxenImRaum } from '../lib/geraeteart';
+import { rueckangebot } from '../lib/rueckgriff';
 import { szenenFuerKachel, szenenFuerRaum } from '../lib/szenen';
 import {
   GeraeteFilter,
@@ -373,6 +376,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   einkaufRef.current = einkauf;
   // Was gerade abgehakt wurde, für einen Moment aufgehoben.
   const [einkaufUndo, setEinkaufUndo] = useState<{ id: string; text: string } | null>(null);
+  // Der letzte grosse Griff («Alles aus»), solange er sich zurücknehmen
+  // lässt. Die Kennung gehört dem Hub: Er hat den Stand von vorher
+  // aufgenommen, die App kennt nur den Zettel dazu.
+  const [griffUndo, setGriffUndo] = useState<{ id: string; count: number } | null>(null);
   const [laeden, setLaeden] = useState<Shop[]>([]);
   // Schon einmal eingekaufte Artikel – die Vervollständigung im Fenster
   // der Kopfzeile lebt davon. Kommt aus dem Hub, nicht vom Gerät: Was
@@ -436,6 +443,22 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // beim Hub, damit das Vollbild auch dann sofort und dauerhaft weg ist,
   // wenn der Name des Benutzers gerade (noch) nicht bekannt ist.
   const [selbstQuittiert, setSelbstQuittiert] = useState<string[]>([]);
+  // Der Rückhalt gilt der jetzigen Ausgabe, nicht der Erinnerung an
+  // sich: Eine wiederkehrende behält ihre id, wenn sie auf den
+  // nächsten Termin weitergestellt wird - bliebe die id hier stehen,
+  // wäre die nächste Ausgabe auf diesem Gerät für immer stumm.
+  useEffect(() => {
+    setSelbstQuittiert((ids) =>
+      ids.filter((id) => {
+        const eintrag = erinnerungen.find((zeile) => zeile.id === id);
+        if (!eintrag || eintrag.done) return false;
+        const at = Number(eintrag.at);
+        // Noch fällig: Rückhalt behalten - vielleicht hat der Hub das
+        // Quittieren (noch) nicht gespeichert.
+        return !(Number.isFinite(at) && at > Date.now());
+      })
+    );
+  }, [erinnerungen]);
   const faelligeErinnerungen = useMemo(
     () =>
       anzuzeigende(erinnerungen, jetztErinnerung, user?.name).filter(
@@ -448,19 +471,20 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       // Sofort aus dem Bild, dann zum Hub: Wer bestätigt, will das
       // Vollbild los sein - nicht auf die Antwort warten. Scheitert der
       // Abruf, holt der Rückfalltakt die Erinnerung zurück, und man
-      // sieht, dass sie noch offen ist.
+      // sieht, dass sie noch offen ist. Wiederkehrende werden dabei
+      // nicht erledigt, sondern auf den nächsten Termin weitergestellt.
+      const eintrag = erinnerungen.find((zeile) => zeile.id === id);
+      const patch = eintrag ? bestaetigung(eintrag, Date.now()) : { done: true };
       setErinnerungen((liste) =>
-        liste.map((eintrag) =>
-          eintrag.id === id ? { ...eintrag, done: true } : eintrag
-        )
+        liste.map((zeile) => (zeile.id === id ? { ...zeile, ...patch } : zeile))
       );
       hub
-        .put(`/api/family/reminders/${encodeURIComponent(id)}`, { done: true }, {
+        .put(`/api/family/reminders/${encodeURIComponent(id)}`, patch, {
           fallback: null,
         })
         .catch(() => {});
     },
-    [hub]
+    [hub, erinnerungen]
   );
   const quittiereErinnerung = useCallback(
     (id: string) => {
@@ -569,6 +593,60 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       )
       .finally(ladeEinkauf);
   }, [einkaufUndo, hub, ladeEinkauf]);
+
+  /**
+   * Den Rückweg zu einem grossen Griff beim Hub hinterlegen.
+   *
+   * Der einzelne Befehl hat sein Zurück in useHub; bei zwanzig Geräten
+   * auf einmal hilft das nicht. Der Hub rechnet aus dem Stand von vorher
+   * aus, was zurückzuschalten wäre – und lässt Geräte weg, an denen der
+   * Griff nichts geändert hat (hub/core/rueckgriff.py).
+   */
+  const merkeGriff = useCallback(
+    async (titel: string, entityIds: string[]) => {
+      setGriffUndo(null);
+      if (entityIds.length === 0) return;
+      const antwort = await hub.post<{ undo: { id: string } | null }>(
+        '/api/undo',
+        { title: titel, entity_ids: entityIds },
+        { fallback: { undo: null }, still: true }
+      );
+      // Gezählt wird, was der Griff schaltet, nicht was sich davon
+      // zurückholen lässt: Der Satz auf der Einblendung berichtet, was
+      // gerade passiert ist. Dass ein Saugroboter nicht mit zurückkommt,
+      // steht in hub/core/szenenrueckweg.py (OHNE_RUECKWEG).
+      if (antwort.undo) setGriffUndo({ id: antwort.undo.id, count: entityIds.length });
+    },
+    [hub]
+  );
+
+  /** Den letzten grossen Griff zurücknehmen. */
+  const nimmGriffZurueck = useCallback(() => {
+    const zurueck = griffUndo;
+    if (!zurueck) return;
+    setGriffUndo(null);
+    hub
+      .post<{ restored?: string[] }>(`/api/undo/${zurueck.id}/run`, undefined, {
+        fallback: {},
+      })
+      .then((antwort) => {
+        const zahl = antwort.restored?.length ?? 0;
+        if (zahl > 0) setNote(`${zahl} Gerät${zahl === 1 ? '' : 'e'} zurückgeschaltet`);
+      });
+  }, [griffUndo, hub]);
+
+  // Was die Einblendung unten anbietet: Abhaken, Griff oder die letzte
+  // Schaltung – in dieser Reihenfolge, aus einem Grund (lib/rueckgriff.ts).
+  const rueckAngebot = useMemo(
+    () =>
+      rueckangebot({
+        fehler: !!(error || abrufFehler),
+        einkauf: einkaufUndo ? { name: mengeUndName(einkaufUndo.text).name } : null,
+        griff: griffUndo,
+        befehl: undo,
+      }),
+    [error, abrufFehler, einkaufUndo, griffUndo, undo]
+  );
 
   /** Einen Artikel auf die Liste setzen – aus dem Fenster der Kopfzeile.
    *
@@ -680,6 +758,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setUngezaehlt,
     setSeenChanges,
     setKameraDynamisch,
+    setLiveTuer,
     setFavorites,
     setFavoriteOrder,
     setDurchsage,
@@ -689,6 +768,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setWidgetButtons,
     setWidgetDirect,
   } = usePrefs(settings, status === 'connected');
+
+  // Die Haustür-Karte für unterwegs - tut nur auf einem iPhone mit dem
+  // passenden Build etwas (hooks/useLiveAktivitaet.ts). Hängt am
+  // Profil-Schalter: aus heisst, dieses Gerät meldet gar keine Tokens an.
+  useLiveAktivitaet(
+    settings,
+    status === 'connected' && eigenePrefs.liveTuer !== false
+  );
 
   // Einmalige Übernahme dessen, was vorher im Gerät und beim Benutzer
   // lag. Erst nach der ersten Antwort des Hubs - sonst sähe die
@@ -755,7 +842,35 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     }
     if (tap.type === 'alarm') setSection('alarm');
   }, []);
-  useNotificationTap(onNotificationTap);
+  // «Später» und «Erledigt» aus der Mitteilung heraus. Beides läuft ohne
+  // die App zu öffnen; sie erfährt davon, sobald sie das nächste Mal
+  // läuft, und reicht es an den Hub weiter (lib/mitteilungsknoepfe.ts).
+  const onKnopf = useCallback(
+    (druck: Knopfdruck) => {
+      if (druck.handlung === 'spaeter') {
+        hub
+          .post('/api/push/snooze', {
+            title: druck.title,
+            body: druck.body,
+            category: druck.category,
+            minutes: 30,
+          }, { still: true })
+          .then(() => setNote('Erinnerung in 30 Minuten'))
+          .catch(() => {});
+        return;
+      }
+      // «Erledigt» gibt es bisher für die Batteriewarnung: Sie quittiert
+      // das Gerät, damit sie nicht jede Woche wiederkommt.
+      if (druck.entityId) {
+        hub
+          .post(`/api/batteries/${encodeURIComponent(druck.entityId)}/ack`, {}, { still: true })
+          .then(() => setNote('Quittiert'))
+          .catch(() => {});
+      }
+    },
+    [hub, setNote]
+  );
+  useNotificationTap(onNotificationTap, onKnopf);
 
   // Zurück zur Startseite, wenn drei Minuten niemand tippt. Am
   // Gemeinschaftsgerät genauso wie am Wandpanel - und dabei fällt der
@@ -1746,6 +1861,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           {istBesitzer ? (
             <TuerRueckfrage enabled={prefs.doorConfirm} onChange={setDoorConfirm} />
           ) : null}
+          {/* Nur für Menschen mit eigenem iPhone - am Wandpanel und für
+              Gäste hätte die Karte keinen Ort. */}
+          {!user?.shared && user?.role !== 'gast' ? (
+            <LiveTuerSchalter
+              settings={settings}
+              enabled={eigenePrefs.liveTuer !== false}
+              onChange={setLiveTuer}
+            />
+          ) : null}
           <PushPrefs settings={settings} />
         </View>
       );
@@ -2001,6 +2125,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 entities={entities}
                 locked={locked}
                 onCommand={guardedCommand}
+                onRecordUndo={merkeGriff}
                 openSignal={allOffSignal}
                 ohneKnopf
               />
@@ -2269,6 +2394,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   entities={inRoom}
                   locked={locked}
                   onCommand={guardedCommand}
+                  onRecordUndo={merkeGriff}
                   compact
                 />
                 {inRoom.some(
@@ -2635,27 +2761,30 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           onDismiss={error ? dismissError : () => setAbrufFehler(null)}
           bottomInset={insets.bottom}
         />
-        {/* Nur wenn nichts schiefging – ein fehlgeschlagener Befehl hat nichts
-          hinterlassen, was man zurücknehmen müsste.
-
-          Das Abhaken im Laden hat Vorrang vor einer Schaltung: Es ist die
-          jüngere Handlung, und es ist die, bei der man danebentippt. */}
+        {/* Welches der drei möglichen «Zurück» gemeint ist, entscheidet
+          lib/rueckgriff.ts – dort steht auch, warum in dieser Reihenfolge. */}
         <UndoToast
-          what={
-            error || abrufFehler
-              ? null
-              : einkaufUndo
-                ? { name: mengeUndName(einkaufUndo.text).name, label: 'abgehakt' }
-                : undo
+          what={rueckAngebot.what}
+          onUndo={
+            rueckAngebot.quelle === 'einkauf'
+              ? nimmAbhakenZurueck
+              : rueckAngebot.quelle === 'griff'
+                ? nimmGriffZurueck
+                : undoLast
           }
-          onUndo={einkaufUndo ? nimmAbhakenZurueck : undoLast}
-          onDismiss={einkaufUndo ? () => setEinkaufUndo(null) : dismissUndo}
+          onDismiss={
+            rueckAngebot.quelle === 'einkauf'
+              ? () => setEinkaufUndo(null)
+              : rueckAngebot.quelle === 'griff'
+                ? () => setGriffUndo(null)
+                : dismissUndo
+          }
           bottomInset={insets.bottom}
         />
         {/* Gelungenes tritt hinter beides zurück: Wer gerade einen Fehler
           liest, braucht nicht noch ein Häkchen daneben. */}
         <Bestaetigung
-          text={error || abrufFehler || undo || einkaufUndo ? null : note}
+          text={error || abrufFehler || rueckAngebot.what ? null : note}
           onDismiss={() => setNote(null)}
           bottomInset={insets.bottom}
         />

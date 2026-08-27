@@ -63,7 +63,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from . import astro, babysitter, feiertage, kamera, personenbild
+from . import astro, babysitter, feiertage, kamera, personenbild, wirkung
 from . import light as licht
 from . import push as push_service
 from .source import as_source, automation_source
@@ -252,6 +252,12 @@ class Automation:
 
 # So viele Läufe merkt sich der Hub – genug, um einen Abend nachzuvollziehen.
 RUN_LIMIT = 100
+
+#: So lange nach einem Lauf wird nachgesehen, ob er gewirkt hat. Die
+#: Geräte melden ihren neuen Zustand über ihren eigenen Weg zurück -
+#: sofort danach steht dort noch der alte, und jeder Lauf sähe
+#: wirkungslos aus.
+WIRKUNG_NACH = 6.0
 
 # Wo die unterbrochenen Wartezeiten liegen, und wie viele höchstens.
 PENDING_KEY = "automation_pending"
@@ -621,6 +627,7 @@ def describe_trigger_health(
     gefeuert: float | None,
     gemeldet: float | None,
     jetzt: float,
+    erreichbar: bool | None = None,
 ) -> dict[str, Any]:
     """Warum ein Auslöser schweigt, in einem Satz (rein, testbar).
 
@@ -659,11 +666,25 @@ def describe_trigger_health(
     entity_id = str(trigger.get("entity_id") or "")
     ziel = trigger.get("to")
     if gemeldet is None:
-        hinweis = (
-            f"«{entity_id}» hat sich noch nie gemeldet, seit der Hub läuft. "
-            "Stimmt die Kennung, und ist das Gerät erreichbar?"
-        )
-        ok = False
+        if erreichbar:
+            # Die Entität gibt es, sie ist erreichbar - sie hatte nur
+            # noch nichts zu melden. Das ist bei manchen der Normalfall:
+            # «Jemand zuhause» meldet nur echte Wechsel, und solange seit
+            # dem Hub-Start niemand ging oder kam, herrscht zu Recht
+            # Stille. Daraus «Gerät kaputt?» zu machen, schickte die
+            # Leute auf eine Fehlersuche ohne Fehler.
+            hinweis = (
+                f"«{entity_id}» ist da und steht auf «{wert}» - seit dem "
+                "Hub-Start gab es nur noch keinen Wechsel. Der Auslöser "
+                "feuert beim nächsten."
+            )
+            ok = True
+        else:
+            hinweis = (
+                f"«{entity_id}» hat sich noch nie gemeldet, seit der Hub läuft. "
+                "Stimmt die Kennung, und ist das Gerät erreichbar?"
+            )
+            ok = False
     elif gefeuert is None:
         hinweis = (
             f"«{entity_id}» meldet sich, aber nie mit dem gesuchten Wert. "
@@ -1430,6 +1451,10 @@ class AutomationEngine:
                     self._gefeuert.get((automation.id, index)),
                     self._gemeldet.get((automation.id, index)),
                     jetzt,
+                    # Ob die Entität existiert und erreichbar ist,
+                    # unterscheidet «kaputt» von «hatte nur nichts zu
+                    # melden» - siehe describe_trigger_health.
+                    erreichbar=entity is not None and entity.available,
                 )
             )
         return {
@@ -1824,13 +1849,15 @@ class AutomationEngine:
 
         # Auch der nicht ausgeführte Lauf wird protokolliert – mit dem
         # Grund. Genau danach sucht man, wenn ein Ablauf schweigt.
-        self._note(
+        eintrag = self._note(
             automation,
             executed=executed,
             error=error,
             skipped=[] if executed else failed,
             steps=spur,
         )
+        if executed and error is None:
+            self._wirkung_planen(eintrag, actions)
         if executed:
             await self.hub.bus.publish(
                 "automation_run",
@@ -1842,6 +1869,54 @@ class AutomationEngine:
                 },
             )
 
+    def _wirkung_planen(
+        self, eintrag: dict[str, Any], actions: list[dict[str, Any]]
+    ) -> None:
+        """Ein paar Sekunden später nachsehen, ob der Lauf gewirkt hat.
+
+        «Ausgeführt» heisst bisher nur: abgeschickt. Ein Funkbefehl, der
+        nicht ankommt, sieht im Protokoll genauso aus wie einer, der das
+        Licht einschaltet – und man sucht dann am falschen Ende.
+
+        Warum nicht sofort: Die Geräte melden ihren neuen Zustand über
+        ihren eigenen Weg zurück (Funk, Bridge, Cloud). Direkt nach dem
+        Befehl steht dort noch der alte, und jeder Lauf sähe wirkungslos
+        aus. Was sich nicht vorhersagen lässt, wird gar nicht erst
+        geprüft (core/wirkung.py).
+        """
+        punkte = wirkung.pruefpunkte(actions)
+        if not punkte or self._stopping:
+            return
+
+        async def nachsehen() -> None:
+            await asyncio.sleep(WIRKUNG_NACH)
+            stand = {
+                entity.id: dict(entity.state) for entity in self.hub.registry.all()
+            }
+            ergebnis = wirkung.abgleich(punkte, stand)
+            spruch = wirkung.urteil(ergebnis)
+            if spruch is None:
+                return
+            eintrag["effect"] = {
+                "urteil": spruch,
+                "geprueft": len(ergebnis["ok"]) + len(ergebnis["fehlt"]),
+                # Die Namen und nicht die Kennungen: Der Satz steht in der
+                # App neben dem Lauf, und dort liest ihn ein Mensch.
+                "nicht": [
+                    entity.label
+                    for entity in (
+                        self.hub.registry.get(entity_id)
+                        for entity_id in ergebnis["fehlt"]
+                    )
+                    if entity is not None
+                ],
+            }
+            self._verlauf_sichern()
+
+        task = asyncio.create_task(nachsehen())
+        self._run_tasks.add(task)
+        task.add_done_callback(self._run_tasks.discard)
+
     def _note(
         self,
         automation: Automation,
@@ -1850,25 +1925,33 @@ class AutomationEngine:
         error: str | None,
         skipped: list[str],
         steps: list[dict[str, Any]] | None = None,
-    ) -> None:
-        self.runs.insert(
-            0,
-            {
-                "automation_id": automation.id,
-                "alias": automation.alias,
-                "at": time.time(),
-                "executed": executed,
-                "error": error,
-                "skipped": skipped,
-                # Die Schritt-Spur (Punkt 160). Leer bei übersprungenen
-                # Läufen - dort ist «skipped» die Auskunft.
-                "steps": steps or [],
-            },
-        )
+    ) -> dict[str, Any]:
+        """Den Lauf ins Protokoll – und den Eintrag zurückgeben.
+
+        Zurück kommt er, weil die Nachschau ihn ein paar Sekunden später
+        ergänzt (``_wirkung_planen``): Ob der Befehl auch angekommen ist,
+        weiss man erst dann.
+        """
+        eintrag: dict[str, Any] = {
+            "automation_id": automation.id,
+            "alias": automation.alias,
+            "at": time.time(),
+            "executed": executed,
+            "error": error,
+            "skipped": skipped,
+            # Die Schritt-Spur (Punkt 160). Leer bei übersprungenen
+            # Läufen - dort ist «skipped» die Auskunft.
+            "steps": steps or [],
+        }
+        self.runs.insert(0, eintrag)
         del self.runs[RUN_LIMIT:]
         # Auch auf die Platte: Nach einem Neustart ist sonst genau die
         # Spur weg, der man nachgeht - «heute Nacht ging das Licht an, und
         # jetzt weiss niemand, warum».
+        self._verlauf_sichern()
+        return eintrag
+
+    def _verlauf_sichern(self) -> None:
         try:
             self.hub.data.set("automation_runs", self.runs)
         except Exception:

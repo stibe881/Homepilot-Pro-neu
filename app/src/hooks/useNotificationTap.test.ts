@@ -1,43 +1,58 @@
 /**
- * Was aus einer angetippten Push-Nachricht ausgepackt wird.
- *
- * Der Weg ist kurz, aber niemand sieht ihn: Der Hub legt der Nachricht
- * etwas bei, das Telefon reicht es durch, und erst am anderen Ende
- * entscheidet sich, ob die App zur Kamera springt oder zu den Batterien.
- * Geht dabei ein Feld verloren, öffnet sich schlicht die Startseite –
- * und niemand weiss, warum.
+ * Was aus einer Mitteilung zurückkommt: ein Sprung oder ein Knopf.
  */
-import { tapFromResponse } from './useNotificationTap';
+import { knopfAusResponse, tapFromResponse } from './useNotificationTap';
 
-const antwort = (data: unknown) => ({
-  notification: { request: { content: { data } } },
+const antwort = (actionIdentifier: string, content: Record<string, unknown>) => ({
+  actionIdentifier,
+  notification: { request: { content } },
 });
 
-describe('tapFromResponse', () => {
-  it('packt die Batteriewarnung aus', () => {
+describe('knopfAusResponse', () => {
+  it('erkennt «Später» samt dem, was in der Meldung stand', () => {
     expect(
-      tapFromResponse(antwort({ type: 'battery', entity_id: 'hm.rauchmelder' }))
-    ).toEqual({ camera: undefined, entityId: 'hm.rauchmelder', type: 'battery' });
-  });
-
-  it('packt die Kamera einer Alarmmeldung aus', () => {
-    expect(tapFromResponse(antwort({ camera: 'unifi.flur', type: 'alarm' }))).toEqual({
-      camera: 'unifi.flur',
+      knopfAusResponse(
+        antwort('spaeter30', {
+          title: 'Fenster offen',
+          body: 'seit 2 Std',
+          data: { category: 'open' },
+        })
+      )
+    ).toEqual({
+      handlung: 'spaeter',
+      title: 'Fenster offen',
+      body: 'seit 2 Std',
+      category: 'open',
       entityId: undefined,
-      type: 'alarm',
     });
   });
 
-  it('gibt nichts zurück, wo nichts beiliegt', () => {
-    // Dann öffnet sich die App auf der Startseite – das ist richtig so,
-    // solange es nichts Besseres zu tun gibt.
-    expect(tapFromResponse(antwort({}))).toBeNull();
-    expect(tapFromResponse(antwort(undefined))).toBeNull();
-    expect(tapFromResponse(antwort('kein Wörterbuch'))).toBeNull();
-    expect(tapFromResponse(undefined)).toBeNull();
+  it('erkennt «Erledigt» samt betroffenem Gerät', () => {
+    const druck = knopfAusResponse(
+      antwort('erledigt', {
+        title: 'Batterie schwach: Rauchmelder Flur',
+        body: '',
+        data: { entity_id: 'hm.rauchmelder', category: 'battery' },
+      })
+    );
+    expect(druck?.handlung).toBe('erledigt');
+    expect(druck?.entityId).toBe('hm.rauchmelder');
   });
 
-  it('lässt sich von falschen Feldtypen nicht aus der Ruhe bringen', () => {
-    expect(tapFromResponse(antwort({ camera: 42, entity_id: null, type: 7 }))).toBeNull();
+  it('lässt das gewöhnliche Antippen dem Sprung', () => {
+    // Sonst öffnete «auf die Meldung tippen» keine Kamera mehr.
+    const roh = antwort('expo.modules.notifications.actions.DEFAULT', {
+      title: 'Bewegung',
+      data: { camera: 'ring.haustuere' },
+    });
+    expect(knopfAusResponse(roh)).toBeNull();
+    expect(tapFromResponse(roh)?.camera).toBe('ring.haustuere');
+  });
+
+  it('kommt mit einer Meldung ohne Titel nicht durcheinander', () => {
+    // Ohne Titel liesse sich nichts zurücklegen - der Titel ist der
+    // Schlüssel der Warteschlange im Hub.
+    expect(knopfAusResponse(antwort('spaeter30', { body: 'nur Text' }))).toBeNull();
+    expect(knopfAusResponse(undefined)).toBeNull();
   });
 });

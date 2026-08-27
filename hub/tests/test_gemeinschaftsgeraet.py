@@ -160,11 +160,17 @@ def test_mit_gesetzter_pin_entschaerft_auch_das_wandtablet():
 
 
 def test_der_riegel_vor_den_persoenlichen_bereichen():
-    eintrag = bereich.make_entry("1234")
-    assert bereich.matches(eintrag, "1234")
-    assert not bereich.matches(eintrag, "1235")
+    eintrag = bereich.make_entry("Kaffee!23")
+    assert bereich.matches(eintrag, "Kaffee!23")
+    assert not bereich.matches(eintrag, "Kaffee!24")
     # Der Wert selbst steht nirgends.
-    assert "1234" not in str(eintrag)
+    #
+    # Das Passwort trägt Zeichen, die in Salz und Hashwert nicht
+    # vorkommen können - beide sind hexadezimal. Mit «1234» fand sich die
+    # Zeichenfolge rund einmal unter tausend Läufen zufällig darin, und
+    # der Test schlug fehl, ohne dass etwas kaputt war (nachgemessen: 206
+    # Treffer auf 200000 Läufe).
+    assert "Kaffee!23" not in str(eintrag)
 
 
 def test_das_passwort_wird_nie_zurueckgegeben():

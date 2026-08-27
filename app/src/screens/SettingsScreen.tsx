@@ -108,14 +108,70 @@ export function SettingsScreen({
   // im Gerät steckt. Ohne Angabe steht deshalb «Willkommen zuhause».
   const nameFeld = (
     <Field
-      label={panel ? 'Anrede auf diesem Panel' : 'Dein Name (für die Begrüssung)'}
+      label={panel ? 'Anrede auf diesem Panel' : 'Dein Name'}
       value={name}
       onChange={setName}
       placeholder={
-        panel ? 'z.B. Küche – ohne Angabe: «Willkommen zuhause»' : 'optional'
+        panel ? 'z.B. Küche – ohne Angabe: «Willkommen zuhause»' : user?.name ?? 'optional'
       }
     />
   );
+
+  // Der Name im Profil IST der Benutzername. Vorher hiess das Feld
+  // «für die Begrüssung» und lebte nur im Gerät - die Benutzerverwaltung
+  // zeigte weiter den alten Namen, und niemand wusste, welcher gilt.
+  // Ob umbenannt werden muss, entscheidet das Speichern; hier steht,
+  // was dabei schiefging (Name vergeben, Benutzer aus der config.yaml).
+  const [nameFehler, setNameFehler] = useState<string | null>(null);
+  const darfUmbenennen = !!user && !panel && !user.shared && user.role !== 'gast';
+
+  /** Speichern - und wenn der Name neu ist, zuerst den Hub-Benutzer
+   *  umbenennen. Erst wenn das gelungen ist, wird lokal gespeichert:
+   *  Ein Gerät, das «Stefano» grüsst, während der Hub «Stefan» führt,
+   *  wäre genau die Verwirrung, die dieses Feld beseitigen soll. */
+  const speichern = async () => {
+    const gewuenscht = name.trim();
+    if (darfUmbenennen && gewuenscht && user && gewuenscht !== user.name) {
+      try {
+        const antwort = await fetch(`${url.trim().replace(/\/+$/, '')}/api/users/self`, {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${token.trim()}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ name: gewuenscht }),
+        });
+        if (!antwort.ok) {
+          const detail = await antwort
+            .json()
+            .then((d) => String(d?.detail ?? ''))
+            .catch(() => '');
+          setNameFehler(detail || `Umbenennen fehlgeschlagen (${antwort.status})`);
+          return;
+        }
+      } catch {
+        setNameFehler('Der Hub ist gerade nicht erreichbar - Name unverändert.');
+        return;
+      }
+    }
+    setNameFehler(null);
+    onSave({
+      url: url.trim().replace(/\/+$/, ''),
+      token: token.trim(),
+      name: gewuenscht,
+      theme,
+      panel,
+      appSymbol,
+      // Was sonst noch im Gerät steht, bleibt erhalten: Wer die
+      // Adresse ändert, will nicht seine ausgeblendeten Geräte
+      // verlieren - und schon gar nicht die Sperren, die bisher
+      // hier fehlten und bei jedem Speichern still verschwanden.
+      hidden: initial?.hidden,
+      locked: initial?.locked,
+      order: initial?.order,
+      favorites: initial?.favorites,
+    });
+  };
 
   const profil = user ? (
     <Card style={styles.card}>
@@ -123,6 +179,16 @@ export function SettingsScreen({
       <Text style={styles.account}>
         Angemeldet als {user.name} · {user.role}
       </Text>
+      {darfUmbenennen ? (
+        <>
+          {nameFeld}
+          <Text style={styles.sharedNote}>
+            Das ist dein Benutzername - er gilt überall: in der
+            Benutzerverwaltung, in der Anwesenheit und als Push-Empfänger.
+            Übernommen wird er mit «Speichern & verbinden» unten.
+          </Text>
+        </>
+      ) : null}
       {/* Am Wandtablet gibt es kein Abmelden. Wer es antippt, sperrt
           das ganze Haus aus sich selbst aus - die Anmeldedaten des
           Geräts hat niemand in der Tasche, und bis jemand mit einem
@@ -307,7 +373,9 @@ export function SettingsScreen({
         </View>
       </Pressable>
 
-      {nameFeld}
+      {/* Nicht doppelt: Für Personen steht das Feld im Profil - hier
+          bleibt es fürs Panel (Anrede) und für die Ersteinrichtung. */}
+      {darfUmbenennen ? null : nameFeld}
     </Card>
   );
 
@@ -454,26 +522,12 @@ export function SettingsScreen({
         secure
       />
 
+      {nameFehler ? (
+        <Text style={{ color: colors.danger, fontSize: 13 }}>{nameFehler}</Text>
+      ) : null}
       <Pressable
         style={({ pressed }) => [styles.save, pressed && { opacity: 0.8 }]}
-        onPress={() =>
-          onSave({
-            url: url.trim().replace(/\/+$/, ''),
-            token: token.trim(),
-            name: name.trim(),
-            theme,
-            panel,
-            appSymbol,
-            // Was sonst noch im Gerät steht, bleibt erhalten: Wer die
-            // Adresse ändert, will nicht seine ausgeblendeten Geräte
-            // verlieren - und schon gar nicht die Sperren, die bisher
-            // hier fehlten und bei jedem Speichern still verschwanden.
-            hidden: initial?.hidden,
-            locked: initial?.locked,
-            order: initial?.order,
-            favorites: initial?.favorites,
-          })
-        }
+        onPress={speichern}
       >
         <Text style={styles.saveText}>Speichern & verbinden</Text>
       </Pressable>

@@ -33,6 +33,9 @@ overkiz = ["pyoverkiz>=1.13,<2.0"]
 pitboss = ["pytboss>=2026.8"]
 # Durchsagen: Text zu Sprache über gTTS (braucht Internet zur Laufzeit).
 speech = ["gTTS>=2.5"]
+# Haustür-Live-Aktivität: direkter APNs-Versand (HTTP/2 + ES256-Signatur).
+# Nur dafür - der übrige Push läuft über Expo mit aiohttp.
+apns = ["httpx[http2]>=0.27", "cryptography>=42"]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",

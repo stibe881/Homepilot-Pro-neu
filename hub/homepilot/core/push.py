@@ -103,6 +103,44 @@ def push_fehlertext(status: int, body: str) -> str:
     )
 
 
+# ── Knöpfe in der Mitteilung ───────────────────────────────────────────────
+#
+# Eine Meldung ohne Handgriff ist eine Meldung, die man wegwischt: «Fenster
+# offen» um halb elf, App öffnen, Raum suchen, Storen zu - vier Griffe für
+# eine Bewegung. iOS und Android können Knöpfe direkt in der Mitteilung
+# anbieten; welche das sind, sagt eine Kennung («categoryId»), die die App
+# vorher angemeldet hat (app/src/lib/mitteilungsknoepfe.ts).
+#
+# Bewusst nur zwei Handgriffe, und beide harmlos: «später erinnern» und
+# «erledigt». Was Schaden anrichten kann - aufschliessen, entschärfen -
+# gehört nicht auf einen Sperrbildschirm, den jeder sieht, der das Telefon
+# in die Hand nimmt.
+
+#: Erinnert später noch einmal an dieselbe Meldung.
+KNOEPFE_SPAETER = "spaeter"
+#: Erinnert später und lässt sich abhaken (Batterie, Wartung).
+KNOEPFE_ERLEDIGT = "erledigt"
+
+_KNOEPFE: dict[str, str] = {
+    "open": KNOEPFE_SPAETER,
+    "appliance": KNOEPFE_SPAETER,
+    "shopping": KNOEPFE_SPAETER,
+    "medication": KNOEPFE_SPAETER,
+    "battery": KNOEPFE_ERLEDIGT,
+    "maintenance": KNOEPFE_ERLEDIGT,
+}
+
+
+def knoepfe(category: str | None) -> str | None:
+    """Welche Knöpfe unter diese Meldung gehören (rein, testbar).
+
+    Nichts für alles, was keinen sinnvollen Handgriff hat - beim Alarm
+    wäre «später erinnern» die falsche Auskunft, und entschärfen darf man
+    hier ohnehin nicht.
+    """
+    return _KNOEPFE.get(str(category or ""))
+
+
 def dringlichkeit(category: str | None) -> dict[str, Any]:
     """Die Zustellfelder für eine Kategorie (rein, testbar).
 
@@ -529,6 +567,23 @@ class PushService:
         self._changed()
         return device
 
+    def umbenennen(self, alt: str, neu: str) -> int:
+        """Geräte-Anmeldungen auf einen neuen Benutzernamen umschreiben.
+
+        Beim Umbenennen eines Benutzers: Die Telefone sind nach Namen
+        angemeldet, und ohne das hier gingen Push-Nachrichten an den
+        alten Namen - also an niemanden - bis sich jede App das nächste
+        Mal von selbst neu anmeldet.
+        """
+        betroffen = [d for d in self._devices.values() if d.user == alt]
+        for device in betroffen:
+            device.user = neu
+        if betroffen:
+            self._changed()
+        if alt in self.muted:
+            self.muted[neu] = self.muted.pop(alt)
+        return len(betroffen)
+
     def unregister(self, token: str) -> bool:
         gone = self._devices.pop(token, None) is not None
         if gone:
@@ -594,6 +649,7 @@ class PushService:
             return PushResult()
         valid = [token for token in tokens if is_expo_token(token)]
         stufe = dringlichkeit(category)
+        kategorie_knoepfe = knoepfe(category)
         messages = [
             {
                 "to": token,
@@ -602,6 +658,10 @@ class PushService:
                 "sound": "default",
                 "data": data or {},
                 **stufe,
+                # Die Knöpfe hängen an der Art der Meldung, nicht an ihrem
+                # Text - deshalb reicht die Kennung; die Beschriftungen
+                # kennt die App (core/push.py: knoepfe).
+                **({"categoryId": kategorie_knoepfe} if kategorie_knoepfe else {}),
                 **({"richContent": {"image": image}} if image else {}),
             }
             for token in valid

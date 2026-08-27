@@ -7,6 +7,86 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 ## 2026-08-27
 
+**iPhone**
+
+- **Wer das Haus verlässt, bekommt die Haustüre auf den
+  Sperrbildschirm** - als Live-Aktivität: eine kleine Karte «Unterwegs -
+  Haustüre im Schnellzugriff», die beim Weggehen erscheint und beim
+  Heimkommen von selbst verschwindet. Ein Tipp auf «Öffnen» führt in
+  die App direkt zur Türe, mit der gewohnten Rückfrage - ein Knopf auf
+  dem Sperrbildschirm darf nicht mehr als die App, dieselbe
+  Entscheidung wie beim Türknopf im Widget.
+- Gestartet wird die Karte vom **Hub**, nicht von der App: Im Moment
+  des Weggehens läuft die App nicht im Vordergrund, und nur dort dürfte
+  sie eine Live-Aktivität selbst aufstellen. Also schickt der Hub einen
+  direkten Apple-Push («push-to-start», ab iOS 17.2) - dafür braucht er
+  einmalig einen APNs-Schlüssel aus dem Entwicklerkonto (Anleitung in
+  deploy/portainer.md, Block `apns:` in der config.yaml). Ohne den
+  Block bleibt alles aus.
+- **Ein Schalter im Profil** (Einstellungen → Konto, neben den
+  Benachrichtigungen): «Haustüre als Live-Aktivität» lässt sich je
+  Person ein- und ausschalten - auf allen eigenen iPhones zugleich, und
+  der Hub hält sich sofort daran: Abschalten beendet auch eine gerade
+  liegende Karte, nicht erst beim nächsten Heimkommen. Ist der Hub noch
+  nicht eingerichtet, sagt es die Karte dazu, statt still nichts zu tun.
+- Dazu gehört ein neuer nativer Baustein in der App (ActivityKit).
+  Er wird erst mit dem nächsten TestFlight-Build wirksam; bis dahin
+  ändert sich auf den Telefonen nichts, und alle bisherigen Updates
+  kommen weiter an - die runtimeVersion bleibt deshalb absichtlich
+  stehen, die App prüft den Baustein zur Laufzeit.
+
+**Abläufe**
+
+- **Die Auslöser-Diagnose unterscheidet «kaputt» von «hatte nichts zu
+  melden».** Bei «wenn niemand mehr zuhause ist» stand als orange
+  Warnung: «geofence.anyone_home hat sich noch nie gemeldet - stimmt
+  die Kennung, ist das Gerät erreichbar?» Dabei war alles in Ordnung:
+  Die Sammel-Entität meldet nur echte Wechsel, und solange seit dem
+  Hub-Start niemand ging oder kam, herrscht zu Recht Stille. Jetzt
+  sagt die Diagnose in diesem Fall ruhig: «ist da und steht auf ‹on› -
+  seit dem Hub-Start gab es nur noch keinen Wechsel. Der Auslöser
+  feuert beim nächsten.» Die Warnung bleibt für den Fall, für den sie
+  gedacht war: eine Kennung, die ins Leere zeigt, oder ein Gerät, das
+  nicht erreichbar ist.
+
+**Familie**
+
+- **Erinnerungen lassen sich bearbeiten.** Der Stift auf der Zeile
+  füllt das Formular unten mit dem Eintrag - Text, Datum, Uhrzeit,
+  Wiederholung, die beiden Schalter und die Push-Empfänger stehen
+  darin und lassen sich ändern; «Änderungen speichern» schreibt in
+  denselben Eintrag zurück, «Abbrechen» verwirft. Vorher blieb nur
+  Löschen und neu Anlegen. Eine bearbeitete Erinnerung gilt als frisch
+  aufgesetzt: Ein schon verschickter Push und die «schon
+  gesehen»-Vermerke gehörten zum alten Termin - wer die Zeit
+  verschiebt, will wieder gemeldet werden.
+- **Erinnerungen können sich wiederholen** - täglich, wöchentlich,
+  monatlich oder jährlich, gewählt über dieselben Chips wie bei den
+  Aufgaben. Eine wiederkehrende Erinnerung wird beim Bestätigen nicht
+  erledigt, sondern auf den nächsten Termin weitergestellt - frisch:
+  Niemand hat die neue schon weggedrückt, der nächste Push geht wieder
+  raus. Eine reine Push-Erinnerung stellt der Hub nach dem Versand
+  selbst weiter. Verpasste Termine werden übersprungen, nicht
+  nachgeholt: Wer die Dienstags-Erinnerung erst am Freitag bestätigt,
+  bekommt die vom nächsten Dienstag - nicht drei auf einmal. Und der
+  Kalender stimmt: Die Erinnerung vom 31. rutscht im kurzen Monat auf
+  dessen letzten Tag und kehrt danach auf den 31. zurück; 7 Uhr bleibt
+  7 Uhr, auch über die Zeitumstellung.
+
+**Profil**
+
+- **Der Name im Profil ist jetzt der Benutzername.** Das Feld hiess
+  «Dein Name (für die Begrüssung)» und lebte nur im Gerät - die
+  Benutzerverwaltung zeigte weiter den alten Namen, und niemand
+  wusste, welcher gilt. Jetzt benennt «Speichern & verbinden» den
+  Hub-Benutzer um: Der neue Name steht sofort in der
+  Benutzerverwaltung, in der Anwesenheit und bei den Push-Empfängern;
+  Geräte-Anmeldungen, Abbestellungen und offene Erinnerungen ziehen
+  mit um. Token und Rechte bleiben unverändert. Wer in der config.yaml
+  steht, bekommt den Hinweis, den Namen dort zu ändern; Gäste benennt
+  weiterhin, wer sie eingeladen hat. Am Wandpanel bleibt das Feld die
+  Anrede des Panels («Küche») und fasst keinen Benutzer an.
+
 **Anwesenheit**
 
 - **«Jemand/niemand zuhause» zählt nur noch den Haushalt.** Der

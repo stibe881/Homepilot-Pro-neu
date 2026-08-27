@@ -122,7 +122,12 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         # steht an der Wand, und niemand tippt dort nach drei Monaten
         # wieder eine Adresse samt Passwort ein.
         token = hub.sessions.create(
-            user.name, body.label or "Unbenanntes Gerät", keep=user.shared
+            user.name,
+            body.label or "Unbenanntes Gerät",
+            keep=user.shared,
+            # Die Adresse mit in die Sitzung: Sie überlebt eine
+            # Umbenennung, der Name nicht (core/sessions.py).
+            email=user.email or "",
         )
         log.warning("%s hat sich mit Passwort angemeldet (%s)", user.name, address)
         return {"token": token, "user": user_payload(user)}

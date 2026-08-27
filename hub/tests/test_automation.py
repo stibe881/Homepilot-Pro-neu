@@ -1647,10 +1647,19 @@ def test_trigger_health_separates_the_three_reasons():
     trigger = {"type": "state", "entity_id": "hm.melder", "to": "on"}
     jetzt = 1000.0
 
-    # 1. Das Gerät meldet sich gar nicht.
+    # 1. Das Gerät meldet sich gar nicht - und es ist auch nicht da.
     stumm = describe_trigger_health(trigger, None, None, None, jetzt)
     assert stumm["ok"] is False
     assert "noch nie gemeldet" in stumm["hinweis"]
+
+    # 1b. Die Entität ist da und erreichbar, es gab nur noch keinen
+    #     Wechsel - der Normalfall bei «Jemand zuhause», solange seit dem
+    #     Hub-Start niemand ging. Das ist kein Fehler und darf niemanden
+    #     auf eine Fehlersuche schicken.
+    still = describe_trigger_health(trigger, "on", None, None, jetzt, erreichbar=True)
+    assert still["ok"] is True
+    assert "noch keinen Wechsel" in still["hinweis"]
+    assert "«on»" in still["hinweis"]
 
     # 2. Es meldet sich, aber nie mit dem gesuchten Wert. Der häufigste
     #    Einrichtungsfehler: falscher Kanal, falscher Zustand.
@@ -1682,9 +1691,12 @@ async def test_diagnose_sees_a_sensor_that_never_reports_the_wanted_value():
     }
     hub = await run_hub([automation])
     try:
+        # Der Melder ist da und erreichbar, hat aber seit dem Start noch
+        # nichts gemeldet: kein Fehler - manche Entitäten («Jemand
+        # zuhause») melden nur echte Wechsel, und der kommt noch.
         bericht = hub.automations.diagnose("bewegung")
-        assert bericht["triggers"][0]["ok"] is False
-        assert "noch nie gemeldet" in bericht["triggers"][0]["hinweis"]
+        assert bericht["triggers"][0]["ok"] is True
+        assert "noch keinen Wechsel" in bericht["triggers"][0]["hinweis"]
 
         # Der Melder meldet sich – aber mit dem falschen Wert.
         await hub.registry.update_state("demo.motion_hall", {"state": "unknown"})
@@ -1699,6 +1711,26 @@ async def test_diagnose_sees_a_sensor_that_never_reports_the_wanted_value():
         await settle()
         bericht = hub.automations.diagnose("bewegung")
         assert bericht["triggers"][0]["ok"] is True
+    finally:
+        await hub.stop()
+
+
+async def test_diagnose_flags_an_entity_that_does_not_exist():
+    """Ein vertippter oder verwaister Auslöser - genau dafür ist die
+    Warnung «noch nie gemeldet» da."""
+    automation = {
+        "id": "kaputt",
+        "alias": "Zeigt ins Leere",
+        "trigger": [{"type": "state", "entity_id": "hm.gibtsnicht", "to": "on"}],
+        "action": [
+            {"type": "command", "entity_id": "demo.light_livingroom", "command": "turn_on"}
+        ],
+    }
+    hub = await run_hub([automation])
+    try:
+        bericht = hub.automations.diagnose("kaputt")
+        assert bericht["triggers"][0]["ok"] is False
+        assert "noch nie gemeldet" in bericht["triggers"][0]["hinweis"]
     finally:
         await hub.stop()
 

@@ -67,6 +67,11 @@ export interface UserPrefs {
    *  oben. Bewusst persönlich – am Wandpanel im Flur will man etwas
    *  anderes als auf dem Telefon in der Hosentasche. */
   kameraDynamisch?: boolean;
+  /** Die Haustür-Karte auf dem Sperrbildschirm, wenn man unterwegs ist
+   *  (Live-Aktivität). Fehlt der Wert, gilt an - abgeschaltet wird sie
+   *  je Person, wie die Benachrichtigungen. Den Schalter liest auch der
+   *  Hub (core/liveaktivitaet.py). */
+  liveTuer?: boolean;
   /** Die eigenen Favoriten. Lange stand der Stern am Gerät selbst und
    *  galt damit für alle – aber griffbereit ist eine persönliche Frage:
    *  Was Stefan jeden Abend braucht, ist für Livia nur eine Kachel im
@@ -85,10 +90,14 @@ export interface UserPrefs {
 export interface DurchsagePrefs {
   /** Kennung der Box; fehlt sie oder ist sie «alle», gehen alle. */
   ziel?: string;
-  /** Die gepflegte eigene Liste - hinzufügen, bearbeiten, löschen im
-   *  Durchsage-Fenster. */
+  /** Die Sätze des Fensters - eine Liste, in der alles gleich behandelt
+   *  wird: hinzufügen, bearbeiten, löschen. `undefined` heisst «noch nie
+   *  angefasst», dann gilt der mitgelieferte Startbestand; eine leere
+   *  Liste heisst «bewusst leer» und bleibt leer. */
   texte?: string[];
-  /** Der zuletzt getippte Satz - merkt sich von selbst, genau einer. */
+  /** Aus älteren Fassungen: der zuletzt getippte Satz, der sich von
+   *  selbst merkte und den man nicht löschen konnte. Er wird beim ersten
+   *  Handgriff in `texte` gefaltet und danach nicht mehr geschrieben. */
   letzter?: string;
 }
 
@@ -232,6 +241,11 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     [setzeEigen]
   );
 
+  const setLiveTuer = useCallback(
+    (on: boolean) => setzeEigen({ ...eigenJetzt.current, liveTuer: on }),
+    [setzeEigen]
+  );
+
   const setFavorites = useCallback(
     (ids: string[]) => setzeEigen({ ...eigenJetzt.current, favorites: ids }),
     [setzeEigen]
@@ -266,6 +280,7 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     setWidgetDirect,
     setSeenChanges,
     setKameraDynamisch,
+    setLiveTuer,
     setFavorites,
     setFavoriteOrder,
     setDurchsage,

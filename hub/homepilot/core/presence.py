@@ -439,6 +439,39 @@ def trim_history(
     return frisch[:HISTORY_LIMIT]
 
 
+def zone_umziehen(
+    rows: Any, alt: str, neu: str, feld: str = "zone"
+) -> list[dict[str, Any]]:
+    """Alles, was an einer Zone hängt, auf eine andere umschreiben (rein, testbar).
+
+    Der Fall: Jemand benennt sich um. Die Zone heisst nach dem Vornamen,
+    also entsteht eine neue – und die alte behält, was eingestellt war:
+    welche Meldungen rausgehen, der letzte bekannte Aufenthalt, seit wann
+    er gilt. In der Übersicht standen danach zwei Zeilen für denselben
+    Menschen, eine davon für immer auf ihrem alten Stand.
+
+    Trifft beides zusammen (die neue Zone hat schon eigene Einträge),
+    gewinnt der frühere Eintrag in der Liste. Die Listen stehen neueste
+    zuerst, und für den Verlauf zählt ohnehin nur der erste Eintrag je
+    Person – so gewinnt der jüngere Stand, statt vom alten überschrieben
+    zu werden.
+    """
+    ergebnis: list[dict[str, Any]] = []
+    gesehen: set[str] = set()
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        wert = str(row.get(feld) or "")
+        zeile = {**row, feld: neu} if wert == alt else row
+        schluessel = str(zeile.get(feld) or "")
+        if schluessel in (alt, neu):
+            if schluessel in gesehen:
+                continue
+            gesehen.add(schluessel)
+        ergebnis.append(zeile)
+    return ergebnis
+
+
 def since(rows: list[dict[str, Any]], person: str) -> float | None:
     """Seit wann ist diese Person im jetzigen Zustand? (rein, testbar)"""
     for row in rows or []:

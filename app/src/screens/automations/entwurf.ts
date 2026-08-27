@@ -80,6 +80,14 @@ export interface Run {
   skipped: string[];
   /** Die Schritt-Spur (Punkt 160): was wann dran war, und was hing. */
   steps?: { label: string; after: number; note?: string; error?: string }[];
+  /** Ob der Lauf auch gewirkt hat – ein paar Sekunden nach dem Lauf am
+   *  Gerät nachgesehen (hub/core/wirkung.py). Fehlt bei Läufen, an denen
+   *  es nichts Prüfbares gab, und bei allen aus der Zeit davor. */
+  effect?: {
+    urteil: 'gewirkt' | 'teilweise' | 'wirkungslos';
+    geprueft: number;
+    nicht: string[];
+  } | null;
 }
 
 /** Welche Zustände bei diesem Gerät als Auslöser oder Bedingung taugen
@@ -455,10 +463,32 @@ export function runLine(run: Run): string {
   return `${time} · übersprungen`;
 }
 
+/**
+ * Was die Nachschau ergab – oder nichts (rein, testbar).
+ *
+ * «Ausgeführt» heisst nur: abgeschickt. Ob das Licht danach brannte,
+ * sieht der Hub ein paar Sekunden später nach. Gemeldet wird nur, was
+ * *nicht* gewirkt hat: Bei jedem Lauf «hat gewirkt» danebenzuschreiben
+ * hiesse, die eine Zeile zu übersehen, auf die es ankommt.
+ */
+export function wirkungText(run: Run): string | null {
+  const effect = run.effect;
+  if (!effect || effect.urteil === 'gewirkt') return null;
+  const namen = effect.nicht.join(', ');
+  if (effect.urteil === 'wirkungslos') {
+    return namen ? `wirkte nicht: ${namen}` : 'wirkte nicht';
+  }
+  return namen ? `wirkte nur halb – ohne ${namen}` : 'wirkte nur halb';
+}
+
 export function lastRunText(runs: Run[], automationId: string): string {
   const run = runs.find((entry) => entry.automation_id === automationId);
   if (!run) return 'Noch nicht gelaufen';
-  return runLine(run);
+  // Die Nachschau gehört in die zugeklappte Zeile: Ein Ablauf, der
+  // abgeschickt hat und nichts bewirkte, ist genau der, den man sucht -
+  // und man sucht ihn, ohne vorher aufzuklappen.
+  const wirkung = wirkungText(run);
+  return wirkung ? `${runLine(run)} · ${wirkung}` : runLine(run);
 }
 
 /** Sammelname für alles ohne eigene Kategorie. */

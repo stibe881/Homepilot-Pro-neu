@@ -8,6 +8,8 @@ Sachgebiet statt 3800 Zeilen am Stück. Die Routen selbst sind unverändert
 from __future__ import annotations
 
 import logging
+import secrets
+import time
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +23,9 @@ from fastapi import (
 from ... import qr as qr_module
 from ...core import goodnight as goodnight_module
 from ...core import (
+    rueckgriff,
     say,
+    szenenrueckweg,
 )
 from ...core.config_edit import add_cast_device
 from ...core.errors import HomePilotError
@@ -34,6 +38,7 @@ from ..models import (
     GoodNightRequest,
     SpeakerRequest,
     TimerRequest,
+    UndoRecordRequest,
     VoucherRequest,
 )
 
@@ -48,6 +53,88 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
 
     def save_config(content: str) -> dict[str, Any]:
         return configio.save_config(hub, content)
+
+    # ── Grosse Griffe zurücknehmen ─────────────────────────────────────────
+
+    def rueckweg_ablegen(
+        titel: str, entity_ids: list[str], command: str, wer: str
+    ) -> dict[str, Any] | None:
+        """Den Rückweg zu einem Griff festhalten – **vor** dem Schalten.
+
+        Danach ist es zu spät: Der Zustand von vorher ist dann weg, und
+        wie hell das Licht war, weiss niemand mehr. Was dabei herauskommt,
+        rechnet core/rueckgriff.py – hier wird nur eingesammelt.
+        """
+        befehle = szenenrueckweg.plane_rueckweg(
+            [{"entity_id": entity_id, "command": command} for entity_id in entity_ids],
+            rueckgriff.geraetestand(hub.registry.all()),
+        )
+        if not befehle:
+            return None
+        kennung = secrets.token_hex(8)
+        hub.data.set(
+            rueckgriff.SCHLANGE,
+            rueckgriff.aufnehmen(
+                hub.data.get(rueckgriff.SCHLANGE),
+                {"id": kennung, "title": titel, "by": wer, "commands": befehle},
+                time.time(),
+            ),
+        )
+        return {"id": kennung, "count": len(befehle)}
+
+    @app.post("/api/undo")
+    async def record_undo(body: UndoRecordRequest, request: Request) -> dict[str, Any]:
+        """«Alles aus» meldet an, was es gleich tun wird.
+
+        Warum der Hub aufnimmt, aber nicht schaltet: Die Befehle selbst
+        gehen weiter denselben Weg wie jeder Tastendruck in der App -
+        über die Verbindung, durch die Sperre, mit der Rückfrage beim
+        Wandpaneel. Eine eigene «alles aus»-Route würde all das umgehen,
+        nur damit der Rückweg an einer Stelle entsteht.
+        """
+        user = require(request, Capability.CONTROL)
+        return {
+            "undo": rueckweg_ablegen(
+                body.title, body.entity_ids, body.command, user.name
+            )
+        }
+
+    @app.post("/api/undo/{bundle_id}/run")
+    async def run_undo(bundle_id: str, request: Request) -> dict[str, Any]:
+        """Den aufgenommenen Rückweg gehen.
+
+        Er wird dabei verbraucht: Ein zweites «Rückgängig» stellte den
+        Stand von vor dem Griff ein zweites Mal her - über allem, was
+        seither von Hand geschaltet wurde.
+        """
+        user = require(request, Capability.CONTROL)
+        rows = hub.data.get(rueckgriff.SCHLANGE)
+        eintrag = rueckgriff.holen(rows, bundle_id, time.time())
+        if eintrag is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Das lässt sich nicht mehr zurücknehmen.",
+            )
+        hub.data.set(rueckgriff.SCHLANGE, rueckgriff.entfernen(rows, bundle_id))
+        namen = {entity.id: entity.label for entity in hub.registry.all()}
+        zurueck: list[str] = []
+        fehler: list[str] = []
+        with as_source(user_source(user.name)):
+            for befehl in eintrag.get("commands") or []:
+                entity_id = str(befehl.get("entity_id") or "")
+                try:
+                    await hub.integrations.dispatch_command(
+                        entity_id,
+                        str(befehl.get("command") or ""),
+                        befehl.get("data") or {},
+                    )
+                    zurueck.append(namen.get(entity_id, entity_id))
+                except Exception:
+                    # Ein Gerät, das inzwischen offline ist, soll die
+                    # anderen neunzehn nicht aufhalten.
+                    log.debug("Rückweg: %s nicht schaltbar", entity_id, exc_info=True)
+                    fehler.append(namen.get(entity_id, entity_id))
+        return {"ok": not fehler, "restored": zurueck, "failed": fehler}
 
     # ── Gute Nacht ─────────────────────────────────────────────────────────
 
@@ -91,11 +178,19 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         settings = goodnight_settings()
         entities = hub.registry.all()
 
+        aus = list(
+            goodnight_module.lights_to_off(entities, settings["night_lights"])
+        )
+        # Vor dem Schalten: Danach ist nicht mehr abzulesen, welches Licht
+        # wie hell brannte. Die Alarmanlage bleibt aussen vor - sie steht
+        # in szenenrueckweg.OHNE_RUECKWEG, und das aus gutem Grund.
+        rueckweg = rueckweg_ablegen(
+            "Gute Nacht", [entity.id for entity in aus], "turn_off", user.name
+        )
+
         turned_off: list[str] = []
         with as_source(user_source(user.name)):
-            for entity in goodnight_module.lights_to_off(
-                entities, settings["night_lights"]
-            ):
+            for entity in aus:
                 try:
                     await hub.integrations.dispatch_command(entity.id, "turn_off")
                     turned_off.append(entity.label)
@@ -130,6 +225,10 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "unlocked": [e.label for e in goodnight_module.unlocked_locks(entities)],
             "alarm": alarm_result,
             "alarm_error": alarm_error,
+            # Damit der Bericht einen Weg zurück anbieten kann: Wer beim
+            # Lesen merkt, dass im Büro noch jemand sitzt, soll nicht
+            # zwanzig Kacheln wiederfinden müssen.
+            "undo": rueckweg,
         }
 
     # ── Durchsage ──────────────────────────────────────────────────────────

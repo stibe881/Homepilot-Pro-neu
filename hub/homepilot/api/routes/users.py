@@ -17,12 +17,14 @@ from fastapi import (
 )
 
 from ...core import bereich as bereich_module
+from ...core import personen, presence
 from ...core import throttle as throttle_module
 from ...core import users as users_module
 from ...core.errors import HomePilotError
 from ...core.users import GUEST_FEATURES, Capability, Role
+from ...integrations import geofence
 from ..context import ApiContext
-from ..models import AreaUnlockRequest, UserRequest, UserUpdateRequest
+from ..models import AreaUnlockRequest, SelfNameRequest, UserRequest, UserUpdateRequest
 
 log = logging.getLogger(__name__)
 
@@ -87,14 +89,106 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "hinweis": "Token jetzt notieren – er wird nur dieses eine Mal gezeigt.",
         }
 
+    @app.put("/api/users/self")
+    async def rename_self(body: SelfNameRequest, request: Request) -> dict[str, Any]:
+        """Den eigenen Namen ändern - im Profil, und damit überall.
+
+        Das Feld im Profil hiess «Dein Name (für die Begrüssung)» und
+        lebte nur im Gerät: Die Benutzerverwaltung zeigte weiter den
+        alten Namen, und niemand wusste, welcher nun gilt. Jetzt ist es
+        derselbe Name - wer sich hier umbenennt, heisst auch in der
+        Benutzerverwaltung, in der Anwesenheit und als Push-Empfänger so.
+
+        Kein MANAGE_USERS nötig: Es geht nur um den eigenen Namen, und
+        der gehört einem selbst. Gäste bleiben draussen - ihre Namen
+        vergibt, wer sie eingeladen hat, sonst steht plötzlich ein
+        zweiter «Stefan» in der Liste, den niemand angelegt hat.
+        """
+        user = current_user(request)
+        if user.role == Role.GUEST:
+            raise HTTPException(
+                status_code=403, detail="Gäste können sich nicht umbenennen"
+            )
+        alt = user.name
+        try:
+            umbenannt = hub.users.rename(alt, body.name)
+        except HomePilotError as err:
+            raise HTTPException(status_code=409, detail=str(err)) from err
+        if umbenannt.name == alt:
+            return {"user": umbenannt.as_dict()}
+        # Alles nachziehen, was nach Namen abgelegt ist - sonst gehen
+        # Push-Nachrichten an einen Namen, den es nicht mehr gibt.
+        #
+        # Die Sitzungen zuerst: An ihnen hing der Zugang. Sie merken sich,
+        # zu wem ein Token gehört, und das war der Name. Nach einer
+        # Umbenennung zeigte jede Sitzung ins Leere - «Ungültiges Token»
+        # auf allen Geräten gleichzeitig, auch auf dem, an dem gerade
+        # jemand den neuen Namen eingetippt hatte.
+        hub.sessions.rename(alt, umbenannt.name)
+        hub.push.umbenennen(alt, umbenannt.name)
+        prefs = [
+            {**entry, "user": umbenannt.name}
+            if isinstance(entry, dict) and entry.get("user") == alt
+            else entry
+            for entry in hub.data.get("push_prefs")
+        ]
+        hub.data.set("push_prefs", prefs)
+        from ...core import erinnerungen
+
+        hub.data.set(
+            "family_reminders",
+            erinnerungen.benutzer_umbenennen(
+                hub.data.get("family_reminders"), alt, umbenannt.name
+            ),
+        )
+        # Die Ortungszone heisst nach dem Vornamen und entsteht aus der
+        # Benutzerliste (integrations/geofence.py). Nach einer Umbenennung
+        # gibt es also eine neue - und die alte behielt, was eingestellt
+        # war: Meldungen, letzter Aufenthalt, seit wann. In der Übersicht
+        # standen danach zwei Zeilen für denselben Menschen, eine davon
+        # für immer auf ihrem alten Stand.
+        alte_zone = geofence.zonenkennung(alt)
+        neue_zone = geofence.zonenkennung(umbenannt.name)
+        if alte_zone and neue_zone and alte_zone != neue_zone:
+            for schluessel, feld in (
+                (personen.LADE, "zone"),
+                ("presence_last", "zone"),
+                ("presence_history", "person"),
+            ):
+                hub.data.set(
+                    schluessel,
+                    presence.zone_umziehen(
+                        hub.data.get(schluessel), alte_zone, neue_zone, feld
+                    ),
+                )
+        log.info("Benutzer '%s' heisst jetzt '%s'", alt, umbenannt.name)
+        return {"user": umbenannt.as_dict()}
+
     @app.put("/api/users/{name}")
     async def update_user(
         name: str, body: UserUpdateRequest, request: Request
     ) -> dict[str, Any]:
-        """Gast sperren/entsperren oder Bereiche ändern – das Token bleibt."""
+        """Rolle, Sperre oder Bereiche eines Benutzers ändern – das Token bleibt.
+
+        Die Rolle gehört hierher und nicht an den Benutzer selbst: Wer
+        seine eigene Rolle setzen dürfte, machte sich zum Besitzer. Nur
+        wer Benutzer verwalten darf, verteilt Rollen.
+        """
         user = require(request, Capability.MANAGE_USERS)
         if user.name == name and body.enabled is False:
             raise HTTPException(status_code=400, detail="Sich selbst kann man nicht sperren")
+        if user.name == name and body.role is not None and body.role != user.role:
+            # Man kann sich selbst zurückstufen, aber nicht aus Versehen:
+            # Der Weg dahin geht über jemand anderen, der zuerst Besitzer
+            # wird. Sonst steht man vor der eigenen Benutzerverwaltung und
+            # kommt nicht mehr hinein.
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Die eigene Rolle lässt sich hier nicht ändern - sonst "
+                    "sperrt man sich versehentlich selbst aus."
+                ),
+            )
         try:
             updated = hub.users.update(
                 name,
@@ -105,6 +199,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 simple_rooms=body.simple_rooms,
                 shared=body.shared,
                 area_password=body.area_password,
+                role=body.role,
             )
         except ValueError as err:
             # Zu kurzes Passwort - der Text steht in core/bereich.py.
