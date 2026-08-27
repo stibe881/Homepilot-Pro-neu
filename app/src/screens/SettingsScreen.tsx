@@ -31,6 +31,8 @@ interface Props {
   onCancel?: () => void;
   /** Eingebettet in die Kachelfläche statt als ganzer Bildschirm. */
   embedded?: boolean;
+  /** Welche Hälfte gezeigt wird. Ohne Angabe: alles (Einrichtung). */
+  nur?: 'konto' | 'verbindung';
   /** Angemeldeter Benutzer – zeigt Name und Rolle an. */
   user?: { name: string; role: string; shared?: boolean } | null;
   /** Wer die eigene Ortung sieht – für die Zeile im Profil (Punkt 197). */
@@ -42,6 +44,7 @@ export function SettingsScreen({
   onSave,
   onCancel,
   embedded,
+  nur,
   user,
   familie = [],
 }: Props) {
@@ -85,6 +88,21 @@ export function SettingsScreen({
    * dem des Formulars: Wer gerade an der Hub-Adresse tippt, soll sie
    * nicht durch ein Antippen des Symbols halbfertig festschreiben.
    */
+  /**
+   * Das Erscheinungsbild wechseln – sofort und für sich.
+   *
+   * Es hing am Knopf «Speichern & verbinden», und der zog mit der
+   * Verbindung auf eine eigene Seite. Ein Schalter, dessen Knopf
+   * woanders steht, ist kein Schalter. Also dasselbe wie beim
+   * App-Symbol: Antippen ist Speichern, mit den *abgelegten*
+   * Einstellungen statt mit dem womöglich halb ausgefüllten Formular
+   * daneben.
+   */
+  const themaWaehlen = (wahl: ThemeMode) => {
+    setTheme(wahl);
+    if (initial) onSave({ ...initial, theme: wahl });
+  };
+
   const symbolWaehlen = (wahl: Symbolwahl) => {
     setAppSymbol(wahl);
     if (initial) onSave({ ...initial, appSymbol: wahl });
@@ -182,10 +200,20 @@ export function SettingsScreen({
       {darfUmbenennen ? (
         <>
           {nameFeld}
+          {/* Ein eigener Knopf, seit die Verbindung eine eigene Seite hat:
+              «Speichern & verbinden» stand vorher darunter und hat den
+              Namen mitgenommen. Jetzt steht er woanders - ein Feld ohne
+              Knopf wäre ein Feld, das nichts tut. */}
+          <Pressable
+            onPress={speichern}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.nameButton, pressed && { opacity: 0.7 }]}
+          >
+            <Text style={styles.nameButtonText}>Namen speichern</Text>
+          </Pressable>
           <Text style={styles.sharedNote}>
             Das ist dein Benutzername - er gilt überall: in der
             Benutzerverwaltung, in der Anwesenheit und als Push-Empfänger.
-            Übernommen wird er mit «Speichern & verbinden» unten.
           </Text>
         </>
       ) : null}
@@ -270,7 +298,7 @@ export function SettingsScreen({
           {MODES.map((option) => (
             <Pressable
               key={option.key}
-              onPress={() => setTheme(option.key)}
+              onPress={() => themaWaehlen(option.key)}
               accessibilityRole="radio"
               accessibilityState={{ selected: theme === option.key }}
               style={({ pressed }) => [
@@ -293,7 +321,7 @@ export function SettingsScreen({
         <Text style={styles.modeHint}>
           «Nach Sonnenstand» wird bei Sonnenuntergang dunkel und bei
           Sonnenaufgang wieder hell, «System» folgt der Geräteeinstellung.
-          Gespeichert wird unten mit «Speichern & verbinden».
+          Wirkt sofort.
         </Text>
       </View>
 
@@ -540,19 +568,32 @@ export function SettingsScreen({
     </Card>
   );
 
-  // Verbunden: Profil, Aussehen, Ortung - und die Zugangsdaten am Ende.
-  // Beim Einrichten: erst die Verbindung, das Aussehen darf warten.
-  const karten = user ? (
+  // Die Seite hiess «Konto & Verbindung» und war beides zugleich: Wer
+  // sein Erscheinungsbild ändern wollte, scrollte an Adresse und Token
+  // vorbei; wer die Adresse ändern wollte, an Profil und Ortung. Zwei
+  // Fragen, zwei Menüpunkte - `nur` sagt, welche gerade dran ist.
+  //
+  // Beim Einrichten gibt es die Trennung nicht: Da ist die Verbindung
+  // das Einzige, was zählt, und das Aussehen darf gleich mit.
+  const karten = !user ? (
+    <>
+      {verbindung}
+      {aussehen}
+    </>
+  ) : nur === 'verbindung' ? (
+    verbindung
+  ) : nur === 'konto' ? (
+    <>
+      {profil}
+      {aussehen}
+      {ortungKarte}
+    </>
+  ) : (
     <>
       {profil}
       {aussehen}
       {ortungKarte}
       {verbindung}
-    </>
-  ) : (
-    <>
-      {verbindung}
-      {aussehen}
     </>
   );
 
@@ -605,6 +646,18 @@ const makeStyles = (colors: Colors) =>
     padding: 22,
   },
   embedded: { marginTop: 4 },
+  /** Der Knopf unter dem Namensfeld – zurückhaltend, weil er nur eine
+   *  Zeile speichert und nicht die Verbindung. */
+  nameButton: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: radius.control,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    backgroundColor: colors.surfaceSoft,
+  },
+  nameButtonText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
   // Der Abstand zwischen den Karten - gleich dem Innenabstand einer
   // Karte, damit die Seite als eine Spalte liest.
   stack: { gap: 14 },

@@ -6,6 +6,7 @@ import { VideoView, useVideoPlayer } from 'expo-video';
 import { HubFehler, hubClient } from '../api/client';
 import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
+import { Klappe } from '../components/Klappe';
 import { Fehlschlag, Laedt } from '../components/Zustand';
 import { useTakt } from '../hooks/useTakt';
 import { datumUhr } from '../lib/format';
@@ -639,75 +640,8 @@ export function AlarmScreen({
         </Text>
       </Card>
 
-      <AfterTrigger
-        after={data.after_trigger ?? {}}
-        onSave={(mode, patch) => {
-          const current = data.after_trigger ?? {};
-          // Ganze Karte schicken, nicht nur den einen Modus: Sonst zeigt die
-          // Anzeige bis zum nächsten Laden für die anderen Modi Vorgaben an.
-          save({
-            after_trigger: {
-              ...current,
-              [mode]: { ...(current[mode] ?? { action: 'stay', after: 300 }), ...patch },
-            },
-          });
-        }}
-      />
-
-      <AlarmActions
-        actions={data.actions ?? {}}
-        entities={entities}
-        onSave={(actions) => save({ actions })}
-      />
-
-      {/* Probealarm: Ob Sirene, Lichter und Nachricht überhaupt
-          funktionieren, erfährt man sonst beim ersten echten Einbruch. */}
-      <Card style={styles.card}>
-        <Text style={styles.heading}>Probealarm</Text>
-        <Text style={styles.hint}>
-          Spielt einmal durch, was ein Einbruch auslösen würde: Nachricht,
-          dann für drei Sekunden die eingestellten Schaltbefehle, dann
-          wieder aus. Geht nur bei unscharfer Anlage.
-        </Text>
-        <Pressable
-          onPress={async () => {
-            setTestNote(null);
-            try {
-              const response = await fetch(`${settings.url}/api/alarm/test`, {
-                method: 'POST',
-                headers,
-              });
-              const body = await response.json().catch(() => ({}));
-              if (!response.ok) {
-                throw new Error(body.detail ?? `Hub antwortet mit ${response.status}`);
-              }
-              setTestNote(String(body.hinweis ?? 'Probealarm durchgespielt.'));
-            } catch (err) {
-              setTestNote(err instanceof Error ? err.message : String(err));
-            }
-            load();
-          }}
-          accessibilityRole="button"
-          style={({ pressed }) => [styles.smallButton, pressed && { opacity: 0.7 }]}
-        >
-          <Text style={styles.smallButtonText}>Jetzt durchspielen</Text>
-        </Pressable>
-        {testNote ? <Text style={styles.hint}>{testNote}</Text> : null}
-      </Card>
-
-      <AlarmSettings
-        settings={data.settings}
-        images={data.images !== false}
-        onSave={(next) => save({ settings: next })}
-      />
-
-      <PinCard
-        hub={settings}
-        required={!!data.state.pin_required}
-        pflicht={pinFehlt}
-        onChanged={load}
-      />
-
+      {/* Der Verlauf steht vor den Einstellungen: «Was ist passiert?»
+          liest man, «was die Sirene tut» stellt man einmal ein. */}
       {data.history.length > 0 ? (
         <Card style={styles.card}>
           <Text style={styles.heading}>Verlauf</Text>
@@ -783,6 +717,77 @@ export function AlarmScreen({
         </Card>
       ) : null}
 
+      <AfterTrigger
+        after={data.after_trigger ?? {}}
+        onSave={(mode, patch) => {
+          const current = data.after_trigger ?? {};
+          // Ganze Karte schicken, nicht nur den einen Modus: Sonst zeigt die
+          // Anzeige bis zum nächsten Laden für die anderen Modi Vorgaben an.
+          save({
+            after_trigger: {
+              ...current,
+              [mode]: { ...(current[mode] ?? { action: 'stay', after: 300 }), ...patch },
+            },
+          });
+        }}
+      />
+
+      <AlarmActions
+        actions={data.actions ?? {}}
+        entities={entities}
+        onSave={(actions) => save({ actions })}
+      />
+
+      {/* Probealarm: Ob Sirene, Lichter und Nachricht überhaupt
+          funktionieren, erfährt man sonst beim ersten echten Einbruch. */}
+      <Card style={styles.card}>
+        <Klappe label="Probealarm">
+        <Text style={styles.hint}>
+          Spielt einmal durch, was ein Einbruch auslösen würde: Nachricht,
+          dann für drei Sekunden die eingestellten Schaltbefehle, dann
+          wieder aus. Geht nur bei unscharfer Anlage.
+        </Text>
+        <Pressable
+          onPress={async () => {
+            setTestNote(null);
+            try {
+              const response = await fetch(`${settings.url}/api/alarm/test`, {
+                method: 'POST',
+                headers,
+              });
+              const body = await response.json().catch(() => ({}));
+              if (!response.ok) {
+                throw new Error(body.detail ?? `Hub antwortet mit ${response.status}`);
+              }
+              setTestNote(String(body.hinweis ?? 'Probealarm durchgespielt.'));
+            } catch (err) {
+              setTestNote(err instanceof Error ? err.message : String(err));
+            }
+            load();
+          }}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.smallButton, pressed && { opacity: 0.7 }]}
+        >
+          <Text style={styles.smallButtonText}>Jetzt durchspielen</Text>
+        </Pressable>
+        {testNote ? <Text style={styles.hint}>{testNote}</Text> : null}
+        </Klappe>
+      </Card>
+
+      <AlarmSettings
+        settings={data.settings}
+        images={data.images !== false}
+        onSave={(next) => save({ settings: next })}
+      />
+
+      <PinCard
+        hub={settings}
+        required={!!data.state.pin_required}
+        pflicht={pinFehlt}
+        onChanged={load}
+      />
+
+
       {clip ? <ClipPlayer uri={clip} onClose={() => setClip(null)} /> : null}
     </View>
   );
@@ -842,7 +847,7 @@ function AfterTrigger({
 
   return (
     <Card style={styles.card}>
-      <Text style={styles.heading}>Nach einem Alarm</Text>
+      <Klappe label="Nach einem Alarm">
       <Text style={styles.hint}>
         Was soll die Anlage tun, nachdem sie ausgelöst und alle benachrichtigt
         hat? Das lässt sich je Modus getrennt einstellen, weil es davon
@@ -893,6 +898,7 @@ function AfterTrigger({
         selbst weiter, auch wenn die aufgebrochene Tür noch offen steht; was
         offen ist, steht dann im Verlauf.
       </Text>
+      </Klappe>
     </Card>
   );
 }
@@ -988,7 +994,7 @@ function AlarmActions({
 
   return (
     <Card style={styles.card}>
-      <Text style={styles.heading}>Was die Anlage selbst schaltet</Text>
+      <Klappe label="Was die Anlage selbst schaltet">
       {SLOTS.map((slot) => {
         const chosen = actions[slot.key] ?? [];
         return (
@@ -1037,6 +1043,7 @@ function AlarmActions({
           </View>
         );
       })}
+      </Klappe>
     </Card>
   );
 }
@@ -1065,7 +1072,7 @@ function AlarmSettings({
 
   return (
     <Card style={styles.card}>
-      <Text style={styles.heading}>Einstellungen</Text>
+      <Klappe label="Einstellungen">
 
       <View style={styles.field}>
         <Text style={styles.label}>Ausgangsverzögerung (Sekunden)</Text>
@@ -1123,6 +1130,7 @@ function AlarmSettings({
           öffnet sich beim Antippen trotzdem.
         </Text>
       ) : null}
+      </Klappe>
     </Card>
   );
 }
@@ -1205,7 +1213,7 @@ function PinCard({
 
   return (
     <Card style={styles.card}>
-      <Text style={styles.heading}>PIN fürs Entschärfen</Text>
+      <Klappe label="PIN fürs Entschärfen" stand={required ? 'gesetzt' : 'keine'}>
       <Text style={[styles.rowDetail, pflicht && styles.warn]}>
         {required
           ? 'Eine PIN ist gesetzt - Entschärfen geht nur noch mit ihr, auch aus Szenen und Abläufen.'
@@ -1246,6 +1254,7 @@ function PinCard({
         ) : null}
       </View>
       {note ? <Text style={styles.rowDetail}>{note}</Text> : null}
+      </Klappe>
     </Card>
   );
 }

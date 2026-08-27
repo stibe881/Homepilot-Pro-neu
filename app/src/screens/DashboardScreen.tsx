@@ -123,7 +123,12 @@ import { Widgets } from '../components/Widgets';
 import { Ablage, syncWidget } from '../lib/widget';
 import { favoritenVon, zuUebernehmen } from '../lib/favoriten';
 import { altesUebernehmen } from '../lib/hausprefs';
-import { resolveButtons, widgetCommand, mitDirekt } from '../lib/widgetButtons';
+import {
+  mitDirekt,
+  resolveButtons,
+  standardDirekt,
+  widgetCommand,
+} from '../lib/widgetButtons';
 import { HubProvider } from '../hooks/HubContext';
 import { useTakt } from '../hooks/useTakt';
 
@@ -817,7 +822,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     () =>
       mitDirekt(
         resolveButtons(prefs.widgetButtons, scenes, entities),
-        prefs.widgetDirect ?? [],
+        // Ohne eigene Wahl schalten die Knöpfe, die es dürfen. Vorher
+        // war die Vorgabe «keiner»: Jedes frische Widget öffnete nur
+        // die App - genau die Klage aus dem Haus.
+        prefs.widgetDirect ?? standardDirekt(prefs.widgetButtons ?? [], entities),
         entities,
         !!prefs.widgetData
       ),
@@ -1785,8 +1793,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         {
           key: 'account',
           icon: 'person-outline',
-          label: 'Konto & Verbindung',
-          detail: 'Hub-Adresse, Token, Darstellung, Benachrichtigungen',
+          label: 'Konto',
+          detail: 'Profil, Darstellung, App-Symbol, Benachrichtigungen',
+          show: true,
+        },
+        {
+          key: 'connection',
+          icon: 'link-outline',
+          label: 'Verbindungen',
+          detail: 'Hub-Adresse und Token dieses Geräts',
           show: true,
         },
       ];
@@ -1885,7 +1900,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       return (
         <View style={styles.stack}>
           {back}
-          <SettingsScreen initial={settings} onSave={onSaveSettings} user={user} embedded />
+          <SettingsScreen
+            initial={settings}
+            onSave={onSaveSettings}
+            user={user}
+            embedded
+            nur="konto"
+          />
           <BioLock enabled={!!prefs.bioLock} onChange={setBioLock} />
           {/* Nur für die Besitzerin: Die Hürde vor der Haustüre gilt fürs
               ganze Haus, ihr Abräumen ist keine Ansichtssache. */}
@@ -1905,6 +1926,20 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         </View>
       );
     }
+    if (section === 'connection') {
+      return (
+        <View style={styles.stack}>
+          {back}
+          <SettingsScreen
+            initial={settings}
+            onSave={onSaveSettings}
+            user={user}
+            embedded
+            nur="verbindung"
+          />
+        </View>
+      );
+    }
     if (section === 'widgets') {
       return (
         <View style={styles.stack}>
@@ -1912,7 +1947,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           <Widgets
             buttons={prefs.widgetButtons}
             onButtons={setWidgetButtons}
-            direct={prefs.widgetDirect ?? []}
+            direct={
+              prefs.widgetDirect ?? standardDirekt(prefs.widgetButtons ?? [], entities)
+            }
             onDirect={setWidgetDirect}
             dataEnabled={!!prefs.widgetData}
             onDataEnabled={setWidgetData}
