@@ -17,12 +17,19 @@ export type { Box };
 export { ZIEL_ALLE, sprecherFuer };
 
 /**
- * Die mitgelieferten Sätze.
+ * Womit die Liste anfängt.
  *
  * Was in einem Haushalt tatsächlich über die Boxen geht, und zwar in
  * der Reihenfolge, in der es gebraucht wird: erst das Essen, dann das
- * Aufbrechen, dann der Rest. Wer etwas anderes sagen will, tippt es
- * weiterhin - und findet es beim nächsten Mal oben in der Liste.
+ * Aufbrechen, dann der Rest.
+ *
+ * **Ein Startbestand, keine Grundausstattung.** Sie standen früher
+ * unveränderlich unter den eigenen Sätzen: nicht zu ändern, nicht zu
+ * löschen, und im Fenster stand sogar «die mitgelieferten Sätze bleiben
+ * immer da». Das war eine Bevormundung - wer «Bitte einmal ans Telefon»
+ * nie sagt, will ihn weghaben, und wer «Gute Nacht!» lieber duzt, will
+ * ihn umformulieren. Sobald jemand die Liste zum ersten Mal anfasst,
+ * werden sie zu ganz normalen Einträgen.
  */
 export const STANDARDTEXTE = [
   'Essen ist fertig!',
@@ -33,10 +40,7 @@ export const STANDARDTEXTE = [
   'Gute Nacht!',
 ] as const;
 
-/** So viele mitgelieferte Sätze füllen das Fenster höchstens auf. */
-export const HOECHSTENS_TEXTE = 8;
-
-/** So viele Sätze darf die eigene Liste führen - mehr scrollt nur. */
+/** So viele Sätze darf die Liste führen - mehr scrollt nur. */
 export const HOECHSTENS_EIGENE = 12;
 
 /** Ein Satz für den Vergleich: ohne Rand, ohne Gross- und Kleinschreibung. */
@@ -44,104 +48,109 @@ function schluessel(text: string): string {
   return text.trim().toLowerCase();
 }
 
-/** Was jemandem selbst gehört: erst der zuletzt getippte, dann die
- *  gepflegte Liste (rein, testbar).
- *
- *  Zwei Ablagen mit Absicht: `texte` pflegt man von Hand (hinzufügen,
- *  bearbeiten, löschen), `letzter` füllt sich beim Senden von selbst -
- *  aber nur mit dem **letzten** getippten Satz. Vorher sammelten sich
- *  vier automatisch gemerkte an, die niemand wieder loswurde: nicht
- *  bearbeitbar, nicht löschbar, nur verdrängbar. */
-export function eigeneSaetze(prefs: {
+/** Was ein Satz gespeichert bringt. */
+export interface SatzPrefs {
+  /** Der zuletzt getippte Satz aus älteren Fassungen. Er wird beim
+   *  ersten Anfassen in die Liste gefaltet und danach nicht mehr
+   *  geschrieben - ein Satz, der sich von selbst merkt und den man nicht
+   *  löschen kann, ist genau das Ärgernis, das hier weggeht. */
   letzter?: string;
+  /** Die Liste. `undefined` heisst «noch nie angefasst» - dann gilt der
+   *  Startbestand. Ein leeres Feld heisst «bewusst leer» und bleibt
+   *  leer: Zurückkommende Sätze wären derselbe Fehler wie eine Kachel,
+   *  die man nicht ausgeblendet bekommt. */
   texte?: string[];
-}): string[] {
+}
+
+function sauberListe(roh: string[]): string[] {
   const raus: string[] = [];
   const gesehen = new Set<string>();
-  for (const text of [prefs.letzter ?? '', ...(prefs.texte ?? [])]) {
+  for (const text of roh) {
     const sauber = String(text ?? '').trim();
     if (!sauber || gesehen.has(schluessel(sauber))) continue;
     gesehen.add(schluessel(sauber));
     raus.push(sauber);
   }
-  return raus;
+  return raus.slice(0, HOECHSTENS_EIGENE);
 }
 
 /**
- * Die Sätze im Fenster (rein, testbar).
+ * Die Sätze im Fenster - alle gleichrangig (rein, testbar).
  *
- * Die eigenen zuerst und vollständig: Wer sie pflegt, will sie alle
- * sehen. Die mitgelieferten füllen dahinter auf, bis das Fenster voll
- * ist. Doppelte fallen weg - «Essen ist fertig!» soll nicht zweimal
- * dastehen, nur weil es einmal von Hand getippt wurde.
+ * Eine Liste, nicht zwei. Vorher lagen die eigenen über den
+ * mitgelieferten, und nur die eigenen liessen sich ändern; die
+ * mitgelieferten waren gesetzt. Jetzt sind sie der Anfang derselben
+ * Liste, und ab dem ersten Handgriff gehört sie ganz dem Haushalt.
  */
-export function vorschlaege(prefs: { letzter?: string; texte?: string[] }): string[] {
-  const eigene = eigeneSaetze(prefs);
-  const raus = [...eigene];
-  const gesehen = new Set(eigene.map(schluessel));
-  for (const text of STANDARDTEXTE) {
-    if (raus.length >= Math.max(HOECHSTENS_TEXTE, eigene.length)) break;
-    if (gesehen.has(schluessel(text))) continue;
-    gesehen.add(schluessel(text));
-    raus.push(text);
-  }
-  return raus;
+export function saetze(prefs: SatzPrefs): string[] {
+  const grundlage = prefs.texte ?? [...STANDARDTEXTE];
+  // Der alte «letzter» wandert vorne hinein - dort stand er auch bisher.
+  return sauberListe([prefs.letzter ?? '', ...grundlage]);
 }
 
+/** Nur der Name von früher; die Liste ist jetzt eine (rein, testbar). */
+export const vorschlaege = saetze;
+
 /**
- * Was nach einer selbst getippten Durchsage gemerkt wird (rein, testbar).
+ * Was nach einer selbst getippten Durchsage in die Liste kommt
+ * (rein, testbar).
  *
- * Nur der Satz selbst, und nur wenn er neu ist: Die mitgelieferten
- * stehen ohnehin da, die eigene Liste führt ihn schon. `null` heisst:
- * nichts zu merken.
+ * `null` heisst: nichts zu tun - der Satz steht schon da oder ist leer.
+ * Vorher landete er in einem eigenen Feld, das genau einen Satz hielt
+ * und beim nächsten überschrieben wurde; wer ihn behalten wollte,
+ * musste ihn ein zweites Mal von Hand eintragen.
  */
-export function merken(
-  prefs: { letzter?: string; texte?: string[] },
-  text: string
-): string | null {
+export function nachDemSenden(prefs: SatzPrefs, text: string): string[] | null {
   const sauber = String(text ?? '').trim();
   if (!sauber) return null;
-  const key = schluessel(sauber);
-  if (STANDARDTEXTE.some((eintrag) => schluessel(eintrag) === key)) return null;
-  if ((prefs.texte ?? []).some((eintrag) => schluessel(eintrag) === key)) return null;
-  return sauber;
+  const bisher = saetze(prefs);
+  if (bisher.some((eintrag) => schluessel(eintrag) === schluessel(sauber))) {
+    // Schon da - aber wenn die Liste noch der Startbestand ist, muss sie
+    // trotzdem einmal festgeschrieben werden, sonst bliebe sie flüchtig.
+    return prefs.texte === undefined ? bisher : null;
+  }
+  return sauberListe([...bisher, sauber]);
 }
 
-/** Einen Satz in die gepflegte Liste aufnehmen (rein, testbar).
+/** Einen Satz aufnehmen (rein, testbar).
  *
  *  Hinten an: Die Liste ist die Reihenfolge, die jemand angelegt hat -
  *  ein Neuzugang drängelt sich nicht vor. Doppelte und Leeres ändern
  *  nichts. */
-export function satzHinzufuegen(texte: string[] | undefined, neu: string): string[] {
+export function satzHinzufuegen(prefs: SatzPrefs, neu: string): string[] {
   const sauber = String(neu ?? '').trim();
-  const bisher = texte ?? [];
+  const bisher = saetze(prefs);
   if (!sauber) return bisher;
-  const key = schluessel(sauber);
-  if (bisher.some((eintrag) => schluessel(eintrag) === key)) return bisher;
-  return [...bisher, sauber].slice(0, HOECHSTENS_EIGENE);
+  if (bisher.some((eintrag) => schluessel(eintrag) === schluessel(sauber))) return bisher;
+  return sauberListe([...bisher, sauber]);
 }
 
-/** Einen Satz der Liste umformulieren (rein, testbar).
+/** Einen Satz umformulieren (rein, testbar).
  *
  *  An Ort und Stelle, nicht löschen-und-anhängen: Der Satz behält
  *  seinen Platz. Ein leerer neuer Text ist ein Löschen - dafür gibt es
  *  den Papierkorb, hier ändert er nichts. */
-export function satzAendern(
-  texte: string[] | undefined,
-  alt: string,
-  neu: string
-): string[] {
+export function satzAendern(prefs: SatzPrefs, alt: string, neu: string): string[] {
   const sauber = String(neu ?? '').trim();
-  const bisher = texte ?? [];
+  const bisher = saetze(prefs);
   if (!sauber) return bisher;
-  return bisher.map((eintrag) =>
-    schluessel(eintrag) === schluessel(alt) ? sauber : eintrag
+  return sauberListe(
+    bisher.map((eintrag) => (schluessel(eintrag) === schluessel(alt) ? sauber : eintrag))
   );
 }
 
-/** Einen Satz aus der Liste nehmen (rein, testbar). */
-export function satzLoeschen(texte: string[] | undefined, alt: string): string[] {
-  return (texte ?? []).filter((eintrag) => schluessel(eintrag) !== schluessel(alt));
+/** Einen Satz herauswerfen (rein, testbar). Auch einen mitgelieferten. */
+export function satzLoeschen(prefs: SatzPrefs, alt: string): string[] {
+  return saetze(prefs).filter((eintrag) => schluessel(eintrag) !== schluessel(alt));
+}
+
+/** Den Startbestand zurückholen (rein, testbar).
+ *
+ *  Der Weg zurück, wenn jemand die Liste leergeräumt hat und es bereut.
+ *  Was schon dasteht, bleibt stehen - zurückgeholt wird nur, was fehlt.
+ */
+export function standardZurueck(prefs: SatzPrefs): string[] {
+  return sauberListe([...saetze(prefs), ...STANDARDTEXTE]);
 }
 
 /**

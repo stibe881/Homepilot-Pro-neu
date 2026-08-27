@@ -33,13 +33,14 @@ import {
   bestaetigung,
   boxen as boxenVon,
   gueltigesZiel,
-  eigeneSaetze,
-  merken,
+  nachDemSenden,
+  saetze as saetzeVon,
   satzAendern,
   satzHinzufuegen,
   satzLoeschen,
   sprecherFuer,
-  vorschlaege,
+  STANDARDTEXTE,
+  standardZurueck,
   zielText,
   zieleFuer,
 } from '../lib/durchsage';
@@ -1075,38 +1076,30 @@ function DurchsageFenster({
   const [verwalten, setVerwalten] = useState(false);
   // Welcher Satz gerade im Feld zum Umformulieren liegt.
   const [bearbeite, setBearbeite] = useState<string | null>(null);
-  const texte = useMemo(() => vorschlaege(prefs ?? {}), [prefs]);
-  const eigene = useMemo(() => eigeneSaetze(prefs ?? {}), [prefs]);
+  // Eine Liste, nicht zwei: Was mitgeliefert wurde und was jemand
+  // selbst getippt hat, steht gleichberechtigt nebeneinander und lässt
+  // sich gleich behandeln.
+  const texte = useMemo(() => saetzeVon(prefs ?? {}), [prefs]);
 
   const speichern = () => {
     const sauber = frei.trim();
     if (!sauber) return;
-    if (bearbeite) {
-      // Auch der automatisch gemerkte letzte Satz lässt sich so
-      // umformulieren - er wandert dabei in die gepflegte Liste, denn
-      // wer ihn anfasst, will ihn behalten.
-      if (prefs?.letzter && bearbeite === prefs.letzter) {
-        onPrefs?.({
-          ...prefs,
-          letzter: undefined,
-          texte: satzHinzufuegen(prefs?.texte, sauber),
-        });
-      } else {
-        onPrefs?.({ ...prefs, texte: satzAendern(prefs?.texte, bearbeite, sauber) });
-      }
-    } else {
-      onPrefs?.({ ...prefs, texte: satzHinzufuegen(prefs?.texte, sauber) });
-    }
+    // `letzter` fällt bei jedem Handgriff weg: Der Satz steht danach in
+    // der Liste, und ein zweites Feld daneben wäre wieder etwas, das
+    // sich niemand erklären kann.
+    onPrefs?.({
+      ...prefs,
+      letzter: undefined,
+      texte: bearbeite
+        ? satzAendern(prefs ?? {}, bearbeite, sauber)
+        : satzHinzufuegen(prefs ?? {}, sauber),
+    });
     setFrei('');
     setBearbeite(null);
   };
 
   const loeschen = (satz: string) => {
-    onPrefs?.({
-      ...prefs,
-      letzter: prefs?.letzter === satz ? undefined : prefs?.letzter,
-      texte: satzLoeschen(prefs?.texte, satz),
-    });
+    onPrefs?.({ ...prefs, letzter: undefined, texte: satzLoeschen(prefs ?? {}, satz) });
     if (bearbeite === satz) {
       setBearbeite(null);
       setFrei('');
@@ -1128,11 +1121,12 @@ function DurchsageFenster({
       const antwort = await onSenden(sauber, sprecherFuer(ziel));
       setNote(bestaetigung(antwort ?? {}));
       setFrei('');
-      // Nur Selbstgetipptes, und nur den letzten - `merken` gibt für
-      // Bekanntes null zurück. So bleibt genau ein automatisch
-      // gemerkter Satz, den man wieder bearbeiten oder löschen kann.
-      const gemerkt = merken(prefs ?? {}, sauber);
-      if (gemerkt) onPrefs?.({ ...prefs, ziel, letzter: gemerkt });
+      // Ein selbst getippter Satz landet in derselben Liste wie alle
+      // anderen - und ist damit auch gleich wieder zu ändern oder zu
+      // löschen. Früher lag er in einem eigenen Feld, das genau einen
+      // Satz hielt und ihn beim nächsten überschrieb.
+      const liste = nachDemSenden(prefs ?? {}, sauber);
+      if (liste) onPrefs?.({ ...prefs, ziel, letzter: undefined, texte: liste });
     } catch (err) {
       setNote(String(err instanceof Error ? err.message : err));
     } finally {
@@ -1231,14 +1225,36 @@ function DurchsageFenster({
               der Kachel. Ein zweiter Knopf «Senden» daneben machte aus
               zwei Tippern drei. */}
           <View style={styles.durchsageTexte}>
-            {verwalten && eigene.length === 0 ? (
+            {verwalten && texte.length === 0 ? (
               <Text style={styles.durchsageNote}>
-                Noch keine eigenen Sätze - unten einen eintippen und mit
-                dem Haken sichern. Die mitgelieferten Sätze bleiben immer
-                da.
+                Keine Sätze mehr - unten einen eintippen und mit dem Haken
+                sichern.
               </Text>
             ) : null}
-            {(verwalten ? eigene : texte).map((text) => (
+            {/* Der Weg zurück, wenn jemand die Liste leergeräumt hat und
+                es bereut. Von selbst kommt nichts wieder: Zurückkommende
+                Sätze wären dasselbe Ärgernis wie eine Kachel, die man
+                nicht ausgeblendet bekommt. */}
+            {verwalten && texte.length < STANDARDTEXTE.length ? (
+              <Pressable
+                onPress={() =>
+                  onPrefs?.({
+                    ...prefs,
+                    letzter: undefined,
+                    texte: standardZurueck(prefs ?? {}),
+                  })
+                }
+                accessibilityRole="button"
+                accessibilityLabel="Mitgelieferte Sätze zurückholen"
+                style={({ pressed }) => [styles.durchsageText, pressed && { opacity: 0.6 }]}
+              >
+                <Ionicons name="refresh-outline" size={16} color={colors.inkSoft} />
+                <Text style={[styles.durchsageTextLabel, { flex: 1 }]}>
+                  Mitgelieferte Sätze zurückholen
+                </Text>
+              </Pressable>
+            ) : null}
+            {texte.map((text) => (
               <Pressable
                 key={text}
                 onPress={verwalten ? undefined : () => sende(text)}
