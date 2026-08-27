@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Colors, useColors } from '../theme';
@@ -33,6 +33,21 @@ export function TvRemote({
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
+  // Welche Taste zuletzt rausging.
+  //
+  // Ohne das heisst «nichts passiert» dreierlei, und alle drei sehen
+  // gleich aus: Der Tipp kam gar nicht an, der Hub hat ihn angenommen
+  // und der Fernseher ignoriert ihn, oder der Hub hat abgelehnt. Genau
+  // daran liess sich der Fehler im Haus nicht einkreisen. Jetzt sagt die
+  // Zeile unten, was die App getan hat – und die Absage darüber, was der
+  // Hub davon hielt.
+  const [letzte, setLetzte] = useState<string | null>(null);
+  useEffect(() => {
+    // Beim Öffnen mit leerer Zeile beginnen: Was beim letzten Mal
+    // gedrückt wurde, sagt über dieses Mal nichts.
+    if (visible) setLetzte(null);
+  }, [visible]);
+
   const Key = ({
     icon,
     command,
@@ -50,6 +65,7 @@ export function TvRemote({
         // Die alte Absage gehört zur alten Taste. Bliebe sie stehen,
         // liesse sich nicht mehr erkennen, ob die neue ankam.
         if (fehler) onFehlerWeg?.();
+        setLetzte(label);
         onCommand(command);
       }}
       style={({ pressed }) => [styles.key, big && styles.keyBig, pressed && styles.keyPressed]}>
@@ -109,6 +125,13 @@ export function TvRemote({
               <Ionicons name="alert-circle" size={16} color={colors.danger} />
               <Text style={styles.absageText}>{fehler}</Text>
             </View>
+          ) : letzte ? (
+            <View style={styles.absage}>
+              <Ionicons name="checkmark-circle" size={16} color={colors.inkFaint} />
+              <Text style={styles.gesendetText}>
+                «{letzte}» ging an den Hub. Tut der Fernseher nichts, liegt es an ihm.
+              </Text>
+            </View>
           ) : null}
         </Pressable>
       </Pressable>
@@ -161,5 +184,6 @@ const makeStyles = (colors: Colors) =>
       paddingTop: 4,
     },
     absageText: { flex: 1, fontSize: 13, lineHeight: 18, color: colors.inkSoft },
+    gesendetText: { flex: 1, fontSize: 12, lineHeight: 17, color: colors.inkFaint },
     keyPressed: { backgroundColor: colors.surfaceStrong },
   });
