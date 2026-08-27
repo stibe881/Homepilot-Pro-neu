@@ -48,6 +48,7 @@ import {
   warnZeile,
   zusammenfassung,
 } from '../lib/anwesenheitskarte';
+import { Rueckeintrag, bandSatz, eintragName, nochGueltig } from '../lib/rueckband';
 import { mitglieder, pruefeName, rolleWort } from '../lib/mitglieder';
 import { Person } from '../lib/personen';
 import {
@@ -187,6 +188,11 @@ export function FamilyScreen({
   // ausgeblendet ist, ist nicht weg, nur nicht im Weg.
   const versteckteModule = useMemo(() => hiddenModules ?? [], [hiddenModules]);
   const [ordnen, setOrdnen] = useState(false);
+  // Was zuletzt gelöscht wurde - für die Sekunden, in denen man den
+  // Fehltipp bemerkt. Der Papierkorb hat es auch, aber vier Tipper
+  // weit weg (siehe lib/rueckband.ts).
+  const [zurueck, setZurueck] = useState<Rueckeintrag | null>(null);
+  const [jetztTick, setJetztTick] = useState(Date.now());
   // Vom Essensplaner direkt ins Rezept springen (Punkt 146).
   const [rezeptStart, setRezeptStart] = useState<string | null>(null);
   // Einkaufsliste: welcher Laden gefiltert ist (Punkt 175) und ob der
@@ -488,6 +494,18 @@ export function FamilyScreen({
 
   const remove = useCallback(
     async (collection: string, id: string) => {
+      // Den Namen jetzt holen, nicht nachher: Nach dem Löschen steht er
+      // nirgends mehr, und «Eintrag gelöscht» ist keine Auskunft.
+      const zeile = ((data as Record<string, unknown>)[collection] as
+        | { id?: string; text?: string; name?: string }[]
+        | undefined)?.find((posten) => posten.id === id);
+      setZurueck({
+        name: eintragName(zeile ?? null),
+        label: 'gelöscht',
+        at: Date.now(),
+        collection,
+        id,
+      });
       const eintrag: Vorgemerkt = {
         kind: 'remove',
         collection,
@@ -501,8 +519,32 @@ export function FamilyScreen({
       setVerbunden(false);
       setOffen((vorher) => merke(vorher, eintrag));
     },
-    [senden, load]
+    [senden, load, data]
   );
+
+  /** Das eben Gelöschte zurückholen - über den Papierkorb des Hubs. */
+  const zurueckholen = useCallback(async () => {
+    if (!zurueck) return;
+    setZurueck(null);
+    await hub
+      .post(
+        `/api/family-trash/${encodeURIComponent(zurueck.collection)}/` +
+          `${encodeURIComponent(zurueck.id)}/restore`,
+        undefined,
+        { still: true },
+      )
+      .catch(() => undefined);
+    load();
+  }, [zurueck, hub, load]);
+
+  // Der Takt fürs Band: Es verschwindet von selbst, und ohne diesen
+  // Tick bliebe es stehen, bis der Bildschirm aus einem anderen Grund
+  // neu zeichnet.
+  useEffect(() => {
+    if (!zurueck) return undefined;
+    const takt = setInterval(() => setJetztTick(Date.now()), 1000);
+    return () => clearInterval(takt);
+  }, [zurueck]);
 
   // Was der Hub nebenbei weiss: fällige Standardartikel, die Hausadresse
   // und wer gerade da ist. Alles drei ohne Aufhebens - fehlt es, bleibt
@@ -4073,6 +4115,24 @@ export function FamilyScreen({
 
   return (
     <View style={styles.stack}>
+      {/* Wer danebentippt, merkt es in derselben Sekunde und will es in
+          derselben Sekunde zurück. Dass der Eintrag «irgendwo im
+          Papierkorb noch da» ist, hilft ihm nicht - das sind vier
+          Tipper. Das Band steht acht Sekunden. */}
+      {nochGueltig(zurueck, jetztTick) ? (
+        <Pressable
+          onPress={zurueckholen}
+          accessibilityRole="button"
+          accessibilityLabel={`${bandSatz(zurueck)} – rückgängig machen`}
+          style={({ pressed }) => [styles.rueckband, pressed && { opacity: 0.8 }]}
+        >
+          <Ionicons name="arrow-undo" size={16} color={colors.accent} />
+          <Text style={styles.rueckbandText} numberOfLines={1}>
+            {bandSatz(zurueck)}
+          </Text>
+          <Text style={styles.rueckbandKnopf}>Rückgängig</Text>
+        </Pressable>
+      ) : null}
       <View style={styles.titleRow}>
         <Text style={styles.title}>Familie</Text>
         {onReorderModules ? (
