@@ -652,6 +652,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     eigenePrefs,
     setOrder,
     setHidden,
+    setFamilyHidden,
     setLocked,
     setUngezaehlt,
     setSeenChanges,
@@ -1477,6 +1478,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           currentUser={user}
           moduleOrder={prefs.order?.family}
           onReorderModules={(keys) => setOrder('family', keys)}
+          hiddenModules={prefs.familyHidden}
+          onHiddenModules={setFamilyHidden}
           changedAt={familyChangedAt}
           startModul={riegelModul}
         />

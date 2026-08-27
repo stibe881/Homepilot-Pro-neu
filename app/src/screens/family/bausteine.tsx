@@ -45,6 +45,11 @@ export interface Props {
   /** Selbst gezogene Reihenfolge der Modul-Kacheln (je Benutzer, vom Hub). */
   moduleOrder?: string[];
   onReorderModules?: (keys: string[]) => void;
+  /** Ausgeblendete Kacheln – wie die Reihenfolge vom Hub, nicht aus dem
+   *  Speicher der App: Sonst hält es genau so lange wie die Installation
+   *  auf diesem einen Telefon. */
+  hiddenModules?: string[];
+  onHiddenModules?: (keys: string[]) => void;
   /** Zeitstempel der letzten Familien-Änderung (family_changed über den
    *  WebSocket) – ändert er sich, lädt der Bildschirm neu. */
   changedAt?: number;
