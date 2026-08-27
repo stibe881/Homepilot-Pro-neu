@@ -66,6 +66,7 @@ import {
   restSekunden,
 } from '../lib/klingel';
 import { deviceKindLabel, musikboxenImRaum } from '../lib/geraeteart';
+import { rueckangebot } from '../lib/rueckgriff';
 import { szenenFuerKachel, szenenFuerRaum } from '../lib/szenen';
 import {
   GeraeteFilter,
@@ -373,6 +374,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   einkaufRef.current = einkauf;
   // Was gerade abgehakt wurde, für einen Moment aufgehoben.
   const [einkaufUndo, setEinkaufUndo] = useState<{ id: string; text: string } | null>(null);
+  // Der letzte grosse Griff («Alles aus»), solange er sich zurücknehmen
+  // lässt. Die Kennung gehört dem Hub: Er hat den Stand von vorher
+  // aufgenommen, die App kennt nur den Zettel dazu.
+  const [griffUndo, setGriffUndo] = useState<{ id: string; count: number } | null>(null);
   const [laeden, setLaeden] = useState<Shop[]>([]);
   // Schon einmal eingekaufte Artikel – die Vervollständigung im Fenster
   // der Kopfzeile lebt davon. Kommt aus dem Hub, nicht vom Gerät: Was
@@ -586,6 +591,60 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       )
       .finally(ladeEinkauf);
   }, [einkaufUndo, hub, ladeEinkauf]);
+
+  /**
+   * Den Rückweg zu einem grossen Griff beim Hub hinterlegen.
+   *
+   * Der einzelne Befehl hat sein Zurück in useHub; bei zwanzig Geräten
+   * auf einmal hilft das nicht. Der Hub rechnet aus dem Stand von vorher
+   * aus, was zurückzuschalten wäre – und lässt Geräte weg, an denen der
+   * Griff nichts geändert hat (hub/core/rueckgriff.py).
+   */
+  const merkeGriff = useCallback(
+    async (titel: string, entityIds: string[]) => {
+      setGriffUndo(null);
+      if (entityIds.length === 0) return;
+      const antwort = await hub.post<{ undo: { id: string } | null }>(
+        '/api/undo',
+        { title: titel, entity_ids: entityIds },
+        { fallback: { undo: null }, still: true }
+      );
+      // Gezählt wird, was der Griff schaltet, nicht was sich davon
+      // zurückholen lässt: Der Satz auf der Einblendung berichtet, was
+      // gerade passiert ist. Dass ein Saugroboter nicht mit zurückkommt,
+      // steht in hub/core/szenenrueckweg.py (OHNE_RUECKWEG).
+      if (antwort.undo) setGriffUndo({ id: antwort.undo.id, count: entityIds.length });
+    },
+    [hub]
+  );
+
+  /** Den letzten grossen Griff zurücknehmen. */
+  const nimmGriffZurueck = useCallback(() => {
+    const zurueck = griffUndo;
+    if (!zurueck) return;
+    setGriffUndo(null);
+    hub
+      .post<{ restored?: string[] }>(`/api/undo/${zurueck.id}/run`, undefined, {
+        fallback: {},
+      })
+      .then((antwort) => {
+        const zahl = antwort.restored?.length ?? 0;
+        if (zahl > 0) setNote(`${zahl} Gerät${zahl === 1 ? '' : 'e'} zurückgeschaltet`);
+      });
+  }, [griffUndo, hub]);
+
+  // Was die Einblendung unten anbietet: Abhaken, Griff oder die letzte
+  // Schaltung – in dieser Reihenfolge, aus einem Grund (lib/rueckgriff.ts).
+  const rueckAngebot = useMemo(
+    () =>
+      rueckangebot({
+        fehler: !!(error || abrufFehler),
+        einkauf: einkaufUndo ? { name: mengeUndName(einkaufUndo.text).name } : null,
+        griff: griffUndo,
+        befehl: undo,
+      }),
+    [error, abrufFehler, einkaufUndo, griffUndo, undo]
+  );
 
   /** Einen Artikel auf die Liste setzen – aus dem Fenster der Kopfzeile.
    *
@@ -2046,6 +2105,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 entities={entities}
                 locked={locked}
                 onCommand={guardedCommand}
+                onRecordUndo={merkeGriff}
                 openSignal={allOffSignal}
                 ohneKnopf
               />
@@ -2314,6 +2374,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   entities={inRoom}
                   locked={locked}
                   onCommand={guardedCommand}
+                  onRecordUndo={merkeGriff}
                   compact
                 />
                 {inRoom.some(
@@ -2680,27 +2741,30 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           onDismiss={error ? dismissError : () => setAbrufFehler(null)}
           bottomInset={insets.bottom}
         />
-        {/* Nur wenn nichts schiefging – ein fehlgeschlagener Befehl hat nichts
-          hinterlassen, was man zurücknehmen müsste.
-
-          Das Abhaken im Laden hat Vorrang vor einer Schaltung: Es ist die
-          jüngere Handlung, und es ist die, bei der man danebentippt. */}
+        {/* Welches der drei möglichen «Zurück» gemeint ist, entscheidet
+          lib/rueckgriff.ts – dort steht auch, warum in dieser Reihenfolge. */}
         <UndoToast
-          what={
-            error || abrufFehler
-              ? null
-              : einkaufUndo
-                ? { name: mengeUndName(einkaufUndo.text).name, label: 'abgehakt' }
-                : undo
+          what={rueckAngebot.what}
+          onUndo={
+            rueckAngebot.quelle === 'einkauf'
+              ? nimmAbhakenZurueck
+              : rueckAngebot.quelle === 'griff'
+                ? nimmGriffZurueck
+                : undoLast
           }
-          onUndo={einkaufUndo ? nimmAbhakenZurueck : undoLast}
-          onDismiss={einkaufUndo ? () => setEinkaufUndo(null) : dismissUndo}
+          onDismiss={
+            rueckAngebot.quelle === 'einkauf'
+              ? () => setEinkaufUndo(null)
+              : rueckAngebot.quelle === 'griff'
+                ? () => setGriffUndo(null)
+                : dismissUndo
+          }
           bottomInset={insets.bottom}
         />
         {/* Gelungenes tritt hinter beides zurück: Wer gerade einen Fehler
           liest, braucht nicht noch ein Häkchen daneben. */}
         <Bestaetigung
-          text={error || abrufFehler || undo || einkaufUndo ? null : note}
+          text={error || abrufFehler || rueckAngebot.what ? null : note}
           onDismiss={() => setNote(null)}
           bottomInset={insets.bottom}
         />

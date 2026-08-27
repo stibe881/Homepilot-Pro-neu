@@ -154,6 +154,14 @@ class GoodNightRequest(BaseModel):
     arm_alarm: bool = False
 
 
+class UndoRecordRequest(BaseModel):
+    """Den Rückweg zu einem grossen Griff hinterlegen – vor dem Schalten."""
+
+    title: str = "Griff"
+    entity_ids: list[str] = []
+    command: str = "turn_off"
+
+
 class VoucherRequest(BaseModel):
     """Ein WLAN-Gutschein fürs Captive Portal."""
 

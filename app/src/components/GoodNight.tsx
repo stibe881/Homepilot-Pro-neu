@@ -28,6 +28,9 @@ interface GoodNightResult {
   unlocked: string[];
   alarm: string | null;
   alarm_error: string | null;
+  /** Der Rückweg, den der Hub vor dem Schalten aufgenommen hat – oder
+   *  null, wenn es nichts zurückzunehmen gibt (es brannte kein Licht). */
+  undo: { id: string; count: number } | null;
 }
 
 export function GoodNight({
@@ -50,6 +53,9 @@ export function GoodNight({
   const [result, setResult] = useState<GoodNightResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Steht der Rückweg noch offen? Nach dem Drücken ist er verbraucht -
+  // der Hub gibt ihn nur einmal her.
+  const [zurueck, setZurueck] = useState<string | null>(null);
 
   const hub = useMemo(
     () => hubClient(settings.url, settings.token),
@@ -85,7 +91,13 @@ export function GoodNight({
     setBusy(true);
     setError(null);
     try {
-      setResult(await hub.post('/api/goodnight/run', undefined, { still: true }));
+      const bericht: GoodNightResult = await hub.post(
+        '/api/goodnight/run',
+        undefined,
+        { still: true }
+      );
+      setResult(bericht);
+      setZurueck(bericht.undo?.id ?? null);
     } catch (err) {
       setError(String(err instanceof Error ? err.message : err));
     } finally {
@@ -98,6 +110,28 @@ export function GoodNight({
     setResult(null);
     setEditing(false);
     setError(null);
+    setZurueck(null);
+  };
+
+  /**
+   * Die Lichter wieder an, wie sie waren.
+   *
+   * Der Fall: Man drückt «Gute Nacht» und liest im Bericht, dass im Büro
+   * noch jemand sitzt. Der Hub hat den Stand von vorher aufgenommen und
+   * schaltet ihn zurück – Helligkeit inbegriffen, Alarmanlage nicht.
+   */
+  const zurueckschalten = async () => {
+    if (!zurueck) return;
+    setBusy(true);
+    setZurueck(null);
+    try {
+      await hub.post(`/api/undo/${zurueck}/run`, undefined, { still: true });
+      close();
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -241,7 +275,21 @@ export function GoodNight({
                     Nicht abgeschlossen: {result.unlocked.join(', ')}
                   </Text>
                 ) : null}
+                {error ? (
+                  <Text style={[styles.hint, { color: colors.danger }]}>{error}</Text>
+                ) : null}
                 <View style={styles.actions}>
+                  {/* Nur solange es etwas zurückzunehmen gibt: Ein Knopf,
+                      der nichts tut, ist schlimmer als keiner. */}
+                  {zurueck ? (
+                    <Pressable
+                      onPress={() => void zurueckschalten()}
+                      disabled={busy}
+                      style={[styles.cancel, busy && { opacity: 0.6 }]}
+                    >
+                      <Text style={styles.cancelText}>Lichter zurück</Text>
+                    </Pressable>
+                  ) : null}
                   <Pressable onPress={close} style={styles.confirm}>
                     <Text style={styles.confirmText}>Schlaf gut</Text>
                   </Pressable>
