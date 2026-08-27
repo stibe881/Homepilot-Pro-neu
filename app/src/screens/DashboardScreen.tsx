@@ -85,7 +85,7 @@ import {
 import { Person } from '../lib/ortung';
 import { FAVORITEN, raumGruppen } from '../lib/raumgruppen';
 import { verlangtPin } from '../lib/alarmpin';
-import { OffenesModul, istGesperrt, offeneModule } from '../lib/bereichsriegel';
+import { OffenesModul, istGesperrt, istPersoenlich, offeneModule } from '../lib/bereichsriegel';
 import { schleier } from '../lib/nachtabsenkung';
 import { nachBewegung } from '../lib/kameraordnung';
 import { hubClient, onHubFehler } from '../api/client';
@@ -321,6 +321,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [searchOpen, setSearchOpen] = useState(false);
   // Abläufe – nur für die Suche; die Liste selbst lebt im Ablauf-Screen.
   const [automations, setAutomations] = useState<SuchAblauf[]>([]);
+  // Läuft der Babysitter-Modus? Nur dann hält der Riegel vor Familie und
+  // Konto überhaupt zu (lib/bereichsriegel.ts). Bewusst gemerkt und nicht
+  // bei jedem Fehlschlag zurückgesetzt: Ein Aussetzer im Netz soll die
+  // Einkaufsliste nicht ausgerechnet an dem Abend aufsperren.
+  const [babysitter, setBabysitter] = useState(false);
+  // Steht hier gerade überhaupt ein Riegel zur Debatte? Nur dann lohnt
+  // es, den Babysitter-Modus frisch zu holen.
+  const riegelFrage = Boolean(settings.panel) && istPersoenlich(section);
   // Rückfrage vor dem Schalten eines gesperrten Geräts.
   const [confirm, setConfirm] = useState<{
     entity: Entity;
@@ -592,12 +600,23 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     [hub, settings.url, ladeEinkauf, setzeMenge]
   );
 
-  // Die Ablaufnamen einmal holen, damit die Suche sie kennt.
+  // Die Ablaufnamen holen, damit die Suche sie kennt – und den
+  // Babysitter-Modus gleich mit.
+  //
+  // Und noch einmal, sobald am Panel ein persönlicher Bereich aufgeht:
+  // Der Riegel davor hängt am Babysitter-Modus, und der wird vom Telefon
+  // aus umgelegt, während das Panel im Flur längst offen dasteht. Der
+  // Moment, in dem dort jemand «Familie» drückt, ist genau der, in dem
+  // die Auskunft frisch sein muss. Nicht bei jedem Bereichswechsel: Am
+  // Telefon steht der Riegel nie, und die Ablaufliste ist keine kleine
+  // Antwort.
   useEffect(() => {
     if (!settings.url || !settings.token || status !== 'connected') return;
     let alive = true;
     hub
-      .get<{ automations?: SuchAblauf[] } | SuchAblauf[]>('/api/automations', {
+      .get<
+        { automations?: SuchAblauf[]; babysitter?: { active?: boolean } } | SuchAblauf[]
+      >('/api/automations', {
         fallback: [],
         still: true,
       })
@@ -606,14 +625,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         // alte Array-Check liess die Liste immer leer, und die Suche
         // fand nie einen Ablauf, ohne dass es jemandem auffiel.
         const liste = Array.isArray(rows) ? rows : rows?.automations;
-        if (alive) setAutomations(Array.isArray(liste) ? liste : []);
+        if (!alive) return;
+        setAutomations(Array.isArray(liste) ? liste : []);
+        // Derselbe Abruf trägt den Babysitter-Modus mit. Eine eigene
+        // Anfrage dafür wäre eine mehr für dieselbe Antwort.
+        if (!Array.isArray(rows)) setBabysitter(!!rows?.babysitter?.active);
       })
       // Ohne Antwort keine Vorschläge - die Startseite trägt das.
       .catch(() => {});
     return () => {
       alive = false;
     };
-  }, [settings.url, settings.token, status]);
+  }, [settings.url, settings.token, status, riegelFrage]);
 
   // Beim Verlassen der Geräteliste die Suche zurücksetzen – wer später
   // zurückkommt, will die volle Liste sehen, nicht den alten Suchbegriff.
@@ -1408,7 +1431,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     // Der Riegel vor Familie und Konto - siehe lib/bereichsriegel.ts. Er
     // steht vor dem Verteiler, damit kein Bereich ihn vergessen kann.
     // `now` tickt ohnehin; damit läuft die offene Zeit von selbst ab.
-    const gesperrt = istGesperrt(section, user?.area_locked, riegelBis, now.getTime());
+    const gesperrt = istGesperrt(section, {
+      areaLocked: user?.area_locked,
+      panel: settings.panel,
+      babysitter,
+      offenBis: riegelBis,
+      jetzt: now.getTime(),
+    });
     // Die Abkürzungen zählen wie ein aufgeschlossener Riegel - solange
     // sie führen, ist der Bereich offen, aber nur für dieses eine Modul.
     if (gesperrt && riegelModul === null) {
