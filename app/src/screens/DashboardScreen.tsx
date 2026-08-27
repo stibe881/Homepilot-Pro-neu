@@ -92,7 +92,15 @@ import { FAVORITEN, raumGruppen } from '../lib/raumgruppen';
 import { verlangtPin } from '../lib/alarmpin';
 import { OffenesModul, istGesperrt, istPersoenlich, offeneModule } from '../lib/bereichsriegel';
 import { schleier } from '../lib/nachtabsenkung';
+import { Kamerawand } from '../components/Kamerawand';
+import { HausRueckblick } from './HausRueckblick';
 import { nachBewegung } from '../lib/kameraordnung';
+import {
+  hinweis as tageszeitHinweis,
+  jetzigerAbschnitt,
+  lohntSich,
+  nachTageszeit,
+} from '../lib/tageszeit';
 import { hubClient, onHubFehler } from '../api/client';
 import { Auffangnetz } from '../components/Auffangnetz';
 import { AutomationsScreen } from './AutomationsScreen';
@@ -323,6 +331,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [dismissedRing, setDismissedRing] = useState<string | null>(null);
   // Angetippte Kamera im Vollbild (Entitäts-ID, damit Live-Updates ankommen).
   const [fullscreen, setFullscreen] = useState<string | null>(null);
+  // Alle Kameras nebeneinander - fürs Tablet im Flur die einzige
+  // sinnvolle Ansicht (siehe components/Kamerawand.tsx).
+  const [wandOffen, setWandOffen] = useState(false);
   // Gerät, dessen Verlauf gerade offen ist (Geräte-Ansicht, Tipp auf die Kachel).
   const [historyFor, setHistoryFor] = useState<string | null>(null);
   // Auf der Startseite markierte Countdowns aus dem Familie-Modul.
@@ -773,6 +784,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setUngezaehlt,
     setSeenChanges,
     setKameraDynamisch,
+    setTageszeit,
     setLiveTuer,
     setFavorites,
     setFavoriteOrder,
@@ -1258,11 +1270,21 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     orderScope != null && (orderIds.length > 0 || (editing && !searching));
   const running =
     section === 'home' && !customOrdered ? shown.filter(isActive).sort(byFavorite) : [];
+  // Nach Tageszeit sortieren - aber nur, wenn jemand das eingeschaltet
+  // hat, und nur, wo es etwas zu sortieren gibt. Beim Anpassen und beim
+  // Suchen bleibt die Reihenfolge, wie sie ist: Sonst zieht man eine
+  // Kachel, und sie springt zur nächsten vollen Stunde weg.
+  const tageszeitAn =
+    !!eigenePrefs.tageszeit && !editing && !searching && lohntSich(shown);
+  const abschnitt = tageszeitAn ? jetzigerAbschnitt(now.getTime()) : null;
+  const nachZeit = <T extends { kind: string }>(liste: T[]): T[] =>
+    abschnitt ? nachTageszeit(liste, abschnitt) : liste;
+
   const rest =
     section === 'home'
       ? customOrdered
-        ? [...shown].sort(byOrder)
-        : shown.filter((entity) => !isActive(entity)).sort(byFavorite)
+        ? nachZeit([...shown].sort(byOrder))
+        : nachZeit(shown.filter((entity) => !isActive(entity)).sort(byFavorite))
       : section === 'devices'
         ? sortiereGeraete([...found].sort(byOrder), deviceSort, deviceKindLabel)
         : section === 'cameras' && eigenePrefs.kameraDynamisch && !editing
@@ -1767,8 +1789,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         {
           key: 'activity',
           icon: 'timer-outline',
-          label: 'Zuletzt passiert',
-          detail: 'Protokoll der letzten Änderungen',
+          label: 'Was war los',
+          detail: 'Der Rückblick über alle Geräte – Tage zurück',
           show: sieht('activity'),
         },
         {
@@ -1861,6 +1883,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       return (
         <View style={styles.stack}>
           {back}
+          {/* Zuerst der Rückblick über alle Geräte: Er hat ein
+              Gedächtnis, das den Neustart übersteht. Die flüchtige
+              Liste darunter zeigt, was seit dem Öffnen der App
+              geschah - sie ist schneller, aber sie fängt bei jedem
+              Start wieder von vorne an. */}
+          <HausRueckblick settings={settings} />
           <ActivityCard activity={activity} />
         </View>
       );
@@ -2074,6 +2102,24 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               Telefon. */}
           {section === 'cameras' && rest.length > 1 && !editing ? (
             <Pressable
+              onPress={() => setWandOffen(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Alle Kameras nebeneinander zeigen"
+              style={({ pressed }) => [styles.kameraSort, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons name="grid-outline" size={18} color={colors.onGradientSoft} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.reorderText}>Alle nebeneinander</Text>
+                <Text style={styles.kameraSortHint}>
+                  Standbilder, die sich von selbst auffrischen – antippen zeigt
+                  eine gross und live.
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={22} color={colors.inkFaint} />
+            </Pressable>
+          ) : null}
+          {section === 'cameras' && rest.length > 1 && !editing ? (
+            <Pressable
               onPress={() => setKameraDynamisch(!eigenePrefs.kameraDynamisch)}
               accessibilityRole="switch"
               accessibilityState={{ checked: !!eigenePrefs.kameraDynamisch }}
@@ -2103,6 +2149,47 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 name={eigenePrefs.kameraDynamisch ? 'toggle' : 'toggle-outline'}
                 size={30}
                 color={eigenePrefs.kameraDynamisch ? colors.accent : colors.inkFaint}
+              />
+            </Pressable>
+          ) : null}
+          {/* Der Schalter für die Tageszeit steht dort, wo sie wirkt -
+              auf der Startseite. Aus, bis jemand ihn einschaltet: Eine
+              Wohnung, die sich von selbst umsortiert, ohne dass man es
+              bestellt hat, ist keine eingerichtete Wohnung, sondern eine,
+              in der man morgens sucht. Und je Person, weil es Gewohnheit
+              ist: Wer um sechs aufsteht, meint mit «Morgen» etwas
+              anderes als wer um neun anfängt. */}
+          {section === 'home' && !editing && !searching && lohntSich(shown) ? (
+            <Pressable
+              onPress={() => setTageszeit(!eigenePrefs.tageszeit)}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: !!eigenePrefs.tageszeit }}
+              accessibilityLabel={
+                eigenePrefs.tageszeit
+                  ? 'Kacheln wieder in fester Reihenfolge zeigen'
+                  : 'Kacheln nach Tageszeit sortieren'
+              }
+              style={({ pressed }) => [styles.kameraSort, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons
+                name={eigenePrefs.tageszeit ? 'sunny' : 'list-outline'}
+                size={18}
+                color={eigenePrefs.tageszeit ? colors.accent : colors.onGradientSoft}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.reorderText}>
+                  {abschnitt ? tageszeitHinweis(abschnitt) : 'Feste Reihenfolge'}
+                </Text>
+                <Text style={styles.kameraSortHint}>
+                  {eigenePrefs.tageszeit
+                    ? 'Morgens Storen, abends Licht – die Reihenfolge wandert mit dem Tag. Gilt nur für dich.'
+                    : 'Immer dieselbe Reihenfolge, egal wie spät es ist.'}
+                </Text>
+              </View>
+              <Ionicons
+                name={eigenePrefs.tageszeit ? 'toggle' : 'toggle-outline'}
+                size={30}
+                color={eigenePrefs.tageszeit ? colors.accent : colors.inkFaint}
               />
             </Pressable>
           ) : null}
@@ -2698,6 +2785,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             onDismiss={() => setDismissedRing(ringKey)}
             colors={colors}
             styles={styles}
+          />
+        ) : null}
+
+        {wandOffen ? (
+          <Kamerawand
+            kameras={rest}
+            bildUrl={snapshotUrl}
+            onOeffnen={(kamera) => {
+              setWandOffen(false);
+              setFullscreen(kamera.id);
+            }}
+            onClose={() => setWandOffen(false)}
           />
         ) : null}
 
