@@ -1,6 +1,9 @@
 /** Entwurf ↔ gespeicherte Form: die neuen Felder aus dem zweiten Heft. */
 import {
   EMPTY,
+  type Run,
+  wirkungText,
+  lastRunText,
   EMPTY_STEP,
   EMPTY_TRIGGER,
   buildConditions,
@@ -1190,5 +1193,43 @@ describe('namensVorschlag', () => {
       steps: [{ ...EMPTY_STEP, kind: 'broadcast', broadcastText: 'Essen ist fertig!' }],
     });
     expect(namensVorschlag(sagen, geraete)).toBe('Durchsage bei Bewegung Flur');
+  });
+});
+
+describe('Wirkte der Ablauf?', () => {
+  const lauf = (effect: Run['effect']): Run => ({
+    automation_id: 'a',
+    alias: 'Licht bei Bewegung',
+    at: 1_700_000_000,
+    executed: true,
+    skipped: [],
+    effect,
+  });
+
+  test('was gewirkt hat, steht nicht daneben – sonst übersieht man die eine Zeile', () => {
+    expect(wirkungText(lauf({ urteil: 'gewirkt', geprueft: 2, nicht: [] }))).toBeNull();
+  });
+
+  test('ein Lauf ohne Nachschau meldet nichts', () => {
+    expect(wirkungText(lauf(null))).toBeNull();
+    expect(wirkungText(lauf(undefined))).toBeNull();
+  });
+
+  test('wirkungslos nennt die Geräte, die nicht folgten', () => {
+    expect(
+      wirkungText(lauf({ urteil: 'wirkungslos', geprueft: 1, nicht: ['Licht Küche'] }))
+    ).toBe('wirkte nicht: Licht Küche');
+  });
+
+  test('halb gewirkt sagt, welches Gerät fehlt', () => {
+    expect(
+      wirkungText(lauf({ urteil: 'teilweise', geprueft: 2, nicht: ['Stehlampe'] }))
+    ).toBe('wirkte nur halb – ohne Stehlampe');
+  });
+
+  test('die zugeklappte Zeile trägt es mit – dort sucht man danach', () => {
+    const runs = [lauf({ urteil: 'wirkungslos', geprueft: 1, nicht: ['Licht Küche'] })];
+    expect(lastRunText(runs, 'a')).toContain('wirkte nicht: Licht Küche');
+    expect(lastRunText(runs, 'a')).toContain('ausgeführt');
   });
 });

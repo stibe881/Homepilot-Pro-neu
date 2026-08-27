@@ -20,7 +20,7 @@ import {
 } from '../lib/szenen';
 import { BabysitterStand, LEERER_BABYSITTER, istFreigegeben, modusSatz, seitText } from '../lib/babysitter';
 import { Editor, Fassung } from './automations/editor';
-import { Automation, Draft, DryRun, EMPTY, Run, StepDraft, TriggerHealth, buildConditions, describe, groupByCategory, lastRunText, namensVorschlag, newTrigger, runLine, search, stepToActions, stepsToActions, symbolFuerNamen, szenenSymbol, toDraft, triggerIcon, triggerToConfig, usedCategories, zeitpunktLabel } from './automations/entwurf';
+import { Automation, Draft, DryRun, EMPTY, Run, StepDraft, TriggerHealth, buildConditions, describe, groupByCategory, lastRunText, namensVorschlag, newTrigger, runLine, search, stepToActions, stepsToActions, symbolFuerNamen, szenenSymbol, toDraft, triggerIcon, triggerToConfig, usedCategories, wirkungText, zeitpunktLabel } from './automations/entwurf';
 import { Groups, SearchBox } from './automations/felder';
 import { laeuft, tippLabel, unterzeile } from '../lib/szenenzeile';
 import { bandReihenfolge, bandZeile } from '../lib/tagesband';
@@ -1301,6 +1301,15 @@ export function AutomationsScreen({
                           .map((run, index) => (
                             <View key={index}>
                               <Text style={styles.triggerNote}>{runLine(run)}</Text>
+                              {/* «Ausgeführt» heisst nur: abgeschickt. Ob
+                                  das Gerät danach auch so stand, hat der
+                                  Hub ein paar Sekunden später nachgesehen -
+                                  gemeldet wird nur, was nicht wirkte. */}
+                              {wirkungText(run) ? (
+                                <Text style={[styles.runStep, { color: colors.warn }]}>
+                                  · {wirkungText(run)}
+                                </Text>
+                              ) : null}
                               {/* Die Schritt-Spur (Punkt 160): beim
                                   neuesten Lauf und bei Fehlläufen - dort
                                   steht, WELCHER Schritt hing. */}
