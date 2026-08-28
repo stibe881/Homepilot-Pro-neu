@@ -21,6 +21,7 @@ import { begruessung } from '../lib/begruessung';
 import {
   Bereich,
   adminZeile,
+  einstiegsSeite,
   gruppeVon,
   siehtBereich,
 } from '../lib/einstellungsmenue';
@@ -76,6 +77,7 @@ import {
   klingeltGerade,
   neueFrist,
   restSekunden,
+  vollbildZeigen,
 } from '../lib/klingel';
 import { deviceKindLabel, musikboxenImRaum } from '../lib/geraeteart';
 import { rueckangebot } from '../lib/rueckgriff';
@@ -105,6 +107,7 @@ import { verlangtPin } from '../lib/alarmpin';
 import { OffenesModul, istGesperrt, istPersoenlich, offeneModule } from '../lib/bereichsriegel';
 import { schleier } from '../lib/nachtabsenkung';
 import { Einrichtungshilfe } from '../components/Einrichtungshilfe';
+import { EinstellungsTabs } from '../components/EinstellungsTabs';
 import { Kamerawand } from '../components/Kamerawand';
 import { HausRueckblick } from './HausRueckblick';
 import { nachBewegung } from '../lib/kameraordnung';
@@ -316,6 +319,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     (user?.capabilities ?? []).includes('edit_config');
 
   const [section, setSection] = useState<Section>('start');
+  // Die grosse Liste, damit ein Wechsel oben anfängt (siehe unten).
+  const blatt = useRef<ScrollView>(null);
+  // Welche Einstellungsseite zuletzt offen war - damit «Einstellungen»
+  // auf einem breiten Bildschirm dort weitermacht, wo man aufgehört hat.
+  // Eine Ref und kein Zustand: Der Wert wird nirgends gezeichnet, nur
+  // beim nächsten Öffnen gelesen. Als Zustand wäre jede Seite in den
+  // Einstellungen eine zweite Zeichnung wert - für nichts.
+  const zuletztEinstellung = useRef<Section | null>(null);
   // Aufgeklappt kommt man nur über die Batteriewarnung hierher; sonst
   // entscheidet die Karte selbst (siehe DeviceHealth).
   const [batterienOffen, setBatterienOffen] = useState(false);
@@ -330,6 +341,21 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Welches Modul die Abkürzung am Wandpanel aufmachen soll.
   const [riegelModul, setRiegelModul] = useState<OffenesModul | null>(null);
   const [room, setRoom] = useState(ALL_ROOMS);
+
+  // Ein neuer Bereich, ein neuer Raum: oben anfangen.
+  //
+  // Die Räume stehen weit unten auf der Startseite. Wer dorthin scrollte
+  // und einen antippte, bekam die Kacheln des Raums - blieb aber auf
+  // derselben Höhe stehen und sah sie deshalb erst nach dem
+  // Hochscrollen. Der Inhalt war neu, die Blickhöhe die alte, und es sah
+  // aus, als stünde der Raum am Ende der Seite.
+  //
+  // Ohne Bewegung: Ein Sprung nach oben ist die Antwort auf einen Tipp,
+  // kein Weg, den man mitverfolgen soll.
+  useEffect(() => {
+    blatt.current?.scrollTo({ y: 0, animated: false });
+  }, [section, room]);
+
   const [now, setNow] = useState(() => new Date());
   const [gridWidth, setGridWidth] = useState(0);
   const [editing, setEditing] = useState(false);
@@ -1889,7 +1915,53 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     'users', 'personen', 'automations', 'alarm', 'speakers',
     'energy', 'system', 'activity', 'widgets', 'account', 'connection',
   ];
-  const zweispaltig = width >= 1000 && einstellungsSeiten.includes(section);
+  /** Ab hier ist Platz für Menü und Inhalt nebeneinander. */
+  const ZWEISPALTIG_AB = 1000;
+  const zweispaltig = width >= ZWEISPALTIG_AB && einstellungsSeiten.includes(section);
+  if (einstellungsSeiten.includes(section)) zuletztEinstellung.current = section;
+
+  // Welche dieser Seiten dieser Benutzer überhaupt sieht - in der
+  // Reihenfolge des Menüs, damit «die erste» dieselbe ist, die auch oben
+  // in der Spalte steht.
+  const offeneSeiten = sichtbarePunkte
+    .map((item) => item.key)
+    .filter((key): key is Section => einstellungsSeiten.includes(key as Section));
+
+  /**
+   * Zu einem Bereich wechseln - mit einer Ausnahme.
+   *
+   * «Einstellungen» war ein Zwischenschritt für nichts: Man tippte
+   * darauf, bekam eine Liste von Kacheln, tippte noch einmal, und erst
+   * dann stand die Ansicht da, die man gemeint hatte. Zweimal derselbe
+   * Weg, einmal davon vergeblich.
+   *
+   * Also geht gleich eine Seite auf; die vom letzten Mal, sonst die
+   * erste (lib/einstellungsmenue.ts). Das Menü steht dabei immer
+   * daneben: auf dem breiten Bildschirm als Spalte links, auf dem
+   * Telefon als schiebbare Zeile darüber (components/EinstellungsTabs).
+   *
+   * Sieht jemand überhaupt keine solche Seite - ein Gast etwa -, bleibt
+   * es bei der Kachelliste: Ein leerer Bereich wäre schlimmer als eine
+   * kurze Liste.
+   */
+  // Womit die Leiste «Einstellungen» hervorhebt, solange man drin ist.
+  // Vorher stand dort nichts hervorgehoben, sobald man eine Seite offen
+  // hatte - und auf einem breiten Bildschirm ist man ab dem ersten Tipp
+  // immer auf einer Seite. Man sah dann nirgends mehr, wo man ist.
+  const railAktiv: Section = sichtbarePunkte.some((item) => item.key === section)
+    ? 'settings'
+    : section;
+
+  const waehleBereich = (ziel: Section) => {
+    if (ziel === 'settings') {
+      const start = einstiegsSeite(offeneSeiten, zuletztEinstellung.current);
+      if (start) {
+        setSection(start);
+        return;
+      }
+    }
+    setSection(ziel);
+  };
 
   const content = () => {
     // Der Riegel vor Familie und Konto - siehe lib/bereichsriegel.ts. Er
@@ -1971,18 +2043,24 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       );
     }
 
-    // Zurück-Zeile für alles, was über „Einstellungen“ erreicht wird.
-    // Zweispaltig braucht sie niemand: Das Menü steht daneben.
+    // Das Menü für alles, was über „Einstellungen“ erreicht wird.
+    // Zweispaltig braucht es niemand: Dort steht es daneben.
+    //
+    // Auf dem Telefon war hier eine blosse Zurück-Zeile, und damit war
+    // jeder Wechsel drei Handgriffe: zurück zur Liste, den Punkt suchen,
+    // wieder tippen. Jetzt ist jeder Punkt einen Tipp weit weg - und der
+    // Weg zur Kachelliste, wo die Erklärungen stehen, ganz links.
     const back = zweispaltig ? null : (
-      <Pressable
-        onPress={() => setSection('settings')}
-        accessibilityRole="button"
-        accessibilityLabel="Zurück zu Einstellungen"
-        style={styles.backRow}
-      >
-        <Ionicons name="chevron-back" size={18} color={colors.onGradient} />
-        <Text style={styles.backText}>Einstellungen</Text>
-      </Pressable>
+      <EinstellungsTabs
+        punkte={sichtbarePunkte}
+        active={section === 'settings' ? null : section}
+        onSelect={(key) => {
+          const punkt = sichtbarePunkte.find((item) => item.key === key);
+          if (punkt?.onPress) punkt.onPress();
+          else setSection(key as Section);
+        }}
+        onUebersicht={() => setSection('settings')}
+      />
     );
 
     if (section === 'settings') {
@@ -2961,8 +3039,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         <View style={[styles.frame, { paddingTop: insets.top }]}>
           {hasRail ? (
             <Rail
-              active={section}
-              onSelect={setSection}
+              active={railAktiv}
+              onSelect={waehleBereich}
               vertical
               capabilities={user?.capabilities ?? []}
               hidden={hiddenSections}
@@ -2970,6 +3048,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           ) : null}
 
           <ScrollView
+            ref={blatt}
             style={styles.scroll}
             contentContainerStyle={styles.content}
             showsVerticalScrollIndicator={false}
@@ -3123,8 +3202,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
 
         {!hasRail ? (
           <Rail
-            active={section}
-            onSelect={setSection}
+            active={railAktiv}
+            onSelect={waehleBereich}
             vertical={false}
             bottomInset={insets.bottom}
             capabilities={user?.capabilities ?? []}
@@ -3141,7 +3220,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           />
         ) : null}
 
-        {klingelt && ringKey && dismissedRing !== ringKey ? (
+        {/* Nur am Wandpanel (lib/klingel.ts: vollbildZeigen). Auf dem
+            Telefon reisst dasselbe Vollbild einem die App unter der Hand
+            weg - dort tut es die Nachricht. */}
+        {klingelt &&
+        vollbildZeigen({
+          panel: settings.panel,
+          ringKey,
+          weggewischt: dismissedRing,
+        }) ? (
           <DoorbellOverlay
             ausloeser={klingelt}
             camera={klingelKamera}

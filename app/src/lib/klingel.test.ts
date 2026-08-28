@@ -10,6 +10,7 @@ import {
   neueFrist,
   oeffnungsBefehl,
   restSekunden,
+  vollbildZeigen,
 } from './klingel';
 
 const geraet = (over: Partial<Entity> & { id: string }): Entity =>
@@ -179,5 +180,42 @@ describe('Zustandszeile der Haustüren-Kachel', () => {
     const gestern = new Date(2026, 7, 22, 18, 42).toISOString();
     expect(haustuerZeile({ state: 'online', last_ring: gestern }, heute)).toBeNull();
     expect(haustuerZeile({ state: 'online', last_ring: 'kaputt' }, heute)).toBeNull();
+  });
+});
+
+describe('Wer das Klingel-Vollbild sieht', () => {
+  it('zeigt es am Wandpanel', () => {
+    expect(
+      vollbildZeigen({ panel: true, ringKey: 'tuer:1', weggewischt: null })
+    ).toBe(true);
+  });
+
+  it('zeigt es nicht auf dem Telefon', () => {
+    // Dort reisst dasselbe Vollbild einem die App unter der Hand weg –
+    // auch dann, wenn man gar nicht zuhause ist.
+    expect(
+      vollbildZeigen({ panel: false, ringKey: 'tuer:1', weggewischt: null })
+    ).toBe(false);
+    expect(vollbildZeigen({ ringKey: 'tuer:1', weggewischt: null })).toBe(false);
+  });
+
+  it('zeigt nichts, solange es nicht klingelt', () => {
+    expect(vollbildZeigen({ panel: true, ringKey: null, weggewischt: null })).toBe(
+      false
+    );
+  });
+
+  it('kommt nach dem Wegwischen nicht wieder', () => {
+    expect(
+      vollbildZeigen({ panel: true, ringKey: 'tuer:1', weggewischt: 'tuer:1' })
+    ).toBe(false);
+  });
+
+  it('kommt beim nächsten Klingeln wieder', () => {
+    // Ein neues Läuten ist ein neuer Anlass, auch wenn das letzte
+    // weggewischt wurde.
+    expect(
+      vollbildZeigen({ panel: true, ringKey: 'tuer:2', weggewischt: 'tuer:1' })
+    ).toBe(true);
   });
 });
