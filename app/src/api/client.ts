@@ -91,6 +91,10 @@ export interface HubClient {
   post<T>(pfad: string, körper?: unknown, optionen?: Optionen<T>): Promise<T>;
   put<T>(pfad: string, körper?: unknown, optionen?: Optionen<T>): Promise<T>;
   del<T>(pfad: string, optionen?: Optionen<T>): Promise<T>;
+  /** Rohe Bytes senden – eine Tonaufnahme, ein Bild. Als JSON wären sie
+   *  base64-verpackt um ein Drittel grösser, ohne dass der Umweg etwas
+   *  brächte, was ein Content-Type nicht auch sagt. */
+  roh<T>(pfad: string, daten: Blob, optionen?: Optionen<T>): Promise<T>;
 }
 
 interface Optionen<T> {
@@ -113,13 +117,17 @@ export function hubClient(url: string, token: string): HubClient {
     const steuerung = new AbortController();
     const frist = setTimeout(() => steuerung.abort(), optionen.timeout ?? TIMEOUT_MS);
     try {
+      // Ein Blob geht so, wie er ist: Sein eigener Typ steht schon in
+      // ihm, und `fetch` setzt den Content-Type dann selbst.
+      const roh = typeof Blob !== 'undefined' && körper instanceof Blob;
       const antwort = await fetch(`${url}${pfad}`, {
         method: methode,
         headers: {
           Authorization: `Bearer ${token}`,
-          ...(körper !== undefined ? { 'Content-Type': 'application/json' } : {}),
+          ...(körper !== undefined && !roh ? { 'Content-Type': 'application/json' } : {}),
         },
-        body: körper !== undefined ? JSON.stringify(körper) : undefined,
+        body:
+          körper === undefined ? undefined : roh ? (körper as Blob) : JSON.stringify(körper),
         signal: steuerung.signal,
       });
       if (!antwort.ok) {
@@ -144,5 +152,6 @@ export function hubClient(url: string, token: string): HubClient {
     post: (pfad, körper, optionen) => ruf('POST', pfad, körper, optionen),
     put: (pfad, körper, optionen) => ruf('PUT', pfad, körper, optionen),
     del: (pfad, optionen) => ruf('DELETE', pfad, undefined, optionen),
+    roh: (pfad, daten, optionen) => ruf('POST', pfad, daten, optionen),
   };
 }

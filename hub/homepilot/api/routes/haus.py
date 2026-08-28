@@ -24,6 +24,7 @@ from ...core import goodnight as goodnight_module
 from ...core import (
     rueckgriff,
     say,
+    sprachnotiz,
 )
 from ...core.config_edit import add_cast_device
 from ...core.errors import HomePilotError
@@ -41,6 +42,19 @@ from ..models import (
 )
 
 log = logging.getLogger(__name__)
+
+
+def _lautstaerke(roh: str | None) -> int | None:
+    """Die Lautstärke aus der Adresse - oder nichts (rein, testbar).
+
+    Unsinn wird zu ``None`` statt zu einem Fehler: Dann gilt die feste
+    Durchsage-Lautstärke, und das ist eine bessere Antwort als eine
+    abgewiesene Sprachnotiz.
+    """
+    try:
+        return max(0, min(100, int(str(roh))))
+    except (TypeError, ValueError):
+        return None
 
 def register(app: FastAPI, ctx: ApiContext) -> None:
     hub = ctx.hub
@@ -251,11 +265,45 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             raise HTTPException(status_code=404, detail="Keine Durchsage")
         return Response(
             content=audio,
-            # Piper liefert WAV, gTTS MP3 - die Boxen wollen den ehrlichen
-            # Typ, sonst raten sie (RIFF ist der WAV-Kopf).
-            media_type="audio/wav" if audio[:4] == b"RIFF" else "audio/mpeg",
+            # Piper liefert WAV, gTTS MP3, eine Sprachnotiz WebM oder was
+            # der Browser sonst aufnimmt - die Boxen wollen den ehrlichen
+            # Typ, sonst raten sie (core/sprachnotiz.py).
+            media_type=sprachnotiz.medientyp(audio),
             headers={"Cache-Control": "no-store"},
         )
+
+    @app.post("/api/broadcast/voice")
+    async def broadcast_voice(request: Request) -> dict[str, Any]:
+        """Eine selbst gesprochene Notiz auf die Boxen.
+
+        Der Rumpf ist die Aufnahme selbst, roh - kein JSON, kein Base64:
+        Eine Minute Ton wird als Base64 um ein Drittel grösser, und der
+        Umweg brächte nichts, was ein Content-Type nicht auch sagt.
+        Empfänger und Lautstärke stehen darum in der Adresse.
+
+        Warum es die Aufnahme nur im Browser gibt und nicht in der
+        nativen App: core/sprachnotiz.py.
+        """
+        user = require(request, Capability.CONTROL)
+        say.remember_base(hub, str(request.base_url))
+        audio = await request.body()
+        try:
+            sprachnotiz.pruefen(audio)
+            return await say.play_audio(
+                hub,
+                audio,
+                str(request.base_url).rstrip("/"),
+                speakers=[
+                    teil
+                    for teil in request.query_params.get("speakers", "").split(",")
+                    if teil
+                ]
+                or None,
+                volume=_lautstaerke(request.query_params.get("volume")),
+                source=user_source(user.name),
+            )
+        except HomePilotError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
 
     # ── Küchen-Timer ───────────────────────────────────────────────────────
 

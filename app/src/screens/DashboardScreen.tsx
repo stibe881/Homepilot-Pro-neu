@@ -1111,6 +1111,23 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     [hub]
   );
 
+  /**
+   * Dasselbe mit der eigenen Stimme – die Aufnahme geht roh hinüber.
+   *
+   * Als JSON wäre sie base64-verpackt um ein Drittel grösser, und der
+   * Umweg brächte nichts, was der Content-Type des Blobs nicht auch
+   * sagt. Die Empfänger stehen darum in der Adresse.
+   */
+  const sendeSprachnotiz = useCallback(
+    async (aufnahme: Blob, speakers: string[]) =>
+      hub.roh<{ sent?: string[]; errors?: string[] }>(
+        `/api/broadcast/voice?speakers=${encodeURIComponent(speakers.join(','))}`,
+        aufnahme,
+        { still: true }
+      ),
+    [hub]
+  );
+
   // Abkürzungen aus dem Widget und von NFC-Aufklebern: homepilot://door
   // öffnet die Türe (mit Rückfrage), //alloff und //alarm springen an die
   // passende Stelle, //scene/<id> löst eine Szene aus und //entity/<id>
@@ -1921,6 +1938,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               onDurchsage={darfSchalten ? sendeDurchsage : undefined}
               durchsage={eigenePrefs.durchsage}
               onDurchsagePrefs={setDurchsage}
+              onSprachnotiz={darfSchalten ? sendeSprachnotiz : undefined}
               onRenameEntity={
                 darfAnpassen
                   ? (entityId, name) => setEntityMeta(entityId, { name })
