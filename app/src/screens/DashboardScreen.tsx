@@ -378,6 +378,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Türklingel-Vollbild: pro Klingel-Ereignis einmal zeigen, bis es
   // weggewischt wird (Schlüssel = Kamera + Zeitpunkt des Klingelns).
   const [dismissedRing, setDismissedRing] = useState<string | null>(null);
+  // Wer auf die Klingel-Nachricht getippt hat, will genau dieses Bild
+  // sehen - auch auf dem Telefon, wo es von selbst nicht aufginge, und
+  // auch dann, wenn das Läuten inzwischen vorbei ist. Ein Tipp auf die
+  // Nachricht ist eine Bitte, keine Störung.
+  const [klingelTap, setKlingelTap] = useState<string | null>(null);
   // Angetippte Kamera im Vollbild (Entitäts-ID, damit Live-Updates ankommen).
   const [fullscreen, setFullscreen] = useState<string | null>(null);
   // Alle Kameras nebeneinander - fürs Tablet im Flur die einzige
@@ -995,6 +1000,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       setBatterienOffen(true);
       return;
     }
+    if (tap.type === 'doorbell') {
+      // Nicht die Kameraseite, sondern das Klingel-Vollbild: Dort stehen
+      // die Türknöpfe, und die sind der Grund, warum man tippt.
+      setKlingelTap(tap.entityId ?? '');
+      return;
+    }
     if (tap.type === 'alarm') setSection('alarm');
   }, []);
   // «Später» und «Erledigt» aus der Mitteilung heraus. Beides läuft ohne
@@ -1168,9 +1179,22 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Steht hier unten und nicht weiter oben, weil er guardedCommand
   // braucht: Ein useEffect, dessen Abhängigkeit noch gar nicht angelegt
   // ist, wirft beim ersten Zeichnen.
+  // Der Start-Link wird genau einmal *ausgeführt* - nicht einmal
+  // *angefasst*. Der Unterschied ist der ganze Fehler, der hier stand:
+  // Beim Kaltstart über den Widget-Knopf läuft der Handler, bevor die
+  // Geräte geladen sind - die Türe war «nicht gefunden», und es blieb
+  // beim blossen Öffnen der App. Und weil der Effekt bei jeder
+  // Geräteänderung neu lief, holte er den Start-Link danach immer
+  // wieder hervor: Wer die Rückfrage wegtippte, bekam sie beim nächsten
+  // Zustands-Update erneut. Jetzt gilt: erledigt erst, wenn wirklich
+  // gehandelt wurde - bis dahin wird mit jedem Laden neu probiert.
+  const startLinkErledigt = useRef(false);
   useEffect(() => {
-    const handle = (url: string | null) => {
-      if (!url || !url.startsWith('homepilot://')) return;
+    /** Führt den Link aus. `true` heisst: erledigt (auch «kenne ich
+     *  nicht» ist erledigt) - `false`: die Daten fehlen noch, später
+     *  noch einmal. */
+    const handle = (url: string | null): boolean => {
+      if (!url || !url.startsWith('homepilot://')) return true;
       const [what, ...rest] = url.replace('homepilot://', '').split(/[/?]/);
       const id = rest.length > 0 ? decodeURIComponent(rest.join('/')) : '';
       if (what === 'door') {
@@ -1178,13 +1202,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           entities.find(
             (entity) => entity.kind === 'lock' && entity.commands.includes('open_door')
           ) ?? entities.find((entity) => entity.kind === 'lock');
-        if (door) {
-          setSection('home');
-          setConfirm({
-            entity: door,
-            command: door.commands.includes('open_door') ? 'open_door' : 'unlatch',
-          });
-        }
+        if (!door) return entities.length > 0;
+        setSection('home');
+        setConfirm({
+          entity: door,
+          command: door.commands.includes('open_door') ? 'open_door' : 'unlatch',
+        });
       } else if (what === 'alloff') {
         setSection('home');
         setRoom(ALL_ROOMS);
@@ -1195,13 +1218,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       } else if (what === 'alarm') {
         setSection('alarm');
       } else if (what === 'scene' && id) {
-        if (scenes.some((scene) => scene.id === id)) {
-          setSection('start');
-          activateScene(id);
-        }
+        if (!scenes.some((scene) => scene.id === id)) return scenes.length > 0;
+        setSection('start');
+        activateScene(id);
       } else if (what === 'entity' && id) {
         const entity = entities.find((item) => item.id === id);
-        if (!entity) return;
+        if (!entity) return entities.length > 0;
         setSection('start');
         if (entity.kind === 'lock') {
           // Ein Schloss fragt immer nach - auch das eigene Wohnzimmer
@@ -1211,16 +1233,24 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             entity,
             command: entity.commands.includes('open_door') ? 'open_door' : 'unlatch',
           });
-          return;
+          return true;
         }
         const command = widgetCommand(entity);
         if (command) guardedCommand(entity.id, command);
       }
+      return true;
     };
     // Kein Start-Link ist der Normalfall - dann startet die App normal.
-    Linking.getInitialURL()
-      .then(handle)
-      .catch(() => {});
+    if (!startLinkErledigt.current) {
+      Linking.getInitialURL()
+        .then((url) => {
+          if (!startLinkErledigt.current && handle(url)) {
+            startLinkErledigt.current = true;
+          }
+        })
+        .catch(() => {});
+    }
+    // Ereignisse (App lief schon) kommen genau einmal - jedes zählt.
     const subscription = Linking.addEventListener('url', (event) => handle(event.url));
     return () => subscription.remove();
   }, [entities, scenes, activateScene, guardedCommand]);
@@ -1247,8 +1277,22 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Die Haustüre ist hier eine Ring-Gegensprechanlage, und die legt der
   // Hub als Türe an – die alte Suche nach kind === 'camera' ging genau
   // an ihr vorbei, und das Vollbild kam nie.
-  const klingelt = klingeltGerade(entities);
-  const ringKey = klingelt ? `${klingelt.id}:${klingelt.state.last_ring ?? ''}` : null;
+  const klingeltJetzt = klingeltGerade(entities);
+  const ringKey = klingeltJetzt
+    ? `${klingeltJetzt.id}:${klingeltJetzt.state.last_ring ?? ''}`
+    : null;
+  // Wer auf die Nachricht getippt hat, meint das Gerät aus der
+  // Nachricht - auch wenn das Läuten inzwischen vorbei ist und
+  // `klingeltGerade` deshalb nichts mehr findet. Ohne Kennung (ältere
+  // Nachricht) die zuletzt klingelnde Türe, sonst gar keine.
+  const getippteKlingel = useMemo(() => {
+    if (klingelTap === null) return undefined;
+    return (
+      entities.find((entity) => entity.id === klingelTap) ??
+      entities.find((entity) => entity.state?.last_ring)
+    );
+  }, [klingelTap, entities]);
+  const klingelt = klingeltJetzt ?? getippteKlingel;
   const klingelKamera = useMemo(
     () => klingelBild(entities, klingelt),
     [entities, klingelt]
@@ -3224,11 +3268,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             Telefon reisst dasselbe Vollbild einem die App unter der Hand
             weg - dort tut es die Nachricht. */}
         {klingelt &&
-        vollbildZeigen({
+        (vollbildZeigen({
           panel: settings.panel,
           ringKey,
           weggewischt: dismissedRing,
-        }) ? (
+        }) ||
+          getippteKlingel !== undefined) ? (
           <DoorbellOverlay
             ausloeser={klingelt}
             camera={klingelKamera}
@@ -3236,7 +3281,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             settings={settings}
             onCommand={(entityId, command) => guardedCommand(entityId, command)}
             doorConfirm={prefs.doorConfirm}
-            onDismiss={() => setDismissedRing(ringKey)}
+            onDismiss={() => {
+              setDismissedRing(ringKey);
+              setKlingelTap(null);
+            }}
             colors={colors}
             styles={styles}
           />
@@ -3857,8 +3905,19 @@ function DoorbellOverlay({
                 key={aktion.id}
                 onPress={() => {
                   verlaengern();
-                  if (gefragt || mayOpenDirectly(aktion.befehl, doorConfirm)) {
-                    onCommand(aktion.entity.id, aktion.befehl);
+                  // Ohne Rückfrage nur, wenn *jeder* Schritt sie
+                  // überspringen dürfte: Ein Weg über zwei Türen ist
+                  // nicht harmloser als seine heikelste Türe.
+                  const ohneFrage = aktion.schritte.every((schritt) =>
+                    mayOpenDirectly(schritt.befehl, doorConfirm)
+                  );
+                  if (gefragt || ohneFrage) {
+                    // Der Reihe nach: unten zuerst, damit der Besuch
+                    // nicht vor der zweiten Türe steht, während die
+                    // erste noch zu ist.
+                    for (const schritt of aktion.schritte) {
+                      onCommand(schritt.entity.id, schritt.befehl);
+                    }
                     onDismiss();
                   } else {
                     setConfirm(aktion.id);
@@ -3879,6 +3938,16 @@ function DoorbellOverlay({
               </Pressable>
             );
           })}
+          {/* Einmal erklärt, worin der Unterschied besteht. «Beide
+              aufschliessen» und «Beide öffnen» stehen sonst untereinander
+              und sehen aus wie dasselbe - und man drückt im Zweifel das
+              Weitergehende, weil es sicherer klingt. */}
+          {aktionen.some((aktion) => aktion.id.startsWith('alle')) ? (
+            <Text style={styles.doorbellHinweis}>
+              Aufschliessen zieht nur den Riegel – die Türe muss noch
+              gedrückt werden. Öffnen zieht auch die Falle.
+            </Text>
+          ) : null}
           <Pressable onPress={onDismiss} style={styles.doorbellClose}>
             <Text style={styles.doorbellCloseText}>
               Schliessen{rest > 0 ? ` (${rest})` : ''}
@@ -4158,6 +4227,14 @@ const makeStyles = (colors: Colors) =>
       paddingRight: 10,
     },
     backText: { color: colors.onGradient, fontSize: 15, fontWeight: '600' },
+    /** Die Zeile unter den Türknöpfen im Klingel-Vollbild. Klein und
+     *  gedeckt: Sie erklärt, sie ist kein Knopf. */
+    doorbellHinweis: {
+      color: '#8A94A6',
+      fontSize: 12,
+      textAlign: 'center',
+      paddingHorizontal: 8,
+    },
     settingsList: { gap: 10 },
     settingsItem: {
       flexDirection: 'row',
