@@ -53,6 +53,38 @@ export function klingeltGerade(entities: Entity[]): Entity | undefined {
 }
 
 /**
+ * Zeigt dieses Gerät jetzt das Vollbild? (rein, testbar)
+ *
+ * Drei Bedingungen, und die dritte ist die neue: Es klingelt gerade,
+ * dieses Klingeln wurde hier noch nicht weggewischt - und das Gerät
+ * steht im Wandpanel-Modus.
+ *
+ * Vorher sprang das Bild auf jedem angemeldeten Gerät auf. Gemeint war
+ * es fürs Panel im Flur: Dort steht man davor, sieht, wer läutet, und
+ * drückt auf. Auf dem Telefon in der Hosentasche ist dasselbe Vollbild
+ * etwas anderes - es reisst einem die App unter der Hand weg, mitten in
+ * dem, was man gerade tat, und das auch dann, wenn man gar nicht zuhause
+ * ist. Wer unterwegs wissen will, dass jemand vor der Türe steht,
+ * bekommt eine Nachricht; die kann man lesen, wenn man mag.
+ *
+ * Der Modus gehört zum Gerät, nicht zur Person (api/types.ts): Genau
+ * darum lässt sich das hier so entscheiden. Dasselbe Konto am Panel und
+ * am Telefon - das eine zeigt, das andere nicht.
+ */
+export function vollbildZeigen(opts: {
+  /** Steht dieses Gerät im Wandpanel-Modus? */
+  panel?: boolean;
+  /** Kennung des laufenden Klingelns – null heisst: es klingelt nicht. */
+  ringKey: string | null;
+  /** Welches Klingeln hier schon weggewischt wurde. */
+  weggewischt: string | null;
+}): boolean {
+  if (!opts.panel) return false;
+  if (!opts.ringKey) return false;
+  return opts.weggewischt !== opts.ringKey;
+}
+
+/**
  * Welches Bild zum Klingeln gehört (rein, testbar).
  *
  * Eine Gegensprechanlage hat keines. Hängt aber eine Kamera an derselben

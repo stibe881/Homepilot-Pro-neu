@@ -77,6 +77,7 @@ import {
   klingeltGerade,
   neueFrist,
   restSekunden,
+  vollbildZeigen,
 } from '../lib/klingel';
 import { deviceKindLabel, musikboxenImRaum } from '../lib/geraeteart';
 import { rueckangebot } from '../lib/rueckgriff';
@@ -3219,7 +3220,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           />
         ) : null}
 
-        {klingelt && ringKey && dismissedRing !== ringKey ? (
+        {/* Nur am Wandpanel (lib/klingel.ts: vollbildZeigen). Auf dem
+            Telefon reisst dasselbe Vollbild einem die App unter der Hand
+            weg - dort tut es die Nachricht. */}
+        {klingelt &&
+        vollbildZeigen({
+          panel: settings.panel,
+          ringKey,
+          weggewischt: dismissedRing,
+        }) ? (
           <DoorbellOverlay
             ausloeser={klingelt}
             camera={klingelKamera}
