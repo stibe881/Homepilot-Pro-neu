@@ -70,8 +70,18 @@ export function TvRemote({
         // Verbindung gerade hakt, und man drückt zweimal. Beim
         // Steuerkreuz springt die Auswahl dann zwei Felder weiter.
         // Welche Taste wie stark: lib/tastenhaptik.ts.
-        if (tastenStaerke(command) === 'kraeftig') triggered();
-        else tapped();
+        //
+        // Im try, und zwar nur die Haptik: Sie ist eine Zugabe. Stünde
+        // sie ungeschützt vor dem Senden, würde ein Fehler in ihr den
+        // ganzen Druck verschlucken - keine Zeile, kein Befehl, und auf
+        // genau einer Plattform. Der Rest des Drucks darf an ihr nie
+        // hängen.
+        try {
+          if (tastenStaerke(command) === 'kraeftig') triggered();
+          else tapped();
+        } catch {
+          // Kein Motor, kein Modul, ein wirres Gerät - egal: weiter.
+        }
         // Die alte Absage gehört zur alten Taste. Bliebe sie stehen,
         // liesse sich nicht mehr erkennen, ob die neue ankam.
         if (fehler) onFehlerWeg?.();
@@ -85,9 +95,19 @@ export function TvRemote({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        {/* Ein Tipp in die Fernbedienung selbst darf sie nicht schliessen. */}
-        <Pressable style={styles.sheet} onPress={() => {}}>
+      {/* Der Hintergrund liegt als Geschwister HINTER dem Blatt, nicht
+          als Eltern-Pressable darum herum. Verschachtelte Pressables
+          verhalten sich im Web und nativ nicht gleich - im Web bekam
+          jede Taste ihren Klick, auf dem iPhone blieb dieselbe
+          Fernbedienung stumm. Mit Geschwistern gibt es nichts mehr zu
+          verhandeln: Was über dem Blatt liegt, gehört dem Blatt. */}
+      <View style={styles.backdrop}>
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={onClose}
+          accessibilityLabel="Fernbedienung schliessen"
+        />
+        <View style={styles.sheet}>
           <View style={styles.header}>
             <Text style={styles.title} numberOfLines={1}>
               {name}
@@ -143,8 +163,8 @@ export function TvRemote({
               </Text>
             </View>
           ) : null}
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }
