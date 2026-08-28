@@ -50,6 +50,22 @@ laut. Vier Stufen decken den Tag ab – morgens leise, tagsüber laut,
 abends wieder leise, nachts fast aus. Die Stufe, die gerade gilt, ist
 hervorgehoben.
 
+**Für welche Boxen.** Die Kopfzeile eines Plans sagt es («Alle Boxen»,
+«Nest Badezimmer und 2 weitere») und ist zugleich der Weg zur Auswahl:
+antippen, Boxen anklicken. Wer die erste Box antippt, während «alle»
+gilt, meint «nur diese» – nicht «alle ausser dieser».
+
+Und wenn im Kinderzimmer andere Zahlen gelten sollen als in der Küche,
+legt man einen **zweiten Plan** an; er startet mit den Boxen, die noch
+keiner abdeckt. Zwei Pläne für dieselbe Box wären ein Widerspruch, den
+der Hub nach der Reihenfolge auflöst – deshalb lässt die App ihn gar
+nicht erst entstehen: Der Knopf erscheint nur, solange Boxen frei sind,
+und bei mehreren Plänen lässt sich keiner mehr auf «alle» zurückstellen.
+
+Gruppen stehen nicht zur Wahl. Sie stellen ihre Mitglieder ohnehin mit,
+und in der Auswahl stünde dieselbe Box zweimal. Fernseher auch nicht –
+ihre Lautstärke gehört zum Bild.
+
 Der Plan gilt für den **Ruhezustand** einer Box. Das ist der springende
 Punkt: Wie laut es ist, während jemand zuhört, entscheidet der Mensch
 mit dem Regler – nicht die Uhr. Der Plan sagt nur, wie laut die Box
