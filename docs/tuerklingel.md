@@ -16,10 +16,21 @@ für sich still ausfallen – deshalb steht hier, wie man sieht, welche.
 3. **Der Ablauf löst aus** – Auslöser: Gerät «Haustüre», «klingelt» – und
    schickt die Nachricht.
 
-## Das Vollbild in der geöffneten App
+## Das Vollbild am Wandpanel
 
-Ist die App gerade offen, kommt zusätzlich zur Push das Klingel-Vollbild:
+Auf einem Gerät im **Wandpanel-Modus** (Einstellungen → Konto) kommt
+zusätzlich zur Push das Klingel-Vollbild, sobald die App offen ist:
 Kamerabild gross, darunter die Knöpfe.
+
+Nur dort. Am Panel im Flur steht man davor, sieht, wer läutet, und drückt
+auf – dafür ist es gemacht. Auf dem Telefon in der Hosentasche ist
+dasselbe Vollbild etwas anderes: Es reisst einem die App unter der Hand
+weg, mitten in dem, was man gerade tat, und das auch dann, wenn man gar
+nicht zuhause ist. Wer unterwegs wissen will, dass jemand vor der Türe
+steht, bekommt die Nachricht – die kann man lesen, wenn man mag.
+
+Der Modus gehört zum Gerät, nicht zur Person: Dasselbe Konto am Panel und
+am Telefon, das eine zeigt, das andere nicht.
 
 - **Beide Türen.** Angeboten wird jede Türe, die sich wirklich öffnen
   lässt – die Haustüre unten und die Wohnungstüre oben. Zuerst steht die

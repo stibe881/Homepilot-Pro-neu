@@ -412,6 +412,10 @@ export function SettingsScreen({
             Bildschirm bleibt an, Ansicht kehrt nach drei Minuten zur Startseite
             zurück, und nach Sonnenuntergang wird es dunkler – für ein fest
             montiertes iPad. Eine Berührung macht es sofort wieder hell.
+            Und wenn es klingelt, geht hier das Kamerabild mit den
+            Türknöpfen auf – nur hier: Auf einem Telefon in der Tasche
+            wäre dasselbe Vollbild eine Störung, dort tut es die
+            Nachricht.
           </Text>
         </View>
         <View style={[styles.switch, panel && styles.switchOn]}>

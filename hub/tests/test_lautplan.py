@@ -284,13 +284,13 @@ def test_the_route_refuses_a_typo() -> None:
 # Gruppe aus dem Plan nehmen wollte, fand sie nirgends.
 
 
-def geraet(entity_id: str, **stand: object) -> Entity:
+def geraet(entity_id: str, state: str = "idle", **stand: object) -> Entity:
     return Entity(
         id=entity_id,
         kind="media_player",
         name=entity_id,
         integration="demo",
-        state={"state": "idle", **stand},
+        state={"state": state, **stand},
         commands=["set_volume", "play"],
         available=True,
     )
@@ -371,5 +371,69 @@ async def test_a_group_is_set_like_any_other_box() -> None:
         hub.data.set(lautplan.KEY, [PLAN])
         await hub.lautplan.anwenden(uhr("11:00"))
         assert hub.registry.get("cast.haus").state["volume"] == 70
+    finally:
+        await hub.stop()
+
+
+# ── Und wenn die Wiedergabe endet ─────────────────────────────────────
+#
+# Der Fehler, den erst der Betrieb zeigte: Die Rücksicht auf den
+# Fernseher stand nur im Stufenwechsel. Endete auf ihm ein Film, holte
+# er sich den Wert des Plans - der Weg über _on_state fragte gar nicht
+# erst nach dem Bildschirm.
+
+
+async def test_a_television_does_not_grab_the_value_when_the_film_ends() -> None:
+    hub = await hub_mit_box()
+    try:
+        await hub.registry.add(
+            geraet("cast.tv", has_screen=True, volume=40, state="playing")
+        )
+        hub.data.set(lautplan.KEY, [PLAN])
+        echte_zeit = hub.lautplan.jetzt_min
+        hub.lautplan.jetzt_min = lambda jetzt=None: um("11:00")  # type: ignore[method-assign]
+        try:
+            await hub.registry.update_state("cast.tv", {"state": "idle"})
+            await asyncio.sleep(0.05)
+        finally:
+            hub.lautplan.jetzt_min = echte_zeit  # type: ignore[method-assign]
+        assert hub.registry.get("cast.tv").state["volume"] == 40
+    finally:
+        await hub.stop()
+
+
+async def test_a_named_television_does_take_it() -> None:
+    """Wer genannt ist, ist dabei - auch beim Ende der Wiedergabe."""
+    hub = await hub_mit_box()
+    try:
+        await hub.registry.add(
+            geraet("cast.tv", has_screen=True, volume=40, state="playing")
+        )
+        hub.data.set(lautplan.KEY, [{**PLAN, "entities": ["cast.tv"]}])
+        echte_zeit = hub.lautplan.jetzt_min
+        hub.lautplan.jetzt_min = lambda jetzt=None: um("11:00")  # type: ignore[method-assign]
+        try:
+            await hub.registry.update_state("cast.tv", {"state": "idle"})
+            await asyncio.sleep(0.05)
+        finally:
+            hub.lautplan.jetzt_min = echte_zeit  # type: ignore[method-assign]
+        assert hub.registry.get("cast.tv").state["volume"] == 70
+    finally:
+        await hub.stop()
+
+
+async def test_a_speaker_still_takes_it_when_the_music_ends() -> None:
+    hub = await hub_mit_box()
+    try:
+        await hub.registry.update_state("test.box", {"state": "playing"})
+        hub.data.set(lautplan.KEY, [PLAN])
+        echte_zeit = hub.lautplan.jetzt_min
+        hub.lautplan.jetzt_min = lambda jetzt=None: um("11:00")  # type: ignore[method-assign]
+        try:
+            await hub.registry.update_state("test.box", {"state": "idle"})
+            await asyncio.sleep(0.05)
+        finally:
+            hub.lautplan.jetzt_min = echte_zeit  # type: ignore[method-assign]
+        assert hub.registry.get("test.box").state["volume"] == 70
     finally:
         await hub.stop()
