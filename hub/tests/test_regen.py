@@ -187,3 +187,137 @@ def test_die_balkenreihe_beginnt_beim_laufenden_eimer():
     assert balken(None, JETZT) == []
     # Mehr als acht gibt es nicht - zwei Stunden sind die Vorschau.
     assert len(balken(viertelstunden(*([0.1] * 20)), JETZT)) == 8
+
+
+# ── Einmal je Schauer, und nicht alle Viertelstunde ────────────────────
+#
+# Der Fehler aus dem Betrieb: Die Meldung kam immer und immer wieder.
+# Entprellt wurde über den *errechneten* Regenbeginn, `(jetzt + minuten *
+# 60) // 900`. Das sah nach einer stabilen Kennung aus und war keine:
+# `minuten` steht im Zustand der Wetter-Entität und ändert sich nur beim
+# nächsten Wetterabruf, der Wächter läuft jede Minute. Der errechnete
+# Beginn rückte also mit der Uhr weiter und fiel irgendwann in die
+# nächste Viertelstunde.
+
+
+def stand(minuten=15, jetzt_regen=False):
+    return {"now": jetzt_regen, "minutes": minuten, "mm": 1.0}
+
+
+def test_die_erste_vorwarnung_geht_raus():
+    assert regen.melden(stand(), None, 1000.0, 30) is True
+
+
+def test_eine_minute_spaeter_kommt_keine_zweite():
+    # Genau das ging vorher schief.
+    assert regen.melden(stand(), 1000.0, 1060.0, 30) is False
+
+
+def test_auch_eine_viertelstunde_spaeter_nicht():
+    assert regen.melden(stand(), 1000.0, 1000.0 + 900, 30) is False
+
+
+def test_nach_der_sperre_darf_wieder_gewarnt_werden():
+    zwei_stunden = regen.SPERRE_MINUTEN * 60
+    assert regen.melden(stand(), 1000.0, 1000.0 + zwei_stunden, 30) is True
+    assert regen.melden(stand(), 1000.0, 1000.0 + zwei_stunden - 1, 30) is False
+
+
+def test_was_zu_weit_weg_ist_meldet_gar_nichts():
+    assert regen.melden(stand(minuten=90), None, 1000.0, 30) is False
+
+
+def test_waehrend_es_regnet_wird_nicht_vorgewarnt():
+    assert regen.melden(stand(jetzt_regen=True), None, 1000.0, 30) is False
+
+
+def test_ohne_vorschau_nichts_zu_melden():
+    assert regen.melden(stand(minuten=None), None, 1000.0, 30) is False
+    assert regen.melden(None, None, 1000.0, 30) is False
+
+
+def test_der_schauer_ist_durch_wenn_es_regnet():
+    # Die Warnung hat ihren Zweck erfüllt - die nächste darf wieder raus.
+    assert regen.vorbei(stand(jetzt_regen=True)) is True
+
+
+def test_der_schauer_ist_durch_wenn_die_vorschau_leer_ist():
+    # An uns vorbeigezogen.
+    assert regen.vorbei(stand(minuten=None)) is True
+
+
+def test_solange_er_ansteht_ist_er_nicht_durch():
+    assert regen.vorbei(stand()) is False
+
+
+async def test_am_waechter_kommt_die_meldung_nur_einmal():
+    """Der ganze Weg: zehn Runden des Wächters, eine Nachricht."""
+    from homepilot.core.entity import Entity
+    from homepilot.core.hub import Hub
+
+    from .conftest import make_config
+
+    hub = Hub(make_config(integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        await hub.registry.add(
+            Entity(
+                id="test.wetter",
+                kind="weather",
+                name="Wetter",
+                integration="test",
+                state={"state": "Bedeckt", "rain": {"now": False, "minutes": 15, "mm": 1.0}},
+            )
+        )
+        gesendet: list[str] = []
+
+        async def fake_notify(title, body, **kwargs):
+            gesendet.append(title)
+
+        hub.watchdog._notify = fake_notify  # type: ignore[assignment]
+        for _ in range(10):
+            await hub.watchdog._check_regen(hub.registry.all())
+        assert len(gesendet) == 1
+    finally:
+        await hub.stop()
+
+
+async def test_nach_dem_regen_warnt_der_naechste_schauer_wieder():
+    from homepilot.core.entity import Entity
+    from homepilot.core.hub import Hub
+
+    from .conftest import make_config
+
+    hub = Hub(make_config(integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        await hub.registry.add(
+            Entity(
+                id="test.wetter",
+                kind="weather",
+                name="Wetter",
+                integration="test",
+                state={"state": "Bedeckt", "rain": {"now": False, "minutes": 15, "mm": 1.0}},
+            )
+        )
+        gesendet: list[str] = []
+
+        async def fake_notify(title, body, **kwargs):
+            gesendet.append(title)
+
+        hub.watchdog._notify = fake_notify  # type: ignore[assignment]
+        await hub.watchdog._check_regen(hub.registry.all())
+        # Es regnet - damit ist die Sache erledigt.
+        await hub.registry.update_state(
+            "test.wetter", {"rain": {"now": True, "minutes": 20, "mm": 2.0}}
+        )
+        await hub.watchdog._check_regen(hub.registry.all())
+        assert len(gesendet) == 1
+        # Und der nächste Schauer meldet sich wieder.
+        await hub.registry.update_state(
+            "test.wetter", {"rain": {"now": False, "minutes": 15, "mm": 1.0}}
+        )
+        await hub.watchdog._check_regen(hub.registry.all())
+        assert len(gesendet) == 2
+    finally:
+        await hub.stop()

@@ -136,7 +136,19 @@ RULES: list[dict[str, Any]] = [
                 "min": 15,
                 "max": 120,
                 "step": 15,
-            }
+            },
+            {
+                # Wie lange nach einer Vorwarnung Ruhe ist. Endet früher,
+                # sobald es regnet oder die Vorschau leer ist - das ist
+                # der Normalfall, und dann zählt diese Zahl gar nicht.
+                "key": "pause",
+                "label": "Danach Ruhe",
+                "unit": "Minuten",
+                "default": 120,
+                "min": 15,
+                "max": 240,
+                "step": 15,
+            },
         ],
     },
     {
