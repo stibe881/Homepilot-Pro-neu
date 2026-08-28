@@ -1189,6 +1189,15 @@ function AlarmSettings({
         value={settings.notify_camera_motion !== false}
         onChange={(value) => onSave({ ...settings, notify_camera_motion: value })}
       />
+      {/* Der Fall, für den es den Schalter gibt: Das Haus schickt beim
+          Weggehen den Sauger los und schaltet die Anlage scharf. Der
+          erste Bewegungsmelder sieht ihn - und die Sirene geht. */}
+      <Toggle
+        label="Bewegungsmelder ruhen, solange der Sauger fährt"
+        detail="Fenster- und Türkontakte bleiben scharf – ein Sauger öffnet kein Fenster. Nach der Rückkehr gilt es noch fünf Minuten, weil Melder ihre Meldung so lange halten."
+        value={settings.ignore_vacuum !== false}
+        onChange={(value) => onSave({ ...settings, ignore_vacuum: value })}
+      />
       {settings.notify_camera_motion !== false && !images ? (
         <Text style={styles.hint}>
           Ohne «push.public_url» in der config.yaml des Hubs kommt die

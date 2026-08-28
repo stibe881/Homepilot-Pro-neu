@@ -44,7 +44,11 @@ class DemoIntegration(Integration):
             "motion_hall",
             EntityKind.BINARY_SENSOR,
             "Bewegung Flur",
-            state={"state": "off"},
+            # Mit Geräteklasse, wie sie Homematic und Zigbee liefern: Der
+            # Wächter, die App und die Alarmanlage lesen sie (die
+            # Alarmanlage entscheidet daran, ob ein Sensor während der
+            # Saugerfahrt schweigen darf - alarm_rules.ist_bewegung).
+            state={"state": "off", "device_class": "motion"},
             # Manuell schaltbar, um Automationen aus der App zu testen.
             commands=["turn_on", "turn_off", "toggle"],
         )

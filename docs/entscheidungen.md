@@ -28,6 +28,42 @@ programmiert.
 
 ---
 
+## Warum der Saugroboter die Alarmanlage nicht auslöst
+
+**Dafür:** Beim Weggehen schaltet der Ablauf die Anlage scharf und
+schickt den Sauger los – beides gewollt. Der Sauger fährt dann durch die
+Wohnung, der erste Bewegungsmelder sieht ihn, und die Sirene geht. Jedes
+Mal.
+
+Also schweigen **Bewegungsmelder und Kameras**, solange er unterwegs
+ist. **Fenster- und Türkontakte nicht** – und das ist der Punkt, an dem
+die Anlage scharf bleibt: Ein Sauger öffnet kein Fenster, und wer durch
+eines einsteigt, kommt weiterhin nicht unbemerkt hinein.
+
+Dazu fünf Minuten Nachlauf nach der Rückkehr. Ein Melder hält sein «on»
+je nach Modell ein bis fünf Minuten; ohne Nachlauf löst er genau in dem
+Moment aus, in dem der Sauger andockt – der Fehler wäre nur verschoben.
+
+Wer nachliest, warum nichts passiert ist, findet es im Alarm-Verlauf:
+Der erste übergangene Melder je Fahrt steht dort. Stillschweigend wäre
+es die falsche Art von Rücksicht.
+
+**Kostet:** Ein Einbrecher, der während der Reinigung durch eine offene
+Tür hereinspaziert, wird von den Bewegungsmeldern nicht mehr gesehen.
+Die Kontakte melden ihn – wenn er eine Tür oder ein Fenster öffnet. Wer
+seine Wohnung offen stehen lässt, hat das Loch.
+
+Und: Der Hub verlässt sich darauf, dass er den Zustand des Saugers
+kennt. Meldet die Roborock-Wolke gerade nichts, hält er ihn für geparkt
+und die Melder wachen – dann ist es der alte Fehlalarm, nicht ein neues
+Loch. Diese Richtung ist die richtige.
+
+**Wann es falsch wäre:** Wenn der Sauger nachts liefe, während jemand
+schläft. Im Modus «Nacht» sind Bewegungsmelder ohnehin meist nicht
+zugeordnet; wer sie dort braucht, schaltet die Rücksicht aus.
+
+---
+
 ## Warum «ausschalten, was schon aus ist» kein Fehler ist
 
 **Dafür:** «Musik aus» auf einer Box, auf der nichts läuft, ist ein

@@ -72,6 +72,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # von einer vorbeilaufenden Katze auslösen lassen will, möchte das Bild
     # trotzdem sehen.
     "notify_camera_motion": True,
+    # Bewegungsmelder schweigen, solange der Saugroboter fährt. An, weil
+    # der Fall sonst jedes Mal die Sirene auslöst: Das Haus schickt beim
+    # Weggehen den Sauger los und schaltet die Anlage scharf. Fenster-
+    # und Türkontakte bleiben in jedem Fall wach - siehe sauger_deckt().
+    "ignore_vacuum": True,
 }
 
 # Mindestabstand zwischen zwei Bewegungs-Nachrichten derselben Kamera.
@@ -239,6 +244,95 @@ def camera_motion_due(
     """Ist eine neue Bewegungs-Nachricht dieser Kamera fällig? (rein, testbar)"""
     letzte = seen.get(camera)
     return letzte is None or now - letzte >= cooldown
+
+
+# ── Der Saugroboter ────────────────────────────────────────────────────
+#
+# Das Haus schaltet beim Weggehen die Anlage scharf und schickt den
+# Sauger los - beides gewollt. Der Sauger fährt dann durch die Wohnung,
+# der erste Bewegungsmelder sieht ihn, und die Sirene geht.
+#
+# Also: Solange er unterwegs ist, lösen Bewegungsmelder und Kameras
+# nicht aus. **Fenster- und Türkontakte schon** - das ist der Punkt, an
+# dem die Anlage scharf bleibt. Ein Sauger öffnet kein Fenster, und wer
+# durch eines einsteigt, kommt weiterhin nicht unbemerkt hinein.
+
+
+#: Was in ``state`` steht, wenn der Sauger unterwegs ist.
+#:
+#: Auf Wortteile und nicht auf eine feste Liste: Der Zustand kommt als
+#: freier Text aus python-roborock («cleaning», «segment cleaning»,
+#: «returning home», «going to wash the mop») und ändert sich mit Modell
+#: und Firmware. Eine Liste, die der Hub pflegen müsste, wäre nach dem
+#: nächsten Update unvollständig - und eine unvollständige Liste hiesse
+#: hier: Sirene.
+FAEHRT_WOERTER = ("clean", "return", "spot", "zone", "segment", "going", "saug")
+
+#: So lange nach der Rückkehr bleiben Bewegungsmelder noch blind.
+#:
+#: Ein Melder hält sein «on» je nach Modell ein bis fünf Minuten. Ohne
+#: Nachlauf löst er genau in dem Moment aus, in dem der Sauger andockt -
+#: der Fehler wäre nur verschoben, nicht behoben.
+SAUGER_NACHLAUF = 300.0
+
+#: Wörter im Namen, wenn die Geräteklasse fehlt. Nur die Notbremse:
+#: Homematic und Zigbee liefern «device_class: motion» von selbst, ein
+#: selbst gebauter Melder über MQTT vielleicht nicht.
+BEWEGUNGSWOERTER = ("bewegung", "motion", "präsenz", "praesenz", "melder")
+
+
+def ist_bewegung(entity: Entity) -> bool:
+    """Meldet dieser Sensor Bewegung - und keinen Kontakt? (rein, testbar)
+
+    Die Unterscheidung trägt die ganze Rücksichtnahme: Was hier ``True``
+    ergibt, schweigt während der Reinigung. Ein Fenster darf das nie.
+
+    Deshalb im Zweifel ``False``: Ein Kontakt, den der Hub für einen
+    Bewegungsmelder hielte, wäre ein Loch in der Anlage; ein
+    Bewegungsmelder, den er nicht erkennt, nur der alte Fehlalarm.
+    """
+    if entity.kind == EntityKind.CAMERA:
+        return True
+    if entity.kind != EntityKind.BINARY_SENSOR:
+        return False
+    klasse = str(entity.state.get("device_class") or "").lower()
+    if klasse:
+        return klasse == "motion"
+    name = f"{entity.name} {entity.id}".lower()
+    return any(wort in name for wort in BEWEGUNGSWOERTER)
+
+
+def sauger_faehrt(zustand: Any) -> bool:
+    """Ist der Sauger gerade unterwegs? (rein, testbar)"""
+    tief = str(zustand or "").lower()
+    return any(wort in tief for wort in FAEHRT_WOERTER)
+
+
+def sauger_unterwegs(entities: list[Entity]) -> bool:
+    """Fährt irgendein Sauger im Haus? (rein, testbar)"""
+    return any(
+        entity.kind == EntityKind.VACUUM and sauger_faehrt(entity.state.get("state"))
+        for entity in entities
+    )
+
+
+def sauger_deckt(
+    entity: Entity,
+    unterwegs: bool,
+    blind_bis: float | None,
+    jetzt: float,
+    an: bool = True,
+) -> bool:
+    """Schweigt dieser Sensor gerade wegen des Saugers? (rein, testbar)
+
+    ``blind_bis`` ist der Nachlauf nach der Rückkehr - siehe
+    SAUGER_NACHLAUF.
+    """
+    if not an or not ist_bewegung(entity):
+        return False
+    if unterwegs:
+        return True
+    return blind_bis is not None and jetzt < blind_bis
 
 
 def guards(sensors: dict[str, dict[str, Any]], entity_id: str, mode: str) -> bool:
