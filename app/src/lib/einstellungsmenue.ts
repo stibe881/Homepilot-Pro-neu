@@ -103,3 +103,33 @@ export function adminZeile(sichtbar: number): string {
   if (sichtbar <= 0) return 'Nichts davon steht dir offen';
   return 'Benutzer, Geräte, System und der Rückblick';
 }
+
+/**
+ * Womit die Einstellungen aufgehen, wenn daneben Platz für das Menü ist
+ * (rein, testbar).
+ *
+ * Auf dem Telefon ist «Einstellungen» eine Liste von Kacheln: Erst der
+ * Tipp darauf führt zu einer Seite, und die Liste ist der Weg zurück.
+ * Auf einem breiten Bildschirm steht das Menü ohnehin links daneben -
+ * dort war die Kachelliste ein Zwischenschritt für nichts. Man tippte auf
+ * «Einstellungen», bekam eine Liste, tippte noch einmal, und erst dann
+ * sah man die Ansicht, die man gemeint hatte. Zweimal derselbe Weg,
+ * einmal davon vergeblich.
+ *
+ * Darum geht dort gleich eine Seite auf. Welche, richtet sich nach dem,
+ * was zuletzt offen war: Wer zwischen System und Abläufen hin- und
+ * herspringt, soll nicht jedes Mal von vorne anfangen. Beim ersten Mal
+ * die erste Seite - und wenn es die von letztem Mal nicht mehr gibt
+ * (andere Rolle, weniger Rechte), ebenfalls.
+ *
+ * `null` heisst: Es gibt keine solche Seite. Dann bleibt es bei der
+ * Kachelliste - ein Gast sieht kaum etwas, und ein leerer Bereich wäre
+ * schlimmer als eine kurze Liste.
+ */
+export function einstiegsSeite<T extends string>(
+  seiten: readonly T[],
+  zuletzt: T | null | undefined
+): T | null {
+  if (zuletzt && seiten.includes(zuletzt)) return zuletzt;
+  return seiten[0] ?? null;
+}

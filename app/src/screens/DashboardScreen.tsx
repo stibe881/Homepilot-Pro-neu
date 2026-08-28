@@ -21,6 +21,7 @@ import { begruessung } from '../lib/begruessung';
 import {
   Bereich,
   adminZeile,
+  einstiegsSeite,
   gruppeVon,
   siehtBereich,
 } from '../lib/einstellungsmenue';
@@ -316,6 +317,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     (user?.capabilities ?? []).includes('edit_config');
 
   const [section, setSection] = useState<Section>('start');
+  // Welche Einstellungsseite zuletzt offen war - damit «Einstellungen»
+  // auf einem breiten Bildschirm dort weitermacht, wo man aufgehört hat.
+  // Eine Ref und kein Zustand: Der Wert wird nirgends gezeichnet, nur
+  // beim nächsten Öffnen gelesen. Als Zustand wäre jede Seite in den
+  // Einstellungen eine zweite Zeichnung wert - für nichts.
+  const zuletztEinstellung = useRef<Section | null>(null);
   // Aufgeklappt kommt man nur über die Batteriewarnung hierher; sonst
   // entscheidet die Karte selbst (siehe DeviceHealth).
   const [batterienOffen, setBatterienOffen] = useState(false);
@@ -1889,7 +1896,49 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     'users', 'personen', 'automations', 'alarm', 'speakers',
     'energy', 'system', 'activity', 'widgets', 'account', 'connection',
   ];
-  const zweispaltig = width >= 1000 && einstellungsSeiten.includes(section);
+  /** Ab hier ist Platz für Menü und Inhalt nebeneinander. */
+  const ZWEISPALTIG_AB = 1000;
+  const zweispaltig = width >= ZWEISPALTIG_AB && einstellungsSeiten.includes(section);
+  if (einstellungsSeiten.includes(section)) zuletztEinstellung.current = section;
+
+  // Welche dieser Seiten dieser Benutzer überhaupt sieht - in der
+  // Reihenfolge des Menüs, damit «die erste» dieselbe ist, die auch oben
+  // in der Spalte steht.
+  const offeneSeiten = sichtbarePunkte
+    .map((item) => item.key)
+    .filter((key): key is Section => einstellungsSeiten.includes(key as Section));
+
+  /**
+   * Zu einem Bereich wechseln - mit einer Ausnahme.
+   *
+   * «Einstellungen» war auf einem breiten Bildschirm ein
+   * Zwischenschritt für nichts: Man tippte darauf, bekam eine Liste von
+   * Kacheln, tippte noch einmal, und erst dann stand die Ansicht da, die
+   * man gemeint hatte - obwohl das Menü daneben ohnehin die ganze Zeit
+   * sichtbar ist. Also geht dort gleich eine Seite auf; die vom letzten
+   * Mal, sonst die erste (lib/einstellungsmenue.ts).
+   *
+   * Auf dem Telefon bleibt die Kachelliste: Dort ist kein Platz für ein
+   * Menü daneben, und sie ist zugleich der Weg zurück.
+   */
+  // Womit die Leiste «Einstellungen» hervorhebt, solange man drin ist.
+  // Vorher stand dort nichts hervorgehoben, sobald man eine Seite offen
+  // hatte - und auf einem breiten Bildschirm ist man ab dem ersten Tipp
+  // immer auf einer Seite. Man sah dann nirgends mehr, wo man ist.
+  const railAktiv: Section = sichtbarePunkte.some((item) => item.key === section)
+    ? 'settings'
+    : section;
+
+  const waehleBereich = (ziel: Section) => {
+    if (ziel === 'settings' && width >= ZWEISPALTIG_AB) {
+      const start = einstiegsSeite(offeneSeiten, zuletztEinstellung.current);
+      if (start) {
+        setSection(start);
+        return;
+      }
+    }
+    setSection(ziel);
+  };
 
   const content = () => {
     // Der Riegel vor Familie und Konto - siehe lib/bereichsriegel.ts. Er
@@ -2961,8 +3010,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         <View style={[styles.frame, { paddingTop: insets.top }]}>
           {hasRail ? (
             <Rail
-              active={section}
-              onSelect={setSection}
+              active={railAktiv}
+              onSelect={waehleBereich}
               vertical
               capabilities={user?.capabilities ?? []}
               hidden={hiddenSections}
@@ -3123,8 +3172,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
 
         {!hasRail ? (
           <Rail
-            active={section}
-            onSelect={setSection}
+            active={railAktiv}
+            onSelect={waehleBereich}
             vertical={false}
             bottomInset={insets.bottom}
             capabilities={user?.capabilities ?? []}
