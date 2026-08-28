@@ -48,13 +48,6 @@ interface Favorit {
   device?: string;
 }
 
-interface VerlaufZeile {
-  track: string;
-  artist?: string;
-  player?: string;
-  at?: number;
-}
-
 interface Nachtruhe {
   on: boolean;
   from: string;
@@ -86,7 +79,6 @@ export function Musikzentrale({
   const hub = useMemo(() => hubClient(settings.url, settings.token), [settings]);
 
   const [favoriten, setFavoriten] = useState<Favorit[]>([]);
-  const [verlauf, setVerlauf] = useState<VerlaufZeile[]>([]);
   const [nacht, setNacht] = useState<Nachtruhe | null>(null);
   const [duck, setDuck] = useState(true);
   // Nicht in laufende Musik hineinstellen - und was deswegen wartet.
@@ -115,12 +107,8 @@ export function Musikzentrale({
   const [pausiert, setPausiert] = useState(false);
 
   const laden = useCallback(async () => {
-    const [f, v, e, w, l] = await Promise.all([
+    const [f, e, w, l] = await Promise.all([
       hub.get<{ favorites?: Favorit[] } | null>('/api/media/favorites', {
-        fallback: null,
-        still: true,
-      }),
-      hub.get<{ history?: VerlaufZeile[] } | null>('/api/media/history', {
         fallback: null,
         still: true,
       }),
@@ -143,7 +131,6 @@ export function Musikzentrale({
       }),
     ]);
     setFavoriten(f?.favorites ?? []);
-    setVerlauf(v?.history ?? []);
     if (e?.night) setNacht(e.night);
     if (typeof e?.duck === 'boolean') setDuck(e.duck);
     if (typeof e?.wait === 'boolean') setWarten(e.wait);
@@ -487,19 +474,11 @@ export function Musikzentrale({
         </>
       ) : null}
 
-      {/* ── Was lief zuletzt ─────────────────────────────────────── */}
-      {verlauf.length > 0 ? (
-        <>
-          <Text style={styles.abschnitt}>Zuletzt gehört</Text>
-          {verlauf.slice(0, 5).map((zeile, index) => (
-            <Text key={`${zeile.track}-${index}`} style={styles.verlaufText} numberOfLines={1}>
-              {zeile.track}
-              {zeile.artist ? ` · ${zeile.artist}` : ''}
-              {zeile.player ? ` · ${zeile.player}` : ''}
-            </Text>
-          ))}
-        </>
-      ) : null}
+      {/* «Zuletzt gehört» stand hier einmal. Es beantwortete keine
+          Frage, die jemand hatte - und bei einer Durchsage stand statt
+          eines Titels die Adresse der erzeugten Tondatei in der Liste.
+          Der Hub schreibt den Verlauf weiter mit (core/musik.py); er
+          wird hier bloss nicht mehr gezeigt. */}
 
       {/* ── Nachtruhe und Dämpfen ────────────────────────────────── */}
       <Text style={styles.abschnitt}>Leise, wenn es sein muss</Text>
@@ -713,27 +692,34 @@ function Planblock({
 
   return (
     <View style={styles.planblock}>
-      {/* Die Kopfzeile ist zugleich der Weg zur Auswahl: Wer wissen
-          will, für welche Boxen der Plan gilt, tippt auf die Antwort,
-          die schon dasteht. */}
+      {/* Die Kopfzeile ist zugleich der Weg zur Auswahl. Sie stand hier
+          als blosse Zeile mit einem Pfeil ganz rechts - und wurde
+          prompt übersehen: Der Pfeil klebte am Papierkorb und las sich
+          wie Zierat. Jetzt ist es ein Knopf mit Rand, der Pfeil steht
+          direkt hinter dem Text, und «Gilt für» sagt, worum es geht. */}
       <View style={styles.zeile}>
         <Pressable
           onPress={() => setOffen((auf) => !auf)}
           accessibilityRole="button"
           accessibilityState={{ expanded: offen }}
           accessibilityLabel={`Boxen wählen – gilt für ${boxenSatz(plan.entities, namen)}`}
-          style={({ pressed }) => [styles.planKopf, pressed && { opacity: 0.7 }]}
+          style={({ pressed }) => [
+            styles.planKopf,
+            offen && { borderColor: colors.accent },
+            pressed && { opacity: 0.7 },
+          ]}
         >
           <Ionicons name="volume-medium-outline" size={14} color={colors.inkSoft} />
           <Text style={styles.planKopfText} numberOfLines={1}>
-            {boxenSatz(plan.entities, namen)}
+            Gilt für {boxenSatz(plan.entities, namen)}
           </Text>
           <Ionicons
             name={offen ? 'chevron-up' : 'chevron-down'}
             size={14}
-            color={colors.inkSoft}
+            color={colors.accent}
           />
         </Pressable>
+        <View style={{ flex: 1 }} />
         <Pressable
           onPress={() => onAendern(null)}
           accessibilityRole="button"
@@ -914,7 +900,6 @@ const makeStyles = (colors: Colors) =>
     },
     zeile: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 3 },
     zeileText: { color: colors.inkSoft, fontSize: 13, flex: 1 },
-    verlaufText: { color: colors.inkSoft, fontSize: 13, paddingVertical: 2 },
     chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
     chip: {
       alignSelf: 'flex-start',
@@ -953,8 +938,19 @@ const makeStyles = (colors: Colors) =>
       borderTopWidth: 1,
       borderTopColor: colors.surfaceBorder,
     },
-    planKopf: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
-    planKopfText: { color: colors.ink, fontSize: 13, fontWeight: '600', flex: 1 },
+    planKopf: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      flexShrink: 1,
+      paddingVertical: 5,
+      paddingHorizontal: 10,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      backgroundColor: colors.surfaceSoft,
+    },
+    planKopfText: { color: colors.ink, fontSize: 13, fontWeight: '600', flexShrink: 1 },
     boxenreihe: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginVertical: 6 },
     boxchip: {
       paddingVertical: 5,
