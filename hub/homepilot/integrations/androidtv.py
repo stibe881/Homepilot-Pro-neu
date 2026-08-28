@@ -26,6 +26,7 @@ im Event-Loop an.
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from pathlib import Path
 from typing import Any
@@ -635,7 +636,7 @@ async def _pair_main(config_path: str, only_host: str | None) -> int:
     return 0 if ok else 1
 
 
-async def _tasten_main(config_path: str, taste: str | None) -> int:
+async def _tasten_main(config_path: str, taste: str | None, debug: bool = False) -> int:
     """Was zwischen Hub und Fernseher wirklich passiert – roh.
 
     Der Anlass: «Die Fernbedienung funktioniert immer noch nicht.» Die
@@ -663,6 +664,17 @@ async def _tasten_main(config_path: str, taste: str | None) -> int:
     except ImportError:
         print("androidtvremote2 fehlt – installieren mit: pip install androidtvremote2")
         return 1
+
+    if debug:
+        # Das Debug-Log der Bibliothek ist hier die eigentliche Auskunft:
+        # Beim Verbinden meldet der Fernseher, was er kann («Device
+        # supports: [...]») - fehlt dort KEY, ignoriert er jede Taste,
+        # und die Bibliothek weiss sogar die Abhilfe (Android TV Remote
+        # Service: Daten löschen, neu koppeln). Ohne Debug sieht man von
+        # alldem nichts.
+        logging.basicConfig(
+            level=logging.DEBUG, format="%(asctime)s %(name)s %(message)s"
+        )
     block = blocks[0]
     cert_dir = block.get("cert_dir") or str(Path(str(config.data_file)).parent)
 
@@ -720,7 +732,13 @@ if __name__ == "__main__":
         "--taste",
         help="mit --tasten: diese Taste schicken, z.B. DPAD_DOWN oder KEYCODE_HOME",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="mit --tasten: das Protokoll der Bibliothek zeigen – darin steht,"
+        " welche Fähigkeiten der Fernseher meldet (KEY!) und was er antwortet",
+    )
     args = parser.parse_args()
     if args.tasten or args.taste:
-        sys.exit(asyncio.run(_tasten_main(args.config, args.taste)))
+        sys.exit(asyncio.run(_tasten_main(args.config, args.taste, args.debug)))
     sys.exit(asyncio.run(_pair_main(args.config, args.host)))

@@ -185,6 +185,13 @@ ist der einzige nötige Befehl.
   Mit `--taste DPAD_DOWN` schickt er zusätzlich eine Taste, ohne dass die
   App dazwischenliegt. Warum es das braucht, steht in
   `integrations/androidtv.py` bei `leitung_offen`.
+- Kommt die Taste «raus», aber der Fernseher rührt sich nicht: `--debug`
+  dazunehmen. In der Zeile «Device supports: [...]» sagt der Fernseher,
+  was er annimmt – fehlt dort `KEY`, ignoriert sein Fernbedienungsdienst
+  jede Taste. Die Abhilfe stammt aus der Bibliothek selbst: Am Fernseher
+  *Einstellungen → Apps → Alle Apps → System-Apps anzeigen → Android TV
+  Remote Service → Speicher → Daten löschen*, den Fernseher neu starten
+  und einmal neu koppeln (Kopplungs-Helfer oben).
 
 
 ## Update-Knopf in der App
