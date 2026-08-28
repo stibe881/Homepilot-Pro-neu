@@ -1179,9 +1179,22 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Steht hier unten und nicht weiter oben, weil er guardedCommand
   // braucht: Ein useEffect, dessen Abhängigkeit noch gar nicht angelegt
   // ist, wirft beim ersten Zeichnen.
+  // Der Start-Link wird genau einmal *ausgeführt* - nicht einmal
+  // *angefasst*. Der Unterschied ist der ganze Fehler, der hier stand:
+  // Beim Kaltstart über den Widget-Knopf läuft der Handler, bevor die
+  // Geräte geladen sind - die Türe war «nicht gefunden», und es blieb
+  // beim blossen Öffnen der App. Und weil der Effekt bei jeder
+  // Geräteänderung neu lief, holte er den Start-Link danach immer
+  // wieder hervor: Wer die Rückfrage wegtippte, bekam sie beim nächsten
+  // Zustands-Update erneut. Jetzt gilt: erledigt erst, wenn wirklich
+  // gehandelt wurde - bis dahin wird mit jedem Laden neu probiert.
+  const startLinkErledigt = useRef(false);
   useEffect(() => {
-    const handle = (url: string | null) => {
-      if (!url || !url.startsWith('homepilot://')) return;
+    /** Führt den Link aus. `true` heisst: erledigt (auch «kenne ich
+     *  nicht» ist erledigt) - `false`: die Daten fehlen noch, später
+     *  noch einmal. */
+    const handle = (url: string | null): boolean => {
+      if (!url || !url.startsWith('homepilot://')) return true;
       const [what, ...rest] = url.replace('homepilot://', '').split(/[/?]/);
       const id = rest.length > 0 ? decodeURIComponent(rest.join('/')) : '';
       if (what === 'door') {
@@ -1189,13 +1202,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           entities.find(
             (entity) => entity.kind === 'lock' && entity.commands.includes('open_door')
           ) ?? entities.find((entity) => entity.kind === 'lock');
-        if (door) {
-          setSection('home');
-          setConfirm({
-            entity: door,
-            command: door.commands.includes('open_door') ? 'open_door' : 'unlatch',
-          });
-        }
+        if (!door) return entities.length > 0;
+        setSection('home');
+        setConfirm({
+          entity: door,
+          command: door.commands.includes('open_door') ? 'open_door' : 'unlatch',
+        });
       } else if (what === 'alloff') {
         setSection('home');
         setRoom(ALL_ROOMS);
@@ -1206,13 +1218,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       } else if (what === 'alarm') {
         setSection('alarm');
       } else if (what === 'scene' && id) {
-        if (scenes.some((scene) => scene.id === id)) {
-          setSection('start');
-          activateScene(id);
-        }
+        if (!scenes.some((scene) => scene.id === id)) return scenes.length > 0;
+        setSection('start');
+        activateScene(id);
       } else if (what === 'entity' && id) {
         const entity = entities.find((item) => item.id === id);
-        if (!entity) return;
+        if (!entity) return entities.length > 0;
         setSection('start');
         if (entity.kind === 'lock') {
           // Ein Schloss fragt immer nach - auch das eigene Wohnzimmer
@@ -1222,16 +1233,24 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             entity,
             command: entity.commands.includes('open_door') ? 'open_door' : 'unlatch',
           });
-          return;
+          return true;
         }
         const command = widgetCommand(entity);
         if (command) guardedCommand(entity.id, command);
       }
+      return true;
     };
     // Kein Start-Link ist der Normalfall - dann startet die App normal.
-    Linking.getInitialURL()
-      .then(handle)
-      .catch(() => {});
+    if (!startLinkErledigt.current) {
+      Linking.getInitialURL()
+        .then((url) => {
+          if (!startLinkErledigt.current && handle(url)) {
+            startLinkErledigt.current = true;
+          }
+        })
+        .catch(() => {});
+    }
+    // Ereignisse (App lief schon) kommen genau einmal - jedes zählt.
     const subscription = Linking.addEventListener('url', (event) => handle(event.url));
     return () => subscription.remove();
   }, [entities, scenes, activateScene, guardedCommand]);
