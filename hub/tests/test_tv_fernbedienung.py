@@ -18,6 +18,7 @@ from homepilot.integrations.androidtv import (
     SLEEP_MINUTES,
     AndroidTvIntegration,
     absage,
+    leitung_offen,
 )
 
 
@@ -176,3 +177,90 @@ async def test_eine_fehlende_kopplung_schweigt_auch_beim_ausschalten_nicht(hub):
     integration._gekoppelt[tv.id] = False
     with pytest.raises(ConnectionError, match="gekoppelt"):
         await integration.handle_command(tv, "turn_off", {})
+
+
+# ── Die stille Falle in der Bibliothek ─────────────────────────────────
+#
+# `send_key_command` wirft `ConnectionClosed` nur, wenn das
+# Protokollobjekt ganz fehlt. Ist bloss die Verbindung darunter im
+# Zumachen, verschluckt `_send_message` die Taste - kein Fehler, keine
+# Wirkung. Der Hub meldete «erledigt», die App «ging an den Hub», und der
+# Fernseher tat nichts.
+
+
+class Leitung:
+    """Ein Transport, wie asyncio ihn hat - offen oder im Zumachen."""
+
+    def __init__(self, zu: bool) -> None:
+        self._zu = zu
+
+    def is_closing(self) -> bool:
+        return self._zu
+
+
+class Protokoll:
+    def __init__(self, transport: object | None) -> None:
+        self.transport = transport
+
+
+class Verbunden:
+    """Eine Fernbedienung, die aussieht wie die echte."""
+
+    is_on = True
+
+    def __init__(self, protokoll: object | None) -> None:
+        self._remote_message_protocol = protokoll
+        self.gesendet: list[str] = []
+
+    def send_key_command(self, key: str) -> None:
+        self.gesendet.append(key)
+
+
+def test_eine_offene_leitung_erkennt_er():
+    assert leitung_offen(Verbunden(Protokoll(Leitung(zu=False)))) is True
+
+
+def test_eine_zumachende_leitung_auch():
+    assert leitung_offen(Verbunden(Protokoll(Leitung(zu=True)))) is False
+    assert leitung_offen(Verbunden(Protokoll(None))) is False
+    assert leitung_offen(Verbunden(None)) is False
+
+
+def test_was_er_nicht_versteht_gilt_als_unbekannt():
+    """Lieber gelegentlich blind als plötzlich stumm.
+
+    Die zwei Felder sind privat. Benennt die Bibliothek sie um, darf das
+    nicht dazu führen, dass keine Taste mehr durchgeht - dann gilt
+    «weiss nicht», und gesendet wird wie zuvor.
+    """
+
+    class Fremd:
+        pass
+
+    assert leitung_offen(Fremd()) is None
+
+    class OhneTransport:
+        _remote_message_protocol = object()
+
+    assert leitung_offen(OhneTransport()) is None
+
+
+async def test_in_eine_zumachende_leitung_wird_gar_nicht_erst_gesendet(hub):
+    """Sonst verschwindet die Taste, und der Hub meldet «erledigt»."""
+    integration, tv = await _aufbau(hub)
+    remote = Verbunden(Protokoll(Leitung(zu=True)))
+    integration._remotes[tv.id] = remote
+    integration._gekoppelt[tv.id] = True
+    with pytest.raises(ConnectionError) as absage_:
+        await integration.handle_command(tv, "dpad_up", {})
+    assert str(absage_.value) == NICHT_ERREICHBAR
+    assert remote.gesendet == []
+
+
+async def test_bei_offener_leitung_geht_sie_raus(hub):
+    integration, tv = await _aufbau(hub)
+    remote = Verbunden(Protokoll(Leitung(zu=False)))
+    integration._remotes[tv.id] = remote
+    integration._gekoppelt[tv.id] = True
+    await integration.handle_command(tv, "dpad_up", {})
+    assert remote.gesendet == ["KEYCODE_DPAD_UP"]
