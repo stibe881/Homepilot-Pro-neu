@@ -532,6 +532,10 @@ class PushService:
         # ändert. Bewusst ein Rückruf und kein DataStore hier - der
         # Push-Dienst soll nichts über die Ablage wissen müssen.
         self.on_change: Any = None
+        # Wird vom Hub gesetzt: Ruf mich mit jeder verschickten Meldung -
+        # für den Nachlese-Zettel (core/pushverlauf.py). Derselbe Schnitt
+        # wie bei on_change: kein DataStore hier drin.
+        self.on_sent: Any = None
         self.muted = {}
         self._session_factory = session_factory or (
             lambda: aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15))
@@ -671,6 +675,29 @@ class PushService:
         ]
         if not messages:
             return PushResult(errors=["Kein gültiger Expo-Push-Token angemeldet"])
+
+        if self.on_sent is not None:
+            # Vor dem Versand vermerkt: Auch eine Meldung, die bei Expo
+            # hängenbleibt, war eine Meldung - und der Zettel soll nicht
+            # vom Netz abhängen.
+            empfaenger = sorted(
+                {
+                    device.user
+                    for device in self.devices
+                    if device.token in valid and device.user
+                }
+            )
+            alle = {device.user for device in self.devices if device.user}
+            self.on_sent(
+                {
+                    "title": title,
+                    "body": body,
+                    "category": category,
+                    # Ging es an alle Telefone, bleibt die Liste leer -
+                    # «an alle» soll auch für morgen Angemeldete gelten.
+                    "to": [] if set(empfaenger) >= alle else empfaenger,
+                }
+            )
 
         session = self._session_factory()
         try:

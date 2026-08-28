@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
+import Svg, { Circle } from 'react-native-svg';
 
 import { HubFehler, hubClient } from '../api/client';
 import { Entity, HubSettings } from '../api/types';
@@ -10,6 +11,7 @@ import { Klappe } from '../components/Klappe';
 import { Fehlschlag, Laedt } from '../components/Zustand';
 import { useTakt } from '../hooks/useTakt';
 import { datumUhr } from '../lib/format';
+import { ringAnteil } from '../lib/alarmring';
 import { tapped, triggered } from '../lib/haptics';
 import { Colors, radius, space, type, useColors } from '../theme';
 
@@ -48,6 +50,8 @@ interface AlarmState {
   mode?: string | null;
   mode_label?: string;
   seconds_left?: number | null;
+  /** Wie lang die laufende Frist insgesamt war – für den Ring. */
+  seconds_total?: number | null;
   /** Was am Ende des Countdowns passiert: 'arm' | 'trigger' | 'rearm'. */
   next_action?: string | null;
   last_trigger?: {
@@ -152,6 +156,61 @@ export function byRoom(candidates: Candidate[]): { room: string; items: Candidat
     room,
     items: candidates.filter((entry) => (entry.room || 'Ohne Raum') === room),
   }));
+}
+
+/**
+ * Der Countdown als Ring: Er leert sich, die Sekunden stehen darin.
+ *
+ * An der Stelle der Zustandslampe, nicht daneben - während einer Frist
+ * *ist* der Ring der Zustand.
+ */
+function CountdownRing({
+  anteil,
+  sekunden,
+  farbe,
+}: {
+  anteil: number;
+  sekunden: number;
+  farbe: string;
+}) {
+  const colors = useColors();
+  const groesse = 44;
+  const dicke = 4;
+  const radiusRing = (groesse - dicke) / 2;
+  const umfang = 2 * Math.PI * radiusRing;
+  return (
+    <View
+      style={{ width: groesse, height: groesse, alignItems: 'center', justifyContent: 'center' }}
+      accessibilityLabel={`Noch ${sekunden} Sekunden`}
+    >
+      <Svg width={groesse} height={groesse} style={{ position: 'absolute' }}>
+        <Circle
+          cx={groesse / 2}
+          cy={groesse / 2}
+          r={radiusRing}
+          stroke={colors.track}
+          strokeWidth={dicke}
+          fill="none"
+        />
+        <Circle
+          cx={groesse / 2}
+          cy={groesse / 2}
+          r={radiusRing}
+          stroke={farbe}
+          strokeWidth={dicke}
+          fill="none"
+          strokeLinecap="round"
+          strokeDasharray={`${umfang}`}
+          strokeDashoffset={umfang * (1 - anteil)}
+          // Bei 12 Uhr beginnen, im Uhrzeigersinn leeren.
+          transform={`rotate(-90 ${groesse / 2} ${groesse / 2})`}
+        />
+      </Svg>
+      <Text style={{ color: farbe, fontSize: 13, fontWeight: '700' }}>
+        {sekunden}
+      </Text>
+    </View>
+  );
 }
 
 export function AlarmScreen({
@@ -382,7 +441,15 @@ export function AlarmScreen({
         tint={data.state.state !== 'unscharf' ? colors.dangerSoft : undefined}
       >
         <View style={styles.stateHead}>
-          <View style={[styles.lamp, { backgroundColor: look.color }]} />
+          {ringAnteil(data.state) != null ? (
+            <CountdownRing
+              anteil={ringAnteil(data.state)!}
+              sekunden={data.state.seconds_left ?? 0}
+              farbe={look.color}
+            />
+          ) : (
+            <View style={[styles.lamp, { backgroundColor: look.color }]} />
+          )}
           <View style={{ flex: 1 }}>
             <Text style={styles.heading}>{look.text}</Text>
             {countdownText(data.state) != null ? (

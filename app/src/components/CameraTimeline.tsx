@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Entity, HubSettings } from '../api/types';
+import { gefiltert, FilterLage } from '../lib/ereignisfilter';
 import { uhr } from '../lib/format';
 import { Colors, radius, useColors } from '../theme';
 import { hubClient } from '../api/client';
@@ -52,6 +53,13 @@ export function CameraTimeline({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [events, setEvents] = useState<CameraEvent[] | null>(null);
   const [supported, setSupported] = useState(true);
+  // Die beiden Filter: nur Personen, nur tagsüber (lib/ereignisfilter).
+  // Flüchtig mit Absicht - ein Filter, der kleben bleibt, ist morgen
+  // die Leiste, auf der scheinbar nichts war.
+  const [filter, setFilter] = useState<FilterLage>({
+    nurPersonen: false,
+    nurTagsueber: false,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -80,12 +88,54 @@ export function CameraTimeline({
     return <Text style={styles.hint}>In den letzten 24 Stunden war nichts.</Text>;
   }
 
+  const { sichtbar, verborgen } = gefiltert(events, filter);
+  // Anbieten nur, wo er etwas täte: Ohne erkannte Personen wäre der
+  // Personen-Chip ein Knopf, der die Leiste bloss leert.
+  const kenntPersonen = events.some((event) => event.detected.includes('person'));
+
   return (
     <View style={{ gap: 6 }}>
-      <Text style={styles.hint}>Letzte 24 Stunden</Text>
+      <View style={styles.filterZeile}>
+        <Text style={[styles.hint, { flex: 1 }]}>
+          Letzte 24 Stunden
+          {verborgen > 0 ? ` · ${verborgen} ausgeblendet` : ''}
+        </Text>
+        {kenntPersonen ? (
+          <Pressable
+            onPress={() => setFilter((alt) => ({ ...alt, nurPersonen: !alt.nurPersonen }))}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: filter.nurPersonen }}
+            style={[styles.filterChip, filter.nurPersonen && styles.filterChipAktiv]}
+          >
+            <Text
+              style={[styles.filterText, filter.nurPersonen && styles.filterTextAktiv]}
+            >
+              nur Personen
+            </Text>
+          </Pressable>
+        ) : null}
+        <Pressable
+          onPress={() => setFilter((alt) => ({ ...alt, nurTagsueber: !alt.nurTagsueber }))}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: filter.nurTagsueber }}
+          style={[styles.filterChip, filter.nurTagsueber && styles.filterChipAktiv]}
+        >
+          <Text
+            style={[styles.filterText, filter.nurTagsueber && styles.filterTextAktiv]}
+          >
+            nur tagsüber
+          </Text>
+        </Pressable>
+      </View>
+      {sichtbar.length === 0 ? (
+        <Text style={styles.hint}>
+          Der Filter lässt nichts übrig – {verborgen} Ereignis
+          {verborgen === 1 ? '' : 'se'} ausgeblendet.
+        </Text>
+      ) : null}
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         <View style={styles.strip}>
-          {events.map((event) => {
+          {sichtbar.map((event) => {
             const person = event.detected.includes('person');
             const ring = event.type === 'ring';
             return (
@@ -126,6 +176,17 @@ export function CameraTimeline({
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     hint: { color: colors.inkFaint, fontSize: 12 },
+    filterZeile: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    filterChip: {
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    filterChipAktiv: { backgroundColor: colors.accent, borderColor: colors.accent },
+    filterText: { color: colors.inkSoft, fontSize: 12, fontWeight: '600' },
+    filterTextAktiv: { color: '#FFFFFF' },
     strip: { flexDirection: 'row', gap: 6 },
     bubble: {
       alignItems: 'center',

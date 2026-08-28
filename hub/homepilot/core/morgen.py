@@ -57,6 +57,7 @@ def zeilen(
     stumm: list[str],
     nacht: int,
     stille_ablaeufe: list[str],
+    uv: str | None = None,
 ) -> list[str]:
     """Die Zeilen der Zusammenfassung (rein, testbar).
 
@@ -78,6 +79,10 @@ def zeilen(
         )
     if stille_ablaeufe:
         raus.append("Lief nicht: " + ", ".join(stille_ablaeufe))
+    if uv:
+        # Zuletzt: Das Fenster, das noch offen steht, ist der Handgriff
+        # vor der Haustüre - die Sonnencreme kommt danach.
+        raus.append(uv)
     return raus
 
 

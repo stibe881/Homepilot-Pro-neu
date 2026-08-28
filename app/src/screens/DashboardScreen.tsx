@@ -67,7 +67,7 @@ import {
   shopCategory,
 } from '../lib/einkauf';
 import { datumUhr, uhr } from '../lib/format';
-import { Erinnerung, anzuzeigende, bestaetigung, naechsteAt, quittiertVon } from '../lib/erinnerungen';
+import { Erinnerung, anzuzeigende, bestaetigung, naechsteAt, quittiertVon, vollbildTitel } from '../lib/erinnerungen';
 import {
   AUTO_SCHLIESSEN_SEKUNDEN,
   KlingelAktion,
@@ -476,6 +476,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     () => setJetztErinnerung(Date.now()),
     naechsteAt(erinnerungen) !== null ? 30000 : null
   );
+  // Frische Liste, frische Uhr: Kommt eine weitere Erinnerung an,
+  // während das Vollbild schon steht, wurde ihre Fälligkeit sonst gegen
+  // den letzten Takt gerechnet - und die neue Karte erschien erst bis
+  // zu eine halbe Minute später, obwohl man vor dem Schirm steht.
+  useEffect(() => {
+    setJetztErinnerung(Date.now());
+  }, [erinnerungen]);
   // «Erledigt» (nur für mich) auf diesem Gerät - zusätzlich zur Liste
   // beim Hub, damit das Vollbild auch dann sofort und dauerhaft weg ist,
   // wenn der Name des Benutzers gerade (noch) nicht bekannt ist.
@@ -3537,7 +3544,11 @@ function ErinnerungOverlay({
   return (
     <Modal visible animationType="fade" onRequestClose={() => {}}>
       <View style={styles.doorbellRoot}>
-        <Text style={styles.doorbellTitle}>⏰ Erinnerung</Text>
+        {/* Bei mehreren steht die Zahl oben: Wer von der zweiten
+            Push-Nachricht kommt, soll sehen, dass hier zwei Karten
+            warten - jede mit eigenen Knöpfen, jede einzeln
+            bestätigbar. */}
+        <Text style={styles.doorbellTitle}>{vollbildTitel(erinnerungen.length)}</Text>
         <ScrollView contentContainerStyle={styles.erinnerungListe}>
           {erinnerungen.map((erinnerung) => (
             <View key={erinnerung.id} style={styles.erinnerungKarte}>

@@ -15,6 +15,20 @@ wenn die Leitung gerade tot ist. Deshalb wandert jedes erzeugte MP3 in
 einen kleinen Vorrat auf der Platte; ein schon einmal gesprochener Satz
 kommt von dort, mit oder ohne Netz. Die immergleichen Ablauf-Durchsagen
 liegen so nach dem ersten Mal dauerhaft bereit.
+
+Wahlweise spricht statt gTTS **Piper**, lokal auf dem Hub: bessere
+Stimme, kein Netz, keine Wolke. In der config.yaml:
+
+  speech:
+    engine: piper
+    voice: /config/de_DE-thorsten-medium.onnx
+
+Das Stimmmodell (samt .onnx.json daneben) gibt es frei bei
+https://github.com/rhasspy/piper - einmal herunterladen, neben die
+config legen, fertig. Piper liefert WAV; die Boxen spielen es über
+play_url genauso. Fehlt Piper oder die Stimme, fällt die Durchsage auf
+gTTS zurück und sagt es einmal im Log - eine stumme Box wäre die
+schlechtere Antwort.
 """
 
 from __future__ import annotations
@@ -109,6 +123,44 @@ def synthesize(text: str) -> bytes:
     return buffer.getvalue()
 
 
+def piper_kommando(voice: str, bin_path: str = "piper") -> list[str]:
+    """Der Piper-Aufruf (rein, testbar): WAV nach stdout."""
+    return [bin_path, "--model", voice, "--output_file", "-"]
+
+
+def synthesize_piper(text: str, voice: str, bin_path: str = "piper") -> bytes:
+    """Text zu WAV über das lokale Piper - blockierend, in einen Thread.
+
+    Als Unterprozess und nicht als Python-Bibliothek: Piper zieht
+    onnxruntime mit, und das gehört nicht in den Hub-Prozess - ein
+    Absturz beim Sprechen darf keine Automation mitreissen.
+    """
+    import subprocess
+
+    lauf = subprocess.run(
+        piper_kommando(voice, bin_path),
+        input=text.encode("utf-8"),
+        capture_output=True,
+        timeout=30,
+        check=True,
+    )
+    if not lauf.stdout:
+        raise HomePilotError("Piper hat nichts geliefert")
+    return lauf.stdout
+
+
+def spricht_piper(hub: Hub) -> str | None:
+    """Der Pfad zur Piper-Stimme, wenn Piper sprechen soll (rein).
+
+    None heisst: gTTS wie bisher. Der Block muss ausdrücklich
+    `engine: piper` sagen - eine Stimme allein schaltet nicht um.
+    """
+    speech = getattr(hub.config, "speech", None) or {}
+    if str(speech.get("engine") or "").lower() != "piper":
+        return None
+    return str(speech.get("voice") or "") or None
+
+
 async def speak(
     hub: Hub,
     text: str,
@@ -144,6 +196,22 @@ async def speak(
     # kommt sofort und auch ohne Internet.
     folder = cache_dir(hub)
     audio = cached_audio(folder, cleaned) if folder else None
+    piper_voice = spricht_piper(hub)
+    if audio is None and piper_voice:
+        try:
+            audio = await asyncio.to_thread(
+                synthesize_piper,
+                cleaned,
+                piper_voice,
+                str((getattr(hub.config, "speech", None) or {}).get("bin") or "piper"),
+            )
+            if folder:
+                store_audio(folder, cleaned, audio)
+        except Exception as err:
+            # Zurück auf gTTS statt stumm: Eine Durchsage, die wegen
+            # einer fehlenden Stimme ausfällt, wäre die schlechtere
+            # Antwort. Einmal im Log reicht.
+            log.warning("Piper scheiterte (%s) - weiche auf gTTS aus", err)
     if audio is None:
         # Erst hier nach gTTS fragen: Ein Satz aus dem Vorrat braucht
         # weder die Bibliothek noch Internet.

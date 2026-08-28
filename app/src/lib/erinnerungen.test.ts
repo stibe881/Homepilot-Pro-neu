@@ -1,4 +1,4 @@
-import { anzuzeigende, bestaetigung, faellige, monatsSprung, monatsraster, naechsteAt, naechsteFaelligkeit, offene, wiederholungVon, zeitpunkt } from './erinnerungen';
+import { anzuzeigende, bestaetigung, faellige, monatsSprung, monatsraster, naechsteAt, naechsteFaelligkeit, offene, vollbildTitel, wiederholungVon, zeitpunkt } from './erinnerungen';
 
 describe('zeitpunkt', () => {
   it('liest Schweizer Datum und Uhrzeit', () => {
@@ -170,5 +170,46 @@ describe('naechsteFaelligkeit', () => {
     expect(bestaetigung({ id: 'c', at: 'quatsch', repeat: 'daily' }, 0)).toEqual({
       done: true,
     });
+  });
+});
+
+describe('mehrere fällige zugleich', () => {
+  const JETZT = 1_800_000_000_000;
+
+  test('alle fälligen kommen aufs Vollbild – nicht nur die älteste', () => {
+    const liste = anzuzeigende(
+      [
+        { id: 'a', text: 'Zahnarzt anrufen', at: JETZT - 60_000 },
+        { id: 'b', text: 'Pflanzen giessen', at: JETZT - 1_000 },
+        { id: 'c', text: 'Später', at: JETZT + 3_600_000 },
+      ],
+      JETZT
+    );
+    expect(liste.map((eintrag) => eintrag.id)).toEqual(['a', 'b']);
+  });
+
+  test('eine weitere vor dem Quittieren der alten stellt sich dazu', () => {
+    const alt = { id: 'a', text: 'Alt', at: JETZT - 600_000 };
+    const neu = { id: 'b', text: 'Neu', at: JETZT - 1_000 };
+    // Die alte steht seit zehn Minuten unbestätigt - die neue verdrängt
+    // sie nicht, beide stehen da.
+    expect(anzuzeigende([alt, neu], JETZT)).toHaveLength(2);
+  });
+
+  test('die Überschrift zählt mit', () => {
+    expect(vollbildTitel(1)).toBe('⏰ Erinnerung');
+    expect(vollbildTitel(3)).toBe('⏰ 3 Erinnerungen');
+  });
+
+  test('«Erledigt» des einen räumt nur dessen Karte, nicht das Blatt', () => {
+    const liste = anzuzeigende(
+      [
+        { id: 'a', text: 'Alt', at: JETZT - 600_000, quittiert: ['Stefan'] },
+        { id: 'b', text: 'Neu', at: JETZT - 1_000 },
+      ],
+      JETZT,
+      'Stefan'
+    );
+    expect(liste.map((eintrag) => eintrag.id)).toEqual(['b']);
   });
 });

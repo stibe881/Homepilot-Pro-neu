@@ -91,6 +91,8 @@ import {
 import { tapped } from '../lib/haptics';
 import { kochVorschlaege, vorschlagsGrund, wuerfel } from '../lib/vorschlag';
 import { ROLE_LABELS } from './UsersScreen';
+import { doppeldosisFrage } from '../lib/doppeldosis';
+import { naechsteStraehne, straehnenSatz } from '../lib/straehne';
 import { AddRow, BackHead, CheckRow, ChoreAddRow, ContactForm, ContactPhoto, CountdownForm, ErinnerungForm, EventForm, FamilyData, FamilyItem, GroupedChecklist, MealRow, MedicationAddRow, Member, MemberAddRow, ModuleKey, MonthCalendar, Notrufliste, PollAddRow, Props, REPEAT_OPTIONS, SHOP_CATEGORIES, ShoppingAddRow, TaskAddRow, TwoFieldForm, WEEK_DAYS, birthdayLabel, daysUntilBirthday, dueInfo, isoInDays, nextDue, parseSwissDate, pickPhoto, rotateMember } from './family/bausteine';
 import { makeStyles } from './family/stil';
 
@@ -145,6 +147,13 @@ export function FamilyScreen({
     (startModul as ModuleKey | null) ?? null
   );
   const [reorderOpen, setReorderOpen] = useState(false);
+  // Die Doppeldosis-Rückfrage: welche Gabe gerade nachgefragt wird,
+  // mit dem fertigen Satz dazu (lib/doppeldosis.ts).
+  const [dosisFrage, setDosisFrage] = useState<{
+    medId: string;
+    gabe: string;
+    text: string;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [calMode, setCalMode] = useState<'list' | 'month'>('list');
   // Kontakte: nach Rolle filtern und einzelne bearbeiten.
@@ -1853,11 +1862,15 @@ export function FamilyScreen({
           reason: `Ämtli: ${chore.text}`,
         });
       }
+      // Die Strähne rechnet lib/straehne.ts: Sie verlängert sich, wenn
+      // keine Runde ausgelassen wurde, und reisst sonst - das ist der
+      // Teil, der motiviert.
       update('chores', chore.id, {
         member: naechster,
         due: nextDue(chore.due, chore.repeat || 'weekly'),
         last_done: isoInDays(0),
         last_by: chore.member ?? null,
+        ...naechsteStraehne(chore, isoInDays(0)),
       });
     };
 
@@ -1916,6 +1929,12 @@ export function FamilyScreen({
                     <Text style={styles.checkSub}>
                       zuletzt: {chore.last_by}
                       {chore.last_done ? ` am ${chore.last_done}` : ''}
+                    </Text>
+                  ) : null}
+                  {straehnenSatz(chore) ? (
+                    <Text style={styles.straehne}>
+                      <Ionicons name="flame" size={12} color={colors.warn} />{' '}
+                      {straehnenSatz(chore)}
                     </Text>
                   ) : null}
                 </View>
@@ -2965,6 +2984,24 @@ export function FamilyScreen({
     const heute = isoInDays(0);
     const stunde = new Date().getHours();
 
+    const hakeGabeAb = (med: FamilyItem, gabe: string, schon: boolean) => {
+      const stand = hakeGabe(med, heute, gabe);
+      update('medications', med.id, {
+        taken: stand.taken,
+        done: stand.done,
+        log: [
+          ...(Array.isArray(med.log) ? med.log : []),
+          {
+            day: heute,
+            slot: gabe,
+            by: currentUser?.name ?? '?',
+            at: new Date().toISOString(),
+            undo: schon,
+          },
+        ].slice(-60),
+      });
+    };
+
     return (
       <View style={styles.stack}>
         <BackHead title="Medikamente" onBack={goBack} styles={styles} colors={colors} />
@@ -3046,21 +3083,20 @@ export function FamilyScreen({
                       <Pressable
                         key={gabe}
                         onPress={() => {
-                          const stand = hakeGabe(med, heute, gabe);
-                          update('medications', med.id, {
-                            taken: stand.taken,
-                            done: stand.done,
-                            log: [
-                              ...(Array.isArray(med.log) ? med.log : []),
-                              {
-                                day: heute,
-                                slot: gabe,
-                                by: currentUser?.name ?? '?',
-                                at: new Date().toISOString(),
-                                undo: schon,
-                              },
-                            ].slice(-60),
-                          });
+                          // Der gefährliche Fall: abgehakt, zurückgenommen,
+                          // wieder offen - dann erst fragen, dann geben
+                          // (lib/doppeldosis.ts).
+                          const frage = doppeldosisFrage(
+                            Array.isArray(med.log) ? med.log : [],
+                            heute,
+                            gabe,
+                            schon
+                          );
+                          if (frage) {
+                            setDosisFrage({ medId: med.id, gabe, text: frage });
+                            return;
+                          }
+                          hakeGabeAb(med, gabe, schon);
                         }}
                         accessibilityRole="checkbox"
                         accessibilityState={{ checked: schon }}
@@ -3114,6 +3150,46 @@ export function FamilyScreen({
         {liste.length === 0 ? (
           <Text style={styles.hint}>Nichts eingetragen.</Text>
         ) : null}
+
+        {/* Die Doppeldosis-Rückfrage: nachfragen, nicht verbieten -
+            vielleicht war das Zurücknehmen ja richtig. */}
+        <Modal
+          visible={dosisFrage != null}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setDosisFrage(null)}
+        >
+          <View style={styles.modalBack}>
+            <View style={styles.modalCard}>
+              <Ionicons name="warning-outline" size={26} color={colors.warn} />
+              <Text style={styles.title}>Schon einmal abgehakt</Text>
+              <Text style={styles.hint}>{dosisFrage?.text}</Text>
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <Pressable
+                  onPress={() => setDosisFrage(null)}
+                  accessibilityRole="button"
+                  style={[styles.chip, { flex: 1, alignItems: 'center' }]}
+                >
+                  <Text style={styles.chipText}>Abbrechen</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    const frage = dosisFrage;
+                    setDosisFrage(null);
+                    const med = liste.find((eintrag) => eintrag.id === frage?.medId);
+                    if (med && frage) hakeGabeAb(med, frage.gabe, false);
+                  }}
+                  accessibilityRole="button"
+                  style={[styles.chip, { flex: 1, alignItems: 'center' }]}
+                >
+                  <Text style={[styles.chipText, { color: colors.warn, fontWeight: '700' }]}>
+                    Trotzdem abhaken
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </View>
     );
   }
