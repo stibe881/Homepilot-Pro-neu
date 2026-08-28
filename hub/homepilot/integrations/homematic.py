@@ -1111,6 +1111,10 @@ def _kanal_main(config_path: str, geraet: str) -> int:
     gelesen.
     """
     from ..core.config import load_config
+    from ..core.stand import stand_zeile
+
+    # Als Erstes, damit man nicht die Ausgabe eines alten Abbilds deutet.
+    print(stand_zeile())
 
     config = load_config(config_path)
     blocks = [b for b in config.integrations if b.get("integration") == "homematic"]
