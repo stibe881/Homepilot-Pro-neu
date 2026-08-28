@@ -178,6 +178,13 @@ ist der einzige nötige Befehl.
   richtige Weg – UniFi bringt eines mit (WireGuard unter *Teleport/VPN*).
 - Kopplungs-Helfer (Android TV, Ring, Matter) laufen im Container so:
   `docker exec -it homepilot-hub python -m homepilot.integrations.androidtv -c /config/config.yaml`
+- Reagiert die Fernbedienung nicht, sagt derselbe Weg mit `--tasten`, woran
+  es liegt – Kopplung, Verbindung, oder eine Taste, die in einer
+  zumachenden Leitung verschwindet:
+  `docker exec -it homepilot-hub python -m homepilot.integrations.androidtv --tasten -c /config/config.yaml`
+  Mit `--taste DPAD_DOWN` schickt er zusätzlich eine Taste, ohne dass die
+  App dazwischenliegt. Warum es das braucht, steht in
+  `integrations/androidtv.py` bei `leitung_offen`.
 
 
 ## Update-Knopf in der App
