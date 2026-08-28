@@ -40,6 +40,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
 
+from . import lautplan
 from .errors import HomePilotError
 from .source import as_source
 from .source import current as aktuelle_quelle
@@ -775,6 +776,17 @@ class Tonmeister:
         if eintrag is None:
             return
         self._vergessen(entity_id)
+        # Deckt ein Tagesplan diese Box ab, gewinnt er: Er kennt den
+        # Sollwert der *jetzigen* Zeit, der gemerkte Wunsch nur den von
+        # damals. Läuft das Radio von sieben bis elf, gilt beim
+        # Ausschalten der Tag-Wert - und nicht der Morgen-Wert, den die
+        # Box vor vier Stunden verpasst hat (core/lautplan.py stellt
+        # ihn selbst).
+        plan = getattr(self.hub, "lautplan", None)
+        if plan is not None and any(
+            lautplan.gilt_fuer(eintrag_plan, entity_id) for eintrag_plan in plan.plaene()
+        ):
+            return
         asyncio.create_task(self._nachreichen(entity_id, eintrag))
 
     async def _nachreichen(self, entity_id: str, eintrag: dict[str, Any]) -> None:

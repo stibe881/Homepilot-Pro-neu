@@ -15,6 +15,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
+from ...core import lautplan
 from ...core.errors import HomePilotError
 from ...core.users import Capability
 from ..context import ApiContext
@@ -32,6 +33,18 @@ class TonEinstellung(BaseModel):
     max: int | None = None
     duck: bool | None = None
     wait: bool | None = None
+
+
+class LautplanRequest(BaseModel):
+    """Der ganze Plan auf einmal.
+
+    Nicht Stufe für Stufe: Ein Plan ist eine Liste, die man als Ganzes
+    ansieht und als Ganzes ändert - und ein halb gespeicherter Plan
+    (zwei Stufen weg, eine neue noch nicht da) wäre stundenlang in
+    Kraft, ohne dass jemand ihn so gemeint hätte.
+    """
+
+    plans: list[dict[str, Any]]
 
 
 class UmzugRequest(BaseModel):
@@ -133,6 +146,37 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "pending": meister.nachtrag(),
             "cap_now": meister.deckel(),
         }
+
+    @app.get("/api/media/volumeplan")
+    async def volume_plan(request: Request) -> dict[str, Any]:
+        """Lautstärke nach Tageszeit - und was gerade daraus gilt."""
+        current_user(request)
+        plan = hub.lautplan
+        jetzt = plan.jetzt_min()
+        return {
+            "plans": plan.plaene(),
+            # Was jetzt gälte: Ohne diese Zeile müsste man die Stufen im
+            # Kopf gegen die Uhr halten, um zu sehen, ob der Plan das
+            # tut, was man wollte.
+            "now": [
+                {
+                    "id": eintrag.get("id"),
+                    "volume": (
+                        lautplan.stufe_jetzt(eintrag.get("steps"), jetzt) or {}
+                    ).get("volume"),
+                    "at": (lautplan.stufe_jetzt(eintrag.get("steps"), jetzt) or {}).get("at"),
+                }
+                for eintrag in plan.plaene()
+            ],
+        }
+
+    @app.put("/api/media/volumeplan")
+    async def set_volume_plan(body: LautplanRequest, request: Request) -> dict[str, Any]:
+        require(request, Capability.CONTROL)
+        try:
+            return {"plans": hub.lautplan.setzen(body.plans)}
+        except HomePilotError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
 
     @app.post("/api/media/{entity_id}/move")
     async def move_playback(

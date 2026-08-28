@@ -12,14 +12,25 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { hubClient } from '../api/client';
+import { useTakt } from '../hooks/useTakt';
 import { Entity, HubSettings } from '../api/types';
 import { hausSatz, laufendeMusik, zustandName } from '../lib/hausmusik';
 import { WeckerEntwurf, ersterEntwurf } from '../lib/weckerentwurf';
 import { tageSatz } from '../lib/weckertage';
 import { Nachtragzeile, nachtragSatz } from '../lib/tonnachtrag';
+import {
+  Plan,
+  Stufe,
+  VORLAGE,
+  geordnet,
+  minuten,
+  neueStufe,
+  stufeJetzt,
+  stufenSatz,
+} from '../lib/lautplan';
 import { Colors, radius, type, useColors } from '../theme';
 
 import { Card } from './Card';
@@ -77,6 +88,22 @@ export function Musikzentrale({
   // Nicht in laufende Musik hineinstellen - und was deswegen wartet.
   const [warten, setWarten] = useState(true);
   const [nachtrag, setNachtrag] = useState<Nachtragzeile[]>([]);
+  // Lautstärke nach Tageszeit. Genau ein Plan in der Oberfläche: Der
+  // Hub kann mehrere, aber wer zwei braucht, weiss auch, wie man sie
+  // über die Route anlegt - und eine Liste von Plänen über einer Liste
+  // von Stufen wäre für den Normalfall eine Ebene zu viel.
+  const [plan, setPlan] = useState<Plan | null>(null);
+  // Welche Stufe gerade gilt, wird hervorgehoben - dafür braucht es die
+  // Uhrzeit. Im Minutentakt und nicht öfter: Feiner löst der Plan nicht
+  // auf, und der Takt schweigt im Hintergrund (hooks/useTakt.ts).
+  const [jetztMinuten, setJetztMinuten] = useState(() => {
+    const jetzt = new Date();
+    return jetzt.getHours() * 60 + jetzt.getMinutes();
+  });
+  useTakt(() => {
+    const jetzt = new Date();
+    setJetztMinuten(jetzt.getHours() * 60 + jetzt.getMinutes());
+  }, 30_000);
   const [wecker, setWecker] = useState<Wecker[]>([]);
   const [note, setNote] = useState<string | null>(null);
   const [neuerWecker, setNeuerWecker] = useState<WeckerEntwurf | null>(null);
@@ -85,7 +112,7 @@ export function Musikzentrale({
   const [pausiert, setPausiert] = useState(false);
 
   const laden = useCallback(async () => {
-    const [f, v, e, w] = await Promise.all([
+    const [f, v, e, w, l] = await Promise.all([
       hub.get<{ favorites?: Favorit[] } | null>('/api/media/favorites', {
         fallback: null,
         still: true,
@@ -107,6 +134,10 @@ export function Musikzentrale({
         fallback: null,
         still: true,
       }),
+      hub.get<{ plans?: Plan[] } | null>('/api/media/volumeplan', {
+        fallback: null,
+        still: true,
+      }),
     ]);
     setFavoriten(f?.favorites ?? []);
     setVerlauf(v?.history ?? []);
@@ -115,6 +146,7 @@ export function Musikzentrale({
     if (typeof e?.wait === 'boolean') setWarten(e.wait);
     setNachtrag(e?.pending ?? []);
     setWecker(w?.alarms ?? []);
+    setPlan(l?.plans?.[0] ?? null);
   }, [hub]);
 
   useEffect(() => {
@@ -221,6 +253,34 @@ export function Musikzentrale({
       setNote(String(err instanceof Error ? err.message : err));
     }
   };
+
+  /**
+   * Den Plan als Ganzes sichern.
+   *
+   * Nicht Stufe für Stufe: Ein halb gespeicherter Plan (zwei Stufen
+   * weg, die neue noch nicht da) wäre stundenlang in Kraft, ohne dass
+   * ihn jemand so gemeint hätte.
+   */
+  const planSichern = async (naechster: Plan | null) => {
+    setPlan(naechster);
+    try {
+      const antwort = await hub.put<{ plans: Plan[] }>(
+        '/api/media/volumeplan',
+        { plans: naechster ? [naechster] : [] },
+        { still: true },
+      );
+      setPlan(antwort.plans?.[0] ?? null);
+      setNote(null);
+    } catch (err) {
+      setNote(String(err instanceof Error ? err.message : err));
+      // Zurück auf den Stand des Hubs: Sonst stünde in der Liste etwas,
+      // das dort gar nicht angekommen ist.
+      laden();
+    }
+  };
+
+  const stufenSichern = (stufen: Stufe[]) =>
+    planSichern({ ...(plan ?? { name: 'Lautsprecher' }), steps: geordnet(stufen) });
 
   const weckerLoeschen = async (eintrag: Wecker) => {
     await hub
@@ -490,6 +550,63 @@ export function Musikzentrale({
         <Text style={styles.hinweis}>{nachtragSatz(nachtrag, namenNachId)}</Text>
       ) : null}
 
+      {/* ── Lautstärke nach Tageszeit ────────────────────────────── */}
+      <Text style={styles.abschnitt}>Lautstärke nach Tageszeit</Text>
+      {plan && plan.steps.length > 0 ? (
+        <>
+          {geordnet(plan.steps).map((stufe, index) => {
+            const gilt = stufeJetzt(plan.steps, jetztMinuten)?.at === stufe.at;
+            return (
+              <View key={stufe.at} style={styles.zeile}>
+                <Ionicons
+                  name={gilt ? 'time' : 'time-outline'}
+                  size={14}
+                  color={gilt ? colors.accent : colors.inkSoft}
+                />
+                <Text
+                  style={[styles.zeileText, gilt && { color: colors.accent, fontWeight: '700' }]}
+                  numberOfLines={1}
+                >
+                  ab {stufe.at} · {stufenSatz(plan.steps, index)}
+                </Text>
+                <Pressable
+                  onPress={() =>
+                    stufenSichern(plan.steps.filter((andere) => andere.at !== stufe.at))
+                  }
+                  accessibilityRole="button"
+                  accessibilityLabel={`Stufe ${stufe.at} löschen`}
+                  hitSlop={8}
+                >
+                  <Ionicons name="trash-outline" size={14} color={colors.inkFaint} />
+                </Pressable>
+              </View>
+            );
+          })}
+          <StufenFormular
+            styles={styles}
+            colors={colors}
+            vorschlag={neueStufe(plan.steps)}
+            onSichern={(stufe) => stufenSichern([...plan.steps, stufe])}
+          />
+          <Text style={styles.hinweis}>
+            Gilt für stille Boxen. Läuft Musik oder Radio, bleibt die Box, wie sie
+            ist – und bekommt ihren Wert, sobald die Wiedergabe endet.
+          </Text>
+        </>
+      ) : (
+        <Pressable
+          onPress={() => planSichern({ name: 'Lautsprecher', steps: VORLAGE, entities: [] })}
+          accessibilityRole="button"
+          accessibilityLabel="Lautstärke nach Tageszeit einrichten"
+          style={({ pressed }) => [styles.schalter, pressed && { opacity: 0.7 }]}
+        >
+          <Ionicons name="add-circle-outline" size={16} color={colors.accent} />
+          <Text style={styles.schalterText}>
+            Einrichten – morgens leise, tagsüber laut, nachts fast aus
+          </Text>
+        </Pressable>
+      )}
+
       {/* ── Musikwecker ──────────────────────────────────────────── */}
       <Text style={styles.abschnitt}>Musikwecker</Text>
       {wecker.map((eintrag) => (
@@ -532,6 +649,81 @@ export function Musikzentrale({
 
       {note ? <Text style={styles.hinweis}>{note}</Text> : null}
     </Card>
+  );
+}
+
+/**
+ * Eine Stufe hinzufügen: Uhrzeit und Prozent, sonst nichts.
+ *
+ * Eigene Komponente, damit die beiden Felder ihren Zwischenstand
+ * behalten, ohne die ganze Musikzentrale bei jedem Tastendruck neu zu
+ * zeichnen - dort hängen Favoriten, Verlauf und Wecker mit dran.
+ *
+ * Der Vorschlag steht schon drin: Wer eine Stufe hinzufügt, hat eine
+ * Lücke im Kopf, keine Uhrzeit - und die grösste Lücke ist fast immer
+ * die gemeinte (lib/lautplan.ts).
+ */
+function StufenFormular({
+  vorschlag,
+  onSichern,
+  styles,
+  colors,
+}: {
+  vorschlag: Stufe;
+  onSichern: (stufe: Stufe) => void;
+  styles: ReturnType<typeof makeStyles>;
+  colors: Colors;
+}) {
+  const [zeit, setZeit] = useState(vorschlag.at);
+  const [prozent, setProzent] = useState(String(vorschlag.volume));
+  const gueltig = minuten(zeit) !== null && Number(prozent) >= 0 && Number(prozent) <= 100;
+
+  const sichern = () => {
+    if (!gueltig) return;
+    onSichern({ at: zeit, volume: Math.round(Number(prozent)) });
+    // Zurück auf den nächsten Vorschlag: Das Formular bleibt offen, weil
+    // man Stufen meistens zu mehreren einträgt.
+    setZeit(vorschlag.at);
+    setProzent(String(vorschlag.volume));
+  };
+
+  return (
+    <View style={styles.formular}>
+      <TextInput
+        style={styles.eingabe}
+        value={zeit}
+        onChangeText={setZeit}
+        placeholder="07:00"
+        placeholderTextColor={colors.inkFaint}
+        maxLength={5}
+        accessibilityLabel="Ab welcher Uhrzeit"
+        onSubmitEditing={sichern}
+      />
+      <TextInput
+        style={styles.eingabe}
+        value={prozent}
+        onChangeText={setProzent}
+        placeholder="30"
+        placeholderTextColor={colors.inkFaint}
+        keyboardType="number-pad"
+        maxLength={3}
+        accessibilityLabel="Lautstärke in Prozent"
+        onSubmitEditing={sichern}
+      />
+      <Pressable
+        onPress={sichern}
+        disabled={!gueltig}
+        accessibilityRole="button"
+        accessibilityLabel="Stufe hinzufügen"
+        style={({ pressed }) => [
+          styles.schalter,
+          { paddingHorizontal: 6 },
+          (pressed || !gueltig) && { opacity: 0.5 },
+        ]}
+      >
+        <Ionicons name="add" size={18} color={colors.accent} />
+      </Pressable>
+    </View>
   );
 }
 

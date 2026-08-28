@@ -43,6 +43,60 @@ kann:
 - **Musikwecker.** Weckt mit einem Sender statt mit Piepsen und blendet
   ein.
 
+## Lautstärke nach Tageszeit
+
+Unter *Einstellungen → Lautsprecher* steht eine Liste: ab wann, wie
+laut. Vier Stufen decken den Tag ab – morgens leise, tagsüber laut,
+abends wieder leise, nachts fast aus. Die Stufe, die gerade gilt, ist
+hervorgehoben.
+
+Der Plan gilt für den **Ruhezustand** einer Box. Das ist der springende
+Punkt: Wie laut es ist, während jemand zuhört, entscheidet der Mensch
+mit dem Regler – nicht die Uhr. Der Plan sagt nur, wie laut die Box
+sein soll, wenn sie das nächste Mal etwas von sich gibt.
+
+Daraus folgen drei Dinge:
+
+- **Beim Stufenwechsel wird gestellt** – aber nur bei Boxen, auf denen
+  nichts läuft. In eine laufende Wiedergabe hineinzustellen, ist ein
+  Eingriff, kein Grundwert.
+- **Endet die Wiedergabe, gilt der Sollwert der jetzigen Zeit.** Nicht
+  der Wert vom letzten Stufenwechsel: Läuft das Radio von sieben bis
+  elf, gilt beim Ausschalten der Tag-Wert und nicht der Morgen-Wert,
+  den die Box vor vier Stunden verpasst hat.
+- **Nach einem Neustart ebenso.** Eine stille Box auf einem Wert, den
+  niemand mehr kennt, ist genau der Zustand, den der Plan abschafft.
+
+Zwischen zwei Stufenwechseln lässt der Plan die Boxen in Ruhe – wer um
+elf von Hand lauter dreht, hat bis zwanzig Uhr seine Ruhe. Sonst zöge
+der Plan jeden Handgriff innerhalb einer Minute wieder zurück.
+
+Um Mitternacht wird nicht gerechnet, sondern umgeschlagen: Steht die
+letzte Stufe auf 23:45, gilt sie bis zur ersten des nächsten Tages.
+
+Fernseher stehen aussen vor: Ihre Lautstärke gehört zum Bild, nicht zur
+Tageszeit.
+
+**Braucht es dafür Abläufe?** Nein – der Plan ersetzt sie. Vier Abläufe,
+die alle dasselbe tun und sich nur in einer Zahl unterscheiden, sind
+genau die Arbeit, die der Hub selbst erledigen kann. Wer trotzdem einen
+Ablauf schreibt, der die Lautstärke stellt, bekommt dieselbe
+Rücksicht: Läuft auf der Box gerade etwas, wird der Wunsch gemerkt und
+nachgereicht, sobald die Wiedergabe endet (Schalter «Abläufe stellen
+eine spielende Box erst um …»). Deckt ein Tagesplan dieselbe Box ab,
+gewinnt er – er kennt den Sollwert der jetzigen Zeit, der gemerkte
+Wunsch nur den von damals.
+
+## Der Ein/Aus-Knopf auf der Boxenkachel
+
+Unten rechts auf jeder Kachel, wie überall sonst. Bei einer Box heisst
+er wirklich «aus»: Die Sitzung wird beendet, nicht nur angehalten –
+danach steht die Box frei da. Pause allein hält den Empfänger besetzt,
+und vom Telefon aus weckt ihn jeder Handgriff wieder auf.
+
+Ist die Box pausiert, spielt derselbe Knopf weiter. Läuft gar nichts,
+steht dort kein Knopf: Auf einer leeren Box gibt es nichts zu starten.
+
 ## Durchsage und Sprachnotiz
 
 Die Durchsage-Kachel auf der Startseite schickt einen Satz auf die
