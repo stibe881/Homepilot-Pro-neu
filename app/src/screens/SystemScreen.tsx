@@ -14,6 +14,7 @@ import * as Updates from 'expo-updates';
 
 import { HubFehler, hubClient } from '../api/client';
 import { Entity, HubSettings, LogEntry, SystemStatus, User } from '../api/types';
+import { Extra, geordnet, luecken, zustand } from '../lib/extras';
 import { PushState, pushHint } from '../hooks/usePushRegistration';
 import { AccessLog } from '../components/AccessLog';
 import { Card } from '../components/Card';
@@ -205,6 +206,10 @@ export function SystemScreen({
         settings={settings}
         onReloaded={load}
       />
+
+      {/* Was dem Hub an Zusatzteilen fehlt. Direkt unter den
+          Integrationen, weil es fast immer eine von ihnen betrifft. */}
+      <ExtrasCard settings={settings} />
 
       {/* Was gerade ausgefallen ist, gehört an die Integrationen und
           nicht zwei Karten darunter. */}
@@ -1106,6 +1111,118 @@ export function offline(entities: Entity[]): Entity[] {
     );
 }
 
+/**
+ * Zusatzteile des Hubs - und welche fehlen.
+ *
+ * Der Anlass war ein Fehlerbericht: «Dieser Knopf funktioniert nicht.»
+ * Es war der Knopf für eine eigene Durchsage. Er tat sehr wohl etwas -
+ * dem Hub fehlte gTTS, und das stand nirgends, wo jemand nachgesehen
+ * hätte. Man erfuhr es erst beim Scheitern, und auch dann nur, wenn man
+ * die Fehlermeldung las.
+ *
+ * Zugeklappt wie die Integrationen: Der Normalfall ist «alles da», und
+ * dann ist eine Liste mit neun Haken nur Weg. Fehlt etwas, steht die
+ * Karte offen - eine Lücke einzuklappen hiesse, genau die Auskunft zu
+ * verstecken, für die es sie gibt.
+ */
+function ExtrasCard({ settings }: { settings: HubSettings }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [stand, setStand] = useState<{
+    extras: Extra[];
+    summary: string;
+    command: string | null;
+  } | null>(null);
+  const [offen, setOffen] = useState(false);
+
+  useEffect(() => {
+    hubClient(settings.url, settings.token)
+      // Ein Hub, der die Route noch nicht kennt, soll hier keine rote
+      // Karte hinterlassen - dann fällt sie einfach weg.
+      .get<{ extras: Extra[]; summary: string; command: string | null } | null>(
+        '/api/system/extras',
+        { fallback: null, still: true }
+      )
+      .then(setStand);
+  }, [settings.url, settings.token]);
+
+  if (!stand) return null;
+  const fehlt = luecken(stand.extras);
+  const zeilen = offen ? geordnet(stand.extras) : geordnet(stand.extras).slice(0, fehlt);
+
+  return (
+    <Card style={styles.card}>
+      <Pressable
+        onPress={() => setOffen((wert) => !wert)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: offen }}
+        style={styles.integrationHead}
+      >
+        <Text style={[styles.heading, { flex: 1 }]}>Zusatzteile</Text>
+        <Text style={[styles.rowDetail, fehlt > 0 && { color: colors.warn }]}>
+          {fehlt === 0 ? 'vollständig' : fehlt === 1 ? '1 fehlt' : `${fehlt} fehlen`}
+        </Text>
+        <Ionicons
+          name={offen ? 'chevron-up' : 'chevron-down'}
+          size={18}
+          color={colors.inkSoft}
+        />
+      </Pressable>
+      <Text style={styles.hint}>{stand.summary}</Text>
+
+      {zeilen.map((extra) => {
+        const art = zustand(extra);
+        return (
+          <View key={extra.key} style={styles.row}>
+            <Ionicons
+              name={
+                art === 'fehlt'
+                  ? 'alert-circle'
+                  : art === 'da'
+                    ? 'checkmark-circle'
+                    : 'ellipse-outline'
+              }
+              size={18}
+              color={
+                art === 'fehlt'
+                  ? colors.warn
+                  : art === 'da'
+                    ? colors.on
+                    : colors.inkFaint
+              }
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowTitle}>
+                {extra.title}
+                {art === 'ungenutzt' ? ' · hier nicht gebraucht' : ''}
+              </Text>
+              <Text style={art === 'fehlt' ? styles.rowProblem : styles.rowDetail}>
+                {extra.detail}
+              </Text>
+            </View>
+          </View>
+        );
+      })}
+
+      {/* Ein Befehl zum Abtippen und kein Knopf: Der Hub läuft im
+          Abbild, und ein `pip install` darin wäre beim nächsten Update
+          wieder weg. Was hilft, ist die Zeile in der eigenen
+          Abbild-Beschreibung. */}
+      {stand.command ? (
+        <>
+          <Text style={styles.hint}>
+            Nachinstallieren im Hub-Ordner - und ins Abbild aufnehmen, sonst
+            ist es nach dem nächsten Update wieder weg:
+          </Text>
+          <Text selectable style={styles.befehl}>
+            {stand.command}
+          </Text>
+        </>
+      ) : null}
+    </Card>
+  );
+}
+
 /** Integrationen - eingeklappt, weil sie im Normalfall nichts zu sagen haben.
  *
  * Der Regelfall ist «alles läuft», und dann sind zehn Zeilen Haken nur
@@ -1785,6 +1902,16 @@ const makeStyles = (colors: Colors) =>
     // Aufgabe ist, und mit Zeilenabstand, weil er ein Satz ist.
     rowProblem: { color: colors.warn, fontSize: 12, lineHeight: 17, marginTop: 2 },
     hint: { color: colors.inkFaint, fontSize: 12, lineHeight: 18 },
+    /** Ein Befehl zum Abtippen - Festbreitenschrift, damit man Klammern
+     *  und Kommas auseinanderhält. */
+    befehl: {
+      color: colors.ink,
+      fontSize: 12,
+      fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }),
+      backgroundColor: colors.surfaceSoft,
+      borderRadius: 8,
+      padding: 8,
+    },
     buttons: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
     button: {
       paddingHorizontal: 16,

@@ -26,6 +26,7 @@ from fastapi import (
 from ...core import (
     config_edit,
     confighistory,
+    extras,
     watchdog,
 )
 from ...core import energy as energy_module
@@ -495,6 +496,33 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         require(request, Capability.EDIT_CONFIG)
         return {
             "entries": hub.log_buffer.entries(limit=min(500, max(1, limit)), level=level)
+        }
+
+    @app.get("/api/system/extras")
+    async def system_extras(request: Request) -> dict[str, Any]:
+        """Welche Zusatzteile installiert sind - und welche fehlen.
+
+        Ein paar Bibliotheken sind bewusst nicht im Grundbestand. Fehlt
+        eine, bleibt genau eine Funktion dunkel, und zwar still: Der
+        Durchsage-Knopf tat lange nichts, weil gTTS fehlte, und das stand
+        nirgends, wo jemand nachgesehen hätte.
+
+        Gelesen wird die *konfigurierte* Liste der Integrationen, nicht
+        die geladene: Eine Anbindung, die gerade an genau diesem
+        fehlenden Paket scheitert, ist nicht geladen - und wäre dann von
+        der Prüfung ausgenommen, die sie erklären soll.
+        """
+        current_user(request)
+        angebunden = {
+            str(eintrag.get("integration"))
+            for eintrag in hub.config.integrations
+            if isinstance(eintrag, dict) and eintrag.get("integration")
+        }
+        zeilen = extras.stand(angebunden, apns=bool(hub.config.apns))
+        return {
+            "extras": zeilen,
+            "summary": extras.satz(zeilen),
+            "command": extras.befehl(zeilen),
         }
 
     @app.get("/api/system/changes")
