@@ -1161,8 +1161,8 @@ def _kanal_main(config_path: str, geraet: str) -> int:
             {},
         )
         print(f"\n{serial} auf Port {port} - {eltern.get('TYPE') or 'unbekannter Typ'}")
-        print(f"{'Kanal':<8}{'Art':<32}{'Rat':<34}Datenpunkte")
-        print("-" * 110)
+        print(f"{'Kanal':<7}{'Art':<38}{'Rat':<46}Datenpunkte")
+        print("-" * 120)
 
         def nummer(device: dict[str, Any]) -> int:
             teil = str(device.get("ADDRESS", "")).split(":", 1)
@@ -1175,7 +1175,7 @@ def _kanal_main(config_path: str, geraet: str) -> int:
                 beschreibung = proxy.getParamsetDescription(adresse, "VALUES")
                 punkte = lesbare_datenpunkte(beschreibung)
             except Exception as err:
-                print(f"{nummer(device):<8}{art:<32}{'?':<34}nicht lesbar ({err})")
+                print(f"{nummer(device):<7}{art:<38}{'?':<46}nicht lesbar ({err})")
                 continue
             rat = kanal_rat(art, punkte)
             # Der Betriebsmodus, wo es ihn gibt: Derselbe Kanal heisst je
@@ -1188,8 +1188,11 @@ def _kanal_main(config_path: str, geraet: str) -> int:
                     modus = f"  [CHANNEL_OPERATION_MODE={wert}]"
             except Exception:
                 pass
+            # Ein Leerzeichen bleibt auch dann, wenn Art oder Rat die
+            # Spalte sprengen - sonst klebt der nächste Text daran und
+            # die Zeile wird unlesbar.
             print(
-                f"{nummer(device):<8}{art:<32}{rat:<34}"
+                f"{nummer(device):<7}{art:<38} {rat:<46} "
                 f"{', '.join(sorted(punkte)) or '-'}{modus}"
             )
 

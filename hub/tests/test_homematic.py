@@ -871,12 +871,36 @@ def test_kanal_rat_unterscheidet_schalten_und_melden():
 
 
 def test_kanal_rat_kennt_dimmer_und_messkanal():
-    assert "dimmbar" in homematic.kanal_rat("DIMMER_VIRTUAL_RECEIVER", {"STATE", "LEVEL"})
+    assert "dimmable: true" in homematic.kanal_rat(
+        "DIMMER_VIRTUAL_RECEIVER", {"STATE", "LEVEL"}
+    )
+    # Die Signalleuchte eines Markenschalters kann zusätzlich Farbe.
+    assert "Signalleuchte" in homematic.kanal_rat(
+        "DIMMER_VIRTUAL_RECEIVER", {"COLOR", "LEVEL"}
+    )
     assert "power_address" in homematic.kanal_rat("ENERGIE_METER_TRANSMITTER", {"POWER"})
 
 
 def test_kanal_rat_bei_einem_kanal_ohne_alles():
-    assert "nichts" in homematic.kanal_rat("MAINTENANCE", set())
+    assert "nichts" in homematic.kanal_rat("VIRTUAL_KEY", set())
+
+
+def test_kanal_rat_kennt_den_wartungskanal():
+    """Eine eigene Zeile dafür wäre eine Kachel «UNREACH»."""
+    rat = homematic.kanal_rat("MAINTENANCE", {"UNREACH", "LOW_BAT"})
+    assert "Wartungskanal" in rat
+
+
+def test_kanal_rat_warnt_vor_sendekanaelen():
+    """Sie führen dieselben Datenpunkte wie ihr Empfänger und lassen sich
+    trotzdem nicht schalten - jedes setValue endet in Fault -5."""
+    assert "nicht eintragen" in homematic.kanal_rat(
+        "SWITCH_TRANSMITTER", {"STATE", "PROCESS"}
+    )
+    # Aber ein Eingang, der zufällig so heisst, bleibt ein Eingang.
+    assert "button" in homematic.kanal_rat(
+        "MULTI_MODE_INPUT_TRANSMITTER", {"PRESS_SHORT"}
+    )
 
 
 def test_lesbare_datenpunkte_laesst_reine_schreibpunkte_weg():
@@ -966,7 +990,7 @@ async def test_ein_kanal_ohne_press_sagt_was_er_stattdessen_kann(hub):
         assert fehler is not None
         # Was der Kanal kann …
         assert "STATE" in fehler
-        # … und was stattdessen in die config.yaml gehört.
-        assert "binary_sensor" in fehler
+        # … und wo die Drücke stattdessen ankommen.
+        assert "001A58A9A24256:1" in fehler
     finally:
         await integration.teardown()
