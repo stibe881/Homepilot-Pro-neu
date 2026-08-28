@@ -543,6 +543,12 @@ class AndroidTvIntegration(Integration):
             )
             raise ConnectionError(absage(self._gekoppelt.get(entity_id, True)))
         self._senden(entity_id, lambda: remote.send_key_command(key))
+        # Auch das Gelingen protokollieren, nicht nur den Fehlschlag. Ein
+        # leeres Log war doppeldeutig: «alles gut» und «es kam nie eine
+        # Taste an» sahen gleich aus - und genau zwischen diesen beiden
+        # wurde bei der Fehlersuche im Haus unterschieden. Tasten drückt
+        # man einzeln; das Log verkraftet eine Zeile pro Druck.
+        self.log.info("Taste %s an %s gesendet", key, entity_id)
 
     def _senden(self, entity_id: str, tun: Any) -> None:
         """Etwas an den Fernseher schicken – und Fehlschläge übersetzen.
