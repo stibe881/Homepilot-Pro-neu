@@ -840,3 +840,133 @@ async def test_ein_druck_von_einem_fremden_kanal_landet_im_log(hub, caplog):
         assert "kind: button" in zeilen[0]
     finally:
         await integration.teardown()
+
+
+# ── Was ein Kanal hergibt ──────────────────────────────────────────────────
+#
+# Die Kanalart allein entscheidet nicht, was in die config.yaml gehört:
+# Ein HmIP-Eingang kann als Taster *oder* als Ja/Nein-Kontakt eingerichtet
+# sein (CHANNEL_OPERATION_MODE), und dann heisst derselbe Kanal einmal
+# PRESS_SHORT und einmal STATE.
+
+
+def test_kanal_rat_erkennt_einen_taster_an_seinen_datenpunkten():
+    assert (
+        homematic.kanal_rat("KEY_TRANSCEIVER", {"PRESS_SHORT", "PRESS_LONG"})
+        == "kind: button"
+    )
+    # Auch dann, wenn die Art nach etwas anderem aussieht - der Datenpunkt
+    # sticht.
+    assert (
+        homematic.kanal_rat("MULTI_MODE_INPUT_TRANSMITTER", {"PRESS_SHORT"})
+        == "kind: button"
+    )
+
+
+def test_kanal_rat_unterscheidet_schalten_und_melden():
+    assert "light" in homematic.kanal_rat("SWITCH_VIRTUAL_RECEIVER", {"STATE"})
+    # Derselbe Datenpunkt auf einem Kanal, der nicht schalten kann, ist
+    # eine Meldung.
+    assert "binary_sensor" in homematic.kanal_rat("SHUTTER_CONTACT", {"STATE"})
+
+
+def test_kanal_rat_kennt_dimmer_und_messkanal():
+    assert "dimmbar" in homematic.kanal_rat("DIMMER_VIRTUAL_RECEIVER", {"STATE", "LEVEL"})
+    assert "power_address" in homematic.kanal_rat("ENERGIE_METER_TRANSMITTER", {"POWER"})
+
+
+def test_kanal_rat_bei_einem_kanal_ohne_alles():
+    assert "nichts" in homematic.kanal_rat("MAINTENANCE", set())
+
+
+def test_lesbare_datenpunkte_laesst_reine_schreibpunkte_weg():
+    """Ein Datenpunkt, den man nur schreiben kann, meldet auch nichts."""
+    beschreibung = {
+        "PRESS_SHORT": {"OPERATIONS": 4},  # meldet Ereignisse
+        "STATE": {"OPERATIONS": 7},  # lesen, schreiben, melden
+        "INSTALL_TEST": {"OPERATIONS": 2},  # nur schreiben
+    }
+    assert homematic.lesbare_datenpunkte(beschreibung) == {"PRESS_SHORT", "STATE"}
+
+
+def test_lesbare_datenpunkte_ohne_angaben():
+    """Fehlt die Angabe, lieber einer zu viel als einer zu wenig."""
+    assert homematic.lesbare_datenpunkte({"STATE": {}}) == {"STATE"}
+    assert homematic.lesbare_datenpunkte({"STATE": "unerwartet"}) == {"STATE"}
+
+
+class _FakeCCUMitDatenpunkten(_FakeCCUMitArten):
+    """Eine CCU, die auch sagt, welche Datenpunkte ein Kanal hat."""
+
+    def __init__(self, arten: dict[str, str], punkte: dict[str, dict]) -> None:
+        super().__init__(arten)
+        self.punkte = punkte
+
+    async def call(self, method: str, *args, port: int = 0):
+        if method == "getParamsetDescription":
+            self.calls.append((method, args, port))
+            return self.punkte.get(args[0], {})
+        return await super().call(method, *args, port=port)
+
+
+async def test_der_datenpunkt_sticht_die_kanalart(hub):
+    """Ein Kanal, der PRESS_SHORT kennt, ist ein Taster - was immer die
+    CCU als Art meldet. Sonst warnte der Hub Leute an, bei denen alles
+    stimmt."""
+    ccu = _FakeCCUMitDatenpunkten(
+        {"001A58A9A24256:4": "SWITCH_VIRTUAL_RECEIVER"},
+        {"001A58A9A24256:4": {"PRESS_SHORT": {"OPERATIONS": 4}}},
+    )
+    integration = await _setup(
+        hub,
+        ccu,
+        [
+            {
+                "address": "001A58A9A24256:4",
+                "port": 2001,
+                "name": "Licht Gäste Bad",
+                "kind": "button",
+            }
+        ],
+    )
+    try:
+        entity = hub.registry.get("homematic.001A58A9A24256_4")
+        assert entity is not None
+        assert not entity.state.get("error")
+    finally:
+        await integration.teardown()
+
+
+async def test_ein_kanal_ohne_press_sagt_was_er_stattdessen_kann(hub):
+    """Der umgekehrte Fall: Die Art sieht nach Taster aus, der Kanal ist
+    aber als Ja/Nein-Kontakt eingerichtet (CHANNEL_OPERATION_MODE)."""
+    ccu = _FakeCCUMitDatenpunkten(
+        {
+            "001A58A9A24256:1": "MULTI_MODE_INPUT_TRANSMITTER",
+            "001A58A9A24256:4": "MULTI_MODE_INPUT_TRANSMITTER",
+        },
+        {"001A58A9A24256:4": {"STATE": {"OPERATIONS": 7}}},
+    )
+    integration = await _setup(
+        hub,
+        ccu,
+        [
+            {
+                "address": "001A58A9A24256:4",
+                "port": 2001,
+                "name": "Licht Gäste Bad",
+                "kind": "button",
+            }
+        ],
+    )
+    try:
+        entity = hub.registry.get("homematic.001A58A9A24256_4")
+        assert entity is not None
+        fehler = entity.state.get("error")
+        assert fehler is not None
+        # Was der Kanal kann …
+        assert "STATE" in fehler
+        # … und was stattdessen in die config.yaml gehört.
+        assert "binary_sensor" in fehler
+    finally:
+        await integration.teardown()

@@ -191,6 +191,34 @@ def button_hinweis(address: str, channels: dict[str, str]) -> str | None:
     )
 
 
+def druck_hinweis(
+    address: str,
+    art: str,
+    datenpunkte: set[str],
+    channels: dict[str, str],
+) -> str | None:
+    """Warum von diesem Kanal kein Druck kommt - nach den Datenpunkten.
+
+    Genauer als ``button_hinweis``, das nur die Kanalart kennt: Ein
+    HmIP-Eingang kann als Taster *oder* als Ja/Nein-Kontakt eingerichtet
+    sein, und dann heisst derselbe Kanal einmal PRESS_SHORT und einmal
+    STATE. Was der Kanal wirklich anbietet, weiss nur die CCU.
+
+    ``None`` heisst: Der Kanal meldet Tastendrücke, alles in Ordnung.
+    """
+    if datenpunkte & set(PRESS_DATAPOINTS):
+        return None
+    satz = (
+        f"{address} meldet keine Tastendrücke: Der Kanal ({art}) kennt "
+        f"{', '.join(sorted(datenpunkte)) or 'gar keine Datenpunkte'}. "
+        f"Dafür passt {kanal_rat(art, datenpunkte)}."
+    )
+    andere = [kanal for kanal in key_channels(address, channels) if kanal != address]
+    if andere:
+        return satz + f" Tastendrücke meldet dieses Gerät auf: {', '.join(andere)}."
+    return satz
+
+
 def fremder_druck(address: str, datapoint: str) -> str:
     """Ein Tastendruck von einem Kanal, den niemand eingetragen hat.
 
@@ -472,3 +500,58 @@ def local_address_for(host: str, port: int) -> str:
         sock.connect((host, port))
         return sock.getsockname()[0]
 
+
+
+# ── Was ein Kanal hergibt (fürs Nachsehen an der CCU) ─────────────────────
+
+
+def kanal_rat(art: str, datenpunkte: set[str]) -> str:
+    """Was in die config.yaml gehört, damit dieser Kanal etwas tut (rein).
+
+    Nicht die Kanalart allein entscheidet, sondern was der Kanal an
+    Datenpunkten anbietet: Ein HmIP-Eingang kann als Taster *oder* als
+    Ja/Nein-Kontakt eingerichtet sein (CHANNEL_OPERATION_MODE), und dann
+    heisst derselbe Kanal einmal PRESS_SHORT und einmal STATE. Wer nach
+    der Art geht, rät; wer nach den Datenpunkten geht, weiss es.
+    """
+    if "PRESS_SHORT" in datenpunkte or "PRESS_LONG" in datenpunkte:
+        return "kind: button"
+    if "LEVEL" in datenpunkte and art in SWITCHING_TYPES:
+        return "kind: light (dimmbar)"
+    if "STATE" in datenpunkte and art in SWITCHING_TYPES:
+        return "kind: light oder switch"
+    if "STATE" in datenpunkte:
+        return "kind: binary_sensor, datapoint: STATE"
+    if "POWER" in datenpunkte:
+        return "power_address (Messkanal, keine eigene Kachel)"
+    messwerte = sorted(
+        name
+        for name in datenpunkte
+        if name.startswith(("ACTUAL_", "CURRENT_", "HUMIDITY", "ILLUMINATION"))
+    )
+    if messwerte:
+        return f"kind: sensor, datapoint: {messwerte[0]}"
+    if not datenpunkte:
+        return "nichts - dieser Kanal gibt nichts her"
+    return "kein Vorschlag - siehe die Datenpunkte daneben"
+
+
+def lesbare_datenpunkte(beschreibung: dict[str, Any]) -> set[str]:
+    """Aus der Paramset-Beschreibung der CCU die Namen holen (rein).
+
+    Die CCU antwortet mit einem Wörterbuch je Datenpunkt; interessant ist
+    hier nur, welche es gibt. Alles, was sich nicht lesen lässt (Flag 1
+    fehlt), fällt heraus - ein Datenpunkt, den man nur schreiben kann,
+    meldet auch nichts.
+    """
+    namen = set()
+    for name, angaben in beschreibung.items():
+        if not isinstance(angaben, dict):
+            namen.add(str(name))
+            continue
+        operations = angaben.get("OPERATIONS")
+        # Bit 1 = lesbar, Bit 4 = meldet Ereignisse. Fehlt die Angabe,
+        # wird nicht gefiltert - lieber einer zu viel als einer zu wenig.
+        if operations is None or int(operations) & 0b101:
+            namen.add(str(name))
+    return namen
