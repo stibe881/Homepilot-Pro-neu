@@ -67,6 +67,7 @@ import {
   mitMenge,
   shopCategory,
 } from '../lib/einkauf';
+import { LernEintrag, merken, vergessen } from '../lib/ladenlernen';
 import { datumUhr, uhr } from '../lib/format';
 import { Erinnerung, anzuzeigende, bestaetigung, naechsteAt, quittiertVon, vollbildTitel } from '../lib/erinnerungen';
 import {
@@ -474,8 +475,21 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Kopfzeile mit ihnen.
   const einkaufRef = useRef<EinkaufZeile[]>([]);
   einkaufRef.current = einkauf;
+  // Das Abhak-Protokoll für die gelernte Gang-Reihenfolge
+  // (lib/ladenlernen.ts). Über eine Ref, weil hakeAb weiter oben im
+  // Bildschirm steht als usePrefs - die Ref wird nach dem Laden der
+  // Haus-Einstellungen weiter unten gefüllt.
+  const lernRef = useRef<{
+    log: LernEintrag[];
+    schreiben: (log: LernEintrag[]) => void;
+  }>({ log: [], schreiben: () => {} });
   // Was gerade abgehakt wurde, für einen Moment aufgehoben.
-  const [einkaufUndo, setEinkaufUndo] = useState<{ id: string; text: string } | null>(null);
+  const [einkaufUndo, setEinkaufUndo] = useState<{
+    id: string;
+    text: string;
+    laden?: string;
+    kategorie?: string;
+  } | null>(null);
   // Der letzte grosse Griff («Alles aus»), solange er sich zurücknehmen
   // lässt. Die Kennung gehört dem Hub: Er hat den Stand von vorher
   // aufgenommen, die App kennt nur den Zettel dazu.
@@ -620,11 +634,19 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   /** Einen Eintrag im Laden abhaken - er verschwindet sofort aus der
    *  Kopfzeile, statt bis zum nächsten Abruf stehen zu bleiben. */
   const hakeAb = useCallback(
-    (id: string) => {
+    (id: string, laden?: string) => {
       // Vor dem Wegnehmen merken, was da stand: Im Laden tippt man daneben,
       // und dann steht man vor dem Regal und weiss nicht mehr, was es war.
       const weg = einkaufRef.current.find((eintrag) => eintrag.id === id);
-      if (weg) setEinkaufUndo({ id, text: String(weg.text ?? '') });
+      const kategorie = String(weg?.category ?? '');
+      if (weg) setEinkaufUndo({ id, text: String(weg.text ?? ''), laden, kategorie });
+      // Aus dem Abhaken die Gang-Reihenfolge lernen (lib/ladenlernen.ts) -
+      // aber nur mit gewähltem Laden; ungefiltert weiss niemand, wo man steht.
+      if (weg && laden) {
+        const lern = lernRef.current;
+        const neu = merken(lern.log, laden, kategorie, Date.now());
+        if (neu !== lern.log) lern.schreiben(neu);
+      }
       setEinkauf((liste) => liste.filter((eintrag) => eintrag.id !== id));
       // Nicht still: Wer im Laden abhakt und dabei ins Leere greift, soll
       // es erfahren – sonst kauft er es nicht und denkt, er habe es.
@@ -689,6 +711,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     const zurueck = einkaufUndo;
     if (!zurueck) return;
     setEinkaufUndo(null);
+    // Der Fehlgriff soll auch nicht als «dieser Gang kommt jetzt» im
+    // Lern-Protokoll stehen bleiben (lib/ladenlernen.ts).
+    if (zurueck.laden) {
+      const lern = lernRef.current;
+      const neu = vergessen(lern.log, zurueck.laden, zurueck.kategorie ?? '', Date.now());
+      if (neu !== lern.log) lern.schreiben(neu);
+    }
     setEinkauf((liste) => [...liste, { id: zurueck.id, text: zurueck.text }]);
     hub
       .put(
@@ -946,7 +975,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setWidgetButtons,
     setWidgetDirect,
     setWidgetKarten,
+    setEinkaufLernen,
   } = usePrefs(settings, status === 'connected');
+
+  // Jetzt, wo die Haus-Einstellungen da sind, bekommt das Abhaken in der
+  // Kopfzeile sein Protokoll (Ref oben, bei einkaufRef).
+  lernRef.current = {
+    log: prefs.einkaufLernen ?? [],
+    schreiben: setEinkaufLernen,
+  };
 
   // Die Haustür-Karte für unterwegs - tut nur auf einem iPhone mit dem
   // passenden Build etwas (hooks/useLiveAktivitaet.ts). Hängt am
@@ -3246,6 +3283,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   : {
                       shopping: einkauf,
                       shops: laeden,
+                      lernLog: prefs.einkaufLernen,
                       onShoppingDone: hakeAb,
                       onShoppingRemove: entferneEinkauf,
                       onShoppingCount: setzeMenge,

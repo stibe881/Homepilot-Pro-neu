@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { HubSettings } from '../api/types';
 import { hubClient } from '../api/client';
+import { LernEintrag } from '../lib/ladenlernen';
 
 /**
  * Einstellungen der Oberfläche – zwei Ablagen, ein Muster.
@@ -68,6 +69,11 @@ export interface HousePrefs {
    *  stehen für alle im Haus, wie die Knöpfe auch – wer eines anlegt,
    *  legt es auf jedem Telefon zur Auswahl. */
   widgetKarten?: string[];
+  /** Das Abhak-Protokoll der Einkaufsliste: aus ihm lernt die App die
+   *  Gang-Reihenfolge je Laden (lib/ladenlernen.ts). Haushaltsweit,
+   *  weil der Laden für alle derselbe ist – was Livia abhakt, sortiert
+   *  auch Stefans Liste. */
+  einkaufLernen?: LernEintrag[];
 }
 
 /** Was nur einen selbst angeht. */
@@ -289,6 +295,11 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     [setzeHaus]
   );
 
+  const setEinkaufLernen = useCallback(
+    (log: LernEintrag[]) => setzeHaus({ einkaufLernen: log }),
+    [setzeHaus]
+  );
+
   const setSeenChanges = useCallback(
     (commit: string) => setzeEigen({ seenChanges: commit }),
     [setzeEigen]
@@ -365,6 +376,7 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     setWidgetButtons,
     setWidgetDirect,
     setWidgetKarten,
+    setEinkaufLernen,
     setSeenChanges,
     setKameraDynamisch,
     setTageszeit,

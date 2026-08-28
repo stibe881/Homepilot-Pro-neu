@@ -25,8 +25,10 @@ import {
   ladenZaehler,
   mengeAendern,
   shopCategory,
+  shopOrder,
   zeilenAufteilen,
 } from '../lib/einkauf';
+import { LernEintrag, merken, mitLernen, vergessen } from '../lib/ladenlernen';
 import {
   Vorgemerkt,
   anwenden,
@@ -216,6 +218,10 @@ export function FamilyScreen({
   // Einkaufs-Modus läuft (Punkt 173).
   const [laden, setLaden] = useState('allgemein');
   const [imLaden, setImLaden] = useState(false);
+  // Das Abhak-Protokoll, aus dem die Gang-Reihenfolge je Laden gelernt
+  // wird (lib/ladenlernen.ts). Es liegt in den Haus-Einstellungen -
+  // haushaltsweit, denn der Laden ist für alle derselbe.
+  const [lernLog, setLernLog] = useState<LernEintrag[]>([]);
   // Was nach dem üblichen Abstand wieder fällig wäre (Punkt 176).
   const [faellig, setFaellig] = useState<{ text: string; days_since: number; interval: number }[]>(
     []
@@ -257,6 +263,43 @@ export function FamilyScreen({
   const hub = useMemo(
     () => hubClient(settings.url, settings.token),
     [settings.url, settings.token]
+  );
+
+  // Erst laden, wenn die Einkaufsliste aufgeht - die anderen Kacheln
+  // brauchen das Protokoll nicht, und beim Öffnen ist es dann frisch,
+  // auch wenn zuletzt ein anderes Telefon abgehakt hat.
+  useEffect(() => {
+    if (view !== 'shopping') return;
+    let abgebrochen = false;
+    hub
+      .get<{ prefs?: { einkaufLernen?: LernEintrag[] } } | null>('/api/houseprefs', {
+        fallback: null,
+        still: true,
+      })
+      .then((body) => {
+        if (abgebrochen) return;
+        const log = body?.prefs?.einkaufLernen;
+        if (Array.isArray(log)) setLernLog(log);
+      })
+      .catch(() => {});
+    return () => {
+      abgebrochen = true;
+    };
+  }, [view, hub]);
+
+  const lernLogSchreiben = useCallback(
+    (log: LernEintrag[]) => {
+      setLernLog(log);
+      // Nur dieser eine Schlüssel geht über die Leitung - der Hub führt
+      // die Haus-Einstellungen zusammen (core/einstellungen.py). Und
+      // «still»: Ein verpasstes Lern-Häkchen ist keinen Fehlerbalken wert.
+      hub.put(
+        '/api/houseprefs',
+        { prefs: { einkaufLernen: log } },
+        { fallback: null, still: true }
+      );
+    },
+    [hub]
   );
 
   // Wer eine Push-Erinnerung bekommen kann - die Namen aus der
@@ -1267,7 +1310,14 @@ export function FamilyScreen({
     // Im Einkaufs-Modus verschwindet Erledigtes: Was im Wagen liegt,
     // kostet nur Platz (Punkt 173).
     const sichtbar = imLaden ? offeneItems : items;
-    const usedCats = SHOP_CATEGORIES.filter((cat) =>
+    const aktuellerShop = shops.find((shop) => shop.id === laden) ?? null;
+    // Die Laufreihenfolge des Ladens: von Hand geordnet, sonst aus den
+    // letzten Einkäufen gelernt (lib/ladenlernen.ts), sonst Standard.
+    // Bisher stand hier stur die Standardliste - die unter «Läden»
+    // gezogene Reihenfolge galt nur im geteilten Text und in der
+    // Kopfzeile, nicht auf dieser Seite selbst.
+    const wirksamerShop = mitLernen(aktuellerShop, lernLog);
+    const usedCats = shopOrder(wirksamerShop).filter((cat) =>
       sichtbar.some((item) => catOf(item) === cat)
     );
     // Standardartikel: was jede Woche in den Wagen wandert. Ein Tipp
@@ -1278,7 +1328,6 @@ export function FamilyScreen({
       alle.map((item: FamilyItem) => String(item.text ?? '').trim().toLowerCase())
     );
     const zaehler = ladenZaehler(alle, shops);
-    const aktuellerShop = shops.find((shop) => shop.id === laden) ?? null;
 
     /** Eintragen – mit Komma-Trennung und Zusammenlegen (174, 209). */
     const eintragenAuf = (roh: string, category: string) => {
@@ -1426,7 +1475,18 @@ export function FamilyScreen({
                         }
                       : undefined
                   }
-                  onToggle={() => update('shopping', item.id, { done: !item.done })}
+                  onToggle={() => {
+                    // Aus dem Abhaken lernt die App die Gang-Reihenfolge -
+                    // aber nur, wenn ein Laden gewählt ist: Wer die Liste
+                    // ungefiltert abarbeitet, steht in irgendeinem Laden.
+                    // Ein Zurücknehmen gleich danach gilt als Fehlgriff
+                    // und löscht den frischen Eintrag wieder.
+                    const neu = item.done
+                      ? vergessen(lernLog, laden, catOf(item), Date.now())
+                      : merken(lernLog, laden, catOf(item), Date.now());
+                    if (neu !== lernLog) lernLogSchreiben(neu);
+                    update('shopping', item.id, { done: !item.done });
+                  }}
                   onDelete={() => remove('shopping', item.id)}
                   // Punkt 207: Menge verstellen, ohne den Text zu tippen.
                   onCount={(delta) =>
@@ -1460,11 +1520,19 @@ export function FamilyScreen({
             {imLaden ? 'Alles im Wagen.' : 'Die Liste ist leer. Trag oben ein, was fehlt.'}
           </Text>
         ) : null}
+        {/* Eine Liste, die sich von selbst umsortiert, muss sagen, warum -
+            sonst sucht man den Gemüse-Gang dort, wo er gestern stand. */}
+        {wirksamerShop !== aktuellerShop ? (
+          <Text style={styles.hint}>
+            Die Reihenfolge der Gänge ist aus euren letzten Einkäufen in
+            diesem Laden gelernt. Von Hand ordnen geht unten unter «Läden».
+          </Text>
+        ) : null}
         {/* Punkt 177: Teilen, ohne die App zu verlangen. */}
         {offeneItems.length > 0 ? (
           <Pressable
             onPress={() =>
-              Share.share({ message: einkaufsText(offeneItems, aktuellerShop) })
+              Share.share({ message: einkaufsText(offeneItems, wirksamerShop) })
             }
             style={styles.clearButton}
             accessibilityRole="button"
