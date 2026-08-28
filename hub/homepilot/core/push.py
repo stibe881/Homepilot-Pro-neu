@@ -185,6 +185,7 @@ CATEGORIES: dict[str, str] = {
     "disk": "Speicherplatz wird knapp",
     "frost": "Frost angekündigt",
     "rain": "Regen kommt",
+    "plants": "Pflanzen giessen",
     "appliance": "Haushaltgerät fertig",
     "tasks": "Fällige Aufgaben",
     "timer": "Küchen-Timer",
@@ -215,7 +216,7 @@ GROUPS: list[tuple[str, tuple[str, ...]]] = [
     # sofort reagiert - und die einzige, bei der ein paar Sekunden
     # Verzögerung den Zweck zunichte machen.
     ("Sicherheit", ("doorbell", "alarm", "alarm_arming", "camera_motion", "leak")),
-    ("Haus", ("open", "appliance", "frost", "rain", "timer", "maintenance")),
+    ("Haus", ("open", "appliance", "frost", "rain", "plants", "timer", "maintenance")),
     ("Familie", ("birthday", "calendar", "medication", "tasks", "shopping",
                  "weekahead", "presence")),
     ("Betrieb", ("outage", "device_down", "battery", "disk", "morning")),

@@ -34,6 +34,7 @@ from . import (
     energy,
     familie,
     gemeldet,
+    giessen,
     maintenance,
     morgen,
     notifyrules,
@@ -290,6 +291,7 @@ class Watchdog:
         await self._check_disk()
         await self._check_frost(entities)
         await self._check_regen(entities)
+        await self._check_giessen(entities)
         await self._check_maintenance()
         await self._check_shopping(entities)
         await self._check_medications()
@@ -409,6 +411,39 @@ class Watchdog:
             regen.satz(stand) or "Regen kommt",
             text,
             category="rain",
+        )
+
+    async def _check_giessen(self, entities: list[Any]) -> None:
+        """Abends erinnern, wenn der Himmel es nicht macht.
+
+        Abends und nicht morgens: Um sieben Uhr früh verdunstet weniger,
+        aber wer die Meldung um sieben liest, hat sie um neun vergessen
+        - und mittags giessen verbrennt die Blätter. Einmal je Tag.
+
+        Die drei Bedingungen (lange trocken, es kommt nichts, es war
+        warm) stehen in core/giessen.py; hier steht nur, wann gefragt
+        wird.
+        """
+        jetzt = datetime.now()
+        if jetzt.hour != 18:
+            return
+        wetter = next((e for e in entities if getattr(e, "kind", "") == "weather"), None)
+        if wetter is None:
+            return
+        params = self.rules["plants"]["params"]
+        if not giessen.soll_giessen(
+            wetter.state,
+            int(params.get("days", 3)),
+            float(params.get("degrees", 18.0)),
+        ):
+            return
+        heute = jetzt.strftime("%Y-%m-%d")
+        if not self._einmal(f"plants:{heute}", jetzt.timestamp()):
+            return
+        await self._notify(
+            "Pflanzen giessen",
+            giessen.satz(wetter.state),
+            category="plants",
         )
 
     async def _check_maintenance(self) -> None:

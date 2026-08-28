@@ -140,6 +140,34 @@ RULES: list[dict[str, Any]] = [
         ],
     },
     {
+        "key": "plants",
+        "title": "Pflanzen giessen",
+        "detail": "Abends, wenn es länger nicht geregnet hat, auch keiner "
+        "kommt und es warm genug war. Alle drei zusammen - bei 14 Grad "
+        "hält die Erde eine Woche, und wer giesst, während nachts der "
+        "Regen kommt, giesst zweimal.",
+        "params": [
+            {
+                "key": "days",
+                "label": "Trocken seit",
+                "unit": "Tagen",
+                "default": 3,
+                "min": 2,
+                "max": 10,
+                "step": 1,
+            },
+            {
+                "key": "degrees",
+                "label": "Erst ab",
+                "unit": "°C",
+                "default": 18.0,
+                "min": 10.0,
+                "max": 30.0,
+                "step": 1.0,
+            },
+        ],
+    },
+    {
         "key": "frost",
         "title": "Frost angekündigt",
         "detail": "Abends, wenn die Nacht kälter wird als die Schwelle – für "

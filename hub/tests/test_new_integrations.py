@@ -906,8 +906,13 @@ def test_calendar_empty_means_free():
 
 
 def test_weather_parse_forecast():
+    from datetime import datetime
+
     from homepilot.integrations.weather import parse_forecast
 
+    # Mit fester Uhr: Die Antwort enthält seit den Vergangenheitstagen
+    # (past_days) auch Tage vor heute - welche das sind, entscheidet der
+    # Zeitpunkt, und der soll im Test nicht vom Kalender abhängen.
     state = parse_forecast(
         {
             "current": {"temperature_2m": 32.5, "weather_code": 1},
@@ -918,7 +923,8 @@ def test_weather_parse_forecast():
                 "temperature_2m_min": [18.1, 16.4],
                 "precipitation_probability_max": [10, 60],
             },
-        }
+        },
+        datetime(2026, 8, 15, 12, 0),
     )
     assert state["temperature"] == 32
     assert state["state"] == "Meist klar"
@@ -933,6 +939,8 @@ def test_weather_parse_forecast():
         "rain": 10,
         # Ohne UV in der Antwort bleibt das Feld leer - erfunden wird nichts.
         "uv": None,
+        # Ebenso beim Niederschlag: keine Angabe heisst 0.0 mm, nicht geraten.
+        "rain_mm": 0.0,
     }
     assert state["days"][1]["text"] == "Regenschauer"
 

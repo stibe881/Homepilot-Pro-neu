@@ -12,6 +12,7 @@ import {
   quellenSymbol,
 } from '../lib/geraeteart';
 import { hatWarteschlange } from '../lib/musikliste';
+import { trockenSatz } from '../lib/giessen';
 import { Regenstand, balkenHoehen, regenSatz } from '../lib/regen';
 import { uvWort } from '../lib/uv';
 import { Colors, radius, type, useColors } from '../theme';
@@ -541,6 +542,15 @@ function WeatherPanel({ entity }: { entity: Entity }) {
         </Text>
       ) : null}
 
+      {/* Und die andere Richtung: Wie lange es *nicht* geregnet hat.
+          Der Hub erinnert abends ans Giessen (hub/core/giessen.py) - hier
+          steht dieselbe Auskunft dort, wo man ohnehin nachsieht. */}
+      {trockenSatz(entity.state.dry_days, entity.state.rain_next) ? (
+        <Text style={styles.trocken}>
+          {trockenSatz(entity.state.dry_days, entity.state.rain_next)} · giessen
+        </Text>
+      ) : null}
+
       {days.length > 0 ? (
         <View style={styles.weekRow}>
           {days.map((day, index) => (
@@ -792,6 +802,7 @@ const makeStyles = (colors: Colors) =>
     // Eine Zeile, kein Kasten: Die Vorwarnung gehört zum Wetter und
     // nicht daneben.
     regen: { color: colors.warn, fontSize: 13, fontWeight: '600', marginTop: 2 },
+    trocken: { color: colors.inkSoft, fontSize: 13, marginTop: 2 },
     regenReihe: { marginTop: 6, gap: 2 },
     regenBalken: {
       flexDirection: 'row',
