@@ -28,6 +28,40 @@ programmiert.
 
 ---
 
+## Warum «ausschalten, was schon aus ist» kein Fehler ist
+
+**Dafür:** «Musik aus» auf einer Box, auf der nichts läuft, ist ein
+erfüllter Wunsch. Trotzdem meldeten die Integrationen der Reihe nach
+einen Fehler: Google Cast («Failed to execute pause.»), das Radio («Es
+läuft gerade kein Radio»), Spotify (kein aktives Gerät), der Fernseher
+(nicht erreichbar). Vier verschiedene Meldungen für dasselbe Nichts.
+
+Im Ablauf «Niemand mehr zuhause» stehen sechzig solcher Schritte, und
+das Türschloss steht am Ende. Solange ein Fehler den Lauf anhielt, war
+das teuer; seit er es nicht mehr tut, ist es Lärm im Protokoll. Beides
+sind gute Gründe, das Nichts nicht als Fehler zu behandeln.
+
+Die Regel gilt nur für Medien und nur in eine Richtung: Wer *abspielen*
+will, wo nichts ist, erfährt das weiterhin – da ist die Frage offen und
+die Antwort nützlich.
+
+Beim Fernseher kommt eine Unterscheidung dazu: Ein **gekoppelter**
+Fernseher, den der Hub nicht erreicht, ist vom Netz und damit aus – «mach
+ihn aus» ist erledigt. Eine **fehlende Kopplung** ist dagegen ein
+Einrichtungsfehler, den man sehen muss; da hilft kein Schweigen.
+
+**Kostet:** Der Hub verlässt sich dabei auf seinen eigenen Stand. Ist der
+veraltet – die Box spielt, der Hub weiss es noch nicht –, geht das Pause
+ins Leere und niemand erfährt es. Bei Lampen wäre das untragbar (dort
+drückt man «aus» oft *gerade weil* die Anzeige nicht stimmt), deshalb
+gilt die Regel ausdrücklich nicht für sie.
+
+**Wann es falsch wäre:** Bei einem Gerät, dessen Zustand der Hub nur
+selten erfährt. Dort ist ein Befehl ins Blaue besser als ein
+übersprungener.
+
+---
+
 ## Warum der Handstart nur manchmal nachfragt
 
 **Dafür:** Jeder Ablauf hat in der Liste einen Knopf, der ihn sofort

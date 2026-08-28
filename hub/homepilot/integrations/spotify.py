@@ -1001,6 +1001,18 @@ class SpotifyIntegration(Integration):
         if command == "toggle":
             command = "pause" if entity.state.get("state") == "playing" else "play"
 
+        if command == "pause" and entity.state.get("state") not in (
+            "playing",
+            "buffering",
+        ):
+            # Nichts läuft - dann gibt es auch nichts anzuhalten. Spotify
+            # antwortet auf ein Pause ohne aktives Gerät mit einem
+            # Fehler, und der hielt einen ganzen Ablauf an: «Niemand mehr
+            # zuhause» stellt der Reihe nach ein Dutzend Quellen ab und
+            # schliesst zuletzt die Türe (dieselbe Überlegung wie in
+            # google_cast.py und tunein.py).
+            return
+
         if command in ("set_volume", "volume_up", "volume_down", "mute"):
             current = int(entity.state.get("volume", 50) or 0)
             if command == "set_volume":
