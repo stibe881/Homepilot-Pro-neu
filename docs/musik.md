@@ -62,9 +62,19 @@ der Hub nach der Reihenfolge auflöst – deshalb lässt die App ihn gar
 nicht erst entstehen: Der Knopf erscheint nur, solange Boxen frei sind,
 und bei mehreren Plänen lässt sich keiner mehr auf «alle» zurückstellen.
 
-Gruppen stehen nicht zur Wahl. Sie stellen ihre Mitglieder ohnehin mit,
-und in der Auswahl stünde dieselbe Box zweimal. Fernseher auch nicht –
-ihre Lautstärke gehört zum Bild.
+In der Auswahl steht **alles, was der Plan überhaupt stellen kann** –
+Boxen, Lautsprechergruppen und Fernseher, jeweils beschriftet. Das ist
+kein Zufall, sondern der Punkt: Hier lagen zwei Listen auseinander. Der
+Hub stellte Gruppen mit, die App bot sie nicht zur Wahl an; wer «Haus
+Musik» aus dem Plan nehmen wollte, fand sie nirgends.
+
+Vorgewählt sind Boxen und Gruppen, **nicht** die Fernseher: Ihre
+Lautstärke gehört zum Bild und nicht zur Tageszeit. Wer sie trotzdem
+nach der Uhr stellen will, tippt sie an – dann gilt es.
+
+Ein Android TV steht gar nicht in der Liste. Er kennt nur «lauter» und
+«leiser» und keinen festen Wert; was er nicht kann, wird auch nicht
+angeboten.
 
 Der Plan gilt für den **Ruhezustand** einer Box. Das ist der springende
 Punkt: Wie laut es ist, während jemand zuhört, entscheidet der Mensch

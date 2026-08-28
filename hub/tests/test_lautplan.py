@@ -275,3 +275,101 @@ def test_the_route_refuses_a_typo() -> None:
         )
         assert antwort.status_code == 400
         assert "Uhrzeit" in antwort.json()["detail"]
+
+
+# ── Was ein Plan anfassen kann ────────────────────────────────────────
+#
+# Hier lagen zwei Listen auseinander: Der Hub stellte
+# Lautsprechergruppen mit, die App bot sie nicht zur Wahl an. Wer eine
+# Gruppe aus dem Plan nehmen wollte, fand sie nirgends.
+
+
+def geraet(entity_id: str, **stand: object) -> Entity:
+    return Entity(
+        id=entity_id,
+        kind="media_player",
+        name=entity_id,
+        integration="demo",
+        state={"state": "idle", **stand},
+        commands=["set_volume", "play"],
+        available=True,
+    )
+
+
+def test_a_speaker_that_takes_a_volume_is_a_candidate() -> None:
+    assert lautplan.kandidat(geraet("cast.bad")) is True
+
+
+def test_a_group_is_a_candidate_too() -> None:
+    # Sie war es beim Hub immer schon - nur die App zeigte sie nicht.
+    assert lautplan.kandidat(geraet("cast.haus", is_group=True)) is True
+
+
+def test_a_television_is_a_candidate_too() -> None:
+    # Ob er gestellt wird, entscheidet die Auswahl - nicht dieser Filter.
+    assert lautplan.kandidat(geraet("cast.tv", has_screen=True)) is True
+
+
+def test_a_device_without_a_volume_is_none() -> None:
+    stumm = Entity(
+        id="demo.klingel",
+        kind="media_player",
+        name="Klingel",
+        integration="demo",
+        state={"state": "idle"},
+        commands=["play"],
+    )
+    assert lautplan.kandidat(stumm) is False
+
+
+def test_an_unreachable_device_is_none() -> None:
+    weg = geraet("cast.weg")
+    weg.available = False
+    assert lautplan.kandidat(weg) is False
+
+
+def test_a_named_television_is_covered() -> None:
+    """Was in der Auswahl steht, muss auch gelten - eine Auswahl, die
+    etwas anzeigt, das der Hub dann doch nicht anfasst, ist schlimmer
+    als gar keine."""
+    plan = {**PLAN, "entities": ["cast.tv"]}
+    assert lautplan.gilt_fuer(plan, "cast.tv", bildschirm=True) is True
+
+
+def test_all_speakers_does_not_mean_the_television() -> None:
+    # Seine Lautstärke gehört zum Bild und nicht zur Tageszeit.
+    assert lautplan.gilt_fuer(PLAN, "cast.tv", bildschirm=True) is False
+    assert lautplan.gilt_fuer(PLAN, "cast.bad", bildschirm=False) is True
+
+
+async def test_the_plan_leaves_an_unnamed_television_alone() -> None:
+    hub = await hub_mit_box()
+    try:
+        await hub.registry.add(geraet("cast.tv", has_screen=True, volume=40))
+        hub.data.set(lautplan.KEY, [PLAN])
+        await hub.lautplan.anwenden(uhr("11:00"))
+        assert hub.registry.get("cast.tv").state["volume"] == 40
+    finally:
+        await hub.stop()
+
+
+async def test_a_named_television_is_set_after_all() -> None:
+    hub = await hub_mit_box()
+    try:
+        await hub.registry.add(geraet("cast.tv", has_screen=True, volume=40))
+        hub.data.set(lautplan.KEY, [{**PLAN, "entities": ["cast.tv"]}])
+        await hub.lautplan.anwenden(uhr("11:00"))
+        assert hub.registry.get("cast.tv").state["volume"] == 70
+    finally:
+        await hub.stop()
+
+
+async def test_a_group_is_set_like_any_other_box() -> None:
+    hub = await hub_mit_box()
+    try:
+        await hub.registry.add(geraet("cast.haus", is_group=True, volume=40))
+        hub.data.set(lautplan.KEY, [PLAN])
+        await hub.lautplan.anwenden(uhr("11:00"))
+        assert hub.registry.get("cast.haus").state["volume"] == 70
+    finally:
+        await hub.stop()

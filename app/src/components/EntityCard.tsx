@@ -855,6 +855,15 @@ export function EntityCard({
             <Text style={styles.detail}>
               {typeof press === 'number' ? sinceLabel(press) : 'Noch kein Druck'}
             </Text>
+            {/* «Bereit, noch kein Druck» stimmt und führt trotzdem in die
+                Irre, wenn der Kanal gar nichts sendet - etwa der
+                Schaltausgang eines Aktors statt seiner Wippe. Der Hub
+                merkt das beim Start und legt den Grund hierher. */}
+            {entity.state.error ? (
+              <Text style={[styles.detail, { color: colors.danger }]}>
+                {String(entity.state.error)}
+              </Text>
+            ) : null}
           </View>
         );
       }
