@@ -782,9 +782,20 @@ class Tonmeister:
         # Ausschalten der Tag-Wert - und nicht der Morgen-Wert, den die
         # Box vor vier Stunden verpasst hat (core/lautplan.py stellt
         # ihn selbst).
+        #
+        # Mit derselben Frage nach dem Bildschirm wie dort: Ein Plan
+        # ohne genannte Boxen deckt einen Fernseher *nicht* ab. Ohne
+        # diese Angabe hielte der Tonmeister ihn für gedeckt, verwürfe
+        # den gemerkten Wunsch - und der Plan stellte ihn dann auch
+        # nicht. Der Fernseher bliebe auf der Lautstärke von vorhin.
         plan = getattr(self.hub, "lautplan", None)
+        bildschirm = bool(
+            self.hub.registry.get(entity_id) is not None
+            and (self.hub.registry.get(entity_id).state.get("has_screen"))
+        )
         if plan is not None and any(
-            lautplan.gilt_fuer(eintrag_plan, entity_id) for eintrag_plan in plan.plaene()
+            lautplan.gilt_fuer(eintrag_plan, entity_id, bildschirm)
+            for eintrag_plan in plan.plaene()
         ):
             return
         asyncio.create_task(self._nachreichen(entity_id, eintrag))
