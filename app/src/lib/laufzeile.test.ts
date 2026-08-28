@@ -32,8 +32,19 @@ describe('laufzeile', () => {
       { at: VOR_ZWEI_STUNDEN, executed: true, error: 'Box nicht erreichbar' },
       JETZT,
     );
-    expect(zeile.text).toContain('Fehlgeschlagen');
+    // Gelaufen ist er - nur eben nicht sauber. «Fehlgeschlagen» wäre
+    // hier die falsche Sorge: Der Rest der sechzig Schritte kam durch.
+    expect(zeile.text).toContain('Mit Fehlern gelaufen');
     expect(zeile.text).toContain('Box nicht erreichbar');
+    expect(zeile.ton).toBe('warn');
+  });
+
+  it('sagt «Fehlgeschlagen» nur, wenn der Lauf wirklich abbrach', () => {
+    const zeile = laufzeile(
+      { at: VOR_ZWEI_STUNDEN, executed: false, error: 'Bedingung explodierte' },
+      JETZT,
+    );
+    expect(zeile.text).toContain('Fehlgeschlagen');
     expect(zeile.ton).toBe('warn');
   });
 

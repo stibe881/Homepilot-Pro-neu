@@ -333,6 +333,27 @@ def describe_target(condition: dict[str, Any], named: Any = str) -> str:
     return f"{name} sich meldet"
 
 
+def stolpersatz(gestolpert: list[tuple[str, str]], gesamt: int) -> str:
+    """Was von einem Lauf mit hängenden Schritten übrig bleibt (rein, testbar).
+
+    Der Satz muss zwei Dinge sagen, und das zweite ist das wichtigere:
+    *welcher* Schritt hing - und dass der Rest trotzdem gelaufen ist.
+    Vorher stand am Ablauf nur «Fehlgeschlagen: Failed to execute
+    pause.» Daran liess sich weder ablesen, welche der sechzig Boxen es
+    war, noch ob die Türe danach noch abgeschlossen hat.
+    """
+    anzahl = len(gestolpert)
+    if anzahl == 0:
+        return ""
+    erster, meldung = gestolpert[0]
+    kopf = (
+        f"{erster}: {meldung}"
+        if anzahl == 1
+        else f"{anzahl} von {gesamt} Schritten hingen, zuerst {erster}: {meldung}"
+    )
+    return f"{kopf} Der Rest lief durch."
+
+
 def describe_action(action: dict[str, Any], name_of: Any = None) -> str:
     """Eine Aktion in einem Satz – für den Trockenlauf (rein, testbar).
 
@@ -1831,6 +1852,9 @@ class AutomationEngine:
         # dran war und was dabei herauskam. «Fehlgeschlagen» allein
         # beantwortet die Frage «welcher Schritt hing?» nicht.
         spur: list[dict[str, Any]] = []
+        # Schritte, die hingen: (Beschreibung, Fehlertext). Der Lauf geht
+        # trotzdem weiter - siehe unten in der Schleife.
+        gestolpert: list[tuple[str, str]] = []
         start_ts = time.time()
 
         def name_of(entity_id: str) -> str:
@@ -1871,7 +1895,40 @@ class AutomationEngine:
                     # darin - sie sagt im Abbruchfall, wo der Lauf stand.
                     # Deshalb unten die Ausnahme von B007.
                     for position, action in enumerate(actions):  # noqa: B007
-                        notiz = await self._execute_action(automation, action, ausloeser)
+                        notiz: str | None = None
+                        schritt_fehler: str | None = None
+                        try:
+                            notiz = await self._execute_action(
+                                automation, action, ausloeser
+                            )
+                        except Exception as err:
+                            # Ein Schritt, der hängt, hält den Ablauf nicht
+                            # mehr an.
+                            #
+                            # «Niemand mehr zuhause» stellt der Reihe nach
+                            # sechzig Geräte ab und schliesst zuletzt die
+                            # Türe. Eine Box, auf der gerade nichts lief,
+                            # brachte den ganzen Lauf zum Stehen - die
+                            # Wohnung blieb offen und unscharf, und im
+                            # Protokoll stand nur «Fehlgeschlagen». Das ist
+                            # die schlechteste aller Reihenfolgen: Der
+                            # unwichtigste Schritt entscheidet über die
+                            # wichtigsten.
+                            #
+                            # Dieselbe Haltung hatten einzelne Schritte
+                            # schon für sich (ein Favorit, den es nicht
+                            # mehr gibt, hielt nie an) - sie gilt jetzt für
+                            # alle.
+                            schritt_fehler = str(err)
+                            gestolpert.append(
+                                (describe_action(action, name_of), schritt_fehler)
+                            )
+                            log.warning(
+                                "Automation '%s': Schritt %d hing (%s) - weiter",
+                                automation.alias,
+                                position + 1,
+                                err,
+                            )
                         if len(spur) < 40:
                             eintrag: dict[str, Any] = {
                                 "label": describe_action(action, name_of),
@@ -1879,7 +1936,11 @@ class AutomationEngine:
                             }
                             if notiz:
                                 eintrag["note"] = notiz
+                            if schritt_fehler:
+                                eintrag["error"] = schritt_fehler
                             spur.append(eintrag)
+                if gestolpert:
+                    error = stolpersatz(gestolpert, len(actions))
         except asyncio.CancelledError:
             # Abgebrochen, weil derselbe Ablauf gerade neu beginnt
             # (mode: restart). Das ist kein Fehler und gehört auch nicht

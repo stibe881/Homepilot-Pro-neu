@@ -44,7 +44,15 @@ export function laufzeile(
   const wann = epochAgo(lauf.at, jetzt) || 'gerade eben';
   const probe = lauf.test ? ' (Probe)' : '';
   if (lauf.error) {
-    return { text: `Fehlgeschlagen ${wann}${probe}: ${lauf.error}`, ton: 'warn' };
+    // «Fehlgeschlagen» nur, wenn der Lauf wirklich abgebrochen ist. Ein
+    // Ablauf, der sechzig Geräte schaltet, hält für einen hängenden
+    // Schritt nicht mehr an (hub/core/automation.py) - und «Türe
+    // abgeschlossen, eine Box hing» als «Fehlgeschlagen» zu lesen, ist
+    // die falsche Sorge zur falschen Zeit.
+    return {
+      text: `${lauf.executed === false ? 'Fehlgeschlagen' : 'Mit Fehlern gelaufen'} ${wann}${probe}: ${lauf.error}`,
+      ton: 'warn',
+    };
   }
   if (lauf.executed === false) {
     const grund = (lauf.skipped ?? []).join(', ');

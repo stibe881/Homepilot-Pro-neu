@@ -28,6 +28,37 @@ programmiert.
 
 ---
 
+## Warum ein hängender Schritt einen Ablauf nicht anhält
+
+**Dafür:** «Niemand mehr zuhause» schaltet sechzig Geräte ab, schaltet
+die Alarmanlage scharf und schliesst zuletzt die Türe. Bricht der Lauf
+beim ersten Fehler ab, entscheidet der unwichtigste Schritt über die
+wichtigsten – eine Box, auf der ohnehin nichts lief, liess die Wohnung
+offen und unscharf. Genau so ist es passiert.
+
+Ein Ablauf ist keine Transaktion. Es gibt kein «alles oder nichts»: Die
+vierzig Lichter, die schon aus sind, gehen nicht wieder an. Wenn ohnehin
+ein Teil getan ist, ist der grössere Teil besser als der kleinere – und
+die Reihenfolge in der Liste ist keine Rangfolge der Wichtigkeit,
+sondern die, in der man sie eingetippt hat.
+
+**Kostet:** Ein Ablauf, der auf halbem Weg stolpert, läuft weiter,
+obwohl die Voraussetzung für den Rest vielleicht nicht mehr stimmt. Wer
+«Fenster schliessen, dann Alarm scharf» schreibt, bekommt den scharfen
+Alarm auch bei offenem Fenster – die Alarmanlage meldet das dann selbst,
+aber der Ablauf tut es nicht mehr.
+
+Und: Ein Fehler fällt weniger auf. Deshalb steht er weiter am Ablauf,
+jetzt aber mit dem Gerät im Satz («Nest Gang Musik: … Der Rest lief
+durch.») statt als blosses «Fehlgeschlagen», und die Schritt-Spur
+markiert die hängende Zeile.
+
+**Wann es falsch wäre:** Bei einem Ablauf, dessen Schritte wirklich
+aufeinander aufbauen. Dafür gibt es «Warten bis» – eine Bedingung, die
+den Lauf anhält, ist etwas anderes als ein Gerät, das nicht antwortet.
+
+---
+
 ## Warum eine JSON-Datei statt einer Datenbank
 
 **Dafür:** Der Haushalt umfasst ein paar hundert Einträge – Benutzer,

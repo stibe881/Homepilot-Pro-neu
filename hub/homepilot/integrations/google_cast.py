@@ -864,6 +864,18 @@ class GoogleCastIntegration(Integration):
                 )
             await asyncio.to_thread(controller.play)
         elif command == "pause":
+            if entity.state.get("state") not in ("playing", "buffering", "paused"):
+                # Auf einer leeren Box gibt es nichts anzuhalten. Das als
+                # Fehler zu melden, hielt einen ganzen Ablauf an: «Niemand
+                # mehr zuhause» stellt der Reihe nach ein Dutzend Boxen
+                # ab, und die erste, auf der ohnehin nichts lief, brachte
+                # den Rest zum Stehen - samt Türschloss am Ende der Liste.
+                #
+                # Dieselbe Überlegung wie bei «play» ein paar Zeilen
+                # weiter oben, nur mit der umgekehrten Antwort: Wer
+                # abspielen will, wo nichts ist, soll das erfahren; wer
+                # ausschalten will, wo nichts ist, hat sein Ziel schon.
+                return
             await asyncio.to_thread(controller.pause)
         elif command == "turn_off":
             # Anhalten und die App beenden. Nur anzuhalten wäre kein
