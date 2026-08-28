@@ -28,6 +28,35 @@ programmiert.
 
 ---
 
+## Warum der Handstart nur manchmal nachfragt
+
+**Dafür:** Jeder Ablauf hat in der Liste einen Knopf, der ihn sofort
+ausführt – beim Einrichten drückt man ihn zehnmal hintereinander. Eine
+Rückfrage bei jedem Druck wäre genau das, worüber man sich beim elften
+Mal ärgert.
+
+Aber ein Fehlgriff auf «Niemand mehr zuhause» schliesst die Türe und
+schaltet den Alarm scharf, und das nimmt man nicht in einer Sekunde
+zurück. Also fragt der Knopf nur dort: bei Abläufen, die ein Schloss
+oder die Alarmanlage anfassen. Dieselbe Grenze zieht das Suchfeld
+(`lib/suchbefehl.ts`) – die zwei Dinge, die man nicht nebenbei schaltet.
+
+Die Rückfrage sagt dabei etwas, das man von selbst nicht erwartet: Der
+Handstart übergeht die Bedingungen. Er führt aus, auch wenn der Ablauf
+im Alltag gestoppt hätte – beim Ausprobieren will man das Ergebnis
+sehen, nicht die Bedingung prüfen.
+
+**Kostet:** Die Liste der heiklen Befehle steht im Code und nicht in
+einer Einstellung. Kommt ein Gerät dazu, dessen Fehlgriff wehtut (ein
+Garagentor, ein Wasserhahn), muss jemand sie ergänzen.
+
+**Wann es falsch wäre:** In einem Haushalt, in dem alle Abläufe harmlos
+sind – dort ist jede Rückfrage eine zu viel. Und in einem, in dem alle
+wehtun: Dann wäre eine Rückfrage für alle ehrlicher als eine Liste, die
+den halben Bestand vergisst.
+
+---
+
 ## Warum ein hängender Schritt einen Ablauf nicht anhält
 
 **Dafür:** «Niemand mehr zuhause» schaltet sechzig Geräte ab, schaltet

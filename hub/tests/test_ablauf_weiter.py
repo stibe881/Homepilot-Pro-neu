@@ -112,3 +112,50 @@ async def test_every_later_step_runs_even_after_several_stumbles() -> None:
         assert "2 von 3 Schritten hingen" in protokoll["error"]
     finally:
         await hub.stop()
+
+
+@pytest.mark.asyncio
+async def test_the_manual_start_also_carries_on() -> None:
+    """Von Hand gestartet gilt es erst recht: Man drückt, steht daneben
+    und will sehen, was durchkommt."""
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        hub.automations.automations.append(
+            Automation(
+                id="hand",
+                alias="Von Hand",
+                triggers=[],
+                actions=[
+                    {"entity_id": "gibts.nicht", "command": "pause"},
+                    {"entity_id": "demo.light_livingroom", "command": "turn_on"},
+                ],
+            )
+        )
+        assert await hub.automations.trigger_now("hand") is True
+        assert hub.registry.get("demo.light_livingroom").state["state"] == "on"
+        protokoll = hub.automations.runs[0]
+        assert protokoll["test"] is True
+        assert protokoll["executed"] is True
+        assert "Der Rest lief durch." in protokoll["error"]
+    finally:
+        await hub.stop()
+
+
+@pytest.mark.asyncio
+async def test_a_clean_manual_start_reports_no_error() -> None:
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        hub.automations.automations.append(
+            Automation(
+                id="sauber",
+                alias="Sauber",
+                triggers=[],
+                actions=[{"entity_id": "demo.light_livingroom", "command": "turn_on"}],
+            )
+        )
+        await hub.automations.trigger_now("sauber")
+        assert hub.automations.runs[0]["error"] is None
+    finally:
+        await hub.stop()

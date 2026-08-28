@@ -9,6 +9,7 @@ import { Fehlschlag, Laedt } from '../components/Zustand';
 import { useColors } from '../theme';
 import { HubFehler, hubClient } from '../api/client';
 import { datumKurz, uhr } from '../lib/format';
+import { brauchtRueckfrage, handstartSatz } from '../lib/handstart';
 import { laufzeile } from '../lib/laufzeile';
 import { istPushKategorie } from '../lib/pushablaeufe';
 import { useOrte } from '../hooks/useOrte';
@@ -134,6 +135,10 @@ export function AutomationsScreen({
   );
 
   const mayEdit = !!user?.capabilities?.includes('edit_automations');
+  // Welcher Ablauf gerade um Bestätigung bittet, bevor er von Hand
+  // losläuft. Nur Abläufe, die schliessen oder scharf schalten, fragen
+  // überhaupt (lib/handstart.ts).
+  const [handstart, setHandstart] = useState<string | null>(null);
   // Denselben Eingriff wie das Pausieren - Abläufe ruhen lassen -,
   // nur gezielter. Deshalb dieselbe Berechtigung.
   const mayPause = !!user?.capabilities?.includes('pause_automations');
@@ -480,11 +485,17 @@ export function AutomationsScreen({
     return true;
   };
 
-  /** Den gespeicherten Ablauf einmal sofort ausführen – der «Testen»-Knopf. */
+  /** Den gespeicherten Ablauf einmal sofort ausführen – der «Testen»-Knopf
+   *  im Editor und der Handstart in der Liste. */
   const test = async (id: string) => {
     try {
       await hub.post(`/api/automations/${id}/trigger`, undefined, { still: true });
       onNote?.('Ablauf einmal ausgeführt');
+      // Neu laden, damit die Zeile «Zuletzt gelaufen» stimmt - und damit
+      // ein hängender Schritt sichtbar wird. Ohne das stünde nach dem
+      // Handstart weiter «Noch nie ausgelöst» da, und man drückte noch
+      // einmal.
+      load();
     } catch (err) {
       setError(String(err instanceof Error ? err.message : err));
     }
@@ -1372,7 +1383,77 @@ export function AutomationsScreen({
                           ))}
                       </View>
                     ) : null}
+                    {/* Die Rückfrage vor dem Handstart - in der Karte
+                        statt in einem Fenster: Sie gehört zu diesem
+                        Ablauf, und ein Fenster über der Liste liesse
+                        einen im Zweifel, welcher gemeint ist. */}
+                    {handstart === automation.id ? (
+                      <View style={styles.handstart}>
+                        <Text style={styles.handstartText}>
+                          «{automation.alias}» jetzt ausführen?{' '}
+                          {handstartSatz(automation.actions.length)}
+                        </Text>
+                        <View style={styles.handstartReihe}>
+                          <Pressable
+                            onPress={() => setHandstart(null)}
+                            accessibilityRole="button"
+                            style={({ pressed }) => [
+                              styles.handstartKnopf,
+                              pressed && { opacity: 0.7 },
+                            ]}
+                          >
+                            <Text style={styles.handstartAbbruch}>Abbrechen</Text>
+                          </Pressable>
+                          <Pressable
+                            onPress={() => {
+                              setHandstart(null);
+                              test(automation.id);
+                            }}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${automation.alias} wirklich ausführen`}
+                            style={({ pressed }) => [
+                              styles.handstartKnopf,
+                              styles.handstartLos,
+                              pressed && { opacity: 0.7 },
+                            ]}
+                          >
+                            <Text style={styles.handstartLosText}>Ausführen</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    ) : null}
                   </View>
+                  {/* Von Hand starten. Steht vor dem Mond: Beim
+                      Einrichten drückt man ihn zehnmal, «aus bis morgen»
+                      einmal im Monat.
+
+                      Nicht an `editable` gebunden - ein Ablauf aus der
+                      config.yaml lässt sich nicht bearbeiten, aber sehr
+                      wohl ausprobieren, und genau dort fehlte der Weg
+                      dazu ganz. */}
+                  {mayEdit ? (
+                    <Pressable
+                      onPress={() =>
+                        brauchtRueckfrage(automation.actions, automation.otherwise)
+                          ? setHandstart(
+                              handstart === automation.id ? null : automation.id
+                            )
+                          : test(automation.id)
+                      }
+                      accessibilityLabel={`${automation.alias} jetzt ausführen`}
+                      style={styles.iconButton}
+                    >
+                      <Ionicons
+                        name={
+                          handstart === automation.id ? 'close-outline' : 'play-outline'
+                        }
+                        size={20}
+                        color={
+                          handstart === automation.id ? colors.warn : colors.inkSoft
+                        }
+                      />
+                    </Pressable>
+                  ) : null}
                   {automation.editable && mayEdit ? (
                     <>
                       {automation.enabled !== false ? (

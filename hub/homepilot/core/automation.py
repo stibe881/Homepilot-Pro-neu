@@ -1824,18 +1824,30 @@ class AutomationEngine:
         if automation is None:
             return False
         _erfuellt, offen = self._conditions_hold(automation)
-        fehler: str | None = None
+
+        def name_of(entity_id: str) -> str:
+            entity = self.hub.registry.get(entity_id)
+            return entity.label if entity else entity_id
+
+        # Wie beim regulären Lauf: Ein hängender Schritt hält den Rest
+        # nicht an. Von Hand gestartet gilt das erst recht - man drückt,
+        # steht daneben und will sehen, was durchkommt.
+        gestolpert: list[tuple[str, str]] = []
         with as_source(automation_source(automation.id, automation.alias)):
             for action in automation.actions:
                 try:
                     await self._execute_action(automation, action)
                 except Exception as err:
-                    fehler = str(err)
-                    break
+                    gestolpert.append((describe_action(action, name_of), str(err)))
+                    log.warning(
+                        "Handstart '%s': ein Schritt hing (%s) - weiter",
+                        automation.alias,
+                        err,
+                    )
         self._note(
             automation,
-            executed=fehler is None,
-            error=fehler,
+            executed=True,
+            error=stolpersatz(gestolpert, len(automation.actions)) or None,
             skipped=offen,
             test=True,
         )
