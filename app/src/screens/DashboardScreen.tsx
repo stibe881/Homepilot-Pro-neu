@@ -148,6 +148,8 @@ import { Ablage, syncWidget } from '../lib/widget';
 import { resolveKarten } from '../lib/widgetKarten';
 import { PushKnopf, Ziel, knoepfeAus, zielAus } from '../lib/pushziel';
 import { PushBlatt } from '../components/PushBlatt';
+import { Erinnerungsblatt } from '../components/Erinnerungsblatt';
+import { fristSatz } from '../lib/erinnerungsfrist';
 import { favoritenVon, zuUebernehmen } from '../lib/favoriten';
 import { altesUebernehmen } from '../lib/hausprefs';
 import {
@@ -396,6 +398,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // auf der Einkaufsliste» → Einkauf). Getrennt vom Riegel-Modul: Das
   // eine ist ein Weg um eine Sperre herum, das andere ein Ziel.
   const [familienModul, setFamilienModul] = useState<string | null>(null);
+  // Welches Gerät gerade nach einer Frist gefragt wird («sag mir in zwei
+  // Stunden Bescheid»).
+  const [erinnernAn, setErinnernAn] = useState<Entity | null>(null);
   // Der Weg zu einem Ziel aus einer Nachricht. Über eine Ref, weil der
   // Tipp-Haken früh gebraucht wird und der Weg selbst erst weiter unten
   // steht - dort, wo die Räume bekannt sind.
@@ -1806,6 +1811,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       groups={editing ? groupNames : undefined}
       onSetGroup={editing ? (group) => setEntityMeta(entity.id, { group }) : undefined}
       onCommand={(command, data) => guardedCommand(entity.id, command, data)}
+      onErinnern={() => setErinnernAn(entity)}
       sky={entity.kind === 'cover' ? sky : undefined}
       snapshotUri={
         // Kameras: Livebild. Sauger: die Karte – beides über denselben Endpunkt.
@@ -3381,6 +3387,24 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             }}
             colors={colors}
             styles={styles}
+          />
+        ) : null}
+
+        {erinnernAn ? (
+          <Erinnerungsblatt
+            entity={erinnernAn}
+            onWahl={(minuten) => {
+              hub
+                .post(
+                  `/api/entities/${encodeURIComponent(erinnernAn.id)}/erinnern`,
+                  { minutes: minuten },
+                  { fallback: null }
+                )
+                .then(() => setNote(fristSatz(minuten)))
+                .catch(() => {});
+              setErinnernAn(null);
+            }}
+            onSchliessen={() => setErinnernAn(null)}
           />
         ) : null}
 

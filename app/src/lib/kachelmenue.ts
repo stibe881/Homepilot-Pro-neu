@@ -27,6 +27,7 @@ export type KachelAktion =
   | 'sperren'
   | 'zaehlung'
   | 'verlauf'
+  | 'erinnern'
   | 'doppeltipp';
 
 export interface KachelEintrag {
@@ -41,6 +42,9 @@ const EINTRAEGE: Record<KachelAktion, KachelEintrag> = {
   sperren: { id: 'sperren', label: 'Sperren', icon: 'lock-closed-outline' },
   zaehlung: { id: 'zaehlung', label: 'Oben nicht mitzählen', icon: 'eye-off-outline' },
   verlauf: { id: 'verlauf', label: 'Verlauf ansehen', icon: 'time-outline' },
+  // «Die Waschmaschine läuft, ich gehe aus dem Haus, sag mir in zwei
+  // Stunden Bescheid.» Ohne diesen Eintrag baut man dafür einen Ablauf.
+  erinnern: { id: 'erinnern', label: 'Später erinnern', icon: 'alarm-outline' },
   // Die Beschriftung kommt von aussen (lib/doppeltipp.ts): Sie nennt
   // den Wert, der gemerkt würde - «Doppeltipp merken: 40 %».
   doppeltipp: { id: 'doppeltipp', label: 'Doppeltipp merken', icon: 'flash-outline' },
@@ -81,12 +85,17 @@ export function kachelAktionen(moeglich: {
   /** Ist das Gerät schon aus der Zählung genommen? */
   ungezaehlt?: boolean;
   verlauf?: boolean;
+  /** «Sag mir später Bescheid» – für alles, was läuft oder offen steht. */
+  erinnern?: boolean;
   /** Beschriftung für den Doppeltipp-Eintrag - fehlt sie, gibt es am
    *  Gerät nichts zu merken (ein Schalter kennt nur an und aus). */
   doppeltipp?: string | null;
 }): KachelEintrag[] {
   const eintraege: KachelEintrag[] = [];
   if (moeglich.verlauf) eintraege.push(EINTRAEGE.verlauf);
+  // Gleich hinter dem Verlauf: Beides sind Fragen an das Gerät, nicht
+  // Einstellungen daran.
+  if (moeglich.erinnern) eintraege.push(EINTRAEGE.erinnern);
   if (moeglich.umbenennen) eintraege.push(EINTRAEGE.umbenennen);
   // Die Sperre gab es nur im Anpassen-Modus. Gebraucht wird sie in dem
   // Moment, in dem man fast die Waschmaschine erwischt hätte - also

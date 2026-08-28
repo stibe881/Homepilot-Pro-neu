@@ -1351,6 +1351,9 @@ class Watchdog:
                 str(eintrag.get("body") or ""),
                 category=str(eintrag.get("category") or "outage"),
                 to=(str(eintrag.get("to")) if eintrag.get("to") else None),
+                # Selbst gestellte Erinnerungen tragen ihr Ziel mit: Ein
+                # Tipp darauf führt zum Gerät, um das es ging.
+                data=({"ziel": eintrag["ziel"]} if eintrag.get("ziel") else None),
             )
 
     async def _notify(
