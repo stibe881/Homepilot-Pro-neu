@@ -378,6 +378,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Türklingel-Vollbild: pro Klingel-Ereignis einmal zeigen, bis es
   // weggewischt wird (Schlüssel = Kamera + Zeitpunkt des Klingelns).
   const [dismissedRing, setDismissedRing] = useState<string | null>(null);
+  // Wer auf die Klingel-Nachricht getippt hat, will genau dieses Bild
+  // sehen - auch auf dem Telefon, wo es von selbst nicht aufginge, und
+  // auch dann, wenn das Läuten inzwischen vorbei ist. Ein Tipp auf die
+  // Nachricht ist eine Bitte, keine Störung.
+  const [klingelTap, setKlingelTap] = useState<string | null>(null);
   // Angetippte Kamera im Vollbild (Entitäts-ID, damit Live-Updates ankommen).
   const [fullscreen, setFullscreen] = useState<string | null>(null);
   // Alle Kameras nebeneinander - fürs Tablet im Flur die einzige
@@ -995,6 +1000,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       setBatterienOffen(true);
       return;
     }
+    if (tap.type === 'doorbell') {
+      // Nicht die Kameraseite, sondern das Klingel-Vollbild: Dort stehen
+      // die Türknöpfe, und die sind der Grund, warum man tippt.
+      setKlingelTap(tap.entityId ?? '');
+      return;
+    }
     if (tap.type === 'alarm') setSection('alarm');
   }, []);
   // «Später» und «Erledigt» aus der Mitteilung heraus. Beides läuft ohne
@@ -1247,8 +1258,22 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Die Haustüre ist hier eine Ring-Gegensprechanlage, und die legt der
   // Hub als Türe an – die alte Suche nach kind === 'camera' ging genau
   // an ihr vorbei, und das Vollbild kam nie.
-  const klingelt = klingeltGerade(entities);
-  const ringKey = klingelt ? `${klingelt.id}:${klingelt.state.last_ring ?? ''}` : null;
+  const klingeltJetzt = klingeltGerade(entities);
+  const ringKey = klingeltJetzt
+    ? `${klingeltJetzt.id}:${klingeltJetzt.state.last_ring ?? ''}`
+    : null;
+  // Wer auf die Nachricht getippt hat, meint das Gerät aus der
+  // Nachricht - auch wenn das Läuten inzwischen vorbei ist und
+  // `klingeltGerade` deshalb nichts mehr findet. Ohne Kennung (ältere
+  // Nachricht) die zuletzt klingelnde Türe, sonst gar keine.
+  const getippteKlingel = useMemo(() => {
+    if (klingelTap === null) return undefined;
+    return (
+      entities.find((entity) => entity.id === klingelTap) ??
+      entities.find((entity) => entity.state?.last_ring)
+    );
+  }, [klingelTap, entities]);
+  const klingelt = klingeltJetzt ?? getippteKlingel;
   const klingelKamera = useMemo(
     () => klingelBild(entities, klingelt),
     [entities, klingelt]
@@ -3224,11 +3249,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             Telefon reisst dasselbe Vollbild einem die App unter der Hand
             weg - dort tut es die Nachricht. */}
         {klingelt &&
-        vollbildZeigen({
+        (vollbildZeigen({
           panel: settings.panel,
           ringKey,
           weggewischt: dismissedRing,
-        }) ? (
+        }) ||
+          getippteKlingel !== undefined) ? (
           <DoorbellOverlay
             ausloeser={klingelt}
             camera={klingelKamera}
@@ -3236,7 +3262,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             settings={settings}
             onCommand={(entityId, command) => guardedCommand(entityId, command)}
             doorConfirm={prefs.doorConfirm}
-            onDismiss={() => setDismissedRing(ringKey)}
+            onDismiss={() => {
+              setDismissedRing(ringKey);
+              setKlingelTap(null);
+            }}
             colors={colors}
             styles={styles}
           />
@@ -3857,8 +3886,19 @@ function DoorbellOverlay({
                 key={aktion.id}
                 onPress={() => {
                   verlaengern();
-                  if (gefragt || mayOpenDirectly(aktion.befehl, doorConfirm)) {
-                    onCommand(aktion.entity.id, aktion.befehl);
+                  // Ohne Rückfrage nur, wenn *jeder* Schritt sie
+                  // überspringen dürfte: Ein Weg über zwei Türen ist
+                  // nicht harmloser als seine heikelste Türe.
+                  const ohneFrage = aktion.schritte.every((schritt) =>
+                    mayOpenDirectly(schritt.befehl, doorConfirm)
+                  );
+                  if (gefragt || ohneFrage) {
+                    // Der Reihe nach: unten zuerst, damit der Besuch
+                    // nicht vor der zweiten Türe steht, während die
+                    // erste noch zu ist.
+                    for (const schritt of aktion.schritte) {
+                      onCommand(schritt.entity.id, schritt.befehl);
+                    }
                     onDismiss();
                   } else {
                     setConfirm(aktion.id);
@@ -3879,6 +3919,16 @@ function DoorbellOverlay({
               </Pressable>
             );
           })}
+          {/* Einmal erklärt, worin der Unterschied besteht. «Beide
+              aufschliessen» und «Beide öffnen» stehen sonst untereinander
+              und sehen aus wie dasselbe - und man drückt im Zweifel das
+              Weitergehende, weil es sicherer klingt. */}
+          {aktionen.some((aktion) => aktion.id.startsWith('alle')) ? (
+            <Text style={styles.doorbellHinweis}>
+              Aufschliessen zieht nur den Riegel – die Türe muss noch
+              gedrückt werden. Öffnen zieht auch die Falle.
+            </Text>
+          ) : null}
           <Pressable onPress={onDismiss} style={styles.doorbellClose}>
             <Text style={styles.doorbellCloseText}>
               Schliessen{rest > 0 ? ` (${rest})` : ''}
@@ -4158,6 +4208,14 @@ const makeStyles = (colors: Colors) =>
       paddingRight: 10,
     },
     backText: { color: colors.onGradient, fontSize: 15, fontWeight: '600' },
+    /** Die Zeile unter den Türknöpfen im Klingel-Vollbild. Klein und
+     *  gedeckt: Sie erklärt, sie ist kein Knopf. */
+    doorbellHinweis: {
+      color: '#8A94A6',
+      fontSize: 12,
+      textAlign: 'center',
+      paddingHorizontal: 8,
+    },
     settingsList: { gap: 10 },
     settingsItem: {
       flexDirection: 'row',
