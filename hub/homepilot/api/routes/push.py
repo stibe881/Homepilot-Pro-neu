@@ -160,7 +160,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     async def set_notify_rule(
         key: str, body: NotifyRuleRequest, request: Request
     ) -> dict[str, Any]:
-        require(request, Capability.EDIT_AUTOMATIONS)
+        user = require(request, Capability.EDIT_AUTOMATIONS)
         try:
             stored = notifyrules.store(
                 hub.data.get("notify_rules"), key, body.enabled, body.params
@@ -168,6 +168,12 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         except ValueError as err:
             raise HTTPException(status_code=404, detail=str(err)) from err
         hub.data.set("notify_rules", stored)
+        hub.aenderungen.merken(
+            user,
+            "regel",
+            "eingeschaltet" if body.enabled else "abgeschaltet",
+            push.CATEGORIES.get(key, key),
+        )
         # Sofort übernehmen, nicht erst in der nächsten Wächter-Runde:
         # Wer den Schalter umlegt, erwartet, dass er ab jetzt gilt.
         hub.watchdog.rules = notifyrules.effective(stored)

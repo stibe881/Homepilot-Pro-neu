@@ -50,7 +50,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
 
     @app.post("/api/users")
     async def create_user(body: UserRequest, request: Request) -> dict[str, Any]:
-        require(request, Capability.MANAGE_USERS)
+        wer = require(request, Capability.MANAGE_USERS)
         import secrets
 
         from ...core.users import User as HubUser
@@ -82,6 +82,9 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             )
         except HomePilotError as err:
             raise HTTPException(status_code=409, detail=str(err)) from err
+        hub.aenderungen.merken(
+            wer, "benutzer", f"angelegt als {body.role}", body.name
+        )
         # Das Token wird genau einmal zurückgegeben – danach steht es
         # nirgends mehr im Klartext zum Abholen.
         return {
@@ -206,6 +209,14 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             raise HTTPException(status_code=400, detail=str(err)) from err
         except HomePilotError as err:
             raise HTTPException(status_code=409, detail=str(err)) from err
+        hub.aenderungen.merken(
+            user,
+            "benutzer",
+            f"zur Rolle {body.role} gemacht"
+            if body.role
+            else ("gesperrt" if body.enabled is False else "geändert"),
+            name,
+        )
         return {"user": updated.as_dict()}
 
     @app.post("/api/areas/unlock")
@@ -296,5 +307,6 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             raise HTTPException(status_code=409, detail=str(err)) from err
         if not removed:
             raise HTTPException(status_code=404, detail=f"Unbekannter Benutzer: {name}")
+        hub.aenderungen.merken(user, "benutzer", "gelöscht", name)
         return {"ok": True}
 

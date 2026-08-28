@@ -73,9 +73,10 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
 
     @app.put("/api/alarm")
     async def alarm_configure(body: dict[str, Any], request: Request) -> dict[str, Any]:
-        require(request, Capability.EDIT_CONFIG)
+        user = require(request, Capability.EDIT_CONFIG)
         service = alarm_service()
         await service.update_config(body)
+        hub.aenderungen.merken(user, "alarm", "eingestellt")
         return {"ok": True, **service.config_dict()}
 
     @app.post("/api/alarm/arm")

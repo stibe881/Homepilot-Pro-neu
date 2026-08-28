@@ -16,6 +16,7 @@ import { HubFehler, hubClient } from '../api/client';
 import { Entity, HubSettings, LogEntry, SystemStatus, User } from '../api/types';
 import { PushState, pushHint } from '../hooks/usePushRegistration';
 import { AccessLog } from '../components/AccessLog';
+import { Einrichtungsprotokoll } from '../components/Einrichtungsprotokoll';
 import { Card } from '../components/Card';
 import { Maintenance } from '../components/Maintenance';
 import { Fehlschlag, Laedt } from '../components/Zustand';
@@ -247,9 +248,12 @@ export function SystemScreen({
 
       {darfKonfig ? <LogCard settings={settings} /> : null}
 
-      {darfKonfig ? (
-        <AccessLog settings={settings} />
-      ) : null}
+      {darfKonfig ? <AccessLog settings={settings} /> : null}
+
+      {/* Die andere Hälfte: nicht wer geschaltet, sondern wer
+          eingerichtet hat. Direkt daneben, weil man beides aus
+          demselben Anlass sucht. */}
+      {darfKonfig ? <Einrichtungsprotokoll settings={settings} /> : null}
 
       {/* Konfiguration und Benutzer sind dasselbe Thema: Was den Hub
           ausmacht, steht in der config.yaml – die Benutzer auch. */}
