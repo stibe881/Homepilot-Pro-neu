@@ -387,7 +387,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
 
     @app.post("/api/scenes")
     async def create_scene(body: SceneRequest, request: Request) -> dict[str, Any]:
-        require(request, Capability.EDIT_AUTOMATIONS)
+        user = require(request, Capability.EDIT_AUTOMATIONS)
         validate_scene_actions(body.actions)
         import secrets as _secrets
 
@@ -404,6 +404,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         }
         hub.data.set("scenes", [*stored_scenes(), entry])
         hub.reload_scenes()
+        hub.aenderungen.merken(user, "szene", "angelegt", body.name)
         return {"scene": entry}
 
     @app.put("/api/scenes/{scene_id}")
@@ -446,6 +447,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         ]
         hub.data.set("scenes", updated)
         hub.reload_scenes()
+        hub.aenderungen.merken(_user_name(request), "szene", "geändert", body.name)
         return {"ok": True}
 
     @app.delete("/api/scenes/{scene_id}")
@@ -465,6 +467,9 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             trash_module.put(hub.data.get("trash"), "scene", gone, _user_name(request)),
         )
         hub.reload_scenes()
+        hub.aenderungen.merken(
+            _user_name(request), "szene", "gelöscht", str(gone.get("name") or scene_id)
+        )
         return {"ok": True}
 
     # ── Automationen ───────────────────────────────────────────────────────
@@ -643,6 +648,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         }
         hub.data.set("automations", [*stored_automations(), entry])
         await hub.reload_automations()
+        hub.aenderungen.merken(_user_name(request), "ablauf", "angelegt", body.alias)
         return {"automation": entry}
 
     @app.put("/api/automations/{automation_id}")
@@ -686,6 +692,14 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         ]
         hub.data.set("automations", updated)
         await hub.reload_automations()
+        # «Warum läuft der Ablauf nicht mehr?» - hier steht, wer ihn
+        # zuletzt angefasst hat, und ob er dabei ausgeschaltet wurde.
+        hub.aenderungen.merken(
+            _user_name(request),
+            "ablauf",
+            "geändert" if body.enabled else "geändert und ausgeschaltet",
+            body.alias,
+        )
         return {"ok": True}
 
     @app.post("/api/automations/{automation_id}/snooze")
@@ -753,6 +767,12 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             ),
         )
         await hub.reload_automations()
+        hub.aenderungen.merken(
+            _user_name(request),
+            "ablauf",
+            "gelöscht",
+            str(gone.get("alias") or automation_id),
+        )
         return {"ok": True}
 
     @app.get("/api/automations/runs")

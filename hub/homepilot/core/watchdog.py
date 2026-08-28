@@ -40,6 +40,7 @@ from . import (
     notifyrules,
     personen,
     presence,
+    pushziel,
     regen,
     shopping,
     spaeter,
@@ -238,7 +239,7 @@ class Watchdog:
             f"Es klingelt: {name}",
             "Jemand steht vor der Türe.",
             "doorbell",
-            data={"type": "doorbell", "entity_id": entity_id},
+            data={"type": "doorbell", "entity_id": entity_id, "ziel": "klingel"},
         )
 
     async def stop(self) -> None:
@@ -1081,6 +1082,7 @@ class Watchdog:
                     f"Seit {strikes} Minuten "
                     "keine Meldung – die Alarmanlage hat dort einen blinden Fleck.",
                     "device_down",
+                    entity_id=entity.id,
                 )
 
     async def _check_appliances(self, entities: list[Any]) -> None:
@@ -1143,7 +1145,7 @@ class Watchdog:
                 continue
             self._gemahnt[entity.id] = gemahnt + 1
             titel, text = waschkueche.mahnsatz(entity.label, since, now, gemahnt)
-            await self._notify(titel, text, "appliance")
+            await self._notify(titel, text, "appliance", entity_id=entity.id)
 
     def tuer_gewechselt(self, entities: list[Any], gewaehlt: str | None) -> None:
         """Nach einer neuen Türwahl den Merker mitziehen.
@@ -1284,6 +1286,7 @@ class Watchdog:
                     f"{offen_satz(since, now)} – im Winter geht so die "
                     "Heizung zum Fenster hinaus.",
                     "open",
+                    entity_id=entity.id,
                 )
         # Geschlossene wieder scharf stellen für die nächste Öffnung.
         for entity_id in list(self._open_since):
@@ -1308,6 +1311,7 @@ class Watchdog:
                 "Der Melder meldet Wasser. Zuerst den Haupthahn, dann den "
                 "Strom in diesem Bereich.",
                 "leak",
+                entity_id=entity.id,
             )
         self._reported_leak &= nass
 
@@ -1367,7 +1371,7 @@ class Watchdog:
                 "battery",
                 # Damit ein Tipp auf die Nachricht direkt zu den Batterien
                 # führt, statt nur die App zu öffnen.
-                data={"type": "battery", "entity_id": entity.id},
+                data={"type": "battery", "entity_id": entity.id, "ziel": "batterien"},
             )
 
     def _log_outage(self, name: str, ended: float | None) -> None:
@@ -1449,6 +1453,9 @@ class Watchdog:
                 str(eintrag.get("body") or ""),
                 category=str(eintrag.get("category") or "outage"),
                 to=(str(eintrag.get("to")) if eintrag.get("to") else None),
+                # Selbst gestellte Erinnerungen tragen ihr Ziel mit: Ein
+                # Tipp darauf führt zum Gerät, um das es ging.
+                data=({"ziel": eintrag["ziel"]} if eintrag.get("ziel") else None),
             )
 
     async def _notify(
@@ -1458,13 +1465,20 @@ class Watchdog:
         category: str = "outage",
         to: str | None = None,
         data: dict[str, Any] | None = None,
+        entity_id: str | None = None,
     ) -> None:
         """`to` schickt an eine Person statt an alle - eine Gabe für Lina
         geht die anderen nichts an.
 
         ``data`` reist mit der Nachricht ans Telefon und sagt der App, wo
         sie beim Antippen hinspringen soll (siehe hooks/useNotificationTap
-        in der App)."""
+        in der App).
+
+        Das Ziel setzt sich von selbst: Zu jeder Kategorie gehört ein Ort,
+        an dem man etwas tun kann (core/pushziel.py). Wer ein Gerät
+        mitgibt, bekommt dessen Raum statt einer Liste - ein offenes
+        Fenster schliesst man dort, wo es steht. Ein ausdrücklich
+        gesetztes ``ziel`` im ``data`` sticht beides."""
         rule = self.rules.get(category)
         if rule is not None and not rule["enabled"]:
             # Abgeschaltet heisst: keine Push an niemanden. Geprüft wird
@@ -1473,12 +1487,22 @@ class Watchdog:
             log.info("%s – %s (Regel '%s' abgeschaltet)", title, body, category)
             return
         log.warning("%s – %s", title, body)
+        ziel = pushziel.ziel_fuer(category, entity_id)
+        nutzlast: dict[str, Any] = dict(data or {})
+        if entity_id and "entity_id" not in nutzlast:
+            nutzlast["entity_id"] = entity_id
+        if ziel and "ziel" not in nutzlast:
+            nutzlast["ziel"] = ziel
         try:
             tokens = self.hub.push.recipients(
                 self.hub.users.users, to or "all", category
             )
             await self.hub.push.send(
-                tokens, title=title, body=body, data=data, category=category
+                tokens,
+                title=title,
+                body=body,
+                data=nutzlast or None,
+                category=category,
             )
         except Exception:
             log.exception("Wächter-Push nicht zustellbar")

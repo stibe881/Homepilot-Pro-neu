@@ -26,6 +26,7 @@ import {
   groupForShop,
   einkaufZeile,
 } from '../lib/einkauf';
+import { LernEintrag, mitLernen } from '../lib/ladenlernen';
 import { uhr, wochentagDatum, wochentagUhr } from '../lib/format';
 import { klimaLabel, klimaSensor } from '../lib/klimachip';
 import { Person, anwesenheitsListe, werIstDaHinweis } from '../lib/ortung';
@@ -84,6 +85,7 @@ export function TopStrip({
   onCommand,
   shopping,
   shops,
+  lernLog,
   knownItems,
   onShoppingAdd,
   onShoppingDone,
@@ -112,12 +114,18 @@ export function TopStrip({
   shopping?: EinkaufZeile[];
   /** Die angelegten Läden (Familie → Einkaufsliste → Läden). */
   shops?: Shop[];
+  /** Das Abhak-Protokoll für die gelernte Gang-Reihenfolge
+   *  (lib/ladenlernen.ts) – ohne es gilt die eingestellte oder die
+   *  Standardreihenfolge. */
+  lernLog?: LernEintrag[];
   /** Schon einmal eingekaufte Artikel – für die Vervollständigung. */
   knownItems?: string[];
   /** Einen Artikel auf die Liste setzen, direkt aus dem Fenster. */
   onShoppingAdd?: (text: string) => void;
-  /** Einen Eintrag abhaken – direkt im Laden, ohne Umweg über Familie. */
-  onShoppingDone?: (id: string) => void;
+  /** Einen Eintrag abhaken – direkt im Laden, ohne Umweg über Familie.
+   *  Der zweite Wert sagt, welcher Laden gerade gefiltert ist – daraus
+   *  lernt die App die Gang-Reihenfolge. */
+  onShoppingDone?: (id: string, laden?: string) => void;
   /** Einen Eintrag wegnehmen, ohne ihn gekauft zu haben (Vertipper). */
   onShoppingRemove?: (id: string) => void;
   /** Die Stückzahl setzen. Unter eins fällt der Posten weg. */
@@ -203,7 +211,9 @@ export function TopStrip({
   const einkauf = shopping ?? [];
   const laeden = [ALLGEMEIN, ...(shops ?? [])];
   const laden = laeden.find((entry) => entry.id === shopId) ?? ALLGEMEIN;
-  const gaenge = groupForShop(einkauf, laden);
+  // Mit dem Gelernten: Wo niemand die Gänge von Hand geordnet hat,
+  // sortiert die Reihenfolge der letzten Einkäufe (lib/ladenlernen.ts).
+  const gaenge = groupForShop(einkauf, mitLernen(laden, lernLog ?? []));
   const vorschlaege = artikelVorschlaege(
     knownItems ?? [],
     neuerArtikel,
@@ -649,7 +659,7 @@ export function TopStrip({
                                   // aufs Telefon – der kurze Impuls sagt, dass
                                   // der Tipp gesessen hat.
                                   tapped();
-                                  onShoppingDone(String(eintrag.id));
+                                  onShoppingDone(String(eintrag.id), shopId);
                                 }
                               : undefined
                           }

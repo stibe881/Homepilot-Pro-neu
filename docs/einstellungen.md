@@ -59,7 +59,8 @@ angemeldete Telefone für Push · Gute-Nacht-Knopf · Nachtruhe, Dämpfen,
 Musik-Favoriten, Wecker und Schlummer · Radiosender · Ortungszonen und
 Läden · Meldungen je Person · Wartung · alle Familienlisten (Einkauf,
 Aufgaben, Ämtli, Rezepte, Kontakte, Medikamente, Notfallblatt,
-Wochenplan) samt eigenem Papierkorb · Zugriffsprotokoll · Geräte-Verlauf
+Wochenplan) samt eigenem Papierkorb · Zugriffsprotokoll ·
+Einrichtungsprotokoll (wer hat was eingerichtet) · Geräte-Verlauf
 (eigene Datei daneben).
 
 ## Absichtlich am Gerät

@@ -722,7 +722,7 @@ class AlarmIntegration(Integration):
             tokens,
             title=title,
             body=body,
-            data={"type": "alarm", **(data or {})},
+            data={"type": "alarm", "ziel": "bereich:alarm", **(data or {})},
             image=image,
             category=category,
         )

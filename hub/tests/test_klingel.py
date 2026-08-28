@@ -58,6 +58,9 @@ async def test_a_ring_reaches_the_phone_without_an_automation():
         assert gemeldet[0]["data"] == {
             "type": "doorbell",
             "entity_id": "ring.haustuere",
+            # Ein Tipp darauf führt ins Klingel-Vollbild mit den
+            # Türknöpfen, nicht bloss in die App.
+            "ziel": "klingel",
         }
     finally:
         await wache.stop()

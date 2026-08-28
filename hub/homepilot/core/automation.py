@@ -63,7 +63,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from . import astro, babysitter, feiertage, kamera, personenbild, wirkung
+from . import astro, babysitter, feiertage, kamera, personenbild, pushziel, wirkung
 from . import light as licht
 from . import push as push_service
 from .source import as_source, automation_source
@@ -2729,6 +2729,8 @@ class AutomationEngine:
                 if quelle is not None
                 else None
             )
+        ziel = str(action.get("open") or "").strip()
+        knoepfe = pushziel.knoepfe_pruefen(action.get("buttons"))
         tokens = self.hub.push.recipients(
             self.hub.users.users,
             str(action.get("to", "all")),
@@ -2744,6 +2746,11 @@ class AutomationEngine:
             data={
                 "automation_id": automation.id,
                 **({"camera": camera} if camera else {}),
+                # Wohin der Tipp führt, und was er dort anbietet. Beides
+                # steht im Ablauf selbst: Ein Ablauf weiss, worum es geht -
+                # der Hub kann es ihm nicht ansehen (core/pushziel.py).
+                **({"ziel": ziel} if ziel else {}),
+                **({"knoepfe": knoepfe} if knoepfe else {}),
             },
             image=await self._snapshot_url(camera),
             # Dieselbe Kategorie wie oben: Ein Ablauf, der meldet, meldet

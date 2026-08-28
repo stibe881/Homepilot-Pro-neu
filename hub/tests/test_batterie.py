@@ -123,7 +123,13 @@ async def test_a_restart_does_not_repeat_the_warning():
         assert len(gemeldet) == 1
         assert gemeldet[0]["title"] == "Batterie schwach: Melder flur"
         # Der Tipp auf die Nachricht soll zu den Batterien führen.
-        assert gemeldet[0]["data"] == {"type": "battery", "entity_id": "hm.flur"}
+        assert gemeldet[0]["data"] == {
+                "type": "battery",
+                "entity_id": "hm.flur",
+                # Wohin der Tipp führt: zur Liste mit dem Knopf zum
+                # Quittieren, nicht auf die Startseite (core/pushziel.py).
+                "ziel": "batterien",
+            }
 
         # Ein frischer Wächter ist derselbe Neustart, nur schneller.
         zweiter = Watchdog(hub)

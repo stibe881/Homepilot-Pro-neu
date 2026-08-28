@@ -70,6 +70,12 @@ class PushSnoozeRequest(BaseModel):
     minutes: int = 30
 
 
+class ErinnerungRequest(BaseModel):
+    """«Sag mir später Bescheid» zu einem Gerät."""
+
+    minutes: int = 120
+
+
 class BabysitterRequest(BaseModel):
     """Den Babysitter-Modus ein- oder ausschalten.
 

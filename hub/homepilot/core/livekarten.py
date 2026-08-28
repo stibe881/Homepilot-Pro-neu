@@ -32,7 +32,7 @@ import logging
 import time
 from typing import Any
 
-from . import liveaktivitaet
+from . import laufzeit, liveaktivitaet
 
 log = logging.getLogger(__name__)
 
@@ -138,13 +138,28 @@ def _geraete_symbol(label: str) -> str:
     return "washer"
 
 
-def karten_geraete(entities: list[Any]) -> list[dict[str, Any]]:
-    """Laufende Haushaltsgeräte - mit Restzeit, wenn die Maschine eine nennt.
+def karten_geraete(
+    entities: list[Any], cycles: Any = None, jetzt_s: float | None = None
+) -> list[dict[str, Any]]:
+    """Laufende Haushaltsgeräte - mit Countdown und Balken.
 
     Der Grill ist auch ein «appliance», bekommt aber seine eigene Karte
     (karten_grill) - erkennbar am Temperaturziel, das eine Waschmaschine
     nicht führt.
+
+    Die Karte gab es schon, sie war aber blosser Text: «Buntwäsche · noch
+    ~23 min», und diese Zahl blieb stehen, bis der nächste Push kam. Auf
+    dem Sperrbildschirm, wo man im Vorbeigehen hinsieht, ist eine
+    Minutenzahl von vor drei Minuten aber schlechter als keine.
+
+    Zwei Felder, die die Karte längst kann (targets/widget/index.swift):
+    ``endet`` zählt von selbst herunter - ohne einen einzigen weiteren
+    Push -, und ``fortschritt`` zeigt, ob das viel oder wenig ist. Die
+    Programmdauer wird dafür nicht geraten, sondern aus den letzten
+    Läufen desselben Geräts geschätzt; ohne genug Läufe bleibt der
+    Balken weg (core/laufzeit.py).
     """
+    jetzt = time.time() if jetzt_s is None else jetzt_s
     karten = []
     for entity in entities:
         if entity.kind != "appliance" or entity.state.get("state") != "running":
@@ -153,7 +168,14 @@ def karten_geraete(entities: list[Any]) -> list[dict[str, Any]]:
             continue
         minuten = entity.state.get("minutes_left")
         programm = str(entity.state.get("program") or "läuft")
-        text = f"{programm} · noch ~{int(minuten)} min" if minuten else programm
+        try:
+            rest = float(minuten) if minuten is not None else None
+        except (TypeError, ValueError):
+            rest = None
+        # Mit Countdown gehört die Zahl nicht mehr in den Text: Sie
+        # stünde zweimal da, einmal davon veraltet.
+        text = programm if rest else (f"{programm} · noch ~{int(minuten)} min" if minuten else programm)
+        anteil = laufzeit.fortschritt(rest, laufzeit.typische_dauer(cycles, entity.id))
         karten.append(
             {
                 "art": f"geraet:{entity.id}",
@@ -162,6 +184,8 @@ def karten_geraete(entities: list[Any]) -> list[dict[str, Any]]:
                     "titel": entity.label,
                     "text": text,
                     "symbol": _geraete_symbol(entity.label),
+                    **({"endet": round(jetzt + rest * 60, 1)} if rest else {}),
+                    **({"fortschritt": anteil} if anteil is not None else {}),
                 },
                 # Beim Programmende kurz «Fertig» stehen lassen - genau
                 # der Moment, in dem die Karte ihren Zweck erfüllt.
@@ -497,7 +521,7 @@ def _gewuenscht(hub: Any, jetzt_s: float) -> list[dict[str, Any]]:
     entities = hub.registry.all()
     return [
         *karten_timer(hub.timers.list()),
-        *karten_geraete(entities),
+        *karten_geraete(entities, hub.data.get("appliance_cycles"), jetzt_s),
         *karten_grill(entities),
         *karten_sauger(entities),
         *karten_erinnerungen(hub.data.get("family_reminders"), jetzt_s * 1000),

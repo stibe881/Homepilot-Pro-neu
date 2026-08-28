@@ -18,7 +18,7 @@ from fastapi import (
     Response,
 )
 
-from ...core import batterie, kurzverlauf
+from ...core import batterie, kurzverlauf, spaeter, widgetkarten
 from ...core import replace as replace_module
 from ...core import throttle as throttle_module
 from ...core.errors import HomePilotError, UnknownEntityError, UnsupportedCommandError
@@ -31,7 +31,12 @@ from ...core.streams import (
 )
 from ...core.users import Capability
 from ..context import ApiContext
-from ..models import CommandRequest, MetaRequest, RoomRequest
+from ..models import (
+    CommandRequest,
+    ErinnerungRequest,
+    MetaRequest,
+    RoomRequest,
+)
 
 log = logging.getLogger(__name__)
 
@@ -162,10 +167,17 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         config.yaml – so ordnet man Geräte den Räumen zu, ohne die Datei
         anzufassen. EDIT_DEVICES statt EDIT_CONFIG: Das ist Einrichten der
         Ansicht, nicht der Anlage - auch Mitbewohner dürfen es."""
-        require(request, Capability.EDIT_DEVICES)
-        if hub.registry.get(entity_id) is None:
+        user = require(request, Capability.EDIT_DEVICES)
+        entity = hub.registry.get(entity_id)
+        if entity is None:
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
         await hub.set_entity_room(entity_id, body.room or None)
+        hub.aenderungen.merken(
+            user,
+            "geraet",
+            f"in den Raum «{body.room}» gelegt" if body.room else "aus dem Raum genommen",
+            entity.label,
+        )
         return {"ok": True, "entity": hub.registry.get(entity_id).as_dict()}
 
     @app.put("/api/entities/{entity_id}/meta")
@@ -178,14 +190,81 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         das Gruppieren mehrerer Geräte. Bleibt in der homepilot-data.json.
         EDIT_DEVICES statt EDIT_CONFIG: Ein Name, den alle täglich lesen,
         darf von allen stammen, die hier wohnen - nur Gäste nicht."""
-        require(request, Capability.EDIT_DEVICES)
-        if hub.registry.get(entity_id) is None:
+        user = require(request, Capability.EDIT_DEVICES)
+        entity = hub.registry.get(entity_id)
+        if entity is None:
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
         # Nur die tatsächlich mitgeschickten Felder weitergeben: group=null
         # heisst «Keine Gruppe» (entfernen) und ist etwas anderes als ein
         # gar nicht mitgeschicktes group.
-        await hub.set_entity_meta(entity_id, **body.model_dump(exclude_unset=True))
+        felder = body.model_dump(exclude_unset=True)
+        vorher = entity.label
+        await hub.set_entity_meta(entity_id, **felder)
+        # Der Name zuerst: «seit wann heisst das so?» ist die Frage, die
+        # man wirklich stellt. Favorit und Gruppe stehen daneben.
+        if "name" in felder and felder["name"] and felder["name"] != vorher:
+            hub.aenderungen.merken(
+                user, "geraet", f"umbenannt in «{felder['name']}»", vorher
+            )
+        elif "group" in felder:
+            hub.aenderungen.merken(
+                user,
+                "geraet",
+                f"in die Gruppe «{felder['group']}» gelegt"
+                if felder["group"]
+                else "aus der Gruppe genommen",
+                vorher,
+            )
         return {"ok": True, "entity": hub.registry.get(entity_id).as_dict()}
+
+    @app.post("/api/entities/{entity_id}/erinnern")
+    async def erinnere_an_geraet(
+        entity_id: str, body: ErinnerungRequest, request: Request
+    ) -> dict[str, Any]:
+        """«Sag mir in zwei Stunden Bescheid» - zu diesem Gerät.
+
+        Die Waschmaschine läuft, man geht aus dem Haus, und in zwei
+        Stunden möchte man daran erinnert werden - ohne dafür einen
+        Ablauf zu bauen. Die Erinnerungen der Familie können das längst,
+        sie waren nur nie mit einem Gerät verbunden.
+
+        Dieselbe Schlange wie «Später erinnern» aus der Mitteilung
+        (core/spaeter.py): Der Wächter schickt sie im nächsten Takt nach
+        der Frist. Nur an den, der sie gestellt hat - dass Stefan an die
+        Waschmaschine erinnert werden will, geht die anderen Telefone
+        nichts an.
+
+        Der Zustand von jetzt steht im Text: Beim Lesen ist er alt, aber
+        er sagt, worum es ging. «Läuft» in zwei Stunden noch einmal zu
+        behaupten, wäre schlimmer.
+        """
+        user = current_user(request)
+        entity = hub.registry.get(entity_id)
+        if entity is None:
+            raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
+        stand = widgetkarten.zustand_text(entity)
+        hub.data.set(
+            spaeter.SCHLANGE,
+            spaeter.einreihen(
+                hub.data.get(spaeter.SCHLANGE),
+                {
+                    "title": f"Nachsehen: {entity.label}",
+                    "body": f"Du wolltest daran erinnert werden. Damals: {stand}.",
+                    # Eine eigene Kategorie wäre ein Schalter im Profil,
+                    # mit dem man seine eigenen Erinnerungen abstellt -
+                    # das will niemand. «tasks» ist, was es ist.
+                    "category": "tasks",
+                    "to": user.name,
+                    "ziel": f"geraet:{entity.id}",
+                },
+                time.time(),
+                body.minutes,
+            ),
+        )
+        return {
+            "ok": True,
+            "minutes": spaeter.minuten_pruefen(body.minutes),
+        }
 
     # ── Batterien ──────────────────────────────────────────────────────
 

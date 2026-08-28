@@ -51,6 +51,7 @@ from . import (
 )
 from . import push as push_service
 from . import users as users_module
+from .aenderungen import Aenderungsprotokoll
 from .audit import AuditLog
 from .automation import AutomationEngine
 from .config import HubConfig
@@ -100,6 +101,9 @@ class Hub:
         # Wer hat wann was geschaltet - überlebt den Neustart, anders als
         # die flüchtige Liste «Zuletzt passiert» in der App.
         self.audit = AuditLog(self)
+        # Wer hat was eingerichtet - die andere Hälfte des Protokolls
+        # (core/aenderungen.py).
+        self.aenderungen = Aenderungsprotokoll(self)
         # Ereignisprotokoll je Gerät (jeder Zustandswechsel samt Quelle,
         # auch von Abläufen und der Simulation) - siehe eventlog.py.
         # Es liegt neben der Datendatei und überlebt damit den Neustart:
@@ -368,7 +372,7 @@ class Hub:
             tokens,
             title="Aufgaben heute fällig",
             body=f"{len(due)} offen: {names}",
-            data={"type": "task_due"},
+            data={"type": "task_due", "ziel": "familie:tasks"},
             category="tasks",
         )
 

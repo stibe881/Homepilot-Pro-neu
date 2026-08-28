@@ -24,6 +24,7 @@ from fastapi import (
 )
 
 from ...core import (
+    aenderungen,
     config_edit,
     confighistory,
     extras,
@@ -143,8 +144,10 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         kaputte config.yaml darf nie auf der Platte landen, sonst kommt der
         Hub nach dem nächsten Neustart nicht mehr hoch.
         """
-        require(request, Capability.EDIT_CONFIG)
-        return save_config(body.content)
+        user = require(request, Capability.EDIT_CONFIG)
+        antwort = save_config(body.content)
+        hub.aenderungen.merken(user, "konfiguration", "gespeichert")
+        return antwort
 
     def save_config(content: str) -> dict[str, Any]:
         return configio.save_config(hub, content)
@@ -559,6 +562,23 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         """Zugriffsprotokoll: wer hat wann was geschaltet."""
         require(request, Capability.EDIT_CONFIG)
         return {"entries": hub.audit.entries(limit=min(500, max(1, limit)), entity_id=entity_id)}
+
+    @app.get("/api/system/einrichtung")
+    async def system_einrichtung(request: Request, limit: int = 200) -> dict[str, Any]:
+        """Wer hat was eingerichtet - die andere Hälfte des Protokolls.
+
+        Getrennt vom Zugriffsprotokoll: Das eine ist Bedienung und
+        passiert hundertmal am Tag, das andere Einrichtung und passiert
+        selten. In einer Liste zusammen wäre die seltene nicht mehr zu
+        finden (core/aenderungen.py).
+        """
+        require(request, Capability.EDIT_CONFIG)
+        return {
+            "entries": hub.aenderungen.eintraege(limit=min(500, max(1, limit))),
+            # Damit die App die Arten benennen kann, ohne dieselbe Liste
+            # ein zweites Mal zu führen.
+            "arten": aenderungen.ARTEN,
+        }
 
     @app.get("/api/config/history")
     async def config_history(request: Request) -> dict[str, Any]:
