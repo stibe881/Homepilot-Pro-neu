@@ -49,6 +49,18 @@ ARMED = "scharf"
 ENTRY = "eintritt"
 TRIGGERED = "ausgeloest"
 
+#: Was auch während der Saugerfahrt auslöst.
+#:
+#: Ein Saugroboter ist keine Person und kein Tier. Die Kamera weiss das:
+#: UniFi Protect meldet neben der blossen Bewegung, *was* sie erkannt
+#: hat (unifi_protect.DETECTIONS). Also schweigt nur die Bewegung - wer
+#: durchs Bild läuft, löst weiterhin aus.
+#:
+#: Eine Kamera ohne solche Erkennung (Ring meldet nur Bewegung) bleibt
+#: währenddessen still. Das ist die ehrliche Grenze: Dort kann der Hub
+#: nicht unterscheiden, ob er den Sauger sieht oder jemanden.
+DURCHBRUCH = ("person", "animal")
+
 DEFAULT_SETTINGS: dict[str, Any] = {
     # Sekunden zum Verlassen des Hauses nach dem Scharfschalten.
     "exit_delay": 45,
@@ -77,6 +89,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     # Weggehen den Sauger los und schaltet die Anlage scharf. Fenster-
     # und Türkontakte bleiben in jedem Fall wach - siehe sauger_deckt().
     "ignore_vacuum": True,
+    # Was auch während der Saugerfahrt auslöst: Ein Saugroboter ist keine
+    # Person und kein Tier, und die Kamera weiss das. Leer heisst: gar
+    # nichts bricht durch (siehe DURCHBRUCH).
+    "vacuum_detections": list(DURCHBRUCH),
 }
 
 # Mindestabstand zwischen zwei Bewegungs-Nachrichten derselben Kamera.
@@ -316,12 +332,25 @@ def sauger_unterwegs(entities: list[Entity]) -> bool:
     )
 
 
+def erkennt_durchbruch(entity: Entity, felder: Any = DURCHBRUCH) -> bool:
+    """Meldet die Kamera gerade eine Person oder ein Tier? (rein, testbar)
+
+    Leere Liste heisst «nichts bricht durch» - dann schweigt die Kamera
+    während der Fahrt vollständig.
+    """
+    return any(
+        str(entity.state.get(f"detected_{feld}") or "") == "on"
+        for feld in (felder or ())
+    )
+
+
 def sauger_deckt(
     entity: Entity,
     unterwegs: bool,
     blind_bis: float | None,
     jetzt: float,
     an: bool = True,
+    durchbruch: Any = DURCHBRUCH,
 ) -> bool:
     """Schweigt dieser Sensor gerade wegen des Saugers? (rein, testbar)
 
@@ -329,6 +358,10 @@ def sauger_deckt(
     SAUGER_NACHLAUF.
     """
     if not an or not ist_bewegung(entity):
+        return False
+    # Person oder Tier im Bild: Das ist nicht der Sauger, und die Anlage
+    # geht los - auch mitten in der Reinigung.
+    if erkennt_durchbruch(entity, durchbruch):
         return False
     if unterwegs:
         return True

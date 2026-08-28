@@ -48,10 +48,25 @@ Wer nachliest, warum nichts passiert ist, findet es im Alarm-Verlauf:
 Der erste übergangene Melder je Fahrt steht dort. Stillschweigend wäre
 es die falsche Art von Rücksicht.
 
+Kameras haben einen dritten Weg: Ein Saugroboter ist keine Person und
+kein Tier, und eine Kamera mit Erkennung weiss das (UniFi Protect meldet
+neben der Bewegung, *was* sie sieht). Also schweigt dort nur die blosse
+Bewegung – wer durchs Bild läuft, löst weiterhin aus, mitten in der
+Reinigung. Welche Erkennungen durchbrechen, steht unter Alarm →
+Einstellungen; Person und Tier sind vorgewählt, Fahrzeuge und Pakete
+stehen gar nicht zur Wahl – das sind Dinge vor der Haustür.
+
 **Kostet:** Ein Einbrecher, der während der Reinigung durch eine offene
-Tür hereinspaziert, wird von den Bewegungsmeldern nicht mehr gesehen.
-Die Kontakte melden ihn – wenn er eine Tür oder ein Fenster öffnet. Wer
-seine Wohnung offen stehen lässt, hat das Loch.
+Tür hereinspaziert und an keiner Kamera mit Erkennung vorbeikommt, wird
+von den Bewegungsmeldern nicht mehr gesehen. Die Kontakte melden ihn –
+wenn er eine Tür oder ein Fenster öffnet. Wer seine Wohnung offen stehen
+lässt, hat das Loch.
+
+Eine Kamera, die nur Bewegung meldet (Ring), bleibt während der Fahrt
+ganz still: Dort kann der Hub nicht unterscheiden, ob er den Sauger
+sieht oder jemanden. Und meldet die Kamera den Sauger selbst als «Tier»
+– manche Modelle tun das –, ist man wieder beim Fehlalarm; dann nimmt
+man «Tier» aus der Auswahl.
 
 Und: Der Hub verlässt sich darauf, dass er den Zustand des Saugers
 kennt. Meldet die Roborock-Wolke gerade nichts, hält er ihn für geparkt

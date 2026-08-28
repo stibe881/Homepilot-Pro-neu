@@ -17,6 +17,7 @@ from homepilot.core.entity import Entity, EntityKind
 from homepilot.core.hub import Hub
 from homepilot.integrations.alarm_rules import (
     SAUGER_NACHLAUF,
+    erkennt_durchbruch,
     ist_bewegung,
     sauger_deckt,
     sauger_faehrt,
@@ -230,6 +231,91 @@ async def test_the_switch_brings_the_old_behaviour_back() -> None:
         await anlage.update_config({"settings": {"ignore_vacuum": False}})
         await hub.registry.update_state("demo.vacuum", {"state": "cleaning"})
         await hub.registry.update_state("demo.motion_hall", {"state": "on"})
+        await asyncio.sleep(0.05)
+        assert anlage._state == "ausgeloest"
+    finally:
+        await hub.stop()
+
+
+# ── Person und Tier brechen durch ─────────────────────────────────────
+
+
+def kamera(**erkannt: str) -> Entity:
+    return Entity(
+        id="protect.flur",
+        kind=EntityKind.CAMERA,
+        name="Kamera Flur",
+        integration="unifi_protect",
+        state={"motion": "on", **erkannt},
+    )
+
+
+def test_a_camera_seeing_a_person_still_sets_it_off() -> None:
+    # Ein Saugroboter ist keine Person.
+    assert sauger_deckt(kamera(detected_person="on"), True, None, 1000.0) is False
+
+
+def test_a_camera_seeing_an_animal_still_sets_it_off() -> None:
+    assert sauger_deckt(kamera(detected_animal="on"), True, None, 1000.0) is False
+
+
+def test_plain_motion_on_a_camera_stays_quiet() -> None:
+    # Genau das ist der Sauger, der durchs Bild fährt.
+    assert sauger_deckt(kamera(), True, None, 1000.0) is True
+    assert sauger_deckt(kamera(detected_person="off"), True, None, 1000.0) is True
+
+
+def test_a_parcel_is_not_an_intruder() -> None:
+    # Protect erkennt auch Fahrzeuge und Pakete - die gehören nicht in
+    # die Wohnung und lösen hier nichts aus.
+    assert sauger_deckt(kamera(detected_package="on"), True, None, 1000.0) is True
+
+
+def test_the_breakthrough_also_holds_during_the_grace_period() -> None:
+    bis = 1000.0 + SAUGER_NACHLAUF
+    assert sauger_deckt(kamera(detected_person="on"), False, bis, 1100.0) is False
+
+
+def test_an_empty_list_lets_nothing_through() -> None:
+    assert (
+        sauger_deckt(kamera(detected_person="on"), True, None, 1000.0, durchbruch=[])
+        is True
+    )
+
+
+def test_the_detection_alone_is_read_from_the_state() -> None:
+    assert erkennt_durchbruch(kamera(detected_person="on")) is True
+    assert erkennt_durchbruch(kamera(detected_animal="on")) is True
+    assert erkennt_durchbruch(kamera()) is False
+    # Ein Bewegungsmelder trägt solche Felder nie.
+    assert erkennt_durchbruch(melder()) is False
+
+
+@pytest.mark.asyncio
+async def test_a_person_sets_off_the_alarm_while_the_vacuum_drives() -> None:
+    """Der ganze Weg: Sauger fährt, die Kamera sieht eine Person - und die
+    Sirene geht trotzdem."""
+    hub, anlage = await scharfe_anlage()
+    try:
+        await hub.registry.add(kamera())
+        await hub.registry.update_state("protect.flur", {"motion": "off"})
+        await anlage.update_config(
+            {
+                "sensors": [
+                    {"entity_id": "demo.motion_hall", "modes": ["ausser_haus"]},
+                    {"entity_id": "protect.flur", "modes": ["ausser_haus"]},
+                ]
+            }
+        )
+        await hub.registry.update_state("demo.vacuum", {"state": "cleaning"})
+
+        # Erst nur Bewegung: Das ist der Sauger, nichts passiert.
+        await hub.registry.update_state("protect.flur", {"motion": "on"})
+        await asyncio.sleep(0.05)
+        assert anlage._state == "scharf"
+
+        # Dann eine Person im Bild.
+        await hub.registry.update_state("protect.flur", {"detected_person": "on"})
         await asyncio.sleep(0.05)
         assert anlage._state == "ausgeloest"
     finally:

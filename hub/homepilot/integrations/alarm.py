@@ -63,6 +63,7 @@ from .alarm_rules import (  # noqa: F401
     DEFAULT_SETTINGS,
     DISARM,
     DISARMED,
+    DURCHBRUCH,
     ENTRY,
     MODE_LABELS,
     MODES,
@@ -455,6 +456,7 @@ class AlarmIntegration(Integration):
             self._sauger_bis,
             time.time(),
             bool(self._settings.get("ignore_vacuum", True)),
+            self._settings.get("vacuum_detections", DURCHBRUCH),
         ):
             return False
         if not sensor_open(entity):

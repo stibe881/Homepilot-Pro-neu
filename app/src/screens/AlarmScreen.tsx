@@ -10,6 +10,11 @@ import { Card } from '../components/Card';
 import { Klappe } from '../components/Klappe';
 import { Fehlschlag, Laedt } from '../components/Zustand';
 import { useTakt } from '../hooks/useTakt';
+import {
+  DURCHBRUCH,
+  durchbruchAn,
+  durchbruchUmschalten,
+} from '../lib/saugerdurchbruch';
 import { datumUhr } from '../lib/format';
 import { ringAnteil } from '../lib/alarmring';
 import { tapped, triggered } from '../lib/haptics';
@@ -1198,6 +1203,52 @@ function AlarmSettings({
         value={settings.ignore_vacuum !== false}
         onChange={(value) => onSave({ ...settings, ignore_vacuum: value })}
       />
+      {/* Was auch dann auslöst: Ein Saugroboter ist keine Person und
+          kein Tier, und die Kamera weiss das. Nur Kameras mit
+          Erkennung (UniFi Protect) - eine, die bloss Bewegung meldet,
+          kann den Unterschied nicht sehen. */}
+      {settings.ignore_vacuum !== false ? (
+        <View style={styles.field}>
+          <Text style={styles.label}>Löst trotzdem aus</Text>
+          <View style={styles.chipRow}>
+            {DURCHBRUCH.map((eintrag) => {
+              const gewaehlt = durchbruchAn(settings.vacuum_detections, eintrag.key);
+              return (
+                <Pressable
+                  key={eintrag.key}
+                  onPress={() =>
+                    onSave({
+                      ...settings,
+                      vacuum_detections: durchbruchUmschalten(
+                        settings.vacuum_detections,
+                        eintrag.key,
+                      ),
+                    })
+                  }
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: gewaehlt }}
+                  accessibilityLabel={`${eintrag.label} löst während der Saugerfahrt aus`}
+                  style={({ pressed }) => [
+                    styles.chip,
+                    gewaehlt && styles.chipOn,
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  <Text style={[styles.chipText, gewaehlt && { color: '#FFFFFF' }]}>
+                    {eintrag.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={styles.hint}>
+            Erkennt die Kamera eine Person oder ein Tier, geht die Sirene auch
+            mitten in der Reinigung los. Braucht eine Kamera mit Erkennung
+            (UniFi Protect) – eine, die nur Bewegung meldet, kann den Sauger
+            nicht von jemandem unterscheiden und bleibt so lange still.
+          </Text>
+        </View>
+      ) : null}
       {settings.notify_camera_motion !== false && !images ? (
         <Text style={styles.hint}>
           Ohne «push.public_url» in der config.yaml des Hubs kommt die
