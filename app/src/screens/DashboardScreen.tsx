@@ -56,6 +56,7 @@ import { useHub } from '../hooks/useHub';
 import { Knopfdruck, Tap, useNotificationTap } from '../hooks/useNotificationTap';
 import { usePrefs } from '../hooks/usePrefs';
 import { useLiveAktivitaet } from '../hooks/useLiveAktivitaet';
+import { useWatchSync } from '../hooks/useWatchSync';
 import { usePushRegistration } from '../hooks/usePushRegistration';
 import { breakpoints, Colors, radius, space, type, useColors } from '../theme';
 import { KAMERA_MINDEST, kachelBreite, spalten } from '../lib/raster';
@@ -992,6 +993,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     settings,
     status === 'connected' && eigenePrefs.liveTuer !== false
   );
+
+  // Der Apple Watch die Zugangsdaten hinüberreichen - tut nur auf einem
+  // iPhone mit dem passenden Build etwas (hooks/useWatchSync.ts).
+  useWatchSync(settings, entities, status === 'connected');
 
   // Einmalige Übernahme dessen, was vorher im Gerät und beim Benutzer
   // lag. Erst nach der ersten Antwort des Hubs - sonst sähe die
