@@ -128,7 +128,15 @@ export const makeStyles = (colors: Colors) =>
     borderWidth: 1,
     borderColor: colors.surfaceBorder,
   },
-  editStand: { fontSize: 12, color: colors.inkSoft, fontWeight: '600', flex: 1 },
+  /** Die Überschrift der Anpassen-Zeile: klein und gedeckt. Sie sagt,
+   *  was der Tipp tut - der Stand darunter, was eingestellt ist. */
+  editTitel: {
+    fontSize: 11,
+    color: colors.inkFaint,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  editStand: { fontSize: 12, color: colors.inkSoft, fontWeight: '600' },
   blattKopf: {
     flexDirection: 'row',
     alignItems: 'center',

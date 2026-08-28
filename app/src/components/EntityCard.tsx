@@ -838,13 +838,31 @@ export function EntityCard({
             accessibilityLabel={`${entity.name} anpassen – ${standZeile(stand)}`}
             style={({ pressed }) => [styles.editZeile, pressed && { opacity: 0.6 }]}
           >
-            <Text
-              style={[styles.editStand, faelltAuf(stand) && { color: colors.accent }]}
-              numberOfLines={2}
-            >
-              {standZeile(stand)}
-            </Text>
-            <Ionicons name="chevron-forward" size={13} color={colors.inkSoft} />
+            {/* Zwei bewusste Zeilen statt eines umbrechenden Satzes.
+                Vorher stand hier nur der Stand, und der beginnt mit dem
+                Raum: «Kein Raum ›». Das las sich wie ein Raumwähler -
+                dahinter liegt aber das ganze Blatt mit Umbenennen,
+                Raum, Gruppe, Favorit, Ausblenden und Rückfrage. Gemeldet
+                aus dem Haus, und zu Recht.
+
+                «Anpassen · Kein Raum» in einer Zeile wäre die
+                naheliegende Antwort und passt nicht: Auf einer
+                halbbreiten Telefonkachel bleiben 89 Punkte, gemessen,
+                und der Satz bricht mitten entzwei. Also die Überschrift
+                oben, klein und gedeckt, der Stand darunter - dieselbe
+                Höhe wie ein Umbruch, nur vorhersehbar. */}
+            <View style={{ flex: 1 }}>
+              <Text style={styles.editTitel}>Anpassen</Text>
+              <Text
+                style={[styles.editStand, faelltAuf(stand) && { color: colors.accent }]}
+                numberOfLines={1}
+              >
+                {standZeile(stand)}
+              </Text>
+            </View>
+            {/* Schieberegler statt Pfeil: Der Pfeil hiess «weiter zu dem,
+                was links steht» - und links stand der Raum. */}
+            <Ionicons name="options-outline" size={13} color={colors.inkSoft} />
           </Pressable>
         </View>
       ) : null}
