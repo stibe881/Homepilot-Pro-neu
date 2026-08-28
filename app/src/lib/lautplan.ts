@@ -88,6 +88,65 @@ export function stufenSatz(stufen: Stufe[], index: number): string {
 }
 
 /**
+ * Eine Box in die Auswahl nehmen oder herausnehmen (rein, testbar).
+ *
+ * Die leere Liste heisst «alle Boxen» und nicht «keine» – das ist die
+ * Lesart des Hubs (hub/core/lautplan.py: gilt_fuer) und der Normalfall
+ * im Haushalt. Wer die erste Box antippt, während «alle» gilt, meint
+ * darum «nur diese» und nicht «alle ausser dieser».
+ */
+export function boxenUmschalten(liste: string[] | undefined, id: string): string[] {
+  const jetzt = liste ?? [];
+  if (jetzt.length === 0) return [id];
+  if (!jetzt.includes(id)) return [...jetzt, id];
+  const rest = jetzt.filter((eintrag) => eintrag !== id);
+  // Die letzte abgewählt: Das ist wieder «alle», denn ein Plan ohne Box
+  // hat keinen Adressaten und wäre nur eine Liste, die nichts tut.
+  return rest;
+}
+
+/** Steht diese Box in der Auswahl? Leer heisst alle (rein, testbar). */
+export function boxAn(liste: string[] | undefined, id: string): boolean {
+  const jetzt = liste ?? [];
+  return jetzt.length === 0 || jetzt.includes(id);
+}
+
+/**
+ * «Alle Boxen» oder «Nest Badezimmer und 2 weitere» (rein, testbar).
+ *
+ * Ab drei wird gezählt statt aufgezählt: Elf Boxennamen in einer
+ * Überschrift liest niemand, und die Auswahl steht als Chips ohnehin
+ * darunter.
+ */
+export function boxenSatz(
+  liste: string[] | undefined,
+  namen: Record<string, string>,
+): string {
+  const jetzt = liste ?? [];
+  if (jetzt.length === 0) return 'Alle Boxen';
+  const beschriftet = jetzt.map((id) => namen[id] ?? id);
+  if (beschriftet.length === 1) return beschriftet[0];
+  if (beschriftet.length === 2) return `${beschriftet[0]} und ${beschriftet[1]}`;
+  return `${beschriftet[0]} und ${beschriftet.length - 1} weitere`;
+}
+
+/**
+ * Ein zweiter Plan, der sich mit dem ersten nicht überschneidet
+ * (rein, testbar).
+ *
+ * Er startet mit den Boxen, die noch kein Plan abdeckt. Zwei Pläne für
+ * dieselbe Box wären ein Widerspruch, den der Hub nach der Reihenfolge
+ * auflöst – und eine Reihenfolge, die man nicht sieht, ist keine
+ * Erklärung.
+ */
+export function freieBoxen(plaene: Plan[], alle: string[]): string[] {
+  const vergeben = new Set(plaene.flatMap((plan) => plan.entities ?? []));
+  // Deckt ein Plan «alle» ab, ist nichts mehr frei.
+  if (plaene.some((plan) => (plan.entities ?? []).length === 0)) return [];
+  return alle.filter((id) => !vergeben.has(id));
+}
+
+/**
  * Eine neue Stufe, die noch nicht im Plan steht (rein, testbar).
  *
  * Sie legt sich in die grösste Lücke: Wer eine Stufe hinzufügt, meint

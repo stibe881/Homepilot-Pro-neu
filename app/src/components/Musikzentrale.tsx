@@ -17,7 +17,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { hubClient } from '../api/client';
 import { useTakt } from '../hooks/useTakt';
 import { Entity, HubSettings } from '../api/types';
-import { hausSatz, laufendeMusik, zustandName } from '../lib/hausmusik';
+import { einzelBoxen, hausSatz, laufendeMusik, zustandName } from '../lib/hausmusik';
 import { WeckerEntwurf, ersterEntwurf } from '../lib/weckerentwurf';
 import { tageSatz } from '../lib/weckertage';
 import { Nachtragzeile, nachtragSatz } from '../lib/tonnachtrag';
@@ -25,6 +25,10 @@ import {
   Plan,
   Stufe,
   VORLAGE,
+  boxAn,
+  boxenSatz,
+  boxenUmschalten,
+  freieBoxen,
   geordnet,
   minuten,
   neueStufe,
@@ -88,11 +92,10 @@ export function Musikzentrale({
   // Nicht in laufende Musik hineinstellen - und was deswegen wartet.
   const [warten, setWarten] = useState(true);
   const [nachtrag, setNachtrag] = useState<Nachtragzeile[]>([]);
-  // Lautstärke nach Tageszeit. Genau ein Plan in der Oberfläche: Der
-  // Hub kann mehrere, aber wer zwei braucht, weiss auch, wie man sie
-  // über die Route anlegt - und eine Liste von Plänen über einer Liste
-  // von Stufen wäre für den Normalfall eine Ebene zu viel.
-  const [plan, setPlan] = useState<Plan | null>(null);
+  // Lautstärke nach Tageszeit - eine Liste, weil ein Plan je Bereich
+  // erst den Sinn ergibt: «alle Boxen auf 70 %» ist selten das, was man
+  // will, sobald ein Kinderzimmer dabei ist. Der Hub trägt bis zu acht.
+  const [plaene, setPlaene] = useState<Plan[]>([]);
   // Welche Stufe gerade gilt, wird hervorgehoben - dafür braucht es die
   // Uhrzeit. Im Minutentakt und nicht öfter: Feiner löst der Plan nicht
   // auf, und der Takt schweigt im Hintergrund (hooks/useTakt.ts).
@@ -146,7 +149,7 @@ export function Musikzentrale({
     if (typeof e?.wait === 'boolean') setWarten(e.wait);
     setNachtrag(e?.pending ?? []);
     setWecker(w?.alarms ?? []);
-    setPlan(l?.plans?.[0] ?? null);
+    setPlaene(l?.plans ?? []);
   }, [hub]);
 
   useEffect(() => {
@@ -157,6 +160,12 @@ export function Musikzentrale({
 
   // Kennung → Name, damit der Nachtrag-Satz «Nest Badezimmer» sagen kann
   // und nicht «test.speaker_bath».
+  // Welche Boxen ein Lautstärkeplan überhaupt meinen kann: Einzelboxen,
+  // die eine Lautstärke annehmen. Gruppen bleiben aussen vor - sie
+  // stellen ihre Mitglieder ohnehin mit, und in der Auswahl stünde
+  // dieselbe Box zweimal (lib/hausmusik.ts erklärt es länger).
+  const waehlbareBoxen = useMemo(() => einzelBoxen(entities, ''), [entities]);
+
   const namenNachId = useMemo(
     () => Object.fromEntries(entities.map((entity) => [entity.id, entity.name])),
     [entities],
@@ -261,15 +270,15 @@ export function Musikzentrale({
    * weg, die neue noch nicht da) wäre stundenlang in Kraft, ohne dass
    * ihn jemand so gemeint hätte.
    */
-  const planSichern = async (naechster: Plan | null) => {
-    setPlan(naechster);
+  const plaeneSichern = async (naechste: Plan[]) => {
+    setPlaene(naechste);
     try {
       const antwort = await hub.put<{ plans: Plan[] }>(
         '/api/media/volumeplan',
-        { plans: naechster ? [naechster] : [] },
+        { plans: naechste },
         { still: true },
       );
-      setPlan(antwort.plans?.[0] ?? null);
+      setPlaene(antwort.plans ?? []);
       setNote(null);
     } catch (err) {
       setNote(String(err instanceof Error ? err.message : err));
@@ -279,8 +288,13 @@ export function Musikzentrale({
     }
   };
 
-  const stufenSichern = (stufen: Stufe[]) =>
-    planSichern({ ...(plan ?? { name: 'Lautsprecher' }), steps: geordnet(stufen) });
+  /** Einen Plan ersetzen - oder herausnehmen, wenn er leer wird. */
+  const planSichern = (index: number, naechster: Plan | null) =>
+    plaeneSichern(
+      naechster === null
+        ? plaene.filter((_, i) => i !== index)
+        : plaene.map((alt, i) => (i === index ? naechster : alt)),
+    );
 
   const weckerLoeschen = async (eintrag: Wecker) => {
     await hub
@@ -552,50 +566,24 @@ export function Musikzentrale({
 
       {/* ── Lautstärke nach Tageszeit ────────────────────────────── */}
       <Text style={styles.abschnitt}>Lautstärke nach Tageszeit</Text>
-      {plan && plan.steps.length > 0 ? (
-        <>
-          {geordnet(plan.steps).map((stufe, index) => {
-            const gilt = stufeJetzt(plan.steps, jetztMinuten)?.at === stufe.at;
-            return (
-              <View key={stufe.at} style={styles.zeile}>
-                <Ionicons
-                  name={gilt ? 'time' : 'time-outline'}
-                  size={14}
-                  color={gilt ? colors.accent : colors.inkSoft}
-                />
-                <Text
-                  style={[styles.zeileText, gilt && { color: colors.accent, fontWeight: '700' }]}
-                  numberOfLines={1}
-                >
-                  ab {stufe.at} · {stufenSatz(plan.steps, index)}
-                </Text>
-                <Pressable
-                  onPress={() =>
-                    stufenSichern(plan.steps.filter((andere) => andere.at !== stufe.at))
-                  }
-                  accessibilityRole="button"
-                  accessibilityLabel={`Stufe ${stufe.at} löschen`}
-                  hitSlop={8}
-                >
-                  <Ionicons name="trash-outline" size={14} color={colors.inkFaint} />
-                </Pressable>
-              </View>
-            );
-          })}
-          <StufenFormular
-            styles={styles}
-            colors={colors}
-            vorschlag={neueStufe(plan.steps)}
-            onSichern={(stufe) => stufenSichern([...plan.steps, stufe])}
-          />
-          <Text style={styles.hinweis}>
-            Gilt für stille Boxen. Läuft Musik oder Radio, bleibt die Box, wie sie
-            ist – und bekommt ihren Wert, sobald die Wiedergabe endet.
-          </Text>
-        </>
-      ) : (
+      {plaene.map((plan, index) => (
+        <Planblock
+          key={plan.id ?? index}
+          plan={plan}
+          boxen={waehlbareBoxen}
+          namen={namenNachId}
+          jetztMinuten={jetztMinuten}
+          alleErlaubt={plaene.length === 1}
+          onAendern={(naechster) => planSichern(index, naechster)}
+          styles={styles}
+          colors={colors}
+        />
+      ))}
+      {plaene.length === 0 ? (
         <Pressable
-          onPress={() => planSichern({ name: 'Lautsprecher', steps: VORLAGE, entities: [] })}
+          onPress={() =>
+            plaeneSichern([{ name: 'Lautsprecher', steps: VORLAGE, entities: [] }])
+          }
           accessibilityRole="button"
           accessibilityLabel="Lautstärke nach Tageszeit einrichten"
           style={({ pressed }) => [styles.schalter, pressed && { opacity: 0.7 }]}
@@ -605,6 +593,43 @@ export function Musikzentrale({
             Einrichten – morgens leise, tagsüber laut, nachts fast aus
           </Text>
         </Pressable>
+      ) : (
+        <>
+          {/* Ein zweiter Plan nur, solange es Boxen gibt, die noch
+              keiner abdeckt. Zwei Pläne für dieselbe Box wären ein
+              Widerspruch, den der Hub nach der Reihenfolge auflöst - und
+              eine Reihenfolge, die man nicht sieht, ist keine
+              Erklärung. */}
+          {freieBoxen(plaene, waehlbareBoxen.map((box) => box.id)).length > 0 ? (
+            <Pressable
+              onPress={() =>
+                plaeneSichern([
+                  ...plaene,
+                  {
+                    name: 'Weitere Boxen',
+                    steps: VORLAGE,
+                    entities: freieBoxen(
+                      plaene,
+                      waehlbareBoxen.map((box) => box.id),
+                    ),
+                  },
+                ])
+              }
+              accessibilityRole="button"
+              accessibilityLabel="Weiteren Plan für andere Boxen anlegen"
+              style={({ pressed }) => [styles.schalter, pressed && { opacity: 0.7 }]}
+            >
+              <Ionicons name="add-circle-outline" size={16} color={colors.accent} />
+              <Text style={styles.schalterText}>
+                Eigener Plan für andere Boxen
+              </Text>
+            </Pressable>
+          ) : null}
+          <Text style={styles.hinweis}>
+            Gilt für stille Boxen. Läuft Musik oder Radio, bleibt die Box, wie sie
+            ist – und bekommt ihren Wert, sobald die Wiedergabe endet.
+          </Text>
+        </>
       )}
 
       {/* ── Musikwecker ──────────────────────────────────────────── */}
@@ -649,6 +674,155 @@ export function Musikzentrale({
 
       {note ? <Text style={styles.hinweis}>{note}</Text> : null}
     </Card>
+  );
+}
+
+/**
+ * Ein Lautstärkeplan: für welche Boxen, und ab wann wie laut.
+ *
+ * Eigene Komponente, seit es mehrere sein dürfen. Der Name kommt aus
+ * der Boxenauswahl und nicht aus einem Feld: «Nest Badezimmer und 2
+ * weitere» sagt mehr als jeder selbst getippte Titel, und ein
+ * Textfeld mehr wäre ein Handgriff mehr für nichts.
+ */
+function Planblock({
+  plan,
+  boxen,
+  namen,
+  jetztMinuten,
+  alleErlaubt,
+  onAendern,
+  styles,
+  colors,
+}: {
+  plan: Plan;
+  boxen: Entity[];
+  namen: Record<string, string>;
+  jetztMinuten: number;
+  /** Darf dieser Plan «alle Boxen» heissen? Bei mehreren Plänen nicht:
+   *  Er verdeckte sonst die anderen, weil der Hub den ersten passenden
+   *  nimmt (hub/core/lautplan.py: sollwert). */
+  alleErlaubt: boolean;
+  /** `null` heisst: Plan löschen. */
+  onAendern: (naechster: Plan | null) => void;
+  styles: ReturnType<typeof makeStyles>;
+  colors: Colors;
+}) {
+  const [offen, setOffen] = useState(false);
+  const stufen = geordnet(plan.steps);
+
+  return (
+    <View style={styles.planblock}>
+      {/* Die Kopfzeile ist zugleich der Weg zur Auswahl: Wer wissen
+          will, für welche Boxen der Plan gilt, tippt auf die Antwort,
+          die schon dasteht. */}
+      <View style={styles.zeile}>
+        <Pressable
+          onPress={() => setOffen((auf) => !auf)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: offen }}
+          accessibilityLabel={`Boxen wählen – gilt für ${boxenSatz(plan.entities, namen)}`}
+          style={({ pressed }) => [styles.planKopf, pressed && { opacity: 0.7 }]}
+        >
+          <Ionicons name="volume-medium-outline" size={14} color={colors.inkSoft} />
+          <Text style={styles.planKopfText} numberOfLines={1}>
+            {boxenSatz(plan.entities, namen)}
+          </Text>
+          <Ionicons
+            name={offen ? 'chevron-up' : 'chevron-down'}
+            size={14}
+            color={colors.inkSoft}
+          />
+        </Pressable>
+        <Pressable
+          onPress={() => onAendern(null)}
+          accessibilityRole="button"
+          accessibilityLabel={`Plan für ${boxenSatz(plan.entities, namen)} löschen`}
+          hitSlop={8}
+        >
+          <Ionicons name="trash-outline" size={14} color={colors.inkFaint} />
+        </Pressable>
+      </View>
+
+      {offen ? (
+        <View style={styles.boxenreihe}>
+          {boxen.map((box) => {
+            const dabei = boxAn(plan.entities, box.id);
+            return (
+              <Pressable
+                key={box.id}
+                onPress={() => {
+                  const naechste = boxenUmschalten(plan.entities, box.id);
+                  // Die letzte abzuwählen hiesse «alle» - und damit
+                  // stünde dieser Plan über den anderen. Dann lieber
+                  // nichts tun als etwas Unerwartetes.
+                  if (naechste.length === 0 && !alleErlaubt) return;
+                  onAendern({ ...plan, entities: naechste });
+                }}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: dabei }}
+                accessibilityLabel={`${box.name} in diesem Plan`}
+                style={({ pressed }) => [
+                  styles.boxchip,
+                  dabei && { borderColor: colors.accent },
+                  pressed && { opacity: 0.7 },
+                ]}
+              >
+                <Text
+                  style={[styles.boxchipText, dabei && { color: colors.accent, fontWeight: '700' }]}
+                  numberOfLines={1}
+                >
+                  {box.name}
+                </Text>
+              </Pressable>
+            );
+          })}
+          {boxen.length === 0 ? (
+            <Text style={styles.hinweis}>Keine Box gefunden, die eine Lautstärke annimmt.</Text>
+          ) : null}
+        </View>
+      ) : null}
+
+      {stufen.map((stufe, index) => {
+        const gilt = stufeJetzt(plan.steps, jetztMinuten)?.at === stufe.at;
+        return (
+          <View key={stufe.at} style={styles.zeile}>
+            <Ionicons
+              name={gilt ? 'time' : 'time-outline'}
+              size={14}
+              color={gilt ? colors.accent : colors.inkSoft}
+            />
+            <Text
+              style={[styles.zeileText, gilt && { color: colors.accent, fontWeight: '700' }]}
+              numberOfLines={1}
+            >
+              ab {stufe.at} · {stufenSatz(plan.steps, index)}
+            </Text>
+            <Pressable
+              onPress={() =>
+                onAendern({
+                  ...plan,
+                  steps: plan.steps.filter((andere) => andere.at !== stufe.at),
+                })
+              }
+              accessibilityRole="button"
+              accessibilityLabel={`Stufe ${stufe.at} löschen`}
+              hitSlop={8}
+            >
+              <Ionicons name="trash-outline" size={14} color={colors.inkFaint} />
+            </Pressable>
+          </View>
+        );
+      })}
+      <StufenFormular
+        styles={styles}
+        colors={colors}
+        vorschlag={neueStufe(plan.steps)}
+        onSichern={(stufe) =>
+          onAendern({ ...plan, steps: geordnet([...plan.steps, stufe]) })
+        }
+      />
+    </View>
   );
 }
 
@@ -771,4 +945,25 @@ const makeStyles = (colors: Colors) =>
       minWidth: 70,
     },
     hinweis: { color: colors.inkFaint, fontSize: 11, marginTop: 4 },
+    // Ein Plan als eigener Block: abgesetzt, damit bei zweien klar ist,
+    // welche Stufen zu welchen Boxen gehören.
+    planblock: {
+      marginTop: 6,
+      paddingTop: 4,
+      borderTopWidth: 1,
+      borderTopColor: colors.surfaceBorder,
+    },
+    planKopf: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
+    planKopfText: { color: colors.ink, fontSize: 13, fontWeight: '600', flex: 1 },
+    boxenreihe: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginVertical: 6 },
+    boxchip: {
+      paddingVertical: 5,
+      paddingHorizontal: 10,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      backgroundColor: colors.surfaceSoft,
+      maxWidth: 200,
+    },
+    boxchipText: { color: colors.inkSoft, fontSize: 12 },
   });

@@ -1,4 +1,15 @@
-import { geordnet, minuten, neueStufe, stufeJetzt, stufenSatz, uhrzeit } from './lautplan';
+import {
+  boxAn,
+  boxenSatz,
+  boxenUmschalten,
+  freieBoxen,
+  geordnet,
+  minuten,
+  neueStufe,
+  stufeJetzt,
+  stufenSatz,
+  uhrzeit,
+} from './lautplan';
 
 const STUFEN = [
   { at: '07:00', volume: 20 },
@@ -94,5 +105,92 @@ describe('neueStufe', () => {
 
   it('schlägt bei leerem Plan etwas Brauchbares vor', () => {
     expect(neueStufe([])).toEqual({ at: '07:00', volume: 30 });
+  });
+});
+
+describe('boxenUmschalten', () => {
+  it('macht aus «alle» die eine angetippte', () => {
+    // Wer die erste Box antippt, während «alle» gilt, meint «nur diese»
+    // und nicht «alle ausser dieser».
+    expect(boxenUmschalten([], 'cast.bad')).toEqual(['cast.bad']);
+    expect(boxenUmschalten(undefined, 'cast.bad')).toEqual(['cast.bad']);
+  });
+
+  it('nimmt eine weitere dazu', () => {
+    expect(boxenUmschalten(['cast.bad'], 'cast.buero')).toEqual([
+      'cast.bad',
+      'cast.buero',
+    ]);
+  });
+
+  it('nimmt eine wieder heraus', () => {
+    expect(boxenUmschalten(['cast.bad', 'cast.buero'], 'cast.bad')).toEqual([
+      'cast.buero',
+    ]);
+  });
+
+  it('die letzte abgewählt heisst wieder alle', () => {
+    // Ein Plan ohne Box hätte keinen Adressaten.
+    expect(boxenUmschalten(['cast.bad'], 'cast.bad')).toEqual([]);
+  });
+});
+
+describe('boxAn', () => {
+  it('bei leerer Liste ist jede dabei', () => {
+    expect(boxAn([], 'cast.bad')).toBe(true);
+    expect(boxAn(undefined, 'cast.bad')).toBe(true);
+  });
+
+  it('sonst nur die genannten', () => {
+    expect(boxAn(['cast.bad'], 'cast.bad')).toBe(true);
+    expect(boxAn(['cast.bad'], 'cast.buero')).toBe(false);
+  });
+});
+
+describe('boxenSatz', () => {
+  const NAMEN = {
+    'cast.bad': 'Nest Badezimmer',
+    'cast.buero': 'Büro',
+    'cast.gang': 'Nest Gang',
+  };
+
+  it('nennt die leere Auswahl beim Namen', () => {
+    expect(boxenSatz([], NAMEN)).toBe('Alle Boxen');
+  });
+
+  it('nennt eine und zwei aus', () => {
+    expect(boxenSatz(['cast.bad'], NAMEN)).toBe('Nest Badezimmer');
+    expect(boxenSatz(['cast.bad', 'cast.buero'], NAMEN)).toBe(
+      'Nest Badezimmer und Büro',
+    );
+  });
+
+  it('zählt ab drei', () => {
+    // Elf Boxennamen in einer Überschrift liest niemand.
+    expect(boxenSatz(['cast.bad', 'cast.buero', 'cast.gang'], NAMEN)).toBe(
+      'Nest Badezimmer und 2 weitere',
+    );
+  });
+
+  it('nimmt die Kennung, wenn der Name fehlt', () => {
+    expect(boxenSatz(['cast.weg'], NAMEN)).toBe('cast.weg');
+  });
+});
+
+describe('freieBoxen', () => {
+  const ALLE = ['cast.bad', 'cast.buero', 'cast.gang'];
+
+  it('lässt übrig, was noch kein Plan hat', () => {
+    const plaene = [{ entities: ['cast.bad'], steps: [] }];
+    expect(freieBoxen(plaene, ALLE)).toEqual(['cast.buero', 'cast.gang']);
+  });
+
+  it('gibt nichts frei, wenn ein Plan schon alle abdeckt', () => {
+    // Zwei Pläne für dieselbe Box wären ein Widerspruch.
+    expect(freieBoxen([{ entities: [], steps: [] }], ALLE)).toEqual([]);
+  });
+
+  it('ohne Pläne ist alles frei', () => {
+    expect(freieBoxen([], ALLE)).toEqual(ALLE);
   });
 });
