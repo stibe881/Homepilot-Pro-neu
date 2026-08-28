@@ -46,6 +46,7 @@ from . import (
     trash,
     users,
     uvwarnung,
+    vorrat,
     waschkueche,
 )
 from .entity import EntityKind
@@ -319,6 +320,7 @@ class Watchdog:
         await self._check_giessen(entities)
         await self._check_maintenance()
         await self._check_shopping(entities)
+        await self._check_vorrat()
         await self._check_medications()
         await self._check_birthdays()
         await self._check_morgen(entities)
@@ -553,6 +555,56 @@ class Watchdog:
                 continue
             titel, text = shopping.describe(shop, offen)
             await self._notify(titel, text, category="shopping", to=empfaenger)
+
+    async def _check_vorrat(self) -> None:
+        """Standardartikel mit Takt selbst auf die Einkaufsliste setzen.
+
+        Der Fall: Kaffee, Waschmittel, Katzenstreu. Sie fallen erst auf,
+        wenn die Packung leer ist - und dann steht man in der Küche und
+        nicht im Laden. Die Standardartikel halfen nur dem, der ohnehin
+        auf die Liste schaute; der gelernte Rhythmus schlug bloss vor
+        (siehe core/vorrat.py).
+
+        Jede Runde und nicht einmal am Tag: Der Scan ist eine Handvoll
+        Einträge, und wer gerade einen Takt eingestellt hat, soll den
+        Posten sofort auf der Liste sehen statt am nächsten Morgen.
+        Eingetragen wird trotzdem höchstens einmal je Takt - ein Posten,
+        der schon offen dasteht, zählt als erledigt.
+        """
+        import secrets
+
+        staples = self.hub.data.get("family_staples")
+        if not staples:
+            return
+        jetzt = time.time()
+        liste = self.hub.data.get("family_shopping")
+        offen = {
+            str(row.get("text") or "").strip().lower()
+            for row in liste
+            if isinstance(row, dict) and not row.get("done")
+        }
+        dran = vorrat.faellig(staples, offen, jetzt)
+        if not dran:
+            return
+        for staple in dran:
+            liste.append(
+                {
+                    "id": secrets.token_urlsafe(8),
+                    "text": str(staple.get("text") or "").strip(),
+                    "category": str(staple.get("category") or ""),
+                    # Wer den Posten anfasst, soll sehen, woher er kommt -
+                    # sonst sucht man den Mitbewohner, der ihn eingetragen
+                    # hat, und findet keinen.
+                    "author": "Vorrat",
+                    "created": datetime.now().isoformat(timespec="seconds"),
+                }
+            )
+        self.hub.data.set("family_shopping", liste)
+        await self.hub.bus.publish("family_changed", {"collection": "shopping"})
+        titel, text = vorrat.meldung(
+            [str(staple.get("text") or "").strip() for staple in dran]
+        )
+        await self._notify(titel, text, category="shopping")
 
     def _benutzer_zur_zone(
         self, zone_id: str | None, namen: dict[str, str]

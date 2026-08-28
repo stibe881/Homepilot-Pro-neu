@@ -38,6 +38,7 @@ import {
 } from '../lib/familiecache';
 import { babysitterFrist, passwortHinweis } from '../lib/einladung';
 import { herkunftText, neuSeit, suche, trefferName } from '../lib/familiensuche';
+import { takt } from '../lib/vorrat';
 import {
   akku,
   kopfzeile,
@@ -93,7 +94,7 @@ import { kochVorschlaege, vorschlagsGrund, wuerfel } from '../lib/vorschlag';
 import { ROLE_LABELS } from './UsersScreen';
 import { doppeldosisFrage } from '../lib/doppeldosis';
 import { naechsteStraehne, straehnenSatz } from '../lib/straehne';
-import { AddRow, BackHead, CheckRow, ChoreAddRow, ContactForm, ContactPhoto, CountdownForm, ErinnerungForm, EventForm, FamilyData, FamilyItem, GroupedChecklist, MealRow, MedicationAddRow, Member, MemberAddRow, ModuleKey, MonthCalendar, Notrufliste, PollAddRow, Props, REPEAT_OPTIONS, SHOP_CATEGORIES, ShoppingAddRow, TaskAddRow, TwoFieldForm, WEEK_DAYS, birthdayLabel, daysUntilBirthday, dueInfo, isoInDays, nextDue, parseSwissDate, pickPhoto, rotateMember } from './family/bausteine';
+import { AddRow, BackHead, CheckRow, ChoreAddRow, ContactForm, ContactPhoto, CountdownForm, ErinnerungForm, EventForm, FamilyData, FamilyItem, GroupedChecklist, MealRow, MedicationAddRow, Member, MemberAddRow, ModuleKey, MonthCalendar, Notrufliste, PollAddRow, Props, REPEAT_OPTIONS, SHOP_CATEGORIES, ShoppingAddRow, TaskAddRow, TwoFieldForm, VorratBlatt, WEEK_DAYS, birthdayLabel, daysUntilBirthday, dueInfo, isoInDays, nextDue, parseSwissDate, pickPhoto, rotateMember } from './family/bausteine';
 import { makeStyles } from './family/stil';
 
 /**
@@ -209,6 +210,8 @@ export function FamilyScreen({
   const [laden, setLaden] = useState('allgemein');
   const [imLaden, setImLaden] = useState(false);
   // Was nach dem üblichen Abstand wieder fällig wäre (Punkt 176).
+  // Welcher Standardartikel gerade seinen Takt bekommt (Vorrat).
+  const [vorratOffen, setVorratOffen] = useState<FamilyItem | null>(null);
   const [faellig, setFaellig] = useState<{ text: string; days_since: number; interval: number }[]>(
     []
   );
@@ -1365,13 +1368,18 @@ export function FamilyScreen({
                 const drauf = aufListe.has(
                   String(staple.text ?? '').trim().toLowerCase()
                 );
+                const imVorrat = takt(staple) !== null;
                 return (
                   <Pressable
                     key={staple.id}
                     onPress={() =>
                       drauf ? undefined : eintragenAuf(String(staple.text ?? ''), String(staple.category ?? ''))
                     }
-                    onLongPress={() => remove('staples', staple.id)}
+                    // Langes Drücken löschte den Artikel - ohne Rückfrage,
+                    // mitten in einer Reihe kleiner Knöpfe. Jetzt geht das
+                    // Blatt auf: Dort steht der Takt, und dort steht auch
+                    // das Löschen.
+                    onLongPress={() => setVorratOffen(staple)}
                     disabled={drauf}
                     accessibilityRole="button"
                     accessibilityLabel={
@@ -1387,16 +1395,41 @@ export function FamilyScreen({
                       color={colors.inkSoft}
                     />
                     <Text style={styles.stapleText}>{staple.text}</Text>
+                    {/* Ein Artikel mit Takt kommt von selbst - das muss
+                        man ihm ansehen, sonst wundert man sich über den
+                        Posten auf der Liste. */}
+                    {imVorrat ? (
+                      <Ionicons name="repeat" size={12} color={colors.on} />
+                    ) : null}
                   </Pressable>
                 );
               })}
             </View>
             <Text style={styles.hint}>
-              Tippen legt den Artikel auf die Liste. Lange drücken entfernt
-              ihn aus den Standardartikeln.
+              Tippen legt den Artikel auf die Liste. Lange drücken stellt ein,
+              wie oft er von selbst kommen soll.
             </Text>
           </Card>
         ) : null}
+        <VorratBlatt
+          artikel={vorratOffen}
+          onSchliessen={() => setVorratOffen(null)}
+          onTakt={(tage) => {
+            if (!vorratOffen) return;
+            // Sofort im eigenen Blatt sichtbar: Der Hub bestätigt erst
+            // beim nächsten Laden, und ein Knopf, der nach dem Antippen
+            // eine Sekunde lang nichts tut, wird zweimal gedrückt.
+            setVorratOffen({ ...vorratOffen, days: tage });
+            update('staples', String(vorratOffen.id), { days: tage });
+          }}
+          onLoeschen={() => {
+            if (!vorratOffen) return;
+            remove('staples', String(vorratOffen.id));
+            setVorratOffen(null);
+          }}
+          styles={styles}
+          colors={colors}
+        />
         {usedCats.map((cat) => (
           <Card key={cat} style={styles.listCard}>
             <Text style={styles.groupTitle}>{cat}</Text>

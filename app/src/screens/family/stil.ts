@@ -358,6 +358,18 @@ export const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     stapleText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
+    /** Rund und klein, für plus und minus am Vorratstakt. Kein
+     *  `addButton`: Der ist gefüllt und meint «anlegen», hier wird nur
+     *  eine bestehende Zahl verstellt. */
+    taktKnopf: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
     mealNameButton: {
       flexDirection: 'row',
       alignItems: 'center',

@@ -5,7 +5,7 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useRef, useState } from 'react';
-import { Image, Linking, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Image, Linking, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 
 import { Entity, HubSettings } from '../../api/types';
@@ -28,6 +28,7 @@ export type FamilyItem = Record<string, any>;
 
 export type FamilyData = Record<string, FamilyItem[]>;
 import { Erinnerung, WIEDERHOLUNGEN, monatsSprung, monatsraster, wiederholungVon } from '../../lib/erinnerungen';
+import { TAKTE, naechsteWahl, schritt, takt, vorratSatz } from '../../lib/vorrat';
 import { makeStyles } from './stil';
 
 export type Styles = ReturnType<typeof makeStyles>;
@@ -2333,3 +2334,109 @@ export function MonthCalendar({
 
 // ── Hauptkomponente ─────────────────────────────────────────────────────────
 
+
+/**
+ * Der Takt eines Standardartikels – das Blatt hinter dem langen Druck.
+ *
+ * Vorher löschte langes Drücken den Artikel, ohne Rückfrage, mitten in
+ * einer Reihe kleiner Knöpfe. Jetzt steht hier beides: wie oft er von
+ * selbst auf die Liste soll, und – ganz unten, wo man nicht aus Versehen
+ * hinkommt – das Löschen.
+ *
+ * Warum ein Takt überhaupt: Kaffee, Waschmittel und Katzenstreu fallen
+ * erst auf, wenn die Packung leer ist. Die Regeln stehen in
+ * lib/vorrat.ts und im Hub (core/vorrat.py).
+ */
+export function VorratBlatt({
+  artikel,
+  onTakt,
+  onLoeschen,
+  onSchliessen,
+  styles,
+  colors,
+}: {
+  artikel: FamilyItem | null;
+  onTakt: (tage: number | null) => void;
+  onLoeschen: () => void;
+  onSchliessen: () => void;
+  styles: Styles;
+  colors: Colors;
+}) {
+  const jetzt = Date.now();
+  const aktuell = artikel ? takt(artikel) : null;
+  const satz = artikel ? vorratSatz(artikel, jetzt) : null;
+
+  return (
+    <Modal
+      visible={!!artikel}
+      transparent
+      animationType="fade"
+      onRequestClose={onSchliessen}
+    >
+      <Pressable style={styles.modalBack} onPress={onSchliessen}>
+        <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
+          <Text style={styles.groupTitle}>{String(artikel?.text ?? '')}</Text>
+          <Text style={styles.checkSub}>
+            {satz ??
+              'Kommt nur, wenn du ihn antippst. Mit einem Takt legt ihn der ' +
+                'Hub selbst auf die Liste, sobald er dran ist.'}
+          </Text>
+
+          <View style={styles.stapleRow}>
+            {TAKTE.map((eintrag) => {
+              const gewaehlt = aktuell === eintrag.tage;
+              return (
+                <Pressable
+                  key={eintrag.tage}
+                  onPress={() => onTakt(naechsteWahl(artikel ?? {}, eintrag.tage))}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: gewaehlt }}
+                  style={[styles.staple, gewaehlt && { borderColor: colors.on }]}
+                >
+                  <Text style={[styles.stapleText, gewaehlt && { color: colors.ink }]}>
+                    {eintrag.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {/* Für alles, was zwischen den fünf Knöpfen liegt – der Vorrat
+              eines Haushalts hält sich nicht an runde Wochen. */}
+          {aktuell !== null ? (
+            <View style={styles.addRow}>
+              <Pressable
+                onPress={() => onTakt(schritt(artikel ?? {}, -1))}
+                accessibilityLabel="Abstand verkürzen"
+                style={styles.taktKnopf}
+              >
+                <Ionicons name="remove" size={16} color={colors.ink} />
+              </Pressable>
+              <Text style={[styles.checkText, { flex: 1, textAlign: 'center' }]}>
+                alle {aktuell} Tage
+              </Text>
+              <Pressable
+                onPress={() => onTakt(schritt(artikel ?? {}, 1))}
+                accessibilityLabel="Abstand verlängern"
+                style={styles.taktKnopf}
+              >
+                <Ionicons name="add" size={16} color={colors.ink} />
+              </Pressable>
+            </View>
+          ) : null}
+
+          <Pressable
+            onPress={onLoeschen}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.8 }]}
+          >
+            <Ionicons name="trash-outline" size={16} color={colors.danger} />
+            <Text style={[styles.addRowText, { color: colors.danger }]}>
+              Aus den Standardartikeln entfernen
+            </Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}

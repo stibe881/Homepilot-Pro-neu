@@ -190,7 +190,9 @@ CATEGORIES: dict[str, str] = {
     "tasks": "Fällige Aufgaben",
     "timer": "Küchen-Timer",
     "maintenance": "Wartung fällig",
-    "shopping": "Einkaufsliste im Laden",
+    # Zwei Anlässe, ein Thema: die Erinnerung im Laden und der
+    # Vorrat, den der Hub selbst auf die Liste setzt.
+    "shopping": "Einkaufsliste",
     "calendar": "Termin steht an",
     "medication": "Medikament fällig",
     "birthday": "Geburtstag heute",
