@@ -106,6 +106,7 @@ import { verlangtPin } from '../lib/alarmpin';
 import { OffenesModul, istGesperrt, istPersoenlich, offeneModule } from '../lib/bereichsriegel';
 import { schleier } from '../lib/nachtabsenkung';
 import { Einrichtungshilfe } from '../components/Einrichtungshilfe';
+import { EinstellungsTabs } from '../components/EinstellungsTabs';
 import { Kamerawand } from '../components/Kamerawand';
 import { HausRueckblick } from './HausRueckblick';
 import { nachBewegung } from '../lib/kameraordnung';
@@ -1911,15 +1912,19 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   /**
    * Zu einem Bereich wechseln - mit einer Ausnahme.
    *
-   * «Einstellungen» war auf einem breiten Bildschirm ein
-   * Zwischenschritt für nichts: Man tippte darauf, bekam eine Liste von
-   * Kacheln, tippte noch einmal, und erst dann stand die Ansicht da, die
-   * man gemeint hatte - obwohl das Menü daneben ohnehin die ganze Zeit
-   * sichtbar ist. Also geht dort gleich eine Seite auf; die vom letzten
-   * Mal, sonst die erste (lib/einstellungsmenue.ts).
+   * «Einstellungen» war ein Zwischenschritt für nichts: Man tippte
+   * darauf, bekam eine Liste von Kacheln, tippte noch einmal, und erst
+   * dann stand die Ansicht da, die man gemeint hatte. Zweimal derselbe
+   * Weg, einmal davon vergeblich.
    *
-   * Auf dem Telefon bleibt die Kachelliste: Dort ist kein Platz für ein
-   * Menü daneben, und sie ist zugleich der Weg zurück.
+   * Also geht gleich eine Seite auf; die vom letzten Mal, sonst die
+   * erste (lib/einstellungsmenue.ts). Das Menü steht dabei immer
+   * daneben: auf dem breiten Bildschirm als Spalte links, auf dem
+   * Telefon als schiebbare Zeile darüber (components/EinstellungsTabs).
+   *
+   * Sieht jemand überhaupt keine solche Seite - ein Gast etwa -, bleibt
+   * es bei der Kachelliste: Ein leerer Bereich wäre schlimmer als eine
+   * kurze Liste.
    */
   // Womit die Leiste «Einstellungen» hervorhebt, solange man drin ist.
   // Vorher stand dort nichts hervorgehoben, sobald man eine Seite offen
@@ -1930,7 +1935,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     : section;
 
   const waehleBereich = (ziel: Section) => {
-    if (ziel === 'settings' && width >= ZWEISPALTIG_AB) {
+    if (ziel === 'settings') {
       const start = einstiegsSeite(offeneSeiten, zuletztEinstellung.current);
       if (start) {
         setSection(start);
@@ -2020,18 +2025,24 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       );
     }
 
-    // Zurück-Zeile für alles, was über „Einstellungen“ erreicht wird.
-    // Zweispaltig braucht sie niemand: Das Menü steht daneben.
+    // Das Menü für alles, was über „Einstellungen“ erreicht wird.
+    // Zweispaltig braucht es niemand: Dort steht es daneben.
+    //
+    // Auf dem Telefon war hier eine blosse Zurück-Zeile, und damit war
+    // jeder Wechsel drei Handgriffe: zurück zur Liste, den Punkt suchen,
+    // wieder tippen. Jetzt ist jeder Punkt einen Tipp weit weg - und der
+    // Weg zur Kachelliste, wo die Erklärungen stehen, ganz links.
     const back = zweispaltig ? null : (
-      <Pressable
-        onPress={() => setSection('settings')}
-        accessibilityRole="button"
-        accessibilityLabel="Zurück zu Einstellungen"
-        style={styles.backRow}
-      >
-        <Ionicons name="chevron-back" size={18} color={colors.onGradient} />
-        <Text style={styles.backText}>Einstellungen</Text>
-      </Pressable>
+      <EinstellungsTabs
+        punkte={sichtbarePunkte}
+        active={section === 'settings' ? null : section}
+        onSelect={(key) => {
+          const punkt = sichtbarePunkte.find((item) => item.key === key);
+          if (punkt?.onPress) punkt.onPress();
+          else setSection(key as Section);
+        }}
+        onUebersicht={() => setSection('settings')}
+      />
     );
 
     if (section === 'settings') {
