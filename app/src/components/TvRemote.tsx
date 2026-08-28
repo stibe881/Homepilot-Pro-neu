@@ -2,6 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { tapped, triggered } from '../lib/haptics';
+import { tastenStaerke } from '../lib/tastenhaptik';
 import { Colors, useColors } from '../theme';
 
 interface Props {
@@ -62,6 +64,14 @@ export function TvRemote({
     <Pressable
       accessibilityLabel={label}
       onPress={() => {
+        // Zuerst das Spüren, dann der Rest: Eine Fernbedienung bedient
+        // man, ohne hinzusehen. Der Impuls muss zum Druck gehören und
+        // nicht zur Antwort des Hubs - sonst bleibt er aus, wenn die
+        // Verbindung gerade hakt, und man drückt zweimal. Beim
+        // Steuerkreuz springt die Auswahl dann zwei Felder weiter.
+        // Welche Taste wie stark: lib/tastenhaptik.ts.
+        if (tastenStaerke(command) === 'kraeftig') triggered();
+        else tapped();
         // Die alte Absage gehört zur alten Taste. Bliebe sie stehen,
         // liesse sich nicht mehr erkennen, ob die neue ankam.
         if (fehler) onFehlerWeg?.();
