@@ -20,6 +20,13 @@ kein neuer Wunsch, sondern derselbe an einem anderen Ort. Spotify und
 Radio können ihre Wiedergabe umziehen; eine Box, auf der jemand direkt
 vom Handy castet, kann es nicht - und dann sagt der Hub das auch.
 
+**Nachreichen.** Ein Ablauf, der morgens um sieben alle Boxen auf 20 %
+stellt, meint die Boxen, die still dastehen - nicht die, auf der gerade
+Radio läuft. Dort ist derselbe Befehl ein Eingriff mitten in die Musik.
+Also wird er nicht ausgeführt, sondern gemerkt und in dem Moment
+nachgereicht, in dem die Wiedergabe endet. Der Ablauf hat damit
+weiterhin recht - nur eben ab dann.
+
 Alles Rechnen steht als reine Funktion oben und ist ohne Hub prüfbar.
 """
 
@@ -28,9 +35,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
 
 from .errors import HomePilotError
+from .source import as_source
+from .source import current as aktuelle_quelle
 
 if TYPE_CHECKING:
     from .hub import Hub
@@ -49,6 +61,18 @@ DUCK_STAND_KEY = "ton_daempfung_laeuft"
 #: Musik, die das Klingeln übertönt, ist genau der Fall, für den es
 #: das Dämpfen gibt.
 DUCK_KEY = "ton_daempfen"
+
+#: Der Schalter fürs Nachreichen. Er ist an: Ein Ablauf, der in eine
+#: laufende Wiedergabe hineinstellt, ist fast immer ein Versehen.
+WARTEN_KEY = "ton_warten"
+
+#: Und hier liegen die nachzureichenden Lautstärken - auf der Platte,
+#: nicht nur im Kopf: Zwischen «Radio läuft» und «Radio aus» liegen
+#: Stunden, und ein Update dazwischen ist der Normalfall.
+NACHTRAG_KEY = "ton_nachtrag"
+
+#: Zustände, in denen etwas läuft und nicht hineingestellt werden soll.
+LAEUFT = ("playing", "buffering")
 
 #: Aus, bis jemand sie einschaltet. Ein Deckel, den niemand bestellt hat,
 #: ist aus Sicht des Bedienenden ein Defekt.
@@ -204,6 +228,114 @@ def nachtruhe_pruefen(werte: dict[str, Any]) -> dict[str, Any]:
 LAUT_BEFEHLE = ("set_volume", "volume_up", "play_url")
 
 
+# ── Nachreichen: reine Entscheidung und reines Gedächtnis ─────────────
+
+
+def laeuft(zustand: Any) -> bool:
+    """Läuft auf dieser Box gerade etwas? (rein, testbar)"""
+    return str(zustand or "") in LAEUFT
+
+
+def soll_warten(
+    kind: Any, zustand: Any, command: str, quelle_kind: Any, an: bool = True
+) -> bool:
+    """Soll dieser Lautstärkewunsch warten? (rein, testbar)
+
+    Vier Bedingungen, und alle vier haben ihren Grund:
+
+    *Der Schalter ist an.* Wer eine Party-Szene hat, die alle Boxen
+    hochzieht, während Musik läuft, schaltet ihn aus.
+
+    *Es ist ein Ablauf.* Wer selbst am Regler dreht, während Musik
+    läuft, will es jetzt lauter - nicht später. Dasselbe gilt für eine
+    Szene: Die drückt jemand.
+
+    *Es ist «set_volume».* Eine Durchsage (``play_url``) trägt auch eine
+    Lautstärke, muss aber gehört werden, und «Lauter» ohne Zahl ist ein
+    Handgriff, kein Grundwert.
+
+    *Es läuft etwas.* Eine stille Box ist genau das, was der Ablauf
+    meint.
+    """
+    from .entity import EntityKind
+
+    if not an or command != "set_volume":
+        return False
+    if str(quelle_kind or "") != "automation":
+        return False
+    if str(kind or "") not in ("media_player", EntityKind.MEDIA_PLAYER):
+        return False
+    return laeuft(zustand)
+
+
+def nachtrag_setzen(
+    liste: Any, entity_id: str, volume: Any, quelle: Any, jetzt: float
+) -> list[dict[str, Any]]:
+    """Einen Wunsch merken - je Box genau einen (rein, testbar).
+
+    Der neueste sticht den älteren: Steht um sieben 20 % an und um zehn
+    70 %, und läuft die ganze Zeit Radio, dann gilt beim Ausschalten
+    70 %. Eine Warteschlange wäre falsch - sie spielte am Ende die
+    ganze Tageskurve in zwei Sekunden ab.
+    """
+    try:
+        wert = int(volume)
+    except (TypeError, ValueError):
+        return [zeile for zeile in (liste or []) if isinstance(zeile, dict)]
+    andere = [
+        zeile
+        for zeile in (liste or [])
+        if isinstance(zeile, dict) and zeile.get("entity_id") != entity_id
+    ]
+    return [
+        *andere,
+        {
+            "entity_id": entity_id,
+            "volume": max(0, min(100, wert)),
+            # Die Quelle reist mit, damit am Gerät später nicht «Gerät»
+            # steht, sondern der Ablauf, der es wollte.
+            "source": quelle if isinstance(quelle, dict) else None,
+            "at": jetzt,
+        },
+    ]
+
+
+def nachtrag_ohne(liste: Any, entity_id: str) -> list[dict[str, Any]]:
+    """Den Wunsch für eine Box vergessen (rein, testbar)."""
+    return [
+        zeile
+        for zeile in (liste or [])
+        if isinstance(zeile, dict) and zeile.get("entity_id") != entity_id
+    ]
+
+
+def nachtrag_fuer(liste: Any, entity_id: str) -> dict[str, Any] | None:
+    """Der gemerkte Wunsch dieser Box - oder nichts (rein, testbar)."""
+    for zeile in liste or []:
+        if isinstance(zeile, dict) and zeile.get("entity_id") == entity_id:
+            return zeile
+    return None
+
+
+#: Innerhalb: Die Lautstärke geht sofort raus, nie in den Nachtrag.
+#: Ein- und Ausblenden, Dämpfen und das Zurückstellen nach einer
+#: Durchsage betreffen die *laufende* Wiedergabe - sie zu verschieben
+#: hiesse, sie abzuschaffen. Und sie können unter der Quelle eines
+#: Ablaufs laufen, sähen also sonst aus wie der Fall, den es zu
+#: verhindern gilt.
+_INTERN: ContextVar[bool] = ContextVar("homepilot_ton_intern", default=False)
+
+
+@contextmanager
+def intern() -> Iterator[None]:
+    """Lautstärke aus dem Tonmeister selbst - ohne Nachtrag."""
+    token = _INTERN.set(True)
+    try:
+        yield
+    finally:
+        _INTERN.reset(token)
+
+
 class Tonmeister:
     """Der Teil des Hubs, der weiss, wie laut gerade richtig ist."""
 
@@ -216,6 +348,10 @@ class Tonmeister:
         #: entity_id → laufendes Einblenden, damit zwei sich nicht in die
         #: Quere kommen.
         self._blenden: dict[str, asyncio.Task[None]] = {}
+        #: Boxen, die gerade eine nachzureichende Lautstärke tragen -
+        #: nur als schnelle Vorprüfung, die Wahrheit steht auf der
+        #: Platte (NACHTRAG_KEY).
+        self._nachtrag_laeuft = False
 
     # ── Nachtruhe ──────────────────────────────────────────────────────
 
@@ -296,9 +432,7 @@ class Tonmeister:
         async def lauf() -> None:
             try:
                 for wert in stufen:
-                    await self.hub.integrations.dispatch_command(
-                        entity_id, "set_volume", {"volume": wert}
-                    )
+                    await self._setzen(entity_id, wert)
                     await asyncio.sleep(pause)
             except asyncio.CancelledError:
                 raise
@@ -325,9 +459,7 @@ class Tonmeister:
         pause = max(0.05, float(dauer) / max(1, len(stufen) or 1))
         for wert in stufen:
             try:
-                await self.hub.integrations.dispatch_command(
-                    entity_id, "set_volume", {"volume": wert}
-                )
+                await self._setzen(entity_id, wert)
             except Exception as err:
                 log.debug("Ausblenden auf %s: %s", entity_id, err)
                 break
@@ -338,9 +470,7 @@ class Tonmeister:
             log.info("Schlummer: %s liess sich nicht pausieren: %s", entity_id, err)
         if davor is not None:
             try:
-                await self.hub.integrations.dispatch_command(
-                    entity_id, "set_volume", {"volume": int(davor)}
-                )
+                await self._setzen(entity_id, int(davor))
             except Exception as err:  # pragma: no cover - nur Kosmetik
                 log.debug("Lautstärke nach dem Schlummern: %s", err)
 
@@ -374,9 +504,7 @@ class Tonmeister:
             self._davor[entity.id] = int(entity.state["volume"])
             self._stand_sichern()
             try:
-                await self.hub.integrations.dispatch_command(
-                    entity.id, "set_volume", {"volume": ziel}
-                )
+                await self._setzen(entity.id, ziel)
                 betroffen.append(entity.label)
             except Exception as err:
                 self._davor.pop(entity.id, None)
@@ -425,9 +553,7 @@ class Tonmeister:
         self._stand_sichern()
         for entity_id, wert in davor.items():
             try:
-                await self.hub.integrations.dispatch_command(
-                    entity_id, "set_volume", {"volume": wert}
-                )
+                await self._setzen(entity_id, wert)
             except Exception as err:
                 log.debug("Lautstärke von %s nicht zurückgestellt: %s", entity_id, err)
 
@@ -528,9 +654,7 @@ class Tonmeister:
         for entity_id, davor in gemerkt.items():
             try:
                 if davor.get("volume") is not None:
-                    await self.hub.integrations.dispatch_command(
-                        entity_id, "set_volume", {"volume": int(davor["volume"])}
-                    )
+                    await self._setzen(entity_id, int(davor["volume"]))
                 if davor.get("state") == "playing":
                     # Weiterspielen kann nur, wer die Wiedergabe gestartet
                     # hat. Bei einer Box, auf die jemand direkt castet, ist
@@ -553,11 +677,126 @@ class Tonmeister:
             except Exception as err:
                 log.debug("Nach der Durchsage: %s liess sich nicht zurückstellen: %s", entity_id, err)
 
+    # ── Nachreichen ────────────────────────────────────────────────────
+
+    async def _setzen(self, entity_id: str, wert: int) -> None:
+        """Lautstärke aus dem Tonmeister selbst - immer sofort.
+
+        Ein-/Ausblenden, Dämpfen und das Zurückstellen nach einer
+        Durchsage betreffen die *laufende* Wiedergabe. Nachreichen
+        hiesse dort: abschaffen. Und weil sie unter der Quelle eines
+        Ablaufs laufen können, sähen sie sonst genau wie der Fall aus,
+        den das Nachreichen verhindern soll.
+        """
+        with intern():
+            await self.hub.integrations.dispatch_command(
+                entity_id, "set_volume", {"volume": int(wert)}
+            )
+
+    def warten_an(self) -> bool:
+        """Soll in laufende Musik nicht hineingestellt werden? Vorgabe: ja."""
+        eintraege = self.hub.data.get(WARTEN_KEY)
+        if not eintraege or not isinstance(eintraege[0], dict):
+            return True
+        return bool(eintraege[0].get("on", True))
+
+    def warten_setzen(self, an: bool) -> bool:
+        self.hub.data.set(WARTEN_KEY, [{"on": bool(an)}])
+        if not an:
+            # Ausgeschaltet heisst auch: Was noch wartet, wartet umsonst.
+            # Ein Wunsch von heute früh, der Wochen später zuschlägt,
+            # wäre ein Gespenst.
+            self.hub.data.set(NACHTRAG_KEY, [])
+            self._nachtrag_laeuft = False
+        return bool(an)
+
+    def nachtrag(self) -> list[dict[str, Any]]:
+        """Was gerade auf das Ende einer Wiedergabe wartet."""
+        return [zeile for zeile in self.hub.data.get(NACHTRAG_KEY) if isinstance(zeile, dict)]
+
+    def wunsch_verschieben(self, entity: Any, command: str, data: dict[str, Any]) -> bool:
+        """Diesen Wunsch merken statt ausführen? Dann ``True``.
+
+        Steht hier und nicht im Ablauf: Es ist dieselbe Engstelle, an
+        der auch die Nachtruhe greift (core/integration.py) - und damit
+        die einzige Stelle, an der wirklich jeder Befehl vorbeikommt.
+        """
+        if _INTERN.get():
+            return False
+        quelle = aktuelle_quelle()
+        if not soll_warten(
+            getattr(entity, "kind", None),
+            entity.state.get("state") if entity is not None else None,
+            command,
+            quelle.get("kind"),
+            self.warten_an(),
+        ):
+            # Ausgeführt heisst: Ein älterer Wunsch für dieselbe Box ist
+            # überholt. Sonst spränge die Box beim nächsten Musikende auf
+            # einen Wert von vorgestern.
+            if command == "set_volume" and entity is not None:
+                self._vergessen(entity.id)
+            return False
+        self.hub.data.set(
+            NACHTRAG_KEY,
+            nachtrag_setzen(self.nachtrag(), entity.id, data.get("volume"), quelle, time.time()),
+        )
+        self._nachtrag_laeuft = True
+        log.info(
+            "%s spielt gerade - Lautstärke %s wird nachgereicht (%s)",
+            entity.label,
+            data.get("volume"),
+            quelle.get("label"),
+        )
+        return True
+
+    def _vergessen(self, entity_id: str) -> None:
+        if not self._nachtrag_laeuft:
+            return
+        rest = nachtrag_ohne(self.nachtrag(), entity_id)
+        self.hub.data.set(NACHTRAG_KEY, rest)
+        self._nachtrag_laeuft = bool(rest)
+
+    def _on_musikende(self, _event_type: str, data: dict[str, Any]) -> None:
+        """Wiedergabe zu Ende - jetzt gilt, was der Ablauf wollte."""
+        if not self._nachtrag_laeuft:
+            return
+        alt = data.get("old_state") or {}
+        neu = data.get("new_state") or {}
+        if not isinstance(alt, dict) or not isinstance(neu, dict):
+            return
+        # Nur der Übergang zählt. Ein Player, der zehnmal je Minute
+        # seinen Fortschritt meldet, ist zehnmal «nicht am Spielen» -
+        # und würde die Lautstärke zehnmal setzen.
+        if not laeuft(alt.get("state")) or laeuft(neu.get("state")):
+            return
+        entity_id = str(data.get("entity_id") or "")
+        eintrag = nachtrag_fuer(self.nachtrag(), entity_id)
+        if eintrag is None:
+            return
+        self._vergessen(entity_id)
+        asyncio.create_task(self._nachreichen(entity_id, eintrag))
+
+    async def _nachreichen(self, entity_id: str, eintrag: dict[str, Any]) -> None:
+        try:
+            # Unter der gemerkten Quelle: Am Gerät soll später der Ablauf
+            # stehen, der es wollte, und nicht «Gerät».
+            with as_source(eintrag.get("source")):
+                await self.hub.integrations.dispatch_command(
+                    entity_id, "set_volume", {"volume": int(eintrag.get("volume") or 0)}
+                )
+        except Exception as err:
+            log.info("Nachgereichte Lautstärke für %s ging nicht: %s", entity_id, err)
+
     # ── Klingeln ───────────────────────────────────────────────────────
 
     def start(self) -> None:
         """Auf das Klingeln horchen, um die Musik kurz zu dämpfen."""
         self.hub.bus.subscribe("doorbell", self._on_klingeln)
+        # Und auf das Ende einer Wiedergabe: Dann ist die Box wieder
+        # still, und ein aufgeschobener Lautstärkewunsch darf zuschlagen.
+        self.hub.bus.subscribe("state_changed", self._on_musikende)
+        self._nachtrag_laeuft = bool(self.nachtrag())
         # Erst, wenn die Geräte da sind - deshalb als eigene Aufgabe.
         asyncio.create_task(self._daempfung_nachholen())
 

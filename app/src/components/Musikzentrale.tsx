@@ -19,6 +19,7 @@ import { Entity, HubSettings } from '../api/types';
 import { hausSatz, laufendeMusik, zustandName } from '../lib/hausmusik';
 import { WeckerEntwurf, ersterEntwurf } from '../lib/weckerentwurf';
 import { tageSatz } from '../lib/weckertage';
+import { Nachtragzeile, nachtragSatz } from '../lib/tonnachtrag';
 import { Colors, radius, type, useColors } from '../theme';
 
 import { Card } from './Card';
@@ -73,6 +74,9 @@ export function Musikzentrale({
   const [verlauf, setVerlauf] = useState<VerlaufZeile[]>([]);
   const [nacht, setNacht] = useState<Nachtruhe | null>(null);
   const [duck, setDuck] = useState(true);
+  // Nicht in laufende Musik hineinstellen - und was deswegen wartet.
+  const [warten, setWarten] = useState(true);
+  const [nachtrag, setNachtrag] = useState<Nachtragzeile[]>([]);
   const [wecker, setWecker] = useState<Wecker[]>([]);
   const [note, setNote] = useState<string | null>(null);
   const [neuerWecker, setNeuerWecker] = useState<WeckerEntwurf | null>(null);
@@ -90,7 +94,12 @@ export function Musikzentrale({
         fallback: null,
         still: true,
       }),
-      hub.get<{ night?: Nachtruhe; duck?: boolean } | null>('/api/media/settings', {
+      hub.get<{
+        night?: Nachtruhe;
+        duck?: boolean;
+        wait?: boolean;
+        pending?: Nachtragzeile[];
+      } | null>('/api/media/settings', {
         fallback: null,
         still: true,
       }),
@@ -103,6 +112,8 @@ export function Musikzentrale({
     setVerlauf(v?.history ?? []);
     if (e?.night) setNacht(e.night);
     if (typeof e?.duck === 'boolean') setDuck(e.duck);
+    if (typeof e?.wait === 'boolean') setWarten(e.wait);
+    setNachtrag(e?.pending ?? []);
     setWecker(w?.alarms ?? []);
   }, [hub]);
 
@@ -111,6 +122,13 @@ export function Musikzentrale({
   }, [laden]);
 
   const laufend = laufendeMusik(entities);
+
+  // Kennung → Name, damit der Nachtrag-Satz «Nest Badezimmer» sagen kann
+  // und nicht «test.speaker_bath».
+  const namenNachId = useMemo(
+    () => Object.fromEntries(entities.map((entity) => [entity.id, entity.name])),
+    [entities],
+  );
 
   /**
    * Was sich gerade merken liesse.
@@ -173,9 +191,16 @@ export function Musikzentrale({
     laden();
   };
 
-  const nachtSetzen = async (werte: Partial<Nachtruhe> & { duck?: boolean }) => {
+  const nachtSetzen = async (
+    werte: Partial<Nachtruhe> & { duck?: boolean; wait?: boolean },
+  ) => {
     try {
-      const antwort = await hub.put<{ night: Nachtruhe; duck: boolean }>(
+      const antwort = await hub.put<{
+        night: Nachtruhe;
+        duck: boolean;
+        wait: boolean;
+        pending?: Nachtragzeile[];
+      }>(
         '/api/media/settings',
         {
           ...(werte.on !== undefined ? { on: werte.on } : {}),
@@ -183,11 +208,14 @@ export function Musikzentrale({
           ...(werte.to !== undefined ? { end: werte.to } : {}),
           ...(werte.max !== undefined ? { max: werte.max } : {}),
           ...(werte.duck !== undefined ? { duck: werte.duck } : {}),
+          ...(werte.wait !== undefined ? { wait: werte.wait } : {}),
         },
         { still: true },
       );
       setNacht(antwort.night);
       setDuck(antwort.duck);
+      setWarten(antwort.wait);
+      setNachtrag(antwort.pending ?? []);
       setNote(null);
     } catch (err) {
       setNote(String(err instanceof Error ? err.message : err));
@@ -435,6 +463,32 @@ export function Musikzentrale({
             : 'Beim Klingeln bleibt die Musik, wie sie ist'}
         </Text>
       </Pressable>
+      {/* Der dritte Schalter derselben Frage: Wann darf eine Lautstärke
+          von aussen kommen? Nachts gedeckelt, beim Klingeln gedämpft -
+          und in laufende Musik gar nicht erst hinein. */}
+      <Pressable
+        onPress={() => nachtSetzen({ wait: !warten })}
+        accessibilityRole="switch"
+        accessibilityState={{ checked: warten }}
+        style={({ pressed }) => [styles.schalter, pressed && { opacity: 0.7 }]}
+      >
+        <Ionicons
+          name={warten ? 'hourglass' : 'hourglass-outline'}
+          size={16}
+          color={warten ? colors.accent : colors.inkSoft}
+        />
+        <Text style={styles.schalterText}>
+          {warten
+            ? 'Abläufe stellen eine spielende Box erst um, wenn die Musik aus ist'
+            : 'Abläufe stellen die Lautstärke sofort, auch mitten in der Musik'}
+        </Text>
+      </Pressable>
+      {/* Der Box sieht man zwischendurch nichts an - sie steht einfach
+          noch auf dem alten Wert. Ohne diese Zeile wäre die naheliegende
+          Erklärung «der Ablauf ist kaputt». */}
+      {warten && nachtragSatz(nachtrag, namenNachId) ? (
+        <Text style={styles.hinweis}>{nachtragSatz(nachtrag, namenNachId)}</Text>
+      ) : null}
 
       {/* ── Musikwecker ──────────────────────────────────────────── */}
       <Text style={styles.abschnitt}>Musikwecker</Text>

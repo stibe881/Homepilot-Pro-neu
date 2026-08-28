@@ -77,7 +77,8 @@ class DemoIntegration(Integration):
             "Küche Lautsprecher",
             state={"state": "idle", "volume": 35},
             commands=[
-                "play", "pause", "toggle", "set_volume", "mute", "play_url",
+                "play", "pause", "toggle", "turn_off", "set_volume", "mute",
+                "play_url",
             ],
         )
         # Eine Quelle mit eigener Auswahl, wie Spotify eine ist. Ohne sie
@@ -96,8 +97,9 @@ class DemoIntegration(Integration):
                 "volume": 30,
             },
             commands=[
-                "play", "pause", "toggle", "next", "previous", "play_on",
-                "set_volume", "mute", "play_playlist", "shuffle", "repeat",
+                "play", "pause", "toggle", "turn_off", "next", "previous",
+                "play_on", "set_volume", "mute", "play_playlist", "shuffle",
+                "repeat",
             ],
         )
         # Ein Cast-Fernseher: dieselben Befehle wie die Box, aber ein Bild
@@ -165,7 +167,19 @@ class DemoIntegration(Integration):
         if command == "turn_on":
             changes["state"] = "on"
         elif command == "turn_off":
-            changes["state"] = "off"
+            # Eine Box wird nicht «off», sie wird leer: Der Empfänger ist
+            # frei, es läuft nichts mehr. «off» wäre die Vokabel einer
+            # Lampe - eine Kachel, die «Aus» statt «Nichts läuft» sagt,
+            # liest sich falsch.
+            if entity.kind == EntityKind.MEDIA_PLAYER and not entity.state.get("has_screen"):
+                changes["state"] = "idle"
+                # Ausdrücklich None: Der Zustand wird verschmolzen, ein
+                # weggelassenes Feld behielte seinen alten Wert.
+                changes["track"] = None
+                changes["artist"] = None
+                changes["image"] = None
+            else:
+                changes["state"] = "off"
         elif command == "toggle":
             # Eine Box kippt zwischen «spielt» und «pausiert», eine Lampe
             # zwischen an und aus. Derselbe Knopf, zwei Vokabeln – die

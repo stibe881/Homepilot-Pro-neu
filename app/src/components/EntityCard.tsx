@@ -22,6 +22,7 @@ import { Musikliste } from './Musikliste';
 import { ColorRow } from './ColorRow';
 import { Sky } from './CoverVisual';
 import { isTelevision } from '../lib/geraeteart';
+import { medienSchalter } from '../lib/medienschalter';
 import { tvKopf, tvTeile } from '../lib/fernsehkachel';
 import { TvApps } from './TvApps';
 import { TvVolume } from './TvVolume';
@@ -211,6 +212,7 @@ export function EntityCard({
   const [groupPickerOpen, setGroupPickerOpen] = useState(false);
   const isOn = entity.state.state === 'on';
 
+
   // Was ein langer Druck anbietet. Im Anpassen-Modus nichts: Dort hält
   // dieselbe Geste die Kachel zum Verschieben fest, und die Knöpfe für
   // Name, Raum und Gruppe stehen ohnehin offen auf der Kachel.
@@ -276,7 +278,30 @@ export function EntityCard({
     entity,
     entity.last_seen ? sinceLabel(entity.last_seen) : null
   );
-  const toggle = entity.commands.includes('toggle') ? () => onCommand('toggle') : undefined;
+  /**
+   * Der Knopf unten rechts bedeutet auf jeder Kachel «ein/aus» - nur
+   * auf der Musikbox tat er bisher etwas anderes.
+   *
+   * Bei einer Box ist `toggle` nämlich Play/Pause. Der Knopf stand
+   * damit immer auf «aus» (eine Box meldet nie `state: on`) und hielt
+   * beim Drücken die Sitzung bloss an: Der Empfänger blieb besetzt, und
+   * vom Telefon aus weckte ihn jeder Handgriff wieder auf. Also bekommt
+   * die Box hier ihren eigenen Schalter (lib/medienschalter.ts).
+   *
+   * Der Fernseher behält `toggle` - bei ihm ist das wirklich der
+   * Netzschalter (siehe lib/fernsehkachel.ts).
+   */
+  const istBox = entity.kind === 'media_player' && !isTelevision(entity);
+  const boxSchalter = istBox
+    ? medienSchalter(entity.state.state, entity.commands)
+    : null;
+  const toggle = istBox
+    ? boxSchalter
+      ? () => onCommand(boxSchalter.command)
+      : undefined
+    : entity.commands.includes('toggle')
+      ? () => onCommand('toggle')
+      : undefined;
 
   /**
    * Der zweite Tipp auf den Ein/Aus-Knopf legt die gemerkte
@@ -1082,8 +1107,9 @@ export function EntityCard({
       <CardFooter
         title={entity.name}
         subtitle={pending ? 'wird geschaltet …' : entity.available ? subtitle : offlineText}
-        on={isOn}
+        on={isOn || !!boxSchalter?.an}
         onToggle={toggleMitDoppeltipp}
+        toggleLabel={boxSchalter?.label}
         pending={pending}
         onLongPress={langerDruck}
       />

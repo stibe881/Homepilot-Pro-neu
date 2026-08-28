@@ -429,6 +429,11 @@ class GoogleCastIntegration(Integration):
                 state={"state": "idle"},
                 commands=[
                     "play", "pause", "toggle", "next", "previous",
+                    # Wirklich aus: Die Sitzung wird beendet, nicht nur
+                    # angehalten. Eine pausierte Box hält den Empfänger
+                    # besetzt (siehe play_url weiter unten) - «aus» soll
+                    # aber heissen, dass die Box wieder frei dasteht.
+                    "turn_off",
                     "volume_up", "volume_down", "set_volume", "mute",
                     # Eine Ton-Adresse abspielen - Grundlage der Durchsage.
                     "play_url",
@@ -860,6 +865,24 @@ class GoogleCastIntegration(Integration):
             await asyncio.to_thread(controller.play)
         elif command == "pause":
             await asyncio.to_thread(controller.pause)
+        elif command == "turn_off":
+            # Anhalten und die App beenden. Nur anzuhalten wäre kein
+            # «aus»: Die pausierte Sitzung bleibt auf der Box stehen,
+            # hält den Empfänger besetzt und lässt sich vom Telefon aus
+            # jederzeit wieder aufwecken.
+            def aus() -> None:
+                try:
+                    controller.stop()
+                except Exception as err:
+                    self.log.debug("Stopp auf %s: %s", entity.label, err)
+                cast.quit_app()
+
+            await asyncio.to_thread(aus)
+            # Sofort melden, statt auf den nächsten Bericht der Box zu
+            # warten: Wer «aus» drückt, will es an der Kachel sehen.
+            await self.hub.registry.update_state(
+                entity.id, {"state": "idle", "track": None, "artist": None, "image": None}
+            )
         elif command == "next":
             await asyncio.to_thread(controller.queue_next)
         elif command == "previous":

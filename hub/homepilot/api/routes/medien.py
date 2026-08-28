@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 
 
 class TonEinstellung(BaseModel):
-    """Nachtruhe und Dämpfen. Alles freiwillig - was fehlt, bleibt."""
+    """Nachtruhe, Dämpfen, Nachreichen. Alles freiwillig - was fehlt, bleibt."""
 
     on: bool | None = None
     # Uhrzeiten als HH:MM.
@@ -31,6 +31,7 @@ class TonEinstellung(BaseModel):
     end: str | None = None
     max: int | None = None
     duck: bool | None = None
+    wait: bool | None = None
 
 
 class UmzugRequest(BaseModel):
@@ -95,6 +96,10 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         return {
             "night": meister.nachtruhe(),
             "duck": meister.daempfen_an(),
+            "wait": meister.warten_an(),
+            # Was gerade auf das Ende einer Wiedergabe wartet - damit die
+            # App erklären kann, warum eine Box noch alt dasteht.
+            "pending": meister.nachtrag(),
             # Damit die App zeigen kann, ob der Deckel gerade greift -
             # «ist eingeschaltet» und «gilt jetzt» sind zweierlei.
             "cap_now": meister.deckel(),
@@ -118,7 +123,16 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         except HomePilotError as err:
             raise HTTPException(status_code=400, detail=str(err)) from err
         duck = meister.daempfen_setzen(body.duck) if body.duck is not None else meister.daempfen_an()
-        return {"night": nacht, "duck": duck, "cap_now": meister.deckel()}
+        warten = (
+            meister.warten_setzen(body.wait) if body.wait is not None else meister.warten_an()
+        )
+        return {
+            "night": nacht,
+            "duck": duck,
+            "wait": warten,
+            "pending": meister.nachtrag(),
+            "cap_now": meister.deckel(),
+        }
 
     @app.post("/api/media/{entity_id}/move")
     async def move_playback(
