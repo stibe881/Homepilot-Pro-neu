@@ -67,6 +67,16 @@ class DemoIntegration(Integration):
             state={"state": "off", "device_class": "contact", "battery": 62},
         )
         await self.add_entity(
+            "door_laundry",
+            EntityKind.BINARY_SENSOR,
+            "Türe Waschküche",
+            # Ohne einen solchen Kontakt liess sich das Nachhaken an der
+            # vollen Waschmaschine nicht ansehen: Es hängt genau an ihm
+            # (core/waschkueche.py).
+            state={"state": "off", "device_class": "door"},
+            commands=["turn_on", "turn_off", "toggle"],
+        )
+        await self.add_entity(
             "temp_livingroom",
             EntityKind.SENSOR,
             "Temperatur Wohnzimmer",

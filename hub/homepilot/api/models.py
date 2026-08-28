@@ -171,6 +171,16 @@ class NotifyRuleRequest(BaseModel):
     params: dict[str, float] = {}
 
 
+class LaundryRequest(BaseModel):
+    """Welcher Kontakt als Türe der Waschküche zählt.
+
+    ``None`` heisst nicht «keine», sondern «wieder raten»: Der Hub sucht
+    dann selbst nach einem Kontakt im passenden Raum.
+    """
+
+    door: str | None = None
+
+
 class GoodNightRequest(BaseModel):
     """Einstellungen des Gute-Nacht-Knopfs."""
 

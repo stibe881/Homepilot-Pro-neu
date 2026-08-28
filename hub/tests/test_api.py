@@ -298,6 +298,34 @@ def test_the_month_comparison_reads_the_recorded_days():
         assert isinstance(result["days"], list)
 
 
+def test_the_laundry_door_can_be_chosen_and_is_otherwise_guessed():
+    """An dieser Türe liest der Wächter ab, ob jemand die volle Maschine
+    gesehen hat - ohne sie bleibt es beim einen Hinweis."""
+    with make_client() as client:
+        client.put("/api/entities/demo.door_laundry/room", json={"room": "Waschküche"})
+        stand = client.get("/api/laundry").json()
+        assert stand["door"] is None
+        # Geraten wird am Raumnamen - und der Name der Demo-Türe trägt
+        # ihn ohnehin.
+        assert stand["guess"] == "demo.door_laundry"
+        assert stand["using"] == "demo.door_laundry"
+        assert "demo.window_kitchen" in {eintrag["id"] for eintrag in stand["candidates"]}
+
+        gesetzt = client.put("/api/laundry", json={"door": "demo.window_kitchen"}).json()
+        assert gesetzt["door"] == "demo.window_kitchen"
+        assert gesetzt["using"] == "demo.window_kitchen"
+
+        # Und wieder zurück auf «raten».
+        assert client.put("/api/laundry", json={"door": None}).json()["door"] is None
+
+
+def test_an_unknown_laundry_door_is_refused():
+    """Sonst stünde in den Einstellungen eine Türe, an der nie etwas
+    gemessen wird."""
+    with make_client() as client:
+        assert client.put("/api/laundry", json={"door": "nope.nope"}).status_code == 404
+
+
 def test_appliance_cycles_are_served_with_their_statistics():
     hub = Hub(make_config())
     hub.data.set(

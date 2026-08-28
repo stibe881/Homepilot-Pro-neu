@@ -46,6 +46,7 @@ from . import (
     trash,
     users,
     uvwarnung,
+    waschkueche,
 )
 from .entity import EntityKind
 
@@ -117,7 +118,14 @@ class Watchdog:
         self._last_state: dict[str, str] = {}
         self._started_at: dict[str, float] = {}
         self._finished_at: dict[str, float] = {}
-        self._reminded: set[str] = set()
+        # Gerät → wie oft schon gemahnt. Früher ein blosses «schon
+        # gemeldet»: Damit ging die Nachricht genau einmal raus, und wer
+        # sie liegen liess, hörte nie wieder davon.
+        self._gemahnt: dict[str, int] = {}
+        # Ob die Waschküchentüre in der letzten Runde offen stand - für
+        # die Flanke. Der Zustand allein genügt nicht: Eine Türe, die
+        # offen stehen bleibt, hiesse sonst in jeder Runde «war jemand da».
+        self._wk_offen = False
         # Fenster und Türen: seit wann offen, und was schon gemeldet wurde.
         self._open_since: dict[str, float] = {}
         self._reported_open: set[str] = set()
@@ -1028,10 +1036,29 @@ class Watchdog:
 
         Die Push beim Programmende schickt das Gerät selbst – die geht im
         Alltag unter, wenn man gerade nicht kann. Erinnert wird deshalb
-        erst später, und nur einmal je Programm: Wer die Maschine ausräumt,
-        startet sie irgendwann neu, und damit ist der Merker wieder frei.
+        erst später.
+
+        Erinnert wurde lange genau einmal je Programm. Wer die Nachricht
+        am Abend auf dem Sofa las und liegen liess, hörte nie wieder
+        davon – die Wäsche lag über Nacht in der Trommel. Jetzt wird
+        nachgehakt, aber nur, wenn es etwas gibt, das die Mahnungen auch
+        beenden kann: die Türe der Waschküche (siehe
+        core/waschkueche.py). Ohne sie bleibt es beim einen Hinweis.
         """
         now = time.time()
+
+        # Erst die Türe: Ging sie seit der letzten Runde auf, war jemand
+        # unten und hat die volle Maschine gesehen. Das gilt für alle
+        # Geräte in der Waschküche zugleich – wer die Wäsche in den
+        # Tumbler umlädt, hat beide vor sich.
+        tuer = waschkueche.tuer(entities, self._waschkuechentuer())
+        offen = waschkueche.ist_offen(tuer)
+        wer_da_war = offen and not self._wk_offen
+        self._wk_offen = offen
+        if wer_da_war:
+            self._finished_at.clear()
+            self._gemahnt.clear()
+
         for entity in entities:
             if entity.kind != "appliance":
                 continue
@@ -1043,7 +1070,7 @@ class Watchdog:
                 if before != "running":
                     self._started_at[entity.id] = now
                 self._finished_at.pop(entity.id, None)
-                self._reminded.discard(entity.id)
+                self._gemahnt.pop(entity.id, None)
                 continue
             if before == "running" and state == "idle":
                 self._finished_at[entity.id] = now
@@ -1051,18 +1078,42 @@ class Watchdog:
                 continue
 
             since = self._finished_at.get(entity.id)
-            if since is None or entity.id in self._reminded:
+            if since is None:
                 continue
-            reminder = self.rules["appliance"]["params"]["hours"] * 3600
-            if now - since >= reminder:
-                self._reminded.add(entity.id)
-                hours = round((now - since) / 3600)
-                await self._notify(
-                    f"{entity.label} ist noch voll",
-                    f"Seit {hours} Stunden fertig und seither nicht wieder "
-                    "gelaufen.",
-                    "appliance",
-                )
+            gemahnt = self._gemahnt.get(entity.id, 0)
+            if not waschkueche.faellig(
+                since,
+                gemahnt,
+                now,
+                self.rules["appliance"]["params"]["hours"],
+                nachhaken=tuer is not None,
+            ):
+                continue
+            self._gemahnt[entity.id] = gemahnt + 1
+            titel, text = waschkueche.mahnsatz(entity.label, since, now, gemahnt)
+            await self._notify(titel, text, "appliance")
+
+    def tuer_gewechselt(self, entities: list[Any], gewaehlt: str | None) -> None:
+        """Nach einer neuen Türwahl den Merker mitziehen.
+
+        Der Merker gehört zur alten Türe. Stand die neue gerade offen,
+        hiesse die nächste Runde sonst «jemand ist hineingegangen», und
+        die fällige Mahnung fiele stillschweigend aus.
+        """
+        self._wk_offen = waschkueche.ist_offen(waschkueche.tuer(entities, gewaehlt))
+
+    def _waschkuechentuer(self) -> str | None:
+        """Welcher Kontakt als Waschküchentüre gewählt wurde.
+
+        Nichts gewählt heisst nicht «keine»: Dann rät
+        ``waschkueche.tuer`` anhand von Raum und Name. So wirkt das
+        Nachhaken auch bei jemandem, der nie in diese Einstellung
+        geschaut hat.
+        """
+        for entry in self.hub.data.get("laundry"):
+            if isinstance(entry, dict) and entry.get("door"):
+                return str(entry["door"])
+        return None
 
     def _log_cycle(self, entity: Any, finished: float) -> None:
         """Einen abgeschlossenen Programmlauf ins Protokoll schreiben.

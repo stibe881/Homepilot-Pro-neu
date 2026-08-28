@@ -201,7 +201,7 @@ async def test_a_finished_machine_is_remembered_once():
         # Neues Programm: Der Merker ist wieder frei.
         maschine.state = {"state": "running"}
         await hub.watchdog.check()
-        assert "vzug.waschmaschine" not in hub.watchdog._reminded
+        assert "vzug.waschmaschine" not in hub.watchdog._gemahnt
     finally:
         await hub.stop()
 

@@ -1,0 +1,312 @@
+"""Nachhaken, bis jemand in der Waschküche war.
+
+Die Wäsche lag über Nacht in der Trommel: Die Meldung «noch voll» kam
+genau einmal, am Abend, und danach nie wieder. Wiederholen darf man sie
+nur, wenn es ein Zeichen gibt, das sie beendet - hier die Türe.
+"""
+
+import time
+from types import SimpleNamespace
+
+import pytest
+
+from homepilot.core import waschkueche
+from homepilot.core.config import ApiConfig, HubConfig
+from homepilot.core.hub import Hub
+
+
+def kontakt(eid, label, *, klasse="door", zustand="off", raum=None):
+    return SimpleNamespace(
+        id=eid,
+        label=label,
+        name=label,
+        kind="binary_sensor",
+        integration="zigbee2mqtt",
+        available=True,
+        room=raum,
+        state={"device_class": klasse, "state": zustand},
+    )
+
+
+def tag(stunde: int, minute: int = 0, tag_im_monat: int = 12) -> float:
+    """Ein Zeitpunkt im März 2026 - Ortszeit, wie der Wächter rechnet."""
+    return time.mktime((2026, 3, tag_im_monat, stunde, minute, 0, 0, 0, -1))
+
+
+# ── Welche Türe ──────────────────────────────────────────────────────────
+
+
+def test_der_kontakt_im_raum_waschkueche_wird_von_selbst_gefunden():
+    entities = [
+        kontakt("z.a", "Kontakt 1", raum="Küche"),
+        kontakt("z.b", "Kontakt 2", raum="Waschküche"),
+    ]
+    assert waschkueche.raten(entities) == "z.b"
+
+
+def test_ohne_raum_entscheidet_der_geraetename():
+    entities = [kontakt("z.a", "Küchenfenster"), kontakt("z.b", "Tür Waschküche")]
+    assert waschkueche.raten(entities) == "z.b"
+
+
+def test_ein_keller_ist_noch_keine_waschkueche():
+    """Im Keller hängt auch die Aussentüre - die geht auf, ohne dass
+    jemand an der Wäsche war."""
+    assert waschkueche.raten([kontakt("z.a", "Kellertüre", raum="Keller")]) is None
+
+
+def test_bewegungsmelder_stehen_nicht_zur_wahl():
+    melder = SimpleNamespace(
+        id="z.m",
+        label="Bewegung Waschküche",
+        kind="binary_sensor",
+        room="Waschküche",
+        state={"device_class": "motion", "state": "off"},
+    )
+    assert waschkueche.kandidaten([melder]) == []
+    assert waschkueche.raten([melder]) is None
+
+
+def test_die_gewaehlte_tuere_sticht_die_geratene():
+    entities = [kontakt("z.a", "Vorratsraum"), kontakt("z.b", "Waschküche")]
+    assert waschkueche.tuer(entities, "z.a").id == "z.a"
+
+
+def test_eine_verschwundene_wahl_faellt_auf_die_vermutung_zurueck():
+    """Nach einem Batteriewechsel kann ein Zigbee-Gerät eine neue Id
+    bekommen. Dann hörte das Nachhaken sonst stillschweigend auf."""
+    entities = [kontakt("z.neu", "Waschküche")]
+    assert waschkueche.tuer(entities, "z.alt").id == "z.neu"
+
+
+def test_ohne_kandidaten_gibt_es_keine_tuere():
+    assert waschkueche.tuer([], "z.a") is None
+
+
+# ── Wann gemahnt wird ────────────────────────────────────────────────────
+
+
+def test_die_erste_mahnung_kommt_nach_der_eingestellten_zeit():
+    fertig = tag(14)
+    assert not waschkueche.faellig(fertig, 0, tag(15), 2, nachhaken=True)
+    assert waschkueche.faellig(fertig, 0, tag(16), 2, nachhaken=True)
+
+
+def test_danach_wird_im_stundentakt_nachgehakt():
+    fertig = tag(13)
+    # Erste um 15 Uhr, zweite um 16 Uhr - dazwischen ist nichts fällig.
+    assert not waschkueche.faellig(fertig, 1, tag(15, 30), 2, nachhaken=True)
+    assert waschkueche.faellig(fertig, 1, tag(16), 2, nachhaken=True)
+
+
+def test_ohne_tuere_bleibt_es_bei_der_einen_nachricht():
+    """Eine Erinnerung, die sich nicht beenden lässt, schaltet man ganz
+    ab - und dann fehlt auch die erste."""
+    fertig = tag(13)
+    assert waschkueche.faellig(fertig, 0, tag(15), 2, nachhaken=False)
+    assert not waschkueche.faellig(fertig, 1, tag(17), 2, nachhaken=False)
+
+
+def test_irgendwann_ist_auch_mit_tuere_schluss():
+    fertig = tag(9)
+    assert not waschkueche.faellig(fertig, waschkueche.HOECHSTENS, tag(20), 2, True)
+
+
+def test_nachts_wird_nicht_nachgehakt():
+    """Die Wäsche wartet, der Schlaf nicht - aber die erste Nachricht
+    gab es immer, und wer um halb zehn fertig ist, rechnet mit ihr."""
+    assert waschkueche.faellig(tag(21), 0, tag(23), 2, nachhaken=True)
+    assert not waschkueche.faellig(tag(20), 1, tag(23), 2, nachhaken=True)
+    assert not waschkueche.faellig(tag(20), 1, tag(6, 0, 13), 2, nachhaken=True)
+    # Am Morgen wird das Liegengebliebene nachgeholt.
+    assert waschkueche.faellig(tag(20), 1, tag(7, 30, 13), 2, nachhaken=True)
+
+
+# ── Was drinsteht ────────────────────────────────────────────────────────
+
+
+def test_die_erste_nachricht_nennt_die_dauer():
+    titel, text = waschkueche.mahnsatz("Waschmaschine", tag(14), tag(16), 0)
+    assert titel == "Waschmaschine ist noch voll"
+    assert "2 Stunden" in text
+
+
+def test_die_wiederholung_sagt_auch_warum_sie_wiederkommt():
+    """Sonst liest sie sich wie ein Fehler der App."""
+    titel, text = waschkueche.mahnsatz("Tumbler", tag(14), tag(17), 1)
+    assert titel == "Tumbler ist immer noch voll"
+    assert "niemand in der Waschküche" in text
+
+
+def test_eine_stunde_bleibt_einzahl():
+    _, text = waschkueche.mahnsatz("Waschmaschine", tag(14), tag(15), 0)
+    assert "1 Stunde " in text
+
+
+# ── Die Türe selbst ──────────────────────────────────────────────────────
+
+
+def test_offen_ist_offen():
+    assert waschkueche.ist_offen(kontakt("z.a", "Waschküche", zustand="on"))
+    assert not waschkueche.ist_offen(kontakt("z.a", "Waschküche"))
+    assert not waschkueche.ist_offen(None)
+
+
+# ── Und im Wächter ───────────────────────────────────────────────────────
+
+
+def maschine():
+    return type(
+        "E",
+        (),
+        {
+            "id": "vzug.waschmaschine",
+            "name": "Waschmaschine",
+            "label": "Waschmaschine",
+            "kind": "appliance",
+            "integration": "vzug",
+            "available": True,
+            "room": "Waschküche",
+            "state": {"state": "running"},
+        },
+    )()
+
+
+@pytest.fixture
+def tagsueber(monkeypatch):
+    """Die Nachtruhe fürs Nachhaken aushängen.
+
+    Die Prüfung läuft, wann sie läuft - um 23 Uhr wäre jede Wiederholung
+    unterdrückt und der Test schlüge nur nachts fehl. Das Zeitfenster
+    selbst prüft ``test_nachts_wird_nicht_nachgehakt``.
+    """
+    monkeypatch.setattr(waschkueche, "RUHE_VON", 24)
+    monkeypatch.setattr(waschkueche, "RUHE_BIS", 0)
+
+
+async def _hub_mit(entities, sent):
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+
+    async def fake_send(tokens, title, body, data=None, **_):
+        sent.append(title)
+        return len(tokens)
+
+    hub.push.send = fake_send  # type: ignore[assignment]
+    hub.push.register("ExponentPushToken[x]", "Stefan")
+    hub.registry.all = lambda: entities  # type: ignore[assignment]
+    return hub
+
+
+async def test_ohne_tuere_bleibt_es_beim_einen_hinweis():
+    """So war es immer - und ohne ein Zeichen, dass jemand da war, darf
+    es auch nicht mehr werden."""
+    sent: list[str] = []
+    wm = maschine()
+    hub = await _hub_mit([wm], sent)
+    try:
+        await hub.watchdog.check()
+        wm.state = {"state": "idle"}
+        await hub.watchdog.check()
+        for _ in range(4):
+            hub.watchdog._finished_at["vzug.waschmaschine"] -= 2 * 3600
+            await hub.watchdog.check()
+        assert len([t for t in sent if "voll" in t]) == 1
+    finally:
+        await hub.stop()
+
+
+async def test_mit_tuere_wird_nachgehakt(tagsueber):
+    sent: list[str] = []
+    wm = maschine()
+    tuere = kontakt("z.wk", "Waschküche", raum="Waschküche")
+    hub = await _hub_mit([wm, tuere], sent)
+    try:
+        await hub.watchdog.check()
+        wm.state = {"state": "idle"}
+        await hub.watchdog.check()
+        hub.watchdog._finished_at["vzug.waschmaschine"] -= 2 * 3600
+        await hub.watchdog.check()
+        hub.watchdog._finished_at["vzug.waschmaschine"] -= 3600
+        await hub.watchdog.check()
+        assert [t for t in sent if "voll" in t] == [
+            "Waschmaschine ist noch voll",
+            "Waschmaschine ist immer noch voll",
+        ]
+    finally:
+        await hub.stop()
+
+
+async def test_wer_in_der_waschkueche_war_hoert_nichts_mehr():
+    sent: list[str] = []
+    wm = maschine()
+    tuere = kontakt("z.wk", "Waschküche", raum="Waschküche")
+    hub = await _hub_mit([wm, tuere], sent)
+    try:
+        await hub.watchdog.check()
+        wm.state = {"state": "idle"}
+        await hub.watchdog.check()
+        hub.watchdog._finished_at["vzug.waschmaschine"] -= 2 * 3600
+        await hub.watchdog.check()
+        before = len(sent)
+
+        # Jemand geht hinein.
+        tuere.state = {"device_class": "door", "state": "on"}
+        await hub.watchdog.check()
+        tuere.state = {"device_class": "door", "state": "off"}
+        for _ in range(3):
+            await hub.watchdog.check()
+        assert len(sent) == before
+    finally:
+        await hub.stop()
+
+
+async def test_eine_offen_stehende_tuere_zaehlt_nur_einmal():
+    """Sonst hiesse jede Runde «war jemand da», und das Nachhaken wäre
+    tot, sobald jemand die Türe offen lässt."""
+    sent: list[str] = []
+    wm = maschine()
+    tuere = kontakt("z.wk", "Waschküche", raum="Waschküche", zustand="on")
+    hub = await _hub_mit([wm, tuere], sent)
+    try:
+        await hub.watchdog.check()
+        wm.state = {"state": "idle"}
+        await hub.watchdog.check()
+        hub.watchdog._finished_at["vzug.waschmaschine"] -= 2 * 3600
+        await hub.watchdog.check()
+        assert any("voll" in t for t in sent)
+    finally:
+        await hub.stop()
+
+
+async def test_die_gewaehlte_tuere_gilt_auch_im_waechter(tagsueber):
+    sent: list[str] = []
+    wm = maschine()
+    falsch = kontakt("z.wk", "Waschküche", raum="Waschküche")
+    richtig = kontakt("z.tuer", "Kellerabgang", raum="Keller")
+    hub = await _hub_mit([wm, falsch, richtig], sent)
+    try:
+        hub.data.set("laundry", [{"door": "z.tuer"}])
+        await hub.watchdog.check()
+        wm.state = {"state": "idle"}
+        await hub.watchdog.check()
+        hub.watchdog._finished_at["vzug.waschmaschine"] -= 2 * 3600
+        await hub.watchdog.check()
+        before = len(sent)
+
+        # Die geratene Türe zählt nicht mehr ...
+        falsch.state = {"device_class": "door", "state": "on"}
+        hub.watchdog._finished_at["vzug.waschmaschine"] -= 3600
+        await hub.watchdog.check()
+        assert len(sent) > before
+
+        # ... die gewählte schon.
+        before = len(sent)
+        richtig.state = {"device_class": "door", "state": "on"}
+        await hub.watchdog.check()
+        hub.watchdog._finished_at.get("vzug.waschmaschine")
+        for _ in range(3):
+            await hub.watchdog.check()
+        assert len(sent) == before
+    finally:
+        await hub.stop()

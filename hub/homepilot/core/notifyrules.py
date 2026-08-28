@@ -105,8 +105,10 @@ RULES: list[dict[str, Any]] = [
     {
         "key": "appliance",
         "title": "Haushaltgerät noch voll",
-        "detail": "Erinnert an die fertige, aber nicht ausgeräumte Maschine – "
-        "einmal je Programmlauf.",
+        "detail": "Erinnert an die fertige, aber nicht ausgeräumte Maschine. "
+        "Mit einem Türkontakt in der Waschküche wird nachgehakt, bis "
+        "jemand dort war – sonst bleibt es bei einer Nachricht je "
+        "Programmlauf.",
         "params": [
             {
                 "key": "hours",
