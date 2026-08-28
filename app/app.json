@@ -49,6 +49,7 @@
       "expo-font",
       "expo-video",
       "@bacons/apple-targets",
+      "expo-quick-actions",
       [
         "expo-location",
         {

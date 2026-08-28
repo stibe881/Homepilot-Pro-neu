@@ -51,6 +51,17 @@ Den eigentlichen Knopf «Widget hinzufügen» kann keine App anbieten – iOS
 behält das Auflegen auf den Homescreen bei sich. Deshalb steht in der App
 die Anleitung statt eines Knopfes, der nichts täte.
 
+**Kurzbefehle am App-Symbol.** Langer Druck auf das HomePilot-Symbol auf
+dem Homescreen zeigt dieselben Knöpfe wie das Widget – bis zu vier, in
+derselben Reihenfolge. Eingestellt werden sie nicht zweimal: Wer sie
+unter *Einstellungen → Widgets* ordnet, ordnet sie hier mit. Das Symbol
+ist immer da, auch auf der zweiten Seite und in der App-Mediathek; das
+Widget liegt nur dort, wo man es hingelegt hat.
+
+Gedrückt wird nichts blind: Der Kurzbefehl trägt dieselbe
+`homepilot://`-Adresse wie der Widget-Knopf, und die App behandelt sie
+mit derselben Hürde – Schlösser bekommen ihre Rückfrage.
+
 **Eigene Widgets.** Neben der Knopfleiste gibt es «HomePilot Karte»: ein
 Widget für *ein* Gerät oder *eine* Szene, gross, mit Zustand und einem
 Knopf. Zusammengestellt werden die Karten in der App unter *Einstellungen

@@ -48,6 +48,10 @@ export const kann = {
    *  im Heimnetz ohne Zertifikat. */
   qrScan: !web,
 
+  /** Kurzbefehle am App-Symbol (langer Druck auf dem Homescreen).
+   *  iOS und Android können es, der Browser nicht. */
+  schnellaktionen: !web,
+
   /** Die App weiss, aus welchem Bau sie stammt (mitgeliefert oder per OTA
    *  nachgeladen). Im Browser sagt das die version.json neben dem Bündel. */
   ausOtaGeladen: !web,

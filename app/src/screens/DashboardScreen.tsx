@@ -146,6 +146,7 @@ import { TuerRueckfrage } from '../components/TuerRueckfrage';
 import { Widgets } from '../components/Widgets';
 import { Ablage, syncWidget } from '../lib/widget';
 import { resolveKarten } from '../lib/widgetKarten';
+import { hoereAufSchnellaktionen, setzeSchnellaktionen } from '../lib/schnellaktionen';
 import { PushKnopf, Ziel, knoepfeAus, zielAus } from '../lib/pushziel';
 import { PushBlatt } from '../components/PushBlatt';
 import { Erinnerungsblatt } from '../components/Erinnerungsblatt';
@@ -995,6 +996,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     () => resolveKarten(prefs.widgetKarten, scenes, entities, !!prefs.widgetData),
     [prefs.widgetKarten, prefs.widgetData, scenes, entities]
   );
+  // Die Kurzbefehle am App-Symbol tragen dieselben Knöpfe wie das
+  // Widget - eine zweite Liste für dieselbe Frage wäre eine zweite
+  // Stelle, an der man sucht (lib/schnellaktionen.ts).
+  useEffect(() => {
+    if (widgetButtons.length === 0) return;
+    setzeSchnellaktionen(widgetButtons);
+  }, [widgetButtons]);
+  useEffect(() => hoereAufSchnellaktionen((url) => adresseAusfuehren.current(url)), []);
+
   const [widgetAblage, setWidgetAblage] = useState<Ablage>('kein-widget');
   useEffect(() => {
     // Erst, wenn etwas da ist: Vor der ersten Antwort des Hubs sind
@@ -1212,6 +1222,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Zustands-Update erneut. Jetzt gilt: erledigt erst, wenn wirklich
   // gehandelt wurde - bis dahin wird mit jedem Laden neu probiert.
   const startLinkErledigt = useRef(false);
+  // Derselbe Weg für die Kurzbefehle am App-Symbol: Sie tragen dieselben
+  // homepilot://-Adressen, und was für den Widget-Knopf gilt, gilt für
+  // sie - ein Kurzbefehl darf nicht mehr dürfen als die App.
+  const adresseAusfuehren = useRef<(url: string) => void>(() => {});
   useEffect(() => {
     /** Führt den Link aus. `true` heisst: erledigt (auch «kenne ich
      *  nicht» ist erledigt) - `false`: die Daten fehlen noch, später
@@ -1262,6 +1276,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         if (command) guardedCommand(entity.id, command);
       }
       return true;
+    };
+    adresseAusfuehren.current = (url: string) => {
+      handle(url);
     };
     // Kein Start-Link ist der Normalfall - dann startet die App normal.
     if (!startLinkErledigt.current) {
