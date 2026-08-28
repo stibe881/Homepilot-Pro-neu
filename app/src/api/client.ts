@@ -61,6 +61,41 @@ export function fehlerText(status: number | null, pfad: string): string {
   return `Der Hub hat den Aufruf abgelehnt (${status}).`;
 }
 
+/** Fehlerarten, für die der eigene Satz mehr hilft als der des Hubs. */
+const EIGENER_SATZ = [401, 403, 404, 405];
+
+/**
+ * Was schiefging – möglichst mit den Worten des Hubs.
+ *
+ * Der Hub schreibt in `detail` fertige deutsche Sätze, die sagen, was
+ * zu tun ist: «Sprachausgabe nicht installiert - das Abbild braucht das
+ * Extra 'speech' (gTTS).», «Kein Lautsprecher erreichbar, der
+ * Durchsagen kann.» Die wurden hier weggeworfen und durch «Der Hub hat
+ * den Aufruf abgelehnt (400).» ersetzt.
+ *
+ * Genau daran hing ein Fehlerbericht: Die Durchsage tat nichts, und in
+ * der App stand die Statuszahl. Der Hub hatte die ganze Zeit gesagt,
+ * dass ihm gTTS fehlt - es kam nur nie an.
+ *
+ * Bei 401/403/404/405 bleibt es beim eigenen Satz: Dort nennt der Hub
+ * bloss «Not authenticated» oder «Not Found», und der eigene Satz sagt,
+ * was als Nächstes zu tun ist. Und `detail` wird nur genommen, wenn es
+ * ein Text ist - FastAPI legt bei einer Formatprüfung eine ganze Liste
+ * von Objekten hinein, und die will niemand lesen.
+ */
+async function fehlerMeldung(antwort: Response, pfad: string): Promise<string> {
+  if (antwort.status < 500 && !EIGENER_SATZ.includes(antwort.status)) {
+    try {
+      const roh = await antwort.text();
+      const detail = roh ? (JSON.parse(roh) as { detail?: unknown }).detail : null;
+      if (typeof detail === 'string' && detail.trim()) return detail.trim();
+    } catch {
+      // Kein JSON, kein `detail` - dann eben der eigene Satz.
+    }
+  }
+  return fehlerText(antwort.status, pfad);
+}
+
 // ── Wer von Fehlschlägen erfährt ─────────────────────────────────────────
 //
 // Bewusst ein schlichter Verteiler auf Modulebene und kein Context: Der
@@ -131,7 +166,7 @@ export function hubClient(url: string, token: string): HubClient {
         signal: steuerung.signal,
       });
       if (!antwort.ok) {
-        throw new HubFehler(fehlerText(antwort.status, pfad), pfad, antwort.status);
+        throw new HubFehler(await fehlerMeldung(antwort, pfad), pfad, antwort.status);
       }
       // 204 und leere Antworten sind gültig – nicht daran scheitern.
       const text = await antwort.text();
