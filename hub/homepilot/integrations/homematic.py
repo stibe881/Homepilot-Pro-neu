@@ -87,6 +87,23 @@ untere Taste auf :1, die obere auf :2, der Bewegungsmelder auf :3.
         name: Taster Flur unten
         kind: button
 
+Der häufigste Fehlgriff ist der falsche Kanal desselben Geräts. Ein
+Schaltaktor mit Tasten (HmIP-BSL etwa, Markenschalter mit Signalleuchte)
+hat für jede Wippe einen KEY_TRANSCEIVER *und* mehrere
+SWITCH_VIRTUAL_RECEIVER für die Ausgänge. Trägt man einen Ausgang als
+``button`` ein, ist alles richtig geschrieben, den Kanal gibt es - und
+trotzdem kommt nie ein Druck an, weil ein Ausgang nichts sendet. Die
+Kachel meldet dann bis in alle Ewigkeit «Bereit, noch kein Druck».
+
+Zwei Wege dorthin, welcher Kanal es ist:
+
+* Der Hub sagt es beim Start. Steht ein ``button`` auf einer Kanalart,
+  die nichts sendet, nennt eine Warnung die Tastenkanäle desselben Geräts
+  - und dieselbe Zeile steht auf der Kachel.
+* Oder einmal auf die Taste drücken und ins Log schauen: Ein Druck von
+  einem Kanal, den niemand eingetragen hat, schreibt die fertige Zeile
+  für die ``config.yaml`` hin.
+
 Messfühler geben ihren Datenpunkt an. Die Einheit und die Bedeutung
 kommen von selbst dazu (``°C``/``temperature``, ``%``/``humidity``) -
 ohne beides fände die Klima-Zeile der App den Fühler nicht:
@@ -155,6 +172,7 @@ from .homematic_channels import (  # noqa: F401
     DEFAULT_DATAPOINTS,
     IDLE_ALARM_VALUES,
     ILLUMINATION_DATAPOINTS,
+    KEY_TYPES,
     LEVEL,
     LOW_BAT,
     MAINTENANCE_CHANNEL,
@@ -166,13 +184,16 @@ from .homematic_channels import (  # noqa: F401
     SWITCHING_TYPES,
     UnknownParameter,
     battery_to_state,
+    button_hinweis,
     command_error,
     command_to_value,
     describe_channels,
     duty_cycle_of,
+    fremder_druck,
     group_by_device,
     guess_device_class,
     is_timeout,
+    key_channels,
     local_address_for,
     lux_to_state,
     maintenance_address,
@@ -230,6 +251,10 @@ class HomematicIntegration(Integration):
         self._by_battery: dict[tuple[str, str], list[str]] = {}
         # Bereits gemeldete Lesefehler – jede Adresse warnt nur einmal.
         self._warned: set[tuple[str, str]] = set()
+        # Tastendrücke von Kanälen, die niemand eingetragen hat: jeder
+        # Kanal sagt es einmal. Öfter wäre es kein Hinweis mehr, sondern
+        # ein Protokoll jedes Lichtschalters im Haus.
+        self._fremde: set[tuple[str, str]] = set()
         # Je Adresse und Datenpunkt der Grund, warum nichts ankommt –
         # einmal zusammengestellt, dann an die Kachel gereicht.
         self._gruende: dict[tuple[str, str], str] = {}
@@ -255,6 +280,7 @@ class HomematicIntegration(Integration):
         for port in sorted(self._ports()):
             channels = await self._log_available_channels(port)
             self._use_switch_channels(port, channels)
+            await self._check_button_channels(port, channels)
         await self._add_duty_cycle_sensors()
         await self._refresh_all()
 
@@ -543,6 +569,30 @@ class HomematicIntegration(Integration):
                 self._by_datapoint.pop((info["address"], info["datapoint"]), None)
                 info["address"] = target
                 self._by_datapoint[(target, info["datapoint"])] = entity_id
+
+    async def _check_button_channels(self, port: int, channels: dict[str, str]) -> None:
+        """Sagen, wenn ein Taster auf einem Kanal steht, der nichts sendet.
+
+        Der gemeldete Fall: ein HmIP-BSL, eingetragen auf einem seiner
+        Schaltausgänge. Alles richtig geschrieben, den Kanal gibt es, die
+        Kachel steht da - und meldet bis in alle Ewigkeit «Bereit, noch
+        kein Druck». Das stimmt sogar: Ein Schaltausgang sendet nichts.
+        Nur merkt man es nie, weil nichts anderes passiert als nichts.
+
+        Anders als beim Schalten wird hier nicht umgebogen: Ein Gerät hat
+        oft zwei Wippen, und stillschweigend die linke zu nehmen, wenn
+        jemand die rechte meinte, wäre schlimmer als die Wahrheit.
+        """
+        for entity_id, info in self._devices.items():
+            if info["port"] != port or info["kind"] != EntityKind.BUTTON:
+                continue
+            hinweis = button_hinweis(info["address"], channels)
+            if hinweis is None:
+                continue
+            self.log.warning("%s: %s", entity_id, hinweis)
+            # Und auf die Kachel: Im Log liest es, wer sucht - auf der
+            # Kachel steht es dem im Weg, der sich gerade wundert.
+            await self.hub.registry.update_state(entity_id, {"error": hinweis})
 
     async def _refresh_all(self) -> None:
         for entity_id, info in self._devices.items():
@@ -914,6 +964,7 @@ class HomematicIntegration(Integration):
         else:
             entity_id = self._by_lux.get((address, key))
             if entity_id is None:
+                self._fremden_druck_melden(address, key, value)
                 return ""
             changes = lux_to_state(value)
             if not changes:
@@ -925,6 +976,25 @@ class HomematicIntegration(Integration):
             self._loop,
         )
         return ""
+
+    def _fremden_druck_melden(self, address: str, key: str, value: Any) -> None:
+        """Einen Tastendruck von einem nicht eingetragenen Kanal ins Log.
+
+        Die nützlichste Zeile, die dieser Hub schreibt: Wer nicht weiss,
+        welcher Kanal seines Schalters sendet, drückt einmal darauf und
+        liest hier nach - samt der Zeile, die in die config.yaml gehört.
+        Ohne das blieb nur Raten, und ein Kanal mehr oder weniger sieht in
+        der Kanalliste gleich aus.
+
+        Nur echte Drücke: Das Loslassen meldet die CCU als zweites
+        Ereignis mit False, und je Kanal genügt es einmal.
+        """
+        if key not in PRESS_DATAPOINTS or value is False:
+            return
+        if (address, key) in self._fremde:
+            return
+        self._fremde.add((address, key))
+        self.log.info("homematic: %s", fremder_druck(address, key))
 
     async def teardown(self) -> None:
         if self._server is not None:
