@@ -318,6 +318,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     (user?.capabilities ?? []).includes('edit_config');
 
   const [section, setSection] = useState<Section>('start');
+  // Die grosse Liste, damit ein Wechsel oben anfängt (siehe unten).
+  const blatt = useRef<ScrollView>(null);
   // Welche Einstellungsseite zuletzt offen war - damit «Einstellungen»
   // auf einem breiten Bildschirm dort weitermacht, wo man aufgehört hat.
   // Eine Ref und kein Zustand: Der Wert wird nirgends gezeichnet, nur
@@ -338,6 +340,21 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Welches Modul die Abkürzung am Wandpanel aufmachen soll.
   const [riegelModul, setRiegelModul] = useState<OffenesModul | null>(null);
   const [room, setRoom] = useState(ALL_ROOMS);
+
+  // Ein neuer Bereich, ein neuer Raum: oben anfangen.
+  //
+  // Die Räume stehen weit unten auf der Startseite. Wer dorthin scrollte
+  // und einen antippte, bekam die Kacheln des Raums - blieb aber auf
+  // derselben Höhe stehen und sah sie deshalb erst nach dem
+  // Hochscrollen. Der Inhalt war neu, die Blickhöhe die alte, und es sah
+  // aus, als stünde der Raum am Ende der Seite.
+  //
+  // Ohne Bewegung: Ein Sprung nach oben ist die Antwort auf einen Tipp,
+  // kein Weg, den man mitverfolgen soll.
+  useEffect(() => {
+    blatt.current?.scrollTo({ y: 0, animated: false });
+  }, [section, room]);
+
   const [now, setNow] = useState(() => new Date());
   const [gridWidth, setGridWidth] = useState(0);
   const [editing, setEditing] = useState(false);
@@ -3030,6 +3047,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           ) : null}
 
           <ScrollView
+            ref={blatt}
             style={styles.scroll}
             contentContainerStyle={styles.content}
             showsVerticalScrollIndicator={false}
