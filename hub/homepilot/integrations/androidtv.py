@@ -582,15 +582,35 @@ INTEGRATION = AndroidTvIntegration
 # die der Hub später benutzt.
 
 
-async def _pair_one(host: str, name: str, certfile: str, keyfile: str) -> bool:
+async def _pair_one(
+    host: str, name: str, certfile: str, keyfile: str, neu: bool = False
+) -> bool:
     from androidtvremote2 import AndroidTVRemote, CannotConnect, InvalidAuth
+
+    if neu:
+        # Die alten Dateien beiseite, nicht löschen: Wer «neu» sagt und
+        # die Kopplung dann doch abbricht, soll zum alten Stand zurück
+        # können.
+        for datei in (certfile, keyfile):
+            if Path(datei).exists():
+                Path(datei).rename(datei + ".alt")
+                print(f"  {datei} → {datei}.alt")
 
     remote = AndroidTVRemote("homepilot", certfile, keyfile, host)
     await remote.async_generate_cert_if_missing()
     try:
         await remote.async_connect()
         remote.disconnect()
+        # Die Abkürzung, die einen ganzen Abend gekostet hat: «verbindet
+        # noch» heisst nicht «ist noch als Eingabegerät geführt». Nach dem
+        # Datenlöschen des Remote-Dienstes am Fernseher nahm der Dienst
+        # unsere TLS-Verbindung weiter an, warf aber jede Taste stumm weg -
+        # und dieser Helfer sagte trotzdem «bereits gekoppelt» und
+        # koppelte nie neu. Deshalb gibt es jetzt --neu, und deshalb steht
+        # der Hinweis hier.
         print(f"✓ {name} ({host}) ist bereits gekoppelt.")
+        print("  (Verbindet er, aber Tasten wirken nicht: --neu erzwingt")
+        print("   eine frische Kopplung mit neuem Zertifikat.)")
         return True
     except CannotConnect as err:
         print(f"✗ {name} ({host}) nicht erreichbar: {err}")
@@ -613,7 +633,7 @@ async def _pair_one(host: str, name: str, certfile: str, keyfile: str) -> bool:
     return True
 
 
-async def _pair_main(config_path: str, only_host: str | None) -> int:
+async def _pair_main(config_path: str, only_host: str | None, neu: bool = False) -> int:
     from ..core.config import load_config
 
     config = load_config(config_path)
@@ -631,7 +651,7 @@ async def _pair_main(config_path: str, only_host: str | None) -> int:
         if only_host and host != only_host:
             continue
         certfile, keyfile = cert_paths(cert_dir, host)
-        if not await _pair_one(host, device.get("name", host), certfile, keyfile):
+        if not await _pair_one(host, device.get("name", host), certfile, keyfile, neu=neu):
             ok = False
     return 0 if ok else 1
 
@@ -738,7 +758,13 @@ if __name__ == "__main__":
         help="mit --tasten: das Protokoll der Bibliothek zeigen – darin steht,"
         " welche Fähigkeiten der Fernseher meldet (KEY!) und was er antwortet",
     )
+    parser.add_argument(
+        "--neu",
+        action="store_true",
+        help="Kopplung erzwingen: altes Zertifikat beiseitelegen und frisch"
+        " koppeln – für den Fall «verbindet, aber Tasten wirken nicht»",
+    )
     args = parser.parse_args()
     if args.tasten or args.taste:
         sys.exit(asyncio.run(_tasten_main(args.config, args.taste, args.debug)))
-    sys.exit(asyncio.run(_pair_main(args.config, args.host)))
+    sys.exit(asyncio.run(_pair_main(args.config, args.host, args.neu)))
