@@ -85,6 +85,21 @@ class DemoIntegration(Integration):
                 "play_url",
             ],
         )
+        # Eine Lautsprechergruppe, wie Google sie kennt: ein eigenes
+        # Cast-Gerät, das seine Mitglieder mitstellt. Ohne sie war der
+        # Fehler unsichtbar, dass der Lautstärkeplan Gruppen anfasste,
+        # die Boxenauswahl der App sie aber nicht anbot - wer «Haus
+        # Musik» aus dem Plan nehmen wollte, fand sie nirgends.
+        await self.add_entity(
+            "speaker_group",
+            EntityKind.MEDIA_PLAYER,
+            "Ganze Wohnung",
+            state={"state": "idle", "volume": 30, "is_group": True},
+            commands=[
+                "play", "pause", "toggle", "turn_off", "set_volume", "mute",
+                "play_url",
+            ],
+        )
         # Eine Quelle mit eigener Auswahl, wie Spotify eine ist. Ohne sie
         # liess sich weder das Playlist-Panel ansehen noch die Quellenwahl
         # im Musikplayer – für beides braucht es ein Konto, das im

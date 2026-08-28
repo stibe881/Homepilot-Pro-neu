@@ -92,20 +92,51 @@ def stufe_jetzt(stufen: Any, jetzt_min: int) -> dict[str, Any] | None:
     return davor[-1] if davor else sortiert[-1]
 
 
-def gilt_fuer(plan: Any, entity_id: str) -> bool:
-    """Deckt dieser Plan diese Box ab? (rein, testbar)
+def kandidat(entity: Any) -> bool:
+    """Kann ein Plan dieses Gerät überhaupt stellen? (rein, testbar)
 
-    Eine leere Liste heisst «alle Boxen» und nicht «keine»: Das ist der
-    Normalfall im Haushalt, und wer ihn eintippen müsste, tippt elf
-    Kennungen ab.
+    Die eine Stelle, an der das entschieden wird - und die die App
+    spiegelt (app/src/lib/lautplan.ts: planBoxen). Hier lagen die zwei
+    Listen einmal auseinander: Der Hub stellte Lautsprechergruppen mit,
+    die App bot sie nicht zur Wahl an. Wer eine Gruppe aus dem Plan
+    nehmen wollte, fand sie nirgends.
+
+    Fernseher und Gruppen sind deshalb keine Ausnahme mehr, sondern
+    bloss eine Eigenschaft - was mit ihnen geschieht, entscheidet
+    ``gilt_fuer``.
+    """
+    from .entity import EntityKind
+
+    return (
+        getattr(entity, "kind", None) == EntityKind.MEDIA_PLAYER
+        and "set_volume" in getattr(entity, "commands", ())
+        and bool(getattr(entity, "available", False))
+    )
+
+
+def gilt_fuer(plan: Any, entity_id: str, bildschirm: bool = False) -> bool:
+    """Deckt dieser Plan dieses Gerät ab? (rein, testbar)
+
+    Wer genannt ist, ist dabei - auch ein Fernseher. Die App bietet ihn
+    in der Auswahl an, und was dort steht, muss auch gelten: Eine
+    Auswahl, die etwas anzeigt, das der Hub dann doch nicht anfasst,
+    ist schlimmer als gar keine.
+
+    Eine leere Liste heisst dagegen «alle Lautsprecher» - und ein
+    Fernseher ist keiner. Seine Lautstärke gehört zum Bild und nicht zur
+    Tageszeit; wer sie trotzdem nach der Uhr stellen will, nennt ihn.
     """
     if not isinstance(plan, dict) or not plan.get("on", True):
         return False
     gewaehlt = plan.get("entities") or []
-    return not gewaehlt or entity_id in gewaehlt
+    if gewaehlt:
+        return entity_id in gewaehlt
+    return not bildschirm
 
 
-def sollwert(plaene: Any, entity_id: str, jetzt_min: int) -> int | None:
+def sollwert(
+    plaene: Any, entity_id: str, jetzt_min: int, bildschirm: bool = False
+) -> int | None:
     """Wie laut diese Box jetzt sein soll (rein, testbar).
 
     Der erste passende Plan gewinnt. Wer eine Box aus dem allgemeinen
@@ -115,7 +146,7 @@ def sollwert(plaene: Any, entity_id: str, jetzt_min: int) -> int | None:
     Widerspruch, den der Mensch auflösen muss.
     """
     for plan in plaene or []:
-        if not gilt_fuer(plan, entity_id):
+        if not gilt_fuer(plan, entity_id, bildschirm):
             continue
         stufe = stufe_jetzt(plan.get("steps"), jetzt_min)
         if stufe is None:
@@ -252,18 +283,12 @@ class Lautplan:
         return gestellt
 
     def _boxen(self, plan: dict[str, Any]) -> list[Any]:
-        from .entity import EntityKind
 
         return [
             entity
             for entity in self.hub.registry.all()
-            if entity.kind == EntityKind.MEDIA_PLAYER
-            and "set_volume" in entity.commands
-            and entity.available
-            # Ein Fernseher ist kein Lautsprecher: Seine Lautstärke
-            # gehört zum Bild, nicht zur Tageszeit.
-            and not entity.state.get("has_screen")
-            and gilt_fuer(plan, entity.id)
+            if kandidat(entity)
+            and gilt_fuer(plan, entity.id, bool(entity.state.get("has_screen")))
         ]
 
     async def _stellen(self, entity_id: str, wert: Any, plan: dict[str, Any]) -> bool:
@@ -291,11 +316,15 @@ class Lautplan:
         if str(neu.get("state")) in ("playing", "buffering"):
             return
         entity_id = str(data.get("entity_id") or "")
-        wert = sollwert(self.plaene(), entity_id, self.jetzt_min())
+        entity = self.hub.registry.get(entity_id)
+        # Ein Fernseher zählt nur, wenn ein Plan ihn ausdrücklich nennt -
+        # dieselbe Frage wie beim Stufenwechsel, also dieselbe Antwort.
+        bildschirm = bool(entity is not None and entity.state.get("has_screen"))
+        wert = sollwert(self.plaene(), entity_id, self.jetzt_min(), bildschirm)
         if wert is None:
             return
         plan = next(
-            (p for p in self.plaene() if gilt_fuer(p, entity_id)),
+            (p for p in self.plaene() if gilt_fuer(p, entity_id, bildschirm)),
             {"name": "Lautstärkeplan"},
         )
         asyncio.create_task(self._stellen(entity_id, wert, plan))

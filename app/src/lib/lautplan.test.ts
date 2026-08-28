@@ -6,9 +6,11 @@ import {
   geordnet,
   minuten,
   neueStufe,
+  planBoxen,
   stufeJetzt,
   stufenSatz,
   uhrzeit,
+  vorauswahl,
 } from './lautplan';
 
 const STUFEN = [
@@ -109,40 +111,58 @@ describe('neueStufe', () => {
 });
 
 describe('boxenUmschalten', () => {
-  it('macht aus «alle» die eine angetippte', () => {
-    // Wer die erste Box antippt, während «alle» gilt, meint «nur diese»
-    // und nicht «alle ausser dieser».
-    expect(boxenUmschalten([], 'cast.bad')).toEqual(['cast.bad']);
-    expect(boxenUmschalten(undefined, 'cast.bad')).toEqual(['cast.bad']);
+  const ALLE = ['cast.bad', 'cast.buero'];
+
+  it('schreibt «alle» erst aus und nimmt dann heraus', () => {
+    // Hier stand einmal «der erste Tipp heisst: nur diese» - eine
+    // Abkürzung, die man nicht sieht.
+    expect(boxenUmschalten([], 'cast.bad', ALLE)).toEqual(['cast.buero']);
+    expect(boxenUmschalten(undefined, 'cast.bad', ALLE)).toEqual(['cast.buero']);
+  });
+
+  it('nimmt den Fernseher zusätzlich dazu', () => {
+    // Wer ihn dazunimmt, meint ihn zusätzlich - nicht statt aller anderen.
+    expect(boxenUmschalten([], 'cast.tv', ALLE)).toEqual([
+      'cast.bad',
+      'cast.buero',
+      'cast.tv',
+    ]);
   });
 
   it('nimmt eine weitere dazu', () => {
-    expect(boxenUmschalten(['cast.bad'], 'cast.buero')).toEqual([
+    expect(boxenUmschalten(['cast.bad'], 'cast.buero', ALLE)).toEqual([
       'cast.bad',
       'cast.buero',
     ]);
   });
 
   it('nimmt eine wieder heraus', () => {
-    expect(boxenUmschalten(['cast.bad', 'cast.buero'], 'cast.bad')).toEqual([
+    expect(boxenUmschalten(['cast.bad', 'cast.buero'], 'cast.bad', ALLE)).toEqual([
       'cast.buero',
     ]);
   });
 
-  it('die letzte abgewählt heisst wieder alle', () => {
-    // Ein Plan ohne Box hätte keinen Adressaten.
-    expect(boxenUmschalten(['cast.bad'], 'cast.bad')).toEqual([]);
+  it('lässt sich nicht leeren', () => {
+    // Ein Plan ohne Box hat keinen Adressaten; wer ihn nicht mehr will,
+    // löscht ihn.
+    expect(boxenUmschalten(['cast.bad'], 'cast.bad', ALLE)).toEqual(['cast.bad']);
   });
 });
 
 describe('boxAn', () => {
-  it('bei leerer Liste ist jede dabei', () => {
+  it('bei leerer Liste ist jede Box dabei', () => {
     expect(boxAn([], 'cast.bad')).toBe(true);
     expect(boxAn(undefined, 'cast.bad')).toBe(true);
   });
 
-  it('sonst nur die genannten', () => {
-    expect(boxAn(['cast.bad'], 'cast.bad')).toBe(true);
+  it('ein Fernseher aber nicht', () => {
+    // Sonst zeigte sich sein Chip als ausgewählt, während der Hub ihn
+    // gar nicht anfasst.
+    expect(boxAn([], 'cast.tv', true)).toBe(false);
+  });
+
+  it('sonst zählt nur die Liste', () => {
+    expect(boxAn(['cast.tv'], 'cast.tv', true)).toBe(true);
     expect(boxAn(['cast.bad'], 'cast.buero')).toBe(false);
   });
 });
@@ -192,5 +212,65 @@ describe('freieBoxen', () => {
 
   it('ohne Pläne ist alles frei', () => {
     expect(freieBoxen([], ALLE)).toEqual(ALLE);
+  });
+});
+
+describe('planBoxen', () => {
+  const geraet = (
+    id: string,
+    name: string,
+    state: Record<string, unknown> = {},
+    commands = ['set_volume'],
+  ) => ({ id, name, kind: 'media_player', available: true, commands, state });
+
+  it('nimmt alles auf, was eine Lautstärke annimmt', () => {
+    // Genau das lag auseinander: Der Hub stellte Gruppen mit, die App
+    // bot sie nicht zur Wahl an.
+    const liste = planBoxen([
+      geraet('cast.bad', 'Nest Badezimmer'),
+      geraet('cast.haus', 'Haus', { is_group: true }),
+      geraet('cast.tv', 'Fernseher', { has_screen: true }),
+    ]);
+    expect(liste.map((b) => b.id)).toEqual(['cast.bad', 'cast.haus', 'cast.tv']);
+  });
+
+  it('markiert Gruppen und Fernseher', () => {
+    const liste = planBoxen([
+      geraet('cast.haus', 'Haus', { is_group: true }),
+      geraet('cast.tv', 'Fernseher', { has_screen: true }),
+    ]);
+    expect(liste.find((b) => b.id === 'cast.haus')?.gruppe).toBe(true);
+    expect(liste.find((b) => b.id === 'cast.tv')?.bildschirm).toBe(true);
+  });
+
+  it('sortiert Boxen vor Gruppen vor Fernsehern', () => {
+    // Je seltener gemeint, desto weiter hinten.
+    const liste = planBoxen([
+      geraet('cast.tv', 'Aaa Fernseher', { has_screen: true }),
+      geraet('cast.haus', 'Bbb Haus', { is_group: true }),
+      geraet('cast.zzz', 'Zzz Box'),
+    ]);
+    expect(liste.map((b) => b.id)).toEqual(['cast.zzz', 'cast.haus', 'cast.tv']);
+  });
+
+  it('lässt weg, was keine Lautstärke kann oder nicht da ist', () => {
+    const liste = planBoxen([
+      geraet('demo.klingel', 'Klingel', {}, ['play']),
+      { ...geraet('cast.weg', 'Weg'), available: false },
+      { ...geraet('licht.kueche', 'Licht'), kind: 'light' },
+    ]);
+    expect(liste).toEqual([]);
+  });
+});
+
+describe('vorauswahl', () => {
+  it('nimmt Boxen und Gruppen, aber keine Fernseher', () => {
+    // Das ist genau das, was der Plan bisher ohnehin gestellt hat.
+    const boxen = planBoxen([
+      { id: 'cast.bad', name: 'Bad', kind: 'media_player', available: true, commands: ['set_volume'], state: {} },
+      { id: 'cast.haus', name: 'Haus', kind: 'media_player', available: true, commands: ['set_volume'], state: { is_group: true } },
+      { id: 'cast.tv', name: 'TV', kind: 'media_player', available: true, commands: ['set_volume'], state: { has_screen: true } },
+    ]);
+    expect(vorauswahl(boxen)).toEqual(['cast.bad', 'cast.haus']);
   });
 });

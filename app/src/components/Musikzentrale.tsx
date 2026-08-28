@@ -17,7 +17,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { hubClient } from '../api/client';
 import { useTakt } from '../hooks/useTakt';
 import { Entity, HubSettings } from '../api/types';
-import { einzelBoxen, hausSatz, laufendeMusik, zustandName } from '../lib/hausmusik';
+import { hausSatz, laufendeMusik, zustandName } from '../lib/hausmusik';
 import { WeckerEntwurf, ersterEntwurf } from '../lib/weckerentwurf';
 import { tageSatz } from '../lib/weckertage';
 import { Nachtragzeile, nachtragSatz } from '../lib/tonnachtrag';
@@ -29,6 +29,9 @@ import {
   boxenSatz,
   boxenUmschalten,
   freieBoxen,
+  planBoxen,
+  type Planbox,
+  vorauswahl,
   geordnet,
   minuten,
   neueStufe,
@@ -147,11 +150,11 @@ export function Musikzentrale({
 
   // Kennung → Name, damit der Nachtrag-Satz «Nest Badezimmer» sagen kann
   // und nicht «test.speaker_bath».
-  // Welche Boxen ein Lautstärkeplan überhaupt meinen kann: Einzelboxen,
-  // die eine Lautstärke annehmen. Gruppen bleiben aussen vor - sie
-  // stellen ihre Mitglieder ohnehin mit, und in der Auswahl stünde
-  // dieselbe Box zweimal (lib/hausmusik.ts erklärt es länger).
-  const waehlbareBoxen = useMemo(() => einzelBoxen(entities, ''), [entities]);
+  // Was ein Lautstärkeplan überhaupt stellen kann - dieselbe Liste, die
+  // auch der Hub bildet (lib/lautplan.ts erklärt, warum das wichtig
+  // ist). Gruppen und Fernseher stehen mit dabei und tragen ihre
+  // Beschriftung, statt still zu fehlen.
+  const waehlbareBoxen = useMemo(() => planBoxen(entities), [entities]);
 
   const namenNachId = useMemo(
     () => Object.fromEntries(entities.map((entity) => [entity.id, entity.name])),
@@ -552,7 +555,6 @@ export function Musikzentrale({
           boxen={waehlbareBoxen}
           namen={namenNachId}
           jetztMinuten={jetztMinuten}
-          alleErlaubt={plaene.length === 1}
           onAendern={(naechster) => planSichern(index, naechster)}
           styles={styles}
           colors={colors}
@@ -561,7 +563,13 @@ export function Musikzentrale({
       {plaene.length === 0 ? (
         <Pressable
           onPress={() =>
-            plaeneSichern([{ name: 'Lautsprecher', steps: VORLAGE, entities: [] }])
+            plaeneSichern([
+              {
+                name: 'Lautsprecher',
+                steps: VORLAGE,
+                entities: vorauswahl(waehlbareBoxen),
+              },
+            ])
           }
           accessibilityRole="button"
           accessibilityLabel="Lautstärke nach Tageszeit einrichten"
@@ -669,19 +677,14 @@ function Planblock({
   boxen,
   namen,
   jetztMinuten,
-  alleErlaubt,
   onAendern,
   styles,
   colors,
 }: {
   plan: Plan;
-  boxen: Entity[];
+  boxen: Planbox[];
   namen: Record<string, string>;
   jetztMinuten: number;
-  /** Darf dieser Plan «alle Boxen» heissen? Bei mehreren Plänen nicht:
-   *  Er verdeckte sonst die anderen, weil der Hub den ersten passenden
-   *  nimmt (hub/core/lautplan.py: sollwert). */
-  alleErlaubt: boolean;
   /** `null` heisst: Plan löschen. */
   onAendern: (naechster: Plan | null) => void;
   styles: ReturnType<typeof makeStyles>;
@@ -733,18 +736,22 @@ function Planblock({
       {offen ? (
         <View style={styles.boxenreihe}>
           {boxen.map((box) => {
-            const dabei = boxAn(plan.entities, box.id);
+            const dabei = boxAn(plan.entities, box.id, box.bildschirm);
             return (
               <Pressable
                 key={box.id}
-                onPress={() => {
-                  const naechste = boxenUmschalten(plan.entities, box.id);
-                  // Die letzte abzuwählen hiesse «alle» - und damit
-                  // stünde dieser Plan über den anderen. Dann lieber
-                  // nichts tun als etwas Unerwartetes.
-                  if (naechste.length === 0 && !alleErlaubt) return;
-                  onAendern({ ...plan, entities: naechste });
-                }}
+                onPress={() =>
+                  onAendern({
+                    ...plan,
+                    // Was gerade gilt, falls der Plan noch «alle» sagt -
+                    // erst ausschreiben, dann umschalten.
+                    entities: boxenUmschalten(
+                      plan.entities,
+                      box.id,
+                      vorauswahl(boxen),
+                    ),
+                  })
+                }
                 accessibilityRole="checkbox"
                 accessibilityState={{ checked: dabei }}
                 accessibilityLabel={`${box.name} in diesem Plan`}
@@ -760,6 +767,15 @@ function Planblock({
                 >
                   {box.name}
                 </Text>
+                {/* Was für ein Gerät das ist. Ein Fernseher gehört
+                    selten in einen Lautstärkeplan, eine Gruppe stellt
+                    ihre Mitglieder mit - beides sollte man sehen, bevor
+                    man tippt, und nicht danach. */}
+                {box.bildschirm || box.gruppe ? (
+                  <Text style={styles.boxchipArt}>
+                    {box.bildschirm ? 'Fernseher' : 'Gruppe'}
+                  </Text>
+                ) : null}
               </Pressable>
             );
           })}
@@ -962,4 +978,5 @@ const makeStyles = (colors: Colors) =>
       maxWidth: 200,
     },
     boxchipText: { color: colors.inkSoft, fontSize: 12 },
+    boxchipArt: { color: colors.inkFaint, fontSize: 10, marginTop: 1 },
   });

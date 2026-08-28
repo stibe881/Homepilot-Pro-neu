@@ -87,28 +87,119 @@ export function stufenSatz(stufen: Stufe[], index: number): string {
   return `${stufe.volume} % – bis ${naechste.at}`;
 }
 
+export interface Planbox {
+  id: string;
+  name: string;
+  /** Fernseher: Seine Lautstärke gehört zum Bild, nicht zur Tageszeit -
+   *  deshalb ist er nur dabei, wenn man ihn ausdrücklich nennt. */
+  bildschirm: boolean;
+  /** Lautsprechergruppe: Sie stellt ihre Mitglieder mit. */
+  gruppe: boolean;
+}
+
+/**
+ * Was ein Plan überhaupt stellen kann (rein, testbar).
+ *
+ * Spiegelt `kandidat()` im Hub (hub/core/lautplan.py) – und das ist der
+ * Punkt: Hier lagen die zwei Listen auseinander. Der Hub stellte
+ * Lautsprechergruppen mit, die App bot sie nicht zur Wahl an. Wer
+ * «Haus Musik» aus dem Plan nehmen wollte, fand sie nirgends. Und der
+ * Fernseher stand in keiner der beiden, liess sich also auch dann nicht
+ * aufnehmen, wenn man ihn wollte.
+ *
+ * Fernseher und Gruppen sind darum keine Ausnahme mehr, sondern nur
+ * noch eine Eigenschaft: Sie stehen in der Liste und tragen ihre
+ * Beschriftung.
+ *
+ * Reihenfolge: erst die Boxen, dann die Gruppen, dann die Fernseher –
+ * je seltener gemeint, desto weiter hinten.
+ */
+export function planBoxen(
+  entities: {
+    id: string;
+    name: string;
+    kind: string;
+    available?: boolean;
+    commands: string[];
+    state?: Record<string, unknown>;
+  }[],
+): Planbox[] {
+  return entities
+    .filter(
+      (entity) =>
+        entity.kind === 'media_player' &&
+        entity.available !== false &&
+        entity.commands.includes('set_volume'),
+    )
+    .map((entity) => ({
+      id: entity.id,
+      name: entity.name,
+      bildschirm: entity.state?.has_screen === true,
+      gruppe: entity.state?.is_group === true,
+    }))
+    .sort((a, b) => {
+      const rang = (box: Planbox) => (box.bildschirm ? 2 : box.gruppe ? 1 : 0);
+      return rang(a) - rang(b) || a.name.localeCompare(b.name, 'de');
+    });
+}
+
+/**
+ * Womit ein frischer Plan startet (rein, testbar).
+ *
+ * Ausdrücklich und nicht als leere Liste: Die leere Liste heisst beim
+ * Hub «alle Lautsprecher», und dann stünden in der Auswahl Chips, die
+ * ausgewählt aussehen, ohne es zu sein (der Fernseher). Eine Auswahl,
+ * die lügt, ist schlimmer als keine.
+ *
+ * Vorgewählt ist, was der Plan bisher ohnehin gestellt hat: Boxen und
+ * Gruppen, keine Fernseher.
+ */
+export function vorauswahl(boxen: Planbox[]): string[] {
+  return boxen.filter((box) => !box.bildschirm).map((box) => box.id);
+}
+
+/**
+ * Steht diese Box in der Auswahl? (rein, testbar)
+ *
+ * Die leere Liste heisst beim Hub «alle Lautsprecher» – und ein
+ * Fernseher ist keiner (hub/core/lautplan.py: gilt_fuer). Dieselbe
+ * Regel muss hier gelten, sonst zeigt der Chip eines Fernsehers sich
+ * als ausgewählt, während der Hub ihn gar nicht anfasst.
+ */
+export function boxAn(
+  liste: string[] | undefined,
+  id: string,
+  bildschirm = false,
+): boolean {
+  const jetzt = liste ?? [];
+  if (jetzt.length > 0) return jetzt.includes(id);
+  return !bildschirm;
+}
+
 /**
  * Eine Box in die Auswahl nehmen oder herausnehmen (rein, testbar).
  *
- * Die leere Liste heisst «alle Boxen» und nicht «keine» – das ist die
- * Lesart des Hubs (hub/core/lautplan.py: gilt_fuer) und der Normalfall
- * im Haushalt. Wer die erste Box antippt, während «alle» gilt, meint
- * darum «nur diese» und nicht «alle ausser dieser».
+ * Bei leerer Liste wird zuerst ausgeschrieben, was gerade gilt, und
+ * dann umgeschaltet. Hier stand einmal «der erste Tipp heisst: nur
+ * diese» – eine Abkürzung, die man nicht sieht. Seit Fernseher und
+ * Gruppen mit in der Liste stehen, ist sie auch falsch: Wer den
+ * Fernseher dazunimmt, meint ihn *zusätzlich* und nicht statt aller
+ * anderen.
+ *
+ * Leer werden kann die Auswahl nicht mehr. Ein Plan ohne Box hat keinen
+ * Adressaten; wer ihn nicht mehr will, löscht ihn – der Papierkorb
+ * steht daneben.
  */
-export function boxenUmschalten(liste: string[] | undefined, id: string): string[] {
-  const jetzt = liste ?? [];
-  if (jetzt.length === 0) return [id];
-  if (!jetzt.includes(id)) return [...jetzt, id];
-  const rest = jetzt.filter((eintrag) => eintrag !== id);
-  // Die letzte abgewählt: Das ist wieder «alle», denn ein Plan ohne Box
-  // hat keinen Adressaten und wäre nur eine Liste, die nichts tut.
-  return rest;
-}
-
-/** Steht diese Box in der Auswahl? Leer heisst alle (rein, testbar). */
-export function boxAn(liste: string[] | undefined, id: string): boolean {
-  const jetzt = liste ?? [];
-  return jetzt.length === 0 || jetzt.includes(id);
+export function boxenUmschalten(
+  liste: string[] | undefined,
+  id: string,
+  gilt_jetzt: string[],
+): string[] {
+  const jetzt = liste && liste.length > 0 ? liste : gilt_jetzt;
+  const naechste = jetzt.includes(id)
+    ? jetzt.filter((eintrag) => eintrag !== id)
+    : [...jetzt, id];
+  return naechste.length > 0 ? naechste : jetzt;
 }
 
 /**
