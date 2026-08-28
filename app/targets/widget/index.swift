@@ -103,7 +103,32 @@ func ladeShortcuts() -> [Shortcut] {
 enum Hausstand {
     case aus
     case nichtErreicht
-    case da(doorsOpen: [String], lightsOn: Int, nextEvent: String?, alarm: String?)
+    case da(
+        doorsOpen: [String],
+        lightsOn: Int,
+        nextEvent: String?,
+        alarm: String?,
+        running: [Maschine]
+    )
+}
+
+/// Eine laufende Maschine, wie der Hub sie schickt (core/laufzeit.py).
+///
+/// `percent` fehlt, solange der Hub die Programmdauer dieses Geräts noch
+/// nicht kennt - dann steht nur die Restzeit da. Ein Balken, der auf
+/// einer geratenen Gesamtdauer sitzt, sagt weniger als die blosse Zahl.
+struct Maschine {
+    let name: String
+    let program: String?
+    let minutesLeft: Int?
+    let percent: Double?
+
+    /// «noch 23 min» - oder das Programm, wenn die Maschine keine
+    /// Restzeit meldet.
+    var text: String {
+        if let rest = minutesLeft { return "noch \(rest) min" }
+        return program ?? "läuft"
+    }
 }
 
 func ladeGlance() async -> Hausstand {
@@ -137,11 +162,22 @@ func ladeGlance() async -> Hausstand {
         // Der Alarmzustand kam schon immer mit und wurde weggeworfen –
         // dabei ist «habe ich scharf geschaltet?» genau die Frage, für
         // die man ein Sperrbildschirm-Widget anlegt.
+        // «running» fehlt, wenn nichts läuft - der Normalfall, und die
+        // Antwort trägt das Feld dann gar nicht erst.
+        let maschinen: [Maschine] = ((json["running"] as? [[String: Any]]) ?? []).map {
+            Maschine(
+                name: ($0["name"] as? String) ?? "Gerät",
+                program: $0["program"] as? String,
+                minutesLeft: $0["minutes_left"] as? Int,
+                percent: $0["percent"] as? Double
+            )
+        }
         return .da(
             doorsOpen: (json["doors_open"] as? [String]) ?? [],
             lightsOn: (json["lights_on"] as? Int) ?? 0,
             nextEvent: termin,
-            alarm: json["alarm"] as? String
+            alarm: json["alarm"] as? String,
+            running: maschinen
         )
     } catch {
         return .nichtErreicht
@@ -186,13 +222,18 @@ struct Entry: TimelineEntry {
 
     /// Fürs runde Sperrbildschirm-Widget: Steht etwas offen?
     var etwasOffen: Bool {
-        if case .da(let türen, _, _, _) = glance { return !türen.isEmpty }
+        if case .da(let türen, _, _, _, _) = glance { return !türen.isEmpty }
         return false
     }
 
     var termin: String? {
-        if case .da(_, _, let termin, _) = glance { return termin }
+        if case .da(_, _, let termin, _, _) = glance { return termin }
         return nil
+    }
+
+    var maschinen: [Maschine] {
+        if case .da(_, _, _, _, let laufend) = glance { return laufend }
+        return []
     }
 }
 
@@ -217,7 +258,7 @@ struct StatusZeile: View {
             Label("nicht erreichbar", systemImage: "wifi.slash")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-        case .da(let türen, let lichter, _, let alarm):
+        case .da(let türen, let lichter, _, let alarm, _):
             if !türen.isEmpty {
                 Label(
                     türen.count == 1
@@ -253,6 +294,38 @@ struct StatusZeile: View {
                 )
                 .font(.caption2)
                 .foregroundStyle(alarm == "ausgeloest" ? Color.red : Color.secondary)
+            }
+        }
+    }
+}
+
+/// Die laufende Maschine mit ihrem Fortschritt.
+///
+/// Der Balken ist das eigentliche Stück Auskunft: «noch 23 min» muss man
+/// gegen die Programmlänge rechnen, ein halb voller Balken nicht. Fehlt
+/// die Gesamtdauer (der Hub hat dieses Gerät noch nicht zweimal laufen
+/// sehen), bleibt der Balken weg - lieber eine Zahl weniger als ein
+/// Balken, der etwas anderes behauptet als er weiss.
+struct MaschinenZeile: View {
+    let maschine: Maschine
+    /// Auf dem Sperrbildschirm ist alles einfarbig; ein Balken in
+    /// Akzentfarbe wäre dort schlicht nicht sichtbar.
+    var schmal: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Label(
+                "\(maschine.name) · \(maschine.text)",
+                systemImage: "washer"
+            )
+            .font(schmal ? .caption2 : .caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            if let anteil = maschine.percent {
+                ProgressView(value: anteil)
+                    .progressViewStyle(.linear)
+                    .tint(schmal ? .primary : .accentColor)
+                    .frame(height: 3)
             }
         }
     }
@@ -352,7 +425,13 @@ struct HomePilotWidgetView: View {
         case .accessoryRectangular:
             VStack(alignment: .leading, spacing: 2) {
                 StatusZeile(glance: entry.glance)
-                if let termin = entry.termin {
+                // Die laufende Maschine sticht den Termin: Der Kalender
+                // steht auf demselben Sperrbildschirm noch dreimal, die
+                // Restzeit der Waschmaschine nirgends. Und es ist die
+                // Frage, für die man das Telefon aus der Tasche nimmt.
+                if let maschine = entry.maschinen.first {
+                    MaschinenZeile(maschine: maschine, schmal: true)
+                } else if let termin = entry.termin {
                     Text(termin)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -362,6 +441,13 @@ struct HomePilotWidgetView: View {
         case .systemSmall:
             VStack(alignment: .leading, spacing: 8) {
                 StatusZeile(glance: entry.glance)
+                // Nur die erste: Auf dem kleinen Widget nimmt jede
+                // weitere Zeile den Knöpfen ihren Platz, und sie stehen
+                // ohnehin nach Restzeit - oben ist die, für die man
+                // aufsteht.
+                if let maschine = entry.maschinen.first {
+                    MaschinenZeile(maschine: maschine)
+                }
                 Spacer(minLength: 0)
                 HStack(spacing: 14) {
                     ForEach(entry.shortcuts, id: \.url) { knopf in
@@ -384,6 +470,9 @@ struct HomePilotWidgetView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                }
+                ForEach(entry.maschinen, id: \.name) { maschine in
+                    MaschinenZeile(maschine: maschine)
                 }
                 Divider()
                 HStack(spacing: 18) {
