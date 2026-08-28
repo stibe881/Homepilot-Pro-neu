@@ -185,6 +185,12 @@ ist der einzige nötige Befehl.
   Mit `--taste DPAD_DOWN` schickt er zusätzlich eine Taste, ohne dass die
   App dazwischenliegt. Warum es das braucht, steht in
   `integrations/androidtv.py` bei `leitung_offen`.
+- Sagt der Kopplungs-Helfer «bereits gekoppelt», obwohl Tasten nicht
+  wirken: `--neu` anhängen. Er prüft sonst nur, ob die *Verbindung* noch
+  steht – und die kann ein Fernseher weiter annehmen, dessen
+  Fernbedienungsdienst die Kopplung längst vergessen hat (etwa nach dem
+  Datenlöschen des Remote-Dienstes). `--neu` legt das alte Zertifikat
+  beiseite und koppelt frisch, mit Code am Fernseher.
 - Kommt die Taste «raus», aber der Fernseher rührt sich nicht: `--debug`
   dazunehmen. In der Zeile «Device supports: [...]» sagt der Fernseher,
   was er annimmt – fehlt dort `KEY`, ignoriert sein Fernbedienungsdienst
