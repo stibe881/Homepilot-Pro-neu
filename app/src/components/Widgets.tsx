@@ -32,6 +32,26 @@ import {
 } from '../lib/widgetKarten';
 import { Colors, radius, type, useColors } from '../theme';
 
+/** Hat der installierte Build die neue Widget-Art schon an Bord?
+ *
+ *  Eine Widget-Erweiterung lässt sich aus der App nicht direkt
+ *  befragen - als Bote dient das ActivityKit-Modul, das im selben
+ *  iOS-Build dazukam. Fehlt es, stammt der Build von davor: Dann gäbe
+ *  die Anleitung «auf dem Homescreen auswählen» eine Suche ins Leere
+ *  vor, und genau das soll die Karte stattdessen ehrlich sagen. Die
+ *  App-Seite kommt per OTA nämlich früher an als der native Teil. */
+function nativerBuildKannKarten(): boolean {
+  if (Platform.OS !== 'ios') return false;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { requireNativeModule } = require('expo-modules-core');
+    requireNativeModule('LiveAktivitaet');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Einstellungen → Widgets.
  *
@@ -315,6 +335,14 @@ export function Widgets({
         <Card style={styles.card}>
           <Text style={styles.heading}>Eigene Widgets</Text>
           <Text style={styles.hint}>{kartenSatz(kartenListe.length)}</Text>
+          {!nativerBuildKannKarten() ? (
+            <Text style={[styles.hint, { color: colors.warn }]}>
+              Die Widget-Art selbst kommt erst mit dem nächsten iOS-Build
+              (TestFlight) aufs Telefon - bis dahin taucht sie beim
+              «Widget bearbeiten» auf dem Homescreen noch nicht auf. Die
+              Karten hier bleiben gespeichert und stehen dann bereit.
+            </Text>
+          ) : null}
 
           {kartenListe.map((karte, index) => (
             <View key={karte.key} style={styles.row}>
