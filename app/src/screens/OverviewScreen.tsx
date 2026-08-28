@@ -45,6 +45,7 @@ import {
   zieleFuer,
 } from '../lib/durchsage';
 import { DurchsagePrefs } from '../hooks/usePrefs';
+import { DURCHSAGE_ID, favoritenOrdnen } from '../lib/favoritenordnung';
 import { haustuerZeile } from '../lib/klingel';
 import { KalenderZeile, geburtstagsListe, terminListe } from '../lib/kalenderliste';
 import { applianceLine } from '../lib/haushalt';
@@ -226,12 +227,6 @@ export function OverviewScreen({
   // Selbst gezogene Reihenfolge anwenden; neu hinzugekommene Favoriten
   // hängen sich hinten an, statt die gewachsene Ordnung durcheinander zu
   // bringen. Dieselbe Regel wie bei den Familien-Kacheln.
-  const favRang = new Map((favoriteOrder ?? []).map((id, index) => [id, index]));
-  const favorites = [...favoriten].sort((a, b) => {
-    const ai = favRang.has(a.id) ? (favRang.get(a.id) as number) : Infinity;
-    const bi = favRang.has(b.id) ? (favRang.get(b.id) as number) : Infinity;
-    return ai !== bi ? ai - bi : favoriten.indexOf(a) - favoriten.indexOf(b);
-  });
   const [favOrdnen, setFavOrdnen] = useState(false);
   // Die Durchsage-Kachel: Sie hängt nicht an einem Gerät, sondern an der
   // Frage, ob es überhaupt eine Box gibt, die eine Tondatei abspielt.
@@ -240,6 +235,30 @@ export function OverviewScreen({
   // Ohne Box gibt es nichts anzusagen, ohne Recht nichts zu schalten -
   // in beiden Fällen wäre die Kachel eine Attrappe.
   const durchsageMoeglich = !!onDurchsage && durchsageBoxen.length > 0;
+
+  // Alle Favoritenkacheln in einer Liste - die Geräte und die Durchsage.
+  //
+  // Sie hing vorher fest hinter der Liste, weil sie an keiner Entität
+  // hängt. Damit stand sie auch nicht in «Favoriten ordnen»: «Durchsagen
+  // kann man nicht sortieren bei den Favoriten.» Jetzt ist sie eine
+  // Kachel wie jede andere, mit eigener Kennung (lib/favoritenordnung.ts).
+  const favorites = useMemo(
+    () =>
+      favoritenOrdnen(
+        [
+          ...favoriten.map((entity) => ({
+            id: entity.id,
+            name: entity.name,
+            entity,
+          })),
+          ...(durchsageMoeglich
+            ? [{ id: DURCHSAGE_ID, name: 'Durchsage', entity: null }]
+            : []),
+        ],
+        favoriteOrder
+      ),
+    [favoriten, durchsageMoeglich, favoriteOrder]
+  );
   // Welcher Fernseher gerade sein Timer-Fenster offen hat. Der Chip auf
   // der Startseite ist zu klein für fünf Knöpfe - und beim Einschalten
   // will man ihn auch nicht versehentlich stellen.
@@ -779,9 +798,10 @@ export function OverviewScreen({
 
       {/* Favoriten aus der Geräteliste – zwischen Schnellaktionen und
           Zugang, damit die eigenen Griffbereit-Geräte oben stehen. Die
-          Durchsage hängt hinten dran und hält den Block auch dann
-          offen, wenn noch niemand einen Stern vergeben hat. */}
-      {favorites.length > 0 || durchsageMoeglich ? (
+          Durchsage zählt mit: Sie hält den Block auch dann offen, wenn
+          noch niemand einen Stern vergeben hat, und lässt sich seit
+          neuestem mit einordnen. */}
+      {favorites.length > 0 ? (
         <>
           <View style={styles.favHead}>
             <Text style={[styles.groupLabel, { flex: 1 }]}>Favoriten</Text>
@@ -815,52 +835,58 @@ export function OverviewScreen({
               </Text>
               <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
                 <DraggableList
-                  items={favorites.map((entity) => ({
-                    id: entity.id,
-                    name: entity.name,
-                  }))}
+                  items={favorites.map(({ id, name }) => ({ id, name }))}
                   onReorder={(ids) => onReorderFavorites?.(ids)}
                 />
               </ScrollView>
             </View>
           </Modal>
           <View style={styles.favRow}>
-            {favorites.map((entity) => (
-              <FavoriteChip
-                key={entity.id}
-                entity={entity}
-                breite={favWidth}
-                pending={!!pending[entity.id]}
-                onCommand={onCommand}
-                onTimer={() => setTimerTv(entity)}
-                onRename={onRenameEntity ? () => setUmbenennen(entity) : undefined}
-                styles={styles}
-                colors={colors}
-              />
-            ))}
-            {/* Hinten und nicht vorn: Die Favoriten sind persönlich
-                gewählt, die Durchsage steht immer da. Vorn schöbe sie
-                jeden Abend das weg, wofür jemand den Stern gesetzt hat. */}
-            {durchsageMoeglich ? (
-              <Pressable
-                onPress={() => setDurchsageOffen(true)}
-                accessibilityRole="button"
-                accessibilityLabel="Durchsage"
-                style={({ pressed }) => [
-                  styles.favChip,
-                  { width: favWidth },
-                  pressed && { opacity: 0.6 },
-                ]}
-              >
-                <Ionicons name="megaphone-outline" size={18} color={colors.inkSoft} />
-                <Text style={styles.favName} numberOfLines={1}>
-                  Durchsage
-                </Text>
-                <Text style={styles.favState} numberOfLines={1}>
-                  {zielText(gueltigesZiel(durchsage?.ziel, durchsageBoxen), durchsageBoxen)}
-                </Text>
-              </Pressable>
-            ) : null}
+            {favorites.map((kachel) =>
+              kachel.entity ? (
+                <FavoriteChip
+                  key={kachel.id}
+                  entity={kachel.entity}
+                  breite={favWidth}
+                  pending={!!pending[kachel.id]}
+                  onCommand={onCommand}
+                  onTimer={() => setTimerTv(kachel.entity)}
+                  onRename={
+                    onRenameEntity ? () => setUmbenennen(kachel.entity) : undefined
+                  }
+                  styles={styles}
+                  colors={colors}
+                />
+              ) : (
+                /* Die Durchsage. Ohne eigene Reihenfolge steht sie
+                   zuletzt - die Favoriten sind persönlich gewählt, sie
+                   steht immer da, und vorn schöbe sie jeden Abend das
+                   weg, wofür jemand den Stern gesetzt hat. Wer sie
+                   woanders haben will, zieht sie jetzt dorthin. */
+                <Pressable
+                  key={kachel.id}
+                  onPress={() => setDurchsageOffen(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Durchsage"
+                  style={({ pressed }) => [
+                    styles.favChip,
+                    { width: favWidth },
+                    pressed && { opacity: 0.6 },
+                  ]}
+                >
+                  <Ionicons name="megaphone-outline" size={18} color={colors.inkSoft} />
+                  <Text style={styles.favName} numberOfLines={1}>
+                    Durchsage
+                  </Text>
+                  <Text style={styles.favState} numberOfLines={1}>
+                    {zielText(
+                      gueltigesZiel(durchsage?.ziel, durchsageBoxen),
+                      durchsageBoxen
+                    )}
+                  </Text>
+                </Pressable>
+              )
+            )}
           </View>
           {/* Der Dialog steht einmal hier statt in jedem Chip - es kann
               ohnehin nur einer offen sein. */}
