@@ -210,7 +210,13 @@ def karten_grill(entities: list[Any]) -> list[dict[str, Any]]:
 
 
 def karten_sauger(entities: list[Any]) -> list[dict[str, Any]]:
-    """Der Saugroboter, solange er unterwegs ist."""
+    """Der Saugroboter, solange er unterwegs ist.
+
+    «cleaning» deckt seit integrations/roborock.py (zustand_name) auch
+    das Reinigen einzelner Räume ab. Vorher blieb die Live-Karte beim
+    Segmentreinigen ganz aus - also genau dann, wenn man den Sauger
+    gezielt in die Küche geschickt hat und zusieht.
+    """
     karten = []
     for entity in entities:
         if entity.kind != "vacuum" or entity.state.get("state") != "cleaning":
