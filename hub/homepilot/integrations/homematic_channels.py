@@ -513,17 +513,40 @@ def kanal_rat(art: str, datenpunkte: set[str]) -> str:
     Ja/Nein-Kontakt eingerichtet sein (CHANNEL_OPERATION_MODE), und dann
     heisst derselbe Kanal einmal PRESS_SHORT und einmal STATE. Wer nach
     der Art geht, rät; wer nach den Datenpunkten geht, weiss es.
+
+    Die Art zählt trotzdem an einer Stelle mit: Ein Gerät hat zu jedem
+    Empfängerkanal einen Sendekanal, der dieselben Datenpunkte führt
+    (SWITCH_TRANSMITTER neben SWITCH_VIRTUAL_RECEIVER). Nur der Empfänger
+    lässt sich schalten - der Sender daneben ist die Rückmeldung des
+    Geräts an sich selbst und gehört in keine Zeile.
     """
     if "PRESS_SHORT" in datenpunkte or "PRESS_LONG" in datenpunkte:
         return "kind: button"
+    if "POWER" in datenpunkte:
+        return "power_address (Messkanal)"
+    if art == "MAINTENANCE":
+        # Der Wartungskanal jedes Geräts. Der Hub liest ihn von selbst -
+        # eine eigene Zeile dafür wäre eine Kachel «UNREACH».
+        return "Wartungskanal - liest der Hub selbst"
+    if "COLOR" in datenpunkte and "LEVEL" in datenpunkte and art in SWITCHING_TYPES:
+        # Die Signalleuchte eines Markenschalters (HmIP-BSL). Als Licht
+        # eintragbar; die Farbe stellt der Hub (noch) nicht.
+        return "kind: light, dimmable: true (Signalleuchte)"
     if "LEVEL" in datenpunkte and art in SWITCHING_TYPES:
-        return "kind: light (dimmbar)"
+        return "kind: light, dimmable: true"
     if "STATE" in datenpunkte and art in SWITCHING_TYPES:
         return "kind: light oder switch"
+    if art.endswith("_TRANSMITTER") and art not in KEY_TYPES:
+        # Sendekanäle führen dieselben Datenpunkte wie ihr Empfänger,
+        # lassen sich aber nicht schalten: jedes setValue endet in
+        # Fault -5. Wer sie einträgt, bekommt eine Kachel, die nichts kann.
+        #
+        # Nicht jeder Sender ist einer: Der MULTI_MODE_INPUT_TRANSMITTER
+        # eines HmIP-Eingangs heisst so und ist trotzdem ein Eingang -
+        # darum die Ausnahme über KEY_TYPES.
+        return "Sendekanal - nicht eintragen"
     if "STATE" in datenpunkte:
         return "kind: binary_sensor, datapoint: STATE"
-    if "POWER" in datenpunkte:
-        return "power_address (Messkanal, keine eigene Kachel)"
     messwerte = sorted(
         name
         for name in datenpunkte
@@ -533,7 +556,7 @@ def kanal_rat(art: str, datenpunkte: set[str]) -> str:
         return f"kind: sensor, datapoint: {messwerte[0]}"
     if not datenpunkte:
         return "nichts - dieser Kanal gibt nichts her"
-    return "kein Vorschlag - siehe die Datenpunkte daneben"
+    return "kein Vorschlag - siehe daneben"
 
 
 def lesbare_datenpunkte(beschreibung: dict[str, Any]) -> set[str]:
