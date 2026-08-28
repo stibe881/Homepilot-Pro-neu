@@ -26,6 +26,7 @@ im Event-Loop an.
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from pathlib import Path
 from typing import Any
@@ -193,6 +194,54 @@ NICHT_GEKOPPELT = (
 )
 
 
+def leitung_offen(remote: Any) -> bool | None:
+    """Steht die Leitung zum Fernseher gerade wirklich? (rein, testbar)
+
+    ``None`` heisst «weiss nicht» – dann wird gesendet wie bisher.
+
+    **Warum das nötig ist**, steht in der Bibliothek: ``send_key_command``
+    wirft ``ConnectionClosed`` nur, wenn das Protokollobjekt ganz fehlt.
+    Ist bloss die *Verbindung* darunter im Zumachen, landet die Taste in
+    ``_send_message`` – und das tut dann genau dies::
+
+        if not self.transport or self.transport.is_closing():
+            LOGGER.debug("Connection is closed!")
+            return
+
+    Sie verschwindet also lautlos: kein Fehler, keine Wirkung. Der Hub
+    meldet «erledigt», die App schreibt «ging an den Hub», und der
+    Fernseher tut nichts. Genau das Bild, das aus dem Haus gemeldet
+    wurde.
+
+    Deshalb hier ein Blick auf dieselben zwei Felder, bevor wir senden.
+    Sie sind privat, und das ist der Haken: Benennt die Bibliothek sie
+    um, weiss diese Funktion nichts mehr – dann gibt sie ``None`` zurück
+    und alles läuft wie zuvor. Lieber gelegentlich blind als plötzlich
+    stumm.
+    """
+    # «Feld fehlt» und «Feld ist None» sind zweierlei: Das erste heisst,
+    # dass diese Funktion die Bibliothek nicht mehr versteht (Umbenennung,
+    # anderer Aufbau) - dann gilt «weiss nicht» und es wird gesendet wie
+    # zuvor. Das zweite heisst wirklich: keine Verbindung.
+    if not hasattr(remote, "_remote_message_protocol"):
+        return None
+    protokoll = remote._remote_message_protocol
+    if protokoll is None:
+        return False
+    if not hasattr(protokoll, "transport"):
+        return None
+    transport = protokoll.transport
+    if transport is None:
+        return False
+    schliesst = getattr(transport, "is_closing", None)
+    if not callable(schliesst):
+        return None
+    try:
+        return not schliesst()
+    except Exception:
+        return None
+
+
 def absage(gekoppelt: bool) -> str:
     """Warum eine Taste nicht ankam (rein, testbar).
 
@@ -243,7 +292,7 @@ class AndroidTvIntegration(Integration):
                 "androidtvremote2 fehlt – installieren mit: pip install androidtvremote2"
             ) from err
 
-        cert_dir = self.config.get("cert_dir") or str(Path(self.hub.config.data_file).parent)
+        cert_dir = self.config.get("cert_dir") or str(Path(str(self.hub.config.data_file)).parent)
 
         for device in devices:
             host = device.get("host")
@@ -484,6 +533,15 @@ class AndroidTvIntegration(Integration):
         self._taste(entity.id, remote, KEYMAP[command])
 
     def _taste(self, entity_id: str, remote: Any, key: str) -> None:
+        # Erst nachsehen, ob die Leitung steht: Eine Taste in eine
+        # zumachende Verbindung verschwindet lautlos (siehe
+        # `leitung_offen`). Eine Absage ist besser als ein «erledigt»,
+        # das nichts bewirkt hat.
+        if leitung_offen(remote) is False:
+            self.log.info(
+                "Taste %s an %s nicht gesendet – die Leitung ist zu", key, entity_id
+            )
+            raise ConnectionError(absage(self._gekoppelt.get(entity_id, True)))
         self._senden(entity_id, lambda: remote.send_key_command(key))
 
     def _senden(self, entity_id: str, tun: Any) -> None:
@@ -564,7 +622,7 @@ async def _pair_main(config_path: str, only_host: str | None) -> int:
         print("Kein androidtv-Block in der Konfiguration gefunden.")
         return 1
     block = blocks[0]
-    cert_dir = block.get("cert_dir") or str(Path(config.data_file).parent)
+    cert_dir = block.get("cert_dir") or str(Path(str(config.data_file)).parent)
     Path(cert_dir).mkdir(parents=True, exist_ok=True)
 
     ok = True
@@ -578,6 +636,86 @@ async def _pair_main(config_path: str, only_host: str | None) -> int:
     return 0 if ok else 1
 
 
+async def _tasten_main(config_path: str, taste: str | None, debug: bool = False) -> int:
+    """Was zwischen Hub und Fernseher wirklich passiert – roh.
+
+    Der Anlass: «Die Fernbedienung funktioniert immer noch nicht.» Die
+    App schickt nachweislich, der Hub nimmt an – und der Fernseher tut
+    nichts. Dazwischen liegen drei Dinge, die man von aussen nicht
+    unterscheiden kann: keine Kopplung, keine Verbindung, oder eine
+    Taste, die in einer zumachenden Leitung verschwindet (siehe
+    ``leitung_offen``).
+
+    Hier sieht man alle drei auf einmal – und kann eine Taste von Hand
+    schicken, ohne App dazwischen.
+    """
+    from ..core.config import load_config
+
+    config = load_config(config_path)
+    blocks = [b for b in config.integrations if b.get("integration") == "androidtv"]
+    if not blocks:
+        print(f"In {config_path} steht kein androidtv-Block.")
+        return 1
+
+    # Erst nach der Konfiguration: Ein Werkzeug zur Fehlersuche, das
+    # selbst mit einem Traceback abbricht, ist keins.
+    try:
+        from androidtvremote2 import AndroidTVRemote, CannotConnect, InvalidAuth
+    except ImportError:
+        print("androidtvremote2 fehlt – installieren mit: pip install androidtvremote2")
+        return 1
+
+    if debug:
+        # Das Debug-Log der Bibliothek ist hier die eigentliche Auskunft:
+        # Beim Verbinden meldet der Fernseher, was er kann («Device
+        # supports: [...]») - fehlt dort KEY, ignoriert er jede Taste,
+        # und die Bibliothek weiss sogar die Abhilfe (Android TV Remote
+        # Service: Daten löschen, neu koppeln). Ohne Debug sieht man von
+        # alldem nichts.
+        logging.basicConfig(
+            level=logging.DEBUG, format="%(asctime)s %(name)s %(message)s"
+        )
+    block = blocks[0]
+    cert_dir = block.get("cert_dir") or str(Path(str(config.data_file)).parent)
+
+    for device in block.get("devices") or []:
+        host = str(device.get("host"))
+        name = device.get("name", host)
+        certfile, keyfile = cert_paths(cert_dir, host)
+        print(f"\n{name} ({host})")
+        remote = AndroidTVRemote("homepilot", certfile, keyfile, host)
+        await remote.async_generate_cert_if_missing()
+        try:
+            await remote.async_connect()
+        except InvalidAuth:
+            print(f"  ✗ {PAIR_HINT}")
+            continue
+        except CannotConnect as err:
+            print(f"  ✗ nicht erreichbar: {err}")
+            print("    Ist der Fernseher an und im selben Netz?")
+            continue
+        print("  ✓ verbunden")
+        print(f"    eingeschaltet: {remote.is_on}")
+        print(f"    Vordergrund:   {remote.current_app}")
+        print(f"    Leitung offen: {leitung_offen(remote)}")
+        if taste:
+            # Ohne KEYCODE_ davor geht auch: Die Bibliothek setzt es
+            # selbst davor, und die Home-Assistant-Liste schreibt sie so.
+            print(f"    sende {taste} …")
+            try:
+                remote.send_key_command(taste)
+            except Exception as err:
+                print(f"    ✗ abgewiesen: {type(err).__name__}: {err}")
+            else:
+                # Kurz warten: `send_key_command` puffert nur.
+                await asyncio.sleep(0.5)
+                print(f"    ✓ rausgeschickt, Leitung danach: {leitung_offen(remote)}")
+                print("      Tut der Fernseher nichts, liegt es an ihm oder")
+                print("      an der App im Vordergrund - nicht am Hub.")
+        remote.disconnect()
+    return 0
+
+
 if __name__ == "__main__":
     import argparse
     import sys
@@ -585,5 +723,22 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Android-TV-Kopplung für HomePilot")
     parser.add_argument("-c", "--config", required=True, help="Pfad zur config.yaml des Hubs")
     parser.add_argument("--host", help="nur diesen Fernseher koppeln")
+    parser.add_argument(
+        "--tasten",
+        action="store_true",
+        help="nicht koppeln, sondern nachsehen: Verbindung, Zustand, Leitung",
+    )
+    parser.add_argument(
+        "--taste",
+        help="mit --tasten: diese Taste schicken, z.B. DPAD_DOWN oder KEYCODE_HOME",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="mit --tasten: das Protokoll der Bibliothek zeigen – darin steht,"
+        " welche Fähigkeiten der Fernseher meldet (KEY!) und was er antwortet",
+    )
     args = parser.parse_args()
+    if args.tasten or args.taste:
+        sys.exit(asyncio.run(_tasten_main(args.config, args.taste, args.debug)))
     sys.exit(asyncio.run(_pair_main(args.config, args.host)))
