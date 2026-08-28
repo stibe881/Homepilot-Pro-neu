@@ -63,10 +63,12 @@ from .alarm_rules import (  # noqa: F401
     DEFAULT_SETTINGS,
     DISARM,
     DISARMED,
+    DURCHBRUCH,
     ENTRY,
     MODE_LABELS,
     MODES,
     REARM,
+    SAUGER_NACHLAUF,
     STAY,
     TEST_SIREN_SECONDS,
     TRIGGERED,
@@ -80,6 +82,8 @@ from .alarm_rules import (  # noqa: F401
     parse_actions,
     parse_after,
     parse_sensors,
+    sauger_deckt,
+    sauger_unterwegs,
     sensor_open,
     valid_pin,
 )
@@ -117,6 +121,13 @@ class AlarmIntegration(Integration):
         # Kamera meldet Bewegung im Sekundentakt, solange sich etwas regt;
         # ohne Abstand wäre das Telefon nach einer Minute unbenutzbar.
         self._motion_seen: dict[str, float] = {}
+        # Bis wann Bewegungsmelder wegen des Saugers noch schweigen.
+        # None heisst: Er war seit dem Start nicht unterwegs.
+        self._sauger_bis: float | None = None
+        # Damit der Verlauf einmal je Fahrt einen Eintrag bekommt und
+        # nicht bei jeder Bewegung einen: Ein Protokoll, das man nicht
+        # mehr liest, ist so gut wie keines.
+        self._sauger_notiert = False
 
         stored = self.hub.data.get("alarm")
         config = stored[0] if stored else {}
@@ -375,6 +386,9 @@ class AlarmIntegration(Integration):
         entity = self.hub.registry.get(str(entity_id))
         if entity is None or self._mode is None:
             return
+        self._sauger_merken(entity)
+        if self._sauger_deckt(entity):
+            return
         await self._camera_motion(entity, payload)
         if not guards(self._sensors, entity.id, self._mode):
             return
@@ -411,6 +425,53 @@ class AlarmIntegration(Integration):
             return
 
         await self._trigger(entity)
+
+    def _sauger_merken(self, entity: Entity) -> None:
+        """Den Nachlauf stellen, sobald der Sauger stehen bleibt.
+
+        Ein Bewegungsmelder hält sein «on» je nach Modell ein bis fünf
+        Minuten. Ohne Nachlauf löst er genau in dem Moment aus, in dem
+        der Sauger andockt - der Fehler wäre nur verschoben.
+        """
+        if entity.kind != EntityKind.VACUUM:
+            return
+        if sauger_unterwegs([entity]):
+            self._sauger_bis = None
+            return
+        # Er steht: Von jetzt an läuft die Nachlaufzeit.
+        self._sauger_bis = time.time() + SAUGER_NACHLAUF
+        self._sauger_notiert = False
+
+    def _sauger_deckt(self, entity: Entity) -> bool:
+        """Schweigt dieser Sensor gerade wegen des Saugers?
+
+        Der erste Fall je Fahrt kommt in den Verlauf. Stillschweigend
+        wäre es die falsche Art von Rücksicht: Wer nachliest, warum die
+        Anlage nicht angeschlagen hat, soll es dort finden.
+        """
+        unterwegs = sauger_unterwegs(self.hub.registry.all())
+        if not sauger_deckt(
+            entity,
+            unterwegs,
+            self._sauger_bis,
+            time.time(),
+            bool(self._settings.get("ignore_vacuum", True)),
+            self._settings.get("vacuum_detections", DURCHBRUCH),
+        ):
+            return False
+        if not sensor_open(entity):
+            # Nur die Meldung zählt - ein Melder, der auf «aus» geht,
+            # hätte ohnehin nichts ausgelöst.
+            return True
+        if not self._sauger_notiert:
+            self._sauger_notiert = True
+            self._note(
+                "vacuum",
+                f"{entity.label} meldet Bewegung - der Sauger fährt, "
+                "kein Alarm (Fenster und Türen bleiben scharf)",
+                "",
+            )
+        return True
 
     async def _camera_motion(self, entity: Entity, payload: dict[str, Any]) -> None:
         """Kamera sieht Bewegung, während scharf ist: Bild aufs Telefon.

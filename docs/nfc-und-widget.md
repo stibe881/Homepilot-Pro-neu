@@ -91,4 +91,21 @@ eine Störung. «Nicht erreichbar» steht nur da, wenn der Schalter an ist
 und der Hub trotzdem nicht antwortet – dann sagt das Widget das
 ausdrücklich, statt den letzten Stand weiter als Tatsache auszugeben.
 
+**Laufende Maschinen mit Balken.** Läuft die Waschmaschine, der
+Tumbler oder der Geschirrspüler, steht das im selben Hausstand: Name,
+Restzeit und ein Fortschrittsbalken. Auf dem Sperrbildschirm sticht die
+Maschine den Kalendertermin – der steht dort ohnehin noch dreimal, die
+Restzeit nirgends.
+
+Den Balken gibt es erst, wenn der Hub das Gerät zweimal hat durchlaufen
+sehen: Die meisten Maschinen melden nur «noch 23 Minuten», nie die
+Programmlänge, und ohne die ist ein Balken geraten. Der Hub nimmt den
+Median der letzten Läufe *desselben* Geräts – ein Tumbler läuft doppelt
+so lang wie eine Kurzwäsche. Bis dahin steht nur die Zahl da, und das
+ist ehrlicher.
+
+Der Grill hat keinen Balken. Er ist technisch dasselbe («appliance»),
+führt aber ein Temperaturziel statt einer Restzeit – für ihn wäre ein
+Zeitbalken eine Erfindung.
+
 Aktualisiert wird alle 15 Minuten – häufiger lässt iOS ohnehin nicht zu.

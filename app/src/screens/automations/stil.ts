@@ -286,6 +286,29 @@ export const makeStyles = (colors: Colors) =>
     detail: { color: colors.inkSoft, fontSize: type.cardSub, marginTop: 2 },
     badge: { color: colors.inkFaint, fontSize: 11 },
     iconButton: { padding: 6 },
+    // Die Rückfrage vor dem Handstart: abgesetzt, aber in der Karte -
+    // sie gehört zu diesem einen Ablauf.
+    handstart: {
+      marginTop: 8,
+      padding: 10,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.warn,
+      backgroundColor: colors.surfaceSoft,
+      gap: 8,
+    },
+    handstartText: { color: colors.ink, fontSize: 13, lineHeight: 18 },
+    handstartReihe: { flexDirection: 'row', gap: 8, justifyContent: 'flex-end' },
+    handstartKnopf: {
+      paddingVertical: 7,
+      paddingHorizontal: 14,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    handstartAbbruch: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
+    handstartLos: { backgroundColor: colors.accent, borderColor: colors.accent },
+    handstartLosText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
     newButton: {
       flexDirection: 'row',
       alignItems: 'center',

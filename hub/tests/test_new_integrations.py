@@ -906,8 +906,13 @@ def test_calendar_empty_means_free():
 
 
 def test_weather_parse_forecast():
+    from datetime import datetime
+
     from homepilot.integrations.weather import parse_forecast
 
+    # Mit fester Uhr: Die Antwort enthält seit den Vergangenheitstagen
+    # (past_days) auch Tage vor heute - welche das sind, entscheidet der
+    # Zeitpunkt, und der soll im Test nicht vom Kalender abhängen.
     state = parse_forecast(
         {
             "current": {"temperature_2m": 32.5, "weather_code": 1},
@@ -918,7 +923,8 @@ def test_weather_parse_forecast():
                 "temperature_2m_min": [18.1, 16.4],
                 "precipitation_probability_max": [10, 60],
             },
-        }
+        },
+        datetime(2026, 8, 15, 12, 0),
     )
     assert state["temperature"] == 32
     assert state["state"] == "Meist klar"
@@ -933,6 +939,8 @@ def test_weather_parse_forecast():
         "rain": 10,
         # Ohne UV in der Antwort bleibt das Feld leer - erfunden wird nichts.
         "uv": None,
+        # Ebenso beim Niederschlag: keine Angabe heisst 0.0 mm, nicht geraten.
+        "rain_mm": 0.0,
     }
     assert state["days"][1]["text"] == "Regenschauer"
 
@@ -2250,3 +2258,75 @@ async def test_der_poll_loescht_eine_laufende_erkennung_nicht(hub):
         }
     )
     assert hub.registry.get(entity_id).state["detected_baby_cry"] == "off"
+
+
+# ── Sauger-Zustände in verständlichen Wörtern ──────────────────────────
+
+
+def test_every_kind_of_cleaning_is_cleaning():
+    """«segment_cleaning» stand wörtlich auf der Kachel - und schlimmer:
+    Wer «cleaning» abfragte, bekam beim Reinigen einzelner Räume «nein».
+    Der Knopf bot «Reinigen» an, während sie reinigte."""
+    from homepilot.integrations.roborock import zustand_name
+
+    for roh in (
+        "cleaning",
+        "segment_cleaning",
+        "zoned_cleaning",
+        "spot_cleaning",
+        "going_to_target",
+    ):
+        assert zustand_name(roh) == "cleaning", roh
+
+
+def test_the_way_home_is_returning():
+    from homepilot.integrations.roborock import zustand_name
+
+    assert zustand_name("returning_home") == "returning"
+    assert zustand_name("docking") == "returning"
+    assert zustand_name("going_to_wash_the_mop") == "returning"
+
+
+def test_what_happens_at_the_dock_counts_as_docked():
+    from homepilot.integrations.roborock import zustand_name
+
+    assert zustand_name("washing_the_mop") == "docked"
+    assert zustand_name("emptying_the_bin") == "docked"
+    assert zustand_name("charging_complete") == "docked"
+    # Laden ist eigenes Wort - die App zeigt dafür den Blitz.
+    assert zustand_name("charging") == "charging"
+
+
+def test_trouble_is_an_error():
+    from homepilot.integrations.roborock import zustand_name
+
+    assert zustand_name("error") == "error"
+    assert zustand_name("charging_problem") == "error"
+    assert zustand_name("device_offline") == "error"
+
+
+def test_unknown_names_are_caught_by_their_word_stem():
+    """Die Namen wachsen mit Modell und Firmware; eine Liste allein wäre
+    nach dem nächsten Update wieder unvollständig."""
+    from homepilot.integrations.roborock import zustand_name
+
+    assert zustand_name("deep_carpet_cleaning") == "cleaning"
+    assert zustand_name("returning_to_base") == "returning"
+
+
+def test_the_library_wording_is_kept_alongside():
+    from homepilot.integrations.roborock import vacuum_state
+
+    stand = vacuum_state(_Status(state_name="segment_cleaning", battery=87))
+    assert stand["state"] == "cleaning"
+    assert stand["state_raw"] == "segment_cleaning"
+
+
+def test_nothing_is_claimed_about_a_name_nobody_knows():
+    """Etwas zu raten wäre teuer: «unterwegs» hiesse, die Karte im
+    Sekundentakt zu holen und die Bewegungsmelder stillzulegen."""
+    from homepilot.integrations.roborock import zustand_name
+
+    assert zustand_name("egg_attack") == "unknown"
+    assert zustand_name("") == "unknown"
+    assert zustand_name(None) == "unknown"

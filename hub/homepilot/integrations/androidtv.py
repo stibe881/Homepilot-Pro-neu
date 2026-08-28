@@ -444,7 +444,27 @@ class AndroidTvIntegration(Integration):
             return
         remote = self._remotes.get(entity.id)
         if remote is None:
-            raise ConnectionError(absage(self._gekoppelt.get(entity.id, True)))
+            gekoppelt = self._gekoppelt.get(entity.id, True)
+            if gekoppelt and command in ("turn_off", "pause"):
+                # Ein gekoppelter Fernseher, den der Hub nicht erreicht,
+                # ist vom Netz - und damit aus. «Mach ihn aus» ist dann
+                # ein erfüllter Wunsch, kein Fehler.
+                #
+                # Das zu melden hielt einen ganzen Ablauf an: «Niemand
+                # mehr zuhause» schaltet zwei Fernseher und ein Dutzend
+                # Boxen ab und schliesst zuletzt die Türe. Ein Gerät, das
+                # ohnehin schon aus war, brachte den Rest zum Stehen.
+                #
+                # Nur bei gekoppelten Geräten: Eine fehlende Kopplung ist
+                # ein Einrichtungsfehler, den man sehen muss - da hilft
+                # kein Schweigen.
+                self.log.info(
+                    "%s ist nicht erreichbar - «%s» gilt als erledigt",
+                    entity.label,
+                    command,
+                )
+                return
+            raise ConnectionError(absage(gekoppelt))
         if command == "toggle":
             command = "turn_off" if entity.state.get("state") == "on" else "turn_on"
         if command in ("turn_on", "turn_off"):

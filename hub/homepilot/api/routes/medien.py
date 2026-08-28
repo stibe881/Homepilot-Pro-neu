@@ -15,6 +15,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
+from ...core import lautplan
 from ...core.errors import HomePilotError
 from ...core.users import Capability
 from ..context import ApiContext
@@ -23,7 +24,7 @@ log = logging.getLogger(__name__)
 
 
 class TonEinstellung(BaseModel):
-    """Nachtruhe und Dämpfen. Alles freiwillig - was fehlt, bleibt."""
+    """Nachtruhe, Dämpfen, Nachreichen. Alles freiwillig - was fehlt, bleibt."""
 
     on: bool | None = None
     # Uhrzeiten als HH:MM.
@@ -31,6 +32,19 @@ class TonEinstellung(BaseModel):
     end: str | None = None
     max: int | None = None
     duck: bool | None = None
+    wait: bool | None = None
+
+
+class LautplanRequest(BaseModel):
+    """Der ganze Plan auf einmal.
+
+    Nicht Stufe für Stufe: Ein Plan ist eine Liste, die man als Ganzes
+    ansieht und als Ganzes ändert - und ein halb gespeicherter Plan
+    (zwei Stufen weg, eine neue noch nicht da) wäre stundenlang in
+    Kraft, ohne dass jemand ihn so gemeint hätte.
+    """
+
+    plans: list[dict[str, Any]]
 
 
 class UmzugRequest(BaseModel):
@@ -95,6 +109,10 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         return {
             "night": meister.nachtruhe(),
             "duck": meister.daempfen_an(),
+            "wait": meister.warten_an(),
+            # Was gerade auf das Ende einer Wiedergabe wartet - damit die
+            # App erklären kann, warum eine Box noch alt dasteht.
+            "pending": meister.nachtrag(),
             # Damit die App zeigen kann, ob der Deckel gerade greift -
             # «ist eingeschaltet» und «gilt jetzt» sind zweierlei.
             "cap_now": meister.deckel(),
@@ -118,7 +136,47 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         except HomePilotError as err:
             raise HTTPException(status_code=400, detail=str(err)) from err
         duck = meister.daempfen_setzen(body.duck) if body.duck is not None else meister.daempfen_an()
-        return {"night": nacht, "duck": duck, "cap_now": meister.deckel()}
+        warten = (
+            meister.warten_setzen(body.wait) if body.wait is not None else meister.warten_an()
+        )
+        return {
+            "night": nacht,
+            "duck": duck,
+            "wait": warten,
+            "pending": meister.nachtrag(),
+            "cap_now": meister.deckel(),
+        }
+
+    @app.get("/api/media/volumeplan")
+    async def volume_plan(request: Request) -> dict[str, Any]:
+        """Lautstärke nach Tageszeit - und was gerade daraus gilt."""
+        current_user(request)
+        plan = hub.lautplan
+        jetzt = plan.jetzt_min()
+        return {
+            "plans": plan.plaene(),
+            # Was jetzt gälte: Ohne diese Zeile müsste man die Stufen im
+            # Kopf gegen die Uhr halten, um zu sehen, ob der Plan das
+            # tut, was man wollte.
+            "now": [
+                {
+                    "id": eintrag.get("id"),
+                    "volume": (
+                        lautplan.stufe_jetzt(eintrag.get("steps"), jetzt) or {}
+                    ).get("volume"),
+                    "at": (lautplan.stufe_jetzt(eintrag.get("steps"), jetzt) or {}).get("at"),
+                }
+                for eintrag in plan.plaene()
+            ],
+        }
+
+    @app.put("/api/media/volumeplan")
+    async def set_volume_plan(body: LautplanRequest, request: Request) -> dict[str, Any]:
+        require(request, Capability.CONTROL)
+        try:
+            return {"plans": hub.lautplan.setzen(body.plans)}
+        except HomePilotError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
 
     @app.post("/api/media/{entity_id}/move")
     async def move_playback(

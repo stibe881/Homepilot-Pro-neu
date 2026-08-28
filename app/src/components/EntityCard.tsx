@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Image, Pressable, Text, View } from 'react-native';
 
 import Svg, { Polyline } from 'react-native-svg';
 
 import { CommandData, Entity, KalenderEintrag } from '../api/types';
+import { Doppelaktion, FENSTER_MS, merkbar } from '../lib/doppeltipp';
 import { Reihe, linienPunkte } from '../lib/funkenlinie';
 import { offlineSatz } from '../lib/funkstille';
 import { zustandsText } from '../lib/haushalt';
@@ -21,6 +22,7 @@ import { Musikliste } from './Musikliste';
 import { ColorRow } from './ColorRow';
 import { Sky } from './CoverVisual';
 import { isTelevision } from '../lib/geraeteart';
+import { medienSchalter } from '../lib/medienschalter';
 import { tvKopf, tvTeile } from '../lib/fernsehkachel';
 import { TvApps } from './TvApps';
 import { TvVolume } from './TvVolume';
@@ -84,6 +86,12 @@ interface Props {
   entity: Entity;
   /** Die letzten Stunden des Messwerts – [Unix-Sekunden, Wert]. */
   trend?: Reihe;
+  /** Die gemerkte Doppeltipp-Aktion dieses Geräts (lib/doppeltipp.ts). */
+  doppelAktion?: Doppelaktion | null;
+  /** Beschriftung fürs Kachelmenü («Doppeltipp merken: 40 %»). */
+  doppelLabel?: string | null;
+  /** Merken bzw. vergessen - null heisst vergessen. */
+  onDoppeltipp?: (aktion: Doppelaktion | null) => void;
   width: number;
   onCommand: (command: string, data?: CommandData) => void;
   /** Kommando unterwegs – die Kachel zeigt das, statt still zu wirken. */
@@ -157,6 +165,9 @@ interface Props {
 export function EntityCard({
   entity,
   trend,
+  doppelAktion,
+  doppelLabel,
+  onDoppeltipp,
   width,
   onCommand,
   pending,
@@ -201,6 +212,7 @@ export function EntityCard({
   const [groupPickerOpen, setGroupPickerOpen] = useState(false);
   const isOn = entity.state.state === 'on';
 
+
   // Was ein langer Druck anbietet. Im Anpassen-Modus nichts: Dort hält
   // dieselbe Geste die Kachel zum Verschieben fest, und die Knöpfe für
   // Name, Raum und Gruppe stehen ohnehin offen auf der Kachel.
@@ -216,6 +228,8 @@ export function EntityCard({
         zaehlung: Boolean(onToggleUngezaehlt) && zaehlbar(entity),
         ungezaehlt: Boolean(ungezaehlt),
         verlauf: Boolean(onLongPress),
+        // Nur wo es etwas zu merken gibt und wer schalten darf.
+        doppeltipp: onDoppeltipp ? doppelLabel : null,
       });
   const fuehreAus = (eintrag: KachelEintrag) => {
     setMenueOffen(false);
@@ -223,7 +237,15 @@ export function EntityCard({
     if (eintrag.id === 'sperren') onToggleLocked?.();
     if (eintrag.id === 'zaehlung') onToggleUngezaehlt?.();
     if (eintrag.id === 'verlauf') onLongPress?.();
+    if (eintrag.id === 'doppeltipp') {
+      // Steht schon dasselbe gemerkt, ist der Eintrag das Vergessen -
+      // die Beschriftung sagt es, und lib/doppeltipp entscheidet es.
+      onDoppeltipp?.(
+        doppelLabel?.startsWith('Doppeltipp (') ? null : merkbar(entity)
+      );
+    }
   };
+
   // Ein Eintrag braucht keine Auswahl - eine Liste mit einer Zeile wäre
   // ein Klick mehr für nichts. Für alle, die nicht umbenennen dürfen,
   // bleibt der lange Druck damit genau das, was er war.
@@ -256,7 +278,53 @@ export function EntityCard({
     entity,
     entity.last_seen ? sinceLabel(entity.last_seen) : null
   );
-  const toggle = entity.commands.includes('toggle') ? () => onCommand('toggle') : undefined;
+  /**
+   * Der Knopf unten rechts bedeutet auf jeder Kachel «ein/aus» - nur
+   * auf der Musikbox tat er bisher etwas anderes.
+   *
+   * Bei einer Box ist `toggle` nämlich Play/Pause. Der Knopf stand
+   * damit immer auf «aus» (eine Box meldet nie `state: on`) und hielt
+   * beim Drücken die Sitzung bloss an: Der Empfänger blieb besetzt, und
+   * vom Telefon aus weckte ihn jeder Handgriff wieder auf. Also bekommt
+   * die Box hier ihren eigenen Schalter (lib/medienschalter.ts).
+   *
+   * Der Fernseher behält `toggle` - bei ihm ist das wirklich der
+   * Netzschalter (siehe lib/fernsehkachel.ts).
+   */
+  const istBox = entity.kind === 'media_player' && !isTelevision(entity);
+  const boxSchalter = istBox
+    ? medienSchalter(entity.state.state, entity.commands)
+    : null;
+  const toggle = istBox
+    ? boxSchalter
+      ? () => onCommand(boxSchalter.command)
+      : undefined
+    : entity.commands.includes('toggle')
+      ? () => onCommand('toggle')
+      : undefined;
+
+  /**
+   * Der zweite Tipp auf den Ein/Aus-Knopf legt die gemerkte
+   * Einstellung darüber (lib/doppeltipp.ts).
+   *
+   * Der erste Tipp schaltet dabei sofort - er wartet nicht darauf, ob
+   * noch ein zweiter kommt. Eine Kachel, die 350 ms zögert, fühlt sich
+   * im ganzen Haus träge an, und das wäre ein hoher Preis für eine
+   * Abkürzung.
+   */
+  const letzterTipp = useRef(0);
+  const toggleMitDoppeltipp = toggle
+    ? () => {
+        const jetzt = Date.now();
+        const doppelt = jetzt - letzterTipp.current < FENSTER_MS;
+        letzterTipp.current = jetzt;
+        if (doppelt && doppelAktion) {
+          onCommand(doppelAktion.command, doppelAktion.data);
+          return;
+        }
+        toggle();
+      }
+    : undefined;
 
   /** Leistung und, wenn ein Preis hinterlegt ist, die Tageskosten. */
   const powerNote = (): string | undefined => {
@@ -1039,8 +1107,9 @@ export function EntityCard({
       <CardFooter
         title={entity.name}
         subtitle={pending ? 'wird geschaltet …' : entity.available ? subtitle : offlineText}
-        on={isOn}
-        onToggle={toggle}
+        on={isOn || !!boxSchalter?.an}
+        onToggle={toggleMitDoppeltipp}
+        toggleLabel={boxSchalter?.label}
         pending={pending}
         onLongPress={langerDruck}
       />

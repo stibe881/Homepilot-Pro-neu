@@ -619,5 +619,12 @@ class IntegrationManager:
             # aber nur, wenn das Gerät das auch kann.
             if gedeckelt in entity.commands:
                 command = gedeckelt
+            # Und hier entscheidet sich, ob der Wunsch überhaupt jetzt
+            # rausgeht: Ein Ablauf, der eine Box auf 20 % stellt, meint
+            # nicht die Box, auf der gerade Radio läuft (core/ton.py).
+            # Gemeldet wird trotzdem die Entität - für den Aufrufer ist
+            # der Befehl angenommen, nur eben auf später.
+            if ton.wunsch_verschieben(entity, command, nutzdaten):
+                return entity
         await integration.handle_command(entity, command, nutzdaten)
         return entity

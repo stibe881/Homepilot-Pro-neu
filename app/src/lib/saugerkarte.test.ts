@@ -13,7 +13,10 @@ import {
   roomAt,
   robotRoom,
   shapeInCrop,
+  saugerFaehrt,
   vacuumText,
+  zustandLesbar,
+  zustandWort,
 } from './saugerkarte';
 
 // Gang: ein diagonaler Streifen von links oben nach rechts unten. Seine
@@ -102,4 +105,37 @@ test('contentBox umschliesst alle Zimmer mit Rand', () => {
 test('vacuumText sagt Zustand und Akku', () => {
   const sauger = { state: { state: 'cleaning', battery: 82 } } as never;
   expect(vacuumText(sauger)).toBe('Reinigt · 82 %');
+});
+
+test('vacuumText schreibt nie einen Bezeichner auf die Kachel', () => {
+  // Der Fall aus dem Haus: «segment_cleaning · 87 %» stand da.
+  const sauger = { state: { state: 'segment_cleaning', battery: 87 } } as never;
+  expect(vacuumText(sauger)).toBe('Reinigt · 87 %');
+});
+
+test('vacuumText kennt die Arbeit an der Station', () => {
+  const sauger = { state: { state: 'washing_the_mop', battery: 100 } } as never;
+  expect(vacuumText(sauger)).toBe('Wäscht den Mopp · 100 %');
+});
+
+test('ein unbekannter Zustand wird wenigstens zu Wörtern', () => {
+  // Lieber ein englisches Wort mit grossem Anfangsbuchstaben als ein
+  // Unterstrich in der Wohnung.
+  expect(zustandLesbar('egg_attack')).toBe('Egg attack');
+  expect(zustandLesbar('')).toBe('–');
+});
+
+test('zustandWort gibt den Zustand ohne Akku', () => {
+  expect(zustandWort('returning_home')).toBe('Fährt zur Station');
+  expect(zustandWort('idle')).toBe('Bereit');
+});
+
+test('saugerFaehrt erkennt jede Art von Reinigen', () => {
+  // Sonst bot der Knopf «Reinigen» an, während sie reinigte.
+  expect(saugerFaehrt('cleaning')).toBe(true);
+  expect(saugerFaehrt('segment_cleaning')).toBe(true);
+  expect(saugerFaehrt('returning')).toBe(true);
+  expect(saugerFaehrt('charging')).toBe(false);
+  expect(saugerFaehrt('idle')).toBe(false);
+  expect(saugerFaehrt(undefined)).toBe(false);
 });

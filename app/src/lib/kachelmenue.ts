@@ -22,7 +22,12 @@
  * Knopf sieht, der ihm gleich ein «nicht erlaubt» einträgt.
  */
 
-export type KachelAktion = 'umbenennen' | 'sperren' | 'zaehlung' | 'verlauf';
+export type KachelAktion =
+  | 'umbenennen'
+  | 'sperren'
+  | 'zaehlung'
+  | 'verlauf'
+  | 'doppeltipp';
 
 export interface KachelEintrag {
   id: KachelAktion;
@@ -36,6 +41,9 @@ const EINTRAEGE: Record<KachelAktion, KachelEintrag> = {
   sperren: { id: 'sperren', label: 'Sperren', icon: 'lock-closed-outline' },
   zaehlung: { id: 'zaehlung', label: 'Oben nicht mitzählen', icon: 'eye-off-outline' },
   verlauf: { id: 'verlauf', label: 'Verlauf ansehen', icon: 'time-outline' },
+  // Die Beschriftung kommt von aussen (lib/doppeltipp.ts): Sie nennt
+  // den Wert, der gemerkt würde - «Doppeltipp merken: 40 %».
+  doppeltipp: { id: 'doppeltipp', label: 'Doppeltipp merken', icon: 'flash-outline' },
 };
 
 /** Beschriftung, die sagt, was der Griff bewirkt – nicht, was gerade gilt. */
@@ -73,6 +81,9 @@ export function kachelAktionen(moeglich: {
   /** Ist das Gerät schon aus der Zählung genommen? */
   ungezaehlt?: boolean;
   verlauf?: boolean;
+  /** Beschriftung für den Doppeltipp-Eintrag - fehlt sie, gibt es am
+   *  Gerät nichts zu merken (ein Schalter kennt nur an und aus). */
+  doppeltipp?: string | null;
 }): KachelEintrag[] {
   const eintraege: KachelEintrag[] = [];
   if (moeglich.verlauf) eintraege.push(EINTRAEGE.verlauf);
@@ -88,6 +99,11 @@ export function kachelAktionen(moeglich: {
   // liest und weiss, dass eines davon der Kühlschrank ist.
   if (moeglich.zaehlung) {
     eintraege.push(moeglich.ungezaehlt ? ZAEHLT_WIEDER : EINTRAEGE.zaehlung);
+  }
+  // Zuletzt: Der Doppeltipp ist eine Feineinstellung, kein Handgriff,
+  // den man sucht - er soll den Verlauf nicht nach unten schieben.
+  if (moeglich.doppeltipp) {
+    eintraege.push({ ...EINTRAEGE.doppeltipp, label: moeglich.doppeltipp });
   }
   return eintraege;
 }

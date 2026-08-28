@@ -136,7 +136,47 @@ RULES: list[dict[str, Any]] = [
                 "min": 15,
                 "max": 120,
                 "step": 15,
-            }
+            },
+            {
+                # Wie lange nach einer Vorwarnung Ruhe ist. Endet früher,
+                # sobald es regnet oder die Vorschau leer ist - das ist
+                # der Normalfall, und dann zählt diese Zahl gar nicht.
+                "key": "pause",
+                "label": "Danach Ruhe",
+                "unit": "Minuten",
+                "default": 120,
+                "min": 15,
+                "max": 240,
+                "step": 15,
+            },
+        ],
+    },
+    {
+        "key": "plants",
+        "title": "Pflanzen giessen",
+        "detail": "Abends, wenn es länger nicht geregnet hat, auch keiner "
+        "kommt und es warm genug war. Alle drei zusammen - bei 14 Grad "
+        "hält die Erde eine Woche, und wer giesst, während nachts der "
+        "Regen kommt, giesst zweimal.",
+        "params": [
+            {
+                "key": "days",
+                "label": "Trocken seit",
+                "unit": "Tagen",
+                "default": 3,
+                "min": 2,
+                "max": 10,
+                "step": 1,
+            },
+            {
+                "key": "degrees",
+                "label": "Erst ab",
+                "unit": "°C",
+                "default": 18.0,
+                "min": 10.0,
+                "max": 30.0,
+                "step": 1.0,
+            },
         ],
     },
     {

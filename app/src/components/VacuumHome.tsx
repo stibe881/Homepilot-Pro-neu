@@ -20,6 +20,7 @@ import {
   robotRoom,
   roomAt,
   shapeInCrop,
+  saugerFaehrt,
   vacuumText,
 } from '../lib/saugerkarte';
 import { Colors, radius, type, useColors } from '../theme';
@@ -250,7 +251,7 @@ export function VacuumHome({
   const rooms: VacuumRoom[] = Array.isArray(entity.state.rooms) ? entity.state.rooms : [];
   const mapSize = entity.state.map as { width: number; height: number } | undefined;
   const robot = Array.isArray(entity.state.robot) ? (entity.state.robot as number[]) : undefined;
-  const cleaning = entity.state.state === 'cleaning';
+  const cleaning = saugerFaehrt(entity.state.state);
   const [dialog, setDialog] = useState<{ mode: CleanMode; preselect?: number } | null>(null);
   const [stationOpen, setStationOpen] = useState(false);
   const [careOpen, setCareOpen] = useState(false);

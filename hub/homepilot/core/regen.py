@@ -120,6 +120,57 @@ def balken(minutely: Any, jetzt: datetime, anzahl: int = 8) -> list[float]:
     return reihe
 
 
+#: So lange nach einer Vorwarnung kommt keine zweite - es sei denn, der
+#: Schauer ist inzwischen durch (siehe ``vorbei``).
+#:
+#: Zwei Stunden, weil das die Spanne der Vorschau ist: Was innerhalb
+#: davon noch kommt, ist derselbe Schauer, über den schon geschrieben
+#: wurde.
+SPERRE_MINUTEN = 120
+
+
+def vorbei(stand: Any) -> bool:
+    """Ist die Sache erledigt, über die gewarnt wurde? (rein, testbar)
+
+    Zwei Enden, und beide zählen: Es regnet jetzt (die Warnung hat ihren
+    Zweck erfüllt), oder in der Vorschau steht nichts mehr (der Schauer
+    ist an uns vorbeigezogen). Danach darf wieder gewarnt werden.
+    """
+    if not isinstance(stand, dict):
+        return False
+    return bool(stand.get("now")) or stand.get("minutes") is None
+
+
+def melden(
+    stand: Any,
+    gemeldet_um: float | None,
+    jetzt: float,
+    grenze_minuten: float,
+    sperre_minuten: float = SPERRE_MINUTEN,
+) -> bool:
+    """Soll jetzt eine Vorwarnung raus? (rein, testbar)
+
+    Hier stand einmal eine Entprellung über den *errechneten*
+    Regenbeginn: ``(jetzt + minuten * 60) // 900``. Das sah nach einer
+    stabilen Kennung aus und war keine. ``minuten`` steht im Zustand der
+    Wetter-Entität und ändert sich nur, wenn der Hub das Wetter neu
+    holt; der Wächter läuft jede Minute. Zwischen zwei Abrufen wandert
+    ``jetzt`` also weiter, während ``minuten`` stehen bleibt - der
+    errechnete Beginn rückt mit, fällt irgendwann in die nächste
+    Viertelstunde, und die Meldung kam wieder. Und wieder.
+
+    Gemerkt wird deshalb, *wann* gewarnt wurde, und nicht, *wovor*.
+    """
+    if not isinstance(stand, dict) or stand.get("now"):
+        return False
+    minuten = stand.get("minutes")
+    if minuten is None or minuten > grenze_minuten:
+        return False
+    if gemeldet_um is None:
+        return True
+    return jetzt - gemeldet_um >= sperre_minuten * 60
+
+
 def satz(stand: Any) -> str | None:
     """Der Satz für die Meldung (rein, testbar).
 

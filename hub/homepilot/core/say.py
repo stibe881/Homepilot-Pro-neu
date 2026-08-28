@@ -232,6 +232,29 @@ async def speak(
         if folder:
             store_audio(folder, cleaned, audio)
 
+    return await play_audio(
+        hub, audio, address, speakers=speakers, volume=volume, source=source
+    )
+
+
+async def play_audio(
+    hub: Hub,
+    audio: bytes,
+    address: str,
+    speakers: list[str] | None = None,
+    volume: int | None = None,
+    source: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Fertigen Ton auf die Boxen legen.
+
+    Herausgelöst aus speak(): Woher die Töne kommen, ist ab hier egal -
+    gTTS, Piper oder ein ins Mikrofon gesprochener Satz (Sprachnotiz)
+    gehen denselben Weg. Der Weg selbst ist das Heikle daran und soll
+    nur einmal dastehen: kurzlebige Adresse, Lautstärke setzen, danach
+    den vorherigen Zustand der Boxen wiederherstellen.
+    """
+    if volume is None:
+        volume = DURCHSAGE_VOLUME
     token = hub.snapshots.put(audio)
     url = f"{address}/api/broadcast/{token}.mp3"
 

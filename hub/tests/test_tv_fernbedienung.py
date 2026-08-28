@@ -144,3 +144,35 @@ async def test_auch_die_timer_kachel_sagt_warum(hub):
     with pytest.raises(ConnectionError) as absage_:
         await integration.handle_command(timer, "sleep_timer", {"minutes": 30})
     assert str(absage_.value) == NICHT_ERREICHBAR
+
+
+# ── Ausschalten, was schon aus ist ─────────────────────────────────────
+
+
+async def test_ein_nicht_erreichbarer_fernseher_gilt_als_ausgeschaltet(hub):
+    """«Niemand mehr zuhause» schaltet zwei Fernseher und ein Dutzend
+    Boxen ab und schliesst zuletzt die Türe. Ein Gerät, das ohnehin schon
+    vom Netz war, brachte den ganzen Ablauf zum Stehen."""
+    integration, tv = await _aufbau(hub)
+    integration._gekoppelt[tv.id] = True
+    # Keine Fernbedienung im Fach: Der Fernseher ist nicht erreichbar.
+    await integration.handle_command(tv, "turn_off", {})
+    await integration.handle_command(tv, "pause", {})
+
+
+async def test_einschalten_sagt_weiterhin_dass_niemand_da_ist(hub):
+    """Die umgekehrte Richtung: Wer einschalten will, muss erfahren, dass
+    es nicht ging - sonst sucht er den Fehler beim Fernseher."""
+    integration, tv = await _aufbau(hub)
+    integration._gekoppelt[tv.id] = True
+    with pytest.raises(ConnectionError, match="Netz"):
+        await integration.handle_command(tv, "turn_on", {})
+
+
+async def test_eine_fehlende_kopplung_schweigt_auch_beim_ausschalten_nicht(hub):
+    """Sie ist ein Einrichtungsfehler, den man sehen muss - da hilft kein
+    Schweigen."""
+    integration, tv = await _aufbau(hub)
+    integration._gekoppelt[tv.id] = False
+    with pytest.raises(ConnectionError, match="gekoppelt"):
+        await integration.handle_command(tv, "turn_off", {})

@@ -9,6 +9,8 @@ kann, und dass die «Sendeadresse» meistens eine Wiedergabeliste ist.
 
 from typing import Any
 
+import pytest
+
 from homepilot.core.config import ApiConfig, HubConfig
 from homepilot.core.entity import Entity, EntityKind
 from homepilot.core.hub import Hub
@@ -719,3 +721,37 @@ def test_ohne_kennung_wird_nicht_geraten():
     alt = Station(name="Nur Name")
     treffer = [Station(name="Nur Name", id="s1", image="http://x.png")]
     assert mit_logo(alt, treffer).image == ""
+
+
+async def test_pausing_a_radio_that_is_not_running_is_not_an_error():
+    """«Radio aus», wenn kein Radio läuft, ist ein erfüllter Wunsch.
+
+    Als Fehler hielt es einen ganzen Ablauf an: «Niemand mehr zuhause»
+    stellt der Reihe nach ein Dutzend Boxen ab, und die erste, auf der
+    ohnehin nichts lief, brachte den Rest zum Stehen - samt Türschloss
+    am Ende der Liste.
+    """
+    hub, radio, box = await _hub_mit_box()
+    try:
+        await radio.setup()
+        entity = next(e for e in hub.registry.all() if e.integration == "tunein")
+        await radio.handle_command(entity, "pause", {})
+        # Nichts an die Box geschickt, aber auch kein Fehler geworfen.
+        assert box.gespielt == []
+    finally:
+        await hub.stop()
+
+
+async def test_other_commands_still_say_that_no_radio_runs():
+    """Lauter stellen, wo nichts läuft, ist dagegen eine Frage ohne
+    Antwort - und die soll man erfahren."""
+    from homepilot.core.errors import HomePilotError
+
+    hub, radio, _ = await _hub_mit_box()
+    try:
+        await radio.setup()
+        entity = next(e for e in hub.registry.all() if e.integration == "tunein")
+        with pytest.raises(HomePilotError, match="kein Radio"):
+            await radio.handle_command(entity, "set_volume", {"volume": 40})
+    finally:
+        await hub.stop()

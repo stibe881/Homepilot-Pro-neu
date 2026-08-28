@@ -28,6 +28,151 @@ programmiert.
 
 ---
 
+## Warum der Saugroboter die Alarmanlage nicht auslöst
+
+**Dafür:** Beim Weggehen schaltet der Ablauf die Anlage scharf und
+schickt den Sauger los – beides gewollt. Der Sauger fährt dann durch die
+Wohnung, der erste Bewegungsmelder sieht ihn, und die Sirene geht. Jedes
+Mal.
+
+Also schweigen **Bewegungsmelder und Kameras**, solange er unterwegs
+ist. **Fenster- und Türkontakte nicht** – und das ist der Punkt, an dem
+die Anlage scharf bleibt: Ein Sauger öffnet kein Fenster, und wer durch
+eines einsteigt, kommt weiterhin nicht unbemerkt hinein.
+
+Dazu fünf Minuten Nachlauf nach der Rückkehr. Ein Melder hält sein «on»
+je nach Modell ein bis fünf Minuten; ohne Nachlauf löst er genau in dem
+Moment aus, in dem der Sauger andockt – der Fehler wäre nur verschoben.
+
+Wer nachliest, warum nichts passiert ist, findet es im Alarm-Verlauf:
+Der erste übergangene Melder je Fahrt steht dort. Stillschweigend wäre
+es die falsche Art von Rücksicht.
+
+Kameras haben einen dritten Weg: Ein Saugroboter ist keine Person und
+kein Tier, und eine Kamera mit Erkennung weiss das (UniFi Protect meldet
+neben der Bewegung, *was* sie sieht). Also schweigt dort nur die blosse
+Bewegung – wer durchs Bild läuft, löst weiterhin aus, mitten in der
+Reinigung. Welche Erkennungen durchbrechen, steht unter Alarm →
+Einstellungen; Person und Tier sind vorgewählt, Fahrzeuge und Pakete
+stehen gar nicht zur Wahl – das sind Dinge vor der Haustür.
+
+**Kostet:** Ein Einbrecher, der während der Reinigung durch eine offene
+Tür hereinspaziert und an keiner Kamera mit Erkennung vorbeikommt, wird
+von den Bewegungsmeldern nicht mehr gesehen. Die Kontakte melden ihn –
+wenn er eine Tür oder ein Fenster öffnet. Wer seine Wohnung offen stehen
+lässt, hat das Loch.
+
+Eine Kamera, die nur Bewegung meldet (Ring), bleibt während der Fahrt
+ganz still: Dort kann der Hub nicht unterscheiden, ob er den Sauger
+sieht oder jemanden. Und meldet die Kamera den Sauger selbst als «Tier»
+– manche Modelle tun das –, ist man wieder beim Fehlalarm; dann nimmt
+man «Tier» aus der Auswahl.
+
+Und: Der Hub verlässt sich darauf, dass er den Zustand des Saugers
+kennt. Meldet die Roborock-Wolke gerade nichts, hält er ihn für geparkt
+und die Melder wachen – dann ist es der alte Fehlalarm, nicht ein neues
+Loch. Diese Richtung ist die richtige.
+
+**Wann es falsch wäre:** Wenn der Sauger nachts liefe, während jemand
+schläft. Im Modus «Nacht» sind Bewegungsmelder ohnehin meist nicht
+zugeordnet; wer sie dort braucht, schaltet die Rücksicht aus.
+
+---
+
+## Warum «ausschalten, was schon aus ist» kein Fehler ist
+
+**Dafür:** «Musik aus» auf einer Box, auf der nichts läuft, ist ein
+erfüllter Wunsch. Trotzdem meldeten die Integrationen der Reihe nach
+einen Fehler: Google Cast («Failed to execute pause.»), das Radio («Es
+läuft gerade kein Radio»), Spotify (kein aktives Gerät), der Fernseher
+(nicht erreichbar). Vier verschiedene Meldungen für dasselbe Nichts.
+
+Im Ablauf «Niemand mehr zuhause» stehen sechzig solcher Schritte, und
+das Türschloss steht am Ende. Solange ein Fehler den Lauf anhielt, war
+das teuer; seit er es nicht mehr tut, ist es Lärm im Protokoll. Beides
+sind gute Gründe, das Nichts nicht als Fehler zu behandeln.
+
+Die Regel gilt nur für Medien und nur in eine Richtung: Wer *abspielen*
+will, wo nichts ist, erfährt das weiterhin – da ist die Frage offen und
+die Antwort nützlich.
+
+Beim Fernseher kommt eine Unterscheidung dazu: Ein **gekoppelter**
+Fernseher, den der Hub nicht erreicht, ist vom Netz und damit aus – «mach
+ihn aus» ist erledigt. Eine **fehlende Kopplung** ist dagegen ein
+Einrichtungsfehler, den man sehen muss; da hilft kein Schweigen.
+
+**Kostet:** Der Hub verlässt sich dabei auf seinen eigenen Stand. Ist der
+veraltet – die Box spielt, der Hub weiss es noch nicht –, geht das Pause
+ins Leere und niemand erfährt es. Bei Lampen wäre das untragbar (dort
+drückt man «aus» oft *gerade weil* die Anzeige nicht stimmt), deshalb
+gilt die Regel ausdrücklich nicht für sie.
+
+**Wann es falsch wäre:** Bei einem Gerät, dessen Zustand der Hub nur
+selten erfährt. Dort ist ein Befehl ins Blaue besser als ein
+übersprungener.
+
+---
+
+## Warum der Handstart nur manchmal nachfragt
+
+**Dafür:** Jeder Ablauf hat in der Liste einen Knopf, der ihn sofort
+ausführt – beim Einrichten drückt man ihn zehnmal hintereinander. Eine
+Rückfrage bei jedem Druck wäre genau das, worüber man sich beim elften
+Mal ärgert.
+
+Aber ein Fehlgriff auf «Niemand mehr zuhause» schliesst die Türe und
+schaltet den Alarm scharf, und das nimmt man nicht in einer Sekunde
+zurück. Also fragt der Knopf nur dort: bei Abläufen, die ein Schloss
+oder die Alarmanlage anfassen. Dieselbe Grenze zieht das Suchfeld
+(`lib/suchbefehl.ts`) – die zwei Dinge, die man nicht nebenbei schaltet.
+
+Die Rückfrage sagt dabei etwas, das man von selbst nicht erwartet: Der
+Handstart übergeht die Bedingungen. Er führt aus, auch wenn der Ablauf
+im Alltag gestoppt hätte – beim Ausprobieren will man das Ergebnis
+sehen, nicht die Bedingung prüfen.
+
+**Kostet:** Die Liste der heiklen Befehle steht im Code und nicht in
+einer Einstellung. Kommt ein Gerät dazu, dessen Fehlgriff wehtut (ein
+Garagentor, ein Wasserhahn), muss jemand sie ergänzen.
+
+**Wann es falsch wäre:** In einem Haushalt, in dem alle Abläufe harmlos
+sind – dort ist jede Rückfrage eine zu viel. Und in einem, in dem alle
+wehtun: Dann wäre eine Rückfrage für alle ehrlicher als eine Liste, die
+den halben Bestand vergisst.
+
+---
+
+## Warum ein hängender Schritt einen Ablauf nicht anhält
+
+**Dafür:** «Niemand mehr zuhause» schaltet sechzig Geräte ab, schaltet
+die Alarmanlage scharf und schliesst zuletzt die Türe. Bricht der Lauf
+beim ersten Fehler ab, entscheidet der unwichtigste Schritt über die
+wichtigsten – eine Box, auf der ohnehin nichts lief, liess die Wohnung
+offen und unscharf. Genau so ist es passiert.
+
+Ein Ablauf ist keine Transaktion. Es gibt kein «alles oder nichts»: Die
+vierzig Lichter, die schon aus sind, gehen nicht wieder an. Wenn ohnehin
+ein Teil getan ist, ist der grössere Teil besser als der kleinere – und
+die Reihenfolge in der Liste ist keine Rangfolge der Wichtigkeit,
+sondern die, in der man sie eingetippt hat.
+
+**Kostet:** Ein Ablauf, der auf halbem Weg stolpert, läuft weiter,
+obwohl die Voraussetzung für den Rest vielleicht nicht mehr stimmt. Wer
+«Fenster schliessen, dann Alarm scharf» schreibt, bekommt den scharfen
+Alarm auch bei offenem Fenster – die Alarmanlage meldet das dann selbst,
+aber der Ablauf tut es nicht mehr.
+
+Und: Ein Fehler fällt weniger auf. Deshalb steht er weiter am Ablauf,
+jetzt aber mit dem Gerät im Satz («Nest Gang Musik: … Der Rest lief
+durch.») statt als blosses «Fehlgeschlagen», und die Schritt-Spur
+markiert die hängende Zeile.
+
+**Wann es falsch wäre:** Bei einem Ablauf, dessen Schritte wirklich
+aufeinander aufbauen. Dafür gibt es «Warten bis» – eine Bedingung, die
+den Lauf anhält, ist etwas anderes als ein Gerät, das nicht antwortet.
+
+---
+
 ## Warum eine JSON-Datei statt einer Datenbank
 
 **Dafür:** Der Haushalt umfasst ein paar hundert Einträge – Benutzer,

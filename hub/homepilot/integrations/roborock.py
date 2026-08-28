@@ -59,6 +59,106 @@ def fan_speed_code(level: Any) -> int:
     return FAN_SPEEDS[name]
 
 
+#: Zustandsnamen der Bibliothek → das Vokabular, das der Rest des Hauses
+#: spricht.
+#:
+#: python-roborock reicht durch, was der Sauger sagt: «segment_cleaning»,
+#: «going_to_wash_the_mop», «charger_disconnected». In der App stand das
+#: dann wörtlich auf der Kachel - und schlimmer: Wer «cleaning» abfragte,
+#: um zu wissen, ob der Sauger fährt, bekam beim Reinigen einzelner
+#: Räume «nein». Der Knopf bot «Reinigen» an, während sie reinigte, und
+#: die Live-Karte blieb stehen.
+#:
+#: Übersetzt wird auf die sechs Wörter, die App, Widget und Verlauf
+#: ohnehin kennen. Was die Bibliothek an Nuance mitbringt, geht nicht
+#: verloren - es steht als ``state_raw`` daneben.
+ZUSTAND_WOERTER: dict[str, str] = {
+    # Unterwegs, in allen Spielarten.
+    "cleaning": "cleaning",
+    "segment_cleaning": "cleaning",
+    "zoned_cleaning": "cleaning",
+    "spot_cleaning": "cleaning",
+    "room_cleaning": "cleaning",
+    "going_to_target": "cleaning",
+    "manual_mode": "cleaning",
+    "remote_control_active": "cleaning",
+    "mapping": "cleaning",
+    "patrol": "cleaning",
+    # Auf dem Weg zurück.
+    "returning_home": "returning",
+    "returning": "returning",
+    "docking": "returning",
+    "going_to_wash_the_mop": "returning",
+    "back_to_dock": "returning",
+    # An der Station.
+    "charging": "charging",
+    "charging_complete": "docked",
+    "docked": "docked",
+    "full": "docked",
+    "emptying_the_bin": "docked",
+    "washing_the_mop": "docked",
+    "attaching_the_mop": "docked",
+    "detaching_the_mop": "docked",
+    "air_drying": "docked",
+    "air_drying_stopping": "docked",
+    "drying": "docked",
+    # Steht herum.
+    "idle": "idle",
+    "starting": "idle",
+    "sleeping": "idle",
+    "shutting_down": "idle",
+    "updating": "idle",
+    "paused": "paused",
+    # Etwas stimmt nicht.
+    "error": "error",
+    "charging_problem": "error",
+    "device_offline": "error",
+    "locked": "error",
+}
+
+#: Wortteile für alles, was in der Liste fehlt. Die Namen wachsen mit
+#: Modell und Firmware; eine Liste allein wäre nach dem nächsten Update
+#: wieder unvollständig - und dann stünde wieder ein Bezeichner auf der
+#: Kachel.
+ZUSTAND_STAEMME: tuple[tuple[str, str], ...] = (
+    ("clean", "cleaning"),
+    ("return", "returning"),
+    ("dock", "returning"),
+    ("charg", "charging"),
+    ("wash", "docked"),
+    ("dry", "docked"),
+    ("mop", "docked"),
+    ("empty", "docked"),
+    ("error", "error"),
+    ("problem", "error"),
+    ("offline", "error"),
+    ("pause", "paused"),
+)
+
+
+def zustand_name(roh: Any) -> str:
+    """Den Zustand der Bibliothek auf unser Vokabular bringen (rein, testbar).
+
+    Was auch die Wortstämme nicht treffen, bleibt «unknown» - dafür hat
+    die App ein Wort («Unbekannt»), und der Wortlaut steht als
+    ``state_raw`` daneben. Etwas zu raten wäre hier teuer: «unterwegs»
+    hiesse, die Karte im Sekundentakt zu holen und die Bewegungsmelder
+    stillzulegen (alarm_rules.sauger_faehrt), «steht» hiesse das
+    Gegenteil. Nichts zu behaupten ist die einzige Antwort, die nicht
+    falsch sein kann.
+    """
+    text = str(roh or "").strip().lower().replace(" ", "_").replace("-", "_")
+    if not text:
+        return "unknown"
+    treffer = ZUSTAND_WOERTER.get(text)
+    if treffer is not None:
+        return treffer
+    for stamm, wort in ZUSTAND_STAEMME:
+        if stamm in text:
+            return wort
+    return "unknown"
+
+
 def vacuum_state(status: Any) -> dict[str, Any]:
     """Übersetzt den Status der Bibliothek in Entitäts-Attribute.
 
@@ -67,7 +167,11 @@ def vacuum_state(status: Any) -> dict[str, Any]:
     """
     state_name = getattr(status, "state_name", None)
     result: dict[str, Any] = {
-        "state": state_name or "unknown",
+        "state": zustand_name(state_name),
+        # Der Wortlaut der Bibliothek bleibt daneben stehen: Er sagt, ob
+        # gerade der ganze Boden oder nur die Küche dran ist, und das
+        # steht so in keinem übersetzten Wort.
+        "state_raw": str(state_name) if state_name else None,
         "battery": getattr(status, "battery", None),
     }
     error = getattr(status, "error_code_name", None)
@@ -715,6 +819,9 @@ class RoborockIntegration(Integration):
         """
         for entity_id, device in self._devices.items():
             entity = self.hub.registry.get(entity_id)
+            # «cleaning» heisst seit zustand_name() auch das Reinigen
+            # einzelner Räume. Vorher stand die Live-Karte beim
+            # Segmentreinigen still - genau dann, wenn man zusieht.
             if entity is None or entity.state.get("state") != "cleaning":
                 continue
             try:

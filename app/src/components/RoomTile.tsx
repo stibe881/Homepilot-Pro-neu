@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Entity, Scene } from '../api/types';
 import { Colors, radius, useColors } from '../theme';
 import { Card } from './Card';
+import { zustandWort } from '../lib/saugerkarte';
 import { raumSymbol, raumZeile, wichtigeZuerst } from '../lib/raum';
 import { timerZeile } from '../lib/fernsehtimer';
 import { zustandsText } from '../lib/haushalt';
@@ -60,7 +61,10 @@ export function shortState(entity: Entity): string {
     case 'lock':
       return state === 'locked' ? 'Zu' : 'Offen';
     case 'vacuum':
-      return state === 'cleaning' ? 'Reinigt' : state === 'charging' ? 'Lädt' : 'Bereit';
+      // Über die gemeinsame Übersetzung: «segment_cleaning» ist auch
+      // Reinigen, und ein Bezeichner gehört auf keine Kachel
+      // (lib/saugerkarte.ts).
+      return zustandWort(state);
     case 'appliance':
       // Nicht «sonst Bereit»: Ein Gerät im Standby oder ohne je gehörte
       // Meldung ist nicht bereit, es schweigt nur.

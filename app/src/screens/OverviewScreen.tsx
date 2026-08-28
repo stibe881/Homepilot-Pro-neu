@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Linking,
   Modal,
@@ -49,6 +49,14 @@ import { DURCHSAGE_ID, favoritenOrdnen } from '../lib/favoritenordnung';
 import { haustuerZeile } from '../lib/klingel';
 import { KalenderZeile, geburtstagsListe, terminListe } from '../lib/kalenderliste';
 import { applianceLine } from '../lib/haushalt';
+import {
+  aufnahmeFehler,
+  dauerText as aufnahmeDauer,
+  kannAufnehmen,
+  MINDESTENS_MS,
+  starteAufnahme,
+  type Aufnahme,
+} from '../lib/sprachnotiz';
 import { mayOpenDirectly } from '../lib/tuerbestaetigung';
 import { Colors, radius, space, useColors } from '../theme';
 
@@ -95,6 +103,12 @@ interface Props {
   /** Zuletzt gewählte Box und selbst getippte Sätze - siehe usePrefs. */
   durchsage?: DurchsagePrefs;
   onDurchsagePrefs?: (prefs: DurchsagePrefs) => void;
+  /** Eine selbst gesprochene Notiz auf die Boxen. Fehlt sie (native
+   *  App, kein Mikrofon), zeigt das Blatt den Knopf gar nicht erst. */
+  onSprachnotiz?: (
+    aufnahme: Blob,
+    speakers: string[]
+  ) => Promise<{ sent?: string[]; errors?: string[] }>;
 }
 
 const WEEKDAYS = [
@@ -175,6 +189,7 @@ export function OverviewScreen({
   onDurchsage,
   durchsage,
   onDurchsagePrefs,
+  onSprachnotiz,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -914,6 +929,7 @@ export function OverviewScreen({
               prefs={durchsage}
               onPrefs={onDurchsagePrefs}
               onSenden={onDurchsage}
+              onSprachnotiz={onSprachnotiz}
               onClose={() => setDurchsageOffen(false)}
               styles={styles}
               colors={colors}
@@ -1077,6 +1093,7 @@ function DurchsageFenster({
   prefs,
   onPrefs,
   onSenden,
+  onSprachnotiz,
   onClose,
   styles,
   colors,
@@ -1086,6 +1103,10 @@ function DurchsageFenster({
   onPrefs?: (prefs: DurchsagePrefs) => void;
   onSenden: (
     text: string,
+    speakers: string[]
+  ) => Promise<{ sent?: string[]; errors?: string[] }>;
+  onSprachnotiz?: (
+    aufnahme: Blob,
     speakers: string[]
   ) => Promise<{ sent?: string[]; errors?: string[] }>;
   onClose: () => void;
@@ -1110,6 +1131,71 @@ function DurchsageFenster({
   // selbst getippt hat, steht gleichberechtigt nebeneinander und lässt
   // sich gleich behandeln.
   const texte = useMemo(() => saetzeVon(prefs ?? {}), [prefs]);
+
+  // Die Sprachnotiz: laufende Aufnahme, ihr Beginn (für die Uhr) und
+  // ob dieser Browser überhaupt ein Mikrofon hergibt. `kannAufnehmen`
+  // einmal beim Anlegen - die Antwort ändert sich nicht mehr, und in
+  // der nativen App fällt der Knopf damit ganz weg statt auszugrauen.
+  const mikrofon = useMemo(() => !!onSprachnotiz && kannAufnehmen(), [onSprachnotiz]);
+  const laufend = useRef<Aufnahme | null>(null);
+  const [seit, setSeit] = useState<number | null>(null);
+  const [jetzt, setJetzt] = useState(() => Date.now());
+
+  // Die Sekundenanzeige läuft nur, solange aufgenommen wird - ein
+  // Ticker, der immer läuft, zeichnet das Blatt bei jedem Tippen neu.
+  useEffect(() => {
+    if (seit === null) return;
+    const takt = setInterval(() => setJetzt(Date.now()), 250);
+    return () => clearInterval(takt);
+  }, [seit]);
+
+  // Beim Schliessen des Blattes das Mikrofon loslassen. Sonst bliebe im
+  // Browser der rote Punkt im Tab stehen, und auf dem Wandpanel sähe
+  // es aus, als höre die Wohnung weiter zu.
+  useEffect(
+    () => () => {
+      laufend.current?.abbrechen();
+      laufend.current = null;
+    },
+    []
+  );
+
+  const aufnahmeUmschalten = async () => {
+    if (busy) return;
+    if (laufend.current) {
+      const aufnahme = laufend.current;
+      const dauer = Date.now() - (seit ?? Date.now());
+      laufend.current = null;
+      setSeit(null);
+      const ton = await aufnahme.stopp();
+      // Zu kurz heisst: Der Knopf ist gewackelt. Das hier zu sagen ist
+      // freundlicher, als eine Zehntelsekunde Rauschen durchs Haus zu
+      // schicken - und der Hub wiese sie ohnehin ab.
+      if (!ton || dauer < MINDESTENS_MS) {
+        setNote('Zu kurz - den Knopf gedrückt lassen, bis der Satz durch ist.');
+        return;
+      }
+      setBusy(true);
+      setNote(null);
+      try {
+        const antwort = await onSprachnotiz?.(ton, sprecherFuer(ziel));
+        setNote(bestaetigung(antwort ?? {}));
+      } catch (err) {
+        setNote(String(err instanceof Error ? err.message : err));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    try {
+      laufend.current = await starteAufnahme();
+      setSeit(Date.now());
+      setJetzt(Date.now());
+      setNote(null);
+    } catch (err) {
+      setNote(aufnahmeFehler(err));
+    }
+  };
 
   const speichern = () => {
     const sauber = frei.trim();
@@ -1366,6 +1452,35 @@ function DurchsageFenster({
                 color="#FFFFFF"
               />
             </Pressable>
+            {/* Die Sprachnotiz steht neben dem Textfeld und nicht
+                darüber: Es ist dieselbe Frage («was soll durchgesagt
+                werden?»), nur mit der Stimme beantwortet. Während der
+                Aufnahme steht die Zeit im Knopf - sonst weiss niemand,
+                ob das Mikrofon wirklich läuft. */}
+            {mikrofon && !verwalten ? (
+              <Pressable
+                onPress={aufnahmeUmschalten}
+                disabled={busy}
+                accessibilityRole="button"
+                accessibilityState={{ busy: seit !== null }}
+                accessibilityLabel={
+                  seit === null
+                    ? `Sprachnotiz aufnehmen für ${zielText(ziel, boxen)}`
+                    : 'Aufnahme beenden und durchsagen'
+                }
+                style={({ pressed }) => [
+                  styles.durchsageSenden,
+                  seit !== null && { backgroundColor: colors.danger },
+                  (pressed || busy) && { opacity: 0.5 },
+                ]}
+              >
+                {seit === null ? (
+                  <Ionicons name="mic-outline" size={18} color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.durchsageZeit}>{aufnahmeDauer(jetzt - seit)}</Text>
+                )}
+              </Pressable>
+            ) : null}
           </View>
 
           {note ? <Text style={styles.durchsageNote}>{note}</Text> : null}
@@ -1783,6 +1898,14 @@ const makeStyles = (colors: Colors) =>
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: colors.accent,
+    },
+    // Die laufende Sekunde im Aufnahmeknopf - gleich gross wie das
+    // Symbol daneben, damit die Zeile beim Umschalten nicht springt.
+    durchsageZeit: {
+      color: '#FFFFFF',
+      fontSize: 13,
+      fontWeight: '700',
+      fontVariant: ['tabular-nums'],
     },
     durchsageNote: { color: colors.inkSoft, fontSize: 13, lineHeight: 18 },
     timerStand: { flexDirection: 'row', alignItems: 'center', gap: 8 },

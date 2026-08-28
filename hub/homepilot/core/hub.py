@@ -59,6 +59,7 @@ from .events import EventBus
 from .guestpass import PassStore
 from .integration import IntegrationManager
 from .kurzverlauf import Kurzverlauf
+from .lautplan import Lautplan
 from .logbuffer import install as install_log_buffer
 from .musik import Musikbuch
 from .persistence import DataStore
@@ -134,6 +135,9 @@ class Hub:
         # Was die Musik sich merkt: Favoriten, was zuletzt lief,
         # Schlummer-Timer und Musikwecker.
         self.musik = Musikbuch(self)
+        # Lautstärke nach Tageszeit - der Plan, der vier gleichartige
+        # Abläufe ersetzt (core/lautplan.py).
+        self.lautplan = Lautplan(self)
         # Wandelt Kamerabilder in HLS um – läuft nur, solange jemand zuschaut.
         # Bevorzugt über mediamtx (Low-Latency), sonst über ffmpeg.
         self.streams = StreamManager(
@@ -195,6 +199,7 @@ class Hub:
         self.watchdog.start()
         self.ton.start()
         self.musik.start()
+        self.lautplan.start()
         self._backup_task = asyncio.create_task(self._backup_loop())
         # Gesammelte Schreibvorgänge nachholen: Der DataStore schreibt bei
         # einem Schwall nur den ersten sofort (siehe persistence.FLUSH_DELAY);
@@ -654,6 +659,7 @@ class Hub:
         await self.watchdog.stop()
         await self.timers.stop()
         await self.musik.stop()
+        await self.lautplan.stop()
         await self.automations.stop()
         await self.integrations.teardown_all()
         if self.store:

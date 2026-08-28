@@ -45,6 +45,11 @@ WORTE: dict[str, str] = {
     "cleaning": "saugt",
     "docked": "in der Station",
     "returning": "fährt heim",
+    # Was der Sauger sonst noch meldet - integrations/roborock.py bringt
+    # alles auf dieses Vokabular, damit hier kein «segment_cleaning»
+    # ankommt.
+    "error": "Störung",
+    "unknown": "unbekannt",
     "charging": "lädt",
     "armed": "scharf",
     "armed_away": "scharf",

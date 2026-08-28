@@ -10,7 +10,8 @@ import {
   View,
 } from 'react-native';
 
-import { Entity, Scene } from '../api/types';
+import { CommandData, Entity, Scene } from '../api/types';
+import { befehlAusText } from '../lib/suchbefehl';
 import { Colors, radius, useColors } from '../theme';
 
 /**
@@ -118,6 +119,7 @@ export function GlobalSearch({
   rooms,
   onClose,
   onPick,
+  onCommand,
 }: {
   visible: boolean;
   entities: Entity[];
@@ -126,12 +128,17 @@ export function GlobalSearch({
   rooms: string[];
   onClose: () => void;
   onPick: (hit: Hit) => void;
+  /** Ohne diesen Weg bleibt die Suche eine Suche - dann fehlt die
+   *  Ausführen-Zeile ganz, statt einen Knopf ohne Wirkung zu zeigen. */
+  onCommand?: (entityId: string, command: string, data?: CommandData) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [query, setQuery] = useState('');
 
   const hits = search(query, entities, scenes, automations, rooms);
+  // «licht küche aus» ist eine Ansage, keine Suche (lib/suchbefehl.ts).
+  const befehl = onCommand ? befehlAusText(query, entities) : null;
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -155,13 +162,39 @@ export function GlobalSearch({
             ) : null}
           </View>
 
+          {/* Die Ausführen-Zeile steht über den Treffern: Wer den Satz
+              getippt hat, meint ihn - und sie sagt vorher genau, was
+              passiert, statt es beim Tippen schon zu tun. */}
+          {befehl ? (
+            <Pressable
+              onPress={() => {
+                setQuery('');
+                onCommand?.(befehl.entityId, befehl.command, befehl.data);
+                onClose();
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={`Ausführen: ${befehl.satz}`}
+              style={({ pressed }) => [styles.befehlRow, pressed && { opacity: 0.7 }]}
+            >
+              <Ionicons name="flash" size={20} color={colors.accent} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowTitle} numberOfLines={1}>
+                  {befehl.satz}
+                </Text>
+                <Text style={styles.rowDetail}>Ausführen</Text>
+              </View>
+              <Ionicons name="return-down-back" size={16} color={colors.inkFaint} />
+            </Pressable>
+          ) : null}
+
           {query.trim().length < 2 ? (
             <Text style={styles.hint}>
               Ab zwei Zeichen wird gesucht – über Geräte, Räume, Szenen und
-              Abläufe hinweg.
+              Abläufe hinweg. Wer gleich schalten will, schreibt es hin:
+              «licht küche aus», «store wohnzimmer 40».
             </Text>
           ) : hits.length === 0 ? (
-            <Text style={styles.hint}>Nichts gefunden.</Text>
+            befehl ? null : <Text style={styles.hint}>Nichts gefunden.</Text>
           ) : (
             <ScrollView style={{ maxHeight: 420 }} keyboardShouldPersistTaps="handled">
               {hits.map((hit) => (
@@ -227,6 +260,20 @@ const makeStyles = (colors: Colors) =>
     input: { flex: 1, color: colors.ink, fontSize: 16 },
     hint: { color: colors.inkFaint, fontSize: 13, lineHeight: 19, paddingVertical: 8 },
     row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
+    // Die Ausführen-Zeile hebt sich ab: Sie tut etwas, die anderen
+    // führen nur hin.
+    befehlRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      paddingVertical: 10,
+      paddingHorizontal: 12,
+      marginBottom: 4,
+      borderRadius: radius.control,
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.accent,
+    },
     rowTitle: { color: colors.ink, fontSize: 15, fontWeight: '600' },
     rowDetail: { color: colors.inkFaint, fontSize: 12 },
   });

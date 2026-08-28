@@ -43,6 +43,89 @@ kann:
 - **Musikwecker.** Weckt mit einem Sender statt mit Piepsen und blendet
   ein.
 
+## Lautstärke nach Tageszeit
+
+Unter *Einstellungen → Lautsprecher* steht eine Liste: ab wann, wie
+laut. Vier Stufen decken den Tag ab – morgens leise, tagsüber laut,
+abends wieder leise, nachts fast aus. Die Stufe, die gerade gilt, ist
+hervorgehoben.
+
+Der Plan gilt für den **Ruhezustand** einer Box. Das ist der springende
+Punkt: Wie laut es ist, während jemand zuhört, entscheidet der Mensch
+mit dem Regler – nicht die Uhr. Der Plan sagt nur, wie laut die Box
+sein soll, wenn sie das nächste Mal etwas von sich gibt.
+
+Daraus folgen drei Dinge:
+
+- **Beim Stufenwechsel wird gestellt** – aber nur bei Boxen, auf denen
+  nichts läuft. In eine laufende Wiedergabe hineinzustellen, ist ein
+  Eingriff, kein Grundwert.
+- **Endet die Wiedergabe, gilt der Sollwert der jetzigen Zeit.** Nicht
+  der Wert vom letzten Stufenwechsel: Läuft das Radio von sieben bis
+  elf, gilt beim Ausschalten der Tag-Wert und nicht der Morgen-Wert,
+  den die Box vor vier Stunden verpasst hat.
+- **Nach einem Neustart ebenso.** Eine stille Box auf einem Wert, den
+  niemand mehr kennt, ist genau der Zustand, den der Plan abschafft.
+
+Zwischen zwei Stufenwechseln lässt der Plan die Boxen in Ruhe – wer um
+elf von Hand lauter dreht, hat bis zwanzig Uhr seine Ruhe. Sonst zöge
+der Plan jeden Handgriff innerhalb einer Minute wieder zurück.
+
+Um Mitternacht wird nicht gerechnet, sondern umgeschlagen: Steht die
+letzte Stufe auf 23:45, gilt sie bis zur ersten des nächsten Tages.
+
+Fernseher stehen aussen vor: Ihre Lautstärke gehört zum Bild, nicht zur
+Tageszeit.
+
+**Braucht es dafür Abläufe?** Nein – der Plan ersetzt sie. Vier Abläufe,
+die alle dasselbe tun und sich nur in einer Zahl unterscheiden, sind
+genau die Arbeit, die der Hub selbst erledigen kann. Wer trotzdem einen
+Ablauf schreibt, der die Lautstärke stellt, bekommt dieselbe
+Rücksicht: Läuft auf der Box gerade etwas, wird der Wunsch gemerkt und
+nachgereicht, sobald die Wiedergabe endet (Schalter «Abläufe stellen
+eine spielende Box erst um …»). Deckt ein Tagesplan dieselbe Box ab,
+gewinnt er – er kennt den Sollwert der jetzigen Zeit, der gemerkte
+Wunsch nur den von damals.
+
+## Der Ein/Aus-Knopf auf der Boxenkachel
+
+Unten rechts auf jeder Kachel, wie überall sonst. Bei einer Box heisst
+er wirklich «aus»: Die Sitzung wird beendet, nicht nur angehalten –
+danach steht die Box frei da. Pause allein hält den Empfänger besetzt,
+und vom Telefon aus weckt ihn jeder Handgriff wieder auf.
+
+Ist die Box pausiert, spielt derselbe Knopf weiter. Läuft gar nichts,
+steht dort kein Knopf: Auf einer leeren Box gibt es nichts zu starten.
+
+## Durchsage und Sprachnotiz
+
+Die Durchsage-Kachel auf der Startseite schickt einen Satz auf die
+Boxen: antippen, Satz wählen, fertig. Der Hub spricht ihn vor (gTTS oder
+Piper, siehe `docs/integrationen.md`).
+
+Daneben steht ein **Mikrofonknopf**: statt zu tippen, spricht man den
+Satz selbst. Antippen startet, antippen beendet und schickt – die
+laufende Sekundenzahl steht im Knopf, damit man sieht, dass das Mikrofon
+wirklich läuft. Nach einer Minute stoppt die Aufnahme von selbst.
+
+Das ist oft der schnellere Weg («Levin, in fünf Minuten gehen wir» ist
+schneller gesagt als getippt) und der persönlichere: Aus der Box kommt
+eine Stimme, die im Haus jemandem gehört.
+
+**Den Knopf gibt es nur im Browser und auf dem Wandpanel, nicht in der
+App auf dem Telefon.** Aufnehmen bräuchte dort ein Mikrofon-Modul, das
+die App nicht hat; eines nachzurüsten hiesse eine neue
+`runtimeVersion` – und damit wäre der OTA-Kanal für alle Telefone
+gekappt, bis jemand einen TestFlight-Build installiert (siehe CLAUDE.md,
+«Ausliefern»). Ein hoher Preis für eine Kleinigkeit, die der Browser
+ohnehin kann. Deshalb zeigt die App den Knopf dort gar nicht erst, statt
+ihn auszugrauen.
+
+Der Hub wandelt die Aufnahme nicht um, er reicht sie durch und nennt der
+Box den richtigen Typ. Google-Cast-Geräte spielen WebM/Opus – genau das,
+was ein Browser aufnimmt. Ältere Boxen wollen MP3 oder WAV; was eine Box
+nicht spielt, steht als Fehler in der Rückmeldung.
+
 ## Was der Hub selbst tut
 
 - Nach einer **Durchsage** stellt er die Lautstärke zurück und nimmt die

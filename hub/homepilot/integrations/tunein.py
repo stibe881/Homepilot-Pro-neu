@@ -742,6 +742,14 @@ class TuneInIntegration(Integration):
         # Alles Übrige geht an die Box: Lautstärke und Pause kann sie
         # selbst, und zwei Regler für dieselbe Box wären einer zu viel.
         if self._box is None:
+            if command == "pause":
+                # «Radio aus», wenn kein Radio läuft, ist ein erfüllter
+                # Wunsch und kein Fehler. Als Fehler hielt es einen
+                # ganzen Ablauf an: «Niemand mehr zuhause» stellt der
+                # Reihe nach ein Dutzend Boxen ab, und die erste, auf der
+                # ohnehin nichts lief, brachte den Rest zum Stehen -
+                # samt Türschloss am Ende der Liste.
+                return
             raise HomePilotError("Es läuft gerade kein Radio")
         weiter = "pause" if command == "pause" else command
         await self.hub.integrations.dispatch_command(self._box, weiter, data)

@@ -34,6 +34,7 @@ from . import (
     energy,
     familie,
     gemeldet,
+    giessen,
     maintenance,
     morgen,
     notifyrules,
@@ -92,6 +93,11 @@ HOLIDAY_ASK_AGAIN = 48 * 3600
 # So lange vor dem Ablauf bekommt ein Gast Bescheid.
 ACCESS_WARN_SECONDS = 15 * 60
 
+#: Wo der Zeitpunkt der letzten Regen-Vorwarnung liegt. Auf der Platte,
+#: weil zwischen Vorwarnung und Regen eine Viertelstunde liegt und ein
+#: Update dazwischen der Normalfall ist.
+REGEN_KEY = "rain_warned"
+
 
 class Watchdog:
     def __init__(self, hub: Hub) -> None:
@@ -105,6 +111,9 @@ class Watchdog:
         self._reported_down: set[str] = set()
         # Haushaltgeräte: Zustand der letzten Runde, Zeitpunkt des
         # Programmendes und was schon erinnert wurde.
+        # Wann zuletzt vor Regen gewarnt wurde - beim Start aus der
+        # Datendatei geholt (siehe REGEN_KEY).
+        self._regen_gemeldet: float | None = None
         self._last_state: dict[str, str] = {}
         self._started_at: dict[str, float] = {}
         self._finished_at: dict[str, float] = {}
@@ -157,6 +166,15 @@ class Watchdog:
         self._klingel_gemeldet: dict[str, float] = {}
 
     def start(self) -> None:
+        # Den Stand der letzten Regen-Vorwarnung wieder aufnehmen. Ohne
+        # das käme sie nach einem Neustart gleich noch einmal - und
+        # zwischen Vorwarnung und Regen liegt eine Viertelstunde.
+        gespeichert = self.hub.data.get(REGEN_KEY)
+        if gespeichert and isinstance(gespeichert[0], dict):
+            try:
+                self._regen_gemeldet = float(gespeichert[0].get("at") or 0) or None
+            except (TypeError, ValueError):
+                self._regen_gemeldet = None
         self._task = asyncio.create_task(self._loop())
         # Die Klingel läuft nicht im Minutentakt mit: Wer vor der Türe
         # steht, wartet keine Minute. Sie hängt am Ereignis selbst.
@@ -290,6 +308,7 @@ class Watchdog:
         await self._check_disk()
         await self._check_frost(entities)
         await self._check_regen(entities)
+        await self._check_giessen(entities)
         await self._check_maintenance()
         await self._check_shopping(entities)
         await self._check_medications()
@@ -373,29 +392,40 @@ class Watchdog:
         Sonnenschirm. Ein Fenster ist nur der Teil davon, von dem er
         weiss; stehen welche offen, kommen sie in die Meldung.
 
-        Einmal je Vorwarnung: Solange derselbe Schauer ansteht, kommt
-        nichts Neues. Erst wenn er vorbei ist und der nächste anzieht,
-        meldet es wieder (der Schlüssel enthält die Viertelstunde des
-        Regenbeginns).
+        Einmal je Schauer: Solange derselbe ansteht, kommt nichts Neues.
+        Wann er als durch gilt, steht in core/regen.py - dort auch, warum
+        die frühere Entprellung über den errechneten Regenbeginn genau
+        das Gegenteil bewirkte.
         """
         wetter = next((e for e in entities if getattr(e, "kind", "") == "weather"), None)
         if wetter is None:
             return
         stand = wetter.state.get("rain")
-        if not isinstance(stand, dict) or stand.get("now"):
-            # Es regnet schon: Dann ist die Vorwarnung vorbei, und eine
-            # Meldung darüber, was man vor zehn Minuten hätte tun
-            # sollen, hilft niemandem.
+        if not isinstance(stand, dict):
             return
-        minuten = stand.get("minutes")
-        grenze = float(self.rules["rain"]["params"].get("minutes", 30))
-        if minuten is None or minuten > grenze:
+        # Durch? Dann darf die nächste Vorwarnung wieder raus - es regnet
+        # gerade (die Warnung hat ihren Zweck erfüllt, und was man vor
+        # zehn Minuten hätte tun sollen, hilft jetzt niemandem) oder in
+        # der Vorschau steht nichts mehr (der Schauer zog vorbei).
+        if regen.vorbei(stand):
+            if self._regen_gemeldet is not None:
+                self._regen_gemeldet = None
+                self.hub.data.set(REGEN_KEY, [])
             return
-        # Der Zeitpunkt, an dem es losgeht - auf die Viertelstunde genau,
-        # wie ihn die Quelle kennt.
-        beginn = int((time.time() + minuten * 60) // 900)
-        if not self._einmal(f"rain:{beginn}"):
+        params = self.rules["rain"]["params"]
+        if not regen.melden(
+            stand,
+            self._regen_gemeldet,
+            time.time(),
+            float(params.get("minutes", 30)),
+            float(params.get("pause", regen.SPERRE_MINUTEN)),
+        ):
             return
+        self._regen_gemeldet = time.time()
+        # Auf die Platte: Zwischen Vorwarnung und Regen liegt eine
+        # Viertelstunde, und ein Update dazwischen ist der Normalfall -
+        # ohne das hier käme die Meldung nach dem Neustart gleich wieder.
+        self.hub.data.set(REGEN_KEY, [{"at": self._regen_gemeldet}])
         offen = open_contacts(entities)
         if offen:
             # Was der Hub weiss, steht zuerst: Ein offenes Fenster ist
@@ -409,6 +439,39 @@ class Watchdog:
             regen.satz(stand) or "Regen kommt",
             text,
             category="rain",
+        )
+
+    async def _check_giessen(self, entities: list[Any]) -> None:
+        """Abends erinnern, wenn der Himmel es nicht macht.
+
+        Abends und nicht morgens: Um sieben Uhr früh verdunstet weniger,
+        aber wer die Meldung um sieben liest, hat sie um neun vergessen
+        - und mittags giessen verbrennt die Blätter. Einmal je Tag.
+
+        Die drei Bedingungen (lange trocken, es kommt nichts, es war
+        warm) stehen in core/giessen.py; hier steht nur, wann gefragt
+        wird.
+        """
+        jetzt = datetime.now()
+        if jetzt.hour != 18:
+            return
+        wetter = next((e for e in entities if getattr(e, "kind", "") == "weather"), None)
+        if wetter is None:
+            return
+        params = self.rules["plants"]["params"]
+        if not giessen.soll_giessen(
+            wetter.state,
+            int(params.get("days", 3)),
+            float(params.get("degrees", 18.0)),
+        ):
+            return
+        heute = jetzt.strftime("%Y-%m-%d")
+        if not self._einmal(f"plants:{heute}", jetzt.timestamp()):
+            return
+        await self._notify(
+            "Pflanzen giessen",
+            giessen.satz(wetter.state),
+            category="plants",
         )
 
     async def _check_maintenance(self) -> None:

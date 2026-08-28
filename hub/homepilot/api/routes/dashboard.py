@@ -19,6 +19,7 @@ from fastapi import (
 from pydantic import BaseModel
 
 from ...core import (
+    laufzeit,
     maintenance,
     suggest,
     watchdog,
@@ -101,6 +102,12 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "alarm": str(alarm.state.get("state")) if alarm is not None else None,
             "at": datetime.now().isoformat(timespec="seconds"),
         }
+        # Laufende Maschinen nur, wenn welche laufen. Der Normalfall ist
+        # ein leerer Waschkeller, und dafür soll die Antwort nicht um ein
+        # Feld wachsen, das immer «[]» heisst (core/laufzeit.py).
+        laeuft = laufzeit.laufende(entities, hub.data.get("appliance_cycles"))
+        if laeuft:
+            antwort["running"] = laeuft
         # Nur wenn gefragt: Die alte Knopfleiste soll keine Zeile mehr
         # übertragen als bisher.
         if gefragt:

@@ -25,7 +25,7 @@ from typing import Any
 
 import aiohttp
 
-from ..core import regen
+from ..core import giessen, regen
 from ..core.entity import EntityKind
 from ..core.integration import Integration
 
@@ -93,8 +93,18 @@ def parse_forecast(
     lows = daily.get("temperature_2m_min") or []
     rain = daily.get("precipitation_probability_max") or []
     uv = daily.get("uv_index_max") or []
+    summe = daily.get("precipitation_sum") or []
+    heute_iso = jetzt.date().isoformat()
+    # Die vergangenen Tage stehen in derselben Liste wie die kommenden
+    # (past_days) - sie gehören aber nicht in die Wochenansicht, sondern
+    # nur in die Trockenheits-Rechnung.
+    vergangen: list[dict[str, Any]] = []
     for index, day in enumerate(times):
         day_text, day_icon = describe_code(codes[index] if index < len(codes) else None)
+        regen_mm = _round_mm(summe[index] if index < len(summe) else None)
+        if str(day) < heute_iso:
+            vergangen.append({"date": day, "rain_mm": regen_mm})
+            continue
         days_out.append(
             {
                 "date": day,
@@ -105,6 +115,7 @@ def parse_forecast(
                 "low": _round(lows[index] if index < len(lows) else None),
                 "rain": rain[index] if index < len(rain) else None,
                 "uv": _round(uv[index] if index < len(uv) else None),
+                "rain_mm": regen_mm,
             }
         )
     return {
@@ -115,6 +126,12 @@ def parse_forecast(
         # Der Tageshöchstwert heute, griffbereit: Die Karte und der
         # Morgen-Hinweis fragen genau danach, nicht nach der Woche.
         "uv_today": days_out[0]["uv"] if days_out else None,
+        # Wie lange es nicht geregnet hat, was noch kommt und wie warm
+        # es heute wird - die drei Zahlen der Giess-Erinnerung
+        # (core/giessen.py).
+        "dry_days": giessen.trockentage(vergangen, days_out[0] if days_out else None),
+        "rain_next": giessen.regen_kommt(days_out),
+        "high": days_out[0]["high"] if days_out else None,
         # Die Vorwarnung fährt am selben Zustand mit: Die App zeigt sie
         # auf der Wetterkarte, der Wächter meldet sie, wenn dabei ein
         # Fenster offen steht - beide lesen dieselbe Entität.
@@ -125,6 +142,14 @@ def parse_forecast(
             "bars": regen.balken(payload.get("minutely_15"), jetzt),
         },
     }
+
+
+def _round_mm(wert: Any) -> float:
+    """Niederschlag in Millimetern, eine Nachkommastelle (rein)."""
+    try:
+        return round(float(wert), 1)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _zeitpunkt(wert: Any) -> datetime | None:
@@ -174,7 +199,12 @@ class WeatherIntegration(Integration):
             # eine erfundene Zahl (core/regen.py).
             "minutely_15": "precipitation",
             "daily": "weather_code,temperature_2m_max,temperature_2m_min,"
-            "precipitation_probability_max,uv_index_max",
+            "precipitation_probability_max,uv_index_max,precipitation_sum",
+            # Fünf Tage zurück: Daraus rechnet sich, wie lange es nicht
+            # mehr geregnet hat (core/giessen.py). Sie stehen in
+            # derselben Antwort - eine zweite Anfrage dafür wäre eine
+            # zweite Fehlerquelle.
+            "past_days": 5,
             "timezone": "Europe/Zurich",
             "forecast_days": 7,
         }
