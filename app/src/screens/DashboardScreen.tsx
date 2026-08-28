@@ -79,6 +79,7 @@ import {
 } from '../lib/klingel';
 import { deviceKindLabel, musikboxenImRaum } from '../lib/geraeteart';
 import { rueckangebot } from '../lib/rueckgriff';
+import { gemerkteAktion, menuLabel } from '../lib/doppeltipp';
 import { leerbild } from '../lib/leerzustand';
 import { Nutzung, merken as merkeRaum, reihenfolge as nutzungsReihenfolge } from '../lib/raumnutzung';
 import { sorgen, sorgenSatz } from '../lib/sorgen';
@@ -871,6 +872,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setKameraDynamisch,
     setTageszeit,
     setRaumNutzung,
+    setDoppeltipp,
     setLiveTuer,
     setLiveAus,
     setFavorites,
@@ -1551,6 +1553,23 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       key={entity.id}
       entity={entity}
       trend={trends[entity.id]}
+      // Zweimal tippen = die eigene Lieblingseinstellung
+      // (lib/doppeltipp.ts). Gemerkt wird über das Kachelmenü, aus dem,
+      // was gerade eingestellt ist.
+      doppelAktion={gemerkteAktion(eigenePrefs.doppeltipp, entity.id)}
+      doppelLabel={menuLabel(eigenePrefs.doppeltipp, entity)}
+      onDoppeltipp={
+        darfSchalten
+          ? (aktion) => {
+              setDoppeltipp(entity.id, aktion);
+              setNote(
+                aktion
+                  ? `Doppeltipp gemerkt: ${aktion.wort}`
+                  : 'Doppeltipp vergessen'
+              );
+            }
+          : undefined
+      }
       width={cardWidth!}
       imRaumblock={imRaumblock}
       // Gehört dieser Spot zu einer zusammengefassten Leuchte? Unter
@@ -3193,6 +3212,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           automations={automations}
           rooms={roomOrder}
           onClose={() => setSearchOpen(false)}
+          // Schalten aus der Suche geht denselben Weg wie jeder
+          // Tastendruck - durch die Sperre, mit Face ID und PIN, wo sie
+          // verlangt sind.
+          onCommand={darfSchalten ? guardedCommand : undefined}
           onPick={(hit) => {
             setSearchOpen(false);
             if (hit.kind === 'room') {

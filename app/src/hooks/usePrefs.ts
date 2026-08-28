@@ -90,6 +90,10 @@ export interface UserPrefs {
    *  wie die Tageszeit - und gezählt wird je Gerät (lib/raumnutzung),
    *  denn am Wandpanel bedient man anderes als auf dem Telefon. */
   raumNutzung?: boolean;
+  /** Die Doppeltipp-Aktion je Gerät: «zweimal tippen = mein 40 %».
+   *  Persönlich, weil Lieblingshelligkeit persönlich ist - was Stefan
+   *  abends mag, blendet Bine. */
+  doppeltipp?: Record<string, Doppeltippaktion>;
   /** Live-Aktivitäten auf dem Sperrbildschirm. Fehlt der Wert, gilt
    *  an - abgeschaltet wird je Person, wie die Benachrichtigungen. Den
    *  Schalter liest auch der Hub (core/liveaktivitaet.py). */
@@ -120,6 +124,13 @@ export interface UserPrefs {
    *  vom Büro aus ruft, meint eine andere Box als wer in der Küche
    *  steht, und «Der Znüni steht bereit» sagt nicht jeder. */
   durchsage?: DurchsagePrefs;
+}
+
+/** Was ein Doppeltipp auf die Kachel auslöst (siehe lib/doppeltipp.ts). */
+export interface Doppeltippaktion {
+  command: string;
+  data?: Record<string, number>;
+  wort: string;
 }
 
 export interface DurchsagePrefs {
@@ -298,6 +309,19 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     [setzeEigen]
   );
 
+  const setDoppeltipp = useCallback(
+    (entityId: string, aktion: Doppeltippaktion | null) =>
+      setzeEigen({
+        doppeltipp: (() => {
+          const bisher = { ...(eigen.werte.doppeltipp ?? {}) };
+          if (aktion) bisher[entityId] = aktion;
+          else delete bisher[entityId];
+          return bisher;
+        })(),
+      }),
+    [setzeEigen, eigen.werte.doppeltipp]
+  );
+
   const setLiveTuer = useCallback(
     (on: boolean) => setzeEigen({ liveTuer: on }),
     [setzeEigen]
@@ -345,6 +369,7 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     setKameraDynamisch,
     setTageszeit,
     setRaumNutzung,
+    setDoppeltipp,
     setLiveTuer,
     setLiveAus,
     setFavorites,

@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Image, Pressable, Text, View } from 'react-native';
 
 import Svg, { Polyline } from 'react-native-svg';
 
 import { CommandData, Entity, KalenderEintrag } from '../api/types';
+import { Doppelaktion, FENSTER_MS, merkbar } from '../lib/doppeltipp';
 import { Reihe, linienPunkte } from '../lib/funkenlinie';
 import { offlineSatz } from '../lib/funkstille';
 import { zustandsText } from '../lib/haushalt';
@@ -84,6 +85,12 @@ interface Props {
   entity: Entity;
   /** Die letzten Stunden des Messwerts – [Unix-Sekunden, Wert]. */
   trend?: Reihe;
+  /** Die gemerkte Doppeltipp-Aktion dieses Geräts (lib/doppeltipp.ts). */
+  doppelAktion?: Doppelaktion | null;
+  /** Beschriftung fürs Kachelmenü («Doppeltipp merken: 40 %»). */
+  doppelLabel?: string | null;
+  /** Merken bzw. vergessen - null heisst vergessen. */
+  onDoppeltipp?: (aktion: Doppelaktion | null) => void;
   width: number;
   onCommand: (command: string, data?: CommandData) => void;
   /** Kommando unterwegs – die Kachel zeigt das, statt still zu wirken. */
@@ -157,6 +164,9 @@ interface Props {
 export function EntityCard({
   entity,
   trend,
+  doppelAktion,
+  doppelLabel,
+  onDoppeltipp,
   width,
   onCommand,
   pending,
@@ -216,6 +226,8 @@ export function EntityCard({
         zaehlung: Boolean(onToggleUngezaehlt) && zaehlbar(entity),
         ungezaehlt: Boolean(ungezaehlt),
         verlauf: Boolean(onLongPress),
+        // Nur wo es etwas zu merken gibt und wer schalten darf.
+        doppeltipp: onDoppeltipp ? doppelLabel : null,
       });
   const fuehreAus = (eintrag: KachelEintrag) => {
     setMenueOffen(false);
@@ -223,7 +235,15 @@ export function EntityCard({
     if (eintrag.id === 'sperren') onToggleLocked?.();
     if (eintrag.id === 'zaehlung') onToggleUngezaehlt?.();
     if (eintrag.id === 'verlauf') onLongPress?.();
+    if (eintrag.id === 'doppeltipp') {
+      // Steht schon dasselbe gemerkt, ist der Eintrag das Vergessen -
+      // die Beschriftung sagt es, und lib/doppeltipp entscheidet es.
+      onDoppeltipp?.(
+        doppelLabel?.startsWith('Doppeltipp (') ? null : merkbar(entity)
+      );
+    }
   };
+
   // Ein Eintrag braucht keine Auswahl - eine Liste mit einer Zeile wäre
   // ein Klick mehr für nichts. Für alle, die nicht umbenennen dürfen,
   // bleibt der lange Druck damit genau das, was er war.
@@ -257,6 +277,29 @@ export function EntityCard({
     entity.last_seen ? sinceLabel(entity.last_seen) : null
   );
   const toggle = entity.commands.includes('toggle') ? () => onCommand('toggle') : undefined;
+
+  /**
+   * Der zweite Tipp auf den Ein/Aus-Knopf legt die gemerkte
+   * Einstellung darüber (lib/doppeltipp.ts).
+   *
+   * Der erste Tipp schaltet dabei sofort - er wartet nicht darauf, ob
+   * noch ein zweiter kommt. Eine Kachel, die 350 ms zögert, fühlt sich
+   * im ganzen Haus träge an, und das wäre ein hoher Preis für eine
+   * Abkürzung.
+   */
+  const letzterTipp = useRef(0);
+  const toggleMitDoppeltipp = toggle
+    ? () => {
+        const jetzt = Date.now();
+        const doppelt = jetzt - letzterTipp.current < FENSTER_MS;
+        letzterTipp.current = jetzt;
+        if (doppelt && doppelAktion) {
+          onCommand(doppelAktion.command, doppelAktion.data);
+          return;
+        }
+        toggle();
+      }
+    : undefined;
 
   /** Leistung und, wenn ein Preis hinterlegt ist, die Tageskosten. */
   const powerNote = (): string | undefined => {
@@ -1040,7 +1083,7 @@ export function EntityCard({
         title={entity.name}
         subtitle={pending ? 'wird geschaltet …' : entity.available ? subtitle : offlineText}
         on={isOn}
-        onToggle={toggle}
+        onToggle={toggleMitDoppeltipp}
         pending={pending}
         onLongPress={langerDruck}
       />
