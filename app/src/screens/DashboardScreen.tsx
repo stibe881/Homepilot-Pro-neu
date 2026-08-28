@@ -146,7 +146,8 @@ import { TuerRueckfrage } from '../components/TuerRueckfrage';
 import { Widgets } from '../components/Widgets';
 import { Ablage, syncWidget } from '../lib/widget';
 import { resolveKarten } from '../lib/widgetKarten';
-import { Ziel, zielAus } from '../lib/pushziel';
+import { PushKnopf, Ziel, knoepfeAus, zielAus } from '../lib/pushziel';
+import { PushBlatt } from '../components/PushBlatt';
 import { favoritenVon, zuUebernehmen } from '../lib/favoriten';
 import { altesUebernehmen } from '../lib/hausprefs';
 import {
@@ -399,6 +400,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Tipp-Haken früh gebraucht wird und der Weg selbst erst weiter unten
   // steht - dort, wo die Räume bekannt sind.
   const zumZiel = useRef<(ziel: Ziel) => void>(() => {});
+  // Die Handgriffe, die ein Ablauf seiner Nachricht mitgegeben hat -
+  // «Trockner an» unter «Waschmaschine fertig». Sie stehen erst hier zur
+  // Wahl, hinter der Anmeldung.
+  const [pushBlatt, setPushBlatt] = useState<{
+    titel?: string;
+    text?: string;
+    knoepfe: PushKnopf[];
+  } | null>(null);
   // Angetippte Kamera im Vollbild (Entitäts-ID, damit Live-Updates ankommen).
   const [fullscreen, setFullscreen] = useState<string | null>(null);
   // Alle Kameras nebeneinander - fürs Tablet im Flur die einzige
@@ -1009,6 +1018,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const onNotificationTap = useCallback((tap: Tap) => {
     const ziel = zielAus(tap);
     if (ziel) zumZiel.current(ziel);
+    // Erst hingehen, dann fragen: Das Blatt legt sich über den Ort, an
+    // den der Tipp geführt hat - wer es wegwischt, steht dort, statt
+    // wieder auf der Startseite.
+    const knoepfe = knoepfeAus(tap);
+    if (knoepfe.length > 0) {
+      setPushBlatt({ titel: tap.title, text: tap.body, knoepfe });
+    }
   }, []);
   // «Später» und «Erledigt» aus der Mitteilung heraus. Beides läuft ohne
   // die App zu öffnen; sie erfährt davon, sobald sie das nächste Mal
@@ -1359,9 +1375,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
    */
   zumZiel.current = (ziel: Ziel) => {
     switch (ziel.art) {
-      case 'start':
       // Was offen steht, zeigt die Karte auf der Startseite - eine
       // eigene Seite dafür gibt es nicht.
+      case 'start':
+      // falls through
       case 'offen':
         setSection('start');
         return;
@@ -3364,6 +3381,21 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             }}
             colors={colors}
             styles={styles}
+          />
+        ) : null}
+
+        {pushBlatt ? (
+          <PushBlatt
+            titel={pushBlatt.titel}
+            text={pushBlatt.text}
+            knoepfe={pushBlatt.knoepfe}
+            onDruck={(knopf) => {
+              if (knopf.scene) activateScene(knopf.scene);
+              else if (knopf.entity && knopf.command) {
+                guardedCommand(knopf.entity, knopf.command);
+              }
+            }}
+            onSchliessen={() => setPushBlatt(null)}
           />
         ) : null}
 

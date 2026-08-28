@@ -158,3 +158,57 @@ function ausSchluessel(roh: string, entityId?: string): Ziel | null {
       return null;
   }
 }
+
+
+/**
+ * Ein Knopf, der an einer Nachricht hängt.
+ *
+ * Der zweite Teil derselben Frage: Ein Tipp bringt einen an den
+ * richtigen Ort - aber oft weiss man schon vorher, was man dort tun
+ * will. «Waschmaschine fertig» und der Trockner soll laufen; «Es ist
+ * dunkel» und die Storen sollen runter. Statt dort erst die Kachel zu
+ * suchen, steht der Handgriff gleich unter der Nachricht.
+ *
+ * Bewusst *in* der App und nicht als Knopf am Sperrbildschirm: Was
+ * schalten kann, gehört hinter die Anmeldung. Ein Ablauf-Knopf, den
+ * jeder drückt, der das Telefon vom Tisch nimmt, wäre etwas anderes.
+ */
+export interface PushKnopf {
+  label: string;
+  /** Entweder eine Szene … */
+  scene?: string;
+  /** … oder ein Gerät samt Befehl. */
+  entity?: string;
+  command?: string;
+}
+
+/** Höchstens so viele. Mehr liest unter einer Nachricht niemand. */
+export const HOECHSTENS_KNOEPFE = 3;
+
+/**
+ * Die Knöpfe aus den Daten einer Nachricht lesen (rein, testbar).
+ *
+ * Streng: Was kein Etikett und kein Ziel hat, fällt heraus. Die Liste
+ * kommt über einen fremden Dienst und aus einer Konfiguration, die
+ * jemand von Hand geschrieben haben kann.
+ */
+export function knoepfeAus(data: { knoepfe?: unknown }): PushKnopf[] {
+  if (!Array.isArray(data.knoepfe)) return [];
+  const knoepfe: PushKnopf[] = [];
+  for (const roh of data.knoepfe) {
+    if (!roh || typeof roh !== 'object') continue;
+    const eintrag = roh as Record<string, unknown>;
+    const label = typeof eintrag.label === 'string' ? eintrag.label.trim() : '';
+    if (!label) continue;
+    const scene = typeof eintrag.scene === 'string' ? eintrag.scene : '';
+    const entity = typeof eintrag.entity === 'string' ? eintrag.entity : '';
+    const command = typeof eintrag.command === 'string' ? eintrag.command : '';
+    if (scene) {
+      knoepfe.push({ label, scene });
+    } else if (entity && command) {
+      knoepfe.push({ label, entity, command });
+    }
+    if (knoepfe.length >= HOECHSTENS_KNOEPFE) break;
+  }
+  return knoepfe;
+}

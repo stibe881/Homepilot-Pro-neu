@@ -4,8 +4,8 @@ Der Mangel, den es behebt: «Milch steht auf der Einkaufsliste» öffnete
 die App auf der Startseite - genauso wie «Wasser im Keller».
 """
 
-from homepilot.core.pushziel import ZIELE, ziel_fuer
 from homepilot.core.push import CATEGORIES
+from homepilot.core.pushziel import ZIELE, ziel_fuer
 
 
 def test_jede_kategorie_hat_ein_ziel():
@@ -45,3 +45,52 @@ def test_ohne_kategorie_kein_ziel():
 
 def test_unbekannte_kategorie_faellt_durch():
     assert ziel_fuer("gibtsnicht") is None
+
+
+# ── Knöpfe unter einer Nachricht ──────────────────────────────────────────
+
+
+def test_knoepfe_lassen_szene_und_geraet_durch():
+    from homepilot.core.pushziel import knoepfe_pruefen
+
+    assert knoepfe_pruefen(
+        [
+            {"label": "Kino", "scene": "kino"},
+            {"label": "Trockner an", "entity": "tuya.trockner", "command": "turn_on"},
+        ]
+    ) == [
+        {"label": "Kino", "scene": "kino"},
+        {"label": "Trockner an", "entity": "tuya.trockner", "command": "turn_on"},
+    ]
+
+
+def test_knoepfe_ohne_etikett_oder_ziel_fallen_heraus():
+    """Was hier ankommt, hat jemand von Hand geschrieben."""
+    from homepilot.core.pushziel import knoepfe_pruefen
+
+    assert (
+        knoepfe_pruefen(
+            [
+                {"label": "", "scene": "kino"},
+                {"label": "Ohne Ziel"},
+                {"label": "Gerät ohne Befehl", "entity": "x"},
+                "kaputt",
+                None,
+            ]
+        )
+        == []
+    )
+
+
+def test_knoepfe_sind_gedeckelt():
+    from homepilot.core.pushziel import HOECHSTENS_KNOEPFE, knoepfe_pruefen
+
+    viele = [{"label": f"K{n}", "scene": "s"} for n in range(9)]
+    assert len(knoepfe_pruefen(viele)) == HOECHSTENS_KNOEPFE
+
+
+def test_knoepfe_ohne_liste():
+    from homepilot.core.pushziel import knoepfe_pruefen
+
+    assert knoepfe_pruefen(None) == []
+    assert knoepfe_pruefen("nein") == []

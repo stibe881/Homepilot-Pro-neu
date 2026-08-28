@@ -1,4 +1,4 @@
-import { zielAus } from './pushziel';
+import { HOECHSTENS_KNOEPFE, knoepfeAus, zielAus } from './pushziel';
 
 describe('Wohin ein Tipp auf eine Nachricht führt', () => {
   it('versteht einen Bereich', () => {
@@ -79,5 +79,50 @@ describe('Wohin ein Tipp auf eine Nachricht führt', () => {
 
   it('ergibt nichts, wenn nichts dabei ist', () => {
     expect(zielAus({})).toBeNull();
+  });
+});
+
+describe('Knöpfe unter einer Nachricht', () => {
+  it('liest Szene und Gerät', () => {
+    expect(
+      knoepfeAus({
+        knoepfe: [
+          { label: 'Kino', scene: 'kino' },
+          { label: 'Trockner an', entity: 'tuya.trockner', command: 'turn_on' },
+        ],
+      })
+    ).toEqual([
+      { label: 'Kino', scene: 'kino' },
+      { label: 'Trockner an', entity: 'tuya.trockner', command: 'turn_on' },
+    ]);
+  });
+
+  it('wirft heraus, was kein Etikett oder kein Ziel hat', () => {
+    // Die Liste kommt über einen fremden Dienst und aus einer
+    // Konfiguration, die jemand von Hand geschrieben haben kann.
+    expect(
+      knoepfeAus({
+        knoepfe: [
+          { label: '', scene: 'kino' },
+          { label: 'Ohne Ziel' },
+          { label: 'Gerät ohne Befehl', entity: 'x' },
+          'kaputt',
+          null,
+        ],
+      })
+    ).toEqual([]);
+  });
+
+  it('hört beim Höchstmass auf', () => {
+    const viele = Array.from({ length: 8 }, (_, i) => ({
+      label: `K${i}`,
+      scene: 's',
+    }));
+    expect(knoepfeAus({ knoepfe: viele })).toHaveLength(HOECHSTENS_KNOEPFE);
+  });
+
+  it('kommt ohne Knöpfe aus', () => {
+    expect(knoepfeAus({})).toEqual([]);
+    expect(knoepfeAus({ knoepfe: 'nein' })).toEqual([]);
   });
 });

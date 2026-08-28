@@ -80,3 +80,44 @@ def ziel_fuer(category: str | None, entity_id: str | None = None) -> str | None:
     if entity_id and category in AM_GERAET:
         return f"geraet:{entity_id}"
     return ZIELE.get(category)
+
+
+## Höchstens so viele Knöpfe unter einer Nachricht.
+#
+# Mehr liest dort niemand - und was schalten kann, soll nicht zu einer
+# Fernbedienung in der Mitteilung anwachsen.
+HOECHSTENS_KNOEPFE = 3
+
+
+def knoepfe_pruefen(roh: object) -> list[dict[str, str]]:
+    """Die Knöpfe eines Ablaufs sauber machen (rein, testbar).
+
+    Ein Ablauf darf seiner Nachricht Handgriffe mitgeben: «Waschmaschine
+    fertig» und der Trockner soll laufen. Was hier ankommt, hat jemand in
+    der App eingetragen oder von Hand in die config.yaml geschrieben -
+    also wird geprüft, was durchgeht: ein Etikett, und entweder eine
+    Szene oder ein Gerät samt Befehl.
+
+    Ausgeführt wird nichts davon hier: Die Knöpfe reisen zur App und
+    werden erst dort gedrückt, hinter der Anmeldung. Ein Knopf am
+    Sperrbildschirm, der schaltet, wäre etwas anderes.
+    """
+    if not isinstance(roh, list):
+        return []
+    knoepfe: list[dict[str, str]] = []
+    for eintrag in roh:
+        if not isinstance(eintrag, dict):
+            continue
+        label = str(eintrag.get("label") or "").strip()
+        if not label:
+            continue
+        scene = str(eintrag.get("scene") or "").strip()
+        entity = str(eintrag.get("entity") or "").strip()
+        command = str(eintrag.get("command") or "").strip()
+        if scene:
+            knoepfe.append({"label": label, "scene": scene})
+        elif entity and command:
+            knoepfe.append({"label": label, "entity": entity, "command": command})
+        if len(knoepfe) >= HOECHSTENS_KNOEPFE:
+            break
+    return knoepfe
