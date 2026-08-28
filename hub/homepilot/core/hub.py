@@ -368,7 +368,7 @@ class Hub:
             tokens,
             title="Aufgaben heute fällig",
             body=f"{len(due)} offen: {names}",
-            data={"type": "task_due"},
+            data={"type": "task_due", "ziel": "familie:tasks"},
             category="tasks",
         )
 

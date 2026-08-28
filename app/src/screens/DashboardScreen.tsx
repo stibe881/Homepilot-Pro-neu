@@ -146,6 +146,7 @@ import { TuerRueckfrage } from '../components/TuerRueckfrage';
 import { Widgets } from '../components/Widgets';
 import { Ablage, syncWidget } from '../lib/widget';
 import { resolveKarten } from '../lib/widgetKarten';
+import { Ziel, zielAus } from '../lib/pushziel';
 import { favoritenVon, zuUebernehmen } from '../lib/favoriten';
 import { altesUebernehmen } from '../lib/hausprefs';
 import {
@@ -356,6 +357,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     blatt.current?.scrollTo({ y: 0, animated: false });
   }, [section, room]);
 
+  // Der Wunsch aus einer Nachricht gilt für diesen einen Besuch. Wer die
+  // Familie verlässt und später wiederkommt, soll nicht erneut im
+  // Einkauf landen, bloss weil er vor einer Stunde darauf getippt hat.
+  useEffect(() => {
+    if (section !== 'family') setFamilienModul(null);
+  }, [section]);
+
   const [now, setNow] = useState(() => new Date());
   const [gridWidth, setGridWidth] = useState(0);
   const [editing, setEditing] = useState(false);
@@ -383,6 +391,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // auch dann, wenn das Läuten inzwischen vorbei ist. Ein Tipp auf die
   // Nachricht ist eine Bitte, keine Störung.
   const [klingelTap, setKlingelTap] = useState<string | null>(null);
+  // Welche Kachel der Familie eine Nachricht gemeint hat («Milch steht
+  // auf der Einkaufsliste» → Einkauf). Getrennt vom Riegel-Modul: Das
+  // eine ist ein Weg um eine Sperre herum, das andere ein Ziel.
+  const [familienModul, setFamilienModul] = useState<string | null>(null);
+  // Der Weg zu einem Ziel aus einer Nachricht. Über eine Ref, weil der
+  // Tipp-Haken früh gebraucht wird und der Weg selbst erst weiter unten
+  // steht - dort, wo die Räume bekannt sind.
+  const zumZiel = useRef<(ziel: Ziel) => void>(() => {});
   // Angetippte Kamera im Vollbild (Entitäts-ID, damit Live-Updates ankommen).
   const [fullscreen, setFullscreen] = useState<string | null>(null);
   // Alle Kameras nebeneinander - fürs Tablet im Flur die einzige
@@ -991,22 +1007,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // aufgeklappten Batterien – dort steht der Knopf zum Quittieren, und
   // ohne den Sprung sucht man ihn zwei Ebenen tief.
   const onNotificationTap = useCallback((tap: Tap) => {
-    if (tap.camera) {
-      setFullscreen(tap.camera);
-      return;
-    }
-    if (tap.type === 'battery') {
-      setSection('devices');
-      setBatterienOffen(true);
-      return;
-    }
-    if (tap.type === 'doorbell') {
-      // Nicht die Kameraseite, sondern das Klingel-Vollbild: Dort stehen
-      // die Türknöpfe, und die sind der Grund, warum man tippt.
-      setKlingelTap(tap.entityId ?? '');
-      return;
-    }
-    if (tap.type === 'alarm') setSection('alarm');
+    const ziel = zielAus(tap);
+    if (ziel) zumZiel.current(ziel);
   }, []);
   // «Später» und «Erledigt» aus der Mitteilung heraus. Beides läuft ohne
   // die App zu öffnen; sie erfährt davon, sobald sie das nächste Mal
@@ -1342,6 +1344,81 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       : named;
     return sortiert.length > 0 ? [ALL_ROOMS, ...sortiert] : [];
   }, [entities, roomOrder, prefs.order?.raeume, eigenePrefs.raumNutzung, raumZaehler, now]);
+
+  /**
+   * Der Weg zu dem, was eine Nachricht meint.
+   *
+   * Eine Stelle für alle fünfundzwanzig Meldungen, statt einer Regel je
+   * Meldung: Was wohin gehört, sagt der Hub in der Nachricht selbst
+   * (lib/pushziel.ts). Die App muss dafür nichts über Wassermelder
+   * wissen - nur, wie man zu einem Raum kommt.
+   *
+   * Beim Zeichnen zugewiesen und nicht als Callback: Der Weg braucht
+   * Räume und Geräte, die weiter oben noch nicht stehen, und der
+   * Tipp-Haken bekommt so immer den frischen Stand.
+   */
+  zumZiel.current = (ziel: Ziel) => {
+    switch (ziel.art) {
+      case 'start':
+      // Was offen steht, zeigt die Karte auf der Startseite - eine
+      // eigene Seite dafür gibt es nicht.
+      case 'offen':
+        setSection('start');
+        return;
+      case 'bereich':
+        setSection(ziel.bereich);
+        return;
+      case 'raum':
+        setSection('home');
+        setRoom(ziel.raum);
+        return;
+      case 'kamera':
+        setFullscreen(ziel.entityId);
+        return;
+      case 'geraet': {
+        const geraet = entities.find((entity) => entity.id === ziel.entityId);
+        // Eine Kamera zeigt man gross; alles andere steht in seinem
+        // Raum, und dort sieht man es im Zusammenhang.
+        if (geraet?.kind === 'camera') {
+          setFullscreen(geraet.id);
+          return;
+        }
+        if (geraet?.room) {
+          setSection('home');
+          setRoom(geraet.room);
+          return;
+        }
+        setSection('devices');
+        return;
+      }
+      case 'familie':
+        setSection('family');
+        setFamilienModul(ziel.modul);
+        return;
+      case 'batterien':
+        setSection('devices');
+        setBatterienOffen(true);
+        return;
+      case 'sorgen':
+        setSorgenOffen(true);
+        return;
+      case 'timer': {
+        // Der Timer steht in der Küche - dort, wo die Nudeln aufgesetzt
+        // sind, nicht in einer Liste.
+        const kueche = rooms.find((name) => istKueche(name));
+        if (kueche) {
+          setSection('home');
+          setRoom(kueche);
+        } else {
+          setSection('start');
+        }
+        return;
+      }
+      case 'klingel':
+        setKlingelTap(ziel.entityId ?? '');
+        return;
+    }
+  };
 
   // Alle vergebenen Gruppennamen – für die Auswahl im Anpassen-Modus.
   const groupNames = useMemo(
@@ -2082,7 +2159,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           hiddenModules={prefs.familyHidden}
           onHiddenModules={setFamilyHidden}
           changedAt={familyChangedAt}
-          startModul={riegelModul}
+          startModul={riegelModul ?? familienModul}
         />
       );
     }

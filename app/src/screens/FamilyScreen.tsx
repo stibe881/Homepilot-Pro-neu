@@ -146,6 +146,14 @@ export function FamilyScreen({
   const [view, setView] = useState<ModuleKey | null>(
     (startModul as ModuleKey | null) ?? null
   );
+  // Ein *neuer* Startwunsch gilt auch später: Wer auf «Milch steht auf
+  // der Einkaufsliste» tippt, während die Familie schon offen ist, soll
+  // im Einkauf landen. Nur bei einer Änderung - «zurück» setzt `view`
+  // auf nichts, und der unveränderte Wunsch führte sonst sofort wieder
+  // hinein.
+  useEffect(() => {
+    if (startModul) setView(startModul as ModuleKey);
+  }, [startModul]);
   const [reorderOpen, setReorderOpen] = useState(false);
   // Die Doppeldosis-Rückfrage: welche Gabe gerade nachgefragt wird,
   // mit dem fertigen Satz dazu (lib/doppeldosis.ts).

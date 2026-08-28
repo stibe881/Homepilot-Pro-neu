@@ -24,6 +24,9 @@ import { knopfHandlung } from '../lib/mitteilungsknoepfe';
  * Sprung zur Kamera funktioniert trotzdem.
  */
 export interface Tap {
+  /** Wohin der Tipp führt: 'raum:Küche', 'familie:shopping', 'bereich:system' …
+   *  Der neue, allgemeine Weg - siehe lib/pushziel.ts. */
+  ziel?: string;
   /** Entitäts-Kennung einer Kamera, die geöffnet werden soll. */
   camera?: string;
   /** Betroffenes Gerät – falls keine Kamera dabei ist. */
@@ -68,11 +71,12 @@ export function knopfAusResponse(response: any): Knopfdruck | null {
 export function tapFromResponse(response: any): Tap | null {
   const data = response?.notification?.request?.content?.data;
   if (!data || typeof data !== 'object') return null;
+  const ziel = typeof data.ziel === 'string' ? data.ziel : undefined;
   const camera = typeof data.camera === 'string' ? data.camera : undefined;
   const entityId = typeof data.entity_id === 'string' ? data.entity_id : undefined;
   const type = typeof data.type === 'string' ? data.type : undefined;
-  if (!camera && !entityId && !type) return null;
-  return { camera, entityId, type };
+  if (!ziel && !camera && !entityId && !type) return null;
+  return { ziel, camera, entityId, type };
 }
 
 export function useNotificationTap(
