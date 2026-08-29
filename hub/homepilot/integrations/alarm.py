@@ -46,7 +46,7 @@ import secrets
 import time
 from typing import Any
 
-from ..core import personenbild, snapshots, streams
+from ..core import personenbild, snapshots, source, streams
 from ..core.entity import Entity, EntityKind
 from ..core.errors import HomePilotError
 from ..core.integration import Integration
@@ -79,9 +79,11 @@ from .alarm_rules import (  # noqa: F401
     is_sensor,
     motion_started,
     nearest_camera,
+    ohne_pin_erlaubt,
     parse_actions,
     parse_after,
     parse_sensors,
+    quellen_name,
     sauger_deckt,
     sauger_unterwegs,
     sensor_open,
@@ -326,6 +328,12 @@ class AlarmIntegration(Integration):
                     "An diesem Gerät braucht das Entschärfen eine PIN. Sie "
                     "wird unter Alarm → PIN gesetzt."
                 )
+            return
+        # Ein Ablauf hat keine Tastatur. Vorher scheiterte er bei jeder
+        # Heimkehr still am fehlenden Code, und die Anlage blieb scharf -
+        # siehe ohne_pin_erlaubt() für die ganze Begründung und den
+        # Schalter, mit dem man es wieder streng stellt.
+        if ohne_pin_erlaubt(source.current(), self._settings):
             return
         wait = self._pin_throttle.blocked_for(address)
         if wait > 0:
@@ -781,14 +789,19 @@ class AlarmIntegration(Integration):
         pin = str(data.get("pin") or "") or None
         # Setzt die API-Schicht für Gemeinschaftsgeräte - siehe check_pin().
         require_pin = bool(data.get("require_pin"))
+        # Wer geschaltet hat, gehört in den Verlauf: «Unscharf geschaltet ·
+        # Ablauf «Nach Hause»». Ohne das steht dort ein Vorgang ohne
+        # Urheber - und genau danach fragt man, wenn die Anlage von selbst
+        # aufgegangen ist.
+        wer = quellen_name(source.current())
         if command in ("disarm", "turn_off"):
-            await self.disarm(pin=pin, require_pin=require_pin)
+            await self.disarm(by=wer, pin=pin, require_pin=require_pin)
             return
         if command == "toggle":
             if self._state == DISARMED:
                 await self.arm("ausser_haus", force=force)
             else:
-                await self.disarm(pin=pin, require_pin=require_pin)
+                await self.disarm(by=wer, pin=pin, require_pin=require_pin)
             return
         mode = {
             "arm_night": "nacht",
