@@ -78,8 +78,11 @@ def test_payloads_tragen_das_noetige():
     assert start["aps"]["event"] == "start"
     assert start["aps"]["attributes-type"] == "TuerAktivitaetAttributes"
     assert start["aps"]["attributes"] == {"tuer": "Haustüre"}
-    # Still, ohne Klingeln: kein alert.
-    assert "alert" not in start["aps"]
+    # Das alert ist beim Start PFLICHT: Ohne es nahm Apple den Push an
+    # (200 im Log), aber iOS stellte still nie eine Karte auf. Genau so
+    # sah der Fehler wochenlang aus - dieser Test hält die Lehre fest.
+    assert start["aps"]["alert"]["title"] == "Haustüre"
+    assert start["aps"]["alert"]["body"]
     ende = end_payload(2000.0)
     assert ende["aps"]["event"] == "end"
     assert ende["aps"]["dismissal-date"] == 2000

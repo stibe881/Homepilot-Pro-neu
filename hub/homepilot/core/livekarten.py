@@ -464,6 +464,13 @@ def start_payload(art: str, state: dict[str, Any], jetzt_s: float) -> dict[str, 
             "content-state": state,
             "attributes-type": ATTRIBUTES_TYPE,
             "attributes": {"art": art},
+            # Pflicht beim Start-Ereignis - ohne alert nimmt Apple den
+            # Push an, aber iOS stellt still keine Karte auf (der Fall
+            # steht ausführlich in liveaktivitaet.start_payload).
+            "alert": {
+                "title": str(state.get("titel") or "HomePilot"),
+                "body": str(state.get("text") or ""),
+            },
             "stale-date": int(
                 (state.get("endet") or jetzt_s + 8 * 3600) + 300
             ),
