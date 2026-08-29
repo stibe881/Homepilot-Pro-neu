@@ -371,69 +371,7 @@ fi
 # nach Version gar nicht erst neu aus.
 RUNNING_COMMIT=$(docker exec "$CONTAINER" printenv HOMEPILOT_COMMIT 2>/dev/null || echo "")
 if [ -n "$RUNNING_COMMIT" ] && [ "$RUNNING_COMMIT" = "$COMMIT" ]; then
-  # ── OTA-Fassung für die Telefone ────────────────────────────────────────
-#
-# Der Knopf tauschte bisher nur die Web-Fassung; die Telefone bekamen
-# neuen Code erst mit dem nächsten TestFlight-Build. Das fiel erst auf,
-# als ein Knopf «bei mir da, bei ihr nicht» war - beide Telefone hingen
-# auf demselben alten Stand, und die gleiche Versionsnummer täuschte
-# Aktualität vor: Sie ist die des Builds, nicht der nachgeladenen
-# Fassung.
-#
-# Deshalb veröffentlicht jeder Lauf jetzt auch über EAS Update - sofern
-# ein EXPO_TOKEN in der Zugangsdatei liegt. Erreicht werden nur Builds
-# mit derselben runtimeVersion: Wer einen älteren Build installiert hat,
-# braucht einmal TestFlight, danach greift OTA wieder.
-#
-# Die runtimeVersion hing dabei lange an der App-Version - und weil die
-# bei jeder Auslieferung hochgezählt gehört, kappte jede Auslieferung
-# genau diesen Kanal. Der Hub war neu, die Telefone nicht, und die
-# hochgezählte Nummer täuschte Aktualität vor. Sie steht deshalb jetzt
-# fest in app/app.json und ändert sich nur, wenn sich nativ etwas
-# ändert (siehe CLAUDE.md, «Ausliefern»).
-# Ein Fehlschlag hier lässt den Rest des Updates unberührt.
-EXPO_TOKEN="${EXPO_TOKEN:-}"; EXPO_TOKEN="${EXPO_TOKEN%$'\r'}"
-if [ -z "$EXPO_TOKEN" ]; then
-  echo "→ Keine OTA-Fassung: EXPO_TOKEN fehlt in $CREDENTIALS_FILE."
-  echo "  Die Telefone bleiben auf ihrem Stand, bis ein iOS-Build kommt."
-else
-  echo "→ Veröffentliche die OTA-Fassung für die Telefone (EAS Update) …"
-  # Die Laufzeit gehört in die Meldung: Sie allein entscheidet, welche
-  # Builds diese Fassung überhaupt annehmen. Am 29. August lagen auf dem
-  # Kanal nur noch Fassungen einer alten Laufzeit (0.7.0), während die
-  # Telefone längst auf 3 liefen - vier Tage lang bekam kein Gerät mehr
-  # etwas, und niemand sah es.
-  OTA_RUNTIME=$(python3 -c "import json; print(json.load(open('$WORKDIR/app/app.json'))['expo'].get('runtimeVersion', '?'))" 2>/dev/null || echo "?")
-  # In eine Datei statt nur durch die Pipe: Beim Fehlschlag stand hier
-  # bisher «Details: expo.dev» - der eigentliche Grund war weggeworfen,
-  # und wer ihn suchte, fand ihn nirgends. Derselbe Griff wie beim
-  # iOS-Build weiter unten.
-  OTA_LOG=$(mktemp)
-  if app_abbild && docker run --rm -e EXPO_TOKEN="$EXPO_TOKEN" \
-      -e EAS_NO_VCS=1 \
-      "$DEPS_IMAGE" \
-      npx eas-cli@latest update --branch production \
-        --message "Stand $COMMIT" --non-interactive 2>&1 |
-      fremde_ausgabe | tee "$OTA_LOG"
-    [ "${PIPESTATUS[0]}" = "0" ]; then
-    echo "✓ OTA-Fassung veröffentlicht (Stand $COMMIT, Laufzeit $OTA_RUNTIME)."
-    echo "  Die Telefone holen sie beim nächsten Öffnen der App -"
-    echo "  angewendet wird sie beim übernächsten Start."
-  else
-    echo "⚠ OTA-Veröffentlichung fehlgeschlagen - Web-Fassung und Hub sind"
-    echo "  davon unberührt. Die Telefone bleiben auf ihrem Stand, bis ein"
-    echo "  iOS-Build kommt."
-    # Die entscheidenden Zeilen gleich mitgeben, statt auf eine Webseite
-    # zu verweisen: Wer das hier liest, sitzt vor dem Log und nicht vor
-    # dem Browser. Das «| » stammt von fremde_ausgabe.
-    sed 's/^| //' "$OTA_LOG" | grep -iE "error|failed|cannot|missing|denied|invalid|not found" \
-      | tail -3 | sed 's/^/  /'
-    echo "  Vollständig: expo.dev/accounts/stibe88 → Projekt homepilot."
-  fi
-  rm -f "$OTA_LOG"
-fi
-
-if [ "${HOMEPILOT_IOS_BUILD:-0}" = "1" ]; then
+  if [ "${HOMEPILOT_IOS_BUILD:-0}" = "1" ]; then
     echo "→ Der Hub läuft bereits mit Stand $COMMIT - dieser Lauf gilt vor"
     echo "  allem dem iOS-Build."
   else
@@ -539,6 +477,76 @@ DOCKERFILE
   echo "  laufen lassen und die geänderte package-lock.json einchecken."
   return 1
 }
+
+# ── OTA-Fassung für die Telefone ───────────────────────────────────────
+#
+# Hinter app_abbild(), und das ist keine Kosmetik: Der Block stand
+# lange weiter oben - vor der Funktion und vor $DEPS_IMAGE. In der
+# Bash gibt es keine Vorwärtsdeklaration, also lief hier jedes Mal
+# «app_abbild: command not found», und die Veröffentlichung schlug
+# stumm fehl. Vier Tage lang bekam kein Telefon mehr eine Fassung.
+# Er stand ausserdem im Zweig «dieser Stand läuft schon», also lief
+# er ausgerechnet dann nicht, wenn es etwas Neues zu liefern gab.
+#
+# Der Knopf tauschte bisher nur die Web-Fassung; die Telefone bekamen
+# neuen Code erst mit dem nächsten TestFlight-Build. Das fiel erst auf,
+# als ein Knopf «bei mir da, bei ihr nicht» war - beide Telefone hingen
+# auf demselben alten Stand, und die gleiche Versionsnummer täuschte
+# Aktualität vor: Sie ist die des Builds, nicht der nachgeladenen
+# Fassung.
+#
+# Deshalb veröffentlicht jeder Lauf jetzt auch über EAS Update - sofern
+# ein EXPO_TOKEN in der Zugangsdatei liegt. Erreicht werden nur Builds
+# mit derselben runtimeVersion: Wer einen älteren Build installiert hat,
+# braucht einmal TestFlight, danach greift OTA wieder.
+#
+# Die runtimeVersion hing dabei lange an der App-Version - und weil die
+# bei jeder Auslieferung hochgezählt gehört, kappte jede Auslieferung
+# genau diesen Kanal. Der Hub war neu, die Telefone nicht, und die
+# hochgezählte Nummer täuschte Aktualität vor. Sie steht deshalb jetzt
+# fest in app/app.json und ändert sich nur, wenn sich nativ etwas
+# ändert (siehe CLAUDE.md, «Ausliefern»).
+# Ein Fehlschlag hier lässt den Rest des Updates unberührt.
+EXPO_TOKEN="${EXPO_TOKEN:-}"; EXPO_TOKEN="${EXPO_TOKEN%$'\r'}"
+if [ -z "$EXPO_TOKEN" ]; then
+  echo "→ Keine OTA-Fassung: EXPO_TOKEN fehlt in $CREDENTIALS_FILE."
+  echo "  Die Telefone bleiben auf ihrem Stand, bis ein iOS-Build kommt."
+else
+  echo "→ Veröffentliche die OTA-Fassung für die Telefone (EAS Update) …"
+  # Die Laufzeit gehört in die Meldung: Sie allein entscheidet, welche
+  # Builds diese Fassung überhaupt annehmen. Am 29. August lagen auf dem
+  # Kanal nur noch Fassungen einer alten Laufzeit (0.7.0), während die
+  # Telefone längst auf 3 liefen - vier Tage lang bekam kein Gerät mehr
+  # etwas, und niemand sah es.
+  OTA_RUNTIME=$(python3 -c "import json; print(json.load(open('$WORKDIR/app/app.json'))['expo'].get('runtimeVersion', '?'))" 2>/dev/null || echo "?")
+  # In eine Datei statt nur durch die Pipe: Beim Fehlschlag stand hier
+  # bisher «Details: expo.dev» - der eigentliche Grund war weggeworfen,
+  # und wer ihn suchte, fand ihn nirgends. Derselbe Griff wie beim
+  # iOS-Build weiter unten.
+  OTA_LOG=$(mktemp)
+  if app_abbild && docker run --rm -e EXPO_TOKEN="$EXPO_TOKEN" \
+      -e EAS_NO_VCS=1 \
+      "$DEPS_IMAGE" \
+      npx eas-cli@latest update --branch production \
+        --message "Stand $COMMIT" --non-interactive 2>&1 |
+      fremde_ausgabe | tee "$OTA_LOG"
+    [ "${PIPESTATUS[0]}" = "0" ]; then
+    echo "✓ OTA-Fassung veröffentlicht (Stand $COMMIT, Laufzeit $OTA_RUNTIME)."
+    echo "  Die Telefone holen sie beim nächsten Öffnen der App -"
+    echo "  angewendet wird sie beim übernächsten Start."
+  else
+    echo "⚠ OTA-Veröffentlichung fehlgeschlagen - Web-Fassung und Hub sind"
+    echo "  davon unberührt. Die Telefone bleiben auf ihrem Stand, bis ein"
+    echo "  iOS-Build kommt."
+    # Die entscheidenden Zeilen gleich mitgeben, statt auf eine Webseite
+    # zu verweisen: Wer das hier liest, sitzt vor dem Log und nicht vor
+    # dem Browser. Das «| » stammt von fremde_ausgabe.
+    sed 's/^| //' "$OTA_LOG" | grep -iE "error|failed|cannot|missing|denied|invalid|not found" \
+      | tail -3 | sed 's/^/  /'
+    echo "  Vollständig: expo.dev/accounts/stibe88 → Projekt homepilot."
+  fi
+  rm -f "$OTA_LOG"
+fi
 
 if [ -n "$WEB_ROOT" ] && [ "$WEB_ROOT" != "/" ] && [ ! -d "$WEB_ROOT" ]; then
   # Bisher wurde hier stumm übersprungen - und niemand erfuhr, warum die

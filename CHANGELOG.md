@@ -9,6 +9,17 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Die OTA-Veröffentlichung läuft wieder.** Sie scheiterte seit vier
+  Tagen bei jedem einzigen Lauf, und zwar an einer Zeile im
+  Update-Skript: `app_abbild: command not found`. Der Block stand vor
+  der Funktion, die er aufruft - die Bash kennt keine
+  Vorwärtsdeklaration, also war die Funktion an dieser Stelle
+  schlicht noch nicht da. Dazu lag er im Zweig «dieser Stand läuft
+  schon» und blieb damit ausgerechnet dann aus, wenn es etwas Neues
+  zu liefern gab. Beides ist behoben: Der Block steht jetzt hinter
+  `app_abbild()` und ausserhalb der Abfrage. Das ist der Grund,
+  warum die Telefone tagelang keine einzige Korrektur bekamen -
+  nicht die Korrekturen selbst.
 - **Eine gescheiterte OTA-Veröffentlichung nennt jetzt ihren Grund.**
   Sie scheiterte vier Tage lang bei jedem Update-Lauf, und das Skript
   schrieb dazu nur «Details: expo.dev» - den eigentlichen Fehler warf
