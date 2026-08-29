@@ -4,6 +4,9 @@ import {
   alphabetisch,
   raeumeSortiert,
   raumKategorien,
+  raumFakten,
+  raumKlima,
+  raumLeuchtet,
   raumMesswerte,
   raumSymbol,
   raumZeile,
@@ -131,5 +134,65 @@ describe('alphabetisch', () => {
 
   it('verträgt die leere Liste', () => {
     expect(alphabetisch([])).toEqual([]);
+  });
+});
+
+describe('raumKlima', () => {
+  it('liefert Temperatur und Feuchte fuer den grossen Wert im Kopf', () => {
+    const klima = raumKlima([
+      geraet({
+        kind: 'sensor',
+        name: 'Temperatur',
+        state: { state: 21.53, unit: '°C', humidity: 44.6 },
+      }),
+    ]);
+    expect(klima?.temp).toBe('21,5°');
+    expect(klima?.feuchte).toBe('45 % Feuchte');
+  });
+
+  it('ohne Fuehler kein Wert - statt eines Strichs', () => {
+    expect(raumKlima([geraet({ kind: 'light' })])).toBeNull();
+  });
+});
+
+describe('raumFakten', () => {
+  it('zaehlt Bedienbares, beruhigt beim Fenster und nennt Musik', () => {
+    const zeile = raumFakten([
+      geraet({ kind: 'light', state: { state: 'on' }, commands: ['toggle'] }),
+      geraet({ kind: 'switch', state: { state: 'off' }, commands: ['toggle'] }),
+      geraet({
+        kind: 'binary_sensor',
+        name: 'Fenster',
+        state: { state: 'off', device_class: 'contact' },
+      }),
+      geraet({ kind: 'media_player', state: { state: 'playing' }, commands: ['play'] }),
+    ]);
+    expect(zeile).toBe('2 von 3 an · Fenster zu · Musik läuft');
+  });
+
+  it('ohne Kontakt keine Beruhigung - sie waere eine Behauptung', () => {
+    const zeile = raumFakten([
+      geraet({ kind: 'light', state: { state: 'off' }, commands: ['toggle'] }),
+    ]);
+    expect(zeile).toBe('Alles aus');
+  });
+
+  it('offene Fenster schlagen die Beruhigung', () => {
+    const zeile = raumFakten([
+      geraet({
+        kind: 'binary_sensor',
+        name: 'Fenster Sued',
+        state: { state: 'on', device_class: 'window' },
+      }),
+    ]);
+    expect(zeile).toBe('Fenster Sued offen');
+  });
+});
+
+describe('raumLeuchtet', () => {
+  it('nur brennendes Licht macht den Schein an', () => {
+    expect(raumLeuchtet([geraet({ kind: 'light', state: { state: 'on' } })])).toBe(true);
+    expect(raumLeuchtet([geraet({ kind: 'light', state: { state: 'off' } })])).toBe(false);
+    expect(raumLeuchtet([geraet({ kind: 'switch', state: { state: 'on' } })])).toBe(false);
   });
 });

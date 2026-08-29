@@ -12,6 +12,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 
 import { CommandData, Entity, HubSettings } from '../api/types';
 import { begruessung } from '../lib/begruessung';
@@ -81,9 +82,12 @@ import {
   alphabetisch,
   istKueche,
   raeumeSortiert,
+  raumFakten,
   raumKategorien,
+  raumKlima,
+  raumLeuchtet,
   raumMesswerte,
-  raumZeile,
+  raumSymbol,
 } from '../lib/raum';
 import { Person } from '../lib/ortung';
 import { FAVORITEN, raumGruppen } from '../lib/raumgruppen';
@@ -383,6 +387,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [deviceFilter, setDeviceFilter] = useState<GeraeteFilter>('');
   const [deviceSort, setDeviceSort] = useState<GeraeteSortierung>('selbst');
   const [expanded, setExpanded] = useState<string | null>(null);
+  // Das ···-Menü im Raumkopf: klappt «Anpassen» und «Reihenfolge» auf.
+  // Je Raum frisch zu - was man im Büro aufgeklappt hat, soll im
+  // Schlafzimmer nicht offen stehen.
+  const [raumMenue, setRaumMenue] = useState(false);
+  useEffect(() => {
+    setRaumMenue(false);
+  }, [room, section]);
   const [lastTouch, setLastTouch] = useState(() => Date.now());
   // Zählt hoch, wenn der Widget-Knopf «Alles aus» gedrückt wurde – die
   // Rückfrage öffnet sich dann von selbst, statt dass die App nur
@@ -1408,11 +1419,23 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     // byFavorite ist eine je Rendern neue Funktion über favorites.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [categorized, shown, favorites]);
-  // Kopfzeile und Messwert-Chips des Raums.
-  const raumKopf = categorized ? raumZeile(inRoom) : '';
-  const messwerte = useMemo(
-    () => (categorized ? raumMesswerte(shown) : []),
+  // Der Raumkopf nach der Stiltafel «Bühne + Raumlicht»: Name links,
+  // Klima gross rechts, darunter eine Faktenzeile - und ein warmer
+  // Schein, solange im Raum Licht brennt.
+  const klima = useMemo(
+    () => (categorized ? raumKlima(shown) : null),
     [categorized, shown]
+  );
+  const raumKopf = categorized ? raumFakten(inRoom) : '';
+  const raumSchein = categorized && raumLeuchtet(inRoom);
+  // Der Klimafühler steht gross im Kopf - als Chip daneben stünde er
+  // doppelt, wie früher die Temperatur.
+  const messwerte = useMemo(
+    () =>
+      (categorized ? raumMesswerte(shown) : []).filter(
+        (fuehler) => fuehler.id !== klima?.fuehler.id
+      ),
+    [categorized, shown, klima]
   );
 
   /** Standbild-Adresse einer Kamera (oder der Saugerkarte) am Hub. */
@@ -2534,29 +2557,88 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               </Modal>
             </>
           ) : null}
-          {section === 'home' && room !== ALL_ROOMS && !editing ? (
-            <Pressable
-              onPress={() => setRoom(ALL_ROOMS)}
-              accessibilityRole="button"
-              accessibilityLabel="Zurück zu Räume"
-              style={styles.backRow}
-            >
-              <Ionicons name="chevron-back" size={18} color={colors.onGradient} />
-              <Text style={styles.backText}>Räume</Text>
-            </Pressable>
-          ) : null}
-          {/* Der Raumname als Überschrift.
-              Im Zimmer stand er nirgends: oben «‹ Räume», darunter
-              «Anpassen», dann «Beleuchtung» - und der einzige Hinweis
-              auf das Zimmer war das kleingedruckte «Büro» unter jeder
-              Kachel, das jetzt zu Recht weg ist. Wer über einen Umweg
-              hierherkam, wusste nicht mehr, wo er steht.
-              Auch im Anpassen-Modus: Gerade dort darf man sich nicht im
-              Zimmer irren. */}
+          {/* Der Raumkopf als Bühne (nach der gewählten Stiltafel):
+              «‹ Räume» und ···-Menü in einer schmalen Zeile, darunter der
+              Raumname gross mit dem Klima rechts daneben, darunter eine
+              Faktenzeile. Dazu das Raumlicht: ein warmer Schein, solange
+              im Raum Licht brennt, und das Raumsymbol als Wasserzeichen -
+              beides nur Anblick, nie im Weg (pointerEvents none).
+              Der Titel bleibt auch im Anpassen-Modus stehen: Gerade dort
+              darf man sich nicht im Zimmer irren. */}
           {section === 'home' && room !== ALL_ROOMS ? (
-            <Text style={styles.raumTitel} numberOfLines={1}>
-              {room}
-            </Text>
+            <View style={styles.raumBuehne}>
+              {raumSchein ? (
+                <LinearGradient
+                  colors={['rgba(255, 192, 97, 0.20)', 'rgba(255, 192, 97, 0)']}
+                  style={styles.raumSchein}
+                  pointerEvents="none"
+                />
+              ) : null}
+              <Ionicons
+                name={raumSymbol(room)}
+                size={150}
+                color={colors.onGradient}
+                style={styles.raumWasserzeichen}
+                pointerEvents="none"
+              />
+              {!editing ? (
+                <View style={styles.raumKopfzeile}>
+                  <Pressable
+                    onPress={() => setRoom(ALL_ROOMS)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Zurück zu Räume"
+                    style={styles.backRow}
+                  >
+                    <Ionicons name="chevron-back" size={18} color={colors.onGradient} />
+                    <Text style={styles.backText}>Räume</Text>
+                  </Pressable>
+                  {/* «Anpassen» und «Reihenfolge» braucht man einmal im
+                      Jahr - sie stehen hinter dem ···, nicht vor den
+                      Kacheln. */}
+                  {darfAnpassen || (orderScope && !searching && rest.length > 1) ? (
+                    <Pressable
+                      onPress={() => setRaumMenue((value) => !value)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Raum einrichten"
+                      accessibilityState={{ expanded: raumMenue }}
+                      style={styles.raumMenueKnopf}
+                    >
+                      <Ionicons
+                        name="ellipsis-horizontal"
+                        size={18}
+                        color={colors.onGradientSoft}
+                      />
+                    </Pressable>
+                  ) : null}
+                </View>
+              ) : null}
+              <View style={styles.raumHeld}>
+                <Text
+                  style={[styles.raumTitel, { flexShrink: 1 }]}
+                  numberOfLines={1}
+                >
+                  {room}
+                </Text>
+                {klima ? (
+                  <Pressable
+                    onPress={() =>
+                      setExpanded((current) =>
+                        current === klima.fuehler.id ? null : klima.fuehler.id
+                      )
+                    }
+                    accessibilityRole="button"
+                    accessibilityLabel={`Temperatur ${klima.temp}`}
+                    style={styles.raumKlimaBlock}
+                  >
+                    <Text style={styles.raumKlimaTemp}>{klima.temp}</Text>
+                    {klima.feuchte ? (
+                      <Text style={styles.raumKlimaSub}>{klima.feuchte}</Text>
+                    ) : null}
+                  </Pressable>
+                ) : null}
+              </View>
+              {raumKopf ? <Text style={styles.raumFakten}>{raumKopf}</Text> : null}
+            </View>
           ) : null}
           {/* Kacheln anpassen heisst: verschieben, ausblenden, sperren,
               Gruppen vergeben. Es prägt die Ansicht für alle im Haus -
@@ -2568,7 +2650,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           (section === 'home' ||
             section === 'devices' ||
             section === 'light' ||
-            section === 'covers') ? (
+            section === 'covers') &&
+          // Im Raum steht der Knopf hinter dem ···-Menü; nur während des
+          // Anpassens bleibt «Fertig» immer sichtbar.
+          (section !== 'home' || room === ALL_ROOMS || raumMenue || editing) ? (
             <Pressable
               onPress={() => setEditing((value) => !value)}
               accessibilityRole="button"
@@ -2583,7 +2668,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               Zurück-Link, also ganz oben - über der Zeile, mit der man
               die Seite überhaupt verlässt. Erst wohin man ist, dann was
               man hier tun kann. */}
-          {orderScope && !searching && rest.length > 1 ? (
+          {orderScope &&
+          !searching &&
+          rest.length > 1 &&
+          (section !== 'home' || room === ALL_ROOMS || raumMenue) ? (
             <Pressable
               onPress={() => setReorderOpen(true)}
               accessibilityRole="button"
@@ -2715,12 +2803,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           {/* Ein Raum: nach Kategorien (Szenen, Beleuchtung, Store, Medien). */}
           {categorized ? (
             <>
-              {/* Der Raumkopf: wie warm, was offen, was läuft – die drei
-                  Dinge, die man wissen will, bevor man Kacheln liest.
-                  Daneben die Handgriffe für den ganzen Raum. */}
-              {raumKopf || messwerte.length > 0 ? (
+              {/* Temperatur und Faktenzeile stehen jetzt oben im
+                  Raumkopf (raumBuehne) - hier bleiben die übrigen
+                  Messwerte als Chips und die aufgeklappte Fühlerkarte. */}
+              {messwerte.length > 0 || klima ? (
                 <View style={styles.raumKopf}>
-                  {raumKopf ? <Text style={styles.raumKopfText}>{raumKopf}</Text> : null}
                   {messwerte.length > 0 ? (
                     <View style={styles.filterRow}>
                       {messwerte.map((fuehler) => {
@@ -2753,7 +2840,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                     </View>
                   ) : null}
                   {(() => {
-                    const auf = messwerte.find((fuehler) => fuehler.id === expanded);
+                    // Auch der Klimafühler klappt hier auf - er steht
+                    // zwar gross im Kopf, seine Karte (Verlauf) gehört
+                    // aber zu den anderen Fühlern.
+                    const auf = [
+                      ...messwerte,
+                      ...(klima ? [klima.fuehler] : []),
+                    ].find((fuehler) => fuehler.id === expanded);
                     return auf && cardWidth ? renderCard(auf) : null;
                   })()}
                 </View>
@@ -2980,7 +3073,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 über den Integrationen war siebzig Punkte Höhe für etwas,
                 das beim Einrichten niemand braucht. Zweispaltig bleibt
                 alles wie es war: Dort steht das Menü ohnehin daneben. */}
-            {einstellungsKopf ?? (
+            {/* Im Zimmer keine Begrüssung: «Guten Abend, Stefan» über dem
+                Raumnamen war siebzig Punkte Höhe für etwas, das man beim
+                Betreten der Startseite schon gelesen hat. */}
+            {einstellungsKopf ??
+              (section === 'home' && room !== ALL_ROOMS ? null : (
               <View style={styles.greetingRow}>
                 <View style={styles.greeting}>
                   {/* Eine Zeile, nicht zwei: «Hallo Stefan,» mit «Guten
@@ -3005,7 +3102,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   <OpenDoors entities={entities} />
                 </View>
               </View>
-            )}
+              ))}
 
             {/* Je Bereich ein eigenes Netz: Reisst die Kameraansicht, sollen
               Licht und Storen bedienbar bleiben. Ein Haus, das zu drei
