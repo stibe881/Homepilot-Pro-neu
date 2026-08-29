@@ -57,6 +57,15 @@ Ring-Token). **Diesen Ordner ins Backup aufnehmen.**
    - **Compose path:** `docker-compose.portainer.yml`
    - **Authentication** einschalten: GitHub-Benutzername + das Token aus
      den Voraussetzungen.
+
+   > **Den Zweig später ändern** – etwa nach einem Umzug auf `main`:
+   > Stacks → `homepilot` → Abschnitt *Redeploy from git repository* →
+   > **`+ Advanced configuration`** aufklappen. Dahinter stecken
+   > *Repository reference* und *Compose path*; eingeklappt sieht die
+   > Seite aus, als gäbe es die Felder bei einem bestehenden Stack gar
+   > nicht. Danach **Save settings** und **Pull and redeploy** – ohne
+   > das Zweite bleibt der laufende Container auf dem alten Klon, und
+   > die Referenz stimmt nur auf dem Papier.
 4. Unter **Environment variables** hinzufügen:
 
    | Name | Wert |
