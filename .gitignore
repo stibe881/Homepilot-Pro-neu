@@ -57,6 +57,5 @@ dist/
 # Apple-Schlüssel: gehört zum Bauen dazu, nie ins Repository.
 app/google-services.json
 
-# Die Fotos der Zimmer (Raumkacheln). Sie gehören ins Haus, nicht ins
-# Repository - und sie liegen neben der Datendatei, nicht darin.
+# Die Raumfotos liegen neben den Daten, nicht im Repository.
 hub/raumbilder/
