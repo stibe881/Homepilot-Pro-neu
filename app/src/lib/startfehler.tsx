@@ -28,7 +28,7 @@
  * was gerade kaputt ist.
  */
 import React from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { Alert, ScrollView, Text, View } from 'react-native';
 
 /** So lange nach dem Start gilt ein Fehler als Startfehler. Danach ist
  *  die App am Laufen, und ein fataler Fehler soll wieder normal
@@ -37,6 +37,50 @@ import { ScrollView, Text, View } from 'react-native';
 const STARTFENSTER_MS = 15000;
 
 let letzter: unknown = null;
+
+/** Der eine Fehler, der den Start wirklich verhindert hat - falls es ihn gab. */
+let fataler: unknown = null;
+
+const zuhoerer = new Set<() => void>();
+
+/** Von der Startwache benutzt; testbar ohne React. */
+export function startfehlerAbo(melden: () => void): () => void {
+  zuhoerer.add(melden);
+  return () => zuhoerer.delete(melden);
+}
+
+/** Der Fehler, der den Start verhindert hat - oder null. */
+export function fatalerStartfehler(): unknown {
+  return fataler;
+}
+
+/**
+ * Einen geschluckten fatalen Fehler sichtbar machen.
+ *
+ * Nur schlucken reichte nicht: Am 29. August blieb nach dem Schlucken
+ * ein schwarzer Bildschirm - React stand mitten im ersten Aufbau, und
+ * die Meldung lag einzig in der Konsole, die ohne Mac niemand liest.
+ * Deshalb zwei Wege, die beide ohne den kaputten Baum auskommen:
+ * Die Startwache tauscht die Wurzel gegen den Notfallbildschirm, und
+ * der native Alert zeigt die Meldung selbst dann, wenn auch das
+ * nicht mehr zeichnet.
+ */
+function fatalMelden(fehler: unknown): void {
+  fataler = fehler;
+  for (const melden of [...zuhoerer]) {
+    try {
+      melden();
+    } catch {
+      // Ein kaputter Zuhörer darf die Meldung an die anderen nicht verhindern.
+    }
+  }
+  const { titel, text } = fehlerZeilen(fehler);
+  try {
+    Alert.alert('HomePilot: Fehler beim Start', text ? `${titel}\n\n${text}` : titel);
+  } catch {
+    // Ohne Alert bleibt der Notfallbildschirm.
+  }
+}
 
 /** Was zuletzt beim Start schiefging - für die System-Seite. */
 export function letzterStartfehler(): unknown {
@@ -110,9 +154,8 @@ export function globalenFangInstallieren(): void {
     if (fatal && Date.now() - gestartet < STARTFENSTER_MS) {
       letzter = fehler;
       const { titel, text } = fehlerZeilen(fehler);
-      // Landet im Gerätelog (Console.app) - der einzige Weg, an dem man
-      // von aussen an die Meldung kommt, wenn das Bild schon steht.
       console.error('[HomePilot] Fehler beim Start:', titel, text);
+      fatalMelden(fehler);
       return;
     }
     vorher?.(fehler, fatal);
@@ -151,4 +194,20 @@ export function notfallWurzel(fehler: unknown): () => React.JSX.Element {
   return function Notfall() {
     return <Notfallbildschirm fehler={fehler} />;
   };
+}
+
+/**
+ * Die Wurzel über der Wurzel: zeigt die App - bis ein fataler
+ * Startfehler gemeldet wird, dann den Notfallbildschirm mit der
+ * Meldung. Sie ist bewusst winzig: Je weniger sie selbst braucht,
+ * desto sicherer steht sie noch, wenn darunter alles liegt.
+ */
+export function Startwache({ children }: { children: React.ReactNode }) {
+  const fehler = React.useSyncExternalStore(
+    startfehlerAbo,
+    fatalerStartfehler,
+    fatalerStartfehler
+  );
+  if (fehler != null) return <Notfallbildschirm fehler={fehler} />;
+  return <>{children}</>;
 }

@@ -1,4 +1,9 @@
-import { fehlerZeilen } from './startfehler';
+import {
+  fatalerStartfehler,
+  fehlerZeilen,
+  globalenFangInstallieren,
+  startfehlerAbo,
+} from './startfehler';
 
 describe('fehlerZeilen', () => {
   it('nimmt Meldung und die ersten Stapelzeilen eines Error', () => {
@@ -31,5 +36,54 @@ describe('fehlerZeilen', () => {
     const fehler = new Error('');
     fehler.stack = '';
     expect(fehlerZeilen(fehler).titel).toBe('Error');
+  });
+});
+
+describe('globaler Fang', () => {
+  it('meldet einen fatalen Startfehler an die Startwache statt ihn nur zu loggen', () => {
+    // Der schwarze Bildschirm vom 29. August: geschluckt, geloggt, nie
+    // gezeigt. Seitdem muss ein fataler Fehler im Startfenster die
+    // Zuhörer wecken und abrufbar sein.
+    let vorherGerufen = 0;
+    const vorher = () => {
+      vorherGerufen += 1;
+    };
+    let installiert: ((fehler: unknown, fatal?: boolean) => void) | undefined;
+    (globalThis as { ErrorUtils?: unknown }).ErrorUtils = {
+      getGlobalHandler: () => vorher,
+      setGlobalHandler: (h: (fehler: unknown, fatal?: boolean) => void) => {
+        installiert = h;
+      },
+    };
+    const konsole = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      globalenFangInstallieren();
+      expect(installiert).toBeDefined();
+
+      let geweckt = 0;
+      const abmelden = startfehlerAbo(() => {
+        geweckt += 1;
+      });
+
+      const fehler = new Error('Modul X fehlt');
+      installiert!(fehler, true);
+      expect(geweckt).toBe(1);
+      expect(fatalerStartfehler()).toBe(fehler);
+      // Im Startfenster übernimmt das Netz - der alte Handler (der den
+      // Prozess abbrechen würde) bleibt aussen vor.
+      expect(vorherGerufen).toBe(0);
+
+      // Nicht-fatale Fehler gehen unverändert an den alten Handler.
+      installiert!(new Error('nur eine Warnung'), false);
+      expect(vorherGerufen).toBe(1);
+      expect(geweckt).toBe(1);
+
+      abmelden();
+      installiert!(new Error('nach dem Abmelden'), true);
+      expect(geweckt).toBe(1);
+    } finally {
+      konsole.mockRestore();
+      delete (globalThis as { ErrorUtils?: unknown }).ErrorUtils;
+    }
   });
 });

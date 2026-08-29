@@ -9,6 +9,15 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Ein geschluckter Startfehler zeigt sich jetzt, statt schwarz zu
+  bleiben.** Der Messbuild 1.4.7 hat bewiesen: Der Absturz ist ein
+  JavaScript-Fehler - ohne expo-updates stirbt der Prozess nicht mehr.
+  Aber der globale Fang schrieb die Meldung nur in die Konsole, die
+  ohne Mac niemand liest, und React blieb mitten im ersten Aufbau
+  stehen: schwarzer Bildschirm. Jetzt meldet der Fang den Fehler an
+  eine Startwache über der Wurzel, die den Notfallbildschirm mit der
+  Meldung zeigt - und ein nativer Alert tut es zusätzlich, falls
+  selbst das Zeichnen nicht mehr geht.
 - **Die System-Seite zeigt, was beim Start schiefging.** Das Netz aus
   `lib/startfehler.tsx` hielt gestolperte Anweisungen zwar fest, aber
   gelesen hat sie niemand: Die Sammelstellen trugen «für die

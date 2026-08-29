@@ -3,9 +3,10 @@
 // Komponente existiert, die sie zeigen könnte. Ein `import` weiter oben
 // würde vorher ausgewertet und liefe daran vorbei (siehe
 // src/lib/startfehler.tsx).
-import { globalenFangInstallieren, notfallWurzel } from './src/lib/startfehler';
+import { Startwache, globalenFangInstallieren, notfallWurzel } from './src/lib/startfehler';
 
 import { registerRootComponent } from 'expo';
+import React from 'react';
 
 globalenFangInstallieren();
 
@@ -20,4 +21,12 @@ try {
   Wurzel = notfallWurzel(fehler);
 }
 
-registerRootComponent(Wurzel);
+// Die Startwache liegt über allem: Schluckt der globale Fang einen
+// fatalen Fehler, blieb bisher ein schwarzer Bildschirm - React stand
+// mitten im ersten Aufbau, und die Meldung lag nur in der Konsole. Die
+// Wache tauscht dann die ganze Wurzel gegen den Notfallbildschirm.
+// createElement statt JSX, weil diese Datei eine .ts ist.
+function WurzelMitWache() {
+  return React.createElement(Startwache, null, React.createElement(Wurzel));
+}
+registerRootComponent(WurzelMitWache);
