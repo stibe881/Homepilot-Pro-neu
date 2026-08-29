@@ -204,7 +204,11 @@ struct Provider: TimelineProvider {
             // Alle 15 Minuten: Häufiger lässt iOS ohnehin nicht zu, und für
             // «steht die Türe offen» ist es kein Alarm, sondern ein Blick im
             // Vorbeigehen. Wer es genau wissen will, tippt einmal.
-            let nächste = Calendar.current.date(byAdding: .minute, value: 15, to: Date())!
+            // Ohne «!»: Ein Zeitplan ist keine Stelle, an der die App
+            // sterben darf. Fällt der Kalender aus (Zeitzonenwechsel,
+            // exotisches Gebietsschema), sind 900 Sekunden dasselbe.
+            let nächste = Calendar.current.date(byAdding: .minute, value: 15, to: Date())
+                ?? Date().addingTimeInterval(900)
             completion(
                 Timeline(
                     entries: [Entry(date: Date(), glance: glance, shortcuts: knöpfe)],
@@ -655,6 +659,26 @@ struct HausAktivitaetAttributes: ActivityAttributes {
     var art: String
 }
 
+/// Die Spanne bis zum Ende - nie rückwärts.
+///
+/// `Date()...ende` ist ein `ClosedRange`, und der verlangt, dass die obere
+/// Grenze nicht vor der unteren liegt. Ist sie es doch, bricht Swift den
+/// Prozess ab (`brk 1`) - keine Ausnahme, kein Auffangen. Genau das ist am
+/// 29. August passiert: Eine Live-Aktivität, deren Zeit abgelaufen war,
+/// trug ein `endet` in der Vergangenheit. Bei jedem Zeichnen stürzte die
+/// Widget-Erweiterung ab, iOS drosselte sie (procRole «Throttle»), und auf
+/// dem Sperrbildschirm blieb die Karte leer.
+///
+/// Abgelaufen heisst hier «bei null», nicht «kaputt»: Die Spanne endet
+/// dann im Jetzt, der Zähler steht auf 0:00. Das ist auch fachlich richtig
+/// - der Timer *ist* abgelaufen.
+@available(iOS 16.2, *)
+private func laufendeSpanne(bis endet: Double) -> ClosedRange<Date> {
+    let jetzt = Date()
+    let ende = Date(timeIntervalSince1970: endet)
+    return jetzt...max(ende, jetzt)
+}
+
 @available(iOS 16.2, *)
 private func kartenFarbe(_ name: String?) -> Color {
     switch name {
@@ -690,7 +714,7 @@ struct HausKarteInhalt: View {
                 // Zählt von selbst herunter - dafür braucht es keinen
                 // einzigen weiteren Push.
                 Text(
-                    timerInterval: Date()...Date(timeIntervalSince1970: endet),
+                    timerInterval: laufendeSpanne(bis: endet),
                     countsDown: true
                 )
                 .font(.title2.monospacedDigit())
@@ -720,7 +744,7 @@ struct HausKarte: Widget {
             } compactTrailing: {
                 if let endet = context.state.endet {
                     Text(
-                        timerInterval: Date()...Date(timeIntervalSince1970: endet),
+                        timerInterval: laufendeSpanne(bis: endet),
                         countsDown: true
                     )
                     .monospacedDigit()
@@ -898,7 +922,8 @@ struct KarteProvider: AppIntentTimelineProvider {
     func timeline(for configuration: KarteIntent, in context: Context) async -> Timeline<KarteEntry> {
         let eintrag = await eintrag(fuer: configuration)
         // Wie beim grossen Widget: Häufiger lässt iOS ohnehin nicht zu.
-        let naechste = Calendar.current.date(byAdding: .minute, value: 15, to: Date())!
+        let naechste = Calendar.current.date(byAdding: .minute, value: 15, to: Date())
+            ?? Date().addingTimeInterval(900)
         return Timeline(entries: [eintrag], policy: .after(naechste))
     }
 

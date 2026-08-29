@@ -9,6 +9,16 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Das Widget stürzte ab, sobald ein Zähler abgelaufen war.** Auf der
+  Karte mit Countdown stand `Date()...Date(timeIntervalSince1970: endet)`.
+  Ein `ClosedRange` verlangt, dass die obere Grenze nicht vor der
+  unteren liegt - lag `endet` in der Vergangenheit, brach Swift den
+  Prozess ab (`brk 1`), ohne Ausnahme und ohne Auffangmöglichkeit. Bei
+  jedem Zeichnen erneut, bis iOS die Erweiterung drosselte; auf dem
+  Sperrbildschirm blieb die Karte leer. Jetzt endet die Spanne im
+  Jetzt und der Zähler steht auf 0:00 - was fachlich auch stimmt. Die
+  Uhr machte es von Anfang an so (`targets/watch/App.swift`), das
+  Widget als Einziges nicht.
 - **Die OTA-Veröffentlichung läuft wieder.** Sie scheiterte seit vier
   Tagen bei jedem einzigen Lauf, und zwar an einer Zeile im
   Update-Skript: `app_abbild: command not found`. Der Block stand vor
