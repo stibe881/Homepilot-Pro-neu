@@ -318,6 +318,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     (user?.capabilities ?? []).includes('edit_config');
 
   const [section, setSection] = useState<Section>('start');
+  // Solange eine Zeile in einem Ordnen-Blatt am Finger hängt, darf das
+  // Blatt nicht scrollen: Der Capture-Anspruch der Zeile hält zwar die
+  // Geste, aber ein ScrollView, der daneben weiter scrollen darf,
+  // schiebt den Inhalt unter der Zeile weg. Die Startseite macht es mit
+  // den Kacheln genauso (scrollEnabled={!drag}).
+  const [ordnenZieht, setOrdnenZieht] = useState(false);
   // Die grosse Liste, damit ein Wechsel oben anfängt (siehe unten).
   const blatt = useRef<ScrollView>(null);
   // Welche Einstellungsseite zuletzt offen war - damit «Einstellungen»
@@ -2420,8 +2426,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 diese Ansicht und wird bei deinem Benutzer gespeichert – sie erscheint so
                 auf allen deinen Geräten.
               </Text>
-              <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+              <ScrollView
+                contentContainerStyle={{ paddingBottom: 40 }}
+                scrollEnabled={!ordnenZieht}
+              >
                 <DraggableList
+                  onDragging={setOrdnenZieht}
                   // Bewusst die ungefilterte Liste: sortiert wird immer über
                   // alle Geräte der Ansicht, auch wenn gerade gesucht wurde.
                   items={[...shown]
@@ -2507,8 +2517,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                     <Ionicons name="text-outline" size={15} color={colors.ink} />
                     <Text style={styles.alphabetText}>Nach Alphabet</Text>
                   </Pressable>
-                  <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+                  <ScrollView
+                    contentContainerStyle={{ paddingBottom: 40 }}
+                    scrollEnabled={!ordnenZieht}
+                  >
                     <DraggableList
+                      onDragging={setOrdnenZieht}
                       items={rooms
                         .filter((name) => name !== ALL_ROOMS)
                         .map((name) => ({ id: name, name }))}
