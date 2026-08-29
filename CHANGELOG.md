@@ -7,6 +7,21 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 ## 2026-08-25
 
+**Zimmer**
+
+- Wetter und die Musik des Hauses stehen nicht mehr in der Spalte neben
+  einem offenen Zimmer. Wer «Küche» öffnet, will die Küche sehen – und
+  bekam daneben das Wetter von Zell und die Box, die im Wohnzimmer
+  spielt. Auf dem Telefon schob beides die Lampen unter den Rand.
+- Was bleibt: die Box **dieses** Raums – jetzt auch dann, wenn sie
+  zugleich die spielende des Hauses ist; vorher wäre sie mit der grossen
+  Karte verschwunden. Und die Wetterwarnung: Sie wegzuräumen, weil man
+  gerade in einem Zimmer steht, hiesse sie genau dann zu verstecken, wenn
+  man hinschaut.
+- Bleibt nichts übrig, verschwindet die Spalte ganz, statt ihre 340
+  Punkte für nichts zu beanspruchen. Die Raumübersicht («Alle») und die
+  Startseite bleiben, wie sie waren.
+
 **Haustüre**
 
 - Die Rückfrage vor dem Öffnen («Wirklich öffnen?») lässt sich abstellen.

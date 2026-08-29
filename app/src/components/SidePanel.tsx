@@ -12,6 +12,7 @@ import {
   quellenSymbol,
 } from '../lib/geraeteart';
 import { hatWarteschlange } from '../lib/musikliste';
+import { panelContent, showsRoomPlayer } from '../lib/seitenspalte';
 import { Colors, radius, type, useColors } from '../theme';
 import { Bar } from './Bar';
 import { Card } from './Card';
@@ -26,12 +27,18 @@ function severityColor(colors: Colors, severity: string): string {
  * Breite Spalte rechts (Tablet) bzw. Abschnitt unten (Telefon):
  * Wetterlage, Musik und was zuletzt im Haus passiert ist.
  *
- * Steht ein Raum offen, kommt dessen Box als zweite Musikkarte darunter.
- * Vorher lag sie als Kachel zwischen den Lampen des Raums: Man bediente
- * die Musik des Wohnzimmers also an einer anderen Stelle als die Musik
- * des Hauses, und beim Wechsel in den nächsten Raum sprang sie wieder
- * woanders hin. Musik gehört in die Musik-Spalte – die des Raums, in dem
- * man gerade steht, unter die grosse.
+ * Steht ein Raum offen, zeigt die Spalte **nur** dessen Box – Wetter und
+ * die Musik des Hauses bleiben weg. Wer «Küche» öffnet, will die Küche
+ * sehen und nicht das Wetter von Zell und die Box, die im Wohnzimmer
+ * spielt; auf dem Telefon schob beides die Lampen unter den Rand. Was
+ * bleibt, ist eine Wetterwarnung: Sie wegzuräumen, weil man gerade in
+ * einem Zimmer steht, hiesse sie genau dann zu verstecken, wenn man
+ * hinschaut. Welche Karte wann steht, entscheidet lib/seitenspalte.ts.
+ *
+ * Die Box des Raums lag früher als Kachel zwischen seinen Lampen: Man
+ * bediente die Musik des Wohnzimmers also an einer anderen Stelle als
+ * die Musik des Hauses, und beim Wechsel in den nächsten Raum sprang sie
+ * wieder woanders hin. Musik gehört in die Musik-Spalte.
  */
 export function SidePanel({
   entities,
@@ -100,25 +107,35 @@ export function SidePanel({
   const raumPlayer =
     (chosenRoomId ? raumBoxen.find((entity) => entity.id === chosenRoomId) : undefined) ??
     pickPlayer(raumBoxen);
-  const zeigtRaumPlayer = !!raumPlayer && raumPlayer.id !== player?.id;
+  const zeigtRaumPlayer = showsRoomPlayer({
+    inRoom: !!room,
+    roomPlayerId: raumPlayer?.id,
+    housePlayerId: player?.id,
+  });
 
-  // Nichts zu zeigen heisst: keine Spalte. Vorher stand auf einem
-  // Tablet im Querformat eine leere Fläche von 340 Punkten am rechten
-  // Rand, weil die Spalte ihre Breite auch dann beanspruchte, wenn weder
-  // Wetter noch Musik noch eine Warnung darin lagen - ein knappes Drittel
-  // des Bildschirms für nichts. Aufgefallen ist es erst, als die
-  // Startseite einmal im Browser auf iPad-Grösse gemessen wurde.
-  const zeigtEtwas =
-    !!weather ||
-    (!!player && !!onCommand) ||
-    (zeigtRaumPlayer && !!onCommand) ||
-    !!hasAlert;
-  if (!zeigtEtwas) return null;
+  // Was die Spalte hier zeigt. Im Zimmer bleiben Wetter und die Musik
+  // des Hauses weg - beides beantwortet keine Frage, die man im Zimmer
+  // stellt (siehe lib/seitenspalte.ts).
+  //
+  // «Nichts zu zeigen heisst: keine Spalte» steckt als `anything` mit
+  // darin. Vorher stand auf einem Tablet im Querformat eine leere Fläche
+  // von 340 Punkten am rechten Rand, weil die Spalte ihre Breite auch
+  // dann beanspruchte, wenn nichts darin lag - ein knappes Drittel des
+  // Bildschirms für nichts. Aufgefallen ist es erst, als die Startseite
+  // einmal im Browser auf iPad-Grösse gemessen wurde.
+  const zeigt = panelContent({
+    inRoom: !!room,
+    weather: !!weather,
+    housePlayer: !!player && !!onCommand,
+    roomPlayer: zeigtRaumPlayer && !!onCommand,
+    alert: !!hasAlert,
+  });
+  if (!zeigt.anything) return null;
 
   return (
     <View style={[styles.column, width ? { width } : { flex: 1 }]}>
-      {weather ? <WeatherPanel entity={weather} /> : null}
-      {player && onCommand ? (
+      {zeigt.weather ? <WeatherPanel entity={weather!} /> : null}
+      {zeigt.housePlayer && player && onCommand ? (
         <MediaPanel
           entity={player}
           players={players}
@@ -136,7 +153,7 @@ export function SidePanel({
           Musik dorthin zu ziehen wäre der Umzug, den die grosse Karte
           oben schon kann, und würde die Karte mit einer Box füllen, die
           gar nicht in diesem Raum steht. */}
-      {zeigtRaumPlayer && onCommand ? (
+      {zeigt.roomPlayer && onCommand ? (
         <MediaPanel
           entity={raumPlayer!}
           players={raumBoxen}
@@ -145,7 +162,7 @@ export function SidePanel({
           onCommand={onCommand}
         />
       ) : null}
-      {hasAlert ? <AlertPanel entity={alert!} /> : null}
+      {zeigt.alert ? <AlertPanel entity={alert!} /> : null}
     </View>
   );
 }
@@ -183,8 +200,7 @@ function MediaPanel({
   const [pickerOpen, setPickerOpen] = useState(false);
   // Was als Nächstes läuft – hinter Cover und Titel.
   const [listeOffen, setListeOffen] = useState(false);
-  const command = (name: string, data?: CommandData) =>
-    onCommand(entity.id, name, data);
+  const command = (name: string, data?: CommandData) => onCommand(entity.id, name, data);
   const istQuelle = hatEigeneAuswahl(entity);
   // Der Wähler führt nur noch Boxen, also steht auch nur die Box darauf.
   // Vorher stand dort der Name der Quelle – neben einem Chip, auf dem
