@@ -58,6 +58,8 @@ from __future__ import annotations
 
 import asyncio
 import time
+import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -71,9 +73,17 @@ USER_AGENT = "HomePilot/1.0"
 # Ersatzweg: Ring führt eine Liste der gerade laufenden Meldungen – die
 # gleiche, aus der auch die Ring-App ihre Nachricht baut.
 #
-# Zehn Sekunden, solange der Push-Kanal fehlt: Für eine Türklingel ist das
-# die Grenze des Erträglichen, wer davorsteht wartet nicht länger.
-DING_POLL_SECONDS = 10
+# Drei Sekunden, solange der Push-Kanal nichts liefert.
+#
+# `dings/active` ist die Liste der *laufenden* Meldungen - dieselbe, aus
+# der die Ring-App ihre Nachricht baut. Sie steht in dem Moment da, in
+# dem geklingelt wird, und ist damit der schnellste Weg, den es ohne
+# Ereigniskanal gibt. Gemessen: Klingeln um 21:34:39, beim Hub um
+# 21:34:43.
+#
+# Wo Ring für ein Gerät gar nicht pusht, ist das kein Notbehelf mehr,
+# sondern der Normalweg - dann gehört das Zeitbudget hierher.
+DING_POLL_SECONDS = 3
 # Dreissig Sekunden, während er steht. Nicht aus Misstrauen gegen den
 # Push-Kanal an sich, sondern gegen das, was er im Fehlerfall meldet: Er
 # gilt als «gestartet», bis ihn jemand stoppt. Reisst die Verbindung
@@ -252,10 +262,115 @@ TAUB_AB = 2
 # Das ist der Unterschied, der bisher nirgends stand. Für eine Türklingel
 # ist der Ereigniskanal der schnelle Weg und die Abfrage das Netz
 # darunter – schlimmstenfalls kommt das Klingeln zehn Sekunden später.
-# Für eine Gegensprechanlage gibt es kein Netz: Fällt der Kanal aus,
-# kommt gar nichts. Der System-Bildschirm versprach trotzdem beiden
-# dasselbe «wird ersatzweise alle 10 s abgefragt» – eine Zusage, die für
-# das eine Gerät stimmt und für das andere nicht.
+# Für eine Gegensprechanlage gab es kein Netz: Fiel der Kanal aus, kam
+# gar nichts – ausgerechnet an der Türe, an der es zählt.
+#
+# Ihr Netz ist der Verlauf (`_intercom_loop`): Er kennt sie, weil er am
+# Gerät hängt und nicht an der Geräteklasse. Alle fünf Sekunden
+# nachsehen kostet einen Aufruf und ist der Unterschied zwischen «ein
+# paar Sekunden später» und «gar nicht».
+
+
+#: Takt, in dem der Verlauf der Gegensprechanlage abgefragt wird.
+#:
+#: Zehn Sekunden, und das ist mit Absicht langsamer als die Abfrage der
+#: laufenden Meldungen. Der Verlauf ist ein Protokoll: Ring schreibt den
+#: Eintrag, wenn das Ereignis vorbei ist, nicht wenn es beginnt. Für ein
+#: Klingeln, das gerade stattfindet, ist er deshalb nie der schnellste
+#: Weg - er ist das Netz für den Fall, dass die andere Abfrage etwas
+#: nicht sieht.
+#:
+#: Beide auf drei Sekunden wäre die doppelte Last für dieselbe Auskunft.
+#: Das Zeitbudget gehört dorthin, wo es etwas bringt.
+#:
+#: Wer es wirklich sofort will, führt das Klingelsignal als Kontakt in
+#: den Hub (siehe docs/klingel-sofort.md). Alles hier ist Fragen statt
+#: Wissen, und Fragen kostet Zeit.
+INTERCOM_POLL_SECONDS = 10
+
+#: Wie alt ein Eintrag im Verlauf höchstens sein darf, damit er noch als
+#: «es klingelt gerade» gilt. Alles Ältere ist Geschichte - beim Start
+#: des Hubs soll nicht das Klingeln von gestern eine Nachricht auslösen.
+INTERCOM_FRIST = 90.0
+
+
+def verlauf_dings(
+    verlauf: Any, gesehen: set[Any], jetzt: float, frist: float = INTERCOM_FRIST
+) -> tuple[list[dict[str, Any]], set[Any]]:
+    """Frische Klingel-Einträge aus dem Verlauf (rein, testbar).
+
+    Die Gegensprechanlage hängt in Rings API an einer eigenen
+    Adressfamilie und taucht in der Liste der aktiven Meldungen nicht
+    auf. Ohne Ereigniskanal kam von ihr deshalb gar nichts - kein
+    verspätetes Klingeln, sondern gar keines. Der Verlauf ist der Weg,
+    der bleibt.
+
+    Zwei Dinge muss diese Funktion können, und beide sind der Grund,
+    weshalb sie eine eigene ist: Nichts zweimal melden (die Kennung
+    merken), und beim Start nicht das Klingeln von gestern nachholen
+    (die Frist).
+    """
+    frisch: list[dict[str, Any]] = []
+    kennungen = set(gesehen)
+    for eintrag in verlauf or []:
+        kind = str(_feld(eintrag, "kind") or "").lower()
+        if kind != "ding":
+            continue
+        kennung = _feld(eintrag, "id")
+        if kennung is None or kennung in kennungen:
+            continue
+        wann = _zeitstempel(_feld(eintrag, "created_at"))
+        kennungen.add(kennung)
+        if wann is None or jetzt - wann > frist:
+            # Gemerkt, aber nicht gemeldet: Beim nächsten Lauf soll er
+            # nicht erneut geprüft werden, und eine Nachricht über ein
+            # Klingeln von gestern will niemand.
+            continue
+        frisch.append({"id": kennung, "now": wann})
+    return frisch, kennungen
+
+
+def _feld(eintrag: Any, name: str) -> Any:
+    """Ein Feld holen, egal ob dict oder Objekt (rein, testbar).
+
+    Die Bibliothek liefert je nach Fassung das eine oder das andere.
+    """
+    if isinstance(eintrag, dict):
+        return eintrag.get(name)
+    return getattr(eintrag, name, None)
+
+
+def _zeitstempel(wert: Any) -> float | None:
+    """Aus dem, was im Verlauf steht, Sekunden machen (rein, testbar)."""
+    if isinstance(wert, (int, float)):
+        return float(wert)
+    if isinstance(wert, datetime):
+        stamp = wert if wert.tzinfo else wert.replace(tzinfo=UTC)
+        return stamp.timestamp()
+    if isinstance(wert, str):
+        text = wert.strip().replace("Z", "+00:00")
+        try:
+            stamp = datetime.fromisoformat(text)
+        except ValueError:
+            return None
+        return (stamp if stamp.tzinfo else stamp.replace(tzinfo=UTC)).timestamp()
+    return None
+
+
+@dataclass
+class _VerlaufEreignis:
+    """Ein Klingeln aus dem Verlauf, in der Form der übrigen Meldungen.
+
+    Damit derselbe Weg durch `_handle_event` führt: Was dort an
+    Entprellung, Merken und Zurücksetzen steht, soll für alle Quellen
+    gleich gelten und nicht ein zweites Mal danebenstehen.
+    """
+
+    doorbot_id: int
+    id: Any
+    now: float
+    kind: str = "ding"
+    expires_in: float = 60.0
 
 
 def ersatz_hinweis(ohne_ersatz: list[str]) -> str:
@@ -273,6 +388,207 @@ def ersatz_hinweis(ohne_ersatz: list[str]) -> str:
         "nur Türklingeln und Kameras. Dort kommt das Klingeln allein über "
         "den Ereigniskanal, sonst gar nicht."
     )
+
+
+def verlauf_hinweis(mit_verlauf: list[str]) -> str:
+    """Satz über die Geräte, für die der Verlauf einspringt (rein, testbar).
+
+    Gehört überall dorthin, wo «wird ersatzweise abgefragt» steht: Für
+    die Gegensprechanlage stimmt der Takt nicht, sie hängt an einem
+    eigenen Weg. Ohne diesen Satz sähe es aus, als wäre sie vom
+    Zehn-Sekunden-Netz mit abgedeckt - das war sie nie.
+    """
+    if not mit_verlauf:
+        return ""
+    namen = ", ".join(sorted(mit_verlauf))
+    wird = "wird" if len(mit_verlauf) == 1 else "werden"
+    return (
+        f" {namen} {wird} über den Verlauf abgefragt, alle "
+        f"{INTERCOM_POLL_SECONDS} s – dort kommt das Klingeln also auch "
+        "ohne Ereigniskanal an."
+    )
+
+
+#: Wie weit zwei Meldungen desselben Klingelns zeitlich auseinander
+#: liegen dürfen.
+#:
+#: Verglichen wird der Zeitpunkt, zu dem *geklingelt* wurde - nicht der,
+#: zu dem die Meldung beim Hub eintraf. Das ist der Unterschied, der
+#: zählt: Jeder Weg vergibt seine eigene Kennung (der Verlauf die des
+#: Verlaufseintrags, die Abfrage die der Meldung), und jeder Weg kommt
+#: zu einer anderen Zeit an - der Verlauf nach fünf Sekunden, die
+#: Abfrage nach dreissig. Wer nach der Ankunft entprellt, bräuchte ein
+#: Fenster, das breit genug ist, um einen zweiten Besucher zu
+#: verschlucken.
+#:
+#: Der Klingel-Zeitpunkt dagegen ist bei allen Wegen derselbe, auf ein
+#: paar Sekunden genau. Deshalb genügt hier ein enges Fenster - und wer
+#: zehn Sekunden später nochmals drückt, wird gehört.
+KLINGEL_ENTPRELLUNG = 5.0
+
+
+def ding_zeit(event: Any, jetzt: float) -> float:
+    """Wann geklingelt wurde (rein, testbar).
+
+    Ring legt der Meldung ihren eigenen Zeitstempel bei. Fehlt er, bleibt
+    nur der Moment des Eintreffens - dann ist die Entprellung ungenauer,
+    aber immer noch besser als keine.
+    """
+    roh = getattr(event, "now", None)
+    try:
+        wert = float(roh)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return jetzt
+    return wert if wert > 0 else jetzt
+
+
+def ist_wiederholung(
+    letzte: float | None, wann: float, frist: float = KLINGEL_ENTPRELLUNG
+) -> bool:
+    """Ist das dasselbe Klingeln wie das letzte? (rein, testbar)
+
+    Beide Zeiten sind Klingel-Zeitpunkte, nicht Ankunftszeiten.
+    """
+    if letzte is None:
+        return False
+    return abs(wann - letzte) < frist
+
+
+#: Wie die Wege heissen, über die ein Klingeln hereinkommen kann.
+QUELLEN_NAMEN = {
+    "push": "über den Ereigniskanal",
+    "abfrage": "über die Abfrage",
+    "verlauf": "über den Verlauf",
+}
+
+
+def kanal_zahlen_satz(gesamt: int, fremd: int) -> str:
+    """Was über den Kanal hereinkam - in Zahlen (rein, testbar).
+
+    Ein Kanal, über den nichts kommt, und ein Kanal, dessen Meldungen
+    der Hub wegwirft, sehen von aussen gleich aus. Der Unterschied ist
+    aber der ganze nächste Schritt: Im einen Fall liegt es bei Ring, im
+    anderen beim Hub.
+    """
+    if gesamt <= 0:
+        return " Über den Kanal kam seit dem Start keine einzige Meldung."
+    satz = f" Über den Kanal kamen seit dem Start {gesamt} Meldungen"
+    if fremd:
+        return (
+            satz + f", davon {fremd} für ein Gerät, das der Hub nicht kennt "
+            "(steht im Protokoll)."
+        )
+    return satz + "."
+
+
+def klingel_satz(wann: float | None, quelle: str | None, jetzt: float) -> str:
+    """Wann zuletzt geklingelt hat - und auf welchem Weg (rein, testbar).
+
+    Der Satz, der die Kette in zwei Hälften teilt. «Es kommt keine
+    Nachricht» kann zweierlei heissen: Der Hub hat das Klingeln nie
+    gehört, oder er hat es gehört und niemand hat ihm gesagt, was er
+    damit tun soll. Von aussen sieht beides gleich aus, und man sucht
+    wochenlang auf der falschen Seite.
+    """
+    if not wann:
+        return " Seit dem Start hat noch niemand geklingelt."
+    sekunden = max(0.0, jetzt - wann)
+    if sekunden < 90:
+        wie_lange = "gerade eben"
+    elif sekunden < 3600:
+        wie_lange = f"vor {round(sekunden / 60)} Min."
+    elif sekunden < 86400:
+        wie_lange = f"vor {round(sekunden / 3600)} Std."
+    else:
+        wie_lange = f"vor {round(sekunden / 86400)} Tagen"
+    weg = QUELLEN_NAMEN.get(str(quelle or ""), "auf unbekanntem Weg")
+    return f" Zuletzt geklingelt {wie_lange}, {weg}."
+
+
+def hardware_id(gespeichert: dict[str, Any] | None) -> tuple[str, bool]:
+    """Die Geräte-Kennung, unter der sich der Hub bei Ring meldet.
+
+    (rein, testbar) Zurück kommt die Kennung und ob sie neu ist.
+
+    Hier lag der Fehler, der alles erklärt. `ring_doorbell` leitet diese
+    Kennung von der **MAC-Adresse** ab, wenn man ihr keine gibt:
+
+        uuid5(NAMESPACE, str(uuid.getnode()) + user_agent)
+
+    Auf einem Rechner ist das eine gute Idee - die MAC bleibt. In einem
+    Docker-Container nicht: Jeder neu erstellte Container bekommt eine
+    neue MAC, und dieser Hub wird bei **jedem Update** neu erstellt.
+
+    Ring bindet die Push-Anmeldung an diese Kennung. Nach jedem Update
+    meldete sich also ein Gerät an, das Ring noch nie gesehen hatte,
+    während die Klingeln weiter an das Gerät von vorher gingen. Die
+    Anmeldung wird mit 204 bestätigt, der Kanal steht - und es kommt nie
+    etwas. Genau das Bild aus dem System-Bildschirm, und es passt auch
+    dazu, dass es in Home Assistant funktionierte: Eine feste
+    Installation behält ihre MAC.
+
+    Die Kennung gehört deshalb neben das Token, nicht an die Hardware.
+    Einmal gewürfelt, dann bleibt sie.
+    """
+    vorhanden = str((gespeichert or {}).get("hardware_id") or "").strip()
+    if vorhanden:
+        return vorhanden, False
+    return str(uuid.uuid4()), True
+
+
+#: So lange darf ein stehender Kanal schweigen, bevor der Hub die
+#: Anmeldung erneuert.
+#:
+#: Der Grund ist Rings Bauart: Die Anmeldung für Push hängt an der
+#: Sitzung des Kontos, und Ring merkt sich **einen** Empfänger. Meldet
+#: sich ein zweites Programm mit demselben Konto an - eine noch laufende
+#: Home-Assistant-Instanz, die Ring-App auf einem alten Telefon -, zeigt
+#: Rings Wegweiser dorthin, und hier kommt nichts mehr an. Von aussen
+#: sieht das aus wie ein stehender Kanal, über den nichts kommt: genau
+#: das, was im System-Bildschirm stand.
+#:
+#: Dagegen hilft nur, sich wieder vorne anzustellen. Eine halbe Stunde
+#: Stille ist der Schwellwert - kürzer, und zwei Programme reissen sich
+#: die Anmeldung im Minutentakt hin und her.
+STILLE_FRIST = 1800.0
+
+
+def anmeldung_erneuern(
+    stand_seit: float | None,
+    push_gesamt: int,
+    jetzt: float,
+    frist: float = STILLE_FRIST,
+) -> bool:
+    """Soll der Hub sich neu bei Ring anmelden? (rein, testbar)
+
+    Ja, wenn der Kanal lange genug steht und über ihn trotzdem nie etwas
+    kam. Kam schon etwas, ist er in Ordnung und eine stille halbe Stunde
+    heisst bloss, dass niemand geklingelt hat.
+    """
+    if stand_seit is None or push_gesamt > 0:
+        return False
+    return jetzt - stand_seit >= frist
+
+
+def abfrage_takt(events_ok: bool, quellen: list[str], push_gesamt: int) -> float:
+    """Wie oft die Ersatz-Abfrage laufen soll (rein, testbar).
+
+    Hier lag der Fehler, den man an der Uhr merkt: Der Takt hing daran,
+    ob der Ereigniskanal *gestartet* ist - und das ist er, sobald die
+    Anmeldung durch war, auch wenn danach nie etwas hereinkommt. Der Hub
+    schaltete also auf den langsamen Takt zurück und wartete bis zu
+    dreissig Sekunden, während die einzige Quelle, die wirklich lieferte,
+    die Abfrage war. Im Schnitt fünfzehn Sekunden bis zur Nachricht -
+    genau das, was zu messen war.
+
+    Massgeblich ist deshalb nicht, ob der Kanal steht, sondern ob über
+    ihn etwas kommt.
+    """
+    if not events_ok:
+        return DING_POLL_SECONDS
+    if push_gesamt <= 0 or kanal_taub(quellen):
+        return DING_POLL_SECONDS
+    return DING_POLL_BACKUP_SECONDS
 
 
 def kanal_taub(quellen: list[str]) -> bool:
@@ -303,12 +619,29 @@ def health_detail(
     abbrueche: int = 0,
     anlaeufe: int = 0,
     ohne_ersatz: list[str] | None = None,
+    mit_verlauf: list[str] | None = None,
+    letztes_klingeln: tuple[float, str] | None = None,
+    jetzt: float | None = None,
+    push_gesamt: int = 0,
+    push_fremd: int = 0,
 ) -> str:
     """Was im System-Bildschirm über den Ereigniskanal steht (rein, testbar)."""
-    # Wo unten «wird ersatzweise abgefragt» steht, gehört dieser Satz
+    # Wo unten «wird ersatzweise abgefragt» steht, gehören diese Sätze
     # dazu - sonst verspricht die Anzeige ein Netz, das für dieses Gerät
-    # nicht gespannt ist.
-    ersatz = ersatz_hinweis(ohne_ersatz or [])
+    # nicht gespannt ist, oder verschweigt eines, das es gibt.
+    # Wann zuletzt geklingelt hat, steht in jedem Ausgang: Die Frage «hat
+    # der Hub es überhaupt gehört?» stellt sich gerade dann, wenn oben
+    # «verbunden» steht.
+    klingeln = klingel_satz(
+        (letztes_klingeln or (None, None))[0],
+        (letztes_klingeln or (None, None))[1],
+        jetzt if jetzt is not None else time.time(),
+    )
+    # Die Hinweise zum Ersatzweg dagegen nur dort, wo es auf ihn ankommt:
+    # Solange der Kanal steht, ist er belanglos und wäre nur Lärm.
+    ersatz = (
+        ersatz_hinweis(ohne_ersatz or []) + verlauf_hinweis(mit_verlauf or []) + klingeln
+    )
     if abgeschaltet:
         # Bewusste Entscheidung, keine Störung - deshalb ohne Warnton.
         return (
@@ -330,9 +663,11 @@ def health_detail(
             return (
                 "Ereigniskanal gemeldet, aber die letzten Klingeln kamen über "
                 f"die Abfrage – der Kanal ist taub. Push kommt dadurch bis zu "
-                f"{DING_POLL_SECONDS} s zu spät.{ersatz}"
+                f"{DING_POLL_SECONDS} s zu spät."
+                + kanal_zahlen_satz(push_gesamt, push_fremd)
+                + ersatz
             )
-        return "Ereigniskanal verbunden – Klingeln kommt sofort an"
+        return f"Ereigniskanal verbunden – Klingeln kommt sofort an.{klingeln}"
     # Der Grund als eigener Satz, nicht in Klammern: Er enthält oft
     # selbst welche, und «(RuntimeError: … (MCS))» liest niemand.
     grund = ""
@@ -513,10 +848,21 @@ class RingIntegration(Integration):
 
         from ring_doorbell import Auth, Ring
 
+        # Die Geräte-Kennung fest, nicht aus der MAC: Der Container
+        # bekommt bei jedem Update eine neue, und Ring hängt die
+        # Push-Anmeldung daran (siehe hardware_id()).
+        kennung, frisch = hardware_id(self._stored)
+        if frisch:
+            self._save("hardware_id", kennung)
+            self.log.info(
+                "Ring: feste Geräte-Kennung angelegt – die Push-Anmeldung "
+                "übersteht damit ein Update des Containers"
+            )
         self._auth = Auth(
             USER_AGENT,
             token=self._stored.get("token"),
             token_updater=lambda token: self._save("token", token),
+            hardware_id=kennung,
             http_client_session=self.http_session(),
         )
         self._ring = Ring(self._auth)
@@ -528,10 +874,30 @@ class RingIntegration(Integration):
         # Eigene Liste je Lauf, nicht die der Klasse: Sonst sammelt ein
         # Neuladen dieselben Namen ein zweites Mal ein.
         self._ohne_ersatz: list[str] = []
+        # Gegensprechanlagen und ihre Entität: Für sie wird der Verlauf
+        # abgefragt, weil `dings/active` sie nicht kennt.
+        self._intercoms: list[tuple[str, Any]] = []
+        # Welche Verlaufseinträge schon gesehen wurden - sonst käme
+        # dasselbe Klingeln alle fünf Sekunden erneut.
+        self._verlauf_gesehen: set[Any] = set()
+        # Wann zuletzt geklingelt hat und auf welchem Weg es hereinkam.
+        self._letztes_klingeln: tuple[float, str] | None = None
+        # Je Gerät der Zeitpunkt des letzten Klingelns - die Entprellung
+        # über alle Wege hinweg (siehe ist_wiederholung).
+        self._klingel_zeiten: dict[str, float] = {}
+        # Wie viel über den Kanal hereinkam - und wie viel davon zu
+        # keinem bekannten Gerät gehörte.
+        self._push_gesamt = 0
+        self._push_fremd = 0
+        # Ob der fehlgeschlagene Verlauf schon einmal laut gemeldet wurde.
+        self._verlauf_gemeldet = False
         self._by_ring_id: dict[int, str] = {}
         self._clear_tasks: dict[str, asyncio.Task] = {}
 
         devices = self._ring.devices()
+        # `doorbells` enthält die eigenen und die geteilten
+        # (authorized_doorbots) - bei einem Konto, dem die Klingel bloss
+        # freigegeben wurde, stehen sie ausschliesslich dort.
         klingeln = {int(device.id) for device in devices.doorbells}
         for device in list(devices.doorbells) + list(devices.stickup_cams):
             entity = await self.add_entity(
@@ -566,11 +932,15 @@ class RingIntegration(Integration):
             )
             self._devices[entity.id] = device
             self._by_ring_id[int(device.id)] = entity.id
-            # Sie klingelt, aber die Ersatz-Abfrage sieht sie nicht –
-            # siehe ersatz_hinweis(). Der Name statt der Kennung: Im
-            # System-Bildschirm steht sonst eine Zahl, die niemandem
-            # sagt, welches Gerät gemeint ist.
-            self._ohne_ersatz.append(entity.name)
+            # Sie taucht in der Liste der aktiven Meldungen nicht auf -
+            # für sie wird stattdessen der Verlauf abgefragt. Ohne
+            # Verlauf (ältere Bibliothek) bleibt sie ohne Netz, und das
+            # gehört in den System-Bildschirm; der Name statt der
+            # Kennung, dort steht sonst eine Zahl.
+            if hasattr(device, "async_history") or hasattr(device, "history"):
+                self._intercoms.append((entity.id, device))
+            else:
+                self._ohne_ersatz.append(entity.label)
 
         if not self._devices:
             self.log.warning("Ring-Konto verbunden, aber keine Geräte gefunden")
@@ -591,6 +961,89 @@ class RingIntegration(Integration):
                 DING_POLL_SECONDS,
             )
         self.start_task(self._ding_loop())
+        if self._intercoms:
+            self.start_task(self._intercom_loop())
+
+    async def _intercom_loop(self) -> None:
+        """Den Verlauf der Gegensprechanlage abfragen.
+
+        Sie hängt in Rings API an einer eigenen Adressfamilie und taucht
+        in der Liste der aktiven Meldungen nicht auf. Bisher hiess das:
+        Fällt der Ereigniskanal aus, kommt von ihr gar nichts - kein
+        verspätetes Klingeln, sondern gar keines. Und weil an dieser
+        Klingel die Haustüre hängt, war das die Klingel, auf die es
+        ankommt.
+
+        Der Verlauf ist der Weg, der bleibt. Er kostet einen Aufruf alle
+        paar Sekunden; was der Push-Kanal schon gebracht hat, wird nicht
+        doppelt gemeldet.
+        """
+        # Beim ersten Durchgang nur nachsehen, was schon dasteht, und es
+        # als gesehen vormerken: Sonst löste der Hub-Start eine Nachricht
+        # über das letzte Klingeln aus.
+        erster = True
+        while True:
+            for entity_id, device in self._intercoms:
+                try:
+                    verlauf = await self._verlauf_holen(device)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as err:
+                    # Einmal laut, danach leise. Auf debug war das der
+                    # blinde Fleck: Der Verlauf ist für die
+                    # Gegensprechanlage der einzige schnelle Weg - klappt
+                    # er nicht, bleibt nur die Abfrage, und niemand
+                    # erfuhr davon.
+                    melden = (
+                        self.log.warning
+                        if not self._verlauf_gemeldet
+                        else self.log.debug
+                    )
+                    self._verlauf_gemeldet = True
+                    melden(
+                        "Ring: Verlauf von %s nicht abrufbar (%s) - das "
+                        "Klingeln kommt dann nur über die Abfrage",
+                        entity_id,
+                        err,
+                    )
+                    continue
+                self._verlauf_gemeldet = False
+                frisch, self._verlauf_gesehen = verlauf_dings(
+                    verlauf,
+                    self._verlauf_gesehen,
+                    time.time(),
+                    0.0 if erster else INTERCOM_FRIST,
+                )
+                for eintrag in frisch:
+                    await self._handle_event(
+                        _VerlaufEreignis(
+                            doorbot_id=int(device.id),
+                            id=eintrag["id"],
+                            now=eintrag["now"],
+                        ),
+                        quelle="verlauf",
+                    )
+            erster = False
+            await asyncio.sleep(INTERCOM_POLL_SECONDS)
+
+    @staticmethod
+    async def _verlauf_holen(device: Any) -> Any:
+        """Den Verlauf holen, egal wie die Bibliothek ihn anbietet."""
+        holen = getattr(device, "async_history", None)
+        if holen is not None:
+            return await holen(limit=5)
+        return device.history(limit=5)
+
+    def _verlauf_namen(self) -> list[str]:
+        """Die Geräte, für die der Verlauf einspringt - mit Klarnamen."""
+        namen = []
+        # getattr: health() wird auch an einer Integration gefragt, deren
+        # setup() nie durchlief - etwa wenn die Anmeldung scheiterte.
+        # Dann gibt es keine Geräte, und das ist die richtige Antwort.
+        for entity_id, _ in getattr(self, "_intercoms", []):
+            entity = self.hub.registry.get(entity_id)
+            namen.append(entity.label if entity else entity_id)
+        return namen
 
     def health(self) -> dict[str, Any]:
         """Steht der schnelle Weg? Das ist hier die ganze Frage.
@@ -602,7 +1055,12 @@ class RingIntegration(Integration):
             return {
                 "ok": True,
                 "detail": health_detail(
-                    False, None, abgeschaltet=True, ohne_ersatz=self._ohne_ersatz
+                    False,
+                    None,
+                    abgeschaltet=True,
+                    ohne_ersatz=self._ohne_ersatz,
+                    mit_verlauf=self._verlauf_namen(),
+                    letztes_klingeln=self._letztes_klingeln,
                 ),
                 "last_event": self._last_event,
             }
@@ -630,6 +1088,10 @@ class RingIntegration(Integration):
                 abbrueche=self._abbrueche,
                 anlaeufe=self._anlaeufe,
                 ohne_ersatz=self._ohne_ersatz,
+                mit_verlauf=self._verlauf_namen(),
+                letztes_klingeln=getattr(self, "_letztes_klingeln", None),
+                push_gesamt=getattr(self, "_push_gesamt", 0),
+                push_fremd=getattr(self, "_push_fremd", 0),
             ),
             "last_event": self._last_event,
             # Für die Ferndiagnose: der Weg der letzten Meldungen.
@@ -775,11 +1237,13 @@ class RingIntegration(Integration):
         der Empfänger «nicht gestartet», obwohl alles in Ordnung ist.
         """
         stand = False
+        steht_seit: float | None = None
         tot = 0
         while tot < TOT_BESTAETIGUNGEN:
             if channel_alive(self._listener):
                 if not stand:
                     stand = True
+                    steht_seit = time.time()
                     self._events_ok = True
                     self._listen_error = None
                     self._anlaeufe = 0
@@ -791,6 +1255,23 @@ class RingIntegration(Integration):
                         "Ring-Ereigniskanal war kurz weg und ist wieder da"
                     )
                 tot = 0
+                # Ein Kanal, der steht und über den nie etwas kommt, ist
+                # meistens einer, dem ein anderes Programm die Anmeldung
+                # weggenommen hat - Ring merkt sich einen Empfänger je
+                # Konto. Sich wieder vorne anstellen ist das Einzige, was
+                # hilft, und das geschieht über einen frischen Anlauf.
+                if anmeldung_erneuern(
+                    steht_seit, getattr(self, "_push_gesamt", 0), time.time()
+                ):
+                    self.log.warning(
+                        "Ring-Ereigniskanal steht seit einer halben Stunde, "
+                        "ohne dass je etwas kam – die Anmeldung wird erneuert. "
+                        "Meldet sich ein zweites Programm mit demselben "
+                        "Ring-Konto an (eine laufende Home-Assistant-Instanz "
+                        "etwa), nimmt es sie wieder weg."
+                    )
+                    self._events_ok = False
+                    return True
             else:
                 tot += 1
             await asyncio.sleep(KANAL_BLICK_SECONDS)
@@ -952,7 +1433,7 @@ class RingIntegration(Integration):
         """
         while True:
             await asyncio.sleep(
-                DING_POLL_BACKUP_SECONDS if self._events_ok else DING_POLL_SECONDS
+                abfrage_takt(self._events_ok, self._quellen, self._push_gesamt)
             )
             if not self._devices:
                 continue
@@ -970,11 +1451,37 @@ class RingIntegration(Integration):
                 await self._handle_event(event, quelle="abfrage")
 
     async def _handle_event(self, event: Any, quelle: str = "push") -> None:
+        if quelle == "push":
+            # Zählen, bevor irgendetwas den Weg abbrechen kann. Ein
+            # stiller Kanal und ein Kanal, dessen Meldungen der Hub
+            # wegwirft, sehen von aussen gleich aus - und führen zu ganz
+            # verschiedenen nächsten Schritten.
+            self._push_gesamt += 1
         try:
-            entity_id = self._by_ring_id.get(int(event.doorbot_id))
+            ring_id = int(event.doorbot_id)
         except (TypeError, ValueError):
+            if quelle == "push":
+                self._push_fremd += 1
+                self.log.warning(
+                    "Ring: Meldung über den Kanal ohne brauchbare Geräte-Kennung "
+                    "(%s) - übergangen",
+                    getattr(event, "kind", "?"),
+                )
             return
+        entity_id = self._by_ring_id.get(ring_id)
         if entity_id is None:
+            if quelle == "push":
+                self._push_fremd += 1
+                # Genau hier verschwand bisher lautlos, was der Kanal
+                # lieferte: Ein Gerät, das der Hub nicht kennt, war
+                # nicht von «es kam nichts» zu unterscheiden.
+                self.log.warning(
+                    "Ring: Meldung über den Kanal für Gerät %s (%s) - der Hub "
+                    "kennt dieses Gerät nicht, bekannt sind %s",
+                    ring_id,
+                    getattr(event, "kind", "?"),
+                    sorted(self._by_ring_id) or "keine",
+                )
             return
         fields = event_fields(event.kind, event.now or time.time())
         if not fields:
@@ -992,7 +1499,28 @@ class RingIntegration(Integration):
         # unregelmässig, und ein verpasster Bewegungs-Push ist kein
         # Beinbruch. Beim Klingeln ist er einer.
         if event.kind == "ding":
+            # Der Zeitpunkt des Klingelns, nicht der des Eintreffens:
+            # Über die Abfrage kommt dieselbe Klingel eine halbe Minute
+            # später an als über den Verlauf, trägt aber denselben
+            # Stempel.
+            jetzt = ding_zeit(event, time.time())
+            if ist_wiederholung(self._klingel_zeiten.get(entity_id), jetzt):
+                # Dasselbe Klingeln auf einem zweiten Weg. Der Zustand
+                # steht schon richtig; weiterzumachen hiesse, dem Haus
+                # ein zweites Mal zu sagen, dass es klingelt.
+                self.log.debug(
+                    "Ring: Klingeln an %s kam ein zweites Mal (%s) - übergangen",
+                    entity_id,
+                    quelle,
+                )
+                return
+            self._klingel_zeiten[entity_id] = jetzt
             self._quellen = [*self._quellen, quelle][-QUELLEN_FENSTER * 2 :]
+            # Für den System-Bildschirm: Hat der Hub überhaupt gehört,
+            # dass es geklingelt hat? Ohne diese Auskunft ist «es kommt
+            # keine Nachricht» nicht davon zu unterscheiden, dass sie
+            # niemand verschickt.
+            self._letztes_klingeln = (time.time(), quelle)
             if quelle != "push":
                 self.log.info(
                     "Ring: Klingeln kam über die Abfrage, nicht über den "
@@ -1025,7 +1553,7 @@ class RingIntegration(Integration):
         ok = await device.async_open_door()
         if not ok:
             raise ConnectionError("Ring hat das Öffnen abgelehnt")
-        self.log.info("Tür geöffnet über %s", entity.name)
+        self.log.info("Tür geöffnet über %s", entity.label)
         # Kurze Rückmeldung auf der Kachel, dann zurück zum Ruhezustand.
         await self.hub.registry.update_state(
             entity.id,
@@ -1081,7 +1609,11 @@ async def _login_main(config_path: str) -> int:
     username = input("Ring-E-Mail: ").strip()
     password = getpass.getpass("Ring-Passwort: ")
 
-    auth = Auth(USER_AGENT)
+    # Die Kennung schon hier festlegen und mitspeichern: Das Token wird
+    # für ein bestimmtes Gerät ausgestellt, und der Hub muss sich später
+    # als dasselbe melden.
+    kennung, _ = hardware_id(tokenstore.load(token_file))
+    auth = Auth(USER_AGENT, hardware_id=kennung)
     try:
         try:
             token = await auth.async_fetch_token(username, password)
@@ -1094,9 +1626,140 @@ async def _login_main(config_path: str) -> int:
     finally:
         await auth.async_close()
 
-    tokenstore.save(token_file, {"token": token})
+    tokenstore.save(token_file, {"token": token, "hardware_id": kennung})
     print(f"✓ Angemeldet. Token liegt in {token_file} – jetzt den Hub starten.")
     return 0
+
+
+async def _horchen_main(config_path: str, sekunden: int) -> int:
+    """Zeigen, was Rings Wolke beim Klingeln überhaupt hergibt.
+
+    Aufruf:  docker exec homepilot-hub \
+                 python -m homepilot.integrations.ring -c /config/config.yaml \
+                 --klingeln 60
+
+    Der Unterschied zu --diagnose: Hier wird nichts angemeldet und
+    nichts weggenommen. Es wird nur gefragt - dieselben zwei Fragen, die
+    der Hub im Betrieb stellt, und die Antworten roh ausgegeben. Der
+    laufende Hub merkt davon nichts.
+
+    Damit ist entscheidbar, was «es kommt nichts an» heisst: Steht das
+    Klingeln in diesen Antworten, hört Ring es und der Hub verarbeitet es
+    falsch. Steht es nicht darin, weiss Rings Wolke selbst nichts davon -
+    dann liegt es am Konto oder am Gerät, und keine Zeile Code hilft.
+    """
+    from ..core.config import load_config
+
+    config = load_config(config_path)
+    blocks = [b for b in config.integrations if b.get("integration") == "ring"]
+    token_file = tokenstore.token_file(
+        config.data_file, blocks[0] if blocks else None, "ring"
+    )
+    stored = tokenstore.load(token_file)
+    if stored is None:
+        print(f"Kein Token in {token_file} – zuerst anmelden.")
+        return 1
+
+    from ring_doorbell import Auth, Ring
+
+    auth = Auth(
+        USER_AGENT,
+        token=stored.get("token"),
+        hardware_id=hardware_id(stored)[0],
+    )
+    ring = Ring(auth)
+    try:
+        await ring.async_create_session()
+        await ring.async_update_devices()
+        geraete = ring.devices()
+        # Roh, bevor irgendetwas gefiltert wird: Ring legt Geräte in
+        # Körbe, und welcher Korb es ist, hängt daran, ob das Konto der
+        # Besitzer ist oder ein geteilter Benutzer. Ein leerer Korb, den
+        # der Hub liest, und ein voller, den er nicht liest, sehen von
+        # aussen gleich aus - nämlich nach «kein Gerät».
+        print("Was Ring für dieses Konto zurückgibt:")
+        roh = getattr(ring, "devices_data", None) or {}
+        for korb, inhalt in roh.items():
+            print(f"  {korb}: {len(inhalt or {})}")
+            for kennung, angaben in (inhalt or {}).items():
+                if isinstance(angaben, dict):
+                    print(
+                        f"    · {angaben.get('description') or angaben.get('name')} "
+                        f"(Kennung {kennung}, Art {angaben.get('kind')})"
+                    )
+        if not roh:
+            print("  (nichts – dieses Konto sieht gar keine Geräte)")
+
+        alle = list(geraete.all_devices)
+        print("\nWas die Bibliothek daraus macht:")
+        for geraet in alle:
+            print(f"  · {geraet.name} (Kennung {geraet.id}, Art {geraet.kind})")
+        if not alle:
+            print("  (nichts)")
+            print("\n✗ Dieses Konto sieht kein einziges Ring-Gerät.")
+            print("  Beim geteilten Benutzer: Einladung wirklich angenommen?")
+            print("  Und wurde der Hub auch mit diesem Konto angemeldet?")
+            return 1
+
+        print(f"\nJetzt klingeln. Ich schaue {sekunden} s lang zu …")
+        gesehen: set[Any] = set()
+        etwas = False
+        for durchgang in range(max(1, sekunden // 3)):
+            await asyncio.sleep(3)
+            # 1. Die aktiven Meldungen - der Weg, den der Hub «Abfrage» nennt.
+            try:
+                await ring.async_update_dings()
+                for alarm in ring.active_alerts():
+                    schluessel = ("alarm", getattr(alarm, "id", None))
+                    if schluessel in gesehen:
+                        continue
+                    gesehen.add(schluessel)
+                    etwas = True
+                    print(
+                        f"  [Abfrage] {getattr(alarm, 'kind', '?')} von "
+                        f"{getattr(alarm, 'doorbot_id', '?')} "
+                        f"({getattr(alarm, 'device_name', '?')})"
+                    )
+            except Exception as err:
+                if durchgang == 0:
+                    print(f"  ⚠ Aktive Meldungen nicht abrufbar: {err}")
+            # 2. Der Verlauf - der Weg für die Gegensprechanlage.
+            for geraet in alle:
+                holen = getattr(geraet, "async_history", None)
+                if holen is None:
+                    continue
+                try:
+                    verlauf = await holen(limit=3)
+                except Exception as err:
+                    if durchgang == 0:
+                        print(f"  ⚠ Verlauf von {geraet.name} nicht abrufbar: {err}")
+                    continue
+                for eintrag in verlauf or []:
+                    schluessel = ("verlauf", _feld(eintrag, "id"))
+                    if schluessel in gesehen:
+                        continue
+                    gesehen.add(schluessel)
+                    if durchgang == 0:
+                        # Der erste Durchgang zeigt, was schon dastand -
+                        # das ist Geschichte, nicht das Klingeln von eben.
+                        continue
+                    etwas = True
+                    print(
+                        f"  [Verlauf] {_feld(eintrag, 'kind')} an {geraet.name} "
+                        f"um {_feld(eintrag, 'created_at')}"
+                    )
+        if etwas:
+            print("\n✓ Rings Wolke kennt das Klingeln. Der Hub muss es also")
+            print("  verarbeiten können - schick mir diese Ausgabe.")
+            return 0
+        print("\n✗ In diesen Sekunden kam bei Ring nichts an.")
+        print("  Weder in den aktiven Meldungen noch im Verlauf. Das heisst:")
+        print("  Rings Wolke weiss selbst nichts von diesem Klingeln - dann")
+        print("  liegt es am Konto (Freigabe, Benachrichtigungen) oder am")
+        print("  Gerät, und nicht am Hub.")
+        return 1
+    finally:
+        await auth.async_close()
 
 
 async def _diagnose_main(config_path: str) -> int:
@@ -1180,7 +1843,11 @@ async def _diagnose_main(config_path: str) -> int:
         try:
             from ring_doorbell import Auth, Ring, RingEventListener
 
-            auth = Auth(USER_AGENT, token=stored.get("token"))
+            auth = Auth(
+                USER_AGENT,
+                token=stored.get("token"),
+                hardware_id=hardware_id(stored)[0],
+            )
             ring = Ring(auth)
             await ring.async_create_session()
             await ring.async_update_devices()
@@ -1238,7 +1905,18 @@ if __name__ == "__main__":
         action="store_true",
         help="Nicht anmelden, sondern prüfen, warum der Ereigniskanal fehlt",
     )
+    parser.add_argument(
+        "--klingeln",
+        type=int,
+        nargs="?",
+        const=60,
+        metavar="SEKUNDEN",
+        help="Zuschauen, was Rings Wolke beim Klingeln hergibt (stört den "
+        "laufenden Hub nicht)",
+    )
     args = parser.parse_args()
+    if args.klingeln:
+        sys.exit(asyncio.run(_horchen_main(args.config, args.klingeln)))
     if args.diagnose:
         sys.exit(asyncio.run(_diagnose_main(args.config)))
     sys.exit(asyncio.run(_login_main(args.config)))

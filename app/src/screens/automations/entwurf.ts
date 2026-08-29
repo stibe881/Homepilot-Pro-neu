@@ -6,7 +6,17 @@
 
 import { Entity } from '../../api/types';
 import { datumUhr, dauerText } from '../../lib/format';
-import { ZUHAUSE, ausTrigger, zuTrigger } from '../../lib/ortsausloeser';
+import type { LaufEintrag } from '../../lib/laufzeile';
+import { befehlWort, nameVon } from '../../lib/ablaufsatz';
+import {
+  SAMMEL_ANWESENHEIT,
+  ZUHAUSE,
+  anwesenheitSatz,
+  ausTrigger,
+  istOrtsmelder,
+  ortsSatz,
+  zuTrigger,
+} from '../../lib/ortsausloeser';
 import { musikBefehl, musikSchluessel, richtungBefehl, richtungSchluessel } from '../../lib/szenen';
 
 /**
@@ -41,6 +51,10 @@ export interface Automation {
   quiet_until?: number | null;
   /** Nächster geplanter Lauf (Unix-Sekunden), nur Zeit/Sonne - Punkt 161. */
   next_run?: number | null;
+  /** Der letzte Lauf. Fehlt er, wurde der Ablauf nie ausgelöst - und
+   *  das ist eine eigene Auskunft, nicht dasselbe wie «lief und tat
+   *  nichts». Siehe lib/laufzeile.ts. */
+  last_run?: LaufEintrag | null;
 }
 
 /** Je Auslöser: kam er überhaupt an? Antwort von /diagnose. */
@@ -71,6 +85,14 @@ export interface Run {
   skipped: string[];
   /** Die Schritt-Spur (Punkt 160): was wann dran war, und was hing. */
   steps?: { label: string; after: number; note?: string; error?: string }[];
+  /** Ob der Lauf auch gewirkt hat – ein paar Sekunden nach dem Lauf am
+   *  Gerät nachgesehen (hub/core/wirkung.py). Fehlt bei Läufen, an denen
+   *  es nichts Prüfbares gab, und bei allen aus der Zeit davor. */
+  effect?: {
+    urteil: 'gewirkt' | 'teilweise' | 'wirkungslos';
+    geprueft: number;
+    nicht: string[];
+  } | null;
 }
 
 /** Welche Zustände bei diesem Gerät als Auslöser oder Bedingung taugen
@@ -91,6 +113,11 @@ export const MEASURE_LABELS: Record<string, string> = {
   tilt: 'Lamellen (%)',
   count: 'Anzahl',
   home: 'Anwesend',
+  // Die Entfernung von zuhause, in Metern. Damit wird «wenn Stefan
+  // näher als 2 km ist, Storen hoch» ein gewöhnlicher Schwellenwert -
+  // ohne eigene Auslöser-Art. Der Geofence liefert sie, sobald eine
+  // Position bekannt ist (siehe integrations/geofence.py).
+  distance: 'Entfernung von zuhause (m)',
   probe_1: 'Grill-Sonde 1 (°C)',
   probe_2: 'Grill-Sonde 2 (°C)',
   probe_3: 'Grill-Sonde 3 (°C)',
@@ -234,6 +261,17 @@ export function plainStates(entity?: Entity): { key: string; label: string }[] {
     return [
       { key: 'home', label: 'zuhause' },
       { key: 'away', label: 'weg' },
+    ];
+  }
+  // Die Sammelfrage «ist überhaupt noch jemand da?» (geofence.anyone_home).
+  // Sie zählt technisch in an/aus, und genau so stand es im Editor: «an».
+  // Wer «wenn der Letzte geht» bauen wollte, musste raten, ob das nun
+  // «an» oder «aus» ist - und die Hälfte rät falsch. Erkennbar ist sie an
+  // der Liste der Abwesenden, die sie mitführt.
+  if (entity && 'away' in entity.state) {
+    return [
+      { key: 'on', label: 'jemand ist zuhause' },
+      { key: 'off', label: 'niemand ist zuhause' },
     ];
   }
   // Ein Tür- oder Fensterkontakt meldet technisch «an»/«aus». Wer einen
@@ -430,10 +468,32 @@ export function runLine(run: Run): string {
   return `${time} · übersprungen`;
 }
 
+/**
+ * Was die Nachschau ergab – oder nichts (rein, testbar).
+ *
+ * «Ausgeführt» heisst nur: abgeschickt. Ob das Licht danach brannte,
+ * sieht der Hub ein paar Sekunden später nach. Gemeldet wird nur, was
+ * *nicht* gewirkt hat: Bei jedem Lauf «hat gewirkt» danebenzuschreiben
+ * hiesse, die eine Zeile zu übersehen, auf die es ankommt.
+ */
+export function wirkungText(run: Run): string | null {
+  const effect = run.effect;
+  if (!effect || effect.urteil === 'gewirkt') return null;
+  const namen = effect.nicht.join(', ');
+  if (effect.urteil === 'wirkungslos') {
+    return namen ? `wirkte nicht: ${namen}` : 'wirkte nicht';
+  }
+  return namen ? `wirkte nur halb – ohne ${namen}` : 'wirkte nur halb';
+}
+
 export function lastRunText(runs: Run[], automationId: string): string {
   const run = runs.find((entry) => entry.automation_id === automationId);
   if (!run) return 'Noch nicht gelaufen';
-  return runLine(run);
+  // Die Nachschau gehört in die zugeklappte Zeile: Ein Ablauf, der
+  // abgeschickt hat und nichts bewirkte, ist genau der, den man sucht -
+  // und man sucht ihn, ohne vorher aufzuklappen.
+  const wirkung = wirkungText(run);
+  return wirkung ? `${runLine(run)} · ${wirkung}` : runLine(run);
 }
 
 /** Sammelname für alles ohne eigene Kategorie. */
@@ -490,7 +550,24 @@ export type TriggerKind =
   | 'calendar'
   | 'geofence'
   | 'availability';
-export type StepKind = 'command' | 'toggle_all' | 'scene' | 'hue_scene' | 'notify' | 'broadcast' | 'delay' | 'wait_until' | 'fade';
+/**
+ * Ein Handgriff unter einer Nachricht.
+ *
+ * Ein Tipp bringt einen an den richtigen Ort - aber oft weiss man schon
+ * vorher, was man dort tun will. «Waschmaschine fertig» und der Trockner
+ * soll laufen. Entweder eine Szene oder ein Gerät samt Befehl.
+ */
+export interface NotifyKnopf {
+  label: string;
+  sceneId?: string;
+  entityId?: string;
+  command?: string;
+}
+
+export type StepKind = 'command' | 'toggle_all' | 'scene' | 'hue_scene' | 'notify' | 'broadcast' | 'delay' | 'wait_until' | 'fade' | 'music';
+
+/** Was ein Musik-Schritt tun kann. */
+export type MusikTat = 'favorite' | 'sleep' | 'pause_all' | 'night' | 'fade';
 export type ConditionKind = 'none' | 'sun' | 'time';
 
 /** Ein einzelner Auslöser – ein Ablauf kann mehrere haben («oder»). */
@@ -588,6 +665,13 @@ export interface StepDraft {
    *  Benutzername - «Waschmaschine fertig» piepst dann nur bei dem, der
    *  sie ausräumt. */
   notifyTo: string;
+  /** Wohin ein Tipp auf die Nachricht führt: 'raum:Küche',
+   *  'familie:shopping', 'bereich:system' … Leer heisst: die App öffnet
+   *  sich, wie sie zuletzt stand. Siehe lib/pushziel.ts. */
+  notifyZiel: string;
+  /** Handgriffe, die unter der Nachricht zur Wahl stehen. Höchstens
+   *  drei - mehr liest dort niemand. */
+  notifyKnoepfe: NotifyKnopf[];
   /** Wartezeit in Sekunden. */
   seconds: string;
   /** «Warten bis»: worauf, und wie lange höchstens. */
@@ -602,6 +686,16 @@ export interface StepDraft {
   fadeEntityId: string;
   fadeTo: string;
   fadeMinutes: string;
+  /** Musik-Schritt: was getan wird und womit. Alles davon gab es schon
+   *  als Knopf in der App - «Wenn alle weg sind: Musik aus» ging aber
+   *  nur über den nackten Pause-Befehl je Box, und wer eine vergass,
+   *  merkte es erst beim Heimkommen. */
+  musikTat: MusikTat;
+  musikFavorit: string;
+  musikEntityId: string;
+  musikMinuten: string;
+  musikLautstaerke: string;
+  musikAn: boolean;
 }
 
 export const EMPTY_STEP: StepDraft = {
@@ -613,6 +707,8 @@ export const EMPTY_STEP: StepDraft = {
   body: '',
   notifyCamera: '',
   notifyTo: '',
+  notifyZiel: '',
+  notifyKnoepfe: [],
   seconds: '60',
   waitEntityId: '',
   waitOp: 'is',
@@ -623,6 +719,12 @@ export const EMPTY_STEP: StepDraft = {
   fadeEntityId: '',
   fadeTo: '0',
   fadeMinutes: '10',
+  musikTat: 'pause_all',
+  musikFavorit: '',
+  musikEntityId: '',
+  musikMinuten: '30',
+  musikLautstaerke: '30',
+  musikAn: true,
 };
 
 /** Ein neuer Auslöser für dieses Gerät – mit einem Zustand, den es auch
@@ -824,7 +926,7 @@ export function triggerFromConfig(t: BausteinConfig): TriggerDraft {
   // (`from: schule`). Beides muss wieder als «Ort + Richtung» dastehen,
   // sonst zeigt der Editor bei einem gespeicherten Ablauf etwas anderes,
   // als der Hub ausführt.
-  const istOrt = String(t?.entity_id ?? '').startsWith('geofence.');
+  const istOrt = istOrtsmelder(t?.entity_id);
   const ortswahl = istOrt ? ausTrigger(t ?? {}) : null;
   return {
     ...EMPTY_TRIGGER,
@@ -975,7 +1077,9 @@ export function triggerIcon(automation: Automation): string {
   if (art === 'calendar') return 'calendar-outline';
   if (art === 'availability') return 'pulse-outline';
   if ('above' in trigger || 'below' in trigger) return 'analytics-outline';
-  if (String(trigger.entity_id ?? '').startsWith('geofence.')) return 'location-outline';
+  // Die Sammelanwesenheit fragt nach Menschen, nicht nach einem Ort.
+  if (String(trigger.entity_id ?? '') === SAMMEL_ANWESENHEIT) return 'people-outline';
+  if (istOrtsmelder(trigger.entity_id)) return 'location-outline';
   if (trigger.attribute === 'ring') return 'notifications-outline';
   if (trigger.attribute === 'motion') return 'walk-outline';
   // Erst jetzt der Name: Ein Auslöser, der etwas aussagt, sagt mehr über
@@ -1176,6 +1280,44 @@ export function istLichtFein(action: {
   return !!(action.adaptive || action.color || action.colorTemp || action.offAfter);
 }
 
+/**
+ * Ein Musik-Schritt in die gespeicherte Form (rein, testbar).
+ *
+ * Jede Tat braucht andere Felder; ein Schritt, dem das nötige fehlt,
+ * ergibt gar keine Aktion. Ein halber Schritt, der beim Ablaufen
+ * stillschweigend nichts tut, wäre schlimmer als einer, der im Editor
+ * unfertig aussieht.
+ */
+export function musikSchrittZuAktion(step: StepDraft): BausteinConfig[] {
+  const tat = step.musikTat;
+  if (tat === 'pause_all') return [{ type: 'music', do: 'pause_all' }];
+  if (tat === 'night') return [{ type: 'music', do: 'night', on: step.musikAn }];
+  if (tat === 'favorite') {
+    return step.musikFavorit
+      ? [{ type: 'music', do: 'favorite', favorite: step.musikFavorit }]
+      : [];
+  }
+  if (!step.musikEntityId) return [];
+  if (tat === 'sleep') {
+    return [
+      {
+        type: 'music',
+        do: 'sleep',
+        entity_id: step.musikEntityId,
+        minutes: Number(step.musikMinuten) || 30,
+      },
+    ];
+  }
+  return [
+    {
+      type: 'music',
+      do: 'fade',
+      entity_id: step.musikEntityId,
+      volume: Number(step.musikLautstaerke) || 30,
+    },
+  ];
+}
+
 /** Einen einzelnen Schritt in die gespeicherte Form (rein, testbar).
  *
  * Ein Schritt kann mehrere Aktionen ergeben: «Gerät schalten» mit drei
@@ -1197,7 +1339,26 @@ export function stepToActions(step: StepDraft): BausteinConfig[] {
   if (step.kind === 'hue_scene') {
     return step.hueScene ? [{ type: 'hue_scene', scene: step.hueScene }] : [];
   }
+  if (step.kind === 'music') {
+    return musikSchrittZuAktion(step);
+  }
   if (step.kind === 'notify') {
+    // Nur, was vollständig ist: Ein Knopf ohne Etikett oder ohne Ziel
+    // stünde als leerer Balken unter der Nachricht.
+    const knoepfe = (step.notifyKnoepfe ?? [])
+      .filter(
+        (knopf) =>
+          knopf.label.trim() && (knopf.sceneId || (knopf.entityId && knopf.command))
+      )
+      .map((knopf) =>
+        knopf.sceneId
+          ? { label: knopf.label.trim(), scene: knopf.sceneId }
+          : {
+              label: knopf.label.trim(),
+              entity: knopf.entityId as string,
+              command: knopf.command as string,
+            }
+      );
     return [
       {
         type: 'notify',
@@ -1205,6 +1366,8 @@ export function stepToActions(step: StepDraft): BausteinConfig[] {
         title: step.title,
         body: step.body,
         ...(step.notifyCamera ? { camera: step.notifyCamera } : {}),
+        ...(step.notifyZiel ? { open: step.notifyZiel } : {}),
+        ...(knoepfe.length > 0 ? { buttons: knoepfe } : {}),
       },
     ];
   }
@@ -1415,6 +1578,17 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
       steps.push({ ...EMPTY_STEP, kind: 'scene', sceneId: action.scene ?? '' });
     } else if (type === 'hue_scene') {
       steps.push({ ...EMPTY_STEP, kind: 'hue_scene', hueScene: action.scene ?? '' });
+    } else if (type === 'music') {
+      steps.push({
+        ...EMPTY_STEP,
+        kind: 'music',
+        musikTat: (action.do as MusikTat) ?? 'pause_all',
+        musikFavorit: action.favorite ? String(action.favorite) : '',
+        musikEntityId: action.entity_id ? String(action.entity_id) : '',
+        musikMinuten: action.minutes ? String(action.minutes) : '30',
+        musikLautstaerke: action.volume ? String(action.volume) : '30',
+        musikAn: action.on !== false,
+      });
     } else if (type === 'notify') {
       steps.push({
         ...EMPTY_STEP,
@@ -1423,6 +1597,21 @@ export function actionsToSteps(actions: BausteinConfig[]): StepDraft[] {
         body: action.body ?? '',
         notifyCamera: action.camera ?? '',
         notifyTo: action.to && action.to !== 'all' ? String(action.to) : '',
+        notifyZiel: typeof action.open === 'string' ? action.open : '',
+        notifyKnoepfe: Array.isArray(action.buttons)
+          ? action.buttons
+              .filter((knopf: unknown) => !!knopf && typeof knopf === 'object')
+              .map((roh: object) => {
+                const knopf = roh as Record<string, unknown>;
+                return {
+                  label: typeof knopf.label === 'string' ? knopf.label : '',
+                  sceneId: typeof knopf.scene === 'string' ? knopf.scene : undefined,
+                  entityId: typeof knopf.entity === 'string' ? knopf.entity : undefined,
+                  command:
+                    typeof knopf.command === 'string' ? knopf.command : undefined,
+                };
+              })
+          : [],
       });
     } else if (type === 'broadcast') {
       steps.push({
@@ -1547,8 +1736,12 @@ export function lichtKurz(action: BausteinConfig): string {
   return action.off_after ? `${wie}, ${nachlaufLabel(action.off_after)}` : wie;
 }
 
-export function describe(automation: Automation): string {
+export function describe(automation: Automation, entities: Entity[] = []): string {
   const trigger = automation.triggers[0];
+  // Der Name statt der Kennung: «geofence.anyone_home → off» ist keine
+  // Auskunft, sondern eine Aufgabe. Und wo es einen ganzen Satz dafür
+  // gibt - Ort und Anwesenheit -, steht der Satz.
+  const wer = nameVon(entities, trigger?.entity_id);
   const action = automation.actions.find((entry) => entry.type !== 'delay');
   const wenn = !trigger
     ? 'ohne Auslöser'
@@ -1561,23 +1754,29 @@ export function describe(automation: Automation): string {
         : trigger.type === 'interval'
           ? `alle ${trigger.seconds} s`
           : trigger.type === 'availability'
-            ? `wenn ${trigger.entity_id} ${trigger.to === true ? 'wiederkommt' : 'verstummt'}`
-            : `wenn ${trigger.entity_id}${
-                trigger.attribute ? `.${trigger.attribute}` : ''
-              } → ${trigger.to ?? 'sich ändert'}`;
+            ? `wenn ${wer} ${trigger.to === true ? 'wiederkommt' : 'verstummt'}`
+            : istOrtsmelder(trigger.entity_id)
+              ? `wenn ${ortsSatz(wer, trigger)}`
+              : String(trigger.entity_id ?? '') === SAMMEL_ANWESENHEIT
+                ? `wenn ${anwesenheitSatz(trigger.to)}`
+                : `wenn ${wer}${
+                    trigger.attribute ? `.${trigger.attribute}` : ''
+                  } → ${trigger.to ?? 'sich ändert'}`;
   const dann = !action
     ? 'ohne Aktion'
     : action.type === 'toggle_all'
       ? `${(action.entity_ids ?? []).length} Geräte gemeinsam umschalten`
       : action.type === 'light'
-      ? `${action.entity_id}: Licht ${lichtKurz(action)}`
+      ? `${nameVon(entities, action.entity_id)}: Licht ${lichtKurz(action)}`
       : action.type === 'scene'
         ? `Szene ${action.scene}`
         : action.type === 'notify'
           ? 'Nachricht senden'
           : action.command === 'clean_rooms'
-            ? `${action.entity_id}: ${action.data?.rooms?.length ?? 0} Räume saugen`
-            : `${action.entity_id} ${action.command}`;
+            ? `${nameVon(entities, action.entity_id)}: ${
+                action.data?.rooms?.length ?? 0
+              } Räume saugen`
+            : `${nameVon(entities, action.entity_id)} ${befehlWort(action.command)}`;
   const mehr = automation.triggers.length > 1 ? ` (+${automation.triggers.length - 1})` : '';
   // Wie viele Schritte noch folgen – seit ein Ablauf mehrere Arten mischen
   // kann, sagt die erste Aktion allein zu wenig.
@@ -1592,3 +1791,201 @@ export function describe(automation: Automation): string {
   return `${wenn}${mehr} → ${dann}${rest}${wartet}${sonst}`;
 }
 
+
+// ── Ist der Entwurf fertig? ──────────────────────────────────────────────
+//
+// Bisher liess sich jeder Entwurf speichern. Wer «Neuer Ablauf» tippte
+// und irgendwo hängenblieb, bekam auf «Speichern» ein «Ohne Namen»
+// angelegt, das nichts tat - und merkte es erst, wenn es abends nicht
+// schaltete. Der Editor wusste die ganze Zeit, was fehlt; er sagte es
+// nur nicht.
+
+/** Auslöser, die ein Gerät brauchen – die anderen hängen an der Uhr. */
+const AUSLOESER_MIT_GERAET: readonly TriggerKind[] = [
+  'state',
+  'threshold',
+  'availability',
+  'geofence',
+];
+
+/**
+ * Was am Entwurf noch fehlt (rein, testbar).
+ *
+ * Eine Liste von Sätzen, nicht ein Wahrheitswert: «Speichern geht
+ * nicht» hilft niemandem, «Auslöser 1: kein Gerät gewählt» schon. Die
+ * Reihenfolge ist die des Formulars, damit man von oben nach unten
+ * abarbeiten kann.
+ */
+export function wasFehlt(draft: Draft): string[] {
+  const fehlt: string[] = [];
+
+  // Jede Zeile nennt erst den Abschnitt, dann was dort zu tun ist -
+  // sonst liest man «kein Gerät gewählt» und weiss nicht, in welchem
+  // der beiden Abschnitte eines fehlt.
+  draft.triggers.forEach((trigger, index) => {
+    const wo = draft.triggers.length > 1 ? `Auslöser ${index + 1}` : 'Wenn';
+    if (AUSLOESER_MIT_GERAET.includes(trigger.kind) && !trigger.entityId) {
+      fehlt.push(`${wo}: ein Gerät wählen`);
+    }
+    if (trigger.kind === 'time' && !String(trigger.at ?? '').trim()) {
+      fehlt.push(`${wo}: eine Uhrzeit eintragen`);
+    }
+  });
+
+  // Nicht die Schritte zählen, sondern was aus ihnen wird: Ein Schritt
+  // «Gerät schalten» ohne angekreuztes Gerät sieht im Formular aus wie
+  // einer und ergibt beim Speichern nichts.
+  if (stepsToActions(draft.steps).length === 0) {
+    fehlt.push('Dann: einen Schritt, der etwas tut');
+  }
+
+  return fehlt;
+}
+
+/**
+ * Lässt sich der Entwurf speichern? (rein, testbar)
+ *
+ * Der Name gehört ausdrücklich *nicht* dazu. Ein namenloser Ablauf
+ * schaltet trotzdem richtig, und einen Entwurf am fehlenden Namen
+ * scheitern zu lassen, wäre Schikane - der Hub trägt «Ohne Namen» ein
+ * und man benennt ihn später um.
+ */
+export function istSpeicherbar(draft: Draft): boolean {
+  return wasFehlt(draft).length === 0;
+}
+
+/**
+ * Was in der zugeklappten Bedingung steht (rein, testbar).
+ *
+ * Leer heisst «nichts eingestellt» – und die Klappe bleibt zu. Ein
+ * Ablauf ohne Bedingung ist der Normalfall; die halbe Seite Formular
+ * dafür offenzuhalten kostet jeden, der bloss ein Licht schalten will,
+ * zwei Bildschirme Scrollen.
+ */
+export function bedingungStand(draft: Draft): string {
+  const teile: string[] = [];
+  if (draft.conditionKind === 'sun') {
+    teile.push(draft.conditionSun === 'up' ? 'nur wenn hell' : 'nur wenn dunkel');
+  } else if (draft.conditionKind === 'time') {
+    teile.push('Zeitfenster');
+  }
+  const geraete = draft.stateConditions.length;
+  if (geraete > 0) {
+    teile.push(geraete === 1 ? '1 Gerät' : `${geraete} Geräte`);
+  }
+  if (draft.groups.length > 0) {
+    teile.push(
+      draft.groups.length === 1 ? '1 Gruppe' : `${draft.groups.length} Gruppen`
+    );
+  }
+  if (draft.weekdays.length > 0) teile.push('Wochentage');
+  if (draft.exceptHolidays) teile.push('ohne Feiertage');
+  if (draft.extraConditions.length > 0) teile.push('aus der Konfiguration');
+  return teile.join(' · ');
+}
+
+/** Was in der zugeklappten «Kategorie und Zustand» steht (rein, testbar). */
+export function angabenStand(draft: Draft): string {
+  const teile: string[] = [];
+  const kategorie = draft.category.trim();
+  if (kategorie) teile.push(kategorie);
+  // «läuft» ist der Normalfall und steht deshalb nicht da - nur das
+  // Abweichende verdient eine Zeile im zugeklappten Kopf.
+  if (!draft.enabled) teile.push('aus');
+  return teile.join(' · ');
+}
+
+/** Was im zugeklappten «sonst» steht (rein, testbar). */
+export function sonstStand(draft: Draft): string {
+  const anzahl = draft.elseSteps.length;
+  if (anzahl === 0) return '';
+  return anzahl === 1 ? '1 Schritt' : `${anzahl} Schritte`;
+}
+
+/**
+ * Ein Namensvorschlag aus dem, was der Ablauf tut (rein, testbar).
+ *
+ * Wer den Namen leer liess, fand in der Liste «Ohne Namen» – und bei
+ * zweien davon weiss niemand mehr, welcher welcher ist. Der Vorschlag
+ * steht als Platzhalter im Feld und wird beim Speichern genommen, wenn
+ * nichts eingetippt wurde: «Licht Wohnzimmer bei Bewegung Flur» sagt
+ * mehr als jeder Zähler.
+ *
+ * Leer, solange der Entwurf keine zwei Enden hat – dann bleibt es beim
+ * «Ohne Namen», und das ist ehrlich.
+ */
+export function namensVorschlag(draft: Draft, entities: Entity[]): string {
+  const name = (id: string) =>
+    entities.find((entity) => entity.id === id)?.name ?? '';
+
+  const trigger = draft.triggers[0];
+  if (!trigger) return '';
+  let wenn = '';
+  if (trigger.kind === 'time') {
+    wenn = String(trigger.at ?? '').trim() ? `um ${trigger.at}` : '';
+  } else if (trigger.kind === 'sun') {
+    wenn = trigger.sunEvent === 'sunrise' ? 'bei Sonnenaufgang' : 'bei Sonnenuntergang';
+  } else if (trigger.kind === 'interval') {
+    wenn = 'regelmässig';
+  } else if (trigger.kind === 'calendar') {
+    wenn = 'bei einem Termin';
+  } else {
+    const geraet = name(trigger.entityId);
+    wenn = geraet ? `bei ${geraet}` : '';
+  }
+  if (!wenn) return '';
+
+  const schritt = draft.steps[0];
+  if (!schritt) return '';
+  let dann = '';
+  if (schritt.kind === 'command') {
+    dann = name(schritt.commandActions[0]?.entity_id ?? '');
+  } else if (schritt.kind === 'broadcast') {
+    dann = 'Durchsage';
+  } else if (schritt.kind === 'notify') {
+    dann = 'Nachricht';
+  } else if (schritt.kind === 'scene' || schritt.kind === 'hue_scene') {
+    // Der Szenenname steht nicht in den Entitäten - hier genügt das
+    // Wort, den Rest liest man im Ablauf selbst.
+    dann = 'Szene';
+  }
+  if (!dann) return '';
+
+  return `${dann} ${wenn}`;
+}
+
+// ── Wohin ein Tipp auf die Nachricht führt ────────────────────────────────
+//
+// Gespeichert wird eine Zeichenkette ('raum:Küche'), bedient wird sie in
+// zwei Teilen: erst die Art, dann der Wert. Diese beiden Funktionen
+// halten das auseinander, damit der Editor nicht mit Doppelpunkten
+// hantieren muss.
+
+/** Welche Art von Ziel ist das? (rein, testbar) */
+export function zielArt(ziel: string): string {
+  if (!ziel) return '';
+  const [art] = ziel.split(':');
+  return art;
+}
+
+/** Der Wert dahinter – Raumname, Kennung, Kachel (rein, testbar). */
+export function zielWert(ziel: string): string {
+  const index = ziel.indexOf(':');
+  return index < 0 ? '' : ziel.slice(index + 1);
+}
+
+/**
+ * Die Art wechseln und den Wert dabei behalten, wo er passt (rein).
+ *
+ * Wer von «Raum» auf «Gerät» wechselt, meint nicht den Raum als
+ * Kennung - der Wert fällt weg. Wer dieselbe Art nochmal wählt, behält
+ * ihn: Sonst verliert ein Fehlgriff die halbe Eingabe.
+ */
+export function zielMitArt(ziel: string, art: string): string {
+  if (!art) return '';
+  if (zielArt(ziel) === art) return ziel;
+  // Arten ohne Wert stehen für sich allein.
+  return ['start', 'sorgen', 'timer', 'offen', 'batterien', 'klingel'].includes(art)
+    ? art
+    : `${art}:`;
+}

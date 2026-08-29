@@ -9,6 +9,8 @@ kann, und dass die «Sendeadresse» meistens eine Wiedergabeliste ist.
 
 from typing import Any
 
+import pytest
+
 from homepilot.core.config import ApiConfig, HubConfig
 from homepilot.core.entity import Entity, EntityKind
 from homepilot.core.hub import Hub
@@ -662,10 +664,94 @@ async def test_the_same_station_twice_does_not_ask_tunein_twice():
             await hub.integrations.dispatch_command(
                 "tunein.radio", "play_radio", {"station": "SRF 3"}
             )
-        assert len(aufrufe) == 2, aufrufe
+        # Drei, nicht zwei: Einmal Tune, einmal die Wiedergabeliste - und
+        # genau EINE Suche, mit der sich der Sender sein fehlendes Logo
+        # nachholt (mit_logo). Sie darf nicht je Start wiederkehren.
+        assert len(aufrufe) == 3, aufrufe
         assert len(box.gespielt) == 3
         assert {eintrag["url"] for eintrag in box.gespielt} == {
             "http://stream.srg-ssr.ch/srgssr/srf3/mp3/128"
         }
+    finally:
+        await hub.stop()
+
+
+# ── Das nachgeladene Senderlogo ──────────────────────────────────────────
+#
+# Ein Sender mit Kennung wird beim Abspielen nie mehr über die Suche
+# aufgelöst - sein Logo kam deshalb nie nach, und die Radiokachel blieb
+# ohne Cover, während frisch gesuchte Sender eines hatten.
+
+
+def test_das_logo_kommt_vom_treffer_mit_derselben_kennung():
+    from homepilot.integrations.tunein import Station, mit_logo
+
+    alt = Station(name="SRF 3", id="s24862")
+    treffer = [
+        Station(name="SRF 3 (andere)", id="s99999", image="http://falsch.png"),
+        Station(name="SRF 3", id="s24862", image="https://cdn.tunein.com/srf3.png"),
+    ]
+    neu = mit_logo(alt, treffer)
+    assert neu.image == "https://cdn.tunein.com/srf3.png"
+    # Name und Kennung bleiben, was sie waren.
+    assert (neu.name, neu.id) == ("SRF 3", "s24862")
+
+
+def test_ohne_passende_kennung_bleibt_es_beim_leeren_bild():
+    from homepilot.integrations.tunein import Station, mit_logo
+
+    # Die Namenssuche darf dem eigenen Icecast im Keller nicht das Logo
+    # eines fremden gleichnamigen Senders anheften.
+    alt = Station(name="Kellerradio", id="eigene")
+    treffer = [Station(name="Kellerradio", id="s123", image="http://fremd.png")]
+    assert mit_logo(alt, treffer).image == ""
+
+
+def test_ein_vorhandenes_bild_wird_nicht_ueberschrieben():
+    from homepilot.integrations.tunein import Station, mit_logo
+
+    alt = Station(name="SRF 3", id="s24862", image="https://schon.da.png")
+    treffer = [Station(name="SRF 3", id="s24862", image="https://neu.png")]
+    assert mit_logo(alt, treffer).image == "https://schon.da.png"
+
+
+def test_ohne_kennung_wird_nicht_geraten():
+    from homepilot.integrations.tunein import Station, mit_logo
+
+    alt = Station(name="Nur Name")
+    treffer = [Station(name="Nur Name", id="s1", image="http://x.png")]
+    assert mit_logo(alt, treffer).image == ""
+
+
+async def test_pausing_a_radio_that_is_not_running_is_not_an_error():
+    """«Radio aus», wenn kein Radio läuft, ist ein erfüllter Wunsch.
+
+    Als Fehler hielt es einen ganzen Ablauf an: «Niemand mehr zuhause»
+    stellt der Reihe nach ein Dutzend Boxen ab, und die erste, auf der
+    ohnehin nichts lief, brachte den Rest zum Stehen - samt Türschloss
+    am Ende der Liste.
+    """
+    hub, radio, box = await _hub_mit_box()
+    try:
+        await radio.setup()
+        entity = next(e for e in hub.registry.all() if e.integration == "tunein")
+        await radio.handle_command(entity, "pause", {})
+        # Nichts an die Box geschickt, aber auch kein Fehler geworfen.
+        assert box.gespielt == []
+    finally:
+        await hub.stop()
+
+
+async def test_other_commands_still_say_that_no_radio_runs():
+    """Lauter stellen, wo nichts läuft, ist dagegen eine Frage ohne
+    Antwort - und die soll man erfahren."""
+    from homepilot.core.errors import HomePilotError
+
+    hub, radio, _ = await _hub_mit_box()
+    try:
+        await radio.setup()
+        entity = next(e for e in hub.registry.all() if e.integration == "tunein")
+        with pytest.raises(HomePilotError, match="kein Radio"):
+            await radio.handle_command(entity, "set_volume", {"volume": 40})
     finally:
         await hub.stop()

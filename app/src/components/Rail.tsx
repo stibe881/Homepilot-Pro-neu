@@ -21,9 +21,17 @@ export type Section =
   | 'alarm'
   | 'speakers'
   | 'users'
+  | 'personen'
   | 'activity'
   | 'widgets'
-  | 'account';
+  | 'account'
+  // Die Einrichtung des Hauses hinter einer eigenen Tür: Sie öffnet man
+  // selten und nie beiläufig (lib/einstellungsmenue.ts).
+  | 'admin'
+  // «Konto & Verbindung» war beides zugleich: Wer sein Erscheinungsbild
+  // ändern wollte, scrollte an Adresse und Token vorbei. Zwei Fragen,
+  // zwei Punkte.
+  | 'connection';
 
 /**
  * Wie ein Bereich heisst, wenn man ihn benennen muss – in Meldungen und
@@ -46,9 +54,12 @@ export const SECTION_LABEL: Record<Section, string> = {
   alarm: 'Alarmanlage',
   speakers: 'Boxen',
   users: 'Benutzer',
+  personen: 'Familie und Freunde',
   activity: 'Zuletzt passiert',
   widgets: 'Widgets',
   account: 'Konto',
+  connection: 'Verbindungen',
+  admin: 'Administrator',
 };
 
 /** `needs` nennt die Berechtigung, ohne die der Punkt gar nicht erscheint. */

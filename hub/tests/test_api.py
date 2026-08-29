@@ -184,13 +184,16 @@ def test_entity_meta_rename_favorite_group():
         assert entity["name"] == "Stehlampe"
 
 
-def test_only_the_owner_renames_and_the_name_holds_for_everyone():
-    """Ein Gerätename ist keine persönliche Einstellung.
+def test_residents_rename_too_but_guests_do_not():
+    """Ein Gerätename gilt fürs ganze Haus - und genau darum für alle,
+    die darin wohnen.
 
-    Er liegt in der homepilot-data.json und gilt danach im ganzen Haus -
-    genau deshalb darf ihn nur die Besitzerin setzen. Ein Bewohner, der es
-    versucht, bekommt ein sauberes 403; die Kachel in der App fragt
-    dieselbe Fähigkeit ab und zeigt ihm den Knopf gar nicht erst.
+    Lange durfte nur die Besitzerin umbenennen; im Alltag hiess das, dass
+    die falsch beschriftete Kachel wochenlang falsch blieb, weil nur eine
+    Person sie richten konnte. Jetzt trägt EDIT_DEVICES die Grenze: Wer
+    hier wohnt, darf Name, Raum und Gruppe setzen. Ein Gast weiterhin
+    nicht - er bekommt ein sauberes 403, und die App zeigt ihm den Knopf
+    gar nicht erst.
     """
     hub = Hub(
         make_config(
@@ -198,21 +201,33 @@ def test_only_the_owner_renames_and_the_name_holds_for_everyone():
             users=[
                 {"name": "Stefan", "role": "besitzer", "token": "t-stefan"},
                 {"name": "Livia", "role": "bewohner", "token": "t-livia"},
+                {"name": "Nina", "role": "gast", "token": "t-nina"},
             ],
         )
     )
     with TestClient(create_app(hub)) as client:
         stefan = {"Authorization": "Bearer t-stefan"}
         livia = {"Authorization": "Bearer t-livia"}
+        nina = {"Authorization": "Bearer t-nina"}
         pfad = "/api/entities/demo.light_livingroom/meta"
 
-        assert client.put(pfad, json={"name": "Leselampe"}, headers=livia).status_code == 403
+        assert client.put(pfad, json={"name": "Egal"}, headers=nina).status_code == 403
 
-        assert client.put(pfad, json={"name": "Leselampe"}, headers=stefan).status_code == 200
-        # Und für Livia heisst das Gerät ab sofort auch so - es ist
-        # derselbe Name, nicht ihre eigene Sicht darauf.
-        entities = {e["id"]: e for e in client.get("/api/entities", headers=livia).json()}
+        assert client.put(pfad, json={"name": "Leselampe"}, headers=livia).status_code == 200
+        # Und für Stefan heisst das Gerät ab sofort auch so - es ist
+        # derselbe Name, nicht Livias eigene Sicht darauf.
+        entities = {e["id"]: e for e in client.get("/api/entities", headers=stefan).json()}
         assert entities["demo.light_livingroom"]["name"] == "Leselampe"
+
+        # Der Raum geht denselben Weg - «Anpassen» braucht beides.
+        assert (
+            client.put(
+                "/api/entities/demo.light_livingroom/room",
+                json={"room": "Stube"},
+                headers=livia,
+            ).status_code
+            == 200
+        )
 
 
 def test_entity_meta_unknown_entity_is_404():
@@ -281,6 +296,34 @@ def test_the_month_comparison_reads_the_recorded_days():
             "days",
         }
         assert isinstance(result["days"], list)
+
+
+def test_the_laundry_door_can_be_chosen_and_is_otherwise_guessed():
+    """An dieser Türe liest der Wächter ab, ob jemand die volle Maschine
+    gesehen hat - ohne sie bleibt es beim einen Hinweis."""
+    with make_client() as client:
+        client.put("/api/entities/demo.door_laundry/room", json={"room": "Waschküche"})
+        stand = client.get("/api/laundry").json()
+        assert stand["door"] is None
+        # Geraten wird am Raumnamen - und der Name der Demo-Türe trägt
+        # ihn ohnehin.
+        assert stand["guess"] == "demo.door_laundry"
+        assert stand["using"] == "demo.door_laundry"
+        assert "demo.window_kitchen" in {eintrag["id"] for eintrag in stand["candidates"]}
+
+        gesetzt = client.put("/api/laundry", json={"door": "demo.window_kitchen"}).json()
+        assert gesetzt["door"] == "demo.window_kitchen"
+        assert gesetzt["using"] == "demo.window_kitchen"
+
+        # Und wieder zurück auf «raten».
+        assert client.put("/api/laundry", json={"door": None}).json()["door"] is None
+
+
+def test_an_unknown_laundry_door_is_refused():
+    """Sonst stünde in den Einstellungen eine Türe, an der nie etwas
+    gemessen wird."""
+    with make_client() as client:
+        assert client.put("/api/laundry", json={"door": "nope.nope"}).status_code == 404
 
 
 def test_appliance_cycles_are_served_with_their_statistics():
@@ -587,12 +630,16 @@ def test_user_prefs_are_stored_per_user():
         assert client.get("/api/prefs", headers=stefan).json() == {"prefs": {}}
 
         payload = {"prefs": {"order": {"light": ["a", "b"]}}}
-        assert client.put("/api/prefs", json=payload, headers=stefan).json() == {"ok": True}
+        antwort = client.put("/api/prefs", json=payload, headers=stefan)
+        # Die Antwort trägt den neuen Stand mit: Wer nur einen Schlüssel
+        # schickt, sieht sonst nicht, was daraus geworden ist.
+        assert antwort.json() == {"ok": True, **payload}
         assert client.get("/api/prefs", headers=stefan).json() == payload
         # Livia sieht Stefans Reihenfolge nicht.
         assert client.get("/api/prefs", headers=livia).json() == {"prefs": {}}
 
-        # Überschreiben ersetzt den ganzen Stand des Benutzers.
+        # Ein genannter Schlüssel wird ersetzt (siehe test_einstellungen.py
+        # für das Zusammenführen).
         second = {"prefs": {"order": {"light": ["b", "a"]}}}
         client.put("/api/prefs", json=second, headers=stefan)
         assert client.get("/api/prefs", headers=stefan).json() == second
@@ -787,17 +834,37 @@ def test_one_time_pass_works_exactly_once():
         assert created.status_code == 200
         token = created.json()["pass"]["token"]
 
+        # Das Abrufen zeigt nur den Knopf - und schaltet nichts.
+        #
+        # Das war der gemeldete Fehler: Früher öffnete schon der Abruf.
+        # Wer den Link verschickte, löste ihn damit selbst ein, denn jeder
+        # Messenger baut seine Vorschau mit einem GET. Beim Empfänger kam
+        # nur noch «Dieser Link gilt nicht mehr» an.
+        vorschau = client.get(f"/einmal/{token}")
+        assert vorschau.status_code == 200
+        assert "Jetzt öffnen" in vorschau.text
+        assert (
+            client.get("/api/entities/demo.light_livingroom", headers=headers)
+            .json()["state"]["state"]
+            != "on"
+        )
+        # Zehnmal vorschauen ändert daran nichts.
+        for _ in range(10):
+            assert client.get(f"/einmal/{token}").status_code == 200
+
         # Ohne jede Anmeldung einlösbar - die Adresse ist das Geheimnis.
-        assert client.get(f"/einmal/{token}").status_code == 200
+        assert client.post(f"/einmal/{token}").status_code == 200
         assert (
             client.get("/api/entities/demo.light_livingroom", headers=headers)
             .json()["state"]["state"]
             == "on"
         )
-        # Ein zweites Mal geht nicht.
+        # Ein zweites Mal geht nicht - und auch das Zeigen nicht mehr.
+        assert client.post(f"/einmal/{token}").status_code == 410
         assert client.get(f"/einmal/{token}").status_code == 410
         # Erfundene Adressen ebensowenig.
         assert client.get("/einmal/ausgedacht").status_code == 410
+        assert client.post("/einmal/ausgedacht").status_code == 410
 
 
 def test_one_time_pass_can_open_two_doors():
@@ -827,7 +894,12 @@ def test_one_time_pass_can_open_two_doors():
             "demo.switch_coffee",
         ]
 
-        answer = client.get(f"/einmal/{entry['token']}")
+        # Die Seite nennt beide Türen, damit der Bote weiss, was aufgeht.
+        vorschau = client.get(f"/einmal/{entry['token']}")
+        assert vorschau.status_code == 200
+        assert "Licht Wohnzimmer" in vorschau.text
+
+        answer = client.post(f"/einmal/{entry['token']}")
         assert answer.status_code == 200
         for entity_id in ("demo.light_livingroom", "demo.switch_coffee"):
             assert (
@@ -836,7 +908,7 @@ def test_one_time_pass_can_open_two_doors():
                 == "on"
             )
         # Auch ein Link über zwei Türen gilt nur einmal.
-        assert client.get(f"/einmal/{entry['token']}").status_code == 410
+        assert client.post(f"/einmal/{entry['token']}").status_code == 410
 
 
 def test_a_pass_is_only_issued_if_every_door_checks_out():

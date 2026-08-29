@@ -40,9 +40,18 @@ from pathlib import Path
 from typing import Any
 
 from .. import __version__
-from . import config_edit, metrics, persistence
+from . import (
+    config_edit,
+    erinnerungen,
+    liveaktivitaet,
+    livekarten,
+    metrics,
+    persistence,
+    pushverlauf,
+)
 from . import push as push_service
 from . import users as users_module
+from .aenderungen import Aenderungsprotokoll
 from .audit import AuditLog
 from .automation import AutomationEngine
 from .config import HubConfig
@@ -50,7 +59,10 @@ from .eventlog import EventLog
 from .events import EventBus
 from .guestpass import PassStore
 from .integration import IntegrationManager
+from .kurzverlauf import Kurzverlauf
+from .lautplan import Lautplan
 from .logbuffer import install as install_log_buffer
+from .musik import Musikbuch
 from .persistence import DataStore
 from .push import PushService
 from .registry import EntityRegistry
@@ -61,6 +73,7 @@ from .store import Store
 from .streams import MEDIAMTX_API, MEDIAMTX_HLS, StreamManager
 from .supabase import SupabaseClient
 from .timers import KitchenTimers
+from .ton import Tonmeister
 from .users import Role, User, parse_users
 from .watchdog import Watchdog
 
@@ -88,10 +101,20 @@ class Hub:
         # Wer hat wann was geschaltet - überlebt den Neustart, anders als
         # die flüchtige Liste «Zuletzt passiert» in der App.
         self.audit = AuditLog(self)
+        # Wer hat was eingerichtet - die andere Hälfte des Protokolls
+        # (core/aenderungen.py).
+        self.aenderungen = Aenderungsprotokoll(self)
         # Ereignisprotokoll je Gerät (jeder Zustandswechsel samt Quelle,
         # auch von Abläufen und der Simulation) - siehe eventlog.py.
-        self.eventlog = EventLog()
+        # Es liegt neben der Datendatei und überlebt damit den Neustart:
+        # Ohne das war der Verlauf nach jedem Update leer - also genau
+        # dann, wenn man ihn braucht, weil sich etwas geändert hat.
+        self.eventlog = EventLog(self._eventlog_path())
         self.bus.subscribe("state_changed", self.eventlog.record)
+        # Die letzten Stunden je Messwert, nur im Speicher - für die
+        # Funkenlinie auf der Sensor-Kachel (core/kurzverlauf.py).
+        self.kurzverlauf = Kurzverlauf()
+        self.bus.subscribe("state_changed", self.kurzverlauf.record)
         # Einmal-Links für die Türe – nur im Speicher, siehe guestpass.py.
         self.passes = PassStore()
         # Küchen-Timer (siehe timers.py) - nur im Speicher.
@@ -110,6 +133,15 @@ class Hub:
         self.sessions = SessionStore(self.data)
         self.store: Store | None = None
         self.watchdog = Watchdog(self)
+        # Lautstärke-Fragen an einem Ort: einblenden, beim Klingeln
+        # dämpfen, nachts deckeln, Wiedergabe umziehen.
+        self.ton = Tonmeister(self)
+        # Was die Musik sich merkt: Favoriten, was zuletzt lief,
+        # Schlummer-Timer und Musikwecker.
+        self.musik = Musikbuch(self)
+        # Lautstärke nach Tageszeit - der Plan, der vier gleichartige
+        # Abläufe ersetzt (core/lautplan.py).
+        self.lautplan = Lautplan(self)
         # Wandelt Kamerabilder in HLS um – läuft nur, solange jemand zuschaut.
         # Bevorzugt über mediamtx (Low-Latency), sonst über ffmpeg.
         self.streams = StreamManager(
@@ -169,11 +201,25 @@ class Hub:
         )
         self.started_at = time.time()
         self.watchdog.start()
+        self.ton.start()
+        self.musik.start()
+        self.lautplan.start()
         self._backup_task = asyncio.create_task(self._backup_loop())
         # Gesammelte Schreibvorgänge nachholen: Der DataStore schreibt bei
         # einem Schwall nur den ersten sofort (siehe persistence.FLUSH_DELAY);
         # dieser Takt bringt den Rest zeitnah auf die Platte.
         self._flush_task = asyncio.create_task(self._flush_loop())
+        # Erinnerungen mit Push: Die Bildschirme rechnen ihre Fälligkeit
+        # selbst, aber ein Push muss auch kommen, wenn keine App offen
+        # ist - dafür schaut dieser Takt auf die Liste.
+        self._erinnerungs_task = asyncio.create_task(erinnerungen.push_loop(self))
+        # Haustür-Karte auf dem iPhone-Sperrbildschirm, solange man weg
+        # ist. Ohne apns-Block in der config.yaml beendet sich der Takt
+        # von selbst (core/liveaktivitaet.py).
+        self._live_task = asyncio.create_task(liveaktivitaet.tuer_loop(self))
+        # Die übrigen Karten (Timer, Geräte, Grill, Sauger, Erinnerungen,
+        # Alarm) - gleiche Bedingung, gleicher Draht (livekarten.py).
+        self._karten_task = asyncio.create_task(livekarten.karten_loop(self))
 
         if self.users.open_access:
             log.warning(
@@ -205,6 +251,14 @@ class Hub:
         # Update will man Nachrichten am wenigsten missen.
         self.push.restore(self.data.get("push_devices"))
         self.push.on_change = lambda rows: self.data.set("push_devices", rows)
+        # Jede verschickte Meldung auf den Nachlese-Zettel - eine
+        # weggewischte Mitteilung ist sonst unauffindbar (pushverlauf.py).
+        self.push.on_sent = lambda eintrag: self.data.set(
+            pushverlauf.STORE_KEY,
+            pushverlauf.anhaengen(
+                self.data.get(pushverlauf.STORE_KEY), eintrag, time.time()
+            ),
+        )
         for problem in self._config_problems():
             log.warning("Konfiguration: %s", problem)
         log.info(
@@ -228,6 +282,9 @@ class Hub:
             while True:
                 await asyncio.sleep(persistence.FLUSH_DELAY)
                 self.data.flush()
+                # Derselbe Takt, andere Drosselung: Der Verlauf sichert
+                # sich höchstens alle paar Minuten (siehe eventlog.py).
+                self.eventlog.save()
         except asyncio.CancelledError:
             raise
 
@@ -315,7 +372,7 @@ class Hub:
             tokens,
             title="Aufgaben heute fällig",
             body=f"{len(due)} offen: {names}",
-            data={"type": "task_due"},
+            data={"type": "task_due", "ziel": "familie:tasks"},
             category="tasks",
         )
 
@@ -351,10 +408,28 @@ class Hub:
                 log.warning("Gespeicherter Benutzer übersprungen: %s", err)
         # Anmelde-Adressen: getrennt gespeichert, damit auch Benutzer aus
         # der config.yaml eine bekommen können, ohne die Datei anzufassen.
+        #
+        # Abgelegt sind sie nach Namen, und genau daran ging schon einmal
+        # ein Zugang verloren: Wer sich in der config.yaml umbenennt
+        # («Stefan» zu «stibe»), dessen Adresse zeigt danach auf einen
+        # Benutzer, den es nicht mehr gibt. Die Anmeldung sagt dann nur
+        # «Diese Adresse ist im Haus nicht freigegeben» - und das ist beim
+        # eigenen Besitzer eine rätselhafte Auskunft. Darum bleibt die
+        # verwaiste Zeile im Protokoll stehen, mit dem Weg zurück.
         for entry in self.data.get("emails"):
-            user = self.users.by_name(str(entry.get("name") or ""))
+            name = str(entry.get("name") or "")
+            adresse = str(entry.get("email") or "").strip().lower() or None
+            user = self.users.by_name(name)
             if user is not None:
-                user.email = str(entry.get("email") or "").strip().lower() or None
+                user.email = adresse
+            elif adresse:
+                log.warning(
+                    "Anmelde-Adresse %s gehört zu '%s' - diesen Benutzer gibt es "
+                    "nicht mehr. Nach einer Umbenennung neu eintragen: "
+                    "PUT /api/users/<neuer Name>/email",
+                    adresse,
+                    name,
+                )
         # Ab jetzt jede Änderung mitschreiben.
         self.users.on_change = lambda users: self.data.set("users", users)
         self.users.on_email_change = lambda rows: self.data.set("emails", rows)
@@ -551,6 +626,17 @@ class Hub:
             "down": sorted(self.watchdog.down_since),
         }
 
+    def _eventlog_path(self) -> str | None:
+        """Wo der Geräte-Verlauf liegt: neben der Datendatei.
+
+        Eine eigene Datei und nicht die Datendatei selbst: Zweitausend
+        Einträge sind ein paar hundert Kilobyte, und die Datendatei wird
+        bei jeder Kleinigkeit neu geschrieben.
+        """
+        if not self.config.data_file:
+            return None
+        return str(Path(self.config.data_file).parent / "geraete-verlauf.json")
+
     def _log_ring_path(self) -> str | None:
         """Wo der Log-Ring den Neustart überdauert: neben der Datendatei.
         Ohne Datendatei (Tests, Demo im Speicher) auch keine Übergabe."""
@@ -565,7 +651,7 @@ class Hub:
         ring_pfad = self._log_ring_path()
         if ring_pfad:
             self.log_buffer.save(ring_pfad)
-        for name in ("_backup_task", "_flush_task"):
+        for name in ("_backup_task", "_flush_task", "_erinnerungs_task", "_live_task", "_karten_task"):
             task = getattr(self, name, None)
             if task is not None:
                 task.cancel()
@@ -576,11 +662,16 @@ class Hub:
         await self.streams.stop_all()
         await self.watchdog.stop()
         await self.timers.stop()
+        await self.musik.stop()
+        await self.lautplan.stop()
         await self.automations.stop()
         await self.integrations.teardown_all()
         if self.store:
             await self.store.stop()
             self.store = None
+        # Und der Verlauf: Hier ohne Drosselung, denn ein zweiter
+        # Versuch kommt nicht.
+        self.eventlog.save(force=True)
         # Was der DataStore noch gesammelt hat, muss vor dem Ende auf die
         # Platte - der Takt dafür ist oben schon beendet.
         self.data.flush()

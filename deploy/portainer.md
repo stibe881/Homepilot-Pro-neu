@@ -178,6 +178,26 @@ ist der einzige nötige Befehl.
   richtige Weg – UniFi bringt eines mit (WireGuard unter *Teleport/VPN*).
 - Kopplungs-Helfer (Android TV, Ring, Matter) laufen im Container so:
   `docker exec -it homepilot-hub python -m homepilot.integrations.androidtv -c /config/config.yaml`
+- Reagiert die Fernbedienung nicht, sagt derselbe Weg mit `--tasten`, woran
+  es liegt – Kopplung, Verbindung, oder eine Taste, die in einer
+  zumachenden Leitung verschwindet:
+  `docker exec -it homepilot-hub python -m homepilot.integrations.androidtv --tasten -c /config/config.yaml`
+  Mit `--taste DPAD_DOWN` schickt er zusätzlich eine Taste, ohne dass die
+  App dazwischenliegt. Warum es das braucht, steht in
+  `integrations/androidtv.py` bei `leitung_offen`.
+- Sagt der Kopplungs-Helfer «bereits gekoppelt», obwohl Tasten nicht
+  wirken: `--neu` anhängen. Er prüft sonst nur, ob die *Verbindung* noch
+  steht – und die kann ein Fernseher weiter annehmen, dessen
+  Fernbedienungsdienst die Kopplung längst vergessen hat (etwa nach dem
+  Datenlöschen des Remote-Dienstes). `--neu` legt das alte Zertifikat
+  beiseite und koppelt frisch, mit Code am Fernseher.
+- Kommt die Taste «raus», aber der Fernseher rührt sich nicht: `--debug`
+  dazunehmen. In der Zeile «Device supports: [...]» sagt der Fernseher,
+  was er annimmt – fehlt dort `KEY`, ignoriert sein Fernbedienungsdienst
+  jede Taste. Die Abhilfe stammt aus der Bibliothek selbst: Am Fernseher
+  *Einstellungen → Apps → Alle Apps → System-Apps anzeigen → Android TV
+  Remote Service → Speicher → Daten löschen*, den Fernseher neu starten
+  und einmal neu koppeln (Kopplungs-Helfer oben).
 
 
 ## Update-Knopf in der App
@@ -308,3 +328,52 @@ sudo chmod +x /opt/homepilot/rebuild-hub.sh
 
 Danach einmal bauen – ab dann steht der Stand dort, und man sieht nach
 jedem Update, ob der Container wirklich der neue ist.
+
+## Haustür-Live-Aktivität (iPhone-Sperrbildschirm)
+
+Verlässt man das Haus, legt der Hub eine kleine Karte auf den
+Sperrbildschirm («Unterwegs – Haustüre im Schnellzugriff»); ein Tipp
+darauf führt in die App direkt zur Türe. Beim Heimkommen verschwindet
+sie von selbst. Über denselben Draht kommen weitere Karten, solange
+etwas läuft: Küchen-Timer (mit Countdown), Waschmaschine und
+Geschirrspüler (mit Restzeit, am Ende kurz «Fertig»), der Grill
+(Ist- gegen Zieltemperatur), der Saugroboter, fällige Erinnerungen
+und die Alarmanlage (Countdown beim Scharfschalten, Rot bei Alarm).
+
+Starten kann so eine Karte nur Apple selbst («push-to-start», ab
+iOS 17.2) – deshalb braucht der Hub dafür einen eigenen Schlüssel aus
+dem Apple-Entwicklerkonto, zusätzlich zum normalen Push über Expo:
+
+1. Unter <https://developer.apple.com/account/resources/authkeys/list>
+   einen Schlüssel anlegen, **Apple Push Notifications service (APNs)**
+   ankreuzen, die `.p8`-Datei herunterladen (gibt es nur einmal!) und
+   die **Key ID** notieren. Die **Team ID** steht oben rechts im
+   Entwicklerkonto.
+
+2. Die Datei auf den Host legen:
+
+   ```bash
+   sudo cp AuthKey_ABC123.p8 /opt/homepilot/apns-key.p8
+   sudo chmod 600 /opt/homepilot/apns-key.p8
+   ```
+
+3. In der `config.yaml` den Block ergänzen (auf oberster Ebene, wie
+   `push:`):
+
+   ```yaml
+   apns:
+     key_file: /config/apns-key.p8
+     key_id: ABC123
+     team_id: DEF456
+     bundle_id: ch.stibe.homepilot
+   ```
+
+4. `docker restart homepilot-hub`. Ohne den Block (oder wenn etwas
+   fehlt) bleibt die Funktion einfach aus – der Hub sagt es beim Start
+   mit einer Zeile im Protokoll.
+
+Auf dem iPhone braucht es einen Build, der die Live-Aktivität enthält
+(TestFlight), iOS 17.2 oder neuer, und in den iOS-Einstellungen der App
+müssen Live-Aktivitäten erlaubt sein. Die App meldet die nötigen
+Apple-Tokens dann von selbst beim Hub an – zu sehen unter
+`/api/liveactivity`.

@@ -46,7 +46,7 @@ import secrets
 import time
 from typing import Any
 
-from ..core import snapshots, streams
+from ..core import personenbild, snapshots, source, streams
 from ..core.entity import Entity, EntityKind
 from ..core.errors import HomePilotError
 from ..core.integration import Integration
@@ -63,10 +63,12 @@ from .alarm_rules import (  # noqa: F401
     DEFAULT_SETTINGS,
     DISARM,
     DISARMED,
+    DURCHBRUCH,
     ENTRY,
     MODE_LABELS,
     MODES,
     REARM,
+    SAUGER_NACHLAUF,
     STAY,
     TEST_SIREN_SECONDS,
     TRIGGERED,
@@ -77,9 +79,13 @@ from .alarm_rules import (  # noqa: F401
     is_sensor,
     motion_started,
     nearest_camera,
+    ohne_pin_erlaubt,
     parse_actions,
     parse_after,
     parse_sensors,
+    quellen_name,
+    sauger_deckt,
+    sauger_unterwegs,
     sensor_open,
     valid_pin,
 )
@@ -105,6 +111,9 @@ class AlarmIntegration(Integration):
         self._pin_throttle = Throttle(limit=5, window=300.0, block=300.0)
         # Zeitpunkt, an dem die laufende Verzögerung abläuft.
         self._until: float | None = None
+        # Wie lang die laufende Frist insgesamt ist - für den Ring in
+        # der App (seconds_total im Zustand).
+        self._gesamt: float | None = None
         # Was am Ende dieser Verzögerung passiert – die App beschriftet den
         # Countdown damit, sonst stünde bei jeder Wartezeit dasselbe da.
         self._next: str | None = None
@@ -114,6 +123,13 @@ class AlarmIntegration(Integration):
         # Kamera meldet Bewegung im Sekundentakt, solange sich etwas regt;
         # ohne Abstand wäre das Telefon nach einer Minute unbenutzbar.
         self._motion_seen: dict[str, float] = {}
+        # Bis wann Bewegungsmelder wegen des Saugers noch schweigen.
+        # None heisst: Er war seit dem Start nicht unterwegs.
+        self._sauger_bis: float | None = None
+        # Damit der Verlauf einmal je Fahrt einen Eintrag bekommt und
+        # nicht bei jeder Bewegung einen: Ein Protokoll, das man nicht
+        # mehr liest, ist so gut wie keines.
+        self._sauger_notiert = False
 
         stored = self.hub.data.get("alarm")
         config = stored[0] if stored else {}
@@ -163,6 +179,12 @@ class AlarmIntegration(Integration):
             # zeigt daraus den Countdown.
             "seconds_left": (
                 max(0, round(self._until - time.time())) if self._until else None
+            ),
+            # Und wie lang die Frist insgesamt war - daraus zeichnet die
+            # App den Ring: Ein Countdown ohne Gesamtlänge ist nur eine
+            # Zahl, die kleiner wird.
+            "seconds_total": (
+                round(self._gesamt) if self._until and self._gesamt else None
             ),
             "next_action": self._next,
             "last_trigger": self._last,
@@ -214,9 +236,9 @@ class AlarmIntegration(Integration):
         battery: list[str] = []
         for entity in self.guarding(mode):
             if not entity.available:
-                offline.append(entity.name)
+                offline.append(entity.label)
             elif entity.state.get("low_battery") is True:
-                battery.append(entity.name)
+                battery.append(entity.label)
         return {"offline": offline, "battery": battery}
 
     # ── Bedienung ──────────────────────────────────────────────────────────
@@ -234,7 +256,7 @@ class AlarmIntegration(Integration):
             return {
                 "ok": False,
                 "reason": "offen" if open_now else "blind",
-                "open": [entity.name for entity in open_now],
+                "open": [entity.label for entity in open_now],
                 **blind,
             }
 
@@ -244,6 +266,7 @@ class AlarmIntegration(Integration):
         if delay > 0:
             self._state = ARMING
             self._until = time.time() + delay
+            self._gesamt = delay
             self._next = "arm"
             self._timer = asyncio.create_task(self._after(delay, self._finish_arming))
         else:
@@ -306,6 +329,12 @@ class AlarmIntegration(Integration):
                     "wird unter Alarm → PIN gesetzt."
                 )
             return
+        # Ein Ablauf hat keine Tastatur. Vorher scheiterte er bei jeder
+        # Heimkehr still am fehlenden Code, und die Anlage blieb scharf -
+        # siehe ohne_pin_erlaubt() für die ganze Begründung und den
+        # Schalter, mit dem man es wieder streng stellt.
+        if ohne_pin_erlaubt(source.current(), self._settings):
+            return
         wait = self._pin_throttle.blocked_for(address)
         if wait > 0:
             raise HomePilotError(
@@ -365,6 +394,9 @@ class AlarmIntegration(Integration):
         entity = self.hub.registry.get(str(entity_id))
         if entity is None or self._mode is None:
             return
+        self._sauger_merken(entity)
+        if self._sauger_deckt(entity):
+            return
         await self._camera_motion(entity, payload)
         if not guards(self._sensors, entity.id, self._mode):
             return
@@ -380,12 +412,13 @@ class AlarmIntegration(Integration):
             self._cancel_timer()
             self._state = ENTRY
             self._until = time.time() + delay
+            self._gesamt = delay
             self._next = "trigger"
             self._timer = asyncio.create_task(
                 self._after(delay, lambda: self._trigger(entity))
             )
             await self._publish()
-            self._note("entry", f"{entity.name} geöffnet – Eingangsverzögerung läuft", "")
+            self._note("entry", f"{entity.label} geöffnet – Eingangsverzögerung läuft", "")
             # Die Verzögerung lief bisher stumm ab. Ein kurzes Zeichen sagt
             # dem Berechtigten «schalt mich ab» – und dem Unberechtigten,
             # dass die Uhr läuft. Beides ist besser als Stille.
@@ -393,13 +426,60 @@ class AlarmIntegration(Integration):
             if self._settings.get("notify_entry"):
                 await self._notify(
                     "Eingangsverzögerung läuft",
-                    f"{entity.name} geöffnet – noch {round(delay)} Sekunden zum "
+                    f"{entity.label} geöffnet – noch {round(delay)} Sekunden zum "
                     "Unscharfschalten.",
                     "alarm_arming",
                 )
             return
 
         await self._trigger(entity)
+
+    def _sauger_merken(self, entity: Entity) -> None:
+        """Den Nachlauf stellen, sobald der Sauger stehen bleibt.
+
+        Ein Bewegungsmelder hält sein «on» je nach Modell ein bis fünf
+        Minuten. Ohne Nachlauf löst er genau in dem Moment aus, in dem
+        der Sauger andockt - der Fehler wäre nur verschoben.
+        """
+        if entity.kind != EntityKind.VACUUM:
+            return
+        if sauger_unterwegs([entity]):
+            self._sauger_bis = None
+            return
+        # Er steht: Von jetzt an läuft die Nachlaufzeit.
+        self._sauger_bis = time.time() + SAUGER_NACHLAUF
+        self._sauger_notiert = False
+
+    def _sauger_deckt(self, entity: Entity) -> bool:
+        """Schweigt dieser Sensor gerade wegen des Saugers?
+
+        Der erste Fall je Fahrt kommt in den Verlauf. Stillschweigend
+        wäre es die falsche Art von Rücksicht: Wer nachliest, warum die
+        Anlage nicht angeschlagen hat, soll es dort finden.
+        """
+        unterwegs = sauger_unterwegs(self.hub.registry.all())
+        if not sauger_deckt(
+            entity,
+            unterwegs,
+            self._sauger_bis,
+            time.time(),
+            bool(self._settings.get("ignore_vacuum", True)),
+            self._settings.get("vacuum_detections", DURCHBRUCH),
+        ):
+            return False
+        if not sensor_open(entity):
+            # Nur die Meldung zählt - ein Melder, der auf «aus» geht,
+            # hätte ohnehin nichts ausgelöst.
+            return True
+        if not self._sauger_notiert:
+            self._sauger_notiert = True
+            self._note(
+                "vacuum",
+                f"{entity.label} meldet Bewegung - der Sauger fährt, "
+                "kein Alarm (Fenster und Türen bleiben scharf)",
+                "",
+            )
+        return True
 
     async def _camera_motion(self, entity: Entity, payload: dict[str, Any]) -> None:
         """Kamera sieht Bewegung, während scharf ist: Bild aufs Telefon.
@@ -428,10 +508,10 @@ class AlarmIntegration(Integration):
         if not camera_motion_due(self._motion_seen, entity.id, jetzt):
             return
         self._motion_seen[entity.id] = jetzt
-        self._note("motion", f"Bewegung vor {entity.name}", "")
+        self._note("motion", f"Bewegung vor {entity.label}", "")
         await self._notify(
             "Bewegung vor der Kamera",
-            f"{entity.name} sieht Bewegung – die Anlage ist scharf.",
+            f"{entity.label} sieht Bewegung – die Anlage ist scharf.",
             category="camera_motion",
             data={
                 "type": "camera_motion",
@@ -449,12 +529,12 @@ class AlarmIntegration(Integration):
         self._next = None
         self._last = {
             "entity_id": entity.id,
-            "name": entity.name,
+            "name": entity.label,
             "at": time.time(),
             "mode": mode,
         }
         await self._publish()
-        self._note("triggered", f"Alarm ausgelöst: {entity.name}", "")
+        self._note("triggered", f"Alarm ausgelöst: {entity.label}", "")
 
         if self._settings.get("notify_trigger"):
             # Die Kamera im selben Raum kommt zweimal mit: als Kennung,
@@ -465,7 +545,7 @@ class AlarmIntegration(Integration):
             camera = camera_for(entity, self.hub.registry.all())
             await self._notify(
                 "🚨 Alarm ausgelöst",
-                f"{entity.name} – Modus {MODE_LABELS.get(mode or '', '?')}",
+                f"{entity.label} – Modus {MODE_LABELS.get(mode or '', '?')}",
                 data={"entity_id": entity.id, "camera": camera},
                 image=await self._snapshot_url(camera),
             )
@@ -500,6 +580,7 @@ class AlarmIntegration(Integration):
             return
         seconds = float(plan.get("after") or DEFAULT_AFTER["after"])
         self._until = time.time() + seconds
+        self._gesamt = seconds
         self._next = "rearm"
         self._timer = asyncio.create_task(self._after(seconds, self._rearm))
         await self._publish()
@@ -519,7 +600,7 @@ class AlarmIntegration(Integration):
         self._until = None
         self._next = None
         await self._publish()
-        still_open = [entity.name for entity in self.open_sensors(mode)]
+        still_open = [entity.label for entity in self.open_sensors(mode)]
         text = f"Wieder scharf geschaltet ({MODE_LABELS[mode]})"
         if still_open:
             text += " – noch offen: " + ", ".join(still_open)
@@ -623,36 +704,18 @@ class AlarmIntegration(Integration):
         Moment zeigen, in dem der Alarm losging, nicht den Moment, in dem
         jemand das Telefon aus der Tasche zieht.
 
-        Jeder Fehlschlag endet hier still in ``None`` – ein Alarm darf nicht
+        Bei einer Kamera mit Personenerkennung ist «der Moment, in dem der
+        Alarm losging» allerdings zu früh: Wer den Melder im Flur auslöst,
+        ist noch ein paar Schritte von der Kamera entfernt. Das Bild wird
+        dann nachgereicht, sobald jemand wirklich im Bild steht – die
+        Nachricht geht trotzdem sofort raus. Siehe ``core/personenbild.py``.
+
+        Jeder Fehlschlag endet still ohne Bild – ein Alarm darf nicht
         daran scheitern, dass eine Kamera gerade nicht antwortet.
         """
-        public_url = (self.hub.config.push or {}).get("public_url")
-        if not camera or not public_url:
-            return None
-        try:
-            entity = self.hub.registry.get(camera)
-            integration = self.hub.integrations.get(entity.integration) if entity else None
-            image = (
-                await asyncio.wait_for(integration.snapshot(entity), BILD_WARTEZEIT)
-                if integration
-                else None
-            )
-        except TimeoutError:
-            # Beim Alarm noch deutlicher als sonst: Die Nachricht ist das
-            # Dringende, das Bild die Zugabe. Eine Kamera, die zu lange
-            # braucht, darf den Alarm nicht aufhalten.
-            log.info(
-                "Bild für die Alarm-Nachricht kam nicht in %ss – Nachricht "
-                "geht ohne raus",
-                BILD_WARTEZEIT,
-            )
-            return None
-        except Exception as err:
-            log.warning("Kein Bild für die Alarm-Nachricht: %s", err)
-            return None
-        if not image:
-            return None
-        return snapshots.image_url(public_url, self.hub.snapshots.put(image))
+        return await personenbild.bild_adresse(
+            self.hub, camera, BILD_WARTEZEIT, "die Alarm-Nachricht"
+        )
 
     async def _notify(
         self,
@@ -667,7 +730,7 @@ class AlarmIntegration(Integration):
             tokens,
             title=title,
             body=body,
-            data={"type": "alarm", **(data or {})},
+            data={"type": "alarm", "ziel": "bereich:alarm", **(data or {})},
             image=image,
             category=category,
         )
@@ -726,14 +789,19 @@ class AlarmIntegration(Integration):
         pin = str(data.get("pin") or "") or None
         # Setzt die API-Schicht für Gemeinschaftsgeräte - siehe check_pin().
         require_pin = bool(data.get("require_pin"))
+        # Wer geschaltet hat, gehört in den Verlauf: «Unscharf geschaltet ·
+        # Ablauf «Nach Hause»». Ohne das steht dort ein Vorgang ohne
+        # Urheber - und genau danach fragt man, wenn die Anlage von selbst
+        # aufgegangen ist.
+        wer = quellen_name(source.current())
         if command in ("disarm", "turn_off"):
-            await self.disarm(pin=pin, require_pin=require_pin)
+            await self.disarm(by=wer, pin=pin, require_pin=require_pin)
             return
         if command == "toggle":
             if self._state == DISARMED:
                 await self.arm("ausser_haus", force=force)
             else:
-                await self.disarm(pin=pin, require_pin=require_pin)
+                await self.disarm(by=wer, pin=pin, require_pin=require_pin)
             return
         mode = {
             "arm_night": "nacht",

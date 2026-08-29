@@ -354,6 +354,17 @@ class UnifiProtectIntegration(Integration):
         # Entitäts-ID → Mikrofon/Aufnahmemodus vor dem Privatsphäre-Modus,
         # damit das Ausschalten den alten Zustand wiederherstellt.
         self._privacy_restore: dict[str, dict[str, Any]] = {}
+        # (Entitäts-ID, Feld) → wann die Erkennung endete. Der
+        # Ereignisstrom meldet das Ende in einer Nachricht, die nur noch
+        # «end» enthält - ohne Art und ohne Kamera; ohne dieses
+        # Gedächtnis liesse sich sie niemandem zuordnen.
+        self._erkennung_ende: dict[tuple[str, str], float] = {}
+        # Ereignis-Kennungen, die schon verarbeitet sind. Sonst löste
+        # dieselbe Erkennung bei jeder Abfrage erneut aus.
+        self._gesehene_ereignisse: set[str] = set()
+        # Ereignis-Kennung → (Entitäts-ID, Felder), damit die
+        # Ende-Meldung des Stroms das richtige Feld zurückstellt.
+        self._laufende: dict[str, tuple[str, list[str]]] = {}
 
         self._session = self.console_session(
             timeout=aiohttp.ClientTimeout(total=20),
@@ -412,6 +423,68 @@ class UnifiProtectIntegration(Integration):
         self._last_update_id = bootstrap.get("lastUpdateId")
         for camera in bootstrap.get("cameras", []):
             await self._apply_camera(camera)
+        # Und die Erkennungen nachziehen. Sie kamen bisher nur über den
+        # Ereignisstrom - stand der still, konnte ein Ablauf «wenn das
+        # Baby schreit» nie loslaufen, während Bewegung und Klingeln
+        # weiter funktionierten, weil die aus der Abfrage kommen. Ein
+        # Auslöser, der von einer zweiten Verbindung abhängt, ohne dass
+        # es irgendwo stünde, ist keiner.
+        await self._erkennungen_nachziehen()
+
+    def _erkennung_vorbei(self, entity_id: str, feld: str) -> bool:
+        """Ist die Erkennung dieses Feldes schon beendet gemeldet worden?"""
+        return (entity_id, feld) in self._erkennung_ende
+
+    async def _erkennungen_nachziehen(self, minuten: int = 10) -> None:
+        """Erkennungen aus der Ereignisliste holen - der Weg ohne Strom.
+
+        Der Ereignisstrom ist der schnelle Weg, aber nicht der einzige.
+        Steht er still - eine abgelaufene Sitzung, ein Neustart des
+        Controllers, ein Rahmen, den der Hub nicht lesen kann -, blieben
+        Person, Paket und Baby-Schreien für Abläufe unsichtbar, während
+        Bewegung und Klingeln weiterliefen, weil die aus der Abfrage
+        kommen. Diese Ungleichheit stand nirgends und war von aussen
+        nicht zu erkennen.
+        """
+        if not self._cameras:
+            return
+        jetzt = int(time.time() * 1000)
+        beginn = jetzt - max(1, minuten) * 60 * 1000
+        headers = {"X-CSRF-Token": self._csrf} if self._csrf else {}
+        try:
+            async with self._session.get(
+                f"{self._base}/proxy/protect/api/events",
+                params={"start": str(beginn), "end": str(jetzt)},
+                headers=headers,
+            ) as response:
+                if response.status >= 400:
+                    return
+                payload = await response.json()
+        except Exception as err:
+            self.log.debug("Erkennungen nicht abrufbar: %s", err)
+            return
+        for ereignis in payload or []:
+            if not isinstance(ereignis, dict):
+                continue
+            if str(ereignis.get("type") or "") not in DETECT_EVENTS:
+                continue
+            kennung = str(ereignis.get("id") or "")
+            if not kennung or kennung in self._gesehene_ereignisse:
+                continue
+            entity_id = self._cameras.get(str(ereignis.get("camera") or ""))
+            if entity_id is None:
+                continue
+            self._gesehene_ereignisse.add(kennung)
+            self.log.info(
+                "Erkennung über die Abfrage nachgezogen: %s auf %s",
+                ", ".join(str(t) for t in (ereignis.get("smartDetectTypes") or [])),
+                entity_id,
+            )
+            await self._erkennung_anwenden(ereignis)
+        # Der Vorrat darf nicht wachsen: Was älter ist als das Fenster,
+        # kann ohnehin nicht mehr auftauchen.
+        if len(self._gesehene_ereignisse) > 500:
+            self._gesehene_ereignisse.clear()
 
     async def _apply_camera(self, camera: dict[str, Any]) -> None:
         camera_id = camera.get("id")
@@ -432,12 +505,22 @@ class UnifiProtectIntegration(Integration):
                 self.log.info(
                     "%s: kein Live-Bild – RTSP ist in Protect für diese Kamera "
                     "nicht eingeschaltet (Kamera → Einstellungen → Erweitert → RTSP)",
-                    entity.name,
+                    entity.label,
                 )
         else:
-            await self.hub.registry.update_state(
-                entity_id, camera_state(camera, self._quality), available=True
-            )
+            frisch = camera_state(camera, self._quality)
+            # Eine laufende Erkennung überlebt die Abfrage: `camera_state`
+            # ist ein vollständiger Stand und setzt jedes detected_-Feld
+            # auf «off». Käme er über eine Erkennung, die der
+            # Ereignisstrom gerade gemeldet hat, wäre sie nach Sekunden
+            # wieder weg - und die Kachel zeigte «nichts», während das
+            # Baby noch schreit.
+            bestand = self.hub.registry.get(entity_id)
+            if bestand is not None:
+                for feld, wert in list(frisch.items()):
+                    if feld.startswith("detected_") and bestand.state.get(feld) == "on":
+                        frisch[feld] = wert if self._erkennung_vorbei(entity_id, feld) else "on"
+            await self.hub.registry.update_state(entity_id, frisch, available=True)
         alias = rtsp_alias(camera, self._quality)
         if alias:
             self._aliases[entity_id] = alias
@@ -495,19 +578,56 @@ class UnifiProtectIntegration(Integration):
         Bisher landeten diese Ereignisse nur in der Zeitleiste. Zum
         Nachschauen taugte das; automatisieren liess sich damit nichts -
         ein Ablauf kann nur auf einen Zustand hören.
+
+        Die Ende-Meldung des Stroms enthält nur noch «end» - ohne Art und
+        ohne Kamera. Sie war deshalb niemandem zuzuordnen, und ein
+        `detected_…` blieb nach der ersten Erkennung für immer auf «on»
+        stehen. Gemerkt wird jetzt, welche Kennung zu welchem Feld
+        gehört.
         """
-        if str(payload.get("type") or "") not in DETECT_EVENTS:
+        kennung = str(payload.get("id") or "")
+        if str(payload.get("type") or "") in DETECT_EVENTS:
+            if kennung:
+                self._gesehene_ereignisse.add(kennung)
+            await self._erkennung_anwenden(payload)
             return
-        entity_id = self._cameras.get(str(payload.get("camera") or ""))
+        # Kein Typ dabei: die Fortsetzung eines Ereignisses, das wir
+        # schon kennen. Nur das Ende interessiert.
+        if payload.get("end") is None or kennung not in self._laufende:
+            return
+        entity_id, felder = self._laufende.pop(kennung)
+        zeit = _iso(payload.get("end"))
+        changes: dict[str, Any] = {f"detected_{feld}": "off" for feld in felder}
+        for feld in felder:
+            self._erkennung_ende[(entity_id, feld)] = time.time()
+        if zeit:
+            changes["last_detected"] = zeit
+        await self.hub.registry.update_state(entity_id, changes, available=True)
+
+    async def _erkennung_anwenden(self, ereignis: dict[str, Any]) -> None:
+        """Ein Erkennungs-Ereignis in den Zustand bringen."""
+        entity_id = self._cameras.get(str(ereignis.get("camera") or ""))
         if entity_id is None:
             return
-        beendet = payload.get("end") is not None
-        zeit = _iso(payload.get("end") if beendet else payload.get("start"))
+        beendet = ereignis.get("end") is not None
+        zeit = _iso(ereignis.get("end") if beendet else ereignis.get("start"))
         changes = detection_changes(
-            payload.get("smartDetectTypes"), zeit, beendet=beendet
+            ereignis.get("smartDetectTypes"), zeit, beendet=beendet
         )
-        if changes:
-            await self.hub.registry.update_state(entity_id, changes, available=True)
+        if not changes:
+            return
+        felder = [
+            feld[len("detected_") :] for feld in changes if feld.startswith("detected_")
+        ]
+        kennung = str(ereignis.get("id") or "")
+        for feld in felder:
+            if beendet:
+                self._erkennung_ende[(entity_id, feld)] = time.time()
+            else:
+                self._erkennung_ende.pop((entity_id, feld), None)
+        if kennung and not beendet:
+            self._laufende[kennung] = (entity_id, felder)
+        await self.hub.registry.update_state(entity_id, changes, available=True)
 
     async def _poll_loop(self) -> None:
         while True:
@@ -591,7 +711,7 @@ class UnifiProtectIntegration(Integration):
                     return []
                 payload = await response.json()
         except Exception as err:
-            self.log.debug("Ereignisse von %s nicht abrufbar: %s", entity.name, err)
+            self.log.debug("Ereignisse von %s nicht abrufbar: %s", entity.label, err)
             return []
         return parse_events(payload, camera_id, limit)
 
@@ -615,3 +735,126 @@ class UnifiProtectIntegration(Integration):
 
 
 INTEGRATION = UnifiProtectIntegration
+
+
+async def _erkennungen_main(config_path: str, minuten: int) -> int:
+    """Zeigen, was Protect an Erkennungen wirklich hergibt.
+
+    Aufruf:  docker exec homepilot-hub \
+                 python -m homepilot.integrations.unifi_protect \
+                 -c /config/config.yaml --erkennungen 60
+
+    «Der Ablauf löst nicht aus» hat drei mögliche Ursachen, und von
+    aussen sehen sie gleich aus: Die Kamera erkennt nichts (Audio-
+    Erkennung in Protect nicht eingeschaltet), Protect erkennt es und
+    nennt es anders als der Hub, oder der Hub bekommt es nicht mit.
+    Hier steht roh, was der Controller in den letzten Minuten
+    aufgezeichnet hat - samt der Frage, ob der Hub den Namen kennt.
+
+    Der laufende Hub merkt davon nichts: Es wird nur gelesen.
+    """
+    from ..core.config import load_config
+    from ..core.stand import stand_zeile
+
+    # Als Erstes, damit man nicht die Ausgabe eines alten Abbilds deutet.
+    print(stand_zeile())
+
+    config = load_config(config_path)
+    blocks = [b for b in config.integrations if b.get("integration") == "unifi_protect"]
+    if not blocks:
+        print("In der config.yaml steht keine unifi_protect-Integration.")
+        return 1
+    block = blocks[0]
+    host = block.get("host")
+    base = f"https://{host}"
+    session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False))
+    try:
+        async with session.post(
+            f"{base}/api/auth/login",
+            json={"username": block.get("username"), "password": block.get("password")},
+        ) as antwort:
+            if antwort.status >= 400:
+                print(f"Anmeldung bei {host} fehlgeschlagen ({antwort.status}).")
+                return 1
+            csrf = antwort.headers.get("X-CSRF-Token")
+        headers = {"X-CSRF-Token": csrf} if csrf else {}
+
+        async with session.get(
+            f"{base}/proxy/protect/api/bootstrap", headers=headers
+        ) as antwort:
+            bootstrap = await antwort.json()
+        namen = {
+            str(kamera.get("id")): str(kamera.get("name") or "?")
+            for kamera in bootstrap.get("cameras", [])
+        }
+
+        print("Was die Kameras laut Protect erkennen können:")
+        for kamera in bootstrap.get("cameras", []):
+            koennen = supported_detections(kamera)
+            wortlaut = ", ".join(label for _feld, label in koennen) or "nichts"
+            print(f"  · {kamera.get('name')}: {wortlaut}")
+            flags = kamera.get("featureFlags") or {}
+            roh = list(flags.get("smartDetectAudioTypes") or [])
+            unbekannt = [t for t in roh if detect_key(t) is None]
+            if unbekannt:
+                print(f"      Protect nennt zusätzlich: {', '.join(map(str, unbekannt))}")
+                print("      ↑ Diese Namen kennt der Hub nicht - bitte melden.")
+
+        jetzt = int(time.time() * 1000)
+        beginn = jetzt - max(1, minuten) * 60 * 1000
+        async with session.get(
+            f"{base}/proxy/protect/api/events",
+            params={"start": str(beginn), "end": str(jetzt)},
+            headers=headers,
+        ) as antwort:
+            ereignisse = await antwort.json()
+
+        gefunden = 0
+        print(f"\nErkennungen der letzten {minuten} Minuten:")
+        for ereignis in ereignisse or []:
+            if not isinstance(ereignis, dict):
+                continue
+            art = str(ereignis.get("type") or "")
+            if art not in DETECT_EVENTS:
+                continue
+            gefunden += 1
+            typen = [str(t) for t in (ereignis.get("smartDetectTypes") or [])]
+            uebersetzt = [
+                detect_key(t)[0] if detect_key(t) else f"{t} (unbekannt)" for t in typen
+            ]
+            wann = _iso(ereignis.get("start")) or "?"
+            kamera = namen.get(str(ereignis.get("camera") or ""), "?")
+            print(f"  {wann}  {kamera}: {art} → {', '.join(uebersetzt) or 'ohne Angabe'}")
+        if gefunden == 0:
+            print("  Keine einzige.")
+            print(
+                "\n  Dann hat der Controller in dieser Zeit nichts erkannt. Für "
+                "Ton-Erkennungen\n  muss in Protect je Kamera «Smart Detections → "
+                "Audio» eingeschaltet sein;\n  ohne das meldet die Kamera gar "
+                "nichts, und kein Ablauf kann darauf hören."
+            )
+        return 0
+    finally:
+        await session.close()
+
+
+if __name__ == "__main__":
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(description="UniFi Protect für HomePilot")
+    parser.add_argument("-c", "--config", required=True, help="Pfad zur config.yaml")
+    parser.add_argument(
+        "--erkennungen",
+        type=int,
+        nargs="?",
+        const=60,
+        metavar="MINUTEN",
+        help="Zeigen, was Protect an Erkennungen aufgezeichnet hat "
+        "(stört den laufenden Hub nicht)",
+    )
+    args = parser.parse_args()
+    if args.erkennungen is None:
+        parser.print_help()
+        sys.exit(2)
+    sys.exit(asyncio.run(_erkennungen_main(args.config, args.erkennungen)))

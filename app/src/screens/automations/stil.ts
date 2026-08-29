@@ -48,6 +48,9 @@ export const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     satzText: { color: colors.ink, fontSize: 13, lineHeight: 19, flex: 1 },
+    // «Alle zeigen» unter dem gekürzten Satz - klein, aber sichtbar:
+    // Ohne den Hinweis wüsste niemand, dass da noch etwas ist.
+    satzMehr: { color: colors.accent, fontSize: 12, fontWeight: '600', marginTop: 4 },
     groupLabel: {
       color: colors.inkSoft,
       fontSize: 13,
@@ -104,15 +107,23 @@ export const makeStyles = (colors: Colors) =>
       paddingTop: 6,
       paddingBottom: 2,
     },
+    /**
+     * Die Kategoriezeile über einer Gruppe.
+     *
+     * Sie stand in Grossbuchstaben mit gesperrter Schrift - als
+     * Rubrikenschild gedacht. Bei selbst vergebenen Namen las sich das
+     * aber nicht als Schild, sondern als Geschrei: «6-FACH
+     * WANDTASTER», «BEWEGUNGSMELDER LICHT». Namen, die jemand getippt
+     * hat, gehören so hin, wie er sie getippt hat - dafür etwas
+     * grösser, damit sie sich weiter von den Karten darunter abheben.
+     */
     groupTitle: {
       flex: 1,
-      color: colors.onGradientSoft,
-      fontSize: 12,
+      color: colors.onGradient,
+      fontSize: 15,
       fontWeight: '700',
-      textTransform: 'uppercase',
-      letterSpacing: 0.6,
     },
-    groupCount: { color: colors.onGradientSoft, fontSize: 12, fontWeight: '700' },
+    groupCount: { color: colors.onGradientSoft, fontSize: 13, fontWeight: '700' },
     templates: { gap: 8 },
     // «Alles mal ruhen lassen», ganz oben und dezent: eine Zeile statt
     // einer Karte. Sie bricht um, wenn das Telefon schmal ist - zwei
@@ -148,12 +159,13 @@ export const makeStyles = (colors: Colors) =>
     quittungBlock: { gap: 2, marginTop: -6, paddingHorizontal: 4 },
     quittungAllein: { gap: 2, marginTop: -4, paddingHorizontal: 4, opacity: 0.75 },
     templateOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+    // Wie die Kategoriezeilen darunter: «VORLAGEN» in Grossbuchstaben
+    // über einer Liste aus «6-Fach Wandtaster» sah nach zwei
+    // verschiedenen Ebenen aus, obwohl es dieselbe ist.
     templatesLabel: {
-      color: colors.onGradientSoft,
-      fontSize: 12,
+      color: colors.onGradient,
+      fontSize: 15,
       fontWeight: '700',
-      textTransform: 'uppercase',
-      letterSpacing: 0.6,
     },
     template: {
       flexDirection: 'row',
@@ -215,6 +227,12 @@ export const makeStyles = (colors: Colors) =>
     },
     holidayText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
     // Das Tagesband (Punkt 163).
+    bandZeile: {
+      color: colors.onGradientSoft,
+      fontSize: 12,
+      fontWeight: '700',
+      marginTop: 4,
+    },
     agendaBand: { gap: 8, paddingBottom: 10 },
     agendaChip: {
       flexDirection: 'row',
@@ -249,11 +267,48 @@ export const makeStyles = (colors: Colors) =>
     stepNumber: { color: colors.inkSoft, fontSize: 13, fontWeight: '700' },
     rowGap: { flexDirection: 'row', gap: 8 },
     card: { minHeight: 0, gap: 6 },
+    /** Die schaltbare Hälfte einer Szenenzeile - alles ausser dem Stift. */
+    szenenZeile: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
+    /** Das Symbol in einem Kreis: Er kann sich färben, das Symbol allein
+     *  wäre als «steht gerade» zu leise. */
+    szenenSymbol: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.surfaceSoft,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
     cardHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     title: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
     detail: { color: colors.inkSoft, fontSize: type.cardSub, marginTop: 2 },
     badge: { color: colors.inkFaint, fontSize: 11 },
     iconButton: { padding: 6 },
+    // Die Rückfrage vor dem Handstart: abgesetzt, aber in der Karte -
+    // sie gehört zu diesem einen Ablauf.
+    handstart: {
+      marginTop: 8,
+      padding: 10,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.warn,
+      backgroundColor: colors.surfaceSoft,
+      gap: 8,
+    },
+    handstartText: { color: colors.ink, fontSize: 13, lineHeight: 18 },
+    handstartReihe: { flexDirection: 'row', gap: 8, justifyContent: 'flex-end' },
+    handstartKnopf: {
+      paddingVertical: 7,
+      paddingHorizontal: 14,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    handstartAbbruch: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
+    handstartLos: { backgroundColor: colors.accent, borderColor: colors.accent },
+    handstartLosText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
     newButton: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -274,9 +329,58 @@ export const makeStyles = (colors: Colors) =>
       maxWidth: 460,
     },
     editor: { flex: 1, backgroundColor: colors.panel },
-    editorContent: { padding: 22, paddingTop: 60, gap: 18, maxWidth: 620, width: '100%' },
+    editorContent: { padding: 22, paddingTop: 18, gap: 18, maxWidth: 620, width: '100%' },
+    /**
+     * Die Kopfleiste des Editors – fest, nicht mitscrollend.
+     *
+     * Sie stand vorher als erste Zeile *im* Scrollbereich, hinter einem
+     * geratenen `paddingTop: 60`. Zwei Dinge gingen dabei schief: Auf
+     * einem Telefon mit hoher Statusleiste lag «Neuer Ablauf» unter der
+     * Uhr, und wer im Formular unten war – es ist mehrere Bildschirme
+     * lang –, musste zum Abbrechen und zum Sichern erst ganz nach oben
+     * zurückscrollen. Jetzt liegt beides immer da, und der Abstand nach
+     * oben kommt vom Gerät statt aus einer Zahl.
+     */
+    editorBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.surfaceBorder,
+      backgroundColor: colors.panel,
+    },
     editorTitle: { color: colors.ink, fontSize: 22, fontWeight: '700', flex: 1 },
+    /** Der Titel in der festen Leiste: kleiner, mittig, einzeilig. */
+    editorBarTitle: {
+      color: colors.ink,
+      fontSize: 17,
+      fontWeight: '700',
+      flex: 1,
+      textAlign: 'center',
+    },
+    editorBarKnopf: {
+      minWidth: 76,
+      paddingVertical: 6,
+      paddingHorizontal: 10,
+      borderRadius: radius.pill,
+    },
+    editorBarText: { color: colors.accent, fontSize: 16, fontWeight: '700' },
     field: { gap: 8 },
+    /** Was noch fehlt – gedeckt, nicht blau: `satzMehr` ist die Farbe
+     *  von «Alle zeigen», und drei blaue Zeilen in einem orangen Kasten
+     *  sehen nach drei Links aus, die keine sind. */
+    fehltZeile: { color: colors.inkSoft, fontSize: 13, lineHeight: 19, marginTop: 2 },
+    klappeKopf: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    /** Was in der zugeklappten Klappe eingestellt ist – rechtsbündig,
+     *  damit die Beschriftungen links eine Spalte bilden. */
+    klappeStand: {
+      color: colors.inkFaint,
+      fontSize: 13,
+      flex: 1,
+      textAlign: 'right',
+    },
     label: { color: colors.inkSoft, fontSize: type.cardSub, fontWeight: '700' },
     input: {
       backgroundColor: colors.surfaceSoft,
@@ -301,6 +405,16 @@ export const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
       alignItems: 'center',
       justifyContent: 'center',
+    },
+    /** Die Stimmung einer Szene in der Liste: kleine Punkte, keine
+     *  Wahlknöpfe - deshalb eine Nummer kleiner als farbPunkt. */
+    stimmungsPunkte: { flexDirection: 'row', gap: 4, marginTop: 4 },
+    stimmungsPunkt: {
+      width: 9,
+      height: 9,
+      borderRadius: 5,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: 'rgba(0,0,0,0.25)',
     },
     /** «Farbe unverändert»: der Punkt ohne Farbe, mit Kreuz. */
     farbLeer: { backgroundColor: colors.surfaceSoft },

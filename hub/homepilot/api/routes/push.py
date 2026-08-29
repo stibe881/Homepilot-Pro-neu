@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 from fastapi import (
@@ -19,13 +20,25 @@ from fastapi import (
 )
 
 from ...core import (
+    liveaktivitaet,
+    livekarten,
     notifyrules,
     push,
+    pushverlauf,
     snapshots,
+    spaeter,
+    waschkueche,
 )
-from ...core.users import Capability
+from ...core.users import Capability, Role
 from ..context import ApiContext
-from ..models import NotifyRuleRequest, PushPrefsRequest, PushRegistration
+from ..models import (
+    LaundryRequest,
+    LiveActivityTokenRequest,
+    NotifyRuleRequest,
+    PushPrefsRequest,
+    PushRegistration,
+    PushSnoozeRequest,
+)
 
 log = logging.getLogger(__name__)
 
@@ -49,7 +62,13 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         lässt ``push.public_url`` in der config.yaml weg; dann entsteht
         gar keine solche Adresse.
         """
-        image = hub.snapshots.get(token)
+        # ``warten`` statt ``get``: Bei einer Kamera mit Personenerkennung
+        # ist die Adresse schon vergeben, das Bild aber noch unterwegs -
+        # der Hub wartet gerade darauf, dass wirklich jemand im Bild
+        # steht. Diese Anfrage hält so lange still, statt einen leeren
+        # Kasten zu liefern. Liegt das Bild bereits da, kostet es nichts.
+        # Warum das der richtige Handel ist: core/personenbild.py.
+        image = await hub.snapshots.warten(token)
         if image is None:
             # Abgelaufen und nie existiert sehen von aussen gleich aus –
             # sonst liesse sich am Unterschied ablesen, ob geraten wurde.
@@ -143,7 +162,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     async def set_notify_rule(
         key: str, body: NotifyRuleRequest, request: Request
     ) -> dict[str, Any]:
-        require(request, Capability.EDIT_AUTOMATIONS)
+        user = require(request, Capability.EDIT_AUTOMATIONS)
         try:
             stored = notifyrules.store(
                 hub.data.get("notify_rules"), key, body.enabled, body.params
@@ -151,6 +170,12 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         except ValueError as err:
             raise HTTPException(status_code=404, detail=str(err)) from err
         hub.data.set("notify_rules", stored)
+        hub.aenderungen.merken(
+            user,
+            "regel",
+            "eingeschaltet" if body.enabled else "abgeschaltet",
+            push.CATEGORIES.get(key, key),
+        )
         # Sofort übernehmen, nicht erst in der nächsten Wächter-Runde:
         # Wer den Schalter umlegt, erwartet, dass er ab jetzt gilt.
         hub.watchdog.rules = notifyrules.effective(stored)
@@ -159,6 +184,51 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "groups": push.group_order(),
         }
 
+    # ── Die Türe der Waschküche ────────────────────────────────────────────
+    #
+    # Gehört zur Regel «Haushaltgerät noch voll» und steht in der App
+    # deshalb in derselben Karte: An diesem Kontakt liest der Wächter ab,
+    # ob jemand unten war - und hört auf zu mahnen. Warum überhaupt an
+    # einer Türe gemessen wird, steht in core/waschkueche.py.
+    #
+    # Nicht als Parameter der Regel selbst: Die sind Zahlen mit Grenzen
+    # (notifyrules.py), eine Geräte-Id ist keine.
+
+    @app.get("/api/laundry")
+    async def laundry_door(request: Request) -> dict[str, Any]:
+        current_user(request)
+        entities = hub.registry.all()
+        gewaehlt = _gewaehlte_tuer()
+        aktuell = waschkueche.tuer(entities, gewaehlt)
+        return {
+            # Was gewählt wurde - leer heisst «geraten».
+            "door": gewaehlt,
+            # Und was daraus folgt: Ohne diese Zeile sähe man in der App
+            # nicht, dass ohne eigene Wahl trotzdem eine Türe gilt.
+            "using": aktuell.id if aktuell is not None else None,
+            "guess": waschkueche.raten(entities),
+            "candidates": [
+                {"id": entity.id, "name": entity.label, "room": entity.room}
+                for entity in waschkueche.kandidaten(entities)
+            ],
+        }
+
+    @app.put("/api/laundry")
+    async def set_laundry_door(body: LaundryRequest, request: Request) -> dict[str, Any]:
+        require(request, Capability.EDIT_AUTOMATIONS)
+        tuer = (body.door or "").strip()
+        if tuer and hub.registry.get(tuer) is None:
+            raise HTTPException(status_code=404, detail="Diesen Kontakt kennt der Hub nicht")
+        hub.data.set("laundry", [{"door": tuer}] if tuer else [])
+        hub.watchdog.tuer_gewechselt(hub.registry.all(), tuer or None)
+        return await laundry_door(request)
+
+    def _gewaehlte_tuer() -> str | None:
+        for entry in hub.data.get("laundry"):
+            if isinstance(entry, dict) and entry.get("door"):
+                return str(entry["door"])
+        return None
+
     # ── Push ───────────────────────────────────────────────────────────────
 
     @app.get("/api/push/targets")
@@ -166,12 +236,16 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         """Wer als Empfänger einer Ablauf-Nachricht in Frage kommt (158).
 
         Nur Namen und Rollen, keine Tokens: Der Ablauf-Editor braucht
-        eine Auswahl, keine Benutzerverwaltung - deshalb genügt hier
-        EDIT_AUTOMATIONS statt MANAGE_USERS.
+        eine Auswahl, keine Benutzerverwaltung. Seit die Erinnerungen
+        ihre Push-Empfänger wählen lassen, brauchen die Liste auch
+        Mitbewohner - wer hier wohnt, kennt die Namen ohnehin (sie
+        stehen in der Anwesenheitsliste). Nur Gäste bleiben draussen.
         """
-        require(request, Capability.EDIT_AUTOMATIONS)
+        user = current_user(request)
         from ...core.users import Role
 
+        if user.role == Role.GUEST:
+            raise HTTPException(status_code=403, detail="Für Gäste nicht sichtbar")
         return {
             "names": [
                 user.name
@@ -198,6 +272,49 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         """
         require(request, Capability.EDIT_CONFIG)
         return {"devices": [device.as_dict() for device in hub.push.devices]}
+
+    @app.get("/api/push/log")
+    async def push_log(request: Request) -> dict[str, Any]:
+        """Die letzten Meldungen zum Nachlesen.
+
+        Nur die eigenen: Was an alle ging und was an mich - dass Lina
+        ans Medikament erinnert wurde, geht die anderen nichts an
+        (core/pushverlauf.py).
+        """
+        user = current_user(request)
+        return {
+            "log": pushverlauf.fuer(hub.data.get(pushverlauf.STORE_KEY), user.name),
+            "days": pushverlauf.TAGE,
+        }
+
+    @app.post("/api/push/snooze")
+    async def snooze_push(body: PushSnoozeRequest, request: Request) -> dict[str, Any]:
+        """«Später erinnern» aus der Mitteilung heraus.
+
+        Der Knopf sitzt auf dem Sperrbildschirm; die App reicht ihn hierher
+        weiter, sobald sie davon erfährt. Zurückgelegt wird die Meldung
+        selbst - wer «in 30 Minuten» wählt, will genau diesen Satz wieder
+        lesen und keine Zusammenfassung dessen, was inzwischen gilt.
+
+        Nur an die Person, die geschoben hat: Dass Stefan die Meldung
+        wegschiebt, geht die anderen Telefone nichts an.
+        """
+        user = current_user(request)
+        hub.data.set(
+            spaeter.SCHLANGE,
+            spaeter.einreihen(
+                hub.data.get(spaeter.SCHLANGE),
+                {
+                    "title": body.title,
+                    "body": body.body,
+                    "category": body.category,
+                    "to": user.name,
+                },
+                time.time(),
+                body.minutes,
+            ),
+        )
+        return {"ok": True, "minutes": spaeter.minuten_pruefen(body.minutes)}
 
     @app.post("/api/push/unregister")
     async def unregister_push(body: PushRegistration, request: Request) -> dict[str, Any]:
@@ -235,4 +352,92 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "devices": len(tokens),
             "errors": problems,
         }
+
+    # ── Haustür-Live-Aktivität (core/liveaktivitaet.py) ────────────────────
+    #
+    # Das iPhone meldet hier seine ActivityKit-Tokens an; wann eine Karte
+    # startet oder endet, entscheidet der Takt im Hub. Kein Gast-Zugang:
+    # Die Karte führt zur Haustüre.
+
+    @app.get("/api/liveactivity")
+    async def liveactivity_status(request: Request) -> dict[str, Any]:
+        """Für die App: Ist der Hub dafür eingerichtet, und bin ich dabei?"""
+        user = current_user(request)
+        rows = hub.data.get(liveaktivitaet.DATA_KEY)
+        return {
+            "configured": liveaktivitaet.parse_apns(hub.config.apns) is not None,
+            "registered": sum(
+                1
+                for row in rows
+                if isinstance(row, dict) and row.get("user") == user.name
+            ),
+        }
+
+    @app.post("/api/liveactivity/register")
+    async def liveactivity_register(
+        body: LiveActivityTokenRequest, request: Request
+    ) -> dict[str, Any]:
+        user = current_user(request)
+        if user.role == Role.GUEST:
+            raise HTTPException(status_code=403, detail="Nicht für Gäste")
+        if body.typ == "haus":
+            hub.data.set(
+                livekarten.START_KEY,
+                livekarten.registrieren(
+                    hub.data.get(livekarten.START_KEY),
+                    user.name,
+                    body.token,
+                    body.label,
+                ),
+            )
+        else:
+            hub.data.set(
+                liveaktivitaet.DATA_KEY,
+                liveaktivitaet.registrieren(
+                    hub.data.get(liveaktivitaet.DATA_KEY),
+                    user.name,
+                    body.token,
+                    body.label,
+                ),
+            )
+        return {"ok": True}
+
+    @app.post("/api/liveactivity/unregister")
+    async def liveactivity_unregister(
+        body: LiveActivityTokenRequest, request: Request
+    ) -> dict[str, Any]:
+        current_user(request)
+        hub.data.set(
+            liveaktivitaet.DATA_KEY,
+            liveaktivitaet.abmelden(hub.data.get(liveaktivitaet.DATA_KEY), body.token),
+        )
+        hub.data.set(
+            livekarten.START_KEY,
+            livekarten.abmelden(hub.data.get(livekarten.START_KEY), body.token),
+        )
+        return {"ok": True}
+
+    @app.post("/api/liveactivity/activity")
+    async def liveactivity_activity(
+        body: LiveActivityTokenRequest, request: Request
+    ) -> dict[str, Any]:
+        """Das Token der gerade laufenden Aktivität - fürs spätere Beenden."""
+        user = current_user(request)
+        if body.art:
+            # Eine generische Karte (Timer, Gerät, Grill, …): Das Token
+            # gehört zur laufenden Zeile in live_cards.
+            hub.data.set(
+                livekarten.KARTEN_KEY,
+                livekarten.token_merken(
+                    hub.data.get(livekarten.KARTEN_KEY), user.name, body.art, body.token
+                ),
+            )
+        else:
+            hub.data.set(
+                liveaktivitaet.DATA_KEY,
+                liveaktivitaet.aktivitaet_merken(
+                    hub.data.get(liveaktivitaet.DATA_KEY), user.name, body.token
+                ),
+            )
+        return {"ok": True}
 

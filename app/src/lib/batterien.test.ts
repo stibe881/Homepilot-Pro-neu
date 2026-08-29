@@ -74,3 +74,57 @@ describe('stummBis', () => {
     ).toBeNull();
   });
 });
+
+
+// ── Telefone gehören nicht in die Batterieliste ──────────────────────────
+//
+// Die Anwesenheits-Entitäten führen den Akkustand des Telefons mit - über
+// die App selbst oder über Life360. Nützlich ist er dort, wo er hingehört:
+// Ein leeres Telefon meldet keinen Standort mehr, und davor warnt der Hub.
+// In dieser Liste steht er nur im Weg.
+
+describe('Telefone in der Batterieliste', () => {
+  it('lässt Personen weg, egal woher ihr Standort kommt', () => {
+    const zeilen = batteryRows([
+      geraet({
+        id: 'geofence.stefan',
+        name: 'Stefan',
+        integration: 'geofence',
+        state: { state: 'home', place: 'home', battery: 14, device_class: 'presence' },
+      }),
+      geraet({
+        id: 'geofence.oma',
+        name: 'Oma',
+        integration: 'geofence',
+        // Über Life360 gemeldet - dieselbe Türe, dieselbe Entität.
+        state: { state: 'away', place: null, source: 'life360', battery: 9 },
+      }),
+      geraet({ id: 'hm.tuerkontakt', name: 'Haustüre', state: { battery: 38 } }),
+    ]);
+    expect(zeilen.map((zeile) => zeile.entity.id)).toEqual(['hm.tuerkontakt']);
+  });
+
+  it('verdeckt kein echtes Gerät mehr', () => {
+    // Der Grund für die ganze Übung: Ein Telefon mit 14 Prozent stand
+    // zuoberst und schob den Türkontakt nach unten, der wirklich dran
+    // gewesen wäre.
+    const zeilen = batteryRows([
+      geraet({
+        id: 'geofence.stefan',
+        name: 'Stefan',
+        state: { place: 'home', battery: 14 },
+      }),
+      geraet({ id: 'hm.rauchmelder', name: 'Rauchmelder', state: { low_battery: true } }),
+    ]);
+    expect(zeilen).toHaveLength(1);
+    expect(zeilen[0].entity.id).toBe('hm.rauchmelder');
+  });
+
+  it('behält Geräte, die bloss zufällig einen Ort im Zustand hätten', () => {
+    // Kein Ort, keine Anwesenheitsklasse: ganz normales Batteriegerät.
+    const zeilen = batteryRows([
+      geraet({ id: 'matter.schloss', name: 'Wohnungstüre', state: { battery: 77 } }),
+    ]);
+    expect(zeilen.map((zeile) => zeile.entity.id)).toEqual(['matter.schloss']);
+  });
+});

@@ -61,6 +61,92 @@ export function RoomPicker({
 }
 
 /**
+ * Das Anpassen-Blatt einer Kachel.
+ *
+ * Die Knöpfe standen bisher auf der Kachel selbst: zwei Chips für Raum
+ * und Gruppe, darunter bis zu fünf beschriftete Symbole. Auf einer
+ * halbbreiten Telefonkachel brauchen vier davon rund 320 Punkte Breite
+ * und bekommen 180 - sie brachen also um, die Chips ebenso, und der
+ * Griff zum Verschieben lag über dem Raum-Chip. Der Inhalt der Kachel
+ * rutschte so weit nach unten, dass zwei Stück einen Bildschirm
+ * füllten.
+ *
+ * Hier ist Platz: eine Zeile je Einstellung, über die ganze Breite,
+ * mit ausgeschriebenem Namen und dem, was gerade gilt. Und alles zu
+ * einem Gerät an einem Ort statt verteilt auf Chips, Symbole und einen
+ * langen Druck.
+ */
+export function AnpassenBlatt({
+  visible,
+  titel,
+  zeilen,
+  onClose,
+}: {
+  visible: boolean;
+  titel: string;
+  zeilen: {
+    key: string;
+    icon: keyof typeof Ionicons.glyphMap;
+    label: string;
+    /** Was gerade gilt – steht rechts, klein und ruhig. */
+    wert?: string;
+    /** Gesetzt: die Zeile bekommt Farbe. */
+    aktiv?: boolean;
+    onPress: () => void;
+  }[];
+  onClose: () => void;
+}) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.roomBackdrop} onPress={onClose}>
+        <Pressable style={styles.roomSheet} onPress={() => {}}>
+          <View style={styles.blattKopf}>
+            <Text style={[styles.roomSheetTitle, { flex: 1, marginBottom: 0 }]} numberOfLines={2}>
+              {titel}
+            </Text>
+            <Pressable onPress={onClose} accessibilityLabel="Fertig" hitSlop={8}>
+              <Ionicons name="close" size={22} color={colors.ink} />
+            </Pressable>
+          </View>
+          <ScrollView>
+            {zeilen.map((zeile) => (
+              <Pressable
+                key={zeile.key}
+                onPress={zeile.onPress}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  zeile.wert ? `${zeile.label}: ${zeile.wert}` : zeile.label
+                }
+                style={({ pressed }) => [styles.blattZeile, pressed && { opacity: 0.6 }]}
+              >
+                <Ionicons
+                  name={zeile.icon}
+                  size={19}
+                  color={zeile.aktiv ? colors.accent : colors.inkSoft}
+                />
+                <Text
+                  style={[styles.blattLabel, zeile.aktiv && { color: colors.accent }]}
+                  numberOfLines={1}
+                >
+                  {zeile.label}
+                </Text>
+                {zeile.wert ? (
+                  <Text style={styles.blattWert} numberOfLines={1}>
+                    {zeile.wert}
+                  </Text>
+                ) : null}
+              </Pressable>
+            ))}
+          </ScrollView>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+/**
  * Die kleine Auswahl nach einem langen Druck auf eine Kachel.
  *
  * Sie erscheint nur, wenn es wirklich etwas zu wählen gibt: Bleibt ein
@@ -70,12 +156,21 @@ export function RoomPicker({
 export function KachelMenue({
   visible,
   titel,
+  ursache,
+  kette,
   eintraege,
   onClose,
   onSelect,
 }: {
   visible: boolean;
   titel: string;
+  /** «seit 20 Min · Ablauf «Bewegung Flur»» – die Antwort auf «warum ist
+   *  das an?», dort, wo man das Gerät gerade in der Hand hat. */
+  ursache?: string | null;
+  /** «Bewegung Flur → Licht bei Bewegung → Licht Wohnzimmer» – die
+   *  Kette dahinter, wo der Hub sie kennt. Die kurze Antwort zog sonst
+   *  jedes Mal die nächste Frage nach sich: welche Bewegung? */
+  kette?: string | null;
   eintraege: KachelEintrag[];
   onClose: () => void;
   onSelect: (eintrag: KachelEintrag) => void;
@@ -89,6 +184,8 @@ export function KachelMenue({
           <Text style={styles.roomSheetTitle} numberOfLines={1}>
             {titel}
           </Text>
+          {ursache ? <Text style={styles.menueUrsache}>{ursache}</Text> : null}
+          {kette ? <Text style={styles.menueKette}>{kette}</Text> : null}
           {eintraege.map((eintrag) => (
             <Pressable
               key={eintrag.id}

@@ -219,7 +219,7 @@ class NukiIntegration(Integration):
                 message = action_error(response.status, detail)
                 self.log.warning(
                     "Nuki '%s': %s (HTTP %d, Antwort: %s)",
-                    entity.name,
+                    entity.label,
                     command,
                     response.status,
                     detail[:200],

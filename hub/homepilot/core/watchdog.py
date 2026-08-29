@@ -28,16 +28,27 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from . import (
+    babysitter,
     batterie,
+    batterieprognose,
     energy,
     familie,
     gemeldet,
+    giessen,
     maintenance,
+    morgen,
     notifyrules,
+    personen,
     presence,
+    pushziel,
+    regen,
     shopping,
+    spaeter,
     trash,
     users,
+    uvwarnung,
+    vorrat,
+    waschkueche,
 )
 from .entity import EntityKind
 
@@ -53,9 +64,12 @@ from .watchrules import (  # noqa: F401
     disk_usage,
     down_integrations,
     frost_night,
+    klingel_gesperrt,
     leaks,
     low_batteries,
+    offen_satz,
     open_contacts,
+    sauger_probleme,
     watched_entities,
 )
 
@@ -83,6 +97,11 @@ HOLIDAY_ASK_AGAIN = 48 * 3600
 # So lange vor dem Ablauf bekommt ein Gast Bescheid.
 ACCESS_WARN_SECONDS = 15 * 60
 
+#: Wo der Zeitpunkt der letzten Regen-Vorwarnung liegt. Auf der Platte,
+#: weil zwischen Vorwarnung und Regen eine Viertelstunde liegt und ein
+#: Update dazwischen der Normalfall ist.
+REGEN_KEY = "rain_warned"
+
 
 class Watchdog:
     def __init__(self, hub: Hub) -> None:
@@ -96,15 +115,27 @@ class Watchdog:
         self._reported_down: set[str] = set()
         # Haushaltgeräte: Zustand der letzten Runde, Zeitpunkt des
         # Programmendes und was schon erinnert wurde.
+        # Wann zuletzt vor Regen gewarnt wurde - beim Start aus der
+        # Datendatei geholt (siehe REGEN_KEY).
+        self._regen_gemeldet: float | None = None
         self._last_state: dict[str, str] = {}
         self._started_at: dict[str, float] = {}
         self._finished_at: dict[str, float] = {}
-        self._reminded: set[str] = set()
+        # Gerät → wie oft schon gemahnt. Früher ein blosses «schon
+        # gemeldet»: Damit ging die Nachricht genau einmal raus, und wer
+        # sie liegen liess, hörte nie wieder davon.
+        self._gemahnt: dict[str, int] = {}
+        # Ob die Waschküchentüre in der letzten Runde offen stand - für
+        # die Flanke. Der Zustand allein genügt nicht: Eine Türe, die
+        # offen stehen bleibt, hiesse sonst in jeder Runde «war jemand da».
+        self._wk_offen = False
         # Fenster und Türen: seit wann offen, und was schon gemeldet wurde.
         self._open_since: dict[str, float] = {}
         self._reported_open: set[str] = set()
         # Wassermelder, die schon gemeldet wurden.
         self._reported_leak: set[str] = set()
+        # Sauger-Probleme, die schon gemeldet wurden («gerät:schlüssel»).
+        self._reported_sauger: set[str] = set()
         # Energie: welcher Tag zuletzt geschrieben wurde und wann.
         self._energy_day: str | None = None
         self._energy_written: float = 0.0
@@ -116,6 +147,10 @@ class Watchdog:
         # zuletzt nach dem Ferienmodus gefragt wurde, und wann der
         # Verlauf zuletzt gestutzt wurde.
         self._battery_told: set[str] = set()
+        # Wem schon gemeldet wurde, dass sein Telefon schweigt. Wie beim
+        # Akku ein Merker je Zone, damit aus einer Funkstille nicht eine
+        # Nachricht je Minute wird.
+        self._silence_told: set[str] = set()
         self._holiday_asked: float = 0.0
         self._history_trimmed: float = 0.0
         # Was «einmal am Tag» heisst - Geburtstag, Frost, Medikamente,
@@ -134,9 +169,81 @@ class Watchdog:
         # Protokoll der letzten Ausfälle für die App (jüngste zuerst).
         self.outages: list[dict[str, Any]] = []
         self._task: asyncio.Task | None = None
+        # An welchen Geräten es gerade klingelt. Ring lässt das Feld eine
+        # Weile auf «on» stehen; ohne Gedächtnis käme bei jeder Meldung
+        # desselben Klingelns eine weitere Nachricht.
+        self._klingelt: set[str] = set()
+        # Je Türe der Zeitpunkt der letzten Klingel-Nachricht - die
+        # Sperrfrist, die verhindert, dass aus einem Besucher mehrere
+        # Nachrichten werden.
+        self._klingel_gemeldet: dict[str, float] = {}
 
     def start(self) -> None:
+        # Den Stand der letzten Regen-Vorwarnung wieder aufnehmen. Ohne
+        # das käme sie nach einem Neustart gleich noch einmal - und
+        # zwischen Vorwarnung und Regen liegt eine Viertelstunde.
+        gespeichert = self.hub.data.get(REGEN_KEY)
+        if gespeichert and isinstance(gespeichert[0], dict):
+            try:
+                self._regen_gemeldet = float(gespeichert[0].get("at") or 0) or None
+            except (TypeError, ValueError):
+                self._regen_gemeldet = None
         self._task = asyncio.create_task(self._loop())
+        # Die Klingel läuft nicht im Minutentakt mit: Wer vor der Türe
+        # steht, wartet keine Minute. Sie hängt am Ereignis selbst.
+        self.hub.bus.subscribe("state_changed", self._on_state)
+
+    def _on_state(self, _event_type: str, data: dict[str, Any]) -> None:
+        """Bus-Listener: Klingelt es gerade irgendwo?
+
+        Bewusst hier und nicht in der Runde alle 60 Sekunden. Die übrigen
+        Regeln beantworten Fragen, die eine Minute Zeit haben - eine
+        schwache Batterie, ein offenes Fenster. Ein Klingeln hat sie
+        nicht: Bis die Runde das Feld sähe, steht der Besucher wieder auf
+        der Strasse.
+        """
+        entity_id = str(data.get("entity_id") or "")
+        if not entity_id:
+            return
+        alt = str((data.get("old_state") or {}).get("ring") or "")
+        neu = str((data.get("new_state") or {}).get("ring") or "")
+        if neu != "on":
+            # «off» oder verschwunden: Beim nächsten Klingeln darf wieder
+            # gemeldet werden - sofern die Sperrfrist um ist.
+            self._klingelt.discard(entity_id)
+            return
+        if alt == "on" or entity_id in self._klingelt:
+            return
+        # Der Riegel an der letzten Stelle. Ein Klingeln kommt beim Hub auf
+        # mehreren Wegen an, und jeder Weg kann den Zustand für sich auf
+        # «an» setzen - dazwischen liegt manchmal ein «aus», und dann
+        # zählt es als neues Klingeln. Was auch immer davor schiefgeht:
+        # Hier geht je Türe und Minute eine Nachricht hinaus.
+        jetzt = time.time()
+        if klingel_gesperrt(self._klingel_gemeldet.get(entity_id), jetzt):
+            log.debug("Klingeln an %s bereits gemeldet - keine zweite Nachricht", entity_id)
+            return
+        self._klingel_gemeldet[entity_id] = jetzt
+        self._klingelt.add(entity_id)
+        entity = (data.get("entity") or {}) if isinstance(data.get("entity"), dict) else {}
+        name = str(entity.get("name") or entity_id)
+        # Als eigene Aufgabe: Der Bus ruft synchron, und eine Nachricht
+        # zu verschicken dauert - der Zustand soll darauf nicht warten.
+        asyncio.create_task(self._melde_klingeln(entity_id, name))
+
+    async def _melde_klingeln(self, entity_id: str, name: str) -> None:
+        # Zuerst auf den Bus: Wer beim Klingeln etwas tun will - die
+        # Musik dämpfen, eine Ansage machen -, soll nicht warten, bis
+        # die Push draussen ist.
+        await self.hub.bus.publish(
+            "doorbell", {"entity_id": entity_id, "name": name}
+        )
+        await self._notify(
+            f"Es klingelt: {name}",
+            "Jemand steht vor der Türe.",
+            "doorbell",
+            data={"type": "doorbell", "entity_id": entity_id, "ziel": "klingel"},
+        )
 
     async def stop(self) -> None:
         if self._task:
@@ -210,19 +317,26 @@ class Watchdog:
         await self._check_batteries(entities)
         await self._check_open(entities)
         await self._check_leaks(entities)
+        await self._check_sauger(entities)
         self._record_energy(entities)
         await self._check_disk()
         await self._check_frost(entities)
+        await self._check_regen(entities)
+        await self._check_giessen(entities)
         await self._check_maintenance()
         await self._check_shopping(entities)
+        await self._check_vorrat()
         await self._check_medications()
         await self._check_birthdays()
+        await self._check_morgen(entities)
         await self._check_emergency()
         await self._check_presence()
         await self._check_week_ahead()
         await self._check_family_cleanup()
         await self._check_meal_plan()
         await self._check_access()
+        await self._check_spaeter()
+        await self._check_babysitter()
         down = down_integrations(entities)
 
         # Strikes hochzählen bzw. zurücksetzen.
@@ -285,6 +399,96 @@ class Watchdog:
             category="frost",
         )
 
+    async def _check_regen(self, entities: list[Any]) -> None:
+        """Regen kommt – rechtzeitig, damit man noch etwas tun kann.
+
+        Gemeldet wird auch bei geschlossenen Fenstern: Draussen liegt
+        mehr als das, was der Hub sieht - Wäsche, Kissen, das Velo, der
+        Sonnenschirm. Ein Fenster ist nur der Teil davon, von dem er
+        weiss; stehen welche offen, kommen sie in die Meldung.
+
+        Einmal je Schauer: Solange derselbe ansteht, kommt nichts Neues.
+        Wann er als durch gilt, steht in core/regen.py - dort auch, warum
+        die frühere Entprellung über den errechneten Regenbeginn genau
+        das Gegenteil bewirkte.
+        """
+        wetter = next((e for e in entities if getattr(e, "kind", "") == "weather"), None)
+        if wetter is None:
+            return
+        stand = wetter.state.get("rain")
+        if not isinstance(stand, dict):
+            return
+        # Durch? Dann darf die nächste Vorwarnung wieder raus - es regnet
+        # gerade (die Warnung hat ihren Zweck erfüllt, und was man vor
+        # zehn Minuten hätte tun sollen, hilft jetzt niemandem) oder in
+        # der Vorschau steht nichts mehr (der Schauer zog vorbei).
+        if regen.vorbei(stand):
+            if self._regen_gemeldet is not None:
+                self._regen_gemeldet = None
+                self.hub.data.set(REGEN_KEY, [])
+            return
+        params = self.rules["rain"]["params"]
+        if not regen.melden(
+            stand,
+            self._regen_gemeldet,
+            time.time(),
+            float(params.get("minutes", 30)),
+            float(params.get("pause", regen.SPERRE_MINUTEN)),
+        ):
+            return
+        self._regen_gemeldet = time.time()
+        # Auf die Platte: Zwischen Vorwarnung und Regen liegt eine
+        # Viertelstunde, und ein Update dazwischen ist der Normalfall -
+        # ohne das hier käme die Meldung nach dem Neustart gleich wieder.
+        self.hub.data.set(REGEN_KEY, [{"at": self._regen_gemeldet}])
+        offen = open_contacts(entities)
+        if offen:
+            # Was der Hub weiss, steht zuerst: Ein offenes Fenster ist
+            # der eine Handgriff, den er benennen kann.
+            text = "Noch offen: " + ", ".join(e.label for e in offen[:5]) + "."
+        else:
+            # Und sonst der Hinweis auf das, was er nicht sieht. Ohne
+            # ihn wäre die Meldung eine blosse Wetteransage.
+            text = "Alle Fenster sind zu. Liegt draussen noch etwas?"
+        await self._notify(
+            regen.satz(stand) or "Regen kommt",
+            text,
+            category="rain",
+        )
+
+    async def _check_giessen(self, entities: list[Any]) -> None:
+        """Abends erinnern, wenn der Himmel es nicht macht.
+
+        Abends und nicht morgens: Um sieben Uhr früh verdunstet weniger,
+        aber wer die Meldung um sieben liest, hat sie um neun vergessen
+        - und mittags giessen verbrennt die Blätter. Einmal je Tag.
+
+        Die drei Bedingungen (lange trocken, es kommt nichts, es war
+        warm) stehen in core/giessen.py; hier steht nur, wann gefragt
+        wird.
+        """
+        jetzt = datetime.now()
+        if jetzt.hour != 18:
+            return
+        wetter = next((e for e in entities if getattr(e, "kind", "") == "weather"), None)
+        if wetter is None:
+            return
+        params = self.rules["plants"]["params"]
+        if not giessen.soll_giessen(
+            wetter.state,
+            int(params.get("days", 3)),
+            float(params.get("degrees", 18.0)),
+        ):
+            return
+        heute = jetzt.strftime("%Y-%m-%d")
+        if not self._einmal(f"plants:{heute}", jetzt.timestamp()):
+            return
+        await self._notify(
+            "Pflanzen giessen",
+            giessen.satz(wetter.state),
+            category="plants",
+        )
+
     async def _check_maintenance(self) -> None:
         """Einmal täglich an fällige Wartungen erinnern.
 
@@ -316,6 +520,11 @@ class Watchdog:
         Nur für Läden, denen jemand eine Geofence-Zone gegeben hat, und
         erst nach ein paar Minuten Aufenthalt: Eine Nachricht beim
         Vorbeifahren wäre eine, die man abschaltet.
+
+        Und nur an den, der dort steht. Die Nachricht heisst «Du bist im
+        Märt» und ging trotzdem an alle: Wer im Büro sass, während jemand
+        anders einkaufte, bekam sie auch - und wusste weder, dass sie
+        nicht ihm galt, noch wem.
         """
         shops = self.hub.data.get("family_shops")
         if not shops:
@@ -323,20 +532,100 @@ class Watchdog:
         offen = shopping.open_items(self.hub.data.get("family_shopping"))
         if not offen:
             return
-        zonen = {
-            entity.id.split(".", 1)[1]: entity.state
-            for entity in entities
-            if entity.id.startswith("geofence.")
-        }
+        zonen = {}
+        namen = {}
+        for entity in entities:
+            if not entity.id.startswith("geofence."):
+                continue
+            zone_id = entity.id.split(".", 1)[1]
+            zonen[zone_id] = entity.state
+            namen[zone_id] = entity.name
         jetzt = time.time()
         for shop in shopping.due_reminders(
             shops, zonen, len(offen), jetzt, self._shop_reminded
         ):
             marke = shopping.marke_fuer(shop)
-            stand, _ = shopping.wo_man_steht(shop, zonen)
+            zone_id, stand, _ = shopping.wer_steht_dort(shop, zonen)
             self._shop_reminded[marke] = (stand or {}).get("changed_at")
+            empfaenger = self._benutzer_zur_zone(zone_id, namen)
+            if empfaenger is None:
+                # Ortung ohne Zugang zur App - etwa ein Kind in Life360.
+                # An «alle» zu schicken wäre der alte Fehler; hier gibt
+                # es schlicht niemanden, den die Nachricht angeht.
+                log.info(
+                    "Einkaufserinnerung für %s ohne Benutzer zur Zone %s",
+                    shop.get("name"),
+                    zone_id,
+                )
+                continue
             titel, text = shopping.describe(shop, offen)
-            await self._notify(titel, text, category="shopping")
+            await self._notify(titel, text, category="shopping", to=empfaenger)
+
+    async def _check_vorrat(self) -> None:
+        """Standardartikel mit Takt selbst auf die Einkaufsliste setzen.
+
+        Der Fall: Kaffee, Waschmittel, Katzenstreu. Sie fallen erst auf,
+        wenn die Packung leer ist - und dann steht man in der Küche und
+        nicht im Laden. Die Standardartikel halfen nur dem, der ohnehin
+        auf die Liste schaute; der gelernte Rhythmus schlug bloss vor
+        (siehe core/vorrat.py).
+
+        Jede Runde und nicht einmal am Tag: Der Scan ist eine Handvoll
+        Einträge, und wer gerade einen Takt eingestellt hat, soll den
+        Posten sofort auf der Liste sehen statt am nächsten Morgen.
+        Eingetragen wird trotzdem höchstens einmal je Takt - ein Posten,
+        der schon offen dasteht, zählt als erledigt.
+        """
+        import secrets
+
+        staples = self.hub.data.get("family_staples")
+        if not staples:
+            return
+        jetzt = time.time()
+        liste = self.hub.data.get("family_shopping")
+        offen = {
+            str(row.get("text") or "").strip().lower()
+            for row in liste
+            if isinstance(row, dict) and not row.get("done")
+        }
+        dran = vorrat.faellig(staples, offen, jetzt)
+        if not dran:
+            return
+        for staple in dran:
+            liste.append(
+                {
+                    "id": secrets.token_urlsafe(8),
+                    "text": str(staple.get("text") or "").strip(),
+                    "category": str(staple.get("category") or ""),
+                    # Wer den Posten anfasst, soll sehen, woher er kommt -
+                    # sonst sucht man den Mitbewohner, der ihn eingetragen
+                    # hat, und findet keinen.
+                    "author": "Vorrat",
+                    "created": datetime.now().isoformat(timespec="seconds"),
+                }
+            )
+        self.hub.data.set("family_shopping", liste)
+        await self.hub.bus.publish("family_changed", {"collection": "shopping"})
+        titel, text = vorrat.meldung(
+            [str(staple.get("text") or "").strip() for staple in dran]
+        )
+        await self._notify(titel, text, category="shopping")
+
+    def _benutzer_zur_zone(
+        self, zone_id: str | None, namen: dict[str, str]
+    ) -> str | None:
+        """Wem gehört diese Ortungszone? (Name des Benutzers oder None)
+
+        Über dieselbe Paarung wie die Anwesenheitsliste - `zone_fuer`
+        bildet Benutzer auf Zone ab, hier wird sie rückwärts gelesen.
+        Eine zweite Regel dafür wäre eine, die auseinanderläuft.
+        """
+        if not zone_id:
+            return None
+        for user in self.hub.users.users:
+            if presence.zone_fuer(user.name, namen) == zone_id:
+                return user.name
+        return None
 
     async def _check_medications(self) -> None:
         """An die fällige Gabe erinnern – an die zuständige Person.
@@ -377,6 +666,71 @@ class Watchdog:
                 if isinstance(event, dict):
                     termine.append(event)
         return termine
+
+    async def _check_morgen(self, entities: list[Any]) -> None:
+        """Eine Nachricht am Morgen statt sieben einzelner.
+
+        Nachts ist Einzelmelden richtig - ein Wassermelder wartet nicht
+        bis sieben. Am Morgen ist es das Gegenteil: Sechs Mitteilungen
+        über schwache Batterien, ein offenes Fenster und einen Ablauf,
+        der nicht lief, wischt man weg, ohne sie zu lesen. Zusammen
+        gelesen ergeben dieselben sechs ein Bild.
+
+        Sie kommt nur, wenn etwas dasteht. Eine Zusammenfassung, die
+        «alles in Ordnung» meldet, bestellt man nach einer Woche ab - und
+        dann fehlt sie an dem Morgen, an dem sie etwas zu sagen hätte.
+        """
+        params = self.rules["morning"]["params"]
+        if not morgen.faellig(int(params.get("hour", 7))):
+            return
+        jetzt = time.time()
+        heute = datetime.now().strftime("%Y-%m-%d")
+        if not self._einmal(f"morning:{heute}", jetzt):
+            return
+
+        von, bis = morgen.nacht_fenster(jetzt)
+        arten = {entity.id: str(entity.kind) for entity in entities}
+        nacht = morgen.in_der_nacht(self.hub.eventlog.all(), arten, von, bis)
+        tage = int(params.get("quiet_days", 7))
+        still = (
+            morgen.stille_ablaeufe(
+                [ablauf.as_dict() for ablauf in self.hub.automations.automations],
+                self.hub.automations.runs,
+                jetzt,
+                tage,
+            )
+            if tage > 0
+            else []
+        )
+        gebaut = morgen.satz(
+            morgen.zeilen(
+                offen=[entity.label for entity in open_contacts(entities)],
+                schwach=[entity.label for entity in low_batteries(entities)],
+                stumm=sorted(
+                    self.hub.registry.get(entity_id).label
+                    for entity_id in self._reported_down
+                    if self.hub.registry.get(entity_id) is not None
+                ),
+                nacht=len(nacht),
+                stille_ablaeufe=still,
+                # Der UV-Hinweis nur an Tagen, an denen er etwas sagt -
+                # «UV 2, alles gut» bestellte man ab (core/uvwarnung.py).
+                uv=uvwarnung.hinweis(
+                    next(
+                        (
+                            entity.state.get("uv_today")
+                            for entity in entities
+                            if getattr(entity, "kind", "") == "weather"
+                        ),
+                        None,
+                    )
+                ),
+            )
+        )
+        if gebaut is None:
+            return
+        titel, text = gebaut
+        await self._notify(titel, text, category="morning")
 
     async def _check_birthdays(self) -> None:
         """Am Morgen daran erinnern, wer heute Geburtstag hat.
@@ -485,6 +839,9 @@ class Watchdog:
         jetzt = time.time()
         zustaende = []
         grenze = int(self.rules["presence"]["params"].get("percent", presence.BATTERY_LOW))
+        # Je Person die eigenen Schalter (Einstellungen → Familie und
+        # Freunde). Einmal geholt, nicht je Zone: Es ist dieselbe Liste.
+        schalter = self.hub.data.get(personen.LADE)
         for zone_id in service.zone_ids():
             entity_id = service.zone_entity(zone_id)
             entity = self.hub.registry.get(entity_id) if entity_id else None
@@ -493,12 +850,35 @@ class Watchdog:
             zustaende.append(dict(entity.state))
             # Punkt 220: Ein leeres Telefon ist die häufigste Ursache für
             # eine tote Ortung – und es kündigt sich an.
-            text = presence.battery_alert(entity.name, entity.state.get("battery"), grenze)
+            text = presence.battery_alert(entity.label, entity.state.get("battery"), grenze)
             if text and zone_id not in self._battery_told:
                 self._battery_told.add(zone_id)
-                await self._notify("Telefon fast leer", text, category="presence")
+                # Der Schalter wird erst hier geprüft, nicht schon oben:
+                # Der Vermerk soll auch dann stehen, wenn niemand die
+                # Meldung will - sonst käme sie geballt, sobald jemand
+                # sie wieder einschaltet.
+                if personen.an(schalter, zone_id, "battery"):
+                    await self._notify("Telefon fast leer", text, category="presence")
             elif not text:
                 self._battery_told.discard(zone_id)
+
+            # Funkstille: Bisher stand sie nur in der Diagnose, also
+            # dort, wo man erst nachsieht, wenn man schon misstrauisch
+            # ist. Wer gemeldet bekommt, dass ein Telefon seit zwölf
+            # Stunden schweigt, kann nachfragen, statt sich später zu
+            # wundern, warum «alles aus» lief.
+            still = presence.is_stale(presence.zuletzt_gehoert(entity.state), jetzt)
+            if still and zone_id not in self._silence_told:
+                self._silence_told.add(zone_id)
+                if personen.an(schalter, zone_id, "silence"):
+                    await self._notify(
+                        "Meldet sich nicht mehr",
+                        f"{entity.label}s Telefon hat sich seit Stunden nicht "
+                        "gemeldet – Akku, Flugmodus oder Ortung aus?",
+                        category="presence",
+                    )
+            elif not still:
+                self._silence_told.discard(zone_id)
 
         # Punkt 221: Sind alle seit einem Tag weg und die Simulation ist
         # aus, fragt eine einzelne Push nach. Eine Frage, keine Automatik.
@@ -691,7 +1071,7 @@ class Watchdog:
                 if entity.id in self._reported_down:
                     self._reported_down.discard(entity.id)
                     await self._notify(
-                        f"{entity.name} wieder da",
+                        f"{entity.label} wieder da",
                         "Der Sensor meldet sich wieder.",
                         "device_down",
                     )
@@ -702,10 +1082,11 @@ class Watchdog:
             if strikes >= grace and entity.id not in self._reported_down:
                 self._reported_down.add(entity.id)
                 await self._notify(
-                    f"{entity.name} antwortet nicht",
+                    f"{entity.label} antwortet nicht",
                     f"Seit {strikes} Minuten "
                     "keine Meldung – die Alarmanlage hat dort einen blinden Fleck.",
                     "device_down",
+                    entity_id=entity.id,
                 )
 
     async def _check_appliances(self, entities: list[Any]) -> None:
@@ -713,10 +1094,29 @@ class Watchdog:
 
         Die Push beim Programmende schickt das Gerät selbst – die geht im
         Alltag unter, wenn man gerade nicht kann. Erinnert wird deshalb
-        erst später, und nur einmal je Programm: Wer die Maschine ausräumt,
-        startet sie irgendwann neu, und damit ist der Merker wieder frei.
+        erst später.
+
+        Erinnert wurde lange genau einmal je Programm. Wer die Nachricht
+        am Abend auf dem Sofa las und liegen liess, hörte nie wieder
+        davon – die Wäsche lag über Nacht in der Trommel. Jetzt wird
+        nachgehakt, aber nur, wenn es etwas gibt, das die Mahnungen auch
+        beenden kann: die Türe der Waschküche (siehe
+        core/waschkueche.py). Ohne sie bleibt es beim einen Hinweis.
         """
         now = time.time()
+
+        # Erst die Türe: Ging sie seit der letzten Runde auf, war jemand
+        # unten und hat die volle Maschine gesehen. Das gilt für alle
+        # Geräte in der Waschküche zugleich – wer die Wäsche in den
+        # Tumbler umlädt, hat beide vor sich.
+        tuer = waschkueche.tuer(entities, self._waschkuechentuer())
+        offen = waschkueche.ist_offen(tuer)
+        wer_da_war = offen and not self._wk_offen
+        self._wk_offen = offen
+        if wer_da_war:
+            self._finished_at.clear()
+            self._gemahnt.clear()
+
         for entity in entities:
             if entity.kind != "appliance":
                 continue
@@ -728,7 +1128,7 @@ class Watchdog:
                 if before != "running":
                     self._started_at[entity.id] = now
                 self._finished_at.pop(entity.id, None)
-                self._reminded.discard(entity.id)
+                self._gemahnt.pop(entity.id, None)
                 continue
             if before == "running" and state == "idle":
                 self._finished_at[entity.id] = now
@@ -736,18 +1136,42 @@ class Watchdog:
                 continue
 
             since = self._finished_at.get(entity.id)
-            if since is None or entity.id in self._reminded:
+            if since is None:
                 continue
-            reminder = self.rules["appliance"]["params"]["hours"] * 3600
-            if now - since >= reminder:
-                self._reminded.add(entity.id)
-                hours = round((now - since) / 3600)
-                await self._notify(
-                    f"{entity.name} ist noch voll",
-                    f"Seit {hours} Stunden fertig und seither nicht wieder "
-                    "gelaufen.",
-                    "appliance",
-                )
+            gemahnt = self._gemahnt.get(entity.id, 0)
+            if not waschkueche.faellig(
+                since,
+                gemahnt,
+                now,
+                self.rules["appliance"]["params"]["hours"],
+                nachhaken=tuer is not None,
+            ):
+                continue
+            self._gemahnt[entity.id] = gemahnt + 1
+            titel, text = waschkueche.mahnsatz(entity.label, since, now, gemahnt)
+            await self._notify(titel, text, "appliance", entity_id=entity.id)
+
+    def tuer_gewechselt(self, entities: list[Any], gewaehlt: str | None) -> None:
+        """Nach einer neuen Türwahl den Merker mitziehen.
+
+        Der Merker gehört zur alten Türe. Stand die neue gerade offen,
+        hiesse die nächste Runde sonst «jemand ist hineingegangen», und
+        die fällige Mahnung fiele stillschweigend aus.
+        """
+        self._wk_offen = waschkueche.ist_offen(waschkueche.tuer(entities, gewaehlt))
+
+    def _waschkuechentuer(self) -> str | None:
+        """Welcher Kontakt als Waschküchentüre gewählt wurde.
+
+        Nichts gewählt heisst nicht «keine»: Dann rät
+        ``waschkueche.tuer`` anhand von Raum und Name. So wirkt das
+        Nachhaken auch bei jemandem, der nie in diese Einstellung
+        geschaut hat.
+        """
+        for entry in self.hub.data.get("laundry"):
+            if isinstance(entry, dict) and entry.get("door"):
+                return str(entry["door"])
+        return None
 
     def _log_cycle(self, entity: Any, finished: float) -> None:
         """Einen abgeschlossenen Programmlauf ins Protokoll schreiben.
@@ -767,7 +1191,7 @@ class Watchdog:
             0,
             {
                 "entity_id": entity.id,
-                "name": entity.name,
+                "name": entity.label,
                 "started": started,
                 "finished": finished,
                 "seconds": round(finished - started),
@@ -819,6 +1243,28 @@ class Watchdog:
                 energy.record_hour(self.hub.data.get("energy_hours"), day, hour, kwh),
             )
 
+    def _offen_seit(self, entity: Any, jetzt: float) -> float:
+        """Seit wann steht dieser Kontakt offen?
+
+        Erst das Protokoll fragen: Es weiss, wann die Türe aufgegangen
+        ist, und es überlebt einen Neustart. Nur wenn dort nichts steht -
+        ein Gerät, das schon offen war, bevor der Hub das erste Mal lief -
+        bleibt die eigene Zählung.
+
+        Hier stand vorher nur die eigene Zählung, und die begann in der
+        Runde, in der der Wächter den Kontakt zum ersten Mal offen sah.
+        Ging eine Türe zwischen zwei Runden auf, zu und wieder auf, lief
+        die Uhr von der ersten Öffnung weiter - die Nachricht kam dann
+        lange vor der Stunde.
+        """
+        aus_protokoll = self.hub.eventlog.offen_seit(entity.id, str(entity.kind))
+        if aus_protokoll is not None:
+            # Und die eigene Zählung nachziehen, damit beide dasselbe
+            # sagen, solange die Türe offen bleibt.
+            self._open_since[entity.id] = aus_protokoll
+            return aus_protokoll
+        return self._open_since.setdefault(entity.id, jetzt)
+
     async def _check_open(self, entities: list[Any]) -> None:
         """Fenster, das seit Stunden offen steht.
 
@@ -830,17 +1276,21 @@ class Watchdog:
         offen = {entity.id for entity in open_contacts(entities)}
         reminder = self.rules["open"]["params"]["hours"] * 3600
         for entity in open_contacts(entities):
-            since = self._open_since.setdefault(entity.id, now)
+            since = self._offen_seit(entity, now)
             if entity.id in self._reported_open:
                 continue
             if now - since >= reminder:
                 self._reported_open.add(entity.id)
-                hours = round((now - since) / 3600)
                 await self._notify(
-                    f"{entity.name} steht offen",
-                    f"Seit {hours} Stunden – im Winter geht so die Heizung "
-                    "zum Fenster hinaus.",
+                    f"{entity.label} steht offen",
+                    # Die Uhrzeit statt einer gerundeten Dauer: «Seit 1
+                    # Stunde» ist nicht nachprüfbar, «seit 14:05» schon -
+                    # und wer weiss, dass er um 14:20 aufgemacht hat,
+                    # erkennt daran sofort einen hängenden Sensor.
+                    f"{offen_satz(since, now)} – im Winter geht so die "
+                    "Heizung zum Fenster hinaus.",
                     "open",
+                    entity_id=entity.id,
                 )
         # Geschlossene wieder scharf stellen für die nächste Öffnung.
         for entity_id in list(self._open_since):
@@ -861,12 +1311,39 @@ class Watchdog:
                 continue
             self._reported_leak.add(entity.id)
             await self._notify(
-                f"Wasser: {entity.name}",
+                f"Wasser: {entity.label}",
                 "Der Melder meldet Wasser. Zuerst den Haupthahn, dann den "
                 "Strom in diesem Bereich.",
                 "leak",
+                entity_id=entity.id,
             )
         self._reported_leak &= nass
+
+    async def _check_sauger(self, entities: list[Any]) -> None:
+        """Der Sauger meldet ein Problem - Tank leer, festgefahren, voll.
+
+        Bisher stand das nur in der Hersteller-App: Wer deren
+        Mitteilungen aus hatte, merkte erst am ungesaugten Boden, dass
+        der Roboter seit Stunden auf Wasser wartet. Der Hub sieht die
+        Meldung ohnehin (error und dock.error am Gerät) - sie soll
+        denselben Weg gehen wie alle anderen Sorgen im Haus.
+
+        Einmal je Problem: gemeldet beim Auftauchen, vergessen beim
+        Verschwinden. Wer den Tank füllt und ihn nächste Woche wieder
+        leert, bekommt wieder eine Nachricht - dasselbe Muster wie bei
+        den Wassermeldern.
+        """
+        aktuell: set[str] = set()
+        for entity, schluessel, text in sauger_probleme(entities):
+            kennung = f"{entity.id}:{schluessel}"
+            aktuell.add(kennung)
+            if kennung in self._reported_sauger:
+                continue
+            self._reported_sauger.add(kennung)
+            await self._notify(
+                f"🧹 {entity.label}", text, "vacuum", entity_id=entity.id
+            )
+        self._reported_sauger &= aktuell
 
     async def _check_batteries(self, entities: list[Any]) -> None:
         """Schwache Batterien – einmal melden, nicht immer wieder.
@@ -878,6 +1355,22 @@ class Watchdog:
         """
         jetzt = time.time()
         rows = self.hub.data.get(batterie.STORE_KEY)
+
+        # Nebenher den Wochenstand jeder Batterie vermerken - daraus
+        # rechnet die App «reicht noch ~3 Monate» (batterieprognose.py).
+        # Ein Wert je Gerät und Woche; nur schreiben, wenn sich wirklich
+        # etwas ändert, sonst schriebe jede Wächter-Runde die Datei.
+        heute = datetime.now().date()
+        verlauf = self.hub.data.get(batterieprognose.STORE_KEY)
+        neu_verlauf = verlauf
+        for entity in entities:
+            stand = entity.state.get("battery")
+            if isinstance(stand, (int, float)) and 0 <= stand <= 100:
+                neu_verlauf = batterieprognose.aufnehmen(
+                    neu_verlauf, entity.id, float(stand), heute
+                )
+        if neu_verlauf != verlauf:
+            self.hub.data.set(batterieprognose.STORE_KEY, neu_verlauf)
 
         # Erst vergessen, was gewechselt wurde: Sonst bliebe eine alte
         # Zeile stehen und die nächste schwache Batterie desselben Geräts
@@ -902,13 +1395,13 @@ class Watchdog:
             rows = batterie.merke_meldung(rows, entity.id, jetzt)
             self.hub.data.set(batterie.STORE_KEY, rows)
             await self._notify(
-                f"Batterie schwach: {entity.name}",
+                f"Batterie schwach: {entity.label}",
                 "Das Gerät meldet eine schwache Batterie. Danach ist es still, "
                 "ohne sich abzumelden.",
                 "battery",
                 # Damit ein Tipp auf die Nachricht direkt zu den Batterien
                 # führt, statt nur die App zu öffnen.
-                data={"type": "battery", "entity_id": entity.id},
+                data={"type": "battery", "entity_id": entity.id, "ziel": "batterien"},
             )
 
     def _log_outage(self, name: str, ended: float | None) -> None:
@@ -943,6 +1436,58 @@ class Watchdog:
         )
         return True
 
+    async def _check_babysitter(self) -> None:
+        """Den Babysitter-Modus beenden, wenn seine Frist um ist.
+
+        Nur wenn eine gesetzt wurde: Ohne Frist läuft er, bis jemand
+        ausschaltet - das ist der Babysitter-Abend, an dem man ans
+        Ausschalten denkt. Mit Frist ist es der Besuch, an den danach
+        garantiert niemand mehr denkt. Also endet er hier: Abläufe
+        wieder frei, Licht wie vorher.
+
+        Gemeldet wird es auch, und zwar an alle: Dass die Abläufe wieder
+        greifen, ist die Auskunft, ohne die man am nächsten Morgen
+        rätselt, warum die Storen wieder von selbst fahren.
+        """
+        stand = self.hub.data.get(babysitter.KEY)
+        gelesen = babysitter.read(stand)
+        if not gelesen["active"] or gelesen["until"] is None:
+            return
+        if babysitter.laeuft(stand, time.time()):
+            return
+        await babysitter.beenden_ausfuehren(self.hub, "Frist abgelaufen")
+        await self._notify(
+            "Babysitter-Modus beendet",
+            "Die Abläufe laufen wieder, das Licht steht wie vorher.",
+            category="maintenance",
+        )
+
+    async def _check_spaeter(self) -> None:
+        """Weggeschobene Meldungen, deren Zeit um ist (core/spaeter.py).
+
+        Wer auf «Später» tippt, will genau diesen Satz wiedersehen -
+        deshalb wird er unverändert noch einmal geschickt und nicht neu
+        gebildet. Ob die Regel dazu inzwischen abgeschaltet wurde, prüft
+        `_notify` wie bei jeder anderen Meldung auch.
+        """
+        rows = self.hub.data.get(spaeter.SCHLANGE)
+        if not rows:
+            return
+        dran, rest = spaeter.faellig(rows, time.time())
+        if not dran:
+            return
+        self.hub.data.set(spaeter.SCHLANGE, rest)
+        for eintrag in dran:
+            await self._notify(
+                str(eintrag.get("title") or ""),
+                str(eintrag.get("body") or ""),
+                category=str(eintrag.get("category") or "outage"),
+                to=(str(eintrag.get("to")) if eintrag.get("to") else None),
+                # Selbst gestellte Erinnerungen tragen ihr Ziel mit: Ein
+                # Tipp darauf führt zum Gerät, um das es ging.
+                data=({"ziel": eintrag["ziel"]} if eintrag.get("ziel") else None),
+            )
+
     async def _notify(
         self,
         title: str,
@@ -950,13 +1495,20 @@ class Watchdog:
         category: str = "outage",
         to: str | None = None,
         data: dict[str, Any] | None = None,
+        entity_id: str | None = None,
     ) -> None:
         """`to` schickt an eine Person statt an alle - eine Gabe für Lina
         geht die anderen nichts an.
 
         ``data`` reist mit der Nachricht ans Telefon und sagt der App, wo
         sie beim Antippen hinspringen soll (siehe hooks/useNotificationTap
-        in der App)."""
+        in der App).
+
+        Das Ziel setzt sich von selbst: Zu jeder Kategorie gehört ein Ort,
+        an dem man etwas tun kann (core/pushziel.py). Wer ein Gerät
+        mitgibt, bekommt dessen Raum statt einer Liste - ein offenes
+        Fenster schliesst man dort, wo es steht. Ein ausdrücklich
+        gesetztes ``ziel`` im ``data`` sticht beides."""
         rule = self.rules.get(category)
         if rule is not None and not rule["enabled"]:
             # Abgeschaltet heisst: keine Push an niemanden. Geprüft wird
@@ -965,12 +1517,22 @@ class Watchdog:
             log.info("%s – %s (Regel '%s' abgeschaltet)", title, body, category)
             return
         log.warning("%s – %s", title, body)
+        ziel = pushziel.ziel_fuer(category, entity_id)
+        nutzlast: dict[str, Any] = dict(data or {})
+        if entity_id and "entity_id" not in nutzlast:
+            nutzlast["entity_id"] = entity_id
+        if ziel and "ziel" not in nutzlast:
+            nutzlast["ziel"] = ziel
         try:
             tokens = self.hub.push.recipients(
                 self.hub.users.users, to or "all", category
             )
             await self.hub.push.send(
-                tokens, title=title, body=body, data=data, category=category
+                tokens,
+                title=title,
+                body=body,
+                data=nutzlast or None,
+                category=category,
             )
         except Exception:
             log.exception("Wächter-Push nicht zustellbar")

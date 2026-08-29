@@ -89,15 +89,32 @@ class HubConfig:
     # aussen erreichbare Adresse des Hubs. Nur damit kann eine Alarm-Meldung
     # das Kamerabild mitbringen; das Telefon holt es beim Anzeigen selbst,
     # also ohne Token. Ohne diesen Eintrag geht die Nachricht ohne Bild raus.
+    #
+    # Dazu {person_fenster: 10} – so viele Sekunden wartet der Hub bei einer
+    # Kamera mit Personenerkennung darauf, dass wirklich jemand im Bild
+    # steht, bevor er das Bild nachreicht. Die Nachricht selbst wartet nie.
+    # 0 schaltet das ab. Warum es das gibt: core/personenbild.py.
     push: dict[str, Any] = field(default_factory=dict)
     # Update aus der App: {webhook_url: "https://…"} – die Adresse, die
     # angestossen wird. Ohne Eintrag bleibt der Knopf aus.
     update: dict[str, Any] = field(default_factory=dict)
+    # Sprachausgabe der Durchsagen: {engine: piper, voice: "/config/de_DE-….onnx"}.
+    # Ohne Block spricht gTTS (braucht Internet). Piper spricht lokal -
+    # bessere Stimme, kein Netz; Details in core/say.py.
+    speech: dict[str, Any] = field(default_factory=dict)
     # Totmannschalter: {url: "https://hc-ping.com/…", minutes?: 5}. Der
     # Wächter meldet dorthin regelmässig «lebe noch»; bleibt das aus,
     # schlägt der Dienst (z.B. healthchecks.io) Alarm. Der Wächter selbst
     # kann den Ausfall des Hubs nicht melden – er fällt mit aus.
     heartbeat: dict[str, Any] = field(default_factory=dict)
+    # Direkter Draht zu Apple (APNs) - nur für Live-Aktivitäten nötig,
+    # denn die kann kein Dienst dazwischen anstossen, nur Apple selbst:
+    # {key_file: "apns-key.p8", key_id: "ABC123", team_id: "DEF456",
+    #  bundle_id: "ch.stibe.homepilot"}. Der Schlüssel kommt aus dem
+    # Apple-Entwicklerkonto (Keys → APNs) und liegt neben der config.yaml.
+    # Ohne den Block bleibt das Ganze einfach aus. Details:
+    # core/liveaktivitaet.py.
+    apns: dict[str, Any] = field(default_factory=dict)
     # Ordner mit der gebauten Web-Fassung der App. Ist er da, liefert der
     # Hub sie unter «/» aus – dann genügt eine Adresse für App und
     # Schnittstelle. Leer = der Hub bleibt reine Schnittstelle.
@@ -273,6 +290,10 @@ def load_config(path: str | Path) -> HubConfig:
     if not isinstance(update_config, dict):
         raise ConfigError("'update' muss ein Mapping sein (webhook_url)")
 
+    speech_config = raw.get("speech") or {}
+    if not isinstance(speech_config, dict):
+        raise ConfigError("'speech' muss ein Mapping sein (engine, voice)")
+
     heartbeat_config = raw.get("heartbeat") or {}
     if not isinstance(heartbeat_config, dict):
         raise ConfigError("'heartbeat' muss ein Mapping sein (url, minutes)")
@@ -318,7 +339,9 @@ def load_config(path: str | Path) -> HubConfig:
         guest_wifi=guest_wifi,
         push=push_config,
         update=update_config,
+        speech=speech_config,
         heartbeat=heartbeat_config,
+        apns=raw.get("apns") or {},
         web_root=str(web_root) if web_root else None,
         source_path=str(path),
         duplicate_keys=duplicates,

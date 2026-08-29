@@ -62,7 +62,9 @@ SCAN_INTERVALS: dict[str, float] = {
     "meteoalarm": 900,
     "nuki": 60,
     "pitboss": 30,
+    "plex": 30,
     "ring": 300,
+    "schulferien": 86400,
     "roborock": 60,
     "spotify": 30,
     "tunein": 30,
@@ -606,5 +608,23 @@ class IntegrationManager:
         integration = self._integrations.get(entity.integration)
         if integration is None:
             raise HomePilotError(f"Integration '{entity.integration}' ist nicht geladen")
-        await integration.handle_command(entity, command, data or {})
+        nutzdaten = data or {}
+        # Die Nachtruhe greift hier und nicht in jeder Integration
+        # einzeln: Es ist die eine Stelle, an der jeder Befehl vorbeikommt
+        # - aus der App, aus einem Ablauf, aus einer Szene.
+        ton = getattr(self.hub, "ton", None)
+        if ton is not None:
+            gedeckelt, nutzdaten = ton.wunsch_deckeln(entity, command, nutzdaten)
+            # Der Deckel darf aus «Lauter» ein «Setze auf 30» machen -
+            # aber nur, wenn das Gerät das auch kann.
+            if gedeckelt in entity.commands:
+                command = gedeckelt
+            # Und hier entscheidet sich, ob der Wunsch überhaupt jetzt
+            # rausgeht: Ein Ablauf, der eine Box auf 20 % stellt, meint
+            # nicht die Box, auf der gerade Radio läuft (core/ton.py).
+            # Gemeldet wird trotzdem die Entität - für den Aufrufer ist
+            # der Befehl angenommen, nur eben auf später.
+            if ton.wunsch_verschieben(entity, command, nutzdaten):
+                return entity
+        await integration.handle_command(entity, command, nutzdaten)
         return entity

@@ -183,9 +183,12 @@ def test_playback_playing():
         # Fehlende Felder heissen «aus», nicht «unbekannt».
         "shuffle": False,
         "repeat": "off",
+        # Spotify kann in jedem Titel springen.
+        "can_seek": True,
         # Ohne Positionsangabe weiss der Hub nicht, wann der Titel endet –
         # dann bleibt es beim normalen Takt.
         "progress": None,
+        "position": None,
         "duration": None,
     }
 
@@ -217,7 +220,9 @@ def test_playback_multiple_artists():
 
 def test_playback_nothing_running():
     # 204 vom /me/player: nirgends läuft etwas – normal, keine Störung.
-    assert parse_playback(None)["state"] == "idle"
+    # «standby» statt «idle»: Es wartet nichts auf den nächsten Titel,
+    # es liegt schlicht nichts an (Punkt 19, ehrliche Zustände).
+    assert parse_playback(None)["state"] == "standby"
 
 
 def test_devices_lists_connect_targets():
@@ -483,7 +488,9 @@ def test_cast_backdrop_counts_as_idle_app():
     from homepilot.integrations.google_cast import cast_media_state
 
     state = cast_media_state("IDLE", None, None, "Backdrop", None)
-    assert state["state"] == "idle"
+    # Der Bildschirmschoner läuft: Das Gerät ist wach, aber leer. Das ist
+    # etwas anderes als eine Box, die auf den nächsten Titel wartet.
+    assert state["state"] == "standby"
     assert state["app"] is None
 
 
@@ -899,8 +906,13 @@ def test_calendar_empty_means_free():
 
 
 def test_weather_parse_forecast():
+    from datetime import datetime
+
     from homepilot.integrations.weather import parse_forecast
 
+    # Mit fester Uhr: Die Antwort enthält seit den Vergangenheitstagen
+    # (past_days) auch Tage vor heute - welche das sind, entscheidet der
+    # Zeitpunkt, und der soll im Test nicht vom Kalender abhängen.
     state = parse_forecast(
         {
             "current": {"temperature_2m": 32.5, "weather_code": 1},
@@ -911,7 +923,8 @@ def test_weather_parse_forecast():
                 "temperature_2m_min": [18.1, 16.4],
                 "precipitation_probability_max": [10, 60],
             },
-        }
+        },
+        datetime(2026, 8, 15, 12, 0),
     )
     assert state["temperature"] == 32
     assert state["state"] == "Meist klar"
@@ -924,6 +937,10 @@ def test_weather_parse_forecast():
         "high": 33,
         "low": 18,
         "rain": 10,
+        # Ohne UV in der Antwort bleibt das Feld leer - erfunden wird nichts.
+        "uv": None,
+        # Ebenso beim Niederschlag: keine Angabe heisst 0.0 mm, nicht geraten.
+        "rain_mm": 0.0,
     }
     assert state["days"][1]["text"] == "Regenschauer"
 
@@ -972,6 +989,35 @@ def test_overkiz_cover_state_position_and_tilt():
     assert state["state"] == "partial"
 
 
+def test_overkiz_an_awning_counts_the_other_way():
+    """Der gemeldete Fall: «Die Store Terrasse ist geöffnet, wird aber als
+    geschlossen angezeigt.»
+
+    Eine Markise fährt *aus* statt *zu*. Overkiz meldet dafür den
+    Ausfahrgrad und nicht die Geschlossenheit - über die
+    Closure-Rechnung gelesen stand eine ganz ausgefahrene Markise als
+    «Position 0» da, also «Geschlossen».
+    """
+    from homepilot.integrations.overkiz import cover_state
+
+    # Ganz draussen heisst offen.
+    zustand = cover_state({"core:DeploymentState": 100})
+    assert zustand["position"] == 100
+    assert zustand["state"] == "open"
+    # Eingefahren heisst geschlossen.
+    assert cover_state({"core:DeploymentState": 0})["state"] == "closed"
+    # Halb draussen ist halb offen - nicht halb zu.
+    assert cover_state({"core:DeploymentState": 30})["position"] == 30
+
+    # Meldet ein Gerät beides, gilt der Ausfahrgrad: Nur Markisen haben
+    # ihn überhaupt, und dann ist er die richtige Angabe.
+    beides = cover_state({"core:DeploymentState": 100, "core:ClosureState": 100})
+    assert beides["position"] == 100
+
+    # Eine Store ohne Ausfahrgrad rechnet unverändert wie bisher.
+    assert cover_state({"core:ClosureState": 100})["state"] == "closed"
+
+
 def test_overkiz_learned_travel():
     from homepilot.integrations.overkiz import learned_travel
 
@@ -993,8 +1039,16 @@ def test_overkiz_cover_state_open_and_closed():
     assert cover_state({"core:ClosureState": 100})["state"] == "closed"
     # Nur OpenClosed ohne Position.
     assert cover_state({"core:OpenClosedState": "closed"})["state"] == "closed"
-    # Nichts Verwertbares → unknown, kein Absturz.
-    assert cover_state({})["state"] == "unknown"
+    # Nichts Verwertbares → *nichts* sagen, kein Absturz.
+    #
+    # Früher stand hier «unknown». Das war eine Aussage, und sie war
+    # schädlich: Eine RTS-Store meldet nie zurück, also kam bei jedem
+    # Poll ein «unknown» - und überschrieb die Annahme aus dem letzten
+    # Befehl, weil `update_state` merged. Die Store stand damit dauerhaft
+    # auf «weiss nicht», und die App machte daraus «Offen».
+    assert cover_state({}) == {}
+    # Was das Gerät selbst meldet, räumt eine frühere Annahme weg.
+    assert cover_state({"core:ClosureState": 100})["angenommen"] is None
 
 
 def test_overkiz_a_single_silent_report_does_not_grey_out_a_blind():
@@ -2028,3 +2082,251 @@ def test_a_cast_television_says_that_it_has_a_screen():
     # nicht als Lautsprecher behauptet werden.
     assert "has_screen" not in cast_media_state("IDLE", None, None, None, None)
 
+
+def test_the_same_birthday_from_two_calendars_shows_up_once():
+    """Der gemeldete Fehler: «Die Geburtstage werden doppelt angezeigt.»
+
+    Wer den Geburtstags-Kalender von Google *und* einen eigenen mit
+    denselben Geburtstagen eingetragen hat, sah jeden zweimal - «Sändu
+    hat Geburtstag / heute» direkt untereinander. Aus der Liste geht
+    nicht hervor, dass das zwei Kalender sind; es sieht kaputt aus.
+    """
+    from homepilot.integrations.google_calendar import ohne_doppelte
+
+    zeilen = [
+        {"id": "a1", "calendar": "#contacts", "summary": "Sändu hat Geburtstag",
+         "start": "2026-08-25", "birthday": True},
+        {"id": "b7", "calendar": "familie", "summary": "Sändu hat Geburtstag",
+         "start": "2026-08-25", "birthday": False},
+        {"id": "c3", "calendar": "familie", "summary": "Susi hat Geburtstag",
+         "start": "2026-08-28", "birthday": False},
+    ]
+    uebrig = ohne_doppelte(zeilen)
+    assert [z["summary"] for z in uebrig] == [
+        "Sändu hat Geburtstag",
+        "Susi hat Geburtstag",
+    ]
+    # Das Merkmal überlebt: Sonst rutschte der Eintrag unter die Termine,
+    # je nachdem, welcher Kalender zuerst geantwortet hat.
+    assert uebrig[0]["birthday"] is True
+
+
+def test_two_appointments_with_the_same_name_stay_two():
+    """«Zahnarzt» um neun und um vierzehn Uhr ist kein Versehen."""
+    from homepilot.integrations.google_calendar import ohne_doppelte
+
+    zeilen = [
+        {"summary": "Zahnarzt", "start": "2026-08-25T09:00:00+02:00"},
+        {"summary": "Zahnarzt", "start": "2026-08-25T14:00:00+02:00"},
+    ]
+    assert len(ohne_doppelte(zeilen)) == 2
+
+
+def test_the_whole_way_through_parse_events():
+    """Und derselbe Fall durch die ganze Verarbeitung."""
+    from datetime import UTC, datetime
+
+    from homepilot.integrations.google_calendar import parse_events
+
+    jetzt = datetime(2026, 8, 25, 8, 0, tzinfo=UTC)
+    items = [
+        {"id": "a1", "_calendar": "#contacts", "_birthday": True,
+         "summary": "Sändu hat Geburtstag",
+         "start": {"date": "2026-08-25"}, "end": {"date": "2026-08-26"}},
+        {"id": "b7", "_calendar": "familie",
+         "summary": "Sändu hat Geburtstag",
+         "start": {"date": "2026-08-25"}, "end": {"date": "2026-08-26"}},
+    ]
+    zustand = parse_events(items, jetzt)
+    assert len(zustand["events"]) == 1
+    assert zustand["events"][0]["birthday"] is True
+    # Ein Geburtstag ist kein Termin - der nächste Termin bleibt leer.
+    assert zustand["state"] == "frei"
+
+
+# ── Erkennungen: der Weg ohne Ereignisstrom ──────────────────────────────
+
+
+class _Protect:
+    """Ein Stück Protect-Integration ohne Netz - nur das Gedächtnis."""
+
+    def __init__(self, hub, entity_id):
+        from homepilot.integrations.unifi_protect import UnifiProtectIntegration
+
+        self.integration = UnifiProtectIntegration(hub, {})
+        self.integration._cameras = {"cam-1": entity_id}
+        self.integration._erkennung_ende = {}
+        self.integration._gesehene_ereignisse = set()
+        self.integration._laufende = {}
+
+
+async def _kamera_bauen(hub):
+    from homepilot.core.entity import EntityKind
+    from homepilot.core.integration import Integration
+
+    class TestKameras(Integration):
+        name = "testkameras"
+
+        async def setup(self) -> None:
+            await self.add_entity(
+                "balkon",
+                EntityKind.CAMERA,
+                "Balkon",
+                state={"state": "online", "detected_baby_cry": "off"},
+                commands=[],
+            )
+
+        async def handle_command(self, entity, command, data):
+            return None
+
+    integration = TestKameras(hub, {})
+    hub.integrations._integrations["testkameras"] = integration
+    await integration.setup()
+    return "testkameras.balkon"
+
+
+async def test_das_ende_einer_erkennung_wird_zugeordnet(hub):
+    """Der Ereignisstrom meldet das Ende in einer Nachricht, die nur noch
+    «end» enthält - ohne Art und ohne Kamera.
+
+    Ohne Gedächtnis liess sich sie niemandem zuordnen, und
+    `detected_baby_cry` blieb nach der ersten Erkennung für immer «on».
+    """
+    entity_id = await _kamera_bauen(hub)
+    protect = _Protect(hub, entity_id).integration
+
+    await protect._handle_detection(
+        {
+            "id": "ev-1",
+            "type": "smartAudioDetect",
+            "camera": "cam-1",
+            "start": 1700000000000,
+            "smartDetectTypes": ["alrmBabyCry"],
+        }
+    )
+    assert hub.registry.get(entity_id).state["detected_baby_cry"] == "on"
+
+    # Die Fortsetzung: nur noch das Ende, sonst nichts.
+    await protect._handle_detection({"id": "ev-1", "end": 1700000060000})
+    assert hub.registry.get(entity_id).state["detected_baby_cry"] == "off"
+
+
+async def test_eine_fremde_fortsetzung_aendert_nichts(hub):
+    entity_id = await _kamera_bauen(hub)
+    protect = _Protect(hub, entity_id).integration
+    await protect._handle_detection({"id": "unbekannt", "end": 1700000060000})
+    assert hub.registry.get(entity_id).state["detected_baby_cry"] == "off"
+
+
+async def test_der_poll_loescht_eine_laufende_erkennung_nicht(hub):
+    """`camera_state` ist ein vollständiger Stand und setzt jedes
+    detected_-Feld auf «off». Käme er über eine laufende Erkennung, wäre
+    sie nach Sekunden wieder weg - die Kachel zeigte «nichts», während
+    das Baby noch schreit."""
+    entity_id = await _kamera_bauen(hub)
+    protect = _Protect(hub, entity_id).integration
+    protect._quality = "medium"
+    protect._aliases = {}
+
+    await protect._handle_detection(
+        {
+            "id": "ev-2",
+            "type": "smartAudioDetect",
+            "camera": "cam-1",
+            "start": 1700000000000,
+            "smartDetectTypes": ["alrmBabyCry"],
+        }
+    )
+    await protect._apply_camera(
+        {
+            "id": "cam-1",
+            "name": "Balkon",
+            "state": "CONNECTED",
+            "featureFlags": {"smartDetectAudioTypes": ["alrmBabyCry"]},
+        }
+    )
+    assert hub.registry.get(entity_id).state["detected_baby_cry"] == "on"
+
+    # Nach dem Ende darf die Abfrage wieder «off» schreiben.
+    await protect._handle_detection({"id": "ev-2", "end": 1700000060000})
+    await protect._apply_camera(
+        {
+            "id": "cam-1",
+            "name": "Balkon",
+            "state": "CONNECTED",
+            "featureFlags": {"smartDetectAudioTypes": ["alrmBabyCry"]},
+        }
+    )
+    assert hub.registry.get(entity_id).state["detected_baby_cry"] == "off"
+
+
+# ── Sauger-Zustände in verständlichen Wörtern ──────────────────────────
+
+
+def test_every_kind_of_cleaning_is_cleaning():
+    """«segment_cleaning» stand wörtlich auf der Kachel - und schlimmer:
+    Wer «cleaning» abfragte, bekam beim Reinigen einzelner Räume «nein».
+    Der Knopf bot «Reinigen» an, während sie reinigte."""
+    from homepilot.integrations.roborock import zustand_name
+
+    for roh in (
+        "cleaning",
+        "segment_cleaning",
+        "zoned_cleaning",
+        "spot_cleaning",
+        "going_to_target",
+    ):
+        assert zustand_name(roh) == "cleaning", roh
+
+
+def test_the_way_home_is_returning():
+    from homepilot.integrations.roborock import zustand_name
+
+    assert zustand_name("returning_home") == "returning"
+    assert zustand_name("docking") == "returning"
+    assert zustand_name("going_to_wash_the_mop") == "returning"
+
+
+def test_what_happens_at_the_dock_counts_as_docked():
+    from homepilot.integrations.roborock import zustand_name
+
+    assert zustand_name("washing_the_mop") == "docked"
+    assert zustand_name("emptying_the_bin") == "docked"
+    assert zustand_name("charging_complete") == "docked"
+    # Laden ist eigenes Wort - die App zeigt dafür den Blitz.
+    assert zustand_name("charging") == "charging"
+
+
+def test_trouble_is_an_error():
+    from homepilot.integrations.roborock import zustand_name
+
+    assert zustand_name("error") == "error"
+    assert zustand_name("charging_problem") == "error"
+    assert zustand_name("device_offline") == "error"
+
+
+def test_unknown_names_are_caught_by_their_word_stem():
+    """Die Namen wachsen mit Modell und Firmware; eine Liste allein wäre
+    nach dem nächsten Update wieder unvollständig."""
+    from homepilot.integrations.roborock import zustand_name
+
+    assert zustand_name("deep_carpet_cleaning") == "cleaning"
+    assert zustand_name("returning_to_base") == "returning"
+
+
+def test_the_library_wording_is_kept_alongside():
+    from homepilot.integrations.roborock import vacuum_state
+
+    stand = vacuum_state(_Status(state_name="segment_cleaning", battery=87))
+    assert stand["state"] == "cleaning"
+    assert stand["state_raw"] == "segment_cleaning"
+
+
+def test_nothing_is_claimed_about_a_name_nobody_knows():
+    """Etwas zu raten wäre teuer: «unterwegs» hiesse, die Karte im
+    Sekundentakt zu holen und die Bewegungsmelder stillzulegen."""
+    from homepilot.integrations.roborock import zustand_name
+
+    assert zustand_name("egg_attack") == "unknown"
+    assert zustand_name("") == "unknown"
+    assert zustand_name(None) == "unknown"

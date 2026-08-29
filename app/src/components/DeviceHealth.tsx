@@ -55,15 +55,21 @@ export function DeviceHealth({
   );
 
   const [vermerke, setVermerke] = useState<BatterieVermerk[]>([]);
+  // «reicht noch ~3 Monate» je Gerät - der Hub rechnet es aus dem
+  // eigenen Tempo der Batterie (core/batterieprognose.py).
+  const [prognose, setPrognose] = useState<Record<string, string>>({});
   const [jetzt, setJetzt] = useState(() => Date.now());
   const laden = useCallback(() => {
     hub
-      .get<{ batteries?: BatterieVermerk[] } | null>('/api/batteries', {
-        fallback: null,
-        still: true,
-      })
+      .get<{ batteries?: BatterieVermerk[]; forecast?: Record<string, string> } | null>(
+        '/api/batteries',
+        { fallback: null, still: true }
+      )
       .then((data) => {
-        if (data) setVermerke(data.batteries ?? []);
+        if (data) {
+          setVermerke(data.batteries ?? []);
+          setPrognose(data.forecast ?? {});
+        }
         setJetzt(Date.now());
       });
   }, [hub]);
@@ -150,6 +156,13 @@ export function DeviceHealth({
                       ? ` · zuletzt gesehen ${epochAgo(row.entity.last_seen)}`
                       : ''}
                   </Text>
+                  {/* Die Antwort auf die eigentliche Frage: wann kaufen?
+                      Erscheint erst, wenn genug Wochen Verlauf da sind -
+                      eine Frist, die jede Woche um Monate springt, wäre
+                      schlimmer als keine. */}
+                  {prognose[row.entity.id] ? (
+                    <Text style={styles.detail}>{prognose[row.entity.id]}</Text>
+                  ) : null}
                 </View>
                 {warnt ? (
                   <Pressable

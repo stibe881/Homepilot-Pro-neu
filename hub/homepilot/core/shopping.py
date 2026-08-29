@@ -59,7 +59,7 @@ def due_reminders(
     for shop in shops:
         if not isinstance(shop, dict):
             continue
-        stand, marke = wo_man_steht(shop, zones)
+        _, stand, marke = wer_steht_dort(shop, zones)
         if stand is None:
             continue
         seit = stand.get("changed_at")
@@ -85,7 +85,27 @@ def marke_fuer(shop: dict[str, Any]) -> str:
 def wo_man_steht(
     shop: dict[str, Any], zones: dict[str, dict[str, Any]]
 ) -> tuple[dict[str, Any] | None, str]:
-    """Steht gerade jemand in diesem Laden? (rein, testbar)
+    """Steht gerade jemand in diesem Laden? Nur der Zustand (rein, testbar).
+
+    Bequemer Zugang zu :func:`wer_steht_dort` für alle, die nicht wissen
+    müssen, wer es ist.
+    """
+    _, stand, marke = wer_steht_dort(shop, zones)
+    return stand, marke
+
+
+def wer_steht_dort(
+    shop: dict[str, Any], zones: dict[str, dict[str, Any]]
+) -> tuple[str | None, dict[str, Any] | None, str]:
+    """Wer steht gerade in diesem Laden? (rein, testbar)
+
+    Zurück kommt die Kennung der Zone - also der Person -, ihr Zustand
+    und die Marke, unter der gemerkt wird, dass schon erinnert wurde.
+
+    Die Zone gehört zur Nachricht, nicht nur zur Erinnerungssperre: Sie
+    heisst «Du bist im Märt» und ging trotzdem an alle. Wer im Büro sass,
+    während jemand anders einkaufte, bekam sie auch - und wusste weder,
+    dass sie nicht ihm galt, noch wem.
 
     Zwei Wege, historisch gewachsen und beide gültig:
 
@@ -97,26 +117,27 @@ def wo_man_steht(
         «home» gesetzt wird (iOS-Kurzbefehl, Tasker). So ging es früher,
         und wer es so eingerichtet hat, soll es behalten dürfen.
 
-    Zurück kommt der Zustand desjenigen, der am längsten dort steht -
-    sonst käme die Erinnerung erneut, sobald der Zweite hereinkommt.
+    Genommen wird, wer am längsten dort steht - sonst käme die
+    Erinnerung erneut, sobald der Zweite hereinkommt.
     """
     ort = str(shop.get("place") or "").strip()
     if ort:
         treffer = [
-            stand
-            for stand in zones.values()
+            (zone_id, stand)
+            for zone_id, stand in zones.items()
             if isinstance(stand, dict) and stand.get("state") == ort
         ]
         if not treffer:
-            return None, ort
-        return min(treffer, key=lambda s: s.get("changed_at") or 0), ort
+            return None, None, ort
+        zone_id, stand = min(treffer, key=lambda eintrag: eintrag[1].get("changed_at") or 0)
+        return zone_id, stand, ort
     zone = str(shop.get("zone") or "").strip()
     if not zone:
-        return None, ""
+        return None, None, ""
     stand = zones.get(zone)
     if not stand or stand.get("state") != HOME_STATE:
-        return None, zone
-    return stand, zone
+        return None, None, zone
+    return zone, stand, zone
 
 
 def describe(shop: dict[str, Any], offen: list[dict[str, Any]]) -> tuple[str, str]:

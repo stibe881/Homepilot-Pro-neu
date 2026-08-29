@@ -25,8 +25,23 @@ def user_source(name: str) -> dict[str, Any]:
     return {"kind": "user", "label": name}
 
 
-def automation_source(automation_id: str, alias: str) -> dict[str, Any]:
-    return {"kind": "automation", "label": alias, "id": automation_id}
+def automation_source(
+    automation_id: str, alias: str, trigger: str | None = None
+) -> dict[str, Any]:
+    """Die Quelle eines Ablauf-Laufs – auf Wunsch mit seinem Auslöser.
+
+    ``trigger`` schliesst die Kette: Bisher stand am Gerät «Ablauf
+    «Licht bei Bewegung»», und die nächste Frage kam sofort - welche
+    Bewegung, im Flur oder im Keller? Beide hängen am selben Ablauf.
+    Mit dem Auslöser steht die ganze Kette da: Melder → Ablauf → Gerät.
+
+    Leer, wo sie sich nicht ehrlich schliessen lässt (core/automation.py:
+    trigger_wort). Ein geratener Auslöser wäre schlimmer als keiner.
+    """
+    quelle = {"kind": "automation", "label": alias, "id": automation_id}
+    if trigger:
+        quelle["trigger"] = trigger
+    return quelle
 
 
 def scene_source(scene_id: str, name: str) -> dict[str, Any]:

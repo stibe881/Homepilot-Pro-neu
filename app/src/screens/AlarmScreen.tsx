@@ -2,13 +2,21 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
+import Svg, { Circle } from 'react-native-svg';
 
 import { HubFehler, hubClient } from '../api/client';
 import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
+import { Klappe } from '../components/Klappe';
 import { Fehlschlag, Laedt } from '../components/Zustand';
 import { useTakt } from '../hooks/useTakt';
+import {
+  DURCHBRUCH,
+  durchbruchAn,
+  durchbruchUmschalten,
+} from '../lib/saugerdurchbruch';
 import { datumUhr } from '../lib/format';
+import { ringAnteil } from '../lib/alarmring';
 import { tapped, triggered } from '../lib/haptics';
 import { Colors, radius, space, type, useColors } from '../theme';
 
@@ -47,6 +55,8 @@ interface AlarmState {
   mode?: string | null;
   mode_label?: string;
   seconds_left?: number | null;
+  /** Wie lang die laufende Frist insgesamt war – für den Ring. */
+  seconds_total?: number | null;
   /** Was am Ende des Countdowns passiert: 'arm' | 'trigger' | 'rearm'. */
   next_action?: string | null;
   last_trigger?: {
@@ -151,6 +161,61 @@ export function byRoom(candidates: Candidate[]): { room: string; items: Candidat
     room,
     items: candidates.filter((entry) => (entry.room || 'Ohne Raum') === room),
   }));
+}
+
+/**
+ * Der Countdown als Ring: Er leert sich, die Sekunden stehen darin.
+ *
+ * An der Stelle der Zustandslampe, nicht daneben - während einer Frist
+ * *ist* der Ring der Zustand.
+ */
+function CountdownRing({
+  anteil,
+  sekunden,
+  farbe,
+}: {
+  anteil: number;
+  sekunden: number;
+  farbe: string;
+}) {
+  const colors = useColors();
+  const groesse = 44;
+  const dicke = 4;
+  const radiusRing = (groesse - dicke) / 2;
+  const umfang = 2 * Math.PI * radiusRing;
+  return (
+    <View
+      style={{ width: groesse, height: groesse, alignItems: 'center', justifyContent: 'center' }}
+      accessibilityLabel={`Noch ${sekunden} Sekunden`}
+    >
+      <Svg width={groesse} height={groesse} style={{ position: 'absolute' }}>
+        <Circle
+          cx={groesse / 2}
+          cy={groesse / 2}
+          r={radiusRing}
+          stroke={colors.track}
+          strokeWidth={dicke}
+          fill="none"
+        />
+        <Circle
+          cx={groesse / 2}
+          cy={groesse / 2}
+          r={radiusRing}
+          stroke={farbe}
+          strokeWidth={dicke}
+          fill="none"
+          strokeLinecap="round"
+          strokeDasharray={`${umfang}`}
+          strokeDashoffset={umfang * (1 - anteil)}
+          // Bei 12 Uhr beginnen, im Uhrzeigersinn leeren.
+          transform={`rotate(-90 ${groesse / 2} ${groesse / 2})`}
+        />
+      </Svg>
+      <Text style={{ color: farbe, fontSize: 13, fontWeight: '700' }}>
+        {sekunden}
+      </Text>
+    </View>
+  );
 }
 
 export function AlarmScreen({
@@ -381,7 +446,15 @@ export function AlarmScreen({
         tint={data.state.state !== 'unscharf' ? colors.dangerSoft : undefined}
       >
         <View style={styles.stateHead}>
-          <View style={[styles.lamp, { backgroundColor: look.color }]} />
+          {ringAnteil(data.state) != null ? (
+            <CountdownRing
+              anteil={ringAnteil(data.state)!}
+              sekunden={data.state.seconds_left ?? 0}
+              farbe={look.color}
+            />
+          ) : (
+            <View style={[styles.lamp, { backgroundColor: look.color }]} />
+          )}
           <View style={{ flex: 1 }}>
             <Text style={styles.heading}>{look.text}</Text>
             {countdownText(data.state) != null ? (
@@ -639,75 +712,8 @@ export function AlarmScreen({
         </Text>
       </Card>
 
-      <AfterTrigger
-        after={data.after_trigger ?? {}}
-        onSave={(mode, patch) => {
-          const current = data.after_trigger ?? {};
-          // Ganze Karte schicken, nicht nur den einen Modus: Sonst zeigt die
-          // Anzeige bis zum nächsten Laden für die anderen Modi Vorgaben an.
-          save({
-            after_trigger: {
-              ...current,
-              [mode]: { ...(current[mode] ?? { action: 'stay', after: 300 }), ...patch },
-            },
-          });
-        }}
-      />
-
-      <AlarmActions
-        actions={data.actions ?? {}}
-        entities={entities}
-        onSave={(actions) => save({ actions })}
-      />
-
-      {/* Probealarm: Ob Sirene, Lichter und Nachricht überhaupt
-          funktionieren, erfährt man sonst beim ersten echten Einbruch. */}
-      <Card style={styles.card}>
-        <Text style={styles.heading}>Probealarm</Text>
-        <Text style={styles.hint}>
-          Spielt einmal durch, was ein Einbruch auslösen würde: Nachricht,
-          dann für drei Sekunden die eingestellten Schaltbefehle, dann
-          wieder aus. Geht nur bei unscharfer Anlage.
-        </Text>
-        <Pressable
-          onPress={async () => {
-            setTestNote(null);
-            try {
-              const response = await fetch(`${settings.url}/api/alarm/test`, {
-                method: 'POST',
-                headers,
-              });
-              const body = await response.json().catch(() => ({}));
-              if (!response.ok) {
-                throw new Error(body.detail ?? `Hub antwortet mit ${response.status}`);
-              }
-              setTestNote(String(body.hinweis ?? 'Probealarm durchgespielt.'));
-            } catch (err) {
-              setTestNote(err instanceof Error ? err.message : String(err));
-            }
-            load();
-          }}
-          accessibilityRole="button"
-          style={({ pressed }) => [styles.smallButton, pressed && { opacity: 0.7 }]}
-        >
-          <Text style={styles.smallButtonText}>Jetzt durchspielen</Text>
-        </Pressable>
-        {testNote ? <Text style={styles.hint}>{testNote}</Text> : null}
-      </Card>
-
-      <AlarmSettings
-        settings={data.settings}
-        images={data.images !== false}
-        onSave={(next) => save({ settings: next })}
-      />
-
-      <PinCard
-        hub={settings}
-        required={!!data.state.pin_required}
-        pflicht={pinFehlt}
-        onChanged={load}
-      />
-
+      {/* Der Verlauf steht vor den Einstellungen: «Was ist passiert?»
+          liest man, «was die Sirene tut» stellt man einmal ein. */}
       {data.history.length > 0 ? (
         <Card style={styles.card}>
           <Text style={styles.heading}>Verlauf</Text>
@@ -783,6 +789,79 @@ export function AlarmScreen({
         </Card>
       ) : null}
 
+      <AfterTrigger
+        after={data.after_trigger ?? {}}
+        onSave={(mode, patch) => {
+          const current = data.after_trigger ?? {};
+          // Ganze Karte schicken, nicht nur den einen Modus: Sonst zeigt die
+          // Anzeige bis zum nächsten Laden für die anderen Modi Vorgaben an.
+          save({
+            after_trigger: {
+              ...current,
+              [mode]: { ...(current[mode] ?? { action: 'stay', after: 300 }), ...patch },
+            },
+          });
+        }}
+      />
+
+      <AlarmActions
+        actions={data.actions ?? {}}
+        entities={entities}
+        onSave={(actions) => save({ actions })}
+      />
+
+      {/* Probealarm: Ob Sirene, Lichter und Nachricht überhaupt
+          funktionieren, erfährt man sonst beim ersten echten Einbruch. */}
+      <Card style={styles.card}>
+        <Klappe label="Probealarm">
+        <Text style={styles.hint}>
+          Spielt einmal durch, was ein Einbruch auslösen würde: Nachricht,
+          dann für drei Sekunden die eingestellten Schaltbefehle, dann
+          wieder aus. Geht nur bei unscharfer Anlage.
+        </Text>
+        <Pressable
+          onPress={async () => {
+            setTestNote(null);
+            try {
+              const response = await fetch(`${settings.url}/api/alarm/test`, {
+                method: 'POST',
+                headers,
+              });
+              const body = await response.json().catch(() => ({}));
+              if (!response.ok) {
+                throw new Error(body.detail ?? `Hub antwortet mit ${response.status}`);
+              }
+              setTestNote(String(body.hinweis ?? 'Probealarm durchgespielt.'));
+            } catch (err) {
+              setTestNote(err instanceof Error ? err.message : String(err));
+            }
+            load();
+          }}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.smallButton, pressed && { opacity: 0.7 }]}
+        >
+          <Text style={styles.smallButtonText}>Jetzt durchspielen</Text>
+        </Pressable>
+        {testNote ? <Text style={styles.hint}>{testNote}</Text> : null}
+        </Klappe>
+      </Card>
+
+      <AlarmSettings
+        settings={data.settings}
+        images={data.images !== false}
+        onSave={(next) => save({ settings: next })}
+      />
+
+      <PinCard
+        hub={settings}
+        required={!!data.state.pin_required}
+        pflicht={pinFehlt}
+        alarmSettings={data.settings}
+        onSaveSettings={(next) => save({ settings: next })}
+        onChanged={load}
+      />
+
+
       {clip ? <ClipPlayer uri={clip} onClose={() => setClip(null)} /> : null}
     </View>
   );
@@ -842,7 +921,7 @@ function AfterTrigger({
 
   return (
     <Card style={styles.card}>
-      <Text style={styles.heading}>Nach einem Alarm</Text>
+      <Klappe label="Nach einem Alarm">
       <Text style={styles.hint}>
         Was soll die Anlage tun, nachdem sie ausgelöst und alle benachrichtigt
         hat? Das lässt sich je Modus getrennt einstellen, weil es davon
@@ -893,6 +972,7 @@ function AfterTrigger({
         selbst weiter, auch wenn die aufgebrochene Tür noch offen steht; was
         offen ist, steht dann im Verlauf.
       </Text>
+      </Klappe>
     </Card>
   );
 }
@@ -988,7 +1068,7 @@ function AlarmActions({
 
   return (
     <Card style={styles.card}>
-      <Text style={styles.heading}>Was die Anlage selbst schaltet</Text>
+      <Klappe label="Was die Anlage selbst schaltet">
       {SLOTS.map((slot) => {
         const chosen = actions[slot.key] ?? [];
         return (
@@ -1037,6 +1117,7 @@ function AlarmActions({
           </View>
         );
       })}
+      </Klappe>
     </Card>
   );
 }
@@ -1065,7 +1146,7 @@ function AlarmSettings({
 
   return (
     <Card style={styles.card}>
-      <Text style={styles.heading}>Einstellungen</Text>
+      <Klappe label="Einstellungen">
 
       <View style={styles.field}>
         <Text style={styles.label}>Ausgangsverzögerung (Sekunden)</Text>
@@ -1115,6 +1196,61 @@ function AlarmSettings({
         value={settings.notify_camera_motion !== false}
         onChange={(value) => onSave({ ...settings, notify_camera_motion: value })}
       />
+      {/* Der Fall, für den es den Schalter gibt: Das Haus schickt beim
+          Weggehen den Sauger los und schaltet die Anlage scharf. Der
+          erste Bewegungsmelder sieht ihn - und die Sirene geht. */}
+      <Toggle
+        label="Bewegungsmelder ruhen, solange der Sauger fährt"
+        detail="Fenster- und Türkontakte bleiben scharf – ein Sauger öffnet kein Fenster. Nach der Rückkehr gilt es noch fünf Minuten, weil Melder ihre Meldung so lange halten."
+        value={settings.ignore_vacuum !== false}
+        onChange={(value) => onSave({ ...settings, ignore_vacuum: value })}
+      />
+      {/* Was auch dann auslöst: Ein Saugroboter ist keine Person und
+          kein Tier, und die Kamera weiss das. Nur Kameras mit
+          Erkennung (UniFi Protect) - eine, die bloss Bewegung meldet,
+          kann den Unterschied nicht sehen. */}
+      {settings.ignore_vacuum !== false ? (
+        <View style={styles.field}>
+          <Text style={styles.label}>Löst trotzdem aus</Text>
+          <View style={styles.chipRow}>
+            {DURCHBRUCH.map((eintrag) => {
+              const gewaehlt = durchbruchAn(settings.vacuum_detections, eintrag.key);
+              return (
+                <Pressable
+                  key={eintrag.key}
+                  onPress={() =>
+                    onSave({
+                      ...settings,
+                      vacuum_detections: durchbruchUmschalten(
+                        settings.vacuum_detections,
+                        eintrag.key,
+                      ),
+                    })
+                  }
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: gewaehlt }}
+                  accessibilityLabel={`${eintrag.label} löst während der Saugerfahrt aus`}
+                  style={({ pressed }) => [
+                    styles.chip,
+                    gewaehlt && styles.chipOn,
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  <Text style={[styles.chipText, gewaehlt && { color: '#FFFFFF' }]}>
+                    {eintrag.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={styles.hint}>
+            Erkennt die Kamera eine Person oder ein Tier, geht die Sirene auch
+            mitten in der Reinigung los. Braucht eine Kamera mit Erkennung
+            (UniFi Protect) – eine, die nur Bewegung meldet, kann den Sauger
+            nicht von jemandem unterscheiden und bleibt so lange still.
+          </Text>
+        </View>
+      ) : null}
       {settings.notify_camera_motion !== false && !images ? (
         <Text style={styles.hint}>
           Ohne «push.public_url» in der config.yaml des Hubs kommt die
@@ -1123,6 +1259,7 @@ function AlarmSettings({
           öffnet sich beim Antippen trotzdem.
         </Text>
       ) : null}
+      </Klappe>
     </Card>
   );
 }
@@ -1164,17 +1301,32 @@ function Toggle({
  *
  * Die Anlage lässt sich aus der App entschärfen, sobald das Telefon
  * entsperrt ist - die PIN schützt, falls es offen herumliegt. Sie gilt
- * überall, auch für Szenen und Abläufe: eine Hintertür wäre keine PIN. */
+ * für alles, was jemand *antippt*: App, Wandtablet, Szene, Karte.
+ *
+ * Hier stand einmal «gilt überall, auch für Abläufe: eine Hintertür
+ * wäre keine PIN». Das klang richtig und war es nicht: Ein Ablauf hat
+ * keine Tastatur. Die Anlage schaltete sich bei der Heimkehr nicht mehr
+ * ab, weil der Ablauf still an der fehlenden PIN scheiterte - und
+ * niemand sah, warum. Jetzt dürfen Abläufe entschärfen, und wer das
+ * nicht will, legt den Schalter darunter um (siehe
+ * alarm_rules.ohne_pin_erlaubt im Hub). */
 function PinCard({
   hub,
   required,
   pflicht = false,
+  alarmSettings,
+  onSaveSettings,
   onChanged,
 }: {
   hub: HubSettings;
   required: boolean;
   /** Dieses Gerät braucht eine PIN, es ist aber keine gesetzt. */
   pflicht?: boolean;
+  /** Die Einstellungen der Anlage - für den Ablauf-Schalter unten. Er
+   *  steht hier und nicht bei den übrigen Einstellungen: Er ergibt nur
+   *  Sinn, solange eine PIN gesetzt ist, und die setzt man hier. */
+  alarmSettings: Record<string, unknown>;
+  onSaveSettings: (next: Record<string, unknown>) => void;
   onChanged: () => void;
 }) {
   const colors = useColors();
@@ -1205,10 +1357,10 @@ function PinCard({
 
   return (
     <Card style={styles.card}>
-      <Text style={styles.heading}>PIN fürs Entschärfen</Text>
+      <Klappe label="PIN fürs Entschärfen" stand={required ? 'gesetzt' : 'keine'}>
       <Text style={[styles.rowDetail, pflicht && styles.warn]}>
         {required
-          ? 'Eine PIN ist gesetzt - Entschärfen geht nur noch mit ihr, auch aus Szenen und Abläufen.'
+          ? 'Eine PIN ist gesetzt - Entschärfen geht nur noch mit ihr, auch aus Szenen und von Karten. Abläufe sind ausgenommen, siehe unten.'
           : pflicht
             ? 'Dieses Gerät gehört allen und hängt offen im Raum - hier geht Entschärfen nur mit PIN. Solange keine gesetzt ist, lässt sich die Anlage von hier aus nicht ausschalten. 4 bis 8 Ziffern.'
             : 'Ohne PIN kann jeder mit entsperrtem Telefon die Anlage entschärfen. 4 bis 8 Ziffern.'}
@@ -1246,6 +1398,28 @@ function PinCard({
         ) : null}
       </View>
       {note ? <Text style={styles.rowDetail}>{note}</Text> : null}
+
+      {/* Der Fall, für den es diesen Schalter gibt: Die Anlage schaltete
+          sich bei der Heimkehr nicht mehr ab. Der Ablauf war
+          unverändert - nur war inzwischen eine PIN gesetzt, und er hat
+          keine Tastatur. Nur sichtbar, solange eine PIN gesetzt ist:
+          Ohne sie entschärft ohnehin jeder Ablauf. */}
+      {required ? (
+        <Toggle
+          label="Abläufe dürfen ohne PIN entschärfen"
+          detail={
+            'Für «komme nach Hause → Anlage aus». Ein Ablauf hat keine ' +
+            'Tastatur; ohne diesen Schalter bleibt die Anlage scharf. Wer ' +
+            'ihn ausschaltet, muss von Hand entschärfen. Szenen und ' +
+            'Karten brauchen die PIN in jedem Fall.'
+          }
+          value={alarmSettings.automation_disarm !== false}
+          onChange={(value) =>
+            onSaveSettings({ ...alarmSettings, automation_disarm: value })
+          }
+        />
+      ) : null}
+      </Klappe>
     </Card>
   );
 }

@@ -57,6 +57,29 @@ POWER = "POWER"
 # Messperiode). Der Hub probiert der Reihe nach und nimmt, was da ist.
 ILLUMINATION_DATAPOINTS = ("ILLUMINATION", "CURRENT_ILLUMINATION")
 
+# Kanalarten, die einen Tastendruck melden.
+#
+# Der Unterschied ist der Grund, warum ein eingetragener Taster schweigen
+# kann: Ein HmIP-BSL etwa hat für jede Wippe einen KEY_TRANSCEIVER *und*
+# mehrere SWITCH_VIRTUAL_RECEIVER für die Schaltausgänge. Trägt man einen
+# der Ausgänge ein, ist alles richtig geschrieben, der Kanal existiert -
+# und trotzdem kommt nie ein PRESS_SHORT, weil ein Ausgang nichts sendet.
+#
+# «Bereit, noch kein Druck» ist dann die Wahrheit und trotzdem irreführend.
+# Darum sagt der Hub es beim Start (siehe button_hinweis).
+KEY_TYPES = frozenset(
+    {
+        # Klassisches BidCos: Wandtaster, Fernbedienungen.
+        "KEY",
+        "VIRTUAL_KEY",
+        # Homematic IP: Wandtaster, Wippen, Schaltaktoren mit Tasten.
+        "KEY_TRANSCEIVER",
+        # Angeschlossene Kontakte, die als Taster arbeiten (HmIP-FCI, -DSD).
+        "MULTI_MODE_INPUT_TRANSMITTER",
+        "SWITCH_INTERFACE",
+    }
+)
+
 # Kanalarten, auf denen sich wirklich schalten lässt. Messkanäle heissen
 # ähnlich (SWITCH_TRANSMITTER, ENERGIE_METER_TRANSMITTER), können es aber
 # nicht: Dort gibt es kein STATE, und jedes setValue endet in Fault -5.
@@ -118,6 +141,96 @@ def switch_channel(address: str, channels: dict[str, str]) -> str | None:
         key=number,
     )
     return candidates[0] if candidates else None
+
+
+def key_channels(address: str, channels: dict[str, str]) -> list[str]:
+    """Die Tastenkanäle desselben Geräts, aufsteigend (rein, testbar).
+
+    ``channels`` ist die Kanalliste der CCU (Adresse → Kanalart). Eine
+    leere Liste heisst: Dieses Gerät hat keinen - dann ist der Eintrag
+    nicht bloss auf dem falschen Kanal, sondern am falschen Gerät.
+    """
+    serial = address.split(":", 1)[0]
+
+    def number(candidate: str) -> int:
+        part = candidate.split(":", 1)[1] if ":" in candidate else ""
+        return int(part) if part.isdigit() else 0
+
+    return sorted(
+        (
+            candidate
+            for candidate, kind in channels.items()
+            if candidate.split(":", 1)[0] == serial and kind in KEY_TYPES
+        ),
+        key=number,
+    )
+
+
+def button_hinweis(address: str, channels: dict[str, str]) -> str | None:
+    """Warum von diesem Kanal nie ein Druck kommt (rein, testbar).
+
+    ``None`` heisst: Alles in Ordnung, oder der Hub weiss es nicht besser
+    (die CCU kennt den Kanal nicht - dafür warnt schon die Kanalliste).
+
+    Der Text nennt immer den Ausweg. «Falscher Kanal» allein hilft
+    niemandem, der gerade zum dritten Mal auf seinen Schalter drückt.
+    """
+    art = channels.get(address)
+    if art is None or art in KEY_TYPES:
+        return None
+    andere = [kanal for kanal in key_channels(address, channels) if kanal != address]
+    if not andere:
+        return (
+            f"{address} ist ein {art} und meldet keine Tastendrücke - "
+            "und dieses Gerät hat überhaupt keinen Tastenkanal. "
+            "Wahrscheinlich ist die Adresse die eines anderen Geräts."
+        )
+    return (
+        f"{address} ist ein {art} und meldet keine Tastendrücke. "
+        f"Dieses Gerät meldet sie auf: {', '.join(andere)}."
+    )
+
+
+def druck_hinweis(
+    address: str,
+    art: str,
+    datenpunkte: set[str],
+    channels: dict[str, str],
+) -> str | None:
+    """Warum von diesem Kanal kein Druck kommt - nach den Datenpunkten.
+
+    Genauer als ``button_hinweis``, das nur die Kanalart kennt: Ein
+    HmIP-Eingang kann als Taster *oder* als Ja/Nein-Kontakt eingerichtet
+    sein, und dann heisst derselbe Kanal einmal PRESS_SHORT und einmal
+    STATE. Was der Kanal wirklich anbietet, weiss nur die CCU.
+
+    ``None`` heisst: Der Kanal meldet Tastendrücke, alles in Ordnung.
+    """
+    if datenpunkte & set(PRESS_DATAPOINTS):
+        return None
+    satz = (
+        f"{address} meldet keine Tastendrücke: Der Kanal ({art}) kennt "
+        f"{', '.join(sorted(datenpunkte)) or 'gar keine Datenpunkte'}. "
+        f"Dafür passt {kanal_rat(art, datenpunkte)}."
+    )
+    andere = [kanal for kanal in key_channels(address, channels) if kanal != address]
+    if andere:
+        return satz + f" Tastendrücke meldet dieses Gerät auf: {', '.join(andere)}."
+    return satz
+
+
+def fremder_druck(address: str, datapoint: str) -> str:
+    """Ein Tastendruck von einem Kanal, den niemand eingetragen hat.
+
+    Die nützlichste Zeile im ganzen Log: Wer nicht weiss, welcher Kanal
+    seines Schalters sendet, drückt einmal und liest hier nach - samt
+    dem Stück config.yaml, das er braucht.
+    """
+    return (
+        f"Tastendruck auf {address} ({datapoint}) - dieser Kanal steht in "
+        "keiner Konfiguration. Zum Eintragen: "
+        f'address: "{address}", kind: button'
+    )
 
 
 def is_timeout(fault: Exception) -> bool:
@@ -387,3 +500,81 @@ def local_address_for(host: str, port: int) -> str:
         sock.connect((host, port))
         return sock.getsockname()[0]
 
+
+
+# ── Was ein Kanal hergibt (fürs Nachsehen an der CCU) ─────────────────────
+
+
+def kanal_rat(art: str, datenpunkte: set[str]) -> str:
+    """Was in die config.yaml gehört, damit dieser Kanal etwas tut (rein).
+
+    Nicht die Kanalart allein entscheidet, sondern was der Kanal an
+    Datenpunkten anbietet: Ein HmIP-Eingang kann als Taster *oder* als
+    Ja/Nein-Kontakt eingerichtet sein (CHANNEL_OPERATION_MODE), und dann
+    heisst derselbe Kanal einmal PRESS_SHORT und einmal STATE. Wer nach
+    der Art geht, rät; wer nach den Datenpunkten geht, weiss es.
+
+    Die Art zählt trotzdem an einer Stelle mit: Ein Gerät hat zu jedem
+    Empfängerkanal einen Sendekanal, der dieselben Datenpunkte führt
+    (SWITCH_TRANSMITTER neben SWITCH_VIRTUAL_RECEIVER). Nur der Empfänger
+    lässt sich schalten - der Sender daneben ist die Rückmeldung des
+    Geräts an sich selbst und gehört in keine Zeile.
+    """
+    if "PRESS_SHORT" in datenpunkte or "PRESS_LONG" in datenpunkte:
+        return "kind: button"
+    if "POWER" in datenpunkte:
+        return "power_address (Messkanal)"
+    if art == "MAINTENANCE":
+        # Der Wartungskanal jedes Geräts. Der Hub liest ihn von selbst -
+        # eine eigene Zeile dafür wäre eine Kachel «UNREACH».
+        return "Wartungskanal - liest der Hub selbst"
+    if "COLOR" in datenpunkte and "LEVEL" in datenpunkte and art in SWITCHING_TYPES:
+        # Die Signalleuchte eines Markenschalters (HmIP-BSL). Als Licht
+        # eintragbar; die Farbe stellt der Hub (noch) nicht.
+        return "kind: light, dimmable: true (Signalleuchte)"
+    if "LEVEL" in datenpunkte and art in SWITCHING_TYPES:
+        return "kind: light, dimmable: true"
+    if "STATE" in datenpunkte and art in SWITCHING_TYPES:
+        return "kind: light oder switch"
+    if art.endswith("_TRANSMITTER") and art not in KEY_TYPES:
+        # Sendekanäle führen dieselben Datenpunkte wie ihr Empfänger,
+        # lassen sich aber nicht schalten: jedes setValue endet in
+        # Fault -5. Wer sie einträgt, bekommt eine Kachel, die nichts kann.
+        #
+        # Nicht jeder Sender ist einer: Der MULTI_MODE_INPUT_TRANSMITTER
+        # eines HmIP-Eingangs heisst so und ist trotzdem ein Eingang -
+        # darum die Ausnahme über KEY_TYPES.
+        return "Sendekanal - nicht eintragen"
+    if "STATE" in datenpunkte:
+        return "kind: binary_sensor, datapoint: STATE"
+    messwerte = sorted(
+        name
+        for name in datenpunkte
+        if name.startswith(("ACTUAL_", "CURRENT_", "HUMIDITY", "ILLUMINATION"))
+    )
+    if messwerte:
+        return f"kind: sensor, datapoint: {messwerte[0]}"
+    if not datenpunkte:
+        return "nichts - dieser Kanal gibt nichts her"
+    return "kein Vorschlag - siehe daneben"
+
+
+def lesbare_datenpunkte(beschreibung: dict[str, Any]) -> set[str]:
+    """Aus der Paramset-Beschreibung der CCU die Namen holen (rein).
+
+    Die CCU antwortet mit einem Wörterbuch je Datenpunkt; interessant ist
+    hier nur, welche es gibt. Alles, was sich nicht lesen lässt (Flag 1
+    fehlt), fällt heraus - ein Datenpunkt, den man nur schreiben kann,
+    meldet auch nichts.
+    """
+    namen = set()
+    for name, angaben in beschreibung.items():
+        if not isinstance(angaben, dict):
+            namen.add(str(name))
+            continue
+        operations = angaben.get("OPERATIONS")
+        # Bit 1 = lesbar, Bit 4 = meldet Ereignisse. Fehlt die Angabe,
+        # wird nicht gefiltert - lieber einer zu viel als einer zu wenig.
+        if operations is None or int(operations) & 0b101:
+            namen.add(str(name))
+    return namen

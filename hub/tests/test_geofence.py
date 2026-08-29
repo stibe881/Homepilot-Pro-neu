@@ -32,17 +32,19 @@ async def test_anyone_home_folgt_den_personen() -> None:
     try:
         sammel = hub.registry.get("geofence.anyone_home")
         assert sammel is not None
-        # Noch hat niemand gemeldet: Nichtwissen zählt als «da».
+        # Noch hat gar niemand gemeldet: Nichtwissen über alle bleibt «da».
         assert sammel.state["state"] == "on"
 
+        # Stefan meldet «weg», Livia hat sich nie gemeldet: «off». Wer
+        # nicht ausdrücklich zuhause ist, zählt als weg - sonst hielte
+        # ein stummes Telefon die Frage für immer auf «jemand da».
         await geo.report("stefan", "leave")
-        assert hub.registry.get("geofence.anyone_home").state["state"] == "on"
-
-        # Erst wenn beide ausdrücklich weg sind, wird es «off».
-        await geo.report("livia", "leave")
         sammel = hub.registry.get("geofence.anyone_home")
         assert sammel.state["state"] == "off"
         assert sorted(sammel.state["away"]) == ["Livia", "Stefan"]
+
+        await geo.report("livia", "leave")
+        assert hub.registry.get("geofence.anyone_home").state["state"] == "off"
 
         # Und einer, der zurückkommt, genügt für «on».
         await geo.report("livia", "enter")
@@ -426,3 +428,151 @@ async def test_a_departed_user_loses_the_zone_but_the_config_keeps_hers() -> Non
         assert hub.registry.get("geofence.gast") is not None
     finally:
         await hub.stop()
+
+
+# ── Kommen und Gehen melden ──────────────────────────────────────────────
+# Neu auf der Seite «Familie und Freunde»: Je Person lässt sich
+# einschalten, ob eine Ankunft oder ein Weggang gemeldet wird. Aus, weil
+# ein Haushalt zu viert daraus an einem Werktag ein Dutzend Nachrichten
+# machte.
+
+
+class _Push:
+    """Merkt sich, was verschickt worden wäre."""
+
+    def __init__(self) -> None:
+        self.gesendet: list[tuple[str, str]] = []
+
+    def recipients(self, users, to="all", category=None):
+        del users, to, category
+        return ["token"]
+
+    async def send(self, tokens, title, body, data=None, image=None, category=None):
+        del tokens, data, image, category
+        self.gesendet.append((title, body))
+
+
+async def test_arrival_is_silent_until_someone_asks_for_it() -> None:
+    from homepilot.core import personen
+
+    hub, geo = await make_geofence()
+    push = _Push()
+    hub.push = push
+    try:
+        # Erst einmal einen Vorzustand herstellen: Beim allerersten Mal
+        # meldet der Hub bewusst nichts, sonst wäre jeder Neustart eine
+        # Ankunftswelle für Leute, die längst dasitzen.
+        await geo.report("stefan", "leave")
+        assert push.gesendet == []
+
+        await geo.report("stefan", "enter")
+        assert push.gesendet == []
+
+        hub.data.set(personen.LADE, personen.setzen([], "stefan", "arrive", True))
+        await geo.report("stefan", "leave")
+        await geo.report("stefan", "enter")
+        assert [t for t, _ in push.gesendet] == ["Angekommen"]
+        assert "Stefan" in push.gesendet[0][1]
+    finally:
+        await hub.stop()
+
+
+async def test_leaving_is_its_own_switch() -> None:
+    """Wer die Ankunft will, will nicht zwingend auch den Weggang."""
+    from homepilot.core import personen
+
+    hub, geo = await make_geofence()
+    push = _Push()
+    hub.push = push
+    try:
+        hub.data.set(personen.LADE, personen.setzen([], "stefan", "leave", True))
+        await geo.report("stefan", "enter")
+        assert push.gesendet == []
+        await geo.report("stefan", "leave")
+        assert [t for t, _ in push.gesendet] == ["Unterwegs"]
+        # Und die Ankunft bleibt still, weil sie niemand bestellt hat.
+        await geo.report("stefan", "enter")
+        assert [t for t, _ in push.gesendet] == ["Unterwegs"]
+    finally:
+        await hub.stop()
+
+
+async def test_a_repeated_report_is_no_second_arrival() -> None:
+    """Sonst käme bei jeder Life360-Runde eine Nachricht."""
+    from homepilot.core import personen
+
+    hub, geo = await make_geofence()
+    push = _Push()
+    hub.push = push
+    try:
+        hub.data.set(personen.LADE, personen.setzen([], "stefan", "arrive", True))
+        await geo.report("stefan", "leave")
+        await geo.report("stefan", "enter")
+        await geo.report("stefan", "enter")
+        await geo.report("stefan", "enter")
+        assert len(push.gesendet) == 1
+    finally:
+        await hub.stop()
+
+
+def test_the_distance_home_answers_when_will_he_be_here():
+    """«Wann ist er da?» beantwortet eine Zone nicht.
+
+    Sie kennt drinnen und draussen - zwischen «weg» und «zuhause»
+    liegen zwei Kilometer genauso wie zweihundert.
+    """
+    from homepilot.core import presence
+
+    orte = [
+        {"id": "home", "name": "Zuhause", "latitude": 47.1384, "longitude": 7.9206},
+        {"id": "arbeit", "name": "Arbeit", "latitude": 47.2, "longitude": 8.0},
+    ]
+    # Derselbe Punkt: null Meter.
+    assert presence.entfernung_zuhause(orte, 47.1384, 7.9206) < 1
+    # Ein Kilometer nördlich sind rund tausend Meter.
+    weit = presence.entfernung_zuhause(orte, 47.1474, 7.9206)
+    assert 950 < weit < 1050
+
+    # Ohne Zuhause gibt es keine Entfernung - eine erfundene wäre
+    # schlimmer als keine.
+    assert presence.entfernung_zuhause([{"id": "arbeit"}], 47.0, 8.0) is None
+    assert presence.entfernung_zuhause([], 47.0, 8.0) is None
+    # Ein Ort ohne Koordinaten ebenso wenig.
+    assert presence.entfernung_zuhause([{"id": "home"}], 47.0, 8.0) is None
+
+
+def test_die_sammelfrage_zaehlt_nur_den_haushalt() -> None:
+    """Der Kreis ortet auch Grosseltern und Freunde - deren Zuhause ist
+    ein anderes. Zählten ihre Zonen mit, wäre «niemand ist zuhause»
+    erst wahr, wenn auch die Oma ihr eigenes Haus verlässt, und der
+    Saug-Ablauf feuerte nie."""
+    from homepilot.integrations.geofence import sammel_zonen
+
+    alle = ["stefan", "bine", "stibe", "maja", "ray"]
+    benutzer = [{"id": "stefan", "name": "Stefan"}, {"id": "bine", "name": "Bine"}]
+    assert sammel_zonen(alle, benutzer) == ["stefan", "bine"]
+
+
+def test_die_config_kann_zonen_zum_haushalt_erklaeren() -> None:
+    """Eine Person kann ohne eigenen Hub-Benutzer hier wohnen - ihre
+    Life360-Zone gehört dann per `haushalt:` dazu."""
+    from homepilot.integrations.geofence import sammel_zonen
+
+    alle = ["stefan", "stibe", "maja"]
+    benutzer = [{"id": "stefan", "name": "Stefan"}]
+    assert sammel_zonen(alle, benutzer, ["stibe"]) == ["stefan", "stibe"]
+    # Leere und unbekannte Einträge stören nicht.
+    assert sammel_zonen(alle, benutzer, ["", "niemand"]) == ["stefan"]
+
+
+def test_ohne_haushalt_zaehlen_alle_zonen() -> None:
+    """Passt keine einzige Zone zum Haushalt (etwa: alle Zonen nur in
+    der config.yaml, keine Benutzer), zählen wie früher alle - eine
+    Sammelfrage, die still auf niemanden hört, wäre schlimmer."""
+    from homepilot.integrations.geofence import sammel_zonen
+
+    assert sammel_zonen(["oma", "opa"], []) == ["oma", "opa"]
+    assert sammel_zonen(["oma", "opa"], [{"id": "stefan", "name": "Stefan"}]) == [
+        "oma",
+        "opa",
+    ]

@@ -3,14 +3,14 @@
     "name": "HomePilot",
     "slug": "homepilot",
     "owner": "stibe88",
-    "version": "0.7.2",
+    "version": "1.4.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#0f1115",
     "ios": {
       "bundleIdentifier": "ch.stibe.homepilot",
-      "buildNumber": "1",
+      "buildNumber": "678",
       "supportsTablet": true,
       "config": {
         "usesNonExemptEncryption": false
@@ -20,11 +20,15 @@
           "group.me.stibe.homepilot"
         ],
         "com.apple.developer.usernotifications.time-sensitive": true
+      },
+      "infoPlist": {
+        "NSSupportsLiveActivities": true,
+        "NSSupportsLiveActivitiesFrequentUpdates": true
       }
     },
     "android": {
       "package": "ch.stibe.homepilot",
-      "versionCode": 1,
+      "versionCode": 678,
       "adaptiveIcon": {
         "backgroundColor": "#0f1115",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -45,6 +49,13 @@
       "expo-font",
       "expo-video",
       "@bacons/apple-targets",
+      "expo-quick-actions",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "HomePilot nimmt damit kurze Durchsagen auf, die auf den Lautsprechern in der Wohnung abgespielt werden - «Essen ist fertig», mit deiner Stimme statt der Vorlesestimme. Aufgenommen wird nur zwischen dem Druck auf den Mikrofonknopf und dem Druck, der ihn wieder beendet. Die Aufnahme geht an deinen eigenen Hub und an niemanden sonst."
+        }
+      ],
       [
         "expo-location",
         {
@@ -54,7 +65,27 @@
           "isAndroidBackgroundLocationEnabled": true
         }
       ],
-      "expo-task-manager"
+      "expo-task-manager",
+      [
+        "expo-alternate-app-icons",
+        [
+          {
+            "name": "Pink",
+            "ios": "./assets/icon-pink.png",
+            "android": {
+              "foregroundImage": "./assets/android-icon-foreground-pink.png",
+              "backgroundColor": "#D81B9C"
+            }
+          }
+        ]
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/android-icon-monochrome.png",
+          "color": "#2F6BF6"
+        }
+      ]
     ],
     "scheme": "homepilot",
     "updates": {
@@ -62,8 +93,6 @@
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 3000
     },
-    "runtimeVersion": {
-      "policy": "appVersion"
-    }
+    "runtimeVersion": "3"
   }
 }

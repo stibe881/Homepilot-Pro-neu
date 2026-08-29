@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Activity, CommandData, Entity, EntityState } from '../api/types';
@@ -12,7 +12,10 @@ import {
   quellenSymbol,
 } from '../lib/geraeteart';
 import { hatWarteschlange } from '../lib/musikliste';
+import { trockenSatz } from '../lib/giessen';
+import { Regenstand, balkenHoehen, regenSatz } from '../lib/regen';
 import { panelContent, showsRoomPlayer } from '../lib/seitenspalte';
+import { uvWort } from '../lib/uv';
 import { Colors, radius, type, useColors } from '../theme';
 import { Bar } from './Bar';
 import { Card } from './Card';
@@ -65,6 +68,11 @@ export function SidePanel({
   // (siehe pickPlayer): So sieht man immer nur eine Karte, aber jede Box
   // lässt sich ansehen und bedienen, nicht nur die gerade spielende.
   const [chosenId, setChosenId] = useState<string | null>(null);
+  // Die zuletzt im Wähler bestimmte Box - reist bis zum Startbefehl mit.
+  // Ohne dieses Gedächtnis startete eine Playlist auf der zuletzt
+  // aktiven Box statt auf der gewählten: Der Umzug per play_on bleibt
+  // bei stillem Spotify nicht haften (siehe lib/boxwahl).
+  const [wunschBox, setWunschBox] = useState<string | null>(null);
   const player =
     (chosenId ? players.find((entity) => entity.id === chosenId) : undefined) ??
     pickPlayer(entities);
@@ -94,10 +102,19 @@ export function SidePanel({
         play: quelle.state.state === 'playing',
       });
       setChosenId(quelle.id);
+      setWunschBox(ziel.name);
     } else {
       setChosenId(ziel.id);
     }
   };
+
+  // Sobald die gewünschte Box die aktive ist, hat der Wunsch seinen
+  // Dienst getan. Ihn weiter festzuhalten hiesse: Wer die Musik später
+  // in der Spotify-App woandershin zieht und hier eine Playlist drückt,
+  // bekäme sie zurück ins Büro geholt.
+  useEffect(() => {
+    if (wunschBox && player?.state.device === wunschBox) setWunschBox(null);
+  }, [wunschBox, player?.state.device]);
 
   // Die Box des offenen Raums – immer die des Raums, in dem man gerade
   // steht. Läuft sie ohnehin schon oben (weil sie die spielende des
@@ -146,6 +163,7 @@ export function SidePanel({
           }
           onSelect={choose}
           onCommand={onCommand}
+          wunschBox={wunschBox}
         />
       ) : null}
       {/* Und darunter der Raum, in dem man steht. Eine Box hier
@@ -178,6 +196,7 @@ function MediaPanel({
   titel = 'Musik',
   onSelect,
   onCommand,
+  wunschBox = null,
 }: {
   entity: Entity;
   /** Alle Medien-Geräte, nicht nur das gerade gezeigte – für die
@@ -190,6 +209,8 @@ function MediaPanel({
   titel?: string;
   onSelect: (speaker: Entity) => void;
   onCommand: (entityId: string, command: string, data?: CommandData) => void;
+  /** Im Wähler bestimmte Box - fürs Starten von Playlist und Sender. */
+  wunschBox?: string | null;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -280,8 +301,15 @@ function MediaPanel({
         </View>
       ) : null}
       {pickerOpen && boxen.length > 0 ? (
-        <View style={styles.speakerRow}>
-          {boxen.map((speaker) => {
+        // Eine ruhige Spalte statt Chips im Flattersatz: Bei einem
+        // Dutzend Boxen ergaben die Pillen vier ausgefranste Zeilen, in
+        // denen das Auge jeden Namen einzeln suchen musste. Eine Liste
+        // liest sich von oben nach unten, alphabetisch, die gewählte Box
+        // trägt ein Häkchen - und wo Musik läuft, sagt es das Symbol.
+        <View style={styles.speakerList}>
+          {[...boxen]
+            .sort((a, b) => a.name.localeCompare(b.name, 'de'))
+            .map((speaker, index) => {
             const selected =
               speaker.id === entity.id ||
               (istQuelle && activeDevice != null && speaker.name === activeDevice);
@@ -295,21 +323,30 @@ function MediaPanel({
                 accessibilityRole="radio"
                 accessibilityState={{ selected }}
                 accessibilityLabel={`Musik auf ${speaker.name}`}
-                style={[styles.speakerChip, selected && styles.speakerChipActive]}
+                style={({ pressed }) => [
+                  styles.speakerItem,
+                  index > 0 && styles.speakerItemTrenner,
+                  pressed && { opacity: 0.7 },
+                ]}
               >
-                {speaker.state.state === 'playing' ? (
-                  <Ionicons
-                    name="volume-high-outline"
-                    size={13}
-                    color={selected ? '#FFFFFF' : colors.accent}
-                  />
-                ) : null}
+                <Ionicons
+                  name={
+                    speaker.state.state === 'playing'
+                      ? 'volume-high-outline'
+                      : 'volume-mute-outline'
+                  }
+                  size={15}
+                  color={speaker.state.state === 'playing' ? colors.accent : colors.inkFaint}
+                />
                 <Text
-                  style={[styles.speakerChipText, selected && styles.speakerChipTextActive]}
+                  style={[styles.speakerItemText, selected && styles.speakerItemTextActive]}
                   numberOfLines={1}
                 >
                   {speaker.name}
                 </Text>
+                {selected ? (
+                  <Ionicons name="checkmark" size={16} color={colors.accent} />
+                ) : null}
               </Pressable>
             );
           })}
@@ -416,6 +453,7 @@ function MediaPanel({
         <SpotifyPanel
           entity={entity}
           hideDevices
+          wunschBox={wunschBox}
           onCommand={(name, data) => command(name, data)}
         />
       ) : null}
@@ -423,6 +461,7 @@ function MediaPanel({
         <RadioPanel
           entity={entity}
           hideDevices
+          wunschBox={wunschBox}
           onCommand={(name, data) => command(name, data)}
         />
       ) : null}
@@ -495,6 +534,39 @@ function WeatherPanel({ entity }: { entity: Entity }) {
         </View>
       </View>
 
+      {/* Die Frage am Fenster: Muss die Wäsche jetzt herein? Die
+          Wochenzeile darunter beantwortet sie nicht (lib/regen.ts). */}
+      {regenSatz(entity.state.rain as Regenstand | undefined) ? (
+        <Text style={styles.regen}>
+          {regenSatz(entity.state.rain as Regenstand | undefined)}
+        </Text>
+      ) : null}
+      <RegenBalken stand={entity.state.rain as Regenstand | undefined} />
+      {/* Der UV-Index, sobald er etwas sagt: ab «mässig» als Zeile, ab
+          «hoch» in Warnfarbe. Unter 3 steht nichts - eine Zahl, die
+          immer da ist, liest bald niemand mehr (hub/core/uvwarnung.py
+          brummt aus demselben Grund erst ab «hoch»). */}
+      {uvWort(entity.state.uv_today) ? (
+        <Text
+          style={[
+            styles.uv,
+            Number(entity.state.uv_today) >= 6 && { color: colors.warn },
+          ]}
+        >
+          UV heute {uvWort(entity.state.uv_today)} ({String(entity.state.uv_today)})
+          {Number(entity.state.uv_today) >= 6 ? ' · eincremen' : ''}
+        </Text>
+      ) : null}
+
+      {/* Und die andere Richtung: Wie lange es *nicht* geregnet hat.
+          Der Hub erinnert abends ans Giessen (hub/core/giessen.py) - hier
+          steht dieselbe Auskunft dort, wo man ohnehin nachsieht. */}
+      {trockenSatz(entity.state.dry_days, entity.state.rain_next) ? (
+        <Text style={styles.trocken}>
+          {trockenSatz(entity.state.dry_days, entity.state.rain_next)} · giessen
+        </Text>
+      ) : null}
+
       {days.length > 0 ? (
         <View style={styles.weekRow}>
           {days.map((day, index) => (
@@ -517,6 +589,46 @@ function WeatherPanel({ entity }: { entity: Entity }) {
         </View>
       ) : null}
     </Card>
+  );
+}
+
+/**
+ * Die nächsten zwei Stunden Regen als acht kleine Balken.
+ *
+ * Der Satz darüber sagt «in etwa 45 Minuten»; die Balken sagen, ob das
+ * ein Schauer ist oder der Anfang eines nassen Nachmittags. Ein Balken
+ * je Viertelstunde - die Auflösung der Quelle, nichts Feineres.
+ *
+ * Ganz ohne Regen erscheint nichts: Acht leere Balken wären Tinte für
+ * die Auskunft «kein Regen», und die gibt die Karte schon dadurch,
+ * dass hier nichts steht.
+ */
+function RegenBalken({ stand }: { stand: Regenstand | undefined }) {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const hoehen = balkenHoehen(stand?.bars, 22);
+  if (hoehen.length === 0) return null;
+  return (
+    <View style={styles.regenReihe} accessibilityLabel="Regen der nächsten zwei Stunden">
+      <View style={styles.regenBalken}>
+        {hoehen.map((hoehe, index) => (
+          <View
+            key={index}
+            style={[
+              styles.regenBalkenSaeule,
+              // Trocken bleibt als flacher Sockel sichtbar - so liest
+              // sich die Lücke zwischen zwei Schauern als Lücke.
+              { height: Math.max(2, hoehe) },
+              hoehe === 0 && { backgroundColor: colors.track },
+            ]}
+          />
+        ))}
+      </View>
+      <View style={styles.regenAchse}>
+        <Text style={styles.regenAchsenText}>jetzt</Text>
+        <Text style={styles.regenAchsenText}>+2 Std</Text>
+      </View>
+    </View>
   );
 }
 
@@ -602,6 +714,25 @@ const makeStyles = (colors: Colors) =>
       flexShrink: 1,
     },
     speakerRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+    speakerList: {
+      backgroundColor: colors.surfaceSoft,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      paddingHorizontal: 12,
+    },
+    speakerItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 9,
+    },
+    speakerItemTrenner: {
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.surfaceBorder,
+    },
+    speakerItemText: { flex: 1, fontSize: 13, color: colors.ink },
+    speakerItemTextActive: { color: colors.accent, fontWeight: '700' },
     speakerChip: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -684,6 +815,27 @@ const makeStyles = (colors: Colors) =>
       fontVariant: ['tabular-nums'],
     },
     dayLow: { color: colors.inkFaint, fontSize: 12, fontVariant: ['tabular-nums'] },
+    // Eine Zeile, kein Kasten: Die Vorwarnung gehört zum Wetter und
+    // nicht daneben.
+    regen: { color: colors.warn, fontSize: 13, fontWeight: '600', marginTop: 2 },
+    trocken: { color: colors.inkSoft, fontSize: 13, marginTop: 2 },
+    regenReihe: { marginTop: 6, gap: 2 },
+    regenBalken: {
+      flexDirection: 'row',
+      alignItems: 'flex-end',
+      gap: 3,
+      height: 22,
+    },
+    regenBalkenSaeule: {
+      flex: 1,
+      maxWidth: 22,
+      borderTopLeftRadius: 3,
+      borderTopRightRadius: 3,
+      backgroundColor: colors.accent,
+    },
+    regenAchse: { flexDirection: 'row', justifyContent: 'space-between' },
+    regenAchsenText: { color: colors.inkFaint, fontSize: 10 },
+    uv: { color: colors.inkSoft, fontSize: 12, fontWeight: '600', marginTop: 4 },
     dayRain: { color: colors.accent, fontSize: 10, fontWeight: '600' },
     list: { gap: 10 },
     alertRow: {

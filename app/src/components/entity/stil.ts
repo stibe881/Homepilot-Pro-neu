@@ -19,6 +19,46 @@ export const makeStyles = (colors: Colors) =>
     borderRadius: radius.control,
     backgroundColor: colors.surfaceSoft,
   },
+  // Der Fortschritt: schmal, wenn er nur anzeigt, und griffig, wenn man
+  // ihn anfassen darf - ein Balken, der aussieht wie ein Regler, aber
+  // keiner ist, ist ein Versprechen, das die Kachel nicht hält.
+  fortschrittBox: { gap: 2 },
+  fortschrittZeile: { flexDirection: 'row', justifyContent: 'space-between' },
+  fortschrittZeit: { color: colors.inkFaint, fontSize: 11, fontVariant: ['tabular-nums'] },
+  // Die Gruppen-Marke: Eine Kachel, die in Wahrheit vier Boxen ist,
+  // sagt das - sonst wundert man sich, warum es überall spielt.
+  gruppenChip: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceSoft,
+  },
+  gruppenChipText: { color: colors.inkSoft, fontSize: 11, fontWeight: '600' },
+  boxZeile: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
+  boxName: { color: colors.ink, fontSize: 14, width: 110 },
+  naechsterRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  naechsterText: { color: colors.inkFaint, fontSize: 11, flex: 1 },
+  schlummerChip: {
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  schlummerChipText: { color: colors.inkSoft, fontSize: 11, fontWeight: '700' },
+  schlummerAktiv: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  schlummerAktivText: { color: colors.accent, fontSize: 11, fontWeight: '600' },
+  coverGrund: {
+    ...StyleSheet.absoluteFillObject,
+    // Blass genug, dass jeder Text darüber lesbar bleibt - das ist die
+    // Grenze, an der ein Bild Schmuck bleibt statt Störung zu werden.
+    opacity: 0.16,
+    borderRadius: radius.card,
+  },
   editBox: { gap: 8 },
   editChips: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
   editButtons: {
@@ -63,6 +103,68 @@ export const makeStyles = (colors: Colors) =>
     borderColor: colors.surfaceBorder,
   },
   roomSheetTitle: { fontSize: 17, fontWeight: '700', color: colors.ink, marginBottom: 6 },
+  /** Das Anpassen-Blatt: Kopf mit Name und Schliessen, darunter eine
+   *  Zeile je Einstellung – über die ganze Breite, denn dafür ist es da. */
+  /** Die Anpassen-Zeile auf der Kachel: was eingestellt ist, und ein
+   *  Symbol, das sagt, dass sich das ändern lässt. */
+  editZeile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    // Eng gerechnet: Auf einer halbbreiten Telefonkachel bleiben nach
+    // Kachelrand, Griff und Pfeil rund siebzig Punkte für den Text.
+    // «Kein Raum» braucht sechzig - mit den ursprünglichen acht Punkten
+    // Abstand und einem 17er Symbol brach es auf zwei Zeilen um.
+    gap: 4,
+    paddingVertical: 8,
+    paddingRight: 8,
+    // Links Platz für den Griff: Der sitzt absolut acht Punkte vom
+    // Kachelrand und ist 32 breit, liegt also über allem, was oben links
+    // beginnt. Vorher war das der Raum-Chip - das Symbol lag mitten im
+    // Wort «Kein Raum». Statt die Zeile nach unten zu schieben, fängt
+    // ihr Text rechts vom Griff an; der sitzt dann sauber in ihr drin.
+    paddingLeft: 36,
+    borderRadius: radius.control,
+    backgroundColor: colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  /** Die Überschrift der Anpassen-Zeile: klein und gedeckt. Sie sagt,
+   *  was der Tipp tut - der Stand darunter, was eingestellt ist. */
+  editTitel: {
+    fontSize: 11,
+    color: colors.inkFaint,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  editStand: { fontSize: 12, color: colors.inkSoft, fontWeight: '600' },
+  blattKopf: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 8,
+  },
+  blattZeile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 13,
+    paddingHorizontal: 4,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.surfaceBorder,
+  },
+  blattLabel: { fontSize: 15, color: colors.ink, fontWeight: '600', flexShrink: 1 },
+  blattWert: {
+    fontSize: 14,
+    color: colors.inkSoft,
+    flex: 1,
+    textAlign: 'right',
+  },
+  // Unter dem Namen: seit wann und wodurch. Klein und ruhig - es ist
+  // eine Auskunft, kein Knopf.
+  menueUrsache: { fontSize: 13, color: colors.inkSoft, marginTop: -4, marginBottom: 4 },
+  // Die Kette darunter, eine Spur leiser: Sie erklärt die Zeile
+  // darüber und drängt sich nicht vor sie.
+  menueKette: { fontSize: 12, color: colors.inkFaint, marginTop: -2, marginBottom: 6 },
   roomOption: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -130,7 +232,10 @@ export const makeStyles = (colors: Colors) =>
     borderWidth: 1,
     borderColor: colors.surfaceBorder,
   },
-  modeButtonOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+  // Eingeschaltet heisst Kante und Schrift in Akzentfarbe, nicht volle
+  // Füllung: Zufall und Wiederholen sind Nebenschalter - satt gefüllt
+  // riefen sie lauter als die Wiedergabeknöpfe darüber.
+  modeButtonOn: { borderColor: colors.accent },
   modeButtonText: { color: colors.inkSoft, fontSize: 12, fontWeight: '700' },
   playlistButton: {
     flexDirection: 'row',

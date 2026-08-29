@@ -2,6 +2,7 @@ import { kann } from './plattform';
 
 import { HubSettings } from '../api/types';
 import { WidgetButton } from './widgetButtons';
+import { WidgetKarte } from './widgetKarten';
 
 /**
  * Das Homescreen-Widget mit Daten versorgen.
@@ -15,6 +16,10 @@ import { WidgetButton } from './widgetButtons';
  * - Die **Knöpfe** immer. Sie sind eine Liste von Titeln, Symbolen und
  *   homepilot://-Adressen – nichts davon ist ein Geheimnis, und ohne sie
  *   hätte das Widget gar keinen Inhalt.
+ * - Die **Karten** ebenso: die selbst zusammengestellten Widgets, je
+ *   eines für ein Gerät oder eine Szene. Auch sie sind nur Namen und
+ *   Adressen; den Zustand holt sich das Widget selbst – und nur, wenn
+ *   der Hausstand an ist.
  * - **Adresse und Token** nur, wenn der Hausstand eingeschaltet ist. Ein
  *   Token im Widget-Prozess ist eine Angriffsfläche mehr. Für eine
  *   blosse Knopfleiste wäre sie den Preis nicht wert; für ein Widget,
@@ -63,7 +68,8 @@ function storage(): any | null {
 export function syncWidget(
   settings: HubSettings,
   enabled: boolean,
-  buttons: WidgetButton[]
+  buttons: WidgetButton[],
+  karten: WidgetKarte[] = []
 ): Ablage {
   const store = storage();
   if (store === null) return 'kein-widget';
@@ -73,6 +79,14 @@ export function syncWidget(
     // Knöpfe» – es stünde für einen Moment leer da.
     if (buttons.length > 0) {
       store.set('buttons', JSON.stringify(buttons));
+    }
+    // Die Karten dagegen dürfen leer sein, und dann muss die Ablage auch
+    // leer werden: Wer seine letzte Karte entfernt, soll sie nicht als
+    // Auswahl weiterstehen sehen, wenn er ein Widget anlegt. Nur beim
+    // allerersten Zeichnen wird nichts geschrieben - dort ist «leer»
+    // bloss «noch nicht geladen».
+    if (buttons.length > 0 || karten.length > 0) {
+      store.set('karten', JSON.stringify(karten));
     }
     if (enabled && settings.url && settings.token) {
       store.set('hubUrl', settings.url.replace(/\/+$/, ''));

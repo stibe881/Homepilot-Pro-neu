@@ -19,14 +19,34 @@ from fastapi import (
 from pydantic import BaseModel
 
 from ...core import (
+    laufzeit,
     maintenance,
     suggest,
     watchdog,
+    widgetkarten,
 )
 from ...core.users import Capability
 from ..context import ApiContext
 
 log = logging.getLogger(__name__)
+
+
+class MaintenanceRequest(BaseModel):
+    """Eine Wartung: was, wie oft, ab wann.
+
+    Auf Modulhöhe und nicht in register(): Mit ``from __future__ import
+    annotations`` steht in der Signatur nur der *Name* des Modells, und
+    FastAPI schlägt ihn im Namensraum des Moduls nach. Eine Klasse
+    innerhalb der Funktion findet es dort nicht - es hielt den Rumpf
+    dann für einen Abfrageparameter und wies jedes Anlegen mit «Field
+    required: query.body» ab. «Wartung eintragen» in der App tat also
+    seit der Aufteilung von server.py gar nichts.
+    """
+
+    text: str
+    interval_days: int = 90
+    due: str | None = None
+
 
 def register(app: FastAPI, ctx: ApiContext) -> None:
     hub = ctx.hub
@@ -34,16 +54,22 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
     require = ctx.require
 
     @app.get("/api/glance")
-    async def glance(request: Request) -> dict[str, Any]:
+    async def glance(request: Request, ids: str = "") -> dict[str, Any]:
         """Der Blick aufs Haus in drei Zeilen - fürs Widget.
 
         Bewusst eine eigene, winzige Antwort statt der ganzen
         Geräteliste: Das Widget fragt alle Viertelstunde an und läuft auf
         einem Telefon, das gerade nichts anderes tut. Was es nicht
         braucht, soll es nicht übertragen.
+
+        ``ids`` ist die Ausnahme davon, und aus demselben Grund: Wer sich
+        ein Widget für das Küchenlicht hinlegt, braucht dessen Namen und
+        Zustand - aber eben nur dessen. Die Kennungen stehen in der
+        Adresse, damit das Widget mit einer einzigen Anfrage auskommt.
         """
         current_user(request)
         entities = hub.registry.all()
+        gefragt = widgetkarten.gefragte_ids(ids)
 
         # Dieselbe Zählung wie in der App (open_contacts): Kontakte samt
         # Türsensor im Schloss. Vorher zählte das Widget nur Schlösser –
@@ -69,13 +95,24 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 }
 
         alarm = next((e for e in entities if e.kind == "alarm"), None)
-        return {
-            "doors_open": [entity.name for entity in offen],
+        antwort = {
+            "doors_open": [entity.label for entity in offen],
             "lights_on": len(lichter),
             "next_event": termin,
             "alarm": str(alarm.state.get("state")) if alarm is not None else None,
             "at": datetime.now().isoformat(timespec="seconds"),
         }
+        # Laufende Maschinen nur, wenn welche laufen. Der Normalfall ist
+        # ein leerer Waschkeller, und dafür soll die Antwort nicht um ein
+        # Feld wachsen, das immer «[]» heisst (core/laufzeit.py).
+        laeuft = laufzeit.laufende(entities, hub.data.get("appliance_cycles"))
+        if laeuft:
+            antwort["running"] = laeuft
+        # Nur wenn gefragt: Die alte Knopfleiste soll keine Zeile mehr
+        # übertragen als bisher.
+        if gefragt:
+            antwort["entities"] = widgetkarten.zeilen(entities, gefragt)
+        return antwort
 
     @app.get("/api/suggestions/scene")
     async def scene_suggestion(request: Request) -> dict[str, Any]:
@@ -90,7 +127,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         if muster is None:
             return {"suggestion": None}
         namen = {
-            entity.id: entity.name
+            entity.id: entity.label
             for entity in hub.registry.all()
             if entity.id in muster["entity_ids"]
         }
@@ -108,13 +145,6 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 "names": [namen[gerät] for gerät in muster["entity_ids"]],
             }
         }
-
-    class MaintenanceRequest(BaseModel):
-        """Eine Wartung: was, wie oft, ab wann."""
-
-        text: str
-        interval_days: int = 90
-        due: str | None = None
 
     @app.get("/api/maintenance")
     async def list_maintenance(request: Request) -> dict[str, Any]:
@@ -153,14 +183,15 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         """Quittieren: die nächste Frist zählt ab heute."""
         user = require(request, Capability.EDIT_CONFIG)
         rows = hub.data.get("maintenance")
-        for row in rows:
+        for index, row in enumerate(rows):
             if row.get("id") == item_id:
-                heute = datetime.now().date().isoformat()
-                row["last_done"] = heute
-                row["due"] = maintenance.next_after(heute, row.get("interval_days"))
+                # Mit Namen: «erledigt» ohne ihn ist in einem Haushalt mit
+                # drei Leuten eine Behauptung (core/maintenance.py).
+                neu_row = maintenance.quittieren(row, user.name, datetime.now().date())
+                rows[index] = neu_row
                 hub.data.set("maintenance", rows)
                 log.info("%s hat '%s' quittiert", user.name, row.get("text"))
-                return row
+                return neu_row
         raise HTTPException(status_code=404, detail="Wartung nicht gefunden")
 
     @app.delete("/api/maintenance/{item_id}")

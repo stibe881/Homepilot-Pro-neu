@@ -45,10 +45,49 @@ class PushRegistration(BaseModel):
     label: str = ""
 
 
+class LiveActivityTokenRequest(BaseModel):
+    """Ein ActivityKit-Token vom iPhone - zum Starten oder Beenden.
+
+    Für den Start das «push-to-start»-Token des Geräts, fürs Beenden das
+    Token der laufenden Aktivität (core/liveaktivitaet.py).
+    """
+
+    token: str
+    label: str = ""
+    # 'tuer' = Haustür-Karte, 'haus' = die generische Karte (Timer,
+    # Geräte, Grill, …) - Apple stellt die Start-Tokens je Strukturtyp aus.
+    typ: str = "tuer"
+    # Beim Aktivitäts-Token: zu welcher Karte es gehört (livekarten.py).
+    art: str = ""
+
+
+class PushSnoozeRequest(BaseModel):
+    """Eine Meldung noch einmal, später – der Knopf in der Mitteilung."""
+
+    title: str
+    body: str = ""
+    category: str | None = None
+    minutes: int = 30
+
+
+class ErinnerungRequest(BaseModel):
+    """«Sag mir später Bescheid» zu einem Gerät."""
+
+    minutes: int = 120
+
+
 class BabysitterRequest(BaseModel):
-    """Den Babysitter-Modus ein- oder ausschalten."""
+    """Den Babysitter-Modus ein- oder ausschalten.
+
+    ``hours`` und ``lights`` kommen aus dem früheren Gästemodus und sind
+    beide freiwillig: Ohne Frist läuft der Modus, bis jemand ausschaltet
+    (der Babysitter-Abend), mit Frist endet er von selbst (der Besuch,
+    an den danach niemand mehr denkt).
+    """
 
     active: bool = False
+    hours: float | None = None
+    lights: list[str] = []
 
 
 class BabysitterAllowRequest(BaseModel):
@@ -138,11 +177,29 @@ class NotifyRuleRequest(BaseModel):
     params: dict[str, float] = {}
 
 
+class LaundryRequest(BaseModel):
+    """Welcher Kontakt als Türe der Waschküche zählt.
+
+    ``None`` heisst nicht «keine», sondern «wieder raten»: Der Hub sucht
+    dann selbst nach einem Kontakt im passenden Raum.
+    """
+
+    door: str | None = None
+
+
 class GoodNightRequest(BaseModel):
     """Einstellungen des Gute-Nacht-Knopfs."""
 
     night_lights: list[str] = []
     arm_alarm: bool = False
+
+
+class UndoRecordRequest(BaseModel):
+    """Den Rückweg zu einem grossen Griff hinterlegen – vor dem Schalten."""
+
+    title: str = "Griff"
+    entity_ids: list[str] = []
+    command: str = "turn_off"
 
 
 class VoucherRequest(BaseModel):
@@ -199,6 +256,12 @@ class UserRequest(BaseModel):
     shared: bool = False
 
 
+class SelfNameRequest(BaseModel):
+    # Der neue Name des angemeldeten Benutzers - Profil und
+    # Benutzerverwaltung zeigen denselben.
+    name: str
+
+
 class UserUpdateRequest(BaseModel):
     enabled: bool | None = None
     features: list[str] | None = None
@@ -213,6 +276,9 @@ class UserUpdateRequest(BaseModel):
     # Passwort vor den persönlichen Bereichen; leerer Text nimmt es weg.
     # Nur setzbar, nie lesbar – zurück kommt bloss 'area_locked'.
     area_password: str | None = None
+    # Rolle: besitzer, bewohner oder gast. Nur der Besitzer darf das, und
+    # der letzte Besitzer kommt aus seiner Rolle nicht heraus.
+    role: str | None = None
 
 
 class AreaUnlockRequest(BaseModel):
@@ -472,3 +538,15 @@ class EinladungRequest(BaseModel):
 
     password: str = ""
     minutes: int | None = None
+
+
+class MeldungRequest(BaseModel):
+    """Ein Schalter auf der Seite «Familie und Freunde».
+
+    Einer je Anfrage, nicht die ganze Karte: Zwei offene Telefone würden
+    sich sonst gegenseitig überschreiben, und wer gerade den Akku
+    abgestellt hat, bekäme ihn vom Tablet nebenan zurück.
+    """
+
+    key: str
+    enabled: bool

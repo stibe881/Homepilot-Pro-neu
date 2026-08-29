@@ -6,6 +6,7 @@ import { HubFehler, hubClient } from '../api/client';
 import { HubSettings } from '../api/types';
 import { Card } from './Card';
 import { nachGruppen } from '../lib/pushgruppen';
+import { epochTime } from '../lib/zeit';
 import { Colors, type, useColors } from '../theme';
 
 /**
@@ -57,6 +58,11 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
   // aus dem Bild - unter «Konto & Verbindung» sucht man aber meist die
   // Hub-Adresse, nicht die Batteriewarnung.
   const [offen, setOffen] = useState(false);
+  // Der Nachlese-Zettel: die letzten Meldungen, auch die weggewischten.
+  const [logOffen, setLogOffen] = useState(false);
+  const [log, setLog] = useState<
+    { title: string; body: string; at: number; category?: string | null }[] | null
+  >(null);
 
   const hub = useMemo(
     () => hubClient(settings.url, settings.token),
@@ -168,6 +174,58 @@ export function PushPrefs({ settings }: { settings: HubSettings }) {
       </View>
       {testNote ? <Text style={styles.hint}>{testNote}</Text> : null}
 
+      {/* Was zuletzt gemeldet wurde - eine weggewischte Mitteilung war
+          bisher unauffindbar, und «was hat vorhin gebrummt?» ist genau
+          die Frage, die man mit dem Telefon in der Jacke hatte. */}
+      <Pressable
+        onPress={() => {
+          const jetzt = !logOffen;
+          setLogOffen(jetzt);
+          if (jetzt && log == null) {
+            hub
+              .get<{ log?: typeof log } | null>('/api/push/log', {
+                fallback: null,
+                still: true,
+              })
+              .then((data) => setLog(data?.log ?? []));
+          }
+        }}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: logOffen }}
+        style={styles.logKopf}
+      >
+        <Ionicons name="time-outline" size={15} color={colors.inkSoft} />
+        <Text style={styles.logTitel}>Zuletzt gemeldet</Text>
+        <Ionicons
+          name={logOffen ? 'chevron-up' : 'chevron-down'}
+          size={15}
+          color={colors.inkSoft}
+        />
+      </Pressable>
+      {logOffen ? (
+        log == null ? (
+          <Text style={styles.hint}>Wird geladen …</Text>
+        ) : log.length === 0 ? (
+          <Text style={styles.hint}>In den letzten Tagen kam nichts.</Text>
+        ) : (
+          log.slice(0, 20).map((eintrag, index) => (
+            <View key={index} style={styles.logZeile}>
+              <Text style={styles.logZeit}>{epochTime(eintrag.at)}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowTitle} numberOfLines={1}>
+                  {eintrag.title}
+                </Text>
+                {eintrag.body ? (
+                  <Text style={styles.hint} numberOfLines={2}>
+                    {eintrag.body}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+          ))
+        )
+      ) : null}
+
       {error ? (
         <Text style={styles.hint}>Nicht abrufbar: {error}</Text>
       ) : categories == null ? (
@@ -260,4 +318,8 @@ const makeStyles = (colors: Colors) =>
       maxWidth: 420,
     },
     rowTitle: { color: colors.ink, fontSize: 14, fontWeight: '600', flexShrink: 1 },
+    logKopf: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    logTitel: { color: colors.inkSoft, fontSize: 13, fontWeight: '700', flex: 1 },
+    logZeile: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
+    logZeit: { color: colors.inkFaint, fontSize: 12, minWidth: 92, paddingTop: 1 },
   });

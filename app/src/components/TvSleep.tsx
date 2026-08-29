@@ -60,7 +60,10 @@ export function TvSleep({
           style={[styles.headText, rest !== null && { color: colors.accent }]}
           numberOfLines={1}
         >
-          {rest !== null ? `Aus in ${dauerText(rest)}` : 'Einschlaf-Timer'}
+          {/* «Einschlaf-Timer» brach auf der halbbreiten Kachel zu
+              «Einschlaf-T…» um. Das Mondsymbol daneben sagt ohnehin,
+              worum es geht. */}
+          {rest !== null ? `Aus in ${dauerText(rest)}` : 'Einschlafen'}
         </Text>
         <Ionicons
           name={offen ? 'chevron-up' : 'chevron-down'}

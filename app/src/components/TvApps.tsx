@@ -64,7 +64,10 @@ export function TvApps({
       >
         <Ionicons name="apps-outline" size={15} color={colors.inkSoft} />
         <Text style={styles.headText} numberOfLines={1}>
-          {laufend ?? 'App starten'}
+          {/* Nicht noch einmal der Name der laufenden App: Der steht schon
+              gross oben auf der Kachel, und zweimal «Plex» untereinander
+              beantwortet keine Frage. Hier steht, was der Griff bewirkt. */}
+          {laufend ? 'App wechseln' : 'App starten'}
         </Text>
         <Ionicons
           name={offen ? 'chevron-up' : 'chevron-down'}

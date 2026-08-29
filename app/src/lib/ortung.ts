@@ -40,6 +40,33 @@ export function zustandText(person: Person): string {
 }
 
 /**
+ * Wie weit weg – und ungefähr wie lange noch (rein, testbar).
+ *
+ * «Unterwegs» beantwortet die Frage beim Kochen nicht: Zwischen «weg»
+ * und «zuhause» liegen zwei Kilometer genauso wie zweihundert. Der Hub
+ * liefert die Entfernung von zuhause mit (`distance`, in Metern), sobald
+ * eine Position bekannt ist.
+ *
+ * Die Zeit ist ausdrücklich eine Schätzung, gerechnet mit 40 km/h – dem,
+ * was auf Landstrassen mit Ortsdurchfahrten übrig bleibt. Sie steht
+ * deshalb mit «~» da und erst ab einem Kilometer: Wer schon im Quartier
+ * ist, kommt an, bevor die Rechnung stimmt.
+ */
+export function entfernungText(meter: unknown): string {
+  // Kein Number(null): Das ergäbe 0 und damit «gleich da» für jemanden,
+  // von dem gar keine Position vorliegt.
+  if (typeof meter !== 'number') return '';
+  const m = meter;
+  if (!Number.isFinite(m) || m < 0) return '';
+  if (m < 300) return 'gleich da';
+  if (m < 1000) return 'ganz in der Nähe';
+  const km = m / 1000;
+  const minuten = Math.max(1, Math.round(m / 667));
+  const zahl = km < 10 ? km.toFixed(1).replace('.', ',') : String(Math.round(km));
+  return `noch ${zahl} km · ~${minuten} Min`;
+}
+
+/**
  * «seit 14:20» oder «seit gestern» (rein, testbar).
  *
  * Ohne Meterangaben und ohne Karte: «Sandra zuhause · Stefan unterwegs
@@ -118,7 +145,15 @@ export function dauerDa(
 export function anwesenheitsListe(
   people: Person[],
   jetzt: Date
-): { key: string; name: string; zustand: string; dauer: string; zuhause: boolean }[] {
+): {
+  key: string;
+  name: string;
+  zustand: string;
+  dauer: string;
+  zuhause: boolean;
+  /** «noch 4,2 km · ~6 Min» – leer, wenn niemand rechnen kann. */
+  weg: string;
+}[] {
   const rang = (person: Person) => {
     const state = String(person?.state ?? 'unknown');
     return state === 'home' ? 0 : state === 'away' ? 2 : 3;
@@ -138,6 +173,10 @@ export function anwesenheitsListe(
         String(person?.state ?? '') === 'home' ? 'gerade angekommen' : 'gerade eben'
       ),
       zuhause: String(person?.state ?? '') === 'home',
+      // Nur unterwegs: Zuhause ist die Entfernung null und die Zeile
+      // eine Selbstverständlichkeit.
+      weg:
+        String(person?.state ?? '') === 'home' ? '' : entfernungText(person?.distance),
       _rang: rang(person),
     }))
     .sort((a, b) => a._rang - b._rang || a.name.localeCompare(b.name))
@@ -199,16 +238,6 @@ export function quellenText(quelle: unknown): string {
   return wert;
 }
 
-/** Eine Zeile je Person für die Familienseite (rein, testbar). */
-export function anwesenheitsZeile(person: Person, jetzt: Date): string {
-  const seit = seitText(person?.since, jetzt);
-  return [String(person?.name ?? '').trim(), zustandText(person), seit]
-    .filter(Boolean)
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 /**
  * Nur die Leute, die der Hub überhaupt orten kann (rein, testbar).
  *
@@ -223,52 +252,6 @@ export function geortet(people: Person[]): Person[] {
   return (people ?? []).filter(
     (person) => person?.name && person?.configured !== false
   );
-}
-
-/**
- * Wo jemand steckt – für eine Zeile der Ortungs-Prüfung (rein, testbar).
- *
- * Leer bei «unbekannt»: Dort sagt der Hinweis daneben schon, woran es
- * liegt, und ein «meldet sich nicht · meldet sich nicht» wäre doppelt.
- */
-export function diagnoseOrt(zeile: Person): string {
-  const state = String(zeile?.combined ?? zeile?.state ?? 'unknown');
-  if (state === 'unknown') return '';
-  return zustandText({ state, place_name: zeile?.place_name });
-}
-
-/**
- * Die ganze Unterzeile der Ortungs-Prüfung (rein, testbar).
- *
- * Der Ort zuerst: Das ist die Frage, wegen der man hinschaut. Danach
- * erst, ob die Meldungen regelmässig kommen, woher sie stammen und wie
- * es um den Akku steht – das beantwortet «warum steht da das».
- */
-export function diagnoseZeile(zeile: Person): string {
-  const teile = [diagnoseOrt(zeile), String(zeile?.hint ?? '').trim()].filter(Boolean);
-  teile.push(`Quelle: ${quellenText(zeile?.combined_source)}`);
-  const akku = zeile?.battery;
-  if (akku !== null && akku !== undefined && akku !== '') {
-    teile.push(`Akku ${String(akku)} %`);
-  }
-  return teile.join(' · ');
-}
-
-/**
- * Die Übersicht in einem Satz (rein, testbar).
- *
- * Für die Kopfzeile: «Alle zuhause» ist eine Antwort, «3 Einträge» nicht.
- */
-export function anwesenheitKurz(people: Person[]): string {
-  const echte = geortet(people);
-  if (echte.length === 0) return '';
-  const zuhause = echte.filter((p) => String(p.state) === 'home');
-  const unbekannt = echte.filter((p) => String(p.state) === 'unknown');
-  if (zuhause.length === echte.length) return 'Alle zuhause';
-  if (zuhause.length === 0 && unbekannt.length === 0) return 'Niemand zuhause';
-  const namen = zuhause.map((p) => String(p.name).split(' ')[0]);
-  const kopf = namen.length > 0 ? `${namen.join(', ')} zuhause` : 'Niemand zuhause';
-  return unbekannt.length > 0 ? `${kopf} · ${unbekannt.length} unbekannt` : kopf;
 }
 
 /**

@@ -12,6 +12,22 @@ export const makeStyles = (colors: Colors) =>
     stack: { gap: space.gap },
     title: { color: colors.onGradient, fontSize: 18, fontWeight: '700' },
     titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    // Das Rückgängig-Band. Es steht oben und nicht unten: Dort schaut
+    // man nach dem Tippen ohnehin hin, und unten sitzt auf dem Telefon
+    // die Tastatur.
+    rueckband: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.accent,
+      backgroundColor: colors.surfaceSoft,
+    },
+    rueckbandText: { color: colors.ink, fontSize: 13, flex: 1 },
+    rueckbandKnopf: { color: colors.accent, fontSize: 13, fontWeight: '700' },
     reorderButton: {
       padding: 8,
       borderRadius: radius.control,
@@ -91,6 +107,8 @@ export const makeStyles = (colors: Colors) =>
     checkText: { color: colors.ink, fontSize: 15, fontWeight: '500' },
     checkTextDone: { textDecorationLine: 'line-through', color: colors.inkFaint },
     checkSub: { color: colors.inkSoft, fontSize: 12 },
+    // Die Strähne eines Ämtli - warm, aber leise: eine Beilage, kein Alarm.
+    straehne: { color: colors.warn, fontSize: 12, fontWeight: '600', marginTop: 2 },
     // Die Menge («400 ml») neben dem Artikel: leiser, denn gesucht
     // wird der Artikel.
     checkMenge: { color: colors.inkFaint, fontWeight: '400' },
@@ -170,7 +188,111 @@ export const makeStyles = (colors: Colors) =>
       alignItems: 'center',
     },
     addWideText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
-    formCard: { gap: 8 },
+    formCard: { minHeight: 0, gap: 8 },
+    // ── Datums- und Zeitwähler der Erinnerungen ──────────────────────
+    wahlZeile: { flexDirection: 'row', gap: 8 },
+    schalterZeile: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      paddingVertical: 6,
+    },
+    schalterText: { flex: 1, color: colors.ink, fontSize: 15 },
+    schalterHinweis: { color: colors.inkFaint, fontSize: 12, lineHeight: 16, marginTop: 2 },
+    schalter: {
+      width: 46,
+      height: 27,
+      borderRadius: radius.pill,
+      backgroundColor: colors.off,
+      padding: 3,
+      justifyContent: 'center',
+    },
+    schalterAn: { backgroundColor: colors.on },
+    schalterKnopf: {
+      width: 21,
+      height: 21,
+      borderRadius: 11,
+      backgroundColor: colors.surfaceStrong,
+    },
+    schalterKnopfAn: { alignSelf: 'flex-end' },
+    mitgliedZeile: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    mitgliedChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      backgroundColor: colors.surfaceSoft,
+    },
+    mitgliedChipAn: { borderColor: colors.accent },
+    mitgliedChipText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
+    mitgliedChipTextAn: { color: colors.accent },
+    wahlFeld: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      backgroundColor: colors.surfaceStrong,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+    },
+    wahlFeldAktiv: { borderColor: colors.accent },
+    wahlFeldText: { color: colors.ink, fontSize: 15, fontWeight: '600', flex: 1 },
+    // Gedeckelt: Auf einem iPad quer würden die Tageszellen sonst mit
+    // der vollen Kartenbreite wachsen - ein Kalender wie ein Plakat.
+    rasterBox: { width: '100%', maxWidth: 380, alignSelf: 'center' },
+    rasterKopf: { flexDirection: 'row', alignItems: 'center', paddingVertical: 4 },
+    rasterMonat: {
+      flex: 1,
+      textAlign: 'center',
+      color: colors.ink,
+      fontSize: 15,
+      fontWeight: '700',
+    },
+    rasterPfeil: { padding: 8 },
+    rasterZeile: { flexDirection: 'row' },
+    rasterWochentag: {
+      flex: 1,
+      textAlign: 'center',
+      color: colors.inkFaint,
+      fontSize: 11,
+      fontWeight: '700',
+      paddingVertical: 4,
+    },
+    rasterZelle: {
+      flex: 1,
+      aspectRatio: 1.35,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: radius.control,
+    },
+    rasterZelleAktiv: { backgroundColor: colors.accent },
+    rasterHeute: { borderWidth: 1, borderColor: colors.accent },
+    rasterZelleText: { color: colors.ink, fontSize: 14 },
+    rasterZelleTextAktiv: { color: colors.panel, fontWeight: '700' },
+    zeitSpalten: { flexDirection: 'row', gap: 8, height: 180, width: '100%', maxWidth: 380, alignSelf: 'center' },
+    zeitSpalte: {
+      flex: 1,
+      backgroundColor: colors.surfaceStrong,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    zeitEintrag: {
+      alignItems: 'center',
+      paddingVertical: 8,
+      marginHorizontal: 6,
+      borderRadius: radius.control,
+    },
+    zeitEintragAktiv: { backgroundColor: colors.accent },
+    zeitEintragText: { color: colors.ink, fontSize: 16, fontVariant: ['tabular-nums'] },
+    zeitEintragTextAktiv: { color: colors.panel, fontWeight: '700' },
     toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
     toggleLabel: { color: colors.ink, fontSize: 15 },
     clearButton: { alignItems: 'center', paddingVertical: 8 },
@@ -236,6 +358,18 @@ export const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     stapleText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
+    /** Rund und klein, für plus und minus am Vorratstakt. Kein
+     *  `addButton`: Der ist gefüllt und meint «anlegen», hier wird nur
+     *  eine bestehende Zahl verstellt. */
+    taktKnopf: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
     mealNameButton: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -283,7 +417,12 @@ export const makeStyles = (colors: Colors) =>
       borderColor: colors.surfaceBorder,
     },
     chipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
-    chipText: { color: colors.onGradientSoft, fontSize: 13, fontWeight: '600' },
+    // Dunkle Tinte, nicht weisse: Der Chip hat in beiden Themen einen
+    // hellen, durchscheinenden Grund (`surfaceSoft`). Weiss darauf misst
+    // sich zu 2.4:1, `onGradientSoft` gar zu 1.9:1 – «Hauptkalender»
+    // stand als heller Schatten da. Mit `ink` sind es 6.2:1 hell und
+    // 9.9:1 dunkel.
+    chipText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
     chipTextActive: { color: '#FFFFFF' },
     groupHead: {
       flexDirection: 'row',
@@ -300,12 +439,17 @@ export const makeStyles = (colors: Colors) =>
       justifyContent: 'space-between',
       paddingHorizontal: 4,
     },
+    /** Das Monatsgitter liegt auf einer Karte – siehe MonthCalendar. */
+    calCard: { minHeight: 0, gap: 10 },
     calTitle: { color: colors.ink, fontSize: 17, fontWeight: '700' },
     calGrid: { flexDirection: 'row', flexWrap: 'wrap' },
     calWeekday: {
       width: `${100 / 7}%`,
       textAlign: 'center',
-      color: colors.inkFaint,
+      // Eine Stufe kräftiger als `inkFaint`: Auf der Karte kommt das
+      // Blasse auf 2.1:1 – als Spaltenkopf über sieben Zahlenreihen zu
+      // wenig, um die Spalte überhaupt zuzuordnen.
+      color: colors.inkSoft,
       fontSize: 12,
       fontWeight: '700',
       paddingBottom: 4,
@@ -319,7 +463,10 @@ export const makeStyles = (colors: Colors) =>
     },
     calCellToday: { borderWidth: 1, borderColor: colors.accent },
     calCellSelected: { backgroundColor: colors.surfaceStrong },
-    calDay: { color: colors.inkSoft, fontSize: 15 },
+    // Die Tageszahl ist der Inhalt des Gitters, nicht seine Beschriftung
+    // – sie gehört in die kräftigste Tinte. Als `inkSoft` war sie auch
+    // auf der Karte nur 3.9:1.
+    calDay: { color: colors.ink, fontSize: 15 },
     calDot: {
       width: 5,
       height: 5,
@@ -482,6 +629,51 @@ export const makeStyles = (colors: Colors) =>
       backgroundColor: colors.panel,
     },
     // Blätterleiste des Wochenplans.
+    // ── Die Karte «Wer ist wo» ───────────────────────────────────────
+    // Eine Zeile je Mensch statt eines Absatzes: links ein farbiger
+    // Punkt, rechts der Ort. Der Punkt trägt die Antwort, bevor man
+    // liest - grün da, grau unterwegs, orange meldet sich nicht.
+    daKopf: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    daTitel: { color: colors.ink, fontSize: 17, fontWeight: '700', flex: 1 },
+    /** «1 von 7» in der zugeklappten Karte – wer das liest, weiss, ob
+     *  sich das Aufklappen lohnt. */
+    daZahl: {
+      color: colors.inkFaint,
+      fontSize: 13,
+      fontWeight: '600',
+      fontVariant: ['tabular-nums'],
+    },
+    daZeile: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 10,
+      paddingVertical: 8,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.surfaceBorder,
+    },
+    daPunkt: { width: 9, height: 9, borderRadius: 5, marginTop: 6 },
+    daOben: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
+    daName: { color: colors.ink, fontSize: 15, fontWeight: '600', flexShrink: 1 },
+    daOrt: {
+      color: colors.inkSoft,
+      fontSize: 14,
+      flex: 1,
+      textAlign: 'right',
+    },
+    daUnten: {
+      flexDirection: 'row',
+      alignItems: 'baseline',
+      gap: 8,
+      marginTop: 1,
+    },
+    daDetail: { color: colors.inkFaint, fontSize: 12, flex: 1 },
+    daAkku: { color: colors.inkFaint, fontSize: 12, fontVariant: ['tabular-nums'] },
+    daWarum: {
+      color: colors.inkSoft,
+      fontSize: 12,
+      lineHeight: 18,
+      marginTop: 6,
+    },
     weekNav: {
       flexDirection: 'row',
       alignItems: 'center',

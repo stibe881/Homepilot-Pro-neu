@@ -7,12 +7,15 @@
  */
 import {
   ALLGEMEIN,
+  ORTE_KURZ,
+  SHOP_CATEGORIES,
   artikelName,
   einkaufZeile,
   einkaufsText,
   eintragen,
   findeArtikel,
   fuerLaden,
+  gangReihenfolge,
   groupForShop,
   ingredientLabel,
   ingredientsToShopping,
@@ -20,6 +23,7 @@ import {
   mengeAendern,
   mengeUndName,
   mitMenge,
+  orteFuerLaden,
   shopCategory,
   shopOrder,
   zeilenAufteilen,
@@ -495,5 +499,72 @@ describe('ingredientsToShopping legt Mengen zusammen', () => {
     const { neu } = ingredientsToShopping([salz, salz]);
     expect(neu).toHaveLength(1);
     expect(neu[0].amount).toBeUndefined();
+  });
+});
+
+describe('Die Ladenkarte', () => {
+  it('stellt die Gänge in die Reihenfolge, die sie beschreiben', () => {
+    // Vorher standen die Knöpfe in der festen Listenreihenfolge, die
+    // Nummern kamen aber aus der Reihenfolge des Antippens: «1. Früchte,
+    // 3. Milch / 2. Brot, 4. Fleisch». Man musste die Nummern suchen,
+    // statt sie zu lesen.
+    const shop = {
+      id: 's',
+      name: 'Coop',
+      categories: ['Früchte & Gemüse', 'Brot & Backwaren', 'Milchprodukte'],
+    };
+    const gaenge = gangReihenfolge(shop);
+    expect(gaenge.slice(0, 3)).toEqual([
+      { name: 'Früchte & Gemüse', platz: 1 },
+      { name: 'Brot & Backwaren', platz: 2 },
+      { name: 'Milchprodukte', platz: 3 },
+    ]);
+    // Was niemand angetippt hat, hängt hinten an - ohne Nummer, denn
+    // seine Reihenfolge ist keine Wahl, sondern ein Rest.
+    expect(gaenge.slice(3).every((gang) => gang.platz === null)).toBe(true);
+    expect(gaenge).toHaveLength(SHOP_CATEGORIES.length);
+  });
+
+  it('nummeriert ohne eigene Wahl gar nicht', () => {
+    const gaenge = gangReihenfolge({ id: 's', name: 'Coop', categories: [] });
+    expect(gaenge.every((gang) => gang.platz === null)).toBe(true);
+    expect(gaenge.map((gang) => gang.name)).toEqual(SHOP_CATEGORIES);
+    expect(gangReihenfolge(null).every((gang) => gang.platz === null)).toBe(true);
+  });
+
+  it('stellt den gewählten Ort nach vorn und den Rest alphabetisch', () => {
+    // Neunzehn Knöpfe in Anlegereihenfolge sind keine Liste, sondern ein
+    // Haufen.
+    const orte = [
+      { id: 'susi', name: 'Susi home' },
+      { id: 'coop_w', name: 'Coop Willisau' },
+      { id: 'arbeit', name: 'Arbeit' },
+      { id: 'zuhause', name: 'Zuhause' },
+    ];
+    expect(orteFuerLaden(orte, 'coop_w', true).map((o) => o.name)).toEqual([
+      'Coop Willisau',
+      'Arbeit',
+      'Susi home',
+      'Zuhause',
+    ]);
+    // Ohne Wahl schlicht alphabetisch.
+    expect(orteFuerLaden(orte, undefined, true).map((o) => o.name)).toEqual([
+      'Arbeit',
+      'Coop Willisau',
+      'Susi home',
+      'Zuhause',
+    ]);
+  });
+
+  it('zeigt zugeklappt nur die ersten paar', () => {
+    const viele = Array.from({ length: 19 }, (_, i) => ({
+      id: `o${i}`,
+      name: `Ort ${String(i).padStart(2, '0')}`,
+    }));
+    expect(orteFuerLaden(viele, undefined, false)).toHaveLength(ORTE_KURZ);
+    expect(orteFuerLaden(viele, undefined, true)).toHaveLength(19);
+    // Der gewählte ist auch zugeklappt dabei - sonst sähe es aus, als
+    // wäre keiner gesetzt.
+    expect(orteFuerLaden(viele, 'o18', false)[0].id).toBe('o18');
   });
 });

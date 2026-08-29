@@ -60,6 +60,12 @@ COVER_UI_CLASSES = {"ExteriorVenetianBlind", "RollerShutter", "Screen", "Awning"
 
 # Zustandsnamen der Overkiz-API.
 CLOSURE = "core:ClosureState"          # 0 = offen, 100 = geschlossen
+# Markisen zählen andersherum: Sie fahren *aus* statt *zu*. Overkiz meldet
+# dafür nicht die Geschlossenheit, sondern den Ausfahrgrad - 0 heisst
+# eingefahren, 100 ganz draussen. Über die Closure-Rechnung gelesen wäre
+# eine ausgefahrene Markise «Position 0» und damit «Geschlossen»: genau
+# der gemeldete Fehler an der Terrasse.
+DEPLOYMENT = "core:DeploymentState"    # 0 = eingefahren, 100 = ausgefahren
 ORIENTATION = "core:SlateOrientationState"  # Lamellenwinkel 0…100
 OPEN_CLOSED = "core:OpenClosedState"
 
@@ -71,7 +77,10 @@ COMMAND_ALIASES: dict[str, list[str]] = {
     "open": ["open", "up", "rollUp"],
     "close": ["close", "down", "rollDown"],
     "stop": ["stop", "my"],
-    "set_position": ["setClosure"],
+    # setDeployment zuerst: Wo es das gibt, ist das Gerät eine Markise, und
+    # setClosure kennt sie gar nicht. Die Reihenfolge entscheidet, welche
+    # Variante genommen wird - siehe die Auswahl beim Einrichten.
+    "set_position": ["setDeployment", "setClosure"],
     "set_tilt": ["setOrientation"],
 }
 
@@ -130,11 +139,28 @@ def cover_state(states: dict[str, Any]) -> dict[str, Any]:
 
     Overkiz zählt 'closure' als Geschlossenheit (0 offen … 100 zu); die App
     denkt in 'offen %', deshalb wird hier gedreht.
+
+    Bei Markisen zählt Overkiz nicht die Geschlossenheit, sondern den
+    Ausfahrgrad (`core:DeploymentState`, 0 eingefahren … 100 draussen).
+    Der wird *nicht* gedreht - sonst stünde eine ausgefahrene Markise als
+    «Geschlossen» da. Genau so war es an der Terrasse.
     """
     result: dict[str, Any] = {}
     closure = states.get(CLOSURE)
+    deployment = states.get(DEPLOYMENT)
     open_closed = states.get(OPEN_CLOSED)
-    if closure is not None:
+    # Der Ausfahrgrad zuerst: Wo er steht, ist das Gerät eine Markise, und
+    # dann ist er die richtige Angabe. Eine Store meldet ihn gar nicht.
+    if deployment is not None:
+        try:
+            position = max(0, min(100, int(deployment)))
+            result["position"] = position
+            result["state"] = (
+                "open" if position >= 99 else "closed" if position <= 1 else "partial"
+            )
+        except (TypeError, ValueError):
+            pass
+    if "position" not in result and closure is not None:
         try:
             position = max(0, min(100, 100 - int(closure)))
             result["position"] = position
@@ -145,6 +171,9 @@ def cover_state(states: dict[str, Any]) -> dict[str, Any]:
             pass
     if "state" not in result and open_closed is not None:
         result["state"] = "open" if str(open_closed).lower() == "open" else "closed"
+    # Was das Gerät selbst meldet, sticht jede Annahme - und räumt sie weg.
+    if result:
+        result["angenommen"] = None
     orientation = states.get(ORIENTATION)
     if orientation is not None:
         try:
@@ -154,8 +183,46 @@ def cover_state(states: dict[str, Any]) -> dict[str, Any]:
             result["tilt"] = max(0, min(100, 100 - int(orientation)))
         except (TypeError, ValueError):
             pass
-    result.setdefault("state", "unknown")
+    # Bewusst *kein* `state: unknown` als Rückfall.
+    #
+    # Eine RTS-Store funkt nur in eine Richtung: Das Gateway schickt
+    # Befehle, die Store meldet nie etwas zurück. Für sie kommt hier bei
+    # jedem Poll ein leeres Ergebnis - und stünde darin «unknown», würde
+    # es die Annahme aus dem letzten Befehl bei jedem Poll wieder
+    # zunichtemachen (`update_state` merged, siehe core/registry.py).
+    # Nichts zu sagen heisst: nichts ändern.
     return result
+
+
+def annahme(command: str, data: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Wo die Store nach diesem Befehl steht - vermutlich (rein, testbar).
+
+    Für Storen, die nie zurückmelden. Somfy RTS funkt nur in eine
+    Richtung: Das Gateway schickt, das Gerät schweigt. Der Hub wusste
+    deshalb nie etwas, und die App machte aus «weiss nicht» ein
+    «Offen» - eine Store, die seit gestern unten ist, stand als offen
+    da.
+
+    Der letzte Befehl ist die beste Auskunft, die es gibt. Sie ist nicht
+    sicher (jemand kann die Store von Hand oder mit der Originalfernbe-
+    dienung bewegt haben), und genau deshalb reist `angenommen` mit:
+    Die App schreibt es dazu, statt Gewissheit vorzutäuschen.
+
+    Für `stop` gibt es keine Annahme - irgendwo dazwischen ist keine Zahl.
+    """
+    if command == "open":
+        offen = 100
+    elif command == "close":
+        offen = 0
+    elif command == "set_position":
+        offen = max(0, min(100, int((data or {}).get("position", 0))))
+    else:
+        return {}
+    return {
+        "position": offen,
+        "state": "open" if offen >= 99 else "closed" if offen <= 1 else "partial",
+        "angenommen": True,
+    }
 
 
 # Grenzen für die gelernte Laufzeit: Schneller als 5 s fährt kein Storen
@@ -279,7 +346,10 @@ class OverkizIntegration(Integration):
                 device.device_url.replace("/", "_").replace(":", "_"),
                 EntityKind.COVER,
                 device.label or "Storen",
-                state=cover_state(states),
+                # «unknown» nur hier, beim Anlegen: Bis zur ersten
+                # Meldung oder zum ersten Befehl weiss der Hub es
+                # wirklich nicht - und das gehört gesagt, nicht geraten.
+                state={"state": "unknown", **cover_state(states)},
                 commands=commands,
                 # Beim Start zählt die Meldung des Gateways einmal - eine
                 # Store, die gerade nicht funkt, wird deshalb nicht sofort
@@ -386,7 +456,7 @@ class OverkizIntegration(Integration):
             if entity is not None and entity.available != erreichbar:
                 self.log.info(
                     "Overkiz: %s %s",
-                    entity.name,
+                    entity.label,
                     "meldet sich wieder" if erreichbar else "meldet sich nicht mehr",
                 )
             await self.hub.registry.update_state(
@@ -405,7 +475,7 @@ class OverkizIntegration(Integration):
             if zaehler < ABWESEND_SCHWELLE:
                 continue
             entity = self.hub.registry.get(entity_id)
-            still.append(entity.name if entity else entity_id)
+            still.append(entity.label if entity else entity_id)
         if not still:
             return {"ok": True, "detail": f"{len(self._devices)} Storen, alle melden sich."}
         return {
@@ -485,8 +555,13 @@ class OverkizIntegration(Integration):
         # dem JSON-null in der Gateway-Firmware ein 'nil' und der Befehl fällt
         # mit UNSPECIFIED_ERROR / error:'nil' durch.
         if command == "set_position":
-            # App: offen %, Overkiz: geschlossen %.
-            params: list[Any] = [max(0, min(100, 100 - int(data.get("position", 0))))]
+            offen = max(0, min(100, int(data.get("position", 0))))
+            # App: offen %. Overkiz zählt bei Storen die Geschlossenheit -
+            # also drehen. Bei Markisen den Ausfahrgrad, und der zählt
+            # schon in dieselbe Richtung: 100 heisst draussen. Wer hier
+            # dreht, fährt die Markise beim «ganz auf» ein.
+            markise = variants and str(variants[0]) == "setDeployment"
+            params: list[Any] = [offen if markise else 100 - offen]
         elif command == "set_tilt":
             # App: offen %, Overkiz: geschlossen % - wie bei set_position.
             params = [max(0, min(100, 100 - int(data.get("tilt", 0))))]
@@ -519,8 +594,15 @@ class OverkizIntegration(Integration):
                 # Das Gerät hat den Befehl genommen - es ist also da,
                 # was das Gateway vorher auch behauptet haben mag.
                 self._abwesend[entity.id] = 0
-                if not entity.available:
-                    await self.hub.registry.update_state(entity.id, {}, available=True)
+                # Wo die Store jetzt steht, sofern sie es nicht selbst
+                # sagt. Meldet sie sich, sticht ihre Meldung das hier
+                # beim nächsten Ereignis und räumt `angenommen` weg
+                # (siehe `cover_state`). Wer nie meldet, hat damit
+                # wenigstens die Auskunft aus dem letzten Befehl.
+                vermutet = annahme(command, data)
+                await self.hub.registry.update_state(
+                    entity.id, vermutet, available=True
+                )
                 return
         raise ConfigError(f"Gateway lehnt '{command}' ab: {last_err}")
 
@@ -604,11 +686,80 @@ async def _login_main(config_path: str) -> int:
     return 0
 
 
+async def _geraete_main(config_path: str) -> int:
+    """Was das Gateway über jede Store meldet - roh.
+
+    Der Anlass: «Die Store Terrasse ist geöffnet, wird aber als
+    geschlossen angezeigt.» Ob das an der Rechnung liegt oder daran, was
+    das Gerät meldet, sieht man nur hier. Die App zeigt den fertigen
+    Zustand; welche Zustandsnamen dahinterstehen, verrät sie nicht.
+    """
+    from pyoverkiz.client import OverkizClient
+    from pyoverkiz.utils import generate_local_server
+
+    from ..core import tokenstore
+    from ..core.config import load_config
+
+    config = load_config(config_path)
+    blocks = [b for b in config.integrations if b.get("integration") == "overkiz"]
+    if not blocks:
+        print(f"In {config_path} steht kein overkiz-Block.")
+        return 1
+    block = blocks[0]
+    host = str(block.get("host") or "")
+    token = block.get("token") or tokenstore.value(
+        tokenstore.token_file(config.data_file, block, "overkiz"), "token"
+    )
+    if not host or not token:
+        print("Ohne host und Token geht es nicht - erst anmelden:")
+        print(f"  python -m homepilot.integrations.overkiz -c {config_path}")
+        return 1
+
+    async with OverkizClient(
+        username="",
+        password="",
+        server=generate_local_server(host=host),
+        token=str(token),
+        verify_ssl=False,
+    ) as client:
+        await client.login()
+        geraete = await client.get_devices()
+
+    for device in geraete:
+        art = getattr(device, "widget", None) or getattr(device, "ui_class", None)
+        print(f"\n{device.label}  ({art})")
+        zustaende = {
+            str(getattr(state, "name", "")): getattr(state, "value", None)
+            for state in (getattr(device, "states", None) or [])
+        }
+        for name in sorted(zustaende):
+            # Die drei, um die es beim Auf und Zu geht, zuerst erkennbar.
+            marke = "→" if name in (CLOSURE, DEPLOYMENT, OPEN_CLOSED) else " "
+            print(f"  {marke} {name} = {zustaende[name]}")
+        print(f"    daraus wird: {cover_state(zustaende)}")
+        befehle = sorted(
+            str(getattr(befehl, "command_name", befehl))
+            for befehl in (getattr(device, "definition", None).commands or [])
+        ) if getattr(device, "definition", None) else []
+        if befehle:
+            print(f"    Kommandos: {', '.join(befehle)}")
+    return 0
+
+
 if __name__ == "__main__":
     import argparse
     import sys
 
     parser = argparse.ArgumentParser(description="Overkiz-Anmeldung für HomePilot")
     parser.add_argument("-c", "--config", required=True, help="Pfad zur config.yaml des Hubs")
+    parser.add_argument(
+        "--geraete",
+        action="store_true",
+        help="Zeigen, was das Gateway je Store meldet (roh) - statt anzumelden",
+    )
     args = parser.parse_args()
-    sys.exit(asyncio.run(_login_main(args.config)))
+    sys.exit(
+        asyncio.run(
+            _geraete_main(args.config) if args.geraete else _login_main(args.config)
+        )
+    )

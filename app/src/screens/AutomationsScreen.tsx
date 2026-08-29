@@ -9,6 +9,8 @@ import { Fehlschlag, Laedt } from '../components/Zustand';
 import { useColors } from '../theme';
 import { HubFehler, hubClient } from '../api/client';
 import { datumKurz, uhr } from '../lib/format';
+import { brauchtRueckfrage, handstartSatz } from '../lib/handstart';
+import { laufzeile } from '../lib/laufzeile';
 import { istPushKategorie } from '../lib/pushablaeufe';
 import { useOrte } from '../hooks/useOrte';
 import {
@@ -20,8 +22,11 @@ import {
 } from '../lib/szenen';
 import { BabysitterStand, LEERER_BABYSITTER, istFreigegeben, modusSatz, seitText } from '../lib/babysitter';
 import { Editor, Fassung } from './automations/editor';
-import { Automation, Draft, DryRun, EMPTY, Run, StepDraft, TriggerHealth, buildConditions, describe, groupByCategory, lastRunText, newTrigger, runLine, search, stepToActions, stepsToActions, symbolFuerNamen, szenenSymbol, toDraft, triggerIcon, triggerToConfig, usedCategories, zeitpunktLabel } from './automations/entwurf';
+import { Automation, Draft, DryRun, EMPTY, Run, StepDraft, TriggerHealth, buildConditions, describe, groupByCategory, lastRunText, namensVorschlag, newTrigger, runLine, search, stepToActions, stepsToActions, symbolFuerNamen, szenenSymbol, toDraft, triggerIcon, triggerToConfig, usedCategories, wirkungText, zeitpunktLabel } from './automations/entwurf';
 import { Groups, SearchBox } from './automations/felder';
+import { laeuft, tippLabel, unterzeile } from '../lib/szenenzeile';
+import { szenenFarben } from '../lib/szenenfarben';
+import { bandReihenfolge, bandZeile } from '../lib/tagesband';
 import { makeStyles } from './automations/stil';
 import { SCENE_ICONS, SceneDraft, SceneEditor } from './automations/szenen-editor';
 import { EigeneVorlage, buildTemplates, mischeVorlagen } from './automations/vorlagen';
@@ -104,6 +109,9 @@ export function AutomationsScreen({
   const [trash, setTrash] = useState<PapierkorbZeile[]>([]);
   const [trashOpen, setTrashOpen] = useState(false);
   const [hueScenes, setHueScenes] = useState<string[]>([]);
+  // Die Musik-Favoriten des Hauses - ein Ablauf soll sie beim Namen
+  // nennen können, statt eine Kennung zu verlangen.
+  const [favoriten, setFavoriten] = useState<string[]>([]);
   const [sceneQuery, setSceneQuery] = useState('');
   // Aufgeklappte Kategorien, getrennt je Abschnitt. Standard ist
   // zugeklappt: Wer Kategorien vergibt, will zuerst die Übersicht sehen
@@ -127,6 +135,10 @@ export function AutomationsScreen({
   );
 
   const mayEdit = !!user?.capabilities?.includes('edit_automations');
+  // Welcher Ablauf gerade um Bestätigung bittet, bevor er von Hand
+  // losläuft. Nur Abläufe, die schliessen oder scharf schalten, fragen
+  // überhaupt (lib/handstart.ts).
+  const [handstart, setHandstart] = useState<string | null>(null);
   // Denselben Eingriff wie das Pausieren - Abläufe ruhen lassen -,
   // nur gezielter. Deshalb dieselbe Berechtigung.
   const mayPause = !!user?.capabilities?.includes('pause_automations');
@@ -236,6 +248,14 @@ export function AutomationsScreen({
       })
       .then((data) => setHueScenes(data?.scenes ?? []));
     hub
+      .get<{ favorites?: { name?: string }[] } | null>('/api/media/favorites', {
+        fallback: null,
+        still: true,
+      })
+      .then((data) =>
+        setFavoriten((data?.favorites ?? []).map((zeile) => String(zeile.name ?? ''))),
+      );
+    hub
       .get<{ names?: string[] } | null>('/api/push/targets', {
         fallback: null,
         still: true,
@@ -322,7 +342,9 @@ export function AutomationsScreen({
       return;
     }
     const body = {
-      alias: draft.alias || 'Ohne Namen',
+      // Derselbe Vorschlag, der im Namensfeld als Platzhalter steht -
+      // sonst versprächen Feld und Liste Verschiedenes.
+      alias: draft.alias.trim() || namensVorschlag(draft, entities) || 'Ohne Namen',
       trigger: draft.triggers.map(triggerToConfig),
       condition: buildConditions(draft),
       action: stepsToActions(draft.steps),
@@ -463,11 +485,17 @@ export function AutomationsScreen({
     return true;
   };
 
-  /** Den gespeicherten Ablauf einmal sofort ausführen – der «Testen»-Knopf. */
+  /** Den gespeicherten Ablauf einmal sofort ausführen – der «Testen»-Knopf
+   *  im Editor und der Handstart in der Liste. */
   const test = async (id: string) => {
     try {
       await hub.post(`/api/automations/${id}/trigger`, undefined, { still: true });
       onNote?.('Ablauf einmal ausgeführt');
+      // Neu laden, damit die Zeile «Zuletzt gelaufen» stimmt - und damit
+      // ein hängender Schritt sichtbar wird. Ohne das stünde nach dem
+      // Handstart weiter «Noch nie ausgelöst» da, und man drückte noch
+      // einmal.
+      load();
     } catch (err) {
       setError(String(err instanceof Error ? err.message : err));
     }
@@ -672,6 +700,39 @@ export function AutomationsScreen({
     return rueckweg;
   };
 
+  /**
+   * Eine Szene aus der Liste heraus schalten.
+   *
+   * Die Liste war eine Sackgasse: Name, Anzahl, Stift. Wer «Kino»
+   * einschalten wollte, stand vor der Szene und musste dafür auf die
+   * Startseite zurück. Ein Tippen tut jetzt das Naheliegende.
+   *
+   * Über `/toggle` und nicht über `/activate`: Der Hub entscheidet, ob
+   * das Tippen die Szene stellt oder zurücknimmt. Entschiede es die
+   * App, entschiede sie es anhand eines Standes, der Sekunden alt sein
+   * kann - und löste ein zweites Mal aus, statt zurückzunehmen.
+   */
+  const schalteSzene = async (scene: Scene) => {
+    try {
+      // Ohne `fallback`: Der soll hier gerade nicht greifen. Er machte
+      // aus einem Fehlschlag ein stilles `null` - und die Meldung
+      // darunter sagte «gestellt», obwohl nichts geschaltet hat.
+      const antwort = await hub.post<{ reverted?: boolean } | null>(
+        `/api/scenes/${encodeURIComponent(scene.id)}/toggle`,
+        undefined,
+        { still: true }
+      );
+      onNote?.(
+        antwort?.reverted
+          ? `«${scene.name}» zurückgenommen`
+          : `«${scene.name}» gestellt`
+      );
+      onScenesChanged?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const revertScene = async (befehle: RueckwegBefehl[]) => {
     let daneben = 0;
     for (const befehl of befehle) {
@@ -721,6 +782,12 @@ export function AutomationsScreen({
     }
     load();
   };
+
+  // Nicht gemerkt: `bandReihenfolge` hängt an der Uhrzeit, und ein
+  // useMemo über der Agenda allein hielte 07:00 auch um Mitternacht
+  // noch für «kommt heute noch». Die Liste ist kurz, das Sortieren
+  // kostet nichts.
+  const band = bandReihenfolge(agenda, Date.now());
 
   return (
     <View style={styles.list}>
@@ -825,27 +892,36 @@ export function AutomationsScreen({
         </Text>
       ) : null}
 
-      {agenda.length > 0 ? (
+      {band.length > 0 ? (
         // Das Tagesband (Punkt 163): «was macht das Haus heute noch?» -
-        // Vergangenes mit Haken, Kommendes mit Uhrzeit, ohne jeden
-        // Ablauf einzeln zu öffnen.
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={{ flexGrow: 0 }}
-          contentContainerStyle={styles.agendaBand}
-        >
-          {agenda.map((eintrag, index) => {
-            const vorbei = eintrag.at * 1000 < Date.now();
-            return (
+        // Kommendes mit Uhrzeit zuerst, Gelaufenes mit Haken dahinter,
+        // ohne jeden Ablauf einzeln zu öffnen.
+        <>
+          {/* Die Zeile darüber sagt in Worten, was rechts noch liegt.
+              Ohne sie sah das Band am rechten Rand abgeschnitten aus
+              statt scrollbar - man wischte gar nicht erst. */}
+          <Text style={styles.bandZeile}>{bandZeile(band)}</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={{ flexGrow: 0 }}
+            contentContainerStyle={styles.agendaBand}
+          >
+            {band.map((eintrag, index) => (
               <View
                 key={`${eintrag.automation_id}-${index}`}
-                style={[styles.agendaChip, vorbei && { opacity: 0.55 }]}
+                style={[styles.agendaChip, eintrag.vorbei && { opacity: 0.55 }]}
               >
                 <Ionicons
-                  name={vorbei ? 'checkmark-circle' : eintrag.art === 'sun' ? 'sunny-outline' : 'time-outline'}
+                  name={
+                    eintrag.vorbei
+                      ? 'checkmark-circle'
+                      : eintrag.art === 'sun'
+                        ? 'sunny-outline'
+                        : 'time-outline'
+                  }
                   size={13}
-                  color={vorbei ? colors.on : colors.inkSoft}
+                  color={eintrag.vorbei ? colors.on : colors.inkSoft}
                 />
                 <Text style={styles.agendaZeit}>
                   {new Date(eintrag.at * 1000).toLocaleTimeString('de-CH', {
@@ -857,9 +933,9 @@ export function AutomationsScreen({
                   {eintrag.alias}
                 </Text>
               </View>
-            );
-          })}
-        </ScrollView>
+            ))}
+          </ScrollView>
+        </>
       ) : null}
 
       {/* Ist alles abgehakt, bleibt keine Karte stehen - nur die schmale
@@ -963,12 +1039,11 @@ export function AutomationsScreen({
       ) : null}
       {mayEdit ? (
         <Pressable
-          onPress={() =>
-            setDraft({
-              ...EMPTY,
-              triggers: [newTrigger(entities[0])],
-            })
-          }
+          // Ohne Gerät. Vorher stand hier `newTrigger(entities[0])` - der
+          // frische Entwurf behauptete damit «Gewählt: Alarmanlage», ohne
+          // dass jemand sie gewählt hätte. Wer das übersah, legte einen
+          // Ablauf auf dem erstbesten Gerät der Liste an.
+          onPress={() => setDraft({ ...EMPTY })}
           accessibilityRole="button"
           style={({ pressed }) => [styles.newButton, pressed && { opacity: 0.75 }]}
         >
@@ -1178,7 +1253,7 @@ export function AutomationsScreen({
                         {automation.enabled === false ? ' · aus' : ''}
                       </Text>
                     </View>
-                    <Text style={styles.detail}>{describe(automation)}</Text>
+                    <Text style={styles.detail}>{describe(automation, entities)}</Text>
                     {/* «heute 21:12» statt Kopfrechnen über Sonnenuntergang
                         plus Versatz (Punkt 161) - nur bei Zeit/Sonne, ein
                         Bewegungsmelder hat keinen Kalender. */}
@@ -1187,6 +1262,25 @@ export function AutomationsScreen({
                         Nächste Ausführung: {zeitpunktLabel(automation.next_run)}
                       </Text>
                     ) : null}
+                    {/* Wann er zuletzt lief - und ob überhaupt. Das
+                        kostete bisher einen zweiten Aufruf je Ablauf, also
+                        fragte niemand, und ein stummer Ablauf blieb
+                        unbemerkt (siehe lib/laufzeile.ts). */}
+                    {(() => {
+                      const zeile = laufzeile(automation.last_run);
+                      return (
+                        <Text
+                          style={[
+                            styles.detail,
+                            zeile.ton === 'warn' && { color: colors.warn },
+                            zeile.ton === 'still' && { color: colors.inkFaint },
+                          ]}
+                          numberOfLines={2}
+                        >
+                          {zeile.text}
+                        </Text>
+                      );
+                    })()}
                     {automation.quiet_until &&
                     automation.quiet_until * 1000 > Date.now() ? (
                       <Text style={[styles.detail, { color: colors.warn }]}>
@@ -1239,6 +1333,15 @@ export function AutomationsScreen({
                           .map((run, index) => (
                             <View key={index}>
                               <Text style={styles.triggerNote}>{runLine(run)}</Text>
+                              {/* «Ausgeführt» heisst nur: abgeschickt. Ob
+                                  das Gerät danach auch so stand, hat der
+                                  Hub ein paar Sekunden später nachgesehen -
+                                  gemeldet wird nur, was nicht wirkte. */}
+                              {wirkungText(run) ? (
+                                <Text style={[styles.runStep, { color: colors.warn }]}>
+                                  · {wirkungText(run)}
+                                </Text>
+                              ) : null}
                               {/* Die Schritt-Spur (Punkt 160): beim
                                   neuesten Lauf und bei Fehlläufen - dort
                                   steht, WELCHER Schritt hing. */}
@@ -1280,7 +1383,77 @@ export function AutomationsScreen({
                           ))}
                       </View>
                     ) : null}
+                    {/* Die Rückfrage vor dem Handstart - in der Karte
+                        statt in einem Fenster: Sie gehört zu diesem
+                        Ablauf, und ein Fenster über der Liste liesse
+                        einen im Zweifel, welcher gemeint ist. */}
+                    {handstart === automation.id ? (
+                      <View style={styles.handstart}>
+                        <Text style={styles.handstartText}>
+                          «{automation.alias}» jetzt ausführen?{' '}
+                          {handstartSatz(automation.actions.length)}
+                        </Text>
+                        <View style={styles.handstartReihe}>
+                          <Pressable
+                            onPress={() => setHandstart(null)}
+                            accessibilityRole="button"
+                            style={({ pressed }) => [
+                              styles.handstartKnopf,
+                              pressed && { opacity: 0.7 },
+                            ]}
+                          >
+                            <Text style={styles.handstartAbbruch}>Abbrechen</Text>
+                          </Pressable>
+                          <Pressable
+                            onPress={() => {
+                              setHandstart(null);
+                              test(automation.id);
+                            }}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${automation.alias} wirklich ausführen`}
+                            style={({ pressed }) => [
+                              styles.handstartKnopf,
+                              styles.handstartLos,
+                              pressed && { opacity: 0.7 },
+                            ]}
+                          >
+                            <Text style={styles.handstartLosText}>Ausführen</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    ) : null}
                   </View>
+                  {/* Von Hand starten. Steht vor dem Mond: Beim
+                      Einrichten drückt man ihn zehnmal, «aus bis morgen»
+                      einmal im Monat.
+
+                      Nicht an `editable` gebunden - ein Ablauf aus der
+                      config.yaml lässt sich nicht bearbeiten, aber sehr
+                      wohl ausprobieren, und genau dort fehlte der Weg
+                      dazu ganz. */}
+                  {mayEdit ? (
+                    <Pressable
+                      onPress={() =>
+                        brauchtRueckfrage(automation.actions, automation.otherwise)
+                          ? setHandstart(
+                              handstart === automation.id ? null : automation.id
+                            )
+                          : test(automation.id)
+                      }
+                      accessibilityLabel={`${automation.alias} jetzt ausführen`}
+                      style={styles.iconButton}
+                    >
+                      <Ionicons
+                        name={
+                          handstart === automation.id ? 'close-outline' : 'play-outline'
+                        }
+                        size={20}
+                        color={
+                          handstart === automation.id ? colors.warn : colors.inkSoft
+                        }
+                      />
+                    </Pressable>
+                  ) : null}
                   {automation.editable && mayEdit ? (
                     <>
                       {automation.enabled !== false ? (
@@ -1468,25 +1641,60 @@ export function AutomationsScreen({
             renderItem={(scene) => (
               <Card key={scene.id} style={styles.card}>
                 <View style={styles.cardHead}>
-                  {/* Wer beim Anlegen kein Symbol gewählt hat, bekam das
-                      allgemeine Funkeln - auch «Babysitter-Modus». Steht
-                      noch die Voreinstellung da und sagt der Name etwas,
-                      zeigen wir das. Gespeichert wird nichts: Ein selbst
-                      gewähltes Funkeln bleibt ein Funkeln, sobald es
-                      einmal angetippt wurde. */}
-                  <Ionicons
-                    name={
-                      szenenSymbol(scene) as keyof typeof Ionicons.glyphMap
-                    }
-                    size={20}
-                    color={colors.inkSoft}
-                  />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.title}>{scene.name}</Text>
-                    <Text style={styles.detail}>
-                      {(scene.actions?.length ?? scene.entity_ids.length)} Aktion(en)
-                    </Text>
-                  </View>
+                  {/* Die ganze Zeile schaltet - nicht nur ein kleiner
+                      Knopf am Rand. Das Symbol färbt sich mit: Eine
+                      Szene, die gerade steht, sieht man dann von weitem,
+                      ohne eine Zeile zu lesen. */}
+                  <Pressable
+                    onPress={() => schalteSzene(scene)}
+                    accessibilityRole="button"
+                    accessibilityLabel={tippLabel(scene)}
+                    style={({ pressed }) => [
+                      styles.szenenZeile,
+                      pressed && { opacity: 0.6 },
+                    ]}
+                  >
+                    {/* Wer beim Anlegen kein Symbol gewählt hat, bekam das
+                        allgemeine Funkeln - auch «Babysitter-Modus». Steht
+                        noch die Voreinstellung da und sagt der Name etwas,
+                        zeigen wir das. Gespeichert wird nichts: Ein selbst
+                        gewähltes Funkeln bleibt ein Funkeln, sobald es
+                        einmal angetippt wurde. */}
+                    <View
+                      style={[
+                        styles.szenenSymbol,
+                        laeuft(scene) && {
+                          backgroundColor: colors.accent,
+                          borderColor: colors.accent,
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name={szenenSymbol(scene) as keyof typeof Ionicons.glyphMap}
+                        size={20}
+                        color={laeuft(scene) ? '#FFFFFF' : colors.inkSoft}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.title}>{scene.name}</Text>
+                      <Text style={styles.detail}>
+                        {unterzeile(scene)}
+                        {laeuft(scene) ? ' · steht' : ''}
+                      </Text>
+                      {/* Die gewählten Farben als Punkte - dieselbe
+                          Auskunft wie auf dem Schnellknopf. */}
+                      {szenenFarben(scene.actions).length > 0 ? (
+                        <View style={styles.stimmungsPunkte}>
+                          {szenenFarben(scene.actions).map((farbe) => (
+                            <View
+                              key={farbe}
+                              style={[styles.stimmungsPunkt, { backgroundColor: farbe }]}
+                            />
+                          ))}
+                        </View>
+                      ) : null}
+                    </View>
+                  </Pressable>
                   {scene.editable && mayEdit ? (
                     <Pressable
                       onPress={() =>
@@ -1572,8 +1780,10 @@ export function AutomationsScreen({
         entities={entities}
         orte={orte}
         scenes={scenes}
+        andereAblaeufe={automations}
         categories={usedCategories(automations)}
         hueScenes={hueScenes}
+        favoriten={favoriten}
         empfaenger={empfaenger}
         onProbeStep={mayEdit ? probeStep : undefined}
         onChange={setDraft}

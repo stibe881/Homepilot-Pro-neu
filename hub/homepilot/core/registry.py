@@ -8,6 +8,7 @@ from typing import Any
 
 from .entity import Entity
 from .errors import UnknownEntityError
+from .eventlog import worth_recording
 from .events import EventBus
 from .source import current as current_source
 
@@ -157,6 +158,14 @@ class EntityRegistry:
 
         if new_state == old_state and not availability_changed:
             return
+
+        # Wer war es? Dieselbe Frage wie im Protokoll, dieselbe Regel -
+        # und die Antwort reist am Zustand mit, statt einen eigenen
+        # Abruf je Kachel zu kosten.
+        if worth_recording(entity.kind, old_state, new_state):
+            entity.last_change = time.time()
+            quelle = current_source()
+            entity.last_source = dict(quelle) if quelle else None
 
         entity.state = new_state
         if available is not None:

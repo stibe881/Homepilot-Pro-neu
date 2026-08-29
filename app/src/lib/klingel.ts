@@ -53,6 +53,38 @@ export function klingeltGerade(entities: Entity[]): Entity | undefined {
 }
 
 /**
+ * Zeigt dieses Gerät jetzt das Vollbild? (rein, testbar)
+ *
+ * Drei Bedingungen, und die dritte ist die neue: Es klingelt gerade,
+ * dieses Klingeln wurde hier noch nicht weggewischt - und das Gerät
+ * steht im Wandpanel-Modus.
+ *
+ * Vorher sprang das Bild auf jedem angemeldeten Gerät auf. Gemeint war
+ * es fürs Panel im Flur: Dort steht man davor, sieht, wer läutet, und
+ * drückt auf. Auf dem Telefon in der Hosentasche ist dasselbe Vollbild
+ * etwas anderes - es reisst einem die App unter der Hand weg, mitten in
+ * dem, was man gerade tat, und das auch dann, wenn man gar nicht zuhause
+ * ist. Wer unterwegs wissen will, dass jemand vor der Türe steht,
+ * bekommt eine Nachricht; die kann man lesen, wenn man mag.
+ *
+ * Der Modus gehört zum Gerät, nicht zur Person (api/types.ts): Genau
+ * darum lässt sich das hier so entscheiden. Dasselbe Konto am Panel und
+ * am Telefon - das eine zeigt, das andere nicht.
+ */
+export function vollbildZeigen(opts: {
+  /** Steht dieses Gerät im Wandpanel-Modus? */
+  panel?: boolean;
+  /** Kennung des laufenden Klingelns – null heisst: es klingelt nicht. */
+  ringKey: string | null;
+  /** Welches Klingeln hier schon weggewischt wurde. */
+  weggewischt: string | null;
+}): boolean {
+  if (!opts.panel) return false;
+  if (!opts.ringKey) return false;
+  return opts.weggewischt !== opts.ringKey;
+}
+
+/**
  * Welches Bild zum Klingeln gehört (rein, testbar).
  *
  * Eine Gegensprechanlage hat keines. Hängt aber eine Kamera an derselben
@@ -74,15 +106,20 @@ export function klingelBild(
   );
 }
 
-/** Ein Knopf im Klingel-Vollbild: eine Türe und ein Befehl. */
-export interface KlingelAktion {
-  /** Eindeutig über beide Felder – eine Türe kann zwei Knöpfe stellen. */
-  id: string;
+/** Ein Schritt: eine Türe, ein Befehl. */
+export interface KlingelSchritt {
   entity: Entity;
   befehl: string;
+}
+
+/** Ein Knopf im Klingel-Vollbild – ein Handgriff, oft über zwei Türen. */
+export interface KlingelAktion {
+  id: string;
+  /** Was dieser Knopf schickt, in dieser Reihenfolge: unten zuerst. */
+  schritte: KlingelSchritt[];
   /** Was auf dem Knopf steht. */
   label: string;
-  /** Macht dieser Befehl die Türe wirklich auf? */
+  /** Macht dieser Knopf am Ende eine Türe wirklich auf? */
   oeffnet: boolean;
 }
 
@@ -99,53 +136,129 @@ const BEFEHLE: Record<string, { wort: string; oeffnet: boolean }> = {
 /** Höchstens so viele Knöpfe. Mehr ist unter Zeitdruck eine Suchaufgabe. */
 export const HOECHSTENS_AKTIONEN = 4;
 
-/**
- * Was beim Klingeln zur Auswahl steht (rein, testbar).
+/** Der zurückhaltendste Befehl, den diese Türe kann (rein, testbar).
  *
- * Zwei Änderungen gegenüber «eine Türe, ein Knopf»:
- *
- * Erstens kann eine Türe zwei Dinge. Ein Nuki schliesst auf (Riegel) und
- * öffnet (Falle) – das sind zwei verschiedene Handgriffe, und bisher bot
- * das Vollbild nur den zweiten an. Wer bloss aufschliessen wollte, weil
- * der Besuch selbst drücken kann, fand den Knopf nicht.
- *
- * Zweitens steht die Türe der Klingel selbst vorn: Sie gehört zu dem,
- * was man gerade ansieht. Die Wohnungstüre steht nirgends als «zur
- * Klingel gehörig» geschrieben und kommt danach.
- */
-export function klingelAktionen(
-  entities: Entity[],
-  ausloeser?: Entity
-): KlingelAktion[] {
+ *  Der Riegel, wenn sie einen hat - sonst bleibt nur das Öffnen. Eine
+ *  Gegensprechanlage kann nur summen; sie hat kein «nur aufschliessen». */
+export function leiserBefehl(entity: Entity): string | null {
+  for (const befehl of ['unlock', 'unlatch', 'open_door']) {
+    if (entity.commands.includes(befehl)) return befehl;
+  }
+  return null;
+}
+
+/** Die Türen in der Reihenfolge, in der man sie durchschreitet (rein). */
+export function tuerenFuerKlingel(entities: Entity[], ausloeser?: Entity): Entity[] {
   const tueren = entities.filter(
     (entity) => entity.kind === 'lock' && oeffnungsBefehl(entity) !== null
   );
+  // Die Türe der Klingel zuerst: Sie ist die untere, durch die der Besuch
+  // zuerst muss - und die, die man gerade ansieht.
   const eigene = (entity: Entity) =>
     !!ausloeser &&
     (entity.id === ausloeser.id ||
       entity.integration === ausloeser.integration ||
       (!!entity.room && entity.room === ausloeser.room));
-  const geordnet = [
-    ...tueren.filter(eigene),
-    ...tueren.filter((entity) => !eigene(entity)),
-  ];
-  const aktionen: KlingelAktion[] = [];
-  for (const entity of geordnet) {
-    // Erst aufschliessen, dann öffnen: die vorsichtigere Handlung zuerst.
-    // Ein Fehlgriff auf dem oberen Knopf lässt die Türe wenigstens zu.
+  return [...tueren.filter(eigene), ...tueren.filter((entity) => !eigene(entity))];
+}
+
+/** Wie ein Weg heisst, wenn er über alle Türen geht. */
+function alleWort(anzahl: number): string {
+  return anzahl === 2 ? 'Beide' : 'Alle Türen';
+}
+
+/**
+ * Was beim Klingeln zur Auswahl steht (rein, testbar).
+ *
+ * Bei *einer* Türe steht, was sie kann: aufschliessen (Riegel) und
+ * öffnen (Falle) sind zwei verschiedene Handgriffe, und wer bloss
+ * aufschliessen will, weil der Besuch selbst drücken kann, soll das
+ * können.
+ *
+ * Bei *zwei* Türen war genau das der Umweg. Wer im Treppenhaus wartet,
+ * muss durch beide - und man tippte erst unten auf, wartete, tippte oben
+ * auf. Deshalb hier ganze Wege statt einzelner Türen:
+ *
+ * 1. **Nur unten.** Der Besuch kommt ins Treppenhaus, oben klingelt er
+ *    nochmal - das ist der normale Fall beim Paketboten.
+ * 2. **Beide aufschliessen.** Beide Riegel zurück; die Wohnungstüre
+ *    bleibt zu und muss gedrückt werden.
+ * 3. **Beide öffnen.** Auch die Falle - der Besuch kann durchlaufen.
+ *
+ * Wo eine Türe nur eines kann, fallen doppelte Wege weg: Ein Knopf, der
+ * dasselbe tut wie der darüber, ist unter Zeitdruck eine Falle.
+ */
+export function klingelAktionen(
+  entities: Entity[],
+  ausloeser?: Entity
+): KlingelAktion[] {
+  const tueren = tuerenFuerKlingel(entities, ausloeser);
+  if (tueren.length === 0) return [];
+
+  const wort = (befehl: string) => BEFEHLE[befehl]?.wort ?? 'öffnen';
+  const oeffnet = (befehl: string) => BEFEHLE[befehl]?.oeffnet ?? false;
+
+  // Eine Türe: wie gehabt, ein Knopf je Handgriff.
+  if (tueren.length === 1) {
+    const tuere = tueren[0];
+    const aktionen: KlingelAktion[] = [];
     for (const befehl of ['unlock', 'unlatch', 'open_door']) {
-      const wort = BEFEHLE[befehl];
-      if (!wort || !entity.commands.includes(befehl)) continue;
+      if (!BEFEHLE[befehl] || !tuere.commands.includes(befehl)) continue;
       aktionen.push({
-        id: `${entity.id}:${befehl}`,
-        entity,
-        befehl,
-        label: `${entity.name} ${wort.wort}`,
-        oeffnet: wort.oeffnet,
+        id: `${tuere.id}:${befehl}`,
+        schritte: [{ entity: tuere, befehl }],
+        label: `${tuere.name} ${wort(befehl)}`,
+        oeffnet: oeffnet(befehl),
       });
     }
+    return aktionen.slice(0, HOECHSTENS_AKTIONEN);
   }
-  return aktionen.slice(0, HOECHSTENS_AKTIONEN);
+
+  const unten = tueren[0];
+  const untenLeise = leiserBefehl(unten) as string;
+  const wege: KlingelAktion[] = [
+    {
+      id: 'unten',
+      schritte: [{ entity: unten, befehl: untenLeise }],
+      label: `${unten.name} ${wort(untenLeise)}`,
+      oeffnet: oeffnet(untenLeise),
+    },
+  ];
+
+  const leise = tueren.map((entity) => ({
+    entity,
+    befehl: leiserBefehl(entity) as string,
+  }));
+  const stark = tueren.map((entity) => ({
+    entity,
+    befehl: oeffnungsBefehl(entity) as string,
+  }));
+  const gleich = (a: KlingelSchritt[], b: KlingelSchritt[]) =>
+    a.length === b.length &&
+    a.every((schritt, i) => schritt.befehl === b[i].befehl);
+
+  // Benannt nach der letzten Türe: Dort endet der Weg, und dort liegt
+  // der Unterschied zwischen «aufschliessen» und «öffnen». Was unten
+  // passiert, ist in beiden Fällen dasselbe.
+  const letzterLeise = leise[leise.length - 1].befehl;
+  wege.push({
+    id: 'alle-leise',
+    schritte: leise,
+    label: `${alleWort(tueren.length)} ${wort(letzterLeise)}`,
+    oeffnet: leise.some((schritt) => oeffnet(schritt.befehl)),
+  });
+
+  // Nur, wenn er wirklich etwas anderes tut: Kann keine Türe mehr als
+  // aufschliessen, wäre der dritte Knopf eine Wiederholung.
+  if (!gleich(leise, stark)) {
+    wege.push({
+      id: 'alle-stark',
+      schritte: stark,
+      label: `${alleWort(tueren.length)} öffnen`,
+      oeffnet: true,
+    });
+  }
+  return wege.slice(0, HOECHSTENS_AKTIONEN);
 }
 
 /** Wie viele Sekunden noch bleiben (rein, testbar).

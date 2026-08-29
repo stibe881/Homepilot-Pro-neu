@@ -5,7 +5,6 @@ Playlists des Kontos kennt, kann daraus einen Namen machen.
 """
 
 from homepilot.integrations.spotify import (
-    REPEAT_MODES,
     next_repeat,
     parse_playback,
     playlist_name,
@@ -62,7 +61,9 @@ def test_parse_playback_reads_shuffle_and_repeat():
         }
     )
     assert state["shuffle"] is True
-    assert state["repeat"] == "context"
+    # Spotify sagt «context», die App und der Cast-Player sagen «all» -
+    # der Hub übersetzt, damit eine Kachel überall gleich spricht.
+    assert state["repeat"] == "all"
 
 
 def test_parse_playback_defaults_shuffle_and_repeat():
@@ -74,15 +75,34 @@ def test_parse_playback_defaults_shuffle_and_repeat():
 
 
 def test_next_repeat_cycles_through_the_modes():
-    # aus → alles → ein Titel → aus
-    assert next_repeat("off") == "context"
-    assert next_repeat("context") == "track"
+    # aus → alles → ein Titel → aus, in den Namen der App
+    assert next_repeat("off") == "all"
+    assert next_repeat("all") == "one"
+    assert next_repeat("one") == "off"
+
+
+def test_next_repeat_understands_spotifys_own_words():
+    # Ein Ablauf, der noch «context» schickt, darf nicht steckenbleiben.
+    assert next_repeat("context") == "one"
     assert next_repeat("track") == "off"
+
+
+def test_repeat_api_translates_both_ways():
+    from homepilot.integrations.spotify import repeat_api, repeat_name
+
+    assert repeat_api("all") == "context"
+    assert repeat_api("one") == "track"
+    assert repeat_api("off") == "off"
+    # Spotifys eigene Wörter bleiben gültig.
+    assert repeat_api("context") == "context"
+    assert repeat_api("quatsch") is None
+    assert repeat_name("context") == "all"
+    assert repeat_name(None) == "off"
 
 
 def test_next_repeat_recovers_from_nonsense():
     # Ein unbekannter Wert darf nicht in einer Sackgasse enden.
-    assert next_repeat("quatsch") in REPEAT_MODES
+    assert next_repeat("quatsch") in ("off", "all", "one")
 
 
 # ── Befehle sollen nicht auf Spotifys Rückmeldung warten ───────────────────
@@ -408,3 +428,28 @@ def test_derselbe_titel_zweimal_zaehlt_ab_dem_ersten():
         "spotify:track:b",
         "spotify:track:a",
     ]
+
+
+async def test_refreshing_the_playlists_asks_spotify_once():
+    """«Wie lange dauert es, bis eine neue Playlist erscheint?»
+
+    Bis zu einer halben Stunde: Die Liste wird nur alle 1800 Sekunden
+    geholt (siehe `_takt`). Wer die Auswahl aufklappt, schickt jetzt ein
+    Kommando - zwei Anfragen genau dann, wenn jemand hinschaut.
+    """
+    from homepilot.integrations.spotify import SpotifyIntegration
+
+    integration = SpotifyIntegration.__new__(SpotifyIntegration)
+    geholt: list[str] = []
+
+    async def load_playlists() -> None:
+        geholt.append("playlists")
+
+    async def refresh() -> None:
+        geholt.append("zustand")
+
+    integration._load_playlists = load_playlists  # type: ignore[method-assign]
+    integration._refresh = refresh  # type: ignore[method-assign]
+
+    await integration.handle_command(None, "refresh_playlists", {})  # type: ignore[arg-type]
+    assert geholt == ["playlists", "zustand"]

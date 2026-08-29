@@ -6,6 +6,9 @@ läuft. Was diesen Handel vertretbar macht, wird hier geprüft: raten geht
 nicht, und nach zehn Minuten ist die Adresse tot.
 """
 
+import asyncio
+
+import pytest
 from fastapi.testclient import TestClient
 
 from homepilot.api import create_app
@@ -101,3 +104,68 @@ def test_the_media_type_comes_from_the_first_bytes():
     assert media_type(b"\xff\xd8\xff\xe0 jpeg") == "image/jpeg"
     assert media_type(b"\x89PNG\r\n\x1a\n") == "image/png"
     assert media_type(b"\x00\x00\x00\x20ftypisom0000") == "video/mp4"
+
+
+# ── Reservieren und Nachreichen ────────────────────────────────────────
+#
+# Warum es das gibt, steht in core/personenbild.py: Das beste Bild ist
+# nicht das vom Moment des Auslösers, sondern das vom Moment, in dem die
+# Kamera wirklich jemanden sieht. Die Nachricht trägt nur die Adresse und
+# darf darauf nicht warten – also wird die Adresse zuerst vergeben.
+
+
+def test_a_reserved_address_looks_empty_until_it_is_filled():
+    store = SnapshotStore()
+    token = store.reserve()
+    # Von aussen ununterscheidbar von «gibt es nicht» – und das ist gut so.
+    assert store.get(token) is None
+    store.fuellen(token, JPEG)
+    assert store.get(token) == JPEG
+
+
+@pytest.mark.asyncio
+async def test_waiting_ends_the_moment_the_image_arrives():
+    store = SnapshotStore()
+    token = store.reserve()
+
+    async def spaeter():
+        await asyncio.sleep(0.02)
+        store.fuellen(token, JPEG)
+
+    asyncio.get_running_loop().create_task(spaeter())
+    assert await store.warten(token, 2.0) == JPEG
+
+
+@pytest.mark.asyncio
+async def test_no_image_is_an_answer_too_and_comes_at_once():
+    """Sonst hinge das Telefon die volle Frist auf etwas, das feststeht."""
+    store = SnapshotStore()
+    token = store.reserve()
+    store.fuellen(token, None)
+
+    begonnen = asyncio.get_running_loop().time()
+    assert await store.warten(token, 5.0) is None
+    assert asyncio.get_running_loop().time() - begonnen < 1.0
+
+
+@pytest.mark.asyncio
+async def test_an_address_that_falls_out_of_the_store_wakes_its_waiters():
+    """Beim Überlaufen fliegt das älteste – wer darauf wartet, erfährt es."""
+    store = SnapshotStore(limit=2)
+    token = store.reserve()
+
+    async def voll_machen():
+        await asyncio.sleep(0.02)
+        for _ in range(3):
+            store.put(JPEG)
+
+    asyncio.get_running_loop().create_task(voll_machen())
+    begonnen = asyncio.get_running_loop().time()
+    assert await store.warten(token, 5.0) is None
+    assert asyncio.get_running_loop().time() - begonnen < 1.0
+
+
+@pytest.mark.asyncio
+async def test_waiting_on_an_address_nobody_ever_gave_out_returns_at_once():
+    store = SnapshotStore()
+    assert await store.warten("geraten", 5.0) is None

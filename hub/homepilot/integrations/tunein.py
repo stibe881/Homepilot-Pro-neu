@@ -33,7 +33,7 @@ hinspielt. Der Musikplayer der App kennt diese Form schon.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 from urllib.parse import quote
 
@@ -277,6 +277,27 @@ def parse_stations(entries: Any) -> list[Station]:
     return stations
 
 
+def mit_logo(station: Station, treffer: list[Station]) -> Station:
+    """Das fehlende Senderlogo aus Suchtreffern übernehmen (rein, testbar).
+
+    Der Fall dahinter: Ein Sender, der schon eine Kennung trägt - einmal
+    gesucht und gespeichert, bevor die Bilder mitgespeichert wurden, oder
+    von Hand mit id eingetragen -, wird beim Abspielen nie mehr
+    aufgelöst. Sein Logo kam deshalb nie nach, und die Kachel blieb ohne
+    Cover, während frisch gesuchte Sender eines hatten.
+
+    Übernommen wird nur bei **gleicher Kennung**: Die Suche nach dem
+    Namen könnte sonst dem eigenen Icecast im Keller das Logo eines
+    fremden gleichnamigen Senders anheften.
+    """
+    if station.image or not station.id:
+        return station
+    for kandidat in treffer:
+        if kandidat.id == station.id and kandidat.image:
+            return replace(station, image=kandidat.image, subtext=station.subtext or kandidat.subtext)
+    return station
+
+
 def merge_stations(aus_config: list[Station], gespeichert: list[Station]) -> list[Station]:
     """Sender der config.yaml plus die in der App gemerkten (rein, testbar).
 
@@ -384,6 +405,12 @@ def titel_und_interpret(roh: str | None) -> tuple[str | None, str | None]:
     text = (roh or "").strip()
     if not text:
         return None, None
+    # Eine Adresse ist kein Titel. Solange der Strom noch keine
+    # ICY-Angabe geschickt hat, reicht der Chromecast durch, was er
+    # abspielt - und auf der Kachel stand dann
+    # «https://…/srf3_96.mp3?ua=Chromecast» statt des Sendernamens.
+    if text.lower().startswith(("http://", "https://")):
+        return None, None
     for trenner in (" - ", " – ", " — "):
         interpret, _, titel = text.partition(trenner)
         if interpret.strip() and titel.strip():
@@ -404,6 +431,9 @@ class TuneInIntegration(Integration):
         # Gefundene Kennungen zu Sendern, die nur mit Namen dastehen –
         # einmal gesucht, dann gemerkt.
         self._gefunden: dict[str, Station] = {}
+        # Für welche Sender das Logo schon nachgeschlagen wurde - auch
+        # erfolglos. Sonst fragte jeder Wiedergabestart aufs Neue.
+        self._logo_gesucht: set[str] = set()
         # Wo gerade gespielt wird und was.
         self._box: str | None = None
         self._station: Station | None = None
@@ -464,7 +494,7 @@ class TuneInIntegration(Integration):
         return [
             (
                 entity.id,
-                entity.display_name or entity.name,
+                entity.label,
                 bool(entity.state.get("has_screen")),
             )
             for entity in self.hub.registry.all()
@@ -566,6 +596,21 @@ class TuneInIntegration(Integration):
         )
         self._box = ziel
         self._station = self._gefunden.get(station.name.casefold(), station)
+        schluessel = self._station.name.casefold()
+        if (
+            not self._station.image
+            and self._station.id
+            and schluessel not in self._logo_gesucht
+        ):
+            # Höchstens einmal je Sender und Lauf - auch bei erfolgloser
+            # Suche, sonst fragte jeder Wiedergabestart aufs Neue.
+            self._logo_gesucht.add(schluessel)
+            try:
+                treffer = await self.search(self._station.name)
+            except Exception:
+                treffer = []
+            self._station = mit_logo(self._station, treffer)
+            self._gefunden[schluessel] = self._station
         # Ab hier läuft die Frist, in der die ladende Box als «läuft» gilt.
         self._seit = time.time()
         await self._refresh()
@@ -697,6 +742,14 @@ class TuneInIntegration(Integration):
         # Alles Übrige geht an die Box: Lautstärke und Pause kann sie
         # selbst, und zwei Regler für dieselbe Box wären einer zu viel.
         if self._box is None:
+            if command == "pause":
+                # «Radio aus», wenn kein Radio läuft, ist ein erfüllter
+                # Wunsch und kein Fehler. Als Fehler hielt es einen
+                # ganzen Ablauf an: «Niemand mehr zuhause» stellt der
+                # Reihe nach ein Dutzend Boxen ab, und die erste, auf der
+                # ohnehin nichts lief, brachte den Rest zum Stehen -
+                # samt Türschloss am Ende der Liste.
+                return
             raise HomePilotError("Es läuft gerade kein Radio")
         weiter = "pause" if command == "pause" else command
         await self.hub.integrations.dispatch_command(self._box, weiter, data)

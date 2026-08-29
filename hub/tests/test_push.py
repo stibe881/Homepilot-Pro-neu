@@ -209,3 +209,21 @@ def test_die_alte_sammelkategorie_wird_aufgeteilt():
     assert livia["muted"] == ["alarm"]
     # Und ein zweiter Lauf schreibt nicht noch einmal.
     assert push_module.migrate_muted(gewandelt, ["automation:a"]) is None
+
+
+def test_umbenennen_zieht_geraete_und_abbestellungen_mit():
+    """Nach dem Umbenennen eines Benutzers: Sein Telefon ist nach Namen
+    angemeldet - ohne das Umschreiben ging jeder Push an den alten
+    Namen, also an niemanden."""
+    from homepilot.core.push import PushService
+
+    service = PushService()
+    service.register("ExponentPushToken[abc]", "Stefan", "iPhone")
+    service.register("ExponentPushToken[def]", "Bine", "iPhone")
+    service.muted = {"Stefan": {"doorbell"}}
+
+    assert service.umbenennen("Stefan", "Stefano") == 1
+    assert {d.user for d in service.devices} == {"Stefano", "Bine"}
+    assert service.muted == {"Stefano": {"doorbell"}}
+    # Niemand mit dem Namen: nichts zu tun, kein Fehler.
+    assert service.umbenennen("Niemand", "Egal") == 0

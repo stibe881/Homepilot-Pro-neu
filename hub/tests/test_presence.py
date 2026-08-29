@@ -191,11 +191,12 @@ def test_a_user_without_a_zone_gets_nothing():
     assert zone_fuer("", {"stefan": "Stefan"}) is None
     assert zone_fuer("Stefan", {}) is None
 def test_anyone_home_state() -> None:
-    """Ein leerer Akku ist kein «niemand zuhause».
+    """Wer nicht ausdrücklich zuhause ist, zählt als weg.
 
-    Die Vorsicht ist der ganze Punkt: Aus dieser Entität wird «alles
-    aus, Alarm scharf». Wer daraus bei Nichtwissen ein «weg» macht,
-    schaltet irgendwann das Haus ab, während jemand darin sitzt.
+    So gewollt: «unbekannt» hielt die Sammelfrage früher auf «jemand
+    da», und ein einziges stummes Telefon genügte, damit «niemand ist
+    zuhause» nie feuerte - der Saug-Ablauf wartete einen ganzen Tag
+    umsonst.
     """
     from homepilot.core.presence import anyone_home_state
 
@@ -203,10 +204,21 @@ def test_anyone_home_state() -> None:
     assert anyone_home_state(["away", "away"]) == "off"
     # Ein anderer Ort ist auch weg - nur eben ein benannter.
     assert anyone_home_state(["schule", "away"]) == "off"
-    assert anyone_home_state(["unknown", "away"]) == "on"
-    assert anyone_home_state(["", "away"]) == "on"
+    # Ein stummes Telefon neben einem gemeldeten «weg»: weg.
+    assert anyone_home_state(["unknown", "away"]) == "off"
+    assert anyone_home_state(["", "away"]) == "off"
     assert anyone_home_state([]) == "on"
     assert anyone_home_state(None) == "on"
+
+
+def test_anyone_home_bleibt_vorsichtig_wenn_der_hub_gar_nichts_weiss() -> None:
+    """Frisch gestartet weiss der Hub von niemandem etwas - das ist kein
+    «alle sind weg». Sonst liefe nach jeder Auslieferung «alles aus»,
+    während die Familie am Tisch sitzt."""
+    from homepilot.core.presence import anyone_home_state
+
+    assert anyone_home_state(["unknown", "unknown"]) == "on"
+    assert anyone_home_state(["", "unknown"]) == "on"
 
 
 def test_der_hausstandort_kommt_von_dort_wo_man_steht() -> None:
@@ -424,3 +436,79 @@ def test_aeltere_meldungen_stehen_in_stunden():
     )
     assert "vor 3 Std." in zeile["hint"]
     assert "(da)" in zeile["hint"]
+
+
+# ── «Alle sind zuhause» ──────────────────────────────────────────────────
+#
+# Die Sammelfrage «jemand da?» ist bewusst vorsichtig - unbekannt zählt
+# als da. Für das Schild oben in der App gilt die umgekehrte Vorsicht:
+# «alle sind zuhause» ist eine Aussage über jeden Einzelnen.
+
+
+def test_alle_zuhause_nur_wenn_wirklich_alle():
+    from homepilot.core.presence import alle_zuhause
+
+    assert alle_zuhause(["home", "home"]) is True
+    assert alle_zuhause(["home", "away"]) is False
+
+
+def test_unbekannt_ist_kein_alle():
+    from homepilot.core.presence import alle_zuhause
+
+    # Über jemanden, von dem man nichts weiss, behauptet man nichts.
+    assert alle_zuhause(["home", "unknown"]) is False
+
+
+def test_ein_benannter_ort_ist_nicht_zuhause():
+    from homepilot.core.presence import alle_zuhause
+
+    assert alle_zuhause(["home", "schule"]) is False
+
+
+def test_ohne_personen_gibt_es_kein_alle():
+    from homepilot.core.presence import alle_zuhause
+
+    assert alle_zuhause([]) is False
+    assert alle_zuhause(None) is False
+
+
+def test_zone_umziehen_nimmt_alles_mit():
+    """Wer sich umbenennt, soll nicht als zwei Menschen dastehen.
+
+    Der Fall aus dem Betrieb: «Stefan» und «Stibe» standen beide in der
+    Anwesenheitsliste – derselbe Mensch, einmal mit dem alten Stand vom
+    Vorabend, einmal mit dem aktuellen aus Life360.
+    """
+    from homepilot.core.presence import zone_umziehen
+
+    prefs = [
+        {"zone": "livia", "meldungen": {"arrive": True}},
+        {"zone": "stefan", "meldungen": {"leave": True}},
+    ]
+    umgezogen = zone_umziehen(prefs, "stefan", "stibe")
+    assert umgezogen == [
+        {"zone": "livia", "meldungen": {"arrive": True}},
+        {"zone": "stibe", "meldungen": {"leave": True}},
+    ]
+
+
+def test_zone_umziehen_laesst_dem_neuen_stand_den_vortritt():
+    """Hat die neue Zone schon etwas gemeldet, gilt das - nicht der alte
+    Stand von gestern. Die Listen stehen neueste zuerst, und für den
+    Verlauf zählt ohnehin nur der erste Eintrag je Person."""
+    from homepilot.core.presence import zone_umziehen
+
+    verlauf = [
+        {"person": "stibe", "state": "home", "at": 200.0},
+        {"person": "stefan", "state": "away", "at": 100.0},
+    ]
+    assert zone_umziehen(verlauf, "stefan", "stibe", "person") == [
+        {"person": "stibe", "state": "home", "at": 200.0},
+    ]
+
+
+def test_zone_umziehen_kommt_mit_leeren_und_krummen_listen_zurecht():
+    from homepilot.core.presence import zone_umziehen
+
+    assert zone_umziehen(None, "a", "b") == []
+    assert zone_umziehen(["quatsch", 7], "a", "b") == []

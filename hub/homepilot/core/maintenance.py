@@ -17,6 +17,13 @@ Montags-Abfall montags bleiben soll.
 *Vorwarnung.* Gemeldet wird nicht am Fälligkeitstag, sondern ein paar
 Tage vorher. Ein Filter, den man erst am Stichtag bestellt, ist zu spät
 bestellt.
+
+*Mit Namen.* Wer quittiert, steht dabei - und die letzten Quittungen
+bleiben stehen. In einem Haushalt mit drei Leuten ist «erledigt» ohne
+Namen eine Behauptung: Danach weiss niemand, ob der Filter gewechselt
+wurde oder ob jemand nur die Meldung weggedrückt hat. Und beim
+nächsten Mal ist die Frage «wann war das eigentlich zuletzt?» genau
+die, die man nicht beantworten kann.
 """
 
 from __future__ import annotations
@@ -66,6 +73,34 @@ def next_after(done: Any, interval_days: Any) -> str:
     """
     basis = parse_date(done) or date.today()
     return (basis + timedelta(days=clean_interval(interval_days))).isoformat()
+
+
+#: So viele Quittungen bleiben je Wartung stehen. Mehr braucht niemand -
+#: interessant sind die letzte und der Abstand davor.
+QUITTUNGEN = 5
+
+
+def quittieren(
+    row: dict[str, Any], wer: str, heute: date | None = None
+) -> dict[str, Any]:
+    """Eine Wartung als erledigt vermerken – mit Namen (rein, testbar).
+
+    Die nächste Frist zählt ab heute, nicht ab der alten: Bei
+    Verschleiss zählt, wann es getan wurde.
+    """
+    tag = (heute or date.today()).isoformat()
+    quittungen = [
+        eintrag
+        for eintrag in (row.get("log") or [])
+        if isinstance(eintrag, dict) and eintrag.get("at")
+    ]
+    return {
+        **row,
+        "last_done": tag,
+        "last_by": wer or None,
+        "due": next_after(tag, row.get("interval_days")),
+        "log": [{"at": tag, "by": wer or None}, *quittungen][:QUITTUNGEN],
+    }
 
 
 def due_items(rows: list[dict[str, Any]], today: date | None = None) -> list[dict[str, Any]]:

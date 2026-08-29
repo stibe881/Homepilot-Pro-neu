@@ -24,7 +24,7 @@ export const MODULGRUPPEN: Modulgruppe[] = [
     key: 'alltag',
     label: 'Alltag',
     // Was man in der Woche mehrmals anfasst.
-    module: ['woche', 'kalender', 'tasks', 'chores', 'shopping', 'meals', 'routines'],
+    module: ['woche', 'kalender', 'reminders', 'tasks', 'chores', 'shopping', 'meals', 'routines'],
   },
   {
     key: 'notfall',
@@ -35,7 +35,9 @@ export const MODULGRUPPEN: Modulgruppe[] = [
   {
     key: 'miteinander',
     label: 'Miteinander',
-    module: ['pins', 'rewards', 'countdowns'],
+    // «Wer dazugehört» steht bei den Belohnungen: Man merkt dort, dass
+    // ein Name fehlt - beim Punktestand, der das Kind nicht kennt.
+    module: ['pins', 'rewards', 'members', 'countdowns'],
   },
   {
     key: 'nachschlagen',

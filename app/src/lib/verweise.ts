@@ -66,3 +66,44 @@ export function verweisText(anzahlAblaeufe: number, anzahlSzenen: number): strin
   }
   return `in ${teile.join(' und ')}`;
 }
+
+/**
+ * Welche anderen Abläufe dieselben Geräte anfassen (rein, testbar).
+ *
+ * Für den Editor: Der Hub meldet Widersprüche erst hinterher, als Liste
+ * unter «Abläufe». Da steht der neue Ablauf längst und schaltet nachts
+ * gegen einen anderen an. Hier steht der Hinweis, während man ihn baut -
+ * und zwar der milde: nicht «das ist falsch», sondern «da ist noch wer».
+ *
+ * Der eigene Ablauf gehört nicht dazu; er wird über `ausser`
+ * ausgenommen. Ohne das meldete jeder gespeicherte Ablauf sich selbst.
+ */
+export function mitschalter<A extends AblaufKopf>(
+  entityIds: string[],
+  automations: A[],
+  ausser?: string
+): A[] {
+  const gesucht = new Set(entityIds.filter(Boolean));
+  if (gesucht.size === 0) return [];
+  return automations.filter((automation) => {
+    if (ausser && automation.id === ausser) return false;
+    // Nur die Handlungszweige, nicht Auslöser und Bedingungen: Ein
+    // Ablauf, der die Lampe bloss *abfragt*, schaltet sie nicht - und
+    // «schaltet auch» wäre über ihn eine falsche Aussage.
+    const ids = new Set<string>();
+    const roh = automation as unknown as Record<string, unknown>;
+    sammleEntityIds(roh.actions, ids);
+    sammleEntityIds(roh.otherwise, ids);
+    for (const id of gesucht) if (ids.has(id)) return true;
+    return false;
+  });
+}
+
+/** Der Satz dazu (rein, testbar). Leer, wenn niemand mitschaltet. */
+export function mitschalterSatz(namen: string[], hoechstens = 3): string {
+  if (namen.length === 0) return '';
+  const gezeigt = namen.slice(0, hoechstens).map((name) => `«${name}»`);
+  const rest = namen.length - gezeigt.length;
+  const liste = rest > 0 ? `${gezeigt.join(', ')} und ${rest} weitere` : gezeigt.join(', ');
+  return `Dieselben Geräte schaltet auch ${liste}. Das kann gewollt sein – wenn nicht, kommt euch einer zuvor.`;
+}

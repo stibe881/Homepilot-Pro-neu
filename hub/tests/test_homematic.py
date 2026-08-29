@@ -679,3 +679,318 @@ async def test_a_datapoint_that_is_in_no_paramset_says_so_on_the_tile(hub):
         assert "ACTUAL_TEMPERATURE" in grund  # was der Kanal stattdessen kennt
     finally:
         await integration.teardown()
+
+
+# ── Ein Taster, der schweigt ───────────────────────────────────────────────
+#
+# Der gemeldete Fall: ein HmIP-BSL (Schaltaktor mit Signalleuchte für
+# Markenschalter), eingetragen auf einem seiner Schaltausgänge. Alles
+# richtig geschrieben, den Kanal gibt es, die Kachel steht da - und meldet
+# bis in alle Ewigkeit «Bereit, noch kein Druck».
+
+# Kanalliste eines Geräts mit Wippen *und* Schaltausgängen, wie die CCU
+# sie meldet. Die Nummern hängen von der Fassung ab; entscheidend ist die
+# Kanalart - ein SWITCH_VIRTUAL_RECEIVER sendet nichts.
+BSL_CHANNELS = {
+    "001A58A9A24256:0": "MAINTENANCE",
+    "001A58A9A24256:1": "KEY_TRANSCEIVER",
+    "001A58A9A24256:2": "KEY_TRANSCEIVER",
+    "001A58A9A24256:3": "SWITCH_VIRTUAL_RECEIVER",
+    "001A58A9A24256:4": "SWITCH_VIRTUAL_RECEIVER",
+    "001A58A9A24256:7": "NOTIFICATION_LIGHT_CHANNEL",
+}
+
+
+def test_button_hinweis_nennt_die_tastenkanaele():
+    hinweis = homematic.button_hinweis("001A58A9A24256:4", BSL_CHANNELS)
+    assert hinweis is not None
+    # Was falsch ist …
+    assert "SWITCH_VIRTUAL_RECEIVER" in hinweis
+    # … und wo es stattdessen ankommt. «Falscher Kanal» allein hilft
+    # niemandem, der gerade zum dritten Mal auf seinen Schalter drückt.
+    assert "001A58A9A24256:1" in hinweis
+    assert "001A58A9A24256:2" in hinweis
+
+
+def test_button_hinweis_schweigt_beim_richtigen_kanal():
+    assert homematic.button_hinweis("001A58A9A24256:1", BSL_CHANNELS) is None
+
+
+def test_button_hinweis_schweigt_bei_unbekannten_kanaelen():
+    """Dafür warnt schon die Kanalliste – zweimal dasselbe hilft nicht."""
+    assert homematic.button_hinweis("ABC:1", BSL_CHANNELS) is None
+
+
+def test_button_hinweis_ohne_jeden_tastenkanal():
+    nur_steckdose = {
+        "001015699EA263:3": "SWITCH_VIRTUAL_RECEIVER",
+        "001015699EA263:6": "ENERGIE_METER_TRANSMITTER",
+    }
+    hinweis = homematic.button_hinweis("001015699EA263:3", nur_steckdose)
+    assert hinweis is not None
+    assert "kein" in hinweis.lower()
+
+
+def test_key_channels_sortiert_nach_nummer():
+    assert homematic.key_channels("001A58A9A24256:4", BSL_CHANNELS) == [
+        "001A58A9A24256:1",
+        "001A58A9A24256:2",
+    ]
+
+
+def test_fremder_druck_liefert_die_zeile_fuer_die_config():
+    """Die nützlichste Zeile im Log: einmal drücken, abschreiben, fertig."""
+    text = homematic.fremder_druck("001A58A9A24256:1", "PRESS_SHORT")
+    assert 'address: "001A58A9A24256:1"' in text
+    assert "kind: button" in text
+
+
+class _FakeCCUMitArten(_FakeCCU):
+    """Eine CCU, die je Kanal eine eigene Kanalart meldet."""
+
+    def __init__(self, arten: dict[str, str]) -> None:
+        super().__init__({})
+        self.arten = arten
+
+    async def call(self, method: str, *args, port: int = 0):
+        self.calls.append((method, args, port))
+        if method == "listDevices":
+            return [
+                {"ADDRESS": address, "TYPE": art, "PARENT": address.split(":")[0]}
+                for address, art in self.arten.items()
+            ]
+        return ""
+
+
+async def test_taster_auf_dem_schaltausgang_sagt_es_auf_der_kachel(hub):
+    """Im Log liest es, wer sucht - auf der Kachel steht es dem im Weg,
+    der sich gerade wundert."""
+    ccu = _FakeCCUMitArten(BSL_CHANNELS)
+    integration = await _setup(
+        hub,
+        ccu,
+        [
+            {
+                "address": "001A58A9A24256:4",
+                "port": 2001,
+                "name": "Licht Gäste Bad",
+                "kind": "button",
+            }
+        ],
+    )
+    try:
+        entity = hub.registry.get("homematic.001A58A9A24256_4")
+        assert entity is not None
+        fehler = entity.state.get("error")
+        assert fehler and "001A58A9A24256:1" in fehler
+    finally:
+        await integration.teardown()
+
+
+async def test_taster_auf_dem_tastenkanal_bleibt_ohne_fehler(hub):
+    ccu = _FakeCCUMitArten(BSL_CHANNELS)
+    integration = await _setup(
+        hub,
+        ccu,
+        [
+            {
+                "address": "001A58A9A24256:1",
+                "port": 2001,
+                "name": "Licht Gäste Bad",
+                "kind": "button",
+            }
+        ],
+    )
+    try:
+        entity = hub.registry.get("homematic.001A58A9A24256_1")
+        assert entity is not None
+        assert not entity.state.get("error")
+    finally:
+        await integration.teardown()
+
+
+async def test_ein_druck_von_einem_fremden_kanal_landet_im_log(hub, caplog):
+    """Einmal drücken, ins Log schauen, den Kanal kennen."""
+    ccu = _FakeCCUMitArten(BSL_CHANNELS)
+    integration = await _setup(
+        hub,
+        ccu,
+        [
+            {
+                "address": "001A58A9A24256:1",
+                "port": 2001,
+                "name": "Licht Gäste Bad",
+                "kind": "button",
+            }
+        ],
+    )
+    try:
+        with caplog.at_level("INFO"):
+            integration._handle_event("001A58A9A24256:2", "PRESS_SHORT", True)
+            # Loslassen ist kein Druck.
+            integration._handle_event("001A58A9A24256:2", "PRESS_SHORT", False)
+            # Und ein zweiter Druck sagt es nicht noch einmal.
+            integration._handle_event("001A58A9A24256:2", "PRESS_SHORT", True)
+        zeilen = [
+            eintrag.getMessage()
+            for eintrag in caplog.records
+            if "001A58A9A24256:2" in eintrag.getMessage()
+        ]
+        assert len(zeilen) == 1
+        assert "kind: button" in zeilen[0]
+    finally:
+        await integration.teardown()
+
+
+# ── Was ein Kanal hergibt ──────────────────────────────────────────────────
+#
+# Die Kanalart allein entscheidet nicht, was in die config.yaml gehört:
+# Ein HmIP-Eingang kann als Taster *oder* als Ja/Nein-Kontakt eingerichtet
+# sein (CHANNEL_OPERATION_MODE), und dann heisst derselbe Kanal einmal
+# PRESS_SHORT und einmal STATE.
+
+
+def test_kanal_rat_erkennt_einen_taster_an_seinen_datenpunkten():
+    assert (
+        homematic.kanal_rat("KEY_TRANSCEIVER", {"PRESS_SHORT", "PRESS_LONG"})
+        == "kind: button"
+    )
+    # Auch dann, wenn die Art nach etwas anderem aussieht - der Datenpunkt
+    # sticht.
+    assert (
+        homematic.kanal_rat("MULTI_MODE_INPUT_TRANSMITTER", {"PRESS_SHORT"})
+        == "kind: button"
+    )
+
+
+def test_kanal_rat_unterscheidet_schalten_und_melden():
+    assert "light" in homematic.kanal_rat("SWITCH_VIRTUAL_RECEIVER", {"STATE"})
+    # Derselbe Datenpunkt auf einem Kanal, der nicht schalten kann, ist
+    # eine Meldung.
+    assert "binary_sensor" in homematic.kanal_rat("SHUTTER_CONTACT", {"STATE"})
+
+
+def test_kanal_rat_kennt_dimmer_und_messkanal():
+    assert "dimmable: true" in homematic.kanal_rat(
+        "DIMMER_VIRTUAL_RECEIVER", {"STATE", "LEVEL"}
+    )
+    # Die Signalleuchte eines Markenschalters kann zusätzlich Farbe.
+    assert "Signalleuchte" in homematic.kanal_rat(
+        "DIMMER_VIRTUAL_RECEIVER", {"COLOR", "LEVEL"}
+    )
+    assert "power_address" in homematic.kanal_rat("ENERGIE_METER_TRANSMITTER", {"POWER"})
+
+
+def test_kanal_rat_bei_einem_kanal_ohne_alles():
+    assert "nichts" in homematic.kanal_rat("VIRTUAL_KEY", set())
+
+
+def test_kanal_rat_kennt_den_wartungskanal():
+    """Eine eigene Zeile dafür wäre eine Kachel «UNREACH»."""
+    rat = homematic.kanal_rat("MAINTENANCE", {"UNREACH", "LOW_BAT"})
+    assert "Wartungskanal" in rat
+
+
+def test_kanal_rat_warnt_vor_sendekanaelen():
+    """Sie führen dieselben Datenpunkte wie ihr Empfänger und lassen sich
+    trotzdem nicht schalten - jedes setValue endet in Fault -5."""
+    assert "nicht eintragen" in homematic.kanal_rat(
+        "SWITCH_TRANSMITTER", {"STATE", "PROCESS"}
+    )
+    # Aber ein Eingang, der zufällig so heisst, bleibt ein Eingang.
+    assert "button" in homematic.kanal_rat(
+        "MULTI_MODE_INPUT_TRANSMITTER", {"PRESS_SHORT"}
+    )
+
+
+def test_lesbare_datenpunkte_laesst_reine_schreibpunkte_weg():
+    """Ein Datenpunkt, den man nur schreiben kann, meldet auch nichts."""
+    beschreibung = {
+        "PRESS_SHORT": {"OPERATIONS": 4},  # meldet Ereignisse
+        "STATE": {"OPERATIONS": 7},  # lesen, schreiben, melden
+        "INSTALL_TEST": {"OPERATIONS": 2},  # nur schreiben
+    }
+    assert homematic.lesbare_datenpunkte(beschreibung) == {"PRESS_SHORT", "STATE"}
+
+
+def test_lesbare_datenpunkte_ohne_angaben():
+    """Fehlt die Angabe, lieber einer zu viel als einer zu wenig."""
+    assert homematic.lesbare_datenpunkte({"STATE": {}}) == {"STATE"}
+    assert homematic.lesbare_datenpunkte({"STATE": "unerwartet"}) == {"STATE"}
+
+
+class _FakeCCUMitDatenpunkten(_FakeCCUMitArten):
+    """Eine CCU, die auch sagt, welche Datenpunkte ein Kanal hat."""
+
+    def __init__(self, arten: dict[str, str], punkte: dict[str, dict]) -> None:
+        super().__init__(arten)
+        self.punkte = punkte
+
+    async def call(self, method: str, *args, port: int = 0):
+        if method == "getParamsetDescription":
+            self.calls.append((method, args, port))
+            return self.punkte.get(args[0], {})
+        return await super().call(method, *args, port=port)
+
+
+async def test_der_datenpunkt_sticht_die_kanalart(hub):
+    """Ein Kanal, der PRESS_SHORT kennt, ist ein Taster - was immer die
+    CCU als Art meldet. Sonst warnte der Hub Leute an, bei denen alles
+    stimmt."""
+    ccu = _FakeCCUMitDatenpunkten(
+        {"001A58A9A24256:4": "SWITCH_VIRTUAL_RECEIVER"},
+        {"001A58A9A24256:4": {"PRESS_SHORT": {"OPERATIONS": 4}}},
+    )
+    integration = await _setup(
+        hub,
+        ccu,
+        [
+            {
+                "address": "001A58A9A24256:4",
+                "port": 2001,
+                "name": "Licht Gäste Bad",
+                "kind": "button",
+            }
+        ],
+    )
+    try:
+        entity = hub.registry.get("homematic.001A58A9A24256_4")
+        assert entity is not None
+        assert not entity.state.get("error")
+    finally:
+        await integration.teardown()
+
+
+async def test_ein_kanal_ohne_press_sagt_was_er_stattdessen_kann(hub):
+    """Der umgekehrte Fall: Die Art sieht nach Taster aus, der Kanal ist
+    aber als Ja/Nein-Kontakt eingerichtet (CHANNEL_OPERATION_MODE)."""
+    ccu = _FakeCCUMitDatenpunkten(
+        {
+            "001A58A9A24256:1": "MULTI_MODE_INPUT_TRANSMITTER",
+            "001A58A9A24256:4": "MULTI_MODE_INPUT_TRANSMITTER",
+        },
+        {"001A58A9A24256:4": {"STATE": {"OPERATIONS": 7}}},
+    )
+    integration = await _setup(
+        hub,
+        ccu,
+        [
+            {
+                "address": "001A58A9A24256:4",
+                "port": 2001,
+                "name": "Licht Gäste Bad",
+                "kind": "button",
+            }
+        ],
+    )
+    try:
+        entity = hub.registry.get("homematic.001A58A9A24256_4")
+        assert entity is not None
+        fehler = entity.state.get("error")
+        assert fehler is not None
+        # Was der Kanal kann …
+        assert "STATE" in fehler
+        # … und wo die Drücke stattdessen ankommen.
+        assert "001A58A9A24256:1" in fehler
+    finally:
+        await integration.teardown()

@@ -94,7 +94,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 # er verschwände aus beiden Ansichten halb.
                 raise HTTPException(
                     status_code=409,
-                    detail=f"'{entity.name}' gehört schon zu einer Leuchte",
+                    detail=f"'{entity.label}' gehört schon zu einer Leuchte",
                 )
         object_id = group_module.slug(name)
         rows = hub.data.get("light_groups")
@@ -171,7 +171,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             if entity_id in fremd:
                 raise HTTPException(
                     status_code=409,
-                    detail=f"'{entity.name}' gehört schon zu einer Leuchte",
+                    detail=f"'{entity.label}' gehört schon zu einer Leuchte",
                 )
 
         treffer["name"] = name
@@ -433,7 +433,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             for zone_id in service.zone_ids():
                 entity_id = service.zone_entity(zone_id)
                 entity = hub.registry.get(entity_id) if entity_id else None
-                zonen[zone_id] = entity.name if entity else zone_id
+                zonen[zone_id] = entity.label if entity else zone_id
 
         # Eine Zeile je Benutzer, nicht je Zone: Wer «wer ist da?» fragt,
         # meint die Leute, die hier wohnen – nicht die Einträge, die
@@ -456,6 +456,12 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                     "place": zusammen.get("place"),
                     "place_name": (entity.state.get("place_name") if entity else None),
                     "battery": (entity.state.get("battery") if entity else None),
+                    # Wie weit von zuhause, in Metern. «Unterwegs»
+                    # beantwortet die Frage beim Kochen nicht: Zwischen
+                    # «weg» und «zuhause» liegen zwei Kilometer genauso
+                    # wie zweihundert. Fehlt, solange keine Position
+                    # vorliegt - eine erfundene wäre schlimmer als keine.
+                    "distance": (entity.state.get("distance") if entity else None),
                     # Ohne Zone gibt es nichts einzurichten, worauf das
                     # Telefon melden könnte. Das sagt die App dann auch.
                     "configured": zone_id is not None,

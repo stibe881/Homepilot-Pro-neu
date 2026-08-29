@@ -40,6 +40,24 @@ export function stummBis(
   return bis !== null && bis * 1000 > jetzt ? bis : null;
 }
 
+/** Ist das ein Mensch statt eines Geräts? (rein, testbar)
+ *
+ * Die Anwesenheits-Entitäten führen den Akkustand des Telefons mit -
+ * über die App selbst oder über Life360. Nützlich ist er dort, wo er
+ * hingehört: Ein leeres Telefon meldet keinen Standort mehr, und davor
+ * warnt der Hub. In der Batterieliste hat er nichts verloren.
+ *
+ * Diese Liste beantwortet genau eine Frage: Wo muss ich eine Batterie
+ * wechseln? Ein Telefon wird geladen, nicht gewechselt - und wenn es
+ * mit 14 Prozent zuoberst steht, verdeckt es den Türkontakt, der
+ * wirklich dran wäre. Erkennbar sind sie am Ort, den sie mitführen. */
+export function istPerson(entity: Entity): boolean {
+  return (
+    'place' in (entity.state ?? {}) ||
+    entity.state?.device_class === 'presence'
+  );
+}
+
 /** Batteriegeräte, dringendste zuerst (rein, testbar).
  *
  * «Schwach»-Melder ohne Prozentwert stehen ganz oben: Sie sagen nur noch
@@ -47,6 +65,7 @@ export function stummBis(
 export function batteryRows(entities: Entity[]): HealthRow[] {
   const rows: HealthRow[] = [];
   for (const entity of entities) {
+    if (istPerson(entity)) continue;
     const raw = entity.state?.battery;
     const percent = typeof raw === 'number' && raw >= 0 && raw <= 100 ? raw : null;
     const low = entity.state?.low_battery === true;

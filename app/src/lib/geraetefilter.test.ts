@@ -58,3 +58,40 @@ describe('sortiereGeraete', () => {
     expect(sortiereGeraete(liste, 'gesehen', art).map((e) => e.id)).toEqual(['c', 'b', 'a']);
   });
 });
+
+
+// ── «Batterie» meint Batterien, nicht Akkus ─────────────────────────────
+
+
+describe('Batterie-Filter und Telefone', () => {
+  it('zeigt keine Personen, auch nicht mit leerem Telefon', () => {
+    // Der Filter beantwortet «wo muss ich eine Batterie wechseln?».
+    // Ein Telefon wird geladen - und stünde mit 9 Prozent zuoberst.
+    const person = {
+      id: 'geofence.oma',
+      kind: 'binary_sensor',
+      name: 'Oma',
+      integration: 'geofence',
+      state: { state: 'away', place: null, source: 'life360', battery: 9 },
+      commands: [],
+      available: true,
+    } as unknown as Entity;
+    expect(passtFilter(person, 'batterie', [])).toBe(false);
+    // Unter «offline» oder ohne Filter taucht sie weiterhin auf - dort
+    // ist sie ein Gerät wie jedes andere.
+    expect(passtFilter(person, '', [])).toBe(true);
+  });
+
+  it('lässt echte Batteriegeräte durch', () => {
+    const melder = {
+      id: 'hm.rauchmelder',
+      kind: 'binary_sensor',
+      name: 'Rauchmelder',
+      integration: 'hm',
+      state: { low_battery: true },
+      commands: [],
+      available: true,
+    } as unknown as Entity;
+    expect(passtFilter(melder, 'batterie', [])).toBe(true);
+  });
+});

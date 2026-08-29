@@ -364,7 +364,50 @@ fi
 # nach Version gar nicht erst neu aus.
 RUNNING_COMMIT=$(docker exec "$CONTAINER" printenv HOMEPILOT_COMMIT 2>/dev/null || echo "")
 if [ -n "$RUNNING_COMMIT" ] && [ "$RUNNING_COMMIT" = "$COMMIT" ]; then
-  if [ "${HOMEPILOT_IOS_BUILD:-0}" = "1" ]; then
+  # ── OTA-Fassung für die Telefone ────────────────────────────────────────
+#
+# Der Knopf tauschte bisher nur die Web-Fassung; die Telefone bekamen
+# neuen Code erst mit dem nächsten TestFlight-Build. Das fiel erst auf,
+# als ein Knopf «bei mir da, bei ihr nicht» war - beide Telefone hingen
+# auf demselben alten Stand, und die gleiche Versionsnummer täuschte
+# Aktualität vor: Sie ist die des Builds, nicht der nachgeladenen
+# Fassung.
+#
+# Deshalb veröffentlicht jeder Lauf jetzt auch über EAS Update - sofern
+# ein EXPO_TOKEN in der Zugangsdatei liegt. Erreicht werden nur Builds
+# mit derselben runtimeVersion: Wer einen älteren Build installiert hat,
+# braucht einmal TestFlight, danach greift OTA wieder.
+#
+# Die runtimeVersion hing dabei lange an der App-Version - und weil die
+# bei jeder Auslieferung hochgezählt gehört, kappte jede Auslieferung
+# genau diesen Kanal. Der Hub war neu, die Telefone nicht, und die
+# hochgezählte Nummer täuschte Aktualität vor. Sie steht deshalb jetzt
+# fest in app/app.json und ändert sich nur, wenn sich nativ etwas
+# ändert (siehe CLAUDE.md, «Ausliefern»).
+# Ein Fehlschlag hier lässt den Rest des Updates unberührt.
+EXPO_TOKEN="${EXPO_TOKEN:-}"; EXPO_TOKEN="${EXPO_TOKEN%$'\r'}"
+if [ -z "$EXPO_TOKEN" ]; then
+  echo "→ Keine OTA-Fassung: EXPO_TOKEN fehlt in $CREDENTIALS_FILE."
+  echo "  Die Telefone bleiben auf ihrem Stand, bis ein iOS-Build kommt."
+else
+  echo "→ Veröffentliche die OTA-Fassung für die Telefone (EAS Update) …"
+  if app_abbild && docker run --rm -e EXPO_TOKEN="$EXPO_TOKEN" \
+      -e EAS_NO_VCS=1 \
+      "$DEPS_IMAGE" \
+      npx eas-cli@latest update --branch production \
+        --message "Stand $COMMIT" --non-interactive 2>&1 |
+      fremde_ausgabe
+    [ "${PIPESTATUS[0]}" = "0" ]; then
+    echo "✓ OTA-Fassung veröffentlicht (Stand $COMMIT). Die Telefone holen"
+    echo "  sie beim nächsten Öffnen der App - angewendet wird sie beim"
+    echo "  übernächsten Start."
+  else
+    echo "⚠ OTA-Veröffentlichung fehlgeschlagen - Web-Fassung und Hub sind"
+    echo "  davon unberührt. Details: expo.dev/accounts/stibe88."
+  fi
+fi
+
+if [ "${HOMEPILOT_IOS_BUILD:-0}" = "1" ]; then
     echo "→ Der Hub läuft bereits mit Stand $COMMIT - dieser Lauf gilt vor"
     echo "  allem dem iOS-Build."
   else
@@ -403,6 +446,36 @@ fi
 #
 # node:20-bookworm-slim statt alpine: Metro/Expo bringen gelegentlich
 # Pakete mit, die eine echte glibc statt musl erwarten.
+# ── Die Build-Nummer für Apple ─────────────────────────────────────────
+#
+# Apple nimmt jede Build-Nummer genau einmal an. EAS' `autoIncrement`
+# zählt sie in der app.json hoch - und schreibt sie damit in eine Datei,
+# die hier aus einem frischen Klon stammt und nach dem Lauf weggeworfen
+# wird. Die Erhöhung überlebte den Lauf nicht: Jeder Build war wieder
+# Nummer 2, und Apple wies ihn ab, weil es die 2 schon hatte.
+#
+# Früher stand hier die Anzahl Commits (git rev-list --count HEAD).
+# Aus dem flachen Klon oben (--depth 50) ist die aber keine feste
+# Grösse: Wie viele Commits die 50 Schritte erreichen, hängt von der
+# Verzweigungs-Topologie ab - und die ändert sich mit jeder
+# Zusammenführung. So folgte auf Build 928 ein Build 168, und TestFlight
+# bot ihn nie an, denn eine kleinere Nummer ist kein Update.
+#
+# Die Minuten seit 1970 können nur wachsen, ganz gleich, was mit der
+# Geschichte passiert, und bleiben noch Jahrzehnte unter Apples
+# Obergrenze (2^31). Dass zwei Builds in derselben Minute kollidieren,
+# verhindert schon die Bauzeit.
+#
+# Bewusst mit sed statt mit node: Auf dem Host muss kein Node liegen -
+# dafür gibt es das Abbild unten. Gesetzt wird aber, bevor das Abbild
+# gebaut wird, denn es nimmt die app.json mit hinein.
+BUILD_NUMMER="$(( $(date +%s) / 60 ))"
+sed -i -E \
+  -e "s/(\"buildNumber\"[[:space:]]*:[[:space:]]*\")[0-9]+(\")/\1${BUILD_NUMMER}\2/" \
+  -e "s/(\"versionCode\"[[:space:]]*:[[:space:]]*)[0-9]+/\1${BUILD_NUMMER}/" \
+  "$WORKDIR/app/app.json"
+echo "→ Build-Nummer für Apple: ${BUILD_NUMMER}"
+
 DEPS_IMAGE="homepilot-appdeps"
 WEB_IMAGE="homepilot-webdist"
 DEPS_GEBAUT=0
@@ -552,9 +625,13 @@ if [ "${HOMEPILOT_IOS_BUILD:-0}" = "1" ]; then
     # Build mit unveränderter Version nimmt auch alle alten OTA-Fassungen
     # an (Punkt 12 der Werkbank-Liste; Aufräumen: deploy/ota-aufraeumen.sh).
     APP_VERSION=$(python3 -c "import json; print(json.load(open('$WORKDIR/app/app.json'))['expo']['version'])" 2>/dev/null || echo "?")
+    RUNTIME_VERSION=$(python3 -c "import json; print(json.load(open('$WORKDIR/app/app.json'))['expo'].get('runtimeVersion', '?'))" 2>/dev/null || echo "?")
     echo "→ Stosse den iOS-Build an (EAS baut, Apple bekommt ihn direkt) …"
     echo "  App-Version $APP_VERSION – bei einer Auslieferung mit Änderungen"
     echo "  gehört sie hochgezählt (app/app.json, siehe CLAUDE.md)."
+    echo "  Laufzeit $RUNTIME_VERSION – nur diese entscheidet, welche"
+    echo "  OTA-Fassungen auf diesen Build passen. Sie ändert sich nur bei"
+    echo "  nativen Änderungen."
     # EXPO_NO_CAPABILITY_SYNC=1: EAS möchte die Fähigkeiten der Bundle-ID
     # im Apple-Portal selbst nachziehen. Für App-Gruppen schickt es dabei
     # eine Anfrage, die Apple zurückweist («Unexpected or invalid value at
@@ -575,17 +652,30 @@ if [ "${HOMEPILOT_IOS_BUILD:-0}" = "1" ]; then
     else
       echo "⚠ iOS-Build liess sich nicht anstossen - das Hub-Update selbst"
       echo "  ist davon unberührt."
-      # Der häufigste Grund hat eine Lösung, die nicht im Log steht:
-      # Die App-Gruppe muss im Apple-Portal existieren und beiden
-      # Bundle-IDs zugewiesen sein. Wer das liest, soll wissen, wohin -
-      # nicht bloss, dass etwas schiefging.
+      # Die entscheidende Zeile aus dem eas-Log gleich mitgeben: «liess
+      # sich nicht anstossen» ohne das Warum hiess bisher, die Ursache
+      # per SSH im Journal zu suchen. Das «| » stammt von fremde_ausgabe.
+      sed 's/^| //' "$IOS_LOG" | grep -iE "error|failed|cannot|missing" \
+        | tail -1 | cut -c1-90 | sed 's/^/  /'
+      # Die häufigsten Gründe haben eine Lösung, die nicht im Log steht.
+      # Wer das liest, soll wissen, wohin - nicht bloss, dass etwas
+      # schiefging.
       if grep -qiE "application-groups|app group|bundleIdCapabilities" "$IOS_LOG"; then
         echo "  Es fehlt die App-Gruppe im Apple-Portal. Einmalig:"
         echo "  1. developer.apple.com → Identifiers → App Groups → +"
         echo "     Name frei, Kennung: group.me.stibe.homepilot"
         echo "  2. Bei ch.stibe.homepilot und ch.stibe.homepilot.widget"
         echo "     «App Groups» anhaken und die Gruppe auswählen."
-        echo "  Danach Update mit iOS-Build noch einmal auslösen."
+      elif grep -qiE "credentials|provisioning|bundle identifier|not registered" "$IOS_LOG"; then
+        # Ein neues Bau-Ziel (zuletzt: die Watch-App mit
+        # ch.stibe.homepilot.watch) braucht erstmalig Kennung und Profil
+        # bei Apple - im stillen Lauf legt EAS nichts Neues an.
+        echo "  Vermutlich fehlen Apple-Unterlagen für ein neues Bau-Ziel."
+        echo "  Einmalig einen Build mit Rückfragen anstossen:"
+        echo "    sudo docker run --rm -it -e EXPO_TOKEN=<Token> \\"
+        echo "      homepilot-appdeps npx eas-cli@latest build \\"
+        echo "      --platform ios --profile production"
+        echo "  Danach geht es wieder über den Update-Knopf."
       else
         echo "  Details: expo.dev/accounts/stibe88."
       fi

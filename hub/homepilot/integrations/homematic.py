@@ -87,6 +87,37 @@ untere Taste auf :1, die obere auf :2, der Bewegungsmelder auf :3.
         name: Taster Flur unten
         kind: button
 
+Der häufigste Fehlgriff ist der falsche Kanal desselben Geräts. Ein
+Schaltaktor mit Tasten (HmIP-BSL etwa, Markenschalter mit Signalleuchte)
+hat für jede Wippe einen KEY_TRANSCEIVER *und* mehrere
+SWITCH_VIRTUAL_RECEIVER für die Ausgänge. Trägt man einen Ausgang als
+``button`` ein, ist alles richtig geschrieben, den Kanal gibt es - und
+trotzdem kommt nie ein Druck an, weil ein Ausgang nichts sendet. Die
+Kachel meldet dann bis in alle Ewigkeit «Bereit, noch kein Druck».
+
+Drei Wege dorthin, welcher Kanal es ist:
+
+* Der Hub sagt es beim Start. Er fragt die CCU, welche Datenpunkte der
+  eingetragene Kanal überhaupt anbietet; fehlt PRESS_SHORT, nennt eine
+  Warnung, was der Kanal stattdessen kann und auf welchen Kanälen dieses
+  Gerät Tastendrücke meldet - und dieselbe Zeile steht auf der Kachel.
+* Oder einmal auf die Taste drücken und ins Log schauen: Ein Druck von
+  einem Kanal, den niemand eingetragen hat, schreibt die fertige Zeile
+  für die ``config.yaml`` hin.
+* Oder von Hand nachsehen, ohne den laufenden Hub zu stören::
+
+      docker exec homepilot-hub \
+          python -m homepilot.integrations.homematic \
+          -c /config/config.yaml --geraet 001A58A9A24256
+
+  Das listet jeden Kanal des Geräts mit seiner Art, seinen Datenpunkten
+  und dem Vorschlag, was dafür in die ``config.yaml`` gehört.
+
+Nach den Datenpunkten und nicht nach der Kanalart, weil die Art es nicht
+sicher sagt: Ein HmIP-Eingang kann als Taster *oder* als Ja/Nein-Kontakt
+eingerichtet sein (``CHANNEL_OPERATION_MODE``), und dann heisst derselbe
+Kanal einmal PRESS_SHORT und einmal STATE.
+
 Messfühler geben ihren Datenpunkt an. Die Einheit und die Bedeutung
 kommen von selbst dazu (``°C``/``temperature``, ``%``/``humidity``) -
 ohne beides fände die Klima-Zeile der App den Fühler nicht:
@@ -155,6 +186,7 @@ from .homematic_channels import (  # noqa: F401
     DEFAULT_DATAPOINTS,
     IDLE_ALARM_VALUES,
     ILLUMINATION_DATAPOINTS,
+    KEY_TYPES,
     LEVEL,
     LOW_BAT,
     MAINTENANCE_CHANNEL,
@@ -166,13 +198,19 @@ from .homematic_channels import (  # noqa: F401
     SWITCHING_TYPES,
     UnknownParameter,
     battery_to_state,
+    button_hinweis,
     command_error,
     command_to_value,
     describe_channels,
+    druck_hinweis,
     duty_cycle_of,
+    fremder_druck,
     group_by_device,
     guess_device_class,
     is_timeout,
+    kanal_rat,
+    key_channels,
+    lesbare_datenpunkte,
     local_address_for,
     lux_to_state,
     maintenance_address,
@@ -230,6 +268,10 @@ class HomematicIntegration(Integration):
         self._by_battery: dict[tuple[str, str], list[str]] = {}
         # Bereits gemeldete Lesefehler – jede Adresse warnt nur einmal.
         self._warned: set[tuple[str, str]] = set()
+        # Tastendrücke von Kanälen, die niemand eingetragen hat: jeder
+        # Kanal sagt es einmal. Öfter wäre es kein Hinweis mehr, sondern
+        # ein Protokoll jedes Lichtschalters im Haus.
+        self._fremde: set[tuple[str, str]] = set()
         # Je Adresse und Datenpunkt der Grund, warum nichts ankommt –
         # einmal zusammengestellt, dann an die Kachel gereicht.
         self._gruende: dict[tuple[str, str], str] = {}
@@ -255,6 +297,7 @@ class HomematicIntegration(Integration):
         for port in sorted(self._ports()):
             channels = await self._log_available_channels(port)
             self._use_switch_channels(port, channels)
+            await self._check_button_channels(port, channels)
         await self._add_duty_cycle_sensors()
         await self._refresh_all()
 
@@ -543,6 +586,56 @@ class HomematicIntegration(Integration):
                 self._by_datapoint.pop((info["address"], info["datapoint"]), None)
                 info["address"] = target
                 self._by_datapoint[(target, info["datapoint"])] = entity_id
+
+    async def _check_button_channels(self, port: int, channels: dict[str, str]) -> None:
+        """Sagen, wenn ein Taster auf einem Kanal steht, der nichts sendet.
+
+        Der gemeldete Fall: ein HmIP-BSL, eingetragen auf einem seiner
+        Schaltausgänge. Alles richtig geschrieben, den Kanal gibt es, die
+        Kachel steht da - und meldet bis in alle Ewigkeit «Bereit, noch
+        kein Druck». Das stimmt sogar: Ein Schaltausgang sendet nichts.
+        Nur merkt man es nie, weil nichts anderes passiert als nichts.
+
+        Anders als beim Schalten wird hier nicht umgebogen: Ein Gerät hat
+        oft zwei Wippen, und stillschweigend die linke zu nehmen, wenn
+        jemand die rechte meinte, wäre schlimmer als die Wahrheit.
+        """
+        for entity_id, info in self._devices.items():
+            if info["port"] != port or info["kind"] != EntityKind.BUTTON:
+                continue
+            hinweis = await self._taster_pruefen(port, info["address"], channels)
+            if hinweis is None:
+                continue
+            self.log.warning("%s: %s", entity_id, hinweis)
+            # Und auf die Kachel: Im Log liest es, wer sucht - auf der
+            # Kachel steht es dem im Weg, der sich gerade wundert.
+            await self.hub.registry.update_state(entity_id, {"error": hinweis})
+
+    async def _taster_pruefen(
+        self, port: int, address: str, channels: dict[str, str]
+    ) -> str | None:
+        """Meldet dieser Kanal überhaupt Tastendrücke?
+
+        Gefragt wird die CCU, nicht die Kanalart: Ein HmIP-Eingang kann
+        als Taster *oder* als Ja/Nein-Kontakt eingerichtet sein
+        (CHANNEL_OPERATION_MODE), und dann heisst derselbe Kanal einmal
+        PRESS_SHORT und einmal STATE. Die Art sagt das nicht.
+
+        Einmal beim Start, je Taster ein Aufruf. Antwortet die CCU nicht,
+        bleibt der gröbere Weg über die Kanalart - lieber ein Hinweis aus
+        zweiter Hand als gar keiner.
+        """
+        try:
+            beschreibung = await self._call(
+                "getParamsetDescription", address, "VALUES", port=port
+            )
+        except Exception as err:
+            self.log.debug("%s: Datenpunkte nicht lesbar (%s)", address, err)
+            return button_hinweis(address, channels)
+        if not isinstance(beschreibung, dict):
+            return button_hinweis(address, channels)
+        punkte = lesbare_datenpunkte(beschreibung)
+        return druck_hinweis(address, channels.get(address, "?"), punkte, channels)
 
     async def _refresh_all(self) -> None:
         for entity_id, info in self._devices.items():
@@ -914,6 +1007,7 @@ class HomematicIntegration(Integration):
         else:
             entity_id = self._by_lux.get((address, key))
             if entity_id is None:
+                self._fremden_druck_melden(address, key, value)
                 return ""
             changes = lux_to_state(value)
             if not changes:
@@ -925,6 +1019,25 @@ class HomematicIntegration(Integration):
             self._loop,
         )
         return ""
+
+    def _fremden_druck_melden(self, address: str, key: str, value: Any) -> None:
+        """Einen Tastendruck von einem nicht eingetragenen Kanal ins Log.
+
+        Die nützlichste Zeile, die dieser Hub schreibt: Wer nicht weiss,
+        welcher Kanal seines Schalters sendet, drückt einmal darauf und
+        liest hier nach - samt der Zeile, die in die config.yaml gehört.
+        Ohne das blieb nur Raten, und ein Kanal mehr oder weniger sieht in
+        der Kanalliste gleich aus.
+
+        Nur echte Drücke: Das Loslassen meldet die CCU als zweites
+        Ereignis mit False, und je Kanal genügt es einmal.
+        """
+        if key not in PRESS_DATAPOINTS or value is False:
+            return
+        if (address, key) in self._fremde:
+            return
+        self._fremde.add((address, key))
+        self.log.info("homematic: %s", fremder_druck(address, key))
 
     async def teardown(self) -> None:
         if self._server is not None:
@@ -977,6 +1090,142 @@ class HomematicIntegration(Integration):
             await self.hub.registry.update_state(
                 entity.id, value_to_state(value, datapoint, info["dimmable"])
             )
+
+
+def _kanal_main(config_path: str, geraet: str) -> int:
+    """Die CCU selbst fragen, was ein Gerät hergibt.
+
+    Aufruf:  docker exec homepilot-hub \
+                 python -m homepilot.integrations.homematic \
+                 -c /config/config.yaml --geraet 001A58A9A24256
+
+    «Der Taster tut nichts» hat mehrere mögliche Ursachen, und von aussen
+    sehen sie gleich aus: der falsche Kanal, die falsche ``kind``, oder
+    ein Kanal, der als Ja/Nein-Kontakt statt als Taster eingerichtet ist
+    (HmIP-Eingänge können beides, CHANNEL_OPERATION_MODE). Die Kanalart
+    allein entscheidet das nicht - erst die Datenpunkte, die der Kanal
+    anbietet, sagen es sicher.
+
+    Hier steht beides nebeneinander, samt der Zeile, die in die
+    config.yaml gehört. Der laufende Hub merkt davon nichts: Es wird nur
+    gelesen.
+    """
+    from ..core.config import load_config
+    from ..core.stand import stand_zeile
+
+    # Als Erstes, damit man nicht die Ausgabe eines alten Abbilds deutet.
+    print(stand_zeile())
+
+    config = load_config(config_path)
+    blocks = [b for b in config.integrations if b.get("integration") == "homematic"]
+    if not blocks:
+        print("In der config.yaml steht keine homematic-Integration.")
+        return 1
+    block = blocks[0]
+    host = block.get("host")
+    if not host:
+        print("Der homematic-Block hat kein 'host'.")
+        return 1
+
+    serial = geraet.split(":", 1)[0]
+    # Beide Schnittstellen: klassisches BidCos auf 2001, Homematic IP auf
+    # 2010. Welche das Gerät führt, weiss man vorher gerade nicht - das
+    # ist ja oft die Frage.
+    ports = sorted(
+        {int(block.get("port", 2001))}
+        | {int(g["port"]) for g in (block.get("devices") or []) if g.get("port")}
+        | {2001, 2010}
+    )
+
+    gefunden = False
+    for port in ports:
+        proxy = xmlrpc.client.ServerProxy(
+            f"http://{host}:{port}", transport=_TimeoutTransport(10.0)
+        )
+        try:
+            devices = proxy.listDevices()
+        except Exception as err:
+            print(f"Port {port}: nicht erreichbar ({err})")
+            continue
+        kanaele = [
+            device
+            for device in devices
+            if str(device.get("ADDRESS", "")).split(":", 1)[0] == serial
+            and device.get("PARENT")
+        ]
+        if not kanaele:
+            continue
+        gefunden = True
+        eltern = next(
+            (d for d in devices if str(d.get("ADDRESS")) == serial),
+            {},
+        )
+        print(f"\n{serial} auf Port {port} - {eltern.get('TYPE') or 'unbekannter Typ'}")
+        print(f"{'Kanal':<7}{'Art':<38}{'Rat':<46}Datenpunkte")
+        print("-" * 120)
+
+        def nummer(device: dict[str, Any]) -> int:
+            teil = str(device.get("ADDRESS", "")).split(":", 1)
+            return int(teil[1]) if len(teil) > 1 and teil[1].isdigit() else 0
+
+        for device in sorted(kanaele, key=nummer):
+            adresse = str(device["ADDRESS"])
+            art = str(device.get("TYPE") or "?")
+            try:
+                beschreibung = proxy.getParamsetDescription(adresse, "VALUES")
+                punkte = lesbare_datenpunkte(beschreibung)
+            except Exception as err:
+                print(f"{nummer(device):<7}{art:<38}{'?':<46}nicht lesbar ({err})")
+                continue
+            rat = kanal_rat(art, punkte)
+            # Der Betriebsmodus, wo es ihn gibt: Derselbe Kanal heisst je
+            # nach Einstellung einmal PRESS_SHORT und einmal STATE.
+            modus = ""
+            try:
+                master = proxy.getParamset(adresse, "MASTER")
+                wert = master.get("CHANNEL_OPERATION_MODE")
+                if wert is not None:
+                    modus = f"  [CHANNEL_OPERATION_MODE={wert}]"
+            except Exception:
+                pass
+            # Ein Leerzeichen bleibt auch dann, wenn Art oder Rat die
+            # Spalte sprengen - sonst klebt der nächste Text daran und
+            # die Zeile wird unlesbar.
+            print(
+                f"{nummer(device):<7}{art:<38} {rat:<46} "
+                f"{', '.join(sorted(punkte)) or '-'}{modus}"
+            )
+
+    if not gefunden:
+        print(
+            f"\nKein Gerät {serial} gefunden. Steht die Seriennummer richtig da? "
+            "Die Kanalliste aller Geräte schreibt der Hub beim Start ins Log."
+        )
+        return 1
+    print(
+        "\nDie Spalte «Rat» folgt den Datenpunkten, nicht der Kanalart: "
+        "PRESS_SHORT heisst Taster, STATE heisst Schalten oder Melden."
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(description="Homematic für HomePilot")
+    parser.add_argument("-c", "--config", required=True, help="Pfad zur config.yaml")
+    parser.add_argument(
+        "--geraet",
+        metavar="SERIENNUMMER",
+        help="Kanäle und Datenpunkte eines Geräts zeigen "
+        "(stört den laufenden Hub nicht)",
+    )
+    args = parser.parse_args()
+    if not args.geraet:
+        parser.print_help()
+        sys.exit(2)
+    sys.exit(_kanal_main(args.config, args.geraet))
 
 
 INTEGRATION = HomematicIntegration

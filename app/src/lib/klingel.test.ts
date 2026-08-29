@@ -10,6 +10,7 @@ import {
   neueFrist,
   oeffnungsBefehl,
   restSekunden,
+  vollbildZeigen,
 } from './klingel';
 
 const geraet = (over: Partial<Entity> & { id: string }): Entity =>
@@ -45,7 +46,9 @@ describe('Türen beim Klingeln', () => {
     );
   });
 
-  it('bietet Haustüre und Wohnungstüre an, die der Klingel zuerst', () => {
+  it('bietet bei zwei Türen ganze Wege an, nicht einzelne Türen', () => {
+    // Der gemeldete Fall: Wer im Treppenhaus wartet, muss durch beide
+    // Türen - und man tippte erst unten auf, wartete, tippte oben auf.
     const kamera = geraet({ id: 'ring.klingel', kind: 'camera', integration: 'ring' });
     const wege = klingelAktionen(
       [
@@ -66,23 +69,67 @@ describe('Türen beim Klingeln', () => {
       ],
       kamera
     );
-    // Genau die drei Handgriffe, um die es beim Klingeln geht - und die
-    // Türe der Klingel selbst zuerst.
     expect(wege.map((w) => w.label)).toEqual([
       'Haustüre öffnen',
+      'Beide aufschliessen',
+      'Beide öffnen',
+    ]);
+    // Nur unten: der Paketbote kommt ins Treppenhaus.
+    expect(wege[0].schritte).toEqual([
+      { entity: expect.objectContaining({ id: 'ring.haustuere' }), befehl: 'open_door' },
+    ]);
+    // Beide, aber oben bleibt der Riegel die Grenze.
+    expect(wege[1].schritte.map((s) => [s.entity.id, s.befehl])).toEqual([
+      ['ring.haustuere', 'open_door'],
+      ['nuki.wohnung', 'unlock'],
+    ]);
+    // Beide, und oben wird die Falle gezogen - der Besuch läuft durch.
+    expect(wege[2].schritte.map((s) => [s.entity.id, s.befehl])).toEqual([
+      ['ring.haustuere', 'open_door'],
+      ['nuki.wohnung', 'unlatch'],
+    ]);
+    expect(wege[2].oeffnet).toBe(true);
+  });
+
+  it('lässt den dritten Weg weg, wenn er dasselbe täte', () => {
+    // Zwei Türen, die beide nur summen können: «beide aufschliessen» und
+    // «beide öffnen» wären derselbe Befehl. Ein Knopf, der dasselbe tut
+    // wie der darüber, ist unter Zeitdruck eine Falle.
+    const wege = klingelAktionen([
+      geraet({ id: 'a.unten', name: 'Haustüre', commands: ['open_door'] }),
+      geraet({ id: 'b.oben', name: 'Wohnungstüre', commands: ['open_door'] }),
+    ]);
+    expect(wege.map((w) => w.label)).toEqual(['Haustüre öffnen', 'Beide öffnen']);
+  });
+
+  it('bleibt bei einer Türe bei den einzelnen Handgriffen', () => {
+    const wege = klingelAktionen([
+      geraet({
+        id: 'nuki.wohnung',
+        name: 'Wohnungstüre',
+        commands: ['unlatch', 'unlock'],
+      }),
+    ]);
+    expect(wege.map((w) => w.label)).toEqual([
       'Wohnungstüre aufschliessen',
       'Wohnungstüre öffnen',
     ]);
-    expect(wege.map((w) => w.befehl)).toEqual(['open_door', 'unlock', 'unlatch']);
-    // Aufschliessen ist nicht öffnen - der Knopf muss das auseinanderhalten.
-    expect(wege.map((w) => w.oeffnet)).toEqual([true, false, true]);
+    expect(wege.map((w) => w.oeffnet)).toEqual([false, true]);
+  });
+
+  it('nennt bei drei Türen «Alle Türen» statt «Beide»', () => {
+    const wege = klingelAktionen(
+      ['a', 'b', 'c'].map((id) => geraet({ id, name: id, commands: ['unlatch', 'unlock'] }))
+    );
+    expect(wege[1].label).toBe('Alle Türen aufschliessen');
+    expect(wege[2].label).toBe('Alle Türen öffnen');
   });
 
   it('zeigt höchstens vier – ein Vollbild ist keine Suchaufgabe', () => {
     const viele = ['a', 'b', 'c', 'd'].map((id) =>
       geraet({ id, commands: ['unlatch', 'unlock'] })
     );
-    expect(klingelAktionen(viele).length).toBe(HOECHSTENS_AKTIONEN);
+    expect(klingelAktionen(viele).length).toBeLessThanOrEqual(HOECHSTENS_AKTIONEN);
   });
 
   it('kommt ohne Türen aus', () => {
@@ -179,5 +226,42 @@ describe('Zustandszeile der Haustüren-Kachel', () => {
     const gestern = new Date(2026, 7, 22, 18, 42).toISOString();
     expect(haustuerZeile({ state: 'online', last_ring: gestern }, heute)).toBeNull();
     expect(haustuerZeile({ state: 'online', last_ring: 'kaputt' }, heute)).toBeNull();
+  });
+});
+
+describe('Wer das Klingel-Vollbild sieht', () => {
+  it('zeigt es am Wandpanel', () => {
+    expect(
+      vollbildZeigen({ panel: true, ringKey: 'tuer:1', weggewischt: null })
+    ).toBe(true);
+  });
+
+  it('zeigt es nicht auf dem Telefon', () => {
+    // Dort reisst dasselbe Vollbild einem die App unter der Hand weg –
+    // auch dann, wenn man gar nicht zuhause ist.
+    expect(
+      vollbildZeigen({ panel: false, ringKey: 'tuer:1', weggewischt: null })
+    ).toBe(false);
+    expect(vollbildZeigen({ ringKey: 'tuer:1', weggewischt: null })).toBe(false);
+  });
+
+  it('zeigt nichts, solange es nicht klingelt', () => {
+    expect(vollbildZeigen({ panel: true, ringKey: null, weggewischt: null })).toBe(
+      false
+    );
+  });
+
+  it('kommt nach dem Wegwischen nicht wieder', () => {
+    expect(
+      vollbildZeigen({ panel: true, ringKey: 'tuer:1', weggewischt: 'tuer:1' })
+    ).toBe(false);
+  });
+
+  it('kommt beim nächsten Klingeln wieder', () => {
+    // Ein neues Läuten ist ein neuer Anlass, auch wenn das letzte
+    // weggewischt wurde.
+    expect(
+      vollbildZeigen({ panel: true, ringKey: 'tuer:2', weggewischt: 'tuer:1' })
+    ).toBe(true);
   });
 });

@@ -16,7 +16,8 @@ import {
 } from 'react-native';
 
 import { CommandData, Entity, KalenderEintrag } from '../api/types';
-import { hasOpenDoor, openContacts } from './OpenDoors';
+import { hasOpenDoor, openContacts, wohnungstuerOffen } from './OpenDoors';
+import { OffenListe } from './OffenListe';
 import {
   EinkaufZeile,
   ALLGEMEIN,
@@ -25,12 +26,14 @@ import {
   groupForShop,
   einkaufZeile,
 } from '../lib/einkauf';
+import { LernEintrag, mitLernen } from '../lib/ladenlernen';
 import { uhr, wochentagDatum, wochentagUhr } from '../lib/format';
 import { klimaLabel, klimaSensor } from '../lib/klimachip';
 import { Person, anwesenheitsListe, werIstDaHinweis } from '../lib/ortung';
 import { tapped } from '../lib/haptics';
 import { kann } from '../lib/plattform';
 import { MAX_SCHRIFT } from '../lib/schrift';
+import { gezaehlteLichter, lichterAus } from '../lib/zaehlung';
 import { ConnectionStatus } from '../hooks/useHub';
 import { useEscape } from '../hooks/useEscape';
 import { Colors, radius, type, useColors } from '../theme';
@@ -77,9 +80,12 @@ export function TopStrip({
   status,
   now,
   hidden = [],
+  ungezaehlt = [],
+  locked = [],
   onCommand,
   shopping,
   shops,
+  lernLog,
   knownItems,
   onShoppingAdd,
   onShoppingDone,
@@ -95,6 +101,11 @@ export function TopStrip({
   /** Ausgeblendete Geräte – wer eine Lampe aus den Alltagsansichten
    *  verbannt hat, will sie auch hier nicht mitgezählt sehen. */
   hidden?: string[];
+  /** Geräte, die hier nicht mitzählen – siehe lib/zaehlung.ts. */
+  ungezaehlt?: string[];
+  /** Gesperrte Geräte: Die schaltet «Alle aus» nicht mit – sie behalten
+   *  ihren eigenen Knopf, der nachfragt. */
+  locked?: string[];
   /** Für «Licht aus» direkt aus dem Popup – ohne sie bleibt die Zeile
    *  reine Anzeige. */
   onCommand?: (entityId: string, command: string, data?: CommandData) => void;
@@ -103,12 +114,18 @@ export function TopStrip({
   shopping?: EinkaufZeile[];
   /** Die angelegten Läden (Familie → Einkaufsliste → Läden). */
   shops?: Shop[];
+  /** Das Abhak-Protokoll für die gelernte Gang-Reihenfolge
+   *  (lib/ladenlernen.ts) – ohne es gilt die eingestellte oder die
+   *  Standardreihenfolge. */
+  lernLog?: LernEintrag[];
   /** Schon einmal eingekaufte Artikel – für die Vervollständigung. */
   knownItems?: string[];
   /** Einen Artikel auf die Liste setzen, direkt aus dem Fenster. */
   onShoppingAdd?: (text: string) => void;
-  /** Einen Eintrag abhaken – direkt im Laden, ohne Umweg über Familie. */
-  onShoppingDone?: (id: string) => void;
+  /** Einen Eintrag abhaken – direkt im Laden, ohne Umweg über Familie.
+   *  Der zweite Wert sagt, welcher Laden gerade gefiltert ist – daraus
+   *  lernt die App die Gang-Reihenfolge. */
+  onShoppingDone?: (id: string, laden?: string) => void;
   /** Einen Eintrag wegnehmen, ohne ihn gekauft zu haben (Vertipper). */
   onShoppingRemove?: (id: string) => void;
   /** Die Stückzahl setzen. Unter eins fällt der Posten weg. */
@@ -165,15 +182,12 @@ export function TopStrip({
   const hausAnwesend = people ? people.state.state === 'on' : null;
 
   // Die Zwei-Sekunden-Übersicht: Was ist an, was läuft, was steht an?
-  const litEntities = entities.filter(
-    (entity) =>
-      (entity.kind === 'light' || entity.kind === 'switch') &&
-      entity.state.state === 'on' &&
-      !hidden.includes(entity.id) &&
-      // Sonst zählte eine Deckenlampe mit fünf Spots sechsmal: einmal als
-      // Leuchte und fünfmal einzeln.
-      !entity.combined_into
-  );
+  // Wer mitzählt und wer nicht, steht in lib/zaehlung.ts - dort ist es
+  // prüfbar, und die Kachel fragt dieselbe Datei, wenn sie das Menü
+  // zusammenstellt.
+  const litEntities = gezaehlteLichter(entities, hidden, ungezaehlt);
+  // Was ein «Alle aus» wirklich träfe – ohne die gesperrten.
+  const ausschaltbar = lichterAus(litEntities, locked);
   const lightsOn = litEntities.length;
   const vacuum = entities.find(
     (entity) => entity.kind === 'vacuum' && entity.state.state === 'cleaning'
@@ -189,10 +203,17 @@ export function TopStrip({
   // Ein gekipptes Fenster ist eine Notiz, eine offene Wohnungstüre etwas,
   // das man jetzt wissen will - deshalb blinkt nur die Türe.
   const tuerOffen = hasOpenDoor(entities);
+  // Und unter den Türen noch einmal eine Stufe: Eine offene Balkontüre
+  // ist ärgerlich, eine offene Wohnungstüre ist etwas anderes. Sie
+  // bekommt darum das Rot - ohne sie bleibt es beim Orange, mit dem der
+  // Streifen alles Übrige meldet.
+  const wohnungOffen = wohnungstuerOffen(entities);
   const einkauf = shopping ?? [];
   const laeden = [ALLGEMEIN, ...(shops ?? [])];
   const laden = laeden.find((entry) => entry.id === shopId) ?? ALLGEMEIN;
-  const gaenge = groupForShop(einkauf, laden);
+  // Mit dem Gelernten: Wo niemand die Gänge von Hand geordnet hat,
+  // sortiert die Reihenfolge der letzten Einkäufe (lib/ladenlernen.ts).
+  const gaenge = groupForShop(einkauf, mitLernen(laden, lernLog ?? []));
   const vorschlaege = artikelVorschlaege(
     knownItems ?? [],
     neuerArtikel,
@@ -219,7 +240,16 @@ export function TopStrip({
         {people ? (
           <Chip
             icon="people-outline"
-            text={people.state.state === 'on' ? 'jemand da' : 'niemand da'}
+            // «alle sind zuhause» sagt der Hub nur, wenn er es von jedem
+            // Einzelnen weiss - ein verstummtes Telefon macht daraus
+            // wieder das vorsichtige «jemand da».
+            text={
+              people.state.state === 'on'
+                ? people.state.all
+                  ? 'alle sind zuhause'
+                  : 'jemand da'
+                : 'niemand da'
+            }
             onPress={
               onLoadPresence
                 ? () => {
@@ -246,8 +276,20 @@ export function TopStrip({
           <Blinkend an={tuerOffen}>
             <Chip
               icon="alert-circle-outline"
-              tone={colors.warn}
-              text={offen.length === 1 ? '1 offen' : `${offen.length} offen`}
+              tone={wohnungOffen ? colors.danger : colors.warn}
+              // Bei der Wohnungstüre sagt der Streifen auch, welche
+              // gemeint ist: Rot allein liesse einen die Zahl antippen,
+              // um zu erfahren, ob es die eine ist, wegen der man
+              // aufsteht.
+              text={
+                wohnungOffen
+                  ? offen.length === 1
+                    ? 'Wohnungstüre offen'
+                    : `Wohnungstüre offen · ${offen.length}`
+                  : offen.length === 1
+                    ? '1 offen'
+                    : `${offen.length} offen`
+              }
               onPress={() => setOpenOpen(true)}
             />
           </Blinkend>
@@ -361,6 +403,12 @@ export function TopStrip({
                         {zeile.zustand}
                         {zeile.dauer ? ` · ${zeile.dauer}` : ''}
                       </Text>
+                      {/* «Wann ist er da?» - «unterwegs» beantwortet das
+                          nicht. Steht nur, wenn eine Position bekannt
+                          ist (siehe lib/ortung.ts). */}
+                      {zeile.weg ? (
+                        <Text style={styles.lightRoom}>{zeile.weg}</Text>
+                      ) : null}
                     </View>
                   </View>
                 ))}
@@ -387,9 +435,32 @@ export function TopStrip({
       >
         <Pressable style={styles.backdrop} onPress={() => setLightsOpen(false)}>
           <Pressable style={styles.sheet} onPress={() => {}}>
-            <Text style={styles.heading}>
-              {litEntities.length === 1 ? '1 Licht an' : `${litEntities.length} Lichter an`}
-            </Text>
+            {/* «Alle aus» oben rechts, neben der Zahl: Wer diese Liste
+                öffnet, hat meistens schon entschieden - er will wissen,
+                was noch brennt, und es dann loswerden. Erst ab zwei
+                Lichtern; bei einem steht sein eigener Knopf daneben, und
+                zwei Knöpfe für dieselbe Handlung sind einer zu viel. */}
+            <View style={styles.sheetHead}>
+              <Text style={[styles.heading, { flex: 1 }]}>
+                {litEntities.length === 1
+                  ? '1 Licht an'
+                  : `${litEntities.length} Lichter an`}
+              </Text>
+              {onCommand && ausschaltbar.length > 1 ? (
+                <Pressable
+                  onPress={() => {
+                    ausschaltbar.forEach((entity) => onCommand(entity.id, 'turn_off'));
+                    setLightsOpen(false);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Alle ${ausschaltbar.length} Lichter ausschalten`}
+                  style={({ pressed }) => [styles.alleAus, pressed && { opacity: 0.7 }]}
+                >
+                  <Ionicons name="power-outline" size={15} color={colors.ink} />
+                  <Text style={styles.alleAusText}>Alle aus</Text>
+                </Pressable>
+              ) : null}
+            </View>
             <ScrollView style={{ maxHeight: 360 }}>
               {litEntities.map((entity) => (
                 <View key={entity.id} style={styles.lightRow}>
@@ -432,17 +503,11 @@ export function TopStrip({
               {offen.length === 1 ? 'Ein Fenster/eine Tür offen' : `${offen.length} offen`}
             </Text>
             <ScrollView style={{ maxHeight: 360 }}>
-              {offen.map((entity) => (
-                <View key={entity.id} style={styles.lightRow}>
-                  <Ionicons name="alert-circle-outline" size={18} color={colors.warn} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.lightName}>{entity.name}</Text>
-                    {entity.room ? (
-                      <Text style={styles.lightRoom}>{entity.room}</Text>
-                    ) : null}
-                  </View>
-                </View>
-              ))}
+              {/* Mit «seit wann»: «Terrasse offen» beantwortet die Frage
+                  halb - seit zehn Minuten heisst, jemand ist gerade
+                  draussen, seit drei Stunden heisst, es hat es niemand
+                  gemerkt. */}
+              <OffenListe entities={entities} jetzt={Date.now()} />
             </ScrollView>
             <Pressable onPress={() => setOpenOpen(false)} style={styles.close}>
               <Text style={styles.closeText}>Schliessen</Text>
@@ -594,7 +659,7 @@ export function TopStrip({
                                   // aufs Telefon – der kurze Impuls sagt, dass
                                   // der Tipp gesessen hat.
                                   tapped();
-                                  onShoppingDone(String(eintrag.id));
+                                  onShoppingDone(String(eintrag.id), shopId);
                                 }
                               : undefined
                           }
@@ -1079,6 +1144,20 @@ const makeStyles = (colors: Colors) =>
     borderColor: colors.surfaceBorder,
   },
   offButtonText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
+  // Kopfzeile des Licht-Fensters: Zahl links, «Alle aus» rechts.
+  sheetHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  alleAus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radius.control,
+    backgroundColor: colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  alleAusText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
   eventWhen: { color: colors.inkSoft, fontSize: 15, fontWeight: '500' },
   eventLocationRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   eventLocation: { color: colors.inkSoft, fontSize: 14, flexShrink: 1 },

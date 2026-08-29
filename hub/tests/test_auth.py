@@ -349,3 +349,92 @@ def test_the_session_also_opens_the_websocket(monkeypatch):
         with pytest.raises(WebSocketDisconnect):
             with client.websocket_connect(f"/ws?token={token}") as socket:
                 socket.receive_json()
+
+
+def test_a_rename_does_not_lock_the_owner_out(monkeypatch):
+    """«Ich habe meinen Namen von Stefan in stibe geändert – seitdem habe
+    ich keinen Zugriff mehr.»
+
+    Die Sitzung merkte sich nur den Namen. Nach einer Umbenennung in der
+    config.yaml zeigte sie auf einen Benutzer, den es nicht mehr gab: Jede
+    Anfrage bekam «Ungültiges Token», auf allen Geräten gleichzeitig. Die
+    Adresse dagegen bleibt dieselbe – und über sie findet der Hub zurück.
+    """
+    hub, _ = make_auth_hub(monkeypatch)
+    with TestClient(create_app(hub)) as client:
+        owner = {"Authorization": "Bearer geheim"}
+        client.put(
+            "/api/users/Stefan/email", json={"email": "stefan@example.ch"}, headers=owner
+        )
+        angemeldet = client.post(
+            "/api/auth/login",
+            json={"email": "stefan@example.ch", "password": "richtig", "label": "iPhone"},
+        )
+        token = angemeldet.json()["token"]
+        sitzung = {"Authorization": f"Bearer {token}"}
+        assert client.get("/api/me", headers=sitzung).json()["name"] == "Stefan"
+
+        # Wie nach einem Neustart mit geänderter config.yaml.
+        hub.users.by_name("Stefan").name = "stibe"
+
+        antwort = client.get("/api/me", headers=sitzung)
+        assert antwort.status_code == 200
+        assert antwort.json()["name"] == "stibe"
+        assert antwort.json()["role"] == "besitzer"
+
+        # Und die Sitzung steht danach wieder auf dem neuen Namen, statt
+        # bei jeder Anfrage den Umweg über die Adresse zu nehmen.
+        assert hub.sessions.user_for(token) == "stibe"
+
+
+def test_a_dead_session_does_not_block_the_login(monkeypatch):
+    """Die App fragt im Takt weiter, auch wenn ihre Sitzung nichts mehr taugt.
+
+    Zehn solche Anfragen sperrten die Adresse – und die Sperre gilt auch
+    für die Anmeldemaske. Genau daraus wurde «Zu viele Fehlversuche» beim
+    ersten Anmeldeversuch.
+    """
+    hub, _ = make_auth_hub(monkeypatch)
+    with TestClient(create_app(hub)) as client:
+        owner = {"Authorization": "Bearer geheim"}
+        client.put(
+            "/api/users/Stefan/email", json={"email": "stefan@example.ch"}, headers=owner
+        )
+        for _ in range(30):
+            assert (
+                client.get(
+                    "/api/me", headers={"Authorization": "Bearer tote-sitzung"}
+                ).status_code
+                == 401
+            )
+
+        ok = client.post(
+            "/api/auth/login",
+            json={"email": "stefan@example.ch", "password": "richtig"},
+        )
+        assert ok.status_code == 200
+
+
+def test_an_orphaned_address_is_written_into_the_log(monkeypatch, caplog):
+    """Eine Adresse, die auf einen Namen zeigt, den es nicht mehr gibt.
+
+    Der Fall aus dem Betrieb: In der config.yaml aus «Stefan» ein «stibe»
+    gemacht - die Adressen liegen aber getrennt und nach Namen ab. Beim
+    Anmelden kam danach nur «Diese Adresse ist im Haus nicht freigegeben»,
+    und dass das eine verwaiste Zeile in der Datendatei war, stand
+    nirgends.
+    """
+    import logging
+
+    hub, _ = make_auth_hub(monkeypatch)
+    hub.data.set("emails", [{"name": "Stefan", "email": "stefan@example.ch"}])
+    hub.users.by_name("Stefan").name = "stibe"
+    with caplog.at_level(logging.WARNING):
+        hub._load_stored_users()
+
+    meldung = " ".join(record.getMessage() for record in caplog.records)
+    assert "stefan@example.ch" in meldung
+    assert "Stefan" in meldung
+    # Und die Anmeldung geht wieder, sobald die Adresse am neuen Namen hängt.
+    hub.users.set_email("stibe", "stefan@example.ch")
+    assert hub.users.by_email("stefan@example.ch").name == "stibe"

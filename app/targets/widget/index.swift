@@ -1,3 +1,4 @@
+import ActivityKit
 import SwiftUI
 import WidgetKit
 import AppIntents
@@ -102,7 +103,32 @@ func ladeShortcuts() -> [Shortcut] {
 enum Hausstand {
     case aus
     case nichtErreicht
-    case da(doorsOpen: [String], lightsOn: Int, nextEvent: String?, alarm: String?)
+    case da(
+        doorsOpen: [String],
+        lightsOn: Int,
+        nextEvent: String?,
+        alarm: String?,
+        running: [Maschine]
+    )
+}
+
+/// Eine laufende Maschine, wie der Hub sie schickt (core/laufzeit.py).
+///
+/// `percent` fehlt, solange der Hub die Programmdauer dieses Geräts noch
+/// nicht kennt - dann steht nur die Restzeit da. Ein Balken, der auf
+/// einer geratenen Gesamtdauer sitzt, sagt weniger als die blosse Zahl.
+struct Maschine {
+    let name: String
+    let program: String?
+    let minutesLeft: Int?
+    let percent: Double?
+
+    /// «noch 23 min» - oder das Programm, wenn die Maschine keine
+    /// Restzeit meldet.
+    var text: String {
+        if let rest = minutesLeft { return "noch \(rest) min" }
+        return program ?? "läuft"
+    }
 }
 
 func ladeGlance() async -> Hausstand {
@@ -136,11 +162,22 @@ func ladeGlance() async -> Hausstand {
         // Der Alarmzustand kam schon immer mit und wurde weggeworfen –
         // dabei ist «habe ich scharf geschaltet?» genau die Frage, für
         // die man ein Sperrbildschirm-Widget anlegt.
+        // «running» fehlt, wenn nichts läuft - der Normalfall, und die
+        // Antwort trägt das Feld dann gar nicht erst.
+        let maschinen: [Maschine] = ((json["running"] as? [[String: Any]]) ?? []).map {
+            Maschine(
+                name: ($0["name"] as? String) ?? "Gerät",
+                program: $0["program"] as? String,
+                minutesLeft: $0["minutes_left"] as? Int,
+                percent: $0["percent"] as? Double
+            )
+        }
         return .da(
             doorsOpen: (json["doors_open"] as? [String]) ?? [],
             lightsOn: (json["lights_on"] as? Int) ?? 0,
             nextEvent: termin,
-            alarm: json["alarm"] as? String
+            alarm: json["alarm"] as? String,
+            running: maschinen
         )
     } catch {
         return .nichtErreicht
@@ -185,13 +222,18 @@ struct Entry: TimelineEntry {
 
     /// Fürs runde Sperrbildschirm-Widget: Steht etwas offen?
     var etwasOffen: Bool {
-        if case .da(let türen, _, _, _) = glance { return !türen.isEmpty }
+        if case .da(let türen, _, _, _, _) = glance { return !türen.isEmpty }
         return false
     }
 
     var termin: String? {
-        if case .da(_, _, let termin, _) = glance { return termin }
+        if case .da(_, _, let termin, _, _) = glance { return termin }
         return nil
+    }
+
+    var maschinen: [Maschine] {
+        if case .da(_, _, _, _, let laufend) = glance { return laufend }
+        return []
     }
 }
 
@@ -216,7 +258,7 @@ struct StatusZeile: View {
             Label("nicht erreichbar", systemImage: "wifi.slash")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-        case .da(let türen, let lichter, _, let alarm):
+        case .da(let türen, let lichter, _, let alarm, _):
             if !türen.isEmpty {
                 Label(
                     türen.count == 1
@@ -252,6 +294,38 @@ struct StatusZeile: View {
                 )
                 .font(.caption2)
                 .foregroundStyle(alarm == "ausgeloest" ? Color.red : Color.secondary)
+            }
+        }
+    }
+}
+
+/// Die laufende Maschine mit ihrem Fortschritt.
+///
+/// Der Balken ist das eigentliche Stück Auskunft: «noch 23 min» muss man
+/// gegen die Programmlänge rechnen, ein halb voller Balken nicht. Fehlt
+/// die Gesamtdauer (der Hub hat dieses Gerät noch nicht zweimal laufen
+/// sehen), bleibt der Balken weg - lieber eine Zahl weniger als ein
+/// Balken, der etwas anderes behauptet als er weiss.
+struct MaschinenZeile: View {
+    let maschine: Maschine
+    /// Auf dem Sperrbildschirm ist alles einfarbig; ein Balken in
+    /// Akzentfarbe wäre dort schlicht nicht sichtbar.
+    var schmal: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Label(
+                "\(maschine.name) · \(maschine.text)",
+                systemImage: "washer"
+            )
+            .font(schmal ? .caption2 : .caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            if let anteil = maschine.percent {
+                ProgressView(value: anteil)
+                    .progressViewStyle(.linear)
+                    .tint(schmal ? .primary : .accentColor)
+                    .frame(height: 3)
             }
         }
     }
@@ -351,7 +425,13 @@ struct HomePilotWidgetView: View {
         case .accessoryRectangular:
             VStack(alignment: .leading, spacing: 2) {
                 StatusZeile(glance: entry.glance)
-                if let termin = entry.termin {
+                // Die laufende Maschine sticht den Termin: Der Kalender
+                // steht auf demselben Sperrbildschirm noch dreimal, die
+                // Restzeit der Waschmaschine nirgends. Und es ist die
+                // Frage, für die man das Telefon aus der Tasche nimmt.
+                if let maschine = entry.maschinen.first {
+                    MaschinenZeile(maschine: maschine, schmal: true)
+                } else if let termin = entry.termin {
                     Text(termin)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -361,6 +441,13 @@ struct HomePilotWidgetView: View {
         case .systemSmall:
             VStack(alignment: .leading, spacing: 8) {
                 StatusZeile(glance: entry.glance)
+                // Nur die erste: Auf dem kleinen Widget nimmt jede
+                // weitere Zeile den Knöpfen ihren Platz, und sie stehen
+                // ohnehin nach Restzeit - oben ist die, für die man
+                // aufsteht.
+                if let maschine = entry.maschinen.first {
+                    MaschinenZeile(maschine: maschine)
+                }
                 Spacer(minLength: 0)
                 HStack(spacing: 14) {
                     ForEach(entry.shortcuts, id: \.url) { knopf in
@@ -384,6 +471,9 @@ struct HomePilotWidgetView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
+                ForEach(entry.maschinen, id: \.name) { maschine in
+                    MaschinenZeile(maschine: maschine)
+                }
                 Divider()
                 HStack(spacing: 18) {
                     ForEach(entry.shortcuts, id: \.url) { knopf in
@@ -401,7 +491,497 @@ struct HomePilotWidgetView: View {
     }
 }
 
+// ── Haustür-Live-Aktivität ─────────────────────────────────────────────────
+//
+// Die Karte, die auf dem Sperrbildschirm liegt, solange man unterwegs
+// ist. Gestartet und beendet wird sie vom Hub über einen APNs-Push
+// (core/liveaktivitaet.py) - die App ist im Moment des Weggehens ja
+// gerade nicht offen. Der Tipp auf die Karte führt in die App zur Türe,
+// mit der gewohnten Rückfrage: Ein Knopf auf dem Sperrbildschirm darf
+// nicht mehr als die App - dieselbe Entscheidung wie beim Türknopf im
+// Widget oben.
+
+/// Wortgleich in der App (modules/live-aktivitaet) - beide Programme
+/// müssen den Typ kennen, und der Start-Push trägt seinen Namen.
+struct TuerAktivitaetAttributes: ActivityAttributes {
+    public struct ContentState: Codable, Hashable {
+        var text: String
+    }
+
+    var tuer: String
+}
+
+@available(iOS 16.2, *)
+struct TuerAktivitaet: Widget {
+    var body: some WidgetConfiguration {
+        ActivityConfiguration(for: TuerAktivitaetAttributes.self) { context in
+            // Sperrbildschirm und Banner.
+            HStack(spacing: 12) {
+                Image(systemName: "key.fill")
+                    .font(.title2)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Unterwegs")
+                        .font(.headline)
+                    Text("\(context.attributes.tuer) im Schnellzugriff")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Link(destination: URL(string: "homepilot://door")!) {
+                    Text("Öffnen")
+                        .font(.headline)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 10)
+                        .background(.tint, in: Capsule())
+                        .foregroundStyle(.white)
+                }
+            }
+            .padding(14)
+            .activityBackgroundTint(Color.black.opacity(0.6))
+        } dynamicIsland: { context in
+            DynamicIsland {
+                DynamicIslandExpandedRegion(.leading) {
+                    Image(systemName: "key.fill").font(.title2)
+                }
+                DynamicIslandExpandedRegion(.center) {
+                    Text(context.attributes.tuer).font(.headline)
+                }
+                DynamicIslandExpandedRegion(.trailing) {
+                    Link(destination: URL(string: "homepilot://door")!) {
+                        Text("Öffnen").font(.headline)
+                    }
+                }
+            } compactLeading: {
+                Image(systemName: "key.fill")
+            } compactTrailing: {
+                EmptyView()
+            } minimal: {
+                Image(systemName: "key.fill")
+            }
+            .widgetURL(URL(string: "homepilot://door"))
+        }
+    }
+}
+
+// ── Die generische Karte ──────────────────────────────────────────────────
+//
+// Eine Form für alles, was der Hub auf den Sperrbildschirm legt:
+// Küchen-Timer, Waschmaschine, Grill, Sauger, Erinnerung, Alarmanlage.
+// Inhalt und Lebensdauer bestimmt der Hub (core/livekarten.py) - hier
+// steht nur, wie Titel, Text, Countdown und Fortschritt gezeichnet
+// werden. Eine neue Kartenart braucht deshalb kein neues Swift.
+
+/// Wortgleich in der App (modules/live-aktivitaet).
+struct HausAktivitaetAttributes: ActivityAttributes {
+    public struct ContentState: Codable, Hashable {
+        var titel: String
+        var text: String
+        var symbol: String
+        var farbe: String?
+        var endet: Double?
+        var fortschritt: Double?
+        var url: String?
+    }
+
+    var art: String
+}
+
+@available(iOS 16.2, *)
+private func kartenFarbe(_ name: String?) -> Color {
+    switch name {
+    case "rot": return .red
+    case "orange": return .orange
+    default: return .accentColor
+    }
+}
+
+@available(iOS 16.2, *)
+struct HausKarteInhalt: View {
+    let state: HausAktivitaetAttributes.ContentState
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: state.symbol)
+                .font(.title2)
+                .foregroundStyle(kartenFarbe(state.farbe))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(state.titel).font(.headline)
+                if !state.text.isEmpty {
+                    Text(state.text)
+                        .font(.caption)
+                        .foregroundStyle(state.farbe == "rot" ? .red : .secondary)
+                }
+                if let fortschritt = state.fortschritt {
+                    ProgressView(value: fortschritt)
+                        .tint(kartenFarbe(state.farbe))
+                }
+            }
+            Spacer()
+            if let endet = state.endet {
+                // Zählt von selbst herunter - dafür braucht es keinen
+                // einzigen weiteren Push.
+                Text(
+                    timerInterval: Date()...Date(timeIntervalSince1970: endet),
+                    countsDown: true
+                )
+                .font(.title2.monospacedDigit())
+                .multilineTextAlignment(.trailing)
+                .frame(maxWidth: 90)
+            }
+        }
+        .padding(14)
+    }
+}
+
+@available(iOS 16.2, *)
+struct HausKarte: Widget {
+    var body: some WidgetConfiguration {
+        ActivityConfiguration(for: HausAktivitaetAttributes.self) { context in
+            HausKarteInhalt(state: context.state)
+                .widgetURL(URL(string: context.state.url ?? "homepilot://"))
+                .activityBackgroundTint(Color.black.opacity(0.6))
+        } dynamicIsland: { context in
+            DynamicIsland {
+                DynamicIslandExpandedRegion(.center) {
+                    HausKarteInhalt(state: context.state)
+                }
+            } compactLeading: {
+                Image(systemName: context.state.symbol)
+                    .foregroundStyle(kartenFarbe(context.state.farbe))
+            } compactTrailing: {
+                if let endet = context.state.endet {
+                    Text(
+                        timerInterval: Date()...Date(timeIntervalSince1970: endet),
+                        countsDown: true
+                    )
+                    .monospacedDigit()
+                    .frame(maxWidth: 60)
+                }
+            } minimal: {
+                Image(systemName: context.state.symbol)
+                    .foregroundStyle(kartenFarbe(context.state.farbe))
+            }
+            .widgetURL(URL(string: context.state.url ?? "homepilot://"))
+        }
+    }
+}
+
+// ── Eigene Widgets: je eines für ein Gerät oder eine Szene ────────────────
+//
+// Das Widget oben ist eine Knopfleiste: vier Abkürzungen und ein Blick
+// aufs Haus. Was es nicht kann, ist «zeig mir das Küchenlicht» - und
+// genau dafür legt man sich ein Widget hin.
+//
+// Die Karten stellt man in der App zusammen (Einstellungen → Widgets);
+// hier landen sie als Liste in der App-Gruppe. Welche davon ein
+// bestimmtes Widget zeigt, wählt man auf dem Homescreen aus: langer
+// Druck → «Widget bearbeiten». So liegen mehrere nebeneinander, jedes
+// mit seinem eigenen Gerät - was mit einem festen Widget nicht ginge.
+
+struct Karte: Decodable {
+    /// 'entity:…' oder 'scene:…' - zugleich die Kennung in der Auswahl.
+    let key: String
+    /// Die Kennung dahinter, mit der der Hub nach dem Zustand gefragt wird.
+    let id: String
+    /// 'entity' oder 'scene'.
+    let kind: String
+    let title: String
+    let symbol: String
+    let url: URL
+    /// Was der Knopf aufruft. Fehlt, wenn der Hausstand aus ist - ohne
+    /// Token kann das Widget nichts schalten und zeigt nur an.
+    let actionPath: String?
+    let actionBody: String?
+}
+
+func ladeKarten() -> [Karte] {
+    guard
+        let roh = UserDefaults(suiteName: appGroup)?.string(forKey: "karten"),
+        let daten = roh.data(using: .utf8),
+        let gelesen = try? JSONDecoder().decode([Karte].self, from: daten)
+    else {
+        return []
+    }
+    return gelesen
+}
+
+/// Wie es um das Gerät auf der Karte steht.
+///
+/// Dieselbe Dreiteilung wie beim Hausstand, aus demselben Grund: «aus»
+/// ist eine Entscheidung in der App, «nicht erreicht» eine Störung. Ein
+/// Widget, das beides als Fehler zeigt, schickt einen zum Sicherungskasten,
+/// obwohl nur ein Schalter aus ist.
+enum Kartenstand {
+    case aus
+    case nichtErreicht
+    case da(text: String, an: Bool, erreichbar: Bool)
+}
+
+func ladeKartenstand(_ karte: Karte) async -> Kartenstand {
+    // Eine Szene hat keinen Zustand - sie ist ein Knopf. Gar nicht erst
+    // zu fragen ist ehrlicher, als eine leere Antwort zu deuten.
+    if karte.kind != "entity" { return .aus }
+    let defaults = UserDefaults(suiteName: appGroup)
+    guard
+        let base = defaults?.string(forKey: "hubUrl"),
+        let token = defaults?.string(forKey: "hubToken"),
+        let kennung = karte.id.addingPercentEncoding(
+            withAllowedCharacters: .urlQueryAllowed
+        ),
+        let url = URL(string: base + "/api/glance?ids=" + kennung)
+    else {
+        return .aus
+    }
+    var request = URLRequest(url: url)
+    request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+    request.timeoutInterval = 8
+    do {
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard
+            let http = response as? HTTPURLResponse, http.statusCode == 200,
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let zeilen = json["entities"] as? [[String: Any]],
+            let zeile = zeilen.first
+        else {
+            return .nichtErreicht
+        }
+        return .da(
+            text: (zeile["text"] as? String) ?? "–",
+            an: (zeile["on"] as? Bool) ?? false,
+            erreichbar: (zeile["available"] as? Bool) ?? true
+        )
+    } catch {
+        return .nichtErreicht
+    }
+}
+
+/// Eine Karte, wie sie in der Auswahl von iOS erscheint.
+@available(iOS 17.0, *)
+struct KartenWahl: AppEntity {
+    let id: String
+    let titel: String
+    let art: String
+
+    static var typeDisplayRepresentation: TypeDisplayRepresentation = "Karte"
+
+    var displayRepresentation: DisplayRepresentation {
+        DisplayRepresentation(
+            title: LocalizedStringResource(stringLiteral: titel),
+            subtitle: LocalizedStringResource(stringLiteral: art)
+        )
+    }
+
+    static var defaultQuery = KartenQuery()
+}
+
+/// Woher die Auswahl kommt: aus der Liste, die die App hinterlegt hat.
+@available(iOS 17.0, *)
+struct KartenQuery: EntityQuery {
+    func entities(for identifiers: [String]) async throws -> [KartenWahl] {
+        alle().filter { identifiers.contains($0.id) }
+    }
+
+    func suggestedEntities() async throws -> [KartenWahl] {
+        alle()
+    }
+
+    private func alle() -> [KartenWahl] {
+        ladeKarten().map { karte in
+            KartenWahl(
+                id: karte.key,
+                titel: karte.title,
+                art: karte.kind == "scene" ? "Szene" : "Gerät"
+            )
+        }
+    }
+}
+
+@available(iOS 17.0, *)
+struct KarteIntent: WidgetConfigurationIntent {
+    static var title: LocalizedStringResource = "HomePilot-Karte"
+    static var description = IntentDescription(
+        "Welches Gerät oder welche Szene dieses Widget zeigt."
+    )
+
+    @Parameter(title: "Karte")
+    var karte: KartenWahl?
+
+    init() {}
+}
+
+@available(iOS 17.0, *)
+struct KarteEntry: TimelineEntry {
+    let date: Date
+    let karte: Karte?
+    let stand: Kartenstand
+}
+
+@available(iOS 17.0, *)
+struct KarteProvider: AppIntentTimelineProvider {
+    func placeholder(in context: Context) -> KarteEntry {
+        KarteEntry(date: Date(), karte: ladeKarten().first, stand: .aus)
+    }
+
+    func snapshot(for configuration: KarteIntent, in context: Context) async -> KarteEntry {
+        await eintrag(fuer: configuration)
+    }
+
+    func timeline(for configuration: KarteIntent, in context: Context) async -> Timeline<KarteEntry> {
+        let eintrag = await eintrag(fuer: configuration)
+        // Wie beim grossen Widget: Häufiger lässt iOS ohnehin nicht zu.
+        let naechste = Calendar.current.date(byAdding: .minute, value: 15, to: Date())!
+        return Timeline(entries: [eintrag], policy: .after(naechste))
+    }
+
+    /// Die gewählte Karte - oder die erste, solange keine gewählt ist.
+    ///
+    /// Ein frisch angelegtes Widget zeigt damit sofort etwas, statt bis
+    /// zum ersten «Widget bearbeiten» leer zu bleiben.
+    private func eintrag(fuer configuration: KarteIntent) async -> KarteEntry {
+        let karten = ladeKarten()
+        let gewaehlt = configuration.karte.flatMap { wahl in
+            karten.first(where: { $0.key == wahl.id })
+        }
+        guard let karte = gewaehlt ?? karten.first else {
+            return KarteEntry(date: Date(), karte: nil, stand: .aus)
+        }
+        return KarteEntry(date: Date(), karte: karte, stand: await ladeKartenstand(karte))
+    }
+}
+
+@available(iOS 17.0, *)
+struct KarteInhalt: View {
+    @Environment(\.widgetFamily) var family
+    let entry: KarteEntry
+
+    private var zustandstext: String? {
+        switch entry.stand {
+        case .aus: return nil
+        case .nichtErreicht: return "nicht erreichbar"
+        case .da(let text, _, let erreichbar): return erreichbar ? text : "nicht erreichbar"
+        }
+    }
+
+    private var leuchtet: Bool {
+        if case .da(_, let an, let erreichbar) = entry.stand { return an && erreichbar }
+        return false
+    }
+
+    var body: some View {
+        if let karte = entry.karte {
+            inhalt(karte)
+        } else {
+            // Nicht «Fehler», sondern der Hinweis, was fehlt: In der App
+            // ist noch keine Karte zusammengestellt.
+            VStack(alignment: .leading, spacing: 4) {
+                Image(systemName: "square.dashed").font(.title3)
+                Text("Noch keine Karte")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("In der App unter Einstellungen → Widgets")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(2)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func inhalt(_ karte: Karte) -> some View {
+        if family == .accessoryRectangular {
+            VStack(alignment: .leading, spacing: 2) {
+                Label(karte.title, systemImage: karte.symbol)
+                    .font(.headline)
+                    .lineLimit(1)
+                if let text = zustandstext {
+                    Text(text).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Image(systemName: karte.symbol)
+                        .font(.title2)
+                        .foregroundStyle(leuchtet ? .yellow : .secondary)
+                    Spacer()
+                }
+                Text(karte.title).font(.headline).lineLimit(2)
+                if let text = zustandstext {
+                    Text(text).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                knopf(karte)
+            }
+            .padding(4)
+        }
+    }
+
+    /// Schalten, wo die App es erlaubt hat - sonst der Weg in die App.
+    ///
+    /// Dieselbe Abwägung wie bei den Knöpfen oben: Ohne Hausstand liegt
+    /// kein Token im Widget, und ohne Token kann es nichts aufrufen.
+    @ViewBuilder
+    private func knopf(_ karte: Karte) -> some View {
+        if let pfad = karte.actionPath, !pfad.isEmpty {
+            Button(intent: SchaltIntent(pfad: pfad, body: karte.actionBody ?? "")) {
+                Label(
+                    karte.kind == "scene" ? "Starten" : (leuchtet ? "Ausschalten" : "Einschalten"),
+                    systemImage: karte.kind == "scene" ? "play.fill" : "power"
+                )
+                .font(.caption)
+                .lineLimit(1)
+            }
+            .buttonStyle(.bordered)
+        } else {
+            Link(destination: karte.url) {
+                Label("Öffnen", systemImage: "arrow.up.right")
+                    .font(.caption)
+                    .lineLimit(1)
+            }
+        }
+    }
+}
+
+@available(iOS 17.0, *)
+struct KarteWidget: Widget {
+    let kind: String = "HomePilotKarte"
+
+    var body: some WidgetConfiguration {
+        AppIntentConfiguration(
+            kind: kind,
+            intent: KarteIntent.self,
+            provider: KarteProvider()
+        ) { entry in
+            KarteInhalt(entry: entry)
+                .containerBackground(.fill.tertiary, for: .widget)
+        }
+        .configurationDisplayName("HomePilot Karte")
+        .description("Ein Gerät oder eine Szene – mit Zustand und einem Knopf.")
+        .supportedFamilies([
+            .systemSmall,
+            .systemMedium,
+            .accessoryRectangular,
+        ])
+    }
+}
+
 @main
+struct HomePilotBundle: WidgetBundle {
+    var body: some Widget {
+        HomePilotWidget()
+        if #available(iOS 16.2, *) {
+            TuerAktivitaet()
+            HausKarte()
+        }
+        // Die eigenen Karten. Erst ab iOS 17: Erst dort lässt sich ein
+        // Widget je Exemplar einstellen - und ohne das wären alle Karten
+        // dieselbe.
+        if #available(iOS 17.0, *) {
+            KarteWidget()
+        }
+    }
+}
+
 struct HomePilotWidget: Widget {
     let kind: String = "HomePilotWidget"
 

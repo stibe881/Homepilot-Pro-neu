@@ -89,6 +89,42 @@ describe('hubClient', () => {
     expect(optionen.body).toBe('{"a":1}');
   });
 
+  // Der Hub schreibt in `detail` fertige Sätze, die sagen, was zu tun ist.
+  // Die gingen verloren: Die Durchsage scheiterte, der Hub nannte das
+  // fehlende gTTS, und in der App stand bloss die Statuszahl.
+  describe('Worte des Hubs', () => {
+    it('zeigt den Grund, den der Hub nennt', async () => {
+      antworte(400, '{"detail":"Sprachausgabe nicht installiert."}');
+      await expect(hubClient('http://hub', 't').post('/api/broadcast', {})).rejects.toThrow(
+        'Sprachausgabe nicht installiert.'
+      );
+    });
+
+    it('bleibt beim eigenen Satz, wo der Hub nur «Not Found» sagt', async () => {
+      // «Not Found» hilft niemandem; der eigene Satz nennt den Weg und den
+      // wahrscheinlichen Grund (Hub zu alt).
+      antworte(404, '{"detail":"Not Found"}');
+      await expect(hubClient('http://hub', 't').get('/api/neu')).rejects.toThrow('neusten Stand');
+    });
+
+    it('bleibt beim eigenen Satz, wenn der Hub selbst stolpert', async () => {
+      antworte(500, '{"detail":"Traceback (most recent call last)"}');
+      await expect(hubClient('http://hub', 't').get('/x')).rejects.toThrow('Im Hub');
+    });
+
+    it('liest keine Formatprüfung vor', async () => {
+      // FastAPI legt bei einer Formatprüfung eine Liste von Objekten in
+      // `detail` - unlesbar, also lieber der eigene Satz.
+      antworte(422, '{"detail":[{"loc":["body","text"],"msg":"field required"}]}');
+      await expect(hubClient('http://hub', 't').post('/x', {})).rejects.toThrow('abgelehnt (422)');
+    });
+
+    it('verträgt eine Antwort, die gar kein JSON ist', async () => {
+      antworte(400, '<html>Bad Request</html>');
+      await expect(hubClient('http://hub', 't').get('/x')).rejects.toThrow('abgelehnt (400)');
+    });
+  });
+
   it('gibt nach dem Zeitlimit auf', async () => {
     global.fetch = jest.fn(
       (_u: string, o: { signal: AbortSignal }) =>

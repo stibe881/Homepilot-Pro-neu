@@ -120,15 +120,26 @@ class StubGeofence:
         self.gemeldet: list[tuple] = []
         self.quellen: list[str] = []
         self.namen: list[str | None] = []
+        self.punkte: list[tuple] = []
 
     async def report(
-        self, zone, event, place=None, battery=None, source="geofence", place_name=None
+        self,
+        zone,
+        event,
+        place=None,
+        battery=None,
+        source="geofence",
+        place_name=None,
+        latitude=None,
+        longitude=None,
     ):
         if zone not in self.zonen:
             raise KeyError(zone)
         self.gemeldet.append((zone, event, place, battery))
         self.quellen.append(source)
         self.namen.append(place_name)
+        # Für «noch 4 km»: Der Geofence rechnet daraus die Entfernung.
+        self.punkte.append((latitude, longitude))
         return "home" if event == "enter" else "away"
 
 

@@ -11,6 +11,7 @@ from homepilot.core.shopping import (
     describe,
     due_reminders,
     open_items,
+    wer_steht_dort,
 )
 
 JETZT = 1_700_000_000.0
@@ -197,3 +198,53 @@ def test_the_config_keeps_its_places():
     # Löschen trifft nur den in der App angelegten.
     rest = ort_entfernen(gespeichert, "coop_willisau")
     assert [ort["id"] for ort in rest] == ["home"]
+
+
+# ── Wer steht dort? ──────────────────────────────────────────────────────
+#
+# Die Nachricht heisst «Du bist im Märt» und ging trotzdem an alle: Wer
+# im Büro sass, während jemand anders einkaufte, bekam sie auch - und
+# wusste weder, dass sie nicht ihm galt, noch wem.
+
+MAERT = {"id": "s3", "name": "Märti, Zell", "place": "maert_zell"}
+
+
+def test_die_zone_kommt_mit_zurueck():
+    """Ohne sie lässt sich nicht sagen, wen die Nachricht angeht."""
+    zonen = {
+        "stefan": {"state": "arbeit_stibe", "changed_at": JETZT - 3600},
+        "bine": {"state": "maert_zell", "changed_at": JETZT - STAY_SECONDS},
+    }
+    zone, stand, marke = wer_steht_dort(MAERT, zonen)
+    assert zone == "bine"
+    assert stand is not None and stand["state"] == "maert_zell"
+    assert marke == "maert_zell"
+
+
+def test_wer_woanders_steht_zaehlt_nicht():
+    zonen = {"stefan": {"state": "arbeit_stibe", "changed_at": JETZT - 3600}}
+    assert wer_steht_dort(MAERT, zonen) == (None, None, "maert_zell")
+
+
+def test_bei_zweien_gilt_der_laenger_dort_steht():
+    """Sonst käme die Erinnerung erneut, sobald der Zweite hereinkommt."""
+    zonen = {
+        "bine": {"state": "maert_zell", "changed_at": JETZT - 600},
+        "stefan": {"state": "maert_zell", "changed_at": JETZT - 60},
+    }
+    zone, _, _ = wer_steht_dort(MAERT, zonen)
+    assert zone == "bine"
+
+
+def test_die_alte_eigene_zone_nennt_sich_selbst():
+    """Wer sich eine Laden-Zone gebaut hat, behält sie – samt Kennung."""
+    zonen = {"coop_willisau": da_seit(STAY_SECONDS)}
+    assert wer_steht_dort(COOP, zonen) == (
+        "coop_willisau",
+        zonen["coop_willisau"],
+        "coop_willisau",
+    )
+
+
+def test_ohne_ort_und_ohne_zone_niemand():
+    assert wer_steht_dort(OHNE_ZONE, {}) == (None, None, "")

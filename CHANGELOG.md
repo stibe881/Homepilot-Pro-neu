@@ -5,6 +5,132 @@ Gegenstück: was die Anlage heute kann, was sie vorher nicht konnte.
 
 Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
+## 2026-08-27
+
+**iPhone**
+
+- **Sechs weitere Live-Karten auf dem Sperrbildschirm** - alle auf
+  einem gemeinsamen Fundament (eine generische Karte, deren Inhalt der
+  Hub bestimmt; eine neue Kartenart ist damit reiner Hub-Code):
+  **Küchen-Timer** mit laufendem Countdown, **Waschmaschine und
+  Geschirrspüler** mit Programm und Restzeit (am Ende bleibt kurz
+  «Fertig - ausräumen» stehen), der **Grill** mit Ist- gegen
+  Zieltemperatur samt Fortschrittsbalken, der **Saugroboter** mit
+  Fläche und Akku, **fällige Erinnerungen** (verschwinden je Person,
+  sobald sie bestätigt hat - dieselben Regeln wie das Vollbild) und
+  die **Alarmanlage**: Countdown während der Scharfschalt-Verzögerung,
+  Rot bei ausgelöstem Alarm. «Scharf» selbst bekommt bewusst keine
+  Karte - eine Nacht ist länger als die zwölf Stunden, die iOS einer
+  Live-Aktivität gibt. Countdowns zählen auf dem Telefon selbst,
+  Updates (etwa die Grill-Temperatur) sind auf eine je 45 Sekunden
+  gedrosselt - Apple deckelt das Budget ohnehin. Der Schalter im
+  Profil heisst jetzt «Live-Aktivitäten» und gilt für alle Karten.
+- **Jede Kartenart lässt sich einzeln abwählen.** Unter dem grossen
+  Schalter stehen die sieben Karten mit eigenen Schaltern - nach dem
+  Modell der Benachrichtigungen: abbestellen statt bestellen, damit
+  eine künftige neue Kartenart erst einmal ankommt, statt unbemerkt zu
+  fehlen. Gilt je Person auf allen ihren iPhones; der Hub setzt es
+  durch, und eine gerade liegende Karte der abbestellten Art endet in
+  derselben Runde.
+
+- **Wer das Haus verlässt, bekommt die Haustüre auf den
+  Sperrbildschirm** - als Live-Aktivität: eine kleine Karte «Unterwegs -
+  Haustüre im Schnellzugriff», die beim Weggehen erscheint und beim
+  Heimkommen von selbst verschwindet. Ein Tipp auf «Öffnen» führt in
+  die App direkt zur Türe, mit der gewohnten Rückfrage - ein Knopf auf
+  dem Sperrbildschirm darf nicht mehr als die App, dieselbe
+  Entscheidung wie beim Türknopf im Widget.
+- Gestartet wird die Karte vom **Hub**, nicht von der App: Im Moment
+  des Weggehens läuft die App nicht im Vordergrund, und nur dort dürfte
+  sie eine Live-Aktivität selbst aufstellen. Also schickt der Hub einen
+  direkten Apple-Push («push-to-start», ab iOS 17.2) - dafür braucht er
+  einmalig einen APNs-Schlüssel aus dem Entwicklerkonto (Anleitung in
+  deploy/portainer.md, Block `apns:` in der config.yaml). Ohne den
+  Block bleibt alles aus.
+- **Ein Schalter im Profil** (Einstellungen → Konto, neben den
+  Benachrichtigungen): «Haustüre als Live-Aktivität» lässt sich je
+  Person ein- und ausschalten - auf allen eigenen iPhones zugleich, und
+  der Hub hält sich sofort daran: Abschalten beendet auch eine gerade
+  liegende Karte, nicht erst beim nächsten Heimkommen. Ist der Hub noch
+  nicht eingerichtet, sagt es die Karte dazu, statt still nichts zu tun.
+- Dazu gehört ein neuer nativer Baustein in der App (ActivityKit).
+  Er wird erst mit dem nächsten TestFlight-Build wirksam; bis dahin
+  ändert sich auf den Telefonen nichts, und alle bisherigen Updates
+  kommen weiter an - die runtimeVersion bleibt deshalb absichtlich
+  stehen, die App prüft den Baustein zur Laufzeit.
+
+**Abläufe**
+
+- **Die Auslöser-Diagnose unterscheidet «kaputt» von «hatte nichts zu
+  melden».** Bei «wenn niemand mehr zuhause ist» stand als orange
+  Warnung: «geofence.anyone_home hat sich noch nie gemeldet - stimmt
+  die Kennung, ist das Gerät erreichbar?» Dabei war alles in Ordnung:
+  Die Sammel-Entität meldet nur echte Wechsel, und solange seit dem
+  Hub-Start niemand ging oder kam, herrscht zu Recht Stille. Jetzt
+  sagt die Diagnose in diesem Fall ruhig: «ist da und steht auf ‹on› -
+  seit dem Hub-Start gab es nur noch keinen Wechsel. Der Auslöser
+  feuert beim nächsten.» Die Warnung bleibt für den Fall, für den sie
+  gedacht war: eine Kennung, die ins Leere zeigt, oder ein Gerät, das
+  nicht erreichbar ist.
+
+**Familie**
+
+- **Erinnerungen lassen sich bearbeiten.** Der Stift auf der Zeile
+  füllt das Formular unten mit dem Eintrag - Text, Datum, Uhrzeit,
+  Wiederholung, die beiden Schalter und die Push-Empfänger stehen
+  darin und lassen sich ändern; «Änderungen speichern» schreibt in
+  denselben Eintrag zurück, «Abbrechen» verwirft. Vorher blieb nur
+  Löschen und neu Anlegen. Eine bearbeitete Erinnerung gilt als frisch
+  aufgesetzt: Ein schon verschickter Push und die «schon
+  gesehen»-Vermerke gehörten zum alten Termin - wer die Zeit
+  verschiebt, will wieder gemeldet werden.
+- **Erinnerungen können sich wiederholen** - täglich, wöchentlich,
+  monatlich oder jährlich, gewählt über dieselben Chips wie bei den
+  Aufgaben. Eine wiederkehrende Erinnerung wird beim Bestätigen nicht
+  erledigt, sondern auf den nächsten Termin weitergestellt - frisch:
+  Niemand hat die neue schon weggedrückt, der nächste Push geht wieder
+  raus. Eine reine Push-Erinnerung stellt der Hub nach dem Versand
+  selbst weiter. Verpasste Termine werden übersprungen, nicht
+  nachgeholt: Wer die Dienstags-Erinnerung erst am Freitag bestätigt,
+  bekommt die vom nächsten Dienstag - nicht drei auf einmal. Und der
+  Kalender stimmt: Die Erinnerung vom 31. rutscht im kurzen Monat auf
+  dessen letzten Tag und kehrt danach auf den 31. zurück; 7 Uhr bleibt
+  7 Uhr, auch über die Zeitumstellung.
+
+**Profil**
+
+- **Der Name im Profil ist jetzt der Benutzername.** Das Feld hiess
+  «Dein Name (für die Begrüssung)» und lebte nur im Gerät - die
+  Benutzerverwaltung zeigte weiter den alten Namen, und niemand
+  wusste, welcher gilt. Jetzt benennt «Speichern & verbinden» den
+  Hub-Benutzer um: Der neue Name steht sofort in der
+  Benutzerverwaltung, in der Anwesenheit und bei den Push-Empfängern;
+  Geräte-Anmeldungen, Abbestellungen und offene Erinnerungen ziehen
+  mit um. Token und Rechte bleiben unverändert. Wer in der config.yaml
+  steht, bekommt den Hinweis, den Namen dort zu ändern; Gäste benennt
+  weiterhin, wer sie eingeladen hat. Am Wandpanel bleibt das Feld die
+  Anrede des Panels («Küche») und fasst keinen Benutzer an.
+
+**Anwesenheit**
+
+- **«Jemand/niemand zuhause» zählt nur noch den Haushalt.** Der
+  Life360-Kreis ortet auch Menschen, die hier nicht wohnen - deren
+  Zuhause ist ein anderes. Bisher zählten ihre Zonen mit, und «niemand
+  ist zuhause» wäre erst wahr geworden, wenn auch die Oma ihr eigenes
+  Haus verlässt: Der Saug-Ablauf mit genau diesem Auslöser feuerte
+  deshalb nie. Jetzt zählen die Zonen, hinter denen ein Benutzer des
+  Hubs steht; wer eine weitere Zone mitzählen will, nennt sie in der
+  config.yaml unter `geofence → haushalt: [kennung]`. Findet sich gar
+  kein Haushalt, zählen zur Sicherheit wie bisher alle.
+- **Wer nicht ausdrücklich zuhause ist, zählt als weg** - auch
+  «unbekannt». Vorher hielt ein einziges stummes Telefon die Frage auf
+  «jemand da», und der Ablauf wartete einen ganzen Tag umsonst. Die
+  eine Ausnahme bleibt: Weiss der Hub von niemandem etwas (frisch
+  gestartet, noch keine Meldung), bleibt es bei «jemand da» - sonst
+  liefe nach jeder Auslieferung «alles aus», während die Familie am
+  Tisch sitzt. Das Gleiche gilt fürs Schild «alle sind zuhause»: Es
+  urteilt jetzt über den Haushalt, nicht über den ganzen Kreis.
+
 ## 2026-08-25
 
 **Zimmer**
@@ -103,6 +229,115 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   Bisher entschied jede für sich zwischen «Läuft» und sonst «Bereit» –
   dasselbe Gerät stand damit an einer Stelle als «Standby» und an der
   anderen als «Bereit».
+
+**Familie**
+
+- **Neue Kachel «Erinnerungen»** (unter Alltag): ein Text, ein Datum,
+  eine Uhrzeit - zur eingestellten Zeit erscheint die Erinnerung
+  **gross auf jedem offenen Bildschirm** und bleibt stehen, bis jemand
+  auf «Erledigt» drückt. Kein Wegwischen: Sie verschwindet nur über die
+  Bestätigung, und die gilt für alle Bildschirme zugleich - auch fürs
+  Wandpanel. Eine Erinnerung verfällt nicht von selbst; wer das Display
+  erst abends sieht, findet die von mittags noch vor.
+- Datum und Uhrzeit sind **Wähler statt Tippfelder**: ein Monatsraster
+  (heute umrandet, Blättern über Pfeile) und zwei Spalten für Stunde
+  und Minute. «26.08.2026» fehlerfrei einzutippen bringt am Wandpanel
+  niemand zustande - und ein Vertipper hiess: die Erinnerung kommt nie.
+  Vorgabe ist die nächste volle Stunde heute.
+- **Eine Erinnerung kann auch als Push kommen.** Zwei Schalter im
+  Formular: *Gross am Bildschirm anzeigen* (die Vorgabe - verschwindet
+  überall, sobald die erste Person bestätigt) und *Push-Nachricht
+  senden*. Beim zweiten wählt man aus, **an wen** - Mehrfachauswahl über
+  die Haushaltsmitglieder, ohne Empfänger geht der Knopf nicht. Den
+  Versand übernimmt der Hub zur eingestellten Zeit, die App muss dafür
+  nicht offen sein; jede Erinnerung wird genau einmal verschickt, auch
+  über einen Neustart hinweg. Eine reine Push-Erinnerung (Bildschirm
+  aus) gilt nach dem Versand als erledigt - es gäbe keinen Bildschirm,
+  auf dem sie jemand bestätigen könnte. In der Liste steht dabei, wer
+  den Push bekommt.
+- **Das Vollbild hat jetzt zwei Knöpfe: «Erledigt» und «Für alle
+  erledigt».** «Für alle erledigt» räumt die Erinnerung überall ab -
+  das war bisher der einzige Weg. «Erledigt» blendet sie nur beim
+  Drückenden aus: Wer die Wäsche gesehen hat und weiss, dass er gleich
+  geht, muss sie den anderen nicht wegnehmen - bei denen bleibt sie
+  stehen, bis jemand für alle bestätigt. Das «schon gesehen» liegt beim
+  Hub, überlebt also einen Neustart der App und gilt auf allen eigenen
+  Geräten; ein kleiner Hinweis unter den Knöpfen erklärt den
+  Unterschied direkt dort, wo man ihn braucht.
+
+**Startseite und Musik**
+
+- **Die Durchsage-Sätze lassen sich pflegen.** Der Stift im
+  Durchsage-Fenster öffnet das Bearbeiten: eigene Sätze anlegen,
+  umformulieren, löschen (bis zwölf). Die mitgelieferten bleiben aussen
+  vor - gelöscht wären sie beim nächsten Update kommentarlos wieder da.
+- Selbst Getipptes merkt sich die App nur noch **als genau einen Satz**,
+  den letzten - und der lässt sich im Bearbeiten wieder anfassen.
+  Vorher sammelten sich vier automatisch gemerkte an, die niemand
+  wieder loswurde: nicht bearbeitbar, nicht löschbar, nur verdrängbar.
+
+- **Durchsagen spielen auf 70 %**, wenn niemand eine Lautstärke nennt -
+  vorher kam die Ansage so laut, wie die Box gerade stand: nach leiser
+  Abendmusik ein Flüstern, nach einer Party ein Schreck. Die Box stellt
+  die Lautstärke direkt vor der Ansage und danach wieder auf vorher
+  zurück.
+- **Nach der Durchsage spielt das Radio seinen Sender weiter.** Es
+  verliert während der Ansage seinen Anspruch auf die Box und vergass
+  dabei, was lief - ein blosses «weiter» spielte danach den ersten
+  Sender der Liste. Der Hub merkt sich den Sender jetzt mit und stimmt
+  ihn gezielt wieder an; bei Spotify genügt das «weiter» wie bisher.
+
+- **Die gewählte Box gilt jetzt auch beim Abspielen.** Oben «Büro»
+  wählen und eine Playlist starten liess die Musik auf der zuletzt
+  aktiven Box weiterspielen - der Umzug bleibt bei stillem Spotify
+  nicht haften, und der Startbefehl nannte kein Gerät. Die Wahl reist
+  jetzt bis zum Start mit und wird dort ausdrücklich genannt; der Hub
+  weckt die Box notfalls und bricht lieber ab, als im falschen Zimmer
+  zu spielen. Gilt für Spotify und Radio.
+- **Radiosender zeigen ihr Logo wieder.** Ein Sender, der schon eine
+  TuneIn-Kennung trug (früh gespeichert, bevor Bilder mitkamen), wurde
+  beim Abspielen nie mehr aufgelöst - sein Logo kam deshalb nie nach.
+  Der Hub holt es jetzt beim ersten Abspielen nach, höchstens eine
+  Anfrage je Sender, und nur bei übereinstimmender Kennung: Der eigene
+  Icecast im Keller bekommt kein fremdes Logo angeheftet.
+- **Der Update-Knopf versorgt jetzt auch die Telefone.** Bisher tauschte
+  er nur die Web-Fassung; die iPhones bekamen neuen Code erst mit dem
+  nächsten TestFlight-Build - und blieben sonst stumm auf Wochen altem
+  Stand, bei gleicher Versionsnummer. Jeder Lauf veröffentlicht jetzt
+  eine OTA-Fassung über EAS (sofern EXPO_TOKEN hinterlegt ist).
+  Erreicht werden Builds mit derselben runtimeVersion; ältere brauchen
+  einmal TestFlight, danach greift OTA wieder.
+
+- Steht oben statt «jemand da» jetzt **«alle sind zuhause»**, wenn der
+  Hub es von jedem Einzelnen weiss. Ein verstummtes Telefon macht daraus
+  wieder das vorsichtige «jemand da» - über jemanden, von dem man nichts
+  weiss, behauptet man kein «alle».
+- Ein **langer Druck auf eine Favoriten-Kachel** öffnet das Umbenennen -
+  bisher ging das dort gar nicht, auch nicht als Besitzer: Die Favoriten
+  sind eigene Chips, und die kannten keinen langen Druck.
+- **Umbenennen, Raum und Gruppe stehen jetzt auch Mitbewohnern zu**
+  (neue Fähigkeit `edit_devices`), ebenso der «Anpassen»-Knopf unter
+  Geräte. Ein Name, den alle täglich lesen, darf von allen stammen, die
+  hier wohnen - Gäste weiterhin nicht.
+- Die Boxen-Liste im Musikplayer ist eine ruhige Spalte statt Chips im
+  Flattersatz: alphabetisch, die gewählte Box mit Häkchen, wo Musik
+  läuft, sagt es das Symbol. «Zufall» und «Wiederholen» sind dezenter -
+  aktiv heisst Akzent-Kante und -Schrift statt satter Füllung.
+
+**Einstellungen**
+
+- Die Kacheln sind gruppiert statt in einer langen Mischliste: zuoberst
+  die Suche, dann **Haus** (Geräte, Abläufe, Alarmanlage, Lautsprecher,
+  Energie), **Personen** (Familie und Freunde, Benutzerverwaltung),
+  **Dieses Gerät** (Konto & Verbindung, Widgets) und zuunterst **Hub**
+  (System, Zuletzt passiert). Vorher trennte das halbe Haus die
+  Benutzerverwaltung von «Konto & Verbindung», obwohl beide von
+  Zugängen handeln.
+- «Konto & Verbindung» ist in vier Karten geteilt: Profil (Name,
+  Abmelden), Erscheinungsbild (samt Wandpanel-Modus), Ortung und die
+  Hub-Verbindung. Wer verbunden ist, findet die Zugangsdaten zuunterst –
+  beim Einrichten stehen sie zuoberst, denn dann sind sie das Einzige,
+  was zählt.
 
 **Ortung**
 

@@ -21,6 +21,7 @@ Aktionen:
   - {type: command, entity_id, command, data?}
   - {type: delay, seconds}
   - {type: scene, scene} / {type: hue_scene, scene}
+  - {type: music, do: favorite|sleep|pause_all|night|fade, …} – siehe docs/musik.md
   - {type: notify, title?, body?, to?, camera?}
   - {type: wait_until, ...Bedingung, timeout?: sekunden}
   - {type: fade, entity_id, to: 0..100, minutes}   # weich dimmen (157)
@@ -62,7 +63,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from . import astro, babysitter, feiertage, kamera, snapshots
+from . import astro, babysitter, feiertage, kamera, personenbild, pushziel, wirkung
 from . import light as licht
 from . import push as push_service
 from .source import as_source, automation_source
@@ -252,6 +253,12 @@ class Automation:
 # So viele Läufe merkt sich der Hub – genug, um einen Abend nachzuvollziehen.
 RUN_LIMIT = 100
 
+#: So lange nach einem Lauf wird nachgesehen, ob er gewirkt hat. Die
+#: Geräte melden ihren neuen Zustand über ihren eigenen Weg zurück -
+#: sofort danach steht dort noch der alte, und jeder Lauf sähe
+#: wirkungslos aus.
+WIRKUNG_NACH = 6.0
+
 # Wo die unterbrochenen Wartezeiten liegen, und wie viele höchstens.
 PENDING_KEY = "automation_pending"
 PENDING_LIMIT = 50
@@ -326,6 +333,27 @@ def describe_target(condition: dict[str, Any], named: Any = str) -> str:
     return f"{name} sich meldet"
 
 
+def stolpersatz(gestolpert: list[tuple[str, str]], gesamt: int) -> str:
+    """Was von einem Lauf mit hängenden Schritten übrig bleibt (rein, testbar).
+
+    Der Satz muss zwei Dinge sagen, und das zweite ist das wichtigere:
+    *welcher* Schritt hing - und dass der Rest trotzdem gelaufen ist.
+    Vorher stand am Ablauf nur «Fehlgeschlagen: Failed to execute
+    pause.» Daran liess sich weder ablesen, welche der sechzig Boxen es
+    war, noch ob die Türe danach noch abgeschlossen hat.
+    """
+    anzahl = len(gestolpert)
+    if anzahl == 0:
+        return ""
+    erster, meldung = gestolpert[0]
+    kopf = (
+        f"{erster}: {meldung}"
+        if anzahl == 1
+        else f"{anzahl} von {gesamt} Schritten hingen, zuerst {erster}: {meldung}"
+    )
+    return f"{kopf} Der Rest lief durch."
+
+
 def describe_action(action: dict[str, Any], name_of: Any = None) -> str:
     """Eine Aktion in einem Satz – für den Trockenlauf (rein, testbar).
 
@@ -394,7 +422,60 @@ def describe_action(action: dict[str, Any], name_of: Any = None) -> str:
             f"{named(action.get('entity_id'))}: über {action.get('minutes', 0)} Min "
             f"auf {action.get('to', 0)} % dimmen"
         )
+    if atype == "music":
+        return musik_satz(action, named)
     return f"unbekannte Aktion «{atype}»"
+
+
+def letzter_lauf(
+    runs: list[dict[str, Any]], automation_id: str
+) -> dict[str, Any] | None:
+    """Der jüngste Lauf dieses Ablaufs - oder None (rein, testbar).
+
+    Die Liste steht jüngste zuerst; gesucht wird der erste Treffer. None
+    heisst «seit dem Anlegen nie ausgelöst» - und das ist eine eigene
+    Auskunft, nicht dasselbe wie «lief und tat nichts». Wer einen Ablauf
+    baut, der stumm bleibt, will genau diesen Unterschied wissen: Kam
+    der Auslöser nicht, oder stand eine Bedingung im Weg?
+    """
+    for run in runs:
+        if run.get("automation_id") == automation_id:
+            return run
+    return None
+
+
+#: Was ein Musik-Schritt tun kann. Der Schlüssel steht in `do`.
+MUSIK_TATEN = ("favorite", "sleep", "pause_all", "night", "fade")
+
+
+def musik_satz(action: dict[str, Any], named: Any) -> str:
+    """Ein Musik-Schritt in einem Satz (rein, testbar).
+
+    Der Trockenlauf soll lesbar sein, bevor der Ablauf zum ersten Mal
+    läuft - «Musik-Aktion» wäre keine Auskunft.
+    """
+    tat = str(action.get("do") or "").strip().lower()
+    if tat == "favorite":
+        wo = action.get("device")
+        return (
+            f"Favorit «{action.get('favorite') or '?'}» abspielen"
+            + (f" auf {wo}" if wo else "")
+        )
+    if tat == "sleep":
+        return (
+            f"{named(action.get('entity_id'))}: nach "
+            f"{action.get('minutes', 30)} Min ausblenden"
+        )
+    if tat == "pause_all":
+        return "überall Pause"
+    if tat == "night":
+        return "Nachtruhe " + ("ein" if action.get("on", True) else "aus")
+    if tat == "fade":
+        return (
+            f"{named(action.get('entity_id'))}: leise starten bis "
+            f"{action.get('volume', 30)} %"
+        )
+    return f"unbekannter Musik-Schritt «{tat or 'nichts'}»"
 
 
 def _seconds(value: Any) -> float:
@@ -535,6 +616,31 @@ def describe_condition(condition: dict[str, Any], value: Any) -> str:
 MODES = ("single", "restart", "queued")
 
 
+def trigger_wort(
+    triggers: list[dict[str, Any]], ausloeser_label: str | None
+) -> str | None:
+    """Was diesen Lauf angestossen hat, in einem Wort (rein, testbar).
+
+    Am liebsten das Gerät, dessen Meldung kam - «Bewegung Flur» ist die
+    Antwort, nach der man sucht. Ohne Gerät bleibt die Uhrzeit, sofern
+    der Ablauf nur einen einzigen Auslöser hat: Bei zweien wüsste
+    niemand, welcher es war, und ein geratener Auslöser ist schlimmer
+    als keiner. Dann steht am Gerät weiterhin nur der Ablauf.
+    """
+    if ausloeser_label:
+        return ausloeser_label
+    if len(triggers) != 1:
+        return None
+    einzig = triggers[0]
+    typ = str(einzig.get("type") or "")
+    if typ == "time" and einzig.get("at"):
+        return f"um {einzig['at']}"
+    if typ == "sun":
+        wann = str(einzig.get("event") or einzig.get("state") or "")
+        return "Sonnenaufgang" if wann in ("sunrise", "up") else "Sonnenuntergang"
+    return None
+
+
 def parse_mode(value: Any) -> str:
     """Welcher Modus gemeint ist (rein, testbar).
 
@@ -584,6 +690,7 @@ def describe_trigger_health(
     gefeuert: float | None,
     gemeldet: float | None,
     jetzt: float,
+    erreichbar: bool | None = None,
 ) -> dict[str, Any]:
     """Warum ein Auslöser schweigt, in einem Satz (rein, testbar).
 
@@ -622,11 +729,25 @@ def describe_trigger_health(
     entity_id = str(trigger.get("entity_id") or "")
     ziel = trigger.get("to")
     if gemeldet is None:
-        hinweis = (
-            f"«{entity_id}» hat sich noch nie gemeldet, seit der Hub läuft. "
-            "Stimmt die Kennung, und ist das Gerät erreichbar?"
-        )
-        ok = False
+        if erreichbar:
+            # Die Entität gibt es, sie ist erreichbar - sie hatte nur
+            # noch nichts zu melden. Das ist bei manchen der Normalfall:
+            # «Jemand zuhause» meldet nur echte Wechsel, und solange seit
+            # dem Hub-Start niemand ging oder kam, herrscht zu Recht
+            # Stille. Daraus «Gerät kaputt?» zu machen, schickte die
+            # Leute auf eine Fehlersuche ohne Fehler.
+            hinweis = (
+                f"«{entity_id}» ist da und steht auf «{wert}» - seit dem "
+                "Hub-Start gab es nur noch keinen Wechsel. Der Auslöser "
+                "feuert beim nächsten."
+            )
+            ok = True
+        else:
+            hinweis = (
+                f"«{entity_id}» hat sich noch nie gemeldet, seit der Hub läuft. "
+                "Stimmt die Kennung, und ist das Gerät erreichbar?"
+            )
+            ok = False
     elif gefeuert is None:
         hinweis = (
             f"«{entity_id}» meldet sich, aber nie mit dem gesuchten Wert. "
@@ -1393,6 +1514,10 @@ class AutomationEngine:
                     self._gefeuert.get((automation.id, index)),
                     self._gemeldet.get((automation.id, index)),
                     jetzt,
+                    # Ob die Entität existiert und erreichbar ist,
+                    # unterscheidet «kaputt» von «hatte nur nichts zu
+                    # melden» - siehe describe_trigger_health.
+                    erreichbar=entity is not None and entity.available,
                 )
             )
         return {
@@ -1508,7 +1633,9 @@ class AutomationEngine:
         # nichts davon. Solange sein Modus läuft, ruht alles, was nicht
         # ausdrücklich freigegeben ist - allen voran «alles aus, wenn
         # niemand mehr zuhause ist».
-        if babysitter.blocks(self.hub.data.get(babysitter.KEY), automation.id):
+        if babysitter.blocks(
+            self.hub.data.get(babysitter.KEY), automation.id, time.time()
+        ):
             log.info("Automation '%s' übersprungen (Babysitter-Modus)", automation.alias)
             self._note(
                 automation,
@@ -1682,15 +1809,48 @@ class AutomationEngine:
         Bedingungen gerade nicht passen (man will beim Testen das Ergebnis
         sehen, nicht die Bedingung prüfen). Gibt False zurück, wenn es den
         Ablauf nicht gibt.
+
+        Der Lauf steht danach im Verlauf und ist als Probe gekennzeichnet.
+        Vorher hinterliess er keine Spur: Eine halbe Stunde später war
+        nicht mehr zu unterscheiden, ob das Licht wegen eines Tests
+        anging oder von selbst - und genau danach sucht man, wenn etwas
+        nicht stimmt. Welche Bedingungen dabei übergangen wurden, steht
+        mit dabei; ein Test, der lief, obwohl der Ablauf im Alltag
+        gestoppt worden wäre, ist nur die halbe Auskunft.
         """
         automation = next(
             (a for a in self.automations if a.id == automation_id), None
         )
         if automation is None:
             return False
+        _erfuellt, offen = self._conditions_hold(automation)
+
+        def name_of(entity_id: str) -> str:
+            entity = self.hub.registry.get(entity_id)
+            return entity.label if entity else entity_id
+
+        # Wie beim regulären Lauf: Ein hängender Schritt hält den Rest
+        # nicht an. Von Hand gestartet gilt das erst recht - man drückt,
+        # steht daneben und will sehen, was durchkommt.
+        gestolpert: list[tuple[str, str]] = []
         with as_source(automation_source(automation.id, automation.alias)):
             for action in automation.actions:
-                await self._execute_action(automation, action)
+                try:
+                    await self._execute_action(automation, action)
+                except Exception as err:
+                    gestolpert.append((describe_action(action, name_of), str(err)))
+                    log.warning(
+                        "Handstart '%s': ein Schritt hing (%s) - weiter",
+                        automation.alias,
+                        err,
+                    )
+        self._note(
+            automation,
+            executed=True,
+            error=stolpersatz(gestolpert, len(automation.actions)) or None,
+            skipped=offen,
+            test=True,
+        )
         return True
 
     # ── Ausführung ─────────────────────────────────────────────────────────
@@ -1704,11 +1864,14 @@ class AutomationEngine:
         # dran war und was dabei herauskam. «Fehlgeschlagen» allein
         # beantwortet die Frage «welcher Schritt hing?» nicht.
         spur: list[dict[str, Any]] = []
+        # Schritte, die hingen: (Beschreibung, Fehlertext). Der Lauf geht
+        # trotzdem weiter - siehe unten in der Schleife.
+        gestolpert: list[tuple[str, str]] = []
         start_ts = time.time()
 
         def name_of(entity_id: str) -> str:
             entity = self.hub.registry.get(entity_id)
-            return entity.name if entity else entity_id
+            return entity.label if entity else entity_id
 
         # Bei welcher Aktion der Lauf gerade steht. Nur für den Fall, dass
         # der Hub mitten hinein herunterfährt - dann wird ab hier später
@@ -1727,13 +1890,57 @@ class AutomationEngine:
                     automation.alias,
                     "" if held else " (sonst-Zweig)",
                 )
-                # Alles, was jetzt folgt, wird der Automation zugeschrieben.
-                with as_source(automation_source(automation.id, automation.alias)):
+                # Alles, was jetzt folgt, wird der Automation zugeschrieben -
+                # samt Auslöser, damit am Gerät die ganze Kette steht:
+                # Melder → Ablauf → Gerät (core/source.py).
+                with as_source(
+                    automation_source(
+                        automation.id,
+                        automation.alias,
+                        trigger_wort(
+                            automation.triggers,
+                            name_of(ausloeser) if ausloeser else None,
+                        ),
+                    )
+                ):
                     # Die Zählung wird nach der Schleife gebraucht, nicht
                     # darin - sie sagt im Abbruchfall, wo der Lauf stand.
                     # Deshalb unten die Ausnahme von B007.
                     for position, action in enumerate(actions):  # noqa: B007
-                        notiz = await self._execute_action(automation, action, ausloeser)
+                        notiz: str | None = None
+                        schritt_fehler: str | None = None
+                        try:
+                            notiz = await self._execute_action(
+                                automation, action, ausloeser
+                            )
+                        except Exception as err:
+                            # Ein Schritt, der hängt, hält den Ablauf nicht
+                            # mehr an.
+                            #
+                            # «Niemand mehr zuhause» stellt der Reihe nach
+                            # sechzig Geräte ab und schliesst zuletzt die
+                            # Türe. Eine Box, auf der gerade nichts lief,
+                            # brachte den ganzen Lauf zum Stehen - die
+                            # Wohnung blieb offen und unscharf, und im
+                            # Protokoll stand nur «Fehlgeschlagen». Das ist
+                            # die schlechteste aller Reihenfolgen: Der
+                            # unwichtigste Schritt entscheidet über die
+                            # wichtigsten.
+                            #
+                            # Dieselbe Haltung hatten einzelne Schritte
+                            # schon für sich (ein Favorit, den es nicht
+                            # mehr gibt, hielt nie an) - sie gilt jetzt für
+                            # alle.
+                            schritt_fehler = str(err)
+                            gestolpert.append(
+                                (describe_action(action, name_of), schritt_fehler)
+                            )
+                            log.warning(
+                                "Automation '%s': Schritt %d hing (%s) - weiter",
+                                automation.alias,
+                                position + 1,
+                                err,
+                            )
                         if len(spur) < 40:
                             eintrag: dict[str, Any] = {
                                 "label": describe_action(action, name_of),
@@ -1741,7 +1948,11 @@ class AutomationEngine:
                             }
                             if notiz:
                                 eintrag["note"] = notiz
+                            if schritt_fehler:
+                                eintrag["error"] = schritt_fehler
                             spur.append(eintrag)
+                if gestolpert:
+                    error = stolpersatz(gestolpert, len(actions))
         except asyncio.CancelledError:
             # Abgebrochen, weil derselbe Ablauf gerade neu beginnt
             # (mode: restart). Das ist kein Fehler und gehört auch nicht
@@ -1787,13 +1998,15 @@ class AutomationEngine:
 
         # Auch der nicht ausgeführte Lauf wird protokolliert – mit dem
         # Grund. Genau danach sucht man, wenn ein Ablauf schweigt.
-        self._note(
+        eintrag = self._note(
             automation,
             executed=executed,
             error=error,
             skipped=[] if executed else failed,
             steps=spur,
         )
+        if executed and error is None:
+            self._wirkung_planen(eintrag, actions)
         if executed:
             await self.hub.bus.publish(
                 "automation_run",
@@ -1805,6 +2018,54 @@ class AutomationEngine:
                 },
             )
 
+    def _wirkung_planen(
+        self, eintrag: dict[str, Any], actions: list[dict[str, Any]]
+    ) -> None:
+        """Ein paar Sekunden später nachsehen, ob der Lauf gewirkt hat.
+
+        «Ausgeführt» heisst bisher nur: abgeschickt. Ein Funkbefehl, der
+        nicht ankommt, sieht im Protokoll genauso aus wie einer, der das
+        Licht einschaltet – und man sucht dann am falschen Ende.
+
+        Warum nicht sofort: Die Geräte melden ihren neuen Zustand über
+        ihren eigenen Weg zurück (Funk, Bridge, Cloud). Direkt nach dem
+        Befehl steht dort noch der alte, und jeder Lauf sähe wirkungslos
+        aus. Was sich nicht vorhersagen lässt, wird gar nicht erst
+        geprüft (core/wirkung.py).
+        """
+        punkte = wirkung.pruefpunkte(actions)
+        if not punkte or self._stopping:
+            return
+
+        async def nachsehen() -> None:
+            await asyncio.sleep(WIRKUNG_NACH)
+            stand = {
+                entity.id: dict(entity.state) for entity in self.hub.registry.all()
+            }
+            ergebnis = wirkung.abgleich(punkte, stand)
+            spruch = wirkung.urteil(ergebnis)
+            if spruch is None:
+                return
+            eintrag["effect"] = {
+                "urteil": spruch,
+                "geprueft": len(ergebnis["ok"]) + len(ergebnis["fehlt"]),
+                # Die Namen und nicht die Kennungen: Der Satz steht in der
+                # App neben dem Lauf, und dort liest ihn ein Mensch.
+                "nicht": [
+                    entity.label
+                    for entity in (
+                        self.hub.registry.get(entity_id)
+                        for entity_id in ergebnis["fehlt"]
+                    )
+                    if entity is not None
+                ],
+            }
+            self._verlauf_sichern()
+
+        task = asyncio.create_task(nachsehen())
+        self._run_tasks.add(task)
+        task.add_done_callback(self._run_tasks.discard)
+
     def _note(
         self,
         automation: Automation,
@@ -1813,25 +2074,38 @@ class AutomationEngine:
         error: str | None,
         skipped: list[str],
         steps: list[dict[str, Any]] | None = None,
-    ) -> None:
-        self.runs.insert(
-            0,
-            {
-                "automation_id": automation.id,
-                "alias": automation.alias,
-                "at": time.time(),
-                "executed": executed,
-                "error": error,
-                "skipped": skipped,
-                # Die Schritt-Spur (Punkt 160). Leer bei übersprungenen
-                # Läufen - dort ist «skipped» die Auskunft.
-                "steps": steps or [],
-            },
-        )
+        test: bool = False,
+    ) -> dict[str, Any]:
+        """Den Lauf ins Protokoll – und den Eintrag zurückgeben.
+
+        Zurück kommt er, weil die Nachschau ihn ein paar Sekunden später
+        ergänzt (``_wirkung_planen``): Ob der Befehl auch angekommen ist,
+        weiss man erst dann.
+        """
+        eintrag: dict[str, Any] = {
+            "automation_id": automation.id,
+            "alias": automation.alias,
+            "at": time.time(),
+            "executed": executed,
+            "error": error,
+            "skipped": skipped,
+            # Von Hand angestossen? Dann sagt der Verlauf das auch. Ein
+            # Testlauf sieht sonst aus wie ein echter, und die Frage
+            # «warum ging das Licht an?» führt in die Irre.
+            "test": test,
+            # Die Schritt-Spur (Punkt 160). Leer bei übersprungenen
+            # Läufen - dort ist «skipped» die Auskunft.
+            "steps": steps or [],
+        }
+        self.runs.insert(0, eintrag)
         del self.runs[RUN_LIMIT:]
         # Auch auf die Platte: Nach einem Neustart ist sonst genau die
         # Spur weg, der man nachgeht - «heute Nacht ging das Licht an, und
         # jetzt weiss niemand, warum».
+        self._verlauf_sichern()
+        return eintrag
+
+    def _verlauf_sichern(self) -> None:
         try:
             self.hub.data.set("automation_runs", self.runs)
         except Exception:
@@ -1875,7 +2149,7 @@ class AutomationEngine:
 
         def name_of(entity_id: str) -> str:
             entity = self.hub.registry.get(entity_id)
-            return entity.name if entity else entity_id
+            return entity.label if entity else entity_id
 
         return {
             "conditions_hold": held,
@@ -2013,9 +2287,88 @@ class AutomationEngine:
                 speakers=[str(s) for s in action.get("speakers") or []] or None,
                 volume=action.get("volume"),
             )
+        elif atype == "music":
+            return await self._musik(automation, action)
         else:
             log.warning("Unbekannter Aktionstyp in '%s': %s", automation.alias, atype)
         return None
+
+    async def _musik(self, automation: Automation, action: dict[str, Any]) -> str | None:
+        """Musik-Schritte: Favorit, Schlummer, überall Pause, Nachtruhe.
+
+        Alles davon gab es schon - als Knopf in der App, nicht als
+        Schritt in einem Ablauf. «Wenn alle weg sind: Musik aus» ging
+        deshalb nur über den nackten Pause-Befehl je Box, und wer eine
+        Box vergass, merkte es erst beim Heimkommen.
+        """
+        tat = str(action.get("do") or "").strip().lower()
+        musik = getattr(self.hub, "musik", None)
+        ton = getattr(self.hub, "ton", None)
+        if musik is None or ton is None:  # pragma: no cover - nur Teststummel
+            return "Musik-Dienst nicht bereit"
+
+        if tat == "favorite":
+            gesucht = str(action.get("favorite") or "").strip()
+            eintrag = next(
+                (
+                    zeile
+                    for zeile in musik.favoriten()
+                    if gesucht in (zeile.get("id"), zeile.get("name"))
+                ),
+                None,
+            )
+            if eintrag is None:
+                # Kein Abbruch: Ein umbenannter Favorit soll den ganzen
+                # Ablauf nicht anhalten - aber im Protokoll stehen.
+                return f"Favorit «{gesucht}» gibt es nicht mehr"
+            await musik.abspielen(eintrag, str(action.get("device") or eintrag.get("device") or ""))
+            return None
+
+        if tat == "sleep":
+            musik.schlummer(str(action.get("entity_id") or ""), float(action.get("minutes", 30)))
+            return None
+
+        if tat == "pause_all":
+            gestoppt = await self._alle_pausieren()
+            return None if gestoppt else "es lief nichts"
+
+        if tat == "night":
+            ton.nachtruhe_setzen({"on": bool(action.get("on", True))})
+            return None
+
+        if tat == "fade":
+            entity_id = str(action.get("entity_id") or "")
+            if "play" in (self.hub.registry.get(entity_id).commands if self.hub.registry.get(entity_id) else ()):
+                await self.hub.integrations.dispatch_command(entity_id, "play", {})
+            await ton.einblenden(
+                entity_id,
+                int(action.get("volume", 30)),
+                float(action.get("seconds", 8)),
+            )
+            return None
+
+        log.warning("Unbekannter Musik-Schritt in '%s': %s", automation.alias, tat)
+        return f"unbekannter Musik-Schritt «{tat or 'nichts'}»"
+
+    async def _alle_pausieren(self) -> list[str]:
+        """Überall Pause - nicht «aus»: Eine pausierte Box weiss noch, wo
+        sie war."""
+        from .entity import EntityKind
+
+        gestoppt: list[str] = []
+        for entity in self.hub.registry.all():
+            if entity.kind != EntityKind.MEDIA_PLAYER or not entity.available:
+                continue
+            if "pause" not in entity.commands:
+                continue
+            if str(entity.state.get("state")) not in ("playing", "buffering"):
+                continue
+            try:
+                await self.hub.integrations.dispatch_command(entity.id, "pause", {})
+                gestoppt.append(entity.label)
+            except Exception as err:
+                log.debug("Pause auf %s ging nicht: %s", entity.id, err)
+        return gestoppt
 
     async def _light(
         self,
@@ -2376,6 +2729,8 @@ class AutomationEngine:
                 if quelle is not None
                 else None
             )
+        ziel = str(action.get("open") or "").strip()
+        knoepfe = pushziel.knoepfe_pruefen(action.get("buttons"))
         tokens = self.hub.push.recipients(
             self.hub.users.users,
             str(action.get("to", "all")),
@@ -2391,6 +2746,11 @@ class AutomationEngine:
             data={
                 "automation_id": automation.id,
                 **({"camera": camera} if camera else {}),
+                # Wohin der Tipp führt, und was er dort anbietet. Beides
+                # steht im Ablauf selbst: Ein Ablauf weiss, worum es geht -
+                # der Hub kann es ihm nicht ansehen (core/pushziel.py).
+                **({"ziel": ziel} if ziel else {}),
+                **({"knoepfe": knoepfe} if knoepfe else {}),
             },
             image=await self._snapshot_url(camera),
             # Dieselbe Kategorie wie oben: Ein Ablauf, der meldet, meldet
@@ -2404,35 +2764,12 @@ class AutomationEngine:
         Aufgenommen wird jetzt und nicht beim Anschauen: Der Besucher ist
         längst weg, bis jemand das Telefon aus der Tasche zieht.
 
-        Jeder Fehlschlag endet still in ``None``. Ein Ablauf darf nicht
-        daran scheitern, dass eine Kamera gerade schweigt – die Nachricht
-        geht dann eben ohne Bild raus. Ohne ``push.public_url`` in der
-        Konfiguration entsteht gar keine Adresse; siehe core/snapshots.py.
+        «Jetzt» heisst dabei nicht mehr «im Moment des Auslösers»: Kann
+        die Kamera Personen erkennen, wartet der Hub im Hintergrund
+        darauf, dass sie eine meldet, und nimmt das Bild von *dem*
+        Moment. Die Nachricht selbst wartet nie – warum das geht, steht
+        in ``core/personenbild.py``.
         """
-        public_url = (self.hub.config.push or {}).get("public_url")
-        if not camera or not public_url:
-            return None
-        try:
-            entity = self.hub.registry.get(camera)
-            integration = self.hub.integrations.get(entity.integration) if entity else None
-            image = (
-                await asyncio.wait_for(integration.snapshot(entity), BILD_WARTEZEIT)
-                if integration
-                else None
-            )
-        except TimeoutError:
-            # Der Fall, der die Klingel langsam machte: Die Nachricht war
-            # fertig und stand still, weil im Hub jemand auf ein Foto
-            # wartete. Sie geht jetzt ohne raus.
-            log.info(
-                "Bild für die Nachricht aus einem Ablauf kam nicht in %ss – "
-                "Nachricht geht ohne raus",
-                BILD_WARTEZEIT,
-            )
-            return None
-        except Exception as err:
-            log.warning("Kein Bild für die Nachricht aus einem Ablauf: %s", err)
-            return None
-        if not image:
-            return None
-        return snapshots.image_url(public_url, self.hub.snapshots.put(image))
+        return await personenbild.bild_adresse(
+            self.hub, camera, BILD_WARTEZEIT, "die Nachricht aus einem Ablauf"
+        )

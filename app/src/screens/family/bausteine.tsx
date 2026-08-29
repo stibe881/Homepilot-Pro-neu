@@ -4,8 +4,8 @@
  * Herausgelöst aus FamilyScreen.tsx (Punkt 21 der Werkbank).
  */
 import { Ionicons } from '@expo/vector-icons';
-import React, { useState } from 'react';
-import { Image, Linking, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Image, Linking, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 
 import { Entity, HubSettings } from '../../api/types';
@@ -13,6 +13,7 @@ import { Card } from '../../components/Card';
 import { Colors } from '../../theme';
 import { BERATUNGSNUMMERN, GABEN, NOTFALLNUMMERN, ROLLEN, WOCHENTAGE, rollenVon, toggleRolle, waehlbar } from '../../lib/familie';
 import { monatJahr, uhr } from '../../lib/format';
+import { Mitglied } from '../../lib/mitglieder';
 import { tapped } from '../../lib/haptics';
 
 /**
@@ -26,14 +27,17 @@ import { tapped } from '../../lib/haptics';
 export type FamilyItem = Record<string, any>;
 
 export type FamilyData = Record<string, FamilyItem[]>;
+import { Erinnerung, WIEDERHOLUNGEN, monatsSprung, monatsraster, wiederholungVon } from '../../lib/erinnerungen';
+import { TAKTE, naechsteWahl, schritt, takt, vorratSatz } from '../../lib/vorrat';
 import { makeStyles } from './stil';
 
 export type Styles = ReturnType<typeof makeStyles>;
 
-export interface Member {
-  name: string;
-  role: string;
-}
+/** Wer zur Familie gehört – mit oder ohne eigenen Zugang.
+ *
+ *  Die Reihe entsteht in lib/mitglieder.ts aus zwei Quellen; die Bausteine
+ *  hier brauchen davon nur Name und Rolle. */
+export type Member = Mitglied;
 
 export interface Props {
   settings: HubSettings;
@@ -42,9 +46,18 @@ export interface Props {
   /** Selbst gezogene Reihenfolge der Modul-Kacheln (je Benutzer, vom Hub). */
   moduleOrder?: string[];
   onReorderModules?: (keys: string[]) => void;
+  /** Ausgeblendete Kacheln – wie die Reihenfolge vom Hub, nicht aus dem
+   *  Speicher der App: Sonst hält es genau so lange wie die Installation
+   *  auf diesem einen Telefon. */
+  hiddenModules?: string[];
+  onHiddenModules?: (keys: string[]) => void;
   /** Zeitstempel der letzten Familien-Änderung (family_changed über den
    *  WebSocket) – ändert er sich, lädt der Bildschirm neu. */
   changedAt?: number;
+  /** Gleich in diesem Modul aufmachen statt in der Übersicht. Für die
+   *  Abkürzungen am Wandpanel: Wer dort «Notfallblatt» drückt, will das
+   *  Notfallblatt und nicht die Kachelwand davor. */
+  startModul?: string | null;
 }
 
 export type ModuleKey =
@@ -58,13 +71,15 @@ export type ModuleKey =
   | 'routines'
   | 'packlists'
   | 'countdowns'
+  | 'reminders'
   | 'recipes'
   | 'documents'
   | 'chores'
   | 'woche'
   | 'emergency'
   | 'medications'
-  | 'babysitter';
+  | 'babysitter'
+  | 'members';
 
 export const WEEK_DAYS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
 
@@ -169,7 +184,7 @@ export function AddRow({
         value={text}
         onChangeText={setText}
         placeholder={placeholder}
-        placeholderTextColor={colors.inkFaint}
+        placeholderTextColor={colors.inkSoft}
         multiline={multiline}
         blurOnSubmit={!multiline}
         onSubmitEditing={multiline ? undefined : submit}
@@ -340,7 +355,7 @@ export function GroupedChecklist({
           value={newGroup}
           onChangeText={setNewGroup}
           placeholder={`Neue ${groupNoun} anlegen …`}
-          placeholderTextColor={colors.inkFaint}
+          placeholderTextColor={colors.inkSoft}
           onSubmitEditing={() => {
             if (newGroup.trim()) {
               setActiveGroup(newGroup.trim());
@@ -415,13 +430,18 @@ export function EventForm({
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
   return (
-    <View style={styles.formCard}>
+    // Auch das Formular auf eine Karte: Die Felder haben einen
+    // durchscheinenden Grund, und darunter lag bisher der Verlauf. Der
+    // Platzhalter «Titel (z.B. Zahnarzt)» kam damit auf 1.10:1 – er war
+    // nicht blass, er war weg. `inkSoft` statt `inkFaint` bringt ihn im
+    // Feld auf der Karte auf 4.1:1.
+    <Card style={styles.formCard}>
       <TextInput
         style={styles.input}
         value={summary}
         onChangeText={setSummary}
         placeholder="Titel (z.B. Zahnarzt)"
-        placeholderTextColor={colors.inkFaint}
+        placeholderTextColor={colors.inkSoft}
       />
       <View style={{ flexDirection: 'row', gap: 8 }}>
         <TextInput
@@ -429,7 +449,7 @@ export function EventForm({
           value={date}
           onChangeText={setDate}
           placeholder="Datum (TT.MM.JJJJ)"
-          placeholderTextColor={colors.inkFaint}
+          placeholderTextColor={colors.inkSoft}
           keyboardType="numbers-and-punctuation"
         />
         <TextInput
@@ -437,7 +457,7 @@ export function EventForm({
           value={time}
           onChangeText={setTime}
           placeholder="Zeit (leer = ganztägig)"
-          placeholderTextColor={colors.inkFaint}
+          placeholderTextColor={colors.inkSoft}
           keyboardType="numbers-and-punctuation"
         />
       </View>
@@ -453,7 +473,7 @@ export function EventForm({
       >
         <Text style={styles.addWideText}>Termin anlegen</Text>
       </Pressable>
-    </View>
+    </Card>
   );
 }
 
@@ -586,7 +606,7 @@ export function PollAddRow({
         value={frage}
         onChangeText={setFrage}
         placeholder="Frage, z.B. Was gibt's am Sonntag?"
-        placeholderTextColor={colors.inkFaint}
+        placeholderTextColor={colors.inkSoft}
       />
       <View style={styles.addRow}>
         <TextInput
@@ -594,7 +614,7 @@ export function PollAddRow({
           value={optionen}
           onChangeText={setOptionen}
           placeholder="Antworten, mit Komma getrennt"
-          placeholderTextColor={colors.inkFaint}
+          placeholderTextColor={colors.inkSoft}
           onSubmitEditing={submit}
         />
         <Pressable
@@ -605,6 +625,84 @@ export function PollAddRow({
           <Ionicons name="add" size={22} color="#FFFFFF" />
         </Pressable>
       </View>
+    </View>
+  );
+}
+
+/**
+ * Jemanden zur Familie hinzufügen, der keinen Zugang zur App hat.
+ *
+ * Ein Name und die Frage, ob Kind oder erwachsen - mehr nicht. Wer mehr
+ * über einen Menschen festhalten will (Nummer, Geburtstag, Arzt), tut
+ * das unter Kontakte; hier geht es nur darum, dass der Name in den
+ * Listen auswählbar wird.
+ *
+ * Der Hinweis steht unter dem Feld und nicht in der Fehlerzeile ganz
+ * oben: Wer «Livia» ein zweites Mal einträgt, soll es dort lesen, wo er
+ * gerade tippt.
+ */
+export function MemberAddRow({
+  onAdd,
+  pruefe,
+  styles,
+  colors,
+}: {
+  onAdd: (name: string, role: string) => void;
+  /** Gibt den Grund zurück, warum dieser Name nicht geht - oder null. */
+  pruefe: (name: string) => string | null;
+  styles: Styles;
+  colors: Colors;
+}) {
+  const [name, setName] = useState('');
+  const [role, setRole] = useState('kind');
+  const [hinweis, setHinweis] = useState<string | null>(null);
+
+  const submit = () => {
+    const mangel = pruefe(name);
+    setHinweis(mangel);
+    if (mangel) return;
+    onAdd(name.trim(), role);
+    setName('');
+    setRole('kind');
+  };
+
+  return (
+    <View style={{ gap: 8 }}>
+      <View style={styles.addRow}>
+        <TextInput
+          style={[styles.input, { flex: 1 }]}
+          value={name}
+          onChangeText={(wert) => {
+            setName(wert);
+            if (hinweis) setHinweis(null);
+          }}
+          placeholder="Name, z.B. Livia"
+          placeholderTextColor={colors.inkSoft}
+          onSubmitEditing={submit}
+        />
+        <Pressable onPress={submit} style={styles.addButton} accessibilityLabel="Hinzufügen">
+          <Ionicons name="add" size={22} color="#FFFFFF" />
+        </Pressable>
+      </View>
+      <View style={styles.chipRow}>
+        {[
+          { key: 'kind', label: 'Kind' },
+          { key: 'erwachsen', label: 'Erwachsen' },
+        ].map((wahl) => (
+          <Pressable
+            key={wahl.key}
+            onPress={() => setRole(wahl.key)}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: role === wahl.key }}
+            style={[styles.chip, role === wahl.key && styles.chipActive]}
+          >
+            <Text style={[styles.chipText, role === wahl.key && styles.chipTextActive]}>
+              {wahl.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+      {hinweis ? <Text style={styles.formHintSmall}>{hinweis}</Text> : null}
     </View>
   );
 }
@@ -661,7 +759,7 @@ export function MedicationAddRow({
           value={text}
           onChangeText={setText}
           placeholder="Was, z.B. Amoxicillin"
-          placeholderTextColor={colors.inkFaint}
+          placeholderTextColor={colors.inkSoft}
           onSubmitEditing={submit}
         />
         <Pressable onPress={submit} style={styles.addButton} accessibilityLabel="Hinzufügen">
@@ -677,14 +775,14 @@ export function MedicationAddRow({
         value={dose}
         onChangeText={setDose}
         placeholder="Dosis, z.B. 5 ml (freiwillig)"
-        placeholderTextColor={colors.inkFaint}
+        placeholderTextColor={colors.inkSoft}
       />
       <TextInput
         style={styles.input}
         value={reason}
         onChangeText={setReason}
         placeholder="Wofür, z.B. Mittelohrentzündung (freiwillig)"
-        placeholderTextColor={colors.inkFaint}
+        placeholderTextColor={colors.inkSoft}
       />
 
       <Text style={styles.formHintSmall}>Wann?</Text>
@@ -773,7 +871,7 @@ export function ChoreAddRow({
           value={text}
           onChangeText={setText}
           placeholder="Neues Ämtli, z.B. Bad putzen …"
-          placeholderTextColor={colors.inkFaint}
+          placeholderTextColor={colors.inkSoft}
           onSubmitEditing={submit}
         />
         <Pressable
@@ -890,7 +988,7 @@ export function TaskAddRow({
           value={text}
           onChangeText={setText}
           placeholder="Neue Aufgabe …"
-          placeholderTextColor={colors.inkFaint}
+          placeholderTextColor={colors.inkSoft}
           onSubmitEditing={submit}
         />
         <Pressable onPress={submit} style={styles.addButton} accessibilityLabel="Hinzufügen">
@@ -992,7 +1090,7 @@ export function ShoppingAddRow({
           value={text}
           onChangeText={setText}
           placeholder="Was fehlt? (mehrere mit Komma) …"
-          placeholderTextColor={colors.inkFaint}
+          placeholderTextColor={colors.inkSoft}
           onSubmitEditing={submit}
         />
         <Pressable onPress={submit} style={styles.addButton} accessibilityLabel="Hinzufügen">
@@ -1132,7 +1230,7 @@ export function ContactForm({
   const aendern = !!vorhanden;
 
   return (
-    <View style={styles.formCard}>
+    <Card style={styles.formCard}>
       <View style={styles.contactFormRow}>
         <Pressable
           onPress={async () => setPhoto((await pickPhoto()) ?? photo)}
@@ -1152,14 +1250,14 @@ export function ContactForm({
             value={name}
             onChangeText={setName}
             placeholder="Name (z.B. Mami)"
-            placeholderTextColor={colors.inkFaint}
+            placeholderTextColor={colors.inkSoft}
           />
           <TextInput
             style={styles.input}
             value={phone}
             onChangeText={setPhone}
             placeholder="Telefonnummer"
-            placeholderTextColor={colors.inkFaint}
+            placeholderTextColor={colors.inkSoft}
             keyboardType="phone-pad"
           />
           <TextInput
@@ -1167,7 +1265,7 @@ export function ContactForm({
             value={phone2}
             onChangeText={setPhone2}
             placeholder="Zweite Nummer (Arbeit, Partner – freiwillig)"
-            placeholderTextColor={colors.inkFaint}
+            placeholderTextColor={colors.inkSoft}
             keyboardType="phone-pad"
           />
           <TextInput
@@ -1175,7 +1273,7 @@ export function ContactForm({
             value={birthday}
             onChangeText={setBirthday}
             placeholder="Geburtstag (TT.MM. – freiwillig)"
-            placeholderTextColor={colors.inkFaint}
+            placeholderTextColor={colors.inkSoft}
           />
         </View>
       </View>
@@ -1240,7 +1338,7 @@ export function ContactForm({
             value={email}
             onChangeText={setEmail}
             placeholder="E-Mail"
-            placeholderTextColor={colors.inkFaint}
+            placeholderTextColor={colors.inkSoft}
             keyboardType="email-address"
             autoCapitalize="none"
           />
@@ -1249,14 +1347,14 @@ export function ContactForm({
             value={address}
             onChangeText={setAddress}
             placeholder="Adresse (für die Route)"
-            placeholderTextColor={colors.inkFaint}
+            placeholderTextColor={colors.inkSoft}
           />
           <TextInput
             style={styles.input}
             value={note}
             onChangeText={setNote}
             placeholder="Notiz (z.B. klingelt es zweimal)"
-            placeholderTextColor={colors.inkFaint}
+            placeholderTextColor={colors.inkSoft}
           />
           <Text style={styles.formHintSmall}>
             Öffnungszeiten – leer lassen, wo geschlossen ist.
@@ -1269,7 +1367,7 @@ export function ContactForm({
                 value={hours[tag] ?? ''}
                 onChangeText={(wert) => setHours({ ...hours, [tag]: wert })}
                 placeholder="08:00-12:00, 14:00-18:30"
-                placeholderTextColor={colors.inkFaint}
+                placeholderTextColor={colors.inkSoft}
               />
             </View>
           ))}
@@ -1337,7 +1435,7 @@ export function ContactForm({
           </Text>
         </Pressable>
       </View>
-    </View>
+    </Card>
   );
 }
 
@@ -1468,7 +1566,7 @@ export function MealRow({
           onChangeText={setDraft}
           autoFocus
           placeholder="Was gibt's?"
-          placeholderTextColor={colors.inkFaint}
+          placeholderTextColor={colors.inkSoft}
           onBlur={finish}
           onSubmitEditing={finish}
         />
@@ -1506,20 +1604,20 @@ export function TwoFieldForm({
   const [first, setFirst] = useState('');
   const [second, setSecond] = useState('');
   return (
-    <View style={styles.formCard}>
+    <Card style={styles.formCard}>
       <TextInput
         style={styles.input}
         value={first}
         onChangeText={setFirst}
         placeholder={labels[0]}
-        placeholderTextColor={colors.inkFaint}
+        placeholderTextColor={colors.inkSoft}
       />
       <TextInput
         style={[styles.input, multilineSecond && { minHeight: 70 }]}
         value={second}
         onChangeText={setSecond}
         placeholder={labels[1]}
-        placeholderTextColor={colors.inkFaint}
+        placeholderTextColor={colors.inkSoft}
         multiline={multilineSecond}
       />
       <Pressable
@@ -1533,11 +1631,477 @@ export function TwoFieldForm({
       >
         <Text style={styles.addWideText}>Hinzufügen</Text>
       </Pressable>
-    </View>
+    </Card>
   );
 }
 
 /** Countdown erfassen: Anlass, Datum und ob er auf die Startseite soll. */
+/** Formular für eine Erinnerung: Text, Datum, Uhrzeit.
+ *
+ *  Datum und Zeit als Wähler statt Tippfelder - «26.08.2026» fehlerfrei
+ *  einzutippen bringt am Wandpanel niemand zustande, und ein Vertipper
+ *  hiess: die Erinnerung kommt nie oder am falschen Tag. Der eigene
+ *  Wähler statt des nativen, weil er überall gleich aussieht und
+ *  funktioniert - auch im Browser und auf dem Panel, wo es keinen
+ *  nativen gibt. */
+const MONATE = [
+  'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
+  'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember',
+];
+const WOCHENTAG_KURZ = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+
+function DatumsRaster({
+  jahr,
+  monat,
+  tag,
+  onTag,
+  onBlaettern,
+  styles,
+  colors,
+}: {
+  jahr: number;
+  monat: number;
+  tag: number | null;
+  onTag: (tag: number) => void;
+  onBlaettern: (schritt: number) => void;
+  styles: Styles;
+  colors: Colors;
+}) {
+  const heute = new Date();
+  const istHeute = (t: number) =>
+    t === heute.getDate() && monat === heute.getMonth() + 1 && jahr === heute.getFullYear();
+  return (
+    <View style={styles.rasterBox}>
+      <View style={styles.rasterKopf}>
+        <Pressable
+          onPress={() => onBlaettern(-1)}
+          accessibilityRole="button"
+          accessibilityLabel="Voriger Monat"
+          style={styles.rasterPfeil}
+        >
+          <Ionicons name="chevron-back" size={18} color={colors.inkSoft} />
+        </Pressable>
+        <Text style={styles.rasterMonat}>
+          {MONATE[monat - 1]} {jahr}
+        </Text>
+        <Pressable
+          onPress={() => onBlaettern(1)}
+          accessibilityRole="button"
+          accessibilityLabel="Nächster Monat"
+          style={styles.rasterPfeil}
+        >
+          <Ionicons name="chevron-forward" size={18} color={colors.inkSoft} />
+        </Pressable>
+      </View>
+      <View style={styles.rasterZeile}>
+        {WOCHENTAG_KURZ.map((name) => (
+          <Text key={name} style={styles.rasterWochentag}>
+            {name}
+          </Text>
+        ))}
+      </View>
+      {monatsraster(jahr, monat).map((woche, index) => (
+        <View key={index} style={styles.rasterZeile}>
+          {woche.map((zelle, spalte) =>
+            zelle === null ? (
+              <View key={`leer-${spalte}`} style={styles.rasterZelle} />
+            ) : (
+              <Pressable
+                key={zelle}
+                onPress={() => onTag(zelle)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: zelle === tag }}
+                accessibilityLabel={`${zelle}. ${MONATE[monat - 1]} ${jahr}`}
+                style={[
+                  styles.rasterZelle,
+                  istHeute(zelle) && styles.rasterHeute,
+                  zelle === tag && styles.rasterZelleAktiv,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.rasterZelleText,
+                    zelle === tag && styles.rasterZelleTextAktiv,
+                  ]}
+                >
+                  {zelle}
+                </Text>
+              </Pressable>
+            )
+          )}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/** Eine Scroll-Spalte des Zeitwählers (Stunden oder Minuten). */
+function ZeitSpalte({
+  werte,
+  wert,
+  onWert,
+  label,
+  styles,
+}: {
+  werte: number[];
+  wert: number;
+  onWert: (wert: number) => void;
+  label: string;
+  styles: Styles;
+}) {
+  const ref = useRef<ScrollView>(null);
+  // Beim Öffnen zur Auswahl springen - eine Spalte, die bei 00 beginnt,
+  // während 18 gewählt ist, sähe aus wie nicht gewählt.
+  useEffect(() => {
+    const index = werte.indexOf(wert);
+    if (index > 1) {
+      ref.current?.scrollTo({ y: index * 36 - 60, animated: false });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return (
+    <ScrollView
+      ref={ref}
+      style={styles.zeitSpalte}
+      accessibilityLabel={label}
+      nestedScrollEnabled
+    >
+      {werte.map((eintrag) => (
+        <Pressable
+          key={eintrag}
+          onPress={() => onWert(eintrag)}
+          accessibilityRole="button"
+          accessibilityState={{ selected: eintrag === wert }}
+          accessibilityLabel={`${label} ${eintrag}`}
+          style={[styles.zeitEintrag, eintrag === wert && styles.zeitEintragAktiv]}
+        >
+          <Text
+            style={[
+              styles.zeitEintragText,
+              eintrag === wert && styles.zeitEintragTextAktiv,
+            ]}
+          >
+            {String(eintrag).padStart(2, '0')}
+          </Text>
+        </Pressable>
+      ))}
+    </ScrollView>
+  );
+}
+
+/** Ein Schiebeschalter im Stil des Systems - RN bringt zwar einen Switch
+ * mit, aber der sieht auf dem Web nach Browser aus und nicht nach App. */
+function Schalter({
+  an,
+  onWechsel,
+  label,
+  styles,
+}: {
+  an: boolean;
+  onWechsel: () => void;
+  label: string;
+  styles: Styles;
+}) {
+  return (
+    <Pressable
+      onPress={onWechsel}
+      accessibilityRole="switch"
+      accessibilityState={{ checked: an }}
+      accessibilityLabel={label}
+      style={[styles.schalter, an && styles.schalterAn]}
+    >
+      <View style={[styles.schalterKnopf, an && styles.schalterKnopfAn]} />
+    </Pressable>
+  );
+}
+
+export function ErinnerungForm({
+  onAdd,
+  onCancel,
+  vorgabe,
+  mitglieder,
+  styles,
+  colors,
+}: {
+  onAdd: (eintrag: {
+    text: string;
+    at: number;
+    anzeigen: boolean;
+    push: boolean;
+    push_an: string[];
+    /** null räumt eine bestehende Wiederholung ab (Bearbeiten). */
+    repeat?: string | null;
+  }) => void;
+  /** Nur beim Bearbeiten: zurück ohne zu speichern. */
+  onCancel?: () => void;
+  /** Zum Bearbeiten: der bestehende Eintrag füllt das Formular vor.
+   *  Der Aufrufer wechselt den `key` mit, damit das Formular je
+   *  Eintrag frisch aufsetzt - die Felder sind bewusst einfache
+   *  Startwerte, kein Abgleich im Laufenden. */
+  vorgabe?: Erinnerung;
+  mitglieder: string[];
+  styles: Styles;
+  colors: Colors;
+}) {
+  const [text, setText] = useState(vorgabe ? String(vorgabe.text ?? '') : '');
+  // Die beiden Wege, auf denen eine Erinnerung ankommt. Bildschirm ist
+  // die Vorgabe (so war die Kachel angekündigt); Push muss man wollen,
+  // denn es klingelt auf fremden Telefonen.
+  const [anzeigen, setAnzeigen] = useState(vorgabe ? vorgabe.anzeigen !== false : true);
+  const [push, setPush] = useState(vorgabe?.push === true);
+  const [gewaehlte, setGewaehlte] = useState<string[]>(
+    vorgabe && Array.isArray(vorgabe.push_an) ? vorgabe.push_an.map(String) : []
+  );
+  // Einmalig ist die Vorgabe - wie bei den Aufgaben. Wiederkehrend
+  // heisst: Bestätigen erledigt nicht, sondern stellt weiter.
+  const [wiederholung, setWiederholung] = useState(
+    vorgabe ? (wiederholungVon(vorgabe) ?? 'none') : 'none'
+  );
+  // Vorgabe: heute, zur nächsten vollen Stunde - der häufigste Fall ist
+  // «nachher», nicht «nächste Woche». Beim Bearbeiten: der eingetragene
+  // Zeitpunkt.
+  const [wann, setWann] = useState(() => {
+    const at = Number(vorgabe?.at);
+    const gleich =
+      vorgabe && Number.isFinite(at) && at > 0
+        ? new Date(at)
+        : new Date(Date.now() + 3_600_000);
+    return {
+      jahr: gleich.getFullYear(),
+      monat: gleich.getMonth() + 1,
+      tag: gleich.getDate(),
+      stunde: gleich.getHours(),
+      minute: vorgabe ? gleich.getMinutes() : 0,
+    };
+  });
+  // Welcher Wähler offen ist - immer nur einer, sonst wird die Karte
+  // länger als der Schirm.
+  const [offenerWaehler, setOffenerWaehler] = useState<'datum' | 'zeit' | null>(null);
+  // Ohne Weg keine Erinnerung: Beide Schalter aus hiesse «lege an, aber
+  // sag es niemandem». Und Push ohne Empfänger liefe genauso ins Leere.
+  const bereit =
+    !!text.trim() && (anzeigen || push) && (!push || gewaehlte.length > 0);
+
+  const datumText = `${WOCHENTAG_KURZ[(new Date(wann.jahr, wann.monat - 1, wann.tag).getDay() + 6) % 7]}, ${String(wann.tag).padStart(2, '0')}.${String(wann.monat).padStart(2, '0')}.${wann.jahr}`;
+  const zeitText = `${String(wann.stunde).padStart(2, '0')}:${String(wann.minute).padStart(2, '0')}`;
+
+  return (
+    <Card style={styles.formCard}>
+      <TextInput
+        style={styles.input}
+        value={text}
+        onChangeText={setText}
+        placeholder="Woran erinnern? (z.B. Ofen ausschalten)"
+        placeholderTextColor={colors.inkSoft}
+      />
+      <View style={styles.wahlZeile}>
+        <Pressable
+          onPress={() => setOffenerWaehler((offen) => (offen === 'datum' ? null : 'datum'))}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: offenerWaehler === 'datum' }}
+          accessibilityLabel={`Datum: ${datumText}`}
+          style={[styles.wahlFeld, offenerWaehler === 'datum' && styles.wahlFeldAktiv]}
+        >
+          <Ionicons name="calendar-outline" size={17} color={colors.inkSoft} />
+          <Text style={styles.wahlFeldText}>{datumText}</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => setOffenerWaehler((offen) => (offen === 'zeit' ? null : 'zeit'))}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: offenerWaehler === 'zeit' }}
+          accessibilityLabel={`Uhrzeit: ${zeitText}`}
+          style={[styles.wahlFeld, offenerWaehler === 'zeit' && styles.wahlFeldAktiv]}
+        >
+          <Ionicons name="time-outline" size={17} color={colors.inkSoft} />
+          <Text style={styles.wahlFeldText}>{zeitText}</Text>
+        </Pressable>
+      </View>
+      {offenerWaehler === 'datum' ? (
+        <DatumsRaster
+          jahr={wann.jahr}
+          monat={wann.monat}
+          tag={wann.tag}
+          onTag={(tag) => {
+            setWann((alt) => ({ ...alt, tag }));
+            setOffenerWaehler(null);
+          }}
+          onBlaettern={(schritt) =>
+            setWann((alt) => {
+              const neu = monatsSprung(alt.jahr, alt.monat, schritt);
+              // Der 31. in einem Monat mit 30 Tagen: auf den letzten
+              // gültigen Tag zurückziehen statt still überzulaufen.
+              const tage = new Date(neu.jahr, neu.monat, 0).getDate();
+              return { ...alt, ...neu, tag: Math.min(alt.tag, tage) };
+            })
+          }
+          styles={styles}
+          colors={colors}
+        />
+      ) : null}
+      {offenerWaehler === 'zeit' ? (
+        <View style={styles.zeitSpalten}>
+          <ZeitSpalte
+            werte={Array.from({ length: 24 }, (_, i) => i)}
+            wert={wann.stunde}
+            onWert={(stunde) => setWann((alt) => ({ ...alt, stunde }))}
+            label="Stunde"
+            styles={styles}
+          />
+          <ZeitSpalte
+            werte={Array.from({ length: 60 }, (_, i) => i)}
+            wert={wann.minute}
+            onWert={(minute) => setWann((alt) => ({ ...alt, minute }))}
+            label="Minute"
+            styles={styles}
+          />
+        </View>
+      ) : null}
+      {/* Dieselben Chips wie bei den Aufgaben - wer dort «wöchentlich»
+          kennt, findet sich hier ohne Erklärung zurecht. */}
+      <View style={styles.mitgliedZeile}>
+        {WIEDERHOLUNGEN.map((option) => {
+          const an = wiederholung === option.key;
+          return (
+            <Pressable
+              key={option.key}
+              onPress={() => setWiederholung(option.key)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: an }}
+              accessibilityLabel={`Wiederholung: ${option.label}`}
+              style={[styles.mitgliedChip, an && styles.mitgliedChipAn]}
+            >
+              <Text style={[styles.mitgliedChipText, an && styles.mitgliedChipTextAn]}>
+                {option.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      <View style={styles.schalterZeile}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.schalterText}>Gross am Bildschirm anzeigen</Text>
+          <Text style={styles.schalterHinweis}>
+            Erscheint zur Zeit auf jedem offenen Bildschirm - und verschwindet
+            überall, sobald die erste Person bestätigt.
+          </Text>
+        </View>
+        <Schalter
+          an={anzeigen}
+          onWechsel={() => setAnzeigen((wert) => !wert)}
+          label="Gross am Bildschirm anzeigen"
+          styles={styles}
+        />
+      </View>
+      <View style={styles.schalterZeile}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.schalterText}>Push-Nachricht senden</Text>
+          {push ? (
+            <Text style={styles.schalterHinweis}>
+              {mitglieder.length > 0
+                ? 'An wen? Mehrere sind möglich.'
+                : 'Keine Haushaltsmitglieder gefunden - stimmt die Verbindung zum Hub?'}
+            </Text>
+          ) : null}
+        </View>
+        <Schalter
+          an={push}
+          onWechsel={() =>
+            setPush((wert) => {
+              // Beim Ausschalten die Auswahl mitnehmen: Wer den Schalter
+              // wieder einschaltet, soll nicht bei den alten Häkchen von
+              // vorhin landen, ohne es zu merken.
+              if (wert) setGewaehlte([]);
+              return !wert;
+            })
+          }
+          label="Push-Nachricht senden"
+          styles={styles}
+        />
+      </View>
+      {push && mitglieder.length > 0 ? (
+        <View style={styles.mitgliedZeile}>
+          {mitglieder.map((name) => {
+            const an = gewaehlte.includes(name);
+            return (
+              <Pressable
+                key={name}
+                onPress={() =>
+                  setGewaehlte((liste) =>
+                    an ? liste.filter((eintrag) => eintrag !== name) : [...liste, name]
+                  )
+                }
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: an }}
+                accessibilityLabel={`Push an ${name}`}
+                style={[styles.mitgliedChip, an && styles.mitgliedChipAn]}
+              >
+                <Ionicons
+                  name={an ? 'checkmark-circle' : 'ellipse-outline'}
+                  size={16}
+                  color={an ? colors.accent : colors.inkFaint}
+                />
+                <Text style={[styles.mitgliedChipText, an && styles.mitgliedChipTextAn]}>
+                  {name}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        {vorgabe && onCancel ? (
+          <Pressable
+            onPress={onCancel}
+            accessibilityRole="button"
+            style={[styles.addWide, { flex: 1, backgroundColor: 'transparent' }]}
+          >
+            <Text style={[styles.addWideText, { color: colors.inkSoft }]}>Abbrechen</Text>
+          </Pressable>
+        ) : null}
+        <Pressable
+          onPress={() => {
+            if (!bereit) return;
+            onAdd({
+              text: text.trim(),
+              at: new Date(
+                wann.jahr,
+                wann.monat - 1,
+                wann.tag,
+                wann.stunde,
+                wann.minute
+              ).getTime(),
+              anzeigen,
+              push,
+              push_an: push ? gewaehlte : [],
+              // Beim Anlegen bleibt «none» weg: Ein Feld, das nichts
+              // sagt, muss nicht in der Ablage stehen. Beim Bearbeiten
+              // muss es mit - der Hub mischt Änderungen in den Eintrag,
+              // und ohne das Feld bliebe die alte Wiederholung stehen.
+              ...(wiederholung !== 'none'
+                ? { repeat: wiederholung }
+                : vorgabe
+                  ? { repeat: null }
+                  : {}),
+            });
+            setText('');
+            setOffenerWaehler(null);
+            setPush(false);
+            setGewaehlte([]);
+            setWiederholung('none');
+          }}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: !bereit }}
+          style={[styles.addWide, { flex: 1 }, !bereit && { opacity: 0.5 }]}
+        >
+          <Text style={styles.addWideText}>
+            {vorgabe ? 'Änderungen speichern' : 'Erinnerung anlegen'}
+          </Text>
+        </Pressable>
+      </View>
+    </Card>
+  );
+}
+
 export function CountdownForm({
   onAdd,
   styles,
@@ -1551,20 +2115,20 @@ export function CountdownForm({
   const [date, setDate] = useState('');
   const [onStart, setOnStart] = useState(false);
   return (
-    <View style={styles.formCard}>
+    <Card style={styles.formCard}>
       <TextInput
         style={styles.input}
         value={text}
         onChangeText={setText}
         placeholder="Anlass (z.B. Ferien)"
-        placeholderTextColor={colors.inkFaint}
+        placeholderTextColor={colors.inkSoft}
       />
       <TextInput
         style={styles.input}
         value={date}
         onChangeText={setDate}
         placeholder="Datum (TT.MM.JJJJ)"
-        placeholderTextColor={colors.inkFaint}
+        placeholderTextColor={colors.inkSoft}
       />
       <Pressable
         onPress={() => setOnStart((value) => !value)}
@@ -1591,7 +2155,7 @@ export function CountdownForm({
       >
         <Text style={styles.addWideText}>Hinzufügen</Text>
       </Pressable>
-    </View>
+    </Card>
   );
 }
 
@@ -1662,6 +2226,15 @@ export function MonthCalendar({
 
   return (
     <View style={{ gap: 10 }}>
+      {/* Auf einer Karte, nicht nackt auf dem Verlauf.
+          Der helle Verlauf ist mitteltönig (#8B9AB0 … #556579), und die
+          Zahlen standen darauf in `inkSoft` – gemessen 1.39:1, die
+          Wochentage in `inkFaint` 1.33:1. Beides ist praktisch
+          unsichtbar; lesbar war der Monat nur, weil sein Titel `ink`
+          trägt. Die Listenansicht daneben lag von Anfang an in einer
+          Karte und hatte das Problem nie. Auf der Karte sind es 11.7:1
+          und 3.9:1. */}
+      <Card style={styles.calCard}>
       <View style={styles.calHead}>
         <Pressable
           onPress={() => setMonth(new Date(year, mon - 1, 1))}
@@ -1718,6 +2291,7 @@ export function MonthCalendar({
           );
         })}
       </View>
+      </Card>
 
       {selected ? (
         <Card style={styles.listCard}>
@@ -1760,3 +2334,109 @@ export function MonthCalendar({
 
 // ── Hauptkomponente ─────────────────────────────────────────────────────────
 
+
+/**
+ * Der Takt eines Standardartikels – das Blatt hinter dem langen Druck.
+ *
+ * Vorher löschte langes Drücken den Artikel, ohne Rückfrage, mitten in
+ * einer Reihe kleiner Knöpfe. Jetzt steht hier beides: wie oft er von
+ * selbst auf die Liste soll, und – ganz unten, wo man nicht aus Versehen
+ * hinkommt – das Löschen.
+ *
+ * Warum ein Takt überhaupt: Kaffee, Waschmittel und Katzenstreu fallen
+ * erst auf, wenn die Packung leer ist. Die Regeln stehen in
+ * lib/vorrat.ts und im Hub (core/vorrat.py).
+ */
+export function VorratBlatt({
+  artikel,
+  onTakt,
+  onLoeschen,
+  onSchliessen,
+  styles,
+  colors,
+}: {
+  artikel: FamilyItem | null;
+  onTakt: (tage: number | null) => void;
+  onLoeschen: () => void;
+  onSchliessen: () => void;
+  styles: Styles;
+  colors: Colors;
+}) {
+  const jetzt = Date.now();
+  const aktuell = artikel ? takt(artikel) : null;
+  const satz = artikel ? vorratSatz(artikel, jetzt) : null;
+
+  return (
+    <Modal
+      visible={!!artikel}
+      transparent
+      animationType="fade"
+      onRequestClose={onSchliessen}
+    >
+      <Pressable style={styles.modalBack} onPress={onSchliessen}>
+        <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
+          <Text style={styles.groupTitle}>{String(artikel?.text ?? '')}</Text>
+          <Text style={styles.checkSub}>
+            {satz ??
+              'Kommt nur, wenn du ihn antippst. Mit einem Takt legt ihn der ' +
+                'Hub selbst auf die Liste, sobald er dran ist.'}
+          </Text>
+
+          <View style={styles.stapleRow}>
+            {TAKTE.map((eintrag) => {
+              const gewaehlt = aktuell === eintrag.tage;
+              return (
+                <Pressable
+                  key={eintrag.tage}
+                  onPress={() => onTakt(naechsteWahl(artikel ?? {}, eintrag.tage))}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: gewaehlt }}
+                  style={[styles.staple, gewaehlt && { borderColor: colors.on }]}
+                >
+                  <Text style={[styles.stapleText, gewaehlt && { color: colors.ink }]}>
+                    {eintrag.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {/* Für alles, was zwischen den fünf Knöpfen liegt – der Vorrat
+              eines Haushalts hält sich nicht an runde Wochen. */}
+          {aktuell !== null ? (
+            <View style={styles.addRow}>
+              <Pressable
+                onPress={() => onTakt(schritt(artikel ?? {}, -1))}
+                accessibilityLabel="Abstand verkürzen"
+                style={styles.taktKnopf}
+              >
+                <Ionicons name="remove" size={16} color={colors.ink} />
+              </Pressable>
+              <Text style={[styles.checkText, { flex: 1, textAlign: 'center' }]}>
+                alle {aktuell} Tage
+              </Text>
+              <Pressable
+                onPress={() => onTakt(schritt(artikel ?? {}, 1))}
+                accessibilityLabel="Abstand verlängern"
+                style={styles.taktKnopf}
+              >
+                <Ionicons name="add" size={16} color={colors.ink} />
+              </Pressable>
+            </View>
+          ) : null}
+
+          <Pressable
+            onPress={onLoeschen}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.8 }]}
+          >
+            <Ionicons name="trash-outline" size={16} color={colors.danger} />
+            <Text style={[styles.addRowText, { color: colors.danger }]}>
+              Aus den Standardartikeln entfernen
+            </Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}

@@ -8,6 +8,7 @@ Sachgebiet statt 3800 Zeilen am Stück. Die Routen selbst sind unverändert
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +22,9 @@ from fastapi import (
 from ... import qr as qr_module
 from ...core import goodnight as goodnight_module
 from ...core import (
+    rueckgriff,
     say,
+    sprachnotiz,
 )
 from ...core.config_edit import add_cast_device
 from ...core.errors import HomePilotError
@@ -34,10 +37,24 @@ from ..models import (
     GoodNightRequest,
     SpeakerRequest,
     TimerRequest,
+    UndoRecordRequest,
     VoucherRequest,
 )
 
 log = logging.getLogger(__name__)
+
+
+def _lautstaerke(roh: str | None) -> int | None:
+    """Die Lautstärke aus der Adresse - oder nichts (rein, testbar).
+
+    Unsinn wird zu ``None`` statt zu einem Fehler: Dann gilt die feste
+    Durchsage-Lautstärke, und das ist eine bessere Antwort als eine
+    abgewiesene Sprachnotiz.
+    """
+    try:
+        return max(0, min(100, int(str(roh))))
+    except (TypeError, ValueError):
+        return None
 
 def register(app: FastAPI, ctx: ApiContext) -> None:
     hub = ctx.hub
@@ -48,6 +65,71 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
 
     def save_config(content: str) -> dict[str, Any]:
         return configio.save_config(hub, content)
+
+    # ── Grosse Griffe zurücknehmen ─────────────────────────────────────────
+
+    # Der Rückweg wohnt jetzt in core/rueckgriff.py: Seit der
+    # Babysitter-Modus das Empfangslicht übernommen hat, braucht ihn auch
+    # eine Route in einer anderen Datei.
+    def rueckweg_ablegen(
+        titel: str, entity_ids: list[str], command: str, wer: str
+    ) -> dict[str, Any] | None:
+        return rueckgriff.ablegen(hub, titel, entity_ids, command, wer)
+
+    @app.post("/api/undo")
+    async def record_undo(body: UndoRecordRequest, request: Request) -> dict[str, Any]:
+        """«Alles aus» meldet an, was es gleich tun wird.
+
+        Warum der Hub aufnimmt, aber nicht schaltet: Die Befehle selbst
+        gehen weiter denselben Weg wie jeder Tastendruck in der App -
+        über die Verbindung, durch die Sperre, mit der Rückfrage beim
+        Wandpaneel. Eine eigene «alles aus»-Route würde all das umgehen,
+        nur damit der Rückweg an einer Stelle entsteht.
+        """
+        user = require(request, Capability.CONTROL)
+        return {
+            "undo": rueckweg_ablegen(
+                body.title, body.entity_ids, body.command, user.name
+            )
+        }
+
+    @app.post("/api/undo/{bundle_id}/run")
+    async def run_undo(bundle_id: str, request: Request) -> dict[str, Any]:
+        """Den aufgenommenen Rückweg gehen.
+
+        Er wird dabei verbraucht: Ein zweites «Rückgängig» stellte den
+        Stand von vor dem Griff ein zweites Mal her - über allem, was
+        seither von Hand geschaltet wurde.
+        """
+        user = require(request, Capability.CONTROL)
+        rows = hub.data.get(rueckgriff.SCHLANGE)
+        eintrag = rueckgriff.holen(rows, bundle_id, time.time())
+        if eintrag is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Das lässt sich nicht mehr zurücknehmen.",
+            )
+        hub.data.set(rueckgriff.SCHLANGE, rueckgriff.entfernen(rows, bundle_id))
+        namen = {entity.id: entity.label for entity in hub.registry.all()}
+        zurueck: list[str] = []
+        fehler: list[str] = []
+        with as_source(user_source(user.name)):
+            for befehl in eintrag.get("commands") or []:
+                entity_id = str(befehl.get("entity_id") or "")
+                try:
+                    await hub.integrations.dispatch_command(
+                        entity_id,
+                        str(befehl.get("command") or ""),
+                        befehl.get("data") or {},
+                    )
+                    zurueck.append(namen.get(entity_id, entity_id))
+                except Exception:
+                    # Ein Gerät, das inzwischen offline ist, soll die
+                    # anderen neunzehn nicht aufhalten.
+                    log.debug("Rückweg: %s nicht schaltbar", entity_id, exc_info=True)
+                    fehler.append(namen.get(entity_id, entity_id))
+        return {"ok": not fehler, "restored": zurueck, "failed": fehler}
+
 
     # ── Gute Nacht ─────────────────────────────────────────────────────────
 
@@ -91,14 +173,22 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         settings = goodnight_settings()
         entities = hub.registry.all()
 
+        aus = list(
+            goodnight_module.lights_to_off(entities, settings["night_lights"])
+        )
+        # Vor dem Schalten: Danach ist nicht mehr abzulesen, welches Licht
+        # wie hell brannte. Die Alarmanlage bleibt aussen vor - sie steht
+        # in szenenrueckweg.OHNE_RUECKWEG, und das aus gutem Grund.
+        rueckweg = rueckweg_ablegen(
+            "Gute Nacht", [entity.id for entity in aus], "turn_off", user.name
+        )
+
         turned_off: list[str] = []
         with as_source(user_source(user.name)):
-            for entity in goodnight_module.lights_to_off(
-                entities, settings["night_lights"]
-            ):
+            for entity in aus:
                 try:
                     await hub.integrations.dispatch_command(entity.id, "turn_off")
-                    turned_off.append(entity.name)
+                    turned_off.append(entity.label)
                 except Exception:
                     log.debug("Gute Nacht: %s nicht schaltbar", entity.id, exc_info=True)
 
@@ -121,15 +211,19 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         return {
             "lights_off": turned_off,
             "kept_on": [
-                entity.name
+                entity.label
                 for entity in entities
                 if entity.id in set(settings["night_lights"])
                 and str(entity.state.get("state")) == "on"
             ],
-            "open": [e.name for e in goodnight_module.open_windows(entities)],
-            "unlocked": [e.name for e in goodnight_module.unlocked_locks(entities)],
+            "open": [e.label for e in goodnight_module.open_windows(entities)],
+            "unlocked": [e.label for e in goodnight_module.unlocked_locks(entities)],
             "alarm": alarm_result,
             "alarm_error": alarm_error,
+            # Damit der Bericht einen Weg zurück anbieten kann: Wer beim
+            # Lesen merkt, dass im Büro noch jemand sitzt, soll nicht
+            # zwanzig Kacheln wiederfinden müssen.
+            "undo": rueckweg,
         }
 
     # ── Durchsage ──────────────────────────────────────────────────────────
@@ -171,9 +265,45 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             raise HTTPException(status_code=404, detail="Keine Durchsage")
         return Response(
             content=audio,
-            media_type="audio/mpeg",
+            # Piper liefert WAV, gTTS MP3, eine Sprachnotiz WebM oder was
+            # der Browser sonst aufnimmt - die Boxen wollen den ehrlichen
+            # Typ, sonst raten sie (core/sprachnotiz.py).
+            media_type=sprachnotiz.medientyp(audio),
             headers={"Cache-Control": "no-store"},
         )
+
+    @app.post("/api/broadcast/voice")
+    async def broadcast_voice(request: Request) -> dict[str, Any]:
+        """Eine selbst gesprochene Notiz auf die Boxen.
+
+        Der Rumpf ist die Aufnahme selbst, roh - kein JSON, kein Base64:
+        Eine Minute Ton wird als Base64 um ein Drittel grösser, und der
+        Umweg brächte nichts, was ein Content-Type nicht auch sagt.
+        Empfänger und Lautstärke stehen darum in der Adresse.
+
+        Warum es die Aufnahme nur im Browser gibt und nicht in der
+        nativen App: core/sprachnotiz.py.
+        """
+        user = require(request, Capability.CONTROL)
+        say.remember_base(hub, str(request.base_url))
+        audio = await request.body()
+        try:
+            sprachnotiz.pruefen(audio)
+            return await say.play_audio(
+                hub,
+                audio,
+                str(request.base_url).rstrip("/"),
+                speakers=[
+                    teil
+                    for teil in request.query_params.get("speakers", "").split(",")
+                    if teil
+                ]
+                or None,
+                volume=_lautstaerke(request.query_params.get("volume")),
+                source=user_source(user.name),
+            )
+        except HomePilotError as err:
+            raise HTTPException(status_code=400, detail=str(err)) from err
 
     # ── Küchen-Timer ───────────────────────────────────────────────────────
 

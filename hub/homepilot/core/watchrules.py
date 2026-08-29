@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 import shutil
+import time
 from typing import Any
 
 # Melder, bei denen «offen» Heizkosten bedeutet. Ein Bewegungsmelder, der
@@ -163,11 +164,28 @@ def open_contacts(entities: list[Any]) -> list[Any]:
             continue
         klasse = str(entity.state.get("device_class") or "")
         is_contact = (
-            klasse in OPEN_CLASSES if klasse else bool(OPENING_NAME.search(entity.name))
+            klasse in OPEN_CLASSES if klasse else bool(OPENING_NAME.search(entity.label))
         )
         if is_contact and str(entity.state.get("state")) == "on":
             result.append(entity)
     return result
+
+
+def offen_satz(seit: float, jetzt: float) -> str:
+    """«Offen seit 14:05 – eine Stunde» (rein, testbar).
+
+    Die Uhrzeit steht vorne, weil sie nachprüfbar ist: Wer weiss, dass er
+    um 14:20 aufgemacht hat, erkennt an «seit 14:05» sofort einen
+    hängenden Sensor. Eine gerundete Dauer allein liesse ihn nur rätseln.
+    """
+    uhr = time.strftime("%H:%M", time.localtime(seit))
+    minuten = max(0, int((jetzt - seit) // 60))
+    if minuten < 60:
+        return f"Offen seit {uhr} – {minuten} Minuten"
+    stunden = minuten // 60
+    rest = minuten % 60
+    dauer = f"{stunden} Std." + (f" {rest} Min." if rest else "")
+    return f"Offen seit {uhr} – {dauer}"
 
 
 def leaks(entities: list[Any]) -> list[Any]:
@@ -177,6 +195,109 @@ def leaks(entities: list[Any]) -> list[Any]:
         for entity in entities
         if str(entity.state.get("device_class") or "") == "moisture"
         and str(entity.state.get("state")) == "on"
+    ]
+
+
+#: Was die häufigsten Sauger-Meldungen auf Deutsch heissen. Die Namen
+#: stammen aus der Roborock-Bibliothek (error_code_name und
+#: dock_error_status_name); die Liste muss nicht vollständig sein - was
+#: sie nicht kennt, kommt lesbar gemacht durch (sauger_wort). Lieber ein
+#: englischer Restname als eine verschluckte Meldung.
+SAUGER_TEXTE: dict[str, str] = {
+    "water_empty": "Der Reinigungswassertank ist leer oder nicht eingesetzt.",
+    "water_shortage": "Der Wasserstand ist niedrig - Tank auffüllen.",
+    "waste_water_tank_full": "Der Schmutzwassertank ist voll.",
+    "cleaning_tank_full_or_blocked": "Der Reinigungstank ist voll oder verstopft.",
+    "dirty_tank_latch_open": "Der Verschluss des Schmutzwassertanks ist offen.",
+    "duct_blockage": "Der Absaugkanal der Station ist verstopft.",
+    "no_dustbin": "Der Staubbehälter fehlt.",
+    "main_brush_jammed": "Die Hauptbürste ist blockiert.",
+    "side_brush_jammed": "Die Seitenbürste ist blockiert.",
+    "wheels_jammed": "Ein Rad ist blockiert.",
+    "robot_trapped": "Der Sauger steckt fest.",
+    "cliff_sensor_error": "Der Absturzsensor meldet ein Problem.",
+    "filter_blocked": "Der Filter ist verstopft oder nass.",
+    "low_battery": "Der Akku reicht nicht - erst laden lassen.",
+    "charging_error": "Das Laden klappt nicht.",
+    "return_to_dock_fail": "Der Sauger findet die Station nicht.",
+    "vibrarise_jammed": "Das Wischmodul ist blockiert.",
+}
+
+
+def sauger_wort(name: str) -> str:
+    """Eine Sauger-Meldung in einen lesbaren Satz bringen (rein, testbar)."""
+    kern = str(name or "").strip().lower()
+    bekannt = SAUGER_TEXTE.get(kern)
+    if bekannt:
+        return bekannt
+    # Unbekanntes bleibt erkennbar Original: «vertical bumper pressed»
+    # sagt dem, der nachschlägt, mehr als jede geratene Übersetzung.
+    return f"Der Sauger meldet: {kern.replace('_', ' ')}."
+
+
+def sauger_probleme(entities: list[Any]) -> list[tuple[Any, str, str]]:
+    """Sauger mit gemeldetem Problem: (Gerät, Schlüssel, Satz) (rein, testbar).
+
+    Zwei Quellen, weil es zwei sind: Der Roboter selbst meldet Fehler
+    (``error``), die Station ihre eigenen (``dock.error``) - der volle
+    Schmutzwassertank steht nur dort. Der Schlüssel unterscheidet beide,
+    damit «Tank leer» und «steckt fest» je eine Nachricht bekommen.
+    """
+    ergebnis: list[tuple[Any, str, str]] = []
+    for entity in entities:
+        if getattr(entity, "kind", None) != "vacuum":
+            continue
+        state = entity.state or {}
+        fehler = str(state.get("error") or "").strip()
+        if fehler and fehler.lower() not in ("none", "ok"):
+            ergebnis.append((entity, f"fehler:{fehler}", sauger_wort(fehler)))
+        dock = state.get("dock")
+        dock_fehler = (
+            str(dock.get("error") or "").strip() if isinstance(dock, dict) else ""
+        )
+        if dock_fehler and dock_fehler.lower() not in ("none", "ok"):
+            ergebnis.append((entity, f"dock:{dock_fehler}", sauger_wort(dock_fehler)))
+    return ergebnis
+
+
+#: So lange nach einer Klingel-Nachricht wird keine zweite verschickt.
+#:
+#: Ein Klingeln kommt beim Hub auf mehreren Wegen an - Ereigniskanal,
+#: Abfrage, Verlauf -, und jeder Weg kann den Zustand für sich auf «an»
+#: setzen. Liegt dazwischen ein «aus», zählt es als neues Klingeln, und
+#: der Besucher bekommt vier Nachrichten statt einer.
+#:
+#: Eine Minute: Wer davorsteht und nochmals drückt, weil niemand kommt,
+#: löst keine zweite Nachricht aus - er will ja dieselbe Sache. Ein
+#: zweiter Besucher eine Minute später schon.
+KLINGEL_SPERRE = 60.0
+
+
+def klingel_gesperrt(
+    zuletzt: float | None, jetzt: float, frist: float = KLINGEL_SPERRE
+) -> bool:
+    """Wurde für diese Türe eben schon gemeldet? (rein, testbar)
+
+    Der Riegel an der letzten Stelle: Was auch immer davor schiefgeht -
+    hier geht je Türe und Minute eine Nachricht hinaus.
+    """
+    if zuletzt is None:
+        return False
+    return 0 <= jetzt - zuletzt < frist
+
+
+def klingelnde(entities: list[Any]) -> list[Any]:
+    """Geräte, an denen es gerade klingelt (rein, testbar).
+
+    Das Feld `ring` führt jedes Gerät, das klingeln kann - die Türklingel
+    mit Kamera ebenso wie die Gegensprechanlage. Wer keines hat, taucht
+    hier nie auf; ein Gerät, das nur gerade nicht klingelt, steht auf
+    «off» und ebenfalls nicht.
+    """
+    return [
+        entity
+        for entity in entities
+        if str(entity.state.get("ring") or "") == "on"
     ]
 
 

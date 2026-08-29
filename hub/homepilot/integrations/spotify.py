@@ -284,7 +284,9 @@ def parse_playback(payload: dict[str, Any] | None) -> dict[str, Any]:
     """
     if not payload:
         return {
-            "state": "idle",
+            # Nichts läuft irgendwo - das ist kein «gleich geht es
+            # weiter», sondern Ruhe. Dieselbe Unterscheidung wie bei Cast.
+            "state": "standby",
             "track": None,
             "artist": None,
             "image": None,
@@ -310,8 +312,12 @@ def parse_playback(payload: dict[str, Any] | None) -> dict[str, Any]:
         # den Namen kennt erst, wer die Playlists des Kontos hat.
         "context_uri": (payload.get("context") or {}).get("uri"),
         "shuffle": bool(payload.get("shuffle_state")),
-        # «off», «track» (ein Titel) oder «context» (Playlist/Album).
-        "repeat": str(payload.get("repeat_state") or "off"),
+        # Spotify sagt «off», «track» oder «context»; die App und der
+        # Cast-Player sprechen off/one/all. Übersetzt wird hier, damit
+        # eine Kachel nicht je nach Quelle andere Wörter zeigt.
+        "repeat": repeat_name(payload.get("repeat_state")),
+        # Spotify kann in jedem Titel springen - Cast nicht immer.
+        "can_seek": True,
     }
     # Wie weit der Titel ist und wie lang er dauert, in Sekunden – Spotify
     # rechnet in Millisekunden. Damit weiss der Hub, wann der nächste
@@ -323,7 +329,14 @@ def parse_playback(payload: dict[str, Any] | None) -> dict[str, Any]:
             return None
 
     result["progress"] = _sekunden(payload.get("progress_ms"))
+    # Derselbe Wert unter dem Namen, den auch Cast benutzt. «progress»
+    # bleibt, weil Abläufe und Szenen darauf zeigen können.
+    result["position"] = result["progress"]
     result["duration"] = _sekunden(item.get("duration_ms"))
+    if result["position"] is not None:
+        # Wann gemessen wurde - sonst stünde der Balken zwischen zwei
+        # Abfragen still, statt weiterzulaufen.
+        result["position_at"] = round(time.time(), 1)
     volume = device.get("volume_percent")
     if volume is not None:
         result["volume"] = int(volume)
@@ -375,13 +388,44 @@ def naechster_blick(
 # genau die Werte, die Spotify für /me/player/repeat annimmt.
 REPEAT_MODES = ("off", "context", "track")
 
+#: Spotifys Wörter ↔ die drei Namen, die App und Cast benutzen.
+REPEAT_NAMEN = {"off": "off", "context": "all", "track": "one"}
+REPEAT_API = {"off": "off", "all": "context", "one": "track"}
+
+
+def repeat_name(wert: Any) -> str:
+    """Spotifys Wiederholmodus auf off/all/one bringen (rein, testbar).
+
+    Unbekanntes gilt als «aus»: Ein Knopf, der nichts anzeigt, ist
+    ehrlicher als einer, der eine Vermutung anzeigt.
+    """
+    return REPEAT_NAMEN.get(str(wert or "off").strip().lower(), "off")
+
+
+def repeat_api(wert: Any) -> str | None:
+    """Rückweg: off/all/one → das Wort für /me/player/repeat.
+
+    Nimmt auch Spotifys eigene Wörter an - so bricht ein Ablauf nicht,
+    der noch «context» schickt.
+    """
+    name = str(wert or "").strip().lower()
+    if name in REPEAT_MODES:
+        return name
+    return REPEAT_API.get(name)
+
 
 def next_repeat(current: str) -> str:
-    """Der nächste Wiederholmodus beim Antippen (rein, testbar)."""
+    """Der nächste Wiederholmodus beim Antippen (rein, testbar).
+
+    Läuft in den Namen der App - aus/alles/ein Titel -, nicht in denen
+    von Spotify.
+    """
+    reihe = ("off", "all", "one")
+    jetzt = repeat_name(current) if current in REPEAT_MODES else str(current or "off")
     try:
-        return REPEAT_MODES[(REPEAT_MODES.index(current) + 1) % len(REPEAT_MODES)]
+        return reihe[(reihe.index(jetzt) + 1) % len(reihe)]
     except ValueError:
-        return REPEAT_MODES[1]
+        return reihe[1]
 
 
 def playlist_name(
@@ -454,6 +498,13 @@ class SpotifyIntegration(Integration):
                 "play", "pause", "toggle", "next", "previous", "play_on",
                 "set_volume", "volume_up", "volume_down", "mute", "play_playlist",
                 "shuffle", "repeat", "play_queue",
+                # Springen im Titel - dieselbe Bedienung wie bei Cast.
+                "seek",
+                # Die Playlisten frisch holen. Die App schickt das, wenn
+                # jemand die Auswahl aufklappt: Sonst dauerte es bis zu
+                # einer halben Stunde, bis eine neu angelegte Playlist
+                # hier auftaucht (siehe _takt).
+                "refresh_playlists",
             ],
             available=False,
         )
@@ -573,6 +624,9 @@ class SpotifyIntegration(Integration):
         state["devices"] = merge_device_names(
             [device["name"] for device in devices], self._cast_names()
         )
+        # Welche davon echte Google-Gruppen sind. Die App setzt die
+        # Marke daneben; ohne sie sieht eine Gruppe aus wie eine Box.
+        state["device_groups"] = self._cast_groups()
         state["playlists"] = [p["name"] for p in self._playlists]
         state["playlist"] = playlist_name(state.get("context_uri"), self._playlists)
         state["queue"] = await self._warteschlange(state.get("state"))
@@ -656,6 +710,50 @@ class SpotifyIntegration(Integration):
             (name for name, value in self._device_ids.items() if value == device_id), None
         )
 
+    async def _cast_lautstaerke(self, entity: Entity, prozent: int) -> bool:
+        """Die Lautstärke über Cast setzen, wenn das Ziel eine Cast-Box ist.
+
+        Rückgabe: ob es dieser Weg war. False heisst «nicht zuständig» –
+        dann geht es wie bisher über Spotify (Telefon, Rechner, Sonos).
+        """
+        name = str(entity.state.get("device") or "")
+        cast = self.hub.integrations.get("google_cast")
+        if not name or cast is None or not hasattr(cast, "lautstaerke_setzen"):
+            return False
+        try:
+            return bool(await cast.lautstaerke_setzen(name, prozent))
+        except Exception as err:
+            self.log.debug("Lautstärke über Cast misslungen (%s): %s", name, err)
+            return False
+
+    async def _gruppen_lautstaerke_wiederherstellen(self, name: str) -> None:
+        """Nach dem Umziehen die Lautstärke des **Ziels** durchsetzen.
+
+        Spotify nimmt beim Umziehen die Lautstärke des bisherigen Geräts
+        mit. Das ist bei zwei Telefonen egal und bei einer Gruppe falsch:
+        Wer die Küchenbox auf 15 % laufen hatte und dann auf «Ganze
+        Wohnung» wechselt, bekam die ganze Wohnung auf 15 %, obwohl die
+        Gruppe auf 40 % stand. Was das Ziel selbst sagt, gilt.
+        """
+        cast = self.hub.integrations.get("google_cast")
+        if cast is None or not hasattr(cast, "lautstaerke_von"):
+            return
+        try:
+            eigene = cast.lautstaerke_von(name)
+            if eigene is not None:
+                await cast.lautstaerke_setzen(name, eigene)
+        except Exception as err:
+            self.log.debug("Lautstärke von %s nicht wiederhergestellt: %s", name, err)
+
+    def _cast_groups(self) -> list[str]:
+        cast = self.hub.integrations.get("google_cast")
+        if cast is None or not hasattr(cast, "group_names"):
+            return []
+        try:
+            return list(cast.group_names())
+        except Exception:
+            return []
+
     def _cast_names(self) -> list[str]:
         cast = self.hub.integrations.get("google_cast")
         if cast is None or not hasattr(cast, "device_names"):
@@ -708,6 +806,13 @@ class SpotifyIntegration(Integration):
     # ── Hub → Spotify ──────────────────────────────────────────────────────
 
     async def handle_command(self, entity: Entity, command: str, data: dict[str, Any]) -> None:
+        if command == "refresh_playlists":
+            # Zwei Anfragen an Spotify, und nur, wenn jemand hinschaut -
+            # billiger als der halbstündliche Takt, der dieselbe Liste
+            # auch dann holt, wenn niemand sie öffnet.
+            await self._load_playlists()
+            await self._refresh()
+            return
         if command == "play_on":
             name = str(data.get("device", ""))
             device_id = self._device_ids.get(name)
@@ -734,7 +839,9 @@ class SpotifyIntegration(Integration):
             await self._call(
                 "PUT", "/me/player", json={"device_ids": [device_id], "play": keep_playing}
             )
-            await self._announce({"device": self._device_name(device_id) or name})
+            ziel = self._device_name(device_id) or name
+            await self._gruppen_lautstaerke_wiederherstellen(ziel)
+            await self._announce({"device": ziel})
             return
         if command == "play_playlist":
             name = str(data.get("name", ""))
@@ -747,29 +854,35 @@ class SpotifyIntegration(Integration):
             # Ziel: gewünschte Box → gerade aktive → erste sichtbare. Ohne
             # Ziel würde Spotify aus der Stille heraus mit 404 abwinken.
             requested = str(data.get("device", ""))
-            device_id = pick_device(
-                requested, entity.state.get("device"), self._device_ids
-            )
-            # Gewünschte Box schläft (kennt Spotify gerade nicht)? Dann über
-            # das Cast-Protokoll wecken und anmelden – wie Spotcast.
-            if requested and requested not in self._device_ids:
-                # Erst die frische Geräteliste – wecken nur, wenn sie die Box
-                # wirklich nicht kennt (siehe play_on).
-                if requested in await self._load_devices():
-                    device_id = self._device_ids[requested]
-                else:
-                    device_id = pick_device(
-                        requested, entity.state.get("device"), self._device_ids
-                    )
-            if requested and requested not in self._device_ids:
-                woken = await self._wake_and_find(requested)
-                if woken:
-                    device_id = woken
-                elif device_id is None:
+            if requested:
+                # Eine ausdrücklich genannte Box ist eine Ansage, keine
+                # Anregung. Hier stand ein Rückfall auf «gerade aktiv»
+                # oder «die erste sichtbare», und genau daran hing der
+                # Fehler mit den Lautsprechergruppen: Kannte Spotify die
+                # Gruppe im Moment des Starts nicht, spielte die Musik
+                # kommentarlos auf der Box weiter, die ohnehin schon lief
+                # - also gerade nicht auf denen, die in Google Home in
+                # der Gruppe stehen. Ein Fehler, den man sieht, ist
+                # besser als Musik im falschen Zimmer.
+                device_id = self._device_ids.get(requested)
+                if device_id is None:
+                    # Erst die frische Geräteliste – wecken nur, wenn sie
+                    # die Box wirklich nicht kennt (siehe play_on).
+                    device_id = (await self._load_devices()).get(requested)
+                if device_id is None:
+                    device_id = await self._wake_and_find(requested)
+                if device_id is None:
                     raise ValueError(
-                        f"'{requested}' liess sich nicht wecken – Details im "
+                        f"'{requested}' liess sich nicht erreichen – Musik "
+                        "läuft darum nirgends, statt im falschen Zimmer. "
+                        "Sichtbar sind: "
+                        f"{', '.join(self._device_ids) or 'keine'}. Details im "
                         "Hub-Log (docker logs homepilot-hub | grep -i spotify)"
                     )
+            else:
+                device_id = pick_device(
+                    requested, entity.state.get("device"), self._device_ids
+                )
             if device_id is None:
                 raise ValueError(
                     "Keine Spotify-Lautsprecher sichtbar. Google-Lautsprecher "
@@ -858,15 +971,47 @@ class SpotifyIntegration(Integration):
             return
 
         if command == "repeat":
-            mode = str(data.get("mode") or next_repeat(str(entity.state.get("repeat") or "off")))
-            if mode not in REPEAT_MODES:
-                raise ValueError(f"Unbekannter Wiederholmodus '{mode}'")
+            gewuenscht = str(
+                data.get("mode")
+                or data.get("repeat")
+                or next_repeat(str(entity.state.get("repeat") or "off"))
+            )
+            mode = repeat_api(gewuenscht)
+            if mode is None:
+                raise ValueError(f"Unbekannter Wiederholmodus '{gewuenscht}'")
             await self._call("PUT", f"/me/player/repeat?state={mode}")
-            await self._announce({"repeat": mode})
+            await self._announce({"repeat": repeat_name(mode)})
+            return
+
+        if command == "seek":
+            # Springen im laufenden Titel. Spotify rechnet in
+            # Millisekunden und lehnt Werte hinter dem Ende ab.
+            try:
+                ziel = float(data.get("position"))
+            except (TypeError, ValueError):
+                raise ValueError("seek braucht eine 'position' in Sekunden") from None
+            laenge = entity.state.get("duration")
+            if laenge:
+                ziel = min(ziel, max(0.0, float(laenge) - 1))
+            ziel = max(0.0, ziel)
+            await self._call("PUT", f"/me/player/seek?position_ms={int(ziel * 1000)}")
+            await self._announce({"position": round(ziel, 1), "position_at": round(time.time(), 1)})
             return
 
         if command == "toggle":
             command = "pause" if entity.state.get("state") == "playing" else "play"
+
+        if command == "pause" and entity.state.get("state") not in (
+            "playing",
+            "buffering",
+        ):
+            # Nichts läuft - dann gibt es auch nichts anzuhalten. Spotify
+            # antwortet auf ein Pause ohne aktives Gerät mit einem
+            # Fehler, und der hielt einen ganzen Ablauf an: «Niemand mehr
+            # zuhause» stellt der Reihe nach ein Dutzend Quellen ab und
+            # schliesst zuletzt die Türe (dieselbe Überlegung wie in
+            # google_cast.py und tunein.py).
+            return
 
         if command in ("set_volume", "volume_up", "volume_down", "mute"):
             current = int(entity.state.get("volume", 50) or 0)
@@ -883,7 +1028,12 @@ class SpotifyIntegration(Integration):
                 else:
                     target = getattr(self, "_volume_before_mute", 30)
             target = max(0, min(100, target))
-            await self._call("PUT", f"/me/player/volume?volume_percent={target}")
+            # Erst über Cast, dann über Spotify: Für Google-Boxen und
+            # erst recht für Gruppen antwortet Spotify auf
+            # `PUT /me/player/volume` mit «VOLUME_CONTROL_DISALLOWED».
+            # Der Regler bewegte sich, und niemand wurde lauter.
+            if not await self._cast_lautstaerke(entity, target):
+                await self._call("PUT", f"/me/player/volume?volume_percent={target}")
             await self._announce({"volume": target})
             return
 

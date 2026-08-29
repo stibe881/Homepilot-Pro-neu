@@ -3,8 +3,14 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Entity, HubSettings } from '../api/types';
-import { epochAgo, epochTime } from '../lib/zeit';
+import { epochAgo } from '../lib/zeit';
 import { LogSpan, reichweiteText } from '../lib/verlauf';
+import {
+  VerlaufEreignis,
+  verlaufAbschnitte,
+  zeilenText,
+  zustandName,
+} from '../lib/verlaufliste';
 import { Fehlschlag, Laedt, Leer } from './Zustand';
 import { Colors, radius, type, useColors } from '../theme';
 import { hubClient } from '../api/client';
@@ -16,28 +22,14 @@ import { hubClient } from '../api/client';
  * durch den Gesamtverlauf. Jede Zeile trägt ihre Quelle: ein Benutzer,
  * ein Ablauf, eine Szene, die Anwesenheitssimulation – oder das Gerät
  * selbst (Wandschalter, Hersteller-App, Zeitschaltung ausserhalb des Hubs).
+ *
+ * Nach Tagen geteilt und mit Dauer: «14:19» und «14:19» können derselbe
+ * Nachmittag sein oder zwei verschiedene Tage, und die eigentlich
+ * interessante Zahl ist ohnehin nicht, wann das Licht anging, sondern wie
+ * lange es an war. Gerechnet wird das in lib/verlaufliste.ts.
  */
 
-interface HistoryEvent {
-  state: string | null;
-  at: number;
-  source: { kind?: string | null; label?: string | null };
-}
-
-const STATE_LABEL: Record<string, string> = {
-  on: 'Eingeschaltet',
-  off: 'Ausgeschaltet',
-  open: 'Geöffnet',
-  closed: 'Geschlossen',
-  locked: 'Abgeschlossen',
-  unlocked: 'Aufgeschlossen',
-  running: 'Gestartet',
-  idle: 'Fertig',
-  // V-ZUG-Geräte melden im Standby 503; der Hub schreibt das als
-  // Zustand, statt den Platzhalter «unknown» stehen zu lassen.
-  standby: 'Standby',
-  unknown: 'Unbekannt',
-};
+type HistoryEvent = VerlaufEreignis;
 
 /** Wer war es – als lesbarer Satzteil (rein, testbar). */
 export function sourceLabel(source: HistoryEvent['source']): string {
@@ -50,6 +42,15 @@ export function sourceLabel(source: HistoryEvent['source']): string {
   // Ohne Quelle kam der Wechsel nicht über den Hub: Wandschalter,
   // Hersteller-App oder eine Zeitschaltung im Gerät selbst.
   return 'am Gerät / von aussen';
+}
+
+/** Nur die Uhrzeit – das Datum steht im Abschnittstitel. */
+function uhrzeit(at: number): string {
+  if (!at || !Number.isFinite(at)) return '';
+  return new Date(at * 1000).toLocaleTimeString('de-CH', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 export function EntityHistory({
@@ -99,24 +100,29 @@ export function EntityHistory({
               titel="Noch nichts aufgezeichnet"
               hinweis={
                 reichweiteText(span) ||
-                'Das Protokoll beginnt beim Start des Hubs – nach einem Update ist es zunächst leer.'
+                'Sobald dieses Gerät schaltet, steht es hier – der Verlauf übersteht Neustarts und Updates.'
               }
             />
           ) : null}
 
           <ScrollView style={{ maxHeight: 420 }}>
-            {(events ?? []).map((event, index) => (
-              <View key={index} style={styles.row}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.state}>
-                    {STATE_LABEL[String(event.state)] ?? String(event.state ?? '–')}
-                  </Text>
-                  <Text style={styles.detail}>{sourceLabel(event.source)}</Text>
-                </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={styles.time}>{epochTime(event.at)}</Text>
-                  <Text style={styles.detail}>{epochAgo(event.at)}</Text>
-                </View>
+            {verlaufAbschnitte(events ?? []).map((abschnitt) => (
+              <View key={abschnitt.titel}>
+                <Text style={styles.tag}>{abschnitt.titel}</Text>
+                {abschnitt.zeilen.map((zeile, index) => (
+                  <View key={`${abschnitt.titel}-${index}`} style={styles.row}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.state}>{zustandName(zeile.state)}</Text>
+                      <Text style={styles.detail}>
+                        {zeilenText(zeile, sourceLabel(zeile.source))}
+                      </Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={styles.time}>{uhrzeit(zeile.at)}</Text>
+                      <Text style={styles.detail}>{epochAgo(zeile.at)}</Text>
+                    </View>
+                  </View>
+                ))}
               </View>
             ))}
           </ScrollView>
@@ -157,6 +163,15 @@ const makeStyles = (colors: Colors) =>
       gap: 10,
     },
     head: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    // Der Tagestitel trennt, ohne selbst gelesen werden zu wollen.
+    tag: {
+      color: colors.inkFaint,
+      fontSize: 11,
+      fontWeight: '700',
+      textTransform: 'uppercase',
+      marginTop: 10,
+      marginBottom: 2,
+    },
     title: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
     row: {
       flexDirection: 'row',

@@ -1,5 +1,10 @@
 import { Entity, Scene } from '../api/types';
-import { ortsSatz } from './ortsausloeser';
+import {
+  SAMMEL_ANWESENHEIT,
+  anwesenheitSatz,
+  istOrtsmelder,
+  ortsSatz,
+} from './ortsausloeser';
 
 /**
  * Der Ablauf als Satz – während man ihn baut.
@@ -29,13 +34,18 @@ interface Benannt {
   match: 'all' | 'any';
 }
 
-function name(entities: Entity[], id: string | undefined): string {
+/** Der Anzeigename einer Entität – oder ihre Kennung, wenn sie fehlt.
+ *
+ *  Auch für die Listenzeile (screens/automations/entwurf.ts): Dort stand
+ *  bis dahin die nackte Kennung, und «geofence.anyone_home → off» ist
+ *  keine Auskunft, sondern eine Aufgabe. */
+export function nameVon(entities: Entity[], id: string | undefined): string {
   if (!id) return '?';
   return entities.find((entity) => entity.id === id)?.name ?? id;
 }
 
 function triggerSatz(trigger: Roh, entities: Entity[]): string {
-  const wer = name(entities, trigger.entity_id);
+  const wer = nameVon(entities, trigger.entity_id);
   const dauer = trigger.for ? ` seit ${Math.round(Number(trigger.for) / 60)} Min` : '';
   switch (trigger.type) {
     case 'time':
@@ -53,8 +63,14 @@ function triggerSatz(trigger: Roh, entities: Entity[]): string {
     default: {
       // Ortsauslöser lesen sich als Satz, nicht als Zustandswechsel:
       // «Livia verlässt Schule» statt «geofence.livia → ändert sich».
-      if (String(trigger.entity_id ?? '').startsWith('geofence.')) {
+      if (istOrtsmelder(trigger.entity_id)) {
         return `${ortsSatz(wer, trigger)}${dauer}`;
+      }
+      // Die Sammelanwesenheit ist keine Person an einem Ort. Als
+      // Ortsauslöser gelesen stand hier «Jemand zuhause kommt bei Off
+      // an» - der Ablauf tat das Richtige, der Satz sagte Unsinn.
+      if (String(trigger.entity_id ?? '') === SAMMEL_ANWESENHEIT) {
+        return `${anwesenheitSatz(trigger.to)}${dauer}`;
       }
       if (trigger.above !== undefined) return `${wer} über ${trigger.above}${dauer}`;
       if (trigger.below !== undefined) return `${wer} unter ${trigger.below}${dauer}`;
@@ -83,7 +99,7 @@ function bedingungSatz(condition: Roh, entities: Entity[]): string {
     if (condition.before) teile.push(`bis ${condition.before}`);
     return teile.join(' ') || 'immer';
   }
-  const wer = name(entities, condition.entity_id);
+  const wer = nameVon(entities, condition.entity_id);
   if (condition.above !== undefined) return `${wer} über ${condition.above}`;
   if (condition.below !== undefined) return `${wer} unter ${condition.below}`;
   return `${wer} ist ${condition.equals ?? '?'}`;
@@ -121,6 +137,15 @@ const BEFEHL: Record<string, string> = {
   activate: 'aufrufen',
 };
 
+/** Das Wort für einen Befehl – «aus» statt turn_off (rein, testbar).
+ *
+ *  Auch für die Listenzeile: Dort stand «demo.light_livingroom
+ *  turn_off», und das liest niemand als «Licht Wohnzimmer aus». */
+export function befehlWort(command: unknown): string {
+  const name = String(command ?? '');
+  return BEFEHL[name] ?? name;
+}
+
 /** Der eingestellte Wert hinter dem Befehl (rein, testbar). */
 function wertZusatz(action: Roh, entities: Entity[]): string {
   const data = (action.data ?? {}) as Record<string, unknown>;
@@ -142,6 +167,24 @@ function wertZusatz(action: Roh, entities: Entity[]): string {
   return '';
 }
 
+/** Ein Musik-Schritt in wenigen Worten (rein, testbar). */
+export function musikSatz(action: Roh, entities: Entity[]): string {
+  switch (String(action.do ?? '')) {
+    case 'pause_all':
+      return 'überall Pause';
+    case 'night':
+      return action.on === false ? 'Nachtruhe aus' : 'Nachtruhe ein';
+    case 'favorite':
+      return `Favorit «${action.favorite ?? '?'}»`;
+    case 'sleep':
+      return `${nameVon(entities, action.entity_id)} nach ${action.minutes ?? 30} Min aus`;
+    case 'fade':
+      return `${nameVon(entities, action.entity_id)} leise starten`;
+    default:
+      return 'Musik';
+  }
+}
+
 function aktionSatz(
   action: Roh,
   entities: Entity[],
@@ -161,22 +204,46 @@ function aktionSatz(
       return sekunden >= 60 ? `${Math.round(sekunden / 60)} Min warten` : `${sekunden} s warten`;
     }
     case 'wait_until':
-      return `warten bis ${name(entities, action.entity_id)} passt`;
+      return `warten bis ${nameVon(entities, action.entity_id)} passt`;
+    case 'music':
+      return musikSatz(action, entities);
     default: {
       const was = BEFEHL[String(action.command)] ?? action.command;
       // Der Wert gehört dazu: «Lautsprecher Lautstärke» sagt nicht, ob
       // leise oder laut - und genau danach schaut man in der Liste.
       const zusatz = wertZusatz(action, entities);
-      return `${name(entities, action.entity_id)} ${was}${zusatz}`;
+      return `${nameVon(entities, action.entity_id)} ${was}${zusatz}`;
     }
   }
 }
 
-/** Der ganze Satz (rein, testbar). Leerer Entwurf → leerer Satz. */
+/** Wie viele Aktionen im kurzen Satz stehen, bevor gezählt wird.
+ *
+ *  Ein Ablauf «alle weg» schaltet gern sechzig Geräte. Sie einzeln
+ *  aufzuzählen füllt den halben Bildschirm und beantwortet die Frage
+ *  trotzdem nicht: Was der Ablauf *tut*, sieht man an den ersten
+ *  dreien - dass es viele sind, an der Zahl dahinter. */
+export const KURZ_AKTIONEN = 3;
+
+/** Aus vielen Satzteilen einer machen (rein, testbar).
+ *
+ *  Getrennt von `ablaufSatz`, weil es die Entscheidung ist und nicht
+ *  die Darstellung: Ab wann wird gezählt statt aufgezählt. */
+export function kuerze(teile: string[], hoechstens = KURZ_AKTIONEN): string {
+  if (teile.length <= hoechstens) return teile.join(', ');
+  const weitere = teile.length - hoechstens;
+  return `${teile.slice(0, hoechstens).join(', ')} und ${weitere} weitere`;
+}
+
+/** Der ganze Satz (rein, testbar). Leerer Entwurf → leerer Satz.
+ *
+ *  `alle` nennt jede Aktion einzeln - für den Blick, der genau das
+ *  wissen will. Ohne die Angabe steht die kurze Fassung. */
 export function ablaufSatz(
   benannt: Benannt,
   entities: Entity[],
-  scenes: Scene[]
+  scenes: Scene[],
+  alle = false
 ): string {
   const wenn = benannt.triggers
     .map((trigger) => triggerSatz(trigger, entities))
@@ -186,7 +253,9 @@ export function ablaufSatz(
     .filter(Boolean);
   if (wenn.length === 0 || dann.length === 0) return '';
 
-  let satz = `Wenn ${wenn.join(' oder ')}, dann ${dann.join(', ')}`;
+  let satz = `Wenn ${wenn.join(' oder ')}, dann ${
+    alle ? dann.join(', ') : kuerze(dann)
+  }`;
   const nur = benannt.conditions.map((c) => bedingungSatz(c, entities)).filter(Boolean);
   if (nur.length > 0) {
     satz += ` – nur wenn ${nur.join(benannt.match === 'any' ? ' oder ' : ' und ')}`;

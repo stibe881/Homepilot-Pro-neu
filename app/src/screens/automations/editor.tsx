@@ -5,17 +5,19 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Pressable, Text, TextInput, View } from 'react-native';
 
 import { Entity, Scene } from '../../api/types';
 import { Colors, useColors } from '../../theme';
 import { ablaufSatz } from '../../lib/ablaufsatz';
 import { datumUhr } from '../../lib/format';
-import { ZUHAUSE, ortsauswahl } from '../../lib/ortsausloeser';
-import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, KAMERA_AUSLOESER, PLATZHALTER, hatWartezeit, measurableAttributes, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, unbekannterZustand, weekdayLabel, zeitfensterHinweis } from './entwurf';
+import { ZUHAUSE, istOrtsmelder, ortsauswahl } from '../../lib/ortsausloeser';
+import { Compare, ConditionKind, Draft, DryRun, EMPTY_STEP, StepDraft, StepKind, TriggerDraft, TriggerKind, WEEKDAY_LABELS, buildConditions, conditionOptions, delayLabel, fittingState, fittingTrigger, KAMERA_AUSLOESER, PLATZHALTER, hatWartezeit, measurableAttributes, melderMitLux, newTrigger, normalisiereZeit, optionKey, stateOptions, stepsToActions, triggerToConfig, unbekannterZustand, namensVorschlag, angabenStand, bedingungStand, sonstStand, wasFehlt, weekdayLabel, zeitfensterHinweis } from './entwurf';
 import {
   CategoryField,
   Choice,
+  EditorRahmen,
+  Klappe,
   EntityPicker,
   Field,
   MinutenWahl,
@@ -23,6 +25,8 @@ import {
   Picker,
 } from './felder';
 import { makeStyles } from './stil';
+import { mitschalter, mitschalterSatz } from '../../lib/verweise';
+import { NachrichtenZiel } from './nachrichtenziel';
 import { SceneDevices } from './szenen-editor';
 
 export function Editor({
@@ -30,8 +34,10 @@ export function Editor({
   entities,
   orte,
   scenes,
+  andereAblaeufe = [],
   categories,
   hueScenes,
+  favoriten,
   empfaenger,
   onProbeStep,
   onChange,
@@ -49,10 +55,14 @@ export function Editor({
    *  Ohne sie kennt der Ortsauslöser nur «Zuhause». */
   orte?: { id: string; name?: string }[];
   scenes: Scene[];
+  /** Die übrigen Abläufe – für den Hinweis «das schaltet auch …».
+   *  Leer ist erlaubt: Dann steht der Hinweis eben nicht. */
+  andereAblaeufe?: { id: string; alias: string }[];
   /** Schon vergebene Kategorien – als Vorschläge im Feld. */
   categories: string[];
   /** Szenen der Hue-Bridge; leer, wenn keine Bridge verbunden ist. */
   hueScenes: string[];
+  favoriten: string[];
   /** Mögliche Nachricht-Empfänger (Punkt 158); leer = keine Auswahl. */
   empfaenger?: string[];
   /** Einen einzelnen Schritt sofort ausführen (Punkt 164). */
@@ -72,6 +82,8 @@ export function Editor({
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [tested, setTested] = useState(false);
+  // Der Satz oben: kurz, mit «Alle zeigen» - siehe lib/ablaufsatz.ts.
+  const [satzGanz, setSatzGanz] = useState(false);
   const [preview, setPreview] = useState<DryRun | null>(null);
   if (!draft) return null;
 
@@ -99,24 +111,29 @@ export function Editor({
   // Attrappe.
   const luxSensors = melderMitLux(draft, entities);
 
-  return (
-    <Modal visible animationType="slide" onRequestClose={onCancel}>
-      <ScrollView style={styles.editor} contentContainerStyle={styles.editorContent}>
-        <View style={styles.cardHead}>
-          <Text style={styles.editorTitle}>
-            {draft.templateId
-              ? draft.templateId === 'neu'
-                ? 'Neue Vorlage'
-                : 'Vorlage bearbeiten'
-              : draft.id
-                ? 'Ablauf bearbeiten'
-                : 'Neuer Ablauf'}
-          </Text>
-          <Pressable onPress={onCancel} accessibilityLabel="Abbrechen">
-            <Ionicons name="close" size={26} color={colors.ink} />
-          </Pressable>
-        </View>
+  // Was am Entwurf noch fehlt - dieselbe Liste speist den Hinweis oben
+  // und den Zustand der Speichern-Knöpfe. Eine Vorlage darf lückenhaft
+  // bleiben: Sie schaltet nichts, sie steht bereit, und gerade das
+  // Offengelassene füllt man beim Anlegen aus ihr aus.
+  const fehlt = draft.templateId ? [] : wasFehlt(draft);
+  const speicherbar = fehlt.length === 0;
+  const vorschlag = namensVorschlag(draft, entities);
 
+  const titel = draft.templateId
+    ? draft.templateId === 'neu'
+      ? 'Neue Vorlage'
+      : 'Vorlage bearbeiten'
+    : draft.id
+      ? 'Ablauf bearbeiten'
+      : 'Neuer Ablauf';
+
+  return (
+    <EditorRahmen
+      titel={titel}
+      onCancel={onCancel}
+      onSave={onSave}
+      saveGesperrt={!speicherbar}
+    >
         <Text style={styles.snapshotHint}>
           {draft.templateId
             ? // Eine Vorlage schaltet nichts - sie steht bereit. Das
@@ -130,42 +147,91 @@ export function Editor({
             Wer «und» meinte und «oder» gebaut hat, liest es sofort, statt
             es erst am Abend im dunklen Flur zu merken. */}
         {(() => {
-          const satz = ablaufSatz(
-            {
-              triggers: draft.triggers.map(triggerToConfig),
-              conditions: buildConditions(draft),
-              actions: stepsToActions(draft.steps),
-              otherwise: stepsToActions(draft.elseSteps),
-              match: draft.match,
-            },
-            entities,
-            scenes
-          );
+          const roh = {
+            triggers: draft.triggers.map(triggerToConfig),
+            conditions: buildConditions(draft),
+            actions: stepsToActions(draft.steps),
+            otherwise: stepsToActions(draft.elseSteps),
+            match: draft.match,
+          };
+          const satz = ablaufSatz(roh, entities, scenes, satzGanz);
+          // Ein «alle weg» schaltet sechzig Geräte - einzeln aufgezählt
+          // füllt das den halben Bildschirm. Kurz genügt zum Lesen; wer
+          // die ganze Liste sehen will, tippt drauf.
+          const lang = ablaufSatz(roh, entities, scenes, true);
+          const gekuerzt = lang !== ablaufSatz(roh, entities, scenes, false);
+          // Fehlt noch etwas, steht das *statt* des Satzes da. Vorher
+          // verschwand die Box einfach, solange der Entwurf unvollständig
+          // war - also genau dann, wenn eine Auskunft am meisten wert
+          // gewesen wäre.
+          if (fehlt.length > 0) {
+            return (
+              <View style={[styles.satzBox, { borderColor: colors.warn }]}>
+                <Ionicons name="alert-circle-outline" size={15} color={colors.warn} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.satzText, { color: colors.warn }]}>
+                    Es fehlt noch:
+                  </Text>
+                  {fehlt.map((was, index) => (
+                    <Text key={index} style={styles.fehltZeile}>
+                      • {was}
+                    </Text>
+                  ))}
+                </View>
+              </View>
+            );
+          }
           return satz ? (
-            <View style={styles.satzBox}>
+            <Pressable
+              onPress={gekuerzt ? () => setSatzGanz((an) => !an) : undefined}
+              accessibilityRole={gekuerzt ? 'button' : undefined}
+              accessibilityLabel={
+                gekuerzt
+                  ? satzGanz
+                    ? 'Kurzfassung zeigen'
+                    : 'Alle Geräte zeigen'
+                  : undefined
+              }
+              style={styles.satzBox}
+            >
               <Ionicons name="chatbox-ellipses-outline" size={15} color={colors.accent} />
-              <Text style={styles.satzText}>{satz}</Text>
-            </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.satzText}>{satz}</Text>
+                {gekuerzt ? (
+                  <Text style={styles.satzMehr}>
+                    {satzGanz ? 'Weniger zeigen' : 'Alle zeigen'}
+                  </Text>
+                ) : null}
+              </View>
+            </Pressable>
           ) : null;
         })()}
 
         <Field label="Name">
+          {/* Der Platzhalter ist der Vorschlag, den auch das Speichern
+              nimmt: Wer nichts eintippt, sieht vorher, wie der Ablauf
+              in der Liste heissen wird - statt hinterher «Ohne Namen»,
+              zweimal untereinander. */}
           <TextInput
             style={styles.input}
             value={draft.alias}
             onChangeText={(alias) => set({ alias })}
-            placeholder="z.B. Licht bei Bewegung"
+            placeholder={vorschlag || 'z.B. Licht bei Bewegung'}
             placeholderTextColor={colors.inkFaint}
           />
         </Field>
 
-        <CategoryField
-          value={draft.category}
-          known={categories}
-          onChange={(category) => set({ category })}
-        />
-
-        <Field label="Aktiv">
+        {/* Beides ist Beiwerk: Ein neuer Ablauf läuft, und eine
+            Kategorie vergibt man, wenn die Liste lang geworden ist -
+            nicht beim Anlegen. Zusammen in einer Klappe, die sich von
+            selbst öffnet, sobald etwas drinsteht. */}
+        <Klappe label="Kategorie und Zustand" stand={angabenStand(draft)}>
+          <CategoryField
+            value={draft.category}
+            known={categories}
+            onChange={(category) => set({ category })}
+          />
+          <Text style={styles.label}>Aktiv</Text>
           <Choice
             options={[
               { key: 'on', label: 'läuft' },
@@ -180,7 +246,7 @@ export function Editor({
               löschen, wenn man ihn im Winter wieder braucht.
             </Text>
           ) : null}
-        </Field>
+        </Klappe>
 
         <Field label={draft.triggers.length > 1 ? 'Wenn eines passiert' : 'Wenn … passiert'}>
           {draft.triggers.map((trigger, index) => (
@@ -205,7 +271,11 @@ export function Editor({
           </Pressable>
         </Field>
 
-        <Field label="Nur wenn (Bedingung)">
+        {/* Die grösste Klappe: Zustandsbedingungen, Und/Oder-Gruppen,
+            Wochentage, Feiertage. Für «wenn der Melder anschlägt, mach
+            das Licht an» braucht man nichts davon - offen sind es zwei
+            Bildschirme, an denen man vorbeiscrollt. */}
+        <Klappe label="Nur wenn (Bedingung)" stand={bedingungStand(draft)}>
           <Choice
             options={[
               { key: 'none', label: 'immer' },
@@ -636,14 +706,17 @@ export function Editor({
             können gar nicht gleichzeitig eintreten. Ein «und» gehört hierher:
             «wenn der Taster gedrückt wird – aber nur, wenn es dunkel ist».
           </Text>
-        </Field>
+        </Klappe>
 
         <Field label="… dann das tun">
           <StepList
             steps={draft.steps}
             entities={entities}
             scenes={scenes}
+            andereAblaeufe={andereAblaeufe}
+            eigeneId={draft.id}
             hueScenes={hueScenes}
+            favoriten={favoriten}
             empfaenger={empfaenger}
             luxSensors={luxSensors}
             onProbeStep={onProbeStep}
@@ -690,7 +763,7 @@ export function Editor({
           ) : null}
         </Field>
 
-        <Field label="… sonst">
+        <Klappe label="… sonst" stand={sonstStand(draft)}>
           {draft.elseSteps.length === 0 ? (
             <>
               <Pressable
@@ -713,7 +786,10 @@ export function Editor({
               steps={draft.elseSteps}
               entities={entities}
               scenes={scenes}
+              andereAblaeufe={andereAblaeufe}
+              eigeneId={draft.id}
               hueScenes={hueScenes}
+              favoriten={favoriten}
               empfaenger={empfaenger}
               luxSensors={luxSensors}
               onProbeStep={onProbeStep}
@@ -722,9 +798,19 @@ export function Editor({
               onChange={(elseSteps) => set({ elseSteps })}
             />
           )}
-        </Field>
+        </Klappe>
 
-        <Pressable style={styles.save} onPress={onSave} accessibilityRole="button">
+        {/* Grau, solange der Ablauf nichts täte. Nicht als Schikane:
+            Oben steht als Liste, was fehlt, und die Knöpfe zeigen
+            dasselbe noch einmal - man soll gar nicht erst dagegen
+            tippen und sich fragen, warum nichts passiert. */}
+        <Pressable
+          style={[styles.save, !speicherbar && { opacity: 0.45 }]}
+          onPress={onSave}
+          disabled={!speicherbar}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: !speicherbar }}
+        >
           <Text style={styles.saveText}>
             {draft.templateId ? 'Vorlage sichern' : 'Speichern'}
           </Text>
@@ -793,8 +879,7 @@ export function Editor({
             <Text style={styles.deleteText}>Ablauf löschen</Text>
           </Pressable>
         ) : null}
-      </ScrollView>
-    </Modal>
+    </EditorRahmen>
   );
 }
 
@@ -918,7 +1003,7 @@ export function TriggerRow({
           { key: 'availability', label: 'Meldet sich nicht' },
           // Nur anbieten, wenn es auch Zonen gibt – ein leerer Auslöser
           // wäre ein Versprechen, das der Hub nicht halten kann.
-          ...(entities.some((entity) => entity.id.startsWith('geofence.'))
+          ...(entities.some((entity) => istOrtsmelder(entity.id))
             ? [{ key: 'geofence', label: 'Ort' }]
             : []),
           // Dito für den Kalender (Punkt 153): ohne angebundenen Kalender
@@ -1071,7 +1156,11 @@ export function TriggerRow({
       ) : trigger.kind === 'geofence' ? (
         <>
           <EntityPicker
-            entities={entities.filter((entity) => entity.id.startsWith('geofence.'))}
+            // Ohne die Sammelanwesenheit: Sie ist keine Person und war
+            // nie an einem Ort. «Jemand zuhause kommt bei Off an» war der
+            // Satz, der dabei herauskam. Sie steht unter «Gerät wechselt»
+            // mit «jemand/niemand ist zuhause» – dort gehört sie hin.
+            entities={entities.filter((entity) => istOrtsmelder(entity.id))}
             value={trigger.entityId}
             onSelect={(entityId) => onChange({ entityId })}
           />
@@ -1307,7 +1396,10 @@ export function StepList({
   steps,
   entities,
   scenes,
+  andereAblaeufe = [],
+  eigeneId,
   hueScenes,
+  favoriten,
   empfaenger = [],
   luxSensors = [],
   onProbeStep,
@@ -1318,7 +1410,12 @@ export function StepList({
   steps: StepDraft[];
   entities: Entity[];
   scenes: Scene[];
+  /** Die übrigen Abläufe – für den Hinweis «das schaltet auch …». */
+  andereAblaeufe?: { id: string; alias: string }[];
+  /** Der eigene Ablauf: Ohne ihn meldete er sich selbst als Mitschalter. */
+  eigeneId?: string;
   hueScenes: string[];
+  favoriten: string[];
   /** Die Melder dieses Ablaufs, die Helligkeit messen – daraus wird die
    *  Wahl «an Helligkeit angepasst» bei den Lampen. Leer heisst: kein
    *  Auslöser misst Lux, und die Wahl bleibt weg. */
@@ -1444,6 +1541,11 @@ export function StepList({
               ...(entities.some((entity) => entity.commands.includes('set_brightness'))
                 ? [{ key: 'fade', label: 'Dimmen' }]
                 : []),
+              // Musik-Schritte: Favorit, Schlummer, überall Pause,
+              // Nachtruhe. Nur, wo es überhaupt eine Box gibt.
+              ...(entities.some((entity) => entity.kind === 'media_player')
+                ? [{ key: 'music', label: 'Musik' }]
+                : []),
               { key: 'delay', label: 'Warten' },
               { key: 'wait_until', label: 'Warten bis' },
             ]}
@@ -1452,14 +1554,29 @@ export function StepList({
           />
 
           {step.kind === 'command' ? (
-            <SceneDevices
-              entities={entities}
-              actions={step.commandActions}
-              onActions={(commandActions) => setStep(index, { commandActions })}
-              showSnapshot={false}
-              allowToggle
-              luxSensors={luxSensors}
-            />
+            <>
+              <SceneDevices
+                entities={entities}
+                actions={step.commandActions}
+                onActions={(commandActions) => setStep(index, { commandActions })}
+                showSnapshot={false}
+                allowToggle
+                luxSensors={luxSensors}
+              />
+              {/* Der Hub meldet Widersprüche erst hinterher, als Liste
+                  unter «Abläufe». Da steht der neue Ablauf längst und
+                  schaltet nachts gegen einen anderen an. Hier steht der
+                  Hinweis, während man ihn baut - und zwar der milde. */}
+              {(() => {
+                const namen = mitschalter(
+                  step.commandActions.map((aktion) => aktion.entity_id),
+                  andereAblaeufe,
+                  eigeneId
+                ).map((ablauf) => ablauf.alias);
+                const satz = mitschalterSatz(namen);
+                return satz ? <Text style={styles.triggerNote}>{satz}</Text> : null;
+              })()}
+            </>
           ) : step.kind === 'toggle_all' ? (
             <>
               <SceneDevices
@@ -1576,6 +1693,16 @@ export function StepList({
                   onSelect={(notifyCamera) => setStep(index, { notifyCamera })}
                 />
               ) : null}
+              <NachrichtenZiel
+                ziel={step.notifyZiel}
+                onZiel={(notifyZiel) => setStep(index, { notifyZiel })}
+                knoepfe={step.notifyKnoepfe ?? []}
+                onKnoepfe={(notifyKnoepfe) => setStep(index, { notifyKnoepfe })}
+                entities={entities}
+                scenes={scenes}
+                colors={colors}
+                styles={styles}
+              />
               <Text style={styles.triggerNote}>
                 {step.notifyCamera === KAMERA_AUSLOESER
                   ? 'Das Bild kommt von der Kamera, die ausgelöst hat – ist der Auslöser keine Kamera, von einer im selben Raum. Findet sich keine, geht die Nachricht ohne Bild raus.'
@@ -1654,6 +1781,108 @@ export function StepList({
                   ? 'Aufwachlicht: Die Lampe geht dunkel an und wird gleichmässig heller - eine halbe Stunde vor dem Wecker gestartet, weckt sie sanfter als jeder Ton.'
                   : 'Ausglimmen statt knipsen: Das Licht wird über die gewählte Zeit dunkler und geht am Ende aus - fürs Kinderzimmer am Abend.'}
               </Text>
+            </>
+          ) : step.kind === 'music' ? (
+            <>
+              <Choice
+                options={[
+                  { key: 'pause_all', label: 'Überall Pause' },
+                  { key: 'favorite', label: 'Favorit spielen' },
+                  { key: 'sleep', label: 'Schlummer' },
+                  { key: 'fade', label: 'Leise starten' },
+                  { key: 'night', label: 'Nachtruhe' },
+                ]}
+                value={step.musikTat}
+                onSelect={(musikTat) =>
+                  setStep(index, { musikTat: musikTat as StepDraft['musikTat'] })
+                }
+              />
+              {step.musikTat === 'favorite' ? (
+                <>
+                  <Picker
+                    items={favoriten.map((name) => ({ key: name, label: name }))}
+                    placeholder="Favorit suchen …"
+                    value={step.musikFavorit}
+                    onSelect={(musikFavorit) => setStep(index, { musikFavorit })}
+                  />
+                  <Text style={styles.triggerNote}>
+                    Favoriten legst du unter Lautsprecher an – dort steht auch,
+                    auf welcher Box ein Favorit läuft.
+                  </Text>
+                </>
+              ) : step.musikTat === 'night' ? (
+                <>
+                  <Choice
+                    options={[
+                      { key: 'an', label: 'Nachtruhe ein' },
+                      { key: 'aus', label: 'Nachtruhe aus' },
+                    ]}
+                    value={step.musikAn ? 'an' : 'aus'}
+                    onSelect={(wert) => setStep(index, { musikAn: wert === 'an' })}
+                  />
+                  <Text style={styles.triggerNote}>
+                    Der Deckel gilt zwischen den Uhrzeiten, die unter
+                    Lautsprecher stehen. Hier wird er nur ein- und
+                    ausgeschaltet.
+                  </Text>
+                </>
+              ) : step.musikTat === 'pause_all' ? (
+                <Text style={styles.triggerNote}>
+                  Pause auf jeder Box, auf der etwas läuft – nicht «aus». Eine
+                  Box, die pausiert, weiss noch, wo sie war.
+                </Text>
+              ) : (
+                <>
+                  <EntityPicker
+                    entities={entities.filter(
+                      (entity) =>
+                        entity.kind === 'media_player' &&
+                        entity.commands.includes('set_volume')
+                    )}
+                    value={step.musikEntityId}
+                    placeholder="Box suchen …"
+                    onSelect={(musikEntityId) => setStep(index, { musikEntityId })}
+                  />
+                  {step.musikTat === 'sleep' ? (
+                    <>
+                      <Choice
+                        options={[
+                          { key: '15', label: 'nach 15 Min' },
+                          { key: '30', label: 'nach 30 Min' },
+                          { key: '60', label: 'nach 60 Min' },
+                          { key: '90', label: 'nach 90 Min' },
+                        ]}
+                        value={step.musikMinuten}
+                        onSelect={(musikMinuten) => setStep(index, { musikMinuten })}
+                      />
+                      <Text style={styles.triggerNote}>
+                        Die letzten dreissig Sekunden blendet der Hub aus – Musik,
+                        die mitten im Takt abbricht, weckt eher, als dass sie
+                        einschlafen lässt.
+                      </Text>
+                    </>
+                  ) : (
+                    <>
+                      <Choice
+                        options={[
+                          { key: '20', label: 'bis 20 %' },
+                          { key: '30', label: 'bis 30 %' },
+                          { key: '45', label: 'bis 45 %' },
+                          { key: '60', label: 'bis 60 %' },
+                        ]}
+                        value={step.musikLautstaerke}
+                        onSelect={(musikLautstaerke) =>
+                          setStep(index, { musikLautstaerke })
+                        }
+                      />
+                      <Text style={styles.triggerNote}>
+                        Erst starten, dann von Null hochziehen – eine Box, die
+                        um sieben Uhr mit 60 % losbrüllt, weckt falsch.
+                      </Text>
+                    </>
+                  )}
+                </>
+              )}
             </>
           ) : step.kind === 'delay' ? (
             <>

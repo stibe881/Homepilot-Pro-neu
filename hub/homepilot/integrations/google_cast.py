@@ -76,6 +76,43 @@ def cast_object_id(host: str, port: int = DEFAULT_PORT) -> str:
 BILDSCHIRM_MODELLE: frozenset[str] = frozenset()
 
 
+#: Der Standardempfänger von Google – der, den `play_media` selbst
+#: startet. Läuft er schon, gibt es nichts zu räumen.
+STANDARD_EMPFAENGER = "CC1AD845"
+#: Was auf einer Box läuft, die nichts tut: der Bildschirmschoner.
+LEERLAUF_APPS = frozenset({"E8C28D3C", "84912283"})
+
+
+def fremde_app(app_id: str | None) -> bool:
+    """Hält gerade eine andere App die Box besetzt? (rein, testbar)
+
+    «Andere» heisst: weder nichts noch der Standardempfänger, über den
+    der Hub selbst abspielt, noch der Bildschirmschoner. Genau dann - und
+    nur dann - lohnt es, vor dem Abspielen aufzuräumen: Ein `quit_app`
+    auf eine leere Box kostet eine Sekunde für nichts.
+    """
+    kennung = (app_id or "").strip().upper()
+    if not kennung:
+        return False
+    return kennung != STANDARD_EMPFAENGER and kennung not in LEERLAUF_APPS
+
+
+def ist_gruppe(cast_type: str | None, port: int = DEFAULT_PORT) -> bool:
+    """Ist das eine Lautsprechergruppe? (rein, testbar)
+
+    Zwei Wege, weil beide Auskünfte unvollständig sind. Das Gerät selbst
+    meldet «group», sobald es verbunden ist – vorher weiss man es nicht.
+    Der Port genügt aber schon davor: Eine Gruppe läuft auf der Adresse
+    einer ihrer Boxen und ist nur über ihren **eigenen** Port zu
+    erreichen. Genau darum ist die Portangabe in der config.yaml keine
+    Kleinigkeit – steht dort 8009, spricht der Hub die Einzelbox an, die
+    die Gruppe beherbergt, und es spielt genau eine statt aller.
+    """
+    if (cast_type or "").strip().lower() == "group":
+        return True
+    return int(port or DEFAULT_PORT) != DEFAULT_PORT
+
+
 def ist_bildschirm(cast_type: str | None, model_name: str | None = None) -> bool:
     """Hängt an diesem Cast-Gerät ein Bild? (rein, testbar)
 
@@ -97,6 +134,122 @@ def ist_bildschirm(cast_type: str | None, model_name: str | None = None) -> bool
     return (cast_type or "").strip().lower() == "cast"
 
 
+#: Cast meldet den Wiederholmodus als Wort. Die App kennt drei Werte -
+#: dieselben, die Spotify liefert, damit sich eine Kachel unabhängig von
+#: der Quelle gleich verhält.
+REPEAT_NAMEN = {
+    "REPEAT_OFF": "off",
+    "REPEAT_ALL": "all",
+    "REPEAT_SINGLE": "one",
+    "REPEAT_ALL_AND_SHUFFLE": "all",
+    "OFF": "off",
+    "ALL": "all",
+    "ONE": "one",
+    "SINGLE": "one",
+    "TRACK": "one",
+}
+
+
+def repeat_name(wert: Any) -> str | None:
+    """Wiederholmodus von Cast auf off/all/one bringen (rein, testbar)."""
+    if wert is None:
+        return None
+    if isinstance(wert, bool):
+        return "all" if wert else "off"
+    name = str(wert).strip().upper()
+    if not name:
+        return None
+    return REPEAT_NAMEN.get(name)
+
+
+#: Rückweg: unsere drei Namen auf die Wörter, die Cast versteht.
+REPEAT_BEFEHLE = {
+    "off": "REPEAT_OFF",
+    "all": "REPEAT_ALL",
+    "one": "REPEAT_SINGLE",
+}
+
+
+def queue_update_nachricht(
+    session_id: Any,
+    shuffle: bool | None = None,
+    repeat: str | None = None,
+) -> dict[str, Any]:
+    """Baut die QUEUE_UPDATE-Nachricht für Zufall/Wiederholung (rein, testbar).
+
+    pychromecast hat für beides keinen fertigen Aufruf; das Protokoll
+    selbst kennt es aber seit je. Die Nachricht wird deshalb hier gebaut
+    und über den ganz normalen Kanal des Media-Controllers geschickt.
+    """
+    nachricht: dict[str, Any] = {"type": "QUEUE_UPDATE"}
+    if session_id is not None:
+        nachricht["mediaSessionId"] = session_id
+    if shuffle is not None:
+        nachricht["shuffle"] = bool(shuffle)
+    if repeat is not None:
+        wort = REPEAT_BEFEHLE.get(str(repeat).strip().lower())
+        if wort is None:
+            raise ConfigError(
+                "Wiederholung kennt nur 'off', 'all' oder 'one' - "
+                f"'{repeat}' ist keines davon"
+            )
+        nachricht["repeatMode"] = wort
+    return nachricht
+
+
+def _sekunden(wert: Any) -> float | None:
+    """Eine Zeitangabe in Sekunden - oder None, wenn nichts Brauchbares kam.
+
+    Cast liefert die Laufzeit mal als Zahl, mal gar nicht (Radio hat kein
+    Ende) und bei manchen Apps als leeren String. Alles, was sich nicht
+    in eine nicht-negative Zahl übersetzen lässt, gilt als «unbekannt» -
+    ein Fortschrittsbalken mit Länge 0 wäre schlechter als keiner.
+    """
+    if wert is None or isinstance(wert, bool):
+        return None
+    try:
+        zahl = float(wert)
+    except (TypeError, ValueError):
+        return None
+    if zahl != zahl or zahl in (float("inf"), float("-inf")) or zahl < 0:
+        return None
+    return round(zahl, 1)
+
+
+#: Cast-Zustände, die der Hub unverändert übernimmt.
+CAST_ZUSTAENDE = {
+    "PLAYING": "playing",
+    "BUFFERING": "buffering",
+    "PAUSED": "paused",
+    "IDLE": "idle",
+    "UNKNOWN": "idle",
+}
+
+#: Der Bildschirmschoner. Läuft er, ist das Gerät wach, aber leer.
+BACKDROP = "Backdrop"
+
+
+def cast_state_name(player_state: str | None, app: str | None = None) -> str:
+    """Ehrlicher Zustand statt pauschalem «idle» (rein, testbar).
+
+    Vorher hiess alles ausser «playing» schlicht idle. Damit sah eine
+    pausierte Box aus wie eine leere, und die Karte «Was läuft im Haus»
+    hätte beides gleich behandelt. Drei Fälle sind zu unterscheiden:
+    Es läuft etwas, es ist etwas pausiert, oder es liegt nichts an -
+    und lädt gerade, was einen eigenen Namen verdient, damit die App
+    nicht «pausiert» zeigt, während das Netz noch puffert.
+
+    ``standby`` ist der Sonderfall Fernseher: Das Gerät antwortet, aber
+    es läuft nur der Bildschirmschoner. Das ist etwas anderes als eine
+    Box, die auf den nächsten Titel wartet.
+    """
+    name = (player_state or "").strip().upper()
+    zustand = CAST_ZUSTAENDE.get(name, "idle")
+    if zustand == "idle" and (app or "").strip() in ("", BACKDROP):
+        return "standby"
+    return zustand
+
+
 def cast_media_state(
     player_state: str | None,
     title: str | None,
@@ -106,6 +259,13 @@ def cast_media_state(
     muted: bool | None = None,
     image: str | None = None,
     has_screen: bool | None = None,
+    is_group: bool | None = None,
+    position: Any = None,
+    duration: Any = None,
+    shuffle: Any = None,
+    repeat: Any = None,
+    position_at: float | None = None,
+    can_seek: bool | None = None,
 ) -> dict[str, Any]:
     """Übersetzt Cast-Status in Entitäts-Attribute (rein, testbar).
 
@@ -113,26 +273,49 @@ def cast_media_state(
     Lautsprecher. Es kommt vom Gerät selbst (siehe `ist_bildschirm`) und
     nicht aus seinem Namen: «Wohnzimmer» ist kein Beweis.
     """
-    if player_state == "PLAYING":
-        state = "playing"
-    elif player_state == "PAUSED":
-        state = "paused"
-    else:
-        state = "idle"
     result: dict[str, Any] = {
-        "state": state,
+        "state": cast_state_name(player_state, app),
         "track": title or None,
         "artist": artist or None,
         # Cover des laufenden Titels, sofern die sendende App eines mitgibt.
         "image": image or None,
-        "app": app if app and app != "Backdrop" else None,
+        "app": app if app and app != BACKDROP else None,
     }
+    # Alles Weitere kommt nur dazu, wenn es etwas zu sagen gibt. Ein
+    # Radiostream hat keine Länge, eine Durchsage keinen Zufallsmodus -
+    # und ein Feld mit None wäre in der App nicht von «aus» zu
+    # unterscheiden.
+    #
+    # Wo im Titel wir stehen. Ohne das bleibt «wie lange geht der Podcast
+    # noch?» unbeantwortbar - und Spulen unmöglich.
+    strecke = _sekunden(position)
+    if strecke is not None:
+        result["position"] = strecke
+        # Wann diese Zahl gemessen wurde. Cast meldet sich nur bei
+        # Änderungen; ohne den Zeitstempel stünde der Balken zwischen
+        # zwei Meldungen still, statt weiterzulaufen.
+        if position_at is not None:
+            result["position_at"] = round(float(position_at), 1)
+    laenge = _sekunden(duration)
+    if laenge is not None:
+        result["duration"] = laenge
+    # Zwei Schalter, die es bei Spotify längst gibt und hier nicht:
+    # Dieselbe Kachel verhielt sich je nach Quelle anders.
+    if shuffle is not None:
+        result["shuffle"] = bool(shuffle)
+    wiederholung = repeat_name(repeat)
+    if wiederholung is not None:
+        result["repeat"] = wiederholung
+    if can_seek is not None:
+        result["can_seek"] = bool(can_seek)
     if volume is not None:
         result["volume"] = round(float(volume) * 100)
     if muted is not None:
         result["muted"] = bool(muted)
     if has_screen is not None:
         result["has_screen"] = bool(has_screen)
+    if is_group is not None:
+        result["is_group"] = bool(is_group)
     return result
 
 
@@ -224,12 +407,21 @@ class GoogleCastIntegration(Integration):
         self._loop = asyncio.get_running_loop()
         # entity_id → Chromecast-Objekt der Bibliothek
         self._casts: dict[str, Any] = {}
+        # entity_id → Port. Bei einer Gruppe ist er die halbe Auskunft:
+        # Sie teilt sich die Adresse mit einer ihrer Boxen.
+        self._ports: dict[str, int] = {}
+        # Und die andere Hälfte: die Adresse. Für die Mitgliederabfrage
+        # einer Gruppe braucht es beide.
+        self._hosts: dict[str, str] = {}
 
         for device in devices:
             host = device.get("host")
             if not host:
                 raise ConfigError("google_cast: jedes Gerät braucht einen 'host'")
             port = int(device.get("port", DEFAULT_PORT))
+            self._hosts[
+                f"{self.name}.{cast_object_id(str(host), port)}"
+            ] = str(host)
             entity = await self.add_entity(
                 cast_object_id(str(host), port),
                 EntityKind.MEDIA_PLAYER,
@@ -237,9 +429,18 @@ class GoogleCastIntegration(Integration):
                 state={"state": "idle"},
                 commands=[
                     "play", "pause", "toggle", "next", "previous",
+                    # Wirklich aus: Die Sitzung wird beendet, nicht nur
+                    # angehalten. Eine pausierte Box hält den Empfänger
+                    # besetzt (siehe play_url weiter unten) - «aus» soll
+                    # aber heissen, dass die Box wieder frei dasteht.
+                    "turn_off",
                     "volume_up", "volume_down", "set_volume", "mute",
                     # Eine Ton-Adresse abspielen - Grundlage der Durchsage.
                     "play_url",
+                    # Spulen sowie Zufall und Wiederholung - dieselben
+                    # Befehle wie bei Spotify, damit eine Kachel nicht je
+                    # nach Quelle andere Knöpfe hat.
+                    "seek", "shuffle", "repeat",
                 ],
                 available=False,
             )
@@ -272,8 +473,9 @@ class GoogleCastIntegration(Integration):
                 await asyncio.to_thread(cast.wait, 15)
                 failures = 0
                 self._casts[entity_id] = cast
+                self._ports[entity_id] = port
                 self._attach_listeners(entity_id, cast)
-                await self._push_state(entity_id, cast)
+                await self._push_state(entity_id, cast, port)
                 self.log.info("Mit Cast-Gerät %s verbunden", host)
                 # Verbunden bleiben, solange die Bibliothek den Kontakt hält.
                 while cast.socket_client.is_alive():
@@ -316,12 +518,18 @@ class GoogleCastIntegration(Integration):
 
             def new_cast_status(self, _status: Any) -> None:
                 asyncio.run_coroutine_threadsafe(
-                    integration._push_state(entity_id, cast), integration._loop
+                    integration._push_state(
+                        entity_id, cast, integration._ports.get(entity_id, DEFAULT_PORT)
+                    ),
+                    integration._loop,
                 )
 
             def new_media_status(self, _status: Any) -> None:
                 asyncio.run_coroutine_threadsafe(
-                    integration._push_state(entity_id, cast), integration._loop
+                    integration._push_state(
+                        entity_id, cast, integration._ports.get(entity_id, DEFAULT_PORT)
+                    ),
+                    integration._loop,
                 )
 
             def load_media_failed(self, _item: Any, _error_code: Any) -> None:
@@ -331,7 +539,9 @@ class GoogleCastIntegration(Integration):
         cast.register_status_listener(listener)
         cast.media_controller.register_status_listener(listener)
 
-    async def _push_state(self, entity_id: str, cast: Any) -> None:
+    async def _push_state(
+        self, entity_id: str, cast: Any, port: int = DEFAULT_PORT
+    ) -> None:
         media = getattr(cast.media_controller, "status", None)
         status = getattr(cast, "status", None)
         # pychromecast liefert Cover als Liste von MediaImage(url, …).
@@ -353,6 +563,14 @@ class GoogleCastIntegration(Integration):
                 has_screen=ist_bildschirm(
                     getattr(cast, "cast_type", None), getattr(cast, "model_name", None)
                 ),
+                is_group=ist_gruppe(getattr(cast, "cast_type", None), port),
+                position=getattr(media, "adjusted_current_time", None)
+                or getattr(media, "current_time", None),
+                duration=getattr(media, "duration", None),
+                shuffle=getattr(media, "shuffle", None),
+                repeat=getattr(media, "repeat_mode", None),
+                position_at=time.time(),
+                can_seek=bool(getattr(media, "supports_seek", False)),
             ),
             available=True,
         )
@@ -414,13 +632,58 @@ class GoogleCastIntegration(Integration):
 
         return await asyncio.to_thread(browse)
 
+    def kennung_zu_box(self, uuid: str) -> tuple[str | None, str | None]:
+        """Zu einer Cast-Kennung die Entität und ihren Namen (oder None).
+
+        Google nennt Gruppenmitglieder nur mit ihrer UUID. Wer sie
+        eingetragen hat, kennt sie aber unter einem Namen - und den soll
+        die App zeigen, nicht «a1b2c3d4-…».
+        """
+        gesucht = str(uuid).strip().lower()
+        for entity_id, cast in self._casts.items():
+            if str(getattr(cast, "uuid", "")).strip().lower() != gesucht:
+                continue
+            entity = self.hub.registry.get(entity_id)
+            return entity_id, (entity.label if entity is not None else None)
+        return None, None
+
+    async def gruppen_mitglieder(self, entity_id: str) -> list[dict[str, Any]]:
+        """Die Boxen dieser Gruppe - mit Namen, wo der Hub sie kennt.
+
+        Vorher zeigte die App alle Einzelboxen des Hauses und nannte sie
+        «die Gruppe». Das war geraten; hier steht, was der Chromecast
+        selbst sagt.
+        """
+        host = self._hosts.get(entity_id)
+        if host is None:
+            return []
+        port = self._ports.get(entity_id, DEFAULT_PORT)
+        zeilen: list[dict[str, Any]] = []
+        for kennung in await self._mitglieder_kennungen(host, port):
+            box_id, name = self.kennung_zu_box(kennung)
+            zeilen.append({"uuid": kennung, "entity_id": box_id, "name": name})
+        return zeilen
+
     async def group_members(self, host: str, port: int = DEFAULT_PORT) -> list[str]:
         """Welche Boxen stecken in dieser Gruppe? Leer, wenn keine Gruppe.
 
         Der Port gehört dazu: Eine Gruppe teilt sich die Adresse mit der
         Box, die sie beherbergt, und ist nur über ihren eigenen Port zu
         erreichen.
+
+        Zurück kommen Namen, wo der Hub die Box kennt - eine Liste von
+        UUIDs beantwortet die Frage «welche Boxen?» nicht.
         """
+        namen: list[str] = []
+        for kennung in await self._mitglieder_kennungen(host, port):
+            _, name = self.kennung_zu_box(kennung)
+            namen.append(name or kennung)
+        return namen
+
+    async def _mitglieder_kennungen(
+        self, host: str, port: int = DEFAULT_PORT
+    ) -> list[str]:
+        """Die rohen Cast-Kennungen der Gruppenmitglieder."""
         import pychromecast
         from pychromecast.controllers.multizone import MultizoneController
 
@@ -443,6 +706,61 @@ class GoogleCastIntegration(Integration):
             self.log.debug("Gruppenmitglieder von %s nicht lesbar: %s", host, err)
             return []
 
+    def cast_fuer_namen(self, name: str) -> Any | None:
+        """Das Cast-Objekt zu einem Anzeigenamen – oder None.
+
+        Über den Namen, weil das die einzige Kennung ist, die Spotify und
+        der Hub gemeinsam haben: In der Boxenwahl steht «Küche + Bad»,
+        nicht eine Entitäts-ID.
+        """
+        for entity_id, cast in self._casts.items():
+            entity = self.hub.registry.get(entity_id)
+            if entity is not None and entity.name == name:
+                return cast
+        return None
+
+    def group_names(self) -> list[str]:
+        """Namen der echten Lautsprechergruppen.
+
+        Für die Boxenwahl der App: Ohne diese Auskunft sieht eine Gruppe
+        aus wie eine Box, und wer sich wundert, warum nur eine spielt,
+        hat keinen Anhaltspunkt. Steht «Ganze Wohnung» ohne Marke da,
+        führt der Hub sie als Einzelbox – dann fehlt in der config.yaml
+        der eigene Port der Gruppe.
+        """
+        namen = []
+        for entity_id in self._casts:
+            entity = self.hub.registry.get(entity_id)
+            if entity is not None and entity.state.get("is_group"):
+                namen.append(entity.name)
+        return namen
+
+    async def lautstaerke_setzen(self, name: str, prozent: float) -> bool:
+        """Die Lautstärke über das Cast-Protokoll setzen; False, wenn die
+        Box hier unbekannt ist.
+
+        Warum es diesen Weg braucht: Spotify beantwortet
+        `PUT /me/player/volume` für Google-Boxen und erst recht für
+        Gruppen mit «VOLUME_CONTROL_DISALLOWED». Der Regler in der App
+        bewegte sich, und niemand wurde lauter. Cast kann es – und bei
+        einer Gruppe setzt Google die Mitglieder gleich mit.
+        """
+        cast = self.cast_fuer_namen(name)
+        if cast is None:
+            return False
+        stufe = max(0.0, min(1.0, float(prozent) / 100))
+        await asyncio.to_thread(cast.set_volume, stufe)
+        return True
+
+    def lautstaerke_von(self, name: str) -> int | None:
+        """Wie laut diese Box gerade steht – der Stand des Geräts selbst."""
+        for entity_id in self._casts:
+            entity = self.hub.registry.get(entity_id)
+            if entity is not None and entity.name == name:
+                wert = entity.state.get("volume")
+                return int(wert) if isinstance(wert, (int, float)) else None
+        return None
+
     async def spotify_wake(self, name: str, access_token: str) -> bool:
         """Startet die Spotify-App auf der Box und meldet sie bei Spotify an.
 
@@ -451,12 +769,7 @@ class GoogleCastIntegration(Integration):
         zurück, wenn die Box unbekannt ist oder die Anmeldung scheitert
         (Grund steht im Log).
         """
-        cast = None
-        for entity_id, candidate in self._casts.items():
-            entity = self.hub.registry.get(entity_id)
-            if entity is not None and entity.name == name:
-                cast = candidate
-                break
+        cast = self.cast_fuer_namen(name)
         if cast is None:
             return False
 
@@ -551,7 +864,37 @@ class GoogleCastIntegration(Integration):
                 )
             await asyncio.to_thread(controller.play)
         elif command == "pause":
+            if entity.state.get("state") not in ("playing", "buffering", "paused"):
+                # Auf einer leeren Box gibt es nichts anzuhalten. Das als
+                # Fehler zu melden, hielt einen ganzen Ablauf an: «Niemand
+                # mehr zuhause» stellt der Reihe nach ein Dutzend Boxen
+                # ab, und die erste, auf der ohnehin nichts lief, brachte
+                # den Rest zum Stehen - samt Türschloss am Ende der Liste.
+                #
+                # Dieselbe Überlegung wie bei «play» ein paar Zeilen
+                # weiter oben, nur mit der umgekehrten Antwort: Wer
+                # abspielen will, wo nichts ist, soll das erfahren; wer
+                # ausschalten will, wo nichts ist, hat sein Ziel schon.
+                return
             await asyncio.to_thread(controller.pause)
+        elif command == "turn_off":
+            # Anhalten und die App beenden. Nur anzuhalten wäre kein
+            # «aus»: Die pausierte Sitzung bleibt auf der Box stehen,
+            # hält den Empfänger besetzt und lässt sich vom Telefon aus
+            # jederzeit wieder aufwecken.
+            def aus() -> None:
+                try:
+                    controller.stop()
+                except Exception as err:
+                    self.log.debug("Stopp auf %s: %s", entity.label, err)
+                cast.quit_app()
+
+            await asyncio.to_thread(aus)
+            # Sofort melden, statt auf den nächsten Bericht der Box zu
+            # warten: Wer «aus» drückt, will es an der Kachel sehen.
+            await self.hub.registry.update_state(
+                entity.id, {"state": "idle", "track": None, "artist": None, "image": None}
+            )
         elif command == "next":
             await asyncio.to_thread(controller.queue_next)
         elif command == "previous":
@@ -569,6 +912,35 @@ class GoogleCastIntegration(Integration):
             if muted is None:
                 muted = not bool(entity.state.get("muted"))
             await asyncio.to_thread(cast.set_volume_muted, bool(muted))
+        elif command == "seek":
+            # Spulen. Die App schickt die Zielsekunde; negative Werte
+            # oder ein Sprung hinter das Ende wären für den Empfänger ein
+            # Fehler, deshalb hier begrenzen.
+            ziel = _sekunden(data.get("position"))
+            if ziel is None:
+                raise ConfigError("seek braucht eine 'position' in Sekunden")
+            laenge = _sekunden(entity.state.get("duration"))
+            if laenge:
+                ziel = min(ziel, max(0.0, laenge - 1))
+            await asyncio.to_thread(controller.seek, ziel)
+        elif command in ("shuffle", "repeat"):
+            status = getattr(controller, "status", None)
+            session = getattr(status, "media_session_id", None)
+            if command == "shuffle":
+                wert = data.get("shuffle")
+                if wert is None:
+                    wert = not bool(entity.state.get("shuffle"))
+                nachricht = queue_update_nachricht(session, shuffle=bool(wert))
+            else:
+                wert = data.get("repeat")
+                if wert is None:
+                    # Ohne Angabe im Kreis weiterschalten - so wie der
+                    # Knopf in der App sich anfühlt.
+                    reihe = ["off", "all", "one"]
+                    jetzt = str(entity.state.get("repeat") or "off")
+                    wert = reihe[(reihe.index(jetzt) + 1) % len(reihe)] if jetzt in reihe else "all"
+                nachricht = queue_update_nachricht(session, repeat=str(wert))
+            await asyncio.to_thread(controller.send_message, nachricht, True)
         elif command == "play_url":
             # Eine Ton-Adresse abspielen - die Durchsage («Essen ist
             # fertig») kommt als frisch erzeugte MP3 vom Hub selbst.
@@ -581,6 +953,21 @@ class GoogleCastIntegration(Integration):
             def start() -> None:
                 if volume is not None:
                     cast.set_volume(max(0.0, min(1.0, float(volume) / 100)))
+                # Erst räumen, dann spielen. Der Fall aus dem Wohnzimmer:
+                # Spotify lief, wurde auf Pause gestellt, dann sollte
+                # Radio kommen - und es kam nichts. Eine pausierte
+                # Spotify-Sitzung hält den Empfänger der Box besetzt; ein
+                # `play_media` daneben startet den Standardempfänger, und
+                # welcher von beiden gewinnt, entscheidet die Box. Wer
+                # vorher aufräumt, hat die Frage nicht.
+                if fremde_app(getattr(cast, "app_id", None)):
+                    try:
+                        cast.quit_app()
+                        # Der Box einen Moment lassen, sonst trifft das
+                        # `play_media` auf einen Empfänger im Abbau.
+                        time.sleep(1.0)
+                    except Exception as err:
+                        self.log.debug("App auf %s nicht beendet: %s", entity.label, err)
                 controller.play_media(url, content_type)
                 # Warten, bis der Player übernommen hat - sonst ginge eine
                 # gleich folgende zweite Durchsage verloren.

@@ -16,15 +16,43 @@ für sich still ausfallen – deshalb steht hier, wie man sieht, welche.
 3. **Der Ablauf löst aus** – Auslöser: Gerät «Haustüre», «klingelt» – und
    schickt die Nachricht.
 
-## Das Vollbild in der geöffneten App
+## Der Tipp auf die Nachricht
 
-Ist die App gerade offen, kommt zusätzlich zur Push das Klingel-Vollbild:
+Wer auf die Klingel-Nachricht tippt, bekommt dasselbe Vollbild – auf
+jedem Gerät, auch auf dem Telefon, und auch dann, wenn das Läuten
+inzwischen vorbei ist. Ein Tipp auf die Nachricht ist eine Bitte, keine
+Störung: Man will jetzt sehen, wer da steht, und aufmachen können.
+
+## Das Vollbild am Wandpanel
+
+Auf einem Gerät im **Wandpanel-Modus** (Einstellungen → Konto) kommt
+zusätzlich zur Push das Klingel-Vollbild, sobald die App offen ist:
 Kamerabild gross, darunter die Knöpfe.
 
-- **Beide Türen.** Angeboten wird jede Türe, die sich wirklich öffnen
-  lässt – die Haustüre unten und die Wohnungstüre oben. Zuerst steht die
-  Türe, die zur klingelnden Kamera gehört. Höchstens drei Knöpfe: Ein
-  Vollbild mit sieben ist unter Zeitdruck eine Suchaufgabe.
+Nur dort. Am Panel im Flur steht man davor, sieht, wer läutet, und drückt
+auf – dafür ist es gemacht. Auf dem Telefon in der Hosentasche ist
+dasselbe Vollbild etwas anderes: Es reisst einem die App unter der Hand
+weg, mitten in dem, was man gerade tat, und das auch dann, wenn man gar
+nicht zuhause ist. Wer unterwegs wissen will, dass jemand vor der Türe
+steht, bekommt die Nachricht – die kann man lesen, wenn man mag.
+
+Der Modus gehört zum Gerät, nicht zur Person: Dasselbe Konto am Panel und
+am Telefon, das eine zeigt, das andere nicht.
+
+- **Ganze Wege statt einzelner Türen.** Wer im Treppenhaus wartet, muss
+  durch beide – und man tippte erst unten auf, wartete, tippte oben auf.
+  Bei zwei Türen stehen deshalb drei Knöpfe:
+
+  1. *Haustüre öffnen* – der Besuch kommt ins Treppenhaus und läutet oben
+     nochmal. Der normale Fall beim Paketboten.
+  2. *Beide aufschliessen* – beide Riegel zurück; die Wohnungstüre bleibt
+     zu und muss gedrückt werden.
+  3. *Beide öffnen* – auch die Falle: Der Besuch kann durchlaufen.
+
+  Bei nur einer Türe stehen ihre beiden Handgriffe einzeln da. Und wo ein
+  Weg dasselbe täte wie der darüber – zwei Türen, die beide nur summen
+  können –, fällt er weg: Ein Knopf, der nichts Neues tut, ist unter
+  Zeitdruck eine Falle.
 - **Öffnen heisst öffnen.** Bei einem Nuki wird `unlatch` geschickt, nicht
   `unlock` – letzteres macht bloss den Riegel auf, und der Besuch steht
   weiter im Treppenhaus. Kann eine Türe nur entriegeln, steht das auch auf

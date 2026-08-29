@@ -439,6 +439,39 @@ def trim_history(
     return frisch[:HISTORY_LIMIT]
 
 
+def zone_umziehen(
+    rows: Any, alt: str, neu: str, feld: str = "zone"
+) -> list[dict[str, Any]]:
+    """Alles, was an einer Zone hängt, auf eine andere umschreiben (rein, testbar).
+
+    Der Fall: Jemand benennt sich um. Die Zone heisst nach dem Vornamen,
+    also entsteht eine neue – und die alte behält, was eingestellt war:
+    welche Meldungen rausgehen, der letzte bekannte Aufenthalt, seit wann
+    er gilt. In der Übersicht standen danach zwei Zeilen für denselben
+    Menschen, eine davon für immer auf ihrem alten Stand.
+
+    Trifft beides zusammen (die neue Zone hat schon eigene Einträge),
+    gewinnt der frühere Eintrag in der Liste. Die Listen stehen neueste
+    zuerst, und für den Verlauf zählt ohnehin nur der erste Eintrag je
+    Person – so gewinnt der jüngere Stand, statt vom alten überschrieben
+    zu werden.
+    """
+    ergebnis: list[dict[str, Any]] = []
+    gesehen: set[str] = set()
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        wert = str(row.get(feld) or "")
+        zeile = {**row, feld: neu} if wert == alt else row
+        schluessel = str(zeile.get(feld) or "")
+        if schluessel in (alt, neu):
+            if schluessel in gesehen:
+                continue
+            gesehen.add(schluessel)
+        ergebnis.append(zeile)
+    return ergebnis
+
+
 def since(rows: list[dict[str, Any]], person: str) -> float | None:
     """Seit wann ist diese Person im jetzigen Zustand? (rein, testbar)"""
     for row in rows or []:
@@ -565,18 +598,42 @@ def holiday_question(
     return True
 
 
+def alle_zuhause(zustaende: Any) -> bool:
+    """Sind ausdrücklich *alle* zuhause? (rein, testbar)
+
+    Das Gegenstück zur vorsichtigen Sammelfrage: Dort zählt «unbekannt»
+    als «jemand da», damit das Haus nicht herunterfährt, während jemand
+    darin sitzt. Hier ist es umgekehrt - «alle sind zuhause» ist eine
+    Aussage über jeden Einzelnen, und über jemanden, von dem man nichts
+    weiss, sagt man sie nicht. Wer an einem benannten Ort steht
+    («schule»), ist erst recht nicht zuhause.
+
+    Ohne Personen gibt es kein «alle»: False, denn die Anzeige dafür
+    wäre eine Behauptung ohne Gegenstand.
+    """
+    liste = [str(zustand or UNKNOWN).strip().lower() for zustand in (zustaende or [])]
+    if not liste:
+        return False
+    return all(zustand in (HOME, "on", "true") for zustand in liste)
+
+
 def anyone_home_state(zustaende: Any) -> str:
     """Ist noch jemand zuhause? (rein, testbar)
 
     Aus den Einzelzuständen der Personen wird ein «on»/«off», auf das
-    ein Ablauf hören kann. Die Regel ist bewusst vorsichtig:
+    ein Ablauf hören kann:
 
     * Eine Person auf ``home`` genügt für «on».
-    * ``unknown`` zählt ebenfalls als «on». Ein leerer Akku ist kein
-      «niemand zuhause» - sonst fährt das Haus herunter, während jemand
-      darin sitzt. Lieber einmal zu viel Licht als das.
-    * Erst wenn *alle* ausdrücklich weg sind (``away`` oder an einem
-      anderen Ort), wird es «off».
+    * Alles andere - ``away``, ein benannter Ort («schule») **und auch
+      ``unknown``** - zählt als weg. Das war einmal anders: «unbekannt»
+      hielt die Frage auf «jemand da», und ein einziges stummes Telefon
+      genügte, damit «niemand ist zuhause» nie feuerte - der Saug-Ablauf
+      wartete einen ganzen Tag umsonst. Wer nicht ausdrücklich zuhause
+      ist, ist es eben nicht.
+    * Die eine Ausnahme: Weiss der Hub von **niemandem** etwas (alle
+      unbekannt, etwa direkt nach einem Neustart, bevor das erste
+      Telefon meldet), bleibt es «on». Sonst liefe nach jeder
+      Auslieferung «alles aus», während die Familie am Tisch sitzt.
 
     Ohne Personen gibt es nichts zu entscheiden: dann «on», aus
     demselben Grund.
@@ -586,7 +643,7 @@ def anyone_home_state(zustaende: Any) -> str:
         return "on"
     if any(zustand in (HOME, "on", "true") for zustand in liste):
         return "on"
-    if any(zustand in ("", UNKNOWN) for zustand in liste):
+    if all(zustand in ("", UNKNOWN) for zustand in liste):
         return "on"
     return "off"
 
@@ -820,3 +877,26 @@ def alle_orte(
         bekannt.add(ort["id"])
     zusammen.sort(key=lambda ort: ort["radius"])
     return zusammen
+
+
+def entfernung_zuhause(
+    places: list[dict[str, Any]], lat: float, lon: float
+) -> float | None:
+    """Wie weit dieser Punkt vom Zuhause weg ist, in Metern (rein, testbar).
+
+    Für die Frage, die man beim Kochen stellt: «Wann ist er da?» Eine
+    Zone beantwortet sie nicht – sie kennt nur drinnen und draussen, und
+    zwischen «weg» und «zuhause» liegen zwei Kilometer genauso wie
+    zweihundert.
+
+    `None`, wenn kein Zuhause eingerichtet ist: Ohne Bezugspunkt gibt es
+    keine Entfernung, und eine erfundene wäre schlimmer als keine.
+    """
+    for ort in places or []:
+        if str(ort.get("id")) != HOME:
+            continue
+        try:
+            return abstand_meter(lat, lon, float(ort["latitude"]), float(ort["longitude"]))
+        except (KeyError, TypeError, ValueError):
+            return None
+    return None

@@ -60,6 +60,10 @@ export interface Entity {
   group?: string | null;
   /** Epoch-Sekunden, wann das Gerät zuletzt erreichbar war. */
   last_seen?: number | null;
+  /** Wann sich der Zustand zuletzt wirklich geändert hat (Epoch-Sekunden)
+   *  und wodurch – für «warum ist das an?» ohne eigenen Abruf. */
+  last_change?: number | null;
+  last_source?: { kind?: string | null; label?: string | null } | null;
 }
 
 export interface Scene {
@@ -145,6 +149,11 @@ export interface HubSettings {
   name?: string;
   /** Erscheinungsbild: system, auto (nach Uhrzeit), light oder dark. */
   theme?: 'system' | 'auto' | 'light' | 'dark' | 'pink' | 'mitternacht' | 'sand';
+  /** Welches App-Symbol auf dem Startbildschirm steht. `null` oder
+   *  fehlend: das blaue. Am Gerät gespeichert und nicht an der Person -
+   *  ein App-Symbol ist eine Eigenschaft der Installation. Wer sich am
+   *  Wandpanel anmeldet, färbt damit nicht das Telefon um. */
+  appSymbol?: 'Pink' | null;
   // Die vier folgenden Felder sind Altlast, kein Speicherort mehr.
   //
   // Sie lagen hier – also im Speicher genau dieses Telefons – und waren

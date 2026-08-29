@@ -244,7 +244,7 @@ def top_consumers(entities: list[Any], limit: int = 10) -> list[dict[str, Any]]:
         rows.append(
             {
                 "entity_id": entity.id,
-                "name": entity.name,
+                "name": entity.label,
                 "room": entity.room,
                 "kwh": round(kwh, 3),
                 "watts": round(float(power), 1) if isinstance(power, (int, float)) else None,
@@ -282,7 +282,7 @@ def standby_costs(
         rows.append(
             {
                 "entity_id": entity.id,
-                "name": entity.name,
+                "name": entity.label,
                 "room": entity.room,
                 "watts": round(watts, 1),
                 "kwh_year": round(kwh_year, 1),

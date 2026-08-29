@@ -25,21 +25,71 @@ export interface VacuumRoom {
 
 export type Box = [number, number, number, number];
 
+/**
+ * Wie ein Zustand auf Deutsch heisst.
+ *
+ * Der Hub übersetzt die Namen der Roborock-Bibliothek schon auf dieses
+ * Vokabular (integrations/roborock.py: zustand_name). Die Liste hier ist
+ * trotzdem etwas grosszügiger: Ein Hub, der noch nicht aktualisiert ist,
+ * schickt weiter «segment_cleaning» - und dann soll auf der Kachel kein
+ * Bezeichner stehen.
+ */
+const ZUSTAND_WOERTER: Record<string, string> = {
+  cleaning: 'Reinigt',
+  segment_cleaning: 'Reinigt',
+  zoned_cleaning: 'Reinigt',
+  spot_cleaning: 'Reinigt',
+  returning: 'Fährt zur Station',
+  returning_home: 'Fährt zur Station',
+  docking: 'Fährt zur Station',
+  charging: 'Lädt',
+  charging_complete: 'Geladen',
+  docked: 'An der Station',
+  washing_the_mop: 'Wäscht den Mopp',
+  emptying_the_bin: 'Leert den Behälter',
+  idle: 'Bereit',
+  paused: 'Pausiert',
+  error: 'Fehler',
+  unknown: 'Unbekannt',
+};
+
+/**
+ * Ein unbekannter Zustand als lesbarer Text (rein, testbar).
+ *
+ * Ein Bezeichner wie «segment_cleaning» auf der Kachel sieht nach
+ * Werkstatt aus. Was der Hub nicht kennt, wird deshalb wenigstens zu
+ * Wörtern - lieber ein englisches Wort mit grossem Anfangsbuchstaben
+ * als ein Unterstrich in der Wohnung.
+ */
+export function zustandLesbar(roh: string): string {
+  const worte = roh.replace(/[_-]+/g, ' ').trim();
+  if (!worte) return '–';
+  return worte.charAt(0).toUpperCase() + worte.slice(1);
+}
+
+/**
+ * Fährt der Sauger gerade? (rein, testbar)
+ *
+ * Nicht `state === 'cleaning'`: Der Hub übersetzt zwar, aber ein Hub,
+ * der noch nicht aktualisiert ist, schickt weiter «segment_cleaning» -
+ * und dann bot der Knopf «Reinigen» an, während sie reinigte.
+ */
+export function saugerFaehrt(state: unknown): boolean {
+  const text = String(state ?? '').toLowerCase();
+  return text.includes('clean') || text === 'returning' || text.includes('return');
+}
+
+/** Der Zustand in einem Wort – «Reinigt», «Lädt» (rein, testbar). */
+export function zustandWort(state: unknown): string {
+  const roh = String(state ?? '');
+  return ZUSTAND_WOERTER[roh] ?? zustandLesbar(roh);
+}
+
 /** «Reinigt · 82 %» – Zustand und Akku in einer Zeile (rein, testbar). */
 export function vacuumText(vacuum: Entity): string {
-  const labels: Record<string, string> = {
-    cleaning: 'Reinigt',
-    returning: 'Fährt zur Station',
-    charging: 'Lädt',
-    charging_complete: 'Geladen',
-    docked: 'An der Station',
-    idle: 'Bereit',
-    paused: 'Pausiert',
-    error: 'Fehler',
-  };
-  const state = labels[String(vacuum.state.state ?? '')] ?? String(vacuum.state.state ?? '–');
+  const wort = zustandWort(vacuum.state.state);
   const battery = vacuum.state.battery;
-  return battery != null ? `${state} · ${battery} %` : state;
+  return battery != null ? `${wort} · ${battery} %` : wort;
 }
 
 /** Umriss aller Räume mit etwas Rand – der Bereich des Bilds, der wirklich

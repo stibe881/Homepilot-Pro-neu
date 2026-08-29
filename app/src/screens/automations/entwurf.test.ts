@@ -1,6 +1,9 @@
 /** Entwurf ↔ gespeicherte Form: die neuen Felder aus dem zweiten Heft. */
 import {
   EMPTY,
+  type Run,
+  wirkungText,
+  lastRunText,
   EMPTY_STEP,
   EMPTY_TRIGGER,
   buildConditions,
@@ -9,6 +12,8 @@ import {
   stepToActions,
   actionsToSteps,
   toDraft,
+  describe as zeileFuer,
+  measurableAttributes,
   triggerFromConfig,
   istLichtFein,
   lichtKurz,
@@ -25,7 +30,14 @@ import {
   unbekannterZustand,
   zeitfensterHinweis,
   zeitpunktLabel,
+  wasFehlt,
+  istSpeicherbar,
+  angabenStand,
+  bedingungStand,
+  namensVorschlag,
+  sonstStand,
 } from './entwurf';
+import { Draft, StepDraft } from './entwurf';
 import { Entity } from '../../api/types';
 import { STUMM_EIN } from '../../lib/szenen';
 
@@ -843,5 +855,381 @@ describe('Grill in Abläufen', () => {
       commandActions: [{ entity_id: 'pitboss.smoker', command: 'set_temperature' }],
     });
     expect(action.data).toEqual({ temperature: 120 });
+  });
+});
+
+
+// ── Die Sammelfrage «ist noch jemand da?» ────────────────────────────────
+//
+// Sie zählt technisch in an/aus, und genau so stand es im Editor. Wer
+// «wenn der Letzte geht» bauen wollte, musste raten, ob das nun «an» oder
+// «aus» ist - und die Hälfte rät falsch.
+
+describe('plainStates für die Anwesenheit', () => {
+  const sammel = {
+    id: 'geofence.anyone_home',
+    kind: 'binary_sensor',
+    name: 'Jemand zuhause',
+    integration: 'geofence',
+    state: { state: 'on', device_class: 'presence', away: ['Livia'] },
+    commands: [],
+    available: true,
+  } as unknown as Entity;
+
+  it('sagt, was an und aus bedeuten', () => {
+    expect(plainStates(sammel)).toEqual([
+      { key: 'on', label: 'jemand ist zuhause' },
+      { key: 'off', label: 'niemand ist zuhause' },
+    ]);
+  });
+
+  it('verwechselt sie nicht mit einer einzelnen Person', () => {
+    // Die Zone einer Person führt einen Ort, keine Abwesenden-Liste.
+    const person = {
+      id: 'geofence.stefan',
+      kind: 'binary_sensor',
+      name: 'Stefan',
+      integration: 'geofence',
+      state: { state: 'home', device_class: 'presence', place: 'home' },
+      commands: [],
+      available: true,
+    } as unknown as Entity;
+    expect(plainStates(person)).toEqual([
+      { key: 'home', label: 'zuhause' },
+      { key: 'away', label: 'weg' },
+    ]);
+  });
+});
+
+describe('Die Sammelanwesenheit im Editor', () => {
+  it('kommt als Zustandswechsel zurück, nicht als Ort', () => {
+    // Der gemeldete Ablauf «Niemand mehr zuhause»: gespeichert richtig,
+    // im Editor aber unter «Ort» mit «kommt an / geht weg» und einer
+    // Liste von Orten - eine Frage, die es hier gar nicht gibt.
+    const zurueck = triggerFromConfig({
+      type: 'state',
+      entity_id: 'geofence.anyone_home',
+      to: 'off',
+      for: 600,
+    });
+    expect(zurueck.kind).toBe('state');
+    expect(zurueck.toState).toBe('off');
+    expect(zurueck.forMinutes).toBe('10');
+  });
+
+  it('lässt echte Ortsmelder unverändert', () => {
+    const zurueck = triggerFromConfig({
+      type: 'state',
+      entity_id: 'geofence.livia',
+      to: 'schule_zell',
+    });
+    expect(zurueck.kind).toBe('geofence');
+    expect(zurueck.ortId).toBe('schule_zell');
+  });
+
+  it('gibt ihr ein eigenes Sinnbild', () => {
+    // Sie fragt nach Menschen, nicht nach einem Ort.
+    const mit = (trigger: Record<string, unknown>) =>
+      triggerIcon({ triggers: [trigger] } as unknown as Parameters<typeof triggerIcon>[0]);
+    expect(mit({ entity_id: 'geofence.anyone_home', to: 'off' })).toBe('people-outline');
+    expect(mit({ entity_id: 'geofence.livia', to: 'home' })).toBe('location-outline');
+  });
+});
+
+describe('Die Listenzeile spricht Deutsch', () => {
+  const jemand = {
+    id: 'geofence.anyone_home',
+    name: 'Jemand zuhause',
+    kind: 'binary_sensor',
+    integration: 'geofence',
+    state: { state: 'on', away: [] },
+    commands: [],
+  } as unknown as Entity;
+
+  it('sagt bei der Sammelanwesenheit, was gemeint ist', () => {
+    // Vorher stand hier die nackte Kennung: «wenn geofence.anyone_home
+    // → off» - keine Auskunft, sondern eine Aufgabe.
+    const zeile = zeileFuer(
+      {
+        id: 'x',
+        alias: 'Niemand mehr zuhause',
+        triggers: [{ type: 'state', entity_id: 'geofence.anyone_home', to: 'off' }],
+        actions: [{ type: 'command', entity_id: 'light.buero', command: 'turn_off' }],
+      } as unknown as Parameters<typeof zeileFuer>[0],
+      [jemand, { id: 'light.buero', name: 'Büro' } as unknown as Entity]
+    );
+    expect(zeile).toContain('wenn niemand mehr zuhause ist');
+    expect(zeile).not.toContain('geofence.anyone_home');
+    // Und auf der anderen Seite des Pfeils dasselbe: «light.buero
+    // turn_off» liest niemand als «Büro aus».
+    expect(zeile).toContain('Büro aus');
+    expect(zeile).not.toContain('turn_off');
+  });
+
+  it('nennt bei einem Ortsmelder Person und Ort', () => {
+    const livia = { ...jemand, id: 'geofence.livia', name: 'Livia' } as unknown as Entity;
+    const zeile = zeileFuer(
+      {
+        id: 'x',
+        alias: 'Livia in der Schule',
+        triggers: [{ type: 'state', entity_id: 'geofence.livia', to: 'schule_zell' }],
+        actions: [{ type: 'notify' }],
+      } as unknown as Parameters<typeof zeileFuer>[0],
+      [livia]
+    );
+    expect(zeile).toContain('wenn Livia kommt bei Schule Zell an');
+  });
+});
+
+describe('Ankunft als Auslöser', () => {
+  it('bietet die Entfernung als Messwert an', () => {
+    // «Wenn Stefan näher als 2 km ist, Storen hoch» - ein gewöhnlicher
+    // Schwellenwert, keine eigene Auslöser-Art.
+    const stefan = {
+      id: 'geofence.stefan',
+      name: 'Stefan',
+      kind: 'binary_sensor',
+      integration: 'geofence',
+      state: { state: 'away', place: null, distance: 4200 },
+      commands: [],
+    } as unknown as Entity;
+    expect(measurableAttributes(stefan).map((m) => m.key)).toContain('distance');
+    expect(measurableAttributes(stefan).find((m) => m.key === 'distance')?.label).toBe(
+      'Entfernung von zuhause (m)'
+    );
+  });
+
+  it('bietet sie nicht an, wo keine Position vorliegt', () => {
+    const ohne = {
+      id: 'geofence.oma',
+      name: 'Oma',
+      kind: 'binary_sensor',
+      integration: 'geofence',
+      state: { state: 'away', distance: null },
+      commands: [],
+    } as unknown as Entity;
+    expect(measurableAttributes(ohne).map((m) => m.key)).not.toContain('distance');
+  });
+});
+
+describe('wasFehlt', () => {
+  const entwurf = (patch: Partial<Draft> = {}): Draft => ({
+    ...EMPTY,
+    triggers: [{ ...EMPTY_TRIGGER }],
+    steps: [{ ...EMPTY_STEP }],
+    ...patch,
+  });
+
+  const schalten = (entityId: string): StepDraft => ({
+    ...EMPTY_STEP,
+    kind: 'command',
+    commandActions: [{ entity_id: entityId, command: 'turn_on' }],
+  });
+
+  it('bemängelt einen Auslöser ohne Gerät', () => {
+    expect(wasFehlt(entwurf({ steps: [schalten('licht')] }))).toEqual([
+      'Wenn: ein Gerät wählen',
+    ]);
+  });
+
+  it('bemängelt einen Schritt, aus dem nichts wird', () => {
+    // Der Schritt steht im Formular, hat aber kein Gerät angekreuzt -
+    // gespeichert würde daraus ein Ablauf, der nichts tut.
+    const raus = wasFehlt(
+      entwurf({ triggers: [{ ...EMPTY_TRIGGER, entityId: 'melder' }] })
+    );
+    expect(raus).toEqual(['Dann: einen Schritt, der etwas tut']);
+  });
+
+  it('ist zufrieden, sobald Auslöser und Schritt stehen', () => {
+    const gut = entwurf({
+      triggers: [{ ...EMPTY_TRIGGER, entityId: 'melder' }],
+      steps: [schalten('licht')],
+    });
+    expect(wasFehlt(gut)).toEqual([]);
+    expect(istSpeicherbar(gut)).toBe(true);
+  });
+
+  it('verlangt keinen Namen', () => {
+    // Ein namenloser Ablauf schaltet trotzdem richtig; der Hub trägt
+    // «Ohne Namen» ein.
+    const ohne = entwurf({
+      alias: '',
+      triggers: [{ ...EMPTY_TRIGGER, entityId: 'melder' }],
+      steps: [schalten('licht')],
+    });
+    expect(istSpeicherbar(ohne)).toBe(true);
+  });
+
+  it('verlangt bei Uhrzeit-Auslösern kein Gerät', () => {
+    const uhr = entwurf({
+      triggers: [{ ...EMPTY_TRIGGER, kind: 'time', at: '07:00' }],
+      steps: [schalten('licht')],
+    });
+    expect(wasFehlt(uhr)).toEqual([]);
+  });
+
+  it('bemängelt eine fehlende Uhrzeit', () => {
+    const uhr = entwurf({
+      triggers: [{ ...EMPTY_TRIGGER, kind: 'time', at: '  ' }],
+      steps: [schalten('licht')],
+    });
+    expect(wasFehlt(uhr)).toEqual(['Wenn: eine Uhrzeit eintragen']);
+  });
+
+  it('verlangt beim Sonnenstand weder Gerät noch Uhrzeit', () => {
+    const sonne = entwurf({
+      triggers: [{ ...EMPTY_TRIGGER, kind: 'sun' }],
+      steps: [schalten('licht')],
+    });
+    expect(wasFehlt(sonne)).toEqual([]);
+  });
+
+  it('nummeriert, sobald es mehrere Auslöser gibt', () => {
+    const zwei = entwurf({
+      triggers: [{ ...EMPTY_TRIGGER, entityId: 'melder' }, { ...EMPTY_TRIGGER }],
+      steps: [schalten('licht')],
+    });
+    expect(wasFehlt(zwei)).toEqual(['Auslöser 2: ein Gerät wählen']);
+  });
+});
+
+describe('Klappen-Stände', () => {
+  const entwurf = (patch: Partial<Draft> = {}): Draft => ({ ...EMPTY, ...patch });
+
+  it('lässt die Bedingung leer, wo keine steht', () => {
+    expect(bedingungStand(entwurf())).toBe('');
+  });
+
+  it('nennt Tag und Nacht beim Namen', () => {
+    expect(bedingungStand(entwurf({ conditionKind: 'sun', conditionSun: 'down' }))).toBe(
+      'nur wenn dunkel'
+    );
+  });
+
+  it('zählt Gerätebedingungen und Gruppen', () => {
+    const stand = bedingungStand(
+      entwurf({
+        conditionKind: 'time',
+        stateConditions: [
+          { entity_id: 'a', op: 'is' as const, value: 'on' },
+          { entity_id: 'b', op: 'is' as const, value: 'off' },
+        ],
+        weekdays: [1, 2],
+      })
+    );
+    expect(stand).toBe('Zeitfenster · 2 Geräte · Wochentage');
+  });
+
+  it('schweigt zum Normalfall «läuft»', () => {
+    expect(angabenStand(entwurf())).toBe('');
+    expect(angabenStand(entwurf({ enabled: false }))).toBe('aus');
+    expect(angabenStand(entwurf({ category: 'Beleuchtung' }))).toBe('Beleuchtung');
+    expect(angabenStand(entwurf({ category: 'Licht', enabled: false }))).toBe(
+      'Licht · aus'
+    );
+  });
+
+  it('behandelt eine leere Kategorie wie keine', () => {
+    expect(angabenStand(entwurf({ category: '   ' }))).toBe('');
+  });
+
+  it('zählt die Schritte im Sonst-Zweig', () => {
+    expect(sonstStand(entwurf())).toBe('');
+    expect(sonstStand(entwurf({ elseSteps: [{ ...EMPTY_STEP }] }))).toBe('1 Schritt');
+    expect(
+      sonstStand(entwurf({ elseSteps: [{ ...EMPTY_STEP }, { ...EMPTY_STEP }] }))
+    ).toBe('2 Schritte');
+  });
+});
+
+describe('namensVorschlag', () => {
+  const geraete = [
+    { id: 'melder', name: 'Bewegung Flur', kind: 'binary_sensor', commands: [], state: {} },
+    { id: 'licht', name: 'Licht Wohnzimmer', kind: 'light', commands: [], state: {} },
+  ] as unknown as Entity[];
+
+  const entwurf = (patch: Partial<Draft> = {}): Draft => ({
+    ...EMPTY,
+    triggers: [{ ...EMPTY_TRIGGER, entityId: 'melder' }],
+    steps: [
+      {
+        ...EMPTY_STEP,
+        kind: 'command',
+        commandActions: [{ entity_id: 'licht', command: 'turn_on' }],
+      },
+    ],
+    ...patch,
+  });
+
+  it('setzt zusammen, was der Ablauf tut', () => {
+    expect(namensVorschlag(entwurf(), geraete)).toBe('Licht Wohnzimmer bei Bewegung Flur');
+  });
+
+  it('nennt die Uhrzeit', () => {
+    const uhr = entwurf({ triggers: [{ ...EMPTY_TRIGGER, kind: 'time', at: '07:00' }] });
+    expect(namensVorschlag(uhr, geraete)).toBe('Licht Wohnzimmer um 07:00');
+  });
+
+  it('nennt den Sonnenstand', () => {
+    const sonne = entwurf({
+      triggers: [{ ...EMPTY_TRIGGER, kind: 'sun', sunEvent: 'sunset' }],
+    });
+    expect(namensVorschlag(sonne, geraete)).toBe('Licht Wohnzimmer bei Sonnenuntergang');
+  });
+
+  it('bleibt leer, solange ein Ende fehlt', () => {
+    // Lieber «Ohne Namen» als ein halber Satz.
+    expect(namensVorschlag(entwurf({ triggers: [{ ...EMPTY_TRIGGER }] }), geraete)).toBe('');
+    expect(namensVorschlag(entwurf({ steps: [{ ...EMPTY_STEP }] }), geraete)).toBe('');
+  });
+
+  it('bleibt leer, wenn das Gerät nicht mehr da ist', () => {
+    expect(namensVorschlag(entwurf(), [])).toBe('');
+  });
+
+  it('benennt eine Durchsage beim Wort', () => {
+    const sagen = entwurf({
+      steps: [{ ...EMPTY_STEP, kind: 'broadcast', broadcastText: 'Essen ist fertig!' }],
+    });
+    expect(namensVorschlag(sagen, geraete)).toBe('Durchsage bei Bewegung Flur');
+  });
+});
+
+describe('Wirkte der Ablauf?', () => {
+  const lauf = (effect: Run['effect']): Run => ({
+    automation_id: 'a',
+    alias: 'Licht bei Bewegung',
+    at: 1_700_000_000,
+    executed: true,
+    skipped: [],
+    effect,
+  });
+
+  test('was gewirkt hat, steht nicht daneben – sonst übersieht man die eine Zeile', () => {
+    expect(wirkungText(lauf({ urteil: 'gewirkt', geprueft: 2, nicht: [] }))).toBeNull();
+  });
+
+  test('ein Lauf ohne Nachschau meldet nichts', () => {
+    expect(wirkungText(lauf(null))).toBeNull();
+    expect(wirkungText(lauf(undefined))).toBeNull();
+  });
+
+  test('wirkungslos nennt die Geräte, die nicht folgten', () => {
+    expect(
+      wirkungText(lauf({ urteil: 'wirkungslos', geprueft: 1, nicht: ['Licht Küche'] }))
+    ).toBe('wirkte nicht: Licht Küche');
+  });
+
+  test('halb gewirkt sagt, welches Gerät fehlt', () => {
+    expect(
+      wirkungText(lauf({ urteil: 'teilweise', geprueft: 2, nicht: ['Stehlampe'] }))
+    ).toBe('wirkte nur halb – ohne Stehlampe');
+  });
+
+  test('die zugeklappte Zeile trägt es mit – dort sucht man danach', () => {
+    const runs = [lauf({ urteil: 'wirkungslos', geprueft: 1, nicht: ['Licht Küche'] })];
+    expect(lastRunText(runs, 'a')).toContain('wirkte nicht: Licht Küche');
+    expect(lastRunText(runs, 'a')).toContain('ausgeführt');
   });
 });

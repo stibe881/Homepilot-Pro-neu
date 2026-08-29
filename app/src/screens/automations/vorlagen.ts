@@ -6,6 +6,7 @@
 import { Ionicons } from '@expo/vector-icons';
 
 import { Entity, Scene } from '../../api/types';
+import { istOrtsmelder } from '../../lib/ortsausloeser';
 import { Compare, ConditionKind, Draft, EMPTY, EMPTY_STEP, EMPTY_TRIGGER, StepDraft, StepKind, TriggerKind, vacuumRooms } from './entwurf';
 
 export interface Template {
@@ -184,6 +185,43 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
               },
             ],
           },
+        ],
+      },
+    });
+  }
+
+  if (presence) {
+    // Die zwei Anfänge, nach denen am häufigsten gefragt wird - und die
+    // bisher fehlten, weil jede Anwesenheits-Vorlage schon eine Aktion
+    // mitbrachte: Alarm scharf, alles aus. Wer etwas anderes vorhat,
+    // musste den Auslöser selbst finden und dabei raten, ob «jemand
+    // zuhause» nun «an» oder «aus» heisst.
+    //
+    // Ohne Schritte: Der Auslöser ist das Schwierige, die Aktion weiss
+    // nur der Haushalt selbst.
+    templates.push({
+      label: 'Der Erste kommt heim',
+      icon: 'enter-outline',
+      draft: {
+        ...EMPTY,
+        alias: 'Wenn der Erste heimkommt',
+        // «on» heisst hier: Vorher war niemand da. Kommt der Zweite
+        // dazu, ändert sich nichts - der Ablauf läuft also genau einmal
+        // je Heimkehr, nicht je Person.
+        triggers: [{ ...EMPTY_TRIGGER, entityId: presence.id, toState: 'on' }],
+      },
+    });
+    templates.push({
+      label: 'Der Letzte geht',
+      icon: 'exit-outline',
+      draft: {
+        ...EMPTY,
+        alias: 'Wenn der Letzte geht',
+        // Zehn Minuten Haltezeit: Der Gang zum Briefkasten ist kein
+        // Auszug, und ein Telefon, das kurz den Funk verliert, auch
+        // nicht.
+        triggers: [
+          { ...EMPTY_TRIGGER, entityId: presence.id, toState: 'off', forMinutes: '10' },
         ],
       },
     });
@@ -521,7 +559,7 @@ export function buildTemplates(entities: Entity[], scenes: Scene[]): Template[] 
   // Punkt 199: Der Fall, für den Familien so etwas überhaupt einrichten –
   // das Kind ist von der Schule heimgekommen. Oder eben noch nicht.
   const zonen = entities.filter(
-    (entity) => entity.id.startsWith('geofence.') && entity.id !== 'geofence.anyone_home'
+    (entity) => istOrtsmelder(entity.id)
   );
   for (const zone of zonen.slice(0, 3)) {
     const wer = zone.name;

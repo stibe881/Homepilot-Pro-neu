@@ -12,11 +12,23 @@ import {
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 
+import { Klappe } from '../components/Klappe';
+import {
+  artStand,
+  ersterWeg,
+  kinderStand,
+  sichtschutzStand,
+  Weg,
+  WEGE,
+  zugangStand,
+} from '../lib/benutzerblatt';
+
 import { HubFehler, hubClient } from '../api/client';
 import { Entity, HubSettings } from '../api/types';
 import { Card } from '../components/Card';
 import { einladungFrist } from '../lib/einladung';
 import { gaesteansicht } from '../lib/gaestewlan';
+import { besitzerZahl, darfRolleAendern } from '../lib/rollenwahl';
 import { DoorPass } from '../components/DoorPass';
 import { Fehlschlag, Laedt } from '../components/Zustand';
 import { Colors, radius, space, type, useColors } from '../theme';
@@ -273,6 +285,8 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
     null
   );
   const [einladungPass, setEinladungPass] = useState('');
+  // Welcher der drei Wege gerade offen steht - siehe lib/benutzerblatt.ts.
+  const [weg, setWeg] = useState<Weg>('qr');
   const [einladungNote, setEinladungNote] = useState<string | null>(null);
   // Zwei-Schritt-Rückfrage fürs Token-Wechseln – das ist nicht umkehrbar.
   const [rotateAsk, setRotateAsk] = useState<string | null>(null);
@@ -297,6 +311,8 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
   const openDetail = async (user: HubUser) => {
     setDetail(user);
     setPairing(null);
+    // Der Weg, den diese Person schon einmal gegangen ist, steht offen.
+    setWeg(ersterWeg(user.email));
     setEinladungPass('');
     setEinladungNote(null);
     // Eine offene Einladung gehört gezeigt, nicht verschwiegen: Sonst
@@ -577,13 +593,104 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                     {!detail.editable ? ' · aus config.yaml' : ''}
                   </Text>
 
+                  {/* Die Rolle ändern, ohne den Zugang neu auszustellen.
+                      Vorher stand sie beim Anlegen fest: Wer einen
+                      Mitbewohner versehentlich als Gast eingeladen hatte,
+                      musste ihn löschen und neu einladen - mit neuem
+                      Token auf jedem seiner Geräte. Die Schranken dazu
+                      stehen in lib/rollenwahl.ts und noch einmal im Hub. */}
+                  {(() => {
+                    const urteil = darfRolleAendern(
+                      detail,
+                      currentUser?.name,
+                      besitzerZahl(users ?? [])
+                    );
+                    return (
+                      <View style={styles.rotateBox}>
+                        <Text style={styles.formLabel}>Rolle</Text>
+                        <View style={styles.roleRow}>
+                          {Object.keys(ROLE_LABELS).map((role) => {
+                            const aktiv = detail.role === role;
+                            return (
+                              <Pressable
+                                key={role}
+                                onPress={
+                                  urteil.erlaubt && !aktiv
+                                    ? () => patchUser(detail.name, { role })
+                                    : undefined
+                                }
+                                accessibilityRole="radio"
+                                accessibilityState={{
+                                  selected: aktiv,
+                                  disabled: !urteil.erlaubt,
+                                }}
+                                accessibilityLabel={`${detail.name}: ${ROLE_LABELS[role]}`}
+                                style={[
+                                  styles.roleChip,
+                                  aktiv && styles.roleChipActive,
+                                  !urteil.erlaubt && !aktiv && { opacity: 0.4 },
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.roleChipText,
+                                    aktiv && styles.roleChipTextActive,
+                                  ]}
+                                >
+                                  {ROLE_LABELS[role]}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                        <Text style={styles.roleHint}>
+                          {urteil.grund ?? ROLE_HINTS[detail.role]}
+                        </Text>
+                      </View>
+                    );
+                  })()}
+
                   {detail.enabled === false ? (
                     <Text style={styles.disabledNote}>
                       Deaktiviert – die Anmeldung ist gesperrt, das Token bleibt
                       gültig und funktioniert nach dem Aktivieren sofort wieder.
                     </Text>
-                  ) : (
-                    <>
+                  ) : null}
+
+                  {/* Drei Wege, aber eine Frage: Wie kommt diese Person in
+                      ihre App? Sie standen alle drei ausgeklappt
+                      untereinander - QR-Code, Link, E-Mail - und füllten
+                      zusammen anderthalb Bildschirme, obwohl man immer nur
+                      einen davon geht. Jetzt wählt man den Weg und sieht
+                      nur ihn. */}
+                  <View style={styles.rotateBox}>
+                    <Text style={styles.formLabel}>Zugang einrichten</Text>
+                    <View style={styles.roleRow}>
+                      {WEGE.map((eintrag) => {
+                        const aktiv = weg === eintrag.key;
+                        return (
+                          <Pressable
+                            key={eintrag.key}
+                            onPress={() => setWeg(eintrag.key)}
+                            accessibilityRole="radio"
+                            accessibilityState={{ selected: aktiv }}
+                            style={[styles.roleChip, aktiv && styles.roleChipActive]}
+                          >
+                            <Text
+                              style={[
+                                styles.roleChipText,
+                                aktiv && styles.roleChipTextActive,
+                              ]}
+                            >
+                              {eintrag.label}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+
+                    {weg === 'qr' ? (
+                      <>
                       <View style={styles.qrBox}>
                         {pairing ? (
                           <QRCode value={pairing} size={220} backgroundColor="#FFFFFF" />
@@ -595,6 +702,11 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                         In der HomePilot-App der Person: «QR-Code vom Hub scannen» –
                         Verbindung und Token werden automatisch übernommen.
                       </Text>
+                      </>
+                    ) : null}
+
+                    {weg === 'link' ? (
+                      <>
                       {/* Wer nicht danebensteht, kann keinen QR-Code
                           scannen. Früher ging dafür der Kopplungstext
                           als Nachricht raus – und der *ist* der
@@ -605,8 +717,6 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                           Sperrbildschirm. Jetzt reisen zwei Teile
                           getrennt: ein Link, der allein nichts öffnet,
                           und ein Passwort, das man durchgibt. */}
-                      <View style={styles.rotateBox}>
-                        <Text style={styles.formLabel}>Einladen per Link</Text>
                         {einladung ? (
                           <>
                             <Text style={styles.qrHint}>
@@ -705,12 +815,11 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                         {einladungNote ? (
                           <Text style={styles.qrHint}>{einladungNote}</Text>
                         ) : null}
-                      </View>
-                    </>
-                  )}
+                      </>
+                    ) : null}
 
-                  <View style={styles.rotateBox}>
-                    <Text style={styles.formLabel}>Anmeldung mit E-Mail</Text>
+                    {weg === 'mail' ? (
+                      <>
                     <Text style={styles.qrHint}>
                       Erst die Adresse eintragen, dann einladen. Die Person
                       bekommt eine E-Mail, setzt darin ihr Passwort und meldet
@@ -790,11 +899,183 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                         {detail.email ? 'Einladung schicken' : 'Zuerst Adresse speichern'}
                       </Text>
                     </Pressable>
+                      </>
+                    ) : null}
                   </View>
 
+
+                  {/* Ab hier: alles, was man selten braucht und nie
+                      gleichzeitig. Es stand ausgeklappt untereinander und
+                      war der Grund, warum diese Seite eine Wand war.
+                      Zugeklappt beantwortet der Kopf die Frage, mit der
+                      man kommt - siehe lib/benutzerblatt.ts. */}
                   {detail.editable ? (
-                    <View style={styles.rotateBox}>
-                      <Text style={styles.formLabel}>Token</Text>
+                    <Klappe
+                      label="Art des Zugangs"
+                      stand={artStand(detail.shared)}
+                      zuBeginnZu
+                    >
+                      <Text style={styles.formHint}>
+                        Für das Wandtablet im Flur oder das Küchendisplay:
+                        ein Zugang, den alle benutzen, keine Person.
+                        Nachrichten bekommt es wie jeder andere. Anders
+                        ist: keine Begrüssung mit Namen, kein Abmelden und
+                        kein Sitzungsablauf, nachts wird der Bildschirm
+                        dunkler, und zum Entschärfen der Alarmanlage ist
+                        die PIN Pflicht – auch dann, wenn sonst keine
+                        verlangt wird.
+                      </Text>
+                      <Pressable
+                        onPress={() =>
+                          patchUser(detail.name, { shared: !detail.shared })
+                        }
+                        accessibilityRole="switch"
+                        accessibilityState={{ checked: !!detail.shared }}
+                        style={[
+                          styles.roleChip,
+                          detail.shared && styles.roleChipActive,
+                          { alignSelf: 'flex-start' },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.roleChipText,
+                            detail.shared && styles.roleChipTextActive,
+                          ]}
+                        >
+                          {detail.shared ? 'Gemeinschaftsgerät' : 'Persönlicher Zugang'}
+                        </Text>
+                      </Pressable>
+
+                    </Klappe>
+                  ) : null}
+
+                  {detail.editable ? (
+                    <Klappe
+                      label="Zugang beschränken"
+                      stand={zugangStand(detail.expires, detail.hours)}
+                      zuBeginnZu
+                    >
+                    <AccessLimits
+                      detail={detail}
+                      styles={styles}
+                      colors={colors}
+                      onChange={(patch) => patchUser(detail.name, patch)}
+                    />
+                    </Klappe>
+                  ) : null}
+
+                      {/* Der Riegel vor den persönlichen Bereichen. Fürs
+                          Wandtablet gedacht - Licht und Storen bedient
+                          jeder, der vorbeigeht, die Einkaufsliste und der
+                          Kalender der Familie sollen aber nicht offen im
+                          Flur stehen. Er hält nur am Panel zu und nur im
+                          Babysitter-Modus; warum, steht in
+                          lib/bereichsriegel.ts. */}
+                  {detail.editable ? (
+                    <Klappe
+                      label="Riegel vor Familie & Konto"
+                      stand={sichtschutzStand(detail.area_locked)}
+                      zuBeginnZu
+                    >
+                      <Text style={styles.formHint}>
+                        {detail.area_locked
+                          ? 'Gesetzt. Gefragt wird nur am Wandpanel und nur, solange der Babysitter-Modus läuft: Familie, Kalender und Nachrichten sind dann verriegelt, Licht, Storen und Alarm bleiben frei. Ein neues Passwort ersetzt das alte, leer speichern nimmt den Riegel weg.'
+                          : 'Kein Riegel: Am Wandpanel steht auch im Babysitter-Modus alles offen. Mindestens 4 Zeichen; auch eine Zahlenfolge ist erlaubt, am Wandtablet tippt man auf Glas.'}
+                      </Text>
+                      <TextInput
+                        style={styles.input}
+                        value={areaDraft[detail.name] ?? ''}
+                        onChangeText={(value) =>
+                          setAreaDraft((prev) => ({ ...prev, [detail.name]: value }))
+                        }
+                        placeholder={detail.area_locked ? 'Neues Passwort' : 'z. B. 2580'}
+                        placeholderTextColor={colors.inkFaint}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        secureTextEntry
+                      />
+                      <View style={styles.formButtons}>
+                        <Pressable
+                          onPress={async () => {
+                            const value = areaDraft[detail.name] ?? '';
+                            await patchUser(detail.name, { area_password: value });
+                            setAreaDraft((prev) => ({ ...prev, [detail.name]: '' }));
+                          }}
+                          accessibilityRole="button"
+                          style={({ pressed }) => [
+                            styles.rotateButton,
+                            pressed && { opacity: 0.7 },
+                          ]}
+                        >
+                          <Ionicons name="lock-closed-outline" size={15} color={colors.ink} />
+                          <Text style={styles.rotateText}>Passwort speichern</Text>
+                        </Pressable>
+                        {detail.area_locked ? (
+                          <Pressable
+                            onPress={async () => {
+                              await patchUser(detail.name, { area_password: '' });
+                              setAreaDraft((prev) => ({ ...prev, [detail.name]: '' }));
+                            }}
+                            accessibilityRole="button"
+                            style={({ pressed }) => [
+                              styles.rotateButton,
+                              pressed && { opacity: 0.7 },
+                            ]}
+                          >
+                            <Ionicons name="lock-open-outline" size={15} color={colors.ink} />
+                            <Text style={styles.rotateText}>Riegel entfernen</Text>
+                          </Pressable>
+                        ) : null}
+                      </View>
+                    </Klappe>
+                  ) : null}
+
+                  {detail.editable ? (
+                    <Klappe
+                      label="Kinder-Ansicht"
+                      stand={kinderStand(detail.simple_rooms)}
+                      zuBeginnZu
+                    >
+                      <Text style={styles.formHint}>
+                        Angetippte Räume erscheinen dieser Person als grosse
+                        Knöpfe - ohne Einstellungen, Alarm und den Rest der
+                        Wohnung. Nichts angetippt = normale App.
+                      </Text>
+                      <View style={styles.roleRow}>
+                        {roomNames.map((room) => {
+                          const active = (detail.simple_rooms ?? []).includes(room);
+                          return (
+                            <Pressable
+                              key={room}
+                              onPress={() => {
+                                const current = detail.simple_rooms ?? [];
+                                const next = active
+                                  ? current.filter((entry) => entry !== room)
+                                  : [...current, room];
+                                patchUser(detail.name, { simple_rooms: next });
+                              }}
+                              accessibilityRole="checkbox"
+                              accessibilityState={{ checked: active }}
+                              style={[styles.roleChip, active && styles.roleChipActive]}
+                            >
+                              <Text
+                                style={[
+                                  styles.roleChipText,
+                                  active && styles.roleChipTextActive,
+                                ]}
+                              >
+                                {room}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </Klappe>
+                  ) : null}
+
+                  {detail.editable ? (
+                    <Klappe label="Token erneuern">
                       <Text style={styles.qrHint}>
                         Ist das Token irgendwo gelandet, wo es nicht hingehört –
                         Screenshot, Chat, verlorenes Telefon –, hier ein neues
@@ -853,150 +1134,7 @@ export function UsersScreen({ settings, currentUser, entities = [] }: Props) {
                       {rotateNote ? (
                         <Text style={styles.qrHint}>{rotateNote}</Text>
                       ) : null}
-                    </View>
-                  ) : null}
-
-                  {detail.editable ? (
-                    <AccessLimits
-                      detail={detail}
-                      styles={styles}
-                      colors={colors}
-                      onChange={(patch) => patchUser(detail.name, patch)}
-                    />
-                  ) : null}
-
-                  {detail.editable ? (
-                    <>
-                      <Text style={styles.formLabel}>Gemeinschaftsgerät</Text>
-                      <Text style={styles.formHint}>
-                        Für das Wandtablet im Flur oder das Küchendisplay:
-                        ein Zugang, den alle benutzen, keine Person.
-                        Nachrichten bekommt es wie jeder andere. Anders
-                        ist: keine Begrüssung mit Namen, kein Abmelden und
-                        kein Sitzungsablauf, nachts wird der Bildschirm
-                        dunkler, und zum Entschärfen der Alarmanlage ist
-                        die PIN Pflicht – auch dann, wenn sonst keine
-                        verlangt wird.
-                      </Text>
-                      <Pressable
-                        onPress={() =>
-                          patchUser(detail.name, { shared: !detail.shared })
-                        }
-                        accessibilityRole="switch"
-                        accessibilityState={{ checked: !!detail.shared }}
-                        style={[
-                          styles.roleChip,
-                          detail.shared && styles.roleChipActive,
-                          { alignSelf: 'flex-start' },
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.roleChipText,
-                            detail.shared && styles.roleChipTextActive,
-                          ]}
-                        >
-                          {detail.shared ? 'Gemeinschaftsgerät' : 'Persönlicher Zugang'}
-                        </Text>
-                      </Pressable>
-
-                      {/* Der Riegel vor den persönlichen Bereichen. Vor
-                          allem fürs Wandtablet gedacht - Licht und Storen
-                          bedient jeder, der vorbeigeht, die Einkaufsliste
-                          und der Kalender der Familie sollen aber nicht
-                          offen im Flur stehen. Für jeden Benutzer
-                          verfügbar, weil auch ein geteiltes iPad auf dem
-                          Küchentisch dieselbe Frage aufwirft. */}
-                      <Text style={styles.formLabel}>
-                        Passwort vor den persönlichen Bereichen
-                      </Text>
-                      <Text style={styles.formHint}>
-                        {detail.area_locked
-                          ? 'Gesetzt. Familie, Kalender und Nachrichten fragen danach; Licht, Storen und Alarm bleiben frei. Ein neues Passwort ersetzt das alte, leer speichern nimmt den Riegel weg.'
-                          : 'Kein Riegel: Alles steht offen, wer das Gerät bedient. Mindestens 4 Zeichen; auch eine Zahlenfolge ist erlaubt, am Wandtablet tippt man auf Glas.'}
-                      </Text>
-                      <TextInput
-                        style={styles.input}
-                        value={areaDraft[detail.name] ?? ''}
-                        onChangeText={(value) =>
-                          setAreaDraft((prev) => ({ ...prev, [detail.name]: value }))
-                        }
-                        placeholder={detail.area_locked ? 'Neues Passwort' : 'z. B. 2580'}
-                        placeholderTextColor={colors.inkFaint}
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                        secureTextEntry
-                      />
-                      <View style={styles.formButtons}>
-                        <Pressable
-                          onPress={async () => {
-                            const value = areaDraft[detail.name] ?? '';
-                            await patchUser(detail.name, { area_password: value });
-                            setAreaDraft((prev) => ({ ...prev, [detail.name]: '' }));
-                          }}
-                          accessibilityRole="button"
-                          style={({ pressed }) => [
-                            styles.rotateButton,
-                            pressed && { opacity: 0.7 },
-                          ]}
-                        >
-                          <Ionicons name="lock-closed-outline" size={15} color={colors.ink} />
-                          <Text style={styles.rotateText}>Passwort speichern</Text>
-                        </Pressable>
-                        {detail.area_locked ? (
-                          <Pressable
-                            onPress={async () => {
-                              await patchUser(detail.name, { area_password: '' });
-                              setAreaDraft((prev) => ({ ...prev, [detail.name]: '' }));
-                            }}
-                            accessibilityRole="button"
-                            style={({ pressed }) => [
-                              styles.rotateButton,
-                              pressed && { opacity: 0.7 },
-                            ]}
-                          >
-                            <Ionicons name="lock-open-outline" size={15} color={colors.ink} />
-                            <Text style={styles.rotateText}>Riegel entfernen</Text>
-                          </Pressable>
-                        ) : null}
-                      </View>
-
-                      <Text style={styles.formLabel}>Kinder-Ansicht</Text>
-                      <Text style={styles.formHint}>
-                        Angetippte Räume erscheinen dieser Person als grosse
-                        Knöpfe - ohne Einstellungen, Alarm und den Rest der
-                        Wohnung. Nichts angetippt = normale App.
-                      </Text>
-                      <View style={styles.roleRow}>
-                        {roomNames.map((room) => {
-                          const active = (detail.simple_rooms ?? []).includes(room);
-                          return (
-                            <Pressable
-                              key={room}
-                              onPress={() => {
-                                const current = detail.simple_rooms ?? [];
-                                const next = active
-                                  ? current.filter((entry) => entry !== room)
-                                  : [...current, room];
-                                patchUser(detail.name, { simple_rooms: next });
-                              }}
-                              accessibilityRole="checkbox"
-                              accessibilityState={{ checked: active }}
-                              style={[styles.roleChip, active && styles.roleChipActive]}
-                            >
-                              <Text
-                                style={[
-                                  styles.roleChipText,
-                                  active && styles.roleChipTextActive,
-                                ]}
-                              >
-                                {room}
-                              </Text>
-                            </Pressable>
-                          );
-                        })}
-                      </View>
-                    </>
+                    </Klappe>
                   ) : null}
 
                   {detail.editable && detail.role === 'gast' ? (

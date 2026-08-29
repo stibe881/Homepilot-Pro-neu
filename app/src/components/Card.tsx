@@ -62,15 +62,25 @@ export function CardFooter({
   subtitle,
   on,
   onToggle,
+  toggleLabel,
   light,
   pending,
+  onLongPress,
 }: {
   title: string;
   subtitle?: string | null;
   on?: boolean;
   onToggle?: () => void;
+  /** Was der Knopf hier bedeutet, wenn nicht «Ein-/Ausschalten». Auf
+   *  einer pausierten Box heisst er «Weiterspielen» - eine Vorlesehilfe,
+   *  die «Einschalten» sagt, führt dort in die Irre. */
+  toggleLabel?: string;
   light?: boolean;
   pending?: boolean;
+  /** Was ein langer Druck auf den Namen tut. Der Name ist das einzige
+   *  Stück Kachel, das nie unter einem Knopf liegt - bei einem Schloss
+   *  oder einem Sauger ist die Fläche darüber vollständig belegt. */
+  onLongPress?: () => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -78,6 +88,7 @@ export function CardFooter({
     <View style={styles.footer}>
       <Text
         numberOfLines={2}
+        onLongPress={onLongPress}
         style={[styles.title, light && { color: colors.onGradient }]}
       >
         {title}
@@ -90,7 +101,12 @@ export function CardFooter({
           {subtitle ?? ''}
         </Text>
         {onToggle ? (
-          <PowerButton on={!!on} onPress={onToggle} pending={pending} />
+          <PowerButton
+            on={!!on}
+            onPress={onToggle}
+            pending={pending}
+            label={toggleLabel}
+          />
         ) : null}
       </View>
     </View>
@@ -101,10 +117,12 @@ export function PowerButton({
   on,
   onPress,
   pending,
+  label,
 }: {
   on: boolean;
   onPress: () => void;
   pending?: boolean;
+  label?: string;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -113,7 +131,7 @@ export function PowerButton({
       onPress={onPress}
       accessibilityRole="switch"
       accessibilityState={{ checked: on, busy: !!pending }}
-      accessibilityLabel={on ? 'Ausschalten' : 'Einschalten'}
+      accessibilityLabel={label ?? (on ? 'Ausschalten' : 'Einschalten')}
       style={({ pressed }) => [
         styles.power,
         { borderColor: on ? colors.on : colors.off },

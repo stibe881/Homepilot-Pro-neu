@@ -743,7 +743,7 @@ class MatterIntegration(Integration):
                 continue
             attributes = (self._nodes.get(node_id) or {}).get("attributes") or {}
             entity = self.hub.registry.get(entity_id)
-            name = entity.name if entity else entity_id
+            name = entity.label if entity else entity_id
             zeile = f"{name}: {lock_diagnose(attributes, endpoint, self._unlatch)}"
             betriebsart = betriebsart_hinweis(attributes, endpoint)
             if betriebsart:

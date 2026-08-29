@@ -1,23 +1,35 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Image, Pressable, Text, View } from 'react-native';
 
+import Svg, { Polyline } from 'react-native-svg';
+
 import { CommandData, Entity, KalenderEintrag } from '../api/types';
+import { Doppelaktion, FENSTER_MS, merkbar } from '../lib/doppeltipp';
+import { Reihe, linienPunkte } from '../lib/funkenlinie';
 import { offlineSatz } from '../lib/funkstille';
 import { zustandsText } from '../lib/haushalt';
 import { KachelEintrag, kachelAktionen } from '../lib/kachelmenue';
+import { zustandName } from '../lib/hausmusik';
 import { hatWarteschlange } from '../lib/musikliste';
+import { ketteSatz, ursacheSatz } from '../lib/ursache';
+import { zaehlbar } from '../lib/zaehlung';
 import { useColors } from '../theme';
 import { Bar } from './Bar';
 import { Card, CardFooter } from './Card';
+import { faelltAuf, standZeile } from '../lib/kachelstand';
 import { Musikliste } from './Musikliste';
 import { ColorRow } from './ColorRow';
 import { Sky } from './CoverVisual';
+import { isTelevision } from '../lib/geraeteart';
+import { medienSchalter } from '../lib/medienschalter';
+import { tvKopf, tvTeile } from '../lib/fernsehkachel';
 import { TvApps } from './TvApps';
+import { TvVolume } from './TvVolume';
 import { TvSleep } from './TvSleep';
 import { TvRemote } from './TvRemote';
 import {
-  EditButton,
+  AnpassenBlatt,
   GroupPicker,
   KachelMenue,
   RenameDialog,
@@ -30,7 +42,10 @@ import {
   LockBody,
   VacuumBody,
 } from './entity/koerper';
+import { Fortschritt } from './entity/Fortschritt';
+import { KachelDruck } from './entity/kacheldruck';
 import { MediaButton, RadioPanel, ShuffleRepeat, SpotifyPanel } from './entity/medien';
+import { MedienExtras } from './entity/medienextras';
 import { makeStyles } from './entity/stil';
 import {
   BigValue,
@@ -43,12 +58,51 @@ import {
   sinceLabel,
 } from './entity/teile';
 
+/** Die kleine Linie unter dem Messwert – Richtung, keine Achsen. */
+function Funkenlinie({ reihe, breite }: { reihe: Reihe | undefined; breite: number }) {
+  const colors = useColors();
+  const punkte = linienPunkte(reihe, Math.max(40, breite), 18);
+  if (!punkte) return null;
+  return (
+    <Svg
+      width={Math.max(40, breite)}
+      height={18}
+      style={{ marginTop: 4 }}
+      accessibilityLabel="Verlauf der letzten Stunden"
+    >
+      <Polyline
+        points={punkte}
+        fill="none"
+        stroke={colors.accent}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
 interface Props {
   entity: Entity;
+  /** Die letzten Stunden des Messwerts – [Unix-Sekunden, Wert]. */
+  trend?: Reihe;
+  /** Die gemerkte Doppeltipp-Aktion dieses Geräts (lib/doppeltipp.ts). */
+  doppelAktion?: Doppelaktion | null;
+  /** Beschriftung fürs Kachelmenü («Doppeltipp merken: 40 %»). */
+  doppelLabel?: string | null;
+  /** Merken bzw. vergessen - null heisst vergessen. */
+  onDoppeltipp?: (aktion: Doppelaktion | null) => void;
+  /** «Sag mir später Bescheid» – ohne diesen Griff gibt es den Eintrag
+   *  im Kachelmenü nicht. */
+  onErinnern?: () => void;
   width: number;
   onCommand: (command: string, data?: CommandData) => void;
   /** Kommando unterwegs – die Kachel zeigt das, statt still zu wirken. */
   pending?: boolean;
+  /** Die letzte Absage des Hubs. Nur die Fernbedienung braucht sie: Sie
+   *  ist ein Modal und deckt das Fehlerband am unteren Rand zu. */
+  fehler?: string | null;
+  onFehlerWeg?: () => void;
   /** Strompreis für die Kostenanzeige, z.B. 0.32 */
   pricePerKwh?: number;
   currency?: string;
@@ -61,6 +115,10 @@ interface Props {
   /** Anpassen-Modus: Gerät sperren – schaltet nur nach Rückfrage. */
   locked?: boolean;
   onToggleLocked?: () => void;
+  /** Zählt dieses Gerät in der «3 an» der Kopfzeile nicht mit? Umlegen
+   *  geht über den langen Druck (siehe lib/zaehlung.ts). */
+  ungezaehlt?: boolean;
+  onToggleUngezaehlt?: () => void;
   /** Steht die Kachel schon unter der Überschrift ihres Zimmers, ist der
    *  Raumname auf ihr eine Wiederholung. Dann tritt die Integration an
    *  seine Stelle – die sagt wenigstens etwas Neues. */
@@ -109,9 +167,15 @@ interface Props {
 /** Warnstufen brauchen je nach Palette andere Farben. */
 export function EntityCard({
   entity,
+  trend,
+  doppelAktion,
+  doppelLabel,
+  onDoppeltipp,
   width,
   onCommand,
   pending,
+  fehler,
+  onFehlerWeg,
   pricePerKwh,
   currency = 'CHF',
   editing,
@@ -121,6 +185,8 @@ export function EntityCard({
   onToggleHidden,
   locked,
   onToggleLocked,
+  ungezaehlt,
+  onToggleUngezaehlt,
   imRaumblock,
   rooms,
   onSetRoom,
@@ -136,6 +202,7 @@ export function EntityCard({
   partOf,
   usedIn,
   onUsedIn,
+  onErinnern,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -143,22 +210,48 @@ export function EntityCard({
   // Was als Nächstes läuft – hinter Cover und Titel der Musikkachel.
   const [listeOffen, setListeOffen] = useState(false);
   const [roomPickerOpen, setRoomPickerOpen] = useState(false);
+  const [blattOffen, setBlattOffen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [menueOffen, setMenueOffen] = useState(false);
   const [groupPickerOpen, setGroupPickerOpen] = useState(false);
   const isOn = entity.state.state === 'on';
+
 
   // Was ein langer Druck anbietet. Im Anpassen-Modus nichts: Dort hält
   // dieselbe Geste die Kachel zum Verschieben fest, und die Knöpfe für
   // Name, Raum und Gruppe stehen ohnehin offen auf der Kachel.
   const aktionen = editing
     ? []
-    : kachelAktionen({ umbenennen: Boolean(onRename), verlauf: Boolean(onLongPress) });
+    : kachelAktionen({
+        umbenennen: Boolean(onRename),
+        // Dieselbe Berechtigung wie beim Umbenennen: Die Sperre gilt fürs
+        // ganze Haus, und der Hub führt sie in den Haus-Einstellungen.
+        sperren: Boolean(onRename && onToggleLocked),
+        gesperrt: Boolean(locked),
+        // Nur Licht und Schalter: Etwas anderes zählt die Kopfzeile nicht.
+        zaehlung: Boolean(onToggleUngezaehlt) && zaehlbar(entity),
+        ungezaehlt: Boolean(ungezaehlt),
+        verlauf: Boolean(onLongPress),
+        erinnern: Boolean(onErinnern),
+        // Nur wo es etwas zu merken gibt und wer schalten darf.
+        doppeltipp: onDoppeltipp ? doppelLabel : null,
+      });
   const fuehreAus = (eintrag: KachelEintrag) => {
     setMenueOffen(false);
     if (eintrag.id === 'umbenennen') setRenameOpen(true);
+    if (eintrag.id === 'sperren') onToggleLocked?.();
+    if (eintrag.id === 'zaehlung') onToggleUngezaehlt?.();
     if (eintrag.id === 'verlauf') onLongPress?.();
+    if (eintrag.id === 'erinnern') onErinnern?.();
+    if (eintrag.id === 'doppeltipp') {
+      // Steht schon dasselbe gemerkt, ist der Eintrag das Vergessen -
+      // die Beschriftung sagt es, und lib/doppeltipp entscheidet es.
+      onDoppeltipp?.(
+        doppelLabel?.startsWith('Doppeltipp (') ? null : merkbar(entity)
+      );
+    }
   };
+
   // Ein Eintrag braucht keine Auswahl - eine Liste mit einer Zeile wäre
   // ein Klick mehr für nichts. Für alle, die nicht umbenennen dürfen,
   // bleibt der lange Druck damit genau das, was er war.
@@ -168,6 +261,18 @@ export function EntityCard({
       : aktionen.length === 1
         ? () => fuehreAus(aktionen[0])
         : () => setMenueOffen(true);
+
+  // Was auf der Kachel steht und was das Blatt anbietet, kommt aus
+  // derselben Quelle - sonst sagt die Zeile «Favorit» und im Blatt ist
+  // der Stern leer.
+  const stand = {
+    room: entity.room,
+    group: entity.group,
+    favorite,
+    hidden,
+    locked,
+    ungezaehlt,
+  };
 
   const subtitle =
     (imRaumblock ? undefined : entity.room) || integrationLabel(entity.integration);
@@ -179,7 +284,53 @@ export function EntityCard({
     entity,
     entity.last_seen ? sinceLabel(entity.last_seen) : null
   );
-  const toggle = entity.commands.includes('toggle') ? () => onCommand('toggle') : undefined;
+  /**
+   * Der Knopf unten rechts bedeutet auf jeder Kachel «ein/aus» - nur
+   * auf der Musikbox tat er bisher etwas anderes.
+   *
+   * Bei einer Box ist `toggle` nämlich Play/Pause. Der Knopf stand
+   * damit immer auf «aus» (eine Box meldet nie `state: on`) und hielt
+   * beim Drücken die Sitzung bloss an: Der Empfänger blieb besetzt, und
+   * vom Telefon aus weckte ihn jeder Handgriff wieder auf. Also bekommt
+   * die Box hier ihren eigenen Schalter (lib/medienschalter.ts).
+   *
+   * Der Fernseher behält `toggle` - bei ihm ist das wirklich der
+   * Netzschalter (siehe lib/fernsehkachel.ts).
+   */
+  const istBox = entity.kind === 'media_player' && !isTelevision(entity);
+  const boxSchalter = istBox
+    ? medienSchalter(entity.state.state, entity.commands)
+    : null;
+  const toggle = istBox
+    ? boxSchalter
+      ? () => onCommand(boxSchalter.command)
+      : undefined
+    : entity.commands.includes('toggle')
+      ? () => onCommand('toggle')
+      : undefined;
+
+  /**
+   * Der zweite Tipp auf den Ein/Aus-Knopf legt die gemerkte
+   * Einstellung darüber (lib/doppeltipp.ts).
+   *
+   * Der erste Tipp schaltet dabei sofort - er wartet nicht darauf, ob
+   * noch ein zweiter kommt. Eine Kachel, die 350 ms zögert, fühlt sich
+   * im ganzen Haus träge an, und das wäre ein hoher Preis für eine
+   * Abkürzung.
+   */
+  const letzterTipp = useRef(0);
+  const toggleMitDoppeltipp = toggle
+    ? () => {
+        const jetzt = Date.now();
+        const doppelt = jetzt - letzterTipp.current < FENSTER_MS;
+        letzterTipp.current = jetzt;
+        if (doppelt && doppelAktion) {
+          onCommand(doppelAktion.command, doppelAktion.data);
+          return;
+        }
+        toggle();
+      }
+    : undefined;
 
   /** Leistung und, wenn ein Preis hinterlegt ist, die Tageskosten. */
   const powerNote = (): string | undefined => {
@@ -256,18 +407,44 @@ export function EntityCard({
 
       case 'sensor':
         return (
-          <BigValue
-            value={`${format(entity.state.state)}${
-              entity.state.unit ? ' ' + entity.state.unit : ''
-            }`}
-          />
+          <View>
+            <BigValue
+              value={`${format(entity.state.state)}${
+                entity.state.unit ? ' ' + entity.state.unit : ''
+              }`}
+            />
+            {/* Die letzten Stunden als Linie: Die Zahl sagt «21.5», die
+                Linie sagt, wohin es geht (lib/funkenlinie.ts). Ohne
+                Reihe fehlt sie einfach - nach einem Neustart des Hubs
+                füllt sie sich wieder. */}
+            <Funkenlinie reihe={trend} breite={width - 36} />
+          </View>
         );
 
       case 'media_player': {
         const playing = entity.state.state === 'playing';
-        const hasRemote = entity.commands.includes('dpad_up');
+        const fernseher = isTelevision(entity);
+        // Beim Fernseher entscheidet der gemeldete Zustand, was überhaupt
+        // dasteht - siehe lib/fernsehkachel.ts. Für eine Musikbox bleibt
+        // alles, wie es war.
+        const teile = tvTeile(entity);
+        const kopf = fernseher ? tvKopf(entity) : null;
+        const hasRemote = fernseher ? teile.fernbedienung : entity.commands.includes('dpad_up');
+        const cover = entity.state.image ? String(entity.state.image) : null;
         return (
           <View style={styles.stack}>
+            {/* Das Cover als Grund der Kachel - blass, damit der Text
+                lesbar bleibt. Eine Musikkachel, die aussieht wie das
+                Album, findet man mit einem Blick; eine, die aussieht wie
+                jede andere, muss man lesen. */}
+            {cover && playing ? (
+              <Image
+                source={{ uri: cover }}
+                style={styles.coverGrund}
+                blurRadius={18}
+                accessibilityIgnoresInvertColors
+              />
+            ) : null}
             {/* Cover und Titel öffnen, was als Nächstes kommt – wie in
                 der grossen Karte in der Seitenspalte. */}
             <Pressable
@@ -289,9 +466,20 @@ export function EntityCard({
               ) : null}
               <View style={{ flex: 1 }}>
                 <Text style={styles.value} numberOfLines={2}>
-                  {entity.state.track ?? 'Nichts läuft'}
+                  {/* Ohne Titel den Zustand nennen: «Pausiert» und
+                      «Nichts an» sind zwei verschiedene Auskünfte, und
+                      «Nichts läuft» war für beide dieselbe. */}
+                  {kopf
+                    ? kopf.text
+                    : (entity.state.track ??
+                      zustandName(String(entity.state.state ?? '')))}
                 </Text>
-                {entity.state.artist ? (
+                {kopf?.unter ? (
+                  <Text style={styles.hint} numberOfLines={1}>
+                    {kopf.unter}
+                  </Text>
+                ) : null}
+                {!kopf && entity.state.artist ? (
                   <Text style={styles.hint} numberOfLines={1}>
                     {entity.state.artist}
                     {entity.state.device ? ` · ${entity.state.device}` : ''}
@@ -302,6 +490,8 @@ export function EntityCard({
                 <Ionicons name="list-outline" size={16} color={colors.inkFaint} />
               ) : null}
             </Pressable>
+            <Fortschritt entity={entity} onCommand={onCommand} />
+            <MedienExtras entity={entity} onCommand={onCommand} />
             <Musikliste
               state={entity.state}
               offen={listeOffen}
@@ -312,7 +502,8 @@ export function EntityCard({
                   : undefined
               }
             />
-            {entity.commands.includes('next') ? (
+            {fernseher ? teile.lautstaerke && <TvVolume entity={entity} onCommand={onCommand} /> : null}
+            {(fernseher ? teile.transport : entity.commands.includes('next')) ? (
               <View style={styles.mediaRow}>
                 <MediaButton
                   icon="play-skip-back"
@@ -321,7 +512,11 @@ export function EntityCard({
                 />
                 <MediaButton
                   icon={playing ? 'pause' : 'play'}
-                  label={playing ? 'Pause' : 'Abspielen'}
+                  // Der Fernseher meldet nie, ob gerade etwas läuft - die
+                  // Taste schickt in beiden Fällen dasselbe an ihn
+                  // (KEYCODE_MEDIA_PLAY_PAUSE). Also heisst sie auch so,
+                  // statt «Abspielen» zu behaupten.
+                  label={fernseher ? 'Wiedergabe/Pause' : playing ? 'Pause' : 'Abspielen'}
                   onPress={() => onCommand(playing ? 'pause' : 'play')}
                 />
                 <MediaButton
@@ -345,7 +540,7 @@ export function EntityCard({
             {entity.commands.includes('launch_app') ? (
               <TvApps entity={entity} onCommand={onCommand} />
             ) : null}
-            {entity.commands.includes('sleep_timer') ? (
+            {(fernseher ? teile.timer : entity.commands.includes('sleep_timer')) ? (
               <TvSleep entity={entity} onCommand={onCommand} />
             ) : null}
             {hasRemote ? (
@@ -354,6 +549,8 @@ export function EntityCard({
                 name={entity.name}
                 onClose={() => setRemoteOpen(false)}
                 onCommand={onCommand}
+                fehler={remoteOpen ? fehler : null}
+                onFehlerWeg={onFehlerWeg}
               />
             ) : null}
             {entity.commands.includes('set_volume') ? (
@@ -664,6 +861,15 @@ export function EntityCard({
             <Text style={styles.detail}>
               {typeof press === 'number' ? sinceLabel(press) : 'Noch kein Druck'}
             </Text>
+            {/* «Bereit, noch kein Druck» stimmt und führt trotzdem in die
+                Irre, wenn der Kanal gar nichts sendet - etwa der
+                Schaltausgang eines Aktors statt seiner Wippe. Der Hub
+                merkt das beim Start und legt den Grund hierher. */}
+            {entity.state.error ? (
+              <Text style={[styles.detail, { color: colors.danger }]}>
+                {String(entity.state.error)}
+              </Text>
+            ) : null}
           </View>
         );
       }
@@ -690,9 +896,16 @@ export function EntityCard({
       onLongPress={langerDruck}
     >
       {editing ? (
-        // Chips und Knöpfe stehen in zwei umbrechenden Zeilen: auf einer
-        // halbbreiten Telefonkachel passt sonst nicht alles nebeneinander
-        // und die hinteren Symbole ragen aus der Kachel heraus.
+        // Eine Zeile statt einer Knopfwand.
+        // Vorher standen hier zwei Chips und bis zu fünf beschriftete
+        // Symbole. Auf einer halbbreiten Telefonkachel brauchen vier
+        // davon rund 320 Punkte und bekommen 180 – sie brachen um, die
+        // Chips ebenso, und der Griff zum Verschieben lag über dem
+        // Raum-Chip. Der Inhalt der Kachel rutschte so weit nach unten,
+        // dass zwei Stück einen Bildschirm füllten.
+        //
+        // Jetzt sagt eine Zeile, was eingestellt ist, und ein Tipp
+        // öffnet das Blatt, in dem alles Platz hat.
         <View style={styles.editBox}>
           {partOf ? (
             <View style={styles.partOfRow}>
@@ -702,75 +915,145 @@ export function EntityCard({
               </Text>
             </View>
           ) : null}
+          <Pressable
+            onPress={() => setBlattOffen(true)}
+            accessibilityRole="button"
+            accessibilityLabel={`${entity.name} anpassen – ${standZeile(stand)}`}
+            style={({ pressed }) => [styles.editZeile, pressed && { opacity: 0.6 }]}
+          >
+            {/* Zwei bewusste Zeilen statt eines umbrechenden Satzes.
+                Vorher stand hier nur der Stand, und der beginnt mit dem
+                Raum: «Kein Raum ›». Das las sich wie ein Raumwähler -
+                dahinter liegt aber das ganze Blatt mit Umbenennen,
+                Raum, Gruppe, Favorit, Ausblenden und Rückfrage. Gemeldet
+                aus dem Haus, und zu Recht.
 
-          {(onSetRoom && rooms) || (onSetGroup && groups) ? (
-            <View style={styles.editChips}>
-              {onSetRoom && rooms ? (
-                <Pressable
-                  onPress={() => setRoomPickerOpen(true)}
-                  accessibilityRole="button"
-                  accessibilityLabel="Raum wählen"
-                  style={({ pressed }) => [styles.roomChip, pressed && { opacity: 0.6 }]}
-                >
-                  <Ionicons name="home-outline" size={13} color={colors.ink} />
-                  <Text style={styles.roomChipText} numberOfLines={1}>
-                    {entity.room ?? 'Kein Raum'}
-                  </Text>
-                </Pressable>
-              ) : null}
-              {onSetGroup && groups ? (
-                <Pressable
-                  onPress={() => setGroupPickerOpen(true)}
-                  accessibilityRole="button"
-                  accessibilityLabel="Gruppe wählen"
-                  style={({ pressed }) => [styles.roomChip, pressed && { opacity: 0.6 }]}
-                >
-                  <Ionicons name="layers-outline" size={13} color={colors.ink} />
-                  <Text style={styles.roomChipText} numberOfLines={1}>
-                    {entity.group ?? 'Keine Gruppe'}
-                  </Text>
-                </Pressable>
-              ) : null}
+                «Anpassen · Kein Raum» in einer Zeile wäre die
+                naheliegende Antwort und passt nicht: Auf einer
+                halbbreiten Telefonkachel bleiben 89 Punkte, gemessen,
+                und der Satz bricht mitten entzwei. Also die Überschrift
+                oben, klein und gedeckt, der Stand darunter - dieselbe
+                Höhe wie ein Umbruch, nur vorhersehbar. */}
+            <View style={{ flex: 1 }}>
+              <Text style={styles.editTitel}>Anpassen</Text>
+              <Text
+                style={[styles.editStand, faelltAuf(stand) && { color: colors.accent }]}
+                numberOfLines={1}
+              >
+                {standZeile(stand)}
+              </Text>
             </View>
-          ) : null}
-          <View style={styles.editButtons}>
-            {onRename ? (
-              <EditButton
-                icon="pencil"
-                active={false}
-                label="Umbenennen"
-                caption="Name"
-                onPress={() => setRenameOpen(true)}
-              />
-            ) : null}
-            <EditButton
-              icon={favorite ? 'star' : 'star-outline'}
-              active={!!favorite}
-              label={favorite ? 'Favorit entfernen' : 'Als Favorit'}
-              caption="Favorit"
-              onPress={onToggleFavorite}
-            />
-            <EditButton
-              icon={hidden ? 'eye-off' : 'eye-outline'}
-              active={!!hidden}
-              label={hidden ? 'Wieder einblenden' : 'Ausblenden'}
-              caption={hidden ? 'Versteckt' : 'Ausblenden'}
-              onPress={onToggleHidden}
-            />
-            {onToggleLocked ? (
-              <EditButton
-                icon={locked ? 'lock-closed' : 'lock-open-outline'}
-                active={!!locked}
-                label={locked ? 'Sperre aufheben' : 'Sperren – schaltet nur nach Rückfrage'}
-                // «Rückfrage» statt «Sperren»: Das Wort sagt, was passiert.
-                // Gesperrt klingt nach «geht nicht mehr» – es geht weiter,
-                // nur mit einem Ja dazwischen.
-                caption="Rückfrage"
-                onPress={onToggleLocked}
-              />
-            ) : null}
-          </View>
+            {/* Schieberegler statt Pfeil: Der Pfeil hiess «weiter zu dem,
+                was links steht» - und links stand der Raum. */}
+            <Ionicons name="options-outline" size={13} color={colors.inkSoft} />
+          </Pressable>
         </View>
+      ) : null}
+      {editing ? (
+        <AnpassenBlatt
+          visible={blattOffen}
+          titel={entity.name}
+          onClose={() => setBlattOffen(false)}
+          zeilen={[
+            ...(onRename
+              ? [
+                  {
+                    key: 'name',
+                    icon: 'pencil' as const,
+                    label: 'Umbenennen',
+                    onPress: () => {
+                      setBlattOffen(false);
+                      setRenameOpen(true);
+                    },
+                  },
+                ]
+              : []),
+            ...(onSetRoom && rooms
+              ? [
+                  {
+                    key: 'raum',
+                    icon: 'home-outline' as const,
+                    label: 'Raum',
+                    wert: entity.room ?? 'Kein Raum',
+                    onPress: () => {
+                      setBlattOffen(false);
+                      setRoomPickerOpen(true);
+                    },
+                  },
+                ]
+              : []),
+            ...(onSetGroup && groups
+              ? [
+                  {
+                    key: 'gruppe',
+                    icon: 'layers-outline' as const,
+                    label: 'Gruppe',
+                    wert: entity.group ?? 'Keine Gruppe',
+                    onPress: () => {
+                      setBlattOffen(false);
+                      setGroupPickerOpen(true);
+                    },
+                  },
+                ]
+              : []),
+            {
+              key: 'favorit',
+              icon: (favorite
+                ? 'star'
+                : 'star-outline') as keyof typeof Ionicons.glyphMap,
+              label: 'Favorit',
+              wert: favorite ? 'ja' : 'nein',
+              aktiv: !!favorite,
+              // Das Blatt bleibt offen: Wer eine Kachel anpasst, legt
+              // meist mehrere Schalter um. Nach jedem Tipp zu schliessen
+              // hiesse, es viermal zu öffnen.
+              onPress: () => onToggleFavorite?.(),
+            },
+            {
+              key: 'sichtbar',
+              icon: (hidden
+                ? 'eye-off'
+                : 'eye-outline') as keyof typeof Ionicons.glyphMap,
+              label: 'Ausblenden',
+              wert: hidden ? 'versteckt' : 'sichtbar',
+              aktiv: !!hidden,
+              onPress: () => onToggleHidden?.(),
+            },
+            ...(onToggleLocked
+              ? [
+                  {
+                    key: 'rueckfrage',
+                    icon: (locked
+                      ? 'lock-closed'
+                      : 'lock-open-outline') as keyof typeof Ionicons.glyphMap,
+                    // «Rückfrage» statt «Sperren»: Das Wort sagt, was
+                    // passiert. Gesperrt klingt nach «geht nicht mehr» -
+                    // es geht weiter, nur mit einem Ja dazwischen.
+                    label: 'Rückfrage vor dem Schalten',
+                    wert: locked ? 'ja' : 'nein',
+                    aktiv: !!locked,
+                    onPress: () => onToggleLocked(),
+                  },
+                ]
+              : []),
+            ...(onToggleUngezaehlt && zaehlbar(entity)
+              ? [
+                  {
+                    key: 'zaehlung',
+                    icon: (ungezaehlt
+                      ? 'remove-circle-outline'
+                      : 'bulb-outline') as keyof typeof Ionicons.glyphMap,
+                    // Gemeint ist die «3 an» in der Kopfzeile. «Zählt»
+                    // allein wäre zweideutig; «oben» sagt, wo.
+                    label: 'Zählt oben mit',
+                    wert: ungezaehlt ? 'nein' : 'ja',
+                    aktiv: !!ungezaehlt,
+                    onPress: () => onToggleUngezaehlt(),
+                  },
+                ]
+              : []),
+          ]}
+        />
       ) : null}
       {onSetRoom && rooms ? (
         <RoomPicker
@@ -788,6 +1071,13 @@ export function EntityCard({
         <KachelMenue
           visible={menueOffen}
           titel={entity.name}
+          // «Warum ist das an?» - die Frage, die man nachts im Flur
+          // stellt, beantwortet hier eine Zeile (siehe lib/ursache.ts).
+          ursache={ursacheSatz(entity, Date.now())}
+          // Und die Kette dahinter, wo der Hub sie kennt: Melder →
+          // Ablauf → Gerät. «Ablauf «Licht bei Bewegung»» allein zog
+          // sonst die nächste Frage nach sich - welche Bewegung?
+          kette={ketteSatz(entity, entity.name)}
           eintraege={aktionen}
           onClose={() => setMenueOffen(false)}
           onSelect={fuehreAus}
@@ -820,14 +1110,23 @@ export function EntityCard({
           alten Stand – die Schieber und Pfeile darin zeigen also etwas,
           das gleich nicht mehr stimmt. Blass gestellt sagt das jeder
           Kachelart auf einmal, ohne dass jede es einzeln wissen muss. */}
-      <View style={[styles.body, pending && { opacity: 0.55 }]}>{body()}</View>
+      {/* Der lange Druck steht den Knöpfen darin zur Verfügung: Auf
+          einer Kachel voller Bedienelemente - Schloss, Sauger, Musik -
+          erreicht die Geste die Kachel darunter sonst nie, weil React
+          Native sie an das innerste Element gibt, das sie annimmt.
+          Siehe entity/kacheldruck.tsx. */}
+      <KachelDruck wert={langerDruck}>
+        <View style={[styles.body, pending && { opacity: 0.55 }]}>{body()}</View>
+      </KachelDruck>
       {chart}
       <CardFooter
         title={entity.name}
         subtitle={pending ? 'wird geschaltet …' : entity.available ? subtitle : offlineText}
-        on={isOn}
-        onToggle={toggle}
+        on={isOn || !!boxSchalter?.an}
+        onToggle={toggleMitDoppeltipp}
+        toggleLabel={boxSchalter?.label}
         pending={pending}
+        onLongPress={langerDruck}
       />
       {usedIn ? (
         <Pressable

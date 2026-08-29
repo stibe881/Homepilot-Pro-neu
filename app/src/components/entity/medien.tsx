@@ -5,14 +5,18 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
 import { hubClient } from '../../api/client';
 import { CommandData, Entity } from '../../api/types';
 import { useSettings } from '../../hooks/HubContext';
+import { zielBox } from '../../lib/boxwahl';
+import { persoenlichLesen, persoenlichSetzen } from '../../lib/persoenlich';
+import { Playlistbuch, wahlFuer, wahlSetzen } from '../../lib/playlisten';
 import { keineBoxText, senderzeile } from '../../lib/radiobox';
 import { useColors } from '../../theme';
+import { useKachelDruck } from './kacheldruck';
 import { makeStyles } from './stil';
 
 export { keineBoxText };
@@ -52,9 +56,9 @@ export function ShuffleRepeat({
           <Ionicons
             name="shuffle"
             size={17}
-            color={shuffle ? '#FFFFFF' : colors.inkSoft}
+            color={shuffle ? colors.accent : colors.inkSoft}
           />
-          <Text style={[styles.modeButtonText, shuffle && { color: '#FFFFFF' }]}>
+          <Text style={[styles.modeButtonText, shuffle && { color: colors.accent }]}>
             Zufall
           </Text>
         </Pressable>
@@ -73,9 +77,9 @@ export function ShuffleRepeat({
           <Ionicons
             name="repeat"
             size={17}
-            color={repeatOn ? '#FFFFFF' : colors.inkSoft}
+            color={repeatOn ? colors.accent : colors.inkSoft}
           />
-          <Text style={[styles.modeButtonText, repeatOn && { color: '#FFFFFF' }]}>
+          <Text style={[styles.modeButtonText, repeatOn && { color: colors.accent }]}>
             {repeatLabel(repeat)}
           </Text>
         </Pressable>
@@ -84,10 +88,17 @@ export function ShuffleRepeat({
   );
 }
 
-/** Wie der Wiederholmodus heisst (rein, testbar). */
+/**
+ * Wie der Wiederholmodus heisst (rein, testbar).
+ *
+ * Zwei Wortschätze, weil der Hub früher Spotifys eigene Wörter
+ * durchreichte («context», «track») und heute überall dieselben drei
+ * benutzt. Ein Gerät, das noch die alten meldet, soll nicht plötzlich
+ * «Wiederholen» statt «Alles» anzeigen.
+ */
 export function repeatLabel(repeat: string): string {
-  if (repeat === 'context') return 'Alles';
-  if (repeat === 'track') return 'Ein Titel';
+  if (repeat === 'all' || repeat === 'context') return 'Alles';
+  if (repeat === 'one' || repeat === 'track') return 'Ein Titel';
   return 'Wiederholen';
 }
 
@@ -111,16 +122,26 @@ export function SpotifyPanel({
   entity,
   onCommand,
   hideDevices = false,
+  wunschBox = null,
 }: {
   entity: Entity;
   onCommand: (command: string, data?: CommandData) => void;
   /** Boxen-Zeile weglassen – auf der Startseite übernimmt sie der
    *  Lautsprecher-Wähler in der Kopfzeile der Musikkarte. */
   hideDevices?: boolean;
+  /** Die dort gewählte Box. Ohne sie startete eine Playlist auf der
+   *  zuletzt aktiven Box statt auf der gewählten (siehe lib/boxwahl). */
+  wunschBox?: string | null;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const devices: string[] = Array.isArray(entity.state.devices) ? entity.state.devices : [];
+  // Welche davon echte Google-Lautsprechergruppen sind. Ohne diese Marke
+  // sieht eine Gruppe aus wie eine Box, und wer sich wundert, warum nur
+  // eine spielt, hat keinen Anhaltspunkt.
+  const gruppen: string[] = Array.isArray(entity.state.device_groups)
+    ? entity.state.device_groups
+    : [];
   const playlists: string[] = Array.isArray(entity.state.playlists)
     ? entity.state.playlists
     : [];
@@ -128,36 +149,65 @@ export function SpotifyPanel({
   const playing = entity.state.state === 'playing';
   const [chosen, setChosen] = useState<string | null>(null);
   const [listOpen, setListOpen] = useState(false);
-  // Eigene Reihenfolge und ausgeblendete Playlists. Reine Ansichtssache,
-  // deshalb auf dem Gerät statt im Hub – jeder darf seine eigene haben.
+  // Eigene Reihenfolge und ausgeblendete Playlists. Persönlich, aber
+  // beim Hub: Reine Ansichtssache heisst nicht «darf verschwinden» - wer
+  // seine acht Playlists einmal sortiert hat, findet sie sonst nach dem
+  // nächsten Build wieder so vor, wie Spotify sie ausliefert.
+  const settings = useSettings();
   const [order, setOrder] = useState<string[]>([]);
   const [hiddenList, setHiddenList] = useState<string[]>([]);
-  const prefsKey = `homepilot.playlists.${entity.id}`;
+  const buch = useRef<Playlistbuch>({});
+  const altKey = `homepilot.playlists.${entity.id}`;
 
   useEffect(() => {
-    AsyncStorage.getItem(prefsKey)
-      .then((raw) => {
-        if (!raw) return;
-        const saved = JSON.parse(raw);
-        setOrder(Array.isArray(saved.order) ? saved.order : []);
-        setHiddenList(Array.isArray(saved.hidden) ? saved.hidden : []);
+    let weg = false;
+    persoenlichLesen(settings)
+      .then(async (werte) => {
+        if (weg) return;
+        const gelesen = (werte.playlisten ?? {}) as Playlistbuch;
+        buch.current = gelesen;
+        const wahl = wahlFuer(gelesen, entity.id);
+        if (wahl.order.length > 0 || wahl.hidden.length > 0) {
+          setOrder(wahl.order);
+          setHiddenList(wahl.hidden);
+          return;
+        }
+        // Einmalige Übernahme dessen, was auf diesem Gerät lag - und
+        // danach weg damit, damit die schon gelöste Frage nicht bei
+        // jedem Start neu gestellt wird.
+        const roh = await AsyncStorage.getItem(altKey);
+        if (weg || !roh) return;
+        const gespeichert = JSON.parse(roh);
+        const uebernommen = {
+          order: Array.isArray(gespeichert.order) ? gespeichert.order : [],
+          hidden: Array.isArray(gespeichert.hidden) ? gespeichert.hidden : [],
+        };
+        setOrder(uebernommen.order);
+        setHiddenList(uebernommen.hidden);
+        buch.current = wahlSetzen(buch.current, entity.id, uebernommen);
+        persoenlichSetzen(settings, 'playlisten', buch.current);
+        await AsyncStorage.removeItem(altKey);
       })
       .catch(() => {});
-  }, [prefsKey]);
+    return () => {
+      weg = true;
+    };
+  }, [settings, entity.id, altKey]);
 
   const savePrefs = (nextOrder: string[], nextHidden: string[]) => {
     setOrder(nextOrder);
     setHiddenList(nextHidden);
-    AsyncStorage.setItem(
-      prefsKey,
-      JSON.stringify({ order: nextOrder, hidden: nextHidden })
-      // Nicht speicherbar heisst nur: beim nächsten Start wieder die
-      // Standard-Reihenfolge.
-    ).catch(() => {});
+    buch.current = wahlSetzen(buch.current, entity.id, {
+      order: nextOrder,
+      hidden: nextHidden,
+    });
+    // Nicht gespeichert heisst nur: beim nächsten Start wieder die
+    // Standard-Reihenfolge.
+    persoenlichSetzen(settings, 'playlisten', buch.current);
   };
 
   // Ziel: zuletzt angetippt → gerade aktiv → erste Box.
-  const target = (chosen && devices.includes(chosen) ? chosen : null) ?? active ?? devices[0] ?? null;
+  const target = zielBox(chosen, wunschBox, active, devices);
   const visible = sortPlaylists(playlists, order).filter(
     (name) => !hiddenList.includes(name)
   );
@@ -200,7 +250,7 @@ export function SpotifyPanel({
                 <Text
                   style={[styles.deviceChipText, selected && styles.deviceChipTextActive]}
                   numberOfLines={1}>
-                  {name}
+                  {gruppen.includes(name) ? `${name} · Gruppe` : name}
                 </Text>
               </Pressable>
             );
@@ -217,7 +267,15 @@ export function SpotifyPanel({
           Antwort auf «was höre ich hier eigentlich». Sonst führt er schlicht
           zur Auswahl. */}
       <Pressable
-        onPress={() => setListOpen(true)}
+        onPress={() => {
+          setListOpen(true);
+          // Beim Aufklappen einmal frisch nachfragen. Der Hub holt die
+          // Liste sonst nur halbstündlich - eine gerade angelegte
+          // Playlist fehlte bis dahin, und niemand wusste, warum.
+          if (entity.commands.includes('refresh_playlists')) {
+            onCommand('refresh_playlists');
+          }
+        }}
         accessibilityRole="button"
         accessibilityLabel={
           current ? `Playlists – zurzeit ${current}` : 'Playlists'
@@ -477,9 +535,14 @@ export function MediaButton({
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  // Der lange Druck der Kachel - siehe kacheldruck.tsx. Ohne ihn
+  // verschluckt jeder Knopf die Geste, und auf einer Kachel voller
+  // Knöpfe (Schloss, Sauger, Musik) käme man nie an den Verlauf.
+  const langerDruck = useKachelDruck();
   return (
     <Pressable
       onPress={onPress}
+      onLongPress={langerDruck}
       accessibilityRole="button"
       accessibilityLabel={label}
       style={({ pressed }) => [styles.mediaButton, pressed && { opacity: 0.6 }]}
@@ -507,12 +570,15 @@ export function RadioPanel({
   entity,
   onCommand,
   hideDevices = false,
+  wunschBox = null,
 }: {
   entity: Entity;
   onCommand: (command: string, data?: CommandData) => void;
   /** Boxen-Zeile weglassen – auf der Startseite übernimmt sie der
    *  Lautsprecher-Wähler in der Kopfzeile der Musikkarte. */
   hideDevices?: boolean;
+  /** Die dort gewählte Box - siehe SpotifyPanel und lib/boxwahl. */
+  wunschBox?: string | null;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -520,6 +586,12 @@ export function RadioPanel({
   const hub = useMemo(() => hubClient(settings.url, settings.token), [settings]);
 
   const devices: string[] = Array.isArray(entity.state.devices) ? entity.state.devices : [];
+  // Welche davon echte Google-Lautsprechergruppen sind. Ohne diese Marke
+  // sieht eine Gruppe aus wie eine Box, und wer sich wundert, warum nur
+  // eine spielt, hat keinen Anhaltspunkt.
+  const gruppen: string[] = Array.isArray(entity.state.device_groups)
+    ? entity.state.device_groups
+    : [];
   // Wie viele Medien-Geräte der Hub überhaupt kennt. «Gar keins gefunden»
   // und «keins, das eine Tonadresse abspielen kann» sind zwei
   // verschiedene Antworten.
@@ -533,7 +605,7 @@ export function RadioPanel({
   const [chosen, setChosen] = useState<string | null>(null);
   const [listOpen, setListOpen] = useState(false);
 
-  const target = (chosen && devices.includes(chosen) ? chosen : null) ?? active ?? devices[0] ?? null;
+  const target = zielBox(chosen, wunschBox, active, devices);
   // Nur solange wirklich etwas läuft: Nach dem Anhalten wäre der Name eine
   // Behauptung über die Gegenwart, die nicht mehr stimmt.
   // Nur solange wirklich etwas läuft, und mit «lädt» für die Sekunden
@@ -588,7 +660,7 @@ export function RadioPanel({
                   style={[styles.deviceChipText, selected && styles.deviceChipTextActive]}
                   numberOfLines={1}
                 >
-                  {name}
+                  {gruppen.includes(name) ? `${name} · Gruppe` : name}
                 </Text>
               </Pressable>
             );

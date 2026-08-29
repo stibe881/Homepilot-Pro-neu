@@ -8,6 +8,7 @@ Sachgebiet statt 3800 Zeilen am Stück. Die Routen selbst sind unverändert
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime
 from typing import Any
 
@@ -18,6 +19,7 @@ from fastapi import (
     Response,
 )
 
+from ...core import guestpass
 from ...core import throttle as throttle_module
 from ...core.errors import HomePilotError
 from ...core.source import as_source, user_source
@@ -70,10 +72,10 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             if item.command not in entity.commands:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"'{entity.name}' kennt den Befehl '{item.command}' nicht",
+                    detail=f"'{entity.label}' kennt den Befehl '{item.command}' nicht",
                 )
             targets.append((item.entity_id, item.command))
-            names.append(entity.name)
+            names.append(entity.label)
         try:
             starts = moment(body.starts)
             until = moment(body.ends) or None
@@ -112,33 +114,91 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         require(request, Capability.MANAGE_USERS)
         return {"ok": hub.passes.revoke(token)}
 
-    @app.post("/einmal/{token}")
+    def _html(inhalt: str, status: int = 200) -> Response:
+        return Response(
+            content=inhalt, status_code=status, media_type="text/html; charset=utf-8"
+        )
+
+    def _abgelaufen() -> Response:
+        return _html(
+            guestpass.seite(
+                "Dieser Link gilt nicht mehr.",
+                "Er war für genau eine Öffnung gedacht und ist verbraucht, "
+                "abgelaufen oder zurückgezogen.",
+            ),
+            status=410,
+        )
+
+    def _bremse(request: Request) -> tuple[str, Response | None]:
+        """Die Bremse gegen das Durchprobieren von Adressen."""
+        address = throttle_module.client_address(request)
+        if throttle.blocked_for(address) > 0:
+            return address, _html(
+                guestpass.seite(
+                    "Zu viele Versuche.", "Bitte später nochmal probieren."
+                ),
+                status=429,
+            )
+        return address, None
+
     @app.get("/einmal/{token}")
+    async def show_pass(token: str, request: Request) -> Response:
+        """Den Link *zeigen* - und ausdrücklich nichts öffnen.
+
+        Das war der gemeldete Fehler: Der Link öffnete früher schon beim
+        Abrufen. Wer ihn verschickte, löste ihn damit selbst ein - jeder
+        Messenger, jeder Mailserver und jeder Virenscanner baut eine
+        Vorschau, indem er die Adresse abruft. Die Türen gingen also auf,
+        sobald man auf «Teilen» tippte, und beim Boten stand nur noch
+        «Dieser Link gilt nicht mehr».
+
+        Ein GET darf nichts verändern. Geöffnet wird per POST, und den
+        löst nur ein Mensch aus, der auf den Knopf drückt.
+        """
+        address, gebremst = _bremse(request)
+        if gebremst is not None:
+            return gebremst
+        entry = hub.passes.get(token)
+        now = time.time()
+        # Vier Fälle, eine Antwort: Es gibt ihn nicht, er ist verbraucht,
+        # abgelaufen - oder er gilt noch nicht. Das Letzte sieht wie ein
+        # Fehler aus und ist Absicht: Wer Adressen durchprobiert, soll aus
+        # der Antwort nicht lernen, dass es sich lohnt, in zwei Stunden
+        # wiederzukommen (siehe PassStore.redeem).
+        if (
+            entry is None
+            or entry.used_at is not None
+            or entry.expires < now
+            or entry.pending(now)
+        ):
+            throttle.failed(address)
+            return _abgelaufen()
+        namen = {e.id: e.label for e in hub.registry.all()}
+        tueren = guestpass.tuerennamen(entry, namen)
+        return _html(
+            guestpass.seite(
+                " und ".join(tueren) or "Türe öffnen",
+                "Der Knopf öffnet genau einmal. Danach gilt der Link nicht mehr.",
+                knopf="Jetzt öffnen",
+            )
+        )
+
+    @app.post("/einmal/{token}")
     async def redeem_pass(token: str, request: Request) -> Response:
         """Den Link einlösen - ohne Anmeldung, dafür genau einmal.
 
-        Bewusst auch per GET: Der Empfänger tippt die Adresse an, sonst
-        bräuchte er ein Formular. Die Adresse selbst ist das Geheimnis.
+        Nur per POST: siehe ``show_pass``. Die Adresse selbst ist das
+        Geheimnis; wer sie hat, darf öffnen - aber erst, wenn ein Mensch
+        auf den Knopf gedrückt hat.
         """
-        # Auch hier die Bremse: Sonst liesse sich der Token-Raum in Ruhe
-        # durchprobieren, wenn jemand die Adresse kennt.
-        address = throttle_module.client_address(request)
-        waiting = throttle.blocked_for(address)
-        if waiting > 0:
-            return Response(
-                content="Zu viele Versuche. Später nochmal.",
-                status_code=429,
-                media_type="text/plain; charset=utf-8",
-            )
+        address, gebremst = _bremse(request)
+        if gebremst is not None:
+            return gebremst
         try:
             entry = hub.passes.redeem(token)
         except KeyError:
             throttle.failed(address)
-            return Response(
-                content="Dieser Link gilt nicht mehr.",
-                status_code=410,
-                media_type="text/plain; charset=utf-8",
-            )
+            return _abgelaufen()
         throttle.succeeded(address)
 
         # Alle Türen des Links, in der gespeicherten Reihenfolge. Der Link
@@ -154,30 +214,29 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 continue
             hub.audit.record(f"Einmal-Link von {entry.created_by}", entity, command, address)
             log.warning(
-                "Einmal-Link eingelöst: %s → %s (von %s)", entity.name, command, address
+                "Einmal-Link eingelöst: %s → %s (von %s)", entity.label, command, address
             )
             try:
                 with as_source(user_source(f"Einmal-Link ({entry.created_by})")):
                     await hub.integrations.dispatch_command(entity_id, command, {})
             except HomePilotError as err:
-                log.error("Einmal-Link: %s liess sich nicht öffnen: %s", entity.name, err)
-                failed.append(f"{entity.name} ({err})")
+                log.error("Einmal-Link: %s liess sich nicht öffnen: %s", entity.label, err)
+                failed.append(f"{entity.label} ({err})")
             else:
-                opened.append(entity.name)
+                opened.append(entity.label)
 
         if not opened:
-            return Response(
-                content="Hat nicht geklappt: " + ", ".join(failed) + "\n",
-                status_code=502,
-                media_type="text/plain; charset=utf-8",
+            return _html(
+                guestpass.seite(
+                    "Hat nicht geklappt.",
+                    "Keine Türe liess sich öffnen: " + ", ".join(failed) + ".",
+                ),
+                status=502,
             )
-        text = " und ".join(opened) + ": erledigt."
+        satz = "Dieser Link gilt jetzt nicht mehr."
         if failed:
             # Halber Erfolg gehört gesagt, sonst steht der Bote im
             # Treppenhaus und rüttelt an der falschen Türe.
-            text += " Nicht geklappt hat: " + ", ".join(failed) + "."
-        return Response(
-            content=text + " Dieser Link gilt jetzt nicht mehr.\n",
-            media_type="text/plain; charset=utf-8",
-        )
+            satz = "Nicht geklappt hat: " + ", ".join(failed) + ". " + satz
+        return _html(guestpass.seite(" und ".join(opened) + ": offen.", satz))
 

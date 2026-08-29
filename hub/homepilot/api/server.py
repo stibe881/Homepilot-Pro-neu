@@ -75,7 +75,13 @@ from .routes import (
     lightgroups as routes_lightgroups,
 )
 from .routes import (
+    medien as routes_medien,
+)
+from .routes import (
     passes as routes_passes,
+)
+from .routes import (
+    personen as routes_personen,
 )
 from .routes import (
     prefs as routes_prefs,
@@ -152,11 +158,34 @@ def create_app(hub: Hub) -> FastAPI:
         user = hub.users.by_token(token)
         if user is not None:
             return user
-        name = hub.sessions.user_for(token or "")
-        if not name:
+        kennung = hub.sessions.identity(token or "")
+        if kennung is None:
             return None
+        name, email = kennung
         user = hub.users.by_name(name)
-        return user if user is not None and user.active() else None
+        if user is None and email:
+            # Zweiter Weg über die Adresse: Wer sich umbenennt - «Stefan»
+            # zu «stibe» -, verlor sonst schlagartig jede Sitzung auf jedem
+            # Gerät und stand vor seinem eigenen Haus. Die Adresse bleibt
+            # bei einer Umbenennung dieselbe, und die Anmeldung geht
+            # ohnehin über sie (routes/auth.py).
+            user = hub.users.by_email(email)
+            if user is not None:
+                log.warning(
+                    "Sitzung von '%s' läuft jetzt auf '%s' - umbenannt.",
+                    name,
+                    user.name,
+                )
+                hub.sessions.rename(name, user.name)
+        if user is None:
+            # Weder Name noch Adresse führen irgendwohin. Ins Protokoll,
+            # sonst rätselt man an einem «Ungültiges Token», das nach
+            # einer Umbenennung plötzlich überall steht.
+            log.warning(
+                "Sitzung von '%s' zeigt ins Leere - umbenannt oder gelöscht?", name
+            )
+            return None
+        return user if user.active() else None
 
     def current_user(request: Request) -> User:
         # Sobald der Hub von aussen erreichbar ist, klopfen Scanner an.
@@ -170,9 +199,18 @@ def create_app(hub: Hub) -> FastAPI:
                 detail=f"Zu viele Fehlversuche. In {round(waiting)} Sekunden wieder.",
                 headers={"Retry-After": str(round(waiting))},
             )
-        user = user_for_token(token_from(request))
+        token = token_from(request)
+        user = user_for_token(token)
         if user is None:
-            if throttle.failed(address):
+            # Mit Fingerabdruck: Dasselbe untaugliche Token noch einmal ist
+            # kein Rateversuch, sondern eine App, die von ihrer abgelaufenen
+            # Sitzung nichts weiss - und die fragt im Takt weiter, bis die
+            # Adresse gesperrt ist. Dann kommt auch die Anmeldemaske nicht
+            # mehr durch (core/throttle.py).
+            gesperrt = throttle.failed(
+                address, kennung=throttle_module.fingerabdruck(token or "")
+            )
+            if gesperrt:
                 log.warning(
                     "%s gesperrt: zu viele ungültige Tokens", address
                 )
@@ -245,6 +283,8 @@ def create_app(hub: Hub) -> FastAPI:
         routes_dashboard.register,
         routes_radio.register,
         routes_einladungen.register,
+        routes_personen.register,
+        routes_medien.register,
     ):
         register(app, ctx)
 

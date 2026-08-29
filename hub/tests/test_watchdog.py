@@ -47,6 +47,7 @@ async def test_watchdog_meldet_ausfall_und_rueckkehr():
             {
                 "id": "hue.lampe",
                 "name": "Lampe",
+                "label": "Lampe",
                 "kind": "light",
                 "integration": "hue",
                 "available": False,
@@ -83,6 +84,7 @@ def test_only_alarm_sensors_are_watched_one_by_one():
             {
                 "id": entity_id,
                 "name": entity_id,
+                "label": entity_id,
                 "integration": "homematic",
                 "available": available,
                 "state": state,
@@ -98,7 +100,9 @@ def test_only_alarm_sensors_are_watched_one_by_one():
 def test_low_batteries_are_found():
     def entity(entity_id: str, low: bool | None):
         state = {} if low is None else {"low_battery": low}
-        return type("E", (), {"id": entity_id, "name": entity_id, "state": state})()
+        return type(
+            "E", (), {"id": entity_id, "name": entity_id, "label": entity_id, "state": state}
+        )()
 
     entities = [entity("a", True), entity("b", False), entity("c", None)]
     assert [item.id for item in low_batteries(entities)] == ["a"]
@@ -123,6 +127,7 @@ async def test_a_weak_battery_is_reported_once():
             {
                 "id": "hm.rauchmelder",
                 "name": "Rauchmelder Flur",
+                "label": "Rauchmelder Flur",
                 "kind": "binary_sensor",
                 "integration": "homematic",
                 "available": True,
@@ -169,6 +174,7 @@ async def test_a_finished_machine_is_remembered_once():
             {
                 "id": "vzug.waschmaschine",
                 "name": "Waschmaschine",
+                "label": "Waschmaschine",
                 "kind": "appliance",
                 "integration": "vzug",
                 "available": True,
@@ -195,7 +201,7 @@ async def test_a_finished_machine_is_remembered_once():
         # Neues Programm: Der Merker ist wieder frei.
         maschine.state = {"state": "running"}
         await hub.watchdog.check()
-        assert "vzug.waschmaschine" not in hub.watchdog._reminded
+        assert "vzug.waschmaschine" not in hub.watchdog._gemahnt
     finally:
         await hub.stop()
 
@@ -232,6 +238,7 @@ async def test_a_cycle_without_a_beginning_is_not_guessed():
             {
                 "id": "vzug.wama",
                 "name": "Waschmaschine",
+                "label": "Waschmaschine",
                 "kind": "appliance",
                 "integration": "vzug",
                 "available": True,
@@ -263,6 +270,7 @@ async def test_the_day_is_closed_with_the_last_value_before_midnight():
             {
                 "id": "hm.psm",
                 "name": "Steckdose",
+                "label": "Steckdose",
                 "kind": "sensor",
                 "integration": "homematic",
                 "available": True,
@@ -303,6 +311,7 @@ async def test_without_a_meter_nothing_is_written():
             {
                 "id": "hue.lampe",
                 "name": "Lampe",
+                "label": "Lampe",
                 "kind": "light",
                 "integration": "hue",
                 "available": True,
@@ -326,6 +335,7 @@ def melder(entity_id: str, device_class: str, state: str = "on"):
         {
             "id": entity_id,
             "name": entity_id,
+            "label": entity_id,
             "kind": "binary_sensor",
             "integration": "homematic",
             "available": True,
@@ -438,6 +448,7 @@ def test_open_contacts_counts_the_door_sensor_in_a_lock():
         {
             "id": "nuki.haustuer",
             "name": "Haustüre",
+            "label": "Haustüre",
             "kind": "lock",
             "integration": "nuki",
             "available": True,
@@ -452,11 +463,18 @@ def test_open_contacts_counts_the_door_sensor_in_a_lock():
 
 
 def test_open_contacts_falls_back_to_the_name():
-    """Ohne device_class entscheidet der Name – wie in der App."""
+    """Ohne device_class entscheidet der Name – und zwar der selbst
+    vergebene.
+
+    Der Matter-Kontakt heisst ab Werk «Aqara Door and Window Sensor P2».
+    Was ihn als Fenster erkennbar macht, ist der Name, den jemand ihm in
+    der App gegeben hat.
+    """
     from homepilot.core.watchdog import open_contacts
 
     fenster = melder("matter.kueche", "")
-    fenster.name = "Fenster Küche"
+    fenster.name = "Aqara Door and Window Sensor P2"
+    fenster.label = "Fenster Küche"
     assert [entity.id for entity in open_contacts([fenster])] == ["matter.kueche"]
 
 
@@ -526,3 +544,252 @@ def test_heartbeat_respects_its_own_pace(monkeypatch):
         assert len(aufrufe) == 1
 
     asyncio.run(check())
+
+
+async def test_the_open_window_push_names_the_window_not_the_sensor_model():
+    """«Aqara Door and Window Sensor P2 steht offen» sagt nicht, welches.
+
+    Der Matter-Kontakt bringt den Namen von der Verpackung mit. Wer ihn in
+    der App «Fenster Küche» genannt hat, will genau das lesen - nachts, in
+    einer Mitteilung, die man in zwei Sekunden versteht oder gar nicht.
+    """
+    from homepilot.core.entity import Entity
+
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        sent: list[tuple[str, str]] = []
+
+        async def fake_send(tokens, title, body, data=None, **_):
+            sent.append((title, body))
+            return len(tokens)
+
+        hub.push.send = fake_send  # type: ignore[assignment]
+        hub.push.register("ExponentPushToken[x]", "Stefan")
+
+        fenster = Entity(
+            id="matter.kontakt",
+            kind="binary_sensor",
+            name="Aqara Door and Window Sensor P2",
+            integration="matter",
+            state={"state": "on", "device_class": "contact"},
+        )
+        fenster.display_name = "Fenster Küche"
+        hub.registry.all = lambda: [fenster]  # type: ignore[assignment]
+
+        await hub.watchdog.check()
+        # Drei Stunden zurückdrehen - die Regel erinnert nach zwei.
+        hub.watchdog._open_since["matter.kontakt"] -= 3 * 3600
+        await hub.watchdog.check()
+
+        titel = [title for title, _ in sent if "steht offen" in title]
+        assert titel == ["Fenster Küche steht offen"]
+        # Die Uhrzeit steht vorne: Wer weiss, wann er aufgemacht hat,
+        # erkennt daran sofort einen hängenden Sensor. Eine gerundete
+        # Dauer allein liesse ihn nur rätseln.
+        text = next(body for title, body in sent if "steht offen" in title)
+        assert text.startswith("Offen seit ")
+        assert "3 Std." in text
+    finally:
+        await hub.stop()
+
+
+async def test_die_offen_meldung_zaehlt_ab_der_letzten_oeffnung():
+    """Der Fall, der die Nachricht zu früh brachte.
+
+    Der Wächter zählte selbst, und seine Uhr begann in der Runde, in der
+    er den Kontakt zum ersten Mal offen sah. Ging eine Türe zwischen zwei
+    Runden auf, zu und wieder auf, lief sie von der ersten Öffnung weiter
+    - und «seit einer Stunde offen» kam nach fünf Minuten.
+    """
+    import time as zeit
+
+    from homepilot.core.entity import Entity
+
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        sent: list[tuple[str, str]] = []
+
+        async def fake_send(tokens, title, body, data=None, **_):
+            sent.append((title, body))
+            return len(tokens)
+
+        hub.push.send = fake_send  # type: ignore[assignment]
+        hub.push.register("ExponentPushToken[x]", "Stefan")
+
+        tuere = Entity(
+            id="matter.tuere",
+            kind="binary_sensor",
+            name="Haustüre",
+            integration="matter",
+            state={"state": "on", "device_class": "contact"},
+        )
+        hub.registry.all = lambda: [tuere]  # type: ignore[assignment]
+
+        jetzt = zeit.time()
+        # Vor drei Stunden aufgemacht, vor zwei zugemacht, vor fünf
+        # Minuten wieder aufgemacht.
+        hub.eventlog._events.extend(
+            [
+                {"entity_id": "matter.tuere", "state": "on", "at": jetzt - 3 * 3600, "source": {}},
+                {"entity_id": "matter.tuere", "state": "off", "at": jetzt - 2 * 3600, "source": {}},
+                {"entity_id": "matter.tuere", "state": "on", "at": jetzt - 300, "source": {}},
+            ]
+        )
+
+        await hub.watchdog.check()
+        assert [title for title, _ in sent if "steht offen" in title] == []
+    finally:
+        await hub.stop()
+
+
+async def test_die_offen_meldung_kommt_wenn_es_wirklich_so_lange_ist():
+    import time as zeit
+
+    from homepilot.core.entity import Entity
+
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        sent: list[tuple[str, str]] = []
+
+        async def fake_send(tokens, title, body, data=None, **_):
+            sent.append((title, body))
+            return len(tokens)
+
+        hub.push.send = fake_send  # type: ignore[assignment]
+        hub.push.register("ExponentPushToken[x]", "Stefan")
+
+        tuere = Entity(
+            id="matter.tuere",
+            kind="binary_sensor",
+            name="Haustüre",
+            integration="matter",
+            state={"state": "on", "device_class": "contact"},
+        )
+        hub.registry.all = lambda: [tuere]  # type: ignore[assignment]
+
+        jetzt = zeit.time()
+        hub.eventlog._events.append(
+            {"entity_id": "matter.tuere", "state": "on", "at": jetzt - 3 * 3600, "source": {}}
+        )
+
+        await hub.watchdog.check()
+        text = next(body for title, body in sent if "steht offen" in title)
+        assert text.startswith("Offen seit ")
+    finally:
+        await hub.stop()
+
+
+def test_offen_satz_nennt_die_uhrzeit():
+    import time as zeit
+
+    from homepilot.core.watchrules import offen_satz
+
+    jetzt = zeit.mktime((2026, 8, 27, 15, 5, 0, 0, 0, -1))
+    seit = jetzt - 3660  # eine Stunde und eine Minute
+    satz = offen_satz(seit, jetzt)
+    assert satz.startswith("Offen seit 14:04")
+    assert "1 Std. 1 Min." in satz
+    # Unter einer Stunde in Minuten - «0 Stunden» wäre keine Auskunft.
+    assert offen_satz(jetzt - 900, jetzt).endswith("15 Minuten")
+
+
+# ── Sauger-Probleme (Punkt: Meldungen der Hersteller-App auch als Push) ────
+
+
+def sauger(entity_id: str, state: dict):
+    return type(
+        "E",
+        (),
+        {
+            "id": entity_id,
+            "name": entity_id,
+            "label": "Saros Z70",
+            "kind": "vacuum",
+            "integration": "roborock",
+            "available": True,
+            "state": state,
+        },
+    )()
+
+
+def test_sauger_probleme_sieht_roboter_und_station():
+    """Der volle Schmutzwassertank steht nur am Dock - beide Quellen
+    zählen, und jede bekommt ihren eigenen Schlüssel."""
+    from homepilot.core.watchdog import sauger_probleme
+
+    entities = [
+        sauger(
+            "roborock.z70",
+            {
+                "state": "error",
+                "error": "robot_trapped",
+                "dock": {"error": "water_empty"},
+            },
+        )
+    ]
+    gefunden = sauger_probleme(entities)
+    assert [(schluessel, text) for _, schluessel, text in gefunden] == [
+        ("fehler:robot_trapped", "Der Sauger steckt fest."),
+        (
+            "dock:water_empty",
+            "Der Reinigungswassertank ist leer oder nicht eingesetzt.",
+        ),
+    ]
+
+
+def test_sauger_ohne_problem_bleibt_still():
+    from homepilot.core.watchdog import sauger_probleme
+
+    entities = [
+        sauger("roborock.z70", {"state": "cleaning", "battery": 80}),
+        sauger("roborock.alt", {"state": "docked", "dock": {"drying": True}}),
+        # «ok»/«none» sind die Ruhemeldungen mancher Firmware-Stände.
+        sauger("roborock.ok", {"state": "docked", "error": "none"}),
+        melder("hm.fenster", "contact"),
+    ]
+    assert sauger_probleme(entities) == []
+
+
+def test_unbekannte_sauger_meldung_bleibt_lesbar():
+    """Die Namensliste wächst mit der Firmware - was fehlt, soll als
+    Original durchkommen statt zu verschwinden."""
+    from homepilot.core.watchdog import sauger_probleme
+
+    entities = [
+        sauger("roborock.z70", {"state": "error", "error": "vertical_bumper_pressed"})
+    ]
+    (_, schluessel, text) = sauger_probleme(entities)[0]
+    assert schluessel == "fehler:vertical_bumper_pressed"
+    assert text == "Der Sauger meldet: vertical bumper pressed."
+
+
+async def test_ein_sauger_problem_wird_einmal_gemeldet_und_ist_danach_wieder_scharf():
+    hub = Hub(HubConfig(api=ApiConfig(), integrations=[{"integration": "demo"}]))
+    await hub.start()
+    try:
+        sent: list[str] = []
+
+        async def fake_send(tokens, title, body, data=None, image=None, **_):
+            sent.append(body)
+            return len(tokens)
+
+        hub.push.send = fake_send  # type: ignore[assignment]
+        hub.push.register("ExponentPushToken[x]", "Stefan")
+
+        kaputt = [sauger("roborock.z70", {"state": "docked", "dock": {"error": "water_empty"}})]
+        heil = [sauger("roborock.z70", {"state": "docked"})]
+
+        await hub.watchdog._check_sauger(kaputt)
+        await hub.watchdog._check_sauger(kaputt)
+        assert sent == ["Der Reinigungswassertank ist leer oder nicht eingesetzt."]
+
+        # Tank gefüllt, später wieder leer: neue Nachricht - dasselbe
+        # Muster wie bei den Wassermeldern.
+        await hub.watchdog._check_sauger(heil)
+        await hub.watchdog._check_sauger(kaputt)
+        assert len(sent) == 2
+    finally:
+        await hub.stop()

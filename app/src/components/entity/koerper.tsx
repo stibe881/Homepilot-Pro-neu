@@ -9,10 +9,12 @@ import { Image, Pressable, Text, View } from 'react-native';
 
 import { CommandData, Entity } from '../../api/types';
 import { useTakt } from '../../hooks/useTakt';
+import { herkunftText, positionText, storenstand } from '../../lib/storenstand';
 import { mayOpenDirectly } from '../../lib/tuerbestaetigung';
 import { radius, useColors } from '../../theme';
 import { Bar } from '../Bar';
 import { CoverVisual, Sky } from '../CoverVisual';
+import { useKachelDruck } from './kacheldruck';
 import { MediaButton } from './medien';
 import { makeStyles } from './stil';
 import { Pill, clock } from './teile';
@@ -33,6 +35,10 @@ export function LockBody({
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [armed, setArmed] = useState(false);
+  // Der lange Druck der Kachel. Die Türknöpfe füllen sie fast ganz aus,
+  // und ein Druck auf einen Knopf erreicht die Kachel darunter nie -
+  // React Native gibt die Geste an das innerste Element, das sie annimmt.
+  const langerDruck = useKachelDruck();
   useEffect(() => {
     if (!armed) return;
     const timer = setTimeout(() => setArmed(false), 4000);
@@ -106,6 +112,7 @@ export function LockBody({
           <Pressable
             disabled={pending || moving}
             onPress={() => oeffne('unlatch')}
+            onLongPress={langerDruck}
             accessibilityRole="button"
             style={({ pressed }) => [
               styles.lockButton,
@@ -148,6 +155,7 @@ export function LockBody({
       <Pressable
         disabled={pending || opened}
         onPress={() => oeffne('open_door')}
+        onLongPress={langerDruck}
         accessibilityRole="button"
         accessibilityLabel={armed ? 'Wirklich öffnen' : 'Tür öffnen'}
         style={({ pressed }) => [
@@ -370,16 +378,16 @@ export function CoverBody({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const pos = entity.state.position;
   const tilt = entity.state.tilt;
-  // Fällt die Position, leiten wir sie aus dem Zustand ab, damit sich die
-  // Grafik trotzdem bewegt (zu = 0, offen = 100).
-  const reported =
-    typeof pos === 'number'
-      ? pos
-      : entity.state.state === 'closed'
-        ? 0
-        : entity.state.state === 'partial'
-          ? 50
-          : 100;
+  // Was der Hub über diese Store sagt - und ob er überhaupt etwas sagt.
+  // Der Rückfall stand vorher hier und machte aus allem Unbekannten eine
+  // 100: Eine Store, die nie zurückmeldet, stand damit dauerhaft als
+  // «Offen» da. Warum das der Normalfall ist und nicht die Ausnahme,
+  // steht in lib/storenstand.ts.
+  const stand = storenstand(entity.state as Record<string, unknown>);
+  const herkunft = herkunftText(stand);
+  // Für die Grafik braucht es eine Zahl. Bei «weiss nicht» ist die halbe
+  // Höhe die ehrlichste: Sie behauptet weder offen noch zu.
+  const reported = stand.position ?? 50;
   const travel =
     typeof entity.state.travel_seconds === 'number' ? entity.state.travel_seconds : 25;
 
@@ -418,14 +426,13 @@ export function CoverBody({
         label={
           moving
             ? `${shown}% · fährt`
-            : shown <= 1
-              ? 'Geschlossen'
-              : shown >= 99
-                ? 'Offen'
-                : `${shown}% offen`
+            : stand.position === null
+              ? stand.text
+              : positionText(shown)
         }
         tone={moving ? colors.accent : undefined}
       />
+      {!moving && herkunft ? <Text style={styles.hint}>{herkunft}</Text> : null}
       {entity.commands.includes('set_position') && typeof pos === 'number' ? (
         <View style={styles.stack}>
           <Text style={styles.hint}>Position: {shown} % offen</Text>
@@ -482,6 +489,8 @@ export function VacuumBody({
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  // Der lange Druck der Kachel - siehe kacheldruck.tsx.
+  const saugerDruck = useKachelDruck();
   const [selected, setSelected] = useState<number[]>([]);
   const toggle = (id: number) =>
     setSelected((current) =>
@@ -594,6 +603,7 @@ export function VacuumBody({
       {selected.length > 0 ? (
         <Pressable
           onPress={clean}
+          onLongPress={saugerDruck}
           accessibilityRole="button"
           style={({ pressed }) => [styles.cleanRoomsButton, pressed && { opacity: 0.75 }]}
         >

@@ -5,7 +5,7 @@
  */
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Pressable, Text, TextInput, View } from 'react-native';
 
 import { Entity } from '../../api/types';
 import { useColors } from '../../theme';
@@ -30,7 +30,7 @@ import {
 } from './szenengeraete';
 
 export { baseCommandOptions, commandOptions, isSceneDevice };
-import { CategoryField, Choice, Field, NachlaufWahl } from './felder';
+import { CategoryField, Choice, EditorRahmen, Field, NachlaufWahl } from './felder';
 import { makeStyles } from './stil';
 
 export interface SceneDraft {
@@ -253,8 +253,12 @@ export function SceneDevices({
           </Pressable>
         ) : null}
       </View>
+      {/* «1 Gerät(e)» stand da, weil niemand die Mehrzahl bilden wollte.
+          Diese Zeile liest man beim Anlegen jedes Ablaufs. */}
       {actions.length > 0 ? (
-        <Text style={styles.snapshotHint}>{actions.length} Gerät(e) ausgewählt</Text>
+        <Text style={styles.snapshotHint}>
+          {actions.length === 1 ? '1 Gerät ausgewählt' : `${actions.length} Geräte ausgewählt`}
+        </Text>
       ) : null}
 
       {groups.length === 0 ? (
@@ -663,17 +667,11 @@ export function SceneEditor({
   ).sort((a, b) => a.localeCompare(b));
 
   return (
-    <Modal visible animationType="slide" onRequestClose={onCancel}>
-      <ScrollView style={styles.editor} contentContainerStyle={styles.editorContent}>
-        <View style={styles.cardHead}>
-          <Text style={styles.editorTitle}>
-            {draft.id ? 'Szene bearbeiten' : 'Neue Szene'}
-          </Text>
-          <Pressable onPress={onCancel} accessibilityLabel="Abbrechen">
-            <Ionicons name="close" size={26} color={colors.ink} />
-          </Pressable>
-        </View>
-
+    <EditorRahmen
+      titel={draft.id ? 'Szene bearbeiten' : 'Neue Szene'}
+      onCancel={onCancel}
+      onSave={onSave}
+    >
         <Field label="Name">
           <TextInput
             style={styles.input}
@@ -824,8 +822,7 @@ export function SceneEditor({
             <Text style={styles.deleteText}>Szene löschen</Text>
           </Pressable>
         ) : null}
-      </ScrollView>
-    </Modal>
+    </EditorRahmen>
   );
 }
 

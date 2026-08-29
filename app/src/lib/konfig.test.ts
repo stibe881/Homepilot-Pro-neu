@@ -8,6 +8,7 @@
 import {
   alsText,
   eingabeWert,
+  FELDER,
   feldergruppe,
   maskiert,
   wertVon,
@@ -119,5 +120,24 @@ describe('Zusammenfassung von Objekten', () => {
 
   test('ein leerer Abschnitt sagt das auch', () => {
     expect(zusammenfassung('push', { push: {} })).toBe('leer');
+  });
+});
+
+describe('Auf eine Person warten', () => {
+  /**
+   * Das Fenster gehört ins Formular und nicht nur in die config.yaml:
+   * Wie lange der Weg vom Melder zur Kamera dauert, weiss nur, wer im
+   * Haus wohnt – und der soll es einstellen können, ohne eine Datei auf
+   * dem Hub zu öffnen. Warum es das Fenster gibt: hub/core/personenbild.py.
+   */
+  const push = FELDER.find((f) => f.abschnitt === 'push');
+
+  it('steht als Zahlenfeld im Push-Abschnitt', () => {
+    const feld = push?.felder.find((f) => f.pfad.join('.') === 'push.person_fenster');
+    expect(feld?.art).toBe('zahl');
+  });
+
+  it('liest einen gesetzten Wert aus der Datei', () => {
+    expect(wertVon({ push: { person_fenster: 6 } }, ['push', 'person_fenster'])).toBe(6);
   });
 });

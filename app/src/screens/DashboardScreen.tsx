@@ -1,7 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Image,
   Linking,
   Modal,
   Pressable,
@@ -12,57 +11,62 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CommandData, Entity, HubSettings } from '../api/types';
-import { Bar } from '../components/Bar';
-import { Card } from '../components/Card';
+import { begruessung } from '../lib/begruessung';
+import {
+  Bereich,
+  adminZeile,
+  einstiegsSeite,
+  gruppeVon,
+  siehtBereich,
+} from '../lib/einstellungsmenue';
 import { DraggableList } from '../components/DraggableList';
 import { CellLayout, DragCell, reorderByDrop } from '../components/DragGrid';
 import { EntityCard } from '../components/EntityCard';
 import { skyFromIcon } from '../components/CoverVisual';
 import { HistoryChart } from '../components/HistoryChart';
-import { CameraLive } from '../components/CameraLive';
-import { CameraTimeline } from '../components/CameraTimeline';
 import { OpenDoors } from '../components/OpenDoors';
 import { RunningAppliances } from '../components/RunningAppliances';
 import { SECTION_LABEL, Rail, Section } from '../components/Rail';
 import { AllOff } from '../components/AllOff';
+import { BesuchBlatt } from '../components/BesuchBlatt';
+import { BabysitterStand, modusZeile } from '../lib/babysitter';
+import { Leerzustand } from '../components/Leerzustand';
+import { SorgenBlatt } from '../components/SorgenBlatt';
 import { DeviceHealth } from '../components/DeviceHealth';
 import { RoomTabs } from '../components/RoomTabs';
 import { RoomTile } from '../components/RoomTile';
 import { SceneRow } from '../components/SceneRow';
 import { GlobalSearch } from '../components/GlobalSearch';
+import { LiveTuerSchalter } from '../components/LiveTuerSchalter';
 import { PushPrefs } from '../components/PushPrefs';
 import { ActivityCard, SidePanel } from '../components/SidePanel';
 import { Bestaetigung, Toast, UndoToast } from '../components/Toast';
 import { TopStrip } from '../components/TopStrip';
 import { useHub } from '../hooks/useHub';
-import { Tap, useNotificationTap } from '../hooks/useNotificationTap';
+import { Knopfdruck, Tap, useNotificationTap } from '../hooks/useNotificationTap';
 import { usePrefs } from '../hooks/usePrefs';
+import { useLiveAktivitaet } from '../hooks/useLiveAktivitaet';
+import { useWatchSync } from '../hooks/useWatchSync';
 import { usePushRegistration } from '../hooks/usePushRegistration';
-import { breakpoints, Colors, radius, space, type, useColors } from '../theme';
+import { breakpoints, space, type, useColors } from '../theme';
 import { KAMERA_MINDEST, kachelBreite, spalten } from '../lib/raster';
-import {
-  EinkaufZeile,
-  Shop,
-  findeArtikel,
-  mengeUndName,
-  mitMenge,
-  shopCategory,
-} from '../lib/einkauf';
+import { mengeUndName } from '../lib/einkauf';
 import { uhr } from '../lib/format';
 import {
-  AUTO_SCHLIESSEN_SEKUNDEN,
-  KlingelAktion,
   klingelAktionen,
   klingelBild,
   klingeltGerade,
-  neueFrist,
-  restSekunden,
+  vollbildZeigen,
 } from '../lib/klingel';
 import { deviceKindLabel, musikboxenImRaum } from '../lib/geraeteart';
+import { rueckangebot } from '../lib/rueckgriff';
+import { gemerkteAktion, menuLabel } from '../lib/doppeltipp';
+import { leerbild } from '../lib/leerzustand';
+import { reihenfolge as nutzungsReihenfolge } from '../lib/raumnutzung';
+import { sorgen, sorgenSatz } from '../lib/sorgen';
 import { szenenFuerKachel, szenenFuerRaum } from '../lib/szenen';
 import {
   GeraeteFilter,
@@ -82,9 +86,19 @@ import {
 import { Person } from '../lib/ortung';
 import { FAVORITEN, raumGruppen } from '../lib/raumgruppen';
 import { verlangtPin } from '../lib/alarmpin';
-import { istGesperrt } from '../lib/bereichsriegel';
+import { OffenesModul, istGesperrt, istPersoenlich, offeneModule } from '../lib/bereichsriegel';
 import { schleier } from '../lib/nachtabsenkung';
+import { Einrichtungshilfe } from '../components/Einrichtungshilfe';
+import { EinstellungsTabs } from '../components/EinstellungsTabs';
+import { Kamerawand } from '../components/Kamerawand';
+import { HausRueckblick } from './HausRueckblick';
 import { nachBewegung } from '../lib/kameraordnung';
+import {
+  hinweis as tageszeitHinweis,
+  jetzigerAbschnitt,
+  lohntSich,
+  nachTageszeit,
+} from '../lib/tageszeit';
 import { hubClient, onHubFehler } from '../api/client';
 import { Auffangnetz } from '../components/Auffangnetz';
 import { AutomationsScreen } from './AutomationsScreen';
@@ -97,7 +111,7 @@ import { EnergyScreen } from './EnergyScreen';
 import { SpeakersScreen } from './SpeakersScreen';
 import { SystemScreen } from './SystemScreen';
 import { EntityHistory } from '../components/EntityHistory';
-import { Broadcast } from '../components/Broadcast';
+import { Musikzentrale } from '../components/Musikzentrale';
 import { ClimateOverview } from '../components/ClimateOverview';
 import { KidsView } from '../components/KidsView';
 import { KitchenTimer } from '../components/KitchenTimer';
@@ -105,18 +119,39 @@ import { WhatsNew } from '../components/WhatsNew';
 import { LightGroups } from '../components/LightGroups';
 import { DeviceTools } from '../components/DeviceTools';
 import { SceneSuggestion } from '../components/SceneSuggestion';
+import { PersonenScreen } from './PersonenScreen';
 import { UsersScreen } from './UsersScreen';
 import { confirm as confirmBiometrie, needsCheck } from '../lib/biometrie';
-import { mayOpenDirectly } from '../lib/tuerbestaetigung';
 import { BioLock } from '../components/BioLock';
 import { TuerRueckfrage } from '../components/TuerRueckfrage';
 import { Widgets } from '../components/Widgets';
 import { Ablage, syncWidget } from '../lib/widget';
+import { resolveKarten } from '../lib/widgetKarten';
+import { hoereAufSchnellaktionen, setzeSchnellaktionen } from '../lib/schnellaktionen';
+import { PushKnopf, Ziel, knoepfeAus, zielAus } from '../lib/pushziel';
+import { PushBlatt } from '../components/PushBlatt';
+import { Erinnerungsblatt } from '../components/Erinnerungsblatt';
+import { fristSatz } from '../lib/erinnerungsfrist';
 import { favoritenVon, zuUebernehmen } from '../lib/favoriten';
 import { altesUebernehmen } from '../lib/hausprefs';
-import { resolveButtons, widgetCommand, mitDirekt } from '../lib/widgetButtons';
+import {
+  mitDirekt,
+  resolveButtons,
+  standardDirekt,
+  widgetCommand,
+} from '../lib/widgetButtons';
 import { HubProvider } from '../hooks/HubContext';
+import { useFamilienlisten } from '../hooks/useFamilienlisten';
+import { useRaumnutzung } from '../hooks/useRaumnutzung';
+import { useSensorlinien } from '../hooks/useSensorlinien';
 import { useTakt } from '../hooks/useTakt';
+import { ErinnerungOverlay } from './dashboard/Erinnerungsvollbild';
+import { GroupControls } from './dashboard/Gruppensteuerung';
+import { CameraFullscreen } from './dashboard/Kameravollbild';
+import { DoorbellOverlay } from './dashboard/Klingelvollbild';
+import { usePanelMode } from './dashboard/panelmodus';
+import { AlarmPinAsk, LockConfirm } from './dashboard/Rueckfragen';
+import { makeStyles } from './dashboard/stile';
 
 const ALL_ROOMS = 'Alle';
 /** Befehle, die ein gesperrtes Gerät nur nach Rückfrage annimmt. Lesende
@@ -164,6 +199,9 @@ const SWITCHING = new Set([
 const NO_ROOM = 'Weitere';
 // Gerätearten mit eigenem Verlauf (Tipp auf die Kachel unter Geräte).
 // Sensoren öffnen stattdessen ihre Messwert-Kurve, Kameras das Livebild.
+// Wofür der Hub überhaupt ein Protokoll führt (hub: core/eventlog.py).
+// Messwerte stehen bewusst nicht dabei: Sie ändern sich im Minutentakt
+// und beantworten die Warum-Frage nie - für sie gibt es die Kurve.
 const HISTORY_KINDS = new Set([
   'light',
   'switch',
@@ -174,6 +212,7 @@ const HISTORY_KINDS = new Set([
   'appliance',
   'media_player',
   'binary_sensor',
+  'alarm',
 ]);
 const PANEL_WIDTH = 340;
 
@@ -210,6 +249,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     roomOrder,
     status,
     user,
+    benutzerNeuLaden,
     error,
     cachedAt,
     familyChangedAt,
@@ -245,26 +285,80 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // erkennbar an manage_users, die sonst niemand hat. Auch die Suche hält
   // sich daran, sonst führte sie an der Menüführung vorbei hinein.
   const istBesitzer = (user?.capabilities ?? []).includes('manage_users');
-  // Mitbewohner dürfen Abläufe ruhen lassen - der Hub erlaubt es seit je
-  // (pause_automations), nur führte kein Weg dorthin: Die Seite «Abläufe»
-  // stand allein der Besitzerin offen. Am Abend, an dem der Babysitter
-  // kommt, ist das genau die falsche Tür.
-  const darfPausieren = (user?.capabilities ?? []).includes('pause_automations');
+  // Wer welchen Bereich hinter den Einstellungen sieht, entscheidet
+  // lib/einstellungsmenue.ts - dort steht die Regel einmal und ist
+  // prüfbar, statt elfmal als `show: istBesitzer` untereinander.
+  //
+  // Zwei Bereiche gehören auch Mitbewohnern: Abläufe (ruhen lassen darf
+  // der Hub sie seit je - pause_automations), und die Geräteliste. Sie
+  // verändert nichts, sie gibt Auskunft: was im Haus steht, wie die
+  // Batterien stehen, wann etwas zuletzt gesehen wurde.
+  const sieht = useCallback(
+    (bereich: Bereich) => siehtBereich(user?.capabilities ?? [], bereich),
+    [user?.capabilities]
+  );
   // Ein Gerätename gilt fürs ganze Haus: Der Hub merkt ihn sich in der
   // homepilot-data.json, und danach heisst die Lampe für alle so. Genau
   // deshalb verlangt die Route `edit_config`, und genau danach fragt auch
   // die App - wer sie nicht hat, soll den Knopf gar nicht erst sehen,
   // statt beim Speichern ein «nicht erlaubt» einzufangen.
-  const darfUmbenennen = (user?.capabilities ?? []).includes('edit_config');
+  // 'edit_config' als Rückfalltor: Läuft die App gegen einen Hub von
+  // vor dieser Fähigkeit, kennt der nur die alte - der Besitzerin soll
+  // der Knopf deshalb nicht verschwinden, bis der Hub nachgezogen ist.
+  // Die Durchsage schaltet Lautsprecher - dieselbe Fähigkeit wie jedes
+  // andere Schalten. Ein Gast sieht die Kachel gar nicht erst, statt
+  // beim Antippen ein «nicht erlaubt» einzufangen.
+  const darfSchalten = (user?.capabilities ?? []).includes('control');
+
+  const darfAnpassen =
+    (user?.capabilities ?? []).includes('edit_devices') ||
+    (user?.capabilities ?? []).includes('edit_config');
 
   const [section, setSection] = useState<Section>('start');
+  // Die grosse Liste, damit ein Wechsel oben anfängt (siehe unten).
+  const blatt = useRef<ScrollView>(null);
+  // Welche Einstellungsseite zuletzt offen war - damit «Einstellungen»
+  // auf einem breiten Bildschirm dort weitermacht, wo man aufgehört hat.
+  // Eine Ref und kein Zustand: Der Wert wird nirgends gezeichnet, nur
+  // beim nächsten Öffnen gelesen. Als Zustand wäre jede Seite in den
+  // Einstellungen eine zweite Zeichnung wert - für nichts.
+  const zuletztEinstellung = useRef<Section | null>(null);
   // Aufgeklappt kommt man nur über die Batteriewarnung hierher; sonst
   // entscheidet die Karte selbst (siehe DeviceHealth).
   const [batterienOffen, setBatterienOffen] = useState(false);
+  // Das Blatt «was ist gerade nicht in Ordnung» - offen oder zu.
+  const [sorgenOffen, setSorgenOffen] = useState(false);
+  // Das Blatt «Besuch oder Babysitter»: offen/zu, und was der Hub sagt.
+  const [besuchOffen, setBesuchOffen] = useState(false);
+  const [besuchStand, setBesuchStand] = useState<BabysitterStand | null>(null);
   // Bis wann die persönlichen Bereiche offen sind (0 = zu). Nur im
   // Arbeitsspeicher: Nach einem Neustart der App wird wieder gefragt.
   const [riegelBis, setRiegelBis] = useState(0);
+  // Welches Modul die Abkürzung am Wandpanel aufmachen soll.
+  const [riegelModul, setRiegelModul] = useState<OffenesModul | null>(null);
   const [room, setRoom] = useState(ALL_ROOMS);
+
+  // Ein neuer Bereich, ein neuer Raum: oben anfangen.
+  //
+  // Die Räume stehen weit unten auf der Startseite. Wer dorthin scrollte
+  // und einen antippte, bekam die Kacheln des Raums - blieb aber auf
+  // derselben Höhe stehen und sah sie deshalb erst nach dem
+  // Hochscrollen. Der Inhalt war neu, die Blickhöhe die alte, und es sah
+  // aus, als stünde der Raum am Ende der Seite.
+  //
+  // Ohne Bewegung: Ein Sprung nach oben ist die Antwort auf einen Tipp,
+  // kein Weg, den man mitverfolgen soll.
+  useEffect(() => {
+    blatt.current?.scrollTo({ y: 0, animated: false });
+  }, [section, room]);
+
+  // Der Wunsch aus einer Nachricht gilt für diesen einen Besuch. Wer die
+  // Familie verlässt und später wiederkommt, soll nicht erneut im
+  // Einkauf landen, bloss weil er vor einer Stunde darauf getippt hat.
+  useEffect(() => {
+    if (section !== 'family') setFamilienModul(null);
+  }, [section]);
+
   const [now, setNow] = useState(() => new Date());
   const [gridWidth, setGridWidth] = useState(0);
   const [editing, setEditing] = useState(false);
@@ -287,8 +381,35 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Türklingel-Vollbild: pro Klingel-Ereignis einmal zeigen, bis es
   // weggewischt wird (Schlüssel = Kamera + Zeitpunkt des Klingelns).
   const [dismissedRing, setDismissedRing] = useState<string | null>(null);
+  // Wer auf die Klingel-Nachricht getippt hat, will genau dieses Bild
+  // sehen - auch auf dem Telefon, wo es von selbst nicht aufginge, und
+  // auch dann, wenn das Läuten inzwischen vorbei ist. Ein Tipp auf die
+  // Nachricht ist eine Bitte, keine Störung.
+  const [klingelTap, setKlingelTap] = useState<string | null>(null);
+  // Welche Kachel der Familie eine Nachricht gemeint hat («Milch steht
+  // auf der Einkaufsliste» → Einkauf). Getrennt vom Riegel-Modul: Das
+  // eine ist ein Weg um eine Sperre herum, das andere ein Ziel.
+  const [familienModul, setFamilienModul] = useState<string | null>(null);
+  // Welches Gerät gerade nach einer Frist gefragt wird («sag mir in zwei
+  // Stunden Bescheid»).
+  const [erinnernAn, setErinnernAn] = useState<Entity | null>(null);
+  // Der Weg zu einem Ziel aus einer Nachricht. Über eine Ref, weil der
+  // Tipp-Haken früh gebraucht wird und der Weg selbst erst weiter unten
+  // steht - dort, wo die Räume bekannt sind.
+  const zumZiel = useRef<(ziel: Ziel) => void>(() => {});
+  // Die Handgriffe, die ein Ablauf seiner Nachricht mitgegeben hat -
+  // «Trockner an» unter «Waschmaschine fertig». Sie stehen erst hier zur
+  // Wahl, hinter der Anmeldung.
+  const [pushBlatt, setPushBlatt] = useState<{
+    titel?: string;
+    text?: string;
+    knoepfe: PushKnopf[];
+  } | null>(null);
   // Angetippte Kamera im Vollbild (Entitäts-ID, damit Live-Updates ankommen).
   const [fullscreen, setFullscreen] = useState<string | null>(null);
+  // Alle Kameras nebeneinander - fürs Tablet im Flur die einzige
+  // sinnvolle Ansicht (siehe components/Kamerawand.tsx).
+  const [wandOffen, setWandOffen] = useState(false);
   // Gerät, dessen Verlauf gerade offen ist (Geräte-Ansicht, Tipp auf die Kachel).
   const [historyFor, setHistoryFor] = useState<string | null>(null);
   // Auf der Startseite markierte Countdowns aus dem Familie-Modul.
@@ -298,6 +419,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [searchOpen, setSearchOpen] = useState(false);
   // Abläufe – nur für die Suche; die Liste selbst lebt im Ablauf-Screen.
   const [automations, setAutomations] = useState<SuchAblauf[]>([]);
+  // Läuft der Babysitter-Modus? Nur dann hält der Riegel vor Familie und
+  // Konto überhaupt zu (lib/bereichsriegel.ts). Bewusst gemerkt und nicht
+  // bei jedem Fehlschlag zurückgesetzt: Ein Aussetzer im Netz soll die
+  // Einkaufsliste nicht ausgerechnet an dem Abend aufsperren.
+  const [babysitter, setBabysitter] = useState(false);
+  // Steht hier gerade überhaupt ein Riegel zur Debatte? Nur dann lohnt
+  // es, den Babysitter-Modus frisch zu holen.
+  const riegelFrage = Boolean(settings.panel) && istPersoenlich(section);
   // Rückfrage vor dem Schalten eines gesperrten Geräts.
   const [confirm, setConfirm] = useState<{
     entity: Entity;
@@ -327,181 +456,94 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   }, [hub, settings.url, settings.token]);
   useEffect(ladeCountdowns, [ladeCountdowns]);
   useTakt(ladeCountdowns, 60000);
+  // Einkaufsliste, Läden und Erinnerungen des Haushalts - Zustand und
+  // Handgriffe stehen in hooks/useFamilienlisten.ts.
+  const {
+    lernRef,
+    einkauf,
+    laeden,
+    bekannt,
+    einkaufUndo,
+    setEinkaufUndo,
+    griffUndo,
+    setGriffUndo,
+    kaufeEin,
+    hakeAb,
+    entferneEinkauf,
+    setzeMenge,
+    nimmAbhakenZurueck,
+    merkeGriff,
+    nimmGriffZurueck,
+    faelligeErinnerungen,
+    bestaetigeErinnerung,
+    quittiereErinnerung,
+  } = useFamilienlisten({
+    hub,
+    settings,
+    familyChangedAt,
+    aufStartseite: section === 'start',
+    benutzer: user,
+    melde: setNote,
+  });
 
-  // Einkaufsliste und Läden für die Kopfzeile. Dieselbe Quelle wie unter
-  // Familie - nur die offenen Einträge, denn oben zählt, was noch fehlt.
-  const [einkauf, setEinkauf] = useState<EinkaufZeile[]>([]);
-  // Dieselbe Liste als Ref: Die Rückrufe unten hängen sonst an jeder
-  // Änderung der Liste und bauen sich bei jedem Tippen neu auf – und die
-  // Kopfzeile mit ihnen.
-  const einkaufRef = useRef<EinkaufZeile[]>([]);
-  einkaufRef.current = einkauf;
-  // Was gerade abgehakt wurde, für einen Moment aufgehoben.
-  const [einkaufUndo, setEinkaufUndo] = useState<{ id: string; text: string } | null>(null);
-  const [laeden, setLaeden] = useState<Shop[]>([]);
-  // Schon einmal eingekaufte Artikel – die Vervollständigung im Fenster
-  // der Kopfzeile lebt davon. Kommt aus dem Hub, nicht vom Gerät: Was
-  // Livia einträgt, soll Stefan vorgeschlagen bekommen.
-  const [bekannt, setBekannt] = useState<string[]>([]);
-  const ladeEinkauf = useCallback(() => {
-    if (!settings.url || !settings.token) return;
-    // «still»: Das hier läuft jede Minute. Eine Einblendung je Minute wäre
-    // schlimmer als der Fehler – dass etwas klemmt, sieht man am
-    // Verbindungspunkt in der Kopfzeile.
-    const leise = { fallback: [] as EinkaufZeile[], still: true };
-    hub
-      .get<EinkaufZeile[]>('/api/family/shopping', leise)
-      .then((rows) =>
-        setEinkauf(Array.isArray(rows) ? rows.filter((row) => !row.done) : [])
-      );
-    hub
-      .get<Shop[]>('/api/family/shops', leise as { fallback: Shop[]; still: true })
-      .then((rows) => setLaeden(Array.isArray(rows) ? rows : []));
-    hub
-      .get<string[]>('/api/shopping/known', { fallback: [], still: true })
-      .then((rows) => setBekannt(Array.isArray(rows) ? rows.map(String) : []));
-  }, [hub, settings.url, settings.token]);
-  useEffect(ladeEinkauf, [ladeEinkauf]);
-  // Nur noch als Rückfalltakt: Änderungen kommen über den WebSocket
-  // (family_changed, unten). Die Viertelstunde fängt verpasste
-  // Ereignisse ab - etwa wenn die Verbindung kurz weg war.
-  useTakt(ladeEinkauf, 15 * 60000);
-  // Der Hub meldet jede Änderung an den Familienlisten sofort - so steht
-  // das Abgehakte des einen beim anderen ohne Minute Wartezeit.
+  // Die Funkenlinien der Sensoren (hooks/useSensorlinien.ts).
+  const trends = useSensorlinien(hub, status);
+  // Wie oft welcher Raum bedient wurde (hooks/useRaumnutzung.ts).
+  const { raumZaehler, zaehleRaum } = useRaumnutzung();
+  // Ist gerade jemand da? Beim Öffnen der Einstellungen fragen,
+  // nicht dauernd: Die Zeile im Menü ist der einzige Ort, an dem die
+  // Antwort gebraucht wird - und dort steht sie eine Sekunde später.
   useEffect(() => {
-    if (familyChangedAt) ladeEinkauf();
-  }, [familyChangedAt, ladeEinkauf]);
-  // Und immer dann, wenn die Startseite wieder erscheint: Wer gerade
-  // unter Familie etwas eingetragen hat, will es oben sofort sehen und
-  // nicht bis zur nächsten Minute warten.
-  useEffect(() => {
-    if (section === 'start') ladeEinkauf();
-  }, [section, ladeEinkauf]);
-
-  /** Einen Eintrag im Laden abhaken - er verschwindet sofort aus der
-   *  Kopfzeile, statt bis zum nächsten Abruf stehen zu bleiben. */
-  const hakeAb = useCallback(
-    (id: string) => {
-      // Vor dem Wegnehmen merken, was da stand: Im Laden tippt man daneben,
-      // und dann steht man vor dem Regal und weiss nicht mehr, was es war.
-      const weg = einkaufRef.current.find((eintrag) => eintrag.id === id);
-      if (weg) setEinkaufUndo({ id, text: String(weg.text ?? '') });
-      setEinkauf((liste) => liste.filter((eintrag) => eintrag.id !== id));
-      // Nicht still: Wer im Laden abhakt und dabei ins Leere greift, soll
-      // es erfahren – sonst kauft er es nicht und denkt, er habe es.
-      hub
-        .put(
-          `/api/family/shopping/${encodeURIComponent(id)}`,
-          { done: true },
-          {
-            fallback: null,
-          }
-        )
-        .finally(ladeEinkauf);
-    },
-    [hub, ladeEinkauf]
-  );
-
-  /**
-   * Einen Posten wegnehmen, ohne ihn gekauft zu haben.
-   *
-   * Abhaken heisst «habe ich» – das ist etwas anderes als «war ein
-   * Vertipper». Vorher ging Letzteres nur unter Familie, also genau dort
-   * nicht, wo man steht, wenn es auffällt.
-   */
-  const entferneEinkauf = useCallback(
-    (id: string) => {
-      setEinkauf((liste) => liste.filter((eintrag) => eintrag.id !== id));
-      hub
-        .del(`/api/family/shopping/${encodeURIComponent(id)}`, { fallback: null })
-        .finally(ladeEinkauf);
-    },
-    [hub, ladeEinkauf]
-  );
-
-  /**
-   * Die Stückzahl eines Postens ändern.
-   *
-   * Die Menge steht im Text und nicht in einem eigenen Feld: «2× Milch»
-   * ist auch für den lesbar, der die Liste unter Familie oder im
-   * Rohzustand ansieht, und der Hub muss nichts davon wissen. Fällt sie
-   * unter eins, ist der Posten weg – ein «0× Milch» will niemand sehen.
-   */
-  const setzeMenge = useCallback(
-    (id: string, menge: number) => {
-      const eintrag = einkaufRef.current.find((row) => row.id === id);
-      if (!eintrag) return;
-      const { name } = mengeUndName(String(eintrag.text ?? ''));
-      if (menge < 1) {
-        entferneEinkauf(id);
-        return;
-      }
-      const text = mitMenge(name, Math.min(99, menge));
-      setEinkauf((liste) => liste.map((row) => (row.id === id ? { ...row, text } : row)));
-      hub
-        .put(`/api/family/shopping/${encodeURIComponent(id)}`, { text }, { fallback: null })
-        .finally(ladeEinkauf);
-    },
-    [hub, ladeEinkauf, entferneEinkauf]
-  );
-
-  /** Ein Abhaken zurücknehmen – der Posten steht wieder offen auf der Liste. */
-  const nimmAbhakenZurueck = useCallback(() => {
-    const zurueck = einkaufUndo;
-    if (!zurueck) return;
-    setEinkaufUndo(null);
-    setEinkauf((liste) => [...liste, { id: zurueck.id, text: zurueck.text }]);
+    if (section !== 'settings') return;
     hub
-      .put(
-        `/api/family/shopping/${encodeURIComponent(zurueck.id)}`,
-        { done: false },
-        {
-          fallback: null,
-        }
-      )
-      .finally(ladeEinkauf);
-  }, [einkaufUndo, hub, ladeEinkauf]);
+      .get<{ babysitter?: BabysitterStand } | null>('/api/automations/babysitter', {
+        fallback: null,
+        still: true,
+      })
+      .then((data) => setBesuchStand(data?.babysitter ?? null));
+  }, [section, hub]);
 
-  /** Einen Artikel auf die Liste setzen – aus dem Fenster der Kopfzeile.
-   *
-   *  Der Eintrag erscheint sofort, mit einer vorläufigen Kennung: Wer
-   *  drei Sachen hintereinander eintippt, soll nicht nach jeder auf den
-   *  Hub warten. Der Abruf danach ersetzt ihn durch den echten. */
-  const kaufeEin = useCallback(
-    async (text: string) => {
-      const name = text.trim();
-      if (!name || !settings.url) return;
-      // Schon drauf? Dann meint «Milch» den vorhandenen Posten und nicht
-      // einen zweiten. Wer zwei Einträge «Milch» auf der Liste hat, kauft
-      // im Zweifel beide.
-      const schonDa = findeArtikel(einkaufRef.current, name);
-      if (schonDa) {
-        const jetzt = mengeUndName(String(schonDa.text ?? ''));
-        setzeMenge(String(schonDa.id), jetzt.menge + mengeUndName(name).menge);
-        return;
-      }
-      setEinkauf((liste) => [...liste, { id: `neu-${name}`, text: name }]);
-      setBekannt((liste) => [name, ...liste.filter((entry) => entry !== name)]);
-      // Der Gang wird hier bestimmt und nicht im Hub: Dieselbe Zuordnung
-      // sortiert die Liste, und sie steht in lib/einkauf.ts.
-      // Schlägt es fehl, sagt es die Einblendung, und der Abruf gleich
-      // darauf räumt den vorläufigen Eintrag wieder weg.
-      await hub.post(
-        '/api/family/shopping',
-        { text: name, category: shopCategory(name) },
-        { fallback: null }
-      );
-      ladeEinkauf();
-    },
-    [hub, settings.url, ladeEinkauf, setzeMenge]
+  // Geräte, die nicht antworten oder verstummt sind – für die Zeile im
+  // Menü. Batterien und Wartungen bleiben aussen vor: Ob eine Warnung
+  // quittiert ist, weiss nur der Hub, und das Blatt fragt ihn selbst.
+  const stummeGeraete = useMemo(
+    () =>
+      sorgen({ entities, jetzt: Date.now() }).filter(
+        (sorge) => sorge.art === 'offline' || sorge.art === 'still'
+      ),
+    [entities]
   );
 
-  // Die Ablaufnamen einmal holen, damit die Suche sie kennt.
+  // Was die Einblendung unten anbietet: Abhaken, Griff oder die letzte
+  // Schaltung – in dieser Reihenfolge, aus einem Grund (lib/rueckgriff.ts).
+  const rueckAngebot = useMemo(
+    () =>
+      rueckangebot({
+        fehler: !!(error || abrufFehler),
+        einkauf: einkaufUndo ? { name: mengeUndName(einkaufUndo.text).name } : null,
+        griff: griffUndo,
+        befehl: undo,
+      }),
+    [error, abrufFehler, einkaufUndo, griffUndo, undo]
+  );
+
+  // Die Ablaufnamen holen, damit die Suche sie kennt – und den
+  // Babysitter-Modus gleich mit.
+  //
+  // Und noch einmal, sobald am Panel ein persönlicher Bereich aufgeht:
+  // Der Riegel davor hängt am Babysitter-Modus, und der wird vom Telefon
+  // aus umgelegt, während das Panel im Flur längst offen dasteht. Der
+  // Moment, in dem dort jemand «Familie» drückt, ist genau der, in dem
+  // die Auskunft frisch sein muss. Nicht bei jedem Bereichswechsel: Am
+  // Telefon steht der Riegel nie, und die Ablaufliste ist keine kleine
+  // Antwort.
   useEffect(() => {
     if (!settings.url || !settings.token || status !== 'connected') return;
     let alive = true;
     hub
-      .get<{ automations?: SuchAblauf[] } | SuchAblauf[]>('/api/automations', {
+      .get<
+        { automations?: SuchAblauf[]; babysitter?: { active?: boolean } } | SuchAblauf[]
+      >('/api/automations', {
         fallback: [],
         still: true,
       })
@@ -510,14 +552,18 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         // alte Array-Check liess die Liste immer leer, und die Suche
         // fand nie einen Ablauf, ohne dass es jemandem auffiel.
         const liste = Array.isArray(rows) ? rows : rows?.automations;
-        if (alive) setAutomations(Array.isArray(liste) ? liste : []);
+        if (!alive) return;
+        setAutomations(Array.isArray(liste) ? liste : []);
+        // Derselbe Abruf trägt den Babysitter-Modus mit. Eine eigene
+        // Anfrage dafür wäre eine mehr für dieselbe Antwort.
+        if (!Array.isArray(rows)) setBabysitter(!!rows?.babysitter?.active);
       })
       // Ohne Antwort keine Vorschläge - die Startseite trägt das.
       .catch(() => {});
     return () => {
       alive = false;
     };
-  }, [settings.url, settings.token, status]);
+  }, [settings.url, settings.token, status, riegelFrage]);
 
   // Beim Verlassen der Geräteliste die Suche zurücksetzen – wer später
   // zurückkommt, will die volle Liste sehen, nicht den alten Suchbegriff.
@@ -552,17 +598,46 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     eigenePrefs,
     setOrder,
     setHidden,
+    setFamilyHidden,
     setLocked,
+    setUngezaehlt,
     setSeenChanges,
     setKameraDynamisch,
+    setTageszeit,
+    setRaumNutzung,
+    setDoppeltipp,
+    setLiveTuer,
+    setLiveAus,
     setFavorites,
     setFavoriteOrder,
+    setDurchsage,
     setBioLock,
     setDoorConfirm,
     setWidgetData,
     setWidgetButtons,
     setWidgetDirect,
+    setWidgetKarten,
+    setEinkaufLernen,
   } = usePrefs(settings, status === 'connected');
+
+  // Jetzt, wo die Haus-Einstellungen da sind, bekommt das Abhaken in der
+  // Kopfzeile sein Protokoll (die Ref kommt aus useFamilienlisten).
+  lernRef.current = {
+    log: prefs.einkaufLernen ?? [],
+    schreiben: setEinkaufLernen,
+  };
+
+  // Die Haustür-Karte für unterwegs - tut nur auf einem iPhone mit dem
+  // passenden Build etwas (hooks/useLiveAktivitaet.ts). Hängt am
+  // Profil-Schalter: aus heisst, dieses Gerät meldet gar keine Tokens an.
+  useLiveAktivitaet(
+    settings,
+    status === 'connected' && eigenePrefs.liveTuer !== false
+  );
+
+  // Der Apple Watch die Zugangsdaten hinüberreichen - tut nur auf einem
+  // iPhone mit dem passenden Build etwas (hooks/useWatchSync.ts).
+  useWatchSync(settings, entities, status === 'connected');
 
   // Einmalige Übernahme dessen, was vorher im Gerät und beim Benutzer
   // lag. Erst nach der ersten Antwort des Hubs - sonst sähe die
@@ -589,12 +664,30 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     () =>
       mitDirekt(
         resolveButtons(prefs.widgetButtons, scenes, entities),
-        prefs.widgetDirect ?? [],
+        // Ohne eigene Wahl schalten die Knöpfe, die es dürfen. Vorher
+        // war die Vorgabe «keiner»: Jedes frische Widget öffnete nur
+        // die App - genau die Klage aus dem Haus.
+        prefs.widgetDirect ?? standardDirekt(prefs.widgetButtons ?? [], entities),
         entities,
         !!prefs.widgetData
       ),
     [prefs.widgetButtons, prefs.widgetDirect, prefs.widgetData, scenes, entities]
   );
+  // Die selbst zusammengestellten Karten - je eine für ein Gerät oder
+  // eine Szene. Dieselbe Ablage, derselbe Takt wie die Knöpfe.
+  const widgetKarten = useMemo(
+    () => resolveKarten(prefs.widgetKarten, scenes, entities, !!prefs.widgetData),
+    [prefs.widgetKarten, prefs.widgetData, scenes, entities]
+  );
+  // Die Kurzbefehle am App-Symbol tragen dieselben Knöpfe wie das
+  // Widget - eine zweite Liste für dieselbe Frage wäre eine zweite
+  // Stelle, an der man sucht (lib/schnellaktionen.ts).
+  useEffect(() => {
+    if (widgetButtons.length === 0) return;
+    setzeSchnellaktionen(widgetButtons);
+  }, [widgetButtons]);
+  useEffect(() => hoereAufSchnellaktionen((url) => adresseAusfuehren.current(url)), []);
+
   const [widgetAblage, setWidgetAblage] = useState<Ablage>('kein-widget');
   useEffect(() => {
     // Erst, wenn etwas da ist: Vor der ersten Antwort des Hubs sind
@@ -602,12 +695,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     // fiele aus der Knopfliste heraus - das Widget stünde kurz mit
     // weniger Knöpfen da, als jemand eingestellt hat.
     if (entities.length === 0 && scenes.length === 0) return;
-    setWidgetAblage(syncWidget(settings, !!prefs.widgetData, widgetButtons));
+    setWidgetAblage(
+      syncWidget(settings, !!prefs.widgetData, widgetButtons, widgetKarten)
+    );
   }, [
     settings.url,
     settings.token,
     prefs.widgetData,
     widgetButtons,
+    widgetKarten,
     entities.length,
     scenes.length,
   ]);
@@ -618,18 +714,45 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // aufgeklappten Batterien – dort steht der Knopf zum Quittieren, und
   // ohne den Sprung sucht man ihn zwei Ebenen tief.
   const onNotificationTap = useCallback((tap: Tap) => {
-    if (tap.camera) {
-      setFullscreen(tap.camera);
-      return;
+    const ziel = zielAus(tap);
+    if (ziel) zumZiel.current(ziel);
+    // Erst hingehen, dann fragen: Das Blatt legt sich über den Ort, an
+    // den der Tipp geführt hat - wer es wegwischt, steht dort, statt
+    // wieder auf der Startseite.
+    const knoepfe = knoepfeAus(tap);
+    if (knoepfe.length > 0) {
+      setPushBlatt({ titel: tap.title, text: tap.body, knoepfe });
     }
-    if (tap.type === 'battery') {
-      setSection('devices');
-      setBatterienOffen(true);
-      return;
-    }
-    if (tap.type === 'alarm') setSection('alarm');
   }, []);
-  useNotificationTap(onNotificationTap);
+  // «Später» und «Erledigt» aus der Mitteilung heraus. Beides läuft ohne
+  // die App zu öffnen; sie erfährt davon, sobald sie das nächste Mal
+  // läuft, und reicht es an den Hub weiter (lib/mitteilungsknoepfe.ts).
+  const onKnopf = useCallback(
+    (druck: Knopfdruck) => {
+      if (druck.handlung === 'spaeter') {
+        hub
+          .post('/api/push/snooze', {
+            title: druck.title,
+            body: druck.body,
+            category: druck.category,
+            minutes: 30,
+          }, { still: true })
+          .then(() => setNote('Erinnerung in 30 Minuten'))
+          .catch(() => {});
+        return;
+      }
+      // «Erledigt» gibt es bisher für die Batteriewarnung: Sie quittiert
+      // das Gerät, damit sie nicht jede Woche wiederkommt.
+      if (druck.entityId) {
+        hub
+          .post(`/api/batteries/${encodeURIComponent(druck.entityId)}/ack`, {}, { still: true })
+          .then(() => setNote('Quittiert'))
+          .catch(() => {});
+      }
+    },
+    [hub, setNote]
+  );
+  useNotificationTap(onNotificationTap, onKnopf);
 
   // Zurück zur Startseite, wenn drei Minuten niemand tippt. Am
   // Gemeinschaftsgerät genauso wie am Wandpanel - und dabei fällt der
@@ -642,6 +765,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         setEditing(false);
         setRoom(ALL_ROOMS);
         setRiegelBis(0);
+        setRiegelModul(null);
       }
     },
     panelArtig ? 30000 : null
@@ -660,6 +784,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   );
   const hidden = prefs.hidden ?? [];
   const locked = prefs.locked ?? [];
+  // Zählt in der «3 an» oben nicht mit – bleibt aber auf der Startseite
+  // stehen. Zwei verschiedene Listen, siehe lib/zaehlung.ts.
+  const ungezaehlt = prefs.ungezaehlt ?? [];
 
   // Einmalige Übernahme der alten, gerätelokalen Favoriten. Danach wird
   // die lokale Liste geleert, damit dieselben Sterne nicht bei jedem
@@ -712,9 +839,46 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         setPinAsk({ entity, command, data });
         return;
       }
+      // Erst zählen, dann schalten: Die Zählung speist die Sortierung
+      // «meistbenutzter Raum zuoberst» (lib/raumnutzung.ts).
+      zaehleRaum(entity?.room);
       sendCommand(entityId, command, data);
     },
-    [entities, locked, sendCommand, prefs.bioLock, user?.shared]
+    [entities, locked, sendCommand, prefs.bioLock, user?.shared, zaehleRaum]
+  );
+
+  /**
+   * Eine Durchsage von der Startseite aus – hinter der Favoritenkachel.
+   *
+   * Hier und nicht in der Übersicht: Die weiss vom Hub nichts, sie
+   * bekommt Befehle als Funktionen gereicht. Wer nicht schalten darf,
+   * bekommt gar keine Funktion und damit auch keine Kachel.
+   */
+  const sendeDurchsage = useCallback(
+    async (text: string, speakers: string[]) =>
+      hub.post<{ sent?: string[]; errors?: string[] }>(
+        '/api/broadcast',
+        { text, speakers },
+        { still: true }
+      ),
+    [hub]
+  );
+
+  /**
+   * Dasselbe mit der eigenen Stimme – die Aufnahme geht roh hinüber.
+   *
+   * Als JSON wäre sie base64-verpackt um ein Drittel grösser, und der
+   * Umweg brächte nichts, was der Content-Type des Blobs nicht auch
+   * sagt. Die Empfänger stehen darum in der Adresse.
+   */
+  const sendeSprachnotiz = useCallback(
+    async (aufnahme: Blob, speakers: string[]) =>
+      hub.roh<{ sent?: string[]; errors?: string[] }>(
+        `/api/broadcast/voice?speakers=${encodeURIComponent(speakers.join(','))}`,
+        aufnahme,
+        { still: true }
+      ),
+    [hub]
   );
 
   // Abkürzungen aus dem Widget und von NFC-Aufklebern: homepilot://door
@@ -731,9 +895,26 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Steht hier unten und nicht weiter oben, weil er guardedCommand
   // braucht: Ein useEffect, dessen Abhängigkeit noch gar nicht angelegt
   // ist, wirft beim ersten Zeichnen.
+  // Der Start-Link wird genau einmal *ausgeführt* - nicht einmal
+  // *angefasst*. Der Unterschied ist der ganze Fehler, der hier stand:
+  // Beim Kaltstart über den Widget-Knopf läuft der Handler, bevor die
+  // Geräte geladen sind - die Türe war «nicht gefunden», und es blieb
+  // beim blossen Öffnen der App. Und weil der Effekt bei jeder
+  // Geräteänderung neu lief, holte er den Start-Link danach immer
+  // wieder hervor: Wer die Rückfrage wegtippte, bekam sie beim nächsten
+  // Zustands-Update erneut. Jetzt gilt: erledigt erst, wenn wirklich
+  // gehandelt wurde - bis dahin wird mit jedem Laden neu probiert.
+  const startLinkErledigt = useRef(false);
+  // Derselbe Weg für die Kurzbefehle am App-Symbol: Sie tragen dieselben
+  // homepilot://-Adressen, und was für den Widget-Knopf gilt, gilt für
+  // sie - ein Kurzbefehl darf nicht mehr dürfen als die App.
+  const adresseAusfuehren = useRef<(url: string) => void>(() => {});
   useEffect(() => {
-    const handle = (url: string | null) => {
-      if (!url || !url.startsWith('homepilot://')) return;
+    /** Führt den Link aus. `true` heisst: erledigt (auch «kenne ich
+     *  nicht» ist erledigt) - `false`: die Daten fehlen noch, später
+     *  noch einmal. */
+    const handle = (url: string | null): boolean => {
+      if (!url || !url.startsWith('homepilot://')) return true;
       const [what, ...rest] = url.replace('homepilot://', '').split(/[/?]/);
       const id = rest.length > 0 ? decodeURIComponent(rest.join('/')) : '';
       if (what === 'door') {
@@ -741,13 +922,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           entities.find(
             (entity) => entity.kind === 'lock' && entity.commands.includes('open_door')
           ) ?? entities.find((entity) => entity.kind === 'lock');
-        if (door) {
-          setSection('home');
-          setConfirm({
-            entity: door,
-            command: door.commands.includes('open_door') ? 'open_door' : 'unlatch',
-          });
-        }
+        if (!door) return entities.length > 0;
+        setSection('home');
+        setConfirm({
+          entity: door,
+          command: door.commands.includes('open_door') ? 'open_door' : 'unlatch',
+        });
       } else if (what === 'alloff') {
         setSection('home');
         setRoom(ALL_ROOMS);
@@ -758,13 +938,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       } else if (what === 'alarm') {
         setSection('alarm');
       } else if (what === 'scene' && id) {
-        if (scenes.some((scene) => scene.id === id)) {
-          setSection('start');
-          activateScene(id);
-        }
+        if (!scenes.some((scene) => scene.id === id)) return scenes.length > 0;
+        setSection('start');
+        activateScene(id);
       } else if (what === 'entity' && id) {
         const entity = entities.find((item) => item.id === id);
-        if (!entity) return;
+        if (!entity) return entities.length > 0;
         setSection('start');
         if (entity.kind === 'lock') {
           // Ein Schloss fragt immer nach - auch das eigene Wohnzimmer
@@ -774,16 +953,27 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             entity,
             command: entity.commands.includes('open_door') ? 'open_door' : 'unlatch',
           });
-          return;
+          return true;
         }
         const command = widgetCommand(entity);
         if (command) guardedCommand(entity.id, command);
       }
+      return true;
+    };
+    adresseAusfuehren.current = (url: string) => {
+      handle(url);
     };
     // Kein Start-Link ist der Normalfall - dann startet die App normal.
-    Linking.getInitialURL()
-      .then(handle)
-      .catch(() => {});
+    if (!startLinkErledigt.current) {
+      Linking.getInitialURL()
+        .then((url) => {
+          if (!startLinkErledigt.current && handle(url)) {
+            startLinkErledigt.current = true;
+          }
+        })
+        .catch(() => {});
+    }
+    // Ereignisse (App lief schon) kommen genau einmal - jedes zählt.
     const subscription = Linking.addEventListener('url', (event) => handle(event.url));
     return () => subscription.remove();
   }, [entities, scenes, activateScene, guardedCommand]);
@@ -810,8 +1000,22 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Die Haustüre ist hier eine Ring-Gegensprechanlage, und die legt der
   // Hub als Türe an – die alte Suche nach kind === 'camera' ging genau
   // an ihr vorbei, und das Vollbild kam nie.
-  const klingelt = klingeltGerade(entities);
-  const ringKey = klingelt ? `${klingelt.id}:${klingelt.state.last_ring ?? ''}` : null;
+  const klingeltJetzt = klingeltGerade(entities);
+  const ringKey = klingeltJetzt
+    ? `${klingeltJetzt.id}:${klingeltJetzt.state.last_ring ?? ''}`
+    : null;
+  // Wer auf die Nachricht getippt hat, meint das Gerät aus der
+  // Nachricht - auch wenn das Läuten inzwischen vorbei ist und
+  // `klingeltGerade` deshalb nichts mehr findet. Ohne Kennung (ältere
+  // Nachricht) die zuletzt klingelnde Türe, sonst gar keine.
+  const getippteKlingel = useMemo(() => {
+    if (klingelTap === null) return undefined;
+    return (
+      entities.find((entity) => entity.id === klingelTap) ??
+      entities.find((entity) => entity.state?.last_ring)
+    );
+  }, [klingelTap, entities]);
+  const klingelt = klingeltJetzt ?? getippteKlingel;
   const klingelKamera = useMemo(
     () => klingelBild(entities, klingelt),
     [entities, klingelt]
@@ -854,8 +1058,89 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       .filter((name) => !roomOrder.includes(name))
       .sort((a, b) => a.localeCompare(b));
     const named = raeumeSortiert([...ordered, ...extra], prefs.order?.raeume);
-    return named.length > 0 ? [ALL_ROOMS, ...named] : [];
-  }, [entities, roomOrder, prefs.order?.raeume]);
+    // Wer es eingeschaltet hat, bekommt den meistbedienten Raum
+    // zuoberst - «Alle» bleibt davor, es ist kein Raum.
+    const sortiert = eigenePrefs.raumNutzung
+      ? nutzungsReihenfolge(named, raumZaehler, now.getTime())
+      : named;
+    return sortiert.length > 0 ? [ALL_ROOMS, ...sortiert] : [];
+  }, [entities, roomOrder, prefs.order?.raeume, eigenePrefs.raumNutzung, raumZaehler, now]);
+
+  /**
+   * Der Weg zu dem, was eine Nachricht meint.
+   *
+   * Eine Stelle für alle fünfundzwanzig Meldungen, statt einer Regel je
+   * Meldung: Was wohin gehört, sagt der Hub in der Nachricht selbst
+   * (lib/pushziel.ts). Die App muss dafür nichts über Wassermelder
+   * wissen - nur, wie man zu einem Raum kommt.
+   *
+   * Beim Zeichnen zugewiesen und nicht als Callback: Der Weg braucht
+   * Räume und Geräte, die weiter oben noch nicht stehen, und der
+   * Tipp-Haken bekommt so immer den frischen Stand.
+   */
+  zumZiel.current = (ziel: Ziel) => {
+    switch (ziel.art) {
+      // Was offen steht, zeigt die Karte auf der Startseite - eine
+      // eigene Seite dafür gibt es nicht.
+      case 'start':
+      // falls through
+      case 'offen':
+        setSection('start');
+        return;
+      case 'bereich':
+        setSection(ziel.bereich);
+        return;
+      case 'raum':
+        setSection('home');
+        setRoom(ziel.raum);
+        return;
+      case 'kamera':
+        setFullscreen(ziel.entityId);
+        return;
+      case 'geraet': {
+        const geraet = entities.find((entity) => entity.id === ziel.entityId);
+        // Eine Kamera zeigt man gross; alles andere steht in seinem
+        // Raum, und dort sieht man es im Zusammenhang.
+        if (geraet?.kind === 'camera') {
+          setFullscreen(geraet.id);
+          return;
+        }
+        if (geraet?.room) {
+          setSection('home');
+          setRoom(geraet.room);
+          return;
+        }
+        setSection('devices');
+        return;
+      }
+      case 'familie':
+        setSection('family');
+        setFamilienModul(ziel.modul);
+        return;
+      case 'batterien':
+        setSection('devices');
+        setBatterienOffen(true);
+        return;
+      case 'sorgen':
+        setSorgenOffen(true);
+        return;
+      case 'timer': {
+        // Der Timer steht in der Küche - dort, wo die Nudeln aufgesetzt
+        // sind, nicht in einer Liste.
+        const kueche = rooms.find((name) => istKueche(name));
+        if (kueche) {
+          setSection('home');
+          setRoom(kueche);
+        } else {
+          setSection('start');
+        }
+        return;
+      }
+      case 'klingel':
+        setKlingelTap(ziel.entityId ?? '');
+        return;
+    }
+  };
 
   // Alle vergebenen Gruppennamen – für die Auswahl im Anpassen-Modus.
   const groupNames = useMemo(
@@ -981,11 +1266,21 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     orderScope != null && (orderIds.length > 0 || (editing && !searching));
   const running =
     section === 'home' && !customOrdered ? shown.filter(isActive).sort(byFavorite) : [];
+  // Nach Tageszeit sortieren - aber nur, wenn jemand das eingeschaltet
+  // hat, und nur, wo es etwas zu sortieren gibt. Beim Anpassen und beim
+  // Suchen bleibt die Reihenfolge, wie sie ist: Sonst zieht man eine
+  // Kachel, und sie springt zur nächsten vollen Stunde weg.
+  const tageszeitAn =
+    !!eigenePrefs.tageszeit && !editing && !searching && lohntSich(shown);
+  const abschnitt = tageszeitAn ? jetzigerAbschnitt(now.getTime()) : null;
+  const nachZeit = <T extends { kind: string }>(liste: T[]): T[] =>
+    abschnitt ? nachTageszeit(liste, abschnitt) : liste;
+
   const rest =
     section === 'home'
       ? customOrdered
-        ? [...shown].sort(byOrder)
-        : shown.filter((entity) => !isActive(entity)).sort(byFavorite)
+        ? nachZeit([...shown].sort(byOrder))
+        : nachZeit(shown.filter((entity) => !isActive(entity)).sort(byFavorite))
       : section === 'devices'
         ? sortiereGeraete([...found].sort(byOrder), deviceSort, deviceKindLabel)
         : section === 'cameras' && eigenePrefs.kameraDynamisch && !editing
@@ -1143,6 +1438,24 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     <EntityCard
       key={entity.id}
       entity={entity}
+      trend={trends[entity.id]}
+      // Zweimal tippen = die eigene Lieblingseinstellung
+      // (lib/doppeltipp.ts). Gemerkt wird über das Kachelmenü, aus dem,
+      // was gerade eingestellt ist.
+      doppelAktion={gemerkteAktion(eigenePrefs.doppeltipp, entity.id)}
+      doppelLabel={menuLabel(eigenePrefs.doppeltipp, entity)}
+      onDoppeltipp={
+        darfSchalten
+          ? (aktion) => {
+              setDoppeltipp(entity.id, aktion);
+              setNote(
+                aktion
+                  ? `Doppeltipp gemerkt: ${aktion.wort}`
+                  : 'Doppeltipp vergessen'
+              );
+            }
+          : undefined
+      }
       width={cardWidth!}
       imRaumblock={imRaumblock}
       // Gehört dieser Spot zu einer zusammengefassten Leuchte? Unter
@@ -1154,6 +1467,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           : null
       }
       pending={pending[entity.id]}
+      // Die letzte Absage des Hubs. Sie geht nur in die Fernbedienung –
+      // die ist ein Modal und deckt das Band am unteren Rand zu, in dem
+      // sie sonst steht.
+      fehler={error}
+      onFehlerWeg={dismissError}
       // Nur unter «Geräte»: Wo kommt das Gerät überall vor? Antippen
       // führt zu den Abläufen.
       usedIn={
@@ -1180,17 +1498,20 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       onToggleHidden={() => setHidden(toggleIn(hidden, entity.id))}
       locked={locked.includes(entity.id)}
       onToggleLocked={() => setLocked(toggleIn(locked, entity.id))}
+      ungezaehlt={ungezaehlt.includes(entity.id)}
+      onToggleUngezaehlt={() => setUngezaehlt(toggleIn(ungezaehlt, entity.id))}
       rooms={editing ? roomOrder : undefined}
       onSetRoom={editing ? (room) => setEntityRoom(entity.id, room) : undefined}
       onRename={
         // Nicht mehr nur im Anpassen-Modus: Ausserhalb hängt daran der
         // lange Druck auf die Kachel.
-        darfUmbenennen ? (name) => setEntityMeta(entity.id, { name }) : undefined
+        darfAnpassen ? (name) => setEntityMeta(entity.id, { name }) : undefined
       }
       doorConfirm={prefs.doorConfirm}
       groups={editing ? groupNames : undefined}
       onSetGroup={editing ? (group) => setEntityMeta(entity.id, { group }) : undefined}
       onCommand={(command, data) => guardedCommand(entity.id, command, data)}
+      onErinnern={() => setErinnernAn(entity)}
       sky={entity.kind === 'cover' ? sky : undefined}
       snapshotUri={
         // Kameras: Livebild. Sauger: die Karte – beides über denselben Endpunkt.
@@ -1213,9 +1534,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       }
       onLongPress={
         // Überall dasselbe: langes Drücken zeigt den Verlauf dieses
-        // Geräts. Unter Geräte tut das schon ein Tipp - dort wäre ein
-        // zweiter Weg nur verwirrend.
-        !editing && section !== 'devices' && HISTORY_KINDS.has(entity.kind)
+        // Geräts. Hier stand einmal eine Ausnahme für «Geräte», weil
+        // dort schon ein Tipp den Verlauf öffnet - ein zweiter Weg sei
+        // verwirrend. In Wahrheit war es das Gegenteil: Wer die Geste
+        // überall gelernt hat, drückt auch dort lange, und dann passierte
+        // nichts. Zwei Wege zum selben Ziel verwirren niemanden; ein Weg,
+        // der an einer Stelle fehlt, schon.
+        !editing && HISTORY_KINDS.has(entity.kind)
           ? () => setHistoryFor(entity.id)
           : undefined
       }
@@ -1269,18 +1594,240 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         renderCard(entity, imRaumblock)
       );
   };
-  const renderCell = zellen(orderScope, rest);
+  // Auch hier `imRaumblock`, sobald ein Zimmer offen ist: Über diesen
+  // Weg läuft das Zimmer im Anpassen-Modus und bei eigener Reihenfolge -
+  // dort stand der Raumname sonst weiter unter jeder Kachel.
+  const renderCell = zellen(
+    orderScope,
+    rest,
+    section === 'home' && room !== ALL_ROOMS
+  );
+
+  const einstellungsPunkte: {
+    key: Section | 'search' | 'sorgen' | 'besuch';
+    icon: keyof typeof Ionicons.glyphMap;
+    label: string;
+    detail: string;
+    show: boolean;
+    /** Statt zu einem Bereich zu wechseln: etwas öffnen. */
+    onPress?: () => void;
+  }[] = [
+    {
+      key: 'search',
+      icon: 'search-outline',
+      label: 'Suche',
+      detail: 'Geräte, Räume, Szenen und Abläufe auf einmal',
+      show: true,
+      onPress: () => setSearchOpen(true),
+    },
+    {
+      key: 'users',
+      icon: 'people-circle-outline',
+      label: 'Benutzerverwaltung',
+      detail: 'Zugänge und Rollen: Besitzer, Mitbewohner, Gast',
+      show: sieht('users'),
+    },
+    {
+      key: 'personen',
+      icon: 'people-outline',
+      label: 'Familie und Freunde',
+      detail: 'Wer ist wo, und was soll über wen gemeldet werden',
+      // Auch für Mitbewohner: Wo die Familie gerade ist, geht alle
+      // an, die hier wohnen - anders als die Frage, wer Zugang hat.
+      show: true,
+    },
+    {
+      key: 'automations',
+      icon: 'git-branch-outline',
+      label: 'Abläufe',
+      detail: istBesitzer
+        ? 'Automationen und Szenen'
+        : 'Pausieren, Babysitter-Modus und was heute läuft',
+      show: sieht('automations'),
+    },
+    {
+      key: 'alarm',
+      icon: 'shield-checkmark-outline',
+      label: 'Alarmanlage',
+      detail: 'Sensoren, Modi und Verlauf',
+      show: sieht('alarm'),
+    },
+    {
+      key: 'devices',
+      icon: 'list-outline',
+      label: 'Geräte',
+      detail: istBesitzer
+        ? 'Alle Geräte, auch ausgeblendete'
+        : 'Alle Geräte mit Batterie und Verlauf',
+      show: sieht('devices'),
+    },
+    {
+      key: 'besuch',
+      icon: 'people-outline',
+      label: besuchStand?.active ? 'Jemand ist da' : 'Besuch oder Babysitter',
+      detail: modusZeile(besuchStand, Date.now()),
+      // Auch für Mitbewohner: Wer Gäste empfängt, soll ihnen das
+      // WLAN geben können, ohne die Besitzerin zu fragen.
+      show: true,
+      onPress: () => setBesuchOffen(true),
+    },
+    {
+      key: 'sorgen',
+      icon: 'medkit-outline',
+      label: 'Nicht in Ordnung',
+      // Gezählt wird hier nur, was die Geräteliste allein weiss:
+      // wer nicht antwortet und wer verstummt ist. Schwache
+      // Batterien und Wartungen stehen im Blatt selbst - ob eine
+      // Warnung quittiert ist, weiss nur der Hub, und eine Zahl,
+      // die eine andere Liste ankündigt als die, die aufgeht, wäre
+      // schlimmer als keine.
+      detail: stummeGeraete.length
+        ? sorgenSatz(stummeGeraete)
+        : 'Batterien, Funkstille und Wartung auf einem Blatt',
+      show: sieht('devices'),
+      onPress: () => setSorgenOffen(true),
+    },
+    {
+      key: 'speakers',
+      icon: 'volume-high-outline',
+      label: 'Lautsprecher',
+      detail: 'Boxen und Gruppen im Netz',
+      show: sieht('speakers'),
+    },
+    {
+      key: 'energy',
+      icon: 'flash-outline',
+      label: 'Energie',
+      detail: 'Verbrauch und Kosten je Gerät',
+      show: sieht('energy'),
+    },
+    {
+      key: 'system',
+      icon: 'pulse-outline',
+      label: 'System',
+      detail: 'Integrationen, Sicherung, Konfiguration',
+      show: sieht('system'),
+    },
+    {
+      key: 'activity',
+      icon: 'timer-outline',
+      label: 'Was war los',
+      detail: 'Der Rückblick über alle Geräte – Tage zurück',
+      show: sieht('activity'),
+    },
+    {
+      key: 'widgets',
+      icon: 'apps-outline',
+      label: 'Widgets',
+      detail: 'Knöpfe auf Homescreen und Sperrbildschirm',
+      // Für alle sichtbar, obwohl es die Ansicht des Hauses ändert:
+      // Wer ein Widget auf seinem Telefon hat, muss nachsehen können,
+      // was darauf liegt - und die Anleitung zum Hinzufügen braucht
+      // ohnehin jeder selbst.
+      show: true,
+    },
+    {
+      key: 'account',
+      icon: 'person-outline',
+      label: 'Konto',
+      detail: 'Profil, Darstellung, App-Symbol, Benachrichtigungen',
+      show: true,
+    },
+    {
+      key: 'connection',
+      icon: 'link-outline',
+      label: 'Verbindungen',
+      detail: 'Hub-Adresse und Token dieses Geräts',
+      show: true,
+    },
+  ];
+
+  // Die Punkte, geteilt nach dem, was sie tun: bedienen oder einrichten
+  // (lib/einstellungsmenue.ts). Gerechnet und nicht von Hand danebenge-
+  // schrieben - sonst driften Liste und Zuordnung auseinander, sobald
+  // jemand einen Punkt hinzufügt.
+  const sichtbarePunkte = einstellungsPunkte.filter((item) => item.show);
+  const hausPunkte = sichtbarePunkte.filter((item) => gruppeVon(item.key) === 'haus');
+  const adminPunkte = sichtbarePunkte.filter((item) => gruppeVon(item.key) === 'admin');
+
+  // Auf dem iPad bleiben die Einstellungen zweispaltig: Menü links,
+  // Inhalt rechts. Der Wechsel Vollbild → Vollbild verlor auf grossen
+  // Bildschirmen die Orientierung - man sah nie, wo man ist und was es
+  // daneben noch gäbe. Die Startseite und die Geräteliste bleiben
+  // aussen vor: Sie haben ihre eigene rechte Spalte.
+  const einstellungsSeiten: Section[] = [
+    'users', 'personen', 'automations', 'alarm', 'speakers',
+    'energy', 'system', 'activity', 'widgets', 'account', 'connection',
+  ];
+  /** Ab hier ist Platz für Menü und Inhalt nebeneinander. */
+  const ZWEISPALTIG_AB = 1000;
+  const zweispaltig = width >= ZWEISPALTIG_AB && einstellungsSeiten.includes(section);
+  if (einstellungsSeiten.includes(section)) zuletztEinstellung.current = section;
+
+  // Welche dieser Seiten dieser Benutzer überhaupt sieht - in der
+  // Reihenfolge des Menüs, damit «die erste» dieselbe ist, die auch oben
+  // in der Spalte steht.
+  const offeneSeiten = sichtbarePunkte
+    .map((item) => item.key)
+    .filter((key): key is Section => einstellungsSeiten.includes(key as Section));
+
+  /**
+   * Zu einem Bereich wechseln - mit einer Ausnahme.
+   *
+   * «Einstellungen» war ein Zwischenschritt für nichts: Man tippte
+   * darauf, bekam eine Liste von Kacheln, tippte noch einmal, und erst
+   * dann stand die Ansicht da, die man gemeint hatte. Zweimal derselbe
+   * Weg, einmal davon vergeblich.
+   *
+   * Also geht gleich eine Seite auf; die vom letzten Mal, sonst die
+   * erste (lib/einstellungsmenue.ts). Das Menü steht dabei immer
+   * daneben: auf dem breiten Bildschirm als Spalte links, auf dem
+   * Telefon als schiebbare Zeile darüber (components/EinstellungsTabs).
+   *
+   * Sieht jemand überhaupt keine solche Seite - ein Gast etwa -, bleibt
+   * es bei der Kachelliste: Ein leerer Bereich wäre schlimmer als eine
+   * kurze Liste.
+   */
+  // Womit die Leiste «Einstellungen» hervorhebt, solange man drin ist.
+  // Vorher stand dort nichts hervorgehoben, sobald man eine Seite offen
+  // hatte - und auf einem breiten Bildschirm ist man ab dem ersten Tipp
+  // immer auf einer Seite. Man sah dann nirgends mehr, wo man ist.
+  const railAktiv: Section = sichtbarePunkte.some((item) => item.key === section)
+    ? 'settings'
+    : section;
+
+  const waehleBereich = (ziel: Section) => {
+    if (ziel === 'settings') {
+      const start = einstiegsSeite(offeneSeiten, zuletztEinstellung.current);
+      if (start) {
+        setSection(start);
+        return;
+      }
+    }
+    setSection(ziel);
+  };
 
   const content = () => {
     // Der Riegel vor Familie und Konto - siehe lib/bereichsriegel.ts. Er
     // steht vor dem Verteiler, damit kein Bereich ihn vergessen kann.
     // `now` tickt ohnehin; damit läuft die offene Zeit von selbst ab.
-    if (istGesperrt(section, user?.area_locked, riegelBis, now.getTime())) {
+    const gesperrt = istGesperrt(section, {
+      areaLocked: user?.area_locked,
+      panel: settings.panel,
+      babysitter,
+      offenBis: riegelBis,
+      jetzt: now.getTime(),
+    });
+    // Die Abkürzungen zählen wie ein aufgeschlossener Riegel - solange
+    // sie führen, ist der Bereich offen, aber nur für dieses eine Modul.
+    if (gesperrt && riegelModul === null) {
       return (
         <BereichRiegel
           settings={settings}
           titel={SECTION_LABEL[section]}
           onOffen={setRiegelBis}
+          offen={offeneModule(section, settings.panel, gesperrt)}
+          onOeffneModul={setRiegelModul}
         />
       );
     }
@@ -1304,6 +1851,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               // sonst spränge beim Umstieg alles durcheinander.
               favoriteOrder={eigenePrefs.favoriteOrder ?? prefs.order?.favorites}
               onReorderFavorites={setFavoriteOrder}
+              onDurchsage={darfSchalten ? sendeDurchsage : undefined}
+              durchsage={eigenePrefs.durchsage}
+              onDurchsagePrefs={setDurchsage}
+              onSprachnotiz={darfSchalten ? sendeSprachnotiz : undefined}
+              onRenameEntity={
+                darfAnpassen
+                  ? (entityId, name) => setEntityMeta(entityId, { name })
+                  : undefined
+              }
               doorConfirm={prefs.doorConfirm}
             />
           </View>
@@ -1323,150 +1879,108 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           currentUser={user}
           moduleOrder={prefs.order?.family}
           onReorderModules={(keys) => setOrder('family', keys)}
+          hiddenModules={prefs.familyHidden}
+          onHiddenModules={setFamilyHidden}
           changedAt={familyChangedAt}
+          startModul={riegelModul ?? familienModul}
         />
       );
     }
 
-    // Zurück-Zeile für alles, was über „Einstellungen“ erreicht wird.
-    const back = (
-      <Pressable
-        onPress={() => setSection('settings')}
-        accessibilityRole="button"
-        accessibilityLabel="Zurück zu Einstellungen"
-        style={styles.backRow}
-      >
-        <Ionicons name="chevron-back" size={18} color={colors.onGradient} />
-        <Text style={styles.backText}>Einstellungen</Text>
-      </Pressable>
+    // Das Menü für alles, was über „Einstellungen“ erreicht wird.
+    // Zweispaltig braucht es niemand: Dort steht es daneben.
+    //
+    // Auf dem Telefon war hier eine blosse Zurück-Zeile, und damit war
+    // jeder Wechsel drei Handgriffe: zurück zur Liste, den Punkt suchen,
+    // wieder tippen. Jetzt ist jeder Punkt einen Tipp weit weg - und der
+    // Weg zur Kachelliste, wo die Erklärungen stehen, ganz links.
+    const back = zweispaltig ? null : (
+      <EinstellungsTabs
+        punkte={sichtbarePunkte}
+        active={section === 'settings' ? null : section}
+        onSelect={(key) => {
+          const punkt = sichtbarePunkte.find((item) => item.key === key);
+          if (punkt?.onPress) punkt.onPress();
+          else setSection(key as Section);
+        }}
+        onUebersicht={() => setSection('settings')}
+      />
     );
 
     if (section === 'settings') {
-      // Alles ausser «Konto & Verbindung» ist Sache der Besitzerin bzw.
-      // des Besitzers. Bewohner bedienen das Haus über die Startseite; die
-      // Einrichtung dahinter - wer darf was, welche Abläufe laufen, was der
-      // Hub gerade treibt - gehört nicht in jede Hand. Der Hub prüft die
-      // Rechte ohnehin noch einmal selbst.
+      // Vorne steht, was man bedient; hinter «Administrator», was das
+      // Haus einrichtet (lib/einstellungsmenue.ts). Wer was überhaupt
+      // sieht, entscheidet `show` je Punkt - der Hub prüft die Rechte
+      // ohnehin noch einmal selbst.
       //
       // Eine Ausnahme: «Abläufe». Ein Mitbewohner darf sie pausieren und
       // den Babysitter-Modus schalten - das ist Bedienung, keine
       // Einrichtung. Anlegen und Ändern bleibt ihm verwehrt, dafür sorgt
       // edit_automations in der Seite selbst (und der Hub noch einmal).
-      const items: {
-        key: Section | 'search';
-        icon: keyof typeof Ionicons.glyphMap;
-        label: string;
-        detail: string;
-        show: boolean;
-        /** Statt zu einem Bereich zu wechseln: etwas öffnen. */
-        onPress?: () => void;
-      }[] = [
-        {
-          key: 'search',
-          icon: 'search-outline',
-          label: 'Suche',
-          detail: 'Geräte, Räume, Szenen und Abläufe auf einmal',
-          show: true,
-          onPress: () => setSearchOpen(true),
-        },
-        {
-          key: 'users',
-          icon: 'people-circle-outline',
-          label: 'Benutzerverwaltung',
-          detail: 'Zugänge und Rollen: Besitzer, Mitbewohner, Gast',
-          show: istBesitzer,
-        },
-        {
-          key: 'automations',
-          icon: 'git-branch-outline',
-          label: 'Abläufe',
-          detail: istBesitzer
-            ? 'Automationen und Szenen'
-            : 'Pausieren, Babysitter-Modus und was heute läuft',
-          show: istBesitzer || darfPausieren,
-        },
-        {
-          key: 'alarm',
-          icon: 'shield-checkmark-outline',
-          label: 'Alarmanlage',
-          detail: 'Sensoren, Modi und Verlauf',
-          show: istBesitzer,
-        },
-        {
-          key: 'devices',
-          icon: 'list-outline',
-          label: 'Geräte',
-          detail: 'Alle Geräte, auch ausgeblendete',
-          show: istBesitzer,
-        },
-        {
-          key: 'speakers',
-          icon: 'volume-high-outline',
-          label: 'Lautsprecher',
-          detail: 'Boxen und Gruppen im Netz',
-          show: istBesitzer,
-        },
-        {
-          key: 'energy',
-          icon: 'flash-outline',
-          label: 'Energie',
-          detail: 'Verbrauch und Kosten je Gerät',
-          show: istBesitzer,
-        },
-        {
-          key: 'system',
-          icon: 'pulse-outline',
-          label: 'System',
-          detail: 'Integrationen, Sicherung, Konfiguration',
-          show: istBesitzer,
-        },
-        {
-          key: 'activity',
-          icon: 'timer-outline',
-          label: 'Zuletzt passiert',
-          detail: 'Protokoll der letzten Änderungen',
-          show: istBesitzer,
-        },
-        {
-          key: 'widgets',
-          icon: 'apps-outline',
-          label: 'Widgets',
-          detail: 'Knöpfe auf Homescreen und Sperrbildschirm',
-          // Für alle sichtbar, obwohl es die Ansicht des Hauses ändert:
-          // Wer ein Widget auf seinem Telefon hat, muss nachsehen können,
-          // was darauf liegt - und die Anleitung zum Hinzufügen braucht
-          // ohnehin jeder selbst.
-          show: true,
-        },
-        {
-          key: 'account',
-          icon: 'person-outline',
-          label: 'Konto & Verbindung',
-          detail: 'Hub-Adresse, Token, Darstellung, Benachrichtigungen',
-          show: true,
-        },
-      ];
       return (
         <View style={styles.settingsList}>
-          {items
-            .filter((item) => item.show)
-            .map((item) => (
-              <Pressable
-                key={item.key}
-                onPress={() =>
-                  item.onPress ? item.onPress() : setSection(item.key as Section)
-                }
-                accessibilityRole="button"
-                style={({ pressed }) => [styles.settingsItem, pressed && { opacity: 0.8 }]}
-              >
-                <Ionicons name={item.icon} size={22} color={colors.ink} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.settingsLabel}>{item.label}</Text>
-                  <Text style={styles.settingsDetail}>{item.detail}</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={colors.inkFaint} />
-              </Pressable>
-            ))}
+          {hausPunkte.map((item) => (
+            <Pressable
+              key={item.key}
+              onPress={() =>
+                item.onPress ? item.onPress() : setSection(item.key as Section)
+              }
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.settingsItem, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons name={item.icon} size={22} color={colors.ink} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.settingsLabel}>{item.label}</Text>
+                <Text style={styles.settingsDetail}>{item.detail}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.inkFaint} />
+            </Pressable>
+          ))}
+
+          {/* Die Einrichtung des Hauses hinter einer eigenen Tür. Sie
+              stand mitten zwischen den täglichen Wegen und verlängerte
+              sie - geöffnet wird sie selten und nie beiläufig. */}
+          {adminPunkte.length > 0 ? (
+            <Pressable
+              onPress={() => setSection('admin')}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.settingsItem, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons name="construct-outline" size={22} color={colors.ink} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.settingsLabel}>Administrator</Text>
+                <Text style={styles.settingsDetail}>
+                  {adminZeile(adminPunkte.length)}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.inkFaint} />
+            </Pressable>
+          ) : null}
+        </View>
+      );
+    }
+
+    if (section === 'admin') {
+      return (
+        <View style={styles.settingsList}>
+          {back}
+          {adminPunkte.map((item) => (
+            <Pressable
+              key={item.key}
+              onPress={() =>
+                item.onPress ? item.onPress() : setSection(item.key as Section)
+              }
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.settingsItem, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons name={item.icon} size={22} color={colors.ink} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.settingsLabel}>{item.label}</Text>
+                <Text style={styles.settingsDetail}>{item.detail}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.inkFaint} />
+            </Pressable>
+          ))}
         </View>
       );
     }
@@ -1493,7 +2007,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         <View style={styles.stack}>
           {back}
           <>
-            <Broadcast settings={settings} entities={entities} />
+            <Musikzentrale settings={settings} entities={entities} />
+            {/* Die Durchsage stand hier als breite Karte: ein leeres
+                Textfeld und darunter fünfzehn Boxennamen als Chips.
+                Drei Ecken von dort entfernt, wo man sie braucht. Sie
+                sitzt jetzt als Kachel bei den Favoriten auf der
+                Startseite - siehe DurchsageFenster in
+                OverviewScreen.tsx. */}
             <SpeakersScreen settings={settings} />
           </>
         </View>
@@ -1511,7 +2031,21 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       return (
         <View style={styles.stack}>
           {back}
+          {/* Zuerst der Rückblick über alle Geräte: Er hat ein
+              Gedächtnis, das den Neustart übersteht. Die flüchtige
+              Liste darunter zeigt, was seit dem Öffnen der App
+              geschah - sie ist schneller, aber sie fängt bei jedem
+              Start wieder von vorne an. */}
+          <HausRueckblick settings={settings} />
           <ActivityCard activity={activity} />
+        </View>
+      );
+    }
+    if (section === 'personen') {
+      return (
+        <View style={styles.stack}>
+          {back}
+          <PersonenScreen settings={settings} />
         </View>
       );
     }
@@ -1527,14 +2061,46 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       return (
         <View style={styles.stack}>
           {back}
-          <SettingsScreen initial={settings} onSave={onSaveSettings} user={user} embedded />
+          <SettingsScreen
+            initial={settings}
+            onSave={onSaveSettings}
+            user={user}
+            embedded
+            nur="konto"
+            onRenamed={benutzerNeuLaden}
+          />
           <BioLock enabled={!!prefs.bioLock} onChange={setBioLock} />
           {/* Nur für die Besitzerin: Die Hürde vor der Haustüre gilt fürs
               ganze Haus, ihr Abräumen ist keine Ansichtssache. */}
           {istBesitzer ? (
             <TuerRueckfrage enabled={prefs.doorConfirm} onChange={setDoorConfirm} />
           ) : null}
+          {/* Nur für Menschen mit eigenem iPhone - am Wandpanel und für
+              Gäste hätte die Karte keinen Ort. */}
+          {!user?.shared && user?.role !== 'gast' ? (
+            <LiveTuerSchalter
+              settings={settings}
+              enabled={eigenePrefs.liveTuer !== false}
+              onChange={setLiveTuer}
+              aus={eigenePrefs.liveAus ?? []}
+              onAus={setLiveAus}
+            />
+          ) : null}
           <PushPrefs settings={settings} />
+        </View>
+      );
+    }
+    if (section === 'connection') {
+      return (
+        <View style={styles.stack}>
+          {back}
+          <SettingsScreen
+            initial={settings}
+            onSave={onSaveSettings}
+            user={user}
+            embedded
+            nur="verbindung"
+          />
         </View>
       );
     }
@@ -1545,8 +2111,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           <Widgets
             buttons={prefs.widgetButtons}
             onButtons={setWidgetButtons}
-            direct={prefs.widgetDirect ?? []}
+            direct={
+              prefs.widgetDirect ?? standardDirekt(prefs.widgetButtons ?? [], entities)
+            }
             onDirect={setWidgetDirect}
+            karten={prefs.widgetKarten}
+            onKarten={setWidgetKarten}
             dataEnabled={!!prefs.widgetData}
             onDataEnabled={setWidgetData}
             ablage={widgetAblage}
@@ -1646,35 +2216,42 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                     </Pressable>
                   );
                 })}
-                <View style={{ flex: 1 }} />
-                <Pressable
-                  onPress={() =>
-                    setDeviceSort(
-                      deviceSort === 'selbst'
-                        ? 'raum'
-                        : deviceSort === 'raum'
-                          ? 'art'
-                          : deviceSort === 'art'
-                            ? 'gesehen'
-                            : 'selbst'
-                    )
-                  }
-                  accessibilityRole="button"
-                  accessibilityLabel="Sortierung wechseln"
-                  style={styles.filterChip}
-                >
-                  <Ionicons name="swap-vertical" size={12} color={colors.onGradientSoft} />
-                  <Text style={styles.filterChipText}>
-                    {deviceSort === 'selbst'
-                      ? 'eigene Reihenfolge'
-                      : deviceSort === 'raum'
-                        ? 'nach Raum'
-                        : deviceSort === 'art'
-                          ? 'nach Art'
-                          : 'lange nicht gesehen'}
-                  </Text>
-                </Pressable>
               </View>
+              {/* Die Sortierung in eigener Zeile. Sie stand bisher in
+                  derselben Reihe, nach hinten geschoben von einem
+                  `flex: 1`-Abstandhalter - und die Reihe bricht um: Bei
+                  vier Filtern lagen «Ausgeblendet · 7» und «eigene
+                  Reihenfolge» in der zweiten Zeile an den beiden Enden,
+                  mit einer Handbreit Leere dazwischen. Das sah nach
+                  Fehler aus. Rechts und für sich ist sie ausserdem
+                  ehrlicher: Sie filtert nichts, sie ordnet. */}
+              <Pressable
+                onPress={() =>
+                  setDeviceSort(
+                    deviceSort === 'selbst'
+                      ? 'raum'
+                      : deviceSort === 'raum'
+                        ? 'art'
+                        : deviceSort === 'art'
+                          ? 'gesehen'
+                          : 'selbst'
+                  )
+                }
+                accessibilityRole="button"
+                accessibilityLabel="Sortierung wechseln"
+                style={[styles.filterChip, { alignSelf: 'flex-end' }]}
+              >
+                <Ionicons name="swap-vertical" size={12} color={colors.ink} />
+                <Text style={styles.filterChipText}>
+                  {deviceSort === 'selbst'
+                    ? 'eigene Reihenfolge'
+                    : deviceSort === 'raum'
+                      ? 'nach Raum'
+                      : deviceSort === 'art'
+                        ? 'nach Art'
+                        : 'lange nicht gesehen'}
+                </Text>
+              </Pressable>
               {/* Batterien und Stumme im Detail – vorher unter System,
                   also auf dem Bildschirm für den Hub statt dem für die
                   Geräte. */}
@@ -1698,6 +2275,24 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               die falsche. Deshalb umschaltbar, und zwar je Person: Am
               Wandpanel im Flur will man etwas anderes als auf dem
               Telefon. */}
+          {section === 'cameras' && rest.length > 1 && !editing ? (
+            <Pressable
+              onPress={() => setWandOffen(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Alle Kameras nebeneinander zeigen"
+              style={({ pressed }) => [styles.kameraSort, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons name="grid-outline" size={18} color={colors.onGradientSoft} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.reorderText}>Alle nebeneinander</Text>
+                <Text style={styles.kameraSortHint}>
+                  Standbilder, die sich von selbst auffrischen – antippen zeigt
+                  eine gross und live.
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={22} color={colors.inkFaint} />
+            </Pressable>
+          ) : null}
           {section === 'cameras' && rest.length > 1 && !editing ? (
             <Pressable
               onPress={() => setKameraDynamisch(!eigenePrefs.kameraDynamisch)}
@@ -1732,14 +2327,85 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               />
             </Pressable>
           ) : null}
-          {orderScope && !searching && rest.length > 1 ? (
+          {/* Der Schalter für die Tageszeit steht dort, wo sie wirkt -
+              auf der Startseite. Aus, bis jemand ihn einschaltet: Eine
+              Wohnung, die sich von selbst umsortiert, ohne dass man es
+              bestellt hat, ist keine eingerichtete Wohnung, sondern eine,
+              in der man morgens sucht. Und je Person, weil es Gewohnheit
+              ist: Wer um sechs aufsteht, meint mit «Morgen» etwas
+              anderes als wer um neun anfängt. */}
+          {section === 'home' && !editing && !searching && lohntSich(shown) ? (
             <Pressable
-              onPress={() => setReorderOpen(true)}
-              accessibilityRole="button"
-              style={({ pressed }) => [styles.reorderButton, pressed && { opacity: 0.8 }]}
+              onPress={() => setTageszeit(!eigenePrefs.tageszeit)}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: !!eigenePrefs.tageszeit }}
+              accessibilityLabel={
+                eigenePrefs.tageszeit
+                  ? 'Kacheln wieder in fester Reihenfolge zeigen'
+                  : 'Kacheln nach Tageszeit sortieren'
+              }
+              style={({ pressed }) => [styles.kameraSort, pressed && { opacity: 0.8 }]}
             >
-              <Ionicons name="swap-vertical" size={16} color={colors.onGradient} />
-              <Text style={styles.reorderText}>Reihenfolge ändern</Text>
+              <Ionicons
+                name={eigenePrefs.tageszeit ? 'sunny' : 'list-outline'}
+                size={18}
+                color={eigenePrefs.tageszeit ? colors.accent : colors.onGradientSoft}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.reorderText}>
+                  {abschnitt ? tageszeitHinweis(abschnitt) : 'Feste Reihenfolge'}
+                </Text>
+                <Text style={styles.kameraSortHint}>
+                  {eigenePrefs.tageszeit
+                    ? 'Morgens Storen, abends Licht – die Reihenfolge wandert mit dem Tag. Gilt nur für dich.'
+                    : 'Immer dieselbe Reihenfolge, egal wie spät es ist.'}
+                </Text>
+              </View>
+              <Ionicons
+                name={eigenePrefs.tageszeit ? 'toggle' : 'toggle-outline'}
+                size={30}
+                color={eigenePrefs.tageszeit ? colors.accent : colors.inkFaint}
+              />
+            </Pressable>
+          ) : null}
+          {/* Und der Schalter für die Raum-Reihenfolge - dort, wo die
+              Räume stehen. Dieselbe Regel wie bei der Tageszeit: aus,
+              bis jemand ihn einschaltet, und je Gerät gezählt - am
+              Wandpanel bedient man anderes als auf dem Telefon. */}
+          {section === 'home' && room === ALL_ROOMS && !editing && rooms.length > 3 ? (
+            <Pressable
+              onPress={() => setRaumNutzung(!eigenePrefs.raumNutzung)}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: !!eigenePrefs.raumNutzung }}
+              accessibilityLabel={
+                eigenePrefs.raumNutzung
+                  ? 'Räume wieder in fester Reihenfolge zeigen'
+                  : 'Meistbenutzte Räume zuerst zeigen'
+              }
+              style={({ pressed }) => [styles.kameraSort, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons
+                name={eigenePrefs.raumNutzung ? 'trending-up' : 'list-outline'}
+                size={18}
+                color={eigenePrefs.raumNutzung ? colors.accent : colors.onGradientSoft}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.reorderText}>
+                  {eigenePrefs.raumNutzung
+                    ? 'Meistbenutzte Räume zuerst'
+                    : 'Feste Raum-Reihenfolge'}
+                </Text>
+                <Text style={styles.kameraSortHint}>
+                  {eigenePrefs.raumNutzung
+                    ? 'Was du auf diesem Gerät oft bedienst, steht oben. Ältere Bedienungen verblassen.'
+                    : 'Die Reihenfolge aus der Einrichtung – egal, was du oft anfasst.'}
+                </Text>
+              </View>
+              <Ionicons
+                name={eigenePrefs.raumNutzung ? 'toggle' : 'toggle-outline'}
+                size={30}
+                color={eigenePrefs.raumNutzung ? colors.accent : colors.inkFaint}
+              />
             </Pressable>
           ) : null}
           <Modal
@@ -1783,15 +2449,19 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   «Alles aus» steht deshalb unten, nach den Räumen, und
                   der Widget-Knopf öffnet seine Rückfrage direkt. */}
               <ClimateOverview settings={settings} entities={entities} />
-              <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
-                <AllOff
-                  entities={entities}
-                  locked={locked}
-                  onCommand={guardedCommand}
-                  openSignal={allOffSignal}
-                  compact
-                />
-              </View>
+              {/* Ohne Knopf: Auf der Startseite stand «Alles aus» im
+                  Weg - dort will man Licht und Storen, nicht das Haus
+                  abschalten. Für einen Raum bleibt er (Räume →
+                  Filterzeile), und wer ihn sich aufs Widget gelegt hat,
+                  drückt ihn dort: Dessen Rückfrage geht hier auf. */}
+              <AllOff
+                entities={entities}
+                locked={locked}
+                onCommand={guardedCommand}
+                onRecordUndo={merkeGriff}
+                openSignal={allOffSignal}
+                ohneKnopf
+              />
             </>
           ) : null}
           {section === 'home' && editing && rooms.length > 0 ? (
@@ -1868,10 +2538,26 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               <Text style={styles.backText}>Räume</Text>
             </Pressable>
           ) : null}
+          {/* Der Raumname als Überschrift.
+              Im Zimmer stand er nirgends: oben «‹ Räume», darunter
+              «Anpassen», dann «Beleuchtung» - und der einzige Hinweis
+              auf das Zimmer war das kleingedruckte «Büro» unter jeder
+              Kachel, das jetzt zu Recht weg ist. Wer über einen Umweg
+              hierherkam, wusste nicht mehr, wo er steht.
+              Auch im Anpassen-Modus: Gerade dort darf man sich nicht im
+              Zimmer irren. */}
+          {section === 'home' && room !== ALL_ROOMS ? (
+            <Text style={styles.raumTitel} numberOfLines={1}>
+              {room}
+            </Text>
+          ) : null}
           {/* Kacheln anpassen heisst: verschieben, ausblenden, sperren,
-              Gruppen vergeben. Das prägt die Ansicht für alle im Haus und
-              gehört deshalb zur Einrichtung, nicht zum Bedienen. */}
-          {istBesitzer &&
+              Gruppen vergeben. Es prägt die Ansicht für alle im Haus -
+              aber genau darum steht es auch Mitbewohnern zu: Wer hier
+              wohnt, richtet mit ein. Der Hub verlangt für Name, Raum und
+              Gruppe dieselbe Fähigkeit (edit_devices); nur Gäste bleiben
+              beim Bedienen. */}
+          {darfAnpassen &&
           (section === 'home' ||
             section === 'devices' ||
             section === 'light' ||
@@ -1886,11 +2572,40 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             </Pressable>
           ) : null}
 
+          {/* Hinter «Anpassen» statt davor. Es stand bisher noch vor dem
+              Zurück-Link, also ganz oben - über der Zeile, mit der man
+              die Seite überhaupt verlässt. Erst wohin man ist, dann was
+              man hier tun kann. */}
+          {orderScope && !searching && rest.length > 1 ? (
+            <Pressable
+              onPress={() => setReorderOpen(true)}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.reorderButton, pressed && { opacity: 0.8 }]}
+            >
+              <Ionicons name="swap-vertical" size={16} color={colors.onGradient} />
+              <Text style={styles.reorderText}>Reihenfolge ändern</Text>
+            </Pressable>
+          ) : null}
+
           {section === 'devices' && !editing && !searching && groupNames.length > 0 ? (
             <GroupControls
               entities={entities}
               groups={groupNames}
               onCommand={guardedCommand}
+            />
+          ) : null}
+
+          {/* Was der Hub selbst gefunden hat, steht danach als Kachel da:
+              mit dem Namen aus der Verpackung und ohne Raum. Hier stehen
+              genau diese Geräte zusammen, statt dass man sie einzeln in
+              der Liste suchen muss. Ist nichts offen, zeigt die Karte
+              sich gar nicht erst. */}
+          {section === 'devices' && darfAnpassen ? (
+            <Einrichtungshilfe
+              entities={entities}
+              raeume={rooms.filter((name) => name !== ALL_ROOMS)}
+              onRaum={(entityId, raum) => setEntityRoom(entityId, raum)}
+              onName={(entityId, name) => setEntityMeta(entityId, { name })}
             />
           ) : null}
 
@@ -1915,7 +2630,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             />
           ) : null}
 
-          {section === 'devices' && !editing && !searching ? (
+          {/* Leuchten zusammenfassen prägt die Ansicht für alle im Haus
+              und ist damit Einrichtung, nicht Bedienung: Die Karte
+              bleibt bei der Besitzerin. Ohne diese Bedingung stand sie
+              auch vor Mitbewohnern - mit Knöpfen, die der Hub mit
+              «keine Berechtigung» abweist. */}
+          {section === 'devices' && istBesitzer && !editing && !searching ? (
             <LightGroups
               settings={settings}
               headers={{ Authorization: `Bearer ${settings.token}` }}
@@ -2021,6 +2741,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                   entities={inRoom}
                   locked={locked}
                   onCommand={guardedCommand}
+                  onRecordUndo={merkeGriff}
                   compact
                 />
                 {inRoom.some(
@@ -2036,7 +2757,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                       accessibilityRole="button"
                       style={styles.filterChip}
                     >
-                      <Ionicons name="arrow-up" size={13} color={colors.onGradientSoft} />
+                      <Ionicons name="arrow-up" size={13} color={colors.ink} />
                       <Text style={styles.filterChipText}>Storen hoch</Text>
                     </Pressable>
                     <Pressable
@@ -2048,7 +2769,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                       accessibilityRole="button"
                       style={styles.filterChip}
                     >
-                      <Ionicons name="arrow-down" size={13} color={colors.onGradientSoft} />
+                      <Ionicons name="arrow-down" size={13} color={colors.ink} />
                       <Text style={styles.filterChipText}>Storen runter</Text>
                     </Pressable>
                   </>
@@ -2064,7 +2785,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 <View key={group.key} style={styles.group}>
                   <Text style={styles.groupLabel}>{group.label}</Text>
                   <View style={styles.grid}>
-                    {cardWidth ? group.items.map((entity) => renderCard(entity)) : null}
+                    {/* `imRaumblock`: Man steht in einem Zimmer, jede
+                        Kachel darin gehört dazu. Ohne das stand unter
+                        jedem der sechs Bürolichter noch einmal «Büro» -
+                        sechsmal dieselbe Auskunft, und die einzige Stelle
+                        im Bild, die den Raum überhaupt nannte. */}
+                    {cardWidth
+                      ? group.items.map((entity) => renderCard(entity, true))
+                      : null}
                   </View>
                 </View>
               ))}
@@ -2126,13 +2854,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           ) : null}
 
           {inRoom.length === 0 ? (
-            <Text style={styles.empty}>
-              {status === 'connected'
-                ? room === ALL_ROOMS
-                  ? 'Noch keine Geräte – Integrationen in der config.yaml des Hubs aktivieren.'
-                  : `Für ${room} ist noch nichts zugeordnet.`
-                : 'Warte auf Verbindung zum Hub …'}
-            </Text>
+            <Leerzustand
+              bild={leerbild(
+                section,
+                section === 'home' && room !== ALL_ROOMS && room !== NO_ROOM
+                  ? room
+                  : null,
+                status === 'connected'
+              )}
+              onAktion={() => setSection('devices')}
+            />
           ) : null}
         </View>
 
@@ -2152,8 +2883,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
         <View style={[styles.frame, { paddingTop: insets.top }]}>
           {hasRail ? (
             <Rail
-              active={section}
-              onSelect={setSection}
+              active={railAktiv}
+              onSelect={waehleBereich}
               vertical
               capabilities={user?.capabilities ?? []}
               hidden={hiddenSections}
@@ -2161,6 +2892,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           ) : null}
 
           <ScrollView
+            ref={blatt}
             style={styles.scroll}
             contentContainerStyle={styles.content}
             showsVerticalScrollIndicator={false}
@@ -2189,12 +2921,15 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 status={status}
                 now={now}
                 hidden={hidden}
+                ungezaehlt={ungezaehlt}
+                locked={locked}
                 onCommand={guardedCommand}
                 {...(hiddenSections.includes('family')
                   ? {}
                   : {
                       shopping: einkauf,
                       shops: laeden,
+                      lernLog: prefs.einkaufLernen,
                       onShoppingDone: hakeAb,
                       onShoppingRemove: entferneEinkauf,
                       onShoppingCount: setzeMenge,
@@ -2219,22 +2954,17 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
 
             <View style={styles.greetingRow}>
               <View style={styles.greeting}>
+                {/* Eine Zeile, nicht zwei: «Hallo Stefan,» mit «Guten
+                    Abend.» darunter begrüsste zweimal - so spricht
+                    niemand. Beides steht jetzt in einem Satz
+                    (lib/begruessung.ts). */}
                 <Text
                   style={[
                     styles.greetingLine,
                     !hasRail && { fontSize: type.greetingSmall },
                   ]}
                 >
-                  {greetingName(settings, user)}
-                </Text>
-                <Text
-                  style={[
-                    styles.greetingLine,
-                    styles.greetingSecond,
-                    !hasRail && { fontSize: type.greetingSmall },
-                  ]}
-                >
-                  {partOfDay(now)}
+                  {begruessung(settings, user, now)}
                 </Text>
               </View>
               <View style={styles.greetingNotes}>
@@ -2253,15 +2983,72 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               reagiert. Der Schlüssel wechselt mit dem Bereich, damit ein
               gefangener Fehler beim Weiterblättern nicht kleben bleibt. */}
             <Auffangnetz key={section} bereich={SECTION_LABEL[section] ?? 'Dieser Bereich'}>
-              {content()}
+              {zweispaltig ? (
+                <View style={styles.settingsSplit}>
+                  <View style={styles.settingsRail}>
+                    {/* Auf dem iPad steht alles untereinander, Haus und
+                        Einrichtung durch eine Überschrift getrennt. Hier
+                        einen Zwischenschritt einzubauen wäre ein Tipp
+                        für nichts: Die Spalte ist breit genug für beides,
+                        und der Sinn der Trennung war, die täglichen Wege
+                        auf dem Telefon kurz zu halten. */}
+                    {[...hausPunkte, ...adminPunkte].map((item, index) => {
+                      const aktiv = item.key === section;
+                      // Die Überschrift steht vor dem ersten Punkt der
+                      // Einrichtung - dort, wo das Haus aufhört.
+                      const trennt =
+                        adminPunkte.length > 0 && index === hausPunkte.length;
+                      return (
+                        <React.Fragment key={item.key}>
+                          {trennt ? (
+                            <Text style={styles.settingsRailGruppe}>Administrator</Text>
+                          ) : null}
+                          <Pressable
+                            onPress={() =>
+                              item.onPress
+                                ? item.onPress()
+                                : setSection(item.key as Section)
+                            }
+                            accessibilityRole="tab"
+                            accessibilityState={{ selected: aktiv }}
+                            style={({ pressed }) => [
+                              styles.settingsRailItem,
+                              aktiv && styles.settingsRailActive,
+                              pressed && { opacity: 0.8 },
+                            ]}
+                          >
+                            <Ionicons
+                              name={item.icon}
+                              size={18}
+                              color={aktiv ? colors.ink : colors.inkSoft}
+                            />
+                            <Text
+                              style={[
+                                styles.settingsRailText,
+                                aktiv && { color: colors.ink, fontWeight: '700' },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {item.label}
+                            </Text>
+                          </Pressable>
+                        </React.Fragment>
+                      );
+                    })}
+                  </View>
+                  <View style={{ flex: 1, minWidth: 0 }}>{content()}</View>
+                </View>
+              ) : (
+                content()
+              )}
             </Auffangnetz>
           </ScrollView>
         </View>
 
         {!hasRail ? (
           <Rail
-            active={section}
-            onSelect={setSection}
+            active={railAktiv}
+            onSelect={waehleBereich}
             vertical={false}
             bottomInset={insets.bottom}
             capabilities={user?.capabilities ?? []}
@@ -2269,7 +3056,25 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           />
         ) : null}
 
-        {klingelt && ringKey && dismissedRing !== ringKey ? (
+        {faelligeErinnerungen.length > 0 ? (
+          <ErinnerungOverlay
+            erinnerungen={faelligeErinnerungen}
+            onBestaetigen={bestaetigeErinnerung}
+            onQuittieren={quittiereErinnerung}
+            styles={styles}
+          />
+        ) : null}
+
+        {/* Nur am Wandpanel (lib/klingel.ts: vollbildZeigen). Auf dem
+            Telefon reisst dasselbe Vollbild einem die App unter der Hand
+            weg - dort tut es die Nachricht. */}
+        {klingelt &&
+        (vollbildZeigen({
+          panel: settings.panel,
+          ringKey,
+          weggewischt: dismissedRing,
+        }) ||
+          getippteKlingel !== undefined) ? (
           <DoorbellOverlay
             ausloeser={klingelt}
             camera={klingelKamera}
@@ -2277,9 +3082,57 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             settings={settings}
             onCommand={(entityId, command) => guardedCommand(entityId, command)}
             doorConfirm={prefs.doorConfirm}
-            onDismiss={() => setDismissedRing(ringKey)}
+            onDismiss={() => {
+              setDismissedRing(ringKey);
+              setKlingelTap(null);
+            }}
             colors={colors}
             styles={styles}
+          />
+        ) : null}
+
+        {erinnernAn ? (
+          <Erinnerungsblatt
+            entity={erinnernAn}
+            onWahl={(minuten) => {
+              hub
+                .post(
+                  `/api/entities/${encodeURIComponent(erinnernAn.id)}/erinnern`,
+                  { minutes: minuten },
+                  { fallback: null }
+                )
+                .then(() => setNote(fristSatz(minuten)))
+                .catch(() => {});
+              setErinnernAn(null);
+            }}
+            onSchliessen={() => setErinnernAn(null)}
+          />
+        ) : null}
+
+        {pushBlatt ? (
+          <PushBlatt
+            titel={pushBlatt.titel}
+            text={pushBlatt.text}
+            knoepfe={pushBlatt.knoepfe}
+            onDruck={(knopf) => {
+              if (knopf.scene) activateScene(knopf.scene);
+              else if (knopf.entity && knopf.command) {
+                guardedCommand(knopf.entity, knopf.command);
+              }
+            }}
+            onSchliessen={() => setPushBlatt(null)}
+          />
+        ) : null}
+
+        {wandOffen ? (
+          <Kamerawand
+            kameras={rest}
+            bildUrl={snapshotUrl}
+            onOeffnen={(kamera) => {
+              setWandOffen(false);
+              setFullscreen(kamera.id);
+            }}
+            onClose={() => setWandOffen(false)}
           />
         ) : null}
 
@@ -2346,6 +3199,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           automations={automations}
           rooms={roomOrder}
           onClose={() => setSearchOpen(false)}
+          // Schalten aus der Suche geht denselben Weg wie jeder
+          // Tastendruck - durch die Sperre, mit Face ID und PIN, wo sie
+          // verlangt sind.
+          onCommand={darfSchalten ? guardedCommand : undefined}
           onPick={(hit) => {
             setSearchOpen(false);
             if (hit.kind === 'room') {
@@ -2374,27 +3231,54 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           onDismiss={error ? dismissError : () => setAbrufFehler(null)}
           bottomInset={insets.bottom}
         />
-        {/* Nur wenn nichts schiefging – ein fehlgeschlagener Befehl hat nichts
-          hinterlassen, was man zurücknehmen müsste.
+        <BesuchBlatt
+          settings={settings}
+          entities={entities}
+          offen={besuchOffen}
+          onClose={() => {
+            setBesuchOffen(false);
+            // Den Stand nachziehen: Die Zeile im Menü soll sagen, was
+            // im Blatt gerade entschieden wurde.
+            hub
+              .get<{ babysitter?: BabysitterStand } | null>('/api/automations/babysitter', {
+                fallback: null,
+                still: true,
+              })
+              .then((data) => setBesuchStand(data?.babysitter ?? null));
+          }}
+        />
 
-          Das Abhaken im Laden hat Vorrang vor einer Schaltung: Es ist die
-          jüngere Handlung, und es ist die, bei der man danebentippt. */}
+        <SorgenBlatt
+          settings={settings}
+          entities={entities}
+          offen={sorgenOffen}
+          onClose={() => setSorgenOffen(false)}
+        />
+
+        {/* Welches der drei möglichen «Zurück» gemeint ist, entscheidet
+          lib/rueckgriff.ts – dort steht auch, warum in dieser Reihenfolge. */}
         <UndoToast
-          what={
-            error || abrufFehler
-              ? null
-              : einkaufUndo
-                ? { name: mengeUndName(einkaufUndo.text).name, label: 'abgehakt' }
-                : undo
+          what={rueckAngebot.what}
+          onUndo={
+            rueckAngebot.quelle === 'einkauf'
+              ? nimmAbhakenZurueck
+              : rueckAngebot.quelle === 'griff'
+                ? nimmGriffZurueck
+                : undoLast
           }
-          onUndo={einkaufUndo ? nimmAbhakenZurueck : undoLast}
-          onDismiss={einkaufUndo ? () => setEinkaufUndo(null) : dismissUndo}
+          onDismiss={
+            rueckAngebot.quelle === 'einkauf'
+              ? () => setEinkaufUndo(null)
+              : rueckAngebot.quelle === 'griff'
+                ? () => setGriffUndo(null)
+                : dismissUndo
+          }
           bottomInset={insets.bottom}
         />
         {/* Gelungenes tritt hinter beides zurück: Wer gerade einen Fehler
           liest, braucht nicht noch ein Häkchen daneben. */}
         <Bestaetigung
-          text={error || abrufFehler || undo || einkaufUndo ? null : note}
+          text={error || abrufFehler || rueckAngebot.what ? null : note}
           onDismiss={() => setNote(null)}
           bottomInset={insets.bottom}
         />
@@ -2419,884 +3303,3 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     </HubProvider>
   );
 }
-
-/**
- * Rückfrage vor dem Schalten eines gesperrten Geräts.
- *
- * Für alles, was man nicht im Vorbeigehen antippen will: Herd, Sauna, der
- * Serverschrank. Die Sperre verhindert nichts – sie fügt nur den einen
- * bewussten Schritt ein, der ein Versehen von einer Absicht trennt.
- */
-function LockConfirm({
-  entity,
-  command,
-  onCancel,
-  onConfirm,
-  colors,
-  styles,
-}: {
-  entity: Entity;
-  command: string;
-  onCancel: () => void;
-  onConfirm: () => void;
-  colors: Colors;
-  styles: ReturnType<typeof makeStyles>;
-}) {
-  const was =
-    command === 'turn_off' || command === 'close'
-      ? 'ausschalten'
-      : command === 'toggle'
-        ? 'umschalten'
-        : 'einschalten';
-  return (
-    <Modal visible transparent animationType="fade" onRequestClose={onCancel}>
-      <View style={styles.lockBackdrop}>
-        <View style={styles.lockSheet}>
-          <Ionicons name="lock-closed" size={26} color={colors.accent} />
-          <Text style={styles.lockTitle}>{entity.name} ist gesperrt</Text>
-          <Text style={styles.lockText}>
-            Wirklich {was}? Die Sperre lässt sich im Anpassen-Modus wieder aufheben.
-          </Text>
-          <View style={styles.lockActions}>
-            <Pressable onPress={onCancel} style={styles.lockCancel}>
-              <Text style={styles.lockCancelText}>Abbrechen</Text>
-            </Pressable>
-            <Pressable onPress={onConfirm} style={styles.lockConfirm}>
-              <Text style={styles.lockConfirmText}>Ja, {was}</Text>
-            </Pressable>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-/** PIN-Feld vor dem Entschärfen - siehe lib/alarmpin.ts, warum es das
- *  neben dem Feld im Alarm-Bildschirm noch einmal gibt. */
-function AlarmPinAsk({
-  entity,
-  onCancel,
-  onConfirm,
-  colors,
-  styles,
-}: {
-  entity: Entity;
-  onCancel: () => void;
-  onConfirm: (pin: string) => void;
-  colors: Colors;
-  styles: ReturnType<typeof makeStyles>;
-}) {
-  const [pin, setPin] = useState('');
-  const gesetzt = !!entity.state.pin_required;
-  return (
-    <Modal visible transparent animationType="fade" onRequestClose={onCancel}>
-      <View style={styles.lockBackdrop}>
-        <View style={styles.lockSheet}>
-          <Ionicons name="keypad-outline" size={26} color={colors.accent} />
-          <Text style={styles.lockTitle}>Anlage entschärfen</Text>
-          <Text style={styles.lockText}>
-            {gesetzt
-              ? 'Zum Ausschalten die PIN eingeben.'
-              : 'An diesem Gerät geht das nur mit PIN – es ist aber keine gesetzt. Wer die Alarmanlage verwaltet, kann sie dort setzen.'}
-          </Text>
-          {gesetzt ? (
-            <TextInput
-              style={styles.pinField}
-              value={pin}
-              onChangeText={(text) => setPin(text.replace(/[^0-9]/g, ''))}
-              onSubmitEditing={() => pin.length >= 4 && onConfirm(pin)}
-              placeholder="PIN"
-              placeholderTextColor={colors.inkFaint}
-              keyboardType="number-pad"
-              secureTextEntry
-              maxLength={8}
-              autoFocus
-              accessibilityLabel="PIN zum Entschärfen"
-            />
-          ) : null}
-          <View style={styles.lockActions}>
-            <Pressable onPress={onCancel} style={styles.lockCancel}>
-              <Text style={styles.lockCancelText}>Abbrechen</Text>
-            </Pressable>
-            {gesetzt ? (
-              <Pressable
-                onPress={() => onConfirm(pin)}
-                disabled={pin.length < 4}
-                style={[styles.lockConfirm, pin.length < 4 && { opacity: 0.6 }]}
-              >
-                <Text style={styles.lockConfirmText}>Entschärfen</Text>
-              </Pressable>
-            ) : null}
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-const PANEL_TAG = 'homepilot-panel';
-
-/** Hält den Bildschirm wach, solange der Wandpanel-Modus aktiv ist.
- *
- * Bewusst über activate/deactivate statt useKeepAwake: Der Hook lässt sich
- * nicht abschalten, der Bildschirm bliebe also auch ohne Panel-Modus an.
- */
-function usePanelMode(active: boolean) {
-  useEffect(() => {
-    if (!active) return;
-    // Wachhalten ist eine Zugabe - wo es fehlt (Web), sperrt der
-    // Bildschirm wie immer.
-    activateKeepAwakeAsync(PANEL_TAG).catch(() => {});
-    return () => {
-      deactivateKeepAwake(PANEL_TAG).catch(() => {});
-    };
-  }, [active]);
-}
-
-function greetingName(
-  settings: HubSettings,
-  user: { name: string; shared?: boolean } | null
-): string {
-  // «Hallo Wandtablet Flur» begrüsst niemanden - an einem
-  // Gemeinschaftsgerät steht kein einzelner Mensch. Ein selbst gesetzter
-  // Name in den Einstellungen gilt trotzdem: Wer «Küche» hinschreibt,
-  // meint es so.
-  if (user?.shared && !settings.name) return 'Willkommen zuhause,';
-  const name = settings.name || user?.name;
-  return name ? `Hallo ${name},` : 'Willkommen zuhause,';
-}
-
-function partOfDay(now: Date): string {
-  const hour = now.getHours();
-  if (hour < 11) return 'Guten Morgen.';
-  if (hour < 18) return 'Schönen Tag.';
-  return 'Guten Abend.';
-}
-
-/**
- * Vollbild, wenn es an der Haustüre klingelt: Kamerabild gross, ein Knopf
- * zum Öffnen (mit Zwei-Schritt-Bestätigung), einer zum Schliessen. Gedacht
- * fürs Wandpanel genauso wie fürs Telefon in der Hosentasche.
- */
-/**
- * Kamera im Vollbild: ein Tipp auf eine Kamerakachel macht das Standbild
- * gross und holt es alle drei Sekunden neu – die Kachel selbst bleibt bei
- * einem Bild pro Minute, damit die Übersicht nicht ständig lädt.
- */
-function CameraFullscreen({
-  camera,
-  uri,
-  streamUri,
-  settings,
-  onClose,
-  colors,
-  styles,
-}: {
-  camera: Entity;
-  uri?: string;
-  streamUri?: string;
-  settings: HubSettings;
-  onClose: () => void;
-  colors: Colors;
-  styles: ReturnType<typeof makeStyles>;
-}) {
-  const [tick, setTick] = useState(0);
-  // Klappt der Livestrom nicht, bleibt das Standbild – lieber ein Bild alle
-  // drei Sekunden als ein schwarzes Rechteck. Der Grund wird angezeigt,
-  // sonst lässt sich aus der Ferne nichts diagnostizieren.
-  const [liveFailed, setLiveFailed] = useState<string | null>(null);
-  useTakt(() => setTick((value) => value + 1), 3000);
-  const online = camera.state.state === 'online';
-  const live = online && !liveFailed && !!streamUri && camera.state.stream === true;
-
-  return (
-    <Modal visible animationType="fade" onRequestClose={onClose}>
-      <View style={styles.doorbellRoot}>
-        <Text style={styles.doorbellTitle}>{camera.name}</Text>
-        {live ? (
-          <View style={styles.videoBox}>
-            <CameraLive
-              uri={streamUri!}
-              label={`Live-Bild ${camera.name}`}
-              style={styles.videoFrame}
-              onFailed={(message) => setLiveFailed(message)}
-            />
-          </View>
-        ) : uri && online ? (
-          <Image
-            source={{ uri: `${uri}&t=${tick}` }}
-            style={styles.doorbellImage}
-            resizeMode="contain"
-          />
-        ) : (
-          <View
-            style={[
-              styles.doorbellImage,
-              { alignItems: 'center', justifyContent: 'center' },
-            ]}
-          >
-            <Ionicons name="videocam-off-outline" size={40} color="#FFFFFF" />
-            <Text style={styles.doorbellCloseText}>
-              {online ? 'Kein Bild verfügbar' : 'Kamera ist offline'}
-            </Text>
-          </View>
-        )}
-        <View style={styles.timelineBox}>
-          <CameraTimeline
-            entity={camera}
-            settings={settings}
-            refreshKey={String(camera.state.last_motion ?? '')}
-          />
-        </View>
-        <View style={styles.doorbellButtons}>
-          <Text style={[styles.doorbellCloseText, live ? { color: colors.danger } : null]}>
-            {live
-              ? '● Live'
-              : liveFailed
-                ? `Live-Bild nicht verfügbar (${liveFailed}) – Standbild alle 3 Sekunden`
-                : 'Standbild alle 3 Sekunden'}
-            {camera.state.motion === 'on' ? ' · Bewegung erkannt' : ''}
-          </Text>
-          <Pressable onPress={onClose} style={styles.doorbellClose}>
-            <Text style={styles.doorbellCloseText}>Schliessen</Text>
-          </Pressable>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-function DoorbellOverlay({
-  ausloeser,
-  camera,
-  aktionen,
-  settings,
-  onCommand,
-  doorConfirm,
-  onDismiss,
-  colors,
-  styles,
-}: {
-  /** Was geklingelt hat – Türklingel, Kamera oder Gegensprechanlage. */
-  ausloeser: Entity;
-  /** Das Bild dazu, sofern es eines gibt. Eine Anlage hat keines. */
-  camera?: Entity;
-  aktionen: KlingelAktion[];
-  settings: HubSettings;
-  onCommand: (entityId: string, command: string) => void;
-  /** Fragt die Türe vor dem Öffnen nach? Auch hier, wo man ohnehin
-   *  hinschaut: Wer die Rückfrage abgestellt hat, meint sie überall. */
-  doorConfirm?: boolean;
-  onDismiss: () => void;
-  colors: Colors;
-  styles: ReturnType<typeof makeStyles>;
-}) {
-  // Welche Türe gerade auf die Rückfrage wartet - eine zur Zeit.
-  const [confirm, setConfirm] = useState<string | null>(null);
-  const [tick, setTick] = useState(0);
-  const [liveFailed, setLiveFailed] = useState<string | null>(null);
-  // Alle 3 Sekunden ein frisches Bild, solange das Vollbild offen ist.
-  useTakt(() => setTick((value) => value + 1), 3000);
-
-  // Rücklauf: Am Wandpanel bliebe sonst ein Bild der Strasse stehen, bis
-  // es jemand bemerkt. Jede Berührung setzt ihn zurück - während man
-  // hinschaut und überlegt, soll nichts zuklappen.
-  const [frist, setFrist] = useState(() => neueFrist(Date.now()));
-  const [rest, setRest] = useState(AUTO_SCHLIESSEN_SEKUNDEN);
-  const verlaengern = () => {
-    const neu = neueFrist(Date.now());
-    setFrist(neu);
-    setRest(restSekunden(neu, Date.now()));
-  };
-  useTakt(() => setRest(restSekunden(frist, Date.now())), 1000);
-  useEffect(() => {
-    if (rest <= 0) onDismiss();
-  }, [rest, onDismiss]);
-  // Ein neues Klingeln ist ein neuer Anlass, auch wenn das Bild noch steht.
-  useEffect(() => {
-    const neu = neueFrist(Date.now());
-    setFrist(neu);
-    setRest(restSekunden(neu, Date.now()));
-    setConfirm(null);
-  }, [ausloeser.state.last_ring]);
-  // Die Rückfrage verfällt von selbst. Sonst stünde «Wirklich öffnen?»
-  // eine Minute lang da, und der nächste beiläufige Tipp macht auf.
-  useEffect(() => {
-    if (!confirm) return undefined;
-    const timer = setTimeout(() => setConfirm(null), 8000);
-    return () => clearTimeout(timer);
-  }, [confirm]);
-  const base =
-    camera && settings.url && settings.token
-      ? `${settings.url.replace(/\/+$/, '')}/api/entities/${encodeURIComponent(camera.id)}`
-      : null;
-  const token = encodeURIComponent(settings.token ?? '');
-  const uri = base ? `${base}/snapshot?token=${token}&t=${tick}` : null;
-  // Wer klingelt, will man in Bewegung sehen – wenn die Kamera es hergibt.
-  const live = base && camera?.state.stream === true && !liveFailed;
-
-  return (
-    <Modal visible animationType="fade" onRequestClose={onDismiss}>
-      <Pressable
-        style={styles.doorbellRoot}
-        onPress={verlaengern}
-        accessibilityLabel="Offen halten"
-      >
-        {/* Welche Klingel es war, gehört dazu: Bei zwei Türen ist «Es
-            klingelt» die halbe Auskunft, und man drückt den falschen
-            Knopf. */}
-        <Text style={styles.doorbellTitle}>🔔 Es klingelt · {ausloeser.name}</Text>
-        {live ? (
-          <View style={styles.videoBox}>
-            <CameraLive
-              uri={`${base}/stream.m3u8?token=${token}`}
-              label="Live-Bild der Türklingel"
-              style={styles.videoFrame}
-              onFailed={(message) => setLiveFailed(message)}
-            />
-          </View>
-        ) : uri ? (
-          <Image source={{ uri }} style={styles.doorbellImage} resizeMode="cover" />
-        ) : (
-          // Kein Bild, also auch kein halber Bildschirm dafür: Eine
-          // Gegensprechanlage hat keine Kamera, und die schwarze Fläche
-          // schob die Knöpfe nach unten, um die es hier eigentlich geht.
-          <View style={styles.doorbellOhneBild}>
-            <Ionicons name="videocam-off-outline" size={26} color="#8A94A6" />
-            <Text style={styles.doorbellCloseText}>Kein Kamerabild an dieser Türe</Text>
-          </View>
-        )}
-        <View style={styles.doorbellButtons}>
-          {/* Sprechen läuft über die Ring-App: Die Gegensprech-Verbindung
-              ist WebRTC gegen Rings Server, und die gibt der Hersteller
-              nicht heraus. Ein Tipp führt dorthin, statt einen Knopf zu
-              zeigen, der nichts kann. */}
-          <Pressable
-            onPress={() => {
-              // Erst die App, dann der Browser - klappt beides nicht,
-              // gibt es schlicht kein Ring-Konto auf diesem Gerät.
-              Linking.openURL('ring://').catch(() =>
-                Linking.openURL('https://account.ring.com/').catch(() => {})
-              );
-            }}
-            accessibilityRole="button"
-            style={styles.doorbellTalk}
-          >
-            <Ionicons name="mic-outline" size={20} color="#FFFFFF" />
-            <Text style={styles.doorbellOpenText}>Sprechen (Ring-App)</Text>
-          </Pressable>
-          {/* Beide Türen nebeneinander: Wer im Treppenhaus wartet, soll
-              nicht darauf warten, dass jemand die App durchsucht. Die
-              Rückfrage bleibt je Türe - ein Fehlgriff öffnet sonst die
-              falsche. */}
-          {aktionen.map((aktion) => {
-            const gefragt = confirm === aktion.id;
-            // «Wirklich?» statt «Wirklich öffnen?»: Der Knopf sagt
-            // darüber schon, worum es geht, und aufschliessen ist nicht
-            // öffnen - die Rückfrage darf das nicht durcheinanderbringen.
-            const rueckfrage = `Wirklich? ${aktion.label}`;
-            return (
-              <Pressable
-                key={aktion.id}
-                onPress={() => {
-                  verlaengern();
-                  if (gefragt || mayOpenDirectly(aktion.befehl, doorConfirm)) {
-                    onCommand(aktion.entity.id, aktion.befehl);
-                    onDismiss();
-                  } else {
-                    setConfirm(aktion.id);
-                  }
-                }}
-                accessibilityRole="button"
-                accessibilityLabel={gefragt ? rueckfrage : aktion.label}
-                style={[styles.doorbellOpen, gefragt && { backgroundColor: colors.danger }]}
-              >
-                <Ionicons
-                  name={aktion.oeffnet ? 'log-in-outline' : 'key'}
-                  size={22}
-                  color="#FFFFFF"
-                />
-                <Text style={styles.doorbellOpenText}>
-                  {gefragt ? rueckfrage : aktion.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-          <Pressable onPress={onDismiss} style={styles.doorbellClose}>
-            <Text style={styles.doorbellCloseText}>
-              Schliessen{rest > 0 ? ` (${rest})` : ''}
-            </Text>
-          </Pressable>
-        </View>
-      </Pressable>
-    </Modal>
-  );
-}
-
-/** Gruppen-Steuerung: schaltet alle Geräte einer Gruppe auf einmal.
- *  Storen-Gruppen bekommen einen gemeinsamen Prozent-Schieber. */
-function GroupControls({
-  entities,
-  groups,
-  onCommand,
-}: {
-  entities: Entity[];
-  groups: string[];
-  onCommand: (entityId: string, command: string, data?: CommandData) => void;
-}) {
-  return (
-    <View style={{ gap: space.gap }}>
-      {groups.map((name) => (
-        <GroupRow
-          key={name}
-          name={name}
-          members={entities.filter((entity) => entity.group === name)}
-          onCommand={onCommand}
-        />
-      ))}
-    </View>
-  );
-}
-
-function GroupRow({
-  name,
-  members,
-  onCommand,
-}: {
-  name: string;
-  members: Entity[];
-  onCommand: (entityId: string, command: string, data?: CommandData) => void;
-}) {
-  const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  const covers = members.filter((entity) => entity.kind === 'cover');
-  const positionable = covers.filter((entity) => entity.commands.includes('set_position'));
-  const switches = members.filter((entity) => entity.commands.includes('turn_on'));
-  const locks = members.filter((entity) => entity.kind === 'lock');
-
-  // Startwert des Schiebers: Durchschnitt der aktuellen Storen-Positionen.
-  const avg = positionable.length
-    ? Math.round(
-        positionable.reduce(
-          (sum, entity) =>
-            sum + (typeof entity.state.position === 'number' ? entity.state.position : 0),
-          0
-        ) / positionable.length
-      )
-    : 0;
-  const [pos, setPos] = useState(avg);
-
-  const fan = (list: Entity[], command: string, data?: CommandData) =>
-    list.forEach((entity) => onCommand(entity.id, command, data));
-
-  return (
-    <Card style={styles.groupCard}>
-      <View style={styles.groupHead}>
-        <Ionicons name="layers-outline" size={18} color={colors.inkSoft} />
-        <Text style={styles.groupName}>{name}</Text>
-        <Text style={styles.groupCount}>{members.length} Geräte</Text>
-      </View>
-
-      {switches.length > 0 ? (
-        <View style={styles.groupButtons}>
-          <GroupButton label="Alle ein" onPress={() => fan(switches, 'turn_on')} />
-          <GroupButton label="Alle aus" onPress={() => fan(switches, 'turn_off')} />
-        </View>
-      ) : null}
-
-      {covers.length > 0 ? (
-        <View style={styles.groupButtons}>
-          <GroupButton label="Hoch" onPress={() => fan(covers, 'open')} />
-          <GroupButton label="Stopp" onPress={() => fan(covers, 'stop')} />
-          <GroupButton label="Runter" onPress={() => fan(covers, 'close')} />
-        </View>
-      ) : null}
-
-      {positionable.length > 0 ? (
-        <View style={{ gap: 8 }}>
-          <Bar value={pos} onChange={setPos} />
-          <GroupButton
-            label={`Auf ${pos}% setzen`}
-            onPress={() => fan(positionable, 'set_position', { position: pos })}
-            wide
-          />
-        </View>
-      ) : null}
-
-      {locks.length > 0 ? (
-        <View style={styles.groupButtons}>
-          <GroupButton label="Abschliessen" onPress={() => fan(locks, 'lock')} />
-          <GroupButton label="Aufschliessen" onPress={() => fan(locks, 'unlock')} />
-        </View>
-      ) : null}
-    </Card>
-  );
-}
-
-function GroupButton({
-  label,
-  onPress,
-  wide,
-}: {
-  label: string;
-  onPress: () => void;
-  wide?: boolean;
-}) {
-  const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      style={({ pressed }) => [
-        styles.groupButton,
-        wide && { flex: 0, alignSelf: 'stretch' },
-        pressed && { opacity: 0.75 },
-      ]}
-    >
-      <Text style={styles.groupButtonText}>{label}</Text>
-    </Pressable>
-  );
-}
-
-const makeStyles = (colors: Colors) =>
-  StyleSheet.create({
-    root: { flex: 1 },
-    timelineBox: { paddingHorizontal: 16, paddingTop: 10 },
-    offlineBanner: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      paddingVertical: 9,
-      paddingHorizontal: 12,
-      borderRadius: radius.control,
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.warn,
-    },
-    offlineText: { color: colors.onGradient, fontSize: 13, flex: 1 },
-    allOffRow: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-      flexWrap: 'wrap',
-      gap: 8,
-      marginTop: 4,
-    },
-    searchButton: {
-      width: 34,
-      height: 34,
-      borderRadius: 17,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: 'rgba(255,255,255,0.14)',
-    },
-    lockBackdrop: {
-      flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.5)',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: 20,
-    },
-    lockSheet: {
-      width: '100%',
-      maxWidth: 380,
-      gap: 10,
-      padding: 20,
-      borderRadius: radius.card,
-      backgroundColor: colors.panel,
-      borderWidth: 1,
-      borderColor: colors.surfaceBorder,
-      alignItems: 'center',
-    },
-    lockTitle: { color: colors.ink, fontSize: 17, fontWeight: '700', textAlign: 'center' },
-    lockText: {
-      color: colors.inkSoft,
-      fontSize: 14,
-      lineHeight: 20,
-      textAlign: 'center',
-    },
-    lockActions: { flexDirection: 'row', gap: 10, marginTop: 6, alignSelf: 'stretch' },
-    lockCancel: {
-      flex: 1,
-      alignItems: 'center',
-      paddingVertical: 12,
-      borderRadius: radius.control,
-      borderWidth: 1,
-      borderColor: colors.surfaceBorder,
-    },
-    lockCancelText: { color: colors.inkSoft, fontSize: 15, fontWeight: '700' },
-    pinField: {
-      alignSelf: 'stretch',
-      backgroundColor: colors.surfaceSoft,
-      borderRadius: radius.control,
-      borderWidth: 1,
-      borderColor: colors.surfaceBorder,
-      color: colors.ink,
-      fontSize: 18,
-      letterSpacing: 4,
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-      textAlign: 'center',
-    },
-    lockConfirm: {
-      flex: 1,
-      alignItems: 'center',
-      paddingVertical: 12,
-      borderRadius: radius.control,
-      backgroundColor: colors.accent,
-    },
-    lockConfirmText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
-    frame: { flex: 1, flexDirection: 'row' },
-    scroll: { flex: 1, minWidth: 0 },
-    content: {
-      paddingHorizontal: space.page,
-      paddingTop: 14,
-      paddingBottom: 28,
-      gap: 16,
-    },
-    greetingRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: space.gap,
-    },
-    greeting: { gap: 2, flexShrink: 1 },
-    // Hinweise rechts der Begrüssung. Auf schmalen Geräten stapeln sie sich,
-    // damit weder Türhinweis noch Haushalt abgeschnitten wird.
-    greetingNotes: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      justifyContent: 'flex-end',
-      alignItems: 'center',
-      gap: 8,
-      flexShrink: 1,
-    },
-    greetingLine: {
-      color: colors.onGradient,
-      fontSize: type.greeting,
-      fontWeight: '300',
-      letterSpacing: 0.2,
-    },
-    greetingSecond: { color: colors.onGradientSoft },
-    split: {
-      flexDirection: 'row',
-      gap: space.gap * 1.4,
-      alignItems: 'flex-start',
-    },
-    stack: { gap: space.gap * 1.4 },
-    // minWidth: 0 ist hier kein Zierrat. Ohne das kann eine Flex-Spalte
-    // nicht unter die Breite ihres Inhalts schrumpfen: Ein zu breites Kind
-    // macht die Spalte breiter, und die Nachbarspalte wandert aus dem Bild.
-    // Genau so sieht der abgeschnittene rechte Rand auf dem iPad aus. Im
-    // Browser bei 1180 Punkten liess er sich nicht nachstellen - die Zeile
-    // kostet nichts und nimmt die wahrscheinlichste Ursache weg.
-    main: { flex: 1, minWidth: 0 },
-    backRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 2,
-      alignSelf: 'flex-start',
-      paddingVertical: 4,
-      paddingRight: 10,
-    },
-    backText: { color: colors.onGradient, fontSize: 15, fontWeight: '600' },
-    settingsList: { gap: 10 },
-    settingsItem: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 14,
-      backgroundColor: colors.surface,
-      borderRadius: radius.card,
-      borderWidth: 1,
-      borderColor: colors.surfaceBorder,
-      paddingHorizontal: 16,
-      paddingVertical: 14,
-    },
-    settingsLabel: { color: colors.ink, fontSize: 16, fontWeight: '600' },
-    settingsDetail: { color: colors.inkSoft, fontSize: 13, marginTop: 1 },
-    doorbellRoot: {
-      flex: 1,
-      backgroundColor: '#10141B',
-      padding: 22,
-      paddingTop: 64,
-      gap: 18,
-    },
-    doorbellTitle: {
-      color: '#FFFFFF',
-      fontSize: 28,
-      fontWeight: '700',
-      textAlign: 'center',
-    },
-    doorbellImage: {
-      flex: 1,
-      borderRadius: radius.card,
-      backgroundColor: '#1C2430',
-      width: '100%',
-    },
-    doorbellOhneBild: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 10,
-      paddingVertical: 26,
-      borderRadius: radius.card,
-      backgroundColor: '#1C2430',
-      width: '100%',
-    },
-    doorbellButtons: { gap: 10 },
-    doorbellTalk: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 10,
-      paddingVertical: 14,
-      borderRadius: radius.control,
-      backgroundColor: 'rgba(255,255,255,0.18)',
-      borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.35)',
-    },
-    // Live-Video: 16:9 einpassen statt es in die Bildschirmhöhe zu strecken –
-    // gestreckt schneidet der Player links und rechts ab.
-    videoBox: { flex: 1, justifyContent: 'center' },
-    videoFrame: {
-      width: '100%',
-      aspectRatio: 16 / 9,
-      borderRadius: radius.card,
-      backgroundColor: '#000000',
-    },
-    doorbellOpen: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 10,
-      backgroundColor: colors.on,
-      borderRadius: radius.control,
-      paddingVertical: 18,
-    },
-    doorbellOpenText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
-    doorbellClose: { alignItems: 'center', paddingVertical: 12 },
-    doorbellCloseText: { color: 'rgba(255,255,255,0.7)', fontSize: 15, fontWeight: '600' },
-    grid: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: space.gap,
-      marginTop: space.gap,
-    },
-    // Nur zum Messen der Breite, ohne eigenen Abstand.
-    measure: { height: 0 },
-    group: { marginTop: space.gap * 1.2 },
-    groupLabel: {
-      color: colors.onGradient,
-      fontSize: 19,
-      fontWeight: '700',
-      letterSpacing: -0.2,
-    },
-    editToggle: {
-      alignSelf: 'flex-start',
-      paddingVertical: 6,
-    },
-    editToggleText: {
-      color: colors.onGradientSoft,
-      fontSize: 13,
-      fontWeight: '600',
-    },
-    searchRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      paddingHorizontal: 12,
-      borderRadius: radius.control,
-      backgroundColor: colors.surfaceStrong,
-      borderWidth: 1,
-      borderColor: colors.surfaceBorder,
-    },
-    searchInput: { flex: 1, paddingVertical: 11, color: colors.ink, fontSize: 15 },
-    searchCount: { color: colors.onGradientSoft, fontSize: 12, fontWeight: '600' },
-    filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' },
-    filterChip: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 4,
-      paddingHorizontal: 10,
-      paddingVertical: 6,
-      borderRadius: radius.pill,
-      backgroundColor: colors.surfaceSoft,
-      borderWidth: 1,
-      borderColor: colors.surfaceBorder,
-    },
-    filterChipOn: { backgroundColor: colors.surfaceStrong },
-    filterChipText: { color: colors.onGradientSoft, fontSize: 12, fontWeight: '600' },
-    filterChipTextOn: { color: colors.ink },
-    raumKopf: { gap: 8 },
-    raumKopfText: { color: colors.onGradient, fontSize: 15, fontWeight: '600' },
-    reorderButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-      alignSelf: 'flex-start',
-      paddingVertical: 6,
-    },
-    reorderText: { color: colors.onGradient, fontSize: 13, fontWeight: '600' },
-    // Der Kamera-Schalter: Symbol, zwei Zeilen Text, Schieber - breit
-    // genug, dass die Erklärung darunter passt.
-    kameraSort: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
-      paddingVertical: 8,
-    },
-    kameraSortHint: { color: colors.onGradientSoft, fontSize: 12, lineHeight: 17 },
-    reorderSheet: { flex: 1, backgroundColor: colors.panel, padding: 20, paddingTop: 60 },
-    alphabetKnopf: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      alignSelf: 'flex-start',
-      gap: 6,
-      marginBottom: 12,
-      paddingHorizontal: 14,
-      paddingVertical: 8,
-      borderRadius: radius.pill,
-      backgroundColor: colors.surfaceStrong,
-      borderWidth: 1,
-      borderColor: colors.surfaceBorder,
-    },
-    alphabetText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
-    reorderHead: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginBottom: 8,
-    },
-    reorderTitle: { color: colors.ink, fontSize: 22, fontWeight: '700' },
-    reorderHint: { color: colors.inkFaint, fontSize: 13, lineHeight: 18, marginBottom: 14 },
-    groupCard: { gap: 12 },
-    groupHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    groupName: { color: colors.ink, fontSize: 16, fontWeight: '700', flex: 1 },
-    groupCount: { color: colors.inkFaint, fontSize: 12 },
-    groupButtons: { flexDirection: 'row', gap: 8 },
-    groupButton: {
-      flex: 1,
-      paddingVertical: 11,
-      borderRadius: radius.control,
-      backgroundColor: colors.surfaceSoft,
-      borderWidth: 1,
-      borderColor: colors.surfaceBorder,
-      alignItems: 'center',
-    },
-    groupButtonText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
-    sectionLabel: {
-      color: colors.onGradientSoft,
-      fontSize: 12,
-      fontWeight: '700',
-      letterSpacing: 1,
-      textTransform: 'uppercase',
-      marginTop: space.gap * 1.5,
-    },
-    empty: {
-      color: colors.onGradientSoft,
-      fontSize: 14,
-      lineHeight: 21,
-      marginTop: 24,
-      maxWidth: 460,
-    },
-  });

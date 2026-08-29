@@ -8,6 +8,13 @@ import { Colors, type, useColors } from '../theme';
 import { HubFehler, hubClient } from '../api/client';
 import { pushAblaeufe, pushBeschreibung } from '../lib/pushablaeufe';
 import { nachGruppen } from '../lib/pushgruppen';
+import {
+  Tuerstand,
+  geordnet,
+  kontaktName,
+  naechsteWahl,
+  tuerSatz,
+} from '../lib/waschkueche';
 import { Automation, triggerIcon } from '../screens/automations/entwurf';
 
 /**
@@ -87,6 +94,10 @@ export function PushRules({
   const [error, setError] = useState<string | null>(null);
   // Zugeklappt wie die anderen Kategorien: erst die Übersicht.
   const [open, setOpen] = useState(false);
+  // Die Waschküchentüre gehört zur Regel «Haushaltgerät noch voll» und
+  // steht deshalb in deren Karte - nicht in einer eigenen Einstellung,
+  // die niemand mit der Nachricht in Verbindung brächte.
+  const [tuer, setTuer] = useState<Tuerstand | null>(null);
 
   const hub = useMemo(
     () => hubClient(settings.url, settings.token),
@@ -105,6 +116,27 @@ export function PushRules({
   }, [hub]);
 
   useEffect(load, [load]);
+
+  // Erst beim Aufklappen: Wer die Push-Liste nie öffnet, soll dafür
+  // keinen zweiten Aufruf bezahlen.
+  useEffect(() => {
+    if (!open) return;
+    hub
+      .get<Tuerstand>('/api/laundry', { still: true })
+      .then(setTuer)
+      // Ein Hub, der die Route noch nicht kennt, ist kein Grund, die
+      // ganze Push-Liste rot zu machen - die Auswahl fällt dann weg.
+      .catch(() => setTuer(null));
+  }, [hub, open]);
+
+  const tuerWaehlen = async (id: string) => {
+    const naechste = naechsteWahl(tuer, id);
+    try {
+      setTuer(await hub.put<Tuerstand>('/api/laundry', { door: naechste }, { still: true }));
+    } catch (err) {
+      setError(String(err instanceof Error ? err.message : err));
+    }
+  };
 
   const save = async (rule: Rule) => {
     // Sofort anzeigen, damit das Antippen nicht hakt; der Hub bestätigt
@@ -254,6 +286,19 @@ export function PushRules({
                     </View>
                   ))
                 : null}
+
+              {/* Woran der Hub abliest, dass jemand die volle Maschine
+                  gesehen hat. Ohne diese Türe bleibt es bei einer
+                  Nachricht je Programm - siehe lib/waschkueche.ts. */}
+              {rule.key === 'appliance' && rule.enabled && tuer ? (
+                <Tuerwahl
+                  stand={tuer}
+                  mayEdit={mayEdit}
+                  onWaehlen={tuerWaehlen}
+                  styles={styles}
+                  colors={colors}
+                />
+              ) : null}
             </Card>
           ))}
           </View>
@@ -349,6 +394,82 @@ export function PushRules({
   );
 }
 
+/**
+ * Die Türe der Waschküche als Auswahl.
+ *
+ * Zugeklappt steht nur der Satz da, was gerade gilt: In aller Regel hat
+ * der Hub die richtige Türe schon gefunden, und dann ist hier nichts zu
+ * tun. Erst wer sie ändern will, klappt die Liste auf.
+ */
+function Tuerwahl({
+  stand,
+  mayEdit,
+  onWaehlen,
+  styles,
+  colors,
+}: {
+  stand: Tuerstand;
+  mayEdit: boolean;
+  onWaehlen: (id: string) => void;
+  styles: ReturnType<typeof makeStyles>;
+  colors: Colors;
+}) {
+  const [offen, setOffen] = useState(false);
+  const liste = geordnet(stand);
+
+  return (
+    <View style={styles.tuerBlock}>
+      <Text style={styles.tuerTitel}>Ausgeräumt heisst: jemand war in der Waschküche</Text>
+      <Text style={styles.detail}>{tuerSatz(stand)}</Text>
+      {mayEdit && liste.length > 0 ? (
+        <Pressable
+          onPress={() => setOffen((wert) => !wert)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: offen }}
+          accessibilityLabel="Türe der Waschküche wählen"
+          style={styles.tuerChip}
+        >
+          <Ionicons name="log-in-outline" size={14} color={colors.inkSoft} />
+          <Text style={styles.tuerChipText}>Andere Türe</Text>
+          <Ionicons
+            name={offen ? 'chevron-up' : 'chevron-down'}
+            size={14}
+            color={colors.inkSoft}
+          />
+        </Pressable>
+      ) : null}
+      {offen
+        ? liste.map((kontakt) => {
+            const gilt = stand.using === kontakt.id;
+            return (
+              <Pressable
+                key={kontakt.id}
+                onPress={() => onWaehlen(kontakt.id)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: gilt }}
+                style={styles.tuerZeile}
+              >
+                <Ionicons
+                  name={gilt ? 'radio-button-on' : 'radio-button-off'}
+                  size={16}
+                  color={gilt ? colors.on : colors.inkFaint}
+                />
+                <Text style={[styles.tuerZeileText, gilt && { color: colors.ink }]}>
+                  {kontaktName(kontakt)}
+                </Text>
+                {/* Was der Hub von selbst gefunden hat - damit man sieht,
+                    wohin ein zweites Antippen zurückführt. */}
+                {stand.guess === kontakt.id ? (
+                  <Text style={styles.badge}>Vorschlag</Text>
+                ) : null}
+              </Pressable>
+            );
+          })
+        : null}
+    </View>
+  );
+}
+
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     note: { color: colors.onGradientSoft, fontSize: 13 },
@@ -359,15 +480,17 @@ const makeStyles = (colors: Colors) =>
       paddingTop: 6,
       paddingBottom: 2,
     },
+    // Dieselbe Zeile wie die Kategorien darüber - sie steht in derselben
+    // Liste. Stünde hier weiter «PUSH» in Grossbuchstaben zwischen
+    // «Lautsprecher» und «Wandtaster», sähe es nach einer anderen Ebene
+    // aus, obwohl es dieselbe ist.
     groupTitle: {
       flex: 1,
-      color: colors.onGradientSoft,
-      fontSize: 12,
+      color: colors.onGradient,
+      fontSize: 15,
       fontWeight: '700',
-      textTransform: 'uppercase',
-      letterSpacing: 0.6,
     },
-    groupCount: { color: colors.onGradientSoft, fontSize: 12, fontWeight: '700' },
+    groupCount: { color: colors.onGradientSoft, fontSize: 13, fontWeight: '700' },
     /** Zwischenüberschrift einer Unterkategorie. Kleiner als die
      *  «PUSH»-Zeile darüber: Sie gliedert, sie ist nicht die Überschrift. */
     gruppe: {
@@ -393,6 +516,36 @@ const makeStyles = (colors: Colors) =>
       marginTop: 2,
     },
     paramLabel: { color: colors.inkSoft, fontSize: 13, flex: 1 },
+    /** Die Türwahl sitzt in derselben Karte, aber abgesetzt: Sie ist
+     *  keine Schwelle wie die Zeilen darüber, sondern ein Gerät. */
+    tuerBlock: {
+      marginTop: 8,
+      paddingTop: 8,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.surfaceBorder,
+      gap: 4,
+    },
+    tuerTitel: { color: colors.ink, fontSize: 13, fontWeight: '600' },
+    tuerChip: {
+      alignSelf: 'flex-start',
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      marginTop: 4,
+      paddingVertical: 5,
+      paddingHorizontal: 10,
+      borderRadius: 999,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.surfaceBorder,
+    },
+    tuerChipText: { color: colors.inkSoft, fontSize: 12, fontWeight: '600' },
+    tuerZeile: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 6,
+    },
+    tuerZeileText: { color: colors.inkSoft, fontSize: 13, flex: 1 },
     paramValue: {
       color: colors.ink,
       fontSize: 14,

@@ -24,8 +24,10 @@ from fastapi import (
 )
 
 from ...core import (
+    aenderungen,
     config_edit,
     confighistory,
+    extras,
     watchdog,
 )
 from ...core import energy as energy_module
@@ -142,8 +144,10 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         kaputte config.yaml darf nie auf der Platte landen, sonst kommt der
         Hub nach dem nächsten Neustart nicht mehr hoch.
         """
-        require(request, Capability.EDIT_CONFIG)
-        return save_config(body.content)
+        user = require(request, Capability.EDIT_CONFIG)
+        antwort = save_config(body.content)
+        hub.aenderungen.merken(user, "konfiguration", "gespeichert")
+        return antwort
 
     def save_config(content: str) -> dict[str, Any]:
         return configio.save_config(hub, content)
@@ -313,7 +317,7 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
                 items.append(
                     {
                         "kind": "device",
-                        "name": f"{entity.name} {COMMAND_WORDS.get(command, command)}",
+                        "name": f"{entity.label} {COMMAND_WORDS.get(command, command)}",
                         "url": f"{base}/api/entities/{entity.id}/command",
                         "method": "POST",
                         "headers": {
@@ -497,6 +501,33 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "entries": hub.log_buffer.entries(limit=min(500, max(1, limit)), level=level)
         }
 
+    @app.get("/api/system/extras")
+    async def system_extras(request: Request) -> dict[str, Any]:
+        """Welche Zusatzteile installiert sind - und welche fehlen.
+
+        Ein paar Bibliotheken sind bewusst nicht im Grundbestand. Fehlt
+        eine, bleibt genau eine Funktion dunkel, und zwar still: Der
+        Durchsage-Knopf tat lange nichts, weil gTTS fehlte, und das stand
+        nirgends, wo jemand nachgesehen hätte.
+
+        Gelesen wird die *konfigurierte* Liste der Integrationen, nicht
+        die geladene: Eine Anbindung, die gerade an genau diesem
+        fehlenden Paket scheitert, ist nicht geladen - und wäre dann von
+        der Prüfung ausgenommen, die sie erklären soll.
+        """
+        current_user(request)
+        angebunden = {
+            str(eintrag.get("integration"))
+            for eintrag in hub.config.integrations
+            if isinstance(eintrag, dict) and eintrag.get("integration")
+        }
+        zeilen = extras.stand(angebunden, apns=bool(hub.config.apns))
+        return {
+            "extras": zeilen,
+            "summary": extras.satz(zeilen),
+            "command": extras.befehl(zeilen),
+        }
+
     @app.get("/api/system/changes")
     async def system_changes(request: Request) -> dict[str, Any]:
         """Was dieses Update mitbrachte - für die «Was ist neu»-Karte.
@@ -531,6 +562,23 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         """Zugriffsprotokoll: wer hat wann was geschaltet."""
         require(request, Capability.EDIT_CONFIG)
         return {"entries": hub.audit.entries(limit=min(500, max(1, limit)), entity_id=entity_id)}
+
+    @app.get("/api/system/einrichtung")
+    async def system_einrichtung(request: Request, limit: int = 200) -> dict[str, Any]:
+        """Wer hat was eingerichtet - die andere Hälfte des Protokolls.
+
+        Getrennt vom Zugriffsprotokoll: Das eine ist Bedienung und
+        passiert hundertmal am Tag, das andere Einrichtung und passiert
+        selten. In einer Liste zusammen wäre die seltene nicht mehr zu
+        finden (core/aenderungen.py).
+        """
+        require(request, Capability.EDIT_CONFIG)
+        return {
+            "entries": hub.aenderungen.eintraege(limit=min(500, max(1, limit))),
+            # Damit die App die Arten benennen kann, ohne dieselbe Liste
+            # ein zweites Mal zu führen.
+            "arten": aenderungen.ARTEN,
+        }
 
     @app.get("/api/config/history")
     async def config_history(request: Request) -> dict[str, Any]:

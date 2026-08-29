@@ -18,7 +18,7 @@ from fastapi import (
     Response,
 )
 
-from ...core import batterie
+from ...core import batterie, kurzverlauf, spaeter, widgetkarten
 from ...core import replace as replace_module
 from ...core import throttle as throttle_module
 from ...core.errors import HomePilotError, UnknownEntityError, UnsupportedCommandError
@@ -31,7 +31,12 @@ from ...core.streams import (
 )
 from ...core.users import Capability
 from ..context import ApiContext
-from ..models import CommandRequest, MetaRequest, RoomRequest
+from ..models import (
+    CommandRequest,
+    ErinnerungRequest,
+    MetaRequest,
+    RoomRequest,
+)
 
 log = logging.getLogger(__name__)
 
@@ -160,11 +165,19 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
 
         Bleibt in der homepilot-data.json erhalten und hat Vorrang vor der
         config.yaml – so ordnet man Geräte den Räumen zu, ohne die Datei
-        anzufassen."""
-        require(request, Capability.EDIT_CONFIG)
-        if hub.registry.get(entity_id) is None:
+        anzufassen. EDIT_DEVICES statt EDIT_CONFIG: Das ist Einrichten der
+        Ansicht, nicht der Anlage - auch Mitbewohner dürfen es."""
+        user = require(request, Capability.EDIT_DEVICES)
+        entity = hub.registry.get(entity_id)
+        if entity is None:
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
         await hub.set_entity_room(entity_id, body.room or None)
+        hub.aenderungen.merken(
+            user,
+            "geraet",
+            f"in den Raum «{body.room}» gelegt" if body.room else "aus dem Raum genommen",
+            entity.label,
+        )
         return {"ok": True, "entity": hub.registry.get(entity_id).as_dict()}
 
     @app.put("/api/entities/{entity_id}/meta")
@@ -174,15 +187,84 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         """Anzeigename, Favorit oder Gruppe einer Entität setzen.
 
         Für «Gerät umbenennen», die Favoriten-Reihe auf der Startseite und
-        das Gruppieren mehrerer Geräte. Bleibt in der homepilot-data.json."""
-        require(request, Capability.EDIT_CONFIG)
-        if hub.registry.get(entity_id) is None:
+        das Gruppieren mehrerer Geräte. Bleibt in der homepilot-data.json.
+        EDIT_DEVICES statt EDIT_CONFIG: Ein Name, den alle täglich lesen,
+        darf von allen stammen, die hier wohnen - nur Gäste nicht."""
+        user = require(request, Capability.EDIT_DEVICES)
+        entity = hub.registry.get(entity_id)
+        if entity is None:
             raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
         # Nur die tatsächlich mitgeschickten Felder weitergeben: group=null
         # heisst «Keine Gruppe» (entfernen) und ist etwas anderes als ein
         # gar nicht mitgeschicktes group.
-        await hub.set_entity_meta(entity_id, **body.model_dump(exclude_unset=True))
+        felder = body.model_dump(exclude_unset=True)
+        vorher = entity.label
+        await hub.set_entity_meta(entity_id, **felder)
+        # Der Name zuerst: «seit wann heisst das so?» ist die Frage, die
+        # man wirklich stellt. Favorit und Gruppe stehen daneben.
+        if "name" in felder and felder["name"] and felder["name"] != vorher:
+            hub.aenderungen.merken(
+                user, "geraet", f"umbenannt in «{felder['name']}»", vorher
+            )
+        elif "group" in felder:
+            hub.aenderungen.merken(
+                user,
+                "geraet",
+                f"in die Gruppe «{felder['group']}» gelegt"
+                if felder["group"]
+                else "aus der Gruppe genommen",
+                vorher,
+            )
         return {"ok": True, "entity": hub.registry.get(entity_id).as_dict()}
+
+    @app.post("/api/entities/{entity_id}/erinnern")
+    async def erinnere_an_geraet(
+        entity_id: str, body: ErinnerungRequest, request: Request
+    ) -> dict[str, Any]:
+        """«Sag mir in zwei Stunden Bescheid» - zu diesem Gerät.
+
+        Die Waschmaschine läuft, man geht aus dem Haus, und in zwei
+        Stunden möchte man daran erinnert werden - ohne dafür einen
+        Ablauf zu bauen. Die Erinnerungen der Familie können das längst,
+        sie waren nur nie mit einem Gerät verbunden.
+
+        Dieselbe Schlange wie «Später erinnern» aus der Mitteilung
+        (core/spaeter.py): Der Wächter schickt sie im nächsten Takt nach
+        der Frist. Nur an den, der sie gestellt hat - dass Stefan an die
+        Waschmaschine erinnert werden will, geht die anderen Telefone
+        nichts an.
+
+        Der Zustand von jetzt steht im Text: Beim Lesen ist er alt, aber
+        er sagt, worum es ging. «Läuft» in zwei Stunden noch einmal zu
+        behaupten, wäre schlimmer.
+        """
+        user = current_user(request)
+        entity = hub.registry.get(entity_id)
+        if entity is None:
+            raise HTTPException(status_code=404, detail=f"Unbekannte Entität: {entity_id}")
+        stand = widgetkarten.zustand_text(entity)
+        hub.data.set(
+            spaeter.SCHLANGE,
+            spaeter.einreihen(
+                hub.data.get(spaeter.SCHLANGE),
+                {
+                    "title": f"Nachsehen: {entity.label}",
+                    "body": f"Du wolltest daran erinnert werden. Damals: {stand}.",
+                    # Eine eigene Kategorie wäre ein Schalter im Profil,
+                    # mit dem man seine eigenen Erinnerungen abstellt -
+                    # das will niemand. «tasks» ist, was es ist.
+                    "category": "tasks",
+                    "to": user.name,
+                    "ziel": f"geraet:{entity.id}",
+                },
+                time.time(),
+                body.minutes,
+            ),
+        )
+        return {
+            "ok": True,
+            "minutes": spaeter.minuten_pruefen(body.minutes),
+        }
 
     # ── Batterien ──────────────────────────────────────────────────────
 
@@ -293,6 +375,39 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
             "log": hub.eventlog.span(),
         }
 
+    @app.get("/api/log")
+    async def house_log(
+        request: Request, hours: int = 24, limit: int = 300
+    ) -> dict[str, Any]:
+        """Was im Haus los war - der Rückblick über alle Geräte.
+
+        Der Verlauf je Gerät beantwortet «warum ging *das* an?». Diese
+        Frage ist eine andere: «Was war heute Nacht los?» Sie liess sich
+        nur beantworten, indem man jede Kachel einzeln aufmachte.
+        """
+        user = current_user(request)
+
+        def darf(entity_id: str) -> bool:
+            entity = hub.registry.get(entity_id)
+            if entity is None:
+                # Ein Gerät, das es nicht mehr gibt: Der Eintrag bleibt
+                # lesbar, denn er trägt seinen Namen selbst.
+                return True
+            return user.may_see(entity.id, entity.kind, entity.integration)
+
+        ereignisse = hub.eventlog.rueckblick(hours, limit, darf)
+        namen = {}
+        for eintrag in ereignisse:
+            kennung = str(eintrag.get("entity_id") or "")
+            if kennung not in namen:
+                entity = hub.registry.get(kennung)
+                namen[kennung] = {
+                    "name": entity.label if entity is not None else kennung,
+                    "kind": str(entity.kind) if entity is not None else "",
+                    "room": (entity.room if entity is not None else None),
+                }
+        return {"events": ereignisse, "devices": namen, "log": hub.eventlog.span()}
+
     async def camera_for(entity_id: str, request: Request):
         """Kamera-Entität samt Integration – oder ein sauberes 404."""
         user = current_user(request)
@@ -385,6 +500,19 @@ def register(app: FastAPI, ctx: ApiContext) -> None:
         except StreamError as err:
             log.warning("Live-Bild %s (%s): %s", entity_id, name, err)
             raise HTTPException(status_code=404, detail=str(err)) from err
+
+    @app.get("/api/trends")
+    async def trends(request: Request) -> dict[str, Any]:
+        """Die Funkenlinien aller Sensoren in einem Abruf.
+
+        Ein Abruf für alle statt einer je Kachel: Auf einer Seite mit
+        zehn Fühlern wären das sonst zehn Anfragen im Minutentakt. Die
+        Reihen leben nur im Speicher (core/kurzverlauf.py) - nach einem
+        Neustart sind sie leer und füllen sich wieder; die App zeigt
+        dann schlicht noch keine Linie.
+        """
+        current_user(request)
+        return {"trends": hub.kurzverlauf.alle(), "span": kurzverlauf.SPANNE}
 
     @app.get("/api/entities/{entity_id}/history")
     async def entity_history(

@@ -49,3 +49,6 @@ expo-env.d.ts
 # Build-Nebenprodukte von setuptools
 build/
 dist/
+
+# Apple-Push-Schlüssel (Live-Aktivität) - gehört auf den Hub, nie ins Repo.
+*.p8

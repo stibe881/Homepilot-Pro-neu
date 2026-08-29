@@ -31,9 +31,10 @@ bekommt die URL, den Header trägt die App bei.
 
 ## Widget auf Homescreen und Sperrbildschirm
 
-Ab dem nächsten eigenen Build (`eas build`) bringt HomePilot ein Widget
-mit bis zu vier Knöpfen. Voreingestellt sind **Haustüre**, **Alles aus**
-und **Alarm**.
+Ab dem nächsten eigenen Build (`eas build`) bringt HomePilot zwei Arten
+von Widgets mit: **HomePilot** – eine Leiste mit bis zu vier Knöpfen
+(voreingestellt **Haustüre**, **Alles aus** und **Alarm**) – und
+**HomePilot Karte**, eines je Gerät oder Szene.
 
 **Einrichten.** Auf dem Homescreen lange drücken → *+* → «HomePilot» →
 Grösse wählen. Für den Sperrbildschirm: Sperrbildschirm lange drücken →
@@ -49,6 +50,30 @@ angelegt werden.
 Den eigentlichen Knopf «Widget hinzufügen» kann keine App anbieten – iOS
 behält das Auflegen auf den Homescreen bei sich. Deshalb steht in der App
 die Anleitung statt eines Knopfes, der nichts täte.
+
+**Kurzbefehle am App-Symbol.** Langer Druck auf das HomePilot-Symbol auf
+dem Homescreen zeigt dieselben Knöpfe wie das Widget – bis zu vier, in
+derselben Reihenfolge. Eingestellt werden sie nicht zweimal: Wer sie
+unter *Einstellungen → Widgets* ordnet, ordnet sie hier mit. Das Symbol
+ist immer da, auch auf der zweiten Seite und in der App-Mediathek; das
+Widget liegt nur dort, wo man es hingelegt hat.
+
+Gedrückt wird nichts blind: Der Kurzbefehl trägt dieselbe
+`homepilot://`-Adresse wie der Widget-Knopf, und die App behandelt sie
+mit derselben Hürde – Schlösser bekommen ihre Rückfrage.
+
+**Eigene Widgets.** Neben der Knopfleiste gibt es «HomePilot Karte»: ein
+Widget für *ein* Gerät oder *eine* Szene, gross, mit Zustand und einem
+Knopf. Zusammengestellt werden die Karten in der App unter *Einstellungen
+→ Widgets* («Eigene Widgets») – ein Licht, ein Fühler, ein Schloss, eine
+Szene. Auf dem Homescreen legt man dann so viele «HomePilot Karte»-Widgets
+ab, wie man braucht, und wählt je Widget aus, welche Karte es zeigt:
+langer Druck → *Widget bearbeiten* → *Karte*.
+
+Braucht iOS 17 oder neuer: Erst dort lässt sich ein Widget je Exemplar
+einstellen. Und es braucht «Hausstand im Widget» (siehe unten) – ohne die
+Zugangsdaten im Widget kann eine Karte weder den Zustand zeigen noch
+schalten, sie führt dann nur in die App.
 
 **Was passiert beim Antippen.** Das Widget schaltet nichts direkt, es
 öffnet die App an der richtigen Stelle: Bei «Haustüre» steht die
@@ -76,5 +101,22 @@ Der Unterschied ist Absicht: Das eine ist eine Entscheidung, das andere
 eine Störung. «Nicht erreichbar» steht nur da, wenn der Schalter an ist
 und der Hub trotzdem nicht antwortet – dann sagt das Widget das
 ausdrücklich, statt den letzten Stand weiter als Tatsache auszugeben.
+
+**Laufende Maschinen mit Balken.** Läuft die Waschmaschine, der
+Tumbler oder der Geschirrspüler, steht das im selben Hausstand: Name,
+Restzeit und ein Fortschrittsbalken. Auf dem Sperrbildschirm sticht die
+Maschine den Kalendertermin – der steht dort ohnehin noch dreimal, die
+Restzeit nirgends.
+
+Den Balken gibt es erst, wenn der Hub das Gerät zweimal hat durchlaufen
+sehen: Die meisten Maschinen melden nur «noch 23 Minuten», nie die
+Programmlänge, und ohne die ist ein Balken geraten. Der Hub nimmt den
+Median der letzten Läufe *desselben* Geräts – ein Tumbler läuft doppelt
+so lang wie eine Kurzwäsche. Bis dahin steht nur die Zahl da, und das
+ist ehrlicher.
+
+Der Grill hat keinen Balken. Er ist technisch dasselbe («appliance»),
+führt aber ein Temperaturziel statt einer Restzeit – für ihn wäre ein
+Zeitbalken eine Erfindung.
 
 Aktualisiert wird alle 15 Minuten – häufiger lässt iOS ohnehin nicht zu.

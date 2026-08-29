@@ -9,6 +9,7 @@ Ohne angemeldetes Gerät passiert schlicht nichts – der Hub läuft weiter.
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import Any
@@ -59,8 +60,86 @@ LEISE: frozenset[str] = frozenset(
         "shopping",
         "birthday",
         "weekahead",
+        "morning",
     }
 )
+
+
+#: So viel vom Antworttext des Push-Dienstes wird durchgereicht. Hier
+#: standen 120 Zeichen - und die Fehlermeldung von Expo beginnt mit
+#: hundert Zeichen JSON-Gerüst. Abgeschnitten wurde also genau der Satz,
+#: der sagt, was falsch ist: «…"message":"Must correct one of the
+#: following issues: [\"$\": Expecte…». Wer das liest, weiss nichts.
+FEHLERTEXT_LAENGE = 400
+
+
+def push_fehlertext(status: int, body: str) -> str:
+    """Aus der Antwort des Push-Dienstes einen lesbaren Satz (rein, testbar).
+
+    Expo antwortet mit einem JSON-Gerüst um die eigentliche Auskunft
+    herum. Interessant ist ausschliesslich, was in `errors[].message`
+    steht - alles davor ist immer dasselbe und frisst den Platz.
+    """
+    text = str(body or "").strip()
+    try:
+        daten = json.loads(text)
+    except (ValueError, TypeError):
+        return f"Push-Dienst antwortet mit {status}: {text[:FEHLERTEXT_LAENGE]}"
+    fehler = daten.get("errors") if isinstance(daten, dict) else None
+    saetze = []
+    for eintrag in fehler or []:
+        if not isinstance(eintrag, dict):
+            continue
+        satz = str(eintrag.get("message") or "").strip()
+        code = str(eintrag.get("code") or "").strip()
+        if satz and code:
+            saetze.append(f"{satz} ({code})")
+        elif satz:
+            saetze.append(satz)
+    if not saetze:
+        return f"Push-Dienst antwortet mit {status}: {text[:FEHLERTEXT_LAENGE]}"
+    return (
+        f"Push-Dienst antwortet mit {status}: "
+        + " · ".join(saetze)[:FEHLERTEXT_LAENGE]
+    )
+
+
+# ── Knöpfe in der Mitteilung ───────────────────────────────────────────────
+#
+# Eine Meldung ohne Handgriff ist eine Meldung, die man wegwischt: «Fenster
+# offen» um halb elf, App öffnen, Raum suchen, Storen zu - vier Griffe für
+# eine Bewegung. iOS und Android können Knöpfe direkt in der Mitteilung
+# anbieten; welche das sind, sagt eine Kennung («categoryId»), die die App
+# vorher angemeldet hat (app/src/lib/mitteilungsknoepfe.ts).
+#
+# Bewusst nur zwei Handgriffe, und beide harmlos: «später erinnern» und
+# «erledigt». Was Schaden anrichten kann - aufschliessen, entschärfen -
+# gehört nicht auf einen Sperrbildschirm, den jeder sieht, der das Telefon
+# in die Hand nimmt.
+
+#: Erinnert später noch einmal an dieselbe Meldung.
+KNOEPFE_SPAETER = "spaeter"
+#: Erinnert später und lässt sich abhaken (Batterie, Wartung).
+KNOEPFE_ERLEDIGT = "erledigt"
+
+_KNOEPFE: dict[str, str] = {
+    "open": KNOEPFE_SPAETER,
+    "appliance": KNOEPFE_SPAETER,
+    "shopping": KNOEPFE_SPAETER,
+    "medication": KNOEPFE_SPAETER,
+    "battery": KNOEPFE_ERLEDIGT,
+    "maintenance": KNOEPFE_ERLEDIGT,
+}
+
+
+def knoepfe(category: str | None) -> str | None:
+    """Welche Knöpfe unter diese Meldung gehören (rein, testbar).
+
+    Nichts für alles, was keinen sinnvollen Handgriff hat - beim Alarm
+    wäre «später erinnern» die falsche Auskunft, und entschärfen darf man
+    hier ohnehin nicht.
+    """
+    return _KNOEPFE.get(str(category or ""))
 
 
 def dringlichkeit(category: str | None) -> dict[str, Any]:
@@ -79,7 +158,14 @@ def dringlichkeit(category: str | None) -> dict[str, Any]:
     return {
         "priority": "high",
         "channelId": KANAL_DRINGEND,
-        "interruptionLevel": "timeSensitive",
+        # Mit Bindestrich, nicht in Binnenmajuskel. Apples eigener
+        # Schlüssel heisst «timeSensitive»; Expo nimmt an dieser Stelle
+        # aber nur 'active', 'critical', 'passive' oder 'time-sensitive'
+        # entgegen und weist die ganze Sendung mit 400 ab, wenn etwas
+        # anderes dasteht. Nicht diese eine Nachricht - die ganze: Es ist
+        # ein Schema-Fehler, kein Zustellfehler. Damit kam von diesem Hub
+        # keine einzige Push mehr an, auch der Test nicht.
+        "interruptionLevel": "time-sensitive",
     }
 
 # Die Arten von Nachrichten, die der Hub verschickt. Jede hat einen festen
@@ -95,16 +181,23 @@ CATEGORIES: dict[str, str] = {
     "battery": "Batterie schwach",
     "open": "Fenster/Tür steht offen",
     "leak": "Wasser gemeldet",
+    "doorbell": "Es klingelt an der Türe",
     "disk": "Speicherplatz wird knapp",
     "frost": "Frost angekündigt",
+    "rain": "Regen kommt",
+    "plants": "Pflanzen giessen",
     "appliance": "Haushaltgerät fertig",
+    "vacuum": "Saugroboter meldet ein Problem",
     "tasks": "Fällige Aufgaben",
     "timer": "Küchen-Timer",
     "maintenance": "Wartung fällig",
-    "shopping": "Einkaufsliste im Laden",
+    # Zwei Anlässe, ein Thema: die Erinnerung im Laden und der
+    # Vorrat, den der Hub selbst auf die Liste setzt.
+    "shopping": "Einkaufsliste",
     "calendar": "Termin steht an",
     "medication": "Medikament fällig",
     "birthday": "Geburtstag heute",
+    "morning": "Morgen-Zusammenfassung",
     "presence": "Ortung: schwacher Akku, Funkstille",
     "weekahead": "Wochenausblick am Sonntag",
     "test": "Push-Test",
@@ -122,11 +215,15 @@ CATEGORIES: dict[str, str] = {
 #
 # Reihenfolge ist Absicht: Was aufweckt, steht oben.
 GROUPS: list[tuple[str, tuple[str, ...]]] = [
-    ("Sicherheit", ("alarm", "alarm_arming", "camera_motion", "leak")),
-    ("Haus", ("open", "appliance", "frost", "timer", "maintenance")),
+    # Die Klingel steht ganz vorn: Sie ist die Nachricht, auf die man
+    # sofort reagiert - und die einzige, bei der ein paar Sekunden
+    # Verzögerung den Zweck zunichte machen.
+    ("Sicherheit", ("doorbell", "alarm", "alarm_arming", "camera_motion", "leak")),
+    ("Haus", ("open", "appliance", "vacuum", "frost", "rain", "plants", "timer",
+              "maintenance")),
     ("Familie", ("birthday", "calendar", "medication", "tasks", "shopping",
                  "weekahead", "presence")),
-    ("Betrieb", ("outage", "device_down", "battery", "disk")),
+    ("Betrieb", ("outage", "device_down", "battery", "disk", "morning")),
     # Leer, und trotzdem hier: Unter dieser Überschrift stehen die
     # Nachrichten aus selbst gebauten Abläufen. Sie haben keinen festen
     # Schlüssel - jeder Ablauf, der meldet, bringt seinen eigenen mit
@@ -440,6 +537,10 @@ class PushService:
         # ändert. Bewusst ein Rückruf und kein DataStore hier - der
         # Push-Dienst soll nichts über die Ablage wissen müssen.
         self.on_change: Any = None
+        # Wird vom Hub gesetzt: Ruf mich mit jeder verschickten Meldung -
+        # für den Nachlese-Zettel (core/pushverlauf.py). Derselbe Schnitt
+        # wie bei on_change: kein DataStore hier drin.
+        self.on_sent: Any = None
         self.muted = {}
         self._session_factory = session_factory or (
             lambda: aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15))
@@ -477,6 +578,23 @@ class PushService:
         self._devices[token] = device
         self._changed()
         return device
+
+    def umbenennen(self, alt: str, neu: str) -> int:
+        """Geräte-Anmeldungen auf einen neuen Benutzernamen umschreiben.
+
+        Beim Umbenennen eines Benutzers: Die Telefone sind nach Namen
+        angemeldet, und ohne das hier gingen Push-Nachrichten an den
+        alten Namen - also an niemanden - bis sich jede App das nächste
+        Mal von selbst neu anmeldet.
+        """
+        betroffen = [d for d in self._devices.values() if d.user == alt]
+        for device in betroffen:
+            device.user = neu
+        if betroffen:
+            self._changed()
+        if alt in self.muted:
+            self.muted[neu] = self.muted.pop(alt)
+        return len(betroffen)
 
     def unregister(self, token: str) -> bool:
         gone = self._devices.pop(token, None) is not None
@@ -543,6 +661,7 @@ class PushService:
             return PushResult()
         valid = [token for token in tokens if is_expo_token(token)]
         stufe = dringlichkeit(category)
+        kategorie_knoepfe = knoepfe(category)
         messages = [
             {
                 "to": token,
@@ -551,6 +670,10 @@ class PushService:
                 "sound": "default",
                 "data": data or {},
                 **stufe,
+                # Die Knöpfe hängen an der Art der Meldung, nicht an ihrem
+                # Text - deshalb reicht die Kennung; die Beschriftungen
+                # kennt die App (core/push.py: knoepfe).
+                **({"categoryId": kategorie_knoepfe} if kategorie_knoepfe else {}),
                 **({"richContent": {"image": image}} if image else {}),
             }
             for token in valid
@@ -558,14 +681,42 @@ class PushService:
         if not messages:
             return PushResult(errors=["Kein gültiger Expo-Push-Token angemeldet"])
 
+        if self.on_sent is not None:
+            # Vor dem Versand vermerkt: Auch eine Meldung, die bei Expo
+            # hängenbleibt, war eine Meldung - und der Zettel soll nicht
+            # vom Netz abhängen.
+            empfaenger = sorted(
+                {
+                    device.user
+                    for device in self.devices
+                    if device.token in valid and device.user
+                }
+            )
+            alle = {device.user for device in self.devices if device.user}
+            self.on_sent(
+                {
+                    "title": title,
+                    "body": body,
+                    "category": category,
+                    # Ging es an alle Telefone, bleibt die Liste leer -
+                    # «an alle» soll auch für morgen Angemeldete gelten.
+                    "to": [] if set(empfaenger) >= alle else empfaenger,
+                }
+            )
+
         session = self._session_factory()
         try:
             async with session.post(EXPO_ENDPOINT, json=messages) as response:
                 text = await response.text()
                 if response.status >= 400:
-                    log.warning("Push fehlgeschlagen (%s): %s", response.status, text[:200])
+                    # Ganz ins Log, gekürzt in die App: Wer per SSH
+                    # nachsieht, will alles; wer in der App eine Meldung
+                    # liest, will den Satz und nicht das JSON-Gerüst.
+                    log.warning(
+                        "Push fehlgeschlagen (%s): %s", response.status, text[:2000]
+                    )
                     return PushResult(
-                        errors=[f"Push-Dienst antwortet mit {response.status}: {text[:120]}"]
+                        errors=[push_fehlertext(response.status, text)]
                     )
                 payload = await response.json(content_type=None)
         except Exception as err:

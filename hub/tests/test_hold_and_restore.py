@@ -139,6 +139,10 @@ def test_a_spoken_sentence_survives_without_internet(tmp_path, monkeypatch):
             # Box mit.
             assert "Box Stube" in result["sent"]
             assert gesagt and all(eintrag[1] == "play_url" for eintrag in gesagt)
+            # Ohne Wunsch spielt die Ansage verständlich laut - die Box
+            # stellt die Lautstärke vor dem Abspielen, zurück geht es
+            # über durchsage_zurueck.
+            assert all(eintrag[2].get("volume") == say.DURCHSAGE_VOLUME for eintrag in gesagt)
 
             # Ein unbekannter Satz scheitert ehrlich mit einem lesbaren
             # Grund (hier: gTTS fehlt bzw. hat kein Netz) - statt still

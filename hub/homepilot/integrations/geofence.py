@@ -53,16 +53,30 @@ Dazu kommt `geofence.anyone_home`: die Sammelfrage «ist überhaupt noch
 jemand da?». Ohne sie müsste ein Ablauf «alles aus» je Person einen
 Auslöser tragen und zusätzlich prüfen, dass die anderen drei auch weg
 sind – das schreibt niemand von Hand richtig auf, und beim fünften
-Familienmitglied stimmt es nicht mehr. Sie steht auf «off», wenn alle
-ausdrücklich weg sind; Nichtwissen zählt als «on».
+Familienmitglied stimmt es nicht mehr. Sie steht auf «off», sobald
+niemand mehr ausdrücklich «home» meldet - jeder andere Zustand zählt
+als weg, auch «unbekannt» (Ausnahme in core/presence.py:
+anyone_home_state).
+
+Die Sammelfrage zählt **nur den Haushalt**: Zonen, hinter denen ein
+Benutzer des Hubs steht. Es gibt auch Zonen für Menschen, die hier
+nicht wohnen - der Life360-Kreis ortet Grosseltern und Freunde, und
+deren Zonen sind fürs Anschauen und für Abläufe («kommt an bei …»)
+gedacht. Zählten sie mit, wäre «niemand ist zuhause» erst wahr, wenn
+auch die Oma ihr eigenes Haus verlässt - der Saug-Ablauf feuerte nie.
+Wer eine Zone ohne Benutzer trotzdem mitzählen will, listet sie in der
+config.yaml unter `haushalt: [kennung, …]`.
 
 Zwei Dinge, die man erst im Betrieb merkt und die darum hier eingebaut
 sind:
 
-  - **Ein leerer Akku ist kein «niemand zuhause».** Meldet ein Telefon
-    zwölf Stunden nichts, wird aus «away» ein «unknown» – sonst schaltet
-    «alles aus, wenn niemand da» irgendwann das Haus ab, während jemand
-    darin sitzt.
+  - **Ein stummes Telefon hält das Haus nicht wach.** Meldet ein
+    Telefon zwölf Stunden nichts, wird aus «away» ein «unknown» - und
+    das zählt für die Sammelfrage als weg, nicht als da. Früher war es
+    andersherum, und ein einziger leerer Akku genügte, damit «niemand
+    ist zuhause» nie feuerte. Nur wenn der Hub von *niemandem* etwas
+    weiss (frisch gestartet, noch keine Meldung), bleibt er vorsichtig
+    bei «jemand da».
   - **Das WLAN entscheidet nichts.** Es gab einmal eine Option `wifi:`
     je Zone, die eine UniFi-Anmeldung über die Ortsmeldung stellte. Sie
     ist weg: «Gerät im Netz» ist nicht «Mensch zuhause» – das iPad liegt
@@ -77,7 +91,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from ..core import ortsuche, presence
+from ..core import ortsuche, personen, presence
 from ..core.entity import Entity, EntityKind
 from ..core.errors import ConfigError
 from ..core.integration import Integration
@@ -198,6 +212,32 @@ def zonen_zusammenfuehren(
     return zusammen
 
 
+def sammel_zonen(
+    alle: list[str],
+    benutzer_zonen: list[dict[str, str]],
+    haushalt: Any = None,
+) -> list[str]:
+    """Welche Zonen für «jemand/niemand zuhause» zählen (rein, testbar).
+
+    Der Haushalt sind die Zonen, hinter denen ein Benutzer des Hubs
+    steht, plus alles, was die config.yaml unter `haushalt:` nennt.
+    Zonen fremder Personen (der Life360-Kreis ortet auch Grosseltern
+    und Freunde) bleiben draussen - sonst wäre «niemand ist zuhause»
+    erst wahr, wenn auch die Oma ihr eigenes Haus verlässt.
+
+    Findet sich gar kein Haushalt (keine passende Zone), zählen alle:
+    Eine Sammelfrage, die still auf niemanden mehr hört, ist schlimmer
+    als die alte, zu breite.
+    """
+    erlaubt = {zone["id"] for zone in benutzer_zonen or []}
+    for eintrag in haushalt or []:
+        kennung = str(eintrag or "").strip()
+        if kennung:
+            erlaubt.add(kennung)
+    gefiltert = [zone_id for zone_id in alle if zone_id in erlaubt]
+    return gefiltert if gefiltert else list(alle)
+
+
 def default_places(location: dict[str, Any] | None) -> list[dict[str, Any]]:
     """Zuhause und Quartier aus dem Hausstandort (rein, testbar).
 
@@ -267,6 +307,14 @@ class GeofenceIntegration(Integration):
         self._fremde_orte = []
         self._beansprucht = {}
         self._config_zonen = parse_zones(self.config.get("zones"))
+        # Zonen ohne Benutzer, die trotzdem zum Haushalt zählen sollen -
+        # etwa die Life360-Kennung einer Person, deren Telefon nicht
+        # selbst meldet. Für die Sammelfrage «jemand/niemand zuhause».
+        self._haushalt = [
+            str(eintrag or "").strip()
+            for eintrag in (self.config.get("haushalt") or [])
+            if str(eintrag or "").strip()
+        ]
         # Welche Zonen aus der Benutzerliste stammen. Nur die dürfen
         # wieder verschwinden - was in der config.yaml steht, bleibt.
         self._aus_benutzern: set[str] = set()
@@ -349,24 +397,37 @@ class GeofenceIntegration(Integration):
         self.start_polling(self._settle, interval=SETTLE_INTERVAL)
 
     async def _update_anyone(self) -> None:
-        """Die Sammel-Entität aus den Einzelzuständen nachziehen."""
+        """Die Sammel-Entität aus den Einzelzuständen nachziehen.
+
+        Nur über den Haushalt: Der Kreis ortet auch Menschen, die hier
+        nicht wohnen, und deren Zuhause ist ein anderes (sammel_zonen).
+        """
         zustaende = []
         weg = []
-        for zone_id, entity_id in self._zones.items():
-            entity = self.hub.registry.get(entity_id)
+        for zone_id in sammel_zonen(
+            list(self._zones), self.benutzer_zonen(), self._haushalt
+        ):
+            entity = self.hub.registry.get(self._zones[zone_id])
             zustand = str((entity.state if entity else {}).get("state") or presence.UNKNOWN)
             zustaende.append(zustand)
             if zustand != HOME:
-                weg.append(entity.name if entity else zone_id)
+                weg.append(entity.label if entity else zone_id)
         neu = presence.anyone_home_state(zustaende)
+        # Fürs Schild oben in der App: «jemand da» ist wahr, aber wenig -
+        # sind wirklich alle daheim, darf es das auch sagen.
+        alle = presence.alle_zuhause(zustaende)
         alt_entity = self.hub.registry.get(self._anyone)
-        if alt_entity is not None and alt_entity.state.get("state") == neu:
+        if (
+            alt_entity is not None
+            and alt_entity.state.get("state") == neu
+            and bool(alt_entity.state.get("all")) == alle
+        ):
             # Nur echte Wechsel melden: Sonst löste jede Ortsmeldung
             # einer bereits abwesenden Person «alles aus» erneut aus.
             return
         await self.hub.registry.update_state(
             self._anyone,
-            {"state": neu, "device_class": "presence", "away": weg},
+            {"state": neu, "device_class": "presence", "away": weg, "all": alle},
             available=True,
         )
         self.log.info("Geofence: jemand zuhause = %s", neu)
@@ -589,6 +650,8 @@ class GeofenceIntegration(Integration):
         battery: Any = None,
         source: str = "geofence",
         place_name: str | None = None,
+        latitude: float | None = None,
+        longitude: float | None = None,
     ) -> str:
         """Einen gemeldeten Wechsel übernehmen. Gibt den neuen Zustand zurück.
 
@@ -645,8 +708,22 @@ class GeofenceIntegration(Integration):
         # eine Messung aus dem Stau.
         self._gemessen[zone_id] = time.time()
         state, engster = presence.place_state(drin, self.places)
+        # Life360 meldet eine Flanke, kennt aber die Koordinaten. Ohne
+        # sie bliebe die Entfernung leer, und «wann ist er da?» stünde
+        # ausgerechnet dort ohne Antwort, wo die Ortung am besten läuft.
         await self._publish(
-            zone_id, entity_id, state, engster, battery, source, place_name
+            zone_id,
+            entity_id,
+            state,
+            engster,
+            battery,
+            source,
+            place_name,
+            entfernung=(
+                presence.entfernung_zuhause(self.places, latitude, longitude)
+                if latitude is not None and longitude is not None
+                else None
+            ),
         )
         self.log.info("Geofence: %s ist jetzt %s (%s)", zone_id, state, ort)
         return state
@@ -705,7 +782,15 @@ class GeofenceIntegration(Integration):
         )
         self._inside[zone_id] = drin
         state, engster = presence.place_state(drin, self.places)
-        await self._publish(zone_id, entity_id, state, engster, battery, source)
+        await self._publish(
+            zone_id,
+            entity_id,
+            state,
+            engster,
+            battery,
+            source,
+            entfernung=presence.entfernung_zuhause(self.places, latitude, longitude),
+        )
         self.log.info(
             "Geofence: %s ist jetzt %s (Position, ±%.0f m)", zone_id, state, accuracy or 0
         )
@@ -720,6 +805,7 @@ class GeofenceIntegration(Integration):
         battery: Any = None,
         source: str = "geofence",
         place_name: str | None = None,
+        entfernung: float | None = None,
     ) -> None:
         jetzt = time.time()
         # Der mitgereichte Klarname zuerst: Ein Ort von Life360 steht
@@ -757,6 +843,13 @@ class GeofenceIntegration(Integration):
             "place_name": name,
             "source": source or "geofence",
             "stale": False,
+            # Wie weit von zuhause, in Metern - für «wann ist er da?».
+            # Eine Zone beantwortet das nicht: Zwischen «weg» und
+            # «zuhause» liegen zwei Kilometer genauso wie zweihundert.
+            # Ausdrücklich auch als None: Eine Flankenmeldung ohne
+            # Koordinaten darf keine alte Entfernung stehen lassen
+            # (siehe registry.update_state).
+            "distance": round(entfernung) if entfernung is not None else None,
         }
         if battery is not None:
             try:
@@ -764,6 +857,8 @@ class GeofenceIntegration(Integration):
             except (TypeError, ValueError):
                 neu["battery"] = None
         await self.hub.registry.update_state(entity_id, neu, available=True)
+        if not gleich:
+            await self._sagen(zone_id, vorher, state)
         # Das Gedächtnis über den Neustart hinweg. Getrennt vom Verlauf:
         # Der ist ein Protokoll des Kommens und Gehens, das hier ist der
         # letzte Stand, je Zone eine Zeile.
@@ -790,6 +885,49 @@ class GeofenceIntegration(Integration):
             ),
         )
         await self._update_anyone()
+
+    async def _sagen(
+        self, zone_id: str, vorher: dict[str, Any], state: str
+    ) -> None:
+        """Kommen und Gehen melden – wenn jemand es hören will.
+
+        Bewusst nur an der Haustürschwelle und nicht an jedem Ort: «Maja
+        ist beim Bäcker angekommen» ist eine Nachricht, die man einmal
+        nett findet. Wer mehr will, baut sich einen Ablauf; der kann
+        Ort, Uhrzeit und Empfänger unterscheiden.
+
+        Bewusst auch nicht beim allerersten Mal: Nach einem Neustart des
+        Hubs hat eine Zone noch keinen Vorzustand, und dann wären die
+        ersten Meldungen aller Telefone eine Ankunftswelle für Leute,
+        die längst dasitzen.
+        """
+        alt = str(vorher.get("state") or "")
+        if not alt or alt == presence.UNKNOWN:
+            return
+        if state == presence.HOME and alt != presence.HOME:
+            key, titel, wort = "arrive", "Angekommen", "ist zuhause angekommen"
+        elif alt == presence.HOME and state != presence.HOME:
+            key, titel, wort = "leave", "Unterwegs", "ist aus dem Haus"
+        else:
+            return
+        if not personen.an(self.hub.data.get(personen.LADE), zone_id, key):
+            return
+        entity_id = self._zones.get(zone_id)
+        entity = self.hub.registry.get(entity_id) if entity_id else None
+        name = entity.label if entity else zone_id
+        try:
+            tokens = self.hub.push.recipients(
+                self.hub.users.users, category="presence"
+            )
+            if tokens:
+                await self.hub.push.send(
+                    tokens, titel, f"{name} {wort}.", category="presence"
+                )
+        except Exception as err:
+            # Eine misslungene Nachricht darf die Ortung nicht anhalten -
+            # der Zustand ist längst geschrieben, und der ist das
+            # Wichtige.
+            self.log.debug("Geofence: %s nicht gemeldet (%s)", zone_id, err)
 
     def merged(self, zone_id: str) -> dict[str, Any]:
         """Der Zustand einer Person, wie ihn die App liest (Punkt 200).
@@ -818,7 +956,7 @@ class GeofenceIntegration(Integration):
             entity = self.hub.registry.get(entity_id)
             state = dict(entity.state) if entity else {}
             zusammen = self.merged(zone_id)
-            zeile = presence.diagnose(entity.name if entity else zone_id, state, jetzt)
+            zeile = presence.diagnose(entity.label if entity else zone_id, state, jetzt)
             zeile["zone"] = zone_id
             zeile["combined"] = zusammen.get("state")
             zeile["combined_source"] = zusammen.get("source")

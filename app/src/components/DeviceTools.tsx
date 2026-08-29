@@ -353,19 +353,31 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     card: { gap: 10, minHeight: 0 },
     heading: { color: colors.ink, fontSize: type.cardTitle, fontWeight: '700' },
-    row: { flexDirection: 'row', gap: 8 },
+    row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    // Drei Knöpfe mit langen Beschriftungen nebeneinander gingen auf
+    // einem iPhone nicht auf: Der Text lief aus seinem Knopf heraus und
+    // über das Symbol des Nachbarn. Jetzt darf die Zeile umbrechen, und
+    // der Text bricht innerhalb seines Knopfes statt daneben.
     button: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
       gap: 8,
-      flex: 1,
+      flexGrow: 1,
+      flexShrink: 1,
+      flexBasis: 150,
       paddingVertical: 11,
+      paddingHorizontal: 10,
       borderRadius: radius.control,
       borderWidth: 1,
       borderColor: colors.surfaceBorder,
     },
-    buttonText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
+    buttonText: {
+      color: colors.ink,
+      fontSize: 14,
+      fontWeight: '600',
+      flexShrink: 1,
+    },
     note: { color: colors.inkSoft, fontSize: 12, lineHeight: 18 },
     sheet: {
       flex: 1,

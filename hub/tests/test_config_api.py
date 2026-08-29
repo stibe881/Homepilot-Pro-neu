@@ -112,7 +112,13 @@ def test_owner_assigns_room_to_entity(client):
     assert cleared.json()["entity"]["room"] is None
 
 
-def test_resident_may_not_assign_rooms(client):
+def test_residents_assign_rooms_since_they_live_here(client):
+    """Früher stand hier das Gegenteil - Raum zuweisen war Besitzersache.
+
+    Die Grenze verlief falsch: Ein Raum ist Ansicht, nicht Anlage. Wer
+    hier wohnt, darf sagen, wo ein Gerät steht (EDIT_DEVICES); die
+    config.yaml bleibt bei der Besitzerin (EDIT_CONFIG).
+    """
     entities = client.get("/api/entities", headers=auth("t-resident")).json()
     target = entities[0]["id"]
     assert (
@@ -121,7 +127,7 @@ def test_resident_may_not_assign_rooms(client):
             json={"room": "Büro"},
             headers=auth("t-resident"),
         ).status_code
-        == 403
+        == 200
     )
 
 

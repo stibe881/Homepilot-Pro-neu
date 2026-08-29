@@ -23,7 +23,7 @@ RUN apt-get update \
 WORKDIR /app
 COPY pyproject.toml ./
 COPY homepilot ./homepilot
-RUN pip install --no-cache-dir ".[roborock,cast,androidtv,ring,overkiz,pitboss,speech,tuya]"
+RUN pip install --no-cache-dir ".[roborock,cast,androidtv,ring,overkiz,pitboss,speech,tuya,apns]"
 
 # Nicht als root laufen lassen.
 RUN useradd --create-home --uid 1000 homepilot

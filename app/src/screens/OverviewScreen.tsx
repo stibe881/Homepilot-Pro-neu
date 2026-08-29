@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Linking,
   Modal,
@@ -7,11 +7,13 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 
 import { CommandData, Entity, KalenderEintrag, Scene } from '../api/types';
 import { Card } from '../components/Card';
+import { RenameDialog } from '../components/entity/anpassen';
 import { DraggableList } from '../components/DraggableList';
 import { KIND_ICONS, shortState } from '../components/RoomTile';
 import { appleMapsRoute, googleMapsRoute } from '../components/TopStrip';
@@ -26,9 +28,35 @@ import {
   restMinuten,
   timerAuswahl,
 } from '../lib/fernsehtimer';
+import {
+  Box,
+  bestaetigung,
+  boxen as boxenVon,
+  gueltigesZiel,
+  nachDemSenden,
+  saetze as saetzeVon,
+  satzAendern,
+  satzHinzufuegen,
+  satzLoeschen,
+  sprecherFuer,
+  STANDARDTEXTE,
+  standardZurueck,
+  zielText,
+  zieleFuer,
+} from '../lib/durchsage';
+import { DurchsagePrefs } from '../hooks/usePrefs';
+import { DURCHSAGE_ID, favoritenOrdnen } from '../lib/favoritenordnung';
 import { haustuerZeile } from '../lib/klingel';
 import { KalenderZeile, geburtstagsListe, terminListe } from '../lib/kalenderliste';
 import { applianceLine } from '../lib/haushalt';
+import {
+  aufnahmeFehler,
+  dauerText as aufnahmeDauer,
+  kannAufnehmen,
+  MINDESTENS_MS,
+  starteAufnahme,
+  type Aufnahme,
+} from '../lib/sprachnotiz';
 import { mayOpenDirectly } from '../lib/tuerbestaetigung';
 import { Colors, radius, space, useColors } from '../theme';
 
@@ -57,12 +85,30 @@ interface Props {
    *  in der Geräteliste in die Geräte-Einstellungen schreibt und nicht in
    *  die Entität – wer nur `entity.favorite` liest, sieht nie etwas. */
   favoriteIds?: string[];
+  /** Gerät umbenennen - hängt am langen Druck auf einen Favoriten.
+   *  Fehlt sie (Gast, alter Hub), bleibt der lange Druck einfach stumm. */
+  onRenameEntity?: (entityId: string, name: string) => void;
   /** Selbst gezogene Reihenfolge der Favoriten (Gerätekennungen). */
   favoriteOrder?: string[];
   onReorderFavorites?: (ids: string[]) => void;
   /** Fragt die Türe vor dem Öffnen nach? Haushaltsweit eingestellt; fehlt
    *  der Wert, wird gefragt (siehe lib/tuerbestaetigung.ts). */
   doorConfirm?: boolean;
+  /** Eine Durchsage abschicken. Fehlt sie, gibt es die Kachel nicht -
+   *  ohne Recht zu schalten wäre sie eine Attrappe. */
+  onDurchsage?: (
+    text: string,
+    speakers: string[]
+  ) => Promise<{ sent?: string[]; errors?: string[] }>;
+  /** Zuletzt gewählte Box und selbst getippte Sätze - siehe usePrefs. */
+  durchsage?: DurchsagePrefs;
+  onDurchsagePrefs?: (prefs: DurchsagePrefs) => void;
+  /** Eine selbst gesprochene Notiz auf die Boxen. Fehlt sie (native
+   *  App, kein Mikrofon), zeigt das Blatt den Knopf gar nicht erst. */
+  onSprachnotiz?: (
+    aufnahme: Blob,
+    speakers: string[]
+  ) => Promise<{ sent?: string[]; errors?: string[] }>;
 }
 
 const WEEKDAYS = [
@@ -138,7 +184,12 @@ export function OverviewScreen({
   favoriteIds = [],
   favoriteOrder,
   onReorderFavorites,
+  onRenameEntity,
   doorConfirm,
+  onDurchsage,
+  durchsage,
+  onDurchsagePrefs,
+  onSprachnotiz,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -191,17 +242,44 @@ export function OverviewScreen({
   // Selbst gezogene Reihenfolge anwenden; neu hinzugekommene Favoriten
   // hängen sich hinten an, statt die gewachsene Ordnung durcheinander zu
   // bringen. Dieselbe Regel wie bei den Familien-Kacheln.
-  const favRang = new Map((favoriteOrder ?? []).map((id, index) => [id, index]));
-  const favorites = [...favoriten].sort((a, b) => {
-    const ai = favRang.has(a.id) ? (favRang.get(a.id) as number) : Infinity;
-    const bi = favRang.has(b.id) ? (favRang.get(b.id) as number) : Infinity;
-    return ai !== bi ? ai - bi : favoriten.indexOf(a) - favoriten.indexOf(b);
-  });
   const [favOrdnen, setFavOrdnen] = useState(false);
+  // Die Durchsage-Kachel: Sie hängt nicht an einem Gerät, sondern an der
+  // Frage, ob es überhaupt eine Box gibt, die eine Tondatei abspielt.
+  const durchsageBoxen = useMemo(() => boxenVon(entities), [entities]);
+  const [durchsageOffen, setDurchsageOffen] = useState(false);
+  // Ohne Box gibt es nichts anzusagen, ohne Recht nichts zu schalten -
+  // in beiden Fällen wäre die Kachel eine Attrappe.
+  const durchsageMoeglich = !!onDurchsage && durchsageBoxen.length > 0;
+
+  // Alle Favoritenkacheln in einer Liste - die Geräte und die Durchsage.
+  //
+  // Sie hing vorher fest hinter der Liste, weil sie an keiner Entität
+  // hängt. Damit stand sie auch nicht in «Favoriten ordnen»: «Durchsagen
+  // kann man nicht sortieren bei den Favoriten.» Jetzt ist sie eine
+  // Kachel wie jede andere, mit eigener Kennung (lib/favoritenordnung.ts).
+  const favorites = useMemo(
+    () =>
+      favoritenOrdnen(
+        [
+          ...favoriten.map((entity) => ({
+            id: entity.id,
+            name: entity.name,
+            entity,
+          })),
+          ...(durchsageMoeglich
+            ? [{ id: DURCHSAGE_ID, name: 'Durchsage', entity: null }]
+            : []),
+        ],
+        favoriteOrder
+      ),
+    [favoriten, durchsageMoeglich, favoriteOrder]
+  );
   // Welcher Fernseher gerade sein Timer-Fenster offen hat. Der Chip auf
   // der Startseite ist zu klein für fünf Knöpfe - und beim Einschalten
   // will man ihn auch nicht versehentlich stellen.
   const [timerTv, setTimerTv] = useState<Entity | null>(null);
+  // Welcher Favorit gerade umbenannt wird - null heisst keiner.
+  const [umbenennen, setUmbenennen] = useState<Entity | null>(null);
   // Der offene Eintrag frisch aus der Liste: Sonst zeigte das Fenster den
   // Stand von dem Moment, in dem es aufging, und nach «1 h 30» stünde
   // weiter «Kein Timer gestellt».
@@ -515,7 +593,11 @@ export function OverviewScreen({
             styles={styles}
             colors={colors}
             width="100%"
-            icon="hardware-chip-outline"
+            // Nicht «hardware-chip»: Der Baustein-Chip ist das Sinnbild
+            // für «irgendein Gerät» (RoomTile), und vor «Olga» sah er aus
+            // wie ein Platzhalter, den jemand vergessen hat. Der Sauger
+            // hat dasselbe Sinnbild wie überall sonst.
+            icon={KIND_ICONS[vacuum.kind] ?? 'sparkles-outline'}
             title={vacuum.name}
           >
             <VacuumHome
@@ -730,7 +812,10 @@ export function OverviewScreen({
       ) : null}
 
       {/* Favoriten aus der Geräteliste – zwischen Schnellaktionen und
-          Zugang, damit die eigenen Griffbereit-Geräte oben stehen. */}
+          Zugang, damit die eigenen Griffbereit-Geräte oben stehen. Die
+          Durchsage zählt mit: Sie hält den Block auch dann offen, wenn
+          noch niemand einen Stern vergeben hat, und lässt sich seit
+          neuestem mit einordnen. */}
       {favorites.length > 0 ? (
         <>
           <View style={styles.favHead}>
@@ -765,29 +850,72 @@ export function OverviewScreen({
               </Text>
               <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
                 <DraggableList
-                  items={favorites.map((entity) => ({
-                    id: entity.id,
-                    name: entity.name,
-                  }))}
+                  items={favorites.map(({ id, name }) => ({ id, name }))}
                   onReorder={(ids) => onReorderFavorites?.(ids)}
                 />
               </ScrollView>
             </View>
           </Modal>
           <View style={styles.favRow}>
-            {favorites.map((entity) => (
-              <FavoriteChip
-                key={entity.id}
-                entity={entity}
-                breite={favWidth}
-                pending={!!pending[entity.id]}
-                onCommand={onCommand}
-                onTimer={() => setTimerTv(entity)}
-                styles={styles}
-                colors={colors}
-              />
-            ))}
+            {favorites.map((kachel) =>
+              kachel.entity ? (
+                <FavoriteChip
+                  key={kachel.id}
+                  entity={kachel.entity}
+                  breite={favWidth}
+                  pending={!!pending[kachel.id]}
+                  onCommand={onCommand}
+                  onTimer={() => setTimerTv(kachel.entity)}
+                  onRename={
+                    onRenameEntity ? () => setUmbenennen(kachel.entity) : undefined
+                  }
+                  styles={styles}
+                  colors={colors}
+                />
+              ) : (
+                /* Die Durchsage. Ohne eigene Reihenfolge steht sie
+                   zuletzt - die Favoriten sind persönlich gewählt, sie
+                   steht immer da, und vorn schöbe sie jeden Abend das
+                   weg, wofür jemand den Stern gesetzt hat. Wer sie
+                   woanders haben will, zieht sie jetzt dorthin. */
+                <Pressable
+                  key={kachel.id}
+                  onPress={() => setDurchsageOffen(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Durchsage"
+                  style={({ pressed }) => [
+                    styles.favChip,
+                    { width: favWidth },
+                    pressed && { opacity: 0.6 },
+                  ]}
+                >
+                  <Ionicons name="megaphone-outline" size={18} color={colors.inkSoft} />
+                  <Text style={styles.favName} numberOfLines={1}>
+                    Durchsage
+                  </Text>
+                  <Text style={styles.favState} numberOfLines={1}>
+                    {zielText(
+                      gueltigesZiel(durchsage?.ziel, durchsageBoxen),
+                      durchsageBoxen
+                    )}
+                  </Text>
+                </Pressable>
+              )
+            )}
           </View>
+          {/* Der Dialog steht einmal hier statt in jedem Chip - es kann
+              ohnehin nur einer offen sein. */}
+          {umbenennen ? (
+            <RenameDialog
+              visible
+              current={umbenennen.name}
+              onClose={() => setUmbenennen(null)}
+              onSubmit={(name) => {
+                setUmbenennen(null);
+                if (name) onRenameEntity?.(umbenennen.id, name);
+              }}
+            />
+          ) : null}
           <FernsehTimerFenster
             entity={timerEntity}
             onCommand={onCommand}
@@ -795,6 +923,18 @@ export function OverviewScreen({
             styles={styles}
             colors={colors}
           />
+          {durchsageOffen && onDurchsage ? (
+            <DurchsageFenster
+              boxen={durchsageBoxen}
+              prefs={durchsage}
+              onPrefs={onDurchsagePrefs}
+              onSenden={onDurchsage}
+              onSprachnotiz={onSprachnotiz}
+              onClose={() => setDurchsageOffen(false)}
+              styles={styles}
+              colors={colors}
+            />
+          ) : null}
         </>
       ) : null}
 
@@ -830,6 +970,7 @@ function FavoriteChip({
   pending,
   onCommand,
   onTimer,
+  onRename,
   styles,
   colors,
 }: {
@@ -840,6 +981,8 @@ function FavoriteChip({
   onCommand: (entityId: string, command: string, data?: CommandData) => void;
   /** Öffnet das Timer-Fenster – nur bei Geräten, die einen können. */
   onTimer: () => void;
+  /** Öffnet den Umbenennen-Dialog. Ohne Recht dazu: kein langer Druck. */
+  onRename?: () => void;
   styles: OverviewStyles;
   colors: Colors;
 }) {
@@ -881,8 +1024,14 @@ function FavoriteChip({
   return (
     <Pressable
       onPress={switchable ? tap : undefined}
-      disabled={!switchable}
-      accessibilityRole={switchable ? 'button' : undefined}
+      // Umbenennen am Ort des Ärgernisses: Wer den falschen Namen liest,
+      // liest ihn hier - nicht unter Geräte → Anpassen, drei Schritte
+      // weiter. disabled fällt deshalb weg, sobald es ein onRename gibt:
+      // Ein deaktiviertes Pressable schluckt auch den langen Druck.
+      onLongPress={onRename}
+      delayLongPress={350}
+      disabled={!switchable && !onRename}
+      accessibilityRole={switchable || onRename ? 'button' : undefined}
       accessibilityLabel={entity.name}
       style={({ pressed }) => [
         styles.favChip,
@@ -921,6 +1070,425 @@ function FavoriteChip({
             : shortState(entity)}
       </Text>
     </Pressable>
+  );
+}
+
+/**
+ * Das Durchsage-Fenster hinter der Kachel.
+ *
+ * Vorher stand die Durchsage als breite Karte unter Einstellungen →
+ * Lautsprecher: ein leeres Textfeld und darunter fünfzehn
+ * Lautsprechernamen als Chips. Wer «Essen ist fertig» rufen wollte,
+ * ging drei Ecken weit, tippte den Satz und suchte die Box aus einer
+ * Wand von Namen - jedes Mal denselben Satz, jedes Mal dieselbe Box.
+ *
+ * Hier ist beides vorbereitet: Das Ziel steht oben und merkt sich, was
+ * zuletzt gewählt war; darunter stehen fertige Sätze, und ein Tippen
+ * darauf sendet. Zwei Tipper. Das Textfeld bleibt für den Satz, den
+ * niemand vorhersehen konnte - und was dort getippt wurde, steht beim
+ * nächsten Mal oben bei den Vorschlägen.
+ */
+function DurchsageFenster({
+  boxen,
+  prefs,
+  onPrefs,
+  onSenden,
+  onSprachnotiz,
+  onClose,
+  styles,
+  colors,
+}: {
+  boxen: Box[];
+  prefs?: DurchsagePrefs;
+  onPrefs?: (prefs: DurchsagePrefs) => void;
+  onSenden: (
+    text: string,
+    speakers: string[]
+  ) => Promise<{ sent?: string[]; errors?: string[] }>;
+  onSprachnotiz?: (
+    aufnahme: Blob,
+    speakers: string[]
+  ) => Promise<{ sent?: string[]; errors?: string[] }>;
+  onClose: () => void;
+  styles: OverviewStyles;
+  colors: Colors;
+}) {
+  // Das gemerkte Ziel gilt nur, solange es die Box noch gibt - sonst
+  // ginge die Durchsage ins Leere, ohne dass jemand sähe, warum.
+  const [ziel, setZiel] = useState(() => gueltigesZiel(prefs?.ziel, boxen));
+  const [zielOffen, setZielOffen] = useState(false);
+  const [frei, setFrei] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  // Der Stift oben: Statt zu senden werden die eigenen Sätze gepflegt -
+  // hinzufügen, umformulieren, löschen. Die mitgelieferten bleiben
+  // aussen vor: Sie gehören der App, und gelöscht wären sie beim
+  // nächsten Update kommentarlos wieder da.
+  const [verwalten, setVerwalten] = useState(false);
+  // Welcher Satz gerade im Feld zum Umformulieren liegt.
+  const [bearbeite, setBearbeite] = useState<string | null>(null);
+  // Eine Liste, nicht zwei: Was mitgeliefert wurde und was jemand
+  // selbst getippt hat, steht gleichberechtigt nebeneinander und lässt
+  // sich gleich behandeln.
+  const texte = useMemo(() => saetzeVon(prefs ?? {}), [prefs]);
+
+  // Die Sprachnotiz: laufende Aufnahme, ihr Beginn (für die Uhr) und
+  // ob dieser Browser überhaupt ein Mikrofon hergibt. `kannAufnehmen`
+  // einmal beim Anlegen - die Antwort ändert sich nicht mehr, und in
+  // der nativen App fällt der Knopf damit ganz weg statt auszugrauen.
+  const mikrofon = useMemo(() => !!onSprachnotiz && kannAufnehmen(), [onSprachnotiz]);
+  const laufend = useRef<Aufnahme | null>(null);
+  const [seit, setSeit] = useState<number | null>(null);
+  const [jetzt, setJetzt] = useState(() => Date.now());
+
+  // Die Sekundenanzeige läuft nur, solange aufgenommen wird - ein
+  // Ticker, der immer läuft, zeichnet das Blatt bei jedem Tippen neu.
+  useEffect(() => {
+    if (seit === null) return;
+    const takt = setInterval(() => setJetzt(Date.now()), 250);
+    return () => clearInterval(takt);
+  }, [seit]);
+
+  // Beim Schliessen des Blattes das Mikrofon loslassen. Sonst bliebe im
+  // Browser der rote Punkt im Tab stehen, und auf dem Wandpanel sähe
+  // es aus, als höre die Wohnung weiter zu.
+  useEffect(
+    () => () => {
+      laufend.current?.abbrechen();
+      laufend.current = null;
+    },
+    []
+  );
+
+  const aufnahmeUmschalten = async () => {
+    if (busy) return;
+    if (laufend.current) {
+      const aufnahme = laufend.current;
+      const dauer = Date.now() - (seit ?? Date.now());
+      laufend.current = null;
+      setSeit(null);
+      const ton = await aufnahme.stopp();
+      // Zu kurz heisst: Der Knopf ist gewackelt. Das hier zu sagen ist
+      // freundlicher, als eine Zehntelsekunde Rauschen durchs Haus zu
+      // schicken - und der Hub wiese sie ohnehin ab.
+      if (!ton || dauer < MINDESTENS_MS) {
+        setNote('Zu kurz - den Knopf gedrückt lassen, bis der Satz durch ist.');
+        return;
+      }
+      setBusy(true);
+      setNote(null);
+      try {
+        const antwort = await onSprachnotiz?.(ton, sprecherFuer(ziel));
+        setNote(bestaetigung(antwort ?? {}));
+      } catch (err) {
+        setNote(String(err instanceof Error ? err.message : err));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    try {
+      laufend.current = await starteAufnahme();
+      setSeit(Date.now());
+      setJetzt(Date.now());
+      setNote(null);
+    } catch (err) {
+      setNote(aufnahmeFehler(err));
+    }
+  };
+
+  const speichern = () => {
+    const sauber = frei.trim();
+    if (!sauber) return;
+    // `letzter` fällt bei jedem Handgriff weg: Der Satz steht danach in
+    // der Liste, und ein zweites Feld daneben wäre wieder etwas, das
+    // sich niemand erklären kann.
+    onPrefs?.({
+      ...prefs,
+      letzter: undefined,
+      texte: bearbeite
+        ? satzAendern(prefs ?? {}, bearbeite, sauber)
+        : satzHinzufuegen(prefs ?? {}, sauber),
+    });
+    setFrei('');
+    setBearbeite(null);
+  };
+
+  const loeschen = (satz: string) => {
+    onPrefs?.({ ...prefs, letzter: undefined, texte: satzLoeschen(prefs ?? {}, satz) });
+    if (bearbeite === satz) {
+      setBearbeite(null);
+      setFrei('');
+    }
+  };
+
+  const waehle = (naechstes: string) => {
+    setZiel(naechstes);
+    setZielOffen(false);
+    onPrefs?.({ ...prefs, ziel: naechstes });
+  };
+
+  const sende = async (text: string) => {
+    const sauber = text.trim();
+    if (!sauber || busy) return;
+    setBusy(true);
+    setNote(null);
+    try {
+      const antwort = await onSenden(sauber, sprecherFuer(ziel));
+      setNote(bestaetigung(antwort ?? {}));
+      setFrei('');
+      // Ein selbst getippter Satz landet in derselben Liste wie alle
+      // anderen - und ist damit auch gleich wieder zu ändern oder zu
+      // löschen. Früher lag er in einem eigenen Feld, das genau einen
+      // Satz hielt und ihn beim nächsten überschrieb.
+      const liste = nachDemSenden(prefs ?? {}, sauber);
+      if (liste) onPrefs?.({ ...prefs, ziel, letzter: undefined, texte: liste });
+    } catch (err) {
+      setNote(String(err instanceof Error ? err.message : err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal visible animationType="slide" onRequestClose={onClose} transparent>
+      <Pressable style={styles.fensterGrund} onPress={onClose}>
+        <Pressable style={styles.fensterBlatt} onPress={() => {}}>
+          <View style={styles.fensterKopf}>
+            <Text style={styles.fensterTitel}>Durchsage</Text>
+            <Pressable
+              onPress={() => {
+                setVerwalten((an) => !an);
+                setBearbeite(null);
+                setFrei('');
+              }}
+              accessibilityRole="button"
+              accessibilityState={{ selected: verwalten }}
+              accessibilityLabel={verwalten ? 'Sätze fertig bearbeiten' : 'Sätze bearbeiten'}
+              hitSlop={8}
+              style={{ marginRight: 14 }}
+            >
+              <Ionicons
+                name={verwalten ? 'checkmark' : 'pencil-outline'}
+                size={21}
+                color={verwalten ? colors.accent : colors.inkSoft}
+              />
+            </Pressable>
+            <Pressable
+              onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel="Schliessen"
+            >
+              <Ionicons name="close" size={24} color={colors.ink} />
+            </Pressable>
+          </View>
+
+          {/* Erst wohin, dann was. Andersherum hätte man den Satz schon
+              abgeschickt, bevor die Frage nach der Box überhaupt kam. */}
+          <Pressable
+            onPress={() => setZielOffen((auf) => !auf)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: zielOffen }}
+            accessibilityLabel={`Ziel: ${zielText(ziel, boxen)}`}
+            style={({ pressed }) => [styles.durchsageZiel, pressed && { opacity: 0.7 }]}
+          >
+            <Ionicons name="volume-medium-outline" size={18} color={colors.inkSoft} />
+            <Text style={styles.durchsageZielText} numberOfLines={1}>
+              {zielText(ziel, boxen)}
+            </Text>
+            <Ionicons
+              name={zielOffen ? 'chevron-up' : 'chevron-down'}
+              size={18}
+              color={colors.inkSoft}
+            />
+          </Pressable>
+          {/* Beim Wählen nur die Liste: Sonst stünden Boxenliste, sechs
+              Sätze und das Textfeld übereinander, und auf einem Telefon
+              fiele das Feld unten aus dem Blatt - ohne dass sich das
+              Blatt scrollen liesse, weil in ihm schon die Boxenliste
+              scrollt. Ein Schritt nach dem anderen ist ohnehin
+              verständlicher: erst wohin, dann was. */}
+          {zielOffen ? (
+            <ScrollView style={styles.durchsageListe} keyboardShouldPersistTaps="handled">
+              {zieleFuer(boxen).map((box) => (
+                <Pressable
+                  key={box.id}
+                  onPress={() => waehle(box.id)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: box.id === ziel }}
+                  style={({ pressed }) => [
+                    styles.durchsageZeile,
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.durchsageZeileText,
+                      box.id === ziel && { color: colors.accent, fontWeight: '700' },
+                    ]}
+                  >
+                    {box.name}
+                  </Text>
+                  {box.id === ziel ? (
+                    <Ionicons name="checkmark" size={18} color={colors.accent} />
+                  ) : null}
+                </Pressable>
+              ))}
+            </ScrollView>
+          ) : (
+            <>
+          {/* Ein Tippen auf den Satz sendet ihn - das ist der ganze Sinn
+              der Kachel. Ein zweiter Knopf «Senden» daneben machte aus
+              zwei Tippern drei. */}
+          <View style={styles.durchsageTexte}>
+            {verwalten && texte.length === 0 ? (
+              <Text style={styles.durchsageNote}>
+                Keine Sätze mehr - unten einen eintippen und mit dem Haken
+                sichern.
+              </Text>
+            ) : null}
+            {/* Der Weg zurück, wenn jemand die Liste leergeräumt hat und
+                es bereut. Von selbst kommt nichts wieder: Zurückkommende
+                Sätze wären dasselbe Ärgernis wie eine Kachel, die man
+                nicht ausgeblendet bekommt. */}
+            {verwalten && texte.length < STANDARDTEXTE.length ? (
+              <Pressable
+                onPress={() =>
+                  onPrefs?.({
+                    ...prefs,
+                    letzter: undefined,
+                    texte: standardZurueck(prefs ?? {}),
+                  })
+                }
+                accessibilityRole="button"
+                accessibilityLabel="Mitgelieferte Sätze zurückholen"
+                style={({ pressed }) => [styles.durchsageText, pressed && { opacity: 0.6 }]}
+              >
+                <Ionicons name="refresh-outline" size={16} color={colors.inkSoft} />
+                <Text style={[styles.durchsageTextLabel, { flex: 1 }]}>
+                  Mitgelieferte Sätze zurückholen
+                </Text>
+              </Pressable>
+            ) : null}
+            {texte.map((text) => (
+              <Pressable
+                key={text}
+                onPress={verwalten ? undefined : () => sende(text)}
+                disabled={busy || verwalten}
+                accessibilityRole={verwalten ? undefined : 'button'}
+                accessibilityLabel={
+                  verwalten ? text : `${text} auf ${zielText(ziel, boxen)}`
+                }
+                style={({ pressed }) => [
+                  styles.durchsageText,
+                  bearbeite === text && { borderColor: colors.accent },
+                  (pressed || busy) && !verwalten && { opacity: 0.6 },
+                ]}
+              >
+                <Text style={[styles.durchsageTextLabel, { flex: 1 }]}>{text}</Text>
+                {verwalten ? (
+                  <>
+                    <Pressable
+                      onPress={() => {
+                        setBearbeite(text);
+                        setFrei(text);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${text} bearbeiten`}
+                      hitSlop={8}
+                    >
+                      <Ionicons name="pencil-outline" size={16} color={colors.inkSoft} />
+                    </Pressable>
+                    <Pressable
+                      onPress={() => loeschen(text)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${text} löschen`}
+                      hitSlop={8}
+                    >
+                      <Ionicons name="trash-outline" size={16} color={colors.inkSoft} />
+                    </Pressable>
+                  </>
+                ) : null}
+              </Pressable>
+            ))}
+          </View>
+
+          <View style={styles.durchsageEigen}>
+            <TextInput
+              style={styles.durchsageFeld}
+              value={frei}
+              onChangeText={setFrei}
+              placeholder={
+                verwalten
+                  ? bearbeite
+                    ? 'Satz umformulieren …'
+                    : 'Neuer Satz …'
+                  : 'Eigener Text …'
+              }
+              placeholderTextColor={colors.inkFaint}
+              maxLength={200}
+              onSubmitEditing={() => (verwalten ? speichern() : sende(frei))}
+              returnKeyType={verwalten ? 'done' : 'send'}
+            />
+            <Pressable
+              onPress={() => (verwalten ? speichern() : sende(frei))}
+              disabled={busy || !frei.trim()}
+              accessibilityRole="button"
+              accessibilityLabel={
+                verwalten
+                  ? bearbeite
+                    ? 'Satz speichern'
+                    : 'Satz hinzufügen'
+                  : 'Eigenen Text durchsagen'
+              }
+              style={({ pressed }) => [
+                styles.durchsageSenden,
+                (pressed || busy || !frei.trim()) && { opacity: 0.5 },
+              ]}
+            >
+              <Ionicons
+                name={verwalten ? (bearbeite ? 'checkmark' : 'add') : 'megaphone-outline'}
+                size={18}
+                color="#FFFFFF"
+              />
+            </Pressable>
+            {/* Die Sprachnotiz steht neben dem Textfeld und nicht
+                darüber: Es ist dieselbe Frage («was soll durchgesagt
+                werden?»), nur mit der Stimme beantwortet. Während der
+                Aufnahme steht die Zeit im Knopf - sonst weiss niemand,
+                ob das Mikrofon wirklich läuft. */}
+            {mikrofon && !verwalten ? (
+              <Pressable
+                onPress={aufnahmeUmschalten}
+                disabled={busy}
+                accessibilityRole="button"
+                accessibilityState={{ busy: seit !== null }}
+                accessibilityLabel={
+                  seit === null
+                    ? `Sprachnotiz aufnehmen für ${zielText(ziel, boxen)}`
+                    : 'Aufnahme beenden und durchsagen'
+                }
+                style={({ pressed }) => [
+                  styles.durchsageSenden,
+                  seit !== null && { backgroundColor: colors.danger },
+                  (pressed || busy) && { opacity: 0.5 },
+                ]}
+              >
+                {seit === null ? (
+                  <Ionicons name="mic-outline" size={18} color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.durchsageZeit}>{aufnahmeDauer(jetzt - seit)}</Text>
+                )}
+              </Pressable>
+            ) : null}
+          </View>
+
+          {note ? <Text style={styles.durchsageNote}>{note}</Text> : null}
+            </>
+          )}
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 
@@ -1262,6 +1830,84 @@ const makeStyles = (colors: Colors) =>
     fensterUnten: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     fensterWann: { color: colors.inkSoft, fontSize: 13 },
     fensterOrt: { color: colors.inkSoft, fontSize: 13, flexShrink: 1 },
+    /** Der Auswahlknopf für die Box - ein Dropdown, keine Chipwand. */
+    durchsageZiel: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      backgroundColor: colors.surface,
+    },
+    durchsageZielText: { color: colors.ink, fontSize: 16, fontWeight: '600', flex: 1 },
+    // Fünfzehn Boxen wären eine Seite für sich; hier scrollt die Liste in
+    // sich, damit die Sätze darunter sichtbar bleiben.
+    durchsageListe: {
+      maxHeight: 380,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      backgroundColor: colors.surfaceSoft,
+    },
+    durchsageZeile: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 11,
+      paddingHorizontal: 14,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.surfaceBorder,
+    },
+    durchsageZeileText: { color: colors.ink, fontSize: 15, flex: 1 },
+    durchsageTexte: { gap: 8 },
+    // Volle Breite statt Chips nebeneinander: Die Sätze sind
+    // unterschiedlich lang, und eine Reihe aus Bruchstücken liest sich
+    // schlechter als eine Liste - zumal jede Zeile ein Knopf ist, den
+    // man im Vorbeigehen treffen soll.
+    durchsageText: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      paddingVertical: 13,
+      paddingHorizontal: 16,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      backgroundColor: colors.surface,
+    },
+    durchsageTextLabel: { color: colors.ink, fontSize: 15, fontWeight: '600' },
+    durchsageEigen: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    durchsageFeld: {
+      flex: 1,
+      backgroundColor: colors.surfaceSoft,
+      borderRadius: radius.control,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      color: colors.ink,
+      paddingHorizontal: 14,
+      paddingVertical: 11,
+      fontSize: 15,
+    },
+    durchsageSenden: {
+      width: 44,
+      height: 44,
+      borderRadius: radius.control,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.accent,
+    },
+    // Die laufende Sekunde im Aufnahmeknopf - gleich gross wie das
+    // Symbol daneben, damit die Zeile beim Umschalten nicht springt.
+    durchsageZeit: {
+      color: '#FFFFFF',
+      fontSize: 13,
+      fontWeight: '700',
+      fontVariant: ['tabular-nums'],
+    },
+    durchsageNote: { color: colors.inkSoft, fontSize: 13, lineHeight: 18 },
     timerStand: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     timerStandText: { color: colors.inkSoft, fontSize: 15, flex: 1 },
     timerWahl: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
