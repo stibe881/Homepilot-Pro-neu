@@ -1,8 +1,9 @@
 import { kann } from './plattform';
 
-import { HubSettings } from '../api/types';
+import { Entity, HubSettings } from '../api/types';
 import { WidgetButton } from './widgetButtons';
 import { WidgetKarte } from './widgetKarten';
+import { watchKontext } from './watchkontext';
 
 /**
  * Das Homescreen-Widget mit Daten versorgen.
@@ -106,5 +107,60 @@ export function syncWidget(
     // Ein Widget, das nicht aktualisiert, ist kein Grund, die App zu
     // stören.
     return 'fehlt';
+  }
+}
+
+/** Die Schlüssel des Türknopfs in der App-Gruppe - eigene, getrennt vom
+ *  Hausstand: Wer den Hausstand aus hat, hat damit nur über das *Widget*
+ *  entschieden, nicht über den Türknopf, und umgekehrt. */
+export const TUERKNOPF_SCHLUESSEL = [
+  'tuerKnopf',
+  'tuerUrl',
+  'tuerToken',
+  'tuerPfad',
+  'tuerBefehl',
+] as const;
+
+/**
+ * Was der Öffnen-Knopf auf der Sperrbildschirm-Karte braucht (rein,
+ * testbar) - oder null, wenn es (noch) nichts zu hinterlegen gibt.
+ *
+ * Dieselbe Türwahl wie überall (lib/watchkontext.ts): Der Knopf im
+ * Widget-Prozess soll exakt die Türe öffnen, die auch App und Watch
+ * meinen - zwei Meinungen darüber wären eine zu viel.
+ */
+export function tuerKnopfWerte(
+  settings: Pick<HubSettings, 'url' | 'token'>,
+  entities: Entity[]
+): Record<string, string> | null {
+  const kontext = watchKontext(settings, entities);
+  if (!kontext || !kontext.doorPath) return null;
+  return {
+    tuerKnopf: '1',
+    tuerUrl: kontext.hubUrl,
+    tuerToken: kontext.token,
+    tuerPfad: kontext.doorPath,
+    tuerBefehl: kontext.doorBody,
+  };
+}
+
+/**
+ * Den Türknopf in der App-Gruppe hinterlegen oder wegräumen.
+ *
+ * `werte === null` räumt ALLE Schlüssel weg - der Aus-Schalter muss
+ * auch das Token entfernen, nicht nur die Flagge: Ein Token, das
+ * niemand mehr braucht, hat im Widget-Prozess nichts verloren.
+ */
+export function schreibeTuerKnopf(werte: Record<string, string> | null): void {
+  const store = storage();
+  if (store === null) return;
+  try {
+    if (werte) {
+      for (const [name, wert] of Object.entries(werte)) store.set(name, wert);
+    } else {
+      for (const name of TUERKNOPF_SCHLUESSEL) store.remove(name);
+    }
+  } catch {
+    // Wie beim Widget: kein Grund, die Bedienung zu stören.
   }
 }
