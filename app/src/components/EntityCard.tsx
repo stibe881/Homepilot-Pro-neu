@@ -23,7 +23,7 @@ import { ColorRow } from './ColorRow';
 import { Sky } from './CoverVisual';
 import { isTelevision } from '../lib/geraeteart';
 import { medienSchalter } from '../lib/medienschalter';
-import { tvKopf, tvTeile } from '../lib/fernsehkachel';
+import { fernbedienungMoeglich, tvKopf, tvTeile } from '../lib/fernsehkachel';
 import { TvApps, appsOf } from './TvApps';
 import { TvVolume } from './TvVolume';
 import { TvSleep } from './TvSleep';
@@ -543,7 +543,15 @@ export function EntityCard({
             {(fernseher ? teile.timer : entity.commands.includes('sleep_timer')) ? (
               <TvSleep entity={entity} onCommand={onCommand} />
             ) : null}
-            {hasRemote ? (
+            {/* Hier steht bewusst NICHT `hasRemote`: Das entscheidet über
+                den Knopf und hängt am gemeldeten Zustand - und der
+                Fernseher meldet nach jedem Tastendruck kurz «off». Das
+                offene Blatt flog damit bei jedem Druck aus dem Baum und
+                wurde neu aufgebaut: auf dem iPhone ein sichtbares
+                Wegblinken, im Browser als Aushängen gemessen. Was das
+                Blatt am Leben hält, darf sich im Betrieb nicht ändern -
+                siehe lib/fernsehkachel.ts, fernbedienungMoeglich. */}
+            {fernbedienungMoeglich(entity) ? (
               <TvRemote
                 visible={remoteOpen}
                 name={entity.name}

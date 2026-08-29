@@ -1,5 +1,5 @@
 import { Entity } from '../api/types';
-import { tvKopf, tvTeile } from './fernsehkachel';
+import { fernbedienungMoeglich, tvKopf, tvTeile } from './fernsehkachel';
 
 const tv = (state: Record<string, unknown>, commands: string[] = []): Entity =>
   ({
@@ -81,5 +81,33 @@ describe('tvTeile', () => {
   it('kommt mit einem Gerät ohne Befehlsliste zurecht', () => {
     const kaputt = { ...tv({ state: 'on' }), commands: undefined } as unknown as Entity;
     expect(tvTeile(kaputt).apps).toBe(false);
+  });
+});
+
+describe('fernbedienungMoeglich', () => {
+  const ALLES = ['next', 'volume_up', 'launch_app', 'sleep_timer', 'dpad_up'];
+
+  it('bleibt wahr, während der Fernseher «aus» meldet', () => {
+    // Der eigentliche Fall: Ein Android TV meldet nach jedem Tastendruck
+    // seinen Zustand neu, und dazwischen steht dort kurz «off». Hing das
+    // offene Blatt daran, wurde es bei jedem Druck abgeräumt und neu
+    // aufgebaut - auf dem iPhone ein sichtbares Wegblinken.
+    expect(fernbedienungMoeglich(tv({ state: 'off' }, ALLES))).toBe(true);
+    expect(fernbedienungMoeglich(tv({ state: 'on' }, ALLES))).toBe(true);
+  });
+
+  it('bleibt beim Knopf trotzdem beim alten: der verschwindet im Aus', () => {
+    // Beides zusammen ist die Absicht: kein Steuerkreuz-Knopf am dunklen
+    // Fernseher, aber ein offenes Blatt bleibt offen.
+    expect(tvTeile(tv({ state: 'off' }, ALLES)).fernbedienung).toBe(false);
+  });
+
+  it('sagt nein, wo es gar kein Steuerkreuz gibt', () => {
+    expect(fernbedienungMoeglich(tv({ state: 'on' }, ['turn_on']))).toBe(false);
+  });
+
+  it('kommt mit einem Gerät ohne Befehlsliste zurecht', () => {
+    const kaputt = { ...tv({ state: 'on' }), commands: undefined } as unknown as Entity;
+    expect(fernbedienungMoeglich(kaputt)).toBe(false);
   });
 });
