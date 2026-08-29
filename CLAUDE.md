@@ -177,8 +177,8 @@ Zwei Dinge, die dabei überraschen:
   die hochgezählte Versionsnummer täuschte dabei Aktualität vor. So
   gingen mehrere Lieferungen am Haus vorbei, ohne dass es auffiel: Der
   Hub war neu, die App nicht.
-- Deshalb steht dort jetzt eine feste `runtimeVersion` (`"2"`). Sie
-  gehört zur **nativen** Hülle, nicht zur Auslieferung:
+- Deshalb steht dort jetzt eine feste `runtimeVersion` (zurzeit `"3"`).
+  Sie gehört zur **nativen** Hülle, nicht zur Auslieferung:
   - **`version` bei jeder Auslieferung hochzählen** – wie bisher. Sie
     ist die Nummer, die im App Store und in TestFlight steht, und sie
     beeinflusst OTA nicht mehr.
@@ -186,6 +186,14 @@ Zwei Dinge, die dabei überraschen:
     ein neues Expo-Modul, eine neue Berechtigung, ein neues
     Zweitsymbol. Und dann gehört ein TestFlight-Build dazu, sonst
     erreicht die neue OTA-Fassung niemanden.
+  - Von `"2"` auf `"3"` ging es, als `expo-quick-actions` und
+    `expo-audio` (Mikrofon für gesprochene Durchsagen) dazukamen. Wer
+    ein natives Modul hinzufügt, ohne die Nummer zu erhöhen, liefert
+    OTA eine Fassung aus, deren Modul in der Hülle auf dem Telefon gar
+    nicht steckt – das fällt erst auf, wenn jemand die Stelle antippt.
+    Zwei native Module in einer Runde kosten dagegen nur *einen*
+    TestFlight-Build; wer ohnehin einen braucht, nimmt anderes gleich
+    mit.
 - Damit das auch ankommt, steht in `app/eas.json` `appVersionSource` auf
   `local`. Vorher stand dort `remote`: Dann führt EAS die Version auf
   seinem Server und ignoriert die `app.json` – die dortige `0.7.0` ging

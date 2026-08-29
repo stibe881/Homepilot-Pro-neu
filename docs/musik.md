@@ -138,19 +138,25 @@ Das ist oft der schnellere Weg («Levin, in fünf Minuten gehen wir» ist
 schneller gesagt als getippt) und der persönlichere: Aus der Box kommt
 eine Stimme, die im Haus jemandem gehört.
 
-**Den Knopf gibt es nur im Browser und auf dem Wandpanel, nicht in der
-App auf dem Telefon.** Aufnehmen bräuchte dort ein Mikrofon-Modul, das
-die App nicht hat; eines nachzurüsten hiesse eine neue
-`runtimeVersion` – und damit wäre der OTA-Kanal für alle Telefone
-gekappt, bis jemand einen TestFlight-Build installiert (siehe CLAUDE.md,
-«Ausliefern»). Ein hoher Preis für eine Kleinigkeit, die der Browser
-ohnehin kann. Deshalb zeigt die App den Knopf dort gar nicht erst, statt
-ihn auszugrauen.
+**Den Knopf gibt es überall** – im Browser, auf dem Wandpanel und in der
+App auf Telefon und iPad. Beim ersten Druck fragt das Telefon einmal
+nach dem Mikrofon.
+
+Lange gab es ihn nur im Browser, und das aus einem guten Grund:
+Aufnehmen braucht in der App ein natives Modul, und ein neues Modul
+heisst eine neue `runtimeVersion` – die kappt den OTA-Kanal für alle
+Telefone, bis jemand einen TestFlight-Build installiert (siehe
+CLAUDE.md, «Ausliefern»). Ein hoher Preis für eine Kleinigkeit. Bezahlt
+wurde er dann für etwas anderes (`expo-quick-actions` kam als natives
+Modul dazu und machte den Build ohnehin fällig); in derselben Runde
+kostete das Mikrofon nichts mehr extra. Seither steht die
+`runtimeVersion` auf `"3"`.
 
 Der Hub wandelt die Aufnahme nicht um, er reicht sie durch und nennt der
-Box den richtigen Typ. Google-Cast-Geräte spielen WebM/Opus – genau das,
-was ein Browser aufnimmt. Ältere Boxen wollen MP3 oder WAV; was eine Box
-nicht spielt, steht als Fehler in der Rückmeldung.
+Box den richtigen Typ. Aus dem Browser kommt WebM/Opus, vom Telefon AAC
+in einem MP4-Rumpf – Google-Cast-Geräte spielen beides. Ältere Boxen
+wollen MP3 oder WAV; was eine Box nicht spielt, steht als Fehler in der
+Rückmeldung.
 
 ## Was der Hub selbst tut
 
