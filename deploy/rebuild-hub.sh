@@ -650,17 +650,30 @@ if [ "${HOMEPILOT_IOS_BUILD:-0}" = "1" ]; then
     else
       echo "⚠ iOS-Build liess sich nicht anstossen - das Hub-Update selbst"
       echo "  ist davon unberührt."
-      # Der häufigste Grund hat eine Lösung, die nicht im Log steht:
-      # Die App-Gruppe muss im Apple-Portal existieren und beiden
-      # Bundle-IDs zugewiesen sein. Wer das liest, soll wissen, wohin -
-      # nicht bloss, dass etwas schiefging.
+      # Die entscheidende Zeile aus dem eas-Log gleich mitgeben: «liess
+      # sich nicht anstossen» ohne das Warum hiess bisher, die Ursache
+      # per SSH im Journal zu suchen. Das «| » stammt von fremde_ausgabe.
+      sed 's/^| //' "$IOS_LOG" | grep -iE "error|failed|cannot|missing" \
+        | tail -1 | cut -c1-90 | sed 's/^/  /'
+      # Die häufigsten Gründe haben eine Lösung, die nicht im Log steht.
+      # Wer das liest, soll wissen, wohin - nicht bloss, dass etwas
+      # schiefging.
       if grep -qiE "application-groups|app group|bundleIdCapabilities" "$IOS_LOG"; then
         echo "  Es fehlt die App-Gruppe im Apple-Portal. Einmalig:"
         echo "  1. developer.apple.com → Identifiers → App Groups → +"
         echo "     Name frei, Kennung: group.me.stibe.homepilot"
         echo "  2. Bei ch.stibe.homepilot und ch.stibe.homepilot.widget"
         echo "     «App Groups» anhaken und die Gruppe auswählen."
-        echo "  Danach Update mit iOS-Build noch einmal auslösen."
+      elif grep -qiE "credentials|provisioning|bundle identifier|not registered" "$IOS_LOG"; then
+        # Ein neues Bau-Ziel (zuletzt: die Watch-App mit
+        # ch.stibe.homepilot.watch) braucht erstmalig Kennung und Profil
+        # bei Apple - im stillen Lauf legt EAS nichts Neues an.
+        echo "  Vermutlich fehlen Apple-Unterlagen für ein neues Bau-Ziel."
+        echo "  Einmalig einen Build mit Rückfragen anstossen:"
+        echo "    sudo docker run --rm -it -e EXPO_TOKEN=<Token> \\"
+        echo "      homepilot-appdeps npx eas-cli@latest build \\"
+        echo "      --platform ios --profile production"
+        echo "  Danach geht es wieder über den Update-Knopf."
       else
         echo "  Details: expo.dev/accounts/stibe88."
       fi
