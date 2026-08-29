@@ -24,7 +24,7 @@ import { Sky } from './CoverVisual';
 import { isTelevision } from '../lib/geraeteart';
 import { medienSchalter } from '../lib/medienschalter';
 import { tvKopf, tvTeile } from '../lib/fernsehkachel';
-import { TvApps } from './TvApps';
+import { TvApps, appsOf } from './TvApps';
 import { TvVolume } from './TvVolume';
 import { TvSleep } from './TvSleep';
 import { TvRemote } from './TvRemote';
@@ -549,6 +549,9 @@ export function EntityCard({
                 name={entity.name}
                 onClose={() => setRemoteOpen(false)}
                 onCommand={onCommand}
+                // Dieselben Apps wie in der Auswahl der Kachel - das Blatt
+                // deckt die Kachel zu, also muss der Wechsel auch hier gehen.
+                apps={entity.commands.includes('launch_app') ? appsOf(entity) : []}
                 fehler={remoteOpen ? fehler : null}
                 onFehlerWeg={onFehlerWeg}
               />

@@ -1,20 +1,24 @@
 import { Ionicons } from '@expo/vector-icons';
-import Constants from 'expo-constants';
-import * as Updates from 'expo-updates';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { fusszeile } from '../lib/fernbedienungsstand';
+import { CommandData } from '../api/types';
+import { TvApp } from './TvApps';
 import { tapped, triggered } from '../lib/haptics';
-import { kann } from '../lib/plattform';
 import { tastenStaerke } from '../lib/tastenhaptik';
-import { Colors, useColors } from '../theme';
+import { Colors, radius, useColors } from '../theme';
 
 interface Props {
   visible: boolean;
   name: string;
   onClose: () => void;
-  onCommand: (command: string) => void;
+  onCommand: (command: string, data?: CommandData) => void;
+  /** Apps, die sich vom Blatt aus starten lassen (Plex, YouTube, …).
+   *
+   *  Dieselbe Liste wie in der App-Auswahl der Kachel - aber die Kachel
+   *  liegt unter genau diesem Blatt. Wer die Fernbedienung offen hat und
+   *  zu Zattoo will, musste sie erst schliessen. */
+  apps?: TvApp[];
   /** Was der Hub zur letzten Taste sagte – oder ``null``.
    *
    *  Muss hier hinein und nicht ins Band unten am Bildschirm: Die
@@ -47,7 +51,6 @@ function Key({
   label,
   big,
   aussehen,
-  onBeruehrt,
   onDruck,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
@@ -55,15 +58,13 @@ function Key({
   label: string;
   big?: boolean;
   aussehen: { styles: ReturnType<typeof makeStyles>; colors: Colors };
-  onBeruehrt: () => void;
-  onDruck: (command: string, label: string) => void;
+  onDruck: (command: string) => void;
 }) {
   const { styles, colors } = aussehen;
   return (
     <Pressable
       accessibilityLabel={label}
-      onPressIn={onBeruehrt}
-      onPress={() => onDruck(command, label)}
+      onPress={() => onDruck(command)}
       style={({ pressed }) => [styles.key, big && styles.keyBig, pressed && styles.keyPressed]}>
       <Ionicons name={icon} size={big ? 26 : 20} color={colors.ink} />
     </Pressable>
@@ -77,42 +78,16 @@ export function TvRemote({
   name,
   onClose,
   onCommand,
+  apps,
   fehler,
   onFehlerWeg,
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  // Welche Taste zuletzt rausging.
-  //
-  // Ohne das heisst «nichts passiert» dreierlei, und alle drei sehen
-  // gleich aus: Der Tipp kam gar nicht an, der Hub hat ihn angenommen
-  // und der Fernseher ignoriert ihn, oder der Hub hat abgelehnt. Genau
-  // daran liess sich der Fehler im Haus nicht einkreisen. Jetzt sagt die
-  // Zeile unten, was die App getan hat – und die Absage darüber, was der
-  // Hub davon hielt.
-  const [letzte, setLetzte] = useState<string | null>(null);
-
-  // Wie oft ein Finger eine Taste berührt hat - gezählt beim Auflegen
-  // (onPressIn), also vor Haptik, Statuszeile und Senden. Auf dem iPhone
-  // blieb die Fernbedienung stumm, und von aussen war nicht zu sehen, WO
-  // der Druck stirbt: Erreicht die Berührung die Taste überhaupt, oder
-  // scheitert erst der fertige Druck? Der Zähler trennt die beiden
-  // Fälle - zusammen mit der App-Version in der Fusszeile, die sagt, ob
-  // die Korrektur überhaupt auf dem Gerät läuft (lib/fernbedienungsstand.ts).
-  const [beruehrungen, setBeruehrungen] = useState(0);
-  useEffect(() => {
-    // Beim Öffnen mit leerer Zeile und Zähler null beginnen: Was beim
-    // letzten Mal gedrückt wurde, sagt über dieses Mal nichts.
-    if (visible) {
-      setLetzte(null);
-      setBeruehrungen(0);
-    }
-  }, [visible]);
-
   // Was ein fertiger Druck tut. Die Taste selbst (Key) steht BEWUSST
   // ausserhalb dieser Funktion - siehe den Kommentar dort.
-  const druck = (command: string, label: string) => {
+  const druck = (command: string, data?: CommandData) => {
     // Zuerst das Spüren, dann der Rest: Eine Fernbedienung bedient
     // man, ohne hinzusehen. Der Impuls muss zum Druck gehören und
     // nicht zur Antwort des Hubs - sonst bleibt er aus, wenn die
@@ -134,16 +109,11 @@ export function TvRemote({
     // Die alte Absage gehört zur alten Taste. Bliebe sie stehen,
     // liesse sich nicht mehr erkennen, ob die neue ankam.
     if (fehler) onFehlerWeg?.();
-    setLetzte(label);
-    onCommand(command);
+    onCommand(command, data);
   };
 
-  // Nur zählen, nichts weiter: Das Auflegen ist der früheste Moment,
-  // in dem die Taste von der Berührung erfährt. Alles Weitere bleibt
-  // beim fertigen Druck - ein Druck ist erst mit dem Loslassen einer.
   const taste = {
     aussehen: { styles, colors },
-    onBeruehrt: () => setBeruehrungen((n) => n + 1),
     onDruck: druck,
   };
 
@@ -205,32 +175,36 @@ export function TvRemote({
             <Key icon="play-skip-forward" command="next" label="Weiter" {...taste} />
           </View>
 
+          {/* Die Apps zum Schluss: erst steuern, dann wechseln. Die
+              gleiche Liste bietet auch die Kachel an - aber die liegt
+              unter diesem Blatt. */}
+          {apps && apps.length > 0 ? (
+            <View style={styles.appReihe}>
+              {apps.map((app) => (
+                <Pressable
+                  key={app.app}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${app.name} auf dem Fernseher starten`}
+                  onPress={() => druck('launch_app', { app: app.app })}
+                  style={({ pressed }) => [styles.appChip, pressed && styles.keyPressed]}
+                >
+                  <Text style={styles.appChipText}>{app.name}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+
+          {/* Nur die Absage des Hubs - eine Erfolgsmeldung braucht es
+              nicht mehr: Dass der Druck ankommt, sagen Haptik und
+              Fernseher. Die Diagnosezeilen von einst (welche Taste
+              rausging, App-Version, Berührungszähler) haben ihren Fall
+              gelöst und standen danach nur noch im Weg. */}
           {fehler ? (
             <View style={styles.absage}>
               <Ionicons name="alert-circle" size={16} color={colors.danger} />
               <Text style={styles.absageText}>{fehler}</Text>
             </View>
-          ) : letzte ? (
-            <View style={styles.absage}>
-              <Ionicons name="checkmark-circle" size={16} color={colors.inkFaint} />
-              <Text style={styles.gesendetText}>
-                «{letzte}» ging an den Hub. Tut der Fernseher nichts, liegt es an ihm.
-              </Text>
-            </View>
           ) : null}
-
-          {/* Immer da, auch ohne jeden Druck: Fehlt diese Zeile auf einem
-              Gerät ganz, läuft dort noch ein Stand ohne sie - dann ist
-              nicht die Fernbedienung kaputt, sondern das Update nicht
-              angekommen. Warum sie sich das Erklären leisten muss:
-              lib/fernbedienungsstand.ts. */}
-          <Text style={styles.fusszeile}>
-            {fusszeile(
-              Constants.expoConfig?.version ?? null,
-              kann.ausOtaGeladen ? Updates.isEmbeddedLaunch === false : null,
-              beruehrungen
-            )}
-          </Text>
         </View>
       </View>
     </Modal>
@@ -282,7 +256,21 @@ const makeStyles = (colors: Colors) =>
       paddingTop: 4,
     },
     absageText: { flex: 1, fontSize: 13, lineHeight: 18, color: colors.inkSoft },
-    gesendetText: { flex: 1, fontSize: 12, lineHeight: 17, color: colors.inkFaint },
     keyPressed: { backgroundColor: colors.surfaceStrong },
-    fusszeile: { fontSize: 11, color: colors.inkFaint, textAlign: 'center' },
+    appReihe: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'center',
+      gap: 8,
+      paddingTop: 2,
+    },
+    appChip: {
+      paddingVertical: 7,
+      paddingHorizontal: 14,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      backgroundColor: colors.surfaceSoft,
+    },
+    appChipText: { color: colors.ink, fontSize: 13, fontWeight: '600' },
   });
