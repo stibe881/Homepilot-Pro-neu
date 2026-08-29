@@ -14,6 +14,10 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   starb mit dem Hub. Ein während des Neustarts abgelaufener Timer
   meldet sich sofort nach, mit dem Hinweis «verspätet»; was älter als
   eine Stunde ist, wird verworfen.
+- Die Werkbank-Liste steht jetzt im Repo (`docs/werkbank.md`): alle
+  221 Punkte aus den vier Werkbank-Seiten, mit Begründungen und
+  Fundstellen. Bisher lag sie ausserhalb – wer im Code auf
+  «Punkt 155 der Werkbank» stiess, konnte nicht nachschlagen.
 - Drei Testlücken geschlossen (65 neue Tests): `test_say.py` war eine
   leere Datei – die Durchsagen-Logik (Vorrat, Piper, gTTS-Rückfall) ist
   jetzt abgedeckt; die Homematic-Kanal-Logik (welcher Kanal schaltet,

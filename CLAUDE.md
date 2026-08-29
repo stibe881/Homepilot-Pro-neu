@@ -226,6 +226,7 @@ mitgeliefert oder nachgeladen ist.
 
 ## Was als Nächstes ansteht
 
-Eine durchnummerierte Liste offener Verbesserungen liegt als
-Werkbank-Seite vor (100 Punkte, aus dem Code gelesen). Punkte, auf die im
-Code verwiesen wird, tragen dort dieselbe Nummer.
+Die durchnummerierte Werkbank-Liste steht in `docs/werkbank.md`
+(221 Punkte, aus dem Code gelesen). Ein Kommentar «Punkt NNN der
+Werkbank» im Code meint genau diese Nummer – deshalb wird dort nie
+umnummeriert; Neues bekommt die nächste freie Nummer.
