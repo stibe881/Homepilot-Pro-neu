@@ -64,17 +64,17 @@ export function siehtBereich(capabilities: string[], bereich: Bereich): boolean 
 }
 
 /**
- * Was hinter «Administrator» liegt.
+ * Was zur Einrichtung des Hauses gehört und nicht zu seiner Bedienung.
  *
- * Die Liste war eine einzige Reihe von vierzehn Punkten und mischte
- * zweierlei: Dinge, die man im Alltag braucht (Suche, Abläufe, Alarm,
- * Lautsprecher, Konto), und die Einrichtung des Hauses. Das Zweite
- * öffnet man selten und nie beiläufig – es hat einen eigenen Ort
- * verdient, statt die häufigen Wege zu verlängern.
- *
- * Die Auswahl folgt derselben Frage wie ``NOETIG`` oben, nur eine Stufe
+ * Die Frage ist dieselbe wie bei ``NOETIG`` oben, nur eine Stufe
  * gröber: Ändert oder erklärt der Punkt, *wie das Haus eingerichtet
- * ist*? Dann liegt er dahinter. Bedient er es, bleibt er vorne.
+ * ist*? Dann gehört er hierher. Bedient er es, nicht.
+ *
+ * Gebraucht wird die Trennung noch auf dem breiten Bildschirm: Dort
+ * steht sie als Überschrift «Administrator» in der Menüspalte. Auf dem
+ * Telefon war sie einmal eine eigene Tür - das kostete zwei Tipps und
+ * sparte einen Bildschirm. Dort gruppiert jetzt
+ * lib/einstellungsgruppen.ts feiner, und alles bleibt einen Tipp weit.
  */
 export const ADMIN_PUNKTE: readonly string[] = [
   'users',
@@ -90,18 +90,6 @@ export type Menuegruppe = 'haus' | 'admin';
 /** Wohin gehört dieser Punkt? (rein, testbar) */
 export function gruppeVon(key: string): Menuegruppe {
   return ADMIN_PUNKTE.includes(key) ? 'admin' : 'haus';
-}
-
-/**
- * Die Zeile unter «Administrator» (rein, testbar).
- *
- * Sie richtet sich danach, was dahinter wirklich sichtbar ist: Ein
- * Mitbewohner sieht weniger als die Besitzerin, und eine Zeile, die
- * mehr verspricht als die Seite hält, schickt ihn ins Leere.
- */
-export function adminZeile(sichtbar: number): string {
-  if (sichtbar <= 0) return 'Nichts davon steht dir offen';
-  return 'Benutzer, Geräte, System und der Rückblick';
 }
 
 /**
@@ -128,8 +116,14 @@ export function adminZeile(sichtbar: number): string {
  */
 export function einstiegsSeite<T extends string>(
   seiten: readonly T[],
-  zuletzt: T | null | undefined
+  zuletzt: T | null | undefined,
+  /** Telefon: keine Menüspalte daneben, sondern eine eigene Übersicht. */
+  schmal = false
 ): T | null {
   if (zuletzt && seiten.includes(zuletzt)) return zuletzt;
+  // Beim allerersten Mal auf dem Telefon die Übersicht - sie ist dort
+  // die Karte, und «Benutzerverwaltung» als Einstieg wäre geraten. Ab
+  // dem zweiten Mal führt die Erinnerung ohnehin dorthin, wo man war.
+  if (schmal) return null;
   return seiten[0] ?? null;
 }
