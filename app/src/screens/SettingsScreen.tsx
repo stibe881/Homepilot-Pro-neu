@@ -115,6 +115,14 @@ export function SettingsScreen({
     if (initial) onSave({ ...initial, appSymbol: wahl });
     symbolWechseln(wahl).then((ging) => setSymbolGeht(ging));
   };
+  // Die Grundriss-Ansicht: wie das App-Symbol eine Eigenschaft dieses
+  // Geräts, nicht der Person - und wie das Erscheinungsbild sofort
+  // gespeichert, nicht erst mit «Speichern & verbinden».
+  const [grundriss, setGrundriss] = useState(!!initial?.grundriss);
+  const grundrissWaehlen = (an: boolean) => {
+    setGrundriss(an);
+    if (initial) onSave({ ...initial, grundriss: an });
+  };
   const [panel, setPanel] = useState(!!initial?.panel);
   const [scanning, setScanning] = useState(false);
   // Zwei-Schritt-Rückfrage für «überall abmelden» – das wirft auch das
@@ -197,6 +205,7 @@ export function SettingsScreen({
       theme,
       panel,
       appSymbol,
+      grundriss,
       // Was sonst noch im Gerät steht, bleibt erhalten: Wer die
       // Adresse ändert, will nicht seine ausgeblendeten Geräte
       // verlieren - und schon gar nicht die Sperren, die bisher
@@ -258,7 +267,7 @@ export function SettingsScreen({
                 // Best effort: Lokal wird die Sitzung gleich vergessen -
                 // erreicht der Abruf den Hub nicht, läuft sie dort ab.
               }).catch(() => {});
-              onSave({ url, token: '', name, theme, panel, appSymbol });
+              onSave({ url, token: '', name, theme, panel, appSymbol, grundriss });
             }}
             accessibilityRole="button"
             style={({ pressed }) => [styles.logout, pressed && { opacity: 0.7 }]}
@@ -280,7 +289,7 @@ export function SettingsScreen({
                 // Best effort wie beim Abmelden: Was der Hub nicht
                 // erfährt, läuft dort von selbst ab.
               }).catch(() => {});
-              onSave({ url, token: '', name, theme, panel, appSymbol });
+              onSave({ url, token: '', name, theme, panel, appSymbol, grundriss });
             }}
             accessibilityRole="button"
             style={({ pressed }) => [
@@ -396,6 +405,30 @@ export function SettingsScreen({
               : 'Wirkt sofort. Das Wechseln übernimmt iOS – es meldet es einmal kurz. Gespeichert ist es schon.'}
         </Text>
       </View>
+
+      {/* Beim App-Symbol, wie gewünscht: Beides sind Ansichts-Fragen
+          dieses einen Geräts. Der Schalter wirkt sofort - die Ansicht
+          selbst (Bild hinterlegen, Geräte platzieren) wohnt auf der
+          Räume-Seite, wo man sie sieht. */}
+      <Pressable
+        onPress={() => grundrissWaehlen(!grundriss)}
+        accessibilityRole="switch"
+        accessibilityState={{ checked: grundriss }}
+        style={({ pressed }) => [styles.panelRow, pressed && { opacity: 0.7 }]}
+      >
+        <View style={{ flex: 1 }}>
+          <Text style={styles.label}>Grundriss-Ansicht</Text>
+          <Text style={styles.panelHint}>
+            Die Räume-Seite zeigt zuoberst den Wohnungsplan mit den
+            Geräten als Punkten - antippen schaltet. Gedacht fürs
+            Wandpanel; Bild und Punkte richtet man direkt dort ein.
+            Wirkt sofort, nur auf diesem Gerät.
+          </Text>
+        </View>
+        <View style={[styles.switch, grundriss && styles.switchOn]}>
+          <View style={[styles.knob, grundriss && styles.knobOn]} />
+        </View>
+      </Pressable>
 
       {/* Beim Erscheinungsbild und nicht bei der Verbindung: Der Modus
           ändert, wie die App aussieht und sich verhält - nicht, womit
@@ -553,7 +586,7 @@ export function SettingsScreen({
           setUrl(next.url);
           setToken(next.token);
           if (next.name) setName(next.name);
-          onSave({ ...next, theme, panel, appSymbol });
+          onSave({ ...next, theme, panel, appSymbol, grundriss });
         }}
       />
 

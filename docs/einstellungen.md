@@ -65,13 +65,16 @@ Einrichtungsprotokoll (wer hat was eingerichtet) · Geräte-Verlauf
 
 ## Absichtlich am Gerät
 
-Drei Dinge bleiben, wo sie sind – sie gehören zur Installation, nicht zur
+Vier Dinge bleiben, wo sie sind – sie gehören zur Installation, nicht zur
 Person:
 
 - **App-Symbol.** Wer sich am Wandpanel anmeldet, soll damit nicht das
   Telefon umfärben.
 - **Wandpanel-Modus** (Bildschirm an, Rückkehr zur Startseite) und die
   Anrede darauf.
+- **Grundriss-Ansicht.** Das Panel im Flur will den Wohnungsplan, das
+  Telefon in der Tasche die Kacheln – und beide gehören derselben
+  Person. Bild und Punkte selbst liegen auf dem Hub, für alle.
 - **Ortung.** Die Erlaubnis dafür gibt das Betriebssystem je
   Installation; nach einer Neuinstallation muss man sie ohnehin neu
   erteilen.
@@ -82,10 +85,12 @@ Verliert man sie, sieht einmal alles neu aus – mehr nicht.
 
 ## Was einen Hub-Neustart bewusst nicht überlebt
 
-Laufende Küchen-Timer und ausgestellte Einmal-Links für die Türe. Beides
-ist ein laufender Vorgang, keine Einstellung: Ein Timer, der nach einem
-Neustart weiterliefe, als wäre nichts gewesen, wäre eine Behauptung über
-eine Küche, in der inzwischen jemand anders steht.
+Ausgestellte Einmal-Links für die Türe: Nach einem Neustart gilt kein
+einziger mehr, und das ist die sichere Richtung. Die Küchen-Timer
+standen früher auch hier – bis auffiel, wann dieser Hub neu startet:
+beim Update-Knopf, abends, wenn etwas im Ofen ist. Sie überleben den
+Neustart jetzt (`core/timers.py`); ein währenddessen abgelaufener
+meldet sich verspätet nach.
 
 ## Warum das jetzt zusammenpasst
 

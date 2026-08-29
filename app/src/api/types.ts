@@ -174,6 +174,11 @@ export interface HubSettings {
   order?: string[];
   /** Wandpanel: Bildschirm bleibt an, kehrt von selbst zur Startseite zurück. */
   panel?: boolean;
+  /** Grundriss-Ansicht: Die Räume-Seite zeigt den Wohnungsplan mit den
+   *  Geräten als Punkten. Am Gerät gespeichert wie das App-Symbol - das
+   *  Wandpanel im Flur will den Plan, das Telefon in der Tasche die
+   *  Kacheln, und beide gehören derselben Person. */
+  grundriss?: boolean;
 }
 
 /** Eine Zustandsänderung für die Liste „Zuletzt passiert“. */

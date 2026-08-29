@@ -5,6 +5,46 @@ Gegenstück: was die Anlage heute kann, was sie vorher nicht konnte.
 
 Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
+## 2026-09-01
+
+**Neu**
+
+- **Grundriss-Ansicht** (Punkt 222): Die Räume-Seite kann zuoberst ein
+  Foto des Wohnungsplans zeigen, darauf die Geräte als antippbare
+  Punkte – antippen schaltet, der Zustand färbt den Punkt.
+  Einschaltbar je Gerät in den Einstellungen beim App-Symbol (das
+  Wandpanel will den Plan, das Telefon die Kacheln); Bild und Punkte
+  liegen auf dem Hub und gelten für alle. Platziert wird mit zwei
+  Tipps statt mit Ziehen – die Geste, die auf iOS zweimal getäuscht
+  hat, kommt hier gar nicht erst vor.
+
+**Betrieb**
+
+- Küchen-Timer überleben den Neustart. Der Update-Knopf wird gern
+  abends gedrückt – genau dann, wenn etwas im Ofen ist, und der Wecker
+  starb mit dem Hub. Ein während des Neustarts abgelaufener Timer
+  meldet sich sofort nach, mit dem Hinweis «verspätet»; was älter als
+  eine Stunde ist, wird verworfen.
+- Der Android-Build ist vorbereitet (`docs/android.md`): Das
+  Produktionsprofil baut eine direkt installierbare APK, der
+  Firebase-Weg für Push ist dokumentiert statt geraten, und die
+  `google-services.json` steht vorsorglich in der `.gitignore`.
+  Kanäle, Symbole und Hintergrund-Ortung lagen schon bereit.
+- Die Werkbank-Liste steht jetzt im Repo (`docs/werkbank.md`): alle
+  221 Punkte aus den vier Werkbank-Seiten, mit Begründungen und
+  Fundstellen. Bisher lag sie ausserhalb – wer im Code auf
+  «Punkt 155 der Werkbank» stiess, konnte nicht nachschlagen.
+- Drei Testlücken geschlossen (65 neue Tests): `test_say.py` war eine
+  leere Datei – die Durchsagen-Logik (Vorrat, Piper, gTTS-Rückfall) ist
+  jetzt abgedeckt; die Homematic-Kanal-Logik (welcher Kanal schaltet,
+  was ein CCU-Wert bedeutet) und die Einmal-Türöffnung (Gültigkeit,
+  ununterscheidbare Fehlwege) haben erstmals eigene Tests.
+- Ziehen und Ordnen (Räume, Favoriten, Familienmodule, Kacheln): die
+  Geste wird jetzt in der Erfassungsphase beansprucht, die ganze Zeile
+  ist Greiffläche, und das Blatt scrollt nicht mit, solange etwas am
+  Finger hängt. Der Browser konnte diesen Fehler nie zeigen – auf iOS
+  nahm der native ScrollView die Geste, bevor der Griff gefragt wurde.
+
 ## 2026-08-27
 
 **iPhone**

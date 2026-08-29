@@ -115,9 +115,19 @@ export function DragCell({
   const pan = useMemo(
     () =>
       PanResponder.create({
+        // In der Erfassungsphase beanspruchen: iOS fragt erst die Eltern
+        // (aussen nach innen), und der native ScrollView der Seite nimmt
+        // sich die Geste in seiner Capture-Runde. Wer sie behalten will,
+        // muss dort schon Ja sagen – die normale Phase ist zu spät. Im
+        // Browser fiel das nie auf; dort hat der ScrollView keine
+        // eigenen Gesten. Dazu onShouldBlockNativeResponder für Android,
+        // wo die native Seite sonst parallel weiterscrollt.
+        onStartShouldSetPanResponderCapture: () => true,
+        onMoveShouldSetPanResponderCapture: () => true,
         onStartShouldSetPanResponder: () => true,
         onMoveShouldSetPanResponder: () => true,
         onPanResponderTerminationRequest: () => false,
+        onShouldBlockNativeResponder: () => true,
         onPanResponderGrant: () => aktuell.current.onStart(aktuell.current.id),
         onPanResponderMove: (_event, gesture) =>
           aktuell.current.onMove(gesture.dx, gesture.dy),

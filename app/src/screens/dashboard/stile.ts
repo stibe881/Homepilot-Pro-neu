@@ -158,20 +158,6 @@ export const makeStyles = (colors: Colors) =>
       textAlign: 'center',
       paddingHorizontal: 8,
     },
-    settingsList: { gap: 10 },
-    settingsItem: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 14,
-      backgroundColor: colors.surface,
-      borderRadius: radius.card,
-      borderWidth: 1,
-      borderColor: colors.surfaceBorder,
-      paddingHorizontal: 16,
-      paddingVertical: 14,
-    },
-    settingsLabel: { color: colors.ink, fontSize: 16, fontWeight: '600' },
-    settingsDetail: { color: colors.inkSoft, fontSize: 13, marginTop: 1 },
     doorbellRoot: {
       flex: 1,
       backgroundColor: '#10141B',
@@ -350,6 +336,50 @@ export const makeStyles = (colors: Colors) =>
     },
     raumKopf: { gap: 8 },
     raumKopfText: { color: colors.onGradient, fontSize: 15, fontWeight: '600' },
+    /** Die Bühne des Raums: trägt Schein und Wasserzeichen, deshalb
+     *  relative – absolute Kinder messen sich an ihr. */
+    raumBuehne: { position: 'relative', gap: 4 },
+    /** Der warme Schein, solange Licht brennt. Über die Seitenränder
+     *  hinaus (negative Ränder), damit er wie Raumlicht wirkt und nicht
+     *  wie eine Karte. */
+    raumSchein: {
+      position: 'absolute',
+      top: -10,
+      left: -space.page,
+      right: -space.page,
+      height: 200,
+    },
+    /** Das Raumsymbol als Wasserzeichen – blass genug, dass Temperatur
+     *  und Menüknopf darüber lesbar bleiben. */
+    raumWasserzeichen: {
+      position: 'absolute',
+      top: -4,
+      right: -14,
+      opacity: 0.08,
+    },
+    raumKopfzeile: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    raumMenueKnopf: {
+      width: 34,
+      height: 34,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceSoft,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    raumHeld: {
+      flexDirection: 'row',
+      alignItems: 'flex-end',
+      justifyContent: 'space-between',
+      gap: 12,
+    },
+    raumKlimaBlock: { alignItems: 'flex-end' },
+    raumKlimaTemp: { color: colors.onGradient, fontSize: 30, fontWeight: '300' },
+    raumKlimaSub: { color: colors.onGradientSoft, fontSize: 12 },
+    raumFakten: { color: colors.onGradientSoft, fontSize: 14, marginTop: 2 },
     reorderButton: {
       flexDirection: 'row',
       alignItems: 'center',

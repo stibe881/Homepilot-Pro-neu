@@ -109,6 +109,12 @@ export interface UserPrefs {
    *  Eine neue Kartenart kommt erst einmal an, statt unbemerkt zu
    *  fehlen. Auch das setzt der Hub durch (core/livekarten.py). */
   liveAus?: string[];
+  /** Der Öffnen-Knopf auf der Haustür-Karte, der OHNE Entsperren
+   *  funktioniert. Standard aus, und das mit Bedacht: An heisst, jeder
+   *  mit dem Telefon in der Hand kann die Türe öffnen - Face ID und
+   *  Rückfrage laufen dort nicht (targets/widget, TuerOeffnenIntent).
+   *  Persönlich, weil es die Abwägung jedes Einzelnen ist. */
+  tuerKnopf?: boolean;
   /** Die eigenen Favoriten. Lange stand der Stern am Gerät selbst und
    *  galt damit für alle – aber griffbereit ist eine persönliche Frage:
    *  Was Stefan jeden Abend braucht, ist für Livia nur eine Kachel im
@@ -343,6 +349,11 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     [setzeEigen]
   );
 
+  const setTuerKnopf = useCallback(
+    (on: boolean) => setzeEigen({ tuerKnopf: on }),
+    [setzeEigen]
+  );
+
   const setFavorites = useCallback(
     (ids: string[]) => setzeEigen({ favorites: ids }),
     [setzeEigen]
@@ -365,6 +376,9 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     /** Mehrere auf einmal setzen – für die Übernahme alter Einstellungen. */
     setHausPrefs: setzeHaus,
     eigenePrefs: eigen.werte,
+    /** Ob die persönlichen Einstellungen schon vom Hub da sind - der
+     *  Türknopf-Haken wartet darauf, statt beim Start kurz zu löschen. */
+    eigenGeladen: eigen.geladen,
     setOrder,
     setHidden,
     setFamilyHidden,
@@ -384,6 +398,7 @@ export function usePrefs(settings: HubSettings, connected: boolean) {
     setDoppeltipp,
     setLiveTuer,
     setLiveAus,
+    setTuerKnopf,
     setFavorites,
     setFavoriteOrder,
     setDurchsage,

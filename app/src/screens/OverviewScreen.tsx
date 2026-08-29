@@ -243,6 +243,12 @@ export function OverviewScreen({
   // hängen sich hinten an, statt die gewachsene Ordnung durcheinander zu
   // bringen. Dieselbe Regel wie bei den Familien-Kacheln.
   const [favOrdnen, setFavOrdnen] = useState(false);
+  // Solange eine Zeile in einem Ordnen-Blatt am Finger hängt, darf das
+  // Blatt nicht scrollen: Der Capture-Anspruch der Zeile hält zwar die
+  // Geste, aber ein ScrollView, der daneben weiter scrollen darf,
+  // schiebt den Inhalt unter der Zeile weg. Die Startseite macht es mit
+  // den Kacheln genauso (scrollEnabled={!drag}).
+  const [favZieht, setFavZieht] = useState(false);
   // Die Durchsage-Kachel: Sie hängt nicht an einem Gerät, sondern an der
   // Frage, ob es überhaupt eine Box gibt, die eine Tondatei abspielt.
   const durchsageBoxen = useMemo(() => boxenVon(entities), [entities]);
@@ -848,8 +854,12 @@ export function OverviewScreen({
                 Am Griff ☰ ziehen. Die Reihenfolge wird bei deinem Benutzer gespeichert und
                 gilt auf allen deinen Geräten.
               </Text>
-              <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+              <ScrollView
+                contentContainerStyle={{ paddingBottom: 40 }}
+                scrollEnabled={!favZieht}
+              >
                 <DraggableList
+                  onDragging={setFavZieht}
                   items={favorites.map(({ id, name }) => ({ id, name }))}
                   onReorder={(ids) => onReorderFavorites?.(ids)}
                 />

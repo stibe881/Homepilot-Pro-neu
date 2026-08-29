@@ -32,6 +32,8 @@ export function LiveTuerSchalter({
   onChange,
   aus,
   onAus,
+  tuerKnopf,
+  onTuerKnopf,
 }: {
   settings: HubSettings;
   /** Fehlt der Wert in den Einstellungen, gilt an. */
@@ -40,6 +42,10 @@ export function LiveTuerSchalter({
   /** Abbestellte Kartenarten - die Feinregelung darunter. */
   aus: string[];
   onAus: (keys: string[]) => void;
+  /** Der Öffnen-Knopf auf der Haustür-Karte, der ohne Entsperren
+   *  funktioniert. Standard aus - siehe UserPrefs.tuerKnopf. */
+  tuerKnopf: boolean;
+  onTuerKnopf: (on: boolean) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -120,6 +126,46 @@ export function LiveTuerSchalter({
             );
           })}
         </View>
+      ) : null}
+      {/* Der Knopf ohne Entsperren - bewusst unter der Kartenliste und
+          mit Warntext: Wer ihn setzt, soll wissen, was er eintauscht.
+          Nur sichtbar, solange die Haustür-Karte überhaupt kommt. */}
+      {enabled && !aus.includes('tuer') ? (
+        <>
+          <Pressable
+            onPress={() => onTuerKnopf(!tuerKnopf)}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: tuerKnopf }}
+            style={({ pressed }) => [styles.row, pressed && { opacity: 0.7 }]}
+          >
+            <Ionicons
+              name="flash-outline"
+              size={22}
+              color={tuerKnopf ? colors.warn : colors.inkSoft}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.title}>Öffnen ohne Entsperren</Text>
+              <Text style={styles.hint}>
+                Der Öffnen-Knopf auf der Haustür-Karte wirkt direkt vom
+                Sperrbildschirm.
+              </Text>
+            </View>
+            <Ionicons
+              name={tuerKnopf ? 'toggle' : 'toggle-outline'}
+              size={30}
+              color={tuerKnopf ? colors.warn : colors.inkFaint}
+            />
+          </Pressable>
+          {tuerKnopf ? (
+            <Text style={styles.warn}>
+              Achtung: Jede Person mit diesem iPhone in der Hand kann damit
+              die Haustüre öffnen - ohne Code, ohne Face ID, ohne Rückfrage.
+              Geht das Telefon verloren, den Schalter sofort auf einem
+              anderen Gerät ausschalten oder den Zugang unter
+              Benutzerverwaltung sperren.
+            </Text>
+          ) : null}
+        </>
       ) : null}
       {eingerichtet === false ? (
         <Text style={styles.warn}>

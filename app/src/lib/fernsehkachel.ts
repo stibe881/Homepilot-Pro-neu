@@ -81,3 +81,27 @@ export function tvTeile(entity: Entity): TvTeile {
     fernbedienung: an && kann('dpad_up'),
   };
 }
+
+/**
+ * Ob die Kachel überhaupt eine Fernbedienung *haben kann* (rein, testbar).
+ *
+ * Ausdrücklich ohne den gemeldeten Zustand – und das ist der ganze
+ * Zweck. `tvTeile().fernbedienung` sagt, ob der *Knopf* dasteht, und der
+ * darf im Aus verschwinden: Ein Steuerkreuz für einen ausgeschalteten
+ * Fernseher wäre ein Knopf, der nichts tut.
+ *
+ * Ob das Blatt im Baum *hängt*, ist eine andere Frage, und sie darf nicht
+ * so beantwortet werden. Ein Android TV meldet nach jedem Tastendruck
+ * seinen Zustand neu, und dazwischen steht dort für einen Moment «off».
+ * Hing das offene Blatt an dieser Bedingung, wurde es bei jedem Druck
+ * abgeräumt und neu aufgebaut – auf dem iPhone als kurzes Wegblinken zu
+ * sehen, im Browser als Aushängen aus dem Dokument gemessen.
+ *
+ * Die Befehlsliste dagegen kommt beim Anlegen des Geräts vom Hub und
+ * ändert sich im Betrieb nie. Wer die Fernbedienung offen hat, behält
+ * sie deshalb – auch wenn der Fernseher zwischendurch «aus» sagt. Gerade
+ * dann braucht man sie: Die Ein-Taste liegt darin.
+ */
+export function fernbedienungMoeglich(entity: Entity): boolean {
+  return Array.isArray(entity.commands) && entity.commands.includes('dpad_up');
+}

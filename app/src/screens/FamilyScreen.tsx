@@ -127,6 +127,9 @@ export function FamilyScreen({
   // Die Zugänge zum Hub. Sie sind nur die eine Hälfte der Familie - wer
   // dazugehört, steht in `data.members` (siehe lib/mitglieder.ts).
   const [konten, setKonten] = useState<Member[]>([]);
+  // Wie in den anderen Ordnen-Blättern: solange ein Modul am Finger
+  // hängt, scrollt das Blatt nicht mit (siehe DraggableList.onDragging).
+  const [modulZieht, setModulZieht] = useState(false);
   // Der Startwunsch gilt genau einmal, beim ersten Zeichnen. Danach
   // gehört `view` dem Bildschirm: Würde der Wunsch weiterwirken, führte
   // jedes «zurück» sofort wieder in dasselbe Modul.
@@ -4366,8 +4369,12 @@ export function FamilyScreen({
             Modul wechselt durch Ziehen die Position, nicht die
             Überschrift, unter der es steht.
           </Text>
-          <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+          <ScrollView
+            contentContainerStyle={{ paddingBottom: 40 }}
+            scrollEnabled={!modulZieht}
+          >
             <DraggableList
+              onDragging={setModulZieht}
               items={orderedModules.map((module) => ({
                 id: module.key,
                 name: module.label,

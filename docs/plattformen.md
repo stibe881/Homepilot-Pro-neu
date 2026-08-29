@@ -1,8 +1,8 @@
 # Was auf welchem Gerät geht
 
 Dieselbe Quelle wird zu drei Programmen: iPhone und iPad (nativ),
-Android (grundsätzlich, nie ausgeliefert) und Browser. Das meiste ist
-überall gleich. Was nicht, steht hier.
+Android (baubar – der Weg steht in [android.md](android.md)) und
+Browser. Das meiste ist überall gleich. Was nicht, steht hier.
 
 Die Frage dahinter ist fast immer dieselbe: **«Warum sehe ich das im
 Browser nicht?»**
@@ -38,6 +38,29 @@ Widgets gibt». Käme Android je dazu, ändert sich eine Zeile in
 **Wer eine neue Abhängigkeit einführt**, trägt sie dort ein und hier in
 die Tabelle. Eine `Platform.OS`-Abfrage mitten in einem Bildschirm ist
 der Anfang der nächsten verstreuten Zwanzig.
+
+## Die Einstellungen: dieselben Punkte, zwei Formen
+
+Was hinter «Einstellungen» liegt, steht als eine Liste in
+`DashboardScreen.tsx` – gezeigt wird sie je nach Platz verschieden.
+
+| Breite | Form |
+|---|---|
+| ab 1000 | Menüspalte links, Inhalt rechts. Überschrift «Administrator» trennt Bedienen von Einrichten (`lib/einstellungsmenue.ts`). |
+| darunter | Eine Kopfzeile, und der Seitenname ist der Wechsler: Ein Tipp öffnet ein Blatt von unten mit allen Bereichen (`components/einstellungen/`). |
+
+Auf dem Telefon gilt ausserdem:
+
+- Ein Tipp auf «Einstellungen» führt gleich auf die Seite von letztem
+  Mal. Nur beim allerersten Mal geht die Übersicht auf – sie ist dort
+  die Karte (`einstiegsSeite`, dritter Parameter).
+- Die Übersicht ist gruppiert, durchsuchbar und trägt an einigen Zeilen
+  eine Plakette («Scharf», «3»). Gruppen, Farben und Stichwörter stehen
+  in [`lib/einstellungsgruppen.ts`](../app/src/lib/einstellungsgruppen.ts)
+  – **wer einen Punkt hinzufügt, trägt ihn dort in eine Gruppe ein**,
+  sonst landet er unter «Weitere».
+- Eine Tür «Administrator» gibt es dort nicht mehr: Sie sparte einen
+  Bildschirm und kostete zwei Tipps.
 
 ## Die zwei Ausnahmen
 

@@ -24,6 +24,75 @@ function temperatur(items: Entity[]): Entity | undefined {
     .sort((a, b) => a.name.localeCompare(b.name))[0];
 }
 
+/**
+ * Das Klima des Raums für den grossen Wert rechts neben dem Titel
+ * (rein, testbar). Null, wenn der Raum keinen Temperaturfühler hat -
+ * dann trägt der Kopf einfach keinen Wert, statt «–» zu zeigen.
+ */
+export function raumKlima(
+  items: Entity[]
+): { fuehler: Entity; temp: string; feuchte: string | null } | null {
+  const fuehler = temperatur(items);
+  if (!fuehler) return null;
+  return {
+    fuehler,
+    temp: `${Number(fuehler.state.state).toFixed(1).replace('.', ',')}°`,
+    feuchte:
+      typeof fuehler.state.humidity === 'number'
+        ? `${Math.round(fuehler.state.humidity)} % Feuchte`
+        : null,
+  };
+}
+
+/**
+ * Die Faktenzeile unter dem Raumnamen (rein, testbar): «1 von 4 an ·
+ * Fenster zu · Musik läuft». Ohne Klima - das steht gross daneben.
+ *
+ * «Fenster zu» steht nur, wenn der Raum überhaupt Kontakte hat: In
+ * einem Raum ohne Fenstersensor wäre die Beruhigung eine Behauptung.
+ */
+export function raumFakten(items: Entity[]): string {
+  const teile: string[] = [];
+  const bedienbar = items.filter(
+    (entity) => entity.kind !== 'sensor' && entity.commands.length > 0
+  );
+  const an = bedienbar.filter(
+    (entity) => entity.state.state === 'on' || entity.state.state === 'playing'
+  ).length;
+  if (bedienbar.length > 0) {
+    teile.push(an === 0 ? 'Alles aus' : `${an} von ${bedienbar.length} an`);
+  }
+  // Dieselben Klassen wie openContacts (lib/offen.ts) - sonst hiesse es
+  // «Fenster zu» aus einem anderen Fensterbegriff, als «offen» ihn hat.
+  const kontakte = items.filter(
+    (entity) =>
+      entity.kind === 'binary_sensor' &&
+      ['contact', 'door', 'window', 'garage'].includes(
+        String(entity.state?.device_class ?? '')
+      )
+  );
+  const offen = openContacts(items);
+  if (offen.length === 1) teile.push(`${offen[0].name} offen`);
+  else if (offen.length > 1) teile.push(`${offen.length} offen`);
+  else if (kontakte.length > 0) teile.push('Fenster zu');
+  if (
+    items.some(
+      (entity) => entity.kind === 'media_player' && entity.state.state === 'playing'
+    )
+  ) {
+    teile.push('Musik läuft');
+  }
+  return teile.join(' · ');
+}
+
+/** Brennt im Raum Licht? Daran hängt der warme Schein im Raumkopf -
+ *  ohne Licht bleibt der Kopf im normalen Blaugrau (rein, testbar). */
+export function raumLeuchtet(items: Entity[]): boolean {
+  return items.some(
+    (entity) => entity.kind === 'light' && entity.state.state === 'on'
+  );
+}
+
 /** Die Kopfzeile eines Raums (rein, testbar): «21,5° · Fenster offen ·
  *  Musik läuft». Leer, wenn es nichts zu sagen gibt. */
 export function raumZeile(items: Entity[]): string {

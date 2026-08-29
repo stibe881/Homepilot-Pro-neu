@@ -12,16 +12,17 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 
 import { CommandData, Entity, HubSettings } from '../api/types';
 import { begruessung } from '../lib/begruessung';
 import {
   Bereich,
-  adminZeile,
   einstiegsSeite,
   gruppeVon,
   siehtBereich,
 } from '../lib/einstellungsmenue';
+import { alarmPlakette } from '../lib/einstellungsgruppen';
 import { DraggableList } from '../components/DraggableList';
 import { CellLayout, DragCell, reorderByDrop } from '../components/DragGrid';
 import { EntityCard } from '../components/EntityCard';
@@ -41,6 +42,7 @@ import { RoomCard } from '../components/RoomCard';
 import { Raumbild } from '../components/Raumbild';
 import { SceneRow } from '../components/SceneRow';
 import { GlobalSearch } from '../components/GlobalSearch';
+import { Grundriss } from '../components/Grundriss';
 import { LiveTuerSchalter } from '../components/LiveTuerSchalter';
 import { PushPrefs } from '../components/PushPrefs';
 import { ActivityCard, SidePanel } from '../components/SidePanel';
@@ -51,6 +53,7 @@ import { Knopfdruck, Tap, useNotificationTap } from '../hooks/useNotificationTap
 import { usePrefs } from '../hooks/usePrefs';
 import { useLiveAktivitaet } from '../hooks/useLiveAktivitaet';
 import { useWatchSync } from '../hooks/useWatchSync';
+import { useTuerKnopf } from '../hooks/useTuerKnopf';
 import { usePushRegistration } from '../hooks/usePushRegistration';
 import { breakpoints, space, type, useColors } from '../theme';
 import { KAMERA_MINDEST, kachelBreite, spalten } from '../lib/raster';
@@ -80,9 +83,12 @@ import {
   alphabetisch,
   istKueche,
   raeumeSortiert,
+  raumFakten,
   raumKategorien,
+  raumKlima,
+  raumLeuchtet,
   raumMesswerte,
-  raumZeile,
+  raumSymbol,
 } from '../lib/raum';
 import { Person } from '../lib/ortung';
 import { FAVORITEN, raumGruppen } from '../lib/raumgruppen';
@@ -95,7 +101,9 @@ import {
 } from '../lib/bereichsriegel';
 import { schleier } from '../lib/nachtabsenkung';
 import { Einrichtungshilfe } from '../components/Einrichtungshilfe';
-import { EinstellungsTabs } from '../components/EinstellungsTabs';
+import { EinstellungsKopf } from '../components/einstellungen/Kopf';
+import { EinstellungsUebersicht } from '../components/einstellungen/Uebersicht';
+import { Wechselblatt } from '../components/einstellungen/Wechselblatt';
 import { Kamerawand } from '../components/Kamerawand';
 import { HausRueckblick } from './HausRueckblick';
 import { nachBewegung } from '../lib/kameraordnung';
@@ -321,6 +329,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     (user?.capabilities ?? []).includes('edit_config');
 
   const [section, setSection] = useState<Section>('start');
+  // Solange eine Zeile in einem Ordnen-Blatt am Finger hängt, darf das
+  // Blatt nicht scrollen: Der Capture-Anspruch der Zeile hält zwar die
+  // Geste, aber ein ScrollView, der daneben weiter scrollen darf,
+  // schiebt den Inhalt unter der Zeile weg. Die Startseite macht es mit
+  // den Kacheln genauso (scrollEnabled={!drag}).
+  const [ordnenZieht, setOrdnenZieht] = useState(false);
   // Die grosse Liste, damit ein Wechsel oben anfängt (siehe unten).
   const blatt = useRef<ScrollView>(null);
   // Welche Einstellungsseite zuletzt offen war - damit «Einstellungen»
@@ -379,6 +393,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   const [deviceFilter, setDeviceFilter] = useState<GeraeteFilter>('');
   const [deviceSort, setDeviceSort] = useState<GeraeteSortierung>('selbst');
   const [expanded, setExpanded] = useState<string | null>(null);
+  // Das ···-Menü im Raumkopf: klappt «Anpassen» und «Reihenfolge» auf.
+  // Je Raum frisch zu - was man im Büro aufgeklappt hat, soll im
+  // Schlafzimmer nicht offen stehen.
+  const [raumMenue, setRaumMenue] = useState(false);
+  useEffect(() => {
+    setRaumMenue(false);
+  }, [room, section]);
   const [lastTouch, setLastTouch] = useState(() => Date.now());
   // Zählt hoch, wenn der Widget-Knopf «Alles aus» gedrückt wurde – die
   // Rückfrage öffnet sich dann von selbst, statt dass die App nur
@@ -399,6 +420,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Welches Gerät gerade nach einer Frist gefragt wird («sag mir in zwei
   // Stunden Bescheid»).
   const [erinnernAn, setErinnernAn] = useState<Entity | null>(null);
+  // Das Blatt hinter dem Titel einer Einstellungsseite (components/einstellungen).
+  const [wechselOffen, setWechselOffen] = useState(false);
   // Der Weg zu einem Ziel aus einer Nachricht. Über eine Ref, weil der
   // Tipp-Haken früh gebraucht wird und der Weg selbst erst weiter unten
   // steht - dort, wo die Räume bekannt sind.
@@ -526,6 +549,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     [entities]
   );
 
+  // Die Anlage für die Plakette an ihrer Zeile in den Einstellungen. Ein
+  // per Namen erkannter Schalter ist der Notnagel für Aufbauten ohne
+  // echte Alarm-Entität - dieselbe Reihenfolge wie im Überblick.
+  const alarmGeraet = useMemo(
+    () =>
+      entities.find((entity) => entity.kind === 'alarm') ??
+      entities.find((entity) => /alarm/i.test(entity.name) && entity.kind === 'switch'),
+    [entities]
+  );
+
   // Was die Einblendung unten anbietet: Abhaken, Griff oder die letzte
   // Schaltung – in dieser Reihenfolge, aus einem Grund (lib/rueckgriff.ts).
   const rueckAngebot = useMemo(
@@ -620,6 +653,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     setDoppeltipp,
     setLiveTuer,
     setLiveAus,
+    setTuerKnopf,
+    eigenGeladen,
     setFavorites,
     setFavoriteOrder,
     setDurchsage,
@@ -647,6 +682,16 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
   // Der Apple Watch die Zugangsdaten hinüberreichen - tut nur auf einem
   // iPhone mit dem passenden Build etwas (hooks/useWatchSync.ts).
   useWatchSync(settings, entities, status === 'connected');
+
+  // Der Öffnen-Knopf auf der Haustür-Karte (ohne Entsperren) - erst
+  // handeln, wenn die persönlichen Einstellungen da sind: Beim Start
+  // kurz zu löschen und gleich wieder zu schreiben würde den Knopf auf
+  // einer gerade liegenden Karte für einen Moment töten.
+  useTuerKnopf(
+    settings,
+    entities,
+    eigenGeladen ? eigenePrefs.tuerKnopf === true : null
+  );
 
   // Einmalige Übernahme dessen, was vorher im Gerät und beim Benutzer
   // lag. Erst nach der ersten Antwort des Hubs - sonst sähe die
@@ -1425,11 +1470,23 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     // byFavorite ist eine je Rendern neue Funktion über favorites.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [categorized, shown, favorites]);
-  // Kopfzeile und Messwert-Chips des Raums.
-  const raumKopf = categorized ? raumZeile(inRoom) : '';
-  const messwerte = useMemo(
-    () => (categorized ? raumMesswerte(shown) : []),
+  // Der Raumkopf nach der Stiltafel «Bühne + Raumlicht»: Name links,
+  // Klima gross rechts, darunter eine Faktenzeile - und ein warmer
+  // Schein, solange im Raum Licht brennt.
+  const klima = useMemo(
+    () => (categorized ? raumKlima(shown) : null),
     [categorized, shown]
+  );
+  const raumKopf = categorized ? raumFakten(inRoom) : '';
+  const raumSchein = categorized && raumLeuchtet(inRoom);
+  // Der Klimafühler steht gross im Kopf - als Chip daneben stünde er
+  // doppelt, wie früher die Temperatur.
+  const messwerte = useMemo(
+    () =>
+      (categorized ? raumMesswerte(shown) : []).filter(
+        (fuehler) => fuehler.id !== klima?.fuehler.id
+      ),
+    [categorized, shown, klima]
   );
 
   /** Standbild-Adresse einer Kamera (oder der Saugerkarte) am Hub. */
@@ -1654,6 +1711,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     label: string;
     detail: string;
     show: boolean;
+    /** Die kleine Meldung an der Zeile - siehe lib/einstellungsgruppen.ts. */
+    plakette?: { text: string; ton: 'gut' | 'warnung' | 'ruhig' };
     /** Statt zu einem Bereich zu wechseln: etwas öffnen. */
     onPress?: () => void;
   }[] = [
@@ -1661,7 +1720,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       key: 'search',
       icon: 'search-outline',
       label: 'Suche',
-      detail: 'Geräte, Räume, Szenen und Abläufe auf einmal',
+      detail: 'Geräte, Räume, Szenen und Abläufe',
       show: true,
       onPress: () => setSearchOpen(true),
     },
@@ -1669,14 +1728,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       key: 'users',
       icon: 'people-circle-outline',
       label: 'Benutzerverwaltung',
-      detail: 'Zugänge und Rollen: Besitzer, Mitbewohner, Gast',
+      detail: 'Zugänge und Rollen',
       show: sieht('users'),
     },
     {
       key: 'personen',
       icon: 'people-outline',
       label: 'Familie und Freunde',
-      detail: 'Wer ist wo, und was soll über wen gemeldet werden',
+      detail: 'Wer ist wo – und was gemeldet wird',
       // Auch für Mitbewohner: Wo die Familie gerade ist, geht alle
       // an, die hier wohnen - anders als die Frage, wer Zugang hat.
       show: true,
@@ -1687,7 +1746,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       label: 'Abläufe',
       detail: istBesitzer
         ? 'Automationen und Szenen'
-        : 'Pausieren, Babysitter-Modus und was heute läuft',
+        : 'Pausieren, Babysitter, was heute läuft',
       show: sieht('automations'),
     },
     {
@@ -1695,6 +1754,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       icon: 'shield-checkmark-outline',
       label: 'Alarmanlage',
       detail: 'Sensoren, Modi und Verlauf',
+      // «Ist sie scharf?» ist die häufigste Frage an diesen Punkt - die
+      // Liste beantwortet sie selbst, statt sie hinter einem Tipp zu
+      // verstecken (lib/einstellungsgruppen.ts).
+      plakette: alarmGeraet
+        ? alarmPlakette(alarmGeraet.kind, String(alarmGeraet.state.state ?? ''))
+        : undefined,
       show: sieht('alarm'),
     },
     {
@@ -1711,6 +1776,9 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       icon: 'people-outline',
       label: besuchStand?.active ? 'Jemand ist da' : 'Besuch oder Babysitter',
       detail: modusZeile(besuchStand, Date.now()),
+      plakette: besuchStand?.active
+        ? ({ text: 'läuft', ton: 'gut' } as const)
+        : undefined,
       // Auch für Mitbewohner: Wer Gäste empfängt, soll ihnen das
       // WLAN geben können, ohne die Besitzerin zu fragen.
       show: true,
@@ -1728,7 +1796,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       // schlimmer als keine.
       detail: stummeGeraete.length
         ? sorgenSatz(stummeGeraete)
-        : 'Batterien, Funkstille und Wartung auf einem Blatt',
+        : 'Batterien, Funkstille und Wartung',
+      plakette: stummeGeraete.length
+        ? ({ text: String(stummeGeraete.length), ton: 'warnung' } as const)
+        : undefined,
       show: sieht('devices'),
       onPress: () => setSorgenOffen(true),
     },
@@ -1757,14 +1828,14 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       key: 'activity',
       icon: 'timer-outline',
       label: 'Was war los',
-      detail: 'Der Rückblick über alle Geräte – Tage zurück',
+      detail: 'Der Rückblick über alle Geräte',
       show: sieht('activity'),
     },
     {
       key: 'widgets',
       icon: 'apps-outline',
       label: 'Widgets',
-      detail: 'Knöpfe auf Homescreen und Sperrbildschirm',
+      detail: 'Knöpfe für Homescreen und Sperre',
       // Für alle sichtbar, obwohl es die Ansicht des Hauses ändert:
       // Wer ein Widget auf seinem Telefon hat, muss nachsehen können,
       // was darauf liegt - und die Anleitung zum Hinzufügen braucht
@@ -1775,7 +1846,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       key: 'account',
       icon: 'person-outline',
       label: 'Konto',
-      detail: 'Profil, Darstellung, App-Symbol, Benachrichtigungen',
+      detail: 'Profil, Darstellung, Benachrichtigungen',
       show: true,
     },
     {
@@ -1836,7 +1907,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
    * Also geht gleich eine Seite auf; die vom letzten Mal, sonst die
    * erste (lib/einstellungsmenue.ts). Das Menü steht dabei immer
    * daneben: auf dem breiten Bildschirm als Spalte links, auf dem
-   * Telefon als schiebbare Zeile darüber (components/EinstellungsTabs).
+   * Telefon als Kopfzeile mit Wechselblatt (components/einstellungen).
    *
    * Sieht jemand überhaupt keine solche Seite - ein Gast etwa -, bleibt
    * es bei der Kachelliste: Ein leerer Bereich wäre schlimmer als eine
@@ -1850,9 +1921,49 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     ? 'settings'
     : section;
 
+  /**
+   * Einen Menüpunkt öffnen.
+   *
+   * Die meisten führen zu einem Bereich; drei öffnen stattdessen ein
+   * Blatt (Suche, Besuch, Sorgen). Der Unterschied stand vorher an vier
+   * Stellen abgeschrieben - jetzt einmal hier, und Übersicht,
+   * Wechselblatt und die iPad-Spalte rufen dasselbe auf.
+   */
+  const geheZuPunkt = (key: string) => {
+    const punkt = sichtbarePunkte.find((item) => item.key === key);
+    if (punkt?.onPress) punkt.onPress();
+    else setSection(key as Section);
+  };
+
+  /**
+   * Die Kopfzeile einer Einstellungsseite - oder nichts.
+   *
+   * `null` heisst: Es ist keine Einstellungsseite, oder es ist
+   * zweispaltig. Dann bleibt oben die Begrüssung stehen, wo sie
+   * hingehört.
+   */
+  // «Geräte» steht nicht in `einstellungsSeiten` - die Liste hat ihr
+  // eigenes Raster und ihre eigene rechte Spalte -, ist aber ein Punkt
+  // der Einstellungen und bekommt darum denselben Kopf.
+  const aufEinstellungsseite =
+    section === 'settings' || section === 'devices' || einstellungsSeiten.includes(section);
+  const einstellungsKopf =
+    zweispaltig || !aufEinstellungsseite ? null : (
+      <EinstellungsKopf
+        titel={
+          section === 'settings'
+            ? 'Einstellungen'
+            : (sichtbarePunkte.find((item) => item.key === section)?.label ??
+              SECTION_LABEL[section])
+        }
+        onZurueck={section === 'settings' ? undefined : () => setSection('settings')}
+        onWechseln={section === 'settings' ? undefined : () => setWechselOffen(true)}
+      />
+    );
+
   const waehleBereich = (ziel: Section) => {
     if (ziel === 'settings') {
-      const start = einstiegsSeite(offeneSeiten, zuletztEinstellung.current);
+      const start = einstiegsSeite(offeneSeiten, zuletztEinstellung.current, !hasRail);
       if (start) {
         setSection(start);
         return;
@@ -1941,105 +2052,27 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
       );
     }
 
-    // Das Menü für alles, was über „Einstellungen“ erreicht wird.
-    // Zweispaltig braucht es niemand: Dort steht es daneben.
-    //
-    // Auf dem Telefon war hier eine blosse Zurück-Zeile, und damit war
-    // jeder Wechsel drei Handgriffe: zurück zur Liste, den Punkt suchen,
-    // wieder tippen. Jetzt ist jeder Punkt einen Tipp weit weg - und der
-    // Weg zur Kachelliste, wo die Erklärungen stehen, ganz links.
-    const back = zweispaltig ? null : (
-      <EinstellungsTabs
-        punkte={sichtbarePunkte}
-        active={section === 'settings' ? null : section}
-        onSelect={(key) => {
-          const punkt = sichtbarePunkte.find((item) => item.key === key);
-          if (punkt?.onPress) punkt.onPress();
-          else setSection(key as Section);
-        }}
-        onUebersicht={() => setSection('settings')}
-      />
-    );
 
     if (section === 'settings') {
-      // Vorne steht, was man bedient; hinter «Administrator», was das
-      // Haus einrichtet (lib/einstellungsmenue.ts). Wer was überhaupt
-      // sieht, entscheidet `show` je Punkt - der Hub prüft die Rechte
-      // ohnehin noch einmal selbst.
+      // Die Übersicht: gruppiert, durchsuchbar, mit Plaketten - und ohne
+      // die Tür «Administrator». Sie sparte einen Bildschirm und kostete
+      // zwei Tipps; ein Stück Weiterscrollen ist billiger
+      // (components/einstellungen, lib/einstellungsgruppen.ts).
       //
-      // Eine Ausnahme: «Abläufe». Ein Mitbewohner darf sie pausieren und
-      // den Babysitter-Modus schalten - das ist Bedienung, keine
-      // Einrichtung. Anlegen und Ändern bleibt ihm verwehrt, dafür sorgt
-      // edit_automations in der Seite selbst (und der Hub noch einmal).
+      // Wer was überhaupt sieht, entscheidet `show` je Punkt - der Hub
+      // prüft die Rechte ohnehin noch einmal selbst.
       return (
-        <View style={styles.settingsList}>
-          {hausPunkte.map((item) => (
-            <Pressable
-              key={item.key}
-              onPress={() =>
-                item.onPress ? item.onPress() : setSection(item.key as Section)
-              }
-              accessibilityRole="button"
-              style={({ pressed }) => [styles.settingsItem, pressed && { opacity: 0.8 }]}
-            >
-              <Ionicons name={item.icon} size={22} color={colors.ink} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.settingsLabel}>{item.label}</Text>
-                <Text style={styles.settingsDetail}>{item.detail}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.inkFaint} />
-            </Pressable>
-          ))}
-
-          {/* Die Einrichtung des Hauses hinter einer eigenen Tür. Sie
-              stand mitten zwischen den täglichen Wegen und verlängerte
-              sie - geöffnet wird sie selten und nie beiläufig. */}
-          {adminPunkte.length > 0 ? (
-            <Pressable
-              onPress={() => setSection('admin')}
-              accessibilityRole="button"
-              style={({ pressed }) => [styles.settingsItem, pressed && { opacity: 0.8 }]}
-            >
-              <Ionicons name="construct-outline" size={22} color={colors.ink} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.settingsLabel}>Administrator</Text>
-                <Text style={styles.settingsDetail}>{adminZeile(adminPunkte.length)}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.inkFaint} />
-            </Pressable>
-          ) : null}
-        </View>
+        <EinstellungsUebersicht
+          punkte={sichtbarePunkte}
+          onWahl={geheZuPunkt}
+          onHausSuche={() => setSearchOpen(true)}
+        />
       );
     }
 
-    if (section === 'admin') {
-      return (
-        <View style={styles.settingsList}>
-          {back}
-          {adminPunkte.map((item) => (
-            <Pressable
-              key={item.key}
-              onPress={() =>
-                item.onPress ? item.onPress() : setSection(item.key as Section)
-              }
-              accessibilityRole="button"
-              style={({ pressed }) => [styles.settingsItem, pressed && { opacity: 0.8 }]}
-            >
-              <Ionicons name={item.icon} size={22} color={colors.ink} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.settingsLabel}>{item.label}</Text>
-                <Text style={styles.settingsDetail}>{item.detail}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.inkFaint} />
-            </Pressable>
-          ))}
-        </View>
-      );
-    }
     if (section === 'alarm') {
       return (
         <View style={styles.stack}>
-          {back}
           <AlarmScreen
             settings={settings}
             entities={entities}
@@ -2057,7 +2090,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (section === 'speakers') {
       return (
         <View style={styles.stack}>
-          {back}
           <>
             <Musikzentrale settings={settings} entities={entities} />
             {/* Die Durchsage stand hier als breite Karte: ein leeres
@@ -2074,7 +2106,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (section === 'energy') {
       return (
         <View style={styles.stack}>
-          {back}
           <EnergyScreen settings={settings} entities={entities} />
         </View>
       );
@@ -2082,7 +2113,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (section === 'activity') {
       return (
         <View style={styles.stack}>
-          {back}
           {/* Zuerst der Rückblick über alle Geräte: Er hat ein
               Gedächtnis, das den Neustart übersteht. Die flüchtige
               Liste darunter zeigt, was seit dem Öffnen der App
@@ -2096,7 +2126,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (section === 'personen') {
       return (
         <View style={styles.stack}>
-          {back}
           <PersonenScreen settings={settings} />
         </View>
       );
@@ -2104,7 +2133,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (section === 'users') {
       return (
         <View style={styles.stack}>
-          {back}
           <UsersScreen settings={settings} currentUser={user} entities={entities} />
         </View>
       );
@@ -2112,7 +2140,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (section === 'account') {
       return (
         <View style={styles.stack}>
-          {back}
           <SettingsScreen
             initial={settings}
             onSave={onSaveSettings}
@@ -2136,6 +2163,8 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               onChange={setLiveTuer}
               aus={eigenePrefs.liveAus ?? []}
               onAus={setLiveAus}
+              tuerKnopf={eigenePrefs.tuerKnopf === true}
+              onTuerKnopf={setTuerKnopf}
             />
           ) : null}
           <PushPrefs settings={settings} />
@@ -2145,7 +2174,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (section === 'connection') {
       return (
         <View style={styles.stack}>
-          {back}
           <SettingsScreen
             initial={settings}
             onSave={onSaveSettings}
@@ -2159,7 +2187,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (section === 'widgets') {
       return (
         <View style={styles.stack}>
-          {back}
           <Widgets
             buttons={prefs.widgetButtons}
             onButtons={setWidgetButtons}
@@ -2181,7 +2208,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (section === 'automations') {
       return (
         <View style={styles.stack}>
-          {back}
           {/* Was der Hub im Verlauf gesehen hat - als Angebot, nicht als
               Tat. Hier oben, weil man beim Öffnen der Abläufe ohnehin
               über Automatisieren nachdenkt. */}
@@ -2200,7 +2226,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     if (section === 'system') {
       return (
         <View style={styles.stack}>
-          {back}
           <SystemScreen settings={settings} user={user} entities={entities} push={push} />
         </View>
       );
@@ -2208,7 +2233,6 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
     return (
       <View style={hasSidePanel ? styles.split : styles.stack}>
         <View style={hasSidePanel ? styles.main : undefined}>
-          {section === 'devices' ? back : null}
           {section === 'devices' ? (
             <View style={styles.searchRow}>
               <Ionicons name="search" size={16} color={colors.inkFaint} />
@@ -2480,8 +2504,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                 diese Ansicht und wird bei deinem Benutzer gespeichert – sie erscheint so
                 auf allen deinen Geräten.
               </Text>
-              <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+              <ScrollView
+                contentContainerStyle={{ paddingBottom: 40 }}
+                scrollEnabled={!ordnenZieht}
+              >
                 <DraggableList
+                  onDragging={setOrdnenZieht}
                   // Bewusst die ungefilterte Liste: sortiert wird immer über
                   // alle Geräte der Ansicht, auch wenn gerade gesucht wurde.
                   items={[...shown]
@@ -2567,8 +2595,12 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                     <Ionicons name="text-outline" size={15} color={colors.ink} />
                     <Text style={styles.alphabetText}>Nach Alphabet</Text>
                   </Pressable>
-                  <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+                  <ScrollView
+                    contentContainerStyle={{ paddingBottom: 40 }}
+                    scrollEnabled={!ordnenZieht}
+                  >
                     <DraggableList
+                      onDragging={setOrdnenZieht}
                       items={rooms
                         .filter((name) => name !== ALL_ROOMS)
                         .map((name) => ({ id: name, name }))}
@@ -2579,29 +2611,88 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               </Modal>
             </>
           ) : null}
-          {section === 'home' && room !== ALL_ROOMS && !editing ? (
-            <Pressable
-              onPress={() => setRoom(ALL_ROOMS)}
-              accessibilityRole="button"
-              accessibilityLabel="Zurück zu Räume"
-              style={styles.backRow}
-            >
-              <Ionicons name="chevron-back" size={18} color={colors.onGradient} />
-              <Text style={styles.backText}>Räume</Text>
-            </Pressable>
-          ) : null}
-          {/* Der Raumname als Überschrift.
-              Im Zimmer stand er nirgends: oben «‹ Räume», darunter
-              «Anpassen», dann «Beleuchtung» - und der einzige Hinweis
-              auf das Zimmer war das kleingedruckte «Büro» unter jeder
-              Kachel, das jetzt zu Recht weg ist. Wer über einen Umweg
-              hierherkam, wusste nicht mehr, wo er steht.
-              Auch im Anpassen-Modus: Gerade dort darf man sich nicht im
-              Zimmer irren. */}
+          {/* Der Raumkopf als Bühne (nach der gewählten Stiltafel):
+              «‹ Räume» und ···-Menü in einer schmalen Zeile, darunter der
+              Raumname gross mit dem Klima rechts daneben, darunter eine
+              Faktenzeile. Dazu das Raumlicht: ein warmer Schein, solange
+              im Raum Licht brennt, und das Raumsymbol als Wasserzeichen -
+              beides nur Anblick, nie im Weg (pointerEvents none).
+              Der Titel bleibt auch im Anpassen-Modus stehen: Gerade dort
+              darf man sich nicht im Zimmer irren. */}
           {section === 'home' && room !== ALL_ROOMS ? (
-            <Text style={styles.raumTitel} numberOfLines={1}>
-              {room}
-            </Text>
+            <View style={styles.raumBuehne}>
+              {raumSchein ? (
+                <LinearGradient
+                  colors={['rgba(255, 192, 97, 0.20)', 'rgba(255, 192, 97, 0)']}
+                  style={styles.raumSchein}
+                  pointerEvents="none"
+                />
+              ) : null}
+              <Ionicons
+                name={raumSymbol(room)}
+                size={150}
+                color={colors.onGradient}
+                style={styles.raumWasserzeichen}
+                pointerEvents="none"
+              />
+              {!editing ? (
+                <View style={styles.raumKopfzeile}>
+                  <Pressable
+                    onPress={() => setRoom(ALL_ROOMS)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Zurück zu Räume"
+                    style={styles.backRow}
+                  >
+                    <Ionicons name="chevron-back" size={18} color={colors.onGradient} />
+                    <Text style={styles.backText}>Räume</Text>
+                  </Pressable>
+                  {/* «Anpassen» und «Reihenfolge» braucht man einmal im
+                      Jahr - sie stehen hinter dem ···, nicht vor den
+                      Kacheln. */}
+                  {darfAnpassen || (orderScope && !searching && rest.length > 1) ? (
+                    <Pressable
+                      onPress={() => setRaumMenue((value) => !value)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Raum einrichten"
+                      accessibilityState={{ expanded: raumMenue }}
+                      style={styles.raumMenueKnopf}
+                    >
+                      <Ionicons
+                        name="ellipsis-horizontal"
+                        size={18}
+                        color={colors.onGradientSoft}
+                      />
+                    </Pressable>
+                  ) : null}
+                </View>
+              ) : null}
+              <View style={styles.raumHeld}>
+                <Text
+                  style={[styles.raumTitel, { flexShrink: 1 }]}
+                  numberOfLines={1}
+                >
+                  {room}
+                </Text>
+                {klima ? (
+                  <Pressable
+                    onPress={() =>
+                      setExpanded((current) =>
+                        current === klima.fuehler.id ? null : klima.fuehler.id
+                      )
+                    }
+                    accessibilityRole="button"
+                    accessibilityLabel={`Temperatur ${klima.temp}`}
+                    style={styles.raumKlimaBlock}
+                  >
+                    <Text style={styles.raumKlimaTemp}>{klima.temp}</Text>
+                    {klima.feuchte ? (
+                      <Text style={styles.raumKlimaSub}>{klima.feuchte}</Text>
+                    ) : null}
+                  </Pressable>
+                ) : null}
+              </View>
+              {raumKopf ? <Text style={styles.raumFakten}>{raumKopf}</Text> : null}
+            </View>
           ) : null}
           {/* Kacheln anpassen heisst: verschieben, ausblenden, sperren,
               Gruppen vergeben. Es prägt die Ansicht für alle im Haus -
@@ -2613,7 +2704,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           (section === 'home' ||
             section === 'devices' ||
             section === 'light' ||
-            section === 'covers') ? (
+            section === 'covers') &&
+          // Im Raum steht der Knopf hinter dem ···-Menü; nur während des
+          // Anpassens bleibt «Fertig» immer sichtbar.
+          (section !== 'home' || room === ALL_ROOMS || raumMenue || editing) ? (
             <Pressable
               onPress={() => setEditing((value) => !value)}
               accessibilityRole="button"
@@ -2628,7 +2722,10 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               Zurück-Link, also ganz oben - über der Zeile, mit der man
               die Seite überhaupt verlässt. Erst wohin man ist, dann was
               man hier tun kann. */}
-          {orderScope && !searching && rest.length > 1 ? (
+          {orderScope &&
+          !searching &&
+          rest.length > 1 &&
+          (section !== 'home' || room === ALL_ROOMS || raumMenue) ? (
             <Pressable
               onPress={() => setReorderOpen(true)}
               accessibilityRole="button"
@@ -2706,6 +2803,21 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               : null}
           </View>
 
+          {/* Der Grundriss über den Raumkacheln - nur wenn dieses Gerät
+              ihn eingeschaltet hat (Einstellungen, beim App-Symbol).
+              Zusätzlich statt anstelle der Kacheln: Der Plan beantwortet
+              «was brennt da hinten?», die Kacheln bleiben der Weg in
+              die volle Raumansicht. */}
+          {roomTiles && gridWidth > 0 && settings.grundriss ? (
+            <Grundriss
+              settings={settings}
+              entities={shown}
+              darfAnpassen={darfAnpassen}
+              onCommand={(entityId, command) => guardedCommand(entityId, command)}
+              width={gridWidth}
+            />
+          ) : null}
+
           {/* «Räume»: eine Kachel je Raum mit den Geräten darin. */}
           {roomTiles && gridWidth > 0 ? (
             <View style={styles.grid}>
@@ -2757,12 +2869,11 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
           {/* Ein Raum: nach Kategorien (Szenen, Beleuchtung, Store, Medien). */}
           {categorized ? (
             <>
-              {/* Der Raumkopf: wie warm, was offen, was läuft – die drei
-                  Dinge, die man wissen will, bevor man Kacheln liest.
-                  Daneben die Handgriffe für den ganzen Raum. */}
-              {raumKopf || messwerte.length > 0 ? (
+              {/* Temperatur und Faktenzeile stehen jetzt oben im
+                  Raumkopf (raumBuehne) - hier bleiben die übrigen
+                  Messwerte als Chips und die aufgeklappte Fühlerkarte. */}
+              {messwerte.length > 0 || klima ? (
                 <View style={styles.raumKopf}>
-                  {raumKopf ? <Text style={styles.raumKopfText}>{raumKopf}</Text> : null}
                   {messwerte.length > 0 ? (
                     <View style={styles.filterRow}>
                       {messwerte.map((fuehler) => {
@@ -2795,7 +2906,13 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                     </View>
                   ) : null}
                   {(() => {
-                    const auf = messwerte.find((fuehler) => fuehler.id === expanded);
+                    // Auch der Klimafühler klappt hier auf - er steht
+                    // zwar gross im Kopf, seine Karte (Verlauf) gehört
+                    // aber zu den anderen Fühlern.
+                    const auf = [
+                      ...messwerte,
+                      ...(klima ? [klima.fuehler] : []),
+                    ].find((fuehler) => fuehler.id === expanded);
                     return auf && cardWidth ? renderCard(auf) : null;
                   })()}
                 </View>
@@ -3014,30 +3131,42 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
               />
             </Auffangnetz>
 
-            <View style={styles.greetingRow}>
-              <View style={styles.greeting}>
-                {/* Eine Zeile, nicht zwei: «Hallo Stefan,» mit «Guten
-                    Abend.» darunter begrüsste zweimal - so spricht
-                    niemand. Beides steht jetzt in einem Satz
-                    (lib/begruessung.ts). */}
-                <Text
-                  style={[
-                    styles.greetingLine,
-                    !hasRail && { fontSize: type.greetingSmall },
-                  ]}
-                >
-                  {begruessung(settings, user, now)}
-                </Text>
+            {/* Auf einer Einstellungsseite steht statt der Begrüssung ihr
+                Name - und der Name ist der Wechsler
+                (components/einstellungen/Kopf.tsx). «Guten Abend, Stefan»
+                über den Integrationen war siebzig Punkte Höhe für etwas,
+                das beim Einrichten niemand braucht. Zweispaltig bleibt
+                alles wie es war: Dort steht das Menü ohnehin daneben. */}
+            {/* Im Zimmer keine Begrüssung: «Guten Abend, Stefan» über dem
+                Raumnamen war siebzig Punkte Höhe für etwas, das man beim
+                Betreten der Startseite schon gelesen hat. */}
+            {einstellungsKopf ??
+              (section === 'home' && room !== ALL_ROOMS ? null : (
+              <View style={styles.greetingRow}>
+                <View style={styles.greeting}>
+                  {/* Eine Zeile, nicht zwei: «Hallo Stefan,» mit «Guten
+                      Abend.» darunter begrüsste zweimal - so spricht
+                      niemand. Beides steht jetzt in einem Satz
+                      (lib/begruessung.ts). */}
+                  <Text
+                    style={[
+                      styles.greetingLine,
+                      !hasRail && { fontSize: type.greetingSmall },
+                    ]}
+                  >
+                    {begruessung(settings, user, now)}
+                  </Text>
+                </View>
+                <View style={styles.greetingNotes}>
+                  {/* Die Suche sitzt in den Einstellungen. Auf der Startseite
+                    stand sie neben Begrüssung und Hausstand - und nahm dort
+                    Platz weg für etwas, das man selten braucht: Wer ein
+                    Gerät sucht, geht ohnehin in die Geräteliste. */}
+                  <RunningAppliances entities={entities} />
+                  <OpenDoors entities={entities} />
+                </View>
               </View>
-              <View style={styles.greetingNotes}>
-                {/* Die Suche sitzt in den Einstellungen. Auf der Startseite
-                  stand sie neben Begrüssung und Hausstand - und nahm dort
-                  Platz weg für etwas, das man selten braucht: Wer ein
-                  Gerät sucht, geht ohnehin in die Geräteliste. */}
-                <RunningAppliances entities={entities} />
-                <OpenDoors entities={entities} />
-              </View>
-            </View>
+              ))}
 
             {/* Je Bereich ein eigenes Netz: Reisst die Kameraansicht, sollen
               Licht und Storen bedienbar bleiben. Ein Haus, das zu drei
@@ -3065,11 +3194,7 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
                             <Text style={styles.settingsRailGruppe}>Administrator</Text>
                           ) : null}
                           <Pressable
-                            onPress={() =>
-                              item.onPress
-                                ? item.onPress()
-                                : setSection(item.key as Section)
-                            }
+                            onPress={() => geheZuPunkt(item.key)}
                             accessibilityRole="tab"
                             accessibilityState={{ selected: aktiv }}
                             style={({ pressed }) => [
@@ -3149,6 +3274,22 @@ export function DashboardScreen({ settings, onSaveSettings }: Props) {
             }}
             colors={colors}
             styles={styles}
+          />
+        ) : null}
+
+        {/* Das Blatt hinter dem Titel einer Einstellungsseite: alles
+            untereinander, gruppiert, der offene mit Haken - statt einer
+            Pillenzeile, in der zwölf von fünfzehn Punkten hinter dem
+            rechten Rand lagen. */}
+        {wechselOffen ? (
+          <Wechselblatt
+            punkte={sichtbarePunkte}
+            aktiv={section}
+            onWahl={(key) => {
+              setWechselOffen(false);
+              geheZuPunkt(key);
+            }}
+            onSchliessen={() => setWechselOffen(false)}
           />
         ) : null}
 

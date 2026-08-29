@@ -5,6 +5,8 @@ Konfiguration:
     devices:
       - host: 192.168.1.50
         name: Wohnzimmer TV
+        # ime: false  # wenn die Bildschirmtastatur des Fernsehers bei
+        #             # jedem Tastendruck kurz wegklappt - siehe will_ime()
 
 Voraussetzung:  pip install "homepilot[androidtv]"  bzw.  pip install androidtvremote2
 
@@ -167,6 +169,26 @@ def sleep_left(until: float | None, now: float) -> int | None:
     if rest <= 0:
         return None
     return max(1, int(rest // 60) + (1 if rest % 60 else 0))
+
+
+def will_ime(device: dict[str, Any]) -> bool:
+    """Ob sich die Fernbedienung beim Fernseher als Tastatur anmeldet (rein, testbar).
+
+    Die Bibliothek meldet standardmässig das IME-Merkmal an - der
+    Fernseher weiss dann: Diese Fernbedienung kann Text liefern. Das
+    braucht es, um die laufende App zu erfahren (die Kachel zeigt
+    «Netflix läuft»). Es hat aber eine Nebenwirkung: Steht auf dem
+    Fernseher gerade ein Suchfeld mit Bildschirmtastatur offen, klappt
+    diese bei jedem gesendeten Tastendruck kurz weg - der Fernseher
+    erwartet den Text jetzt von uns, wir schicken aber keinen, und die
+    Tastatur kommt zurück. Die Bibliothek selbst rät für solche Geräte:
+    «Disable for devices that show 'Use keyboard on mobile device
+    screen'».
+
+    Wen das Wegklappen stört, setzt am Gerät ``ime: false`` und
+    verzichtet dafür auf die Anzeige der laufenden App.
+    """
+    return bool(device.get("ime", True))
 
 
 def cert_paths(cert_dir: str | Path, host: str) -> tuple[str, str]:
@@ -340,7 +362,9 @@ class AndroidTvIntegration(Integration):
             )
             self._timer_of[entity.id] = timer.id
             self._tv_of[timer.id] = entity.id
-            self.start_task(self._device_loop(entity.id, str(host), cert_dir))
+            self.start_task(
+                self._device_loop(entity.id, str(host), cert_dir, will_ime(device))
+            )
 
     async def teardown(self) -> None:
         await super().teardown()
@@ -357,11 +381,13 @@ class AndroidTvIntegration(Integration):
 
     # ── Gerät → Hub ────────────────────────────────────────────────────────
 
-    async def _device_loop(self, entity_id: str, host: str, cert_dir: str) -> None:
+    async def _device_loop(
+        self, entity_id: str, host: str, cert_dir: str, ime: bool = True
+    ) -> None:
         from androidtvremote2 import AndroidTVRemote, InvalidAuth
 
         certfile, keyfile = cert_paths(cert_dir, host)
-        remote = AndroidTVRemote("homepilot", certfile, keyfile, host)
+        remote = AndroidTVRemote("homepilot", certfile, keyfile, host, enable_ime=ime)
         await remote.async_generate_cert_if_missing()
 
         while True:
@@ -709,7 +735,11 @@ async def _tasten_main(config_path: str, taste: str | None, debug: bool = False)
         name = device.get("name", host)
         certfile, keyfile = cert_paths(cert_dir, host)
         print(f"\n{name} ({host})")
-        remote = AndroidTVRemote("homepilot", certfile, keyfile, host)
+        # Mit denselben Merkmalen anmelden wie der laufende Hub - sonst
+        # prüft das Werkzeug eine andere Verbindung, als das Haus benutzt.
+        remote = AndroidTVRemote(
+            "homepilot", certfile, keyfile, host, enable_ime=will_ime(device)
+        )
         await remote.async_generate_cert_if_missing()
         try:
             await remote.async_connect()

@@ -27,9 +27,18 @@ interface Item {
 export function DraggableList({
   items,
   onReorder,
+  onDragging,
 }: {
   items: Item[];
   onReorder: (ids: string[]) => void;
+  /** Meldet, solange eine Zeile am Finger hängt.
+   *
+   *  Der Aufrufer schaltet damit das Scrollen seines Blattes ab. Der
+   *  Capture-Anspruch oben hält die *begonnene* Geste – aber ein nativer
+   *  ScrollView, der weiter scrollen darf, verschiebt den Inhalt unter
+   *  der Zeile, und beim Loslassen landet sie an der falschen Stelle.
+   *  Die Startseite macht es mit den Kacheln genauso (scrollEnabled). */
+  onDragging?: (aktiv: boolean) => void;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -45,6 +54,7 @@ export function DraggableList({
   const start = (index: number) => {
     setActive(index);
     setDy(0);
+    onDragging?.(true);
   };
   const move = (delta: number) => setDy(delta);
   const end = (index: number, delta: number) => {
@@ -55,6 +65,7 @@ export function DraggableList({
     }
     setActive(null);
     setDy(0);
+    onDragging?.(false);
   };
 
   return (
@@ -121,6 +132,16 @@ function DragRow({
   const pan = useMemo(
     () =>
       PanResponder.create({
+        // In der **Erfassungsphase**, nicht erst danach: iOS fragt erst
+        // die Eltern (Capture, aussen nach innen), dann die Kinder. Der
+        // native ScrollView nimmt sich die Geste in seiner eigenen
+        // Capture-Runde – wer sie behalten will, muss sie dort schon
+        // beanspruchen. Im Browser fiel das nie auf, denn dort ist der
+        // ScrollView ein gewöhnlicher Kasten ohne eigene Gesten; genau
+        // deshalb sah die Browser-Prüfung zweimal gut aus, während das
+        // iPhone weiter scrollte statt zu ziehen.
+        onStartShouldSetPanResponderCapture: () => true,
+        onMoveShouldSetPanResponderCapture: () => true,
         onStartShouldSetPanResponder: () => true,
         onMoveShouldSetPanResponder: () => true,
         // Ohne diese beiden liess sich hier gar nicht ziehen: Die Liste
@@ -144,18 +165,21 @@ function DragRow({
     []
   );
   return (
+    // Die **ganze Zeile** zieht, nicht nur das Symbol daneben. In diesen
+    // Blättern gibt es nichts anderes zu tippen, also gibt es keinen
+    // Grund, die Greiffläche auf vierzig Punkte zu verkleinern – und
+    // «ich treffe den Griff nicht» fühlt sich exakt an wie «es geht
+    // nicht». Das ☰ bleibt als Hinweis stehen. WEB_GRIP direkt im
+    // Literal: die zwei Browser-Eigenschaften kennt React Native nicht.
     <View
+      {...pan.panHandlers}
       style={[
         styles.row,
         active && styles.rowActive,
-        { transform: [{ translateY: dy }], zIndex: active ? 20 : 0 },
+        { ...WEB_GRIP, transform: [{ translateY: dy }], zIndex: active ? 20 : 0 },
       ]}
     >
-      {/* Der Griff trägt seinen Stil unmittelbar: WEB_GRIP enthält zwei
-          Eigenschaften, die React Native nicht kennt, und die lassen
-          sich nur in einem solchen Literal unterbringen (genau wie in
-          DragGrid). */}
-      <View style={{ padding: 8, ...WEB_GRIP }} {...pan.panHandlers}>
+      <View style={{ padding: 8 }}>
         <Ionicons name="reorder-three" size={24} color={colors.inkSoft} />
       </View>
       <Text style={styles.name} numberOfLines={1}>

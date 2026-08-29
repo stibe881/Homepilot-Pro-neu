@@ -69,6 +69,9 @@ from .routes import (
     family as routes_family,
 )
 from .routes import (
+    grundriss as routes_grundriss,
+)
+from .routes import (
     haus as routes_haus,
 )
 from .routes import (
@@ -284,6 +287,7 @@ def create_app(hub: Hub) -> FastAPI:
         routes_lightgroups.register,
         routes_passes.register,
         routes_dashboard.register,
+        routes_grundriss.register,
         routes_radio.register,
         routes_einladungen.register,
         routes_personen.register,

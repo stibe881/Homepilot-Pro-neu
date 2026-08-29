@@ -1,9 +1,19 @@
 """Küchen-Timer: Minuten wählen, und der Hub meldet sich.
 
 Der Eierwecker, den man nie suchen muss: Nach Ablauf kommt eine Push an
-alle und - wo Cast-Boxen stehen - eine Durchsage. Bewusst nur im
-Speicher: Ein Timer über einen Hub-Neustart hinweg wäre ohnehin
-Glückssache, und ein Küchen-Timer läuft Minuten, keine Tage.
+alle und - wo Cast-Boxen stehen - eine Durchsage.
+
+Die Timer liegen in der ``hub.data`` und überleben damit den Neustart.
+«Bewusst nur im Speicher» stand hier lange - mit der Begründung, ein
+Küchen-Timer laufe Minuten, keine Tage. Das Argument übersieht, wann
+dieser Hub neu startet: beim Update-Knopf, und der wird gern abends
+gedrückt - genau dann, wenn in der Küche etwas im Ofen ist. Ein Wecker,
+der beim Ausliefern stirbt, ist ein kaputter Wecker.
+
+Wiederhergestellt wird ehrlich: Ein Timer, der während des Neustarts
+abgelaufen ist, meldet sich sofort mit dem Hinweis, dass er verspätet
+kommt - lieber eine späte Meldung als gar keine, das Essen steht ja
+immer noch im Ofen.
 """
 
 from __future__ import annotations
@@ -23,6 +33,14 @@ log = logging.getLogger(__name__)
 
 MAX_MINUTES = 180
 MAX_TEXT = 100
+
+#: Wo die laufenden Timer liegen (siehe persistence.py).
+STORE_KEY = "kitchen_timers"
+
+#: Länger als das darf eine Meldung nicht verspätet sein. Wer den Hub
+#: einen halben Tag ausgeschaltet lässt, braucht keinen Eierwecker von
+#: gestern - der Fall ist dann ohnehin gelaufen.
+MAX_VERSPAETUNG = 3600.0
 
 
 class KitchenTimers:
@@ -55,6 +73,7 @@ class KitchenTimers:
         }
         entry["task"] = asyncio.create_task(self._run(entry))
         self._timers[entry["id"]] = entry
+        self._merken()
         return {key: value for key, value in entry.items() if key != "task"}
 
     def cancel(self, timer_id: str) -> bool:
@@ -62,11 +81,54 @@ class KitchenTimers:
         if entry is None:
             return False
         entry["task"].cancel()
+        self._merken()
         return True
 
+    def restore(self) -> None:
+        """Beim Hub-Start: gemerkte Timer wieder aufnehmen.
+
+        Drei Fälle, drei Antworten: Was noch läuft, läuft weiter. Was
+        während des Neustarts abgelaufen ist, meldet sich sofort - mit
+        dem Hinweis, dass es verspätet kommt. Was länger als eine Stunde
+        her ist, wird stillschweigend verworfen; ein Eierwecker von
+        gestern hilft niemandem mehr.
+        """
+        jetzt = time.time()
+        for roh in self.hub.data.get(STORE_KEY):
+            if not isinstance(roh, dict) or not roh.get("id"):
+                continue
+            try:
+                ends_at = float(roh.get("ends_at") or 0)
+            except (TypeError, ValueError):
+                continue
+            if ends_at <= jetzt - MAX_VERSPAETUNG:
+                continue
+            entry: dict[str, Any] = {
+                "id": str(roh["id"]),
+                "text": str(roh.get("text") or "Der Timer ist um."),
+                "ends_at": ends_at,
+                "minutes": int(roh.get("minutes") or 0),
+                "by": str(roh.get("by") or ""),
+            }
+            if ends_at <= jetzt:
+                entry["text"] = f"{entry['text']} (verspätet - der Hub war kurz weg)"
+            entry["task"] = asyncio.create_task(self._run(entry))
+            self._timers[entry["id"]] = entry
+        self._merken()
+
+    def _merken(self) -> None:
+        """Den Stand auf die Platte - ohne die Task-Objekte."""
+        self.hub.data.set(STORE_KEY, self.list())
+
     async def stop(self) -> None:
-        for timer_id in list(self._timers):
-            self.cancel(timer_id)
+        """Nur die Tasks beenden - die Einträge bleiben auf der Platte.
+
+        `cancel` wäre hier falsch: Es räumt auch den gemerkten Stand weg,
+        und genau der soll den Neustart überleben.
+        """
+        for entry in self._timers.values():
+            entry["task"].cancel()
+        self._timers.clear()
 
     async def _run(self, entry: dict[str, Any]) -> None:
         try:
@@ -74,6 +136,7 @@ class KitchenTimers:
         except asyncio.CancelledError:
             return
         self._timers.pop(entry["id"], None)
+        self._merken()
         await self._announce(entry)
 
     async def _announce(self, entry: dict[str, Any]) -> None:
