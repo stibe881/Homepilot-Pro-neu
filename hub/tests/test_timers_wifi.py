@@ -95,6 +95,94 @@ def test_timer_cancel():
         assert client.delete(f"/api/timers/{timer_id}").status_code == 404
 
 
+def test_timers_survive_a_restart(tmp_path):
+    """Der Fall: Der Update-Knopf wird gedrückt, während die Pizza im
+    Ofen ist. Vorher lebten die Timer nur im Speicher, und genau der
+    Neustart, der am Abend am häufigsten ist, hat sie getötet."""
+    daten = str(tmp_path / "daten.json")
+
+    erster = Hub(make_config(data_file=daten))
+    with TestClient(create_app(erster)) as client:
+        client.post("/api/timers", json={"minutes": 5, "text": "Pizza!"})
+        assert len(client.get("/api/timers").json()["timers"]) == 1
+
+    zweiter = Hub(make_config(data_file=daten))
+    with TestClient(create_app(zweiter)) as client:
+        timers = client.get("/api/timers").json()["timers"]
+        assert len(timers) == 1
+        assert timers[0]["text"] == "Pizza!"
+
+
+def test_a_timer_that_expired_during_the_restart_still_announces(tmp_path):
+    """Lieber eine späte Meldung als gar keine - das Essen steht ja
+    immer noch im Ofen."""
+
+    from homepilot.core import timers as timers_module
+
+    daten = str(tmp_path / "daten.json")
+    erster = Hub(make_config(data_file=daten))
+    with TestClient(create_app(erster)) as client:
+        client.post("/api/timers", json={"minutes": 0.02, "text": "Tee"})
+        # Der Hub geht herunter, BEVOR der Timer abläuft; wir stellen die
+        # Uhr, indem der gemerkte Eintrag rückdatiert wird.
+
+    import json
+
+    inhalt = json.loads(pathlib_read(daten))
+    inhalt[timers_module.STORE_KEY][0]["ends_at"] = time.time() - 60
+    # Das Telefon gleich mit hinterlegen: Der verspätete Timer feuert
+    # Sekundenbruchteile nach dem Start - ein erst danach angemeldetes
+    # Gerät bekäme nichts, und der Test prüfte die Luft.
+    inhalt["push_devices"] = [{"token": "ExponentPushToken[x]", "user": "Stefan"}]
+    pathlib_write(daten, json.dumps(inhalt))
+
+    zweiter = Hub(make_config(data_file=daten))
+    sent: list[str] = []
+
+    async def fake_send(tokens, title, body, data=None, image=None, **_):
+        sent.append(body)
+        return len(tokens)
+
+    zweiter.push.send = fake_send  # type: ignore[assignment]
+    with TestClient(create_app(zweiter)) as client:
+        time.sleep(0.5)
+        assert sent and "verspätet" in sent[0]
+        assert client.get("/api/timers").json()["timers"] == []
+
+
+def test_a_timer_from_yesterday_is_dropped_silently(tmp_path):
+    """Wer den Hub einen halben Tag aus hatte, braucht keinen Eierwecker
+    von gestern."""
+    import json
+
+    from homepilot.core import timers as timers_module
+
+    daten = str(tmp_path / "daten.json")
+    erster = Hub(make_config(data_file=daten))
+    with TestClient(create_app(erster)) as client:
+        client.post("/api/timers", json={"minutes": 5, "text": "Alt"})
+
+    inhalt = json.loads(pathlib_read(daten))
+    inhalt[timers_module.STORE_KEY][0]["ends_at"] = time.time() - 2 * 3600
+    pathlib_write(daten, json.dumps(inhalt))
+
+    zweiter = Hub(make_config(data_file=daten))
+    with TestClient(create_app(zweiter)) as client:
+        assert client.get("/api/timers").json()["timers"] == []
+
+
+def pathlib_read(pfad: str) -> str:
+    from pathlib import Path
+
+    return Path(pfad).read_text()
+
+
+def pathlib_write(pfad: str, inhalt: str) -> None:
+    from pathlib import Path
+
+    Path(pfad).write_text(inhalt)
+
+
 def test_voucher_shaping():
     from homepilot.integrations.unifi import format_voucher, shape_voucher
 

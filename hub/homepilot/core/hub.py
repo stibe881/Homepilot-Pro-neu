@@ -117,7 +117,7 @@ class Hub:
         self.bus.subscribe("state_changed", self.kurzverlauf.record)
         # Einmal-Links für die Türe – nur im Speicher, siehe guestpass.py.
         self.passes = PassStore()
-        # Küchen-Timer (siehe timers.py) - nur im Speicher.
+        # Küchen-Timer (siehe timers.py) - überleben den Neustart.
         self.timers = KitchenTimers(self)
         # Stand der Off-Site-Sicherung nach Supabase, für den System-Screen.
         self.offsite: dict[str, Any] | None = None
@@ -250,6 +250,9 @@ class Hub:
         # ihre App wieder geöffnet haben - und ausgerechnet nach einem
         # Update will man Nachrichten am wenigsten missen.
         self.push.restore(self.data.get("push_devices"))
+        # Laufende Küchen-Timer zurückholen - der Update-Knopf wird gern
+        # gedrückt, während etwas im Ofen ist (siehe timers.py).
+        self.timers.restore()
         self.push.on_change = lambda rows: self.data.set("push_devices", rows)
         # Jede verschickte Meldung auf den Nachlese-Zettel - eine
         # weggewischte Mitteilung ist sonst unauffindbar (pushverlauf.py).

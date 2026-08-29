@@ -5,6 +5,21 @@ Gegenstück: was die Anlage heute kann, was sie vorher nicht konnte.
 
 Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
+## 2026-09-01
+
+**Betrieb**
+
+- Küchen-Timer überleben den Neustart. Der Update-Knopf wird gern
+  abends gedrückt – genau dann, wenn etwas im Ofen ist, und der Wecker
+  starb mit dem Hub. Ein während des Neustarts abgelaufener Timer
+  meldet sich sofort nach, mit dem Hinweis «verspätet»; was älter als
+  eine Stunde ist, wird verworfen.
+- Ziehen und Ordnen (Räume, Favoriten, Familienmodule, Kacheln): die
+  Geste wird jetzt in der Erfassungsphase beansprucht, die ganze Zeile
+  ist Greiffläche, und das Blatt scrollt nicht mit, solange etwas am
+  Finger hängt. Der Browser konnte diesen Fehler nie zeigen – auf iOS
+  nahm der native ScrollView die Geste, bevor der Griff gefragt wurde.
+
 ## 2026-08-27
 
 **iPhone**
