@@ -398,20 +398,39 @@ if [ -z "$EXPO_TOKEN" ]; then
   echo "  Die Telefone bleiben auf ihrem Stand, bis ein iOS-Build kommt."
 else
   echo "→ Veröffentliche die OTA-Fassung für die Telefone (EAS Update) …"
+  # Die Laufzeit gehört in die Meldung: Sie allein entscheidet, welche
+  # Builds diese Fassung überhaupt annehmen. Am 29. August lagen auf dem
+  # Kanal nur noch Fassungen einer alten Laufzeit (0.7.0), während die
+  # Telefone längst auf 3 liefen - vier Tage lang bekam kein Gerät mehr
+  # etwas, und niemand sah es.
+  OTA_RUNTIME=$(python3 -c "import json; print(json.load(open('$WORKDIR/app/app.json'))['expo'].get('runtimeVersion', '?'))" 2>/dev/null || echo "?")
+  # In eine Datei statt nur durch die Pipe: Beim Fehlschlag stand hier
+  # bisher «Details: expo.dev» - der eigentliche Grund war weggeworfen,
+  # und wer ihn suchte, fand ihn nirgends. Derselbe Griff wie beim
+  # iOS-Build weiter unten.
+  OTA_LOG=$(mktemp)
   if app_abbild && docker run --rm -e EXPO_TOKEN="$EXPO_TOKEN" \
       -e EAS_NO_VCS=1 \
       "$DEPS_IMAGE" \
       npx eas-cli@latest update --branch production \
         --message "Stand $COMMIT" --non-interactive 2>&1 |
-      fremde_ausgabe
+      fremde_ausgabe | tee "$OTA_LOG"
     [ "${PIPESTATUS[0]}" = "0" ]; then
-    echo "✓ OTA-Fassung veröffentlicht (Stand $COMMIT). Die Telefone holen"
-    echo "  sie beim nächsten Öffnen der App - angewendet wird sie beim"
-    echo "  übernächsten Start."
+    echo "✓ OTA-Fassung veröffentlicht (Stand $COMMIT, Laufzeit $OTA_RUNTIME)."
+    echo "  Die Telefone holen sie beim nächsten Öffnen der App -"
+    echo "  angewendet wird sie beim übernächsten Start."
   else
     echo "⚠ OTA-Veröffentlichung fehlgeschlagen - Web-Fassung und Hub sind"
-    echo "  davon unberührt. Details: expo.dev/accounts/stibe88."
+    echo "  davon unberührt. Die Telefone bleiben auf ihrem Stand, bis ein"
+    echo "  iOS-Build kommt."
+    # Die entscheidenden Zeilen gleich mitgeben, statt auf eine Webseite
+    # zu verweisen: Wer das hier liest, sitzt vor dem Log und nicht vor
+    # dem Browser. Das «| » stammt von fremde_ausgabe.
+    sed 's/^| //' "$OTA_LOG" | grep -iE "error|failed|cannot|missing|denied|invalid|not found" \
+      | tail -3 | sed 's/^/  /'
+    echo "  Vollständig: expo.dev/accounts/stibe88 → Projekt homepilot."
   fi
+  rm -f "$OTA_LOG"
 fi
 
 if [ "${HOMEPILOT_IOS_BUILD:-0}" = "1" ]; then

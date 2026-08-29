@@ -9,6 +9,15 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
 
 **Neu**
 
+- **Eine gescheiterte OTA-Veröffentlichung nennt jetzt ihren Grund.**
+  Sie scheiterte vier Tage lang bei jedem Update-Lauf, und das Skript
+  schrieb dazu nur «Details: expo.dev» - den eigentlichen Fehler warf
+  es weg. Auf dem Kanal lagen deshalb nur noch Fassungen einer alten
+  Laufzeit (0.7.0), während die Telefone auf 3 liefen: Kein Gerät
+  bekam mehr etwas, und niemandem fiel es auf. Jetzt landen die
+  entscheidenden Zeilen im Log, und die Erfolgsmeldung nennt die
+  Laufzeit mit - denn sie allein entscheidet, welche Builds eine
+  Fassung überhaupt annehmen.
 - **Jede Anweisung beim Start einzeln abgesichert.** In `App.tsx`
   laufen vier Dinge schon beim Laden des Moduls (Mitteilungs-Handler,
   Android-Kanäle, Mitteilungsknöpfe, die Ortungs-Aufgabe) - sie müssen
