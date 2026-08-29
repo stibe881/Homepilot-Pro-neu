@@ -229,8 +229,16 @@ def start_payload(jetzt_s: float, tuer: str = "Haustüre") -> dict[str, Any]:
             "content-state": {"text": ""},
             "attributes-type": ATTRIBUTES_TYPE,
             "attributes": {"tuer": tuer},
-            # Ohne alert startet iOS die Aktivität still - genau richtig:
-            # Es soll nichts klingeln, nur die Karte daliegen.
+            # Das alert ist beim Start-Ereignis PFLICHT: Ohne es nimmt
+            # Apple den Push zwar an (200), aber iOS verwirft ihn still
+            # und stellt nie eine Karte auf - wochenlang «angenommen» im
+            # Log, und auf keinem Sperrbildschirm lag je etwas. Sichtbar
+            # wird der Text kaum (die Karte selbst ist die Anzeige, und
+            # auf der Watch eine Zeile), aber fehlen darf er nicht.
+            "alert": {
+                "title": tuer,
+                "body": "Zum Öffnen bereit - die Karte liegt auf dem Sperrbildschirm.",
+            },
             "stale-date": int(jetzt_s + STALE_STUNDEN * 3600),
             "relevance-score": 75,
         }

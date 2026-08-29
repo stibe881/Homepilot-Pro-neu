@@ -123,9 +123,12 @@ def test_alarm_karte_countdown_und_rot():
     los = entity("alarm.haus", "alarm", "Alarmanlage", state="ausgeloest")
     karten = karten_alarm([los], jetzt_s=1000.0)
     assert karten[0]["state"]["farbe"] == "rot"
-    assert start_payload("alarm:x", karten[0]["state"], 1000.0)["aps"][
-        "relevance-score"
-    ] == 100
+    start = start_payload("alarm:x", karten[0]["state"], 1000.0)
+    assert start["aps"]["relevance-score"] == 100
+    # Pflichtfeld beim Start - ohne alert verwirft iOS den Push still
+    # (der Fall steht in test_liveaktivitaet.test_payloads_tragen_das_noetige).
+    assert start["aps"]["alert"]["title"] == karten[0]["state"]["titel"]
+    assert start["aps"]["alert"]["body"] == karten[0]["state"]["text"]
 
     # «scharf» bekommt bewusst keine Karte - eine Nacht ist länger als
     # die zwölf Stunden, die iOS einer Aktivität gibt.
