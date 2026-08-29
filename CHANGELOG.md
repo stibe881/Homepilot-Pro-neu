@@ -14,6 +14,11 @@ Neueste zuoberst. Datum ist der Tag, an dem es im Haus lief.
   starb mit dem Hub. Ein während des Neustarts abgelaufener Timer
   meldet sich sofort nach, mit dem Hinweis «verspätet»; was älter als
   eine Stunde ist, wird verworfen.
+- Drei Testlücken geschlossen (65 neue Tests): `test_say.py` war eine
+  leere Datei – die Durchsagen-Logik (Vorrat, Piper, gTTS-Rückfall) ist
+  jetzt abgedeckt; die Homematic-Kanal-Logik (welcher Kanal schaltet,
+  was ein CCU-Wert bedeutet) und die Einmal-Türöffnung (Gültigkeit,
+  ununterscheidbare Fehlwege) haben erstmals eigene Tests.
 - Ziehen und Ordnen (Räume, Favoriten, Familienmodule, Kacheln): die
   Geste wird jetzt in der Erfassungsphase beansprucht, die ganze Zeile
   ist Greiffläche, und das Blatt scrollt nicht mit, solange etwas am
